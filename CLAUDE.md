@@ -69,6 +69,54 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 ### 監査ログ（`src/lib/audit-logger.ts`）
 重要操作は `void writeAuditLog({...})`（fire-and-forget・失敗で本体を止めない）で `audit_logs` に記録。`diffValues` で変更フィールドのみ抽出。
 
+### メール送信元の SSOT＝`src/lib/email-from.ts`（2026年7月31日 新設・PR#556/#558）
+
+送信元(`from`)を組み立ててよいのはこのモジュールだけ。**呼び出し側が `process.env.EMAIL_FROM` を
+直読みすることは `src/lib/__tests__/email-from-callers.test.ts` が CI で禁止している**
+（送信元アドレスのハードコードも同テストが禁止）。
+
+- `fromEnv()` … 全ての送信箇所が使う from。本番で【検証済みドメイン以外】なら
+  `CareLink <noreply@carelink-jp.com>` へ強制フォールバックする。
+- `newsletterFromEnv()` … ニュースレター用。同じ検証を通す。
+- `resolvedFromEnv()` … 診断情報つき（`fellBack` / `rawDomain` / `domainOk`）。`email.ts` の警報判定用。
+- `productionResolvedFrom()` … 常に本番基準で解決。`/api/health` の監視用。
+- `RESEND_VERIFIED_DOMAINS` … Resend で verified なドメイン。ここに無い from は配信されない。
+
+【なぜ集約したか】未検証ドメイン(`resend.dev` 等)を検知しても【警告するだけで倒していなかった】ため、
+設定ミスがそのまま送信全滅に直結していた。さらに cron 5本（review-request / waitlist-notify /
+customer-segment / birthday-coupon / webhook-retry）とニュースレターが `process.env.EMAIL_FROM` を
+各自で組み立てて `resend.emails.send` を直接呼び、ガードを完全に迂回していた。
+メール経路は送信対象が 0 件のうちは一度も実行されず、誤設定に気づけないまま初回配信で発症する。
+
+### LINE の出し分け＝`src/lib/line-availability.ts`（PR#552/#557）
+
+- `isLineEnabled()` … `NEXT_PUBLIC_LIFF_ID` の有無。マイページ・管理画面の LINE 項目がこれに従属。
+- `isLineLoginEnabled()` … `isLineEnabled()` かつ `NEXT_PUBLIC_LINE_CHANNEL_ID` あり。
+  `/auth/login` `/auth/signup` の「LINEでログイン／登録」がこれに従属。
+
+LINE ログインは LIFF とは別チャネルで動くため、どちらか片方だけを見る判定は誤る。
+【製品判断（LIFF 設定済み＝LINEを出す）】と【技術的前提（ログインチャネル設定済み）】の
+両方が揃ったときだけ出す。手動フラグは使わない（戻し忘れ事故を作らないため env に従属させる）。
+`src/lib/__tests__/line-availability.test.ts` が、ガードの外に `/api/auth/line` 導線が
+1本も無いことまで検証する。
+
+### 連携の出し分け＝`src/lib/integration-availability.ts`（PR#553）
+
+`isAiEnabled()` / `isPaymentsEnabled()` / `isGoogleCalendarEnabled()`。
+未設定の連携を「使えるように見せない」ための単一判定。
+
+### `/api/health` の Resend プローブ（PR#556/#558）
+
+API キーの疎通だけでなく、**Resend の `/domains` を実際に引いて送信元ドメインが verified か**を照合し、
+さらに**既定値へ倒れた事実（`fellBack`）自体を NG として出す**。
+
+- 未検証ドメイン／形式不正の `EMAIL_FROM` → `deps.resend.ok=false` → degraded → health-monitor が Issue+Slack
+- `EMAIL_FROM` 未設定は誤設定ではない（既定値が妥当）ので緑のまま
+- 非本番は resend.dev サンドボックスが正常系のため照合しない
+
+【意図】メールを1通も送らずに設定の正誤を判定できるようにするため。倒す実装だけでは
+「配信は救われるが設定は誤ったまま緑に隠れる」ので、倒した事実を監視に出している。
+
 ### Supabase クライアントの使い分け
 - `createServerSupabaseClient`（`supabase-server.ts`）＝anon。公開データの読み取り専用。書き込み・ユーザー固有データに使わない。
 - `createServiceRoleClient`（`supabase-server.ts`）＝service role。RLS バイパス。API ルート・cron などサーバー信頼文脈のみ。
@@ -116,13 +164,18 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 
 【調査時の鉄則】新セッションで cron の挙動を調べる時は、まずどのスケジューラが実際に動いているかを実データで確認してから議論すること（Render Dashboard／`gh run list --workflow=cron.yml`／`select * from cron.job`／`cron_logs` の実記録）。なお `cron_logs` の `status='skipped'` は「処理対象0件＝正常」であり失敗ではない（集計時に error と混同しないこと）。
 
-## DB スキーマ（主要テーブル・`src/lib/schema-snapshot.json` が正・全 104 テーブル）
-- 予約：`bookings` `booking_menus` `booking_waitlist` `booking_calendar_events` `facility_daily_capacity` `facility_booking_suspensions`
-- 施設：`facilities` `facility_profiles` `facility_members` `facility_menus` `facility_photos` `facility_certifications` `facility_symptoms` `facility_qa` `facility_reviews` `facility_cancel_policies` `facility_line_settings` `facility_notification_settings` `facility_reminder_settings` `facility_entitlements` `facility_inquiries`
+## DB スキーマ（主要テーブル・`src/lib/schema-snapshot.json` が正）
+
+テーブル数は書かない（DROP/追加のたびに腐るため）。実数はこれで取る：
+`node -e "console.log(Object.keys(require('./src/lib/schema-snapshot.json')).length)"`
+本番の実数は PostgREST の OpenAPI（`GET {SUPABASE_URL}/rest/v1/`）の `definitions` を数える。両者が食い違えばドリフト。
+
+- 予約：`bookings` `booking_waitlist` `booking_calendar_events` `facility_daily_capacity` `facility_booking_suspensions`
+- 施設：`facility_profiles` `facility_members` `facility_menus` `facility_photos` `facility_certifications` `facility_symptoms` `facility_qa` `facility_reviews` `facility_cancel_policies` `facility_line_settings` `facility_notification_settings` `facility_reminder_settings` `facility_entitlements` `facility_inquiries`
 - 顧客：`customers` `customer_visits` `customer_segments` `salon_customer_notes` `profiles` `favorites`
 - メニュー／クーポン／パッケージ：`coupons` `coupon_menus` `menu_staff` `option_catalog` `hpb_menu_durations` `package_usage_logs`
 - 決済・購読：`featured_slots` `subscription`・各 entitlement 系
-- 採用・集客：`job_postings` `job_applications` `job_seekers` `facility_jobs` `recruits` `blog_posts` `blog_authors` `platform_blog_posts` `feature_articles` `area_seo_contents` `areas`
+- 採用・集客：`job_postings` `job_applications` `job_seekers` `facility_jobs` `blog_posts` `blog_authors` `platform_blog_posts` `feature_articles` `area_seo_contents` `areas`
 - レビュー・モデレーション：`public_reviews` `review_replies` `review_helpful` `moderation_queue` `nps_surveys`
 - 通知・連携：`line_user_links` `line_notification_logs` `push_subscriptions` `google_calendar_tokens` `newsletter_subscriptions` `newsletter_campaigns` `newsletter_send_log` `email_unsubscribe_tokens` `birthday_notifications`
 - 基盤：`audit_logs` `cron_logs` `rate_limit_buckets` `webhook`系 `api_keys` `feature_flags` `features` `ab_test_events` `referral_codes` `referral_uses` `contacts` `contact_replies` `intake_form_templates` `intake_form_responses` `daily_revenue_summary` `gbp_posts` `gbp_audit_cache`
@@ -137,7 +190,9 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 | NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_BASE_URL / NEXT_PUBLIC_SITE_URL | 本番ベース URL（リダイレクト・OGP・sitemap 等） |
 | ADMIN_COOKIE_SECRET | /admin membership キャッシュの HMAC 署名鍵（未設定でキャッシュ無効） |
 | CRON_SECRET | GitHub Actions cron → `/api/cron/*` の Bearer 認証（未設定で全 cron 401／500） |
-| RESEND_API_KEY / EMAIL_FROM | メール送信（未設定でメール系 cron は送信スキップ） |
+| RESEND_API_KEY | メール送信（未設定でメール系 cron は送信スキップ） |
+| EMAIL_FROM | 送信元。本番では検証済みドメイン以外だと既定値へ強制フォールバックする（`src/lib/email-from.ts`） |
+| NEWSLETTER_EMAIL_FROM | ニュースレター専用の送信元。未設定なら `CareLink <newsletter@carelink-jp.com>`。EMAIL_FROM と同じ検証を通る |
 | NEWSLETTER_UNSUBSCRIBE_SECRET | ニュースレター配信停止リンクの HMAC 署名鍵（手動配信 `api/admin/newsletter/[id]`／`unsubscribe` 共通・一度設定したら変更しない） |
 | STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET | 決済・Stripe webhook 署名検証 |
 | LINE_CHANNEL_ACCESS_TOKEN_CARELINK / LINE_CHANNEL_SECRET / LINE_CHANNEL_SECRET_CARELINK / LINE_LOGIN_CHANNEL_ID / NEXT_PUBLIC_LIFF_ID / NEXT_PUBLIC_LINE_CHANNEL_ID | LINE Messaging／LINE Login／LIFF |
@@ -164,7 +219,7 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 - 【🔴 Vercel Hobby の日次ビルド枠を実際に使い切ると24時間デプロイ不能になる】2026年7月29日、1日に9マージ＋7PR起票を行った結果 `Deployment rate limited — retry in 24 hours` が発生した。本番は既存デプロイで動き続けるが、この間は【緊急修正を出せない】。神原さんの判断で【Hobby を継続】（同日）。恒久対策として `vercel.json` の `ignoreCommand` に `scripts/vercel-should-build.sh` を配線し、配信物に影響しない変更（`supabase/migrations/` ・`.github/` ・`docs/` ・`e2e/` ・`scripts/` ・ルート直下の `.md` ・テストファイル）はプレビュービルドをスキップする。【production は VERCEL_ENV で判定して無条件にビルドする】（main に入った修正が本番へ出ない事故を防ぐ最重要の安全弁）。判定が緩む改変・production ガードの除去は `src/__tests__/vercel-build-skip.test.ts` が CI で止める。作業時は【1日のマージ数を意識し、複数の修正はできるだけ1本のPRにまとめる】。
 - 【`src/app/**/route.ts` は HTTP メソッド（GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS）と一部 config 以外を export できない】。共有ヘルパー関数を route.ts に足すと `tsc --noEmit`・`jest`・lint は通るのに `next build`（＝Vercel デプロイ・E2E も内部で依存）だけ `"xxx" is not a valid Route export field` で Failed to compile する。Unit/Lint/Contract/Security 全 pass なのに Vercel/E2E だけ fail する場合は、まず `npx next build` をローカル実行してこれを疑う。共有関数は `src/lib/*.ts` に置き route.ts はメソッドのみ import して使う。
 - Supabase の embed 名（例 `menu:facility_menus(name)`）を変更したら、対応する jest テストの mock も同じキー名に合わせること。ずれると route 側の分岐（`Array.isArray` 三項等）の片側が実行されず、テスト自体は pass するのに `coverageThreshold.global.branches=100` が崩れて CI が fail する。
-- 【存在しないテーブル名・列名を参照して無音停止する事故が繰り返し発生している】（例：`menus`→正しくは`facility_menus`、`reviews`→正しくは`facility_reviews`、`facility_menus.is_active`のように元々存在しない列）。`tsc --noEmit` は Supabase クライアントに `<Database>` 型が配線されていないため列タイポを検知できない（`database.types.ts` は生成済みだが各クライアント helper が型付けされていない＝既知の恒久課題・再生成には `supabase login` が神原のターミナルで必要）。新しいテーブル／列を参照する前に必ず `src/lib/schema-snapshot.json`（全 104 テーブルの正）で実在を確認する。`schema-drift-check` cron は事後検知であり事前予防にはならない。
+- 【存在しないテーブル名・列名を参照して無音停止する事故が繰り返し発生している】（例：`menus`→正しくは`facility_menus`、`reviews`→正しくは`facility_reviews`、`facility_menus.is_active`のように元々存在しない列）。`tsc --noEmit` は Supabase クライアントに `<Database>` 型が配線されていないため列タイポを検知できない（`database.types.ts` は生成済みだが各クライアント helper が型付けされていない＝既知の恒久課題・再生成には `supabase login` が神原のターミナルで必要）。新しいテーブル／列を参照する前に必ず `src/lib/schema-snapshot.json`（実在テーブル／列の正）で実在を確認する。`schema-drift-check` cron は事後検知であり事前予防にはならない。
 
 ## 店舗ログインの仕様（繰り返し問われる）
 - `auth.users` に「客／店舗」を区別するフィールドは無い。全員ただの Supabase 認証アカウント。

@@ -413,51 +413,6 @@ export type Database = {
           },
         ]
       }
-      booking_menus: {
-        Row: {
-          booking_id: string
-          duration_minutes: number | null
-          id: string
-          menu_id: string
-          name: string
-          price: number | null
-          sort_order: number | null
-        }
-        Insert: {
-          booking_id: string
-          duration_minutes?: number | null
-          id?: string
-          menu_id: string
-          name: string
-          price?: number | null
-          sort_order?: number | null
-        }
-        Update: {
-          booking_id?: string
-          duration_minutes?: number | null
-          id?: string
-          menu_id?: string
-          name?: string
-          price?: number | null
-          sort_order?: number | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "booking_menus_booking_id_fkey"
-            columns: ["booking_id"]
-            isOneToOne: false
-            referencedRelation: "bookings"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "booking_menus_menu_id_fkey"
-            columns: ["menu_id"]
-            isOneToOne: false
-            referencedRelation: "facility_menus"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       booking_waitlist: {
         Row: {
           created_at: string
@@ -1270,54 +1225,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      facilities: {
-        Row: {
-          address: string | null
-          business_type: string
-          contact_name: string
-          created_at: string | null
-          description: string | null
-          email: string
-          facility_name: string
-          id: string
-          phone: string
-          postal_code: string | null
-          representative_name: string
-          status: string | null
-          website: string | null
-        }
-        Insert: {
-          address?: string | null
-          business_type: string
-          contact_name: string
-          created_at?: string | null
-          description?: string | null
-          email: string
-          facility_name: string
-          id?: string
-          phone: string
-          postal_code?: string | null
-          representative_name: string
-          status?: string | null
-          website?: string | null
-        }
-        Update: {
-          address?: string | null
-          business_type?: string
-          contact_name?: string
-          created_at?: string | null
-          description?: string | null
-          email?: string
-          facility_name?: string
-          id?: string
-          phone?: string
-          postal_code?: string | null
-          representative_name?: string
-          status?: string | null
-          website?: string | null
-        }
-        Relationships: []
       }
       facility_booking_suspensions: {
         Row: {
@@ -3774,75 +3681,6 @@ export type Database = {
           count?: number
           key?: string
           window_start?: string
-        }
-        Relationships: []
-      }
-      recruits: {
-        Row: {
-          address: string | null
-          benefits: string | null
-          business_type: string
-          contact_name: string
-          created_at: string | null
-          desired_start_date: string | null
-          email: string
-          employment_type: string | null
-          facility_name: string
-          holidays: string | null
-          id: string
-          job_category: string
-          phone: string
-          photo_url: string | null
-          postal_code: string | null
-          pr_text: string | null
-          representative_name: string
-          requirements: string | null
-          salary_range: string | null
-          work_hours: string | null
-        }
-        Insert: {
-          address?: string | null
-          benefits?: string | null
-          business_type: string
-          contact_name: string
-          created_at?: string | null
-          desired_start_date?: string | null
-          email: string
-          employment_type?: string | null
-          facility_name: string
-          holidays?: string | null
-          id?: string
-          job_category: string
-          phone: string
-          photo_url?: string | null
-          postal_code?: string | null
-          pr_text?: string | null
-          representative_name: string
-          requirements?: string | null
-          salary_range?: string | null
-          work_hours?: string | null
-        }
-        Update: {
-          address?: string | null
-          benefits?: string | null
-          business_type?: string
-          contact_name?: string
-          created_at?: string | null
-          desired_start_date?: string | null
-          email?: string
-          employment_type?: string | null
-          facility_name?: string
-          holidays?: string | null
-          id?: string
-          job_category?: string
-          phone?: string
-          photo_url?: string | null
-          postal_code?: string | null
-          pr_text?: string | null
-          representative_name?: string
-          requirements?: string | null
-          salary_range?: string | null
-          work_hours?: string | null
         }
         Relationships: []
       }

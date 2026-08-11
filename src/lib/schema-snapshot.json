@@ -93,15 +93,6 @@
     "synced_at",
     "user_id"
   ],
-  "booking_menus": [
-    "booking_id",
-    "duration_minutes",
-    "id",
-    "menu_id",
-    "name",
-    "price",
-    "sort_order"
-  ],
   "booking_waitlist": [
     "created_at",
     "customer_name",
@@ -290,21 +281,6 @@
     "token",
     "used_at",
     "user_id"
-  ],
-  "facilities": [
-    "address",
-    "business_type",
-    "contact_name",
-    "created_at",
-    "description",
-    "email",
-    "facility_name",
-    "id",
-    "phone",
-    "postal_code",
-    "representative_name",
-    "status",
-    "website"
   ],
   "facility_booking_suspensions": [
     "created_at",
@@ -970,28 +946,6 @@
     "count",
     "key",
     "window_start"
-  ],
-  "recruits": [
-    "address",
-    "benefits",
-    "business_type",
-    "contact_name",
-    "created_at",
-    "desired_start_date",
-    "email",
-    "employment_type",
-    "facility_name",
-    "holidays",
-    "id",
-    "job_category",
-    "phone",
-    "photo_url",
-    "postal_code",
-    "pr_text",
-    "representative_name",
-    "requirements",
-    "salary_range",
-    "work_hours"
   ],
   "referral_codes": [
     "code",
