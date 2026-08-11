@@ -65,6 +65,9 @@ describe('subjectTable — 行がどのテーブルの話か', () => {
     expect(subjectTable('function|foo()|returns=jsonb')).toBeNull();
     expect(subjectTable('enum|my_enum|a,b')).toBeNull();
     expect(subjectTable('meta|server_version_major|17')).toBeNull();
+    // 2026年8月11日追加: 関数の EXECUTE 権限もテーブルに紐づかない（誤って
+    // known-prod-only のテーブル台帳で握りつぶされない ＝ 権限昇格の死角を再現しない）。
+    expect(subjectTable('functiongrant|foo()|anon|EXECUTE')).toBeNull();
   });
 
   it('壊れた行でも落ちない', () => {
