@@ -161,14 +161,15 @@ const KNOWN_PENDING_DEPLOYMENT: ReadonlySet<string> = new Set([
  *   恒久除外だが、こちらは「もう存在しないはずが、型がまだ古いだけ」の一時許可。
  *   混ぜて使うと「消したのに監視から外れたまま」の陳腐化に気づけなくなる。
  * ★ owner が `supabase gen types` を実行し database.types.ts を再生成したら、
- *   この3件は自動的に prodTablesFromTypes() から消えるため、本リストからも削除すること
+ *   該当テーブルは自動的に prodTablesFromTypes() から消えるため、本リストからも削除すること
  *   （下の陳腐化検知テストが検知して促す）。
+ *
+ * 2026年8月11日: facilities / recruits / booking_menus の3件を削除して空にした。
+ * PR#579 の DROP に合わせて database.types.ts から該当テーブル定義を除去し、
+ * schema-snapshot.json を再生成（108→105・本番と一致）したため、一時許可は不要になった。
+ * 型定義のみの残骸で参照コードは grep で 0 件だったため、手作業での除去で完結している。
  */
-const KNOWN_PENDING_TYPES_REGEN: ReadonlySet<string> = new Set([
-  'facilities',
-  'recruits',
-  'booking_menus',
-]);
+const KNOWN_PENDING_TYPES_REGEN: ReadonlySet<string> = new Set<string>([]);
 
 // 台帳の実体は src/lib/known-prod-only.json（唯一の真実源）。経緯と運用ルールは
 // src/lib/known-prod-only.ts の docstring を参照。ここで再宣言しないこと
