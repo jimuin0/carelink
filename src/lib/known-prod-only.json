@@ -1,8 +1,5 @@
 [
   "spatial_ref_sys",
-  "facilities",
-  "recruits",
-  "booking_menus",
   "facility_booking_suspensions",
   "facility_daily_capacity",
   "salon_customer_notes"
