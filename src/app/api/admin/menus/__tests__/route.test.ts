@@ -342,3 +342,15 @@ test('POST: count が null → sort_order=0 で挿入 → 201', async () => {
   const res = await POST(makePostRequest(validBody()));
   expect(res.status).toBe(201);
 });
+
+// ─── ストック写真ガード（2026年8月11日・src/lib/stock-image-guard.ts）─────────
+// 初期シードが投入した Unsplash 画像が本番に残っており、これ以上増やさないための入口ガード。
+// 新規作成なので「既存値と同じ」は原理上ありえず、無条件で拒否する。
+test('POST: photo_url がストック写真(images.unsplash.com) → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(
+    makePostRequest(validBody({ photo_url: 'https://images.unsplash.com/photo-1560066984?w=800' }))
+  );
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toContain('ストック写真');
+});

@@ -273,6 +273,59 @@ test('PATCH: image_url が有効URLで設定 → 200 (truthy 分岐)', async () 
   expect(res.status).toBe(200);
 });
 
+// ─── ストック写真ガード（2026年8月11日・src/lib/stock-image-guard.ts）─────────
+// 「既存値と同一なら素通し」が本体。これが無いと、ストック画像が残っている記事の
+// タイトル修正すら 400 になり、本番データの差し替え前にガードを入れられなくなる。
+const STOCK_A = 'https://images.unsplash.com/photo-1560066984?w=800';
+const STOCK_B = 'https://images.unsplash.com/photo-9999999?w=800';
+
+/** ガードが現在値を読む `.select('image_url').eq('id',…).maybeSingle()` の口。 */
+function currentImageChain(data: unknown) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
+  };
+}
+
+test('PATCH: 既存と異なるストック写真へ差し替え → 400', async () => {
+  let call = 0;
+  mockAdminFrom.mockImplementation(() => {
+    call++;
+    if (call === 1) return currentImageChain({ image_url: STOCK_A });
+    return updateChain({ id: FEATURE_UUID });
+  });
+  const res = await PATCH(makeRequest('PATCH', { title: 't', image_url: STOCK_B }), makeProps());
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toContain('ストック写真');
+});
+
+test('PATCH: 既存値と同一のストック写真は素通し → 200（差し替え前でも編集できる）', async () => {
+  let call = 0;
+  mockAdminFrom.mockImplementation(() => {
+    call++;
+    if (call === 1) return currentImageChain({ image_url: STOCK_A });
+    return updateChain({ id: FEATURE_UUID, title: '直したタイトル', image_url: STOCK_A });
+  });
+  const res = await PATCH(
+    makeRequest('PATCH', { title: '直したタイトル', image_url: STOCK_A }),
+    makeProps()
+  );
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: 該当記事が無い状態でストック写真 → 400（現在値を読めなくても素通ししない）', async () => {
+  mockAdminFrom.mockImplementation(() => currentImageChain(null));
+  const res = await PATCH(makeRequest('PATCH', { title: 't', image_url: STOCK_A }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: 現在値が null の記事へストック写真 → 400', async () => {
+  mockAdminFrom.mockImplementation(() => currentImageChain({ image_url: null }));
+  const res = await PATCH(makeRequest('PATCH', { title: 't', image_url: STOCK_A }), makeProps());
+  expect(res.status).toBe(400);
+});
+
 test('PATCH: レスポンスが { feature.id } 形式', async () => {
   mockAdminFrom.mockReturnValue(updateChain({ id: FEATURE_UUID, title: 'test' }));
   const res = await PATCH(makeRequest('PATCH', { title: 'test' }), makeProps());

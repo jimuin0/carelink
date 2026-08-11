@@ -212,6 +212,21 @@ test('POST: レートリミット params (20req/60s)', () => {
   expect(call[3]).toBe(60_000);
 });
 
+// ─── ストック写真ガード（2026年8月11日・src/lib/stock-image-guard.ts）─────────
+// 初期シードが投入した Unsplash 画像が本番に残っており、これ以上増やさないための入口ガード。
+test('POST: image_url がストック写真(images.unsplash.com) → 400', async () => {
+  const res = await POST(
+    makeRequest(validBody({ image_url: 'https://images.unsplash.com/photo-1560066984?w=800' }))
+  );
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toContain('ストック写真');
+});
+
+test('POST: image_url がストック写真(サブドメイン無し) → 400', async () => {
+  const res = await POST(makeRequest(validBody({ image_url: 'https://unsplash.com/photos/abc' })));
+  expect(res.status).toBe(400);
+});
+
 test('POST: subtitle が 301 文字 → 400', async () => {
   const res = await POST(makeRequest(validBody({ subtitle: 'あ'.repeat(301) })));
   expect(res.status).toBe(400);

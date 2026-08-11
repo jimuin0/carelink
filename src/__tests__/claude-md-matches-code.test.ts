@@ -86,6 +86,11 @@ describe('CLAUDE.md はコードと一致している', () => {
       'isLineLoginEnabled',
       'integration-availability',
       'NEWSLETTER_EMAIL_FROM',
+      'stock-image-guard',
+      'isStockImageUrl',
+      'isNewStockImage',
+      'STOCK_IMAGE_DOMAINS',
+      'isAllowedStorageUrl',
     ]) {
       expect(MD).toContain(sym);
     }

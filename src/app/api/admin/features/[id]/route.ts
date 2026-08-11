@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { isStockImageUrl, isNewStockImage, STOCK_IMAGE_ERROR } from '@/lib/stock-image-guard';
 
 // POST(route.ts)と同じ理由・同じ設計（SafeHtmlContent.tsx の href 検証と同方針）で、
 // image_url/href に javascript:/data: 等の危険スキームを許さないホワイトリスト方式にする。
@@ -44,6 +45,22 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
   const admin = createServiceRoleClient();
+
+  // ストック写真ガード（src/lib/stock-image-guard.ts）。既存値と同一なら素通しする＝
+  // ストック画像が残っている記事のタイトル修正等を壊さないため（管理画面はフォーム全体を
+  // 送るので、画像を変えない更新でも image_url は必ず載ってくる）。
+  // 差し替えが必要なときだけ 1 回追加でクエリするので、通常経路のコストは増えない。
+  if (isStockImageUrl(parsed.data.image_url)) {
+    const { data: current } = await admin
+      .from('feature_articles')
+      .select('image_url')
+      .eq('id', params.id)
+      .maybeSingle();
+    if (isNewStockImage(parsed.data.image_url, current?.image_url ?? null)) {
+      return NextResponse.json({ error: STOCK_IMAGE_ERROR }, { status: 400 });
+    }
+  }
+
   const { data, error } = await admin
     .from('feature_articles')
     // feature_articles に updated_at 列は無い（created_at のみ）→ 書き込むと 400 になるため付けない
