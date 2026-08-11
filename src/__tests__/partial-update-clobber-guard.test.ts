@@ -41,10 +41,14 @@ function walkRoutes(dir: string): string[] {
 }
 
 /**
- * `.update({ ...parsed.data, … parsed.data.X || … })` を検出する。
+ * `.update({ ...X, … X.key || … })` を検出する（X は `parsed.data` でも別名でもよい）。
+ *
+ * 後方参照で「spread した変数と同じ変数から取り出した値」に限定している。`const d = parsed.data`
+ * のような別名は本リポジトリに実在する書き方（salons / bookings / profile / inquiry）なので、
+ * `parsed\.data` 決め打ちだと別名で書かれた瞬間に素通りする。
  * `[^}]*` で同一のオブジェクトリテラル内に限定するので、離れた場所の `||` は拾わない。
  */
-const CLOBBER_RE = /\.update\(\s*\{\s*\.\.\.parsed\.data\s*,[^}]*parsed\.data\.\w+\s*(?:\|\||\?\?)/;
+const CLOBBER_RE = /\.update\(\s*\{\s*\.\.\.(\w+(?:\.\w+)?)\s*,[^}]*\1\.\w+\s*(?:\|\||\?\?)/;
 
 describe('部分更新が未送信の列を潰さない', () => {
   it('検出正規表現が機能する（負の対照つき）', () => {
@@ -55,6 +59,10 @@ describe('部分更新が未送信の列を潰さない', () => {
     expect(
       CLOBBER_RE.test('.update({ ...parsed.data, image_url: parsed.data.image_url ?? null })')
     ).toBe(true);
+    // 別名で書かれても検出する（`const d = parsed.data` はこのリポジトリに実在する書き方）
+    expect(CLOBBER_RE.test('.update({ ...d, photo_url: d.photo_url || null })')).toBe(true);
+    // 別変数から取った値の既定値埋めは対象外（spread 元と別なので「未送信の列を潰す」形ではない）
+    expect(CLOBBER_RE.test('.update({ ...parsed.data, owner_id: ctx.userId ?? null })')).toBe(false);
     // 正しい形（別オブジェクトを組み立ててから渡す）は検出しない
     expect(CLOBBER_RE.test('.update(updatePayload)')).toBe(false);
     // spread のみ・上書き無しは検出しない
