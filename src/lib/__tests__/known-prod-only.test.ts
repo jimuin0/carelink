@@ -22,7 +22,9 @@ describe('台帳が単一の真実源であること', () => {
       readFileSync(join(ROOT, 'src', 'lib', 'known-prod-only.json'), 'utf8'),
     );
     // 走査が空振りしていないことの下限。空の台帳を「一致」と読み替えさせない。
-    expect(raw.length).toBeGreaterThanOrEqual(5);
+    // 2026-08-11: facilities/recruits/booking_menus の DROP で 7→4 件に減った
+    // （意図した減少。実測ちょうどには置かず、壊れたときだけ割る位置＝実測の半分程度に置く）。
+    expect(raw.length).toBeGreaterThanOrEqual(2);
     expect(new Set(raw).size).toBe(raw.length); // 重複が無い
     expect([...KNOWN_PROD_ONLY].sort()).toEqual([...raw].sort());
   });
@@ -77,9 +79,13 @@ describe('subjectTable — 行がどのテーブルの話か', () => {
 
 describe('isKnownProdOnlyLine', () => {
   it('台帳のテーブルに属する行だけ true', () => {
-    expect(isKnownProdOnlyLine('column|facilities.id|uuid')).toBe(true);
-    expect(isKnownProdOnlyLine('grant|recruits|anon|SELECT')).toBe(true);
-    expect(isKnownProdOnlyLine('policy|recruits|p|cmd=r')).toBe(true);
+    // facilities / recruits は 2026-08-11 に DROP され台帳から削除されたため、
+    // 台帳に恒久的に残る他エントリへ repoint した（spatial_ref_sys は PostGIS 所有で
+    // 常に台帳に残る。salon_customer_notes / facility_booking_suspensions は
+    // PR #53 所有で main 未マージの間は台帳に残る）。
+    expect(isKnownProdOnlyLine('column|salon_customer_notes.id|uuid')).toBe(true);
+    expect(isKnownProdOnlyLine('grant|spatial_ref_sys|anon|SELECT')).toBe(true);
+    expect(isKnownProdOnlyLine('policy|facility_booking_suspensions|p|cmd=r')).toBe(true);
   });
 
   it('🔴 台帳外は必ず false（除外しすぎは無音の取りこぼし＝もっと危険）', () => {

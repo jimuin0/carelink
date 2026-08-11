@@ -130,10 +130,13 @@ const KNOWN_PENDING_DEPLOYMENT: ReadonlySet<string> = new Set([
  * spatial_ref_sys は PostGIS のシステムテーブル（拡張機能が作成）。
  * features / job_postings は 20260320000002_prod_only_base_tables.sql で migration 追補済み
  *   （fresh-apply 再生可能化）。よって migration-less ではなくなったため本リストから除外。
- * facilities / recruits / booking_menus は旧世代の未使用残存。
+ * facilities / recruits / booking_menus は旧世代の未使用残存だったが、2026-08-11 に
+ *   supabase/migrations/20260811000004_drop_dead_prototype_tables.sql で DROP 済み
+ *   （テーブル自体が無くなるため上記除外リストから削除済み）。
  * blog_authors は同様の残存だったが 2026-08-11 に
  *   supabase/migrations/20260811000003_backport_blog_authors_and_fk.sql で migration へ
- *   back-port済み（migration-less ではなくなったため上記除外リストから削除済み）。
+ *   back-port済み（migration-less ではなくなったため上記除外リストから削除済み。今回とは逆に
+ *   「テーブルを残して migration を足す」形の解消だった点が異なる）。
  * facility_booking_suspensions / facility_daily_capacity / salon_customer_notes は
  *   PR #53（feat/salon-board）所有のテーブル。当該ブランチに CREATE TABLE migration
  *   （20260602_booking_suspensions / 20260602_daily_capacity / 20260602_customer_notes）と
@@ -141,6 +144,32 @@ const KNOWN_PENDING_DEPLOYMENT: ReadonlySet<string> = new Set([
  *   2026-06-03 時点で本番に先行適用済み（各 0 行）。PR #53 が main へマージされたら
  *   migrationTables に含まれるため、本リストの該当 3 行は削除すること（残すと無害だが陳腐化）。
  */
+
+/**
+ * DROP 済みだが database.types.ts の再生成待ちのテーブル（2026-08-11・一時的）。
+ *
+ * facilities / recruits / booking_menus は
+ * supabase/migrations/20260811000004_drop_dead_prototype_tables.sql で DROP し、
+ * src/lib/known-prod-only.json からも削除した（テーブル自体が無くなるため）。
+ * ただし database.types.ts は Supabase codegen 出力で、本 PR ではハンドエディットしない
+ * （`supabase login` が要るため owner が `supabase gen types` で再生成する運用）。
+ * migration を本番へ適用し型を再生成するまでの間、database.types.ts には
+ * まだこの3テーブルが残る（＝prodTablesFromTypes() に出続ける）。その間
+ * 「migration も KNOWN_PROD_ONLY も持たない新規本番テーブル」に見えてしまい、
+ * out-of-band 手動作成の誤検知になるため、一時的にここへ許可する。
+ * ⚠️ KNOWN_PROD_ONLY へ足すのとは別物: あちらは「今後も存在し続けると受け入れる」
+ *   恒久除外だが、こちらは「もう存在しないはずが、型がまだ古いだけ」の一時許可。
+ *   混ぜて使うと「消したのに監視から外れたまま」の陳腐化に気づけなくなる。
+ * ★ owner が `supabase gen types` を実行し database.types.ts を再生成したら、
+ *   この3件は自動的に prodTablesFromTypes() から消えるため、本リストからも削除すること
+ *   （下の陳腐化検知テストが検知して促す）。
+ */
+const KNOWN_PENDING_TYPES_REGEN: ReadonlySet<string> = new Set([
+  'facilities',
+  'recruits',
+  'booking_menus',
+]);
+
 // 台帳の実体は src/lib/known-prod-only.json（唯一の真実源）。経緯と運用ルールは
 // src/lib/known-prod-only.ts の docstring を参照。ここで再宣言しないこと
 // （2026年8月3日: 台帳が2箇所に在ったため、フィンガープリント監視が約140項目を誤報していた）。
@@ -509,7 +538,9 @@ describe('migration ↔ prod スキーマ ドリフト台帳', () => {
     const prodOnly = [...prodTables]
       .filter((t) => !migrationTables.has(t))
       .sort();
-    const unexpected = prodOnly.filter((t) => !KNOWN_PROD_ONLY.has(t));
+    const unexpected = prodOnly.filter(
+      (t) => !KNOWN_PROD_ONLY.has(t) && !KNOWN_PENDING_TYPES_REGEN.has(t)
+    );
 
     if (unexpected.length > 0) {
       throw new Error(
@@ -519,6 +550,21 @@ describe('migration ↔ prod スキーマ ドリフト台帳', () => {
       );
     }
     expect(unexpected).toEqual([]);
+  });
+
+  test('KNOWN_PENDING_TYPES_REGEN は陳腐化していない（型再生成済みなら削除を促す）', () => {
+    // database.types.ts が再生成され、この3テーブルが消えたのに台帳へ残っている状態を検知する。
+    const staleAlreadyRegenerated = [...KNOWN_PENDING_TYPES_REGEN]
+      .filter((t) => !prodTables.has(t))
+      .sort();
+    if (staleAlreadyRegenerated.length > 0) {
+      throw new Error(
+        '以下は database.types.ts の再生成により本番からも消えました。\n' +
+          'KNOWN_PENDING_TYPES_REGEN から削除してドリフト台帳を最新化してください:\n  ' +
+          staleAlreadyRegenerated.join('\n  ')
+      );
+    }
+    expect(staleAlreadyRegenerated).toEqual([]);
   });
 
   test('パース健全性: RPC関数・prod関数を十分な数取得できている', () => {

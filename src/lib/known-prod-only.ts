@@ -14,12 +14,17 @@
  *
  * 台帳の中身と経緯:
  *   - spatial_ref_sys … PostGIS 所有。拡張オブジェクトなので introspection 側でも除外される
- *   - facilities / recruits / booking_menus … 旧世代の未使用残存。
- *     実測 2026年8月3日: いずれも RLS 有効、行数は facilities のみ 3 行（2026-03-20 作成）で
- *     他は 0 行。アプリコードからの参照は 1 件も無い。
+ *   - facilities / recruits / booking_menus … 旧世代の未使用残存だったが、2026-08-11 に
+ *     supabase/migrations/20260811000004_drop_dead_prototype_tables.sql で DROP 済み
+ *     （後継: facilities→facility_profiles・recruits→job_postings/facility_jobs・
+ *     booking_menus→bookings.menu_ids）。本番実測（ref: xzafxiupbflvgbarrihe）で
+ *     facilities=3行(神原さん確認: ゴミデータ)・recruits=0行・booking_menus=0行、
+ *     3テーブルとも参照 FK ゼロ（依存なし・owner 承認済み）。DROP 後はテーブル自体が
+ *     無くなる＝台帳で除外する対象が無くなるため本台帳から削除。
  *     （blog_authors は同様の残存だったが 2026-08-11 に
  *     supabase/migrations/20260811000003_backport_blog_authors_and_fk.sql で migration へ
- *     back-port済み＝migration-less ではなくなったため本台帳から削除）
+ *     back-port済み＝migration-less ではなくなったため本台帳から削除。今回とは逆に
+ *     「テーブルを残して migration を足す」形の解消だった点が異なる）
  *   - facility_booking_suspensions / facility_daily_capacity / salon_customer_notes …
  *     PR #53（feat/salon-board）所有。当該ブランチに CREATE TABLE migration とアプリコードが
  *     在るが main 未マージのため、main 視点では migration-less に見える。本番へは先行適用済み。
