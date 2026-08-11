@@ -67,6 +67,30 @@ describe('診断用 SQL が実在する列だけを参照している', () => {
 });
 
 /**
+ * 🔴 `audit_logs.record_id` は TEXT（どの表の id でも入る汎用列）だが、各表の `id` は UUID。
+ * 素で `=` すると本番で `ERROR: 42883 operator does not exist: text = uuid` になる（実際に踏んだ）。
+ * `database.types.ts` はどちらも `string` として出すので型検査では防げない。書き方で防ぐ。
+ */
+describe('診断 SQL の record_id 比較が型キャスト済み', () => {
+  it.each(diagnosticFiles)('%s: record_id との比較に ::text がある', (file) => {
+    const sql = readFileSync(join(SCRIPTS, file), 'utf8');
+    // `record_id = <何か>` / `<何か> = record_id` を拾い、両辺のどちらかに ::text が要る。
+    const comparisons = [...sql.matchAll(/^[^-\n]*\brecord_id\s*=\s*([^\n]+)$/gm)].map((m) => m[0]);
+    for (const line of comparisons) {
+      expect(line).toContain('::text');
+    }
+  });
+
+  it('検出が空振りしていない（負の対照）', () => {
+    const sql = readFileSync(join(SCRIPTS, 'diagnose-clobbered-images.sql'), 'utf8');
+    const comparisons = [...sql.matchAll(/^[^-\n]*\brecord_id\s*=\s*([^\n]+)$/gm)];
+    expect(comparisons.length).toBeGreaterThanOrEqual(2);
+    // キャストを外した文字列は検査に引っかかる形であること
+    expect(/^[^-\n]*\brecord_id\s*=\s*([^\n]+)$/m.test('      AND a.record_id = m.id')).toBe(true);
+  });
+});
+
+/**
  * SQL 側のドメイン列挙は `STOCK_IMAGE_DOMAINS` の手写しなので、片方だけ増えると
  * 「アプリは拒否するのに棚卸しでは見つからない」ドメインが生まれる。集合一致で固定する。
  */

@@ -64,23 +64,27 @@ ORDER BY a.created_at DESC
 LIMIT 200;
 
 -- ③ ②で挙がったレコードのうち、今まさに画像が空のもの（＝復旧対象の確定リスト）
-SELECT 'facility_menus' AS table_name, m.id, m.name, m.facility_id
+--
+-- 🔴 `a.record_id` は【TEXT】、各表の `id` は【UUID】。素で `=` すると
+--    ERROR: 42883 operator does not exist: text = uuid で落ちる（本番で実際に踏んだ）。
+--    audit_logs.record_id はどの表の id でも入る汎用列なので TEXT になっている。必ず ::text で揃える。
+SELECT 'facility_menus' AS table_name, m.id::text AS id, m.name AS label, m.facility_id::text AS facility_id
 FROM facility_menus m
 WHERE (m.photo_url IS NULL OR m.photo_url = '')
   AND EXISTS (
     SELECT 1 FROM audit_logs a
     WHERE a.table_name = 'facility_menus' AND a.action = 'update'
-      AND a.record_id = m.id
+      AND a.record_id = m.id::text
       AND a.new_values ? 'sort_order' AND NOT (a.new_values ? 'photo_url')
   )
 UNION ALL
-SELECT 'feature_articles', f.id, f.title, NULL
+SELECT 'feature_articles', f.id::text, f.title, NULL::text
 FROM feature_articles f
 WHERE (f.image_url IS NULL OR f.image_url = '')
   AND EXISTS (
     SELECT 1 FROM audit_logs a
     WHERE a.table_name = 'feature_articles' AND a.action = 'update'
-      AND a.record_id = f.id
+      AND a.record_id = f.id::text
       AND a.new_values ? 'is_active' AND NOT (a.new_values ? 'image_url')
   );
 

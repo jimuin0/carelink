@@ -96,6 +96,8 @@ describe('CLAUDE.md はコードと一致している', () => {
       '@check',
       'partial-update-clobber-guard.test.ts',
       'updatePayload',
+      'gen-stub-schema.mjs',
+      'schema-fingerprint.expected.json',
     ]) {
       expect(MD).toContain(sym);
     }
