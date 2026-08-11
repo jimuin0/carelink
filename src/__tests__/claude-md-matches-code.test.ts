@@ -94,6 +94,8 @@ describe('CLAUDE.md はコードと一致している', () => {
       'diagnose-treatment-tables.sql',
       'diagnostic-sql-columns.test.ts',
       '@check',
+      'partial-update-clobber-guard.test.ts',
+      'updatePayload',
     ]) {
       expect(MD).toContain(sym);
     }

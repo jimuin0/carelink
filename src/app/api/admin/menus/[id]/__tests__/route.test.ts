@@ -387,6 +387,47 @@ test('PATCH: facility_members が null → verifyMenuAdmin null → 401（line 3
   expect(res.status).toBe(401);
 });
 
+// ─── 部分更新で写真が消える回帰（2026年8月11日 恒久根治）─────────────────────
+// メニュー一覧の並び替え(↑↓)は `{ sort_order }` だけを PATCH する。旧実装は
+// `{ ...parsed.data, photo_url: parsed.data.photo_url || null }` だったため、
+// 並び替えるだけで photo_url が null 上書きされ、メニュー写真が無言で消えていた。
+function captureMenuUpdate(data: unknown = { id: MENU_UUID }) {
+  const update = jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
+        }),
+      }),
+    }),
+  });
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue({ update });
+  return update;
+}
+
+test('PATCH: 並び替え（sort_order のみ）で photo_url を書き換えない', async () => {
+  const update = captureMenuUpdate();
+  const res = await PATCH(makeRequest('PATCH', { sort_order: 3 }), makeProps());
+  expect(res.status).toBe(200);
+  expect(update).toHaveBeenCalledWith({ sort_order: 3 });
+  expect(Object.keys(update.mock.calls[0][0])).not.toContain('photo_url');
+});
+
+test('PATCH: photo_url に空文字を送ったときだけ null で消す', async () => {
+  const update = captureMenuUpdate();
+  const res = await PATCH(makeRequest('PATCH', { photo_url: '' }), makeProps());
+  expect(res.status).toBe(200);
+  expect(update).toHaveBeenCalledWith({ photo_url: null });
+});
+
+test('PATCH: photo_url に null を送ったら null で消す', async () => {
+  const update = captureMenuUpdate();
+  const res = await PATCH(makeRequest('PATCH', { photo_url: null }), makeProps());
+  expect(res.status).toBe(200);
+  expect(update).toHaveBeenCalledWith({ photo_url: null });
+});
+
 // ─── ストック写真ガード（2026年8月11日・src/lib/stock-image-guard.ts）─────────
 // 「既存値と同一なら素通し」が本体。これが無いと、ストック画像が残っているメニューの
 // 価格修正すら 400 になり、本番データの差し替え前にガードを入れられなくなる。
