@@ -41,7 +41,7 @@ src/
 ├── components/              # UI コンポーネント
 ├── lib/                     # 共通ロジック（withRoute・各種 supabase クライアント・csrf 等）
 └── types/                   # 型定義
-supabase/migrations/         # DB マイグレーション（145 本）
+supabase/migrations/         # DB マイグレーション（本数は `ls supabase/migrations/*.sql | wc -l` で取る）
 .github/workflows/           # CI（ci.yml 他）・cron（cron.yml）
 load-tests/                  # k6 負荷テスト
 e2e/                         # Playwright E2E
@@ -69,6 +69,54 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 ### 監査ログ（`src/lib/audit-logger.ts`）
 重要操作は `void writeAuditLog({...})`（fire-and-forget・失敗で本体を止めない）で `audit_logs` に記録。`diffValues` で変更フィールドのみ抽出。
 
+### メール送信元の SSOT＝`src/lib/email-from.ts`（2026年7月31日 新設・PR#556/#558）
+
+送信元(`from`)を組み立ててよいのはこのモジュールだけ。**呼び出し側が `process.env.EMAIL_FROM` を
+直読みすることは `src/lib/__tests__/email-from-callers.test.ts` が CI で禁止している**
+（送信元アドレスのハードコードも同テストが禁止）。
+
+- `fromEnv()` … 全ての送信箇所が使う from。本番で【検証済みドメイン以外】なら
+  `CareLink <noreply@carelink-jp.com>` へ強制フォールバックする。
+- `newsletterFromEnv()` … ニュースレター用。同じ検証を通す。
+- `resolvedFromEnv()` … 診断情報つき（`fellBack` / `rawDomain` / `domainOk`）。`email.ts` の警報判定用。
+- `productionResolvedFrom()` … 常に本番基準で解決。`/api/health` の監視用。
+- `RESEND_VERIFIED_DOMAINS` … Resend で verified なドメイン。ここに無い from は配信されない。
+
+【なぜ集約したか】未検証ドメイン(`resend.dev` 等)を検知しても【警告するだけで倒していなかった】ため、
+設定ミスがそのまま送信全滅に直結していた。さらに cron 5本（review-request / waitlist-notify /
+customer-segment / birthday-coupon / webhook-retry）とニュースレターが `process.env.EMAIL_FROM` を
+各自で組み立てて `resend.emails.send` を直接呼び、ガードを完全に迂回していた。
+メール経路は送信対象が 0 件のうちは一度も実行されず、誤設定に気づけないまま初回配信で発症する。
+
+### LINE の出し分け＝`src/lib/line-availability.ts`（PR#552/#557）
+
+- `isLineEnabled()` … `NEXT_PUBLIC_LIFF_ID` の有無。マイページ・管理画面の LINE 項目がこれに従属。
+- `isLineLoginEnabled()` … `isLineEnabled()` かつ `NEXT_PUBLIC_LINE_CHANNEL_ID` あり。
+  `/auth/login` `/auth/signup` の「LINEでログイン／登録」がこれに従属。
+
+LINE ログインは LIFF とは別チャネルで動くため、どちらか片方だけを見る判定は誤る。
+【製品判断（LIFF 設定済み＝LINEを出す）】と【技術的前提（ログインチャネル設定済み）】の
+両方が揃ったときだけ出す。手動フラグは使わない（戻し忘れ事故を作らないため env に従属させる）。
+`src/lib/__tests__/line-availability.test.ts` が、ガードの外に `/api/auth/line` 導線が
+1本も無いことまで検証する。
+
+### 連携の出し分け＝`src/lib/integration-availability.ts`（PR#553）
+
+`isAiEnabled()` / `isPaymentsEnabled()` / `isGoogleCalendarEnabled()`。
+未設定の連携を「使えるように見せない」ための単一判定。
+
+### `/api/health` の Resend プローブ（PR#556/#558）
+
+API キーの疎通だけでなく、**Resend の `/domains` を実際に引いて送信元ドメインが verified か**を照合し、
+さらに**既定値へ倒れた事実（`fellBack`）自体を NG として出す**。
+
+- 未検証ドメイン／形式不正の `EMAIL_FROM` → `deps.resend.ok=false` → degraded → health-monitor が Issue+Slack
+- `EMAIL_FROM` 未設定は誤設定ではない（既定値が妥当）ので緑のまま
+- 非本番は resend.dev サンドボックスが正常系のため照合しない
+
+【意図】メールを1通も送らずに設定の正誤を判定できるようにするため。倒す実装だけでは
+「配信は救われるが設定は誤ったまま緑に隠れる」ので、倒した事実を監視に出している。
+
 ### Supabase クライアントの使い分け
 - `createServerSupabaseClient`（`supabase-server.ts`）＝anon。公開データの読み取り専用。書き込み・ユーザー固有データに使わない。
 - `createServiceRoleClient`（`supabase-server.ts`）＝service role。RLS バイパス。API ルート・cron などサーバー信頼文脈のみ。
@@ -76,11 +124,12 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 - ブラウザ＝`supabase-browser.ts`。
 
 ## API ルート一覧（`src/app/api/`）
-- 公開・来院者系：`facilities` `facility` `salons` `availability` `slots` `booking` `waitlist` `options` `symptoms` `stations` `recommendations` `ab-test` `referral` `review` `nps` `report` `favorites` `profile` `account` `chat` `intake` `contact` `inquiry` `unsubscribe` `health` `og` `v1`
-- 認証・LINE：`auth` `liff` `line` `push` `notify`
+- 公開・来院者系：`facilities` `facility` `salons` `availability` `slots` `booking` `waitlist` `options` `symptoms` `stations` `recommendations` `ab-test` `referral` `review` `nps` `report` `favorites` `profile` `account` `chat` `intake` `contact` `inquiry` `unsubscribe` `health` `og` `v1` `push`
+- 認証・LINE：`auth` `liff` `line`
 - 決済：`payment` `stripe`
 - 管理（`api/admin/`・施設オーナー／プラットフォーム）：`bookings` `booking-status` `booking-checkout` `booking-adjust-request` `customers` `staff` `menus` `catalog` `coupons` `packages` `user-packages` `subscription-plans` `user-subscriptions` `payments-settings` `accounting-export` `settings` `facility-verify` `registrations` `jobs` `job-applications` `featured-ads` `features` `feature-flags` `blog` `platform-blog` `qa` `review-summary` `moderation` `newsletter` `inquiries` `report` `gbp` `hpb-menus` `ai-support` `api-keys` `backup` `chain` `white-label` `subscription-plans`
-- cron（`api/cron/`・GitHub Actions から Bearer 認証で起動）：下記スケジュール参照
+- cron（`api/cron/`・Render Cron Jobs から Bearer 認証で起動。GitHub Actions は保険）：下記スケジュール参照
+- 運用・監視：`alert-check`（`ALERT_CHECK_TOKEN` で保護）・`admin`（管理画面用API群は下記）
 - Google 連携：`google-calendar` / Slack：`slack`
 
 ## cron スケジュール（SSOT＝`src/lib/cron-jobs.data.json`／`render.yaml` と `.github/workflows/cron.yml` に展開・UTC 指定／JST 併記）
@@ -99,6 +148,7 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 | waitlist-notify | `30 * * * *` | 毎時30分 |
 | webhook-retry | `*/15 * * * *` | 15分毎 |
 | hpb-menu-scrape | `20 17 * * *` | 毎日 02:20 |
+| cron-heartbeat | `7,37 * * * *` | 毎時07分・37分（監視系の生存確認・`/api/health` の cron 鮮度判定に使う） |
 | schema-drift-check | `40 17 * * *` | 毎日 02:40 |
 
 オーナーニュースレターの自動月次配信は廃止した（神原さん確定 2026年7月2日「お知らせがある時のみ」）。旧 `/api/cron/newsletter-digest` エンドポイント・専用ワークフロー `newsletter-digest.yml`・発火監視 `monthly-batch-watcher.yml` はすべて削除済み。全店に同一の全プラットフォーム集計（「新規予約 N」等）を一斉配信していた作りを根本から廃止した。ニュースレター配信は管理画面 `/admin/newsletters` で任意の件名・本文を作成し「今すぐ配信」する手動運用のみ（`api/admin/newsletter`・`api/admin/newsletter/[id]` action=send）。台帳テーブル `newsletter_send_log` は孤児化するが、`schema-drift-check` との整合のため DB・マイグレーション・スナップショットは残置（無害）。
@@ -116,13 +166,18 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 
 【調査時の鉄則】新セッションで cron の挙動を調べる時は、まずどのスケジューラが実際に動いているかを実データで確認してから議論すること（Render Dashboard／`gh run list --workflow=cron.yml`／`select * from cron.job`／`cron_logs` の実記録）。なお `cron_logs` の `status='skipped'` は「処理対象0件＝正常」であり失敗ではない（集計時に error と混同しないこと）。
 
-## DB スキーマ（主要テーブル・`src/lib/schema-snapshot.json` が正・全 104 テーブル）
-- 予約：`bookings` `booking_menus` `booking_waitlist` `booking_calendar_events` `facility_daily_capacity` `facility_booking_suspensions`
-- 施設：`facilities` `facility_profiles` `facility_members` `facility_menus` `facility_photos` `facility_certifications` `facility_symptoms` `facility_qa` `facility_reviews` `facility_cancel_policies` `facility_line_settings` `facility_notification_settings` `facility_reminder_settings` `facility_entitlements` `facility_inquiries`
+## DB スキーマ（主要テーブル・`src/lib/schema-snapshot.json` が正）
+
+テーブル数は書かない（DROP/追加のたびに腐るため）。実数はこれで取る：
+`node -e "console.log(Object.keys(require('./src/lib/schema-snapshot.json')).length)"`
+本番の実数は PostgREST の OpenAPI（`GET {SUPABASE_URL}/rest/v1/`）の `definitions` を数える。両者が食い違えばドリフト。
+
+- 予約：`bookings` `booking_waitlist` `booking_calendar_events` `facility_daily_capacity` `facility_booking_suspensions`
+- 施設：`facility_profiles` `facility_members` `facility_menus` `facility_photos` `facility_certifications` `facility_symptoms` `facility_qa` `facility_reviews` `facility_cancel_policies` `facility_line_settings` `facility_notification_settings` `facility_reminder_settings` `facility_entitlements` `facility_inquiries`
 - 顧客：`customers` `customer_visits` `customer_segments` `salon_customer_notes` `profiles` `favorites`
 - メニュー／クーポン／パッケージ：`coupons` `coupon_menus` `menu_staff` `option_catalog` `hpb_menu_durations` `package_usage_logs`
 - 決済・購読：`featured_slots` `subscription`・各 entitlement 系
-- 採用・集客：`job_postings` `job_applications` `job_seekers` `facility_jobs` `recruits` `blog_posts` `blog_authors` `platform_blog_posts` `feature_articles` `area_seo_contents` `areas`
+- 採用・集客：`job_postings` `job_applications` `job_seekers` `facility_jobs` `blog_posts` `blog_authors` `platform_blog_posts` `feature_articles` `area_seo_contents` `areas`
 - レビュー・モデレーション：`public_reviews` `review_replies` `review_helpful` `moderation_queue` `nps_surveys`
 - 通知・連携：`line_user_links` `line_notification_logs` `push_subscriptions` `google_calendar_tokens` `newsletter_subscriptions` `newsletter_campaigns` `newsletter_send_log` `email_unsubscribe_tokens` `birthday_notifications`
 - 基盤：`audit_logs` `cron_logs` `rate_limit_buckets` `webhook`系 `api_keys` `feature_flags` `features` `ab_test_events` `referral_codes` `referral_uses` `contacts` `contact_replies` `intake_form_templates` `intake_form_responses` `daily_revenue_summary` `gbp_posts` `gbp_audit_cache`
@@ -137,7 +192,9 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 | NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_BASE_URL / NEXT_PUBLIC_SITE_URL | 本番ベース URL（リダイレクト・OGP・sitemap 等） |
 | ADMIN_COOKIE_SECRET | /admin membership キャッシュの HMAC 署名鍵（未設定でキャッシュ無効） |
 | CRON_SECRET | GitHub Actions cron → `/api/cron/*` の Bearer 認証（未設定で全 cron 401／500） |
-| RESEND_API_KEY / EMAIL_FROM | メール送信（未設定でメール系 cron は送信スキップ） |
+| RESEND_API_KEY | メール送信（未設定でメール系 cron は送信スキップ） |
+| EMAIL_FROM | 送信元。本番では検証済みドメイン以外だと既定値へ強制フォールバックする（`src/lib/email-from.ts`） |
+| NEWSLETTER_EMAIL_FROM | ニュースレター専用の送信元。未設定なら `CareLink <newsletter@carelink-jp.com>`。EMAIL_FROM と同じ検証を通る |
 | NEWSLETTER_UNSUBSCRIBE_SECRET | ニュースレター配信停止リンクの HMAC 署名鍵（手動配信 `api/admin/newsletter/[id]`／`unsubscribe` 共通・一度設定したら変更しない） |
 | STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET | 決済・Stripe webhook 署名検証 |
 | LINE_CHANNEL_ACCESS_TOKEN_CARELINK / LINE_CHANNEL_SECRET / LINE_CHANNEL_SECRET_CARELINK / LINE_LOGIN_CHANNEL_ID / NEXT_PUBLIC_LIFF_ID / NEXT_PUBLIC_LINE_CHANNEL_ID | LINE Messaging／LINE Login／LIFF |
@@ -150,6 +207,9 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 | NEXT_PUBLIC_GA_ID / NEXT_PUBLIC_CLARITY_ID | GA4／Clarity（空なら無効） |
 | NEXT_PUBLIC_GSC_VERIFICATION_APEX | Search Console 所有権確認 |
 | SUPER_ADMIN_USER_IDS | プラットフォーム super admin の user_id 群 |
+| NEXT_PUBLIC_RECAPTCHA_SITE_KEY | reCAPTCHA のサイトキー（未設定なら検証をスキップ＝bot 対策は rate limit のみ） |
+| ALERT_CHECK_TOKEN | `/api/alert-check` の Bearer 認証（未設定で 500） |
+| ADMIN_HEARTBEAT_URL / ADMIN_HEARTBEAT_TOKEN | 管理画面ハートビートの送信先とトークン（未設定で送信しない・`src/lib/admin-heartbeat.ts`） |
 
 ## テスト・CI（`.github/workflows/ci.yml`）
 - Lint & Type Check：`npm run lint` ＋ `npx tsc --noEmit`
@@ -164,7 +224,7 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 - 【🔴 Vercel Hobby の日次ビルド枠を実際に使い切ると24時間デプロイ不能になる】2026年7月29日、1日に9マージ＋7PR起票を行った結果 `Deployment rate limited — retry in 24 hours` が発生した。本番は既存デプロイで動き続けるが、この間は【緊急修正を出せない】。神原さんの判断で【Hobby を継続】（同日）。恒久対策として `vercel.json` の `ignoreCommand` に `scripts/vercel-should-build.sh` を配線し、配信物に影響しない変更（`supabase/migrations/` ・`.github/` ・`docs/` ・`e2e/` ・`scripts/` ・ルート直下の `.md` ・テストファイル）はプレビュービルドをスキップする。【production は VERCEL_ENV で判定して無条件にビルドする】（main に入った修正が本番へ出ない事故を防ぐ最重要の安全弁）。判定が緩む改変・production ガードの除去は `src/__tests__/vercel-build-skip.test.ts` が CI で止める。作業時は【1日のマージ数を意識し、複数の修正はできるだけ1本のPRにまとめる】。
 - 【`src/app/**/route.ts` は HTTP メソッド（GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS）と一部 config 以外を export できない】。共有ヘルパー関数を route.ts に足すと `tsc --noEmit`・`jest`・lint は通るのに `next build`（＝Vercel デプロイ・E2E も内部で依存）だけ `"xxx" is not a valid Route export field` で Failed to compile する。Unit/Lint/Contract/Security 全 pass なのに Vercel/E2E だけ fail する場合は、まず `npx next build` をローカル実行してこれを疑う。共有関数は `src/lib/*.ts` に置き route.ts はメソッドのみ import して使う。
 - Supabase の embed 名（例 `menu:facility_menus(name)`）を変更したら、対応する jest テストの mock も同じキー名に合わせること。ずれると route 側の分岐（`Array.isArray` 三項等）の片側が実行されず、テスト自体は pass するのに `coverageThreshold.global.branches=100` が崩れて CI が fail する。
-- 【存在しないテーブル名・列名を参照して無音停止する事故が繰り返し発生している】（例：`menus`→正しくは`facility_menus`、`reviews`→正しくは`facility_reviews`、`facility_menus.is_active`のように元々存在しない列）。`tsc --noEmit` は Supabase クライアントに `<Database>` 型が配線されていないため列タイポを検知できない（`database.types.ts` は生成済みだが各クライアント helper が型付けされていない＝既知の恒久課題・再生成には `supabase login` が神原のターミナルで必要）。新しいテーブル／列を参照する前に必ず `src/lib/schema-snapshot.json`（全 104 テーブルの正）で実在を確認する。`schema-drift-check` cron は事後検知であり事前予防にはならない。
+- 【存在しないテーブル名・列名を参照して無音停止する事故が繰り返し発生している】（例：`menus`→正しくは`facility_menus`、`reviews`→正しくは`facility_reviews`、`facility_menus.is_active`のように元々存在しない列）。`tsc --noEmit` は Supabase クライアントに `<Database>` 型が配線されていないため列タイポを検知できない（`database.types.ts` は生成済みだが各クライアント helper が型付けされていない＝既知の恒久課題・再生成には `supabase login` が神原のターミナルで必要）。新しいテーブル／列を参照する前に必ず `src/lib/schema-snapshot.json`（実在テーブル／列の正）で実在を確認する。`schema-drift-check` cron は事後検知であり事前予防にはならない。
 
 ## 店舗ログインの仕様（繰り返し問われる）
 - `auth.users` に「客／店舗」を区別するフィールドは無い。全員ただの Supabase 認証アカウント。
@@ -210,8 +270,8 @@ npm run test:load           # k6 負荷（search-load）
 | レベル | 内容 | 状態 | 備考 |
 |--------|------|------|------|
 | L1 | ESLint / tsc | ✅ | エラー 0 |
-| L2 | Jest ユニットテスト | ✅ | 4870 テスト全通過、223 スイート（2026年6月23日 実測） |
-| L3 | Jest ブランチカバレッジ 100% | ✅ | 5733/5733 branches＝100%（2026年6月23日 実測・lines 99.41／functions 94.87／statements 98.35） |
+| L2 | Jest ユニットテスト | ✅ | 件数は書かない（増減で腐るため）。実数は `npm run test:coverage:ci` の出力で取る |
+| L3 | Jest ブランチカバレッジ 100% | ✅ | branches 100% を `jest.config.js` の `coverageThreshold` が CI で強制。実数は `npm run test:coverage:ci` の出力で取る |
 | L4 | Stryker ミューテーション | ✅ | agent1 4ソース（i18n / seo-constants / seo-snippets / json-ld）Survived=0 を Stryker 公式実行で確定（2026-05-31）。高負荷下のOOM kill回避のため8分割並列＋順次リトライで完走。seo-snippets.ts の生存1体（`.slice(0,180)` 削除）は到達不能な防御コードに起因する等価変異だったため、180字上限を純粋関数 `truncateText`＋定数 `INTRO_MAX_LENGTH` に抽出し境界テストで kill 可能化（症状抑止ではなく予防的根本解決）。変更範囲 Stryker 再実行で Mutation score 100.00 確認。stryker.config.mjs の mutate は純粋10モジュール（上記4＋constants/safe/image-utils/jobs/validations/validations-booking/validations-auth）を break:100 で列挙済み（ただし上記4以外は未検証＝下記）。**【2026-06-10 恒久対策＋validations.ts 実測完了】**: 過去の「validations.ts 100%確定」誤報告の**根本原因を事実で確定**＝Stryker の TS チェッカーが `tsconfig.json`（`include` に `.next/types/**/*.ts` を含む）経由で **stale な Next.js 生成ルート型（main 不在ルートを参照し TS2307 大量発生）を読み込みクラッシュ**し、ミューテーション実測前に異常終了していた（`.next/types/app/admin/salon-board/page.ts` 等で再現確認済み）。**恒久的根本解決**: Stryker 専用 `tsconfig.stryker.json`（`.next` を一切 include しない・`incremental:false` で本体ビルドキャッシュ非汚染）を新設し、`stryker.config.mjs` の `tsconfigFile` をこれに切替。`.next` の状態・ブランチに依存せず**再現性100%**で TS チェック成立（tsc 実測：`.next/types` エラー 0・全エラー 0）。本体 `tsconfig.json` は無変更＝build/dev/通常 tsc に**副作用ゼロ**（症状ブロック＝手動 `.next` 再生成ではなく構造的予防）。この対策下で **`validations.ts`（124 mutant）の Stryker 本実行を完走**: **Mutation score 100.00%・Survived=0**（Killed 52／Timeout 5／NoCoverage 0／Ignored 66=静的変異 `ignoreStatic`／CompileError 1=TS が拒否＝分母外、所要 36分48秒、concurrency 1）。ログ集計表と `reports/mutation/mutation.json` の独立再計算が一致＝exit code でなく実データで確定。**【2026-06-10 全10モジュール実測完了】**: 上記恒久対策下で `stryker.config.mjs` の mutate 対象**全10モジュールを1ファイルずつ非並行で実測完走し、全て Survived=0（Mutation score 100.00%）を実データ確定**（各モジュールごとにログ集計表と mutation.json を独立再計算して照合・exit code 非依存）。内訳: validations(Killed52/TO5)・constants(Killed11)・safe(Killed13/TO5)・image-utils(Killed7/TO15)・jobs(Killed32/TO6)・validations-booking(Killed35/TO2)・validations-auth(Killed3)＝本日実測、i18n/seo-constants/seo-snippets＝2026-05-31実測（json-ld は 2026-05-30 実測・mutate 列挙外で別途確定）。constants.ts では生存3変異を性質別に恒久対処（URL正規化の境界テスト追加で実 kill／冗長デフォルトを1箇所集約し実 kill 化／dayLabels の静的データ定数 ObjectLiteral は kill 不能な等価変異として既存 disable と一貫させ除外・神原さん承認済み）。他9モジュールは無修正で 100%。**【2026-06-11 時間切れマスク恒久対策＋全10モジュール再現性確認完了】**: 神原さんの「本当に言い切れるか」の再検証要求で全モジュールを再実行したところ、**image-utils の初回「100%」が偽陽性**だったと判明。Stryker は Timeout も kill 扱いにするため、jest プロセス起動オーバーヘッド（高負荷時 ~40秒〜）が旧 `timeoutMS:30000` を超えると本来 Survived の変異まで時間切れ＝kill に誤計上され、**真の取りこぼしがマスクされる**（image-utils 初回 Timeout15 に Survived2 が埋もれていた）。**根本原因＝timeoutMS が jest 起動コストに対し低すぎ**。対象は全て純粋関数（ループ無し＝無限ループ変異が原理上発生せず、時間切れは 100% jest 起動由来の偽陽性）。**恒久対策＝timeoutMS を 30000→120000→300000 に引き上げ**（高負荷の連続実行で 120000 でもスパイクが超えたため 300000 で確定）。image-utils の実テストギャップ2件（width/quality 未指定で `=undefined` 付与）はテスト追加で実 kill（PR#94）。**timeoutMS300 下で全10モジュールを1本ずつ再実行し、全て Survived=0 かつ Timeout=0（非ループの偽時間切れ皆無）を実データ確定**: image-utils K22／jobs K38／validations-booking K37／validations-auth K3／i18n K7／seo-constants K2／constants K11／safe K18／validations K57／seo-snippets K55（各 Timeout0・Survived0）。**【2026-06-16 validations-booking 再実測（PR#158 `.refine(isValidIsoDate)` 追加後）】**: PR#158 で `validations-booking.ts` に `booking_date` 実在日検証 `.refine` を1行追加したため、Survived=0 を実データで再確認。timeoutMS300・concurrency 1・tsconfigFile=tsconfig.stryker.json 下で Stryker 本実行を完走（87 mutant）: **Mutation score 100.00・Survived=0・Timeout=0・NoCoverage=0**（Killed 37／CompileError 2=TS が型レベルで拒否＝分母外／Ignored 48=`ignoreStatic` 静的変異、所要 41分16秒）。ログ集計表と `reports/mutation/mutation.json` の独立再計算（node で status 集計）が一致＝exit code 非依存で実データ確定。2027-02-30 等の実在しない暦日を弾く回帰テストが新規 `.refine` 由来の変異を全 kill。**L4 完遂＝全対象モジュールでテストが全変異を捕捉（取りこぼし0）を、時間切れマスクのない信頼できる実データで確定。** |
 | L5 | fast-check プロパティベース | ✅ | 26テスト＋safeJsonLd プロパティ7件、バグ3件修正 2026-05-29／json-ld 追加 2026-05-30 |
 | L6 | npm audit / 認証テスト | ✅ | critical=0・high=0、認証バイパステスト 21件（HMAC検証・middleware） 2026-05-29 達成 |
