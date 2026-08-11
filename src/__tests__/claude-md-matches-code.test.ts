@@ -91,6 +91,9 @@ describe('CLAUDE.md はコードと一致している', () => {
       'isNewStockImage',
       'STOCK_IMAGE_DOMAINS',
       'isAllowedStorageUrl',
+      'diagnose-treatment-tables.sql',
+      'diagnostic-sql-columns.test.ts',
+      '@check',
     ]) {
       expect(MD).toContain(sym);
     }
