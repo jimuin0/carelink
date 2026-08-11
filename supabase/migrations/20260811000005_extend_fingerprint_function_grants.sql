@@ -1,36 +1,65 @@
 -- ============================================================================
--- スキーマ・フィンガープリント（本番 / shadow の両方で同じものを実行する）
+-- 🔴 接続先ガード（2026年8月2日・実際に 4 回連続で誤ったプロジェクトへ実行した）
 -- ============================================================================
--- 目的:
---   「期待スキーマ」を人が JSON で手管理するのをやめる。migration を使い捨て
---   Postgres に全適用した結果（= shadow）と本番を、この 1 本の SQL で同じ形に
---   落として突合する。手管理が無いので陳腐化しない。
+-- この migration は SQL Editor へ手で貼って適用する運用があるため、
+-- 「どのプロジェクトに貼っているか」を人の目視に頼ると必ず間違える。実際に、
+-- project ref を明示した指示を出した後も soel(lsrbeugmqqqklywmvjjs) で実行され続け、
+-- soel のスキーマを CareLink の期待値と突合して
+-- 「RLS が 90 本欠落」という**存在しない重大事故を報告しかけた**。
 --
--- 🔴 なぜ必要か（2026年8月2日 実測）:
---   旧方式は src/lib/schema-constraints-snapshot.json を手管理しており、
---   migration 20260722000005 が UNIQUE(facility_id,is_active) を意図的に DROP した
---   のに JSON だけ取り残され、毎日「制約欠落1」を誤報し続けていた。
---   しかも旧 RPC は pg_constraint の contype IN ('p','u') しか読まず、
---   FK / CHECK / インデックス / RLS ポリシー / 列の型・NOT NULL・DEFAULT /
---   トリガ / 関数 / enum / 権限 を【一切見ていなかった】。
---
--- 出力: 1 列 (line text) を ORDER BY した行集合。両側の結果を集合差分すれば
---   ドリフトが出る。行は「種別|対象|詳細」の固定書式。
---
--- 誤報を出さないための設計:
---   - public スキーマのみ（auth/storage 等は Supabase 管理で migration 対象外）
---   - 拡張が所有するオブジェクトは全除外（postgis のバージョン差が誤報になる）
---   - 関数本体は md5 で持つ（整形の揺れではなく実体の変化だけを見る）
---   - 内部トリガ（制約由来）は除外
---   - 列は attnum ではなく名前で識別（列順の違いを誤報にしない）
---
--- ⚠️ shadow と本番の PostgreSQL メジャーバージョンを揃えること。
---   pg_get_constraintdef / pg_get_indexdef / pg_get_expr の整形はバージョン間で
---   変わり得るため、揃えないと「差分ではない差分」が出る。
---   これは注意書きではなく機械強制されている（下の meta| 行を参照）。人が事前に
---   `SELECT current_setting('server_version_num')` を比較する運用には頼らない。
--- ============================================================================
+-- CareLink にしか存在しないテーブルの実在を条件にして、違う DB なら**即座に落とす**。
+-- 何も作らずに終わるので、誤ったプロジェクトが汚れることはない。
+DO $guard$
+BEGIN
+  IF to_regclass('public.facility_profiles') IS NULL THEN
+    RAISE EXCEPTION
+      'このデータベースは CareLink ではありません（public.facility_profiles が存在しない）。'
+      ' 接続先プロジェクトを確認してください。CareLink の本番 ref は xzafxiupbflvgbarrihe です。';
+  END IF;
+END
+$guard$;
 
+-- 本番スキーマの完全フィンガープリントを返す introspection RPC。
+--
+-- 🔴 2026年8月11日: FUNCTION の EXECUTE 権限を新たに監視対象へ追加（機能追加の再発行）。
+--   admin/SECURITY DEFINER 関数の EXECUTE 権限が out-of-band で anon へ広げられても、
+--   これまでの版はテーブルの GRANT しか見ておらず「ドリフトなし」と報告する死角が
+--   あった（migration に GRANT/REVOKE EXECUTE が約 71 件あるが 1 件も監視されて
+--   いなかった）。新設した `functiongrant|<function identity>|<role>|EXECUTE` 行の
+--   設計・NULL proacl の扱いは scripts/schema-fingerprint.sql 本体のコメントを参照
+--   （関数本体はここへ機械転記されるだけで、判断根拠は 1 箇所にしか書かない）。
+--
+-- 🔴 なぜ要るか（2026年8月2日 実測・初版時点の背景）:
+--   既存の get_public_columns() は「テーブル存在＋列【名】」だけ、
+--   get_public_constraints() は pg_constraint の contype IN ('p','u') だけを見ていた。
+--   その結果、次が【一切監視されていなかった】:
+--     列の型 / NOT NULL / DEFAULT、FOREIGN KEY、CHECK、インデックス（部分ユニーク含む）、
+--     RLS ポリシー（実測 131 本＝施設間データ分離の実体）、トリガ、関数本体、enum、GRANT。
+--   加えて期待値を src/lib/schema-constraints-snapshot.json で人が手管理していたため、
+--   migration 20260722000005 が UNIQUE(facility_id,is_active) を意図的に DROP した際に
+--   JSON だけ取り残され、**毎日「制約欠落1」を誤報し続けていた**。
+--
+--   本 RPC は shadow DB（migration を使い捨て Postgres に全適用したもの）に対して
+--   実行するのと**完全に同一の SQL**を本番で実行する。両者を突合するので、
+--   期待値の手管理が構造的に不要になる。
+--
+-- ⚠️ 本文は scripts/schema-fingerprint.sql からの【機械転記】。手で編集しないこと。
+--   両者が 1 文字でもズレると突合が無意味になるため、CI
+--   （src/lib/__tests__/schema-fingerprint-rpc-parity.test.ts）が同一性を強制する。
+--
+-- 返却: 1 個の jsonb 配列（PostgREST の 1000 行上限を受けない集約返し）。
+-- 副作用なし（SELECT のみ）。anon/authenticated からは実行不可（service_role 限定）。
+
+CREATE OR REPLACE FUNCTION public.get_schema_fingerprint()
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $fingerprint$
+  SELECT coalesce(jsonb_agg(q.line ORDER BY q.line COLLATE "C"), '[]'::jsonb)
+  FROM (
+-- >>> BEGIN scripts/schema-fingerprint.sql（自動転記・手で編集しない） >>>
 WITH ext_objs AS (
   -- 拡張が所有する oid（テーブル/関数/型）を全部集める
   SELECT objid FROM pg_depend WHERE deptype = 'e'
@@ -208,4 +237,11 @@ SELECT regexp_replace(line, '\s+', ' ', 'g') AS line FROM (
 --   **中身が完全に同一なのに 218 行が並び順だけズレて差分になった**（実測）。
 --   本番 Supabase の照合順序は環境依存なので、放置すれば永続的な誤報源になる。
 --   COLLATE "C" はバイト順で、どの環境でも同一の並びになる（両ロケールで完全一致を実測）。
-ORDER BY line COLLATE "C";
+ORDER BY line COLLATE "C"
+-- <<< END scripts/schema-fingerprint.sql <<<
+  ) q;
+$fingerprint$;
+
+REVOKE ALL ON FUNCTION public.get_schema_fingerprint() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.get_schema_fingerprint() FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_schema_fingerprint() TO service_role;
