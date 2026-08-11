@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { isStockImageUrl, STOCK_IMAGE_ERROR } from '@/lib/stock-image-guard';
 
 const menuSchema = z.object({
   category: z.string().min(1).max(50),
@@ -75,6 +76,12 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const parsed = menuSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
+
+  // ストック写真の新規登録を拒否する（src/lib/stock-image-guard.ts）。新規作成なので
+  // 「既存値と同じ」は原理上ありえず、素通し条件は不要。
+  if (isStockImageUrl(parsed.data.photo_url)) {
+    return NextResponse.json({ error: STOCK_IMAGE_ERROR }, { status: 400 });
+  }
 
   const admin = createServiceRoleClient();
 

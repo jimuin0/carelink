@@ -117,6 +117,36 @@ API キーの疎通だけでなく、**Resend の `/domains` を実際に引い�
 【意図】メールを1通も送らずに設定の正誤を判定できるようにするため。倒す実装だけでは
 「配信は救われるが設定は誤ったまま緑に隠れる」ので、倒した事実を監視に出している。
 
+### 画像URLの2段ガード＝`storage-url-guard.ts` / `stock-image-guard.ts`
+
+画像URLを受け取る入口は、必ずこのどちらかを通す。**どちらも通っていない入口が1つでもあると
+`src/__tests__/stock-image-guard-wiring.test.ts` が CI で落ちる**（判定関数が「在るだけで
+配線されていない」状態を緑にしないため）。
+
+- `isAllowedStorageUrl(url, bucket)`（`storage-url-guard.ts`）… 自 Supabase Storage の公開
+  プレフィックス限定。外部ホストを一切保存させない。`salons` / `review` の写真がこれ。
+- `isStockImageUrl(url)` / `isNewStockImage(next, previous)`（`stock-image-guard.ts`）…
+  任意の https URL を受け付けざるを得ない入口＝`feature_articles.image_url`（`admin/features`）と
+  `facility_menus.photo_url`（`admin/menus`）で、**ストック写真サービス（Unsplash 等
+  `STOCK_IMAGE_DOMAINS`）の新規保存だけ**を拒否する。
+
+【なぜストック画像を止めるか】初期シード（`20260321000004` / `20260331000001` /
+`scripts/seed-facilities.mjs`）が実店舗の写真の代わりに Unsplash URL を投入したため、本番に
+「実在しない施設写真」が残っている。表示のために `next.config.mjs` の `remotePatterns` へ
+`images.unsplash.com` を許可し続けるしかなく、任意のホットリンク画像を出せる外部ホストが
+1つ常設された状態になっている。既存分の差し替えは本番データの作業だが、増やさないのはコードの仕事。
+
+🔴 **`isNewStockImage` が「既存値と同一なら素通し」なのは順序依存を消すため。** 管理画面は
+フォーム全体を PATCH するので、画像を変えない更新でも image_url/photo_url は必ず載ってくる。
+無条件に拒否すると、ストック画像が残っている記事・メニューを一切編集できなくなり、
+「本番データの掃除 → ガード投入」の順序でしか入れられなくなる。素通し条件があるので**掃除より
+先に入れても安全**（掃除後は素通しする値が存在しないので挙動は変わらない）。
+
+⚠️ **`next.config.mjs` から `images.unsplash.com` を外すのは本番データの差し替えが済んでから。**
+先に外すと既存画像が next/image で 400 になり `/search`・`/ranking` の表示が壊れる
+（2026年7月5日に実機で発生済み）。この順序は上記テストが 1 本の検査で固定しており、
+差し替え完了時にその検査ごと削除する。
+
 ### Supabase クライアントの使い分け
 - `createServerSupabaseClient`（`supabase-server.ts`）＝anon。公開データの読み取り専用。書き込み・ユーザー固有データに使わない。
 - `createServiceRoleClient`（`supabase-server.ts`）＝service role。RLS バイパス。API ルート・cron などサーバー信頼文脈のみ。
