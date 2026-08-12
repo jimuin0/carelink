@@ -6,6 +6,7 @@
 import { createServiceRoleClient } from './supabase-server';
 import { getClientIp } from './client-ip';
 import { alertCaughtError } from './alert';
+import { runAfterResponse } from './after-response';
 
 export type AuditAction =
   | 'create'
@@ -47,6 +48,16 @@ export interface AuditLogEntry {
  *   // await writeAuditLog(...);  ← 不要な await
  */
 export async function writeAuditLog(entry: AuditLogEntry): Promise<void> {
+  // 🔴 レスポンス送出後の実行を保証させる（src/lib/after-response.ts を参照）。
+  // 従来は呼び出し側の `void writeAuditLog(...)` が浮いた Promise のままで、サーバーレスが
+  // レスポンス後にインスタンスを凍結するとそのまま失われていた。本番の audit_logs が
+  // 全期間 5 行（うち 4 行は DB トリガ由来）しか無かったのはこれが主因と見ている。
+  // after() に登録できた本番経路では即座に resolve する（応答を遅らせない）。
+  // リクエストスコープ外（スクリプト・単体テスト）では insert の完了まで待つ返り値になる。
+  return runAfterResponse(() => insertAuditLog(entry));
+}
+
+async function insertAuditLog(entry: AuditLogEntry): Promise<void> {
   try {
     const supabase = createServiceRoleClient();
     const { error: insertErr } = await supabase.from('audit_logs').insert({
