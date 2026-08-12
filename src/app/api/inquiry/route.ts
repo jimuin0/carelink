@@ -7,6 +7,7 @@ import { sendNewInquiryNotification } from '@/lib/email';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { sendNotify } from '@/lib/notify';
+import { runAfterResponse } from '@/lib/after-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -136,7 +137,7 @@ export const POST = withRoute(async (request) => {
   // 共有ロジック sendNotify をこのサーバー側から直接呼ぶ（contact.ts/salons.ts と同型）。
   // facility_name はクライアント値ではなく上で確定したサーバー権威の facility.name を使う
   // （なりすまし防止は上の facility_profiles 確認で既に担保済みだが、Slack表示も一貫させる）。
-  sendNotify({
+  runAfterResponse(() => sendNotify({
     type: 'facility_inquiry',
     data: {
       facility_name: facility.name,
@@ -147,7 +148,7 @@ export const POST = withRoute(async (request) => {
     },
   }).then((r) => {
     if (!r.ok) console.error('[inquiry] Slack notification failed', { error: r.error });
-  }).catch((err) => console.error('[inquiry] Slack notification failed', { err }));
+  }).catch((err) => console.error('[inquiry] Slack notification failed', { err })));
 
   return NextResponse.json({ success: true, id: data.id });
 }, {
