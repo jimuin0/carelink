@@ -111,6 +111,54 @@ describe('sitemap の特集ページは施設が出るものだけ載せる', ()
   });
 });
 
+/**
+ * 一覧 `/feature` 自体の掲載可否（2026年8月12日 追加）。
+ *
+ * 本番の特集 21 件はフィルタ未設定で同じ3施設を返す重複コンテンツであり、一括非公開にすると
+ * 一覧が空になる。詳細を除外しておきながら一覧だけ出すのは規則として一貫しないため、
+ * 載せる詳細が 1 本も無いときは一覧も出さない（ページ側は noindex で補完する）。
+ */
+describe('sitemap の特集一覧ページ', () => {
+  const LIVE_2 = [
+    { slug: 'hal', prefecture: '大阪府', business_type: 'ネイル・まつげサロン', city: '豊中市' },
+  ];
+
+  async function allUrls(
+    facilities: Parameters<typeof setupFeatureSitemapMock>[0],
+    features: Parameters<typeof setupFeatureSitemapMock>[1]
+  ): Promise<string[]> {
+    let sitemapDefault!: () => Promise<{ url: string }[]>;
+    jest.isolateModules(() => {
+      setupFeatureSitemapMock(facilities, features);
+      jest.doMock('@/lib/feature-toggles', () => ({ SHOW_JOBS: false }));
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      sitemapDefault = require('../sitemap').default;
+    });
+    return (await sitemapDefault()).map((r) => r.url);
+  }
+
+  test('公開中の特集が1件も無ければ /feature を載せない', async () => {
+    const urls = await allUrls(LIVE_2, []);
+    expect(urls).not.toContain('https://carelink-jp.com/feature');
+  });
+
+  test('載せる詳細が全て除外されるなら /feature も載せない', async () => {
+    const urls = await allUrls(LIVE_2, [
+      { slug: 'spring-hair-2026', filter_type: 'ヘアサロン', filter_prefecture: null },
+    ]);
+    expect(urls).not.toContain('https://carelink-jp.com/feature');
+    expect(urls.some((u) => u.includes('/feature/'))).toBe(false);
+  });
+
+  test('載せる詳細が1本でもあれば /feature も載せる', async () => {
+    const urls = await allUrls(LIVE_2, [
+      { slug: 'eyelash-special', filter_type: 'ネイル・まつげサロン', filter_prefecture: null },
+    ]);
+    expect(urls).toContain('https://carelink-jp.com/feature');
+    expect(urls).toContain('https://carelink-jp.com/feature/eyelash-special');
+  });
+});
+
 describe('sitemap SHOW_JOBS branch', () => {
   test('SHOW_JOBS=false のとき /jobs 系 URL を一切含まない', async () => {
     let sitemapDefault!: () => Promise<{ url: string }[]>;

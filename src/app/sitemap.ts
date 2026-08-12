@@ -146,15 +146,22 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     .select('slug, updated_at, filter_type, filter_prefecture')
     .eq('is_published', true);
 
+  const qualifyingFeatures = (features || []).filter((f) => {
+    // 空文字は「未設定」扱い（ページ側 `feature.filter_type || undefined` と同じ意味論）。
+    if (f.filter_type && !occupiedBusinessTypeRaw.has(f.filter_type)) return false;
+    if (f.filter_prefecture && !occupiedPrefectureRaw.has(f.filter_prefecture)) return false;
+    return true;
+  });
+
+  // 一覧 `/feature` 自体も、載せる詳細ページが 1 本も無いなら出さない。
+  // 中身が「特集記事を準備中です」だけのページを検索エンジンへ提出しても価値が無く、
+  // 詳細ページを除外しておきながら一覧だけ出すのは規則として一貫しない
+  // （ページ側は generateMetadata が空リストのとき noindex を出して補完する）。
   const featurePages: MetadataRoute.Sitemap = [
-    { url: `${SITE_URL}/feature`, lastModified: updated, changeFrequency: 'weekly' as const, priority: 0.6 },
-    ...(features || [])
-      .filter((f) => {
-        // 空文字は「未設定」扱い（ページ側 `feature.filter_type || undefined` と同じ意味論）。
-        if (f.filter_type && !occupiedBusinessTypeRaw.has(f.filter_type)) return false;
-        if (f.filter_prefecture && !occupiedPrefectureRaw.has(f.filter_prefecture)) return false;
-        return true;
-      })
+    ...(qualifyingFeatures.length > 0
+      ? [{ url: `${SITE_URL}/feature`, lastModified: updated, changeFrequency: 'weekly' as const, priority: 0.6 }]
+      : []),
+    ...qualifyingFeatures
       .map((f) => ({
         url: `${SITE_URL}/feature/${f.slug}`,
         lastModified: f.updated_at ? new Date(f.updated_at) : updated,
