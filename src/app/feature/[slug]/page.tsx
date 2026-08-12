@@ -20,14 +20,42 @@ interface Props {
   params: Promise<{ slug: string }>;
 }
 
+/**
+ * 特集の絞り込み条件で実際に出る施設を取る。
+ * generateMetadata（noindex 判定）とページ本体で同じ条件を使うため関数化する
+ * （片方だけ条件を変えると「本文は空なのに index される」ズレが生まれるため）。
+ */
+async function facilitiesForFeature(feature: {
+  filter_type: string | null;
+  filter_keyword: string | null;
+  filter_prefecture: string | null;
+}) {
+  return searchFacilities({
+    type: feature.filter_type || undefined,
+    keyword: feature.filter_keyword || undefined,
+    prefecture: feature.filter_prefecture || undefined,
+    sort: 'rating',
+  });
+}
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const feature = await getFeatureBySlug(slug);
   if (!feature) return {};
 
+  // 【2026年8月12日】施設が0件の特集はインデックスさせない。
+  // 本番実測で公開中24件のうち3件が0件だった（filter_type が実在しない business_type、
+  // filter_keyword が誰にも当たらない、等）。中身の無いページを検索結果に出すのは
+  // ユーザーにも評価にも不利。条件を変えれば自動で復帰する形で塞ぐ
+  // （手動フラグにすると戻し忘れが必ず起きる）。
+  // sitemap 側は type/prefecture でしか除外できず、keyword 由来の0件はここでしか分からない。
+  // follow は残す（掲載施設へのリンクは辿らせる）。
+  const { facilities } = await facilitiesForFeature(feature);
+
   return {
     title: feature.title,
     description: feature.description || `${feature.title} | CareLink 特集`,
+    robots: facilities.length === 0 ? { index: false, follow: true } : undefined,
     alternates: { canonical: `${SITE_URL}/feature/${slug}` },
     openGraph: {
       title: `${feature.title} | CareLink`,
@@ -44,13 +72,8 @@ export default async function FeatureDetailPage({ params }: Props) {
   const feature = await getFeatureBySlug(slug);
   if (!feature) notFound();
 
-  // 関連施設を取得
-  const { facilities } = await searchFacilities({
-    type: feature.filter_type || undefined,
-    keyword: feature.filter_keyword || undefined,
-    prefecture: feature.filter_prefecture || undefined,
-    sort: 'rating',
-  });
+  // 関連施設を取得（generateMetadata の noindex 判定と同じ条件＝facilitiesForFeature を共用）
+  const { facilities } = await facilitiesForFeature(feature);
 
   return (
     <div className="min-h-screen bg-gray-50">
