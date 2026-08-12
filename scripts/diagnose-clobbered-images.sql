@@ -24,6 +24,29 @@
 -- @check audit_logs.created_at
 -- =============================================================================
 
+
+-- =============================================================================
+-- 🔴 接続先ガード（先頭で必ず実行される）
+--
+-- Supabase の SQL Editor はプロジェクトごとにタブが開くため、【別プロジェクトのタブに
+-- 貼ってしまう】事故が繰り返し起きている（2026年8月2日 soel で実行し「RLS が90本欠落」
+-- という存在しない事故を報告しかけた／2026年8月12日 admin-dashboard で実行し
+-- 「audit_logs が存在しない」となった）。人の注意力では防げないので、SQL 自身に検査させる。
+--
+-- CareLink 本番 project ref = xzafxiupbflvgbarrihe
+-- 目印テーブルが揃っていなければ、以降を1行も実行せずに落とす。
+-- =============================================================================
+DO $connguard$
+BEGIN
+  IF to_regclass('public.facility_profiles') IS NULL
+     OR to_regclass('public.facility_menus') IS NULL
+     OR to_regclass('public.audit_logs') IS NULL THEN
+    RAISE EXCEPTION
+      '接続先が CareLink 本番ではありません。project ref = xzafxiupbflvgbarrihe のタブで実行してください（現在の接続先には facility_profiles / facility_menus / audit_logs のいずれかがありません）';
+  END IF;
+END
+$connguard$;
+
 -- ① 画像が入っていない行がどれだけあるか（母数つき。比率で見ないと多寡が判断できない）
 SELECT 'facility_menus.photo_url' AS target,
        count(*) FILTER (WHERE photo_url IS NULL OR photo_url = '') AS empty_rows,
