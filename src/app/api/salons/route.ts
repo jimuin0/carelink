@@ -11,6 +11,7 @@ import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
 import { phoneField as sharedPhoneField } from '@/lib/phone';
 import { verifyRecaptcha } from '@/lib/recaptcha';
 import { sendNotify } from '@/lib/notify';
+import { runAfterResponse } from '@/lib/after-response';
 import { businessTypes } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
@@ -171,7 +172,7 @@ export const POST = withRoute(async (request) => {
   // d.source で recruit（掲載申し込み）/ register（無料掲載登録）を判定し、従来クライアントが
   // 送っていたのと同じ Slack メッセージ種別・内容を1件も欠落させず送る。
   if (d.source === 'register') {
-    sendNotify({
+    runAfterResponse(() => sendNotify({
       type: 'salon',
       data: {
         facility_name: d.facility_name,
@@ -184,9 +185,9 @@ export const POST = withRoute(async (request) => {
       },
     }).then((r) => {
       if (!r.ok) console.error('[salons] Slack notification failed', { error: r.error });
-    }).catch((err) => console.error('[salons] Slack notification failed', { err }));
+    }).catch((err) => console.error('[salons] Slack notification failed', { err })));
   } else {
-    sendNotify({
+    runAfterResponse(() => sendNotify({
       type: 'facility',
       data: {
         facility_name: d.facility_name,
@@ -197,7 +198,7 @@ export const POST = withRoute(async (request) => {
       },
     }).then((r) => {
       if (!r.ok) console.error('[salons] Slack notification failed', { error: r.error });
-    }).catch((err) => console.error('[salons] Slack notification failed', { err }));
+    }).catch((err) => console.error('[salons] Slack notification failed', { err })));
   }
 
   return NextResponse.json({ success: true, id: data.id });
