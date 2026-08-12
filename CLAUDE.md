@@ -423,6 +423,16 @@ npm run test:all            # test:ci → test:e2e
    実行され**、soel のスキーマを CareLink の期待値と突合して
    「RLS が 90 本欠落」という**存在しない事故を報告しかけた**。
    数字が大きくズレたら、まず「同じ DB を見ているか」を疑うこと。
+   ✅ **この形は cron/CLI の自動経路では塞いである**（`src/lib/schema-drift.ts`）。
+   期待側と実測側の重なりが `SAME_DATABASE_MIN_OVERLAP = 0.5`（50%）を割ったら、
+   差分を数える**前に** `differentDatabase` として返す。CLI 側は `scripts/schema-diff.mjs` の
+   `comparabilityProblem` が同じ判定を持つ（項目 9 参照）。
+   ⚠️ ただし**手で SQL Editor を叩くときは依然として無防備**（同じ誤接続の事故が複数回起きている）。
+   調査クエリには必ず `(to_regclass('public.facility_profiles') IS NOT NULL) AS is_carelink` を
+   SELECT に埋め込み、結果に接続先を残すこと。migration 側は
+   `20260803000001_restore_missing_triggers.sql` 冒頭の `DO $guard$` が
+   `public.facility_profiles` の不在で例外を投げる形を持つ（誤った DB へ適用しても何も作らない）。
+   同じ守り方（適用前に `to_regclass` で接続先を確認して落とす）は新しい migration にも踏襲すること。
 6. 🔴 **bootstrap は Supabase の既定権限も再現する。** Supabase は
    `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated,
    service_role` を持つため、public の全テーブルに 3 ロール分の GRANT が自動で付く。
@@ -445,6 +455,36 @@ npm run test:all            # test:ci → test:e2e
    これは不便ではなく正しい: 本番の RPC 本文がリポジトリとズレていれば
    **両側で違う SQL を実行している**＝突合が無意味なので、必ず赤くならなければいけない。
    手順は「SQL を編集 → 期待値を再生成 → 本番へ migration を再適用」の 3 点セット。
+   本番側の実体は RPC `public.get_schema_fingerprint()`（cron がこれを呼ぶ）。
+   **本番にこの RPC が無ければ突合は一度も成立しない**ので、初回導入時は本番への適用が必須。
+11. 🔴 **タイムスタンプ接頭辞の無い migration に関数定義を置かない。**
+   シェルの glob も `supabase start` も**辞書順**で適用するため、接頭辞の無いファイル
+   （`combined_phase2_to_6.sql`）は必ず `2026*` の**後**に走る。そこに
+   `CREATE OR REPLACE FUNCTION` があると、後続 migration の改良を毎回無条件で巻き戻す。
+   実際に `get_available_slots` と `handle_new_user` がこの形で複数本の改良を
+   fresh-apply のたびに失っていた。**実害は「新環境が古くなる」だけではない** —
+   CI は `supabase start` で fresh-apply した DB に E2E を回すため、
+   古い定義（営業時間ガードやバッファの無い版）を検証し続けていた
+   （＝乖離を捕まえるためのゲートが本番と別物を検証していた）。
+   ⚠️ ファイル名を時系列に直す案は**不可**。実際に改名して試したところ
+   `ERROR: relation "facility_reviews" does not exist` で落ちた＝最後に走る必要がある。
+   真の予防は「最後に走るファイルへ関数定義を**置けなくする**」で、
+   `src/lib/__tests__/migration-last-file-guard.test.ts` が機械強制する（空振り下限あり）。
+   1 本ずつ気づいて消す運用は発火源の列挙で、次に足される定義を守らない。
+
+### 🔴 差分を調べるときの手順（この順で。逆をやると必ず間違える）
+
+1. **接続先の識別子を結果に埋め込む。** 上記「触るときの鉄則」項目5の `is_carelink` を
+   SELECT に入れる。入れ忘れて別プロジェクトの結果を CareLink のものとして読む事故が
+   複数回起きている
+2. **件数差から内訳を語らない。** 「同じオブジェクトの定義違い」は extra と missing に
+   1 件ずつ出るため、**単純な件数差では相殺されて見えなくなる**。件数の一致・不一致だけで
+   内訳を推測しないこと
+3. 種別（`kind|target|detail` の `kind`）ごとの md5 → (種別, テーブル) ごとの md5 → 該当行、
+   と**絞り込んでから**中身を見る（`scripts/schema-fingerprint.sql` の出力形式）
+4. 関数の `body_md5` 相違は**コメントや改行だけのことがある**。
+   `md5(regexp_replace(regexp_replace(prosrc,'--[^\n]*','','g'),'\s+',' ','g'))`
+   で比較すれば装飾差とロジック差を機械的に分けられる
 
 ### 現在の未解決差分（2026年8月4日時点・実測）
 
