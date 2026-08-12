@@ -130,12 +130,35 @@ describe('ストック画像がこれ以上増えていない', () => {
 });
 
 /**
- * 【撤去の順序】本番 DB に残るストック画像（施設写真・特集記事・ブログ）を差し替える前に
- * remotePatterns から images.unsplash.com を外すと、既存画像が next/image で 400 になり
- * /search・/ranking の表示が壊れる（2026年7月5日に実機で発生済み）。
- * 差し替えが完了したら、この検査ごと削除して remotePatterns からも外すこと。
+ * 【2026年8月12日 撤去完了・検査を反転】
+ * かつてはここで「images.unsplash.com の許可を【外すな】」を固定していた。本番 DB に残る
+ * ストック画像を差し替える前に remotePatterns から外すと、既存画像が next/image で 400 になり
+ * /search・/ranking の表示が壊れるため（2026年7月5日に実機で発生済み）。
+ *
+ * 本番の全画像列24本を棚卸ししてストック写真が1件も残っていないことを確認し、撤去した。
+ * 以後の危険は逆方向＝【うっかり足し戻す】ことなので、検査も反転させる。
+ *
+ * remotePatterns に載ったホストは「任意の画像を next/image 経由で表示できるドメイン」になる。
+ * 自 Supabase Storage 以外を足すときは、その画像の出所を誰が保証するのかを先に決めること。
  */
-it('本番データの差し替えが済むまで images.unsplash.com の許可を外さない', () => {
+describe('next/image の許可ホスト', () => {
   const cfg = readFileSync(join(ROOT, 'next.config.mjs'), 'utf8');
-  expect(cfg).toContain('images.unsplash.com');
+  // 判定は `hostname: '…'` の実値だけを見る。散文（撤去の経緯説明）にはサービス名が出るので、
+  // 全文検索にすると「なぜ外したか」を書き残せなくなる。
+  const hosts = [...cfg.matchAll(/hostname:\s*'([^']+)'/g)].map((m) => m[1]);
+
+  it('許可ホストを抽出できている（空振り防止）', () => {
+    expect(hosts.length).toBeGreaterThan(0);
+  });
+
+  it('ストック写真サービスを許可していない', () => {
+    const allowed = hosts.filter((h) =>
+      STOCK_IMAGE_DOMAINS.some((d) => h === d || h.endsWith(`.${d}`))
+    );
+    expect(allowed).toEqual([]);
+  });
+
+  it('許可ホストは自 Supabase Storage だけ', () => {
+    expect(hosts).toEqual(['xzafxiupbflvgbarrihe.supabase.co']);
+  });
 });

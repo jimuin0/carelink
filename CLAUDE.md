@@ -165,10 +165,15 @@ API キーの疎通だけでなく、**Resend の `/domains` を実際に引い�
   `STOCK_IMAGE_DOMAINS`）の新規保存だけ**を拒否する。
 
 【なぜストック画像を止めるか】初期シード（`20260321000004` / `20260331000001` /
-`scripts/seed-facilities.mjs`）が実店舗の写真の代わりに Unsplash URL を投入したため、本番に
-「実在しない施設写真」が残っている。表示のために `next.config.mjs` の `remotePatterns` へ
-`images.unsplash.com` を許可し続けるしかなく、任意のホットリンク画像を出せる外部ホストが
-1つ常設された状態になっている。既存分の差し替えは本番データの作業だが、増やさないのはコードの仕事。
+`scripts/seed-facilities.mjs`）が実店舗の写真の代わりに Unsplash URL を投入し、表示のために
+`next.config.mjs` の `remotePatterns` へ `images.unsplash.com` を許可し続けるしかない状態が続いていた
+（＝任意のホットリンク画像を出せる外部ホストが1つ常設されていた）。
+
+✅ **2026年8月12日に解消済み。** 本番の全画像列24本を `scripts/diagnose-stock-images.sql` で
+棚卸しして **0 件**（ストック写真が1つも残っていない）を確認し、`remotePatterns` から
+`images.unsplash.com` を撤去した。許可ホストは自 Supabase Storage の1本だけ。
+以後の危険は逆方向＝**うっかり足し戻す**ことなので、`stock-image-guard-wiring.test.ts` の検査も
+「外すな」から「足すな」へ反転させてある（許可ホストの実値だけを見るので、経緯の説明は書き残せる）。
 
 🔴 **`isNewStockImage` が「既存値と同一なら素通し」なのは順序依存を消すため。** 管理画面は
 フォーム全体を PATCH するので、画像を変えない更新でも image_url/photo_url は必ず載ってくる。
@@ -176,10 +181,10 @@ API キーの疎通だけでなく、**Resend の `/domains` を実際に引い�
 「本番データの掃除 → ガード投入」の順序でしか入れられなくなる。素通し条件があるので**掃除より
 先に入れても安全**（掃除後は素通しする値が存在しないので挙動は変わらない）。
 
-⚠️ **`next.config.mjs` から `images.unsplash.com` を外すのは本番データの差し替えが済んでから。**
-先に外すと既存画像が next/image で 400 になり `/search`・`/ranking` の表示が壊れる
-（2026年7月5日に実機で発生済み）。この順序は上記テストが 1 本の検査で固定しており、
-差し替え完了時にその検査ごと削除する。
+⚠️ **`remotePatterns` に外部ホストを足さないこと。** 載せたホストは「任意の画像を
+next/image 経由で表示できるドメイン」になる。かつて未許可のまま参照して `/search`・`/ranking` の
+画像が 400 で壊れた事故（2026年7月5日 実機確認）があるため足したくなるが、正しい直し方は
+**画像を自 Storage へ移すこと**であって許可ホストを増やすことではない。
 
 ### Supabase クライアントの使い分け
 - `createServerSupabaseClient`（`supabase-server.ts`）＝anon。公開データの読み取り専用。書き込み・ユーザー固有データに使わない。
