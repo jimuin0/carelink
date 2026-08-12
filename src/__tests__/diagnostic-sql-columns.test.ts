@@ -33,6 +33,38 @@ function declaredColumns(sql: string): Array<[string, string]> {
   );
 }
 
+/**
+ * 🔴 Supabase の SQL Editor はプロジェクトごとにタブが開くため、【別プロジェクトのタブに
+ * 貼ってしまう】事故が繰り返し起きている。
+ *   ・2026年8月2日 … soel で実行し「RLS が90本欠落」という存在しない事故を報告しかけた
+ *   ・2026年8月12日 … admin-dashboard(uwzzavnxcqgjppnmdtie) で実行し
+ *     「relation "audit_logs" does not exist」となった
+ * 冒頭コメントに project ref を書くだけでは防げなかった（読まずに貼るため）。
+ * SQL 自身が接続先を検査して落ちるようにし、その配線をここで固定する。
+ */
+describe('診断用 SQL が接続先を自己検査する', () => {
+  it.each(diagnosticFiles)('%s: 先頭に接続先ガードがある', (file) => {
+    const sql = readFileSync(join(SCRIPTS, file), 'utf8');
+    const guard = sql.indexOf('$connguard$');
+    expect(guard).toBeGreaterThan(-1);
+
+    // ガードより前に実行可能な文が無いこと（コメントと空行だけ）。
+    // 後ろに置くと、間違ったプロジェクトで先頭のクエリだけ走ってしまう。
+    const before = sql.slice(0, sql.indexOf('DO $connguard$'));
+    const executable = before
+      .split('\n')
+      .filter((l) => l.trim() && !l.trimStart().startsWith('--'));
+    expect(executable).toEqual([]);
+
+    // 目印テーブルは CareLink 固有のものを使う（どのプロジェクトにも在る名前では判別できない）。
+    for (const marker of ['facility_profiles', 'facility_menus', 'audit_logs']) {
+      expect(sql.slice(guard, sql.indexOf('$connguard$;'))).toContain(marker);
+    }
+    // 誤爆したときに何をすべきかが読めること
+    expect(sql).toContain('xzafxiupbflvgbarrihe');
+  });
+});
+
 describe('診断用 SQL が実在する列だけを参照している', () => {
   it('diagnose-*.sql が存在する（走査対象ゼロを緑にしない）', () => {
     expect(diagnosticFiles.length).toBeGreaterThanOrEqual(2);

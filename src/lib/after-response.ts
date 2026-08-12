@@ -27,11 +27,11 @@
  * 持たない jsdom 環境の単体テストが import しただけで落ちる（audit-logger は 83 経路から
  * 参照されるため、影響範囲が全テストに及ぶ）。
  */
-export function runAfterResponse(task: () => Promise<unknown>): Promise<void> {
+export function runAfterResponse(task: () => PromiseLike<unknown>): Promise<void> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { after } = require('next/server') as {
-      after: (t: () => Promise<unknown>) => void;
+      after: (t: () => PromiseLike<unknown>) => void;
     };
     after(task);
     // 登録できた時点で呼び出し側は待たなくてよい（応答を遅らせない）。
@@ -41,6 +41,8 @@ export function runAfterResponse(task: () => Promise<unknown>): Promise<void> {
     // ここでは task の完了を返す。返り値を await できる形にしておくと、
     // スクリプトや単体テストが「実行されたこと」を決定的に検証できる
     // （void で投げっぱなしにすると、検証がマイクロタスクの順序に依存して不安定になる）。
-    return task().then(() => undefined);
+    // Supabase のクエリビルダは PromiseLike であって Promise ではないため、
+    // Promise.resolve で正規の Promise に揃えてから返す。
+    return Promise.resolve(task()).then(() => undefined);
   }
 }

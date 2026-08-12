@@ -19,6 +19,7 @@
 import { NextResponse } from 'next/server';
 import { verifySlackRequest } from '@/lib/slack-verify';
 import { safeCaptureException } from '@/lib/safe';
+import { runAfterResponse } from '@/lib/after-response';
 import { alertCaughtError } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
@@ -87,14 +88,14 @@ export async function POST(request: Request) {
       /* istanbul ignore next -- ACTION_HANDLERS は現在空のため true 分岐は到達不能 */
       if (handler) {
         // 結果は気にせず即 ack 返却
-        void (async () => {
+        runAfterResponse(async () => {
           try {
             await handler(payload, action);
           } catch (e) {
             safeCaptureException(e, `slack-action:${action.action_id}`);
             alertCaughtError(`slack-action:${action.action_id}`, e, '/api/slack/interactions');
           }
-        })();
+        });
       }
       // handler 未登録は無視（404 を返すと Slack 側にエラー表示されるため 200 ack）
     }

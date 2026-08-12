@@ -6,6 +6,7 @@
 import { createServiceRoleClient } from './supabase-server';
 import { alertCaughtError } from './alert';
 import { pushAdminHeartbeat, type HeartbeatStatus } from './admin-heartbeat';
+import { runAfterResponse } from './after-response';
 
 export interface CronResult {
   processed?: number;
@@ -72,7 +73,7 @@ export async function logCronRun(
   // await しない（cron 本体のレスポンスタイムを heartbeat 送信の待ち時間で汚染しない）。
   const heartbeatStatus: HeartbeatStatus =
     status === 'success' ? 'ok' : status === 'skipped' ? 'degraded' : 'fail';
-  void pushAdminHeartbeat(jobName, heartbeatStatus);
+  runAfterResponse(() => pushAdminHeartbeat(jobName, heartbeatStatus));
 }
 
 /**
