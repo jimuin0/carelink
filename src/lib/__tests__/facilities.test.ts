@@ -586,7 +586,7 @@ describe('searchFacilities (additional branches)', () => {
     }));
   });
 
-  // GPS 経路も非GPS と同じ AND 意味論にする（migration 20260811000001 が RPC 側で再分割）。
+  // GPS 経路も非GPS と同じ AND 意味論にする（migration 20260812000001 が RPC 側で再分割）。
   // 片方だけ直すと 20260710000001 が解消した「GPSと非GPSで結果が食い違う」非対称が再発する。
   test('geo検索で複数語キーワードは語数上限を適用して半角空白で連結して渡す', async () => {
     mockFrom.mockReturnValue(fluent({ data: [], error: null }));

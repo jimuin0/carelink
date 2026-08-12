@@ -97,7 +97,7 @@ export async function searchFacilities(params: SearchParams) {
     // されていた（非GPS検索は効くのに GPS 検索だと keyword/features 指定が絞り込みに反映
     // されない確定欠陥）。RPC 側(search_facilities_nearby)を拡張し DB で絞り込むよう根治
     // （migration 20260710000001）。ワイルドカードエスケープは非GPS分岐と同じ方針。
-    // 複数語は非GPS分岐と同じ AND 意味論にする。RPC 側（migration 20260811000001）が
+    // 複数語は非GPS分岐と同じ AND 意味論にする。RPC 側（migration 20260812000001）が
     // 受け取った文字列を空白で再分割して全語一致を要求するため、ここでは keywordTerms で
     // 語数上限を適用したうえで半角空白1つで連結して渡す（エスケープは空白を生まないので
     // RPC 側の再分割は同じ語に戻る）。
