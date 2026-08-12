@@ -30,6 +30,87 @@ function setupSupabaseMock() {
   }));
 }
 
+/**
+ * 特集ページの「薄いコンテンツ除外」（2026年8月12日 新設）。
+ *
+ * 2026年7月31日にエリアURLの薄いコンテンツを除外した際、特集ページだけが漏れて
+ * 無条件で全件掲載のままだった。本番実測では公開中24件のうち3件が施設0件で、
+ * うち2件は filter_type が実在しない business_type（「ヘアサロン」「リラクサロン」）のため恒久的に0件。
+ */
+function setupFeatureSitemapMock(
+  facilities: Array<{ slug: string; prefecture: string | null; business_type: string | null; city: string | null }>,
+  features: Array<{ slug: string; filter_type: string | null; filter_prefecture: string | null }>
+) {
+  jest.doMock('@/lib/supabase-server', () => ({
+    createServerSupabaseClient: jest.fn(() => ({
+      from: jest.fn((table: string) => {
+        if (table === 'facility_profiles') {
+          return makeQueryBuilder({ data: facilities.map((f) => ({ ...f, updated_at: null })) });
+        }
+        if (table === 'features') {
+          return makeQueryBuilder({ data: features.map((f) => ({ ...f, updated_at: null })) });
+        }
+        return makeQueryBuilder({ data: [] });
+      }),
+    })),
+  }));
+}
+
+async function featureUrls(
+  facilities: Parameters<typeof setupFeatureSitemapMock>[0],
+  features: Parameters<typeof setupFeatureSitemapMock>[1]
+): Promise<string[]> {
+  let sitemapDefault!: () => Promise<{ url: string }[]>;
+  jest.isolateModules(() => {
+    setupFeatureSitemapMock(facilities, features);
+    jest.doMock('@/lib/feature-toggles', () => ({ SHOW_JOBS: false }));
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    sitemapDefault = require('../sitemap').default;
+  });
+  const result = await sitemapDefault();
+  return result.map((r) => r.url).filter((u) => u.includes('/feature/'));
+}
+
+describe('sitemap の特集ページは施設が出るものだけ載せる', () => {
+  const LIVE = [
+    { slug: 'hal', prefecture: '大阪府', business_type: 'ネイル・まつげサロン', city: '豊中市' },
+    { slug: 'kanbara', prefecture: '大阪府', business_type: '鍼灸院・整骨院', city: '豊中市' },
+  ];
+
+  test('実在しない business_type を指す特集は載せない（本番の spring-hair-2026 相当）', async () => {
+    const urls = await featureUrls(LIVE, [
+      { slug: 'spring-hair-2026', filter_type: 'ヘアサロン', filter_prefecture: null },
+      { slug: 'eyelash-special', filter_type: 'ネイル・まつげサロン', filter_prefecture: null },
+    ]);
+    expect(urls).toEqual(['https://carelink-jp.com/feature/eyelash-special']);
+  });
+
+  test('施設のいない都道府県を指す特集は載せない', async () => {
+    const urls = await featureUrls(LIVE, [
+      { slug: 'tokyo-only', filter_type: null, filter_prefecture: '東京都' },
+      { slug: 'osaka-ok', filter_type: null, filter_prefecture: '大阪府' },
+    ]);
+    expect(urls).toEqual(['https://carelink-jp.com/feature/osaka-ok']);
+  });
+
+  test('フィルタ未設定の特集は載せる（全施設が対象になるため）', async () => {
+    const urls = await featureUrls(LIVE, [{ slug: 'all', filter_type: null, filter_prefecture: null }]);
+    expect(urls).toEqual(['https://carelink-jp.com/feature/all']);
+  });
+
+  test('空文字のフィルタは未設定として扱う（ページ側 `|| undefined` と同じ意味論）', async () => {
+    const urls = await featureUrls(LIVE, [{ slug: 'empty-filters', filter_type: '', filter_prefecture: '' }]);
+    expect(urls).toEqual(['https://carelink-jp.com/feature/empty-filters']);
+  });
+
+  test('公開施設が0件なら、フィルタ付き特集は1件も載らない', async () => {
+    const urls = await featureUrls([], [
+      { slug: 'spring-hair-2026', filter_type: 'ヘアサロン', filter_prefecture: null },
+    ]);
+    expect(urls).toEqual([]);
+  });
+});
+
 describe('sitemap SHOW_JOBS branch', () => {
   test('SHOW_JOBS=false のとき /jobs 系 URL を一切含まない', async () => {
     let sitemapDefault!: () => Promise<{ url: string }[]>;

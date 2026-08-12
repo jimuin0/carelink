@@ -273,6 +273,97 @@ test('PATCH: image_url が有効URLで設定 → 200 (truthy 分岐)', async () 
   expect(res.status).toBe(200);
 });
 
+// ─── ストック写真ガード（2026年8月11日・src/lib/stock-image-guard.ts）─────────
+// 「既存値と同一なら素通し」が本体。これが無いと、ストック画像が残っている記事の
+// タイトル修正すら 400 になり、本番データの差し替え前にガードを入れられなくなる。
+const STOCK_A = 'https://images.unsplash.com/photo-1560066984?w=800';
+const STOCK_B = 'https://images.unsplash.com/photo-9999999?w=800';
+
+/** ガードが現在値を読む `.select('image_url').eq('id',…).maybeSingle()` の口。 */
+function currentImageChain(data: unknown) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
+  };
+}
+
+test('PATCH: 既存と異なるストック写真へ差し替え → 400', async () => {
+  let call = 0;
+  mockAdminFrom.mockImplementation(() => {
+    call++;
+    if (call === 1) return currentImageChain({ image_url: STOCK_A });
+    return updateChain({ id: FEATURE_UUID });
+  });
+  const res = await PATCH(makeRequest('PATCH', { title: 't', image_url: STOCK_B }), makeProps());
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toContain('ストック写真');
+});
+
+test('PATCH: 既存値と同一のストック写真は素通し → 200（差し替え前でも編集できる）', async () => {
+  let call = 0;
+  mockAdminFrom.mockImplementation(() => {
+    call++;
+    if (call === 1) return currentImageChain({ image_url: STOCK_A });
+    return updateChain({ id: FEATURE_UUID, title: '直したタイトル', image_url: STOCK_A });
+  });
+  const res = await PATCH(
+    makeRequest('PATCH', { title: '直したタイトル', image_url: STOCK_A }),
+    makeProps()
+  );
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: 該当記事が無い状態でストック写真 → 400（現在値を読めなくても素通ししない）', async () => {
+  mockAdminFrom.mockImplementation(() => currentImageChain(null));
+  const res = await PATCH(makeRequest('PATCH', { title: 't', image_url: STOCK_A }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: 現在値が null の記事へストック写真 → 400', async () => {
+  mockAdminFrom.mockImplementation(() => currentImageChain({ image_url: null }));
+  const res = await PATCH(makeRequest('PATCH', { title: 't', image_url: STOCK_A }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+// ─── 部分更新で画像が消える回帰（2026年8月11日 恒久根治）─────────────────────
+// 管理画面の公開/非公開トグルは `{ is_active }` だけを PATCH する。旧実装は
+// `{ ...parsed.data, image_url: parsed.data.image_url || null }` だったため、
+// トグルするだけで image_url が null 上書きされ、特集記事の画像が無言で消えていた。
+function captureUpdate(data: unknown = { id: FEATURE_UUID }) {
+  const update = jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
+      }),
+    }),
+  });
+  mockAdminFrom.mockReturnValue({ update });
+  return update;
+}
+
+test('PATCH: image_url を送らない更新は image_url を書き換えない', async () => {
+  const update = captureUpdate();
+  const res = await PATCH(makeRequest('PATCH', { is_active: false }), makeProps());
+  expect(res.status).toBe(200);
+  expect(update).toHaveBeenCalledWith({ is_active: false });
+  expect(Object.keys(update.mock.calls[0][0])).not.toContain('image_url');
+});
+
+test('PATCH: image_url に空文字を送ったときだけ null で消す', async () => {
+  const update = captureUpdate();
+  const res = await PATCH(makeRequest('PATCH', { image_url: '' }), makeProps());
+  expect(res.status).toBe(200);
+  expect(update).toHaveBeenCalledWith({ image_url: null });
+});
+
+test('PATCH: image_url に null を送ったら null で消す', async () => {
+  const update = captureUpdate();
+  const res = await PATCH(makeRequest('PATCH', { image_url: null }), makeProps());
+  expect(res.status).toBe(200);
+  expect(update).toHaveBeenCalledWith({ image_url: null });
+});
+
 test('PATCH: レスポンスが { feature.id } 形式', async () => {
   mockAdminFrom.mockReturnValue(updateChain({ id: FEATURE_UUID, title: 'test' }));
   const res = await PATCH(makeRequest('PATCH', { title: 'test' }), makeProps());

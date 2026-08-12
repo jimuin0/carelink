@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { isStockImageUrl, isNewStockImage, STOCK_IMAGE_ERROR } from '@/lib/stock-image-guard';
 
 // POST(route.ts)と同じ理由・同じ設計（SafeHtmlContent.tsx の href 検証と同方針）で、
 // image_url/href に javascript:/data: 等の危険スキームを許さないホワイトリスト方式にする。
@@ -44,10 +45,37 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
   const admin = createServiceRoleClient();
+
+  // ストック写真ガード（src/lib/stock-image-guard.ts）。既存値と同一なら素通しする＝
+  // ストック画像が残っている記事のタイトル修正等を壊さないため（管理画面はフォーム全体を
+  // 送るので、画像を変えない更新でも image_url は必ず載ってくる）。
+  // 差し替えが必要なときだけ 1 回追加でクエリするので、通常経路のコストは増えない。
+  if (isStockImageUrl(parsed.data.image_url)) {
+    const { data: current } = await admin
+      .from('feature_articles')
+      .select('image_url')
+      .eq('id', params.id)
+      .maybeSingle();
+    if (isNewStockImage(parsed.data.image_url, current?.image_url ?? null)) {
+      return NextResponse.json({ error: STOCK_IMAGE_ERROR }, { status: 400 });
+    }
+  }
+
+  // 【2026年8月11日 恒久根治】空文字は「画像を外す」意思表示なので null に倒す。ただし
+  // 【キーが送られてこなかったときは触らない】。以前は
+  // `{ ...parsed.data, image_url: parsed.data.image_url || null }` と書いており、zod の optional は
+  // 未指定キーを出力に含めないため、image_url を含まない PATCH でも常に null が上書きされていた。
+  // 管理画面の公開/非公開トグルは `{ is_active }` だけを送るため、【トグルするだけで特集記事の
+  // 画像が無言で消えていた】。blog/[id] と同じ「未定義なら足さない」形に揃える。
+  const updatePayload: Record<string, unknown> = { ...parsed.data };
+  if (parsed.data.image_url !== undefined) {
+    updatePayload.image_url = parsed.data.image_url || null;
+  }
+
   const { data, error } = await admin
     .from('feature_articles')
     // feature_articles に updated_at 列は無い（created_at のみ）→ 書き込むと 400 になるため付けない
-    .update({ ...parsed.data, image_url: parsed.data.image_url || null })
+    .update(updatePayload)
     .eq('id', params.id)
     .select()
     // .maybeSingle(): 該当0行（存在しないid）を not found として扱う。.single() だと0行→PGRST116で

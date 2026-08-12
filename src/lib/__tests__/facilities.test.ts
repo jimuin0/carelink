@@ -38,7 +38,51 @@ import {
   getAvailableFacilityIds,
   getAvailableAreasAndTypes,
   getFacilityCancelPolicy,
+  keywordTerms,
+  KEYWORD_MAX_TERMS,
 } from '../facilities';
+
+// ─── 複数語キーワード（2026年8月11日 恒久根治）─────────────────────────────
+// 入力全体を1つの ILIKE パターンにしていたため「豊中 まつげ」等が常に0件だった。
+// 本番の特集 eyelash-special が filter_keyword「まつ毛 パーマ エクステ」で0件になっていた実例あり。
+describe('keywordTerms', () => {
+  test('半角スペースで分割する', () => {
+    expect(keywordTerms('豊中 まつげ')).toEqual(['豊中', 'まつげ']);
+  });
+
+  test('全角スペース(U+3000)でも分割する（日本語入力の既定）', () => {
+    expect(keywordTerms('豊中　まつげ')).toEqual(['豊中', 'まつげ']);
+  });
+
+  test('連続・混在した空白をまとめて1区切りにする', () => {
+    expect(keywordTerms('豊中 　  まつげ')).toEqual(['豊中', 'まつげ']);
+  });
+
+  test('前後の空白で空文字の語を作らない', () => {
+    expect(keywordTerms('  豊中  ')).toEqual(['豊中']);
+  });
+
+  test('空白のみの入力は語ゼロ', () => {
+    expect(keywordTerms('   ')).toEqual([]);
+    expect(keywordTerms('')).toEqual([]);
+  });
+
+  test('単語1つは従来どおりそのまま', () => {
+    expect(keywordTerms('まつげ')).toEqual(['まつげ']);
+  });
+
+  test(`語数は ${KEYWORD_MAX_TERMS} 個で打ち切る`, () => {
+    const terms = keywordTerms('a b c d e f g h');
+    expect(terms).toHaveLength(KEYWORD_MAX_TERMS);
+    expect(terms).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+
+  test('100文字で切ってから分割する（長大入力の防御）', () => {
+    const long = 'あ'.repeat(120) + ' まつげ';
+    // 100文字目までに空白が無いので語は1つだけになる
+    expect(keywordTerms(long)).toEqual(['あ'.repeat(100)]);
+  });
+});
 
 const { cachedFetch } = require('../redis');
 
@@ -542,6 +586,28 @@ describe('searchFacilities (additional branches)', () => {
     }));
   });
 
+  // GPS 経路も非GPS と同じ AND 意味論にする（migration 20260812000001 が RPC 側で再分割）。
+  // 片方だけ直すと 20260710000001 が解消した「GPSと非GPSで結果が食い違う」非対称が再発する。
+  test('geo検索で複数語キーワードは語数上限を適用して半角空白で連結して渡す', async () => {
+    mockFrom.mockReturnValue(fluent({ data: [], error: null }));
+    mockRpc.mockResolvedValue({ data: [], error: null });
+    await searchFacilities({ lat: 34.7, lng: 135.5, keyword: '豊中　まつ毛 パーマ エクステ ネイル 追加語' });
+    expect(mockRpc).toHaveBeenCalledWith(
+      'search_facilities_nearby',
+      expect.objectContaining({ keyword_filter: '豊中 まつ毛 パーマ エクステ ネイル' })
+    );
+  });
+
+  test('geo検索で空白のみのキーワードは null（語ゼロを空文字で渡さない）', async () => {
+    mockFrom.mockReturnValue(fluent({ data: [], error: null }));
+    mockRpc.mockResolvedValue({ data: [], error: null });
+    await searchFacilities({ lat: 34.7, lng: 135.5, keyword: '  　 ' });
+    expect(mockRpc).toHaveBeenCalledWith(
+      'search_facilities_nearby',
+      expect.objectContaining({ keyword_filter: null })
+    );
+  });
+
   test('geo検索でkeyword未指定はnull', async () => {
     mockFrom.mockReturnValue(fluent({ data: [], error: null }));
     mockRpc.mockResolvedValue({ data: [], error: null });
@@ -992,6 +1058,42 @@ describe('null data fallbacks', () => {
     expect(orCallArgs![0]).toContain('\\%');
     expect(orCallArgs![0]).toContain('\\_');
     expect(orCallArgs![0]).toContain('\\\\');
+  });
+
+  // ─── 複数語キーワードの AND 意味論（2026年8月11日 恒久根治）───────────────
+  test('searchFacilities: 複数語は語ごとに .or() を呼ぶ（PostgREST 側で AND 結合される）', async () => {
+    const chain = fluent({ data: [], count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+    await searchFacilities({ keyword: '豊中 まつげ' });
+
+    const ilikeCalls = ((chain.or as jest.Mock).mock.calls as unknown[][]).filter(
+      (c) => typeof c[0] === 'string' && (c[0] as string).includes('ilike')
+    );
+    // 1回にまとめてしまうと `%豊中 まつげ%` の literal 一致に戻り、常に0件になる
+    expect(ilikeCalls).toHaveLength(2);
+    expect(ilikeCalls[0][0]).toContain('豊中');
+    expect(ilikeCalls[0][0]).not.toContain('まつげ');
+    expect(ilikeCalls[1][0]).toContain('まつげ');
+  });
+
+  test('searchFacilities: 単語1つなら .or() は1回だけ（従来挙動を変えない）', async () => {
+    const chain = fluent({ data: [], count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+    await searchFacilities({ keyword: 'まつげ' });
+    const ilikeCalls = ((chain.or as jest.Mock).mock.calls as unknown[][]).filter(
+      (c) => typeof c[0] === 'string' && (c[0] as string).includes('ilike')
+    );
+    expect(ilikeCalls).toHaveLength(1);
+  });
+
+  test('searchFacilities: 空白のみのキーワードでは .or() を1回も呼ばない', async () => {
+    const chain = fluent({ data: [], count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+    await searchFacilities({ keyword: '   ' });
+    const ilikeCalls = ((chain.or as jest.Mock).mock.calls as unknown[][]).filter(
+      (c) => typeof c[0] === 'string' && (c[0] as string).includes('ilike')
+    );
+    expect(ilikeCalls).toHaveLength(0);
   });
 
   // table 名 → チェーンを組み立てる共通ヘルパー（anon/service role どちらの from() にも使う）

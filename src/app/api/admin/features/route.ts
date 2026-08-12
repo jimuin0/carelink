@@ -6,6 +6,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { isStockImageUrl, STOCK_IMAGE_ERROR } from '@/lib/stock-image-guard';
 
 // 【2026年7月29日・恒久根治】zod の .url() は WHATWG URL としてパース可能かのみを検証し、
 // スキームを制限しない。"javascript:alert(1)" や "data:text/html,<script>..." は
@@ -43,6 +44,12 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const parsed = featureArticleSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
+
+  // ストック写真の新規登録を拒否する（src/lib/stock-image-guard.ts）。新規作成なので
+  // 「既存値と同じ」は原理上ありえず、素通し条件は不要。
+  if (isStockImageUrl(parsed.data.image_url)) {
+    return NextResponse.json({ error: STOCK_IMAGE_ERROR }, { status: 400 });
+  }
 
   const admin = createServiceRoleClient();
   const { data, error } = await admin.from('feature_articles').insert({

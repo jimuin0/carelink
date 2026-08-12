@@ -302,6 +302,32 @@ test('PATCH: website_url が有効URL → 200', async () => {
   expect(res.status).toBe(200);
 });
 
+// ─── 部分更新で website_url が消える回帰（2026年8月11日 恒久根治）───────────────
+// spread の後ろに明示キーを置く旧実装だと、website_url を含まない保存で常に null 上書きされた。
+// menus/[id]（並び替えで写真が消える）・features/[id]（トグルで画像が消える）と同じ形。
+function captureSettingsUpdate() {
+  const update = jest.fn().mockReturnValue({
+    eq: jest.fn(() => Promise.resolve({ error: null })),
+  });
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue({ update });
+  return update;
+}
+
+test('PATCH: website_url を送らない保存は website_url を書き換えない', async () => {
+  const update = captureSettingsUpdate();
+  const res = await PATCH(makePatchRequest({ name: '施設' }));
+  expect(res.status).toBe(200);
+  expect(Object.keys(update.mock.calls[0][0])).not.toContain('website_url');
+});
+
+test('PATCH: website_url に空文字を送ったときだけ null で消す', async () => {
+  const update = captureSettingsUpdate();
+  const res = await PATCH(makePatchRequest({ name: '施設', website_url: '' }));
+  expect(res.status).toBe(200);
+  expect(update.mock.calls[0][0]).toMatchObject({ website_url: null });
+});
+
 test('PATCH: booking_buffer_minutes が 120 (上限ぴったり) → 200', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(updateChain());

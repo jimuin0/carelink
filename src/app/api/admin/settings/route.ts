@@ -165,14 +165,23 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
+  // 【2026年8月11日 恒久根治】空文字は「URLを外す」意思表示なので null に倒す。ただし
+  // 【キーが送られてこなかったときは触らない】。zod の optional は未指定キーを出力に含めないため、
+  // spread の後ろに明示キーを置くと website_url を含まない保存でも常に null で上書きされる。
+  // 同じ書き方が menus/[id]（並び替えで写真が消える）と features/[id]（トグルで画像が消える）で
+  // 実害を出していた。ここは管理画面が常に送っているため未発症だが、形が同じなので揃えて塞ぐ。
+  const updatePayload: Record<string, unknown> = {
+    ...parsed.data,
+    updated_at: new Date().toISOString(),
+  };
+  if (parsed.data.website_url !== undefined) {
+    updatePayload.website_url = parsed.data.website_url || null;
+  }
+
   const admin = createServiceRoleClient();
   const { error } = await admin
     .from('facility_profiles')
-    .update({
-      ...parsed.data,
-      website_url: parsed.data.website_url || null,
-      updated_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq('id', auth.facilityId);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
