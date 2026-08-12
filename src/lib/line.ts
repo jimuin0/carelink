@@ -5,6 +5,7 @@
 
 import crypto from 'crypto';
 import { enqueueWebhook } from '@/lib/webhook-queue';
+import { runAfterResponse } from '@/lib/after-response';
 
 const LINE_API_URL = 'https://api.line.me/v2/bot/message/push';
 const LINE_REPLY_URL = 'https://api.line.me/v2/bot/message/reply';
@@ -160,12 +161,12 @@ export async function sendLineText(
 ): Promise<boolean> {
   const ok = await sendLinePush(lineUserId, [{ type: 'text', text }]);
   if (!ok && opts?.enqueueOnFailure) {
-    void enqueueWebhook({
+    runAfterResponse(() => enqueueWebhook({
       type: 'line_push',
       targetId: lineUserId,
       payload: { message: text },
       facilityId: opts.facilityId ?? null,
-    });
+    }));
   }
   return ok;
 }

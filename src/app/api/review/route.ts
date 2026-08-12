@@ -20,6 +20,7 @@ import { getFacilityNotificationSettings } from '@/lib/notification-settings';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
+import { runAfterResponse } from '@/lib/after-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -178,7 +179,7 @@ export async function POST(request: Request) {
   // 表示され続ける（flag-reviews cron が enqueue まで行うのと同じ理由）。
   // 投稿自体は成功しているため fire-and-forget（失敗しても投稿は巻き戻さない）。
   if (medicalAdViolations.length > 0) {
-    void supabase.rpc('enqueue_moderation', {
+    runAfterResponse(() => supabase.rpc('enqueue_moderation', {
       p_items: [{
         content_type: 'review',
         content_id: review.id,
@@ -191,7 +192,7 @@ export async function POST(request: Request) {
       if (enqueueError) {
         console.error('[review] medical-ad moderation enqueue failed:', enqueueError.message);
       }
-    });
+    }));
   }
 
   // ポイント付与（fire-and-forget）— 来店確認済み(completed 予約あり)のユーザーに限る。

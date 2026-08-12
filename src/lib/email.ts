@@ -4,6 +4,7 @@ import { postAlert } from '@/lib/alert';
 import { bookingStatusLabel } from '@/lib/booking-status';
 import { SITE_URL } from '@/lib/constants';
 import { enqueueWebhook } from '@/lib/webhook-queue';
+import { runAfterResponse } from '@/lib/after-response';
 import { resolvedFromEnv, DEFAULT_FROM, RESEND_VERIFIED_DOMAINS } from '@/lib/email-from';
 import crypto from 'crypto';
 
@@ -190,7 +191,7 @@ async function safeSend(resend: Resend, params: Parameters<Resend['emails']['sen
     // ここでの失敗が safeSend の false 契約や呼び出し元の挙動へ波及することはない）。
     if (QUEUEABLE_EMAIL_CONTEXTS.has(context)) {
       const queuePayload = toQueuePayload(params);
-      void enqueueWebhook({ type: 'email', targetId: queuePayload.to, payload: queuePayload });
+      runAfterResponse(() => enqueueWebhook({ type: 'email', targetId: queuePayload.to, payload: queuePayload }));
     }
     return false;
   };
