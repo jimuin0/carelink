@@ -61,10 +61,21 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     }
   }
 
+  // 【2026年8月11日 恒久根治】空文字は「画像を外す」意思表示なので null に倒す。ただし
+  // 【キーが送られてこなかったときは触らない】。以前は
+  // `{ ...parsed.data, image_url: parsed.data.image_url || null }` と書いており、zod の optional は
+  // 未指定キーを出力に含めないため、image_url を含まない PATCH でも常に null が上書きされていた。
+  // 管理画面の公開/非公開トグルは `{ is_active }` だけを送るため、【トグルするだけで特集記事の
+  // 画像が無言で消えていた】。blog/[id] と同じ「未定義なら足さない」形に揃える。
+  const updatePayload: Record<string, unknown> = { ...parsed.data };
+  if (parsed.data.image_url !== undefined) {
+    updatePayload.image_url = parsed.data.image_url || null;
+  }
+
   const { data, error } = await admin
     .from('feature_articles')
     // feature_articles に updated_at 列は無い（created_at のみ）→ 書き込むと 400 になるため付けない
-    .update({ ...parsed.data, image_url: parsed.data.image_url || null })
+    .update(updatePayload)
     .eq('id', params.id)
     .select()
     // .maybeSingle(): 該当0行（存在しないid）を not found として扱う。.single() だと0行→PGRST116で

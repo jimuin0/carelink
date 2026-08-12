@@ -326,6 +326,44 @@ test('PATCH: 現在値が null の記事へストック写真 → 400', async ()
   expect(res.status).toBe(400);
 });
 
+// ─── 部分更新で画像が消える回帰（2026年8月11日 恒久根治）─────────────────────
+// 管理画面の公開/非公開トグルは `{ is_active }` だけを PATCH する。旧実装は
+// `{ ...parsed.data, image_url: parsed.data.image_url || null }` だったため、
+// トグルするだけで image_url が null 上書きされ、特集記事の画像が無言で消えていた。
+function captureUpdate(data: unknown = { id: FEATURE_UUID }) {
+  const update = jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
+      }),
+    }),
+  });
+  mockAdminFrom.mockReturnValue({ update });
+  return update;
+}
+
+test('PATCH: image_url を送らない更新は image_url を書き換えない', async () => {
+  const update = captureUpdate();
+  const res = await PATCH(makeRequest('PATCH', { is_active: false }), makeProps());
+  expect(res.status).toBe(200);
+  expect(update).toHaveBeenCalledWith({ is_active: false });
+  expect(Object.keys(update.mock.calls[0][0])).not.toContain('image_url');
+});
+
+test('PATCH: image_url に空文字を送ったときだけ null で消す', async () => {
+  const update = captureUpdate();
+  const res = await PATCH(makeRequest('PATCH', { image_url: '' }), makeProps());
+  expect(res.status).toBe(200);
+  expect(update).toHaveBeenCalledWith({ image_url: null });
+});
+
+test('PATCH: image_url に null を送ったら null で消す', async () => {
+  const update = captureUpdate();
+  const res = await PATCH(makeRequest('PATCH', { image_url: null }), makeProps());
+  expect(res.status).toBe(200);
+  expect(update).toHaveBeenCalledWith({ image_url: null });
+});
+
 test('PATCH: レスポンスが { feature.id } 形式', async () => {
   mockAdminFrom.mockReturnValue(updateChain({ id: FEATURE_UUID, title: 'test' }));
   const res = await PATCH(makeRequest('PATCH', { title: 'test' }), makeProps());

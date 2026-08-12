@@ -90,10 +90,21 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     if (existing) return NextResponse.json({ error: '同じ名前のメニューが既に存在します' }, { status: 409 });
   }
 
+  // 【2026年8月11日 恒久根治】空文字は「写真を外す」意思表示なので null に倒す。ただし
+  // 【キーが送られてこなかったときは触らない】。以前は
+  // `{ ...parsed.data, photo_url: parsed.data.photo_url || null }` と書いており、zod の optional は
+  // 未指定キーを出力に含めないため、photo_url を含まない PATCH でも常に null が上書きされていた。
+  // メニュー一覧の並び替え(↑↓)は `{ sort_order }` だけを送るため、【並び替えるだけでメニュー
+  // 写真が無言で消えていた】。blog/[id] と同じ「未定義なら足さない」形に揃える。
+  const updatePayload: Record<string, unknown> = { ...parsed.data };
+  if (parsed.data.photo_url !== undefined) {
+    updatePayload.photo_url = parsed.data.photo_url || null;
+  }
+
   const { data, error } = await admin
     .from('facility_menus')
     // facility_menus に updated_at 列は無い（created_at のみ）→ 書き込むと 400 になるため付けない
-    .update({ ...parsed.data, photo_url: parsed.data.photo_url || null })
+    .update(updatePayload)
     .eq('id', params.id)
     .eq('facility_id', ctx.facilityId)
     .select()
