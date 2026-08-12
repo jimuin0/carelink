@@ -121,20 +121,46 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.8,
   }));
 
-  // Feature pages
+  // Feature pages — 施設が1件以上出るものだけ掲載（エリアページと同じ「薄いコンテンツ除外」方針）。
+  //
+  // 【2026年8月12日・実装漏れの是正】2026年7月31日にエリアURLの薄いコンテンツを除外した際、
+  // 判定軸を階層ごとに用意して全階層へ同じ規則を適用したが、
+  // 【特集ページだけがその是正から漏れて無条件で全件掲載のままだった】。
+  // 本番実測（2026年8月12日）では公開中24件のうち3件が施設0件で、うち2件は
+  // filter_type が「ヘアサロン」「リラクサロン」＝実在する business_type に無い値のため
+  // 恒久的に0件（現存施設は「ネイル・まつげサロン」2件と「鍼灸院・整骨院」1件のみ）。
+  //
+  // ここで判定できるのは type / prefecture まで。filter_keyword による0件は特集ごとに
+  // クエリを投げないと分からず sitemap の生成コスト（force-dynamic・毎回実行）に見合わないため、
+  // ページ側の generateMetadata が robots noindex を出して補完する
+  // （src/app/feature/[slug]/page.tsx・両方そろって初めて漏れなく塞がる）。
+  const occupiedBusinessTypeRaw = new Set<string>();
+  const occupiedPrefectureRaw = new Set<string>();
+  for (const f of facilities || []) {
+    if (f.business_type) occupiedBusinessTypeRaw.add(f.business_type);
+    if (f.prefecture) occupiedPrefectureRaw.add(f.prefecture);
+  }
+
   const { data: features } = await supabase
     .from('features')
-    .select('slug, updated_at')
+    .select('slug, updated_at, filter_type, filter_prefecture')
     .eq('is_published', true);
 
   const featurePages: MetadataRoute.Sitemap = [
     { url: `${SITE_URL}/feature`, lastModified: updated, changeFrequency: 'weekly' as const, priority: 0.6 },
-    ...(features || []).map((f) => ({
-      url: `${SITE_URL}/feature/${f.slug}`,
-      lastModified: f.updated_at ? new Date(f.updated_at) : updated,
-      changeFrequency: 'weekly' as const,
-      priority: 0.6,
-    })),
+    ...(features || [])
+      .filter((f) => {
+        // 空文字は「未設定」扱い（ページ側 `feature.filter_type || undefined` と同じ意味論）。
+        if (f.filter_type && !occupiedBusinessTypeRaw.has(f.filter_type)) return false;
+        if (f.filter_prefecture && !occupiedPrefectureRaw.has(f.filter_prefecture)) return false;
+        return true;
+      })
+      .map((f) => ({
+        url: `${SITE_URL}/feature/${f.slug}`,
+        lastModified: f.updated_at ? new Date(f.updated_at) : updated,
+        changeFrequency: 'weekly' as const,
+        priority: 0.6,
+      })),
   ];
 
   // City pages — 施設が1件以上ある市区町村のみ掲載（cityTypePages と同じ方針）。
