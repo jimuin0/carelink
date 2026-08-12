@@ -178,6 +178,8 @@ describe('CLAUDE.md はコードと一致している', () => {
       'partial-update-clobber-guard.test.ts',
       'updatePayload',
       'gen-stub-schema.mjs',
+      'card-view-columns.test.ts',
+      'facility_card_view',
       'schema-fingerprint.expected.json',
     ]) {
       expect(MD).toContain(sym);
