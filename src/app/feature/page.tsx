@@ -6,11 +6,19 @@ import Breadcrumb from '@/components/Breadcrumb';
 
 export const revalidate = 3600;
 
-export const metadata: Metadata = {
-  title: '特集一覧',
-  description: 'CareLink の特集・おすすめ企画。季節やテーマに合わせたサロン・クリニック情報をお届けします。',
-  alternates: { canonical: '/feature' },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  // 【2026年8月12日】公開中の特集が 0 件のときは一覧をインデックスさせない。
+  // 中身が「特集記事を準備中です」の空状態だけになるため、検索結果に出しても価値が無い。
+  // 詳細ページ（feature/[slug]）へ入れた「施設0件なら noindex」と同じ規則を一覧にも適用する。
+  // 手動フラグにはしない（特集を1本でも公開すれば自動で index へ戻る）。
+  const features = await getPublishedFeatures();
+  return {
+    title: '特集一覧',
+    description: 'CareLink の特集・おすすめ企画。季節やテーマに合わせたサロン・クリニック情報をお届けします。',
+    alternates: { canonical: '/feature' },
+    robots: features.length === 0 ? { index: false, follow: true } : undefined,
+  };
+}
 
 export default async function FeatureListPage() {
   const features = await getPublishedFeatures();
