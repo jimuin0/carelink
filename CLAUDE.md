@@ -5,21 +5,21 @@
 
 - フロント／API＝Next.js 15（App Router・Route Handler）/ デプロイ＝Vercel（本番 `https://carelink-jp.com`・`www.` はアペックスへ 301）
 - DB／認証＝Supabase（Postgres・Auth・Storage・RLS・RPC）
-- 定期実行＝【Render Cron Jobs が実質の本番スケジューラ】（`render.yaml`・16 サービス）。GitHub Actions cron（`.github/workflows/cron.yml`）も残置しているが GitHub の間引きで実質ほぼ発火しない（下記「cron の現状」参照）。いずれも `/api/cron/*` を Bearer 認証で叩く。オーナーニュースレターの自動月次配信は廃止（神原さん確定 2026年7月2日「お知らせがある時のみ」）＝digest エンドポイント・専用ワークフロー・発火監視をすべて削除。配信は管理画面 `/admin/newsletters` からの手動送信のみ
-- 本番 Supabase project ref＝`xzafxiupbflvgbarrihe`（middleware の CSP connect-src に明記）
+- 定期実行＝【Render Cron Jobs が唯一の本番スケジューラ】（`render.yaml`＝`services:` に cron 16 本＋`envVarGroups:` に `carelink-cron-env` 1 本）。GitHub Actions cron（`.github/workflows/cron.yml`）はファイルとしては残っているが【GitHub 上で無効化（`disabled_manually`）されており発火しない】（下記「cron の現状」参照）。`/api/cron/*` を Bearer 認証で叩く。オーナーニュースレターの自動月次配信は廃止（神原さん確定 2026年7月2日「お知らせがある時のみ」）＝digest エンドポイント・専用ワークフロー・発火監視をすべて削除。配信は管理画面 `/admin/newsletters` からの手動送信のみ
+- 本番 Supabase project ref＝`xzafxiupbflvgbarrihe`。middleware の CSP `connect-src` は `NEXT_PUBLIC_SUPABASE_URL` から導出し、**env 欠落時のみ**この ref にハードコードでフォールバックする（`getSupabaseConnectSrc()`）
 
 ## 技術スタック
 - Next.js 15.5（App Router）/ React 18 / TypeScript 5
 - Tailwind CSS 3.4
-- react-hook-form 7 + zod 4（バリデーション）
+- react-hook-form 7 + `@hookform/resolvers` 5 + zod 4（バリデーション）
 - Supabase＝`@supabase/supabase-js` 2 + `@supabase/ssr`（SSR Cookie 認証）
 - 決済＝Stripe（`stripe` / `@stripe/stripe-js`）
 - メッセージング＝`@line/liff`（LIFF）・LINE Messaging API・LINE WORKS
 - メール＝Resend / Web Push＝`web-push`（VAPID）
 - 地図＝Leaflet + `@react-map/japan` / グラフ＝Recharts / QR＝`qrcode`
 - AI＝`@anthropic-ai/sdk`（問い合わせサポート等）
-- 解析＝`@vercel/analytics` / `@vercel/speed-insights` / GA4 / Microsoft Clarity
-- テスト＝Jest 30（jsdom）・Playwright（E2E）・Stryker 9（ミューテーション）・fast-check（プロパティ）・k6（負荷）
+- 解析＝`@vercel/analytics` / `@vercel/speed-insights` / GA4（`@next/third-parties` の `GoogleAnalytics`・`src/app/layout.tsx`）/ Microsoft Clarity
+- テスト＝Jest 30（jsdom）・Playwright（E2E）＋`@axe-core/playwright`（a11y・`e2e/a11y-audit.spec.ts`）・Stryker 9（ミューテーション）・fast-check（プロパティ）・k6（負荷）
 - Lint＝ESLint 8 + `eslint-config-next` + 自作 `eslint-plugin-carelink-safety`
 - pre-commit＝husky + lint-staged（`gitleaks protect` でシークレット流出防止）
 
@@ -42,7 +42,9 @@ src/
 ├── lib/                     # 共通ロジック（withRoute・各種 supabase クライアント・csrf 等）
 └── types/                   # 型定義
 supabase/migrations/         # DB マイグレーション（本数は `ls supabase/migrations/*.sql | wc -l` で取る）
-.github/workflows/           # CI（ci.yml 他）・cron（cron.yml）
+.github/workflows/           # CI（ci.yml 他・全13ファイル）。有効／無効は GitHub 側の状態＝「テスト・CI」節を見る
+render.yaml                  # Render Cron Jobs（本番スケジューラの実体）
+scripts/                     # 運用スクリプト・診断 SQL（diagnose-*.sql）・スキーマ fingerprint 生成
 load-tests/                  # k6 負荷テスト
 e2e/                         # Playwright E2E
 ```
@@ -67,7 +69,20 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 `checkCronAuth`：`Authorization: Bearer ${CRON_SECRET}` を `timingSafeEqual`（定数時間・長さ不一致は別途 false）で検証。`CRON_SECRET` 未設定は 500。
 
 ### 監査ログ（`src/lib/audit-logger.ts`）
-重要操作は `void writeAuditLog({...})`（fire-and-forget・失敗で本体を止めない）で `audit_logs` に記録。`diffValues` で変更フィールドのみ抽出。
+重要操作は `void writeAuditLog({...})`（fire-and-forget・失敗で本体を止めない）で `audit_logs` に記録する。`await` を付けない＝呼び出し元がログ完了を待たない。
+export は `writeAuditLog` / `getRequestContext`（Request から ip・ua を取り出す）と型 `AuditAction` / `AuditLogEntry` の 4 つだけ。
+変更前後は `oldValues` / `newValues` に呼び出し側が渡す（差分抽出ヘルパーは存在しない）。`AuditAction` は
+`create` `update` `delete` `login` `logout` `publish` `suspend` `verify` `approve` `reject` `cancel` `confirm` `export` `booking_adjust_request` の 14 種。
+
+### プラットフォーム管理者判定＝`src/lib/platform-admin.ts`
+
+`requirePlatformAdmin()` が唯一の判定。`profiles.is_platform_admin`（DB カラム）が true のユーザーだけを返し、
+未認証・profile 不在・false は全て `null`（フェイルセーフ）。
+
+🔴 **環境変数 `SUPER_ADMIN_USER_IDS` 方式は廃止済み**（監査 A6b）。`admin/backup` が DB カラム方式・
+`admin/features` 系だけが環境変数方式という二重化があり、環境変数側は再デプロイなしに変更できず
+複数人の管理もできないため DB カラム方式へ一本化した。コード上に `process.env.SUPER_ADMIN_USER_IDS` の
+参照は 1 箇所も残っていない。
 
 ### メール送信元の SSOT＝`src/lib/email-from.ts`（2026年7月31日 新設・PR#556/#558）
 
@@ -151,14 +166,14 @@ API キーの疎通だけでなく、**Resend の `/domains` を実際に引い�
 - `createServerSupabaseClient`（`supabase-server.ts`）＝anon。公開データの読み取り専用。書き込み・ユーザー固有データに使わない。
 - `createServiceRoleClient`（`supabase-server.ts`）＝service role。RLS バイパス。API ルート・cron などサーバー信頼文脈のみ。
 - `createServerSupabaseAuthClient`（`supabase-server-auth.ts`）＝SSR Cookie 認証。ログインユーザー文脈の読み書き。
-- ブラウザ＝`supabase-browser.ts`。
+- `createBrowserSupabaseClient`（`supabase-browser.ts`）＝ブラウザ用。
 
 ## API ルート一覧（`src/app/api/`）
-- 公開・来院者系：`facilities` `facility` `salons` `availability` `slots` `booking` `waitlist` `options` `symptoms` `stations` `recommendations` `ab-test` `referral` `review` `nps` `report` `favorites` `profile` `account` `chat` `intake` `contact` `inquiry` `unsubscribe` `health` `og` `v1` `push`
+- 公開・来院者系：`facilities` `facility` `salons` `availability` `slots` `booking` `waitlist` `options` `symptoms` `stations` `recommendations` `ab-test` `referral` `review` `nps` `report` `favorites` `profile` `account` `chat` `intake` `contact` `inquiry` `unsubscribe` `health` `og` `v1` `push` `[...notfound]`（未定義 API パスの catch-all）
 - 認証・LINE：`auth` `liff` `line`
 - 決済：`payment` `stripe`
-- 管理（`api/admin/`・施設オーナー／プラットフォーム）：`bookings` `booking-status` `booking-checkout` `booking-adjust-request` `customers` `staff` `menus` `catalog` `coupons` `packages` `user-packages` `subscription-plans` `user-subscriptions` `payments-settings` `accounting-export` `settings` `facility-verify` `registrations` `jobs` `job-applications` `featured-ads` `features` `feature-flags` `blog` `platform-blog` `qa` `review-summary` `moderation` `newsletter` `inquiries` `report` `gbp` `hpb-menus` `ai-support` `api-keys` `backup` `chain` `white-label` `subscription-plans`
-- cron（`api/cron/`・Render Cron Jobs から Bearer 認証で起動。GitHub Actions は保険）：下記スケジュール参照
+- 管理（`api/admin/`・施設オーナー／プラットフォーム）：`bookings` `booking-status` `booking-checkout` `booking-adjust-request` `customers` `staff` `menus` `catalog` `coupons` `packages` `user-packages` `subscription-plans` `user-subscriptions` `payments-settings` `accounting-export` `settings` `facility-verify` `registrations` `jobs` `job-applications` `featured-ads` `features` `feature-flags` `blog` `platform-blog` `qa` `review-summary` `moderation` `newsletter` `inquiries` `report` `gbp` `hpb-menus` `ai-support` `api-keys` `backup` `chain` `white-label`（実ディレクトリ 38 本と一致）
+- cron（`api/cron/`・Render Cron Jobs から Bearer 認証で起動。実ディレクトリ 15 本）：下記スケジュール参照
 - 運用・監視：`alert-check`（`ALERT_CHECK_TOKEN` で保護）・`admin`（管理画面用API群は下記）
 - Google 連携：`google-calendar` / Slack：`slack`
 
@@ -183,18 +198,18 @@ API キーの疎通だけでなく、**Resend の `/domains` を実際に引い�
 
 オーナーニュースレターの自動月次配信は廃止した（神原さん確定 2026年7月2日「お知らせがある時のみ」）。旧 `/api/cron/newsletter-digest` エンドポイント・専用ワークフロー `newsletter-digest.yml`・発火監視 `monthly-batch-watcher.yml` はすべて削除済み。全店に同一の全プラットフォーム集計（「新規予約 N」等）を一斉配信していた作りを根本から廃止した。ニュースレター配信は管理画面 `/admin/newsletters` で任意の件名・本文を作成し「今すぐ配信」する手動運用のみ（`api/admin/newsletter`・`api/admin/newsletter/[id]` action=send）。台帳テーブル `newsletter_send_log` は孤児化するが、`schema-drift-check` との整合のため DB・マイグレーション・スナップショットは残置（無害）。
 
-### 🔴 cron の現状＝【Render が実働・GitHub Actions は保険として残置】（2026年7月29日 実データで確定）
+### 🔴 cron の現状＝【Render のみが実働。GitHub Actions cron は無効化済みで保険にならない】（2026年8月12日 GitHub API で確定）
 
 【経緯】public repo の GitHub Actions scheduled workflow は GitHub が有料/private を優先し大幅に間引く（実測で cron.yml 最大176分・health-monitor 最大283分の空白）。恒久解として `render.yaml`（Render Cron Jobs・機能ごとに独立サービス16本・SSOTは `src/lib/cron-jobs.data.json`、`src/__tests__/render-yaml-drift.test.ts` がドリフト検知）へ移行した（PR#382）。移行期間中は GitHub Actions + pg_cron + Render の三重化だったが、2026年7月29日に神原が `select cron.unschedule(jobname) from cron.job where jobname like 'carelink-%';` を実行し【pg_cron を撤去済み（15ジョブ全て解除・戻り値 true を確認）】。
 
-【現在の実態（2026年7月29日 実データで確定）】
-- 実働しているのは【Render のみ】。根拠＝(a) pg_cron 撤去後も cron_logs が正確な間隔で記録され続けている（webhook-retry 15分毎・cron-heartbeat 5分毎・flag-reviews 毎時）、(b) 同時刻に GitHub Actions cron.yml は【11時間42分間まったく発火していなかった】（最終 7月28日 15:59 UTC ／ 確認時 7月29日 03:41 UTC）。この2つから、規則正しい発火は Render 由来と確定できる。
-- GitHub Actions cron.yml / health-monitor.yml は【意図的に残置】。間引かれて不定期にしか動かないが、Render が停止した際の最後の保険になるため、ローンチが安定するまでは外さない（endpoint は冪等なので重複発火は無害）。
+【現在の実態（2026年8月12日 GitHub API `GET /repos/jimuin0/carelink/actions/workflows` で確定）】
+- 実働しているのは【Render のみ】。根拠＝(a) pg_cron 撤去後も cron_logs が SSOT どおりの間隔で記録され続けている（webhook-retry 15分毎・cron-heartbeat 30分毎＝毎時07分/37分・flag-reviews 毎時）、(b) 下記のとおり GitHub Actions 側は無効化されていて発火し得ない。
+- 🔴 **`cron.yml` / `health-monitor.yml` / `deploy-watch.yml` は GitHub 上で `state: disabled_manually`＝発火しない**（無効化日時は workflow の `updated_at`：health-monitor と deploy-watch が 2026年7月25日、cron.yml が 2026年7月29日）。**ファイルが `.github/workflows/` に在ることを「保険が効いている」と読まないこと。** 3本とも Render 側に等価物があるため運用の穴は無い（cron 15本＋`carelink-health-check`）。再び保険として使いたい場合は、ファイルを足すのではなく GitHub の Actions 画面で **Enable workflow** する必要がある。
 - health-monitor.yml の Render 代替は `carelink-health-check`（`scripts/health-check.mjs`・5分毎）。
 
 【将来 GitHub Actions を撤去する場合の注意】`.github/workflows/cron.yml` を削除すると `src/__tests__/cron-jobs-drift.test.ts`（SSOT ↔ cron.yml の三重管理ドリフト検知）が丸ごと成立しなくなる。同テストの削除または render.yaml 基準への作り替えをセットで行うこと。ドリフト検知自体は `render-yaml-drift.test.ts` が引き継げる。
 
-【調査時の鉄則】新セッションで cron の挙動を調べる時は、まずどのスケジューラが実際に動いているかを実データで確認してから議論すること（Render Dashboard／`gh run list --workflow=cron.yml`／`select * from cron.job`／`cron_logs` の実記録）。なお `cron_logs` の `status='skipped'` は「処理対象0件＝正常」であり失敗ではない（集計時に error と混同しないこと）。
+【調査時の鉄則】新セッションで cron の挙動を調べる時は、まずどのスケジューラが実際に動いているかを実データで確認してから議論すること。**最初に見るのは workflow の有効／無効**（`gh workflow list --all` または `GET /repos/jimuin0/carelink/actions/workflows` の `state`）で、次に Render Dashboard／`cron_logs` の実記録／`select * from cron.job`。`gh run list --workflow=cron.yml` は「無効で発火していない」と「間引かれて発火していない」を区別できないので、これ単独で結論を出さない。なお `cron_logs` の `status='skipped'` は「処理対象0件＝正常」であり失敗ではない（集計時に error と混同しないこと）。
 
 ## DB スキーマ（主要テーブル・`src/lib/schema-snapshot.json` が正）
 
@@ -206,11 +221,11 @@ API キーの疎通だけでなく、**Resend の `/domains` を実際に引い�
 - 施設：`facility_profiles` `facility_members` `facility_menus` `facility_photos` `facility_certifications` `facility_symptoms` `facility_qa` `facility_reviews` `facility_cancel_policies` `facility_line_settings` `facility_notification_settings` `facility_reminder_settings` `facility_entitlements` `facility_inquiries`
 - 顧客：`customers` `customer_visits` `customer_segments` `salon_customer_notes` `profiles` `favorites`
 - メニュー／クーポン／パッケージ：`coupons` `coupon_menus` `menu_staff` `option_catalog` `hpb_menu_durations` `package_usage_logs`
-- 決済・購読：`featured_slots` `subscription`・各 entitlement 系
+- 決済・購読：`featured_slots` `subscription_plans` `user_subscriptions` `subscription_usage_logs` `facility_entitlements`
 - 採用・集客：`job_postings` `job_applications` `job_seekers` `facility_jobs` `blog_posts` `blog_authors` `platform_blog_posts` `feature_articles` `area_seo_contents` `areas`
 - レビュー・モデレーション：`public_reviews` `review_replies` `review_helpful` `moderation_queue` `nps_surveys`
 - 通知・連携：`line_user_links` `line_notification_logs` `push_subscriptions` `google_calendar_tokens` `newsletter_subscriptions` `newsletter_campaigns` `newsletter_send_log` `email_unsubscribe_tokens` `birthday_notifications`
-- 基盤：`audit_logs` `cron_logs` `rate_limit_buckets` `webhook`系 `api_keys` `feature_flags` `features` `ab_test_events` `referral_codes` `referral_uses` `contacts` `contact_replies` `intake_form_templates` `intake_form_responses` `daily_revenue_summary` `gbp_posts` `gbp_audit_cache`
+- 基盤：`audit_logs` `cron_logs` `rate_limit_buckets` `stripe_webhook_logs` `webhook_retry_queue` `api_keys` `feature_flags` `features` `ab_test_events` `referral_codes` `referral_uses` `contacts` `contact_replies` `intake_form_templates` `intake_form_responses` `daily_revenue_summary` `gbp_posts` `gbp_audit_cache`
 
 `schema-drift-check` cron が本番スキーマと `schema-snapshot.json` の差分を毎日 JST 02:40 に検知（マイグレーション未適用による無音バグの発症前予防）。CI の Contract Tests（`jest.config.contract.js`）も staging のドリフトをゲートする。
 
@@ -221,7 +236,8 @@ API キーの疎通だけでなく、**Resend の `/domains` を実際に引い�
 | SUPABASE_SERVICE_ROLE_KEY | service role（cron／管理 API のサーバ側 DB 操作・RLS バイパス・必須） |
 | NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_BASE_URL / NEXT_PUBLIC_SITE_URL | 本番ベース URL（リダイレクト・OGP・sitemap 等） |
 | ADMIN_COOKIE_SECRET | /admin membership キャッシュの HMAC 署名鍵（未設定でキャッシュ無効） |
-| CRON_SECRET | GitHub Actions cron → `/api/cron/*` の Bearer 認証（未設定で全 cron 401／500） |
+| CRON_SECRET | Render Cron Jobs → `/api/cron/*` の Bearer 認証（未設定で全 cron 500・不一致で 401・`src/lib/cron-auth.ts`） |
+| CARELINK_BASE_URL | Render cron dispatcher が叩く本番ベース URL（`src/lib/render-cron.mjs` の `resolveCronEndpoint`・未設定は throw。`render.yaml` の envVarGroup `carelink-cron-env` で全 cron サービスへ供給） |
 | RESEND_API_KEY | メール送信（未設定でメール系 cron は送信スキップ） |
 | EMAIL_FROM | 送信元。本番では検証済みドメイン以外だと既定値へ強制フォールバックする（`src/lib/email-from.ts`） |
 | NEWSLETTER_EMAIL_FROM | ニュースレター専用の送信元。未設定なら `CareLink <newsletter@carelink-jp.com>`。EMAIL_FROM と同じ検証を通る |
@@ -236,18 +252,20 @@ API キーの疎通だけでなく、**Resend の `/domains` を実際に引い�
 | VAPID_PRIVATE_KEY / NEXT_PUBLIC_VAPID_PUBLIC_KEY | Web Push |
 | NEXT_PUBLIC_GA_ID / NEXT_PUBLIC_CLARITY_ID | GA4／Clarity（空なら無効） |
 | NEXT_PUBLIC_GSC_VERIFICATION_APEX | Search Console 所有権確認 |
-| SUPER_ADMIN_USER_IDS | プラットフォーム super admin の user_id 群 |
 | NEXT_PUBLIC_RECAPTCHA_SITE_KEY | reCAPTCHA のサイトキー（未設定なら検証をスキップ＝bot 対策は rate limit のみ） |
 | ALERT_CHECK_TOKEN | `/api/alert-check` の Bearer 認証（未設定で 500） |
 | ADMIN_HEARTBEAT_URL / ADMIN_HEARTBEAT_TOKEN | 管理画面ハートビートの送信先とトークン（未設定で送信しない・`src/lib/admin-heartbeat.ts`） |
 
 ## テスト・CI（`.github/workflows/ci.yml`）
 - Lint & Type Check：`npm run lint` ＋ `npx tsc --noEmit`
-- Unit Tests + Coverage：`npm run test:coverage:ci`。`jest.config.js` の `coverageThreshold`＝branches【100】/ lines 80 / functions 75 / statements 80。測定対象＝`src/lib/**/*.ts` ＋ `src/app/api/**/*.{ts,tsx}`（JSX を返す Route Handler の測定漏れ防止）。下回ると Coverage Gate で fail。
+- Unit Tests + Coverage：`npm run test:coverage:ci`。`jest.config.js` の `coverageThreshold`＝branches【100】/ lines 80 / functions 75 / statements 80。測定対象＝`src/lib/**/*.ts` ＋ `src/app/api/**/*.{ts,tsx}`（JSX を返す Route Handler の測定漏れ防止）＋ `src/lib/**/*.mjs`（Render cron dispatcher の純粋ロジック `render-cron.mjs` もゲート対象）、`src/**/*.d.ts` は除外。下回ると Coverage Gate で fail。
 - E2E（Playwright）：`supabase start` → `npm run build` → `npm run test:e2e`（chromium / webkit）
 - Security Audit：`npm audit --audit-level=high`
 - Contract Tests（staging drift gate）：`npm run test:contract`（`jest.config.contract.js`）
-- 他ワークフロー：`mutation-l4.yml`（Stryker）・`health-monitor.yml`（外形監視）・`cron-constraints.yml` / `anon-write-policy-lint.yml` / `secdef-search-path-lint.yml` / `actionlint.yml`（静的ガード）・`deploy-watch.yml` / `vercel-preview-build.yml` / `dependency-update.yml`（依存更新）。ニュースレターの自動月次配信ワークフロー（`newsletter-digest.yml`・`monthly-batch-watcher.yml`）は廃止・削除済み（配信は管理画面から手動のみ）
+- 他ワークフロー（`.github/workflows/` は全 13 ファイル＋Dependabot の動的ワークフロー 1 本）。**有効／無効は GitHub 側の状態なのでファイルの有無で判断しないこと**：
+  - **有効**：`schema-fingerprint.yml`（push/PR で migration からスキーマ期待値を再生成し陳腐化を検査）・`migration-apply-reminder.yml`（PR に新規 migration があれば本番適用を促す）・`mutation-l4.yml`（Stryker・週次 日曜 JST 03:00）・`dependency-update.yml`（依存更新・週次 月曜 JST 09:00）・`vercel-preview-build.yml`（PR で `vercel build` ドライ実行・repo variable `ENABLE_VERCEL_PR_BUILD == 'true'` のときだけ動く）・`cron-constraints.yml` / `anon-write-policy-lint.yml` / `secdef-search-path-lint.yml` / `actionlint.yml`（いずれも `paths:` 絞り込み付きの静的ガード）
+  - **無効（`disabled_manually`）**：`cron.yml` / `health-monitor.yml` / `deploy-watch.yml`（上記「cron の現状」参照）
+- ニュースレターの自動月次配信ワークフロー（`newsletter-digest.yml`・`monthly-batch-watcher.yml`）は廃止・削除済み（配信は管理画面から手動のみ）
 
 ## 既知の罠（コード変更前に確認）
 
@@ -296,9 +314,18 @@ npm run lint                # ESLint
 npm test                    # Jest
 npm run test:coverage:ci    # カバレッジ（CI 同等）
 npm run test:e2e            # Playwright E2E
-npm run test:contract       # Contract（drift gate）
+npm run test:contract       # Contract（drift gate・jest.config.contract.js）
+npm run test:e2e:security   # E2E のうち security.spec.ts のみ
+npm run test:e2e:perf       # E2E のうち performance.spec.ts のみ
+npm run test:e2e:a11y       # E2E のうち accessibility.spec.ts のみ
 npm run test:load           # k6 負荷（search-load）
+npm run test:load:soak      # k6 soak
+npm run test:load:booking   # k6 同時予約
+npm run test:all            # test:ci → test:e2e
 ```
+
+`prelint` / `pretest` / `postinstall` に `node scripts/ensure-eslint-plugin-link.mjs` が配線されており、
+`npm run lint` / `npm test` / `npm install` の直前に必ず走る（下記「worktree 運用の罠」の恒久ガード）。
 
 ## テスト品質スタック 現在地
 
@@ -310,11 +337,7 @@ npm run test:load           # k6 負荷（search-load）
 | L4 | Stryker ミューテーション | ✅ | agent1 4ソース（i18n / seo-constants / seo-snippets / json-ld）Survived=0 を Stryker 公式実行で確定（2026-05-31）。高負荷下のOOM kill回避のため8分割並列＋順次リトライで完走。seo-snippets.ts の生存1体（`.slice(0,180)` 削除）は到達不能な防御コードに起因する等価変異だったため、180字上限を純粋関数 `truncateText`＋定数 `INTRO_MAX_LENGTH` に抽出し境界テストで kill 可能化（症状抑止ではなく予防的根本解決）。変更範囲 Stryker 再実行で Mutation score 100.00 確認。stryker.config.mjs の mutate は純粋10モジュール（上記4＋constants/safe/image-utils/jobs/validations/validations-booking/validations-auth）を break:100 で列挙済み（ただし上記4以外は未検証＝下記）。**【2026-06-10 恒久対策＋validations.ts 実測完了】**: 過去の「validations.ts 100%確定」誤報告の**根本原因を事実で確定**＝Stryker の TS チェッカーが `tsconfig.json`（`include` に `.next/types/**/*.ts` を含む）経由で **stale な Next.js 生成ルート型（main 不在ルートを参照し TS2307 大量発生）を読み込みクラッシュ**し、ミューテーション実測前に異常終了していた（`.next/types/app/admin/salon-board/page.ts` 等で再現確認済み）。**恒久的根本解決**: Stryker 専用 `tsconfig.stryker.json`（`.next` を一切 include しない・`incremental:false` で本体ビルドキャッシュ非汚染）を新設し、`stryker.config.mjs` の `tsconfigFile` をこれに切替。`.next` の状態・ブランチに依存せず**再現性100%**で TS チェック成立（tsc 実測：`.next/types` エラー 0・全エラー 0）。本体 `tsconfig.json` は無変更＝build/dev/通常 tsc に**副作用ゼロ**（症状ブロック＝手動 `.next` 再生成ではなく構造的予防）。この対策下で **`validations.ts`（124 mutant）の Stryker 本実行を完走**: **Mutation score 100.00%・Survived=0**（Killed 52／Timeout 5／NoCoverage 0／Ignored 66=静的変異 `ignoreStatic`／CompileError 1=TS が拒否＝分母外、所要 36分48秒、concurrency 1）。ログ集計表と `reports/mutation/mutation.json` の独立再計算が一致＝exit code でなく実データで確定。**【2026-06-10 全10モジュール実測完了】**: 上記恒久対策下で `stryker.config.mjs` の mutate 対象**全10モジュールを1ファイルずつ非並行で実測完走し、全て Survived=0（Mutation score 100.00%）を実データ確定**（各モジュールごとにログ集計表と mutation.json を独立再計算して照合・exit code 非依存）。内訳: validations(Killed52/TO5)・constants(Killed11)・safe(Killed13/TO5)・image-utils(Killed7/TO15)・jobs(Killed32/TO6)・validations-booking(Killed35/TO2)・validations-auth(Killed3)＝本日実測、i18n/seo-constants/seo-snippets＝2026-05-31実測（json-ld は 2026-05-30 実測・mutate 列挙外で別途確定）。constants.ts では生存3変異を性質別に恒久対処（URL正規化の境界テスト追加で実 kill／冗長デフォルトを1箇所集約し実 kill 化／dayLabels の静的データ定数 ObjectLiteral は kill 不能な等価変異として既存 disable と一貫させ除外・神原さん承認済み）。他9モジュールは無修正で 100%。**【2026-06-11 時間切れマスク恒久対策＋全10モジュール再現性確認完了】**: 神原さんの「本当に言い切れるか」の再検証要求で全モジュールを再実行したところ、**image-utils の初回「100%」が偽陽性**だったと判明。Stryker は Timeout も kill 扱いにするため、jest プロセス起動オーバーヘッド（高負荷時 ~40秒〜）が旧 `timeoutMS:30000` を超えると本来 Survived の変異まで時間切れ＝kill に誤計上され、**真の取りこぼしがマスクされる**（image-utils 初回 Timeout15 に Survived2 が埋もれていた）。**根本原因＝timeoutMS が jest 起動コストに対し低すぎ**。対象は全て純粋関数（ループ無し＝無限ループ変異が原理上発生せず、時間切れは 100% jest 起動由来の偽陽性）。**恒久対策＝timeoutMS を 30000→120000→300000 に引き上げ**（高負荷の連続実行で 120000 でもスパイクが超えたため 300000 で確定）。image-utils の実テストギャップ2件（width/quality 未指定で `=undefined` 付与）はテスト追加で実 kill（PR#94）。**timeoutMS300 下で全10モジュールを1本ずつ再実行し、全て Survived=0 かつ Timeout=0（非ループの偽時間切れ皆無）を実データ確定**: image-utils K22／jobs K38／validations-booking K37／validations-auth K3／i18n K7／seo-constants K2／constants K11／safe K18／validations K57／seo-snippets K55（各 Timeout0・Survived0）。**【2026-06-16 validations-booking 再実測（PR#158 `.refine(isValidIsoDate)` 追加後）】**: PR#158 で `validations-booking.ts` に `booking_date` 実在日検証 `.refine` を1行追加したため、Survived=0 を実データで再確認。timeoutMS300・concurrency 1・tsconfigFile=tsconfig.stryker.json 下で Stryker 本実行を完走（87 mutant）: **Mutation score 100.00・Survived=0・Timeout=0・NoCoverage=0**（Killed 37／CompileError 2=TS が型レベルで拒否＝分母外／Ignored 48=`ignoreStatic` 静的変異、所要 41分16秒）。ログ集計表と `reports/mutation/mutation.json` の独立再計算（node で status 集計）が一致＝exit code 非依存で実データ確定。2027-02-30 等の実在しない暦日を弾く回帰テストが新規 `.refine` 由来の変異を全 kill。**L4 完遂＝全対象モジュールでテストが全変異を捕捉（取りこぼし0）を、時間切れマスクのない信頼できる実データで確定。** |
 | L5 | fast-check プロパティベース | ✅ | 26テスト＋safeJsonLd プロパティ7件、バグ3件修正 2026-05-29／json-ld 追加 2026-05-30 |
 | L6 | npm audit / 認証テスト | ✅ | critical=0・high=0、認証バイパステスト 21件（HMAC検証・middleware） 2026-05-29 達成 |
-| L7 | 構造化ログ + Slack + 外形監視 | ✅ | 2026-05-25 達成（A〜D 全基準） |
-</content>
-</invoke>
-
----
+| L7 | 構造化ログ + Slack + 外形監視 | ✅ | 2026-05-25 達成（A〜D 全基準）。外形監視の実体は Render の `carelink-health-check`（`scripts/health-check.mjs`・5分毎）。GitHub の `health-monitor.yml` は無効化済みなので数に入れない |
 
 ## スキーマドリフト監視（2026年8月2日 全面刷新・手管理スナップショット廃止）
 
@@ -325,14 +348,15 @@ npm run test:load           # k6 負荷（search-load）
 |---|---|---|
 | 期待値 | `schema-constraints-snapshot.json`（**人が手管理**） | migration から毎回導出（`scripts/gen-schema-fingerprint.sh`） |
 | 見る範囲 | テーブル存在・列**名**・PK/UNIQUE | 列(型/NOT NULL/DEFAULT)・**全制約**・**インデックス(部分ユニーク含む)**・**RLS ポリシー**・トリガ・関数・enum・GRANT |
-| 実測項目数 | — | 2028 |
+| 実測項目数 | — | migration を足すたび増えるので数字は書かない。`node -e "console.log(require('./src/lib/schema-fingerprint.expected.json').length)"` で取る |
 
 🔴 **廃止した理由（実測）**: migration `20260722000005` が `UNIQUE(facility_id,is_active)` を
 **意図的に** DROP した（「非アクティブも施設あたり1件まで」という意図しない制約を、
 `uq_intake_active_per_facility`（部分ユニークインデックス）へ置換）のに JSON だけ取り残され、
 **毎日「制約欠落1」を誤報し続けていた**。しかも置換先の部分ユニークインデックスは
 `pg_constraint` に行を作らないため、旧方式では**構造的に検知不能**だった。
-さらに RLS ポリシー（実測 131 本＝施設間データ分離の実体）が **1 本も監視されていなかった**。
+さらに RLS ポリシー（`policy|` で始まる行＝施設間データ分離の実体）が **1 本も監視されていなかった**。
+種別ごとの内訳は `node -e "const d=require('./src/lib/schema-fingerprint.expected.json');const k={};for(const l of d)k[String(l).split('|')[0]]=(k[String(l).split('|')[0]]||0)+1;console.log(k)"` で取る。
 
 ### 構成
 - `supabase/shadow/00_bootstrap.sql` — Supabase 互換の最小 bootstrap（**本番には絶対に適用しない**）
