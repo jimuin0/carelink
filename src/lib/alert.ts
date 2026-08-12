@@ -9,6 +9,7 @@
  */
 
 import { postToSlackWithThreadGrouping } from './slack';
+import { runAfterResponse } from './after-response';
 
 type AlertLevel = 'error' | 'warning' | 'info';
 
@@ -41,8 +42,12 @@ export function postAlert(payload: AlertPayload): void {
     return;
   }
 
-  // fire-and-forget で投稿（await しない、await されても本体は止めない）
-  void (async () => {
+  // 🔴 レスポンス送出後の実行を保証させる（src/lib/after-response.ts）。
+  // 従来は浮いた Promise のままで、サーバーレスがレスポンス後にインスタンスを凍結すると
+  // 投稿が失われうる。alertCaughtError は withRoute の catch から呼ばれる＝
+  // 【全 500 応答の Slack 通知】がこの経路なので、取りこぼすと障害に気づけない。
+  // 応答は遅らせない（after は登録するだけ）。
+  runAfterResponse(async () => {
     try {
       const emoji = LEVEL_EMOJI[payload.level];
       const lines = [
@@ -94,7 +99,7 @@ export function postAlert(payload: AlertPayload): void {
       // Slack 死亡時の最終フォールバック（postToSlackWithThreadGrouping は throw しないため到達不可）
       console.error('[alert] Slack post failed:', e instanceof Error ? e.message : String(e));
     }
-  })();
+  });
 }
 
 export function alertError(message: string, opts: Omit<AlertPayload, 'level' | 'message'> = {}): void {
