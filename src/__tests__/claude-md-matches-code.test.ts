@@ -180,6 +180,11 @@ describe('CLAUDE.md はコードと一致している', () => {
       'gen-stub-schema.mjs',
       'card-view-columns.test.ts',
       'facility_card_view',
+      // PR#587/#588 で新設。`void doSomething()` の代わりに通す唯一の登録口なので、
+      // 記載が無いと次に書く人がまた浮いた Promise を書き、応答後に静かに失われる。
+      'after-response',
+      'runAfterResponse',
+      'post-response-notify-guard.test.ts',
       'schema-fingerprint.expected.json',
     ]) {
       expect(MD).toContain(sym);

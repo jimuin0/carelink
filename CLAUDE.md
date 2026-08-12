@@ -57,7 +57,7 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 2. レート制限（`rateLimit` 指定時）— `checkRateLimit`：Supabase RPC `check_rate_limit` を優先、失敗時は in-memory フォールバック（fail-safe・本体を 500 化させない）
 3. 認証（`requireAuth: true` 指定時）— `auth.getUser()` で未認証は 401・通過時は `ctx.user` / `ctx.supabase` をハンドラへ注入
 4. ハンドラ本体
-5. 例外は必ず catch して 500 に変換し、`safeCaptureException` ＋ `alertCaughtError`（Slack 通知・fire-and-forget）。catch して 500 を返すと `instrumentation.ts` の onRequestError に伝播せず Slack 通知が漏れるため、catch 経路でも明示通知する。
+5. 例外は必ず catch して 500 に変換し、`safeCaptureException` ＋ `alertCaughtError`（Slack 通知・応答は遅らせない）。catch して 500 を返すと `instrumentation.ts` の onRequestError に伝播せず Slack 通知が漏れるため、catch 経路でも明示通知する。通知は `runAfterResponse` 経由で応答後に実行される（下記「応答後に走らせる副作用の SSOT」・**全 500 応答の Slack 通知がこの経路**なので取りこぼすと障害に気づけない）。
 
 ### middleware（`src/middleware.ts`）
 - 全応答に per-request nonce ベースの CSP を付与（`'strict-dynamic'` + nonce で `'unsafe-inline'` を script から排除）。`x-nonce` / `x-pathname` をサーバーコンポーネントへ伝搬。
@@ -68,8 +68,27 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 ### cron 認証（`src/lib/cron-auth.ts`）
 `checkCronAuth`：`Authorization: Bearer ${CRON_SECRET}` を `timingSafeEqual`（定数時間・長さ不一致は別途 false）で検証。`CRON_SECRET` 未設定は 500。
 
+### 応答後に走らせる副作用の SSOT＝`src/lib/after-response.ts`（2026年8月12日 新設・PR#587/#588）
+
+`runAfterResponse(task)` が唯一の登録口。**新しく「応答後に走らせたい副作用」を足すときは
+`void doSomething()` と書かず必ずこれを通す。**
+
+🔴 **なぜ必要か（本番の実害）**：サーバーレス（Vercel）は【レスポンスを返した時点でインスタンスを
+凍結・終了してよい】ため、浮いた Promise（`void ...`）の完了は保証されない。実際に本番の
+`audit_logs` は全期間 5 行しかなく、うち 4 行は DB トリガ由来で、アプリの `void writeAuditLog(...)`
+83 箇所に由来する行は 1 行だけだった。
+
+- 実装は Next.js の `after()`（Next 15.1+）。登録するだけなので**応答は遅くならない**。
+- `after()` が使えない文脈（スクリプト・単体テスト）では task の完了を返すのでテストが決定的に検証できる。
+- `next/server` は**遅延 require** している（先頭で import すると jsdom 環境の単体テストが import だけで落ちるため）。
+- `task` は自分で例外処理すること。この関数は失敗を報告しない（報告経路自体がこの仕組みに依存するため）。
+- 現在この経路に載っているのは `writeAuditLog`（`audit-logger.ts`）と `postAlert` 系（`alert.ts`）。
+- `sendNotify` の呼びっぱなしは `src/__tests__/post-response-notify-guard.test.ts` が CI で止める
+  （`/api/contact`・`/api/salons` 2箇所・`/api/inquiry` の受信通知が実際に取りこぼされていた）。
+
 ### 監査ログ（`src/lib/audit-logger.ts`）
-重要操作は `void writeAuditLog({...})`（fire-and-forget・失敗で本体を止めない）で `audit_logs` に記録する。`await` を付けない＝呼び出し元がログ完了を待たない。
+重要操作は `void writeAuditLog({...})` で `audit_logs` に記録する。`void` を付ける＝呼び出し元は待たない。
+内部で `runAfterResponse` を通すので、**投げっぱなしではなく応答後の実行が保証される**（上記参照）。
 export は `writeAuditLog` / `getRequestContext`（Request から ip・ua を取り出す）と型 `AuditAction` / `AuditLogEntry` の 4 つだけ。
 変更前後は `oldValues` / `newValues` に呼び出し側が渡す（差分抽出ヘルパーは存在しない）。`AuditAction` は
 `create` `update` `delete` `login` `logout` `publish` `suspend` `verify` `approve` `reject` `cancel` `confirm` `export` `booking_adjust_request` の 14 種。
