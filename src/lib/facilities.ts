@@ -22,6 +22,30 @@ function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
 const CARD_VIEW = 'facility_card_view';
 const CARD_COLS = 'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, google_rating, google_review_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count';
 
+/** キーワード検索で一度に扱う語数の上限（1語ごとに ILIKE が 6 本増えるため青天井にしない）。 */
+export const KEYWORD_MAX_TERMS = 5;
+
+/**
+ * 検索キーワードを空白区切りの語に分解する（2026年8月11日 新設）。
+ *
+ * 【なぜ必要か＝実際に起きていた欠陥】従来は入力全体を1つの ILIKE パターン
+ * `%豊中 まつげ%` にしていたため、その並びを literal に含む施設しか当たらず、
+ * 【複数語で検索すると常に 0 件】だった。検索は主要導線なので影響が大きい。
+ * 本番の実データでも、特集 `eyelash-special`（filter_type は正しく「ネイル・まつげサロン」で
+ * 該当施設が 2 件ある）が filter_keyword「まつ毛 パーマ エクステ」のせいで 0 件になっていた。
+ *
+ * 全角スペース(U+3000)も区切りにする。日本語入力では全角空白が混ざるのが普通で、
+ * 半角だけ見ていると同じ症状が残る。JS の `\s` は U+3000 を含むが、意図を明示するため
+ * 文字クラスに書く（SQL 側の `\s` は U+3000 を含まないので、そちらは明示が必須）。
+ */
+export function keywordTerms(raw: string): string[] {
+  return raw
+    .slice(0, 100)
+    .split(/[\s　]+/)
+    .filter((t) => t.length > 0)
+    .slice(0, KEYWORD_MAX_TERMS);
+}
+
 export async function searchFacilities(params: SearchParams) {
   const supabase = createServerSupabaseClient();
   const isGeoSearch = params.lat != null && params.lng != null;
@@ -39,17 +63,22 @@ export async function searchFacilities(params: SearchParams) {
     // (, ( ) など)の注入を防ぐためパターン全体をダブルクォートで literal 化する
     // （getFeaturedFacilities の orFilterValue と同じ fail-safe 方針）。
     // クォート内でも % / _ は LIKE ワイルドカードとして機能するため、前方/後方一致は維持される。
-    const escaped = params.keyword.slice(0, 100).replace(/[%_\\]/g, '\\$&').replace(/"/g, '\\"');
-    const pat = `"%${escaped}%"`;
+    // 複数語は AND 意味論（各語がいずれかの列に含まれること）。`.or()` を語ごとに呼ぶと
+    // PostgREST 側で or=(…)&or=(…) となり AND で結合される。1つのパターンに連結していた
+    // 従来実装は「豊中 まつげ」のような入力が常に 0 件だった（keywordTerms の説明を参照）。
     // 【監査C1・恒久根治 完了】検索対象列は facility_card_view に実在する列のみに限る。
     // かつて nearest_station は view 非射影で、参照すると PostgREST 400→error 握り潰しでキーワード検索
     // が常に0件だった（主要導線の無音全滅）。migration 20260722000002 で facility_card_view に
     // fp.nearest_station を射影したため、access_info（アクセス自由記述）に加え専用列 nearest_station
     // （最寄駅名）も検索対象にでき、GPS 経路(search_facilities_nearby が nearest_station で一致)と
     // 非GPS 経路の駅名検索が対称化する。列は必ず migration 適用後にのみ参照すること。
-    query = query.or(
-      `name.ilike.${pat},catch_copy.ilike.${pat},description.ilike.${pat},city.ilike.${pat},access_info.ilike.${pat},nearest_station.ilike.${pat}`
-    );
+    for (const term of keywordTerms(params.keyword)) {
+      const escaped = term.replace(/[%_\\]/g, '\\$&').replace(/"/g, '\\"');
+      const pat = `"%${escaped}%"`;
+      query = query.or(
+        `name.ilike.${pat},catch_copy.ilike.${pat},description.ilike.${pat},city.ilike.${pat},access_info.ilike.${pat},nearest_station.ilike.${pat}`
+      );
+    }
   }
 
   if (params.rating_min) query = query.gte('rating_avg', params.rating_min);
@@ -68,8 +97,13 @@ export async function searchFacilities(params: SearchParams) {
     // されていた（非GPS検索は効くのに GPS 検索だと keyword/features 指定が絞り込みに反映
     // されない確定欠陥）。RPC 側(search_facilities_nearby)を拡張し DB で絞り込むよう根治
     // （migration 20260710000001）。ワイルドカードエスケープは非GPS分岐と同じ方針。
-    const escapedKeyword = params.keyword
-      ? params.keyword.slice(0, 100).replace(/[%_\\]/g, '\\$&')
+    // 複数語は非GPS分岐と同じ AND 意味論にする。RPC 側（migration 20260811000001）が
+    // 受け取った文字列を空白で再分割して全語一致を要求するため、ここでは keywordTerms で
+    // 語数上限を適用したうえで半角空白1つで連結して渡す（エスケープは空白を生まないので
+    // RPC 側の再分割は同じ語に戻る）。
+    const geoTerms = params.keyword ? keywordTerms(params.keyword) : [];
+    const escapedKeyword = geoTerms.length
+      ? geoTerms.map((t) => t.replace(/[%_\\]/g, '\\$&')).join(' ')
       : null;
     const { data, error } = await supabase.rpc('search_facilities_nearby', {
       user_lat: params.lat,
