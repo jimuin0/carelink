@@ -104,8 +104,31 @@ function splitSqlStatements(sql: string): string[] {
   return stmts;
 }
 
+/**
+ * SQL から行コメント（`--` 以降）とブロックコメント（`/`+`* … *`+`/`）を除去する。
+ * このファイル内の全パーサ（文分割・列抽出・テーブル抽出）が共通で通す唯一の前段。
+ *
+ * 🔴 why(2026-08-13 実測): テーブル抽出だけがこの関数を通しておらず、
+ *   **説明文に書いた SQL 断片が実在テーブルとして解釈されていた**。
+ *   `20260813000001` の解説コメントにあった
+ *     「CREATE TABLE IF NOT EXISTS / …」→ 表名 `IF`
+ *     「CREATE TABLE migration（20260602_…）」→ 表名 `migration`
+ *   が実際に抽出され、存在しない 2 テーブルを「本番へ未適用」と誤報して CI が落ちた。
+ *
+ *   誤報より危険なのは**逆向き**で、こちらが本命の欠陥だった:
+ *   テーブル抽出は `DROP TABLE x` を**削除**として扱うため、解説コメントに
+ *   「かつて DROP TABLE bookings した」と書くだけで `bookings` が期待集合から消え、
+ *   **その表のドリフト検知が無音で死ぬ**。「コメントに書くな」という運用では
+ *   次に書かれる説明文を守れないので、抽出の前段で構造的に落とす。
+ *
+ * ⚠️ 実装上の 2 点（どちらも同日に直した）:
+ *   - **ブロックを先に潰す**。行コメントを先に消すと `/`+`* a -- b *`+`/` の途中で
+ *     打ち切られ、閉じを失ったブロックが残る。
+ *   - **置換先は空文字ではなく空白**。空文字だと `CREATE TABLE`+ブロック+`x` が
+ *     `CREATE TABLEx` に繋がり、逆に元の SQL に無いトークンを作ってしまう。
+ */
 function stripSqlComments(s: string): string {
-  return s.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  return s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
 }
 
 /**
@@ -219,24 +242,34 @@ const KNOWN_PENDING_DEPLOYMENT_FUNCTIONS: ReadonlySet<string> = new Set([
   //   database.types.ts 再生成を完了し types に反映済みのため本リストから削除＝関数ドリフト 0。
 ]);
 
-function migrationDefinedTables(): Set<string> {
+/**
+ * CREATE/DROP TABLE 文からテーブル名を「出現順にネット適用」して抽出する（純関数）。
+ * 引数はファイル名昇順＝適用順に並んだ SQL 本文。ファイル I/O を持たないので、
+ * 合成 SQL を渡して抽出器自体の正しさ（＝負の対照）を検証できる。
+ */
+function tablesFromMigrationSql(sqls: readonly string[]): Set<string> {
   const tables = new Set<string>();
-  // ファイル名昇順＝適用順。CREATE TABLE を add、DROP TABLE を delete として
-  // 出現順に「ネット適用」した最終状態が「migration が本番に存在させるつもりのテーブル」。
-  // これにより「CREATE したが後の migration で DROP したテーブル」（＝意図的削除）を
-  // prod に在るべきとして誤検知しない（DROP を無視すると永久に未適用ドリフト誤報になる）。
-  const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
   // CREATE TABLE [IF NOT EXISTS] [public.]x → add / DROP TABLE [IF EXISTS] [public.]x → delete
   const re = /(CREATE|DROP) TABLE (?:IF (?:NOT )?EXISTS )?(?:public\.)?([a-z_][a-z0-9_]*)/gi;
-  for (const file of files) {
-    const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
+  for (const raw of sqls) {
+    const sql = stripSqlComments(raw);
     let m: RegExpExecArray | null;
+    re.lastIndex = 0;
     while ((m = re.exec(sql)) !== null) {
       if (/^drop$/i.test(m[1])) tables.delete(m[2]);
       else tables.add(m[2]);
     }
   }
   return tables;
+}
+
+function migrationDefinedTables(): Set<string> {
+  // ファイル名昇順＝適用順。CREATE TABLE を add、DROP TABLE を delete として
+  // 出現順に「ネット適用」した最終状態が「migration が本番に存在させるつもりのテーブル」。
+  // これにより「CREATE したが後の migration で DROP したテーブル」（＝意図的削除）を
+  // prod に在るべきとして誤検知しない（DROP を無視すると永久に未適用ドリフト誤報になる）。
+  const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
+  return tablesFromMigrationSql(files.map((f) => readFileSync(join(MIGRATIONS_DIR, f), 'utf8')));
 }
 
 function prodTablesFromTypes(): Set<string> {
@@ -419,6 +452,52 @@ describe('migration ↔ prod スキーマ ドリフト台帳', () => {
     // 正規表現破綻による空集合での誤 PASS を防ぐサニティチェック。
     expect(migrationTables.size).toBeGreaterThan(50);
     expect(prodTables.size).toBeGreaterThan(40);
+  });
+
+  describe('🔴 テーブル抽出はコメントを読まない（2026-08-13）', () => {
+    // why: 解説コメント中の SQL 断片が実在テーブルとして解釈されていた。
+    //   誤報（存在しない表を「未適用」と鳴らす）だけでなく、
+    //   **コメント中の DROP TABLE が期待集合から実在表を消して検知を無音で殺す**
+    //   逆向きの穴があった。抽出器を純関数に切り出し、両方向を負の対照で固定する。
+
+    test('コメント中の CREATE TABLE 断片を表として拾わない', () => {
+      const t = tablesFromMigrationSql([
+        '-- CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS の組み合わせで no-op にする\n' +
+          '-- 旧 CREATE TABLE migration（20260602_booking_suspensions）を参照\n' +
+          '/* CREATE TABLE ghost_block_comment ( id uuid ); */\n' +
+          'CREATE TABLE IF NOT EXISTS public.real_table (id uuid);',
+      ]);
+      expect([...t]).toEqual(['real_table']);
+      // 実際に CI を落とした 2 件を名指しで固定する（再発時にどれが漏れたか即分かる）。
+      expect(t.has('IF')).toBe(false);
+      expect(t.has('migration')).toBe(false);
+      expect(t.has('ghost_block_comment')).toBe(false);
+    });
+
+    test('🔴 コメント中の DROP TABLE で実在表を消さない（検知の無音死を防ぐ）', () => {
+      const t = tablesFromMigrationSql([
+        'CREATE TABLE public.bookings (id uuid);',
+        '-- 経緯: かつて DROP TABLE bookings した名残がある（説明文であって実行ではない）\n' +
+          'CREATE TABLE public.other (id uuid);',
+      ]);
+      expect(t.has('bookings')).toBe(true);
+    });
+
+    test('負の対照: コメントでない本物の DROP TABLE は今までどおり消す', () => {
+      const t = tablesFromMigrationSql([
+        'CREATE TABLE public.tmp_table (id uuid);',
+        'DROP TABLE IF EXISTS public.tmp_table;',
+      ]);
+      expect(t.has('tmp_table')).toBe(false);
+    });
+
+    test('コメント除去がトークンを繋げない（空白に置換している）', () => {
+      // 空文字置換だと `CREATE TABLE/*c*/x` が `CREATE TABLEx` になり、
+      // 逆に存在しない形を作ってしまう。空白で潰していることを固定する。
+      expect(stripSqlComments('CREATE TABLE/*c*/public.x (id uuid);')).toBe(
+        'CREATE TABLE public.x (id uuid);',
+      );
+    });
   });
 
   test('パース健全性: migration/types から十分な列数を取得できている', () => {
