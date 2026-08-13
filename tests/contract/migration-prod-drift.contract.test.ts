@@ -138,11 +138,15 @@ const KNOWN_PENDING_DEPLOYMENT: ReadonlySet<string> = new Set([
  *   back-port済み（migration-less ではなくなったため上記除外リストから削除済み。今回とは逆に
  *   「テーブルを残して migration を足す」形の解消だった点が異なる）。
  * facility_booking_suspensions / facility_daily_capacity / salon_customer_notes は
- *   PR #53（feat/salon-board）所有のテーブル。当該ブランチに CREATE TABLE migration
- *   （20260602_booking_suspensions / 20260602_daily_capacity / 20260602_customer_notes）と
- *   アプリコードが存在するが、main 未マージのため main 視点では migration-less に見える。
- *   2026-06-03 時点で本番に先行適用済み（各 0 行）。PR #53 が main へマージされたら
- *   migrationTables に含まれるため、本リストの該当 3 行は削除すること（残すと無害だが陳腐化）。
+ *   PR #53（feat/salon-board）所有のテーブルで、2026-06-03 に本番へ先行適用済みだった。
+ *   その PR #53 は 2026-07-22 に **unmerged のままクローズ**されたため、旧版が書いていた
+ *   解除条件「PR #53 が main へマージされたら本リストから削除する」は永久に満たされない。
+ *   2026-08-13 に supabase/migrations/20260813000001_codify_prod_only_salon_board_tables.sql
+ *   で PR #53 の適用済み DDL を verbatim で back-port し、台帳から削除した
+ *   （＝migrationTables に含まれるようになった）。blog_authors と同型の解消。
+ *
+ * 🔴 教訓: 台帳の解除条件を「別 PR のマージ」に置くと、その PR が閉じた瞬間に条件が腐り、
+ *   除外が恒久化する。除外されている間そのテーブルは**何が起きても鳴らない**。
  */
 
 /**

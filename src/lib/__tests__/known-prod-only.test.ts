@@ -22,9 +22,13 @@ describe('台帳が単一の真実源であること', () => {
       readFileSync(join(ROOT, 'src', 'lib', 'known-prod-only.json'), 'utf8'),
     );
     // 走査が空振りしていないことの下限。空の台帳を「一致」と読み替えさせない。
-    // 2026-08-11: facilities/recruits/booking_menus の DROP で 7→4 件に減った
-    // （意図した減少。実測ちょうどには置かず、壊れたときだけ割る位置＝実測の半分程度に置く）。
-    expect(raw.length).toBeGreaterThanOrEqual(2);
+    // 2026-08-11: facilities/recruits/booking_menus の DROP で 7→4 件。
+    // 2026-08-13: 掲載ボード 3 表の back-port で 4→1 件＝spatial_ref_sys のみになった。
+    // 🔴 下限は 1 で確定。これ以上は減らせない（spatial_ref_sys は PostGIS 所有の
+    //   システムテーブルで、拡張オブジェクトゆえ introspection 側でも除外される＝
+    //   台帳が空になることは正常系では起こらない）。通常は実測の半分程度に置くが、
+    //   1 件が下限そのものである場合に限り 1 を置くのが「壊れたときだけ割る」位置になる。
+    expect(raw.length).toBeGreaterThanOrEqual(1);
     expect(new Set(raw).size).toBe(raw.length); // 重複が無い
     expect([...KNOWN_PROD_ONLY].sort()).toEqual([...raw].sort());
   });
@@ -82,13 +86,26 @@ describe('subjectTable — 行がどのテーブルの話か', () => {
 
 describe('isKnownProdOnlyLine', () => {
   it('台帳のテーブルに属する行だけ true', () => {
-    // facilities / recruits は 2026-08-11 に DROP され台帳から削除されたため、
-    // 台帳に恒久的に残る他エントリへ repoint した（spatial_ref_sys は PostGIS 所有で
-    // 常に台帳に残る。salon_customer_notes / facility_booking_suspensions は
-    // PR #53 所有で main 未マージの間は台帳に残る）。
-    expect(isKnownProdOnlyLine('column|salon_customer_notes.id|uuid')).toBe(true);
+    // 2026-08-13: 掲載ボード 3 表（salon_customer_notes 等）が migration へ back-port され
+    // 台帳から消えたため、恒久的に残る唯一のエントリ spatial_ref_sys へ repoint した。
+    // 種別ごとに 1 本ずつ見るのが目的（判定はテーブル名だけで決まるので対象は同一で足りる）。
+    expect(isKnownProdOnlyLine('column|spatial_ref_sys.srid|integer')).toBe(true);
     expect(isKnownProdOnlyLine('grant|spatial_ref_sys|anon|SELECT')).toBe(true);
-    expect(isKnownProdOnlyLine('policy|facility_booking_suspensions|p|cmd=r')).toBe(true);
+    expect(isKnownProdOnlyLine('policy|spatial_ref_sys|p|cmd=r')).toBe(true);
+  });
+
+  it('🔴 back-port 済みの掲載ボード 3 表は台帳から消えている（除外の恒久化を残さない）', () => {
+    // PR #53 は 2026-07-22 に unmerged でクローズされ、解除条件（「マージされたら消す」）が
+    // 永久に満たされなくなった。20260813000001 で migration へ back-port した以上、
+    // 台帳に残っていると監視対象外のまま＝列の消失も RLS の改変も無音になる。
+    for (const t of [
+      'facility_booking_suspensions',
+      'facility_daily_capacity',
+      'salon_customer_notes',
+    ]) {
+      expect(KNOWN_PROD_ONLY.has(t)).toBe(false);
+      expect(isKnownProdOnlyLine(`column|${t}.id|uuid`)).toBe(false);
+    }
   });
 
   it('🔴 台帳外は必ず false（除外しすぎは無音の取りこぼし＝もっと危険）', () => {

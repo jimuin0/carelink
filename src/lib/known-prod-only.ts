@@ -26,9 +26,20 @@
  *     back-port済み＝migration-less ではなくなったため本台帳から削除。今回とは逆に
  *     「テーブルを残して migration を足す」形の解消だった点が異なる）
  *   - facility_booking_suspensions / facility_daily_capacity / salon_customer_notes …
- *     PR #53（feat/salon-board）所有。当該ブランチに CREATE TABLE migration とアプリコードが
- *     在るが main 未マージのため、main 視点では migration-less に見える。本番へは先行適用済み。
- *     **PR #53 が main へマージされたら、この 3 件を台帳から削除すること**（残すと無害だが陳腐化する）。
+ *     PR #53（feat/salon-board）所有の残存だったが、2026-08-13 に
+ *     supabase/migrations/20260813000001_codify_prod_only_salon_board_tables.sql で
+ *     migration へ back-port 済み（blog_authors と同じ「テーブルを残して migration を足す」形）。
+ *     🔴 契機は **PR #53 が 2026-07-22 に unmerged のままクローズされた**こと。旧版の本
+ *     docstring は「PR #53 が main へマージされたら台帳から削除すること」と書いていたが、
+ *     その条件は永久に満たされない＝除外が恒久化し、3 テーブルに何が起きても
+ *     （列の消失・RLS の改変・GRANT の拡大）永久に鳴らない状態だった。
+ *     **「別 PR がマージされたら消す」という解除条件は、その PR が閉じた時点で腐る。**
+ *     台帳へ足すときは解除条件を必ず書き、条件が消滅したら除外の恒久化ではなく
+ *     back-port か DROP で解消すること。
+ *
+ * 現在の台帳は spatial_ref_sys 1 件のみ＝**完成形**（PostGIS 所有のシステムテーブルで、
+ * 拡張オブジェクトなので introspection 側でも除外される＝原理的に減らせない唯一の 1 件）。
+ * 業務テーブルは 1 つも除外されていない。
  *
  * ⚠️ ここへ足すのは「本番に在ることを把握し、受け入れると決めたもの」だけ。
  *   足せばフィンガープリント監視の対象外になる＝そのテーブルに何が起きても鳴らなくなる。
