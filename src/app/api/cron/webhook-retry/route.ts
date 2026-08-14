@@ -14,7 +14,7 @@ import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { errorMessage } from '@/lib/err';
 import { fromEnv, resolveFrom } from '@/lib/email-from';
-import { throwIfResendError } from '@/lib/resend-result';
+import { sendResendChecked } from '@/lib/resend-result';
 
 export const dynamic = 'force-dynamic';
 
@@ -129,14 +129,14 @@ export async function GET(request: Request) {
           const p = job.payload as { to: string; subject: string; html: string; from?: string };
           // Resend SDK は API エラーを throw せず戻り値の error に載せる。検査しないと
           // 送れていないのに job が status='success' に倒れる（lib/resend-result.ts 参照）。
-          const sendResult = await resend.emails.send({
+          // sendResendChecked に send 呼び出し自体を渡し、検査未経由の握り方を作れなくする。
+          await sendResendChecked(resend.emails.send({
             // payload の from は外部由来。未検証ドメインをそのまま使うと不達になるため必ず検証を通す。
             from: p.from ? resolveFrom(p.from, process.env.NODE_ENV === 'production').from : fromEnv(),
             to: p.to,
             subject: p.subject,
             html: p.html,
-          });
-          throwIfResendError(sendResult, 'cron/webhook-retry');
+          }), 'cron/webhook-retry');
         } else {
           // 未知の webhook_type（例: line_multicast はハンドラ未実装）は、旧実装ではどの分岐にも
           // 入らず status='success' に倒れ「送信していないのに配信済み」＝サイレントデータロスだった。
