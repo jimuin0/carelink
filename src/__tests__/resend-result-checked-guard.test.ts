@@ -31,6 +31,19 @@
  *         `resend['emails'].send(...)`（要素アクセス）の**4形が検出条件にすら入らず**、
  *         違反としても `countSendCallSites`（空振り下限）としても**完全に無音**で素通りした。
  *
+ *   ラウンド3（isResendTouchingFile が「直接 import」だけを見る前提の穴・別セッションの
+ *   敵対検証で指摘）:
+ *     (4) 判定基準を「ファイルの性質（`from 'resend'` を import しているか）」へ移したことで
+ *         レシーバの構文形には依存しなくなったが、その「性質」自体が**直接 import のみ**を
+ *         見ていた。Resend クライアントを共有モジュールへ切り出す refactor
+ *         （`@/lib/resend-client` が `export const resend = new Resend(...)` を持ち、利用側は
+ *         それを import するだけになる形）が入ると、利用側ファイルは `from 'resend'` を
+ *         直接 import しなくなるため走査対象から**ファイルごと**外れる（違反にならないの
+ *         ではなく、空振り下限にも掛からず完全に無音）。今のリポジトリにはそのような
+ *         共有モジュールが無いことを別テスト（`findExportedResendInstanceViolations`）で
+ *         固定し、そのリファクタが行われた瞬間に赤くする（列挙が避けられない箇所を
+ *         「漏れたら赤くなる」形で担保する＝CLAUDE.md の走査系ガードの方針どおり）。
+ *
  * 【今回の設計＝「呼び出しの形」の列挙をやめ「ファイルの性質」で判定する】
  *
  *   検出対象を「レシーバの形が `X.emails.send`/`X.batch.send` に一致する呼び出し」から、
@@ -183,6 +196,117 @@ function hasValidMarker(lines: string[], zeroBasedCallLine: number): boolean {
 interface Violation {
   line: number; // 1-based
   text: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ラウンド3（2026年8月14日）: isResendTouchingFile は「そのファイルが直接
+// `from 'resend'` を import しているか」しか見ていない。Resend クライアントを
+// 共有モジュールへ切り出すリファクタ（例: `@/lib/resend-client` が
+// `export const resend = new Resend(...)` を持ち、利用側は
+// `import { resend } from '@/lib/resend-client'` するだけになる形）が入ると、
+// 利用側ファイルは `from 'resend'` を直接 import しなくなるため
+// isResendTouchingFile が false を返し、その利用側ファイルの `.send(` 呼び出しは
+// **走査対象から丸ごと外れる**（違反として出ないのではなく、空振り下限にも
+// 掛からず完全に無音になる）。
+//
+// 今このリポジトリにはそのような共有モジュールが存在しない（実測: `from 'resend'`
+// を直接 import するファイルはちょうど7つで、Resend インスタンスを export して
+// いるモジュールは0件・下記テストで確認）。この事実を固定し、将来そのリファクタが
+// 行われた**瞬間に赤くする**。
+//
+// このテストが落ちたら（＝Resend インスタンスを export するモジュールを作りたい
+// とき）: これ自体は禁止ではない。ただしその refactor をするなら、
+// isResendTouchingFile を「import しているローカルモジュールを1段辿って
+// `from 'resend'` を持つか」まで拡張し、利用側ファイルが走査から漏れないように
+// してから、共有クライアントモジュール自身をこのテストの許可リスト
+// （下記 `ALLOWED_RESEND_INSTANCE_EXPORTERS`）へ追加すること。
+// ─────────────────────────────────────────────────────────────────────────
+
+/** `new Resend(...)` かどうか（コンストラクタ名のみで判定）。 */
+function isNewResendExpr(expr: ts.Expression | undefined): expr is ts.NewExpression {
+  if (!expr) return false;
+  if (!ts.isNewExpression(expr)) return false;
+  return ts.isIdentifier(expr.expression) && expr.expression.text === 'Resend';
+}
+
+function hasExportModifier(node: ts.Node): boolean {
+  if (!ts.canHaveModifiers(node)) return false;
+  const mods = ts.getModifiers(node);
+  return !!mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+}
+
+/**
+ * 関数本体を見て、`new Resend(...)` を直接 return しているか、同一関数内で
+ * `new Resend(...)` を代入された変数をそのまま return しているかを検出する
+ * （`src/lib/email.ts` の非公開 `getResend()` と同型の書き方を将来 export した
+ * ケースを捕まえるため）。
+ */
+function findResendReturnsInBody(block: ts.Node, pushViolation: (node: ts.Node) => void): void {
+  const resendAssignedNames = new Set<string>();
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && isNewResendExpr(node.initializer)) {
+      resendAssignedNames.add(node.name.text);
+    }
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(node.left) &&
+      isNewResendExpr(node.right)
+    ) {
+      resendAssignedNames.add(node.left.text);
+    }
+    if (ts.isReturnStatement(node) && node.expression) {
+      if (isNewResendExpr(node.expression)) {
+        pushViolation(node.expression);
+      } else if (ts.isIdentifier(node.expression) && resendAssignedNames.has(node.expression.text)) {
+        pushViolation(node.expression);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(block);
+}
+
+/**
+ * Resend インスタンスを外部へ配る export（`export const x = new Resend(...)` /
+ * `export default new Resend(...)` / Resend インスタンスを return する exported
+ * 関数）を検出する。
+ */
+function findExportedResendInstanceViolations(sourceFile: ts.SourceFile): Violation[] {
+  const lines = sourceFile.text.split('\n');
+  const violations: Violation[] = [];
+  const pushViolation = (node: ts.Node) => {
+    const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+    violations.push({ line: line + 1, text: lines[line]?.trim() ?? '' });
+  };
+
+  const visit = (node: ts.Node) => {
+    // export const x = new Resend(...) / export let ... / export const getResend = () => new Resend(...)
+    if (ts.isVariableStatement(node) && hasExportModifier(node)) {
+      for (const decl of node.declarationList.declarations) {
+        if (isNewResendExpr(decl.initializer)) {
+          pushViolation(decl.initializer);
+          continue;
+        }
+        const init = decl.initializer;
+        if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
+          if (ts.isBlock(init.body)) findResendReturnsInBody(init.body, pushViolation);
+          else if (isNewResendExpr(init.body)) pushViolation(init.body); // () => new Resend(...)
+        }
+      }
+    }
+    // export default new Resend(...)
+    if (ts.isExportAssignment(node) && !node.isExportEquals && isNewResendExpr(node.expression)) {
+      pushViolation(node.expression);
+    }
+    // export function getResend() { ... return new Resend(...) 系 ... }
+    if (ts.isFunctionDeclaration(node) && hasExportModifier(node) && node.body) {
+      findResendReturnsInBody(node.body, pushViolation);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return violations;
 }
 
 /**
@@ -448,6 +572,79 @@ describe('検出ロジックの単体テスト（実ファイルに依らない�
   });
 });
 
+describe('検出ロジックの単体テスト: Resend インスタンスを export しているモジュールが無いこと（ラウンド3）', () => {
+  const violatingForms: Record<string, string> = {
+    'export const x = new Resend(...)': `
+      import { Resend } from 'resend';
+      export const resendClient = new Resend('key');
+    `,
+    'export default new Resend(...)': `
+      import { Resend } from 'resend';
+      export default new Resend('key');
+    `,
+    'export function が new Resend(...) を直接 return': `
+      import { Resend } from 'resend';
+      export function getResend() {
+        return new Resend('key');
+      }
+    `,
+    'export function が変数へ受けてから return（email.ts の非公開 getResend と同型）': `
+      import { Resend } from 'resend';
+      export function getResend() {
+        const r = new Resend('key');
+        return r;
+      }
+    `,
+    'export const アロー関数が new Resend(...) を返す（式本体）': `
+      import { Resend } from 'resend';
+      export const getResend = () => new Resend('key');
+    `,
+    'export const アロー関数がブロック本体で return': `
+      import { Resend } from 'resend';
+      export const getResend = () => {
+        return new Resend('key');
+      };
+    `,
+  };
+
+  for (const [label, src] of Object.entries(violatingForms)) {
+    it(`検出できる: ${label}`, () => {
+      const sourceFile = parse(src, 'fixture.ts');
+      expect(findExportedResendInstanceViolations(sourceFile).length).toBeGreaterThanOrEqual(1);
+    });
+  }
+
+  it('export していない（非公開）関数は違反にならない（email.ts の実際の getResend と同型）', () => {
+    const src = `
+      import { Resend } from 'resend';
+      let _resend: Resend | null = null;
+      function getResend(): Resend | null {
+        if (!process.env.RESEND_API_KEY) return null;
+        if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY);
+        return _resend;
+      }
+    `;
+    expect(findExportedResendInstanceViolations(parse(src, 'fixture.ts'))).toEqual([]);
+  });
+
+  it('export していないローカル定数も違反にならない', () => {
+    const src = `
+      import { Resend } from 'resend';
+      const resend = new Resend('key');
+      export function useIt() { return resend.emails; }
+    `;
+    expect(findExportedResendInstanceViolations(parse(src, 'fixture.ts'))).toEqual([]);
+  });
+
+  it('Resend 以外のクラスを export しても違反にならない（コンストラクタ名で判定している確認）', () => {
+    const src = `
+      export class NotResend {}
+      export const x = new NotResend();
+    `;
+    expect(findExportedResendInstanceViolations(parse(src, 'fixture.ts'))).toEqual([]);
+  });
+});
+
 describe('Resend の送信結果を捨てている呼び出しが無い（実リポジトリ走査）', () => {
   const files = walkTs(join(ROOT, 'src'));
   const perFile = files.map((f) => {
@@ -492,5 +689,56 @@ describe('Resend の送信結果を捨てている呼び出しが無い（実リ
     expect(emailTs!.sendCount).toBeGreaterThanOrEqual(1);
     const src = readFileSync(emailTs!.file, 'utf8');
     expect(src).toMatch(/\/\/\s*resend-checked:\s*\S/);
+  });
+});
+
+/**
+ * ラウンド3（2026年8月14日）: isResendTouchingFile の前提（直接 import しか見ない）を
+ * 壊す refactor（Resend クライアントの共有モジュール化）が今のリポジトリに存在しないことを
+ * 固定する。許可リストは意図的に空で運用する（許可リストへ追加が必要になったら、
+ * 追加する前に isResendTouchingFile 自体をローカルモジュール1段解決へ拡張すること。
+ * 追加した瞬間に上の「実リポジトリ走査」のファイル数・呼び出し件数の空振り下限に
+ * その利用側ファイルが含まれなくなるため、必ずセットで対応する）。
+ */
+describe('Resend インスタンスを export しているモジュールが存在しない（実リポジトリ走査・ラウンド3）', () => {
+  /**
+   * 意図的に空。ここへ追加する前に isResendTouchingFile をローカルモジュール解決へ
+   * 拡張すること（本ブロック直前のコメント参照）。
+   */
+  const ALLOWED_RESEND_INSTANCE_EXPORTERS: readonly string[] = [];
+
+  it('走査が空振りしていない（.ts/.tsx の総数）', () => {
+    const files = walkTs(join(ROOT, 'src'));
+    // 実測 2026年8月14日: 500 ファイル超。下限は実測の半分程度よりさらに保守的に置く
+    // （リポジトリ全体の走査なので、通常の増減で誤報しない位置）。
+    expect(files.length).toBeGreaterThanOrEqual(200);
+  });
+
+  it('Resend インスタンスを export しているモジュールが1つも無い', () => {
+    const files = walkTs(join(ROOT, 'src'));
+    const offenders: string[] = [];
+    for (const f of files) {
+      const rel = relative(ROOT, f).split(sep).join('/');
+      if (ALLOWED_RESEND_INSTANCE_EXPORTERS.includes(rel)) continue;
+      const src = readFileSync(f, 'utf8');
+      const sourceFile = parse(src, f);
+      const violations = findExportedResendInstanceViolations(sourceFile);
+      if (violations.length > 0) {
+        offenders.push(`${rel}:${violations.map((v) => v.line).join(',')}`);
+      }
+    }
+    if (offenders.length > 0) {
+      throw new Error(
+        `Resend インスタンスを export しているモジュールが見つかりました: ${offenders.join('; ')}\n` +
+          `isResendTouchingFile は「直接 \`from 'resend'\` を import しているか」しか見ていないため、` +
+          `このモジュールを利用する側のファイルは走査対象から丸ごと漏れます（違反として出ないのではなく` +
+          `完全に無音になります）。これ自体は禁止ではありません。この refactor をするなら、` +
+          `src/__tests__/resend-result-checked-guard.test.ts の isResendTouchingFile を` +
+          `「import しているローカルモジュールを1段辿って \`from 'resend'\` を持つか」まで拡張し、` +
+          `利用側ファイルが走査から漏れないようにしてから、このモジュール自身を` +
+          `ALLOWED_RESEND_INSTANCE_EXPORTERS へ追加してください。`
+      );
+    }
+    expect(offenders).toEqual([]);
   });
 });
