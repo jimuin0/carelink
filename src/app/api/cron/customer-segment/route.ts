@@ -16,6 +16,7 @@ import { fetchAllPaged } from '@/lib/paginate';
 import { isMissingColumnError, warnMissingColumnFallback, type DbError } from '@/lib/db-fallback';
 import { canonicalizeEmail } from '@/lib/email-canonical';
 import { fromEnv } from '@/lib/email-from';
+import { throwIfResendError } from '@/lib/resend-result';
 
 export const dynamic = 'force-dynamic';
 // 既定の低い上限を上書きし、下の時間予算ガードが確実に発火する既知の上限を与える。
@@ -327,7 +328,9 @@ export async function GET(request: Request) {
               // 「送達済みだが記録できなかった」＝送達失敗ではないので別 try で握る（誤計上・重複送信防止）。
               let sendOk = false;
               try {
-                await resend.emails.send({
+                // Resend SDK は API エラーを throw せず戻り値の error に載せる。検査しないと
+                // 送れていないのに sendOk=true になり notified_at まで書く（lib/resend-result.ts 参照）。
+                const sendResult = await resend.emails.send({
                   from: fromEnv(),
                   to: email,
                   subject: escSubject(`【${facilityInfo.name}】お久しぶりです！特別クーポンをお届けします`),
@@ -346,6 +349,7 @@ export async function GET(request: Request) {
                   <p style="font-size:12px;color:#94a3b8;margin-top:24px;">このメールは CareLink から自動送信されています。</p>
                 </div>`,
                 });
+                throwIfResendError(sendResult, 'cron/customer-segment');
                 sendOk = true;
               } catch (err) {
                 deliveryFailures++;

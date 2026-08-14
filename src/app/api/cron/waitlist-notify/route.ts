@@ -15,6 +15,7 @@ import { checkCronAuth } from '@/lib/cron-auth';
 import { todayJst } from '@/lib/admin-date';
 import { escSubject, esc } from '@/lib/email';
 import { fromEnv } from '@/lib/email-from';
+import { throwIfResendError } from '@/lib/resend-result';
 
 export const dynamic = 'force-dynamic';
 // 監査X3: 他cron(booking-reminder/review-request/favorites-digest/weekly-report)と揃えて
@@ -157,7 +158,9 @@ export async function GET(request: Request) {
           {
             const bookingUrl = `https://carelink-jp.com/facility/${facility.slug}/booking`;
             try {
-              await resend.emails.send({
+              // Resend SDK は API エラーを throw せず戻り値の error に載せる。検査しないと
+              // 送れていないのに claim を握ったままになる（lib/resend-result.ts 参照）。
+              const sendResult = await resend.emails.send({
                 from: fromEnv(),
                 to: waiter.email,
                 subject: escSubject(`【空きが出ました】${facility.name} ${waiter.date} ${waiter.start_time}〜`),
@@ -166,6 +169,7 @@ export async function GET(request: Request) {
 <p>お早めにご予約ください。（この通知から48時間以内に予約されない場合、次の方へ順番が移ります）</p>
 <p><a href="${bookingUrl}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">今すぐ予約する</a></p>`,
               });
+              throwIfResendError(sendResult, 'cron/waitlist-notify');
             } catch (err) {
               deliveryFailures++;
               console.error('[waitlist-notify] email send failed', { waiterId: waiter.id, err });

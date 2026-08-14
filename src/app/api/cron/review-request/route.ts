@@ -16,6 +16,7 @@ import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
 import { fromEnv } from '@/lib/email-from';
+import { throwIfResendError } from '@/lib/resend-result';
 
 export const dynamic = 'force-dynamic';
 // 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
@@ -159,12 +160,15 @@ export async function GET(request: Request) {
         attempted = true;
         const resend = new Resend(process.env.RESEND_API_KEY);
         try {
-          await resend.emails.send({
+          // Resend SDK は API エラーを throw せず戻り値の error に載せる。検査しないと
+          // 1 通も送れていないのに delivered=true になる（lib/resend-result.ts 参照）。
+          const sendResult = await resend.emails.send({
             from: fromEnv(),
             to: booking.email,
             subject: escSubject(`【${facility.name}】ご来店ありがとうございました`),
             html: `<p>${esc(booking.customer_name || 'お客')}様</p><p>先日は<strong>${esc(facility.name)}</strong>にご来店いただきありがとうございました。</p><p>よろしければ、口コミを投稿していただけると嬉しいです。</p><p><a href="${reviewUrl}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">口コミを書く</a></p><p style="color:#999;font-size:12px;">口コミを投稿すると50ポイントがもらえます！</p>`,
           });
+          throwIfResendError(sendResult, 'cron/review-request');
           delivered = true;
         } catch (err) {
           console.error('[review-request] email send failed', { bookingId: booking.id, err });
