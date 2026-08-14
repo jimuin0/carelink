@@ -1,6 +1,8 @@
 'use client';
 
-import Link from 'next/link';
+// ヘッダーは全ページに出るうえ、業種一覧をデスクトップ/モバイルの2箇所で描画するため
+// 先読み対象が最も多い。既定で先読みしない（理由と実測は components/BrowseLink.tsx）。
+import Link from '@/components/BrowseLink';
 import { useState } from 'react';
 import { businessTypes } from '@/lib/constants';
 import AuthButton from '@/components/auth/AuthButton';

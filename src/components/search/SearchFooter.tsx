@@ -1,4 +1,6 @@
-import Link from 'next/link';
+// フッターは全ページに出る大量の回遊リンク。既定で先読みしない
+// （理由と実測は components/BrowseLink.tsx）。
+import Link from '@/components/BrowseLink';
 import { regionGroups, businessTypes } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 

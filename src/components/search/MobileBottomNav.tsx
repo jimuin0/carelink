@@ -1,6 +1,8 @@
 'use client';
 
-import Link from 'next/link';
+// モバイル下部ナビ。/mypage 配下は middleware の保護対象なので、先読みするだけで
+// 毎回 auth.getUser() が走る。既定で先読みしない（理由と実測は components/BrowseLink.tsx）。
+import Link from '@/components/BrowseLink';
 import { usePathname } from 'next/navigation';
 
 const items = [

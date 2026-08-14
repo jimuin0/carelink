@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+// 未ログイン時のログイン/登録導線とメニュー一覧。既定で先読みしない
+// （理由と実測は components/BrowseLink.tsx）。
+import Link from '@/components/BrowseLink';
 import { usePathname } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import type { User } from '@supabase/supabase-js';

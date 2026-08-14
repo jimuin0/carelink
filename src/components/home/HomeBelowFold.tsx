@@ -1,6 +1,9 @@
 'use client';
 
-import Link from 'next/link';
+// 一覧・回遊リンクは既定で先読みしない（Next 16 の viewport 先読みが動的ルートの
+// データまで取りに行き、表示しただけで /search の SSR が十数回走るため。理由と実測は
+// components/BrowseLink.tsx）。
+import Link from '@/components/BrowseLink';
 import Image from 'next/image';
 import { regionGroups, facilityFeatures } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
