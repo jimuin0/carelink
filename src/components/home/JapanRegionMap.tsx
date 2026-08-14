@@ -1,6 +1,8 @@
 'use client';
 
-import Link from 'next/link';
+// 地方リンクは 9 本が一度に viewport へ入る一覧。既定で先読みしない
+// （理由と実測は components/BrowseLink.tsx）。
+import Link from '@/components/BrowseLink';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';

@@ -47,9 +47,16 @@ export async function POST(request: NextRequest) {
   }, { onConflict: 'event_id', ignoreDuplicates: true });
 
   if (upsertError) {
-    // upsert failed — another request may be processing concurrently; skip
+    // 🔴 ここで 200 を返してはいけない（2026年8月14日 根治）。
+    // `ignoreDuplicates: true` の upsert は **重複を競合エラーにしない**（no-op で成功する）ので、
+    // ここに来るのは「並行配信」ではなく DB そのものの障害だけ。旧実装は
+    // `{ received: true, skipped: true }`（200）を返しており、Stripe には「受領済み」と伝わって
+    // **再送されない**。ログ行も無く handleEvent も走っていないため、決済イベントが恒久的に
+    // 失われる（入金・返金の取りこぼしに直結し、しかも無音）。
+    // 5xx を返せば Stripe が指数バックオフで再送するので、DB 復旧後に必ず処理される。
     console.error('Webhook log upsert error:', upsertError.message);
-    return NextResponse.json({ received: true, skipped: true });
+    alertCaughtError('stripe-webhook-log-upsert', upsertError, '/api/stripe/webhook');
+    return NextResponse.json({ error: 'Log upsert failed' }, { status: 500 });
   }
 
   // Re-read to check if this insert actually inserted (ignoreDuplicates means a conflict

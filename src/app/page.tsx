@@ -69,6 +69,11 @@ export default async function Home() {
                 <Link
                   key={cat.type}
                   href={`/search?type=${encodeURIComponent(cat.type)}`}
+                  // 🔴 prefetch を切る理由は「回遊リンクだから」ではなく実測。Next 16 は viewport に
+                  //   入った Link の【動的ルートのデータまで】先読みするようになった（15 はしない）。
+                  //   /search は ƒ（オンデマンドSSR）なので、この一覧を出すだけで実DBクエリを伴う
+                  //   検索レンダリングが人数分走る。詳細は e2e/home-prefetch-fanout.spec.ts。
+                  prefetch={false}
                   className="flex-shrink-0 inline-flex items-center gap-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full px-4 py-2.5 text-xs font-medium text-white transition-all shadow-sm hover:shadow whitespace-nowrap min-h-[40px]"
                 >
                   {cat.name}

@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
+// 同意バナー内のポリシーリンク。全ページで初回表示されるので先読みしない
+// （理由と実測は components/BrowseLink.tsx）。
+import Link from '@/components/BrowseLink';
 
 interface CookiePreferences {
   necessary: true; // 常にtrue（変更不可）

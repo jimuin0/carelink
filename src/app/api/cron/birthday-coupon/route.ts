@@ -24,6 +24,7 @@ import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
 import { fromEnv } from '@/lib/email-from';
+import { throwIfResendError } from '@/lib/resend-result';
 
 export const dynamic = 'force-dynamic';
 // 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
@@ -246,7 +247,10 @@ export async function GET(request: Request) {
           } else if (claimResult === 'claimed') {
             // claim 成功: このチャネルの送信権を獲得。実際に送信する。
             try {
-              await resend.emails.send({ from: fromEnv(), to: profile.email, subject: emailSubject, html: emailHtml });
+              // Resend SDK は API エラーを throw せず戻り値の error に載せる。検査しないと
+              // 送れていないのに claim を握ったまま送信済み扱いになる（lib/resend-result.ts 参照）。
+              const sendResult = await resend.emails.send({ from: fromEnv(), to: profile.email, subject: emailSubject, html: emailHtml });
+              throwIfResendError(sendResult, 'cron/birthday-coupon');
               notifiedSet.add(`${profile.id}:email`);
             } catch (err) {
               deliveryFailures++;
@@ -262,7 +266,8 @@ export async function GET(request: Request) {
           // ここに到達するのは初回付与時のみ（23505 側は notificationsTableReady=false だと
           // 上流で skip される）なので1通だけ送信され重複は生じない。
           try {
-            await resend.emails.send({ from: fromEnv(), to: profile.email, subject: emailSubject, html: emailHtml });
+            const sendResult = await resend.emails.send({ from: fromEnv(), to: profile.email, subject: emailSubject, html: emailHtml });
+            throwIfResendError(sendResult, 'cron/birthday-coupon(fallback)');
             notifiedSet.add(`${profile.id}:email`);
           } catch (err) {
             deliveryFailures++;

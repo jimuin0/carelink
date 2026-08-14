@@ -11,6 +11,7 @@ import { newsletterUnsubUrl } from '@/lib/newsletter-unsub';
 import { fetchAllPaged } from '@/lib/paginate';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
 import { newsletterFromEnv } from '@/lib/email-from';
+import { throwIfResendError } from '@/lib/resend-result';
 
 // ニュースレター専用の差出人。EMAIL_FROM(email.ts の既定送信元 noreply@)とは意図的に
 // ローカル部を分けている（購読解除等の応答性を示す newsletter@）ため EMAIL_FROM を
@@ -302,7 +303,11 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
           text: campaign.text_content || undefined,
         }));
         try {
-          await resend.batch.send(messages);
+          // 🔴 Resend SDK は API エラー（401/422/429 等）を throw せず戻り値の error に載せて
+          // resolve する。検査しないと 1 通も届いていないのに sentCount が増え、下で
+          // status='sent'（再送不能）に確定してしまう（lib/resend-result.ts 参照）。
+          const batchResult = await resend.batch.send(messages);
+          throwIfResendError(batchResult, 'admin/newsletter batch');
           sentCount += chunk.length;
         } catch (e) {
           console.error('[newsletter/send] batch chunk failed', { campaignId: params.id, chunkStart: i, chunkSize: chunk.length, err: e });
