@@ -51,6 +51,40 @@ describe('verifyRecaptcha', () => {
     expect(result).toEqual({ success: false, score: 0.9, reason: 'action_mismatch:other_action' });
   });
 
+  // 🔴 score が返ってこない応答（v3 用でないサイトキー等）を「無音で合格」にしない。
+  // 旧実装は `undefined < 0.5` が false になるため、一度も採点せずに
+  // `{ success: true, score: undefined }` を返しており、正当な高スコアと区別が付かなかった。
+  test('score が欠落 → 通すが reason=no_score を明示し、本番では Slack へ可視化する', async () => {
+    process.env.RECAPTCHA_SECRET_KEY = SECRET;
+    const prevNodeEnv = process.env.NODE_ENV;
+    Object.defineProperty(process.env, 'NODE_ENV', { value: 'production', configurable: true });
+    global.fetch = jest.fn().mockResolvedValue({
+      json: () => Promise.resolve({ success: true, action: 'booking' }),
+    });
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await verifyRecaptcha('token', 'booking');
+
+    expect(result).toEqual({ success: true, reason: 'no_score' });
+    expect(postAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ level: 'error', route: 'recaptcha:no-score' }),
+    );
+    Object.defineProperty(process.env, 'NODE_ENV', { value: prevNodeEnv, configurable: true });
+  });
+
+  test('score が数値でない（NaN）→ 同様に no_score として扱う', async () => {
+    process.env.RECAPTCHA_SECRET_KEY = SECRET;
+    global.fetch = jest.fn().mockResolvedValue({
+      json: () => Promise.resolve({ success: true, score: Number.NaN, action: 'booking' }),
+    });
+
+    const result = await verifyRecaptcha('token', 'booking');
+
+    // 非本番なので Slack へは出さない（アラートの氾濫を防ぐ既存方針）。
+    expect(result).toEqual({ success: true, reason: 'no_score' });
+    expect(postAlert).not.toHaveBeenCalled();
+  });
+
   test('score below minScore → returns success=false with low_score reason', async () => {
     process.env.RECAPTCHA_SECRET_KEY = SECRET;
     global.fetch = jest.fn().mockResolvedValue({

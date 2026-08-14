@@ -208,14 +208,19 @@ describe('POST /api/stripe/webhook', () => {
     );
   });
 
-  test('upsert error (conflict) → skips processing', async () => {
+  // 🔴 旧テストは「upsert error (conflict) → skips processing」として 200 を期待していたが、
+  // これは誤った前提を固定していた。`ignoreDuplicates: true` の upsert は重複を競合エラーに
+  // しない（no-op 成功）ので、ここに来るのは DB 障害だけ。200 を返すと Stripe は再送せず、
+  // ログ行も無く handleEvent も走らないまま決済イベントが恒久的に失われる。
+  test('ログ upsert が DB エラー → 500 を返して Stripe に再送させる（イベントを失わない）', async () => {
     setupDefaultMocks(true, false);
 
     const res = await POST(makeRequest('{}') as any);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.skipped).toBe(true);
+    expect(json.skipped).toBeUndefined();
+    expect(json.error).toBe('Log upsert failed');
   });
 
   test('re-reads to check idempotency', async () => {

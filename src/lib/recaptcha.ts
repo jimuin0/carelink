@@ -63,6 +63,28 @@ export async function verifyRecaptcha(
       return { success: false, score: data.score, reason: `action_mismatch:${data.action}` };
     }
 
+    // 🔴 score が数値で返ってこない場合を明示的に扱う（2026年8月14日 追加）。
+    // 上の `as {...}` は **コンパイル時のキャストでしかなく**、実際の応答が
+    // `{ success: true }` だけ（score 無し）でも型検査は通る。その状態で下の
+    // `data.score < minScore` を評価すると `undefined < 0.5` は false になるため、
+    // **一度も採点していないのに合格**して抜けていた。しかも戻り値は
+    // `{ success: true, score: undefined }` で、正当な高スコアと区別が付かない。
+    // 現実に起こる原因は v3 用でないサイトキー（v2）の設定ミスで、その場合
+    // 全リクエストが無検査で通り続ける＝Bot 対策が無音で消える。
+    //
+    // ここで success:false に倒さないのは意図的: この分岐に来る時点で
+    // `data.success === true`＝トークン自体は Google が正当と認めており、
+    // 締め出すと設定ミスの巻き添えで全フォームが停止する（可用性の自傷）。
+    // RECAPTCHA_SECRET_KEY 未設定時と同じ扱い（通すが Slack で必ず可視化する）に揃える。
+    if (typeof data.score !== 'number' || !Number.isFinite(data.score)) {
+      if (process.env.NODE_ENV === 'production') {
+        const msg = `reCAPTCHA の応答に score が含まれていません（v3 用でないサイトキーの可能性）。スコア判定が行われないまま通過しています。action=${action}`;
+        console.warn('[recaptcha:no-score]', msg);
+        postAlert({ level: 'error', message: msg, route: 'recaptcha:no-score', env: process.env.VERCEL_ENV });
+      }
+      return { success: true, reason: 'no_score' };
+    }
+
     if (data.score < minScore) {
       return { success: false, score: data.score, reason: `low_score:${data.score}` };
     }
