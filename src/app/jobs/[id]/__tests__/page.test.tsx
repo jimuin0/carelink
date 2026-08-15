@@ -52,7 +52,6 @@ describe('job detail page generateMetadata SHOW_JOBS branch', () => {
     jest.isolateModules(() => {
       setupSupabaseMock();
       jest.doMock('@/lib/feature-toggles', () => ({ SHOW_JOBS: false }));
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       generateMetadata = require('../page').generateMetadata;
     });
     const metadata = await generateMetadata({ params: Promise.resolve({ id: 'job-1' }) });
@@ -64,7 +63,6 @@ describe('job detail page generateMetadata SHOW_JOBS branch', () => {
     jest.isolateModules(() => {
       setupSupabaseMock();
       jest.doMock('@/lib/feature-toggles', () => ({ SHOW_JOBS: true }));
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       generateMetadata = require('../page').generateMetadata;
     });
     const metadata = await generateMetadata({ params: Promise.resolve({ id: 'job-1' }) });

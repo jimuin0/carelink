@@ -8,7 +8,6 @@ describe('jobs list page metadata SHOW_JOBS branch', () => {
     let metadata!: { robots?: { index: boolean; follow: boolean } };
     jest.isolateModules(() => {
       jest.doMock('@/lib/feature-toggles', () => ({ SHOW_JOBS: false }));
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       metadata = require('../page').metadata;
     });
     expect(metadata.robots).toEqual({ index: false, follow: false });
@@ -18,7 +17,6 @@ describe('jobs list page metadata SHOW_JOBS branch', () => {
     let metadata!: { robots?: { index: boolean; follow: boolean } };
     jest.isolateModules(() => {
       jest.doMock('@/lib/feature-toggles', () => ({ SHOW_JOBS: true }));
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       metadata = require('../page').metadata;
     });
     expect(metadata.robots).toBeUndefined();

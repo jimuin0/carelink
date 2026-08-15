@@ -208,7 +208,6 @@ describe('analytics-events', () => {
     // @ts-expect-error - simulating SSR
     delete (global as { window?: unknown }).window;
     jest.isolateModules(() => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const mod = require('../analytics-events');
       expect(() => mod.trackBookingStarted('f', 's')).not.toThrow();
     });

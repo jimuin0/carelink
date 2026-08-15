@@ -64,7 +64,6 @@ async function featureUrls(
   jest.isolateModules(() => {
     setupFeatureSitemapMock(facilities, features);
     jest.doMock('@/lib/feature-toggles', () => ({ SHOW_JOBS: false }));
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     sitemapDefault = require('../sitemap').default;
   });
   const result = await sitemapDefault();
@@ -131,7 +130,6 @@ describe('sitemap の特集一覧ページ', () => {
     jest.isolateModules(() => {
       setupFeatureSitemapMock(facilities, features);
       jest.doMock('@/lib/feature-toggles', () => ({ SHOW_JOBS: false }));
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       sitemapDefault = require('../sitemap').default;
     });
     return (await sitemapDefault()).map((r) => r.url);
@@ -165,7 +163,6 @@ describe('sitemap SHOW_JOBS branch', () => {
     jest.isolateModules(() => {
       setupSupabaseMock();
       jest.doMock('@/lib/feature-toggles', () => ({ SHOW_JOBS: false }));
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       sitemapDefault = require('../sitemap').default;
     });
     const result = await sitemapDefault();
@@ -178,7 +175,6 @@ describe('sitemap SHOW_JOBS branch', () => {
     jest.isolateModules(() => {
       setupSupabaseMock();
       jest.doMock('@/lib/feature-toggles', () => ({ SHOW_JOBS: true }));
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       sitemapDefault = require('../sitemap').default;
     });
     const result = await sitemapDefault();

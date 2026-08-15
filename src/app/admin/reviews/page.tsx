@@ -54,7 +54,6 @@ export default function AdminReviewsPage() {
     // ここでの失敗は致命的でなく、取得できた分のみ表示する。
     // review_replies に facility_id 列は無いため、当施設の口コミ ID 群で review_id を絞る。
     const reviewIds = loaded.map((r) => r.id);
-    // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
     const { data: replies } = reviewIds.length
       ? await supabase
           .from('review_replies')

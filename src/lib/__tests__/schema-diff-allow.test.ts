@@ -27,9 +27,7 @@ import { join } from 'node:path';
 const ROOT = join(__dirname, '..', '..', '..');
 const ALLOW_FILE = join(ROOT, 'scripts', 'schema-drift-allow.txt');
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let parseAllow: (t: string) => { rules: any[]; invalid: any[] };
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let matchAllow: (l: string, r: any[]) => any;
 let comparabilityProblem: (e: Set<string>, a: Set<string>, min: number) => string | null;
 let CLI_MIN_OVERLAP: number;

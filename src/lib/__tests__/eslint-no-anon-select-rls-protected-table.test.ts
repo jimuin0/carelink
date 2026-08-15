@@ -1,5 +1,16 @@
 /**
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
+ *
  * eslint-plugin-carelink-safety の `no-anon-select-rls-protected-table` ルールの単体テスト。
+ *
+ * 🔴 環境を node に固定する理由: ESLint 9 の RuleTester は内部で `structuredClone` を使うが、
+ * jsdom 環境の global には存在せず `structuredClone is not defined` で全ケースが落ちる。
+ * このテストは DOM を一切使わない純粋な Node テストなので、polyfill を足すのではなく
+ * 環境そのものを正しいものにする。
+ *
+ * ⚠️ 素の `node` ではなく Stryker の mixin 環境を指定すること。src/lib/__tests__ 配下で
+ * 素の環境を指定すると L4（Stryker）の dry run が「Missing coverage results」で全滅する
+ * （jest-env-convention.test.ts が CI で強制）。
  *
  * 【2026年7月16日 追加・恒久予防】#483/#484 と同型（anon Supabase クライアントで RLS 保護
  * テーブルを select し、RLS が常に0行を返すため無音バグになる）の発症を CI（lint）で機械的に
@@ -12,14 +23,16 @@
  */
 
 import { RuleTester } from 'eslint';
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const plugin = require('../../../eslint-plugin-carelink-safety');
 
 const rule = plugin.rules['no-anon-select-rls-protected-table'];
 
+// ESLint 9 の RuleTester は flat config 形式のみを受け付ける（eslintrc 形式の
+// `parser` / `parserOptions` を渡すと ConfigError で全ケースが落ちる）。
+// パーサはパス文字列ではなくモジュール実体を渡す。
 const ruleTester = new RuleTester({
-  parser: require.resolve('@typescript-eslint/parser'),
-  parserOptions: {
+  languageOptions: {
+    parser: require('@typescript-eslint/parser'),
     ecmaVersion: 2020,
     sourceType: 'module',
   },

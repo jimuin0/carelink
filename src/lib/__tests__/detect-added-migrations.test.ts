@@ -16,7 +16,6 @@ import { join } from 'node:path';
 
 const ROOT = join(__dirname, '..', '..', '..');
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let isMigrationPath: (p: any) => boolean;
 let migrationsInTree: (text: string) => string[];
 let newMigrations: (baseText: string, headText: string) => string[];
@@ -60,9 +59,7 @@ describe('isMigrationPath', () => {
 
   it('非文字列・空文字は対象外', () => {
     expect(isMigrationPath('')).toBe(false);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(isMigrationPath(undefined as any)).toBe(false);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(isMigrationPath(123 as any)).toBe(false);
   });
 });
@@ -113,9 +110,7 @@ describe('migrationsInTree', () => {
   it('空文字・空行のみ・nullish 入力は空配列', () => {
     expect(migrationsInTree('')).toEqual([]);
     expect(migrationsInTree('\n\n')).toEqual([]);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(migrationsInTree(undefined as any)).toEqual([]);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(migrationsInTree(null as any)).toEqual([]);
   });
 });
@@ -218,9 +213,7 @@ describe('newMigrations（ドライラン: 想定される git ls-tree 出力の
 
   it('空文字・nullish 入力は空配列', () => {
     expect(newMigrations('', '')).toEqual([]);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(newMigrations(undefined as any, undefined as any)).toEqual([]);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(newMigrations(null as any, null as any)).toEqual([]);
   });
 });

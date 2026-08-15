@@ -99,7 +99,6 @@ function OnboardingContent() {
     };
 
     setup();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, searchParams]);
 
   const handleFormSubmit = async () => {

@@ -26,7 +26,6 @@ jest.mock('../supabase-server', () => ({
 process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = 'test-public-key';
 process.env.VAPID_PRIVATE_KEY = 'test-private-key';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { sendPushToUser } = require('../push');
 
 beforeEach(() => {
@@ -185,7 +184,6 @@ describe('sendPushToUser — VAPID 部分設定', () => {
         }),
       }),
     }));
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { sendPushToUser: fn } = require('../push');
     expect(await fn('u', { title: 't', body: 'b' })).toBe(false);
     if (orig === undefined) delete process.env.VAPID_PRIVATE_KEY;
@@ -245,7 +243,6 @@ describe('sendPushToFacilityOwners', () => {
     process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = 'test-pub';
     process.env.VAPID_PRIVATE_KEY = 'test-priv';
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     ({ sendPushToFacilityOwners } = require('../push'));
   });
 
@@ -261,7 +258,6 @@ describe('sendPushToFacilityOwners', () => {
     jest.resetModules();
     jest.doMock('web-push', () => ({ setVapidDetails: jest.fn(), sendNotification: mockSendNotificationLocal }));
     jest.doMock('../supabase-server', () => ({ createServiceRoleClient: () => ({ from: mockFromFn }) }));
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     ({ sendPushToFacilityOwners } = require('../push'));
 
     await sendPushToFacilityOwners('facility-1', { title: 'T', body: 'B' });
@@ -451,7 +447,6 @@ describe('sendPushToUser — VAPID keys absent', () => {
     jest.resetModules();
     const origPub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { sendPushToUser: fn } = require('../push');
     const result = await fn('u', { title: 't', body: 'b' });
     expect(result).toBe(false);

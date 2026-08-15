@@ -325,7 +325,6 @@ describe('generatePrefTypeContent / generateCityContent — prefSeo null branch'
       jest.doMock('@/data/prefecture-seo', () => ({
         getPrefectureSeo: () => null,
       }));
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { generatePrefTypeContent: genPrefType } = require('../seo-snippets');
       result = genPrefType('tokyo', 'hair-salon');
     });
@@ -340,7 +339,6 @@ describe('generatePrefTypeContent / generateCityContent — prefSeo null branch'
       jest.doMock('@/data/prefecture-seo', () => ({
         getPrefectureSeo: () => null,
       }));
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { generateCityContent: genCity } = require('../seo-snippets');
       result = genCity('osaka', '豊中市');
     });
