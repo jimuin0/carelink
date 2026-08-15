@@ -10,6 +10,7 @@
  *   - scheduleRetry: pending 復帰時に claimed_at をクリアする
  *   - enqueueWebhook: never throws (fire-and-forget; errors are swallowed)
  *   - enqueueWebhook: insert の { error } を可視化する（無音ロスト防止・target_id はマスク）
+ *   - enqueueWebhook: catch 経路（throw 系）も { error } 経路と対称に alertWarning を発火する
  */
 
 const mockFrom = jest.fn();
@@ -68,7 +69,27 @@ test('enqueueWebhook: DB insert失敗してもthrowしない（fire-and-forget�
   );
 });
 
-test('enqueueWebhook: catchが非Error値をthrow → String(e)フォールバックでconsole.error', async () => {
+test('enqueueWebhook: catch経路もalertWarning（Slack）を発火する（{error}経路との対称性・2026年8月14日修正）', async () => {
+  mockFrom.mockImplementation(() => { throw new Error('DB unreachable'); });
+  await enqueueWebhook({
+    type: 'email',
+    targetId: 'user@example.com',
+    payload: { subject: 'secret subject' },
+  });
+  // 旧実装は catch 経路だけ console.error のみで alertWarning が無く、Supabase障害/ネットワーク断
+  // という最も起こりやすい障害形で「通知の永久ロスト」が Slack に一切出ない片肺だった。
+  expect(alertWarning).toHaveBeenCalledWith(
+    expect.stringContaining('enqueue で例外'),
+    expect.objectContaining({
+      extra: expect.objectContaining({ webhookType: 'email', targetId: 'u***@example.com', errMessage: 'DB unreachable' }),
+    })
+  );
+  // payload本文（機密になり得る）はどちらの通知にも出さない。
+  const call = (alertWarning as jest.Mock).mock.calls.find((c) => String(c[0]).includes('enqueue で例外'));
+  expect(JSON.stringify(call)).not.toContain('secret subject');
+});
+
+test('enqueueWebhook: catchが非Error値をthrow → String(e)フォールバックでconsole.error + alertWarning', async () => {
   mockFrom.mockImplementation(() => { throw 'non-error-string'; });
   await enqueueWebhook({
     type: 'line_push',
@@ -78,6 +99,10 @@ test('enqueueWebhook: catchが非Error値をthrow → String(e)フォールバ�
   expect(console.error).toHaveBeenCalledWith(
     '[webhook-queue] enqueue threw',
     expect.objectContaining({ err: 'non-error-string' })
+  );
+  expect(alertWarning).toHaveBeenCalledWith(
+    expect.stringContaining('enqueue で例外'),
+    expect.objectContaining({ extra: expect.objectContaining({ errMessage: 'non-error-string' }) })
   );
 });
 

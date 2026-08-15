@@ -73,12 +73,30 @@ export async function enqueueWebhook(job: WebhookJob): Promise<void> {
       });
     }
   } catch (e) {
-    // ネットワーク例外等。キュー登録失敗でも本体処理は止めないが、可視化はする。
+    // ネットワーク例外・createServiceRoleClient() の throw 等。キュー登録失敗でも本体処理は
+    // 止めないが、可視化は上の { error } 経路と対称でなければならない（2026年8月14日 修正）。
+    //
+    // why: 結果が同じ（＝通知の恒久ロスト）なのに、この catch 経路だけ console.error のみで
+    // alertWarning（Slack）が無かった。実害シナリオ: Supabase 障害/ネットワーク断のとき、
+    // (1) Resend/LINE の送信そのものが失敗し（通知が届かない）、(2) 再送キューへの登録も
+    // **同じ障害で例外を投げて失敗**し、(3) webhook_retry_queue に行が1本も作られないため
+    // 15分毎の webhook-retry cron も一切拾わず、(4) Slack には何も出ない。本ファイル冒頭の
+    // docstring が「防ぐ」と宣言している「通知が永久にロストした」状態が、最も起こりやすい
+    // 障害の形（ネットワーク断）でだけ無音になっていた。
+    const errMessage = e instanceof Error ? e.message : String(e);
     console.error('[webhook-queue] enqueue threw', {
       webhookType: job.type,
       targetId: maskTargetId(job.targetId),
       facilityId: job.facilityId ?? null,
-      err: e instanceof Error ? e.message : String(e),
+      err: errMessage,
+    });
+    alertWarning(`[webhook-queue] enqueue で例外 — 通知が永久にロストした可能性（${job.type}）`, {
+      extra: {
+        webhookType: job.type,
+        targetId: maskTargetId(job.targetId),
+        facilityId: job.facilityId ?? null,
+        errMessage,
+      },
     });
   }
 }

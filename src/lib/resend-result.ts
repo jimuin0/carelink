@@ -58,3 +58,32 @@ export function throwIfResendError(result: unknown, context: string): void {
   if (!error) return;
   throw new Error(`resend send failed [${context}]: ${describeResendError(error)}`);
 }
+
+/**
+ * Resend の送信呼び出しを実行し、戻り値を必ず検査してから返す。
+ *
+ * 🔴 why（2026年8月14日 新設・`resend-result-checked-guard.test.ts` の抜け穴を塞ぐための唯一の正しい入口）:
+ *   `const r = await resend.emails.send(...)` のように結果を変数へ受けてから
+ *   `throwIfResendError(r, ...)` を呼ぶ形は、**呼び出しを書いたあと検査の行だけを
+ *   書き忘れる／消す**ことが構文的に可能で、その状態でも見た目上は正しいコードに見える
+ *   （実測: 既存 7 箇所から `throwIfResendError` の行を消してもガードが検出できなかった）。
+ *   `resend.emails.send(...)` / `resend.batch.send(...)` を直接 await せず、必ずこの関数の
+ *   **引数の位置**で呼び出すことにすれば、「送ったが検査していない」状態がそもそも
+ *   書けなくなる（await はこの関数の中で行うため、呼び出し側は await しない）。
+ *
+ * when（失敗時の挙動）: `throwIfResendError` と同じ（error があれば throw）。
+ *
+ * @param sendCall `resend.emails.send(...)` / `resend.batch.send(...)` の戻り値（Promise）。
+ *   ⚠️ 呼び出し側でこれを await しないこと（`await sendResendChecked(resend.emails.send(...), ctx)`
+ *   のように、send 呼び出し自体をそのままこの引数に渡す）。
+ * @param context throwIfResendError と同じ用途のログ識別子。
+ * @returns error が無かった場合の Resend の戻り値（呼び出し側が data を使う場合のため）。
+ */
+export async function sendResendChecked<T extends { error?: unknown }>(
+  sendCall: Promise<T>,
+  context: string
+): Promise<T> {
+  const result = await sendCall;
+  throwIfResendError(result, context);
+  return result;
+}

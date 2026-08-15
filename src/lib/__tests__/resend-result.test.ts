@@ -1,4 +1,4 @@
-import { describeResendError, throwIfResendError } from '../resend-result';
+import { describeResendError, throwIfResendError, sendResendChecked } from '../resend-result';
 
 /**
  * Resend SDK は API エラーを throw せず `{ data, error }` の error に載せて resolve する。
@@ -63,5 +63,27 @@ describe('throwIfResendError', () => {
       error: { name: 'validation_error', statusCode: 422, message: 'The `from` address is not verified.' },
     };
     expect(() => throwIfResendError(actualSdkShape, 'admin/newsletter batch')).toThrow(/422/);
+  });
+});
+
+/**
+ * `sendResendChecked` は「send 呼び出し自体をこの関数の引数として渡す」ことを唯一の入口にする
+ * ためのラッパ（2026年8月14日 新設）。中身は throwIfResendError と同じ判定を通すだけだが、
+ * 呼び出し側が結果を検査せずに握れる書き方を構文的に作れなくすることが目的なので、
+ * 素通し（成功）と throw（失敗）の両方を固定する。
+ */
+describe('sendResendChecked', () => {
+  it('error が無ければ結果をそのまま返す（呼び出し側が data を使えるように）', async () => {
+    const result = { data: { id: 'x' }, error: null };
+    await expect(sendResendChecked(Promise.resolve(result), 'ctx')).resolves.toBe(result);
+  });
+
+  it('error が載っていれば context つきで throw する（結果を握り潰さない）', async () => {
+    await expect(
+      sendResendChecked(
+        Promise.resolve({ data: null, error: { statusCode: 422, name: 'validation_error', message: 'bad' } }),
+        'cron/x'
+      )
+    ).rejects.toThrow('resend send failed [cron/x]: 422 validation_error bad');
   });
 });

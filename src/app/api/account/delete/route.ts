@@ -15,11 +15,29 @@ import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { todayJst } from '@/lib/admin-date';
 import { alertCaughtError } from '@/lib/alert';
 import { resolveLineUserIdForUser } from '@/lib/line-link';
+import { errorMessage } from '@/lib/err';
 
 // 未完了（進行中）の予約ステータス。completed / cancelled / no_show / cancel_fee_paid は終了済み。
 const ACTIVE_BOOKING_STATUSES = ['pending', 'confirmed', 'arrived'];
 
 export const dynamic = 'force-dynamic';
+
+// DB クエリの error を検知したときの共通中断処理。
+// why: 退会ガード（未完了予約・オーナー人数）は count クエリの成否に直結する判定で、
+// どちらの既定値（0 扱い/スキップ扱い）に倒しても実害が出る
+// （0 扱い→稼働中施設を誤 suspend、スキップ扱い→オーナー0人の施設が公開されたまま残る）。
+// fail-open にせず必ず中断・可視化する（fail-closed）。
+// when: 呼び出し元は必ず 500 応答を return すること（この関数自体は応答を返さない）。
+// エラーメッセージの整形は共有ヘルパー `errorMessage`（@/lib/err）に集約する
+// （Supabase の PostgrestError は Error インスタンスではないため）。
+function guardQueryFailedResponse(tag: string, context: string, err: unknown): NextResponse {
+  console.error(`[account/delete] ${context} — aborted`, { err });
+  alertCaughtError(tag, new Error(`${context}: ${errorMessage(err)}`), '/api/account/delete');
+  return NextResponse.json(
+    { error: 'アカウント削除に失敗しました。時間をおいて再度お試しください。' },
+    { status: 500 },
+  );
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -51,29 +69,53 @@ export async function POST(request: NextRequest) {
 
     // 退会ガード：未完了予約が残っている間は退会不可（顧客の予約難民・施設のキャンセル難民を防ぐ）。
     // 当日以降の進行中予約を、本人（顧客）分と所有施設（オーナー）分の両面でチェックする。
+    // 3クエリとも error 未検査だと fail-open になり（クエリ失敗時 count が undefined→?? 0→0扱い）、
+    // 未完了予約が残っていても退会が通ってしまう。ガードの存在意義そのものが DB エラー時に
+    // 無効化されるため、error は必ず検査し fail-closed（中断・可視化）にする。
     const today = todayJst();
-    const { count: ownActiveBookings } = await adminSupabase
+    const { count: ownActiveBookings, error: ownBookingsErr } = await adminSupabase
       .from('bookings')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', user.id)
       .in('status', ACTIVE_BOOKING_STATUSES)
       .gte('booking_date', today);
+    if (ownBookingsErr) {
+      return guardQueryFailedResponse(
+        'account-delete-guard-own-bookings',
+        'active bookings guard query (own) failed',
+        ownBookingsErr,
+      );
+    }
 
-    const { data: ownerMemberships } = await adminSupabase
+    const { data: ownerMemberships, error: ownerMembershipsErr } = await adminSupabase
       .from('facility_members')
       .select('facility_id')
       .eq('user_id', user.id)
       .eq('role', 'owner');
+    if (ownerMembershipsErr) {
+      return guardQueryFailedResponse(
+        'account-delete-guard-owner-memberships',
+        'owner memberships guard query failed',
+        ownerMembershipsErr,
+      );
+    }
 
     let facilityActiveBookings = 0;
     if (ownerMemberships && ownerMemberships.length > 0) {
       const facilityIds = ownerMemberships.map((m) => m.facility_id);
-      const { count: facilityCount } = await adminSupabase
+      const { count: facilityCount, error: facilityBookingsErr } = await adminSupabase
         .from('bookings')
         .select('id', { count: 'exact', head: true })
         .in('facility_id', facilityIds)
         .in('status', ACTIVE_BOOKING_STATUSES)
         .gte('booking_date', today);
+      if (facilityBookingsErr) {
+        return guardQueryFailedResponse(
+          'account-delete-guard-facility-bookings',
+          'active bookings guard query (facility) failed',
+          facilityBookingsErr,
+        );
+      }
       facilityActiveBookings = facilityCount ?? 0;
     }
 
@@ -88,6 +130,12 @@ export async function POST(request: NextRequest) {
     // populate するコードが無い）ため、旧 .eq('user_id', user.id) 削除は一致0行でフォロー行が
     // 退会後も孤児として残存していた。連携の line_user_id を profiles（単一ソース）から解決し、
     // それを起点に削除する（未連携＝lineUserId null のときは対象行なしで削除自体を発行しない）。
+    //
+    // why: profiles がこの解決の唯一のソースであるため、profiles の削除は下のバッチに含めず
+    // （バッチは Promise.allSettled で並行実行される＝順序は保証されない）、バッチが失敗チェックを
+    // 通過した後に単独で削除する（詳細は下の profiles 削除箇所のコメント参照）。これにより
+    // バッチが部分失敗して再実行される場合も profiles が生き残っているため、この行が
+    // 毎回正しく lineUserId を再解決できる＝退会処理全体が再実行に対して冪等になる。
     const lineUserId = await resolveLineUserIdForUser(adminSupabase, user.id);
 
     // 関連データ削除（CASCADE設定されていないテーブル + SET NULL で残存するPIIテーブル）
@@ -118,8 +166,8 @@ export async function POST(request: NextRequest) {
       // 監査用途の作成者参照のため、削除ではなく NULL 化して参照を切る。
       adminSupabase.from('newsletter_campaigns').update({ created_by: null }).eq('created_by', user.id),
       adminSupabase.from('api_keys').update({ created_by: null }).eq('created_by', user.id),
-      // profiles は最後に削除
-      adminSupabase.from('profiles').delete().eq('id', user.id),
+      // profiles はこのバッチに含めない（下で単独削除する）。opIndex ベースのログは
+      // このバッチの要素数に対応するため、要素を増減させたら opIndex の対応も見直すこと。
     ]);
 
     const failedOps = deleteResults
@@ -149,22 +197,63 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // profiles は必ず最後（バッチの外）で削除する。
+    // why: resolveLineUserIdForUser は profiles.line_user_id を読む。profiles をバッチに
+    // 含めて Promise.allSettled で並行削除すると、他のバッチ要素が失敗して中断した再実行時に
+    // profiles だけが先に消えている可能性があり（allSettled は並行実行のため順序不定）、
+    // 再実行時に lineUserId を再解決できず line_user_links の削除が発行されなくなる
+    // （line_user_links.user_id は常に NULL のため auth.users 削除の CASCADE も効かず、
+    // LINE 識別子を含む行が恒久的に孤児化する）。バッチの失敗チェックを通過した後に
+    // profiles を単独で削除することで、部分失敗時は profiles が残り、再実行時に
+    // resolveLineUserIdForUser が正しく解決できる＝退会処理全体が冪等になる。
+    // when: 削除に失敗した場合は auth.users 削除の前に中断する（従来どおり）。
+    const { error: profilesDeleteErr } = await adminSupabase.from('profiles').delete().eq('id', user.id);
+    if (profilesDeleteErr) {
+      console.error('[account/delete] profiles deletion failed — manual cleanup required', {
+        userId: user.id,
+        err: profilesDeleteErr,
+      });
+      alertCaughtError(
+        'account-delete-profiles',
+        new Error(`profiles deletion failed: ${errorMessage(profilesDeleteErr)}`),
+        '/api/account/delete',
+      );
+      return NextResponse.json(
+        { error: 'アカウント削除に失敗しました。時間をおいて再度お試しください。' },
+        { status: 500 },
+      );
+    }
+
     // 施設オーナーの場合、施設も削除
-    const { data: memberships } = await adminSupabase
+    const { data: memberships, error: membershipsErr } = await adminSupabase
       .from('facility_members')
       .select('facility_id, role')
       .eq('user_id', user.id)
       .eq('role', 'owner');
+    if (membershipsErr) {
+      return guardQueryFailedResponse(
+        'account-delete-memberships-select',
+        'facility_members (owner) select failed',
+        membershipsErr,
+      );
+    }
 
     if (memberships) {
       for (const m of memberships) {
         // 他にオーナーがいない場合のみ施設削除
-        const { count } = await adminSupabase
+        const { count, error: ownerCountErr } = await adminSupabase
           .from('facility_members')
           .select('id', { count: 'exact', head: true })
           .eq('facility_id', m.facility_id)
           .eq('role', 'owner')
           .neq('user_id', user.id);
+        if (ownerCountErr) {
+          return guardQueryFailedResponse(
+            'account-delete-owner-count',
+            `owner count query failed (facility_id=${m.facility_id})`,
+            ownerCountErr,
+          );
+        }
 
         if ((count ?? 0) === 0) {
           const { error: suspendErr } = await adminSupabase.from('facility_profiles').update({ status: 'suspended' }).eq('id', m.facility_id);
@@ -193,6 +282,18 @@ export async function POST(request: NextRequest) {
     const { error: authDeleteErr } = await adminSupabase.auth.admin.deleteUser(user.id);
     if (authDeleteErr) {
       console.error('[account/delete] auth.users deletion failed', { userId: user.id, err: authDeleteErr });
+      // why: この中断はここまでの3経路の中で最も深刻。PII（profiles等）と facility_members は
+      // 既に全て削除済みで auth.users だけが残るため、「ログインはできるが profiles が無い
+      // 半分消えたアカウント」になる。Cookie 失効処理は成功パス（この下）にしか無いためセッションも
+      // 生きたまま残る。人による即時対応が必要な状態なので必ず Slack へ通知する。
+      alertCaughtError(
+        'account-delete-auth',
+        new Error(
+          `auth.users deletion failed after PII already deleted (profiles/facility_members removed, ` +
+            `auth.users orphaned): ${errorMessage(authDeleteErr)}`,
+        ),
+        '/api/account/delete',
+      );
       return NextResponse.json({ error: 'アカウント削除に失敗しました' }, { status: 500 });
     }
 

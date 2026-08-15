@@ -200,6 +200,9 @@ async function safeSend(resend: Resend, params: Parameters<Resend['emails']['sen
     // iteration 間でしか効かないため await 中のハングを救えない。Promise.race で 10s 上限を
     // 課し、ハング時は失敗(false)扱いにして一括送信全体のブロックを防ぐ。
     const result = await Promise.race([
+      // resend-checked: Promise.race に包んでいるため sendResendChecked/throwIfResendError の
+      // 引数位置には直接ネストできない。直後の `if (result && result.error)` で自前に検査し、
+      // fail() へ渡している（result.error 未検査のまま返す経路は無い）。
       resend.emails.send(params),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error('resend send timeout (10s)')), 10_000);
