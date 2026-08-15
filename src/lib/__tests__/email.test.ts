@@ -20,7 +20,6 @@ jest.mock('@/lib/webhook-queue', () => ({
 process.env.RESEND_API_KEY = 'test-resend-key';
 process.env.EMAIL_FROM = 'Test <test@example.com>';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendNewInquiryNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail, sendTimeAdjustRequest, sendInquiryReply } = require('../email');
 
 const baseData = {
@@ -335,7 +334,6 @@ describe('RESEND_API_KEY未設定時', () => {
     jest.resetModules();
     jest.mock('resend', () => ({ Resend: jest.fn() }));
     jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { sendBookingConfirmation: freshSend, sendBookingRescheduled: freshReschedule, sendDailySummaryEmail: freshSummary, sendWeeklyReportEmail: freshWeekly, sendInquiryReply: freshReply } = require('../email');
     await freshSend(baseData);
     await freshReschedule(baseData); // resend 未生成で早期 return（送信されない）
@@ -607,7 +605,6 @@ describe('webhook_retry_queue への自動登録（送信失敗時のみ・対�
     jest.mock('resend', () => ({ Resend: jest.fn() }));
     jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
     jest.mock('@/lib/webhook-queue', () => ({ enqueueWebhook: (...args: unknown[]) => mockEnqueueWebhook(...args) }));
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fresh = require('../email');
     const ok = await fresh.sendBookingConfirmation(baseData);
     expect(ok).toBe(false);
@@ -751,7 +748,6 @@ describe('EMAIL_FROM未設定時 — FROM のデフォルト値フォールバ�
     const sendMock = jest.fn().mockResolvedValue({});
     jest.mock('resend', () => ({ Resend: jest.fn().mockImplementation(() => ({ emails: { send: sendMock } })) }));
     jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { sendBookingConfirmation } = require('../email');
     await sendBookingConfirmation({
       customerName: 'テスト', customerEmail: 'a@b.com', facilityName: 'サロン',
@@ -771,7 +767,6 @@ describe('RESEND_API_KEY未設定時 — 全send関数', () => {
     jest.resetModules();
     jest.mock('resend', () => ({ Resend: jest.fn() }));
     jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require('../email');
     const noSendMock = jest.fn();
     const minData = {

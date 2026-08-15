@@ -12,7 +12,6 @@ const VAPID = 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBk
 // モジュール先頭で env を読むため、require 前に設定。動的 import は React を二重ロードし
 // hook 不整合になるため、同一 React インスタンスを使う require で読み込む。
 process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = VAPID;
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const PushPermissionBanner = require('@/components/push/PushPermissionBanner').default;
 
 function setupBrowserApis(fetchImpl: jest.Mock) {

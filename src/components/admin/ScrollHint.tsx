@@ -45,7 +45,6 @@ export default function ScrollHint({
       el.removeEventListener('scroll', update);
       ro?.disconnect();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

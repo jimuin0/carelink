@@ -13,7 +13,6 @@ function mkAdmin(visitErr: unknown = null, pointErr: unknown = null) {
 describe('reverseCompletionSideEffects', () => {
   test('customer_visits と user_points を booking_id で削除', async () => {
     const admin = mkAdmin();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await reverseCompletionSideEffects(admin as any, 'bk-1');
     expect(admin.from).toHaveBeenCalledWith('customer_visits');
     expect(admin.from).toHaveBeenCalledWith('user_points');
@@ -22,7 +21,6 @@ describe('reverseCompletionSideEffects', () => {
   test('customer_visits 削除エラー → console.error（致命にしない）', async () => {
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const admin = mkAdmin({ message: 'visit fail' });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await reverseCompletionSideEffects(admin as any, 'bk-1');
     expect(errSpy).toHaveBeenCalled();
     errSpy.mockRestore();
@@ -31,7 +29,6 @@ describe('reverseCompletionSideEffects', () => {
   test('user_points 削除エラー → console.error（致命にしない）', async () => {
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const admin = mkAdmin(null, { message: 'point fail' });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await reverseCompletionSideEffects(admin as any, 'bk-1');
     expect(errSpy).toHaveBeenCalled();
     errSpy.mockRestore();

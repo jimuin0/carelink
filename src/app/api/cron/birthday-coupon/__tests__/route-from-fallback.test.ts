@@ -82,7 +82,6 @@ describe('birthday-coupon FROM 定数フォールバック（行23・EMAIL_FROM 
       createClient: jest.fn(() => ({ from: (...args: any[]) => localMockFrom2(...args) })),
     }));
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { GET: freshGET } = require('../route');
 
     const req = new Request('http://localhost/api/cron/birthday-coupon', {

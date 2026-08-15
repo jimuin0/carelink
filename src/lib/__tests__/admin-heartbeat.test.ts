@@ -151,7 +151,6 @@ describe('pushAdminHeartbeat', () => {
   test('外側catchで非Errorがthrowされた場合も文字列化してconsole.errorする', async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
     const jsonSpy = jest.spyOn(JSON, 'stringify').mockImplementationOnce(() => {
-      // eslint-disable-next-line @typescript-eslint/only-throw-error
       throw 'string throw';
     });
     await expect(pushAdminHeartbeat('booking-reminder', 'ok')).resolves.toBeUndefined();
