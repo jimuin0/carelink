@@ -37,10 +37,15 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
 
       if (error) { setLoadError(true); setLoading(false); return; }
       if (data) {
+        // 3列とも DEFAULT 付きだが NOT NULL ではない（migration 20260405000003：
+        // free_cancel_hours INT DEFAULT 24 / late_cancel_rate INT DEFAULT 50 /
+        // no_show_rate INT DEFAULT 100）。明示的に NULL が入った行では null が返る。
+        // そのまま number として扱うと入力欄が空になり、保存すると「無料キャンセル期限なし」
+        // として書き戻されてしまうため、DB 側の DEFAULT と同値である DEFAULT 定数へ倒す。
         setPolicy({
-          free_cancel_hours: data.free_cancel_hours,
-          late_cancel_rate: data.late_cancel_rate,
-          no_show_rate: data.no_show_rate,
+          free_cancel_hours: data.free_cancel_hours ?? DEFAULT.free_cancel_hours,
+          late_cancel_rate: data.late_cancel_rate ?? DEFAULT.late_cancel_rate,
+          no_show_rate: data.no_show_rate ?? DEFAULT.no_show_rate,
           policy_text: data.policy_text || '',
         });
       }

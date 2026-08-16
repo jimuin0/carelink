@@ -610,6 +610,173 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(call[0].processed_at).toBeDefined();
   });
 
+  test('line_push payload が object でない（配列）→ scheduleRetry に回り message は送信されない', async () => {
+    // job.payload が JSONB の Json 合併型のため、配列（Array.isArray true）は
+    // 「object でない」扱いとして throw され scheduleRetry に回ることを検証する。
+    mockJobsSelect = jest.fn().mockResolvedValue({
+      data: [{
+        id: 'jp-array',
+        webhook_type: 'line_push',
+        target_id: 'line-user-arr',
+        payload: ['not', 'an', 'object'],
+        status: 'pending',
+        attempt_count: 0,
+        scheduled_at: new Date().toISOString(),
+      }],
+    });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'webhook_retry_queue') {
+          return makeWebhookRetryQueueTable({
+            jobsSelect: mockJobsSelect,
+            claimUpdate: mockClaimUpdate,
+            successUpdate: mockSuccessUpdate,
+            reclaimUpdate: mockReclaimUpdate,
+            queuePendingEq: mockQueuePendingEq,
+          });
+        }
+        return {};
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    // 不正 payload では LINE 送信自体が呼ばれない（実行時検証が送信前に throw する）。
+    expect(mockSendLineText).not.toHaveBeenCalled();
+    expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledWith('jp-array', 1, 'line_push payload is not an object');
+    const json = await res.json();
+    expect(json.processed).toBe(0);
+    expect(json.skipped).toBe(1);
+  });
+
+  test('line_push payload が null → scheduleRetry に回り message は送信されない', async () => {
+    // typeof null === 'object' なので、null 単独チェック（payload === null）が
+    // なければ null.message アクセスで別の例外になってしまう分岐を検証する。
+    mockJobsSelect = jest.fn().mockResolvedValue({
+      data: [{
+        id: 'jp-null',
+        webhook_type: 'line_push',
+        target_id: 'line-user-null',
+        payload: null,
+        status: 'pending',
+        attempt_count: 0,
+        scheduled_at: new Date().toISOString(),
+      }],
+    });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'webhook_retry_queue') {
+          return makeWebhookRetryQueueTable({
+            jobsSelect: mockJobsSelect,
+            claimUpdate: mockClaimUpdate,
+            successUpdate: mockSuccessUpdate,
+            reclaimUpdate: mockReclaimUpdate,
+            queuePendingEq: mockQueuePendingEq,
+          });
+        }
+        return {};
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    expect(mockSendLineText).not.toHaveBeenCalled();
+    expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledWith('jp-null', 1, 'line_push payload is not an object');
+    const json = await res.json();
+    expect(json.processed).toBe(0);
+    expect(json.skipped).toBe(1);
+  });
+
+  test('line_push payload が非オブジェクトのプリミティブ（文字列）→ scheduleRetry に回り message は送信されない', async () => {
+    // job.payload が JSONB の Json 合併型のため、文字列や数値等のプリミティブも
+    // 「typeof payload !== 'object'」が true になり「object でない」扱いとして throw され
+    // scheduleRetry に回ることを検証する（配列・null とは別の分岐条件）。
+    mockJobsSelect = jest.fn().mockResolvedValue({
+      data: [{
+        id: 'jp-primitive',
+        webhook_type: 'line_push',
+        target_id: 'line-user-primitive',
+        payload: 'not-an-object',
+        status: 'pending',
+        attempt_count: 0,
+        scheduled_at: new Date().toISOString(),
+      }],
+    });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'webhook_retry_queue') {
+          return makeWebhookRetryQueueTable({
+            jobsSelect: mockJobsSelect,
+            claimUpdate: mockClaimUpdate,
+            successUpdate: mockSuccessUpdate,
+            reclaimUpdate: mockReclaimUpdate,
+            queuePendingEq: mockQueuePendingEq,
+          });
+        }
+        return {};
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    // 不正 payload では LINE 送信自体が呼ばれない（実行時検証が送信前に throw する）。
+    expect(mockSendLineText).not.toHaveBeenCalled();
+    expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledWith('jp-primitive', 1, 'line_push payload is not an object');
+    const json = await res.json();
+    expect(json.processed).toBe(0);
+    expect(json.skipped).toBe(1);
+  });
+
+  test('line_push payload.message が string でない（数値）→ scheduleRetry に回り message は送信されない', async () => {
+    // payload はオブジェクトだが message フィールドの型が想定外（number）のケース。
+    // 送信前の実行時検証で throw され sendLineText は一度も呼ばれないことを確認する。
+    mockJobsSelect = jest.fn().mockResolvedValue({
+      data: [{
+        id: 'jp-badmsg',
+        webhook_type: 'line_push',
+        target_id: 'line-user-badmsg',
+        payload: { message: 12345 },
+        status: 'pending',
+        attempt_count: 0,
+        scheduled_at: new Date().toISOString(),
+      }],
+    });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'webhook_retry_queue') {
+          return makeWebhookRetryQueueTable({
+            jobsSelect: mockJobsSelect,
+            claimUpdate: mockClaimUpdate,
+            successUpdate: mockSuccessUpdate,
+            reclaimUpdate: mockReclaimUpdate,
+            queuePendingEq: mockQueuePendingEq,
+          });
+        }
+        return {};
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    expect(mockSendLineText).not.toHaveBeenCalled();
+    expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledWith('jp-badmsg', 1, 'line_push payload.message is missing or not a string');
+    const json = await res.json();
+    expect(json.processed).toBe(0);
+    expect(json.skipped).toBe(1);
+  });
+
   test('unknown webhook_type → scheduleRetry (not silent success)', async () => {
     // ハンドラ未実装の webhook_type（例: line_multicast）を「送信していないのに配信済み」＝
     // status='success' に倒すのはサイレントデータロス。scheduleRetry で保持し success には倒さない。

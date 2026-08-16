@@ -114,11 +114,24 @@ export async function GET(request: Request) {
     for (const job of claimedJobs) {
       try {
         if (job.webhook_type === 'line_push') {
+          // job.payload は DB 上は JSONB NOT NULL 列（migration 20260417000039）で
+          // アプリからは常にオブジェクトを書き込むが、<Database> 型の Json は JSON リテラル
+          // null や配列・プリミティブも許容する合併型のため、tsc は payload.message への
+          // アクセスを許さない（TS18047／TS2339）。外部由来（JSONB）のデータなので
+          // as で黙らせず、想定形（{ message: string }）であることを実行時に確認してから使う。
+          const payload = job.payload;
+          if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+            throw new Error('line_push payload is not an object');
+          }
+          const message = payload.message;
+          if (typeof message !== 'string') {
+            throw new Error('line_push payload.message is missing or not a string');
+          }
           // sendLineText はリトライ上限到達時に throw せず false を返す。
           // 戻り値を無視すると配信失敗でも下で status='success' に更新され、
           // 通知が永久に消失する（サイレントデータロス）。false を明示的に throw し
           // catch → scheduleRetry へ回して再送キューに戻す（発症前予防）。
-          const ok = await sendLineText(job.target_id, job.payload.message as string);
+          const ok = await sendLineText(job.target_id, message);
           if (!ok) throw new Error('line_push failed after all retries');
         } else if (job.webhook_type === 'email') {
           // RESEND_API_KEY 未設定（resend=null）でメールを送れない場合、旧実装は

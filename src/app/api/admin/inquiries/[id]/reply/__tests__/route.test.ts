@@ -208,7 +208,15 @@ describe('POST /api/admin/inquiries/[id]/reply', () => {
 
     const res = await POST(makeRequest(), makeProps());
     expect(res.status).toBe(200);
-    expect(insertMock).toHaveBeenCalledWith(expect.objectContaining({ author_name: null }));
+    // contact_replies.author_name は NOT NULL DEFAULT '担当者'（migration 20260417000008）。
+    // display_name が null のときに author_name: null を明示挿入すると NOT NULL 制約違反で
+    // insert が失敗する実バグだったため、route.ts 側は author_name キー自体を省略して
+    // DB の DEFAULT '担当者' に委ねるよう修正済み。このテストは旧・誤った期待値
+    // （author_name: null が渡ること）を検証していたので、修正後の正しい挙動
+    // （author_name キーを渡さないこと）に合わせて更新する。
+    expect(insertMock).toHaveBeenCalled();
+    const insertedRow = insertMock.mock.calls[0][0];
+    expect(insertedRow).not.toHaveProperty('author_name');
   });
 
   test('名前が無い問い合わせには既定の敬称で送る', async () => {

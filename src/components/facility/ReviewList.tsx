@@ -12,7 +12,10 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 interface ReviewReply {
   id: string;
   content: string;
-  created_at: string;
+  // review_replies.created_at は DEFAULT now() のみで NOT NULL 制約が無い
+  // （supabase/migrations/20260323000005_phase6_advanced.sql）ため、DB からは
+  // string | null で返り得る。<Database> 型配線で顕在化した不整合。
+  created_at: string | null;
 }
 
 
@@ -269,7 +272,11 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
               <div key={reply.id} className="mt-3 ml-4 bg-white border border-gray-200 rounded-lg p-3">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-micro font-bold text-sky-600 bg-sky-50 px-2 py-0.5 rounded-full">サロンより</span>
-                  <span className="text-xs text-gray-400">{formatDate(reply.created_at)}</span>
+                  {/* created_at が null の行（現状は理論上のみ）は new Date(null) が
+                      1970-01-01 に化ける誤表示を避けるため日付を出さない */}
+                  {reply.created_at && (
+                    <span className="text-xs text-gray-400">{formatDate(reply.created_at)}</span>
+                  )}
                 </div>
                 <p className="text-sm text-gray-600">{reply.content}</p>
               </div>

@@ -107,7 +107,10 @@ export default async function FunnelPage() {
     const start = jstMonthStartIso(-i);
     const end = jstMonthStartIso(-i + 1);
     const label = `${jstMonthInfo(-i).month}月`;
-    const month = (allBookings ?? []).filter((b) => b.created_at >= start && b.created_at < end);
+    // bookings.created_at は DEFAULT now() のみで NOT NULL 制約が無く DB 上 null があり得る
+    // （supabase/migrations/20260323000003_phase4_bookings.sql）。
+    // どの月にも属せない不明なレコードなので月別集計からは除外する（過大・過少どちらの月にも誤って加算しない）。
+    const month = (allBookings ?? []).filter((b) => b.created_at !== null && b.created_at >= start && b.created_at < end);
     monthlyBookings.push({
       month: label,
       total: month.length,

@@ -86,10 +86,17 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
     return NextResponse.json({ error: 'メール送信に失敗しました。時間をおいて再試行してください' }, { status: 502 });
   }
 
+  // contact_replies.author_name は NOT NULL DEFAULT '担当者'（migration 20260417000008）。
+  // profiles.display_name は null になり得るため、admin.name をそのまま渡すと
+  // NULL 明示指定で NOT NULL 制約に違反し insert が失敗する実バグだった（この insert の失敗は
+  // 下の catch で握り潰されログ出力のみ・応答は成功のまま返るため、表示名未設定の管理者が
+  // 返信すると返信履歴が無音で記録されない事故になっていた）。
+  // null のときはキー自体を省略して DB 側の DEFAULT '担当者' に委ねる（新規作成なので
+  // 既定値に倒すのが正しい＝CLAUDE.md の PATCH clobber ガードの対象外＝INSERT）。
   const { error: insertError } = await service.from('contact_replies').insert({
     contact_id: target.id,
     author_id: admin.id,
-    author_name: admin.name,
+    ...(admin.name !== null ? { author_name: admin.name } : {}),
     body: parsed.data.body,
     is_internal: false,
     sent_at: new Date().toISOString(),

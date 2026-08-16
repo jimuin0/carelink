@@ -566,12 +566,18 @@ describe('searchFacilities (additional branches)', () => {
     }));
   });
 
-  test('geo検索でtype未指定はnull', async () => {
+  // 【型修正・src/lib/facilities.ts】RPC引数の生成型（database.types.ts）は
+  // type_filter?: string（= string | undefined）で null を受け付けないため、
+  // null ではなく undefined を渡すよう修正した。supabase-js は .rpc() の引数を
+  // JSON.stringify するため undefined のキーは JSON から消え、PostgREST 側は
+  // 未指定＝SQL の DEFAULT NULL として扱う。null 明示と undefined 省略は
+  // 実行時の意味が同じなので、期待値だけを undefined に更新する（挙動は不変）。
+  test('geo検索でtype未指定はundefined', async () => {
     mockFrom.mockReturnValue(fluent({ data: [], error: null }));
     mockRpc.mockResolvedValue({ data: null, error: null });
     await searchFacilities({ lat: 34.7, lng: 135.5 });
     expect(mockRpc).toHaveBeenCalledWith('search_facilities_nearby', expect.objectContaining({
-      type_filter: null,
+      type_filter: undefined,
     }));
   });
 
@@ -598,22 +604,24 @@ describe('searchFacilities (additional branches)', () => {
     );
   });
 
-  test('geo検索で空白のみのキーワードは null（語ゼロを空文字で渡さない）', async () => {
+  // 【型修正・src/lib/facilities.ts】keyword_filter?: string（= string | undefined）
+  // のため null ではなく undefined を渡す（上の type_filter と同じ理由・挙動は不変）。
+  test('geo検索で空白のみのキーワードはundefined（語ゼロを空文字で渡さない）', async () => {
     mockFrom.mockReturnValue(fluent({ data: [], error: null }));
     mockRpc.mockResolvedValue({ data: [], error: null });
     await searchFacilities({ lat: 34.7, lng: 135.5, keyword: '  　 ' });
     expect(mockRpc).toHaveBeenCalledWith(
       'search_facilities_nearby',
-      expect.objectContaining({ keyword_filter: null })
+      expect.objectContaining({ keyword_filter: undefined })
     );
   });
 
-  test('geo検索でkeyword未指定はnull', async () => {
+  test('geo検索でkeyword未指定はundefined', async () => {
     mockFrom.mockReturnValue(fluent({ data: [], error: null }));
     mockRpc.mockResolvedValue({ data: [], error: null });
     await searchFacilities({ lat: 34.7, lng: 135.5 });
     expect(mockRpc).toHaveBeenCalledWith('search_facilities_nearby', expect.objectContaining({
-      keyword_filter: null,
+      keyword_filter: undefined,
     }));
   });
 
@@ -626,12 +634,14 @@ describe('searchFacilities (additional branches)', () => {
     }));
   });
 
-  test('geo検索でfeatures未指定(空配列含む)はnull', async () => {
+  // 【型修正・src/lib/facilities.ts】features_filter?: string[]（= string[] | undefined）
+  // のため null ではなく undefined を渡す（上の type_filter と同じ理由・挙動は不変）。
+  test('geo検索でfeatures未指定(空配列含む)はundefined', async () => {
     mockFrom.mockReturnValue(fluent({ data: [], error: null }));
     mockRpc.mockResolvedValue({ data: [], error: null });
     await searchFacilities({ lat: 34.7, lng: 135.5, features: [] });
     expect(mockRpc).toHaveBeenCalledWith('search_facilities_nearby', expect.objectContaining({
-      features_filter: null,
+      features_filter: undefined,
     }));
   });
 });

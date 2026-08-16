@@ -7,6 +7,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
+import type { Database, Json } from '@/types/database.types';
 
 const platformBlogUpdateSchema = z.object({
   slug: z.string().min(1).max(200).regex(/^[a-z0-9-]+$/, 'スラッグは半角英数字とハイフンのみ使用できます').optional(),
@@ -15,9 +16,18 @@ const platformBlogUpdateSchema = z.object({
   category: z.string().max(50).optional().nullable(),
   tags: z.array(z.string().max(50)).max(20).optional(),
   reading_time: z.number().int().min(1).max(999).optional(),
-  content: z.array(z.record(z.string(), z.unknown())).optional(),
+  // platform_blog_posts.content は jsonb 列（Database 型では Json）。z.unknown() だと値の型が
+  // unknown になり Json に代入できず tsc エラーになる。z.custom<Json>() はデフォルトで常に許可
+  // （実行時バリデーションは従来どおり無し）のまま出力型だけ Json に合わせるため、実行時の
+  // 受け入れ範囲は変えていない（route.ts の POST と同じ理由）。
+  content: z.array(z.record(z.string(), z.custom<Json>())).optional(),
   is_published: z.boolean().optional(),
 });
+
+// Record<string, unknown> だと Supabase の update() が要求する platform_blog_posts.Update 型
+// （余剰プロパティ拒否・列ごとの型）と合わず tsc エラーになるため、Database 由来の Update 型で
+// 宣言する（gbp_posts の PATCH と同じ理由・実行時の組み立て方は変更なし）。
+type PlatformBlogUpdate = Database['public']['Tables']['platform_blog_posts']['Update'];
 
 export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -39,7 +49,18 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const parsed = platformBlogUpdateSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
-  const updatePayload: Record<string, unknown> = { ...parsed.data };
+  // description/category は migration(20260417000025)上 NOT NULL DEFAULT ''（null 不可）。
+  // zod は「クリアする」入力を受け付けるため .nullable() にしているが、そのまま
+  // { ...parsed.data } で spread すると description: null 等が Update 型（string|undefined）に
+  // 弾かれる。未指定（undefined）のキーはそもそも更新対象に含めず、明示 null は「空文字へ
+  // クリア」として扱う（PATCH は部分更新なので、指定していない列を巻き込まないよう
+  // slug/title/tags/reading_time/is_published/content はそのまま spread し、
+  // description/category/content だけ個別に組み立てる）。
+  const { description, category, content, ...rest } = parsed.data;
+  const updatePayload: PlatformBlogUpdate = { ...rest };
+  if (description !== undefined) updatePayload.description = description ?? '';
+  if (category !== undefined) updatePayload.category = category ?? '';
+  if (content !== undefined) updatePayload.content = content;
   if (parsed.data.is_published !== undefined) {
     updatePayload.published_at = parsed.data.is_published ? new Date().toISOString() : null;
   }

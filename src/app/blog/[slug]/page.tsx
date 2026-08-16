@@ -5,6 +5,7 @@ import Breadcrumb from '@/components/Breadcrumb';
 import { articles, type ArticleSection } from '@/data/articles';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { safeJsonLd } from '@/lib/json-ld';
+import type { Json } from '@/types/database.types';
 
 export const revalidate = 3600;
 
@@ -20,6 +21,55 @@ interface DbPost {
   author_name: string;
 }
 
+// platform_blog_posts.content は JSONB NOT NULL DEFAULT '[]'（migration 20260417000025）。
+// 投稿 API（src/app/api/admin/platform-blog/route.ts）も z.custom<Json>() で
+// 「オブジェクトの配列であること」までしか検証せず、heading/paragraph/list/callout の
+// 構造までは実行時チェックしていないため、Database 型では Json のまま（ArticleSection[] を
+// 型として保証できない）。旧実装は `data as DbPost` で無条件にキャストしており、これは
+// 型を消しているだけで構造の妥当性は何も検証していなかった（型を配線したことで露見した
+// 潜在バグ）。renderSection は想定外の type を持つ要素を描画しない（switch に default が
+// 無く undefined を返すだけ）ため、ここでも同じ意味論を保ったまま安全に ArticleSection[] を
+// 組み立てる（構造が壊れた要素・フィールドは描画しない＝従来 undefined を返していたのと
+// 実質同じ結果）。
+const ARTICLE_SECTION_TYPES = new Set<string>(['heading', 'paragraph', 'list', 'callout']);
+const CALLOUT_TYPES = new Set<string>(['tip', 'warning', 'info']);
+
+function isArticleSectionType(v: unknown): v is ArticleSection['type'] {
+  return typeof v === 'string' && ARTICLE_SECTION_TYPES.has(v);
+}
+
+function isCalloutType(v: unknown): v is NonNullable<ArticleSection['calloutType']> {
+  return typeof v === 'string' && CALLOUT_TYPES.has(v);
+}
+
+function toStringArray(v: Json | undefined): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const result: string[] = [];
+  for (const item of v) {
+    if (typeof item !== 'string') return undefined;
+    result.push(item);
+  }
+  return result;
+}
+
+function toArticleSections(content: Json): ArticleSection[] {
+  if (!Array.isArray(content)) return [];
+  const sections: ArticleSection[] = [];
+  for (const item of content) {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) continue;
+    const { type, heading, text, items, calloutType } = item;
+    if (!isArticleSectionType(type)) continue;
+    const section: ArticleSection = { type };
+    if (typeof heading === 'string') section.heading = heading;
+    if (typeof text === 'string') section.text = text;
+    const normalizedItems = toStringArray(items);
+    if (normalizedItems) section.items = normalizedItems;
+    if (isCalloutType(calloutType)) section.calloutType = calloutType;
+    sections.push(section);
+  }
+  return sections;
+}
+
 async function getPost(slug: string): Promise<DbPost | null> {
   try {
     const supabase = createServerSupabaseClient();
@@ -29,7 +79,19 @@ async function getPost(slug: string): Promise<DbPost | null> {
       .eq('slug', slug)
       .eq('is_published', true)
       .single();
-    if (data) return data as DbPost;
+    if (data) {
+      return {
+        slug: data.slug,
+        title: data.title,
+        description: data.description,
+        category: data.category,
+        tags: data.tags,
+        reading_time: data.reading_time,
+        content: toArticleSections(data.content),
+        published_at: data.published_at,
+        author_name: data.author_name,
+      };
+    }
   } catch {
     // フォールバックへ
   }
@@ -169,7 +231,9 @@ export default async function ArticlePage(props: { params: Promise<{ slug: strin
         </div>
 
         <div className="prose-like">
-          {(post.content as ArticleSection[]).map((section, i) => renderSection(section, i))}
+          {/* post.content は getPost 内で toArticleSections により検証済みの ArticleSection[]
+              なので、ここでの as キャストは不要（型が既に一致している）。 */}
+          {post.content.map((section, i) => renderSection(section, i))}
         </div>
 
         {/* タグ */}

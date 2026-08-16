@@ -1,3 +1,4 @@
+import type { Database } from '@/types/database-overrides';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -10,6 +11,8 @@ import { writeAuditLog } from '@/lib/audit-logger';
 import { todayJst } from '@/lib/admin-date';
 import { alertCaughtError } from '@/lib/alert';
 import type { SupabaseClient } from '@supabase/supabase-js';
+
+type ScheduleOverrideInsert = Database['public']['Tables']['schedule_overrides']['Insert'];
 
 const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -274,7 +277,9 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
     }
   }
 
-  const row: Record<string, unknown> = {
+  // 🔴 Record<string, unknown> だと列名のタイポが tsc を素通りする（上の staff 更新と同じ理由）。
+  // upsert する表の Insert 型を当てる。
+  const row: ScheduleOverrideInsert = {
     staff_id: params.id,
     date: parsed.data.date,
     is_holiday: parsed.data.is_holiday,

@@ -44,6 +44,16 @@ export async function POST(req: NextRequest) {
     const verified = flatRecords.some((r) => r === config.txt_record);
 
     if (verified) {
+      // config.txt_record は DB定義上 nullable（supabase/migrations/20260417000040_white_label.sql の
+      // txt_record TEXT に NOT NULL 制約が無い）だが、verified===true はすぐ上の
+      // flatRecords.some((r) => r === config.txt_record) が真になった場合のみ成立する。
+      // flatRecords は dns.resolveTxt が返す文字列配列であり、文字列が === で null と一致することは
+      // ないため、この分岐に到達した時点で config.txt_record は必ず非null（string）という不変条件がある。
+      // TSはこの相関を追えないため防御的にガードする（実行時にこの分岐へ入ることはない）。
+      if (config.txt_record === null) {
+        console.error('[white-label/verify] verified=true だが txt_record が null（不変条件違反）', { facilityId });
+        return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+      }
       // 【恒久根治・TOCTOU】DNS解決(待機)の間にドメイン設定が変更され得る。facility_id だけで
       // update すると、待機中に別ドメイン/別TXTレコードへ差し替えられていても「検証済み」を
       // 立ててしまう（検証したのは古いドメインの TXT レコード）。update 条件に検証時点の

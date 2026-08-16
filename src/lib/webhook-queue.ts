@@ -11,6 +11,7 @@
 
 import { createServiceRoleClient } from './supabase-server';
 import { alertWarning } from './alert';
+import { toJsonValue } from '@/lib/json-value';
 
 export type WebhookType = 'line_push' | 'line_multicast' | 'email';
 
@@ -34,6 +35,7 @@ function maskTargetId(targetId: unknown): string {
   return s.length <= 4 ? '****' : `${s.slice(0, 4)}****`;
 }
 
+
 /**
  * Webhookをリトライキューに登録する
  */
@@ -43,7 +45,7 @@ export async function enqueueWebhook(job: WebhookJob): Promise<void> {
     const { error } = await supabase.from('webhook_retry_queue').insert({
       webhook_type:  job.type,
       target_id:     job.targetId,
-      payload:       job.payload,
+      payload:       toJsonValue(job.payload),
       facility_id:   job.facilityId ?? null,
       attempt_count: 0,
       max_attempts:  3,

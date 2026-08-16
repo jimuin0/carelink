@@ -47,12 +47,19 @@ export default function NotificationSettings({ facilityId }: { facilityId: strin
 
       if (error) { setLoadError(true); setLoading(false); return; }
       if (data) {
+        // supabase/migrations/20260404000002_dashboard_enhancement.sql の定義上、
+        // facility_notification_settings の各 push_on_*/email_* 列は
+        // `BOOLEAN DEFAULT true/false` のみで NOT NULL 制約が無いため、
+        // DB スキーマ上は null を返し得る（型が boolean | null なのは実際の DB 制約を正しく反映している）。
+        // null は「値が未設定」を意味するため、このコンポーネント自身が持つ既定値（DEFAULT、
+        // DB の DEFAULT 句と同一の値）へフォールバックする。通常運用では INSERT 時に
+        // DEFAULT 句が適用され null にはならないため、実行時の挙動は変わらない。
         setSettings({
-          push_on_new_booking: data.push_on_new_booking,
-          push_on_cancel: data.push_on_cancel,
-          push_on_review: data.push_on_review,
-          email_daily_summary: data.email_daily_summary,
-          email_weekly_report: data.email_weekly_report,
+          push_on_new_booking: data.push_on_new_booking ?? DEFAULT.push_on_new_booking,
+          push_on_cancel: data.push_on_cancel ?? DEFAULT.push_on_cancel,
+          push_on_review: data.push_on_review ?? DEFAULT.push_on_review,
+          email_daily_summary: data.email_daily_summary ?? DEFAULT.email_daily_summary,
+          email_weekly_report: data.email_weekly_report ?? DEFAULT.email_weekly_report,
         });
       }
       setLoading(false);

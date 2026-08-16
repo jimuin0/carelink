@@ -135,6 +135,39 @@ describe('logCronRun', () => {
     }));
   });
 
+  // toJsonValue の Array.isArray 分岐（配列は map で再帰変換してそのまま配列として返す）を
+  // 実際に通す。meta に配列値を含めても構造・要素が保たれたまま挿入されることを固定する。
+  test('meta に配列を含む → Array.isArray 分岐を通り配列のまま挿入される', async () => {
+    const startedAt = new Date();
+    await logCronRun('test-job', 'success', startedAt, { meta: { ids: ['a', 'b'] } });
+    expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({
+      meta: { ids: ['a', 'b'] },
+    }));
+  });
+
+  // toJsonValue の安全側フォールバック（JSON化不能な値は null に変換される）を固定する。
+  // 関数値は typeof が 'object' でも配列でもないため toJsonValue の最終 `return null` に
+  // 到達する。コメントで主張している契約なので、実際にその挙動をテストで検証する。
+  test('meta に JSON化不能な値（関数）を含む → 該当キーは null に変換されて挿入される', async () => {
+    const startedAt = new Date();
+    await logCronRun('test-job', 'success', startedAt, { meta: { fn: () => {} } });
+    expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({
+      meta: { fn: null },
+    }));
+  });
+
+  // toJsonValue の `if (v !== undefined)` 分岐（undefined 値のキーは出力オブジェクトに
+  // 含めない）の false 側（＝値が undefined でキーごと落とす経路）を通す。
+  // JSON.stringify も undefined プロパティを省略するため、これは既存の JSON 化の常識に
+  // 合わせた意図的な仕様（Json 型が undefined を許容しないための整合）。
+  test('meta にキーの値が undefined のプロパティを含む → そのキーごと出力から除外される', async () => {
+    const startedAt = new Date();
+    await logCronRun('test-job', 'success', startedAt, { meta: { kept: 1, dropped: undefined } });
+    const insertedMeta = mockInsert.mock.calls[0][0].meta;
+    expect(insertedMeta).toEqual({ kept: 1 });
+    expect(Object.prototype.hasOwnProperty.call(insertedMeta, 'dropped')).toBe(false);
+  });
+
   test('success → admin heartbeat を ok で送信する', async () => {
     await logCronRun('booking-reminder', 'success', new Date());
     expect(pushAdminHeartbeat).toHaveBeenCalledWith('booking-reminder', 'ok');

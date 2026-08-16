@@ -43,7 +43,7 @@ jest.mock('@/lib/supabase-server', () => ({
 import { NextRequest } from 'next/server';
 import { GET, POST } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { fetchPlaceDetails } from '@/lib/gbp';
+import { fetchPlaceDetails, calculateGbpScore } from '@/lib/gbp';
 
 // 監査A2: getAdminFacilityIds は .select().eq().in() が直接配列Promiseを返す形（single()なし）。
 function membershipSingle(members: { facility_id: string }[]) {
@@ -551,4 +551,56 @@ test('POST: gbp_place_id なし → クリア（null保存）', async () => {
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
+});
+
+
+// ─── business_hours の object 判定分岐（GET 65-67行目） ────────────────────────
+// facility.business_hours は DB 上 jsonb（Json 型）で string/number/boolean/null/object/配列を
+// 許容するが、calculateGbpScore は object 形状のみを想定する。truthy かつ object かつ非配列の
+// ときだけそのまま渡し、それ以外（文字列・配列・falsy）は null に落とす3分岐すべてを確認する。
+
+test('GET: business_hours が文字列（object型でない）→ null として計算に渡す', async () => {
+  const facilityWithStringHours = { ...FACILITY_DATA, business_hours: '24時間営業' };
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return facilityProfileSingle(facilityWithStringHours);
+    return upsertChain(null);
+  });
+  const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
+  expect(res.status).toBe(200);
+  const calledWith = (calculateGbpScore as jest.Mock).mock.calls[0][1];
+  expect(calledWith.business_hours).toBeNull();
+});
+
+test('GET: business_hours が配列 → null として計算に渡す', async () => {
+  const facilityWithArrayHours = { ...FACILITY_DATA, business_hours: ['mon', 'tue'] };
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return facilityProfileSingle(facilityWithArrayHours);
+    return upsertChain(null);
+  });
+  const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
+  expect(res.status).toBe(200);
+  const calledWith = (calculateGbpScore as jest.Mock).mock.calls[0][1];
+  expect(calledWith.business_hours).toBeNull();
+});
+
+test('GET: business_hours がオブジェクト（曜日→時間帯）→ そのまま計算に渡す', async () => {
+  const hoursObj = { mon: '9:00-18:00', tue: '9:00-18:00' };
+  const facilityWithObjHours = { ...FACILITY_DATA, business_hours: hoursObj };
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return facilityProfileSingle(facilityWithObjHours);
+    return upsertChain(null);
+  });
+  const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
+  expect(res.status).toBe(200);
+  const calledWith = (calculateGbpScore as jest.Mock).mock.calls[0][1];
+  expect(calledWith.business_hours).toEqual(hoursObj);
 });

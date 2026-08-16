@@ -1,7 +1,22 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import type { Profile, Favorite, FacilityCardData } from '@/types';
+import type { Database } from '@/types/database.types';
 
-export async function getUserProfile(): Promise<Profile | null> {
+// profiles テーブルの実スキーマ（supabase/migrations/20260323000001_phase2_users_search.sql）
+// を確認すると、created_at/updated_at は `DEFAULT now()` のみで NOT NULL 制約が無く、
+// gender は `CHECK (gender IN ('male','female','other','unspecified'))` で値を絞っているが
+// CHECK 制約は PostgREST の型イントロスペクションには反映されないため列自体の型は
+// 素の string のままである。つまり <Database> 型配線後にコンパイラが検出した通り、
+// select('*') が実際に返す DB 行の型は、src/types/index.ts の Profile 型
+// （created_at/updated_at を必須・gender をリテラル型に限定）より緩い。
+// Profile 型はこのファイルの担当範囲外（他ファイル・他タスクの担当）のため書き換えず、
+// また存在しないデータを捏造して created_at 等に既定値を埋める理由も無い
+// （実運用では handle_new_user トリガが created_at/updated_at を指定せず INSERT するため
+// DEFAULT now() で必ず埋まり、gender も CHECK 制約下の4値のいずれかしか書き込まれない。
+// null になり得るのは型システム上の可能性であって、値を偽造せず素直に DB 行の型を返す）。
+// getUserProfile() の戻り値型を実際に select('*') が返す DB 行の型（Row 型）に変更し、
+// 実行時の挙動（`return data` そのもの）は一切変えずに型だけを実態に正直にする。
+export async function getUserProfile(): Promise<Database['public']['Tables']['profiles']['Row'] | null> {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;

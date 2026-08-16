@@ -6,6 +6,11 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { getAdminFacilityIds, resolveTargetFacilityId } from '@/lib/facility-membership';
+import type { Database } from '@/types/database.types';
+
+// gbp_posts.facility_id は migrations 上 NOT NULL（database.types.ts の Row/Insert/Update いずれも
+// facility_id は string で null を許容しない）。PATCH で送る更新差分の型はここから取る。
+type GbpPostUpdate = Database['public']['Tables']['gbp_posts']['Update'];
 
 export async function GET(req: NextRequest) {
   const ip = getClientIp(req);
@@ -123,7 +128,10 @@ export async function PATCH(req: NextRequest) {
   const VALID_CTA_TYPES = ['BOOK', 'ORDER', 'SHOP', 'LEARN_MORE', 'SIGN_UP', 'CALL'];
   const VALID_STATUSES = ['draft', 'scheduled', 'published', 'cancelled'];
 
-  const allowed: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  // Record<string, unknown> だと Supabase の update() が要求する gbp_posts.Update 型
+  // （余剰プロパティ拒否・列ごとの型）と合わず tsc エラーになるため、Database 由来の
+  // Update 型で宣言する（実行時の組み立て方は変更なし）。
+  const allowed: GbpPostUpdate = { updated_at: new Date().toISOString() };
   if (title !== undefined) allowed.title = title ? String(title).slice(0, 200) : null;
   if (postBody !== undefined) allowed.body = String(postBody).slice(0, 1500);
   if (post_type !== undefined && VALID_POST_TYPES.includes(post_type)) allowed.post_type = post_type;

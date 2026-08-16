@@ -65,7 +65,9 @@ const BOOKING_DATA = {
   user_id: USER_ID,
   booking_date: '2026-12-01',
   start_time: '10:00:00',
-  duration_minutes: 60,
+  // bookings に duration_minutes 列は存在しない（実スキーマは start_time/end_time の
+  // TIME 型ペア）。route.ts の修正に合わせ、モックも実スキーマに合わせて end_time を持たせる。
+  end_time: '11:00:00',
   facility_profiles: { name: 'テスト施設', address: '東京都' },
   menu: { name: 'テストメニュー' },
 };

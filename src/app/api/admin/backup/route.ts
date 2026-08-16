@@ -31,10 +31,38 @@ function csvRow(headers: string[], row: Record<string, unknown>): string {
 
 export const dynamic = 'force-dynamic';
 
+// <Database> 配線により supabase.from(table) は table が具体的なテーブル名リテラル型
+// でないと解決できない（string のままだと存在しないテーブル名も型上通ってしまい、
+// この配線が本来防ぎたい「無言で死ぬ」事故そのものになる）。行数確認対象は下記8種の
+// 固定リストのみで、いずれも schema-snapshot.json に実在を確認済み。
+type CountedTable =
+  | 'facility_profiles'
+  | 'bookings'
+  | 'profiles'
+  | 'facility_reviews'
+  | 'facility_menus'
+  | 'facility_photos'
+  | 'coupons'
+  | 'user_points';
+
 /** テーブルの行数を取得 */
-async function getTableCount(supabase: ReturnType<typeof createServiceRoleClient>, table: string): Promise<number> {
+async function getTableCount(supabase: ReturnType<typeof createServiceRoleClient>, table: CountedTable): Promise<number> {
   const { count } = await supabase.from(table).select('id', { count: 'exact', head: true });
   return count ?? 0;
+}
+
+// CSVエクスポート対象は4テーブルのみ（従来の allowedTables と同一の対象・同一の判定結果）。
+// value is ExportableTable の型ガードにすることで、呼び出し側の table を as で偽装せずに
+// 具体的なリテラル型へ narrow できる。
+type ExportableTable = 'facility_profiles' | 'bookings' | 'profiles' | 'facility_reviews';
+
+function isExportableTable(value: string): value is ExportableTable {
+  return (
+    value === 'facility_profiles' ||
+    value === 'bookings' ||
+    value === 'profiles' ||
+    value === 'facility_reviews'
+  );
 }
 
 export async function GET(request: NextRequest) {
@@ -48,8 +76,8 @@ export async function GET(request: NextRequest) {
 
   const serviceSupabase = createServiceRoleClient();
 
-  // 主要テーブルの行数確認
-  const tables = [
+  // 主要テーブルの行数確認（CountedTable と要素を一致させる。型で存在確認済み）
+  const tables: CountedTable[] = [
     'facility_profiles', 'bookings', 'profiles',
     'facility_reviews', 'facility_menus', 'facility_photos',
     'coupons', 'user_points',
@@ -83,8 +111,11 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const table = body.table as string;
 
-  const allowedTables = ['facility_profiles', 'bookings', 'profiles', 'facility_reviews'];
-  if (!allowedTables.includes(table)) {
+  // <Database> 配線後は .from(table) が table の型からテーブル名を解決する。
+  // isExportableTable の型ガードで narrow すると、以降のスコープ（fetchPage クロージャ
+  // 含む）で table が ExportableTable（4テーブルの具体的リテラル型）として扱われ、
+  // as 等で黙らせずに tsc を通せる。判定内容（対象4テーブル）は変更前と同一。
+  if (!isExportableTable(table)) {
     return NextResponse.json({ error: '対応していないテーブルです' }, { status: 400 });
   }
 

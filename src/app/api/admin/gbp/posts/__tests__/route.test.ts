@@ -15,6 +15,7 @@ jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 
+
 const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
 const POST_UUID     = '11111111-1111-1111-1111-111111111111';
 const USER_ID       = '33333333-3333-3333-3333-333333333333';

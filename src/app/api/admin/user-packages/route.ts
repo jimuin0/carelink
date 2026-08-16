@@ -218,10 +218,18 @@ export async function PATCH(request: NextRequest) {
   // consume_package_session RPC（行ロック配下で冪等チェック→decrement→ログINSERTを同一
   // トランザクション化・姉妹の consume_subscription_session と同型）に集約し、
   // ログ INSERT が失敗すれば decrement ごとロールバックされる構造にした。
+  // 型修正：consume_package_session の RPC 引数型（database.types.ts）は
+  // `p_booking_id?: string` / `p_notes?: string`（optional・null非許容）で生成されている。
+  // 一方 zod 側は `.optional()` なので parsed.data.booking_id/notes は string | undefined。
+  // 従来の `?? null` は undefined を null に変換していたため型不一致（string | null は
+  // string | undefined に代入不可）で tsc エラーになっていた。RPC 実体（migration
+  // 20260716000001）は `p_booking_id uuid DEFAULT NULL` / `p_notes text DEFAULT NULL` なので、
+  // キー自体を省略（undefined→PostgREST送信時にJSONから除外）してもサーバー側の DEFAULT NULL に
+  // 解決され、明示的に null を送るのと挙動は同一。よって `?? null` を除去しても実行時挙動は変わらない。
   const { data: rpcResult, error: rpcError } = await admin.rpc('consume_package_session', {
     p_user_package_id: parsed.data.user_package_id,
-    p_booking_id: parsed.data.booking_id ?? null,
-    p_notes: parsed.data.notes ?? null,
+    p_booking_id: parsed.data.booking_id,
+    p_notes: parsed.data.notes,
   });
   if (rpcError) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 

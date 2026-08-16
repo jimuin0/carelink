@@ -368,8 +368,12 @@ test('PATCH: 正常使用 → 200（RPC ok、decrement とログINSERTはRPC内�
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.user_package).toBeDefined();
+  // Database 型対応（consume_package_session の RPC 引数は p_booking_id?: string / p_notes?: string
+  // で null 非許容）に伴い、route 側は `?? null` を廃止し未指定時は undefined をそのまま渡すよう変更。
+  // RPC 実体（migration 20260716000001）は DEFAULT NULL なので undefined キー省略でも
+  // サーバー側の解決結果は null 明示と同一（実行時挙動は不変）。テスト期待値もそれに合わせて更新。
   expect(mockAdminRpc).toHaveBeenCalledWith('consume_package_session', {
-    p_user_package_id: UP_UUID, p_booking_id: null, p_notes: null,
+    p_user_package_id: UP_UUID, p_booking_id: undefined, p_notes: undefined,
   });
 });
 
@@ -383,8 +387,9 @@ test('PATCH: booking_id 付きで正常使用 → 200（事前チェック通過
   });
   const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID, booking_id: BOOKING_UUID }) as any);
   expect(res.status).toBe(200);
+  // 同上（p_notes は未指定なので undefined。RPC 側 DEFAULT NULL により実行時挙動は不変）
   expect(mockAdminRpc).toHaveBeenCalledWith('consume_package_session', {
-    p_user_package_id: UP_UUID, p_booking_id: BOOKING_UUID, p_notes: null,
+    p_user_package_id: UP_UUID, p_booking_id: BOOKING_UUID, p_notes: undefined,
   });
 });
 

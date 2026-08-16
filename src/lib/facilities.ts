@@ -90,7 +90,12 @@ export async function searchFacilities(params: SearchParams) {
     }
   }
 
-  if (isGeoSearch) {
+  // 【型修正】isGeoSearch は「params.lat != null && params.lng != null」を評価した
+  // 結果を保持する真偽値の変数のため、TS の制御フロー解析はこの変数を経由した narrowing を
+  // 伝播しない（isGeoSearch が true でも params.lat/params.lng は number | undefined のまま）。
+  // as/! で黙らせず、この if 条件に同じ判定を再度書くことで TS に直接 narrowing させる
+  // （isGeoSearch が true の場合は必ず両方 non-null なので実行時の意味は変わらない）。
+  if (isGeoSearch && params.lat != null && params.lng != null) {
     // Use PostGIS ST_DWithin via RPC for server-side GPS search
     // 【2026年7月10日 恒久根治】keyword/features は RPC が該当列（features・description・
     // nearest_station）を返さないため以前は JS 側で再現できず、GPS 検索でのみ黙って無視
@@ -102,17 +107,25 @@ export async function searchFacilities(params: SearchParams) {
     // 語数上限を適用したうえで半角空白1つで連結して渡す（エスケープは空白を生まないので
     // RPC 側の再分割は同じ語に戻る）。
     const geoTerms = params.keyword ? keywordTerms(params.keyword) : [];
+    // 【型修正】RPC の生成型（database.types.ts）では type_filter / keyword_filter /
+    // features_filter はいずれも「?: T」（= T | undefined）で、SQL 側の
+    // 「DEFAULT NULL」を表している。null は型として受け付けない。
+    // supabase-js は .rpc() の引数を JSON.stringify して送るため、値が undefined の
+    // キーは JSON 上から消え、PostgREST 側では未指定＝SQL の DEFAULT NULL が使われる。
+    // つまり undefined を渡すのは null を渡すのと実行時の意味が同じであり、
+    // 単なる型合わせであって挙動は変えていない。
     const escapedKeyword = geoTerms.length
       ? geoTerms.map((t) => t.replace(/[%_\\]/g, '\\$&')).join(' ')
-      : null;
+      : undefined;
     const { data, error } = await supabase.rpc('search_facilities_nearby', {
+      // 上の if 条件で params.lat / params.lng は number に narrowing 済み。
       user_lat: params.lat,
       user_lng: params.lng,
       radius_km: 10,
-      type_filter: params.type || null,
+      type_filter: params.type || undefined,
       limit_count: 500,
       keyword_filter: escapedKeyword,
-      features_filter: params.features && params.features.length > 0 ? params.features : null,
+      features_filter: params.features && params.features.length > 0 ? params.features : undefined,
     });
     const all = (data || []) as unknown as (FacilityCardData & { distance_km: number })[];
     // GPS 検索は RPC が type_filter/keyword_filter/features_filter 以外を受けないため、

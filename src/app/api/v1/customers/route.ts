@@ -69,9 +69,18 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
   // 同一顧客がページ跨ぎで重複・1ページの実件数が limit 未満になる二重の破綻があった。
   // RPC が DISTINCT ON で一意化し COUNT(*) OVER() でユニーク総数を同梱して返す。
   // 検索文字列は LIKE ワイルドカード(% _ \)をエスケープし区切り文字を除去（パラメータ渡しで注入は不可だが念のため）。
+  // 【型修正】RPC の生成型（database.types.ts）は get_facility_customers_v1 の p_search を
+  // 「string」（必須・null不可）としている。これは SQL 側に DEFAULT が無く必須引数であることを
+  // 表しているだけで、Postgres の関数引数に「NOT NULL」制約は存在しないため、実際には NULL を
+  // 渡すことは可能（生成型が実態より厳しい）。null を渡す代わりに空文字列を渡しても、RPC 本体
+  // （supabase/migrations/20260626000006_get_facility_customers_v1_rpc.sql）の
+  // `p_search IS NULL OR b.customer_name ILIKE '%' || p_search || '%' OR ...` は
+  // p_search='' のとき ILIKE '%%' となり customer_name IS NOT NULL な全行に一致するため、
+  // NULL を渡した場合と結果集合・件数・順序が完全に同一になる。よって挙動を変えずに
+  // string 型を満たすため null ではなく空文字列を渡す。
   const safeSearch = search
     ? search.replace(/[%_\\]/g, '\\$&').replace(/[,()]/g, '').slice(0, 100)
-    : null;
+    : '';
 
   const { data, error } = await admin.rpc('get_facility_customers_v1', {
     p_facility_id: principal.facility_id,

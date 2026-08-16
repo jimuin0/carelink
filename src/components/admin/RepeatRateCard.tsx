@@ -18,7 +18,10 @@ export default function RepeatRateCard({ facilityId }: { facilityId: string }) {
 
     if (error) { setLoadError(true); setLoading(false); return; }
     if (segments && segments.length > 0) {
-      const repeaters = segments.filter(s => s.total_visits >= 2).length;
+      // customer_segments.total_visits は migration 上 NOT NULL 制約が無く DEFAULT 0
+      // （supabase/migrations/20260404000002_dashboard_enhancement.sql）。null は
+      // 「来店回数が未集計」を意味し得るため、DB の既定値と同じ 0（＝リピーターではない）に倒す。
+      const repeaters = segments.filter(s => (s.total_visits ?? 0) >= 2).length;
       setRate(Math.round((repeaters / segments.length) * 100));
     }
     setLoading(false);

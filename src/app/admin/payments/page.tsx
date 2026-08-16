@@ -17,6 +17,14 @@ interface PaymentSession {
   bookings?: { customer_name: string | null; booking_date: string | null } | null;
 }
 
+// facility_profiles.deposit_type は DEFAULT 'none' + CHECK (deposit_type IN ('none','fixed','percent')) で
+// NOT NULL ではないため null もあり得るし、CHECK 制約は Supabase の型生成に反映されないため
+// 生成型は単なる string | null になる。ランタイムでも安全に絞り込み、null・想定外の値は
+// 既定値の 'none' に倒す（元々の `?? 'none'` と同じフォールバック方針を維持）。
+function toDepositType(v: string | null): 'none' | 'fixed' | 'percent' {
+  return v === 'none' || v === 'fixed' || v === 'percent' ? v : 'none';
+}
+
 const statusTones: Record<string, SbBadgeTone> = {
   pending: 'warning',
   paid: 'success',
@@ -67,7 +75,7 @@ export default function AdminPaymentsPage() {
     if (facility) {
       setStripeEnabled(facility.stripe_enabled ?? false);
       setDepositAmount(facility.deposit_amount ?? 0);
-      setDepositType(facility.deposit_type ?? 'none');
+      setDepositType(toDepositType(facility.deposit_type));
     }
     setSessions((payRes.data ?? []) as PaymentSession[]);
     setLoading(false);

@@ -20,6 +20,7 @@ jest.mock('@/lib/audit-logger', () => ({
 }));
 jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 
+
 const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
 const USER_ID       = '33333333-3333-3333-3333-333333333333';
 

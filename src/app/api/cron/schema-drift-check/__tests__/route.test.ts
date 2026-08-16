@@ -682,3 +682,30 @@ test('メジャーバージョンが期待値側だけ取れないときも「�
   expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/期待値=不明 \/ 本番=16/);
   expect(alertError as jest.Mock).not.toHaveBeenCalled();
 });
+
+// ── toSchemaRow（get_public_columns の各要素を実行時検証して詰め替える内部関数）──
+// 関数自体は export されていないため、GET 経由で RPC の戻り値配列に想定外の形を
+// 混入させ、computeDrift へ実際に渡される rows（= toSchemaRow の適用結果を
+// null 除去した配列）を検証することで、想定形の検証ロジックが正しく動くことを確認する。
+test('toSchemaRow：想定外の形（非object/null/配列/table_name型不一致/column_name型不一致）は全て弾き、想定形の要素だけを SchemaRow として computeDrift に渡す', async () => {
+  setRpc(
+    {
+      data: [
+        'invalid-string', // typeof v !== 'object' → null
+        null, // v === null → null
+        ['nested', 'array'], // Array.isArray(v) → null
+        { table_name: 123, column_name: 'col' }, // table_name が string でない → null
+        { table_name: 'tbl', column_name: 456 }, // column_name が string でない → null
+        { table_name: 'facility_profiles', column_name: 'id' }, // 想定形 → SchemaRow として通す
+      ],
+      error: null,
+    },
+    { data: [], error: null },
+  );
+  const res = await GET(req());
+  expect(res.status).toBe(200);
+  expect(computeDrift as jest.Mock).toHaveBeenCalledTimes(1);
+  // computeDrift(expected, rows) の第2引数が toSchemaRow 適用後の rows
+  const rowsArg = (computeDrift as jest.Mock).mock.calls[0][1];
+  expect(rowsArg).toEqual([{ table_name: 'facility_profiles', column_name: 'id' }]);
+});
