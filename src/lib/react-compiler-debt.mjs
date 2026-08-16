@@ -30,8 +30,15 @@ export const RATCHET_RULES = [
   'react-hooks/immutability',
   'react-hooks/refs',
   // React Compiler が「互換性のないライブラリ」としてコンパイルを諦めた箇所（3件）。
-  // recruit / register / ReviewForm。ライブラリ側の都合なので、こちらのコードを
+  // recruit / register / ReviewForm。原因は react-hook-form の useForm() が返す watch() で、
+  // 「安全にメモ化できない関数を返す」ため。ライブラリ側の都合なので、こちらのコードを
   // 歪めて回避すべきではない（上流が対応したら自然に消える）。
+  //
+  // 🔴 そもそも React Compiler はこのプロジェクトで有効になっていない（2026年8月16日 実測：
+  // next.config.mjs に reactCompiler の指定なし・babel-plugin-react-compiler は依存にも
+  // node_modules にも存在しない）。つまりこの3件は【動いていない最適化がスキップされた】
+  // という報告であり、現時点で実行時への影響はゼロ。将来 React Compiler を有効化するときに
+  // 「この3コンポーネントは自動メモ化されない」ことを知る手がかりとして数え続ける。
   'react-hooks/incompatible-library',
   // 退会成功後の window.location.href='/' （2件・mypage/profile と WithdrawalSettings）。
   // router.push へ置き換えてはいけない。Supabase セッション・middleware の admin membership

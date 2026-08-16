@@ -444,10 +444,16 @@ export default function ProfileEditPage() {
                     });
                     if (res.ok) {
                       // アカウント削除成功後は router.push ではなく全ページリロードを意図的に使う。
-                      // Supabase セッション・middleware の admin membership 署名 Cookie・
-                      // このページが保持するプロフィール state を全て確実に破棄するため。
-                      // router.push だとブラウザの Supabase クライアントやフォーム state が
-                      // 削除済みアカウントの内容のまま残ってしまう。
+                      // 破棄したいのは【ブラウザのメモリ上にあるもの】：supabase-js の
+                      // クライアント実体（削除済みアカウントのトークン更新を試み続ける）と、
+                      // このページが保持するプロフィール state。router.push はどちらも残す。
+                      //
+                      // ⚠️ Cookie の破棄は全リロードの効果ではない（リロードで Cookie は消えない）。
+                      // 認証 Cookie を消しているのはサーバー側で、/api/account/delete が
+                      // sb-*auth-token だけを maxAge:0 で失効させている。middleware の
+                      // membership キャッシュ Cookie（_cm_mbr_*）は消えずに残るが、
+                      // middleware は先に auth.getUser() を必須にしており、キーも userId から
+                      // 導出するため、認証が切れた状態では参照されず実害はない。
                       window.location.href = '/';
                     } else {
                       setShowDeleteModal(false);

@@ -30,9 +30,14 @@ export default function WithdrawalSettings() {
       });
       if (res.ok) {
         // 退会（アカウント削除）成功後は router.push ではなく全ページリロードを意図的に使う。
-        // Supabase セッション・middleware の admin membership 署名 Cookie・アプリ内 state
-        // （施設情報・フォーム入力値等）を全て確実に破棄するため。router.push だと
-        // クライアントの古い state が残ったまま次の画面へ遷移してしまう。
+        // 破棄したいのは【ブラウザのメモリ上にあるもの】：supabase-js のクライアント実体
+        // （削除済みアカウントのトークン更新を試み続ける）と、アプリ内 state（施設情報・
+        // フォーム入力値等）。router.push はどちらも残す。
+        //
+        // ⚠️ Cookie の破棄は全リロードの効果ではない（リロードで Cookie は消えない）。
+        // 認証 Cookie を消しているのはサーバー側で、/api/account/delete が sb-*auth-token
+        // だけを maxAge:0 で失効させている。membership キャッシュ Cookie（_cm_mbr_*）は
+        // 残るが、middleware が先に auth.getUser() を必須にしており実害はない。
         window.location.href = '/';
         return;
       }
