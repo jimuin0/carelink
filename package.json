@@ -27,7 +27,8 @@
     "test:contract": "jest --config=jest.config.contract.js",
     "prelint": "node scripts/ensure-eslint-plugin-link.mjs",
     "pretest": "node scripts/ensure-eslint-plugin-link.mjs",
-    "postinstall": "node scripts/ensure-eslint-plugin-link.mjs"
+    "postinstall": "node scripts/ensure-eslint-plugin-link.mjs",
+    "lint:debt": "node scripts/check-react-compiler-debt.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
@@ -71,7 +72,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "eslint": "^9.39.5",
-    "eslint-config-next": "^15.5.15",
+    "eslint-config-next": "^16.3.0",
     "eslint-plugin-carelink-safety": "file:eslint-plugin-carelink-safety",
     "fast-check": "^4.8.0",
     "husky": "^9.1.7",

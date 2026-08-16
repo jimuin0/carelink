@@ -23,6 +23,12 @@ jobs:
       - run: npm ci
       - name: Lint
         run: npm run lint
+      # React Compiler 系ルール（set-state-in-effect 等）は警告に落としてある。
+      # 警告は npm run lint を落とさないので、この検査が無いと負債が黙って増え続ける。
+      # 件数がベースラインと厳密一致しなければ失敗する（増加＝退行、減少＝ベースライン更新漏れ）。
+      # 判定ロジックは src/lib/react-compiler-debt.mjs（単体テスト済み）。
+      - name: React Compiler debt ratchet
+        run: npm run lint:debt
       - name: Type Check
         run: npx tsc --noEmit
 
