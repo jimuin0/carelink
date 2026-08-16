@@ -8,6 +8,13 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { isStockImageUrl, isNewStockImage, STOCK_IMAGE_ERROR } from '@/lib/stock-image-guard';
+import type { Database } from '@/types/database.types';
+
+// feature_articles の update() に渡すオブジェクトの型。
+// Record<string, unknown> は Database 型配線後の update() が要求する
+// 「宣言外キー拒否」の型と両立しない（インデックスシグネチャ型は余剰プロパティ無しを保証できない）。
+// テーブルの Update 型そのものを使い、意味を変えずに型検査を通す。
+type FeatureArticleUpdate = Database['public']['Tables']['feature_articles']['Update'];
 
 // POST(route.ts)と同じ理由・同じ設計（SafeHtmlContent.tsx の href 検証と同方針）で、
 // image_url/href に javascript:/data: 等の危険スキームを許さないホワイトリスト方式にする。
@@ -67,9 +74,21 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   // 未指定キーを出力に含めないため、image_url を含まない PATCH でも常に null が上書きされていた。
   // 管理画面の公開/非公開トグルは `{ is_active }` だけを送るため、【トグルするだけで特集記事の
   // 画像が無言で消えていた】。blog/[id] と同じ「未定義なら足さない」形に揃える。
-  const updatePayload: Record<string, unknown> = { ...parsed.data };
+  // href は spread せず undefined で上書きしておき、下の if ブロックで明示的に組み立て直す
+  // （理由は直後のコメント参照。ここで spread した値をそのまま使うと NOT NULL 制約に違反しうる）。
+  const updatePayload: FeatureArticleUpdate = { ...parsed.data, href: undefined };
   if (parsed.data.image_url !== undefined) {
     updatePayload.image_url = parsed.data.image_url || null;
+  }
+  // 【型検査で判明した実バグ】feature_articles.href は migration
+  // （supabase/migrations/20260417000024_phase7_hpb_extensions.sql）では nullable だが、本番から
+  // 生成された Database 型は `href?: string`（NOT NULL）＝migration と本番のドリフト
+  // （migration 側の追従は本タスクのスコープ外）。parsed.data.href に null を渡すと本番の
+  // NOT NULL 制約に違反し update が常に失敗する（＝リンクURLを空にして保存すると必ず500になる
+  // 実バグだった）。image_url と同じ「未指定キーは触らない」形を保ちつつ、null/空文字は
+  // 「リンクなし」を意味する空文字列に倒して NOT NULL を満たす。
+  if (parsed.data.href !== undefined) {
+    updatePayload.href = parsed.data.href || '';
   }
 
   const { data, error } = await admin

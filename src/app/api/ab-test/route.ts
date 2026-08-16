@@ -7,6 +7,8 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { z } from 'zod';
+import { toJsonValue } from '@/lib/json-value';
+
 
 // 【2026年7月16日 恒久根治】metadata に上限が無く、匿名POSTから任意サイズ・任意キー数の
 // オブジェクトを service role でそのまま ab_test_events.metadata（jsonb）へ書き込んでいた
@@ -59,7 +61,7 @@ export async function POST(request: NextRequest) {
       user_id: user?.id ?? null,
       session_id: parsed.data.session_id ?? null,
       page_path: parsed.data.page_path ?? null,
-      metadata: parsed.data.metadata ?? {},
+      metadata: toJsonValue(parsed.data.metadata ?? {}),
     });
 
     return NextResponse.json({ ok: true });

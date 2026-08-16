@@ -151,5 +151,22 @@ describe('writeAuditLog', () => {
     );
     consoleSpy.mockRestore();
   });
+
+  // toJsonValue の安全側フォールバック（JSON化不能な値は null に変換される）を固定する。
+  // 関数値は typeof が 'object' でも配列でもないため toJsonValue の最終 `return null` に
+  // 到達する。コメントで主張している契約なので、実際にその挙動をテストで検証する。
+  test('oldValues/newValues に JSON化不能な値（関数）を含む → 該当キーは null に変換されて挿入される', async () => {
+    await writeAuditLog({
+      action: 'update',
+      tableName: 'bookings',
+      recordId: 'rec-x',
+      oldValues: { status: 'pending', handler: () => {} },
+      newValues: { status: 'confirmed', handler: () => {} },
+    });
+    expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({
+      old_values: { status: 'pending', handler: null },
+      new_values: { status: 'confirmed', handler: null },
+    }));
+  });
 });
 

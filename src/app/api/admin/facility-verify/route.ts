@@ -12,8 +12,15 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import type { Database } from '@/types/database.types';
 
 export const dynamic = 'force-dynamic';
+
+// facility_profiles の update() に渡すオブジェクトの型。
+// Record<string, unknown> は Database 型配線後の update() が要求する
+// 「宣言外キー拒否」の型と両立しない（インデックスシグネチャ型は余剰プロパティ無しを保証できない）。
+// テーブルの Update 型そのものを使い、意味を変えずに型検査を通す。
+type FacilityProfileUpdate = Database['public']['Tables']['facility_profiles']['Update'];
 
 async function getPlatformAdminUser(): Promise<string | null> {
   const supabase = await createServerSupabaseAuthClient();
@@ -52,7 +59,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: '無効な verified_type です' }, { status: 400 });
   }
 
-  const updateData: Record<string, unknown> = {
+  const updateData: FacilityProfileUpdate = {
     is_verified: Boolean(is_verified),
   };
 

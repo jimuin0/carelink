@@ -6,6 +6,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { getAdminFacilityIds, resolveTargetFacilityId } from '@/lib/facility-membership';
+import { toJsonValue } from '@/lib/json-value';
+
 
 export async function GET(req: NextRequest) {
   // この GET は外部 Places API 取得＋facility_profiles の google_rating 上書き＋
@@ -47,7 +49,18 @@ export async function GET(req: NextRequest) {
     const placeId = facility.gbp_place_id;
 
     const placeData = placeId ? await fetchPlaceDetails(placeId) : null;
-    const audit = calculateGbpScore(placeData, facility);
+    // facility.business_hours は DB 上 jsonb で Json 型（string|number|boolean|null|object|配列の合併）
+    // だが、calculateGbpScore は object 形状（Record<string, unknown> | null）だけを想定している。
+    // supabase/migrations 上 business_hours は「曜日→時間帯」の JSON オブジェクトとして書き込まれる
+    // 設計（settings/route.ts 参照）であり、文字列や配列が入る運用は無い。実行時に object 判定で
+    // 絞り込むことで、既存の「object ならそのまま渡す・でなければ null」という挙動は変えずに型を合わせる。
+    const businessHours =
+      facility.business_hours &&
+      typeof facility.business_hours === 'object' &&
+      !Array.isArray(facility.business_hours)
+        ? facility.business_hours
+        : null;
+    const audit = calculateGbpScore(placeData, { ...facility, business_hours: businessHours });
 
     if (placeData) {
       // facility_profiles は SELECT ポリシー（status='published' 限定）のみで UPDATE 用 RLS
@@ -59,7 +72,7 @@ export async function GET(req: NextRequest) {
         supabase.from('gbp_audit_cache').upsert({
           facility_id: facilityId,
           score: audit.score,
-          details: { audit, placeData },
+          details: toJsonValue({ audit, placeData }),
           fetched_at: new Date().toISOString(),
         }),
         admin.from('facility_profiles').update({

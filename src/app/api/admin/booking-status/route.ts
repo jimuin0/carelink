@@ -180,23 +180,32 @@ export async function POST(request: Request) {
       staffName = staff?.name;
     }
 
-    const emailData = {
-      customerName: booking.customer_name,
-      customerEmail: booking.email,
-      facilityName: facility?.name || '',
-      bookingDate: booking.booking_date,
-      startTime: booking.start_time,
-      endTime: booking.end_time,
-      menuName,
-      staffName,
-      totalPrice: booking.total_price ?? undefined,
-      bookingId: booking.id,
-    };
+    // bookings.email は DB 上 nullable（migration 20260629000001 で NOT NULL を撤去済み・
+    // 本番の実列定義と一致）。<Database> 型配線でこの null 許容が表面化した。BookingEmailData.customerEmail
+    // は string 必須（メール送信先として null を渡すのは元々意味がない）ため、email が無い予約は
+    // メール送信自体をスキップする（送信先住所ゼロ件をゼロ件のまま数える＝集計除外と同じ考え方）。
+    // 兄弟ルート /api/booking/[id]/change が `full?.email` で同じガードを既に採用しており挙動を揃えた。
+    // 旧実装は null を渡したまま送信を試み、Resend 側の失敗（false 返却）を「送信失敗」として毎回
+    // 誤警報していた実バグで、本修正はそれも解消する。
+    const emailData = booking.email
+      ? {
+          customerName: booking.customer_name,
+          customerEmail: booking.email,
+          facilityName: facility?.name || '',
+          bookingDate: booking.booking_date,
+          startTime: booking.start_time,
+          endTime: booking.end_time,
+          menuName,
+          staffName,
+          totalPrice: booking.total_price ?? undefined,
+          bookingId: booking.id,
+        }
+      : null;
 
     // arrived（受付＝来店中）は来店した客への内部操作のため、顧客への通知は送らない。
     // それ以外のステータス変更は従来どおりメール＋Push で顧客へ通知する。
-    // Send appropriate email
-    if (status !== 'arrived') {
+    // Send appropriate email（emailData が null＝顧客メール未登録の場合は送信をスキップ）
+    if (status !== 'arrived' && emailData) {
       try {
         // 各 send 関数は送信失敗時も throw せず false を返す契約のため、戻り値を確認しないと
         // 失敗が無音化する（catch は想定外の例外のみ捕捉する）。

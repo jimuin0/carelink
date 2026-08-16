@@ -106,6 +106,54 @@ test('enqueueWebhook: catchが非Error値をthrow → String(e)フォールバ�
   );
 });
 
+// toJsonValue の Array.isArray 分岐（配列は map で再帰変換してそのまま配列として返す）を
+// 実際に通す。payload に配列値を含めても構造・要素が保たれたまま挿入されることを固定する。
+test('enqueueWebhook: payload に配列を含む → Array.isArray 分岐を通り配列のまま挿入される', async () => {
+  const insertMock = jest.fn(() => Promise.resolve({ error: null }));
+  mockFrom.mockReturnValue({ insert: insertMock });
+  await enqueueWebhook({
+    type: 'line_push',
+    targetId: 'U12345',
+    payload: { ids: ['a', 'b'] },
+  });
+  expect(insertMock).toHaveBeenCalledWith(expect.objectContaining({
+    payload: { ids: ['a', 'b'] },
+  }));
+});
+
+// toJsonValue の安全側フォールバック（JSON化不能な値は null に変換される）を固定する。
+// 関数値は typeof が 'object' でも配列でもないため toJsonValue の最終 `return null` に
+// 到達する。コメントで主張している契約なので、実際にその挙動をテストで検証する。
+test('enqueueWebhook: payload に JSON化不能な値（関数）を含む → 該当キーは null に変換されて挿入される', async () => {
+  const insertMock = jest.fn(() => Promise.resolve({ error: null }));
+  mockFrom.mockReturnValue({ insert: insertMock });
+  await enqueueWebhook({
+    type: 'line_push',
+    targetId: 'U12345',
+    payload: { fn: () => {} },
+  });
+  expect(insertMock).toHaveBeenCalledWith(expect.objectContaining({
+    payload: { fn: null },
+  }));
+});
+
+// toJsonValue の `if (v !== undefined)` 分岐（undefined 値のキーは出力オブジェクトに
+// 含めない）の false 側（＝値が undefined でキーごと落とす経路）を通す。
+// JSON.stringify も undefined プロパティを省略するため、これは既存の JSON 化の常識に
+// 合わせた意図的な仕様（Json 型が undefined を許容しないための整合）。
+test('enqueueWebhook: payload にキーの値が undefined のプロパティを含む → そのキーごと出力から除外される', async () => {
+  const insertMock = jest.fn(() => Promise.resolve({ error: null }));
+  mockFrom.mockReturnValue({ insert: insertMock });
+  await enqueueWebhook({
+    type: 'line_push',
+    targetId: 'U12345',
+    payload: { kept: 'x', dropped: undefined },
+  });
+  const insertedPayload = insertMock.mock.calls[0][0].payload;
+  expect(insertedPayload).toEqual({ kept: 'x' });
+  expect(Object.prototype.hasOwnProperty.call(insertedPayload, 'dropped')).toBe(false);
+});
+
 test('enqueueWebhook: insert が {error} を返す（メールtargetId）→ console.errorでマスクして可視化 + alertWarning発火', async () => {
   mockFrom.mockReturnValue({ insert: jest.fn(() => Promise.resolve({ error: { message: 'insert failed' } })) });
   await enqueueWebhook({

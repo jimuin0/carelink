@@ -407,9 +407,12 @@ describe('GET /api/v1/customers', () => {
     );
   });
 
-  test('search 未指定時は p_search に null を渡す', async () => {
+  // RPC の Args 型が p_search: string（null不可）のため、route.ts は search 未指定時に
+  // null ではなく空文字列を渡す（RPC 本体の ILIKE '%%' は全行一致し、null を渡した場合と
+  // 結果集合が完全に同一になる。詳細は route.ts の該当コメント参照）。
+  test('search 未指定時は p_search に空文字列を渡す', async () => {
     const rpc = setupRpcMock(jest.fn().mockResolvedValue({ data: [], error: null }));
     await GET(makeRequest() as any);
-    expect(rpc).toHaveBeenCalledWith('get_facility_customers_v1', expect.objectContaining({ p_search: null }));
+    expect(rpc).toHaveBeenCalledWith('get_facility_customers_v1', expect.objectContaining({ p_search: '' }));
   });
 });

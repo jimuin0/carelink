@@ -18,7 +18,10 @@ export default function AdminReviewsPage() {
   const [updating, setUpdating] = useState<string | null>(null);
   const [replyText, setReplyText] = useState<Record<string, string>>({});
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
-  const [repliesMap, setRepliesMap] = useState<Record<string, { id: string; content: string; created_at: string }[]>>({});
+  // review_replies.created_at は DB 定義上 NOT NULL ではない（DEFAULT now() のみ、
+  // supabase/migrations/20260323000005_phase6_advanced.sql）ため、Database 型配線後は
+  // string | null として扱う必要がある（配線前は無警告だったが、これが本来の型）
+  const [repliesMap, setRepliesMap] = useState<Record<string, { id: string; content: string; created_at: string | null }[]>>({});
 
   const loadReviews = useCallback(async (fId: string) => {
     const supabase = createBrowserSupabaseClient();
@@ -60,7 +63,7 @@ export default function AdminReviewsPage() {
           .select('id, review_id, content, created_at')
           .in('review_id', reviewIds)
           .order('created_at')
-      : { data: [] as { id: string; review_id: string; content: string; created_at: string }[] };
+      : { data: [] as { id: string; review_id: string; content: string; created_at: string | null }[] };
     if (replies) {
       const map: Record<string, typeof replies> = {};
       for (const r of replies) {
@@ -206,7 +209,10 @@ export default function AdminReviewsPage() {
                 <div key={reply.id} className="mt-3 ml-4 bg-sky-50 border border-sky-100 rounded-lg p-3">
                   <span className="text-micro font-bold text-sky-600">サロンより</span>
                   <p className="text-sm text-gray-700 mt-1">{reply.content}</p>
-                  <p className="text-xs text-gray-400 mt-1">{new Date(reply.created_at).toLocaleDateString('ja-JP')}</p>
+                  {/* created_at は DB 上 NOT NULL 制約が無く null になり得る（上記コメント参照）。
+                      null を new Date(null) に渡すと 1970/1/1 という誤った日付が表示されてしまうため、
+                      値が無い場合は空表示に倒す（既存の通常経路＝DEFAULT now() が効く限りは表示挙動は変わらない） */}
+                  <p className="text-xs text-gray-400 mt-1">{reply.created_at ? new Date(reply.created_at).toLocaleDateString('ja-JP') : ''}</p>
                 </div>
               ))}
 

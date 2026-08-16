@@ -13,6 +13,7 @@ jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
 jest.mock('dns', () => ({ promises: { resolveTxt: jest.fn() } }));
 
+
 const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 
@@ -159,6 +160,25 @@ test('TXTレコード不一致 → 200 { verified: false }', async () => {
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.verified).toBe(false);
+});
+
+test('DNS検証成功だが txt_record が null（不変条件違反） → 500（型ガード分岐カバー）', async () => {
+  // config.txt_record は DB定義上 nullable。verified===true は通常
+  // flatRecords.some((r) => r === config.txt_record) が真になった場合のみ成立し、
+  // dns.resolveTxt が返す文字列が null と一致することは実運用ではあり得ないため
+  // route.ts 側の null ガード（56-58行目）は実装上到達しない防御分岐。
+  // branches 100% ゲートのため、dns.resolveTxt のモック戻り値に意図的に null を混ぜ、
+  // txt_record=null の設定と一致させることでこの分岐をカバーする。
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdsChain([FACILITY_UUID]);
+    return singleChain({ domain: DOMAIN_CONFIG.domain, txt_record: null });
+  });
+  (dns.resolveTxt as jest.Mock).mockResolvedValue([[null]]);
+
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(500);
 });
 
 // ─── Critical: DB write failure after successful verification ─────────────────

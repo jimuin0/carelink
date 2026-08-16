@@ -7,6 +7,13 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
+import type { Database } from '@/types/database.types';
+
+// contacts の update() に渡すオブジェクトの型。
+// Record<string, unknown> は Database 型配線後の update() が要求する
+// 「宣言外キー拒否」の型と両立しない（インデックスシグネチャ型は余剰プロパティ無しを保証できない）。
+// テーブルの Update 型そのものを使い、意味を変えずに型検査を通す。
+type ContactUpdate = Database['public']['Tables']['contacts']['Update'];
 
 const VALID_STATUSES = ['open', 'in_progress', 'waiting', 'resolved', 'closed'] as const;
 const VALID_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
@@ -55,7 +62,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const parsed = ticketUpdateSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
-  const payload: Record<string, unknown> = { ...parsed.data };
+  const payload: ContactUpdate = { ...parsed.data };
   if (parsed.data.ticket_status === 'resolved') {
     payload.resolved_at = new Date().toISOString();
   } else if (parsed.data.ticket_status !== undefined) {

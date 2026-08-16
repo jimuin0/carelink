@@ -7,6 +7,7 @@ import { createServiceRoleClient } from './supabase-server';
 import { getClientIp } from './client-ip';
 import { alertCaughtError } from './alert';
 import { runAfterResponse } from './after-response';
+import { toJsonValue } from '@/lib/json-value';
 
 export type AuditAction =
   | 'create'
@@ -57,6 +58,7 @@ export async function writeAuditLog(entry: AuditLogEntry): Promise<void> {
   return runAfterResponse(() => insertAuditLog(entry));
 }
 
+
 async function insertAuditLog(entry: AuditLogEntry): Promise<void> {
   try {
     const supabase = createServiceRoleClient();
@@ -66,8 +68,8 @@ async function insertAuditLog(entry: AuditLogEntry): Promise<void> {
       action:      entry.action,
       table_name:  entry.tableName,
       record_id:   entry.recordId ?? null,
-      old_values:  entry.oldValues ?? null,
-      new_values:  entry.newValues ?? null,
+      old_values:  entry.oldValues ? toJsonValue(entry.oldValues) : null,
+      new_values:  entry.newValues ? toJsonValue(entry.newValues) : null,
       ip_address:  entry.ipAddress ?? null,
       user_agent:  entry.userAgent ?? null,
     });

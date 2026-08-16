@@ -364,6 +364,25 @@ test('PATCH: image_url に null を送ったら null で消す', async () => {
   expect(update).toHaveBeenCalledWith({ image_url: null });
 });
 
+// ─── href の null/空文字は '' に倒す（2026年8月11日 恒久根治・行91のfalsy分岐）─────
+// 管理画面 src/app/admin/features/page.tsx は `href: editForm.href.trim() || null` と、
+// リンクURL欄を空にすると必ず null を送る通常経路。feature_articles.href は本番で
+// NOT NULL のため、null をそのまま渡すと update が常に失敗する（実バグ）。
+// parsed.data.href || '' の falsy 側（null・空文字）が本当に '' に倒ることを検証する。
+test('PATCH: href に null を送ったら空文字に倒して更新する（管理画面の空欄保存と同じ経路）', async () => {
+  const update = captureUpdate();
+  const res = await PATCH(makeRequest('PATCH', { href: null }), makeProps());
+  expect(res.status).toBe(200);
+  expect(update).toHaveBeenCalledWith({ href: '' });
+});
+
+test('PATCH: href に空文字を送ったら空文字のまま更新する', async () => {
+  const update = captureUpdate();
+  const res = await PATCH(makeRequest('PATCH', { href: '' }), makeProps());
+  expect(res.status).toBe(200);
+  expect(update).toHaveBeenCalledWith({ href: '' });
+});
+
 test('PATCH: レスポンスが { feature.id } 形式', async () => {
   mockAdminFrom.mockReturnValue(updateChain({ id: FEATURE_UUID, title: 'test' }));
   const res = await PATCH(makeRequest('PATCH', { title: 'test' }), makeProps());

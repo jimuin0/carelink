@@ -7,6 +7,7 @@ import { createServiceRoleClient } from './supabase-server';
 import { alertCaughtError } from './alert';
 import { pushAdminHeartbeat, type HeartbeatStatus } from './admin-heartbeat';
 import { runAfterResponse } from './after-response';
+import { toJsonValue } from '@/lib/json-value';
 
 export interface CronResult {
   processed?: number;
@@ -14,6 +15,7 @@ export interface CronResult {
   error_msg?: string;
   meta?: Record<string, unknown>;
 }
+
 
 /**
  * cronジョブの実行結果をDBに記録する
@@ -42,7 +44,7 @@ export async function logCronRun(
       processed: result.processed ?? 0,
       skipped: result.skipped ?? 0,
       error_msg: result.error_msg ?? null,
-      meta: result.meta ?? null,
+      meta: result.meta ? toJsonValue(result.meta) : null,
     });
     if (insertErr) {
       console.error('[cron-logger] cron_logs insert failed — this run will be invisible in monitoring', {

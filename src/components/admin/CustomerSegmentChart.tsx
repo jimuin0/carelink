@@ -38,6 +38,11 @@ export default function CustomerSegmentChart({ facilityId }: { facilityId: strin
       if (segments) {
         const counts: Record<string, number> = {};
         for (const s of segments) {
+          // customer_segments.segment は migration 上 NOT NULL 制約が無い
+          // （supabase/migrations/20260404000002_dashboard_enhancement.sql）。
+          // セグメント算出バッチがまだ回っていない顧客は null になり得るため、
+          // null をキーにできない（識別不能な値）ので集計対象から除外する。
+          if (s.segment === null) continue;
           counts[s.segment] = (counts[s.segment] || 0) + 1;
         }
         const chartData = Object.entries(counts).map(([key, value]) => ({

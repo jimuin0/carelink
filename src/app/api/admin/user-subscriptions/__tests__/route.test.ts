@@ -515,8 +515,14 @@ test('PATCH: 正常セッション使用 → 200（RPC ok、監査D2で利用ロ
   expect(json.subscription).toBeDefined();
   // 監査D2: booking_id/notes をRPCへ渡し、ログINSERTはRPC内部（行ロック配下）に統合済み。
   // route側の事後INSERTは廃止（旧テストの usage log insert 経路は now unused）。
+  // Database 型対応（consume_subscription_session の RPC 引数は p_booking_id?: string /
+  // p_notes?: string で null 非許容）に伴い、route 側は `?? null` を廃止し未指定時は undefined を
+  // そのまま渡すよう変更。RPC 実体（migration
+  // 20260729000001_consume_subscription_session_booking_idempotency_catchup.sql）は
+  // DEFAULT NULL なので undefined キー省略でもサーバー側の解決結果は null 明示と同一（実行時挙動は不変）。
+  // 期待値もそれに合わせて更新。
   expect(mockAdminRpc).toHaveBeenCalledWith('consume_subscription_session', {
-    p_subscription_id: SUB_UUID, p_booking_id: null, p_notes: null,
+    p_subscription_id: SUB_UUID, p_booking_id: undefined, p_notes: undefined,
   });
 });
 

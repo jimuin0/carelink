@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import type { Json } from '@/types/database.types';
 import LoadError from '@/components/admin/LoadError';
 import { SbTable, SbThead, SbTh, SbTbody, SbTd, SbPageHeader, SbStatCard } from '@/components/admin/SbUi';
 import { CRON_JOB_NAMES, CRON_JOB_LABELS } from '@/lib/cron-jobs';
@@ -16,6 +17,41 @@ interface CronLog {
   skipped: number;
   error_msg: string | null;
   meta: Record<string, unknown> | null;
+}
+
+// cron_logs.status は NOT NULL + CHECK (status IN ('success','error','skipped')) で DB 側は
+// 3値に制限されているが、CHECK 制約は Supabase の型生成に反映されないため生成型は string に
+// なる。processed/skipped は INTEGER DEFAULT 0 のみで NOT NULL が無く null もあり得るため、
+// 実行件数の表示用途として「未記録＝0件」に倒す（duration_ms と違い「-」表示ではなく
+// 実害の無い既定値 0 が自然）。meta も同様に JSONB で NOT NULL が無く null があり得る。
+function toCronStatus(v: string): CronLog['status'] {
+  return v === 'success' || v === 'error' || v === 'skipped' ? v : 'error';
+}
+
+function toCronLog(row: {
+  id: string;
+  job_name: string;
+  status: string;
+  started_at: string;
+  duration_ms: number | null;
+  processed: number | null;
+  skipped: number | null;
+  error_msg: string | null;
+  meta: Json;
+}): CronLog {
+  return {
+    id: row.id,
+    job_name: row.job_name,
+    status: toCronStatus(row.status),
+    started_at: row.started_at,
+    duration_ms: row.duration_ms,
+    processed: row.processed ?? 0,
+    skipped: row.skipped ?? 0,
+    error_msg: row.error_msg,
+    meta: (row.meta && typeof row.meta === 'object' && !Array.isArray(row.meta))
+      ? row.meta
+      : null,
+  };
 }
 
 const STATUS_CONFIG = {
@@ -84,7 +120,7 @@ export default function CronMonitorPage() {
     const { data, error } = await query;
     if (gen !== logsGenRef.current) return; // 古いレスポンスは無視
     if (error) { setLoadError(true); setLoading(false); return; }
-    setLogs(data ?? []);
+    setLogs((data ?? []).map(toCronLog));
     setLoading(false);
   }, [selectedJob]);
 

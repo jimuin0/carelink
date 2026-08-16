@@ -99,8 +99,12 @@ export default function StaffSchedulePage() {
     if (ovErr) { setLoadError(true); setLoading(false); return; }
     // schedule_overrides の start_time/end_time も TIME 列で "HH:MM:SS" で返る。表示と再保存の
     // 一貫性のため "HH:MM" に正規化する（null=休日はそのまま）。
+    // is_holiday は `BOOLEAN DEFAULT false` のみで NOT NULL 制約が無く DB 上 null もあり得る
+    // （supabase/migrations/20260323000003_phase4_bookings.sql）。null は「休日フラグ未設定」を
+    // 意味し、既定値である false（休日ではない）に倒すのが DEFAULT の意図と一致する。
     if (ovData) setOverrides(ovData.map((o) => ({
       ...o,
+      is_holiday: o.is_holiday ?? false,
       start_time: o.start_time ? o.start_time.slice(0, 5) : o.start_time,
       end_time: o.end_time ? o.end_time.slice(0, 5) : o.end_time,
     })));

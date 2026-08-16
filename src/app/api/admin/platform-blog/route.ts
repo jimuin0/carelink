@@ -6,6 +6,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
+import type { Json } from '@/types/database.types';
 
 const platformBlogSchema = z.object({
   slug: z.string().min(1).max(200).regex(/^[a-z0-9-]+$/, 'スラッグは半角英数字とハイフンのみ使用できます'),
@@ -14,7 +15,11 @@ const platformBlogSchema = z.object({
   category: z.string().max(50).optional().nullable(),
   tags: z.array(z.string().max(50)).max(20).optional(),
   reading_time: z.number().int().min(1).max(999).optional(),
-  content: z.array(z.record(z.string(), z.unknown())).optional(),
+  // platform_blog_posts.content は jsonb 列（Database 型では Json）。z.unknown() だと値の型が
+  // unknown になり Json（string|number|boolean|null|Json[]|{[k:string]:Json|undefined}）に
+  // 代入できず tsc エラーになる。z.custom<Json>() はデフォルトで常に許可（実行時バリデーションは
+  // 従来どおり無し）のまま出力型だけを Json に合わせるため、実行時の受け入れ範囲は変えていない。
+  content: z.array(z.record(z.string(), z.custom<Json>())).optional(),
   is_published: z.boolean().optional(),
 });
 
@@ -40,8 +45,12 @@ export async function POST(request: NextRequest) {
   const { data, error } = await admin.from('platform_blog_posts').insert({
     slug: parsed.data.slug,
     title: parsed.data.title,
-    description: parsed.data.description ?? null,
-    category: parsed.data.category ?? null,
+    // description/category は migration(20260417000025)上 NOT NULL DEFAULT ''。
+    // 従来は未指定・明示nullのどちらでも description: null を INSERT していたため、
+    // NOT NULL 制約違反で常に DB エラー（500）になっていた実バグ。null/未指定は
+    // 「値なし」として key ごと省略し、列の DEFAULT ''（空文字）に委ねるよう修正する。
+    description: parsed.data.description ?? undefined,
+    category: parsed.data.category ?? undefined,
     tags: parsed.data.tags ?? [],
     reading_time: parsed.data.reading_time ?? 5,
     content: parsed.data.content ?? [],

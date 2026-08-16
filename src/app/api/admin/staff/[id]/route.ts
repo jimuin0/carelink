@@ -1,3 +1,4 @@
+import type { Database } from '@/types/database-overrides';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -9,6 +10,8 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
+
+type StaffProfileUpdate = Database['public']['Tables']['staff_profiles']['Update'];
 
 const staffUpdateSchema = z.object({
   name: z.string().min(1).max(50),
@@ -89,7 +92,10 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   // is_active は指定された時のみ更新する。未指定の通常編集で在籍状態を勝手に戻さない
   // （休止中スタッフの名前だけ直す等で意図せず再在籍化するのを防ぐ）。
-  const updateFields: Record<string, unknown> = {
+  // 🔴 Record<string, unknown> だと列名のタイポが tsc を素通りし、PostgREST が
+  // 「そんな列は無い」で失敗しても error を握り潰していれば無音で保存されないままになる。
+  // テーブルの Update 型を当てて、存在しない列名をここで落とす。
+  const updateFields: StaffProfileUpdate = {
     name: parsed.data.name,
     position: parsed.data.position ?? null,
     bio: parsed.data.bio ?? null,

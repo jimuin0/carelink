@@ -8,6 +8,13 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { isStockImageUrl, isNewStockImage, STOCK_IMAGE_ERROR } from '@/lib/stock-image-guard';
+import type { Database } from '@/types/database.types';
+
+// facility_menus の update() に渡すオブジェクトの型。
+// Record<string, unknown> は Database 型配線後の update() が要求する
+// 「宣言外キー拒否」の型と両立しない（インデックスシグネチャ型は余剰プロパティ無しを保証できない）。
+// テーブルの Update 型そのものを使い、意味を変えずに型検査を通す。
+type FacilityMenuUpdate = Database['public']['Tables']['facility_menus']['Update'];
 
 const menuUpdateSchema = z.object({
   category: z.string().min(1).max(50).optional(),
@@ -96,7 +103,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   // 未指定キーを出力に含めないため、photo_url を含まない PATCH でも常に null が上書きされていた。
   // メニュー一覧の並び替え(↑↓)は `{ sort_order }` だけを送るため、【並び替えるだけでメニュー
   // 写真が無言で消えていた】。blog/[id] と同じ「未定義なら足さない」形に揃える。
-  const updatePayload: Record<string, unknown> = { ...parsed.data };
+  const updatePayload: FacilityMenuUpdate = { ...parsed.data };
   if (parsed.data.photo_url !== undefined) {
     updatePayload.photo_url = parsed.data.photo_url || null;
   }

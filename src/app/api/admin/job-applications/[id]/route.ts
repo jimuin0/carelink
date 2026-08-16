@@ -6,6 +6,13 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import type { Database } from '@/types/database.types';
+
+// job_applications の update() に渡すオブジェクトの型。
+// Record<string, unknown> は Database 型配線後の update() が要求する
+// 「宣言外キー拒否」の型と両立しない（インデックスシグネチャ型は余剰プロパティ無しを保証できない）。
+// テーブルの Update 型そのものを使い、意味を変えずに型検査を通す。
+type JobApplicationUpdate = Database['public']['Tables']['job_applications']['Update'];
 
 export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -62,7 +69,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     }
   }
 
-  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  const updates: JobApplicationUpdate = { updated_at: new Date().toISOString() };
   if (status) updates.status = status;
   if (referral_fee_yen !== undefined) updates.referral_fee_yen = referral_fee_yen;
   if (notes !== undefined) updates.notes = typeof notes === 'string' ? notes.slice(0, 2000) : null;

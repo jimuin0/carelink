@@ -41,17 +41,35 @@ export default async function UsageStatsPage() {
 
   const bookings = allBookings ?? [];
 
+  // 🔴 bookings.user_id / created_at はどちらも nullable。
+  //
+  // user_id: migration が `user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL` なので、
+  // 【退会したユーザーの予約は user_id が null になる】（/api/account/delete が auth.users を
+  // 削除した時点で発生する）。ゲスト予約も null。これを素通しすると Set／オブジェクトキーで
+  // 全部が1個の「null ユーザー」に集約され、DAU/WAU/MAU が実際より最大1人分多く出て、
+  // リピート率は「退会者とゲストの予約を全部1人が繰り返した」と誤って数える。
+  //
+  // created_at: null の行はどの期間にも帰属させられない。JS の比較では null >= '2026-..' が
+  // 常に false になるため従来も結果的に除外されていたが、意図として明示する。
+  const identifiedBookings = bookings.filter(
+    (b): b is typeof b & { user_id: string; created_at: string } =>
+      b.user_id !== null && b.created_at !== null,
+  );
+  const datedBookings = bookings.filter(
+    (b): b is typeof b & { created_at: string } => b.created_at !== null,
+  );
+
   // DAU (今日の予約ユニークユーザー)
-  const dauUsers = new Set(bookings.filter((b) => b.created_at >= today).map((b) => b.user_id));
-  const wauUsers = new Set(bookings.filter((b) => b.created_at >= weekAgo).map((b) => b.user_id));
-  const mauUsers = new Set(bookings.filter((b) => b.created_at >= monthAgo).map((b) => b.user_id));
-  const prevMauUsers = new Set(bookings.filter((b) => b.created_at >= prevMonthAgo && b.created_at < monthAgo).map((b) => b.user_id));
+  const dauUsers = new Set(identifiedBookings.filter((b) => b.created_at >= today).map((b) => b.user_id));
+  const wauUsers = new Set(identifiedBookings.filter((b) => b.created_at >= weekAgo).map((b) => b.user_id));
+  const mauUsers = new Set(identifiedBookings.filter((b) => b.created_at >= monthAgo).map((b) => b.user_id));
+  const prevMauUsers = new Set(identifiedBookings.filter((b) => b.created_at >= prevMonthAgo && b.created_at < monthAgo).map((b) => b.user_id));
 
   const mauGrowth = prevMauUsers.size > 0 ? Math.round(((mauUsers.size - prevMauUsers.size) / prevMauUsers.size) * 100) : null;
 
-  // リピート率
+  // リピート率（識別できる利用者のみ。退会者・ゲストは「同一人物かどうか」を判定できない）
   const userBookingCount: Record<string, number> = {};
-  for (const b of bookings) {
+  for (const b of identifiedBookings) {
     userBookingCount[b.user_id] = (userBookingCount[b.user_id] ?? 0) + 1;
   }
   const totalUsers = Object.keys(userBookingCount).length;
@@ -64,14 +82,17 @@ export default async function UsageStatsPage() {
     const start = jstMonthStartIso(-i);
     const end = jstMonthStartIso(-i + 1);
     const label = `${jstMonthInfo(-i).month}月`;
-    const monthBookings = bookings.filter((b) => b.created_at >= start && b.created_at < end);
-    const uniqueUsers = new Set(monthBookings.map((b) => b.user_id));
+    const monthBookings = datedBookings.filter((b) => b.created_at >= start && b.created_at < end);
+    // MAU は識別できる利用者数なので user_id が null の予約は数えない（件数側は全件で数える）。
+    const uniqueUsers = new Set(
+      monthBookings.map((b) => b.user_id).filter((id): id is string => id !== null),
+    );
     monthlyData.push({ month: label, mau: uniqueUsers.size, bookings: monthBookings.length });
   }
 
   // 予約ステータス分布
   const statusCount: Record<string, number> = {};
-  for (const b of bookings.filter((b) => b.created_at >= monthAgo)) {
+  for (const b of datedBookings.filter((b) => b.created_at >= monthAgo)) {
     statusCount[b.status] = (statusCount[b.status] ?? 0) + 1;
   }
 

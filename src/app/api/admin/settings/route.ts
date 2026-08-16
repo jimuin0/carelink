@@ -9,6 +9,15 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { checkPublishReadiness } from '@/lib/facility-publish-gate';
 import { validateFacilityPrText } from '@/lib/medical-ad-guard';
+import type { Database } from '@/types/database.types';
+
+// facility_profiles の update() に渡すオブジェクトの型。
+// 以前は Record<string, unknown> にしていたが、Database 型配線後は
+// Supabase の update() が「宣言外のキーを拒否する」型（RejectExcessProperties）を要求するため、
+// インデックスシグネチャ型の Record<string, unknown> はそもそも代入不可能になった
+// （余剰プロパティが無いことを型レベルで保証できないため）。
+// テーブルの Update 型そのものを使うことで、意味を変えずに型検査を通す。
+type FacilityProfileUpdate = Database['public']['Tables']['facility_profiles']['Update'];
 
 const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -23,13 +32,22 @@ const settingsSchema = z.object({
   // 任意文字列を許すと正規タクソノミー外の値が保存され、施設は存在するのに
   // トップのカテゴリタイル・/type/* から到達できなくなる（本番で実際に発生した無音の断線）。
   // 保存の入口で選択肢を強制し、ズレる経路そのものを塞ぐ。
-  business_type: z.enum(businessTypes as [string, ...string[]]).optional().nullable(),
+  business_type: z.enum(businessTypes as [string, ...string[]]).optional(),
   catch_copy: z.string().max(200).optional().nullable(),
   description: z.string().max(2000).optional().nullable(),
   postal_code: z.string().max(8).optional().nullable(),
-  prefecture: z.string().max(20).optional().nullable(),
-  city: z.string().max(50).optional().nullable(),
-  address: z.string().max(100).optional().nullable(),
+  // 【2026年8月16日 Database型配線で表面化】business_type / prefecture / city / address は
+  // supabase/migrations/20260321000004_facilities_phase1.sql で facility_profiles の
+  // NOT NULL 列（デフォルト値も無い）と確認した。.nullable() を付けていたのは誤りで、
+  // もし null が送られていれば zod は通過しても DB 側の NOT NULL 制約違反で
+  // 汎用の500（「サーバーエラーが発生しました」）にしかならず、原因が追いにくいまま
+  // 落ちていた（無音ではないが不必要に不親切な失敗＝実バグ）。実際の管理画面
+  // （src/app/admin/settings/page.tsx）はこれらを常に文字列で送っており null は送らないため、
+  // .nullable() を外しても現状の正常系の挙動は変わらない。入力が本当に null だった場合のみ、
+  // 400（リクエストが不正です）へ変わる（従来の DB 由来の500より正確なエラーに是正される）。
+  prefecture: z.string().max(20).optional(),
+  city: z.string().max(50).optional(),
+  address: z.string().max(100).optional(),
   building: z.string().max(100).optional().nullable(),
   access_info: z.string().max(200).optional().nullable(),
   nearest_station: z.string().max(100).optional().nullable(),
@@ -170,7 +188,7 @@ export async function PATCH(request: NextRequest) {
   // spread の後ろに明示キーを置くと website_url を含まない保存でも常に null で上書きされる。
   // 同じ書き方が menus/[id]（並び替えで写真が消える）と features/[id]（トグルで画像が消える）で
   // 実害を出していた。ここは管理画面が常に送っているため未発症だが、形が同じなので揃えて塞ぐ。
-  const updatePayload: Record<string, unknown> = {
+  const updatePayload: FacilityProfileUpdate = {
     ...parsed.data,
     updated_at: new Date().toISOString(),
   };

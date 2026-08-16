@@ -1,5 +1,6 @@
 import { createBrowserClient } from '@supabase/ssr';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/types/database-overrides';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -17,11 +18,11 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // 型注釈は明示的に `SupabaseClient`（型引数省略）を使う。`ReturnType<typeof
 // createBrowserClient>` はオーバーロード関数の型解決の都合で `auth.getUser()` 等の
 // 戻り値が実質 any に潰れ、呼び出し側で noImplicitAny エラーを誘発するため使わない。
-let browserClient: SupabaseClient | undefined;
+let browserClient: SupabaseClient<Database> | undefined;
 
-export function createBrowserSupabaseClient(): SupabaseClient {
+export function createBrowserSupabaseClient(): SupabaseClient<Database> {
   if (!browserClient) {
-    browserClient = createBrowserClient(supabaseUrl!, supabaseAnonKey!);
+    browserClient = createBrowserClient<Database>(supabaseUrl!, supabaseAnonKey!);
   }
   return browserClient;
 }

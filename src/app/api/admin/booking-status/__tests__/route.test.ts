@@ -19,6 +19,9 @@ jest.mock('@/lib/line', () => ({ sendBookingCancellation: jest.fn() }));
 // 【監査C2】連携解決は helper 経由（profiles.line_user_id 単一ソース）。DB モックから切り離す。
 jest.mock('@/lib/line-link', () => ({ resolveLineUserIdForUser: jest.fn().mockResolvedValue(null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
+// email が null のときメール送信をスキップした結果 alertCaughtError('booking-email', ...) が
+// 呼ばれないことを機械的に検証するため、モック化して呼び出しを観測できるようにする。
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 // 紹介ボーナス付与(applyCompletionSideEffects 経由)は referral.test / booking-completion.test で
 // 検証済み。ここでは no-op にして referral_uses クエリのモックを不要にする（責務分離）。
 jest.mock('@/lib/referral', () => ({ awardReferralPointsOnCompletion: jest.fn(() => Promise.resolve()) }));
@@ -46,6 +49,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } from '@/lib/email';
 import { sendPushToUser } from '@/lib/push';
 import { sendBookingCancellation } from '@/lib/line';
+import { alertCaughtError } from '@/lib/alert';
 
 const validBookingId = '123e4567-e89b-12d3-a456-426614174000';
 const facilityId = 'fac00000-0000-0000-0000-000000000001';
@@ -514,6 +518,54 @@ describe('POST /api/admin/booking-status - notifications', () => {
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
     // Email failure must not surface as HTTP error
     expect(res.status).toBe(200);
+  });
+
+  // booking.email が null（DB 上 nullable・migration 20260629000001 で NOT NULL 撤去）のとき
+  // メール送信を丸ごとスキップする分岐（emailData = null 側）のカバレッジ。
+  // 同時に、メール未送信が LINE・Push という別チャネルへ影響しないこと（巻き込み無し）も
+  // 同じテストで押さえる。
+  test('booking.email が null → メール送信をスキップ（LINE・Push は通常どおり実行される）', async () => {
+    const origToken = process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token';
+    try {
+      (sendBookingCancellation as jest.Mock).mockResolvedValue(true);
+      (require('@/lib/line-link').resolveLineUserIdForUser as jest.Mock).mockResolvedValue('U-null-email');
+      mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+      const memberData = { facility_id: facilityId, role: 'owner' };
+      const bookingNoEmail = { ...bookingBase, status: 'confirmed', email: null };
+      let callCount = 0;
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'bookings') {
+          callCount++;
+          if (callCount === 1) return fluent({ data: bookingNoEmail });
+          return updateChain({ data: [{ id: validBookingId }], error: null });
+        }
+        if (table === 'facility_members') return membershipChain(memberData);
+        return singleChain({ name: 'テスト施設' });
+      });
+      const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
+      expect(res.status).toBe(200);
+      await Promise.resolve();
+
+      // email が無いためメール送信系はいずれも呼ばれない（emailData=null 側）
+      expect(sendBookingConfirmed).not.toHaveBeenCalled();
+      expect(sendBookingCancelled).not.toHaveBeenCalled();
+      expect(sendBookingStatusUpdate).not.toHaveBeenCalled();
+      expect(alertCaughtError).not.toHaveBeenCalledWith('booking-email', expect.anything(), expect.anything());
+
+      // メール未送信は LINE・Push という別チャネルの実行を妨げない
+      expect(sendBookingCancellation).toHaveBeenCalledWith(
+        'U-null-email',
+        expect.objectContaining({ facilityName: 'テスト施設' }),
+      );
+      expect(sendPushToUser).toHaveBeenCalledWith(
+        bookingBase.user_id,
+        expect.objectContaining({ title: expect.any(String) }),
+      );
+    } finally {
+      if (origToken === undefined) delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+      else process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = origToken;
+    }
   });
 
   // ─── E-7: cancelled 時の顧客 LINE キャンセル通知（顧客側 cancel と対称） ───────────

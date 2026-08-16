@@ -9,12 +9,14 @@ import Stripe from 'stripe';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { alertCaughtError } from '@/lib/alert';
+import { toJsonValue } from '@/lib/json-value';
 
 export const dynamic = 'force-dynamic';
 
 const getStripe = () => new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-06-24.dahlia',
 });
+
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -42,7 +44,7 @@ export async function POST(request: NextRequest) {
   const { error: upsertError } = await admin.from('stripe_webhook_logs').upsert({
     event_id: event.id,
     event_type: event.type,
-    payload: event as unknown as Record<string, unknown>,
+    payload: toJsonValue(event),
     processed: false,
   }, { onConflict: 'event_id', ignoreDuplicates: true });
 

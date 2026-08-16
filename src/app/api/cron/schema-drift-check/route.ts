@@ -13,6 +13,22 @@ import snapshot from '@/lib/schema-snapshot.json';
 import fingerprintExpected from '@/lib/schema-fingerprint.expected.json';
 import { businessTypes } from '@/lib/constants';
 import { fetchAllPaged } from '@/lib/paginate';
+import type { Json } from '@/types/database.types';
+
+// RPC get_public_columns は jsonb_agg で {table_name, column_name} の配列を1行で返す
+// （PostgREST の行数上限を回避するための集約）。<Database> 型上は RPC の戻り値は Json
+// （JSON リテラル null・配列・プリミティブも許容する合併型）なので、tsc は Json[] を
+// SchemaRow[] へ直接みなすことを拒む（TS2352）。as で黙らせると、RPC の実装が将来変わって
+// 想定外の形を返した場合に無音で誤判定される。想定形（table_name/column_name が共に
+// string）であることを実行時に検証し、確認できた要素だけを新しい SchemaRow として組み直す
+// （SchemaRow はインデックスシグネチャを持たないため Json のユーザー定義型ガードにはできず
+// 「v is SchemaRow」は型として成立しない＝関数を分けて明示的に詰め替える）。
+function toSchemaRow(v: Json): SchemaRow | null {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
+  const { table_name, column_name } = v;
+  if (typeof table_name !== 'string' || typeof column_name !== 'string') return null;
+  return { table_name, column_name };
+}
 
 /** 古い claim 行の掃除しきい値（この期間より古い claim は削除対象）。 */
 const CLAIM_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -104,7 +120,12 @@ export async function GET(request: Request) {
 
   // RPC get_public_columns は jsonb 配列(1行)を返す。PostgREST 行数上限の影響を受けないよう
   // SETOF ではなく jsonb_agg で集約しているため data は [{table_name, column_name}] 配列そのもの。
-  const rows = (Array.isArray(data) ? data : []) as SchemaRow[];
+  // 想定外の形の要素が混ざっていた場合は toSchemaRow が null を返し弾く（結果として
+  // そのテーブルは本番に存在しない扱いになるが、これは既存の missing/contaminated
+  // 検知の枠内で可視化される）。
+  const rows = (Array.isArray(data) ? data : [])
+    .map(toSchemaRow)
+    .filter((r): r is SchemaRow => r !== null);
   const expected = snapshot as Record<string, string[]>;
   const { contaminated, missing, colDrift } = computeDrift(expected, rows);
 

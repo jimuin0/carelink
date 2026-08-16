@@ -34,6 +34,25 @@ const STATUS_CONFIG = {
   escalated: { label: 'エスカレーション', className: 'bg-purple-100 text-purple-700' },
 };
 
+// moderation_queue.status は NOT NULL + CHECK (status IN ('pending','approved','rejected','escalated'))
+// で DB 側は 4 値に制限されているが、CHECK 制約は Supabase の型生成に反映されないため
+// 生成型は単なる string になる。ランタイムでも安全に絞り込む（想定外の値が来た場合の
+// 安全側フォールバックは 'pending'＝未審査扱いにして、誤って承認済み等に倒さない）。
+function toModerationStatus(v: string): ModerationItem['status'] {
+  return v === 'pending' || v === 'approved' || v === 'rejected' || v === 'escalated' ? v : 'pending';
+}
+
+// auto_flags は JSONB DEFAULT '[]' で NOT NULL 制約が無く null もあり得るうえ、
+// 型上は Json（string[] とは限らない）。文字列配列であることを実行時に確認し、
+// 不正・null な値は「フラグ無し」として空配列に倒す（自動検知フラグの表示なので、
+// 型が壊れているときに例外で画面全体を落とすより安全）。
+function toStringArray(v: unknown): string[] {
+  if (Array.isArray(v) && v.every((item): item is string => typeof item === 'string')) {
+    return v;
+  }
+  return [];
+}
+
 export default function ModerationPage() {
   const [items, setItems] = useState<ModerationItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,7 +74,19 @@ export default function ModerationPage() {
     setLoadError(false);
     const { data, error } = await query;
     if (error) { setLoadError(true); setLoading(false); return; }
-    setItems(data ?? []);
+    // select('*') の生の行は status が string・auto_flags が Json のため、画面が期待する
+    // ModerationItem 型へランタイム検証しつつ詰め替える（上記コメント参照）。
+    setItems((data ?? []).map((row) => ({
+      id: row.id,
+      content_type: row.content_type,
+      content_id: row.content_id,
+      facility_id: row.facility_id,
+      report_reason: row.report_reason,
+      auto_flags: toStringArray(row.auto_flags),
+      status: toModerationStatus(row.status),
+      review_note: row.review_note,
+      created_at: row.created_at,
+    })));
     setLoading(false);
   }, [statusFilter]);
 

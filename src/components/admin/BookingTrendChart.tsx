@@ -30,7 +30,16 @@ export default function BookingTrendChart({ facilityId }: { facilityId: string }
       .order('date', { ascending: true });
 
     if (error) { setLoadError(true); setLoading(false); return; }
-    setData(rows || []);
+    // daily_revenue_summary の booking_count/completed_count/cancelled_count は
+    // migration 上 NOT NULL 制約が無く DEFAULT 0（supabase/migrations/20260404000002_dashboard_enhancement.sql）。
+    // 集計 RPC（aggregate_daily_revenue）は常に非 null で UPSERT するため実運用で null にはならない想定だが、
+    // 型上は number | null となるため、DB の既定値と同じ 0 に倒してグラフ描画の型を満たす（表示挙動は変えない）。
+    setData((rows || []).map((r) => ({
+      date: r.date,
+      booking_count: r.booking_count ?? 0,
+      completed_count: r.completed_count ?? 0,
+      cancelled_count: r.cancelled_count ?? 0,
+    })));
     setLoading(false);
   }, [facilityId]);
 

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '@/types/database-overrides';
 
 // Anonymous client for public data reads only (no cookie/auth context).
 // Do NOT use for write operations or user-specific data.
@@ -8,7 +9,7 @@ export function createServerSupabaseClient() {
   if (!url || !key) {
     throw new Error('NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are required');
   }
-  return createClient(url, key);
+  return createClient<Database>(url, key);
 }
 
 // Service role client for server-side operations that bypass RLS.
@@ -19,5 +20,5 @@ export function createServiceRoleClient() {
   if (!url || !serviceRoleKey) {
     throw new Error('NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required');
   }
-  return createClient(url, serviceRoleKey);
+  return createClient<Database>(url, serviceRoleKey);
 }

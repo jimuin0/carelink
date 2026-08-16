@@ -21,6 +21,14 @@ interface BusinessHours {
   [key: string]: { open: string; close: string } | null;
 }
 
+// facility_profiles.status は DEFAULT 'draft' + CHECK (status IN ('draft','published','suspended')) で
+// NOT NULL ではないため null もあり得るし、CHECK 制約は Supabase の型生成に反映されないため
+// 生成型は単なる string | null になる。ランタイムでも安全に絞り込み、null・想定外の値は
+// 既定値の 'draft' に倒す（元々の `data.status || 'draft'` と同じフォールバック方針を維持）。
+function toFacilityStatus(v: string | null): 'draft' | 'published' | 'suspended' {
+  return v === 'draft' || v === 'published' || v === 'suspended' ? v : 'draft';
+}
+
 export default function AdminSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -105,7 +113,7 @@ export default function AdminSettingsPage() {
         setCreditCard(data.credit_card ?? false);
         setSelectedFeatures(data.features || []);
         setRegularHoliday(data.regular_holiday || '');
-        setFacilityStatus(data.status || 'draft');
+        setFacilityStatus(toFacilityStatus(data.status));
         setAutoConfirm(data.booking_auto_confirm ?? false);
         setBufferMinutes(data.booking_buffer_minutes ?? 0);
         setBoardSlotMinutes(data.board_slot_minutes ?? 60);

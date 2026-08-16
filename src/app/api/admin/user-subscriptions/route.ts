@@ -267,10 +267,19 @@ export async function PATCH(request: NextRequest) {
   // 両方 RPC を呼んでセッション枠を2回消費した後にログ INSERT の2件目だけが UNIQUE 違反で
   // 弾かれる（枠は既に手遅れ）という欠陥があった。RPC 内で行ロック配下チェックすることで、
   // 後着は先着コミット後にロックを獲得し必ず already_consumed を返す（真の二重消費を根絶）。
+  // 型修正：consume_subscription_session の RPC 引数型（database.types.ts）は
+  // `p_booking_id?: string` / `p_notes?: string`（optional・null非許容）で生成されている。
+  // 一方 zod 側は `.optional()` なので useParsed.data.booking_id/notes は string | undefined。
+  // 従来の `?? null` は undefined を null に変換していたため型不一致（string | null は
+  // string | undefined に代入不可）で tsc エラーになっていた。RPC 実体（migration
+  // 20260729000001_consume_subscription_session_booking_idempotency_catchup.sql）は
+  // `p_booking_id uuid DEFAULT NULL` / `p_notes text DEFAULT NULL` なので、
+  // キー自体を省略（undefined→PostgREST送信時にJSONから除外）してもサーバー側の DEFAULT NULL に
+  // 解決され、明示的に null を送るのと挙動は同一。よって `?? null` を除去しても実行時挙動は変わらない。
   const { data: rpcResult, error: rpcError } = await admin.rpc('consume_subscription_session', {
     p_subscription_id: useParsed.data.subscription_id,
-    p_booking_id: useParsed.data.booking_id ?? null,
-    p_notes: useParsed.data.notes ?? null,
+    p_booking_id: useParsed.data.booking_id,
+    p_notes: useParsed.data.notes,
   });
   if (rpcError) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 

@@ -7,6 +7,13 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
+import type { Database } from '@/types/database.types';
+
+// blog_posts の update() に渡すオブジェクトの型。
+// Record<string, unknown> は Database 型配線後の update() が要求する
+// 「宣言外キー拒否」の型と両立しない（インデックスシグネチャ型は余剰プロパティ無しを保証できない）。
+// テーブルの Update 型そのものを使い、意味を変えずに型検査を通す。
+type BlogPostUpdate = Database['public']['Tables']['blog_posts']['Update'];
 
 const blogUpdateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -52,7 +59,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const parsed = blogUpdateSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
-  const updatePayload: Record<string, unknown> = { ...parsed.data };
+  const updatePayload: BlogPostUpdate = { ...parsed.data };
   if (parsed.data.is_published !== undefined) {
     updatePayload.published_at = parsed.data.is_published ? new Date().toISOString() : null;
   }
