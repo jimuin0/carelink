@@ -46,6 +46,38 @@ function checkAllConsents() {
   screen.getAllByRole('checkbox').forEach((cb) => fireEvent.click(cb));
 }
 
+/**
+ * 【flaky 恒久対処・2026年8月16日】ウォームアップを beforeAll へ追い出す。
+ *
+ * このファイルの1本目のテストは、自分の仕事に加えて【ファイル内で最初に走るテスト】の
+ * 初期化コスト（V8 の遅延コンパイル・React/RTL・react-hook-form・zodResolver・
+ * 3段レンダー経路の初回実行）を丸ごと背負っていた。`jest --randomize --seed=N` で
+ * 実行順だけを入れ替えた実測（コード無変更・load 11〜16）：
+ *   二重登録防止テストが先頭   : 1242 / 2005 / 948 ms
+ *   同テストが先頭でない       :  423 /  436 / 376 / 460 / 418 ms
+ * 先頭に来たテストは中身を問わず 844〜2005ms かかる（assertion 1行の
+ * 「両方チェック → 登録ボタンが押せる」ですら先頭なら 844〜976ms・非先頭なら約420ms）。
+ * つまり二重登録防止テストの所要の 6〜8割は「最初だから」払う一回限りの費用だった。
+ *
+ * jest-circus はフックとテストに【別々のタイムアウト予算】を与える（jest-circus の
+ * _callCircusHook と _callCircusTest がそれぞれ独立に setTimeout を張る）。よって
+ * ウォームアップをここへ移すと、その費用は 1本目のテストの 10 秒予算から外れる。
+ * 併せて、各テストの所要が「何番目に走ったか」に依存しなくなる（＝先頭に置かれた
+ * テストだけが理不尽にタイムアウトへ近づく、というこの flaky の真因が消える）。
+ *
+ * 検証内容は一切変えない。ここで作った DOM は unmount() で必ず捨てる（RTL の
+ * 自動クリーンアップは afterEach なので、beforeAll では明示的に捨てる必要がある）。
+ * 各テストは従来どおり自分で render し直す。
+ */
+beforeAll(async () => {
+  const { unmount } = render(<RegisterPage />);
+  fillStep1AndAdvance();
+  await screen.findByLabelText(/^郵便番号/);
+  fireEvent.click(screen.getByRole('button', { name: '次へ' }));
+  await screen.findByLabelText(/^PR文/);
+  unmount();
+});
+
 test('確認ダイアログの確定ボタンを連打しても /api/salons への送信は1回だけ（二重登録防止・回帰）', async () => {
   const fetchMock = jest.fn((url: string) => {
     if (url === '/api/salons') {
