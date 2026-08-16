@@ -52,12 +52,10 @@ function buildMock(overrides: Partial<{
 
   const mockOrderFav = jest.fn().mockResolvedValue({ data: o.favoritesData });
   const mockEqFav = jest.fn().mockReturnValue({ order: mockOrderFav });
-  const mockSelectFav = jest.fn().mockReturnValue({ eq: mockEqFav });
 
   const mockMaybeSingleCheck = jest.fn().mockResolvedValue({ data: o.favoriteExisting });
   const mockEqCheck2 = jest.fn().mockReturnValue({ maybeSingle: mockMaybeSingleCheck });
   const mockEqCheck1 = jest.fn().mockReturnValue({ eq: mockEqCheck2 });
-  const mockSelectCheck = jest.fn().mockReturnValue({ eq: mockEqCheck1 });
 
   const mockDeleteEq = jest.fn().mockResolvedValue({ error: o.deleteError });
   const mockDelete = jest.fn().mockReturnValue({ eq: mockDeleteEq });

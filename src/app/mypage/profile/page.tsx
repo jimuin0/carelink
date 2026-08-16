@@ -443,6 +443,11 @@ export default function ProfileEditPage() {
                       body: JSON.stringify({ confirmation: 'DELETE' }),
                     });
                     if (res.ok) {
+                      // アカウント削除成功後は router.push ではなく全ページリロードを意図的に使う。
+                      // Supabase セッション・middleware の admin membership 署名 Cookie・
+                      // このページが保持するプロフィール state を全て確実に破棄するため。
+                      // router.push だとブラウザの Supabase クライアントやフォーム state が
+                      // 削除済みアカウントの内容のまま残ってしまう。
                       window.location.href = '/';
                     } else {
                       setShowDeleteModal(false);

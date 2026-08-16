@@ -170,7 +170,7 @@ describe('GET /api/slots', () => {
   });
 
   test('missing duration → defaults to 60', async () => {
-    const res = await GET(
+    await GET(
       new Request(`http://localhost/api/slots?facilityId=${VALID_UUID}&staffId=${VALID_UUID}&date=${VALID_DATE}`, {
         method: 'GET',
       }) as any

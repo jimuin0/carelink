@@ -66,6 +66,26 @@ export default [
     name: 'carelink/base',
     plugins: { 'carelink-safety': carelinkSafety },
     rules: {
+      // アンダースコア始まりは「意図的に未使用」を表す明示的なマーカーなので尊重する。
+      //
+      // why: 削除できないのに警告だけが出続ける形が実在した（2026年8月16日 実測・8件）。
+      //   src/lib/redis.ts の queuePush(_queueName, _job) 等は、in-memory 実装で中身が空でも
+      //   公開 API のシグネチャを保つ必要があり、引数を消すと呼び出し側が壊れる。
+      //   テスト側の `const { phone: _phone, ...rest } = valid` は【プロパティを除外する】ための
+      //   定型句で、_phone は除外という目的そのもの。どちらも「消せない未使用」である。
+      // 警告を消すために意味のあるコードを壊すか、警告を放置して他の警告に紛れさせるかの
+      // 二択になっていた。マーカーを尊重する設定にすれば、どちらも避けられる。
+      // ignoreRestSiblings は上記の分割代入イディオムを直接扱うためのもの。
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          destructuredArrayIgnorePattern: '^_',
+          ignoreRestSiblings: true,
+        },
+      ],
       'carelink-safety/no-await-fire-and-forget': 'error',
       'carelink-safety/no-bare-sentry-capture': 'error',
       'carelink-safety/no-discarded-supabase-error': 'error',

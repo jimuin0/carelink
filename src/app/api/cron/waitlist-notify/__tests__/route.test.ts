@@ -199,7 +199,7 @@ describe('GET /api/cron/waitlist-notify', () => {
   test('limits notifications to 3 waiters per slot', async () => {
     setupDefaultMocks(1, 10); // 10 waiters, should only notify 3
 
-    const res = await GET(makeRequest() as any);
+    await GET(makeRequest() as any);
 
     // Verify .limit(3) was applied
     const limitCall = mockSelectWaiters().eq().eq().eq().eq().order().limit;
@@ -207,7 +207,7 @@ describe('GET /api/cron/waitlist-notify', () => {
   });
 
   test('uses atomic claim pattern (CAS guard)', async () => {
-    const res = await GET(makeRequest() as any);
+    await GET(makeRequest() as any);
 
     // Update should have eq condition to verify status=waiting
     expect(mockUpdateWaitlist).toHaveBeenCalled();
@@ -244,7 +244,7 @@ describe('GET /api/cron/waitlist-notify', () => {
   test('sends email to notified waiter', async () => {
     process.env.RESEND_API_KEY = 'test-key';
 
-    const res = await GET(makeRequest() as any);
+    await GET(makeRequest() as any);
 
     if (mockSendEmail.mock.calls.length > 0) {
       expect(mockSendEmail).toHaveBeenCalled();
@@ -252,7 +252,7 @@ describe('GET /api/cron/waitlist-notify', () => {
   });
 
   test('email includes facility name', async () => {
-    const res = await GET(makeRequest() as any);
+    await GET(makeRequest() as any);
 
     if (mockSendEmail.mock.calls.length > 0) {
       const call = mockSendEmail.mock.calls[0];
@@ -262,7 +262,7 @@ describe('GET /api/cron/waitlist-notify', () => {
   });
 
   test('email includes booking time', async () => {
-    const res = await GET(makeRequest() as any);
+    await GET(makeRequest() as any);
 
     if (mockSendEmail.mock.calls.length > 0) {
       const call = mockSendEmail.mock.calls[0];
@@ -272,7 +272,7 @@ describe('GET /api/cron/waitlist-notify', () => {
   });
 
   test('includes customer name in email', async () => {
-    const res = await GET(makeRequest() as any);
+    await GET(makeRequest() as any);
 
     if (mockSendEmail.mock.calls.length > 0) {
       const call = mockSendEmail.mock.calls[0];

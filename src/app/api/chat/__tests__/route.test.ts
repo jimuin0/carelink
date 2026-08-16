@@ -117,7 +117,7 @@ describe('POST /api/chat', () => {
   });
 
   test('message without role → filtered out', async () => {
-    const res = await POST(
+    await POST(
       makeRequest({
         messages: [
           { content: 'No role' },
@@ -131,7 +131,7 @@ describe('POST /api/chat', () => {
   });
 
   test('invalid role → filtered out', async () => {
-    const res = await POST(
+    await POST(
       makeRequest({
         messages: [
           { role: 'admin', content: 'Invalid role' },
@@ -161,7 +161,7 @@ describe('POST /api/chat', () => {
   });
 
   test('content > 2000 chars → filtered out', async () => {
-    const res = await POST(
+    await POST(
       makeRequest({
         messages: [
           { role: 'user', content: 'x'.repeat(2001) },
@@ -175,7 +175,7 @@ describe('POST /api/chat', () => {
   });
 
   test('content exactly 2000 chars → included', async () => {
-    const res = await POST(
+    await POST(
       makeRequest({
         messages: [
           { role: 'user', content: 'x'.repeat(2000) },
@@ -193,7 +193,7 @@ describe('POST /api/chat', () => {
       content: `Message ${i}`,
     }));
 
-    const res = await POST(makeRequest({ messages }) as any);
+    await POST(makeRequest({ messages }) as any);
 
     const call = mockMessagesCreate.mock.calls[0];
     expect(call[0].messages.length).toBe(10);
@@ -201,7 +201,7 @@ describe('POST /api/chat', () => {
   });
 
   test('calls Claude Haiku model', async () => {
-    const res = await POST(
+    await POST(
       makeRequest({ messages: [{ role: 'user', content: 'Test' }] }) as any
     );
 
@@ -210,7 +210,7 @@ describe('POST /api/chat', () => {
   });
 
   test('sets max_tokens to 512', async () => {
-    const res = await POST(
+    await POST(
       makeRequest({ messages: [{ role: 'user', content: 'Test' }] }) as any
     );
 
@@ -219,7 +219,7 @@ describe('POST /api/chat', () => {
   });
 
   test('includes system prompt', async () => {
-    const res = await POST(
+    await POST(
       makeRequest({ messages: [{ role: 'user', content: 'Test' }] }) as any
     );
 
@@ -251,7 +251,7 @@ describe('POST /api/chat', () => {
   });
 
   test('content type not string → filtered out', async () => {
-    const res = await POST(
+    await POST(
       makeRequest({
         messages: [
           { role: 'user', content: 123 },
@@ -265,7 +265,7 @@ describe('POST /api/chat', () => {
   });
 
   test('message content exactly 2000 chars → included as-is', async () => {
-    const res = await POST(
+    await POST(
       makeRequest({
         messages: [
           { role: 'user', content: 'x'.repeat(2000) },
@@ -321,7 +321,7 @@ describe('POST /api/chat', () => {
   });
 
   test('null entry in messages array → filtered out', async () => {
-    const res = await POST(
+    await POST(
       makeRequest({
         messages: [
           null,

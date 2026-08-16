@@ -235,7 +235,7 @@ describe('GET /api/facilities/suggest', () => {
   test('null city 行 → if(row.city) の false ブランチ', async () => {
     const { createServerSupabaseClient } = require('@/lib/supabase-server');
     createServerSupabaseClient.mockReturnValue({
-      from: jest.fn((table: string) => ({
+      from: jest.fn(() => ({
         select: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
             ilike: jest.fn().mockReturnValue({

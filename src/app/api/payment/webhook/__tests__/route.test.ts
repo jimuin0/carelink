@@ -198,7 +198,7 @@ describe('POST /api/payment/webhook', () => {
   });
 
   test('checkout.session.completed → updates booking payment_status to paid', async () => {
-    const res = await POST(
+    await POST(
       makeRequest(
         JSON.stringify({
           id: 'evt_123',
@@ -235,7 +235,7 @@ describe('POST /api/payment/webhook', () => {
       },
     });
 
-    const res = await POST(makeRequest('{}', 'sig') as any);
+    await POST(makeRequest('{}', 'sig') as any);
 
     expect(mockUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -256,7 +256,7 @@ describe('POST /api/payment/webhook', () => {
       },
     });
 
-    const res = await POST(
+    await POST(
       makeRequest(JSON.stringify({}), 'sig') as any
     );
 
@@ -345,7 +345,7 @@ describe('POST /api/payment/webhook', () => {
   });
 
   test('insert stripe_events for idempotency', async () => {
-    const res = await POST(
+    await POST(
       makeRequest(
         JSON.stringify({
           id: 'evt_123',
@@ -402,7 +402,7 @@ describe('POST /api/payment/webhook', () => {
       },
     });
 
-    const res = await POST(makeRequest('{}', 'sig') as any);
+    await POST(makeRequest('{}', 'sig') as any);
 
     expect(mockUpdate).toHaveBeenCalledWith(
       expect.objectContaining({

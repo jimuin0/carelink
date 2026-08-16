@@ -29,6 +29,10 @@ export default function WithdrawalSettings() {
         body: JSON.stringify({ confirmation: 'DELETE' }),
       });
       if (res.ok) {
+        // 退会（アカウント削除）成功後は router.push ではなく全ページリロードを意図的に使う。
+        // Supabase セッション・middleware の admin membership 署名 Cookie・アプリ内 state
+        // （施設情報・フォーム入力値等）を全て確実に破棄するため。router.push だと
+        // クライアントの古い state が残ったまま次の画面へ遷移してしまう。
         window.location.href = '/';
         return;
       }

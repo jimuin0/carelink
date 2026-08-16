@@ -23,9 +23,12 @@ export default function AdminMobileNav({ items, groups }: { items: NavItem[]; gr
     window.addEventListener('keydown', onKeyDown);
     const first = sheetRef.current?.querySelector<HTMLElement>('a, button');
     first?.focus();
+    // クリーンアップ実行時には ref.current が変わっている可能性があるため、
+    // effect 実行時点の値をローカル変数へコピーしてクリーンアップで使う
+    const moreBtn = moreBtnRef.current;
     return () => {
       window.removeEventListener('keydown', onKeyDown);
-      moreBtnRef.current?.focus();
+      moreBtn?.focus();
     };
   }, [showMore]);
 

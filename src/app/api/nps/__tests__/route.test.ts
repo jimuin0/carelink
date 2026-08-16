@@ -162,7 +162,7 @@ describe('POST /api/nps', () => {
 
   test('booking ownership verified', async () => {
     const { POST } = await import('../route');
-    const res = await POST(makePostRequest({
+    await POST(makePostRequest({
       score: 8,
       booking_id: BOOKING_UUID,
     }) as any);
@@ -224,7 +224,7 @@ describe('POST /api/nps', () => {
 
   test('IP hash created for anonymous users', async () => {
     const { POST } = await import('../route');
-    const res = await POST(makePostRequest({ score: 8 }) as any);
+    await POST(makePostRequest({ score: 8 }) as any);
 
     if (mockInsert.mock.calls.length > 0) {
       const call = mockInsert.mock.calls[0];

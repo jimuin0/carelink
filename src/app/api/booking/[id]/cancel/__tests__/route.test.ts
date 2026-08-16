@@ -644,7 +644,6 @@ describe('POST /api/booking/[id]/cancel', () => {
 // ─── 深掘り: writeAuditLog 呼び出し確認 ─────────────────────────────────────
 
   test('キャンセル成功時に writeAuditLog が呼ばれる', async () => {
-    const { writeAuditLog } = require('@/lib/audit-logger');
     jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
@@ -965,7 +964,7 @@ describe('POST /api/booking/[id]/cancel', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
     let callNum = 0;
-    mockFrom.mockImplementation((table: string) => {
+    mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) {
         return fluent({
@@ -1003,7 +1002,7 @@ describe('POST /api/booking/[id]/cancel', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
     let callNum = 0;
-    mockFrom.mockImplementation((table: string) => {
+    mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) {
         return fluent({
@@ -1555,7 +1554,7 @@ describe('POST /api/booking/[id]/cancel', () => {
     const { sendBookingCancelled } = require('@/lib/email');
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     let callNum = 0;
-    mockFrom.mockImplementation((table: string) => {
+    mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) {
         return fluent({
@@ -1615,7 +1614,7 @@ describe('POST /api/booking/[id]/cancel', () => {
   test('LINE通知時の email 取得 throw → 内側 catch で握り潰し 200', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     let callNum = 0;
-    mockFrom.mockImplementation((table: string) => {
+    mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) {
         return fluent({

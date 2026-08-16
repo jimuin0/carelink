@@ -33,7 +33,6 @@ jest.mock('@/lib/email', () => ({ sendNewReviewNotification: jest.fn(() => Promi
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { verifyRecaptcha } from '@/lib/recaptcha';
-import { sendNewReviewNotification } from '@/lib/email';
 import { POST } from '../route';
 
 let mockGetUser: jest.Mock;

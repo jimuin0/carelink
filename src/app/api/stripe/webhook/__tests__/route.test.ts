@@ -193,7 +193,7 @@ describe('POST /api/stripe/webhook', () => {
   });
 
   test('upserts event to stripe_webhook_logs', async () => {
-    const res = await POST(
+    await POST(
       makeRequest(
         JSON.stringify({ id: 'evt_456', type: 'invoice.payment_succeeded' })
       ) as any
@@ -224,7 +224,7 @@ describe('POST /api/stripe/webhook', () => {
   });
 
   test('re-reads to check idempotency', async () => {
-    const res = await POST(makeRequest('{}') as any);
+    await POST(makeRequest('{}') as any);
 
     expect(mockSelect).toHaveBeenCalled();
     const call = mockSelect().eq;
@@ -242,13 +242,13 @@ describe('POST /api/stripe/webhook', () => {
   });
 
   test('marks event processed after handling', async () => {
-    const res = await POST(makeRequest('{}') as any);
+    await POST(makeRequest('{}') as any);
 
     expect(mockUpdate).toHaveBeenCalledWith({ processed: true });
   });
 
   test('writes audit log on successful processing', async () => {
-    const res = await POST(makeRequest('{}') as any);
+    await POST(makeRequest('{}') as any);
 
     expect(mockWriteAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -329,7 +329,7 @@ describe('POST /api/stripe/webhook', () => {
       },
     });
 
-    const res = await POST(makeRequest('{}') as any);
+    await POST(makeRequest('{}') as any);
 
     expect(mockUpsert).toHaveBeenCalledWith(
       expect.objectContaining({

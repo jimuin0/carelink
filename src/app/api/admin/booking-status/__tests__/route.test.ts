@@ -107,7 +107,6 @@ function membershipChain(data: unknown) {
  */
 function updateChain(result: { data: unknown; error: unknown }) {
   const selectFn = jest.fn(() => Promise.resolve(result));
-  const eqFn = jest.fn();
   // Three chained .eq() calls, last returns { select }
   const eq3 = jest.fn(() => ({ select: selectFn }));
   const eq2 = jest.fn(() => ({ eq: eq3 }));

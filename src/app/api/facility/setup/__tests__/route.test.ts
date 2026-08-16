@@ -509,7 +509,7 @@ describe('POST /api/facility/setup', () => {
       throw new Error('CSRF check error');
     });
 
-    const res = await POST(
+    await POST(
       makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any
     );
 

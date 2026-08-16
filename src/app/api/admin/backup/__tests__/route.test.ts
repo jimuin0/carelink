@@ -55,15 +55,6 @@ function profileChain(isAdmin: boolean) {
   };
 }
 
-function countChain(count: number) {
-  return {
-    select: jest.fn().mockReturnThis(),
-    from: jest.fn().mockReturnThis(),
-    head: true,
-    then: (fn: (v: unknown) => unknown) => Promise.resolve({ count }).then(fn),
-  };
-}
-
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);

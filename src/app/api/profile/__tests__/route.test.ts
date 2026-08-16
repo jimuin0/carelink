@@ -316,22 +316,21 @@ describe('PUT /api/profile', () => {
   });
 
   test('updates profiles table with user_id', async () => {
-    const res = await PUT(makeRequest(req) as any);
+    await PUT(makeRequest(req) as any);
 
     expect(mockUpdate).toHaveBeenCalled();
-    const eqCall = mockUpdate.mock.calls[0][0];
     // Should call .eq('id', user.id)
   });
 
   test('includes updated_at timestamp', async () => {
-    const res = await PUT(makeRequest(req) as any);
+    await PUT(makeRequest(req) as any);
 
     const updateData = mockUpdate.mock.calls[0][0];
     expect(updateData.updated_at).toBeDefined();
   });
 
   test('sets optional fields to null when omitted', async () => {
-    const res = await PUT(makeRequest(req) as any);
+    await PUT(makeRequest(req) as any);
 
     const updateData = mockUpdate.mock.calls[0][0];
     expect(updateData.city).toBeNull();

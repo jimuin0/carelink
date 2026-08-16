@@ -27,8 +27,6 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { POST } from '../route';
 
 let mockGetUser: jest.Mock;
-let mockSelectFacility: jest.Mock;
-let mockSelectFavorite: jest.Mock;
 let mockInsert: jest.Mock;
 let mockDelete: jest.Mock;
 
