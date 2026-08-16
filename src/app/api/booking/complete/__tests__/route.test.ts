@@ -79,37 +79,6 @@ function singleChain(data: unknown, error: unknown = null) {
   };
 }
 
-function updateCasChain(data: unknown, error: unknown = null) {
-  return {
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            select: jest.fn().mockReturnValue({
-              maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
-            }),
-          }),
-        }),
-      }),
-    }),
-  };
-}
-
-// Full happy path setup
-function setupHappyPath(casData: unknown = { id: BOOKING_UUID }, casError: unknown = null) {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation((table: string) => {
-    callNum++;
-    if (table === 'bookings' && callNum === 1) return singleChain(CONFIRMED_BOOKING);
-    if (table === 'facility_members') return singleChain({ facility_id: FACILITY_UUID, role: 'owner' });
-    if (table === 'bookings') return updateCasChain(casData, casError).update ? updateCasChain(casData, casError) : singleChain(casData, casError);
-    return { insert: jest.fn(() => Promise.resolve({ error: null })), select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), single: jest.fn(() => Promise.resolve({ data: null, error: null })) };
-  });
-  mockServiceFrom.mockReturnValue({
-    insert: jest.fn(() => Promise.resolve({ error: null })),
-  });
-}
-
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
@@ -152,7 +121,7 @@ test('予約が見つからない → 404', async () => {
 
 test('施設メンバー以外 → 403 (IDOR防止)', async () => {
   let callNum = 0;
-  mockAnonFrom.mockImplementation((table: string) => {
+  mockAnonFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return singleChain(CONFIRMED_BOOKING);
     return singleChain(null); // not a member
@@ -165,7 +134,7 @@ test('施設メンバー以外 → 403 (IDOR防止)', async () => {
 
 test('status が confirmed 以外 → 400', async () => {
   let callNum = 0;
-  mockAnonFrom.mockImplementation((table: string) => {
+  mockAnonFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return singleChain({ ...CONFIRMED_BOOKING, status: 'cancelled' });
     return singleChain({ facility_id: FACILITY_UUID, role: 'owner' });

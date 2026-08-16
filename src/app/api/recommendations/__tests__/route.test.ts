@@ -291,13 +291,13 @@ describe('GET /api/recommendations', () => {
   });
 
   test('fetches up to 20 bookings', async () => {
-    const res = await GET(makeRequest() as any);
+    await GET(makeRequest() as any);
 
     expect(mockBookingsSelect().eq().order().limit).toHaveBeenCalledWith(20);
   });
 
   test('fetches up to 20 favorites', async () => {
-    const res = await GET(makeRequest() as any);
+    await GET(makeRequest() as any);
 
     expect(mockFavoritesSelect().eq().limit).toHaveBeenCalledWith(20);
   });

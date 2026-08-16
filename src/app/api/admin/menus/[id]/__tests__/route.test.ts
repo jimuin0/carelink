@@ -92,11 +92,6 @@ function deleteSingleChain(error: unknown = null, data: unknown = [{ id: MENU_UU
   };
 }
 
-function setupMemberAndAdmin(adminCallSetup: () => Record<string, unknown>) {
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockImplementation(adminCallSetup);
-}
-
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);

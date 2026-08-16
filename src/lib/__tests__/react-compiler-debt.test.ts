@@ -22,17 +22,23 @@ function resultsWith(ruleIds: Array<string | null>): EslintResult[] {
 }
 
 describe('RATCHET_RULES / BASELINE', () => {
-  it('対象ルールが eslint.config.mjs で warn に落としているものと一致する', () => {
-    // 設定側とここがずれると、警告に落としたのに数えていないルールが生まれ、
-    // そのルールの違反だけ無制限に増やせるようになる。
+  it('eslint.config.mjs で warn に落としたルールは必ず RATCHET_RULES で数えている', () => {
+    // 🔴 危険なのはこの向き。error を warn に落としたのに数え忘れると、そのルールの違反だけ
+    // CI を素通りして無制限に増やせるようになる（落とした本人以外は気づけない）。
+    //
+    // 逆向き（RATCHET_RULES にあるが設定で落としていない）は許す。既定で warn のルールでも
+    // 「個別に検証して直さないと決めた」ものは数える対象になるため
+    // （incompatible-library と no-location-assign-relative-destination がこれに当たる）。
     const config = readFileSync(join(__dirname, '../../../eslint.config.mjs'), 'utf8');
     const block = config.slice(config.indexOf("name: 'carelink/react-compiler-debt'"));
-    for (const rule of RATCHET_RULES) {
-      expect(block).toContain(`'${rule}': 'warn'`);
+    const warnedInConfig = [...block.matchAll(/'([\w@/-]+)':\s*'warn'/g)].map((m) => m[1]);
+
+    // 空振り防止：ブロックを切り出せていなければ 0 件になり、検査が素通りする。
+    expect(warnedInConfig.length).toBeGreaterThan(0);
+
+    for (const rule of warnedInConfig) {
+      expect(RATCHET_RULES).toContain(rule);
     }
-    // 逆向き：設定側に warn があるのに RATCHET_RULES へ入れ忘れたものが無いこと。
-    const warnedInConfig = [...block.matchAll(/'(react-hooks\/[a-z-]+)':\s*'warn'/g)].map((m) => m[1]);
-    expect(warnedInConfig.sort()).toEqual([...RATCHET_RULES].sort());
   });
 
   it('BASELINE は非負の整数', () => {

@@ -508,7 +508,7 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       const campaign = buildCampaign(campaignOverrides);
       const hasEmails = subscribers.some((s) => s.email);
       let callNum = 0;
-      mockAdminFrom.mockImplementation((table: string) => {
+      mockAdminFrom.mockImplementation(() => {
         callNum++;
         // 1st call: fetch campaign
         if (callNum === 1) return campaignFetchChain(campaign);

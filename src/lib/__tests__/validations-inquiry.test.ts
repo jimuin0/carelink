@@ -45,7 +45,6 @@ describe('inquirySchema', () => {
   });
 
   test('電話番号省略時（undefined）もOK', () => {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { phone, ...noPhone } = validData;
     expect(inquirySchema.safeParse(noPhone).success).toBe(true);
   });

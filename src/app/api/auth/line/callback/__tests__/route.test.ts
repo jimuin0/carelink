@@ -29,8 +29,9 @@ let mockCookieGet: jest.Mock;
 let mockCookieDelete: jest.Mock;
 
 function setupDefaultMocks(
-  lineError: boolean = false,
-  validState: boolean = true,
+  // 呼び出し側が位置引数で tokenOk 以降を渡すため、未使用でも引数位置を保つ必要がある
+  _lineError: boolean = false,
+  _validState: boolean = true,
   tokenOk: boolean = true,
   profileOk: boolean = true,
   userExists: boolean = false,

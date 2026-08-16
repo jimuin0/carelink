@@ -28,7 +28,7 @@ const updateSchema = z.object({
   comment: z.string().max(500).optional().nullable(),
 });
 
-async function getAuthedUser(request: NextRequest) {
+async function getAuthedUser() {
   const cookieStore = await cookies();
   const authClient = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -52,7 +52,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     return NextResponse.json({ error: '不正なリクエストです' }, { status: 400 });
   }
 
-  const user = await getAuthedUser(request);
+  const user = await getAuthedUser();
   if (!user) return NextResponse.json({ error: 'ログインが必要です' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
@@ -108,7 +108,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     return NextResponse.json({ error: '不正なリクエストです' }, { status: 400 });
   }
 
-  const user = await getAuthedUser(request);
+  const user = await getAuthedUser();
   if (!user) return NextResponse.json({ error: 'ログインが必要です' }, { status: 401 });
 
   const admin = createServiceRoleClient();

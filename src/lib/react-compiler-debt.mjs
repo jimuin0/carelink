@@ -14,12 +14,29 @@
  * 検証できるようにするため）。実行は scripts/check-react-compiler-debt.mjs が担う。
  */
 
-/** ラチェットの対象ルール。eslint.config.mjs で warn に落としているものと一致させる。 */
+/**
+ * ラチェットの対象ルール＝【意図的に直さないと決めた警告】の集合。
+ *
+ * 前半4つは eslint.config.mjs で warn に落としている React Compiler 系。
+ * 後半2つは warn のままだが「直せない／直してはいけない」と結論した分で、
+ * 監視外に置くと同種の警告が黙って増えるためここで数える。
+ *
+ * ⚠️ ここに足すのは【個別に検証して直さないと決めたもの】だけにすること。
+ * 「直すのが面倒だから足す」を許すと、ラチェットは負債を隠す道具に変わる。
+ */
 export const RATCHET_RULES = [
   'react-hooks/set-state-in-effect',
   'react-hooks/purity',
   'react-hooks/immutability',
   'react-hooks/refs',
+  // React Compiler が「互換性のないライブラリ」としてコンパイルを諦めた箇所（3件）。
+  // recruit / register / ReviewForm。ライブラリ側の都合なので、こちらのコードを
+  // 歪めて回避すべきではない（上流が対応したら自然に消える）。
+  'react-hooks/incompatible-library',
+  // 退会成功後の window.location.href='/' （2件・mypage/profile と WithdrawalSettings）。
+  // router.push へ置き換えてはいけない。Supabase セッション・middleware の admin membership
+  // 署名 Cookie・アプリ内 state を確実に破棄するために全リロードが要る。
+  '@next/next/no-location-assign-relative-destination',
 ];
 
 /**
@@ -40,8 +57,13 @@ export const RATCHET_RULES = [
  * 上記6件はいずれも「その瞬間に表示を切り替える」ことが要件なので、遅延させる修正は挙動退行、
  * IIFE へ隠す修正は症状ブロックにしかならない。よって検出を残したまま件数として計上する。
  * 各箇所のコード上のコメントに、なぜ意図的かを個別に書いてある。
+ *
+ * 2026年8月16日 追記: 対象ルールへ incompatible-library（3件）と
+ * no-location-assign-relative-destination（2件）を追加したため 6 → 11 になった。
+ * これは負債が増えたのではなく【監視対象を広げた】もの。それ以外の警告（no-unused-vars 62件等）は
+ * 同日すべて解消済みで、lint の警告はこの 11 件だけである（実測: 86 → 11）。
  */
-export const BASELINE = 6;
+export const BASELINE = 11;
 
 /**
  * eslint の JSON 出力から、ラチェット対象ルールの指摘件数を数える。

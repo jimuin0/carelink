@@ -135,7 +135,7 @@ describe('GET /api/cron/flag-reviews', () => {
   });
 
   test('calls RPC find_bulk_review_ips with 24h window', async () => {
-    const res = await GET(makeRequest() as any);
+    await GET(makeRequest() as any);
 
     expect(mockRpc).toHaveBeenCalledWith('find_bulk_review_ips', expect.objectContaining({
       p_threshold: 3,
@@ -147,7 +147,7 @@ describe('GET /api/cron/flag-reviews', () => {
   });
 
   test('flags bulk submission reviews (3+ in 24h from same IP)', async () => {
-    const res = await GET(makeRequest() as any);
+    await GET(makeRequest() as any);
 
     expect(mockUpdateReviews).toHaveBeenCalled();
   });

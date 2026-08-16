@@ -184,9 +184,7 @@ test('Stripeが無効な施設 → 400', async () => {
 });
 
 test('booking_idが別ユーザーの予約 → 403 (IDOR防止)', async () => {
-  let callNum = 0;
   mockFrom.mockImplementation((table: string) => {
-    callNum++;
     if (table === 'facility_profiles') return singleChain({ id: FACILITY_UUID, name: 'テスト', slug: 'test', stripe_enabled: true, stripe_account_id: null });
     if (table === 'bookings') return singleChain({ total_price: 5000, user_id: 'other-user-id' });
     return singleChain(null);
@@ -303,7 +301,6 @@ test('stripe_account_id設定あり（Connect）→ 200 with platform fee', asyn
   mockStripeSessionExpire.mockResolvedValue({});
 
   const res = await POST(makeRequest({ facility_id: FACILITY_UUID, booking_id: VALID_UUID }));
-  const json = await res.json();
   expect(res.status).toBe(200);
   // Verify platform fee was set
   const createCall = mockStripeSessionCreate.mock.calls[0][0];
