@@ -185,6 +185,16 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // 【2026年8月16日 React Compiler対応】この4state（isAuthenticated/availablePoints/usePoints/
+  // pointsToUse）は元々もっと下（Points fetch effectの直前）で宣言されていたが、下の
+  // saveBookingDraftBeforeLogin（usePoints/pointsToUseをドラフトに含める）と
+  // ログイン復帰ドラフト復元effect（setUsePoints/setPointsToUseを呼ぶ）がそれより前に
+  // 定義されており、宣言前アクセスになっていた（react-hooks/immutability違反）。
+  // 宣言順を早めるだけで挙動は変わらない（フックは条件無しで毎レンダー同じ順で呼ばれ続ける）。
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [availablePoints, setAvailablePoints] = useState(0);
+  const [usePoints, setUsePoints] = useState(false);
+  const [pointsToUse, setPointsToUse] = useState(0);
 
   // 【2026年7月10日 恒久根治】確認ステップの「ログインする」リンクは <a href> によるフルページ
   // 遷移で、選択内容は useState のみで保持されるため React ツリーのアンマウントで全消失していた
@@ -234,6 +244,45 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   }, []);
 
   // ログイン遷移からの復帰時、保存済みドラフトを1回だけ復元する（読み取り後は消去）。
+  // 【2026年8月16日 React Compiler対応・未解決（意図的に残置）】
+  // react-hooks/set-state-in-effect がこの effect の setSelectedMenus 呼び出し（下記）を検出する。
+  // 以前このタスクで一度「async IIFE で本体全体を包む」形に直したが、レビューで差し戻された：
+  // このロジックには await が1つも無い（sessionStorage は同期API）ため、async IIFE は実行タイミング
+  // にも実行時の挙動にも一切寄与せず、検出を逃れるためだけの飾りだった（アンラップした版と
+  // 実行順序まで完全に同一であることを実測で確認済み）。これは変種Hが禁止する「アナライザを
+  // 欺くだけの症状ブロック」と同じ性質の問題であり、包み直すだけでは根治にならないと判断し、
+  // 元の（IIFEなしの）形へ戻した。
+  //
+  // 検討した代替案と、それぞれ採用しなかった理由：
+  // 1. useState の遅延初期化子へ寄せる（sessionStorage を state の初期値計算に含める）
+  //    → SSR時にサーバーは復元済みでない空の値を出力するが、クライアントの初回（ハイドレーション）
+  //      レンダーでは同じ遅延初期化子が sessionStorage を同期的に読めてしまい、SSR出力と
+  //      ハイドレーション結果が食い違う（hydration mismatch）。この effect のすぐ上のコメントで
+  //      「マウント後にのみ復元する構造は意図的な設計」と明記されている前提と矛盾するため不採用。
+  // 2. レンダー中に直接 setState する（下のクーポン/スタッフ適合・ポイントclampと同型のパターン）
+  //    → その3箇所は「入力(props/state)から導出できる純粋な補正」だが、この復元は
+  //      sessionStorage.removeItem という外部システムへの破壊的な書き込み（副作用）を伴う。
+  //      レンダー本体は純粋であることが前提（React Strict Mode の二重呼び出し・discardされる
+  //      レンダーパスに対して安全であることが前提）で、removeItem をレンダー中に置くと
+  //      「読み取り後に消去」を1回だけ行うという要求を満たせなくなる（discardされたレンダーで
+  //      消去だけ実行され復元されない、等の実害が起こり得る）ため不採用。
+  // 3. Promise.resolve().then(...) / requestAnimationFrame(...) / flushSync(...) 等で
+  //    setState 呼び出し部分だけを別の関数へネストする
+  //    → 実測したところ、これらもすべて react-hooks/set-state-in-effect の検出を逃れる
+  //      （同ルールは「effect本体の直下」というASTの形しか見ていない浅い構文チェックであり、
+  //      ネストの意味は問わない）。しかしこれは async IIFE と同じ「検出だけを逃れる包み」で
+  //      あることに変わりなく、しかも本物の非同期化（Promise.then／rAF）は復元完了までの
+  //      待ち時間を新たに生む挙動変化そのものになる（「タイミングを変えてはならない」に抵触）。
+  //      flushSync は本来不要な同期フラッシュを強制するAPIの誤用であり、正当化できる理由が無い。
+  //      いずれも採用しなかった。
+  //
+  // 結論：このロジックは「マウント後に1回だけ、ブラウザ専用の外部システム(sessionStorage)から
+  // 複数のstateへ反映する」という、effect の正当な用途（React公式ドキュメントが認める
+  // 「外部システムとの同期」）そのものであり、上記の代替案はいずれも「挙動を変えない」
+  // 「hydration mismatchを起こさない」「検出を欺くだけの包みを使わない」の少なくとも1つに
+  // 抵触する。禁止事項2(eslint-disable禁止)の趣旨は「検出を隠して済ませない」ことにあると
+  // 理解しており、機能的に同じことをする別の包み方へ逃げるのも同じ趣旨に反すると判断したため、
+  // ここでは検出を残したまま報告する（統括側の判断を仰ぐ）。
   useEffect(() => {
     let raw: string | null = null;
     try {
@@ -306,14 +355,21 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   // 許可しているのに、UI側だけが当日をカレンダーから除外し到達不能にしていた（HPB等の実サービスは
   // 当日予約を前面に出す）。`i`（当日始まり）に変更し、当日は過去時刻分のみ /api/slots が
   // 自動的に除外するため UI 側で別途過去時刻フィルタは不要。
+  // 【2026年8月16日 React Compiler対応】useMemo本体で直接 Date.now() を呼ぶと
+  // react-hooks/purity が「レンダー中の非純粋関数呼び出し」として検出する（useMemoは
+  // 決定的な純粋計算である前提のため）。基準時刻の取得だけを useState の遅延初期化子
+  // （マウント時に1回だけ実行されることがReactで保証されている箇所）へ切り出し、
+  // useMemo はその値を入力とする純粋計算にする。dep配列が [] → [mountedAtMs] に変わるだけで
+  // mountedAtMs はマウント後に変化しないため、計算が走るタイミング（マウント時に1回のみ）は不変。
+  const [mountedAtMs] = useState(() => Date.now());
   const dateOptions = useMemo(() => Array.from({ length: 60 }, (_, i) => {
-    const jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    const jstNow = new Date(mountedAtMs + 9 * 60 * 60 * 1000);
     jstNow.setUTCDate(jstNow.getUTCDate() + i);
     const year = jstNow.getUTCFullYear();
     const month = String(jstNow.getUTCMonth() + 1).padStart(2, '0');
     const day = String(jstNow.getUTCDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
-  }), []);
+  }), [mountedAtMs]);
 
   const maxWeekOffset = Math.max(0, Math.ceil(dateOptions.length / WEEK_SIZE) - 1);
   const visibleDates = useMemo(
@@ -341,57 +397,75 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   // 結果のマージは Promise.all が返す配列（= targetStaff の入力順と同じ順序で並ぶ。Promise.all は
   // 完了順ではなく入力順を保証する）を使って行うことで、常に staff 配列順（サーバーの sort_order）
   // で決定的に代表スタッフを選ぶ。
+  // 【2026年8月16日 React Compiler対応】setMatrixLoading(true)/setMatrixError(false) がeffect本体
+  // 直下の同期文だったため react-hooks/set-state-in-effect が誤検出していた。フェッチ処理自体は
+  // 元々非同期（Promise.all + fetch）なので、.then/.catch/.finally のチェーンを effect 内の
+  // 非同期IIFEへ inline し async/await に書き換える（変種B と同型）。setMatrixLoading/setMatrixError
+  // の呼び出しは IIFE 内で最初の await より前＝同一tickで同期的に実行されるため実行タイミングは不変。
+  // クリーンアップ（controller.abort()）は async 関数の戻り値(Promise)ではなくeffect本体から
+  // 直接・同期的に返す必要があるため IIFE の外側に残す（挙動を変えないための必須構造）。
   useEffect(() => {
     if (step !== 'datetime') return;
     if (selectedMenus.length === 0) return;
     if (selectedStaff === null && eligibleStaff.length === 0) return;
     const controller = new AbortController();
-    setMatrixLoading(true);
-    setMatrixError(false);
 
     // おまかせ（指名なし）の集計対象は「選択中メニューを担当できるスタッフ」に絞る（menu_staff）。
     // 担当外スタッフの空きを◎/○/△に数えてしまうと、実際には施術できないスタッフの枠が
     // 「空きあり」と誤表示される（金銭ではないが予約可否の誤表示という重大UX不整合）。
     const targetStaff = selectedStaff ? [selectedStaff] : eligibleStaff;
-    let hadFailure = false;
 
-    Promise.all(visibleDates.map(async (date) => {
-      const results = await Promise.all(targetStaff.map(async (s) => {
-        try {
-          const r = await fetch(
-            `/api/slots?facilityId=${facility.id}&staffId=${s.id}&date=${date}&duration=${totalDuration}`,
-            { signal: controller.signal },
-          );
-          if (!r.ok) {
-            hadFailure = true;
-            return null;
-          }
-          const data = await r.json();
-          return { staffId: s.id, slots: (data.slots ?? []) as AvailableSlot[] };
-        } catch (err) {
-          if ((err as { name?: string })?.name !== 'AbortError') hadFailure = true;
-          return null;
-        }
-      }));
+    // 🔴 この2行は effect のトップレベルに置く（async IIFE の中へ入れない）。
+    // IIFE の中へ移すと挙動を1ミリも変えずに検出だけが消える＝症状ブロックになるため。
+    // 実測（2026年8月16日）: async IIFE 内で await より前の同期 setState は検出されない。
+    //
+    // この同期 setState は【意図的】。日付・スタッフを切り替えた瞬間に空き状況マトリクスを
+    // ローディング表示へ戻さないと、前の条件の結果が残ったまま見え、誤った枠を選ばせる。
+    // よって直さず、検出を残したまま src/lib/react-compiler-debt.mjs の BASELINE へ
+    // 受容済み負債として計上する。
+    setMatrixLoading(true);
+    setMatrixError(false);
 
-      // targetStaff と同じ順序（= staff 配列順）でマージする。これにより代表スロットの選出は
-      // fetch の完了タイミングに依存せず、常に同じスタッフが優先される。
-      return [date, mergeStaffSlotsForDate(results)] as [string, Record<string, Cell>];
-    }))
-      .then((entries) => {
+    (async () => {
+      let hadFailure = false;
+
+      try {
+        const entries = await Promise.all(visibleDates.map(async (date) => {
+          const results = await Promise.all(targetStaff.map(async (s) => {
+            try {
+              const r = await fetch(
+                `/api/slots?facilityId=${facility.id}&staffId=${s.id}&date=${date}&duration=${totalDuration}`,
+                { signal: controller.signal },
+              );
+              if (!r.ok) {
+                hadFailure = true;
+                return null;
+              }
+              const data = await r.json();
+              return { staffId: s.id, slots: (data.slots ?? []) as AvailableSlot[] };
+            } catch (err) {
+              if ((err as { name?: string })?.name !== 'AbortError') hadFailure = true;
+              return null;
+            }
+          }));
+
+          // targetStaff と同じ順序（= staff 配列順）でマージする。これにより代表スロットの選出は
+          // fetch の完了タイミングに依存せず、常に同じスタッフが優先される。
+          return [date, mergeStaffSlotsForDate(results)] as [string, Record<string, Cell>];
+        }));
+
         if (controller.signal.aborted) return;
         setMatrix(Object.fromEntries(entries));
         setMatrixError(hadFailure);
-      })
-      .catch((err) => {
-        if (err?.name !== 'AbortError') {
+      } catch (err) {
+        if ((err as { name?: string })?.name !== 'AbortError') {
           setMatrixError(true);
           setToast({ type: 'error', message: '空き状況の取得に失敗しました' });
         }
-      })
-      .finally(() => {
+      } finally {
         if (!controller.signal.aborted) setMatrixLoading(false);
-      });
+      }
+    })();
 
     return () => controller.abort();
     // visibleKey で表示週を、selectedStaff で指名を、totalDuration でメニュー変更を検知する。
@@ -407,11 +481,6 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     Object.values(matrix).forEach((day) => Object.keys(day).forEach((t) => set.add(t)));
     return Array.from(set).sort();
   }, [matrix]);
-
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const [availablePoints, setAvailablePoints] = useState(0);
-  const [usePoints, setUsePoints] = useState(false);
-  const [pointsToUse, setPointsToUse] = useState(0);
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
@@ -503,43 +572,50 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   // 選択中メニューがその対象から外れた場合、クーポン選択を自動解除し警告する。サーバー
   // (/api/booking)は同じ適合チェックを fail-closed（無言で割引を適用しない・400）で最終防御
   // するが、ここではその手前でユーザーに気づかせる（黙って高い金額のまま予約されるのを防ぐ）。
-  useEffect(() => {
-    if (!selectedCoupon) return;
+  // 【2026年8月16日 React Compiler対応】useEffect(dep=[selectedMenus]) から、React公式ドキュメント
+  // 「Adjusting state when a prop changes」のパターン（レンダー中に直接setStateする）へ変更。
+  // selectedCoupon をnullにした後は if (selectedCoupon && ...) の外側条件が偽になり再発火しない
+  // （比較用のprev変数を別途持たなくても不動点に自然収束する）。effectを1テンポ後に実行して
+  // 二度目の再レンダーを起こす代わりに、同一レンダー内で確定させるだけで最終状態・表示される
+  // トーストの内容は従来と同一。
+  if (selectedCoupon) {
     const allowedMenuIds = couponMenuMap[selectedCoupon.id];
     if (!isCouponMenuCompatible(allowedMenuIds, selectedMenus.map((m) => m.id))) {
       setSelectedCoupon(null);
       setAutoSelectedCouponId(null);
       setToast({ type: 'error', message: '選択したメニューはこのクーポンの対象外のため、クーポンの選択を解除しました' });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedMenus]);
+  }
 
   // 【2026年7月15日 HPB準拠仕様・恒久予防】メニュー担当スタッフ制(menu_staff)。選択中クーポンの
-  // 自動解除(上のeffect)と同型のUX＝指名中スタッフが、メニュー選択の変更により選択中メニューの
+  // 自動解除(上)と同型のUX＝指名中スタッフが、メニュー選択の変更により選択中メニューの
   // いずれかの担当外になった場合、指名を自動解除し警告する。サーバー(/api/booking)は同じ判定を
   // fail-closed（無言で予約を通さない・400）で最終防御するが、ここではその手前でユーザーに
   // 気づかせる（担当外スタッフのまま気づかず予約を試みて確認画面の直前で弾かれるのを防ぐ）。
   // 日時選択もクリアする（担当外化で無効になったスタッフの枠選択を持ち越さない＝changeStaffFilterと同じ後処理）。
-  useEffect(() => {
-    if (!selectedStaff) return;
-    if (!isStaffCompatibleWithMenus(menuStaffMap, selectedMenuIds, selectedStaff.id)) {
-      setSelectedStaff(null);
-      setSelectedDate('');
-      setSelectedSlot(null);
-      setToast({ type: 'error', message: '選択したメニューは指名中のスタッフの対象外のため、指名を解除しました' });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedMenuIds]);
+  // 【2026年8月16日 React Compiler対応】上のクーポン版と同じ理由でレンダー中の直接setStateへ変更。
+  if (selectedStaff && !isStaffCompatibleWithMenus(menuStaffMap, selectedMenuIds, selectedStaff.id)) {
+    setSelectedStaff(null);
+    setSelectedDate('');
+    setSelectedSlot(null);
+    setToast({ type: 'error', message: '選択したメニューは指名中のスタッフの対象外のため、指名を解除しました' });
+  }
 
   // メニュー/クーポン変更で価格が下がった場合に、設定済み pointsToUse を価格・残高でクランプし直す。
   // これを怠ると「お支払い金額」が負表示になり、価格を超える points_used を送ってしまう（サーバ側でも
   // クランプするが、表示の不整合と過剰送信を入口で防ぐ）。増加方向には触れない（手動利用を妨げない）。
-  useEffect(() => {
+  // 【2026年8月16日 React Compiler対応】上の2件と同じ理由でレンダー中の直接setStateへ変更。
+  // 元の関数更新形 setPointsToUse((prev) => Math.min(prev, cap)) は「超過していなければ
+  // 同一値を返しReactがbail outする」設計だったため、if でガードしても意味論（クランプが必要な
+  // 時だけ更新）は同一。selectedMenus/selectedCoupon/selectedStaff に限らずどのstate変化後の
+  // レンダーでも評価されるが、cap は常に最新値から再計算するため超過時のみ動作し安全側。
+  {
     const price = calculatePrice();
     const cap = Math.max(0, Math.min(availablePoints, price ?? 0));
-    setPointsToUse((prev) => Math.min(prev, cap));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedMenus, selectedCoupon, selectedStaff, availablePoints]);
+    if (pointsToUse > cap) {
+      setPointsToUse(cap);
+    }
+  }
 
   // 指名スタッフ（フィルタ）を切り替えたら、選択済みの日時をクリアする。指名なしで選んだ枠が
   // 特定スタッフでは空いていないことがあり、鮮度不明な選択を確認画面へ持ち越さないため。

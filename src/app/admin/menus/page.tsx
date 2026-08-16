@@ -56,24 +56,45 @@ export default function AdminMenusPage() {
   }, []);
 
   // user→membership→facilityId→一覧取得 の全工程。リトライ時も facilityId を再導出するため
-  // 完全再取得をこの単一関数に集約する（facilityId 未確定の失敗でもリトライが機能する）
-  const reload = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    setLoadError(false);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
-    const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-      .in('role', ['owner', 'admin']).limit(1).single();
-    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-    if (!membership) { setLoading(false); return; }
-    setFacilityId(membership.facility_id);
-    await loadMenus(membership.facility_id);
-    setLoading(false);
-  }, [loadMenus]);
+  // 完全再取得をこの単一 effect に集約する（facilityId 未確定の失敗でもリトライが機能する）。
+  // retry は再取得を state（reloadKey）経由で駆動する。reload をイベントハンドラからも
+  // effect からも呼べる形にすると React Compiler の set-state-in-effect 検出対象になるため、
+  // 実処理は effect 側にだけ inline し（loadMenus の外部呼び出しも含めて）、
+  // イベントハンドラ側は reloadKey を進めるだけにする。
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    reload().catch(() => { setLoadError(true); setLoading(false); });
-  }, [reload]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const supabase = createBrowserSupabaseClient();
+        setLoadError(false);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (cancelled) return;
+        if (!user) { setLoading(false); return; }
+        const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
+          .in('role', ['owner', 'admin']).limit(1).single();
+        if (cancelled) return;
+        if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
+        if (!membership) { setLoading(false); return; }
+        setFacilityId(membership.facility_id);
+        const { data, error } = await supabase
+          .from('facility_menus')
+          .select('*')
+          .eq('facility_id', membership.facility_id)
+          .order('sort_order', { ascending: true });
+        if (cancelled) return;
+        if (error) { setLoadError(true); setLoading(false); return; }
+        setMenus((data ?? []) as FacilityMenu[]);
+        setLoading(false);
+      } catch {
+        if (!cancelled) { setLoadError(true); setLoading(false); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [reloadKey]);
+
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   const handleSave = async () => {
     if (!editForm || !facilityId || saving) return;
@@ -275,7 +296,7 @@ export default function AdminMenusPage() {
 
       {/* Menu List */}
       {loadError ? (
-        <LoadError onRetry={() => { reload().catch(() => { setLoadError(true); setLoading(false); }); }} message="メニューの読み込みに失敗しました" />
+        <LoadError onRetry={reload} message="メニューの読み込みに失敗しました" />
       ) : menus.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
           <p className="text-gray-400 mb-2">メニューがまだ登録されていません</p>

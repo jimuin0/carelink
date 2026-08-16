@@ -11,6 +11,16 @@ export const metadata: Metadata = {
 
 export const dynamic = 'force-dynamic';
 
+// まもなく期限切れとみなす猶予期間(ミリ秒)。
+const EXPIRING_SOON_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+// 「今」を引数で受け取ることで、この関数自体は expires_at と now の比較だけを行う
+// 純粋な処理になる(現在時刻の取得はコンポーネント本体で1回だけ行う・下記参照)。
+function isExpiringSoon(expiresAt: string | null, now: Date): boolean {
+  if (!expiresAt) return false;
+  return new Date(expiresAt) < new Date(now.getTime() + EXPIRING_SOON_WINDOW_MS);
+}
+
 interface UserPackage {
   id: string;
   sessions_total: number;
@@ -45,8 +55,10 @@ export default async function MyPackagesPage() {
     .order('purchased_at', { ascending: false });
 
   const packages = (data ?? []) as unknown as UserPackage[];
-  const active = packages.filter((p) => p.sessions_remaining > 0 && (!p.expires_at || new Date(p.expires_at) > new Date()));
-  const expired = packages.filter((p) => p.sessions_remaining === 0 || (p.expires_at && new Date(p.expires_at) <= new Date()));
+  // このリクエスト1回につき1回だけ「今」を確定させる。以降の期限判定はすべてこの値との比較のみを行う。
+  const now = new Date();
+  const active = packages.filter((p) => p.sessions_remaining > 0 && (!p.expires_at || new Date(p.expires_at) > now));
+  const expired = packages.filter((p) => p.sessions_remaining === 0 || (p.expires_at && new Date(p.expires_at) <= now));
 
   return (
     <div className="space-y-6">
@@ -74,7 +86,9 @@ export default async function MyPackagesPage() {
               {active.map((pkg) => {
                 const usedCount = pkg.sessions_total - pkg.sessions_remaining;
                 const pct = Math.round((usedCount / pkg.sessions_total) * 100);
-                const isExpiringSoon = pkg.expires_at && new Date(pkg.expires_at) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+                // 現在時刻の取得自体はコンポーネント本体で1回だけ行った now を使う。
+                // ここでは expires_at と now を比較するだけの純粋な処理。
+                const expiringSoon = isExpiringSoon(pkg.expires_at, now);
 
                 return (
                   <div key={pkg.id} className="bg-white rounded-2xl border border-gray-100 p-5">
@@ -82,7 +96,7 @@ export default async function MyPackagesPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <span className="font-bold text-gray-800">{pkg.service_packages?.name}</span>
-                          {isExpiringSoon && (
+                          {expiringSoon && (
                             <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">まもなく期限切れ</span>
                           )}
                         </div>
@@ -113,7 +127,7 @@ export default async function MyPackagesPage() {
                     </div>
 
                     {pkg.expires_at && (
-                      <p className={`text-xs mt-2 ${isExpiringSoon ? 'text-amber-600 font-medium' : 'text-gray-400'}`}>
+                      <p className={`text-xs mt-2 ${expiringSoon ? 'text-amber-600 font-medium' : 'text-gray-400'}`}>
                         有効期限: {new Date(pkg.expires_at).toLocaleDateString('ja-JP')}
                       </p>
                     )}

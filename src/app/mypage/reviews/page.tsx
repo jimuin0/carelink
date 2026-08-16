@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -22,35 +22,45 @@ export default function MyReviewsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  const reload = useCallback(async () => {
-    setLoadError(false);
-    const supabase = createBrowserSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
-
-    const { data, error } = await supabase
-      .from('facility_reviews')
-      .select('*, facility_profiles(name, slug)')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
-
-    if (error) { setLoadError(true); setLoading(false); return; }
-
-    const list = (data ?? []).map((r) => {
-      const facility = (r as unknown as { facility_profiles: { name: string; slug: string } | null }).facility_profiles;
-      return {
-        ...(r as unknown as FacilityReview),
-        facility_name: facility?.name ?? '不明な施設',
-        facility_slug: facility?.slug ?? '',
-      };
-    });
-    setReviews(list);
-    setLoading(false);
-  }, []);
+  // reload 相当の処理は「マウント時の初回読み込み」と「読み込み失敗後の再試行」の2箇所からしか
+  // 呼ばれず、どちらも同じ処理を求める呼び出しなので、reloadKey を effect の依存に置いて
+  // 再試行時はキーをインクリメントするだけにする（処理本体は effect 内に1箇所だけ inline する）。
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    reload().catch(() => { setLoadError(true); setLoading(false); });
-  }, [reload]);
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoadError(false);
+        const supabase = createBrowserSupabaseClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { if (!cancelled) setLoading(false); return; }
+
+        const { data, error } = await supabase
+          .from('facility_reviews')
+          .select('*, facility_profiles(name, slug)')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+
+        if (error) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (cancelled) return;
+
+        const list = (data ?? []).map((r) => {
+          const facility = (r as unknown as { facility_profiles: { name: string; slug: string } | null }).facility_profiles;
+          return {
+            ...(r as unknown as FacilityReview),
+            facility_name: facility?.name ?? '不明な施設',
+            facility_slug: facility?.slug ?? '',
+          };
+        });
+        setReviews(list);
+        setLoading(false);
+      } catch {
+        if (!cancelled) { setLoadError(true); setLoading(false); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [reloadKey]);
 
   const handleDelete = async (id: string) => {
     if (deletingId) return;
@@ -71,7 +81,7 @@ export default function MyReviewsPage() {
   };
 
   if (loading) return <AdminPageLoading />;
-  if (loadError) return <LoadError onRetry={() => { setLoading(true); reload(); }} />;
+  if (loadError) return <LoadError onRetry={() => { setLoading(true); setReloadKey((k) => k + 1); }} />;
 
   return (
     <div>

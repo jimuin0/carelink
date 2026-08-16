@@ -16,13 +16,35 @@ export default function StationSearch() {
 
   useEffect(() => {
     if (!open) return;
+
+    // 🔴 この2行は effect のトップレベルに置く（async IIFE の中へ入れない）。
+    //
+    // why: どちらに書いても実行タイミングは同じ（IIFE の同期プレフィックスも effect 実行中に走る）。
+    // 違うのは react-hooks/set-state-in-effect が検出できるかどうかだけで、IIFE の中へ移すと
+    // 【挙動を1ミリも変えずに検出だけを消す】ことになる。それは症状ブロックであって修正ではない。
+    //
+    // 実測（2026年8月16日）: async IIFE 内で await より前に置いた同期 setState は検出されない。
+    // 同ルールは effect 本体の直下という AST の形だけを見る浅い構文チェックである。
+    //
+    // この同期 setState は【意図的】である。パネルを開いた瞬間にスピナーを出すために必要で、
+    // 遅延させると「押しても無反応」に見える。よって直さず、検出を残したまま
+    // src/lib/react-compiler-debt.mjs の BASELINE に受容済み負債として計上する。
     setLoading(true);
     setFetchError(false);
-    fetch('/api/stations', { signal: AbortSignal.timeout(10000) })
-      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
-      .then((data) => setStations(data.stations || []))
-      .catch(() => setFetchError(true))
-      .finally(() => setLoading(false));
+
+    (async () => {
+      try {
+        const r = await fetch('/api/stations', { signal: AbortSignal.timeout(10000) });
+        if (!r.ok) throw new Error();
+        const data = await r.json();
+        setStations(data.stations || []);
+      } catch {
+        setFetchError(true);
+      } finally {
+        setLoading(false);
+      }
+    })();
+
     const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose(); };
     window.addEventListener('keydown', onKeyDown);
     document.body.style.overflow = 'hidden';

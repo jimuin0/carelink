@@ -73,27 +73,40 @@ export default function AdminGbpPage() {
   const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
 
-  const init = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    setLoadError(false);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
-    const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-      .in('role', ['owner', 'admin']).limit(1).single();
-    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-    if (!membership) { setLoading(false); return; }
-    setFacilityId(membership.facility_id);
-    // GBP設定（placeId/gbpCid）はフォーム初期値。取得失敗を握り潰すと空値で実設定を上書きしうるため明示する
-    const { data: fp, error: fpErr } = await supabase.from('facility_profiles').select('gbp_place_id,gbp_cid').eq('id', membership.facility_id).single();
-    if (fpErr) { setLoadError(true); setLoading(false); return; }
-    if (fp) {
-      setPlaceId(fp.gbp_place_id ?? '');
-      setGbpCid(fp.gbp_cid ?? '');
-    }
-    setLoading(false);
-  }, []);
+  // init は「マウント時の初回読み込み」と「読み込み失敗後の再試行」の2箇所からしか呼ばれず、
+  // どちらも全く同じ処理を求める呼び出しなので、useCallback + useEffect(呼び出し) の形（React
+  // Compiler の set-state-in-effect 検出対象）は取らず、reloadKey を effect の依存に置いて
+  // 再試行時はキーをインクリメントするだけにする（処理本体は effect 内に1箇所だけ inline する）。
+  const [reloadKey, setReloadKey] = useState(0);
 
-  useEffect(() => { init().catch(() => { setLoadError(true); setLoading(false); }); }, [init]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const supabase = createBrowserSupabaseClient();
+        setLoadError(false);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { if (!cancelled) setLoading(false); return; }
+        const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
+          .in('role', ['owner', 'admin']).limit(1).single();
+        if (memErr && memErr.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (!membership) { if (!cancelled) setLoading(false); return; }
+        if (cancelled) return;
+        setFacilityId(membership.facility_id);
+        // GBP設定（placeId/gbpCid）はフォーム初期値。取得失敗を握り潰すと空値で実設定を上書きしうるため明示する
+        const { data: fp, error: fpErr } = await supabase.from('facility_profiles').select('gbp_place_id,gbp_cid').eq('id', membership.facility_id).single();
+        if (fpErr) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (fp && !cancelled) {
+          setPlaceId(fp.gbp_place_id ?? '');
+          setGbpCid(fp.gbp_cid ?? '');
+        }
+        if (!cancelled) setLoading(false);
+      } catch {
+        if (!cancelled) { setLoadError(true); setLoading(false); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [reloadKey]);
 
   const saveSetup = async () => {
     setSavingSetup(true);
@@ -140,10 +153,52 @@ export default function AdminGbpPage() {
     }
   }, []);
 
+  // loadAudit/loadPosts はボタン（再診断・更新・投稿保存後の再取得）からも直接呼ばれるため関数として残し、
+  // このタブ切替時の自動読み込み effect 側だけは同じ処理を inline する。
+  //
+  // 🔴 setAuditLoading(true) / setPostsLoading(true) は effect のトップレベルに置く
+  // （async IIFE の中へ入れない）。IIFE の中へ移すと挙動を1ミリも変えずに検出だけが消える
+  // ＝症状ブロックになるため。実測（2026年8月16日）: async IIFE 内で await より前の
+  // 同期 setState は検出されない。
+  //
+  // この同期 setState は【意図的】。タブを切り替えた瞬間にローディング表示へ切り替えないと、
+  // 空の内容が一瞬見えて「データが無い」と誤解される。よって直さず、検出を残したまま
+  // src/lib/react-compiler-debt.mjs の BASELINE へ受容済み負債として計上する。
   useEffect(() => {
-    if (tab === 'audit' && !auditData) loadAudit();
-    if (tab === 'posts' && posts.length === 0) loadPosts();
-  }, [tab, auditData, loadAudit, posts.length, loadPosts]);
+    let cancelled = false;
+    if (tab === 'audit' && !auditData) {
+      setAuditLoading(true);
+      (async () => {
+        try {
+          const res = await fetch('/api/admin/gbp/place');
+          if (!res.ok) throw new Error();
+          const data = await res.json();
+          if (!cancelled) setAuditData(data);
+        } catch {
+          if (!cancelled) setToast({ type: 'error', message: '診断データの取得に失敗しました' });
+        } finally {
+          if (!cancelled) setAuditLoading(false);
+        }
+      })();
+    }
+    if (tab === 'posts' && posts.length === 0) {
+      // 上の audit 側と同じ理由でトップレベルに置く（受容済み負債）。
+      setPostsLoading(true);
+      (async () => {
+        try {
+          const res = await fetch('/api/admin/gbp/posts');
+          if (!res.ok) throw new Error();
+          const data = await res.json();
+          if (!cancelled) setPosts(data.posts ?? []);
+        } catch {
+          if (!cancelled) setToast({ type: 'error', message: '投稿の取得に失敗しました' });
+        } finally {
+          if (!cancelled) setPostsLoading(false);
+        }
+      })();
+    }
+    return () => { cancelled = true; };
+  }, [tab, auditData, posts.length]);
 
   const savePost = async () => {
     if (!newPost.body.trim()) return;
@@ -207,7 +262,7 @@ export default function AdminGbpPage() {
     return (
       <div>
         <SbPageHeader title="GBP管理（Googleビジネスプロフィール）" />
-        <LoadError onRetry={() => { init().catch(() => { setLoadError(true); setLoading(false); }); }} message="GBP設定の読み込みに失敗しました" />
+        <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="GBP設定の読み込みに失敗しました" />
       </div>
     );
   }

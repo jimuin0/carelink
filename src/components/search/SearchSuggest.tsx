@@ -23,9 +23,21 @@ export default function SearchSuggest({ query, onSelect, visible, onClose }: Pro
 
   const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
+  // query が空になった瞬間に候補をクリアする。effect内の無条件setStateは React Compiler の
+  // set-state-in-effect に検出されるため、React公式が推奨する「prop変化をrender中に検知して
+  // 調整する」パターン（前回のqueryとの比較）に置き換える（AuthButtonのmenuOpenクリアと同じ形）。
+  // 実際のデバウンス付きfetchは下のeffectに残す（そちらはネストしたコールバック内での
+  // setStateなので検出対象外）。
+  const [prevQuery, setPrevQuery] = useState(query);
+  if (query !== prevQuery) {
+    setPrevQuery(query);
     if (!query || query.length < 1) {
       setResults({ facilities: [], areas: [] });
+    }
+  }
+
+  useEffect(() => {
+    if (!query || query.length < 1) {
       return;
     }
 

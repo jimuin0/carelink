@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useSyncExternalStore } from 'react';
 // 同意バナー内のポリシーリンク。全ページで初回表示されるので先読みしない
 // （理由と実測は components/BrowseLink.tsx）。
 import Link from '@/components/BrowseLink';
@@ -28,19 +28,43 @@ export function getCookiePreferences(): CookiePreferences | null {
   }
 }
 
+// useSyncExternalStore 用の購読関数。同意状態は他タブのイベントを監視する必要が無く
+// （このタブ内の操作でしか変わらない）、購読先が無いので何もしない unsubscribe を返す。
+function subscribeToConsent(): () => void {
+  return () => {};
+}
+
+// localStorage（ブラウザ専用 API）の同意有無をレンダー中に読む。useSyncExternalStore の
+// getSnapshot はサーバーでは呼ばれないため typeof window ガードは不要。
+function hasStoredConsent(): boolean {
+  return !!(localStorage.getItem(STORAGE_KEY) || localStorage.getItem('cookie-consent'));
+}
+
+// SSR・初回ハイドレーション時は「同意済み」として扱いバナーを出さない
+// （旧実装の初期 state visible=false と同じ見た目）。ハイドレーション後、
+// useSyncExternalStore が実値（hasStoredConsent）へ自動で切り替える。
+function getServerConsentSnapshot(): boolean {
+  return true;
+}
+
 export default function CookieConsent() {
-  const [visible, setVisible] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [prefs, setPrefs] = useState<CookiePreferences>(getDefaultPrefs());
+  // ユーザーがバナーを閉じた（同意/拒否/選択保存した）かどうか。イベントハンドラからのみ
+  // 変更するのでイベント発火の setState であり、React Compiler の set-state-in-effect の
+  // 対象外（effect の中では一切セットしない）。
+  const [dismissed, setDismissed] = useState(false);
   // 施設詳細ページのSticky予約バー(.sticky-bar、fixed bottom-0 z-40)と本バナー(fixed bottom-0
   // z-50)が両方画面下部に固定表示されるため、本バナーが「今すぐ予約する」ボタンの前面に重なり
   // クリックできなくなっていた（実機Playwright確認で発見）。sticky-barの高さ分だけ上にオフセットする。
   const [bottomOffset, setBottomOffset] = useState(0);
 
-  useEffect(() => {
-    const consent = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('cookie-consent');
-    if (!consent) setVisible(true);
-  }, []);
+  // 「同意情報が保存されているか」を effect + setState ではなく useSyncExternalStore で
+  // レンダー中に読む。ブラウザ専用 API を安全に扱いつつハイドレーション不整合も出さない
+  // React 標準パターンへの構造変更（symptom を隠すラッパーではなく、setState をそもそも
+  // effect の外へ追い出す本質的な修正）。
+  const hasConsent = useSyncExternalStore(subscribeToConsent, hasStoredConsent, getServerConsentSnapshot);
+  const visible = !hasConsent && !dismissed;
 
   useEffect(() => {
     if (!visible) return;
@@ -55,7 +79,7 @@ export default function CookieConsent() {
 
   const save = (p: CookiePreferences) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
-    setVisible(false);
+    setDismissed(true);
   };
 
   const acceptAll = () => save({ necessary: true, analytics: true, marketing: true });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { useForm } from 'react-hook-form';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
@@ -43,53 +43,66 @@ export default function ProfileEditPage() {
   // 未保存の編集があるまま離脱/リロードしたら警告（データ消失防止）
   useUnsavedGuard(isDirty && !isSubmitting);
 
-  const loadProfile = useCallback(async () => {
-      const supabase = createBrowserSupabaseClient();
-      setLoadError(false);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
+  // loadProfile 相当の処理は「マウント時の初回読み込み」と「読み込み失敗後の再試行」の2箇所からしか
+  // 呼ばれず、どちらも同じ処理を求める呼び出しなので、reloadKey を effect の依存に置いて
+  // 再試行時はキーをインクリメントするだけにする（処理本体は effect 内に1箇所だけ inline する）。
+  const [reloadKey, setReloadKey] = useState(0);
 
-      // プロフィールはフォーム初期値。取得失敗を握り潰すと空フォームを保存して実データを
-      // 上書きする事故になるため、失敗時はフォームを描画しない（PGRST116=未作成は新規入力を許可）。
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const supabase = createBrowserSupabaseClient();
+        setLoadError(false);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { if (!cancelled) setLoading(false); return; }
 
-      if (error && error.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-      if (data) {
-        reset({
-          display_name: data.display_name || '',
-          phone: data.phone || '',
-          prefecture: data.prefecture || '',
-          city: data.city || '',
-          birth_date: data.birth_date || '',
-          gender: data.gender || '',
-        });
-        setAvatarUrl(data.avatar_url || null);
-        setEmailUnsubscribed(data.email_unsubscribed ?? false);
+        // プロフィールはフォーム初期値。取得失敗を握り潰すと空フォームを保存して実データを
+        // 上書きする事故になるため、失敗時はフォームを描画しない（PGRST116=未作成は新規入力を許可）。
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        if (error && error.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (cancelled) return;
+        if (data) {
+          reset({
+            display_name: data.display_name || '',
+            phone: data.phone || '',
+            prefecture: data.prefecture || '',
+            city: data.city || '',
+            birth_date: data.birth_date || '',
+            gender: data.gender || '',
+          });
+          setAvatarUrl(data.avatar_url || null);
+          setEmailUnsubscribed(data.email_unsubscribed ?? false);
+        }
+
+        // LINE連携状態チェック（補助）。失敗時は未連携表示のままにし、本体フォームは継続。
+        // 【監査C2・2026年7月22日】連携の単一ソースは profiles.line_user_id（liff/link が書く唯一の正）。
+        // 旧実装は line_user_links を user_id で引いていたが、同列は常に NULL のうえ RLS も
+        // auth.uid()=user_id のためブラウザからは永久に0件＝LIFF連携済みでも常に未連携表示だった。
+        // profiles は own 行 RLS で読めるため、line_user_id の非 NULL で連携判定する。
+        // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
+        const { data: lineProfile } = await supabase
+          .from('profiles')
+          .select('line_user_id')
+          .eq('id', user.id)
+          .maybeSingle();
+        if (cancelled) return;
+        if (lineProfile?.line_user_id) {
+          setLineLinked(true);
+        }
+
+        setLoading(false);
+      } catch {
+        if (!cancelled) { setLoadError(true); setLoading(false); }
       }
-
-      // LINE連携状態チェック（補助）。失敗時は未連携表示のままにし、本体フォームは継続。
-      // 【監査C2・2026年7月22日】連携の単一ソースは profiles.line_user_id（liff/link が書く唯一の正）。
-      // 旧実装は line_user_links を user_id で引いていたが、同列は常に NULL のうえ RLS も
-      // auth.uid()=user_id のためブラウザからは永久に0件＝LIFF連携済みでも常に未連携表示だった。
-      // profiles は own 行 RLS で読めるため、line_user_id の非 NULL で連携判定する。
-      // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-      const { data: lineProfile } = await supabase
-        .from('profiles')
-        .select('line_user_id')
-        .eq('id', user.id)
-        .maybeSingle();
-      if (lineProfile?.line_user_id) {
-        setLineLinked(true);
-      }
-
-      setLoading(false);
-  }, [reset]);
-
-  useEffect(() => { loadProfile().catch(() => { setLoadError(true); setLoading(false); }); }, [loadProfile]);
+    })();
+    return () => { cancelled = true; };
+  }, [reset, reloadKey]);
 
   const onSubmit = async (data: ProfileForm) => {
     try {
@@ -127,7 +140,7 @@ export default function ProfileEditPage() {
     return (
       <div>
         <h1 className="text-xl font-bold mb-4">プロフィール編集</h1>
-        <LoadError onRetry={() => { loadProfile().catch(() => { setLoadError(true); setLoading(false); }); }} message="プロフィールの読み込みに失敗しました" />
+        <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="プロフィールの読み込みに失敗しました" />
       </div>
     );
   }

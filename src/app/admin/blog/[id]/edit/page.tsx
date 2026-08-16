@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -53,6 +53,9 @@ export default function EditBlogPage() {
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // retry は再取得を state 経由で駆動する（load をイベントハンドラからも effect からも
+  // 呼べる形にすると Compiler の検出対象になるため、キーの変化で effect 側だけに寄せる）
+  const [reloadKey, setReloadKey] = useState(0);
 
   const insertMd = (before: string, after: string) => {
     const el = document.getElementById('blog-content') as HTMLTextAreaElement | null;
@@ -65,35 +68,46 @@ export default function EditBlogPage() {
     setTimeout(() => { el.focus(); el.setSelectionRange(start + before.length, end + before.length); }, 0);
   };
 
-  const load = useCallback(async () => {
-      const supabase = createBrowserSupabaseClient();
-      setLoadError(false);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-      const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-      if (!membership) { setLoading(false); return; }
-      setFacilityId(membership.facility_id);
-      const { data, error } = await supabase
-        .from('blog_posts')
-        .select('*')
-        .eq('id', postId)
-        .eq('facility_id', membership.facility_id)
-        .single();
-
-      if (error) { setLoadError(true); setLoading(false); return; }
-      if (data) {
-        const post = data as BlogPost;
-        setTitle(post.title);
-        setContent(post.content);
-        setIsPublished(post.is_published);
-      }
-      setLoading(false);
-  }, [postId]);
-
+  // アンマウント後の setState を防ぐため cancelled フラグで守りつつ、非同期処理を effect 内へ inline する
   useEffect(() => {
-    load().catch(() => { setLoadError(true); setLoading(false); });
-  }, [load]);
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const supabase = createBrowserSupabaseClient();
+        setLoadError(false);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { if (!cancelled) setLoading(false); return; }
+        const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+        if (memErr && memErr.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (!membership) { if (!cancelled) setLoading(false); return; }
+        if (cancelled) return;
+        setFacilityId(membership.facility_id);
+        const { data, error } = await supabase
+          .from('blog_posts')
+          .select('*')
+          .eq('id', postId)
+          .eq('facility_id', membership.facility_id)
+          .single();
+
+        if (error) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (cancelled) return;
+        if (data) {
+          const post = data as BlogPost;
+          setTitle(post.title);
+          setContent(post.content);
+          setIsPublished(post.is_published);
+        }
+        setLoading(false);
+      } catch {
+        if (!cancelled) { setLoadError(true); setLoading(false); }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [postId, reloadKey]);
 
   const handleSave = async () => {
     if (saving || !title || !content || !facilityId) return;
@@ -138,7 +152,7 @@ export default function EditBlogPage() {
     return (
       <div>
         <SbPageHeader title="ブログ編集" />
-        <LoadError onRetry={load} message="記事の読み込みに失敗しました" />
+        <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="記事の読み込みに失敗しました" />
       </div>
     );
   }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, use, useCallback } from 'react';
+import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -29,44 +29,58 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
   const [menuName, setMenuName] = useState('');
   const [staffName, setStaffName] = useState('');
 
-  const load = useCallback(async () => {
-      const supabase = createBrowserSupabaseClient();
-      setLoadError(false);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
+  // load 相当の処理は「マウント時の初回読み込み」と「読み込み失敗後の再試行」の2箇所からしか
+  // 呼ばれず、どちらも同じ処理を求める呼び出しなので、reloadKey を effect の依存に置いて
+  // 再試行時はキーをインクリメントするだけにする（処理本体は effect 内に1箇所だけ inline する）。
+  const [reloadKey, setReloadKey] = useState(0);
 
-      const { data, error } = await supabase
-        .from('bookings')
-        .select('*')
-        .eq('id', params.id)
-        .eq('user_id', user.id)
-        .single();
-      // PGRST116（行なし）は真の「見つからない」として下の not-found 表示に委ね、
-      // 通信/権限エラーは「見つかりません」に偽装せず失敗として明示する。
-      if (error && error.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-      setBooking(data as Booking | null);
-      // 施設 slug/名前・メニュー名・スタッフ名を併取（表示＋再予約の遷移先 slug に使う・A-5）。
-      // 名前類は補助表示のため best-effort（失敗しても本体は継続）。
-      if (data) {
-        const b = data as Booking;
-        const [facRes, menuRes, staffRes] = await Promise.all([
-          supabase.from('facility_profiles').select('slug, name').eq('id', b.facility_id).single(),
-          b.menu_id ? supabase.from('facility_menus').select('name').eq('id', b.menu_id).single() : Promise.resolve({ data: null }),
-          b.staff_id ? supabase.from('staff_profiles').select('name').eq('id', b.staff_id).single() : Promise.resolve({ data: null }),
-        ]);
-        if (facRes.data) setFacility(facRes.data as { slug: string; name: string });
-        setMenuName((menuRes.data as { name?: string } | null)?.name ?? '');
-        setStaffName((staffRes.data as { name?: string } | null)?.name ?? '');
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const supabase = createBrowserSupabaseClient();
+        setLoadError(false);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { if (!cancelled) setLoading(false); return; }
+
+        const { data, error } = await supabase
+          .from('bookings')
+          .select('*')
+          .eq('id', params.id)
+          .eq('user_id', user.id)
+          .single();
+        // PGRST116（行なし）は真の「見つからない」として下の not-found 表示に委ね、
+        // 通信/権限エラーは「見つかりません」に偽装せず失敗として明示する。
+        if (error && error.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (cancelled) return;
+        setBooking(data as Booking | null);
+        // 施設 slug/名前・メニュー名・スタッフ名を併取（表示＋再予約の遷移先 slug に使う・A-5）。
+        // 名前類は補助表示のため best-effort（失敗しても本体は継続）。
+        if (data) {
+          const b = data as Booking;
+          const [facRes, menuRes, staffRes] = await Promise.all([
+            supabase.from('facility_profiles').select('slug, name').eq('id', b.facility_id).single(),
+            b.menu_id ? supabase.from('facility_menus').select('name').eq('id', b.menu_id).single() : Promise.resolve({ data: null }),
+            b.staff_id ? supabase.from('staff_profiles').select('name').eq('id', b.staff_id).single() : Promise.resolve({ data: null }),
+          ]);
+          if (cancelled) return;
+          if (facRes.data) setFacility(facRes.data as { slug: string; name: string });
+          setMenuName((menuRes.data as { name?: string } | null)?.name ?? '');
+          setStaffName((staffRes.data as { name?: string } | null)?.name ?? '');
+        }
+        if (cancelled) return;
+        setLoading(false);
+        // Check Google Calendar connection
+        fetch('/api/google-calendar')
+          .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+          .then((d) => { if (!cancelled) setGcalConnected(d.connected && !d.isExpired); })
+          .catch(() => { if (!cancelled) setGcalError(true); });
+      } catch {
+        if (!cancelled) { setLoadError(true); setLoading(false); }
       }
-      setLoading(false);
-      // Check Google Calendar connection
-      fetch('/api/google-calendar')
-        .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
-        .then((d) => setGcalConnected(d.connected && !d.isExpired))
-        .catch(() => setGcalError(true));
-  }, [params.id]);
-
-  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
+    })();
+    return () => { cancelled = true; };
+  }, [params.id, reloadKey]);
 
   const handleCancel = async () => {
     if (cancelling) return;
@@ -101,7 +115,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
 
   if (loadError) {
     return (
-      <LoadError onRetry={() => { load().catch(() => { setLoadError(true); setLoading(false); }); }} message="予約の読み込みに失敗しました" />
+      <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="予約の読み込みに失敗しました" />
     );
   }
 

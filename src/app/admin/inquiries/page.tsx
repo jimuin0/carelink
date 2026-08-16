@@ -62,7 +62,28 @@ export default function AdminInquiriesPage() {
     setLoading(false);
   }, [statusFilter]);
 
-  useEffect(() => { load(); }, [load]);
+  // load は更新ボタン・保存後の再取得などイベントハンドラから引き続き呼ぶため関数として残し、
+  // マウント時・statusFilter 変更時の取得は effect 内へ同じ処理を inline する（React Compiler の
+  // set-state-in-effect：effect から外部関数を直接呼ぶと同期 setState とみなされ検出される）。
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const supabase = createBrowserSupabaseClient();
+      let query = supabase
+        .from('contacts')
+        .select('id, created_at, name, email, phone, inquiry_type, message, ticket_status, priority, ticket_notes, resolved_at')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (statusFilter) query = query.eq('ticket_status', statusFilter);
+      setLoadError(false);
+      const { data, error } = await query;
+      if (cancelled) return;
+      if (error) { setLoadError(true); setLoading(false); return; }
+      setContacts((data ?? []) as Contact[]);
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [statusFilter]);
 
   const updateTicket = async (
     id: string,

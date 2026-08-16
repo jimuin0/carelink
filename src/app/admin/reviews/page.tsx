@@ -40,44 +40,49 @@ export default function AdminReviewsPage() {
     return list;
   }, [filter]);
 
-  // user→membership→facilityId→口コミ＋返信取得 の全工程。リトライ時も facilityId を再導出するため
-  // 完全再取得をこの単一関数に集約する（facilityId 未確定の失敗でもリトライが機能する）
-  const reload = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    setLoadError(false);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
-    const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-      .in('role', ['owner', 'admin']).limit(1).single();
-    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-    if (!membership) { setLoading(false); return; }
-    setFacilityId(membership.facility_id);
-    const loaded = await loadReviews(membership.facility_id);
-    // 返信は補助情報（無ければ非表示）。主表示の口コミは loadReviews 側で error 処理済みのため
-    // ここでの失敗は致命的でなく、取得できた分のみ表示する。
-    // review_replies に facility_id 列は無いため、当施設の口コミ ID 群で review_id を絞る。
-    const reviewIds = loaded.map((r) => r.id);
-    const { data: replies } = reviewIds.length
-      ? await supabase
-          .from('review_replies')
-          .select('id, review_id, content, created_at')
-          .in('review_id', reviewIds)
-          .order('created_at')
-      : { data: [] as { id: string; review_id: string; content: string; created_at: string | null }[] };
-    if (replies) {
-      const map: Record<string, typeof replies> = {};
-      for (const r of replies) {
-        if (!map[r.review_id]) map[r.review_id] = [];
-        map[r.review_id].push(r);
-      }
-      setRepliesMap(map);
-    }
-    setLoading(false);
-  }, [loadReviews]);
+  // React Compiler の set-state-in-effect 対策：user→membership→facilityId→口コミ＋返信取得の
+  // 全工程を useCallback 関数として effect の依存に置き外部から直接呼ぶのではなく、effect 内に
+  // inline した非同期IIFEとして定義する（React 公式が推奨する形）。リトライ時も facilityId を
+  // 再導出する必要があるため引き続き全工程をここに集約し、リトライは reloadKey のインクリメント
+  // で effect を再発火させる形に統一する（取得ロジックの二重定義を避ける）。依存配列は元の
+  // reload の依存（[loadReviews]）と同じ反応性を保つため loadReviews を含める（filter 変更で
+  // loadReviews の identity が変われば、従来どおりこの effect も再実行される）。
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    reload().catch(() => { setLoadError(true); setLoading(false); });
-  }, [reload]);
+    (async () => {
+      const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
+      const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
+        .in('role', ['owner', 'admin']).limit(1).single();
+      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
+      if (!membership) { setLoading(false); return; }
+      setFacilityId(membership.facility_id);
+      const loaded = await loadReviews(membership.facility_id);
+      // 返信は補助情報（無ければ非表示）。主表示の口コミは loadReviews 側で error 処理済みのため
+      // ここでの失敗は致命的でなく、取得できた分のみ表示する。
+      // review_replies に facility_id 列は無いため、当施設の口コミ ID 群で review_id を絞る。
+      const reviewIds = loaded.map((r) => r.id);
+      const { data: replies } = reviewIds.length
+        ? await supabase
+            .from('review_replies')
+            .select('id, review_id, content, created_at')
+            .in('review_id', reviewIds)
+            .order('created_at')
+        : { data: [] as { id: string; review_id: string; content: string; created_at: string | null }[] };
+      if (replies) {
+        const map: Record<string, typeof replies> = {};
+        for (const r of replies) {
+          if (!map[r.review_id]) map[r.review_id] = [];
+          map[r.review_id].push(r);
+        }
+        setRepliesMap(map);
+      }
+      setLoading(false);
+    })().catch(() => { setLoadError(true); setLoading(false); });
+  }, [loadReviews, reloadKey]);
 
   // 監査P13: この effect は filter 変更時の再取得用。従来は reload() が facilityId を
   // セットした初回にも発火し、reload 内の loadReviews と合わせて初回に2回フェッチしていた。
@@ -164,7 +169,7 @@ export default function AdminReviewsPage() {
       </div>
 
       {loadError ? (
-        <LoadError onRetry={() => { reload().catch(() => { setLoadError(true); setLoading(false); }); }} message="口コミの読み込みに失敗しました" />
+        <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="口コミの読み込みに失敗しました" />
       ) : reviews.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
           <p className="text-gray-400">口コミがありません</p>

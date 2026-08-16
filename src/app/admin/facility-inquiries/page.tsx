@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import LoadError from '@/components/admin/LoadError';
 import { SbPageHeader } from '@/components/admin/SbUi';
@@ -25,40 +25,47 @@ export default function AdminFacilityInquiriesPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // retry は再取得を state 経由で駆動する（reload をイベントハンドラからも effect からも
+  // 呼べる形にすると Compiler の検出対象になるため、キーの変化で effect 側だけに寄せる）
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const loadInquiries = useCallback(async (facilityId: string) => {
-    const supabase = createBrowserSupabaseClient();
-    setLoadError(false);
-    // RLS(facility_inquiries_member_read)が facility_members(owner/admin)にスコープ済みのため
-    // 認証済みクライアントからの直接読み取りで安全（他施設の問い合わせは行レベルで遮断される）。
-    const { data, error } = await supabase
-      .from('facility_inquiries')
-      .select('id, created_at, name, email, phone, message')
-      .eq('facility_id', facilityId)
-      .order('created_at', { ascending: false })
-      .limit(100);
-    if (error) { setLoadError(true); return; }
-    setInquiries((data ?? []) as FacilityInquiry[]);
-  }, []);
-
-  // user→membership→facilityId→一覧取得 の全工程。リトライ時も facilityId を再導出するため
-  // 完全再取得をこの単一関数に集約する（admin/qa と同型パターン）。
-  const reload = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    setLoadError(false);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
-    const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-      .in('role', ['owner', 'admin']).limit(1).single();
-    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-    if (!membership) { setLoading(false); return; }
-    await loadInquiries(membership.facility_id);
-    setLoading(false);
-  }, [loadInquiries]);
-
+  // user→membership→facilityId→一覧取得 の全工程を単一 effect に集約する（admin/qa と同型パターン）。
+  // アンマウント後の setState を防ぐため cancelled フラグで守る。
   useEffect(() => {
-    reload().catch(() => { setLoadError(true); setLoading(false); });
-  }, [reload]);
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const supabase = createBrowserSupabaseClient();
+        setLoadError(false);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { if (!cancelled) setLoading(false); return; }
+        const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
+          .in('role', ['owner', 'admin']).limit(1).single();
+        if (memErr && memErr.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (!membership) { if (!cancelled) setLoading(false); return; }
+
+        // RLS(facility_inquiries_member_read)が facility_members(owner/admin)にスコープ済みのため
+        // 認証済みクライアントからの直接読み取りで安全（他施設の問い合わせは行レベルで遮断される）。
+        const { data, error } = await supabase
+          .from('facility_inquiries')
+          .select('id, created_at, name, email, phone, message')
+          .eq('facility_id', membership.facility_id)
+          .order('created_at', { ascending: false })
+          .limit(100);
+        if (error) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (cancelled) return;
+        setInquiries((data ?? []) as FacilityInquiry[]);
+        setLoading(false);
+      } catch {
+        if (!cancelled) { setLoadError(true); setLoading(false); }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
 
   if (loading) return <AdminPageLoading />;
 
@@ -67,7 +74,7 @@ export default function AdminFacilityInquiriesPage() {
       <SbPageHeader title="問い合わせ" />
 
       {loadError ? (
-        <LoadError onRetry={() => { reload().catch(() => { setLoadError(true); setLoading(false); }); }} message="問い合わせの読み込みに失敗しました" />
+        <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="問い合わせの読み込みに失敗しました" />
       ) : inquiries.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
           <p className="text-gray-400">お問い合わせはまだありません</p>

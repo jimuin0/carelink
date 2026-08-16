@@ -50,25 +50,28 @@ export default function AdminPhotosPage() {
     setPhotos((data ?? []) as FacilityPhoto[]);
   }, []);
 
-  // user→membership→facilityId→一覧取得 の全工程。リトライ時も facilityId を再導出するため
-  // 完全再取得をこの単一関数に集約する（facilityId 未確定の失敗でもリトライが機能する）
-  const reload = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    setLoadError(false);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
-    const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-      .in('role', ['owner', 'admin']).limit(1).single();
-    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-    if (!membership) { setLoading(false); return; }
-    setFacilityId(membership.facility_id);
-    await loadPhotos(membership.facility_id);
-    setLoading(false);
-  }, [loadPhotos]);
+  // React Compiler の set-state-in-effect 対策：user→membership→facilityId→一覧取得の全工程を
+  // useCallback 関数として effect の依存に置き外部から直接呼ぶのではなく、effect 内に inline
+  // した非同期IIFEとして定義する（React 公式が推奨する形）。リトライ時も facilityId を再導出
+  // する必要があるため引き続き全工程をここに集約し、リトライは reloadKey のインクリメントで
+  // effect を再発火させる形に統一する（取得ロジックの二重定義を避ける）。
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    reload().catch(() => { setLoadError(true); setLoading(false); });
-  }, [reload]);
+    (async () => {
+      const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
+      const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
+        .in('role', ['owner', 'admin']).limit(1).single();
+      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
+      if (!membership) { setLoading(false); return; }
+      setFacilityId(membership.facility_id);
+      await loadPhotos(membership.facility_id);
+      setLoading(false);
+    })().catch(() => { setLoadError(true); setLoading(false); });
+  }, [loadPhotos, reloadKey]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -229,7 +232,7 @@ export default function AdminPhotosPage() {
 
       {/* 写真一覧 */}
       {loadError ? (
-        <LoadError onRetry={() => { reload().catch(() => { setLoadError(true); setLoading(false); }); }} message="写真の読み込みに失敗しました" />
+        <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="写真の読み込みに失敗しました" />
       ) : photos.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
           <p className="text-gray-400">写真がまだ登録されていません</p>

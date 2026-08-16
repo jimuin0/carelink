@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -53,65 +53,71 @@ export default function StaffSchedulePage() {
   useUnsavedGuard(dirty);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const loadData = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    setLoadError(false);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { data: mem, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-      if (mem) setFacilityId(mem.facility_id);
-    }
-    // スタッフ名は補助表示。取得失敗時は名称未表示で本体は継続する。
-    // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-    const { data: staff } = await supabase.from('staff_profiles').select('name').eq('id', staffId).single();
-    if (staff) setStaffName(staff.name);
+  // React Compiler の set-state-in-effect 対策：取得処理を useCallback 関数として effect の
+  // 依存に置き外部から直接呼ぶのではなく、effect 内に inline した非同期IIFEとして定義する
+  // （React 公式が推奨する形）。再取得（リトライ・特別日追加後の再読込）は関数呼び出しではなく
+  // reloadKey をインクリメントして effect を再発火させる形に統一し、取得ロジックの二重定義を避ける。
+  const [reloadKey, setReloadKey] = useState(0);
 
-    // 週間スケジュールはフォーム初期値。取得失敗を握り潰すと既定値(09:00-19:00全曜日)で
-    // 実シフトを上書きする事故になるため、失敗時はフォームを描画しない。
-    const { data: schData, error: schErr } = await supabase
-      .from('staff_schedules')
-      .select('day_of_week, start_time, end_time')
-      .eq('staff_id', staffId)
-      .order('day_of_week');
+  useEffect(() => {
+    (async () => {
+      const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: mem, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+        if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
+        if (mem) setFacilityId(mem.facility_id);
+      }
+      // スタッフ名は補助表示。取得失敗時は名称未表示で本体は継続する。
+      // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
+      const { data: staff } = await supabase.from('staff_profiles').select('name').eq('id', staffId).single();
+      if (staff) setStaffName(staff.name);
 
-    if (schErr) { setLoadError(true); setLoading(false); return; }
-    if (schData && schData.length > 0) {
-      const newSchedules = DAY_LABELS.map((_, i) => {
-        const existing = schData.find((s) => s.day_of_week === i);
-        // staff_schedules.start_time/end_time は TIME 列で "HH:MM:SS" で返る。API/入力は "HH:MM"
-        // 必須のため、ロード時に正規化する。これを怠ると、既存スタッフのスケジュールを再保存
-        // （各曜日を手で選び直さずに保存）した際に "HH:MM:SS" が再送され一律 400 になる。
-        return existing
-          ? { day_of_week: i, start_time: existing.start_time.slice(0, 5), end_time: existing.end_time.slice(0, 5) }
-          : { day_of_week: i, start_time: '09:00', end_time: '19:00' };
-      });
-      setSchedules(newSchedules);
-      setEnabledDays(DAY_LABELS.map((_, i) => schData.some((s) => s.day_of_week === i)));
-    }
+      // 週間スケジュールはフォーム初期値。取得失敗を握り潰すと既定値(09:00-19:00全曜日)で
+      // 実シフトを上書きする事故になるため、失敗時はフォームを描画しない。
+      const { data: schData, error: schErr } = await supabase
+        .from('staff_schedules')
+        .select('day_of_week, start_time, end_time')
+        .eq('staff_id', staffId)
+        .order('day_of_week');
 
-    const { data: ovData, error: ovErr } = await supabase
-      .from('schedule_overrides')
-      .select('id, date, is_holiday, start_time, end_time')
-      .eq('staff_id', staffId)
-      .gte('date', new Date().toISOString().split('T')[0])
-      .order('date');
-    if (ovErr) { setLoadError(true); setLoading(false); return; }
-    // schedule_overrides の start_time/end_time も TIME 列で "HH:MM:SS" で返る。表示と再保存の
-    // 一貫性のため "HH:MM" に正規化する（null=休日はそのまま）。
-    // is_holiday は `BOOLEAN DEFAULT false` のみで NOT NULL 制約が無く DB 上 null もあり得る
-    // （supabase/migrations/20260323000003_phase4_bookings.sql）。null は「休日フラグ未設定」を
-    // 意味し、既定値である false（休日ではない）に倒すのが DEFAULT の意図と一致する。
-    if (ovData) setOverrides(ovData.map((o) => ({
-      ...o,
-      is_holiday: o.is_holiday ?? false,
-      start_time: o.start_time ? o.start_time.slice(0, 5) : o.start_time,
-      end_time: o.end_time ? o.end_time.slice(0, 5) : o.end_time,
-    })));
-    setLoading(false);
-  }, [staffId]);
+      if (schErr) { setLoadError(true); setLoading(false); return; }
+      if (schData && schData.length > 0) {
+        const newSchedules = DAY_LABELS.map((_, i) => {
+          const existing = schData.find((s) => s.day_of_week === i);
+          // staff_schedules.start_time/end_time は TIME 列で "HH:MM:SS" で返る。API/入力は "HH:MM"
+          // 必須のため、ロード時に正規化する。これを怠ると、既存スタッフのスケジュールを再保存
+          // （各曜日を手で選び直さずに保存）した際に "HH:MM:SS" が再送され一律 400 になる。
+          return existing
+            ? { day_of_week: i, start_time: existing.start_time.slice(0, 5), end_time: existing.end_time.slice(0, 5) }
+            : { day_of_week: i, start_time: '09:00', end_time: '19:00' };
+        });
+        setSchedules(newSchedules);
+        setEnabledDays(DAY_LABELS.map((_, i) => schData.some((s) => s.day_of_week === i)));
+      }
 
-  useEffect(() => { loadData().catch(() => { setLoadError(true); setLoading(false); }); }, [loadData]);
+      const { data: ovData, error: ovErr } = await supabase
+        .from('schedule_overrides')
+        .select('id, date, is_holiday, start_time, end_time')
+        .eq('staff_id', staffId)
+        .gte('date', new Date().toISOString().split('T')[0])
+        .order('date');
+      if (ovErr) { setLoadError(true); setLoading(false); return; }
+      // schedule_overrides の start_time/end_time も TIME 列で "HH:MM:SS" で返る。表示と再保存の
+      // 一貫性のため "HH:MM" に正規化する（null=休日はそのまま）。
+      // is_holiday は `BOOLEAN DEFAULT false` のみで NOT NULL 制約が無く DB 上 null もあり得る
+      // （supabase/migrations/20260323000003_phase4_bookings.sql）。null は「休日フラグ未設定」を
+      // 意味し、既定値である false（休日ではない）に倒すのが DEFAULT の意図と一致する。
+      if (ovData) setOverrides(ovData.map((o) => ({
+        ...o,
+        is_holiday: o.is_holiday ?? false,
+        start_time: o.start_time ? o.start_time.slice(0, 5) : o.start_time,
+        end_time: o.end_time ? o.end_time.slice(0, 5) : o.end_time,
+      })));
+      setLoading(false);
+    })().catch(() => { setLoadError(true); setLoading(false); });
+  }, [staffId, reloadKey]);
 
   const handleSaveSchedules = async (force = false) => {
     if (!facilityId) return;
@@ -178,7 +184,7 @@ export default function StaffSchedulePage() {
         return;
       }
       setNewOverrideDate('');
-      loadData();
+      setReloadKey((k) => k + 1);
       setToast({ type: 'success', message: '特別日を追加しました' });
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
@@ -211,7 +217,7 @@ export default function StaffSchedulePage() {
           <button type="button" onClick={() => router.push('/admin/staff')} className="text-sm text-gray-500 hover:underline">← 戻る</button>
           <h1 className="text-2xl font-bold">スケジュール</h1>
         </div>
-        <LoadError onRetry={() => { loadData().catch(() => { setLoadError(true); setLoading(false); }); }} message="スケジュールの読み込みに失敗しました" />
+        <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="スケジュールの読み込みに失敗しました" />
       </div>
     );
   }

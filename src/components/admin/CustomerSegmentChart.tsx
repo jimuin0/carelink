@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 
@@ -26,7 +26,16 @@ export default function CustomerSegmentChart({ facilityId }: { facilityId: strin
   const [loadError, setLoadError] = useState(false);
   const [total, setTotal] = useState(0);
 
-  const load = useCallback(async () => {
+  // React Compiler の set-state-in-effect 対策：useCallback + 呼び出し という形は
+  // 「effect が外部関数を呼び、その中で setState する」構造として検出されるため、
+  // 取得処理を effect 本体へ直接 inline し、再取得は reloadKey（state）で駆動する。
+  // 挙動は従来と同一（マウント時取得・facilityId 変化時再取得・再試行ボタンで再取得）。
+  const [reloadKey, setReloadKey] = useState(0);
+  const retry = () => setReloadKey((k) => k + 1);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
       const supabase = createBrowserSupabaseClient();
       setLoadError(false);
       const { data: segments, error } = await supabase
@@ -34,6 +43,7 @@ export default function CustomerSegmentChart({ facilityId }: { facilityId: strin
         .select('segment')
         .eq('facility_id', facilityId);
 
+      if (cancelled) return;
       if (error) { setLoadError(true); setLoading(false); return; }
       if (segments) {
         const counts: Record<string, number> = {};
@@ -54,16 +64,19 @@ export default function CustomerSegmentChart({ facilityId }: { facilityId: strin
         setTotal(segments.length);
       }
       setLoading(false);
-  }, [facilityId]);
-
-  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
+    })().catch(() => {
+      if (!cancelled) { setLoadError(true); setLoading(false); }
+    });
+    // アンマウント後（cleanup 実行後）の setState を発生させないための cancelled ガード。
+    return () => { cancelled = true; };
+  }, [facilityId, reloadKey]);
 
   if (loading) return <div className="h-64 bg-gray-50 rounded-lg animate-pulse" />;
   // 取得失敗時は「顧客データがありません」に偽装せず失敗として明示する
   if (loadError) return (
     <div className="text-center py-8" role="alert">
       <p className="text-sm text-rose-600 font-bold">顧客セグメントの読み込みに失敗しました</p>
-      <button type="button" onClick={() => load()} className="text-xs text-sky-600 underline mt-1">再試行</button>
+      <button type="button" onClick={retry} className="text-xs text-sky-600 underline mt-1">再試行</button>
     </div>
   );
   if (data.length === 0) return <p className="text-sm text-gray-400 text-center py-8">顧客データがありません</p>;

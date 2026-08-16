@@ -42,14 +42,20 @@ function LiffNotLinked() {
 export default function LiffCouponsPage() {
   const liff = useLiff();
   const [coupons, setCoupons] = useState<Coupon[]>([]);
-  const [loading, setLoading] = useState(false);
+  // liff.status は 'loading' から 'ready' へ一度だけ遷移する（useLiff 参照）ため、
+  // この effect は最大1回しか走らない。「読み込み中」の初期値を state の初期値に
+  // 持たせることで、effect 内の同期 setState（React Compiler の
+  // set-state-in-effect 違反＝カスケードレンダリングの原因）を無くす。
+  // 旧実装は初期値 false のまま liff.status==='ready' の初回描画を一瞬挟んでから
+  // setLoading(true) していたため、実際には「利用可能なクーポンはありません」が
+  // 一瞬見えてからスピナーに切り替わるカスケードが起きていた（本修正で解消・
+  // 表示内容自体は不変）。
+  const [loading, setLoading] = useState(true);
   // 取得失敗を握り潰すと「クーポンはありません」と障害が区別不能になるため明示する
   const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     if (liff.status !== 'ready') return;
-    setLoading(true);
-    setLoadError(false);
     fetch('/api/liff/coupons', {
       headers: { Authorization: `Bearer ${liff.accessToken}` },
     })

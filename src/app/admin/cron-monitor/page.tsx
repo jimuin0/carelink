@@ -98,31 +98,15 @@ export default function CronMonitorPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [selectedJob, setSelectedJob] = useState<string>('');
+  // 「更新」ボタンは実行ログとサイドデータ両方を再取得するが、フィルタ変更(selectedJob)は
+  // 実行ログのみを再取得する（元の loadLogs/loadSideData の分離基準を維持）。effect を
+  // イベントハンドラからも呼べる形にすると Compiler の検出対象になるため、
+  // 実行ログの再取得はこのキーの変化で effect 側だけに寄せる。
+  const [logsReloadKey, setLogsReloadKey] = useState(0);
 
   // 各非同期フェッチに世代番号を持たせ、古いレスポンスが後から解決しても state を
-  // 上書きしないようにする（フィルタ変更や「更新」連打による並行 load のレース対策）。
-  const logsGenRef = useRef(0);
+  // 上書きしないようにする（「更新」連打による並行 load のレース対策）。
   const sideGenRef = useRef(0);
-
-  // 実行ログ一覧（selectedJob で絞り込み・最新200件）。フィルタ変更のたびに
-  // これだけを再取得する（per-job フェッチやサマリーは selectedJob と無関係なので
-  // 再実行しない＝無駄な N+1 を出さない）。
-  const loadLogs = useCallback(async () => {
-    const gen = ++logsGenRef.current;
-    const supabase = createBrowserSupabaseClient();
-    setLoadError(false);
-    let query = supabase
-      .from('cron_logs')
-      .select('*')
-      .order('started_at', { ascending: false })
-      .limit(200);
-    if (selectedJob) query = query.eq('job_name', selectedJob);
-    const { data, error } = await query;
-    if (gen !== logsGenRef.current) return; // 古いレスポンスは無視
-    if (error) { setLoadError(true); setLoading(false); return; }
-    setLogs((data ?? []).map(toCronLog));
-    setLoading(false);
-  }, [selectedJob]);
 
   // サマリーカード（総実行数・成功率・エラー数）とジョブ別最新実行は selectedJob に
   // 依存しない「全体」の状態。フィルタ変更では再実行せず、マウント時と「更新」ボタン
@@ -177,10 +161,41 @@ export default function CronMonitorPage() {
     setJobsLatest(latest);
   }, []);
 
+  // ローディング表示は「selectedJob 変更→再取得」を起こす onChange ハンドラ側と
+  // 「更新」ボタンの handleRefresh 側で同期的に立てる（effect 内の同期 setState は
+  // Compiler の検出対象になるため）。マウント時は初期値 loading=true が既にその役割を
+  // 果たしているので、ここで改めて setLoading(true) する必要は無い。
+  // 実行ログ一覧（selectedJob で絞り込み・最新200件）。フィルタ変更・logsReloadKey 変化の
+  // たびにこれだけを再取得する（per-job フェッチやサマリーは selectedJob と無関係なので
+  // 再実行しない＝無駄な N+1 を出さない）。アンマウント後の setState を防ぐため
+  // cancelled フラグで守る（旧 gen ref による古いレスポンス破棄と等価）。
   useEffect(() => {
-    setLoading(true);
-    loadLogs().catch(() => { setLoadError(true); setLoading(false); });
-  }, [loadLogs]);
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const supabase = createBrowserSupabaseClient();
+        setLoadError(false);
+        let query = supabase
+          .from('cron_logs')
+          .select('*')
+          .order('started_at', { ascending: false })
+          .limit(200);
+        if (selectedJob) query = query.eq('job_name', selectedJob);
+        const { data, error } = await query;
+        if (cancelled) return; // 古いレスポンスは無視
+        if (error) { setLoadError(true); setLoading(false); return; }
+        setLogs((data ?? []).map(toCronLog));
+        setLoading(false);
+      } catch {
+        if (!cancelled) { setLoadError(true); setLoading(false); }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedJob, logsReloadKey]);
 
   useEffect(() => {
     loadSideData().catch(() => { /* サマリー/ジョブ一覧の失敗は実行ログ一覧の表示を妨げない */ });
@@ -189,9 +204,9 @@ export default function CronMonitorPage() {
 
   const handleRefresh = useCallback(() => {
     setLoading(true);
-    loadLogs().catch(() => { setLoadError(true); setLoading(false); });
+    setLogsReloadKey((k) => k + 1);
     loadSideData().catch(() => {});
-  }, [loadLogs, loadSideData]);
+  }, [loadSideData]);
 
   const latestByJob: [string, CronLog][] = jobsLatest.map((log) => [log.job_name, log]);
 
@@ -253,7 +268,7 @@ export default function CronMonitorPage() {
           <h2 className="text-sm font-bold text-gray-800">実行ログ</h2>
           <select
             value={selectedJob}
-            onChange={(e) => setSelectedJob(e.target.value)}
+            onChange={(e) => { setLoading(true); setSelectedJob(e.target.value); }}
             className="text-sm border border-gray-200 rounded-lg px-2 py-1"
           >
             <option value="">すべてのジョブ</option>

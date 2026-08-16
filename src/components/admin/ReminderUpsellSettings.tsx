@@ -67,6 +67,17 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
   const [buying, setBuying] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [inquired, setInquired] = useState<Set<string>>(new Set());
+  const [redirectUrl, setRedirectUrl] = useState<string | null>(null);
+
+  // handleBuy は JSX の onClick から参照されるため、その内部で window.location.href を
+  // 直接書き換えると React Compiler の immutability ルール（コンポーネント外で定義された
+  // 値の変更）に抵触する。実際の遷移は effect 側に切り出し、handleBuy は遷移先 URL を
+  // state にセットするだけにする（挙動＝Stripe Checkout 等への遷移タイミングは従来と同一）。
+  useEffect(() => {
+    if (redirectUrl) {
+      window.location.href = redirectUrl;
+    }
+  }, [redirectUrl]);
 
   useEffect(() => {
     const load = async () => {
@@ -136,7 +147,7 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
       } else if (contactOnly) {
         setInquired((prev) => new Set(prev).add(optionKey));
       } else if (json.url) {
-        window.location.href = json.url; // Stripe Checkout へ
+        setRedirectUrl(json.url); // Stripe Checkout へ（実際の遷移は上の effect）
       } else {
         setError('決済URLを取得できませんでした。');
       }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { businessTypes, facilityFeatures, prefectures, dayOrder, dayLabels } from '@/lib/constants';
@@ -80,7 +80,14 @@ export default function AdminSettingsPage() {
   });
   const [closedDays, setClosedDays] = useState<string[]>([]);
 
-  const load = useCallback(async () => {
+  // React Compiler の set-state-in-effect 対策：取得処理を useCallback 関数として effect の
+  // 依存に置き外部から直接呼ぶのではなく、effect 内に inline した非同期IIFEとして定義する
+  // （React 公式が推奨する形）。再取得（リトライ）は関数呼び出しではなく reloadKey を
+  // インクリメントして effect を再発火させる形に統一し、取得ロジックの二重定義を避ける。
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    (async () => {
       const supabase = createBrowserSupabaseClient();
       setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
@@ -128,11 +135,8 @@ export default function AdminSettingsPage() {
         }
       }
       setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    load().catch(() => { setLoadError(true); setLoading(false); });
-  }, [load]);
+    })().catch(() => { setLoadError(true); setLoading(false); });
+  }, [reloadKey]);
 
   const toggleFeature = (f: string) => {
     setSelectedFeatures((prev) =>
@@ -227,7 +231,7 @@ export default function AdminSettingsPage() {
     return (
       <div>
         <SbPageHeader title="施設設定" />
-        <LoadError onRetry={load} message="施設情報の読み込みに失敗しました" />
+        <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="施設情報の読み込みに失敗しました" />
       </div>
     );
   }

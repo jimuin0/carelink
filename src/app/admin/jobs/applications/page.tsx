@@ -38,17 +38,27 @@ export default function JobApplicationsPage() {
   const [updating, setUpdating] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const load = () => {
-    setLoadError(false);
-    setLoading(true);
+  // retry は再取得を state（reloadKey）経由で駆動する。load をイベントハンドラからも
+  // effect からも呼べる形にすると React Compiler の set-state-in-effect 検出対象になるため、
+  // fetch 本体は effect 側にだけ inline し、「読み込み中」表示への即時切替（loading/loadError の
+  // 同期リセット）はイベントハンドラ側（retry）で行う。
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
     fetch('/api/admin/job-applications')
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
-      .then((d) => { setApplications(d.applications || []); setLoading(false); })
+      .then((d) => { if (!cancelled) { setApplications(d.applications || []); setLoading(false); } })
       // 読み込み失敗を「応募0件」と誤表示しないよう、エラー状態を保持して LoadError を出す。
-      .catch(() => { setLoadError(true); setLoading(false); });
-  };
+      .catch(() => { if (!cancelled) { setLoadError(true); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [reloadKey]);
 
-  useEffect(() => { load(); }, []);
+  const retry = () => {
+    setLoadError(false);
+    setLoading(true);
+    setReloadKey((k) => k + 1);
+  };
 
   const updateStatus = async (id: string, status: string, referralFee?: number) => {
     setUpdating(true);
@@ -109,7 +119,7 @@ export default function JobApplicationsPage() {
           {loading ? (
             <div className="p-8 text-center text-gray-400">読み込み中...</div>
           ) : loadError ? (
-            <div className="p-6"><LoadError onRetry={load} message="応募の読み込みに失敗しました" /></div>
+            <div className="p-6"><LoadError onRetry={retry} message="応募の読み込みに失敗しました" /></div>
           ) : applications.length === 0 ? (
             <div className="p-8 text-center text-gray-400">まだ応募がありません</div>
           ) : (

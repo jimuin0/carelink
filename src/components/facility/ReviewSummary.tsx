@@ -27,13 +27,30 @@ export default function ReviewSummary({ reviews, facilityId }: Props) {
 
   useEffect(() => {
     if (reviews.length < 3 || aiAttempted) return;
+
+    // 🔴 この2行は effect のトップレベルに置く（async IIFE の中へ入れない）。
+    // IIFE の中へ移すと挙動を1ミリも変えずに検出だけが消える＝症状ブロックになるため。
+    // 実測（2026年8月16日）: async IIFE 内で await より前の同期 setState は検出されない。
+    //
+    // この同期 setState は【意図的】。setAiAttempted(true) は同一マウント内での二重取得を
+    // 防ぐガードで、await の後に置くと取得中に再実行され得る。setLoading(true) は
+    // 要約生成中の表示に必要。よって直さず、検出を残したまま
+    // src/lib/react-compiler-debt.mjs の BASELINE に受容済み負債として計上する。
     setAiAttempted(true);
     setLoading(true);
-    fetch(`/api/admin/review-summary?facility_id=${facilityId}`)
-      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
-      .then((d) => { if (d.summary) setAiSummary(d.summary); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+
+    (async () => {
+      try {
+        const r = await fetch(`/api/admin/review-summary?facility_id=${facilityId}`);
+        if (!r.ok) throw new Error();
+        const d = await r.json();
+        if (d.summary) setAiSummary(d.summary);
+      } catch {
+        // フォールバック（ルールベース要約）を使うため無視
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [facilityId, reviews.length, aiAttempted]);
 
   if (!ruleSummary) return null;

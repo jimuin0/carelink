@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
@@ -51,37 +51,42 @@ export default function AdminPaymentsPage() {
   const [stripeEnabled, setStripeEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // React Compiler の set-state-in-effect 対策：取得処理を useCallback 関数として effect の
+  // 依存に置き外部から直接呼ぶのではなく、effect 内に inline した非同期IIFEとして定義する
+  // （React 公式が推奨する形）。再取得（リトライ）は関数呼び出しではなく reloadKey を
+  // インクリメントして effect を再発火させる形に統一し、取得ロジックの二重定義を避ける。
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const load = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    setLoadError(false);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
-    const { data: mem, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-      .in('role', ['owner', 'admin']).limit(1).single();
-    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-    if (!mem) { setLoading(false); return; }
-    setFacilityId(mem.facility_id);
+  useEffect(() => {
+    (async () => {
+      const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
+      const { data: mem, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
+        .in('role', ['owner', 'admin']).limit(1).single();
+      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
+      if (!mem) { setLoading(false); return; }
+      setFacilityId(mem.facility_id);
 
-    const [facRes, payRes] = await Promise.all([
-      supabase.from('facility_profiles').select('stripe_enabled, deposit_amount, deposit_type').eq('id', mem.facility_id).single(),
-      supabase.from('stripe_sessions').select('id, stripe_session_id, amount, status, payment_type, created_at').eq('facility_id', mem.facility_id).order('created_at', { ascending: false }).limit(50),
-    ]);
+      const [facRes, payRes] = await Promise.all([
+        supabase.from('facility_profiles').select('stripe_enabled, deposit_amount, deposit_type').eq('id', mem.facility_id).single(),
+        supabase.from('stripe_sessions').select('id, stripe_session_id, amount, status, payment_type, created_at').eq('facility_id', mem.facility_id).order('created_at', { ascending: false }).limit(50),
+      ]);
 
-    // 入金設定はフォーム値の初期化に使う。取得失敗を握り潰すと既定値(0/none)を保存して
-    // 実際の入金設定を上書きする金銭事故になるため、失敗時はフォームを描画しない。
-    if (facRes.error || payRes.error) { setLoadError(true); setLoading(false); return; }
-    const facility = facRes.data;
-    if (facility) {
-      setStripeEnabled(facility.stripe_enabled ?? false);
-      setDepositAmount(facility.deposit_amount ?? 0);
-      setDepositType(toDepositType(facility.deposit_type));
-    }
-    setSessions((payRes.data ?? []) as PaymentSession[]);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
+      // 入金設定はフォーム値の初期化に使う。取得失敗を握り潰すと既定値(0/none)を保存して
+      // 実際の入金設定を上書きする金銭事故になるため、失敗時はフォームを描画しない。
+      if (facRes.error || payRes.error) { setLoadError(true); setLoading(false); return; }
+      const facility = facRes.data;
+      if (facility) {
+        setStripeEnabled(facility.stripe_enabled ?? false);
+        setDepositAmount(facility.deposit_amount ?? 0);
+        setDepositType(toDepositType(facility.deposit_type));
+      }
+      setSessions((payRes.data ?? []) as PaymentSession[]);
+      setLoading(false);
+    })().catch(() => { setLoadError(true); setLoading(false); });
+  }, [reloadKey]);
 
   const handleSave = async () => {
     if (!facilityId) return;
@@ -110,7 +115,7 @@ export default function AdminPaymentsPage() {
     return (
       <div className="space-y-6 max-w-4xl">
         <SbPageHeader title="決済・入金設定" />
-        <LoadError onRetry={() => { load().catch(() => { setLoadError(true); setLoading(false); }); }} message="決済情報の読み込みに失敗しました" />
+        <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="決済情報の読み込みに失敗しました" />
       </div>
     );
   }

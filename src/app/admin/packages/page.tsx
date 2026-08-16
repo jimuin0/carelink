@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -58,52 +58,72 @@ export default function PackagesPage() {
     notes: '',
   });
 
-  const loadFacility = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
-    const { data, error } = await supabase
-      .from('facility_members')
-      .select('facility_id')
-      .eq('user_id', user.id)
-      .in('role', ['owner', 'admin'])
-      .limit(1).single();
-    // facility 解決失敗を握り潰すと facilityId 未設定のまま loadPackages が走らず無限スピナーになる。
-    // DB エラーは LoadError で明示、no-row（施設未所属）はスピナーを止めて空状態に委ねる。
-    if (error && error.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-    if (data?.facility_id) setFacilityId(data.facility_id);
-    else setLoading(false);
+  // loadFacility はマウント時の1箇所からしか呼ばれないため、useCallback を介さず
+  // effect 本体へ直接 inline する（呼び出し元が useEffect 経由の1箇所のみなら
+  // reloadKey 等の再構成は不要）。
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const supabase = createBrowserSupabaseClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { if (!cancelled) setLoading(false); return; }
+        const { data, error } = await supabase
+          .from('facility_members')
+          .select('facility_id')
+          .eq('user_id', user.id)
+          .in('role', ['owner', 'admin'])
+          .limit(1).single();
+        // facility 解決失敗を握り潰すと facilityId 未設定のまま loadPackages が走らず無限スピナーになる。
+        // DB エラーは LoadError で明示、no-row（施設未所属）はスピナーを止めて空状態に委ねる。
+        if (error && error.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (cancelled) return;
+        if (data?.facility_id) setFacilityId(data.facility_id);
+        else setLoading(false);
+      } catch {
+        if (!cancelled) { setLoadError(true); setLoading(false); }
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-  const loadPackages = useCallback(async (fId: string) => {
-    setLoadError(false);
-    try {
-      const [pkgRes, upRes, menuRes] = await Promise.all([
-        fetch(`/api/admin/packages?facility_id=${fId}`),
-        fetch(`/api/admin/user-packages?facility_id=${fId}`),
-        (async () => {
-          const supabase = createBrowserSupabaseClient();
-          return supabase.from('facility_menus').select('id, name').eq('facility_id', fId).order('sort_order');
-        })(),
-      ]);
+  // loadPackages 相当の処理は「facilityId 判明時の自動読み込み」「作成/削除後の再取得」「読み込み
+  // 失敗後の再試行」の4箇所から呼ばれ、いずれも同一処理（facilityId のパッケージ一式を取り直す）を
+  // 求めるだけなので、reloadKey を effect の依存に加え、各呼び出し元はキーをインクリメントするだけに
+  // 変更する（処理本体は effect 内に1箇所だけ inline する）。
+  const [packagesReloadKey, setPackagesReloadKey] = useState(0);
 
-      // パッケージ・購入履歴は本画面の主データ。取得失敗を空（0件）に偽装せず明示する
-      if (!pkgRes.ok || !upRes.ok) { setLoadError(true); return; }
-      const d = await pkgRes.json();
-      setPackages(d.packages ?? []);
-      const upD = await upRes.json();
-      setUserPackages(upD.user_packages ?? []);
-      // メニューはフォーム補助。取得失敗時は空のままにし主データの表示は妨げない
-      if (menuRes.data) setMenus(menuRes.data);
-    } catch {
-      setLoadError(true);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  useEffect(() => {
+    if (!facilityId) return;
+    let cancelled = false;
+    (async () => {
+      setLoadError(false);
+      try {
+        const [pkgRes, upRes, menuRes] = await Promise.all([
+          fetch(`/api/admin/packages?facility_id=${facilityId}`),
+          fetch(`/api/admin/user-packages?facility_id=${facilityId}`),
+          (async () => {
+            const supabase = createBrowserSupabaseClient();
+            return supabase.from('facility_menus').select('id, name').eq('facility_id', facilityId).order('sort_order');
+          })(),
+        ]);
 
-  useEffect(() => { loadFacility().catch(() => { setLoadError(true); setLoading(false); }); }, [loadFacility]);
-  useEffect(() => { if (facilityId) loadPackages(facilityId); }, [facilityId, loadPackages]);
+        // パッケージ・購入履歴は本画面の主データ。取得失敗を空（0件）に偽装せず明示する
+        if (!pkgRes.ok || !upRes.ok) { if (!cancelled) setLoadError(true); return; }
+        const d = await pkgRes.json();
+        if (!cancelled) setPackages(d.packages ?? []);
+        const upD = await upRes.json();
+        if (!cancelled) setUserPackages(upD.user_packages ?? []);
+        // メニューはフォーム補助。取得失敗時は空のままにし主データの表示は妨げない
+        if (menuRes.data && !cancelled) setMenus(menuRes.data);
+      } catch {
+        if (!cancelled) setLoadError(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [facilityId, packagesReloadKey]);
 
   const handleCreate = async () => {
     if (!facilityId || saving) return;
@@ -124,7 +144,7 @@ export default function PackagesPage() {
       setToast({ type: 'success', message: 'パッケージを作成しました' });
       setShowForm(false);
       setForm({ name: '', description: '', menu_id: '', session_count: 5, bonus_count: 1, price: 0, valid_days: 365, notes: '' });
-      loadPackages(facilityId);
+      setPackagesReloadKey((k) => k + 1);
     } else {
       const e = await res.json().catch(() => ({}));
       setToast({ type: 'error', message: e.error || '作成に失敗しました' });
@@ -167,7 +187,7 @@ export default function PackagesPage() {
     const res = await fetch(`/api/admin/packages/${pkg.id}?facility_id=${facilityId}`, { method: 'DELETE' });
     if (res.ok) {
       setToast({ type: 'success', message: '削除しました' });
-      loadPackages(facilityId);
+      setPackagesReloadKey((k) => k + 1);
     } else {
       const e = await res.json().catch(() => ({}));
       setToast({ type: 'error', message: e.error || '削除に失敗しました' });
@@ -262,7 +282,7 @@ export default function PackagesPage() {
       )}
 
       {loadError ? (
-        <LoadError onRetry={() => { if (facilityId) loadPackages(facilityId); }} message="パッケージの読み込みに失敗しました" />
+        <LoadError onRetry={() => setPackagesReloadKey((k) => k + 1)} message="パッケージの読み込みに失敗しました" />
       ) : (
       <>
       {/* パッケージ一覧 */}

@@ -23,9 +23,12 @@ export default function AiChatbot() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // 未読バッジのクリアは「開くボタンを押した」というイベントに対する更新であり、
+  // effect で open の変化を監視して同期させる必要はない（React Compiler の
+  // set-state-in-effect 対策）。トグルボタンの onClick 側で直接 setUnread(false) する。
+  // フォーカス移動は DOM への副作用なので引き続き effect に残す。
   useEffect(() => {
     if (open) {
-      setUnread(false);
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }, [open]);
@@ -174,7 +177,11 @@ export default function AiChatbot() {
       {/* Floating button */}
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          const next = !open;
+          setOpen(next);
+          if (next) setUnread(false);
+        }}
         aria-label={open ? 'チャットを閉じる' : 'AIアシスタントに質問する'}
         className="fixed bottom-4 right-4 z-50 w-14 h-14 bg-sky-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-sky-700 transition-all active:scale-95"
       >

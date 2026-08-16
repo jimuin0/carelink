@@ -30,7 +30,24 @@ export default function FeatureFlagsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // load はイベントハンドラ（更新ボタン・保存後の再取得）からも呼ばれ続けるため関数として残し、
+  // マウント時の取得は effect 内へ同じ処理を inline する（React Compiler の
+  // set-state-in-effect：effect から外部関数を直接呼ぶと同期 setState とみなされ検出される）。
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/feature-flags');
+        const json = res.ok ? await res.json() : { flags: [] };
+        if (cancelled) return;
+        if (json.flags) setFlags(json.flags);
+      } catch {
+        // silent
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const updateFlag = async (id: string, updates: Partial<Pick<FeatureFlag, 'enabled' | 'rollout_pct'>>) => {
     setSaving(id);

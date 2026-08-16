@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import QRCode from 'qrcode';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -17,41 +17,47 @@ export default function AdminQrCodePage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const load = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    setLoadError(false);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
-    const { data: member, error: memErr } = await supabase
-      .from('facility_members')
-      .select('facility_id')
-      .eq('user_id', user.id)
-      .in('role', ['owner', 'admin'])
-      .limit(1)
-      .single();
-    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-    if (!member) { setLoading(false); return; }
-    const { data: facility, error: facErr } = await supabase
-      .from('facility_profiles')
-      .select('slug, name')
-      .eq('id', member.facility_id)
-      .single();
-    if (facErr && facErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-    if (!facility) { setLoading(false); return; }
-    setFacilitySlug(facility.slug);
-    setFacilityName(facility.name);
+  // React Compiler の set-state-in-effect 対策：取得処理を useCallback 関数として effect の
+  // 依存に置き外部から直接呼ぶのではなく、effect 内に inline した非同期IIFEとして定義する
+  // （React 公式が推奨する形）。再取得（リトライ）は関数呼び出しではなく reloadKey を
+  // インクリメントして effect を再発火させる形に統一し、取得ロジックの二重定義を避ける。
+  const [reloadKey, setReloadKey] = useState(0);
 
-    const url = `https://carelink-jp.com/facility/${facility.slug}`;
-    const dataUrl = await QRCode.toDataURL(url, {
-      width: 300,
-      margin: 2,
-      color: { dark: '#0c4a6e', light: '#ffffff' },
-    });
-    setQrDataUrl(dataUrl);
-    setLoading(false);
-  }, []);
+  useEffect(() => {
+    (async () => {
+      const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
+      const { data: member, error: memErr } = await supabase
+        .from('facility_members')
+        .select('facility_id')
+        .eq('user_id', user.id)
+        .in('role', ['owner', 'admin'])
+        .limit(1)
+        .single();
+      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
+      if (!member) { setLoading(false); return; }
+      const { data: facility, error: facErr } = await supabase
+        .from('facility_profiles')
+        .select('slug, name')
+        .eq('id', member.facility_id)
+        .single();
+      if (facErr && facErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
+      if (!facility) { setLoading(false); return; }
+      setFacilitySlug(facility.slug);
+      setFacilityName(facility.name);
 
-  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
+      const url = `https://carelink-jp.com/facility/${facility.slug}`;
+      const dataUrl = await QRCode.toDataURL(url, {
+        width: 300,
+        margin: 2,
+        color: { dark: '#0c4a6e', light: '#ffffff' },
+      });
+      setQrDataUrl(dataUrl);
+      setLoading(false);
+    })().catch(() => { setLoadError(true); setLoading(false); });
+  }, [reloadKey]);
 
   const handleDownload = () => {
     if (!qrDataUrl || !facilitySlug) return;
@@ -72,7 +78,7 @@ export default function AdminQrCodePage() {
     return (
       <div>
         <SbPageHeader title="QRコード" />
-        <LoadError onRetry={() => { load().catch(() => { setLoadError(true); setLoading(false); }); }} message="施設情報の読み込みに失敗しました" />
+        <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="施設情報の読み込みに失敗しました" />
       </div>
     );
   }
