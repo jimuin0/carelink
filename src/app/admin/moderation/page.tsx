@@ -90,7 +90,40 @@ export default function ModerationPage() {
     setLoading(false);
   }, [statusFilter]);
 
-  useEffect(() => { load(); }, [load]);
+  // load は更新ボタン・審査後の再取得などイベントハンドラから引き続き呼ぶため関数として残し、
+  // マウント時・statusFilter 変更時の取得は effect 内へ同じ処理を inline する（React Compiler の
+  // set-state-in-effect：effect から外部関数を直接呼ぶと同期 setState とみなされ検出される）。
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const supabase = createBrowserSupabaseClient();
+      let query = supabase
+        .from('moderation_queue')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (statusFilter) query = query.eq('status', statusFilter);
+      setLoadError(false);
+      const { data, error } = await query;
+      if (cancelled) return;
+      if (error) { setLoadError(true); setLoading(false); return; }
+      // select('*') の生の行は status が string・auto_flags が Json のため、画面が期待する
+      // ModerationItem 型へランタイム検証しつつ詰め替える（上記コメント参照）。
+      setItems((data ?? []).map((row) => ({
+        id: row.id,
+        content_type: row.content_type,
+        content_id: row.content_id,
+        facility_id: row.facility_id,
+        report_reason: row.report_reason,
+        auto_flags: toStringArray(row.auto_flags),
+        status: toModerationStatus(row.status),
+        review_note: row.review_note,
+        created_at: row.created_at,
+      })));
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [statusFilter]);
 
   const handleDecision = async (id: string, decision: 'approved' | 'rejected' | 'escalated') => {
     if (processingId) return; // 二重送信ガード（連打抑止）

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import { SbPageHeader } from '@/components/admin/SbUi';
@@ -24,29 +24,38 @@ export default function AbTestsPage() {
   const [results, setResults] = useState<Record<string, AbResult>>({});
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
-    const res = await fetch('/api/admin/feature-flags?ab=1');
-    const json = res.ok ? await res.json() : { flags: [] };
+  // アンマウント後の setState を防ぐため、非同期処理を effect 内へ inline し cancelled フラグで守る
+  useEffect(() => {
+    let cancelled = false;
 
-    const loadedFlags: Flag[] = json.flags ?? [];
-    setFlags(loadedFlags);
+    (async () => {
+      const res = await fetch('/api/admin/feature-flags?ab=1');
+      const json = res.ok ? await res.json() : { flags: [] };
 
-    // 各フラグのA/B結果を並行取得
-    const resultMap: Record<string, AbResult> = {};
-    await Promise.all(
-      loadedFlags.map(async (f) => {
-        const res = await fetch(`/api/ab-test?key=${encodeURIComponent(f.key)}`);
-        if (res.ok) {
-          const r = await res.json();
-          if (r.control || r.treatment) resultMap[f.key] = r;
-        }
-      })
-    );
-    setResults(resultMap);
-    setLoading(false);
+      const loadedFlags: Flag[] = json.flags ?? [];
+      if (cancelled) return;
+      setFlags(loadedFlags);
+
+      // 各フラグのA/B結果を並行取得
+      const resultMap: Record<string, AbResult> = {};
+      await Promise.all(
+        loadedFlags.map(async (f) => {
+          const res = await fetch(`/api/ab-test?key=${encodeURIComponent(f.key)}`);
+          if (res.ok) {
+            const r = await res.json();
+            if (r.control || r.treatment) resultMap[f.key] = r;
+          }
+        })
+      );
+      if (cancelled) return;
+      setResults(resultMap);
+      setLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   if (loading) return <AdminPageLoading />;
 

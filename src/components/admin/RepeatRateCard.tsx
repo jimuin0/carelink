@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 
 export default function RepeatRateCard({ facilityId }: { facilityId: string }) {
@@ -8,26 +8,39 @@ export default function RepeatRateCard({ facilityId }: { facilityId: string }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
-  const load = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    setLoadError(false);
-    const { data: segments, error } = await supabase
-      .from('customer_segments')
-      .select('total_visits')
-      .eq('facility_id', facilityId);
+  // React Compiler の set-state-in-effect 対策：useCallback + 呼び出し という形は
+  // 「effect が外部関数を呼び、その中で setState する」構造として検出されるため、
+  // 取得処理を effect 本体へ直接 inline し、再取得は reloadKey（state）で駆動する。
+  // 挙動は従来と同一（マウント時取得・facilityId 変化時再取得・再試行ボタンで再取得）。
+  const [reloadKey, setReloadKey] = useState(0);
+  const retry = () => setReloadKey((k) => k + 1);
 
-    if (error) { setLoadError(true); setLoading(false); return; }
-    if (segments && segments.length > 0) {
-      // customer_segments.total_visits は migration 上 NOT NULL 制約が無く DEFAULT 0
-      // （supabase/migrations/20260404000002_dashboard_enhancement.sql）。null は
-      // 「来店回数が未集計」を意味し得るため、DB の既定値と同じ 0（＝リピーターではない）に倒す。
-      const repeaters = segments.filter(s => (s.total_visits ?? 0) >= 2).length;
-      setRate(Math.round((repeaters / segments.length) * 100));
-    }
-    setLoading(false);
-  }, [facilityId]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
+      const { data: segments, error } = await supabase
+        .from('customer_segments')
+        .select('total_visits')
+        .eq('facility_id', facilityId);
 
-  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
+      if (cancelled) return;
+      if (error) { setLoadError(true); setLoading(false); return; }
+      if (segments && segments.length > 0) {
+        // customer_segments.total_visits は migration 上 NOT NULL 制約が無く DEFAULT 0
+        // （supabase/migrations/20260404000002_dashboard_enhancement.sql）。null は
+        // 「来店回数が未集計」を意味し得るため、DB の既定値と同じ 0（＝リピーターではない）に倒す。
+        const repeaters = segments.filter(s => (s.total_visits ?? 0) >= 2).length;
+        setRate(Math.round((repeaters / segments.length) * 100));
+      }
+      setLoading(false);
+    })().catch(() => {
+      if (!cancelled) { setLoadError(true); setLoading(false); }
+    });
+    // アンマウント後（cleanup 実行後）の setState を発生させないための cancelled ガード。
+    return () => { cancelled = true; };
+  }, [facilityId, reloadKey]);
 
   if (loading) return <div className="h-20 bg-gray-50 rounded-lg animate-pulse" />;
 
@@ -37,7 +50,7 @@ export default function RepeatRateCard({ facilityId }: { facilityId: string }) {
       <div className="bg-white rounded-xl p-4 border border-rose-200" role="alert">
         <p className="text-xs text-gray-500">リピート率</p>
         <p className="text-sm text-rose-600 font-bold mt-1">取得に失敗しました</p>
-        <button type="button" onClick={() => load()} className="text-xs text-sky-600 underline mt-1">再試行</button>
+        <button type="button" onClick={retry} className="text-xs text-sky-600 underline mt-1">再試行</button>
       </div>
     );
   }

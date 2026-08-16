@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, use } from 'react';
+import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -42,30 +42,36 @@ export default function EditPlatformBlogPage(props: Props) {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const load = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    setLoadError(false);
-    const { data, error } = await supabase
-      .from('platform_blog_posts')
-      .select('*')
-      .eq('id', params.id)
-      .single();
+  // React Compiler の set-state-in-effect 対策：取得処理を useCallback 関数として effect の
+  // 依存に置き外部から直接呼ぶのではなく、effect 内に inline した非同期IIFEとして定義する
+  // （React 公式が推奨する形）。再取得（リトライ）は関数呼び出しではなく reloadKey を
+  // インクリメントして effect を再発火させる形に統一し、取得ロジックの二重定義を避ける。
+  const [reloadKey, setReloadKey] = useState(0);
 
-    if (error) { setLoadError(true); setLoading(false); return; }
-    if (data) {
-      setTitle(data.title);
-      setSlug(data.slug);
-      setDescription(data.description || '');
-      setCategory(data.category || '');
-      setTags((data.tags || []).join(', '));
-      setReadingTime(data.reading_time || 5);
-      setContentJson(JSON.stringify(data.content, null, 2));
-      setIsPublished(data.is_published);
-    }
-    setLoading(false);
-  }, [params.id]);
+  useEffect(() => {
+    (async () => {
+      const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
+      const { data, error } = await supabase
+        .from('platform_blog_posts')
+        .select('*')
+        .eq('id', params.id)
+        .single();
 
-  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
+      if (error) { setLoadError(true); setLoading(false); return; }
+      if (data) {
+        setTitle(data.title);
+        setSlug(data.slug);
+        setDescription(data.description || '');
+        setCategory(data.category || '');
+        setTags((data.tags || []).join(', '));
+        setReadingTime(data.reading_time || 5);
+        setContentJson(JSON.stringify(data.content, null, 2));
+        setIsPublished(data.is_published);
+      }
+      setLoading(false);
+    })().catch(() => { setLoadError(true); setLoading(false); });
+  }, [params.id, reloadKey]);
 
   const validateJson = (value: string) => {
     try {
@@ -136,7 +142,7 @@ export default function EditPlatformBlogPage(props: Props) {
     return (
       <div className="max-w-3xl">
         <SbPageHeader title="コラム記事を編集" />
-        <LoadError onRetry={load} message="記事の読み込みに失敗しました" />
+        <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="記事の読み込みに失敗しました" />
       </div>
     );
   }

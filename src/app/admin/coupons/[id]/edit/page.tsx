@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -36,45 +36,9 @@ export default function CouponEditPage() {
   useUnsavedGuard(dirty);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-
-  const loadCoupon = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    setLoadError(false);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { router.push('/admin/coupons'); return; }
-
-    const { data, error } = await supabase.from('coupons').select('*').eq('id', couponId).single();
-    // 行なし（PGRST116）は従来どおり一覧へ戻す。通信/権限エラーは空フォーム上書き事故を防ぐため明示する
-    if (error) {
-      if (error.code === 'PGRST116') { router.push('/admin/coupons'); return; }
-      setLoadError(true); setLoading(false); return;
-    }
-    if (!data) { router.push('/admin/coupons'); return; }
-    setName(data.name);
-    setDescription(data.description || '');
-    setCouponType(data.coupon_type);
-    setDiscountType(data.discount_type);
-    setDiscountValue(data.discount_value?.toString() || '');
-    setSpecialPrice(data.special_price?.toString() || '');
-    setValidFrom(data.valid_from || '');
-    setValidUntil(data.valid_until || '');
-    setIsActive(data.is_active ?? true);
-
-    // 対象メニュー限定の現在値（coupon_menus）と選択肢（自施設の facility_menus）。
-    // ここが取得できないまま保存すると target_menu_ids: [] が送信され、既存の対象メニュー限定を
-    // 意図せず解除（全メニュー適用化）してしまう金銭事故になるため、失敗は loadError に倒して
-    // フォームを描画しない（既存の「空フォーム上書き事故防止」と同じ設計思想）。
-    const [{ data: cmRows, error: cmError }, { data: menus, error: menusError }] = await Promise.all([
-      supabase.from('coupon_menus').select('menu_id').eq('coupon_id', couponId),
-      supabase.from('facility_menus').select('id, name, price').eq('facility_id', data.facility_id).order('sort_order'),
-    ]);
-    if (cmError || menusError) {
-      setLoadError(true); setLoading(false); return;
-    }
-    setTargetMenuIds((cmRows ?? []).map((r: { menu_id: string }) => r.menu_id));
-    setMenuOptions((menus ?? []) as MenuOption[]);
-    setLoading(false);
-  }, [couponId, router]);
+  // retry は再取得を state 経由で駆動する（load をイベントハンドラからも effect からも
+  // 呼べる形にすると Compiler の検出対象になるため、キーの変化で effect 側だけに寄せる）
+  const [reloadKey, setReloadKey] = useState(0);
 
   const toggleTargetMenu = (menuId: string) => {
     setDirty(true);
@@ -83,7 +47,61 @@ export default function CouponEditPage() {
     );
   };
 
-  useEffect(() => { loadCoupon().catch(() => { setLoadError(true); setLoading(false); }); }, [loadCoupon]);
+  // アンマウント後の setState を防ぐため cancelled フラグで守りつつ、非同期処理を effect 内へ inline する
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const supabase = createBrowserSupabaseClient();
+        setLoadError(false);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { router.push('/admin/coupons'); return; }
+
+        const { data, error } = await supabase.from('coupons').select('*').eq('id', couponId).single();
+        // 行なし（PGRST116）は従来どおり一覧へ戻す。通信/権限エラーは空フォーム上書き事故を防ぐため明示する
+        if (error) {
+          if (error.code === 'PGRST116') { router.push('/admin/coupons'); return; }
+          if (!cancelled) { setLoadError(true); setLoading(false); }
+          return;
+        }
+        if (!data) { router.push('/admin/coupons'); return; }
+        if (cancelled) return;
+        setName(data.name);
+        setDescription(data.description || '');
+        setCouponType(data.coupon_type);
+        setDiscountType(data.discount_type);
+        setDiscountValue(data.discount_value?.toString() || '');
+        setSpecialPrice(data.special_price?.toString() || '');
+        setValidFrom(data.valid_from || '');
+        setValidUntil(data.valid_until || '');
+        setIsActive(data.is_active ?? true);
+
+        // 対象メニュー限定の現在値（coupon_menus）と選択肢（自施設の facility_menus）。
+        // ここが取得できないまま保存すると target_menu_ids: [] が送信され、既存の対象メニュー限定を
+        // 意図せず解除（全メニュー適用化）してしまう金銭事故になるため、失敗は loadError に倒して
+        // フォームを描画しない（既存の「空フォーム上書き事故防止」と同じ設計思想）。
+        const [{ data: cmRows, error: cmError }, { data: menus, error: menusError }] = await Promise.all([
+          supabase.from('coupon_menus').select('menu_id').eq('coupon_id', couponId),
+          supabase.from('facility_menus').select('id, name, price').eq('facility_id', data.facility_id).order('sort_order'),
+        ]);
+        if (cmError || menusError) {
+          if (!cancelled) { setLoadError(true); setLoading(false); }
+          return;
+        }
+        if (cancelled) return;
+        setTargetMenuIds((cmRows ?? []).map((r: { menu_id: string }) => r.menu_id));
+        setMenuOptions((menus ?? []) as MenuOption[]);
+        setLoading(false);
+      } catch {
+        if (!cancelled) { setLoadError(true); setLoading(false); }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [couponId, router, reloadKey]);
 
   const handleSave = async () => {
     if (saving || !name.trim()) {
@@ -172,7 +190,7 @@ export default function CouponEditPage() {
     return (
       <div>
         <SbPageHeader title="クーポン編集" />
-        <LoadError onRetry={loadCoupon} message="クーポンの読み込みに失敗しました" />
+        <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="クーポンの読み込みに失敗しました" />
       </div>
     );
   }

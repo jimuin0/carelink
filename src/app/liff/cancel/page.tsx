@@ -44,7 +44,16 @@ function CancelContent() {
   const bookingId = searchParams.get('booking_id');
 
   const [booking, setBooking] = useState<Booking | null>(null);
-  const [loading, setLoading] = useState(false);
+  // liff.status は 'loading' から 'ready' へ一度だけ遷移し、bookingId は外部（LINE
+  // 側の深いリンク）からの初回ロードでのみ決まる（アプリ内に別 booking_id への
+  // 遷移導線が無い＝同一マウント中に値が変わることはない）ため、この effect は
+  // 実質1回しか走らない。「読み込み中」を state の初期値に持たせることで、
+  // effect 内の同期 setState（React Compiler の set-state-in-effect 違反＝
+  // カスケードレンダリングの原因）を無くす。旧実装は初期値 false のまま
+  // liff.status==='ready' の初回描画を一瞬挟んでから setLoading(true) していたため、
+  // 実際には「予約が見つかりません」が一瞬見えてからスピナーに切り替わる
+  // カスケードが起きていた（本修正で解消・表示内容自体は不変）。
+  const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
   const [result, setResult] = useState<'success' | 'error' | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
@@ -53,8 +62,6 @@ function CancelContent() {
 
   useEffect(() => {
     if (liff.status !== 'ready' || !bookingId) return;
-    setLoading(true);
-    setLoadError(false);
     fetch(`/api/liff/bookings?booking_id=${bookingId}`, {
         headers: { Authorization: `Bearer ${liff.accessToken}` },
       })

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useSyncExternalStore } from 'react';
 
 interface Props {
   businessHours: Record<string, { open: string; close: string } | null> | null;
@@ -24,28 +24,45 @@ export function computeBusinessStatus(
   return isOpen ? 'open' : 'closed';
 }
 
+// 購読すべき更新イベントが無い（現在時刻は常に「今読んだ値」を使うだけで、外部からの
+// 変化通知を待つ必要が無い）ため、subscribe は何もしない no-op。
+function subscribeNoop() {
+  return () => {};
+}
+
+function getServerStatusSnapshot(): 'open' | 'closed' | 'holiday' | 'unknown' {
+  return 'unknown';
+}
+
 export default function BusinessStatusBadge({ businessHours }: Props) {
   // 現在時刻(new Date())は SSR ではサーバのタイムゾーン(通常UTC)、クライアントでは閲覧者の
   // ローカル時刻(日本ならJST)で評価されるため、描画中に判定するとサーバHTMLとクライアント描画で
-  // 営業状態テキスト(営業中/営業時間外/定休日)が食い違い hydration mismatch を起こす。判定は
-  // マウント後(クライアントのみ=閲覧者のローカル時刻)に確定し、初期描画は null にして一致させる。
-  const [status, setStatus] = useState<'open' | 'closed' | 'holiday' | 'unknown' | null>(null);
+  // 営業状態テキスト(営業中/営業時間外/定休日)が食い違い hydration mismatch を起こす。
+  // 従来は useEffect + setState でマウント後(クライアントのみ)に確定していたが、React Compiler の
+  // set-state-in-effect に検出されるため、React公式が「サーバ/クライアントで異なる値を安全に
+  // 出し分ける」ために用意している useSyncExternalStore（getServerSnapshot 引数）に置き換える。
+  // 判定結果は 'open'|'closed'|'holiday'|'unknown' という文字列（プリミティブ値）なので、
+  // getSnapshot が呼び出しごとに新しい値を返しても参照比較(Object.is)は値で一致し、
+  // 無限再レンダーの心配はない。
+  const status = useSyncExternalStore(
+    subscribeNoop,
+    () => {
+      if (!businessHours) return 'unknown' as const;
+      const now = new Date();
+      const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+      const today = days[now.getDay()];
+      const todayHours = businessHours[today];
 
-  useEffect(() => {
-    if (!businessHours) { setStatus('unknown'); return; }
-    const now = new Date();
-    const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-    const today = days[now.getDay()];
-    const todayHours = businessHours[today];
+      const hours = now.getHours();
+      const minutes = now.getMinutes();
+      const currentTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 
-    const hours = now.getHours();
-    const minutes = now.getMinutes();
-    const currentTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+      return computeBusinessStatus(currentTime, todayHours);
+    },
+    getServerStatusSnapshot,
+  );
 
-    setStatus(computeBusinessStatus(currentTime, todayHours));
-  }, [businessHours]);
-
-  if (status === null || status === 'unknown') return null;
+  if (status === 'unknown') return null;
 
   const config = {
     open: { text: '営業中', className: 'bg-emerald-100 text-emerald-700' },

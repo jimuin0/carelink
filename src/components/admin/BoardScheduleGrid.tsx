@@ -275,7 +275,13 @@ function BoardBookingModal({
     }
     onClose();
   }
-  closeRef.current = handleClose;
+  // ref への書き込みは render 中ではなく effect 内で行う（React Compiler の
+  // refs ルール対策）。deps 無しで毎レンダー後に実行し、常に最新の handleClose を
+  // 保持するという従来の挙動は変えない（ESC ハンドラは document リスナから
+  // closeRef.current() 経由で読む）。
+  useEffect(() => {
+    closeRef.current = handleClose;
+  });
 
   // ダイアログ a11y（R6）: 開いた時に最初の入力へフォーカス、ESC で閉じる、Tab をモーダル内に閉じ込め、
   // 閉じたら起点（呼び出し元）へフォーカスを戻す。

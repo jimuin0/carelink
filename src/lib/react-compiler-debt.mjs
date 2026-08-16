@@ -24,10 +24,24 @@ export const RATCHET_RULES = [
 
 /**
  * 現在の負債件数。2026年8月16日 に eslint-config-next 16.3.0 / React 19 で実測した値。
- * 内訳: set-state-in-effect 64 / purity 3 / immutability 3 / refs 2。
  * 返済したらこの数を下げること（下げ忘れは checkDebt が検知する）。
+ *
+ * 72 件から 6 件まで返済済み。残る 6 件は【意図的に残してある】：
+ *
+ *   gbp/page.tsx                        タブ切替時に即ローディング表示へ（空表示の誤解を防ぐ）
+ *   mypage/bookings/[id]/change/page.tsx 日付変更時に前日の枠と選択を即クリア（日時取り違え防止）
+ *   BookingFlow.tsx x2                   sessionStorage からの下書き復元／空き状況の即ローディング表示
+ *   ReviewSummary.tsx                    二重取得ガードと生成中表示
+ *   StationSearch.tsx                    パネルを開いた瞬間のスピナー表示
+ *
+ * 🔴 これらを「直す」ことは技術的には簡単だが、やってはいけない。
+ * 実測（2026年8月16日）: このルールは effect 本体の直下という AST の形しか見ない浅い構文検査で、
+ * async IIFE の中へ同期 setState を移すと【挙動を1ミリも変えずに検出だけが消える】。
+ * 上記6件はいずれも「その瞬間に表示を切り替える」ことが要件なので、遅延させる修正は挙動退行、
+ * IIFE へ隠す修正は症状ブロックにしかならない。よって検出を残したまま件数として計上する。
+ * 各箇所のコード上のコメントに、なぜ意図的かを個別に書いてある。
  */
-export const BASELINE = 72;
+export const BASELINE = 6;
 
 /**
  * eslint の JSON 出力から、ラチェット対象ルールの指摘件数を数える。

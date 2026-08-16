@@ -59,32 +59,52 @@ export default function AdminHpbMenusPage() {
     setMenus((json.menus ?? []) as HpbMenu[]);
   }, []);
 
-  const reload = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    setLoadError(false);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
-    const { data: membership, error: memErr } = await supabase
-      .from('facility_members').select('facility_id').eq('user_id', user.id)
-      .in('role', ['owner', 'admin']).limit(1).single();
-    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-    if (!membership) { setLoading(false); return; }
-    setFacilityId(membership.facility_id);
-
-    const { data: profile, error: profErr } = await supabase
-      .from('facility_profiles').select('hpb_sln_id').eq('id', membership.facility_id).single();
-    if (profErr) { setLoadError(true); setLoading(false); return; }
-    const sln = (profile?.hpb_sln_id as string | null) ?? null;
-    setSavedSlnId(sln);
-    setSlnId(sln ?? '');
-
-    await loadMenus(membership.facility_id);
-    setLoading(false);
-  }, [loadMenus]);
+  // retry は再取得を state（reloadKey）経由で駆動する。reload をイベントハンドラからも
+  // effect からも呼べる形にすると React Compiler の set-state-in-effect 検出対象になるため、
+  // 実処理は effect 側にだけ inline し（loadMenus の外部呼び出しも含めて）、
+  // イベントハンドラ側は reloadKey を進めるだけにする。
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    reload().catch(() => { setLoadError(true); setLoading(false); });
-  }, [reload]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const supabase = createBrowserSupabaseClient();
+        setLoadError(false);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (cancelled) return;
+        if (!user) { setLoading(false); return; }
+        const { data: membership, error: memErr } = await supabase
+          .from('facility_members').select('facility_id').eq('user_id', user.id)
+          .in('role', ['owner', 'admin']).limit(1).single();
+        if (cancelled) return;
+        if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
+        if (!membership) { setLoading(false); return; }
+        setFacilityId(membership.facility_id);
+
+        const { data: profile, error: profErr } = await supabase
+          .from('facility_profiles').select('hpb_sln_id').eq('id', membership.facility_id).single();
+        if (cancelled) return;
+        if (profErr) { setLoadError(true); setLoading(false); return; }
+        const sln = (profile?.hpb_sln_id as string | null) ?? null;
+        setSavedSlnId(sln);
+        setSlnId(sln ?? '');
+
+        const res = await fetch(`/api/admin/hpb-menus?facility_id=${membership.facility_id}`);
+        if (cancelled) return;
+        if (!res.ok) throw new Error();
+        const json = await res.json();
+        if (cancelled) return;
+        setMenus((json.menus ?? []) as HpbMenu[]);
+        setLoading(false);
+      } catch {
+        if (!cancelled) { setLoadError(true); setLoading(false); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [reloadKey]);
+
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   const handleSaveSln = async () => {
     if (!facilityId || savingSln) return;

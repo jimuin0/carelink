@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, use, useCallback } from 'react';
+import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -35,7 +35,19 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const load = useCallback(async () => {
+  const toggleMenu = (menuId: string) => {
+    setDirty(true);
+    setMenuIds((prev) => (prev.includes(menuId) ? prev.filter((id) => id !== menuId) : [...prev, menuId]));
+  };
+
+  // React Compiler の set-state-in-effect 対策：取得処理を useCallback 関数として effect の
+  // 依存に置き外部から直接呼ぶのではなく、effect 内に inline した非同期IIFEとして定義する
+  // （React 公式が推奨する形）。再取得（リトライ）は関数呼び出しではなく reloadKey を
+  // インクリメントして effect を再発火させる形に統一し、取得ロジックの二重定義を避ける。
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    (async () => {
       const supabase = createBrowserSupabaseClient();
       setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
@@ -70,16 +82,8 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
       setMenuIds((msRows ?? []).map((r: { menu_id: string }) => r.menu_id));
       setMenuOptions((menus ?? []) as MenuOption[]);
       setLoading(false);
-  }, [params.id]);
-
-  const toggleMenu = (menuId: string) => {
-    setDirty(true);
-    setMenuIds((prev) => (prev.includes(menuId) ? prev.filter((id) => id !== menuId) : [...prev, menuId]));
-  };
-
-  useEffect(() => {
-    load().catch(() => { setLoadError(true); setLoading(false); });
-  }, [load]);
+    })().catch(() => { setLoadError(true); setLoading(false); });
+  }, [params.id, reloadKey]);
 
   const handleSave = async () => {
     if (saving || !name || !facilityId) return;
@@ -125,7 +129,7 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
     return (
       <div>
         <SbPageHeader title="スタッフ編集" />
-        <LoadError onRetry={load} message="スタッフ情報の読み込みに失敗しました" />
+        <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="スタッフ情報の読み込みに失敗しました" />
       </div>
     );
   }

@@ -1,16 +1,45 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { getViewedFacilities } from './ViewCount';
 
-export default function RecentlyViewed() {
-  const [facilities, setFacilities] = useState<ReturnType<typeof getViewedFacilities>>([]);
+type ViewedFacilities = ReturnType<typeof getViewedFacilities>;
 
-  useEffect(() => {
-    setFacilities(getViewedFacilities());
-  }, []);
+// localStorage はサーバに存在しないため getViewedFacilities() はサーバ側で常に [] を返す。
+// クライアントの最初の描画（hydration）でも同じ [] を使わないとサーバHTMLと食い違う
+// （hydration mismatch）ため、getServerSnapshot には常に空配列を渡す。
+const emptyFacilities: ViewedFacilities = [];
+function getServerSnapshot(): ViewedFacilities {
+  return emptyFacilities;
+}
+
+// 購読すべき更新イベントが無い（localStorage は他タブでの変更を追跡する必要が無く、
+// マウント時に1回読めば十分）ため、subscribe は no-op。
+function subscribeNoop() {
+  return () => {};
+}
+
+// getViewedFacilities() は呼ぶたびに JSON.parse で新しい配列参照を返す。
+// useSyncExternalStore の getSnapshot が呼び出しごとに異なる参照を返すと「値が変わった」と
+// 誤認され無限に再レンダーする（配列は参照比較のため）。マウントごとに1回だけ読み、
+// 以後は同じ参照を返すようキャッシュする（React公式ドキュメントが案内するキャッシュ方法）。
+function createSnapshotGetter() {
+  let cached: ViewedFacilities | null = null;
+  return () => {
+    if (cached === null) cached = getViewedFacilities();
+    return cached;
+  };
+}
+
+export default function RecentlyViewed() {
+  // React Compiler の set-state-in-effect 対策：従来は useEffect + setState でマウント後
+  // (クライアントのみ=localStorageが使える環境)に確定していたが、React公式が
+  // 「サーバ/クライアントで異なる値を安全に出し分ける」ために用意している
+  // useSyncExternalStore（getServerSnapshot 引数）に置き換える。
+  const [getSnapshot] = useState(createSnapshotGetter);
+  const facilities = useSyncExternalStore(subscribeNoop, getSnapshot, getServerSnapshot);
 
   if (facilities.length === 0) return null;
 

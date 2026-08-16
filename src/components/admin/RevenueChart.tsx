@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -16,41 +16,54 @@ export default function RevenueChart({ facilityId }: { facilityId: string }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
-  const load = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    setLoadError(false);
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  // React Compiler の set-state-in-effect 対策：useCallback + 呼び出し という形は
+  // 「effect が外部関数を呼び、その中で setState する」構造として検出されるため、
+  // 取得処理を effect 本体へ直接 inline し、再取得は reloadKey（state）で駆動する。
+  // 挙動は従来と同一（マウント時取得・facilityId 変化時再取得・再試行ボタンで再取得）。
+  const [reloadKey, setReloadKey] = useState(0);
+  const retry = () => setReloadKey((k) => k + 1);
 
-    const { data: rows, error } = await supabase
-      .from('daily_revenue_summary')
-      .select('date, total_revenue, booking_count, completed_count')
-      .eq('facility_id', facilityId)
-      .gte('date', thirtyDaysAgo.toISOString().split('T')[0])
-      .order('date', { ascending: true });
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    if (error) { setLoadError(true); setLoading(false); return; }
-    // daily_revenue_summary の total_revenue/booking_count/completed_count は
-    // migration 上 NOT NULL 制約が無く DEFAULT 0（supabase/migrations/20260404000002_dashboard_enhancement.sql）。
-    // 集計 RPC（aggregate_daily_revenue）は常に非 null で UPSERT するため実運用で null にはならない想定だが、
-    // 型上は number | null となるため、DB の既定値と同じ 0 に倒してグラフ描画の型を満たす（表示挙動は変えない）。
-    setData((rows || []).map((r) => ({
-      date: r.date,
-      total_revenue: r.total_revenue ?? 0,
-      booking_count: r.booking_count ?? 0,
-      completed_count: r.completed_count ?? 0,
-    })));
-    setLoading(false);
-  }, [facilityId]);
+      const { data: rows, error } = await supabase
+        .from('daily_revenue_summary')
+        .select('date, total_revenue, booking_count, completed_count')
+        .eq('facility_id', facilityId)
+        .gte('date', thirtyDaysAgo.toISOString().split('T')[0])
+        .order('date', { ascending: true });
 
-  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
+      if (cancelled) return;
+      if (error) { setLoadError(true); setLoading(false); return; }
+      // daily_revenue_summary の total_revenue/booking_count/completed_count は
+      // migration 上 NOT NULL 制約が無く DEFAULT 0（supabase/migrations/20260404000002_dashboard_enhancement.sql）。
+      // 集計 RPC（aggregate_daily_revenue）は常に非 null で UPSERT するため実運用で null にはならない想定だが、
+      // 型上は number | null となるため、DB の既定値と同じ 0 に倒してグラフ描画の型を満たす（表示挙動は変えない）。
+      setData((rows || []).map((r) => ({
+        date: r.date,
+        total_revenue: r.total_revenue ?? 0,
+        booking_count: r.booking_count ?? 0,
+        completed_count: r.completed_count ?? 0,
+      })));
+      setLoading(false);
+    })().catch(() => {
+      if (!cancelled) { setLoadError(true); setLoading(false); }
+    });
+    // アンマウント後（cleanup 実行後）の setState を発生させないための cancelled ガード。
+    return () => { cancelled = true; };
+  }, [facilityId, reloadKey]);
 
   if (loading) return <div className="h-64 bg-gray-50 rounded-lg animate-pulse" />;
   // 取得失敗時は「データがありません」に偽装せず失敗として明示する
   if (loadError) return (
     <div className="text-center py-8" role="alert">
       <p className="text-sm text-rose-600 font-bold">日別売上の読み込みに失敗しました</p>
-      <button type="button" onClick={() => load()} className="text-xs text-sky-600 underline mt-1">再試行</button>
+      <button type="button" onClick={retry} className="text-xs text-sky-600 underline mt-1">再試行</button>
     </div>
   );
   if (data.length === 0) return <p className="text-sm text-gray-400 text-center py-8">データがありません</p>;

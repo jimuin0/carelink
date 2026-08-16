@@ -1,20 +1,46 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useSyncExternalStore } from 'react';
 import { LOCALE_LABELS, LOCALE_FLAGS, SUPPORTED_LOCALES, type Locale, LOCALE_COOKIE_KEY } from '@/lib/i18n';
+
+// useSyncExternalStore 用の購読関数。cookie の変化は他タブ由来のイベントを監視する
+// 手段が無く、このタブ内では handleSelect 経由でしか変わらないため何もしない
+// unsubscribe を返す。
+function subscribeToLocaleCookie(): () => void {
+  return () => {};
+}
+
+// document.cookie（ブラウザ専用 API）から現在のロケールをレンダー中に読む。
+// useSyncExternalStore の getSnapshot はサーバーでは呼ばれないため
+// typeof window ガードは不要。
+function getCookieLocale(): Locale {
+  const match = document.cookie.match(new RegExp(`${LOCALE_COOKIE_KEY}=([^;]+)`));
+  if (match && SUPPORTED_LOCALES.includes(match[1] as Locale)) {
+    return match[1] as Locale;
+  }
+  return 'ja';
+}
+
+// SSR・初回ハイドレーション時は既定の 'ja' を返す（旧実装の初期 state と同じ見た目）。
+// ハイドレーション後、useSyncExternalStore が実値（getCookieLocale）へ自動で切り替える。
+function getServerLocale(): Locale {
+  return 'ja';
+}
 
 export default function LocaleSwitcher() {
   const [open, setOpen] = useState(false);
-  const [current, setCurrent] = useState<Locale>('ja');
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    // Read current locale from cookie
-    const match = document.cookie.match(new RegExp(`${LOCALE_COOKIE_KEY}=([^;]+)`));
-    if (match && SUPPORTED_LOCALES.includes(match[1] as Locale)) {
-      setCurrent(match[1] as Locale);
-    }
-  }, []);
+  // cookie 由来のロケールを effect + setState ではなく useSyncExternalStore で
+  // レンダー中に読む。ブラウザ専用 API を安全に扱いつつハイドレーション不整合も
+  // 出さない React 標準パターンへの構造変更（setState をそもそも effect の外へ
+  // 追い出す本質的な修正）。
+  const cookieLocale = useSyncExternalStore(subscribeToLocaleCookie, getCookieLocale, getServerLocale);
+  // handleSelect（イベントハンドラ）でユーザーが明示選択した値。選択が無い間は
+  // cookie 由来の値をそのまま使う。null は「未選択」の意味であり、イベント発火の
+  // setState のみで変化するため set-state-in-effect の対象外。
+  const [selected, setSelected] = useState<Locale | null>(null);
+  const current = selected ?? cookieLocale;
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -33,7 +59,7 @@ export default function LocaleSwitcher() {
   const handleSelect = (locale: Locale) => {
     // Set cookie (1 year)
     document.cookie = `${LOCALE_COOKIE_KEY}=${locale};path=/;max-age=${60 * 60 * 24 * 365};samesite=lax`;
-    setCurrent(locale);
+    setSelected(locale);
     setOpen(false);
     // Reload to apply locale changes
     window.location.reload();

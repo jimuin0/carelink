@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, use, useCallback } from 'react';
+import { useEffect, useState, use } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -42,58 +42,74 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutItems, setCheckoutItems] = useState<Charge[]>([]);
   const [paid, setPaid] = useState('');
+  // retry は再取得を state 経由で駆動する（load をイベントハンドラからも effect からも
+  // 呼べる形にすると Compiler の検出対象になるため、キーの変化で effect 側だけに寄せる）
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const load = useCallback(async () => {
-      const supabase = createBrowserSupabaseClient();
-      setLoadError(false);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-
-      const { data: membership, error: memErr } = await supabase
-        .from('facility_members')
-        .select('facility_id')
-        .eq('user_id', user.id)
-        .limit(1)
-        .single();
-      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-      if (!membership) { setLoading(false); return; }
-
-      const { data, error } = await supabase
-        .from('bookings')
-        .select('*')
-        .eq('id', params.id)
-        .eq('facility_id', membership.facility_id)
-        .single();
-
-      // PGRST116（行なし）は真の「見つからない」として下の not-found 表示に委ねる。
-      // それ以外（通信/権限エラー）は「見つかりません」に偽装せず失敗として明示する。
-      if (error && error.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-      if (data) {
-        setBooking(data as Booking);
-        if (data.menu_ids && data.menu_ids.length > 1) {
-          // 複数メニュー予約は menu_ids の全メニュー名を「、」で連結表示（A6・menu_id 単独だと1件目のみ）。
-          // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-          const { data: menus } = await supabase.from('facility_menus').select('name').in('id', data.menu_ids);
-          if (menus && menus.length > 0) setMenuName(menus.map((m) => m.name).join('、'));
-        } else if (data.menu_id) {
-          // メニュー名は補助表示。取得失敗時は名称未表示で予約詳細本体は継続表示する。
-          // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-          const { data: menu } = await supabase.from('facility_menus').select('name').eq('id', data.menu_id).single();
-          if (menu) setMenuName(menu.name);
-        }
-        if (data.staff_id) {
-          // 担当スタッフ名は補助表示。取得失敗時は名称未表示で予約詳細本体は継続表示する。
-          // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-          const { data: staff } = await supabase.from('staff_profiles').select('name').eq('id', data.staff_id).single();
-          if (staff) setStaffName(staff.name);
-        }
-      }
-      setLoading(false);
-  }, [params.id]);
-
+  // アンマウント後の setState を防ぐため cancelled フラグで守りつつ、非同期処理を effect 内へ inline する
   useEffect(() => {
-    load().catch(() => { setLoadError(true); setLoading(false); });
-  }, [load]);
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const supabase = createBrowserSupabaseClient();
+        setLoadError(false);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { if (!cancelled) setLoading(false); return; }
+
+        const { data: membership, error: memErr } = await supabase
+          .from('facility_members')
+          .select('facility_id')
+          .eq('user_id', user.id)
+          .limit(1)
+          .single();
+        if (memErr && memErr.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (!membership) { if (!cancelled) setLoading(false); return; }
+
+        const { data, error } = await supabase
+          .from('bookings')
+          .select('*')
+          .eq('id', params.id)
+          .eq('facility_id', membership.facility_id)
+          .single();
+
+        // PGRST116（行なし）は真の「見つからない」として下の not-found 表示に委ねる。
+        // それ以外（通信/権限エラー）は「見つかりません」に偽装せず失敗として明示する。
+        if (error && error.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (cancelled) return;
+        if (data) {
+          setBooking(data as Booking);
+          if (data.menu_ids && data.menu_ids.length > 1) {
+            // 複数メニュー予約は menu_ids の全メニュー名を「、」で連結表示（A6・menu_id 単独だと1件目のみ）。
+            // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
+            const { data: menus } = await supabase.from('facility_menus').select('name').in('id', data.menu_ids);
+            if (cancelled) return;
+            if (menus && menus.length > 0) setMenuName(menus.map((m) => m.name).join('、'));
+          } else if (data.menu_id) {
+            // メニュー名は補助表示。取得失敗時は名称未表示で予約詳細本体は継続表示する。
+            // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
+            const { data: menu } = await supabase.from('facility_menus').select('name').eq('id', data.menu_id).single();
+            if (cancelled) return;
+            if (menu) setMenuName(menu.name);
+          }
+          if (data.staff_id) {
+            // 担当スタッフ名は補助表示。取得失敗時は名称未表示で予約詳細本体は継続表示する。
+            // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
+            const { data: staff } = await supabase.from('staff_profiles').select('name').eq('id', data.staff_id).single();
+            if (cancelled) return;
+            if (staff) setStaffName(staff.name);
+          }
+        }
+        setLoading(false);
+      } catch {
+        if (!cancelled) { setLoadError(true); setLoading(false); }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [params.id, reloadKey]);
 
   const handleStatusChange = async (newStatus: string) => {
     if (updating || !booking) return;
@@ -196,7 +212,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
           </Link>
           <h1 className="text-2xl font-bold">予約詳細</h1>
         </div>
-        <LoadError onRetry={load} message="予約の読み込みに失敗しました" />
+        <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="予約の読み込みに失敗しました" />
       </div>
     );
   }

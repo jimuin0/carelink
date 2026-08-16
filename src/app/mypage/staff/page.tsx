@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Link from 'next/link';
@@ -23,54 +23,66 @@ export default function PreferredStaffPage() {
   const [loadError, setLoadError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const load = useCallback(async () => {
-      const supabase = createBrowserSupabaseClient();
-      setLoadError(false);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
+  // load 相当の処理は「マウント時の初回読み込み」と「読み込み失敗後の再試行」の2箇所からしか
+  // 呼ばれず、どちらも同じ処理を求める呼び出しなので、reloadKey を effect の依存に置いて
+  // 再試行時はキーをインクリメントするだけにする（処理本体は effect 内に1箇所だけ inline する）。
+  const [reloadKey, setReloadKey] = useState(0);
 
-      const { data: prefs, error: prefsErr } = await supabase
-        .from('user_preferred_staff')
-        .select('id, staff_id')
-        .eq('user_id', user.id);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const supabase = createBrowserSupabaseClient();
+        setLoadError(false);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { if (!cancelled) setLoading(false); return; }
 
-      if (prefsErr) { setLoadError(true); setLoading(false); return; }
-      if (!prefs || prefs.length === 0) { setLoading(false); return; }
+        const { data: prefs, error: prefsErr } = await supabase
+          .from('user_preferred_staff')
+          .select('id, staff_id')
+          .eq('user_id', user.id);
 
-      const staffIds = prefs.map((p) => p.staff_id);
-      // スタッフ詳細は補助（失敗時は名称「不明」表示で本体は継続）。
-      // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-      const { data: staffData } = await supabase
-        .from('staff_profiles')
-        .select('id, name, photo_url, position, facility_id')
-        .in('id', staffIds);
+        if (prefsErr) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (!prefs || prefs.length === 0) { if (!cancelled) setLoading(false); return; }
 
-      const facilityIds = Array.from(new Set((staffData || []).map((s) => s.facility_id)));
-      // 施設名は補助（失敗時は空表示で本体は継続）。
-      // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-      const { data: facilities } = await supabase
-        .from('facility_profiles')
-        .select('id, name, slug')
-        .in('id', facilityIds);
-      const facilityMap = Object.fromEntries((facilities || []).map((f) => [f.id, f]));
+        const staffIds = prefs.map((p) => p.staff_id);
+        // スタッフ詳細は補助（失敗時は名称「不明」表示で本体は継続）。
+        // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
+        const { data: staffData } = await supabase
+          .from('staff_profiles')
+          .select('id, name, photo_url, position, facility_id')
+          .in('id', staffIds);
 
-      setStaff(prefs.map((p) => {
-        const s = staffData?.find((st) => st.id === p.staff_id);
-        const f = s ? facilityMap[s.facility_id] : null;
-        return {
-          id: p.id,
-          staff_id: p.staff_id,
-          staff_name: s?.name || '不明',
-          staff_photo: s?.photo_url || null,
-          facility_name: f?.name || '',
-          facility_slug: f?.slug || '',
-          position: s?.position || null,
-        };
-      }));
-      setLoading(false);
-  }, []);
+        const facilityIds = Array.from(new Set((staffData || []).map((s) => s.facility_id)));
+        // 施設名は補助（失敗時は空表示で本体は継続）。
+        // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
+        const { data: facilities } = await supabase
+          .from('facility_profiles')
+          .select('id, name, slug')
+          .in('id', facilityIds);
+        const facilityMap = Object.fromEntries((facilities || []).map((f) => [f.id, f]));
 
-  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
+        if (cancelled) return;
+        setStaff(prefs.map((p) => {
+          const s = staffData?.find((st) => st.id === p.staff_id);
+          const f = s ? facilityMap[s.facility_id] : null;
+          return {
+            id: p.id,
+            staff_id: p.staff_id,
+            staff_name: s?.name || '不明',
+            staff_photo: s?.photo_url || null,
+            facility_name: f?.name || '',
+            facility_slug: f?.slug || '',
+            position: s?.position || null,
+          };
+        }));
+        setLoading(false);
+      } catch {
+        if (!cancelled) { setLoadError(true); setLoading(false); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [reloadKey]);
 
   const handleRemove = async (id: string) => {
     const supabase = createBrowserSupabaseClient();
@@ -92,7 +104,7 @@ export default function PreferredStaffPage() {
       </div>
 
       {loadError ? (
-        <LoadError onRetry={() => { load().catch(() => { setLoadError(true); setLoading(false); }); }} message="指名スタッフの読み込みに失敗しました" />
+        <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="指名スタッフの読み込みに失敗しました" />
       ) : staff.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-sm p-12 text-center">
           <p className="text-gray-400 mb-4">指名スタッフが登録されていません</p>

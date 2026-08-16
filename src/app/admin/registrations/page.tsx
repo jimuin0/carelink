@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
@@ -24,24 +24,30 @@ export default function AdminRegistrationsPage() {
   const [confirmReject, setConfirmReject] = useState(false);
   const [confirmRejectSalon, setConfirmRejectSalon] = useState<Salon | null>(null);
 
-  const loadSalons = useCallback(async () => {
-    setLoadError(false);
-    try {
-      const res = await fetch('/api/admin/registrations');
-      if (!res.ok) {
-        setLoadError(true);
-        setLoading(false);
-        return;
-      }
-      const json = await res.json();
-      setSalons(json.salons ?? []);
-    } catch {
-      setLoadError(true);
-    }
-    setLoading(false);
-  }, []);
+  // React Compiler の set-state-in-effect 対策：取得処理を useCallback 関数として effect の
+  // 依存に置き外部から直接呼ぶのではなく、effect 内に inline した非同期IIFEとして定義する
+  // （React 公式が推奨する形）。再取得（リトライ・承認/却下後の一覧更新）は関数呼び出しではなく
+  // reloadKey をインクリメントして effect を再発火させる形に統一し、取得ロジックの二重定義を避ける。
+  const [reloadKey, setReloadKey] = useState(0);
 
-  useEffect(() => { loadSalons(); }, [loadSalons]);
+  useEffect(() => {
+    (async () => {
+      setLoadError(false);
+      try {
+        const res = await fetch('/api/admin/registrations');
+        if (!res.ok) {
+          setLoadError(true);
+          setLoading(false);
+          return;
+        }
+        const json = await res.json();
+        setSalons(json.salons ?? []);
+      } catch {
+        setLoadError(true);
+      }
+      setLoading(false);
+    })();
+  }, [reloadKey]);
 
   const updateStatus = async (salon: Salon, status: 'approved' | 'rejected') => {
     if (processingId) return; // 二重送信ガード（連打・処理中の別操作を抑止）
@@ -59,7 +65,7 @@ export default function AdminRegistrationsPage() {
       }
       const label = status === 'approved' ? '承認' : '却下';
       setToast({ type: 'success', message: `${salon.name}を${label}しました` });
-      loadSalons();
+      setReloadKey((k) => k + 1);
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
     } finally {
@@ -100,7 +106,7 @@ export default function AdminRegistrationsPage() {
           {[...Array(3)].map((_, i) => <div key={i} className="h-20 bg-gray-200 rounded-xl" />)}
         </div>
       ) : loadError ? (
-        <LoadError onRetry={loadSalons} message="登録申請の読み込みに失敗しました" />
+        <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="登録申請の読み込みに失敗しました" />
       ) : salons.length === 0 ? (
         <div className="bg-white rounded-xl p-8 text-center">
           <p className="text-gray-400">登録申請はありません</p>

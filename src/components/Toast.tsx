@@ -13,7 +13,12 @@ interface ToastProps {
 export default function Toast({ message, type, onClose }: ToastProps) {
   const [visible, setVisible] = useState(true);
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  // ref への書き込みは render 中ではなく effect 内で行う（React Compiler の
+  // refs ルール対策）。deps 無しで毎レンダー後に実行し、常に最新の onClose を保持する
+  // という従来の挙動は変えない。
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     // エラーは自動消滅させない。成功/情報と同じ4秒で消すと、管理者が別欄を見ている隙に

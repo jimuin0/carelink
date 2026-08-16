@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { businessTypes, prefectures } from '@/lib/constants';
 import SearchSuggest from './SearchSuggest';
 
@@ -23,16 +23,44 @@ function addSearchHistory(term: string) {
   } catch { /* storage full or private browsing */ }
 }
 
+// localStorage はサーバに存在しないため、getServerSnapshot は常に空配列を返す
+// （サーバHTMLと最初のクライアント描画を一致させ hydration mismatch を防ぐ）。
+const emptyHistory: string[] = [];
+function getServerHistorySnapshot(): string[] {
+  return emptyHistory;
+}
+
+// 購読すべき更新イベントが無い（マウント時に1回だけ localStorage を読めばよい）ため、
+// subscribe は no-op。
+function subscribeNoop() {
+  return () => {};
+}
+
+// getSearchHistory() は呼ぶたびに JSON.parse で新しい配列参照を返す。
+// useSyncExternalStore の getSnapshot が呼び出しごとに異なる参照を返すと「値が変わった」と
+// 誤認され無限に再レンダーする（配列は参照比較のため）。マウントごとに1回だけ読み、
+// 以後は同じ参照を返すようキャッシュする。
+function createHistorySnapshotGetter() {
+  let cached: string[] | null = null;
+  return () => {
+    if (cached === null) cached = getSearchHistory();
+    return cached;
+  };
+}
+
 export default function SearchBar() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [keyword, setKeyword] = useState(searchParams.get('keyword') || '');
   const [type, setType] = useState(searchParams.get('type') || '');
   const [prefecture, setPrefecture] = useState(searchParams.get('area') || '');
-  const [history, setHistory] = useState<string[]>([]);
   const [suggestOpen, setSuggestOpen] = useState(false);
 
-  useEffect(() => { setHistory(getSearchHistory()); }, []);
+  // React Compiler の set-state-in-effect 対策：従来は useEffect + setState でマウント後に
+  // 確定していたが、React公式が「サーバ/クライアントで異なる値を安全に出し分ける」ために
+  // 用意している useSyncExternalStore（getServerSnapshot 引数）に置き換える。
+  const [getHistorySnapshot] = useState(createHistorySnapshotGetter);
+  const history = useSyncExternalStore(subscribeNoop, getHistorySnapshot, getServerHistorySnapshot);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();

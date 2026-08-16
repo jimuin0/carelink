@@ -76,7 +76,37 @@ export default function SubscriptionPlansPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
+  // React Compiler の set-state-in-effect 対策：load は toggleActive / doDelete / updateSubStatus
+  // から await されて完了を待たれる（updateSubStatus の二重送信ガードは load 完了後に解除する
+  // 必要があるため、reloadKey 化して待てなくすると挙動が変わってしまう）。そのため load 自体は
+  // そのまま残し、マウント時 effect だけは load を呼ばず同等の処理を effect 内に inline した
+  // 非同期IIFEとして持つ（React 公式が推奨する形）。load の依存が [] で同一内容のため、
+  // 二重定義にはなるが挙動は完全に一致する。
+  useEffect(() => {
+    (async () => {
+      const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
+      const { data: mem, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
+        .in('role', ['owner', 'admin']).limit(1).single();
+      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
+      if (!mem?.facility_id) { setLoading(false); return; }
+      setFacilityId(mem.facility_id);
+
+      try {
+        const [p, s] = await Promise.all([
+          fetch(`/api/admin/subscription-plans?facility_id=${mem.facility_id}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
+          fetch(`/api/admin/user-subscriptions?facility_id=${mem.facility_id}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
+        ]);
+        setPlans(p.plans ?? []);
+        setSubs((s.subscriptions ?? []) as Subscription[]);
+      } catch {
+        setLoadError(true); setLoading(false); return;
+      }
+      setLoading(false);
+    })().catch(() => { setLoadError(true); setLoading(false); });
+  }, []);
 
   const handleCreate = async () => {
     if (!facilityId || saving) return;

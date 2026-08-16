@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
@@ -14,8 +14,6 @@ function UnsubscribeContent() {
   // 旧実装は mount 時の useEffect で即 POST していたが、Outlook Safe Links 等のメールスキャナや
   // ブラウザのリンクプリフェッチが URL を先読みするだけで本人の意図なく配信停止されてしまう
   // （ワンクリック確認の欠如）。明示ボタンのクリックで初めて POST する方式に変更する。
-  const [status, setStatus] = useState<'confirm' | 'loading' | 'success' | 'already' | 'error'>('confirm');
-
   const payload = token
     ? { token }
     : n
@@ -24,12 +22,12 @@ function UnsubscribeContent() {
         ? { email, hmac }
         : null;
 
-  // リンク自体が不正（必要なパラメータが無い）な場合のみ、クリックを待たず error 表示にする。
-  useEffect(() => {
-    if (!payload) setStatus('error');
-    // payload は searchParams から同期的に導出される（依存は個別の文字列）。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, n, email, hmac]);
+  // payload は searchParams から mount 時点で同期的に導出される値であり、非同期取得や
+  // 再フェッチではないため、effect 経由でマウント後に setState する必要がそもそも無い。
+  // リンク自体が不正（必要なパラメータが無い）な場合は、初期 state の時点で 'error' にする。
+  const [status, setStatus] = useState<'confirm' | 'loading' | 'success' | 'already' | 'error'>(
+    payload ? 'confirm' : 'error'
+  );
 
   const handleUnsubscribe = async () => {
     if (!payload) {

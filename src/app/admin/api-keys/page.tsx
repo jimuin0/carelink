@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
@@ -38,24 +38,40 @@ export default function ApiKeysPage() {
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // retry は再取得を state 経由で駆動する（load をイベントハンドラからも effect からも
+  // 呼べる形にすると Compiler の検出対象になるため、キーの変化で effect 側だけに寄せる）
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const load = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    setLoadError(false);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
-    const { data: mem, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-      .in('role', ['owner', 'admin']).limit(1).single();
-    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-    if (!mem) { setLoading(false); return; }
-    setFacilityId(mem.facility_id);
-    const { data, error } = await supabase.from('api_keys').select('*').eq('facility_id', mem.facility_id).order('created_at', { ascending: false });
-    if (error) { setLoadError(true); setLoading(false); return; }
-    setKeys((data ?? []) as ApiKey[]);
-    setLoading(false);
-  }, []);
+  // アンマウント後の setState を防ぐため cancelled フラグで守りつつ、非同期処理を effect 内へ inline する
+  useEffect(() => {
+    let cancelled = false;
 
-  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
+    (async () => {
+      try {
+        const supabase = createBrowserSupabaseClient();
+        setLoadError(false);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { if (!cancelled) setLoading(false); return; }
+        const { data: mem, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
+          .in('role', ['owner', 'admin']).limit(1).single();
+        if (memErr && memErr.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (!mem) { if (!cancelled) setLoading(false); return; }
+        if (cancelled) return;
+        setFacilityId(mem.facility_id);
+        const { data, error } = await supabase.from('api_keys').select('*').eq('facility_id', mem.facility_id).order('created_at', { ascending: false });
+        if (error) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (cancelled) return;
+        setKeys((data ?? []) as ApiKey[]);
+        setLoading(false);
+      } catch {
+        if (!cancelled) { setLoadError(true); setLoading(false); }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
 
   const handleCreate = async () => {
     if (!facilityId || !newKeyName.trim() || selectedScopes.length === 0) return;
@@ -184,7 +200,7 @@ export default function ApiKeysPage() {
           <h2 className="font-bold text-gray-800">発行済みAPIキー（{keys.length}件）</h2>
         </div>
         {loadError ? (
-          <div className="p-4"><LoadError onRetry={load} message="APIキーの読み込みに失敗しました" /></div>
+          <div className="p-4"><LoadError onRetry={() => setReloadKey((k) => k + 1)} message="APIキーの読み込みに失敗しました" /></div>
         ) : keys.length === 0 ? (
           <p className="text-sm text-gray-400 p-6 text-center">APIキーはまだありません</p>
         ) : (

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -40,104 +40,130 @@ export default function BookingChangePage() {
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const load = useCallback(async () => {
-      const supabase = createBrowserSupabaseClient();
-      setLoadError(false);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push('/auth/login'); return; }
+  // load 相当の処理は「マウント時の初回読み込み」と「読み込み失敗後の再試行」の2箇所からしか
+  // 呼ばれず、どちらも同じ処理を求める呼び出しなので、reloadKey を effect の依存に置いて
+  // 再試行時はキーをインクリメントするだけにする（処理本体は effect 内に1箇所だけ inline する）。
+  const [reloadKey, setReloadKey] = useState(0);
 
-      const { data: b, error: bErr } = await supabase
-        .from('bookings')
-        .select('id, facility_id, staff_id, menu_id, booking_date, start_time, end_time, total_price, status')
-        .eq('id', bookingId)
-        .eq('user_id', user.id)
-        .single();
-      // 通信/権限エラーは一覧へ戻さず失敗として明示（PGRST116=行なし・無効ステータスは従来どおり一覧へ）
-      if (bErr && bErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-      if (!b || !['pending', 'confirmed'].includes(b.status)) { router.push('/mypage/bookings'); return; }
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const supabase = createBrowserSupabaseClient();
+        setLoadError(false);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { router.push('/auth/login'); return; }
 
-      // 施設名は補助表示。取得失敗時は空表示で本体は継続。
-      // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-      const { data: facility } = await supabase.from('facility_profiles').select('name').eq('id', b.facility_id).single();
-      const { data: menu } = b.menu_id
-        ? await supabase.from('facility_menus').select('name').eq('id', b.menu_id).single()
-        : { data: null };
-      const { data: staff } = b.staff_id
-        ? await supabase.from('staff_profiles').select('name').eq('id', b.staff_id).single()
-        : { data: null };
+        const { data: b, error: bErr } = await supabase
+          .from('bookings')
+          .select('id, facility_id, staff_id, menu_id, booking_date, start_time, end_time, total_price, status')
+          .eq('id', bookingId)
+          .eq('user_id', user.id)
+          .single();
+        // 通信/権限エラーは一覧へ戻さず失敗として明示（PGRST116=行なし・無効ステータスは従来どおり一覧へ）
+        if (bErr && bErr.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (!b || !['pending', 'confirmed'].includes(b.status)) { router.push('/mypage/bookings'); return; }
+        if (cancelled) return;
 
-      setBooking({
-        ...b,
-        facility_name: facility?.name || '',
-        menu_name: menu?.name || '',
-        staff_name: staff?.name || '',
-        duration: durationMinutes(b.start_time, b.end_time),
-      });
-      setLoading(false);
-  }, [bookingId, router]);
+        // 施設名は補助表示。取得失敗時は空表示で本体は継続。
+        // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
+        const { data: facility } = await supabase.from('facility_profiles').select('name').eq('id', b.facility_id).single();
+        const { data: menu } = b.menu_id
+          ? await supabase.from('facility_menus').select('name').eq('id', b.menu_id).single()
+          : { data: null };
+        const { data: staff } = b.staff_id
+          ? await supabase.from('staff_profiles').select('name').eq('id', b.staff_id).single()
+          : { data: null };
 
-  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
+        if (cancelled) return;
+        setBooking({
+          ...b,
+          facility_name: facility?.name || '',
+          menu_name: menu?.name || '',
+          staff_name: staff?.name || '',
+          duration: durationMinutes(b.start_time, b.end_time),
+        });
+        setLoading(false);
+      } catch {
+        if (!cancelled) { setLoadError(true); setLoading(false); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [bookingId, router, reloadKey]);
 
   const slotsAbortRef = useRef<AbortController | null>(null);
 
-  const loadSlots = useCallback(async (date: string) => {
-    if (!booking) return;
+  // loadSlots 相当の処理はこの effect からしか呼ばれないため、useCallback を介さず
+  // effect 本体へ直接 inline する。ただし setSlotsLoading/setSlots/setSelectedSlot の
+  useEffect(() => {
+    if (!selectedDate || !booking) return;
     slotsAbortRef.current?.abort();
     const controller = new AbortController();
     slotsAbortRef.current = controller;
+
+    // 🔴 この3行は effect のトップレベルに置く（async IIFE の中へ入れない）。
+    // IIFE の中へ移すと挙動を1ミリも変えずに検出だけが消える＝症状ブロックになるため。
+    // 実測（2026年8月16日）: async IIFE 内で await より前の同期 setState は検出されない。
+    //
+    // この同期 setState は【意図的】。日付を変えた瞬間に前の日付の枠と選択状態を消さないと、
+    // 別日の枠が選ばれたまま送信され得る（予約日時の取り違えという実害）。
+    // よって直さず、検出を残したまま src/lib/react-compiler-debt.mjs の BASELINE へ
+    // 受容済み負債として計上する。
     setSlotsLoading(true);
     setSlots([]);
     setSelectedSlot(null);
-    try {
-      let merged: AvailableSlot[];
-      if (booking.staff_id) {
-        // 指名予約: 当該スタッフの空き枠のみ（従来挙動）。
-        const res = await fetch(`/api/slots?facilityId=${booking.facility_id}&staffId=${booking.staff_id}&date=${date}&duration=${booking.duration}`, {
-          signal: controller.signal,
-        });
-        // res.ok を検証しないと、エラー応答(JSON)でも data.slots=undefined → 空配列となり
-        // 「空き枠なし」と障害が区別不能になる。失敗は catch のエラートーストへ流す。
-        if (!res.ok) throw new Error();
-        const data = await res.json();
-        merged = data.slots ?? [];
-      } else {
-        // おまかせ予約(staff_id=NULL): 施設の全予約可能スタッフ分をマージする（作成側 BookingFlow と同一挙動）。
-        // slots API は staffId 必須で空文字だと必ず空配列を返すため、これをしないと全日「空き枠なし」に
-        // なり、おまかせ予約の顧客は日時変更が一切できなくなる（A-1 の根治）。
-        const supabase = createBrowserSupabaseClient();
-        const { data: staffList, error: staffErr } = await supabase
-          .from('staff_profiles')
-          .select('id')
-          .eq('facility_id', booking.facility_id)
-          .eq('is_active', true)
-          .order('sort_order');
-        // スタッフ取得失敗を空リスト＝「空き枠なし」に偽装すると障害と区別できないため、
-        // 失敗は下の catch のエラートーストへ流す（取得失敗の空状態偽装の予防）。
-        if (staffErr) throw new Error();
-        const ids = ((staffList ?? []) as { id: string }[]).map((s) => s.id);
-        const results = await Promise.all(ids.map((sid) =>
-          fetch(`/api/slots?facilityId=${booking.facility_id}&staffId=${sid}&date=${date}&duration=${booking.duration}`, { signal: controller.signal })
-            .then((r) => (r.ok ? r.json() : { slots: [] }))
-            .catch(() => ({ slots: [] }))
-        ));
-        const map = new Map<string, AvailableSlot>();
-        results.forEach((data, i) => {
-          for (const slot of ((data.slots ?? []) as AvailableSlot[])) {
-            // 同一開始時刻は最初に見つかったスタッフの枠を採用（作成側と同じ）。
-            if (!map.has(slot.slot_start)) map.set(slot.slot_start, { ...slot, staff_id: ids[i] });
-          }
-        });
-        merged = Array.from(map.values()).sort((a, b) => a.slot_start.localeCompare(b.slot_start));
-      }
-      if (!controller.signal.aborted) setSlots(merged);
-    } catch (e) {
-      if (e instanceof DOMException && e.name === 'AbortError') return;
-      setToast({ type: 'error', message: '空き枠の取得に失敗しました' });
-    }
-    if (!controller.signal.aborted) setSlotsLoading(false);
-  }, [booking]);
 
-  useEffect(() => { if (selectedDate) loadSlots(selectedDate); }, [selectedDate, loadSlots]);
+    (async () => {
+      try {
+        let merged: AvailableSlot[];
+        if (booking.staff_id) {
+          // 指名予約: 当該スタッフの空き枠のみ（従来挙動）。
+          const res = await fetch(`/api/slots?facilityId=${booking.facility_id}&staffId=${booking.staff_id}&date=${selectedDate}&duration=${booking.duration}`, {
+            signal: controller.signal,
+          });
+          // res.ok を検証しないと、エラー応答(JSON)でも data.slots=undefined → 空配列となり
+          // 「空き枠なし」と障害が区別不能になる。失敗は catch のエラートーストへ流す。
+          if (!res.ok) throw new Error();
+          const data = await res.json();
+          merged = data.slots ?? [];
+        } else {
+          // おまかせ予約(staff_id=NULL): 施設の全予約可能スタッフ分をマージする（作成側 BookingFlow と同一挙動）。
+          // slots API は staffId 必須で空文字だと必ず空配列を返すため、これをしないと全日「空き枠なし」に
+          // なり、おまかせ予約の顧客は日時変更が一切できなくなる（A-1 の根治）。
+          const supabase = createBrowserSupabaseClient();
+          const { data: staffList, error: staffErr } = await supabase
+            .from('staff_profiles')
+            .select('id')
+            .eq('facility_id', booking.facility_id)
+            .eq('is_active', true)
+            .order('sort_order');
+          // スタッフ取得失敗を空リスト＝「空き枠なし」に偽装すると障害と区別できないため、
+          // 失敗は下の catch のエラートーストへ流す（取得失敗の空状態偽装の予防）。
+          if (staffErr) throw new Error();
+          const ids = ((staffList ?? []) as { id: string }[]).map((s) => s.id);
+          const results = await Promise.all(ids.map((sid) =>
+            fetch(`/api/slots?facilityId=${booking.facility_id}&staffId=${sid}&date=${selectedDate}&duration=${booking.duration}`, { signal: controller.signal })
+              .then((r) => (r.ok ? r.json() : { slots: [] }))
+              .catch(() => ({ slots: [] }))
+          ));
+          const map = new Map<string, AvailableSlot>();
+          results.forEach((data, i) => {
+            for (const slot of ((data.slots ?? []) as AvailableSlot[])) {
+              // 同一開始時刻は最初に見つかったスタッフの枠を採用（作成側と同じ）。
+              if (!map.has(slot.slot_start)) map.set(slot.slot_start, { ...slot, staff_id: ids[i] });
+            }
+          });
+          merged = Array.from(map.values()).sort((a, b) => a.slot_start.localeCompare(b.slot_start));
+        }
+        if (!controller.signal.aborted) setSlots(merged);
+      } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') return;
+        setToast({ type: 'error', message: '空き枠の取得に失敗しました' });
+      }
+      if (!controller.signal.aborted) setSlotsLoading(false);
+    })();
+  }, [selectedDate, booking]);
+
   useEffect(() => () => { slotsAbortRef.current?.abort(); }, []);
 
   const handleSubmit = async () => {
@@ -176,7 +202,7 @@ export default function BookingChangePage() {
   });
 
   if (loading) return <div className="animate-pulse space-y-4"><div className="h-8 bg-gray-200 rounded w-1/3" /><div className="h-64 bg-gray-200 rounded-xl" /></div>;
-  if (loadError) return <LoadError onRetry={() => { load().catch(() => { setLoadError(true); setLoading(false); }); }} message="予約情報の読み込みに失敗しました" />;
+  if (loadError) return <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="予約情報の読み込みに失敗しました" />;
   if (!booking) return null;
 
   return (

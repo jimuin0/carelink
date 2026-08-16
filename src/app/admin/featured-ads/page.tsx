@@ -51,30 +51,44 @@ export default function FeaturedAdsPage() {
   const searchParams = useSearchParams();
   const paymentStatus = searchParams.get('payment');
 
-  const loadSlots = useCallback((fId: string) => {
-    setLoadError(false);
-    // GET /api/admin/featured-ads は facility_id 必須。従来このページは facility_id を取得・付与して
-    // いなかったため常に 400→LoadError になり広告機能が丸ごと使用不能だった。
-    fetch(`/api/admin/featured-ads?facility_id=${fId}`)
-      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
-      .then((d) => { setSlots(d.slots || []); setLoading(false); })
-      .catch(() => { setLoadError(true); setLoading(false); });
-  }, []);
+  // retry は再取得を state（reloadKey）経由で駆動する。load/reload をイベントハンドラからも
+  // effect からも呼べる形にすると React Compiler の set-state-in-effect 検出対象になるため、
+  // 実処理は effect 側にだけ inline し、イベントハンドラ側は reloadKey を進めるだけにする。
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const reload = useCallback(async () => {
-    setLoadError(false);
-    const supabase = createBrowserSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoadError(true); setLoading(false); return; }
-    const { data: membership, error: memErr } = await supabase
-      .from('facility_members').select('facility_id').eq('user_id', user.id)
-      .in('role', ['owner', 'admin']).limit(1).single();
-    if (memErr || !membership?.facility_id) { setLoadError(true); setLoading(false); return; }
-    setFacilityId(membership.facility_id as string);
-    loadSlots(membership.facility_id as string);
-  }, [loadSlots]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoadError(false);
+      const supabase = createBrowserSupabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (cancelled) return;
+      if (!user) { setLoadError(true); setLoading(false); return; }
+      const { data: membership, error: memErr } = await supabase
+        .from('facility_members').select('facility_id').eq('user_id', user.id)
+        .in('role', ['owner', 'admin']).limit(1).single();
+      if (cancelled) return;
+      if (memErr || !membership?.facility_id) { setLoadError(true); setLoading(false); return; }
+      setFacilityId(membership.facility_id as string);
+      // GET /api/admin/featured-ads は facility_id 必須。従来このページは facility_id を取得・付与して
+      // いなかったため常に 400→LoadError になり広告機能が丸ごと使用不能だった。
+      try {
+        const r = await fetch(`/api/admin/featured-ads?facility_id=${membership.facility_id as string}`);
+        if (!r.ok) throw new Error();
+        const d = await r.json();
+        if (cancelled) return;
+        setSlots(d.slots || []);
+        setLoading(false);
+      } catch {
+        if (cancelled) return;
+        setLoadError(true);
+        setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [reloadKey]);
 
-  useEffect(() => { reload(); }, [reload]);
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   const ctr = (slot: FeaturedSlot) =>
     slot.impressions > 0 ? ((slot.clicks / slot.impressions) * 100).toFixed(1) : '0.0';

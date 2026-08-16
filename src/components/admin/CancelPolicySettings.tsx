@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import LoadError from '@/components/admin/LoadError';
 
@@ -26,7 +26,16 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState(false);
 
-  const load = useCallback(async () => {
+  // React Compiler の set-state-in-effect 対策：useCallback + 呼び出し という形は
+  // 「effect が外部関数を呼び、その中で setState する」構造として検出されるため、
+  // 取得処理を effect 本体へ直接 inline し、再取得は reloadKey（state）で駆動する。
+  // 挙動は従来と同一（マウント時取得・facilityId 変化時再取得・再試行ボタンで再取得）。
+  const [reloadKey, setReloadKey] = useState(0);
+  const retry = () => setReloadKey((k) => k + 1);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
       const supabase = createBrowserSupabaseClient();
       setLoadError(false);
       const { data, error } = await supabase
@@ -35,6 +44,7 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
         .eq('facility_id', facilityId)
         .maybeSingle();
 
+      if (cancelled) return;
       if (error) { setLoadError(true); setLoading(false); return; }
       if (data) {
         // 3列とも DEFAULT 付きだが NOT NULL ではない（migration 20260405000003：
@@ -50,9 +60,12 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
         });
       }
       setLoading(false);
-  }, [facilityId]);
-
-  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
+    })().catch(() => {
+      if (!cancelled) { setLoadError(true); setLoading(false); }
+    });
+    // アンマウント後（cleanup 実行後）の setState を発生させないための cancelled ガード。
+    return () => { cancelled = true; };
+  }, [facilityId, reloadKey]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -75,7 +88,7 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
     return (
       <div className="bg-white rounded-xl p-6 mt-6">
         <h3 className="text-sm font-bold text-gray-800 mb-4">キャンセルポリシー</h3>
-        <LoadError onRetry={load} message="キャンセルポリシーの読み込みに失敗しました" />
+        <LoadError onRetry={retry} message="キャンセルポリシーの読み込みに失敗しました" />
       </div>
     );
   }

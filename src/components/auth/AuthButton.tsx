@@ -45,9 +45,15 @@ export default function AuthButton() {
     return () => subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
+  // pathname が変わったらメニューを閉じる。effect内の無条件setStateは React Compiler の
+  // set-state-in-effect に検出されるため、React公式が推奨する「prop変化をrender中に検知して
+  // 調整する」パターン（前回のpathnameとの比較）に置き換える。挙動は変わらない
+  // （むしろ従来はeffect実行=1描画分遅れていたのが、同一描画内で閉じるためズレが無くなる）。
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (pathname !== prevPathname) {
+    setPrevPathname(pathname);
     setMenuOpen(false);
-  }, [pathname]);
+  }
 
   // 開いているポップアップメニューを ESC で閉じられるようにする（WAI-ARIA APG の推奨）。
   useEffect(() => {
