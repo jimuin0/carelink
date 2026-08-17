@@ -172,7 +172,11 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null);
   const [weekOffset, setWeekOffset] = useState(0);
   const [matrix, setMatrix] = useState<WeekMatrix>({});
-  const [matrixLoading, setMatrixLoading] = useState(false);
+  // 空き状況マトリクスが「今の条件で取得済みか」を表す。取得完了時に条件のキーを記録し、
+  // レンダー中に現在の条件と突き合わせる（matrixPending の定義を参照）。
+  // ローディング用の boolean state を effect で立てる形はやめた。effect はペイント後に走るため
+  // 最初のフレームに間に合わず、取得前に「空きなし」を見せてしまうため（2026年8月16日 実測）。
+  const [matrixLoadedKey, setMatrixLoadedKey] = useState<string | null>(null);
   // 【2026年7月15日 恒久根治】/api/slots の失敗（非ok・例外）を「空きなし」に偽装せず、
   // 満席表示と明確に区別されたエラーUIを出すためのフラグ。1件でも失敗があれば true にする
   // （AbortError＝effect クリーンアップによる意図的な中断は失敗として扱わない）。
@@ -378,6 +382,28 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   );
   const visibleKey = visibleDates.join(',');
 
+  // 空き状況マトリクスの取得条件を表すキー。effect の依存と同じ要素で組む
+  // （ここがずれると「取得済みなのに取得中扱い」または その逆になる）。
+  const matrixQueryKey = [
+    visibleKey,
+    selectedStaff?.id ?? 'any',
+    totalDuration,
+    facility.id,
+    eligibleStaffKey,
+    matrixRetryTick,
+  ].join('|');
+
+  // effect が実際に取得を行う条件（下の useEffect の早期 return と一致させる）。
+  // これが false のときは取得が走らないので、取得中扱いにしてはいけない
+  // （さもないとスピナーが永久に回る）。
+  const matrixWillFetch =
+    step === 'datetime' && selectedMenus.length > 0 && (selectedStaff !== null || eligibleStaff.length > 0);
+
+  // 🔴 取得中かどうかを【レンダー中に導出する】。boolean state を effect で立てる形だと
+  // ペイント後にしか反映されず、最初のフレームで「空きなし」を見せてしまう（2026年8月16日 実測）。
+  // 条件が変わった瞬間に matrixLoadedKey と一致しなくなるので、その時点から取得中になる。
+  const matrixPending = matrixWillFetch && matrixLoadedKey !== matrixQueryKey;
+
   // 週×時間の空き状況（◎○△×）を組み立てる。表示中の7日について /api/slots を並列取得し、
   // 各時間帯に「空いているスタッフ数」を数える（指名なしは全スタッフ、指名時は当該1名）。
   // 旧実装の「日付を1つ選ぶ→その日の時間ボタン一覧」を、HPB形式の週マトリクスに置き換える。
@@ -415,24 +441,21 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     // 「空きあり」と誤表示される（金銭ではないが予約可否の誤表示という重大UX不整合）。
     const targetStaff = selectedStaff ? [selectedStaff] : eligibleStaff;
 
-    // 🔴 この2行は effect のトップレベルに置く（async IIFE の中へ入れない）。
-    // IIFE の中へ移すと挙動を1ミリも変えずに検出だけが消える＝症状ブロックになるため。
-    // 実測（2026年8月16日）: async IIFE 内で await より前の同期 setState は検出されない。
+    // 🔴 ここで setMatrixLoading(true) はしない。取得中かどうかは描画時に matrixPending で
+    // 判定する（下の定義を参照）。
     //
-    // 日付・スタッフを切り替えたら空き状況マトリクスをローディング表示へ戻す必要がある。
-    // 前の条件の結果が残ったまま見えると誤った枠を選ばせるため。
+    // why（2026年8月16日 実機で確認）: useEffect はブラウザのペイント後に走るため、effect の中で
+    // ローディングを立てても【最初のフレームには間に合わない】。実測では日時ステップへ進んだ
+    // 最初の描画（43ms）が「この期間は予約可能な時間帯がありません。別の週をお選びください。」で、
+    // その後にスピナーへ変わっていた。つまり【空き状況を取得する前に「予約できる時間帯が無い」と
+    // 誤って告げていた】。予約フロー本体なので、利用者が「この店は予約できない」と誤解して
+    // 離脱し得る。
     //
-    // ⚠️ 2026年8月16日 実機検証で判明: ただし useEffect はペイント後に走るため、
-    // 【最初のフレームには間に合わない】。切り替え直後の1フレームは前の条件の結果が
-    // 見えたままになる。StationSearch で同型の欠陥を実測し、イベントハンドラ側へ移して
-    // 根治した（初回オープンの最初の描画が「該当する駅がありません」だった）。
-    //
-    // ここは発火元が複数（step 変更・日付送り・スタッフ選択・リトライ）で、それぞれの
-    // ハンドラへ同じ setState を配ると重複と漏れが生まれる。まとめ方の設計判断が要るうえ、
-    // 【この環境には施設データが無く実機確認できない】ため、断定できる状態で直したい。
-    // それまでは effect のトップレベルに置く。BASELINE に受容済み負債として計上する。
-    setMatrixLoading(true);
-    setMatrixError(false);
+    // 発火元は step 変更・週送り・スタッフ選択・リトライの 4 つある。各ハンドラへ
+    // setMatrixLoading(true) を配る案は、1 つ漏らすとその経路だけ誤表示が残るうえ、
+    // 新しい発火元を足す人が気づけない。そこで「取得済みの結果が今の条件のものか」を
+    // レンダー中に判定する形にした。条件が変わった瞬間から自動的に取得中扱いになるので、
+    // 発火元がいくつあっても、また将来増えても守られる。
 
     (async () => {
       let hadFailure = false;
@@ -471,7 +494,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
           setToast({ type: 'error', message: '空き状況の取得に失敗しました' });
         }
       } finally {
-        if (!controller.signal.aborted) setMatrixLoading(false);
+        // 取得が終わった条件を記録する。これと現在の条件が一致するまで matrixPending が
+        // true になり、前の条件の結果や「空きなし」表示が出ない。
+        if (!controller.signal.aborted) setMatrixLoadedKey(matrixQueryKey);
       }
     })();
 
@@ -961,7 +986,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
 
           {/* 【2026年7月15日 defect1】/api/slots の取得失敗（満席とは別の障害）を明確に区別して通知する。
               満席表示（× のみ・「予約可能な時間帯がありません」）に埋もれさせない。 */}
-          {matrixError && !matrixLoading && (
+          {matrixError && !matrixPending && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600 flex items-center justify-between gap-2 flex-wrap" role="alert">
               <span>空き状況を取得できませんでした。通信状況をご確認のうえ再度お試しください。</span>
               <button
@@ -1027,7 +1052,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                 </tr>
               </thead>
               <tbody>
-                {matrixLoading ? (
+                {matrixPending ? (
                   <tr>
                     <td colSpan={visibleDates.length + 1} className="py-10">
                       <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
