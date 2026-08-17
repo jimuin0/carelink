@@ -32,10 +32,17 @@ export default function ReviewSummary({ reviews, facilityId }: Props) {
     // IIFE の中へ移すと挙動を1ミリも変えずに検出だけが消える＝症状ブロックになるため。
     // 実測（2026年8月16日）: async IIFE 内で await より前の同期 setState は検出されない。
     //
-    // この同期 setState は【意図的】。setAiAttempted(true) は同一マウント内での二重取得を
-    // 防ぐガードで、await の後に置くと取得中に再実行され得る。setLoading(true) は
-    // 要約生成中の表示に必要。よって直さず、検出を残したまま
-    // src/lib/react-compiler-debt.mjs の BASELINE に受容済み負債として計上する。
+    // setAiAttempted(true) は同一マウント内での二重取得を防ぐガードで、await の後に置くと
+    // 取得中に再実行され得る。ここは effect でしか書けない（マウント起点で、対応する
+    // イベントハンドラが存在しない）。
+    //
+    // ⚠️ 2026年8月16日 実機検証で判明: setLoading(true) は【最初のフレームには間に合わない】。
+    // useEffect はペイント後に走るため、1フレームだけルールベース要約が見えてから
+    // ローディング表示に変わる。StationSearch では同型の欠陥（空状態の誤表示）を実測し
+    // イベントハンドラへ移して根治したが、こちらはマウント起点なので同じ手は使えない。
+    // ルールベース要約は妥当なフォールバック表示なので実害は小さいと判断しているが、
+    // 【この施設ページはこの環境にデータが無く実機確認できていない】。断定はしない。
+    // よって直さず、検出を残したまま src/lib/react-compiler-debt.mjs の BASELINE に計上する。
     setAiAttempted(true);
     setLoading(true);
 
