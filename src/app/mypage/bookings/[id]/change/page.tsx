@@ -36,7 +36,11 @@ export default function BookingChangePage() {
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null);
   const [slots, setSlots] = useState<AvailableSlot[]>([]);
-  const [slotsLoading, setSlotsLoading] = useState(false);
+  // 空き枠が「今の条件で取得済みか」を表す。取得完了時に条件のキーを記録し、レンダー中に
+  // 現在の条件と突き合わせる（slotsPending）。ローディング用の boolean を effect で立てる形は
+  // ペイント後にしか反映されず、最初のフレームで前日の枠や誤った「空きなし」を見せるためやめた
+  // （2026年8月16日 実測）。
+  const [slotsLoadedKey, setSlotsLoadedKey] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -93,33 +97,38 @@ export default function BookingChangePage() {
 
   const slotsAbortRef = useRef<AbortController | null>(null);
 
+  // 空き枠の取得条件を表すキー。下の effect の依存（selectedDate / booking）と一致させる。
+  // 条件が揃っていない間は null にして、取得が走らない状態を「取得中」と誤判定しないようにする
+  // （さもないとスピナーが永久に回る）。
+  const slotsQueryKey = selectedDate && booking ? `${selectedDate}|${booking.id}|${booking.duration}` : null;
+
+  // 🔴 取得中かどうかを【レンダー中に導出する】。boolean state を effect で立てる形だと
+  // ペイント後にしか反映されず、最初のフレームで前日の枠や誤った「空きなし」を見せてしまう。
+  const slotsPending = slotsQueryKey !== null && slotsLoadedKey !== slotsQueryKey;
+
   // loadSlots 相当の処理はこの effect からしか呼ばれないため、useCallback を介さず
-  // effect 本体へ直接 inline する。ただし setSlotsLoading/setSlots/setSelectedSlot の
+  // effect 本体へ直接 inline する。
   useEffect(() => {
     if (!selectedDate || !booking) return;
     slotsAbortRef.current?.abort();
     const controller = new AbortController();
     slotsAbortRef.current = controller;
 
-    // 🔴 この3行は effect のトップレベルに置く（async IIFE の中へ入れない）。
-    // IIFE の中へ移すと挙動を1ミリも変えずに検出だけが消える＝症状ブロックになるため。
-    // 実測（2026年8月16日）: async IIFE 内で await より前の同期 setState は検出されない。
+    // 🔴 ここで setSlotsLoading(true) はしない。取得中かどうかは描画時に slotsPending で
+    // 判定する（上の定義を参照）。
     //
-    // この3行は【正しさのために必要】。日付を変えた瞬間に前の日付の枠と選択状態を消さないと、
-    // 別日の枠が選ばれたまま送信され得る（予約日時の取り違えという実害）。
+    // why（2026年8月16日 実機で確認）: useEffect はブラウザのペイント後に走るため、effect の中で
+    // ローディングを立てても【最初のフレームには間に合わない】。同型の欠陥を StationSearch と
+    // 予約フローで実測している（それぞれ「該当する駅がありません」「この期間は予約可能な時間帯が
+    // ありません」が取得前に 1 フレーム見えていた）。
     //
-    // ⚠️ 2026年8月16日 実機検証で判明: ただし useEffect はペイント後に走るため、
-    // 【最初のフレームには間に合わない】。日付を変えた直後の1フレームは前日の枠が
-    // 見えたままになる。StationSearch で同型の欠陥を実測し、イベントハンドラ側へ
-    // 移して根治した（初回オープンの最初の描画が「該当する駅がありません」だった）。
-    // ここも本来は日付選択の onChange 側で消すのが正しい。
+    // ここは影響がより大きい。初回は「この日は予約可能な時間帯がありません」という誤った断定が、
+    // 2 回目以降は【前の日付の時間枠がそのまま】1 フレーム見える。利用者が別日の枠を選ぼうと
+    // する余地を作るため、表示は必ず slotsPending で塞ぐ。
     //
-    // まだ直していないのは、この画面が認証必須で【この環境では実機確認できない】ため。
-    // なお送信経路は selectedSlot が null の間は送信できない作りなので、この1フレームの間に
-    // 誤送信が起きるわけではない（見た目の遅れのみ）。BASELINE に受容済み負債として計上する。
-    setSlotsLoading(true);
-    setSlots([]);
-    setSelectedSlot(null);
+    // 選択解除は日付ボタンの onClick で行う（イベントハンドラなのでレンダー前に反映される）。
+    // ここで setSelectedSlot(null) すると effect＝ペイント後になり、1 フレームだけ別日の枠が
+    // 選択済みに見える。表示側は slotsPending が塞ぐので、ここに同期 setState は要らない。
 
     (async () => {
       try {
@@ -168,9 +177,9 @@ export default function BookingChangePage() {
         if (e instanceof DOMException && e.name === 'AbortError') return;
         setToast({ type: 'error', message: '空き枠の取得に失敗しました' });
       }
-      if (!controller.signal.aborted) setSlotsLoading(false);
+      if (!controller.signal.aborted) setSlotsLoadedKey(slotsQueryKey);
     })();
-  }, [selectedDate, booking]);
+  }, [selectedDate, booking, slotsQueryKey]);
 
   useEffect(() => () => { slotsAbortRef.current?.abort(); }, []);
 
@@ -233,7 +242,7 @@ export default function BookingChangePage() {
             const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
             const isWeekend = d.getDay() === 0 || d.getDay() === 6;
             return (
-              <button type="button" key={date} onClick={() => setSelectedDate(date)}
+              <button type="button" key={date} onClick={() => { setSelectedSlot(null); setSelectedDate(date); }}
                 className={`p-2 rounded-xl border text-center transition-colors ${selectedDate === date ? 'border-sky-500 bg-sky-50' : 'border-gray-200 hover:border-sky-300'}`}>
                 <p className="text-xs text-gray-500">{d.getMonth() + 1}/{d.getDate()}</p>
                 <p className={`text-sm font-bold ${isWeekend ? 'text-red-500' : ''}`}>{dayNames[d.getDay()]}</p>
@@ -243,10 +252,12 @@ export default function BookingChangePage() {
         </div>
       </div>
 
+      {/* data-testid は e2e/first-paint-loading.spec.ts が「枠の表示領域だけ」を観測するために使う。
+          ページ全体を見ると既存予約の時刻表示（10:00 等）を拾ってしまい検査にならない。 */}
       {selectedDate && (
-        <div className="bg-white rounded-2xl shadow-sm p-6">
+        <div className="bg-white rounded-2xl shadow-sm p-6" data-testid="slot-picker">
           <h2 className="font-bold mb-3">時間を選択</h2>
-          {slotsLoading ? (
+          {slotsPending ? (
             <div className="text-center py-8"><div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto" /></div>
           ) : slots.length === 0 ? (
             <p className="text-gray-400 text-sm text-center py-4">この日は予約可能な時間帯がありません</p>

@@ -50,13 +50,16 @@ export const RATCHET_RULES = [
  * 現在の負債件数。2026年8月16日 に eslint-config-next 16.3.0 / React 19 で実測した値。
  * 返済したらこの数を下げること（下げ忘れは checkDebt が検知する）。
  *
- * 72 件から 5 件まで返済済み（この 5 件に下記 incompatible-library 3 件と
- * no-location-assign 2 件を足した 10 件が BASELINE）。残る set-state-in-effect 5 件：
+ * 72 件から 3 件まで返済済み（この 3 件に下記 incompatible-library 3 件と
+ * no-location-assign 2 件を足した 8 件が BASELINE）。残る set-state-in-effect 3 件：
  *
- *   gbp/page.tsx                        タブ切替時のローディング表示
- *   mypage/bookings/[id]/change/page.tsx 日付変更時に前日の枠と選択をクリア
- *   BookingFlow.tsx x2                   sessionStorage からの下書き復元／空き状況のローディング
- *   ReviewSummary.tsx                    二重取得ガードと生成中表示
+ *   gbp/page.tsx        タブ切替時のローディング表示。実装を読んだ結果、最初のフレームは
+ *                       【何も表示されない（空白）】だけで誤った事実は告げていない。他の 3 件が
+ *                       「無い」と断定していたのとは深刻度が違うため、扱いを分けて据え置く。
+ *   BookingFlow.tsx     sessionStorage からの下書き復元。マウント起点でイベントハンドラが無く、
+ *                       レンダー中導出にも馴染まない（外部システムとの同期＝React 公式が認める用途）。
+ *   ReviewSummary.tsx   二重取得ガードと生成中表示。最初のフレームはルールベース要約という
+ *                       妥当なフォールバックで、誤情報ではない。
  *
  * 🔴 【2026年8月16日 実機検証で前提が覆った】
  * それまで「effect のトップレベルに置けばその瞬間に表示が切り替わる」と書いていたが、これは誤り。
@@ -69,11 +72,22 @@ export const RATCHET_RULES = [
  * まとまるので最初のフレームから反映され、ルールの指摘も原因ごと消える（症状ブロックではない）。
  * StationSearch はこの形へ直し、修正後の最初の描画が「読み込み中...」になることを実測で確認した。
  *
- * 残る 5 件を同じ形へ直していないのは、いずれも【この環境で実機確認できない】ため：
- * gbp と change は認証必須、BookingFlow と ReviewSummary は施設データが無く到達できない。
- * 未確認のまま描画を変えるより、実測できる状態で直す方を選んだ。
+ * 発火元が複数ある画面（予約フローの空き状況・予約日時変更の空き枠）では、各ハンドラへ
+ * setState を配ると 1 つ漏らした経路だけ誤表示が残り、新しい発火元を足す人が気づけない。
+ * そこで【取得済みの結果が今の条件のものかをレンダー中に判定する】形にした
+ * （matrixQueryKey / matrixLoadedKey / matrixPending、slotsQueryKey / slotsLoadedKey /
+ * slotsPending）。条件が変わった瞬間から自動的に取得中扱いになるので、発火元がいくつあっても、
+ * 将来増えても守られる。
+ *
+ * 残る 3 件を直していないのは【実装を読んだうえで、誤情報を出していないと判断した】ため。
+ * 深刻度が違う（「無い」と断定するか、空白やフォールバック表示にとどまるか）。上の一覧を参照。
+ *
  * なお async IIFE の中へ移すのは、挙動を変えずに検出だけ消す症状ブロックなので依然として不可
  * （このルールは effect 本体の直下という AST の形しか見ない浅い構文検査である）。
+ *
+ * 🔴 この種の欠陥は lint も tsc も単体テストも通り、コードレビューでも見逃される
+ * （実際 Sonnet 8 体の差分レビューと Opus 3 体の独立評価が全て見逃した）。
+ * e2e/first-paint-loading.spec.ts が実ブラウザで最初の描画を捕まえて CI で守る。
  *
  * 【BASELINE の変遷（2026年8月16日）】
  *   6  … set-state-in-effect 等 4 ルールのみを数えていた時点
@@ -82,8 +96,9 @@ export const RATCHET_RULES = [
  *        【監視対象を広げた】もの。同日 no-unused-vars 62 件等はすべて解消済みで、
  *        lint の警告はこの 11 件だけになっていた（実測: 86 → 11）。
  *   10 … StationSearch を実機検証で根治して 1 件減（実測: 11 → 10）。
+ *   8  … 予約フローの空き状況と、予約日時変更の空き枠を実機検証で根治して 2 件減（実測: 10 → 8）。
  */
-export const BASELINE = 10;
+export const BASELINE = 8;
 
 /**
  * eslint の JSON 出力から、ラチェット対象ルールの指摘件数を数える。
