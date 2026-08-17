@@ -14,23 +14,26 @@ export default function StationSearch() {
 
   const handleClose = useCallback(() => setOpen(false), []);
 
-  useEffect(() => {
-    if (!open) return;
-
-    // 🔴 この2行は effect のトップレベルに置く（async IIFE の中へ入れない）。
-    //
-    // why: どちらに書いても実行タイミングは同じ（IIFE の同期プレフィックスも effect 実行中に走る）。
-    // 違うのは react-hooks/set-state-in-effect が検出できるかどうかだけで、IIFE の中へ移すと
-    // 【挙動を1ミリも変えずに検出だけを消す】ことになる。それは症状ブロックであって修正ではない。
-    //
-    // 実測（2026年8月16日）: async IIFE 内で await より前に置いた同期 setState は検出されない。
-    // 同ルールは effect 本体の直下という AST の形だけを見る浅い構文チェックである。
-    //
-    // この同期 setState は【意図的】である。パネルを開いた瞬間にスピナーを出すために必要で、
-    // 遅延させると「押しても無反応」に見える。よって直さず、検出を残したまま
-    // src/lib/react-compiler-debt.mjs の BASELINE に受容済み負債として計上する。
+  // 🔴 パネルを開く前に loading を立てる。effect ではなくここで立てるのが正しい。
+  //
+  // why（2026年8月16日 実機で確認）: useEffect はブラウザのペイント後に走るため、
+  // effect の中で setLoading(true) しても【パネルの最初のフレームには間に合わない】。
+  // 実測では初回オープン時、最初の描画（クリックから 39ms）が「該当する駅がありません」で、
+  // その後に「読み込み中...」へ変わっていた。つまり読み込みを試す前に「駅が無い」と
+  // 誤って告げていた。2回目以降は前回の状態（例「駅情報の読み込みに失敗しました」）が一瞬見える。
+  //
+  // イベントハンドラ内の setState は setOpen(true) と同じ更新にまとまるので、パネルが現れる
+  // 最初のフレームから「読み込み中...」になる。あわせて react-hooks/set-state-in-effect の
+  // 指摘も解消する（effect ではなくイベントハンドラでの setState はルールの対象外）。
+  // 抑止ではなく原因の除去である。
+  const handleOpen = useCallback(() => {
     setLoading(true);
     setFetchError(false);
+    setOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
 
     (async () => {
       try {
@@ -82,7 +85,7 @@ export default function StationSearch() {
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={handleOpen}
         className="flex items-center gap-1.5 min-h-[24px] text-xs text-white font-medium hover:text-sky-100 transition-colors [text-shadow:0_1px_3px_rgba(0,0,0,0.3)]"
       >
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
