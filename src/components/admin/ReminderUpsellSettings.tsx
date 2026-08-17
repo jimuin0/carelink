@@ -72,7 +72,17 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
   // handleBuy は JSX の onClick から参照されるため、その内部で window.location.href を
   // 直接書き換えると React Compiler の immutability ルール（コンポーネント外で定義された
   // 値の変更）に抵触する。実際の遷移は effect 側に切り出し、handleBuy は遷移先 URL を
-  // state にセットするだけにする（挙動＝Stripe Checkout 等への遷移タイミングは従来と同一）。
+  // state にセットするだけにする。
+  //
+  // ⚠️ 遷移タイミングは【従来と完全に同一ではない】。旧実装は handleBuy の中で
+  // window.location.href に代入していたので、遷移はクリックハンドラと同じタスクで開始した。
+  // 新実装は setRedirectUrl → React のコミット → この effect、と1コミット分あとになる。
+  // 利用者から観測できる差ではない（ミリ秒オーダー）が、「同一」と書くと後から読む人が
+  // 同期遷移を前提に別の変更を入れかねないので、ずれることを明記しておく。
+  //
+  // なお window.location.href への代入はどちらの実装でも【同期的には遷移しない】。
+  // 代入は遷移を開始するだけで現在のタスクは最後まで走るため、旧実装でも finally の
+  // setBuying(null) は遷移前に実行されていた。その点は新旧で変わらない。
   useEffect(() => {
     if (redirectUrl) {
       window.location.href = redirectUrl;
