@@ -64,6 +64,37 @@ async function seedBookableFacility() {
   return { facilityId: fac.id as string, facilitySlug: fac.slug as string };
 }
 
+/** 予約日時の変更画面を開ける利用者（ログイン可能なアカウント＋変更可能な予約）を用意する。 */
+async function seedVisitorWithBooking() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey) throw new Error('first-paint: SUPABASE env 未設定');
+  const sb = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+
+  const { facilityId } = await seedBookableFacility();
+  const ts = `${Date.now()}`;
+  const email = `first-paint-visitor-${ts}@example.invalid`;
+  const password = 'FirstPaintVisitor2026!';
+
+  const { data: cu, error: ce } = await sb.auth.admin.createUser({ email, password, email_confirm: true });
+  if (ce) throw new Error('seed user: ' + JSON.stringify(ce, Object.getOwnPropertyNames(ce)));
+
+  // 変更可能な予約（status は pending/confirmed のみ変更画面を開ける）。
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const { data: bk, error: be } = await sb
+    .from('bookings')
+    .insert({
+      facility_id: facilityId, user_id: cu.user.id, booking_date: tomorrow,
+      start_time: '10:00', end_time: '11:00', status: 'confirmed',
+      customer_name: '初期描画検証', email, phone: '09000000000',
+    })
+    .select('id')
+    .single();
+  if (be) throw new Error('seed booking: ' + be.message);
+
+  return { email, password, bookingId: bk.id as string };
+}
+
 /** 応答を遅らせ、ローディング状態が観測可能な時間だけ持続するようにする。 */
 async function delayRoute(page: Page, urlPattern: string, ms: number) {
   await page.route(urlPattern, async (route) => {
@@ -167,6 +198,57 @@ test.describe('開いた最初のフレームに、試す前の結果を出し�
         '「予約できる時間帯が無い」と告げている（利用者は予約できない店だと誤解する）',
     ).not.toContain('予約可能な時間帯がありません');
     expect(first!.spinner, '最初のフレームでローディング表示が出ていない').toBe(true);
+  });
+
+  test('予約日時の変更：日付を選んだ最初のフレームに前日の枠や「空きなし」が出ない', async ({ page }) => {
+    // シード（施設＋メニュー＋スタッフ＋利用者＋予約）と実 UI ログインを含むため既定 30 秒では足りない。
+    test.setTimeout(120_000);
+    await delayRoute(page, '**/api/slots*', 3000);
+
+    const { email, password, bookingId } = await seedVisitorWithBooking();
+
+    // 実 UI でログイン（@supabase/ssr の認証 Cookie を確立する）。
+    await page.goto(`/auth/login?redirect=/mypage/bookings/${bookingId}/change`);
+    await page.fill('#login-email', email);
+    await page.fill('#login-password', password);
+    await page.getByRole('button', { name: 'ログイン', exact: true }).click();
+    await page.waitForURL((u) => !u.pathname.startsWith('/auth/login'), { timeout: 30000 });
+
+    await page.goto(`/mypage/bookings/${bookingId}/change`);
+    // 日付ボタンは「8/19」＋曜日の 2 行構成。日付部分の正規表現で拾う。
+    const dateButtons = page.locator('button').filter({ hasText: /^\d+\/\d+/ });
+    await expect(dateButtons.first()).toBeVisible({ timeout: 30000 });
+
+    // 空き枠の表示領域の最初の描画を捕まえる。
+    await page.evaluate(() => {
+      const w = window as unknown as { __fp?: string | null; __o?: MutationObserver };
+      w.__fp = null;
+      if (w.__o) w.__o.disconnect();
+      w.__o = new MutationObserver(() => {
+        if (w.__fp != null) return;
+        // 枠の表示領域だけを見る。ページ全体だと既存予約の時刻表示（10:00 等）を拾ってしまう。
+        const picker = document.querySelector('[data-testid="slot-picker"]');
+        if (!picker) return;
+        const t = (picker as HTMLElement).innerText.replace(/\s+/g, ' ');
+        const m = t.match(/(この日は予約可能な時間帯がありません|\d{2}:\d{2})/);
+        if (m) w.__fp = m[1];
+      });
+      w.__o.observe(document.body, { childList: true, subtree: true, characterData: true });
+    });
+
+    await dateButtons.first().click();
+
+    // 取得完了を待たずに、記録された最初の描画を読む。
+    await page.waitForTimeout(500);
+    const first = await page.evaluate(() => (window as unknown as { __fp?: string | null }).__fp ?? null);
+
+    // 最初の描画で「空きなし」の断定も、前の日付の時間枠も出ていないこと。
+    // （null＝スピナーだけが出ていて、どちらも描かれなかった状態＝期待どおり）
+    expect(
+      first,
+      `日付を選んだ最初のフレームに「${first}」が出た。空き枠を取得する前に結果を見せている` +
+        '（初回は誤った「空きなし」、2回目以降は前の日付の枠が見えて別日の枠を選ばせ得る）',
+    ).toBeNull();
   });
 
   test('駅検索：2回目に開いたときも前回の結果が残っていない', async ({ page }) => {
