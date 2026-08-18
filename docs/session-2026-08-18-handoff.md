@@ -34,6 +34,26 @@ npm run test:coverage:ci
 #534（ESLint 10 は上流未対応）・#561（対象ファイルが廃止済み）
 クローズした Issue：#233（npm 脆弱性・実測0件）・#410（webhook 生産者は2箇所実在）
 
+## 1-2. コード側の現在値（2026年8月18日 実測・main f74bfce4 時点）
+
+腐り得るので、疑ったら右列のコマンドで取り直すこと。
+
+| 項目 | 値 | 取り直し方 |
+|---|---|---|
+| `next` / `react` | `^16.3.0` / `^19.2.8` | `node -e "const p=require('./package.json');console.log(p.dependencies.next,p.dependencies.react)"` |
+| `eslint` / `eslint-config-next` | `^9.39.5` / `^16.3.0` | 同上（devDependencies） |
+| `engines.node` | `>=22.22.2` | `node -e "console.log(require('./package.json').engines.node)"` |
+| CI の Node | 全ワークフロー `'24'` | `grep -h node-version .github/workflows/*.yml \| sort -u` |
+| lint | `eslint src`（`--ext` は ESLint 9 で廃止） | `node -e "console.log(require('./package.json').scripts.lint)"` |
+| 受容済み負債 | `BASELINE = 8` | `npm run lint:debt` |
+| lint 実測 | errors 0 / warnings 8 | `npm run lint` |
+| React Compiler | **未有効**（`next.config.mjs` に指定なし・依存も 0） | `grep -c reactCompiler next.config.mjs` |
+| jest worker 猶予 | `workerGracefulExitTimeout: 5000` | `grep workerGracefulExitTimeout jest.config.js` |
+
+⚠️ **`eslint.config.mjs` は flat config（native）**。`FlatCompat` はコメント内に経緯として
+名前が残るだけで、実際は `eslint-config-next/core-web-vitals` と `/typescript` を直接 import している。
+`argsIgnorePattern` 等でアンダースコア接頭辞（意図的に未使用の印）を尊重する設定も入っている。
+
 ## 2. このセッションで確立した最重要の知見
 
 ### useEffect はブラウザのペイント後に走る
@@ -78,15 +98,36 @@ H と J は実行時の挙動が A と完全に同一で、検出だけが消え
 構造的な欠陥（転記漏れ・依存漏れ・ボタンの無反応）には静的レビューが有効だが、
 **描画タイミングのような実行時の性質は実ブラウザでしか捕まらない**。
 
-## 3. 恒久ゲート（新設したもの）
+## 3. このセッションで新設したファイル（全13件）
 
-| 仕組み | 何を守るか |
+`git diff --diff-filter=A 6a4bf740~1 origin/main -- src e2e scripts docs` で取得した全量。
+
+### 3-1. 恒久ガード
+
+| ファイル | 何を守るか |
 |---|---|
 | `e2e/first-paint-loading.spec.ts` | 開いた最初のフレームに「試す前の結果」を出していないこと（4件・負の対照済み・chromium 限定） |
-| `npm run lint:debt`（CI 配線済み） | 受容済み負債の件数がベースラインと厳密一致すること（増えても減っても赤） |
-| `src/__tests__/eslint-flat-config-parity.test.ts` | lint 設定の取りこぼし |
-| `src/__tests__/ci-node-version.test.ts` | ワークフローの Node 版が揃い engines を満たすこと |
-| `src/lib/__tests__/database-overrides.test.ts` | 型上書きが今も必要か |
+| `scripts/check-react-compiler-debt.mjs` | `npm run lint:debt` の実体。CI の Lint & Type Check に配線済み |
+| `src/lib/react-compiler-debt.mjs` | 上記の判定ロジック（`RATCHET_RULES` / `BASELINE`）。件数がベースラインと厳密一致しないと赤（増えても減っても） |
+| `src/lib/__tests__/react-compiler-debt.test.ts` | 判定ロジックと、設定側で warn に落としたルールを数え忘れていないこと |
+| `src/__tests__/eslint-flat-config-parity.test.ts` | lint 設定の取りこぼし（`eslint --print-config` を実プロセスで起動して検査） |
+| `src/__tests__/ci-node-version.test.ts` | ワークフローの Node 版が揃い `engines` を満たすこと |
+| `src/lib/__tests__/database-overrides.test.ts` | 型上書きが今も必要か・空振りしていないか |
+
+### 3-2. 新設した実装（SSOT）
+
+| ファイル | 役割 |
+|---|---|
+| `src/types/database-overrides.ts` | Supabase クライアントへ配線する `Database` 型。生成物 `database.types.ts` に、機械生成では表現できない事実（RPC `create_booking_atomic` の NULL 許容引数）だけを重ねる。**生成物を直接編集しないため**の層。`supabase-server.ts` / `supabase-server-auth.ts` / `supabase-browser.ts` と admin staff 系 route が参照 |
+| `src/lib/json-value.ts` | 任意の値を jsonb 列へ渡せる `Json` へ変換する `toJsonValue`。**`as` でのキャストを避けるための唯一の入口**。型配線中に同一実装が6ファイルへ散在したので集約した（`audit-logger` / `webhook-queue` / `cron-logger` / `ab-test` / `stripe-webhook` / `gbp-place` が使用） |
+| `src/lib/__tests__/json-value.test.ts` | 上記の挙動（undefined の脱落・関数や bigint を null へ倒す等） |
+| `src/__tests__/json-value-single-source.test.ts` | 同じ変換を各所で再実装していないこと（SSOT の維持） |
+| `src/app/api/admin/platform-blog/[id]/__tests__/patch.test.ts` | PATCH の部分更新分岐（未指定は更新しない／明示 null はクリア） |
+| `docs/session-2026-08-18-handoff.md` | この文書 |
+
+🔴 **`toJsonValue` と `database-overrides.ts` は次の作業で必ず関係する。**
+jsonb 列へ値を入れるときは `as` を書かず `toJsonValue` を通すこと。RPC の型が実態と合わない
+ときは生成物ではなく `database-overrides.ts` に根拠付きで足すこと。
 
 ## 4. 意図的に残した負債（BASELINE=8・現在値は `npm run lint:debt` で確認）
 
