@@ -26,6 +26,13 @@ describe('近日公開の表示（Issue #408 / #409）', () => {
     expect(source).toContain('合計');
   });
 
+  it('Issue #408: これから支払いが発生する予約にだけ出す（済んだ予約へ誤案内しない）', () => {
+    const source = read('src/app/mypage/bookings/[id]/page.tsx');
+    // canCancel が偽＝キャンセル済み・来店済み・無断キャンセル。そこへ
+    // 「店舗でお支払いください」と出すのは誤案内なので、必ず条件付きで描く。
+    expect(source).toContain('{canCancel && <p className="text-xs text-gray-400">{ONLINE_PREPAYMENT_NOTICE}</p>}');
+  });
+
   it('Issue #408: 決済導線そのものは出さない（決定どおり）', () => {
     const source = read('src/app/mypage/bookings/[id]/page.tsx');
     expect(source).not.toContain('payment/checkout');
