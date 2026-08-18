@@ -1,429 +1,216 @@
-'use client';
+import type { Metadata } from 'next';
+import Image from 'next/image';
+import RegisterForm from '@/components/register/RegisterForm';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { supabase } from '@/lib/supabase';
-import { salonStep1Schema, salonStep2Schema, salonStep3Schema, salonFullSchema, type SalonFormValues, formatPhone, businessTypes } from '@/lib/validations';
-import { facilityFeatures } from '@/lib/constants';
-import StepIndicator from '@/components/StepIndicator';
-import MultiPhotoUpload, { type PhotoSlot } from '@/components/MultiPhotoUpload';
-import Spinner from '@/components/Spinner';
-import { compressImage } from '@/lib/image-compress';
-import { rollbackUploadedSalonPhotos } from '@/lib/salon-photo-rollback';
-import Toast from '@/components/Toast';
-import ConfirmDialog from '@/components/ConfirmDialog';
-import { getRecaptchaToken } from '@/lib/recaptcha-client';
+export const metadata: Metadata = {
+  title: '無料掲載登録 | CareLink',
+  description: '掲載料0円。ネット予約・顧客管理・求人掲載までひとつに。最短3分で登録できます。',
+};
 
-const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
-const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
+/**
+ * 施設向けの掲載登録ページ。
+ *
+ * 🔴 なぜサーバーコンポーネントに分けたか
+ * 旧実装はページ全体が 'use client' の巨大なフォーム 1 本で、見出しと 1 行の説明の下が
+ * いきなり 20 項目超の入力欄だった。スマホでは【文字だけが延々と続く画面】になり、
+ * 「なぜ登録するのか」が一切伝わらないまま離脱する構造だった。
+ * 訴求部分は静的なので、サーバー側で描いてクライアント JS を増やさない。
+ * フォームだけが 'use client'（src/components/register/RegisterForm.tsx）。
+ *
+ * ⚠️ 数字と機能名は【実装にあるものだけ】を書く。盛った数字は景表法上の問題になるうえ、
+ * 実態と違う約束は登録後の解約に直結する。競合との価格比較を載せるなら根拠資料が要る。
+ */
 
-const photoSlots: PhotoSlot[] = [
-  { label: '外観', required: true },
-  { label: '内観 1' },
-  { label: '内観 2' },
-  { label: '内観 3' },
-  { label: 'メニュー 1' },
-  { label: 'メニュー 2' },
-  { label: 'メニュー 3' },
+/** 現状（電話と紙の台帳）と CareLink の違い。競合サービスとの比較ではない。 */
+const COMPARISON: { label: string; before: string; after: string }[] = [
+  { label: '予約の受付', before: '営業時間だけ', after: '24時間' },
+  { label: '重複予約', before: '起こる', after: '防ぐ' },
+  { label: '前日リマインド', before: '手作業', after: '自動' },
+  { label: '口コミ', before: '集まらない', after: '自動でお願い' },
+  { label: '初期費用', before: '—', after: '0円' },
 ];
 
-const startDateOptions = [
-  { value: '', label: '選択してください' },
-  { value: 'immediately', label: 'すぐに掲載したい' },
-  { value: 'within_1month', label: '1ヶ月以内' },
-  { value: 'within_3months', label: '3ヶ月以内' },
-  { value: 'undecided', label: '検討中' },
+/**
+ * できること。
+ *
+ * ⚠️ ここに施術写真を敷かないこと。一度そうしたが、「顧客カルテ」にポートレート、
+ * 「求人掲載」にオイルマッサージ、という【機能と中身が噛み合わない絵】になり、
+ * かえって作りの粗さが目立った（実機のスクリーンショットで確認）。
+ * 実画面のスクリーンショットが用意できるまでは、線画アイコンで揃えるほうが上質に見える。
+ */
+const CAPABILITIES: { title: string; body: string; icon: 'calendar' | 'card' | 'people' }[] = [
+  { title: 'ネット予約', body: '深夜でも予約が入る', icon: 'calendar' },
+  { title: '顧客カルテ', body: '来店履歴と好みを記録', icon: 'card' },
+  { title: '求人掲載', body: 'スタッフ募集も同じ画面から', icon: 'people' },
+];
+
+const ICON_PATHS: Record<'calendar' | 'card' | 'people', string> = {
+  calendar: 'M8 2v3M16 2v3M3.5 9h17M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z',
+  card: 'M3 6h18v12H3zM7 10h4M7 14h7',
+  people: 'M16 20v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM21 20v-1a4 4 0 0 0-3-3.9M16.5 4.6a3 3 0 0 1 0 5.8',
+};
+
+const STEPS = [
+  { n: '01', title: '無料登録', body: 'このページで3分' },
+  { n: '02', title: 'アカウント作成', body: '入力内容がそのまま反映' },
+  { n: '03', title: '掲載開始', body: 'その日から予約を受付' },
 ];
 
 export default function RegisterPage() {
-  const router = useRouter();
-  const [step, setStep] = useState(1);
-  const [submitting, setSubmitting] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [photoFiles, setPhotoFiles] = useState<(File | null)[]>(photoSlots.map(() => null));
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [isDirty, setIsDirty] = useState(false);
-  const [agreed, setAgreed] = useState(false);
-  // 【2026年7月29日】許認可・届出の表明保証（利用規約 第12条）。規約への一括同意とは別建てにする。
-  // 一括同意に埋めると「読んでいない・気づいていない」の余地が残り、責任分界の証跡として弱い。
-  // 独立したチェックにすることで、掲載者が届出義務を認識した上で登録した事実を明確に残す。
-  const [licenseWarranted, setLicenseWarranted] = useState(false);
-
-  const { register, handleSubmit, trigger, setValue, watch, formState: { errors } } = useForm<SalonFormValues>({
-    resolver: zodResolver(salonFullSchema),
-    mode: 'onTouched',
-    defaultValues: {
-      facility_name: '', business_type: '', representative_name: '', contact_name: '',
-      email: '', phone: '', contact_phone: '', website: '',
-      postal_code: '', address: '', building_name: '', nearest_station: '',
-      business_hours: '', regular_holiday: '', seat_count: null, staff_count: null,
-      has_parking: false, features: [],
-      pr_text: '', desired_start_date: '',
-    },
-  });
-
-  const prText = watch('pr_text') || '';
-  const postalCode = watch('postal_code') || '';
-  const selectedFeatures = watch('features') || [];
-
-  // Phone auto-hyphen
-  const handlePhoneChange = (field: 'phone' | 'contact_phone') => (e: React.ChangeEvent<HTMLInputElement>) => {
-    setValue(field, formatPhone(e.target.value), { shouldValidate: true });
-  };
-
-  // Postal code auto-completion
-  const fetchAddress = useCallback(async (code: string) => {
-    const digits = code.replace(/\D/g, '');
-    if (digits.length !== 7) return;
-    try {
-      const res = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${digits}`, {
-        signal: AbortSignal.timeout(5000),
-      });
-      const data = await res.json();
-      if (data.results?.[0]) {
-        const r = data.results[0];
-        setValue('address', `${r.address1 ?? ''}${r.address2 ?? ''}${r.address3 ?? ''}`);
-      }
-    } catch { /* ignore */ }
-  }, [setValue]);
-
-  useEffect(() => {
-    const digits = postalCode.replace(/\D/g, '');
-    if (digits.length === 7) fetchAddress(postalCode);
-  }, [postalCode, fetchAddress]);
-
-  // Page leave warning
-  useEffect(() => {
-    if (!isDirty) return;
-    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [isDirty]);
-
-  const handleFieldChange = () => { if (!isDirty) setIsDirty(true); };
-
-  // Feature toggle
-  const toggleFeature = (feature: string) => {
-    const current = selectedFeatures;
-    const updated = current.includes(feature)
-      ? current.filter(f => f !== feature)
-      : [...current, feature];
-    setValue('features', updated);
-  };
-
-  const nextStep = async () => {
-    const schema = stepSchemas[step - 1];
-    const fields = Object.keys(schema.shape) as (keyof SalonFormValues)[];
-    if (await trigger(fields)) setStep(step + 1);
-  };
-
-  const onSubmit = async (data: SalonFormValues) => {
-    setSubmitting(true);
-    // 【2026年7月8日 恒久根治】写真アップロード成功後に /api/salons が失敗（バリデーション/
-    // レート制限/ネットワーク断等）すると、アップロード済みファイルがストレージに孤児として
-    // 残り続けていた。再送信時は毎回新しい crypto.randomUUID() で再アップロードするため、
-    // 失敗を繰り返すほど孤児が積み上がる。アップロード成功パスを記録し、この関数のいずれの
-    // 失敗経路（アップロード自体の部分失敗・API失敗・例外）でも catch 節で確実に削除する。
-    const uploadedPaths: string[] = [];
-    try {
-      // Upload photos
-      const uuid = crypto.randomUUID();
-      const categories = ['exterior', 'interior_1', 'interior_2', 'interior_3', 'menu_1', 'menu_2', 'menu_3'];
-      const mimeToExt: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
-
-      // 監査P6: 従来は生ファイルを無圧縮・直列アップロードしていた（最大7枚×10MB）。
-      // 各ファイルをクライアント側で圧縮し、圧縮＋アップロードを Promise.all で並列化する。
-      // map はインデックス順を保持し、filter で order を保ったまま null（未選択枠）を除く。
-      const uploadResults = await Promise.all(
-        photoFiles.map(async (file, i) => {
-          if (!file) return null;
-          const compressed = await compressImage(file).catch(() => file); // 圧縮失敗時は元ファイル
-          const ext = mimeToExt[compressed.type] || 'jpg';
-          const path = `salons/${uuid}/${categories[i]}.${ext}`;
-          const { error: uploadError } = await supabase.storage.from('carelink-uploads').upload(path, compressed);
-          if (uploadError) throw uploadError;
-          uploadedPaths.push(path);
-          return supabase.storage.from('carelink-uploads').getPublicUrl(path).data.publicUrl;
-        })
-      );
-      const photoUrls = uploadResults.filter((u): u is string => !!u);
-      const recaptchaToken = await getRecaptchaToken('salons');
-
-      const res = await fetch('/api/salons', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          facility_name: data.facility_name,
-          business_type: data.business_type,
-          representative_name: data.representative_name,
-          contact_name: data.contact_name,
-          email: data.email,
-          phone: data.phone,
-          contact_phone: data.contact_phone || null,
-          website: data.website || null,
-          postal_code: data.postal_code || null,
-          address: data.address || null,
-          building_name: data.building_name || null,
-          nearest_station: data.nearest_station || null,
-          business_hours: data.business_hours || null,
-          regular_holiday: data.regular_holiday || null,
-          // 0 は有効値（席数/スタッフ数 0）。`data.seat_count &&` は 0 を falsy 扱いして
-          // null 化してしまうため、typeof number 判定にする（空欄は valueAsNumber で NaN → null）。
-          seat_count: typeof data.seat_count === 'number' && !isNaN(data.seat_count) ? data.seat_count : null,
-          staff_count: typeof data.staff_count === 'number' && !isNaN(data.staff_count) ? data.staff_count : null,
-          has_parking: data.has_parking || false,
-          features: data.features || [],
-          pr_text: data.pr_text || null,
-          photo_url: photoUrls[0] || null,
-          photo_urls: photoUrls,
-          desired_start_date: data.desired_start_date || null,
-          // 【2026年7月16日 恒久根治・/api/notify 廃止対応】従来はここで送信成功後に
-          // 認証なしの公開POST /api/notify を別途叩いて Slack 通知していたが、外部から
-          // 偽アラートを送れる構造的脆弱性だったため廃止。/api/salons が保存成功後に
-          // サーバー側から直接 Slack 通知を送るため、どちらのテンプレートを使うかを
-          // このフィールドで伝える（DBには保存されない）。
-          source: 'register',
-          ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
-        }),
-      });
-      if (!res.ok) throw new Error('registration failed');
-      const resBody = await res.json().catch(() => null);
-
-      setIsDirty(false);
-      // 【2026年7月8日 恒久根治】/register/complete はクライアント供給の name/type/area だけを表示
-      // しており、サーバー確認なしで誰でも任意の値を使って「登録完了しました」画面を直接開けた
-      // （実登録なしでの偽装表示・分析上のコンバージョン計測歪みの懸念）。/api/salons が返す
-      // salon id を渡し、complete ページ側でその id が実在する登録データか検証してから
-      // サーバー側の実データを表示する方式に変更する。
-      const params = new URLSearchParams();
-      if (resBody?.id) params.set('id', resBody.id);
-      router.push(`/register/complete?${params.toString()}`);
-    } catch {
-      // アップロード済みの写真をストレージから削除し、孤児ファイルの蓄積を防ぐ（上記コメント参照）。
-      await rollbackUploadedSalonPhotos(uploadedPaths);
-      setToast({ message: '送信に失敗しました。時間をおいて再度お試しください。', type: 'error' });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // submitting(state)だけを見ると、zodResolver の非同期検証が終わり setSubmitting(true)が
-  // 反映されるまでの間（Reactの再レンダーを跨ぐ猶予）に連打されると両方とも通ってしまう
-  // （state 更新は非同期・バッチされるため）。ref は同期的に読み書きできるため、
-  // 同一tick内の連打も含めて確実にブロックできる（写真の二重アップロード・施設の二重登録を防止）。
-  const submitLockRef = useRef(false);
-
-  const handleConfirmSubmit = () => {
-    if (submitLockRef.current) return;
-    submitLockRef.current = true;
-    setShowConfirm(false);
-    handleSubmit(onSubmit)().finally(() => {
-      submitLockRef.current = false;
-    });
-  };
-
   return (
-    <div className="section-container">
-      <h1 className="section-title">無料掲載登録</h1>
-      <p className="text-center text-gray-500 text-sm mb-8">掲載料は一切かかりません。最短3分で登録できます。</p>
-      <div className="max-w-2xl mx-auto">
-        <StepIndicator currentStep={step} totalSteps={3} labels={stepLabels} />
-        <form onSubmit={handleSubmit(() => setShowConfirm(true))} onChange={handleFieldChange} noValidate className="card">
+    <div className="bg-[#FBF9F7]">
+      {/* ===== ヒーロー ===== */}
+      <section>
+        <div className="relative h-[46vw] min-h-[220px] max-h-[380px] sm:h-[320px]">
+          <Image
+            src="/images/hero.webp"
+            alt=""
+            fill
+            priority
+            sizes="100vw"
+            className="object-cover"
+          />
+          {/* 下端を背景色へ溶かす。文字を画像に重ねないので読みづらさが出ない。 */}
+          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#FBF9F7]" />
+        </div>
 
-          {/* Step 1: 基本情報 */}
-          {step === 1 && (
-            <div className="space-y-5">
-              <div>
-                <label htmlFor="reg-facility-name" className="form-label">施設名 <span className="text-red-500">*</span></label>
-                <input {...register('facility_name')} id="reg-facility-name" className="form-input" placeholder="例：リラクゼーションサロン ABC" aria-required="true" maxLength={100} />
-                {errors.facility_name && <p className="form-error" role="alert">{errors.facility_name.message}</p>}
+        <div className="relative -mt-8 px-6 text-center">
+          <p className="text-[11px] tracking-[0.2em] text-gray-500">SALON &amp; CLINIC</p>
+          <h1 className="mt-3 text-[26px] sm:text-4xl font-medium leading-[1.5] tracking-wide text-gray-900">
+            予約も、集客も、
+            <br />
+            ひとつに。
+          </h1>
+          <p className="mt-4 text-sm text-gray-500">掲載料0円 · 最短3分</p>
+
+          <a
+            href="#register-form"
+            className="mt-7 inline-flex h-12 w-full max-w-[280px] items-center justify-center rounded-full bg-primary text-sm font-bold text-white transition-transform active:scale-95"
+          >
+            無料ではじめる
+          </a>
+        </div>
+      </section>
+
+      {/* ===== 数字 ===== */}
+      <section className="mt-12 px-6">
+        <dl className="mx-auto flex max-w-md items-stretch justify-between rounded-3xl bg-white px-2 py-6 shadow-[0_2px_24px_rgba(0,0,0,0.04)]">
+          {[
+            { value: '0', unit: '円', label: '掲載料' },
+            { value: '3', unit: '分', label: '登録' },
+            { value: '24', unit: '時間', label: '予約受付' },
+          ].map((stat, i) => (
+            <div key={stat.label} className="flex flex-1 items-center justify-center">
+              {i > 0 && <div className="mr-auto h-8 w-px bg-gray-100" />}
+              <div className="text-center">
+                <dd className="text-[28px] font-medium leading-none text-gray-900">
+                  {stat.value}
+                  <span className="ml-0.5 text-xs text-gray-400">{stat.unit}</span>
+                </dd>
+                <dt className="mt-2 text-[11px] tracking-wider text-gray-400">{stat.label}</dt>
               </div>
-              <div>
-                <label htmlFor="reg-business-type" className="form-label">業種 <span className="text-red-500">*</span></label>
-                <select {...register('business_type')} id="reg-business-type" className="form-input" aria-required="true">
-                  <option value="">選択してください</option>
-                  {businessTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-                {errors.business_type && <p className="form-error" role="alert">{errors.business_type.message}</p>}
-              </div>
-              <div>
-                <label htmlFor="reg-rep-name" className="form-label">代表者名 <span className="text-red-500">*</span></label>
-                <input {...register('representative_name')} id="reg-rep-name" className="form-input" placeholder="例：山田 太郎" aria-required="true" />
-                {errors.representative_name && <p className="form-error" role="alert">{errors.representative_name.message}</p>}
-              </div>
-              <div>
-                <label htmlFor="reg-contact-name" className="form-label">担当者名 <span className="text-red-500">*</span></label>
-                <input {...register('contact_name')} id="reg-contact-name" className="form-input" placeholder="例：山田 花子" aria-required="true" />
-                {errors.contact_name && <p className="form-error" role="alert">{errors.contact_name.message}</p>}
-              </div>
-              <div>
-                <label htmlFor="reg-email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
-                <input {...register('email')} id="reg-email" type="email" autoComplete="email" className="form-input" placeholder="example@email.com" aria-required="true" />
-                {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
-              </div>
-              <div>
-                <label htmlFor="reg-phone" className="form-label">電話番号 <span className="text-red-500">*</span></label>
-                <input {...register('phone')} id="reg-phone" onChange={handlePhoneChange('phone')} autoComplete="tel" className="form-input" placeholder="090-1234-5678" aria-required="true" maxLength={20} />
-                {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
-              </div>
-              <div>
-                <label htmlFor="reg-contact-phone" className="form-label">担当者直通電話 <span className="text-gray-400 text-xs font-normal">任意</span></label>
-                <input {...register('contact_phone')} id="reg-contact-phone" onChange={handlePhoneChange('contact_phone')} maxLength={20} className="form-input" placeholder="090-1234-5678" />
-                {errors.contact_phone && <p className="form-error" role="alert">{errors.contact_phone.message}</p>}
-              </div>
-              <div>
-                <label htmlFor="reg-website" className="form-label">WebサイトURL <span className="text-gray-400 text-xs font-normal">任意</span></label>
-                <input {...register('website')} id="reg-website" type="url" className="form-input" placeholder="https://example.com" maxLength={200} />
-                {errors.website && <p className="form-error" role="alert">{errors.website.message}</p>}
-              </div>
-              <button type="button" onClick={nextStep} className="btn-primary w-full !py-3">次へ</button>
+              {i > 0 && <div className="ml-auto" />}
             </div>
-          )}
+          ))}
+        </dl>
+      </section>
 
-          {/* Step 2: 詳細情報 */}
-          {step === 2 && (
-            <div className="space-y-5">
+      {/* ===== できること ===== */}
+      <section className="mt-14 px-6">
+        <div className="mx-auto max-w-md space-y-3 sm:max-w-3xl sm:grid sm:grid-cols-3 sm:gap-4 sm:space-y-0">
+          {CAPABILITIES.map((c) => (
+            <article
+              key={c.title}
+              className="flex items-center gap-4 rounded-3xl bg-white px-5 py-4 sm:flex-col sm:items-start sm:gap-3 sm:py-6"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+                className="h-7 w-7 shrink-0 text-primary/70"
+              >
+                <path d={ICON_PATHS[c.icon]} />
+              </svg>
               <div>
-                <label htmlFor="reg-postal-code" className="form-label">郵便番号 <span className="text-gray-400 text-xs font-normal">7桁入力で住所を自動補完</span></label>
-                <input {...register('postal_code')} id="reg-postal-code" autoComplete="postal-code" className="form-input" placeholder="5600001" maxLength={8} inputMode="numeric" />
-                {errors.postal_code && <p className="form-error" role="alert">{errors.postal_code.message}</p>}
+                <h2 className="text-sm font-bold tracking-wide text-gray-900">{c.title}</h2>
+                <p className="mt-0.5 text-xs leading-relaxed text-gray-500">{c.body}</p>
               </div>
-              <div>
-                <label htmlFor="reg-address" className="form-label">住所</label>
-                <input {...register('address')} id="reg-address" autoComplete="street-address" className="form-input" placeholder="例：大阪府堺市堺区..." maxLength={200} />
-              </div>
-              <div>
-                <label htmlFor="reg-building-name" className="form-label">建物名・部屋番号 <span className="text-gray-400 text-xs font-normal">任意</span></label>
-                <input {...register('building_name')} id="reg-building-name" className="form-input" placeholder="例：○○ビル 3F" maxLength={100} />
-              </div>
-              <div>
-                <label htmlFor="reg-nearest-station" className="form-label">最寄り駅 <span className="text-gray-400 text-xs font-normal">任意</span></label>
-                <input {...register('nearest_station')} id="reg-nearest-station" className="form-input" placeholder="例：堺東駅 徒歩5分" maxLength={100} />
-              </div>
-              <div>
-                <label htmlFor="reg-business-hours" className="form-label">営業時間</label>
-                <input {...register('business_hours')} id="reg-business-hours" className="form-input" placeholder="例：10:00〜20:00" maxLength={200} />
-              </div>
-              <div>
-                <label htmlFor="reg-regular-holiday" className="form-label">定休日</label>
-                <input {...register('regular_holiday')} id="reg-regular-holiday" className="form-input" placeholder="例：毎週月曜日" maxLength={100} />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+            </article>
+          ))}
+        </div>
+      </section>
+
+      {/* ===== 比較 ===== */}
+      <section className="mt-14 px-6">
+        <div className="mx-auto max-w-md sm:max-w-2xl">
+          <h2 className="text-center text-base font-medium tracking-wide text-gray-900">
+            いまのやり方と、くらべると
+          </h2>
+
+          {/* div の格子ではなく table にする。比較表は行と列の対応そのものが情報なので、
+              読み上げで「予約の受付／CareLink／24時間」と辿れる形にしておく必要がある。 */}
+          <table className="mt-6 w-full table-fixed overflow-hidden rounded-3xl bg-white text-left">
+            <thead>
+              <tr className="border-b border-gray-100">
+                <th scope="col" className="w-[38%] px-5 py-3">
+                  <span className="sr-only">項目</span>
+                </th>
+                <th scope="col" className="px-2 py-3 text-center text-[11px] font-normal text-gray-400">
+                  電話・紙
+                </th>
+                <th scope="col" className="px-2 py-3 text-center text-[11px] font-bold text-primary">
+                  CareLink
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {COMPARISON.map((row) => (
+                <tr key={row.label} className="border-b border-gray-50 last:border-b-0">
+                  <th scope="row" className="px-5 py-3.5 text-xs font-medium text-gray-700">
+                    {row.label}
+                  </th>
+                  <td className="px-2 py-3.5 text-center text-[11px] text-gray-400">{row.before}</td>
+                  <td className="px-2 py-3.5 text-center text-[11px] font-bold text-gray-900">
+                    {row.after}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* ===== 流れ ===== */}
+      <section className="mt-14 px-6">
+        <div className="mx-auto max-w-md sm:max-w-3xl">
+          <h2 className="text-center text-base font-medium tracking-wide text-gray-900">
+            掲載までの流れ
+          </h2>
+          <ol className="mt-6 space-y-3 sm:grid sm:grid-cols-3 sm:gap-4 sm:space-y-0">
+            {STEPS.map((s) => (
+              <li key={s.n} className="flex items-center gap-4 rounded-3xl bg-white px-5 py-4 sm:flex-col sm:items-start">
+                <span className="text-lg font-medium tracking-widest text-primary/40">{s.n}</span>
                 <div>
-                  <label htmlFor="reg-seat-count" className="form-label">席数・ベッド数</label>
-                  <input {...register('seat_count', { valueAsNumber: true })} id="reg-seat-count" type="number" min="0" className="form-input" />
+                  <p className="text-sm font-bold text-gray-900">{s.title}</p>
+                  <p className="mt-0.5 text-xs text-gray-500">{s.body}</p>
                 </div>
-                <div>
-                  <label htmlFor="reg-staff-count" className="form-label">スタッフ数</label>
-                  <input {...register('staff_count', { valueAsNumber: true })} id="reg-staff-count" type="number" min="0" className="form-input" />
-                </div>
-              </div>
-              <div>
-                <label className="form-label flex items-center gap-2 cursor-pointer">
-                  <input {...register('has_parking')} type="checkbox" className="w-4 h-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500" />
-                  駐車場あり
-                </label>
-              </div>
-              <div>
-                <label className="form-label">こだわり・特徴 <span className="text-gray-400 text-xs font-normal">複数選択可</span></label>
-                <div className="flex flex-wrap gap-2">
-                  {facilityFeatures.map(f => (
-                    <button
-                      key={f}
-                      type="button"
-                      onClick={() => toggleFeature(f)}
-                      aria-pressed={selectedFeatures.includes(f)}
-                      className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
-                        selectedFeatures.includes(f)
-                          ? 'bg-sky-50 border-sky-400 text-sky-700'
-                          : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
-                      }`}
-                    >
-                      {selectedFeatures.includes(f) && <span className="mr-1">&#10003;</span>}
-                      {f}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="flex gap-4">
-                <button type="button" onClick={() => setStep(1)} className="btn-outline flex-1">戻る</button>
-                <button type="button" onClick={nextStep} className="btn-primary flex-1">次へ</button>
-              </div>
-            </div>
-          )}
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
 
-          {/* Step 3: PR情報 */}
-          {step === 3 && (
-            <div className="space-y-5">
-              <div>
-                <label htmlFor="reg-pr-text" className="form-label">PR文 <span className="text-gray-400 text-xs font-normal">1000文字以内</span></label>
-                <textarea {...register('pr_text')} id="reg-pr-text" className="form-input min-h-[150px]" placeholder="施設のアピールポイントをご記入ください&#10;例：当院は開業20年の実績があり、..." maxLength={1000} />
-                <div className="flex justify-between mt-1">
-                  {errors.pr_text && <p className="form-error" role="alert">{errors.pr_text.message}</p>}
-                  <p className="text-sm text-gray-400 ml-auto">{prText.length}/1000</p>
-                </div>
-              </div>
-              <div>
-                <label className="form-label">施設写真 <span className="text-gray-400 text-xs font-normal">外観は必須・最大7枚</span></label>
-                <MultiPhotoUpload slots={photoSlots} onChange={setPhotoFiles} />
-              </div>
-              <div>
-                <label htmlFor="reg-desired-start-date" className="form-label">掲載希望時期</label>
-                <select {...register('desired_start_date')} id="reg-desired-start-date" className="form-input">
-                  {startDateOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
-              <label className="flex items-start gap-2 text-sm text-gray-600">
-                <input
-                  type="checkbox"
-                  checked={licenseWarranted}
-                  onChange={(e) => setLicenseWarranted(e.target.checked)}
-                  className="mt-0.5 rounded border-gray-300"
-                />
-                <span>
-                  当施設の運営に法令上必要な許可・免許・届出（美容所開設届、施術所開設届、診療所開設届等）を
-                  すべて完了しており、施術は必要な資格を有する者が提供することを表明します（必須）
-                </span>
-              </label>
-              <label className="flex items-start gap-2 text-sm text-gray-600">
-                <input
-                  type="checkbox"
-                  checked={agreed}
-                  onChange={(e) => setAgreed(e.target.checked)}
-                  className="mt-0.5 rounded border-gray-300"
-                />
-                <span>
-                  <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-primary underline">利用規約</a>
-                  および
-                  <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline">プライバシーポリシー</a>
-                  に同意する（必須）
-                </span>
-              </label>
-              <div className="flex gap-4">
-                <button type="button" onClick={() => setStep(2)} className="btn-outline flex-1">戻る</button>
-                <button type="submit" disabled={submitting || !agreed || !licenseWarranted} className="btn-primary flex-1 !py-3">
-                  {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />送信中...</span> : '登録する'}
-                </button>
-              </div>
-            </div>
-          )}
-        </form>
-      </div>
-
-      <ConfirmDialog
-        open={showConfirm}
-        title="登録内容を送信しますか？"
-        message="送信後、続けてアカウントを作成すると、入力内容（営業時間・写真・特徴・PRなど）がそのまま管理画面に反映され、すぐに掲載を開始できます。"
-        confirmLabel="送信する"
-        cancelLabel="戻る"
-        confirmDisabled={submitting}
-        onConfirm={handleConfirmSubmit}
-        onCancel={() => setShowConfirm(false)}
-      />
-
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+      {/* ===== フォーム ===== */}
+      <section id="register-form" className="mt-16 scroll-mt-4 pb-16">
+        <h2 className="mb-6 text-center text-base font-medium tracking-wide text-gray-900">
+          掲載のお申し込み
+        </h2>
+        <RegisterForm />
+      </section>
     </div>
   );
 }
