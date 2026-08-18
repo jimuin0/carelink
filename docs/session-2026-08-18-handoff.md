@@ -45,8 +45,8 @@ npm run test:coverage:ci
 | `engines.node` | `>=22.22.2` | `node -e "console.log(require('./package.json').engines.node)"` |
 | CI の Node | 全ワークフロー `'24'` | `grep -h node-version .github/workflows/*.yml \| sort -u` |
 | lint | `eslint src`（`--ext` は ESLint 9 で廃止） | `node -e "console.log(require('./package.json').scripts.lint)"` |
-| 受容済み負債 | `BASELINE = 8` | `npm run lint:debt` |
-| lint 実測 | errors 0 / warnings 8 | `npm run lint` |
+| 受容済み負債 | `BASELINE = 6` | `npm run lint:debt` |
+| lint 実測 | errors 0 / warnings 6 | `npm run lint` |
 | React Compiler | **未有効**（`next.config.mjs` に指定なし・依存も 0） | `grep -c reactCompiler next.config.mjs` |
 | jest worker 猶予 | `workerGracefulExitTimeout: 5000` | `grep workerGracefulExitTimeout jest.config.js` |
 
@@ -163,14 +163,30 @@ npx playwright test e2e/first-paint-loading.spec.ts --project=chromium
 
 ## 6. 次にやること（優先順）
 
-1. **dependabot の新規5本**（#611〜#615）。#597 と同じ方針で、lock を触る複数本は
-   1本にまとめてから取り込むとコンフリクトの往復を避けられる
-2. **残る受容済み負債の再評価**。実機で測れる環境が整ったので、`gbp` と `ReviewSummary` を
-   実際に測って「空白／フォールバックだから許容」が今も正しいか確認する
-3. **`@supabase/*` が Node 22 以上を要求している件**。CI と本番は Node 24 に揃えたので現状問題ないが、
-   `engines.node` は `>=22.22.2`。ローカルが Node 20 だと npm ci で警告が出る
-4. **open Issue 4件**（#408 決済・#409 キャンセル待ち・#417 LINE代替・#527 LINE無条件送信）は
-   いずれもローンチ範囲・製品判断待ちで、コードの不具合ではない
+✅ **2026年8月18日の続きのセッションで 1〜4 をすべて実施した。** 現状は以下。
+
+1. ~~dependabot の新規5本（#611〜#615）~~ … 1本にまとめて取り込み済み。
+   react-hook-form 7.85 でも `incompatible-library` 3件は**消えないことを実測**（上流未対応）。
+2. ~~残る受容済み負債の再評価~~ … `gbp` と `ReviewSummary` を**根治**して BASELINE 8 → 6。
+   実機ではなく **jsdom で最初のコミットを捕まえる単体テスト**（`src/test-utils/first-frame.tsx`）で
+   検証した。Docker が使えない環境でも決定的に検査できるので、以後はこちらを使うこと。
+   `BookingFlow` の 1 件は代替案を全て検討したうえで据え置き（理由は `react-compiler-debt.mjs`）。
+3. ~~engines.node の件~~ … 宣言自体は正しかった（floor 宣言・CI はその上・Node 20 の警告は正常動作）。
+   本当のリスクは「手管理の floor が、依存の要求が上がった日に静かに嘘になる」ことだったので、
+   **依存側から導出して検査する**形にした（`src/__tests__/engines-node-floor.test.ts`）。
+4. ~~open Issue 4件~~ … 4件とも着手済み。
+   - #527 … `birthday-coupon` の無条件 LINE 送信を撤去（メール一本化）。台帳検査つき。
+   - #417 … LINE の恒久エラーを一時エラーと区別し、メールへ退避。
+   - #408 / #409 … 決定済みだった「近日公開表示」を実装（機能自体は出していない）。
+
+### 残っているもの
+
+- **#408 / #409 の本体機能**（前払い決済・キャンセル待ちの UI）は決定どおり未実装。
+  出すときは `src/lib/coming-soon.ts` の該当文言を消すこと（1 ファイルに集約してある）。
+- **`incompatible-library` 3件**は上流（react-hook-form）待ち。React Compiler は未有効なので実害ゼロ。
+- **`webhook-retry` の LINE 恒久エラー**は `max_attempts` と dead-letter で境界があるため無限再送に
+  ならない。恒久エラーを即 dead-letter へ落とす最適化は可能だが、無駄な API 呼び出しが数回減るだけで
+  リスクに見合わないため実施していない。
 
 ## 7. このセッションで撤回した自分の誤り（同じ轍を踏まないため）
 

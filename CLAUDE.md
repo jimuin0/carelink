@@ -134,6 +134,62 @@ LINE ログインは LIFF とは別チャネルで動くため、どちらか片
 `src/lib/__tests__/line-availability.test.ts` が、ガードの外に `/api/auth/line` 導線が
 1本も無いことまで検証する。
 
+### 自社 LINE チャネルからの自動配信＝台帳で固定（2026年8月18日・Issue #527）
+
+【神原さん決定（2026年7月22〜23日）】「LINE はそもそも CareLink が用意するものではない」。
+各店舗が自店の LINE 公式アカウントで送るのが原則で、自社チャネルからの自動配信は増やさない。
+
+この方針は文章としては残っていたが【コードには一切効いておらず】、口コミ依頼の撤去（PR#526）の後も
+`birthday-coupon` だけが課金ゲートも設定トグルも無いまま無条件で送り続けていた。
+そこで台帳＋検査にした＝`src/__tests__/cron-line-autosend-allowlist.test.ts`。
+
+- 使ってよいのは **`booking-reminder`**（有料 entitlement `reminder_line` ＋ 施設設定の両方が真のときだけ）
+  と **`webhook-retry`**（上記が積んだ失敗ジョブの再送役）の 2 本だけ。
+- 台帳に無い cron が LINE を触ると CI で落ちる。**逆に台帳に載せたのに使っていない場合も落とす**
+  （記載が実態から腐るのを防ぐため）。
+
+### LINE 送信の結果は boolean ではない＝`LineDeliveryOutcome`（2026年8月18日・Issue #417）
+
+`sendLinePush` は以前から恒久エラー（4xx＝宛先が無効・ブロック済み）と一時エラー（429・5xx）を
+区別していたのに、呼び出し側へは `false` としか渡していなかった。そのため `booking-reminder` は
+恒久エラーでも「失敗＝翌 run で再送」と扱い、**毎 run 必ず失敗する送信を繰り返しながら
+その予約者には一生届かない**状態になり得た。
+
+- `sendLinePushWithOutcome()` … `'delivered' | 'transient' | 'permanent'` を返す。
+- `sendLinePush()` … 従来どおり boolean（`=== 'delivered'` の薄い包み）。既存の呼び出し側は無変更。
+- LINE の `sendBookingReminder()` **だけ** outcome を返す（呼び出し元は cron の 1 箇所のみ）。
+  恒久エラー時は claim を解放せず（無限再送を止め）、メールアドレスがあれば同じ内容を退避送信する。
+  同じ予約・同じ日数のメールが既にプラン済みなら退避しない（二重送信を作らない）。
+
+🔴 **戻り値を string 合併型にしても `if (ok)` は常に真になるため tsc は素通りする。**
+実際、既定モックが `true` のままだと全件が permanent 分岐へ落ちるのに、呼び出し引数しか見ていない
+既存テストは緑のままだった。分岐の**結果**を主張する検査を必ず書くこと。
+
+### 端末に残る個人情報の後始末＝`src/lib/client-storage.ts`（2026年8月18日 新設）
+
+退会（アカウント削除）後は `window.location.href = '/'` で全リロードするが、
+**リロードでは sessionStorage は消えない**。予約フローはログイン遷移の直前に下書きを保存しており、
+中身は氏名・メールアドレス・電話番号・備考＝個人情報そのもの。
+
+- `clearStoredPersonalData()` … 退会成功後、**画面遷移の前**に呼ぶ。
+- `bookingDraftKey(facilityId)` … 下書きキーの組み立ての単一ソース。別の場所で `booking-draft:` を
+  直書きすると消去側が知らないキーが生まれるため、`src/__tests__/withdrawal-clears-local-pii.test.ts`
+  が直書きと配線外れの両方を CI で止める。
+- `sessionStorage.clear()` で一括消去しないのは、他機能が同じ領域を使い始めたときの巻き添えを避けるため。
+- 認証情報については全リロードで十分（ブラウザ用クライアントは `@supabase/ssr` の Cookie 方式で、
+  サーバー側の `/api/account/delete` が `sb-*auth-token` を失効させている。localStorage は使っていない）。
+
+### 「近日公開」表示の単一ソース＝`src/lib/coming-soon.ts`（2026年8月18日 新設）
+
+オンライン前払い決済（Issue #408）とキャンセル待ち（Issue #409）は、API・テストまで整備済みだが
+フロントの導線が無い（＝利用者からは存在しないのと同じ）。2026年7月5日に
+「機能は完成させない。フロントには近日公開的な表示のみ出す」と決まっていたが、
+**その表示だけが未実施のまま Issue の TODO に残っていた**（2026年8月18日に実装）。
+
+文言を 1 ファイルに集めるのは、散らばると【機能を出すときにも取り下げるときにも消し漏れ、
+果たされない約束が本番に残る】ため。`src/__tests__/coming-soon-notices.test.ts` が
+「表示が出ていること」と「決済導線・キャンセル待ち登録 UI は出さないこと」の両方を固定する。
+
 ### 連携の出し分け＝`src/lib/integration-availability.ts`（PR#553）
 
 `isAiEnabled()` / `isPaymentsEnabled()` / `isGoogleCalendarEnabled()`。
