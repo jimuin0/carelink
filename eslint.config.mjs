@@ -149,6 +149,23 @@ export default [
     rules: { 'no-restricted-imports': 'off' },
   },
   {
+    // 「最初のフレーム」検査ヘルパの負の対照。effect のトップレベルで setState する
+    // 【意図的に欠陥のある部品】を置く唯一の場所で、そこに欠陥が在ることがこのファイルの機能。
+    // 除外しないと受容済み負債のラチェット（src/lib/react-compiler-debt.mjs）の件数へ混ざり、
+    // 「製品コードに 8 件の負債がある」と読めてしまう（実際は 6 件）。
+    //
+    // ⚠️ このファイル 1 本だけに絞ること。src/test-utils/** へ広げると、将来この配下に置かれる
+    // 別のヘルパの本物の負債まで黙って免除される。
+    //
+    // 【実測 2026年8月18日】setState を局所関数越しに呼ぶ回避も試したが、このルールは
+    // 局所関数の呼び出しを追跡して同じく検出した（＝リポジトリ内の「effect 直下の AST の形しか
+    // 見ない」という記述はこの点では不正確）。async IIFE では検出されないという既存の実測とは
+    // 挙動が異なるため、配線ではなく設定で明示的に除外する。
+    name: 'carelink/first-frame-controls',
+    files: ['src/test-utils/__tests__/first-frame.test.tsx'],
+    rules: { 'react-hooks/set-state-in-effect': 'off' },
+  },
+  {
     name: 'carelink/safe-module',
     files: ['src/lib/safe.ts'],
     rules: { 'carelink-safety/no-bare-sentry-capture': 'off' },
