@@ -13,13 +13,27 @@ import { errorMessage } from '@/lib/err';
  *   `.eq('birth_md', todayMD)` に切替。旧実装は PostgREST が date→text キャストの LIKE を
  *   演算子不在（42883・date ~~ unknown）で毎日 cron_logs に error 記録し本番で全滅していた。
  *   `birth_md` は migration 20260705000001 で追加済みの生成列（GENERATED ALWAYS STORED・索引付き）。
+ *
+ * v8.17 変更（2026年8月18日・Issue #527）: LINE送信を撤去しメール一本化。
+ *   【神原さん決定（2026年7月22〜23日）】「LINEはそもそもCareLinkが用意するものではない」。
+ *   review-request は同方針で PR #526 により撤去済みだったが、この cron だけが課金ゲートも
+ *   設定トグルも無いまま【無条件で CareLink 自社の LINE チャネルから配信し続けていた】
+ *   （唯一残っていた自社LINE自動配信）。
+ *
+ *   🔴 review-request との違いを明示しておく。あちらはメールを全予約へ無条件送信していたため
+ *   LINE は完全な重複だったが、こちらのメールは
+ *   「resend 有効 かつ profile.email あり かつ email_unsubscribed でない」場合にのみ送る。
+ *   よって【メール配信停止済みのユーザー】は、撤去後は誕生日通知を受け取らなくなる。
+ *   これは退行ではなく正しい挙動で、旧実装はメールの配信停止を選んだ人へ LINE で同じ販促を
+ *   届けており、本人の意思表示を迂回していた。
+ *
+ *   birthday_notifications の channel='line' の既存行はそのまま残す（過去の送達記録であり、
+ *   消すと「送ったのに記録が無い」状態を作るため）。claim は今後 'email' しか作らない。
  */
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
-import { sendLineText } from '@/lib/line';
-import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
@@ -127,12 +141,12 @@ export async function GET(request: Request) {
     // notificationsTableReady=false（migration 未適用/取得失敗）のフォールバック時は claim による
     // 相互排他ができないため、旧来どおり claim せず直接送信する（挙動は変更しない）。
 
-    // claim（送信前 INSERT）ヘルパー。email/LINE 両チャネルで共有。
+    // claim（送信前 INSERT）ヘルパー。現在のチャネルはメールのみ。
     // 戻り値: 'claimed'=送信して良い / 'already-claimed'=他run先取り済み（送信せず送達扱い）/
     // 'claim-error'=記録できないため fail-safe で送信自体をスキップ（送達扱いにはしない＝翌runで再試行）。
     const claimNotification = async (
       userId: string,
-      channel: 'email' | 'line'
+      channel: 'email'
     ): Promise<'claimed' | 'already-claimed' | 'claim-error'> => {
       const { error: claimErr } = await supabase.from('birthday_notifications').insert({
         user_id: userId,
@@ -146,7 +160,7 @@ export async function GET(request: Request) {
     };
 
     // claim 解放（送信失敗時に DELETE で claim を取り消し、翌 run の再送を可能にする）。
-    const releaseNotificationClaim = async (userId: string, channel: 'email' | 'line') => {
+    const releaseNotificationClaim = async (userId: string, channel: 'email') => {
       const { error: releaseErr } = await supabase
         .from('birthday_notifications')
         .delete()
@@ -235,7 +249,6 @@ export async function GET(request: Request) {
               <hr style="border:none;border-top:1px solid #e2e8f0;margin:32px 0 16px;" />
               <p style="font-size:12px;color:#94a3b8;text-align:center;">このメールは <a href="${SITE_URL}" style="color:#0ea5e9;">CareLink</a> から自動送信されています。</p>
             </body></html>`;
-      const lineMessage = `🎂 ${name}様、お誕生日おめでとうございます！\n\n本日のお誕生日を記念して、${BIRTHDAY_POINTS}ポイントをプレゼントしました🎁\n\n次回の予約にぜひご利用ください！\n${SITE_URL}/mypage/points`;
 
       // メール通知（未送達かつ送信可能な場合のみ）
       if (resend && profile.email && !profile.email_unsubscribed && !notifiedSet.has(`${profile.id}:email`)) {
@@ -272,54 +285,6 @@ export async function GET(request: Request) {
           } catch (err) {
             deliveryFailures++;
             console.error('[birthday-coupon] email send failed', { userId: profile.id, err });
-          }
-        }
-      }
-
-      // LINE通知（未送達かつ送信可能な場合のみ）
-      if (process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK && !notifiedSet.has(`${profile.id}:line`)) {
-        // 【監査C2】連携の単一ソース profiles.line_user_id で解決（line_user_links.user_id は常にNULL）。
-        const birthdayLineUserId = await resolveLineUserIdForUser(supabase, profile.id);
-
-        if (birthdayLineUserId) {
-          if (notificationsTableReady) {
-            const claimResult = await claimNotification(profile.id, 'line');
-            if (claimResult === 'already-claimed') {
-              notifiedSet.add(`${profile.id}:line`);
-            } else if (claimResult === 'claimed') {
-              try {
-                // sendLineText はリトライ上限到達時に throw せず false を返す。戻り値を見ずに
-                // delivered 扱いすると、全リトライ失敗でも claim が残ったまま（翌 run の再送(v8.15)が
-                // 成立しない）ため、戻り値を必ず見て失敗時は claim を解放する。
-                const lineOk = await sendLineText(birthdayLineUserId, lineMessage);
-                if (lineOk) {
-                  notifiedSet.add(`${profile.id}:line`);
-                } else {
-                  deliveryFailures++;
-                  console.error('[birthday-coupon] LINE send failed (retries exhausted)', { userId: profile.id });
-                  await releaseNotificationClaim(profile.id, 'line');
-                }
-              } catch (err) {
-                deliveryFailures++;
-                console.error('[birthday-coupon] LINE send failed', { userId: profile.id, err });
-                await releaseNotificationClaim(profile.id, 'line');
-              }
-            }
-            // claim-error: 送信自体をスキップ
-          } else {
-            // 【notificationsTableReady=false フォールバック・現行挙動を維持】
-            try {
-              const lineOk = await sendLineText(birthdayLineUserId, lineMessage);
-              if (lineOk) {
-                notifiedSet.add(`${profile.id}:line`);
-              } else {
-                deliveryFailures++;
-                console.error('[birthday-coupon] LINE send failed (retries exhausted)', { userId: profile.id });
-              }
-            } catch (err) {
-              deliveryFailures++;
-              console.error('[birthday-coupon] LINE send failed', { userId: profile.id, err });
-            }
           }
         }
       }

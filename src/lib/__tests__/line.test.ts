@@ -301,7 +301,8 @@ describe('sendBookingReminder', () => {
       date: '2024-01-15',
       time: '11:00',
     });
-    expect(result).toBe(true);
+    // Issue #417: この関数だけ boolean ではなく配信結果を返す。
+    expect(result).toBe('delivered');
     const [, opts] = (global.fetch as jest.Mock).mock.calls[0];
     expect(JSON.parse(opts.body).messages[0].text).toContain('リマインド');
   });
@@ -362,8 +363,29 @@ describe('sendBookingReminder', () => {
     const result = await sendBookingReminder('user-1', {
       facilityName: 'Salon', menuName: 'Perm', date: '2024-01-15', time: '11:00',
     });
-    expect(result).toBe(false);
+    expect(result).toBe('permanent');
     expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+  });
+
+  test('4xx は permanent・429/5xx は transient を返す（Issue #417 の分岐の根拠）', async () => {
+    mockFetchFail(403); // ブロック済み等
+    await expect(
+      sendBookingReminder('user-1', { facilityName: 'S', menuName: 'M', date: '2024-01-15', time: '11:00' }),
+    ).resolves.toBe('permanent');
+
+    mockFetchFail(429); // レート制限
+    const rateLimited = sendBookingReminder('user-1', {
+      facilityName: 'S', menuName: 'M', date: '2024-01-15', time: '11:00',
+    });
+    await jest.runAllTimersAsync();
+    await expect(rateLimited).resolves.toBe('transient');
+
+    mockFetchFail(500); // 一時障害
+    const serverError = sendBookingReminder('user-1', {
+      facilityName: 'S', menuName: 'M', date: '2024-01-15', time: '11:00',
+    });
+    await jest.runAllTimersAsync();
+    await expect(serverError).resolves.toBe('transient');
   });
 });
 

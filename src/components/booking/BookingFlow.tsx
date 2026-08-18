@@ -8,6 +8,7 @@ import type { StaffProfile, FacilityMenu, Coupon, AvailableSlot } from '@/types'
 import { describeCancelPolicy, type CancelPolicy } from '@/lib/cancel-fee';
 import { calculateCouponDiscountedTotal } from '@/lib/coupon-pricing';
 import { isStaffCompatibleWithMenus, filterEligibleStaff } from '@/lib/menu-staff';
+import { bookingDraftKey } from '@/lib/client-storage';
 
 type Step = 'menu' | 'datetime' | 'confirm';
 
@@ -207,12 +208,12 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   // スロット選択(selectedSlot)は復元しない：ログイン滞在中に他ユーザーに取られている可能性が
   // あり、鮮度不明な枠をそのまま確認画面に出すと在庫と乖離した表示になるため、日時ステップに
   // 戻して枠を再取得・再選択させる（1クリックのみの負担・在庫整合性を優先）。
-  const bookingDraftKey = `booking-draft:${facility.id}`;
+  const draftKey = bookingDraftKey(facility.id);
   const BOOKING_DRAFT_TTL_MS = 15 * 60 * 1000; // 15分。ログイン離脱後の長時間放置は復元しない。
 
   function saveBookingDraftBeforeLogin() {
     try {
-      sessionStorage.setItem(bookingDraftKey, JSON.stringify({
+      sessionStorage.setItem(draftKey, JSON.stringify({
         savedAt: Date.now(),
         menuIds: selectedMenus.map((m) => m.id),
         staffId: selectedStaff?.id ?? null,
@@ -290,8 +291,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   useEffect(() => {
     let raw: string | null = null;
     try {
-      raw = sessionStorage.getItem(bookingDraftKey);
-      sessionStorage.removeItem(bookingDraftKey);
+      raw = sessionStorage.getItem(draftKey);
+      sessionStorage.removeItem(draftKey);
     } catch {
       return;
     }

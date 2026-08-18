@@ -175,7 +175,8 @@ function setup(cfg: Cfg = {}) {
   emailModule.sendBookingReminder = mockEmailReminder;
 
   const lineModule = require('@/lib/line');
-  mockLineReminder = jest.fn().mockResolvedValue(true);
+  // Issue #417: 戻り値は boolean ではなく配信結果。既定は送達成功。
+  mockLineReminder = jest.fn().mockResolvedValue('delivered');
   lineModule.sendBookingReminder = mockLineReminder;
 }
 
@@ -316,14 +317,14 @@ describe('GET /api/cron/booking-reminder', () => {
     expect(mockLineReminder).toHaveBeenCalledWith('LINE-1', expect.objectContaining({ menuName: 'ご予約', daysBefore: 3 }));
   });
 
-  test('LINE: 送信 false → skipped にカウント', async () => {
+  test("LINE: 一時的な失敗（transient）→ claim 解放して skipped にカウント", async () => {
     setup({
       bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
       settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
       entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
       lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
     });
-    mockLineReminder.mockResolvedValue(false);
+    mockLineReminder.mockResolvedValue('transient');
     const json = await (await GET(makeRequest() as any)).json();
     expect(json.skipped).toBe(1);
     expect(json.processed).toBe(0);
@@ -347,7 +348,105 @@ describe('GET /api/cron/booking-reminder', () => {
   });
 
   // F-9 根治: claim 解放(delete)自体が失敗した場合も握り潰さず console.error で可視化する。
-  test('LINE: 送信 false かつ claim 解放失敗 → 可視化（本体は継続）', async () => {
+  // -----------------------------------------------------------------------
+  // Issue #417: LINE が恒久エラー（宛先無効・ブロック等）のときの扱い。
+  // 旧実装は恒久／一時を区別できず、毎 run 必ず失敗する送信を永久に繰り返しながら、
+  // その予約者には一生届かなかった。
+  // -----------------------------------------------------------------------
+
+  test('LINE: 恒久的な失敗 → claim を解放せず（無限再送を止め）メールへ退避する', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1', email: 'customer@example.com' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
+    });
+    mockLineReminder.mockResolvedValue('permanent');
+    mockEmailReminder.mockResolvedValue(true);
+
+    const json = await (await GET(makeRequest() as any)).json();
+
+    expect(json.processed).toBe(1);
+    // 恒久エラーで claim を解放すると毎 run 同じ失敗を繰り返す。解放しないことが根治の要。
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockEmailReminder).toHaveBeenCalledWith(
+      expect.objectContaining({ customerEmail: 'customer@example.com', bookingDate: D7 }),
+      7,
+    );
+  });
+
+  test('LINE: 恒久的な失敗の退避メールでも、施設名が引けなければ空文字・金額なしで送る', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1', email: 'customer@example.com', total_price: null })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
+      facilities: { data: null },
+    });
+    mockLineReminder.mockResolvedValue('permanent');
+    mockEmailReminder.mockResolvedValue(true);
+
+    const json = await (await GET(makeRequest() as any)).json();
+
+    expect(json.processed).toBe(1);
+    expect(mockEmailReminder).toHaveBeenCalledWith(
+      expect.objectContaining({ facilityName: '', totalPrice: undefined }),
+      7,
+    );
+  });
+
+  test('LINE: 恒久的な失敗でも同じ日数のメールが既にプラン済みなら退避しない（二重送信を作らない）', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1', email: 'customer@example.com' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: true, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
+    });
+    mockLineReminder.mockResolvedValue('permanent');
+    mockEmailReminder.mockResolvedValue(true);
+
+    const json = await (await GET(makeRequest() as any)).json();
+
+    // 送られるメールは元々プランされていた 1 通だけ（退避で 2 通目を作らない）。
+    expect(mockEmailReminder).toHaveBeenCalledTimes(1);
+    expect(json.processed).toBe(1);
+  });
+
+  test('LINE: 恒久的な失敗かつメールアドレスが無い → 届け先が無いので警報対象にする', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1', email: null })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
+    });
+    mockLineReminder.mockResolvedValue('permanent');
+
+    const json = await (await GET(makeRequest() as any)).json();
+
+    expect(json.processed).toBe(0);
+    expect(json.skipped).toBe(1);
+    expect(mockEmailReminder).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  test('LINE: 恒久的な失敗で退避メールも失敗 → claim を解放して翌 run に委ねる', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1', email: 'customer@example.com' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
+    });
+    mockLineReminder.mockResolvedValue('permanent');
+    mockEmailReminder.mockResolvedValue(false);
+
+    const json = await (await GET(makeRequest() as any)).json();
+
+    expect(json.processed).toBe(0);
+    expect(json.skipped).toBe(1);
+    expect(mockDelete).toHaveBeenCalled();
+  });
+
+  test("LINE: 一時的な失敗かつ claim 解放失敗 → 可視化（本体は継続）", async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
     setup({
       bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
@@ -356,7 +455,7 @@ describe('GET /api/cron/booking-reminder', () => {
       lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
       deleteError: { message: 'delete failed' },
     });
-    mockLineReminder.mockResolvedValue(false);
+    mockLineReminder.mockResolvedValue('transient');
     const json = await (await GET(makeRequest() as any)).json();
     expect(json.skipped).toBe(1);
     expect(consoleSpy).toHaveBeenCalledWith(

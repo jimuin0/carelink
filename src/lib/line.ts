@@ -92,13 +92,34 @@ interface LineMessage {
 }
 
 /**
- * LINE Push メッセージ送信（リトライ付き）
+ * LINE 送信の結果。
+ *
+ * 🔴 なぜ boolean では足りないか（Issue #417）
+ * 送信失敗には【もう一度試せば届くもの】と【何度試しても永久に届かないもの】がある。
+ * 後者は宛先がブロック済み・連携解除済み・user_id が無効といった場合で、LINE API は 4xx を返す。
+ * sendLinePush は以前からこの区別を持っていたのに、呼び出し側へは false としか渡していなかった。
+ * そのため cron 側は恒久エラーでも「失敗＝翌 run で再送」と扱い、【毎回失敗する送信を永久に
+ * 繰り返しながら、その予約者には一生届かない】状態になり得た。区別を呼び出し側まで運ぶ。
  */
-export async function sendLinePush(
+export type LineDeliveryOutcome =
+  /** 届いた。 */
+  | 'delivered'
+  /** 一時的な失敗（429 レート制限・5xx・ネットワーク）。再送する価値がある。 */
+  | 'transient'
+  /** 恒久的な失敗（4xx。宛先が無効・ブロック等）。同じ宛先へ再送しても届かない。 */
+  | 'permanent';
+
+/**
+ * LINE Push メッセージ送信（リトライ付き・結果の詳細つき）。
+ *
+ * 送達可否だけで良い呼び出し側は sendLinePush（boolean 版）を使う。
+ * 「届かない相手に永久に再送し続けない」判断が要る呼び出し側だけがこちらを使う。
+ */
+export async function sendLinePushWithOutcome(
   lineUserId: string,
   messages: LineMessage[],
   maxRetries = 3
-): Promise<boolean> {
+): Promise<LineDeliveryOutcome> {
   const token = getToken();
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -113,7 +134,7 @@ export async function sendLinePush(
         signal: AbortSignal.timeout(10000),
       });
 
-      if (res.ok) return true;
+      if (res.ok) return 'delivered';
 
       const errorText = await res.text().catch(() => '');
       console.error(`[LINE] Push failed: ${res.status} ${errorText}`);
@@ -123,7 +144,7 @@ export async function sendLinePush(
       // 429(レート制限) と 5xx(一時障害) は下のバックオフでリトライする。
       // （res.ok=false を通過後のため status は非2xx/3xx。< 500 かつ 429 でなければ 4xx 恒久エラー）
       if (res.status < 500 && res.status !== 429) {
-        return false;
+        return 'permanent';
       }
 
       if (attempt < maxRetries - 1) {
@@ -136,7 +157,21 @@ export async function sendLinePush(
       }
     }
   }
-  return false;
+  // リトライ上限に到達。恒久エラーならこのループの中で既に 'permanent' を返しているので、
+  // ここへ来るのは 429 / 5xx / ネットワーク例外＝時間をおけば届き得るものだけ。
+  return 'transient';
+}
+
+/**
+ * LINE Push メッセージ送信（リトライ付き）。
+ * 従来からの戻り値契約（送達できたら true・失敗は false）を保つ薄い包み。
+ */
+export async function sendLinePush(
+  lineUserId: string,
+  messages: LineMessage[],
+  maxRetries = 3
+): Promise<boolean> {
+  return (await sendLinePushWithOutcome(lineUserId, messages, maxRetries)) === 'delivered';
 }
 
 /**
@@ -212,7 +247,13 @@ export async function sendBookingCancellation(
 }
 
 /**
- * 予約リマインド通知を送信
+ * 予約リマインド通知を送信。
+ *
+ * 🔴 この関数だけ boolean ではなく LineDeliveryOutcome を返す（Issue #417）。
+ * 呼び出し元は booking-reminder cron の 1 箇所だけで、そこは「恒久エラーなら再送をやめて
+ * メールへ退避する」判断を要する。boolean にすると恒久／一時の区別が呼び出し側で失われ、
+ * 届かない相手へ永久に再送し続ける（＝その予約者には一生届かない）状態が復活する。
+ * 型で受け取らざるを得なくしてあるので、分岐の書き忘れはコンパイルで止まる。
  */
 export async function sendBookingReminder(
   lineUserId: string,
@@ -225,12 +266,12 @@ export async function sendBookingReminder(
     /** 何日前リマインドか（1=明日・既定 / 3=3日後 / 7=7日後 の文言） */
     daysBefore?: number;
   }
-): Promise<boolean> {
+): Promise<LineDeliveryOutcome> {
   const staffLine = booking.staffName ? `\n担当: ${booking.staffName}` : '';
   const days = booking.daysBefore ?? 1;
   const when = days === 1 ? '明日' : `${days}日後`;
   const text = `🔔 ${when}のご予約リマインド\n\n📍 ${booking.facilityName}\n📋 ${booking.menuName}\n📅 ${booking.date} ${booking.time}${staffLine}\n\nお気をつけてお越しください。`;
-  return sendLineText(lineUserId, text);
+  return sendLinePushWithOutcome(lineUserId, [{ type: 'text', text }]);
 }
 
 /**
