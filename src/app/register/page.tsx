@@ -1,6 +1,28 @@
 import type { Metadata } from 'next';
+import type { CSSProperties } from 'react';
 import Image from 'next/image';
+import { Noto_Serif_JP } from 'next/font/google';
 import RegisterForm from '@/components/register/RegisterForm';
+
+/**
+ * 見出しだけ明朝体にする。
+ *
+ * 🔴 なぜ書体を足すか（スマホ実機の見え方で判断）
+ * 全面ゴシック（Noto Sans JP）＋濃い青＋影付きの白カード、という組み合わせは、
+ * どう配置し直しても【業務システムの画面】に見える。日本の美容・サロン系で
+ * 「上品」と受け取られる版面は、見出しが明朝、地色がアイボリー、文字がチャコール、
+ * 区切りが影ではなく細い罫線、という構成になっている。好みの問題ではなく様式の問題なので、
+ * 余白や配置を微調整するより先に、この 3 つ（書体・配色・罫線）を変える。
+ *
+ * 本文はゴシックのまま残す（明朝は小さい字だと読みにくく、フォームの可読性を落とすため）。
+ * このページでしか使わないので、next/font がこのルートにだけ配信する。
+ */
+const serif = Noto_Serif_JP({
+  subsets: ['latin'],
+  display: 'swap',
+  weight: ['400', '500'],
+  variable: '--font-serif-jp',
+});
 
 export const metadata: Metadata = {
   title: '無料掲載登録 | CareLink',
@@ -51,17 +73,28 @@ const ICON_PATHS: Record<'calendar' | 'card' | 'people', string> = {
 };
 
 const STEPS = [
-  { n: '01', title: '無料登録', body: 'このページで3分' },
-  { n: '02', title: 'アカウント作成', body: '入力内容がそのまま反映' },
-  { n: '03', title: '掲載開始', body: 'その日から予約を受付' },
+  { n: 'Ⅰ', title: '無料登録', body: 'このページで3分' },
+  { n: 'Ⅱ', title: 'アカウント作成', body: '入力内容がそのまま反映' },
+  { n: 'Ⅲ', title: '掲載開始', body: 'その日から予約を受付' },
 ];
 
 export default function RegisterPage() {
   return (
-    <div className="bg-[#FBF9F7]">
-      {/* ===== ヒーロー ===== */}
-      <section>
-        <div className="relative h-[46vw] min-h-[220px] max-h-[380px] sm:h-[320px]">
+    <div
+      className={`${serif.variable} bg-[#FAF7F2] text-[#2E2A26]`}
+      /* 🔴 このページの中だけブランド色を差し替える。
+         .btn-primary / StepIndicator / focus リングはいずれも var(--primary) を参照しているので、
+         変数を 1 箇所で上書きすればフォーム側も同じ色に揃う（個々のボタンへ !important を
+         撒くと、disabled の灰色まで潰してしまう）。
+         濃い青のままだと、明朝＋アイボリーの面に対してボタンだけが医療系の配色で浮く。
+         ヘッダー・フッターはこの div の外なので、サイト全体のブランド色は変えていない。 */
+      style={{ '--primary': '#2E2A26', '--primary-dark': '#161310' } as CSSProperties}
+    >
+      {/* ===== ヒーロー =====
+          写真の上に文字を重ねる編集誌的な組み。写真の下に文字を置く形も試したが、
+          画像が「切り抜かれた飾り」に見えて安っぽかった（実機で確認）。 */}
+      <section className="relative">
+        <div className="relative h-[68vh] min-h-[420px] sm:h-[72vh] sm:min-h-[520px]">
           <Image
             src="/images/hero.webp"
             alt=""
@@ -70,113 +103,123 @@ export default function RegisterPage() {
             sizes="100vw"
             className="object-cover"
           />
-          {/* 下端を背景色へ溶かす。文字を画像に重ねないので読みづらさが出ない。 */}
-          <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-[#FBF9F7]" />
+          {/* 文字を置く下半分だけを沈める。全面に暗幕をかけると写真が死ぬ。 */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
+
+          <div className="absolute inset-x-0 bottom-0 px-7 pb-12 sm:px-12 sm:pb-16">
+            <div className="mx-auto max-w-5xl">
+              <p className="text-[10px] tracking-[0.35em] text-white/70">SALON &amp; CLINIC</p>
+              <h1 className="mt-4 font-[family-name:var(--font-serif-jp)] text-[30px] font-normal leading-[1.6] tracking-[0.08em] text-white sm:text-5xl sm:leading-[1.5]">
+                予約も、集客も、
+                <br />
+                ひとつに。
+              </h1>
+              <p className="mt-5 text-xs tracking-widest text-white/80 sm:text-sm">
+                掲載料 0円 ／ 最短 3分
+              </p>
+            </div>
+          </div>
         </div>
 
-        <div className="relative -mt-8 px-6 text-center">
-          <p className="text-[11px] tracking-[0.2em] text-gray-500">SALON &amp; CLINIC</p>
-          <h1 className="mt-3 text-[26px] sm:text-4xl font-medium leading-[1.5] tracking-wide text-gray-900">
-            予約も、集客も、
-            <br />
-            ひとつに。
-          </h1>
-          <p className="mt-4 text-sm text-gray-500">掲載料0円 · 最短3分</p>
-
-          <a
-            href="#register-form"
-            className="mt-7 inline-flex h-12 w-full max-w-[280px] items-center justify-center rounded-full bg-primary text-sm font-bold text-white transition-transform active:scale-95"
-          >
-            無料ではじめる
-          </a>
+        <div className="px-7 sm:px-12">
+          <div className="mx-auto max-w-5xl">
+            <a
+              href="#register-form"
+              className="mt-8 inline-flex h-14 w-full items-center justify-center border border-[#2E2A26] bg-[#2E2A26] text-xs font-medium tracking-[0.2em] text-white transition-colors hover:bg-transparent hover:text-[#2E2A26] sm:w-[280px]"
+            >
+              無料ではじめる
+            </a>
+          </div>
         </div>
       </section>
 
       {/* ===== 数字 ===== */}
-      <section className="mt-12 px-6">
-        <dl className="mx-auto flex max-w-md items-stretch justify-between rounded-3xl bg-white px-2 py-6 shadow-[0_2px_24px_rgba(0,0,0,0.04)]">
+      <section className="mt-14 px-7 sm:mt-20 sm:px-12">
+        <dl className="mx-auto flex max-w-5xl border-y border-[#E4DCD1]">
           {[
             { value: '0', unit: '円', label: '掲載料' },
             { value: '3', unit: '分', label: '登録' },
-            { value: '24', unit: '時間', label: '予約受付' },
+            { value: '24', unit: 'h', label: '予約受付' },
           ].map((stat, i) => (
-            <div key={stat.label} className="flex flex-1 items-center justify-center">
-              {i > 0 && <div className="mr-auto h-8 w-px bg-gray-100" />}
-              <div className="text-center">
-                <dd className="text-[28px] font-medium leading-none text-gray-900">
-                  {stat.value}
-                  <span className="ml-0.5 text-xs text-gray-400">{stat.unit}</span>
-                </dd>
-                <dt className="mt-2 text-[11px] tracking-wider text-gray-400">{stat.label}</dt>
-              </div>
-              {i > 0 && <div className="ml-auto" />}
+            <div
+              key={stat.label}
+              className={`flex-1 py-7 text-center ${i > 0 ? 'border-l border-[#E4DCD1]' : ''}`}
+            >
+              <dd className="font-[family-name:var(--font-serif-jp)] text-[32px] leading-none sm:text-[40px]">
+                {stat.value}
+                <span className="ml-1 text-xs text-[#9C9287]">{stat.unit}</span>
+              </dd>
+              <dt className="mt-3 text-[10px] tracking-[0.2em] text-[#9C9287]">{stat.label}</dt>
             </div>
           ))}
         </dl>
       </section>
 
       {/* ===== できること ===== */}
-      <section className="mt-14 px-6">
-        <div className="mx-auto max-w-md space-y-3 sm:max-w-3xl sm:grid sm:grid-cols-3 sm:gap-4 sm:space-y-0">
-          {CAPABILITIES.map((c) => (
-            <article
-              key={c.title}
-              className="flex items-center gap-4 rounded-3xl bg-white px-5 py-4 sm:flex-col sm:items-start sm:gap-3 sm:py-6"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-                className="h-7 w-7 shrink-0 text-primary/70"
+      <section className="mt-16 px-7 sm:mt-24 sm:px-12">
+        <div className="mx-auto max-w-5xl">
+          <div className="divide-y divide-[#E4DCD1] border-y border-[#E4DCD1] sm:grid sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            {CAPABILITIES.map((c) => (
+              <article
+                key={c.title}
+                className="flex items-center gap-5 py-6 sm:flex-col sm:items-start sm:gap-4 sm:px-7"
               >
-                <path d={ICON_PATHS[c.icon]} />
-              </svg>
-              <div>
-                <h2 className="text-sm font-bold tracking-wide text-gray-900">{c.title}</h2>
-                <p className="mt-0.5 text-xs leading-relaxed text-gray-500">{c.body}</p>
-              </div>
-            </article>
-          ))}
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                  className="h-6 w-6 shrink-0 text-[#8C8378]"
+                >
+                  <path d={ICON_PATHS[c.icon]} />
+                </svg>
+                <div>
+                  <h2 className="text-[13px] tracking-[0.1em]">{c.title}</h2>
+                  <p className="mt-1.5 text-xs leading-relaxed text-[#9C9287]">{c.body}</p>
+                </div>
+              </article>
+            ))}
+          </div>
         </div>
       </section>
 
       {/* ===== 比較 ===== */}
-      <section className="mt-14 px-6">
-        <div className="mx-auto max-w-md sm:max-w-2xl">
-          <h2 className="text-center text-base font-medium tracking-wide text-gray-900">
+      <section className="mt-16 px-7 sm:mt-24 sm:px-12">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="text-center font-[family-name:var(--font-serif-jp)] text-lg tracking-[0.12em] sm:text-2xl">
             いまのやり方と、くらべると
           </h2>
 
           {/* div の格子ではなく table にする。比較表は行と列の対応そのものが情報なので、
               読み上げで「予約の受付／CareLink／24時間」と辿れる形にしておく必要がある。 */}
-          <table className="mt-6 w-full table-fixed overflow-hidden rounded-3xl bg-white text-left">
+          <table className="mt-8 w-full table-fixed border-collapse text-left">
             <thead>
-              <tr className="border-b border-gray-100">
-                <th scope="col" className="w-[38%] px-5 py-3">
+              <tr className="border-b border-[#2E2A26]">
+                <th scope="col" className="w-[36%] py-3">
                   <span className="sr-only">項目</span>
                 </th>
-                <th scope="col" className="px-2 py-3 text-center text-[11px] font-normal text-gray-400">
+                <th
+                  scope="col"
+                  className="py-3 text-center text-[10px] font-normal tracking-[0.1em] text-[#9C9287]"
+                >
                   電話・紙
                 </th>
-                <th scope="col" className="px-2 py-3 text-center text-[11px] font-bold text-primary">
+                <th scope="col" className="py-3 text-center text-[10px] font-medium tracking-[0.1em]">
                   CareLink
                 </th>
               </tr>
             </thead>
             <tbody>
               {COMPARISON.map((row) => (
-                <tr key={row.label} className="border-b border-gray-50 last:border-b-0">
-                  <th scope="row" className="px-5 py-3.5 text-xs font-medium text-gray-700">
+                <tr key={row.label} className="border-b border-[#E4DCD1]">
+                  <th scope="row" className="py-4 text-xs font-normal tracking-wide">
                     {row.label}
                   </th>
-                  <td className="px-2 py-3.5 text-center text-[11px] text-gray-400">{row.before}</td>
-                  <td className="px-2 py-3.5 text-center text-[11px] font-bold text-gray-900">
-                    {row.after}
-                  </td>
+                  <td className="py-4 text-center text-[11px] text-[#B5ABA0]">{row.before}</td>
+                  <td className="py-4 text-center text-[11px] tracking-wide">{row.after}</td>
                 </tr>
               ))}
             </tbody>
@@ -185,18 +228,20 @@ export default function RegisterPage() {
       </section>
 
       {/* ===== 流れ ===== */}
-      <section className="mt-14 px-6">
-        <div className="mx-auto max-w-md sm:max-w-3xl">
-          <h2 className="text-center text-base font-medium tracking-wide text-gray-900">
+      <section className="mt-16 px-7 sm:mt-24 sm:px-12">
+        <div className="mx-auto max-w-5xl">
+          <h2 className="text-center font-[family-name:var(--font-serif-jp)] text-lg tracking-[0.12em] sm:text-2xl">
             掲載までの流れ
           </h2>
-          <ol className="mt-6 space-y-3 sm:grid sm:grid-cols-3 sm:gap-4 sm:space-y-0">
+          <ol className="mt-8 divide-y divide-[#E4DCD1] border-y border-[#E4DCD1] sm:grid sm:grid-cols-3 sm:divide-x sm:divide-y-0">
             {STEPS.map((s) => (
-              <li key={s.n} className="flex items-center gap-4 rounded-3xl bg-white px-5 py-4 sm:flex-col sm:items-start">
-                <span className="text-lg font-medium tracking-widest text-primary/40">{s.n}</span>
+              <li key={s.n} className="flex items-baseline gap-5 py-6 sm:flex-col sm:gap-3 sm:px-7">
+                <span className="font-[family-name:var(--font-serif-jp)] text-base text-[#B5ABA0]">
+                  {s.n}
+                </span>
                 <div>
-                  <p className="text-sm font-bold text-gray-900">{s.title}</p>
-                  <p className="mt-0.5 text-xs text-gray-500">{s.body}</p>
+                  <p className="text-[13px] tracking-[0.1em]">{s.title}</p>
+                  <p className="mt-1.5 text-xs text-[#9C9287]">{s.body}</p>
                 </div>
               </li>
             ))}
@@ -205,8 +250,8 @@ export default function RegisterPage() {
       </section>
 
       {/* ===== フォーム ===== */}
-      <section id="register-form" className="mt-16 scroll-mt-4 pb-16">
-        <h2 className="mb-6 text-center text-base font-medium tracking-wide text-gray-900">
+      <section id="register-form" className="mt-20 scroll-mt-4 pb-24 sm:mt-28">
+        <h2 className="mb-10 text-center font-[family-name:var(--font-serif-jp)] text-lg tracking-[0.12em] sm:text-2xl">
           掲載のお申し込み
         </h2>
         <RegisterForm />

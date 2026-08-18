@@ -225,10 +225,10 @@ export default function RegisterForm() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto px-4 sm:px-6">
+    <div className="mx-auto max-w-[640px] sm:px-12">
       <div>
         <StepIndicator currentStep={step} totalSteps={3} labels={stepLabels} />
-        <form onSubmit={handleSubmit(() => setShowConfirm(true))} onChange={handleFieldChange} noValidate className="rounded-3xl bg-white p-5 shadow-[0_2px_24px_rgba(0,0,0,0.04)] sm:p-7">
+        <form onSubmit={handleSubmit(() => setShowConfirm(true))} onChange={handleFieldChange} noValidate className="border-y border-[#E4DCD1] bg-white px-5 py-7 sm:rounded-none sm:border sm:px-10 sm:py-10">
 
           {/* Step 1: 基本情報 */}
           {step === 1 && (
@@ -246,25 +246,31 @@ export default function RegisterForm() {
                 </select>
                 {errors.business_type && <p className="form-error" role="alert">{errors.business_type.message}</p>}
               </div>
-              <div>
-                <label htmlFor="reg-rep-name" className="form-label">代表者名 <span className="text-red-500">*</span></label>
-                <input {...register('representative_name')} id="reg-rep-name" className="form-input" placeholder="山田 太郎" aria-required="true" />
-                {errors.representative_name && <p className="form-error" role="alert">{errors.representative_name.message}</p>}
+              {/* PC・iPad では対になる項目を横に並べる。縦一列のままだと画面が広いほど
+                  間延びして、入力の終わりが見えない（実機の 1440px / 834px で確認）。 */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="reg-rep-name" className="form-label">代表者名 <span className="text-red-500">*</span></label>
+                  <input {...register('representative_name')} id="reg-rep-name" className="form-input" placeholder="山田 太郎" aria-required="true" />
+                  {errors.representative_name && <p className="form-error" role="alert">{errors.representative_name.message}</p>}
+                </div>
+                <div>
+                  <label htmlFor="reg-contact-name" className="form-label">担当者名 <span className="text-red-500">*</span></label>
+                  <input {...register('contact_name')} id="reg-contact-name" className="form-input" placeholder="山田 花子" aria-required="true" />
+                  {errors.contact_name && <p className="form-error" role="alert">{errors.contact_name.message}</p>}
+                </div>
               </div>
-              <div>
-                <label htmlFor="reg-contact-name" className="form-label">担当者名 <span className="text-red-500">*</span></label>
-                <input {...register('contact_name')} id="reg-contact-name" className="form-input" placeholder="山田 花子" aria-required="true" />
-                {errors.contact_name && <p className="form-error" role="alert">{errors.contact_name.message}</p>}
-              </div>
-              <div>
-                <label htmlFor="reg-email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
-                <input {...register('email')} id="reg-email" type="email" autoComplete="email" className="form-input" placeholder="example@email.com" aria-required="true" />
-                {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
-              </div>
-              <div>
-                <label htmlFor="reg-phone" className="form-label">電話番号 <span className="text-red-500">*</span></label>
-                <input {...register('phone')} id="reg-phone" onChange={handlePhoneChange('phone')} autoComplete="tel" className="form-input" placeholder="090-1234-5678" aria-required="true" maxLength={20} />
-                {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="reg-email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
+                  <input {...register('email')} id="reg-email" type="email" autoComplete="email" className="form-input" placeholder="example@email.com" aria-required="true" />
+                  {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
+                </div>
+                <div>
+                  <label htmlFor="reg-phone" className="form-label">電話番号 <span className="text-red-500">*</span></label>
+                  <input {...register('phone')} id="reg-phone" onChange={handlePhoneChange('phone')} autoComplete="tel" className="form-input" placeholder="090-1234-5678" aria-required="true" maxLength={20} />
+                  {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
+                </div>
               </div>
               {/* 任意項目は既定で畳む。必須と同じ見た目で並べると、スマホでは入力欄の壁にしか
                   見えず「まだこんなにあるのか」と離脱を招く。details は閉じていても中身が
@@ -323,13 +329,15 @@ export default function RegisterForm() {
                   </div>
                 </div>
               </details>
-              <div>
-                <label htmlFor="reg-business-hours" className="form-label">営業時間</label>
-                <input {...register('business_hours')} id="reg-business-hours" className="form-input" placeholder="10:00〜20:00" maxLength={200} />
-              </div>
-              <div>
-                <label htmlFor="reg-regular-holiday" className="form-label">定休日</label>
-                <input {...register('regular_holiday')} id="reg-regular-holiday" className="form-input" placeholder="毎週月曜日" maxLength={100} />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="reg-business-hours" className="form-label">営業時間</label>
+                  <input {...register('business_hours')} id="reg-business-hours" className="form-input" placeholder="10:00〜20:00" maxLength={200} />
+                </div>
+                <div>
+                  <label htmlFor="reg-regular-holiday" className="form-label">定休日</label>
+                  <input {...register('regular_holiday')} id="reg-regular-holiday" className="form-input" placeholder="毎週月曜日" maxLength={100} />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
