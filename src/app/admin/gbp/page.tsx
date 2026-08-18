@@ -153,62 +153,26 @@ export default function AdminGbpPage() {
     }
   }, []);
 
-  // loadAudit/loadPosts はボタン（再診断・更新・投稿保存後の再取得）からも直接呼ばれるため関数として残し、
-  // このタブ切替時の自動読み込み effect 側だけは同じ処理を inline する。
+  // 🔴 タブ切替時の自動読み込みは【イベントハンドラ側】で起こす（effect ではない）。
   //
-  // 🔴 setAuditLoading(true) / setPostsLoading(true) は effect のトップレベルに置く
-  // （async IIFE の中へ入れない）。IIFE の中へ移すと挙動を1ミリも変えずに検出だけが消える
-  // ＝症状ブロックになるため。実測（2026年8月16日）: async IIFE 内で await より前の
-  // 同期 setState は検出されない。
+  // useEffect はコミット後に走るため、effect のトップレベルに setAuditLoading(true) を置いても
+  // 【切り替えた最初のフレームには間に合わない】。旧実装ではタブを押した最初の描画が
+  // 「まだ何も取得していない状態」のまま出ていた。2026年8月16日に StationSearch で
+  // 実測した欠陥と同型（初回オープンの最初の描画がクリックから 39ms で「該当する駅がありません」）。
   //
-  // ⚠️ 2026年8月16日 実機検証で判明: この位置の setState では【最初のフレームには間に合わない】。
-  // useEffect はブラウザのペイント後に走るため、タブを切り替えた最初の描画は前の状態のままで、
-  // その次のコミットでローディング表示に変わる。StationSearch で同型の欠陥を実測した
-  // （初回オープンの最初の描画がクリックから 39ms で「該当する駅がありません」だった）。
+  // ハンドラ内の setState は setTab と同じ更新にまとまるので、最初のフレームから
+  // ローディングが反映される。ルールの指摘も原因ごと消える（症状ブロックではない）。
+  // ⚠️ async IIFE の中へ setState を移すのは、挙動を変えずに検出だけ消す症状ブロックなので不可。
   //
-  // 正しい直し方は StationSearch と同じで、タブの onClick（イベントハンドラ）側で
-  // setAuditLoading(true) を立てること。イベントハンドラの setState は setTab と同じ更新に
-  // まとまるので最初のフレームから反映され、ルールの指摘も原因ごと消える。
-  //
-  // ここでまだ直していないのは、この画面が認証必須で【この環境では実機確認できない】ため。
-  // 未確認のまま管理画面の描画を変えるより、実測できる状態で直す方を選んだ。
-  // それまでは effect のトップレベルに置く（async IIFE の中へ移すのは挙動を変えずに
-  // 検出だけ消す症状ブロックなので不可）。BASELINE に受容済み負債として計上する。
-  useEffect(() => {
-    let cancelled = false;
-    if (tab === 'audit' && !auditData) {
-      setAuditLoading(true);
-      (async () => {
-        try {
-          const res = await fetch('/api/admin/gbp/place');
-          if (!res.ok) throw new Error();
-          const data = await res.json();
-          if (!cancelled) setAuditData(data);
-        } catch {
-          if (!cancelled) setToast({ type: 'error', message: '診断データの取得に失敗しました' });
-        } finally {
-          if (!cancelled) setAuditLoading(false);
-        }
-      })();
-    }
-    if (tab === 'posts' && posts.length === 0) {
-      // 上の audit 側と同じ理由でトップレベルに置く（受容済み負債）。
-      setPostsLoading(true);
-      (async () => {
-        try {
-          const res = await fetch('/api/admin/gbp/posts');
-          if (!res.ok) throw new Error();
-          const data = await res.json();
-          if (!cancelled) setPosts(data.posts ?? []);
-        } catch {
-          if (!cancelled) setToast({ type: 'error', message: '投稿の取得に失敗しました' });
-        } finally {
-          if (!cancelled) setPostsLoading(false);
-        }
-      })();
-    }
-    return () => { cancelled = true; };
-  }, [tab, auditData, posts.length]);
+  // 🔴 reviews タブも audit データ（place.reviews）を描くので、ここで一緒に取得する。
+  // 旧実装は audit タブでしか取得しなかったため、reviews タブへ直接来ると auditData が null のまま
+  // 「クチコミデータの取得には GOOGLE_MAPS_API_KEY の設定が必要です」と表示していた。
+  // 取得を一度も試さずに原因を断定する【誤った案内】で、実際には鍵が設定済みでも出ていた。
+  const selectTab = useCallback((next: TabId) => {
+    setTab(next);
+    if ((next === 'audit' || next === 'reviews') && !auditData) void loadAudit();
+    if (next === 'posts' && posts.length === 0) void loadPosts();
+  }, [auditData, posts.length, loadAudit, loadPosts]);
 
   const savePost = async () => {
     if (!newPost.body.trim()) return;
@@ -309,7 +273,7 @@ export default function AdminGbpPage() {
       {/* タブ */}
       <div className="flex border-b mb-6 gap-1 flex-wrap">
         {([['setup', 'GBP設定'], ['audit', '診断スコア'], ['reviews', 'Googleクチコミ'], ['posts', 'GBP投稿']] as [TabId, string][]).map(([id, label]) => (
-          <button key={id} type="button" onClick={() => setTab(id)}
+          <button key={id} type="button" onClick={() => selectTab(id)}
                   className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${tab === id ? 'border-sky-500 text-sky-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
             {label}
           </button>

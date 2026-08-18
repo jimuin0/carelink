@@ -8,6 +8,8 @@ import type { StaffProfile, FacilityMenu, Coupon, AvailableSlot } from '@/types'
 import { describeCancelPolicy, type CancelPolicy } from '@/lib/cancel-fee';
 import { calculateCouponDiscountedTotal } from '@/lib/coupon-pricing';
 import { isStaffCompatibleWithMenus, filterEligibleStaff } from '@/lib/menu-staff';
+import { bookingDraftKey } from '@/lib/client-storage';
+import { WAITLIST_NOTICE } from '@/lib/coming-soon';
 
 type Step = 'menu' | 'datetime' | 'confirm';
 
@@ -207,12 +209,12 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   // スロット選択(selectedSlot)は復元しない：ログイン滞在中に他ユーザーに取られている可能性が
   // あり、鮮度不明な枠をそのまま確認画面に出すと在庫と乖離した表示になるため、日時ステップに
   // 戻して枠を再取得・再選択させる（1クリックのみの負担・在庫整合性を優先）。
-  const bookingDraftKey = `booking-draft:${facility.id}`;
+  const draftKey = bookingDraftKey(facility.id);
   const BOOKING_DRAFT_TTL_MS = 15 * 60 * 1000; // 15分。ログイン離脱後の長時間放置は復元しない。
 
   function saveBookingDraftBeforeLogin() {
     try {
-      sessionStorage.setItem(bookingDraftKey, JSON.stringify({
+      sessionStorage.setItem(draftKey, JSON.stringify({
         savedAt: Date.now(),
         menuIds: selectedMenus.map((m) => m.id),
         staffId: selectedStaff?.id ?? null,
@@ -290,8 +292,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   useEffect(() => {
     let raw: string | null = null;
     try {
-      raw = sessionStorage.getItem(bookingDraftKey);
-      sessionStorage.removeItem(bookingDraftKey);
+      raw = sessionStorage.getItem(draftKey);
+      sessionStorage.removeItem(draftKey);
     } catch {
       return;
     }
@@ -1063,9 +1065,16 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                     <td colSpan={visibleDates.length + 1} className="py-10 text-sm text-gray-400">
                       {/* matrixError 時は「満席」ではなく「取得不可（不明）」であることを明示する
                           （上のエラーバナーで再試行を促すため、ここでは満席と誤読させない文言に限定）。 */}
-                      {matrixError
-                        ? '空き状況を確認できませんでした。'
-                        : 'この期間は予約可能な時間帯がありません。別の週をお選びください。'}
+                      {matrixError ? (
+                        '空き状況を確認できませんでした。'
+                      ) : (
+                        <>
+                          この期間は予約可能な時間帯がありません。別の週をお選びください。
+                          {/* Issue #409: キャンセル待ちは API まで整備済みだが登録 UI を出さないと決めた機能。
+                              空きが無いと分かったこの位置だけで、予定があることを伝える。 */}
+                          <span className="block mt-1 text-xs">{WAITLIST_NOTICE}</span>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ) : (

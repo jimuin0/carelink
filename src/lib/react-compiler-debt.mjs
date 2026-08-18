@@ -47,58 +47,47 @@ export const RATCHET_RULES = [
 ];
 
 /**
- * 現在の負債件数。2026年8月16日 に eslint-config-next 16.3.0 / React 19 で実測した値。
- * 返済したらこの数を下げること（下げ忘れは checkDebt が検知する）。
+ * 現在の負債件数。2026年8月18日 に eslint-config-next 16.3.0 / React 19 / react-hook-form 7.85 で
+ * 実測した値。返済したらこの数を下げること（下げ忘れは checkDebt が検知する）。
  *
- * 72 件から 3 件まで返済済み（この 3 件に下記 incompatible-library 3 件と
- * no-location-assign 2 件を足した 8 件が BASELINE）。残る set-state-in-effect 3 件：
+ * 内訳（6 件）:
+ *   incompatible-library 3 件 … recruit / register / ReviewForm。react-hook-form の watch()。
+ *   no-location-assign   2 件 … 退会後の全リロード（mypage/profile と WithdrawalSettings）。
+ *   set-state-in-effect  1 件 … BookingFlow の下書き復元。
  *
- *   gbp/page.tsx        タブ切替時のローディング表示。実装を読んだ結果、最初のフレームは
- *                       【何も表示されない（空白）】だけで誤った事実は告げていない。他の 3 件が
- *                       「無い」と断定していたのとは深刻度が違うため、扱いを分けて据え置く。
- *   BookingFlow.tsx     sessionStorage からの下書き復元。マウント起点でイベントハンドラが無く、
- *                       レンダー中導出にも馴染まない（外部システムとの同期＝React 公式が認める用途）。
- *   ReviewSummary.tsx   二重取得ガードと生成中表示。最初のフレームはルールベース要約という
- *                       妥当なフォールバックで、誤情報ではない。
+ * 🔴 【2026年8月18日 実測】react-hook-form を 7.82.0 → 7.85.0 へ上げても incompatible-library は
+ * 3 件のまま消えなかった（上流未対応）。「次のリリースで消えるかもしれない」ではなく、
+ * 実際に上げて数え直した結果である。React Compiler 自体はこのプロジェクトで未有効
+ * （next.config.mjs に reactCompiler の指定なし・babel-plugin-react-compiler は依存にも
+ * node_modules にも不在）なので、実行時への影響はゼロ。
  *
- * 🔴 【2026年8月16日 実機検証で前提が覆った】
- * それまで「effect のトップレベルに置けばその瞬間に表示が切り替わる」と書いていたが、これは誤り。
- * useEffect はブラウザのペイント後に走るため【最初のフレームには間に合わない】。
- * StationSearch で実測したところ、初回オープンの最初の描画（クリックから 39ms）が
- * 「該当する駅がありません」で、その次のコミットで「読み込み中...」に変わっていた。
- * つまり読み込みを試す前に「駅が無い」と誤って告げていた。
+ * 🔴 【BookingFlow を直さない理由（代替案を全て検討した結論）】
+ * sessionStorage の下書きを 1 回だけ読んで消し、10 個の編集可能な state へ流し込む処理。
+ *   - useState の遅延初期化で読む → このコンポーネントは facility/[slug]/booking/page.tsx から
+ *     SSR されるため、サーバ描画と初回クライアント描画が食い違い hydration mismatch になる。
+ *   - useSyncExternalStore → 読み取り専用の導出値しか得られず、その後ユーザーが編集する
+ *     10 個の state を seed できない。かつ getSnapshot は副作用禁止（removeItem を置けない）。
+ *   - dynamic(ssr:false) → 予約ページのサーバ描画を捨てることになり、初回表示が退行する。
+ *   - async IIFE で包む → 挙動を変えずに検出だけ消す症状ブロック。
+ * 「外部システムとの同期」は React 公式が effect の正当な用途として挙げている形そのもので、
+ * ここはルールの側が過剰に広い。据え置きが最善という結論。
  *
- * 正しい直し方は【イベントハンドラ側で setState する】こと。setOpen(true) と同じ更新に
- * まとまるので最初のフレームから反映され、ルールの指摘も原因ごと消える（症状ブロックではない）。
- * StationSearch はこの形へ直し、修正後の最初の描画が「読み込み中...」になることを実測で確認した。
+ * 🔴 【2026年8月18日 実測】このルールは局所関数越しの setState も追跡して検出する。
+ * リポジトリ内に「effect 直下の AST の形しか見ない浅い構文検査」という記述があったが、
+ * その点では不正確だった（async IIFE 越しは検出されないという既存の実測は再現した）。
+ * そのため検査用の負の対照は配線で逃げず、eslint.config.mjs で当該 1 ファイルだけ off にしてある。
  *
- * 発火元が複数ある画面（予約フローの空き状況・予約日時変更の空き枠）では、各ハンドラへ
- * setState を配ると 1 つ漏らした経路だけ誤表示が残り、新しい発火元を足す人が気づけない。
- * そこで【取得済みの結果が今の条件のものかをレンダー中に判定する】形にした
- * （matrixQueryKey / matrixLoadedKey / matrixPending、slotsQueryKey / slotsLoadedKey /
- * slotsPending）。条件が変わった瞬間から自動的に取得中扱いになるので、発火元がいくつあっても、
- * 将来増えても守られる。
- *
- * 残る 3 件を直していないのは【実装を読んだうえで、誤情報を出していないと判断した】ため。
- * 深刻度が違う（「無い」と断定するか、空白やフォールバック表示にとどまるか）。上の一覧を参照。
- *
- * なお async IIFE の中へ移すのは、挙動を変えずに検出だけ消す症状ブロックなので依然として不可
- * （このルールは effect 本体の直下という AST の形しか見ない浅い構文検査である）。
- *
- * 🔴 この種の欠陥は lint も tsc も単体テストも通り、コードレビューでも見逃される
- * （実際 Sonnet 8 体の差分レビューと Opus 3 体の独立評価が全て見逃した）。
- * e2e/first-paint-loading.spec.ts が実ブラウザで最初の描画を捕まえて CI で守る。
- *
- * 【BASELINE の変遷（2026年8月16日）】
- *   6  … set-state-in-effect 等 4 ルールのみを数えていた時点
- *   11 … 対象ルールへ incompatible-library（3件）と
- *        no-location-assign-relative-destination（2件）を追加。負債が増えたのではなく
- *        【監視対象を広げた】もの。同日 no-unused-vars 62 件等はすべて解消済みで、
- *        lint の警告はこの 11 件だけになっていた（実測: 86 → 11）。
- *   10 … StationSearch を実機検証で根治して 1 件減（実測: 11 → 10）。
- *   8  … 予約フローの空き状況と、予約日時変更の空き枠を実機検証で根治して 2 件減（実測: 10 → 8）。
+ * 【BASELINE の変遷】
+ *   6  … set-state-in-effect 等 4 ルールのみを数えていた時点（2026年8月16日）
+ *   11 … 対象ルールへ incompatible-library（3件）と no-location-assign（2件）を追加。
+ *        負債が増えたのではなく【監視対象を広げた】もの。
+ *   10 … StationSearch を実機検証で根治して 1 件減。
+ *   8  … 予約フローの空き状況と、予約日時変更の空き枠を実機検証で根治して 2 件減。
+ *   6  … GBP 管理画面のタブ切替と口コミサマリーを根治して 2 件減（2026年8月18日）。
+ *        実機ではなく jsdom で最初のコミットを捕まえる単体テスト（src/test-utils/first-frame.tsx）
+ *        で検証した。旧コードで実際に落ちることを確認済み（gbp 5 件中 4 件・ReviewSummary 1 件）。
  */
-export const BASELINE = 8;
+export const BASELINE = 6;
 
 /**
  * eslint の JSON 出力から、ラチェット対象ルールの指摘件数を数える。

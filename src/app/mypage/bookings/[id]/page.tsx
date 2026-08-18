@@ -8,6 +8,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import type { Booking } from '@/types';
 import { statusChipClass, bookingStatusLabel, canCustomerCancelBooking } from '@/lib/booking-status';
+import { ONLINE_PREPAYMENT_NOTICE } from '@/lib/coming-soon';
 
 export default function BookingDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
@@ -168,10 +169,17 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
           <span className="font-medium">{booking.customer_name}</span>
         </div>
         {booking.total_price !== null && (
-          <div className="flex justify-between text-sm border-t pt-3">
-            <span className="text-gray-500">合計</span>
-            <span className="font-bold text-lg">¥{booking.total_price.toLocaleString()}</span>
-          </div>
+          <>
+            <div className="flex justify-between text-sm border-t pt-3">
+              <span className="text-gray-500">合計</span>
+              <span className="font-bold text-lg">¥{booking.total_price.toLocaleString()}</span>
+            </div>
+            {/* Issue #408: オンライン前払いは API まで整備済みだが導線を出さないと決めた機能。
+                決済導線そのものは見せず、支払い方法の現状だけを伝える。
+                🔴 これから支払いが発生する予約に限る。canCancel が偽＝キャンセル済み・来店済み・
+                無断キャンセルのいずれかで、そこへ「店舗でお支払いください」と出すのは誤案内。 */}
+            {canCancel && <p className="text-xs text-gray-400">{ONLINE_PREPAYMENT_NOTICE}</p>}
+          </>
         )}
         {booking.note && (
           <div className="border-t pt-3">

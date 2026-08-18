@@ -13,6 +13,7 @@ import LoadError from '@/components/admin/LoadError';
 import { isLineEnabled } from '@/lib/line-availability';
 import PageLoading from '@/components/PageLoading';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
+import { clearStoredPersonalData } from '@/lib/client-storage';
 
 interface ProfileForm {
   display_name: string;
@@ -454,6 +455,10 @@ export default function ProfileEditPage() {
                       // membership キャッシュ Cookie（_cm_mbr_*）は消えずに残るが、
                       // middleware は先に auth.getUser() を必須にしており、キーも userId から
                       // 導出するため、認証が切れた状態では参照されず実害はない。
+                      // 退会したのに入力済みの個人情報（氏名・メール・電話）が端末に
+                      // 残らないよう、遷移の前に sessionStorage の下書きを消す。
+                      // 【全リロードでは sessionStorage は消えない】ため明示的に消す必要がある。
+                      clearStoredPersonalData();
                       window.location.href = '/';
                     } else {
                       setShowDeleteModal(false);

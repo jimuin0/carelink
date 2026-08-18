@@ -23,9 +23,6 @@ jest.mock('@/lib/cron-auth', () => ({
   checkCronAuth: jest.fn(() => null),
 }));
 jest.mock('@/lib/cron-logger');
-jest.mock('@/lib/line');
-// 【監査C2】連携解決は helper 経由（profiles.line_user_id 単一ソース）。DB モックから切り離す。
-jest.mock('@/lib/line-link', () => ({ resolveLineUserIdForUser: jest.fn().mockResolvedValue(null) }));
 jest.mock('resend');
 
 // Module-level supabase = createClient(...) — use wrapper so from() is lazily resolved
@@ -38,13 +35,11 @@ jest.mock('@supabase/supabase-js', () => ({
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
-import { sendLineText } from '@/lib/line';
 import { GET } from '../route';
 
 let mockProfilesSelect: jest.Mock;
 let mockProfilesEq: jest.Mock;
 let mockPointsInsert: jest.Mock;
-let mockLineLinkSelect: jest.Mock;
 let mockNotifSelect: jest.Mock;
 let mockNotifInsert: jest.Mock;
 let mockNotifDelete: jest.Mock;
@@ -67,13 +62,11 @@ function makeNotifDeleteChain(resultOverride: { error: unknown } = { error: null
 function setupDefaultMocks(
   birthdayProfiles: number = 2,
   pointsInsertFails: number = 0,
-  lineLinkFound: boolean = true,
   resendAvailable: boolean = true,
   existingNotifications: Array<{ user_id: string; channel: string }> = []
 ) {
   (checkCronAuth as jest.Mock).mockReturnValue(null);
   (logCronRun as jest.Mock).mockResolvedValue(undefined);
-  (sendLineText as jest.Mock).mockResolvedValue(true); // 送達成功（boolean 仕様）。失敗テストで上書き。
 
   const profileData =
     birthdayProfiles > 0
@@ -84,7 +77,6 @@ function setupDefaultMocks(
           email_unsubscribed: false,
         }))
       : [];
-  const lineLinkData = lineLinkFound ? { line_user_id: 'line-user-123' } : null;
 
   // eq を変数化して呼び出し引数（'birth_md', todayMD）を検証可能にする。
   mockProfilesEq = jest.fn().mockReturnValue({
@@ -105,15 +97,6 @@ function setupDefaultMocks(
     return Promise.resolve({ error: null });
   });
 
-  mockLineLinkSelect = jest.fn().mockReturnValue({
-    eq: jest.fn().mockReturnValue({
-      maybeSingle: jest.fn().mockResolvedValue({ data: lineLinkData }),
-    }),
-  });
-
-  // 【監査C2】誕生日ユーザーの連携解決は profiles.line_user_id（helper）。lineLinkData を反映する。
-  const { resolveLineUserIdForUser } = require('@/lib/line-link');
-  (resolveLineUserIdForUser as jest.Mock).mockResolvedValue(lineLinkData?.line_user_id ?? null);
 
   // birthday_notifications: select (batch fetch at start of run)
   mockNotifSelect = jest.fn().mockReturnValue({
@@ -133,8 +116,6 @@ function setupDefaultMocks(
       return { select: mockProfilesSelect };
     } else if (table === 'user_points') {
       return { insert: mockPointsInsert };
-    } else if (table === 'line_user_links') {
-      return { select: mockLineLinkSelect };
     } else if (table === 'birthday_notifications') {
       return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
     }
@@ -155,7 +136,6 @@ function setupDefaultMocks(
   } else {
     delete process.env.RESEND_API_KEY;
   }
-  process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token';
 }
 
 beforeEach(() => {
@@ -285,19 +265,18 @@ describe('GET /api/cron/birthday-coupon', () => {
   });
 
   test('23505 (already awarded) → 通知未送達なら通知を再試行する', async () => {
-    // user-0 が 23505 だが birthday_notifications は空 → email/LINE を試みる
-    setupDefaultMocks(1, 1, true, true, []);
+    // user-0 が 23505 だが birthday_notifications は空 → メールを試みる
+    setupDefaultMocks(1, 1, true, []);
 
     await GET(makeRequest() as any);
 
-    // email と LINE が試みられる（送達済み記録なし）
+    // 送達済み記録が無いのでメールが試みられる
     const { Resend } = require('resend');
     expect(Resend).toHaveBeenCalled();
-    expect(sendLineText).toHaveBeenCalled();
   });
 
   test('sends birthday email when RESEND_API_KEY available', async () => {
-    setupDefaultMocks(1, 0, true, true);
+    setupDefaultMocks(1, 0, true);
 
     const { Resend } = require('resend');
 
@@ -307,7 +286,7 @@ describe('GET /api/cron/birthday-coupon', () => {
   });
 
   test('skips email when RESEND_API_KEY unavailable', async () => {
-    setupDefaultMocks(1, 0, false, false);
+    setupDefaultMocks(1, 0, false);
 
     const res = await GET(makeRequest() as any);
 
@@ -330,36 +309,23 @@ describe('GET /api/cron/birthday-coupon', () => {
     // Email should include mypage/points link
   });
 
-  test('sends LINE notification when LINE_CHANNEL_ACCESS_TOKEN available', async () => {
-    setupDefaultMocks(1, 0, true);
+  test('メール本文に display_name を使う', async () => {
+    setupDefaultMocks(1, 0);
+    // setupDefaultMocks が Resend の実装を上書きするため、必ずその後に差し替える。
+    const emailSend = jest.fn().mockResolvedValue({ data: { id: 'sent' } });
+    const { Resend } = require('resend');
+    Resend.mockImplementation(() => ({ emails: { send: emailSend } }));
 
     await GET(makeRequest() as any);
 
-    expect(sendLineText).toHaveBeenCalledWith(
-      'line-user-123',
-      expect.stringContaining('100ポイント')
-    );
+    expect(emailSend).toHaveBeenCalled();
+    expect(emailSend.mock.calls[0][0].html).toContain('Birthday User 0');
   });
 
-  test('skips LINE notification when line_user_id not found', async () => {
-    setupDefaultMocks(1, 0, false);
-
-    (sendLineText as jest.Mock).mockClear();
-
-    await GET(makeRequest() as any);
-
-    expect(sendLineText).not.toHaveBeenCalled();
-  });
-
-  test('uses display_name in email and LINE message', async () => {
-    setupDefaultMocks(1, 0, true);
-
-    await GET(makeRequest() as any);
-
-    expect(sendLineText).toHaveBeenCalled();
-  });
-
-  test('fallback to お客様 when display_name is null', async () => {
+  test('display_name が null なら「お客様」へフォールバックする', async () => {
+    const emailSend = jest.fn().mockResolvedValue({ data: { id: 'sent' } });
+    const { Resend } = require('resend');
+    Resend.mockImplementation(() => ({ emails: { send: emailSend } }));
     mockFrom.mockImplementation((table: string) => {
       if (table === 'profiles') {
         return {
@@ -375,14 +341,14 @@ describe('GET /api/cron/birthday-coupon', () => {
         };
       }
       if (table === 'user_points') return { insert: jest.fn().mockResolvedValue({ error: null }) };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
       if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
       return {};
     });
 
     await GET(makeRequest() as any);
 
-    expect(sendLineText).toHaveBeenCalled();
+    expect(emailSend).toHaveBeenCalled();
+    expect(emailSend.mock.calls[0][0].html).toContain('お客様');
   });
 
   test('配信停止者にはメール送らないがポイントは付与する', async () => {
@@ -403,7 +369,6 @@ describe('GET /api/cron/birthday-coupon', () => {
         };
       }
       if (table === 'user_points') return { insert: pointsInsert };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
       if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
       return {};
     });
@@ -424,7 +389,7 @@ describe('GET /api/cron/birthday-coupon', () => {
 
   test('(c) email送信throw → claim は先に成立済み・claim DELETE で解放される（翌 run で再送）', async () => {
     // setupDefaultMocks の後に Resend を上書きして失敗を注入する
-    setupDefaultMocks(1, 0, false, true, []); // LINE なし、email あり
+    setupDefaultMocks(1, 0, true, []); // LINE なし、email あり
     const { Resend } = require('resend');
     Resend.mockImplementation(() => ({
       emails: {
@@ -434,7 +399,6 @@ describe('GET /api/cron/birthday-coupon', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'profiles') return { select: mockProfilesSelect };
       if (table === 'user_points') return { insert: mockPointsInsert };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
       if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
       return {};
     });
@@ -455,7 +419,7 @@ describe('GET /api/cron/birthday-coupon', () => {
   });
 
   test('email send success → birthday_notifications を claim（送信前 INSERT）し DELETE は呼ばれない', async () => {
-    setupDefaultMocks(1, 0, false, true, []); // LINE なし・email のみ
+    setupDefaultMocks(1, 0, true, []); // LINE なし・email のみ
 
     await GET(makeRequest() as any);
 
@@ -471,56 +435,8 @@ describe('GET /api/cron/birthday-coupon', () => {
     expect(mockNotifDelete).not.toHaveBeenCalled();
   });
 
-  test('LINE send success → birthday_notifications を claim（送信前 INSERT）し DELETE は呼ばれない', async () => {
-    setupDefaultMocks(1, 0, true, false, []); // email なし・LINE のみ
-
-    await GET(makeRequest() as any);
-
-    const lineInsertCalls = mockNotifInsert.mock.calls.filter(
-      (c: any[]) => c[0]?.channel === 'line'
-    );
-    expect(lineInsertCalls).toHaveLength(1);
-    expect(lineInsertCalls[0][0]).toMatchObject({
-      user_id: 'user-0',
-      channel: 'line',
-      year: expect.any(Number),
-    });
-    expect(mockNotifDelete).not.toHaveBeenCalled();
-  });
-
-  test('(c) LINE send が throw → claim DELETE で解放される（翌 run で再送される）', async () => {
-    (sendLineText as jest.Mock).mockRejectedValueOnce(new Error('LINE failed'));
-
-    setupDefaultMocks(1, 0, true);
-
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
-    // claim（送信前 INSERT）は行われる
-    const lineInsertCalls = mockNotifInsert.mock.calls.filter(
-      (c: any[]) => c[0]?.channel === 'line'
-    );
-    expect(lineInsertCalls).toHaveLength(1);
-    // 送信 throw → claim を DELETE で解放
-    expect(mockNotifDelete).toHaveBeenCalled();
-    expect(mockNotifDeleteEqChannel).toHaveBeenCalledWith('channel', 'line');
-  });
-
-  test('(d) sendLineText が false（リトライ枯渇・throwなし）→ claim DELETE で解放される（翌 run で再送）', async () => {
-    setupDefaultMocks(1, 0, true);
-    (sendLineText as jest.Mock).mockResolvedValue(false); // setupDefaultMocks の後に上書き（true で潰されるため）
-    const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
-    const lineInsertCalls = mockNotifInsert.mock.calls.filter(
-      (c: any[]) => c[0]?.channel === 'line'
-    );
-    expect(lineInsertCalls).toHaveLength(1);
-    expect(mockNotifDelete).toHaveBeenCalled();
-    expect(mockNotifDeleteEqChannel).toHaveBeenCalledWith('channel', 'line');
-  });
-
   test('claim DELETE 自体が失敗（解放不能）→ error ログのみで例外は投げない（当年のみロスト・許容トレードオフ）', async () => {
-    setupDefaultMocks(1, 0, false, true, []); // LINE なし、email あり
+    setupDefaultMocks(1, 0, true, []); // LINE なし、email あり
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const { Resend } = require('resend');
     Resend.mockImplementation(() => ({
@@ -530,7 +446,6 @@ describe('GET /api/cron/birthday-coupon', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'profiles') return { select: mockProfilesSelect };
       if (table === 'user_points') return { insert: mockPointsInsert };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
       if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
       return {};
     });
@@ -544,7 +459,7 @@ describe('GET /api/cron/birthday-coupon', () => {
   });
 
   test('email 送達済み（notifiedSet）→ email を再送しない', async () => {
-    setupDefaultMocks(1, 0, true, true, [{ user_id: 'user-0', channel: 'email' }]);
+    setupDefaultMocks(1, 0, true, [{ user_id: 'user-0', channel: 'email' }]);
 
     const { Resend } = require('resend');
     const emailSend = jest.fn().mockResolvedValue({ success: true });
@@ -552,7 +467,6 @@ describe('GET /api/cron/birthday-coupon', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'profiles') return { select: mockProfilesSelect };
       if (table === 'user_points') return { insert: mockPointsInsert };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
       if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
       return {};
     });
@@ -565,20 +479,8 @@ describe('GET /api/cron/birthday-coupon', () => {
     expect(emailClaimCalls).toHaveLength(0);
   });
 
-  test('LINE 送達済み（notifiedSet）→ LINE を再送しない', async () => {
-    setupDefaultMocks(1, 0, true, false, [{ user_id: 'user-0', channel: 'line' }]);
-    (sendLineText as jest.Mock).mockClear();
-
-    await GET(makeRequest() as any);
-
-    expect(sendLineText).not.toHaveBeenCalled();
-    // (f) notifiedSet 命中 → claim（送信前 INSERT）自体が呼ばれない
-    const lineClaimCalls = mockNotifInsert.mock.calls.filter((c: any[]) => c[0]?.channel === 'line');
-    expect(lineClaimCalls).toHaveLength(0);
-  });
-
   test('(a) claim が 23505（他 run が先に claim 済み）→ 送信されず notifiedSet に加わる', async () => {
-    setupDefaultMocks(1, 0, false, true, []); // LINE なし、email あり
+    setupDefaultMocks(1, 0, true, []); // LINE なし、email あり
     const { Resend } = require('resend');
     const emailSend = jest.fn().mockResolvedValue({ success: true });
     Resend.mockImplementation(() => ({ emails: { send: emailSend } }));
@@ -586,7 +488,6 @@ describe('GET /api/cron/birthday-coupon', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'profiles') return { select: mockProfilesSelect };
       if (table === 'user_points') return { insert: mockPointsInsert };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
       if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
       return {};
     });
@@ -601,7 +502,7 @@ describe('GET /api/cron/birthday-coupon', () => {
   });
 
   test('(b) claim 成功 → 送信される', async () => {
-    setupDefaultMocks(1, 0, false, true, []); // LINE なし、email あり
+    setupDefaultMocks(1, 0, true, []); // LINE なし、email あり
     const { Resend } = require('resend');
     const emailSend = jest.fn().mockResolvedValue({ success: true });
     Resend.mockImplementation(() => ({ emails: { send: emailSend } }));
@@ -617,7 +518,7 @@ describe('GET /api/cron/birthday-coupon', () => {
 
   test('(e) claim がその他エラー（23505 以外）→ 送信されずスキップ（fail-safe）', async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    setupDefaultMocks(1, 0, false, true, []); // LINE なし、email あり
+    setupDefaultMocks(1, 0, true, []); // LINE なし、email あり
     const { Resend } = require('resend');
     const emailSend = jest.fn().mockResolvedValue({ success: true });
     Resend.mockImplementation(() => ({ emails: { send: emailSend } }));
@@ -625,7 +526,6 @@ describe('GET /api/cron/birthday-coupon', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'profiles') return { select: mockProfilesSelect };
       if (table === 'user_points') return { insert: mockPointsInsert };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
       if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
       return {};
     });
@@ -637,70 +537,6 @@ describe('GET /api/cron/birthday-coupon', () => {
     expect(mockNotifDelete).not.toHaveBeenCalled(); // claim すら成立していないので解放も発生しない
     expect(consoleSpy.mock.calls.some((c) => String(c[0]).includes('claim insert error'))).toBe(true);
     consoleSpy.mockRestore();
-  });
-
-  test('(a) LINE でも claim 23505 で送信されず notifiedSet に加わる', async () => {
-    setupDefaultMocks(1, 0, true, false, []); // email なし・LINE のみ
-    (sendLineText as jest.Mock).mockClear();
-    mockNotifInsert = jest.fn().mockResolvedValue({ error: { code: '23505', message: 'duplicate key' } });
-    mockFrom.mockImplementation((table: string) => {
-      if (table === 'profiles') return { select: mockProfilesSelect };
-      if (table === 'user_points') return { insert: mockPointsInsert };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
-      if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
-      return {};
-    });
-
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
-    expect(sendLineText).not.toHaveBeenCalled();
-  });
-
-  test('(e) LINE でも claim がその他エラーで送信されずスキップ（fail-safe）', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    setupDefaultMocks(1, 0, true, false, []); // email なし・LINE のみ
-    (sendLineText as jest.Mock).mockClear();
-    mockNotifInsert = jest.fn().mockResolvedValue({ error: { code: '53300', message: 'too many connections' } });
-    mockFrom.mockImplementation((table: string) => {
-      if (table === 'profiles') return { select: mockProfilesSelect };
-      if (table === 'user_points') return { insert: mockPointsInsert };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
-      if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
-      return {};
-    });
-
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
-    expect(sendLineText).not.toHaveBeenCalled();
-    expect(mockNotifDelete).not.toHaveBeenCalled();
-    expect(consoleSpy.mock.calls.some((c) => String(c[0]).includes('claim insert error'))).toBe(true);
-    consoleSpy.mockRestore();
-  });
-
-  test('email・LINE 両方送達済み → 通知チャネルとも再送しない', async () => {
-    const notifications = [
-      { user_id: 'user-0', channel: 'email' },
-      { user_id: 'user-0', channel: 'line' },
-    ];
-    setupDefaultMocks(1, 0, true, true, notifications);
-    const { Resend } = require('resend');
-    const emailSend = jest.fn().mockResolvedValue({ success: true });
-    Resend.mockImplementation(() => ({ emails: { send: emailSend } }));
-    mockFrom.mockImplementation((table: string) => {
-      if (table === 'profiles') return { select: mockProfilesSelect };
-      if (table === 'user_points') return { insert: mockPointsInsert };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
-      if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
-      return {};
-    });
-    (sendLineText as jest.Mock).mockClear();
-
-    await GET(makeRequest() as any);
-
-    expect(emailSend).not.toHaveBeenCalled();
-    expect(sendLineText).not.toHaveBeenCalled();
   });
 
   test('logs cron execution with success', async () => {
@@ -736,7 +572,6 @@ describe('GET /api/cron/birthday-coupon', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'profiles') return { select: mockProfilesSelect };
       if (table === 'user_points') return { insert: mockPointsInsert };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
       if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
       return {};
     });
@@ -766,7 +601,6 @@ describe('GET /api/cron/birthday-coupon', () => {
         };
       }
       if (table === 'user_points') return { insert: jest.fn().mockResolvedValue({ error: null }) };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
       if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
       return {};
     });
@@ -777,15 +611,6 @@ describe('GET /api/cron/birthday-coupon', () => {
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
     expect(sendSpy).not.toHaveBeenCalled();
-  });
-
-  test('LINE token unset → skip LINE block', async () => {
-    setupDefaultMocks(1);
-    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK; // setupDefaultMocks 後に削除
-    (sendLineText as jest.Mock).mockClear();
-
-    await GET(makeRequest() as any);
-    expect(sendLineText).not.toHaveBeenCalled();
   });
 
   test('non-Error throw → String fallback in catch', async () => {
@@ -802,7 +627,7 @@ describe('GET /api/cron/birthday-coupon', () => {
     // 既存テスト群がこの分岐を通過しているため、ここではメール送信が正常に行われることのみ検証する。
     const origFrom = process.env.EMAIL_FROM;
     delete process.env.EMAIL_FROM;
-    setupDefaultMocks(1, 0, false, true, []); // LINE なし・email あり
+    setupDefaultMocks(1, 0, true, []); // LINE なし・email あり
 
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
@@ -838,7 +663,7 @@ describe('GET /api/cron/birthday-coupon', () => {
   });
 
   test('existingNotifications が null → 空の notifiedSet で全通知を試みる', async () => {
-    setupDefaultMocks(1, 0, true, true);
+    setupDefaultMocks(1, 0, true);
     // select result = null
     mockNotifSelect = jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
@@ -848,7 +673,6 @@ describe('GET /api/cron/birthday-coupon', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'profiles') return { select: mockProfilesSelect };
       if (table === 'user_points') return { insert: mockPointsInsert };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
       if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
       return {};
     });
@@ -856,7 +680,7 @@ describe('GET /api/cron/birthday-coupon', () => {
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
     // null の場合でも通知を試みる（空集合扱い）
-    expect(sendLineText).toHaveBeenCalled();
+    expect(mockNotifInsert).toHaveBeenCalled();
   });
 
   // -----------------------------------------------------------------------
@@ -864,7 +688,7 @@ describe('GET /api/cron/birthday-coupon', () => {
   // -----------------------------------------------------------------------
   test('select error（テーブル未適用）+ 初回付与 → 通知は送るが記録 insert は呼ばない（旧来動作）', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    setupDefaultMocks(1, 0, true, true, []); // 初回付与（insertErr=null）
+    setupDefaultMocks(1, 0, true, []); // 初回付与（insertErr=null）
     // notif select が error を返す（テーブル不在）
     mockNotifSelect = jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
@@ -877,7 +701,6 @@ describe('GET /api/cron/birthday-coupon', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'profiles') return { select: mockProfilesSelect };
       if (table === 'user_points') return { insert: mockPointsInsert };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
       if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
       return {};
     });
@@ -886,7 +709,6 @@ describe('GET /api/cron/birthday-coupon', () => {
     expect(res.status).toBe(200);
     // 初回付与なので通知は送る（旧来動作と同じ＝重複なし）
     expect(emailSend).toHaveBeenCalled();
-    expect(sendLineText).toHaveBeenCalled();
     // テーブル未適用なので記録 insert は呼ばない
     expect(mockNotifInsert).not.toHaveBeenCalled();
     // 警告ログを出す
@@ -896,7 +718,7 @@ describe('GET /api/cron/birthday-coupon', () => {
 
   test('select error（テーブル未適用）+ 23505（既付与）→ 再送せずスキップ（旧来の冪等動作・重複防止）', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    setupDefaultMocks(1, 1, true, true, []); // user-0 が 23505
+    setupDefaultMocks(1, 1, true, []); // user-0 が 23505
     mockNotifSelect = jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
         in: jest.fn().mockResolvedValue({ data: null, error: { code: '42P01', message: 'relation "birthday_notifications" does not exist' } }),
@@ -905,11 +727,9 @@ describe('GET /api/cron/birthday-coupon', () => {
     const { Resend } = require('resend');
     const emailSend = jest.fn().mockResolvedValue({ success: true });
     Resend.mockImplementation(() => ({ emails: { send: emailSend } }));
-    (sendLineText as jest.Mock).mockClear();
     mockFrom.mockImplementation((table: string) => {
       if (table === 'profiles') return { select: mockProfilesSelect };
       if (table === 'user_points') return { insert: mockPointsInsert };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
       if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
       return {};
     });
@@ -920,14 +740,13 @@ describe('GET /api/cron/birthday-coupon', () => {
     expect(json.skipped).toBeGreaterThanOrEqual(1);
     // テーブル未適用 + 既付与 → 旧来どおりスキップ（重複送信しない）
     expect(emailSend).not.toHaveBeenCalled();
-    expect(sendLineText).not.toHaveBeenCalled();
     expect(mockNotifInsert).not.toHaveBeenCalled();
     warnSpy.mockRestore();
   });
 
   test('select error（テーブル未適用）+ email 送信失敗 → claim/DELETE を一切呼ばず deliveryFailures のみ計上（フォールバック挙動維持）', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    setupDefaultMocks(1, 0, false, true, []); // 初回付与・LINE なし・email あり
+    setupDefaultMocks(1, 0, true, []); // 初回付与・LINE なし・email あり
     mockNotifSelect = jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
         in: jest.fn().mockResolvedValue({ data: null, error: { code: '42P01', message: 'relation "birthday_notifications" does not exist' } }),
@@ -939,7 +758,6 @@ describe('GET /api/cron/birthday-coupon', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'profiles') return { select: mockProfilesSelect };
       if (table === 'user_points') return { insert: mockPointsInsert };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
       if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
       return {};
     });
@@ -953,55 +771,4 @@ describe('GET /api/cron/birthday-coupon', () => {
     warnSpy.mockRestore();
   });
 
-  test('select error（テーブル未適用）+ sendLineText が false → claim/DELETE を一切呼ばず deliveryFailures のみ計上（フォールバック挙動維持）', async () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    setupDefaultMocks(1, 0, true, false, []); // 初回付与・email なし・LINE あり
-    mockNotifSelect = jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        in: jest.fn().mockResolvedValue({ data: null, error: { code: '42P01', message: 'relation "birthday_notifications" does not exist' } }),
-      }),
-    });
-    (sendLineText as jest.Mock).mockResolvedValue(false);
-    mockFrom.mockImplementation((table: string) => {
-      if (table === 'profiles') return { select: mockProfilesSelect };
-      if (table === 'user_points') return { insert: mockPointsInsert };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
-      if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
-      return {};
-    });
-
-    const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
-    expect(sendLineText).toHaveBeenCalled();
-    // フォールバック時（テーブル未適用）は claim も解放も一切行わない
-    expect(mockNotifInsert).not.toHaveBeenCalled();
-    expect(mockNotifDelete).not.toHaveBeenCalled();
-    warnSpy.mockRestore();
-  });
-
-  test('select error（テーブル未適用）+ sendLineText が throw → claim/DELETE を一切呼ばず deliveryFailures のみ計上（フォールバック挙動維持）', async () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    setupDefaultMocks(1, 0, true, false, []); // 初回付与・email なし・LINE あり
-    mockNotifSelect = jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        in: jest.fn().mockResolvedValue({ data: null, error: { code: '42P01', message: 'relation "birthday_notifications" does not exist' } }),
-      }),
-    });
-    (sendLineText as jest.Mock).mockRejectedValueOnce(new Error('LINE failed'));
-    mockFrom.mockImplementation((table: string) => {
-      if (table === 'profiles') return { select: mockProfilesSelect };
-      if (table === 'user_points') return { insert: mockPointsInsert };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
-      if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert, delete: mockNotifDelete };
-      return {};
-    });
-
-    const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
-    expect(sendLineText).toHaveBeenCalled();
-    // フォールバック時（テーブル未適用）は claim も解放も一切行わない
-    expect(mockNotifInsert).not.toHaveBeenCalled();
-    expect(mockNotifDelete).not.toHaveBeenCalled();
-    warnSpy.mockRestore();
-  });
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FacilityReview } from '@/types';
 
 interface Props {
@@ -19,46 +19,48 @@ function generateRuleSummary(reviews: FacilityReview[]): string | null {
 }
 
 export default function ReviewSummary({ reviews, facilityId }: Props) {
-  const [aiSummary, setAiSummary] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [aiAttempted, setAiAttempted] = useState(false);
-
   const ruleSummary = generateRuleSummary(reviews);
 
-  useEffect(() => {
-    if (reviews.length < 3 || aiAttempted) return;
+  // 🔴 「取得中かどうか」はレンダー中に決める（effect で setState しない）。
+  //
+  // useEffect はコミット後に走るため、effect のトップレベルに setLoading(true) を置いても
+  // 【最初のフレームには間に合わない】。旧実装では、AI 要約を取りに行くと決まっているのに
+  // 最初のフレームでルールベース要約が見え、次のコミットでスケルトンへ差し替わっていた
+  // （＝一度出た文章が消えて戻るちらつき）。2026年8月16日に StationSearch で実測した欠陥と同型。
+  //
+  // 取りに行く条件（口コミ 3 件以上）はレンダー中に判定できるので、
+  // 「今の条件（queryKey）に対する結果を持っているか」で取得中を導出する。
+  // これなら発火元が増えても、props が変わっても、最初のフレームから正しくなる。
+  // ⚠️ async IIFE の中へ setState を移すのは、挙動を変えずに lint の検出だけ消す症状ブロック。
+  const queryKey = reviews.length >= 3 ? `${facilityId}:${reviews.length}` : null;
+  const [result, setResult] = useState<{ key: string; summary: string | null } | null>(null);
+  // 同一マウント内の二重取得ガード。描画に影響しないので state ではなく ref に置く
+  // （state にすると effect からの setState が必要になり、上記の欠陥が復活する）。
+  const requestedKeyRef = useRef<string | null>(null);
 
-    // 🔴 この2行は effect のトップレベルに置く（async IIFE の中へ入れない）。
-    // IIFE の中へ移すと挙動を1ミリも変えずに検出だけが消える＝症状ブロックになるため。
-    // 実測（2026年8月16日）: async IIFE 内で await より前の同期 setState は検出されない。
-    //
-    // setAiAttempted(true) は同一マウント内での二重取得を防ぐガードで、await の後に置くと
-    // 取得中に再実行され得る。ここは effect でしか書けない（マウント起点で、対応する
-    // イベントハンドラが存在しない）。
-    //
-    // ⚠️ 2026年8月16日 実機検証で判明: setLoading(true) は【最初のフレームには間に合わない】。
-    // useEffect はペイント後に走るため、1フレームだけルールベース要約が見えてから
-    // ローディング表示に変わる。StationSearch では同型の欠陥（空状態の誤表示）を実測し
-    // イベントハンドラへ移して根治したが、こちらはマウント起点なので同じ手は使えない。
-    // ルールベース要約は妥当なフォールバック表示なので実害は小さいと判断しているが、
-    // 【この施設ページはこの環境にデータが無く実機確認できていない】。断定はしない。
-    // よって直さず、検出を残したまま src/lib/react-compiler-debt.mjs の BASELINE に計上する。
-    setAiAttempted(true);
-    setLoading(true);
+  const loading = queryKey !== null && result?.key !== queryKey;
+  const aiSummary = result?.key === queryKey ? result.summary : null;
+
+  useEffect(() => {
+    if (queryKey === null || requestedKeyRef.current === queryKey) return;
+
+    requestedKeyRef.current = queryKey;
 
     (async () => {
+      let summary: string | null = null;
       try {
         const r = await fetch(`/api/admin/review-summary?facility_id=${facilityId}`);
         if (!r.ok) throw new Error();
         const d = await r.json();
-        if (d.summary) setAiSummary(d.summary);
+        if (d.summary) summary = d.summary;
       } catch {
         // フォールバック（ルールベース要約）を使うため無視
-      } finally {
-        setLoading(false);
       }
+      // 成功・失敗のどちらでも「この条件は取得済み」を記録する。
+      // 記録しないと loading が真のままスケルトンが残り続ける。
+      setResult({ key: queryKey, summary });
     })();
-  }, [facilityId, reviews.length, aiAttempted]);
+  }, [facilityId, queryKey]);
 
   if (!ruleSummary) return null;
 

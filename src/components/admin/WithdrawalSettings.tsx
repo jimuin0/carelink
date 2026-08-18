@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Modal from '@/components/Modal';
 import Toast from '@/components/Toast';
+import { clearStoredPersonalData } from '@/lib/client-storage';
 
 /**
  * 施設オーナー向け退会（アカウント・データ削除）セクション。
@@ -38,6 +39,10 @@ export default function WithdrawalSettings() {
         // 認証 Cookie を消しているのはサーバー側で、/api/account/delete が sb-*auth-token
         // だけを maxAge:0 で失効させている。membership キャッシュ Cookie（_cm_mbr_*）は
         // 残るが、middleware が先に auth.getUser() を必須にしており実害はない。
+        // 退会したのに入力済みの個人情報（氏名・メール・電話）が端末に残らないよう、
+        // 遷移の前に sessionStorage の下書きを消す。
+        // 【全リロードでは sessionStorage は消えない】ため明示的に消す必要がある。
+        clearStoredPersonalData();
         window.location.href = '/';
         return;
       }

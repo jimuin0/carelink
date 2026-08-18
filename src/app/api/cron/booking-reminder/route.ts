@@ -200,6 +200,17 @@ export async function GET(request: Request) {
     let skipped = 0;
     let deferred = 0;
     let deliveryFailures = 0;
+    // Issue #417 の可視化用。恒久エラーの発生数と、メールへ退避できた数。
+    let linePermanentFailures = 0;
+    let lineFallbackToEmail = 0;
+
+    // 同じ予約・同じ日数のメールリマインドが既にプランされているか。LINE が恒久エラーになった
+    // ときの退避先を決めるのに使う（在るならメールが届くので二重送信しない）。
+    const plannedEmailKeys = new Set(
+      plan
+        .filter((p) => p.kind.startsWith('email_'))
+        .map((p) => `${p.booking.id}:${p.days}`)
+    );
     const loopStart = Date.now();
     for (let pi = 0; pi < plan.length; pi++) {
       const { booking, kind, days } = plan[pi];
@@ -281,20 +292,59 @@ export async function GET(request: Request) {
           }
         } else {
           const lineId = lineMap.get(booking.user_id as string) as string;
-          const ok = await sendLineReminder(lineId, {
+          const outcome = await sendLineReminder(lineId, {
             facilityName: facilityMap.get(booking.facility_id) || '',
             menuName: (booking.menu_id && menuMap.get(booking.menu_id)) || 'ご予約',
             date: booking.booking_date,
             time: booking.start_time,
             daysBefore: days,
           });
-          if (ok) {
+          if (outcome === 'delivered') {
             sent++;
-          } else {
-            // LINE 送信が送達不可（safeSend が false）→ claim 解放して翌 run で再送可能にする。
+          } else if (outcome === 'transient') {
+            // 一時的な失敗（429・5xx・ネットワーク）→ claim 解放して翌 run で再送する。
             await releaseClaim();
             deliveryFailures++;
             skipped++;
+          } else {
+            // 🔴 恒久的な失敗（4xx＝宛先が無効・ブロック済み等）。Issue #417。
+            // ここで claim を解放すると【毎 run 必ず失敗する送信を永久に繰り返し、その予約者には
+            // 一生届かない】。claim は保持して LINE の再送を打ち切り、同じ内容をメールで届ける。
+            //
+            // 施設が「LINE だけ ON・メール OFF」にしていても退避する。その設定は
+            // 「二重に送らない」という意図であって「届かなくてよい」ではないため。
+            // ただし同じ予約・同じ日数のメールリマインドが既にプランに在る場合は退避しない
+            // （そちらが届くので二重送信になる）。
+            linePermanentFailures++;
+            const emailAlreadyPlanned = plannedEmailKeys.has(`${booking.id}:${days}`);
+            if (emailAlreadyPlanned) {
+              // メール側が同じ内容を届ける。配信失敗として警報は上げない。
+              skipped++;
+            } else if (booking.email) {
+              const fallbackOk = await sendEmailReminder({
+                customerName: booking.customer_name as string,
+                customerEmail: booking.email as string,
+                facilityName: facilityMap.get(booking.facility_id) || '',
+                bookingDate: booking.booking_date,
+                startTime: booking.start_time,
+                endTime: booking.end_time,
+                totalPrice: booking.total_price ?? undefined,
+                bookingId: booking.id,
+              }, days);
+              if (fallbackOk) {
+                lineFallbackToEmail++;
+                sent++;
+              } else {
+                // 退避先も送れなかった。claim を解放し翌 run で（LINE 1 回を無駄打ちしてから）再試行する。
+                await releaseClaim();
+                deliveryFailures++;
+                skipped++;
+              }
+            } else {
+              // 退避先が無い＝この予約者へは届けようがない。警報を上げて人間に見せる。
+              deliveryFailures++;
+              skipped++;
+            }
           }
         }
       } catch (e) {
@@ -309,7 +359,13 @@ export async function GET(request: Request) {
     await logCronRun('booking-reminder', 'success', startedAt, {
       processed: sent,
       skipped,
-      meta: { total_bookings: bookings.length, planned: plan.length, deferred },
+      meta: {
+        total_bookings: bookings.length,
+        planned: plan.length,
+        deferred,
+        line_permanent_failures: linePermanentFailures,
+        line_fallback_to_email: lineFallbackToEmail,
+      },
     });
     return NextResponse.json({ processed: sent, skipped, total: bookings.length, planned: plan.length, deferred });
   } catch (e) {
