@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import type { CSSProperties } from 'react';
 import Image from 'next/image';
 import { Noto_Serif_JP } from 'next/font/google';
 import RegisterForm from '@/components/register/RegisterForm';
@@ -17,13 +16,10 @@ import RegisterForm from '@/components/register/RegisterForm';
  * 本文はゴシックのまま残す（明朝は小さい字だと読みにくく、フォームの可読性を落とすため）。
  * このページでしか使わないので、next/font がこのルートにだけ配信する。
  *
- * 【配色】エクリュ #F7F3EC ／ 罫線ベージュ #E6DCCD ／ 本文 #4A4038 ／
- * 副文 #6F655C ／ アクセント（くすみローズブラウン）#8E6A61。
- * 🔴 色は目で選ばず、コントラスト比を計算してから決めている（この repo は axe の a11y 検査を
- * 持っており、薄すぎる文字は CI で落ちる）。実測：本文 9.12:1／副文 5.14:1／CTA に白文字 4.79:1。
- * いずれも WCAG AA（4.5:1）を満たす。候補にあった #7D7268（4.24:1）と #9C9086（2.81:1）は
- * 満たさないので本文には使わない。黒（#2E2A26）も試したが、暖色の面に対して硬く、
- * 韓国系の柔らかい印象から外れる。
+ * 【配色】globals.css の `.theme-ecru` が単一ソース。実際の色コードと実測コントラストは
+ * そちらに書いてある。ここで直書きしないのは、同じ色をヘッダーも使うため
+ * （別々に持つと必ず片方だけ古くなる。実際にロゴだけ青が残る事故を起こした）。
+ * src/__tests__/ecru-theme-single-source.test.ts が直書きへの逆戻りを CI で止める。
  */
 const serif = Noto_Serif_JP({
   subsets: ['latin'],
@@ -91,14 +87,7 @@ const STEPS = [
 export default function RegisterPage() {
   return (
     <div
-      className={`${serif.variable} bg-[#F7F3EC] text-[#4A4038]`}
-      /* 🔴 このページの中だけブランド色を差し替える。
-         .btn-primary / StepIndicator / focus リングはいずれも var(--primary) を参照しているので、
-         変数を 1 箇所で上書きすればフォーム側も同じ色に揃う（個々のボタンへ !important を
-         撒くと、disabled の灰色まで潰してしまう）。
-         濃い青のままだと、明朝＋アイボリーの面に対してボタンだけが医療系の配色で浮く。
-         ヘッダー・フッターはこの div の外なので、サイト全体のブランド色は変えていない。 */
-      style={{ '--primary': '#8E6A61', '--primary-dark': '#7A5952' } as CSSProperties}
+      className={`theme-ecru ${serif.variable} bg-[var(--ecru-bg)] text-[var(--ecru-text)]`}
     >
       {/* ===== ヒーロー =====
           写真の上に文字を重ねる編集誌的な組み。写真の下に文字を置く形も試したが、
@@ -114,7 +103,7 @@ export default function RegisterPage() {
             className="object-cover"
           />
           {/* 文字を置く下半分だけを沈める。全面に暗幕をかけると写真が死ぬ。 */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#3A302A]/75 via-[#3A302A]/25 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[var(--ecru-scrim)]/75 via-[var(--ecru-scrim)]/25 to-transparent" />
 
           <div className="absolute inset-x-0 bottom-0 px-7 pb-12 sm:px-12 sm:pb-16">
             <div className="mx-auto max-w-5xl">
@@ -135,7 +124,7 @@ export default function RegisterPage() {
           <div className="mx-auto max-w-5xl">
             <a
               href="#register-form"
-              className="mt-8 inline-flex h-14 w-full items-center justify-center border border-[#8E6A61] bg-[#8E6A61] text-xs font-medium tracking-[0.2em] text-white transition-colors hover:bg-transparent hover:text-[#8E6A61] sm:w-[280px]"
+              className="mt-8 inline-flex h-14 w-full items-center justify-center border border-[var(--ecru-accent)] bg-[var(--ecru-accent)] text-xs font-medium tracking-[0.2em] text-white transition-colors hover:bg-transparent hover:text-[var(--ecru-accent)] sm:w-[280px]"
             >
               無料ではじめる
             </a>
@@ -145,7 +134,7 @@ export default function RegisterPage() {
 
       {/* ===== 数字 ===== */}
       <section className="mt-14 px-7 sm:mt-20 sm:px-12">
-        <dl className="mx-auto flex max-w-5xl border-y border-[#E6DCCD]">
+        <dl className="mx-auto flex max-w-5xl border-y border-[var(--ecru-line)]">
           {[
             { value: '0', unit: '円', label: '掲載料' },
             { value: '3', unit: '分', label: '登録' },
@@ -153,13 +142,13 @@ export default function RegisterPage() {
           ].map((stat, i) => (
             <div
               key={stat.label}
-              className={`flex-1 py-7 text-center ${i > 0 ? 'border-l border-[#E6DCCD]' : ''}`}
+              className={`flex-1 py-7 text-center ${i > 0 ? 'border-l border-[var(--ecru-line)]' : ''}`}
             >
               <dd className="font-[family-name:var(--font-serif-jp)] text-[32px] leading-none sm:text-[40px]">
                 {stat.value}
-                <span className="ml-1 text-xs text-[#6F655C]">{stat.unit}</span>
+                <span className="ml-1 text-xs text-[var(--ecru-muted)]">{stat.unit}</span>
               </dd>
-              <dt className="mt-3 text-[10px] tracking-[0.2em] text-[#6F655C]">{stat.label}</dt>
+              <dt className="mt-3 text-[10px] tracking-[0.2em] text-[var(--ecru-muted)]">{stat.label}</dt>
             </div>
           ))}
         </dl>
@@ -168,7 +157,7 @@ export default function RegisterPage() {
       {/* ===== できること ===== */}
       <section className="mt-16 px-7 sm:mt-24 sm:px-12">
         <div className="mx-auto max-w-5xl">
-          <div className="divide-y divide-[#E6DCCD] border-y border-[#E6DCCD] sm:grid sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <div className="divide-y divide-[var(--ecru-line)] border-y border-[var(--ecru-line)] sm:grid sm:grid-cols-3 sm:divide-x sm:divide-y-0">
             {CAPABILITIES.map((c) => (
               <article
                 key={c.title}
@@ -182,13 +171,13 @@ export default function RegisterPage() {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   aria-hidden="true"
-                  className="h-6 w-6 shrink-0 text-[#8E6A61]"
+                  className="h-6 w-6 shrink-0 text-[var(--ecru-accent)]"
                 >
                   <path d={ICON_PATHS[c.icon]} />
                 </svg>
                 <div>
                   <h2 className="text-[13px] tracking-[0.1em]">{c.title}</h2>
-                  <p className="mt-1.5 text-xs leading-relaxed text-[#6F655C]">{c.body}</p>
+                  <p className="mt-1.5 text-xs leading-relaxed text-[var(--ecru-muted)]">{c.body}</p>
                 </div>
               </article>
             ))}
@@ -207,13 +196,13 @@ export default function RegisterPage() {
               読み上げで「予約の受付／CareLink／24時間」と辿れる形にしておく必要がある。 */}
           <table className="mt-8 w-full table-fixed border-collapse text-left">
             <thead>
-              <tr className="border-b border-[#4A4038]">
+              <tr className="border-b border-[var(--ecru-text)]">
                 <th scope="col" className="w-[36%] py-3">
                   <span className="sr-only">項目</span>
                 </th>
                 <th
                   scope="col"
-                  className="py-3 text-center text-[10px] font-normal tracking-[0.1em] text-[#6F655C]"
+                  className="py-3 text-center text-[10px] font-normal tracking-[0.1em] text-[var(--ecru-muted)]"
                 >
                   電話・紙
                 </th>
@@ -224,11 +213,11 @@ export default function RegisterPage() {
             </thead>
             <tbody>
               {COMPARISON.map((row) => (
-                <tr key={row.label} className="border-b border-[#E6DCCD]">
+                <tr key={row.label} className="border-b border-[var(--ecru-line)]">
                   <th scope="row" className="py-4 text-xs font-normal tracking-wide">
                     {row.label}
                   </th>
-                  <td className="py-4 text-center text-[11px] text-[#6F655C]">{row.before}</td>
+                  <td className="py-4 text-center text-[11px] text-[var(--ecru-muted)]">{row.before}</td>
                   <td className="py-4 text-center text-[11px] tracking-wide">{row.after}</td>
                 </tr>
               ))}
@@ -243,15 +232,15 @@ export default function RegisterPage() {
           <h2 className="text-center font-[family-name:var(--font-serif-jp)] text-lg tracking-[0.12em] sm:text-2xl">
             掲載までの流れ
           </h2>
-          <ol className="mt-8 divide-y divide-[#E6DCCD] border-y border-[#E6DCCD] sm:grid sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <ol className="mt-8 divide-y divide-[var(--ecru-line)] border-y border-[var(--ecru-line)] sm:grid sm:grid-cols-3 sm:divide-x sm:divide-y-0">
             {STEPS.map((s) => (
               <li key={s.n} className="flex items-baseline gap-5 py-6 sm:flex-col sm:gap-3 sm:px-7">
-                <span className="font-[family-name:var(--font-serif-jp)] text-base text-[#6F655C]">
+                <span className="font-[family-name:var(--font-serif-jp)] text-base text-[var(--ecru-muted)]">
                   {s.n}
                 </span>
                 <div>
                   <p className="text-[13px] tracking-[0.1em]">{s.title}</p>
-                  <p className="mt-1.5 text-xs text-[#6F655C]">{s.body}</p>
+                  <p className="mt-1.5 text-xs text-[var(--ecru-muted)]">{s.body}</p>
                 </div>
               </li>
             ))}
