@@ -68,7 +68,22 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: psql を用意する
+        # 🔴 既に psql があるなら apt を叩かない（2026年8月19日の実障害への対処）。
+        #   この 1 ステップだけが 19 分 52 秒ハングし、job の timeout-minutes: 20 に到達して
+        #   打ち切られた。検証本体は 1 行も走っていない（以降のステップは全て skipped）。
+        #   直前の PR では同じステップが 1 分で終わっており、原因は apt ミラー側の停滞
+        #   ＝こちらのコードとは無関係な外部要因。
+        #
+        #   GitHub の ubuntu ランナーイメージには postgresql-client が同梱されている場合があり、
+        #   その場合この apt は【不要なネットワーク依存を1つ増やしているだけ】になる。
+        #   在れば使い、無いときだけ入れる形にして、平常時は外部要因で止まる余地を無くす。
+        #   （同梱の有無はイメージ更新で変わり得るので、どちらでも動く書き方にしてある）
         run: |
+          if command -v psql >/dev/null 2>&1; then
+            echo "psql は既にインストール済み（apt を叩かない）"
+            psql --version
+            exit 0
+          fi
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client
           psql --version
