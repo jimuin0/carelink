@@ -14,6 +14,19 @@
  *     csrf: true,
  *     rateLimit: { limiter: mutationRateLimit, limit: 10, windowMs: 60_000, prefix: 'example' },
  *   });
+ *
+ * 🔴 2026年8月20日追記（docs/register-blocker-instructions.md §3 P0-2）:
+ * 下の catch は「throw された例外」でしか発火しない。ハンドラが例外を投げず
+ * `return NextResponse.json(..., { status: 500 })` した場合（＝ハンドラ内で自前 try/catch
+ * している、あるいは Supabase の `{ data, error }` 形の失敗をそのまま 500 で返している等）は
+ * この catch を素通りし、safeCaptureException も alertCaughtError も呼ばれない。
+ * 実測（2026年8月20日・src/app/api/**\/route.ts を機械走査）: `status: 500` の return は
+ * 278箇所/122ファイル。うち withRoute を通っている（=下の handler 呼び出しの戻り値として
+ * 素通しされる）ものだけでも 11ファイルあり、当時それらは全て「ハンドラが自前で catch して
+ * 500 を return する」形だったため、この構造的な穴を1箇所ずつ塞ぐのではなく、
+ * `handler` の戻り値そのものを見て 500 なら通知する（下記）ことで一括で塞ぐ。
+ * withRoute を使っていない route.ts（本ファイルの外）はこの経路の対象外のまま残るため、
+ * `src/__tests__/silent-500-guard.test.ts` が別途それを機械監視する。
  */
 
 import { NextResponse } from 'next/server';
@@ -45,6 +58,22 @@ type Handler = (request: Request, ctx: RouteContext) => Promise<NextResponse>;
  * 公開される戻り値は 1 引数に固定する（RouteContext は内部でのみ生成・注入する）。
  */
 type WrappedHandler = (request: Request) => Promise<NextResponse>;
+
+/**
+ * `serverError()` が付与する内部専用フラグヘッダー。
+ *
+ * ハンドラが（withRoute の catch を通らずに）自前で 500 を「return」する箇所から
+ * `serverError()` を使うと、そこで既に safeCaptureException + alertCaughtError が
+ * 呼ばれている。下の wrapped() は handler の戻り値が 500 なら追加で通知しようとするため、
+ * 何もしなければ「serverError 側」と「wrapped 側」の二重通知になる。
+ * このヘッダーは「もう通知済み」の目印として使い、wrapped() 側で見つけたら抑止する。
+ *
+ * x- 始まりの内部用ヘッダーであり、値は固定文字列 '1' のみ（原因文字列やスタック等の
+ * 実データは一切載せない）ため、抑止判定の前にクライアントへ応答が漏れても無害。
+ * とはいえ「内部用ヘッダーが外部から観測できる」こと自体が望ましくないため、
+ * wrapped() は抑止判定の直後に必ず削除してから応答を返す。
+ */
+const ALERTED_HEADER = 'x-clnk-alerted-500';
 
 interface WithRouteOptions {
   /** CSRF 検証を行う（既定: true、GET は通常 false） */
@@ -113,7 +142,25 @@ export function withRoute(handler: Handler, opts: WithRouteOptions = {}): Wrappe
         ctx = { user, supabase };
       }
 
-      return await handler(request, ctx);
+      const res = await handler(request, ctx);
+
+      // 🔴 catch（下）は throw された例外でしか発火しない。ハンドラが例外を投げずに
+      // 500 を「return」した場合はここで拾う（上のファイル冒頭コメント参照）。
+      // serverError() 経由で既に通知済み（ALERTED_HEADER 付与）なら二重通知を避けて
+      // 抑止するだけにする。ヘッダーはどちらの分岐でも応答前に必ず削除する
+      // （内部用ヘッダーを外部へ漏らさないため）。
+      if (res.status >= 500) {
+        if (res.headers.has(ALERTED_HEADER)) {
+          res.headers.delete(ALERTED_HEADER);
+        } else {
+          alertCaughtError(
+            sentryTag,
+            new Error(`handler returned ${res.status}`),
+            new URL(request.url).pathname
+          );
+        }
+      }
+      return res;
     } catch (e) {
       safeCaptureException(e, sentryTag);
       // catch して 500 を返すと例外が instrumentation.ts の onRequestError に
@@ -126,4 +173,33 @@ export function withRoute(handler: Handler, opts: WithRouteOptions = {}): Wrappe
       );
     }
   };
+}
+
+/**
+ * 通知つき 500 ヘルパー（docs/register-blocker-instructions.md §3 P0-2）。
+ *
+ * ハンドラが例外を投げずに（＝ withRoute の catch を通らずに）500 を「return」する箇所
+ * ―― 自前の try/catch や Supabase の `{ data, error }` 形の失敗判定など ―― から使う。
+ * `cause`（元の例外・Supabase の error オブジェクト等）を safeCaptureException +
+ * alertCaughtError に渡すため、withRoute の catch から入る 500 と同じ粒度で原因が
+ * Slack/ログに載る（`new Error('handler returned 500')` のような原因不明の通知にならない）。
+ *
+ * withRoute でラップされたルートから使っても二重通知にはならない：ALERTED_HEADER を
+ * 付与し、wrapped() 側がそれを見て自身の通知を抑止する（応答前にヘッダーは削除される）。
+ * withRoute を使っていないルートから使う場合は、この関数自体が通知の唯一の発火点になる。
+ *
+ * fire-and-forget（alertCaughtError は throw しない・runAfterResponse 経由なので応答は
+ * 遅延しない）。本体の応答生成はこの関数が返す NextResponse で完結する。
+ */
+export function serverError(
+  tag: string,
+  cause: unknown,
+  route: string,
+  userMessage = 'サーバーエラーが発生しました'
+): NextResponse {
+  safeCaptureException(cause, tag);
+  alertCaughtError(tag, cause, route);
+  const res = NextResponse.json({ error: userMessage }, { status: 500 });
+  res.headers.set(ALERTED_HEADER, '1');
+  return res;
 }

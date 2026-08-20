@@ -67,8 +67,11 @@ export default function Header() {
                 ヘッダーに常設する。従来は未ログイン時に店舗用の入口が一切無く、ログイン後も
                 アイコンメニューを開かないと「管理画面」リンクに気づけなかった。
                 redirect=/admin を付けるのでログイン後そのまま管理画面に着地する。
-                ログイン済みの場合は /auth/login が既存セッションを検知して即 /admin へ送る
-                （src/app/auth/login/page.tsx の初回マウント時 replace）ため、常時表示でよい。 */}
+                ログイン済みの場合でも常時表示でよい（2026年8月20日 訂正）:
+                middleware.ts が /auth/login への到達自体を「ページの HTML / RSC ペイロード
+                生成より前」に 307 で /mypage（?redirect 尊重後は redirect 先）へ差し替えるため、
+                /auth/login/page.tsx 側の useEffect（既存セッション検知）は一度もマウントされない
+                （旧コメントの想定は成立しない）。 */}
             <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
               <Link
                 href="/auth/login?redirect=/admin"

@@ -7,9 +7,10 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { signupSchema, type SignupFormData } from '@/lib/validations-auth';
-import { prefectures } from '@/lib/constants';
+import { prefectures, SITE_URL } from '@/lib/constants';
 import Toast from '@/components/Toast';
 import { isLineLoginEnabled } from '@/lib/line-availability';
+import { safeRedirect } from '@/lib/safe-redirect';
 
 export default function SignupPage() {
   // 見出し・カード外枠は Suspense の外（=SSR）で描画する（login と同様）。
@@ -32,8 +33,17 @@ export default function SignupPage() {
 function SignupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const rawRedirect = searchParams.get('redirect') || '/mypage';
-  let redirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') ? rawRedirect : '/mypage';
+  // 🔴 P0-4（docs/register-blocker-instructions.md §3）: 旧ガード
+  // `raw.startsWith('/') && !raw.startsWith('//')` は `/\evil.com` を通してしまう
+  // （URLパーサがバックスラッシュを `/` に正規化し、Next 16.3.0 の router.push が
+  // 実際に外部サイトへ遷移する。詳細は src/lib/safe-redirect.ts のコメント参照）。
+  // 判定を共有ヘルパーへ寄せ、「解決後の origin が一致するか」で止める。
+  // SSR（初回HTML）では window が無いため SITE_URL（本番既定 origin）を使う。
+  // クエリが `/` 始まりかどうかの判定結果は origin の値に依存しないため
+  // （外部化される値は常にどの origin を基準にしても不一致になる）、
+  // SSR と CSR とで redirect の計算結果がずれてハイドレーション不整合を起こすことはない。
+  const origin = typeof window !== 'undefined' ? window.location.origin : SITE_URL;
+  let redirect = safeRedirect(searchParams.get('redirect'), origin);
   // onboarding時はfacility_name/business_typeをredirectに含める
   const facilityName = searchParams.get('facility_name');
   const businessType = searchParams.get('business_type');
@@ -62,7 +72,7 @@ function SignupContent() {
 
   const onSubmit = async (data: SignupFormData) => {
     const supabase = createBrowserSupabaseClient();
-    const { error } = await supabase.auth.signUp({
+    const { data: result, error } = await supabase.auth.signUp({
       email: data.email,
       password: data.password,
       options: {
@@ -77,11 +87,29 @@ function SignupContent() {
       // アカウント列挙対策: 既存登録メールかどうかをレスポンスで判別させない
       // （forgot-password と同じ方針。医療・美容ドメインでは「登録済みか」自体が
       // 個人情報に近く、単なる一般的なアカウント列挙よりリスクが高い）。
+      // 🔴 この分岐は error があるときだけ発火し、下の data.session 判定より前に
+      // return する。「既存登録メール」は Supabase から常にエラーとして返る経路
+      // （このコードベースが判別に使っている経路そのもの）なので、
+      // data.session を見るようにしても列挙対策の分岐・文言は一切変わらない。
       if (error.message.includes('already registered')) {
         setToast({ type: 'success', message: '確認メールを送信しました。メールのリンクをクリックして登録を完了してください。' });
       } else {
         setToast({ type: 'error', message: '登録に失敗しました。もう一度お試しください。' });
       }
+      return;
+    }
+
+    // 🔴 P0-5（docs/register-blocker-instructions.md §3）: 本番の Supabase
+    // 「Confirm email」設定は当環境から確認できないため、設定を知らなくても
+    // 正しく動く形にする。data.session の有無が実行時の答え：
+    //   session あり = メール確認が無効 → signUp 時点で既にログイン済み。
+    //                  login/page.tsx:72-73 と同じ形で redirect 先へ即座に遷移する。
+    //   session なし = メール確認が有効 → メール確認待ちが正しい状態。文言のまま留まる。
+    // 確認が有効な本番では signUp() の session は常に null になるため、この分岐を
+    // 足してもメール確認フローの見た目（成功トーストで留まる）は一切変わらない。
+    if (result.session) {
+      router.push(redirect);
+      router.refresh();
       return;
     }
 

@@ -175,6 +175,55 @@ describeIfConfigured('schema invariants (staging)', () => {
     });
   });
 
+  // ── 2c. 型ドリフト恒久ガード: /api/salons が送る値の型と salons の実列型 ──
+  //
+  // 背景（docs/register-blocker-instructions.md）:
+  //   /register の「掲載希望時期」は列挙文字列（'immediately' 等）を送るが、
+  //   salons.desired_start_date は元 date 型だったため INSERT が
+  //   ERROR 22007 invalid input syntax for type date で必ず失敗していた
+  //   （PG16 の使い捨てDBで実測確定・PostgREST 形でも再現済み）。
+  //   supabase/migrations/20260820000001_salons_desired_start_date_to_text.sql で
+  //   text へ変更したが、これが本番へ適用され忘れる／将来また date 系へ戻される
+  //   （逆ドリフト）と、この不具合は無音で再発する。
+  //
+  // 検証方法（読み取りのみ・INSERT しない）:
+  //   等号フィルタ `.eq('desired_start_date', 'immediately')` を持つ SELECT を投げる。
+  //   PostgREST はこのフィルタを `WHERE desired_start_date = 'immediately'` に変換するため、
+  //   列が date 型なら Postgres がリテラルを date へ暗黙キャストしようとして
+  //   `invalid input syntax for type date`（SQLSTATE 22007）で例外になる。text 型なら
+  //   キャストが発生せず、0件以上の通常応答になる。
+  //   🔴 この型エラーは RLS の可否より前（parse/analyze 段階）で発生するため、
+  //     salons に anon 向け SELECT ポリシーが無く常に 0 行しか返らない環境でも
+  //     機能する（実測: ローカル PostgreSQL 16 で「RLS 全拒否・SELECT 権限のみ」の
+  //     テーブルに対し、date 列は 22007 で例外・text 列は 0 行応答、を確認して
+  //     このテストの土台にしている）。
+  //   これにより行を1件も作らずに実列型を判定できる（INSERT でしか確かめられない
+  //   形は avoid する、という指示書の方針に沿う）。
+  //
+  // 負の対照（このテストの中に内蔵）:
+  //   desired_start_date が date 型に戻った場合、Supabase は error.code='22007' を返し、
+  //   `expect(error).toBeNull()` が失敗して本テストが red になる。
+  describe('型ドリフト恒久ガード（salons.desired_start_date）', () => {
+    test('salons.desired_start_date は列挙文字列を受け付ける型である（date へ逆戻りしていない）', async () => {
+      const { error } = await anon
+        .from('salons')
+        .select('id')
+        .eq('desired_start_date', 'immediately')
+        .limit(1);
+
+      if (error) {
+        // date 型に戻った場合に踏む具体的なエラー形（デバッグ時に読めばすぐ分かるように明示する）。
+        expect(error.code).not.toBe('22007');
+        expect(error.message).not.toMatch(/invalid input syntax for type date/i);
+      }
+      expect(
+        error,
+        `salons.desired_start_date への等号フィルタが失敗した（type=${error?.code ?? '?'}）。` +
+          'date 型へ逆戻りした（=今回の実障害の再発）疑いがある。',
+      ).toBeNull();
+    });
+  });
+
   // ── 3. カラム/View 存在（service_role があれば確定的に検証） ──
   (URL && SRK ? describe : describe.skip)('カラム/View 存在（service_role）', () => {
     // 上と同様、未設定時に createClient が throw しないよう設定済みのときだけ生成。

@@ -12,7 +12,7 @@ import { phoneField as sharedPhoneField } from '@/lib/phone';
 import { verifyRecaptcha } from '@/lib/recaptcha';
 import { sendNotify } from '@/lib/notify';
 import { runAfterResponse } from '@/lib/after-response';
-import { businessTypes } from '@/lib/constants';
+import { businessTypes, DESIRED_START_DATES } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,7 +66,11 @@ const salonInsertSchema = z.object({
   pr_text: z.string().max(1000).optional().nullable(),
   photo_url: z.string().max(2000).optional().nullable(),
   photo_urls: z.array(z.string().max(2000)).max(7).optional(),
-  desired_start_date: z.string().max(50).optional().nullable(),
+  // 【2026年8月20日 恒久根治】「掲載希望時期」は日付ではなく意向。salons.desired_start_date
+  // を date→text に変えた（supabase/migrations/20260820000001_...）のに合わせ、サーバー側も
+  // 列挙の受け口にする。定数は UI（RegisterForm.tsx の startDateOptions）と共有し、
+  // 選択肢を足したときに片側だけ腐らないようにする（businessTypes と同じ形）。
+  desired_start_date: z.enum(DESIRED_START_DATES).or(z.literal('')).optional().nullable(),
   recaptcha_token: z.string().optional(),
   // 【2026年7月16日 恒久根治・/api/notify 廃止対応】recruit（掲載申し込み・簡易項目）と
   // register（無料掲載登録・全項目＋写真）の両ページが同一の本エンドポイントへ POST する。

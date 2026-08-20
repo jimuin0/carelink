@@ -27,6 +27,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { verifyRecaptcha } from '@/lib/recaptcha';
 import { sendNotify } from '@/lib/notify';
+import { DESIRED_START_DATES } from '@/lib/constants';
 import { POST } from '../route';
 
 const STORAGE_PREFIX =
@@ -331,6 +332,53 @@ describe('POST /api/salons', () => {
 
       expect(res.status).toBe(200);
       expect(verifyRecaptcha).not.toHaveBeenCalled();
+    });
+  });
+
+  // 【2026年8月20日 恒久根治】salons.desired_start_date は元々 date 型なのに、フォームは
+  // 'immediately' 等の列挙文字列を送っていたため、4値すべてで INSERT が 22007 で落ちていた
+  // （supabase/migrations/20260820000001_salons_desired_start_date_to_text.sql）。
+  // DB をモックしている本テストではその型不一致自体は再現できないため、代わりに
+  // 「サーバーが列挙の外を弾くこと」を主張し、zod 側が単なる自由文字列受理（旧
+  // z.string().max(50)）に戻る回帰を防ぐ。
+  describe('desired_start_date（列挙の受け口）', () => {
+    test.each(['2026-09-01', 'tomorrow'])(
+      '列挙の外の値 %s → 400（DB に到達しない）',
+      async (value) => {
+        const res = await POST(makeRequest({ ...validFull, desired_start_date: value }) as any);
+        expect(res.status).toBe(400);
+        expect(mockInsert).not.toHaveBeenCalled();
+      }
+    );
+
+    test('未選択の空文字 → 200 で受理される', async () => {
+      const res = await POST(makeRequest({ ...validFull, desired_start_date: '' }) as any);
+      expect(res.status).toBe(200);
+    });
+
+    test('null → 200 で受理される', async () => {
+      const res = await POST(makeRequest({ ...validFull, desired_start_date: null }) as any);
+      expect(res.status).toBe(200);
+    });
+
+    // 定数の単一ソース化（src/lib/constants.ts の DESIRED_START_DATES）を守る検査。
+    // route.ts の zod がこの配列以外を参照する形に戻ると、配列に足された値がサーバーに
+    // 拒否される（または配列から抜いた値をサーバーがまだ許してしまう）ため、
+    // 配列の全要素を1つずつ実際に POST して 200 になることを機械で確認する。
+    test.each(DESIRED_START_DATES)(
+      'DESIRED_START_DATES の全要素が受理される: %s',
+      async (value) => {
+        const res = await POST(makeRequest({ ...validFull, desired_start_date: value }) as any);
+        expect(res.status).toBe(200);
+        const inserted = mockInsert.mock.calls[0][0];
+        expect(inserted.desired_start_date).toBe(value);
+      }
+    );
+
+    test('DESIRED_START_DATES の集合が想定4値からズレていない（片側だけの追加/削除を検知）', () => {
+      expect([...DESIRED_START_DATES].sort()).toEqual(
+        ['immediately', 'undecided', 'within_1month', 'within_3months'].sort()
+      );
     });
   });
 

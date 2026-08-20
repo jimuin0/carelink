@@ -57,7 +57,8 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 2. レート制限（`rateLimit` 指定時）— `checkRateLimit`：Supabase RPC `check_rate_limit` を優先、失敗時は in-memory フォールバック（fail-safe・本体を 500 化させない）
 3. 認証（`requireAuth: true` 指定時）— `auth.getUser()` で未認証は 401・通過時は `ctx.user` / `ctx.supabase` をハンドラへ注入
 4. ハンドラ本体
-5. 例外は必ず catch して 500 に変換し、`safeCaptureException` ＋ `alertCaughtError`（Slack 通知・応答は遅らせない）。catch して 500 を返すと `instrumentation.ts` の onRequestError に伝播せず Slack 通知が漏れるため、catch 経路でも明示通知する。通知は `runAfterResponse` 経由で応答後に実行される（下記「応答後に走らせる副作用の SSOT」・**全 500 応答の Slack 通知がこの経路**なので取りこぼすと障害に気づけない）。
+5. 例外は必ず catch して 500 に変換し、`safeCaptureException` ＋ `alertCaughtError`（Slack 通知・応答は遅らせない）。catch して 500 を返すと `instrumentation.ts` の onRequestError に伝播せず Slack 通知が漏れるため、catch 経路でも明示通知する。通知は `runAfterResponse` 経由で応答後に実行される（下記「応答後に走らせる副作用の SSOT」）。
+   🔴 **2026年8月20日訂正（docs/register-blocker-instructions.md §3 P0-2）**: 上記の catch は **throw された例外でしか発火しない**。ハンドラが例外を投げずに `return NextResponse.json(..., {status:500})` した場合（自前 try/catch・Supabase の `{data,error}` 判定など）は catch を素通りし、通知は 0 件だった。実測（2026年8月20日・`src/app/api/**/route.ts` 走査）で `status: 500` の return が 278箇所/122ファイル見つかり、`/api/salons` の登録失敗が誰にも気づかれなかった直接の原因になった。恒久対処として `withRoute` はハンドラの**戻り値**も見るようになり（`status >= 500` なら `alertCaughtError` を発火）、**withRoute でラップされたルートは、ハンドラが throw しても return しても通知される**。原因（cause）まで通知に載せたい場合は `withRoute` が export する `serverError(tag, cause, route)` を使う（`alertCaughtError` 二重発火はヘッダーで自動抑止）。**withRoute を使っていない route.ts はこの経路の対象外のまま**（`src/__tests__/silent-500-guard.test.ts` が既知分を台帳管理しつつ、未知の新規無音 500 を CI で検知する）。
 
 ### middleware（`src/middleware.ts`）
 - 全応答に per-request nonce ベースの CSP を付与（`'strict-dynamic'` + nonce で `'unsafe-inline'` を script から排除）。`x-nonce` / `x-pathname` をサーバーコンポーネントへ伝搬。

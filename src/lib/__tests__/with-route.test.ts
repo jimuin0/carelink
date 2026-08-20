@@ -15,11 +15,14 @@ jest.mock('../supabase-server-auth', () => ({
 jest.mock('../alert', () => ({ alertCaughtError: jest.fn() }));
 
 import { NextResponse } from 'next/server';
-import { withRoute } from '../with-route';
+import { withRoute, serverError } from '../with-route';
 import { checkCsrf } from '../csrf';
 import { checkRateLimit } from '../rate-limit';
 import { createServerSupabaseAuthClient } from '../supabase-server-auth';
 import { alertCaughtError } from '../alert';
+import { safeCaptureException } from '../safe';
+
+jest.mock('../safe', () => ({ safeCaptureException: jest.fn() }));
 
 function mockAuthUser(user: { id: string } | null) {
   (createServerSupabaseAuthClient as jest.Mock).mockResolvedValue({
@@ -111,6 +114,54 @@ describe('withRoute', () => {
     );
     await new Promise((r) => setTimeout(r, 10));
     consoleSpy.mockRestore();
+  });
+
+  // 🔴 2026年8月20日追加（docs/register-blocker-instructions.md §3 P0-2）:
+  // 上のテストは「throw → 500」しか主張しておらず、穴の形（handler が例外を投げずに
+  // 500 を return するケース）に正確に沿って外れていた。/api/salons のような
+  // 「ハンドラ内部で catch して return NextResponse.json(..., {status:500})」を模して主張する。
+  test('handler が例外を投げずに 500 を return → catch を経由せず Slack 通知される', async () => {
+    const handler = jest.fn(async () =>
+      NextResponse.json({ error: '送信に失敗しました' }, { status: 500 })
+    );
+    const route = withRoute(handler);
+    const res = await route(makeReq());
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe('送信に失敗しました');
+    // 穴の形そのもの: throw していないので catch は発火しないが、通知は必ず発火する。
+    expect(alertCaughtError).toHaveBeenCalledTimes(1);
+    expect(alertCaughtError).toHaveBeenCalledWith(
+      'route',
+      expect.any(Error),
+      '/api/test'
+    );
+    // 内部用フラグヘッダーはクライアントへ渡す応答に残らない。
+    expect(res.headers.get('x-clnk-alerted-500')).toBeNull();
+  });
+
+  test('handler が 200/4xx を return → 通知は発火しない（正常系・レート制限等と混同しない）', async () => {
+    const handler = jest.fn(async () => NextResponse.json({ error: 'bad' }, { status: 404 }));
+    const route = withRoute(handler);
+    const res = await route(makeReq());
+    expect(res.status).toBe(404);
+    expect(alertCaughtError).not.toHaveBeenCalled();
+  });
+
+  test('serverError() を return → 通知は1回だけ（withRoute 側との二重通知にならない）', async () => {
+    const cause = new Error('supabase insert failed');
+    const handler = jest.fn(async () => serverError('salons', cause, '/api/salons'));
+    const route = withRoute(handler);
+    const res = await route(makeReq());
+    expect(res.status).toBe(500);
+    // serverError 内の1回のみ。withRoute の「戻り値500を検知して通知」側は
+    // ALERTED_HEADER を見て抑止するので、ここが2回になっていないことが本題の主張。
+    expect(alertCaughtError).toHaveBeenCalledTimes(1);
+    expect(alertCaughtError).toHaveBeenCalledWith('salons', cause, '/api/salons');
+    expect(safeCaptureException).toHaveBeenCalledTimes(1);
+    expect(safeCaptureException).toHaveBeenCalledWith(cause, 'salons');
+    // 抑止に使った内部ヘッダーは応答前に必ず取り除かれ、クライアントへは漏れない。
+    expect(res.headers.get('x-clnk-alerted-500')).toBeNull();
   });
 
   test('requireAuth 未指定 → 認証クライアントを生成せず handler を呼ぶ（ctx.user=null）', async () => {
