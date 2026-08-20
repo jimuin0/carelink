@@ -14,6 +14,7 @@ import { sendNotify } from '@/lib/notify';
 import { sendRegistrationReceiptEmail } from '@/lib/email';
 import { runAfterResponse } from '@/lib/after-response';
 import { businessTypes, DESIRED_START_DATES } from '@/lib/constants';
+import { extractPrefecture, extractCity } from '@/lib/japan-address';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,6 +57,14 @@ const salonInsertSchema = z.object({
   website: z.string().max(2000).url().or(z.literal('')).optional().nullable(),
   postal_code: z.string().max(8).optional().nullable(),
   address: z.string().max(500).optional().nullable(),
+  // 【2026年8月20日 恒久根治】facility_profiles.prefecture は /search の地域絞り込み・
+  // 「近くの施設」「似ている施設」の結合キーだが、セルフサーブ経路は salons に構造化された
+  // 都道府県/市区町村列が無く構造的に必ず null になっていた。クライアント（RegisterForm）は
+  // zipcloud 応答（address1/address2）または自由文からの復元を送ってくるが、サーバーを権威
+  // とする本ファイルの既存方針（冒頭コメント参照）に合わせ、未送出・空文字時は address から
+  // サーバー側でも復元する（下記 POST ハンドラ内）。
+  prefecture: z.string().max(10).optional().nullable(),
+  city: z.string().max(100).optional().nullable(),
   building_name: z.string().max(200).optional().nullable(),
   nearest_station: z.string().max(200).optional().nullable(),
   business_hours: z.string().max(200).optional().nullable(),
@@ -134,6 +143,12 @@ export const POST = withRoute(async (request) => {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
+  // 【2026年8月20日 恒久根治】サーバーを権威とする（本ファイル冒頭コメントの検証方針）。
+  // クライアントが明示的に送った値（zipcloud 由来）は無条件に優先し、未送出・空文字のときだけ
+  // address からの復元にフォールバックする。復元もできなければ推測で埋めず null のままにする。
+  const prefecture = d.prefecture || extractPrefecture(d.address) || null;
+  const city = d.city || extractCity(d.address) || null;
+
   const { data, error } = await supabase
     .from('salons')
     .insert({
@@ -147,6 +162,8 @@ export const POST = withRoute(async (request) => {
       website: d.website || null,
       postal_code: d.postal_code || null,
       address: d.address || null,
+      prefecture,
+      city,
       building_name: d.building_name || null,
       nearest_station: d.nearest_station || null,
       business_hours: d.business_hours || null,

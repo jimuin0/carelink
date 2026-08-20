@@ -40,6 +40,11 @@ export const salonStep1Schema = z.object({
 export const salonStep2Schema = z.object({
   postal_code: z.string().regex(/^(\d{3}-?\d{4}|\d{7})?$/, '郵便番号を正しく入力してください（例: 5600001）').or(z.literal('')).optional(),
   address: z.string().max(500, '500文字以内で入力してください').optional(),
+  // 【2026年8月20日 恒久根治】入力欄は増やさない（見た目は変えない）。zipcloud 応答の
+  // address1（都道府県）/ address2（市区町村）を非表示のまま保持するための隠しフィールド。
+  // 送信直前のフォールバック（自由文からの復元）は RegisterForm.tsx 側が japan-address.ts で行う。
+  prefecture: z.string().max(10).optional().nullable(),
+  city: z.string().max(100).optional().nullable(),
   building_name: z.string().max(200).optional(),
   nearest_station: z.string().max(200).optional(),
   business_hours: z.string().max(200).optional(),

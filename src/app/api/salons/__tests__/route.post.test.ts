@@ -396,6 +396,64 @@ describe('POST /api/salons', () => {
     });
   });
 
+  // 【2026年8月20日 恒久根治】facility_profiles.prefecture は /search の地域絞り込み・
+  // 「近くの施設」「似ている施設」の結合キーだが、salons に構造化された都道府県/市区町村列が
+  // 無く、セルフサーブ経路では構造的に必ず null になっていた。サーバーを権威とする方針
+  // （本ファイル冒頭コメント）に沿って、クライアント送信値を優先しつつ、未送出時は address
+  // から src/lib/japan-address.ts で復元する。
+  describe('prefecture / city（地域絞り込みの結合キー）', () => {
+    test('prefecture / city を明示的に送ったら、その値がそのまま保存される', async () => {
+      const res = await POST(
+        makeRequest({ ...validFull, prefecture: '大阪府', city: '堺市', address: '大阪府堺市堺区' }) as any
+      );
+      expect(res.status).toBe(200);
+      const inserted = mockInsert.mock.calls[0][0];
+      expect(inserted.prefecture).toBe('大阪府');
+      expect(inserted.city).toBe('堺市');
+    });
+
+    test('送らなかった場合、address から復元されて保存される', async () => {
+      const { prefecture, city, ...rest } = validFull as Record<string, unknown>;
+      void prefecture;
+      void city;
+      const res = await POST(
+        makeRequest({ ...rest, address: '大阪府堺市堺区1-2-3' }) as any
+      );
+      expect(res.status).toBe(200);
+      const inserted = mockInsert.mock.calls[0][0];
+      expect(inserted.prefecture).toBe('大阪府');
+      expect(inserted.city).toBe('堺市');
+    });
+
+    test('address からも復元できない場合は null で保存される（推測で埋めない）', async () => {
+      const { prefecture, city, ...rest } = validFull as Record<string, unknown>;
+      void prefecture;
+      void city;
+      const res = await POST(
+        makeRequest({ ...rest, address: 'どこでもない住所' }) as any
+      );
+      expect(res.status).toBe(200);
+      const inserted = mockInsert.mock.calls[0][0];
+      expect(inserted.prefecture).toBeNull();
+      expect(inserted.city).toBeNull();
+    });
+
+    test('クライアントが送った値が address と食い違っていても、送られた値を優先する', async () => {
+      const res = await POST(
+        makeRequest({
+          ...validFull,
+          address: '大阪府堺市堺区1-2-3',
+          prefecture: '東京都',
+          city: '渋谷区',
+        }) as any
+      );
+      expect(res.status).toBe(200);
+      const inserted = mockInsert.mock.calls[0][0];
+      expect(inserted.prefecture).toBe('東京都');
+      expect(inserted.city).toBe('渋谷区');
+    });
+  });
+
   test('missing source → 400', async () => {
     const { source, ...rest } = validFull;
     void source;
