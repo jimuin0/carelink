@@ -35,4 +35,31 @@ test.describe('認証フロー', () => {
       expect(validity).toBe(false);
     }
   });
+
+  // docs/register-blocker-instructions.md §3 P0-5 の回帰 E2E。
+  // signup/page.tsx:65 が supabase.auth.signUp() の data を破棄しており、成功時に
+  // setToast のみで router.push が無かったため、メール確認が無効な設定（CI のローカル
+  // Supabase は supabase/config.toml:205 で enable_confirmations = false）だと
+  // セッションは張られているのに画面が「確認メールを送信しました」のまま静止していた。
+  // ここは jsdom のユニットテスト（signUp をモック）では「本当に画面遷移するか」までは
+  // 保証できないため、実 Supabase に対して実際に送信し着地することを見る。
+  test('新規登録に成功すると /mypage へ遷移する（signUp後に画面が止まらない）', async ({ page }) => {
+    await page.goto('/auth/signup');
+
+    const uniqueEmail = `e2e-signup-${Date.now()}@example.com`;
+    await page.fill('#signup-name', 'E2E登録太郎');
+    await page.fill('#signup-email', uniqueEmail);
+    await page.fill('#signup-phone', '09012345678');
+    await page.selectOption('#signup-prefecture', { label: '東京都' });
+    await page.fill('#signup-password', 'password123');
+    await page.fill('#signup-password-confirm', 'password123');
+
+    await page.getByRole('button', { name: '新規登録' }).click();
+
+    // 修正前は redirect が発生せず /auth/signup に留まったまま（画面が「押しても反応しない」
+    // ように見える不具合そのもの）。redirect 未指定時の既定値は safe-redirect.ts の
+    // DEFAULT_REDIRECT（/mypage）。
+    await page.waitForURL('**/mypage**', { timeout: 20000 });
+    await expect(page).toHaveURL(/\/mypage/);
+  });
 });
