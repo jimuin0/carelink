@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { phoneField } from './phone';
 import { isValidIsoDate } from './date-utils';
+import { DESIRED_START_DATES } from './constants';
 
 // 顧客マスターの入力スキーマ。name のみ必須、他は任意。
 // email / birthday は「空文字」も許容し、保存時に null へ正規化する（フォーム未入力の素通し）。
@@ -51,7 +52,7 @@ export const salonStep2Schema = z.object({
 
 export const salonStep3Schema = z.object({
   pr_text: z.string().max(1000, '1000文字以内で入力してください').optional(),
-  desired_start_date: z.string().optional(),
+  desired_start_date: z.enum(DESIRED_START_DATES).or(z.literal('')).optional(),
 });
 
 export const salonFullSchema = salonStep1Schema.merge(salonStep2Schema).merge(salonStep3Schema);

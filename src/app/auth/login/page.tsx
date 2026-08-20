@@ -9,6 +9,8 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { loginSchema, type LoginFormData } from '@/lib/validations-auth';
 import Toast from '@/components/Toast';
 import { isLineLoginEnabled } from '@/lib/line-availability';
+import { safeRedirect } from '@/lib/safe-redirect';
+import { SITE_URL } from '@/lib/constants';
 
 export default function LoginPage() {
   // 見出し・カード外枠は Suspense の外（=SSR）で描画する。
@@ -32,8 +34,17 @@ export default function LoginPage() {
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const rawRedirect = searchParams.get('redirect') || '/mypage';
-  const redirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') ? rawRedirect : '/mypage';
+  // 🔴 旧ガード（先頭2文字だけを見る判定）は `/\evil.com` を通してしまい、Next 16.3.0 の
+  // App Router は解決後の origin で外部遷移してしまう（safe-redirect.ts のコメント参照）。
+  // safeRedirect で「解決後の origin が同一か」に統一する。
+  // このコンポーネントは 'use client' でも SSR される（useSearchParams は SSR 時にも値を持つ）ため
+  // window は使えない。SSR 時は SITE_URL（本番オリジン）を仮の origin として使うが、
+  // redirect に渡ってくる値は常に相対パスなので、相対パス解決の origin は渡した origin と
+  // トリビアルに一致し判定結果は変わらない（絶対 URL が来た場合のみ影響し得るが、
+  // 本アプリがこのページへ渡す redirect は常に相対パス）。クライアント側では
+  // window.location.origin を使い、プレビュー環境等でも同一オリジン判定が正しく働く。
+  const origin = typeof window !== 'undefined' ? window.location.origin : SITE_URL;
+  const redirect = safeRedirect(searchParams.get('redirect'), origin);
   const errorParam = searchParams.get('error');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(
     errorParam?.startsWith('line_')

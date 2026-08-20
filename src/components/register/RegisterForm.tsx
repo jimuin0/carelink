@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { supabase } from '@/lib/supabase';
 import { salonStep1Schema, salonStep2Schema, salonStep3Schema, salonFullSchema, type SalonFormValues, formatPhone, businessTypes } from '@/lib/validations';
-import { facilityFeatures } from '@/lib/constants';
+import { facilityFeatures, DESIRED_START_DATES, desiredStartDateLabels } from '@/lib/constants';
 import StepIndicator from '@/components/StepIndicator';
 import MultiPhotoUpload, { type PhotoSlot } from '@/components/MultiPhotoUpload';
 import Spinner from '@/components/Spinner';
@@ -29,12 +29,12 @@ const photoSlots: PhotoSlot[] = [
   { label: 'メニュー 3' },
 ];
 
+// 【2026年8月20日 恒久根治】値を直書きせず単一ソース（src/lib/constants.ts）から組み立てる。
+// フォーム側にだけ値を書ける状態を無くし、サーバー（api/salons/route.ts の zod）とズレる
+// 経路自体を断つ（片方に選択肢を足しても他方が知らない、という事故を構造的に防ぐ）。
 const startDateOptions = [
   { value: '', label: '選択してください' },
-  { value: 'immediately', label: 'すぐに掲載したい' },
-  { value: 'within_1month', label: '1ヶ月以内' },
-  { value: 'within_3months', label: '3ヶ月以内' },
-  { value: 'undecided', label: '検討中' },
+  ...DESIRED_START_DATES.map((value) => ({ value, label: desiredStartDateLabels[value] })),
 ];
 
 export default function RegisterForm() {
@@ -188,7 +188,14 @@ export default function RegisterForm() {
           ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
         }),
       });
-      if (!res.ok) throw new Error('registration failed');
+      if (!res.ok) {
+        // 【2026年8月20日 恒久根治】サーバーは原因別の文言（'入力内容が不正です' /
+        // 'Bot検知: …' / '短時間に多くのリクエストが…' / '不正な写真URLです' 等）を
+        // body.error に返しているのに、従来はここで捨てて固定文言を投げていたため
+        // 400/403/429/500/通信断が画面上は全部同一トーストになっていた。
+        const errBody = await res.json().catch(() => null);
+        throw new Error(errBody?.error || '送信に失敗しました。時間をおいて再度お試しください。');
+      }
       const resBody = await res.json().catch(() => null);
 
       setIsDirty(false);
@@ -200,10 +207,12 @@ export default function RegisterForm() {
       const params = new URLSearchParams();
       if (resBody?.id) params.set('id', resBody.id);
       router.push(`/register/complete?${params.toString()}`);
-    } catch {
+    } catch (e) {
       // アップロード済みの写真をストレージから削除し、孤児ファイルの蓄積を防ぐ（上記コメント参照）。
+      // ロールバックは原因に関わらず必ず実行する（写真アップロード成功後のあらゆる失敗経路で走る）。
       await rollbackUploadedSalonPhotos(uploadedPaths);
-      setToast({ message: '送信に失敗しました。時間をおいて再度お試しください。', type: 'error' });
+      const message = e instanceof Error ? e.message : '送信に失敗しました。時間をおいて再度お試しください。';
+      setToast({ message, type: 'error' });
     } finally {
       setSubmitting(false);
     }

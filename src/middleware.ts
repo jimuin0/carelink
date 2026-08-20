@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { safeRedirect } from '@/lib/safe-redirect';
 
 const PROTECTED_PATHS = ['/mypage', '/admin'];
 
@@ -243,9 +244,20 @@ export async function middleware(request: NextRequest) {
   }
 
   // 認証済みユーザーがログイン/登録ページにアクセスした場合リダイレクト
+  // ?redirect を尊重する（safeRedirect が同一オリジンのパスだけを許可・それ以外は /mypage）。
+  // 🔴 redirect が /admin/* を指していても抜け道にはならない: ここでは権限チェックをしておらず
+  // 単にブラウザを飛ばすだけで、飛んだ先の /admin へのアクセスは「次のリクエスト」として
+  // このミドルウェアを再度通り、上の「/admin ルートへの権限チェック」ブロックが
+  // facility_members の owner/admin を再確認する（fail-closed は維持される）。
   if (user && (request.nextUrl.pathname === '/auth/login' || request.nextUrl.pathname === '/auth/signup')) {
     const url = request.nextUrl.clone();
-    url.pathname = '/mypage';
+    const dest = new URL(
+      safeRedirect(request.nextUrl.searchParams.get('redirect'), request.nextUrl.origin),
+      request.nextUrl.origin
+    );
+    url.pathname = dest.pathname;
+    url.search = dest.search;
+    url.hash = dest.hash;
     return withSessionCookies(NextResponse.redirect(url));
   }
 

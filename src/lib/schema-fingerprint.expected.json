@@ -832,7 +832,7 @@
 "column|salons.contact_name|text|notnull=t|default=|generated=",
 "column|salons.contact_phone|text|notnull=f|default=''::text|generated=",
 "column|salons.created_at|timestamp with time zone|notnull=f|default=now()|generated=",
-"column|salons.desired_start_date|date|notnull=f|default=|generated=",
+"column|salons.desired_start_date|text|notnull=f|default=|generated=",
 "column|salons.email|text|notnull=t|default=|generated=",
 "column|salons.facility_name|text|notnull=t|default=|generated=",
 "column|salons.features|text[]|notnull=f|default='{}'::text[]|generated=",

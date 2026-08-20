@@ -20,6 +20,29 @@ export const businessTypes = [
   'その他',
 ];
 
+// 【2026年8月20日 恒久根治】/register「掲載希望時期」の選択肢の単一ソース。
+// salons.desired_start_date は元は date 型だったが、この4値はそもそも暦日ではなく
+// 意向（区分値）のため date に入れる設計自体が誤りだった。列を text に変えて
+// 列挙値をそのまま保存する（supabase/migrations/20260820000001_...・詳細はそちらのコメント）。
+// フォーム（RegisterForm.tsx）とサーバー（api/salons/route.ts の zod）の両方がこの配列を
+// 参照することで、選択肢を足したときに片側だけ腐る（フォームには出るがサーバーが拒否する／
+// サーバーは許すがフォームに出せない）事故を構造的に無くす。
+export const DESIRED_START_DATES = [
+  'immediately',
+  'within_1month',
+  'within_3months',
+  'undecided',
+] as const;
+
+export type DesiredStartDate = typeof DESIRED_START_DATES[number];
+
+export const desiredStartDateLabels: Record<DesiredStartDate, string> = {
+  immediately: 'すぐに掲載したい',
+  within_1month: '1ヶ月以内',
+  within_3months: '3ヶ月以内',
+  undecided: '検討中',
+};
+
 export const facilityFeatures = [
   '駐車場あり', '個室あり', 'キッズスペース', 'バリアフリー',
   'WiFi完備', 'クレジットカード可', '当日予約OK', '女性専用',
