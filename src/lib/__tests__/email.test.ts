@@ -21,6 +21,27 @@ process.env.RESEND_API_KEY = 'test-resend-key';
 process.env.EMAIL_FROM = 'Test <test@example.com>';
 
 const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendNewInquiryNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail, sendTimeAdjustRequest, sendInquiryReply, sendRegistrationReceiptEmail, sendRegistrationLeadFollowEmail } = require('../email');
+const { buildOnboardingAuthPath } = require('../onboarding-link');
+
+/**
+ * メール本文内のアカウント作成リンク（href="https://.../auth/signup?redirect=..."）を取り出し、
+ * middleware.ts が実際に行う手順（redirect クエリの値を取り出し → safeRedirect と同じ手順で
+ * URL 解決）を再現して、facility_name/business_type が本当に引き継がれる形かどうかを検証する。
+ * 文字列に "redirect=" が含まれているかだけの検査にしない（CLAUDE.md の指示どおり）。
+ */
+function extractOnboardingLinkParams(html: string): { pathname: string; facilityName: string | null; businessType: string | null } {
+  const match = html.match(/href="(https:\/\/carelink-jp\.com\/auth\/signup\?redirect=[^"]+)"/);
+  expect(match).not.toBeNull();
+  const outer = new URL(match![1]);
+  const redirectRaw = outer.searchParams.get('redirect');
+  expect(redirectRaw).not.toBeNull();
+  const inner = new URL(redirectRaw as string, 'https://carelink-jp.com');
+  return {
+    pathname: inner.pathname,
+    facilityName: inner.searchParams.get('facility_name'),
+    businessType: inner.searchParams.get('business_type'),
+  };
+}
 
 const baseData = {
   customerName: 'テスト太郎',
@@ -833,13 +854,22 @@ describe('sendRegistrationReceiptEmail', () => {
     expect(mockSend.mock.calls[0][0].html).toContain('owner@example.com');
   });
 
-  test('本文にアカウント作成リンクが入り、施設名と業種が引き継がれる', async () => {
+  test('本文にアカウント作成リンクが入り、middleware が実際に転送する形で施設名と業種が引き継がれる', async () => {
+    // 🔴 facility_name/business_type は redirect の「兄弟」クエリではなく「中」に
+    // ネストされていること（src/lib/onboarding-link.ts）。middleware.ts は redirect の
+    // 値しか転送しないため、兄弟クエリのままだと消える（詳細は onboarding-link.ts 冒頭コメント）。
     await sendRegistrationReceiptEmail(base);
     const html = mockSend.mock.calls[0][0].html;
-    expect(html).toContain('/auth/signup?redirect=/admin/onboarding');
-    // URL エンコードされた状態で載ること（生の日本語をクエリに置かない）
-    expect(html).toContain(encodeURIComponent('テストサロン'));
-    expect(html).toContain(encodeURIComponent('美容室'));
+
+    // このライブラリが組み立てるパスと完全一致すること（生成箇所が1本に揃っている確認）。
+    const expectedPath = buildOnboardingAuthPath('signup', { facilityName: base.facilityName, businessType: base.businessType });
+    expect(html).toContain(`href="https://carelink-jp.com${expectedPath}"`);
+
+    // 実際に middleware と同じ手順（redirect の値を取り出して解決）で復元できることまで主張する。
+    const { pathname, facilityName, businessType } = extractOnboardingLinkParams(html);
+    expect(pathname).toBe('/admin/onboarding');
+    expect(facilityName).toBe('テストサロン');
+    expect(businessType).toBe('美容室');
   });
 
   test('contactName 未指定なら既定の呼びかけになる', async () => {
@@ -893,10 +923,17 @@ describe('sendRegistrationLeadFollowEmail', () => {
     expect(mockSend.mock.calls[0][0].html).toContain('lead@example.com');
   });
 
-  test('管理画面ではなくアカウント作成へ導く（施設はまだ存在しないため）', async () => {
+  test('管理画面ではなくアカウント作成へ導き、middleware が実際に転送する形で施設名と業種が引き継がれる', async () => {
     await sendRegistrationLeadFollowEmail(base);
     const html = mockSend.mock.calls[0][0].html;
-    expect(html).toContain('/auth/signup?redirect=/admin/onboarding');
+
+    const expectedPath = buildOnboardingAuthPath('signup', { facilityName: base.facilityName, businessType: base.businessType });
+    expect(html).toContain(`href="https://carelink-jp.com${expectedPath}"`);
+
+    const { pathname, facilityName, businessType } = extractOnboardingLinkParams(html);
+    expect(pathname).toBe('/admin/onboarding');
+    expect(facilityName).toBe('テストサロン');
+    expect(businessType).toBe('美容室');
   });
 
   test('送信に失敗したら false を返す（cron が claim を解放して再試行できる）', async () => {

@@ -123,6 +123,38 @@ describe('/auth/signup', () => {
     expect(mockPush).toHaveBeenCalledWith(expectedRedirect);
   });
 
+  it('(iii-nested) redirect に /admin/onboarding?facility_name=...&business_type=... がネストされている場合 → そのまま push 先になる（新形式・兄弟クエリのマージ処理は空振りする）', async () => {
+    // 2026年8月20日〜: /register/complete・email.ts の受付/フォローメールは
+    // src/lib/onboarding-link.ts の buildOnboardingAuthPath 経由で、facility_name/business_type を
+    // 「redirect の兄弟」ではなく「redirect の中」に載せる形へ統一した（middleware.ts が
+    // redirect の値しか転送しないため）。このテストはその新形式の入力を再現する。
+    const nestedParams = new URLSearchParams();
+    nestedParams.set('facility_name', 'ネスト施設');
+    nestedParams.set('business_type', '整体');
+    const nestedRedirect = `/admin/onboarding?${nestedParams.toString()}`;
+    mockSearchParams = new URLSearchParams({ redirect: nestedRedirect });
+    // 空振り防止: 本当に「トップレベルには redirect しか無い」入力になっているか
+    // （＝下の (iii) の兄弟クエリ形とは別の形であること）を明示する。
+    expect(mockSearchParams.get('facility_name')).toBeNull();
+    expect(mockSearchParams.get('business_type')).toBeNull();
+
+    mockSignUp.mockResolvedValue({
+      data: { session: { access_token: 'tok' }, user: { id: 'u1' } },
+      error: null,
+    });
+
+    render(<SignupPage />);
+    fillForm();
+    submit();
+
+    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
+    // 兄弟クエリ用のマージ処理（facilityName || businessType のとき redirect を
+    // 組み立て直す分岐）は発火しない（トップレベルに facility_name/business_type が無いため）。
+    // それでも redirect 自体が既に onboarding パラメータを含んでいるので、
+    // push 先には正しく facility_name/business_type が残っている。
+    expect(mockPush).toHaveBeenCalledWith(nestedRedirect);
+  });
+
   it('(iv) redirect=/\\evil.com（旧ガードは通すがsafeRedirectは止める値）→ push 先は /mypage（負の対照）', async () => {
     // 旧ガード raw.startsWith('/') && !raw.startsWith('//') はこの値を素通りさせていた
     // （src/lib/safe-redirect.test.ts の「旧ガードが素通りさせていた値」と同じ入力）。

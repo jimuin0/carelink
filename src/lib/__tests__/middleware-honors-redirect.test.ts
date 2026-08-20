@@ -71,6 +71,7 @@ jest.mock('@supabase/ssr', () => ({
 }));
 
 import { middleware } from '../../middleware';
+import { buildOnboardingAuthPath } from '../onboarding-link';
 
 function makeNextUrl(pathWithQuery: string): URL & { clone: () => URL } {
   const u = new URL('https://carelink-jp.com' + pathWithQuery) as URL & { clone: () => URL };
@@ -145,4 +146,54 @@ test('(v) 認証済み + /auth/signup?redirect=/admin/onboarding&facility_name=.
   const dest = res._redirectedTo as URL;
   expect(dest.pathname).toBe('/admin/onboarding');
   expect(dest.searchParams.get('facility_name')).toBe('テスト');
+});
+
+/**
+ * 🔴 (vi) プロダクトが実際に生成するリンクの形（src/lib/onboarding-link.ts の
+ * buildOnboardingAuthPath がそのまま出す URL）を入力にする。
+ *
+ * 2026年8月20日以前は、店舗化フローのリンク（/register/complete・email.ts の受付/
+ * フォローメール）が facility_name/business_type を「redirect の兄弟」クエリ
+ * （例: `/auth/signup?redirect=/admin/onboarding&facility_name=…`）として置いていた。
+ * このファイルの旧テストはネスト形（redirect の【中】に facility_name を入れた形）
+ * しか入力にしておらず、実際にプロダクトが送出していた兄弟クエリ形は一度も
+ * この検査を通っていなかった（＝テストは緑のまま実物は落ちていた）。
+ *
+ * 実際に兄弟クエリ形を本テストのハーネスへ入れて確認したところ、次の結果になった
+ * （facility_name が丸ごと消える＝本テストが検出すべきだった不具合の再現）:
+ *   入力: /auth/signup?redirect=%2Fadmin%2Fonboarding&facility_name=%E3%83%86%E3%82%B9%E3%83%88
+ *   出力: pathname=/admin/onboarding search='' facility_name=null
+ *
+ * 修正はリンク側（4箇所）を buildOnboardingAuthPath 経由のネスト形へ統一する方針を採った
+ * （middleware.ts 自体は変更しない）。このテストは、その関数が実際に出す URL を
+ * そのまま入力にして、facility_name/business_type が最後まで保持されることを固定する。
+ */
+test('(vi) 認証済み + /auth/signup?redirect=... (buildOnboardingAuthPath が実際に生成する形) → facility_name/business_type ごと /admin/onboarding へ', async () => {
+  const authPath = buildOnboardingAuthPath('signup', { facilityName: 'テスト整骨院', businessType: '整骨院' });
+  // 空振り防止: 生成された値が本当にネスト形（redirect の value 自身に "?" を含む）であることを
+  // 確認しておく。兄弟クエリ形（トップレベルに facility_name が並ぶ形）とは構造的に異なる。
+  expect(authPath).toContain('redirect=%2Fadmin%2Fonboarding%3Ffacility_name%3D');
+  expect(authPath.split('facility_name').length - 1).toBe(1); // トップレベルに重複して出ていない
+
+  const res: Record<string, unknown> = await middleware(makeRequest(authPath));
+  expect(res._isRedirect).toBe(true);
+  const dest = res._redirectedTo as URL;
+  expect(dest.pathname).toBe('/admin/onboarding');
+  expect(dest.searchParams.get('facility_name')).toBe('テスト整骨院');
+  expect(dest.searchParams.get('business_type')).toBe('整骨院');
+});
+
+test('(vii) 🔴 負の対照（現状記録）: 旧・兄弟クエリ形は今も facility_name を落とす（middleware は変更していないため）', async () => {
+  // (vi) と対になる負の対照。修正はリンク側の生成形を変えることで解決しており、
+  // middleware.ts 自体は意図的に変更していない。そのため「兄弟クエリ形」の入力は
+  // 今後も facility_name を失う。これは既知の仕様（新規リンクは全てネスト形で送出される）
+  // であり、このテストは将来 middleware だけを直して「直った」と誤解しないよう
+  // 現状を機械で記録する。
+  const qs = 'redirect=' + encodeURIComponent('/admin/onboarding') + '&facility_name=' + encodeURIComponent('テスト整骨院');
+  const res: Record<string, unknown> = await middleware(makeRequest(`/auth/signup?${qs}`));
+  expect(res._isRedirect).toBe(true);
+  const dest = res._redirectedTo as URL;
+  expect(dest.pathname).toBe('/admin/onboarding');
+  expect(dest.search).toBe(''); // 兄弟クエリは丸ごと落ちる
+  expect(dest.searchParams.get('facility_name')).toBeNull();
 });

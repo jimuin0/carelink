@@ -11,6 +11,7 @@ import { sendOnboardingFollowEmail, sendRegistrationLeadFollowEmail } from '@/li
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
+import { canonicalizeEmail } from '@/lib/email-canonical';
 
 export const dynamic = 'force-dynamic';
 // 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
@@ -269,10 +270,16 @@ export async function GET(request: Request) {
         // 同じメールアドレスで profiles（＝アカウント）が既に作られていないか確認する。
         // error を無視すると「行が無い」と誤判定して誤ってフォローメールを送りかねないため、
         // facility パスと同様に throw して claim を解放し、翌 run で正しい判定材料で再試行する。
+        //
+        // 🔴 突合は canonical（正規化後）で行う。旧実装の `.eq('email', salon.email)` はバイト完全一致
+        // だったため、大文字小文字・gmail の "+tag"/ドット違いだと一致せず、【既にアカウントを
+        // 持つ店舗へ「まだ作られていません」と誤送信する fail-open】になっていた
+        // （src/lib/email-canonical.ts 参照）。ここは判定できないときに送らない側（fail-safe）に
+        // 倒す＝誤って一致を見逃す（＝誤送信する）よりは、一致を見つけて送らない側の誤りの方が軽い。
         const { data: existingProfile, error: profileCheckErr } = await supabase
           .from('profiles')
           .select('id')
-          .eq('email', salon.email)
+          .eq('email_canonical', canonicalizeEmail(salon.email))
           .maybeSingle();
 
         if (profileCheckErr) {
