@@ -10,8 +10,9 @@ import { businessTypes } from '@/lib/constants';
 function OnboardingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // 'form' = facility_name クエリが無く、施設名・業態の入力待ち（誰でも到達できる /admin/onboarding で
-  // 確認なしに仮の施設名を自動作成していた欠陥の根治）。
+  // 'form' = 施設名・業態の入力（確認）待ち。既存施設が無い認証済みユーザーは
+  // クエリの有無に関わらず必ずここを経由する（下記 useEffect の 2026年8月20日コメント参照。
+  // 誰でも到達できる /admin/onboarding で確認なしに施設を自動作成していた欠陥の根治）。
   const [status, setStatus] = useState<'loading' | 'form' | 'creating' | 'error'>('loading');
   const [error, setError] = useState('');
   const [facilityNameInput, setFacilityNameInput] = useState('');
@@ -55,47 +56,28 @@ function OnboardingContent() {
       }
 
       const facilityName = searchParams.get('facility_name') || '';
-
-      // facility_name クエリが無い到達（/register を経由しない直接アクセス等）は、
-      // 確認なしに仮の施設を自動作成せず、入力フォームを表示する。
-      if (!facilityName) {
-        setStatus('form');
-        return;
-      }
-
       const businessType = searchParams.get('business_type') || '';
 
-      // 【2026年7月29日・恒久根治】business_type が空、または正規タクソノミー外
-      // （旧デフォルト値 '美容サロン・アイラッシュ' 自体が非正規値だった）の場合、
-      // 確認なしに不正値で自動作成を試みると facility/setup 側の業種検証で必ず 400 になり、
-      // ユーザーには理由不明のエラーだけが返る恒久ループになる。facility_name が
-      // 未指定の場合と同じ方針で、確認画面（フォーム）へ落として選び直させる。
-      if (!businessType || !businessTypes.includes(businessType)) {
-        setFacilityNameInput(facilityName);
-        setStatus('form');
-        return;
+      // 【2026年8月20日・恒久根治】クエリだけで無確認に POST /api/facility/setup を
+      // 撃つ経路を廃止した。旧実装は facility_name があり business_type が正規値なら
+      // ユーザー操作を1回も挟まずに施設を作っていたため、
+      // `https://carelink-jp.com/admin/onboarding?facility_name=任意&business_type=<正規値>`
+      // を「ログイン済みで施設未所持」の一般利用者に踏ませるだけで、その人の権限で
+      // facility_profiles が作られ facility_members に owner として登録されてしまう
+      // （CSRF は Origin 一致のみなので自サイト内リンクは通過し、middleware も
+      // /admin/onboarding をメンバーシップ判定から除外しているため止まらない）。
+      // オーナーが自分の施設を削除する手段は無く、踏んだ人は身に覚えのない施設の
+      // オーナーのまま1施設ガードで二度と自分の店を登録できなくなる。
+      // さらに自動POST経路は handleFormSubmit が必須にしている licenseWarranted
+      // （許認可・届出の表明・利用規約第12条）を一度も見せずに施設を作っていた。
+      // クエリ値は入力の手間を減らすためフォームの初期値としてのみ使い、
+      // 必ずユーザーが送信ボタンを押した場合だけ POST する（1クリック増える代わりに
+      // 第三者リンクでの焼き討ちが消え、許認可表明が全経路で必ず取られる）。
+      setFacilityNameInput(facilityName);
+      if (businessType && businessTypes.includes(businessType)) {
+        setBusinessTypeInput(businessType);
       }
-
-      // 施設セットアップAPI呼び出し（クエリ経由・従来通りの自動フロー）
-      setStatus('creating');
-
-      const res = await fetch('/api/facility/setup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          facility_name: facilityName,
-          business_type: businessType,
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        // 施設作成成功 → 動的な進捗を持つ管理ダッシュボードへ。
-        router.replace('/admin');
-      } else {
-        setError(data.error || '施設の作成に失敗しました');
-        setStatus('error');
-      }
+      setStatus('form');
     };
 
     setup();
