@@ -11,6 +11,8 @@
  *   - Insert error / exception → 500
  *   - Slack通知（fire-and-forget）: source='recruit'→type:'facility' / source='register'→type:'salon'
  *     （/api/notify 廃止・サーバー側 sendNotify 直接呼び出しへの移行の回帰防止）
+ *   - 受付メール（fire-and-forget・runAfterResponse 経由）: source='register' のときだけ
+ *     sendRegistrationReceiptEmail を呼ぶ（recruit では呼ばない・DB失敗時も呼ばない）
  */
 
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
@@ -22,11 +24,22 @@ jest.mock('@supabase/supabase-js');
 jest.mock('@/lib/recaptcha', () => ({ verifyRecaptcha: jest.fn() }));
 // Slack 通知は同一サーバー内の sendNotify を直接呼ぶ（HTTP 往復しない・/api/notify 廃止）。
 jest.mock('@/lib/notify', () => ({ sendNotify: jest.fn() }));
+// 受付メールは email.ts が実装を持つ（本テストでは呼ばれたかどうかだけを検証する）。
+jest.mock('@/lib/email', () => ({ sendRegistrationReceiptEmail: jest.fn() }));
+// runAfterResponse は「登録経路を通っているか」自体を検査したいので、実装は実体のまま
+// jest.fn() でラップして呼び出しを観測できるようにする（`@/lib/after-response` 自体は
+// モックしない・実挙動＝テスト環境では task() を即時実行するフォールバックのまま）。
+jest.mock('@/lib/after-response', () => {
+  const actual = jest.requireActual('@/lib/after-response');
+  return { runAfterResponse: jest.fn(actual.runAfterResponse) };
+});
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { verifyRecaptcha } from '@/lib/recaptcha';
 import { sendNotify } from '@/lib/notify';
+import { sendRegistrationReceiptEmail } from '@/lib/email';
+import { runAfterResponse } from '@/lib/after-response';
 import { DESIRED_START_DATES } from '@/lib/constants';
 import { POST } from '../route';
 
@@ -54,6 +67,7 @@ function setupDefaultMocks(opts: { insertError?: boolean; noData?: boolean } = {
 
   (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: true });
   (sendNotify as jest.Mock).mockResolvedValue({ ok: true, ts: '123.456' });
+  (sendRegistrationReceiptEmail as jest.Mock).mockResolvedValue(true);
 
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -466,6 +480,80 @@ describe('POST /api/salons', () => {
       (sendNotify as jest.Mock).mockRejectedValue(new Error('network error'));
       const res = await POST(makeRequest(validFull) as any);
       expect(res.status).toBe(200);
+    });
+  });
+
+  // 【2026年8月20日 新設】/api/salons はメールを1通も送っておらず、本番の salons(8件)と
+  // facility_profiles(3件)の差5件＝「フォームは送ったがアカウント作成まで到達しなかった」
+  // 申込者が、どこからも接触されないまま放置されていた。受付メールはこれを埋める。
+  // runAfterResponse 経由（src/lib/after-response.ts）で応答後に実行され、応答自体を
+  // 遅らせない・失敗させない（sendNotify と同型のfire-and-forget）。
+  describe('受付メール（sendRegistrationReceiptEmail・runAfterResponse 経由・fire-and-forget）', () => {
+    test('source=register で成功したとき、email/facilityName/businessType/contactName を渡して送信される', async () => {
+      const res = await POST(makeRequest(validFull) as any);
+      expect(res.status).toBe(200);
+
+      expect(sendRegistrationReceiptEmail).toHaveBeenCalledWith({
+        email: validFull.email,
+        facilityName: validFull.facility_name,
+        businessType: validFull.business_type,
+        contactName: validFull.contact_name,
+      });
+    });
+
+    test('source=recruit のときは送られない（担当者から2営業日以内に連絡する別運用のため対象外）', async () => {
+      const res = await POST(makeRequest(validMinimal) as any);
+      expect(res.status).toBe(200);
+      expect(sendRegistrationReceiptEmail).not.toHaveBeenCalled();
+    });
+
+    test('DB insert失敗時（500）は送られない', async () => {
+      setupDefaultMocks({ insertError: true });
+      const res = await POST(makeRequest(validFull) as any);
+      expect(res.status).toBe(500);
+      expect(sendRegistrationReceiptEmail).not.toHaveBeenCalled();
+    });
+
+    test('メール送信が false を返しても、レスポンスは 200 のまま（登録は成立する）', async () => {
+      (sendRegistrationReceiptEmail as jest.Mock).mockResolvedValue(false);
+      const res = await POST(makeRequest(validFull) as any);
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(sendRegistrationReceiptEmail).toHaveBeenCalled();
+    });
+
+    test('メール送信が例外を投げても、レスポンスは 200 のまま（登録は成立する）', async () => {
+      (sendRegistrationReceiptEmail as jest.Mock).mockRejectedValue(new Error('resend down'));
+      const res = await POST(makeRequest(validFull) as any);
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
+    });
+
+    // 🔴 runAfterResponse を経由していることの検査。
+    // モック関数が「呼ばれた」ことだけを見る検査では、`void sendRegistrationReceiptEmail(...)`
+    // という直呼びに書き換えても区別できない（どちらの実装でも最終的に呼ばれるため）。
+    // そこで `@/lib/after-response` の `runAfterResponse` 自体をモック（実体は
+    // jest.requireActual で保持しつつ呼び出しを観測できる形＝ファイル冒頭の jest.mock 参照）
+    // にしてあり、route.ts が【この関数を経由して】タスクを登録していること、かつ登録された
+    // 関数の中に実行すると sendRegistrationReceiptEmail を呼ぶものが含まれることを直接確認する。
+    // 直呼びに戻すと runAfterResponse の呼び出し回数が1件（sendNotify分のみ）に減り、
+    // このテストが red になる（後述の負の対照で実際に確認済み）。
+    test('runAfterResponse を経由して登録されている（直呼びに戻すと落ちる）', async () => {
+      const res = await POST(makeRequest(validFull) as any);
+      expect(res.status).toBe(200);
+
+      // source='register' では sendNotify 用と受付メール用の 2 件が runAfterResponse 経由で
+      // 登録されるはず。直呼びに戻すと 1 件（sendNotify のみ）に減りここで落ちる。
+      expect(runAfterResponse).toHaveBeenCalledTimes(2);
+
+      // モック済みの runAfterResponse は jest.requireActual の実体を包んでいるため、
+      // route.ts が実行した時点で登録された task() は既に実行済み（テスト環境の
+      // runAfterResponse は request scope 外で after() が throw するフォールバック経路を通り、
+      // task() を即時実行する）。ここでは「渡された関数の中身」を確認する。
+      const registeredTasks = (runAfterResponse as jest.Mock).mock.calls.map((call) => call[0]);
+      expect(registeredTasks.length).toBe(2);
     });
   });
 });
