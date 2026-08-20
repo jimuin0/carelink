@@ -66,6 +66,29 @@ function updateChain(error: unknown = null, data: unknown = [{ id: SALON_UUID }]
   };
 }
 
+// unclaim 用: select().eq().maybeSingle() と update().eq() の両方を同じ from() 戻り値に持つ。
+function unclaimChain(opts: {
+  existing?: { id: string; claimed_by_user_id: string | null; claimed_at: string | null } | null;
+  fetchError?: unknown;
+  updateError?: unknown;
+} = {}) {
+  const {
+    existing = { id: SALON_UUID, claimed_by_user_id: '44444444-4444-4444-4444-444444444444', claimed_at: '2026-08-01T00:00:00Z' },
+    fetchError = null,
+    updateError = null,
+  } = opts;
+  return {
+    select: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        maybeSingle: jest.fn(() => Promise.resolve({ data: existing, error: fetchError })),
+      }),
+    }),
+    update: jest.fn().mockReturnValue({
+      eq: jest.fn(() => Promise.resolve({ error: updateError })),
+    }),
+  };
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
@@ -191,4 +214,89 @@ test('PATCH: CSRF エラー → 403', async () => {
   );
   const res = await PATCH(makeRequest({ status: 'approved' }), makeProps());
   expect(res.status).toBe(403);
+});
+
+// ---------------------------------------------------------------------------
+// action:'unclaim'（運営による claim 解除・2026年8月20日 新設）
+// requirePlatformAdmin（src/lib/platform-admin.ts）で保護し、writeAuditLog を通す。
+// ---------------------------------------------------------------------------
+
+test('PATCH unclaim: 非プラットフォーム管理者 → 403（claim は焼かれない）', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(false));
+  const chain = unclaimChain();
+  mockAdminFrom.mockReturnValue(chain);
+  const res = await PATCH(makeRequest({ action: 'unclaim' }), makeProps());
+  expect(res.status).toBe(403);
+  // 403 で弾かれた場合、DB へは一切触れない（select/update いずれも呼ばれない）。
+  expect(chain.select).not.toHaveBeenCalled();
+  expect(chain.update).not.toHaveBeenCalled();
+});
+
+test('PATCH unclaim: 未認証 → 403', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  const res = await PATCH(makeRequest({ action: 'unclaim' }), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('PATCH unclaim: 存在しない登録 → 404', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue(unclaimChain({ existing: null }));
+  const res = await PATCH(makeRequest({ action: 'unclaim' }), makeProps());
+  expect(res.status).toBe(404);
+});
+
+test('PATCH unclaim: fetch失敗 → 500', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue(unclaimChain({ fetchError: { message: 'DB error' } }));
+  const res = await PATCH(makeRequest({ action: 'unclaim' }), makeProps());
+  expect(res.status).toBe(500);
+});
+
+test('PATCH unclaim: update失敗 → 500', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue(unclaimChain({ updateError: { message: 'DB error' } }));
+  const res = await PATCH(makeRequest({ action: 'unclaim' }), makeProps());
+  expect(res.status).toBe(500);
+});
+
+test('PATCH unclaim: 成功 → 200 success:true・claim が null に戻る', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  const chain = unclaimChain();
+  mockAdminFrom.mockReturnValue(chain);
+  const res = await PATCH(makeRequest({ action: 'unclaim' }), makeProps());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.success).toBe(true);
+  // 結果（呼び出し引数だけでなく実際に null で update されたこと）を主張する。
+  expect(chain.update).toHaveBeenCalledWith({ claimed_by_user_id: null, claimed_at: null });
+});
+
+test('PATCH unclaim: 成功時に writeAuditLog が呼ばれる（旧値/新値つき）', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue(unclaimChain());
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  await PATCH(makeRequest({ action: 'unclaim' }), makeProps());
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+    action: 'update',
+    tableName: 'salons',
+    recordId: SALON_UUID,
+    oldValues: { claimed_by_user_id: '44444444-4444-4444-4444-444444444444', claimed_at: '2026-08-01T00:00:00Z' },
+    newValues: { claimed_by_user_id: null, claimed_at: null },
+  }));
+});
+
+test('PATCH unclaim: レートリミット → 429（action分岐より前に評価される）', async () => {
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await PATCH(makeRequest({ action: 'unclaim' }), makeProps());
+  expect(res.status).toBe(429);
+});
+
+test('PATCH: action が unclaim 以外の文字列でも通常の status 更新フローに落ちる', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const res = await PATCH(makeRequest({ action: 'something-else', status: 'approved' }), makeProps());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.status).toBe('approved');
 });

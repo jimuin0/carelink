@@ -1006,6 +1006,8 @@
     "business_hours",
     "business_type",
     "city",
+    "claimed_at",
+    "claimed_by_user_id",
     "contact_name",
     "contact_phone",
     "created_at",

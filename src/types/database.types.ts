@@ -3928,6 +3928,8 @@ export type Database = {
           business_hours: string | null
           business_type: string
           city: string | null
+          claimed_at: string | null
+          claimed_by_user_id: string | null
           contact_name: string
           contact_phone: string | null
           created_at: string | null
@@ -3960,6 +3962,8 @@ export type Database = {
           business_hours?: string | null
           business_type: string
           city?: string | null
+          claimed_at?: string | null
+          claimed_by_user_id?: string | null
           contact_name: string
           contact_phone?: string | null
           created_at?: string | null
@@ -3992,6 +3996,8 @@ export type Database = {
           business_hours?: string | null
           business_type?: string
           city?: string | null
+          claimed_at?: string | null
+          claimed_by_user_id?: string | null
           contact_name?: string
           contact_phone?: string | null
           created_at?: string | null

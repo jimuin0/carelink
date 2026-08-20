@@ -179,15 +179,40 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
 });
 
-function makeRequest(body: object = {}, ip = '192.168.1.1') {
-  return new Request('http://localhost/api/facility/setup', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-forwarded-for': ip,
+// 本番の NextRequest は常に .cookies.get(name) を持つ（RequestCookies）。テストは通常の
+// Request を `as any` でキャストして使っているためこの実装を持たず、素の Request のままだと
+// route.ts の `request.cookies.get(SALON_CLAIM_COOKIE_NAME)` が例外になる。実物に近い最小限の
+// 実装（Cookie ヘッダーから読む）を後付けする。このファイル内で `new Request(...)` するときは
+// 必ずこれを通す。
+function withCookiesShim(req: Request): Request {
+  (req as unknown as { cookies: { get: (name: string) => { name: string; value: string } | undefined } }).cookies = {
+    get: (name: string) => {
+      const cookieHeader = req.headers.get('cookie') ?? '';
+      const found = cookieHeader
+        .split(';')
+        .map((s) => s.trim())
+        .find((c) => c.startsWith(`${name}=`));
+      if (!found) return undefined;
+      return { name, value: decodeURIComponent(found.slice(name.length + 1)) };
     },
+  };
+  return req;
+}
+
+// cookieValue 省略時は「Cookie 無し」を再現する。
+function makeRequest(body: object = {}, ip = '192.168.1.1', cookieValue?: string) {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'x-forwarded-for': ip,
+  };
+  if (cookieValue !== undefined) {
+    headers['cookie'] = `clnk_salon_claim=${encodeURIComponent(cookieValue)}`;
+  }
+  return withCookiesShim(new Request('http://localhost/api/facility/setup', {
+    method: 'POST',
+    headers,
     body: JSON.stringify(body),
-  });
+  }));
 }
 
 describe('POST /api/facility/setup', () => {
@@ -553,11 +578,11 @@ describe('POST /api/facility/setup', () => {
 
   test('invalid JSON body → defaults to empty object', async () => {
     const res = await POST(
-      new Request('http://localhost/api/facility/setup', {
+      withCookiesShim(new Request('http://localhost/api/facility/setup', {
         method: 'POST',
         headers: { 'x-forwarded-for': '192.168.1.1' },
         body: 'invalid {',
-      }) as any
+      })) as any
     );
 
     expect(res.status).toBe(400);
@@ -565,11 +590,11 @@ describe('POST /api/facility/setup', () => {
 
   test('missing x-forwarded-for → uses "unknown"', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    const req = new Request('http://localhost/api/facility/setup', {
+    const req = withCookiesShim(new Request('http://localhost/api/facility/setup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ facility_name: 'T', business_type: 'ネイル・まつげサロン' }),
-    });
+    }));
     await POST(req as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('unknown');
