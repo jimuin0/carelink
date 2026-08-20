@@ -3924,6 +3924,7 @@ export type Database = {
           building_name: string | null
           business_hours: string | null
           business_type: string
+          city: string | null
           contact_name: string
           contact_phone: string | null
           created_at: string | null
@@ -3940,6 +3941,8 @@ export type Database = {
           photo_urls: string[] | null
           postal_code: string | null
           pr_text: string | null
+          prefecture: string | null
+          registration_followup_sent_at: string | null
           regular_holiday: string | null
           representative_name: string
           seat_count: number | null
@@ -3952,6 +3955,7 @@ export type Database = {
           building_name?: string | null
           business_hours?: string | null
           business_type: string
+          city?: string | null
           contact_name: string
           contact_phone?: string | null
           created_at?: string | null
@@ -3968,6 +3972,8 @@ export type Database = {
           photo_urls?: string[] | null
           postal_code?: string | null
           pr_text?: string | null
+          prefecture?: string | null
+          registration_followup_sent_at?: string | null
           regular_holiday?: string | null
           representative_name: string
           seat_count?: number | null
@@ -3980,6 +3986,7 @@ export type Database = {
           building_name?: string | null
           business_hours?: string | null
           business_type?: string
+          city?: string | null
           contact_name?: string
           contact_phone?: string | null
           created_at?: string | null
@@ -3996,6 +4003,8 @@ export type Database = {
           photo_urls?: string[] | null
           postal_code?: string | null
           pr_text?: string | null
+          prefecture?: string | null
+          registration_followup_sent_at?: string | null
           regular_holiday?: string | null
           representative_name?: string
           seat_count?: number | null
