@@ -775,4 +775,83 @@ describe('POST /api/facility/setup', () => {
     const f = mockFacilityInsert.mock.calls[0][0];
     expect(f.name).toBe('ノーメール施設');
   });
+
+  // ─── prefecture / city の解決（2026年8月20日追加）───────────────────────────
+  // 優先順位: body > salonData の列 > 住所からの復元 > null。
+  // /search の地域絞り込み・getSimilarFacilities / getNearbyFacilities の結合キーが
+  // null のままだと「公開されているのに地域で探すと出てこない」状態になるため、
+  // この解決順序そのものを固定する。
+
+  test('(i) body に prefecture/city があれば salonData の列より優先される', async () => {
+    // salonData にも別の列があるが、body の明示値が勝つことを確認する
+    setupDefaultMocks(true, false, true, false, false, false, {
+      salonData: { ...SALON_FULL, prefecture: '大阪府', city: '大阪市北区', address: '大阪府大阪市北区' },
+    });
+    const res = await POST(makeRequest({
+      facility_name: 'Test',
+      business_type: 'ネイル・まつげサロン',
+      prefecture: '東京都',
+      city: '新宿区',
+    }) as any);
+    expect(res.status).toBe(200);
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.prefecture).toBe('東京都');
+    expect(f.city).toBe('新宿区');
+  });
+
+  test('(ii) body に無く salonData に prefecture/city 列があればそれが使われる', async () => {
+    setupDefaultMocks(true, false, true, false, false, false, {
+      salonData: { ...SALON_FULL, prefecture: '大阪府', city: '大阪市北区', address: '東京都渋谷区（列優先の確認用に不一致にする）' },
+    });
+    const res = await POST(makeRequest({
+      facility_name: 'Test',
+      business_type: 'ネイル・まつげサロン',
+    }) as any);
+    expect(res.status).toBe(200);
+    const f = mockFacilityInsert.mock.calls[0][0];
+    // salonData の列（大阪府/大阪市北区）が使われる。住所文字列の東京都/渋谷区ではない。
+    expect(f.prefecture).toBe('大阪府');
+    expect(f.city).toBe('大阪市北区');
+  });
+
+  test('(iii) body にも salonData の列にも無ければ住所から復元される', async () => {
+    // salonData には prefecture/city 列が無い（列がまだ無い環境を想定）が、address はある。
+    setupDefaultMocks(true, false, true, false, false, false, {
+      salonData: { ...SALON_FULL, address: '東京都渋谷区神宮前1-1-1' },
+    });
+    const res = await POST(makeRequest({
+      facility_name: 'Test',
+      business_type: 'ネイル・まつげサロン',
+    }) as any);
+    expect(res.status).toBe(200);
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.prefecture).toBe('東京都');
+    expect(f.city).toBe('渋谷区');
+  });
+
+  test('(iv) 住所からも復元できなければ null のまま（推測で埋めない）', async () => {
+    setupDefaultMocks(true, false, true, false, false, false, {
+      salonData: { ...SALON_FULL, address: '都道府県を含まない住所表記' },
+    });
+    const res = await POST(makeRequest({
+      facility_name: 'Test',
+      business_type: 'ネイル・まつげサロン',
+    }) as any);
+    expect(res.status).toBe(200);
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.prefecture).toBeNull();
+    expect(f.city).toBeNull();
+  });
+
+  test('(iv-b) address も無ければ prefecture/city は null のまま', async () => {
+    setupDefaultMocks(true, false, false); // salonFound=false → salonData=null, body に address も無い
+    const res = await POST(makeRequest({
+      facility_name: 'Test',
+      business_type: 'ネイル・まつげサロン',
+    }) as any);
+    expect(res.status).toBe(200);
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.prefecture).toBeNull();
+    expect(f.city).toBeNull();
+  });
 });

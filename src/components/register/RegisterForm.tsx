@@ -15,6 +15,7 @@ import { rollbackUploadedSalonPhotos } from '@/lib/salon-photo-rollback';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { getRecaptchaToken } from '@/lib/recaptcha-client';
+import { extractPrefecture, extractCity } from '@/lib/japan-address';
 
 const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
 const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
@@ -57,7 +58,7 @@ export default function RegisterForm() {
     defaultValues: {
       facility_name: '', business_type: '', representative_name: '', contact_name: '',
       email: '', phone: '', contact_phone: '', website: '',
-      postal_code: '', address: '', building_name: '', nearest_station: '',
+      postal_code: '', address: '', prefecture: null, city: null, building_name: '', nearest_station: '',
       business_hours: '', regular_holiday: '', seat_count: null, staff_count: null,
       has_parking: false, features: [],
       pr_text: '', desired_start_date: '',
@@ -85,6 +86,12 @@ export default function RegisterForm() {
       if (data.results?.[0]) {
         const r = data.results[0];
         setValue('address', `${r.address1 ?? ''}${r.address2 ?? ''}${r.address3 ?? ''}`);
+        // 【2026年8月20日 恒久根治】表示用の連結済み address はそのまま残しつつ（見た目は
+        // 変えない・入力欄は増やさない）、zipcloud が返す構造（address1=都道府県・
+        // address2=市区町村）を非表示のまま保持する。/search の地域絞り込みの結合キーに
+        // 使うため、自由文からの再抽出より確実な zipcloud 由来の値を優先する。
+        setValue('prefecture', r.address1 || null);
+        setValue('city', r.address2 || null);
       }
     } catch { /* ignore */ }
   }, [setValue]);
@@ -151,6 +158,12 @@ export default function RegisterForm() {
       const photoUrls = uploadResults.filter((u): u is string => !!u);
       const recaptchaToken = await getRecaptchaToken('salons');
 
+      // 【2026年8月20日 恒久根治】zipcloud 由来（data.prefecture/data.city）を優先し、
+      // 郵便番号を使わず住所を直接書いた人・zipcloud が落ちていたときは自由文の address から
+      // 復元する（japan-address.ts）。どちらも取れなければ null のまま送る（推測で埋めない）。
+      const prefecture = data.prefecture || extractPrefecture(data.address) || null;
+      const city = data.city || extractCity(data.address) || null;
+
       const res = await fetch('/api/salons', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -165,6 +178,8 @@ export default function RegisterForm() {
           website: data.website || null,
           postal_code: data.postal_code || null,
           address: data.address || null,
+          prefecture,
+          city,
           building_name: data.building_name || null,
           nearest_station: data.nearest_station || null,
           business_hours: data.business_hours || null,

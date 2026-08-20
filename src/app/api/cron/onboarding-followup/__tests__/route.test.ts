@@ -29,11 +29,13 @@ jest.mock('@supabase/supabase-js', () => ({
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
-import { sendOnboardingFollowEmail } from '@/lib/email';
+import { sendOnboardingFollowEmail, sendRegistrationLeadFollowEmail } from '@/lib/email';
 import { GET } from '../route';
 
 // Holds the facility_profiles UPDATE mock for the current test (for claim/release assertions).
 let facUpdateMock: jest.Mock;
+// Holds the salons UPDATE mock for the current test (for claim/release assertions, 第2パス).
+let salonUpdateMock: jest.Mock;
 
 // facility_profiles UPDATE used for BOTH:
 //   claim:   .update({sent_at:now}).eq('id').is(null).select('id') → { data: claimed }
@@ -47,6 +49,10 @@ function facilitiesUpdate(claimed: any[] = [{ id: 'fac-123' }], releaseError: an
   };
   return jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(eqReturn) });
 }
+
+// salons UPDATE（第2パス）は facilitiesUpdate と全く同じ形（claim/release 二役）なので
+// ロジックを共有する。変数名だけ役割に合わせて分けてある。
+const salonsUpdate = facilitiesUpdate;
 
 function buildFrom(opts: any = {}) {
   const {
@@ -66,9 +72,19 @@ function buildFrom(opts: any = {}) {
     photoError = null,
     memberError = null,
     scheduleError = null,
+    // ---- 第2パス（salons）用オプション。デフォルトは既存テストの挙動を変えない空配列。----
+    salons = [] as any[],
+    salonsErr = null,
+    salonClaimed = [{ id: 'sal-1' }],
+    salonReleaseError = null,
+    salonOrderSpy = null as any,
+    // profiles.email = X のとき「アカウント作成済み」とみなすメール一覧。
+    existingAccountEmails = [] as string[],
+    profileEmailCheckError = null,
   } = opts;
 
   facUpdateMock = facilitiesUpdate(claimed, releaseError);
+  salonUpdateMock = salonsUpdate(salonClaimed, salonReleaseError);
 
   return (table: string) => {
     if (table === 'facility_profiles') {
@@ -104,11 +120,44 @@ function buildFrom(opts: any = {}) {
         }),
       }),
     };
+    // salons.is() の呼び出し引数を検証したいテスト用（未指定なら中身を検証しない素の jest.fn）。
+    const salonIsSpy = opts.salonIsSpy as jest.Mock | null;
+    // profiles は2つの異なる呼び出し元から使われる:
+    //   facility パス:  .select('email').eq('id', userId).maybeSingle()      → member の owner profile
+    //   salons パス:    .select('id').eq('email', email).maybeSingle()       → アカウント作成済みか判定
+    // eq() に渡された field 名で分岐する（呼び出し元コードの引数をそのまま検証できる）。
     if (table === 'profiles') return {
       select: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: profile }) }),
+        eq: jest.fn((field: string, value: string) => {
+          if (field === 'email') {
+            const found = existingAccountEmails.includes(value) ? { id: `profile-${value}` } : null;
+            return { maybeSingle: jest.fn().mockResolvedValue({ data: found, error: profileEmailCheckError }) };
+          }
+          return { maybeSingle: jest.fn().mockResolvedValue({ data: profile }) };
+        }),
       }),
     };
+    if (table === 'salons') {
+      const order = salonOrderSpy || jest.fn().mockReturnValue({
+        range: jest.fn((from: number, to: number) => Promise.resolve({
+          data: salonsErr ? null : salons.slice(from, to + 1),
+          error: salonsErr,
+        })),
+      });
+      const isFn = salonIsSpy
+        ? salonIsSpy.mockReturnValue({ order })
+        : jest.fn().mockReturnValue({ order });
+      return {
+        select: jest.fn().mockReturnValue({
+          gte: jest.fn().mockReturnValue({
+            lte: jest.fn().mockReturnValue({
+              is: isFn,
+            }),
+          }),
+        }),
+        update: salonUpdateMock,
+      };
+    }
     return {};
   };
 }
@@ -128,6 +177,10 @@ function setupDefaultMocks(
   (logCronRun as jest.Mock).mockResolvedValue(undefined);
   // sendOnboardingFollowEmail は送達可否を boolean で返す（safeSend 仕様）。成功=true→claim維持。
   (sendOnboardingFollowEmail as jest.Mock).mockResolvedValue(true);
+  // 🔴 sendRegistrationLeadFollowEmail も同じ契約（boolean）。既定を true にしないと
+  // 第2パスのテスト (iv)（送信失敗→claim解放）が「既定 undefined=falsy」でたまたま
+  // 偽陽性になる（CLAUDE.md の LINE outcome の教訓と同型の罠）。
+  (sendRegistrationLeadFollowEmail as jest.Mock).mockResolvedValue(true);
   if (emailSendFails) {
     // 送信失敗は throw ではなく false 返却で表現される（本番の safeSend は throw しない）→ claim 解放で再送。
     (sendOnboardingFollowEmail as jest.Mock).mockResolvedValue(false);
@@ -531,5 +584,208 @@ describe('GET /api/cron/onboarding-followup', () => {
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
       expect.objectContaining({ missingSteps: expect.arrayContaining(['メニュー・料金の登録', '施設写真のアップロード']) })
     );
+  });
+
+  // ==========================================================================
+  // 第2パス: salons（登録はしたがアカウントを作っていない申込者）
+  // 本番実データ（salons 8件 vs facility_profiles 3件）で確定した差の5件を拾う。
+  // ==========================================================================
+  describe('salons 第2パス（登録リードフォロー）', () => {
+    const leadSalon = { id: 'sal-1', email: 'lead@example.com', facility_name: 'Lead Salon', business_type: 'clinic' };
+
+    test('(i) profiles に同じ email が無い salons 行にフォローメールが送られる', async () => {
+      mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salons: [leadSalon] }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(sendRegistrationLeadFollowEmail).toHaveBeenCalledWith({
+        email: 'lead@example.com',
+        facilityName: 'Lead Salon',
+        businessType: 'clinic',
+      });
+      expect(json.processed).toBe(1);
+      expect(json.sent).toBe(1);
+    });
+
+    // 🔴 negative control: この除外条件（existingAccountEmails に含まれる → 送らない）を
+    // route.ts 側で一時的に無効化（if (existingProfile) { alreadyRegistered = true; } を
+    // 常に false 相当にする）して本テストを実行し、実際に赤くなる（送信されてしまう）ことを
+    // 確認済み → 元に戻して緑に復帰。テストが本当に条件を検知できることを確認した。
+    test('(ii) profiles に同じ email が【ある】salons 行には送られない（アカウント作成済みは対象外）', async () => {
+      mockFromDelegate.mockImplementation(buildFrom({
+        facilities: [],
+        salons: [leadSalon],
+        existingAccountEmails: ['lead@example.com'],
+      }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      expect(sendRegistrationLeadFollowEmail).not.toHaveBeenCalled();
+      // アカウント作成済み＝claim は維持（null への解放が起きない）。
+      const nullReleases = salonUpdateMock.mock.calls.filter((c: any[]) => c[0].registration_followup_sent_at === null);
+      expect(nullReleases.length).toBe(0);
+      const json = await res.json();
+      expect(json.sent).toBe(0);
+    });
+
+    test('(iii) registration_followup_sent_at IS NULL で絞り込む（主クエリの .is フィルタ）', async () => {
+      const salonIsSpy = jest.fn();
+      mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salons: [], salonIsSpy }));
+      await GET(makeRequest() as any);
+      expect(salonIsSpy).toHaveBeenCalledWith('registration_followup_sent_at', null);
+    });
+
+    test('(iv) 送信に失敗したら claim が解放される（翌 run で再試行できる）', async () => {
+      (sendRegistrationLeadFollowEmail as jest.Mock).mockResolvedValue(false);
+      mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salons: [leadSalon] }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.sent).toBe(0);
+      const nullReleases = salonUpdateMock.mock.calls.filter((c: any[]) => c[0].registration_followup_sent_at === null);
+      expect(nullReleases.length).toBe(1);
+    });
+
+    test('(v) 既存の facility_profiles パスの挙動が変わっていない（同時に処理しても両方 sent に数えられる）', async () => {
+      setupDefaultMocks(1, true, true, true, true); // facility_profiles 側は既存どおりフル完了ケース
+      mockFromDelegate.mockImplementation(buildFrom({
+        facilities: [{ id: 'fac-1', name: 'New Salon', status: 'draft' }],
+        claimed: [{ id: 'fac-1' }],
+        menuCount: 2, staffData: [{ id: 's1' }], photoCount: 3, scheduleCount: 1,
+        member: { user_id: 'owner-user-123' }, profile: { email: 'owner@example.com' },
+        salons: [leadSalon],
+      }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      // facility 1件 + salon 1件 = processed 2（facility パスの完了ロジックは無変更のまま機能）
+      expect(json.processed).toBe(2);
+      expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ facilityName: 'New Salon', ownerEmail: 'owner@example.com' })
+      );
+      expect(sendRegistrationLeadFollowEmail).toHaveBeenCalledWith({
+        email: 'lead@example.com', facilityName: 'Lead Salon', businessType: 'clinic',
+      });
+    });
+
+    test('(vi) 第2パスのクエリが error を返したときに「0件で成功」に偽装されない → 500', async () => {
+      mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salonsErr: { message: 'salons db error' } }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(500);
+      expect(logCronRun).toHaveBeenCalledWith(
+        'onboarding-followup', 'error', expect.any(Date),
+        expect.objectContaining({ error_msg: 'salons db error' }),
+      );
+      // facilities.length===0 のケースでも salonsErr は「facilities クエリ後・salons クエリで」検出される
+      // ので、facilities 側の空チェックより先に必ず評価される（0件成功への偽装が起きない）ことの確認。
+      expect(sendRegistrationLeadFollowEmail).not.toHaveBeenCalled();
+    });
+
+    // 分岐カバレッジ: salonsErr が Error インスタンスの場合は .message を直接使う経路。
+    test('salonsErr が Error インスタンス → その message を使う', async () => {
+      mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salonsErr: new Error('salon boom instance') }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(500);
+      expect(logCronRun).toHaveBeenCalledWith(
+        'onboarding-followup', 'error', expect.any(Date),
+        expect.objectContaining({ error_msg: 'salon boom instance' }),
+      );
+    });
+
+    // 分岐カバレッジ: salonsErr が message を持たない場合は String() フォールバック。
+    test('salonsErr が message 無し → String() フォールバック', async () => {
+      mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salonsErr: 'plain-salon-error' }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(500);
+      expect(logCronRun).toHaveBeenCalledWith(
+        'onboarding-followup', 'error', expect.any(Date),
+        expect.objectContaining({ error_msg: 'plain-salon-error' }),
+      );
+    });
+
+    test('facilities が空でも salons があれば処理し「0件=skipped」に偽装しない（&& 分岐カバレッジ）', async () => {
+      mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salons: [leadSalon] }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      expect(logCronRun).toHaveBeenCalledWith(
+        'onboarding-followup', 'success', expect.any(Date),
+        expect.objectContaining({ processed: 1 }),
+      );
+    });
+
+    test('facilities も salons も空 → skipped（従来どおり）', async () => {
+      mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salons: [] }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.sent).toBe(0);
+      expect(logCronRun).toHaveBeenCalledWith(
+        'onboarding-followup', 'skipped', expect.any(Date),
+        expect.objectContaining({ processed: 0, skipped: 0 }),
+      );
+    });
+
+    test('二重発火（既に claim 済み）→ skip', async () => {
+      mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salons: [leadSalon], salonClaimed: [] }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      expect(sendRegistrationLeadFollowEmail).not.toHaveBeenCalled();
+      const json = await res.json();
+      expect(json.skipped).toBe(1);
+    });
+
+    test('profiles email 照合クエリが error → 誤って送信せず claim 解放（翌 run 再送）', async () => {
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockFromDelegate.mockImplementation(buildFrom({
+        facilities: [], salons: [leadSalon], profileEmailCheckError: { message: 'profile email check boom' },
+      }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      expect(sendRegistrationLeadFollowEmail).not.toHaveBeenCalled();
+      const nullReleases = salonUpdateMock.mock.calls.filter((c: any[]) => c[0].registration_followup_sent_at === null);
+      expect(nullReleases.length).toBe(1);
+      expect(errSpy).toHaveBeenCalledWith(
+        '[onboarding-followup] salon processing error',
+        expect.objectContaining({ salonId: 'sal-1' })
+      );
+      errSpy.mockRestore();
+    });
+
+    test('claim release 失敗 → ログに残す', async () => {
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      (sendRegistrationLeadFollowEmail as jest.Mock).mockResolvedValue(false);
+      mockFromDelegate.mockImplementation(buildFrom({
+        facilities: [], salons: [leadSalon], salonReleaseError: { message: 'salon release boom' },
+      }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      expect(errSpy).toHaveBeenCalledWith(
+        '[onboarding-followup] salon claim release failed',
+        expect.objectContaining({ salonId: 'sal-1' })
+      );
+      errSpy.mockRestore();
+    });
+
+    test('時間予算超過 → 残りは翌 run に回す（deferred に加算される）', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salons: [leadSalon] }));
+      jest.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValue(10_000_000);
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.deferred).toBe(1);
+      expect(json.processed).toBe(0);
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[onboarding-followup] time budget exceeded, deferring rest to next run (salons)',
+        expect.objectContaining({ deferred: 1 })
+      );
+      warnSpy.mockRestore();
+    });
+
+    test('oldest-first 順で created_at を order する', async () => {
+      const salonOrderSpy = jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [] }) });
+      mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salons: [], salonOrderSpy }));
+      await GET(makeRequest() as any);
+      expect(salonOrderSpy).toHaveBeenCalledWith('created_at', { ascending: true });
+    });
   });
 });

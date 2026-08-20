@@ -62,16 +62,52 @@ function membershipChain(data: unknown[]) {
   };
 }
 
-function updateChain(error: unknown = null) {
+// 公開ゲート(checkPublishReadiness)の count クエリ用 thenable。
+// facility_menus は .select().eq().or()、photos は .select().eq()、staff は .select().eq().eq()。
+// facility_profiles は【2つの用途で読まれる】ので、update と select の両方を持つ。
+// 公開ガードが地域（prefecture / city）も必須条件に加えたため（facility-publish-gate.ts）、
+// ガードは .select('prefecture, city').eq('id',…).single() を呼び、route 本体はその後
+// .update().eq() で status を書く。update だけのスタブに倒すと
+// 「admin.from(...).select is not a function」でガード側が落ちる。
+// 公開ゲートの地域読み取りだけを満たす部分スタブ。update スパイを温存したいテスト用。
+function profileSelectOnly(prefecture = '大阪府', city = '堺市') {
   return {
-    update: jest.fn().mockReturnValue({
-      in: jest.fn(() => Promise.resolve({ error })),
-    }),
+    select: jest.fn(() => ({
+      eq: jest.fn(() => ({
+        single: jest.fn(() => Promise.resolve({ data: { prefecture, city }, error: null })),
+      })),
+    })),
   };
 }
 
-// 公開ゲート(checkPublishReadiness)の count クエリ用 thenable。
-// facility_menus は .select().eq().or()、photos は .select().eq()、staff は .select().eq().eq()。
+function facilityProfileChain(opts: {
+  updateError?: unknown;
+  prefecture?: string | null;
+  city?: string | null;
+  profileError?: unknown;
+} = {}) {
+  // 既定は「地域が入っている」＝ガードの地域条件は充足。個々のテストが検証したいのは
+  // メニュー/写真/スタッフの条件なので、地域で落ちない既定にしておく。
+  const prefecture = opts.prefecture === undefined ? '大阪府' : opts.prefecture;
+  const city = opts.city === undefined ? '堺市' : opts.city;
+  return {
+    // 一括公開は .update().in(ids) で複数施設をまとめて書く（単一施設の settings は .eq）。
+    update: jest.fn().mockReturnValue({
+      in: jest.fn(() => Promise.resolve({ error: opts.updateError ?? null })),
+    }),
+    select: jest.fn(() => ({
+      eq: jest.fn(() => ({
+        single: jest.fn(() =>
+          Promise.resolve({
+            data: opts.profileError ? null : { prefecture, city },
+            error: opts.profileError ?? null,
+          }),
+        ),
+      })),
+    })),
+  };
+}
+
 function countChain(count: number | null, error: unknown = null) {
   const obj: Record<string, unknown> = {};
   obj.select = jest.fn(() => obj);
@@ -89,6 +125,8 @@ function setupReadiness(opts: {
   staff?: number | null;
   countError?: unknown;
   updateError?: unknown;
+  prefecture?: string | null;
+  city?: string | null;
 } = {}) {
   const memberships = opts.memberships ?? [{ facility_id: FACILITY_A }, { facility_id: FACILITY_B }];
   const m = opts.menu === undefined ? 1 : opts.menu;
@@ -100,7 +138,12 @@ function setupReadiness(opts: {
     if (table === 'facility_menus') return countChain(m, e);
     if (table === 'facility_photos') return countChain(p, e);
     if (table === 'staff_profiles') return countChain(s, e);
-    return updateChain(opts.updateError ?? null); // facility_profiles
+    return facilityProfileChain({
+      updateError: opts.updateError ?? null,
+      prefecture: opts.prefecture,
+      city: opts.city,
+      profileError: e,
+    });
   });
 }
 
@@ -222,7 +265,9 @@ test('POST: 公開は status=published を書き込む（is_published 列は存�
     if (table === 'facility_menus' || table === 'facility_photos' || table === 'staff_profiles') {
       return countChain(1); // 公開ゲート充足
     }
-    return { update: updateSpy };
+    // 公開ゲートは facility_profiles から地域も読む。update スパイは検証対象なので温存しつつ、
+    // select を足してゲートの地域条件も充足させる（ここで見たいのは書き込む列名だけ）。
+    return { update: updateSpy, ...profileSelectOnly() };
   });
   await POST(makeRequest(validBody({ is_published: true })));
   const payload = updateSpy.mock.calls[0][0];
@@ -318,7 +363,7 @@ test('POST: facility_ids が 50件 (上限ぴったり) → 200', async () => {
     if (table === 'facility_menus' || table === 'facility_photos' || table === 'staff_profiles') {
       return countChain(1);
     }
-    return updateChain(null);
+    return facilityProfileChain();
   });
   const res = await POST(makeRequest({ facility_ids: ids, is_published: true }));
   expect(res.status).toBe(200);

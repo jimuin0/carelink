@@ -21,7 +21,7 @@ export async function checkPublishReadiness(
   admin: SupabaseClient,
   facilityId: string
 ): Promise<{ readiness: PublishReadiness; error: unknown }> {
-  const [menu, photo, staff] = await Promise.all([
+  const [menu, photo, staff, profile] = await Promise.all([
     admin
       .from('facility_menus')
       .select('id', { count: 'exact', head: true })
@@ -36,16 +36,31 @@ export async function checkPublishReadiness(
       .select('id', { count: 'exact', head: true })
       .eq('facility_id', facilityId)
       .eq('is_active', true),
+    // 公開＝「検索で見つかる状態にする」こと。/search の地域絞り込みは
+    // facility_profiles.prefecture の完全一致（facilities.ts）で、getSimilarFacilities /
+    // getNearbyFacilities も prefecture/city を結合キーに使う。地域が空の施設は
+    // 公開してもこの経路に一切乗らず、既存3条件（メニュー/写真/スタッフ）が防いでいるのと
+    // 同種の「空の施設が検索に出て予約で行き止まり」を招く。よってここも必須条件にする。
+    admin
+      .from('facility_profiles')
+      .select('prefecture, city')
+      .eq('id', facilityId)
+      .single(),
   ]);
 
-  if (menu.error || photo.error || staff.error) {
-    return { readiness: { ready: false, missing: [] }, error: menu.error ?? photo.error ?? staff.error };
+  if (menu.error || photo.error || staff.error || profile.error) {
+    return {
+      readiness: { ready: false, missing: [] },
+      error: menu.error ?? photo.error ?? staff.error ?? profile.error,
+    };
   }
 
   const missing: string[] = [];
   if ((menu.count ?? 0) < 1) missing.push('メニューを1つ以上登録してください');
   if ((photo.count ?? 0) < 1) missing.push('写真を1枚以上登録してください');
   if ((staff.count ?? 0) < 1) missing.push('スタッフを1人以上登録してください');
+  if (!profile.data?.prefecture) missing.push('都道府県を設定してください');
+  if (!profile.data?.city) missing.push('市区町村を設定してください');
 
   return { readiness: { ready: missing.length === 0, missing }, error: null };
 }

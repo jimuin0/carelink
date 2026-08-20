@@ -20,7 +20,7 @@ jest.mock('@/lib/webhook-queue', () => ({
 process.env.RESEND_API_KEY = 'test-resend-key';
 process.env.EMAIL_FROM = 'Test <test@example.com>';
 
-const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendNewInquiryNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail, sendTimeAdjustRequest, sendInquiryReply } = require('../email');
+const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendNewInquiryNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail, sendTimeAdjustRequest, sendInquiryReply, sendRegistrationReceiptEmail, sendRegistrationLeadFollowEmail } = require('../email');
 
 const baseData = {
   customerName: 'テスト太郎',
@@ -787,6 +787,135 @@ describe('RESEND_API_KEY未設定時 — 全send関数', () => {
     await mod.sendBookingStatusUpdate({ ...minData, newStatus: 'confirmed' });
     await mod.sendFavoritesDigest({ userEmail: 'u@u.com', facilities: [] });
     expect(noSendMock).not.toHaveBeenCalled();
+    process.env.RESEND_API_KEY = origKey;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 掲載登録（/register）の申込者向けメール
+//
+// 🔴 なぜ実装そのものを検査するか
+// これらを呼ぶ側（/api/salons と onboarding-followup cron）のテストは
+// jest.mock('@/lib/email') でモジュールごと差し替えるため、実装は一度も実行されない。
+// 配線のテストだけがあって実装の検査が無い状態は、文面の事故（宛先の取り違え・
+// リンクの壊れ・引き継ぎアドレスの記載漏れ）を丸ごと見逃す。
+// とくに「登録に使ったアドレスを本文に書く」ことは、この2本の存在理由そのもの
+// （違うアドレスで作ると引き継ぎが無音で全滅する）なので、機械で固定する。
+// ---------------------------------------------------------------------------
+// 上の失敗系 describe 内の failResend と同じ形（スコープが別なのでここで持つ）。
+const failRegistrationSend = () => mockSend.mockResolvedValueOnce({
+  data: null,
+  error: { statusCode: 500, name: 'server_error', message: 'boom' },
+});
+
+describe('sendRegistrationReceiptEmail', () => {
+  const base = {
+    email: 'owner@example.com',
+    facilityName: 'テストサロン',
+    businessType: '美容室',
+    contactName: '山田 花子',
+  };
+
+  test('申込者のアドレス宛に送る', async () => {
+    const ok = await sendRegistrationReceiptEmail(base);
+    expect(ok).toBe(true);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend.mock.calls[0][0].to).toBe('owner@example.com');
+  });
+
+  test('件名に施設名が入る', async () => {
+    await sendRegistrationReceiptEmail(base);
+    expect(mockSend.mock.calls[0][0].subject).toContain('テストサロン');
+  });
+
+  test('🔴 本文に「登録に使ったメールアドレス」が入る（引き継ぎのキーなので必須）', async () => {
+    await sendRegistrationReceiptEmail(base);
+    expect(mockSend.mock.calls[0][0].html).toContain('owner@example.com');
+  });
+
+  test('本文にアカウント作成リンクが入り、施設名と業種が引き継がれる', async () => {
+    await sendRegistrationReceiptEmail(base);
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).toContain('/auth/signup?redirect=/admin/onboarding');
+    // URL エンコードされた状態で載ること（生の日本語をクエリに置かない）
+    expect(html).toContain(encodeURIComponent('テストサロン'));
+    expect(html).toContain(encodeURIComponent('美容室'));
+  });
+
+  test('contactName 未指定なら既定の呼びかけになる', async () => {
+    await sendRegistrationReceiptEmail({ ...base, contactName: undefined });
+    expect(mockSend.mock.calls[0][0].html).toContain('ご担当者');
+  });
+
+  test('HTML特殊文字を含む施設名がエスケープされる（生のタグを本文に出さない）', async () => {
+    await sendRegistrationReceiptEmail({ ...base, facilityName: '<script>x</script>' });
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).not.toContain('<script>x</script>');
+    expect(html).toContain('&lt;script&gt;');
+  });
+
+  test('送信に失敗したら false を返す（呼び出し側が失敗を検知できる）', async () => {
+    failRegistrationSend();
+    const ok = await sendRegistrationReceiptEmail(base);
+    expect(ok).toBe(false);
+  });
+
+  test('RESEND_API_KEY 未設定なら送信を試みず false', async () => {
+    const origKey = process.env.RESEND_API_KEY;
+    delete process.env.RESEND_API_KEY;
+    jest.resetModules();
+    jest.mock('resend', () => ({ Resend: jest.fn() }));
+    jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
+    jest.mock('@/lib/webhook-queue', () => ({ enqueueWebhook: (...args: unknown[]) => mockEnqueueWebhook(...args) }));
+    const fresh = require('../email');
+    const ok = await fresh.sendRegistrationReceiptEmail(base);
+    expect(ok).toBe(false);
+    expect(mockSend).not.toHaveBeenCalled();
+    process.env.RESEND_API_KEY = origKey;
+  });
+});
+
+describe('sendRegistrationLeadFollowEmail', () => {
+  const base = {
+    email: 'lead@example.com',
+    facilityName: 'テストサロン',
+    businessType: '美容室',
+  };
+
+  test('申込者のアドレス宛に送る', async () => {
+    const ok = await sendRegistrationLeadFollowEmail(base);
+    expect(ok).toBe(true);
+    expect(mockSend.mock.calls[0][0].to).toBe('lead@example.com');
+  });
+
+  test('🔴 本文に「登録に使ったメールアドレス」が入る', async () => {
+    await sendRegistrationLeadFollowEmail(base);
+    expect(mockSend.mock.calls[0][0].html).toContain('lead@example.com');
+  });
+
+  test('管理画面ではなくアカウント作成へ導く（施設はまだ存在しないため）', async () => {
+    await sendRegistrationLeadFollowEmail(base);
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).toContain('/auth/signup?redirect=/admin/onboarding');
+  });
+
+  test('送信に失敗したら false を返す（cron が claim を解放して再試行できる）', async () => {
+    failRegistrationSend();
+    const ok = await sendRegistrationLeadFollowEmail(base);
+    expect(ok).toBe(false);
+  });
+
+  test('RESEND_API_KEY 未設定なら送信を試みず false', async () => {
+    const origKey = process.env.RESEND_API_KEY;
+    delete process.env.RESEND_API_KEY;
+    jest.resetModules();
+    jest.mock('resend', () => ({ Resend: jest.fn() }));
+    jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
+    jest.mock('@/lib/webhook-queue', () => ({ enqueueWebhook: (...args: unknown[]) => mockEnqueueWebhook(...args) }));
+    const fresh = require('../email');
+    const ok = await fresh.sendRegistrationLeadFollowEmail(base);
+    expect(ok).toBe(false);
+    expect(mockSend).not.toHaveBeenCalled();
     process.env.RESEND_API_KEY = origKey;
   });
 });

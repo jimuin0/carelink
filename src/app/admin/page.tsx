@@ -36,7 +36,9 @@ export default async function AdminDashboard() {
     supabase.from('facility_menus').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId),
     supabase.from('staff_profiles').select('id').eq('facility_id', facilityId),
     supabase.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId),
-    supabase.from('facility_profiles').select('status').eq('id', facilityId).single(),
+    // status に加えて prefecture/city も同じ1行取得に相乗り（往復を増やさない）。
+    // 「基本情報（住所）」オンボーディング項目の done 判定に使う。
+    supabase.from('facility_profiles').select('status, prefecture, city').eq('id', facilityId).single(),
   ]);
   // 取得失敗を 0/未完了 に偽装しない（error.tsx に委ねる）
   if (menuErr || staffErr || photoErr || facilityErr) {
@@ -51,7 +53,14 @@ export default async function AdminDashboard() {
     : 0;
 
   const isPublished = facilityData?.status === 'published';
+  // 基本情報（住所）の充足判定。/search の地域絞り込み（facilities.ts の .eq('prefecture', …)）と
+  // getSimilarFacilities / getNearbyFacilities の結合キーが facility_profiles.prefecture/city のため、
+  // ここが空だと「公開されているのに地域で探すと出てこない」状態になる（facility-publish-gate.ts と
+  // 同じ理由で公開の必須条件にもなっている）。セルフサーブ経路では構造的に空になり得るため、
+  // メニュー/写真/スタッフと並ぶオンボーディング項目として明示し、/admin/settings へ導く。
+  const hasBasicAddress = Boolean(facilityData?.prefecture) && Boolean(facilityData?.city);
   const onboardingSteps = [
+    { label: '基本情報（住所）', done: hasBasicAddress, href: '/admin/settings' },
     { label: 'メニュー登録', done: (menuCount ?? 0) > 0, href: '/admin/menus' },
     { label: 'スタッフ登録', done: (staffCount ?? 0) > 0, href: '/admin/staff' },
     { label: '写真アップロード', done: (photoCount ?? 0) > 0, href: '/admin/photos' },
@@ -59,7 +68,7 @@ export default async function AdminDashboard() {
     { label: '店舗を公開', done: isPublished, href: '/admin/settings' },
   ];
   const completedSteps = onboardingSteps.filter(s => s.done).length;
-  const showOnboarding = completedSteps < 5;
+  const showOnboarding = completedSteps < onboardingSteps.length;
 
   // 予約状況（本日から14日間＝2週間）の日付一覧。各日の件数は1クエリ取得→JST日付で JS 集計する
   // （PostgREST は GROUP BY 非対応のため。範囲は14日固定で転送量は小さい）。
@@ -257,10 +266,10 @@ export default async function AdminDashboard() {
         <div className="mb-6 bg-sky-50 border border-sky-200 rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-bold text-sky-800">店舗セットアップ</h2>
-            <span className="text-xs text-sky-600 font-bold">{completedSteps}/5 完了</span>
+            <span className="text-xs text-sky-600 font-bold">{completedSteps}/{onboardingSteps.length} 完了</span>
           </div>
           <div className="w-full bg-sky-100 rounded-full h-2 mb-4">
-            <div className="bg-sky-500 h-2 rounded-full transition-all" style={{ width: `${(completedSteps / 5) * 100}%` }} />
+            <div className="bg-sky-500 h-2 rounded-full transition-all" style={{ width: `${(completedSteps / onboardingSteps.length) * 100}%` }} />
           </div>
           <div className="space-y-2">
             {onboardingSteps.map((step) => (

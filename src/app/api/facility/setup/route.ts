@@ -14,6 +14,7 @@ import { businessTypes } from '@/lib/constants';
 import { getClientIp } from "@/lib/client-ip";
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { extractPrefecture, extractCity } from '@/lib/japan-address';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,6 +84,23 @@ export async function POST(request: NextRequest) {
       business_type = business_type || salonData.business_type;
       phone = phone || salonData.phone;
       address = address || salonData.address;
+    }
+
+    // prefecture / city の解決。/search の地域絞り込み（facilities.ts の .eq('prefecture', …)）と
+    // getSimilarFacilities / getNearbyFacilities の結合キーで、ここが null のままだと
+    // 「公開されているのに地域で探すと出てこない」状態になる（このモジュールの背景）。
+    // 優先順位は body（フォームで明示入力）> salonData の列（register の入力を引き継ぐ）
+    // > 住所文字列からの復元（zipcloud の address1/address2 が既に自由文へ連結されてしまっている
+    //   場合の救済）> null（推測で埋めない。誤った地域を入れるより未設定と分かる方が安全）。
+    // salonData は select('*') の生成型に prefecture/city が無くても存在しうる（別担当が
+    // salons へ列を追加中）ため、生成型を締め出さずに widen して読む＝列が無ければ
+    // undefined になり自然に次の手段（住所からの復元）へ倒れる。
+    const salonPrefCity = salonData as { prefecture?: string | null; city?: string | null } | null;
+    if (!prefecture) {
+      prefecture = salonPrefCity?.prefecture || extractPrefecture(address) || null;
+    }
+    if (!city) {
+      city = salonPrefCity?.city || extractCity(address) || null;
     }
 
     if (!facility_name || !business_type) {

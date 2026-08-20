@@ -11,8 +11,10 @@ import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
 import { phoneField as sharedPhoneField } from '@/lib/phone';
 import { verifyRecaptcha } from '@/lib/recaptcha';
 import { sendNotify } from '@/lib/notify';
+import { sendRegistrationReceiptEmail } from '@/lib/email';
 import { runAfterResponse } from '@/lib/after-response';
 import { businessTypes, DESIRED_START_DATES } from '@/lib/constants';
+import { extractPrefecture, extractCity } from '@/lib/japan-address';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,6 +57,14 @@ const salonInsertSchema = z.object({
   website: z.string().max(2000).url().or(z.literal('')).optional().nullable(),
   postal_code: z.string().max(8).optional().nullable(),
   address: z.string().max(500).optional().nullable(),
+  // 【2026年8月20日 恒久根治】facility_profiles.prefecture は /search の地域絞り込み・
+  // 「近くの施設」「似ている施設」の結合キーだが、セルフサーブ経路は salons に構造化された
+  // 都道府県/市区町村列が無く構造的に必ず null になっていた。クライアント（RegisterForm）は
+  // zipcloud 応答（address1/address2）または自由文からの復元を送ってくるが、サーバーを権威
+  // とする本ファイルの既存方針（冒頭コメント参照）に合わせ、未送出・空文字時は address から
+  // サーバー側でも復元する（下記 POST ハンドラ内）。
+  prefecture: z.string().max(10).optional().nullable(),
+  city: z.string().max(100).optional().nullable(),
   building_name: z.string().max(200).optional().nullable(),
   nearest_station: z.string().max(200).optional().nullable(),
   business_hours: z.string().max(200).optional().nullable(),
@@ -133,6 +143,12 @@ export const POST = withRoute(async (request) => {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
+  // 【2026年8月20日 恒久根治】サーバーを権威とする（本ファイル冒頭コメントの検証方針）。
+  // クライアントが明示的に送った値（zipcloud 由来）は無条件に優先し、未送出・空文字のときだけ
+  // address からの復元にフォールバックする。復元もできなければ推測で埋めず null のままにする。
+  const prefecture = d.prefecture || extractPrefecture(d.address) || null;
+  const city = d.city || extractCity(d.address) || null;
+
   const { data, error } = await supabase
     .from('salons')
     .insert({
@@ -146,6 +162,8 @@ export const POST = withRoute(async (request) => {
       website: d.website || null,
       postal_code: d.postal_code || null,
       address: d.address || null,
+      prefecture,
+      city,
       building_name: d.building_name || null,
       nearest_station: d.nearest_station || null,
       business_hours: d.business_hours || null,
@@ -190,6 +208,24 @@ export const POST = withRoute(async (request) => {
     }).then((r) => {
       if (!r.ok) console.error('[salons] Slack notification failed', { error: r.error });
     }).catch((err) => console.error('[salons] Slack notification failed', { err })));
+
+    // 申込者への受付メール（fire-and-forget・runAfterResponse 経由）。
+    // 【source='register' 限定の理由】recruit（掲載申し込み）は「担当者より2営業日以内に
+    // ご連絡いたします」という別の運用文脈（人が個別に連絡する前提）で、無料掲載登録
+    // （register）のような「アカウント作成まで自走してもらう」導線ではない。recruit にまで
+    // 自動メールを広げると、担当者からの連絡と重複した案内を送ることになるため対象外にする。
+    // 【失敗の扱い】sendRegistrationReceiptEmail は throw せず false を返す契約
+    // （RESEND_API_KEY 未設定時も false）。false・例外の両方を拾ってログに残すが、
+    // 登録自体は既に保存済みのため、メール失敗で応答を失敗させない（sendNotify と同型）。
+    // 【PII】エラーログに生メールアドレスは含めない（既存の sendNotify 呼び出しより増やさない）。
+    runAfterResponse(() => sendRegistrationReceiptEmail({
+      email: d.email,
+      facilityName: d.facility_name,
+      businessType: d.business_type,
+      contactName: d.contact_name,
+    }).then((sent) => {
+      if (!sent) console.error('[salons] Registration receipt email failed to send');
+    }).catch((err) => console.error('[salons] Registration receipt email failed', { err })));
   } else {
     runAfterResponse(() => sendNotify({
       type: 'facility',
