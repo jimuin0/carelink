@@ -7,7 +7,7 @@ import { logCronRun } from '@/lib/cron-logger';
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { sendOnboardingFollowEmail } from '@/lib/email';
+import { sendOnboardingFollowEmail, sendRegistrationLeadFollowEmail } from '@/lib/email';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
@@ -79,9 +79,41 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Internal error' }, { status: 500 });
     }
 
-    if (facilities.length === 0) {
+    // 🔴 第2パス（salons＝アカウント未作成の登録リード）の対象取得。
+    // 本番実データ（salons 8件 vs facility_profiles 3件）で確定した「登録フォームは
+    // 送ったがアカウント作成まで到達しなかった」5件を拾うため。新しい cron は作らず
+    // （render.yaml / cron-jobs.data.json / cron-jobs-drift.test.ts / render-yaml-drift.test.ts
+    // への波及を避けるため）、既存の onboarding-followup 内の第2パスとして実装する。
+    // facilities と同じ理由で fetchAllPaged ページング＋主クエリ error の明示チェックを行う
+    // （「0件=skipped(成功)」への偽装を防ぐ）。
+    type SalonLeadRow = { id: string; email: string; facility_name: string; business_type: string };
+    const { rows: salons, error: salonsErr } = await fetchAllPaged<SalonLeadRow>(
+      async (offset, limit) => {
+        const { data, error } = await supabase
+          .from('salons')
+          .select('id, email, facility_name, business_type')
+          .gte('created_at', staleAfter)
+          .lte('created_at', minAgeBefore)
+          .is('registration_followup_sent_at', null) // 未送信のみ
+          .order('created_at', { ascending: true })
+          .range(offset, offset + limit - 1);
+        return { data: data as SalonLeadRow[] | null, error };
+      },
+      { maxRows: CONSIDER_LIMIT },
+    );
+
+    if (salonsErr) {
+      const msg = salonsErr instanceof Error
+        ? salonsErr.message
+        : (salonsErr as { message?: string })?.message ?? String(salonsErr);
+      console.error('[onboarding-followup] salons query failed', { err: salonsErr });
+      await logCronRun('onboarding-followup', 'error', startedAt, { error_msg: msg });
+      return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    }
+
+    if (facilities.length === 0 && salons.length === 0) {
       await logCronRun('onboarding-followup', 'skipped', startedAt, { processed: 0, skipped: 0 });
-      return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', sent: 0 });
+      return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', sent: 0, deferred: 0 });
     }
 
     if (facilities.length === CONSIDER_LIMIT) {
@@ -204,9 +236,84 @@ export async function GET(request: Request) {
       sent++;
     }
 
+    // ---- 第2パス: salons（アカウント未作成の登録リード） ----
+    // facility_profiles パスとは独立の対象・独立の CAS 列（registration_followup_sent_at）。
+    // 実時間予算は run 全体で共有する（loopStart を継続利用）ため、facility パスで既に
+    // 予算超過していればここは 1 周目で即 deferred に回る（fail-safe）。
+    for (let j = 0; j < salons.length; j++) {
+      const salon = salons[j];
+
+      if (Date.now() - loopStart > SEND_BUDGET_MS) {
+        const remaining = salons.length - j;
+        deferred += remaining;
+        console.warn('[onboarding-followup] time budget exceeded, deferring rest to next run (salons)', { deferred: remaining });
+        break;
+      }
+
+      // Claim before sending (CAS guard via .is('registration_followup_sent_at', null))
+      const { data: salonClaimed } = await supabase
+        .from('salons')
+        .update({ registration_followup_sent_at: new Date().toISOString() })
+        .eq('id', salon.id)
+        .is('registration_followup_sent_at', null)
+        .select('id');
+
+      if (!salonClaimed || salonClaimed.length === 0) { skipped++; continue; }
+
+      let delivered = false;
+      // 🔴 「アカウント作成済み」は facility パスの noContact と同じ扱い：
+      // このメールはもう意味を持たない（既にアカウントがある＝リードとして解消済み）ので
+      // claim は維持し、再送しない（無限に catch し続けない）。
+      let alreadyRegistered = false;
+      try {
+        // 同じメールアドレスで profiles（＝アカウント）が既に作られていないか確認する。
+        // error を無視すると「行が無い」と誤判定して誤ってフォローメールを送りかねないため、
+        // facility パスと同様に throw して claim を解放し、翌 run で正しい判定材料で再試行する。
+        const { data: existingProfile, error: profileCheckErr } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('email', salon.email)
+          .maybeSingle();
+
+        if (profileCheckErr) {
+          throw new Error(`profiles email check failed: ${profileCheckErr.message}`);
+        }
+
+        if (existingProfile) {
+          alreadyRegistered = true;
+        } else {
+          delivered = await sendRegistrationLeadFollowEmail({
+            email: salon.email,
+            facilityName: salon.facility_name,
+            businessType: salon.business_type,
+          });
+          if (!delivered) deliveryFailures++;
+        }
+      } catch (salonErr) {
+        console.error('[onboarding-followup] salon processing error', { salonId: salon.id, err: salonErr });
+      }
+
+      if (!delivered) {
+        // アカウント作成済み → claim 維持（再送無意味）。それ以外の失敗 → claim 解放して翌 run で再送。
+        if (!alreadyRegistered) {
+          const { error: salonReleaseErr } = await supabase
+            .from('salons')
+            .update({ registration_followup_sent_at: null })
+            .eq('id', salon.id);
+          if (salonReleaseErr) {
+            console.error('[onboarding-followup] salon claim release failed', { salonId: salon.id, err: salonReleaseErr });
+          }
+        }
+        skipped++;
+        continue;
+      }
+
+      sent++;
+    }
+
     alertDeliveryFailures('onboarding-followup', deliveryFailures, { sent, skipped });
     await logCronRun('onboarding-followup', 'success', startedAt, { processed: sent, skipped, meta: { deferred } });
-    return NextResponse.json({ processed: sent, skipped, deferred });
+    return NextResponse.json({ processed: sent, skipped, deferred, sent });
   } catch (e) {
     console.error('[onboarding-followup] Error:', e);
     await logCronRun('onboarding-followup', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });

@@ -845,6 +845,7 @@
 "column|salons.photo_url|text|notnull=f|default=|generated=",
 "column|salons.postal_code|text|notnull=f|default=|generated=",
 "column|salons.pr_text|text|notnull=f|default=|generated=",
+"column|salons.registration_followup_sent_at|timestamp with time zone|notnull=f|default=|generated=",
 "column|salons.regular_holiday|text|notnull=f|default=|generated=",
 "column|salons.representative_name|text|notnull=t|default=|generated=",
 "column|salons.seat_count|integer|notnull=f|default=|generated=",
