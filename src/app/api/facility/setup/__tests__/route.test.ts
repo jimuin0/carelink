@@ -24,11 +24,19 @@ jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/email');
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 jest.mock('next/headers');
+// claim（salons.claimed_by_user_id/claimed_at）の CAS・監査ログは salon-claim.test.ts /
+// admin/registrations テストで別途検証済み。本ファイルでは「呼ばれたか・何が渡ったか」だけを
+// 見たいので、writeAuditLog 自体は実装せずモックする（admin/registrations と同型）。
+jest.mock('@/lib/audit-logger', () => ({
+  writeAuditLog: jest.fn(),
+  getRequestContext: jest.fn(() => ({ ip: '127.0.0.1', ua: 'test' })),
+}));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { sendWelcomeEmail } from '@/lib/email';
 import { canonicalizeEmail } from '@/lib/email-canonical';
+import { signSalonClaim } from '@/lib/salon-claim';
 import { POST } from '../route';
 
 let mockFacilityInsert: jest.Mock;
@@ -36,11 +44,14 @@ let mockMemberInsert: jest.Mock;
 let mockSalonSelect: jest.Mock;
 let mockSalonEmailEq: jest.Mock;
 let mockSalonStatusNeq: jest.Mock;
+let mockSalonCookieIs: jest.Mock;
+let mockSalonUpdate: jest.Mock;
 let mockFacilityDelete: jest.Mock;
 let mockPhotoInsert: jest.Mock;
 
 // salonFound 時のリッチデータ（register 全項目の引き継ぎ・写真転送を検証するため）。
 const SALON_FULL = {
+  id: 'salon-full-id',
   facility_name: 'Salon from DB',
   business_type: 'ネイル・まつげサロン',
   phone: '03-1234-5678',
@@ -70,7 +81,21 @@ function setupDefaultMocks(
   facilityInsertFails: boolean = false,
   memberInsertFails: boolean = false,
   rollbackFails: boolean = false,
-  opts: { salonData?: unknown; photoInsertFails?: boolean; userEmail?: string | null } = {}
+  opts: {
+    salonData?: unknown;
+    photoInsertFails?: boolean;
+    userEmail?: string | null;
+    // 【claim（2026年8月20日 新設）用のオプション】
+    // Cookie 経由で見つかる salons 行（未指定 = null ＝ Cookie 経路では何も見つからない）。
+    cookieSalonData?: unknown;
+    // CAS（.is('claimed_by_user_id', null) 付き update）が 0 行更新に終わる（TOCTOU で
+    // 先に他リクエストが claim した想定）。未指定なら常に成功する。
+    salonClaimCasFails?: boolean;
+    // CAS 自体が DB エラーを返す。
+    salonClaimCasError?: boolean;
+    // ロールバック経路での claim 解放 UPDATE が失敗する。
+    salonClaimReleaseFails?: boolean;
+  } = {}
 ) {
   (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
@@ -79,7 +104,10 @@ function setupDefaultMocks(
   (sendWelcomeEmail as jest.Mock).mockResolvedValue(true);
 
   const salonData = 'salonData' in opts ? opts.salonData : (salonFound ? SALON_FULL : null);
-  // .eq('email_canonical', ...) → .or('status.is.null,status.neq.rejected') → .order() → .limit() → .maybeSingle()
+  const cookieSalonData = 'cookieSalonData' in opts ? opts.cookieSalonData : null;
+
+  // .eq('email_canonical', ...) → .is('claimed_by_user_id', null) →
+  // .or('status.is.null,status.neq.rejected') → .order() → .limit() → .maybeSingle()
   // eq/or を個別に spy として保持し、呼び出し引数（canonical 化されたメール・rejected 除外）を検証する。
   // 🔴 .neq ではなく .or なのは、status が NULL の行を落とさないため（route.ts のコメント参照）。
   mockSalonStatusNeq = jest.fn().mockReturnValue({
@@ -89,8 +117,48 @@ function setupDefaultMocks(
       }),
     }),
   });
-  mockSalonEmailEq = jest.fn().mockReturnValue({ or: mockSalonStatusNeq });
+  const mockSalonEmailIs = jest.fn().mockReturnValue({ or: mockSalonStatusNeq });
+
+  // Cookie 経路: .eq('id', claimedSalonIdFromCookie) → .is('claimed_by_user_id', null) →
+  // .or(...) → .maybeSingle()
+  mockSalonCookieIs = jest.fn().mockReturnValue({
+    or: jest.fn().mockReturnValue({
+      maybeSingle: jest.fn().mockResolvedValue({ data: cookieSalonData }),
+    }),
+  });
+
+  // 同じ .eq() が呼ばれるカラム名で経路を振り分ける（'id' = Cookie 経路 / それ以外 = メール経路）。
+  mockSalonEmailEq = jest.fn((column: string) => {
+    if (column === 'id') return { is: mockSalonCookieIs };
+    return { is: mockSalonEmailIs };
+  });
   mockSalonSelect = jest.fn().mockReturnValue({ eq: mockSalonEmailEq });
+
+  // claim の条件付き UPDATE（CAS）と、member insert 失敗時の解放 UPDATE。
+  // ペイロードの claimed_by_user_id が非 null なら claim 試行、null なら解放と判定する
+  // （route.ts の2つの update 呼び出しはこの2値のどちらかしか送らない）。
+  mockSalonUpdate = jest.fn((payload: { claimed_by_user_id: string | null }) => {
+    if (payload && payload.claimed_by_user_id != null) {
+      return {
+        eq: jest.fn().mockReturnValue({
+          is: jest.fn().mockReturnValue({
+            select: jest.fn().mockResolvedValue(
+              opts.salonClaimCasError
+                ? { data: null, error: new Error('claim update failed') }
+                : { data: opts.salonClaimCasFails ? [] : [{ id: 'claimed-row-id' }], error: null }
+            ),
+          }),
+        }),
+      };
+    }
+    return {
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({
+          error: opts.salonClaimReleaseFails ? new Error('claim release failed') : null,
+        }),
+      }),
+    };
+  });
 
   mockPhotoInsert = jest.fn().mockResolvedValue({
     error: opts.photoInsertFails ? new Error('photo insert error') : null,
@@ -156,6 +224,7 @@ function setupDefaultMocks(
       } else if (table === 'salons') {
         return {
           select: mockSalonSelect,
+          update: mockSalonUpdate,
         };
       } else if (table === 'facility_photos') {
         return {
