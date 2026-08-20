@@ -17,8 +17,24 @@ export default function Header() {
   // サイズを他リンクに揃え、現在地では aria-current でハイライトして押した意味を示す。
   const isOnSalon = pathname === '/salon';
 
+  // 🔴 /register はくすみ系のテーマ（globals.css の .theme-ecru）で描いている。
+  // ヘッダーはそのページの器の外＝レイアウト側に在るため、ページ内で --primary を上書きしても
+  // 届かず、【ロゴだけ濃い青のまま】でアイボリーの面から浮いていた（実機で確認）。
+  // ここで同じクラスを付けると、ロゴ・hover・現在地ハイライトが var(--primary) 経由で
+  // まとめてテーマ側の色に寄る。色の値はここに書かない（globals.css が単一ソース）。
+  //
+  // ⚠️ 透明度（bg-[...]/95）は付けない。Tailwind は CSS 変数の色に alpha を合成できず、
+  // 無効な色になって【ヘッダーが透明になる】（実機の computed style で rgba(0,0,0,0) を確認）。
+  const usesEcruTheme = pathname === '/register';
+
   return (
-    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-gray-100">
+    <header
+      className={`sticky top-0 z-50 backdrop-blur border-b ${
+        usesEcruTheme
+          ? 'theme-ecru bg-[var(--ecru-bg)] border-[var(--ecru-line)]'
+          : 'bg-white/95 border-gray-100'
+      }`}
+    >
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           <Link href="/" className="text-2xl font-bold text-primary">

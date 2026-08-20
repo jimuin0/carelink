@@ -14,6 +14,11 @@ jobs:
   lint-typecheck:
     name: Lint & Type Check
     runs-on: ubuntu-latest
+    # 🔴 上限を明示する。GitHub の既定は 6 時間で、外部ダウンロードが停滞すると
+    #   1 件のジョブがランナーを 6 時間占有する（2026年8月19日に E2E の
+    #   "Install Playwright Browsers" が 5 時間 58 分ハングして実際に起きた）。
+    #   上限があれば早く赤くなり、再実行が数分で済む。
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,6 +40,11 @@ jobs:
   unit-test:
     name: Unit Tests + Coverage
     runs-on: ubuntu-latest
+    # 🔴 上限を明示する。GitHub の既定は 6 時間で、外部ダウンロードが停滞すると
+    #   1 件のジョブがランナーを 6 時間占有する（2026年8月19日に E2E の
+    #   "Install Playwright Browsers" が 5 時間 58 分ハングして実際に起きた）。
+    #   上限があれば早く赤くなり、再実行が数分で済む。
+    timeout-minutes: 30
     # Phase 1.5 で 26 失敗テスト全修復 → 必須ゲートに復帰
     steps:
       - uses: actions/checkout@v4
@@ -85,6 +95,11 @@ jobs:
   e2e-test:
     name: E2E Tests (Playwright)
     runs-on: ubuntu-latest
+    # 🔴 上限を明示する。GitHub の既定は 6 時間で、外部ダウンロードが停滞すると
+    #   1 件のジョブがランナーを 6 時間占有する（2026年8月19日に E2E の
+    #   "Install Playwright Browsers" が 5 時間 58 分ハングして実際に起きた）。
+    #   上限があれば早く赤くなり、再実行が数分で済む。
+    timeout-minutes: 30
     needs: [lint-typecheck, unit-test]
     # PR でも e2e を必須化する（push-main 限定だと e2e 退行のまま PR マージ可能になる盲点）。
     # workflow は push-main と PR-to-main でのみ起動するため、if を外せば両方で走る。
@@ -171,6 +186,11 @@ jobs:
   security-scan:
     name: Security Audit
     runs-on: ubuntu-latest
+    # 🔴 上限を明示する。GitHub の既定は 6 時間で、外部ダウンロードが停滞すると
+    #   1 件のジョブがランナーを 6 時間占有する（2026年8月19日に E2E の
+    #   "Install Playwright Browsers" が 5 時間 58 分ハングして実際に起きた）。
+    #   上限があれば早く赤くなり、再実行が数分で済む。
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -208,6 +228,11 @@ jobs:
   pr-comment:
     name: PR Coverage Comment
     runs-on: ubuntu-latest
+    # 🔴 上限を明示する。GitHub の既定は 6 時間で、外部ダウンロードが停滞すると
+    #   1 件のジョブがランナーを 6 時間占有する（2026年8月19日に E2E の
+    #   "Install Playwright Browsers" が 5 時間 58 分ハングして実際に起きた）。
+    #   上限があれば早く赤くなり、再実行が数分で済む。
+    timeout-minutes: 30
     needs: [unit-test]
     if: github.event_name == 'pull_request'
     # PR へのカバレッジコメント投稿には issues/pull_requests への write が必須。
@@ -253,6 +278,11 @@ jobs:
   contract-test:
     name: Contract Tests (staging drift gate)
     runs-on: ubuntu-latest
+    # 🔴 上限を明示する。GitHub の既定は 6 時間で、外部ダウンロードが停滞すると
+    #   1 件のジョブがランナーを 6 時間占有する（2026年8月19日に E2E の
+    #   "Install Playwright Browsers" が 5 時間 58 分ハングして実際に起きた）。
+    #   上限があれば早く赤くなり、再実行が数分で済む。
+    timeout-minutes: 30
     # 本番と repo migration の「静かなドリフト」（RPC 不在 / カラム欠落 / View 未作成 /
     # RLS 過大公開 / 予約 RPC の 0A000 landmine）を発症前に検知する恒久ゲート。
     # staging 専用 secrets が未設定なら全テストが describe.skip され、本番には一切触れない。

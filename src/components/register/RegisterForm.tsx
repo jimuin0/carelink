@@ -228,7 +228,7 @@ export default function RegisterForm() {
     <div className="mx-auto max-w-[640px] sm:px-12">
       <div>
         <StepIndicator currentStep={step} totalSteps={3} labels={stepLabels} />
-        <form onSubmit={handleSubmit(() => setShowConfirm(true))} onChange={handleFieldChange} noValidate className="border-y border-[#E4DCD1] bg-white px-5 py-7 sm:rounded-none sm:border sm:px-10 sm:py-10">
+        <form onSubmit={handleSubmit(() => setShowConfirm(true))} onChange={handleFieldChange} noValidate className="border-y border-[var(--ecru-line)] bg-[var(--ecru-surface)] px-5 py-7 sm:border sm:px-10 sm:py-10">
 
           {/* Step 1: 基本情報 */}
           {step === 1 && (
@@ -275,10 +275,10 @@ export default function RegisterForm() {
               {/* 任意項目は既定で畳む。必須と同じ見た目で並べると、スマホでは入力欄の壁にしか
                   見えず「まだこんなにあるのか」と離脱を招く。details は閉じていても中身が
                   DOM に在るため、react-hook-form の登録も検証も従来どおり効く。 */}
-              <details className="group rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-3">
-                <summary className="cursor-pointer list-none text-xs font-medium text-gray-500 marker:content-none">
+              <details className="group border border-[var(--ecru-line)] bg-[var(--ecru-bg)]/70 px-4 py-3">
+                <summary className="cursor-pointer list-none text-xs font-medium text-[var(--ecru-muted)] marker:content-none">
                   <span className="inline-flex items-center gap-1.5">
-                    <span className="text-base leading-none text-gray-300 transition-transform group-open:rotate-45">+</span>
+                    <span className="text-base leading-none text-[var(--ecru-line)] transition-transform group-open:rotate-45">+</span>
                     直通電話・Webサイトを追加する
                   </span>
                 </summary>
@@ -311,10 +311,10 @@ export default function RegisterForm() {
                 <label htmlFor="reg-address" className="form-label">住所</label>
                 <input {...register('address')} id="reg-address" autoComplete="street-address" className="form-input" placeholder="大阪府堺市堺区…" maxLength={200} />
               </div>
-              <details className="group rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-3">
-                <summary className="cursor-pointer list-none text-xs font-medium text-gray-500 marker:content-none">
+              <details className="group border border-[var(--ecru-line)] bg-[var(--ecru-bg)]/70 px-4 py-3">
+                <summary className="cursor-pointer list-none text-xs font-medium text-[var(--ecru-muted)] marker:content-none">
                   <span className="inline-flex items-center gap-1.5">
-                    <span className="text-base leading-none text-gray-300 transition-transform group-open:rotate-45">+</span>
+                    <span className="text-base leading-none text-[var(--ecru-line)] transition-transform group-open:rotate-45">+</span>
                     建物名・最寄り駅を追加する
                   </span>
                 </summary>
