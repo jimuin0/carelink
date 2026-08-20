@@ -44,8 +44,12 @@ export function postAlert(payload: AlertPayload): void {
 
   // 🔴 レスポンス送出後の実行を保証させる（src/lib/after-response.ts）。
   // 従来は浮いた Promise のままで、サーバーレスがレスポンス後にインスタンスを凍結すると
-  // 投稿が失われうる。alertCaughtError は withRoute の catch から呼ばれる＝
-  // 【全 500 応答の Slack 通知】がこの経路なので、取りこぼすと障害に気づけない。
+  // 投稿が失われうる。alertCaughtError は withRoute の catch、および withRoute が
+  // ハンドラの戻り値 500 を検知した場合（2026年8月20日・docs/register-blocker-instructions.md
+  // §3 P0-2 で追加。それまでは throw 由来の 500 のみがこの経路に載っており、ハンドラが
+  // 例外を投げずに return した 500 は通知されずにいた）の両方から呼ばれる。
+  // withRoute を使っているルートの 500 応答はこの経路に載るが、withRoute を使っていない
+  // route.ts はこの経路の対象外（`src/__tests__/silent-500-guard.test.ts` が別途監視する）。
   // 応答は遅らせない（after は登録するだけ）。
   runAfterResponse(async () => {
     try {
