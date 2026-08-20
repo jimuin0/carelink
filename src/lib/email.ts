@@ -698,3 +698,112 @@ export async function sendFavoritesDigest(data: {
     `, data.unsubscribeToken),
   }, 'favorites_digest');
 }
+
+// ---------------------------------------------------------------------------
+// 掲載登録（/register）の申込者向けメール 2 本
+//
+// 🔴 なぜ足したか（2026年8月20日・実データで確定）
+// 本番の salons は 8 件あるのに facility_profiles は 3 件しかなかった。差の 5 件は
+// 「登録フォームは送ったが、アカウント作成まで到達しなかった」申込者で、
+// /api/salons はメールを 1 通も送らず（送信処理そのものが無かった）、
+// onboarding-followup cron は facility_profiles だけを対象にしていたため、
+// この 5 件は【どこからも接触されないまま放置】されていた。
+// 申込者の手元に残る唯一の痕跡が /register/complete の一度きりの画面表示で、
+// そこを離れると戻る手がかりが無い（URL も id もどこにも永続化されない）。
+//
+// 🔴 メールに「登録に使ったメールアドレス」を必ず書く理由
+// /register の入力内容（営業時間・写真・特徴・PR）を管理画面へ引き継ぐキーは
+// 【salons.email と Supabase Auth のメールアドレスの完全一致】だけである
+// （src/app/api/facility/setup/route.ts）。違うアドレスでアカウントを作ると
+// salonData が null のまま素通りし、引き継ぎが【無音で全滅】する。エラーも警告も出ない。
+// この事実を申込者が知る手段が画面上に一切無かったため、受付メール自体を
+// 「どのアドレスでアカウントを作ればよいか」の通知手段として使う。
+// ---------------------------------------------------------------------------
+
+/**
+ * 掲載登録の受付メール（申込者向け・送信直後）。
+ *
+ * 目的は 3 つ。(1) 申込が届いたことの証跡を申込者の手元に残す、
+ * (2) 次の一歩（アカウント作成）へのリンクを永続的な形で渡す、
+ * (3) 引き継ぎに使われるメールアドレスを明示する。
+ */
+export async function sendRegistrationReceiptEmail(data: {
+  email: string;
+  facilityName: string;
+  businessType: string;
+  contactName?: string;
+}): Promise<boolean> {
+  const resend = getResend();
+  if (!resend) return false;
+  // /register/complete が出しているのと同じ導線を、メール本文にも置く。
+  // 画面は一度きりだがメールは残るので、離脱しても後から再開できる。
+  const signupUrl =
+    `${SITE_URL}/auth/signup?redirect=/admin/onboarding` +
+    `&facility_name=${encodeURIComponent(data.facilityName)}` +
+    `&business_type=${encodeURIComponent(data.businessType)}`;
+  const facility = esc(data.facilityName);
+  const name = esc(data.contactName || 'ご担当者');
+  const addr = esc(data.email);
+  return safeSend(resend, {
+    from: FROM,
+    to: data.email,
+    subject: escSubject(`【CareLink】${data.facilityName}の掲載申し込みを受け付けました`),
+    html: wrapHtml(`
+      <p>${name} 様</p>
+      <p>この度は CareLink への掲載申し込みをいただき、ありがとうございます。<br>
+         下記の内容で受け付けました。</p>
+      <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+        <tr><td style="padding:12px;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600;width:120px;">施設名</td><td style="padding:12px;border:1px solid #e2e8f0;">${facility}</td></tr>
+        <tr><td style="padding:12px;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600;">業種</td><td style="padding:12px;border:1px solid #e2e8f0;">${esc(data.businessType)}</td></tr>
+      </table>
+      <p>続けてアカウントを作成すると、いま入力いただいた内容（営業時間・写真・こだわり・PR文）が
+         そのまま管理画面に引き継がれ、掲載の準備を始められます。</p>
+      <div style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:16px;margin:16px 0;">
+        <p style="margin:0;"><strong>アカウントは、このメールを受け取ったアドレスで作成してください。</strong></p>
+        <p style="margin:8px 0 0;">${addr}</p>
+        <p style="margin:8px 0 0;font-size:13px;color:#713f12;">
+          別のアドレスで作成すると、入力いただいた内容が引き継がれず、管理画面で入力し直しになります。</p>
+      </div>
+      <p style="text-align:center;margin-top:24px;"><a href="${esc(signupUrl)}" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">アカウントを作成して始める</a></p>
+      <p style="font-size:13px;color:#64748b;">このメールに心当たりがない場合は、お手数ですが破棄してください。</p>
+    `),
+  }, 'registration_receipt');
+}
+
+/**
+ * 掲載登録の申込者向けフォローメール（数日後・まだアカウントを作っていない人だけ）。
+ *
+ * 送信対象の判定は cron 側（onboarding-followup）が行う。ここは文面だけを持つ。
+ * 施設はまだ存在しない（facility_profiles が無い）ので、管理画面ではなく
+ * アカウント作成へ導く点が sendOnboardingFollowEmail と異なる。
+ */
+export async function sendRegistrationLeadFollowEmail(data: {
+  email: string;
+  facilityName: string;
+  businessType: string;
+}): Promise<boolean> {
+  const resend = getResend();
+  // API キー未設定は送達不可＝false（cron 側で未送信扱いに戻す）。
+  if (!resend) return false;
+  const signupUrl =
+    `${SITE_URL}/auth/signup?redirect=/admin/onboarding` +
+    `&facility_name=${encodeURIComponent(data.facilityName)}` +
+    `&business_type=${encodeURIComponent(data.businessType)}`;
+  const facility = esc(data.facilityName);
+  const addr = esc(data.email);
+  return safeSend(resend, {
+    from: FROM,
+    to: data.email,
+    subject: escSubject(`【CareLink】${data.facilityName}の掲載準備が途中のままです`),
+    html: wrapHtml(`
+      <p>${facility} のお申し込みをいただきましたが、アカウントの作成がまだのようです。</p>
+      <p>アカウントを作成すると、お申し込み時に入力いただいた内容がそのまま管理画面に引き継がれます。
+         入力し直す必要はありません。</p>
+      <div style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:16px;margin:16px 0;">
+        <p style="margin:0;"><strong>このメールを受け取ったアドレスで作成してください。</strong></p>
+        <p style="margin:8px 0 0;">${addr}</p>
+      </div>
+      <p style="text-align:center;margin-top:24px;"><a href="${esc(signupUrl)}" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">アカウントを作成して再開する</a></p>
+    `),
+  }, 'registration_lead_follow');
+}
