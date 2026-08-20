@@ -3585,6 +3585,7 @@ export type Database = {
           created_at: string | null
           display_name: string
           email: string | null
+          email_canonical: string | null
           email_unsubscribed: boolean | null
           favorites_digest_sent_week: string | null
           gender: string | null
@@ -3604,6 +3605,7 @@ export type Database = {
           created_at?: string | null
           display_name?: string
           email?: string | null
+          email_canonical?: string | null
           email_unsubscribed?: boolean | null
           favorites_digest_sent_week?: string | null
           gender?: string | null
@@ -3623,6 +3625,7 @@ export type Database = {
           created_at?: string | null
           display_name?: string
           email?: string | null
+          email_canonical?: string | null
           email_unsubscribed?: boolean | null
           favorites_digest_sent_week?: string | null
           gender?: string | null
@@ -3930,6 +3933,7 @@ export type Database = {
           created_at: string | null
           desired_start_date: string | null
           email: string
+          email_canonical: string | null
           facility_name: string
           features: string[] | null
           has_parking: boolean | null
@@ -3961,6 +3965,7 @@ export type Database = {
           created_at?: string | null
           desired_start_date?: string | null
           email: string
+          email_canonical?: string | null
           facility_name: string
           features?: string[] | null
           has_parking?: boolean | null
@@ -3992,6 +3997,7 @@ export type Database = {
           created_at?: string | null
           desired_start_date?: string | null
           email?: string
+          email_canonical?: string | null
           facility_name?: string
           features?: string[] | null
           has_parking?: boolean | null

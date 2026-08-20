@@ -6,6 +6,7 @@ import { SITE_URL } from '@/lib/constants';
 import { enqueueWebhook } from '@/lib/webhook-queue';
 import { runAfterResponse } from '@/lib/after-response';
 import { resolvedFromEnv, DEFAULT_FROM, RESEND_VERIFIED_DOMAINS } from '@/lib/email-from';
+import { buildOnboardingAuthPath } from '@/lib/onboarding-link';
 import crypto from 'crypto';
 
 let _resend: Resend | null = null;
@@ -737,10 +738,12 @@ export async function sendRegistrationReceiptEmail(data: {
   if (!resend) return false;
   // /register/complete が出しているのと同じ導線を、メール本文にも置く。
   // 画面は一度きりだがメールは残るので、離脱しても後から再開できる。
+  // 🔴 facility_name/business_type は redirect の「兄弟」クエリではなく、redirect の中に
+  // ネストする（src/lib/onboarding-link.ts 参照）。middleware.ts は redirect の値しか
+  // 転送しないため、兄弟クエリのままだとログイン済みユーザーがこのリンクを踏んだ時に
+  // 消えてしまう。
   const signupUrl =
-    `${SITE_URL}/auth/signup?redirect=/admin/onboarding` +
-    `&facility_name=${encodeURIComponent(data.facilityName)}` +
-    `&business_type=${encodeURIComponent(data.businessType)}`;
+    SITE_URL + buildOnboardingAuthPath('signup', { facilityName: data.facilityName, businessType: data.businessType });
   const facility = esc(data.facilityName);
   const name = esc(data.contactName || 'ご担当者');
   const addr = esc(data.email);
@@ -785,10 +788,9 @@ export async function sendRegistrationLeadFollowEmail(data: {
   const resend = getResend();
   // API キー未設定は送達不可＝false（cron 側で未送信扱いに戻す）。
   if (!resend) return false;
+  // 🔴 sendRegistrationReceiptEmail と同じ理由でネスト形を使う（onboarding-link.ts 参照）。
   const signupUrl =
-    `${SITE_URL}/auth/signup?redirect=/admin/onboarding` +
-    `&facility_name=${encodeURIComponent(data.facilityName)}` +
-    `&business_type=${encodeURIComponent(data.businessType)}`;
+    SITE_URL + buildOnboardingAuthPath('signup', { facilityName: data.facilityName, businessType: data.businessType });
   const facility = esc(data.facilityName);
   const addr = esc(data.email);
   return safeSend(resend, {

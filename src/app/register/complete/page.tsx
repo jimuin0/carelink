@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { resolveRegisteredSalon } from '@/lib/register-complete';
+import { buildOnboardingAuthPath } from '@/lib/onboarding-link';
 
 interface Props {
   searchParams: Promise<{ id?: string }>;
@@ -77,12 +78,15 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
 
         <div className="flex flex-col gap-3">
           <Link
-            href={`/auth/signup?redirect=/admin/onboarding&facility_name=${encodeURIComponent(name)}&business_type=${encodeURIComponent(type)}`}
+            href={buildOnboardingAuthPath('signup', { facilityName: name, businessType: type })}
             className="btn-primary px-8 py-4 text-base"
           >
             アカウントを作成して始める
           </Link>
-          <Link href="/auth/login?redirect=/admin/onboarding" className="text-sm text-sky-600 hover:underline">
+          <Link
+            href={buildOnboardingAuthPath('login', { facilityName: name, businessType: type })}
+            className="text-sm text-sky-600 hover:underline"
+          >
             既にアカウントをお持ちの方はログイン
           </Link>
         </div>

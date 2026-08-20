@@ -28,11 +28,14 @@ jest.mock('next/headers');
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { sendWelcomeEmail } from '@/lib/email';
+import { canonicalizeEmail } from '@/lib/email-canonical';
 import { POST } from '../route';
 
 let mockFacilityInsert: jest.Mock;
 let mockMemberInsert: jest.Mock;
 let mockSalonSelect: jest.Mock;
+let mockSalonEmailEq: jest.Mock;
+let mockSalonStatusNeq: jest.Mock;
 let mockFacilityDelete: jest.Mock;
 let mockPhotoInsert: jest.Mock;
 
@@ -76,15 +79,18 @@ function setupDefaultMocks(
   (sendWelcomeEmail as jest.Mock).mockResolvedValue(true);
 
   const salonData = 'salonData' in opts ? opts.salonData : (salonFound ? SALON_FULL : null);
-  mockSalonSelect = jest.fn().mockReturnValue({
-    eq: jest.fn().mockReturnValue({
-      order: jest.fn().mockReturnValue({
-        limit: jest.fn().mockReturnValue({
-          maybeSingle: jest.fn().mockResolvedValue({ data: salonData }),
-        }),
+  // .eq('email_canonical', ...) → .or('status.is.null,status.neq.rejected') → .order() → .limit() → .maybeSingle()
+  // eq/or を個別に spy として保持し、呼び出し引数（canonical 化されたメール・rejected 除外）を検証する。
+  // 🔴 .neq ではなく .or なのは、status が NULL の行を落とさないため（route.ts のコメント参照）。
+  mockSalonStatusNeq = jest.fn().mockReturnValue({
+    order: jest.fn().mockReturnValue({
+      limit: jest.fn().mockReturnValue({
+        maybeSingle: jest.fn().mockResolvedValue({ data: salonData }),
       }),
     }),
   });
+  mockSalonEmailEq = jest.fn().mockReturnValue({ or: mockSalonStatusNeq });
+  mockSalonSelect = jest.fn().mockReturnValue({ eq: mockSalonEmailEq });
 
   mockPhotoInsert = jest.fn().mockResolvedValue({
     error: opts.photoInsertFails ? new Error('photo insert error') : null,
@@ -853,5 +859,78 @@ describe('POST /api/facility/setup', () => {
     const f = mockFacilityInsert.mock.calls[0][0];
     expect(f.prefecture).toBeNull();
     expect(f.city).toBeNull();
+  });
+
+  // ─── メール突合の canonical 化（2026年8月20日追加）───────────────────────────
+  // /register と Auth のメールがバイト完全一致しないと引き継ぎが無音失敗していた欠陥の修正。
+  // src/lib/email-canonical.ts の canonicalizeEmail() を使った突合を固定する。
+
+  test('(i) salons.email が大文字混じりでも、Auth の小文字メールで引き継がれる', async () => {
+    setupDefaultMocks(true, false, true, false, false, false, {
+      userEmail: 'Owner@Example.com', // Auth 側は大文字混じり
+    });
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
+    expect(res.status).toBe(200);
+    // .eq('email_canonical', canonicalizeEmail(user.email)) が呼ばれ、引き継ぎが成立する
+    expect(mockSalonEmailEq).toHaveBeenCalledWith('email_canonical', canonicalizeEmail('Owner@Example.com'));
+    const f = mockFacilityInsert.mock.calls[0][0];
+    // SALON_FULL の内容（postal_code 等）が引き継がれている＝salonData が見つかった証拠
+    expect(f.postal_code).toBe('150-0001');
+  });
+
+  test('(ii) gmail のプラス付き／ドット違いでも同一人物として引き継がれる', async () => {
+    setupDefaultMocks(true, false, true, false, false, false, {
+      userEmail: 'o.wner+signup@gmail.com', // register 側は owner@gmail.com 相当の別表記
+    });
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
+    expect(res.status).toBe(200);
+    expect(mockSalonEmailEq).toHaveBeenCalledWith('email_canonical', 'owner@gmail.com');
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.postal_code).toBe('150-0001');
+  });
+
+  test('(iii) LINE ログインの合成メールでは salons を照会せず、引き継ぎ無しで施設が作られる', async () => {
+    setupDefaultMocks(true, false, true, false, false, false, {
+      userEmail: 'line_abcdef0123456789@line.carelink.local',
+    });
+    const res = await POST(makeRequest({ facility_name: 'LINEオーナーの施設', business_type: 'ネイル・まつげサロン' }) as any);
+    expect(res.status).toBe(200);
+    // salons への select 自体が発生しない（無駄な照合をしない）
+    expect(mockSalonSelect).not.toHaveBeenCalled();
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.name).toBe('LINEオーナーの施設');
+    // 引き継ぎ対象なし＝SALON_FULL 由来の postal_code は入らない
+    expect(f.postal_code).toBeNull();
+  });
+
+  test('(iii-b) LINE 合成メールの判定は大文字混じりでも成立する（大文字小文字を無視）', async () => {
+    setupDefaultMocks(true, false, true, false, false, false, {
+      userEmail: 'line_ABCDEF0123456789@LINE.CARELINK.LOCAL',
+    });
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
+    expect(res.status).toBe(200);
+    expect(mockSalonSelect).not.toHaveBeenCalled();
+  });
+
+  test('(iv) status が rejected の salons 行は引き継がれない（NULL 安全な or で除外）', async () => {
+    // salonData に rejected が混じっていても maybeSingle は DB 側で除外された結果を返す前提。
+    // ここでは .or() の呼び出し引数そのものを検証し、除外条件が SQL に載っていることを確認する。
+    setupDefaultMocks(true, false, true);
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
+    expect(res.status).toBe(200);
+    // 🔴 NULL 安全であること＝status.is.null を含むことまで主張する。
+    // .neq('status','rejected') に戻すと `status <> 'rejected'` になり NULL 行が落ちるため、
+    // ここが「rejected を除外している」だけの検査だと、その退行を素通しする。
+    expect(mockSalonStatusNeq).toHaveBeenCalledWith('status.is.null,status.neq.rejected');
+  });
+
+  test('(iv-b) rejected 申込しか無い場合はモック側で null を返し、引き継ぎ無しで作成される（除外の実効性）', async () => {
+    // 除外が実際に効いた結果を模す＝maybeSingle が null を返すケース。
+    setupDefaultMocks(true, false, false); // salonFound=false → salonData=null
+    const res = await POST(makeRequest({ facility_name: 'Rejected後の新規', business_type: 'ネイル・まつげサロン' }) as any);
+    expect(res.status).toBe(200);
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.name).toBe('Rejected後の新規');
+    expect(f.postal_code).toBeNull();
   });
 });

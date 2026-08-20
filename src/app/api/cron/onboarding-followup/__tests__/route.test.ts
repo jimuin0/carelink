@@ -30,6 +30,7 @@ jest.mock('@supabase/supabase-js', () => ({
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
 import { sendOnboardingFollowEmail, sendRegistrationLeadFollowEmail } from '@/lib/email';
+import { canonicalizeEmail } from '@/lib/email-canonical';
 import { GET } from '../route';
 
 // Holds the facility_profiles UPDATE mock for the current test (for claim/release assertions).
@@ -123,14 +124,17 @@ function buildFrom(opts: any = {}) {
     // salons.is() の呼び出し引数を検証したいテスト用（未指定なら中身を検証しない素の jest.fn）。
     const salonIsSpy = opts.salonIsSpy as jest.Mock | null;
     // profiles は2つの異なる呼び出し元から使われる:
-    //   facility パス:  .select('email').eq('id', userId).maybeSingle()      → member の owner profile
-    //   salons パス:    .select('id').eq('email', email).maybeSingle()       → アカウント作成済みか判定
+    //   facility パス:  .select('email').eq('id', userId).maybeSingle()                  → member の owner profile
+    //   salons パス:    .select('id').eq('email_canonical', canonicalizeEmail(email)).maybeSingle()
+    //                    → アカウント作成済みか判定（大文字小文字・gmail +tag/ドット違いを吸収する canonical 突合）
     // eq() に渡された field 名で分岐する（呼び出し元コードの引数をそのまま検証できる）。
+    // existingAccountEmails は「登録済みとみなす生メール」を渡す（テスト側で canonicalize してから比較する）。
     if (table === 'profiles') return {
       select: jest.fn().mockReturnValue({
         eq: jest.fn((field: string, value: string) => {
-          if (field === 'email') {
-            const found = existingAccountEmails.includes(value) ? { id: `profile-${value}` } : null;
+          if (field === 'email_canonical') {
+            const canonicalExisting = existingAccountEmails.map((e: string) => canonicalizeEmail(e));
+            const found = canonicalExisting.includes(value) ? { id: `profile-${value}` } : null;
             return { maybeSingle: jest.fn().mockResolvedValue({ data: found, error: profileEmailCheckError }) };
           }
           return { maybeSingle: jest.fn().mockResolvedValue({ data: profile }) };
@@ -625,6 +629,59 @@ describe('GET /api/cron/onboarding-followup', () => {
       expect(nullReleases.length).toBe(0);
       const json = await res.json();
       expect(json.sent).toBe(0);
+    });
+
+    // ─── メール突合の canonical 化（2026年8月20日追加）───────────────────────────
+    // 旧実装の `.eq('email', salon.email)` はバイト完全一致だったため、大文字小文字・
+    // gmail の "+tag"/ドット違いで既存アカウントを検出できず、【既にアカウントを持つ店舗へ
+    // 「まだ作られていません」と誤送信する fail-open】になっていた。
+
+    test('(v-a) profiles.email が大文字違いでも「アカウント作成済み」と判定し送信しない', async () => {
+      const caseSalon = { id: 'sal-case', email: 'Lead@Example.com', facility_name: 'Case Salon', business_type: 'clinic' };
+      mockFromDelegate.mockImplementation(buildFrom({
+        facilities: [],
+        salons: [caseSalon],
+        existingAccountEmails: ['lead@example.com'], // profiles 側は小文字で保存されている
+      }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      expect(sendRegistrationLeadFollowEmail).not.toHaveBeenCalled();
+      const nullReleases = salonUpdateMock.mock.calls.filter((c: any[]) => c[0].registration_followup_sent_at === null);
+      expect(nullReleases.length).toBe(0); // 作成済み＝claim 維持
+      const json = await res.json();
+      expect(json.sent).toBe(0);
+    });
+
+    test('(v-b) gmail の "+tag"/ドット違いでも「アカウント作成済み」と判定し送信しない', async () => {
+      const plusSalon = { id: 'sal-plus', email: 'o.wner+lead@gmail.com', facility_name: 'Plus Salon', business_type: 'clinic' };
+      mockFromDelegate.mockImplementation(buildFrom({
+        facilities: [],
+        salons: [plusSalon],
+        existingAccountEmails: ['owner@gmail.com'], // 実アカウントは正規化後と同じ受信箱
+      }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      expect(sendRegistrationLeadFollowEmail).not.toHaveBeenCalled();
+      const json = await res.json();
+      expect(json.sent).toBe(0);
+    });
+
+    test('(vi) 大文字・+tag/ドットが違っても本当にアカウントが無ければ従来どおり送信する', async () => {
+      const noAccountSalon = { id: 'sal-none', email: 'Really.New+lead@gmail.com', facility_name: 'New Lead Salon', business_type: 'clinic' };
+      mockFromDelegate.mockImplementation(buildFrom({
+        facilities: [],
+        salons: [noAccountSalon],
+        existingAccountEmails: ['someone-else@example.com'], // 一致しない別アカウントのみ存在
+      }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      expect(sendRegistrationLeadFollowEmail).toHaveBeenCalledWith({
+        email: 'Really.New+lead@gmail.com',
+        facilityName: 'New Lead Salon',
+        businessType: 'clinic',
+      });
+      const json = await res.json();
+      expect(json.sent).toBe(1);
     });
 
     test('(iii) registration_followup_sent_at IS NULL で絞り込む（主クエリの .is フィルタ）', async () => {

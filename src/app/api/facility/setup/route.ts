@@ -15,6 +15,13 @@ import { getClientIp } from "@/lib/client-ip";
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { extractPrefecture, extractCity } from '@/lib/japan-address';
+import { canonicalizeEmail } from '@/lib/email-canonical';
+
+// LINE ログインで email 未提供のユーザーに割り当てられる合成メールのドメイン
+// （src/app/api/auth/line/callback/route.ts の syntheticLineEmail() が発行元）。
+// この形は register フォーム（salons.email）に構造的に絶対一致しないため、
+// 無駄な照合をせず「引き継ぎ対象なし」として扱う。
+const LINE_SYNTHETIC_EMAIL_DOMAIN = '@line.carelink.local';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,11 +76,27 @@ export async function POST(request: NextRequest) {
     // onboarding は facility_name 付きで来るため条件を付けず、常に email 一致の最新 salon を取得する
     // （旧実装は facility_name 未指定時のみ取得＝実運用では常にスキップされ、営業時間・写真・特徴・PR 等が
     //  一切引き継がれず管理画面で全て入力し直しになっていた）。email 未設定時は取得しない。
-    const { data: salonData } = user.email
+    //
+    // 🔴 突合は canonical（正規化後）で行う。旧実装の `.eq('email', user.email)` はバイト完全一致
+    // だったため、salons.email と auth のメールが大文字小文字違い・gmail の "+tag"/ドット違いだと
+    // 一致せず引き継ぎが無音で失敗していた（src/lib/email-canonical.ts 参照・bookings/customer_visits
+    // と同じ正規化を掲載店舗の引き継ぎにも適用する）。
+    //
+    // LINE ログインの合成メール（line_<hmac>@line.carelink.local）は register フォームの入力に
+    // 構造的に絶対一致しないため、無駄な canonical 照合をせず「引き継ぎ対象なし」として扱う。
+    const isLineSyntheticEmail = user.email?.toLowerCase().endsWith(LINE_SYNTHETIC_EMAIL_DOMAIN) ?? false;
+    const { data: salonData } = user.email && !isLineSyntheticEmail
       ? await adminSupabase
           .from('salons')
           .select('*')
-          .eq('email', user.email)
+          .eq('email_canonical', canonicalizeEmail(user.email))
+          // 運営が却下した申込は引き継がない。
+          // 🔴 .neq('status','rejected') と書くと SQL は `status <> 'rejected'` になり、
+          //   status が NULL の行は NULL 評価で【除外されてしまう】（salons.status は
+          //   DEFAULT 'pending' だが NOT NULL ではない）。却下されていない行を落とすのは
+          //   まさにいま潰している「引き継ぎが無音で消える」故障そのものなので、
+          //   NULL を明示的に通す形にする。
+          .or('status.is.null,status.neq.rejected')
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle()
