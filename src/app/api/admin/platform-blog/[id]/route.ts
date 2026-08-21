@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
-import { UUID_REGEX, SITE_URL } from '@/lib/constants';
+import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -10,8 +10,7 @@ import { requirePlatformAdmin } from '@/lib/platform-admin';
 import type { Database, Json } from '@/types/database.types';
 import { serverError } from '@/lib/with-route';
 import { runAfterResponse } from '@/lib/after-response';
-import { alertWarning } from '@/lib/alert';
-import { publishThreadsText, buildArticlePostText } from '@/lib/threads';
+import { publishArticleToThreads } from '@/lib/platform-blog-threads';
 
 /**
  * 記事公開を Threads 投稿のきっかけに配線する処理本体。
@@ -29,57 +28,6 @@ import { publishThreadsText, buildArticlePostText } from '@/lib/threads';
  * `threads_post_id IS NULL` も必須条件にし、一度でも投稿に成功した記事は claim の状態に
  * 関わらず永久に除外する（公開取り消し→再公開での再投稿防止・要件3）。
  */
-async function publishArticleToThreads(
-  admin: ReturnType<typeof createServiceRoleClient>,
-  post: { id: string; slug: string; title: string }
-): Promise<void> {
-  const nowIso = new Date().toISOString();
-
-  const { data: claimed, error: claimError } = await admin
-    .from('platform_blog_posts')
-    .update({ threads_posted_at: nowIso })
-    .eq('id', post.id)
-    .is('threads_post_id', null)
-    .is('threads_posted_at', null)
-    .select('id');
-
-  if (claimError || !claimed || claimed.length === 0) {
-    return;
-  }
-
-  let result;
-  try {
-    const url = `${SITE_URL}/blog/${post.slug}`;
-    result = await publishThreadsText(buildArticlePostText(post.title, url));
-  } catch (e) {
-    result = {
-      outcome: 'transient' as const,
-      reason: e instanceof Error ? e.message : String(e),
-    };
-  }
-
-  if (result.outcome === 'published') {
-    await admin
-      .from('platform_blog_posts')
-      .update({ threads_post_id: result.postId ?? null })
-      .eq('id', post.id)
-      .is('threads_post_id', null);
-    return;
-  }
-
-  if (result.outcome === 'permanent') {
-    alertWarning(
-      `[platform-blog] Threads 投稿が恒久的に失敗しました（id=${post.id}）: ${result.reason ?? 'unknown'}`,
-      { route: '/api/admin/platform-blog/[id]' }
-    );
-  }
-
-  await admin
-    .from('platform_blog_posts')
-    .update({ threads_posted_at: null })
-    .eq('id', post.id)
-    .is('threads_post_id', null);
-}
 
 const platformBlogUpdateSchema = z.object({
   slug: z.string().min(1).max(200).regex(/^[a-z0-9-]+$/, 'スラッグは半角英数字とハイフンのみ使用できます').optional(),
@@ -165,7 +113,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   // このガードだけで自動的に再投稿されなくなる（公開のままの編集保存を何度繰り返しても、
   // 実際に Threads へ投稿されるのは最初の1回だけ）。
   if (data.is_published) {
-    runAfterResponse(() => publishArticleToThreads(admin, { id: data.id, slug: data.slug, title: data.title }));
+    runAfterResponse(() => publishArticleToThreads(admin, { id: data.id, slug: data.slug, title: data.title }, '/api/admin/platform-blog/[id]'));
   }
 
   return NextResponse.json({ post: data });

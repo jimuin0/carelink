@@ -282,6 +282,39 @@ describe('refreshThreadsToken', () => {
 });
 
 describe('buildArticlePostText', () => {
+  // Threads の重み付け（BMP=1 / BMP外=UTF-8バイト数）で数え直すヘルパー。
+  // 公式ドキュメントの "emojis count as UTF-8 bytes" に合わせる。
+  const threadsWeight = (text: string) => {
+    let total = 0;
+    for (const ch of text) {
+      const cp = ch.codePointAt(0) as number;
+      total += cp > 0xffff ? Buffer.byteLength(ch, 'utf8') : 1;
+    }
+    return total;
+  };
+
+  it('絵文字だらけのタイトルでも Threads の数え方で500を超えない', () => {
+    // 🔴 .length（UTF-16 コード単位）で数えると絵文字は2だが、Threads は UTF-8
+    //   バイト（4）で課金する。.length のままだと過小評価して上限を超える。
+    const title = '😀'.repeat(400);
+    const url = 'https://carelink-jp.com/blog/a';
+    const text = buildArticlePostText(title, url);
+    expect(threadsWeight(text)).toBeLessThanOrEqual(500);
+    expect(text.endsWith(url)).toBe(true);
+  });
+
+  it('切り詰めてもサロゲートペアを分断しない（文字化けを公開投稿に出さない）', () => {
+    // 実測: '記事タイトル😀です'.slice(0, 7) === '記事タイトル\ud83d'（孤立サロゲート）
+    const url = 'https://carelink-jp.com/blog/b';
+    for (let n = 1; n <= 200; n++) {
+      const text = buildArticlePostText('あ😀'.repeat(n), url);
+      // 孤立した上位／下位サロゲートが1つも残っていないこと
+      expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(text)).toBe(false);
+      expect(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text)).toBe(false);
+      expect(threadsWeight(text)).toBeLessThanOrEqual(500);
+    }
+  });
+
   const URL = 'https://carelink-jp.com/blog/example-article';
 
   test('short title fits without truncation', () => {

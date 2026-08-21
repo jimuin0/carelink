@@ -396,7 +396,7 @@ describe('GET /api/cron/threads-backfill', () => {
 
     const res = await GET(mockRequest());
 
-    expect(res.status).toBeUndefined();
+    expect(res.status).toBe(200);
     expect(console.error).toHaveBeenCalledWith(
       '[threads-backfill] claim release failed',
       expect.objectContaining({ postId: 'p1', err: 'release failed' })
@@ -465,7 +465,7 @@ describe('GET /api/cron/threads-backfill', () => {
       '[threads-backfill] claim failed',
       expect.objectContaining({ postId: 'p1', err: 'claim error' })
     );
-    expect(body.skipped).toBe(1); // raced/claimErr は skipped 集計に含まれる
+    expect(body.skipped).toBe(1); // claimErr は skipped 集計（claimErrors）に含まれる
   });
 
   it('🔴 上限で打ち切ったら truncated=true・警告ログを出す（負の対照(c): このログを消すとテストが赤くなる）', async () => {

@@ -9,9 +9,7 @@ import { requirePlatformAdmin } from '@/lib/platform-admin';
 import type { Json } from '@/types/database.types';
 import { serverError } from '@/lib/with-route';
 import { runAfterResponse } from '@/lib/after-response';
-import { alertWarning } from '@/lib/alert';
-import { publishThreadsText, buildArticlePostText } from '@/lib/threads';
-import { SITE_URL } from '@/lib/constants';
+import { publishArticleToThreads } from '@/lib/platform-blog-threads';
 
 /**
  * 記事公開を Threads 投稿のきっかけに配線する処理本体。
@@ -34,68 +32,6 @@ import { SITE_URL } from '@/lib/constants';
  * 必須条件にし、「一度でも投稿に成功した記事」を鍵の状態に関わらず永久に除外する
  * （公開取り消し→再公開での再投稿防止・要件3）。
  */
-async function publishArticleToThreads(
-  admin: ReturnType<typeof createServiceRoleClient>,
-  post: { id: string; slug: string; title: string }
-): Promise<void> {
-  const nowIso = new Date().toISOString();
-
-  // claim: 同時に複数リクエストが来ても、threads_posted_at を実際に null → 非null へ
-  // 遷移させられるのは1件だけ（行ロックにより原子的）。
-  const { data: claimed, error: claimError } = await admin
-    .from('platform_blog_posts')
-    .update({ threads_posted_at: nowIso })
-    .eq('id', post.id)
-    .is('threads_post_id', null)
-    .is('threads_posted_at', null)
-    .select('id');
-
-  if (claimError || !claimed || claimed.length === 0) {
-    // claim できなかった = 既に投稿済み／投稿処理中／過去の試行が claim を保持したまま。
-    // 二重投稿を避けるのが目的なので、ここは正常系として何もしない。
-    return;
-  }
-
-  let result;
-  try {
-    const url = `${SITE_URL}/blog/${post.slug}`;
-    result = await publishThreadsText(buildArticlePostText(post.title, url));
-  } catch (e) {
-    // publishThreadsText はエラーを outcome として返す契約だが、想定外の throw で
-    // claim が解放されないまま恒久的に固着する（＝以後二度と投稿もアラートも発生しない）
-    // 事故を避けるため、transient 相当として扱い claim を解放する。
-    result = {
-      outcome: 'transient' as const,
-      reason: e instanceof Error ? e.message : String(e),
-    };
-  }
-
-  if (result.outcome === 'published') {
-    await admin
-      .from('platform_blog_posts')
-      .update({ threads_post_id: result.postId ?? null })
-      .eq('id', post.id)
-      .is('threads_post_id', null);
-    return;
-  }
-
-  if (result.outcome === 'permanent') {
-    // トークン失効等＝次回以降も必ず失敗する。専用の記録列が無いため「一度だけ通知」はできず、
-    // claim を解放して次の編集保存でも同じ理由で再試行・再通知させる（直るまで気づき続けられる形）。
-    alertWarning(
-      `[platform-blog] Threads 投稿が恒久的に失敗しました（id=${post.id}）: ${result.reason ?? 'unknown'}`,
-      { route: '/api/admin/platform-blog' }
-    );
-  }
-
-  // skipped（未設定・正常系）／transient（一時失敗・記録せず backfill cron に任せる）／
-  // permanent（上で通知済み）のいずれも、threads_post_id は書かず claim だけ解放する。
-  await admin
-    .from('platform_blog_posts')
-    .update({ threads_posted_at: null })
-    .eq('id', post.id)
-    .is('threads_post_id', null);
-}
 
 const platformBlogSchema = z.object({
   slug: z.string().min(1).max(200).regex(/^[a-z0-9-]+$/, 'スラッグは半角英数字とハイフンのみ使用できます'),
@@ -162,7 +98,7 @@ export async function POST(request: NextRequest) {
   // （threads_post_id）は publishArticleToThreads 内の CAS が一元管理するため、ここでは
   // 「公開されているかどうか」だけを見て呼び出すだけでよい（新規作成なので post_id は必ず null）。
   if (data.is_published) {
-    runAfterResponse(() => publishArticleToThreads(admin, { id: data.id, slug: data.slug, title: data.title }));
+    runAfterResponse(() => publishArticleToThreads(admin, { id: data.id, slug: data.slug, title: data.title }, '/api/admin/platform-blog'));
   }
 
   return NextResponse.json({ post: data }, { status: 201 });

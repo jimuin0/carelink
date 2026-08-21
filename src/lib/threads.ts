@@ -231,28 +231,60 @@ export async function refreshThreadsToken(): Promise<{
 }
 
 /**
+ * 1 コードポイントが Threads の上限に対して消費する「重み」。
+ *
+ * 🔴 Threads の公式ドキュメントは上限を「500 characters」としつつ、
+ *   **"emojis count as UTF-8 bytes, potentially consuming multiple characters"**
+ *   と明記している。つまり絵文字だけはバイト単位で課金される。
+ *
+ *   - BMP 内（日本語のかな・カナ・漢字を含む）… 1 として数える。
+ *     ここでバイト数を使うと日本語1文字＝3バイトとなり、実際には入るものを
+ *     3分の1しか入れられなくなる（過剰な切り詰め）。
+ *   - BMP 外（絵文字・U+10000 以上）… UTF-8 バイト数（通常 4）で数える。
+ *     ここで `.length`（UTF-16 コード単位＝2）を使うと **過小評価**になり、
+ *     絵文字を多く含むタイトルで 500 を超えて送信し得る。
+ */
+function threadsWeightOfCodePoint(codePoint: number): number {
+  return codePoint > 0xffff
+    ? Buffer.byteLength(String.fromCodePoint(codePoint), 'utf8')
+    : 1;
+}
+
+/** 文字列全体の重み（上記の合計）。 */
+function threadsWeight(text: string): number {
+  let total = 0;
+  for (const ch of text) total += threadsWeightOfCodePoint(ch.codePointAt(0) as number);
+  return total;
+}
+
+/**
+ * 重みが budget を超えない最大の接頭辞を返す。
+ *
+ * 🔴 `String.prototype.slice` を使わないのは、**サロゲートペアを分断して文字化けを
+ *   公開投稿に出してしまう**ため。実測: `'記事タイトル😀です'.slice(0, 7)` は
+ *   `'記事タイトル\ud83d'`（孤立サロゲート）を返す。
+ *   `for...of` は文字列をコードポイント単位で回すので、この分断が原理的に起きない。
+ */
+function truncateToThreadsWeight(text: string, budget: number): string {
+  let out = '';
+  let used = 0;
+  for (const ch of text) {
+    const w = threadsWeightOfCodePoint(ch.codePointAt(0) as number);
+    if (used + w > budget) break;
+    out += ch;
+    used += w;
+  }
+  return out;
+}
+
+/**
  * 記事タイトルと URL から、500文字上限に収まる投稿本文を組み立てる（純粋関数）。
  *
  * URL は必ず残す（切れたら投稿の意味が無い）。上限を超える分はタイトル側だけを
- * 切り詰め、省略記号を付ける。
- *
- * 🔴 文字数のカウントに素朴な `.length`（UTF-16 コード単位数）を使う。これで足りるか:
- *
- *   - Threads の「500文字上限」は Unicode の文字（コードポイント）数として文書化されており、
- *     UTF-8 バイト数ではない。CareLink の投稿本文は日本語タイトルが主体で、日本語の
- *     かな・カナ・大半の漢字は Unicode 基本多言語面（BMP）に収まり、BMP のコードポイントは
- *     UTF-16 でも常に 1 コード単位＝ `.length` は「コードポイント数」と一致する
- *     （UTF-8 バイト数だと日本語1文字が3バイトになり大幅に過小評価してしまうため、
- *     バイト数を使うのは誤り）。
- *   - 唯一 `.length` が実際のコードポイント数より**多く**数える（過大評価する）のは、
- *     基本多言語面の外（絵文字の一部・U+10000 以上）の文字で、UTF-16 ではサロゲート
- *     ペア＝2コード単位になる場合。過大評価は「本来まだ入る文字数を切り詰めすぎる」
- *     方向にしか働かず、**上限を超えて送信してしまう方向には絶対に振れない**
- *     （`.length` が実コードポイント数を下回ることはない）。
- *   - 結論: 安全側（超過なし）に倒れる近似として `.length` で足りる。
+ * 切り詰め、省略記号を付ける。文字数の数え方は上の `threadsWeightOfCodePoint` を参照。
  */
 export function buildArticlePostText(title: string, url: string): string {
-  const budgetForTitleAndSeparator = THREADS_MAX_CHARS - url.length;
+  const budgetForTitleAndSeparator = THREADS_MAX_CHARS - threadsWeight(url);
 
   if (budgetForTitleAndSeparator <= 0) {
     // URL 単体だけで上限に迫る／超える極端なケース。URL は削らない方針なので
@@ -260,18 +292,20 @@ export function buildArticlePostText(title: string, url: string): string {
     return url;
   }
 
-  const budgetForTitle = budgetForTitleAndSeparator - SEPARATOR.length;
+  const budgetForTitle = budgetForTitleAndSeparator - threadsWeight(SEPARATOR);
 
   if (budgetForTitle <= 0) {
     // タイトルを入れる余地が無い（URL + 区切りだけで上限ぎりぎり）。URL のみ返す。
     return url;
   }
 
-  if (title.length <= budgetForTitle) {
+  if (threadsWeight(title) <= budgetForTitle) {
     return `${title}${SEPARATOR}${url}`;
   }
 
-  const truncateAt = Math.max(0, budgetForTitle - ELLIPSIS.length);
-  const truncatedTitle = `${title.slice(0, truncateAt)}${ELLIPSIS}`;
+  const truncatedTitle = `${truncateToThreadsWeight(
+    title,
+    Math.max(0, budgetForTitle - threadsWeight(ELLIPSIS))
+  )}${ELLIPSIS}`;
   return `${truncatedTitle}${SEPARATOR}${url}`;
 }

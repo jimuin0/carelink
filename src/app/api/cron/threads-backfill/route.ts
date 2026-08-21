@@ -131,13 +131,17 @@ export async function GET(request: Request) {
       return NextResponse.json({ processed: 0, skipped: 0, status: 'ok' });
     }
 
-    const truncated = (totalEligible ?? candidates.length) > candidates.length;
+    // count クエリが null を返す（ドライバ表現揺れ等）場合は候補件数を下限として使う。
+    // その場合 effectiveTotal === candidates.length になり truncated は必ず false になる
+    // （= totalEligible 不明時は「打ち切った」と過大に主張しない安全側）。
+    const effectiveTotal = totalEligible ?? candidates.length;
+    const truncated = effectiveTotal > candidates.length;
     if (truncated) {
       // 🔴 no silent caps: 上限で打ち切った事実を必ず可視化する。
       console.warn('[threads-backfill] per-run cap reached, remaining candidates deferred to next run', {
         cap: MAX_POSTS_PER_RUN,
         totalEligible,
-        deferred: (totalEligible ?? candidates.length) - candidates.length,
+        deferred: effectiveTotal - candidates.length,
       });
     }
 

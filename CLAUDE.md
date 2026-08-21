@@ -309,6 +309,8 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 | webhook-retry | `*/15 * * * *` | 15分毎 |
 | hpb-menu-scrape | `20 17 * * *` | 毎日 02:20 |
 | cron-heartbeat | `7,37 * * * *` | 毎時07分・37分（監視系の生存確認・`/api/health` の cron 鮮度判定に使う） |
+| threads-backfill | `50 * * * *` | 毎時50分（記事公開時のインライン Threads 投稿が transient 失敗した場合の自己修復） |
+| threads-token-refresh | `25 5 * * 3` | 水曜 14:25（Threads 長期トークン更新・60日失効に対し週次で更新） |
 | schema-drift-check | `40 17 * * *` | 毎日 02:40 |
 
 オーナーニュースレターの自動月次配信は廃止した（神原さん確定 2026年7月2日「お知らせがある時のみ」）。旧 `/api/cron/newsletter-digest` エンドポイント・専用ワークフロー `newsletter-digest.yml`・発火監視 `monthly-batch-watcher.yml` はすべて削除済み。全店に同一の全プラットフォーム集計（「新規予約 N」等）を一斉配信していた作りを根本から廃止した。ニュースレター配信は管理画面 `/admin/newsletters` で任意の件名・本文を作成し「今すぐ配信」する手動運用のみ（`api/admin/newsletter`・`api/admin/newsletter/[id]` action=send）。台帳テーブル `newsletter_send_log` は孤児化するが、`schema-drift-check` との整合のため DB・マイグレーション・スナップショットは残置（無害）。
@@ -370,6 +372,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 | NEXT_PUBLIC_RECAPTCHA_SITE_KEY | reCAPTCHA のサイトキー（未設定なら検証をスキップ＝bot 対策は rate limit のみ） |
 | ALERT_CHECK_TOKEN | `/api/alert-check` の Bearer 認証（未設定で 500） |
 | ADMIN_HEARTBEAT_URL / ADMIN_HEARTBEAT_TOKEN | 管理画面ハートビートの送信先とトークン（未設定で送信しない・`src/lib/admin-heartbeat.ts`） |
+| THREADS_USER_ID | Threads 自動投稿の投稿先ユーザーID（未設定なら投稿は `skipped`＝正常扱い）。**アクセストークンは env に置かない**（60日で失効し `threads-token-refresh` cron が自動更新するが、env はコードから書き換えられないため）。トークンは `threads_credentials` テーブルに入る（RLS 有効・許可ポリシー無し＝service role のみ読める） |
 
 ## テスト・CI（`.github/workflows/ci.yml`）
 - Lint & Type Check：`npm run lint` ＋ `npx tsc --noEmit`
