@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { serverError } from '@/lib/with-route';
 
 const updateSchema = z.object({
   name: z.string().min(1).max(200).optional(), // title として保存
@@ -59,7 +60,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   // .maybeSingle(): verify と update の間に削除される TOCTOU 等で該当0行になった場合、.single() だと
   // PGRST116 error が先に発火し if(error)→500 になり下の 404 分岐が到達不能になる（PR#465 と同型）。
   const { data, error } = await admin.from('treatment_catalogs').update(updateValues).eq('id', params.id).eq('facility_id', facilityId).select().maybeSingle();
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-catalog-patch', error, '/api/admin/catalog/[id]');
   if (!data) return NextResponse.json({ error: 'カタログが見つかりません' }, { status: 404 });
 
   const { ip: auditIp, ua } = getRequestContext(request);
@@ -99,7 +100,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   // 0件削除も「成功」と偽装していた（phantom success）。.select() で削除行を受け取り、0件なら404を返す
   // （customers/[id]・menus/[id] と同型）。
   const { data, error } = await admin.from('treatment_catalogs').delete().eq('id', params.id).eq('facility_id', facilityId).select();
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-catalog-delete', error, '/api/admin/catalog/[id]');
   if (!data || data.length === 0) return NextResponse.json({ error: 'カタログが見つかりません' }, { status: 404 });
 
   const { ip: auditIp, ua } = getRequestContext(request);

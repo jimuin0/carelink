@@ -8,6 +8,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import type { Database } from '@/types/database.types';
+import { serverError } from '@/lib/with-route';
 
 // contacts の update() に渡すオブジェクトの型。
 // Record<string, unknown> は Database 型配線後の update() が要求する
@@ -80,7 +81,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .eq('id', params.id)
     .select('id');
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-inquiries-patch', error, '/api/admin/inquiries/[id]');
   if (!updated || updated.length === 0) {
     return NextResponse.json({ error: 'チケットが見つかりません' }, { status: 404 });
   }

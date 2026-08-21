@@ -7,7 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 
 const PLAN_PRICES: Record<string, number> = {
   search_top: 9800,
@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
     .eq('facility_id', facilityId)
     .order('starts_at', { ascending: false });
 
-  if (slotsErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (slotsErr) return serverError('admin-featured-ads-list', slotsErr, '/api/admin/featured-ads');
   return NextResponse.json({ slots: slots || [] });
 }
 
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-featured-ads-create', error, '/api/admin/featured-ads');
 
   const { ua } = getRequestContext(req);
   void writeAuditLog({
@@ -137,16 +137,13 @@ export async function POST(req: NextRequest) {
     // Preview を明確に区別できる VERCEL_ENV（alert.ts / instrumentation.ts と同じ env 判定源）で
     // 判定する。VERCEL_ENV は本番のみ 'production'・Preview は 'preview'・ローカルは undefined。
     if (process.env.VERCEL_ENV === 'production') {
-      const err = new Error('STRIPE_SECRET_KEY is not set in production - refusing to activate featured slot without payment');
-      console.error('[featured-ads] STRIPE_SECRET_KEY missing in production', { slotId: slot.id });
-      alertCaughtError('featured-ads:stripe-key-missing', err, '/api/admin/featured-ads');
-      return NextResponse.json({ error: '決済設定が未完了のため広告を有効化できません。運営にお問い合わせください。' }, { status: 500 });
+      const err = new Error(`STRIPE_SECRET_KEY is not set in production - refusing to activate featured slot without payment (slotId=${slot.id})`);
+      return serverError('featured-ads:stripe-key-missing', err, '/api/admin/featured-ads', '決済設定が未完了のため広告を有効化できません。運営にお問い合わせください。');
     }
     // No Stripe configured (development/demo mode): activate immediately.
     const { error: activateErr } = await admin.from('featured_slots').update({ is_active: true }).eq('id', slot.id);
     if (activateErr) {
-      console.error('[featured-ads] dev-mode activate failed', { slotId: slot.id, err: activateErr });
-      return NextResponse.json({ error: 'スロットの有効化に失敗しました' }, { status: 500 });
+      return serverError('admin-featured-ads-dev-activate', activateErr, '/api/admin/featured-ads', 'スロットの有効化に失敗しました');
     }
     return NextResponse.json({ slot, checkout_url: null }, { status: 201 });
   }
@@ -175,7 +172,6 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ slot, checkout_url: session.url }, { status: 201 });
   } catch (e) {
-    console.error('[featured-ads] POST error:', e);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('admin-featured-ads-post', e, '/api/admin/featured-ads', 'Internal Server Error');
   }
 }

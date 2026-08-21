@@ -11,9 +11,7 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { randomInt } from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { withRoute } from '@/lib/with-route';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
+import { withRoute, serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,15 +63,11 @@ export async function GET(request: NextRequest) {
     const code = generateCode();
     const { error: insertErr } = await adminSupabase.from('referral_codes').insert({ user_id: user.id, code });
     if (insertErr) {
-      console.error('[referral] code generation failed', { userId: user.id, err: insertErr });
-      return NextResponse.json({ error: '紹介コードの生成に失敗しました' }, { status: 500 });
+      return serverError('referral-code-generate', insertErr, '/api/referral', '紹介コードの生成に失敗しました');
     }
     return NextResponse.json({ code, used_count: 0, already_referred });
   } catch (e) {
-    safeCaptureException(e, 'referral-get');
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('referral-get', e, '/api/referral');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('referral-get', e, '/api/referral');
   }
 }
 
@@ -123,7 +117,7 @@ export const POST = withRoute(async (request) => {
     if (useInsertError.code === '23505') {
       return NextResponse.json({ error: '既に紹介コードを使用済みです' }, { status: 400 });
     }
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('referral-use-insert', useInsertError, '/api/referral');
   }
 
   // ポイント付与は「被紹介者の初回予約完了時」に applyCompletionSideEffects 経由で行う（A-7 根治）。

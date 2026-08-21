@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { errorMessage } from '@/lib/err';
 
 export const dynamic = 'force-dynamic';
@@ -18,21 +19,19 @@ export const dynamic = 'force-dynamic';
  * stripe_events 行は処理前にコミットしているため、更新失敗で 500 を返すだけだと
  * Stripe リトライが冪等ガード（INSERT 23505）に阻まれ re-process されず、
  * 課金済みなのにエンタイトルメント／予約が永久未反映になる（発症後では検知不能）。
- * 失敗時は冪等行を削除してリトライで確実に再処理させ、Slack で即時通知する。
+ * 失敗時は冪等行を削除してリトライで確実に再処理させる。Slack 通知は各呼び出し元が
+ * 返す `serverError()` に一本化する（本関数内で alertCaughtError も呼ぶと二重通知になるため）。
  * 各更新は upsert / update by id でべき等のため、再処理しても二重反映しない（副作用なし）。
  */
-async function rollbackIdempotencyAndAlert(
+async function rollbackIdempotency(
   supabase: SupabaseClient,
   eventId: string,
-  tag: string,
-  error: unknown,
 ): Promise<void> {
   const { error: delErr } = await supabase.from('stripe_events').delete().eq('id', eventId);
   if (delErr) {
     // 削除も失敗＝冪等行が残りリトライがスキップされる。手動照合が必要なため error ログで残す。
     console.error('[payment/webhook] idempotency rollback failed — Stripe retry will be skipped; manual reconcile needed', { eventId, delErr });
   }
-  alertCaughtError(tag, error, '/api/payment/webhook');
 }
 
 export async function POST(request: Request) {
@@ -81,8 +80,7 @@ export async function POST(request: Request) {
     if ((idemErr as { code?: string }).code === '23505') {
       return NextResponse.json({ received: true, duplicate: true });
     }
-    console.error('[payment/webhook] idempotency insert error:', idemErr);
-    return NextResponse.json({ error: 'idempotency error' }, { status: 500 });
+    return serverError('payment-webhook-idempotency', idemErr, '/api/payment/webhook', 'idempotency error');
   }
   if (!inserted) {
     return NextResponse.json({ received: true, duplicate: true });
@@ -140,10 +138,9 @@ export async function POST(request: Request) {
             updated_at: new Date().toISOString(),
           }, { onConflict: 'facility_id,option_key' });
         if (error) {
-          console.error('[payment/webhook] CRITICAL: failed to activate entitlement', { facilityId, optionKey, eventId: event.id, error });
           // 冪等行を削除して Stripe リトライで再処理可能化＋Slack 通知（恒久根治）。
-          await rollbackIdempotencyAndAlert(supabase, event.id, 'payment-webhook-entitlement', error);
-          return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
+          await rollbackIdempotency(supabase, event.id);
+          return serverError('payment-webhook-entitlement', error, '/api/payment/webhook', 'DB update failed');
         }
         break;
       }
@@ -159,22 +156,20 @@ export async function POST(request: Request) {
           .eq('id', bookingId)
           .select('id');
         if (error) {
-          console.error('[payment/webhook] CRITICAL: failed to mark booking paid', { bookingId, eventId: event.id, error });
           // 冪等行を削除して Stripe リトライで再処理可能化＋Slack 通知（恒久根治）。
-          await rollbackIdempotencyAndAlert(supabase, event.id, 'payment-webhook-booking-paid', error);
-          return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
+          await rollbackIdempotency(supabase, event.id);
+          return serverError('payment-webhook-booking-paid', error, '/api/payment/webhook', 'DB update failed');
         }
         if (!updated || updated.length === 0) {
           // Supabase の .update() は該当0行でも error=null を返す。id 指定なのに0行＝
           // 該当予約が存在しない異常（正常系では発生し得ない）。entitlement 分岐と同水準の防御。
-          console.error('[payment/webhook] CRITICAL: booking not found for payment update (0 rows)', { bookingId, eventId: event.id });
-          await rollbackIdempotencyAndAlert(
-            supabase,
-            event.id,
+          await rollbackIdempotency(supabase, event.id);
+          return serverError(
             'payment-webhook-booking-paid-notfound',
             new Error(`booking not found: ${bookingId}`),
+            '/api/payment/webhook',
+            'Booking not found',
           );
-          return NextResponse.json({ error: 'Booking not found' }, { status: 500 });
         }
       }
       break;
@@ -291,10 +286,9 @@ export async function POST(request: Request) {
         .update({ status: 'canceled', updated_at: new Date().toISOString() })
         .eq('stripe_subscription_id', sub.id);
       if (error) {
-        console.error('[payment/webhook] CRITICAL: failed to cancel entitlement', { subscriptionId: sub.id, eventId: event.id, error });
         // 冪等行を削除して Stripe リトライで再処理可能化＋Slack 通知（恒久根治）。
-        await rollbackIdempotencyAndAlert(supabase, event.id, 'payment-webhook-subscription-cancel', error);
-        return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
+        await rollbackIdempotency(supabase, event.id);
+        return serverError('payment-webhook-subscription-cancel', error, '/api/payment/webhook', 'DB update failed');
       }
       break;
     }

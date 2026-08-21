@@ -5,6 +5,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { todayJst } from '@/lib/admin-date';
 
 /**
@@ -58,9 +59,7 @@ export async function GET(request: Request) {
       // error を握り潰すと staffIds=[] → {dates:{}} を静かに返し「空きカレンダー」を偽装する
       // （DB障害を『予約不可』に化けさせる）。slots ルートと同じく 500 で顕在化させる。
       if (staffErr) {
-        safeCaptureException(staffErr, 'availability:staff_profiles');
-        alertCaughtError('availability:staff_profiles', staffErr, '/api/availability');
-        return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+        return serverError('availability-staff-profiles', staffErr, '/api/availability');
       }
       staffIds = (staffList || []).map((s: { id: string }) => s.id);
     }
@@ -178,8 +177,6 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ dates });
   } catch (e) {
-    safeCaptureException(e, 'availability');
-    alertCaughtError('availability', e, '/api/availability');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('availability', e, '/api/availability');
   }
 }

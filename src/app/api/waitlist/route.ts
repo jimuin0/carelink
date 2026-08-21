@@ -12,8 +12,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -101,7 +100,12 @@ export async function POST(request: Request) {
       .single();
 
     if (error || !entry) {
-      return NextResponse.json({ error: '登録に失敗しました' }, { status: 500 });
+      return serverError(
+        'waitlist-post-insert',
+        error ?? new Error('booking_waitlist insert returned no row'),
+        '/api/waitlist',
+        '登録に失敗しました',
+      );
     }
 
     return NextResponse.json({
@@ -110,10 +114,7 @@ export async function POST(request: Request) {
       message: `${data.date}（${data.start_time}〜）のキャンセル待ちに登録しました。空きが出た場合にご連絡します。`,
     });
   } catch (e) {
-    safeCaptureException(e, 'waitlist-post');
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('waitlist-post', e, '/api/waitlist');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('waitlist-post', e, '/api/waitlist');
   }
 }
 
@@ -151,16 +152,13 @@ export async function DELETE(request: NextRequest) {
       .eq('user_id', user.id)
       .select('id');
 
-    if (error) return NextResponse.json({ error: '削除に失敗しました' }, { status: 500 });
+    if (error) return serverError('waitlist-delete-update', error, '/api/waitlist', '削除に失敗しました');
     if (!updated || updated.length === 0) {
       return NextResponse.json({ error: 'キャンセル待ちが見つかりません' }, { status: 404 });
     }
 
     return NextResponse.json({ success: true });
   } catch (e) {
-    safeCaptureException(e, 'waitlist-delete');
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('waitlist-delete', e, '/api/waitlist');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('waitlist-delete', e, '/api/waitlist');
   }
 }

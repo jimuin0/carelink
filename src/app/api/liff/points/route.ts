@@ -8,7 +8,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { verifyLineAccessToken } from '@/lib/line';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 
 export async function GET(req: NextRequest) {
   try {
@@ -67,8 +67,7 @@ export async function GET(req: NextRequest) {
     .limit(50);
 
   if (logsError) {
-    alertCaughtError('liff-points', logsError, '/api/liff/points');
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('liff-points-logs', logsError, '/api/liff/points', 'Internal Server Error');
   }
 
   // 残高(total)は【全履歴の合計】で算出する。直近50件だけの合計を残高にすると、履歴が51件以上ある
@@ -81,16 +80,13 @@ export async function GET(req: NextRequest) {
     .eq('user_id', userId);
 
   if (allPointsError) {
-    alertCaughtError('liff-points', allPointsError, '/api/liff/points');
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('liff-points-total', allPointsError, '/api/liff/points', 'Internal Server Error');
   }
 
   const total = (allPoints ?? []).reduce((sum, row) => sum + (row.points ?? 0), 0);
 
   return NextResponse.json({ logs: logs ?? [], total });
   } catch (e) {
-    console.error('[liff/points] unexpected error:', e);
-    alertCaughtError('liff-points', e, '/api/liff/points');
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('liff-points', e, '/api/liff/points', 'Internal Server Error');
   }
 }

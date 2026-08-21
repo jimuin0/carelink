@@ -12,8 +12,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
-import { alertCaughtError } from '@/lib/alert';
-import { safeCaptureException } from '@/lib/safe';
+import { serverError } from '@/lib/with-route';
 import { INTAKE_CUSTOMER_ENABLED } from '@/lib/intake-config';
 
 export const dynamic = 'force-dynamic';
@@ -55,10 +54,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ template });
   } catch (e) {
-    safeCaptureException(e, 'intake-get');
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('intake-get', e, '/api/intake');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('intake-get', e, '/api/intake');
   }
 }
 
@@ -151,13 +147,16 @@ export async function POST(request: Request) {
       .single();
 
     if (error || !response) {
-      return NextResponse.json({ error: '送信に失敗しました' }, { status: 500 });
+      return serverError(
+        'intake-post-insert',
+        error ?? new Error('intake_form_responses insert returned no row'),
+        '/api/intake',
+        '送信に失敗しました',
+      );
     }
 
     return NextResponse.json({ success: true, id: response.id });
   } catch (e) {
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('intake-post', e, '/api/intake');
-    return NextResponse.json({ error: '送信に失敗しました' }, { status: 500 });
+    return serverError('intake-post', e, '/api/intake', '送信に失敗しました');
   }
 }

@@ -11,6 +11,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX } from '@/lib/constants';
+import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,7 +75,7 @@ export async function GET(request: Request) {
     .order('created_at', { ascending: false })
     .limit(20);
 
-  if (reviewsErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (reviewsErr) return serverError('admin-review-summary-fetch', reviewsErr, '/api/admin/review-summary');
   if (!reviews || reviews.length < 3) {
     return NextResponse.json({ summary: null, reason: '口コミが少なすぎます（3件以上必要）' });
   }
@@ -97,7 +98,7 @@ export async function GET(request: Request) {
 
     const summary = (message.content[0] as { text: string }).text.trim();
     return NextResponse.json({ summary });
-  } catch {
-    return NextResponse.json({ error: '要約の生成に失敗しました' }, { status: 500 });
+  } catch (e) {
+    return serverError('admin-review-summary-generate', e, '/api/admin/review-summary', '要約の生成に失敗しました');
   }
 }

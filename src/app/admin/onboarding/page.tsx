@@ -106,6 +106,14 @@ function OnboardingContent() {
       body: JSON.stringify({
         facility_name: trimmedName,
         business_type: businessTypeInput,
+        // 【2026年8月20日】許認可・届出の表明が「取られた証跡」を残すための送信フラグ。
+        // ここまで到達している時点で handleFormSubmit 冒頭のガードにより licenseWarranted は
+        // 必ず true（false なら早期 return しこの fetch 自体に到達しない）。
+        // サーバー側（/api/facility/setup）は true 以外を 400 で弾き、表明の事実を
+        // audit_logs（tableName: 'facility_profiles'）へ記録する。画面のチェックだけでは
+        // フォームを経由しない POST で表明を取らずに施設を作れてしまうため、必須判定は
+        // サーバーが正で、この送信はその入力に過ぎない。
+        license_warranted: licenseWarranted,
       }),
     });
 

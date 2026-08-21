@@ -12,7 +12,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX } from '@/lib/constants';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 
 const getStripe = () => new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-06-24.dahlia',
@@ -153,15 +153,16 @@ export async function POST(request: NextRequest) {
 
   if (sessionInsertErr) {
     await getStripe().checkout.sessions.expire(session.id).catch(() => {});
-    console.error('[stripe/checkout] stripe_sessions insert failed — Stripe session expired', { sessionId: session.id, err: sessionInsertErr });
-    return NextResponse.json({ error: '決済セッションの作成に失敗しました。' }, { status: 500 });
+    return serverError(
+      'stripe-checkout-session-insert',
+      sessionInsertErr,
+      '/api/stripe/checkout',
+      '決済セッションの作成に失敗しました。',
+    );
   }
 
   return NextResponse.json({ url: session.url, session_id: session.id });
   } catch (e) {
-    console.error('[stripe/checkout] unexpected error:', e);
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('stripe-checkout', e, '/api/stripe/checkout');
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('stripe-checkout', e, '/api/stripe/checkout', 'Internal Server Error');
   }
 }

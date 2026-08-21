@@ -12,6 +12,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { serverError } from '@/lib/with-route';
 
 const VALID_SCOPES = ['bookings:read', 'customers:read', 'reviews:read'];
 
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest) {
     created_by: user.id,
   }).select('id, name, key_prefix, scopes, is_active, last_used_at, expires_at, created_at').single();
 
-  if (error || !newKey) return NextResponse.json({ error: 'APIキーの作成に失敗しました' }, { status: 500 });
+  if (error || !newKey) return serverError('admin-api-keys-create', error ?? new Error('api_keys insert returned no row'), '/api/admin/api-keys', 'APIキーの作成に失敗しました');
 
   const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({
@@ -120,7 +121,7 @@ export async function GET(request: NextRequest) {
     .eq('facility_id', facilityId)
     .order('created_at', { ascending: false });
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-api-keys-list', error, '/api/admin/api-keys');
 
   return NextResponse.json(data ?? []);
 }

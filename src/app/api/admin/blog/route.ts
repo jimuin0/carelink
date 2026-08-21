@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { serverError } from '@/lib/with-route';
 
 const blogPostSchema = z.object({
   title: z.string().min(1).max(200),
@@ -77,7 +78,7 @@ export async function POST(request: NextRequest) {
     published_at: isPublished ? new Date().toISOString() : null,
   }).select().single();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-blog-create', error, '/api/admin/blog');
 
   const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({

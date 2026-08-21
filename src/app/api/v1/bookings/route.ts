@@ -18,7 +18,7 @@ import { createHash } from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { BOOKING_STATUSES } from '@/lib/booking-status';
 
 const API_VERSION = '1.0.0';
@@ -52,8 +52,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     return await handleGet(request);
   } catch (e) {
-    alertCaughtError('v1-bookings', e, new URL(request.url).pathname);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('v1-bookings', e, new URL(request.url).pathname, 'Internal Server Error');
   }
 }
 
@@ -128,7 +127,7 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
   if (status) query = query.eq('status', status);
 
   const { data, error, count } = await query;
-  if (error) return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  if (error) return serverError('v1-bookings-list', error, '/api/v1/bookings', 'Internal Server Error');
 
   // embed した menu/staff を従来の menu_name/staff_name フラット形へ戻す（外部API契約維持）
   type RawRow = {

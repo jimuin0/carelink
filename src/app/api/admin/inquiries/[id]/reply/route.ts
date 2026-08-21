@@ -8,6 +8,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { sendInquiryReply } from '@/lib/email';
+import { serverError } from '@/lib/with-route';
 
 /**
  * お問い合わせへの返信を送信する（プラットフォーム管理者のみ）。
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
     .eq('id', params.id)
     .maybeSingle();
 
-  if (fetchError) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (fetchError) return serverError('admin-inquiries-reply-fetch', fetchError, '/api/admin/inquiries/[id]/reply');
   if (!contact) return NextResponse.json({ error: 'チケットが見つかりません' }, { status: 404 });
 
   const target = contact as { id: string; name: string | null; email: string | null };

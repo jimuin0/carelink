@@ -7,6 +7,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { applyHpbMenusToFacilityMenus } from '@/lib/hpb-menu';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
       ipAddress: ip,
     });
     return NextResponse.json(result);
-  } catch {
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  } catch (e) {
+    return serverError('admin-hpb-menus-apply', e, '/api/admin/hpb-menus/apply');
   }
 }

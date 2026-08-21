@@ -24,11 +24,21 @@ jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/email');
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 jest.mock('next/headers');
+// claim（salons.claimed_by_user_id/claimed_at）の CAS・監査ログは salon-claim.test.ts /
+// admin/registrations テストで別途検証済み。本ファイルでは「呼ばれたか・何が渡ったか」だけを
+// 見たいので、writeAuditLog 自体は実装せずモックする（admin/registrations と同型）。
+jest.mock('@/lib/audit-logger', () => ({
+  writeAuditLog: jest.fn(),
+  getRequestContext: jest.fn(() => ({ ip: '127.0.0.1', ua: 'test' })),
+}));
+// salons の取得失敗を「握り潰していないこと」を見るため、通知側をモックする。
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { sendWelcomeEmail } from '@/lib/email';
 import { canonicalizeEmail } from '@/lib/email-canonical';
+import { signSalonClaim } from '@/lib/salon-claim';
 import { POST } from '../route';
 
 let mockFacilityInsert: jest.Mock;
@@ -36,11 +46,14 @@ let mockMemberInsert: jest.Mock;
 let mockSalonSelect: jest.Mock;
 let mockSalonEmailEq: jest.Mock;
 let mockSalonStatusNeq: jest.Mock;
+let mockSalonCookieIs: jest.Mock;
+let mockSalonUpdate: jest.Mock;
 let mockFacilityDelete: jest.Mock;
 let mockPhotoInsert: jest.Mock;
 
 // salonFound 時のリッチデータ（register 全項目の引き継ぎ・写真転送を検証するため）。
 const SALON_FULL = {
+  id: 'salon-full-id',
   facility_name: 'Salon from DB',
   business_type: 'ネイル・まつげサロン',
   phone: '03-1234-5678',
@@ -70,7 +83,33 @@ function setupDefaultMocks(
   facilityInsertFails: boolean = false,
   memberInsertFails: boolean = false,
   rollbackFails: boolean = false,
-  opts: { salonData?: unknown; photoInsertFails?: boolean; userEmail?: string | null } = {}
+  opts: {
+    salonData?: unknown;
+    photoInsertFails?: boolean;
+    userEmail?: string | null;
+    // 【claim（2026年8月20日 新設）用のオプション】
+    // Cookie 経由で見つかる salons 行（未指定 = null ＝ Cookie 経路では何も見つからない）。
+    cookieSalonData?: unknown;
+    // CAS（.is('claimed_by_user_id', null) 付き update）が 0 行更新に終わる（TOCTOU で
+    // 先に他リクエストが claim した想定）。未指定なら常に成功する。
+    salonClaimCasFails?: boolean;
+    // CAS 自体が DB エラーを返す。
+    salonClaimCasError?: boolean;
+    // ロールバック経路での claim 解放 UPDATE が失敗する。
+    salonClaimReleaseFails?: boolean;
+    // メール経路が返す行（複数件・統合の検証用）。未指定なら salonFound から導く。
+    emailSalonRows?: unknown;
+    // メール経路の取得自体が失敗する（列が無い等）。
+    emailSalonError?: unknown;
+    // Cookie 経路の取得自体が失敗する。
+    cookieSalonError?: unknown;
+    // CAS がエラー無しで data:null を返す（PostgREST の戻りが想定外の形）。
+    salonClaimCasNullData?: boolean;
+    // facility_profiles insert がエラー無しで data:null を返す（PostgREST の戻りが想定外の形。
+    // facilityInsertFails=true とは異なり error は無い＝serverError() の cause フォールバック
+    // （`facilityError ?? new Error(...)`）の分岐を検証する）。
+    facilityInsertNullNoError?: boolean;
+  } = {}
 ) {
   (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
@@ -79,18 +118,72 @@ function setupDefaultMocks(
   (sendWelcomeEmail as jest.Mock).mockResolvedValue(true);
 
   const salonData = 'salonData' in opts ? opts.salonData : (salonFound ? SALON_FULL : null);
-  // .eq('email_canonical', ...) → .or('status.is.null,status.neq.rejected') → .order() → .limit() → .maybeSingle()
+  const cookieSalonData = 'cookieSalonData' in opts ? opts.cookieSalonData : null;
+
+  // .eq('email_canonical', ...) → .is('claimed_by_user_id', null) →
+  // .or('status.is.null,status.neq.rejected') → .order()
   // eq/or を個別に spy として保持し、呼び出し引数（canonical 化されたメール・rejected 除外）を検証する。
   // 🔴 .neq ではなく .or なのは、status が NULL の行を落とさないため（route.ts のコメント参照）。
+  // 🔴 .limit(1).maybeSingle() は使わない：salons.email に UNIQUE が無く同一メールで複数行
+  //   （/register と /recruit）が実在するため、【全件】取って mergeSalonRows で統合する。
+  //   1件だけ採ると /recruit が送らない列（写真・営業時間等）が無音で失われる。
+  const emailSalonRows = 'emailSalonRows' in opts
+    ? opts.emailSalonRows
+    : (salonData ? [salonData] : []);
   mockSalonStatusNeq = jest.fn().mockReturnValue({
-    order: jest.fn().mockReturnValue({
-      limit: jest.fn().mockReturnValue({
-        maybeSingle: jest.fn().mockResolvedValue({ data: salonData }),
+    order: jest.fn().mockResolvedValue({ data: emailSalonRows, error: opts.emailSalonError ?? null }),
+  });
+  const mockSalonEmailIs = jest.fn().mockReturnValue({ or: mockSalonStatusNeq });
+
+  // Cookie 経路: .eq('id', claimedSalonIdFromCookie) → .is('claimed_by_user_id', null) →
+  // .or(...) → .maybeSingle()
+  mockSalonCookieIs = jest.fn().mockReturnValue({
+    or: jest.fn().mockReturnValue({
+      maybeSingle: jest.fn().mockResolvedValue({
+        data: cookieSalonData,
+        error: opts.cookieSalonError ?? null,
       }),
     }),
   });
-  mockSalonEmailEq = jest.fn().mockReturnValue({ or: mockSalonStatusNeq });
+
+  // 同じ .eq() が呼ばれるカラム名で経路を振り分ける（'id' = Cookie 経路 / それ以外 = メール経路）。
+  mockSalonEmailEq = jest.fn((column: string) => {
+    if (column === 'id') return { is: mockSalonCookieIs };
+    return { is: mockSalonEmailIs };
+  });
   mockSalonSelect = jest.fn().mockReturnValue({ eq: mockSalonEmailEq });
+
+  // claim の条件付き UPDATE（CAS）と、member insert 失敗時の解放 UPDATE。
+  // ペイロードの claimed_by_user_id が非 null なら claim 試行、null なら解放と判定する
+  // （route.ts の2つの update 呼び出しはこの2値のどちらかしか送らない）。
+  mockSalonUpdate = jest.fn((payload: { claimed_by_user_id: string | null }) => {
+    // 🔴 .eq('id', …) ではなく .in('id', …)：統合に使った行を【全部】claim / 解放するため。
+    if (payload && payload.claimed_by_user_id != null) {
+      return {
+        in: jest.fn().mockReturnValue({
+          is: jest.fn().mockReturnValue({
+            select: jest.fn().mockResolvedValue(
+              opts.salonClaimCasError
+                ? { data: null, error: new Error('claim update failed') }
+                : {
+                    data: opts.salonClaimCasNullData
+                      ? null
+                      : opts.salonClaimCasFails ? [] : [{ id: 'claimed-row-id' }],
+                    error: null,
+                  }
+            ),
+          }),
+        }),
+      };
+    }
+    return {
+      in: jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({
+          error: opts.salonClaimReleaseFails ? new Error('claim release failed') : null,
+        }),
+      }),
+    };
+  });
 
   mockPhotoInsert = jest.fn().mockResolvedValue({
     error: opts.photoInsertFails ? new Error('photo insert error') : null,
@@ -99,7 +192,7 @@ function setupDefaultMocks(
   mockFacilityInsert = jest.fn().mockReturnValue({
     select: jest.fn().mockReturnValue({
       single: jest.fn().mockResolvedValue({
-        data: facilityInsertFails
+        data: (facilityInsertFails || opts.facilityInsertNullNoError)
           ? null
           : {
               id: 'fac-123',
@@ -156,6 +249,7 @@ function setupDefaultMocks(
       } else if (table === 'salons') {
         return {
           select: mockSalonSelect,
+          update: mockSalonUpdate,
         };
       } else if (table === 'facility_photos') {
         return {
@@ -179,15 +273,43 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
 });
 
-function makeRequest(body: object = {}, ip = '192.168.1.1') {
-  return new Request('http://localhost/api/facility/setup', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-forwarded-for': ip,
+// 本番の NextRequest は常に .cookies.get(name) を持つ（RequestCookies）。テストは通常の
+// Request を `as any` でキャストして使っているためこの実装を持たず、素の Request のままだと
+// route.ts の `request.cookies.get(SALON_CLAIM_COOKIE_NAME)` が例外になる。実物に近い最小限の
+// 実装（Cookie ヘッダーから読む）を後付けする。このファイル内で `new Request(...)` するときは
+// 必ずこれを通す。
+function withCookiesShim(req: Request): Request {
+  (req as unknown as { cookies: { get: (name: string) => { name: string; value: string } | undefined } }).cookies = {
+    get: (name: string) => {
+      const cookieHeader = req.headers.get('cookie') ?? '';
+      const found = cookieHeader
+        .split(';')
+        .map((s) => s.trim())
+        .find((c) => c.startsWith(`${name}=`));
+      if (!found) return undefined;
+      return { name, value: decodeURIComponent(found.slice(name.length + 1)) };
     },
-    body: JSON.stringify(body),
-  });
+  };
+  return req;
+}
+
+// cookieValue 省略時は「Cookie 無し」を再現する。
+// 許認可・届出の表明（利用規約 第12条）はサーバー側で必須。既存のケースは表明の有無を
+// 主題にしていないので、既定で同意済みの body を送る（表明そのものの検査は専用のテストで行う）。
+function makeRequest(body: object = {}, ip = '192.168.1.1', cookieValue?: string) {
+  const withAttestation = 'license_warranted' in body ? body : { license_warranted: true, ...body };
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'x-forwarded-for': ip,
+  };
+  if (cookieValue !== undefined) {
+    headers['cookie'] = `clnk_salon_claim=${encodeURIComponent(cookieValue)}`;
+  }
+  return withCookiesShim(new Request('http://localhost/api/facility/setup', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(withAttestation),
+  }));
 }
 
 describe('POST /api/facility/setup', () => {
@@ -365,6 +487,16 @@ describe('POST /api/facility/setup', () => {
 
   test('facility_profiles insert fails → 500', async () => {
     setupDefaultMocks(true, false, false, true);
+
+    const res = await POST(
+      makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any
+    );
+
+    expect(res.status).toBe(500);
+  });
+
+  test('facility_profiles insert returns no row without an error → 500 (defensive fallback cause)', async () => {
+    setupDefaultMocks(true, false, false, false, false, false, { facilityInsertNullNoError: true });
 
     const res = await POST(
       makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any
@@ -553,11 +685,11 @@ describe('POST /api/facility/setup', () => {
 
   test('invalid JSON body → defaults to empty object', async () => {
     const res = await POST(
-      new Request('http://localhost/api/facility/setup', {
+      withCookiesShim(new Request('http://localhost/api/facility/setup', {
         method: 'POST',
         headers: { 'x-forwarded-for': '192.168.1.1' },
         body: 'invalid {',
-      }) as any
+      })) as any
     );
 
     expect(res.status).toBe(400);
@@ -565,11 +697,11 @@ describe('POST /api/facility/setup', () => {
 
   test('missing x-forwarded-for → uses "unknown"', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    const req = new Request('http://localhost/api/facility/setup', {
+    const req = withCookiesShim(new Request('http://localhost/api/facility/setup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ facility_name: 'T', business_type: 'ネイル・まつげサロン' }),
-    });
+    }));
     await POST(req as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('unknown');
@@ -932,5 +1064,400 @@ describe('POST /api/facility/setup', () => {
     const f = mockFacilityInsert.mock.calls[0][0];
     expect(f.name).toBe('Rejected後の新規');
     expect(f.postal_code).toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 所有権 claim（Cookie による引き継ぎ・2026年8月20日 新設）
+// ═══════════════════════════════════════════════════════════════════════════
+describe('POST /api/facility/setup — 所有権 claim（Cookie）', () => {
+  const COOKIE_SALON_ID = '55555555-5555-4555-8555-555555555555';
+  const ORIGINAL_SECRET = process.env.ADMIN_COOKIE_SECRET;
+
+  beforeEach(() => {
+    process.env.ADMIN_COOKIE_SECRET = 'test-admin-cookie-secret';
+  });
+  afterAll(() => {
+    if (ORIGINAL_SECRET === undefined) delete process.env.ADMIN_COOKIE_SECRET;
+    else process.env.ADMIN_COOKIE_SECRET = ORIGINAL_SECRET;
+  });
+
+  const { writeAuditLog } = require('@/lib/audit-logger');
+
+  // (i) Cookie があれば、その salons 行が引き継がれる（メール不一致でも）。
+  test('(i) Cookie の salon id があれば、メールが一致しなくてもその行が引き継がれる', async () => {
+    setupDefaultMocks(true, false, false, false, false, false, {
+      cookieSalonData: { ...SALON_FULL, id: COOKIE_SALON_ID },
+      userEmail: 'totally-different-person@example.com', // salons.email とは無関係
+    });
+    const cookie = signSalonClaim(COOKIE_SALON_ID)!;
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }, '192.168.1.1', cookie) as any);
+    expect(res.status).toBe(200);
+    const f = mockFacilityInsert.mock.calls[0][0];
+    // SALON_FULL 由来の内容が引き継がれている（Cookie 経路が使われた証拠）。
+    expect(f.postal_code).toBe('150-0001');
+    // 🔴 メール経路も併せて引く（Cookie 経路だけを見て早期 return しない）。
+    //   Cookie は最後に出した申込1件しか指さないため、/register→/recruit と2回出した人は
+    //   Cookie が /recruit の行を指し、/register で入れた写真・営業時間が取り残される。
+    //   両方の候補を集めて mergeSalonRows で統合するのが正しい（この人のメールに紐づく
+    //   未 claim の申込が無ければ、単に0件が返るだけで挙動は変わらない）。
+    expect(mockSalonEmailEq).toHaveBeenCalledWith('email_canonical', expect.anything());
+  });
+
+  // (i-b) Cookie の行とメール一致の行が【両方】ある場合、列ごとに統合される。
+  //   これが無いと「後から /recruit を出しただけで /register の写真が消える」故障が残る。
+  test('(i-b) Cookie の行とメール一致の行の両方から、列ごとに値が統合される', async () => {
+    const RECRUIT_ROW = {
+      ...SALON_FULL,
+      id: COOKIE_SALON_ID,
+      created_at: '2026-08-20T10:00:00.000Z', // 新しい（/recruit 相当）
+      photo_urls: null,          // /recruit は写真を送らない
+      business_hours: null,      // /recruit は営業時間を送らない
+      postal_code: '999-9999',   // 新しい方が勝つべき列
+    };
+    const REGISTER_ROW = {
+      ...SALON_FULL,
+      id: '66666666-6666-4666-8666-666666666666',
+      created_at: '2026-08-19T10:00:00.000Z', // 古い（/register 相当）
+      photo_urls: ['https://storage.example.com/a.jpg'],
+      business_hours: '10:00-19:00',
+      postal_code: '150-0001',
+    };
+    setupDefaultMocks(true, false, false, false, false, false, {
+      cookieSalonData: RECRUIT_ROW,
+      emailSalonRows: [REGISTER_ROW],
+      userEmail: 'owner@example.com',
+    });
+    const cookie = signSalonClaim(COOKIE_SALON_ID)!;
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }, '192.168.1.1', cookie) as any);
+    expect(res.status).toBe(200);
+    const f = mockFacilityInsert.mock.calls[0][0];
+    // 新しい行が持つ値は新しい方が勝つ
+    expect(f.postal_code).toBe('999-9999');
+    // 新しい行に無い列は、古い行の値が生き残る（これが統合の本体）。
+    // salons.business_hours（自由文）は facility_profiles.business_hours_text へ入る
+    // （facility_profiles.business_hours は予約枠用の JSONB で別物）。
+    expect(f.business_hours_text).toBe('10:00-19:00');
+  });
+
+  // (i-c) 使い終わった claim Cookie は必ず失効させる（同じ端末での使い回しを断つ）。
+  test('(i-c) claim に使った Cookie は応答で失効させられる（共用端末での再利用を断つ）', async () => {
+    setupDefaultMocks(true, false, false, false, false, false, {
+      cookieSalonData: { ...SALON_FULL, id: COOKIE_SALON_ID },
+      userEmail: 'owner@example.com',
+    });
+    const cookie = signSalonClaim(COOKIE_SALON_ID)!;
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }, '192.168.1.1', cookie) as any);
+    expect(res.status).toBe(200);
+    // 🔴 署名の期限は発行から3日ある。消さないと、同じブラウザで次にサインアップした人が
+    //   同じ Cookie で前の人の申込内容（住所・電話・写真）を自分の施設へ取り込めてしまう。
+    const setCookie = res.cookies.get('clnk_salon_claim');
+    expect(setCookie).toBeDefined();
+    expect(setCookie!.value).toBe('');
+    expect(setCookie!.maxAge).toBe(0);
+  });
+
+  // (i-d) Cookie がそもそも無いリクエストでは、無関係な Set-Cookie を足さない。
+  test('(i-d) Cookie が無いリクエストでは失効 Cookie を足さない', async () => {
+    setupDefaultMocks(true, false, true);
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
+    expect(res.status).toBe(200);
+    expect(res.cookies.get('clnk_salon_claim')).toBeUndefined();
+  });
+
+  // (i-e) salons の取得が失敗したら【必ず通知する】。握り潰すと引き継ぎが無音で全滅する。
+  test('(i-e) メール経路の取得が失敗したら通知される（無音で引き継ぎを失わない）', async () => {
+    const { alertCaughtError } = require('@/lib/alert');
+    (alertCaughtError as jest.Mock).mockClear();
+    setupDefaultMocks(true, false, false, false, false, false, {
+      emailSalonRows: null,
+      emailSalonError: { code: '42703', message: 'column salons.email_canonical does not exist' },
+      userEmail: 'owner@example.com',
+    });
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
+    // 施設作成自体は続行する（引き継ぎが無いだけで登録は通す）。
+    expect(res.status).toBe(200);
+    expect(alertCaughtError).toHaveBeenCalledWith(
+      'facility-setup-salon-lookup',
+      expect.any(Error),
+      '/api/facility/setup',
+    );
+  });
+
+  // (ii) Cookie が無ければ従来のメール一致に倒れる。
+  test('(ii) Cookie が無ければ従来のメール一致（canonical）に倒れる', async () => {
+    setupDefaultMocks(true, false, true); // salonFound=true → email 経路で SALON_FULL が見つかる
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any); // cookie 無し
+    expect(res.status).toBe(200);
+    expect(mockSalonEmailEq).toHaveBeenCalledWith('email_canonical', canonicalizeEmail('owner@example.com'));
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.postal_code).toBe('150-0001');
+  });
+
+  // (iii) 署名が壊れた Cookie は無視され、メール一致に倒れる。
+  test('(iii) 署名が壊れた Cookie は無視され、メール一致に倒れる', async () => {
+    setupDefaultMocks(true, false, true, false, false, false, {
+      cookieSalonData: { ...SALON_FULL, id: COOKIE_SALON_ID, postal_code: '999-9999' },
+    });
+    const validCookie = signSalonClaim(COOKIE_SALON_ID)!;
+    const tampered = validCookie.slice(0, -1) + (validCookie.endsWith('a') ? 'b' : 'a');
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }, '192.168.1.1', tampered) as any);
+    expect(res.status).toBe(200);
+    // Cookie 経路の postal_code (999-9999) ではなく、メール経路の SALON_FULL (150-0001) が使われる。
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.postal_code).toBe('150-0001');
+    expect(mockSalonEmailEq).toHaveBeenCalledWith('email_canonical', canonicalizeEmail('owner@example.com'));
+  });
+
+  // (iv) 期限切れの Cookie は無視される（サーバー側で独立に判定）。
+  test('(iv) 期限切れの Cookie は無視され、メール一致に倒れる', async () => {
+    setupDefaultMocks(true, false, true, false, false, false, {
+      cookieSalonData: { ...SALON_FULL, id: COOKIE_SALON_ID, postal_code: '999-9999' },
+    });
+    const now = Math.floor(Date.now() / 1000);
+    const expired = signSalonClaim(COOKIE_SALON_ID, now - 60 * 60 * 24 * 4)!; // TTL(3日)を超過
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }, '192.168.1.1', expired) as any);
+    expect(res.status).toBe(200);
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.postal_code).toBe('150-0001');
+  });
+
+  // (v) claim 済みの行は Cookie 経路でもメール経路でも引き継がれない。
+  test('(v-a) claim 済みの行は Cookie 経路では選ばれない（select が .is(claimed_by_user_id, null) で除外する想定をモック側で模す）', async () => {
+    // モックの select はクエリの絞り込み自体を実行しないため、「絞り込んだ結果 0 件」を
+    // cookieSalonData: null で表現する（DB 側で claimed_by_user_id が非 null の行は
+    // .is('claimed_by_user_id', null) に一致せず、maybeSingle() は null を返す）。
+    setupDefaultMocks(true, false, false, false, false, false, {
+      cookieSalonData: null,
+      userEmail: null, // メール経路も通らないようにし、Cookie 経路の効果だけを見る
+    });
+    const cookie = signSalonClaim(COOKIE_SALON_ID)!;
+    const res = await POST(makeRequest({ facility_name: 'Claim済み経由の新規', business_type: 'ネイル・まつげサロン' }, '192.168.1.1', cookie) as any);
+    expect(res.status).toBe(200);
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.name).toBe('Claim済み経由の新規');
+    expect(f.postal_code).toBeNull(); // 引き継ぎ無し
+    expect(mockSalonUpdate).not.toHaveBeenCalled(); // claim 対象が無いので CAS 自体が走らない
+  });
+
+  test('(v-b) claim 済みの行はメール経路でも選ばれない（.is(claimed_by_user_id, null) で除外・select は null を返す想定）', async () => {
+    setupDefaultMocks(true, false, false, false, false, false, {
+      salonData: null, // 既に claim 済み＝メール一致条件を満たしても select 結果は null
+    });
+    const res = await POST(makeRequest({ facility_name: 'Claim済みのメール経由', business_type: 'ネイル・まつげサロン' }) as any);
+    expect(res.status).toBe(200);
+    expect(mockSalonEmailEq).toHaveBeenCalledWith('email_canonical', canonicalizeEmail('owner@example.com'));
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.postal_code).toBeNull();
+    expect(mockSalonUpdate).not.toHaveBeenCalled();
+  });
+
+  // (vi) claim済みしか無い場合、エラーにならず引き継ぎ無しで施設が作られる。
+  test('(vi) Cookie もメールも未 claim の行が無い → エラーにせず引き継ぎ無しで施設が作られる', async () => {
+    setupDefaultMocks(true, false, false, false, false, false, { cookieSalonData: null });
+    const cookie = signSalonClaim(COOKIE_SALON_ID)!;
+    const res = await POST(makeRequest({ facility_name: '引き継ぎ無し施設', business_type: 'ネイル・まつげサロン' }, '192.168.1.1', cookie) as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.name).toBe('引き継ぎ無し施設');
+  });
+
+  // (vii) 既に施設を持つユーザーが踏んでも claim が焼けない。
+  test('(vii) 既に施設を持つユーザーが Cookie 付きで叩いても claim UPDATE は一切走らない', async () => {
+    setupDefaultMocks(true, true /* alreadyOwner */, false, false, false, false, {
+      cookieSalonData: { ...SALON_FULL, id: COOKIE_SALON_ID },
+    });
+    const cookie = signSalonClaim(COOKIE_SALON_ID)!;
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }, '192.168.1.1', cookie) as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.facilityId).toBe('fac-existing');
+    // 1施設ガードで早期returnするため、salons の select/update は一切呼ばれない。
+    expect(mockSalonSelect).not.toHaveBeenCalled();
+    expect(mockSalonUpdate).not.toHaveBeenCalled();
+  });
+
+  // (viii) facility_members insert 失敗時に claim が解放される。
+  test('(viii) facility_members insert 失敗時、CAS で立てた claim が解放 UPDATE で戻される', async () => {
+    setupDefaultMocks(true, false, true, false, /* memberInsertFails */ true);
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
+    expect(res.status).toBe(500);
+    // 1回目 = claim 試行（claimed_by_user_id: 'user-123'）、2回目 = 解放（null）。
+    expect(mockSalonUpdate).toHaveBeenCalledTimes(2);
+    expect(mockSalonUpdate.mock.calls[0][0]).toMatchObject({ claimed_by_user_id: 'user-123' });
+    expect(mockSalonUpdate.mock.calls[1][0]).toEqual({ claimed_by_user_id: null, claimed_at: null });
+  });
+
+  test('(viii-b) 解放 UPDATE 自体が失敗しても 500 応答は返る（ログのみ・無限リトライしない）', async () => {
+    setupDefaultMocks(true, false, true, false, true, false, { salonClaimReleaseFails: true });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
+    expect(res.status).toBe(500);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('claim release failed'),
+      expect.anything()
+    );
+    consoleSpy.mockRestore();
+  });
+
+  // (ix) claim が CAS である（同時実行で二重に立たない）＝ 0 行更新（既に他者が claim 済み）でも
+  // エラーにせず施設作成は成立する。
+  test('(ix) CAS が 0 行更新（TOCTOU で先に claim された）でもエラーにせず施設は作られ、claim は記録されない', async () => {
+    setupDefaultMocks(true, false, true, false, false, false, { salonClaimCasFails: true });
+    (writeAuditLog as jest.Mock).mockClear();
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    // CAS で 0 行 → claim は成立しない → salons への監査ログは書かれない。
+    // （許認可表明の監査ログ＝tableName:'facility_profiles' は claim と無関係に必ず書かれるので、
+    //   「1本も呼ばれない」ではなく「salons への記録が無い」を主張する。）
+    expect(writeAuditLog).not.toHaveBeenCalledWith(
+      expect.objectContaining({ tableName: 'salons' }),
+    );
+  });
+
+  test('CAS 自体が DB エラーを返しても、施設作成は継続する（claim だけがログ記録され諦められる）', async () => {
+    setupDefaultMocks(true, false, true, false, false, false, { salonClaimCasError: true });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
+    expect(res.status).toBe(200);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('salon claim update failed'),
+      expect.anything()
+    );
+    consoleSpy.mockRestore();
+  });
+
+  // (x) claim が audit ログに記録される。
+  test('(x) claim 成功時、salons への update として writeAuditLog が呼ばれる', async () => {
+    setupDefaultMocks(true, false, true); // salonFound=true → SALON_FULL(id: 'salon-full-id') が対象
+    (writeAuditLog as jest.Mock).mockClear();
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
+    expect(res.status).toBe(200);
+    expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-123',
+      facilityId: 'fac-123',
+      action: 'update',
+      tableName: 'salons',
+      // 🔴 実際に CAS が焼き切った行の id を記録する（統合元が複数あり得るため、
+      //   「引き継ぎに使った行」ではなく「claim が成立した行」が監査対象）。
+      recordId: 'claimed-row-id',
+      newValues: { claimed_by_user_id: 'user-123' },
+    }));
+  });
+
+  test('claim 対象が無い場合は writeAuditLog は呼ばれない（無関係な操作を監査ログに残さない）', async () => {
+    setupDefaultMocks(true, false, false); // salonFound=false → salonData=null
+    (writeAuditLog as jest.Mock).mockClear();
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
+    expect(res.status).toBe(200);
+    expect(writeAuditLog).not.toHaveBeenCalledWith(
+      expect.objectContaining({ tableName: 'salons' }),
+    );
+  });
+
+  test('(i-f) Cookie 経路の取得が失敗しても通知され、施設作成は続行する', async () => {
+    const { alertCaughtError } = require('@/lib/alert');
+    (alertCaughtError as jest.Mock).mockClear();
+    setupDefaultMocks(true, false, false, false, false, false, {
+      cookieSalonError: { code: '42703', message: 'column salons.claimed_by_user_id does not exist' },
+      userEmail: 'owner@example.com',
+    });
+    const cookie = signSalonClaim(COOKIE_SALON_ID)!;
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }, '192.168.1.1', cookie) as any);
+    expect(res.status).toBe(200);
+    expect(alertCaughtError).toHaveBeenCalledWith(
+      'facility-setup-salon-lookup',
+      expect.any(Error),
+      '/api/facility/setup',
+    );
+  });
+
+  test('(i-g) Cookie 経路とメール経路が同じ行を拾っても、統合は1件として扱う', async () => {
+    // 同じ id の行が両経路から来る（Cookie で指した申込が、そのまま本人のメールでも引ける）。
+    const SAME = { ...SALON_FULL, id: COOKIE_SALON_ID, created_at: null };
+    setupDefaultMocks(true, false, false, false, false, false, {
+      cookieSalonData: SAME,
+      emailSalonRows: [SAME],
+      userEmail: 'owner@example.com',
+    });
+    const cookie = signSalonClaim(COOKIE_SALON_ID)!;
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }, '192.168.1.1', cookie) as any);
+    expect(res.status).toBe(200);
+    // claim の CAS には重複を除いた1件だけが渡る（同じ id を2回並べない）。
+    const claimCall = mockSalonUpdate.mock.calls.find(
+      (c: unknown[]) => (c[0] as { claimed_by_user_id: string | null }).claimed_by_user_id != null,
+    );
+    expect(claimCall).toBeDefined();
+    // created_at が null でも並べ替えで落ちない（?? '' の分岐）。
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.postal_code).toBe('150-0001');
+  });
+
+  test('(i-g2) created_at が null の行が複数あっても並べ替えで落ちない', async () => {
+    // salons.created_at は NOT NULL ではない。null 同士でも比較が成立し、
+    // 元の順（Cookie 経路が先）が保たれることを確かめる。
+    const COOKIE_ROW = { ...SALON_FULL, id: COOKIE_SALON_ID, created_at: null, postal_code: '111-1111' };
+    const EMAIL_ROW = { ...SALON_FULL, id: '77777777-7777-4777-8777-777777777777', created_at: null, postal_code: '222-2222' };
+    setupDefaultMocks(true, false, false, false, false, false, {
+      cookieSalonData: COOKIE_ROW,
+      emailSalonRows: [EMAIL_ROW],
+      userEmail: 'owner@example.com',
+    });
+    const cookie = signSalonClaim(COOKIE_SALON_ID)!;
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }, '192.168.1.1', cookie) as any);
+    expect(res.status).toBe(200);
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.postal_code).toBe('111-1111');
+  });
+
+  test('(i-h) CAS が error 無しで data:null を返しても claim は成立扱いにしない', async () => {
+    (writeAuditLog as jest.Mock).mockClear();
+    setupDefaultMocks(true, false, true, false, false, false, {
+      salonClaimCasNullData: true,
+      userEmail: 'owner@example.com',
+    });
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
+    expect(res.status).toBe(200);
+    // 「更新できたのか分からない」戻りを成功と読み替えない（salons への監査ログは書かない）。
+    expect(writeAuditLog).not.toHaveBeenCalledWith(
+      expect.objectContaining({ tableName: 'salons' }),
+    );
+  });
+
+  // ─── 許認可・届出の表明（利用規約 第12条）をサーバー側で必須にする ───
+  test('(xi) license_warranted が無い POST は 400（画面を経由しない登録を通さない）', async () => {
+    setupDefaultMocks(true, false, false);
+    const res = await POST(makeRequest({
+      facility_name: 'Test', business_type: 'ネイル・まつげサロン', license_warranted: undefined,
+    }) as any);
+    expect(res.status).toBe(400);
+    // 施設は1件も作られない。
+    expect(mockFacilityInsert).not.toHaveBeenCalled();
+  });
+
+  test('(xi-b) license_warranted が false でも 400（チェックを外した状態を通さない）', async () => {
+    setupDefaultMocks(true, false, false);
+    const res = await POST(makeRequest({
+      facility_name: 'Test', business_type: 'ネイル・まつげサロン', license_warranted: false,
+    }) as any);
+    expect(res.status).toBe(400);
+    expect(mockFacilityInsert).not.toHaveBeenCalled();
+  });
+
+  test('(xi-c) 表明ありなら、その事実が監査ログに残る', async () => {
+    (writeAuditLog as jest.Mock).mockClear();
+    setupDefaultMocks(true, false, false);
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
+    expect(res.status).toBe(200);
+    expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-123',
+      facilityId: 'fac-123',
+      tableName: 'facility_profiles',
+      newValues: expect.objectContaining({ license_warranted: true }),
+    }));
   });
 });

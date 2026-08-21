@@ -8,6 +8,7 @@ import { getClientIp } from '@/lib/client-ip';
 import crypto from 'crypto';
 import { isGoogleCalendarEnabled } from '@/lib/integration-availability';
 import { SITE_URL } from '@/lib/constants';
+import { serverError } from '@/lib/with-route';
 
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.events',
@@ -64,8 +65,7 @@ export async function POST(req: NextRequest) {
     const admin = createServiceRoleClient();
     const { error: disconnectErr } = await admin.from('google_calendar_tokens').delete().eq('user_id', user.id);
     if (disconnectErr) {
-      console.error('[google-calendar] disconnect failed', { userId: user.id, err: disconnectErr });
-      return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+      return serverError('google-calendar-disconnect', disconnectErr, '/api/google-calendar');
     }
     return NextResponse.json({ ok: true });
   }

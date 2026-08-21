@@ -16,6 +16,7 @@ import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,7 +66,12 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   // Validate content_id is a proper UUID before using it in any secondary query
   if (!UUID_REGEX.test(item.content_id)) {
-    return NextResponse.json({ error: 'content_id が不正なUUID形式です' }, { status: 500 });
+    return serverError(
+      'admin-moderation-invalid-content-id',
+      new Error(`moderation_queue.content_id is not a valid UUID (queue id=${params.id}, content_id=${item.content_id})`),
+      '/api/admin/moderation/[id]',
+      'content_id が不正なUUID形式です',
+    );
   }
 
   // Update moderation_queue
@@ -83,7 +89,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .select();
 
   if (updateErr) {
-    return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
+    return serverError('admin-moderation-update', updateErr, '/api/admin/moderation/[id]', '更新に失敗しました');
   }
   if (!updatedRows || updatedRows.length === 0) {
     return NextResponse.json({ error: '対象が見つかりません' }, { status: 404 });

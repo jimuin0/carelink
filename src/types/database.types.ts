@@ -3538,6 +3538,8 @@ export type Database = {
           reading_time: number
           slug: string
           tags: string[]
+          threads_post_id: string | null
+          threads_posted_at: string | null
           thumbnail_url: string | null
           title: string
           updated_at: string
@@ -3554,6 +3556,8 @@ export type Database = {
           reading_time?: number
           slug: string
           tags?: string[]
+          threads_post_id?: string | null
+          threads_posted_at?: string | null
           thumbnail_url?: string | null
           title: string
           updated_at?: string
@@ -3570,6 +3574,8 @@ export type Database = {
           reading_time?: number
           slug?: string
           tags?: string[]
+          threads_post_id?: string | null
+          threads_posted_at?: string | null
           thumbnail_url?: string | null
           title?: string
           updated_at?: string
@@ -3928,6 +3934,8 @@ export type Database = {
           business_hours: string | null
           business_type: string
           city: string | null
+          claimed_at: string | null
+          claimed_by_user_id: string | null
           contact_name: string
           contact_phone: string | null
           created_at: string | null
@@ -3960,6 +3968,8 @@ export type Database = {
           business_hours?: string | null
           business_type: string
           city?: string | null
+          claimed_at?: string | null
+          claimed_by_user_id?: string | null
           contact_name: string
           contact_phone?: string | null
           created_at?: string | null
@@ -3992,6 +4002,8 @@ export type Database = {
           business_hours?: string | null
           business_type?: string
           city?: string | null
+          claimed_at?: string | null
+          claimed_by_user_id?: string | null
           contact_name?: string
           contact_phone?: string | null
           created_at?: string | null
@@ -4603,6 +4615,33 @@ export type Database = {
           name?: string
           slug?: string
           sort_order?: number | null
+        }
+        Relationships: []
+      }
+      threads_credentials: {
+        Row: {
+          access_token: string
+          created_at: string
+          expires_at: string
+          id: string
+          refreshed_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          access_token: string
+          created_at?: string
+          expires_at: string
+          id?: string
+          refreshed_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          access_token?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          refreshed_at?: string | null
+          updated_at?: string
         }
         Relationships: []
       }

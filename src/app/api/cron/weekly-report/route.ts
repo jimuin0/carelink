@@ -8,7 +8,7 @@
 
 import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { logCronRun } from '@/lib/cron-logger';
+import { logCronRun, cronError } from '@/lib/cron-logger';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { todayJst, addDays } from '@/lib/admin-date';
@@ -181,8 +181,7 @@ export async function GET(request: Request) {
 
     if (error) {
       console.error('[weekly-report] daily_revenue_summary fetch failed', { err: error });
-      await logCronRun('weekly-report', 'error', startedAt, { error_msg: error.message });
-      return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+      return cronError('weekly-report', startedAt, error);
     }
 
     let emailsSent = 0;
@@ -208,7 +207,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ processed: emailsSent, skipped: emailsSkipped, emailsSent, start, end, emailsSkipped, optedOut });
   } catch (e) {
     console.error('[weekly-report] Error:', e);
-    await logCronRun('weekly-report', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return cronError('weekly-report', startedAt, e);
   }
 }

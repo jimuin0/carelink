@@ -6,7 +6,7 @@
 
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
-import { logCronRun } from '@/lib/cron-logger';
+import { logCronRun, cronError } from '@/lib/cron-logger';
 import { scheduleRetry } from '@/lib/webhook-queue';
 import { sendLineText } from '@/lib/line';
 import { Resend } from 'resend';
@@ -65,8 +65,7 @@ export async function GET(request: Request) {
     // DB エラーを握り潰すと「0 件＝skipped 成功」に化け、その run が無音でスキップされ Slack 通報も
     // されない。error を error ログ＋500 で可視化する（発症前検知）。
     if (jobsError) {
-      await logCronRun('webhook-retry', 'error', startedAt, { error_msg: errorMessage(jobsError) });
-      return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+      return cronError('webhook-retry', startedAt, jobsError, { message: 'Internal Server Error' });
     }
 
     if (!jobs || jobs.length === 0) {
@@ -94,8 +93,7 @@ export async function GET(request: Request) {
       .select('id');
     if (claimErr) {
       console.error('[webhook-retry] status claim failed — aborting to prevent duplicate delivery', { err: claimErr });
-      await logCronRun('webhook-retry', 'error', startedAt, { error_msg: claimErr.message });
-      return NextResponse.json({ error: 'claim failed' }, { status: 500 });
+      return cronError('webhook-retry', startedAt, claimErr, { message: 'claim failed' });
     }
     // data が null（0行更新時のドライバ表現揺れ）も「1行も claim できなかった」として安全側に扱う。
     const claimedIds = new Set(((claimedRows ?? []) as { id: string }[]).map((r) => r.id));
@@ -223,9 +221,6 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ processed: success, skipped: failed });
   } catch (e) {
-    await logCronRun('webhook-retry', 'error', startedAt, {
-      error_msg: e instanceof Error ? e.message : String(e),
-    });
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return cronError('webhook-retry', startedAt, e);
   }
 }

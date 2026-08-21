@@ -8,8 +8,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { validateCouponDiscountFields, normalizeCouponDiscountFields } from '@/lib/coupon-validation';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
@@ -86,7 +85,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
       .select('id')
       .in('id', targetMenuIds)
       .eq('facility_id', facilityId);
-    if (menuErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (menuErr) return serverError('admin-coupons-patch-menu-validate', menuErr, '/api/admin/coupons/[id]');
     const validIds = new Set((menuRows ?? []).map((r: { id: string }) => r.id));
     if (!targetMenuIds.every((id) => validIds.has(id))) {
       return NextResponse.json({ error: '対象メニューが不正です' }, { status: 400 });
@@ -101,11 +100,11 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   let data: Record<string, unknown> | null;
   if (Object.keys(couponFields).length > 0) {
     const { data: updated, error } = await admin.from('coupons').update(couponFields).eq('id', params.id).eq('facility_id', facilityId).select().maybeSingle();
-    if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (error) return serverError('admin-coupons-patch-update', error, '/api/admin/coupons/[id]');
     data = updated;
   } else {
     const { data: existing, error } = await admin.from('coupons').select('*').eq('id', params.id).eq('facility_id', facilityId).maybeSingle();
-    if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (error) return serverError('admin-coupons-patch-select', error, '/api/admin/coupons/[id]');
     data = existing;
   }
   if (!data) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 404 });
@@ -114,7 +113,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   // 空配列＝限定解除（全行 delete のみ＝全メニュー適用へ）。非空＝delete→insert で置換。
   if (targetMenuIds !== undefined) {
     const { error: delErr } = await admin.from('coupon_menus').delete().eq('coupon_id', params.id);
-    if (delErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (delErr) return serverError('admin-coupons-patch-menu-delete', delErr, '/api/admin/coupons/[id]');
     if (targetMenuIds.length > 0) {
       const { error: insErr } = await admin
         .from('coupon_menus')
@@ -133,13 +132,14 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
             `coupon update sync double-failure: coupon_id=${params.id} が全メニュー適用のまま有効で残存の可能性 ` +
             `(insert: ${insErr.message} / deactivate: ${deactivateErr.message})`
           );
-          safeCaptureException(doubleFailure, 'admin-coupons-update-sync');
-          alertCaughtError('admin-coupons-update-sync', doubleFailure, '/api/admin/coupons/[id]');
-          return NextResponse.json({
-            error: '対象メニューの保存に失敗し、クーポンを無効化できませんでした。このクーポンが全メニュー適用のまま有効になっている可能性があります。至急このクーポンの状態を確認し、対象メニューを設定し直すか無効化してください。',
-          }, { status: 500 });
+          return serverError(
+            'admin-coupons-update-sync',
+            doubleFailure,
+            '/api/admin/coupons/[id]',
+            '対象メニューの保存に失敗し、クーポンを無効化できませんでした。このクーポンが全メニュー適用のまま有効になっている可能性があります。至急このクーポンの状態を確認し、対象メニューを設定し直すか無効化してください。',
+          );
         }
-        return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+        return serverError('admin-coupons-patch-menu-link', insErr, '/api/admin/coupons/[id]');
       }
     }
   }
@@ -183,7 +183,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     .from('coupon_redemptions')
     .select('id', { count: 'exact', head: true })
     .eq('coupon_id', params.id);
-  if (countErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (countErr) return serverError('admin-coupons-delete-count', countErr, '/api/admin/coupons/[id]');
   if (count && count > 0) {
     // 更新件数(affected rows)を検証せず常に成功を返し、監査ログも無条件で書いていたため、
     // TOCTOU（利用実績カウント確認後に既削除等）による0件更新も「無効化しました」と偽装していた
@@ -195,7 +195,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
       .eq('id', params.id)
       .eq('facility_id', facilityId)
       .select();
-    if (deactivateErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (deactivateErr) return serverError('admin-coupons-delete-deactivate', deactivateErr, '/api/admin/coupons/[id]');
     if (!deactivated || deactivated.length === 0) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 404 });
 
     void writeAuditLog({
@@ -216,7 +216,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   // 既削除等）による0件削除も「成功」と偽装していた（phantom success）。.select() で削除行を受け取り、
   // 0件なら404を返す（customers/[id]・menus/[id]・catalog/[id] と同型）。
   const { data, error } = await admin.from('coupons').delete().eq('id', params.id).eq('facility_id', facilityId).select();
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-coupons-delete', error, '/api/admin/coupons/[id]');
   if (!data || data.length === 0) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 404 });
 
   void writeAuditLog({

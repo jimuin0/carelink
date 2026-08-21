@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { isPaymentsEnabled } from '@/lib/integration-availability';
 
 export const dynamic = 'force-dynamic';
@@ -49,9 +48,7 @@ export async function GET(request: Request) {
     // 取得失敗を空配列に化けさせない。空で返すと「オプションが1つも無い」と
     // 見分けがつかず、障害が無音になる（availability / slots と同じ方針）。
     if (error) {
-      safeCaptureException(error, 'options-catalog');
-      alertCaughtError('options-catalog', error, '/api/options/catalog');
-      return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+      return serverError('options-catalog', error, '/api/options/catalog');
     }
 
     const rows = (data ?? []) as { contact_only: boolean }[];
@@ -61,8 +58,6 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ paymentsEnabled, options });
   } catch (e) {
-    safeCaptureException(e, 'options-catalog');
-    alertCaughtError('options-catalog', e, '/api/options/catalog');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('options-catalog', e, '/api/options/catalog');
   }
 }

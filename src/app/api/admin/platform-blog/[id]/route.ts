@@ -8,6 +8,26 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
 import type { Database, Json } from '@/types/database.types';
+import { serverError } from '@/lib/with-route';
+import { runAfterResponse } from '@/lib/after-response';
+import { publishArticleToThreads } from '@/lib/platform-blog-threads';
+
+/**
+ * 記事公開を Threads 投稿のきっかけに配線する処理本体。
+ *
+ * 🔴 route.ts（POST）にも同一実装が存在する（意図的な重複）。src/lib/ は本タスクでは
+ * 他エージェントの担当領域のため、共有ヘルパーを新設せずこの2ファイルにそれぞれ閉じ込める
+ * （route.ts は HTTP メソッド以外を export できないため各ファイル内の非 export ローカル関数として
+ * 複製する）。統合するかどうかは親（司令塔）が両担当の変更を合流させた後に判断する。
+ *
+ * 【claim を投稿の"前"に立てる理由】route.ts 側のコメントと同一（「投稿されたのに記録が
+ * 残らない」より「二重投稿」の方が公式アカウントの信頼性を損なう度合いが大きいため、
+ * claim 成功を投稿の必要条件にする）。
+ *
+ * claim の鍵は `threads_posted_at` 自身（onboarding-followup cron の CAS と同型）。
+ * `threads_post_id IS NULL` も必須条件にし、一度でも投稿に成功した記事は claim の状態に
+ * 関わらず永久に除外する（公開取り消し→再公開での再投稿防止・要件3）。
+ */
 
 const platformBlogUpdateSchema = z.object({
   slug: z.string().min(1).max(200).regex(/^[a-z0-9-]+$/, 'スラッグは半角英数字とハイフンのみ使用できます').optional(),
@@ -75,7 +95,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     // 下の if(error)→500 が先に発火し if(!data)→404 が到達不能になる（404がデッドコード・500に化ける）。
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-platform-blog-patch', error, '/api/admin/platform-blog/[id]');
   if (!data) return NextResponse.json({ error: '記事が見つかりません' }, { status: 404 });
 
   void writeAuditLog({
@@ -86,6 +106,15 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     newValues: updatePayload,
     ipAddress: ip,
   });
+
+  // 更新結果が公開状態なら Threads へ配線する。false→true の遷移だけを狙って旧 is_published を
+  // 別途 SELECT で取得する必要はない：publishArticleToThreads 内の CAS が
+  // 「threads_post_id IS NULL の記事に限る」を保証するため、一度成功した記事は
+  // このガードだけで自動的に再投稿されなくなる（公開のままの編集保存を何度繰り返しても、
+  // 実際に Threads へ投稿されるのは最初の1回だけ）。
+  if (data.is_published) {
+    runAfterResponse(() => publishArticleToThreads(admin, { id: data.id, slug: data.slug, title: data.title }, '/api/admin/platform-blog/[id]'));
+  }
 
   return NextResponse.json({ post: data });
 }
@@ -116,7 +145,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     .eq('id', params.id)
     .select();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-platform-blog-delete', error, '/api/admin/platform-blog/[id]');
   if (!data || data.length === 0) return NextResponse.json({ error: '記事が見つかりません' }, { status: 404 });
 
   void writeAuditLog({

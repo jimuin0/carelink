@@ -157,100 +157,20 @@ function analyzeRouteSource(src: string): AnalyzeResult {
 
 /**
  * 【既知の未解決分の台帳】2026年8月20日、上記ロジックで実測した「withRoute を使っておらず、
- * 通知経路にも載っていない route.ts」の一覧。route.ts 自体の中身は本タスクのスコープ外
- * （変更禁止）のため、ここに載っている83ファイルは【この検査の新設時点で既に無音だった】
- * 既知のバックログであり、今回の変更で新たに増えたものではない。
+ * 通知経路にも載っていない route.ts」の一覧を初期投入した（当時83ファイル）。
+ *
+ * ✅ **2026年8月21日 全件解消。** `src/app/api/admin/` 配下と、それ以外（`cron/` を除く
+ * `src/app/api/**`）を並行して洗い出し、直接 `status: 500` を返していた箇所を
+ * `serverError()`（`src/lib/with-route.ts`）呼び出しへ置き換えた（レスポンス body の形が
+ * `{error: string}` と異なる少数の箇所は、body 形を変えないまま
+ * `safeCaptureException`+`alertCaughtError` を直接呼ぶ形にした）。台帳は空にする。
  *
  * 台帳の意味:
  *   - ここに無いファイルが新たに無音 500 を持つようになったら CI が落ちる（新規流入の防止）
  *   - ここに載っているファイルが実際にはもう無音でなくなったら CI が落ちる
  *     （withRoute 化・serverError 化した際に台帳の更新を強制し、記載の陳腐化を防ぐ）
  */
-const KNOWN_UNWIRED_FILES: string[] = [
-  'src/app/api/admin/accounting-export/route.ts',
-  'src/app/api/admin/ai-support/route.ts',
-  'src/app/api/admin/api-keys/[id]/route.ts',
-  'src/app/api/admin/api-keys/route.ts',
-  'src/app/api/admin/backup/route.ts',
-  'src/app/api/admin/blog/[id]/route.ts',
-  'src/app/api/admin/blog/route.ts',
-  'src/app/api/admin/booking-checkout/route.ts',
-  'src/app/api/admin/booking-status/route.ts',
-  'src/app/api/admin/bookings/route.ts',
-  'src/app/api/admin/catalog/[id]/route.ts',
-  'src/app/api/admin/catalog/route.ts',
-  'src/app/api/admin/chain/bulk-coupon/route.ts',
-  'src/app/api/admin/chain/bulk-publish/route.ts',
-  'src/app/api/admin/coupons/[id]/route.ts',
-  'src/app/api/admin/coupons/route.ts',
-  'src/app/api/admin/customers/[id]/route.ts',
-  'src/app/api/admin/customers/route.ts',
-  'src/app/api/admin/facility-verify/route.ts',
-  'src/app/api/admin/feature-flags/[id]/route.ts',
-  'src/app/api/admin/feature-flags/route.ts',
-  'src/app/api/admin/featured-ads/route.ts',
-  'src/app/api/admin/features/[id]/route.ts',
-  'src/app/api/admin/features/route.ts',
-  'src/app/api/admin/gbp/place/route.ts',
-  'src/app/api/admin/gbp/posts/route.ts',
-  'src/app/api/admin/hpb-menus/apply/route.ts',
-  'src/app/api/admin/hpb-menus/route.ts',
-  'src/app/api/admin/inquiries/[id]/reply/route.ts',
-  'src/app/api/admin/inquiries/[id]/route.ts',
-  'src/app/api/admin/job-applications/[id]/route.ts',
-  'src/app/api/admin/job-applications/route.ts',
-  'src/app/api/admin/jobs/route.ts',
-  'src/app/api/admin/menus/[id]/route.ts',
-  'src/app/api/admin/menus/route.ts',
-  'src/app/api/admin/moderation/[id]/route.ts',
-  'src/app/api/admin/newsletter/[id]/route.ts',
-  'src/app/api/admin/newsletter/route.ts',
-  'src/app/api/admin/packages/[id]/route.ts',
-  'src/app/api/admin/packages/route.ts',
-  'src/app/api/admin/payments-settings/route.ts',
-  'src/app/api/admin/platform-blog/[id]/route.ts',
-  'src/app/api/admin/platform-blog/route.ts',
-  'src/app/api/admin/qa/route.ts',
-  'src/app/api/admin/registrations/[id]/route.ts',
-  'src/app/api/admin/registrations/route.ts',
-  'src/app/api/admin/report/route.ts',
-  'src/app/api/admin/review-summary/route.ts',
-  'src/app/api/admin/settings/route.ts',
-  'src/app/api/admin/staff/[id]/route.ts',
-  'src/app/api/admin/staff/[id]/schedule/route.ts',
-  'src/app/api/admin/staff/route.ts',
-  'src/app/api/admin/subscription-plans/[id]/route.ts',
-  'src/app/api/admin/subscription-plans/route.ts',
-  'src/app/api/admin/user-packages/route.ts',
-  'src/app/api/admin/user-subscriptions/route.ts',
-  'src/app/api/admin/white-label/verify/route.ts',
-  'src/app/api/alert-check/route.ts',
-  'src/app/api/booking/[id]/cancel/route.ts',
-  'src/app/api/booking/[id]/change/route.ts',
-  'src/app/api/booking/[id]/ical/route.ts',
-  'src/app/api/booking/route.ts',
-  'src/app/api/facility/setup/route.ts',
-  'src/app/api/google-calendar/route.ts',
-  'src/app/api/google-calendar/sync/route.ts',
-  'src/app/api/intake/route.ts',
-  'src/app/api/liff/link/route.ts',
-  'src/app/api/line/webhook/route.ts',
-  'src/app/api/nps/route.ts',
-  'src/app/api/options/inquiry/route.ts',
-  'src/app/api/payment/checkout/route.ts',
-  'src/app/api/payment/webhook/route.ts',
-  'src/app/api/push/subscribe/route.ts',
-  'src/app/api/referral/route.ts',
-  'src/app/api/review/[id]/route.ts',
-  'src/app/api/review/route.ts',
-  'src/app/api/stripe/checkout/route.ts',
-  'src/app/api/stripe/receipt/route.ts',
-  'src/app/api/symptoms/suggest/route.ts',
-  'src/app/api/unsubscribe/route.ts',
-  'src/app/api/v1/bookings/route.ts',
-  'src/app/api/v1/customers/route.ts',
-  'src/app/api/waitlist/route.ts',
-];
+const KNOWN_UNWIRED_FILES: string[] = [];
 
 describe('無音の500の構造ガード（withRoute 未使用の route.ts）', () => {
   const routeFiles = walk(API_ROOT, (p) => p.endsWith(`${sep}route.ts`));
@@ -260,13 +180,27 @@ describe('無音の500の構造ガード（withRoute 未使用の route.ts）', 
     expect(routeFiles.length).toBeGreaterThanOrEqual(100);
   });
 
-  it('status: 500 の検出件数が十分な数ある（空振り防止）', () => {
+  it('route.ts は 500 応答を直接組み立てていない（0件であることが正しい状態）', () => {
+    const offenders: string[] = [];
     let total500 = 0;
     for (const file of routeFiles) {
-      total500 += analyzeRouteSource(readFileSync(file, 'utf8')).total500;
+      const n = analyzeRouteSource(readFileSync(file, 'utf8')).total500;
+      total500 += n;
+      if (n > 0) offenders.push(`${relative(ROOT, file).split(sep).join('/')} (${n})`);
     }
-    // 実測（2026年8月20日）278件。腐りを検知できるよう実測より少し低い下限にする。
-    expect(total500).toBeGreaterThanOrEqual(200);
+    // 🔴 この検査は 2026年8月21日に【下限から上限へ反転】した。
+    //   反転前は「リテラル `status: 500` が278件見つかること」を空振り防止の下限にしていたが、
+    //   それは【無音の500が大量に残っている】前提の数字だった。api 全体の276箇所を
+    //   serverError()（src/lib/with-route.ts）と cronError()（src/lib/cron-logger.ts）へ
+    //   集約した結果、route.ts 側のリテラルは 0 が正しい状態になった。
+    //   下限のまま放置すると「全部直したのにテストが落ちる」＝直した人が閾値を下げるしかなくなり、
+    //   ガードが単なる数合わせに堕ちる。
+    //
+    //   空振り（走査が0ファイル）に対する防御は、直上の
+    //   「走査対象が十分な数ある（routeFiles.length >= 100）」が担っている。
+    //   そちらが生きている限り、この 0 は「探して無かった」であって「探していない」ではない。
+    expect(offenders).toEqual([]);
+    expect(total500).toBe(0);
   });
 
   it('無音の500が台帳(KNOWN_UNWIRED_FILES)を超えて増えていない・台帳が陳腐化していない', () => {

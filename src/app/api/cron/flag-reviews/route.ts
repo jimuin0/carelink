@@ -1,4 +1,4 @@
-import { logCronRun } from '@/lib/cron-logger';
+import { logCronRun, cronError } from '@/lib/cron-logger';
 /**
  * 不正レビュー検知 Cron（v8.22）
  * GET /api/cron/flag-reviews
@@ -183,7 +183,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ processed: flagged, skipped: 0 });
   } catch (e) {
     console.error('flag-reviews error', e);
-    await logCronRun('flag-reviews', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
-    return NextResponse.json({ error: 'error', flagged }, { status: 500 });
+    return cronError('flag-reviews', startedAt, e, { message: 'error', extraBody: { flagged } });
   }
 }

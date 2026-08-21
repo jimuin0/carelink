@@ -8,8 +8,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { validateCouponDiscountFields, normalizeCouponDiscountFields } from '@/lib/coupon-validation';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
@@ -68,7 +67,7 @@ export async function GET(request: NextRequest) {
     .eq('facility_id', auth.facilityId)
     .order('created_at', { ascending: false });
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-coupons-list', error, '/api/admin/coupons');
   return NextResponse.json({ coupons: data });
 }
 
@@ -99,7 +98,7 @@ export async function POST(request: NextRequest) {
       .select('id')
       .in('id', targetMenuIds)
       .eq('facility_id', auth.facilityId);
-    if (menuErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (menuErr) return serverError('admin-coupons-create-menu-validate', menuErr, '/api/admin/coupons');
     const validIds = new Set((menuRows ?? []).map((r: { id: string }) => r.id));
     if (!targetMenuIds.every((id) => validIds.has(id))) {
       return NextResponse.json({ error: '対象メニューが不正です' }, { status: 400 });
@@ -112,7 +111,7 @@ export async function POST(request: NextRequest) {
     is_active: couponData.is_active ?? true,
   }).select().single();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-coupons-create', error, '/api/admin/coupons');
 
   // 対象メニュー限定（coupon_menus）の保存。失敗した場合、クーポンだけが残ると「対象メニュー
   // 限定なし＝全メニュー適用」の意味になってしまう（例：1メニュー限定の特別価格が全メニューに
@@ -135,14 +134,15 @@ export async function POST(request: NextRequest) {
             `coupon create rollback triple-failure: coupon_id=${data.id} が全メニュー適用のまま有効で残存の可能性 ` +
             `(insert: ${cmError.message} / delete: ${rollbackErr.message} / deactivate: ${deactivateErr.message})`
           );
-          safeCaptureException(tripleFailure, 'admin-coupons-create-rollback');
-          alertCaughtError('admin-coupons-create-rollback', tripleFailure, '/api/admin/coupons');
-          return NextResponse.json({
-            error: '対象メニューの保存に失敗し、クーポンを無効化できませんでした。作成されたクーポンが全メニュー適用のまま有効になっている可能性があります。至急クーポン一覧を確認し、該当クーポンを無効化してください。',
-          }, { status: 500 });
+          return serverError(
+            'admin-coupons-create-rollback',
+            tripleFailure,
+            '/api/admin/coupons',
+            '対象メニューの保存に失敗し、クーポンを無効化できませんでした。作成されたクーポンが全メニュー適用のまま有効になっている可能性があります。至急クーポン一覧を確認し、該当クーポンを無効化してください。',
+          );
         }
       }
-      return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+      return serverError('admin-coupons-create-menu-link', cmError, '/api/admin/coupons');
     }
   }
 

@@ -143,10 +143,29 @@ describe('/admin/onboarding', () => {
       body: JSON.stringify({
         facility_name: 'テストサロン',
         business_type: 'ヘアサロン',
+        license_warranted: true,
       }),
     }));
 
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/admin'));
+  });
+
+  it('(vii) 送信 body に license_warranted: true が載る（許認可表明の送信証跡・2026年8月20日）', async () => {
+    mockSearchParams = new URLSearchParams({
+      facility_name: 'テストサロン',
+      business_type: 'ヘアサロン',
+    });
+
+    render(<OnboardingPage />);
+    await screen.findByRole('button', { name: '施設を作成する' });
+
+    fillLicenseCheckbox();
+    submit();
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+    const [, init] = mockFetch.mock.calls[0];
+    const sentBody = JSON.parse(init.body as string);
+    expect(sentBody).toHaveProperty('license_warranted', true);
   });
 
   it('(v) 既に facility_members を持つユーザーはフォームを見ずに /admin へ replace される', async () => {

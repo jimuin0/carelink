@@ -11,6 +11,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX } from '@/lib/constants';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { checkPublishReadiness } from '@/lib/facility-publish-gate';
+import { serverError } from '@/lib/with-route';
 
 export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
@@ -62,8 +63,9 @@ export async function POST(req: NextRequest) {
         return { fid, readiness, gateErr };
       })
     );
-    if (checks.some((c) => c.gateErr)) {
-      return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    const gateFailure = checks.find((c) => c.gateErr);
+    if (gateFailure) {
+      return serverError('admin-chain-bulk-publish-gate', gateFailure.gateErr, '/api/admin/chain/bulk-publish');
     }
     targetIds = checks.filter((c) => c.readiness.ready).map((c) => c.fid);
     for (const c of checks) {
@@ -77,7 +79,7 @@ export async function POST(req: NextRequest) {
       .update({ status: is_published ? 'published' : 'draft', updated_at: new Date().toISOString() })
       .in('id', targetIds);
 
-    if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (error) return serverError('admin-chain-bulk-publish-update', error, '/api/admin/chain/bulk-publish');
   }
 
   const { ip: auditIp, ua } = getRequestContext(req);

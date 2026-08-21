@@ -4,8 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
@@ -89,13 +88,11 @@ export async function POST(request: NextRequest) {
       );
 
     if (error) {
-      return NextResponse.json({ error: 'Failed to save subscription' }, { status: 500 });
+      return serverError('push-subscribe-upsert', error, '/api/push/subscribe', 'Failed to save subscription');
     }
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    safeCaptureException(e, 'push-subscribe');
-    alertCaughtError('push-subscribe', e, '/api/push/subscribe');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('push-subscribe', e, '/api/push/subscribe');
   }
 }

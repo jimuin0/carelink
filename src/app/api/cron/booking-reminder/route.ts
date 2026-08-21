@@ -1,7 +1,7 @@
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import { safeCaptureException } from '@/lib/safe';
-import { logCronRun } from '@/lib/cron-logger';
+import { logCronRun, cronError } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
@@ -78,8 +78,7 @@ export async function GET(request: Request) {
     // fail-safe: 予約一覧が取れない時は中止（部分処理での誤集計を避ける）。
     if (bookingsErr) {
       safeCaptureException(bookingsErr, 'booking-reminder');
-      await logCronRun('booking-reminder', 'error', startedAt, { error_msg: 'bookings query failed' });
-      return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+      return cronError('booking-reminder', startedAt, bookingsErr, { extraLog: { error_msg: 'bookings query failed' } });
     }
     if (bookings.length === 0) {
       await logCronRun('booking-reminder', 'skipped', startedAt, { processed: 0, skipped: 0 });
@@ -370,9 +369,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ processed: sent, skipped, total: bookings.length, planned: plan.length, deferred });
   } catch (e) {
     safeCaptureException(e, 'booking-reminder-cron');
-    await logCronRun('booking-reminder', 'error', startedAt, {
-      error_msg: e instanceof Error ? e.message : String(e),
-    });
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return cronError('booking-reminder', startedAt, e);
   }
 }

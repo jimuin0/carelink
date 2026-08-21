@@ -5,6 +5,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 import { UUID_REGEX } from '@/lib/constants';
+import { serverError } from '@/lib/with-route';
 
 async function getFacilityIds(userId: string): Promise<string[]> {
   const admin = createServiceRoleClient();
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: false })
     .limit(200);
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-job-applications-list', error, '/api/admin/job-applications');
 
   return NextResponse.json({ applications: applications ?? [] });
 }
@@ -104,6 +105,6 @@ export async function POST(req: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: '応募の保存に失敗しました' }, { status: 500 });
+  if (error) return serverError('admin-job-applications-create', error, '/api/admin/job-applications', '応募の保存に失敗しました');
   return NextResponse.json({ application }, { status: 201 });
 }

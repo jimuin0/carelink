@@ -13,6 +13,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,10 +50,57 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
   }
 
+  const body = await request.json().catch(() => null);
+
+  // 【2026年8月20日 新設】運営による claim 解除。Cookie による所有権 claim
+  // （src/lib/salon-claim.ts）は復旧手段の無い一方向の消費のため、誤 claim・不正 claim を
+  // 本番に出さないための運営導線を用意する。requirePlatformAdmin（単一ソース・DBカラム方式）で
+  // 保護し、writeAuditLog で記録する。
+  if (body && typeof body === 'object' && (body as { action?: unknown }).action === 'unclaim') {
+    const adminUser = await requirePlatformAdmin();
+    if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+    const admin = createServiceRoleClient();
+    const { data: existing, error: fetchErr } = await admin
+      .from('salons')
+      .select('id, claimed_by_user_id, claimed_at')
+      .eq('id', params.id)
+      .maybeSingle();
+
+    if (fetchErr) {
+      return serverError('admin-registrations-unclaim-fetch', fetchErr, '/api/admin/registrations/[id]', '更新に失敗しました');
+    }
+    if (!existing) {
+      return NextResponse.json({ error: '登録が見つかりません' }, { status: 404 });
+    }
+
+    const { error: updateErr } = await admin
+      .from('salons')
+      .update({ claimed_by_user_id: null, claimed_at: null })
+      .eq('id', params.id);
+
+    if (updateErr) {
+      return serverError('admin-registrations-unclaim-update', updateErr, '/api/admin/registrations/[id]', '更新に失敗しました');
+    }
+
+    const { ua } = getRequestContext(request);
+    void writeAuditLog({
+      userId: adminUser.id,
+      action: 'update',
+      tableName: 'salons',
+      recordId: params.id,
+      oldValues: { claimed_by_user_id: existing.claimed_by_user_id, claimed_at: existing.claimed_at },
+      newValues: { claimed_by_user_id: null, claimed_at: null },
+      ipAddress: ip,
+      userAgent: ua,
+    });
+
+    return NextResponse.json({ success: true });
+  }
+
   const userId = await getPlatformAdminUser();
   if (!userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const body = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
@@ -68,7 +117,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .select('id');
 
   if (error) {
-    return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
+    return serverError('admin-registrations-patch', error, '/api/admin/registrations/[id]', '更新に失敗しました');
   }
   if (!data || data.length === 0) {
     return NextResponse.json({ error: '登録が見つかりません' }, { status: 404 });

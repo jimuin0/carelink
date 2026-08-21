@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { serverError } from '@/lib/with-route';
 
 // treatment_catalogs は Before/After 等の症例カタログ（実列: title, description, tags[],
 // before_photo_url, after_photo_url）。旧 schema は name/price/category/duration_minutes/
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest) {
     tags: parsed.data.tags ?? null,
   }).select().single();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-catalog-create', error, '/api/admin/catalog');
 
   const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({

@@ -7,6 +7,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import type { Database } from '@/types/database.types';
+import { serverError } from '@/lib/with-route';
 
 // job_applications の update() に渡すオブジェクトの型。
 // Record<string, unknown> は Database 型配線後の update() が要求する
@@ -89,7 +90,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     .select('*, job_postings(title)')
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-job-applications-patch', error, '/api/admin/job-applications/[id]');
   if (!application) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const { ua } = getRequestContext(req);

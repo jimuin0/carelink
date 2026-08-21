@@ -6,7 +6,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { getAdminFacilityIds, resolveTargetFacilityId } from '@/lib/facility-membership';
 
 export async function GET(req: NextRequest) {
@@ -88,9 +88,7 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) {
-    // DB upsert 失敗の 500 は instrumentation.ts の onRequestError に伝播しないため明示通知。
-    alertCaughtError('white-label-upsert', new Error(`white_label_domains upsert failed: ${error.message}`), '/api/admin/white-label');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('white-label-upsert', error, '/api/admin/white-label');
   }
 
   // カスタムドメイン設定は重要操作のため監査ログに記録（fire-and-forget・本体を止めない）。

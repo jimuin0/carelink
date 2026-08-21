@@ -3,11 +3,13 @@
  * 各cronルートから呼び出してcron_logsテーブルに結果を記録する
  */
 
+import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from './supabase-server';
 import { alertCaughtError } from './alert';
 import { pushAdminHeartbeat, type HeartbeatStatus } from './admin-heartbeat';
 import { runAfterResponse } from './after-response';
 import { toJsonValue } from '@/lib/json-value';
+import { errorMessage } from '@/lib/err';
 
 export interface CronResult {
   processed?: number;
@@ -76,6 +78,53 @@ export async function logCronRun(
   const heartbeatStatus: HeartbeatStatus =
     status === 'success' ? 'ok' : status === 'skipped' ? 'degraded' : 'fail';
   runAfterResponse(() => pushAdminHeartbeat(jobName, heartbeatStatus));
+}
+
+export interface CronErrorOptions {
+  /**
+   * レスポンス body の `error` フィールドの文言。省略時は既存呼び出しの多数派である
+   * 'Internal error'。既存 route の中には 'Internal Server Error' / 'error' / 'claim failed'
+   * のように文言が揃っていない箇所があり、body を1バイトも変えないためにここで指定する。
+   */
+  message?: string;
+  /**
+   * logCronRun の第4引数（CronResult）へ merge する追加フィールド。
+   * `error_msg` を含めると cause から計算した既定値より優先される
+   * （固定文字列の error_msg を渡していた既存呼び出しの再現に使う）。
+   */
+  extraLog?: Record<string, unknown>;
+  /** レスポンス body へ merge する追加フィールド（`error` の隣に足す既存フィールドの再現用）。 */
+  extraBody?: Record<string, unknown>;
+}
+
+/**
+ * cron ルートの「エラーを記録する」と「500 を返す」を1呼び出しに束ねるヘルパー。
+ *
+ * 背景: 全 API の 500 応答は alertCaughtError 経由の Slack 通知が SSOT だが、cron だけは
+ * logCronRun('error', ...) が内部で alertCaughtError を既に呼んでいるため、serverError() 等を
+ * 重ねると同一失敗に対し別タグの通知が二重に飛ぶ。そのため cron は「logCronRun → 500 を return」
+ * を手書きの規約で守ってきたが、規約は書き忘れを検出できない（新しい cron が logCronRun を
+ * 呼び忘れて 500 を返すと無音になる）。この関数は両者を1回の呼び出しに強制し、片方だけを
+ * 行うことを構造的に不可能にする。
+ *
+ * error_msg の作り方は `errorMessage()`（`@/lib/err.ts`）を使う。置き換える前の各 cron 呼び出し
+ * （`e instanceof Error ? e.message : String(e)` / `errorMessage(e)` / `error.message` 直読み）は
+ * いずれも「Error か、Error でなくとも文字列の `.message` を持つオブジェクト（PostgrestError 等）
+ * なら `.message`、それ以外は `String()`」という同じ結果になる。`errorMessage()` はこれを
+ * 一箇所に集約した既存ヘルパーで、素の `e instanceof Error` 分岐より対象が広い分
+ * （`.message` を持つが Error を継承しない値も拾う）、単純な instanceof 判定に狭めると
+ * 一部の呼び出し元（PostgrestError 相当のテスト用スタブ等）で error_msg が変わってしまう。
+ * 固定文字列の error_msg を渡していた箇所は `extraLog: { error_msg: '...' }` で上書きする。
+ */
+export async function cronError(
+  jobName: string,
+  startedAt: Date,
+  cause: unknown,
+  opts: CronErrorOptions = {}
+): Promise<NextResponse> {
+  const error_msg = errorMessage(cause);
+  await logCronRun(jobName, 'error', startedAt, { error_msg, ...opts.extraLog });
+  return NextResponse.json({ error: opts.message ?? 'Internal error', ...opts.extraBody }, { status: 500 });
 }
 
 /**

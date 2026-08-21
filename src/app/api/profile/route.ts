@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { mutationRateLimit } from '@/lib/rate-limit';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { withRoute } from '@/lib/with-route';
+import { withRoute, serverError } from '@/lib/with-route';
 import { phoneField } from '@/lib/phone';
 import { isValidIsoDate } from '@/lib/date-utils';
 
@@ -41,7 +41,7 @@ export const GET = withRoute(async (_request, ctx) => {
     .maybeSingle();
 
   if (error) {
-    return NextResponse.json({ error: '取得に失敗しました' }, { status: 500 });
+    return serverError('profile-get', error, '/api/profile', '取得に失敗しました');
   }
 
   return NextResponse.json({ linked: !!data?.line_user_id });
@@ -75,7 +75,7 @@ export const PUT = withRoute(async (request, ctx) => {
     .eq('id', ctx.user!.id);
 
   if (error) {
-    return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
+    return serverError('profile-put', error, '/api/profile', '更新に失敗しました');
   }
 
   return NextResponse.json({ success: true });

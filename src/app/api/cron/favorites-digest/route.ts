@@ -1,5 +1,4 @@
-import { logCronRun } from '@/lib/cron-logger';
-import { errorMessage } from '@/lib/err';
+import { logCronRun, cronError } from '@/lib/cron-logger';
 import { alertDeliveryFailures } from '@/lib/alert';
 /**
  * お気に入り施設ダイジェスト Cron（v8.25）
@@ -63,8 +62,7 @@ export async function GET(request: Request) {
     // 先頭ページで DB エラーが出ると rows=[] となり「0 件＝skipped 成功」に化けて無音スキップになる。
     // error を error ログ＋500 で可視化する。
     if (favUsersError) {
-      await logCronRun('favorites-digest', 'error', startedAt, { error_msg: errorMessage(favUsersError) });
-      return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+      return cronError('favorites-digest', startedAt, favUsersError, { message: 'Internal Server Error' });
     }
 
     // favUsers は fetchAllPaged の戻り（常に配列）なので length 判定のみ（!favUsers は到達不能=branch穴）。
@@ -282,7 +280,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ processed: sent, skipped, deferred });
   } catch (e) {
     console.error('favorites-digest error', e);
-    await logCronRun('favorites-digest', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
-    return NextResponse.json({ error: 'error', sent }, { status: 500 });
+    return cronError('favorites-digest', startedAt, e, { message: 'error', extraBody: { sent } });
   }
 }

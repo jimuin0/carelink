@@ -12,8 +12,7 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -134,7 +133,7 @@ export async function POST(request: Request) {
       .select('id');
 
     if (updateError) {
-      return NextResponse.json({ error: '会計の保存に失敗しました' }, { status: 500 });
+      return serverError('admin-booking-checkout-update', updateError, '/api/admin/booking-checkout', '会計の保存に失敗しました');
     }
     if (!updated || updated.length === 0) {
       return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
@@ -171,8 +170,6 @@ export async function POST(request: Request) {
     const change = paidAmount !== null ? paidAmount - total : null;
     return NextResponse.json({ success: true, total_price: total, change });
   } catch (e) {
-    safeCaptureException(e, 'admin-booking-checkout');
-    alertCaughtError('admin-booking-checkout', e, '/api/admin/booking-checkout');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('admin-booking-checkout', e, '/api/admin/booking-checkout');
   }
 }

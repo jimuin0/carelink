@@ -7,7 +7,7 @@
 
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
-import { logCronRun } from '@/lib/cron-logger';
+import { logCronRun, cronError } from '@/lib/cron-logger';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { errorMessage } from '@/lib/err';
 import { Resend } from 'resend';
@@ -70,8 +70,7 @@ export async function GET(request: Request) {
 
     // 核データの取得失敗を握り潰すと「通知0件＝success」に化け無音スキップになる→error ログ＋500。
     if (cancelsError) {
-      await logCronRun('waitlist-notify', 'error', startedAt, { error_msg: errorMessage(cancelsError) });
-      return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+      return cronError('waitlist-notify', startedAt, cancelsError, { message: 'Internal Server Error' });
     }
 
     let notified = 0;
@@ -199,9 +198,6 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ processed: notified, skipped: skippedNoContact, expired: expiredCount ?? 0 });
   } catch (e) {
-    await logCronRun('waitlist-notify', 'error', startedAt, {
-      error_msg: e instanceof Error ? e.message : String(e),
-    });
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return cronError('waitlist-notify', startedAt, e);
   }
 }

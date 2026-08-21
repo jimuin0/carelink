@@ -7,6 +7,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { isStockImageUrl, STOCK_IMAGE_ERROR } from '@/lib/stock-image-guard';
+import { serverError } from '@/lib/with-route';
 
 // 【2026年7月29日・恒久根治】zod の .url() は WHATWG URL としてパース可能かのみを検証し、
 // スキームを制限しない。"javascript:alert(1)" や "data:text/html,<script>..." は
@@ -70,7 +71,7 @@ export async function POST(request: NextRequest) {
     // feature_articles に updated_at 列は存在しない（created_at のみ）→ 書き込むと 400 になるため付けない
   }).select().single();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-features-create', error, '/api/admin/features');
 
   void writeAuditLog({
     userId,

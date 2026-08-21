@@ -7,6 +7,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { getAdminFacilityIds, resolveTargetFacilityId } from '@/lib/facility-membership';
 import type { Database } from '@/types/database.types';
+import { serverError } from '@/lib/with-route';
 
 // gbp_posts.facility_id は migrations 上 NOT NULL（database.types.ts の Row/Insert/Update いずれも
 // facility_id は string で null を許容しない）。PATCH で送る更新差分の型はここから取る。
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: false })
     .limit(50);
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-gbp-posts-list', error, '/api/admin/gbp/posts');
   return NextResponse.json({ posts: data ?? [] });
 }
 
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-gbp-posts-create', error, '/api/admin/gbp/posts');
 
   void writeAuditLog({
     userId: user.id,
@@ -152,7 +153,7 @@ export async function PATCH(req: NextRequest) {
     .eq('facility_id', facilityId)
     .select();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-gbp-posts-patch', error, '/api/admin/gbp/posts');
   if (!updatedRows || updatedRows.length === 0) return NextResponse.json({ error: '投稿が見つかりません' }, { status: 404 });
 
   void writeAuditLog({
@@ -201,7 +202,7 @@ export async function DELETE(req: NextRequest) {
     .eq('facility_id', facilityId)
     .select();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-gbp-posts-delete', error, '/api/admin/gbp/posts');
   if (!deletedRows || deletedRows.length === 0) return NextResponse.json({ error: '投稿が見つかりません' }, { status: 404 });
 
   void writeAuditLog({

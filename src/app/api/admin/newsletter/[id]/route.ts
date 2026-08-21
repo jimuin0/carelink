@@ -12,6 +12,7 @@ import { fetchAllPaged } from '@/lib/paginate';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
 import { newsletterFromEnv } from '@/lib/email-from';
 import { sendResendChecked } from '@/lib/resend-result';
+import { serverError } from '@/lib/with-route';
 
 // ニュースレター専用の差出人。EMAIL_FROM(email.ts の既定送信元 noreply@)とは意図的に
 // ローカル部を分けている（購読解除等の応答性を示す newsletter@）ため EMAIL_FROM を
@@ -59,7 +60,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
       .eq('id', params.id)
       .eq('status', 'scheduled')
       .select();
-    if (cancelErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (cancelErr) return serverError('admin-newsletter-cancel', cancelErr, '/api/admin/newsletter/[id]');
     if (!updated || updated.length === 0) {
       return NextResponse.json({ error: 'キャンペーンの状態が変更されているため取り消せません' }, { status: 409 });
     }
@@ -93,7 +94,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
       .eq('id', params.id)
       .eq('status', 'draft')
       .select();
-    if (scheduleErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (scheduleErr) return serverError('admin-newsletter-schedule', scheduleErr, '/api/admin/newsletter/[id]');
     if (!updated || updated.length === 0) {
       return NextResponse.json({ error: 'キャンペーンの状態が変更されているため予約できません' }, { status: 409 });
     }
@@ -176,7 +177,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
       if (subscribersErr) {
         console.error('[newsletter/send] subscribers fetch failed — aborting to avoid phantom empty send', { campaignId: params.id, err: subscribersErr });
         await admin.from('newsletter_campaigns').update({ status: 'draft', updated_at: new Date().toISOString() }).eq('id', params.id);
-        return NextResponse.json({ error: '受信者リストの取得に失敗したため送信を中止しました' }, { status: 500 });
+        return serverError('admin-newsletter-send-subscribers-fetch', subscribersErr, '/api/admin/newsletter/[id]', '受信者リストの取得に失敗したため送信を中止しました');
       }
 
       // For owner_monthly: also pull facility owner emails if no subscription record
@@ -257,7 +258,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
         if (unsubProfilesErr) {
           console.error('[newsletter/send] unsubscribed profiles fetch failed/truncated — aborting to avoid sending to opted-out users', { campaignId: params.id, err: unsubProfilesErr });
           await admin.from('newsletter_campaigns').update({ status: 'draft', updated_at: new Date().toISOString() }).eq('id', params.id);
-          return NextResponse.json({ error: '配信停止者リストの取得に失敗したため送信を中止しました' }, { status: 500 });
+          return serverError('admin-newsletter-send-unsub-profiles-fetch', unsubProfilesErr, '/api/admin/newsletter/[id]', '配信停止者リストの取得に失敗したため送信を中止しました');
         }
         const { rows: inactiveSubs, error: inactiveSubsErr } = await fetchAllPaged<{ email: string | null }>(
           async (offset, limit) => {
@@ -275,7 +276,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
         if (inactiveSubsErr) {
           console.error('[newsletter/send] inactive subscriptions fetch failed/truncated — aborting to avoid sending to opted-out users', { campaignId: params.id, err: inactiveSubsErr });
           await admin.from('newsletter_campaigns').update({ status: 'draft', updated_at: new Date().toISOString() }).eq('id', params.id);
-          return NextResponse.json({ error: '配信停止者リストの取得に失敗したため送信を中止しました' }, { status: 500 });
+          return serverError('admin-newsletter-send-inactive-subs-fetch', inactiveSubsErr, '/api/admin/newsletter/[id]', '配信停止者リストの取得に失敗したため送信を中止しました');
         }
         // unsubProfiles/inactiveSubs は fetchAllPaged の rows（常に配列）のため `|| []` は付けない。
         const unsubscribed = new Set<string>([
@@ -342,9 +343,14 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
         ({ data: updated, error: finalizeErr } = await finalizeSent());
         if (finalizeErr) {
           console.error('[newsletter/send] CRITICAL: status finalize retry also failed — campaign stuck in sending, manual fix required', { campaignId: params.id, sentCount, bouncedCount, err: finalizeErr });
-          return NextResponse.json(
-            { error: 'メールは送信されましたが、送信状態の記録に失敗しました。管理者にご連絡ください。', sentCount, bouncedCount },
-            { status: 500 },
+          // sentCount/bouncedCount は「何通送り終わったか」を運用者へ伝える唯一の手掛かりなので
+          // body から落とさない（extraBody で元の形をそのまま保つ）。
+          return serverError(
+            'admin-newsletter-send-finalize-retry-failed',
+            finalizeErr,
+            '/api/admin/newsletter/[id]',
+            'メールは送信されましたが、送信状態の記録に失敗しました。管理者にご連絡ください。',
+            { sentCount, bouncedCount },
           );
         }
       }
@@ -364,7 +370,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     } catch (e) {
       console.error('[newsletter/send] unexpected error during send — rolling back to draft', { campaignId: params.id, err: e });
       await admin.from('newsletter_campaigns').update({ status: 'draft', updated_at: new Date().toISOString() }).eq('id', params.id);
-      return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+      return serverError('admin-newsletter-send', e, '/api/admin/newsletter/[id]');
     }
   }
 

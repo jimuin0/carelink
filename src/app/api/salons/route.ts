@@ -4,9 +4,7 @@ import { z } from 'zod';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit, mutationRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
-import { withRoute } from '@/lib/with-route';
+import { withRoute, serverError } from '@/lib/with-route';
 import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
 import { phoneField as sharedPhoneField } from '@/lib/phone';
 import { verifyRecaptcha } from '@/lib/recaptcha';
@@ -15,6 +13,7 @@ import { sendRegistrationReceiptEmail } from '@/lib/email';
 import { runAfterResponse } from '@/lib/after-response';
 import { businessTypes, DESIRED_START_DATES } from '@/lib/constants';
 import { extractPrefecture, extractCity } from '@/lib/japan-address';
+import { SALON_CLAIM_COOKIE_NAME, SALON_CLAIM_TTL_SECONDS, signSalonClaim } from '@/lib/salon-claim';
 
 export const dynamic = 'force-dynamic';
 
@@ -182,10 +181,30 @@ export const POST = withRoute(async (request) => {
     .single();
 
   if (error || !data) {
-    return NextResponse.json(
-      { error: '送信に失敗しました。時間をおいて再度お試しください。' },
-      { status: 500 }
+    return serverError(
+      'salons-insert',
+      error ?? new Error('salons insert returned no row'),
+      '/api/salons',
+      '送信に失敗しました。時間をおいて再度お試しください。',
     );
+  }
+
+  // 【2026年8月20日 新設】所有権 claim Cookie（src/lib/salon-claim.ts）。
+  // この登録内容を作った「その場のブラウザ」にだけ salons.id を運ぶ署名付き HttpOnly Cookie を
+  // 発行し、/api/facility/setup がメール一致より優先して引き継ぎ元に使う。salons.id を
+  // URL・メールリンクに載せる代替案は敵対検証で却下済み（アクセスログ/解析ツール/Referer への
+  // 露出のため）。ADMIN_COOKIE_SECRET 未設定の環境では signSalonClaim が null を返し、
+  // Cookie を発行しない（fail-safe・従来のメール一致のみに倒れる）。
+  const res = NextResponse.json({ success: true, id: data.id });
+  const signedClaim = signSalonClaim(data.id);
+  if (signedClaim) {
+    res.cookies.set(SALON_CLAIM_COOKIE_NAME, signedClaim, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: SALON_CLAIM_TTL_SECONDS,
+      path: '/',
+    });
   }
 
   // Slack通知（fire-and-forget）
@@ -241,7 +260,7 @@ export const POST = withRoute(async (request) => {
     }).catch((err) => console.error('[salons] Slack notification failed', { err })));
   }
 
-  return NextResponse.json({ success: true, id: data.id });
+  return res;
 }, {
   csrf: true,
   rateLimit: { limiter: mutationRateLimit, limit: 5, windowMs: 60_000, prefix: 'salon-register' },
@@ -294,11 +313,9 @@ export async function GET(req: NextRequest) {
   query = query.limit(50);
 
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: 'データの取得に失敗しました' }, { status: 500 });
+  if (error) return serverError('salons-get-list', error, '/api/salons', 'データの取得に失敗しました');
   return NextResponse.json(data || []);
   } catch (e) {
-    safeCaptureException(e, 'salons');
-    alertCaughtError('salons', e, '/api/salons');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('salons', e, '/api/salons');
   }
 }

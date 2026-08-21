@@ -14,6 +14,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { serverError } from '@/lib/with-route';
 
 /** 1つのCSV値を安全にエスケープする（CSVインジェクション対策込み）。 */
 function csvEscape(val: unknown): string {
@@ -140,8 +141,7 @@ export async function POST(request: NextRequest) {
 
   const first = await fetchPage(0);
   if (first.error) {
-    console.error('[backup] export query failed', { table, err: first.error });
-    return NextResponse.json({ error: 'データの取得に失敗しました' }, { status: 500 });
+    return serverError('admin-backup-export', first.error, '/api/admin/backup', 'データの取得に失敗しました');
   }
   const firstRows = (first.data ?? []) as Record<string, unknown>[];
   if (firstRows.length === 0) {

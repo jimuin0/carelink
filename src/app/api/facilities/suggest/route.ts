@@ -1,9 +1,8 @@
+import { serverError } from '@/lib/with-route';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,8 +65,9 @@ export async function GET(request: NextRequest) {
       areas: Array.from(areaSet).slice(0, 5),
     });
   } catch (e) {
-    safeCaptureException(e, 'facility-suggest');
-    alertCaughtError('facility-suggest', e, '/api/facilities/suggest');
-    return NextResponse.json({ facilities: [], areas: [] }, { status: 500 });
+    // Sentry 送信は serverError() の内部で行う（ここで呼ぶと同じ例外が二重計上される）。
+    // 元の body は error キーを持たない（呼び出し側は facilities/areas だけを読む）。
+    // userMessage: null で error キーを足さず、形をそのまま保つ。
+    return serverError('facility-suggest', e, '/api/facilities/suggest', null, { facilities: [], areas: [] });
   }
 }

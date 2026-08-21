@@ -1,11 +1,10 @@
+import { serverError } from '@/lib/with-route';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import type { AvailableSlot } from '@/types';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
 import { isValidIsoDate } from '@/lib/date-utils';
 import { todayJst } from '@/lib/admin-date';
 
@@ -46,9 +45,9 @@ export async function GET(request: Request) {
   // スキーマドリフトのように予約導線が無監視で壊れる（空配列＝予約不可がサイレントに発生）。
   // Sentry に記録し 500 を返して失敗を顕在化させる。
   if (error) {
-    safeCaptureException(error, 'slots:get_available_slots');
-    alertCaughtError('slots:get_available_slots', error, '/api/slots');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました', slots: [] }, { status: 500 });
+    // slots: [] を落とすと呼び出し側の画面が undefined を舐めて壊れるため body 形は維持する。
+    // Sentry 送信は serverError() の内部で行う（ここで呼ぶと同じ例外が二重計上される）。
+    return serverError('slots:get_available_slots', error, '/api/slots', 'サーバーエラーが発生しました', { slots: [] });
   }
 
   let slots = (data ?? []) as AvailableSlot[];
@@ -62,8 +61,6 @@ export async function GET(request: Request) {
 
   return NextResponse.json({ slots });
   } catch (e) {
-    safeCaptureException(e, 'slots');
-    alertCaughtError('slots', e, '/api/slots');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました', slots: [] }, { status: 500 });
+    return serverError('slots', e, '/api/slots', 'サーバーエラーが発生しました', { slots: [] });
   }
 }

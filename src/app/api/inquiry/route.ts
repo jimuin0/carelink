@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { mutationRateLimit } from '@/lib/rate-limit';
-import { withRoute } from '@/lib/with-route';
+import { withRoute, serverError } from '@/lib/with-route';
 import { sendNewInquiryNotification } from '@/lib/email';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
@@ -64,7 +64,7 @@ export const POST = withRoute(async (request) => {
   // error を握り潰すと DB 障害を「施設が見つかりません(404)」に偽装してしまう（INQ-1）。
   // error は 500、データ無しのみ 404 に分ける（admin/report と同じ扱い）。
   if (facilityErr) {
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('inquiry-facility-lookup', facilityErr, '/api/inquiry');
   }
   if (!facility) {
     return NextResponse.json({ error: '施設が見つかりません' }, { status: 404 });
@@ -84,9 +84,11 @@ export const POST = withRoute(async (request) => {
     .single();
 
   if (error || !data) {
-    return NextResponse.json(
-      { error: '送信に失敗しました。時間をおいて再度お試しください。' },
-      { status: 500 }
+    return serverError(
+      'inquiry-insert',
+      error ?? new Error('facility_inquiries insert returned no row'),
+      '/api/inquiry',
+      '送信に失敗しました。時間をおいて再度お試しください。',
     );
   }
 

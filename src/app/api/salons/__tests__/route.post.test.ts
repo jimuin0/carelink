@@ -41,6 +41,7 @@ import { sendNotify } from '@/lib/notify';
 import { sendRegistrationReceiptEmail } from '@/lib/email';
 import { runAfterResponse } from '@/lib/after-response';
 import { DESIRED_START_DATES } from '@/lib/constants';
+import { SALON_CLAIM_COOKIE_NAME, verifySalonClaim } from '@/lib/salon-claim';
 import { POST } from '../route';
 
 const STORAGE_PREFIX =
@@ -612,6 +613,61 @@ describe('POST /api/salons', () => {
       // task() を即時実行する）。ここでは「渡された関数の中身」を確認する。
       const registeredTasks = (runAfterResponse as jest.Mock).mock.calls.map((call) => call[0]);
       expect(registeredTasks.length).toBe(2);
+    });
+  });
+
+  // 【2026年8月20日 新設】所有権 claim Cookie（src/lib/salon-claim.ts）。
+  // salons.id を URL/メールリンクに載せず、成功応答にだけ署名付き HttpOnly Cookie で運ぶ。
+  describe('所有権 claim Cookie（signSalonClaim・fail-safe）', () => {
+    const ORIGINAL_SECRET = process.env.ADMIN_COOKIE_SECRET;
+    afterEach(() => {
+      if (ORIGINAL_SECRET === undefined) delete process.env.ADMIN_COOKIE_SECRET;
+      else process.env.ADMIN_COOKIE_SECRET = ORIGINAL_SECRET;
+    });
+
+    test('ADMIN_COOKIE_SECRET 設定時: 成功応答に Cookie が発行され、値は salons.id に復元できる', async () => {
+      process.env.ADMIN_COOKIE_SECRET = 'test-admin-cookie-secret';
+      // signSalonClaim 自体は任意文字列を受理するが、verifySalonClaim は実在の salons.id が
+      // 常に UUID であることを前提に UUID 形式を検証する。ラウンドトリップを意味のある形で
+      // 確認するため、insert が返す id を実際の Postgres 生成値と同じ UUID 形にする。
+      mockSingle.mockResolvedValue({ data: { id: '99999999-9999-4999-8999-999999999999' }, error: null });
+      const res = await POST(makeRequest(validFull) as any);
+      expect(res.status).toBe(200);
+
+      const setCookie = res.headers.get('set-cookie') ?? '';
+      expect(setCookie).toContain(`${SALON_CLAIM_COOKIE_NAME}=`);
+      expect(setCookie).toContain('HttpOnly');
+      expect(setCookie.toLowerCase()).toContain('samesite=lax');
+      expect(setCookie).toContain('Path=/');
+
+      const cookieValue = res.cookies.get(SALON_CLAIM_COOKIE_NAME)?.value;
+      expect(cookieValue).toBeDefined();
+      expect(verifySalonClaim(cookieValue!)).toBe('99999999-9999-4999-8999-999999999999');
+    });
+
+    test('ADMIN_COOKIE_SECRET 未設定時: Cookie は発行されない（fail-safe・メール一致のみに倒れる）', async () => {
+      delete process.env.ADMIN_COOKIE_SECRET;
+      const res = await POST(makeRequest(validFull) as any);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('set-cookie')).toBeNull();
+      expect(res.cookies.get(SALON_CLAIM_COOKIE_NAME)).toBeUndefined();
+    });
+
+    test('DB insert 失敗時（500）は Cookie を発行しない', async () => {
+      process.env.ADMIN_COOKIE_SECRET = 'test-admin-cookie-secret';
+      setupDefaultMocks({ insertError: true });
+      const res = await POST(makeRequest(validFull) as any);
+      expect(res.status).toBe(500);
+      expect(res.headers.get('set-cookie')).toBeNull();
+    });
+
+    test('source=recruit でも Cookie は同様に発行される（source に依存しない）', async () => {
+      process.env.ADMIN_COOKIE_SECRET = 'test-admin-cookie-secret';
+      mockSingle.mockResolvedValue({ data: { id: '99999999-9999-4999-8999-999999999999' }, error: null });
+      const res = await POST(makeRequest(validMinimal) as any);
+      expect(res.status).toBe(200);
+      const cookieValue = res.cookies.get(SALON_CLAIM_COOKIE_NAME)?.value;
+      expect(verifySalonClaim(cookieValue!)).toBe('99999999-9999-4999-8999-999999999999');
     });
   });
 });

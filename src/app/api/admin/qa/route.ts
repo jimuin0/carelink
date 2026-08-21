@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { serverError } from '@/lib/with-route';
 
 const answerSchema = z.object({
   qa_id: z.string().uuid(),
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest) {
       .eq('facility_id', result.facilityId)
       .select('id');
 
-    if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (error) return serverError('admin-qa-toggle-public', error, '/api/admin/qa');
     if (!data || data.length === 0) return NextResponse.json({ error: '質問が見つかりません' }, { status: 404 });
 
     void writeAuditLog({
@@ -102,7 +103,7 @@ export async function POST(request: NextRequest) {
       .eq('facility_id', result.facilityId)
       .select();
 
-    if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (error) return serverError('admin-qa-delete', error, '/api/admin/qa');
     if (!data || data.length === 0) return NextResponse.json({ error: '質問が見つかりません' }, { status: 404 });
 
     void writeAuditLog({
@@ -135,7 +136,7 @@ export async function POST(request: NextRequest) {
     .eq('facility_id', result.facilityId)
     .select('id');
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-qa-answer', error, '/api/admin/qa');
   if (!data || data.length === 0) return NextResponse.json({ error: '質問が見つかりません' }, { status: 404 });
 
   void writeAuditLog({

@@ -13,6 +13,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import type { Database } from '@/types/database.types';
+import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,7 +83,7 @@ export async function PATCH(request: NextRequest) {
     .select();
 
   if (error) {
-    return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
+    return serverError('admin-facility-verify-patch', error, '/api/admin/facility-verify', '更新に失敗しました');
   }
   if (!data || data.length === 0) {
     return NextResponse.json({ error: '施設が見つかりません' }, { status: 404 });

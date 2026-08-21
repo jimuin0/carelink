@@ -6,7 +6,7 @@
 
 import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { logCronRun } from '@/lib/cron-logger';
+import { logCronRun, cronError } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { todayJst, addDays } from '@/lib/admin-date';
@@ -163,8 +163,7 @@ export async function GET(request: Request) {
 
     if (rpcErr) {
       console.error('[daily-summary] aggregate_daily_revenue RPC failed', { err: rpcErr });
-      await logCronRun('daily-summary', 'error', startedAt, { error_msg: 'aggregate rpc failed' });
-      return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+      return cronError('daily-summary', startedAt, rpcErr, { extraLog: { error_msg: 'aggregate rpc failed' } });
     }
 
     const count = processed ?? 0;
@@ -193,7 +192,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ processed: count, skipped: 0, date: dateStr, emailsSent, emailsSkipped });
   } catch (e) {
     console.error('[daily-summary] Error:', e);
-    await logCronRun('daily-summary', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return cronError('daily-summary', startedAt, e);
   }
 }

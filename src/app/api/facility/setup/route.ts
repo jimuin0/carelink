@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { sendWelcomeEmail } from '@/lib/email';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
@@ -16,6 +17,12 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { extractPrefecture, extractCity } from '@/lib/japan-address';
 import { canonicalizeEmail } from '@/lib/email-canonical';
+import { SALON_CLAIM_COOKIE_NAME, verifySalonClaim } from '@/lib/salon-claim';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { mergeSalonRows } from '@/lib/salon-merge';
+import type { Database } from '@/types/database-overrides';
+
+type SalonRow = Database['public']['Tables']['salons']['Row'];
 
 // LINE ログインで email 未提供のユーザーに割り当てられる合成メールのドメイン
 // （src/app/api/auth/line/callback/route.ts の syntheticLineEmail() が発行元）。
@@ -85,22 +92,84 @@ export async function POST(request: NextRequest) {
     // LINE ログインの合成メール（line_<hmac>@line.carelink.local）は register フォームの入力に
     // 構造的に絶対一致しないため、無駄な canonical 照合をせず「引き継ぎ対象なし」として扱う。
     const isLineSyntheticEmail = user.email?.toLowerCase().endsWith(LINE_SYNTHETIC_EMAIL_DOMAIN) ?? false;
-    const { data: salonData } = user.email && !isLineSyntheticEmail
-      ? await adminSupabase
-          .from('salons')
-          .select('*')
-          .eq('email_canonical', canonicalizeEmail(user.email))
-          // 運営が却下した申込は引き継がない。
-          // 🔴 .neq('status','rejected') と書くと SQL は `status <> 'rejected'` になり、
-          //   status が NULL の行は NULL 評価で【除外されてしまう】（salons.status は
-          //   DEFAULT 'pending' だが NOT NULL ではない）。却下されていない行を落とすのは
-          //   まさにいま潰している「引き継ぎが無音で消える」故障そのものなので、
-          //   NULL を明示的に通す形にする。
-          .or('status.is.null,status.neq.rejected')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-      : { data: null };
+
+    // 【2026年8月20日 新設・所有権の証明】メール一致だけでは所有権の証明にならない（salons.email は
+    // 一度も検証されておらず、他人のメールで申し込んだ内容を横取りできてしまう）。POST /api/salons が
+    // 成功した「その場のブラウザ」に発行した署名付き HttpOnly Cookie（src/lib/salon-claim.ts）を
+    // 最優先の引き継ぎ元とし、Cookie が無い/壊れている/期限切れのときだけ従来のメール一致に倒れる。
+    // どちらの経路も「未 claim（claimed_by_user_id が null）」の行に限定する — 片方だけに条件を
+    // 付けると、既に他の施設へ取り込み済みの行をもう一方の経路から再取得できてしまい意味が無い。
+    // 🔴 候補は「1件だけ」ではなく【全部】集めて統合する。salons.email には UNIQUE が無く、
+    //   /register と /recruit は同じ表に別々の行を作る（本番にも同一メールの重複行が実在する）。
+    //   最新1件だけを採ると、後から /recruit を出しただけで写真・営業時間・特徴など
+    //   /recruit が送らない列が丸ごと消える。列ごとに新しい順で最初の「意味のある値」を採る
+    //   mergeSalonRows で統合する（src/lib/salon-merge.ts）。
+    //
+    // 🔴 取得エラーを握り潰さない。`const { data } = await …` と書くと、列が存在しない
+    //   （migration 未適用）ときの PostgREST 400 が data=null になって「申込が無い」と
+    //   見分けられず、引き継ぎが【無音で全滅】する。このリポジトリが繰り返し踏んできた
+    //   故障そのものなので、必ず error を見て通知する。
+    const salonCandidates: SalonRow[] = [];
+
+    const reportSalonLookupFailure = (where: string, err: unknown) => {
+      const cause = new Error(
+        `[facility/setup] salons lookup failed (${where}) — 引き継ぎが無音で失われる。` +
+          `migration 20260820000004(email_canonical) / 20260820000005(claimed_by_user_id) の` +
+          `本番適用状況を scripts/diagnose-handoff-readiness.sql で確認すること。` +
+          `詳細: ${JSON.stringify(err)}`
+      );
+      safeCaptureException(cause, 'facility-setup-salon-lookup');
+      alertCaughtError('facility-setup-salon-lookup', cause, '/api/facility/setup');
+    };
+
+    const claimCookieValue = request.cookies.get(SALON_CLAIM_COOKIE_NAME)?.value;
+    const claimedSalonIdFromCookie = claimCookieValue ? verifySalonClaim(claimCookieValue) : null;
+    if (claimedSalonIdFromCookie) {
+      const { data: cookieSalon, error: cookieSalonErr } = await adminSupabase
+        .from('salons')
+        .select('*')
+        .eq('id', claimedSalonIdFromCookie)
+        .is('claimed_by_user_id', null)
+        // 運営が却下した申込は引き継がない（メール経路と同じ扱い。下記コメント参照）。
+        .or('status.is.null,status.neq.rejected')
+        .maybeSingle();
+      if (cookieSalonErr) reportSalonLookupFailure('cookie', cookieSalonErr);
+      if (cookieSalon) salonCandidates.push(cookieSalon);
+    }
+
+    if (user.email && !isLineSyntheticEmail) {
+      const { data: emailSalons, error: emailSalonsErr } = await adminSupabase
+        .from('salons')
+        .select('*')
+        .eq('email_canonical', canonicalizeEmail(user.email))
+        .is('claimed_by_user_id', null)
+        // 運営が却下した申込は引き継がない。
+        // 🔴 .neq('status','rejected') と書くと SQL は `status <> 'rejected'` になり、
+        //   status が NULL の行は NULL 評価で【除外されてしまう】（salons.status は
+        //   DEFAULT 'pending' だが NOT NULL ではない）。却下されていない行を落とすのは
+        //   まさにいま潰している「引き継ぎが無音で消える」故障そのものなので、
+        //   NULL を明示的に通す形にする。
+        .or('status.is.null,status.neq.rejected')
+        .order('created_at', { ascending: false });
+      if (emailSalonsErr) reportSalonLookupFailure('email', emailSalonsErr);
+      for (const row of emailSalons ?? []) salonCandidates.push(row);
+    }
+
+    // Cookie 経路とメール経路が同じ行を拾うことがあるので id で重複を除き、新しい順に並べる
+    // （mergeSalonRows は「先にある行ほど新しい」ことを前提にする）。
+    const seenSalonIds = new Set<string>();
+    const dedupedSalons: SalonRow[] = [];
+    for (const row of salonCandidates) {
+      if (seenSalonIds.has(row.id)) continue;
+      seenSalonIds.add(row.id);
+      dedupedSalons.push(row);
+    }
+    dedupedSalons.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''));
+
+    const salonData: SalonRow | null = mergeSalonRows(dedupedSalons);
+    // 統合に使った行は【全部】claim する。1行だけ焼き切ると、残った重複行が未 claim のまま
+    // 次の引き継ぎ候補として生き続ける（統合済みの内容がもう一度引き継がれる）。
+    const salonIdsToClaim = dedupedSalons.map((row) => row.id);
 
     if (salonData) {
       facility_name = facility_name || salonData.facility_name;
@@ -128,6 +197,18 @@ export async function POST(request: NextRequest) {
 
     if (!facility_name || !business_type) {
       return NextResponse.json({ error: '施設名と業種は必須です' }, { status: 400 });
+    }
+
+    // 🔴 許認可・届出の表明（利用規約 第12条）はサーバー側で必須にする。
+    //   画面側のチェックボックスだけでは、フォームを経由しない POST（curl・拡張機能・
+    //   古いタブ）で表明を取らずに施設を作れてしまう。表明を取ったことにする画面は
+    //   あるのに記録も強制も無い状態は、【取ったつもりで実際には取れていない】という
+    //   最悪の形（規約上の根拠が無いのに有ると誤認する）なので、入口で倒す。
+    if (body?.license_warranted !== true) {
+      return NextResponse.json(
+        { error: '許認可・届出に関する表明への同意が必要です' },
+        { status: 400 },
+      );
     }
     facility_name = String(facility_name).slice(0, 100);
     business_type = String(business_type).slice(0, 50);
@@ -190,8 +271,37 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (facilityError || !facility) {
-      console.error('[facility/setup] Insert error:', facilityError);
-      return NextResponse.json({ error: '施設の作成に失敗しました' }, { status: 500 });
+      return serverError(
+        'facility-setup-insert',
+        facilityError ?? new Error('facility_profiles insert returned no row'),
+        '/api/facility/setup',
+        '施設の作成に失敗しました',
+      );
+    }
+
+    // 【2026年8月20日 新設】salons 行の claim を条件付き UPDATE（CAS）で立てる。
+    // 前例: src/app/api/cron/onboarding-followup/route.ts の
+    // `.is('registration_followup_sent_at', null)` 付き `.update().select('id')`。
+    // 選定（上の SELECT）と本 UPDATE の間で別リクエストが先に claim した場合（TOCTOU）は
+    // claimedRows が 0 件になる。エラーにはしない — facility_profiles への引き継ぎ自体は
+    // 既に確定しており、claim という「印」だけを競合相手に譲る fail-open（(e) と同型）。
+    // 以降の facility_members insert が失敗した場合は、下のロールバック経路でこの claim を
+    // 必ず解放する（解放しないと当該 salons 行が永久に取り込み不能になる＝永久ロックアウト）。
+    // 🔴 統合に使った行を【全部】claim する。1行だけ焼き切ると、統合で中身を吸い上げた
+    //   残りの重複行が未 claim のまま次の候補として生き続け、同じ内容がもう一度引き継がれる。
+    let claimedSalonIds: string[] = [];
+    if (salonIdsToClaim.length > 0) {
+      const { data: claimedRows, error: claimErr } = await adminSupabase
+        .from('salons')
+        .update({ claimed_by_user_id: user.id, claimed_at: new Date().toISOString() })
+        .in('id', salonIdsToClaim)
+        .is('claimed_by_user_id', null)
+        .select('id');
+      if (claimErr) {
+        console.error('[facility/setup] salon claim update failed', { salonIds: salonIdsToClaim, err: claimErr });
+      } else if (claimedRows) {
+        claimedSalonIds = claimedRows.map((row: { id: string }) => row.id);
+      }
     }
 
     // facility_membersにowner登録
@@ -208,7 +318,59 @@ export async function POST(request: NextRequest) {
       // ロールバック
       const { error: rollbackErr } = await adminSupabase.from('facility_profiles').delete().eq('id', facility.id);
       if (rollbackErr) console.error('[facility/setup] rollback failed — orphaned facility_profile', { facilityId: facility.id, err: rollbackErr });
-      return NextResponse.json({ error: 'オーナー登録に失敗しました' }, { status: 500 });
+      // claim も必ず解放する。解放しないと当該 salons 行が二度と取り込めない永久ロックアウトになる
+      // （claimed_by_user_id が非 null のまま残り、以後どのユーザーの facility/setup からも
+      //  「未 claim の行」として選定されなくなる）。.eq('claimed_by_user_id', user.id) は
+      // 自分が立てた claim だけを戻す防御（万一の別経路での再 claim を巻き込まない）。
+      if (claimedSalonIds.length > 0) {
+        const { error: claimReleaseErr } = await adminSupabase
+          .from('salons')
+          .update({ claimed_by_user_id: null, claimed_at: null })
+          .in('id', claimedSalonIds)
+          .eq('claimed_by_user_id', user.id);
+        if (claimReleaseErr) console.error('[facility/setup] claim release failed — salon permanently locked', { salonIds: claimedSalonIds, err: claimReleaseErr });
+      }
+      return serverError('facility-setup-member-insert', memberError, '/api/facility/setup', 'オーナー登録に失敗しました');
+    }
+
+    // claim を監査ログへ記録する（他人の入力を自分の施設へ取り込む操作のため事後追跡が要る）。
+    // AuditAction の14種に「claim」に直接合う値は無いため、salons 行に対する状態変更として
+    // src/app/api/admin/registrations/[id]/route.ts が approve/reject に当たらない更新で
+    // 使っているのと同じ 'update' を使う（新しい値を勝手に増やさない）。
+    if (claimedSalonIds.length > 0) {
+      const { ip: auditIp, ua } = getRequestContext(request);
+      for (const claimedId of claimedSalonIds) {
+        void writeAuditLog({
+          userId: user.id,
+          facilityId: facility.id,
+          action: 'update',
+          tableName: 'salons',
+          recordId: claimedId,
+          oldValues: { claimed_by_user_id: null, claimed_at: null },
+          newValues: { claimed_by_user_id: user.id },
+          ipAddress: auditIp,
+          userAgent: ua,
+        });
+      }
+    }
+
+    // 🔴 表明そのものを監査ログへ残す。列を新設せず audit_logs に置くのは、
+    //   (a) 「いつ・誰が・どの端末から」同意したかまで残るのは監査ログ側だけであり、
+    //   (b) 新しい列を足すと migration の本番適用より先にデプロイが出た瞬間に
+    //       施設作成が全滅する（このリポジトリが繰り返し踏んできた順序事故）ため。
+    //   表明の文面は利用規約 第12条で、時点の文面は git 履歴と created_at で特定できる。
+    {
+      const { ip: attestIp, ua: attestUa } = getRequestContext(request);
+      void writeAuditLog({
+        userId: user.id,
+        facilityId: facility.id,
+        action: 'create',
+        tableName: 'facility_profiles',
+        recordId: facility.id,
+        newValues: { license_warranted: true, terms_article: '第12条' },
+        ipAddress: attestIp,
+        userAgent: attestUa,
+      });
     }
 
     // register でアップした写真を facility_photos に引き継ぐ（既存ストレージの公開 URL を再利用）。
@@ -252,15 +414,31 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({
+    const successRes = NextResponse.json({
       success: true,
       facilityId: facility.id,
       slug: uniqueSlug,
       message: '施設を作成しました。管理画面からメニューやスタッフを登録してください。',
     });
+
+    // 🔴 claim Cookie は【一度使ったら消す】。署名の期限は発行から3日あるため、消さないと
+    //   同じブラウザで別の人がサインアップしたときに同じ Cookie がもう一度通り、
+    //   前の人が入力した申込内容（住所・電話・写真）をその人の施設へ取り込めてしまう。
+    //   共用端末・店頭端末で現実に起こり得る。使い終わった時点で無効化するのが正しい。
+    //   claim できなかった場合（既に他人が取り込み済み等）も、その Cookie はもう何にも
+    //   使えないので同様に消す（無効な資格情報を端末に残さない）。
+    if (claimCookieValue) {
+      successRes.cookies.set(SALON_CLAIM_COOKIE_NAME, '', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 0,
+        path: '/',
+      });
+    }
+
+    return successRes;
   } catch (e) {
-    safeCaptureException(e, 'api/facility/setup');
-    alertCaughtError('api/facility/setup', e, '/api/facility/setup');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('api/facility/setup', e, '/api/facility/setup');
   }
 }

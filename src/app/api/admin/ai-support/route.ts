@@ -11,6 +11,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
+import { serverError } from '@/lib/with-route';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -84,7 +85,7 @@ export async function POST(request: NextRequest) {
 
     const text = response.content[0].type === 'text' ? response.content[0].text : '';
     return NextResponse.json({ reply: text });
-  } catch {
-    return NextResponse.json({ error: 'AI処理に失敗しました' }, { status: 500 });
+  } catch (e) {
+    return serverError('admin-ai-support-post', e, '/api/admin/ai-support', 'AI処理に失敗しました');
   }
 }

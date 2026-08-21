@@ -11,7 +11,27 @@
  */
 
 jest.mock('@/lib/cron-auth');
-jest.mock('@/lib/cron-logger');
+jest.mock('@/lib/cron-logger', () => {
+  const logCronRun = jest.fn().mockResolvedValue(undefined);
+  const cronError = jest.fn(async (
+    jobName: string,
+    startedAt: Date,
+    cause: unknown,
+    opts: { message?: string; extraLog?: Record<string, unknown>; extraBody?: Record<string, unknown> } = {},
+  ) => {
+    const error_msg = cause instanceof Error
+      ? cause.message
+      : (cause && typeof cause === 'object' && 'message' in cause && typeof (cause as any).message === 'string')
+        ? (cause as any).message
+        : String(cause);
+    await logCronRun(jobName, 'error', startedAt, { error_msg, ...opts.extraLog });
+    return {
+      status: 500,
+      json: async () => ({ error: opts.message ?? 'Internal error', ...opts.extraBody }),
+    };
+  });
+  return { logCronRun, cronError };
+});
 jest.mock('@/lib/alert', () => ({ alertWarning: jest.fn() }));
 
 // Module-level supabase = createClient(...) — use wrappers for lazy delegation

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { mutationRateLimit } from '@/lib/rate-limit';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { withRoute } from '@/lib/with-route';
+import { withRoute, serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,11 +35,11 @@ export const POST = withRoute(async (request, ctx) => {
 
   if (existing) {
     const { error } = await supabase.from('favorites').delete().eq('id', existing.id);
-    if (error) return NextResponse.json({ error: '削除に失敗しました' }, { status: 500 });
+    if (error) return serverError('favorites-delete', error, '/api/favorites', '削除に失敗しました');
     return NextResponse.json({ isFavorited: false });
   } else {
     const { error } = await supabase.from('favorites').insert({ user_id: ctx.user!.id, facility_id: facilityId });
-    if (error) return NextResponse.json({ error: '追加に失敗しました' }, { status: 500 });
+    if (error) return serverError('favorites-insert', error, '/api/favorites', '追加に失敗しました');
     return NextResponse.json({ isFavorited: true });
   }
 }, {

@@ -12,6 +12,7 @@ import {
   SUBSCRIPTION_STATUS_LABEL,
   type SubscriptionStatus,
 } from '@/lib/subscription-status';
+import { serverError } from '@/lib/with-route';
 
 const grantSchema = z.object({
   facility_id: z.string().uuid(),
@@ -74,7 +75,7 @@ export async function GET(request: NextRequest) {
   if (userId) query = query.eq('user_id', userId);
 
   const { data: rows, error } = await query.limit(200);
-  if (error || !rows) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error || !rows) return serverError('admin-user-subscriptions-list', error ?? new Error('user_subscriptions query returned no rows'), '/api/admin/user-subscriptions');
 
   const userIds = [...new Set(rows.map((r) => r.user_id as string))];
   const profilesById: Record<string, { display_name: string | null; email: string | null }> = {};
@@ -83,7 +84,7 @@ export async function GET(request: NextRequest) {
       .from('profiles')
       .select('id, display_name, email')
       .in('id', userIds);
-    if (profErr || !profs) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (profErr || !profs) return serverError('admin-user-subscriptions-list-profiles', profErr ?? new Error('profiles query returned no rows'), '/api/admin/user-subscriptions');
     for (const p of profs) profilesById[p.id as string] = { display_name: p.display_name, email: p.email };
   }
   const subscriptions = rows.map((r) => ({ ...r, profiles: profilesById[r.user_id as string] ?? null }));
@@ -129,7 +130,7 @@ export async function POST(request: NextRequest) {
     notes: parsed.data.notes,
   }).select().single();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-user-subscriptions-grant', error, '/api/admin/user-subscriptions');
 
   const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({
@@ -189,7 +190,7 @@ export async function PATCH(request: NextRequest) {
       .eq('id', statusParsed.data.subscription_id)
       .eq('facility_id', sub.facility_id)
       .select().maybeSingle();
-    if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (error) return serverError('admin-user-subscriptions-status-update', error, '/api/admin/user-subscriptions');
     if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
     const { ip: sip, ua: sua } = getRequestContext(request);
@@ -281,7 +282,7 @@ export async function PATCH(request: NextRequest) {
     p_booking_id: useParsed.data.booking_id,
     p_notes: useParsed.data.notes,
   });
-  if (rpcError) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (rpcError) return serverError('admin-user-subscriptions-consume-rpc', rpcError, '/api/admin/user-subscriptions');
 
   const result = rpcResult as {
     ok: boolean;
@@ -302,7 +303,7 @@ export async function PATCH(request: NextRequest) {
       case 'already_consumed':
         return NextResponse.json({ error: 'この予約は既に当月の利用として記録済みです' }, { status: 409 });
       default:
-        return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+        return serverError('admin-user-subscriptions-consume-unknown-code', new Error(`consume_subscription_session returned unexpected code: ${result?.code ?? 'undefined'}`), '/api/admin/user-subscriptions');
     }
   }
   const updated = result.subscription;

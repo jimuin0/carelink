@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { serverError } from '@/lib/with-route';
 
 const packageSchema = z.object({
   name: z.string().min(1).max(100),
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
     .order('sort_order')
     .order('created_at');
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-packages-list', error, '/api/admin/packages');
   return NextResponse.json({ packages: data });
 }
 
@@ -96,7 +97,7 @@ export async function POST(request: NextRequest) {
     is_active: parsed.data.is_active ?? true,
   }).select().single();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-packages-create', error, '/api/admin/packages');
 
   const { ua } = getRequestContext(request);
   void writeAuditLog({

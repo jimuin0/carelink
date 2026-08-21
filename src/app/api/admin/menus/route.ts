@@ -8,6 +8,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { isStockImageUrl, STOCK_IMAGE_ERROR } from '@/lib/stock-image-guard';
+import { serverError } from '@/lib/with-route';
 
 const menuSchema = z.object({
   category: z.string().min(1).max(50),
@@ -56,7 +57,7 @@ export async function GET(request: NextRequest) {
     .eq('facility_id', facilityId)
     .order('sort_order', { ascending: true });
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-menus-list', error, '/api/admin/menus');
   return NextResponse.json({ menus: data });
 }
 
@@ -108,7 +109,7 @@ export async function POST(request: NextRequest) {
     // facility_menus に updated_at 列は存在しない（created_at のみ）。書き込むと 400 になるため付けない。
   }).select().single();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-menus-create', error, '/api/admin/menus');
 
   const { ua } = getRequestContext(request);
   void writeAuditLog({

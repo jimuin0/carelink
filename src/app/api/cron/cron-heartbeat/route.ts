@@ -10,7 +10,7 @@
 
 import { NextResponse } from 'next/server';
 import { checkCronAuth } from '@/lib/cron-auth';
-import { logCronRun } from '@/lib/cron-logger';
+import { logCronRun, cronError } from '@/lib/cron-logger';
 import { alertWarning } from '@/lib/alert';
 import { getStaleCronJobs } from '@/lib/cron-heartbeat';
 
@@ -60,7 +60,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ stale: stale.map((s) => s.name), queryErrors });
   } catch (e) {
     console.error('[cron-heartbeat] Error:', e);
-    await logCronRun(SELF, 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return cronError(SELF, startedAt, e);
   }
 }
