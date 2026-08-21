@@ -1,4 +1,4 @@
-import { logCronRun } from '@/lib/cron-logger';
+import { logCronRun, cronError } from '@/lib/cron-logger';
 import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { fetchPlaceDetails } from '@/lib/gbp';
@@ -38,8 +38,7 @@ export async function GET(request: Request) {
     .limit(LOAD_LIMIT);
 
   if (error) {
-    await logCronRun('sync-google-ratings', 'error', startedAt, { error_msg: error.message });
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return cronError('sync-google-ratings', startedAt, error, { message: 'Internal Server Error' });
   }
 
   const list = facilities ?? [];

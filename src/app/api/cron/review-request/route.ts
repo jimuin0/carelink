@@ -11,7 +11,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 import { escSubject, esc } from '@/lib/email';
-import { logCronRun } from '@/lib/cron-logger';
+import { logCronRun, cronError } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
@@ -83,12 +83,8 @@ export async function GET(request: Request) {
     // 可視化し、cron-logger の error 経路経由で alert を発火させる。これをしないと DB 障害でレビュー依頼が
     // 全停止しても status='skipped'(正常)で記録され完全無音になる（H-2）。
     if (bookingsErr) {
-      const msg = bookingsErr instanceof Error
-        ? bookingsErr.message
-        : (bookingsErr as { message?: string })?.message ?? String(bookingsErr);
       console.error('[review-request] bookings query failed', { err: bookingsErr });
-      await logCronRun('review-request', 'error', startedAt, { error_msg: msg });
-      return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+      return cronError('review-request', startedAt, bookingsErr);
     }
 
     if (bookings.length === 0) {
@@ -199,7 +195,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ processed: sent, skipped, deferred });
   } catch (e) {
     console.error('[review-request] Error:', e);
-    await logCronRun('review-request', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return cronError('review-request', startedAt, e);
   }
 }

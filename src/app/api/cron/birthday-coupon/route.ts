@@ -1,5 +1,4 @@
-import { logCronRun } from '@/lib/cron-logger';
-import { errorMessage } from '@/lib/err';
+import { logCronRun, cronError } from '@/lib/cron-logger';
 /**
  * 誕生日クーポン自動送信 Cron（v8.16）
  * GET /api/cron/birthday-coupon
@@ -110,8 +109,7 @@ export async function GET(request: Request) {
     // 先頭ページで DB エラーが出ると rows=[] となり「0 件＝skipped 成功」に化けて無音スキップになる。
     // error を error ログ＋500 で可視化する。
     if (profilesError) {
-      await logCronRun('birthday-coupon', 'error', startedAt, { error_msg: errorMessage(profilesError) });
-      return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+      return cronError('birthday-coupon', startedAt, profilesError, { message: 'Internal Server Error' });
     }
 
     // profiles は fetchAllPaged の戻り（常に配列）なので length 判定のみ（!profiles は到達不能=branch穴になる）。
@@ -302,7 +300,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ processed: sent, skipped, deferred, total: profiles.length });
   } catch (e) {
     console.error('[birthday-coupon] Error:', e);
-    await logCronRun('birthday-coupon', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return cronError('birthday-coupon', startedAt, e);
   }
 }

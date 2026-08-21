@@ -1,8 +1,7 @@
 import { serverError } from '@/lib/with-route';
 import { timingSafeEqual } from 'crypto';
 import { NextResponse } from 'next/server';
-import { alertError, alertCaughtError } from '@/lib/alert';
-import { safeCaptureException } from '@/lib/safe';
+import { alertError } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;

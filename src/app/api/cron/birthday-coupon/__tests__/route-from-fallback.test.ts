@@ -15,7 +15,7 @@ const localMockFrom2 = jest.fn();
 
 // モックはホイストされるため、最初に定義する
 jest.mock('@/lib/cron-auth', () => ({ checkCronAuth: jest.fn(() => null) }));
-jest.mock('@/lib/cron-logger', () => ({ logCronRun: jest.fn().mockResolvedValue(undefined) }));
+jest.mock('@/lib/cron-logger', () => ({ logCronRun: jest.fn().mockResolvedValue(undefined), cronError: jest.fn().mockResolvedValue({ status: 500, json: async () => ({ error: 'Internal error' }) }) }));
 jest.mock('@/lib/line', () => ({ sendLineText: jest.fn().mockResolvedValue(true) }));
 jest.mock('resend', () => ({
   Resend: jest.fn().mockImplementation(() => ({ emails: { send: mockSendFallback } })),
@@ -67,7 +67,7 @@ describe('birthday-coupon FROM 定数フォールバック（行23・EMAIL_FROM 
 
     // jest.resetModules() 後はモックが再設定必要（モジュールキャッシュが消えるため）。
     jest.mock('@/lib/cron-auth', () => ({ checkCronAuth: jest.fn(() => null) }));
-    jest.mock('@/lib/cron-logger', () => ({ logCronRun: jest.fn().mockResolvedValue(undefined) }));
+    jest.mock('@/lib/cron-logger', () => ({ logCronRun: jest.fn().mockResolvedValue(undefined), cronError: jest.fn().mockResolvedValue({ status: 500, json: async () => ({ error: 'Internal error' }) }) }));
     jest.mock('@/lib/line', () => ({ sendLineText: jest.fn().mockResolvedValue(true) }));
     jest.mock('resend', () => ({
       Resend: jest.fn().mockImplementation(() => ({ emails: { send: mockSendFallback } })),

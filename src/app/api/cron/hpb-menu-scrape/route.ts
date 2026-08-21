@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCronAuth } from '@/lib/cron-auth';
-import { logCronRun } from '@/lib/cron-logger';
+import { logCronRun, cronError } from '@/lib/cron-logger';
 import { scrapeAndSaveFacility } from '@/lib/hpb-menu';
 import { alertWarning } from '@/lib/alert';
 
@@ -34,8 +34,7 @@ export async function GET(request: Request) {
     .limit(LOAD_LIMIT);
 
   if (error) {
-    await logCronRun('hpb-menu-scrape', 'error', startedAt, { error_msg: error.message });
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return cronError('hpb-menu-scrape', startedAt, error, { message: 'Internal Server Error' });
   }
 
   const list = facilities ?? [];

@@ -1,6 +1,5 @@
-import { logCronRun } from '@/lib/cron-logger';
+import { logCronRun, cronError } from '@/lib/cron-logger';
 import { alertDeliveryFailures } from '@/lib/alert';
-import { errorMessage } from '@/lib/err';
 /**
  * 顧客セグメント分析 Cron（v8.2）
  * GET /api/cron/customer-segment
@@ -61,8 +60,7 @@ export async function GET(request: Request) {
     // 先頭ページで DB エラーが出ると fetchAllPaged は rows=[] を返すため「0 件＝skipped 成功」に
     // 化けて無音スキップになる。error を error ログ＋500 で可視化する。
     if (facilitiesError) {
-      await logCronRun('customer-segment', 'error', startedAt, { error_msg: errorMessage(facilitiesError) });
-      return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+      return cronError('customer-segment', startedAt, facilitiesError, { message: 'Internal Server Error' });
     }
 
     if (facilities.length === 0) {
@@ -382,7 +380,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ processed: count, skipped, deferred });
   } catch (e) {
     console.error('[customer-segment] Error:', e);
-    await logCronRun('customer-segment', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return cronError('customer-segment', startedAt, e);
   }
 }

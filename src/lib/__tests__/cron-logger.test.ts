@@ -22,7 +22,7 @@ jest.mock('../admin-heartbeat', () => ({
   pushAdminHeartbeat: jest.fn().mockResolvedValue(undefined),
 }));
 
-import { logCronRun, withCronLog } from '../cron-logger';
+import { logCronRun, withCronLog, cronError } from '../cron-logger';
 import { alertCaughtError } from '../alert';
 import { pushAdminHeartbeat } from '../admin-heartbeat';
 
@@ -187,6 +187,72 @@ describe('logCronRun', () => {
     mockInsert.mockRejectedValue(new Error('DB error'));
     await logCronRun('test-job', 'success', new Date());
     expect(pushAdminHeartbeat).toHaveBeenCalledWith('test-job', 'ok');
+  });
+});
+
+describe('cronError', () => {
+  // cronError() は「logCronRun('error', ...) を呼ぶ」と「500 の NextResponse を返す」を
+  // 1回の呼び出しに束ねる（片方だけを行うことを構造的に不可能にする）ためのヘルパー。
+  // ここでは cron ルート側（自動 mock 経由で cronError 自体を差し替えている）ではなく、
+  // cron-logger.ts 内の実装そのものを検証する（route.ts 側のテストは cronError をモック化
+  // しているため、実装の分岐カバレッジはここでしか取れない）。
+
+  test('opts 省略 → error_msg はメッセージそのまま・body は既定の Internal error', async () => {
+    const startedAt = new Date('2026-04-01T10:00:00.000Z');
+    const res = await cronError('my-job', startedAt, new Error('boom'));
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body).toEqual({ error: 'Internal error' });
+
+    expect(mockFrom).toHaveBeenCalledWith('cron_logs');
+    expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({
+      job_name: 'my-job',
+      status: 'error',
+      error_msg: 'boom',
+    }));
+  });
+
+  test('cause が Error でない（PostgrestError 相当・非Error）→ errorMessage() 経由で .message を拾う', async () => {
+    const startedAt = new Date();
+    // PostgrestError は実際には Error を継承するが、cronError の error_msg 生成は
+    // errorMessage() を経由するため「Error を継承しないが .message を持つ」値でも
+    // 同じ結果になることを固定する（instanceof のみに狭めた実装への回帰防止）。
+    const pseudoPostgrestError = { message: 'db exploded', code: '42P01' };
+    await cronError('my-job', startedAt, pseudoPostgrestError);
+
+    expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({
+      error_msg: 'db exploded',
+    }));
+  });
+
+  test('opts.message / extraLog / extraBody を指定 → body とログの両方に反映される', async () => {
+    const startedAt = new Date();
+    const res = await cronError('flag-reviews', startedAt, new Error('boom'), {
+      message: 'error',
+      extraLog: { error_msg: 'overridden by extraLog' },
+      extraBody: { flagged: 3 },
+    });
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body).toEqual({ error: 'error', flagged: 3 });
+
+    expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({
+      job_name: 'flag-reviews',
+      status: 'error',
+      // extraLog の error_msg が cause から計算した既定値より優先される
+      // （固定文字列の error_msg を渡していた既存呼び出しの再現に使う仕組み）。
+      error_msg: 'overridden by extraLog',
+    }));
+  });
+
+  test('error → Slack 通知（logCronRun 経由の alertCaughtError）が1回だけ発火する', async () => {
+    await cronError('my-job', new Date(), new Error('boom'));
+    expect(alertCaughtError).toHaveBeenCalledTimes(1);
+    const [tag, err] = (alertCaughtError as jest.Mock).mock.calls[0];
+    expect(tag).toBe('cron:my-job');
+    expect((err as Error).message).toBe('boom');
   });
 });
 

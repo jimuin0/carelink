@@ -90,6 +90,11 @@ export default [
       'carelink-safety/no-bare-sentry-capture': 'error',
       'carelink-safety/no-discarded-supabase-error': 'error',
       'carelink-safety/no-anon-select-rls-protected-table': 'error',
+      // src/app/api/**/route.ts で 500 応答を直接組み立てることを禁じる。
+      // CareLink は全ての 500 の Slack 通知が alertCaughtError 経由なので、直接組み立てると
+      // 通知が発火せず障害に気づけない。serverError()（src/lib/with-route.ts）または
+      // cronError()（src/lib/cron-logger.ts）を通すこと。
+      'carelink-safety/no-silent-500': 'error',
       'carelink-safety/no-anon-write-rls-protected-table': 'error',
       'no-restricted-globals': [
         'error',

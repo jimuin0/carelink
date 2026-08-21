@@ -180,20 +180,27 @@ describe('無音の500の構造ガード（withRoute 未使用の route.ts）', 
     expect(routeFiles.length).toBeGreaterThanOrEqual(100);
   });
 
-  it('status: 500 の検出件数が十分な数ある（空振り防止）', () => {
+  it('route.ts は 500 応答を直接組み立てていない（0件であることが正しい状態）', () => {
+    const offenders: string[] = [];
     let total500 = 0;
     for (const file of routeFiles) {
-      total500 += analyzeRouteSource(readFileSync(file, 'utf8')).total500;
+      const n = analyzeRouteSource(readFileSync(file, 'utf8')).total500;
+      total500 += n;
+      if (n > 0) offenders.push(`${relative(ROOT, file).split(sep).join('/')} (${n})`);
     }
-    // 2026年8月20日時点の実測278件は、当時 status:500 の大半が serverError() 化されておらず
-    // リテラル `status: 500` のまま残っていたための値。2026年8月21日に admin/ 以外・admin/ の
-    // 両方で serverError() 化を完了させた結果、リテラルの出現数自体が減った（serverError() 内部の
-    // 500 はこの正規表現では検出されない＝設計どおり）。実測（2026年8月21日）32件
-    // （内訳: cron/* の27件は logCronRun 経由で既に配線済みのため意図的に未変換・残り5件は
-    // レスポンス body の形が `{error}` と異なり serverError() の固定形にできないため直接
-    // safeCaptureException+alertCaughtError を呼ぶ形で残した箇所）。腐りを検知できるよう
-    // 実測より少し低い下限にする。
-    expect(total500).toBeGreaterThanOrEqual(25);
+    // 🔴 この検査は 2026年8月21日に【下限から上限へ反転】した。
+    //   反転前は「リテラル `status: 500` が278件見つかること」を空振り防止の下限にしていたが、
+    //   それは【無音の500が大量に残っている】前提の数字だった。api 全体の276箇所を
+    //   serverError()（src/lib/with-route.ts）と cronError()（src/lib/cron-logger.ts）へ
+    //   集約した結果、route.ts 側のリテラルは 0 が正しい状態になった。
+    //   下限のまま放置すると「全部直したのにテストが落ちる」＝直した人が閾値を下げるしかなくなり、
+    //   ガードが単なる数合わせに堕ちる。
+    //
+    //   空振り（走査が0ファイル）に対する防御は、直上の
+    //   「走査対象が十分な数ある（routeFiles.length >= 100）」が担っている。
+    //   そちらが生きている限り、この 0 は「探して無かった」であって「探していない」ではない。
+    expect(offenders).toEqual([]);
+    expect(total500).toBe(0);
   });
 
   it('無音の500が台帳(KNOWN_UNWIRED_FILES)を超えて増えていない・台帳が陳腐化していない', () => {

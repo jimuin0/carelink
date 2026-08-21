@@ -13,8 +13,6 @@ import { requirePlatformAdmin } from '@/lib/platform-admin';
 import { newsletterFromEnv } from '@/lib/email-from';
 import { sendResendChecked } from '@/lib/resend-result';
 import { serverError } from '@/lib/with-route';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
 
 // ニュースレター専用の差出人。EMAIL_FROM(email.ts の既定送信元 noreply@)とは意図的に
 // ローカル部を分けている（購読解除等の応答性を示す newsletter@）ため EMAIL_FROM を

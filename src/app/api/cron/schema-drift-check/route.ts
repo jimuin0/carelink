@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCronAuth } from '@/lib/cron-auth';
-import { logCronRun } from '@/lib/cron-logger';
+import { logCronRun, cronError } from '@/lib/cron-logger';
 import { alertWarning, alertError } from '@/lib/alert';
 import {
   computeDrift,
@@ -114,8 +114,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await admin.rpc('get_public_columns');
   if (error) {
-    await logCronRun('schema-drift-check', 'error', startedAt, { error_msg: error.message });
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return cronError('schema-drift-check', startedAt, error, { message: 'Internal Server Error' });
   }
 
   // RPC get_public_columns は jsonb 配列(1行)を返す。PostgREST 行数上限の影響を受けないよう

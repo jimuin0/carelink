@@ -1,4 +1,4 @@
-import { logCronRun } from '@/lib/cron-logger';
+import { logCronRun, cronError } from '@/lib/cron-logger';
 /**
  * オンボーディング3日後フォローメール Cron（v8.15）
  * GET /api/cron/onboarding-followup
@@ -72,12 +72,8 @@ export async function GET(request: Request) {
     );
 
     if (facilitiesErr) {
-      const msg = facilitiesErr instanceof Error
-        ? facilitiesErr.message
-        : (facilitiesErr as { message?: string })?.message ?? String(facilitiesErr);
       console.error('[onboarding-followup] facilities query failed', { err: facilitiesErr });
-      await logCronRun('onboarding-followup', 'error', startedAt, { error_msg: msg });
-      return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+      return cronError('onboarding-followup', startedAt, facilitiesErr);
     }
 
     // 🔴 第2パス（salons＝アカウント未作成の登録リード）の対象取得。
@@ -104,12 +100,8 @@ export async function GET(request: Request) {
     );
 
     if (salonsErr) {
-      const msg = salonsErr instanceof Error
-        ? salonsErr.message
-        : (salonsErr as { message?: string })?.message ?? String(salonsErr);
       console.error('[onboarding-followup] salons query failed', { err: salonsErr });
-      await logCronRun('onboarding-followup', 'error', startedAt, { error_msg: msg });
-      return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+      return cronError('onboarding-followup', startedAt, salonsErr);
     }
 
     if (facilities.length === 0 && salons.length === 0) {
@@ -323,7 +315,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ processed: sent, skipped, deferred, sent });
   } catch (e) {
     console.error('[onboarding-followup] Error:', e);
-    await logCronRun('onboarding-followup', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    return cronError('onboarding-followup', startedAt, e);
   }
 }
