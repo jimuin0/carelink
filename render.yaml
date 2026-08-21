@@ -172,6 +172,24 @@ services:
     envVars:
       - fromGroup: carelink-cron-env
 
+  - type: cron
+    name: carelink-threads-backfill
+    runtime: node
+    schedule: "50 * * * *"
+    buildCommand: echo "no build (Node 標準のみ)"
+    startCommand: node scripts/cron-call.mjs threads-backfill
+    envVars:
+      - fromGroup: carelink-cron-env
+
+  - type: cron
+    name: carelink-threads-token-refresh
+    runtime: node
+    schedule: "25 5 * * 3"
+    buildCommand: echo "no build (Node 標準のみ)"
+    startCommand: node scripts/cron-call.mjs threads-token-refresh
+    envVars:
+      - fromGroup: carelink-cron-env
+
   # --- 外形監視（health-monitor.yml の代替・imakra-cron-health と同型）---
   - type: cron
     name: carelink-health-check

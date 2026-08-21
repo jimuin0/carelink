@@ -894,6 +894,8 @@
     "reading_time",
     "slug",
     "tags",
+    "threads_post_id",
+    "threads_posted_at",
     "thumbnail_url",
     "title",
     "updated_at"
@@ -1174,6 +1176,14 @@
     "name",
     "slug",
     "sort_order"
+  ],
+  "threads_credentials": [
+    "access_token",
+    "created_at",
+    "expires_at",
+    "id",
+    "refreshed_at",
+    "updated_at"
   ],
   "treatment_catalogs": [
     "after_photo_url",

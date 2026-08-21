@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
-import { UUID_REGEX } from '@/lib/constants';
+import { UUID_REGEX, SITE_URL } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -9,6 +9,77 @@ import { writeAuditLog } from '@/lib/audit-logger';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
 import type { Database, Json } from '@/types/database.types';
 import { serverError } from '@/lib/with-route';
+import { runAfterResponse } from '@/lib/after-response';
+import { alertWarning } from '@/lib/alert';
+import { publishThreadsText, buildArticlePostText } from '@/lib/threads';
+
+/**
+ * 記事公開を Threads 投稿のきっかけに配線する処理本体。
+ *
+ * 🔴 route.ts（POST）にも同一実装が存在する（意図的な重複）。src/lib/ は本タスクでは
+ * 他エージェントの担当領域のため、共有ヘルパーを新設せずこの2ファイルにそれぞれ閉じ込める
+ * （route.ts は HTTP メソッド以外を export できないため各ファイル内の非 export ローカル関数として
+ * 複製する）。統合するかどうかは親（司令塔）が両担当の変更を合流させた後に判断する。
+ *
+ * 【claim を投稿の"前"に立てる理由】route.ts 側のコメントと同一（「投稿されたのに記録が
+ * 残らない」より「二重投稿」の方が公式アカウントの信頼性を損なう度合いが大きいため、
+ * claim 成功を投稿の必要条件にする）。
+ *
+ * claim の鍵は `threads_posted_at` 自身（onboarding-followup cron の CAS と同型）。
+ * `threads_post_id IS NULL` も必須条件にし、一度でも投稿に成功した記事は claim の状態に
+ * 関わらず永久に除外する（公開取り消し→再公開での再投稿防止・要件3）。
+ */
+async function publishArticleToThreads(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  post: { id: string; slug: string; title: string }
+): Promise<void> {
+  const nowIso = new Date().toISOString();
+
+  const { data: claimed, error: claimError } = await admin
+    .from('platform_blog_posts')
+    .update({ threads_posted_at: nowIso })
+    .eq('id', post.id)
+    .is('threads_post_id', null)
+    .is('threads_posted_at', null)
+    .select('id');
+
+  if (claimError || !claimed || claimed.length === 0) {
+    return;
+  }
+
+  let result;
+  try {
+    const url = `${SITE_URL}/blog/${post.slug}`;
+    result = await publishThreadsText(buildArticlePostText(post.title, url));
+  } catch (e) {
+    result = {
+      outcome: 'transient' as const,
+      reason: e instanceof Error ? e.message : String(e),
+    };
+  }
+
+  if (result.outcome === 'published') {
+    await admin
+      .from('platform_blog_posts')
+      .update({ threads_post_id: result.postId ?? null })
+      .eq('id', post.id)
+      .is('threads_post_id', null);
+    return;
+  }
+
+  if (result.outcome === 'permanent') {
+    alertWarning(
+      `[platform-blog] Threads 投稿が恒久的に失敗しました（id=${post.id}）: ${result.reason ?? 'unknown'}`,
+      { route: '/api/admin/platform-blog/[id]' }
+    );
+  }
+
+  await admin
+    .from('platform_blog_posts')
+    .update({ threads_posted_at: null })
+    .eq('id', post.id)
+    .is('threads_post_id', null);
+}
 
 const platformBlogUpdateSchema = z.object({
   slug: z.string().min(1).max(200).regex(/^[a-z0-9-]+$/, 'スラッグは半角英数字とハイフンのみ使用できます').optional(),
@@ -87,6 +158,15 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     newValues: updatePayload,
     ipAddress: ip,
   });
+
+  // 更新結果が公開状態なら Threads へ配線する。false→true の遷移だけを狙って旧 is_published を
+  // 別途 SELECT で取得する必要はない：publishArticleToThreads 内の CAS が
+  // 「threads_post_id IS NULL の記事に限る」を保証するため、一度成功した記事は
+  // このガードだけで自動的に再投稿されなくなる（公開のままの編集保存を何度繰り返しても、
+  // 実際に Threads へ投稿されるのは最初の1回だけ）。
+  if (data.is_published) {
+    runAfterResponse(() => publishArticleToThreads(admin, { id: data.id, slug: data.slug, title: data.title }));
+  }
 
   return NextResponse.json({ post: data });
 }

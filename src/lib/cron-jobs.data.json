@@ -13,5 +13,7 @@
   { "name": "webhook-retry",       "label": "Webhook再送",              "schedule": "*/15 * * * *", "intervalMinutes": 15 },
   { "name": "hpb-menu-scrape",     "label": "HPBメニュー取得",          "schedule": "20 17 * * *",  "intervalMinutes": 1440 },
   { "name": "schema-drift-check",  "label": "スキーマドリフト監視",     "schedule": "40 17 * * *",  "intervalMinutes": 1440 },
-  { "name": "cron-heartbeat",      "label": "cron死活監視",             "schedule": "7,37 * * * *", "intervalMinutes": 30 }
+  { "name": "cron-heartbeat",      "label": "cron死活監視",             "schedule": "7,37 * * * *", "intervalMinutes": 30 },
+  { "name": "threads-backfill",    "label": "Threads投稿バックフィル",  "schedule": "50 * * * *",   "intervalMinutes": 60 },
+  { "name": "threads-token-refresh", "label": "Threadsトークン更新",    "schedule": "25 5 * * 3",   "intervalMinutes": 10080 }
 ]
