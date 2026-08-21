@@ -345,15 +345,14 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
         ({ data: updated, error: finalizeErr } = await finalizeSent());
         if (finalizeErr) {
           console.error('[newsletter/send] CRITICAL: status finalize retry also failed — campaign stuck in sending, manual fix required', { campaignId: params.id, sentCount, bouncedCount, err: finalizeErr });
-          // serverError() は { error } 固定形の body しか返せないため、ここでは同じ通知プリミティブ
-          // （safeCaptureException + alertCaughtError）を直接呼び、sentCount/bouncedCount を含む
-          // 元のレスポンス body を保つ（withRoute 未使用のためヘッダー抑止の必要も無い）。
-          const tag = 'admin-newsletter-send-finalize-retry-failed';
-          safeCaptureException(finalizeErr, tag);
-          alertCaughtError(tag, finalizeErr, '/api/admin/newsletter/[id]');
-          return NextResponse.json(
-            { error: 'メールは送信されましたが、送信状態の記録に失敗しました。管理者にご連絡ください。', sentCount, bouncedCount },
-            { status: 500 },
+          // sentCount/bouncedCount は「何通送り終わったか」を運用者へ伝える唯一の手掛かりなので
+          // body から落とさない（extraBody で元の形をそのまま保つ）。
+          return serverError(
+            'admin-newsletter-send-finalize-retry-failed',
+            finalizeErr,
+            '/api/admin/newsletter/[id]',
+            'メールは送信されましたが、送信状態の記録に失敗しました。管理者にご連絡ください。',
+            { sentCount, bouncedCount },
           );
         }
       }

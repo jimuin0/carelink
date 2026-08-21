@@ -1,3 +1,4 @@
+import { serverError } from '@/lib/with-route';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import type { AvailableSlot } from '@/types';
@@ -47,8 +48,8 @@ export async function GET(request: Request) {
   // Sentry に記録し 500 を返して失敗を顕在化させる。
   if (error) {
     safeCaptureException(error, 'slots:get_available_slots');
-    alertCaughtError('slots:get_available_slots', error, '/api/slots');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました', slots: [] }, { status: 500 });
+    // slots: [] を落とすと呼び出し側の画面が undefined を舐めて壊れるため body 形は維持する。
+    return serverError('slots:get_available_slots', error, '/api/slots', 'サーバーエラーが発生しました', { slots: [] });
   }
 
   let slots = (data ?? []) as AvailableSlot[];
@@ -63,7 +64,6 @@ export async function GET(request: Request) {
   return NextResponse.json({ slots });
   } catch (e) {
     safeCaptureException(e, 'slots');
-    alertCaughtError('slots', e, '/api/slots');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました', slots: [] }, { status: 500 });
+    return serverError('slots', e, '/api/slots', 'サーバーエラーが発生しました', { slots: [] });
   }
 }

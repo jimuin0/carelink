@@ -1,3 +1,4 @@
+import { serverError } from '@/lib/with-route';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -67,7 +68,8 @@ export async function GET(request: NextRequest) {
     });
   } catch (e) {
     safeCaptureException(e, 'facility-suggest');
-    alertCaughtError('facility-suggest', e, '/api/facilities/suggest');
-    return NextResponse.json({ facilities: [], areas: [] }, { status: 500 });
+    // 元の body は error キーを持たない（呼び出し側は facilities/areas だけを読む）。
+    // userMessage: null で error キーを足さず、形をそのまま保つ。
+    return serverError('facility-suggest', e, '/api/facilities/suggest', null, { facilities: [], areas: [] });
   }
 }

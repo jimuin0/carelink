@@ -148,6 +148,30 @@ describe('withRoute', () => {
     expect(alertCaughtError).not.toHaveBeenCalled();
   });
 
+  // 🔴 body の形を保てることを固定する。ここが崩れると「serverError を使うと応答が変わる」
+  //   ＝使わない理由になり、無音の 500 が復活する（そのために extraBody / userMessage:null がある）。
+  test('serverError(extraBody) は error に加えて元の追加項目を保つ', async () => {
+    const res = serverError('slots', new Error('x'), '/api/slots', 'サーバーエラーが発生しました', { slots: [] });
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({
+      error: 'サーバーエラーが発生しました',
+      slots: [],
+    });
+  });
+
+  test('serverError(userMessage=null) は error キー自体を出さない', async () => {
+    // /api/facilities/suggest・/api/alert-check は error キーを持たない body を返しており、
+    // 足すと読み手（画面・監視）の期待と変わってしまう。
+    const res = serverError('facility-suggest', new Error('x'), '/api/facilities/suggest', null, {
+      facilities: [],
+      areas: [],
+    });
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body).toEqual({ facilities: [], areas: [] });
+    expect('error' in body).toBe(false);
+  });
+
   test('serverError() を return → 通知は1回だけ（withRoute 側との二重通知にならない）', async () => {
     const cause = new Error('supabase insert failed');
     const handler = jest.fn(async () => serverError('salons', cause, '/api/salons'));

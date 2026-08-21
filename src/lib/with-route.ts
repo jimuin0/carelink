@@ -195,11 +195,20 @@ export function serverError(
   tag: string,
   cause: unknown,
   route: string,
-  userMessage = 'サーバーエラーが発生しました'
+  userMessage: string | null = 'サーバーエラーが発生しました',
+  extraBody?: Record<string, unknown>
 ): NextResponse {
   safeCaptureException(cause, tag);
   alertCaughtError(tag, cause, route);
-  const res = NextResponse.json({ error: userMessage }, { status: 500 });
+  // 🔴 body の形を呼び出し側に合わせられるようにしてあるのは、【形が合わないという理由だけで
+  //   通知経路の外に留まる 500 を作らせない】ため。既存の応答から 1 バイトでも形が変わると
+  //   それを読んでいる画面や監視が壊れるので、「serverError を使うと body が変わる」状態は
+  //   そのまま「使わない言い訳」になり、無音の 500 が残り続ける。
+  //   - extraBody … `{error}` に加えて返したい項目（例: slots: [] を返さないと画面が落ちる）
+  //   - userMessage: null … `error` キー自体を出さない（例: /api/alert-check の `{ok,message}`）
+  const body: Record<string, unknown> =
+    userMessage === null ? { ...extraBody } : { error: userMessage, ...extraBody };
+  const res = NextResponse.json(body, { status: 500 });
   res.headers.set(ALERTED_HEADER, '1');
   return res;
 }
