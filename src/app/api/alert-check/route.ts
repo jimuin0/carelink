@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'crypto';
 import { NextResponse } from 'next/server';
-import { alertError } from '@/lib/alert';
+import { alertError, alertCaughtError } from '@/lib/alert';
+import { safeCaptureException } from '@/lib/safe';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -36,6 +37,11 @@ function tokenValid(actual: string, expected: string): boolean {
 export async function GET(request: Request): Promise<NextResponse> {
   const expected = process.env.ALERT_CHECK_TOKEN;
   if (!expected) {
+    // レスポンス形（{ ok, message }）が serverError() の固定形（{ error }）と異なるため、
+    // 通知だけを serverError() と同じ2関数呼び出しで明示し、body は変えずに返す。
+    const cause = new Error('ALERT_CHECK_TOKEN not configured');
+    safeCaptureException(cause, 'alert-check-config');
+    alertCaughtError('alert-check-config', cause, '/api/alert-check');
     return NextResponse.json(
       { ok: false, message: 'ALERT_CHECK_TOKEN not configured' },
       { status: 500 }

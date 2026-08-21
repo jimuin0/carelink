@@ -167,7 +167,7 @@ test('POST: 追跡行の保存失敗 → 作成済みGoogleイベントをロー
     (call) => call[1]?.method === 'DELETE' && String(call[0]).includes(GOOGLE_EVENT_ID),
   );
   expect(rollbackDelete).toBeDefined();
-  expect(alertCaughtError).toHaveBeenCalledWith('gcal-sync', expect.any(Error), '/api/google-calendar/sync');
+  expect(alertCaughtError).toHaveBeenCalledWith('gcal-sync-track', expect.any(Error), '/api/google-calendar/sync');
 });
 
 // ─── DELETE: security guards ──────────────────────────────────────────────────
@@ -473,7 +473,7 @@ test('DELETE: ハンドラ内で例外 → 500（catch で alertCaughtError 経�
 
   const res = await DELETE(makeDeleteRequest(BOOKING_UUID));
   expect(res.status).toBe(500);
-  expect(alertCaughtError).toHaveBeenCalledWith('gcal-sync', expect.any(Error), '/api/google-calendar/sync');
+  expect(alertCaughtError).toHaveBeenCalledWith('gcal-sync-delete', expect.any(Error), '/api/google-calendar/sync');
 });
 
 // Branch coverage: line 163 — DELETE の CSRF チェック失敗

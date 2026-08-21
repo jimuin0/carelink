@@ -12,7 +12,7 @@ import { cookies } from 'next/headers';
 import { SITE_URL, UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -142,15 +142,16 @@ export async function POST(request: NextRequest) {
     });
     if (sessionInsertErr) {
       await stripe.checkout.sessions.expire(session.id).catch(() => {});
-      console.error('[payment/checkout] stripe_sessions insert failed — Stripe session expired', { sessionId: session.id, err: sessionInsertErr });
-      return NextResponse.json({ error: '決済セッションの作成に失敗しました。しばらく後に再度お試しください。' }, { status: 500 });
+      return serverError(
+        'payment-checkout-session-insert',
+        sessionInsertErr,
+        '/api/payment/checkout',
+        '決済セッションの作成に失敗しました。しばらく後に再度お試しください。',
+      );
     }
 
     return NextResponse.json({ url: session.url });
   } catch (e) {
-    console.error('[payment/checkout] Error:', e);
-    // catch して 500 を返すと onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('payment-checkout', e, '/api/payment/checkout');
-    return NextResponse.json({ error: '決済セッションの作成に失敗しました' }, { status: 500 });
+    return serverError('payment-checkout', e, '/api/payment/checkout', '決済セッションの作成に失敗しました');
   }
 }

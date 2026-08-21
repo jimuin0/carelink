@@ -7,7 +7,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { mutationRateLimit } from '@/lib/rate-limit';
-import { withRoute } from '@/lib/with-route';
+import { withRoute, serverError } from '@/lib/with-route';
 import { sendNotify } from '@/lib/notify';
 import { runAfterResponse } from '@/lib/after-response';
 import { contactSchema } from '@/lib/validations-contact';
@@ -50,7 +50,7 @@ export const POST = withRoute(async (request) => {
   });
 
   if (error) {
-    return NextResponse.json({ error: '送信に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
+    return serverError('contact-insert', error, '/api/contact', '送信に失敗しました。時間をおいて再度お試しください。');
   }
 
   // Slack通知（fire-and-forget）

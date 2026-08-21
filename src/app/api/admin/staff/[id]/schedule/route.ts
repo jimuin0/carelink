@@ -10,6 +10,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { todayJst } from '@/lib/admin-date';
 import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 type ScheduleOverrideInsert = Database['public']['Tables']['schedule_overrides']['Insert'];
@@ -200,7 +201,7 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
 
   // Delete then insert
   const { error: deleteErr } = await admin.from('staff_schedules').delete().eq('staff_id', params.id);
-  if (deleteErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (deleteErr) return serverError('admin-staff-schedule-put-delete', deleteErr, '/api/admin/staff/[id]/schedule');
 
   if (parsed.data.schedules.length > 0) {
     const rows = parsed.data.schedules.map((s) => ({
@@ -217,7 +218,7 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
           alertCaughtError('staff-schedule-put:restore-failed', restoreErr, `staff:${params.id}`);
         }
       }
-      return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+      return serverError('admin-staff-schedule-put-insert', error, '/api/admin/staff/[id]/schedule');
     }
   }
 
@@ -290,7 +291,7 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
   }
 
   const { error } = await admin.from('schedule_overrides').upsert(row, { onConflict: 'staff_id,date' });
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-staff-schedule-post', error, '/api/admin/staff/[id]/schedule');
 
   void writeAuditLog({
     userId: auth.userId,
@@ -336,7 +337,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     .eq('staff_id', params.id)
     .select();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-staff-schedule-delete', error, '/api/admin/staff/[id]/schedule');
   if (!data || data.length === 0) return NextResponse.json({ error: '休日設定が見つかりません' }, { status: 404 });
 
   void writeAuditLog({

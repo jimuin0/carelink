@@ -6,6 +6,7 @@ import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { z } from 'zod';
 import { sendLineWorksMessage, isLineWorksConfigured } from '@/lib/integrations/line-works';
@@ -148,7 +149,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       if (msg.includes('STAFF_NOT_WORKING')) {
         return NextResponse.json({ error: '担当スタッフはこの日時には勤務していません' }, { status: 409 });
       }
-      return NextResponse.json({ error: '変更に失敗しました' }, { status: 500 });
+      return serverError('booking-change-rpc', error, '/api/booking/[id]/change', '変更に失敗しました');
     }
 
     void writeAuditLog({
@@ -282,9 +283,6 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
 
     return NextResponse.json({ success: true });
   } catch (e) {
-    safeCaptureException(e, 'booking-change');
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('booking-change', e, '/api/booking/[id]/change');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('booking-change', e, '/api/booking/[id]/change');
   }
 }

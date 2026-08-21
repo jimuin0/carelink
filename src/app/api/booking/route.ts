@@ -10,6 +10,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { sendPushToFacilityOwners, sendPushToUser } from '@/lib/push';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { getFacilityNotificationSettings } from '@/lib/notification-settings';
 import { sendBookingConfirmation as sendLineBookingConfirm } from '@/lib/line';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -150,7 +151,7 @@ export async function POST(request: Request) {
         .select('menu_id')
         .eq('coupon_id', parsed.data.coupon_id);
       if (couponMenuErr) {
-        return NextResponse.json({ error: 'クーポンの確認に失敗しました' }, { status: 500 });
+        return serverError('booking-coupon-menus', couponMenuErr, '/api/booking', 'クーポンの確認に失敗しました');
       }
       // 【2026年7月15日 HPB準拠仕様】coupon_menus に行があるクーポンは「対象メニューにのみ」
       // 効く（対象外メニューは定価のまま加算）。行が無いクーポンは従来どおり全メニュー適用。
@@ -195,7 +196,7 @@ export async function POST(request: Request) {
       .select('menu_id, staff_id')
       .in('menu_id', menuIdsToPrice);
     if (menuStaffErr) {
-      return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+      return serverError('booking-menu-staff', menuStaffErr, '/api/booking');
     }
     const menuStaffMap = buildMenuStaffMap(menuStaffRows ?? []);
     if (!isStaffCompatibleWithMenus(menuStaffMap, menuIdsToPrice, parsed.data.staff_id)) {
@@ -299,13 +300,17 @@ export async function POST(request: Request) {
     if (error.message?.includes('COUPON_ALREADY_USED')) {
       return NextResponse.json({ error: 'このクーポンは既に利用済みです' }, { status: 409 });
     }
-    return NextResponse.json({ error: '予約に失敗しました' }, { status: 500 });
+    return serverError('booking-rpc', error, '/api/booking', '予約に失敗しました');
   }
 
   const newBookingId: string = rpcResult || '';
   if (!newBookingId) {
-    console.error('[booking] create_booking_atomic returned null with no error');
-    return NextResponse.json({ error: '予約に失敗しました' }, { status: 500 });
+    return serverError(
+      'booking-rpc-null-result',
+      new Error('create_booking_atomic returned null with no error'),
+      '/api/booking',
+      '予約に失敗しました',
+    );
   }
 
   // 複数メニュー予約は menu_ids 列に全メニューを保存する。create_booking_atomic は p_menu_id(単一)
@@ -353,7 +358,7 @@ export async function POST(request: Request) {
     // 従来 error を捨てていたためこの経路が無音だった。失敗時は予約をキャンセルして 500 で明示する。
     if (deductErr) {
       await rollbackBooking();
-      return NextResponse.json({ error: 'ポイントの利用処理に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
+      return serverError('booking-points-deduct', deductErr, '/api/booking', 'ポイントの利用処理に失敗しました。時間をおいて再度お試しください。');
     }
 
     // Re-verify balance to detect concurrent deductions since our snapshot
@@ -364,7 +369,7 @@ export async function POST(request: Request) {
       /* istanbul ignore next — deductionRow は直前の insert 成功で常に存在する防御チェック */
       if (deductionRow?.id) await serviceSupabase.from('user_points').delete().eq('id', deductionRow.id);
       await rollbackBooking();
-      return NextResponse.json({ error: 'ポイント残高の確認に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
+      return serverError('booking-points-recheck', recheckErr, '/api/booking', 'ポイント残高の確認に失敗しました。時間をおいて再度お試しください。');
     }
     const newBalance = (recheck ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
     if (newBalance < 0) {
@@ -617,9 +622,6 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ success: true, bookingId: newBookingId });
   } catch (e) {
-    safeCaptureException(e, 'booking');
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('booking', e, '/api/booking');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('booking', e, '/api/booking');
   }
 }

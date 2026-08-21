@@ -9,6 +9,7 @@ import { sendBookingConfirmed } from '@/lib/email';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { isValidIsoDate } from '@/lib/date-utils';
 
 export const dynamic = 'force-dynamic';
@@ -119,10 +120,10 @@ export async function POST(request: NextRequest) {
     if (error.message?.includes('BOOKING_CONFLICT') || error.code === '23505') {
       return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
     }
-    return NextResponse.json({ error: '予約に失敗しました' }, { status: 500 });
+    return serverError('admin-bookings-create-rpc', error, '/api/admin/bookings', '予約に失敗しました');
   }
   const newId: string = rpcResult || '';
-  if (!newId) return NextResponse.json({ error: '予約に失敗しました' }, { status: 500 });
+  if (!newId) return serverError('admin-bookings-create-no-id', new Error('create_booking_atomic returned no id'), '/api/admin/bookings', '予約に失敗しました');
 
   // 複数メニュー予約は menu_ids 列に全メニューを保存（menu_id には先頭1件しか入らず表示が1件目のみに
   // なる・A6）。料金・所要時間は合算済みで正しい。失敗は致命でないため warn のみ。単一時はスキップ。

@@ -9,6 +9,7 @@ import Stripe from 'stripe';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { toJsonValue } from '@/lib/json-value';
 
 export const dynamic = 'force-dynamic';
@@ -56,9 +57,7 @@ export async function POST(request: NextRequest) {
     // **再送されない**。ログ行も無く handleEvent も走っていないため、決済イベントが恒久的に
     // 失われる（入金・返金の取りこぼしに直結し、しかも無音）。
     // 5xx を返せば Stripe が指数バックオフで再送するので、DB 復旧後に必ず処理される。
-    console.error('Webhook log upsert error:', upsertError.message);
-    alertCaughtError('stripe-webhook-log-upsert', upsertError, '/api/stripe/webhook');
-    return NextResponse.json({ error: 'Log upsert failed' }, { status: 500 });
+    return serverError('stripe-webhook-log-upsert', upsertError, '/api/stripe/webhook', 'Log upsert failed');
   }
 
   // Re-read to check if this insert actually inserted (ignoreDuplicates means a conflict
@@ -90,9 +89,7 @@ export async function POST(request: NextRequest) {
     const msg = err instanceof Error ? err.message : 'unknown error';
     await admin.from('stripe_webhook_logs').update({ error: msg }).eq('event_id', event.id);
     console.error('Webhook handler error:', msg);
-    // catch→500 は instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('stripe-webhook-handler', err, '/api/stripe/webhook');
-    return NextResponse.json({ error: 'Handler error' }, { status: 500 });
+    return serverError('stripe-webhook-handler', err, '/api/stripe/webhook', 'Handler error');
   }
 
   return NextResponse.json({ received: true });

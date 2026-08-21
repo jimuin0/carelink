@@ -18,8 +18,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 import { decryptUnsubEmail } from '@/lib/newsletter-unsub';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -112,8 +111,7 @@ export async function POST(request: Request) {
         const missingConstraint =
           up.error.code === '42P10' || /no unique or exclusion constraint/i.test(up.error.message ?? '');
         if (!missingConstraint) {
-          console.error('[unsubscribe] newsletter_subscriptions upsert failed', { err: up.error });
-          return NextResponse.json({ error: '配信停止の処理に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
+          return serverError('unsubscribe-newsletter-upsert', up.error, '/api/unsubscribe', '配信停止の処理に失敗しました。時間をおいて再度お試しください。');
         }
         // フォールバック（UNIQUE 未適用）: 既存行があれば update、無ければ insert。
         if (sub) {
@@ -122,16 +120,14 @@ export async function POST(request: Request) {
             .update({ is_active: false, unsubscribed_at: unsubbedAt, user_id: linkedUserId })
             .eq('id', sub.id);
           if (unsubErr) {
-            console.error('[unsubscribe] newsletter_subscriptions update failed', { err: unsubErr });
-            return NextResponse.json({ error: '配信停止の処理に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
+            return serverError('unsubscribe-newsletter-update', unsubErr, '/api/unsubscribe', '配信停止の処理に失敗しました。時間をおいて再度お試しください。');
           }
         } else {
           const { error: insertErr } = await supabase
             .from('newsletter_subscriptions')
             .insert(row);
           if (insertErr) {
-            console.error('[unsubscribe] newsletter_subscriptions insert failed', { err: insertErr });
-            return NextResponse.json({ error: '配信停止の処理に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
+            return serverError('unsubscribe-newsletter-insert', insertErr, '/api/unsubscribe', '配信停止の処理に失敗しました。時間をおいて再度お試しください。');
           }
         }
       }
@@ -212,8 +208,7 @@ export async function POST(request: Request) {
       .update({ email_unsubscribed: true })
       .eq('id', tokenRow.user_id);
     if (profileFlagErr) {
-      console.error('[unsubscribe] profile flag update failed', { userId: tokenRow.user_id, err: profileFlagErr });
-      return NextResponse.json({ error: '配信停止の処理に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
+      return serverError('unsubscribe-profile-flag', profileFlagErr, '/api/unsubscribe', '配信停止の処理に失敗しました。時間をおいて再度お試しください。');
     }
 
     // トークンを使用済みにマーク
@@ -225,9 +220,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true, already: false });
   } catch (e) {
-    safeCaptureException(e, 'unsubscribe');
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('unsubscribe', e, '/api/unsubscribe');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('unsubscribe', e, '/api/unsubscribe');
   }
 }

@@ -9,7 +9,7 @@
  *   - 正規 token + fire=1 → alertError 発火 + slackConfigured 可視化
  */
 
-jest.mock('@/lib/alert', () => ({ alertError: jest.fn() }));
+jest.mock('@/lib/alert', () => ({ alertError: jest.fn(), alertCaughtError: jest.fn() }));
 
 import { alertError } from '@/lib/alert';
 import { GET } from '../route';

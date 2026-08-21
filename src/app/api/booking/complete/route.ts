@@ -5,7 +5,7 @@ import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { withRoute } from '@/lib/with-route';
+import { withRoute, serverError } from '@/lib/with-route';
 import { applyCompletionSideEffects } from '@/lib/booking-completion';
 
 export const dynamic = 'force-dynamic';
@@ -69,7 +69,7 @@ export const POST = withRoute(async (request) => {
       .maybeSingle();
 
     if (updateError) {
-      return NextResponse.json({ error: 'ステータスの更新に失敗しました' }, { status: 500 });
+      return serverError('booking-complete-update', updateError, '/api/booking/complete', 'ステータスの更新に失敗しました');
     }
     if (!updatedBooking) {
       // Zero rows updated: status was already changed by another request

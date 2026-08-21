@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { serverError } from '@/lib/with-route';
 
 const flagUpdateSchema = z.object({
   enabled: z.boolean().optional(),
@@ -60,7 +61,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     if ((error as { code?: string }).code === 'PGRST116') {
       return NextResponse.json({ error: 'フラグが見つかりません' }, { status: 404 });
     }
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('admin-feature-flags-patch', error, '/api/admin/feature-flags/[id]');
   }
   // .single() は0件一致時に必ず PGRST116 エラー（上で処理済み）を返すため、error=null かつ
   // data=null は到達不能。万一の supabase 実装差異に備える防御的フォールバック。

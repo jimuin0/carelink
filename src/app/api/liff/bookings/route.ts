@@ -8,7 +8,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { verifyLineAccessToken } from '@/lib/line';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 
 export async function GET(req: NextRequest) {
   try {
@@ -80,8 +80,7 @@ export async function GET(req: NextRequest) {
       .eq('user_id', userId)
       .maybeSingle();
     if (error) {
-      alertCaughtError('liff-bookings', error, '/api/liff/bookings');
-      return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+      return serverError('liff-bookings-single', error, '/api/liff/bookings', 'Internal Server Error');
     }
     return NextResponse.json({ booking: booking ? flatten(booking as RawBooking) : null });
   }
@@ -94,14 +93,11 @@ export async function GET(req: NextRequest) {
     .limit(20);
 
   if (error) {
-    alertCaughtError('liff-bookings', error, '/api/liff/bookings');
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('liff-bookings-list', error, '/api/liff/bookings', 'Internal Server Error');
   }
 
   return NextResponse.json({ bookings: (bookings ?? []).map((b) => flatten(b as RawBooking)) });
   } catch (e) {
-    console.error('[liff/bookings] unexpected error:', e);
-    alertCaughtError('liff-bookings', e, '/api/liff/bookings');
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('liff-bookings', e, '/api/liff/bookings', 'Internal Server Error');
   }
 }

@@ -3,6 +3,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } from '@/lib/email';
 import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
@@ -108,7 +109,7 @@ export async function POST(request: Request) {
       .select('id');
 
     if (error) {
-      return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
+      return serverError('admin-booking-status-update', error, '/api/admin/booking-status', '更新に失敗しました');
     }
     if (!updated || updated.length === 0) {
       return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
@@ -275,10 +276,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (e) {
-    safeCaptureException(e, 'admin-booking-status');
-    // safeCaptureException は console.error のみで Slack 通知しないため、500 経路では別途明示通知する
-    // （catch して 500 を返すと onRequestError に伝播せず Slack 通知が漏れる）。cancel/route.ts と対称。
-    alertCaughtError('admin-booking-status', e, '/api/admin/booking-status');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('admin-booking-status', e, '/api/admin/booking-status');
   }
 }

@@ -10,6 +10,7 @@ import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { checkPublishReadiness } from '@/lib/facility-publish-gate';
 import { validateFacilityPrText } from '@/lib/medical-ad-guard';
 import type { Database } from '@/types/database.types';
+import { serverError } from '@/lib/with-route';
 
 // facility_profiles の update() に渡すオブジェクトの型。
 // 以前は Record<string, unknown> にしていたが、Database 型配線後は
@@ -132,7 +133,7 @@ export async function PATCH(request: NextRequest) {
       // 公開して公開メニュー0件の行き止まりになるのを防ぐ = BP-2）。
       const { readiness, error: gateErr } = await checkPublishReadiness(admin, auth.facilityId);
       if (gateErr) {
-        return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+        return serverError('admin-settings-status-gate', gateErr, '/api/admin/settings');
       }
       if (!readiness.ready) {
         return NextResponse.json({ error: '公開するには次の項目が必要です', missing: readiness.missing }, { status: 400 });
@@ -144,7 +145,7 @@ export async function PATCH(request: NextRequest) {
       .update({ status: parsed.data.status, updated_at: new Date().toISOString() })
       .eq('id', auth.facilityId);
 
-    if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (error) return serverError('admin-settings-status-update', error, '/api/admin/settings');
 
     const { ua } = getRequestContext(request);
     void writeAuditLog({
@@ -202,7 +203,7 @@ export async function PATCH(request: NextRequest) {
     .update(updatePayload)
     .eq('id', auth.facilityId);
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-settings-patch', error, '/api/admin/settings');
 
   const { ua } = getRequestContext(request);
   void writeAuditLog({

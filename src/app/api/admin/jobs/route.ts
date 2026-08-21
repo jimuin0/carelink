@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
@@ -46,12 +45,10 @@ export async function GET(request: NextRequest) {
       .in('facility_id', facilityIds)
       .order('created_at', { ascending: false });
 
-    if (error) return NextResponse.json({ error: '取得に失敗しました' }, { status: 500 });
+    if (error) return serverError('admin-jobs-list-query', error, '/api/admin/jobs', '取得に失敗しました');
     return NextResponse.json({ jobs: data ?? [] });
   } catch (e) {
-    safeCaptureException(e, 'admin-jobs-list');
-    alertCaughtError('admin-jobs-list', e, '/api/admin/jobs');
-    return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 });
+    return serverError('admin-jobs-list', e, '/api/admin/jobs', 'サーバーエラー');
   }
 }
 
@@ -119,9 +116,7 @@ export async function POST(request: Request) {
       .single();
 
     if (error) {
-      safeCaptureException(error, 'admin-jobs-create');
-      alertCaughtError('admin-jobs-create', error, '/api/admin/jobs');
-      return NextResponse.json({ error: '作成に失敗しました' }, { status: 500 });
+      return serverError('admin-jobs-create-insert', error, '/api/admin/jobs', '作成に失敗しました');
     }
 
     void writeAuditLog({
@@ -136,8 +131,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ job: data }, { status: 201 });
   } catch (e) {
-    safeCaptureException(e, 'admin-jobs-create');
-    alertCaughtError('admin-jobs-create', e, '/api/admin/jobs');
-    return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 });
+    return serverError('admin-jobs-create', e, '/api/admin/jobs', 'サーバーエラー');
   }
 }

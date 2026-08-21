@@ -8,6 +8,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
 import type { Database, Json } from '@/types/database.types';
+import { serverError } from '@/lib/with-route';
 
 const platformBlogUpdateSchema = z.object({
   slug: z.string().min(1).max(200).regex(/^[a-z0-9-]+$/, 'スラッグは半角英数字とハイフンのみ使用できます').optional(),
@@ -75,7 +76,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     // 下の if(error)→500 が先に発火し if(!data)→404 が到達不能になる（404がデッドコード・500に化ける）。
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-platform-blog-patch', error, '/api/admin/platform-blog/[id]');
   if (!data) return NextResponse.json({ error: '記事が見つかりません' }, { status: 404 });
 
   void writeAuditLog({
@@ -116,7 +117,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     .eq('id', params.id)
     .select();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-platform-blog-delete', error, '/api/admin/platform-blog/[id]');
   if (!data || data.length === 0) return NextResponse.json({ error: '記事が見つかりません' }, { status: 404 });
 
   void writeAuditLog({

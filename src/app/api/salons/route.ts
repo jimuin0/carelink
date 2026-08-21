@@ -4,9 +4,7 @@ import { z } from 'zod';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit, mutationRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
-import { withRoute } from '@/lib/with-route';
+import { withRoute, serverError } from '@/lib/with-route';
 import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
 import { phoneField as sharedPhoneField } from '@/lib/phone';
 import { verifyRecaptcha } from '@/lib/recaptcha';
@@ -183,9 +181,11 @@ export const POST = withRoute(async (request) => {
     .single();
 
   if (error || !data) {
-    return NextResponse.json(
-      { error: '送信に失敗しました。時間をおいて再度お試しください。' },
-      { status: 500 }
+    return serverError(
+      'salons-insert',
+      error ?? new Error('salons insert returned no row'),
+      '/api/salons',
+      '送信に失敗しました。時間をおいて再度お試しください。',
     );
   }
 
@@ -313,11 +313,9 @@ export async function GET(req: NextRequest) {
   query = query.limit(50);
 
   const { data, error } = await query;
-  if (error) return NextResponse.json({ error: 'データの取得に失敗しました' }, { status: 500 });
+  if (error) return serverError('salons-get-list', error, '/api/salons', 'データの取得に失敗しました');
   return NextResponse.json(data || []);
   } catch (e) {
-    safeCaptureException(e, 'salons');
-    alertCaughtError('salons', e, '/api/salons');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('salons', e, '/api/salons');
   }
 }

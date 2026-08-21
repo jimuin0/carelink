@@ -6,6 +6,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 import { z } from 'zod';
 import { createHash } from 'crypto';
+import { serverError } from '@/lib/with-route';
 
 const schema = z.object({
   score: z.number().int().min(0).max(10),
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
   if (error) {
     // 重複エラーは無視（同月回答済み）
     if (error.code === '23505') return NextResponse.json({ message: 'already_submitted' });
-    return NextResponse.json({ error: '送信に失敗しました' }, { status: 500 });
+    return serverError('nps-post', error, '/api/nps', '送信に失敗しました');
   }
 
   return NextResponse.json({ message: 'submitted' }, { status: 201 });

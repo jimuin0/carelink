@@ -12,6 +12,7 @@ import { csvEscape } from '@/lib/csv';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { fetchAllPaged } from '@/lib/paginate';
+import { serverError } from '@/lib/with-route';
 
 function toCsvRow(cols: (string | number | null | undefined)[]): string {
   return cols.map(csvEscape).join(',');
@@ -92,7 +93,7 @@ export async function GET(request: NextRequest) {
     },
     { maxRows: 1000000 },
   );
-  if (error) return NextResponse.json({ error: 'データの取得に失敗しました' }, { status: 500 });
+  if (error) return serverError('admin-accounting-export-bookings', error, '/api/admin/accounting-export');
 
   // 複数メニュー予約は menu_ids 列に全メニューが入る（menu_id は先頭1件のみ＝embed した menu も
   // 先頭名のみ）。会計CSVのメニュー名を全件にするため、menu_ids の全IDの名前をまとめて1クエリで
@@ -122,7 +123,7 @@ export async function GET(request: NextRequest) {
       .from('profiles')
       .select('id, display_name, email')
       .in('id', customerUserIds);
-    if (profErr) return NextResponse.json({ error: 'データの取得に失敗しました' }, { status: 500 });
+    if (profErr) return serverError('admin-accounting-export-profiles', profErr, '/api/admin/accounting-export');
     const profMap = new Map((profs ?? []).map((p) => [p.id as string, { display_name: p.display_name ?? undefined, email: p.email ?? undefined }]));
     for (const b of bookings) b.profiles = b.user_id ? (profMap.get(b.user_id) ?? null) : null;
   }

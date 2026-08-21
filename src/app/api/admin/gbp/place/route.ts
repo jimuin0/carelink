@@ -7,6 +7,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { getAdminFacilityIds, resolveTargetFacilityId } from '@/lib/facility-membership';
 import { toJsonValue } from '@/lib/json-value';
+import { serverError } from '@/lib/with-route';
 
 
 export async function GET(req: NextRequest) {
@@ -95,8 +96,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ placeData, audit, facilityId });
   } catch (e) {
-    console.error('[gbp/place] GET error:', e);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('admin-gbp-place-get', e, '/api/admin/gbp/place', 'Internal Server Error');
   }
 }
 
@@ -148,7 +148,7 @@ export async function POST(req: NextRequest) {
     .select('id')
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-gbp-place-post', error, '/api/admin/gbp/place');
   // phantom success 防止: service role は RLS をバイパスするため、facilityId に対応する行が
   // 実在しない場合でもエラーにならず0行更新のまま ok:true を返しかねない（8本の admin変異
   // ハンドラで根治した #470 と同型）。.select().maybeSingle() で実際に更新された行を確認する。

@@ -9,7 +9,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { verifyLineAccessToken } from '@/lib/line';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 
 export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
@@ -65,12 +65,10 @@ export async function POST(req: NextRequest) {
       .update({ line_user_id: lineUserId, updated_at: new Date().toISOString() })
       .eq('id', user.id);
 
-    if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (error) return serverError('liff-link-post-update', error, '/api/liff/link');
     return NextResponse.json({ ok: true });
   } catch (e) {
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('liff-link-post', e, '/api/liff/link');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('liff-link-post', e, '/api/liff/link');
   }
 }
 
@@ -92,14 +90,11 @@ export async function DELETE(req: NextRequest) {
       .update({ line_user_id: null, updated_at: new Date().toISOString() })
       .eq('id', user.id);
     if (unlinkErr) {
-      console.error('[liff/link] LINE unlink update failed', { userId: user.id, err: unlinkErr });
-      return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+      return serverError('liff-link-delete-update', unlinkErr, '/api/liff/link');
     }
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('liff-link-delete', e, '/api/liff/link');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('liff-link-delete', e, '/api/liff/link');
   }
 }

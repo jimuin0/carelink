@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { serverError } from '@/lib/with-route';
 
 const staffSchema = z.object({
   name: z.string().min(1).max(50),
@@ -75,7 +76,7 @@ export async function POST(request: NextRequest) {
     is_active: true,
   }).select().single();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-staff-create', error, '/api/admin/staff');
 
   // 新規スタッフにデフォルト勤務スケジュール(全7日 09:00-19:00)を自動付与する。
   // これが無いと get_available_slots が予約枠を一切返さず、施設を公開しても
@@ -90,7 +91,7 @@ export async function POST(request: NextRequest) {
   const { error: scheduleErr } = await admin.from('staff_schedules').insert(scheduleRows);
   if (scheduleErr) {
     await admin.from('staff_profiles').delete().eq('id', data.id);
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('admin-staff-create-schedule', scheduleErr, '/api/admin/staff');
   }
 
   const { ua } = getRequestContext(request);

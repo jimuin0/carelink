@@ -10,6 +10,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { serverError } from '@/lib/with-route';
 
 function escapeIcal(str: string): string {
   return str
@@ -110,7 +111,6 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     },
   });
   } catch (e) {
-    console.error('[booking/ical] unexpected error:', e);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('booking-ical', e, '/api/booking/[id]/ical', 'Internal Server Error');
   }
 }

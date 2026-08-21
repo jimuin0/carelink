@@ -12,6 +12,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { sendBookingCancelled, sendBookingCancellationToFacility } from '@/lib/email';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { resolveLineUserIdForUser } from '@/lib/line-link';
@@ -116,7 +117,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
     .select('id');
 
   if (error) {
-    return NextResponse.json({ error: 'キャンセルに失敗しました' }, { status: 500 });
+    return serverError('booking-cancel-update', error, '/api/booking/[id]/cancel', 'キャンセルに失敗しました');
   }
   if (!cancelled || cancelled.length === 0) {
     return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
@@ -362,10 +363,6 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
 
   return NextResponse.json({ success: true, cancelFee });
   } catch (e) {
-    safeCaptureException(e, 'booking-cancel');
-    // safeCaptureException は console.error のみで Slack 通知しないため、500 経路では別途明示通知する
-    // （catch して 500 を返すと onRequestError に伝播せず Slack 通知が漏れる）。
-    alertCaughtError('booking-cancel', e, '/api/booking/[id]/cancel');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('booking-cancel', e, '/api/booking/[id]/cancel');
   }
 }

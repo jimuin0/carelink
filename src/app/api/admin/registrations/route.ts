@@ -9,6 +9,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
     .limit(100);
 
   if (error) {
-    return NextResponse.json({ error: '取得に失敗しました' }, { status: 500 });
+    return serverError('admin-registrations-list', error, '/api/admin/registrations', '取得に失敗しました');
   }
 
   return NextResponse.json({ salons: data ?? [] });

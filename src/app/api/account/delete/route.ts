@@ -13,7 +13,7 @@ import { createClient } from '@supabase/supabase-js';
 import { checkCsrf } from '@/lib/csrf';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { todayJst } from '@/lib/admin-date';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { errorMessage } from '@/lib/err';
 
@@ -32,10 +32,11 @@ export const dynamic = 'force-dynamic';
 // （Supabase の PostgrestError は Error インスタンスではないため）。
 function guardQueryFailedResponse(tag: string, context: string, err: unknown): NextResponse {
   console.error(`[account/delete] ${context} — aborted`, { err });
-  alertCaughtError(tag, new Error(`${context}: ${errorMessage(err)}`), '/api/account/delete');
-  return NextResponse.json(
-    { error: 'アカウント削除に失敗しました。時間をおいて再度お試しください。' },
-    { status: 500 },
+  return serverError(
+    tag,
+    new Error(`${context}: ${errorMessage(err)}`),
+    '/api/account/delete',
+    'アカウント削除に失敗しました。時間をおいて再度お試しください。',
   );
 }
 
@@ -186,14 +187,11 @@ export async function POST(request: NextRequest) {
       // 孤立データになり個人情報保護法違反になる（発症後では検知不能）。auth 削除の前に中断し、
       // Slack 通知して 500 を返す。各削除/NULL 化は user_id 等値で冪等のため、ユーザーは
       // 再実行で安全にやり直せる（既に消えた行は no-op・残りが消える＝発症前予防）。
-      alertCaughtError(
+      return serverError(
         'account-delete-pii',
         new Error(`PII deletion partial failure (${failedOps.length} ops) — aborted before auth deletion`),
         '/api/account/delete',
-      );
-      return NextResponse.json(
-        { error: 'アカウント削除に失敗しました。時間をおいて再度お試しください。' },
-        { status: 500 },
+        'アカウント削除に失敗しました。時間をおいて再度お試しください。',
       );
     }
 
@@ -213,14 +211,11 @@ export async function POST(request: NextRequest) {
         userId: user.id,
         err: profilesDeleteErr,
       });
-      alertCaughtError(
+      return serverError(
         'account-delete-profiles',
         new Error(`profiles deletion failed: ${errorMessage(profilesDeleteErr)}`),
         '/api/account/delete',
-      );
-      return NextResponse.json(
-        { error: 'アカウント削除に失敗しました。時間をおいて再度お試しください。' },
-        { status: 500 },
+        'アカウント削除に失敗しました。時間をおいて再度お試しください。',
       );
     }
 
@@ -267,14 +262,11 @@ export async function POST(request: NextRequest) {
       console.error('[account/delete] facility_members deletion failed — manual cleanup required', { userId: user.id, err: memberDeleteErr });
       // facility_members が残ったまま auth.users を消すと、孤立メンバーシップ（FK RESTRICT なら
       // 後続の auth 削除自体が失敗）になる。auth 削除前に中断して再実行可能化する（冪等・発症前予防）。
-      alertCaughtError(
+      return serverError(
         'account-delete-members',
         new Error(`facility_members deletion failed: ${memberDeleteErr.message}`),
         '/api/account/delete',
-      );
-      return NextResponse.json(
-        { error: 'アカウント削除に失敗しました。時間をおいて再度お試しください。' },
-        { status: 500 },
+        'アカウント削除に失敗しました。時間をおいて再度お試しください。',
       );
     }
 
@@ -286,15 +278,15 @@ export async function POST(request: NextRequest) {
       // 既に全て削除済みで auth.users だけが残るため、「ログインはできるが profiles が無い
       // 半分消えたアカウント」になる。Cookie 失効処理は成功パス（この下）にしか無いためセッションも
       // 生きたまま残る。人による即時対応が必要な状態なので必ず Slack へ通知する。
-      alertCaughtError(
+      return serverError(
         'account-delete-auth',
         new Error(
           `auth.users deletion failed after PII already deleted (profiles/facility_members removed, ` +
             `auth.users orphaned): ${errorMessage(authDeleteErr)}`,
         ),
         '/api/account/delete',
+        'アカウント削除に失敗しました',
       );
-      return NextResponse.json({ error: 'アカウント削除に失敗しました' }, { status: 500 });
     }
 
     const { ua } = getRequestContext(request);
@@ -319,9 +311,6 @@ export async function POST(request: NextRequest) {
     }
     return res;
   } catch (e) {
-    console.error('[account/delete] Error:', e);
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('account-delete', e, '/api/account/delete');
-    return NextResponse.json({ error: 'アカウント削除に失敗しました' }, { status: 500 });
+    return serverError('account-delete', e, '/api/account/delete', 'アカウント削除に失敗しました');
   }
 }

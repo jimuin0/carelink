@@ -8,8 +8,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 
 type StaffProfileUpdate = Database['public']['Tables']['staff_profiles']['Update'];
 
@@ -83,7 +82,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
       .select('id')
       .in('id', menuIds)
       .eq('facility_id', auth.facilityId);
-    if (menuErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (menuErr) return serverError('admin-staff-patch-menu-validate', menuErr, '/api/admin/staff/[id]');
     const validIds = new Set((menuRows ?? []).map((r: { id: string }) => r.id));
     if (!menuIds.every((id) => validIds.has(id))) {
       return NextResponse.json({ error: '担当メニューが不正です' }, { status: 400 });
@@ -118,7 +117,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     // 0行→PGRST116で if(error)→500 が先に発火し if(!data)→404 が到達不能になる（500に化ける）。
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-staff-patch', error, '/api/admin/staff/[id]');
   if (!data) return NextResponse.json({ error: 'スタッフが見つかりません' }, { status: 404 });
 
   // 担当メニュー(menu_staff)の同期。undefined＝今回は触らない。空配列＝担当制解除（このスタッフの
@@ -129,7 +128,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   // 担当制の緩和）。管理者に再保存を促す。
   if (menuIds !== undefined) {
     const { error: delErr } = await admin.from('menu_staff').delete().eq('staff_id', params.id);
-    if (delErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (delErr) return serverError('admin-staff-patch-menu-delete', delErr, '/api/admin/staff/[id]');
     if (menuIds.length > 0) {
       const { error: insErr } = await admin
         .from('menu_staff')
@@ -139,11 +138,12 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
           `staff menu_staff sync failed: staff_id=${params.id} の担当メニューが消えた状態で残存の可能性 ` +
           `(このスタッフのみ担当だったメニューは全スタッフ対応に開放されます) (insert: ${insErr.message})`
         );
-        safeCaptureException(syncFailure, 'admin-staff-menu-sync');
-        alertCaughtError('admin-staff-menu-sync', syncFailure, '/api/admin/staff/[id]');
-        return NextResponse.json({
-          error: '担当メニューの保存に失敗しました。このスタッフの担当メニュー設定が未反映のままになっている可能性があります。至急このスタッフの担当メニューを設定し直してください。',
-        }, { status: 500 });
+        return serverError(
+          'admin-staff-menu-sync',
+          syncFailure,
+          '/api/admin/staff/[id]',
+          '担当メニューの保存に失敗しました。このスタッフの担当メニュー設定が未反映のままになっている可能性があります。至急このスタッフの担当メニューを設定し直してください。',
+        );
       }
     }
   }

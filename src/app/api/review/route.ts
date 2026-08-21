@@ -19,6 +19,7 @@ import { sendNewReviewNotification } from '@/lib/email';
 import { getFacilityNotificationSettings } from '@/lib/notification-settings';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
 import { runAfterResponse } from '@/lib/after-response';
 
@@ -171,7 +172,7 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
-    return NextResponse.json({ error: '投稿に失敗しました' }, { status: 500 });
+    return serverError('review-insert', error, '/api/review', '投稿に失敗しました');
   }
 
   // 医療広告ガイドライン上の禁止表現を検知した口コミは審査キューへ載せる。

@@ -5,7 +5,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
@@ -133,7 +133,9 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify(event),
       }
     );
-    if (!res.ok) return NextResponse.json({ error: 'Calendar update failed' }, { status: 500 });
+    if (!res.ok) {
+      return serverError('gcal-sync-update', new Error(`Calendar update failed: HTTP ${res.status}`), '/api/google-calendar/sync', 'Calendar update failed');
+    }
     const data = await res.json();
     googleEventId = data.id;
   } else {
@@ -146,7 +148,9 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify(event),
       }
     );
-    if (!res.ok) return NextResponse.json({ error: 'Calendar create failed' }, { status: 500 });
+    if (!res.ok) {
+      return serverError('gcal-sync-create', new Error(`Calendar create failed: HTTP ${res.status}`), '/api/google-calendar/sync', 'Calendar create failed');
+    }
     const data = await res.json();
     googleEventId = data.id;
 
@@ -161,21 +165,22 @@ export async function POST(req: NextRequest) {
     if (trackErr) {
       // 追跡行の保存に失敗。放置すると次回同期で existing を引けず Google 側に重複イベントを
       // 作るため、作成直後の Google イベントを取り消して「両方ある／両方ない」へ原子的に揃える。
-      alertCaughtError('gcal-sync', new Error(`booking_calendar_events persist failed: ${trackErr.message}`), '/api/google-calendar/sync');
       await fetch(
         `https://www.googleapis.com/calendar/v3/calendars/primary/events/${googleEventId}`,
         { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }
       );
-      return NextResponse.json({ error: 'Calendar sync failed' }, { status: 500 });
+      return serverError(
+        'gcal-sync-track',
+        new Error(`booking_calendar_events persist failed: ${trackErr.message}`),
+        '/api/google-calendar/sync',
+        'Calendar sync failed',
+      );
     }
   }
 
   return NextResponse.json({ ok: true, googleEventId });
   } catch (e) {
-    console.error('[google-calendar/sync] POST error:', e);
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('gcal-sync', e, '/api/google-calendar/sync');
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('gcal-sync', e, '/api/google-calendar/sync', 'Internal Server Error');
   }
 }
 
@@ -229,15 +234,11 @@ export async function DELETE(req: NextRequest) {
     const { error: calEventDeleteErr } = await admin.from('booking_calendar_events').delete()
       .eq('booking_id', bookingId).eq('user_id', user.id);
     if (calEventDeleteErr) {
-      console.error('[google-calendar/sync] calendar event record delete failed', { bookingId, userId: user.id, err: calEventDeleteErr });
-      return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+      return serverError('gcal-sync-delete-record', calEventDeleteErr, '/api/google-calendar/sync', 'Internal Server Error');
     }
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    console.error('[google-calendar/sync] DELETE error:', e);
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('gcal-sync', e, '/api/google-calendar/sync');
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('gcal-sync-delete', e, '/api/google-calendar/sync', 'Internal Server Error');
   }
 }

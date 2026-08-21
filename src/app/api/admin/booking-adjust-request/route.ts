@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { resolveLineUserIdForUser } from '@/lib/line-link';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -163,9 +162,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    safeCaptureException(e, 'booking-adjust-request');
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('booking-adjust-request', e, '/api/admin/booking-adjust-request');
-    return NextResponse.json({ error: '送信に失敗しました' }, { status: 500 });
+    return serverError('booking-adjust-request', e, '/api/admin/booking-adjust-request', '送信に失敗しました');
   }
 }

@@ -21,6 +21,7 @@ import { verifySlackRequest } from '@/lib/slack-verify';
 import { safeCaptureException } from '@/lib/safe';
 import { runAfterResponse } from '@/lib/after-response';
 import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -102,8 +103,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    safeCaptureException(e, 'slack-interactions');
-    alertCaughtError('slack-interactions', e, '/api/slack/interactions');
-    return NextResponse.json({ error: 'internal' }, { status: 500 });
+    return serverError('slack-interactions', e, '/api/slack/interactions', 'internal');
   }
 }

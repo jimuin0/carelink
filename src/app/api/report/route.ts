@@ -12,7 +12,7 @@ import { NextResponse } from 'next/server';
 import { mutationRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { withRoute } from '@/lib/with-route';
+import { withRoute, serverError } from '@/lib/with-route';
 import { alertCaughtError } from '@/lib/alert';
 import { z } from 'zod';
 
@@ -50,7 +50,7 @@ export const POST = withRoute(async (request, ctx) => {
     if (error.code === '23505') {
       return NextResponse.json({ error: '既にこの内容を通報済みです' }, { status: 409 });
     }
-    return NextResponse.json({ error: '通報に失敗しました' }, { status: 500 });
+    return serverError('report-insert', error, '/api/report', '通報に失敗しました');
   }
 
   // 【監査H2】通報を moderation_queue へも連携し /admin/moderation で審査可能にする（旧実装は

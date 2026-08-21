@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { serverError } from '@/lib/with-route';
 
 const updateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -59,7 +60,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const admin = createServiceRoleClient();
   const { data, error } = await admin.from('subscription_plans').update(parsed.data).eq('id', params.id).eq('facility_id', facilityId).select().maybeSingle();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-subscription-plans-patch', error, '/api/admin/subscription-plans/[id]');
   if (!data) return NextResponse.json({ error: 'プランが見つかりません' }, { status: 404 });
 
   void writeAuditLog({
@@ -95,7 +96,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   // 契約中ユーザーがいる場合は無効化のみ
   const { count, error: countErr } = await admin.from('user_subscriptions').select('id', { count: 'exact', head: true }).eq('plan_id', params.id).eq('status', 'active');
-  if (countErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (countErr) return serverError('admin-subscription-plans-delete-count', countErr, '/api/admin/subscription-plans/[id]');
   if (count && count > 0) {
     // 更新件数(affected rows)を検証せず常に成功を返していたため、TOCTOU（契約中ユーザー確認後に
     // 既削除等）による0件更新も「成功」と偽装していた（phantom success）。.select() で更新行を受け取り、
@@ -106,7 +107,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
       .eq('id', params.id)
       .eq('facility_id', facilityId)
       .select();
-    if (deactivateErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (deactivateErr) return serverError('admin-subscription-plans-delete-deactivate', deactivateErr, '/api/admin/subscription-plans/[id]');
     if (!deactivated || deactivated.length === 0) return NextResponse.json({ error: 'プランが見つかりません' }, { status: 404 });
     return NextResponse.json({ message: '契約中ユーザーがいるため非公開にしました' });
   }
@@ -115,7 +116,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   // 既削除等）による0件削除も「成功」と偽装していた（phantom success）。.select() で削除行を受け取り、
   // 0件なら404を返す。
   const { data, error } = await admin.from('subscription_plans').delete().eq('id', params.id).eq('facility_id', facilityId).select();
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-subscription-plans-delete', error, '/api/admin/subscription-plans/[id]');
   if (!data || data.length === 0) return NextResponse.json({ error: 'プランが見つかりません' }, { status: 404 });
 
   void writeAuditLog({

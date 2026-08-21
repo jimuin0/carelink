@@ -7,6 +7,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { getAdminFacilityIds, resolveTargetFacilityId } from '@/lib/facility-membership';
+import { serverError } from '@/lib/with-route';
 
 export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
@@ -51,8 +52,11 @@ export async function POST(req: NextRequest) {
       // ないため、この分岐に到達した時点で config.txt_record は必ず非null（string）という不変条件がある。
       // TSはこの相関を追えないため防御的にガードする（実行時にこの分岐へ入ることはない）。
       if (config.txt_record === null) {
-        console.error('[white-label/verify] verified=true だが txt_record が null（不変条件違反）', { facilityId });
-        return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+        return serverError(
+          'admin-white-label-verify-null-txt-record',
+          new Error(`white_label/verify: verified=true だが txt_record が null（不変条件違反、facilityId=${facilityId}）`),
+          '/api/admin/white-label/verify',
+        );
       }
       // 【恒久根治・TOCTOU】DNS解決(待機)の間にドメイン設定が変更され得る。facility_id だけで
       // update すると、待機中に別ドメイン/別TXTレコードへ差し替えられていても「検証済み」を
@@ -66,8 +70,7 @@ export async function POST(req: NextRequest) {
         .eq('txt_record', config.txt_record)
         .select('facility_id');
       if (verifyUpdateErr) {
-        console.error('[white-label/verify] domain verify update failed', { facilityId, err: verifyUpdateErr });
-        return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+        return serverError('admin-white-label-verify-update', verifyUpdateErr, '/api/admin/white-label/verify');
       }
       if (!updatedRows || updatedRows.length === 0) {
         // 待機中にドメイン/TXTレコードが変更された＝検証は無効。古い設定に対する verified=true

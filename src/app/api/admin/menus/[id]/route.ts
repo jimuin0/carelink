@@ -9,6 +9,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { isStockImageUrl, isNewStockImage, STOCK_IMAGE_ERROR } from '@/lib/stock-image-guard';
 import type { Database } from '@/types/database.types';
+import { serverError } from '@/lib/with-route';
 
 // facility_menus の update() に渡すオブジェクトの型。
 // Record<string, unknown> は Database 型配線後の update() が要求する
@@ -119,7 +120,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     // 0行→PGRST116で if(error)→500 が先に発火し if(!data)→404 が到達不能になる（500に化ける）。
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-menus-patch', error, '/api/admin/menus/[id]');
   if (!data) return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 404 });
 
   void writeAuditLog({
@@ -183,7 +184,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     .eq('facility_id', ctx.facilityId)
     .select();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-menus-delete', error, '/api/admin/menus/[id]');
   if (!data || data.length === 0) return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 404 });
 
   void writeAuditLog({

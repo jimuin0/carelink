@@ -10,6 +10,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 import { verifyRecaptcha } from '@/lib/recaptcha';
+import { serverError } from '@/lib/with-route';
 import { z } from 'zod';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -79,11 +80,18 @@ recommended_treatmentsは2〜4件。search_keywordsは施設を探す際に使�
 
     const text = message.content[0]?.type === 'text' ? message.content[0].text : '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return NextResponse.json({ error: '解析に失敗しました' }, { status: 500 });
+    if (!jsonMatch) {
+      return serverError(
+        'symptoms-suggest-parse',
+        new Error('Claude response did not contain JSON'),
+        '/api/symptoms/suggest',
+        '解析に失敗しました',
+      );
+    }
 
     const result = JSON.parse(jsonMatch[0]);
     return NextResponse.json({ result });
-  } catch {
-    return NextResponse.json({ error: 'AI処理に失敗しました' }, { status: 500 });
+  } catch (e) {
+    return serverError('symptoms-suggest', e, '/api/symptoms/suggest', 'AI処理に失敗しました');
   }
 }

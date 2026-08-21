@@ -14,6 +14,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,7 +68,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
       .maybeSingle();
 
     if (fetchErr) {
-      return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
+      return serverError('admin-registrations-unclaim-fetch', fetchErr, '/api/admin/registrations/[id]', '更新に失敗しました');
     }
     if (!existing) {
       return NextResponse.json({ error: '登録が見つかりません' }, { status: 404 });
@@ -79,7 +80,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
       .eq('id', params.id);
 
     if (updateErr) {
-      return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
+      return serverError('admin-registrations-unclaim-update', updateErr, '/api/admin/registrations/[id]', '更新に失敗しました');
     }
 
     const { ua } = getRequestContext(request);
@@ -116,7 +117,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .select('id');
 
   if (error) {
-    return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
+    return serverError('admin-registrations-patch', error, '/api/admin/registrations/[id]', '更新に失敗しました');
   }
   if (!data || data.length === 0) {
     return NextResponse.json({ error: '登録が見つかりません' }, { status: 404 });

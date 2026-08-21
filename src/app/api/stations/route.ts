@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -37,8 +36,6 @@ export async function GET(request: NextRequest) {
       { headers: { 'Cache-Control': 'public, max-age=3600, s-maxage=3600' } }
     );
   } catch (e) {
-    safeCaptureException(e, 'api/stations');
-    alertCaughtError('api/stations', e, '/api/stations');
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('api/stations', e, '/api/stations', 'Internal Server Error');
   }
 }

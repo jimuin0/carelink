@@ -12,6 +12,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX } from '@/lib/constants';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { validateCouponDiscountFields, normalizeCouponDiscountFields } from '@/lib/coupon-validation';
+import { serverError } from '@/lib/with-route';
 
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
 
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest) {
   }));
 
   const { data, error } = await admin.from('coupons').insert(rows).select('id');
-  if (error) return NextResponse.json({ error: 'クーポン作成に失敗しました' }, { status: 500 });
+  if (error) return serverError('admin-chain-bulk-coupon', error, '/api/admin/chain/bulk-coupon', 'クーポン作成に失敗しました');
 
   const { ip: auditIp, ua } = getRequestContext(req);
   void writeAuditLog({

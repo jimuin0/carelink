@@ -9,7 +9,7 @@ import { createHash } from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 
 const API_VERSION = '1.0.0';
 
@@ -34,8 +34,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     return await handleGet(request);
   } catch (e) {
-    alertCaughtError('v1-customers', e, new URL(request.url).pathname);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('v1-customers', e, new URL(request.url).pathname, 'Internal Server Error');
   }
 }
 
@@ -88,7 +87,7 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
     p_limit: limit,
     p_offset: offset,
   });
-  if (error) return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  if (error) return serverError('v1-customers-list', error, '/api/v1/customers', 'Internal Server Error');
 
   const rows = (data ?? []) as { name: string; phone: string | null; email: string | null; total_count: number }[];
   const total = rows.length > 0 ? Number(rows[0].total_count) : 0;

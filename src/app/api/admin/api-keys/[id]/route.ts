@@ -11,6 +11,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { serverError } from '@/lib/with-route';
 
 export async function DELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -47,8 +48,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     .eq('facility_id', key.facility_id)
     .select();
   if (deactivateErr) {
-    console.error('[api-keys/delete] deactivate failed', { id: params.id, err: deactivateErr });
-    return NextResponse.json({ error: 'Failed to deactivate key' }, { status: 500 });
+    return serverError('admin-api-keys-delete', deactivateErr, '/api/admin/api-keys/[id]', 'Failed to deactivate key');
   }
   if (!deactivated || deactivated.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 

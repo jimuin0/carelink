@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { serverError } from '@/lib/with-route';
 
 const paymentsSettingsSchema = z.object({
   deposit_type: z.enum(['none', 'fixed', 'percent']),
@@ -65,7 +66,7 @@ export async function PATCH(request: NextRequest) {
     })
     .eq('id', auth.facilityId);
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-payments-settings-patch', error, '/api/admin/payments-settings');
 
   const { ua } = getRequestContext(request);
   void writeAuditLog({

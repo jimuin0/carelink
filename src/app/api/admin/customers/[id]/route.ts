@@ -8,6 +8,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { customerSchema } from '@/lib/validations';
 import { zodErrorResponse } from '@/lib/api-validation';
+import { serverError } from '@/lib/with-route';
 
 async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
@@ -72,7 +73,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     if (error.code === '23505') {
       return NextResponse.json({ error: 'このメールアドレスの顧客は既に登録されています' }, { status: 409 });
     }
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('admin-customers-patch', error, '/api/admin/customers/[id]');
   }
   if (!data) return NextResponse.json({ error: '顧客が見つかりません' }, { status: 404 });
 
@@ -116,7 +117,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     // .single() だと PGRST116 で if(error)→500 が先に発火し 404 分岐が到達不能になる。
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-customers-delete', error, '/api/admin/customers/[id]');
   if (!data) return NextResponse.json({ error: '顧客が見つかりません' }, { status: 404 });
 
   const { ua } = getRequestContext(request);

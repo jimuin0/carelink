@@ -213,6 +213,14 @@ test('GET: profiles 取得失敗 → 500', async () => {
   expect(res.status).toBe(500);
 });
 
+test('GET: profiles が null(エラー無し) → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation((table: string) =>
+    table === 'profiles' ? profilesChain(null as unknown as unknown[], null) : usChain([buildActiveSub()]));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
+});
+
 test('GET: 該当 profiles 無しの行は profiles=null になる', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation((table: string) =>

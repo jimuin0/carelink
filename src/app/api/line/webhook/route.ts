@@ -9,6 +9,7 @@
 import { NextResponse } from 'next/server';
 import { verifyLineSignature, sendLineReply } from '@/lib/line';
 import { createClient } from '@supabase/supabase-js';
+import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,8 +31,7 @@ export async function POST(request: Request) {
   try {
     signatureValid = !!signature && verifyLineSignature(body, signature);
   } catch (e) {
-    console.error('[LINE Webhook] signature verification failed (misconfiguration?)', e);
-    return NextResponse.json({ error: 'Webhook configuration error' }, { status: 500 });
+    return serverError('line-webhook-signature', e, '/api/line/webhook', 'Webhook configuration error');
   }
   if (!signatureValid) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });

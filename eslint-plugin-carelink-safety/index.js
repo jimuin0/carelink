@@ -17,6 +17,20 @@
  *       同型・書込が拒否/0行になり無音で機能が死ぬ）の発症前予防。SELECT専用ルールと異なり、
  *       createServerSupabaseAuthClient（authクライアント）も対象に含む（このクラスのテーブルは
  *       authクライアントでも書込ポリシーが存在しないため）。
+ *   - no-silent-500: `src/app/api/**\/route.ts` で 500 応答を直接組み立てる
+ *       （`NextResponse.json(x, {status:500})` / `Response.json(x, {status:500})` /
+ *       `new NextResponse(x, {status:500})` / `new Response(x, {status:500})`）ことを禁止。
+ *       CareLink では全ての 500 応答の Slack 通知が `@/lib/with-route` の `alertCaughtError`
+ *       経由（withRoute の catch、またはハンドラが返した 500 を withRoute 自身が拾う経路）
+ *       だけを通るため、これらの形で 500 を直接 return すると通知が発火せず障害に気づけない。
+ *       `src/__tests__/silent-500-guard.test.ts` の「近接400字ヒューリスティック」は偽陰性
+ *       （通知呼び出しが近くにあるだけで実際には別経路の可能性）を原理的に排除できないため、
+ *       本ルールは列挙・近接探索を一切せず、危険な形そのものの構文的出現を禁止することで
+ *       構造的に不可能にする。`serverError(tag, cause, route)`（`@/lib/with-route` export）の
+ *       戻り値をそのまま return する形は対象外（この関数自体が通知を発火するため安全）。
+ *       この関数の内部実装（500 の組み立てそのもの）は `src/lib/with-route.ts` にあるため、
+ *       対象ファイルパスから `src/lib/` は除外する。502/503 はこのルールの対象外
+ *       （`serverError` が 500 固定のため、代替手段が無い箇所を誤検出しないよう限定する）。
  */
 
 'use strict';
@@ -479,6 +493,82 @@ module.exports = {
                   kind: kind === 'anon' ? 'anon' : 'auth',
                 },
               });
+            }
+          },
+        };
+      },
+    },
+    'no-silent-500': {
+      meta: {
+        type: 'problem',
+        docs: {
+          description:
+            'src/app/api/**/route.ts で 500 応答（NextResponse.json/Response.json/' +
+            'new NextResponse/new Response のいずれも { status: 500 }）を直接組み立てることを' +
+            '禁止する。CareLink では全ての 500 応答の Slack 通知が @/lib/with-route の ' +
+            'alertCaughtError 経由のみを通るため、直接構築すると通知が発火せず障害に気づけない。' +
+            'serverError(tag, cause, route) の戻り値をそのまま return する場合のみ許可する。',
+        },
+        schema: [],
+        messages: {
+          forbidden:
+            '500 応答を直接組み立てると Slack 通知が発火せず、障害に気づけません。' +
+            '@/lib/with-route の serverError(tag, cause, route, message) を使ってください。',
+        },
+      },
+      create(context) {
+        const filename = context.getFilename();
+        // 対象は src/app/api/**/route.ts のみ。
+        if (!/(^|[\\/])src[\\/]app[\\/]api[\\/].*[\\/]route\.ts$/.test(filename)) return {};
+        // serverError() の内部実装自体（500 の組み立てそのもの）は src/lib/with-route.ts に
+        // あるため、対象パスから src/lib/ を除外する（上記正規表現は通常マッチしないが、
+        // 万一 src/app/api 配下から src/lib へ抜けるようなパス表現があっても二重に防ぐ）。
+        if (/(^|[\\/])src[\\/]lib[\\/]/.test(filename)) return {};
+
+        /** ObjectExpression が `status: 500`（リテラル）を持つか判定する。 */
+        function hasStatus500(node) {
+          if (!node || node.type !== 'ObjectExpression') return false;
+          return node.properties.some((p) => {
+            if (p.type !== 'Property' || p.computed) return false;
+            const isStatusKey =
+              (p.key.type === 'Identifier' && p.key.name === 'status') ||
+              (p.key.type === 'Literal' && p.key.value === 'status');
+            if (!isStatusKey) return false;
+            return p.value.type === 'Literal' && p.value.value === 500;
+          });
+        }
+
+        return {
+          // NextResponse.json(<any>, { status: 500 }) / Response.json(<any>, { status: 500 })
+          CallExpression(node) {
+            const callee = node.callee;
+            if (
+              !callee ||
+              callee.type !== 'MemberExpression' ||
+              callee.computed ||
+              callee.object.type !== 'Identifier' ||
+              (callee.object.name !== 'NextResponse' && callee.object.name !== 'Response') ||
+              callee.property.type !== 'Identifier' ||
+              callee.property.name !== 'json'
+            ) {
+              return;
+            }
+            if (hasStatus500(node.arguments[1])) {
+              context.report({ node, messageId: 'forbidden' });
+            }
+          },
+          // new NextResponse(<any>, { status: 500 }) / new Response(<any>, { status: 500 })
+          NewExpression(node) {
+            const callee = node.callee;
+            if (
+              !callee ||
+              callee.type !== 'Identifier' ||
+              (callee.name !== 'NextResponse' && callee.name !== 'Response')
+            ) {
+              return;
+            }
+            if (hasStatus500(node.arguments[1])) {
+              context.report({ node, messageId: 'forbidden' });
             }
           },
         };

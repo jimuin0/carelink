@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { sendWelcomeEmail } from '@/lib/email';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
@@ -270,8 +271,12 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (facilityError || !facility) {
-      console.error('[facility/setup] Insert error:', facilityError);
-      return NextResponse.json({ error: '施設の作成に失敗しました' }, { status: 500 });
+      return serverError(
+        'facility-setup-insert',
+        facilityError ?? new Error('facility_profiles insert returned no row'),
+        '/api/facility/setup',
+        '施設の作成に失敗しました',
+      );
     }
 
     // 【2026年8月20日 新設】salons 行の claim を条件付き UPDATE（CAS）で立てる。
@@ -325,7 +330,7 @@ export async function POST(request: NextRequest) {
           .eq('claimed_by_user_id', user.id);
         if (claimReleaseErr) console.error('[facility/setup] claim release failed — salon permanently locked', { salonIds: claimedSalonIds, err: claimReleaseErr });
       }
-      return NextResponse.json({ error: 'オーナー登録に失敗しました' }, { status: 500 });
+      return serverError('facility-setup-member-insert', memberError, '/api/facility/setup', 'オーナー登録に失敗しました');
     }
 
     // claim を監査ログへ記録する（他人の入力を自分の施設へ取り込む操作のため事後追跡が要る）。
@@ -434,8 +439,6 @@ export async function POST(request: NextRequest) {
 
     return successRes;
   } catch (e) {
-    safeCaptureException(e, 'api/facility/setup');
-    alertCaughtError('api/facility/setup', e, '/api/facility/setup');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('api/facility/setup', e, '/api/facility/setup');
   }
 }

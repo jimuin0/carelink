@@ -14,6 +14,7 @@ import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
+import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -89,7 +90,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     // data:null/error:null に正規化し、error は真の DB 障害のみ、!data は not found に割り当てる。
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
+  if (error) return serverError('review-patch', error, '/api/review/[id]', '更新に失敗しました');
   if (!data) return NextResponse.json({ error: 'レビューが見つかりません' }, { status: 404 });
 
   return NextResponse.json({ success: true });
@@ -123,7 +124,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     // .single() だと PGRST116 で if(error)→500 が先に発火し 404 分岐が到達不能になる。
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: '削除に失敗しました' }, { status: 500 });
+  if (error) return serverError('review-delete', error, '/api/review/[id]', '削除に失敗しました');
   if (!data) return NextResponse.json({ error: 'レビューが見つかりません' }, { status: 404 });
 
   return NextResponse.json({ success: true });

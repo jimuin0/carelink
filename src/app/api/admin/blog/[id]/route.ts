@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { serverError } from '@/lib/with-route';
 import type { Database } from '@/types/database.types';
 
 // blog_posts の update() に渡すオブジェクトの型。
@@ -75,7 +76,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     // 0行→PGRST116で if(error)→500 が先に発火し if(!data)→404 が到達不能になる（500に化ける）。
     .maybeSingle();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-blog-patch', error, '/api/admin/blog/[id]');
   if (!data) return NextResponse.json({ error: '記事が見つかりません' }, { status: 404 });
 
   void writeAuditLog({
@@ -117,7 +118,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     .eq('facility_id', auth.facilityId)
     .select();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-blog-delete', error, '/api/admin/blog/[id]');
   if (!data || data.length === 0) return NextResponse.json({ error: '記事が見つかりません' }, { status: 404 });
 
   void writeAuditLog({

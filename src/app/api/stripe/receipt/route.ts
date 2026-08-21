@@ -9,6 +9,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { serverError } from '@/lib/with-route';
 
 function esc(s: string | null | undefined): string {
   return (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -142,7 +143,6 @@ export async function GET(request: NextRequest) {
     },
   });
   } catch (e) {
-    console.error('[stripe/receipt] unexpected error:', e);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('stripe-receipt', e, '/api/stripe/receipt', 'Internal Server Error');
   }
 }

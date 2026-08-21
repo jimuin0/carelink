@@ -8,6 +8,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { customerSchema } from '@/lib/validations';
 import { zodErrorResponse } from '@/lib/api-validation';
+import { serverError } from '@/lib/with-route';
 
 async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest) {
     if (error.code === '23505') {
       return NextResponse.json({ error: 'このメールアドレスの顧客は既に登録されています' }, { status: 409 });
     }
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('admin-customers-create', error, '/api/admin/customers');
   }
 
   const { ua } = getRequestContext(request);

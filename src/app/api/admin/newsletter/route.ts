@@ -5,6 +5,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { serverError } from '@/lib/with-route';
 
 export async function GET(request: NextRequest) {
   const ip = getClientIp(request);
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest) {
     .order('created_at', { ascending: false })
     .limit(100);
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-newsletter-list', error, '/api/admin/newsletter');
   return NextResponse.json({ campaigns });
 }
 
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-newsletter-create', error, '/api/admin/newsletter');
 
   const { ua } = getRequestContext(req);
   void writeAuditLog({

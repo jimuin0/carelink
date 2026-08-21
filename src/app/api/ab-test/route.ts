@@ -4,8 +4,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 import { z } from 'zod';
 import { toJsonValue } from '@/lib/json-value';
 
@@ -66,10 +65,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    safeCaptureException(e, 'ab-test-post');
-    alertCaughtError('ab-test-post', e, '/api/ab-test');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('ab-test-post', e, '/api/ab-test');
   }
 }
 
@@ -118,9 +114,6 @@ export async function GET(request: NextRequest) {
       lift: getRate('treatment') - getRate('control'),
     });
   } catch (e) {
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    safeCaptureException(e, 'ab-test-get');
-    alertCaughtError('ab-test-get', e, '/api/ab-test');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('ab-test-get', e, '/api/ab-test');
   }
 }

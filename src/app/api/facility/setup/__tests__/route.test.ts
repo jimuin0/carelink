@@ -105,6 +105,10 @@ function setupDefaultMocks(
     cookieSalonError?: unknown;
     // CAS がエラー無しで data:null を返す（PostgREST の戻りが想定外の形）。
     salonClaimCasNullData?: boolean;
+    // facility_profiles insert がエラー無しで data:null を返す（PostgREST の戻りが想定外の形。
+    // facilityInsertFails=true とは異なり error は無い＝serverError() の cause フォールバック
+    // （`facilityError ?? new Error(...)`）の分岐を検証する）。
+    facilityInsertNullNoError?: boolean;
   } = {}
 ) {
   (checkCsrf as jest.Mock).mockReturnValue(null);
@@ -188,7 +192,7 @@ function setupDefaultMocks(
   mockFacilityInsert = jest.fn().mockReturnValue({
     select: jest.fn().mockReturnValue({
       single: jest.fn().mockResolvedValue({
-        data: facilityInsertFails
+        data: (facilityInsertFails || opts.facilityInsertNullNoError)
           ? null
           : {
               id: 'fac-123',
@@ -483,6 +487,16 @@ describe('POST /api/facility/setup', () => {
 
   test('facility_profiles insert fails → 500', async () => {
     setupDefaultMocks(true, false, false, true);
+
+    const res = await POST(
+      makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any
+    );
+
+    expect(res.status).toBe(500);
+  });
+
+  test('facility_profiles insert returns no row without an error → 500 (defensive fallback cause)', async () => {
+    setupDefaultMocks(true, false, false, false, false, false, { facilityInsertNullNoError: true });
 
     const res = await POST(
       makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any

@@ -437,6 +437,31 @@ describe('POST /api/intake', () => {
     expect(json.error).toContain('送信に失敗');
   });
 
+  test('insert returns no row without an error → 500 (defensive fallback cause)', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const singleFn = jest.fn().mockResolvedValue({ data: null, error: null });
+    const selectFn = jest.fn().mockReturnValue({ single: singleFn });
+    const insertFn = jest.fn().mockReturnValue({ select: selectFn });
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-123' } } }) },
+      from: jest.fn(() => ({ select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'tpl-1' } }), insert: insertFn })),
+    });
+
+    const { POST } = await import('../route');
+    const res = await POST(new Request('http://localhost/api/intake', {
+      method: 'POST',
+      body: JSON.stringify({
+        template_id: '11111111-1111-1111-1111-111111111111',
+        customer_name: 'Test',
+        facility_id: '11111111-1111-1111-1111-111111111111',
+      }),
+    }) as any);
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toContain('送信に失敗');
+  });
+
   test('POST: invalid JSON body → 400 (via .catch(() => null))', async () => {
     const { POST } = await import('../route');
     const req = new Request('http://localhost/api/intake', {

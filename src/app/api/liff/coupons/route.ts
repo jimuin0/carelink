@@ -14,7 +14,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { verifyLineAccessToken } from '@/lib/line';
 import { SLOT_OCCUPYING_STATUSES } from '@/lib/booking-status';
-import { alertCaughtError } from '@/lib/alert';
+import { serverError } from '@/lib/with-route';
 
 export async function GET(req: NextRequest) {
   try {
@@ -75,8 +75,7 @@ export async function GET(req: NextRequest) {
     .in('status', SLOT_OCCUPYING_STATUSES);
 
   if (pastBookingsError) {
-    alertCaughtError('liff-coupons', pastBookingsError, '/api/liff/coupons');
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('liff-coupons-bookings', pastBookingsError, '/api/liff/coupons', 'Internal Server Error');
   }
 
   const facilityIds = Array.from(new Set((pastBookings ?? []).map((b) => b.facility_id)));
@@ -88,8 +87,7 @@ export async function GET(req: NextRequest) {
     .eq('user_id', userId);
 
   if (favoritesError) {
-    alertCaughtError('liff-coupons', favoritesError, '/api/liff/coupons');
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('liff-coupons-favorites', favoritesError, '/api/liff/coupons', 'Internal Server Error');
   }
 
   const favIds = (favorites ?? []).map((f) => f.facility_id);
@@ -110,14 +108,11 @@ export async function GET(req: NextRequest) {
     .limit(30);
 
   if (couponsError) {
-    alertCaughtError('liff-coupons', couponsError, '/api/liff/coupons');
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('liff-coupons-list', couponsError, '/api/liff/coupons', 'Internal Server Error');
   }
 
   return NextResponse.json({ coupons: coupons ?? [] });
   } catch (e) {
-    console.error('[liff/coupons] unexpected error:', e);
-    alertCaughtError('liff-coupons', e, '/api/liff/coupons');
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    return serverError('liff-coupons', e, '/api/liff/coupons', 'Internal Server Error');
   }
 }

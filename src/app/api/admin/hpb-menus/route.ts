@@ -14,6 +14,7 @@ import {
   type HpbMenuOverridePatch,
 } from '@/lib/hpb-menu';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { serverError } from '@/lib/with-route';
 
 // HPB 店舗ID(slnID)は英数字のみ(例 H000537368)。空文字は「未設定に戻す」。
 const slnSchema = z.object({
@@ -70,7 +71,7 @@ export async function GET(request: NextRequest) {
   const admin = createServiceRoleClient();
   const menus = await listHpbMenus(admin, auth.facilityId);
   if (menus === null) {
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('admin-hpb-menus-list', new Error('listHpbMenus returned null'), '/api/admin/hpb-menus');
   }
   return NextResponse.json({ menus });
 }
@@ -139,7 +140,7 @@ export async function PUT(request: NextRequest) {
   const slnId = parsed.data.hpb_sln_id ? parsed.data.hpb_sln_id : null;
   const admin = createServiceRoleClient();
   const ok = await setFacilitySlnId(admin, auth.facilityId, slnId);
-  if (!ok) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (!ok) return serverError('admin-hpb-menus-put-sln', new Error('setFacilitySlnId returned false'), '/api/admin/hpb-menus');
 
   void writeAuditLog({
     userId: auth.userId,
@@ -189,7 +190,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 404 });
   }
   if (!result.ok) {
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    return serverError('admin-hpb-menus-patch', new Error('updateHpbMenuOverride failed'), '/api/admin/hpb-menus');
   }
 
   void writeAuditLog({

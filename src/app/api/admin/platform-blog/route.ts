@@ -7,6 +7,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
 import type { Json } from '@/types/database.types';
+import { serverError } from '@/lib/with-route';
 
 const platformBlogSchema = z.object({
   slug: z.string().min(1).max(200).regex(/^[a-z0-9-]+$/, 'スラッグは半角英数字とハイフンのみ使用できます'),
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
     published_at: isPublished ? new Date().toISOString() : null,
   }).select().single();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) return serverError('admin-platform-blog-create', error, '/api/admin/platform-blog');
 
   void writeAuditLog({
     userId,

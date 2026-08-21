@@ -12,6 +12,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,7 +54,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await query;
   if (error) {
-    return NextResponse.json({ error: '取得に失敗しました' }, { status: 500 });
+    return serverError('admin-feature-flags-list', error, '/api/admin/feature-flags', '取得に失敗しました');
   }
 
   return NextResponse.json({ flags: data ?? [] });
@@ -100,7 +101,7 @@ export async function POST(request: NextRequest) {
     if (error.code === '23505') {
       return NextResponse.json({ error: 'そのキーはすでに存在します' }, { status: 409 });
     }
-    return NextResponse.json({ error: '作成に失敗しました' }, { status: 500 });
+    return serverError('admin-feature-flags-create', error, '/api/admin/feature-flags', '作成に失敗しました');
   }
 
   const { ip: auditIp, ua } = getRequestContext(request);

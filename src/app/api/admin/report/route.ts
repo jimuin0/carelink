@@ -9,6 +9,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -73,7 +74,7 @@ export async function GET(request: NextRequest) {
   // 500 で明示し、経営者が障害を「売上ゼロの月」と誤認してキャッシュフロー判断を誤るのを防ぐ
   // （admin ダッシュボードの「取得失敗を0に偽装しない」方針と統一）。
   if (rowsError) {
-    return NextResponse.json({ error: 'レポートの取得に失敗しました' }, { status: 500 });
+    return serverError('admin-report-query', rowsError, '/api/admin/report', 'レポートの取得に失敗しました');
   }
   if (!rows || rows.length === 0) {
     return NextResponse.json({ error: 'No data' }, { status: 404 });
