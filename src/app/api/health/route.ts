@@ -208,10 +208,11 @@ async function probeCronFreshness(): Promise<DepResult> {
 export async function GET(request: Request) {
   // 無認証エンドポイントだが、1 リクエストで Stripe/Resend/Supabase(DB+RPC) を代理起動するため、
   // 連打されると外部 API への増幅 DoS・コスト増を招く。IP 単位でレート制限する。
-  // 外形監視（UptimeRobot 等・60s 間隔）は十分通せる緩さ（60s あたり 20 回）に設定。
+  // 複数の正規監視（Render・外部監視・運用ダッシュボード）が同一の出口 IP を共有しても
+  // 誤って「監視対象が停止」と判定しないよう、60 秒あたり 60 回まで許可する。
   // checkRateLimit は RPC 障害時 fail-open のため、rate_limit RPC が落ちても監視自体は止めない。
   const ip = getClientIp(request);
-  if (await checkRateLimit(null, ip, 20, 60_000, 'health')) {
+  if (await checkRateLimit(null, ip, 60, 60_000, 'health')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
 

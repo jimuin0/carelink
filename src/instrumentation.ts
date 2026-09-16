@@ -28,29 +28,33 @@ interface OnRequestErrorContext {
   renderSource?: string;
 }
 
+/**
+ * notFound / redirect は Next.js が意図的に使う制御フローであり、障害通知の対象ではない。
+ * production では message が共通文へ置き換わるため、Next が付与する digest だけを判定する。
+ */
+function isExpectedNavigationError(err: unknown): boolean {
+  if (!err || typeof err !== 'object' || !('digest' in err)) return false;
+  const digest = (err as { digest?: unknown }).digest;
+  return typeof digest === 'string' && (
+    digest === 'NEXT_NOT_FOUND' ||
+    digest.startsWith('NEXT_HTTP_ERROR_FALLBACK;404') ||
+    digest.startsWith('NEXT_REDIRECT')
+  );
+}
+
 export async function onRequestError(
   err: unknown,
   request: OnRequestErrorRequest,
   context: OnRequestErrorContext
 ): Promise<void> {
   try {
-    const { alertError } = await import('./lib/alert');
-    const errMessage = err instanceof Error ? err.message : String(err);
-    const errStack = err instanceof Error ? err.stack : undefined;
-
-    alertError(`[onRequestError] ${errMessage}`, {
-      route: request.path,
-      status: 500,
-      commit_sha: (process.env.VERCEL_GIT_COMMIT_SHA ?? '').slice(0, 7) || null,
-      env: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? null,
-      extra: {
-        method: request.method,
-        renderSource: context.renderSource,
-        routePath: context.routePath,
-        routeType: context.routeType,
-        stack: errStack ? errStack.split('\n').slice(0, 8).join('\n') : null,
-      },
-    });
+    if (isExpectedNavigationError(err)) return;
+    const { alertCaughtError } = await import('./lib/alert');
+    // Next.jsが渡す例外には上流本文や利用者入力が入り得る。alertCaughtErrorの固定カテゴリ化を
+    // 通し、Slackへmessage/stackを直接転記しない。
+    void context;
+    void request.method;
+    alertCaughtError('onRequestError', err, request.path);
   } catch (e) {
     // 通知系の例外で本体応答を破壊しないよう完全 swallow
     console.error('[instrumentation.onRequestError] alert failed:', e);

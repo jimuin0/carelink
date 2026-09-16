@@ -5130,6 +5130,7 @@ export type Database = {
           claimed_at: string | null
           created_at: string
           delivered_at: string | null
+          delivery_started_at: string | null
           facility_id: string | null
           id: string
           last_error: string | null
@@ -5146,6 +5147,7 @@ export type Database = {
           claimed_at?: string | null
           created_at?: string
           delivered_at?: string | null
+          delivery_started_at?: string | null
           facility_id?: string | null
           id?: string
           last_error?: string | null
@@ -5162,6 +5164,7 @@ export type Database = {
           claimed_at?: string | null
           created_at?: string
           delivered_at?: string | null
+          delivery_started_at?: string | null
           facility_id?: string | null
           id?: string
           last_error?: string | null

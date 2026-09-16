@@ -60,6 +60,23 @@ describe('Supabase 到達障害の正規化と読取再試行', () => {
     expect(read).toHaveBeenCalledTimes(2);
   });
 
+  test('522 が例外として返っても一度だけ再試行して回復時は成功結果を返す', async () => {
+    const read = jest
+      .fn()
+      .mockRejectedValueOnce(new Error(cloudflare522))
+      .mockResolvedValueOnce({ data: ['recovered'], error: null });
+
+    await expect(retryTransientSupabaseRead(read)).resolves.toEqual({ data: ['recovered'], error: null });
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  test('522以外の例外は再試行せずそのまま拒否する', async () => {
+    const read = jest.fn().mockRejectedValue(new Error('permission denied'));
+
+    await expect(retryTransientSupabaseRead(read)).rejects.toThrow('permission denied');
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
   test('522以外のエラーは再試行せず、元の結果を返す', async () => {
     const result = { data: null, error: { message: 'permission denied' } };
     const read = jest.fn().mockResolvedValue(result);

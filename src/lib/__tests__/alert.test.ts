@@ -190,6 +190,26 @@ describe('alert', () => {
     expect(body.text).toContain('"short": "abc"');
   });
 
+  test('extra は undefined・配列・深すぎる値・関数を安全な JSON 表現にする', async () => {
+    postAlert({
+      level: 'info',
+      message: 'structured extra',
+      extra: {
+        absent: undefined,
+        values: [true, { nested: { deeper: { hidden: 'value' } } }],
+        callback: () => 'not executable',
+      },
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.text).toContain('"absent": null');
+    expect(body.text).toContain('"values"');
+    expect(body.text).toContain('[truncated]');
+    expect(body.text).toContain('not executable');
+  });
+
   test('非エラーオブジェクト throw 時の最終フォールバック (postToSlackWithThreadGrouping reject with string)', async () => {
     // Force fetch to reject with non-Error
     mockFetch.mockRejectedValueOnce('string-error');
@@ -255,7 +275,7 @@ describe('alert', () => {
       await new Promise((r) => setTimeout(r, 50));
       expect(mockFetch).toHaveBeenCalled();
       const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
-      expect(body.text).toContain('[with-route] boom');
+      expect(body.text).toContain('[with-route] 例外詳細は安全なログで確認');
       expect(body.text).toContain('500');
       expect(body.text).toContain('abcdef1'); // 先頭7文字
       expect(body.text).toContain('production');
@@ -269,7 +289,7 @@ describe('alert', () => {
       await new Promise((r) => setTimeout(r, 50));
       expect(mockFetch).toHaveBeenCalled();
       const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
-      expect(body.text).toContain('[tag] string-error');
+      expect(body.text).toContain('[tag] 例外詳細は安全なログで確認');
       expect(body.text).toContain('/api/x');
       expect(body.text).toContain('test'); // NODE_ENV フォールバック
       expect(body.text).not.toContain('*commit:*');
@@ -285,9 +305,65 @@ describe('alert', () => {
       await new Promise((r) => setTimeout(r, 50));
       expect(mockFetch).toHaveBeenCalled();
       const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
-      expect(body.text).toContain('[tag2] no-stack');
+      expect(body.text).toContain('[tag2] 例外詳細は安全なログで確認');
       expect(body.text).not.toContain('*env:*');
     });
+  });
+
+  test('外部 HTML エラーとネストした機密値を Slack payload へ出さない', async () => {
+    const rawHtml = '<!DOCTYPE html><html><body>supabase.co | 522: Connection timed out</body></html>';
+    alertCaughtError('dependency', new Error(rawHtml), '/api/test');
+    postAlert({
+      level: 'error',
+      message: rawHtml,
+      extra: { nested: { authorization: 'Bearer sensitive-value', body: rawHtml } },
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const payload = mockFetch.mock.calls.map((call) => String((JSON.parse((call[1] as RequestInit).body as string)).text)).join('\n');
+    expect(payload).toContain('Supabase 接続障害（Cloudflare 522）');
+    expect(payload).not.toContain('<!DOCTYPE html>');
+    expect(payload).not.toContain('sensitive-value');
+    expect(payload).toContain('****REDACTED****');
+  });
+
+  test('通知メッセージ・extra・stack 内のメールアドレス、電話番号、Bearer値を伏せる', async () => {
+    const sensitive = 'user@example.com 090-1234-5678 Bearer very-secret-token';
+    alertCaughtError('dependency', new Error(sensitive), '/api/test');
+    postAlert({ level: 'warning', message: sensitive, extra: { detail: sensitive } });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const payload = mockFetch.mock.calls.map((call) => String(JSON.parse((call[1] as RequestInit).body as string).text)).join('\n');
+    expect(payload).toContain('[email redacted]');
+    expect(payload).toContain('[phone redacted]');
+    expect(payload).toContain('Bearer [redacted]');
+    expect(payload).not.toContain('user@example.com');
+    expect(payload).not.toContain('090-1234-5678');
+    expect(payload).not.toContain('very-secret-token');
+  });
+
+  test('資格情報を含む例外・route・request_idをSlackへ転記しない', async () => {
+    const slackToken = ['xoxb', '123456789012', '123456789012', 'abcdefghijklmnopqrstuvwx'].join('-');
+    const jwt = [['eyJhbGciOiJI', 'UzI1NiJ9'].join(''), 'eyJyb2xlIjoic2VydmljZV9yb2xlIn0', 'signaturevalue'].join('.');
+    alertCaughtError('token=internal-token', new Error(`upstream failed ${slackToken} ${jwt}`), `/api/x?apikey=private-key`);
+    postAlert({
+      level: 'error',
+      message: `Cookie: session=private-cookie ${slackToken}`,
+      request_id: `authorization=private-header ${jwt}`,
+      extra: { detail: `password=private-password ${jwt}` },
+    });
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const payload = mockFetch.mock.calls.map((call) => String(JSON.parse((call[1] as RequestInit).body as string).text)).join('\n');
+    for (const secret of [slackToken, jwt, 'internal-token', 'private-key', 'private-cookie', 'private-header', 'private-password']) {
+      expect(payload).not.toContain(secret);
+    }
+    expect(payload).toContain('例外詳細は安全なログで確認');
+    expect(payload).toContain('[Slack token redacted]');
+    expect(payload).toContain('[JWT redacted]');
   });
 
   describe('alertDeliveryFailures', () => {

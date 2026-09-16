@@ -39,15 +39,18 @@ async function main() {
     headers: { Authorization: `Bearer ${secret}` },
     signal: AbortSignal.timeout(JOB_TIMEOUT_MS),
   });
-  const text = await res.text().catch(() => '');
   if (!res.ok) {
-    console.error(`[cron-call] ${name} 失敗: HTTP ${res.status} ${text.slice(0, 300)}`);
+    // cron応答は依存サービス由来の本文を含み得るため、Renderログへ出さない。
+    // HTTP状態だけで運用側の切り分けは可能で、詳細はアクセス制御されたVercelログで確認する。
+    console.error(`[cron-call] ${name} 失敗: HTTP ${res.status}（応答本文は記録しません）`);
     process.exit(1);
   }
   console.log(`[cron-call] ${name} 成功: HTTP ${res.status}`);
 }
 
 main().catch((e) => {
-  console.error('[cron-call] 例外:', e instanceof Error ? e.message : String(e));
+  // fetch 例外の message にも上流応答や認証情報が含まれ得るため、Renderログへ出さない。
+  void e;
+  console.error('[cron-call] 外部呼出し例外（詳細は記録しません）');
   process.exit(1);
 });

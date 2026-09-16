@@ -65,7 +65,7 @@ test('ランタイムが登録済みコールバックを呼ぶと Slack へ投�
 
   expect(mockPost).toHaveBeenCalledTimes(1);
   const arg = mockPost.mock.calls[0][0] as { text: string; thread_key: string };
-  expect(arg.text).toContain('[with-route] boom');
+  expect(arg.text).toContain('[with-route] 例外詳細は安全なログで確認');
   expect(arg.text).toContain('/api/profile');
 });
 

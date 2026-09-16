@@ -17,8 +17,19 @@
  */
 
 import { createServiceRoleClient } from './supabase-server';
+import { isTransientSupabaseError, summarizeDependencyError } from './err';
 
 const SLACK_API_BASE = 'https://slack.com/api';
+const TRANSIENT_GROUPING_SUPPRESSION_MS = 60 * 60 * 1000;
+const transientGroupingSuppressions = new Map<string, number>();
+
+function isGroupingSuppressed(threadKey: string): boolean {
+  const now = Date.now();
+  for (const [key, expiresAt] of transientGroupingSuppressions) {
+    if (expiresAt <= now) transientGroupingSuppressions.delete(key);
+  }
+  return (transientGroupingSuppressions.get(threadKey) ?? 0) > now;
+}
 
 export interface SlackPostOptions {
   /** チャンネル ID（C01XXXXXXX）または `#name`。未指定時は SLACK_DEFAULT_CHANNEL */
@@ -117,8 +128,13 @@ export async function postToSlackWithThreadGrouping(opts: {
   const channel = opts.channel || process.env.SLACK_DEFAULT_CHANNEL;
   if (!channel) return { ok: false, error: 'no_channel' };
 
+  // 直前の522で同一障害を投稿済みなら、障害中のSupabase RPC自体を再実行しない。
+  // SlackにもDBにも依存しないprocess内Mapなので、接続障害を増幅させずに通知連投を防ぐ。
+  if (isGroupingSuppressed(opts.thread_key)) return { ok: true };
+
   // 1. 既存スレッド ts を取得
   let existingTs: string | null = null;
+  let transientGroupingFailure = false;
   try {
     const supabase = createServiceRoleClient();
     const { data, error } = await supabase.rpc('get_incident_thread', {
@@ -126,10 +142,14 @@ export async function postToSlackWithThreadGrouping(opts: {
     });
     if (!error && Array.isArray(data) && data.length > 0) {
       existingTs = data[0].thread_ts;
+    } else if (error) {
+      transientGroupingFailure = isTransientSupabaseError(error);
+      console.error('[slack-thread] get_incident_thread failed:', summarizeDependencyError(error));
     }
   } catch (e) {
     // RPC 失敗時は thread 集約なしで通常投稿にフォールバック
-    console.error('[slack-thread] get_incident_thread failed:', e instanceof Error ? e.message : String(e));
+    transientGroupingFailure = isTransientSupabaseError(e);
+    console.error('[slack-thread] get_incident_thread failed:', summarizeDependencyError(e));
   }
 
   // 2. 既存スレッドがあれば reply、なければ親として post
@@ -142,9 +162,16 @@ export async function postToSlackWithThreadGrouping(opts: {
 
   if (!postResult.ok || !postResult.ts) return postResult;
 
+  // Supabase 側のスレッド集約が障害中でも、最初の Slack 通知だけは届ける。同一インスタンス内の
+  // 同じ障害は以後 1 時間抑制するため、15分間隔の cron が新規投稿を連投しない。
+  // サーバーレスの再起動をまたぐ恒久的な抑制は、Supabase 以外の独立ストア導入時に拡張する。
+  if (transientGroupingFailure) {
+    transientGroupingSuppressions.set(opts.thread_key, Date.now() + TRANSIENT_GROUPING_SUPPRESSION_MS);
+  }
+
   // 3. 親メッセージとして post した場合のみ ts を DB に保存
   //    （reply の場合は親 ts を上書きしてはいけない）
-  if (!existingTs) {
+  if (!existingTs && !transientGroupingFailure) {
     try {
       const supabase = createServiceRoleClient();
       await supabase.rpc('record_incident_thread', {
@@ -154,7 +181,7 @@ export async function postToSlackWithThreadGrouping(opts: {
       });
     } catch (e) {
       // 記録失敗は致命ではない（次回も親として post されるだけ）
-      console.error('[slack-thread] record_incident_thread failed:', e instanceof Error ? e.message : String(e));
+      console.error('[slack-thread] record_incident_thread failed:', summarizeDependencyError(e));
     }
   }
 
