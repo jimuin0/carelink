@@ -1558,7 +1558,7 @@
 "function|get_public_constraints()|returns=jsonb|volatile=s|secdef=t|body_md5=352c9a7581afc36e64b872762090d7c8",
 "function|get_schema_fingerprint()|returns=jsonb|volatile=s|secdef=t|body_md5=9d65b0f2debe2cb3ebf9ad526606e455",
 "function|get_unique_customers(p_facility_id uuid)|returns=TABLE(email text, name text, visit_count bigint, last_visit date)|volatile=s|secdef=f|body_md5=f4ff5e4e0165b9282d98293dfc9063b5",
-"function|handle_new_user()|returns=trigger|volatile=v|secdef=t|body_md5=e3ae46eb087aac2936d94b84b7c0638a",
+"function|handle_new_user()|returns=trigger|volatile=v|secdef=t|body_md5=7d249c5adc1ef292b46beac595d440be",
 "function|increment_view_count(facility_uuid uuid)|returns=void|volatile=v|secdef=t|body_md5=8ff352586f7e899eadc7ae793ddb5021",
 "function|prevent_profile_privilege_escalation()|returns=trigger|volatile=v|secdef=f|body_md5=4609810203bd50a8e1d826fd688db219",
 "function|record_facility_page_view(facility_uuid uuid)|returns=void|volatile=v|secdef=t|body_md5=fe343f3b680efc888d5840d4e8c4f2ae",
