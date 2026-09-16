@@ -112,11 +112,14 @@ test('AUTH-1: /admin の権限不足リダイレクトが更新済みセッシ�
   expect(cookies.find((c) => c.name === 'sb-refresh-token')?.value).toBe('refreshed');
 });
 
-test.each(['/auth/login', '/auth/signup'])('認証画面はSupabase障害時にも表示できるようmiddlewareでgetUserを待たない: %s', async (path) => {
+test.each(['/auth/login', '/auth/signup'])('認証画面はSupabase障害時も400ms以内に表示する: %s', async (path) => {
+  // Auth が無応答でも middleware の待機上限でページを返す。実運用で Auth の遅延が
+  // Vercel middleware timeout へ連鎖し、ログイン・新規登録画面まで開けなくなるのを防ぐ。
+  getUserImpl = () => new Promise(() => {});
   const res: Record<string, unknown> = await middleware(makeRequest(path));
 
   expect(res._isRedirect).toBeUndefined();
-  expect(createServerClientMock).not.toHaveBeenCalled();
+  expect(createServerClientMock).toHaveBeenCalledTimes(1);
 });
 
 test('AUTH-2: facility_members が DB エラー時は否定結果をキャッシュせず /mypage へ fail-closed', async () => {

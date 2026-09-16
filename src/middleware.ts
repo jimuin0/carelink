@@ -1,7 +1,9 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { safeRedirect } from './lib/safe-redirect';
 
 const PROTECTED_PATHS = ['/mypage', '/admin'];
+const AUTH_PAGE_MAX_WAIT_MS = 400;
 
 // 管理者メンバーシップのクッキーキャッシュ
 // キー: _cm_mbr_{userId_first8chars}
@@ -134,11 +136,12 @@ export async function middleware(request: NextRequest) {
 
   // 公開ページは認証チェックをスキップ（パフォーマンス最適化）。CSP は全応答に付与する。
   const isProtected = PROTECTED_PATHS.some((path) => pathname.startsWith(path));
-  // ログイン・新規登録は未認証で利用する公開導線である。ここで getUser() を待つと、
-  // Supabase Auth が遅延・障害中に認証画面そのものが Vercel middleware timeout となり、
-  // 利用者は再試行や障害案内すら見られない。認証済み利用者の自動遷移は各クライアント
-  // ページの getUser() に委ね、middleware では保護パスだけを外部認証に依存させる。
-  if (!isProtected) {
+  const isAuthPage = pathname === '/auth/login' || pathname === '/auth/signup';
+  // ログイン・新規登録は未認証で利用する公開導線である。通常の公開ページと同様に
+  // Supabase を呼ばずに返すが、認証画面だけは既存セッションの自動遷移を維持するため、
+  // 400ms の上限付きで getUser を試す。Auth 障害時にこの画面自体が Vercel middleware
+  // timeout になることを防ぎ、タイムアウト時は未認証としてページを必ず表示する。
+  if (!isProtected && !isAuthPage) {
     return setCsp(NextResponse.next({ request: { headers: requestHeaders } }));
   }
 
@@ -173,6 +176,32 @@ export async function middleware(request: NextRequest) {
     for (const c of supabaseResponse.cookies.getAll()) res.cookies.set(c);
     return setCsp(res);
   };
+
+  if (isAuthPage) {
+    let authPageUser: Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user'] = null;
+    try {
+      const result = await Promise.race([
+        supabase.auth.getUser(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), AUTH_PAGE_MAX_WAIT_MS)),
+      ]);
+      authPageUser = result?.data.user ?? null;
+    } catch (err) {
+      // Auth 障害時も、利用者が再試行・障害案内を確認できるよう認証画面を表示する。
+      console.error('[middleware] Supabase getUser failed on auth page — rendering sign-in page:', err);
+    }
+
+    if (authPageUser) {
+      const url = request.nextUrl.clone();
+      const destination = safeRedirect(request.nextUrl.searchParams.get('redirect'), request.nextUrl.origin);
+      const resolved = new URL(destination, request.nextUrl.origin);
+      url.pathname = resolved.pathname;
+      url.search = resolved.search;
+      url.hash = resolved.hash;
+      return withSessionCookies(NextResponse.redirect(url));
+    }
+
+    return setCsp(supabaseResponse);
+  }
 
   // トークンリフレッシュ（保護ルートのみ）
   let user: Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user'] = null;
