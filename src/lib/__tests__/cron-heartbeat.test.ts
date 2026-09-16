@@ -78,6 +78,50 @@ describe('getStaleCronJobs', () => {
     expect(queryErrors).toContain('daily-summary: boom');
   });
 
+  it('522 のcron_logs読取は一度再試行し、回復時は判定失敗にしない', async () => {
+    const cloudflare522 = '<!DOCTYPE html><title>supabase.co | 522: Connection timed out</title>';
+    let dailySummaryAttempts = 0;
+    mockFrom.mockImplementation(() => {
+      let jobName = '';
+      const chain: Record<string, unknown> = {
+        select: () => chain,
+        eq: (_col: string, val: string) => { jobName = val; return chain; },
+        order: () => chain,
+        limit: () => chain,
+        maybeSingle: () => {
+          if (jobName === 'daily-summary') {
+            dailySummaryAttempts += 1;
+            if (dailySummaryAttempts === 1) {
+              return Promise.resolve({ data: null, error: { message: cloudflare522 } });
+            }
+          }
+          return Promise.resolve({ data: { started_at: iso(1 * MIN) }, error: null });
+        },
+      };
+      return chain;
+    });
+
+    const { stale, queryErrors } = await getStaleCronJobs(NOW);
+
+    expect(dailySummaryAttempts).toBe(2);
+    expect(stale).toEqual([]);
+    expect(queryErrors).toEqual([]);
+  });
+
+  it('継続する522は診断HTMLを含めずに判定失敗として返す', async () => {
+    setup({
+      'daily-summary': {
+        data: null,
+        error: { message: '<!DOCTYPE html><title>supabase.co | 522: Connection timed out</title>' },
+      },
+    });
+
+    const { queryErrors } = await getStaleCronJobs(NOW);
+
+    expect(queryErrors).toContain('daily-summary: Supabase 接続障害（Cloudflare 522）');
+    expect(queryErrors.join('\n')).not.toContain('<!DOCTYPE html>');
+  });
+
   it('実行履歴が無いジョブ（新規追加直後）は stale としない', async () => {
     setup({ 'birthday-coupon': { data: null, error: null } });
     const { stale } = await getStaleCronJobs(NOW);
