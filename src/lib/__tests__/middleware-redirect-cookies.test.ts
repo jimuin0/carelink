@@ -32,6 +32,7 @@ function makeResponse() {
 
 let getUserImpl: (opts: { cookies: { setAll: (c: unknown[]) => void } }) => Promise<{ data: { user: unknown } }>;
 let membershipResult: { data: unknown; error: unknown };
+const createServerClientMock = jest.fn();
 
 jest.mock('next/server', () => ({
   NextResponse: {
@@ -47,7 +48,11 @@ jest.mock('next/server', () => ({
 }));
 
 jest.mock('@supabase/ssr', () => ({
-  createServerClient: (_url: string, _key: string, opts: { cookies: { setAll: (c: unknown[]) => void } }) => ({
+  createServerClient: (...args: [_url: string, _key: string, opts: { cookies: { setAll: (c: unknown[]) => void } }]) => createServerClientMock(...args),
+}));
+
+beforeEach(() => {
+  createServerClientMock.mockImplementation((_url: string, _key: string, opts: { cookies: { setAll: (c: unknown[]) => void } }) => ({
     auth: { getUser: () => getUserImpl(opts) },
     from: () => ({
       select: () => ({
@@ -60,8 +65,8 @@ jest.mock('@supabase/ssr', () => ({
         }),
       }),
     }),
-  }),
-}));
+  }));
+});
 
 import { middleware } from '../../middleware';
 
@@ -85,6 +90,7 @@ function makeRequest(path: string, cookies: Record<string, string> = {}) {
 }
 
 beforeEach(() => {
+  createServerClientMock.mockClear();
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon';
   process.env.ADMIN_COOKIE_SECRET = 'test-secret';
@@ -96,13 +102,21 @@ beforeEach(() => {
   membershipResult = { data: { role: 'owner' }, error: null };
 });
 
-test('AUTH-1: /auth/login のログイン済みリダイレクトが更新済みセッション Cookie を継承する', async () => {
-  const res: Record<string, unknown> = await middleware(makeRequest('/auth/login'));
+test('AUTH-1: /admin の権限不足リダイレクトが更新済みセッション Cookie を継承する', async () => {
+  membershipResult = { data: null, error: null };
+  const res: Record<string, unknown> = await middleware(makeRequest('/admin'));
   expect(res._isRedirect).toBe(true);
   expect((res._redirectedTo as URL).pathname).toBe('/mypage');
   const cookies = (res.cookies as ReturnType<typeof cookieStore>).getAll();
   // トークン更新で書かれた sb-refresh-token が redirect 応答にも載っていること（脱落しない）
   expect(cookies.find((c) => c.name === 'sb-refresh-token')?.value).toBe('refreshed');
+});
+
+test.each(['/auth/login', '/auth/signup'])('認証画面はSupabase障害時にも表示できるようmiddlewareでgetUserを待たない: %s', async (path) => {
+  const res: Record<string, unknown> = await middleware(makeRequest(path));
+
+  expect(res._isRedirect).toBeUndefined();
+  expect(createServerClientMock).not.toHaveBeenCalled();
 });
 
 test('AUTH-2: facility_members が DB エラー時は否定結果をキャッシュせず /mypage へ fail-closed', async () => {

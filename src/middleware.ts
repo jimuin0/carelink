@@ -135,8 +135,11 @@ export async function middleware(request: NextRequest) {
 
   // 公開ページは認証チェックをスキップ（パフォーマンス最適化）。CSP は全応答に付与する。
   const isProtected = PROTECTED_PATHS.some((path) => pathname.startsWith(path));
-  const isAuthPage = pathname === '/auth/login' || pathname === '/auth/signup';
-  if (!isProtected && !isAuthPage) {
+  // ログイン・新規登録は未認証で利用する公開導線である。ここで getUser() を待つと、
+  // Supabase Auth が遅延・障害中に認証画面そのものが Vercel middleware timeout となり、
+  // 利用者は再試行や障害案内すら見られない。認証済み利用者の自動遷移は各クライアント
+  // ページの getUser() に委ね、middleware では保護パスだけを外部認証に依存させる。
+  if (!isProtected) {
     return setCsp(NextResponse.next({ request: { headers: requestHeaders } }));
   }
 
@@ -172,7 +175,7 @@ export async function middleware(request: NextRequest) {
     return setCsp(res);
   };
 
-  // トークンリフレッシュ（保護ルート・認証ページのみ）
+  // トークンリフレッシュ（保護ルートのみ）
   let user: Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user'] = null;
   try {
     const { data } = await supabase.auth.getUser();
@@ -241,24 +244,6 @@ export async function middleware(request: NextRequest) {
       url.pathname = '/mypage';
       return withSessionCookies(NextResponse.redirect(url));
     }
-  }
-
-  // 認証済みユーザーがログイン/登録ページにアクセスした場合リダイレクト
-  // ?redirect を尊重する（safeRedirect が同一オリジンのパスだけを許可・それ以外は /mypage）。
-  // 🔴 redirect が /admin/* を指していても抜け道にはならない: ここでは権限チェックをしておらず
-  // 単にブラウザを飛ばすだけで、飛んだ先の /admin へのアクセスは「次のリクエスト」として
-  // このミドルウェアを再度通り、上の「/admin ルートへの権限チェック」ブロックが
-  // facility_members の owner/admin を再確認する（fail-closed は維持される）。
-  if (user && (request.nextUrl.pathname === '/auth/login' || request.nextUrl.pathname === '/auth/signup')) {
-    const url = request.nextUrl.clone();
-    const dest = new URL(
-      safeRedirect(request.nextUrl.searchParams.get('redirect'), request.nextUrl.origin),
-      request.nextUrl.origin
-    );
-    url.pathname = dest.pathname;
-    url.search = dest.search;
-    url.hash = dest.hash;
-    return withSessionCookies(NextResponse.redirect(url));
   }
 
   return setCsp(supabaseResponse);
