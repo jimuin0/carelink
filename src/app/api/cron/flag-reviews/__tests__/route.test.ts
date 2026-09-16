@@ -166,6 +166,48 @@ describe('GET /api/cron/flag-reviews', () => {
     expect(typeof since).toBe('string');
   });
 
+  test('find_bulk_review_ips の522は一度だけ読取再試行し、回復時は警報を出さない', async () => {
+    const cloudflare522 = '<!DOCTYPE html><title>supabase.co | 522: Connection timed out</title>';
+    let bulkAttempts = 0;
+    mockRpcDelegate.mockImplementation((fn: string) => {
+      if (fn !== 'find_bulk_review_ips') return Promise.resolve(enqueueResult);
+      bulkAttempts += 1;
+      return Promise.resolve(
+        bulkAttempts === 1
+          ? { data: null, error: { message: cloudflare522 } }
+          : { data: [], error: null },
+      );
+    });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    expect(bulkAttempts).toBe(2);
+    expect(alertWarning).not.toHaveBeenCalled();
+  });
+
+  test('継続する522はHTML本文をSlackへ出さず、検知1の無効化を警報する', async () => {
+    const cloudflare522 = '<!DOCTYPE html><title>supabase.co | 522: Connection timed out</title><p>diagnostic</p>';
+    mockRpcDelegate.mockImplementation((fn: string) =>
+      fn === 'find_bulk_review_ips'
+        ? Promise.resolve({ data: null, error: { message: cloudflare522 } })
+        : Promise.resolve(enqueueResult),
+    );
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    expect(mockRpcDelegate.mock.calls.filter(([fn]) => fn === 'find_bulk_review_ips')).toHaveLength(2);
+    expect(alertWarning).toHaveBeenCalledWith(
+      expect.stringContaining('検知1'),
+      expect.objectContaining({
+        extra: { errorMessage: 'Supabase 接続障害（Cloudflare 522）' },
+      }),
+    );
+    consoleSpy.mockRestore();
+  });
+
   test('flags bulk submission reviews (3+ in 24h from same IP)', async () => {
     await GET(makeRequest() as any);
 

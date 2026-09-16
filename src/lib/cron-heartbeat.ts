@@ -10,6 +10,7 @@
 
 import { createServiceRoleClient } from './supabase-server';
 import { CRON_JOBS, cronStaleThresholdMinutes } from './cron-jobs';
+import { retryTransientSupabaseRead, summarizeDependencyError } from './err';
 
 export interface StaleCronJob {
   name: string;
@@ -40,13 +41,15 @@ export async function getStaleCronJobs(
   // 各ジョブの最新1件を並列取得（idx_cron_logs_job_started で高速）。
   const results = await Promise.all(
     targets.map(async (job) => {
-      const { data, error } = await supabase
-        .from('cron_logs')
-        .select('started_at')
-        .eq('job_name', job.name)
-        .order('started_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data, error } = await retryTransientSupabaseRead(() =>
+        supabase
+          .from('cron_logs')
+          .select('started_at')
+          .eq('job_name', job.name)
+          .order('started_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      );
       return { job, data: data as { started_at: string } | null, error };
     }),
   );
@@ -56,7 +59,7 @@ export async function getStaleCronJobs(
 
   for (const { job, data, error } of results) {
     if (error) {
-      queryErrors.push(`${job.name}: ${error.message}`);
+      queryErrors.push(`${job.name}: ${summarizeDependencyError(error)}`);
       continue;
     }
     if (!data) continue; // 履歴なし → 誤警報回避

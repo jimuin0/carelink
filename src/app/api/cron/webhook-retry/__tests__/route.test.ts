@@ -265,6 +265,24 @@ describe('GET /api/cron/webhook-retry', () => {
     expect((logCronRun as jest.Mock).mock.calls.some((c: any[]) => c[1] === 'error')).toBe(true);
   });
 
+  test('jobs取得の522は一度だけ読取再試行し、回復時は通常のskippedとして終了する', async () => {
+    setupDefaultMocks(0);
+    mockJobsSelect
+      .mockResolvedValueOnce({
+        data: null,
+        error: { message: '<!DOCTYPE html><title>supabase.co | 522: Connection timed out</title>' },
+      })
+      .mockResolvedValueOnce({ data: [], error: null });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    expect(mockJobsSelect).toHaveBeenCalledTimes(2);
+    expect(logCronRun).toHaveBeenCalledWith(
+      'webhook-retry', 'skipped', expect.any(Date), expect.objectContaining({ processed: 0 }),
+    );
+  });
+
   test('pending jobs found → processes', async () => {
     setupDefaultMocks(1);
 

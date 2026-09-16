@@ -12,7 +12,7 @@ import { sendLineText } from '@/lib/line';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
-import { errorMessage } from '@/lib/err';
+import { retryTransientSupabaseRead, summarizeDependencyError } from '@/lib/err';
 import { fromEnv, resolveFrom } from '@/lib/email-from';
 import { sendResendChecked } from '@/lib/resend-result';
 
@@ -50,17 +50,19 @@ export async function GET(request: Request) {
       .eq('status', 'processing')
       .or(`claimed_at.lt.${staleBefore},and(claimed_at.is.null,scheduled_at.lt.${staleBefore})`);
     if (reclaimErr) {
-      console.error('[webhook-retry] stale processing reclaim failed (continuing)', { err: reclaimErr });
+      console.error('[webhook-retry] stale processing reclaim failed (continuing)', { err: summarizeDependencyError(reclaimErr) });
     }
 
     // pending かつ scheduled_at が現在時刻以前のジョブを取得
-    const { data: jobs, error: jobsError } = await supabase
-      .from('webhook_retry_queue')
-      .select('*')
-      .eq('status', 'pending')
-      .lte('scheduled_at', new Date().toISOString())
-      .order('scheduled_at', { ascending: true })
-      .limit(50);
+    const { data: jobs, error: jobsError } = await retryTransientSupabaseRead(() =>
+      supabase
+        .from('webhook_retry_queue')
+        .select('*')
+        .eq('status', 'pending')
+        .lte('scheduled_at', new Date().toISOString())
+        .order('scheduled_at', { ascending: true })
+        .limit(50),
+    );
 
     // DB エラーを握り潰すと「0 件＝skipped 成功」に化け、その run が無音でスキップされ Slack 通報も
     // されない。error を error ログ＋500 で可視化する（発症前検知）。
@@ -92,7 +94,9 @@ export async function GET(request: Request) {
       .eq('status', 'pending')
       .select('id');
     if (claimErr) {
-      console.error('[webhook-retry] status claim failed — aborting to prevent duplicate delivery', { err: claimErr });
+      console.error('[webhook-retry] status claim failed — aborting to prevent duplicate delivery', {
+        err: summarizeDependencyError(claimErr),
+      });
       return cronError('webhook-retry', startedAt, claimErr, { message: 'claim failed' });
     }
     // data が null（0行更新時のドライバ表現揺れ）も「1行も claim できなかった」として安全側に扱う。
@@ -175,7 +179,11 @@ export async function GET(request: Request) {
           if (!successErr) {
             marked = true;
           } else {
-            console.error('[webhook-retry] success mark failed (retrying)', { jobId: job.id, attempt: attempt + 1, err: errorMessage(successErr) });
+            console.error('[webhook-retry] success mark failed (retrying)', {
+              jobId: job.id,
+              attempt: attempt + 1,
+              err: summarizeDependencyError(successErr),
+            });
           }
         }
         if (!marked) {
@@ -184,7 +192,7 @@ export async function GET(request: Request) {
         }
         success++;
       } catch (e) {
-        const errorMsg = e instanceof Error ? e.message : String(e);
+        const errorMsg = summarizeDependencyError(e);
         const outcome = await scheduleRetry(job.id, job.attempt_count + 1, errorMsg);
         // scheduleRetry の戻り値で dead-letter（再送上限到達・status='failed'・二度と自動
         // 再送されない）とrescheduled（次回試行を予約）を区別する。区別しないと
@@ -210,7 +218,9 @@ export async function GET(request: Request) {
         .eq('status', 'pending');
       queuePending = count ?? null;
     } catch (e) {
-      console.error('[webhook-retry] queue_pending observation failed (continuing)', { err: errorMessage(e) });
+      console.error('[webhook-retry] queue_pending observation failed (continuing)', {
+        err: summarizeDependencyError(e),
+      });
     }
 
     await logCronRun('webhook-retry', 'success', startedAt, {

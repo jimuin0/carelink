@@ -74,6 +74,18 @@ describe('logCronRun', () => {
     expect(route).toBe('/api/cron/test-job');
   });
 
+  test('522のHTML本文はcron_logsとSlackへ残さず、依存障害として記録する', async () => {
+    const rawError = '<!DOCTYPE html><title>supabase.co | 522: Connection timed out</title><p>diagnostic</p>';
+
+    await logCronRun('test-job', 'error', new Date(), { error_msg: rawError });
+
+    expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({
+      error_msg: 'Supabase 接続障害（Cloudflare 522）',
+    }));
+    const [, error] = (alertCaughtError as jest.Mock).mock.calls[0];
+    expect((error as Error).message).toBe('Supabase 接続障害（Cloudflare 522）');
+  });
+
   test('error_msg 未指定 → unknown error で通報する', async () => {
     await logCronRun('test-job', 'error', new Date());
     const [, err] = (alertCaughtError as jest.Mock).mock.calls[0];
