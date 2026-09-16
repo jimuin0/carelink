@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 /**
- * 外形監視用ヘルスチェック（多依存・並列・各依存タイムアウト 1.5s）
+ * 外形監視用ヘルスチェック（多依存・並列・各依存タイムアウト 5s）
  *
  * Critical 依存（いずれか NG → status=503）:
  *   - Supabase DB（必須）
@@ -22,7 +22,10 @@ export const revalidate = 0;
  * ステータス + JSON body の deps を見て障害種別を切り分ける。
  */
 
-const DEP_TIMEOUT_MS = 1500;
+// Vercel から Supabase への通常時レイテンシが 1.5 秒を超えることがあり、旧値では
+// DB/RPC が実際には到達可能でも監視だけが 503 になっていた。外形監視の30秒予算内で
+// 一過性の遅延を吸収しつつ、2回連続の失敗は引き続き unhealthy とする。
+const DEP_TIMEOUT_MS = 5_000;
 
 // 無認証エンドポイントのレスポンスに内部エラー詳細（DB接続文字列の断片・スタックトレース由来の
 // メッセージ等）を露出しない固定文字列。実メッセージは probe() 内で console.error にのみ出す。
@@ -33,7 +36,7 @@ type DepResult = { ok: boolean; elapsed_ms: number; error?: string; retried?: bo
 async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   // タイマーを必ず clearTimeout する（race で p が勝った場合も timeout が発火した場合も）。
   // 未 clear だと plain setTimeout（unref されない）が ms 間 event loop を生かし続け、
-  // テストでは mock 済み deps が即解決するため毎回 1500ms のタイマーが残留 →
+  // テストでは mock 済み deps が即解決するため毎回 5 秒のタイマーが残留 →
   // jest worker が teardown 猶予内に exit できず "failed to exit gracefully" を招いていた。
   // 本番でも /health 成功毎にタイマーが残る実リークであり、症状抑止でなく発生源を断つ。
   // timer は Promise executor（同期実行）内で必ず代入されるため definite assignment(!)。
