@@ -6,6 +6,7 @@ import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
 import { getEntitlementsByFacility, type EntitlementsClient } from '@/lib/entitlements';
+import { retryTransientSupabaseRead } from '@/lib/err';
 
 // Vercel Cron: runs daily at 9:00 JST (0:00 UTC)
 export const dynamic = 'force-dynamic';
@@ -63,13 +64,17 @@ export async function GET(request: Request) {
     // 旧実装は .limit(200) silent miss の教訓から fetchAllPaged + 実時間予算ガード。
     const { rows: bookings, error: bookingsErr } = await fetchAllPaged<BookingRow>(
       async (offset, limit) => {
-        const { data, error } = await supabase
-          .from('bookings')
-          .select('id, customer_name, email, booking_date, start_time, end_time, facility_id, total_price, user_id, menu_id')
-          .in('booking_date', targetDates)
-          .eq('status', 'confirmed')
-          .order('id', { ascending: true })
-          .range(offset, offset + limit - 1);
+        // この取得は副作用がない。Supabase/Cloudflare の一過性 522 だけはページ単位で一度再試行し、
+        // 回復した場合に予約リマインダー全体を 500 で落とさない。書込みや通知はここから再試行しない。
+        const { data, error } = await retryTransientSupabaseRead(() =>
+          supabase
+            .from('bookings')
+            .select('id, customer_name, email, booking_date, start_time, end_time, facility_id, total_price, user_id, menu_id')
+            .in('booking_date', targetDates)
+            .eq('status', 'confirmed')
+            .order('id', { ascending: true })
+            .range(offset, offset + limit - 1),
+        );
         return { data: data as BookingRow[] | null, error };
       },
       { maxRows: CONSIDER_LIMIT },
