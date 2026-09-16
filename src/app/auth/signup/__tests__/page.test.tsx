@@ -32,11 +32,13 @@ jest.mock('next/navigation', () => ({
 
 const mockSignUp = jest.fn();
 const mockGetUser = jest.fn();
+const mockSignInWithOAuth = jest.fn();
 jest.mock('@/lib/supabase-browser', () => ({
   createBrowserSupabaseClient: () => ({
     auth: {
       signUp: (...args: unknown[]) => mockSignUp(...args),
       getUser: (...args: unknown[]) => mockGetUser(...args),
+      signInWithOAuth: (...args: unknown[]) => mockSignInWithOAuth(...args),
     },
   }),
 }));
@@ -176,7 +178,7 @@ describe('/auth/signup', () => {
     expect(mockPush).toHaveBeenCalledWith('/mypage');
   });
 
-  it('(v) already registered エラー → アカウント列挙対策どおり成功トーストのまま・push されない', async () => {
+  it('(v) already registered エラー → 送信済みと誤表示せず中立な失敗案内・pushされない', async () => {
     mockSignUp.mockResolvedValue({
       data: { session: null, user: null },
       error: { message: 'User already registered', name: 'AuthApiError', status: 422 },
@@ -186,7 +188,7 @@ describe('/auth/signup', () => {
     fillForm();
     submit();
 
-    await screen.findByText(/確認メールを送信しました/);
+    await screen.findByText(/メールの送信状況を確認できない/);
     expect(mockPush).not.toHaveBeenCalled();
   });
 
@@ -200,7 +202,27 @@ describe('/auth/signup', () => {
     fillForm();
     submit();
 
-    await screen.findByText(/登録に失敗しました/);
+    await screen.findByText(/メールの送信状況を確認できない/);
     expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('(vi) signUp が通信例外 → 画面上で中立な失敗案内・pushされない', async () => {
+    mockSignUp.mockRejectedValue(new Error('network unavailable'));
+
+    render(<SignupPage />);
+    fillForm();
+    submit();
+
+    await screen.findByText(/メールの送信状況を確認できない/);
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it('(vii) Google OAuth 起動のエラー → 画面上で案内する', async () => {
+    mockSignInWithOAuth.mockResolvedValue({ error: { message: 'provider unavailable' } });
+
+    render(<SignupPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Googleで登録' }));
+
+    await screen.findByText(/Googleでの登録を開始できませんでした/);
   });
 });
