@@ -183,4 +183,23 @@ describe('checkRateLimit', () => {
     expect(result).toBe(false);
     consoleSpy.mockRestore();
   });
+
+  test('falls back to in-memory when the RPC does not settle within the bounded wait', async () => {
+    jest.useFakeTimers();
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      (createServiceRoleClient as jest.Mock).mockReturnValue({
+        rpc: jest.fn(() => new Promise(() => {})),
+      });
+
+      const result = checkRateLimit(null, '6.6.6.6', 1, 60_000, 'rl:timeout');
+      await jest.advanceTimersByTimeAsync(3_000);
+
+      expect(await result).toBe(false);
+      expect(consoleSpy).toHaveBeenCalled();
+    } finally {
+      consoleSpy.mockRestore();
+      jest.useRealTimers();
+    }
+  });
 });

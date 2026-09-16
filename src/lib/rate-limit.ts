@@ -77,6 +77,26 @@ export function inMemoryStoreSize(): number {
 
 // ===== Supabase RPC ベース =====
 
+// すべての API ルートの入口で呼ばれるため、Supabase 側の接続待ちを無制限に
+// 伝播させない。到達不能・522 等では既存の in-memory フォールバックへ確実に
+// 切り替え、登録・ログインを含む本体リクエストを待ち続けさせない。
+const RPC_TIMEOUT_MS = 3_000;
+
+function withRpcTimeout<T>(operation: PromiseLike<T>): Promise<T> {
+  let rejectTimeout: (reason?: unknown) => void = () => {};
+
+  const timeout = new Promise<never>((_, reject) => {
+    rejectTimeout = reject;
+  });
+  const timeoutId = setTimeout(() => {
+    rejectTimeout(new Error(`rate limit RPC timed out after ${RPC_TIMEOUT_MS}ms`));
+  }, RPC_TIMEOUT_MS);
+
+  return Promise.race([Promise.resolve(operation), timeout]).finally(() => {
+    clearTimeout(timeoutId);
+  });
+}
+
 export async function checkRateLimit(
   // 第1引数 config は記録用のみ（実装では fallbackLimit/fallbackWindowMs/prefix が真の値）
   _config: RateLimitConfig | null,
@@ -88,11 +108,11 @@ export async function checkRateLimit(
   const key = `${prefix}:${ip}`;
   try {
     const supabase = createServiceRoleClient();
-    const { data, error } = await supabase.rpc('check_rate_limit', {
+    const { data, error } = await withRpcTimeout(supabase.rpc('check_rate_limit', {
       p_key: key,
       p_limit: fallbackLimit,
       p_window_ms: fallbackWindowMs,
-    });
+    }));
     if (error) throw new Error(error.message);
     return data === true;
   } catch (e) {
