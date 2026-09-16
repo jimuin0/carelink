@@ -190,6 +190,8 @@ function LoginContent() {
               {redirect.startsWith('/admin/onboarding') ? 'ログイン後、施設情報の登録を続けます。' : 'ログイン後、管理画面へ移動します。'}
             </p>
           )}
+          {/* authOperationInFlight は submit handler 内だけで読む排他用のref。 */}
+          {/* eslint-disable-next-line react-hooks/refs */}
           <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
             <div>
               <label htmlFor="login-email" className="form-label">メールアドレス</label>

@@ -268,6 +268,8 @@ function SignupContent() {
               登録後、施設情報の登録を続けます。
             </p>
           )}
+          {/* authOperationInFlight は submit handler 内だけで読む排他用のref。 */}
+          {/* eslint-disable-next-line react-hooks/refs */}
           <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
             <div>
               <label htmlFor="signup-name" className="form-label">お名前 <span className="text-red-500">*</span></label>

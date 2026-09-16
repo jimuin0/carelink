@@ -1,6 +1,5 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
-import { safeRedirect } from '@/lib/safe-redirect';
 
 const PROTECTED_PATHS = ['/mypage', '/admin'];
 

@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import SignupPage from '@/app/auth/signup/page';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 
@@ -78,7 +78,7 @@ test('Google障害からbfcache復帰したら認証操作を再開できる', a
 
   const pageShow = new Event('pageshow');
   Object.defineProperty(pageShow, 'persisted', { value: true });
-  window.dispatchEvent(pageShow);
+  act(() => window.dispatchEvent(pageShow));
 
-  expect(screen.getByRole('button', { name: 'Googleで登録' })).toBeEnabled();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Googleで登録' })).toBeEnabled());
 });
