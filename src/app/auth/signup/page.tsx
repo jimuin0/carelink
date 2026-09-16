@@ -56,6 +56,12 @@ function SignupContent() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showPassword, setShowPassword] = useState(false);
 
+  const showSignupFailure = () => {
+    // 認証サービスが失敗した時点では確認メールの送信成否をアプリ側で断定できない。
+    // 既存メールかどうかも含めて同一文言にし、アカウント列挙を防ぐ。
+    setToast({ type: 'error', message: '新規登録を完了できませんでした。メールの送信状況を確認できないため、時間をおいてもう一度お試しください。' });
+  };
+
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
   });
@@ -72,48 +78,56 @@ function SignupContent() {
 
   const onSubmit = async (data: SignupFormData) => {
     const supabase = createBrowserSupabaseClient();
-    const { data: result, error } = await supabase.auth.signUp({
-      email: data.email,
-      password: data.password,
-      options: {
-        // display_name/phone/prefecture は auth.users.raw_user_meta_data に保存され、
-        // handle_new_user トリガー(DDL)経由で profiles へ複製される。
-        data: { display_name: data.display_name, phone: data.phone, prefecture: data.prefecture },
-        emailRedirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}`,
-      },
-    });
+    try {
+      const { data: result, error } = await supabase.auth.signUp({
+        email: data.email,
+        password: data.password,
+        options: {
+          // display_name/phone/prefecture は auth.users.raw_user_meta_data に保存され、
+          // handle_new_user トリガー(DDL)経由で profiles へ複製される。
+          data: { display_name: data.display_name, phone: data.phone, prefecture: data.prefecture },
+          emailRedirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}`,
+        },
+      });
 
-    if (error) {
-      // アカウント列挙対策: 既存登録メールかどうかをレスポンスで判別させない
-      // （forgot-password と同じ方針。医療・美容ドメインでは「登録済みか」自体が
-      // 個人情報に近く、単なる一般的なアカウント列挙よりリスクが高い）。
-      // 🔴 この分岐は error があるときだけ発火し、下の data.session 判定より前に
-      // return する。「既存登録メール」は Supabase から常にエラーとして返る経路
-      // （このコードベースが判別に使っている経路そのもの）なので、
-      // data.session を見るようにしても列挙対策の分岐・文言は一切変わらない。
-      if (error.message.includes('already registered')) {
-        setToast({ type: 'success', message: '確認メールを送信しました。メールのリンクをクリックして登録を完了してください。' });
-      } else {
-        setToast({ type: 'error', message: '登録に失敗しました。もう一度お試しください。' });
+      // Supabase はメール確認が有効な既存アカウントに、列挙防止のため identities が
+      // 空のダミー user を返す。送信成功と誤表示せず、error と同じ中立な失敗案内にする。
+      const obfuscatedExistingUser = result.user?.identities?.length === 0;
+      if (error || !result.user || obfuscatedExistingUser) {
+        showSignupFailure();
+        return;
       }
-      return;
-    }
 
-    // 🔴 P0-5（docs/register-blocker-instructions.md §3）: 本番の Supabase
-    // 「Confirm email」設定は当環境から確認できないため、設定を知らなくても
-    // 正しく動く形にする。data.session の有無が実行時の答え：
-    //   session あり = メール確認が無効 → signUp 時点で既にログイン済み。
-    //                  login/page.tsx:72-73 と同じ形で redirect 先へ即座に遷移する。
-    //   session なし = メール確認が有効 → メール確認待ちが正しい状態。文言のまま留まる。
-    // 確認が有効な本番では signUp() の session は常に null になるため、この分岐を
-    // 足してもメール確認フローの見た目（成功トーストで留まる）は一切変わらない。
-    if (result.session) {
-      router.push(redirect);
-      router.refresh();
-      return;
-    }
+      // 🔴 P0-5（docs/register-blocker-instructions.md §3）: 本番の Supabase
+      // 「Confirm email」設定は当環境から確認できないため、設定を知らなくても
+      // 正しく動く形にする。data.session の有無が実行時の答え：
+      //   session あり = メール確認無効 → signUp 時点で既にログイン済み。
+      //   session なし = メール確認有効 → メール確認待ちが正しい状態。
+      if (result.session) {
+        router.push(redirect);
+        router.refresh();
+        return;
+      }
 
-    setToast({ type: 'success', message: '確認メールを送信しました。メールのリンクをクリックして登録を完了してください。' });
+      setToast({ type: 'success', message: '確認メールを送信しました。メールのリンクをクリックして登録を完了してください。' });
+    } catch {
+      showSignupFailure();
+    }
+  };
+
+  const startGoogleSignup = async () => {
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}` },
+      });
+      if (error) {
+        setToast({ type: 'error', message: 'Googleでの登録を開始できませんでした。時間をおいてもう一度お試しください。' });
+      }
+    } catch {
+      setToast({ type: 'error', message: 'Googleでの登録を開始できませんでした。時間をおいてもう一度お試しください。' });
+    }
   };
 
   return (
@@ -254,13 +268,7 @@ function SignupContent() {
 
           <button
             type="button"
-            onClick={async () => {
-              const supabase = createBrowserSupabaseClient();
-              await supabase.auth.signInWithOAuth({
-                provider: 'google',
-                options: { redirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}` },
-              });
-            }}
+            onClick={startGoogleSignup}
             className="flex items-center justify-center gap-2 w-full py-3 mt-3 rounded-lg border border-gray-300 text-gray-700 font-bold hover:bg-gray-50 transition-colors"
           >
             <svg width="18" height="18" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
