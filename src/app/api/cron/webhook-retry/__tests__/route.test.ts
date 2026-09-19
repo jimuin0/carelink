@@ -88,6 +88,13 @@ function makeWebhookRetryQueueTable(overrides: {
   const updateDispatch = jest.fn((data: any) => {
     if (data.status === 'processing') return overrides.claimUpdate(data);
     if (data.status === 'success') return overrides.successUpdate(data);
+    if (data.status === 'ambiguous') {
+      return {
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({ error: new Error('db down') }),
+        }),
+      };
+    }
     return {
       eq: jest.fn().mockReturnValue({
         or: overrides.reclaimUpdate,
@@ -470,9 +477,10 @@ describe('GET /api/cron/webhook-retry', () => {
     const res = await GET(makeRequest() as any);
     const json = await res.json();
 
-    // 配信は完了済みなので success として計上され、失敗キュー(skipped)には回さない。
-    expect(json.processed).toBeGreaterThanOrEqual(1);
-    expect(json.skipped).toBe(0);
+    // 外部送信済みだが状態記録が不明なため、success として確定せず skipped=1 に隔離する。
+    expect(json.processed).toBe(0);
+    // setupDefaultMocks(1) は line_push と email の2件を返すため両方が隔離される。
+    expect(json.skipped).toBe(2);
     // 配信済みのため再送キューには戻さない（scheduleRetry を呼ばない＝二重配信を作らない）。
     expect(scheduleRetry).not.toHaveBeenCalled();
     // 再送リスク（reclaim 経由の二重配信）を CRITICAL ログで可視化する（サイレントにしない）。

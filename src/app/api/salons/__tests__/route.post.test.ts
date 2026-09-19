@@ -104,6 +104,11 @@ const validFull = {
   photo_url: `${STORAGE_PREFIX}salons/uuid/exterior.jpg`,
   photo_urls: [`${STORAGE_PREFIX}salons/uuid/exterior.jpg`],
   desired_start_date: 'immediately',
+  terms_agreed: true,
+  privacy_agreed: true,
+  consent_version: '2026-09-19',
+  license_warranted: true,
+  idempotency_key: '11111111-1111-4111-8111-111111111111',
   recaptcha_token: 'valid-token',
   source: 'register' as const,
 };
@@ -271,12 +276,20 @@ describe('POST /api/salons', () => {
 
   test('empty-string photo urls filtered out (not treated as foreign)', async () => {
     const res = await POST(
-      makeRequest({ ...validFull, photo_url: null, photo_urls: ['', `${STORAGE_PREFIX}ok.jpg`] }) as any
+      makeRequest({ ...validFull, photo_url: null, photo_urls: ['', `${STORAGE_PREFIX}salons/uuid/exterior.jpg`] }) as any
     );
     expect(res.status).toBe(200);
     const inserted = mockInsert.mock.calls[0][0];
-    expect(inserted.photo_urls).toEqual([`${STORAGE_PREFIX}ok.jpg`]);
-    expect(inserted.photo_url).toBe(`${STORAGE_PREFIX}ok.jpg`);
+    expect(inserted.photo_urls).toEqual([`${STORAGE_PREFIX}salons/uuid/exterior.jpg`]);
+    expect(inserted.photo_url).toBe(`${STORAGE_PREFIX}salons/uuid/exterior.jpg`);
+  });
+
+  test('register は外観写真・同意・資格表明・冪等キーを必須化', async () => {
+    const { photo_urls: _photos, ...withoutPhoto } = validFull;
+    void _photos;
+    expect((await POST(makeRequest({ ...withoutPhoto, photo_urls: [] }) as any)).status).toBe(400);
+    expect((await POST(makeRequest({ ...validFull, terms_agreed: false }) as any)).status).toBe(400);
+    expect((await POST(makeRequest({ ...validFull, idempotency_key: undefined }) as any)).status).toBe(400);
   });
 
   test('photo provided but NEXT_PUBLIC_SUPABASE_URL unset → 400 (defensive)', async () => {

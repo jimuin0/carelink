@@ -942,10 +942,10 @@ describe('POST /api/admin/booking-status - ポイント返還（cancelled）', (
     }));
   });
 
-  test('返還 insert 失敗 → warn のみで 200', async () => {
+  test('返還 insert 失敗 → status更新を中止して500', async () => {
     const spy = setupCancelRefund(300, 'customer-1', { error: { message: 'insert fail' } });
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     expect(spy).toHaveBeenCalled();
   });
 

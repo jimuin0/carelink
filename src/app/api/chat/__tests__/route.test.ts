@@ -15,6 +15,7 @@ jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/rate-limit', () => ({
   checkRateLimit: jest.fn(() => false),
 }));
+jest.mock('@/lib/recaptcha', () => ({ verifyRecaptcha: jest.fn() }));
 // Use closure so module-level `new Anthropic()` in route always delegates to current mockMessagesCreate
 let mockMessagesCreate: jest.Mock = jest.fn();
 jest.mock('@anthropic-ai/sdk', () => ({
@@ -28,6 +29,7 @@ jest.mock('@anthropic-ai/sdk', () => ({
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { verifyRecaptcha } from '@/lib/recaptcha';
 import { POST } from '../route';
 
 function setupDefaultMocks(aiSucceeds: boolean = true) {
@@ -47,6 +49,8 @@ function setupDefaultMocks(aiSucceeds: boolean = true) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  delete process.env.RECAPTCHA_SECRET_KEY;
+  (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: true });
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   setupDefaultMocks();
 });

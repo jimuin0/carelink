@@ -7,7 +7,6 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { alertCaughtError } from '@/lib/alert';
 import { serverError } from '@/lib/with-route';
 import { errorMessage } from '@/lib/err';
 
@@ -29,9 +28,26 @@ async function rollbackIdempotency(
 ): Promise<void> {
   const { error: delErr } = await supabase.from('stripe_events').delete().eq('id', eventId);
   if (delErr) {
-    // 削除も失敗＝冪等行が残りリトライがスキップされる。手動照合が必要なため error ログで残す。
-    console.error('[payment/webhook] idempotency rollback failed — Stripe retry will be skipped; manual reconcile needed', { eventId, delErr });
+    // 削除も失敗すると、単純な23505扱いではStripe再送が永久にskipされる。
+    // ambiguousへ隔離して自動再処理を止め、管理側の照合対象として残す。
+    const { error: ambiguousErr } = await supabase.from('stripe_events')
+      .update({ status: 'ambiguous' })
+      .eq('id', eventId);
+    console.error('[payment/webhook] idempotency rollback failed — event isolated as ambiguous', {
+      eventId, delErr, ambiguousErr,
+    });
   }
+}
+
+async function retryableWebhookDbError(
+  supabase: SupabaseClient,
+  eventId: string,
+  tag: string,
+  error: unknown,
+  message = 'DB update failed',
+): Promise<Response> {
+  await rollbackIdempotency(supabase, eventId);
+  return serverError(tag, error, '/api/payment/webhook', message);
 }
 
 export async function POST(request: Request) {
@@ -71,13 +87,29 @@ export async function POST(request: Request) {
   // 冪等性: 既処理イベントはスキップ
   const { data: inserted, error: idemErr } = await supabase
     .from('stripe_events')
-    .insert({ id: event.id, type: event.type })
+    .insert({ id: event.id, type: event.type, status: 'processing' })
     .select('id')
     .maybeSingle();
 
   if (idemErr) {
     // unique violation = 既処理（PostgREST: 23505）
     if ((idemErr as { code?: string }).code === '23505') {
+      const { data: existing, error: existingErr } = await supabase
+        .from('stripe_events')
+        .select('status')
+        .eq('id', event.id)
+        .maybeSingle();
+      if (existingErr) {
+        return serverError('payment-webhook-idempotency-read', existingErr, '/api/payment/webhook', 'idempotency state read failed');
+      }
+      if (existing?.status === 'ambiguous') {
+        return serverError(
+          'payment-webhook-ambiguous',
+          new Error(`Stripe event requires reconciliation: ${event.id}`),
+          '/api/payment/webhook',
+          '決済イベントの状態確認が必要です',
+        );
+      }
       return NextResponse.json({ received: true, duplicate: true });
     }
     return serverError('payment-webhook-idempotency', idemErr, '/api/payment/webhook', 'idempotency error');
@@ -188,13 +220,14 @@ export async function POST(request: Request) {
           .eq('id', bookingId)
           .select('id');
         if (error) {
-          console.error('[payment/webhook] failed to mark payment_failed', { bookingId, eventId: event.id, error });
+          return retryableWebhookDbError(supabase, event.id, 'payment-webhook-payment-failed', error);
         } else if (!updated || updated.length === 0) {
-          console.error('[payment/webhook] booking not found for payment_failed update (0 rows)', { bookingId, eventId: event.id });
-          alertCaughtError(
+          return retryableWebhookDbError(
+            supabase,
+            event.id,
             'payment-webhook-payment-failed-notfound',
             new Error(`booking not found: ${bookingId}`),
-            '/api/payment/webhook',
+            'Booking not found',
           );
         }
       } else {
@@ -205,7 +238,7 @@ export async function POST(request: Request) {
           .eq('stripe_payment_intent_id', pi.id)
           .select('id');
         if (error) {
-          console.error('[payment/webhook] failed to mark payment_failed by pi_id', { piId: pi.id, error });
+          return retryableWebhookDbError(supabase, event.id, 'payment-webhook-payment-failed-by-pi', error);
         } else if (!updated || updated.length === 0) {
           // payment_intent は booking 以外のチャージ（サブスク・広告等）でも発火するため、
           // 該当予約が無いのは正常系としてあり得る。500 にはしない。
@@ -229,7 +262,7 @@ export async function POST(request: Request) {
           .eq('stripe_payment_intent_id', paymentIntentId)
           .select('id');
         if (error) {
-          console.error('[payment/webhook] failed to update refund status', { paymentIntentId, error });
+          return retryableWebhookDbError(supabase, event.id, 'payment-webhook-refund', error);
         } else if (!updated || updated.length === 0) {
           // charge.refunded は booking 以外のチャージ（サブスク・広告等）でも発火するため、
           // 該当予約が無いのは正常系としてあり得る。500 にはしない。
@@ -249,7 +282,7 @@ export async function POST(request: Request) {
           .eq('stripe_payment_intent_id', paymentIntentId)
           .select('id');
         if (error) {
-          console.error('[payment/webhook] failed to mark disputed', { paymentIntentId, error });
+          return retryableWebhookDbError(supabase, event.id, 'payment-webhook-dispute-created', error);
         } else if (!updated || updated.length === 0) {
           // charge.dispute.* は booking 以外のチャージでも発火するため、該当予約が無いのは正常系としてあり得る。
           console.warn('[payment/webhook] no booking matched dispute.created (0 rows, may be non-booking charge)', { eventType: event.type, paymentIntentId });
@@ -269,7 +302,7 @@ export async function POST(request: Request) {
           .eq('stripe_payment_intent_id', paymentIntentId)
           .select('id');
         if (error) {
-          console.error('[payment/webhook] failed to close dispute', { paymentIntentId, status, error });
+          return retryableWebhookDbError(supabase, event.id, 'payment-webhook-dispute-closed', error);
         } else if (!updated || updated.length === 0) {
           // charge.dispute.* は booking 以外のチャージでも発火するため、該当予約が無いのは正常系としてあり得る。
           console.warn('[payment/webhook] no booking matched dispute.closed (0 rows, may be non-booking charge)', { eventType: event.type, paymentIntentId, status });
@@ -302,6 +335,14 @@ export async function POST(request: Request) {
 
     default:
       break;
+  }
+
+  const { error: processedErr } = await supabase.from('stripe_events')
+    .update({ status: 'processed' })
+    .eq('id', event.id);
+  if (processedErr) {
+    await rollbackIdempotency(supabase, event.id);
+    return serverError('payment-webhook-processed-marker', processedErr, '/api/payment/webhook', 'processed marker update failed');
   }
 
   return NextResponse.json({ received: true });

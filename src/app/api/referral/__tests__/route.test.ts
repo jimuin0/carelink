@@ -13,7 +13,7 @@ jest.mock('@/lib/rate-limit', () => ({
   checkRateLimit: jest.fn(),
 }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
-jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn(), alertWarning: jest.fn() }));
 jest.mock('@supabase/ssr');
 jest.mock('next/headers');
 
@@ -542,7 +542,7 @@ describe('cookie callbacks and body parse catch', () => {
     expect(res.status).toBe(200);
   });
 
-  test('POST: countErr truthy → logs but still 200', async () => {
+test('POST: countErr truthy → ログ・警告を出して200（紹介使用自体は成功）', async () => {
     let tableCallNum = 0;
     mockAdminFrom.mockImplementation((table: string) => {
       tableCallNum++;

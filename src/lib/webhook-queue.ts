@@ -120,7 +120,7 @@ export async function scheduleRetry(
   jobId: string,
   attempt: number,
   errorMsg: string
-): Promise<'dead-letter' | 'rescheduled'> {
+): Promise<'dead-letter' | 'rescheduled' | 'update-failed'> {
   const supabase = createServiceRoleClient();
 
   // attempt は「今まで完了した試行回数」。max_attempts=3 なので attempt >= 3 で全試行消化済み
@@ -132,7 +132,10 @@ export async function scheduleRetry(
       attempt_count: attempt,
       processed_at: new Date().toISOString(),
     }).eq('id', jobId);
-    if (failErr) console.error('[webhook-queue] failed to mark job as failed — job stuck in processing', { jobId, err: failErr });
+    if (failErr) {
+      console.error('[webhook-queue] failed to mark job as failed — job stuck in processing', { jobId, err: failErr });
+      return 'update-failed';
+    }
     return 'dead-letter';
   }
 
@@ -156,6 +159,9 @@ export async function scheduleRetry(
     // 一貫させるため pending 復帰時は必ずクリアする）。
     claimed_at: null,
   }).eq('id', jobId);
-  if (retryErr) console.error('[webhook-queue] failed to reschedule job — job stuck in processing', { jobId, attempt, err: retryErr });
+  if (retryErr) {
+    console.error('[webhook-queue] failed to reschedule job — job stuck in processing', { jobId, attempt, err: retryErr });
+    return 'update-failed';
+  }
   return 'rescheduled';
 }

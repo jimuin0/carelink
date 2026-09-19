@@ -97,6 +97,7 @@ function genericWriteMock() {
   return {
     delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
     update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
+    upsert: jest.fn().mockResolvedValue({ error: null }),
   };
 }
 
@@ -611,7 +612,7 @@ test('施設オーナー(他オーナーあり) → 施設停止しない', asyn
   expect(mockSuspendUpdate).not.toHaveBeenCalled();
 });
 
-test('施設停止失敗 → ログ記録して続行', async () => {
+test('施設停止失敗 → 退会を中断して500（個人情報削除を先行しない）', async () => {
   const mockNeq = jest.fn().mockReturnValue(Promise.resolve({ count: 0, error: null }));
   const mockMemberCheckEq2 = jest.fn().mockReturnValue({ neq: mockNeq });
   const mockMemberCheckEq1 = jest.fn().mockReturnValue({ eq: mockMemberCheckEq2 });
@@ -635,8 +636,8 @@ test('施設停止失敗 → ログ記録して続行', async () => {
   });
 
   const res = await POST(makeRequest());
-  // suspend failure is logged but not fatal
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(500);
+  expect(mockDeleteUser).not.toHaveBeenCalled();
 });
 
 test('facility_members削除失敗 → auth削除せず中断して500（孤立メンバーシップ防止）', async () => {
@@ -768,6 +769,7 @@ test('auth削除は必ずPIIスクラブの後に実行される', async () => {
     return {
       delete: jest.fn().mockReturnValue({ eq: jest.fn().mockImplementation(() => { callOrder.push(`${table}_delete`); return Promise.resolve({ error: null }); }) }),
       update: jest.fn().mockReturnValue({ eq: jest.fn().mockImplementation(() => { callOrder.push(`${table}_update`); return Promise.resolve({ error: null }); }) }),
+      upsert: jest.fn().mockResolvedValue({ error: null }),
     };
   });
   mockDeleteUser.mockImplementation(() => { callOrder.push('auth_delete'); return Promise.resolve({ error: null }); });

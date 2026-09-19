@@ -29,6 +29,8 @@ import { POST } from '../route';
 let mockInsert: jest.Mock;
 let mockUpdate: jest.Mock;
 let mockDelete: jest.Mock;
+let mockStripeStatusUpdate: jest.Mock;
+let mockStripeSelect: jest.Mock;
 let mockConstructEvent: jest.Mock;
 let mockSubscriptionsCancel: jest.Mock;
 
@@ -93,6 +95,14 @@ function setupDefaultMocks(
   mockDelete = jest.fn().mockReturnValue({
     eq: jest.fn().mockResolvedValue({ error: null }),
   });
+  mockStripeStatusUpdate = jest.fn().mockReturnValue({
+    eq: jest.fn().mockResolvedValue({ error: null }),
+  });
+  mockStripeSelect = jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue({
+      maybeSingle: jest.fn().mockResolvedValue({ data: { status: 'processed' }, error: null }),
+    }),
+  });
 
   mockSubscriptionsCancel = jest.fn().mockResolvedValue({ id: 'sub_old', status: 'canceled' });
   const Stripe = require('stripe');
@@ -103,7 +113,7 @@ function setupDefaultMocks(
 
   mockFromDelegate.mockImplementation((table: string) => {
     if (table === 'stripe_events') {
-      return { insert: mockInsert, delete: mockDelete };
+      return { insert: mockInsert, delete: mockDelete, update: mockStripeStatusUpdate, select: mockStripeSelect };
     } else if (table === 'bookings') {
       return { update: mockUpdate };
     }
@@ -355,7 +365,7 @@ describe('POST /api/payment/webhook', () => {
       ) as any
     );
 
-    expect(mockInsert).toHaveBeenCalledWith({ id: 'evt_123', type: 'checkout.session.completed' });
+    expect(mockInsert).toHaveBeenCalledWith({ id: 'evt_123', type: 'checkout.session.completed', status: 'processing' });
   });
 
   test('unknown event type → accepted (no processing)', async () => {
@@ -433,7 +443,7 @@ describe('POST /api/payment/webhook', () => {
       }),
     });
     mockFromDelegate.mockImplementation((table: string) => {
-      if (table === 'stripe_events') return { insert: mockInsert };
+      if (table === 'stripe_events') return { insert: mockInsert, update: mockStripeStatusUpdate, select: mockStripeSelect };
       if (table === 'bookings') return { update: mockUpdate };
     });
 
@@ -451,7 +461,7 @@ describe('POST /api/payment/webhook', () => {
       }),
     });
     mockFromDelegate.mockImplementation((table: string) => {
-      if (table === 'stripe_events') return { insert: mockInsert };
+      if (table === 'stripe_events') return { insert: mockInsert, update: mockStripeStatusUpdate, select: mockStripeSelect };
       if (table === 'bookings') return { update: mockUpdate };
     });
 
@@ -493,7 +503,7 @@ describe('POST /api/payment/webhook', () => {
     mockConstructEvent.mockReturnValue({ id: 'evt_sub_deleted', type: 'customer.subscription.deleted', data: { object: { id: 'sub_old' } } });
     const entUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) });
     mockFromDelegate.mockImplementation((table: string) => {
-      if (table === 'stripe_events') return { insert: mockInsert };
+      if (table === 'stripe_events') return { insert: mockInsert, update: mockStripeStatusUpdate, select: mockStripeSelect };
       if (table === 'bookings') return { update: mockUpdate };
       if (table === 'facility_entitlements') return { update: entUpdate };
     });
@@ -780,7 +790,7 @@ describe('POST /api/payment/webhook', () => {
       warnSpy.mockRestore();
     });
 
-    test('payment_intent.payment_failed（bookingId経路）0行更新（data:null）→ 200・alertCaughtError通知', async () => {
+    test('payment_intent.payment_failed（bookingId経路）0行更新（data:null）→ 500・冪等行ロールバック', async () => {
       setupEventMock('payment_intent.payment_failed', {
         id: 'pi_bk_0rows_null',
         metadata: { booking_id: 'bk-0rows-null' },
@@ -789,7 +799,8 @@ describe('POST /api/payment/webhook', () => {
 
       const res = await POST(makeRequest('{}', 'sig') as any);
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
+      expect(mockDelete).toHaveBeenCalled();
       expect(mockAlertCaughtError).toHaveBeenCalledWith(
         'payment-webhook-payment-failed-notfound',
         expect.any(Error),
@@ -797,7 +808,7 @@ describe('POST /api/payment/webhook', () => {
       );
     });
 
-    test('payment_intent.payment_failed（bookingId経路）0行更新（data:[]）→ 200・alertCaughtError通知', async () => {
+    test('payment_intent.payment_failed（bookingId経路）0行更新（data:[]）→ 500・冪等行ロールバック', async () => {
       setupEventMock('payment_intent.payment_failed', {
         id: 'pi_bk_0rows_empty',
         metadata: { booking_id: 'bk-0rows-empty' },
@@ -806,7 +817,8 @@ describe('POST /api/payment/webhook', () => {
 
       const res = await POST(makeRequest('{}', 'sig') as any);
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
+      expect(mockDelete).toHaveBeenCalled();
       expect(mockAlertCaughtError).toHaveBeenCalledWith(
         'payment-webhook-payment-failed-notfound',
         expect.any(Error),
@@ -814,7 +826,7 @@ describe('POST /api/payment/webhook', () => {
       );
     });
 
-    test('payment_intent.payment_failed with booking_id + update error → logs, still 200', async () => {
+    test('payment_intent.payment_failed with booking_id + update error → 500・冪等行ロールバック', async () => {
       setupEventMock('payment_intent.payment_failed', {
         id: 'pi_err',
         metadata: { booking_id: 'b-err' },
@@ -822,17 +834,19 @@ describe('POST /api/payment/webhook', () => {
       mockUpdate = mockBookingsUpdateResult({ error: { message: 'update failed' } });
 
       const res = await POST(makeRequest('{}', 'sig') as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
+      expect(mockDelete).toHaveBeenCalled();
     });
 
-    test('payment_intent.payment_failed without booking_id + update error → logs, still 200', async () => {
+    test('payment_intent.payment_failed without booking_id + update error → 500・冪等行ロールバック', async () => {
       setupEventMock('payment_intent.payment_failed', { id: 'pi_no_bk', metadata: {} });
       mockUpdate = mockBookingsUpdateResult({ error: { message: 'update failed' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
+      expect(mockDelete).toHaveBeenCalled();
     });
 
-    test('charge.refunded update error → logs, still 200', async () => {
+    test('charge.refunded update error → 500・冪等行ロールバック', async () => {
       setupEventMock('charge.refunded', {
         payment_intent: 'pi_ref_err',
         amount: 5000,
@@ -840,27 +854,30 @@ describe('POST /api/payment/webhook', () => {
       });
       mockUpdate = mockBookingsUpdateResult({ error: { message: 'refund update failed' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
+      expect(mockDelete).toHaveBeenCalled();
     });
 
-    test('charge.dispute.created update error → logs, still 200', async () => {
+    test('charge.dispute.created update error → 500・冪等行ロールバック', async () => {
       setupEventMock('charge.dispute.created', {
         payment_intent: 'pi_dis_err',
         status: 'needs_response',
       });
       mockUpdate = mockBookingsUpdateResult({ error: { message: 'dispute update failed' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
+      expect(mockDelete).toHaveBeenCalled();
     });
 
-    test('charge.dispute.closed update error → logs, still 200', async () => {
+    test('charge.dispute.closed update error → 500・冪等行ロールバック', async () => {
       setupEventMock('charge.dispute.closed', {
         payment_intent: 'pi_dis_closed_err',
         status: 'won',
       });
       mockUpdate = mockBookingsUpdateResult({ error: { message: 'close update failed' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
+      expect(mockDelete).toHaveBeenCalled();
     });
 
     // ─── 有料オプション（施設向け月額サブスク）のエンタイトルメント自動 ON/OFF ───
@@ -886,7 +903,7 @@ describe('POST /api/payment/webhook', () => {
         eq: jest.fn().mockResolvedValue({ error: opts.deleteError ?? null }),
       });
       mockFromDelegate.mockImplementation((table: string) => {
-        if (table === 'stripe_events') return { insert: mockInsert, delete: evDelete };
+        if (table === 'stripe_events') return { insert: mockInsert, delete: evDelete, update: mockStripeStatusUpdate, select: mockStripeSelect };
         if (table === 'bookings') return { update: mockUpdate };
         if (table === 'facility_entitlements') return { select: entSelect, upsert: entUpsert, update: entUpdate };
       });

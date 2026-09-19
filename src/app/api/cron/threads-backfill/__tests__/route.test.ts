@@ -88,7 +88,9 @@ let finalizeEqSpy: jest.Mock;
 function makePostsTable(cfg: TableConfig) {
   const candidates = cfg.candidates ?? [];
 
-  const lt = jest.fn().mockResolvedValue({ error: cfg.reclaimError ?? null });
+  const lt = jest.fn().mockReturnValue({
+    or: jest.fn().mockResolvedValue({ error: cfg.reclaimError ?? null }),
+  });
   const not = jest.fn().mockReturnValue({ lt });
   const reclaimIs = jest.fn().mockReturnValue({ not });
   reclaimSpy = { is: reclaimIs, not, lt };
@@ -96,9 +98,11 @@ function makePostsTable(cfg: TableConfig) {
   const countChain = {
     eq: jest.fn().mockReturnValue({
       is: jest.fn().mockReturnValue({
-        is: jest.fn().mockResolvedValue({
-          count: cfg.totalEligible === undefined ? candidates.length : cfg.totalEligible,
-          error: cfg.countError ?? null,
+        is: jest.fn().mockReturnValue({
+          is: jest.fn().mockResolvedValue({
+            count: cfg.totalEligible === undefined ? candidates.length : cfg.totalEligible,
+            error: cfg.countError ?? null,
+          }),
         }),
       }),
     }),
@@ -108,10 +112,12 @@ function makePostsTable(cfg: TableConfig) {
     eq: jest.fn().mockReturnValue({
       is: jest.fn().mockReturnValue({
         is: jest.fn().mockReturnValue({
-          order: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue({
-              data: cfg.fetchError ? null : (cfg.candidates === undefined ? candidates : cfg.candidates),
-              error: cfg.fetchError ?? null,
+          is: jest.fn().mockReturnValue({
+            order: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue({
+                data: cfg.fetchError ? null : (cfg.candidates === undefined ? candidates : cfg.candidates),
+                error: cfg.fetchError ?? null,
+              }),
             }),
           }),
         }),
@@ -169,12 +175,15 @@ function makePostsTable(cfg: TableConfig) {
           is: jest.fn((field: string, value: unknown) => {
             claimIsArgsSpy(field, value);
             return {
-              is: jest.fn((field2: string, value2: unknown) => {
-                claimIsArgsSpy(field2, value2);
-                return {
-                  select: jest.fn().mockResolvedValue(claimResult),
-                };
-              }),
+                  is: jest.fn((field2: string, value2: unknown) => {
+                    claimIsArgsSpy(field2, value2);
+                    return {
+                      is: jest.fn((field3: string, value3: unknown) => {
+                        claimIsArgsSpy(field3, value3);
+                        return { select: jest.fn().mockResolvedValue(claimResult) };
+                      }),
+                    };
+                  }),
             };
           }),
         };
@@ -513,7 +522,8 @@ describe('GET /api/cron/threads-backfill', () => {
     expect(claimEqSpy).toHaveBeenCalledWith('id', 'p1');
     expect(claimIsArgsSpy).toHaveBeenCalledWith('threads_post_id', null);
     expect(claimIsArgsSpy).toHaveBeenCalledWith('threads_posted_at', null);
-    expect(claimIsArgsSpy).toHaveBeenCalledTimes(2);
+    expect(claimIsArgsSpy).toHaveBeenCalledWith('threads_post_status', null);
+    expect(claimIsArgsSpy).toHaveBeenCalledTimes(3);
   });
 
   it('未捕捉の例外は cronError で 500 になる', async () => {

@@ -733,7 +733,7 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       expect(res.status).toBe(409);
     });
 
-    test('owner_monthly: facility_members fetch error でも処理は続行 (ログのみ)', async () => {
+    test('owner_monthly: facility_members fetch error → draftへ戻して500', async () => {
       jest.spyOn(console, 'error').mockImplementation(() => {});
       mockAnonFrom.mockReturnValue(profileChain(true));
       let callNum = 0;
@@ -748,12 +748,12 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
           order: jest.fn().mockReturnThis(),
           range: jest.fn(() => Promise.resolve({ data: null, error: { message: 'fail' } })),
         };
-        if (callNum === 5) return unsubscribedProfilesChain([]);
+        if (callNum === 5) return rollbackToDraftChain();
         if (callNum === 6) return inactiveSubscriptionsChain([]);
         return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
       });
       const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
     });
 
     test('owner_monthly: 複数オーナーの user_id を重複排除し profiles を別取得してメール送信', async () => {
@@ -780,7 +780,7 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       expect(json.sentCount).toBe(2);
     });
 
-    test('owner_monthly: profiles 別取得が失敗してもログのみで続行', async () => {
+    test('owner_monthly: profiles 別取得が失敗 → draftへ戻して500', async () => {
       jest.spyOn(console, 'error').mockImplementation(() => {});
       mockAnonFrom.mockReturnValue(profileChain(true));
       let callNum = 0;
@@ -791,12 +791,12 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
         if (callNum === 3) return subscribersChain([{ email: 'sub@example.com', user_id: 'u1' }]);
         if (callNum === 4) return facilityMembersChain([{ user_id: 'o1' }]);
         if (callNum === 5) return ownerProfilesChain(null as unknown as { email: string | null }[], { message: 'fail' });
-        if (callNum === 6) return unsubscribedProfilesChain([]);
+        if (callNum === 6) return rollbackToDraftChain();
         if (callNum === 7) return inactiveSubscriptionsChain([]);
         return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
       });
       const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
     });
 
     // 【監査M4】owner profiles が data=null かつ error=null（防御的分岐）→ ownerProfiles || [] で

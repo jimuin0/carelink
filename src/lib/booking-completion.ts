@@ -11,9 +11,8 @@ import { awardReferralPointsOnCompletion } from './referral';
  *   顧客台帳に来店実績ゼロで埋もれる（8体監査の追検証で確定した本番無音バグの根治）。
  * - 来店ポイント（100円=1pt）を user_id があれば付与。
  *
- * 失敗は致命でないため Sentry 通知のみで本体は継続（admin は service_role を渡すこと）。
- * 呼び出し側が status='confirmed'→'completed' を CAS で1回だけ確定してから呼ぶ前提
- * （重複付与防止）。返り値は付与した来店ポイント数。
+ * 失敗時は例外を返し、呼び出し側が booking status を確定する前に中断する。各INSERTは
+ * booking_id の一意制約を利用して再試行を冪等化する（admin は service_role を渡すこと）。
  *
  * 【不変条件】completed へ進入する全経路で本関数を、completed から離脱する全経路で
  * reverseCompletionSideEffects を必ず対で呼ぶ（対称性）。現在の完了経路は3つ＝
@@ -62,9 +61,10 @@ export async function applyCompletionSideEffects(
     staff_name: staffName,
     amount: booking.total_price,
   });
-  if (visitError) {
+  if (visitError && visitError.code !== '23505') {
     safeCaptureException(visitError, 'booking-completion');
     alertCaughtError('booking-completion:visit', visitError, `booking:${booking.id}`);
+    throw new Error(`customer_visits insert failed: ${visitError.message}`);
   }
 
   // 来店ポイント（1ポイント=100円）。user_points は authenticated に INSERT ポリシーが無いため
@@ -82,9 +82,10 @@ export async function applyCompletionSideEffects(
         reason: '来店ポイント',
         booking_id: booking.id,
       });
-      if (pointError) {
+      if (pointError && pointError.code !== '23505') {
         safeCaptureException(pointError, 'booking-completion');
         alertCaughtError('booking-completion:points', pointError, `booking:${booking.id}`);
+        throw new Error(`user_points insert failed: ${pointError.message}`);
       }
     }
   }
@@ -93,7 +94,7 @@ export async function applyCompletionSideEffects(
   // 適用時の即時付与は捨てアカウント量産で悪用できたため、実来店(予約完了)を付与ゲートにする。
   // points_awarded の CAS で複数完了経路・複数回完了でも二重付与しない。失敗は本体を妨げない。
   if (booking.user_id) {
-    await awardReferralPointsOnCompletion(admin, booking.user_id);
+    await awardReferralPointsOnCompletion(admin, booking.user_id, booking.id);
   }
 
   return pointsEarned;

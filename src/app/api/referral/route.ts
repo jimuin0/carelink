@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomInt } from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { withRoute, serverError } from '@/lib/with-route';
+import { alertWarning } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -125,15 +126,30 @@ export const POST = withRoute(async (request) => {
   // 500pt/件 を無限発行できた（1pt=1円換金可）。ここでは referral_uses を points_awarded=false
   // （DB default）で記録するのみ。実際の付与は awardReferralPointsOnCompletion が予約完了時に行う。
 
-  // 使用回数をDB側でアトミックにインクリメント（read-then-writeのrace conditionを排除）
-  // used_count + 1 はDBが計算することでCAS（Compare-And-Swap）的な安全性を確保
-  const { error: countErr } = await adminSupabase
-    .from('referral_codes')
-    .update({ used_count: (referralCode.used_count ?? 0) + 1 })
-    .eq('code', code.toUpperCase())
-    .eq('used_count', referralCode.used_count ?? 0);
-  if (countErr) {
-    console.error('[referral] used_count increment failed — referral_uses row committed but count not updated', { code: code.toUpperCase(), err: countErr });
+  // 使用回数はDB関数内で `used_count = COALESCE(used_count, 0) + 1` として更新する。
+  // アプリで旧値を読み、CASで書く方式は同時実行時に0行更新を成功扱いにし、表示値を
+  // 実際の referral_uses 件数より小さくするため、RPCを単一の原子的操作にする。
+  const rpcClient = adminSupabase as unknown as {
+    rpc?: (fn: string, args: Record<string, string>) => Promise<{ data: number | null; error: { message: string } | null }>;
+  };
+  const rpc = rpcClient.rpc;
+  if (rpc) {
+    const { data: newCount, error: countErr } = await rpc.call(adminSupabase, 'increment_referral_code_used_count', { p_code: code.toUpperCase() });
+    if (countErr || newCount == null) {
+      console.error('[referral] atomic used_count increment failed — referral_uses row committed', { code: code.toUpperCase(), err: countErr });
+      alertWarning('[referral] used_countの原子的更新に失敗しました。照合が必要です', { extra: { code: code.toUpperCase(), error: countErr?.message ?? 'no row returned' } });
+    }
+  } else {
+    // 古いテストdouble/移行途中の接続先向け。migration適用後の実SupabaseではRPC経路だけを使う。
+    const { error: countErr } = await adminSupabase
+      .from('referral_codes')
+      .update({ used_count: (referralCode.used_count ?? 0) + 1 })
+      .eq('code', code.toUpperCase())
+      .eq('used_count', referralCode.used_count ?? 0);
+    if (countErr) {
+      console.error('[referral] fallback used_count increment failed — referral_uses row committed', { code: code.toUpperCase(), err: countErr });
+      alertWarning('[referral] used_count更新に失敗しました。照合が必要です', { extra: { code: code.toUpperCase(), error: countErr.message } });
+    }
   }
 
   return NextResponse.json({ success: true, message: '紹介コードを適用しました。初回のご予約完了で300ポイントが付与されます。' });

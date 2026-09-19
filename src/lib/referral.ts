@@ -11,35 +11,44 @@ import { safeCaptureException } from './safe';
  * applyCompletionSideEffects（lib/booking-completion）に集約されており、全完了経路
  * （complete / booking-checkout / booking-status）から本関数が1箇所で発火する。
  *
- * points_awarded の CAS（false→true を単一 UPDATE で確定）により、複数の完了経路・複数回の完了でも
- * 二重付与しない（0 行更新＝未紹介 or 付与済みで早期 return）。付与 insert が失敗した場合は
- * referral_uses が points_awarded=true のまま残るため、Sentry で可視化し運用復旧する
- * （referral 適用時の従来運用と同じ前提）。fire-and-forget で完了本体を妨げない。
+ * ポイントを先に冪等INSERTし、最後に points_awarded=false→true を更新する。途中の一方だけ
+ * 成功しても、user_points の紹介ボーナス一意制約で再試行時に既存行を成功扱いできるため、
+ * points_awarded=true の先行確定による永久ポイント欠落を防ぐ。
  */
 export async function awardReferralPointsOnCompletion(
   admin: SupabaseClient,
   userId: string,
+  bookingId?: string,
 ): Promise<void> {
-  // 未付与(points_awarded=false)の紹介記録を CAS で確定する。1経路のみ 1 行を取得できる。
-  const { data: claimed, error: claimErr } = await admin
+  const { data: referralUse, error: referralUseErr } = await admin
     .from('referral_uses')
-    .update({ points_awarded: true })
+    .select('referrer_user_id')
     .eq('referred_user_id', userId)
     .eq('points_awarded', false)
-    .select('referrer_user_id');
-  if (claimErr) {
-    safeCaptureException(claimErr, 'referral-award-claim');
-    return;
+    .maybeSingle();
+  if (referralUseErr) {
+    safeCaptureException(referralUseErr, 'referral-award-claim');
+    throw new Error(`referral_uses read failed: ${referralUseErr.message}`);
   }
-  if (!claimed || claimed.length === 0) return; // 未紹介、または既に付与済み
+  if (!referralUse) return; // 未紹介、または既に付与済み
 
-  const referrerId = (claimed[0] as { referrer_user_id: string }).referrer_user_id;
+  const referrerId = (referralUse as { referrer_user_id: string }).referrer_user_id;
   const [refRes, selfRes] = await Promise.all([
-    admin.from('user_points').insert({ user_id: referrerId, points: 500, reason: '紹介ボーナス' }),
-    admin.from('user_points').insert({ user_id: userId, points: 300, reason: '紹介コード利用ボーナス' }),
+    admin.from('user_points').insert({ user_id: referrerId, points: 500, reason: '紹介ボーナス', ...(bookingId ? { booking_id: bookingId } : {}) }),
+    admin.from('user_points').insert({ user_id: userId, points: 300, reason: '紹介コード利用ボーナス', ...(bookingId ? { booking_id: bookingId } : {}) }),
   ]);
-  if (refRes.error || selfRes.error) {
-    // referral_uses は points_awarded=true 済み。付与失敗は Sentry で可視化し運用復旧する。
-    safeCaptureException(refRes.error ?? selfRes.error, 'referral-award-points');
+  const pointError = [refRes.error, selfRes.error].find((error) => error && error.code !== '23505');
+  if (pointError) {
+    safeCaptureException(pointError, 'referral-award-points');
+    throw new Error(`referral points insert failed: ${pointError.message}`);
+  }
+
+  const { error: markErr } = await admin.from('referral_uses')
+    .update({ points_awarded: true })
+    .eq('referred_user_id', userId)
+    .eq('points_awarded', false);
+  if (markErr) {
+    safeCaptureException(markErr, 'referral-award-mark');
+    throw new Error(`referral_uses mark failed: ${markErr.message}`);
   }
 }

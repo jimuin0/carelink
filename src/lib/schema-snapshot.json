@@ -10,6 +10,16 @@
     "user_id",
     "variant"
   ],
+  "account_deletion_jobs": [
+    "attempts",
+    "completed_at",
+    "last_error",
+    "line_user_id",
+    "requested_at",
+    "status",
+    "updated_at",
+    "user_id"
+  ],
   "api_keys": [
     "created_at",
     "created_by",
@@ -894,7 +904,9 @@
     "reading_time",
     "slug",
     "tags",
+    "threads_last_error",
     "threads_post_id",
+    "threads_post_status",
     "threads_posted_at",
     "thumbnail_url",
     "title",
@@ -1010,6 +1022,8 @@
     "city",
     "claimed_at",
     "claimed_by_user_id",
+    "consent_version",
+    "consented_at",
     "contact_name",
     "contact_phone",
     "created_at",
@@ -1020,7 +1034,9 @@
     "features",
     "has_parking",
     "id",
+    "idempotency_key",
     "is_public",
+    "license_warranted",
     "nearest_station",
     "phone",
     "photo_url",
@@ -1028,12 +1044,14 @@
     "postal_code",
     "pr_text",
     "prefecture",
+    "privacy_agreed",
     "registration_followup_sent_at",
     "regular_holiday",
     "representative_name",
     "seat_count",
     "staff_count",
     "status",
+    "terms_agreed",
     "website"
   ],
   "schedule_overrides": [
@@ -1121,6 +1139,7 @@
   "stripe_events": [
     "id",
     "processed_at",
+    "status",
     "type"
   ],
   "stripe_sessions": [

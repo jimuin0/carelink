@@ -179,10 +179,22 @@ export async function GET(request: Request) {
           }
         }
         if (!marked) {
-          // 配信は完了済み。success に倒せないと reclaim で再送され二重配信になるため CRITICAL で可視化。
-          console.error('[webhook-retry] CRITICAL: delivered but could not mark success — possible duplicate delivery on reclaim', { jobId: job.id });
+          // 外部送信後にsuccessだけを記録できない状態は「成功」でも「未送信」でもない。
+          // ambiguousへ隔離してstale reclaimの自動再送を止め、運用照合を要求する。
+          let isolated = false;
+          for (let attempt = 0; attempt < 3 && !isolated; attempt++) {
+            const { error: isolateErr } = await supabase
+              .from('webhook_retry_queue')
+              .update({ status: 'ambiguous', last_error: '外部送信後にsuccess記録が失敗。重複送信防止のため要照合', delivered_at: new Date().toISOString() })
+              .eq('id', job.id)
+              .eq('status', 'processing');
+            if (!isolateErr) isolated = true;
+          }
+          console.error('[webhook-retry] CRITICAL: delivered but could not mark success', { jobId: job.id, isolated });
+          failed++;
+        } else {
+          success++;
         }
-        success++;
       } catch (e) {
         const errorMsg = e instanceof Error ? e.message : String(e);
         const outcome = await scheduleRetry(job.id, job.attempt_count + 1, errorMsg);
@@ -190,6 +202,9 @@ export async function GET(request: Request) {
         // 再送されない）とrescheduled（次回試行を予約）を区別する。区別しないと
         // alertDeliveryFailures が dead-letter 分にも「翌runで再送」という嘘の文言を出す。
         if (outcome === 'dead-letter') deadLettered++;
+        if (outcome === 'update-failed') {
+          console.error('[webhook-retry] CRITICAL: delivery failure state could not be persisted', { jobId: job.id });
+        }
         failed++;
       }
     }

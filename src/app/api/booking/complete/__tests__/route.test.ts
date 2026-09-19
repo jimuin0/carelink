@@ -151,6 +151,7 @@ test('CAS: 0行更新（並行リクエストが先に完了） → 409 (二重�
     callNum++;
     if (callNum === 1) return singleChain(CONFIRMED_BOOKING); // booking
     if (table === 'facility_members') return singleChain({ facility_id: FACILITY_UUID, role: 'owner' });
+    if (table === 'customer_visits' || table === 'user_points') return { insert: jest.fn(() => Promise.resolve({ error: null })) };
     // CAS update → null (no rows matched)
     return {
       update: jest.fn().mockReturnValue({
@@ -330,7 +331,7 @@ test('menu_id + staff_id あり → メニュー名・スタッフ名を取得',
   expect(res.status).toBe(200);
 });
 
-test('customer_visits insert失敗 → Sentryキャプチャして200', async () => {
+test('customer_visits insert失敗 → completedへ遷移せず500', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation((table: string) => {
     callNum++;
@@ -357,10 +358,10 @@ test('customer_visits insert失敗 → Sentryキャプチャして200', async ()
   mockServiceFrom.mockReturnValue({ insert: jest.fn(() => Promise.resolve({ error: null })) });
 
   const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(500);
 });
 
-test('user_points insert失敗 → Sentryキャプチャして200', async () => {
+test('user_points insert失敗 → completedへ遷移せず500', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation((table: string) => {
     callNum++;
@@ -389,7 +390,7 @@ test('user_points insert失敗 → Sentryキャプチャして200', async () => 
   });
 
   const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(500);
 });
 
 test('未処理例外 → 500', async () => {

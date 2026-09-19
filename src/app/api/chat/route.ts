@@ -6,11 +6,18 @@
 
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { z } from 'zod';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { withRoute } from '@/lib/with-route';
+import { verifyRecaptcha } from '@/lib/recaptcha';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+type ChatMessage = { role: string; content: string };
+const chatRequestSchema = z.object({
+  messages: z.array(z.unknown()).min(1).max(50),
+  recaptcha_token: z.string().trim().min(1).optional(),
+});
 
 const SYSTEM_PROMPT = `あなたはCareLink（ケアリンク）の公式AIアシスタントです。
 CareLinKは鍼灸・整体・マッサージなどの施術施設を検索・予約できる日本のプラットフォームです。
@@ -41,19 +48,39 @@ export const POST = withRoute(async (request) => {
   let body: unknown;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
-  const { messages } = body as { messages?: { role: string; content: string }[] };
-  if (!Array.isArray(messages) || messages.length === 0) {
+  const parsed = chatRequestSchema.safeParse(body);
+  if (!parsed.success) {
     return NextResponse.json({ error: 'messages required' }, { status: 400 });
   }
 
+  // 公開のAI入口は従量課金を伴うため、secret設定時はtoken欠如もfail-closedにする。
+  if (process.env.RECAPTCHA_SECRET_KEY) {
+    if (!parsed.data.recaptcha_token) {
+      return NextResponse.json({ error: 'Bot検知: 時間をおいて再度お試しください' }, { status: 403 });
+    }
+    const captcha = await verifyRecaptcha(parsed.data.recaptcha_token, 'chat', 0.4);
+    if (!captcha.success) {
+      return NextResponse.json({ error: 'Bot検知: 時間をおいて再度お試しください' }, { status: 403 });
+    }
+  }
+
   // Validate roles and take last 10 messages
-  const validMessages = messages
-    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.length <= 2000)
+  const validMessages = parsed.data.messages
+    .filter((m): m is ChatMessage => (
+      typeof m === 'object' && m !== null &&
+      'role' in m && 'content' in m &&
+      typeof m.role === 'string' &&
+      (m.role === 'user' || m.role === 'assistant') &&
+      typeof m.content === 'string' && m.content.length <= 2000
+    ))
     .slice(-10)
     .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content.slice(0, 2000) }));
 
   if (validMessages.length === 0) {
     return NextResponse.json({ error: 'No valid messages' }, { status: 400 });
+  }
+  if (validMessages.reduce((sum, message) => sum + message.content.length, 0) > 12_000) {
+    return NextResponse.json({ error: 'Messages too large' }, { status: 413 });
   }
 
   try {
@@ -62,7 +89,7 @@ export const POST = withRoute(async (request) => {
       max_tokens: 512,
       system: SYSTEM_PROMPT,
       messages: validMessages,
-    });
+    }, { signal: AbortSignal.timeout(15_000) });
     const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
     return NextResponse.json({ reply: text });
   } catch {
