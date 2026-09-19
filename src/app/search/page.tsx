@@ -35,21 +35,16 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
     ? `${titlePrefix}の一覧。メニュー・料金・口コミを比較して予約できます。`
     : '美容サロン・鍼灸院・整骨院・介護施設・病院を検索。エリア・業種で簡単に探せます。メニュー・料金・口コミもチェック。';
 
-  const params = new URLSearchParams();
-  if (searchParams.type) params.set('type', searchParams.type);
-  if (searchParams.area) params.set('area', searchParams.area);
-  if (searchParams.keyword) params.set('keyword', searchParams.keyword);
-  const canonical = params.toString() ? `/search?${params.toString()}` : '/search';
-
-  const hasFilters = !!(searchParams.rating_min || searchParams.price_min || searchParams.price_max || searchParams.features);
-  const shouldNoIndex = hasFilters || currentPage > 1;
+  const hasAnySearchState = Object.values(searchParams).some((value) =>
+    Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.length > 0,
+  );
 
   return {
     title,
     description,
-    alternates: { canonical },
+    alternates: { canonical: '/search' },
     openGraph: { title, description },
-    robots: shouldNoIndex ? { index: false, follow: true } : { index: true, follow: true },
+    robots: hasAnySearchState ? { index: false, follow: true } : { index: true, follow: true },
   };
 }
 

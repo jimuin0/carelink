@@ -12,7 +12,7 @@ import { regionGroups, facilityFeatures, SITE_URL } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/json-ld';
 import { searchFacilities } from '@/lib/facilities';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
-import { getAreaSeoContent } from '@/lib/area-seo';
+import { getAreaSeoContent, isIndexableAreaQuality } from '@/lib/area-seo';
 import { generatePrefTypeContent, generateCityContent, type GeneratedSeoContent } from '@/lib/seo-snippets';
 import { isValidCitySlug, getCityName, getCitiesForPrefecture, getAllCitySlugs } from '@/data/city-slugs';
 import Breadcrumb from '@/components/Breadcrumb';
@@ -67,12 +67,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       .eq('status', 'published')
       .eq('prefecture', prefName)
       .eq('business_type', typeName);
+    const hasQualityContent = isIndexableAreaQuality(count, generatePrefTypeContent(prefectureSlug, secondSlug));
     return {
       title,
       description,
       openGraph: { title: `${title} | CareLink`, description },
       alternates: { canonical: `/${prefectureSlug}/${secondSlug}` },
-      ...(count === 0 ? { robots: { index: false, follow: true } } : {}),
+      ...(count === 0 ? { robots: { index: false, follow: true } } : !hasQualityContent ? { robots: { index: false, follow: true } } : {}),
     };
   }
 

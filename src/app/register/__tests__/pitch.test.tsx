@@ -26,7 +26,7 @@ describe('/register の訴求部分', () => {
 
   it('見出しと、フォームへ送る導線がある', () => {
     expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument();
-    const cta = screen.getByRole('link', { name: '無料ではじめる' });
+    const cta = screen.getByRole('link', { name: '掲載条件を確認して登録を始める' });
     expect(cta).toHaveAttribute('href', '#register-form');
   });
 
@@ -38,7 +38,7 @@ describe('/register の訴求部分', () => {
   });
 
   it('掲載までの流れが 3 段で出ている', () => {
-    for (const step of ['無料登録', 'アカウント作成', '掲載開始']) {
+    for (const step of ['基本情報を入力', 'アカウントを作成', '掲載を準備']) {
       expect(screen.getByText(step)).toBeInTheDocument();
     }
   });

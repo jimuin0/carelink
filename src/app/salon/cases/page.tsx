@@ -109,7 +109,7 @@ export default async function CasesPage() {
         <div className="bg-gradient-to-br from-sky-500 to-sky-600 rounded-3xl p-8 text-center text-white">
           <h2 className="text-2xl font-bold mb-3">最初の掲載施設になっていただけませんか</h2>
           <p className="text-white/80 mb-6">
-            完全無料・初期費用ゼロ。まずは管理画面を見て、使えそうか確かめてください。
+            掲載料・予約手数料の現在条件を確認し、まずは管理画面を見て自施設に合うか確かめてください。
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link

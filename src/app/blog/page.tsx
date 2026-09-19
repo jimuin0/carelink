@@ -7,17 +7,6 @@ import { safeCaptureException } from '@/lib/safe';
 
 export const revalidate = 3600;
 
-export const metadata: Metadata = {
-  title: 'コラム｜美容・健康の役立つ情報',
-  description: '美容サロン・鍼灸院の利用ガイドや最新トレンド情報をお届け。初めてのサロン選びからケア方法まで役立つコラムが満載です。',
-  alternates: { canonical: '/blog' },
-  openGraph: {
-    title: 'コラム｜美容・健康の役立つ情報 | CareLink',
-    description: '美容サロン・鍼灸院の利用ガイドや最新トレンド情報をお届け。',
-    type: 'website',
-  },
-};
-
 interface SearchParams {
   tag?: string | string[];
 }
@@ -35,6 +24,26 @@ function sanitizeTag(raw: string | string[] | undefined): string | undefined {
   if (value.length > TAG_MAX_LENGTH) return undefined;
   if (!SAFE_TAG_PATTERN.test(value)) return undefined;
   return value;
+}
+
+export async function generateMetadata(props: { searchParams: Promise<SearchParams> }): Promise<Metadata> {
+  const searchParams = await props.searchParams;
+  const tag = sanitizeTag(searchParams.tag);
+  const title = tag ? `「${tag}」の記事｜コラム` : 'コラム｜美容・健康の役立つ情報';
+  const description = tag
+    ? `「${tag}」に関連するCareLinkのコラム記事一覧。`
+    : '美容サロン・鍼灸院の利用ガイドや最新トレンド情報をお届け。初めてのサロン選びからケア方法まで役立つコラムが満載です。';
+  return {
+    title,
+    description,
+    alternates: { canonical: '/blog' },
+    openGraph: {
+      title: `${title} | CareLink`,
+      description,
+      type: 'website',
+    },
+    robots: tag ? { index: false, follow: true } : { index: true, follow: true },
+  };
 }
 
 interface DbPost {

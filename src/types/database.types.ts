@@ -3959,6 +3959,7 @@ export type Database = {
           representative_name: string
           seat_count: number | null
           staff_count: number | null
+          source: string | null
           status: string | null
           website: string | null
         }
@@ -3993,6 +3994,7 @@ export type Database = {
           representative_name: string
           seat_count?: number | null
           staff_count?: number | null
+          source?: string | null
           status?: string | null
           website?: string | null
         }
@@ -4027,6 +4029,7 @@ export type Database = {
           representative_name?: string
           seat_count?: number | null
           staff_count?: number | null
+          source?: string | null
           status?: string | null
           website?: string | null
         }

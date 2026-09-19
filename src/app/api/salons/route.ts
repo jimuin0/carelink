@@ -176,6 +176,9 @@ export const POST = withRoute(async (request) => {
       photo_url: photoUrls[0] || null,
       photo_urls: photoUrls,
       desired_start_date: d.desired_start_date || null,
+      // Store the trusted server-side entry point so registration reports do not infer
+      // attribution from a completion-page visit or a client-provided event.
+      source: d.source,
     })
     .select('id')
     .single();
