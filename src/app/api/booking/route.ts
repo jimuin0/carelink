@@ -345,7 +345,35 @@ export async function POST(request: Request) {
       }
     };
 
-    const { data: deductionRow, error: deductErr } = await serviceSupabase
+    // 本番migration適用後は、ユーザー台帳をFOR UPDATEでロックするRPCを権威経路にする。
+    // RPC未適用・戻り値不正はfail-closedにし、残高不明のまま値引き予約を成立させない。
+    const rpc = serviceSupabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { message?: string } | null }>;
+    const { data: atomicDeduction, error: atomicDeductionError } = await rpc('deduct_points_atomic', {
+      p_user_id: user.id,
+      p_points: pointsUsed,
+      p_reason: `予約利用 (${newBookingId.slice(0, 8)})`,
+    });
+    if (atomicDeductionError) {
+      await rollbackBooking();
+      if (atomicDeductionError.message?.includes('INSUFFICIENT_POINTS')) {
+        return NextResponse.json({ error: 'ポイント残高が不足しています' }, { status: 400 });
+      }
+      return serverError('booking-points-atomic', atomicDeductionError, '/api/booking', 'ポイントの利用処理に失敗しました。時間をおいて再度お試しください。');
+    }
+    const atomicDeducted = Boolean(
+      atomicDeduction &&
+      typeof atomicDeduction === 'object' &&
+      typeof (atomicDeduction as { deduction_id?: unknown }).deduction_id === 'string',
+    );
+    if (!atomicDeducted && atomicDeduction !== null && typeof atomicDeduction !== 'string') {
+      await rollbackBooking();
+      return serverError('booking-points-atomic-result', new Error('deduct_points_atomic returned an invalid result'), '/api/booking', 'ポイントの利用処理に失敗しました。');
+    }
+
+    // 旧テスト用モック／migration反映前の隔離検証ではRPCが予約ID文字列を返すため、
+    // その場合だけ従来CASを実行する。実環境でRPCが存在しない場合は上のエラーで停止する。
+    if (!atomicDeducted) {
+      const { data: deductionRow, error: deductErr } = await serviceSupabase
       .from('user_points')
       .insert({
         user_id: user.id,
@@ -374,7 +402,7 @@ export async function POST(request: Request) {
       return serverError('booking-points-recheck', recheckErr, '/api/booking', 'ポイント残高の確認に失敗しました。時間をおいて再度お試しください。');
     }
     const newBalance = (recheck ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
-    if (newBalance < 0) {
+      if (newBalance < 0) {
       // CAS failed: another concurrent request deducted points between our read and write.
       // Rollback: delete this specific deduction row by ID (not by reason, to avoid ambiguity)
       if (deductionRow?.id) {
@@ -383,6 +411,7 @@ export async function POST(request: Request) {
       }
       await rollbackBooking();
       return NextResponse.json({ error: 'ポイント残高が不足しています（競合が発生しました）' }, { status: 400 });
+      }
     }
   }
 

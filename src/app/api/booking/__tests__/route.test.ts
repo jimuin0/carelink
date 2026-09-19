@@ -1708,6 +1708,30 @@ describe('POST /api/booking', () => {
     expect(json.bookingId).toBe('booking-cas-ok');
   });
 
+  test('ポイント控除RPCの原子経路 → 200（旧CASへフォールバックしない）', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-atomic' } } });
+    const balanceChain = fluent(null);
+    balanceChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 500 }] }));
+    const nullChain = fluent({ data: null });
+    mockRpc
+      .mockResolvedValueOnce({ data: 'booking-atomic', error: null })
+      .mockResolvedValueOnce({ data: { deduction_id: 'deduction-atomic', balance: 350 }, error: null });
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return menuPriceChain(100000);
+      if (callNum === 2) return balanceChain;
+      return nullChain;
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 150 }));
+    expect(res.status).toBe(200);
+    expect(mockRpc).toHaveBeenNthCalledWith(2, 'deduct_points_atomic', expect.objectContaining({
+      p_user_id: 'user-atomic', p_points: 150,
+    }));
+  });
+
   test('LINE Works通知パス（isLineWorksConfigured=true）', async () => {
     const { isLineWorksConfigured, notifyNewBookingLineWorks } = jest.requireMock('@/lib/integrations/line-works') as {
       isLineWorksConfigured: jest.Mock;
