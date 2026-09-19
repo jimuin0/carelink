@@ -3,7 +3,7 @@ import Link from 'next/link';
 
 export const metadata: Metadata = {
   title: '管理画面デモ | CareLink',
-  description: 'CareLinkの管理画面を紹介します。予約管理・顧客分析・メニュー管理・売上分析など、全機能が無料で使えます。',
+  description: 'CareLinkの管理画面で確認できる予約・顧客・メニュー・売上管理の主な機能と、掲載準備の流れを紹介します。',
   alternates: { canonical: '/salon/demo' },
   robots: { index: false, follow: true },
 };
