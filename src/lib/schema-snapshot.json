@@ -1290,6 +1290,7 @@
     "claimed_at",
     "created_at",
     "delivered_at",
+    "delivery_started_at",
     "facility_id",
     "id",
     "last_error",

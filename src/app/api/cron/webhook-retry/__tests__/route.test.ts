@@ -58,6 +58,7 @@ let mockJobsSelect: jest.Mock;
 let mockClaimUpdate: jest.Mock;
 let mockSuccessUpdate: jest.Mock;
 let mockReclaimUpdate: jest.Mock;
+let mockDeliveryStartUpdate: jest.Mock;
 let mockQueuePendingEq: jest.Mock;
 let mockTableUpdateDispatch: jest.Mock;
 let mockSendLineText: jest.Mock;
@@ -83,14 +84,23 @@ function makeWebhookRetryQueueTable(overrides: {
   claimUpdate: jest.Mock;
   successUpdate: jest.Mock;
   reclaimUpdate: jest.Mock;
+  deliveryStartUpdate?: jest.Mock;
   queuePendingEq: jest.Mock;
 }) {
+  const deliveryStartUpdate = overrides.deliveryStartUpdate ?? jest.fn().mockResolvedValue({ error: null });
   const updateDispatch = jest.fn((data: any) => {
     if (data.status === 'processing') return overrides.claimUpdate(data);
     if (data.status === 'success') return overrides.successUpdate(data);
+    if ('delivery_started_at' in data && data.delivery_started_at !== null) {
+      return {
+        eq: deliveryStartUpdate,
+      };
+    }
     return {
       eq: jest.fn().mockReturnValue({
-        or: overrides.reclaimUpdate,
+        is: jest.fn().mockReturnValue({
+          or: overrides.reclaimUpdate,
+        }),
       }),
     };
   });
@@ -179,6 +189,8 @@ function setupDefaultMocks(
     }),
   });
 
+  mockDeliveryStartUpdate = jest.fn().mockResolvedValue({ error: null });
+
   // stale processing 再回収 update(...).eq('status','processing').or(filterString)
   mockReclaimUpdate = jest.fn().mockResolvedValue({
     error: reclaimFails ? new Error('reclaim failed') : null,
@@ -196,6 +208,7 @@ function setupDefaultMocks(
     claimUpdate: mockClaimUpdate,
     successUpdate: mockSuccessUpdate,
     reclaimUpdate: mockReclaimUpdate,
+    deliveryStartUpdate: mockDeliveryStartUpdate,
     queuePendingEq: mockQueuePendingEq,
   });
   mockTableUpdateDispatch = webhookRetryQueueTable.update as jest.Mock;
@@ -317,7 +330,7 @@ describe('GET /api/cron/webhook-retry', () => {
 
     await GET(makeRequest() as any);
 
-    // 再回収 update(...).eq('status','processing').or(filterString) が呼ばれる
+    // 再回収 update(...).eq('status','processing').is('delivery_started_at',null).or(filterString) が呼ばれる
     expect(mockReclaimUpdate).toHaveBeenCalled();
   });
 
@@ -330,6 +343,7 @@ describe('GET /api/cron/webhook-retry', () => {
     const reclaimCall = mockTableUpdateDispatch.mock.calls.find((c: any[]) => c[0].status === 'pending');
     expect(reclaimCall).toBeDefined();
     expect(reclaimCall![0].claimed_at).toBeNull();
+    expect(reclaimCall![0].delivery_started_at).toBeNull();
 
     // .or() フィルタ文字列: claimed_at 基準＋claimed_at IS NULL 時は scheduled_at フォールバック
     const filterArg = mockReclaimUpdate.mock.calls[0][0] as string;
@@ -470,12 +484,47 @@ describe('GET /api/cron/webhook-retry', () => {
     );
   });
 
+  test('外部送信前に delivery_started_at を永続化する', async () => {
+    setupDefaultMocks(1);
+
+    await GET(makeRequest() as any);
+
+    expect(mockDeliveryStartUpdate).toHaveBeenCalledTimes(2);
+  });
+
+  test('送信開始の記録に失敗したジョブは外部送信せず再試行へ戻す', async () => {
+    setupDefaultMocks(1);
+    mockDeliveryStartUpdate.mockResolvedValueOnce({ error: new Error('delivery marker failed') });
+
+    await GET(makeRequest() as any);
+
+    expect(mockSendLineText).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledWith('job-1', 1, 'delivery marker failed');
+  });
+
   test('failure → calls scheduleRetry', async () => {
     setupDefaultMocks(1, false, true);
 
     await GET(makeRequest() as any);
 
     expect(scheduleRetry).toHaveBeenCalled();
+  });
+
+  test('再スケジュール結果が不明なら503とerrorログで運用照合へ上げる', async () => {
+    setupDefaultMocks(1, false, true);
+    (scheduleRetry as jest.Mock).mockResolvedValueOnce('uncertain');
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    expect(res.status).toBe(503);
+    expect(json.delivery_uncertain).toBe(1);
+    expect(logCronRun).toHaveBeenCalledWith(
+      'webhook-retry', 'error', expect.any(Date), expect.objectContaining({
+        error_msg: expect.stringContaining('結果記録が不明'),
+      }),
+    );
+    expect(alertDeliveryFailures).toHaveBeenCalledWith('webhook-retry', 0, { success: 1 }, 0);
   });
 
   test('success マーク更新が失敗し続けても CRITICAL で可視化し再送はしない（二重配信の発症前予防）', async () => {
@@ -489,8 +538,8 @@ describe('GET /api/cron/webhook-retry', () => {
     const json = await res.json();
 
     // 配信は完了済みなので success として計上され、失敗キュー(skipped)には回さない。
-    expect(json.processed).toBeGreaterThanOrEqual(1);
-    expect(json.skipped).toBe(0);
+    expect(res.status).toBe(503);
+    expect(json.delivery_uncertain).toBeGreaterThanOrEqual(1);
     // 配信済みのため再送キューには戻さない（scheduleRetry を呼ばない＝二重配信を作らない）。
     expect(scheduleRetry).not.toHaveBeenCalled();
     // 再送リスク（reclaim 経由の二重配信）を CRITICAL ログで可視化する（サイレントにしない）。

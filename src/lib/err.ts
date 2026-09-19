@@ -40,6 +40,11 @@ export function summarizeDependencyError(e: unknown): string {
 export async function retryTransientSupabaseRead<T extends { error: unknown | null }>(
   read: () => PromiseLike<T>,
 ): Promise<T> {
-  const first = await read();
-  return isTransientSupabaseError(first.error) ? read() : first;
+  try {
+    const first = await read();
+    return isTransientSupabaseError(first.error) ? read() : first;
+  } catch (error) {
+    if (isTransientSupabaseError(error)) return read();
+    throw error;
+  }
 }

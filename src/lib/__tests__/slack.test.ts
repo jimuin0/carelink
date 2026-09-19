@@ -238,6 +238,57 @@ describe('postToSlackWithThreadGrouping (Phase 7c)', () => {
     consoleSpy.mockRestore();
   });
 
+  test('Supabase 522 でスレッド集約不能でも、同一インスタンスの同一通知は1時間再投稿しない', async () => {
+    const thread_key = 'alert:error:route=/api/cron/webhook-retry:commit=outage-dedup';
+    const outage = { message: '<!DOCTYPE html><title>supabase.co | 522: Connection timed out</title>' };
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    mockRpc.mockResolvedValueOnce({ data: null, error: outage });
+
+    const first = await postToSlackWithThreadGrouping({ thread_key, text: 'first outage' });
+
+    mockRpc.mockResolvedValueOnce({ data: null, error: outage });
+    const second = await postToSlackWithThreadGrouping({ thread_key, text: 'same outage' });
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    const logged = consoleSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+    expect(logged).toContain('Supabase 接続障害（Cloudflare 522）');
+    expect(logged).not.toContain('<!DOCTYPE html>');
+    consoleSpy.mockRestore();
+  });
+
+  test('例外で返るSupabase 522も同じ抑制対象にする', async () => {
+    const thread_key = 'alert:error:route=/api/cron/webhook-retry:commit=outage-throw-dedup';
+    const outage = new Error('<!DOCTYPE html><title>supabase.co | 522: Connection timed out</title>');
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    mockRpc.mockRejectedValue(outage);
+
+    await postToSlackWithThreadGrouping({ thread_key, text: 'first outage' });
+    await postToSlackWithThreadGrouping({ thread_key, text: 'same outage' });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    consoleSpy.mockRestore();
+  });
+
+  test('抑制期限を過ぎた通知は再び投稿する', async () => {
+    jest.useFakeTimers();
+    try {
+      const thread_key = 'alert:error:route=/api/cron/webhook-retry:commit=outage-expired';
+      const outage = { message: '<!DOCTYPE html><title>supabase.co | 522: Connection timed out</title>' };
+      mockRpc.mockResolvedValue({ data: null, error: outage });
+
+      await postToSlackWithThreadGrouping({ thread_key, text: 'first outage' });
+      jest.advanceTimersByTime(60 * 60 * 1000 + 1);
+      await postToSlackWithThreadGrouping({ thread_key, text: 'after expiry' });
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('チャンネル env 未設定 → no_channel', async () => {
     delete process.env.SLACK_DEFAULT_CHANNEL;
     const res = await postToSlackWithThreadGrouping({

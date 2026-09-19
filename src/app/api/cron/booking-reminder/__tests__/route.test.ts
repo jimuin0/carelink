@@ -74,7 +74,7 @@ function booking(over: Partial<Booking> = {}): Booking {
 }
 
 type Cfg = {
-  bookings?: { data: Booking[]; error?: unknown };
+  bookings?: { data: Booking[]; error?: unknown; errors?: (unknown | null)[] };
   facilities?: { data: { id: string; name: string | null }[] | null };
   settings?: { data: Record<string, unknown>[] | null; error?: unknown };
   entitlements?: { data: { facility_id: string; option_key: string }[] | null; error?: unknown };
@@ -101,14 +101,20 @@ function setup(cfg: Cfg = {}) {
 
   const bookingsData = cfg.bookings?.data ?? [booking({ id: 'a' }), booking({ id: 'b', facility_id: 'fac-1' })];
   const bookingsError = cfg.bookings?.error ?? null;
+  let bookingQueryAttempts = 0;
 
   bookingsInMock = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
       order: jest.fn().mockReturnValue({
-        range: jest.fn().mockImplementation((from: number, to: number) =>
-          Promise.resolve(bookingsError
-            ? { data: null, error: bookingsError }
-            : { data: bookingsData.slice(from, to + 1), error: null })),
+        range: jest.fn().mockImplementation((from: number, to: number) => {
+          const error = cfg.bookings?.errors
+            ? (cfg.bookings.errors[bookingQueryAttempts] ?? null)
+            : bookingsError;
+          bookingQueryAttempts += 1;
+          return Promise.resolve(error
+            ? { data: null, error }
+            : { data: bookingsData.slice(from, to + 1), error: null });
+        }),
       }),
     }),
   });
@@ -247,6 +253,24 @@ describe('GET /api/cron/booking-reminder', () => {
     setup({ bookings: { data: [], error: { message: 'db down' } } });
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(500);
+  });
+
+  test('bookings の522は読取だけ一度再試行し、回復した場合は送信を継続する', async () => {
+    setup({
+      bookings: {
+        data: [booking({ id: 'recovered' })],
+        errors: [
+          { message: '<!DOCTYPE html><title>supabase.co | 522: Connection timed out</title>' },
+          null,
+        ],
+      },
+    });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    expect(bookingsInMock).toHaveBeenCalledTimes(2);
+    expect(mockEmailReminder).toHaveBeenCalledTimes(1);
   });
 
   test('対象予約なし → skipped 0 件で 200', async () => {
