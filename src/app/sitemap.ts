@@ -5,6 +5,8 @@ import { getAllCitySlugs, getCitySlug } from '@/data/city-slugs';
 import { articles } from '@/data/articles';
 import { SITE_URL } from '@/lib/constants';
 import { SHOW_JOBS } from '@/lib/feature-toggles';
+import { isIndexableAreaQuality } from '@/lib/area-seo';
+import { generatePrefTypeContent, generateCityTypeContent } from '@/lib/seo-snippets';
 
 // 完全動的: 環境変数変更/施設追加を即時反映、CDN静的化を完全回避
 export const dynamic = 'force-dynamic';
@@ -27,7 +29,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${SITE_URL}/register`, lastModified: updated, changeFrequency: 'monthly', priority: 0.3 },
     { url: `${SITE_URL}/contact`, lastModified: updated, changeFrequency: 'monthly', priority: 0.5 },
     { url: `${SITE_URL}/symptom-checker`, lastModified: updated, changeFrequency: 'weekly', priority: 0.7 },
-    { url: `${SITE_URL}/salon/demo`, lastModified: updated, changeFrequency: 'monthly', priority: 0.6 },
   ];
 
   const supabase = createServerSupabaseClient();
@@ -96,7 +97,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Prefecture x BusinessType pages — 施設が1件以上あるページのみ掲載（薄いコンテンツ除外）
   const crossPages: MetadataRoute.Sitemap = allPrefectureSlugs.flatMap((ps) =>
     allBusinessTypeSlugs
-      .filter((ts) => occupiedPrefType.has(`${ps}/${ts}`))
+      .filter((ts) => occupiedPrefType.has(`${ps}/${ts}`) && isIndexableAreaQuality(1, generatePrefTypeContent(ps, ts)))
       .map((ts) => ({
         url: `${SITE_URL}/${ps}/${ts}`,
         lastModified: updated,
@@ -187,7 +188,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // 施設が1件以上ある市区町村×業種ページのみ掲載（薄いコンテンツ除外）。crossPages と同じ方針。
   const cityTypePages: MetadataRoute.Sitemap = majorCities.flatMap((c) =>
     allBusinessTypeSlugs
-      .filter((ts) => occupiedCityType.has(`${c.prefectureSlug}/${c.citySlug}/${ts}`))
+      .filter((ts) => occupiedCityType.has(`${c.prefectureSlug}/${c.citySlug}/${ts}`)
+        && isIndexableAreaQuality(1, generateCityTypeContent(c.prefectureSlug, c.cityName, ts)))
       .map((ts) => ({
         url: `${SITE_URL}/${c.prefectureSlug}/${c.citySlug}/${ts}`,
         lastModified: updated,
@@ -196,13 +198,29 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       }))
   );
 
-  // Blog articles (from static data)
-  const blogPages: MetadataRoute.Sitemap = articles.map((a) => ({
-    url: `${SITE_URL}/blog/${a.slug}`,
-    lastModified: new Date(a.publishedAt),
-    changeFrequency: 'monthly' as const,
-    priority: 0.6,
-  }));
+  // Blog articles: a successful DB response is the publication source of truth.
+  // On a read failure, keep known static articles as a safe fallback; an empty successful
+  // response must remain empty so unpublished DB drafts are never submitted to search engines.
+  const { data: publishedBlogPosts, error: blogPostsError } = await supabase
+    .from('platform_blog_posts')
+    .select('slug, published_at, updated_at')
+    .eq('is_published', true);
+  if (blogPostsError) {
+    console.error('[sitemap] platform_blog_posts lookup failed', { code: blogPostsError.code });
+  }
+  const blogPages: MetadataRoute.Sitemap = blogPostsError
+    ? articles.map((a) => ({
+        url: `${SITE_URL}/blog/${a.slug}`,
+        lastModified: new Date(a.publishedAt),
+        changeFrequency: 'monthly' as const,
+        priority: 0.6,
+      }))
+    : (publishedBlogPosts || []).map((post) => ({
+        url: `${SITE_URL}/blog/${post.slug}`,
+        lastModified: new Date(post.updated_at || post.published_at || updated),
+        changeFrequency: 'monthly' as const,
+        priority: 0.6,
+      }));
 
   // Jobs (公開施設に紐づくもののみ)。SHOW_JOBS=false の間はローンチ判断により掲載自体をスキップする
   // （src/lib/feature-toggles.ts 参照・true に戻すだけで復活）。

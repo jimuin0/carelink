@@ -123,44 +123,6 @@ export default async function RootLayout({
                   addressCountry: "JP",
                 },
               },
-              {
-                "@context": "https://schema.org",
-                "@type": "FAQPage",
-                mainEntity: [
-                  {
-                    "@type": "Question",
-                    name: "本当に無料ですか？",
-                    acceptedAnswer: {
-                      "@type": "Answer",
-                      text: "はい、検索・ご予約は完全無料です。初期費用・月額費用は一切かかりません。",
-                    },
-                  },
-                  {
-                    "@type": "Question",
-                    name: "どんな業種が対象ですか？",
-                    acceptedAnswer: {
-                      "@type": "Answer",
-                      text: "美容サロン・アイラッシュ、鍼灸院、整骨院、介護施設・デイサービス、病院・クリニックなど、医療・福祉・美容業界に幅広く対応しています。",
-                    },
-                  },
-                  {
-                    "@type": "Question",
-                    name: "登録後、すぐに利用開始できますか？",
-                    acceptedAnswer: {
-                      "@type": "Answer",
-                      text: "登録後、2営業日以内に担当者よりご連絡いたします。内容を確認させていただいた後、すぐにサービスをご利用いただけます。",
-                    },
-                  },
-                  {
-                    "@type": "Question",
-                    name: "途中で退会できますか？",
-                    acceptedAnswer: {
-                      "@type": "Answer",
-                      text: "いつでも退会可能です。退会後はすべてのデータを削除いたします。違約金等は一切かかりません。",
-                    },
-                  },
-                ],
-              },
             ]),
           }}
         />

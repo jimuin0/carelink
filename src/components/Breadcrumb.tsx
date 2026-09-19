@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { safeJsonLd } from '@/lib/json-ld';
+import { SITE_URL } from '@/lib/constants';
 
 interface BreadcrumbItem {
   label: string;
@@ -14,7 +15,7 @@ export default function Breadcrumb({ items, jsonLd: emitJsonLd = true }: { items
       '@type': 'ListItem',
       position: i + 1,
       name: item.label,
-      ...(item.href ? { item: item.href } : {}),
+      ...(item.href ? { item: item.href.startsWith('/') ? `${SITE_URL}${item.href}` : item.href } : {}),
     })),
   };
 
