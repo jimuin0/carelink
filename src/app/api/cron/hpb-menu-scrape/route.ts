@@ -3,7 +3,6 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun, cronError } from '@/lib/cron-logger';
 import { scrapeAndSaveFacility } from '@/lib/hpb-menu';
-import { alertWarning } from '@/lib/alert';
 
 // Vercel Cron: 夜間に全施設の HPB メニューを取得して hpb_menu_durations を更新する。
 export const dynamic = 'force-dynamic';
@@ -34,7 +33,19 @@ export async function GET(request: Request) {
     .limit(LOAD_LIMIT);
 
   if (error) {
-    return cronError('hpb-menu-scrape', startedAt, error, { message: 'Internal Server Error' });
+    return cronError('hpb-menu-scrape', startedAt, error, {
+      message: 'Internal Server Error',
+      extraLog: {
+        meta: {
+          stages: {
+            facilityList: 'error',
+            hpbFetch: 'not_started',
+            dbSave: 'not_started',
+            completion: 'error',
+          },
+        },
+      },
+    });
   }
 
   const list = facilities ?? [];
@@ -42,6 +53,12 @@ export async function GET(request: Request) {
   // = HPB の HTML 構造変化 / 店舗ID 誤り の発症前シグナル(以前は取れていたメニューが静かに陳腐化
   //   するのを検知する。取得0は saveHpbRows が DB 非書込なので既存データは壊れない=可視化だけが課題)。
   const results = { facilities: 0, saved: 0, skipped: 0, failed: 0, deferred: 0, zeroFetch: 0 };
+  let fetched = 0;
+  let saveFailed = 0;
+  let fetchFailed = 0;
+  let stampFailed = 0;
+  // 1施設の複数段階失敗（行保存＋stamp等）を1施設として数える。
+  const failedFacilityIds = new Set<string>();
   const loopStart = Date.now();
 
   for (let i = 0; i < list.length; i++) {
@@ -56,12 +73,20 @@ export async function GET(request: Request) {
     try {
       const r = await scrapeAndSaveFacility(admin, facility.id);
       results.facilities++;
+      fetched += r.fetched;
       results.saved += r.ok;
       results.skipped += r.skipped;
       results.failed += r.failed;
+      saveFailed += r.failed;
+      if (r.failed > 0) failedFacilityIds.add(facility.id);
       // 設定済み(slnId あり)なのに 0 件取得 = HPB 構造変化 / 店舗ID 誤り の疑い(発症前検知)。
       if (r.slnId && r.fetched === 0) {
         results.zeroFetch++;
+        // 0件は正常な空結果ではなく、HPB応答不全や構造変化を含む取得失敗。
+        // 既存データを上書きしない保全動作は維持しつつ、run成功には倒さない。
+        results.failed++;
+        fetchFailed++;
+        failedFacilityIds.add(facility.id);
         console.warn('[hpb-menu-scrape] configured facility returned 0 menus (HPB構造変化 or 店舗ID誤りの疑い)', {
           facilityId: facility.id,
           sln: r.slnId,
@@ -69,6 +94,8 @@ export async function GET(request: Request) {
       }
     } catch (e) {
       results.failed++;
+      fetchFailed++;
+      failedFacilityIds.add(facility.id);
       console.error('[hpb-menu-scrape] facility scrape failed', {
         facilityId: facility.id,
         err: e instanceof Error ? e.message : String(e),
@@ -85,6 +112,8 @@ export async function GET(request: Request) {
     if (stampErr) {
       // 更新できないと rotation が進まない(次回も先頭に残る)→ failed 計上＋可視化。
       results.failed++;
+      stampFailed++;
+      failedFacilityIds.add(facility.id);
       console.error('[hpb-menu-scrape] scrape timestamp update failed', {
         facilityId: facility.id,
         err: stampErr.message,
@@ -92,29 +121,56 @@ export async function GET(request: Request) {
     }
   }
 
-  // 処理対象が有り、かつ全件失敗（failed 全滅）または全件0件取得（zeroFetch 全滅）は
-  // HPB 側の HTML 構造変化・アクセス遮断等の深刻な障害の疑いのため無音にせず警報する。
-  // 旧実装は failed/zeroFetch 件数に関わらず常に 'success' 記録で、個別施設の
-  // console.warn/console.error だけでは Vercel ログに埋没し誰も気づけなかった
-  // （1〜数件の失敗はサイト側の一時的な事情もあるため許容し、全滅時のみ昇格する設計）。
   // 分母は results.facilities（try 内の成功パスのみ加算）ではなく実際に試行した件数
   // （list.length - deferred）を使う：scrapeAndSaveFacility が例外を投げる経路では
   // facilities が加算されないため、facilities を分母にすると「全件が例外で失敗」した
   // 最悪ケースほど分母が 0 になり allFailed が絶対に true にならない盲点があった。
   const attempted = list.length - results.deferred;
-  const allFailed = attempted > 0 && results.saved === 0 && results.failed >= attempted;
   const allZeroFetch = attempted > 0 && results.zeroFetch >= attempted;
-  if (allFailed || allZeroFetch) {
-    alertWarning(
-      `hpb-menu-scrape: 対象${attempted}件が${allFailed ? '全件失敗' : '全件0件取得'}（HPB構造変化/アクセス遮断の疑い）`,
-      { route: '/api/cron/hpb-menu-scrape', extra: { failed: results.failed, zeroFetch: results.zeroFetch, saved: results.saved } },
-    );
+  const facilityFailed = failedFacilityIds.size;
+  const allFailed = attempted > 0 && !allZeroFetch && facilityFailed >= attempted;
+
+  const stages = {
+    facilityList: 'success',
+    hpbFetch: fetchFailed > 0 ? 'partial_failure' : 'success',
+    dbSave: saveFailed > 0 || stampFailed > 0 ? 'partial_failure' : 'success',
+    completion: results.failed > 0 ? 'error' : results.deferred > 0 ? 'deferred' : 'success',
+  } as const;
+  const meta = {
+    facilities: results.facilities,
+    failed: results.failed,
+    deferred: results.deferred,
+    zeroFetch: results.zeroFetch,
+    allFailed,
+    allZeroFetch,
+    facilityFailed,
+    stages,
+    hpbFetched: fetched,
+    hpbFetchFailed: fetchFailed,
+    dbSaveFailed: saveFailed,
+    stampFailed,
+  };
+
+  // 施設単位の取得・保存・ローテーション更新のどれかが失敗した場合、
+  // 部分成功を run 全体の成功として記録しない。cronError は error 記録と
+  // 500 応答を一体で行い、次回の冪等な run で再試行可能な状態を残す。
+  if (results.failed > 0) {
+    const failureMessage = allFailed
+      ? 'HPB menu scrape failed for all attempted facilities'
+      : allZeroFetch
+        ? 'HPB menu scrape returned zero menus for all attempted facilities'
+        : 'HPB menu scrape partially failed';
+    return cronError('hpb-menu-scrape', startedAt, new Error(failureMessage), {
+      message: 'Internal Server Error',
+      extraLog: { processed: results.saved, skipped: results.skipped, meta },
+      extraBody: results,
+    });
   }
 
   await logCronRun('hpb-menu-scrape', 'success', startedAt, {
     processed: results.saved,
     skipped: results.skipped,
-    meta: { facilities: results.facilities, failed: results.failed, deferred: results.deferred, zeroFetch: results.zeroFetch, allFailed, allZeroFetch },
+    meta,
   });
   return NextResponse.json(results);
 }
