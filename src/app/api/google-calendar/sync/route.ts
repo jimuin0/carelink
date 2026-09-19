@@ -87,7 +87,8 @@ export async function POST(req: NextRequest) {
     ? booking.menu[0]?.name
     : (booking.menu as { name?: string } | null)?.name;
 
-  const startDt = new Date(`${booking.booking_date}T${booking.start_time}`);
+  // DBの日付・時刻は日本時間の予約値。実行環境のTZに依存させず、JST offsetを明示する。
+  const startDt = new Date(`${booking.booking_date}T${booking.start_time}+09:00`);
   // 【型修正・実バグ】bookings テーブルに duration_minutes 列は存在しない
   // （src/lib/schema-snapshot.json の bookings 列一覧・
   // supabase/migrations/20260323000003_phase4_bookings.sql の CREATE TABLE に無い）。
@@ -96,7 +97,7 @@ export async function POST(req: NextRequest) {
   // Google カレンダーの終了時刻が常に「開始+60分」固定で登録される無音バグだった。
   // bookings は start_time・end_time（ともに TIME 型・NOT NULL）を実際に持つため、
   // end_time から直接終了時刻を算出するよう修正する。
-  const endDt = new Date(`${booking.booking_date}T${booking.end_time}`);
+  const endDt = new Date(`${booking.booking_date}T${booking.end_time}+09:00`);
 
   const event = {
     summary: `${facilityName || '施設'} — ${menuName || '予約'}`,

@@ -47,9 +47,9 @@ type CountedTable =
   | 'user_points';
 
 /** テーブルの行数を取得 */
-async function getTableCount(supabase: ReturnType<typeof createServiceRoleClient>, table: CountedTable): Promise<number> {
-  const { count } = await supabase.from(table).select('id', { count: 'exact', head: true });
-  return count ?? 0;
+async function getTableCount(supabase: ReturnType<typeof createServiceRoleClient>, table: CountedTable): Promise<{ count: number | null; ok: boolean }> {
+  const { count, error } = await supabase.from(table).select('id', { count: 'exact', head: true });
+  return { count: error ? null : (count ?? 0), ok: !error };
 }
 
 // CSVエクスポート対象は4テーブルのみ（従来の allowedTables と同一の対象・同一の判定結果）。
@@ -84,16 +84,20 @@ export async function GET(request: NextRequest) {
     'coupons', 'user_points',
   ];
 
-  const counts: Record<string, number> = {};
+  const counts: Record<string, number | null> = {};
+  const failedTables: string[] = [];
   await Promise.all(tables.map(async (t) => {
-    counts[t] = await getTableCount(serviceSupabase, t);
+    const result = await getTableCount(serviceSupabase, t);
+    counts[t] = result.count;
+    if (!result.ok) failedTables.push(t);
   }));
 
   return NextResponse.json({
-    status: 'ok',
+    status: failedTables.length > 0 ? 'degraded' : 'ok',
     supabase_project: process.env.NEXT_PUBLIC_SUPABASE_URL?.split('.')[0]?.replace('https://', '') ?? 'unknown',
     checked_at: new Date().toISOString(),
     table_counts: counts,
+    failed_tables: failedTables,
     note: 'Supabase Pro では自動日次バックアップが有効です。Point-in-time recovery は Supabase Dashboard → Settings → Backups から確認できます。',
   });
 }
@@ -154,6 +158,7 @@ export async function POST(request: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       let totalRows = 0;
+      let streamFailed = false;
       try {
         controller.enqueue(encoder.encode(headers.join(',') + '\n'));
         let page = firstRows;
@@ -167,9 +172,16 @@ export async function POST(request: NextRequest) {
           const next = await fetchPage(offset);
           if (next.error) {
             console.error('[backup] export streaming query failed (partial export)', { table, offset, err: next.error });
-            break;
+            streamFailed = true;
+            controller.error(new Error('バックアップの出力中にデータ取得に失敗しました'));
+            return;
           }
-          page = (next.data ?? []) as Record<string, unknown>[];
+          if (!next.data) {
+            streamFailed = true;
+            controller.error(new Error('バックアップの出力中にデータ取得結果が不正でした'));
+            return;
+          }
+          page = next.data as Record<string, unknown>[];
           if (page.length === 0) break;
         }
 
@@ -183,7 +195,7 @@ export async function POST(request: NextRequest) {
           userAgent: ua,
         });
       } finally {
-        controller.close();
+        if (!streamFailed) controller.close();
       }
     },
   });

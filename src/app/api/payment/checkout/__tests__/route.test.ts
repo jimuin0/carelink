@@ -308,7 +308,7 @@ test('既存 pending セッションがある → 失効させてから新規作
   expect(json.url).toContain('checkout.stripe.com/new');
 });
 
-test('既存 pending の Stripe 失効が throw しても新規作成は続行する', async () => {
+test('既存 pending の Stripe 失効失敗 → 新規作成せず 500（重複決済防止）', async () => {
   mockFrom.mockReturnValue(singleChain(BOOKING_ROW));
   mockStalePending = [{ stripe_session_id: 'cs_old_x' }];
   const expireMock = jest.fn().mockRejectedValue(new Error('already finalized'));
@@ -316,11 +316,9 @@ test('既存 pending の Stripe 失効が throw しても新規作成は続行�
   Stripe.mockImplementation(() => ({
     checkout: { sessions: { create: mockStripeCreate, expire: expireMock } },
   }));
-  mockStripeCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/new2', id: 'cs_new2' });
-
   const res = await POST(makeRequest());
-  // .catch(()=>{}) で握り潰し、新規作成は成功する
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(500);
+  expect(mockStripeCreate).not.toHaveBeenCalled();
 });
 
 // Branch coverage: line 69 — total_price が null かつ menu?.price も undefined → ?? 0 にフォールバック（全 ?? false 分岐）

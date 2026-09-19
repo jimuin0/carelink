@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { alertCaughtError } from '@/lib/alert';
@@ -61,6 +62,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
   }
 
+  // state内のuserIdだけを信頼しない。OAuthを開始したブラウザの現在の
+  // Supabaseセッションと一致させ、stateの差し替えで他人のtokenを保存できないようにする。
+  const authClient = await createServerSupabaseAuthClient();
+  const { data: { user: currentUser } } = await authClient.auth.getUser();
+  if (!currentUser || currentUser.id !== userId) {
+    return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
+  }
+
   // Exchange code for tokens
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -82,12 +91,22 @@ export async function GET(req: NextRequest) {
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
 
   const admin = createServiceRoleClient();
+  const { data: existingToken, error: existingTokenError } = await admin
+    .from('google_calendar_tokens')
+    .select('refresh_token')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (existingTokenError) {
+    return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
+  }
   // トークン保存失敗を成功扱いにしない。失敗のまま success へ飛ばすと、
   // 連携できたと誤認させつつ以後のカレンダー同期がサイレントに動かなくなる。
   const { error: tokenSaveError } = await admin.from('google_calendar_tokens').upsert({
     user_id: userId,
     access_token: tokens.access_token,
-    refresh_token: tokens.refresh_token || null,
+    // Googleは再認可時にrefresh_tokenを省略することがある。省略を失効と解釈せず、
+    // 既存の有効tokenを保持する。明示的な切断は別APIでのみ行う。
+    refresh_token: tokens.refresh_token || existingToken?.refresh_token || null,
     expires_at: expiresAt,
     scope: tokens.scope || null,
     updated_at: new Date().toISOString(),

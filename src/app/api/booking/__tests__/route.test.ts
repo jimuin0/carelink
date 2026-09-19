@@ -1606,7 +1606,7 @@ describe('POST /api/booking', () => {
     expect(rpcArg.p_menu_id).not.toBe(foreignMenuId);
   });
 
-  test('複数メニューで menu_ids 保存が失敗 → warn のみ・成功継続', async () => {
+  test('複数メニューで menu_ids 保存が失敗 → 500（不完全な予約内容を成功扱いしない）', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const menuId1 = '323e4567-e89b-12d3-a456-426614174001';
     const menuId2 = '323e4567-e89b-12d3-a456-426614174002';
@@ -1635,12 +1635,8 @@ describe('POST /api/booking', () => {
       return restErr;
     });
 
-    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const res = await POST(makeRequest({ ...validBooking, menu_ids: [menuId1, menuId2] }));
-    const json = await res.json();
-    expect(json.success).toBe(true);
-    expect(errSpy).toHaveBeenCalled();
-    errSpy.mockRestore();
+    expect(res.status).toBe(500);
   });
 
   // 権威的なサーバ価格が無い（メニュー未指定で serverTotalPrice=null）状態でポイント利用を

@@ -125,7 +125,8 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
 
   // ポイント返還（金銭損失防止）。予約作成時に points_used を控除済みのため、キャンセル成立時に
   // 同額を補償行として戻す。CAS により本パスは1予約あたり1回しか到達しない（status 条件付き UPDATE が
-  // 成功した時のみ）ため、二重返還は起きない。失敗は致命でないため warn のみ（要手動照合）。
+  // 成功した時のみ）ため、二重返還は起きない。返還に失敗したまま成功を返すとポイントが
+  // 永久消失するため、明示的に 500 として運用再試行・照合へ送る。
   // user_points は authenticated に INSERT ポリシーが無いため service_role で挿入する。
   // booking.user_id は上の所有権チェック（!== userId で 403）により userId と一致＝非 null 保証。
   const refundPoints = booking.points_used ?? 0;
@@ -137,9 +138,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
       reason: 'キャンセル返還',
       booking_id: booking.id,
     });
-    if (refundErr) {
-      console.error('[cancel] point refund failed — manual cleanup needed', { bookingId: booking.id, points: refundPoints, err: refundErr.message });
-    }
+    if (refundErr) return serverError('booking-cancel-point-refund', refundErr, '/api/booking/[id]/cancel', 'ポイント返還に失敗しました。運営へお問い合わせください。');
   }
 
   // 監査ログ（非ブロッキング）

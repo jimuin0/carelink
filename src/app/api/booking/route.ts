@@ -315,12 +315,14 @@ export async function POST(request: Request) {
 
   // 複数メニュー予約は menu_ids 列に全メニューを保存する。create_booking_atomic は p_menu_id(単一)
   // しか受けず menu_id には先頭1件しか入らないため、保存しないと予約詳細の表示が1件目のみになる（A6）。
-  // 料金・所要時間は既に全メニュー合算で正しい。失敗は致命でない（menu_id への単一フォールバックで
-  // 表示は機能する）ため warn のみ。単一メニュー時は menu_id で足りるのでスキップ。
+  // 料金・所要時間は既に全メニュー合算で正しい。表示用の menu_ids が欠けると利用者へ
+  // 不完全な予約内容を返すため、失敗を握り潰さず可視化する（再試行・照合対象）。
   if (menuIdsToPrice.length > 1) {
     const svc = createServiceRoleClient();
     const { error: menuIdsErr } = await svc.from('bookings').update({ menu_ids: menuIdsToPrice }).eq('id', newBookingId);
-    if (menuIdsErr) console.error('[booking] menu_ids persist failed', { bookingId: newBookingId, err: menuIdsErr.message });
+    if (menuIdsErr) {
+      return serverError('booking-menu-ids-persist', menuIdsErr, '/api/booking', '予約内容の保存に失敗しました。時間をおいて再度お試しください。');
+    }
   }
 
   // Points deduction with CAS (compare-and-swap) to prevent race conditions:

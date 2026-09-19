@@ -84,6 +84,10 @@ body {
   .form-error {
     @apply text-red-500 text-sm mt-1;
   }
+
+  .form-help {
+    @apply mt-1 text-xs text-gray-500;
+  }
   .card {
     @apply bg-white rounded-2xl shadow-lg p-6 sm:p-8 transition-shadow duration-200 hover:shadow-xl;
   }

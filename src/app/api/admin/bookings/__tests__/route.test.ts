@@ -186,16 +186,13 @@ test('複数メニュー → menu_ids を保存 → 201', async () => {
   expect(res.status).toBe(201);
 });
 
-test('複数メニューで menu_ids 保存が失敗 → warn のみ・201', async () => {
+test('複数メニューで menu_ids 保存が失敗 → 500', async () => {
   setupAdminTables({
     menus: [{ id: MENU_UUID, name: 'カット', price: 5000 }, { id: MENU_UUID2, name: 'カラー', price: 3000 }],
     bookingsUpdateError: { message: 'persist fail' },
   });
-  const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   const res = await POST(makeRequest(validBody({ menu_ids: [MENU_UUID, MENU_UUID2] })) as never);
-  expect(res.status).toBe(201);
-  expect(errSpy).toHaveBeenCalled();
-  errSpy.mockRestore();
+  expect(res.status).toBe(500);
 });
 
 test('スタッフ指定（指名料あり） → 201・指名料加算', async () => {

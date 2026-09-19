@@ -188,9 +188,9 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createS
           .eq('id', meta.slot_id)
           .select('id');
         if (slotErr) {
-          console.error('[stripe/webhook] featured_slot activate failed:', slotErr);
+          throw new Error(`featured_slots activate failed: ${slotErr.message}`);
         } else if (!slotRows || slotRows.length === 0) {
-          console.error('[stripe/webhook] featured_slot activate matched 0 rows', { slotId: meta.slot_id });
+          throw new Error(`featured_slots activate matched 0 rows: ${meta.slot_id}`);
         }
       }
       break;
@@ -198,9 +198,10 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createS
 
     case 'checkout.session.expired': {
       const session = event.data.object as Stripe.Checkout.Session;
-      await admin.from('stripe_sessions')
+      const { error: expiredError } = await admin.from('stripe_sessions')
         .update({ status: 'expired', updated_at: new Date().toISOString() })
         .eq('stripe_session_id', session.id);
+      if (expiredError) throw new Error(`stripe_sessions expired update failed: ${expiredError.message}`);
       break;
     }
 

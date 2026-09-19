@@ -339,7 +339,7 @@ describe('POST: ストリーミングの複数ページ処理', () => {
     expect(rangeCallCount).toBe(2);
   });
 
-  test('2ページ目取得でエラー → 1ページ目分だけ出力して打ち切り（部分エクスポート）', async () => {
+  test('2ページ目取得でエラー → 不完全CSVを成功扱いしない', async () => {
     mockAnonFrom.mockReturnValue(profileChain(true));
     let rangeCallCount = 0;
     mockAdminFrom.mockReturnValue({
@@ -356,13 +356,11 @@ describe('POST: ストリーミングの複数ページ処理', () => {
       }),
     });
     const res = await POST(makePostRequest({ table: 'bookings' }));
-    expect(res.status).toBe(200); // ヘッダー確定後なので200のまま（打ち切りのみ）
-    const csv = await res.text();
-    const lines = csv.trim().split('\n');
-    expect(lines.length).toBe(1 + 1000); // header + 1ページ目のみ
+    expect(res.status).toBe(200); // HTTP headers確定後のstream error
+    await expect(res.text()).rejects.toThrow();
   });
 
-  test('2ページ目がdata:nullを返す → 打ち切り', async () => {
+  test('2ページ目がdata:nullを返す → 不完全CSVを成功扱いしない', async () => {
     mockAnonFrom.mockReturnValue(profileChain(true));
     let rangeCallCount = 0;
     mockAdminFrom.mockReturnValue({
@@ -379,8 +377,6 @@ describe('POST: ストリーミングの複数ページ処理', () => {
       }),
     });
     const res = await POST(makePostRequest({ table: 'bookings' }));
-    const csv = await res.text();
-    const lines = csv.trim().split('\n');
-    expect(lines.length).toBe(1 + 1000);
+    await expect(res.text()).rejects.toThrow();
   });
 });
