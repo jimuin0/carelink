@@ -1732,6 +1732,75 @@ describe('POST /api/booking', () => {
     }));
   });
 
+  test('ポイント控除RPCが残高不足を返す → 予約ロールバック+400', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-atomic-error' } } });
+    const { menuChain, balanceChain } = pointMenuChains(100000, 1000);
+    const nullChain = fluent({ data: null });
+    const rollbackBookingChain: Record<string, unknown> = {
+      update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
+    };
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return balanceChain;
+      if (table === 'bookings') return rollbackBookingChain;
+      return nullChain;
+    });
+    mockRpc
+      .mockResolvedValueOnce({ data: 'booking-atomic-insufficient', error: null })
+      .mockResolvedValueOnce({ data: null, error: { message: 'INSUFFICIENT_POINTS' } });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 150 }));
+    expect(res.status).toBe(400);
+    expect(rollbackBookingChain.update).toHaveBeenCalledWith({ status: 'cancelled' });
+  });
+
+  test('ポイント控除RPCが一般エラーを返す → 予約ロールバック+500', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-atomic-error' } } });
+    const { menuChain, balanceChain } = pointMenuChains(100000, 1000);
+    const nullChain = fluent({ data: null });
+    const rollbackBookingChain: Record<string, unknown> = {
+      update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
+    };
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return balanceChain;
+      if (table === 'bookings') return rollbackBookingChain;
+      return nullChain;
+    });
+    mockRpc
+      .mockResolvedValueOnce({ data: 'booking-atomic-error', error: null })
+      .mockResolvedValueOnce({ data: null, error: { message: 'RPC unavailable' } });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 150 }));
+    expect(res.status).toBe(500);
+    expect(rollbackBookingChain.update).toHaveBeenCalledWith({ status: 'cancelled' });
+  });
+
+  test('ポイント控除RPCの戻り値が不正 → 予約ロールバック+500', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-atomic-invalid' } } });
+    const { menuChain, balanceChain } = pointMenuChains(100000, 1000);
+    const nullChain = fluent({ data: null });
+    const rollbackBookingChain: Record<string, unknown> = {
+      update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
+    };
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return balanceChain;
+      if (table === 'bookings') return rollbackBookingChain;
+      return nullChain;
+    });
+    mockRpc
+      .mockResolvedValueOnce({ data: 'booking-atomic-invalid', error: null })
+      .mockResolvedValueOnce({ data: { deduction_id: 123 }, error: null });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 150 }));
+    expect(res.status).toBe(500);
+    expect(rollbackBookingChain.update).toHaveBeenCalledWith({ status: 'cancelled' });
+  });
+
   test('LINE Works通知パス（isLineWorksConfigured=true）', async () => {
     const { isLineWorksConfigured, notifyNewBookingLineWorks } = jest.requireMock('@/lib/integrations/line-works') as {
       isLineWorksConfigured: jest.Mock;

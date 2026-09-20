@@ -170,6 +170,29 @@ describe('POST /api/nps', () => {
     expect(mockSelectBooking).toHaveBeenCalled();
   });
 
+  test('予約照会エラー → 500', async () => {
+    mockSelectBooking.mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          single: jest.fn().mockResolvedValue({ data: null, error: { message: 'booking lookup failed' } }),
+        }),
+      }),
+    });
+    const { POST } = await import('../route');
+    const res = await POST(makePostRequest({ score: 8, booking_id: BOOKING_UUID }) as any);
+    expect(res.status).toBe(500);
+  });
+
+  test('未認証・予約なしでもNPSを送信できる', async () => {
+    mockGetUser = jest.fn().mockResolvedValue({ data: { user: null } });
+    const { createServerSupabaseAuthClient } = require('@/lib/supabase-server-auth');
+    createServerSupabaseAuthClient.mockResolvedValue({ auth: { getUser: mockGetUser } });
+    const { POST } = await import('../route');
+    const res = await POST(makePostRequest({ score: 8 }) as any);
+    expect(res.status).toBe(201);
+    expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({ user_id: null }));
+  });
+
   test('unowned booking_id is rejected without creating a survey', async () => {
     setupDefaultMocks(false);
 

@@ -468,6 +468,15 @@ describe('POST /api/stripe/webhook', () => {
       expect(mockStripeSessionsUpdate).toHaveBeenCalled();
     });
 
+    test('checkout.session.expired のDB更新失敗 → 500（Stripe再送対象）', async () => {
+      mockStripeSessionsUpdate.mockImplementationOnce(() => ({
+        eq: jest.fn(() => chainableResult({ error: { message: 'expired update failed' } })),
+      }));
+      setupEventMock('checkout.session.expired', { id: 'cs_expired_error' });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(500);
+    });
+
     test('charge.refunded → marks session refunded', async () => {
       setupEventMock('charge.refunded', {
         payment_intent: 'pi_refund_001',

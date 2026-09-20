@@ -309,6 +309,20 @@ test('GET: count が null → 0 にフォールバック', async () => {
   expect(json.table_counts.bookings).toBe(0);
 });
 
+test('GET: 行数照会エラー → degraded と failed_tables を返す', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue({
+    select: jest.fn().mockReturnValue({
+      then: (fn: (v: unknown) => unknown) => Promise.resolve({ count: null, error: { message: 'count failed' } }).then(fn),
+    }),
+  });
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.status).toBe('degraded');
+  expect(json.failed_tables).toHaveLength(8);
+});
+
 // 監査P9: ReadableStreamのページング（複数ページにまたがるケース）
 describe('POST: ストリーミングの複数ページ処理', () => {
   function makeRow(i: number) {
@@ -378,5 +392,26 @@ describe('POST: ストリーミングの複数ページ処理', () => {
     });
     const res = await POST(makePostRequest({ table: 'bookings' }));
     await expect(res.text()).rejects.toThrow();
+  });
+
+  test('2ページ目が空配列 → ストリームを正常終了する', async () => {
+    mockAnonFrom.mockReturnValue(profileChain(true));
+    let rangeCallCount = 0;
+    mockAdminFrom.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        order: jest.fn().mockReturnValue({
+          range: jest.fn(() => {
+            rangeCallCount++;
+            if (rangeCallCount === 1) {
+              return Promise.resolve({ data: Array.from({ length: 1000 }, (_, i) => makeRow(i)), error: null });
+            }
+            return Promise.resolve({ data: [], error: null });
+          }),
+        }),
+      }),
+    });
+    const res = await POST(makePostRequest({ table: 'bookings' }));
+    expect(res.status).toBe(200);
+    expect((await res.text()).split('\n').length).toBe(1002);
   });
 });

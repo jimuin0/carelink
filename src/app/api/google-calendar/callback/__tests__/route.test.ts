@@ -560,6 +560,24 @@ describe('GET /api/google-calendar/callback', () => {
     );
   });
 
+  test('既存トークン照会が失敗 → redirect with gcal=error', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: null, error: new Error('lookup failed') }),
+          }),
+        }),
+        upsert: mockUpsert,
+      }),
+    });
+    const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('gcal=error');
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
   // Branch coverage: トークン upsert が失敗 → 成功扱いにせず gcal=error へ
   test('token upsert が失敗 → redirect with gcal=error', async () => {
     setupDefaultMocks(false, true, true, true, false);

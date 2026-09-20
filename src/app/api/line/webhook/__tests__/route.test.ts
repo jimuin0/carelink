@@ -171,6 +171,18 @@ describe('POST /api/line/webhook', () => {
     );
   });
 
+  test('follow event: link upsert エラー → 500（LINE再送対象）', async () => {
+    mockFromDelegate.mockReturnValue({
+      upsert: jest.fn().mockResolvedValue({ error: { message: 'upsert failed' } }),
+    });
+    const res = await POST(
+      makeRequest({
+        events: [{ type: 'follow', source: { userId: VALID_LINE_USER_ID }, replyToken: 'token-123' }],
+      }) as any
+    );
+    expect(res.status).toBe(500);
+  });
+
   test('unfollow event → line_user_links を削除（dead link 除去）', async () => {
     const mockEq = jest.fn().mockResolvedValue({ error: null });
     const mockDelete = jest.fn().mockReturnValue({ eq: mockEq });

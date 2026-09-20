@@ -27,6 +27,7 @@ const mockServiceInsert = jest.fn(() => Promise.resolve({ error: null }));
 // 既存 pending セッション失効ロジック用。既定は「既存 pending 無し」。
 let mockStalePending: { stripe_session_id: string }[] = [];
 const mockServiceUpdate = jest.fn(() => Promise.resolve({ error: null }));
+let mockExpireDbError: { message: string } | null = null;
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockFrom, auth: { getUser: mockGetUser } }),
@@ -44,7 +45,7 @@ jest.mock('@/lib/supabase-server', () => ({
       // update(...).eq(...).eq(...) → pending → expired 更新
       update: jest.fn((...args: unknown[]) => {
         mockServiceUpdate(...args);
-        return { eq: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) };
+        return { eq: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: mockExpireDbError })) })) };
       }),
     })),
   })),
@@ -98,6 +99,7 @@ beforeEach(() => {
   mockStripeCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/test', id: 'cs_test' });
   mockServiceInsert.mockImplementation(() => Promise.resolve({ error: null }));
   mockStalePending = [];
+  mockExpireDbError = null;
   process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
@@ -312,6 +314,20 @@ test('既存 pending の Stripe 失効失敗 → 新規作成せず 500（重複
   mockFrom.mockReturnValue(singleChain(BOOKING_ROW));
   mockStalePending = [{ stripe_session_id: 'cs_old_x' }];
   const expireMock = jest.fn().mockRejectedValue(new Error('already finalized'));
+  const Stripe = require('stripe');
+  Stripe.mockImplementation(() => ({
+    checkout: { sessions: { create: mockStripeCreate, expire: expireMock } },
+  }));
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(500);
+  expect(mockStripeCreate).not.toHaveBeenCalled();
+});
+
+test('既存 pending のDB更新失敗 → 新規作成せず 500', async () => {
+  mockFrom.mockReturnValue(singleChain(BOOKING_ROW));
+  mockStalePending = [{ stripe_session_id: 'cs_old_db_error' }];
+  mockExpireDbError = { message: 'persist failed' };
+  const expireMock = jest.fn().mockResolvedValue(undefined);
   const Stripe = require('stripe');
   Stripe.mockImplementation(() => ({
     checkout: { sessions: { create: mockStripeCreate, expire: expireMock } },
