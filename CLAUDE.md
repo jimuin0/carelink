@@ -368,6 +368,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 | SLACK_BOT_TOKEN / SLACK_SIGNING_SECRET / SLACK_DEFAULT_CHANNEL | Slack 通知・スラッシュコマンド署名検証 |
 | GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_MAPS_API_KEY | Google カレンダー連携・地図 |
 | ANTHROPIC_API_KEY | AI サポート |
+| AI_CHAT_DAILY_REQUEST_LIMIT | 匿名AIチャットの直近24時間あたり共有上限（正の整数。production未設定・不正値では有料呼出しを停止） |
 | RECAPTCHA_SECRET_KEY | reCAPTCHA 検証 |
 | VAPID_PRIVATE_KEY / NEXT_PUBLIC_VAPID_PUBLIC_KEY | Web Push |
 | NEXT_PUBLIC_GA_ID / NEXT_PUBLIC_CLARITY_ID | GA4／Clarity（空なら無効） |

@@ -6,18 +6,42 @@
 
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { createHmac } from 'crypto';
 import { z } from 'zod';
-import { checkRateLimit } from '@/lib/rate-limit';
+import { checkRateLimitStrict } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { withRoute } from '@/lib/with-route';
 import { verifyRecaptcha } from '@/lib/recaptcha';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 type ChatMessage = { role: string; content: string };
+const DAILY_QUOTA_WINDOW_MS = 24 * 60 * 60_000;
 const chatRequestSchema = z.object({
   messages: z.array(z.unknown()).min(1).max(50),
   recaptcha_token: z.string().trim().min(1).optional(),
 });
+
+function isProductionRuntime(): boolean {
+  return process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
+}
+
+function getDailyRequestLimit(): number | null {
+  const raw = process.env.AI_CHAT_DAILY_REQUEST_LIMIT;
+  if (!raw || !/^[1-9]\d*$/.test(raw)) return null;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed <= 2_147_483_647 ? parsed : null;
+}
+
+function getPrivacySafeRateLimitKey(ip: string): string | null {
+  const hmacKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!hmacKey) return null;
+  return createHmac('sha256', hmacKey)
+    .update(`carelink:ai-chat-rate-limit:v1:${ip}`)
+    .digest('hex');
+}
+
+function unavailable(message = 'AIサービスは一時的に利用できません'): NextResponse {
+  return NextResponse.json({ error: message }, { status: 503 });
+}
 
 const SYSTEM_PROMPT = `あなたはCareLink（ケアリンク）の公式AIアシスタントです。
 CareLinKは鍼灸・整体・マッサージなどの施術施設を検索・予約できる日本のプラットフォームです。
@@ -40,9 +64,37 @@ CareLinKは鍼灸・整体・マッサージなどの施術施設を検索・予
 - 3文以内に収める（詳細が必要な場合は箇条書きを使う）`;
 
 export const POST = withRoute(async (request) => {
+  const production = isProductionRuntime();
+  const dailyLimit = getDailyRequestLimit();
+  const recaptchaSecret = process.env.RECAPTCHA_SECRET_KEY;
+  const recaptchaSiteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY;
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+
+  // Paid provider access is disabled in production unless all required controls
+  // are configured. Never interpret missing controls as an allow decision.
+  if (
+    !anthropicApiKey ||
+    (production && (!dailyLimit || !recaptchaSecret || !recaptchaSiteKey)) ||
+    (Boolean(recaptchaSecret) !== Boolean(recaptchaSiteKey))
+  ) {
+    console.error('[chat] required provider protection is not configured');
+    return unavailable();
+  }
+
   const ip = getClientIp(request);
-  if (await checkRateLimit(null, ip, 5, 60000, 'chat')) {
-    return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
+  const quotaKey = getPrivacySafeRateLimitKey(ip);
+  if (!quotaKey) {
+    console.error('[chat] quota identity is unavailable');
+    return unavailable();
+  }
+
+  try {
+    if (await checkRateLimitStrict(null, quotaKey, 5, 60_000, 'chat-burst')) {
+      return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
+    }
+  } catch {
+    console.error('[chat] shared rate-limit service is unavailable');
+    return unavailable();
   }
 
   let body: unknown;
@@ -54,7 +106,7 @@ export const POST = withRoute(async (request) => {
   }
 
   // 公開のAI入口は従量課金を伴うため、secret設定時はtoken欠如もfail-closedにする。
-  if (process.env.RECAPTCHA_SECRET_KEY) {
+  if (recaptchaSecret) {
     if (!parsed.data.recaptcha_token) {
       return NextResponse.json({ error: 'Bot検知: 時間をおいて再度お試しください' }, { status: 403 });
     }
@@ -83,16 +135,40 @@ export const POST = withRoute(async (request) => {
     return NextResponse.json({ error: 'Messages too large' }, { status: 413 });
   }
 
+  // Development may omit the business-selected rolling 24-hour cap. Production
+  // fails closed above; when configured, consume shared quota before provider I/O.
+  if (dailyLimit !== null) {
+    try {
+      if (await checkRateLimitStrict(null, quotaKey, dailyLimit, DAILY_QUOTA_WINDOW_MS, 'chat-daily')) {
+        return NextResponse.json({ error: '直近24時間の利用上限に達しました。時間をおいて再度お試しください。' }, { status: 429 });
+      }
+    } catch {
+      console.error('[chat] daily quota service is unavailable');
+      return unavailable();
+    }
+  }
+
   try {
+    const anthropic = new Anthropic({ apiKey: anthropicApiKey });
     const response = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 512,
       system: SYSTEM_PROMPT,
       messages: validMessages,
     }, { signal: AbortSignal.timeout(15_000) });
+    console.info('[chat] provider usage', {
+      provider: 'anthropic',
+      model: 'claude-haiku-4-5-20251001',
+      inputTokens: response.usage?.input_tokens ?? null,
+      outputTokens: response.usage?.output_tokens ?? null,
+    });
     const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
     return NextResponse.json({ reply: text });
-  } catch {
+  } catch (error) {
+    console.error('[chat] provider request failed', {
+      provider: 'anthropic',
+      errorType: error instanceof Error ? error.name : 'unknown',
+    });
     return NextResponse.json({ error: 'AIサービスに接続できませんでした' }, { status: 503 });
   }
 }, {

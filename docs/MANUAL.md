@@ -550,6 +550,7 @@ Supabase (PostgreSQL + Storage)
 | `RECAPTCHA_SECRET_KEY` | reCAPTCHA v3 秘密鍵（口コミBotスパム対策、`src/lib/recaptcha.ts`、v8.35追加） | - | サーバーのみ | Vercel |
 | `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` | reCAPTCHA v3 サイトキー（v8.35追加） | - | クライアント | Vercel |
 | `ANTHROPIC_API_KEY` | Anthropic API キー（AIチャット/レビュー分析/症状提案、Claude Haiku使用） | - | サーバーのみ | Vercel |
+| `AI_CHAT_DAILY_REQUEST_LIMIT` | 匿名AIチャットの直近24時間あたり共有上限（正の整数。production未設定・不正値ではチャットの有料呼出しを停止） | - | サーバーのみ | Vercel |
 
 > **NEXT_PUBLIC_** プレフィックス付き: クライアントJSバンドルに含まれる（公開される）
 > **プレフィックスなし** (`SLACK_WEBHOOK_URL`): サーバー側のAPI Route内でのみアクセス可能
