@@ -438,6 +438,59 @@ describe('POST /api/waitlist', () => {
     expect(res.status).toBe(400);
   });
 
+  test('menu_id と staff_id が施設に所属 → 登録成功', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const facilityChain = {
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'fac-1', name: 'Test Salon' }, error: null }),
+          }),
+        }),
+      }),
+    };
+    const menuChain = {
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'menu-1' }, error: null }),
+          }),
+        }),
+      }),
+    };
+    const staffChain = {
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'staff-1' }, error: null }),
+          }),
+        }),
+      }),
+    };
+    const insertFn = jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        single: jest.fn().mockResolvedValue({ data: { id: 'entry-1' }, error: null }),
+      }),
+    });
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: null } }) },
+      from: jest.fn((table: string) => {
+        if (table === 'facility_profiles') return facilityChain;
+        if (table === 'facility_menus') return menuChain;
+        if (table === 'staff_profiles') return staffChain;
+        return { insert: insertFn };
+      }),
+    });
+
+    const res = await POST(makePostRequest({
+      ...validWaitlist,
+      menu_id: '11111111-1111-4111-8111-111111111111',
+      staff_id: '22222222-2222-4222-8222-222222222222',
+    }));
+    expect(res.status).toBe(200);
+    expect(insertFn).toHaveBeenCalled();
+  });
+
   test('insert returns no entry but no error → 500', async () => {
     const { createServerClient } = require('@supabase/ssr');
     const singleFn = jest.fn().mockResolvedValue({ data: null, error: null });
