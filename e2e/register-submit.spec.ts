@@ -48,7 +48,8 @@ test('DB は新規 register に外観写真がない行を拒否する', async (
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !isLocalUrl(url) || !serviceRoleKey) {
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !isLocalUrl(url) || !serviceRoleKey || !anonKey) {
     throw new Error('DB contract test requires the disposable local Supabase credentials');
   }
 
@@ -75,6 +76,35 @@ test('DB は新規 register に外観写真がない行を拒否する', async (
     expect(error?.code).toBe('23514');
     expect(error?.message).toContain('salons_register_requires_exterior_photo');
   }
+
+  // SECURITY DEFINER RPC は service_role 専用。存在しない一意コードを使うため、
+  // 誤って権限が残っていても referral_codes の行は変更されない。
+  const probeCode = `__e2e_acl_probe_${crypto.randomUUID()}__`;
+  const rpcUrl = `${url}/rest/v1/rpc/increment_referral_code_used_count`;
+  const serviceRoleResponse = await fetch(rpcUrl, {
+    method: 'POST',
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ p_code: probeCode }),
+  });
+  expect(serviceRoleResponse.ok).toBe(true);
+  await expect(serviceRoleResponse.json()).resolves.toBeNull();
+
+  const anonResponse = await fetch(rpcUrl, {
+    method: 'POST',
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${anonKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ p_code: probeCode }),
+  });
+  expect(anonResponse.ok).toBe(false);
+  const anonError = await anonResponse.json().catch(() => null);
+  expect(anonError?.code).toBe('42501');
 });
 
 // 4択のうち、この2つを実際に踏む。immediately が今回の実障害の直接再現（一番最初の選択肢で

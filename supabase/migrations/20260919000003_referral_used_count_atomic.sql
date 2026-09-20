@@ -24,5 +24,7 @@ BEGIN
 END
 $function$;
 
-REVOKE ALL ON FUNCTION public.increment_referral_code_used_count(text) FROM PUBLIC;
+-- Supabase の default privileges が anon/authenticated に直接 EXECUTE を付与する環境もあるため、
+-- PUBLIC だけでなく API role からも明示的に剥奪し、サーバーの service_role だけに限定する。
+REVOKE ALL ON FUNCTION public.increment_referral_code_used_count(text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.increment_referral_code_used_count(text) TO service_role;

@@ -1508,8 +1508,6 @@
 "functiongrant|public.handle_new_user()|anon|EXECUTE",
 "functiongrant|public.handle_new_user()|authenticated|EXECUTE",
 "functiongrant|public.handle_new_user()|service_role|EXECUTE",
-"functiongrant|public.increment_referral_code_used_count(text)|anon|EXECUTE",
-"functiongrant|public.increment_referral_code_used_count(text)|authenticated|EXECUTE",
 "functiongrant|public.increment_referral_code_used_count(text)|service_role|EXECUTE",
 "functiongrant|public.increment_view_count(uuid)|anon|EXECUTE",
 "functiongrant|public.increment_view_count(uuid)|authenticated|EXECUTE",
