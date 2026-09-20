@@ -1372,6 +1372,7 @@
 "constraint|salon_customer_notes|p|salon_customer_notes_pkey|PRIMARY KEY (id)",
 "constraint|salon_customer_notes|u|salon_customer_notes_facility_id_customer_key_key|UNIQUE (facility_id, customer_key)",
 "constraint|salons|c|salons_source_check|CHECK (((source IS NULL) OR (source = ANY (ARRAY['register'::text, 'recruit'::text]))))",
+"constraint|salons|c|salons_register_requires_exterior_photo|CHECK (((source IS DISTINCT FROM 'register'::text) OR ((COALESCE(cardinality(photo_urls), 0) > 0) AND COALESCE((photo_urls[1] ~~ '%/exterior.%'::text), false))))",
 "constraint|salons|f|salons_claimed_by_user_id_fkey|FOREIGN KEY (claimed_by_user_id) REFERENCES auth.users(id) ON DELETE SET NULL",
 "constraint|salons|p|salons_pkey|PRIMARY KEY (id)",
 "constraint|schedule_overrides|f|schedule_overrides_staff_id_fkey|FOREIGN KEY (staff_id) REFERENCES public.staff_profiles(id) ON DELETE CASCADE",
