@@ -274,7 +274,7 @@ function SignupContent() {
           <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
             <div>
               <label htmlFor="signup-name" className="form-label">お名前 <span className="text-red-500">*</span></label>
-              <p id="signup-name-help" className="mt-1 text-xs text-gray-500">1〜50文字で入力してください。</p>
+              <p id="signup-name-help" className="mt-1 text-xs text-gray-500">1〜50文字で入力してください。姓と名の間のスペースはあってもなくても構いません。</p>
               <input
                 {...register('display_name')}
                 id="signup-name"

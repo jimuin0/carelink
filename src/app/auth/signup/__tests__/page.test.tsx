@@ -67,6 +67,7 @@ test('店舗ログイン経由の新規登録は店舗向けの登録文脈を�
 
   expect(await screen.findByText(/施設オーナーさま向けのアカウント作成です/)).toBeInTheDocument();
   expect(screen.getByText(/登録後、管理画面へ移動します/)).toBeInTheDocument();
+  expect(screen.getByText('1〜50文字で入力してください。姓と名の間のスペースはあってもなくても構いません。')).toBeInTheDocument();
   expect(screen.getByText('8〜128文字で入力してください。英字・数字・記号を組み合わせる必要はありません。')).toBeInTheDocument();
   expect(document.getElementById('signup-name')).toHaveAttribute('required');
   expect(document.getElementById('signup-password')).toHaveAttribute('required');
