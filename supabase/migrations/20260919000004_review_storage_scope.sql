@@ -23,5 +23,5 @@ CREATE POLICY "review_photos_delete_own" ON storage.objects
   FOR DELETE TO authenticated
   USING (
     bucket_id = 'review-photos'
-    AND owner_id = auth.uid()
+    AND owner_id = auth.uid()::text
   );

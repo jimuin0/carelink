@@ -36,5 +36,5 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.deduct_points_atomic(UUID, INT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.deduct_points_atomic(UUID, INT, TEXT) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.deduct_points_atomic(UUID, INT, TEXT) TO service_role;
