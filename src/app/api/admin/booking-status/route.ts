@@ -9,7 +9,6 @@ import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } f
 import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
 import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { sendPushToUser } from '@/lib/push';
-import { reverseCompletionSideEffects } from '@/lib/booking-completion-reversal';
 import { applyCompletionSideEffects } from '@/lib/booking-completion';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -98,28 +97,62 @@ export async function POST(request: Request) {
       );
     }
 
-    // Update status — include current status in WHERE clause (CAS) so concurrent updates
-    // cannot bypass the state machine by updating a stale read.
-    const { data: updated, error } = await supabase
-      .from('bookings')
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq('id', bookingId)
-      .eq('facility_id', booking.facility_id)
-      .eq('status', booking.status)  // atomic guard: fail if status changed since we read it
-      .select('id');
-
-    if (error) {
-      return serverError('admin-booking-status-update', error, '/api/admin/booking-status', '更新に失敗しました');
+    // Cancellation/refund and completed→no_show reversal share DB transactions with
+    // their side effects. Other transitions retain the status CAS update.
+    let statusUpdated = false;
+    if (status === 'cancelled') {
+      const rpc = supabase.rpc as unknown as (
+        fn: string,
+        args: Record<string, unknown>
+      ) => Promise<{ data: unknown; error: { message?: string } | null }>;
+      const { data: cancellationResult, error } = await rpc('cancel_booking_with_points_atomic', {
+        p_booking_id: bookingId,
+        p_facility_id: booking.facility_id,
+        p_user_id: booking.user_id,
+        p_expected_status: booking.status,
+      });
+      if (error) {
+        return serverError('admin-booking-status-cancel-atomic', error, '/api/admin/booking-status', '更新に失敗しました');
+      }
+      statusUpdated = Boolean(
+        cancellationResult &&
+        typeof cancellationResult === 'object' &&
+        (cancellationResult as { cancelled?: unknown }).cancelled === true
+      );
+    } else if (status === 'no_show') {
+      const rpc = supabase.rpc as unknown as (
+        fn: string,
+        args: Record<string, unknown>
+      ) => Promise<{ data: unknown; error: { message?: string } | null }>;
+      const { data: noShowResult, error } = await rpc('mark_booking_no_show_atomic', {
+        p_booking_id: bookingId,
+        p_facility_id: booking.facility_id,
+        p_expected_status: booking.status,
+      });
+      if (error) {
+        return serverError('admin-booking-status-no-show-atomic', error, '/api/admin/booking-status', '更新に失敗しました');
+      }
+      statusUpdated = Boolean(
+        noShowResult &&
+        typeof noShowResult === 'object' &&
+        (noShowResult as { updated?: unknown }).updated === true
+      );
+    } else {
+      const { data: updated, error } = await supabase
+        .from('bookings')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', bookingId)
+        .eq('facility_id', booking.facility_id)
+        .eq('status', booking.status)
+        .select('id');
+      if (error) {
+        return serverError('admin-booking-status-update', error, '/api/admin/booking-status', '更新に失敗しました');
+      }
+      statusUpdated = Boolean(updated && updated.length > 0);
     }
-    if (!updated || updated.length === 0) {
+
+    if (!statusUpdated) {
       return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
-    }
-
-    // completed から離脱（誤完了→no_show 修正等）した場合、完了時に付与した来店記録・ポイントを取り消す。
-    // completed からの許可遷移は no_show のみ（completed→completed は上の「既にそのステータス」で弾かれる）
-    // ため、origin が completed か否かの単一条件で足りる。
-    if (booking.status === 'completed') {
-      await reverseCompletionSideEffects(createServiceRoleClient(), bookingId);
     }
 
     // completed へ「進入」した場合、来店記録(customer_visits)・来店ポイントを付与する。
@@ -129,25 +162,6 @@ export async function POST(request: Request) {
     // CAS 更新成功後＝confirmed→completed が1回だけ確定した後に呼ぶため重複付与しない。
     if (status === 'completed') {
       await applyCompletionSideEffects(supabase, booking);
-    }
-
-    // cancelled へ「進入」した場合、予約作成時に控除した利用ポイントを返還する（金銭損失防止）。
-    // 顧客側キャンセル(/api/booking/[id]/cancel)と対称。CAS 更新成功後＝1予約あたり1回のみ到達するため
-    // 二重返還は起きない。元状態が cancelled の遷移は state machine で存在しない（cancelled は終端）。
-    // 失敗は致命でないため warn のみ（要手動照合）。
-    if (status === 'cancelled') {
-      const refundPoints = booking.points_used ?? 0;
-      if (refundPoints > 0 && booking.user_id) {
-        const { error: refundErr } = await supabase.from('user_points').insert({
-          user_id: booking.user_id,
-          points: refundPoints,
-          reason: 'キャンセル返還',
-          booking_id: booking.id,
-        });
-        if (refundErr) {
-          console.error('[admin-booking-status] point refund failed — manual cleanup needed', { bookingId: booking.id, points: refundPoints, err: refundErr.message });
-        }
-      }
     }
 
     void writeAuditLog({

@@ -17,6 +17,10 @@ import { Counter, Trend } from 'k6/metrics';
 
 // === 設定 ===
 const BASE_URL = __ENV.TARGET_URL || 'http://localhost:3000';
+const TARGET_HOST = new URL(BASE_URL).hostname.toLowerCase();
+if (TARGET_HOST === 'carelink-jp.com' || TARGET_HOST === 'www.carelink-jp.com') {
+  throw new Error('Production load tests are prohibited; use an isolated test deployment.');
+}
 const FACILITY_ID = __ENV.FACILITY_ID || 'test-facility-id';
 const MENU_ID = __ENV.MENU_ID || 'test-menu-id';
 const AUTH_TOKEN = __ENV.TEST_USER_TOKEN || '';
@@ -48,13 +52,21 @@ export const options = {
   },
 };
 
-const BOOKING_DATE = '2099-12-31';  // 遠未来の日付（テスト専用）
-const START_TIME = '10:00:00';
-const END_TIME = '11:00:00';
+const BOOKING_DATE = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+const START_TIME = '10:00';
+const END_TIME = '11:00';
+
+function newIdempotencyKey() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.floor(Math.random() * 16);
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
 
 export default function () {
   const headers = {
     'Content-Type': 'application/json',
+    'Idempotency-Key': newIdempotencyKey(),
     ...(AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}),
   };
 
@@ -65,9 +77,12 @@ export default function () {
     booking_date: BOOKING_DATE,
     start_time: START_TIME,
     end_time: END_TIME,
-    customer_name: `テスト_神原良祐_${Date.now()}`,
-    customer_phone: '09015992055',
-    customer_email: `test+${__VU}@example.com`,
+    customer_name: `Synthetic load customer ${__VU}-${__ITER}`,
+    email: `load-${__VU}-${__ITER}@example.invalid`,
+    phone: null,
+    coupon_id: null,
+    total_price: 5000,
+    points_used: 0,
   });
 
   const startTime = Date.now();

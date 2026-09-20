@@ -510,6 +510,7 @@ export type Database = {
           end_time: string
           facility_id: string
           id: string
+          idempotency_key: string | null
           menu_id: string | null
           menu_ids: string[] | null
           note: string | null
@@ -539,6 +540,7 @@ export type Database = {
           end_time: string
           facility_id: string
           id?: string
+          idempotency_key?: string | null
           menu_id?: string | null
           menu_ids?: string[] | null
           note?: string | null
@@ -568,6 +570,7 @@ export type Database = {
           end_time?: string
           facility_id?: string
           id?: string
+          idempotency_key?: string | null
           menu_id?: string | null
           menu_ids?: string[] | null
           note?: string | null

@@ -97,6 +97,17 @@ jobs:
         id: check
         run: bash scripts/gen-schema-fingerprint.sh --check
 
+      - name: 予約ポイント原子性を実Postgresで検証する
+        # migration 全適用後の使い捨てDBでトランザクション・ACL・冪等性を実行確認する。
+        # 初回は期待fingerprintも更新対象になるため、fingerprint不一致では止めず実DBテストまで進める。
+        if: ${{ !cancelled() && steps.check.outcome != 'skipped' }}
+        run: psql -d carelink_shadow -v ON_ERROR_STOP=1 -f supabase/tests/booking-points-atomic.integration.sql
+
+      - name: 冪等再送とキャンセルの並行競合を実Postgresで検証する
+        # 独立した2接続で同一キー・異内容キー・同一予約キャンセルを競合させる。
+        if: ${{ !cancelled() && steps.check.outcome != 'skipped' }}
+        run: bash supabase/tests/booking-points-atomic-concurrency.sh
+
       - name: ズレていたら正しい期待値を成果物として出す
         # 🔴 「再生成してコミットしろ」と言うだけでは、この job と同じメジャーの
         #   PostgreSQL を手元に用意できない人は従えない（実際 2026年8月3日、
