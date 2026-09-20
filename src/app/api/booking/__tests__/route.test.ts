@@ -315,7 +315,9 @@ describe('POST /api/booking', () => {
       error: null,
     }));
 
-    const res = await POST(makeRequest({ ...validBooking, menu_ids: menuIds }));
+    const requestBody: Record<string, unknown> = { ...validBooking, menu_ids: menuIds };
+    delete requestBody.points_used;
+    const res = await POST(makeRequest(requestBody));
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ success: true, bookingId: 'already-booked', replayed: true });
