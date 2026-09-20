@@ -106,10 +106,11 @@ export async function POST(request: Request) {
     if (status === 'completed') {
       await applyCompletionSideEffects(supabase, booking);
     }
-    if (status === 'cancelled' && (booking.points_used ?? 0) > 0 && booking.user_id) {
+    const pointsToRefund = booking.points_used ?? 0;
+    if (status === 'cancelled' && pointsToRefund > 0 && booking.user_id) {
       const { error: refundErr } = await supabase.from('user_points').insert({
         user_id: booking.user_id,
-        points: booking.points_used ?? 0,
+        points: pointsToRefund,
         reason: 'キャンセル返還',
         booking_id: booking.id,
       });

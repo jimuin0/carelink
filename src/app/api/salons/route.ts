@@ -292,7 +292,7 @@ export const POST = withRoute(async (request) => {
     }).then((sent) => {
       if (!sent) console.error('[salons] Registration receipt email failed to send');
     }).catch((err) => console.error('[salons] Registration receipt email failed', { err })));
-  } else {
+  } else if (d.source === 'recruit' && !replayed) {
     runAfterResponse(() => sendNotify({
       type: 'facility',
       data: {

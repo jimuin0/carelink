@@ -10,12 +10,12 @@ jest.mock('../safe', () => ({ safeCaptureException: (...a: unknown[]) => mockCap
 
 type Result = { data?: unknown; error?: unknown };
 
-function makeAdmin(claim: Result, pointResults: Result[] = []) {
+function makeAdmin(claim: Result, pointResults: Result[] = [], markError: unknown = null) {
   const maybeSingle = jest.fn(() => Promise.resolve(claim));
   const readEq2 = jest.fn(() => ({ maybeSingle }));
   const readEq1 = jest.fn(() => ({ eq: readEq2 }));
   const select = jest.fn(() => ({ eq: readEq1 }));
-  const markEq2 = jest.fn(() => Promise.resolve({ error: null }));
+  const markEq2 = jest.fn(() => Promise.resolve({ error: markError }));
   const markEq1 = jest.fn(() => ({ eq: markEq2 }));
   const update = jest.fn(() => ({ eq: markEq1 }));
   let insertCall = 0;
@@ -58,6 +58,15 @@ test('紹介あり → 紹介者500pt・被紹介者300ptを付与', async () =>
   expect(mockCapture).not.toHaveBeenCalled();
 });
 
+test('bookingIdがある場合は両ポイント行へ予約IDを関連付ける', async () => {
+  const { admin, insert } = makeAdmin({ data: { referrer_user_id: 'ref-user' }, error: null });
+
+  await awardReferralPointsOnCompletion(admin, 'u1', 'booking-1');
+
+  expect(insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'ref-user', booking_id: 'booking-1' }));
+  expect(insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'u1', booking_id: 'booking-1' }));
+});
+
 test('紹介者付与が失敗 → capture + throw', async () => {
   const { admin } = makeAdmin(
     { data: { referrer_user_id: 'ref-user' }, error: null },
@@ -74,4 +83,27 @@ test('紹介者付与は成功・被紹介者付与が失敗 → capture + throw
   );
   await expect(awardReferralPointsOnCompletion(admin, 'u1')).rejects.toThrow('referral points insert failed');
   expect(mockCapture).toHaveBeenCalledWith(expect.anything(), 'referral-award-points');
+});
+
+test('両方のポイント行が一意制約で既存でも冪等成功として確定する', async () => {
+  const { admin, update } = makeAdmin(
+    { data: { referrer_user_id: 'ref-user' }, error: null },
+    [{ error: { code: '23505', message: 'duplicate' } }, { error: { code: '23505', message: 'duplicate' } }],
+  );
+
+  await awardReferralPointsOnCompletion(admin, 'u1');
+
+  expect(update).toHaveBeenCalled();
+  expect(mockCapture).not.toHaveBeenCalled();
+});
+
+test('ポイント行の冪等確定に失敗したら再試行可能なようにthrowする', async () => {
+  const { admin } = makeAdmin(
+    { data: { referrer_user_id: 'ref-user' }, error: null },
+    [],
+    { message: 'mark failed' },
+  );
+
+  await expect(awardReferralPointsOnCompletion(admin, 'u1')).rejects.toThrow('referral_uses mark failed');
+  expect(mockCapture).toHaveBeenCalledWith(expect.anything(), 'referral-award-mark');
 });

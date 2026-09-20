@@ -382,6 +382,16 @@ describe('GET /api/cron/threads-backfill', () => {
     expect(body.skipped).toBe(1);
   });
 
+  it('transient outcome に reason が無くても claim を解放し、error 欄はnullに戻す', async () => {
+    setupSupabase({ candidates: [{ id: 'p1', title: 'Title', slug: 'slug-1' }] });
+    (publishThreadsText as jest.Mock).mockResolvedValue({ outcome: 'transient' });
+
+    const res = await GET(mockRequest());
+
+    expect(res.status).toBe(200);
+    expect(releaseEqSpy).toHaveBeenCalledWith('id', 'p1');
+  });
+
   it('transient: publishThreadsText が例外を投げても transient 相当として claim を解放する（防御的 catch）', async () => {
     setupSupabase({ candidates: [{ id: 'p1', title: 'Title', slug: 'slug-1' }] });
     (publishThreadsText as jest.Mock).mockRejectedValue(new Error('unexpected throw'));

@@ -1033,5 +1033,64 @@ describe('POST /api/payment/webhook', () => {
       expect(res.status).toBe(500);
       expect(evDelete).toHaveBeenCalled();
     });
+
+    test('重複イベントの状態照会に失敗したら200 duplicate扱いにしない', async () => {
+      mockInsert = jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          maybeSingle: jest.fn().mockResolvedValue({ data: null, error: { code: '23505' } }),
+        }),
+      });
+      mockStripeSelect = jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          maybeSingle: jest.fn().mockResolvedValue({ data: null, error: { message: 'state read failed' } }),
+        }),
+      });
+      mockFromDelegate.mockImplementation((table: string) => {
+        if (table === 'stripe_events') return { insert: mockInsert, delete: mockDelete, update: mockStripeStatusUpdate, select: mockStripeSelect };
+        if (table === 'bookings') return { update: mockUpdate };
+      });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(500);
+    });
+
+    test('重複イベントがambiguous状態なら自動再処理を止めて照合を要求する', async () => {
+      mockInsert = jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          maybeSingle: jest.fn().mockResolvedValue({ data: null, error: { code: '23505' } }),
+        }),
+      });
+      mockStripeSelect = jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          maybeSingle: jest.fn().mockResolvedValue({ data: { status: 'ambiguous' }, error: null }),
+        }),
+      });
+      mockFromDelegate.mockImplementation((table: string) => {
+        if (table === 'stripe_events') return { insert: mockInsert, delete: mockDelete, update: mockStripeStatusUpdate, select: mockStripeSelect };
+        if (table === 'bookings') return { update: mockUpdate };
+      });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(500);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    test('processed marker更新失敗は冪等行をロールバックしてStripe再送を可能にする', async () => {
+      mockConstructEvent.mockReturnValue({ id: 'evt_marker_failure', type: 'unknown.event', data: { object: {} } });
+      mockStripeStatusUpdate = jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: { message: 'marker write failed' } }),
+      });
+      mockFromDelegate.mockImplementation((table: string) => {
+        if (table === 'stripe_events') return { insert: mockInsert, delete: mockDelete, update: mockStripeStatusUpdate, select: mockStripeSelect };
+        if (table === 'bookings') return { update: mockUpdate };
+      });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(500);
+      expect(mockDelete).toHaveBeenCalledWith();
+    });
   });
 });

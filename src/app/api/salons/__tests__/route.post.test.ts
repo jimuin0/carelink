@@ -299,6 +299,68 @@ describe('POST /api/salons', () => {
     expect((await POST(makeRequest({ ...validFull, idempotency_key: undefined }) as any)).status).toBe(400);
   });
 
+  test.each([
+    ['privacy consent', { privacy_agreed: false }],
+    ['license attestation', { license_warranted: false }],
+    ['consent version', { consent_version: undefined }],
+    ['stale consent version', { consent_version: 'outdated-version' }],
+  ])('register rejects missing/invalid %s', async (_label, override) => {
+    const res = await POST(makeRequest({ ...validFull, ...override }) as any);
+    expect(res.status).toBe(400);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  test('same idempotency key returns the existing registration without duplicate notifications', async () => {
+    const { createClient } = require('@supabase/supabase-js');
+    const replayLookup = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'existing-salon-id' }, error: null }),
+      }),
+    });
+    const insert = jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        single: jest.fn().mockResolvedValue({ data: null, error: { code: '23505', message: 'duplicate key' } }),
+      }),
+    });
+    createClient.mockReturnValue({
+      from: jest.fn(() => ({ insert, select: replayLookup })),
+    });
+
+    const res = await POST(makeRequest(validFull) as any);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ success: true, id: 'existing-salon-id', replayed: true });
+    expect(sendNotify).not.toHaveBeenCalled();
+    expect(sendRegistrationReceiptEmail).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['lookup error', { data: { id: 'existing-salon-id' }, error: { message: 'lookup failed' } }],
+    ['missing row', { data: null, error: null }],
+  ])('duplicate registration whose replay lookup has %s stays an error', async (_label, replayResult) => {
+    const { createClient } = require('@supabase/supabase-js');
+    const insert = jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        single: jest.fn().mockResolvedValue({ data: null, error: { code: '23505', message: 'duplicate key' } }),
+      }),
+    });
+    createClient.mockReturnValue({
+      from: jest.fn(() => ({
+        insert,
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue(replayResult) }),
+        }),
+      })),
+    });
+
+    const res = await POST(makeRequest(validFull) as any);
+
+    expect(res.status).toBe(500);
+    expect(sendNotify).not.toHaveBeenCalled();
+    expect(sendRegistrationReceiptEmail).not.toHaveBeenCalled();
+  });
+
   test('photo provided but NEXT_PUBLIC_SUPABASE_URL unset → 400 (defensive)', async () => {
     delete process.env.NEXT_PUBLIC_SUPABASE_URL;
     const res = await POST(

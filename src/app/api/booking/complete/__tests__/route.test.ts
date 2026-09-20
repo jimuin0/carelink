@@ -172,11 +172,14 @@ test('CAS: 0行更新（並行リクエストが先に完了） → 409 (二重�
 });
 
 test('UPDATE DBエラー → 500', async () => {
-  let callNum = 0;
+  let bookingCalls = 0;
   mockAnonFrom.mockImplementation((table: string) => {
-    callNum++;
-    if (callNum === 1) return singleChain(CONFIRMED_BOOKING);
+    if (table === 'bookings' && bookingCalls++ === 0) {
+      return singleChain({ ...CONFIRMED_BOOKING, user_id: null, total_price: 0 });
+    }
     if (table === 'facility_members') return singleChain({ facility_id: FACILITY_UUID, role: 'owner' });
+    if (table === 'customer_visits') return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+    if (table !== 'bookings') throw new Error(`unexpected table: ${table}`);
     return {
       update: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({

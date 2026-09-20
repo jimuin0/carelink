@@ -909,7 +909,7 @@ describe('POST /api/admin/booking-status - notifications', () => {
 // ポイント返還（cancelled 進入時・金銭損失防止）
 // ---------------------------------------------------------------------------
 describe('POST /api/admin/booking-status - ポイント返還（cancelled）', () => {
-  function setupCancelRefund(pointsUsed: number, bookingUserId: string | null, insertResult: { error: unknown }) {
+  function setupCancelRefund(pointsUsed: number | null, bookingUserId: string | null, insertResult: { error: unknown }) {
     mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
     const pointsInsert = jest.fn(() => Promise.resolve(insertResult));
     let bookingCall = 0;
@@ -951,6 +951,13 @@ describe('POST /api/admin/booking-status - ポイント返還（cancelled）', (
 
   test('ゲスト予約(user_id=null)はポイント返還しない（&& booking.user_id false 分岐）', async () => {
     const spy = setupCancelRefund(300, null, { error: null });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
+    expect(res.status).toBe(200);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  test('points_used=null は0として扱い、無効なポイント返還を作らない', async () => {
+    const spy = setupCancelRefund(null, 'customer-1', { error: null });
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
     expect(res.status).toBe(200);
     expect(spy).not.toHaveBeenCalled();

@@ -31,7 +31,8 @@ function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
     timer = setTimeout(() => reject(new Error(message)), RECAPTCHA_TIMEOUT_MS);
   });
   return Promise.race([promise, timeout]).finally(() => {
-    if (timer) clearTimeout(timer);
+    // Timer handles may be numeric 0 in browsers; clearTimeout(undefined) is a no-op.
+    clearTimeout(timer!);
   });
 }
 

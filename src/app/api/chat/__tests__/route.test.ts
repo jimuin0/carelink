@@ -204,6 +204,15 @@ describe('POST /api/chat', () => {
     expect(call[0].messages[0].content).toBe('Message 5');
   });
 
+  test('正規化後の総文字数が12,000を超える場合は413', async () => {
+    const messages = Array.from({ length: 10 }, () => ({ role: 'user', content: 'x'.repeat(2000) }));
+
+    const res = await POST(makeRequest({ messages }) as any);
+
+    expect(res.status).toBe(413);
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+
   test('calls Claude Haiku model', async () => {
     await POST(
       makeRequest({ messages: [{ role: 'user', content: 'Test' }] }) as any
@@ -371,5 +380,46 @@ describe('POST /api/chat', () => {
 
     const json = await res.json();
     expect(json.reply).toBe('');
+  });
+
+  test('reCAPTCHA secret 設定時に token なし → 403', async () => {
+    process.env.RECAPTCHA_SECRET_KEY = 'configured-for-test';
+
+    const res = await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'Test' }] }) as any
+    );
+
+    expect(res.status).toBe(403);
+    expect(verifyRecaptcha).not.toHaveBeenCalled();
+  });
+
+  test('reCAPTCHA 検証失敗 → 403', async () => {
+    process.env.RECAPTCHA_SECRET_KEY = 'configured-for-test';
+    (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: false });
+
+    const res = await POST(
+      makeRequest({
+        messages: [{ role: 'user', content: 'Test' }],
+        recaptcha_token: 'token',
+      }) as any
+    );
+
+    expect(res.status).toBe(403);
+    expect(verifyRecaptcha).toHaveBeenCalledWith('token', 'chat', 0.4);
+  });
+
+  test('reCAPTCHA 検証成功 → AI処理へ進む', async () => {
+    process.env.RECAPTCHA_SECRET_KEY = 'configured-for-test';
+    (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: true });
+
+    const res = await POST(
+      makeRequest({
+        messages: [{ role: 'user', content: 'Test' }],
+        recaptcha_token: 'token',
+      }) as any
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockMessagesCreate).toHaveBeenCalled();
   });
 });

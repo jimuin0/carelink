@@ -190,7 +190,7 @@ test('DELETE: カレンダーイベントレコード削除失敗 → 500', asyn
   mockFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return singleChain({ google_event_id: GOOGLE_EVENT_ID }); // cal event
-    if (callNum === 2) return singleChain(null); // no token (skip Google API call)
+    if (callNum === 2) return singleChain(TOKEN_ROW);
     // delete call
     return {
       delete: jest.fn().mockReturnValue({
@@ -204,6 +204,10 @@ test('DELETE: カレンダーイベントレコード削除失敗 → 500', asyn
 
   const res = await DELETE(makeDeleteRequest(BOOKING_UUID));
   expect(res.status).toBe(500);
+  expect(mockFetch).toHaveBeenCalledWith(
+    expect.stringContaining(GOOGLE_EVENT_ID),
+    expect.objectContaining({ method: 'DELETE' }),
+  );
 });
 
 test('DELETE: カレンダーイベントなし → 200 ok:true (ノーオペ)', async () => {
@@ -235,6 +239,57 @@ test('DELETE: 正常削除 → 200 ok:true', async () => {
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
+});
+
+test('DELETE: 追跡イベントがあるのにGoogleトークンが無い場合は記録を保持して500', async () => {
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain({ google_event_id: GOOGLE_EVENT_ID });
+    if (callNum === 2) return singleChain(null);
+    throw new Error('local tracking row must not be deleted without Google authorization');
+  });
+
+  const res = await DELETE(makeDeleteRequest(BOOKING_UUID));
+
+  expect(res.status).toBe(500);
+  expect(mockFrom).toHaveBeenCalledTimes(2);
+  expect(mockFetch).not.toHaveBeenCalled();
+});
+
+test('DELETE: Google側が404なら既削除としてローカル追跡も削除する', async () => {
+  let callNum = 0;
+  const dbDelete = jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }),
+  });
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain({ google_event_id: GOOGLE_EVENT_ID });
+    if (callNum === 2) return singleChain(TOKEN_ROW);
+    return { delete: dbDelete };
+  });
+  mockFetch.mockResolvedValue({ ok: false, status: 404 });
+
+  const res = await DELETE(makeDeleteRequest(BOOKING_UUID));
+
+  expect(res.status).toBe(200);
+  expect(dbDelete).toHaveBeenCalled();
+});
+
+test('DELETE: Google側削除失敗時はローカル追跡を残して再試行可能にする', async () => {
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain({ google_event_id: GOOGLE_EVENT_ID });
+    if (callNum === 2) return singleChain(TOKEN_ROW);
+    return { delete: jest.fn() };
+  });
+  mockFetch.mockResolvedValue({ ok: false, status: 503 });
+
+  const res = await DELETE(makeDeleteRequest(BOOKING_UUID));
+
+  expect(res.status).toBe(500);
+  expect(mockFrom).toHaveBeenCalledTimes(2);
 });
 
 test('POST: レートリミット → 429', async () => {

@@ -736,6 +736,68 @@ test('facility_members が null → ループをスキップして正常削除',
   expect(res.status).toBe(200);
 });
 
+test('退会Saga開始状態を保存できない場合はPII削除前に中断する', async () => {
+  const jobUpsert = jest.fn().mockResolvedValue({ error: { message: 'job storage unavailable' } });
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'bookings') return bookingsMock();
+    if (table === 'facility_members') return facilityMembersMock([]);
+    if (table === 'account_deletion_jobs') return { upsert: jobUpsert };
+    return genericWriteMock();
+  });
+
+  const res = await POST(makeRequest());
+
+  expect(res.status).toBe(500);
+  expect(jobUpsert).toHaveBeenCalledTimes(1);
+  expect(mockDeleteUser).not.toHaveBeenCalled();
+});
+
+test('退会失敗時にSaga状態の更新も失敗しても、元の処理失敗を返す', async () => {
+  let jobUpdateCount = 0;
+  const jobUpsert = jest.fn().mockImplementation(() => ({
+    error: ++jobUpdateCount === 1 ? null : { message: 'state storage unavailable' },
+  }));
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'bookings') return bookingsMock();
+    if (table === 'facility_members') return facilityMembersMock([]);
+    if (table === 'account_deletion_jobs') return { upsert: jobUpsert };
+    if (table === 'favorites') {
+      return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: { message: 'PII deletion failed' } }) }) };
+    }
+    return genericWriteMock();
+  });
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+  const res = await POST(makeRequest());
+
+  expect(res.status).toBe(500);
+  expect(jobUpsert).toHaveBeenCalledTimes(2);
+  expect(errorSpy).toHaveBeenCalledWith(
+    '[account/delete] deletion job state update failed', expect.objectContaining({ status: 'retryable' }),
+  );
+  expect(mockDeleteUser).not.toHaveBeenCalled();
+  errorSpy.mockRestore();
+});
+
+test('退会完了後にSaga完了状態を確定できない場合は500を返す', async () => {
+  let jobUpdateCount = 0;
+  const jobUpsert = jest.fn().mockImplementation(() => ({
+    error: ++jobUpdateCount === 1 ? null : { message: 'completion state unavailable' },
+  }));
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'bookings') return bookingsMock();
+    if (table === 'facility_members') return facilityMembersMock([]);
+    if (table === 'account_deletion_jobs') return { upsert: jobUpsert };
+    return genericWriteMock();
+  });
+
+  const res = await POST(makeRequest());
+
+  expect(res.status).toBe(500);
+  expect(jobUpsert).toHaveBeenCalledTimes(2);
+  expect(mockDeleteUser).toHaveBeenCalledWith(USER_ID);
+});
+
 // Branch coverage: filter: r.status === 'fulfilled' but .error is falsy (no failure logged)
 test('PII削除が全て成功 → failedOps は空 → ログなし', async () => {
   const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
