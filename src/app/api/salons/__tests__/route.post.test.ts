@@ -299,6 +299,17 @@ describe('POST /api/salons', () => {
     expect((await POST(makeRequest({ ...validFull, idempotency_key: undefined }) as any)).status).toBe(400);
   });
 
+  test('register rejects a photo set without the exterior slot', async () => {
+    const res = await POST(makeRequest({
+      ...validFull,
+      photo_url: null,
+      photo_urls: [`${STORAGE_PREFIX}salons/uuid/interior_1.jpg`],
+    }) as any);
+
+    expect(res.status).toBe(400);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
   test.each([
     ['privacy consent', { privacy_agreed: false }],
     ['license attestation', { license_warranted: false }],
