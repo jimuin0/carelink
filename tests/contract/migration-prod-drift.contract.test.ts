@@ -240,6 +240,11 @@ const KNOWN_PENDING_DEPLOYMENT_FUNCTIONS: ReadonlySet<string> = new Set([
   // 2026-06-29: get_public_constraints（20260629000005）／2026-07-04: cleanup_old_cron_report_sends
   //   （M-1・20260704000010）／2026-07-23: enqueue_moderation（20260722000001）はいずれも本番 apply ＋
   //   database.types.ts 再生成を完了し types に反映済みのため本リストから削除＝関数ドリフト 0。
+  // 2026-09-20: atomic booking/points RPCs はこのPRのmigrationで追加。本番applyとtypes再生成後に削除する。
+  'cancel_booking_with_points_atomic',
+  'create_booking_with_points_atomic',
+  'deduct_booking_points_atomic',
+  'mark_booking_no_show_atomic',
 ]);
 
 /**

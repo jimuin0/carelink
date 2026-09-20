@@ -235,6 +235,35 @@ describe('POST /api/booking', () => {
     expect(mockRpc).not.toHaveBeenCalled();
   });
 
+  test('冪等性キーの事前照会が失敗した場合は予約を作らず500を返す', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockBookingLookupFrom.mockImplementation(() => fluent({ data: null, error: { message: 'lookup unavailable' } }));
+
+    const res = await POST(makeRequest(validBooking));
+
+    expect(res.status).toBe(500);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  test('別アカウントの予約で使われた冪等性キーは再利用できない', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'current-user' } } });
+    mockBookingLookupFrom.mockImplementation(() => fluent({
+      data: {
+        id: 'already-booked', idempotency_key: IDEMPOTENCY_KEY, user_id: 'original-user',
+        facility_id: validBooking.facility_id, staff_id: null, menu_id: MENU_UUID,
+        menu_ids: null, coupon_id: null, booking_date: FUTURE_DATE,
+        start_time: '10:00:00', end_time: '11:00:00', customer_name: 'テスト太郎',
+        email: 'test@example.com', phone: null, note: null, total_price: 5000, points_used: 0,
+      },
+      error: null,
+    }));
+
+    const res = await POST(makeRequest(validBooking));
+
+    expect(res.status).toBe(409);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
   test('同じキーと同じ予約内容の再送は既存予約を返し、作成・通知を再実行しない', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     mockBookingLookupFrom.mockImplementation(() => fluent({
@@ -270,6 +299,37 @@ describe('POST /api/booking', () => {
     const res = await POST(makeRequest({ ...validBooking, email: 'different@example.com' }));
     expect(res.status).toBe(409);
     expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  test('複数メニューかつ未設定ポイント値の同一予約再送は既存予約を返す', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const menuIds = [MENU_UUID, '523e4567-e89b-12d3-a456-426614174001'];
+    mockBookingLookupFrom.mockImplementation(() => fluent({
+      data: {
+        id: 'already-booked', idempotency_key: IDEMPOTENCY_KEY, user_id: null,
+        facility_id: validBooking.facility_id, staff_id: null, menu_id: MENU_UUID,
+        menu_ids: menuIds, coupon_id: null, booking_date: FUTURE_DATE,
+        start_time: '10:00:00', end_time: '11:00:00', customer_name: 'テスト太郎',
+        email: 'test@example.com', phone: null, note: null, total_price: null, points_used: null,
+      },
+      error: null,
+    }));
+
+    const res = await POST(makeRequest({ ...validBooking, menu_ids: menuIds }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, bookingId: 'already-booked', replayed: true });
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  test('原子予約RPCが同一キー異内容を検出した場合は409を返す', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'IDEMPOTENCY_KEY_REUSED' } });
+
+    const res = await POST(makeRequest(validBooking));
+
+    expect(res.status).toBe(409);
+    expect(mockRpc).toHaveBeenCalledWith('create_booking_with_points_atomic', expect.any(Object));
   });
 
   test('正常に予約を作成する', async () => {

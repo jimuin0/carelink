@@ -130,10 +130,10 @@ BEGIN
        OR v_existing_booking.note IS DISTINCT FROM p_note
        OR v_existing_booking.total_price IS DISTINCT FROM p_total_price
        OR COALESCE(v_existing_booking.points_used, 0) IS DISTINCT FROM COALESCE(p_points_used, 0)
-       OR v_existing_booking.menu_ids IS DISTINCT FROM CASE
+       OR v_existing_booking.menu_ids IS DISTINCT FROM (CASE
          WHEN p_menu_ids IS NOT NULL AND cardinality(p_menu_ids) > 1 THEN p_menu_ids
          ELSE NULL
-       END THEN
+       END) THEN
       RAISE EXCEPTION 'IDEMPOTENCY_KEY_REUSED';
     END IF;
     RETURN jsonb_build_object('booking_id', v_existing_booking.id, 'replayed', true);
