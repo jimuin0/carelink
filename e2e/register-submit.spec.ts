@@ -135,13 +135,14 @@ async function attachExteriorFixture(page: Page) {
   if (test.info().project.name === 'Mobile Safari') {
     // WebKit CI intermittently times out in Playwright's native setInputFiles transport
     // for this hidden input. Exercise the same FileList/change path without testing the OS
-    // picker protocol, which is outside this registration/API contract test.
-    await input.evaluate((element, base64) => {
+    // picker protocol; run at page scope so a React rerender cannot detach the evaluate target.
+    await page.evaluate((base64) => {
       const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
       const file = new File([bytes], 'e2e-exterior.png', { type: 'image/png' });
       const transfer = new DataTransfer();
       transfer.items.add(file);
-      const fileInput = element as HTMLInputElement;
+      const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]');
+      if (!fileInput) throw new Error('外観写真のfile inputが見つかりません');
       fileInput.files = transfer.files;
       fileInput.dispatchEvent(new Event('input', { bubbles: true }));
       fileInput.dispatchEvent(new Event('change', { bubbles: true }));
