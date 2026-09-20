@@ -1462,6 +1462,7 @@
 "functiongrant|public.consume_package_session(uuid,uuid,text)|service_role|EXECUTE",
 "functiongrant|public.consume_subscription_session(uuid,uuid,text)|service_role|EXECUTE",
 "functiongrant|public.create_booking_atomic(uuid,uuid,uuid,uuid,uuid,date,time without time zone,time without time zone,text,text,text,text,integer,integer,text,boolean)|service_role|EXECUTE",
+"functiongrant|public.deduct_points_atomic(uuid,integer,text)|service_role|EXECUTE",
 "functiongrant|public.enqueue_moderation(jsonb)|anon|EXECUTE",
 "functiongrant|public.enqueue_moderation(jsonb)|authenticated|EXECUTE",
 "functiongrant|public.enqueue_moderation(jsonb)|service_role|EXECUTE",
@@ -1550,6 +1551,7 @@
 "function|consume_package_session(p_user_package_id uuid, p_booking_id uuid, p_notes text)|returns=jsonb|volatile=v|secdef=t|body_md5=8f741f7af98cf2b2bca3285dc64344d7",
 "function|consume_subscription_session(p_subscription_id uuid, p_booking_id uuid, p_notes text)|returns=jsonb|volatile=v|secdef=t|body_md5=f037272426dbc8e8308ef1cee3317137",
 "function|create_booking_atomic(p_facility_id uuid, p_staff_id uuid, p_user_id uuid, p_menu_id uuid, p_coupon_id uuid, p_booking_date date, p_start_time time without time zone, p_end_time time without time zone, p_customer_name text, p_email text, p_phone text, p_note text, p_total_price integer, p_points_used integer, p_status text, p_enforce_schedule boolean)|returns=uuid|volatile=v|secdef=t|body_md5=4bc75f8eb168c726d92037cd351f5fbb",
+"function|deduct_points_atomic(p_user_id uuid, p_points integer, p_reason text)|returns=jsonb|volatile=v|secdef=t|body_md5=8450233a931572fbfb97f577f391ce80",
 "function|enqueue_moderation(p_items jsonb)|returns=integer|volatile=v|secdef=t|body_md5=932b2f9f3df9f4cbf6c9de14e11d612f",
 "function|find_bulk_review_ips(p_since timestamp with time zone, p_threshold integer)|returns=TABLE(reviewer_ip text)|volatile=s|secdef=t|body_md5=8e7a5d9b6df86e2b939bf3775b85a271",
 "function|fn_set_review_verified_visit()|returns=trigger|volatile=v|secdef=t|body_md5=9684286bbb62ab7de785ebcdce5e8ba9",
@@ -2513,5 +2515,4 @@
 "trigger|threads_credentials|trg_threads_credentials_updated_at|CREATE TRIGGER trg_threads_credentials_updated_at BEFORE UPDATE ON public.threads_credentials FOR EACH ROW EXECUTE FUNCTION public.update_threads_credentials_updated_at()",
 "trigger|treatment_plans|trg_treatment_plans_updated_at|CREATE TRIGGER trg_treatment_plans_updated_at BEFORE UPDATE ON public.treatment_plans FOR EACH ROW EXECUTE FUNCTION public.update_treatment_plans_updated_at()",
 "trigger|treatment_records|trg_treatment_records_updated_at|CREATE TRIGGER trg_treatment_records_updated_at BEFORE UPDATE ON public.treatment_records FOR EACH ROW EXECUTE FUNCTION public.update_treatment_records_updated_at()"
-
 ]

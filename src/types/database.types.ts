@@ -5543,6 +5543,10 @@ export type Database = {
         }
         Returns: Json
       }
+      deduct_points_atomic: {
+        Args: { p_points: number; p_reason: string; p_user_id: string }
+        Returns: Json
+      }
       create_admin_booking_atomic: {
         Args: {
           p_booking_date: string
