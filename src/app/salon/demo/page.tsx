@@ -3,8 +3,9 @@ import Link from 'next/link';
 
 export const metadata: Metadata = {
   title: '管理画面デモ | CareLink',
-  description: 'CareLinkの管理画面を紹介します。予約管理・顧客分析・メニュー管理・売上分析など、全機能が無料で使えます。',
+  description: 'CareLinkの管理画面で確認できる予約・顧客・メニュー・売上管理の主な機能と、掲載準備の流れを紹介します。',
   alternates: { canonical: '/salon/demo' },
+  robots: { index: false, follow: true },
 };
 
 const features = [
@@ -40,7 +41,7 @@ const features = [
   },
   {
     title: 'リアルタイム通知',
-    desc: '新規予約が入ったら即座にPush通知。見逃しゼロ。',
+    desc: '新規予約などの通知方法を管理画面で確認できます。',
     details: ['Web Push通知', 'ブラウザ内トースト通知', 'メール通知設定'],
   },
   {
@@ -65,7 +66,7 @@ export default function DemoPage() {
             CareLink 管理画面でできること
           </h1>
           <p className="text-sky-100 text-lg mb-8">
-            大手ポータルと同等以上の機能が、全部無料で使えます
+            CareLinkの管理画面で確認できる機能を紹介します
           </p>
         </div>
       </section>
@@ -115,7 +116,7 @@ export default function DemoPage() {
       <section className="bg-gradient-to-br from-sky-600 to-sky-800 text-white">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-16 text-center">
           <h2 className="text-2xl font-bold mb-4">全部無料。今すぐ始められます。</h2>
-          <p className="text-sky-100 mb-8">登録3分 ・ クレジットカード不要 ・ いつでも解約可</p>
+          <p className="text-sky-100 mb-8">掲載条件と必要な準備を確認してから登録できます</p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link href="/register" className="inline-flex items-center justify-center px-8 py-4 bg-white text-sky-700 font-bold rounded-lg text-lg hover:bg-sky-50 transition-all shadow-lg">
               無料で掲載登録する

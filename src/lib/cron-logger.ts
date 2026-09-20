@@ -9,7 +9,7 @@ import { alertCaughtError } from './alert';
 import { pushAdminHeartbeat, type HeartbeatStatus } from './admin-heartbeat';
 import { runAfterResponse } from './after-response';
 import { toJsonValue } from '@/lib/json-value';
-import { errorMessage } from '@/lib/err';
+import { summarizeDependencyError } from '@/lib/err';
 
 export interface CronResult {
   processed?: number;
@@ -29,6 +29,9 @@ export async function logCronRun(
   startedAt: Date,
   result: CronResult = {}
 ): Promise<void> {
+  // Cloudflare のHTMLエラー本文などを cron_logs や Slack へ流さない。通常の短いDB/RPC
+  // エラーは従来どおり保持するため、復旧判断に必要な情報は失わない。
+  const safeErrorMessage = result.error_msg === undefined ? null : summarizeDependencyError(result.error_msg);
   try {
     const supabase = createServiceRoleClient();
     const duration_ms = Date.now() - startedAt.getTime();
@@ -45,17 +48,17 @@ export async function logCronRun(
       duration_ms,
       processed: result.processed ?? 0,
       skipped: result.skipped ?? 0,
-      error_msg: result.error_msg ?? null,
+      error_msg: safeErrorMessage,
       meta: result.meta ? toJsonValue(result.meta) : null,
     });
     if (insertErr) {
       console.error('[cron-logger] cron_logs insert failed — this run will be invisible in monitoring', {
-        jobName, status, err: insertErr,
+        jobName, status, err: summarizeDependencyError(insertErr),
       });
     }
   } catch (e) {
     // ネットワーク例外等。ログ記録の失敗で本体処理は止めないが、可視化はする。
-    console.error('[cron-logger] cron_logs insert threw', { jobName, status, err: e });
+    console.error('[cron-logger] cron_logs insert threw', { jobName, status, err: summarizeDependencyError(e) });
   }
 
   // cron 失敗は Slack に通報する（L7-A: logger.error → 30秒以内通知 の cron 版）。
@@ -68,7 +71,7 @@ export async function logCronRun(
   // では即 return するため本体・テストへの副作用はない。DB 記録の成否に依存させ
   // ないため try/catch の外に置く（記録失敗時こそ通報が必要）。
   if (status === 'error') {
-    alertCaughtError(`cron:${jobName}`, new Error(result.error_msg ?? 'unknown error'), `/api/cron/${jobName}`);
+    alertCaughtError(`cron:${jobName}`, new Error(safeErrorMessage ?? 'unknown error'), `/api/cron/${jobName}`);
   }
 
   // admin-dashboard への heartbeat 送信（fire-and-forget・env未設定なら no-op）。
@@ -107,13 +110,11 @@ export interface CronErrorOptions {
  * 呼び忘れて 500 を返すと無音になる）。この関数は両者を1回の呼び出しに強制し、片方だけを
  * 行うことを構造的に不可能にする。
  *
- * error_msg の作り方は `errorMessage()`（`@/lib/err.ts`）を使う。置き換える前の各 cron 呼び出し
+ * error_msg の作り方は `summarizeDependencyError()`（`@/lib/err.ts`）を使う。置き換える前の各 cron 呼び出し
  * （`e instanceof Error ? e.message : String(e)` / `errorMessage(e)` / `error.message` 直読み）は
  * いずれも「Error か、Error でなくとも文字列の `.message` を持つオブジェクト（PostgrestError 等）
- * なら `.message`、それ以外は `String()`」という同じ結果になる。`errorMessage()` はこれを
- * 一箇所に集約した既存ヘルパーで、素の `e instanceof Error` 分岐より対象が広い分
- * （`.message` を持つが Error を継承しない値も拾う）、単純な instanceof 判定に狭めると
- * 一部の呼び出し元（PostgrestError 相当のテスト用スタブ等）で error_msg が変わってしまう。
+ * なら `.message`、それ以外は `String()`」という同じ結果になる。通常の短いエラーはそのまま
+ * 保持しつつ、Cloudflare のHTML本文だけを依存障害の定型文へ置き換える。
  * 固定文字列の error_msg を渡していた箇所は `extraLog: { error_msg: '...' }` で上書きする。
  */
 export async function cronError(
@@ -122,7 +123,7 @@ export async function cronError(
   cause: unknown,
   opts: CronErrorOptions = {}
 ): Promise<NextResponse> {
-  const error_msg = errorMessage(cause);
+  const error_msg = summarizeDependencyError(cause);
   await logCronRun(jobName, 'error', startedAt, { error_msg, ...opts.extraLog });
   return NextResponse.json({ error: opts.message ?? 'Internal error', ...opts.extraBody }, { status: 500 });
 }

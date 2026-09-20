@@ -203,6 +203,9 @@ export const POST = withRoute(async (request) => {
         consented_at: new Date().toISOString(),
         idempotency_key: d.idempotency_key,
       } : {}),
+      // Store the trusted server-side entry point so registration reports do not infer
+      // attribution from a completion-page visit or a client-provided event.
+      source: d.source,
     })
     .select('id')
     .single();

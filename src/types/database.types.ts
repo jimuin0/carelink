@@ -4003,6 +4003,7 @@ export type Database = {
           representative_name: string
           seat_count: number | null
           staff_count: number | null
+          source: string | null
           status: string | null
           terms_agreed: boolean
           website: string | null
@@ -4043,6 +4044,7 @@ export type Database = {
           representative_name: string
           seat_count?: number | null
           staff_count?: number | null
+          source?: string | null
           status?: string | null
           terms_agreed?: boolean
           website?: string | null
@@ -4083,6 +4085,7 @@ export type Database = {
           representative_name?: string
           seat_count?: number | null
           staff_count?: number | null
+          source?: string | null
           status?: string | null
           terms_agreed?: boolean
           website?: string | null
@@ -5187,6 +5190,7 @@ export type Database = {
           claimed_at: string | null
           created_at: string
           delivered_at: string | null
+          delivery_started_at: string | null
           facility_id: string | null
           id: string
           last_error: string | null
@@ -5203,6 +5207,7 @@ export type Database = {
           claimed_at?: string | null
           created_at?: string
           delivered_at?: string | null
+          delivery_started_at?: string | null
           facility_id?: string | null
           id?: string
           last_error?: string | null
@@ -5219,6 +5224,7 @@ export type Database = {
           claimed_at?: string | null
           created_at?: string
           delivered_at?: string | null
+          delivery_started_at?: string | null
           facility_id?: string | null
           id?: string
           last_error?: string | null

@@ -6,6 +6,8 @@ import { articles, type ArticleSection } from '@/data/articles';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { safeJsonLd } from '@/lib/json-ld';
 import type { Json } from '@/types/database.types';
+import MerchantGuideText from '@/components/blog/MerchantGuideText';
+import { isMerchantGuide } from '@/lib/merchant-guide';
 
 export const revalidate = 3600;
 
@@ -170,16 +172,19 @@ export async function generateMetadata(props: { params: Promise<{ slug: string }
   };
 }
 
-function renderSection(section: ArticleSection, i: number) {
+function renderSection(section: ArticleSection, i: number, merchantGuide: boolean) {
+  const renderText = (text: string | undefined) => merchantGuide
+    ? <MerchantGuideText text={text ?? ''} />
+    : text;
   switch (section.type) {
     case 'heading':
       return <h2 key={i} className="text-xl font-bold mt-8 mb-4">{section.heading}</h2>;
     case 'paragraph':
-      return <p key={i} className="text-gray-700 leading-relaxed mb-4 whitespace-pre-line">{section.text}</p>;
+      return <p key={i} className="text-gray-700 leading-relaxed mb-4 whitespace-pre-line">{renderText(section.text)}</p>;
     case 'list':
       return (
         <ul key={i} className="list-disc list-inside space-y-2 mb-4 text-gray-700">
-          {section.items?.map((item, j) => <li key={j}>{item}</li>)}
+          {section.items?.map((item, j) => <li key={j}>{renderText(item)}</li>)}
         </ul>
       );
     case 'callout': {
@@ -192,7 +197,7 @@ function renderSection(section: ArticleSection, i: number) {
       const t = section.calloutType || 'info';
       return (
         <div key={i} className={`border-l-4 p-4 rounded-r-lg mb-4 ${colors[t]}`}>
-          <span className="mr-2">{icons[t]}</span>{section.text}
+          <span className="mr-2">{icons[t]}</span>{renderText(section.text)}
         </div>
       );
     }
@@ -204,6 +209,7 @@ export default async function ArticlePage(props: { params: Promise<{ slug: strin
   const post = await getPost(params.slug);
   if (!post) notFound();
 
+  const merchantGuide = isMerchantGuide(post.slug);
   const related = await getRelated(params.slug, post.category);
   const publishedAt = post.published_at?.split('T')[0] ?? '';
 
@@ -230,7 +236,7 @@ export default async function ArticlePage(props: { params: Promise<{ slug: strin
           <div className="flex items-center gap-3 mb-3 flex-wrap">
             <span className="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-600">{post.category}</span>
             <span className="text-sm text-gray-400">{publishedAt}</span>
-            <span className="text-sm text-gray-400">{post.reading_time}分で読める</span>
+            <span className="text-sm text-gray-400">{merchantGuide ? `読む目安：約${post.reading_time}分` : `${post.reading_time}分で読める`}</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold leading-tight">{post.title}</h1>
           {post.author_name && (
@@ -241,7 +247,7 @@ export default async function ArticlePage(props: { params: Promise<{ slug: strin
         <div className="prose-like">
           {/* post.content は getPost 内で toArticleSections により検証済みの ArticleSection[]
               なので、ここでの as キャストは不要（型が既に一致している）。 */}
-          {post.content.map((section, i) => renderSection(section, i))}
+          {post.content.map((section, i) => renderSection(section, i, merchantGuide))}
         </div>
 
         {/* タグ */}
@@ -261,10 +267,10 @@ export default async function ArticlePage(props: { params: Promise<{ slug: strin
 
         {/* CTA */}
         <div className="mt-12 p-6 sm:p-8 rounded-2xl text-center text-white" style={{ backgroundColor: 'var(--primary)' }}>
-          <p className="text-lg font-bold mb-2">あなたに合った施設を見つけませんか？</p>
-          <p className="text-white/80 text-sm mb-4">CareLinkなら完全無料で施設を検索・予約できます</p>
+          <p className="text-lg font-bold mb-2">{merchantGuide ? 'お店の掲載・予約受付を検討している方へ' : 'あなたに合った施設を見つけませんか？'}</p>
+          <p className="text-white/80 text-sm mb-4">{merchantGuide ? '掲載料・予約手数料の現在条件を確認し、自店に合うか判断できます。' : 'CareLinkで施設を検索・予約できます。'}</p>
           <Link href="/register" className="inline-block px-8 py-3 bg-white font-bold rounded-lg transition-all hover:bg-gray-100" style={{ color: 'var(--primary)' }}>
-            無料で登録する
+            {merchantGuide ? '店舗の掲載条件を確認する' : '施設掲載の条件を確認する'}
           </Link>
         </div>
 

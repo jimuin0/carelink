@@ -11,6 +11,22 @@ export interface AreaSeoContent {
   faq_items: FaqItem[];
 }
 
+/** Index a region × business-type page only when it has inventory and original decision material. */
+export function isIndexableAreaQuality(
+  facilityCount: number | null | undefined,
+  content: { h2: string; intro: string; highlights: readonly string[]; faqs: readonly FaqItem[] } | null,
+): boolean {
+  if (facilityCount === null || facilityCount === undefined || facilityCount < 1 || content === null) return false;
+  const textLength = [content.h2, content.intro, ...content.highlights, ...content.faqs.flatMap((faq) => [faq.question, faq.answer])]
+    .join('')
+    .trim().length;
+  return content.h2.trim().length >= 10
+    && content.intro.trim().length >= 120
+    && content.highlights.length >= 2
+    && content.faqs.length >= 2
+    && textLength >= 300;
+}
+
 /**
  * エリアSEOコンテンツ取得（フォールバックチェーン付き）
  *

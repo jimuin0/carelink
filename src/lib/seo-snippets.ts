@@ -266,10 +266,10 @@ export function generateCityTypeContent(
   const typeCtx = businessTypeContext[typeSlug];
   if (!prefName || !typeName || !typeCtx) return null;
 
-  const intro = `${prefName}${cityName}の${typeName}（${typeCtx.keyword}）をお探しなら CareLink。${cityName}にある${typeName}を口コミ評価・メニュー・料金・写真で比較し、24時間ネット予約が可能です。${typeCtx.description}を、地元${cityName}で見つけられます。CareLinkは掲載・利用すべて無料、来店確認バッジ付きの信頼できる口コミだけを掲載しています。`;
+  const intro = `${prefName}${cityName}の${typeName}（${typeCtx.keyword}）をお探しなら CareLink。${cityName}にある${typeName}を口コミ評価・メニュー・料金・写真で比較し、24時間ネット予約が可能です。${typeCtx.description}を、地元${cityName}で見つけられます。料金・掲載条件や口コミの詳細は各施設ページでご確認ください。`;
 
   const highlights = [
-    `${cityName}の${typeName}を全件掲載`,
+    `${cityName}の${typeName}を検索`,
     ...typeCtx.searchPoints.slice(0, 3),
   ];
 

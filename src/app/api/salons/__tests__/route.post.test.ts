@@ -188,6 +188,13 @@ describe('POST /api/salons', () => {
     expect(inserted.features).toEqual(['駐車場あり', '個室あり']);
   });
 
+  test('persists the trusted source field for merchant attribution', async () => {
+    await POST(makeRequest(validFull) as any);
+    expect(mockInsert.mock.calls[0][0].source).toBe('register');
+    await POST(makeRequest(validMinimal, '192.168.1.2') as any);
+    expect(mockInsert.mock.calls[1][0].source).toBe('recruit');
+  });
+
   test('minimal payload defaults has_parking=false, features=[], photo_urls=[]', async () => {
     await POST(makeRequest(validMinimal) as any);
     const inserted = mockInsert.mock.calls[0][0];

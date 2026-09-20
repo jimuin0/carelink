@@ -13,6 +13,7 @@ import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun, cronError } from '@/lib/cron-logger';
 import { alertWarning } from '@/lib/alert';
 import { getStaleCronJobs } from '@/lib/cron-heartbeat';
+import { summarizeDependencyError } from '@/lib/err';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -59,7 +60,7 @@ export async function GET(request: Request) {
     });
     return NextResponse.json({ stale: stale.map((s) => s.name), queryErrors });
   } catch (e) {
-    console.error('[cron-heartbeat] Error:', e);
+    console.error('[cron-heartbeat] Error:', { errorMessage: summarizeDependencyError(e) });
     return cronError(SELF, startedAt, e);
   }
 }

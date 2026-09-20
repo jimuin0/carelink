@@ -203,6 +203,29 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     expect(limitMock).toHaveBeenCalledTimes(2);
   });
 
+  test('2秒のSupabase読取は再試行せず成功する（通常レイテンシを503にしない）', async () => {
+    jest.useFakeTimers();
+    try {
+      const { createServerSupabaseClient } = require('@/lib/supabase-server');
+      const delayedLimit = jest.fn().mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve({ error: null }), 2_000))
+      );
+      createServerSupabaseClient.mockReturnValue({
+        from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ limit: delayedLimit }) }),
+      });
+
+      const response = GET(makeReq());
+      await jest.advanceTimersByTimeAsync(5_000);
+      const res = await response;
+
+      expect(res.status).toBe(200);
+      expect((await res.json()).deps.supabase.retried).toBeUndefined();
+      expect(delayedLimit).toHaveBeenCalledTimes(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('Supabase 2回とも失敗 → 503（持続的な実停止のみ unhealthy）', async () => {
     const { createServerSupabaseClient } = require('@/lib/supabase-server');
     const limitMock = jest.fn().mockResolvedValue({ error: { message: 'sustained outage' } });

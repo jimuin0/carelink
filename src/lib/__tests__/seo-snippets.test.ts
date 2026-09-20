@@ -267,14 +267,14 @@ describe('generateCityTypeContent — コンテンツ詳細検証', () => {
     expect(result!.intro).toContain('24時間ネット予約');
   });
 
-  test('intro には「無料」が含まれる', () => {
+  test('intro には掲載条件を確認する案内が含まれる', () => {
     const result = generateCityTypeContent('tokyo', '新宿区', 'esthetic');
-    expect(result!.intro).toContain('無料');
+    expect(result!.intro).toContain('掲載条件');
   });
 
-  test('highlights[0] は「{city}の{type}を全件掲載」', () => {
+  test('highlights[0] は地域と業種を検索できることを示す', () => {
     const result = generateCityTypeContent('osaka', '豊中市', 'hair-salon');
-    expect(result!.highlights[0]).toBe('豊中市のヘアサロンを全件掲載');
+    expect(result!.highlights[0]).toBe('豊中市のヘアサロンを検索');
   });
 
   test('highlights は4件', () => {

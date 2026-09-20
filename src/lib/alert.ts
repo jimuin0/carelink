@@ -10,6 +10,7 @@
 
 import { postToSlackWithThreadGrouping } from './slack';
 import { runAfterResponse } from './after-response';
+import { summarizeDependencyError } from './err';
 
 type AlertLevel = 'error' | 'warning' | 'info';
 
@@ -29,6 +30,63 @@ const LEVEL_EMOJI: Record<AlertLevel, string> = {
   warning: '🟡',
   info: '🟢',
 };
+
+const SENSITIVE_ALERT_KEY = /token|secret|key|password|authorization|cookie|email|phone|target_id/i;
+const MAX_ALERT_EXTRA_DEPTH = 3;
+const MAX_ALERT_EXTRA_ITEMS = 20;
+
+function redactAlertText(value: string): string {
+  return summarizeDependencyError(value)
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[email redacted]')
+    .replace(/(?<!\d)(?:\+?81[-\s]?)?0\d{1,4}[-\s]?\d{1,4}[-\s]?\d{3,4}(?!\d)/g, '[phone redacted]')
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [redacted]')
+    .replace(/\bxox(?:a|b|p|r|s)-[A-Za-z0-9-]+\b/gi, '[Slack token redacted]')
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[JWT redacted]')
+    .replace(
+      /\b(?:api[_-]?key|apikey|token|secret|password|authorization|cookie|set-cookie)\s*[:=]\s*(?:Bearer\s+)?[^\s,;]+/gi,
+      (match) => match.replace(/[:=].*/, '= [redacted]'),
+    );
+}
+
+/** 捕捉例外は利用者入力や上流応答を含み得るため、本文をSlackへ転記しない。 */
+function summarizeCaughtError(value: string): string {
+  const summary = summarizeDependencyError(value);
+  if (summary === 'Supabase 接続障害（Cloudflare 522）' || summary === '依存サービスが HTML エラーページを返しました') {
+    return summary;
+  }
+  return '例外詳細は安全なログで確認';
+}
+
+/**
+ * 外部エラー本文や個人情報を Slack に載せないための境界。
+ *
+ * alert は多くの経路から呼ばれるため、呼び出し元だけの sanitize に依存しない。
+ * ネストした値も含めてここで扱い、Cloudflare の HTML エラーページは依存障害の定型文へ
+ * 置き換える。診断に不要な深い値・大量配列も Slack payload に含めない。
+ */
+function sanitizeAlertExtra(value: unknown, depth = 0): unknown {
+  if (value === null || typeof value === 'boolean' || typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const summary = redactAlertText(value);
+    return summary.length > 200 ? `${summary.slice(0, 200)}...` : summary;
+  }
+  if (typeof value === 'undefined') return null;
+  if (depth >= MAX_ALERT_EXTRA_DEPTH) return '[truncated]';
+  if (Array.isArray(value)) {
+    return value.slice(0, MAX_ALERT_EXTRA_ITEMS).map((item) => sanitizeAlertExtra(item, depth + 1));
+  }
+  if (typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .slice(0, MAX_ALERT_EXTRA_ITEMS)
+        .map(([key, item]) => [
+          key,
+          SENSITIVE_ALERT_KEY.test(key) ? '****REDACTED****' : sanitizeAlertExtra(item, depth + 1),
+        ]),
+    );
+  }
+  return redactAlertText(String(value));
+}
 
 /**
  * Slack に構造化メッセージを fire-and-forget で投稿する。
@@ -53,29 +111,23 @@ export function postAlert(payload: AlertPayload): void {
   // 応答は遅らせない（after は登録するだけ）。
   runAfterResponse(async () => {
     try {
+      const safeMessage = redactAlertText(payload.message);
+      const safeExtra = payload.extra ? sanitizeAlertExtra(payload.extra) as Record<string, unknown> : undefined;
+      const safeRoute = payload.route ? redactAlertText(payload.route) : null;
+      const safeCommit = payload.commit_sha ? redactAlertText(payload.commit_sha) : null;
+      const safeEnv = payload.env ? redactAlertText(payload.env) : null;
+      const safeRequestId = payload.request_id ? redactAlertText(payload.request_id) : null;
       const emoji = LEVEL_EMOJI[payload.level];
       const lines = [
-        `${emoji} *${payload.level.toUpperCase()}* ${payload.message}`,
-        payload.route ? `> *route:* \`${payload.route}\`` : null,
+        `${emoji} *${payload.level.toUpperCase()}* ${safeMessage}`,
+        safeRoute ? `> *route:* \`${safeRoute}\`` : null,
         payload.status ? `> *status:* ${payload.status}` : null,
-        payload.commit_sha ? `> *commit:* \`${payload.commit_sha}\`` : null,
-        payload.env ? `> *env:* ${payload.env}` : null,
-        payload.request_id ? `> *request_id:* \`${payload.request_id}\`` : null,
+        safeCommit ? `> *commit:* \`${safeCommit}\`` : null,
+        safeEnv ? `> *env:* ${safeEnv}` : null,
+        safeRequestId ? `> *request_id:* \`${safeRequestId}\`` : null,
       ].filter(Boolean);
 
-      if (payload.extra && Object.keys(payload.extra).length > 0) {
-        // 機密 redact: 値が 30文字超 or token らしき key は伏せる
-        const safeExtra: Record<string, unknown> = {};
-        for (const [k, v] of Object.entries(payload.extra)) {
-          const keyLower = k.toLowerCase();
-          if (/token|secret|key|password|authorization/.test(keyLower)) {
-            safeExtra[k] = '****REDACTED****';
-          } else if (typeof v === 'string' && v.length > 200) {
-            safeExtra[k] = v.slice(0, 200) + '...';
-          } else {
-            safeExtra[k] = v;
-          }
-        }
+      if (safeExtra && Object.keys(safeExtra).length > 0) {
         lines.push('```\n' + JSON.stringify(safeExtra, null, 2).slice(0, 1500) + '\n```');
       }
 
@@ -86,8 +138,8 @@ export function postAlert(payload: AlertPayload): void {
       const threadKey = [
         'alert',
         payload.level,
-        payload.route ? `route=${payload.route}` : '',
-        payload.commit_sha ? `commit=${payload.commit_sha}` : '',
+        safeRoute ? `route=${safeRoute}` : '',
+        safeCommit ? `commit=${safeCommit}` : '',
       ]
         .filter(Boolean)
         .join(':');
@@ -126,17 +178,16 @@ export function alertWarning(message: string, opts: Omit<AlertPayload, 'level' |
  * commit_sha / env / stack を onRequestError と同等の粒度で付与する。
  */
 export function alertCaughtError(tag: string, error: unknown, route?: string | null): void {
-  const message = error instanceof Error ? error.message : String(error);
-  const stack =
-    error instanceof Error && error.stack
-      ? error.stack.split('\n').slice(0, 8).join('\n')
-      : null;
-  alertError(`[${tag}] ${message}`, {
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  // Error.message / stack は利用者入力・外部レスポンス・資格情報を含み得る。既知の依存障害以外は
+  // 固定カテゴリへ落とし、Slackを安全な運用窓に保つ。詳細はアクセス制御されたVercelログで確認する。
+  const message = summarizeCaughtError(rawMessage);
+  alertError(`[${redactAlertText(tag)}] ${message}`, {
     route: route ?? null,
     status: 500,
     commit_sha: (process.env.VERCEL_GIT_COMMIT_SHA ?? '').slice(0, 7) || null,
     env: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? null,
-    extra: { stack },
+    extra: { stack: null },
   });
 }
 

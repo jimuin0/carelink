@@ -29,8 +29,8 @@ const serif = Noto_Serif_JP({
 });
 
 export const metadata: Metadata = {
-  title: '無料掲載登録 | CareLink',
-  description: '掲載料0円。ネット予約・顧客管理・求人掲載までひとつに。最短3分で登録できます。',
+  title: '店舗・施設の掲載登録 | CareLink',
+  description: '店舗・施設の掲載料と予約手数料は無料。掲載条件と準備内容を確認して、CareLinkへの登録を始められます。',
 };
 
 /**
@@ -52,8 +52,8 @@ const COMPARISON: { label: string; before: string; after: string }[] = [
   { label: '予約の受付', before: '営業時間だけ', after: '24時間' },
   { label: '重複予約', before: '起こる', after: '防ぐ' },
   { label: '前日リマインド', before: '手作業', after: '自動' },
-  { label: '口コミ', before: '集まらない', after: '自動でお願い' },
-  { label: '初期費用', before: '—', after: '0円' },
+  { label: '口コミ', before: '集めて管理', after: '施設ページで対応' },
+  { label: '掲載料・予約手数料', before: '—', after: '無料' },
 ];
 
 /**
@@ -79,9 +79,9 @@ const ICON_PATHS: Record<'calendar' | 'card' | 'people', string> = {
 /** 番号は算用数字にする。ローマ数字（Ⅰ Ⅱ Ⅲ）も試したが、小サイズだと細い棒が並んで
  *  見え、何番か判読できなかった（実機のスクリーンショットで確認）。 */
 const STEPS = [
-  { n: '01', title: '無料登録', body: 'このページで3分' },
-  { n: '02', title: 'アカウント作成', body: '入力内容がそのまま反映' },
-  { n: '03', title: '掲載開始', body: 'その日から予約を受付' },
+  { n: '01', title: '基本情報を入力', body: '施設名・業種・連絡先などを入力' },
+  { n: '02', title: 'アカウントを作成', body: '登録内容を確認して管理画面へ進む' },
+  { n: '03', title: '掲載を準備', body: 'メニュー・写真などを整えて公開条件を確認' },
 ];
 
 export default function RegisterPage() {
@@ -114,7 +114,7 @@ export default function RegisterPage() {
                 ひとつに。
               </h1>
               <p className="mt-5 text-xs tracking-widest text-white/80 sm:text-sm">
-                掲載料 0円 ／ 最短 3分
+                掲載料・予約手数料 0円
               </p>
             </div>
           </div>
@@ -122,11 +122,11 @@ export default function RegisterPage() {
 
         <div className="px-7 sm:px-12">
           <div className="mx-auto max-w-5xl">
-            <a
+              <a
               href="#register-form"
               className="mt-8 inline-flex h-14 w-full items-center justify-center border border-[var(--ecru-accent)] bg-[var(--ecru-accent)] text-xs font-medium tracking-[0.2em] text-white transition-colors hover:bg-transparent hover:text-[var(--ecru-accent)] sm:w-[280px]"
             >
-              無料ではじめる
+              掲載条件を確認して登録を始める
             </a>
           </div>
         </div>
@@ -137,7 +137,7 @@ export default function RegisterPage() {
         <dl className="mx-auto flex max-w-5xl border-y border-[var(--ecru-line)]">
           {[
             { value: '0', unit: '円', label: '掲載料' },
-            { value: '3', unit: '分', label: '登録' },
+            { value: '0', unit: '円', label: '予約手数料' },
             { value: '24', unit: 'h', label: '予約受付' },
           ].map((stat, i) => (
             <div

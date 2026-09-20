@@ -12,7 +12,7 @@ import { sendLineText } from '@/lib/line';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
-import { errorMessage } from '@/lib/err';
+import { retryTransientSupabaseRead, summarizeDependencyError } from '@/lib/err';
 import { fromEnv, resolveFrom } from '@/lib/email-from';
 import { sendResendChecked } from '@/lib/resend-result';
 
@@ -46,21 +46,26 @@ export async function GET(request: Request) {
     const staleBefore = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const { error: reclaimErr } = await supabase
       .from('webhook_retry_queue')
-      .update({ status: 'pending', claimed_at: null })
+      .update({ status: 'pending', claimed_at: null, delivery_started_at: null })
       .eq('status', 'processing')
+      // 外部送信開始を永続化できた行は、送達成功後に DB 応答が失われた可能性がある。
+      // これを自動 reclaim すると同じ顧客へ二重送信し得るため、手動照合まで保持する。
+      .is('delivery_started_at', null)
       .or(`claimed_at.lt.${staleBefore},and(claimed_at.is.null,scheduled_at.lt.${staleBefore})`);
     if (reclaimErr) {
-      console.error('[webhook-retry] stale processing reclaim failed (continuing)', { err: reclaimErr });
+      console.error('[webhook-retry] stale processing reclaim failed (continuing)', { err: summarizeDependencyError(reclaimErr) });
     }
 
     // pending かつ scheduled_at が現在時刻以前のジョブを取得
-    const { data: jobs, error: jobsError } = await supabase
-      .from('webhook_retry_queue')
-      .select('*')
-      .eq('status', 'pending')
-      .lte('scheduled_at', new Date().toISOString())
-      .order('scheduled_at', { ascending: true })
-      .limit(50);
+    const { data: jobs, error: jobsError } = await retryTransientSupabaseRead(() =>
+      supabase
+        .from('webhook_retry_queue')
+        .select('*')
+        .eq('status', 'pending')
+        .lte('scheduled_at', new Date().toISOString())
+        .order('scheduled_at', { ascending: true })
+        .limit(50),
+    );
 
     // DB エラーを握り潰すと「0 件＝skipped 成功」に化け、その run が無音でスキップされ Slack 通報も
     // されない。error を error ログ＋500 で可視化する（発症前検知）。
@@ -87,12 +92,14 @@ export async function GET(request: Request) {
     // まま孤児化したか」を判定する（scheduled_at 流用は二重配信の温床だったため廃止）。
     const { data: claimedRows, error: claimErr } = await supabase
       .from('webhook_retry_queue')
-      .update({ status: 'processing', claimed_at: new Date().toISOString() })
+      .update({ status: 'processing', claimed_at: new Date().toISOString(), delivery_started_at: null })
       .in('id', jobIds)
       .eq('status', 'pending')
       .select('id');
     if (claimErr) {
-      console.error('[webhook-retry] status claim failed — aborting to prevent duplicate delivery', { err: claimErr });
+      console.error('[webhook-retry] status claim failed — aborting to prevent duplicate delivery', {
+        err: summarizeDependencyError(claimErr),
+      });
       return cronError('webhook-retry', startedAt, claimErr, { message: 'claim failed' });
     }
     // data が null（0行更新時のドライバ表現揺れ）も「1行も claim できなかった」として安全側に扱う。
@@ -107,10 +114,20 @@ export async function GET(request: Request) {
     let success = 0;
     let failed = 0;
     let deadLettered = 0;
+    let deliveryUncertain = 0;
     const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
     for (const job of claimedJobs) {
       try {
+        // 外部送信より先に「送信開始」を永続化する。ここが成功した後でのみ送信するため、
+        // 送達後の success 更新が 522 等で不明になっても stale reclaim は再送しない。
+        // この write が失敗した場合は送信を始めないため、scheduleRetry 経由の安全な再試行が可能。
+        const { error: deliveryStartErr } = await supabase
+          .from('webhook_retry_queue')
+          .update({ delivery_started_at: new Date().toISOString() })
+          .eq('id', job.id);
+        if (deliveryStartErr) throw deliveryStartErr;
+
         if (job.webhook_type === 'line_push') {
           // job.payload は DB 上は JSONB NOT NULL 列（migration 20260417000039）で
           // アプリからは常にオブジェクトを書き込むが、<Database> 型の Json は JSON リテラル
@@ -175,37 +192,34 @@ export async function GET(request: Request) {
           if (!successErr) {
             marked = true;
           } else {
-            console.error('[webhook-retry] success mark failed (retrying)', { jobId: job.id, attempt: attempt + 1, err: errorMessage(successErr) });
+            console.error('[webhook-retry] success mark failed (retrying)', {
+              jobId: job.id,
+              attempt: attempt + 1,
+              err: summarizeDependencyError(successErr),
+            });
           }
         }
         if (!marked) {
-          // 外部送信後にsuccessだけを記録できない状態は「成功」でも「未送信」でもない。
-          // ambiguousへ隔離してstale reclaimの自動再送を止め、運用照合を要求する。
-          let isolated = false;
-          for (let attempt = 0; attempt < 3 && !isolated; attempt++) {
-            const { error: isolateErr } = await supabase
-              .from('webhook_retry_queue')
-              .update({ status: 'ambiguous', last_error: '外部送信後にsuccess記録が失敗。重複送信防止のため要照合', delivered_at: new Date().toISOString() })
-              .eq('id', job.id)
-              .eq('status', 'processing');
-            if (!isolateErr) isolated = true;
-          }
-          console.error('[webhook-retry] CRITICAL: delivered but could not mark success', { jobId: job.id, isolated });
-          failed++;
-        } else {
-          success++;
+          // delivery_started_at が残るため stale reclaim はこの行を拾わない。外部送信済みの
+          // 可能性がある行を自動再送するより、手動照合まで保留する方が安全である。
+          console.error('[webhook-retry] CRITICAL: delivered but could not mark success — held to prevent duplicate delivery', { jobId: job.id });
+          deliveryUncertain++;
         }
+        success++;
       } catch (e) {
-        const errorMsg = e instanceof Error ? e.message : String(e);
+        const errorMsg = summarizeDependencyError(e);
         const outcome = await scheduleRetry(job.id, job.attempt_count + 1, errorMsg);
         // scheduleRetry の戻り値で dead-letter（再送上限到達・status='failed'・二度と自動
         // 再送されない）とrescheduled（次回試行を予約）を区別する。区別しないと
         // alertDeliveryFailures が dead-letter 分にも「翌runで再送」という嘘の文言を出す。
-        if (outcome === 'dead-letter') deadLettered++;
-        if (outcome === 'update-failed') {
-          console.error('[webhook-retry] CRITICAL: delivery failure state could not be persisted', { jobId: job.id });
+        if (outcome === 'uncertain') {
+          // 送信失敗後でも、pending/failed への書込み結果が不明なら自動再送は危険。
+          // delivery_started_at を残したまま運用照合へ上げ、成功として隠さない。
+          deliveryUncertain++;
+        } else {
+          if (outcome === 'dead-letter') deadLettered++;
+          failed++;
         }
-        failed++;
       }
     }
 
@@ -214,6 +228,15 @@ export async function GET(request: Request) {
     // 自動再送されない件数）を渡し、alertDeliveryFailures 側で文言を「dead-letter」向けに
     // 差し替える（0件時は他 cron と同じ既存文言のまま＝挙動不変）。
     alertDeliveryFailures('webhook-retry', failed, { success }, deadLettered);
+    if (deliveryUncertain > 0) {
+      await logCronRun('webhook-retry', 'error', startedAt, {
+        processed: success,
+        skipped: failed,
+        error_msg: '外部送信後の結果記録が不明なジョブを再送防止のため保留しました',
+        meta: { total: jobs.length, claimed: claimedJobs.length, delivery_uncertain: deliveryUncertain },
+      });
+      return NextResponse.json({ error: 'delivery confirmation pending', delivery_uncertain: deliveryUncertain }, { status: 503 });
+    }
 
     // pending 滞留件数を観測する（backlog の可視化・発症前検知）。エラー時は本体を落とさず
     // null のまま記録する（観測失敗が cron 本体の成否に影響してはならない）。
@@ -225,13 +248,15 @@ export async function GET(request: Request) {
         .eq('status', 'pending');
       queuePending = count ?? null;
     } catch (e) {
-      console.error('[webhook-retry] queue_pending observation failed (continuing)', { err: errorMessage(e) });
+      console.error('[webhook-retry] queue_pending observation failed (continuing)', {
+        err: summarizeDependencyError(e),
+      });
     }
 
     await logCronRun('webhook-retry', 'success', startedAt, {
       processed: success,
       skipped: failed,
-      meta: { total: jobs.length, claimed: claimedJobs.length, queue_pending: queuePending },
+      meta: { total: jobs.length, claimed: claimedJobs.length, queue_pending: queuePending, delivery_uncertain: 0 },
     });
 
     return NextResponse.json({ processed: success, skipped: failed });

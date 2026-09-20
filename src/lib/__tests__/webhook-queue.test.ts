@@ -215,15 +215,16 @@ test('scheduleRetry: attempt>=3 → failed状態に更新し、戻り値は "dea
   expect(outcome).toBe('dead-letter');
 });
 
-test('scheduleRetry: attempt>=3 のDB失敗 → エラーログを出力（ジョブがprocessingで止まらないよう）', async () => {
+test('scheduleRetry: attempt>=3 のDB失敗 → uncertain を返して無音成功にしない', async () => {
   mockFrom.mockReturnValue(updateChain({ message: 'update failed' }));
 
-  await scheduleRetry('job-xyz', 3, 'timeout');
+  const outcome = await scheduleRetry('job-xyz', 3, 'timeout');
 
   expect(console.error).toHaveBeenCalledWith(
     '[webhook-queue] failed to mark job as failed — job stuck in processing',
     expect.objectContaining({ jobId: 'job-xyz' })
   );
+  expect(outcome).toBe('uncertain');
 });
 
 // ─── scheduleRetry: reschedule path ──────────────────────────────────────────
@@ -239,6 +240,7 @@ test('scheduleRetry: attempt=1（即時失敗）→ pending・attempt_count=1・
   expect(called).toEqual(expect.objectContaining({
     status: 'pending',
     attempt_count: 1,
+    delivery_started_at: null,
   }));
   // pending へ戻す行は「未 claim」に戻るため claimed_at を必ずクリアする。
   // 残したままだと stale reclaim が古い claim 時刻を見て誤判定しかねない。
@@ -266,13 +268,14 @@ test('scheduleRetry: attempt=2（5分後失敗）→ attempt_count=2・scheduled
   expect(outcome).toBe('rescheduled');
 });
 
-test('scheduleRetry: 再スケジュールDB失敗 → エラーログを出力', async () => {
+test('scheduleRetry: 再スケジュールDB失敗 → uncertain を返して無音成功にしない', async () => {
   mockFrom.mockReturnValue(updateChain({ message: 'reschedule failed' }));
 
-  await scheduleRetry('job-stuck', 1, 'error message');
+  const outcome = await scheduleRetry('job-stuck', 1, 'error message');
 
   expect(console.error).toHaveBeenCalledWith(
     '[webhook-queue] failed to reschedule job — job stuck in processing',
     expect.objectContaining({ jobId: 'job-stuck', attempt: 1 })
   );
+  expect(outcome).toBe('uncertain');
 });

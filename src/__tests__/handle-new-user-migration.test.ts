@@ -7,7 +7,7 @@ import path from 'node:path';
 
 const migrationPath = path.join(
   process.cwd(),
-  'supabase/migrations/20260916000001_handle_new_user_oauth_profile_fields.sql',
+  'supabase/migrations/20260919000008_handle_new_user_oauth_profile_fields.sql',
 );
 
 describe('handle_new_user OAuth profile migration', () => {

@@ -7,7 +7,7 @@
 
 jest.mock('../supabase-server');
 
-import { getAreaSeoContent, enrichSeoContent } from '../area-seo';
+import { getAreaSeoContent, enrichSeoContent, isIndexableAreaQuality } from '../area-seo';
 import type { AreaSeoContent } from '../area-seo';
 
 const { createServerSupabaseClient } = require('../supabase-server');
@@ -100,6 +100,36 @@ describe('getAreaSeoContent', () => {
     buildSupabaseMock(null);
     const result = await getAreaSeoContent('osaka', 'kita', 'nail');
     expect(result).toBeNull();
+  });
+});
+
+describe('isIndexableAreaQuality', () => {
+  const content = {
+    h2: '豊中市のヘアサロンをお探しの方へ',
+    intro: '豊中市のヘアサロンを、メニュー・料金・写真・口コミ・営業時間・アクセスなどの判断材料から比較できる地域別の案内です。予約前に各施設の掲載内容、対応メニュー、予約条件をご確認ください。掲載情報は施設ごとに異なるため、希望する内容を確認してから予約へ進めます。',
+    highlights: ['料金とメニューを比較', '写真と口コミを確認'],
+    faqs: [
+      { question: '選ぶポイントは？', answer: '営業時間、メニュー、料金、アクセス、掲載写真などを比較し、希望に合う施設か確認してください。' },
+      { question: '予約方法は？', answer: '施設ページの予約枠、注意事項、キャンセル条件をご確認のうえ、表示された予約手順に進んでください。希望日時や施術内容を先に整理しておくと比較しやすくなります。' },
+    ],
+  };
+
+  test('requires a positive inventory count and content', () => {
+    expect(isIndexableAreaQuality(null, content)).toBe(false);
+    expect(isIndexableAreaQuality(undefined, content)).toBe(false);
+    expect(isIndexableAreaQuality(0, content)).toBe(false);
+    expect(isIndexableAreaQuality(1, null)).toBe(false);
+    expect(isIndexableAreaQuality(1, content)).toBe(true);
+  });
+
+  test.each([
+    ['short heading', { ...content, h2: '短い' }],
+    ['short intro', { ...content, intro: '短い説明' }],
+    ['one highlight', { ...content, highlights: ['1つ'] }],
+    ['one faq', { ...content, faqs: [content.faqs[0]] }],
+    ['short total text', { ...content, intro: '短い説明' }],
+  ])('rejects %s', (_label, candidate) => {
+    expect(isIndexableAreaQuality(1, candidate)).toBe(false);
   });
 });
 

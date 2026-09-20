@@ -11,6 +11,7 @@
 
 import { createServiceRoleClient } from './supabase-server';
 import { alertWarning } from './alert';
+import { summarizeDependencyError } from './err';
 import { toJsonValue } from '@/lib/json-value';
 
 export type WebhookType = 'line_push' | 'line_multicast' | 'email';
@@ -63,14 +64,14 @@ export async function enqueueWebhook(job: WebhookJob): Promise<void> {
         webhookType: job.type,
         targetId: maskTargetId(job.targetId),
         facilityId: job.facilityId ?? null,
-        err: error,
+        err: summarizeDependencyError(error),
       });
       alertWarning(`[webhook-queue] enqueue失敗 — 通知が永久にロストした可能性（${job.type}）`, {
         extra: {
           webhookType: job.type,
           targetId: maskTargetId(job.targetId),
           facilityId: job.facilityId ?? null,
-          errMessage: error.message,
+          errMessage: summarizeDependencyError(error),
         },
       });
     }
@@ -85,7 +86,7 @@ export async function enqueueWebhook(job: WebhookJob): Promise<void> {
     // 15分毎の webhook-retry cron も一切拾わず、(4) Slack には何も出ない。本ファイル冒頭の
     // docstring が「防ぐ」と宣言している「通知が永久にロストした」状態が、最も起こりやすい
     // 障害の形（ネットワーク断）でだけ無音になっていた。
-    const errMessage = e instanceof Error ? e.message : String(e);
+    const errMessage = summarizeDependencyError(e);
     console.error('[webhook-queue] enqueue threw', {
       webhookType: job.type,
       targetId: maskTargetId(job.targetId),
@@ -112,7 +113,8 @@ export async function enqueueWebhook(job: WebhookJob): Promise<void> {
  *               attempt >= max_attempts(3) で全試行消化済み → dead-letter に移行。
  * @param errorMsg エラーメッセージ
  * @returns 'dead-letter'（再送上限到達・status='failed'・二度と自動再送されない）
- *          または 'rescheduled'（status='pending' に戻し次回試行を予約した）。
+ *          'rescheduled'（status='pending' に戻し次回試行を予約した）、または
+ *          'uncertain'（書込み結果不明のため自動再送せず運用照合が必要）。
  *          呼び出し側（route.ts）はこれを集計し、alertDeliveryFailures に
  *          dead-letter 件数を渡して「再送されます」という嘘の文言を防ぐ。
  */
@@ -120,7 +122,7 @@ export async function scheduleRetry(
   jobId: string,
   attempt: number,
   errorMsg: string
-): Promise<'dead-letter' | 'rescheduled' | 'update-failed'> {
+): Promise<'dead-letter' | 'rescheduled' | 'uncertain'> {
   const supabase = createServiceRoleClient();
 
   // attempt は「今まで完了した試行回数」。max_attempts=3 なので attempt >= 3 で全試行消化済み
@@ -131,10 +133,11 @@ export async function scheduleRetry(
       last_error: errorMsg,
       attempt_count: attempt,
       processed_at: new Date().toISOString(),
+      delivery_started_at: null,
     }).eq('id', jobId);
     if (failErr) {
-      console.error('[webhook-queue] failed to mark job as failed — job stuck in processing', { jobId, err: failErr });
-      return 'update-failed';
+      console.error('[webhook-queue] failed to mark job as failed — job stuck in processing', { jobId, err: summarizeDependencyError(failErr) });
+      return 'uncertain';
     }
     return 'dead-letter';
   }
@@ -158,10 +161,11 @@ export async function scheduleRetry(
     // 誤認しかねない（本来 status='processing' の行だけが reclaim 対象だが、値の意味を
     // 一貫させるため pending 復帰時は必ずクリアする）。
     claimed_at: null,
+    delivery_started_at: null,
   }).eq('id', jobId);
   if (retryErr) {
-    console.error('[webhook-queue] failed to reschedule job — job stuck in processing', { jobId, attempt, err: retryErr });
-    return 'update-failed';
+    console.error('[webhook-queue] failed to reschedule job — job stuck in processing', { jobId, attempt, err: summarizeDependencyError(retryErr) });
+    return 'uncertain';
   }
   return 'rescheduled';
 }

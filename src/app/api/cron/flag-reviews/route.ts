@@ -14,7 +14,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { fetchAllPaged } from '@/lib/paginate';
 import { alertWarning } from '@/lib/alert';
-import { errorMessage } from '@/lib/err';
+import { retryTransientSupabaseRead, summarizeDependencyError } from '@/lib/err';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,10 +50,12 @@ async function enqueueFlaggedReviews(
     // enqueue が恒常失敗（関数不在/スキーマドリフト等）すると、フラグ済みレビューが is_flagged=true の
     // まま審査キューに載らず、本 cron が解消したはずの no-op を無音で再現する。RPC 失敗警報と整合させ
     // Slack にも警報する。
-    console.error('[flag-reviews] moderation_queue enqueue failed:', error);
+    console.error('[flag-reviews] moderation_queue enqueue failed:', {
+      errorMessage: summarizeDependencyError(error),
+    });
     alertWarning('flag-reviews: moderation_queue への審査キュー投入に失敗（フラグ済みが審査に載らない）', {
       route: '/api/cron/flag-reviews',
-      extra: { errorMessage: errorMessage(error) },
+      extra: { errorMessage: summarizeDependencyError(error) },
     });
   }
 }
@@ -77,18 +79,22 @@ export async function GET(request: Request) {
     // 1. 同一IPから24時間以内に3件以上 → スパム疑い
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-    const { data: bulkSpam, error: rpcError } = await supabase.rpc('find_bulk_review_ips', {
-      p_since: since24h,
-      p_threshold: 3,
-    });
+    const { data: bulkSpam, error: rpcError } = await retryTransientSupabaseRead(() =>
+      supabase.rpc('find_bulk_review_ips', {
+        p_since: since24h,
+        p_threshold: 3,
+      }),
+    );
     if (rpcError) {
       // 検知1(同一IP大量投稿スパム)が丸ごと無音で no-op 化する障害。console.error のみだと
       // Vercel ログに埋没し誰も気づけないため、恒久検知として Slack へ警報する
       // （検知2は RPC に依存せず独立して動くため cron 全体は 'success' のまま継続する）。
-      console.error('[flag-reviews] find_bulk_review_ips RPC failed:', rpcError);
+      console.error('[flag-reviews] find_bulk_review_ips RPC failed:', {
+        errorMessage: summarizeDependencyError(rpcError),
+      });
       alertWarning(
         'flag-reviews: find_bulk_review_ips RPC 失敗（検知1: 同一IP大量投稿スパム検知が無効化）',
-        { route: '/api/cron/flag-reviews', extra: { errorMessage: rpcError.message } },
+        { route: '/api/cron/flag-reviews', extra: { errorMessage: summarizeDependencyError(rpcError) } },
       );
     }
 
@@ -117,7 +123,9 @@ export async function GET(request: Request) {
             .update({ is_flagged: true, flag_reason: reason })
             .in('id', reviews.map((r) => r.id));
           if (updateErr) {
-            console.error('[flag-reviews] bulk_submission update failed:', updateErr);
+            console.error('[flag-reviews] bulk_submission update failed:', {
+              errorMessage: summarizeDependencyError(updateErr),
+            });
           } else {
             flagged += reviews.length;
             // 【監査H3】審査キューへ投入し /admin/moderation に表示させる。
@@ -164,7 +172,9 @@ export async function GET(request: Request) {
             .update({ is_flagged: true, flag_reason: reason })
             .in('id', ids);
           if (updateErr) {
-            console.error('[flag-reviews] duplicate_facility update failed:', updateErr);
+            console.error('[flag-reviews] duplicate_facility update failed:', {
+              errorMessage: summarizeDependencyError(updateErr),
+            });
           } else {
             flagged += ids.length;
             // 【監査H3】審査キューへ投入し /admin/moderation に表示させる。
@@ -182,7 +192,7 @@ export async function GET(request: Request) {
     await logCronRun('flag-reviews', 'success', startedAt, { processed: flagged, skipped: 0 });
     return NextResponse.json({ processed: flagged, skipped: 0 });
   } catch (e) {
-    console.error('flag-reviews error', e);
+    console.error('flag-reviews error', { errorMessage: summarizeDependencyError(e) });
     return cronError('flag-reviews', startedAt, e, { message: 'error', extraBody: { flagged } });
   }
 }

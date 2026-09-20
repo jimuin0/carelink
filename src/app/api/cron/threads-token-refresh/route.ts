@@ -32,6 +32,7 @@ import { logCronRun, cronError } from '@/lib/cron-logger';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { refreshThreadsToken } from '@/lib/threads';
 import { alertError } from '@/lib/alert';
+import { retryTransientSupabaseRead } from '@/lib/err';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -60,10 +61,12 @@ export async function GET(request: Request) {
     // error と混同しない）。設定有無を refreshThreadsToken() の reason 文字列に依存させず
     // この cron 自身が DB を見て判定するのは、契約先（src/lib/threads.ts）の reason の
     // 語彙が変わっても本判定が影響を受けないようにするため。
-    const { data: creds, error: credsErr } = await supabase
-      .from('threads_credentials')
-      .select('expires_at')
-      .maybeSingle();
+    const { data: creds, error: credsErr } = await retryTransientSupabaseRead(() =>
+      supabase
+        .from('threads_credentials')
+        .select('expires_at')
+        .maybeSingle(),
+    );
 
     if (credsErr) {
       return cronError(SELF, startedAt, credsErr, { message: 'Internal Server Error' });
