@@ -21,4 +21,4 @@ CREATE INDEX IF NOT EXISTS idx_account_deletion_jobs_retry
 ALTER TABLE public.account_deletion_jobs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS account_deletion_jobs_service_only ON public.account_deletion_jobs;
 CREATE POLICY account_deletion_jobs_service_only ON public.account_deletion_jobs
-  FOR ALL USING (false) WITH CHECK (false);
+  FOR ALL TO service_role USING (true) WITH CHECK (true);
