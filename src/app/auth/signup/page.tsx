@@ -257,15 +257,16 @@ function SignupContent() {
     );
   }
 
+  const isStoreSignup = redirect.startsWith('/admin');
   const isStoreOnboarding = redirect.startsWith('/admin/onboarding');
 
   return (
     <>
-          {isStoreOnboarding && (
+          {isStoreSignup && (
             <p className="-mt-4 mb-6 text-center text-sm text-sky-700 bg-sky-50 rounded-lg px-4 py-2.5">
               施設オーナーさま向けのアカウント作成です。
               <br />
-              登録後、施設情報の登録を続けます。
+              {isStoreOnboarding ? '登録後、施設情報の登録を続けます。' : '登録後、管理画面へ移動します。'}
             </p>
           )}
           {/* authOperationInFlight は submit handler 内だけで読む排他用のref。 */}
@@ -279,6 +280,7 @@ function SignupContent() {
                 id="signup-name"
                 className="form-input"
                 autoComplete="name"
+                required
                 aria-required="true"
                 aria-describedby={errors.display_name ? 'signup-name-help signup-name-error' : 'signup-name-help'}
                 aria-invalid={Boolean(errors.display_name)}
@@ -296,6 +298,7 @@ function SignupContent() {
                 type="email"
                 className="form-input"
                 autoComplete="email"
+                required
                 aria-required="true"
                 aria-describedby={errors.email ? 'signup-email-error' : undefined}
                 aria-invalid={Boolean(errors.email)}
@@ -312,6 +315,7 @@ function SignupContent() {
                 type="tel"
                 className="form-input"
                 autoComplete="tel"
+                required
                 aria-required="true"
                 aria-describedby={errors.phone ? 'signup-phone-help signup-phone-error' : 'signup-phone-help'}
                 aria-invalid={Boolean(errors.phone)}
@@ -327,6 +331,7 @@ function SignupContent() {
                 {...register('prefecture')}
                 id="signup-prefecture"
                 className="form-input"
+                required
                 aria-required="true"
                 aria-describedby={errors.prefecture ? 'signup-prefecture-error' : undefined}
                 aria-invalid={Boolean(errors.prefecture)}
@@ -349,6 +354,7 @@ function SignupContent() {
                   type={showPassword ? 'text' : 'password'}
                   className="form-input pr-10"
                   autoComplete="new-password"
+                  required
                   aria-required="true"
                   aria-describedby={errors.password ? 'signup-password-help signup-password-error' : 'signup-password-help'}
                   aria-invalid={Boolean(errors.password)}
@@ -388,6 +394,7 @@ function SignupContent() {
                 type={showPassword ? 'text' : 'password'}
                 className="form-input"
                 autoComplete="new-password"
+                required
                 aria-required="true"
                 aria-describedby={errors.password_confirm ? 'signup-password-confirm-error' : undefined}
                 aria-invalid={Boolean(errors.password_confirm)}

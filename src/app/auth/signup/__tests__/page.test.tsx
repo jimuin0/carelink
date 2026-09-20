@@ -61,6 +61,17 @@ test('sessionが返る環境は確認待ちを表示せず安全な戻り先へ�
   expect(refresh).toHaveBeenCalledTimes(1);
 });
 
+test('店舗ログイン経由の新規登録は店舗向けの登録文脈を表示する', async () => {
+  searchParams.set('redirect', '/admin');
+  render(<SignupPage />);
+
+  expect(await screen.findByText(/施設オーナーさま向けのアカウント作成です/)).toBeInTheDocument();
+  expect(screen.getByText(/登録後、管理画面へ移動します/)).toBeInTheDocument();
+  expect(screen.getByText('8〜128文字で入力してください。英字・数字・記号を組み合わせる必要はありません。')).toBeInTheDocument();
+  expect(document.getElementById('signup-name')).toHaveAttribute('required');
+  expect(document.getElementById('signup-password')).toHaveAttribute('required');
+});
+
 test('通信失敗を一般的な登録失敗へ潰さず、結果不明として案内する', async () => {
   signUp.mockResolvedValue({ data: { user: null, session: null }, error: { code: 'unexpected_failure', message: 'Failed to fetch' } });
   render(<SignupPage />);
