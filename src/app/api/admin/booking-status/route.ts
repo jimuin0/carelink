@@ -101,7 +101,7 @@ export async function POST(request: Request) {
     // their side effects. Other transitions retain the status CAS update.
     let statusUpdated = false;
     if (status === 'cancelled') {
-      const rpc = supabase.rpc as unknown as (
+      const rpc = supabase.rpc.bind(supabase) as unknown as (
         fn: string,
         args: Record<string, unknown>
       ) => Promise<{ data: unknown; error: { message?: string } | null }>;
@@ -120,7 +120,7 @@ export async function POST(request: Request) {
         (cancellationResult as { cancelled?: unknown }).cancelled === true
       );
     } else if (status === 'no_show') {
-      const rpc = supabase.rpc as unknown as (
+      const rpc = supabase.rpc.bind(supabase) as unknown as (
         fn: string,
         args: Record<string, unknown>
       ) => Promise<{ data: unknown; error: { message?: string } | null }>;

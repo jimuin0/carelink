@@ -289,7 +289,7 @@ export async function POST(request: Request) {
   // migration 側で anon/authenticated の EXECUTE を撤回して直接呼び出し経路を塞ぐ。ここで渡す値は
   // すべて上流でサーバ側検証・算出済み（user は auth.getUser()、finalPrice はサーバ側計算）。
   const rpcClient = createServiceRoleClient();
-  const createBookingRpc = rpcClient.rpc as unknown as (
+  const createBookingRpc = rpcClient.rpc.bind(rpcClient) as unknown as (
     fn: string,
     args: Record<string, unknown>
   ) => Promise<{ data: unknown; error: { code?: string; message?: string } | null }>;

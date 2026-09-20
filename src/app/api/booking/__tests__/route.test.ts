@@ -89,8 +89,12 @@ beforeEach(() => {
   mockBookingLookupFrom.mockImplementation(() => fluent({ data: null, error: null }));
   (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
-  // Default: RPC succeeds
-  mockRpc.mockResolvedValue({ data: { booking_id: 'new-booking-id', replayed: false }, error: null });
+  // Require the Supabase client receiver: PostgREST methods use `this.rest`, so a detached
+  // rpc reference must fail in unit tests instead of being hidden by a plain jest.fn mock.
+  mockRpc.mockImplementation(function (this: { rpc?: typeof mockRpc } | undefined) {
+    if (this?.rpc !== mockRpc) throw new Error('Supabase rpc called without its client receiver');
+    return Promise.resolve({ data: { booking_id: 'new-booking-id', replayed: false }, error: null });
+  });
   // 既定は全通知 ON（既存挙動）。施設オーナー新規予約 Push のゲートを通す。
   const { getFacilityNotificationSettings } = require('@/lib/notification-settings');
   (getFacilityNotificationSettings as jest.Mock).mockResolvedValue({

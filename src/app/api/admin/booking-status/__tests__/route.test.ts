@@ -60,7 +60,12 @@ beforeEach(() => {
   jest.clearAllMocks();
   (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
-  mockRpc.mockResolvedValue({ data: { cancelled: true, updated: true }, error: null });
+  // Supabase RPC methods depend on their client receiver (`this.rest`). Keep that
+  // contract in the mock so extracting rpc without bind fails deterministically.
+  mockRpc.mockImplementation(function (this: { rpc?: typeof mockRpc } | undefined) {
+    if (this?.rpc !== mockRpc) throw new Error('Supabase rpc called without its client receiver');
+    return Promise.resolve({ data: { cancelled: true, updated: true }, error: null });
+  });
   // メール送信関数は boolean を返す契約（デフォルトは成功）。個別テストで false を上書きして
   // 送達失敗時のアラート分岐を検証する。
   (sendBookingConfirmed as jest.Mock).mockResolvedValue(true);

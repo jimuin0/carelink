@@ -108,7 +108,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   // CAS 条件(.eq('user_id', userId)/.eq('status', ...))はそのまま維持し、原子性・本人限定・競合検知
   // (0行→409)を保つ。LIFF 分岐は既に db=service_role だが、両分岐とも service_role 書込に統一する。
   const writeDb = createServiceRoleClient();
-  const rpc = writeDb.rpc as unknown as (
+  const rpc = writeDb.rpc.bind(writeDb) as unknown as (
     fn: string,
     args: Record<string, unknown>
   ) => Promise<{ data: unknown; error: { message?: string } | null }>;

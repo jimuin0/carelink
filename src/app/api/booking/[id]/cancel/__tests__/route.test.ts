@@ -91,7 +91,12 @@ beforeEach(() => {
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
   (getBearerToken as jest.Mock).mockReturnValue(null); // 既定は Cookie 経路（Bearer 無し）
   (resolveLiffUserId as jest.Mock).mockReset();
-  mockRpc.mockResolvedValue({ data: { cancelled: true }, error: null });
+  // Supabase RPC methods depend on their client receiver (`this.rest`). Keep that
+  // contract in the mock so extracting rpc without bind fails deterministically.
+  mockRpc.mockImplementation(function (this: { rpc?: typeof mockRpc } | undefined) {
+    if (this?.rpc !== mockRpc) throw new Error('Supabase rpc called without its client receiver');
+    return Promise.resolve({ data: { cancelled: true }, error: null });
+  });
   const { isLineWorksConfigured } = require('@/lib/integrations/line-works');
   (isLineWorksConfigured as jest.Mock).mockReturnValue(false);
   // 既定はキャンセルPush ON（既存挙動＋新機能）
