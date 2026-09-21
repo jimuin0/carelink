@@ -18,6 +18,14 @@ test('provider IDのある正常応答のみ成功にする', async () => {
 test('rejectを未送信と断定しない', async () => {
   await expect(sendResendForReconciliation(Promise.reject(new Error('network')))).resolves.toBe('uncertain');
 });
+test('タイマー初期化に失敗しても送信済みの可能性を保持して照合待ちにする', async () => {
+  const timer = jest.spyOn(global, 'setTimeout').mockImplementationOnce(() => { throw new Error('timer unavailable'); });
+  try {
+    await expect(sendResendForReconciliation(new Promise(() => {}))).resolves.toBe('uncertain');
+  } finally {
+    timer.mockRestore();
+  }
+});
 test('タイムアウト後の遅延応答でも二度目の送信を行わない', async () => {
   jest.useFakeTimers();
   let finish!: (value: unknown) => void;

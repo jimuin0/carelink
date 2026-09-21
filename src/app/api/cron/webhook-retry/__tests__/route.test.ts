@@ -266,6 +266,51 @@ function makeRequest(cronSecret: string = 'cron-secret') {
 }
 
 describe('GET /api/cron/webhook-retry', () => {
+  test('結果不明件数nullは0として対象なしを正常スキップする', async () => {
+    setupDefaultMocks(0);
+    mockHeldDeliveryLt.mockResolvedValue({ count: null, error: null });
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect(mockDeliveryStartUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    null, [], 'invalid',
+    { to: 1, subject: 'fixture', html: '<p>fixture</p>' },
+    { to: 'fixture@example.com', subject: null, html: '<p>fixture</p>' },
+    { to: 'fixture@example.com', subject: 'fixture', html: null },
+    { to: 'fixture@example.com', subject: 'fixture', html: '<p>fixture</p>', from: 1 },
+  ])('不正email payload %jは送信せず安全な失敗処理に回す', async (payload) => {
+    mockJobsSelect.mockResolvedValue({ data: [{
+      id: 'email-fixture', webhook_type: 'email', payload,
+      status: 'pending', attempt_count: 0, scheduled_at: new Date().toISOString(),
+    }] });
+    const mockSend = jest.fn();
+    require('resend').Resend.mockImplementation(() => ({ emails: { send: mockSend } }));
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockDeliveryStartUpdate).not.toHaveBeenCalled();
+    expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledWith('email-fixture', 1, expect.stringContaining('email payload'));
+  });
+
+  test('SDKが明確に拒否したメールだけ再スケジュールし結果不明と区別する', async () => {
+    mockJobsSelect.mockResolvedValue({ data: [{
+      id: 'email-fixture', webhook_type: 'email',
+      payload: { to: 'fixture@example.com', subject: 'fixture', html: '<p>fixture</p>' },
+      status: 'pending', attempt_count: 0, scheduled_at: new Date().toISOString(),
+    }] });
+    const mockSend = jest.fn().mockResolvedValue({ data: null, error: { statusCode: 429 } });
+    require('resend').Resend.mockImplementation(() => ({ emails: { send: mockSend } }));
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(scheduleRetry).toHaveBeenCalledWith('email-fixture', 1, expect.any(String));
+    expect(mockSuccessUpdate).not.toHaveBeenCalled();
+  });
+
   test('invalid CRON_SECRET → returns auth error', async () => {
     (checkCronAuth as jest.Mock).mockReturnValue(
       new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })

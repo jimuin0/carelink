@@ -82,7 +82,8 @@ type Cfg = {
   menus?: { data: { id: string; name: string }[] | null; error?: unknown };
   upsertError?: unknown;
   deleteError?: unknown;
-  unresolved?: number;
+  unresolved?: number | null;
+  reclaimError?: unknown;
   observationError?: unknown;
   deliveryMarkError?: unknown;
   currentBooking?: Record<string, unknown> | null;
@@ -208,9 +209,9 @@ function setup(cfg: Cfg = {}) {
         return {
           upsert: mockUpsert,
           update: mockMarkDelivery,
-          select: jest.fn().mockReturnValue({ or: jest.fn().mockResolvedValue({ count: cfg.unresolved ?? 0, error: cfg.observationError ?? null }) }),
+          select: jest.fn().mockReturnValue({ or: jest.fn().mockResolvedValue({ count: cfg.unresolved === undefined ? 0 : cfg.unresolved, error: cfg.observationError ?? null }) }),
           delete: () => ({ eq: (column: string, value: unknown) => column === 'delivery_state'
-            ? { lt: jest.fn().mockResolvedValue({ error: null }) }
+            ? { lt: jest.fn().mockResolvedValue({ error: cfg.reclaimError ?? null }) }
             : mockDelete().eq(column, value) }),
         };
       }
@@ -253,6 +254,62 @@ test('migration未適用でRPC不在なら送信・claimを一切開始しない
   expect(res.status).toBe(500);
   expect(mockEmailReminder).not.toHaveBeenCalled();
   expect(mockUpsert).not.toHaveBeenCalled();
+});
+
+test('送信前claimの回収が失敗したrunは検索・送信へ進まない', async () => {
+  setup({ reclaimError: { message: 'reclaim unavailable' } });
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(500);
+  expect(bookingsInMock).not.toHaveBeenCalled();
+  expect(mockUpsert).not.toHaveBeenCalled();
+  expect(mockEmailReminder).not.toHaveBeenCalled();
+});
+
+test('結果不明件数nullで対象予約なしの場合は送信せず正常スキップ', async () => {
+  setup({ bookings: { data: [] }, unresolved: null });
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(200);
+  expect(logCronRun).toHaveBeenCalledWith('booking-reminder', 'skipped', expect.any(Date), expect.any(Object));
+  expect(mockEmailReminder).not.toHaveBeenCalled();
+});
+
+test('送信開始前にrun予算を消費した場合はclaimを取得せず次runへ残す', async () => {
+  const now = jest.spyOn(Date, 'now').mockImplementation(() => new Date('2026-05-15T00:00:41Z').getTime());
+  try {
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ deferred: 2, processed: 0 });
+    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockEmailReminder).not.toHaveBeenCalled();
+  } finally { now.mockRestore(); }
+});
+
+test('送信直前の予約照合が失敗した場合は未送信claimのみ解放する', async () => {
+  setup({ bookings: { data: [booking()] }, currentBookingError: { message: 'booking unavailable' } });
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(503);
+  expect(mockEmailReminder).not.toHaveBeenCalled();
+  expect(mockLineReminder).not.toHaveBeenCalled();
+  expect(mockDelete).toHaveBeenCalledTimes(1);
+  expect(mockMarkDelivery).not.toHaveBeenCalled();
+});
+
+test('既存LINE退避メールも結果不明ならclaimを保持し二重送信を防ぐ', async () => {
+  setup({
+    bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
+    settings: { data: [{ facility_id: 'fac-0', remind_7d_line: true }] },
+    entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+    lineLinks: { data: [{ id: 'u1', line_user_id: 'line-fixture' }] },
+  });
+  mockLineReminder.mockResolvedValue('permanent');
+  mockEmailReminder.mockResolvedValue('uncertain');
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(503);
+  expect(await res.json()).toMatchObject({ delivery_uncertain: 1, processed: 0 });
+  expect(mockLineReminder).toHaveBeenCalledTimes(1);
+  expect(mockEmailReminder).toHaveBeenCalledTimes(1);
+  expect(mockMarkDelivery).toHaveBeenCalledWith({ delivery_state: 'uncertain' });
+  expect(mockDelete).not.toHaveBeenCalled();
 });
 
 test('前runの結果不明は対象予約0件でも監視を継続する', async () => {

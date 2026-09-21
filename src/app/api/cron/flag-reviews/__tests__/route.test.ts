@@ -58,27 +58,27 @@ let enqueueResult: { data?: unknown; error: unknown } = { error: null };
 
 // fetchAllPaged 化で両クエリ末尾に .order().range() が付く。1ページ目に rows、
 // 2ページ目以降(offset>0)は空配列を返して終了させる terminal。
-function pagedTerminal(rows: any[] | null) {
+function pagedTerminal(rows: any[] | null, error: unknown = null) {
   return {
     order: jest.fn().mockReturnValue({
       range: jest.fn().mockImplementation((from: number) =>
         // data:null（dupFacility null テスト）は from===0 でそのまま返し、fetchAllPaged は rows:[] になる
-        Promise.resolve({ data: from === 0 ? rows : [], error: null })),
+        Promise.resolve({ data: from === 0 ? rows : [], error })),
     }),
   };
 }
 
 // 両チェイン（bulk: eq→gte→eq, self-dealing: not→eq→eq）を pagedTerminal で終端する select モック。
-function makeSelectMock(bulkRows: any[] | null, selfDealingRows: any[] | null) {
+function makeSelectMock(bulkRows: any[] | null, selfDealingRows: any[] | null, bulkError: unknown = null, selfDealingError: unknown = null) {
   return jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
       gte: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue(pagedTerminal(bulkRows)),
+        eq: jest.fn().mockReturnValue(pagedTerminal(bulkRows, bulkError)),
       }),
     }),
     not: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue(pagedTerminal(selfDealingRows)),
+        eq: jest.fn().mockReturnValue(pagedTerminal(selfDealingRows, selfDealingError)),
       }),
     }),
   });
@@ -145,6 +145,28 @@ function makeRequest() {
 }
 
 describe('GET /api/cron/flag-reviews', () => {
+  test.each(['bulk', 'self-dealing'])('%sのレビュー読取障害を正常0件と扱わず書込前に中断する', async (phase) => {
+    const error = { message: 'reviews unavailable' };
+    mockSelectReviews = makeSelectMock([], [], phase === 'bulk' ? error : null, phase === 'self-dealing' ? error : null);
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(500);
+    expect(mockUpdateReviews).not.toHaveBeenCalled();
+    expect(mockRpcDelegate.mock.calls.some(([fn]) => fn === 'enqueue_moderation')).toBe(false);
+    expect(logCronRun).toHaveBeenCalledWith('flag-reviews', 'error', expect.any(Date), expect.any(Object));
+  });
+
+  test('自作自演の審査キュー確保に失敗した場合は未フラグ状態を維持して復旧可能にする', async () => {
+    mockSelectReviews = makeSelectMock([], [
+      { id: 'review-1', reviewer_ip: '192.0.2.1', facility_id: 'fac-fixture' },
+      { id: 'review-2', reviewer_ip: '192.0.2.1', facility_id: 'fac-fixture' },
+    ]);
+    enqueueResult = { error: { message: 'queue unavailable' } };
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(500);
+    expect(mockRpcDelegate.mock.calls.some(([fn]) => fn === 'enqueue_moderation')).toBe(true);
+    expect(mockUpdateReviews).not.toHaveBeenCalled();
+  });
+
   test('CRON_SECRET check failed → returns error', async () => {
     const errorResponse = new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
     (checkCronAuth as jest.Mock).mockReturnValue(errorResponse);

@@ -20,7 +20,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 
 const BOOKING_UUID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
-const BOOKING_FACILITY_UUID = '11111111-1111-1111-1111-111111111111';
+const BOOKING_FACILITY_UUID = '11111111-1111-4111-8111-111111111111';
 
 let mockInsert: jest.Mock;
 let mockGetUser: jest.Mock;
@@ -95,6 +95,21 @@ function makePostRequest(body: object, ip = '192.168.1.1') {
 }
 
 describe('POST /api/nps', () => {
+  test('所有する予約と異なる施設への回答は拒否し書き込まない', async () => {
+    const { POST } = await import('../route');
+    const res = await POST(makePostRequest({ score: 8, booking_id: BOOKING_UUID, facility_id: '22222222-2222-4222-8222-222222222222' }) as any);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'booking_id と facility_id が一致しません' });
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  test('所有する予約と一致する施設のみ予約付き回答を保存する', async () => {
+    const { POST } = await import('../route');
+    const res = await POST(makePostRequest({ score: 8, booking_id: BOOKING_UUID, facility_id: BOOKING_FACILITY_UUID }) as any);
+    expect(res.status).toBe(201);
+    expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({ booking_id: BOOKING_UUID, facility_id: BOOKING_FACILITY_UUID, ip_hash: null }));
+  });
+
   test('認証基盤の例外は制御された500になり、書込しない', async () => {
     mockGetUser.mockRejectedValueOnce(new Error('network'));
     const { POST } = await import('../route');
@@ -347,7 +362,8 @@ function makeGetRequest(params: Record<string, string> = {}, ip = '192.168.1.1')
 function setupGetMocks(
   hasUser: boolean = true,
   isMember: boolean = true,
-  surveys: Array<{ score: number; comment?: string | null; created_at: string }> = []
+  surveys: Array<{ score: number; comment?: string | null; created_at: string }> = [],
+  surveyError: unknown = null,
 ) {
   const mockGetUser = jest.fn().mockResolvedValue({
     data: { user: hasUser ? { id: 'user-123' } : null },
@@ -370,7 +386,7 @@ function setupGetMocks(
     }),
   });
 
-  const mockLimit = jest.fn().mockResolvedValue({ data: surveys });
+  const mockLimit = jest.fn().mockResolvedValue({ data: surveys, error: surveyError });
   const mockOrder = jest.fn().mockReturnValue({ limit: mockLimit });
   const mockEqSurveys = jest.fn().mockReturnValue({ order: mockOrder });
   const mockSelectSurveys = jest.fn().mockReturnValue({ eq: mockEqSurveys });
@@ -384,6 +400,14 @@ function setupGetMocks(
 }
 
 describe('GET /api/nps', () => {
+  test('集計読取のDB障害は回答0件の成功にせず500で返す', async () => {
+    setupGetMocks(true, true, [], { message: 'surveys unavailable' });
+    const { GET } = await import('../route');
+    const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID }) as any);
+    expect(res.status).toBe(500);
+    expect(await res.json()).not.toHaveProperty('nps');
+  });
+
   test('rate limiting → 429', async () => {
     (checkRateLimit as jest.Mock).mockReturnValue(true);
 
