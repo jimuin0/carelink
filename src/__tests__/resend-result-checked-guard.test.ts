@@ -90,7 +90,7 @@ function walkTs(dir: string): string[] {
 }
 
 /** 検査関数として認める呼び出し先の名前。 */
-const CHECK_CALL_NAMES = new Set(['sendResendChecked', 'throwIfResendError']);
+const CHECK_CALL_NAMES = new Set(['sendResendChecked', 'throwIfResendError', 'sendResendForReconciliation']);
 
 /** 理由必須の逃し口。理由（コロン以降の非空文字列）が無ければ無効。 */
 const MARKER_RE = /\/\/\s*resend-checked:\s*(\S.*)$/;

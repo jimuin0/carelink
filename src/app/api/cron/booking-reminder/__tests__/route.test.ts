@@ -75,13 +75,18 @@ function booking(over: Partial<Booking> = {}): Booking {
 
 type Cfg = {
   bookings?: { data: Booking[]; error?: unknown; errors?: (unknown | null)[] };
-  facilities?: { data: { id: string; name: string | null }[] | null };
+  facilities?: { data: { id: string; name: string | null }[] | null; error?: unknown };
   settings?: { data: Record<string, unknown>[] | null; error?: unknown };
   entitlements?: { data: { facility_id: string; option_key: string }[] | null; error?: unknown };
   lineLinks?: { data: { id: string | null; line_user_id: string | null }[] | null; error?: unknown };
   menus?: { data: { id: string; name: string }[] | null; error?: unknown };
   upsertError?: unknown;
   deleteError?: unknown;
+  unresolved?: number;
+  observationError?: unknown;
+  deliveryMarkError?: unknown;
+  currentBooking?: Record<string, unknown> | null;
+  currentBookingError?: unknown;
   /**
    * upsert(ignoreDuplicates).select('sent_at') の戻り data。
    * 既定 undefined = 1 行返る（claim 勝ち）。[] = 0 行（claim 負け）。null = 防御的 OR 分岐。
@@ -94,6 +99,7 @@ let mockDelete: jest.Mock;
 let mockEmailReminder: jest.Mock;
 let mockLineReminder: jest.Mock;
 let bookingsInMock: jest.Mock;
+let mockMarkDelivery: jest.Mock;
 
 function setup(cfg: Cfg = {}) {
   (checkCronAuth as jest.Mock).mockReturnValue(null);
@@ -104,7 +110,7 @@ function setup(cfg: Cfg = {}) {
   let bookingQueryAttempts = 0;
 
   bookingsInMock = jest.fn().mockReturnValue({
-    eq: jest.fn().mockReturnValue({
+    select: jest.fn().mockReturnValue({
       order: jest.fn().mockReturnValue({
         range: jest.fn().mockImplementation((from: number, to: number) => {
           const error = cfg.bookings?.errors
@@ -117,6 +123,10 @@ function setup(cfg: Cfg = {}) {
         }),
       }),
     }),
+  });
+
+  mockMarkDelivery = jest.fn().mockReturnValue({
+    match: jest.fn().mockReturnValue({ select: jest.fn().mockResolvedValue({ data: [{ id: 'claim-fixture' }], error: cfg.deliveryMarkError ?? null }) }),
   });
 
   // upsert(...).select('sent_at') → 実際に INSERT された行のみ返る（PostgREST 仕様）。
@@ -142,14 +152,23 @@ function setup(cfg: Cfg = {}) {
 
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
+    rpc: bookingsInMock,
     from: jest.fn((table: string) => {
       if (table === 'bookings') {
-        return { select: jest.fn().mockReturnValue({ in: bookingsInMock }) };
+        return { select: jest.fn().mockReturnValue({ eq: jest.fn((_column, id) => ({
+          maybeSingle: jest.fn().mockResolvedValue({
+            data: cfg.currentBooking === undefined ? { ...bookingsData.find((b) => b.id === id), status: 'confirmed' } : cfg.currentBooking,
+            error: cfg.currentBookingError ?? null,
+          }),
+        })) }) };
       }
       if (table === 'facility_profiles') {
         return {
           select: jest.fn().mockReturnValue({
-            in: jest.fn().mockResolvedValue({ data: cfg.facilities?.data === undefined ? [{ id: 'fac-0', name: 'Salon A' }, { id: 'fac-1', name: 'Salon B' }] : cfg.facilities.data, error: null }),
+            in: jest.fn().mockResolvedValue({
+              data: cfg.facilities?.data === undefined ? [{ id: 'fac-0', name: 'Salon A' }, { id: 'fac-1', name: 'Salon B' }] : cfg.facilities.data,
+              error: cfg.facilities?.error ?? null,
+            }),
           }),
         };
       }
@@ -188,7 +207,11 @@ function setup(cfg: Cfg = {}) {
       if (table === 'sent_reminders') {
         return {
           upsert: mockUpsert,
-          delete: mockDelete,
+          update: mockMarkDelivery,
+          select: jest.fn().mockReturnValue({ or: jest.fn().mockResolvedValue({ count: cfg.unresolved ?? 0, error: cfg.observationError ?? null }) }),
+          delete: () => ({ eq: (column: string, value: unknown) => column === 'delivery_state'
+            ? { lt: jest.fn().mockResolvedValue({ error: null }) }
+            : mockDelete().eq(column, value) }),
         };
       }
       throw new Error(`unexpected table: ${table}`);
@@ -196,9 +219,9 @@ function setup(cfg: Cfg = {}) {
   });
 
   const emailModule = require('@/lib/email');
-  // sendBookingReminder(email) は送達可否を boolean で返す（safeSend 仕様）。既定は送達成功=true。
-  mockEmailReminder = jest.fn().mockResolvedValue(true);
-  emailModule.sendBookingReminder = mockEmailReminder;
+  // cron専用送信は delivered / rejected / uncertain を返す。既定は送達成功。
+  mockEmailReminder = jest.fn().mockResolvedValue('delivered');
+  emailModule.sendBookingReminderForCron = mockEmailReminder;
 
   const lineModule = require('@/lib/line');
   // Issue #417: 戻り値は boolean ではなく配信結果。既定は送達成功。
@@ -224,6 +247,59 @@ function makeRequest() {
   });
 }
 
+test('migration未適用でRPC不在なら送信・claimを一切開始しない', async () => {
+  setup({ bookings: { data: [], error: { code: 'PGRST202', message: 'function not found' } } });
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(500);
+  expect(mockEmailReminder).not.toHaveBeenCalled();
+  expect(mockUpsert).not.toHaveBeenCalled();
+});
+
+test('前runの結果不明は対象予約0件でも監視を継続する', async () => {
+  setup({ bookings: { data: [] }, unresolved: 2 });
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(503);
+  expect(await res.json()).toMatchObject({ delivery_uncertain: 2 });
+  expect(mockEmailReminder).not.toHaveBeenCalled();
+  expect(logCronRun).toHaveBeenCalledWith('booking-reminder', 'error', expect.any(Date), expect.any(Object));
+});
+
+test('送達状態列が未適用・観測不能なら送信を開始しない', async () => {
+  setup({ observationError: { code: '42703', message: 'delivery_state missing' } });
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(500);
+  expect(mockEmailReminder).not.toHaveBeenCalled();
+  expect(mockUpsert).not.toHaveBeenCalled();
+});
+
+test.each([null, { ...booking(), status: 'cancelled' }, { ...booking(), status: 'confirmed', start_time: '12:00' }, { ...booking(), status: 'confirmed', email: 'changed@example.com' }])('送信前に取消・予約内容変更を検知して送らない（%s）', async (currentBooking) => {
+  setup({ bookings: { data: [booking()] }, currentBooking });
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(200);
+  expect(mockEmailReminder).not.toHaveBeenCalled();
+  expect(mockMarkDelivery).not.toHaveBeenCalled();
+  expect(mockDelete).toHaveBeenCalledTimes(1);
+});
+
+test('送信開始の永続化に失敗したらproviderを呼ばない', async () => {
+  setup({ deliveryMarkError: { message: 'db unavailable' } });
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(503);
+  expect(mockEmailReminder).not.toHaveBeenCalled();
+  expect(mockDelete).not.toHaveBeenCalled();
+});
+
+test('送達完了の記録に失敗しても送信を繰り返さず監視に残す', async () => {
+  setup({ bookings: { data: [booking()] } });
+  mockMarkDelivery.mockImplementation(({ delivery_state }: { delivery_state: string }) => ({ match: () => ({
+    select: async () => ({ data: [{ id: 'fixture' }], error: delivery_state === 'delivered' ? { message: 'failed' } : null }),
+  }) }));
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(503);
+  expect(mockEmailReminder).toHaveBeenCalledTimes(1);
+  expect(mockDelete).not.toHaveBeenCalled();
+});
+
 describe('GET /api/cron/booking-reminder', () => {
   test('CRON_SECRET check failed → returns error', async () => {
     const errorResponse = new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
@@ -234,7 +310,7 @@ describe('GET /api/cron/booking-reminder', () => {
 
   test('対象日は JST の 1/3/7 日後（.in に3日付）', async () => {
     await GET(makeRequest() as any);
-    expect(bookingsInMock).toHaveBeenCalledWith('booking_date', [D1, D3, D7]);
+    expect(bookingsInMock).toHaveBeenCalledWith('pending_booking_reminders', { p_today: '2026-05-15' });
   });
 
   test('前日（1d）メールは設定なしでも無条件送信（従来挙動・無料）', async () => {
@@ -253,6 +329,21 @@ describe('GET /api/cron/booking-reminder', () => {
     setup({ bookings: { data: [], error: { message: 'db down' } } });
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(500);
+  });
+
+  test('施設情報の取得エラー → 500 として中断し、送信を開始しない', async () => {
+    setup({
+      bookings: { data: [booking()] },
+      facilities: { data: null, error: { message: 'facilities down' } },
+    });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(500);
+    expect(mockEmailReminder).not.toHaveBeenCalled();
+    expect(logCronRun).toHaveBeenCalledWith(
+      'booking-reminder', 'error', expect.any(Date), expect.objectContaining({ error_msg: 'facilities down' }),
+    );
   });
 
   test('bookings の522は読取だけ一度再試行し、回復した場合は送信を継続する', async () => {
@@ -383,12 +474,26 @@ describe('GET /api/cron/booking-reminder', () => {
       bookings: { data: [booking({ booking_date: D1, user_id: 'u1' })] },
       settings: { data: [{ facility_id: 'fac-0', remind_1d_email: true, remind_3d_email: false, remind_7d_email: false, remind_1d_line: false }] },
     });
-    mockEmailReminder.mockResolvedValue(false);
-    const json = await (await GET(makeRequest() as any)).json();
+    mockEmailReminder.mockResolvedValue('rejected');
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(res.status).toBe(503);
     expect(json.skipped).toBe(1);
     expect(json.processed).toBe(0);
     // 送信失敗時に claim(sent_reminders)を delete で解放する（LINE 側と対称）。
     expect(mockDelete).toHaveBeenCalled();
+  });
+
+  test('メール送信結果が不明 → claimを保持し503で照合へ上げる', async () => {
+    setup({ bookings: { data: [booking()] } });
+    mockEmailReminder.mockResolvedValue('uncertain');
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    expect(res.status).toBe(503);
+    expect(json.delivery_uncertain).toBe(1);
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 
   // F-9 根治: claim 解放(delete)自体が失敗した場合も握り潰さず console.error で可視化する。
@@ -406,7 +511,7 @@ describe('GET /api/cron/booking-reminder', () => {
       lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
     });
     mockLineReminder.mockResolvedValue('permanent');
-    mockEmailReminder.mockResolvedValue(true);
+    mockEmailReminder.mockResolvedValue('delivered');
 
     const json = await (await GET(makeRequest() as any)).json();
 
@@ -428,7 +533,7 @@ describe('GET /api/cron/booking-reminder', () => {
       facilities: { data: null },
     });
     mockLineReminder.mockResolvedValue('permanent');
-    mockEmailReminder.mockResolvedValue(true);
+    mockEmailReminder.mockResolvedValue('delivered');
 
     const json = await (await GET(makeRequest() as any)).json();
 
@@ -447,7 +552,7 @@ describe('GET /api/cron/booking-reminder', () => {
       lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
     });
     mockLineReminder.mockResolvedValue('permanent');
-    mockEmailReminder.mockResolvedValue(true);
+    mockEmailReminder.mockResolvedValue('delivered');
 
     const json = await (await GET(makeRequest() as any)).json();
 
@@ -481,7 +586,7 @@ describe('GET /api/cron/booking-reminder', () => {
       lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
     });
     mockLineReminder.mockResolvedValue('permanent');
-    mockEmailReminder.mockResolvedValue(false);
+    mockEmailReminder.mockResolvedValue('rejected');
 
     const json = await (await GET(makeRequest() as any)).json();
 
@@ -571,7 +676,9 @@ describe('GET /api/cron/booking-reminder', () => {
       bookings: { data: [booking({ booking_date: D1 }), booking({ booking_date: D7, id: 'x' })] },
       settings: { data: null, error: { message: 'settings down' } },
     });
-    const json = await (await GET(makeRequest() as any)).json();
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(res.status).toBe(503);
     expect(json.processed).toBe(1); // 1d のみ
   });
 
@@ -675,6 +782,8 @@ describe('GET /api/cron/booking-reminder', () => {
     const json = await (await GET(makeRequest() as any)).json();
     expect(json.skipped).toBe(1);
     expect(json.processed).toBe(0);
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(mockMarkDelivery).toHaveBeenCalledWith({ delivery_state: 'uncertain' });
   });
 
   test('実時間予算超過 → 残りを deferred して打ち切り', async () => {
@@ -688,8 +797,8 @@ describe('GET /api/cron/booking-reminder', () => {
       }),
     }));
     const json = await (await GET(makeRequest() as any)).json();
-    expect(json.deferred).toBe(2);
-    expect(json.processed).toBe(1);
+    expect(json.deferred).toBe(3);
+    expect(json.processed).toBe(0);
     warnSpy.mockRestore();
   });
 

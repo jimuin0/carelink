@@ -1,4 +1,5 @@
 import { Resend } from 'resend';
+import { sendResendForReconciliation } from './resend-result';
 import { safeCaptureException } from '@/lib/safe';
 import { postAlert } from '@/lib/alert';
 import { bookingStatusLabel } from '@/lib/booking-status';
@@ -290,6 +291,39 @@ export async function sendBookingReminder(data: BookingEmailData, daysBefore: nu
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約詳細を見る</a></p>
     `),
   }, 'booking_reminder');
+}
+
+/** Cron用は、外部providerの送達結果不明を自動再送に変換しない。 */
+export type BookingReminderDeliveryOutcome = 'delivered' | 'rejected' | 'uncertain';
+
+export async function sendBookingReminderForCron(
+  data: BookingEmailData,
+  daysBefore: number = 1,
+): Promise<BookingReminderDeliveryOutcome> {
+  const resend = getResend();
+  if (!resend) return 'rejected';
+  const name = esc(data.customerName);
+  const facility = esc(data.facilityName);
+  const when = daysBefore === 1 ? '明日' : `${daysBefore}日後`;
+  try {
+    // Promise.raceのタイムアウトで未送信と断定すると、provider受理済みメールを次runで再送する。
+    // cronはclaimを保持して照合へ上げるため、この専用経路ではSDKの終端応答だけを未受理とする。
+    return await sendResendForReconciliation(resend.emails.send({
+      from: FROM,
+      to: data.customerEmail,
+      subject: escSubject(`【CareLink】${when}のご予約リマインド - ${data.facilityName}`),
+      html: wrapHtml(`
+        <p>${name} 様</p>
+        <p>${when}、${facility}のご予約がございます。</p>
+        ${bookingDetailHtml(data)}
+        <p>お忘れなく、お時間に余裕を持ってご来店ください。</p>
+        <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約詳細を見る</a></p>
+      `),
+    }));
+  } catch (error) {
+    safeCaptureException(error, 'email:booking_reminder_cron_uncertain');
+    return 'uncertain';
+  }
 }
 
 /**

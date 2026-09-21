@@ -297,7 +297,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 ## cron スケジュール（SSOT＝`src/lib/cron-jobs.data.json`／`render.yaml` と `.github/workflows/cron.yml` に展開・UTC 指定／JST 併記）
 | path | cron(UTC) | JST |
 |------|-----------|-----|
-| booking-reminder | `0 15 * * *` | 毎日 00:00 |
+| booking-reminder | `5 * * * *` | 毎時05分（JST） |
 | daily-summary | `0 6 * * *` | 毎日 15:00 |
 | customer-segment | `0 7 * * 0` | 日曜 16:00 |
 | review-request | `0 18 * * *` | 毎日 03:00 |

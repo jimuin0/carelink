@@ -55,6 +55,10 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
   public: Omit<GeneratedDatabase['public'], 'Functions'> & {
     Functions: Omit<GeneratedFunctions, 'create_booking_atomic'> & {
       create_booking_atomic: Omit<GeneratedCreateBooking, 'Args'> & { Args: CreateBookingArgs };
+      pending_booking_reminders: {
+        Args: { p_today: string };
+        Returns: GeneratedDatabase['public']['Tables']['bookings']['Row'][];
+      };
     };
   };
 };

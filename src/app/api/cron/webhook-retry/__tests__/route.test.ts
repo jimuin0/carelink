@@ -60,6 +60,7 @@ let mockSuccessUpdate: jest.Mock;
 let mockReclaimUpdate: jest.Mock;
 let mockDeliveryStartUpdate: jest.Mock;
 let mockQueuePendingEq: jest.Mock;
+let mockHeldDeliveryLt: jest.Mock;
 let mockTableUpdateDispatch: jest.Mock;
 let mockSendLineText: jest.Mock;
 
@@ -85,9 +86,11 @@ function makeWebhookRetryQueueTable(overrides: {
   successUpdate: jest.Mock;
   reclaimUpdate: jest.Mock;
   deliveryStartUpdate?: jest.Mock;
+  heldDeliveryLt?: jest.Mock;
   queuePendingEq: jest.Mock;
 }) {
   const deliveryStartUpdate = overrides.deliveryStartUpdate ?? jest.fn().mockResolvedValue({ error: null });
+  const heldDeliveryLt = overrides.heldDeliveryLt ?? jest.fn().mockResolvedValue({ count: 0, error: null });
   const updateDispatch = jest.fn((data: any) => {
     if (data.status === 'processing') return overrides.claimUpdate(data);
     if (data.status === 'success') return overrides.successUpdate(data);
@@ -107,7 +110,19 @@ function makeWebhookRetryQueueTable(overrides: {
   return {
     select: jest.fn((_col: string, selectOpts?: { count?: string; head?: boolean }) => {
       if (selectOpts && selectOpts.count) {
-        return { eq: overrides.queuePendingEq };
+        // Count queries are issued in this fixed order: held delivery observation, then
+        // pending queue observation.  Keep their chains distinct so tests fail if either
+        // observation disappears or changes shape.
+        return {
+          eq: jest.fn((column: string, value: string) => {
+            if (column === 'status' && value === 'processing') {
+              return {
+                not: jest.fn().mockReturnValue({ lt: heldDeliveryLt }),
+              };
+            }
+            return overrides.queuePendingEq(value);
+          }),
+        };
       }
       return {
         eq: jest.fn().mockReturnValue({
@@ -198,6 +213,7 @@ function setupDefaultMocks(
 
   // queue_pending 観測 select('id',{count:'exact',head:true}).eq('status','pending')
   mockQueuePendingEq = jest.fn().mockResolvedValue({ count: 0, error: null });
+  mockHeldDeliveryLt = jest.fn().mockResolvedValue({ count: 0, error: null });
 
   // route.ts は .from('webhook_retry_queue') を1 run 内で複数回呼ぶ（reclaim・jobs select・
   // claim・success・queue_pending）。呼び出しごとに毎回新しい table オブジェクトを作ると
@@ -209,6 +225,7 @@ function setupDefaultMocks(
     successUpdate: mockSuccessUpdate,
     reclaimUpdate: mockReclaimUpdate,
     deliveryStartUpdate: mockDeliveryStartUpdate,
+    heldDeliveryLt: mockHeldDeliveryLt,
     queuePendingEq: mockQueuePendingEq,
   });
   mockTableUpdateDispatch = webhookRetryQueueTable.update as jest.Mock;
@@ -226,7 +243,7 @@ function setupDefaultMocks(
   const { Resend } = require('resend');
   Resend.mockImplementation(() => ({
     emails: {
-      send: jest.fn().mockResolvedValue({ success: true }),
+      send: jest.fn().mockResolvedValue({ data: { id: 'fixture-message' }, error: null }),
     },
   }));
 }
@@ -267,6 +284,45 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.processed).toBe(0);
+  });
+
+  test('送信開始後に1時間以上保留された行だけでも 503 で照合待ちを可視化する', async () => {
+    setupDefaultMocks(0);
+    mockHeldDeliveryLt.mockResolvedValue({ count: 2, error: null });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    expect(res.status).toBe(503);
+    expect(json).toEqual(expect.objectContaining({ delivery_uncertain: 2, processed: 0 }));
+    expect(logCronRun).toHaveBeenCalledWith(
+      'webhook-retry', 'error', expect.any(Date), expect.objectContaining({
+        meta: expect.objectContaining({ delivery_uncertain: 2 }),
+      }),
+    );
+  });
+
+  test('保留行がありpendingを他runに先取りされても503で照合待ちを維持する', async () => {
+    setupDefaultMocks(1);
+    mockHeldDeliveryLt.mockResolvedValue({ count: 1, error: null });
+    mockClaimUpdate.mockReturnValue({
+      in: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({ select: jest.fn().mockResolvedValue({ data: [], error: null }) }),
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(503);
+  });
+
+  test('保留行の監視照会エラー → 500として無音skippedを防ぐ', async () => {
+    setupDefaultMocks(0);
+    mockHeldDeliveryLt.mockResolvedValue({ count: null, error: new Error('held observation down') });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(500);
   });
 
   test('jobs 取得が DB エラー → error ログ＋500（無音スキップにしない）', async () => {
@@ -502,16 +558,18 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(scheduleRetry).toHaveBeenCalledWith('job-1', 1, 'delivery marker failed');
   });
 
-  test('failure → calls scheduleRetry', async () => {
+  test('外部送信結果が不明な失敗は再送せず503で照合待ちにする', async () => {
     setupDefaultMocks(1, false, true);
 
-    await GET(makeRequest() as any);
+    const res = await GET(makeRequest() as any);
 
-    expect(scheduleRetry).toHaveBeenCalled();
+    expect(res.status).toBe(503);
+    expect(scheduleRetry).not.toHaveBeenCalled();
   });
 
   test('再スケジュール結果が不明なら503とerrorログで運用照合へ上げる', async () => {
-    setupDefaultMocks(1, false, true);
+    setupDefaultMocks(1);
+    mockDeliveryStartUpdate.mockResolvedValueOnce({ error: new Error('delivery marker failed') });
     (scheduleRetry as jest.Mock).mockResolvedValueOnce('uncertain');
 
     const res = await GET(makeRequest() as any);
@@ -547,22 +605,22 @@ describe('GET /api/cron/webhook-retry', () => {
     errSpy.mockRestore();
   });
 
-  test('line_push returns false (retries exhausted) → scheduleRetry, not silent success', async () => {
+  test('line_push がfalseを返す場合も送達結果不明として再送しない', async () => {
     // sendLineText が throw せず false を返す配信失敗ケース。
     // 戻り値を無視していた旧実装では status='success' に倒れ通知が消失していた。
-    // false を throw → scheduleRetry に回ることを検証（サイレントデータロス防止の回帰固定）。
+    // false が「未受理」を保証しないため、自動再送せず照合へ上げる。
     setupDefaultMocks(1);
     mockSendLineText.mockResolvedValue(false);
 
-    await GET(makeRequest() as any);
+    const res = await GET(makeRequest() as any);
 
-    expect(scheduleRetry).toHaveBeenCalled();
-    const call = (scheduleRetry as jest.Mock).mock.calls[0];
-    expect(call[2]).toContain('line_push failed');
+    expect(res.status).toBe(503);
+    expect(scheduleRetry).not.toHaveBeenCalled();
   });
 
-  test('failure includes error message and attempt_count++', async () => {
-    setupDefaultMocks(1, false, true);
+  test('送信開始前の失敗はerror messageとattempt_count++で再試行する', async () => {
+    setupDefaultMocks(1);
+    mockDeliveryStartUpdate.mockResolvedValueOnce({ error: new Error('delivery marker failed') });
 
     await GET(makeRequest() as any);
 
@@ -572,8 +630,9 @@ describe('GET /api/cron/webhook-retry', () => {
   });
 
   test('scheduleRetry が "dead-letter" を返す → deadLettered を集計し alertDeliveryFailures の第4引数に渡す', async () => {
-    // job-1(line_push) は send 失敗、job-2(email) は成功する構成にする。
-    setupDefaultMocks(1, false, true); // sendFails=true → sendLineText が reject
+    // job-1の送信開始保存に失敗、job-2(email) は成功する構成にする。
+    setupDefaultMocks(1);
+    mockDeliveryStartUpdate.mockResolvedValueOnce({ error: new Error('delivery marker failed') });
     (scheduleRetry as jest.Mock).mockResolvedValueOnce('dead-letter');
 
     const res = await GET(makeRequest() as any);
@@ -589,7 +648,8 @@ describe('GET /api/cron/webhook-retry', () => {
   });
 
   test('scheduleRetry が "rescheduled" を返す（既定）→ deadLettered=0 で alertDeliveryFailures を呼ぶ（他cron呼び出し元と同じ3引数相当の挙動）', async () => {
-    setupDefaultMocks(1, false, true); // sendFails=true・scheduleRetry既定値は'rescheduled'
+    setupDefaultMocks(1);
+    mockDeliveryStartUpdate.mockResolvedValueOnce({ error: new Error('delivery marker failed') });
 
     const res = await GET(makeRequest() as any);
     const json = await res.json();
@@ -643,23 +703,23 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(res.status).toBe(500);
   });
 
-  test('returns processed and failed counts', async () => {
+  test('送信結果不明を含むrunは件数を隠さず503で返す', async () => {
     setupDefaultMocks(2, false, true);
 
     const res = await GET(makeRequest() as any);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
     const json = await res.json();
     expect(json).toHaveProperty('processed');
     expect(json).toHaveProperty('skipped');
   });
 
-  test('individual job error → continues to next', async () => {
+  test('個別送信結果不明でも後続ジョブを処理し、runは503で照合へ上げる', async () => {
     setupDefaultMocks(2, false, true);
 
     const res = await GET(makeRequest() as any);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
   });
 
   test('skips Resend email if API key unavailable', async () => {
@@ -976,13 +1036,13 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ from: 'Custom <c@x.com>' }));
   });
 
-  test('non-Error throw inside per-job → scheduleRetry with String fallback', async () => {
+  test('送信中の非Error例外も自動再送せず照合へ上げる', async () => {
     (sendLineText as jest.Mock).mockImplementationOnce(() => { throw 'string-err'; });
     setupDefaultMocks(1, false, false);
 
-    await GET(makeRequest() as any);
-    const call = (scheduleRetry as jest.Mock).mock.calls[0];
-    expect(call[2]).toBe('string-err');
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(503);
+    expect(scheduleRetry).not.toHaveBeenCalled();
   });
 
   test('non-Error throw in outer catch → String fallback', async () => {

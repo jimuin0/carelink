@@ -1047,6 +1047,7 @@
   ],
   "sent_reminders": [
     "booking_id",
+    "delivery_state",
     "id",
     "kind",
     "reminder_date",

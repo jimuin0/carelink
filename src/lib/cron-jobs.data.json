@@ -1,5 +1,5 @@
 [
-  { "name": "booking-reminder",    "label": "予約リマインド",           "schedule": "0 15 * * *",   "intervalMinutes": 1440 },
+  { "name": "booking-reminder",    "label": "予約リマインド",           "schedule": "5 * * * *",    "intervalMinutes": 60 },
   { "name": "daily-summary",       "label": "日次集計",                 "schedule": "0 6 * * *",    "intervalMinutes": 1440 },
   { "name": "customer-segment",    "label": "顧客セグメント",           "schedule": "0 7 * * 0",    "intervalMinutes": 10080 },
   { "name": "review-request",      "label": "レビュー依頼",             "schedule": "0 18 * * *",   "intervalMinutes": 1440 },

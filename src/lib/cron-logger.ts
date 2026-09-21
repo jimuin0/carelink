@@ -5,7 +5,7 @@
 
 import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from './supabase-server';
-import { alertCaughtError } from './alert';
+import { alertCaughtError, alertWarning } from './alert';
 import { pushAdminHeartbeat, type HeartbeatStatus } from './admin-heartbeat';
 import { runAfterResponse } from './after-response';
 import { toJsonValue } from '@/lib/json-value';
@@ -32,6 +32,7 @@ export async function logCronRun(
   // Cloudflare のHTMLエラー本文などを cron_logs や Slack へ流さない。通常の短いDB/RPC
   // エラーは従来どおり保持するため、復旧判断に必要な情報は失わない。
   const safeErrorMessage = result.error_msg === undefined ? null : summarizeDependencyError(result.error_msg);
+  let logPersisted = false;
   try {
     const supabase = createServiceRoleClient();
     const duration_ms = Date.now() - startedAt.getTime();
@@ -55,10 +56,21 @@ export async function logCronRun(
       console.error('[cron-logger] cron_logs insert failed — this run will be invisible in monitoring', {
         jobName, status, err: summarizeDependencyError(insertErr),
       });
+    } else {
+      logPersisted = true;
     }
   } catch (e) {
     // ネットワーク例外等。ログ記録の失敗で本体処理は止めないが、可視化はする。
     console.error('[cron-logger] cron_logs insert threw', { jobName, status, err: summarizeDependencyError(e) });
+  }
+
+  if (!logPersisted) {
+    // 業務処理は既に実行済み。記録障害をthrow/再試行するとメール等を二重送信し得るため、
+    // 固定文言の運用警告とdegraded heartbeatだけで記録不能を明示する。
+    alertWarning('cron 実行ログを保存できませんでした。業務処理を再実行せず記録状況を確認してください。', {
+      route: `/api/cron/${jobName}`,
+      extra: { job_name: jobName, execution_status: status, log_persisted: false },
+    });
   }
 
   // cron 失敗は Slack に通報する（L7-A: logger.error → 30秒以内通知 の cron 版）。
@@ -75,11 +87,10 @@ export async function logCronRun(
   }
 
   // admin-dashboard への heartbeat 送信（fire-and-forget・env未設定なら no-op）。
-  // status mapping: success→ok（正常完了）/ skipped→degraded（実行はしたが対象なし等で
-  // スキップ＝完全な正常でも失敗でもない中間状態）/ error→fail（実行を試みて失敗した積極的証拠）。
+  // status mapping: success/skipped→ok。`skipped` は対象0件・並行runに先取りされた等の
+  // 正常な「仕事なし」である。ただし実行履歴の保存を確認できない場合はdegradedとする。
   // await しない（cron 本体のレスポンスタイムを heartbeat 送信の待ち時間で汚染しない）。
-  const heartbeatStatus: HeartbeatStatus =
-    status === 'success' ? 'ok' : status === 'skipped' ? 'degraded' : 'fail';
+  const heartbeatStatus: HeartbeatStatus = status === 'error' ? 'fail' : logPersisted ? 'ok' : 'degraded';
   runAfterResponse(() => pushAdminHeartbeat(jobName, heartbeatStatus));
 }
 

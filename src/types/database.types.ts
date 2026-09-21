@@ -4073,6 +4073,7 @@ export type Database = {
       sent_reminders: {
         Row: {
           booking_id: string
+          delivery_state: string
           id: string
           kind: string
           reminder_date: string
@@ -4080,6 +4081,7 @@ export type Database = {
         }
         Insert: {
           booking_id: string
+          delivery_state?: string
           id?: string
           kind?: string
           reminder_date: string
@@ -4087,6 +4089,7 @@ export type Database = {
         }
         Update: {
           booking_id?: string
+          delivery_state?: string
           id?: string
           kind?: string
           reminder_date?: string
