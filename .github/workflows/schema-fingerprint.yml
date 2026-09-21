@@ -97,6 +97,9 @@ jobs:
         id: check
         run: bash scripts/gen-schema-fingerprint.sh --check
 
+      - name: Reminder RPC candidates, roles and claim exclusion (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/reminder-delivery-fixtures.sql
+
       - name: ズレていたら正しい期待値を成果物として出す
         # 🔴 「再生成してコミットしろ」と言うだけでは、この job と同じメジャーの
         #   PostgreSQL を手元に用意できない人は従えない（実際 2026年8月3日、

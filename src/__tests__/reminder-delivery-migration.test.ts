@@ -43,3 +43,15 @@ test('全通知種別で空文字宛先を上限適用前に除外し、送信�
   expect(route).toContain('if (booking.email) plan.push');
   expect(route).toContain('if (l.id && l.line_user_id) lineMap.set');
 });
+
+test('実DB fixtureは使い捨てshadowだけで全件rollbackし、fresh-apply後にCIから実行される', () => {
+  const fixture = readFileSync(join(process.cwd(), 'supabase/shadow/reminder-delivery-fixtures.sql'), 'utf8');
+  const workflow = readFileSync(join(process.cwd(), '.github/workflows/schema-fingerprint.yml'), 'utf8');
+  expect(fixture).toContain("current_database() <> 'carelink_shadow'");
+  expect(fixture).toContain('IF EXISTS (SELECT 1 FROM public.bookings)');
+  expect(fixture).toMatch(/BEGIN;[\s\S]*ROLLBACK;/);
+  expect(fixture).not.toMatch(/\bCOMMIT;/);
+  for (const role of ['anon', 'authenticated', 'service_role']) expect(fixture).toContain(`SET LOCAL ROLE ${role};`);
+  expect(workflow).toContain('psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/reminder-delivery-fixtures.sql');
+  expect(workflow.indexOf('bash scripts/gen-schema-fingerprint.sh --check')).toBeLessThan(workflow.indexOf('-f supabase/shadow/reminder-delivery-fixtures.sql'));
+});
