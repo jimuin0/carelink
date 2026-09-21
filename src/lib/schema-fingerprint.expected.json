@@ -868,6 +868,7 @@
 "column|schedule_overrides.staff_id|uuid|notnull=t|default=|generated=",
 "column|schedule_overrides.start_time|time without time zone|notnull=f|default=|generated=",
 "column|sent_reminders.booking_id|uuid|notnull=t|default=|generated=",
+"column|sent_reminders.delivery_state|text|notnull=t|default='legacy'::text|generated=",
 "column|sent_reminders.id|uuid|notnull=t|default=gen_random_uuid()|generated=",
 "column|sent_reminders.kind|text|notnull=t|default='email_1d'::text|generated=",
 "column|sent_reminders.reminder_date|date|notnull=t|default=|generated=",
@@ -1357,6 +1358,7 @@
 "constraint|schedule_overrides|f|schedule_overrides_staff_id_fkey|FOREIGN KEY (staff_id) REFERENCES public.staff_profiles(id) ON DELETE CASCADE",
 "constraint|schedule_overrides|p|schedule_overrides_pkey|PRIMARY KEY (id)",
 "constraint|schedule_overrides|u|schedule_overrides_staff_id_date_key|UNIQUE (staff_id, date)",
+"constraint|sent_reminders|c|sent_reminders_delivery_state_check|CHECK ((delivery_state = ANY (ARRAY['legacy'::text, 'claimed'::text, 'delivering'::text, 'delivered'::text, 'closed'::text, 'uncertain'::text])))",
 "constraint|sent_reminders|f|sent_reminders_booking_id_fkey|FOREIGN KEY (booking_id) REFERENCES public.bookings(id) ON DELETE CASCADE",
 "constraint|sent_reminders|p|sent_reminders_pkey|PRIMARY KEY (id)",
 "constraint|sent_reminders|u|sent_reminders_booking_date_kind_uniq|UNIQUE (booking_id, reminder_date, kind)",
@@ -1489,6 +1491,7 @@
 "functiongrant|public.increment_view_count(uuid)|anon|EXECUTE",
 "functiongrant|public.increment_view_count(uuid)|authenticated|EXECUTE",
 "functiongrant|public.increment_view_count(uuid)|service_role|EXECUTE",
+"functiongrant|public.pending_booking_reminders(date)|service_role|EXECUTE",
 "functiongrant|public.prevent_profile_privilege_escalation()|anon|EXECUTE",
 "functiongrant|public.prevent_profile_privilege_escalation()|authenticated|EXECUTE",
 "functiongrant|public.prevent_profile_privilege_escalation()|service_role|EXECUTE",
@@ -1563,6 +1566,7 @@
 "function|get_unique_customers(p_facility_id uuid)|returns=TABLE(email text, name text, visit_count bigint, last_visit date)|volatile=s|secdef=f|body_md5=f4ff5e4e0165b9282d98293dfc9063b5",
 "function|handle_new_user()|returns=trigger|volatile=v|secdef=t|body_md5=e3ae46eb087aac2936d94b84b7c0638a",
 "function|increment_view_count(facility_uuid uuid)|returns=void|volatile=v|secdef=t|body_md5=8ff352586f7e899eadc7ae793ddb5021",
+"function|pending_booking_reminders(p_today date)|returns=SETOF public.bookings|volatile=s|secdef=f|body_md5=2b0a36ae6f4f019ac84563c2f93f8f62",
 "function|prevent_profile_privilege_escalation()|returns=trigger|volatile=v|secdef=f|body_md5=4609810203bd50a8e1d826fd688db219",
 "function|record_facility_page_view(facility_uuid uuid)|returns=void|volatile=v|secdef=t|body_md5=fe343f3b680efc888d5840d4e8c4f2ae",
 "function|record_incident_thread(p_key text, p_channel text, p_thread_ts text)|returns=void|volatile=v|secdef=t|body_md5=b246efd72764f0105c6301dd6748aba4",
@@ -2183,6 +2187,7 @@
 "index|sent_reminders|sent_reminders_booking_date_kind_uniq|CREATE UNIQUE INDEX sent_reminders_booking_date_kind_uniq ON public.sent_reminders USING btree (booking_id, reminder_date, kind)",
 "index|sent_reminders|sent_reminders_pkey|CREATE UNIQUE INDEX sent_reminders_pkey ON public.sent_reminders USING btree (id)",
 "index|sent_reminders|sent_reminders_reminder_date_idx|CREATE INDEX sent_reminders_reminder_date_idx ON public.sent_reminders USING btree (reminder_date)",
+"index|sent_reminders|sent_reminders_unresolved_idx|CREATE INDEX sent_reminders_unresolved_idx ON public.sent_reminders USING btree (delivery_state, sent_at) WHERE (delivery_state = ANY (ARRAY['claimed'::text, 'delivering'::text, 'uncertain'::text]))",
 "index|service_packages|idx_service_packages_facility|CREATE INDEX idx_service_packages_facility ON public.service_packages USING btree (facility_id) WHERE (is_active = true)",
 "index|service_packages|service_packages_pkey|CREATE UNIQUE INDEX service_packages_pkey ON public.service_packages USING btree (id)",
 "index|slack_incident_threads|idx_slack_threads_expires|CREATE INDEX idx_slack_threads_expires ON public.slack_incident_threads USING btree (expires_at)",
@@ -2513,5 +2518,4 @@
 "trigger|threads_credentials|trg_threads_credentials_updated_at|CREATE TRIGGER trg_threads_credentials_updated_at BEFORE UPDATE ON public.threads_credentials FOR EACH ROW EXECUTE FUNCTION public.update_threads_credentials_updated_at()",
 "trigger|treatment_plans|trg_treatment_plans_updated_at|CREATE TRIGGER trg_treatment_plans_updated_at BEFORE UPDATE ON public.treatment_plans FOR EACH ROW EXECUTE FUNCTION public.update_treatment_plans_updated_at()",
 "trigger|treatment_records|trg_treatment_records_updated_at|CREATE TRIGGER trg_treatment_records_updated_at BEFORE UPDATE ON public.treatment_records FOR EACH ROW EXECUTE FUNCTION public.update_treatment_records_updated_at()"
-
 ]
