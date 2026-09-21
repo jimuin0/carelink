@@ -30,3 +30,16 @@ test('候補選択で参照する全table/columnがsnapshotに実在する', () 
   expect(refs.length).toBeGreaterThan(20);
   for (const [, alias, column] of refs) expect(schema[aliases[alias as keyof typeof aliases]]).toContain(column);
 });
+
+test('全通知種別で空文字宛先を上限適用前に除外し、送信プラン外の予約が後続を塞がない', () => {
+  for (const kind of ['email_1d', 'email_3d', 'email_7d']) {
+    const candidate = sql.split('\n').find((line) => line.includes(`('${kind}',`));
+    expect(candidate).toContain("b.email IS NOT NULL AND b.email <> ''");
+  }
+  for (const kind of ['line_3d', 'line_7d']) {
+    const candidate = sql.split('\n').find((line) => line.includes(`('${kind}',`));
+    expect(candidate).toContain("p.line_user_id IS NOT NULL AND p.line_user_id <> ''");
+  }
+  expect(route).toContain('if (booking.email) plan.push');
+  expect(route).toContain('if (l.id && l.line_user_id) lineMap.set');
+});

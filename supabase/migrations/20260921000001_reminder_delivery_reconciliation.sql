@@ -12,6 +12,7 @@ CREATE INDEX sent_reminders_unresolved_idx ON public.sent_reminders (delivery_st
   WHERE delivery_state IN ('claimed', 'delivering', 'uncertain');
 -- Existing restrictive RLS remains unchanged: only the service role can read/write delivery claims.
 
+-- Empty recipients are not eligible: match the route's truthy checks before its batch limit.
 -- Filter already claimed slots BEFORE applying the batch limit. Each successful batch frees capacity
 -- for the next one; a fixed prefix of previously sent bookings can no longer starve later bookings.
 CREATE OR REPLACE FUNCTION public.pending_booking_reminders(p_today date)
@@ -26,13 +27,13 @@ AS $$
     AND b.booking_date IN (p_today + 1, p_today + 3, p_today + 7)
     AND EXISTS (
       SELECT 1 FROM (VALUES
-        ('email_1d', b.booking_date = p_today + 1 AND b.email IS NOT NULL),
-        ('email_7d', b.booking_date = p_today + 7 AND b.email IS NOT NULL AND s.remind_7d_email),
-        ('email_3d', b.booking_date = p_today + 3 AND b.email IS NOT NULL AND s.remind_3d_email
+        ('email_1d', b.booking_date = p_today + 1 AND b.email IS NOT NULL AND b.email <> ''),
+        ('email_7d', b.booking_date = p_today + 7 AND b.email IS NOT NULL AND b.email <> '' AND s.remind_7d_email),
+        ('email_3d', b.booking_date = p_today + 3 AND b.email IS NOT NULL AND b.email <> '' AND s.remind_3d_email
           AND EXISTS (SELECT 1 FROM public.facility_entitlements e WHERE e.facility_id = b.facility_id AND e.option_key = 'reminder_email_3d' AND e.status = 'active')),
-        ('line_3d', b.booking_date = p_today + 3 AND p.line_user_id IS NOT NULL AND s.remind_3d_line
+        ('line_3d', b.booking_date = p_today + 3 AND p.line_user_id IS NOT NULL AND p.line_user_id <> '' AND s.remind_3d_line
           AND EXISTS (SELECT 1 FROM public.facility_entitlements e WHERE e.facility_id = b.facility_id AND e.option_key = 'reminder_line' AND e.status = 'active')),
-        ('line_7d', b.booking_date = p_today + 7 AND p.line_user_id IS NOT NULL AND s.remind_7d_line
+        ('line_7d', b.booking_date = p_today + 7 AND p.line_user_id IS NOT NULL AND p.line_user_id <> '' AND s.remind_7d_line
           AND EXISTS (SELECT 1 FROM public.facility_entitlements e WHERE e.facility_id = b.facility_id AND e.option_key = 'reminder_line' AND e.status = 'active'))
       ) AS candidate(kind, enabled)
       WHERE candidate.enabled
