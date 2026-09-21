@@ -56,3 +56,13 @@
 予約RPCのanon拒否とservice roleの既知の`BOOKING_CONFLICT`は、その拒否経路の到達証拠だけである。予約成功や全分岐の`0A000`不在は証明せず、予約作成・変更のE2Eと組み合わせる。RLSのINSERT拒否probeは、退行時に書込みが成功する可能性があるため、明示local隔離環境でのみ動かす。外部stagingではこれらのmutation probeを省略する。
 
 空のfresh DBで`facility_reviews`・`referral_codes`のanon SELECTが空配列になることは、RLSの実効性やtenant分離全体の証明ではない。この2検査はAPI到達と返却契約の範囲に限る。RLS漏洩防止の動的証明には、既知の合成行と複数ロールを使った専用fixtureが別途必要であり、今回のAPI2 suites省略ゼロをその代替にはしない。
+
+### 初回OpenAPI応答と業務RESTの区別
+
+2026年9月22日、commit `6e0aedd`のCI run `35621421785`で、隔離local Supabaseへの初回`/rest/v1/`は500・SQLSTATE `57014`・statement timeout一致・3070msだった。続く同rootへのBearer付き要求は200・115ms、`public_reviews?select=id&limit=0`は200・6msだった。初回OpenAPI全schema生成のSQLタイムアウトは実証できたが、後続成功がBearerの効果かwarm-upの効果かはこの順序では区別できない。OpenAPIの初回500自体は未修正であり、再試行成功を恒久修正と扱わない。
+
+同runは実API 2 suites・15 tests・省略ゼロ、E2E 267 passed・上記の意図的な6 skipped・flaky表示なし、Unit 376 suites・7584 tests・branches 8020/8020が成功した。静的Contractの失敗は引き続き生成型の`pending_booking_reminders`不足1件で、本番適用証拠にはならない。
+
+上記commitの`src`内にOpenAPI rootへの直接呼出しはなく、従来の到達性Contractだけが全schema文書を取得していた（確認方法：`src`と`tests/contract`の`/rest/v1/`参照を照合）。業務REST到達性はSDK相当のapikeyとBearerを付けた公開Viewの`limit=0`読み取りで検証し、HTTP 200かつJSON空配列を厳密に要求する。500や認証失敗は許容しない。この検査は認証鍵・API到達・返却形式の確認であり、データ件数やRLS全保証ではない。
+
+CIから先行OpenAPI診断を外し、warm-upで隠さない構成にする。`scripts/diagnose-local-supabase-rest.mjs`は明示loopback限定の任意診断として残す。新構成でのfresh-apply CI成功は別途確認が必要であり、上記runだけで証明済みとはしない。製品・本番DBの権限、statement timeout、Supabase設定は変更していない。

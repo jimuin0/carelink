@@ -163,7 +163,6 @@ jobs:
           STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ steps.supabase.outputs.service_role }}
         run: |
           node scripts/check-local-supabase-contract.mjs environment
-          node scripts/diagnose-local-supabase-rest.mjs
           npm run test:contract -- --runInBand --runTestsByPath tests/contract/schema-invariants.contract.test.ts tests/contract/supabase-contract.test.ts --json --outputFile="$RUNNER_TEMP/local-supabase-contract.json"
           node scripts/check-local-supabase-contract.mjs results "$RUNNER_TEMP/local-supabase-contract.json"
           echo "Isolated local Supabase API contracts passed with zero skips. This is not hosted staging or production verification." >> "$GITHUB_STEP_SUMMARY"

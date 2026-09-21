@@ -12,12 +12,15 @@ const STAGING_ANON = process.env.STAGING_SUPABASE_ANON_KEY;
 const describeIfConfigured = STAGING_URL && STAGING_ANON ? describe : describe.skip;
 
 describeIfConfigured('Supabase configured API contract', () => {
-  test('REST API が 200 を返す（鍵が有効）', async () => {
-    const res = await fetch(`${STAGING_URL}/rest/v1/`, {
-      headers: { apikey: STAGING_ANON! },
+  test('公開ViewのREST読み取りが200と空配列を返す（limit=0）', async () => {
+    // OpenAPI全schema生成ではなく、SDKと同じ認証で実際の読み取り経路を検証する。
+    // limit=0なので実レコードは取得しない。RLS/tenant分離の証明とは区別する。
+    const res = await fetch(`${STAGING_URL}/rest/v1/public_reviews?select=id&limit=0`, {
+      headers: { apikey: STAGING_ANON!, Authorization: `Bearer ${STAGING_ANON!}` },
       signal: AbortSignal.timeout(5000),
     });
     expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
   });
 
   test('Auth API が応答する', async () => {
