@@ -40,7 +40,7 @@
 
 ## 完了に必要な未実施確認
 
-- 新規migrationの隔離DB実行・権限/競合Contract確認。本作業ではSQLの静的照合のみ。
+- 新規migrationの権限/競合Contract確認。`schema-fingerprint` CIは全migrationを使い捨てPG17へ適用し指紋一致を検証するが、予約fixtureによる候補抽出・ロール別呼出し・競合の動的検証は別途必要。
 - Supabase Auth・SMTP・Google OAuthの本番設定と、神原さん宛の実メール到達・確認リンク完了。
 - 本番Cronの最新成功、結果不明警告の維持、既存保留行のprovider照合。
 - 最新commitのCI・デプロイ後のhealth・登録/予約画面のE2E。
