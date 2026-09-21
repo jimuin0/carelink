@@ -52,7 +52,7 @@ export default function RegisterForm() {
   // 独立したチェックにすることで、掲載者が届出義務を認識した上で登録した事実を明確に残す。
   const [licenseWarranted, setLicenseWarranted] = useState(false);
 
-  const { register, handleSubmit, trigger, setValue, watch, formState: { errors } } = useForm<SalonFormValues>({
+  const { register, handleSubmit, trigger, setValue, watch, formState: { errors, isReady } } = useForm<SalonFormValues>({
     resolver: zodResolver(salonFullSchema),
     mode: 'onTouched',
     defaultValues: {
@@ -252,7 +252,17 @@ export default function RegisterForm() {
     <div className="mx-auto max-w-[640px] sm:px-12">
       <div>
         <StepIndicator currentStep={step} totalSteps={3} labels={stepLabels} />
+        {!isReady && (
+          <div role="status" className="mb-3 text-sm text-gray-600">
+            <p>入力フォームを準備しています。表示が変わらない場合はJavaScriptの設定と通信状況を確認してください。</p>
+            <form action="/register" method="get">
+              <button type="submit" className="underline">ページを再読み込み</button>
+            </form>
+          </div>
+        )}
         <form onSubmit={handleSubmit(() => setShowConfirm(true))} onChange={handleFieldChange} noValidate className="border-y border-[var(--ecru-line)] bg-[var(--ecru-surface)] px-5 py-7 sm:border sm:px-10 sm:py-10">
+          {/* SSR中の入力をRHFの初期化が消さないよう、購読・refの準備完了まで操作を止める。 */}
+          <fieldset disabled={!isReady} aria-busy={!isReady} className="min-w-0">
 
           {/* Step 1: 基本情報 */}
           {step === 1 && (
@@ -462,6 +472,7 @@ export default function RegisterForm() {
               </div>
             </div>
           )}
+          </fieldset>
         </form>
       </div>
 

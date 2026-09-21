@@ -28,6 +28,7 @@ const CASES: Array<{ value: 'immediately' | 'undecided'; label: string }> = [
 ];
 
 async function fillStep1(page: Page, email: string) {
+  await expect(page.locator('#reg-facility-name')).toBeEnabled();
   await page.fill('#reg-facility-name', `E2E登録テスト施設 ${Date.now()}`);
   await page.selectOption('#reg-business-type', { label: 'ヘアサロン' });
   await page.fill('#reg-rep-name', '代表 太郎');
@@ -35,15 +36,38 @@ async function fillStep1(page: Page, email: string) {
   await page.fill('#reg-email', email);
   await page.fill('#reg-phone', '09012345678');
   await page.getByRole('button', { name: '次へ' }).click();
+  await expect(page.locator('#reg-postal-code')).toBeVisible();
 }
 
 async function fillStep2(page: Page) {
   // 詳細情報は全項目任意。何も入力せず次へ進めることそのものが「フォームが誤って
   // 必須化していない」ことの確認になる。
   await page.getByRole('button', { name: '次へ' }).click();
+  await expect(page.locator('#reg-desired-start-date')).toBeVisible();
 }
 
 test.describe('/register 送信', () => {
+  test('JS読み込み前は入力を保護し、準備完了後の最初の入力でStep3まで進める', async ({ page }) => {
+    let releaseScripts!: () => void;
+    const scriptsReady = new Promise<void>((resolve) => { releaseScripts = resolve; });
+    await page.route('**/_next/static/**/*.js', async (route) => {
+      await scriptsReady;
+      await route.continue();
+    });
+    try {
+      // load待ちではJS遅延の観測前に詰まるため、document応答後にSSR DOMを観測する。
+      await page.goto('/register', { waitUntil: 'commit' });
+      await expect(page.locator('#reg-facility-name')).toBeDisabled();
+      await expect(page.getByRole('button', { name: 'ページを再読み込み' })).toBeVisible();
+      releaseScripts();
+      await fillStep1(page, 'hydration-fixture@example.invalid');
+      await fillStep2(page);
+      await expect(page.locator('#reg-desired-start-date')).toBeVisible();
+    } finally {
+      releaseScripts();
+    }
+  });
+
   test('掲載希望時期の select が実在し、選択肢が4つ以上ある（空振り防止）', async ({ page }) => {
     await page.goto('/register');
     await fillStep1(page, `e2e-register-probe-${Date.now()}@example.com`);
