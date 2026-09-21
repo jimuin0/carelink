@@ -40,7 +40,19 @@
 
 ## 完了に必要な未実施確認
 
-- 新規migrationの権限/競合Contract確認。`schema-fingerprint` CIは全migrationを使い捨てPG17へ適用し指紋一致を検証するが、予約fixtureによる候補抽出・ロール別呼出し・競合の動的検証は別途必要。
+- 新規migrationの本番適用後の契約照合。使い捨てPG17の候補抽出・ロール別呼出し・claim除外fixtureは`schema-fingerprint` CIで検証するが、本番への適用証拠や真の同時実行試験とは区別する。
 - Supabase Auth・SMTP・Google OAuthの本番設定と、神原さん宛の実メール到達・確認リンク完了。
 - 本番Cronの最新成功、結果不明警告の維持、既存保留行のprovider照合。
 - 最新commitのCI・デプロイ後のhealth・登録/予約画面のE2E。
+
+## 検証証拠と環境の区別
+
+`9ddf18355d29d9fc6616eb76e0e3b1873a4b1739`のCI run `35615182688`では、Unit 373 suites・7541 tests、branches 8020/8020が成功し、E2Eは267 passed・6 skipped・flaky 0だった。6 skippedはHTTPS本番専用の2ブラウザ分と、Chromium専用first-paint検査のMobile Safari 4件であり、今回の登録・メニュー検査の省略ではない。これは隔離CIの証拠で、本番メール到達・本番反映の証拠ではない。
+
+同runのContractは生成型の`pending_booking_reminders`不足で1件失敗し、外部接続が未設定の16件を省略した。生成型を手修正してこの失敗を隠さない。本番の実schemaと適用履歴を照合してから正規生成する。
+
+追加する`Local Supabase API contracts (no skips)`は、既存E2E jobが起動した使い捨てSupabaseへ2つの実API suiteを接続する。接続先は明示的なloopback URLに限定し、anonとservice roleの両鍵を必須とし、結果JSONで2 suites成功・省略ゼロを要求する。外部stagingの代わりにrepository migrationの再現性を確認する層であり、hosted stagingや本番設定を確認したとは扱わない。生成型とmigrationの静的比較は従来のContract jobに残し、別gateとして失敗を維持する。
+
+予約RPCのanon拒否とservice roleの既知の`BOOKING_CONFLICT`は、その拒否経路の到達証拠だけである。予約成功や全分岐の`0A000`不在は証明せず、予約作成・変更のE2Eと組み合わせる。RLSのINSERT拒否probeは、退行時に書込みが成功する可能性があるため、明示local隔離環境でのみ動かす。外部stagingではこれらのmutation probeを省略する。
+
+空のfresh DBで`facility_reviews`・`referral_codes`のanon SELECTが空配列になることは、RLSの実効性やtenant分離全体の証明ではない。この2検査はAPI到達と返却契約の範囲に限る。RLS漏洩防止の動的証明には、既知の合成行と複数ロールを使った専用fixtureが別途必要であり、今回のAPI2 suites省略ゼロをその代替にはしない。

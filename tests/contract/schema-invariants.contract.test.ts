@@ -15,16 +15,15 @@
  *   service_role 限定オブジェクトは STAGING_SUPABASE_SERVICE_ROLE_KEY があれば追加検証。
  *   未設定時は describe.skip（本番リソースには絶対に触らない）。
  *
- * 副作用ゼロ設計:
- *   - SELECT は .limit(0/1) のみ（行を変更しない）。
- *   - RPC は zero-UUID / 存在しないキーで呼び、FK 違反(23503) や PGRST で
- *     本体実行前にエラーさせる（永続化しない）。
+ * SELECT は .limit(0/1) に限定。書込み/RPC probe は隔離ローカルだけで実行する。
+ * RLSが退行するとINSERTが成功し得るため、副作用ゼロとは扱わない。
  */
 import { createClient } from '@supabase/supabase-js';
 
 const URL = process.env.STAGING_SUPABASE_URL;
 const ANON = process.env.STAGING_SUPABASE_ANON_KEY;
 const SRK = process.env.STAGING_SUPABASE_SERVICE_ROLE_KEY;
+const local = URL && /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):\d+\/?$/.test(URL);
 
 const describeIfConfigured = URL && ANON ? describe : describe.skip;
 const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
@@ -33,15 +32,12 @@ const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
 // 'supabaseUrl is required' を投げないよう、設定済みのときだけ生成する（遅延・null許容）。
 const anon = URL && ANON ? createClient(URL, ANON) : (null as never);
 
-describeIfConfigured('schema invariants (staging)', () => {
+describeIfConfigured('schema invariants (configured Supabase)', () => {
 
   // ── 1. オブジェクト存在: RPC が schema cache に存在する（PGRST202 でない） ──
   describe('RPC 存在', () => {
-    test('create_booking_atomic が存在し 0A000 landmine が無い', async () => {
-      // zero-UUID の facility_id は bookings.facility_id FK に違反するため、
-      // 関数が正しく動いていれば INSERT 時に 23503 で落ちる。
-      // 0A000（FOR UPDATE + 集約）なら COUNT クエリのプラン時に落ちる＝landmine 再発。
-      const { error } = await anon.rpc('create_booking_atomic', {
+    (local && SRK ? test : test.skip)('create_booking_atomic はanonを拒否し、service_roleは既知の予約拒否へ到達する（隔離local）', async () => {
+      const args = {
         p_facility_id: ZERO_UUID,
         p_staff_id: null,
         p_user_id: null,
@@ -57,43 +53,41 @@ describeIfConfigured('schema invariants (staging)', () => {
         p_total_price: 0,
         p_points_used: 0,
         p_status: 'pending',
-      });
-      expect(error).not.toBeNull();
-      // 存在しない（PGRST202）は不可
-      expect(error!.code).not.toBe('PGRST202');
-      // 0A000 landmine（FOR UPDATE + 集約）が repo に書き戻されたら即検知
-      expect(error!.code).not.toBe('0A000');
-      expect(error!.message).not.toMatch(/FOR UPDATE is not allowed with aggregate/i);
-      // 期待挙動: FK 違反で本体実行前に弾かれる
-      expect(error!.code).toBe('23503');
+      };
+      const denied = await anon.rpc('create_booking_atomic', args);
+      expect(denied.error?.code).toBe('42501');
+      const admin = createClient(URL!, SRK!);
+      const { error } = await admin.rpc('create_booking_atomic', args);
+      // 存在しない施設には勤務スタッフがいないため、現行関数はFKより前に拒否する。
+      // この経路の実到達だけを検証。予約成功/別分岐はbooking E2Eが補完する。
+      expect(error?.code).toBe('P0001');
+      expect(error?.message).toMatch(/^BOOKING_CONFLICT:/);
     });
 
     test('search_facilities_nearby が存在し実行できる', async () => {
-      const { error } = await anon.rpc('search_facilities_nearby', {
+      const { data, error } = await anon.rpc('search_facilities_nearby', {
         user_lat: 0,
         user_lng: 0,
         radius_km: 1,
         type_filter: null,
         limit_count: 1,
       });
-      // 実行できれば error は null。PGRST202（不在）なら失敗。
-      if (error) expect(error.code).not.toBe('PGRST202');
+      expect(error).toBeNull();
+      expect(Array.isArray(data)).toBe(true);
     });
   });
 
-  // ── 2. RLS 不変条件: anon が過大公開されていない ──
-  describe('RLS 不変条件（anon）', () => {
-    test('facility_reviews の直接 SELECT は anon に行を返さない（PII 漏洩防止）', async () => {
+  // 空DBの[]はRLSの有効性を証明しない。この層はAPI/列契約と、存在する行の非公開確認。
+  // tenant境界全体の保証にはロール別の合成行fixtureが別途必要。
+  describe('anon SELECTのAPI/列契約（空DBではRLS証明にならない）', () => {
+    test('facility_reviews の直接 SELECT はanonに行を返さない', async () => {
       // anon は public_reviews 経由でのみ読むべき。直接テーブルからは 0 行であるべき。
       const { data, error } = await anon
         .from('facility_reviews')
         .select('id')
         .limit(1);
-      // RLS で弾かれる（error）か、空配列のどちらか。行が返ってきたら過大公開。
-      if (!error) {
-        expect(Array.isArray(data)).toBe(true);
-        expect(data!.length).toBe(0);
-      }
+      if (error) expect(error.code).toBe('42501');
+      else expect(data).toEqual([]);
     });
 
     test('public_reviews は anon が読め、reviewer_ip 列を含まない', async () => {
@@ -102,7 +96,7 @@ describeIfConfigured('schema invariants (staging)', () => {
         .select('reviewer_ip')
         .limit(1);
       // reviewer_ip は View に存在しないため、選択するとエラーになるべき。
-      expect(ipError).not.toBeNull();
+      expect(ipError?.code).toBe('42703');
 
       // 公開列のみなら読める（行数は問わない）。
       const { error: okError } = await anon
@@ -112,23 +106,21 @@ describeIfConfigured('schema invariants (staging)', () => {
       expect(okError).toBeNull();
     });
 
-    test('referral_codes は anon に公開読み取りされない', async () => {
+    test('referral_codes の直接 SELECT はanonに行を返さない', async () => {
       const { data, error } = await anon
         .from('referral_codes')
         .select('id')
         .limit(1);
       // 公開 SELECT ポリシーは drop 済み。RLS で弾かれる or 0 行であるべき。
-      if (!error) {
-        expect(Array.isArray(data)).toBe(true);
-        expect(data!.length).toBe(0);
-      }
+      if (error) expect(error.code).toBe('42501');
+      else expect(data).toEqual([]);
     });
   });
 
   // ── 2b. RLS 不変条件: anon の直接 INSERT が拒否される（攻撃面の封鎖確認） ──
   // 20260602 の RLS ハードニング（contacts 撤去 / push_subscriptions 本人限定 /
-  // intake・waitlist 詐称封鎖 / nps anon 撤去）が本番へ反映されているかを検知する。
-  describe('RLS 不変条件（anon の直接 INSERT 拒否）', () => {
+  // intake・waitlist 詐称封鎖 / nps anon 撤去）のfresh-apply結果を隔離DBで確認する。
+  (local ? describe : describe.skip)('RLS 不変条件（隔離localでanonの直接INSERT拒否）', () => {
     test('contacts への anon 直接 INSERT は拒否される（送信は service_role 経由のみ）', async () => {
       // contacts は INSERT ポリシーを持たない（deny by default）。
       // 正規の問い合わせ送信は API が service_role で行うため anon 直接 INSERT は不要。
@@ -142,14 +134,13 @@ describeIfConfigured('schema invariants (staging)', () => {
           message: 'contract drift probe (should be rejected by RLS)',
         });
       // RLS で弾かれる（42501 等）はず。null（成功）なら過大公開の回帰。
-      expect(error).not.toBeNull();
+      expect(error?.code).toBe('42501');
     });
 
     test('push_subscriptions への anon 直接 INSERT は拒否される（本人のみ）', async () => {
       // 統合ポリシー push_subscriptions_owner_all は auth.uid() = user_id を要求。
       // anon は auth.uid() = null のため WITH CHECK で拒否される。
-      // さらに user_id = ZERO_UUID は auth.users に存在せず FK(23503) でも弾かれるため、
-      // 仮に RLS をすり抜けても行は永続化しない（副作用ゼロ）。
+      // FK違反ではなく、RLS/権限が先に拒否したことを確認する。
       const { error } = await anon
         .from('push_subscriptions')
         .insert({
@@ -158,7 +149,7 @@ describeIfConfigured('schema invariants (staging)', () => {
           p256dh: 'contract-probe',
           auth: 'contract-probe',
         });
-      expect(error).not.toBeNull();
+      expect(error?.code).toBe('42501');
     });
 
     test('nps_surveys への anon 直接 INSERT は拒否される（service_role 経由のみ）', async () => {
@@ -171,7 +162,7 @@ describeIfConfigured('schema invariants (staging)', () => {
           comment: 'contract drift probe (should be rejected by RLS)',
           category: 'overall',
         });
-      expect(error).not.toBeNull();
+      expect(error?.code).toBe('42501');
     });
   });
 
@@ -216,11 +207,7 @@ describeIfConfigured('schema invariants (staging)', () => {
         expect(error.code).not.toBe('22007');
         expect(error.message).not.toMatch(/invalid input syntax for type date/i);
       }
-      expect(
-        error,
-        `salons.desired_start_date への等号フィルタが失敗した（type=${error?.code ?? '?'}）。` +
-          'date 型へ逆戻りした（=今回の実障害の再発）疑いがある。',
-      ).toBeNull();
+      expect(error).toBeNull();
     });
   });
 
@@ -233,7 +220,7 @@ describeIfConfigured('schema invariants (staging)', () => {
       const { error } = await admin
         .from('facility_profiles')
         .select('google_rating,google_review_count')
-        .limit(1);
+        .limit(0);
       expect(error).toBeNull();
     });
 
@@ -241,7 +228,7 @@ describeIfConfigured('schema invariants (staging)', () => {
       const { error } = await admin
         .from('facility_card_view')
         .select('id,slug,name,google_rating,google_review_count')
-        .limit(1);
+        .limit(0);
       expect(error).toBeNull();
     });
 
@@ -249,13 +236,13 @@ describeIfConfigured('schema invariants (staging)', () => {
       const { error } = await admin
         .from('facility_reviews')
         .select('reviewer_ip,is_flagged,flag_reason')
-        .limit(1);
+        .limit(0);
       expect(error).toBeNull();
     });
 
     test('slack_incident_threads / rate_limit_buckets が存在', async () => {
-      const { error: t1 } = await admin.from('slack_incident_threads').select('*').limit(1);
-      const { error: t2 } = await admin.from('rate_limit_buckets').select('*').limit(1);
+      const { error: t1 } = await admin.from('slack_incident_threads').select('*').limit(0);
+      const { error: t2 } = await admin.from('rate_limit_buckets').select('*').limit(0);
       expect(t1).toBeNull();
       expect(t2).toBeNull();
     });

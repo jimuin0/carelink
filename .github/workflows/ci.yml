@@ -154,6 +154,18 @@ jobs:
           echo "anon=$ANON_KEY" >> "$GITHUB_OUTPUT"
           echo "::add-mask::$SERVICE_ROLE_KEY"
           echo "service_role=$SERVICE_ROLE_KEY" >> "$GITHUB_OUTPUT"
+      - name: Local Supabase API contracts (no skips)
+        # Hosted stagingではなく、全migration fresh-apply後の隔離Supabase実API検証。
+        # 生成型とprod migrationの静的照合は既存contract-test jobの必須gateに残す。
+        env:
+          STAGING_SUPABASE_URL: ${{ steps.supabase.outputs.url }}
+          STAGING_SUPABASE_ANON_KEY: ${{ steps.supabase.outputs.anon }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ steps.supabase.outputs.service_role }}
+        run: |
+          node scripts/check-local-supabase-contract.mjs environment
+          npm run test:contract -- --runInBand --runTestsByPath tests/contract/schema-invariants.contract.test.ts tests/contract/supabase-contract.test.ts --json --outputFile="$RUNNER_TEMP/local-supabase-contract.json"
+          node scripts/check-local-supabase-contract.mjs results "$RUNNER_TEMP/local-supabase-contract.json"
+          echo "Isolated local Supabase API contracts passed with zero skips. This is not hosted staging or production verification." >> "$GITHUB_STEP_SUMMARY"
       - name: Install Playwright Browsers
         # playwright.config の 2 プロジェクト（chromium / Mobile Safari=webkit）を両方導入。
         # 従来は chromium のみで webkit 系の E2E が実行されない盲点があった。
@@ -285,8 +297,8 @@ jobs:
     timeout-minutes: 30
     # 本番と repo migration の「静かなドリフト」（RPC 不在 / カラム欠落 / View 未作成 /
     # RLS 過大公開 / 予約 RPC の 0A000 landmine）を発症前に検知する恒久ゲート。
-    # staging 専用 secrets が未設定なら全テストが describe.skip され、本番には一切触れない。
-    # secrets を設定した時点で自動的にドリフト検知ゲートとして有効化される。
+    # staging secrets未設定でも生成型の静的照合は実行。実APIはE2E jobの隔離localで必須。
+    # 外部stagingが設定された場合もmutation probeはlocal限定で、本番へは接続しない。
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -300,16 +312,15 @@ jobs:
           STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
         run: |
           if [ -z "$STAGING_SUPABASE_URL" ] || [ -z "$STAGING_SUPABASE_ANON_KEY" ]; then
-            echo "⚠️ STAGING_SUPABASE_* 未設定: contract ドリフトゲートは **無効**（全テスト skip）。" >> "$GITHUB_STEP_SUMMARY"
-            echo "有効化するには GitHub Secrets に STAGING_SUPABASE_URL / STAGING_SUPABASE_ANON_KEY（任意で STAGING_SUPABASE_SERVICE_ROLE_KEY）を設定してください。" >> "$GITHUB_STEP_SUMMARY"
+            echo "外部staging未設定：このjobの外部Supabase接続検査は省略。生成型の静的照合は有効、実APIの2 suitesはE2E jobの隔離localで必須実行します。" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "✅ STAGING_SUPABASE_* 設定済み: contract ドリフトゲート **有効**。" >> "$GITHUB_STEP_SUMMARY"
+            echo "外部staging設定済み：読取Contract検査を実行します。mutation probeは隔離local限定です。" >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Run Contract Tests
         run: npm run test:contract
         env:
           # staging 専用シークレット（GitHub Secrets 経由・値は repo に書かない）。
-          # 未設定時は各テストが describe.skip され安全に pass する。
+          # 未設定時は外部接続検査のみskip。静的照合と別jobのlocal API gateは維持。
           STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
           STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
           STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
