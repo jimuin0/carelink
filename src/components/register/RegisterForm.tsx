@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { supabase } from '@/lib/supabase';
@@ -12,6 +13,7 @@ import MultiPhotoUpload, { type PhotoSlot } from '@/components/MultiPhotoUpload'
 import Spinner from '@/components/Spinner';
 import { compressImage } from '@/lib/image-compress';
 import { rollbackUploadedSalonPhotos } from '@/lib/salon-photo-rollback';
+import { settleSalonUploads, readSalonRegistrationResult, SALON_SUBMISSION_UNKNOWN } from '@/lib/salon-registration-delivery';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { getRecaptchaToken } from '@/lib/recaptcha-client';
@@ -42,6 +44,8 @@ export default function RegisterForm() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [submissionUnknown, setSubmissionUnknown] = useState(false);
+  const submissionUnknownRef = useRef(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [photoFiles, setPhotoFiles] = useState<(File | null)[]>(photoSlots.map(() => null));
   const [showConfirm, setShowConfirm] = useState(false);
@@ -127,13 +131,16 @@ export default function RegisterForm() {
   };
 
   const onSubmit = async (data: SalonFormValues) => {
+    if (submissionUnknownRef.current) return;
     setSubmitting(true);
     // 【2026年7月8日 恒久根治】写真アップロード成功後に /api/salons が失敗（バリデーション/
     // レート制限/ネットワーク断等）すると、アップロード済みファイルがストレージに孤児として
     // 残り続けていた。再送信時は毎回新しい crypto.randomUUID() で再アップロードするため、
-    // 失敗を繰り返すほど孤児が積み上がる。アップロード成功パスを記録し、この関数のいずれの
-    // 失敗経路（アップロード自体の部分失敗・API失敗・例外）でも catch 節で確実に削除する。
+    // 失敗を繰り返すほど孤児が積み上がる。成功パスは全upload確定後に回収する。
+    // POST後に結果不明となった写真は、保存済み行から参照される可能性があるため保全する。
     const uploadedPaths: string[] = [];
+    let requestStarted = false;
+    let confirmedRejection = false;
     try {
       // Upload photos
       const uuid = crypto.randomUUID();
@@ -141,9 +148,9 @@ export default function RegisterForm() {
       const mimeToExt: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
 
       // 監査P6: 従来は生ファイルを無圧縮・直列アップロードしていた（最大7枚×10MB）。
-      // 各ファイルをクライアント側で圧縮し、圧縮＋アップロードを Promise.all で並列化する。
+      // 各ファイルを圧縮して並列uploadし、失敗があっても全件の確定を待つ。
       // map はインデックス順を保持し、filter で order を保ったまま null（未選択枠）を除く。
-      const uploadResults = await Promise.all(
+      const uploadResults = await settleSalonUploads(
         photoFiles.map(async (file, i) => {
           if (!file) return null;
           const compressed = await compressImage(file).catch(() => file); // 圧縮失敗時は元ファイル
@@ -164,6 +171,7 @@ export default function RegisterForm() {
       const prefecture = data.prefecture || extractPrefecture(data.address) || null;
       const city = data.city || extractCity(data.address) || null;
 
+      requestStarted = true;
       const res = await fetch('/api/salons', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -203,15 +211,12 @@ export default function RegisterForm() {
           ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
         }),
       });
-      if (!res.ok) {
-        // 【2026年8月20日 恒久根治】サーバーは原因別の文言（'入力内容が不正です' /
-        // 'Bot検知: …' / '短時間に多くのリクエストが…' / '不正な写真URLです' 等）を
-        // body.error に返しているのに、従来はここで捨てて固定文言を投げていたため
-        // 400/403/429/500/通信断が画面上は全部同一トーストになっていた。
-        const errBody = await res.json().catch(() => null);
-        throw new Error(errBody?.error || '送信に失敗しました。時間をおいて再度お試しください。');
+      const result = await readSalonRegistrationResult(res);
+      if (result.kind === 'rejected') {
+        confirmedRejection = true;
+        throw new Error(result.message);
       }
-      const resBody = await res.json().catch(() => null);
+      if (result.kind === 'unknown') throw new Error(SALON_SUBMISSION_UNKNOWN);
 
       setIsDirty(false);
       // 【2026年7月8日 恒久根治】/register/complete はクライアント供給の name/type/area だけを表示
@@ -220,14 +225,17 @@ export default function RegisterForm() {
       // salon id を渡し、complete ページ側でその id が実在する登録データか検証してから
       // サーバー側の実データを表示する方式に変更する。
       const params = new URLSearchParams();
-      if (resBody?.id) params.set('id', resBody.id);
+      params.set('id', result.id);
       router.push(`/register/complete?${params.toString()}`);
     } catch (e) {
-      // アップロード済みの写真をストレージから削除し、孤児ファイルの蓄積を防ぐ（上記コメント参照）。
-      // ロールバックは原因に関わらず必ず実行する（写真アップロード成功後のあらゆる失敗経路で走る）。
-      await rollbackUploadedSalonPhotos(uploadedPaths);
-      const message = e instanceof Error ? e.message : '送信に失敗しました。時間をおいて再度お試しください。';
-      setToast({ message, type: 'error' });
+      if (!requestStarted || confirmedRejection) {
+        await rollbackUploadedSalonPhotos(uploadedPaths);
+        const message = e instanceof Error ? e.message : '送信に失敗しました。時間をおいて再度お試しください。';
+        setToast({ message, type: 'error' });
+      } else {
+        submissionUnknownRef.current = true;
+        setSubmissionUnknown(true);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -240,7 +248,7 @@ export default function RegisterForm() {
   const submitLockRef = useRef(false);
 
   const handleConfirmSubmit = () => {
-    if (submitLockRef.current) return;
+    if (submitLockRef.current || submissionUnknownRef.current) return;
     submitLockRef.current = true;
     setShowConfirm(false);
     handleSubmit(onSubmit)().finally(() => {
@@ -252,6 +260,12 @@ export default function RegisterForm() {
     <div className="mx-auto max-w-[640px] sm:px-12">
       <div>
         <StepIndicator currentStep={step} totalSteps={3} labels={stepLabels} />
+        {submissionUnknown && (
+          <div role="alert" className="mb-4 rounded border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+            <p>{SALON_SUBMISSION_UNKNOWN}</p>
+            <Link href="/contact" className="mt-2 inline-block underline">受付状況を問い合わせる</Link>
+          </div>
+        )}
         {!isReady && (
           <div role="status" className="mb-3 text-sm text-gray-600">
             <p>入力フォームを準備しています。表示が変わらない場合はJavaScriptの設定と通信状況を確認してください。</p>
@@ -262,7 +276,7 @@ export default function RegisterForm() {
         )}
         <form onSubmit={handleSubmit(() => setShowConfirm(true))} onChange={handleFieldChange} noValidate className="border-y border-[var(--ecru-line)] bg-[var(--ecru-surface)] px-5 py-7 sm:border sm:px-10 sm:py-10">
           {/* SSR中の入力をRHFの初期化が消さないよう、購読・refの準備完了まで操作を止める。 */}
-          <fieldset disabled={!isReady} aria-busy={!isReady} className="min-w-0">
+          <fieldset disabled={!isReady || submissionUnknown} aria-busy={!isReady} className="min-w-0">
 
           {/* Step 1: 基本情報 */}
           {step === 1 && (
@@ -466,7 +480,7 @@ export default function RegisterForm() {
               </label>
               <div className="flex gap-4">
                 <button type="button" onClick={() => setStep(2)} className="btn-outline flex-1">戻る</button>
-                <button type="submit" disabled={submitting || !agreed || !licenseWarranted} className="btn-primary flex-1 !py-3">
+                <button type="submit" disabled={submitting || submissionUnknown || !agreed || !licenseWarranted} className="btn-primary flex-1 !py-3">
                   {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />送信中...</span> : '登録する'}
                 </button>
               </div>
@@ -482,7 +496,7 @@ export default function RegisterForm() {
         message="送信後、続けてアカウントを作成すると、入力内容（営業時間・写真・特徴・PRなど）がそのまま管理画面に反映され、すぐに掲載を開始できます。"
         confirmLabel="送信する"
         cancelLabel="戻る"
-        confirmDisabled={submitting}
+        confirmDisabled={submitting || submissionUnknown}
         onConfirm={handleConfirmSubmit}
         onCancel={() => setShowConfirm(false)}
       />

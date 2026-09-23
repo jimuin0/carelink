@@ -83,7 +83,7 @@ test('確認ダイアログの確定ボタンを連打しても /api/salons へ�
     if (url === '/api/salons') {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ success: true, id: 'salon-1' }),
+        json: () => Promise.resolve({ success: true, id: '11111111-1111-1111-1111-111111111111' }),
       } as Response);
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
@@ -125,7 +125,7 @@ test('/api/salons への送信ボディに source: "register" が含まれる（
     if (url === '/api/salons') {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ success: true, id: 'salon-1' }),
+        json: () => Promise.resolve({ success: true, id: '11111111-1111-1111-1111-111111111111' }),
       } as Response);
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);

@@ -66,3 +66,11 @@
 上記commitの`src`内にOpenAPI rootへの直接呼出しはなく、従来の到達性Contractだけが全schema文書を取得していた（確認方法：`src`と`tests/contract`の`/rest/v1/`参照を照合）。業務REST到達性はSDK相当のapikeyとBearerを付けた公開Viewの`limit=0`読み取りで検証し、HTTP 200かつJSON空配列を厳密に要求する。500や認証失敗は許容しない。この検査は認証鍵・API到達・返却形式の確認であり、データ件数やRLS全保証ではない。
 
 CIから先行OpenAPI診断を外し、warm-upで隠さない構成にする。`scripts/diagnose-local-supabase-rest.mjs`は明示loopback限定の任意診断として残す。新構成でのfresh-apply CI成功は別途確認が必要であり、上記runだけで証明済みとはしない。製品・本番DBの権限、statement timeout、Supabase設定は変更していない。
+
+## 掲載申込の結果不明時
+
+後続契約は`register-submission-reconciliation-goal.md`。写真uploadは全件のsettlement後に判定し、POST前の失敗又はAPIの保存前拒否（400/403/429かつJSON error文字列）のときだけ既知成功画像をcleanupする。POST通信断、5xx、応答形式不正では保存済みか判別できないため、画像を保全し同画面からの再送を止める。2xxでもsuccess=trueと有効なUUID idがなければ完了表示に進めない。
+
+結果不明の問い合わせは、既存の管理画面・申告時刻・対象施設に絞った受信状況の安全な読取で照合する。顧客情報全件の取得、画像の推測削除、照合前の代理再送はしない。サーバー側の冪等キーを新設していないため、再読込・別端末を跨ぐ重複防止を完全保証しない。保存済みなら既存受付へ誘導し、未保存と確認できた場合だけ再試行を案内する。
+
+同一アカウントでの施設自己登録は、現行`api/facility/setup`の既存membershipガードにより1施設である。複数店舗の申込受付と、同一アカウントへの管理権限付与は別の操作であり、この修正で店舗数の事業仕様や権限付与を変更しない。個別の顧客申告と上記不具合の因果関係はログ照合なしに断定しない。

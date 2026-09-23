@@ -47,6 +47,26 @@ async function fillStep2(page: Page) {
 }
 
 test.describe('/register 送信', () => {
+  test('POST結果不明では完了へ進まず同画面の再送を止める', async ({ page }) => {
+    let attempts = 0;
+    await page.route('**/api/salons', async (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      attempts++;
+      await route.abort('failed');
+    });
+    await page.goto('/register');
+    await fillStep1(page, 'reconciliation-fixture@example.invalid');
+    await fillStep2(page);
+    for (const box of await page.getByRole('checkbox').all()) await box.check();
+    await page.getByRole('button', { name: '登録する', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: '送信する', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText('送信結果を確認できませんでした');
+    await expect(page.getByRole('button', { name: '登録する', exact: true })).toBeDisabled();
+    await expect(page.getByRole('link', { name: '受付状況を問い合わせる' })).toHaveAttribute('href', '/contact');
+    expect(attempts).toBe(1);
+    expect(new URL(page.url()).pathname).toBe('/register');
+  });
+
   test('JS読み込み前は入力を保護し、準備完了後の最初の入力でStep3まで進める', async ({ page }) => {
     let releaseScripts!: () => void;
     const scriptsReady = new Promise<void>((resolve) => { releaseScripts = resolve; });

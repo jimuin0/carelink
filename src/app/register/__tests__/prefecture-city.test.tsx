@@ -56,7 +56,7 @@ function mockFetchWithZipcloud() {
     if (url === '/api/salons') {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ success: true, id: 'salon-1' }),
+        json: () => Promise.resolve({ success: true, id: '11111111-1111-1111-1111-111111111111' }),
       } as Response);
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
@@ -106,7 +106,7 @@ test('郵便番号を使わず住所を直接書いた場合、送信時に addr
     if (url === '/api/salons') {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ success: true, id: 'salon-1' }),
+        json: () => Promise.resolve({ success: true, id: '11111111-1111-1111-1111-111111111111' }),
       } as Response);
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
@@ -134,7 +134,7 @@ test('住所欄が空のまま送信すると、prefecture / city は null の�
     if (url === '/api/salons') {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ success: true, id: 'salon-1' }),
+        json: () => Promise.resolve({ success: true, id: '11111111-1111-1111-1111-111111111111' }),
       } as Response);
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
