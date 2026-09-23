@@ -20,6 +20,12 @@
 //   CI 環境ではreCAPTCHA関連の追加操作は不要。
 import { test, expect, type Page } from '@playwright/test';
 
+// This suite deliberately intercepts API calls. The app's lazy-loaded PWA
+// service worker can otherwise take control during a long mobile form flow and
+// bypass Playwright's page-level route handler, allowing a real local POST.
+// Service-worker behavior is outside this submission-state test's scope.
+test.use({ serviceWorkers: 'block' });
+
 // 4択のうち、この2つを実際に踏む。immediately が今回の実障害の直接再現（一番最初の選択肢で
 // すぐ落ちていた）、undecided は逆側（列挙の末尾）で「配列の一部だけ通る」形の回帰も拾う。
 const CASES: Array<{ value: 'immediately' | 'undecided'; label: string }> = [
