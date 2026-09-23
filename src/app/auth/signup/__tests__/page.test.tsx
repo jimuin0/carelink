@@ -81,6 +81,12 @@ test('既登録の疑似user応答も送達を断定しない確認・ログイ�
   expect(mockResend).not.toHaveBeenCalled();
 });
 
+test('email/Google共通の登録画面から利用規約とプライバシーポリシーを確認できる', () => {
+  render(<SignupPage />);
+  expect(screen.getByRole('link', { name: '利用規約' })).toHaveAttribute('href', '/terms');
+  expect(screen.getByRole('link', { name: 'プライバシーポリシー' })).toHaveAttribute('href', '/privacy');
+});
+
 test('初期セッション確認の通信例外でも登録可能', async () => {
   mockGetUser.mockRejectedValue(new Error('network'));
   mockSignUp.mockResolvedValue({ data: { session: null, user: { id: 'fixture' } }, error: null });

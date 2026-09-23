@@ -364,6 +364,18 @@ function SignupContent() {
             </button>
           </form>
 
+          <p className="mt-3 text-center text-xs text-gray-600">
+            登録前に
+            <Link href="/terms" target="_blank" rel="noopener noreferrer" className="mx-1 text-sky-700 underline">
+              利用規約
+            </Link>
+            と
+            <Link href="/privacy" target="_blank" rel="noopener noreferrer" className="mx-1 text-sky-700 underline">
+              プライバシーポリシー
+            </Link>
+            をご確認ください。
+          </p>
+
           <div className="my-6">
             <div className="relative">
               <div className="absolute inset-0 flex items-center">

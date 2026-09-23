@@ -64,7 +64,7 @@ function setupDefaultMocks(
     from: jest.fn().mockReturnValue({
       select: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          single: mockSingle,
+          maybeSingle: mockSingle,
         }),
       }),
     }),
@@ -133,6 +133,30 @@ describe('POST /api/liff/auth', () => {
     expect(json.error).toContain('Invalid LINE token');
   });
 
+  test.each([[429, 503], [503, 503], [400, 502]])('LINE profile API status %i → %i', async (upstreamStatus, expectedStatus) => {
+    global.fetch = jest.fn().mockResolvedValue(new Response('{}', { status: upstreamStatus })) as jest.Mock;
+    const res = await POST(makeRequest({ access_token: 'valid-token' }) as any);
+    expect(res.status).toBe(expectedStatus);
+  });
+
+  test('LINE profile API network timeout → 503', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('timeout')) as jest.Mock;
+    const res = await POST(makeRequest({ access_token: 'valid-token' }) as any);
+    expect(res.status).toBe(503);
+  });
+
+  test('LINE profile API receives bounded timeout', async () => {
+    await POST(makeRequest({ access_token: 'valid-token' }) as any);
+    const call = (global.fetch as jest.Mock).mock.calls.find((c) => c[0].includes('api.line.me/v2/profile'));
+    expect(call[1].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test.each(['{}', 'invalid-json'])('malformed LINE profile response %s → 502', async (body) => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(body, { status: 200 })) as jest.Mock;
+    const res = await POST(makeRequest({ access_token: 'valid-token' }) as any);
+    expect(res.status).toBe(502);
+  });
+
   test('valid token with linked profile → 200', async () => {
     setupDefaultMocks(true, true);
 
@@ -159,6 +183,13 @@ describe('POST /api/liff/auth', () => {
     expect(json.line_user_id).toBe('line-user-123');
     expect(json.linked).toBe(false);
     expect(json.profile).toBeNull();
+  });
+
+  test('profile lookup database error → 500, not linked=false', async () => {
+    setupDefaultMocks(false, true);
+    mockSingle.mockResolvedValueOnce({ data: null, error: { message: 'database unavailable' } });
+    const res = await POST(makeRequest({ access_token: 'valid-token' }) as any);
+    expect(res.status).toBe(500);
   });
 
   test('response includes LINE profile data', async () => {
@@ -234,14 +265,14 @@ describe('POST /api/liff/auth', () => {
     expect(res.status).toBe(500);
   });
 
-  test('exception during flow → 500', async () => {
+  test('exception during LINE profile lookup → 503', async () => {
     (global.fetch as jest.Mock).mockRejectedValue(new Error('Network error'));
 
     const res = await POST(
       makeRequest({ access_token: 'token' }) as any
     );
 
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
   });
 
   test('max-length access_token (512) accepted', async () => {

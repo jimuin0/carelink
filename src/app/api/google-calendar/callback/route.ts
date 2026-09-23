@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { alertCaughtError } from '@/lib/alert';
@@ -44,8 +45,10 @@ export async function GET(req: NextRequest) {
     const decoded = JSON.parse(Buffer.from(state, 'base64url').toString());
     userId = decoded.userId;
     if (!UUID_RE.test(userId)) throw new Error('Invalid userId');
-    // Reject stale states (> 10 min)
-    if (Date.now() - decoded.ts > 10 * 60 * 1000) throw new Error('State expired');
+    // Reject malformed, future-dated, or stale states (> 10 min).
+    if (!Number.isFinite(decoded.ts) || decoded.ts > Date.now() || Date.now() - decoded.ts > 10 * 60 * 1000) {
+      throw new Error('State expired or invalid');
+    }
 
     // Verify nonce against stored cookie using timing-safe comparison
     const nonce: string = decoded.nonce ?? '';
@@ -58,6 +61,14 @@ export async function GET(req: NextRequest) {
     );
     if (!nonceMatch) throw new Error('Nonce mismatch');
   } catch {
+    return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
+  }
+
+  // Bind the state to the authenticated browser session as well as its nonce. A valid
+  // nonce must not authorize saving a token for a different user encoded in state.
+  const authClient = await createServerSupabaseAuthClient();
+  const { data: { user: currentUser } } = await authClient.auth.getUser();
+  if (!currentUser || currentUser.id !== userId) {
     return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
   }
 
@@ -78,20 +89,59 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
   }
 
-  const tokens = await tokenRes.json();
-  const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
+  const tokenPayload = await tokenRes.json() as unknown;
+  const tokenRecord = tokenPayload && typeof tokenPayload === 'object'
+    ? tokenPayload as Record<string, unknown>
+    : null;
+  const accessToken = tokenRecord?.access_token;
+  const expiresIn = tokenRecord?.expires_in;
+  if (
+    typeof accessToken !== 'string' || !accessToken ||
+    typeof expiresIn !== 'number' || !Number.isFinite(expiresIn) || expiresIn <= 0
+  ) {
+    return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
+  }
+  const refreshToken = typeof tokenRecord?.refresh_token === 'string' && tokenRecord.refresh_token.length > 0
+    ? tokenRecord.refresh_token
+    : null;
+  const scope = tokenRecord?.scope;
+  const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
 
   const admin = createServiceRoleClient();
+  const { data: existingToken, error: existingTokenError } = await admin
+    .from('google_calendar_tokens')
+    .select('refresh_token')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (existingTokenError) {
+    return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
+  }
   // トークン保存失敗を成功扱いにしない。失敗のまま success へ飛ばすと、
   // 連携できたと誤認させつつ以後のカレンダー同期がサイレントに動かなくなる。
-  const { error: tokenSaveError } = await admin.from('google_calendar_tokens').upsert({
-    user_id: userId,
-    access_token: tokens.access_token,
-    refresh_token: tokens.refresh_token || null,
+  const tokenFields = {
+    access_token: accessToken,
     expires_at: expiresAt,
-    scope: tokens.scope || null,
+    scope: typeof scope === 'string' && scope ? scope : null,
     updated_at: new Date().toISOString(),
-  }, { onConflict: 'user_id' });
+  };
+  let tokenSaveError: { message?: string } | null;
+  if (refreshToken) {
+    const result = await admin.from('google_calendar_tokens').upsert({
+      user_id: userId,
+      ...tokenFields,
+      refresh_token: refreshToken,
+    }, { onConflict: 'user_id' });
+    tokenSaveError = result.error;
+  } else if (existingToken?.refresh_token) {
+    // Update without the refresh_token column so even a concurrent callback cannot
+    // replace the durable refresh credential with null.
+    const result = await admin.from('google_calendar_tokens').update(tokenFields).eq('user_id', userId);
+    tokenSaveError = result.error;
+  } else {
+    // A first-time connection without a refresh token cannot keep syncing after the
+    // access token expires. Do not persist a misleading, non-renewable connection.
+    return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
+  }
   if (tokenSaveError) {
     return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
   }

@@ -99,6 +99,36 @@ test('GET: platform_admin → 200 with table_counts', async () => {
   expect(json.table_counts).toBeDefined();
 });
 
+test('GET: 行数照会エラー → degraded と null・failed_tables を返す', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue({
+    select: jest.fn().mockReturnValue({
+      then: (fn: (v: unknown) => unknown) => Promise.resolve({ count: null, error: { message: 'count failed' } }).then(fn),
+    }),
+  });
+
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(json.status).toBe('degraded');
+  expect(json.table_counts.bookings).toBeNull();
+  expect(json.failed_tables).toHaveLength(8);
+});
+
+test('GET: 行数照会の例外 → degraded として返す', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue({
+    select: jest.fn().mockReturnValue({
+      then: (resolve: (v: unknown) => unknown, reject: (reason: Error) => unknown) =>
+        Promise.reject(new Error('count exception')).then(resolve, reject),
+    }),
+  });
+
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(json.status).toBe('degraded');
+  expect(json.failed_tables).toHaveLength(8);
+});
+
 // ─── POST: platform-admin guard ───────────────────────────────────────────────
 
 test('POST: 未認証 → 403', async () => {
@@ -149,7 +179,7 @@ test('POST: エクスポートクエリ失敗 → 500', async () => {
   expect(res.status).toBe(500);
 });
 
-test('POST: 1ページ目がdata:null（エラーなし）→ 404', async () => {
+test('POST: 1ページ目がdata:null（エラーなし）→ 500', async () => {
   mockAnonFrom.mockReturnValue(profileChain(true));
   mockAdminFrom.mockReturnValue({
     select: jest.fn().mockReturnValue({
@@ -159,7 +189,7 @@ test('POST: 1ページ目がdata:null（エラーなし）→ 404', async () => 
     }),
   });
   const res = await POST(makePostRequest({ table: 'bookings' }));
-  expect(res.status).toBe(404);
+  expect(res.status).toBe(500);
 });
 
 test('POST: データ0件 → 404', async () => {
@@ -339,7 +369,7 @@ describe('POST: ストリーミングの複数ページ処理', () => {
     expect(rangeCallCount).toBe(2);
   });
 
-  test('2ページ目取得でエラー → 1ページ目分だけ出力して打ち切り（部分エクスポート）', async () => {
+  test('2ページ目取得でエラー → 不完全CSVを成功扱いしない', async () => {
     mockAnonFrom.mockReturnValue(profileChain(true));
     let rangeCallCount = 0;
     mockAdminFrom.mockReturnValue({
@@ -356,13 +386,11 @@ describe('POST: ストリーミングの複数ページ処理', () => {
       }),
     });
     const res = await POST(makePostRequest({ table: 'bookings' }));
-    expect(res.status).toBe(200); // ヘッダー確定後なので200のまま（打ち切りのみ）
-    const csv = await res.text();
-    const lines = csv.trim().split('\n');
-    expect(lines.length).toBe(1 + 1000); // header + 1ページ目のみ
+    expect(res.status).toBe(200); // stream開始後の失敗はbody errorとして通知
+    await expect(res.text()).rejects.toThrow();
   });
 
-  test('2ページ目がdata:nullを返す → 打ち切り', async () => {
+  test('2ページ目がdata:nullを返す → 不完全CSVを成功扱いしない', async () => {
     mockAnonFrom.mockReturnValue(profileChain(true));
     let rangeCallCount = 0;
     mockAdminFrom.mockReturnValue({
@@ -379,8 +407,67 @@ describe('POST: ストリーミングの複数ページ処理', () => {
       }),
     });
     const res = await POST(makePostRequest({ table: 'bookings' }));
-    const csv = await res.text();
-    const lines = csv.trim().split('\n');
-    expect(lines.length).toBe(1 + 1000);
+    await expect(res.text()).rejects.toThrow();
+  });
+
+  test.each([new Error('database connection lost'), 'connection dropped'])('2ページ目取得の例外(%p) → 不完全CSVをstream errorとして返す', async (failure) => {
+    mockAnonFrom.mockReturnValue(profileChain(true));
+    let rangeCallCount = 0;
+    mockAdminFrom.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        order: jest.fn().mockReturnValue({
+          range: jest.fn(() => {
+            rangeCallCount++;
+            if (rangeCallCount === 1) {
+              return Promise.resolve({ data: Array.from({ length: 1000 }, (_, i) => makeRow(i)), error: null });
+            }
+            return Promise.reject(failure);
+          }),
+        }),
+      }),
+    });
+    const res = await POST(makePostRequest({ table: 'bookings' }));
+    await expect(res.text()).rejects.toThrow();
+  });
+
+  test('2ページ目取得がreject → 不完全CSVをstream errorとして返す', async () => {
+    mockAnonFrom.mockReturnValue(profileChain(true));
+    let rangeCallCount = 0;
+    mockAdminFrom.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        order: jest.fn().mockReturnValue({
+          range: jest.fn(() => {
+            rangeCallCount++;
+            if (rangeCallCount === 1) {
+              return Promise.resolve({ data: Array.from({ length: 1000 }, (_, i) => makeRow(i)), error: null });
+            }
+            return Promise.reject('connection dropped');
+          }),
+        }),
+      }),
+    });
+    const res = await POST(makePostRequest({ table: 'bookings' }));
+    await expect(res.text()).rejects.toThrow();
+  });
+
+  test('2ページ目が空配列 → CSVを正常終了する', async () => {
+    mockAnonFrom.mockReturnValue(profileChain(true));
+    let rangeCallCount = 0;
+    mockAdminFrom.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        order: jest.fn().mockReturnValue({
+          range: jest.fn(() => {
+            rangeCallCount++;
+            if (rangeCallCount === 1) {
+              return Promise.resolve({ data: Array.from({ length: 1000 }, (_, i) => makeRow(i)), error: null });
+            }
+            return Promise.resolve({ data: [], error: null });
+          }),
+        }),
+      }),
+    });
+    const res = await POST(makePostRequest({ table: 'bookings' }));
+    expect(res.status).toBe(200);
+    expect((await res.text()).trim().split('\n')).toHaveLength(1001);
   });
 });
