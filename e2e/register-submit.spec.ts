@@ -49,18 +49,29 @@ async function fillStep2(page: Page) {
 test.describe('/register 送信', () => {
   test('POST結果不明では完了へ進まず同画面の再送を止める', async ({ page }) => {
     let attempts = 0;
-    await page.route('**/api/salons', async (route) => {
+    await page.route('**/api/salons**', async (route) => {
       if (route.request().method() !== 'POST') return route.continue();
       attempts++;
-      await route.abort('failed');
+      // A 503 models a response whose server-side outcome cannot be trusted, and
+      // behaves consistently in Chromium and WebKit. Browser-level aborts can
+      // be handled differently by WebKit's navigation/network stack.
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'temporary failure' }),
+      });
     });
     await page.goto('/register');
     await fillStep1(page, 'reconciliation-fixture@example.invalid');
     await fillStep2(page);
     for (const box of await page.getByRole('checkbox').all()) await box.check();
     await page.getByRole('button', { name: '登録する', exact: true }).click();
-    await page.getByRole('dialog').getByRole('button', { name: '送信する', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText('送信結果を確認できませんでした');
+    const confirmButton = page.getByRole('dialog').getByRole('button', { name: '送信する', exact: true });
+    // WebKit's iPhone emulation can stall a coordinate click on the modal's
+    // lower action after body scroll-lock; use the native touch action there.
+    if ((page.viewportSize()?.width ?? 0) < 500) await confirmButton.tap();
+    else await confirmButton.click();
+    await expect(page.getByText('送信結果を確認できませんでした')).toBeVisible();
     await expect(page.getByRole('button', { name: '登録する', exact: true })).toBeDisabled();
     await expect(page.getByRole('link', { name: '受付状況を問い合わせる' })).toHaveAttribute('href', '/contact');
     expect(attempts).toBe(1);

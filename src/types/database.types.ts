@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.4"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -112,34 +112,34 @@ export type Database = {
           body_text: string
           business_type_slug: string | null
           city_slug: string | null
-          created_at: string | null
-          faq_items: Json | null
+          created_at: string
+          faq_items: Json
           h2_title: string | null
           id: string
           prefecture_slug: string
-          updated_at: string | null
+          updated_at: string
         }
         Insert: {
-          body_text: string
+          body_text?: string
           business_type_slug?: string | null
           city_slug?: string | null
-          created_at?: string | null
-          faq_items?: Json | null
+          created_at?: string
+          faq_items?: Json
           h2_title?: string | null
           id?: string
           prefecture_slug: string
-          updated_at?: string | null
+          updated_at?: string
         }
         Update: {
           body_text?: string
           business_type_slug?: string | null
           city_slug?: string | null
-          created_at?: string | null
-          faq_items?: Json | null
+          created_at?: string
+          faq_items?: Json
           h2_title?: string | null
           id?: string
           prefecture_slug?: string
-          updated_at?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
@@ -1506,51 +1506,51 @@ export type Database = {
       facility_jobs: {
         Row: {
           benefits: string | null
-          created_at: string
+          created_at: string | null
           description: string | null
-          employment_type: string | null
+          employment_type: string
           facility_id: string
           id: string
           is_seed: boolean | null
-          job_type: string | null
+          job_type: string
           requirements: string | null
           salary_max: number | null
           salary_min: number | null
           salary_note: string | null
           title: string
-          updated_at: string
+          updated_at: string | null
         }
         Insert: {
           benefits?: string | null
-          created_at?: string
+          created_at?: string | null
           description?: string | null
-          employment_type?: string | null
+          employment_type: string
           facility_id: string
           id?: string
           is_seed?: boolean | null
-          job_type?: string | null
+          job_type: string
           requirements?: string | null
           salary_max?: number | null
           salary_min?: number | null
           salary_note?: string | null
           title: string
-          updated_at?: string
+          updated_at?: string | null
         }
         Update: {
           benefits?: string | null
-          created_at?: string
+          created_at?: string | null
           description?: string | null
-          employment_type?: string | null
+          employment_type?: string
           facility_id?: string
           id?: string
           is_seed?: boolean | null
-          job_type?: string | null
+          job_type?: string
           requirements?: string | null
           salary_max?: number | null
           salary_min?: number | null
           salary_note?: string | null
           title?: string
-          updated_at?: string
+          updated_at?: string | null
         }
         Relationships: [
           {
@@ -2124,36 +2124,36 @@ export type Database = {
           answer: string | null
           answered_at: string | null
           answered_by: string | null
-          created_at: string | null
+          created_at: string
           facility_id: string
           id: string
-          is_public: boolean | null
+          is_public: boolean
           question: string
-          status: string | null
+          status: string
           user_id: string | null
         }
         Insert: {
           answer?: string | null
           answered_at?: string | null
           answered_by?: string | null
-          created_at?: string | null
+          created_at?: string
           facility_id: string
           id?: string
-          is_public?: boolean | null
+          is_public?: boolean
           question: string
-          status?: string | null
+          status?: string
           user_id?: string | null
         }
         Update: {
           answer?: string | null
           answered_at?: string | null
           answered_by?: string | null
-          created_at?: string | null
+          created_at?: string
           facility_id?: string
           id?: string
-          is_public?: boolean | null
+          is_public?: boolean
           question?: string
-          status?: string | null
+          status?: string
           user_id?: string | null
         }
         Relationships: [
@@ -2406,32 +2406,32 @@ export type Database = {
       }
       feature_articles: {
         Row: {
-          created_at: string | null
-          href: string
+          created_at: string
+          href: string | null
           id: string
           image_url: string | null
-          is_active: boolean | null
-          sort_order: number | null
+          is_active: boolean
+          sort_order: number
           subtitle: string | null
           title: string
         }
         Insert: {
-          created_at?: string | null
-          href: string
+          created_at?: string
+          href?: string | null
           id?: string
           image_url?: string | null
-          is_active?: boolean | null
-          sort_order?: number | null
+          is_active?: boolean
+          sort_order?: number
           subtitle?: string | null
           title: string
         }
         Update: {
-          created_at?: string | null
-          href?: string
+          created_at?: string
+          href?: string | null
           id?: string
           image_url?: string | null
-          is_active?: boolean | null
-          sort_order?: number | null
+          is_active?: boolean
+          sort_order?: number
           subtitle?: string | null
           title?: string
         }
@@ -3803,19 +3803,19 @@ export type Database = {
       }
       review_helpful: {
         Row: {
-          created_at: string | null
+          created_at: string
           id: string
           review_id: string
           user_id: string
         }
         Insert: {
-          created_at?: string | null
+          created_at?: string
           id?: string
           review_id: string
           user_id: string
         }
         Update: {
-          created_at?: string | null
+          created_at?: string
           id?: string
           review_id?: string
           user_id?: string
@@ -3958,8 +3958,8 @@ export type Database = {
           regular_holiday: string | null
           representative_name: string
           seat_count: number | null
-          staff_count: number | null
           source: string | null
+          staff_count: number | null
           status: string | null
           website: string | null
         }
@@ -3993,8 +3993,8 @@ export type Database = {
           regular_holiday?: string | null
           representative_name: string
           seat_count?: number | null
-          staff_count?: number | null
           source?: string | null
+          staff_count?: number | null
           status?: string | null
           website?: string | null
         }
@@ -4028,8 +4028,8 @@ export type Database = {
           regular_holiday?: string | null
           representative_name?: string
           seat_count?: number | null
-          staff_count?: number | null
           source?: string | null
+          staff_count?: number | null
           status?: string | null
           website?: string | null
         }
@@ -5510,7 +5510,6 @@ export type Database = {
             Returns: string
           }
       aggregate_daily_revenue: { Args: { p_date: string }; Returns: number }
-      booking_status_occupies: { Args: { p_status: string }; Returns: boolean }
       change_booking_atomic: {
         Args: {
           p_booking_date: string
@@ -5546,27 +5545,6 @@ export type Database = {
         }
         Returns: Json
       }
-      create_admin_booking_atomic: {
-        Args: {
-          p_booking_date: string
-          p_customer_name: string
-          p_email: string
-          p_end_time: string
-          p_facility_id: string
-          p_menu_id: string
-          p_note: string
-          p_phone: string
-          p_source: string
-          p_staff_id: string
-          p_start_time: string
-          p_total_price: number
-        }
-        Returns: string
-      }
-      create_blog_author_atomic: {
-        Args: { p_facility_id: string; p_name: string }
-        Returns: string
-      }
       create_booking_atomic: {
         Args: {
           p_booking_date: string
@@ -5587,6 +5565,10 @@ export type Database = {
           p_user_id: string
         }
         Returns: string
+      }
+      deduct_points_atomic: {
+        Args: { p_points: number; p_reason: string; p_user_id: string }
+        Returns: Json
       }
       disablelongtransactions: { Args: never; Returns: string }
       dropgeometrycolumn:
@@ -5738,17 +5720,6 @@ export type Database = {
           slot_start: string
         }[]
       }
-      get_facility_customers: {
-        Args: { p_facility_id: string }
-        Returns: {
-          customer_key: string
-          email: string
-          last_visit: string
-          name: string
-          phone: string
-          visit_count: number
-        }[]
-      }
       get_facility_customers_v1: {
         Args: {
           p_facility_id: string
@@ -5795,13 +5766,50 @@ export type Database = {
           visit_count: number
         }[]
       }
-      get_user_points_balance: { Args: { p_user_id: string }; Returns: number }
       gettransactionid: { Args: never; Returns: unknown }
       increment_view_count: {
         Args: { facility_uuid: string }
         Returns: undefined
       }
       longtransactionsenabled: { Args: never; Returns: boolean }
+      pending_booking_reminders: {
+        Args: { p_today: string }
+        Returns: {
+          booking_date: string
+          charges: Json | null
+          coupon_id: string | null
+          created_at: string | null
+          customer_name: string
+          email: string | null
+          email_canonical: string | null
+          end_time: string
+          facility_id: string
+          id: string
+          menu_id: string | null
+          menu_ids: string[] | null
+          note: string | null
+          paid_amount: number | null
+          payjp_charge_id: string | null
+          payment_status: string | null
+          phone: string | null
+          points_used: number | null
+          review_request_sent_at: string | null
+          source: string
+          staff_id: string | null
+          start_time: string
+          status: string
+          stripe_payment_intent_id: string | null
+          total_price: number | null
+          updated_at: string | null
+          user_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "bookings"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       populate_geometry_columns:
         | { Args: { tbl_oid: unknown; use_typmod?: boolean }; Returns: number }
         | { Args: { use_typmod?: boolean }; Returns: string }
@@ -5850,92 +5858,41 @@ export type Database = {
         Args: { p_channel: string; p_key: string; p_thread_ts: string }
         Returns: undefined
       }
-      reorder_coupons: {
-        Args: { p_facility_id: string; p_ids: string[] }
-        Returns: undefined
-      }
-      reorder_facility_menus: {
-        Args: { p_facility_id: string; p_ids: string[] }
-        Returns: undefined
-      }
-      reorder_facility_photos: {
-        Args: { p_facility_id: string; p_ids: string[] }
-        Returns: undefined
-      }
-      search_facilities_nearby:
-        | {
-            Args: {
-              limit_count?: number
-              radius_km?: number
-              type_filter?: string
-              user_lat: number
-              user_lng: number
-            }
-            Returns: {
-              access_info: string
-              business_hours: Json
-              business_type: string
-              catch_copy: string
-              city: string
-              coupon_count: number
-              distance_km: number
-              google_rating: number
-              google_review_count: number
-              id: string
-              latitude: number
-              longitude: number
-              main_photo_url: string
-              max_price: number
-              menu_count: number
-              min_price: number
-              name: string
-              photo_count: number
-              prefecture: string
-              rating_avg: number
-              rating_count: number
-              seat_count: number
-              slug: string
-            }[]
-          }
-        | {
-            Args: {
-              features_filter?: string[]
-              keyword_filter?: string
-              limit_count?: number
-              radius_km?: number
-              type_filter?: string
-              user_lat: number
-              user_lng: number
-            }
-            Returns: {
-              access_info: string
-              business_hours: Json
-              business_type: string
-              catch_copy: string
-              city: string
-              coupon_count: number
-              distance_km: number
-              google_rating: number
-              google_review_count: number
-              id: string
-              latitude: number
-              longitude: number
-              main_photo_url: string
-              max_price: number
-              menu_count: number
-              min_price: number
-              name: string
-              photo_count: number
-              prefecture: string
-              rating_avg: number
-              rating_count: number
-              seat_count: number
-              slug: string
-            }[]
-          }
-      set_review_pickup_atomic: {
-        Args: { p_facility_id: string; p_review_id: string }
-        Returns: undefined
+      search_facilities_nearby: {
+        Args: {
+          features_filter?: string[]
+          keyword_filter?: string
+          limit_count?: number
+          radius_km?: number
+          type_filter?: string
+          user_lat: number
+          user_lng: number
+        }
+        Returns: {
+          access_info: string
+          business_hours: Json
+          business_type: string
+          catch_copy: string
+          city: string
+          coupon_count: number
+          distance_km: number
+          google_rating: number
+          google_review_count: number
+          id: string
+          latitude: number
+          longitude: number
+          main_photo_url: string
+          max_price: number
+          menu_count: number
+          min_price: number
+          name: string
+          photo_count: number
+          prefecture: string
+          rating_avg: number
+          rating_count: number
+          seat_count: number
+          slug: string
+        }[]
       }
       st_3dclosestpoint: {
         Args: { geom1: unknown; geom2: unknown }
@@ -6519,23 +6476,6 @@ export type Database = {
         Returns: unknown
       }
       unlockrows: { Args: { "": string }; Returns: number }
-      update_admin_booking_atomic: {
-        Args: {
-          p_booking_date: string
-          p_booking_id: string
-          p_customer_name: string
-          p_email: string
-          p_end_time: string
-          p_facility_id: string
-          p_menu_id: string
-          p_note: string
-          p_phone: string
-          p_staff_id: string
-          p_start_time: string
-          p_total_price: number
-        }
-        Returns: string
-      }
       updategeometrysrid: {
         Args: {
           catalogn_name: string
@@ -6572,12 +6512,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -6601,11 +6541,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -6626,11 +6566,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -6651,11 +6591,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -6668,11 +6608,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
