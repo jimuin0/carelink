@@ -50,3 +50,21 @@ export interface HpbMenuRow {
   price: number;
   description: string | null;
 }
+
+/** 外部取得と保存を分けて報告するための、固定された診断理由。 */
+export type HpbFetchStopReason =
+  | 'normal_end'
+  | 'fetch_error'
+  | 'invalid_html'
+  | 'page_limit'
+  | 'time_budget';
+
+/** 取得できた行を失わず、完全性と未取得数を呼出元まで伝える結果。 */
+export interface HpbFetchResult {
+  rows: HpbMenuRow[];
+  complete: boolean;
+  stopReason: HpbFetchStopReason;
+  discoveredItems: number;
+  unresolvedItems: number;
+  failedPages: number;
+}
