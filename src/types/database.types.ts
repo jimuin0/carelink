@@ -679,6 +679,7 @@ export type Database = {
           resolved_at: string | null
           ticket_notes: string | null
           ticket_status: string
+          traffic_source: Json | null
         }
         Insert: {
           assigned_to?: string | null
@@ -693,6 +694,7 @@ export type Database = {
           resolved_at?: string | null
           ticket_notes?: string | null
           ticket_status?: string
+          traffic_source?: Json | null
         }
         Update: {
           assigned_to?: string | null
@@ -707,9 +709,10 @@ export type Database = {
           resolved_at?: string | null
           ticket_notes?: string | null
           ticket_status?: string
+          traffic_source?: Json | null
         }
         Relationships: []
-      }
+        }
       coupon_menus: {
         Row: {
           coupon_id: string
