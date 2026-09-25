@@ -50,6 +50,39 @@ export type Database = {
         }
         Relationships: []
       }
+      account_deletion_jobs: {
+        Row: {
+          user_id: string
+          line_user_id: string | null
+          status: string
+          attempts: number
+          last_error: string | null
+          requested_at: string
+          updated_at: string
+          completed_at: string | null
+        }
+        Insert: {
+          user_id: string
+          line_user_id?: string | null
+          status?: string
+          attempts?: number
+          last_error?: string | null
+          requested_at?: string
+          updated_at?: string
+          completed_at?: string | null
+        }
+        Update: {
+          user_id?: string
+          line_user_id?: string | null
+          status?: string
+          attempts?: number
+          last_error?: string | null
+          requested_at?: string
+          updated_at?: string
+          completed_at?: string | null
+        }
+        Relationships: []
+      }
       api_keys: {
         Row: {
           created_at: string
@@ -3542,6 +3575,8 @@ export type Database = {
           slug: string
           tags: string[]
           threads_post_id: string | null
+          threads_last_error: string | null
+          threads_post_status: string | null
           threads_posted_at: string | null
           thumbnail_url: string | null
           title: string
@@ -3560,6 +3595,8 @@ export type Database = {
           slug: string
           tags?: string[]
           threads_post_id?: string | null
+          threads_last_error?: string | null
+          threads_post_status?: string | null
           threads_posted_at?: string | null
           thumbnail_url?: string | null
           title: string
@@ -3578,6 +3615,8 @@ export type Database = {
           slug?: string
           tags?: string[]
           threads_post_id?: string | null
+          threads_last_error?: string | null
+          threads_post_status?: string | null
           threads_posted_at?: string | null
           thumbnail_url?: string | null
           title?: string
@@ -3941,6 +3980,8 @@ export type Database = {
           claimed_by_user_id: string | null
           contact_name: string
           contact_phone: string | null
+          consent_version: string | null
+          consented_at: string | null
           created_at: string | null
           desired_start_date: string | null
           email: string
@@ -3949,12 +3990,15 @@ export type Database = {
           features: string[] | null
           has_parking: boolean | null
           id: string
+          idempotency_key: string | null
           is_public: boolean | null
+          license_warranted: boolean
           nearest_station: string | null
           phone: string
           photo_url: string | null
           photo_urls: string[] | null
           postal_code: string | null
+          privacy_agreed: boolean
           pr_text: string | null
           prefecture: string | null
           registration_followup_sent_at: string | null
@@ -3964,6 +4008,7 @@ export type Database = {
           staff_count: number | null
           source: string | null
           status: string | null
+          terms_agreed: boolean
           website: string | null
         }
         Insert: {
@@ -3976,6 +4021,8 @@ export type Database = {
           claimed_by_user_id?: string | null
           contact_name: string
           contact_phone?: string | null
+          consent_version?: string | null
+          consented_at?: string | null
           created_at?: string | null
           desired_start_date?: string | null
           email: string
@@ -3984,12 +4031,15 @@ export type Database = {
           features?: string[] | null
           has_parking?: boolean | null
           id?: string
+          idempotency_key?: string | null
           is_public?: boolean | null
+          license_warranted?: boolean
           nearest_station?: string | null
           phone: string
           photo_url?: string | null
           photo_urls?: string[] | null
           postal_code?: string | null
+          privacy_agreed?: boolean
           pr_text?: string | null
           prefecture?: string | null
           registration_followup_sent_at?: string | null
@@ -3999,6 +4049,7 @@ export type Database = {
           staff_count?: number | null
           source?: string | null
           status?: string | null
+          terms_agreed?: boolean
           website?: string | null
         }
         Update: {
@@ -4011,6 +4062,8 @@ export type Database = {
           claimed_by_user_id?: string | null
           contact_name?: string
           contact_phone?: string | null
+          consent_version?: string | null
+          consented_at?: string | null
           created_at?: string | null
           desired_start_date?: string | null
           email?: string
@@ -4019,12 +4072,15 @@ export type Database = {
           features?: string[] | null
           has_parking?: boolean | null
           id?: string
+          idempotency_key?: string | null
           is_public?: boolean | null
+          license_warranted?: boolean
           nearest_station?: string | null
           phone?: string
           photo_url?: string | null
           photo_urls?: string[] | null
           postal_code?: string | null
+          privacy_agreed?: boolean
           pr_text?: string | null
           prefecture?: string | null
           registration_followup_sent_at?: string | null
@@ -4034,6 +4090,7 @@ export type Database = {
           staff_count?: number | null
           source?: string | null
           status?: string | null
+          terms_agreed?: boolean
           website?: string | null
         }
         Relationships: []
@@ -4381,16 +4438,19 @@ export type Database = {
         Row: {
           id: string
           processed_at: string
+          status: string
           type: string | null
         }
         Insert: {
           id: string
           processed_at?: string
+          status?: string
           type?: string | null
         }
         Update: {
           id?: string
           processed_at?: string
+          status?: string
           type?: string | null
         }
         Relationships: []

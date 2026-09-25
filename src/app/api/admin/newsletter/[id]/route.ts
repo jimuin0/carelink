@@ -198,7 +198,11 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
             return { data, error };
           },
         );
-        if (ownersErr) console.error('[newsletter/send] owner email fetch failed — some owners may be skipped', { campaignId: params.id, err: ownersErr });
+        if (ownersErr) {
+          console.error('[newsletter/send] owner email fetch failed — aborting to avoid partial owner send', { campaignId: params.id, err: ownersErr });
+          await admin.from('newsletter_campaigns').update({ status: 'draft', updated_at: new Date().toISOString() }).eq('id', params.id);
+          return serverError('admin-newsletter-send-owner-fetch', ownersErr, '/api/admin/newsletter/[id]', '施設オーナーの取得に失敗したため送信を中止しました');
+        }
         const ownerUserIds = Array.from(new Set(owners.map((o) => o.user_id).filter(Boolean) as string[]));
         const ownerEmails: string[] = [];
         // profiles を id チャンク(500)で引く。ownerUserIds が 1000 を超えると単一 .in が
@@ -211,8 +215,9 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
             .select('email')
             .in('id', idChunk);
           if (ownerProfErr) {
-            console.error('[newsletter/send] owner profiles fetch failed — some owners may be skipped', { campaignId: params.id, err: ownerProfErr });
-            continue;
+            console.error('[newsletter/send] owner profiles fetch failed — aborting to avoid partial owner send', { campaignId: params.id, err: ownerProfErr });
+            await admin.from('newsletter_campaigns').update({ status: 'draft', updated_at: new Date().toISOString() }).eq('id', params.id);
+            return serverError('admin-newsletter-send-owner-profiles-fetch', ownerProfErr, '/api/admin/newsletter/[id]', '施設オーナーのメール取得に失敗したため送信を中止しました');
           }
           ownerEmails.push(...((ownerProfiles || []).map((p: { email: string | null }) => p.email).filter(Boolean) as string[]));
         }

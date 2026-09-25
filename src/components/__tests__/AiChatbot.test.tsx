@@ -7,6 +7,9 @@
  */
 import '@testing-library/jest-dom';
 import { render, screen, fireEvent } from '@testing-library/react';
+jest.mock('@/lib/recaptcha-client', () => ({
+  getRecaptchaToken: jest.fn().mockResolvedValue('test-recaptcha-token'),
+}));
 import AiChatbot from '@/components/AiChatbot';
 
 // jsdom は scrollIntoView 未実装のため polyfill（messages 更新時の useEffect が参照）

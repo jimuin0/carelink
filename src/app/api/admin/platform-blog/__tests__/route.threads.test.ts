@@ -156,7 +156,7 @@ test('outcome=published → threads_post_id を書き込む（finalize）', asyn
   const res = await POST(makeRequest(validBody({ is_published: true })));
   expect(res.status).toBe(201);
   await flushThreadsTask();
-  expect(finalize.update).toHaveBeenCalledWith({ threads_post_id: 'th-123' });
+  expect(finalize.update).toHaveBeenCalledWith({ threads_post_id: 'th-123', threads_post_status: 'published', threads_last_error: null });
   expect(alertWarning).not.toHaveBeenCalled();
 });
 
@@ -171,7 +171,7 @@ test('outcome=skipped（Threads未設定）→ claim を解放し、通知しな
   const res = await POST(makeRequest(validBody({ is_published: true })));
   expect(res.status).toBe(201);
   await flushThreadsTask();
-  expect(release.update).toHaveBeenCalledWith({ threads_posted_at: null });
+  expect(release.update).toHaveBeenCalledWith({ threads_posted_at: null, threads_post_status: null, threads_last_error: null });
   expect(alertWarning).not.toHaveBeenCalled();
 });
 
@@ -186,11 +186,11 @@ test('outcome=transient（一時失敗）→ claim を解放し、通知しな�
   const res = await POST(makeRequest(validBody({ is_published: true })));
   expect(res.status).toBe(201);
   await flushThreadsTask();
-  expect(release.update).toHaveBeenCalledWith({ threads_posted_at: null });
+  expect(release.update).toHaveBeenCalledWith({ threads_posted_at: null, threads_post_status: null, threads_last_error: '503' });
   expect(alertWarning).not.toHaveBeenCalled();
 });
 
-test('outcome=permanent（恒久失敗）→ claim を解放し、alertWarning で通知する', async () => {
+test('outcome=permanent（恒久失敗）→ 状態を保持し、alertWarning で通知する', async () => {
   mockAdminFrom
     .mockReturnValueOnce(insertChain({ id: 'p1', slug: 'test-post', title: 'テスト投稿', is_published: true }))
     .mockReturnValueOnce(claimChain([{ id: 'p1' }]));
@@ -201,7 +201,7 @@ test('outcome=permanent（恒久失敗）→ claim を解放し、alertWarning �
   const res = await POST(makeRequest(validBody({ is_published: true })));
   expect(res.status).toBe(201);
   await flushThreadsTask();
-  expect(release.update).toHaveBeenCalledWith({ threads_posted_at: null });
+  expect(release.update).toHaveBeenCalledWith({ threads_post_status: 'permanent', threads_last_error: 'token expired' });
   expect(alertWarning).toHaveBeenCalledTimes(1);
   expect((alertWarning as jest.Mock).mock.calls[0][0]).toContain('token expired');
 });
@@ -217,7 +217,7 @@ test('outcome=published かつ postId 無し → threads_post_id に null を書
   const res = await POST(makeRequest(validBody({ is_published: true })));
   expect(res.status).toBe(201);
   await flushThreadsTask();
-  expect(finalize.update).toHaveBeenCalledWith({ threads_post_id: null });
+  expect(finalize.update).toHaveBeenCalledWith({ threads_post_status: 'ambiguous', threads_last_error: 'Threads published response did not include postId' });
 });
 
 test('outcome=permanent かつ reason 無し → "unknown" で通知する（?? "unknown" 分岐）', async () => {
@@ -257,6 +257,6 @@ test('publishThreadsText が想定外に throw → transient 相当として cla
   const res = await POST(makeRequest(validBody({ is_published: true })));
   expect(res.status).toBe(201);
   await flushThreadsTask();
-  expect(release.update).toHaveBeenCalledWith({ threads_posted_at: null });
+  expect(release.update).toHaveBeenCalledWith({ threads_posted_at: null, threads_post_status: null, threads_last_error: 'network down' });
   expect(alertWarning).not.toHaveBeenCalled();
 });

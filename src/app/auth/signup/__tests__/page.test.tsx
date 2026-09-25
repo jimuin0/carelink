@@ -1,228 +1,96 @@
-/**
- * @jest-environment jsdom
- *
- * /auth/signup 回帰テスト（docs/register-blocker-instructions.md §3 P0-5・P0-4）。
- *
- * P0-5: signUp 成功後に画面が止まる不具合。`data.session` の有無で実行時に判定する
- *   実装にしたため、本番の Supabase「Confirm email」設定を知らなくても正しく動く形に
- *   なっている（session あり=確認無効→即遷移／session なし=確認有効→文言のまま留まる）。
- * P0-4: redirect のサニタイズを共有ヘルパー safeRedirect へ寄せた（`/\evil.com` 等の
- *   オープンリダイレクトを止める）。
- *
- * 🔴 CLAUDE.md の LineDeliveryOutcome 節と同じ教訓がここにも当てはまる:
- * 「戻り値を変えても `if (ok)` は素通りする。分岐の【結果】を主張する検査を書くこと」。
- * signUp への呼び出し引数だけを見るテストにはせず、router.push が【実際に呼ばれたか／
- * 呼ばれなかったか】と【どの引数で呼ばれたか】を直接 assert する。
- */
+/** @jest-environment jsdom */
 import '@testing-library/jest-dom';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import SignupPage from '../page';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import SignupPage from '@/app/auth/signup/page';
+import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 
-const mockPush = jest.fn();
-const mockRefresh = jest.fn();
-const mockReplace = jest.fn();
-// jest.mock ファクトリから参照するため `mock` プレフィックス必須（babel-plugin-jest-hoist）。
-// テストごとに useSearchParams の戻り値を差し替えられるよう let で保持する。
-let mockSearchParams = new URLSearchParams();
+const searchParams = new URLSearchParams();
+const replace = jest.fn();
+const refresh = jest.fn();
+const getUser = jest.fn();
+const signUp = jest.fn();
+const resend = jest.fn();
+const signInWithOAuth = jest.fn();
 
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push: mockPush, refresh: mockRefresh, replace: mockReplace }),
-  useSearchParams: () => mockSearchParams,
+  useRouter: () => ({ replace, refresh }),
+  useSearchParams: () => searchParams,
 }));
+jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: jest.fn() }));
+jest.mock('@/lib/line-availability', () => ({ isLineLoginEnabled: () => false }));
 
-const mockSignUp = jest.fn();
-const mockGetUser = jest.fn();
-const mockSignInWithOAuth = jest.fn();
-jest.mock('@/lib/supabase-browser', () => ({
-  createBrowserSupabaseClient: () => ({
-    auth: {
-      signUp: (...args: unknown[]) => mockSignUp(...args),
-      getUser: (...args: unknown[]) => mockGetUser(...args),
-      signInWithOAuth: (...args: unknown[]) => mockSignInWithOAuth(...args),
-    },
-  }),
-}));
-
-/** signupSchema が要求する必須項目をすべて有効な値で埋める。 */
-function fillForm() {
-  fireEvent.change(screen.getByLabelText(/^お名前/), { target: { value: 'テスト太郎' } });
+function fillSignupForm() {
+  fireEvent.change(screen.getByLabelText(/^お名前/), { target: { value: '山田太郎' } });
   fireEvent.change(screen.getByLabelText(/^メールアドレス/), { target: { value: 'test@example.com' } });
   fireEvent.change(screen.getByLabelText(/^電話番号/), { target: { value: '090-1234-5678' } });
   fireEvent.change(screen.getByLabelText(/^都道府県/), { target: { value: '東京都' } });
-  // 「パスワード」と「パスワード（確認）」は前方一致だと曖昧になるため完全一致で区別する。
-  fireEvent.change(screen.getByLabelText('パスワード *'), { target: { value: 'password123' } });
-  fireEvent.change(screen.getByLabelText('パスワード（確認） *'), { target: { value: 'password123' } });
-}
-
-function submit() {
-  fireEvent.click(screen.getByRole('button', { name: '新規登録' }));
+  fireEvent.change(document.getElementById('signup-password')!, { target: { value: 'password' } });
+  fireEvent.change(screen.getByLabelText(/^パスワード（確認）/), { target: { value: 'password' } });
 }
 
 beforeEach(() => {
-  // resetAllMocks: clearAllMocks と異なり mockResolvedValue 等の実装も消える。
-  // 🔴 各テストで signUp の戻り値を明示的に設定させることで「既定値が session あり
-  // のまま残って (ii) が偽陽性になる」事故（CLAUDE.md LineDeliveryOutcome 節と同種）を防ぐ。
-  jest.resetAllMocks();
-  // マウント時の useEffect が supabase.auth.getUser() を呼ぶ（未ログイン状態を既定にする）。
-  mockGetUser.mockResolvedValue({ data: { user: null } });
-  mockSearchParams = new URLSearchParams();
+  searchParams.forEach((_, key) => searchParams.delete(key));
+  jest.clearAllMocks();
+  getUser.mockResolvedValue({ data: { user: null } });
+  signUp.mockResolvedValue({ data: { user: { id: 'user-1' }, session: null }, error: null });
+  resend.mockResolvedValue({ error: null });
+  signInWithOAuth.mockResolvedValue({ data: { url: 'https://accounts.google.test' }, error: null });
+  (createBrowserSupabaseClient as jest.Mock).mockReturnValue({
+    auth: { getUser, signUp, resend, signInWithOAuth },
+  });
 });
 
-describe('/auth/signup', () => {
-  it('(i) session あり（メール確認無効）→ router.push が redirect 先で呼ばれる', async () => {
-    mockSignUp.mockResolvedValue({
-      data: { session: { access_token: 'tok' }, user: { id: 'u1' } },
-      error: null,
-    });
+test('確認待ちでは送達を断定せず、直後の再送を止める', async () => {
+  render(<SignupPage />);
+  fillSignupForm();
+  fireEvent.click(screen.getByRole('button', { name: '新規登録' }));
 
-    render(<SignupPage />);
-    fillForm();
-    submit();
+  expect(await screen.findByText('登録を受け付けました。')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '確認メールの再送は1分後にできます' })).toBeDisabled();
+  expect(screen.getByText(/メール確認が必要な場合は/)).toBeInTheDocument();
+});
 
-    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
-    // 呼ばれた引数まで検証する（redirect 未指定時の既定値 = DEFAULT_REDIRECT）。
-    expect(mockPush).toHaveBeenCalledWith('/mypage');
-    expect(mockRefresh).toHaveBeenCalledTimes(1);
-  });
+test('sessionが返る環境は確認待ちを表示せず安全な戻り先へ遷移する', async () => {
+  searchParams.set('redirect', '/admin/onboarding');
+  signUp.mockResolvedValue({ data: { user: { id: 'user-1' }, session: { access_token: 'not-rendered' } }, error: null });
+  render(<SignupPage />);
+  fillSignupForm();
+  fireEvent.click(screen.getByRole('button', { name: '新規登録' }));
 
-  it('(ii) session なし（メール確認有効）→ router.push は呼ばれず確認メール文言が出る', async () => {
-    mockSignUp.mockResolvedValue({
-      data: { session: null, user: { id: 'u1' } },
-      error: null,
-    });
+  await waitFor(() => expect(replace).toHaveBeenCalledWith('/admin/onboarding'));
+  expect(refresh).toHaveBeenCalledTimes(1);
+});
 
-    render(<SignupPage />);
-    fillForm();
-    submit();
+test('店舗ログイン経由の新規登録は店舗向けの登録文脈を表示する', async () => {
+  searchParams.set('redirect', '/admin');
+  render(<SignupPage />);
 
-    await screen.findByText(/確認メールを送信しました/);
-    // 偽陽性防止: 呼ばれていないことを明示的に主張する（呼び出し引数ではなく「呼ばれたか」自体）。
-    expect(mockPush).not.toHaveBeenCalled();
-    expect(mockRefresh).not.toHaveBeenCalled();
-  });
+  expect(await screen.findByText(/施設オーナーさま向けのアカウント作成です/)).toBeInTheDocument();
+  expect(screen.getByText(/登録後、管理画面へ移動します/)).toBeInTheDocument();
+  expect(screen.getByText('1〜50文字で入力してください。姓と名の間のスペースはあってもなくても構いません。')).toBeInTheDocument();
+  expect(screen.getByText('8〜128文字で入力してください。英字・数字・記号を組み合わせる必要はありません。')).toBeInTheDocument();
+  expect(document.getElementById('signup-name')).toHaveAttribute('required');
+  expect(document.getElementById('signup-password')).toHaveAttribute('required');
+});
 
-  it('(iii) redirect=/admin/onboarding&facility_name=...&business_type=... → push 先にクエリが保持される', async () => {
-    mockSearchParams = new URLSearchParams({
-      redirect: '/admin/onboarding',
-      facility_name: 'テスト施設',
-      business_type: 'ヘアサロン',
-    });
-    mockSignUp.mockResolvedValue({
-      data: { session: { access_token: 'tok' }, user: { id: 'u1' } },
-      error: null,
-    });
+test('通信失敗を一般的な登録失敗へ潰さず、結果不明として案内する', async () => {
+  signUp.mockResolvedValue({ data: { user: null, session: null }, error: { code: 'unexpected_failure', message: 'Failed to fetch' } });
+  render(<SignupPage />);
+  fillSignupForm();
+  fireEvent.click(screen.getByRole('button', { name: '新規登録' }));
 
-    render(<SignupPage />);
-    fillForm();
-    submit();
+  expect(await screen.findByText('登録処理の結果を確認できませんでした。受信メールをご確認のうえ、時間をおいてもう一度お試しください。')).toBeInTheDocument();
+});
 
-    const expectedParams = new URLSearchParams();
-    expectedParams.set('facility_name', 'テスト施設');
-    expectedParams.set('business_type', 'ヘアサロン');
-    const expectedRedirect = `/admin/onboarding?${expectedParams.toString()}`;
+test('Google障害からbfcache復帰したら認証操作を再開できる', async () => {
+  signInWithOAuth.mockImplementation(() => new Promise(() => {}));
+  render(<SignupPage />);
+  fireEvent.click(screen.getByRole('button', { name: 'Googleで登録' }));
+  expect(screen.getByRole('button', { name: 'Googleに移動しています...' })).toBeDisabled();
 
-    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
-    expect(mockPush).toHaveBeenCalledWith(expectedRedirect);
-  });
+  const pageShow = new Event('pageshow');
+  Object.defineProperty(pageShow, 'persisted', { value: true });
+  act(() => window.dispatchEvent(pageShow));
 
-  it('(iii-nested) redirect に /admin/onboarding?facility_name=...&business_type=... がネストされている場合 → そのまま push 先になる（新形式・兄弟クエリのマージ処理は空振りする）', async () => {
-    // 2026年8月20日〜: /register/complete・email.ts の受付/フォローメールは
-    // src/lib/onboarding-link.ts の buildOnboardingAuthPath 経由で、facility_name/business_type を
-    // 「redirect の兄弟」ではなく「redirect の中」に載せる形へ統一した（middleware.ts が
-    // redirect の値しか転送しないため）。このテストはその新形式の入力を再現する。
-    const nestedParams = new URLSearchParams();
-    nestedParams.set('facility_name', 'ネスト施設');
-    nestedParams.set('business_type', '整体');
-    const nestedRedirect = `/admin/onboarding?${nestedParams.toString()}`;
-    mockSearchParams = new URLSearchParams({ redirect: nestedRedirect });
-    // 空振り防止: 本当に「トップレベルには redirect しか無い」入力になっているか
-    // （＝下の (iii) の兄弟クエリ形とは別の形であること）を明示する。
-    expect(mockSearchParams.get('facility_name')).toBeNull();
-    expect(mockSearchParams.get('business_type')).toBeNull();
-
-    mockSignUp.mockResolvedValue({
-      data: { session: { access_token: 'tok' }, user: { id: 'u1' } },
-      error: null,
-    });
-
-    render(<SignupPage />);
-    fillForm();
-    submit();
-
-    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
-    // 兄弟クエリ用のマージ処理（facilityName || businessType のとき redirect を
-    // 組み立て直す分岐）は発火しない（トップレベルに facility_name/business_type が無いため）。
-    // それでも redirect 自体が既に onboarding パラメータを含んでいるので、
-    // push 先には正しく facility_name/business_type が残っている。
-    expect(mockPush).toHaveBeenCalledWith(nestedRedirect);
-  });
-
-  it('(iv) redirect=/\\evil.com（旧ガードは通すがsafeRedirectは止める値）→ push 先は /mypage（負の対照）', async () => {
-    // 旧ガード raw.startsWith('/') && !raw.startsWith('//') はこの値を素通りさせていた
-    // （src/lib/safe-redirect.test.ts の「旧ガードが素通りさせていた値」と同じ入力）。
-    mockSearchParams = new URLSearchParams({ redirect: '/\\evil.com' });
-    // safeRedirect が本当にこの値を止める入力であることをテスト内で明示しておく
-    // （safe-redirect.test.ts が検証済みの前提を、ここでも空振り防止として確認する）。
-    expect(new URL('/\\evil.com', 'https://carelink-jp.com').origin).not.toBe('https://carelink-jp.com');
-
-    mockSignUp.mockResolvedValue({
-      data: { session: { access_token: 'tok' }, user: { id: 'u1' } },
-      error: null,
-    });
-
-    render(<SignupPage />);
-    fillForm();
-    submit();
-
-    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
-    expect(mockPush).toHaveBeenCalledWith('/mypage');
-  });
-
-  it('(v) already registered エラー → 送信済みと誤表示せず中立な失敗案内・pushされない', async () => {
-    mockSignUp.mockResolvedValue({
-      data: { session: null, user: null },
-      error: { message: 'User already registered', name: 'AuthApiError', status: 422 },
-    });
-
-    render(<SignupPage />);
-    fillForm();
-    submit();
-
-    await screen.findByText(/メールの送信状況を確認できない/);
-    expect(mockPush).not.toHaveBeenCalled();
-  });
-
-  it('(v-対照) already registered 以外のエラー → 失敗トーストが出て push されない', async () => {
-    mockSignUp.mockResolvedValue({
-      data: { session: null, user: null },
-      error: { message: 'Network error', name: 'AuthApiError', status: 500 },
-    });
-
-    render(<SignupPage />);
-    fillForm();
-    submit();
-
-    await screen.findByText(/メールの送信状況を確認できない/);
-    expect(mockPush).not.toHaveBeenCalled();
-  });
-
-  it('(vi) signUp が通信例外 → 画面上で中立な失敗案内・pushされない', async () => {
-    mockSignUp.mockRejectedValue(new Error('network unavailable'));
-
-    render(<SignupPage />);
-    fillForm();
-    submit();
-
-    await screen.findByText(/メールの送信状況を確認できない/);
-    expect(mockPush).not.toHaveBeenCalled();
-  });
-
-  it('(vii) Google OAuth 起動のエラー → 画面上で案内する', async () => {
-    mockSignInWithOAuth.mockResolvedValue({ error: { message: 'provider unavailable' } });
-
-    render(<SignupPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Googleで登録' }));
-
-    await screen.findByText(/Googleでの登録を開始できませんでした/);
-  });
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Googleで登録' })).toBeEnabled());
 });

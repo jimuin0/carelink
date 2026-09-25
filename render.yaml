@@ -190,6 +190,15 @@ services:
     envVars:
       - fromGroup: carelink-cron-env
 
+  - type: cron
+    name: carelink-account-deletion-retry
+    runtime: node
+    schedule: "35 17 * * *"
+    buildCommand: echo "no build (Node 標準のみ)"
+    startCommand: node scripts/cron-call.mjs account-deletion-retry
+    envVars:
+      - fromGroup: carelink-cron-env
+
   # --- 外形監視（health-monitor.yml の代替・imakra-cron-health と同型）---
   - type: cron
     name: carelink-health-check

@@ -80,7 +80,7 @@ export default function Header() {
                 店舗ログイン
               </Link>
               <Link href="/auth/signup" className="text-sm text-gray-700 hover:text-primary font-medium transition-colors">
-                会員登録
+                顧客会員登録
               </Link>
               <AuthButton />
             </div>
@@ -126,7 +126,7 @@ export default function Header() {
               className="text-gray-700 font-medium hover:text-primary transition-colors"
               onClick={() => setIsOpen(false)}
             >
-              会員登録（無料）
+              顧客会員登録（無料）
             </Link>
             <Link
               href="/contact"

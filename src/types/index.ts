@@ -60,6 +60,7 @@ export interface Facility {
   phone: string | null;
   website_url: string | null;
   business_hours: Record<string, { open: string; close: string } | null> | null;
+  business_hours_text: string | null;
   regular_holiday: string | null;
   seat_count: number | null;
   staff_count: number | null;

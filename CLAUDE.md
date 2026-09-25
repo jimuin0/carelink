@@ -313,6 +313,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 | cron-heartbeat | `7,37 * * * *` | 毎時07分・37分（監視系の生存確認・`/api/health` の cron 鮮度判定に使う） |
 | threads-backfill | `50 * * * *` | 毎時50分（記事公開時のインライン Threads 投稿が transient 失敗した場合の自己修復） |
 | threads-token-refresh | `25 5 * * 3` | 水曜 14:25（Threads 長期トークン更新・60日失効に対し週次で更新） |
+| account-deletion-retry | `35 17 * * *` | 毎日 02:35（退会SagaのAuth削除再試行） |
 | schema-drift-check | `40 17 * * *` | 毎日 02:40 |
 
 オーナーニュースレターの自動月次配信は廃止した（神原さん確定 2026年7月2日「お知らせがある時のみ」）。旧 `/api/cron/newsletter-digest` エンドポイント・専用ワークフロー `newsletter-digest.yml`・発火監視 `monthly-batch-watcher.yml` はすべて削除済み。全店に同一の全プラットフォーム集計（「新規予約 N」等）を一斉配信していた作りを根本から廃止した。ニュースレター配信は管理画面 `/admin/newsletters` で任意の件名・本文を作成し「今すぐ配信」する手動運用のみ（`api/admin/newsletter`・`api/admin/newsletter/[id]` action=send）。台帳テーブル `newsletter_send_log` は孤児化するが、`schema-drift-check` との整合のため DB・マイグレーション・スナップショットは残置（無害）。
@@ -367,6 +368,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 | SLACK_BOT_TOKEN / SLACK_SIGNING_SECRET / SLACK_DEFAULT_CHANNEL | Slack 通知・スラッシュコマンド署名検証 |
 | GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_MAPS_API_KEY | Google カレンダー連携・地図 |
 | ANTHROPIC_API_KEY | AI サポート |
+| AI_CHAT_DAILY_REQUEST_LIMIT | 匿名AIチャットの直近24時間あたり共有上限（正の整数。production未設定・不正値では有料呼出しを停止） |
 | RECAPTCHA_SECRET_KEY | reCAPTCHA 検証 |
 | VAPID_PRIVATE_KEY / NEXT_PUBLIC_VAPID_PUBLIC_KEY | Web Push |
 | NEXT_PUBLIC_GA_ID / NEXT_PUBLIC_CLARITY_ID | GA4／Clarity（空なら無効） |

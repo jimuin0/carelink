@@ -353,6 +353,62 @@ describe('POST /api/stripe/webhook', () => {
     expect(mockSelect).toHaveBeenCalled();
   });
 
+  test('upsert成功後にログ行が見つからない場合は処理を中断する', async () => {
+    mockSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        single: jest.fn().mockResolvedValue({ data: null, error: null }),
+      }),
+    });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => table === 'stripe_webhook_logs'
+        ? { upsert: mockUpsert, select: mockSelect, update: mockUpdate }
+        : { update: chainableUpdate({ error: null }), select: jest.fn() }),
+    });
+
+    const res = await POST(makeRequest('{}') as any);
+
+    expect(res.status).toBe(500);
+  });
+
+  test('upsert後のログ再読込エラーは処理を中断する', async () => {
+    mockSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        single: jest.fn().mockResolvedValue({ data: null, error: { message: 'log read failed' } }),
+      }),
+    });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => table === 'stripe_webhook_logs'
+        ? { upsert: mockUpsert, select: mockSelect, update: mockUpdate }
+        : { update: chainableUpdate({ error: null }), select: jest.fn() }),
+    });
+
+    const res = await POST(makeRequest('{}') as any);
+
+    expect(res.status).toBe(500);
+  });
+
+  test('processed marker更新失敗は処理済みとしてACKしない', async () => {
+    const Stripe = require('stripe');
+    Stripe.mockImplementation(() => ({
+      webhooks: { constructEvent: jest.fn().mockReturnValue({ id: 'evt_marker_error', type: 'unknown.event', data: { object: {} } }) },
+    }));
+    mockUpdate = jest.fn().mockReturnValue({
+      eq: jest.fn().mockResolvedValue({ error: { message: 'processed write failed' } }),
+    });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => table === 'stripe_webhook_logs'
+        ? { upsert: mockUpsert, select: mockSelect, update: mockUpdate }
+        : { update: chainableUpdate({ error: null }), select: jest.fn() }),
+    });
+
+    const res = await POST(makeRequest('{}') as any);
+
+    expect(res.status).toBe(500);
+  });
+
   describe('handleEvent — specific event types', () => {
     function setupEventMock(eventType: string, dataObject: Record<string, unknown>) {
       const Stripe = require('stripe');
@@ -465,6 +521,16 @@ describe('POST /api/stripe/webhook', () => {
       });
       const res = await POST(makeRequest('{}') as any);
       expect(res.status).toBe(200);
+      expect(mockStripeSessionsUpdate).toHaveBeenCalled();
+    });
+
+    test('checkout.session.expired のDB更新失敗はStripeへ再送可能な500を返す', async () => {
+      setupEventMock('checkout.session.expired', { id: 'cs_expired_db_error' });
+      mockStripeSessionsUpdate.mockImplementationOnce(() => chainableUpdate({ error: { message: 'expired update failed' } })());
+
+      const res = await POST(makeRequest('{}') as any);
+
+      expect(res.status).toBe(500);
       expect(mockStripeSessionsUpdate).toHaveBeenCalled();
     });
 

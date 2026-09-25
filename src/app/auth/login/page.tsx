@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -11,6 +11,12 @@ import Toast from '@/components/Toast';
 import { isLineLoginEnabled } from '@/lib/line-availability';
 import { safeRedirect } from '@/lib/safe-redirect';
 import { SITE_URL } from '@/lib/constants';
+
+const RESEND_COOLDOWN_SECONDS = 60;
+
+function isRetryableAuthError(error: { code?: string; message?: string }): boolean {
+  return error.code === 'unexpected_failure' || /network|fetch|timeout|retry/i.test(error.message ?? '');
+}
 
 export default function LoginPage() {
   // 見出し・カード外枠は Suspense の外（=SSR）で描画する。
@@ -47,10 +53,10 @@ function LoginContent() {
   const redirect = safeRedirect(searchParams.get('redirect'), origin);
   const errorParam = searchParams.get('error');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(
-    errorParam?.startsWith('line_')
+    errorParam === 'callback_failed'
+      ? { type: 'error', message: 'ログインの確認を完了できませんでした。もう一度ログインをお試しください。' }
+      : errorParam?.startsWith('line_')
       ? { type: 'error', message: 'LINEログインに失敗しました。もう一度お試しください。' }
-      : errorParam === 'callback_failed'
-        ? { type: 'error', message: 'ログイン認証を完了できませんでした。時間をおいてもう一度お試しください。' }
       : null
   );
 
@@ -58,6 +64,11 @@ function LoginContent() {
     resolver: zodResolver(loginSchema),
   });
   const [showPassword, setShowPassword] = useState(false);
+  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
+  const [resendStatus, setResendStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [isResendCoolingDown, setIsResendCoolingDown] = useState(false);
+  const authOperationInFlight = useRef(false);
 
   // ログイン済みユーザーが /auth/login に来た場合(ブックマーク・戻る操作・リンク共有等)、
   // フォームを表示し続けるとヘッダーだけログイン済みに見えて「ログインできない」と誤解される
@@ -70,7 +81,26 @@ function LoginContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const releaseAfterBfcacheRestore = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      authOperationInFlight.current = false;
+      setIsGoogleSigningIn(false);
+    };
+    window.addEventListener('pageshow', releaseAfterBfcacheRestore);
+    return () => window.removeEventListener('pageshow', releaseAfterBfcacheRestore);
+  }, []);
+
+  useEffect(() => {
+    if (!verificationEmail || !isResendCoolingDown) return;
+    const timer = window.setTimeout(() => setIsResendCoolingDown(false), RESEND_COOLDOWN_SECONDS * 1000);
+    return () => window.clearTimeout(timer);
+  }, [verificationEmail, isResendCoolingDown]);
+
   const onSubmit = async (data: LoginFormData) => {
+    if (authOperationInFlight.current) return;
+
+    authOperationInFlight.current = true;
     const supabase = createBrowserSupabaseClient();
     try {
       const { error } = await supabase.auth.signInWithPassword({
@@ -79,29 +109,70 @@ function LoginContent() {
       });
 
       if (error) {
-        setToast({ type: 'error', message: 'メールアドレスまたはパスワードが正しくありません' });
+        if (error.code === 'email_not_confirmed') {
+          setVerificationEmail(data.email);
+          setResendStatus('idle');
+          // signup直後にログイン画面へ戻っても、確認メールの送信間隔を迂回させない。
+          setIsResendCoolingDown(true);
+          setToast({ type: 'error', message: 'メールの確認が完了していません。確認メールを再送できます。' });
+        } else if (isRetryableAuthError(error)) {
+          setToast({ type: 'error', message: 'ログイン処理の結果を確認できませんでした。接続を確認してもう一度お試しください。' });
+        } else {
+          setToast({ type: 'error', message: 'メールアドレスまたはパスワードが正しくありません' });
+        }
         return;
       }
 
       router.push(redirect);
       router.refresh();
     } catch {
-      setToast({ type: 'error', message: 'ログイン認証に接続できませんでした。時間をおいてもう一度お試しください。' });
+      setToast({ type: 'error', message: 'ログイン処理を完了できませんでした。接続を確認してもう一度お試しください。' });
+    } finally {
+      authOperationInFlight.current = false;
     }
   };
 
-  const startGoogleLogin = async () => {
+  const resendVerificationEmail = async () => {
+    if (!verificationEmail || isResendCoolingDown || authOperationInFlight.current) return;
+
+    authOperationInFlight.current = true;
+    setResendStatus('sending');
     try {
       const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: verificationEmail,
+        options: { emailRedirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}` },
+      });
+      setResendStatus(error ? 'error' : 'sent');
+    } catch {
+      setResendStatus('error');
+    } finally {
+      setIsResendCoolingDown(true);
+      authOperationInFlight.current = false;
+    }
+  };
+
+  const startGoogleSignIn = async () => {
+    if (authOperationInFlight.current) return;
+
+    authOperationInFlight.current = true;
+    setIsGoogleSigningIn(true);
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}` },
       });
-      if (error) {
+      if (error || !data?.url) {
         setToast({ type: 'error', message: 'Googleでのログインを開始できませんでした。時間をおいてもう一度お試しください。' });
+        authOperationInFlight.current = false;
+        setIsGoogleSigningIn(false);
       }
     } catch {
-      setToast({ type: 'error', message: 'Googleでのログインを開始できませんでした。時間をおいてもう一度お試しください。' });
+      setToast({ type: 'error', message: 'Googleでのログインを開始できませんでした。通信環境を確認してもう一度お試しください。' });
+      authOperationInFlight.current = false;
+      setIsGoogleSigningIn(false);
     }
   };
 
@@ -116,9 +187,11 @@ function LoginContent() {
             <p className="-mt-4 mb-6 text-center text-sm text-sky-700 bg-sky-50 rounded-lg px-4 py-2.5">
               施設オーナーさま向けのログインです。
               <br />
-              ログイン後、管理画面へ移動します。
+              {redirect.startsWith('/admin/onboarding') ? 'ログイン後、施設情報の登録を続けます。' : 'ログイン後、管理画面へ移動します。'}
             </p>
           )}
+          {/* authOperationInFlight は submit handler 内だけで読む排他用のref。 */}
+          {/* eslint-disable-next-line react-hooks/refs */}
           <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
             <div>
               <label htmlFor="login-email" className="form-label">メールアドレス</label>
@@ -169,10 +242,30 @@ function LoginContent() {
               {errors.password && <p className="form-error" role="alert">{errors.password.message}</p>}
             </div>
 
-            <button type="submit" disabled={isSubmitting} className="btn-primary w-full !py-3">
+            <button type="submit" disabled={isSubmitting || isGoogleSigningIn} className="btn-primary w-full !py-3">
               {isSubmitting ? 'ログイン中...' : 'ログイン'}
             </button>
           </form>
+
+          {verificationEmail && (
+            <div className="mt-4 rounded-lg bg-amber-50 p-3 text-center">
+              <p className="text-sm text-amber-900">メール確認が必要な場合は、確認メールを開いて登録を完了してください。</p>
+              <button
+                type="button"
+                onClick={resendVerificationEmail}
+                disabled={resendStatus === 'sending' || isResendCoolingDown}
+                className="mt-2 text-sm font-medium text-sky-700 hover:underline disabled:text-gray-500"
+              >
+                {resendStatus === 'sending'
+                  ? '再送を依頼中...'
+                  : isResendCoolingDown
+                  ? '確認メールの再送は1分後にできます'
+                  : '確認メールを再送する'}
+              </button>
+              {resendStatus === 'sent' && <p className="mt-2 text-xs text-green-700" role="status">再送を受け付けました。確認が必要なアカウントにはメールが届きます。</p>}
+              {resendStatus === 'error' && <p className="mt-2 text-xs text-red-600" role="alert">再送を受け付けられませんでした。時間をおいてもう一度お試しください。</p>}
+            </div>
+          )}
 
           <div className="my-6">
             <div className="relative">
@@ -189,6 +282,10 @@ function LoginContent() {
           {isLineLoginEnabled() && (
             <a
               href={`/api/auth/line?redirect=${encodeURIComponent(redirect)}`}
+              onClick={(event) => {
+                if (isSubmitting || isGoogleSigningIn) event.preventDefault();
+              }}
+              aria-disabled={isSubmitting || isGoogleSigningIn}
               className="flex items-center justify-center gap-2 w-full py-3 rounded-lg text-white font-bold hover:opacity-90 transition-opacity"
               style={{ backgroundColor: '#06C755' }}
             >
@@ -201,11 +298,12 @@ function LoginContent() {
 
           <button
             type="button"
-            onClick={startGoogleLogin}
+            onClick={startGoogleSignIn}
+            disabled={isGoogleSigningIn || isSubmitting}
             className="flex items-center justify-center gap-2 w-full py-3 mt-3 rounded-lg border border-gray-300 text-gray-700 font-bold hover:bg-gray-50 transition-colors"
           >
             <svg width="18" height="18" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-            Googleでログイン
+            {isGoogleSigningIn ? 'Googleに移動しています...' : 'Googleでログイン'}
           </button>
 
           <div className="mt-4 text-center">

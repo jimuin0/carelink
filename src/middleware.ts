@@ -1,8 +1,9 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
-import { safeRedirect } from '@/lib/safe-redirect';
+import { safeRedirect } from './lib/safe-redirect';
 
 const PROTECTED_PATHS = ['/mypage', '/admin'];
+const AUTH_PAGE_MAX_WAIT_MS = 400;
 
 // 管理者メンバーシップのクッキーキャッシュ
 // キー: _cm_mbr_{userId_first8chars}
@@ -99,14 +100,14 @@ function getSupabaseConnectSrc(): string {
 function buildCspHeader(nonce: string): string {
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com`,
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://www.google.com https://www.gstatic.com https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com`,
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
     "img-src 'self' data: https: blob:",
-    `connect-src 'self' ${getSupabaseConnectSrc()} https://*.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com https://vitals.vercel-insights.com https://access.line.me https://api.line.me https://zipcloud.ibsnet.co.jp`,
+    `connect-src 'self' ${getSupabaseConnectSrc()} https://www.google.com https://*.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com https://vitals.vercel-insights.com https://access.line.me https://api.line.me https://zipcloud.ibsnet.co.jp`,
     "worker-src 'self'",
     "manifest-src 'self'",
-    "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",
+    "frame-src 'self' https://www.google.com https://www.gstatic.com https://www.youtube.com https://www.youtube-nocookie.com",
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",
@@ -136,6 +137,10 @@ export async function middleware(request: NextRequest) {
   // 公開ページは認証チェックをスキップ（パフォーマンス最適化）。CSP は全応答に付与する。
   const isProtected = PROTECTED_PATHS.some((path) => pathname.startsWith(path));
   const isAuthPage = pathname === '/auth/login' || pathname === '/auth/signup';
+  // ログイン・新規登録は未認証で利用する公開導線である。通常の公開ページと同様に
+  // Supabase を呼ばずに返すが、認証画面だけは既存セッションの自動遷移を維持するため、
+  // 400ms の上限付きで getUser を試す。Auth 障害時にこの画面自体が Vercel middleware
+  // timeout になることを防ぎ、タイムアウト時は未認証としてページを必ず表示する。
   if (!isProtected && !isAuthPage) {
     return setCsp(NextResponse.next({ request: { headers: requestHeaders } }));
   }
@@ -172,7 +177,33 @@ export async function middleware(request: NextRequest) {
     return setCsp(res);
   };
 
-  // トークンリフレッシュ（保護ルート・認証ページのみ）
+  if (isAuthPage) {
+    let authPageUser: Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user'] = null;
+    try {
+      const result = await Promise.race([
+        supabase.auth.getUser(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), AUTH_PAGE_MAX_WAIT_MS)),
+      ]);
+      authPageUser = result?.data.user ?? null;
+    } catch (err) {
+      // Auth 障害時も、利用者が再試行・障害案内を確認できるよう認証画面を表示する。
+      console.error('[middleware] Supabase getUser failed on auth page — rendering sign-in page:', err);
+    }
+
+    if (authPageUser) {
+      const url = request.nextUrl.clone();
+      const destination = safeRedirect(request.nextUrl.searchParams.get('redirect'), request.nextUrl.origin);
+      const resolved = new URL(destination, request.nextUrl.origin);
+      url.pathname = resolved.pathname;
+      url.search = resolved.search;
+      url.hash = resolved.hash;
+      return withSessionCookies(NextResponse.redirect(url));
+    }
+
+    return setCsp(supabaseResponse);
+  }
+
+  // トークンリフレッシュ（保護ルートのみ）
   let user: Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user'] = null;
   try {
     const { data } = await supabase.auth.getUser();
@@ -241,24 +272,6 @@ export async function middleware(request: NextRequest) {
       url.pathname = '/mypage';
       return withSessionCookies(NextResponse.redirect(url));
     }
-  }
-
-  // 認証済みユーザーがログイン/登録ページにアクセスした場合リダイレクト
-  // ?redirect を尊重する（safeRedirect が同一オリジンのパスだけを許可・それ以外は /mypage）。
-  // 🔴 redirect が /admin/* を指していても抜け道にはならない: ここでは権限チェックをしておらず
-  // 単にブラウザを飛ばすだけで、飛んだ先の /admin へのアクセスは「次のリクエスト」として
-  // このミドルウェアを再度通り、上の「/admin ルートへの権限チェック」ブロックが
-  // facility_members の owner/admin を再確認する（fail-closed は維持される）。
-  if (user && (request.nextUrl.pathname === '/auth/login' || request.nextUrl.pathname === '/auth/signup')) {
-    const url = request.nextUrl.clone();
-    const dest = new URL(
-      safeRedirect(request.nextUrl.searchParams.get('redirect'), request.nextUrl.origin),
-      request.nextUrl.origin
-    );
-    url.pathname = dest.pathname;
-    url.search = dest.search;
-    url.hash = dest.hash;
-    return withSessionCookies(NextResponse.redirect(url));
   }
 
   return setCsp(supabaseResponse);

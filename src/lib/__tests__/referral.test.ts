@@ -10,15 +10,18 @@ jest.mock('../safe', () => ({ safeCaptureException: (...a: unknown[]) => mockCap
 
 type Result = { data?: unknown; error?: unknown };
 
-function makeAdmin(claim: Result, pointResults: Result[] = []) {
-  const select = jest.fn(() => Promise.resolve(claim));
-  const eq2 = jest.fn(() => ({ select }));
-  const eq1 = jest.fn(() => ({ eq: eq2 }));
-  const update = jest.fn(() => ({ eq: eq1 }));
+function makeAdmin(claim: Result, pointResults: Result[] = [], markError: unknown = null) {
+  const maybeSingle = jest.fn(() => Promise.resolve(claim));
+  const readEq2 = jest.fn(() => ({ maybeSingle }));
+  const readEq1 = jest.fn(() => ({ eq: readEq2 }));
+  const select = jest.fn(() => ({ eq: readEq1 }));
+  const markEq2 = jest.fn(() => Promise.resolve({ error: markError }));
+  const markEq1 = jest.fn(() => ({ eq: markEq2 }));
+  const update = jest.fn(() => ({ eq: markEq1 }));
   let insertCall = 0;
   const insert = jest.fn(() => Promise.resolve(pointResults[insertCall++] ?? { error: null }));
   const from = jest.fn((table: string) => {
-    if (table === 'referral_uses') return { update };
+    if (table === 'referral_uses') return { select, update };
     if (table === 'user_points') return { insert };
     throw new Error(`unexpected table ${table}`);
   });
@@ -28,7 +31,7 @@ function makeAdmin(claim: Result, pointResults: Result[] = []) {
 beforeEach(() => jest.clearAllMocks());
 
 test('未紹介(0行) → 付与しない（早期 return）', async () => {
-  const { admin, insert } = makeAdmin({ data: [], error: null });
+  const { admin, insert } = makeAdmin({ data: null, error: null });
   await awardReferralPointsOnCompletion(admin, 'u1');
   expect(insert).not.toHaveBeenCalled();
   expect(mockCapture).not.toHaveBeenCalled();
@@ -40,35 +43,67 @@ test('claimed が null → 付与しない', async () => {
   expect(insert).not.toHaveBeenCalled();
 });
 
-test('CAS 更新エラー → capture + return（付与しない）', async () => {
+test('紹介情報の読み取りエラー → capture + throw', async () => {
   const { admin, insert } = makeAdmin({ data: null, error: { message: 'db error' } });
-  await awardReferralPointsOnCompletion(admin, 'u1');
+  await expect(awardReferralPointsOnCompletion(admin, 'u1')).rejects.toThrow('referral_uses read failed');
   expect(mockCapture).toHaveBeenCalledWith(expect.anything(), 'referral-award-claim');
   expect(insert).not.toHaveBeenCalled();
 });
 
 test('紹介あり → 紹介者500pt・被紹介者300ptを付与', async () => {
-  const { admin, insert } = makeAdmin({ data: [{ referrer_user_id: 'ref-user' }], error: null });
+  const { admin, insert } = makeAdmin({ data: { referrer_user_id: 'ref-user' }, error: null });
   await awardReferralPointsOnCompletion(admin, 'u1');
   expect(insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'ref-user', points: 500, reason: '紹介ボーナス' }));
   expect(insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'u1', points: 300, reason: '紹介コード利用ボーナス' }));
   expect(mockCapture).not.toHaveBeenCalled();
 });
 
-test('紹介者付与が失敗 → capture（?? 左辺 refRes.error を使用）', async () => {
+test('bookingIdがある場合は両ポイント行へ予約IDを関連付ける', async () => {
+  const { admin, insert } = makeAdmin({ data: { referrer_user_id: 'ref-user' }, error: null });
+
+  await awardReferralPointsOnCompletion(admin, 'u1', 'booking-1');
+
+  expect(insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'ref-user', booking_id: 'booking-1' }));
+  expect(insert).toHaveBeenCalledWith(expect.objectContaining({ user_id: 'u1', booking_id: 'booking-1' }));
+});
+
+test('紹介者付与が失敗 → capture + throw', async () => {
   const { admin } = makeAdmin(
-    { data: [{ referrer_user_id: 'ref-user' }], error: null },
+    { data: { referrer_user_id: 'ref-user' }, error: null },
     [{ error: { message: 'ref insert failed' } }, { error: null }],
   );
-  await awardReferralPointsOnCompletion(admin, 'u1');
+  await expect(awardReferralPointsOnCompletion(admin, 'u1')).rejects.toThrow('referral points insert failed');
   expect(mockCapture).toHaveBeenCalledWith(expect.anything(), 'referral-award-points');
 });
 
-test('紹介者付与は成功・被紹介者付与が失敗 → capture（?? 右辺 selfRes.error を使用）', async () => {
+test('紹介者付与は成功・被紹介者付与が失敗 → capture + throw', async () => {
   const { admin } = makeAdmin(
-    { data: [{ referrer_user_id: 'ref-user' }], error: null },
+    { data: { referrer_user_id: 'ref-user' }, error: null },
     [{ error: null }, { error: { message: 'self insert failed' } }],
   );
-  await awardReferralPointsOnCompletion(admin, 'u1');
+  await expect(awardReferralPointsOnCompletion(admin, 'u1')).rejects.toThrow('referral points insert failed');
   expect(mockCapture).toHaveBeenCalledWith(expect.anything(), 'referral-award-points');
+});
+
+test('両方のポイント行が一意制約で既存でも冪等成功として確定する', async () => {
+  const { admin, update } = makeAdmin(
+    { data: { referrer_user_id: 'ref-user' }, error: null },
+    [{ error: { code: '23505', message: 'duplicate' } }, { error: { code: '23505', message: 'duplicate' } }],
+  );
+
+  await awardReferralPointsOnCompletion(admin, 'u1');
+
+  expect(update).toHaveBeenCalled();
+  expect(mockCapture).not.toHaveBeenCalled();
+});
+
+test('ポイント行の冪等確定に失敗したら再試行可能なようにthrowする', async () => {
+  const { admin } = makeAdmin(
+    { data: { referrer_user_id: 'ref-user' }, error: null },
+    [],
+    { message: 'mark failed' },
+  );
+
+  await expect(awardReferralPointsOnCompletion(admin, 'u1')).rejects.toThrow('referral_uses mark failed');
+  expect(mockCapture).toHaveBeenCalledWith(expect.anything(), 'referral-award-mark');
 });

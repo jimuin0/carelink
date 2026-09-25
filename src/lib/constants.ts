@@ -34,6 +34,9 @@ export const DESIRED_START_DATES = [
   'undecided',
 ] as const;
 
+// 登録時に保存する同意記録の版。規約本文を変更する際はこの値を更新し、既存記録は保持する。
+export const SALON_CONSENT_VERSION = '2026-09-19';
+
 export type DesiredStartDate = typeof DESIRED_START_DATES[number];
 
 export const desiredStartDateLabels: Record<DesiredStartDate, string> = {

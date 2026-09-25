@@ -54,6 +54,14 @@ function toStringArray(v: Json | undefined): string[] | undefined {
   return result;
 }
 
+function toTags(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((tag): tag is string => typeof tag === 'string')
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+    .slice(0, 30);
+}
+
 function toArticleSections(content: Json): ArticleSection[] {
   if (!Array.isArray(content)) return [];
   const sections: ArticleSection[] = [];
@@ -87,7 +95,7 @@ async function getPost(slug: string): Promise<DbPost | null> {
         title: data.title,
         description: data.description,
         category: data.category,
-        tags: data.tags,
+        tags: toTags(data.tags),
         reading_time: data.reading_time,
         content: toArticleSections(data.content),
         published_at: data.published_at,

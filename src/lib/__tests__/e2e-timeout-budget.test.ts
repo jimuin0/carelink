@@ -98,7 +98,9 @@ export function explicitWaitsMs(src: string): { kind: string; ms: number }[] {
 
 function specFiles(): string[] {
   return readdirSync(E2E_DIR)
-    .filter((f) => f.endsWith('.spec.ts') || f.endsWith('.setup.ts'))
+    // manual-* は開発者の手動確認用でCIのPlaywright test timeout契約には含めない。
+    // これらを同じディレクトリに置くと、テスト本体の変更なしに予算監査が壊れるため除外する。
+    .filter((f) => !f.startsWith('manual-') && (f.endsWith('.spec.ts') || f.endsWith('.setup.ts')))
     .sort();
 }
 

@@ -23,6 +23,18 @@ declare global {
 }
 
 let scriptPromise: Promise<void> | null = null;
+const RECAPTCHA_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), RECAPTCHA_TIMEOUT_MS);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    // Timer handles may be numeric 0 in browsers; clearTimeout(undefined) is a no-op.
+    clearTimeout(timer!);
+  });
+}
 
 function loadRecaptchaScript(siteKey: string): Promise<void> {
   if (scriptPromise) return scriptPromise;
@@ -47,7 +59,11 @@ function loadRecaptchaScript(siteKey: string): Promise<void> {
     };
     document.head.appendChild(script);
   });
-  return scriptPromise;
+  return withTimeout(scriptPromise, 'recaptcha: script load timeout').catch((error) => {
+    // ロードが固まった場合も、次回は新しいscriptを生成して再試行できるようにする。
+    scriptPromise = null;
+    throw error;
+  });
 }
 
 /**
@@ -63,8 +79,8 @@ export async function getRecaptchaToken(action: string): Promise<string | null> 
     await loadRecaptchaScript(siteKey);
     const grecaptcha = window.grecaptcha;
     if (!grecaptcha) return null;
-    await new Promise<void>((r) => grecaptcha.ready(() => r()));
-    return await grecaptcha.execute(siteKey, { action });
+    await withTimeout(new Promise<void>((r) => grecaptcha.ready(() => r())), 'recaptcha: ready timeout');
+    return await withTimeout(grecaptcha.execute(siteKey, { action }), 'recaptcha: execute timeout');
   } catch {
     return null;
   }

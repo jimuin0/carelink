@@ -119,7 +119,7 @@ export default async function CasesPage() {
               管理画面を見てみる
             </Link>
             <Link
-              href="/auth/signup?role=owner"
+              href="/auth/signup?redirect=/admin/onboarding"
               className="border-2 border-white text-white font-bold px-8 py-3 rounded-full hover:bg-white/10 transition-colors"
             >
               無料で施設登録
