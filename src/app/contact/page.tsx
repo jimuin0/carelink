@@ -10,6 +10,10 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { contactSchema, type ContactFormData } from '@/lib/validations-contact';
 import { getRecaptchaToken } from '@/lib/recaptcha-client';
+import {
+  TRAFFIC_SOURCE_STORAGE_KEY,
+  type TrafficSourceData,
+} from '@/components/TrafficSourceTracker';
 
 type ContactForm = ContactFormData;
 
@@ -66,24 +70,49 @@ function ContactPageContent() {
 
   const onSubmit = async (data: ContactForm) => {
     setSubmitting(true);
+  
     try {
+      let trafficSource: TrafficSourceData | null = null;
+  
+      try {
+        const storedTrafficSource = sessionStorage.getItem(
+          TRAFFIC_SOURCE_STORAGE_KEY
+        );
+  
+        if (storedTrafficSource) {
+          trafficSource = JSON.parse(storedTrafficSource) as TrafficSourceData;
+        }
+      } catch {
+        // 流入元情報の取得に失敗しても問い合わせ送信は継続する
+      }
+  
       const recaptchaToken = await getRecaptchaToken('contact');
+  
       const res = await fetch('/api/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...data,
           ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
+          ...(trafficSource ? { traffic_source: trafficSource } : {}),
         }),
       });
+  
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         throw new Error(body?.error || '送信に失敗しました');
       }
+  
       reset();
       setSubmitted(true);
     } catch (e) {
-      setToast({ message: e instanceof Error ? e.message : '送信に失敗しました。時間をおいて再度お試しください。', type: 'error' });
+      setToast({
+        message:
+          e instanceof Error
+            ? e.message
+            : '送信に失敗しました。時間をおいて再度お試しください。',
+        type: 'error',
+      });
     } finally {
       setSubmitting(false);
     }
