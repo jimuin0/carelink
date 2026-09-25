@@ -74,36 +74,34 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: 'ok' });
   } catch (e) {
     console.error('[LINE Webhook] Error:', e);
-    return NextResponse.json({ status: 'ok' });
+    return serverError('line-webhook-handler', e, '/api/line/webhook', 'Webhook processing failed');
   }
 }
 
 async function handleFollow(lineUserId: string) {
-  // LINEプロフィール取得
-  try {
-    const token = process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
-    if (!token) return;
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  if (!token) throw new Error('LINE_CHANNEL_ACCESS_TOKEN_CARELINK is not configured');
 
-    const res = await fetch(`https://api.line.me/v2/bot/profile/${lineUserId}`, {
-      headers: { 'Authorization': `Bearer ${token}` },
-      signal: AbortSignal.timeout(5000),
-    });
+  const res = await fetch(`https://api.line.me/v2/bot/profile/${lineUserId}`, {
+    headers: { 'Authorization': `Bearer ${token}` },
+    signal: AbortSignal.timeout(5000),
+  });
 
-    if (!res.ok) return;
+  if (!res.ok) throw new Error(`LINE profile lookup failed with status ${res.status}`);
 
-    const profile = await res.json();
+  const profile = await res.json();
 
     // 遅延初期化: モジュールスコープで createClient を呼ぶとビルド時の
     // page data 収集フェーズで env 未設定環境（Vercel preview 等）が
     // "supabaseUrl is required" で落ちるため、リクエスト時に生成する。
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+  const supabaseAdmin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
 
     // line_user_linksに仮登録（user_id=NULLの状態、後でアカウント連携時に紐づけ）
     // → RLSがuser_id必須なので、service_roleで直接INSERT
-    await supabaseAdmin
+  const { error } = await supabaseAdmin
       .from('line_user_links')
       .upsert(
         {
@@ -113,9 +111,7 @@ async function handleFollow(lineUserId: string) {
         },
         { onConflict: 'line_user_id' }
       );
-  } catch (e) {
-    console.error('[LINE Webhook] Follow handler error:', e);
-  }
+  if (error) throw new Error(`LINE follow link upsert failed: ${error.message}`);
 }
 
 async function handleUnfollow(lineUserId: string) {
@@ -123,19 +119,13 @@ async function handleUnfollow(lineUserId: string) {
   // user_id → line_user_id を引いて送信失敗を繰り返す（dead link）。当該リンクを削除して
   // 送信対象から外す（FK 参照は無く account/delete と同じ削除パターン。再フォロー時は
   // handleFollow が再登録する）。署名検証済みのため LINE 由来イベントのみ到達する。
-  try {
-    const supabaseAdmin = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-    const { error } = await supabaseAdmin
+  const supabaseAdmin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+  const { error } = await supabaseAdmin
       .from('line_user_links')
       .delete()
       .eq('line_user_id', lineUserId);
-    if (error) {
-      console.error('[LINE Webhook] Unfollow handler delete failed', { lineUserId, err: error.message });
-    }
-  } catch (e) {
-    console.error('[LINE Webhook] Unfollow handler error:', e);
-  }
+  if (error) throw new Error(`LINE unfollow link delete failed: ${error.message}`);
 }

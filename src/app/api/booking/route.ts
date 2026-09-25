@@ -18,6 +18,7 @@ import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { notifyNewBookingLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
 import { calculateCouponDiscountedTotal } from '@/lib/coupon-pricing';
 import { buildMenuStaffMap, isStaffCompatibleWithMenus } from '@/lib/menu-staff';
+import { UUID_REGEX } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,32 +59,82 @@ export async function POST(request: Request) {
     return zodErrorResponse(parsed.error);
   }
 
+  const idempotencyKey = request.headers.get('idempotency-key');
+  if (!idempotencyKey || !UUID_REGEX.test(idempotencyKey)) {
+    return NextResponse.json({ error: '予約リクエストキーが不正です。画面を更新して再度お試しください。' }, { status: 400 });
+  }
+
   // 時間バリデーション
   if (parsed.data.start_time >= parsed.data.end_time) {
     return NextResponse.json({ error: '開始時間は終了時間より前にしてください' }, { status: 400 });
   }
 
-  // 競合チェック（早期 fast-fail）は【指名あり（staff_id 指定）】のときだけ実行する（監査M1・恒久根治）。
-  // 指名なし（おまかせ=staff_id null）で施設全体の単純重複を 409 にすると容量を 1 とみなすことになり、
-  // 権威側 RPC(create_booking_atomic) の G2 容量モデル（勤務中 is_active スタッフ数まで同時予約を許可）
-  // と非対称になる（複数スタッフ在籍施設で正当な2件目のおまかせ予約を誤って 409 拒否していた）。
-  // おまかせの容量判定は RPC の権威的判定（advisory lock 下で原子的に競合検知）へ一元化するため、
-  // ここでは結果を使わない＝おまかせでは SELECT 自体を発行しない（無駄クエリを完全に排除）。
-  // 指名ありは当該スタッフの二重予約を早期に弾く正当な fast-fail のため実行・維持する。
-  if (parsed.data.staff_id) {
-    const { data: conflicts } = await supabase
-      .from('bookings')
-      .select('id')
-      .eq('facility_id', parsed.data.facility_id)
-      .eq('booking_date', parsed.data.booking_date)
-      // cancel_fee_paid（キャンセル料決済済・席は空く）も終了扱いで除外し RPC 側と揃える。
-      .not('status', 'in', '("cancelled","no_show","cancel_fee_paid")')
-      .lt('start_time', parsed.data.end_time)
-      .gt('end_time', parsed.data.start_time)
-      .eq('staff_id', parsed.data.staff_id);
-    if (conflicts && conflicts.length > 0) {
-      return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
+  // A retry after a lost response must be resolved before coupon, points, and slot
+  // checks: the first committed request may already have consumed all three.
+  type IdempotencyLookupClient = {
+    from: (table: string) => {
+      select: (columns: string) => {
+        eq: (column: string, value: string) => {
+          maybeSingle: () => Promise<{ data: unknown; error: { message?: string } | null }>;
+        };
+      };
+    };
+  };
+  const idempotencyClient = createServiceRoleClient() as unknown as IdempotencyLookupClient;
+  const { data: previousData, error: mappingError } = await idempotencyClient
+    .from('bookings')
+    .select('id, idempotency_key, user_id, facility_id, staff_id, menu_id, menu_ids, coupon_id, booking_date, start_time, end_time, customer_name, email, phone, note, total_price, points_used')
+    .eq('idempotency_key', idempotencyKey)
+    .maybeSingle();
+  if (mappingError) {
+    return serverError('booking-idempotency-lookup', mappingError, '/api/booking', '予約状況を確認できませんでした');
+  }
+  if (previousData) {
+    const previous = previousData as {
+      id: string;
+      idempotency_key: string;
+      user_id: string | null;
+      facility_id: string;
+      staff_id: string | null;
+      menu_id: string | null;
+      menu_ids: string[] | null;
+      coupon_id: string | null;
+      booking_date: string;
+      start_time: string;
+      end_time: string;
+      customer_name: string;
+      email: string;
+      phone: string | null;
+      note: string | null;
+      total_price: number | null;
+      points_used: number | null;
+    };
+    if (previous.user_id !== (user?.id ?? null)) {
+      return NextResponse.json({ error: '予約リクエストキーが別のアカウントで使用されています' }, { status: 409 });
     }
+    const expectedMenuIds = parsed.data.menu_ids && parsed.data.menu_ids.length > 1 ? parsed.data.menu_ids : null;
+    const previousMenuIds = previous.menu_ids && previous.menu_ids.length > 1 ? previous.menu_ids : null;
+    const previousPoints = previous.points_used ?? 0;
+    const requestedPoints = parsed.data.points_used ?? 0;
+    const originalPrice = (previous.total_price ?? 0) + previousPoints;
+    const sameRequest = previous.user_id === (user?.id ?? null)
+      && previous.facility_id === parsed.data.facility_id
+      && previous.staff_id === (parsed.data.staff_id ?? null)
+      && previous.menu_id === (expectedMenuIds?.[0] ?? parsed.data.menu_id)
+      && JSON.stringify(previousMenuIds) === JSON.stringify(expectedMenuIds)
+      && previous.coupon_id === (parsed.data.coupon_id ?? null)
+      && previous.booking_date === parsed.data.booking_date
+      && String(previous.start_time).slice(0, 5) === parsed.data.start_time
+      && String(previous.end_time).slice(0, 5) === parsed.data.end_time
+      && previous.customer_name === parsed.data.customer_name
+      && previous.email === parsed.data.email
+      && previous.phone === (parsed.data.phone ?? null)
+      && previous.note === (parsed.data.note ?? null)
+      && previousPoints === Math.min(requestedPoints, originalPrice);
+    if (!sameRequest) {
+      return NextResponse.json({ error: '予約リクエストキーが異なる予約内容で使われています' }, { status: 409 });
+    }
+    return NextResponse.json({ success: true, bookingId: previous.id, replayed: true });
   }
 
   // Server-side price calculation (do not trust client total_price)
@@ -213,16 +264,6 @@ export async function POST(request: Request) {
   // 請求は Math.max(0,...) で 0 に丸まる一方ポイントは full 控除され、超過分が消失する＝金銭損失）。
   // メニュー必須化により serverTotalPrice は常に権威的な数値のため、その価格でクランプする。
   const pointsUsed = Math.min(requestedPoints, serverTotalPrice);
-  // Snapshot current balance for CAS (compare-and-swap) check later
-  let pointsBalanceSnapshot = 0;
-  if (pointsUsed > 0 && user) {
-    const { data: pointRows } = await supabase.from('user_points').select('points').eq('user_id', user.id);
-    pointsBalanceSnapshot = (pointRows ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
-    if (pointsBalanceSnapshot < pointsUsed) {
-      return NextResponse.json({ error: 'ポイント残高が不足しています' }, { status: 400 });
-    }
-  }
-
   // ポイント値引き反映
   const finalPrice = pointsUsed > 0
     ? Math.max(0, serverTotalPrice - pointsUsed)
@@ -248,7 +289,11 @@ export async function POST(request: Request) {
   // migration 側で anon/authenticated の EXECUTE を撤回して直接呼び出し経路を塞ぐ。ここで渡す値は
   // すべて上流でサーバ側検証・算出済み（user は auth.getUser()、finalPrice はサーバ側計算）。
   const rpcClient = createServiceRoleClient();
-  const { data: rpcResult, error } = await rpcClient.rpc('create_booking_atomic', {
+  const createBookingRpc = rpcClient.rpc.bind(rpcClient) as unknown as (
+    fn: string,
+    args: Record<string, unknown>
+  ) => Promise<{ data: unknown; error: { code?: string; message?: string } | null }>;
+  const { data: rpcResult, error } = await createBookingRpc('create_booking_with_points_atomic', {
     p_facility_id: parsed.data.facility_id,
     p_staff_id: parsed.data.staff_id ?? null,
     p_user_id: user?.id ?? null,
@@ -262,12 +307,14 @@ export async function POST(request: Request) {
     p_phone: parsed.data.phone ?? null,
     p_note: parsed.data.note ?? null,
     p_total_price: finalPrice,
+    p_idempotency_key: idempotencyKey,
     p_points_used: pointsUsed,
     p_status: bookingStatus,
     // 公開経路は営業時間・定休日・指名スタッフ勤務窓ゲートを RPC 側で強制する（get_available_slots
     // が UI に出さない枠を API 直叩きで確定できた非対称の根治・2026年7月16日）。admin の手動予約
     // （電話受付等）は意図的にゲート対象外＝パラメータ省略（DEFAULT FALSE）。
     p_enforce_schedule: true,
+    p_menu_ids: menuIdsToPrice.length > 1 ? menuIdsToPrice : null,
   });
   void bookingData;
 
@@ -300,90 +347,38 @@ export async function POST(request: Request) {
     if (error.message?.includes('COUPON_ALREADY_USED')) {
       return NextResponse.json({ error: 'このクーポンは既に利用済みです' }, { status: 409 });
     }
+    if (error.message?.includes('INSUFFICIENT_POINTS')) {
+      return NextResponse.json({ error: 'ポイント残高が不足しています' }, { status: 400 });
+    }
+    if (error.message?.includes('IDEMPOTENCY_KEY_REUSED')) {
+      return NextResponse.json({ error: '同じ予約リクエストキーが異なる予約内容に使われています' }, { status: 409 });
+    }
     return serverError('booking-rpc', error, '/api/booking', '予約に失敗しました');
   }
 
-  const newBookingId: string = rpcResult || '';
+  const atomicResult = rpcResult && typeof rpcResult === 'object'
+    ? rpcResult as { booking_id?: unknown; replayed?: unknown }
+    : null;
+  const newBookingId = typeof rpcResult === 'string'
+    ? rpcResult
+    : typeof atomicResult?.booking_id === 'string'
+      ? atomicResult.booking_id
+      : '';
+  if (atomicResult?.replayed === true && newBookingId) {
+    return NextResponse.json({ success: true, bookingId: newBookingId, replayed: true });
+  }
   if (!newBookingId) {
     return serverError(
       'booking-rpc-null-result',
-      new Error('create_booking_atomic returned null with no error'),
+      new Error('create_booking_with_points_atomic returned null with no error'),
       '/api/booking',
       '予約に失敗しました',
     );
   }
 
-  // 複数メニュー予約は menu_ids 列に全メニューを保存する。create_booking_atomic は p_menu_id(単一)
-  // しか受けず menu_id には先頭1件しか入らないため、保存しないと予約詳細の表示が1件目のみになる（A6）。
-  // 料金・所要時間は既に全メニュー合算で正しい。失敗は致命でない（menu_id への単一フォールバックで
-  // 表示は機能する）ため warn のみ。単一メニュー時は menu_id で足りるのでスキップ。
-  if (menuIdsToPrice.length > 1) {
-    const svc = createServiceRoleClient();
-    const { error: menuIdsErr } = await svc.from('bookings').update({ menu_ids: menuIdsToPrice }).eq('id', newBookingId);
-    if (menuIdsErr) console.error('[booking] menu_ids persist failed', { bookingId: newBookingId, err: menuIdsErr.message });
-  }
-
-  // Points deduction with CAS (compare-and-swap) to prevent race conditions:
-  // Insert the deduction row via service_role (user_points has no INSERT policy for anon client),
-  // then verify the running balance is still non-negative.
-  // If another concurrent request already deducted points (balance changed since snapshot),
-  // roll back and cancel the booking.
-  if (pointsUsed > 0 && user && newBookingId) {
-    const serviceSupabase = createServiceRoleClient();
-    // ロールバック共通処理: 予約をキャンセルし、成立しなかったクーポン利用(coupon_redemptions)も解放する。
-    // クーポンを解放しないと、予約が成立していないのに「1人1回」上限が恒久消費され、以後そのクーポンが
-    // COUPON_ALREADY_USED で使えなくなる（SM-6）。coupon_redemptions は booking_id 列で一意特定できる。
-    const rollbackBooking = async () => {
-      const { error: rbErr } = await serviceSupabase.from('bookings').update({ status: 'cancelled' }).eq('id', newBookingId);
-      if (rbErr) console.error('[booking] booking rollback failed — manual cleanup needed', { bookingId: newBookingId, err: rbErr.message });
-      if (parsed.data.coupon_id) {
-        const { error: crErr } = await serviceSupabase.from('coupon_redemptions').delete().eq('booking_id', newBookingId);
-        /* istanbul ignore next — 解放 delete 失敗は DB 障害時のみの防御ログ */
-        if (crErr) console.error('[booking] coupon redemption release failed — manual cleanup needed', { bookingId: newBookingId, err: crErr.message });
-      }
-    };
-
-    const { data: deductionRow, error: deductErr } = await serviceSupabase
-      .from('user_points')
-      .insert({
-        user_id: user.id,
-        points: -pointsUsed,
-        reason: `予約利用 (${newBookingId.slice(0, 8)})`,
-      })
-      .select('id')
-      .single();
-
-    // 控除 INSERT が失敗すると、控除行が入らないのに total_price は値引き済で予約が確定し、
-    // 客はポイントを保持したまま値引きを得る（キャンセル返還でポイント鋳造にも波及）＝金銭損失。
-    // 従来 error を捨てていたためこの経路が無音だった。失敗時は予約をキャンセルして 500 で明示する。
-    if (deductErr) {
-      await rollbackBooking();
-      return serverError('booking-points-deduct', deductErr, '/api/booking', 'ポイントの利用処理に失敗しました。時間をおいて再度お試しください。');
-    }
-
-    // Re-verify balance to detect concurrent deductions since our snapshot
-    const { data: recheck, error: recheckErr } = await serviceSupabase.from('user_points').select('points').eq('user_id', user.id);
-    // recheck の取得失敗を fail-open（残高不明を 0 扱い）にすると `0 < 0` が成立せず負残高検知が無効化し、
-    // 残高を超えるポイント利用が通ってしまう。取得できない場合は安全側で控除と予約をロールバックする。
-    if (recheckErr) {
-      /* istanbul ignore next — deductionRow は直前の insert 成功で常に存在する防御チェック */
-      if (deductionRow?.id) await serviceSupabase.from('user_points').delete().eq('id', deductionRow.id);
-      await rollbackBooking();
-      return serverError('booking-points-recheck', recheckErr, '/api/booking', 'ポイント残高の確認に失敗しました。時間をおいて再度お試しください。');
-    }
-    const newBalance = (recheck ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
-    if (newBalance < 0) {
-      // CAS failed: another concurrent request deducted points between our read and write.
-      // Rollback: delete this specific deduction row by ID (not by reason, to avoid ambiguity)
-      if (deductionRow?.id) {
-        const { error: rollbackPointsErr } = await serviceSupabase.from('user_points').delete().eq('id', deductionRow.id);
-        if (rollbackPointsErr) console.error('[booking] point deduction rollback failed — manual cleanup needed', { deductionId: deductionRow.id, err: rollbackPointsErr });
-      }
-      await rollbackBooking();
-      return NextResponse.json({ error: 'ポイント残高が不足しています（競合が発生しました）' }, { status: 400 });
-    }
-  }
-
+  // The transaction also commits multi-menu details and point ledger changes.
+  // Point debits are completed inside create_booking_with_points_atomic, so there is
+  // no post-commit compensation window here.
   // レスポンス返却後に走らせていた副作用（メール・Push・LINE 通知）をここに集約し、return 直前に
   // await Promise.allSettled でまとめて完了させる。【2026年7月7日 本番実データで確定した恒久根治】
   // 従来は各副作用を Vercel の waitUntil() に渡す fire-and-forget だったが、Fluid Compute 無効の

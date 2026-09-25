@@ -13,6 +13,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { serverError } from '@/lib/with-route';
+import { isValidIsoDate } from '@/lib/date-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,6 +60,11 @@ export async function POST(request: Request) {
 
     const { data: { user } } = await authClient.auth.getUser();
     const data = parsed.data;
+    const [startHour, startMinute] = data.start_time.split(':').map(Number);
+    const [endHour, endMinute] = data.end_time.split(':').map(Number);
+    if (!isValidIsoDate(data.date) || startHour * 60 + startMinute >= endHour * 60 + endMinute) {
+      return NextResponse.json({ error: '日付または時間の範囲が不正です' }, { status: 400 });
+    }
 
     // 同じ施設・日時・ユーザーの重複登録を防止
     if (user) {
@@ -87,6 +93,28 @@ export async function POST(request: Request) {
 
     if (!facility) {
       return NextResponse.json({ error: '施設が見つかりません' }, { status: 404 });
+    }
+
+    // menu/staffは施設IDとは別に受け取るため、同一施設への所属を必ず再検証する。
+    if (data.menu_id) {
+      const { data: menu, error: menuError } = await supabase
+        .from('facility_menus')
+        .select('id')
+        .eq('id', data.menu_id)
+        .eq('facility_id', data.facility_id)
+        .maybeSingle();
+      if (menuError) return serverError('waitlist-menu-verify', menuError, '/api/waitlist', '登録に失敗しました');
+      if (!menu) return NextResponse.json({ error: 'メニューが施設と一致しません' }, { status: 400 });
+    }
+    if (data.staff_id) {
+      const { data: staff, error: staffError } = await supabase
+        .from('staff_profiles')
+        .select('id')
+        .eq('id', data.staff_id)
+        .eq('facility_id', data.facility_id)
+        .maybeSingle();
+      if (staffError) return serverError('waitlist-staff-verify', staffError, '/api/waitlist', '登録に失敗しました');
+      if (!staff) return NextResponse.json({ error: 'スタッフが施設と一致しません' }, { status: 400 });
     }
 
     const { data: entry, error } = await supabase

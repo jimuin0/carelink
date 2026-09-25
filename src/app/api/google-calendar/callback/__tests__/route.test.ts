@@ -19,6 +19,7 @@
 
 jest.mock('@/lib/rate-limit');
 jest.mock('@/lib/supabase-server');
+jest.mock('@/lib/supabase-server-auth');
 jest.mock('next/headers');
 jest.mock('crypto');
 
@@ -29,6 +30,7 @@ let mockUpsert: jest.Mock;
 let mockCookieGet: jest.Mock;
 let mockCookieDelete: jest.Mock;
 let mockTimingSafeEqual: jest.Mock;
+let mockAuthGetUser: jest.Mock;
 
 function setupDefaultMocks(
   rateLimited: boolean = false,
@@ -77,9 +79,20 @@ function setupDefaultMocks(
     error: upsertSucceeds ? null : new Error('Upsert failed'),
   });
 
+  mockAuthGetUser = jest.fn().mockResolvedValue({
+    data: { user: { id: '550e8400-e29b-41d4-a716-446655440000' } },
+  });
+  const { createServerSupabaseAuthClient } = require('@/lib/supabase-server-auth');
+  createServerSupabaseAuthClient.mockResolvedValue({ auth: { getUser: mockAuthGetUser } });
+
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
     from: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
+        }),
+      }),
       upsert: mockUpsert,
     }),
   });
@@ -296,6 +309,18 @@ describe('GET /api/google-calendar/callback', () => {
     expect(res.headers.get('location')).toContain('gcal=error');
   });
 
+  test('現在のSupabaseセッションとstateのuserIdが違う場合はtokenを保存しない', async () => {
+    mockAuthGetUser.mockResolvedValue({ data: { user: { id: '660e8400-e29b-41d4-a716-446655440000' } } });
+
+    const res = await GET(
+      makeRequest({ code: 'code-123', state: createValidState() }) as any
+    );
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('gcal=error');
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
   test('exchanges code for tokens via Google API', async () => {
     setupDefaultMocks(false, true, true, true);
 
@@ -466,7 +491,7 @@ describe('GET /api/google-calendar/callback', () => {
     expect(res.status).toBe(307);
   });
 
-  // Branch coverage: line 81 — tokens.refresh_token is falsy → null (right side of ||)
+  // Branch coverage: tokens.refresh_token is falsy → existing refresh token or null
   // Branch coverage: line 83 — tokens.scope is falsy → null (right side of ||)
   test('refresh_token と scope が未提供 → upsert に null が渡る', async () => {
     setupDefaultMocks(false, true, true, true, true);
@@ -505,6 +530,52 @@ describe('GET /api/google-calendar/callback', () => {
       }),
       expect.anything()
     );
+  });
+
+  test('再認可でrefresh_tokenが省略されても既存refresh_tokenを保持する', async () => {
+    setupDefaultMocks(false, true, true, true, true);
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: { refresh_token: 'existing-refresh' }, error: null }),
+          }),
+        }),
+        upsert: mockUpsert,
+      }),
+    });
+    global.fetch = jest.fn((url: string) => {
+      if (url.includes('oauth2.googleapis.com/token')) {
+        return Promise.resolve(new Response(JSON.stringify({ access_token: 'new-access', expires_in: 3600, scope: 'calendar' }), { status: 200 }));
+      }
+      return Promise.resolve(new Response('{}'));
+    }) as jest.Mock;
+
+    await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
+
+    expect(mockUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ refresh_token: 'existing-refresh' }),
+      expect.objectContaining({ onConflict: 'user_id' }),
+    );
+  });
+
+  test('既存トークン照会が失敗 → redirect with gcal=error', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: null, error: new Error('lookup failed') }),
+          }),
+        }),
+        upsert: mockUpsert,
+      }),
+    });
+    const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('gcal=error');
+    expect(mockUpsert).not.toHaveBeenCalled();
   });
 
   // Branch coverage: トークン upsert が失敗 → 成功扱いにせず gcal=error へ

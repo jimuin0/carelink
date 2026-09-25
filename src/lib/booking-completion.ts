@@ -4,7 +4,7 @@ import { alertCaughtError } from './alert';
 import { awardReferralPointsOnCompletion } from './referral';
 
 /**
- * 予約が completed に「進入」した際に付与する副作用。reverseCompletionSideEffects の対称形。
+ * 予約が completed に「進入」した際に付与する副作用。
  *
  * - customer_visits（来店記録）を1件挿入。これは顧客一覧（getUniqueCustomers）の
  *   「来店回数・最終来店」集計の唯一の元データであり、ここが積まれないと予約客が
@@ -15,11 +15,11 @@ import { awardReferralPointsOnCompletion } from './referral';
  * 呼び出し側が status='confirmed'→'completed' を CAS で1回だけ確定してから呼ぶ前提
  * （重複付与防止）。返り値は付与した来店ポイント数。
  *
- * 【不変条件】completed へ進入する全経路で本関数を、completed から離脱する全経路で
- * reverseCompletionSideEffects を必ず対で呼ぶ（対称性）。現在の完了経路は3つ＝
+ * 【不変条件】completed へ進入する全経路で本関数を呼ぶ。completed から no_show への
+ * 訂正は mark_booking_no_show_atomic がstatusと副作用取消をDB内で一括処理する。現在の完了経路は3つ＝
  * /api/booking/complete・/api/admin/booking-status・/api/admin/booking-checkout
  * （退店レジ会計・total_price を確定してから呼ぶ）。新たな完了 / 離脱経路を足す時は
- * apply / reverse の配線を必ず対で追加すること（片側漏れは来店実績・ポイントの無音欠落になる）。
+ * 対応する原子的な取消処理も必ず追加すること（片側漏れは来店実績・ポイントの無音欠落になる）。
  */
 export interface CompletableBooking {
   id: string;

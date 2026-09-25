@@ -31,6 +31,7 @@ jest.mock('@/lib/notification-settings', () => ({
 const mockGetUser = jest.fn();
 const mockFrom = jest.fn();
 const mockRpc = jest.fn();
+const mockBookingLookupFrom = jest.fn();
 // Service-role client の from() 専用トラッキング用モック。デフォルトは mockFrom へそのまま委譲する
 // （table 名・callNum ベースの既存の mockFrom.mockImplementation をそのまま再利用でき、既存テストの
 // 挙動は一切変えない）。目的は「facility_members / profiles の取得が service role 経由で行われて
@@ -49,7 +50,10 @@ jest.mock('@supabase/ssr', () => ({
 // を使う。委譲のため table 名・callNum ベースの既存 mockFrom.mockImplementation はそのまま機能し、
 // CAS テスト等の既存挙動は変わらない。rpc は従来どおり mockRpc を共有する。
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockServiceFrom, rpc: mockRpc }),
+  createServiceRoleClient: () => ({
+    from: (table: string) => table === 'bookings' ? mockBookingLookupFrom(table) : mockServiceFrom(table),
+    rpc: mockRpc,
+  }),
 }));
 
 jest.mock('@supabase/supabase-js', () => ({
@@ -79,10 +83,18 @@ function futureBookingDate(): string {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockFrom.mockImplementation((table: string) =>
+    table === 'facility_menus' ? menuLookupChain() : fluent({ data: null })
+  );
+  mockBookingLookupFrom.mockImplementation(() => fluent({ data: null, error: null }));
   (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
-  // Default: RPC succeeds
-  mockRpc.mockResolvedValue({ data: 'new-booking-id', error: null });
+  // Require the Supabase client receiver: PostgREST methods use `this.rest`, so a detached
+  // rpc reference must fail in unit tests instead of being hidden by a plain jest.fn mock.
+  mockRpc.mockImplementation(function (this: { rpc?: typeof mockRpc } | undefined) {
+    if (this?.rpc !== mockRpc) throw new Error('Supabase rpc called without its client receiver');
+    return Promise.resolve({ data: { booking_id: 'new-booking-id', replayed: false }, error: null });
+  });
   // 既定は全通知 ON（既存挙動）。施設オーナー新規予約 Push のゲートを通す。
   const { getFacilityNotificationSettings } = require('@/lib/notification-settings');
   (getFacilityNotificationSettings as jest.Mock).mockResolvedValue({
@@ -111,10 +123,15 @@ const validBooking = {
   points_used: 0,
 };
 
-function makeRequest(body: unknown) {
+const IDEMPOTENCY_KEY = '523e4567-e89b-12d3-a456-426614174000';
+
+function makeRequest(body: unknown, headers: Record<string, string> = {}) {
   return new Request('http://localhost/api/booking', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Origin: 'http://localhost', Host: 'localhost' },
+    headers: {
+      'Content-Type': 'application/json', Origin: 'http://localhost', Host: 'localhost',
+      'Idempotency-Key': IDEMPOTENCY_KEY, ...headers,
+    },
     body: JSON.stringify(body),
   });
 }
@@ -143,15 +160,14 @@ function fluent(resolvedValue: unknown) {
   return self;
 }
 
-// Route call sequence (no menu/coupon/staff/points):
-// call 1: conflict check   (bookings select)
-// call 2: facility_profiles (auto-confirm setting)
-// then: supabase.rpc('create_booking_atomic')
+// Route call sequence (no coupon/staff/points):
+// call 1: facility_menus (authoritative price lookup)
+// then: facility_profiles (auto-confirm setting) and service-role atomic RPC.
 // subsequent calls: notification lookups (all in try/catch — failures are suppressed)
 
 // 共有: ポイント利用テスト用のメニュー価格ルックアップ chain。
 // ポイント利用には権威的なサーバ価格（メニュー）が必須なため、CAS 系テストは
-// menu_id を付与し、conflict check の直後（mockFrom 呼び出し #2）でこの chain を返す。
+// menu_id を付与し、価格ルックアップでこの chain を返す。
 const POINTS_MENU_ID = '323e4567-e89b-12d3-a456-426614174000';
 function menuPriceChain(price: number) {
   const result = { data: [{ id: POINTS_MENU_ID, price }], error: null };
@@ -196,7 +212,7 @@ function menuStaffChain(rows: { menu_id: string; staff_id: string }[] | null, er
 // 共有: facility_menus 価格ルックアップの chain（メニュー必須化・2026年7月15日）。
 // route は .select('id, price').in('id', ...).eq('facility_id', ...).or(...) を直接 await するため
 // thenable にする。base validBooking が MENU_UUID を持つので、メニューゲートを通過して下流
-// （競合後の価格計算・RPC・通知など）に到達するテストは call 2 でこの chain を返す。
+  // 価格計算・RPC・通知などに到達するテストでこの chain を返す。
 function menuLookupChain(price = 5000, id: string = MENU_UUID) {
   // 価格ルックアップ（.in().eq().or() を直接 await）は配列で解決する。
   const listResult = { data: [{ id, price }], error: null };
@@ -216,6 +232,112 @@ function menuLookupChain(price = 5000, id: string = MENU_UUID) {
 }
 
 describe('POST /api/booking', () => {
+  test('Idempotency-Key がない予約POSTは400で拒否する', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const res = await POST(makeRequest(validBooking, { 'Idempotency-Key': '' }));
+    expect(res.status).toBe(400);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  test('冪等性キーの事前照会が失敗した場合は予約を作らず500を返す', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockBookingLookupFrom.mockImplementation(() => fluent({ data: null, error: { message: 'lookup unavailable' } }));
+
+    const res = await POST(makeRequest(validBooking));
+
+    expect(res.status).toBe(500);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  test('別アカウントの予約で使われた冪等性キーは再利用できない', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'current-user' } } });
+    mockBookingLookupFrom.mockImplementation(() => fluent({
+      data: {
+        id: 'already-booked', idempotency_key: IDEMPOTENCY_KEY, user_id: 'original-user',
+        facility_id: validBooking.facility_id, staff_id: null, menu_id: MENU_UUID,
+        menu_ids: null, coupon_id: null, booking_date: FUTURE_DATE,
+        start_time: '10:00:00', end_time: '11:00:00', customer_name: 'テスト太郎',
+        email: 'test@example.com', phone: null, note: null, total_price: 5000, points_used: 0,
+      },
+      error: null,
+    }));
+
+    const res = await POST(makeRequest(validBooking));
+
+    expect(res.status).toBe(409);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  test('同じキーと同じ予約内容の再送は既存予約を返し、作成・通知を再実行しない', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockBookingLookupFrom.mockImplementation(() => fluent({
+      data: {
+        id: 'already-booked', idempotency_key: IDEMPOTENCY_KEY, user_id: null,
+        facility_id: validBooking.facility_id, staff_id: null, menu_id: MENU_UUID,
+        menu_ids: null, coupon_id: null, booking_date: FUTURE_DATE,
+        start_time: '10:00:00', end_time: '11:00:00', customer_name: 'テスト太郎',
+        email: 'test@example.com', phone: null, note: null, total_price: 5000, points_used: 0,
+      },
+      error: null,
+    }));
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, bookingId: 'already-booked', replayed: true });
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  test('同じキーを別の予約内容に再利用すると409で拒否する', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockBookingLookupFrom.mockImplementation(() => fluent({
+      data: {
+        id: 'already-booked', idempotency_key: IDEMPOTENCY_KEY, user_id: null,
+        facility_id: validBooking.facility_id, staff_id: null, menu_id: MENU_UUID,
+        menu_ids: null, coupon_id: null, booking_date: FUTURE_DATE,
+        start_time: '10:00:00', end_time: '11:00:00', customer_name: 'テスト太郎',
+        email: 'test@example.com', phone: null, note: null, total_price: 5000, points_used: 0,
+      },
+      error: null,
+    }));
+
+    const res = await POST(makeRequest({ ...validBooking, email: 'different@example.com' }));
+    expect(res.status).toBe(409);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  test('複数メニューかつ未設定ポイント値の同一予約再送は既存予約を返す', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const menuIds = [MENU_UUID, '523e4567-e89b-12d3-a456-426614174001'];
+    mockBookingLookupFrom.mockImplementation(() => fluent({
+      data: {
+        id: 'already-booked', idempotency_key: IDEMPOTENCY_KEY, user_id: null,
+        facility_id: validBooking.facility_id, staff_id: null, menu_id: MENU_UUID,
+        menu_ids: menuIds, coupon_id: null, booking_date: FUTURE_DATE,
+        start_time: '10:00:00', end_time: '11:00:00', customer_name: 'テスト太郎',
+        email: 'test@example.com', phone: null, note: null, total_price: null, points_used: null,
+      },
+      error: null,
+    }));
+
+    const requestBody: Record<string, unknown> = { ...validBooking, menu_ids: menuIds };
+    delete requestBody.points_used;
+    const res = await POST(makeRequest(requestBody));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, bookingId: 'already-booked', replayed: true });
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  test('原子予約RPCが同一キー異内容を検出した場合は409を返す', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'IDEMPOTENCY_KEY_REUSED' } });
+
+    const res = await POST(makeRequest(validBooking));
+
+    expect(res.status).toBe(409);
+    expect(mockRpc).toHaveBeenCalledWith('create_booking_with_points_atomic', expect.any(Object));
+  });
+
   test('正常に予約を作成する', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
 
@@ -234,6 +356,25 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(json.bookingId).toBe('new-booking-id');
+    expect(mockRpc).toHaveBeenCalledWith('create_booking_with_points_atomic', expect.objectContaining({
+      p_idempotency_key: IDEMPOTENCY_KEY,
+    }));
+  });
+
+  test('同時再送がRPC内で既存予約に解決された場合は通知を再送しない', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockRpc.mockResolvedValue({ data: { booking_id: 'already-booked', replayed: true }, error: null });
+    mockFrom.mockImplementation((table: string) => table === 'facility_menus'
+      ? menuLookupChain()
+      : fluent({ data: null }));
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, bookingId: 'already-booked', replayed: true });
+    const { sendBookingConfirmation, sendBookingConfirmed, sendNewBookingNotification } = require('@/lib/email');
+    expect(sendBookingConfirmation).not.toHaveBeenCalled();
+    expect(sendBookingConfirmed).not.toHaveBeenCalled();
+    expect(sendNewBookingNotification).not.toHaveBeenCalled();
   });
 
   // 【2026年7月7日 本番実データで確定した恒久根治の回帰防止】通知の副作用を fire-and-forget
@@ -309,16 +450,7 @@ describe('POST /api/booking', () => {
   test('staff_id指定時の競合→409', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const staffId = '223e4567-e89b-12d3-a456-426614174000';
-
-    const conflictChain = fluent(null);
-    // After eq(staff_id) the chain resolves with a conflict
-    const conflictResult = Promise.resolve({ data: [{ id: 'existing' }] });
-    const chainEnd: Record<string, unknown> = {};
-    chainEnd.eq = jest.fn(() => conflictResult);
-    chainEnd.then = conflictResult.then.bind(conflictResult);
-    conflictChain.gt = jest.fn(() => chainEnd);
-
-    mockFrom.mockReturnValue(conflictChain);
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'BOOKING_CONFLICT: existing reservation' } });
 
     const res = await POST(makeRequest({ ...validBooking, staff_id: staffId }));
     expect(res.status).toBe(409);
@@ -421,7 +553,7 @@ describe('POST /api/booking', () => {
     });
   }
 
-  test('公開経路の create_booking_atomic は p_enforce_schedule: true を渡す（スケジュールゲート発効）', async () => {
+  test('公開経路の create_booking_with_points_atomic は p_enforce_schedule: true を渡す（スケジュールゲート発効）', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     scheduleGateMocks();
 
@@ -429,7 +561,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_booking_with_points_atomic',
       expect.objectContaining({ p_enforce_schedule: true })
     );
   });
@@ -472,18 +604,7 @@ describe('POST /api/booking', () => {
 
   test('ポイント残高不足→400', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
-
-    const conflictChain = fluent(null);
-    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
-    const pointsChain = fluent(null);
-    pointsChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 100 }] }));
-
-    mockFrom.mockImplementation((table: string) => {
-      if (table === 'bookings') return conflictChain;
-      if (table === 'facility_menus') return menuLookupChain();
-      if (table === 'user_points') return pointsChain; // 残高100 < 利用500 → 不足
-      return fluent({ data: null });
-    });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'INSUFFICIENT_POINTS' } });
 
     const res = await POST(makeRequest({ ...validBooking, points_used: 500 }));
     expect(res.status).toBe(400);
@@ -510,73 +631,47 @@ describe('POST /api/booking', () => {
     menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuLookupResult).then.bind(Promise.resolve(menuLookupResult));
 
-    const balanceChain = fluent(null);
-    balanceChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 10000 }] })); // 残高十分
-
-    const nullChain = fluent({ data: null });
-
-    const deductionChain: Record<string, unknown> = {};
-    deductionChain.insert = jest.fn(() => ({
-      select: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: { id: 'deduction-1' } })) })),
-    }));
-
-    const recheckChain = fluent(null);
-    recheckChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 2000 }] })); // 控除後も非負
-
     mockRpc.mockResolvedValue({ data: 'booking-clamp-1', error: null });
-
-    let callNum = 0;
-    mockFrom.mockImplementation((table: string) => {
-      callNum++;
-      if (callNum === 1) return menuChain;      // facility_menus 価格ルックアップ
-      if (callNum === 2) return balanceChain;   // user_points 残高スナップショット
-      if (callNum === 3) return nullChain;      // facility_profiles (auto-confirm)
-      if (table === 'user_points' && callNum === 4) return deductionChain; // 控除 insert
-      if (table === 'user_points') return recheckChain;                    // 再検証
-      return nullChain;
-    });
+    mockFrom.mockImplementation((table: string) => table === 'facility_menus'
+      ? menuChain
+      : fluent({ data: null }));
 
     const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, points_used: 10000, total_price: 1 }));
     const json = await res.json();
     expect(json.success).toBe(true);
     // クランプ後: p_points_used=8000（10000 ではない）, p_total_price=0
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_booking_with_points_atomic',
       expect.objectContaining({ p_points_used: 8000, p_total_price: 0 })
-    );
-    // 控除 insert も 8000（-8000）でなければならない
-    expect((deductionChain.insert as jest.Mock)).toHaveBeenCalledWith(
-      expect.objectContaining({ points: -8000 })
     );
   });
 
-  // ポイント控除経路のヘルパ: menu価格・残高・facility の chain を組む（coupon なし）。
-  function pointMenuChains(price: number, balance: number) {
+  // ポイント控除経路のヘルパ: menu価格・予約競合・facility の chain を組む（coupon なし）。
+  function pointMenuChains(price: number) {
     const menuLookupResult = { data: [{ id: '323e4567-e89b-12d3-a456-426614174000', price }], error: null };
     const menuChain: Record<string, unknown> = {}; const mh = jest.fn(() => menuChain);
     menuChain.select = mh; menuChain.in = mh; menuChain.eq = mh; menuChain.or = mh;
     menuChain.then = Promise.resolve(menuLookupResult).then.bind(Promise.resolve(menuLookupResult));
     const conflictChain = fluent(null); conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
-    const balanceChain = fluent(null); balanceChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: balance }] }));
-    return { menuChain, conflictChain, balanceChain };
+    return { menuChain, conflictChain };
   }
 
-  test('H-1: ポイント控除INSERT失敗 → 予約キャンセル+500（無償値引き防止）', async () => {
+  test('H-1: 原子RPC内のポイント控除失敗 → 予約もクーポンもcommitされず500', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     const menuId = '323e4567-e89b-12d3-a456-426614174000';
-    const { menuChain, balanceChain } = pointMenuChains(8000, 10000);
+    const { menuChain } = pointMenuChains(8000);
     const nullChain = fluent({ data: null });
     const deductionChain: Record<string, unknown> = {};
     deductionChain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'insert failed' } })) })) }));
     const bookingRbChain: Record<string, unknown> = {};
     // rollback の bookings update が失敗しても console.error で可視化するのみ（rbErr 分岐も網羅）。
     bookingRbChain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: { message: 'rb failed' } })) }));
-    mockRpc.mockResolvedValue({ data: 'booking-h1a', error: null });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'point ledger insert failed' } });
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return menuChain;
-      if (callNum === 2) return balanceChain;
+      if (callNum === 2) return nullChain;
       if (callNum === 3) return nullChain;                                 // facility auto-confirm
       if (table === 'user_points' && callNum === 4) return deductionChain; // 控除 insert（error）
       if (table === 'bookings') return bookingRbChain;                     // ロールバック
@@ -584,14 +679,14 @@ describe('POST /api/booking', () => {
     });
     const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, points_used: 5000 }));
     expect(res.status).toBe(500);
-    // coupon なしなので coupon_redemptions 解放は呼ばれず、予約は cancelled 化される。
-    expect(bookingRbChain.update).toHaveBeenCalledWith(expect.objectContaining({ status: 'cancelled' }));
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(bookingRbChain.update).not.toHaveBeenCalled();
   });
 
-  test('SM-12: 残高recheck取得失敗 → 控除削除+予約キャンセル+500（fail-open防止）', async () => {
+  test('SM-12: DBがポイント控除結果を返さない → 原子RPC失敗として500', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     const menuId = '323e4567-e89b-12d3-a456-426614174000';
-    const { menuChain, balanceChain } = pointMenuChains(8000, 10000);
+    const { menuChain } = pointMenuChains(8000);
     const nullChain = fluent({ data: null });
     const deductionChain: Record<string, unknown> = {};
     deductionChain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: { id: 'deduction-1' }, error: null })) })) }));
@@ -601,12 +696,12 @@ describe('POST /api/booking', () => {
     recheckChain.delete = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
     const bookingRbChain: Record<string, unknown> = {};
     bookingRbChain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
-    mockRpc.mockResolvedValue({ data: 'booking-sm12', error: null });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'point ledger unavailable' } });
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return menuChain;
-      if (callNum === 2) return balanceChain;
+      if (callNum === 2) return nullChain;
       if (callNum === 3) return nullChain;
       if (table === 'user_points' && callNum === 4) return deductionChain; // 控除 insert（ok）
       if (table === 'user_points') return recheckChain;                    // recheck（error）
@@ -615,15 +710,16 @@ describe('POST /api/booking', () => {
     });
     const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, points_used: 5000 }));
     expect(res.status).toBe(500);
-    expect(recheckChain.delete).toHaveBeenCalled();                        // 控除行を削除
-    expect(bookingRbChain.update).toHaveBeenCalledWith(expect.objectContaining({ status: 'cancelled' }));
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(recheckChain.delete).not.toHaveBeenCalled();
+    expect(bookingRbChain.update).not.toHaveBeenCalled();
   });
 
-  test('SM-6: ポイント控除失敗時にクーポン利用(coupon_redemptions)も解放', async () => {
+  test('SM-6: ポイント控除失敗時はRPC transactionが予約とクーポン利用をrollback', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     const menuId = '323e4567-e89b-12d3-a456-426614174000';
     const couponId = '423e4567-e89b-12d3-a456-426614174000';
-    const { menuChain, balanceChain } = pointMenuChains(8000, 10000);
+    const { menuChain } = pointMenuChains(8000);
     const nullChain = fluent({ data: null });
     // coupon 検証（fixed 0円割引 = 価格不変・有効）
     const couponsChain = fluent({ data: { discount_type: 'fixed', discount_value: 0, special_price: null, is_active: true, valid_from: null, valid_until: null } });
@@ -634,14 +730,14 @@ describe('POST /api/booking', () => {
     const couponDelChain: Record<string, unknown> = {};
     // 解放 delete が失敗する場合も console.error で可視化するのみ（本体は continue）＝crErr 分岐も網羅。
     couponDelChain.delete = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: { message: 'coupon release failed' } })) }));
-    mockRpc.mockResolvedValue({ data: 'booking-sm6', error: null });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'point ledger insert failed' } });
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return menuChain;
       if (table === 'coupons') return couponsChain;          // coupon 検証（callNum 3）
       if (table === 'coupon_menus') return couponMenusChain([]); // 対象メニューチェック（callNum 4・0行→全メニュー適用）
-      if (callNum === 4) return balanceChain;
+      if (callNum === 4) return nullChain;
       if (callNum === 5) return nullChain;                   // facility auto-confirm
       if (table === 'user_points' && callNum === 6) return deductionChain; // 控除 insert（error）
       if (table === 'bookings') return bookingRbChain;       // ロールバック
@@ -650,8 +746,8 @@ describe('POST /api/booking', () => {
     });
     const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, points_used: 5000, coupon_id: couponId }));
     expect(res.status).toBe(500);
-    // coupon_id あり → coupon_redemptions を booking_id で解放（「1人1回」の恒久消費を防ぐ）。
-    expect(couponDelChain.delete).toHaveBeenCalled();
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(couponDelChain.delete).not.toHaveBeenCalled();
   });
 
   test('未認証ユーザーがポイント利用→401', async () => {
@@ -678,7 +774,7 @@ describe('POST /api/booking', () => {
     // 1: conflict check (bookings)
     // 2: facility_menus price lookup — returns { data: [{ id: menuId, price: 8000 }] }
     // 3: facility_profiles (auto-confirm)
-    // rpc: create_booking_atomic → success
+    // rpc: create_booking_with_points_atomic → success
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
 
@@ -707,7 +803,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_booking_with_points_atomic',
       expect.objectContaining({ p_total_price: 8000 })
     );
   });
@@ -723,7 +819,7 @@ describe('POST /api/booking', () => {
     // 3: coupons discount lookup → 20% off → 8000
     // 4: coupon_menus 対象メニューチェック（0行=全メニュー適用）
     // 5: facility_profiles (auto-confirm)
-    // rpc: create_booking_atomic with total_price: 8000
+    // rpc: create_booking_with_points_atomic with total_price: 8000
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
 
@@ -753,7 +849,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_booking_with_points_atomic',
       expect.objectContaining({ p_total_price: 8000 })
     );
   });
@@ -793,7 +889,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_booking_with_points_atomic',
       expect.objectContaining({ p_total_price: 0 })
     );
   });
@@ -831,12 +927,12 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_booking_with_points_atomic',
       expect.objectContaining({ p_total_price: 10000 })
     );
   });
 
-  test('ポイント競合→rollback→400', async () => {
+  test('同時ポイント利用で残高不足 → 原子RPCが400で拒否', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
     // Route call order with points_used > 0 and user:
@@ -875,13 +971,13 @@ describe('POST /api/booking', () => {
     const cancelChain: Record<string, unknown> = {};
     cancelChain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
 
-    mockRpc.mockResolvedValue({ data: 'booking-race-1', error: null });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'INSUFFICIENT_POINTS' } });
 
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return menuPriceChain(100000); // facility_menus price lookup
-      if (callNum === 2) return balanceChain;    // user_points balance snapshot
+      if (callNum === 2) return nullChain;    // user_points balance snapshot
       if (callNum === 3) return nullChain;       // facility_profiles (auto-confirm)
       // After RPC success:
       if (table === 'user_points' && callNum === 4) return deductionChain; // insert deduction
@@ -894,10 +990,11 @@ describe('POST /api/booking', () => {
     const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 150 }));
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toContain('競合');
+    expect(json.error).toContain('ポイント');
+    expect(mockRpc).toHaveBeenCalledTimes(1);
   });
 
-  test('create_booking_atomic がnullを返す→500', async () => {
+  test('create_booking_with_points_atomic がnullを返す→500', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     mockRpc.mockResolvedValue({ data: null, error: null });
 
@@ -948,7 +1045,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_booking_with_points_atomic',
       expect.objectContaining({ p_total_price: 8500 })
     );
   });
@@ -987,7 +1084,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_booking_with_points_atomic',
       expect.objectContaining({ p_total_price: 3000 })
     );
   });
@@ -1032,7 +1129,7 @@ describe('POST /api/booking', () => {
       const json = await res.json();
       expect(json.success).toBe(true);
       expect(mockRpc).toHaveBeenCalledWith(
-        'create_booking_atomic',
+        'create_booking_with_points_atomic',
         expect.objectContaining({ p_total_price: 9000, p_coupon_id: couponId })
       );
     });
@@ -1121,13 +1218,6 @@ describe('POST /api/booking', () => {
   describe('メニュー担当スタッフ制(menu_staff)', () => {
     // menu_staff チェックは price 計算後・staff_id がある時のみ実行される。共通の chain 束を作る。
     function baseChains(price: number) {
-      const conflictChain = fluent(null);
-      const noConflict = Promise.resolve({ data: [] });
-      const chainEnd: Record<string, unknown> = {};
-      chainEnd.eq = jest.fn(() => noConflict);
-      chainEnd.then = noConflict.then.bind(noConflict);
-      conflictChain.gt = jest.fn(() => chainEnd);
-
       const menuId = '323e4567-e89b-12d3-a456-426614174000';
       const menuResult = { data: [{ id: menuId, price }], error: null };
       const menuChain: Record<string, unknown> = {};
@@ -1140,19 +1230,18 @@ describe('POST /api/booking', () => {
 
       const staffFeeChain = fluent({ data: { nomination_fee: 0 } });
       const nullChain = fluent({ data: null });
-      return { conflictChain, menuChain, staffFeeChain, nullChain, menuId };
+      return { menuChain, staffFeeChain, nullChain, menuId };
     }
 
     test('menu_staffに行あり・指名スタッフが担当に含まれる→通る（200）', async () => {
       mockGetUser.mockResolvedValue({ data: { user: null } });
       const staffId = '223e4567-e89b-12d3-a456-426614174000';
-      const { conflictChain, menuChain, staffFeeChain, nullChain, menuId } = baseChains(8000);
+      const { menuChain, staffFeeChain, nullChain, menuId } = baseChains(8000);
       let callNum = 0;
       mockFrom.mockImplementation((table: string) => {
         callNum++;
-        if (callNum === 1) return conflictChain;
-        if (callNum === 2) return menuChain;
-        if (callNum === 3) return staffFeeChain;
+        if (callNum === 1) return menuChain;
+        if (callNum === 2) return staffFeeChain;
         // 担当は当該 staffId と別スタッフの2件。指名 staffId が含まれるため通る。
         if (table === 'menu_staff') return menuStaffChain([{ menu_id: menuId, staff_id: 'other-staff' }, { menu_id: menuId, staff_id: staffId }]);
         return nullChain;
@@ -1161,19 +1250,18 @@ describe('POST /api/booking', () => {
       const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, staff_id: staffId, total_price: 1 }));
       const json = await res.json();
       expect(json.success).toBe(true);
-      expect(mockRpc).toHaveBeenCalledWith('create_booking_atomic', expect.objectContaining({ p_staff_id: staffId }));
+      expect(mockRpc).toHaveBeenCalledWith('create_booking_with_points_atomic', expect.objectContaining({ p_staff_id: staffId }));
     });
 
     test('menu_staffに行あり・指名スタッフが担当外→400（fail-closed・RPC未到達）', async () => {
       mockGetUser.mockResolvedValue({ data: { user: null } });
       const staffId = '223e4567-e89b-12d3-a456-426614174000';
-      const { conflictChain, menuChain, staffFeeChain, nullChain, menuId } = baseChains(8000);
+      const { menuChain, staffFeeChain, nullChain, menuId } = baseChains(8000);
       let callNum = 0;
       mockFrom.mockImplementation((table: string) => {
         callNum++;
-        if (callNum === 1) return conflictChain;
-        if (callNum === 2) return menuChain;
-        if (callNum === 3) return staffFeeChain;
+        if (callNum === 1) return menuChain;
+        if (callNum === 2) return staffFeeChain;
         // 担当は別スタッフのみ。指名 staffId は含まれないため拒否。
         if (table === 'menu_staff') return menuStaffChain([{ menu_id: menuId, staff_id: 'only-other-staff' }]);
         return nullChain;
@@ -1189,13 +1277,12 @@ describe('POST /api/booking', () => {
     test('menu_staff取得がエラー→500（無言で予約を通さずfail-closed・RPC未到達）', async () => {
       mockGetUser.mockResolvedValue({ data: { user: null } });
       const staffId = '223e4567-e89b-12d3-a456-426614174000';
-      const { conflictChain, menuChain, staffFeeChain, nullChain, menuId } = baseChains(8000);
+      const { menuChain, staffFeeChain, nullChain, menuId } = baseChains(8000);
       let callNum = 0;
       mockFrom.mockImplementation((table: string) => {
         callNum++;
-        if (callNum === 1) return conflictChain;
-        if (callNum === 2) return menuChain;
-        if (callNum === 3) return staffFeeChain;
+        if (callNum === 1) return menuChain;
+        if (callNum === 2) return staffFeeChain;
         if (table === 'menu_staff') return menuStaffChain(null, { message: 'db error' });
         return nullChain;
       });
@@ -1208,13 +1295,12 @@ describe('POST /api/booking', () => {
     test('menu_staff がdata=null(0行相当)→全スタッフ対応として通る（200・?? [] フォールバック）', async () => {
       mockGetUser.mockResolvedValue({ data: { user: null } });
       const staffId = '223e4567-e89b-12d3-a456-426614174000';
-      const { conflictChain, menuChain, staffFeeChain, nullChain, menuId } = baseChains(8000);
+      const { menuChain, staffFeeChain, nullChain, menuId } = baseChains(8000);
       let callNum = 0;
       mockFrom.mockImplementation((table: string) => {
         callNum++;
-        if (callNum === 1) return conflictChain;
-        if (callNum === 2) return menuChain;
-        if (callNum === 3) return staffFeeChain;
+        if (callNum === 1) return menuChain;
+        if (callNum === 2) return staffFeeChain;
         // data=null かつ error=null（0行を null で返す環境）→ buildMenuStaffMap(null ?? []) で空マップ扱い。
         if (table === 'menu_staff') return menuStaffChain(null);
         return nullChain;
@@ -1290,7 +1376,7 @@ describe('POST /api/booking', () => {
       // 対象(10000)-1000=9000 + 対象外(2000)定価 = 11000（旧ANY-match実装なら 12000-1000=11000 と
       // 偶然一致してしまうため、下の percentage/special_price テストで意味論の違いを明確に検証する）
       expect(mockRpc).toHaveBeenCalledWith(
-        'create_booking_atomic',
+        'create_booking_with_points_atomic',
         expect.objectContaining({ p_total_price: 11000, p_coupon_id: couponId })
       );
     });
@@ -1334,7 +1420,7 @@ describe('POST /api/booking', () => {
       // 旧ANY-match方式（合計に効く）なら (10000+2000)*0.8=9600 になり、この値と一致しないことで
       // 「対象分のみ割引」の意味論が実際に効いていることを検証する。
       expect(mockRpc).toHaveBeenCalledWith(
-        'create_booking_atomic',
+        'create_booking_with_points_atomic',
         expect.objectContaining({ p_total_price: 10000, p_coupon_id: couponId })
       );
     });
@@ -1376,7 +1462,7 @@ describe('POST /api/booking', () => {
       expect(json.success).toBe(true);
       // 対象(10000)→special_price(5000)に置換 + 対象外(2000)定価 = 7000
       expect(mockRpc).toHaveBeenCalledWith(
-        'create_booking_atomic',
+        'create_booking_with_points_atomic',
         expect.objectContaining({ p_total_price: 7000, p_coupon_id: couponId })
       );
     });
@@ -1488,14 +1574,6 @@ describe('POST /api/booking', () => {
     const menuId = '323e4567-e89b-12d3-a456-426614174000';
     const staffId = '223e4567-e89b-12d3-a456-426614174000';
 
-    // staff_id is present → route chains .eq('staff_id', ...) after .gt(), so gt must return chainable
-    const conflictChain = fluent(null);
-    const noConflict = Promise.resolve({ data: [] });
-    const chainEnd: Record<string, unknown> = {};
-    chainEnd.eq = jest.fn(() => noConflict);
-    chainEnd.then = noConflict.then.bind(noConflict);
-    conflictChain.gt = jest.fn(() => chainEnd);
-
     const menuResult = { data: [{ id: menuId, price: 8000 }], error: null };
     const menuChain: Record<string, unknown> = {};
     const menuHandler = jest.fn(() => menuChain);
@@ -1513,9 +1591,8 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
-      if (callNum === 3) return staffChain;
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return staffChain;
       // メニュー担当スタッフ制(menu_staff)チェック（2026年7月15日追加）。行なし=無制限で通す。
       if (table === 'menu_staff') return menuStaffChain([]);
       return nullChain;
@@ -1525,7 +1602,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_booking_with_points_atomic',
       expect.objectContaining({ p_total_price: 8500 })
     );
   });
@@ -1560,7 +1637,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_booking_with_points_atomic',
       expect.objectContaining({ p_total_price: 5000 })
     );
   });
@@ -1599,14 +1676,14 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_booking_with_points_atomic',
       expect.objectContaining({ p_menu_id: menuId1 }) // 検証済み先頭。foreignMenuId ではない。
     );
-    const rpcArg = mockRpc.mock.calls.find((c) => c[0] === 'create_booking_atomic')![1];
+    const rpcArg = mockRpc.mock.calls.find((c) => c[0] === 'create_booking_with_points_atomic')![1];
     expect(rpcArg.p_menu_id).not.toBe(foreignMenuId);
   });
 
-  test('複数メニューで menu_ids 保存が失敗 → warn のみ・成功継続', async () => {
+  test('原子RPC内の複数メニュー保存が失敗 → 500（不完全な予約はcommitされない）', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const menuId1 = '323e4567-e89b-12d3-a456-426614174001';
     const menuId2 = '323e4567-e89b-12d3-a456-426614174002';
@@ -1634,13 +1711,11 @@ describe('POST /api/booking', () => {
       if (callNum === 1) return menuChain;
       return restErr;
     });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'BOOKING_MENU_IDS_PERSIST_FAILED' } });
 
-    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const res = await POST(makeRequest({ ...validBooking, menu_ids: [menuId1, menuId2] }));
-    const json = await res.json();
-    expect(json.success).toBe(true);
-    expect(errSpy).toHaveBeenCalled();
-    errSpy.mockRestore();
+    expect(res.status).toBe(500);
+    expect(mockRpc).toHaveBeenCalledWith('create_booking_with_points_atomic', expect.objectContaining({ p_menu_ids: [menuId1, menuId2] }));
   });
 
   // 権威的なサーバ価格が無い（メニュー未指定で serverTotalPrice=null）状態でポイント利用を
@@ -1699,7 +1774,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return menuPriceChain(100000); // facility_menus price lookup
-      if (callNum === 2) return balanceChain;
+      if (callNum === 2) return nullChain;
       if (callNum === 3) return nullChain;
       if (table === 'user_points' && callNum === 4) return deductionChain;
       if (table === 'user_points' && callNum === 5) return recheckChain;
@@ -1710,6 +1785,95 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(json.bookingId).toBe('booking-cas-ok');
+  });
+
+  test('予約・控除・menu情報は原子RPC一回でcommitされる', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-atomic' } } });
+    const balanceChain = fluent(null);
+    balanceChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 500 }] }));
+    const nullChain = fluent({ data: null });
+    mockRpc.mockResolvedValue({ data: 'booking-atomic', error: null });
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return menuPriceChain(100000);
+      if (callNum === 2) return nullChain;
+      return nullChain;
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 150 }));
+    expect(res.status).toBe(200);
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(mockRpc).toHaveBeenCalledWith('create_booking_with_points_atomic', expect.objectContaining({
+      p_user_id: 'user-atomic', p_points_used: 150, p_menu_ids: null,
+    }));
+  });
+
+  test('原子RPCが残高不足を返す → 400、予約ロールバックRPCは不要', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-atomic-error' } } });
+    const { menuChain } = pointMenuChains(100000);
+    const nullChain = fluent({ data: null });
+    const rollbackBookingChain: Record<string, unknown> = {
+      update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
+    };
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return nullChain;
+      if (table === 'bookings') return rollbackBookingChain;
+      return nullChain;
+    });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'INSUFFICIENT_POINTS' } });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 150 }));
+    expect(res.status).toBe(400);
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(rollbackBookingChain.update).not.toHaveBeenCalled();
+  });
+
+  test('原子RPCが一般エラーを返す → 500、部分作成の補償書込みをしない', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-atomic-error' } } });
+    const { menuChain } = pointMenuChains(100000);
+    const nullChain = fluent({ data: null });
+    const rollbackBookingChain: Record<string, unknown> = {
+      update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
+    };
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return nullChain;
+      if (table === 'bookings') return rollbackBookingChain;
+      return nullChain;
+    });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'RPC unavailable' } });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 150 }));
+    expect(res.status).toBe(500);
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(rollbackBookingChain.update).not.toHaveBeenCalled();
+  });
+
+  test('ポイント控除RPCの戻り値が不正 → 予約ロールバック+500', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-atomic-invalid' } } });
+    const { menuChain } = pointMenuChains(100000);
+    const nullChain = fluent({ data: null });
+    const rollbackBookingChain: Record<string, unknown> = {
+      update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
+    };
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return nullChain;
+      if (table === 'bookings') return rollbackBookingChain;
+      return nullChain;
+    });
+    mockRpc.mockResolvedValue({ data: { deduction_id: 123 }, error: null });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 150 }));
+    expect(res.status).toBe(500);
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(rollbackBookingChain.update).not.toHaveBeenCalled();
   });
 
   test('LINE Works通知パス（isLineWorksConfigured=true）', async () => {
@@ -1748,7 +1912,7 @@ describe('POST /api/booking', () => {
   });
 
   // 【監査M1】指名なし（おまかせ=staff_id null）は施設全体の時間帯重複があっても事前チェックで
-  // 409 にせず、RPC(create_booking_atomic) の G2 容量判定へ委譲する（複数スタッフ在籍施設で
+  // 409 にせず、RPC(create_booking_with_points_atomic) の G2 容量判定へ委譲する（複数スタッフ在籍施設で
   // 正当な2件目のおまかせ予約を誤拒否しない）。
   test('指名なし（おまかせ）は施設全体の重複があっても409にせずRPCへ委譲する（監査M1）', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
@@ -1770,21 +1934,16 @@ describe('POST /api/booking', () => {
     expect(json.success).toBe(true); // RPC まで到達し予約成立（容量に空きがある前提）
   });
 
-  test('指名あり（staff_id）＋当該スタッフの二重予約 → 409（fast-fail維持・監査M1）', async () => {
+  test('指名あり（staff_id）＋当該スタッフの二重予約 → 原子RPCで409', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
-
-    // 指名ありでは code が .gt(...).eq('staff_id') の順で staff_id を後付けするため、
-    // チェーン自体を thenable にして「全メソッドが self を返し、await で conflict 行を返す」形にする。
-    const conflictChain: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'not', 'lt', 'gt']) {
-      conflictChain[m] = jest.fn(() => conflictChain);
-    }
-    conflictChain.then = (onFulfilled: (v: unknown) => unknown) =>
-      Promise.resolve({ data: [{ id: 'conflict-booking' }] }).then(onFulfilled);
-    mockFrom.mockReturnValue(conflictChain);
+    mockFrom.mockImplementation((table: string) => table === 'facility_menus'
+      ? menuLookupChain()
+      : fluent({ data: null }));
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'BOOKING_CONFLICT', code: 'P0001' } });
 
     const res = await POST(makeRequest({ ...validBooking, staff_id: '523e4567-e89b-12d3-a456-426614174000' }));
     expect(res.status).toBe(409);
+    expect(mockRpc).toHaveBeenCalledWith('create_booking_with_points_atomic', expect.any(Object));
   });
 
   test('BOOKING_CONFLICT in error message (no 23505 code) → 409', async () => {
@@ -1807,7 +1966,7 @@ describe('POST /api/booking', () => {
   });
 
   test('STAFF_NOT_IN_FACILITY（RPC が G1 ガードで RAISE）→ 400', async () => {
-    // 指名スタッフが当該施設に属さない場合、create_booking_atomic が STAFF_NOT_IN_FACILITY を RAISE。
+    // 指名スタッフが当該施設に属さない場合、create_booking_with_points_atomic が STAFF_NOT_IN_FACILITY を RAISE。
     // API はマルチテナント違反として 400 に変換する（500 汎用に落とさない）ことを検証する。
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const conflictChain = fluent(null);
@@ -2304,7 +2463,7 @@ describe('POST /api/booking', () => {
     const res = await POST(makeRequest(validBooking));
     expect(res.status).toBe(200);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_booking_with_points_atomic',
       expect.objectContaining({ p_status: 'confirmed' })
     );
     // A-3: 自動確定施設(status='confirmed')では確定メール(sendBookingConfirmed)を送り、
@@ -2571,7 +2730,7 @@ describe('POST /api/booking', () => {
     expect(res.status).toBe(500);
   });
 
-  test('CAS失敗（残高が負）→ rollback → 400', async () => {
+  test('同時ポイント利用の残高変化はDB原子RPCが拒否 → 400', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-cas' } } });
 
     const conflictChain = fluent(null);
@@ -2600,13 +2759,13 @@ describe('POST /api/booking', () => {
       eq: jest.fn(() => Promise.resolve({ error: null })),
     }));
 
-    mockRpc.mockResolvedValue({ data: 'booking-cas-fail', error: null });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'INSUFFICIENT_POINTS' } });
 
     let upCall = 0;
     mockFrom.mockImplementation((table: string) => {
       upCall++;
       if (upCall === 1) return menuPriceChain(100000); // facility_menus price lookup
-      if (upCall === 2) return balanceChain;
+      if (upCall === 2) return nullChain;
       if (upCall === 3) return nullChain;
       if (table === 'user_points' && upCall === 4) return deductionChain;
       if (table === 'user_points' && upCall === 5) return recheckChain;
@@ -2618,7 +2777,8 @@ describe('POST /api/booking', () => {
     const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 150 }));
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toContain('競合');
+    expect(json.error).toContain('ポイント');
+    expect(mockRpc).toHaveBeenCalledTimes(1);
   });
 
   test('rpc が null データで成功 → 500 (newBookingId 空)', async () => {
@@ -2660,7 +2820,7 @@ describe('POST /api/booking', () => {
     expect(res.status).toBe(200);
     // menu_ids のみでもメニューは指定されているので refine を通り、サーバー価格(5000)で予約成立。
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_booking_with_points_atomic',
       expect.objectContaining({ p_total_price: 5000 })
     );
   });
@@ -2724,7 +2884,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_booking_with_points_atomic',
       expect.objectContaining({ p_total_price: 0 })
     );
   });
@@ -2789,44 +2949,22 @@ describe('POST /api/booking', () => {
     menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
 
-    const balanceChain = fluent(null);
-    balanceChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 1000 }] }));
-
-    const deductionChain: Record<string, unknown> = {};
-    deductionChain.insert = jest.fn(() => ({
-      select: jest.fn(() => ({
-        single: jest.fn(() => Promise.resolve({ data: { id: 'ded-final' } })),
-      })),
-    }));
-
-    const recheckChain = fluent(null);
-    recheckChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 500 }] }));
-
     mockRpc.mockResolvedValue({ data: 'booking-final-price', error: null });
-
-    let callNum = 0;
-    mockFrom.mockImplementation((table: string) => {
-      callNum++;
-      if (callNum === 1) return menuChain;
-      if (callNum === 2) return balanceChain;
-      if (callNum === 3) return fluent({ data: null }); // facility_profiles
-      if (table === 'user_points' && callNum === 4) return deductionChain;
-      if (table === 'user_points' && callNum === 5) return recheckChain;
-      return fluent({ data: null });
-    });
+    mockFrom.mockImplementation((table: string) => table === 'facility_menus'
+      ? menuChain
+      : fluent({ data: null }));
 
     const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, points_used: 500 }));
     const json = await res.json();
     expect(json.success).toBe(true);
     // serverTotalPrice=5000, pointsUsed=500 → finalPrice=4500
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_booking_with_points_atomic',
       expect.objectContaining({ p_total_price: 4500, p_points_used: 500 })
     );
   });
 
-  // Branch coverage: line 236 - deductionRow?.id が falsy → delete スキップして booking をキャンセル
-  test('CAS失敗でdeductionRow.idなし → deleteスキップしてbookingロールバック→400', async () => {
+  test('RPCで残高不足が確定した予約は後追いrollbackなしで400', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-no-did' } } });
 
     const conflictChain = fluent(null);
@@ -2851,13 +2989,13 @@ describe('POST /api/booking', () => {
     const cancelChain: Record<string, unknown> = {};
     cancelChain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
 
-    mockRpc.mockResolvedValue({ data: 'booking-no-did', error: null });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'INSUFFICIENT_POINTS' } });
 
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return menuPriceChain(100000); // facility_menus price lookup
-      if (callNum === 2) return balanceChain;
+      if (callNum === 2) return nullChain;
       if (callNum === 3) return nullChain;
       if (table === 'user_points' && callNum === 4) return deductionChain;
       if (table === 'user_points' && callNum === 5) return recheckChain;
@@ -2868,11 +3006,11 @@ describe('POST /api/booking', () => {
     const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 200 }));
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toContain('競合');
+    expect(json.error).toContain('ポイント');
+    expect(cancelChain.update).not.toHaveBeenCalled();
   });
 
-  // Branch coverage: line 238 - rollbackPointsErr がある場合 console.error ログ
-  test('CAS失敗でポイントrollbackエラー → console.error ログ出力', async () => {
+  test('RPC残高不足でポイント補償deleteを行わない', async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-rb-err' } } });
 
@@ -2903,13 +3041,13 @@ describe('POST /api/booking', () => {
     const cancelChain: Record<string, unknown> = {};
     cancelChain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
 
-    mockRpc.mockResolvedValue({ data: 'booking-rb-err', error: null });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'INSUFFICIENT_POINTS' } });
 
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return menuPriceChain(100000); // facility_menus price lookup
-      if (callNum === 2) return balanceChain;
+      if (callNum === 2) return nullChain;
       if (callNum === 3) return nullChain;
       if (table === 'user_points' && callNum === 4) return deductionChain;
       if (table === 'user_points' && callNum === 5) return recheckChain;
@@ -2920,15 +3058,12 @@ describe('POST /api/booking', () => {
 
     const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 200 }));
     expect(res.status).toBe(400);
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[booking] point deduction rollback failed'),
-      expect.anything()
-    );
+    expect(deleteChain.delete).not.toHaveBeenCalled();
+    expect(consoleSpy).not.toHaveBeenCalledWith(expect.stringContaining('rollback failed'), expect.anything());
     consoleSpy.mockRestore();
   });
 
-  // Branch coverage: line 242 - rollbackBookingErr がある場合 console.error ログ
-  test('CAS失敗でbooking rollbackエラー → console.error ログ出力', async () => {
+  test('RPC残高不足で予約statusを後追い更新しない', async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-bk-rb-err' } } });
 
@@ -2961,13 +3096,13 @@ describe('POST /api/booking', () => {
       eq: jest.fn(() => Promise.resolve({ error: { message: 'cancel failed' } })),
     }));
 
-    mockRpc.mockResolvedValue({ data: 'booking-bk-err', error: null });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'INSUFFICIENT_POINTS' } });
 
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return menuPriceChain(100000); // facility_menus price lookup
-      if (callNum === 2) return balanceChain;
+      if (callNum === 2) return nullChain;
       if (callNum === 3) return nullChain;
       if (table === 'user_points' && callNum === 4) return deductionChain;
       if (table === 'user_points' && callNum === 5) return recheckChain;
@@ -2978,35 +3113,23 @@ describe('POST /api/booking', () => {
 
     const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 200 }));
     expect(res.status).toBe(400);
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[booking] booking rollback failed'),
-      expect.anything()
-    );
+    expect(cancelChain.update).not.toHaveBeenCalled();
+    expect(consoleSpy).not.toHaveBeenCalledWith(expect.stringContaining('rollback failed'), expect.anything());
     consoleSpy.mockRestore();
   });
 
-  // Branch coverage: line 155 - pointRows が null → ?? [] → reduce で 0 → 残高不足チェック
-  test('user_points クエリが null → ポイント残高 0 → points_used を超えるので400', async () => {
+  test('残高snapshotに依存せず、原子RPCの不足結果を400へ変換', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-null-pts' } } });
-
-    const conflictChain = fluent(null);
-    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
-
-    // user_points returns { data: null } → (null ?? []).reduce(...) = 0 < 200 → 400
-    const pointsNullChain = fluent(null);
-    pointsNullChain.eq = jest.fn(() => Promise.resolve({ data: null }));
-
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return menuPriceChain(100000); // facility_menus price lookup
-      return pointsNullChain;
-    });
+    mockFrom.mockImplementation((table: string) => table === 'facility_menus'
+      ? menuPriceChain(100000)
+      : fluent({ data: null }));
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'INSUFFICIENT_POINTS' } });
 
     const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 200 }));
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toContain('ポイント');
+    expect(mockFrom).not.toHaveBeenCalledWith('user_points');
   });
 
   // Branch coverage: line 232 - recheck が null → ?? [] → reduce で 0 → newBalance=0 >= 0 → CAS通過
@@ -3038,7 +3161,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return menuPriceChain(100000); // facility_menus price lookup
-      if (callNum === 2) return balanceChain;
+      if (callNum === 2) return nullChain;
       if (callNum === 3) return nullChain; // facility_profiles
       if (table === 'user_points' && callNum === 4) return deductionChain;
       if (table === 'user_points' && callNum === 5) return recheckNullChain;
@@ -3066,14 +3189,6 @@ describe('POST /api/booking', () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     mockRpc.mockResolvedValue({ data: 'booking-lw-assigned', error: null });
 
-    // staff_id → conflict chain needs extra .eq() after .gt()
-    const noConflict = Promise.resolve({ data: [] });
-    const conflictChain = fluent(null);
-    const chainEnd: Record<string, unknown> = {};
-    chainEnd.eq = jest.fn(() => noConflict);
-    chainEnd.then = noConflict.then.bind(noConflict);
-    conflictChain.gt = jest.fn(() => chainEnd);
-
     const menuResult = { data: [{ id: menuId, price: 5000 }], error: null };
     const menuChain: Record<string, unknown> = {};
     const menuHandler = jest.fn(() => menuChain);
@@ -3097,18 +3212,17 @@ describe('POST /api/booking', () => {
     staffListChain.not = jest.fn(() => Promise.resolve(staffListResult));
 
     // call order (user=null, menu_id, staff_id):
-    // 1: conflict, 2: facility_menus (price), 3: staff_profiles (fee),
-    // 4: menu_staff (担当チェック・2026年7月15日追加), 5: facility_profiles (auto-confirm), rpc
-    // notification: 6+, LINE Works staffList at call 10（menu_staff追加により旧9→10に1件シフト）
+    // 1: facility_menus (price), 2: staff_profiles (fee), 3: menu_staff (担当チェック),
+    // 4: facility_profiles (auto-confirm), rpc
+    // notification: 5+, LINE Works staffList at call 9.
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
-      if (callNum === 3) return staffFeeChain;
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return staffFeeChain;
       if (table === 'menu_staff') return menuStaffChain([]);
-      if (callNum === 5) return nullChain;
-      if (callNum === 10) return staffListChain;
+      if (callNum === 4) return nullChain;
+      if (callNum === 9) return staffListChain;
       return nullChain;
     });
 
@@ -3156,7 +3270,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_booking_with_points_atomic',
       expect.objectContaining({ p_total_price: 10000 })
     );
   });

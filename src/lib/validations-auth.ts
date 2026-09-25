@@ -30,6 +30,9 @@ export const signupSchema = z.object({
   prefecture: z.string().min(1, '都道府県を選択してください').max(20),
   password: z.string().min(8, 'パスワードは8文字以上で入力してください').max(128),
   password_confirm: z.string().max(128),
+  terms_agreed: z.boolean().refine((value) => value, {
+    message: '利用規約とプライバシーポリシーへの同意が必要です',
+  }),
 }).refine((data) => data.password === data.password_confirm, {
   message: 'パスワードが一致しません',
   path: ['password_confirm'],

@@ -62,7 +62,7 @@ function SignupContent() {
     setToast({ type: 'error', message: '新規登録を完了できませんでした。メールの送信状況を確認できないため、時間をおいてもう一度お試しください。' });
   };
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
+  const { register, handleSubmit, getValues, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
   });
 
@@ -85,7 +85,13 @@ function SignupContent() {
         options: {
           // display_name/phone/prefecture は auth.users.raw_user_meta_data に保存され、
           // handle_new_user トリガー(DDL)経由で profiles へ複製される。
-          data: { display_name: data.display_name, phone: data.phone, prefecture: data.prefecture },
+          data: {
+            display_name: data.display_name,
+            phone: data.phone,
+            prefecture: data.prefecture,
+            terms_agreed: true,
+            terms_agreed_at: new Date().toISOString(),
+          },
           emailRedirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}`,
         },
       });
@@ -109,20 +115,26 @@ function SignupContent() {
         return;
       }
 
-      setToast({ type: 'success', message: '確認メールを送信しました。メールのリンクをクリックして登録を完了してください。' });
+      // Supabase Authが受付したことと、SMTPが配達したことは別の状態である。
+      // session無しは確認待ちを示すだけで、配達済みとは断定できない。
+      setToast({ type: 'success', message: '登録申請を受け付けました。確認が必要な場合はメールの案内に従ってください。メールが届かない場合は、迷惑メールフォルダと入力したアドレスを確認し、時間をおいて再度お試しください。' });
     } catch {
       showSignupFailure();
     }
   };
 
   const startGoogleSignup = async () => {
+    if (!getValues('terms_agreed')) {
+      setToast({ type: 'error', message: 'Googleで登録する場合も、利用規約とプライバシーポリシーへの同意が必要です。' });
+      return;
+    }
     try {
       const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}` },
       });
-      if (error) {
+      if (error || !data?.url) {
         setToast({ type: 'error', message: 'Googleでの登録を開始できませんでした。時間をおいてもう一度お試しください。' });
       }
     } catch {
@@ -134,7 +146,7 @@ function SignupContent() {
     <>
           <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
             <div>
-              <label htmlFor="signup-name" className="form-label">お名前 <span className="text-red-500">*</span></label>
+              <label htmlFor="signup-name" className="form-label">お名前（表示名） <span className="text-red-500">*</span></label>
               <input
                 {...register('display_name')}
                 id="signup-name"
@@ -142,6 +154,7 @@ function SignupContent() {
                 autoComplete="name"
                 aria-required="true"
               />
+              <p className="form-help">表示名として登録されます。姓名の間のスペースは、あり・なしのどちらでも入力できます。</p>
               {errors.display_name && <p className="form-error" role="alert">{errors.display_name.message}</p>}
             </div>
 
@@ -168,6 +181,7 @@ function SignupContent() {
                 autoComplete="tel"
                 aria-required="true"
               />
+              <p className="form-help">ハイフンあり・なしのどちらでも入力できます。</p>
               {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
             </div>
 
@@ -220,6 +234,7 @@ function SignupContent() {
                   )}
                 </button>
               </div>
+              <p className="form-help">8〜128文字で入力してください。英字・数字・記号の必須条件はありません。</p>
               {errors.password && <p className="form-error" role="alert">{errors.password.message}</p>}
             </div>
 
@@ -236,6 +251,22 @@ function SignupContent() {
               {errors.password_confirm && <p className="form-error" role="alert">{errors.password_confirm.message}</p>}
             </div>
 
+            <label htmlFor="signup-terms" className="flex items-start gap-2 text-sm text-gray-600">
+              <input
+                {...register('terms_agreed')}
+                id="signup-terms"
+                type="checkbox"
+                className="mt-0.5 rounded border-gray-300"
+                aria-required="true"
+              />
+              <span>
+                <Link href="/terms" target="_blank" rel="noopener noreferrer" className="text-sky-700 underline">利用規約</Link>
+                および
+                <Link href="/privacy" target="_blank" rel="noopener noreferrer" className="text-sky-700 underline">プライバシーポリシー</Link>
+                に同意する（必須）
+              </span>
+            </label>
+            {errors.terms_agreed && <p className="form-error" role="alert">{errors.terms_agreed.message}</p>}
             <button type="submit" disabled={isSubmitting} className="btn-primary w-full !py-3">
               {isSubmitting ? '登録中...' : '新規登録'}
             </button>

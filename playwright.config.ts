@@ -29,12 +29,12 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/, /admin-subscriptions\.spec\.ts/, /admin-subscribers\.setup\.ts/, /admin-subscribers\.spec\.ts/, /admin-menus\.spec\.ts/, /admin-coupons\.spec\.ts/, /admin-catalog\.spec\.ts/, /admin-packages-edit\.spec\.ts/, /admin-subscription-plans-edit\.spec\.ts/, /admin-staff-edit\.spec\.ts/, /admin-qa\.spec\.ts/, /admin-blog\.spec\.ts/, /admin-jobs\.spec\.ts/, /admin-large-list-nav\.spec\.ts/, /admin-featured-ads\.spec\.ts/, /admin-qrcode\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /booking-idempotency\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/, /admin-subscriptions\.spec\.ts/, /admin-subscribers\.setup\.ts/, /admin-subscribers\.spec\.ts/, /admin-menus\.spec\.ts/, /admin-coupons\.spec\.ts/, /admin-catalog\.spec\.ts/, /admin-packages-edit\.spec\.ts/, /admin-subscription-plans-edit\.spec\.ts/, /admin-staff-edit\.spec\.ts/, /admin-qa\.spec\.ts/, /admin-blog\.spec\.ts/, /admin-jobs\.spec\.ts/, /admin-large-list-nav\.spec\.ts/, /admin-featured-ads\.spec\.ts/, /admin-qrcode\.spec\.ts/],
     },
     {
       name: 'Mobile Safari',
       use: { ...devices['iPhone 13'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/, /admin-subscriptions\.spec\.ts/, /admin-subscribers\.setup\.ts/, /admin-subscribers\.spec\.ts/, /admin-menus\.spec\.ts/, /admin-coupons\.spec\.ts/, /admin-catalog\.spec\.ts/, /admin-packages-edit\.spec\.ts/, /admin-subscription-plans-edit\.spec\.ts/, /admin-staff-edit\.spec\.ts/, /admin-qa\.spec\.ts/, /admin-blog\.spec\.ts/, /admin-jobs\.spec\.ts/, /admin-large-list-nav\.spec\.ts/, /admin-featured-ads\.spec\.ts/, /admin-qrcode\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /booking-idempotency\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/, /admin-subscriptions\.spec\.ts/, /admin-subscribers\.setup\.ts/, /admin-subscribers\.spec\.ts/, /admin-menus\.spec\.ts/, /admin-coupons\.spec\.ts/, /admin-catalog\.spec\.ts/, /admin-packages-edit\.spec\.ts/, /admin-subscription-plans-edit\.spec\.ts/, /admin-staff-edit\.spec\.ts/, /admin-qa\.spec\.ts/, /admin-blog\.spec\.ts/, /admin-jobs\.spec\.ts/, /admin-large-list-nav\.spec\.ts/, /admin-featured-ads\.spec\.ts/, /admin-qrcode\.spec\.ts/],
     },
     // オーナー認証の seed＋ログイン（storageState を作る）
     {
@@ -58,7 +58,7 @@ export default defineConfig({
     // 匿名で予約フローを完走（seed 後に実行）
     {
       name: 'booking',
-      testMatch: /booking-complete\.spec\.ts/,
+      testMatch: /booking-(complete|idempotency)\.spec\.ts/,
       dependencies: ['booking-setup'],
       use: { ...devices['Desktop Chrome'] },
     },

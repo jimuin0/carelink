@@ -370,8 +370,7 @@ test('①profiles削除自体が失敗 → auth削除せず中断して500・ale
 
 // ─── ③ 施設削除ループ手前の memberships select が失敗 → fail-closed ────────────
 
-test('③施設削除前のオーナー施設一覧取得(memberships select)が失敗 → 500・auth削除せず・alertCaughtError', async () => {
-  const { alertCaughtError } = require('@/lib/alert');
+test('③所有施設の事前照会へ統合後も退会処理を継続できる', async () => {
   mockFrom.mockImplementation((table: string) => {
     if (table === 'bookings') return bookingsMock();
     if (table === 'facility_members') {
@@ -398,13 +397,8 @@ test('③施設削除前のオーナー施設一覧取得(memberships select)が
     return genericWriteMock();
   });
   const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  expect(mockDeleteUser).not.toHaveBeenCalled();
-  expect(alertCaughtError).toHaveBeenCalledWith(
-    'account-delete-memberships-select',
-    expect.any(Error),
-    '/api/account/delete',
-  );
+  expect(res.status).toBe(200);
+  expect(mockDeleteUser).toHaveBeenCalled();
 });
 
 // ─── ② オーナー人数チェック(count)が失敗 → fail-closed（誤suspend防止） ─────────
@@ -635,8 +629,8 @@ test('施設停止失敗 → ログ記録して続行', async () => {
   });
 
   const res = await POST(makeRequest());
-  // suspend failure is logged but not fatal
-  expect(res.status).toBe(200);
+  // suspend failure is fail-closed before personal data deletion
+  expect(res.status).toBe(500);
 });
 
 test('facility_members削除失敗 → auth削除せず中断して500（孤立メンバーシップ防止）', async () => {

@@ -30,6 +30,7 @@ describe('signupSchema', () => {
     email: 'test@example.com',
     phone: '090-1234-5678',
     prefecture: '東京都',
+    terms_agreed: true,
     password: '12345678',
     password_confirm: '12345678',
   };
@@ -146,6 +147,7 @@ describe('signupSchema - 境界値・エッジケース', () => {
     email: 'test@example.com',
     phone: '090-1234-5678',
     prefecture: '東京都',
+    terms_agreed: true,
     password: '12345678',
     password_confirm: '12345678',
   };
@@ -208,6 +210,7 @@ describe('予約ドメイン @line.carelink.local の拒否（アカウント先
     email: 'test@example.com',
     phone: '090-1234-5678',
     prefecture: '東京都',
+    terms_agreed: true,
     password: '12345678',
     password_confirm: '12345678',
   };

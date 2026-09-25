@@ -29,6 +29,7 @@ jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: 
 
 const mockGetUser = jest.fn();
 const mockFrom = jest.fn();
+const mockRpc = jest.fn();
 
 jest.mock('@/lib/supabase-server-auth', () => ({
   createServerSupabaseAuthClient: jest.fn(() => Promise.resolve({
@@ -36,7 +37,7 @@ jest.mock('@/lib/supabase-server-auth', () => ({
   })),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: jest.fn(() => ({ from: mockFrom })),
+  createServiceRoleClient: jest.fn(() => ({ from: mockFrom, rpc: mockRpc })),
   createServerSupabaseClient: jest.fn(() => ({ from: mockFrom })),
 }));
 jest.mock('next/headers', () => ({
@@ -59,6 +60,12 @@ beforeEach(() => {
   jest.clearAllMocks();
   (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
+  // Supabase RPC methods depend on their client receiver (`this.rest`). Keep that
+  // contract in the mock so extracting rpc without bind fails deterministically.
+  mockRpc.mockImplementation(function (this: { rpc?: typeof mockRpc } | undefined) {
+    if (this?.rpc !== mockRpc) throw new Error('Supabase rpc called without its client receiver');
+    return Promise.resolve({ data: { cancelled: true, updated: true }, error: null });
+  });
   // メール送信関数は boolean を返す契約（デフォルトは成功）。個別テストで false を上書きして
   // 送達失敗時のアラート分岐を検証する。
   (sendBookingConfirmed as jest.Mock).mockResolvedValue(true);
@@ -906,12 +913,11 @@ describe('POST /api/admin/booking-status - notifications', () => {
 });
 
 // ---------------------------------------------------------------------------
-// ポイント返還（cancelled 進入時・金銭損失防止）
+// ポイント返還（状態遷移と返還を原子的に確定）
 // ---------------------------------------------------------------------------
 describe('POST /api/admin/booking-status - ポイント返還（cancelled）', () => {
-  function setupCancelRefund(pointsUsed: number, bookingUserId: string | null, insertResult: { error: unknown }) {
+  function setupCancelRefund(pointsUsed: number, bookingUserId: string | null) {
     mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
-    const pointsInsert = jest.fn(() => Promise.resolve(insertResult));
     let bookingCall = 0;
     mockFrom.mockImplementation((table: string) => {
       if (table === 'bookings') {
@@ -922,37 +928,79 @@ describe('POST /api/admin/booking-status - ポイント返還（cancelled）', (
         return updateChain({ data: [{ id: validBookingId }], error: null });
       }
       if (table === 'facility_members') return membershipChain({ facility_id: facilityId, role: 'owner' });
-      if (table === 'user_points') {
-        return { insert: pointsInsert, delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) };
-      }
+      if (table === 'user_points') return { delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) };
       if (table === 'customer_visits') {
         return { insert: jest.fn(() => Promise.resolve({ error: null })), delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) };
       }
       return singleChain({ name: 'テスト施設' });
     });
-    return pointsInsert;
   }
 
   test('ポイント利用予約を cancelled に → 控除済みポイントを返還する', async () => {
-    const spy = setupCancelRefund(300, 'customer-1', { error: null });
+    setupCancelRefund(300, 'customer-1');
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
     expect(res.status).toBe(200);
-    expect(spy).toHaveBeenCalledWith(expect.objectContaining({
-      user_id: 'customer-1', points: 300, booking_id: validBookingId, reason: 'キャンセル返還',
-    }));
+    expect(mockRpc).toHaveBeenCalledWith('cancel_booking_with_points_atomic', {
+      p_booking_id: validBookingId,
+      p_facility_id: facilityId,
+      p_user_id: 'customer-1',
+      p_expected_status: 'confirmed',
+    });
   });
 
-  test('返還 insert 失敗 → warn のみで 200', async () => {
-    const spy = setupCancelRefund(300, 'customer-1', { error: { message: 'insert fail' } });
+  test('返還insert failureを含むRPC失敗 → 500（状態をcancelledにしない）', async () => {
+    setupCancelRefund(300, 'customer-1');
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'insert fail' } });
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
-    expect(res.status).toBe(200);
-    expect(spy).toHaveBeenCalled();
+    expect(res.status).toBe(500);
+    expect(mockRpc).toHaveBeenCalledTimes(1);
   });
 
-  test('ゲスト予約(user_id=null)はポイント返還しない（&& booking.user_id false 分岐）', async () => {
-    const spy = setupCancelRefund(300, null, { error: null });
+  test('ゲスト予約でポイント使用値が0ならstatusだけcancelledにする', async () => {
+    setupCancelRefund(0, null);
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
     expect(res.status).toBe(200);
-    expect(spy).not.toHaveBeenCalled();
+    expect(mockRpc).toHaveBeenCalledWith('cancel_booking_with_points_atomic', expect.objectContaining({ p_user_id: null }));
+  });
+
+  test('no_show → cancelled 訂正も原子RPCへ expected statusを渡す', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return fluent({ data: { ...bookingBase, status: 'no_show', points_used: 0 } });
+      if (table === 'facility_members') return membershipChain({ facility_id: facilityId, role: 'owner' });
+      return singleChain({ name: 'テスト施設' });
+    });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
+    expect(res.status).toBe(200);
+    expect(mockRpc).toHaveBeenCalledWith('cancel_booking_with_points_atomic', expect.objectContaining({ p_expected_status: 'no_show' }));
+  });
+});
+
+describe('POST /api/admin/booking-status - no_show correction atomicity', () => {
+  test('completed → no_show は status・来店記録・来店ポイントをまとめて処理するRPCを使う', async () => {
+    setupSuccessMock('completed');
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'no_show' }));
+    expect(res.status).toBe(200);
+    expect(mockRpc).toHaveBeenCalledWith('mark_booking_no_show_atomic', {
+      p_booking_id: validBookingId,
+      p_facility_id: facilityId,
+      p_expected_status: 'completed',
+    });
+  });
+
+  test('no_show RPCの副作用削除が失敗した場合は500を返し、status更新済みとして成功扱いしない', async () => {
+    setupSuccessMock('completed');
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'visit/points cleanup failed' } });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'no_show' }));
+    expect(res.status).toBe(500);
+    expect(sendBookingStatusUpdate).not.toHaveBeenCalled();
+    expect(sendPushToUser).not.toHaveBeenCalled();
+  });
+
+  test('no_show CAS競合は409を返す', async () => {
+    setupSuccessMock('completed');
+    mockRpc.mockResolvedValue({ data: { updated: false }, error: null });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'no_show' }));
+    expect(res.status).toBe(409);
   });
 });

@@ -126,10 +126,10 @@ export async function POST(request: NextRequest) {
   if (!newId) return serverError('admin-bookings-create-no-id', new Error('create_booking_atomic returned no id'), '/api/admin/bookings', '予約に失敗しました');
 
   // 複数メニュー予約は menu_ids 列に全メニューを保存（menu_id には先頭1件しか入らず表示が1件目のみに
-  // なる・A6）。料金・所要時間は合算済みで正しい。失敗は致命でないため warn のみ。単一時はスキップ。
+  // なる・A6）。料金・所要時間は合算済みで正しい。表示内容が欠ける失敗は可視化する。
   if (d.menu_ids.length > 1) {
     const { error: menuIdsErr } = await admin.from('bookings').update({ menu_ids: d.menu_ids }).eq('id', newId);
-    if (menuIdsErr) console.error('[admin-bookings] menu_ids persist failed', { bookingId: newId, err: menuIdsErr.message });
+    if (menuIdsErr) return serverError('admin-bookings-menu-ids-persist', menuIdsErr, '/api/admin/bookings', '予約内容の保存に失敗しました。');
   }
 
   void writeAuditLog({

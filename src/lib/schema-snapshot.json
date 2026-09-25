@@ -124,6 +124,7 @@
     "end_time",
     "facility_id",
     "id",
+    "idempotency_key",
     "menu_id",
     "menu_ids",
     "note",

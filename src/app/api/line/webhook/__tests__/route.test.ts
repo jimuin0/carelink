@@ -8,7 +8,7 @@
  *   - Message event: auto-reply with sendLineReply
  *   - User ID validation (alphanumeric + hyphen/underscore only)
  *   - Fire-and-forget event handling
- *   - Error resilience (always returns 200)
+ *   - Processing failures return 500 so LINE retries the event
  */
 
 jest.mock('@/lib/line');
@@ -171,6 +171,18 @@ describe('POST /api/line/webhook', () => {
     );
   });
 
+  test('follow event: link upsert エラー → 500（LINE再送対象）', async () => {
+    mockFromDelegate.mockReturnValue({
+      upsert: jest.fn().mockResolvedValue({ error: { message: 'upsert failed' } }),
+    });
+    const res = await POST(
+      makeRequest({
+        events: [{ type: 'follow', source: { userId: VALID_LINE_USER_ID }, replyToken: 'token-123' }],
+      }) as any
+    );
+    expect(res.status).toBe(500);
+  });
+
   test('unfollow event → line_user_links を削除（dead link 除去）', async () => {
     const mockEq = jest.fn().mockResolvedValue({ error: null });
     const mockDelete = jest.fn().mockReturnValue({ eq: mockEq });
@@ -188,7 +200,7 @@ describe('POST /api/line/webhook', () => {
     expect(mockEq).toHaveBeenCalledWith('line_user_id', VALID_LINE_USER_ID);
   });
 
-  test('unfollow event: 削除エラーでもログのみで 200 継続', async () => {
+  test('unfollow event: 削除エラー → 500（LINE再送対象）', async () => {
     const mockEq = jest.fn().mockResolvedValue({ error: { message: 'delete failed' } });
     mockFromDelegate.mockReturnValue({ delete: jest.fn().mockReturnValue({ eq: mockEq }) });
 
@@ -198,11 +210,11 @@ describe('POST /api/line/webhook', () => {
       }) as any
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     expect(mockEq).toHaveBeenCalled();
   });
 
-  test('unfollow event: 例外でもログのみで 200 継続', async () => {
+  test('unfollow event: 例外 → 500（LINE再送対象）', async () => {
     mockFromDelegate.mockImplementation(() => { throw new Error('boom'); });
 
     const res = await POST(
@@ -211,7 +223,7 @@ describe('POST /api/line/webhook', () => {
       }) as any
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
   });
 
   test('message event → sends auto-reply', async () => {
@@ -389,7 +401,7 @@ describe('POST /api/line/webhook', () => {
     expect(call[0].display_name).toBeDefined();
   });
 
-  test('invalid JSON → 200 (graceful error)', async () => {
+  test('invalid JSON → 500 (LINE再送対象)', async () => {
     const req = new Request('http://localhost/api/line/webhook', {
       method: 'POST',
       headers: {
@@ -401,10 +413,10 @@ describe('POST /api/line/webhook', () => {
 
     const res = await POST(req as any);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
   });
 
-  test('exception during profile fetch → continues', async () => {
+  test('exception during profile fetch → 500 (LINE再送対象)', async () => {
     global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
 
     const res = await POST(
@@ -419,7 +431,7 @@ describe('POST /api/line/webhook', () => {
       }) as any
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
   });
 
   test('returns OK status always', async () => {
