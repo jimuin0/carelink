@@ -12,20 +12,67 @@ function escSlack(s: string): string {
 }
 
 export type NotifyPayload =
-  | { type: 'salon'; data: { facility_name: string; business_type: string; representative_name: string; phone: string; email: string; address?: string; desired_start_date?: string } }
-  | { type: 'contact'; data: { name: string; inquiry_type: string; email: string; message: string } }
-  | { type: 'facility_inquiry'; data: { facility_name: string; name: string; email: string; phone: string; message: string } }
-  | { type: 'facility'; data: { facility_name: string; contact_name: string; email: string; phone: string; business_type: string } };
+  | {
+      type: 'salon';
+      data: {
+        facility_name: string;
+        business_type: string;
+        representative_name: string;
+        phone: string;
+        email: string;
+        address?: string;
+        desired_start_date?: string;
+      };
+    }
+  | {
+      type: 'contact';
+      data: {
+        name: string;
+        inquiry_type: string;
+        email: string;
+        message: string;
+        traffic_source?: {
+          source: string;
+          medium: string | null;
+          referrerHost: string | null;
+          landingPath: string;
+          capturedAt: string;
+        } | null;
+      };
+    }
+  | {
+      type: 'facility_inquiry';
+      data: {
+        facility_name: string;
+        name: string;
+        email: string;
+        phone: string;
+        message: string;
+      };
+    }
+  | {
+      type: 'facility';
+      data: {
+        facility_name: string;
+        contact_name: string;
+        email: string;
+        phone: string;
+        business_type: string;
+      };
+    };
 
 // Phase 7b: 通知種別に応じた管理画面 URL を返す（リンクボタン用）
 function adminUrlFor(type: NotifyPayload['type']): string {
   const base = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-jp.com';
+
   switch (type) {
     case 'contact':
       return `${base}/admin/inquiries`;
+
     case 'salon':
     case 'facility':
       return `${base}/admin/registrations`;
+
     case 'facility_inquiry':
       // 【2026年7月10日 恒久根治】/admin/inquiries は contacts テーブル（運営宛の全社横断
       // 問い合わせ・platformAdmin専用）を表示するページで、facility_inquiries とは別物。
@@ -37,6 +84,7 @@ function adminUrlFor(type: NotifyPayload['type']): string {
 
 function buildSlackBlocks(payload: NotifyPayload, text: string): unknown[] {
   const adminUrl = adminUrlFor(payload.type);
+
   return [
     sectionBlock(text),
     contextBlock([`type: \`${payload.type}\``, `${new Date().toISOString()}`]),
@@ -55,18 +103,54 @@ function buildSlackMessage(payload: NotifyPayload): string {
         `> *電話:* ${escSlack(payload.data.phone)}`,
         `> *メール:* ${escSlack(payload.data.email)}`,
       ];
-      if (payload.data.address) lines.push(`> *エリア:* ${escSlack(payload.data.address)}`);
-      if (payload.data.desired_start_date) lines.push(`> *掲載希望:* ${escSlack(payload.data.desired_start_date)}`);
+
+      if (payload.data.address) {
+        lines.push(`> *エリア:* ${escSlack(payload.data.address)}`);
+      }
+
+      if (payload.data.desired_start_date) {
+        lines.push(
+          `> *掲載希望:* ${escSlack(payload.data.desired_start_date)}`
+        );
+      }
+
       return lines.join('\n');
     }
-    case 'contact':
-      return [
+
+    case 'contact': {
+      const lines = [
         ':envelope: *お問い合わせ*',
         `> *お名前:* ${escSlack(payload.data.name)}`,
         `> *種別:* ${escSlack(payload.data.inquiry_type)}`,
         `> *メール:* ${escSlack(payload.data.email)}`,
         `> *内容:* ${escSlack(payload.data.message)}`,
-      ].join('\n');
+      ];
+
+      if (payload.data.traffic_source) {
+        lines.push(
+          `> *流入元:* ${escSlack(payload.data.traffic_source.source)}`,
+          `> *メディア:* ${escSlack(
+            payload.data.traffic_source.medium ?? '不明'
+          )}`,
+          `> *入口ページ:* ${escSlack(
+            payload.data.traffic_source.landingPath
+          )}`
+        );
+
+        if (payload.data.traffic_source.referrerHost) {
+          lines.push(
+            `> *参照元:* ${escSlack(
+              payload.data.traffic_source.referrerHost
+            )}`
+          );
+        }
+      } else {
+        lines.push(`> *流入元:* 不明`);
+      }
+
+      return lines.join('\n');
+    }
+
     case 'facility_inquiry':
       return [
         ':hospital: *施設へのお問い合わせ*',
@@ -76,6 +160,7 @@ function buildSlackMessage(payload: NotifyPayload): string {
         `> *電話:* ${escSlack(payload.data.phone)}`,
         `> *内容:* ${escSlack(payload.data.message)}`,
       ].join('\n');
+
     case 'facility':
       return [
         ':clipboard: *施設掲載の申し込み*',
@@ -89,10 +174,60 @@ function buildSlackMessage(payload: NotifyPayload): string {
 }
 
 export const notifyPayloadSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('salon'), data: z.object({ facility_name: z.string().max(200), business_type: z.string().max(100), representative_name: z.string().max(100), phone: z.string().max(30), email: z.string().max(254), address: z.string().max(300).optional(), desired_start_date: z.string().max(30).optional() }) }),
-  z.object({ type: z.literal('contact'), data: z.object({ name: z.string().max(100), inquiry_type: z.string().max(100), email: z.string().max(254), message: z.string().max(2000) }) }),
-  z.object({ type: z.literal('facility_inquiry'), data: z.object({ facility_name: z.string().max(200), name: z.string().max(100), email: z.string().max(254), phone: z.string().max(30), message: z.string().max(2000) }) }),
-  z.object({ type: z.literal('facility'), data: z.object({ facility_name: z.string().max(200), contact_name: z.string().max(100), email: z.string().max(254), phone: z.string().max(30), business_type: z.string().max(100) }) }),
+  z.object({
+    type: z.literal('salon'),
+    data: z.object({
+      facility_name: z.string().max(200),
+      business_type: z.string().max(100),
+      representative_name: z.string().max(100),
+      phone: z.string().max(30),
+      email: z.string().max(254),
+      address: z.string().max(300).optional(),
+      desired_start_date: z.string().max(30).optional(),
+    }),
+  }),
+
+  z.object({
+    type: z.literal('contact'),
+    data: z.object({
+      name: z.string().max(100),
+      inquiry_type: z.string().max(100),
+      email: z.string().max(254),
+      message: z.string().max(2000),
+      traffic_source: z
+        .object({
+          source: z.string().max(100),
+          medium: z.string().max(100).nullable(),
+          referrerHost: z.string().max(253).nullable(),
+          landingPath: z.string().max(500),
+          capturedAt: z.string(),
+        })
+        .nullable()
+        .optional(),
+    }),
+  }),
+
+  z.object({
+    type: z.literal('facility_inquiry'),
+    data: z.object({
+      facility_name: z.string().max(200),
+      name: z.string().max(100),
+      email: z.string().max(254),
+      phone: z.string().max(30),
+      message: z.string().max(2000),
+    }),
+  }),
+
+  z.object({
+    type: z.literal('facility'),
+    data: z.object({
+      facility_name: z.string().max(200),
+      contact_name: z.string().max(100),
+      email: z.string().max(254),
+      phone: z.string().max(30),
+      business_type: z.string().max(100),
+    }),
+  }),
 ]);
 
 /**
@@ -111,20 +246,47 @@ export const notifyPayloadSchema = z.discriminatedUnion('type', [
 export async function sendNotify(
   input: unknown
 ): Promise<{ ok: boolean; ts?: string; error?: string }> {
-  if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_DEFAULT_CHANNEL) {
-    return { ok: false, error: 'not_configured' };
+  if (
+    !process.env.SLACK_BOT_TOKEN ||
+    !process.env.SLACK_DEFAULT_CHANNEL
+  ) {
+    return {
+      ok: false,
+      error: 'not_configured',
+    };
   }
+
   const result = notifyPayloadSchema.safeParse(input);
+
   if (!result.success) {
-    return { ok: false, error: 'invalid_payload' };
+    return {
+      ok: false,
+      error: 'invalid_payload',
+    };
   }
+
   const payload = result.data as NotifyPayload;
   const text = buildSlackMessage(payload);
   const blocks = buildSlackBlocks(payload, text);
-  const slackResult = await postToSlack({ text, blocks });
+
+  const slackResult = await postToSlack({
+    text,
+    blocks,
+  });
+
   if (!slackResult.ok) {
-    console.error('[notify] Slack post failed', { error: slackResult.error });
-    return { ok: false, error: slackResult.error };
+    console.error('[notify] Slack post failed', {
+      error: slackResult.error,
+    });
+
+    return {
+      ok: false,
+      error: slackResult.error,
+    };
   }
-  return { ok: true, ts: slackResult.ts };
+
+  return {
+    ok: true,
+    ts: slackResult.ts,
+  };
 }
