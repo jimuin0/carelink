@@ -271,8 +271,8 @@ describe('POST /api/contact', () => {
       name: 'Test User',
       email: 'test@example.com',
       phone: null,
-      inquiry_type: 'その他',
-      message: 'テストメッセージ',
+      inquiry_type: 'support',
+      message: 'Help needed',
       traffic_source: null,
     });
   });
