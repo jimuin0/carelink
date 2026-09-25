@@ -273,6 +273,7 @@ describe('POST /api/contact', () => {
       phone: null,
       inquiry_type: 'support',
       message: 'Help needed',
+      traffic_source: null,
     });
   });
 

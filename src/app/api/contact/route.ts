@@ -47,6 +47,7 @@ export const POST = withRoute(async (request) => {
     phone: parsed.data.phone || null,
     inquiry_type: parsed.data.inquiry_type,
     message: parsed.data.message,
+    traffic_source: parsed.data.traffic_source ?? null,
   });
 
   if (error) {
@@ -63,6 +64,7 @@ export const POST = withRoute(async (request) => {
       inquiry_type: parsed.data.inquiry_type,
       email: parsed.data.email,
       message: parsed.data.message,
+      traffic_source: parsed.data.traffic_source ?? null,
     },
   }).then((r) => {
     if (!r.ok) console.error('[contact] Slack notification failed', { error: r.error });
