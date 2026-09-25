@@ -164,7 +164,8 @@
     "priority",
     "resolved_at",
     "ticket_notes",
-    "ticket_status"
+    "ticket_status",
+    "traffic_source"
   ],
   "coupon_menus": [
     "coupon_id",
