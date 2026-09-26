@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useForm, useWatch, type FieldErrors } from 'react-hook-form';
@@ -50,6 +50,7 @@ export default function RegisterForm() {
   const [submitting, setSubmitting] = useState(false);
   const [submissionUnknown, setSubmissionUnknown] = useState(false);
   const submissionUnknownRef = useRef(false);
+  const addressLookupGeneration = useRef(0);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [photoFiles, setPhotoFiles] = useState<(File | null)[]>(photoSlots.map(() => null));
   const [showConfirm, setShowConfirm] = useState(false);
@@ -60,7 +61,7 @@ export default function RegisterForm() {
   // 独立したチェックにすることで、掲載者が届出義務を認識した上で登録した事実を明確に残す。
   const [licenseWarranted, setLicenseWarranted] = useState(false);
 
-  const { register, handleSubmit, trigger, setValue, setError, getFieldState, control, formState: { errors, isReady } } = useForm<SalonFormValues>({
+  const { register, handleSubmit, trigger, setValue, setError, getFieldState, getValues, control, formState: { errors, isReady } } = useForm<SalonFormValues>({
     resolver: zodResolver(salonFullSchema),
     mode: 'onTouched',
     defaultValues: {
@@ -76,6 +77,7 @@ export default function RegisterForm() {
   const prText = useWatch({ control, name: 'pr_text' }) || '';
   const postalCode = useWatch({ control, name: 'postal_code' }) || '';
   const selectedFeatures = useWatch({ control, name: 'features' }) || [];
+  const addressRegistration = register('address');
 
   // Wait until the target step is mounted before expanding optional fields and
   // focusing. RHF cannot focus an unmounted or collapsed field on its own.
@@ -120,32 +122,41 @@ export default function RegisterForm() {
     setValue(field, formatPhone(normalizePhone(e.target.value)), { shouldValidate: true });
   };
 
-  // Postal code auto-completion
-  const fetchAddress = useCallback(async (code: string) => {
-    const digits = code.replace(/\D/g, '');
-    if (digits.length !== 7) return;
-    try {
-      const res = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${digits}`, {
-        signal: AbortSignal.timeout(5000),
-      });
-      const data = await res.json();
-      if (data.results?.[0]) {
-        const r = data.results[0];
-        setValue('address', `${r.address1 ?? ''}${r.address2 ?? ''}${r.address3 ?? ''}`);
-        // 【2026年8月20日 恒久根治】表示用の連結済み address はそのまま残しつつ（見た目は
-        // 変えない・入力欄は増やさない）、zipcloud が返す構造（address1=都道府県・
-        // address2=市区町村）を非表示のまま保持する。/search の地域絞り込みの結合キーに
-        // 使うため、自由文からの再抽出より確実な zipcloud 由来の値を優先する。
-        setValue('prefecture', r.address1 || null);
-        setValue('city', r.address2 || null);
-      }
-    } catch { /* ignore */ }
-  }, [setValue]);
-
+  // Postal responses are suggestions tied to the input generation, never an
+  // authority to overwrite a newer postcode or a manually corrected address.
   useEffect(() => {
+    const generation = ++addressLookupGeneration.current;
     const digits = postalCode.replace(/\D/g, '');
-    if (digits.length === 7) fetchAddress(postalCode);
-  }, [postalCode, fetchAddress]);
+    if (digits.length !== 7) return;
+    let cancelled = false;
+    const previousAddress = getValues('address');
+    void (async () => {
+      try {
+        const res = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${digits}`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled || generation !== addressLookupGeneration.current
+          || (getValues('postal_code') || '').replace(/\D/g, '') !== digits
+          || getValues('address') !== previousAddress) return;
+        const r = Array.isArray(data?.results) ? data.results[0] : null;
+        if (!r || typeof r.address1 !== 'string' || !r.address1
+          || typeof r.address2 !== 'string' || !r.address2
+          || typeof r.address3 !== 'string') return;
+        setValue('address', `${r.address1}${r.address2}${r.address3}`);
+        setValue('prefecture', r.address1);
+        setValue('city', r.address2);
+      } catch { /* Optional lookup failure leaves manual input intact. */ }
+    })();
+    return () => { cancelled = true; };
+  }, [postalCode, getValues, setValue]);
+
+  const handleAddressChange = () => {
+    addressLookupGeneration.current++;
+    setValue('prefecture', null);
+    setValue('city', null);
+  };
 
   // Page leave warning
   useEffect(() => {
@@ -409,7 +420,10 @@ export default function RegisterForm() {
               </div>
               <div>
                 <label htmlFor="reg-address" className="form-label">住所</label>
-                <input {...register('address')} id="reg-address" autoComplete="street-address" className="form-input" placeholder="大阪府堺市堺区…" maxLength={500} />
+                <input {...addressRegistration} onChange={event => {
+                  handleAddressChange();
+                  void addressRegistration.onChange(event);
+                }} id="reg-address" autoComplete="street-address" className="form-input" placeholder="大阪府堺市堺区…" maxLength={500} />
                 {errors.address && <p className="form-error" role="alert">{errors.address.message}</p>}
               </div>
               <details className="group border border-[var(--ecru-line)] bg-[var(--ecru-bg)]/70 px-4 py-3">

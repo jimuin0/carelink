@@ -29,16 +29,16 @@ export const RATCHET_RULES = [
   'react-hooks/purity',
   'react-hooks/immutability',
   'react-hooks/refs',
-  // React Compiler が「互換性のないライブラリ」としてコンパイルを諦めた箇所（3件）。
-  // recruit / register / ReviewForm。原因は react-hook-form の useForm() が返す watch() で、
+  // React Compiler が「互換性のないライブラリ」としてコンパイルを諦めた箇所。
+  // 現在は ReviewForm。原因は react-hook-form の useForm() が返す watch() で、
   // 「安全にメモ化できない関数を返す」ため。ライブラリ側の都合なので、こちらのコードを
   // 歪めて回避すべきではない（上流が対応したら自然に消える）。
   //
   // 🔴 そもそも React Compiler はこのプロジェクトで有効になっていない（2026年8月16日 実測：
   // next.config.mjs に reactCompiler の指定なし・babel-plugin-react-compiler は依存にも
-  // node_modules にも存在しない）。つまりこの3件は【動いていない最適化がスキップされた】
+  // node_modules にも存在しない）。つまりこの警告は【動いていない最適化がスキップされた】
   // という報告であり、現時点で実行時への影響はゼロ。将来 React Compiler を有効化するときに
-  // 「この3コンポーネントは自動メモ化されない」ことを知る手がかりとして数え続ける。
+  // 「対象コンポーネントは自動メモ化されない」ことを知る手がかりとして数え続ける。
   'react-hooks/incompatible-library',
   // 退会成功後の window.location.href='/' （2件・mypage/profile と WithdrawalSettings）。
   // router.push へ置き換えてはいけない。Supabase セッション・middleware の admin membership
@@ -47,11 +47,11 @@ export const RATCHET_RULES = [
 ];
 
 /**
- * 現在の負債件数。2026年8月18日 に eslint-config-next 16.3.0 / React 19 / react-hook-form 7.85 で
- * 実測した値。返済したらこの数を下げること（下げ忘れは checkDebt が検知する）。
+ * 現在の負債件数。CI 36217561970（2026年9月26日、e38538e1）で4件を実測。
+ * 返済したらこの数を下げること（下げ忘れは checkDebt が検知する）。
  *
- * 内訳（6 件）:
- *   incompatible-library 3 件 … recruit / register / ReviewForm。react-hook-form の watch()。
+ * 内訳（4 件）:
+ *   incompatible-library 1 件 … ReviewForm。react-hook-form の watch()。
  *   no-location-assign   2 件 … 退会後の全リロード（mypage/profile と WithdrawalSettings）。
  *   set-state-in-effect  1 件 … BookingFlow の下書き復元。
  *
@@ -86,8 +86,10 @@ export const RATCHET_RULES = [
  *   6  … GBP 管理画面のタブ切替と口コミサマリーを根治して 2 件減（2026年8月18日）。
  *        実機ではなく jsdom で最初のコミットを捕まえる単体テスト（src/test-utils/first-frame.tsx）
  *        で検証した。旧コードで実際に落ちることを確認済み（gbp 5 件中 4 件・ReviewSummary 1 件）。
+ *   4  … register/recruitをuseWatchへ移行し2件減（2026年9月26日）。
+ *        ルール無効化や検査対象の縮小は行わず、CI実測にbaselineを厳格化する。
  */
-export const BASELINE = 6;
+export const BASELINE = 4;
 
 /**
  * eslint の JSON 出力から、ラチェット対象ルールの指摘件数を数える。
