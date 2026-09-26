@@ -310,11 +310,11 @@ async function loginSyntheticOwner(context: BrowserContext) {
   if (result.error || !result.data.session) throw new Error('synthetic SSR authentication failed');
   await context.addCookies(Array.from(jar, ([name, value]) => ({ name, value,
     url: 'https://localhost:3000', secure: true, httpOnly: true, sameSite: 'Lax' as const })));
-  return { userId: created.data.user.id, email };
+  return { userId: created.data.user.id, email, password };
 }
 
-test('profile empty date is stored as NULL and a missing own profile cannot report saved', async ({ page, context }) => {
-  const { userId } = await loginSyntheticOwner(context);
+test('profile empty date is stored as NULL and a missing own profile cannot report saved', async ({ context, browser }) => {
+  const { userId, email, password } = await loginSyntheticOwner(context);
   const headers = { origin: 'https://localhost:3000',
     'x-real-ip': `198.18.${Math.floor(Math.random() * 254)}.${Math.floor(Math.random() * 254)}` };
   const data = { display_name: 'Synthetic profile', phone: '09000000000', prefecture: '東京都', birth_date: '' };
@@ -324,25 +324,38 @@ test('profile empty date is stored as NULL and a missing own profile cannot repo
   const stored = await service.from('profiles').select('birth_date,display_name').eq('id', userId).single();
   expect(stored.error).toBeNull();
   expect(stored.data).toEqual({ birth_date: null, display_name: data.display_name });
-  await page.goto('/mypage/profile');
-  await expect(page.getByLabel(/^お名前/)).toHaveValue(data.display_name);
-  await page.getByLabel(/^お名前/).fill('Synthetic profile edited');
-  await page.getByRole('button', { name: 'プロフィールを更新', exact: true }).click();
-  await expect(page.getByText('プロフィールを更新しました', { exact: true })).toBeVisible();
-  const edited = await service.from('profiles').select('display_name').eq('id', userId).single();
-  expect(edited.error).toBeNull();
-  expect(edited.data?.display_name).toBe('Synthetic profile edited');
-  // Only the freshly created, unlinked synthetic profile in disposable CI.
-  // This is a missing-row fixture, not the real account-deletion workflow.
-  const removed = await service.from('profiles').delete().eq('id', userId).select('id');
-  expect(removed.error).toBeNull(); expect(removed.data?.length).toBe(1);
-  const missing = await context.request.put('/api/profile', { headers, data });
-  expect(missing.status()).toBe(409);
-  expect((await missing.json()).success).toBeUndefined();
-  await page.reload();
-  await expect(page.getByRole('link', { name: 'お問い合わせ', exact: true }).filter({ hasText: 'お問い合わせ' }).first()).toBeVisible();
-  await expect(page.getByText(/プロフィールが見つかりません/)).toBeVisible();
-  await expect(page.getByRole('button', { name: 'プロフィールを更新', exact: true })).toHaveCount(0);
+  // Keep the UI browser context separate from the SSR cookies used for API setup.
+  // Otherwise middleware can treat /auth/login as already authenticated and the
+  // test never exercises the real client-side sign-in/session bootstrap.
+  const uiContext = await browser.newContext({ ignoreHTTPSErrors: true });
+  try {
+    const uiPage = await uiContext.newPage();
+    await uiPage.goto('https://localhost:3000/auth/login?redirect=%2Fmypage%2Fprofile');
+    await uiPage.locator('#login-email').fill(email);
+    await uiPage.locator('#login-password').fill(password);
+    await uiPage.getByRole('button', { name: 'ログイン', exact: true }).click();
+    await uiPage.waitForURL(url => url.pathname === '/mypage/profile', { timeout: 30000 });
+    await expect(uiPage.getByLabel(/^お名前/)).toHaveValue(data.display_name);
+    await uiPage.getByLabel(/^お名前/).fill('Synthetic profile edited');
+    await uiPage.getByRole('button', { name: 'プロフィールを更新', exact: true }).click();
+    await expect(uiPage.getByText('プロフィールを更新しました', { exact: true })).toBeVisible();
+    const edited = await service.from('profiles').select('display_name').eq('id', userId).single();
+    expect(edited.error).toBeNull();
+    expect(edited.data?.display_name).toBe('Synthetic profile edited');
+    // Only the freshly created, unlinked synthetic profile in disposable CI.
+    // This is a missing-row fixture, not the real account-deletion workflow.
+    const removed = await service.from('profiles').delete().eq('id', userId).select('id');
+    expect(removed.error).toBeNull(); expect(removed.data?.length).toBe(1);
+    const missing = await context.request.put('/api/profile', { headers, data });
+    expect(missing.status()).toBe(409);
+    expect((await missing.json()).success).toBeUndefined();
+    await uiPage.reload();
+    await expect(uiPage.getByRole('link', { name: 'お問い合わせ', exact: true }).filter({ hasText: 'お問い合わせ' }).first()).toBeVisible();
+    await expect(uiPage.getByText(/プロフィールが見つかりません/)).toBeVisible();
+    await expect(uiPage.getByRole('button', { name: 'プロフィールを更新', exact: true })).toHaveCount(0);
+  } finally {
+    await uiContext.close();
+  }
 });
 
 test('authenticated setup commits one selected receipt and reconciles a lost response without merging branches', async ({ page, context, browser }) => {

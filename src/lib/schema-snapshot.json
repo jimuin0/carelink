@@ -1014,16 +1014,6 @@
     "proof_hash",
     "salon_id"
   ],
-  "salon_submission_photos": [
-    "byte_size",
-    "created_at",
-    "id",
-    "intent_id",
-    "mime_type",
-    "object_path",
-    "selection_id",
-    "slot"
-  ],
   "salons": [
     "address",
     "building_name",
@@ -1032,7 +1022,6 @@
     "city",
     "claimed_at",
     "claimed_by_user_id",
-    "claimed_facility_id",
     "contact_name",
     "contact_phone",
     "created_at",
@@ -1054,7 +1043,6 @@
     "registration_followup_sent_at",
     "regular_holiday",
     "representative_name",
-    "review_revision",
     "seat_count",
     "source",
     "staff_count",
