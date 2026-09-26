@@ -36,10 +36,9 @@ CREATE FUNCTION pg_temp.require(ok boolean) RETURNS void LANGUAGE plpgsql AS $$ 
 END $$;
 CREATE TEMP TABLE untouched_policies AS SELECT * FROM pg_policies
   WHERE schemaname='storage' AND tablename='objects'
-  AND policyname NOT IN ('Allow anonymous upload','Allow anonymous upload images only','salon_legacy_authenticated_image_insert');
+  AND policyname NOT IN ('Allow anonymous upload','Allow anonymous upload images only');
 DROP POLICY IF EXISTS "Allow anonymous upload" ON storage.objects;
 DROP POLICY IF EXISTS "Allow anonymous upload images only" ON storage.objects;
-DROP POLICY IF EXISTS "salon_legacy_authenticated_image_insert" ON storage.objects;
 `;
   for (const name of ['legacy', 'image-only', 'both', 'strict-bucket']) {
     const legacy = name !== 'image-only';
@@ -52,7 +51,7 @@ UPDATE storage.buckets SET public=${strict ? 'false' : 'true'},file_size_limit=$
     const output = run(`${guard}${setup}\n${section}
 SELECT pg_temp.require((SELECT count(*)=0 FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND policyname='Allow anonymous upload'));
 SELECT pg_temp.require((SELECT count(*)=0 FROM pg_policies WHERE schemaname='storage' AND tablename='objects'
-  AND policyname IN ('Allow anonymous upload images only','salon_legacy_authenticated_image_insert')));
+  AND policyname='Allow anonymous upload images only'));
 SELECT pg_temp.require((SELECT public=${strict ? 'false' : 'true'} AND file_size_limit=${strict ? '5242880' : '10485760'}
   AND allowed_mime_types=${strict ? "ARRAY['image/png']" : "ARRAY['image/jpeg','image/png','image/webp','image/gif']"}
   FROM storage.buckets WHERE id='carelink-uploads'));
@@ -60,7 +59,7 @@ SELECT pg_temp.require(NOT EXISTS (
   (SELECT * FROM untouched_policies EXCEPT SELECT * FROM pg_policies)
   UNION ALL
   (SELECT * FROM pg_policies WHERE schemaname='storage' AND tablename='objects'
-    AND policyname NOT IN ('Allow anonymous upload images only','salon_legacy_authenticated_image_insert')
+    AND policyname NOT IN ('Allow anonymous upload','Allow anonymous upload images only')
     EXCEPT SELECT * FROM untouched_policies)));
 -- The shadow bootstrap does not enable Storage RLS; enable it solely within
 -- this rolled-back fixture to test expressions with the actual role.

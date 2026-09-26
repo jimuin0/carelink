@@ -560,8 +560,18 @@ Contractの現在失敗は別nodeとして保持する：`salons.claimed_facilit
 
 修正対象：`.github/workflows/migration-apply-reminder.yml`を検出通知だけと明記し、適用承認・順序の指示ではないこと、Dashboard SQL EditorでのDDLを禁止すること、全pendingを適用するCLI commandを事前のbatch／cutover確認なしで実行しないことをコメントに記載。`scripts/detect-added-migrations.mjs`の説明を合わせ、`docs/runbooks/database-incident.md`の復旧手順を照合優先・forward-fix・migration経路へ更新。`docs/adr/adr-0005-no-out-of-band-migrations.md`は適用済migration fileの不変性を明記し、既存履歴を編集せず新migrationで修復する規則に統一した。新規static Jest guardで通知・Runbook・ADR間の矛盾を固定した。
 
-変更後の証拠：局所Jest 2suite・23test成功、Actionlint成功、対象ESLint成功、全体`tsc --noEmit`成功、`git diff --check`成功。変更は現在作業用checkout内で未commit。production DDL、migration history、データ、SQL Editor保存、顧客連絡は変更していない。
+変更後の証拠：局所Jest 2suite・23test成功、Actionlint成功、対象ESLint成功、全体`tsc --noEmit`成功、`git diff --check`成功。commit `029cce08b7bd6350fde03c5aa6eed2b60eb668bf`で既存PR #642へpush済み。PRはOPEN、mergeStateはUNSTABLE。最新SHAのLint／型、Unit＋Coverage、Security、E2E、schema fingerprint、静的ガードは成功し、Contract Testsは失敗、Vercel Build Dry-RunはIgnored Build Stepによりskip。production DDL、migration history、データ、SQL Editor保存、顧客連絡は変更していない。
 
-再照合したPR #642はHEAD `09e8685bb2bc597b22fc3aa23489a326fb46a63d`でOPEN。Lint／型、Unit＋Coverage、Security、E2E、schema fingerprint等は成功、Contract Testsは失敗、Vercel Build Dry-RunはSKIPPEDであり、merge不可。Vercel PreviewはReadyだが、本番deploy証拠ではない。今回の修正をPRへpush後、同じsticky migration reminderの更新と、最新SHAでの必須CI再実行が必要。
+再照合したPR #642はHEAD `029cce08b7bd6350fde03c5aa6eed2b60eb668bf`でOPEN。現在の必須check 3件は成功だが、project Contract Testsは失敗しmergeStateはUNSTABLE。E2E内production buildは最新SHAで成功。Vercel Build Dry-RunはIgnored Build Stepによりskipで成功扱いしない。Vercel Previewは本番deploy証拠ではない。既存sticky migration reminderはADR-0005と段階適用runbookへ更新済み。
 
-本番migration適用・型再生成・Contract再確認は未完了。Supabase CLIの本人認証を完了できておらず、認証challengeを開始した2経路は安全に中断済み。認証値・verification codeは取得・共有していない。SQL EditorでのDDLを代替にしない。西尾本店／千歳の女神について、現在の限定読取で`salons`内の完全一致件数は0だったが、問い合わせ／連絡テーブルを含む全受信経路の不在証拠ではないため、未受信と断定せず再送・返信もしない。1 ownerアカウント複数店舗の業務方針も未確定のため、既存制約は変更しない。
+本番migration適用・型再生成・Contract再確認は未完了。Supabase CLIの本人認証を完了できておらず、認証challengeを開始した2経路は安全に中断済み。認証値・verification codeは取得・共有していない。SQL EditorでのDDLを代替にしない。西尾本店／千歳の女神について、`salons`の完全一致件数0は全受信経路の不在証拠ではないため、未受信と断定せず再送・返信もしない。1 ownerアカウント複数店舗の業務方針も未確定のため、既存制約は変更しない。
+
+### 10.32．本番migration前提の読み取り再照合とStorage fixture修正
+
+2026年9月27日、Supabase Dashboardのmain/production環境でread-only catalog queryを実行。`supabase_migrations.schema_migrations`の最新行は`20260921000001 reminder_delivery_reconciliation`で、2026年9月26日の登録migration群は未記録。`salons.claimed_facility_id`／`review_revision`、`salon_submission_intents`／`salon_submission_photos`、`prepare_salon_photo`／`setup_facility_from_registration`、公開location制約、review revision triggerはいずれも未存在。公開施設location制約への違反件数、`facility_welcome`の新CHECK違反件数、同target重複件数はいずれも0。値・個人情報は読まず件数／schema metadataだけを取得した。
+
+`storage.buckets`では`carelink-uploads`が公開、画像MIME制限は既存設定済み、file size limitはNULL。`storage.objects`の全INSERT/ALL policyは5件で、同bucketに属するのは`Allow anonymous upload`（role anon）の1件のみ。移行対象でない4件はavatars、施設photos、review-photos用。`salon_legacy_authenticated_image_insert`は本番policyにもmigration定義にも存在しない。従って0004は現行の匿名uploadを実際に停止するcutoverであり、現行アプリconsumerの移行・flag切替・旧フォーム処理前に適用しない。
+
+敵対確認で、`scripts/check-salon-storage-upgrade.mjs`の隔離fixtureが、実在せずmigrationにも定義されない`salon_legacy_authenticated_image_insert`を事前にDROPし、migrationがそれを除去したように見せていた。この偽の歴史状態をfixtureから除去し、実在する二つの匿名policyだけを合成してmigration SQLを評価する。変更ファイルは同scriptと`src/__tests__/salon-storage-upgrade-guard.test.ts`。局所Jest 1suite・13test、対象ESLint、Node構文検査、`git diff --check`成功。shadow DBを使う本番相当fixture再実行は最新SHAのCI待ち。現在この2ファイルだけ未commit。
+
+このread-only照会でmigrationは適用していない。最新PR #642 Contract Testは依然失敗（3 failure、17 skip、14 pass）し、型と本番schemaを一致させるnodeが残る。`supabase db push`は全pendingをtimestamp順に適用するCLI経路であり、0004を0001〜0003と同じ一括batchに含めると本番の現行anon uploadが止まる。Supabase公式資料もremote schema変更はmigration file経由とし、履歴照合を求める。段階リリースの順序と承認／本人認証が整うまで本番DDL、型の手書き同期、flag変更、merge・deployを行わない。

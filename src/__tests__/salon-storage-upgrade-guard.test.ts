@@ -30,6 +30,7 @@ test('upgrade fixture executes the actual migration section and is wired before 
   expect(sql.match(/-- END SALON STORAGE RECONCILIATION/g)).toHaveLength(1);
   const code = readFileSync(script, 'utf8');
   expect(code).toContain('20260926000004_salon_signed_upload_cutover.sql');
+  expect(code).not.toContain('salon_legacy_authenticated_image_insert');
   expect(code).toContain("current_database() <> 'carelink_shadow'");
   expect(code).toContain('ROLLBACK;');
   expect(code).not.toMatch(/\bCOMMIT;/);
