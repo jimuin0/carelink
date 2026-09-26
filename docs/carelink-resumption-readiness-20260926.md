@@ -529,3 +529,11 @@ Supabase Dashboardのmigration履歴は2026年9月21日の`reminder_delivery_rec
 局所Jest 6件、対象ESLintは成功。秘密値なしのlocal buildはcompileとTypeScript検査を通過した後、Supabase環境変数を設定していないため別route `/facility/[slug]/blog/[postSlug]` のpage data収集で停止。area routeの完全なbuild成功は未判定であり、Node 22.16.0はpackage要求の22.22.2以上より古い。`fd57fccb`の既存CI E2Eは11分30秒で成功（fresh local DB、build、HTTPS browserを含む）。Contractは3失敗／17skip／14成功で不合格。原因は未適用migration `salon_submission_photos`、`prepare_salon_photo`、`setup_facility_from_registration`と本番由来型の不一致。どれもskipや例外台帳で隠さない。
 
 修正を含む新SHAのVercel Preview、E2E、全体CIは未実行。本番DB履歴は2026年9月21日までというDashboard記録を保持し、production DDLやV2 flag変更は行っていない。対象migrationの段階適用には、cutover前提、住所CHECKの読取preflight、現在のDB実体・履歴照合と、保護された副作用実行gateが残る。1運営者の複数店舗を一つのowner accountで管理する業務方針も未決定のため、account制約を変更していない。
+
+### 10.29．OG画像Edge Function容量超過の修正
+
+`2efa1730425cb79a58da198f2e989c32ecfa556b` のPreview詳細で、`The Edge Function "api/og" size is 1.14 MB and your plan size limit is 1 MB.` を確認した。Next.js公式仕様上`ImageResponse`はEdge runtime専用、Vercel HobbyのEdge bundle上限はgzip後1 MBであり、既存のPNG生成実装は現在の契約上deploy不能だった。料金プランは変更しない。
+
+`src/app/api/og/route.tsx`をNode.js runtimeへ移し、依存を明示したSharpでSVGをPNGへ変換する。PNG形式、1200×630、CareLink表示、評価、動的title/subtitle、24時間immutable cacheは維持する。動的文字はXML escapeし、制御文字・壊れたUnicodeを排除、title/subtitle長を制限、review件数を数字のみ許可する。呼出元のmetadata URLとE2E `/api/og` 経路は維持する。Node Functionの実bundle／プレビュー表示で日本語文字と画像形式を確認するまで、Vercel修正完了とは扱わない。
+
+局所Jest 9件成功。実Sharp処理によるPNG signature、default/custom文字、XML escape、制御文字、絵文字、長さ境界、rating Infinity／clamp／半星、review件数の異常値を確認した。`og-image.ts`のstatement/branch/function/lineは全100％。全体`tsc --noEmit`、対象ESLint、`git diff --check`も成功。CI E2Eは旧SHA `2efa1730`で成功、ただしこのOG修正は未commitのため適用対象外。旧SHAのContractは3失敗／17skip／14成功（生成型と未適用migration）、Vercel Previewは容量超過で失敗。新修正SHAのCI、Vercel Preview、日本語グリフの実画像確認は未実施。merge、deploy、Supabase変更は行っていない。
