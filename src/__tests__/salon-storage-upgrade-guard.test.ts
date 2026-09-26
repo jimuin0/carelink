@@ -28,6 +28,8 @@ test('upgrade fixture executes the actual migration section and is wired before 
   const sql = readFileSync(join(process.cwd(), 'supabase/deferred-migrations/20260927000001_salon_signed_upload_cutover.sql'), 'utf8');
   expect(sql.match(/-- BEGIN SALON STORAGE RECONCILIATION/g)).toHaveLength(1);
   expect(sql.match(/-- END SALON STORAGE RECONCILIATION/g)).toHaveLength(1);
+  expect(sql).toContain('AS allowed_mime(mime)');
+  expect(sql).toContain('WHERE allowed_mime.mime IN');
   const code = readFileSync(script, 'utf8');
   expect(code).toContain('20260927000001_salon_signed_upload_cutover.sql');
   expect(code).not.toContain('salon_legacy_authenticated_image_insert');

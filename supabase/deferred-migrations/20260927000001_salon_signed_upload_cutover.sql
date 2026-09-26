@@ -24,8 +24,9 @@ ON CONFLICT (id) DO UPDATE SET
   file_size_limit=LEAST(COALESCE(storage.buckets.file_size_limit,10485760),10485760),
   allowed_mime_types=CASE WHEN storage.buckets.allowed_mime_types IS NULL
     THEN ARRAY['image/jpeg','image/png','image/webp','image/gif']
-    ELSE ARRAY(SELECT mime FROM unnest(storage.buckets.allowed_mime_types) mime
-      WHERE mime IN ('image/jpeg','image/png','image/webp','image/gif')) END;
+    ELSE ARRAY(SELECT allowed_mime.mime
+      FROM unnest(storage.buckets.allowed_mime_types) AS allowed_mime(mime)
+      WHERE allowed_mime.mime IN ('image/jpeg','image/png','image/webp','image/gif')) END;
 
 -- Reconcile the two observed historical names, not unrelated bucket policies.
 DO $$ BEGIN
