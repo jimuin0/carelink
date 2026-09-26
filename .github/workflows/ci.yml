@@ -100,7 +100,11 @@ jobs:
     #   "Install Playwright Browsers" が 5 時間 58 分ハングして実際に起きた）。
     #   上限があれば早く赤くなり、再実行が数分で済む。
     timeout-minutes: 30
-    needs: [lint-typecheck, unit-test]
+    # Unit/Contract failures must still block merging, but cannot prevent this
+    # independent fresh-apply/Storage gate from producing its evidence. In
+    # particular, a new migration awaiting production introspection may fail
+    # the committed-type gate; local artifacts are not production evidence.
+    needs: [lint-typecheck]
     # PR でも e2e を必須化する（push-main 限定だと e2e 退行のまま PR マージ可能になる盲点）。
     # workflow は push-main と PR-to-main でのみ起動するため、if を外せば両方で走る。
     steps:
