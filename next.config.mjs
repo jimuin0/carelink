@@ -2,6 +2,7 @@
 const nextConfig = {
   outputFileTracingIncludes: {
     '/api/og': [
+      './node_modules/@resvg/resvg-wasm/index_bg.wasm',
       './node_modules/@fontsource-variable/noto-sans-jp/wght.css',
       './node_modules/@fontsource-variable/noto-sans-jp/files/*.woff2',
     ],

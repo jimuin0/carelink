@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import { initWasm, Resvg } from '@resvg/resvg-wasm';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 
@@ -7,8 +7,9 @@ const HEIGHT = 630;
 const MAX_TITLE_LENGTH = 40;
 const MAX_SUBTITLE_LENGTH = 60;
 const CACHE_CONTROL = 'public, max-age=86400, s-maxage=86400, immutable';
-const FONT_FAMILY = 'CareLink Noto Sans JP';
+const FONT_FAMILY = 'Noto Sans JP Variable';
 const FONT_CSS_PATH = resolve(process.cwd(), 'node_modules/@fontsource-variable/noto-sans-jp/wght.css');
+const RESVG_WASM_PATH = resolve(process.cwd(), 'node_modules/@resvg/resvg-wasm/index_bg.wasm');
 const FONT_FACE_PATTERN = /@font-face\s*\{[^}]*?src:\s*url\(([^)]+)\)[^}]*?unicode-range:\s*([^;]+);[^}]*?\}/g;
 const UNICODE_RANGE_PATTERN = /U\+([0-9a-f]{1,6})(?:-([0-9a-f]{1,6}))?/gi;
 
@@ -20,7 +21,8 @@ type FontSubset = {
 };
 
 let fontSubsetsPromise: Promise<FontSubset[]> | undefined;
-const fontDataByPath = new Map<string, Promise<string>>();
+let resvgInitialization: Promise<void> | undefined;
+const fontDataByPath = new Map<string, Promise<Uint8Array>>();
 
 function parseFontSubsets(css: string): FontSubset[] {
   return Array.from(css.matchAll(FONT_FACE_PATTERN), ([, relativePath, unicodeRange]) => ({
@@ -37,28 +39,29 @@ function getFontSubsets(): Promise<FontSubset[]> {
   return fontSubsetsPromise ??= readFile(FONT_CSS_PATH, 'utf8').then(parseFontSubsets);
 }
 
-function readFontData(fontPath: string): Promise<string> {
+function readFontData(fontPath: string): Promise<Uint8Array> {
   const cached = fontDataByPath.get(fontPath);
   if (cached) return cached;
 
-  const fontData = readFile(fontPath).then((buffer) => buffer.toString('base64'));
+  const fontData = readFile(fontPath);
   fontDataByPath.set(fontPath, fontData);
   return fontData;
 }
 
-async function buildFontFaceCss(text: string): Promise<string> {
+function initializeResvg(): Promise<void> {
+  return resvgInitialization ??= readFile(RESVG_WASM_PATH).then((wasm) => initWasm(wasm));
+}
+
+async function buildFontBuffers(text: string): Promise<Uint8Array[]> {
   const codePoints = Array.from(new Set(Array.from(text, (character) => character.codePointAt(0)!)));
   const subsets = await getFontSubsets();
   const usedSubsets = subsets.filter(({ ranges }) => (
     codePoints.some((codePoint) => ranges.some(({ start, end }) => codePoint >= start && codePoint <= end))
   ));
-  const fontFaces = await Promise.all(usedSubsets.map(async ({ relativePath, unicodeRange }) => {
+  return Promise.all(usedSubsets.map(async ({ relativePath }) => {
     const fontPath = resolve(dirname(FONT_CSS_PATH), relativePath.replace(/^\.\//u, ''));
-    const fontData = await readFontData(fontPath);
-    return `@font-face{font-family:'${FONT_FAMILY}';font-style:normal;font-weight:100 900;src:url(data:font/woff2;base64,${fontData}) format('woff2-variations');unicode-range:${unicodeRange};}`;
+    return readFontData(fontPath);
   }));
-
-  return fontFaces.join('');
 }
 
 function normalizeDisplayText(value: string | null, fallback: string, maxLength: number): string {
@@ -96,6 +99,16 @@ function wrapTitle(value: string, lineLength: number): string[] {
   return lines;
 }
 
+export async function getOgImageFontBuffers(searchParams: URLSearchParams): Promise<Uint8Array[]> {
+  const title = normalizeDisplayText(searchParams.get('title'), 'CareLink', MAX_TITLE_LENGTH);
+  const subtitle = normalizeDisplayText(
+    searchParams.get('subtitle'),
+    'ネットでかんたんサロン予約',
+    MAX_SUBTITLE_LENGTH,
+  );
+  return buildFontBuffers(`CareLink施設情報評価件 carelink-jp.com0123456789.()★${title}${subtitle}`);
+}
+
 function ratingMarkup(rating: number | null, reviewCount: number | null, y: number): string {
   if (rating === null) return '';
 
@@ -117,7 +130,7 @@ function ratingMarkup(rating: number | null, reviewCount: number | null, y: numb
   </g>`;
 }
 
-export function buildOgImageSvg(searchParams: URLSearchParams, fontFaceCss = ''): string {
+export function buildOgImageSvg(searchParams: URLSearchParams): string {
   const title = normalizeDisplayText(searchParams.get('title'), 'CareLink', MAX_TITLE_LENGTH);
   const subtitle = normalizeDisplayText(
     searchParams.get('subtitle'),
@@ -154,7 +167,6 @@ export function buildOgImageSvg(searchParams: URLSearchParams, fontFaceCss = '')
     <rect width="12" height="${HEIGHT}" fill="url(#bar)"/>
     <circle cx="1190" cy="0" r="230" fill="#0ea5e9" fill-opacity="0.08"/>
     <circle cx="1140" cy="610" r="160" fill="#0ea5e9" fill-opacity="0.06"/>
-    <style>${fontFaceCss}</style>
     <g font-family="${FONT_FAMILY}, Arial, sans-serif">
       <rect x="72" y="60" width="190" height="42" rx="21" fill="url(#brand)"/>
       <text x="167" y="89" text-anchor="middle" font-size="24" font-weight="700" fill="#fff">CareLink</text>
@@ -167,20 +179,28 @@ export function buildOgImageSvg(searchParams: URLSearchParams, fontFaceCss = '')
   </svg>`;
 }
 
-export async function buildOgImageSvgWithFonts(searchParams: URLSearchParams): Promise<string> {
-  const title = normalizeDisplayText(searchParams.get('title'), 'CareLink', MAX_TITLE_LENGTH);
-  const subtitle = normalizeDisplayText(
-    searchParams.get('subtitle'),
-    'ネットでかんたんサロン予約',
-    MAX_SUBTITLE_LENGTH,
-  );
-  const fontFaceCss = await buildFontFaceCss(`CareLink施設情報評価件carelink-jp.com0123456789.★${title}${subtitle}`);
-  return buildOgImageSvg(searchParams, fontFaceCss);
-}
-
 export async function renderOgImagePng(searchParams: URLSearchParams): Promise<Buffer> {
-  const svg = await buildOgImageSvgWithFonts(searchParams);
-  return sharp(Buffer.from(svg)).png().toBuffer();
+  const fontBuffers = await getOgImageFontBuffers(searchParams);
+  await initializeResvg();
+
+  const renderer = new Resvg(buildOgImageSvg(searchParams), {
+    font: {
+      fontBuffers,
+      defaultFontFamily: FONT_FAMILY,
+      loadSystemFonts: false,
+    },
+  });
+
+  try {
+    const rendered = renderer.render();
+    try {
+      return Buffer.from(rendered.asPng());
+    } finally {
+      rendered.free();
+    }
+  } finally {
+    renderer.free();
+  }
 }
 
 export const OG_IMAGE_HEADERS = {

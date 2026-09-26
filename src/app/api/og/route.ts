@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { OG_IMAGE_HEADERS, renderOgImagePng } from '@/lib/og-image';
 
 // ImageResponse uses an Edge bundle that exceeds the CareLink Vercel Hobby limit.
-// Keep PNG output, but rasterize the small SVG in a Node.js Function via sharp.
+// Keep PNG output and provide self-hosted fonts to resvg so output is stable without host fonts.
 export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {

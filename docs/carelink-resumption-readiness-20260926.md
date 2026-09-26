@@ -539,3 +539,17 @@ Supabase Dashboardのmigration履歴は2026年9月21日の`reminder_delivery_rec
 局所Jest 9件成功。実Sharp処理によるPNG signature、default/custom文字、XML escape、制御文字、絵文字、長さ境界、rating Infinity／clamp／半星、review件数の異常値を確認した。`og-image.ts`のstatement/branch/function/lineは全100％。全体`tsc --noEmit`、対象ESLint、`git diff --check`も成功。CI E2Eは旧SHA `2efa1730`で成功、ただしこのOG修正は未commitのため適用対象外。旧SHAのContractは3失敗／17skip／14成功（生成型と未適用migration）、Vercel Previewは容量超過で失敗。新修正SHAのCI、Vercel Preview、日本語グリフの実画像確認は未実施。merge、deploy、Supabase変更は行っていない。
 
 Previewを目視するとSharpのLinux環境に日本語フォントがなく、タイトル・施設種別・評価・予約数が豆腐表示になることを確認した。CIのPNG signatureだけでは品質を保証できない。追加修正ではアプリが既に直接依存するNoto Sans JPの必要subsetだけをSVGへ埋め込み、`outputFileTracingIncludes`でNode Functionへfont CSSとfont assetを含める。Previewで日本語と英数字の描画を再確認する。
+
+### 10.30．Previewで確定したOG画像の日本語欠落と描画方式の再修正
+
+2026年9月27日、PR SHA `0ccfb793571664af5b02d93c55e9669bc5669d97` のVercel deployment `EKUZ9Sgw9VNYYwjEDg21CQBKTJg5` がReadyであること、deployment immutable URL `carelink-9it3fs3js-jimuin.vercel.app` が同SHAに紐づくことをDashboardで確認した。branch aliasではなくimmutable URLへcache-bust付きGETを行った実画像でも、日本語と一部英数字が豆腐表示になった。従って10.29の「必要subsetをSVGへbase64 embedする」追加案は実配信で不成立であり、完了扱いにしない。
+
+現在のNode関数で表示に使えるフォントがないのが実不具合である。原因候補は、Sharp/libvipsのSVG文字描画が埋込みWOFF2 CSSをsystem fontとして採用しないこと。Macのローカル出力だけではsystem font fallbackにより見逃す可能性があるため、ホストフォントを明示的に無効化した再現を追加した。
+
+修正候補：`@resvg/resvg-wasm@2.6.2`を使い、利用文字を覆うNoto Sans JP WOFF2 subsetのbufferをrendererへ直接渡し、system fontを無効化してNode runtime内でPNG化する。Next output tracingへWASM asset、font CSS、subset assetsを含める。query文字列は従来どおりsanitize／escape／文字数制限し、画像寸法・PNG・cache headerを維持する。Next.js公式説明でImageResponseはEdge専用、Vercel Hobbyの1MB Edge制限を超えるため、Node runtimeは維持する。
+
+2026年9月27日時点のローカル証拠：focused OG Jest 10/10成功（font bufferありの日本語領域dark pixels 1000超、font bufferなし＋system fontなしは0）。WOFF2 subsetを明示してresvg-wasmへ渡す単独隔離試験ではfontあり7196 pixels／fontなし0 pixels。対象ESLint成功、全体tscは再実行中、全体coverage gate実行中。既存CIの`0ccfb793`はE2E 11分27秒成功、lint/type、unit+coverage、security、schema fingerprint等成功、Contractは3失敗／17skip／14成功、Vercel Build Dry-RunはSKIPPED。Deployment自体は成功しているが表示回帰があり、CI成功と実配信品質を区別する。
+
+未commit差分は`src/lib/og-image.ts`、`src/app/api/og/__tests__/route.test.ts`、`src/app/api/og/route.ts`、`next.config.mjs`、`package.json`、`package-lock.json`および本記録。利用者差分を上書きしていない。新方式の本番相当build、最新SHA CI／Contract／E2E、最新immutable Previewで日本語表示、PR merge、本番deployは未完了。
+
+Contractの現在失敗は別nodeとして保持する：`salons.claimed_facility_id`／`salons.review_revision`の型不足、`salon_submission_photos`と`prepare_salon_photo`／`setup_facility_from_registration`が現production contractに未確認。Contract jobにSupabase／Upstash secretsは設定されておらず、このtest結果だけで現本番へread-only接続できたとは見なさない。migration 0004〜0007の段階適用とschema/history照合は別のread-only preflightおよび副作用gateが必要であり、このOG修正で解消したとしない。

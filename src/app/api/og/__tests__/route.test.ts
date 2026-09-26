@@ -2,13 +2,25 @@
  * @jest-environment node
  */
 import type { NextRequest } from 'next/server';
+import { Resvg } from '@resvg/resvg-wasm';
 import { GET } from '../route';
 import {
   buildOgImageSvg,
-  buildOgImageSvgWithFonts,
+  getOgImageFontBuffers,
   OG_IMAGE_HEADERS,
   renderOgImagePng,
 } from '@/lib/og-image';
+
+function countDarkPixels(pixels: Uint8Array, width: number, region: { left: number; top: number; right: number; bottom: number }) {
+  let count = 0;
+  for (let y = region.top; y < region.bottom; y += 1) {
+    for (let x = region.left; x < region.right; x += 1) {
+      const offset = (y * width + x) * 4;
+      if (pixels[offset] < 80 && pixels[offset + 1] < 90 && pixels[offset + 2] < 120) count += 1;
+    }
+  }
+  return count;
+}
 
 describe('CareLink OGP image rendering', () => {
   test('defaults produce a valid 1200x630 SVG without facility rating content', () => {
@@ -80,19 +92,41 @@ describe('CareLink OGP image rendering', () => {
     expect(svg).not.toContain('件)</text>');
   });
 
-  test('embeds the self-hosted Japanese font subsets needed for dynamic text', async () => {
-    const svg = await buildOgImageSvgWithFonts(new URLSearchParams({
+  test('renders Japanese glyphs from bundled fonts without relying on host system fonts', async () => {
+    const searchParams = new URLSearchParams({
       title: '日本語グリフ確認',
       subtitle: 'テスト施設の予約',
-    }));
+    });
+    const svg = buildOgImageSvg(searchParams);
+    const fontBuffers = await getOgImageFontBuffers(searchParams);
+    expect(fontBuffers.length).toBeGreaterThan(0);
 
-    expect(svg).toContain("font-family:'CareLink Noto Sans JP'");
-    expect(svg).toContain('data:font/woff2;base64,');
-    expect(svg).toContain('日本語グリフ確認</text>');
-    expect(svg).toContain('テスト施設の予約</text>');
-    const embeddedSubsetCount = (svg.match(/@font-face/gu) ?? []).length;
-    expect(embeddedSubsetCount).toBeGreaterThan(0);
-    expect(embeddedSubsetCount).toBeLessThan(124);
+    // Initialize the same renderer used by the route, then explicitly disable machine fonts.
+    await renderOgImagePng(searchParams);
+    const options = {
+      font: {
+        fontBuffers,
+        defaultFontFamily: 'Noto Sans JP Variable',
+        loadSystemFonts: false,
+      },
+    };
+    const withFonts = new Resvg(svg, options).render();
+    const withoutFonts = new Resvg(svg, {
+      font: {
+        fontBuffers: [],
+        defaultFontFamily: 'Noto Sans JP Variable',
+        loadSystemFonts: false,
+      },
+    }).render();
+
+    try {
+      const titleRegion = { left: 72, top: 230, right: 1128, bottom: 310 };
+      expect(countDarkPixels(withFonts.pixels, withFonts.width, titleRegion)).toBeGreaterThan(1000);
+      expect(countDarkPixels(withoutFonts.pixels, withoutFonts.width, titleRegion)).toBe(0);
+    } finally {
+      withFonts.free();
+      withoutFonts.free();
+    }
   });
 
   test('rasterizes PNG bytes for the public route and preserves cache/content-type headers', async () => {
