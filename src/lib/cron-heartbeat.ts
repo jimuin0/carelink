@@ -23,18 +23,29 @@ export interface StaleCronJob {
   thresholdMinutes: number;
 }
 
+/**
+ * 実行履歴が一件も観測できない有効cron。新規導入直後か、長期停止で保持期限を超えたかを
+ * この読み取りだけでは区別できないため、正常とは扱わず運用照合対象として返す。
+ */
+export interface MissingCronJob {
+  name: string;
+  label: string;
+  thresholdMinutes: number;
+}
+
 const MS_PER_MIN = 60_000;
 
 /**
  * 停止疑いの cron ジョブ一覧を返す。
  * - excludeName（heartbeat 自身）は対象外。
- * - 実行履歴が無いジョブ（新規追加直後・30日保持切れ）は初回前の誤警報を避けて stale としない。
+ * - 実行履歴が無いジョブは正常と断定せず missing として可視化する。これにより、長期停止後に
+ *   cron_logs の保持期限が切れて監視対象から消える経路を防ぐ。
  * - DB 取得エラーのジョブは判定不能として skip し queryErrors で可視化（誤警報を出さない）。
  */
 export async function getStaleCronJobs(
   nowMs: number,
   opts: { excludeName?: string } = {},
-): Promise<{ stale: StaleCronJob[]; queryErrors: string[] }> {
+): Promise<{ stale: StaleCronJob[]; missing: MissingCronJob[]; queryErrors: string[] }> {
   const supabase = createServiceRoleClient();
   const targets = CRON_JOBS.filter((j) => j.name !== opts.excludeName);
 
@@ -55,6 +66,7 @@ export async function getStaleCronJobs(
   );
 
   const stale: StaleCronJob[] = [];
+  const missing: MissingCronJob[] = [];
   const queryErrors: string[] = [];
 
   for (const { job, data, error } of results) {
@@ -62,7 +74,14 @@ export async function getStaleCronJobs(
       queryErrors.push(`${job.name}: ${summarizeDependencyError(error)}`);
       continue;
     }
-    if (!data) continue; // 履歴なし → 誤警報回避
+    if (!data) {
+      missing.push({
+        name: job.name,
+        label: job.label,
+        thresholdMinutes: cronStaleThresholdMinutes(job),
+      });
+      continue;
+    }
     const ageMinutes = (nowMs - new Date(data.started_at).getTime()) / MS_PER_MIN;
     const thresholdMinutes = cronStaleThresholdMinutes(job);
     if (ageMinutes > thresholdMinutes) {
@@ -76,5 +95,5 @@ export async function getStaleCronJobs(
     }
   }
 
-  return { stale, queryErrors };
+  return { stale, missing, queryErrors };
 }

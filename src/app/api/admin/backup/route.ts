@@ -15,6 +15,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { serverError } from '@/lib/with-route';
+import { assertNoRowsBeyondExportLimit } from '@/lib/backup-export';
 
 /** 1つのCSV値を安全にエスケープする（CSVインジェクション対策込み）。 */
 function csvEscape(val: unknown): string {
@@ -47,9 +48,16 @@ type CountedTable =
   | 'user_points';
 
 /** テーブルの行数を取得 */
-async function getTableCount(supabase: ReturnType<typeof createServiceRoleClient>, table: CountedTable): Promise<number> {
-  const { count } = await supabase.from(table).select('id', { count: 'exact', head: true });
-  return count ?? 0;
+async function getTableCount(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  table: CountedTable
+): Promise<{ count: number | null; ok: boolean }> {
+  try {
+    const { count, error } = await supabase.from(table).select('id', { count: 'exact', head: true });
+    return error ? { count: null, ok: false } : { count: count ?? 0, ok: true };
+  } catch {
+    return { count: null, ok: false };
+  }
 }
 
 // CSVエクスポート対象は4テーブルのみ（従来の allowedTables と同一の対象・同一の判定結果）。
@@ -84,16 +92,21 @@ export async function GET(request: NextRequest) {
     'coupons', 'user_points',
   ];
 
-  const counts: Record<string, number> = {};
-  await Promise.all(tables.map(async (t) => {
-    counts[t] = await getTableCount(serviceSupabase, t);
-  }));
+  const countResults = await Promise.all(tables.map(async (table) => ({
+    table,
+    result: await getTableCount(serviceSupabase, table),
+  })));
+  const counts: Record<string, number | null> = Object.fromEntries(
+    countResults.map(({ table, result }) => [table, result.count])
+  );
+  const failedTables = countResults.filter(({ result }) => !result.ok).map(({ table }) => table);
 
   return NextResponse.json({
-    status: 'ok',
+    status: failedTables.length > 0 ? 'degraded' : 'ok',
     supabase_project: process.env.NEXT_PUBLIC_SUPABASE_URL?.split('.')[0]?.replace('https://', '') ?? 'unknown',
     checked_at: new Date().toISOString(),
     table_counts: counts,
+    failed_tables: failedTables,
     note: 'Supabase Pro では自動日次バックアップが有効です。Point-in-time recovery は Supabase Dashboard → Settings → Backups から確認できます。',
   });
 }
@@ -143,7 +156,10 @@ export async function POST(request: NextRequest) {
   if (first.error) {
     return serverError('admin-backup-export', first.error, '/api/admin/backup', 'データの取得に失敗しました');
   }
-  const firstRows = (first.data ?? []) as Record<string, unknown>[];
+  if (!first.data) {
+    return serverError('admin-backup-export', new Error('Query returned no data'), '/api/admin/backup', 'データの取得に失敗しました');
+  }
+  const firstRows = first.data as Record<string, unknown>[];
   if (firstRows.length === 0) {
     return NextResponse.json({ error: 'エクスポート対象のデータがありません' }, { status: 404 });
   }
@@ -154,6 +170,7 @@ export async function POST(request: NextRequest) {
   const stream = new ReadableStream({
     async start(controller) {
       let totalRows = 0;
+      let streamFailed = false;
       try {
         controller.enqueue(encoder.encode(headers.join(',') + '\n'));
         let page = firstRows;
@@ -161,16 +178,23 @@ export async function POST(request: NextRequest) {
         for (;;) {
           for (const row of page) controller.enqueue(encoder.encode(csvRow(headers, row) + '\n'));
           totalRows += page.length;
-          const isLastPage = page.length < PAGE_SIZE || totalRows >= MAX_ROWS;
-          if (isLastPage) break;
+          if (page.length < PAGE_SIZE) break;
           offset += PAGE_SIZE;
           const next = await fetchPage(offset);
           if (next.error) {
-            console.error('[backup] export streaming query failed (partial export)', { table, offset, err: next.error });
-            break;
+            console.error('[backup] export streaming query failed (partial export)', { table, offset, code: next.error.code });
+            streamFailed = true;
+            controller.error(new Error('バックアップの出力中にデータ取得に失敗しました'));
+            return;
           }
-          page = (next.data ?? []) as Record<string, unknown>[];
+          if (!next.data) {
+            streamFailed = true;
+            controller.error(new Error('バックアップの出力中にデータ取得結果が不正でした'));
+            return;
+          }
+          page = next.data as Record<string, unknown>[];
           if (page.length === 0) break;
+          assertNoRowsBeyondExportLimit(totalRows, page.length, MAX_ROWS);
         }
 
         const { ip: auditIp, ua } = getRequestContext(request);
@@ -182,8 +206,11 @@ export async function POST(request: NextRequest) {
           ipAddress: auditIp,
           userAgent: ua,
         });
+      } catch (error) {
+        streamFailed = true;
+        controller.error(error instanceof Error ? error : new Error('バックアップの出力に失敗しました'));
       } finally {
-        controller.close();
+        if (!streamFailed) controller.close();
       }
     },
   });

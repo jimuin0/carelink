@@ -15,6 +15,7 @@ jest.mock('../supabase-server', () => ({
 // cron 失敗時の Slack 通報を検証するため alert をモック化（実投稿させない）
 jest.mock('../alert', () => ({
   alertCaughtError: jest.fn(),
+  alertWarning: jest.fn(),
 }));
 
 // admin-dashboard heartbeat 送信を検証するためモック化（実送信させない）
@@ -23,7 +24,7 @@ jest.mock('../admin-heartbeat', () => ({
 }));
 
 import { logCronRun, withCronLog, cronError } from '../cron-logger';
-import { alertCaughtError } from '../alert';
+import { alertCaughtError, alertWarning } from '../alert';
 import { pushAdminHeartbeat } from '../admin-heartbeat';
 
 beforeEach(() => {
@@ -185,9 +186,9 @@ describe('logCronRun', () => {
     expect(pushAdminHeartbeat).toHaveBeenCalledWith('booking-reminder', 'ok');
   });
 
-  test('skipped → admin heartbeat を degraded で送信する', async () => {
+  test('skipped（対象0件など正常な仕事なし）→ admin heartbeat をokで送信する', async () => {
     await logCronRun('test-job', 'skipped', new Date());
-    expect(pushAdminHeartbeat).toHaveBeenCalledWith('test-job', 'degraded');
+    expect(pushAdminHeartbeat).toHaveBeenCalledWith('test-job', 'ok');
   });
 
   test('error → admin heartbeat を fail で送信する', async () => {
@@ -195,10 +196,29 @@ describe('logCronRun', () => {
     expect(pushAdminHeartbeat).toHaveBeenCalledWith('test-job', 'fail');
   });
 
-  test('DB insert 失敗時でも admin heartbeat は送信される（記録失敗と無関係に本体結果を通知）', async () => {
+  test('DB insert 例外時はdegradedを送信し、業務処理の成功を取り消さず記録障害を警告する', async () => {
     mockInsert.mockRejectedValue(new Error('DB error'));
     await logCronRun('test-job', 'success', new Date());
-    expect(pushAdminHeartbeat).toHaveBeenCalledWith('test-job', 'ok');
+    expect(pushAdminHeartbeat).toHaveBeenCalledWith('test-job', 'degraded');
+    expect(alertWarning).toHaveBeenCalledWith(expect.any(String), {
+      route: '/api/cron/test-job',
+      extra: { job_name: 'test-job', execution_status: 'success', log_persisted: false },
+    });
+    expect(mockInsert).toHaveBeenCalledTimes(1);
+  });
+
+  test.each(['success', 'skipped', 'error'] as const)('DB insertの戻り値失敗も可視化する（%s）', async (status) => {
+    mockInsert.mockResolvedValue({ error: { message: 'private database diagnostic' } });
+    await expect(logCronRun('test-job', status, new Date())).resolves.toBeUndefined();
+    expect(pushAdminHeartbeat).toHaveBeenCalledWith('test-job', status === 'error' ? 'fail' : 'degraded');
+    expect(alertWarning).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify((alertWarning as jest.Mock).mock.calls)).not.toContain('private database diagnostic');
+    expect(mockInsert).toHaveBeenCalledTimes(1);
+  });
+
+  test('記録成功時は記録障害の警告を送らない', async () => {
+    await logCronRun('test-job', 'success', new Date());
+    expect(alertWarning).not.toHaveBeenCalled();
   });
 });
 
@@ -269,6 +289,16 @@ describe('cronError', () => {
 });
 
 describe('withCronLog', () => {
+  test('業務成功後の記録障害では業務を再実行せず、成功結果をそのまま返す', async () => {
+    mockInsert.mockRejectedValue(new Error('network unavailable'));
+    const fn = jest.fn().mockResolvedValue({ processed: 1 });
+    await expect(withCronLog('my-job', fn)).resolves.toEqual({ processed: 1, _logged: true });
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(mockInsert).toHaveBeenCalledTimes(1);
+    expect(pushAdminHeartbeat).toHaveBeenCalledWith('my-job', 'degraded');
+    expect(alertWarning).toHaveBeenCalledTimes(1);
+  });
+
   test('success: calls fn, logs success, returns result with _logged', async () => {
     const fn = jest.fn().mockResolvedValue({ processed: 3, skipped: 1 });
     const result = await withCronLog('my-job', fn);

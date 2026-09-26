@@ -297,7 +297,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 ## cron スケジュール（SSOT＝`src/lib/cron-jobs.data.json`／`render.yaml` と `.github/workflows/cron.yml` に展開・UTC 指定／JST 併記）
 | path | cron(UTC) | JST |
 |------|-----------|-----|
-| booking-reminder | `0 15 * * *` | 毎日 00:00 |
+| booking-reminder | `5 * * * *` | 毎時05分（JST） |
 | daily-summary | `0 6 * * *` | 毎日 15:00 |
 | customer-segment | `0 7 * * 0` | 日曜 16:00 |
 | review-request | `0 18 * * *` | 毎日 03:00 |
@@ -355,6 +355,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 | SUPABASE_SERVICE_ROLE_KEY | service role（cron／管理 API のサーバ側 DB 操作・RLS バイパス・必須） |
 | NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_BASE_URL / NEXT_PUBLIC_SITE_URL | 本番ベース URL（リダイレクト・OGP・sitemap 等） |
 | ADMIN_COOKIE_SECRET | /admin membership キャッシュの HMAC 署名鍵（未設定でキャッシュ無効） |
+| SALON_REGISTRATION_V2_ENABLED | 受付v2の段階導入フラグ。未設定は無効。写真・原子的claim・migrationとE2Eのrelease gateが揃うまでtrueにしない。準備／状態照会APIは無効時404 |
 | CRON_SECRET | Render Cron Jobs → `/api/cron/*` の Bearer 認証（未設定で全 cron 500・不一致で 401・`src/lib/cron-auth.ts`） |
 | CARELINK_BASE_URL | Render cron dispatcher が叩く本番ベース URL（`src/lib/render-cron.mjs` の `resolveCronEndpoint`・未設定は throw。`render.yaml` の envVarGroup `carelink-cron-env` で全 cron サービスへ供給） |
 | RESEND_API_KEY | メール送信（未設定でメール系 cron は送信スキップ） |

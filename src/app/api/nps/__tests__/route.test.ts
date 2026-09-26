@@ -20,6 +20,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 
 const BOOKING_UUID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
+const BOOKING_FACILITY_UUID = '11111111-1111-4111-8111-111111111111';
 
 let mockInsert: jest.Mock;
 let mockGetUser: jest.Mock;
@@ -38,8 +39,9 @@ function setupDefaultMocks(
   mockSelectBooking = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        single: jest.fn().mockResolvedValue({
-          data: bookingExists ? { id: BOOKING_UUID } : null,
+        maybeSingle: jest.fn().mockResolvedValue({
+          data: bookingExists ? { id: BOOKING_UUID, facility_id: BOOKING_FACILITY_UUID } : null,
+          error: null,
         }),
       }),
     }),
@@ -93,6 +95,35 @@ function makePostRequest(body: object, ip = '192.168.1.1') {
 }
 
 describe('POST /api/nps', () => {
+  test('所有する予約と異なる施設への回答は拒否し書き込まない', async () => {
+    const { POST } = await import('../route');
+    const res = await POST(makePostRequest({ score: 8, booking_id: BOOKING_UUID, facility_id: '22222222-2222-4222-8222-222222222222' }) as any);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'booking_id と facility_id が一致しません' });
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  test('所有する予約と一致する施設のみ予約付き回答を保存する', async () => {
+    const { POST } = await import('../route');
+    const res = await POST(makePostRequest({ score: 8, booking_id: BOOKING_UUID, facility_id: BOOKING_FACILITY_UUID }) as any);
+    expect(res.status).toBe(201);
+    expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({ booking_id: BOOKING_UUID, facility_id: BOOKING_FACILITY_UUID, ip_hash: null }));
+  });
+
+  test('認証基盤の例外は制御された500になり、書込しない', async () => {
+    mockGetUser.mockRejectedValueOnce(new Error('network'));
+    const { POST } = await import('../route');
+    const res = await POST(makePostRequest({ score: 8 }) as any);
+    expect(res.status).toBe(500);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  test('DB insertのrejectも制御された500になる', async () => {
+    mockInsert.mockRejectedValueOnce(new Error('network'));
+    const { POST } = await import('../route');
+    const res = await POST(makePostRequest({ score: 8 }) as any);
+    expect(res.status).toBe(500);
+  });
   test('CSRF check failed → returns error', async () => {
     const csrfError = new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 });
     (checkCsrf as jest.Mock).mockReturnValue(csrfError);
@@ -183,6 +214,25 @@ describe('POST /api/nps', () => {
     expect([200, 201]).toContain(res.status);
   });
 
+  test('予約所有確認の実DB障害 → 500（0件とは区別する）', async () => {
+    mockSelectBooking = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          maybeSingle: jest.fn().mockResolvedValue({ data: null, error: { code: '42P01', message: 'db down' } }),
+        }),
+      }),
+    });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({ select: mockSelectBooking, insert: mockInsert }),
+    });
+
+    const { POST } = await import('../route');
+    const res = await POST(makePostRequest({ score: 8, booking_id: BOOKING_UUID }) as any);
+
+    expect(res.status).toBe(500);
+  });
+
   test('comment > 500 chars → 400', async () => {
     const { POST } = await import('../route');
     const res = await POST(makePostRequest({
@@ -222,13 +272,13 @@ describe('POST /api/nps', () => {
     expect(res.status).toBe(200);
   });
 
-  test('IP hash created for anonymous users', async () => {
+  test('IPは新規保存せず、匿名利用時もip_hashをnullにする', async () => {
     const { POST } = await import('../route');
     await POST(makePostRequest({ score: 8 }) as any);
 
     if (mockInsert.mock.calls.length > 0) {
       const call = mockInsert.mock.calls[0];
-      expect(call[0].ip_hash).toBeDefined();
+      expect(call[0].ip_hash).toBeNull();
     }
   });
 
@@ -260,6 +310,21 @@ describe('POST /api/nps', () => {
     const insertCall = mockInsert.mock.calls[0];
     expect(insertCall[0].booking_id).toBeNull();
     expect(insertCall[0].user_id).toBeNull();
+  });
+
+  test('所有確認済みbookingのfacility_idを保存し、別施設の指定は拒否する', async () => {
+    const { POST } = await import('../route');
+    const accepted = await POST(makePostRequest({ score: 8, booking_id: BOOKING_UUID }) as any);
+    expect(accepted.status).toBe(201);
+    expect(mockInsert.mock.calls[0][0].facility_id).toBe(BOOKING_FACILITY_UUID);
+
+    setupDefaultMocks(true);
+    const mismatch = await POST(makePostRequest({
+      score: 8,
+      booking_id: BOOKING_UUID,
+      facility_id: '22222222-2222-2222-2222-222222222222',
+    }) as any);
+    expect(mismatch.status).toBe(400);
   });
 
   test('insert error not 23505 → 500', async () => {
@@ -297,16 +362,18 @@ function makeGetRequest(params: Record<string, string> = {}, ip = '192.168.1.1')
 function setupGetMocks(
   hasUser: boolean = true,
   isMember: boolean = true,
-  surveys: Array<{ score: number; comment?: string | null; created_at: string }> = []
+  surveys: Array<{ score: number; comment?: string | null; created_at: string }> = [],
+  surveyError: unknown = null,
 ) {
   const mockGetUser = jest.fn().mockResolvedValue({
     data: { user: hasUser ? { id: 'user-123' } : null },
   });
 
-  const mockMemberSingle = jest.fn().mockResolvedValue({
+  const mockMemberMaybeSingle = jest.fn().mockResolvedValue({
     data: isMember ? { role: 'admin' } : null,
+    error: null,
   });
-  const mockMemberIn = jest.fn().mockReturnValue({ single: mockMemberSingle });
+  const mockMemberIn = jest.fn().mockReturnValue({ maybeSingle: mockMemberMaybeSingle });
   const mockMemberEq2 = jest.fn().mockReturnValue({ in: mockMemberIn });
   const mockMemberEq1 = jest.fn().mockReturnValue({ eq: mockMemberEq2 });
   const mockMemberSelect = jest.fn().mockReturnValue({ eq: mockMemberEq1 });
@@ -319,7 +386,7 @@ function setupGetMocks(
     }),
   });
 
-  const mockLimit = jest.fn().mockResolvedValue({ data: surveys });
+  const mockLimit = jest.fn().mockResolvedValue({ data: surveys, error: surveyError });
   const mockOrder = jest.fn().mockReturnValue({ limit: mockLimit });
   const mockEqSurveys = jest.fn().mockReturnValue({ order: mockOrder });
   const mockSelectSurveys = jest.fn().mockReturnValue({ eq: mockEqSurveys });
@@ -333,6 +400,14 @@ function setupGetMocks(
 }
 
 describe('GET /api/nps', () => {
+  test('集計読取のDB障害は回答0件の成功にせず500で返す', async () => {
+    setupGetMocks(true, true, [], { message: 'surveys unavailable' });
+    const { GET } = await import('../route');
+    const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID }) as any);
+    expect(res.status).toBe(500);
+    expect(await res.json()).not.toHaveProperty('nps');
+  });
+
   test('rate limiting → 429', async () => {
     (checkRateLimit as jest.Mock).mockReturnValue(true);
 
@@ -376,6 +451,25 @@ describe('GET /api/nps', () => {
     const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID }) as any);
 
     expect(res.status).toBe(401);
+  });
+
+  test('会員確認の実DB障害 → 500（非会員の401とは区別する）', async () => {
+    const mockGetUser = jest.fn().mockResolvedValue({ data: { user: { id: 'user-123' } } });
+    const mockMemberMaybeSingle = jest.fn().mockResolvedValue({ data: null, error: { code: '42P01', message: 'db down' } });
+    const mockMemberIn = jest.fn().mockReturnValue({ maybeSingle: mockMemberMaybeSingle });
+    const mockMemberEq2 = jest.fn().mockReturnValue({ in: mockMemberIn });
+    const mockMemberEq1 = jest.fn().mockReturnValue({ eq: mockMemberEq2 });
+    const mockMemberSelect = jest.fn().mockReturnValue({ eq: mockMemberEq1 });
+    const { createServerSupabaseAuthClient } = require('@/lib/supabase-server-auth');
+    createServerSupabaseAuthClient.mockResolvedValue({
+      auth: { getUser: mockGetUser },
+      from: jest.fn().mockReturnValue({ select: mockMemberSelect }),
+    });
+
+    const { GET } = await import('../route');
+    const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID }) as any);
+
+    expect(res.status).toBe(500);
   });
 
   test('valid member → 200 with nps, count, data', async () => {
@@ -480,8 +574,8 @@ describe('GET /api/nps', () => {
 
   test('GET: data null (?? []) → nps=null, count=0', async () => {
     const mockGetUser = jest.fn().mockResolvedValue({ data: { user: { id: 'u' } } });
-    const mockMemberSingle = jest.fn().mockResolvedValue({ data: { role: 'admin' } });
-    const mockMemberIn = jest.fn().mockReturnValue({ single: mockMemberSingle });
+    const mockMemberMaybeSingle = jest.fn().mockResolvedValue({ data: { role: 'admin' }, error: null });
+    const mockMemberIn = jest.fn().mockReturnValue({ maybeSingle: mockMemberMaybeSingle });
     const mockMemberEq2 = jest.fn().mockReturnValue({ in: mockMemberIn });
     const mockMemberEq1 = jest.fn().mockReturnValue({ eq: mockMemberEq2 });
     const mockMemberSelect = jest.fn().mockReturnValue({ eq: mockMemberEq1 });

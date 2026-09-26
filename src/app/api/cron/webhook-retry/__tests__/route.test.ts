@@ -46,6 +46,8 @@ jest.mock('@/lib/alert', () => ({
   alertDeliveryFailures: jest.fn(),
 }));
 jest.mock('resend');
+jest.mock('@/lib/salon-outbox-delivery');
+jest.mock('@/lib/facility-welcome-delivery');
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
@@ -53,6 +55,8 @@ import { scheduleRetry } from '@/lib/webhook-queue';
 import { sendLineText } from '@/lib/line';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { GET } from '../route';
+import { prepareSalonOutboxDelivery } from '@/lib/salon-outbox-delivery';
+import { prepareFacilityWelcomeDelivery } from '@/lib/facility-welcome-delivery';
 
 let mockJobsSelect: jest.Mock;
 let mockClaimUpdate: jest.Mock;
@@ -60,8 +64,27 @@ let mockSuccessUpdate: jest.Mock;
 let mockReclaimUpdate: jest.Mock;
 let mockDeliveryStartUpdate: jest.Mock;
 let mockQueuePendingEq: jest.Mock;
+let mockHeldDeliveryLt: jest.Mock;
 let mockTableUpdateDispatch: jest.Mock;
 let mockSendLineText: jest.Mock;
+
+function mutationChain(result: jest.Mock) {
+  const filters: Record<string, unknown> = {};
+  const chain = {
+    eq: jest.fn((key: string, value: unknown) => { filters[key] = value; return chain; }),
+    is: jest.fn((key: string, value: unknown) => { filters[key] = value; return chain; }),
+    select: jest.fn(() => result(filters)),
+  };
+  return chain;
+}
+
+function claimChain(result: jest.Mock) {
+  const chain = { in: jest.fn(), eq: jest.fn(), lte: jest.fn(), select: result };
+  chain.in.mockReturnValue(chain);
+  chain.eq.mockReturnValue(chain);
+  chain.lte.mockReturnValue(chain);
+  return chain;
+}
 
 /**
  * webhook_retry_queue テーブルの select/update チェーンを構築する共有ヘルパー。
@@ -85,16 +108,16 @@ function makeWebhookRetryQueueTable(overrides: {
   successUpdate: jest.Mock;
   reclaimUpdate: jest.Mock;
   deliveryStartUpdate?: jest.Mock;
+  heldDeliveryLt?: jest.Mock;
   queuePendingEq: jest.Mock;
 }) {
-  const deliveryStartUpdate = overrides.deliveryStartUpdate ?? jest.fn().mockResolvedValue({ error: null });
+  const deliveryStartUpdate = overrides.deliveryStartUpdate ?? jest.fn().mockResolvedValue({ data: [{ id: 'fixture' }], error: null });
+  const heldDeliveryLt = overrides.heldDeliveryLt ?? jest.fn().mockResolvedValue({ count: 0, error: null });
   const updateDispatch = jest.fn((data: any) => {
     if (data.status === 'processing') return overrides.claimUpdate(data);
     if (data.status === 'success') return overrides.successUpdate(data);
     if ('delivery_started_at' in data && data.delivery_started_at !== null) {
-      return {
-        eq: deliveryStartUpdate,
-      };
+      return mutationChain(deliveryStartUpdate);
     }
     return {
       eq: jest.fn().mockReturnValue({
@@ -107,7 +130,19 @@ function makeWebhookRetryQueueTable(overrides: {
   return {
     select: jest.fn((_col: string, selectOpts?: { count?: string; head?: boolean }) => {
       if (selectOpts && selectOpts.count) {
-        return { eq: overrides.queuePendingEq };
+        // Count queries are issued in this fixed order: held delivery observation, then
+        // pending queue observation.  Keep their chains distinct so tests fail if either
+        // observation disappears or changes shape.
+        return {
+          eq: jest.fn((column: string, value: string) => {
+            if (column === 'status' && value === 'processing') {
+              return {
+                not: jest.fn().mockReturnValue({ lt: heldDeliveryLt }),
+              };
+            }
+            return overrides.queuePendingEq(value);
+          }),
+        };
       }
       return {
         eq: jest.fn().mockReturnValue({
@@ -172,24 +207,16 @@ function setupDefaultMocks(
 
   // 真のCAS: update({status:'processing',claimed_at}).in('id',ids).eq('status','pending').select('id')
   // → 実際に claim できた行の id を返す。既定は全行 claim 成功。
-  mockClaimUpdate = jest.fn().mockReturnValue({
-    in: jest.fn((_col: string, ids: string[]) => ({
-      eq: jest.fn().mockReturnValue({
-        select: jest.fn().mockResolvedValue({
-          data: claimFails ? null : ids.map((id) => ({ id })),
-          error: claimFails ? new Error('Claim failed') : null,
-        }),
-      }),
-    })),
-  });
+  mockClaimUpdate = jest.fn().mockImplementation(() => claimChain(jest.fn(async () => ({
+    data: claimFails ? null : (await mockJobsSelect.mock.results.at(-1)?.value).data,
+    error: claimFails ? new Error('Claim failed') : null,
+  }))));
 
-  mockSuccessUpdate = jest.fn().mockReturnValue({
-    eq: jest.fn().mockResolvedValue({
-      error: null,
-    }),
-  });
+  mockSuccessUpdate = jest.fn().mockImplementation(() => mutationChain(jest.fn().mockResolvedValue({
+    data: [{ id: 'fixture' }], error: null,
+  })));
 
-  mockDeliveryStartUpdate = jest.fn().mockResolvedValue({ error: null });
+  mockDeliveryStartUpdate = jest.fn().mockResolvedValue({ data: [{ id: 'fixture' }], error: null });
 
   // stale processing 再回収 update(...).eq('status','processing').or(filterString)
   mockReclaimUpdate = jest.fn().mockResolvedValue({
@@ -198,6 +225,7 @@ function setupDefaultMocks(
 
   // queue_pending 観測 select('id',{count:'exact',head:true}).eq('status','pending')
   mockQueuePendingEq = jest.fn().mockResolvedValue({ count: 0, error: null });
+  mockHeldDeliveryLt = jest.fn().mockResolvedValue({ count: 0, error: null });
 
   // route.ts は .from('webhook_retry_queue') を1 run 内で複数回呼ぶ（reclaim・jobs select・
   // claim・success・queue_pending）。呼び出しごとに毎回新しい table オブジェクトを作ると
@@ -209,6 +237,7 @@ function setupDefaultMocks(
     successUpdate: mockSuccessUpdate,
     reclaimUpdate: mockReclaimUpdate,
     deliveryStartUpdate: mockDeliveryStartUpdate,
+    heldDeliveryLt: mockHeldDeliveryLt,
     queuePendingEq: mockQueuePendingEq,
   });
   mockTableUpdateDispatch = webhookRetryQueueTable.update as jest.Mock;
@@ -226,7 +255,7 @@ function setupDefaultMocks(
   const { Resend } = require('resend');
   Resend.mockImplementation(() => ({
     emails: {
-      send: jest.fn().mockResolvedValue({ success: true }),
+      send: jest.fn().mockResolvedValue({ data: { id: 'fixture-message' }, error: null }),
     },
   }));
 }
@@ -249,6 +278,205 @@ function makeRequest(cronSecret: string = 'cron-secret') {
 }
 
 describe('GET /api/cron/webhook-retry', () => {
+  test('claim rechecks due time and consumes returned current data, not stale selection', async () => {
+    const chain = claimChain(jest.fn().mockResolvedValue({ data: [{
+      id: 'job-1', webhook_type: 'line_push', payload: null, attempt_count: 2,
+    }], error: null }));
+    mockClaimUpdate.mockReturnValue(chain);
+    await GET(makeRequest());
+    const epoch = mockClaimUpdate.mock.calls[0][0].claimed_at;
+    expect(chain.lte).toHaveBeenCalledWith('scheduled_at', epoch);
+    expect(chain.select).toHaveBeenCalledWith('*');
+    expect(mockSendLineText).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledWith('job-1', 3, expect.any(String), epoch);
+  });
+
+  test('job rescheduled to the future between select and claim is not sent', async () => {
+    let dueTimeChecked = false;
+    const chain = claimChain(jest.fn(async () => ({ data: dueTimeChecked ? [] : [{
+      id: 'job-1', webhook_type: 'line_push', target_id: 'fixture', payload: { message: 'fixture' }, attempt_count: 1,
+    }], error: null })));
+    chain.lte.mockImplementation((column, cutoff) => {
+      dueTimeChecked = column === 'scheduled_at' && cutoff === mockClaimUpdate.mock.calls[0][0].claimed_at;
+      return chain;
+    });
+    mockClaimUpdate.mockReturnValue(chain);
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect(dueTimeChecked).toBe(true);
+    expect(mockSendLineText).not.toHaveBeenCalled();
+    expect(scheduleRetry).not.toHaveBeenCalled();
+  });
+  test('delivery and completion are fenced by the exact epoch and durable marker', async () => {
+    const successfulChains: ReturnType<typeof mutationChain>[] = [];
+    mockSuccessUpdate.mockImplementation(() => {
+      const chain = mutationChain(jest.fn().mockResolvedValue({ data: [{ id: 'fixture' }], error: null }));
+      successfulChains.push(chain);
+      return chain;
+    });
+    await GET(makeRequest());
+    const epoch = mockClaimUpdate.mock.calls[0][0].claimed_at;
+    expect(mockDeliveryStartUpdate).toHaveBeenCalledWith({
+      id: 'job-1', status: 'processing', claimed_at: epoch, delivery_started_at: null,
+    });
+    const marker = mockTableUpdateDispatch.mock.calls.find(([patch]) => !patch.status && patch.delivery_started_at)[0].delivery_started_at;
+    expect(successfulChains[0].eq.mock.calls).toEqual([
+      ['id', 'job-1'], ['status', 'processing'], ['claimed_at', epoch], ['delivery_started_at', marker],
+    ]);
+    expect(successfulChains[0].select).toHaveBeenCalledWith('id');
+  });
+
+  test('old worker resumed after reclaim cannot send or reset the new owner', async () => {
+    mockJobsSelect.mockResolvedValue({ data: [{ id: 'registration-job', webhook_type: 'salon_registration_internal', attempt_count: 0 }] });
+    const currentOwner = { status: 'processing', claimed_at: '2099-01-01T00:00:00.000Z', delivery_started_at: null };
+    const deliver = jest.fn().mockResolvedValue('delivered');
+    (prepareSalonOutboxDelivery as jest.Mock).mockResolvedValue(deliver);
+    mockDeliveryStartUpdate.mockImplementation(async filters => ({
+      data: filters.claimed_at === currentOwner.claimed_at ? [{ id: 'registration-job' }] : [], error: null,
+    }));
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(503);
+    expect(deliver).not.toHaveBeenCalled();
+    expect(scheduleRetry).not.toHaveBeenCalled();
+    expect(currentOwner).toEqual({ status: 'processing', claimed_at: '2099-01-01T00:00:00.000Z', delivery_started_at: null });
+  });
+
+  test.each([[], null])('zero-row success %p is not reported as normal and never resends', async data => {
+    mockSuccessUpdate.mockImplementation(() => mutationChain(jest.fn().mockResolvedValue({ data, error: null })));
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(503);
+    expect(mockSendLineText).toHaveBeenCalledTimes(1);
+    expect(scheduleRetry).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['salon_registration_internal', []], ['salon_registration_internal', null],
+    ['facility_welcome', []], ['facility_welcome', null],
+  ])('lost claim marker for %s returns %p: no external send or retry reset', async (webhook_type, data) => {
+    mockJobsSelect.mockResolvedValue({ data: [{ id: 'registration-job', webhook_type, attempt_count: 0 }] });
+    const deliver = jest.fn().mockResolvedValue('delivered');
+    (prepareSalonOutboxDelivery as jest.Mock).mockResolvedValue(deliver);
+    (prepareFacilityWelcomeDelivery as jest.Mock).mockResolvedValue(deliver);
+    mockDeliveryStartUpdate.mockResolvedValue({ data, error: null });
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(503);
+    expect(deliver).not.toHaveBeenCalled();
+    expect(scheduleRetry).not.toHaveBeenCalled();
+  });
+
+  test.each(['salon_registration_email', 'salon_registration_internal', 'facility_welcome'])('typed %s is sent only after the durable marker', async webhook_type => {
+    const job = { id: 'registration-job', webhook_type, attempt_count: 0 };
+    mockJobsSelect.mockResolvedValue({ data: [job], error: null });
+    const deliver = jest.fn(async () => {
+      expect(mockDeliveryStartUpdate).toHaveBeenCalled();
+      return 'delivered';
+    });
+    (prepareSalonOutboxDelivery as jest.Mock).mockResolvedValue(deliver);
+    (prepareFacilityWelcomeDelivery as jest.Mock).mockResolvedValue(deliver);
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(scheduleRetry).not.toHaveBeenCalled();
+    expect(mockSuccessUpdate).toHaveBeenCalled();
+  });
+
+  test.each(['rejected', 'uncertain'])('registration outcome %s is not recorded as delivered', async outcome => {
+    mockJobsSelect.mockResolvedValue({ data: [{ id: 'registration-job', webhook_type: 'salon_registration_email', attempt_count: 0 }] });
+    const deliver = jest.fn().mockResolvedValue(outcome);
+    (prepareSalonOutboxDelivery as jest.Mock).mockResolvedValue(deliver);
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(outcome === 'uncertain' ? 503 : 200);
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledTimes(outcome === 'rejected' ? 1 : 0);
+  });
+
+  test('registration preparation failure cannot start an external send', async () => {
+    mockJobsSelect.mockResolvedValue({ data: [{ id: 'registration-job', webhook_type: 'salon_registration_email', attempt_count: 0 }] });
+    (prepareSalonOutboxDelivery as jest.Mock).mockRejectedValue(new Error('Registration email reference unavailable'));
+    await GET(makeRequest());
+    expect(mockDeliveryStartUpdate).not.toHaveBeenCalled();
+    expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledTimes(1);
+  });
+
+  test.each(['rejected', 'uncertain'])('welcome %s uses the existing durable reconciliation contract', async outcome => {
+    mockJobsSelect.mockResolvedValue({ data: [{ id: 'welcome-job', webhook_type: 'facility_welcome', attempt_count: 0 }] });
+    const deliver = jest.fn().mockResolvedValue(outcome);
+    (prepareFacilityWelcomeDelivery as jest.Mock).mockResolvedValue(deliver);
+    const response = await GET(makeRequest());
+    expect(response.status).toBe(outcome === 'uncertain' ? 503 : 200);
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledTimes(outcome === 'rejected' ? 1 : 0);
+  });
+
+  test('ineligible welcome recipient never starts delivery and uses bounded retry', async () => {
+    mockJobsSelect.mockResolvedValue({ data: [{ id: 'welcome-job', webhook_type: 'facility_welcome', attempt_count: 2 }] });
+    (prepareFacilityWelcomeDelivery as jest.Mock).mockRejectedValue(new Error('Facility welcome reference unavailable'));
+    (scheduleRetry as jest.Mock).mockResolvedValue('dead-letter');
+    await GET(makeRequest());
+    expect(mockDeliveryStartUpdate).not.toHaveBeenCalled(); expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledWith('welcome-job', 3, expect.any(String), expect.any(String));
+    expect(alertDeliveryFailures).toHaveBeenCalledWith('webhook-retry', 1, { success: 0 }, 1);
+  });
+
+  test('failed durable marker prevents the prepared registration send', async () => {
+    mockJobsSelect.mockResolvedValue({ data: [{ id: 'registration-job', webhook_type: 'salon_registration_internal', attempt_count: 0 }] });
+    const deliver = jest.fn();
+    (prepareSalonOutboxDelivery as jest.Mock).mockResolvedValue(deliver);
+    mockDeliveryStartUpdate.mockResolvedValue({ error: new Error('marker unavailable') });
+    await GET(makeRequest());
+    expect(deliver).not.toHaveBeenCalled();
+    expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledTimes(1);
+  });
+
+  test('結果不明件数nullは0として対象なしを正常スキップする', async () => {
+    setupDefaultMocks(0);
+    mockHeldDeliveryLt.mockResolvedValue({ count: null, error: null });
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect(mockDeliveryStartUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    null, [], 'invalid',
+    { to: 1, subject: 'fixture', html: '<p>fixture</p>' },
+    { to: 'fixture@example.com', subject: null, html: '<p>fixture</p>' },
+    { to: 'fixture@example.com', subject: 'fixture', html: null },
+    { to: 'fixture@example.com', subject: 'fixture', html: '<p>fixture</p>', from: 1 },
+  ])('不正email payload %jは送信せず安全な失敗処理に回す', async (payload) => {
+    mockJobsSelect.mockResolvedValue({ data: [{
+      id: 'email-fixture', webhook_type: 'email', payload,
+      status: 'pending', attempt_count: 0, scheduled_at: new Date().toISOString(),
+    }] });
+    const mockSend = jest.fn();
+    require('resend').Resend.mockImplementation(() => ({ emails: { send: mockSend } }));
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockDeliveryStartUpdate).not.toHaveBeenCalled();
+    expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledWith('email-fixture', 1, expect.stringContaining('email payload'), expect.any(String));
+  });
+
+  test('SDKが明確に拒否したメールだけ再スケジュールし結果不明と区別する', async () => {
+    mockJobsSelect.mockResolvedValue({ data: [{
+      id: 'email-fixture', webhook_type: 'email',
+      payload: { to: 'fixture@example.com', subject: 'fixture', html: '<p>fixture</p>' },
+      status: 'pending', attempt_count: 0, scheduled_at: new Date().toISOString(),
+    }] });
+    const mockSend = jest.fn().mockResolvedValue({ data: null, error: { statusCode: 429 } });
+    require('resend').Resend.mockImplementation(() => ({ emails: { send: mockSend } }));
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(scheduleRetry).toHaveBeenCalledWith('email-fixture', 1, expect.any(String), expect.any(String));
+    expect(mockSuccessUpdate).not.toHaveBeenCalled();
+  });
+
   test('invalid CRON_SECRET → returns auth error', async () => {
     (checkCronAuth as jest.Mock).mockReturnValue(
       new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
@@ -267,6 +495,41 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.processed).toBe(0);
+  });
+
+  test('送信開始後に1時間以上保留された行だけでも 503 で照合待ちを可視化する', async () => {
+    setupDefaultMocks(0);
+    mockHeldDeliveryLt.mockResolvedValue({ count: 2, error: null });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    expect(res.status).toBe(503);
+    expect(json).toEqual(expect.objectContaining({ delivery_uncertain: 2, processed: 0 }));
+    expect(logCronRun).toHaveBeenCalledWith(
+      'webhook-retry', 'error', expect.any(Date), expect.objectContaining({
+        meta: expect.objectContaining({ delivery_uncertain: 2 }),
+      }),
+    );
+  });
+
+  test('保留行がありpendingを他runに先取りされても503で照合待ちを維持する', async () => {
+    setupDefaultMocks(1);
+    mockHeldDeliveryLt.mockResolvedValue({ count: 1, error: null });
+    mockClaimUpdate.mockReturnValue(claimChain(jest.fn().mockResolvedValue({ data: [], error: null })));
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(503);
+  });
+
+  test('保留行の監視照会エラー → 500として無音skippedを防ぐ', async () => {
+    setupDefaultMocks(0);
+    mockHeldDeliveryLt.mockResolvedValue({ count: null, error: new Error('held observation down') });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(500);
   });
 
   test('jobs 取得が DB エラー → error ログ＋500（無音スキップにしない）', async () => {
@@ -379,21 +642,19 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(inMock).toHaveBeenCalledWith('id', ['job-1', 'job-2']);
     const eqMock = inMock.mock.results[0].value.eq as jest.Mock;
     expect(eqMock).toHaveBeenCalledWith('status', 'pending');
-    const selectMock = eqMock.mock.results[0].value.select as jest.Mock;
-    expect(selectMock).toHaveBeenCalledWith('id');
+    const lteMock = eqMock.mock.results[0].value.lte as jest.Mock;
+    expect(lteMock).toHaveBeenCalledWith('scheduled_at', mockClaimUpdate.mock.calls[0][0].claimed_at);
+    const selectMock = lteMock.mock.results[0].value.select as jest.Mock;
+    expect(selectMock).toHaveBeenCalledWith('*');
   });
 
   test('claim 競合（並行runが一部行を先取り）→ claimできた行のみ処理し、取れなかった行は送信しない', async () => {
     setupDefaultMocks(1);
     // SELECT は job-1(line_push)・job-2(email) の2行を返すが、CAS の update 結果は job-1 のみ
     //（job-2 は並行 run が先に processing へ倒した＝status<>'pending' で UPDATE 対象外）。
-    mockClaimUpdate.mockReturnValue({
-      in: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          select: jest.fn().mockResolvedValue({ data: [{ id: 'job-1' }], error: null }),
-        }),
-      }),
-    });
+    mockClaimUpdate.mockReturnValue(claimChain(jest.fn().mockResolvedValue({ data: [{
+      id: 'job-1', webhook_type: 'line_push', target_id: 'fixture', payload: { message: 'fixture' }, attempt_count: 0,
+    }], error: null })));
     const sendSpy = jest.fn().mockResolvedValue({ success: true });
     const { Resend } = require('resend');
     Resend.mockImplementation(() => ({ emails: { send: sendSpy } }));
@@ -413,13 +674,7 @@ describe('GET /api/cron/webhook-retry', () => {
 
   test('claim 全敗（全行を並行runが先取り）→ 1件も処理せず skipped で正常終了', async () => {
     setupDefaultMocks(1);
-    mockClaimUpdate.mockReturnValue({
-      in: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          select: jest.fn().mockResolvedValue({ data: [], error: null }),
-        }),
-      }),
-    });
+    mockClaimUpdate.mockReturnValue(claimChain(jest.fn().mockResolvedValue({ data: [], error: null })));
 
     const res = await GET(makeRequest() as any);
     const json = await res.json();
@@ -437,13 +692,7 @@ describe('GET /api/cron/webhook-retry', () => {
 
   test('claim の update 結果 data=null（error無し）→ 0行claim扱いで安全側に倒す', async () => {
     setupDefaultMocks(1);
-    mockClaimUpdate.mockReturnValue({
-      in: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          select: jest.fn().mockResolvedValue({ data: null, error: null }),
-        }),
-      }),
-    });
+    mockClaimUpdate.mockReturnValue(claimChain(jest.fn().mockResolvedValue({ data: null, error: null })));
 
     const res = await GET(makeRequest() as any);
     const json = await res.json();
@@ -499,19 +748,21 @@ describe('GET /api/cron/webhook-retry', () => {
     await GET(makeRequest() as any);
 
     expect(mockSendLineText).not.toHaveBeenCalled();
-    expect(scheduleRetry).toHaveBeenCalledWith('job-1', 1, 'delivery marker failed');
+    expect(scheduleRetry).toHaveBeenCalledWith('job-1', 1, 'delivery marker failed', expect.any(String));
   });
 
-  test('failure → calls scheduleRetry', async () => {
+  test('外部送信結果が不明な失敗は再送せず503で照合待ちにする', async () => {
     setupDefaultMocks(1, false, true);
 
-    await GET(makeRequest() as any);
+    const res = await GET(makeRequest() as any);
 
-    expect(scheduleRetry).toHaveBeenCalled();
+    expect(res.status).toBe(503);
+    expect(scheduleRetry).not.toHaveBeenCalled();
   });
 
   test('再スケジュール結果が不明なら503とerrorログで運用照合へ上げる', async () => {
-    setupDefaultMocks(1, false, true);
+    setupDefaultMocks(1);
+    mockDeliveryStartUpdate.mockResolvedValueOnce({ error: new Error('delivery marker failed') });
     (scheduleRetry as jest.Mock).mockResolvedValueOnce('uncertain');
 
     const res = await GET(makeRequest() as any);
@@ -531,7 +782,7 @@ describe('GET /api/cron/webhook-retry', () => {
     // 配信成功後の status=success 更新が継続的に DB エラーになるケース。旧実装は error を握り潰し、
     // 行が processing のまま残り stale reclaim 経由で再送＝二重配信になっていた。
     setupDefaultMocks(1);
-    mockSuccessUpdate.mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: new Error('db down') }) });
+    mockSuccessUpdate.mockImplementation(() => mutationChain(jest.fn().mockResolvedValue({ error: new Error('db down') })));
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
     const res = await GET(makeRequest() as any);
@@ -547,22 +798,22 @@ describe('GET /api/cron/webhook-retry', () => {
     errSpy.mockRestore();
   });
 
-  test('line_push returns false (retries exhausted) → scheduleRetry, not silent success', async () => {
+  test('line_push がfalseを返す場合も送達結果不明として再送しない', async () => {
     // sendLineText が throw せず false を返す配信失敗ケース。
     // 戻り値を無視していた旧実装では status='success' に倒れ通知が消失していた。
-    // false を throw → scheduleRetry に回ることを検証（サイレントデータロス防止の回帰固定）。
+    // false が「未受理」を保証しないため、自動再送せず照合へ上げる。
     setupDefaultMocks(1);
     mockSendLineText.mockResolvedValue(false);
 
-    await GET(makeRequest() as any);
+    const res = await GET(makeRequest() as any);
 
-    expect(scheduleRetry).toHaveBeenCalled();
-    const call = (scheduleRetry as jest.Mock).mock.calls[0];
-    expect(call[2]).toContain('line_push failed');
+    expect(res.status).toBe(503);
+    expect(scheduleRetry).not.toHaveBeenCalled();
   });
 
-  test('failure includes error message and attempt_count++', async () => {
-    setupDefaultMocks(1, false, true);
+  test('送信開始前の失敗はerror messageとattempt_count++で再試行する', async () => {
+    setupDefaultMocks(1);
+    mockDeliveryStartUpdate.mockResolvedValueOnce({ error: new Error('delivery marker failed') });
 
     await GET(makeRequest() as any);
 
@@ -572,8 +823,9 @@ describe('GET /api/cron/webhook-retry', () => {
   });
 
   test('scheduleRetry が "dead-letter" を返す → deadLettered を集計し alertDeliveryFailures の第4引数に渡す', async () => {
-    // job-1(line_push) は send 失敗、job-2(email) は成功する構成にする。
-    setupDefaultMocks(1, false, true); // sendFails=true → sendLineText が reject
+    // job-1の送信開始保存に失敗、job-2(email) は成功する構成にする。
+    setupDefaultMocks(1);
+    mockDeliveryStartUpdate.mockResolvedValueOnce({ error: new Error('delivery marker failed') });
     (scheduleRetry as jest.Mock).mockResolvedValueOnce('dead-letter');
 
     const res = await GET(makeRequest() as any);
@@ -589,7 +841,8 @@ describe('GET /api/cron/webhook-retry', () => {
   });
 
   test('scheduleRetry が "rescheduled" を返す（既定）→ deadLettered=0 で alertDeliveryFailures を呼ぶ（他cron呼び出し元と同じ3引数相当の挙動）', async () => {
-    setupDefaultMocks(1, false, true); // sendFails=true・scheduleRetry既定値は'rescheduled'
+    setupDefaultMocks(1);
+    mockDeliveryStartUpdate.mockResolvedValueOnce({ error: new Error('delivery marker failed') });
 
     const res = await GET(makeRequest() as any);
     const json = await res.json();
@@ -643,23 +896,23 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(res.status).toBe(500);
   });
 
-  test('returns processed and failed counts', async () => {
+  test('送信結果不明を含むrunは件数を隠さず503で返す', async () => {
     setupDefaultMocks(2, false, true);
 
     const res = await GET(makeRequest() as any);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
     const json = await res.json();
     expect(json).toHaveProperty('processed');
     expect(json).toHaveProperty('skipped');
   });
 
-  test('individual job error → continues to next', async () => {
+  test('個別送信結果不明でも後続ジョブを処理し、runは503で照合へ上げる', async () => {
     setupDefaultMocks(2, false, true);
 
     const res = await GET(makeRequest() as any);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
   });
 
   test('skips Resend email if API key unavailable', async () => {
@@ -733,7 +986,7 @@ describe('GET /api/cron/webhook-retry', () => {
     // 不正 payload では LINE 送信自体が呼ばれない（実行時検証が送信前に throw する）。
     expect(mockSendLineText).not.toHaveBeenCalled();
     expect(mockSuccessUpdate).not.toHaveBeenCalled();
-    expect(scheduleRetry).toHaveBeenCalledWith('jp-array', 1, 'line_push payload is not an object');
+    expect(scheduleRetry).toHaveBeenCalledWith('jp-array', 1, 'line_push payload is not an object', expect.any(String));
     const json = await res.json();
     expect(json.processed).toBe(0);
     expect(json.skipped).toBe(1);
@@ -774,7 +1027,7 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(res.status).toBe(200);
     expect(mockSendLineText).not.toHaveBeenCalled();
     expect(mockSuccessUpdate).not.toHaveBeenCalled();
-    expect(scheduleRetry).toHaveBeenCalledWith('jp-null', 1, 'line_push payload is not an object');
+    expect(scheduleRetry).toHaveBeenCalledWith('jp-null', 1, 'line_push payload is not an object', expect.any(String));
     const json = await res.json();
     expect(json.processed).toBe(0);
     expect(json.skipped).toBe(1);
@@ -817,7 +1070,7 @@ describe('GET /api/cron/webhook-retry', () => {
     // 不正 payload では LINE 送信自体が呼ばれない（実行時検証が送信前に throw する）。
     expect(mockSendLineText).not.toHaveBeenCalled();
     expect(mockSuccessUpdate).not.toHaveBeenCalled();
-    expect(scheduleRetry).toHaveBeenCalledWith('jp-primitive', 1, 'line_push payload is not an object');
+    expect(scheduleRetry).toHaveBeenCalledWith('jp-primitive', 1, 'line_push payload is not an object', expect.any(String));
     const json = await res.json();
     expect(json.processed).toBe(0);
     expect(json.skipped).toBe(1);
@@ -858,7 +1111,7 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(res.status).toBe(200);
     expect(mockSendLineText).not.toHaveBeenCalled();
     expect(mockSuccessUpdate).not.toHaveBeenCalled();
-    expect(scheduleRetry).toHaveBeenCalledWith('jp-badmsg', 1, 'line_push payload.message is missing or not a string');
+    expect(scheduleRetry).toHaveBeenCalledWith('jp-badmsg', 1, 'line_push payload.message is missing or not a string', expect.any(String));
     const json = await res.json();
     expect(json.processed).toBe(0);
     expect(json.skipped).toBe(1);
@@ -897,7 +1150,7 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(res.status).toBe(200);
     // 未配信なので success には倒さず、再送キューへ回す。
     expect(mockSuccessUpdate).not.toHaveBeenCalled();
-    expect(scheduleRetry).toHaveBeenCalledWith('jx', 1, expect.stringContaining('unsupported webhook_type'));
+    expect(scheduleRetry).toHaveBeenCalledWith('jx', 1, expect.stringContaining('unsupported webhook_type'), expect.any(String));
     const json = await res.json();
     expect(json.processed).toBe(0);
     expect(json.skipped).toBe(1);
@@ -936,7 +1189,7 @@ describe('GET /api/cron/webhook-retry', () => {
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
     expect(mockSuccessUpdate).not.toHaveBeenCalled();
-    expect(scheduleRetry).toHaveBeenCalledWith('je', 1, expect.stringContaining('RESEND_API_KEY not configured'));
+    expect(scheduleRetry).toHaveBeenCalledWith('je', 1, expect.stringContaining('RESEND_API_KEY not configured'), expect.any(String));
     const json = await res.json();
     expect(json.processed).toBe(0);
     expect(json.skipped).toBe(1);
@@ -976,13 +1229,13 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ from: 'Custom <c@x.com>' }));
   });
 
-  test('non-Error throw inside per-job → scheduleRetry with String fallback', async () => {
+  test('送信中の非Error例外も自動再送せず照合へ上げる', async () => {
     (sendLineText as jest.Mock).mockImplementationOnce(() => { throw 'string-err'; });
     setupDefaultMocks(1, false, false);
 
-    await GET(makeRequest() as any);
-    const call = (scheduleRetry as jest.Mock).mock.calls[0];
-    expect(call[2]).toBe('string-err');
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(503);
+    expect(scheduleRetry).not.toHaveBeenCalled();
   });
 
   test('non-Error throw in outer catch → String fallback', async () => {

@@ -20,7 +20,7 @@ function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
 // Card list queries use facility_card_view (has computed min_price, max_price, menu_count, coupon_count, photo_count)
 // Note: Supabase view queries return generic types, so `as unknown as FacilityCardData[]` casts are intentional.
 const CARD_VIEW = 'facility_card_view';
-const CARD_COLS = 'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, google_rating, google_review_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count';
+export const CARD_COLS = 'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, google_rating, google_review_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count';
 
 /** キーワード検索で一度に扱う語数の上限（1語ごとに ILIKE が 6 本増えるため青天井にしない）。 */
 export const KEYWORD_MAX_TERMS = 5;
@@ -536,4 +536,3 @@ export async function getMonthlyBookingCounts(facilityIds: string[]): Promise<Re
   }
   return counts;
 }
-

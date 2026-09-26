@@ -4,7 +4,17 @@
  * checkPublishReadiness の網羅テスト（単一公開/一括公開で共有する公開ゲート）。
  */
 
-import { checkPublishReadiness } from '../facility-publish-gate';
+import { checkPublishReadiness, isPublishedLocationConflict } from '../facility-publish-gate';
+
+test.each([null, undefined, false, '23514', {}, { code: '23514' },
+  { code: '23514', message: null }, { code: '23514', message: 'another_constraint' },
+  { code: '23505', message: '"published_facility_location_present"' },
+])('unrelated or malformed DB error remains a server error: %p', (value) => {
+  expect(isPublishedLocationConflict(value)).toBe(false);
+});
+test('identifies only the named location CHECK violation', () => {
+  expect(isPublishedLocationConflict({ code: '23514', message: 'new row violates check constraint "published_facility_location_present"' })).toBe(true);
+});
 
 // facility_menus は .select().eq().or()、facility_photos は .select().eq()、
 // staff_profiles は .select().eq().eq() で count を解決する thenable。
@@ -19,7 +29,7 @@ function countChain(count: number | null, error: unknown = null) {
 }
 
 // facility_profiles は .select('prefecture, city').eq('id', facilityId).single() で解決する。
-function profileChain(data: { prefecture: string | null; city: string | null } | null, error: unknown = null) {
+function profileChain(data: { prefecture: string | null; city: string | null; address: string | null } | null, error: unknown = null) {
   const obj: Record<string, unknown> = {};
   obj.select = jest.fn(() => obj);
   obj.eq = jest.fn(() => obj);
@@ -36,6 +46,7 @@ function admin(opts: {
   staffErr?: unknown;
   prefecture?: string | null;
   city?: string | null;
+  address?: string | null;
   profileErr?: unknown;
 }) {
   return {
@@ -58,6 +69,7 @@ function admin(opts: {
           {
             prefecture: 'prefecture' in opts ? (opts.prefecture as string | null) : '東京都',
             city: 'city' in opts ? (opts.city as string | null) : '渋谷区',
+            address: 'address' in opts ? (opts.address as string | null) : '検証町1-1',
           },
           opts.profileErr ?? null,
         );
@@ -139,6 +151,18 @@ test('(vi) city が空 → 公開できず、メッセージに含まれる', as
   expect(error).toBeNull();
   expect(readiness.ready).toBe(false);
   expect(readiness.missing).toContain('市区町村を設定してください');
+});
+
+test.each([null, '', '  ', '\u3000\t'])('住所が %p の下書きは公開できない', async (address) => {
+  const { readiness, error } = await checkPublishReadiness(admin({ menu: 1, photo: 1, staff: 1, address }), 'f1');
+  expect(error).toBeNull();
+  expect(readiness).toEqual({ ready: false, missing: ['住所を設定してください'] });
+});
+
+test.each(['prefecture', 'city'] as const)('空白のみの %s は地域の入力として扱わない', async (field) => {
+  const { readiness } = await checkPublishReadiness(admin({ menu: 1, photo: 1, staff: 1, [field]: '\u3000 ' }), 'f1');
+  expect(readiness.ready).toBe(false);
+  expect(readiness.missing).toEqual([field === 'prefecture' ? '都道府県を設定してください' : '市区町村を設定してください']);
 });
 
 test('(vii) 4条件すべて（メニュー/写真/スタッフ/prefecture・city）揃えば公開できる', async () => {

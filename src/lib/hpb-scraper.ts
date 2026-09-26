@@ -22,6 +22,8 @@ import type {
   HpbMenuKind,
   HpbMenuRow,
   HpbParsedReserve,
+  HpbFetchResult,
+  HpbFetchStopReason,
   HpbTarget,
 } from '@/types/hpb';
 import { errorMessage } from '@/lib/err';
@@ -31,7 +33,7 @@ const USER_AGENT =
   'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
 
 /** HPB へ HTTP GET する関数の型(本番は httpFetch・テストは差し替え)。 */
-export type FetchFn = (url: string) => Promise<{ status: number; text: string }>;
+export type FetchFn = (url: string, deadlineAt?: number) => Promise<{ status: number; text: string }>;
 
 /**
  * 1 リクエストのタイムアウト(ms)。HPB は通常 1〜2 秒で応答するため十分。
@@ -43,10 +45,12 @@ export type FetchFn = (url: string) => Promise<{ status: number; text: string }>
 const FETCH_TIMEOUT_MS = 10_000;
 
 /** 本番用の FetchFn。Node 標準 fetch を使い、UA を付ける。タイムアウトで単一ハングを遮断。 */
-export const httpFetch: FetchFn = async (url) => {
+export const httpFetch: FetchFn = async (url, deadlineAt) => {
+  const remaining = deadlineAt === undefined ? FETCH_TIMEOUT_MS : deadlineAt - Date.now();
+  if (remaining <= 0) throw new Error('HPB_TIME_BUDGET_EXCEEDED');
   const res = await fetch(url, {
     headers: { 'User-Agent': USER_AGENT },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    signal: AbortSignal.timeout(Math.min(FETCH_TIMEOUT_MS, remaining)),
   });
   return { status: res.status, text: await res.text() };
 };
@@ -175,23 +179,47 @@ export async function collectListing(
   sln: string,
   fetchFn: FetchFn,
   maxPages = 12,
-): Promise<HpbListingItem[]> {
+  deadlineAt?: number,
+): Promise<{ items: HpbListingItem[]; complete: boolean; stopReason: HpbFetchStopReason; failedPages: number }> {
   const base = `https://beauty.hotpepper.jp/kr/sln${sln}/coupon/`;
   const items = new Map<string, HpbListingItem>();
+  let complete = false;
+  let stopReason: HpbFetchStopReason = 'page_limit';
+  let failedPages = 0;
   for (let n = 1; n <= maxPages; n++) {
     const url = n === 1 ? base : `${base}PN${n}.html`;
     let res: { status: number; text: string };
     try {
-      res = await fetchFn(url);
+      if (deadlineAt !== undefined && Date.now() >= deadlineAt) {
+        stopReason = 'time_budget';
+        failedPages++;
+        break;
+      }
+      res = await fetchFn(url, deadlineAt);
     } catch (e) {
       // 監査X6: 従来は無音でループを打ち切っており、全ページ失敗と正常終端が
       // 区別できなかった。原因切り分けのため warn を残す（打ち切り自体は仕様）。
       console.warn('[hpb-scraper] ページ取得失敗・巡回打ち切り', {
         url, err: errorMessage(e),
       });
+      failedPages++;
+      stopReason = deadlineAt !== undefined && Date.now() >= deadlineAt
+        ? 'time_budget'
+        : e instanceof Error && e.message === 'HPB_TIME_BUDGET_EXCEEDED'
+          ? 'time_budget'
+          : 'fetch_error';
       break;
     }
-    if (res.status !== 200) break;
+    if (res.status === 404 && n > 1 && items.size > 0 && /ページが見つかりません/.test(res.text)) {
+      complete = true;
+      stopReason = 'normal_end';
+      break;
+    }
+    if (res.status !== 200) {
+      failedPages++;
+      stopReason = res.status === 404 ? 'invalid_html' : 'fetch_error';
+      break;
+    }
     let pageNew = 0;
     for (const m of res.text.matchAll(LINK_RE)) {
       const kind: HpbMenuKind = m[1] === 'coupon' ? 'coupon' : 'menu';
@@ -214,9 +242,15 @@ export async function collectListing(
       }
       if (!it.adds.includes(add)) it.adds.push(add);
     }
-    if (pageNew === 0 && n > 1) break; // 新規 id 無し = 末尾ページ巡回防止
+    if (pageNew === 0) {
+      // HTTP 200だけでは正常な一覧末尾とbot対策・認証・構造変更を区別できない。
+      // 既知のHTTP 404ページ終端以外は完全取得とみなさない。
+      failedPages++;
+      stopReason = 'invalid_html';
+      break;
+    }
   }
-  return [...items.values()];
+  return { items: [...items.values()], complete, stopReason, failedPages };
 }
 
 const RESERVE_URL = (sln: string, kind: HpbMenuKind, ref: string, add: number) =>
@@ -227,31 +261,51 @@ export async function fetchStoreRows(
   sln: string,
   fetchFn: FetchFn,
   maxPages = 12,
-): Promise<HpbMenuRow[]> {
+  deadlineAt?: number,
+): Promise<HpbFetchResult> {
   const rows: HpbMenuRow[] = [];
-  const listing = await collectListing(sln, fetchFn, maxPages);
-  for (const it of listing) {
+  const listing = await collectListing(sln, fetchFn, maxPages, deadlineAt);
+  let unresolvedItems = 0;
+  let candidateFetchFailed = false;
+  let budgetExpired = listing.stopReason === 'time_budget';
+  for (const it of listing.items) {
     // collectListing は add 付きリンクからのみ収集するため adds は常に1件以上。
     let info: HpbParsedReserve | null = null;
     for (const add of it.adds) {
       let res: { status: number; text: string };
       try {
-        res = await fetchFn(RESERVE_URL(sln, it.kind, it.refId, add));
+        if (deadlineAt !== undefined && Date.now() >= deadlineAt) {
+          budgetExpired = true;
+          break;
+        }
+        res = await fetchFn(RESERVE_URL(sln, it.kind, it.refId, add), deadlineAt);
       } catch (e) {
         // 監査X6: 無音 continue を避け、失敗を可視化する（次候補へ進む挙動は仕様）。
         console.warn('[hpb-scraper] 予約ページ取得失敗・次候補へ', {
           refId: it.refId, err: errorMessage(e),
         });
+        if ((deadlineAt !== undefined && Date.now() >= deadlineAt) || (e instanceof Error && e.message === 'HPB_TIME_BUDGET_EXCEEDED')) {
+          budgetExpired = true;
+          break;
+        }
+        candidateFetchFailed = true;
         continue;
       }
-      if (res.status !== 200) continue;
+      if (res.status !== 200) {
+        candidateFetchFailed = true;
+        continue;
+      }
       const parsed = parseReserve(res.text);
       if (parsed.name && parsed.durationMin > 0 && parsed.price > 0) {
         info = parsed;
         break;
       }
     }
-    if (!info) continue;
+    if (!info) {
+      unresolvedItems++;
+      if (budgetExpired) break;
+      continue;
+    }
     const target = info.target !== '?' ? info.target : it.targetHint;
     const description = info.description ?? it.description;
     rows.push({
@@ -265,7 +319,25 @@ export async function fetchStoreRows(
       description,
     });
   }
-  return rows;
+  const complete = listing.complete && unresolvedItems === 0 && !budgetExpired;
+  const stopReason: HpbFetchStopReason = budgetExpired
+    ? 'time_budget'
+    : !listing.complete
+      ? listing.stopReason
+      : unresolvedItems > 0
+        // An unresolved item without a fetch failure can only be a parse failure:
+        // candidates are collected only from links with an add parameter, and
+        // budget expiration is handled by the branch above.
+        ? candidateFetchFailed ? 'fetch_error' : 'invalid_html'
+        : 'normal_end';
+  return {
+    rows,
+    complete,
+    stopReason,
+    discoveredItems: listing.items.length,
+    unresolvedItems,
+    failedPages: listing.failedPages,
+  };
 }
 
 /**
@@ -276,13 +348,15 @@ export async function fetchMenuRows(
   stores: string[],
   fetchFn: FetchFn,
   maxPages = 12,
-): Promise<{ rows: HpbMenuRow[]; perStore: Record<string, number> }> {
+): Promise<{ rows: HpbMenuRow[]; perStore: Record<string, number>; perStoreComplete: Record<string, boolean> }> {
   const rows: HpbMenuRow[] = [];
   const perStore: Record<string, number> = {};
+  const perStoreComplete: Record<string, boolean> = {};
   for (const sln of stores) {
-    const srows = await fetchStoreRows(sln, fetchFn, maxPages);
-    perStore[sln] = srows.length;
-    rows.push(...srows);
+    const result = await fetchStoreRows(sln, fetchFn, maxPages);
+    perStore[sln] = result.rows.length;
+    perStoreComplete[sln] = result.complete;
+    rows.push(...result.rows);
   }
-  return { rows, perStore };
+  return { rows, perStore, perStoreComplete };
 }

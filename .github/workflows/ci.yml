@@ -100,7 +100,11 @@ jobs:
     #   "Install Playwright Browsers" が 5 時間 58 分ハングして実際に起きた）。
     #   上限があれば早く赤くなり、再実行が数分で済む。
     timeout-minutes: 30
-    needs: [lint-typecheck, unit-test]
+    # Unit/Contract failures must still block merging, but cannot prevent this
+    # independent fresh-apply/Storage gate from producing its evidence. In
+    # particular, a new migration awaiting production introspection may fail
+    # the committed-type gate; local artifacts are not production evidence.
+    needs: [lint-typecheck]
     # PR でも e2e を必須化する（push-main 限定だと e2e 退行のまま PR マージ可能になる盲点）。
     # workflow は push-main と PR-to-main でのみ起動するため、if を外せば両方で走る。
     steps:
@@ -129,6 +133,18 @@ jobs:
         # これが従来 fake.supabase.co で握り潰されていた E2E 連鎖失敗の真因（/api/health 503）
         # を根治する: 実 Supabase をローカル起動し本物の DB/anon key を後段へ渡す。
         run: supabase start
+      - name: Generate schema types from the disposable local database
+        # Schema only, no rows or hosted-project credentials. Keep the artifact
+        # independent of later browser assertions so missing types can be fixed
+        # from actual introspection rather than guessed by hand.
+        run: supabase gen types typescript --local --schema public > "$RUNNER_TEMP/carelink-database.types.ts"
+      - name: Upload generated local schema types
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-database-types
+          path: ${{ runner.temp }}/carelink-database.types.ts
+          if-no-files-found: error
+          retention-days: 7
       - name: Export Supabase local credentials
         id: supabase
         # `supabase status -o env` は KEY=VALUE 形式で出力するが、CLI バージョンにより
@@ -154,20 +170,32 @@ jobs:
           echo "anon=$ANON_KEY" >> "$GITHUB_OUTPUT"
           echo "::add-mask::$SERVICE_ROLE_KEY"
           echo "service_role=$SERVICE_ROLE_KEY" >> "$GITHUB_OUTPUT"
+      - name: Local Supabase API contracts (no skips)
+        # Hosted stagingではなく、全migration fresh-apply後の隔離Supabase実API検証。
+        # 生成型とprod migrationの静的照合は既存contract-test jobの必須gateに残す。
+        env:
+          STAGING_SUPABASE_URL: ${{ steps.supabase.outputs.url }}
+          STAGING_SUPABASE_ANON_KEY: ${{ steps.supabase.outputs.anon }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ steps.supabase.outputs.service_role }}
+        run: |
+          node scripts/check-local-supabase-contract.mjs environment
+          npm run test:contract -- --runInBand --runTestsByPath tests/contract/schema-invariants.contract.test.ts tests/contract/supabase-contract.test.ts --json --outputFile="$RUNNER_TEMP/local-supabase-contract.json"
+          node scripts/check-local-supabase-contract.mjs results "$RUNNER_TEMP/local-supabase-contract.json"
+          echo "Isolated local Supabase API contracts passed with zero skips. This is not hosted staging or production verification." >> "$GITHUB_STEP_SUMMARY"
       - name: Install Playwright Browsers
         # playwright.config の 2 プロジェクト（chromium / Mobile Safari=webkit）を両方導入。
         # 従来は chromium のみで webkit 系の E2E が実行されない盲点があった。
         run: npx playwright install --with-deps chromium webkit
-      - name: Build
-        run: npm run build
+      - name: Production Build and HTTPS E2E Tests
+        # Browser and server use the same TLS local Supabase origin. In-memory
+        # private keys; public CA only for Node trust; no TLS bypass flags.
+        run: node scripts/run-ci-e2e.mjs
         env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ steps.supabase.outputs.url }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.supabase.outputs.anon }}
+          # Disposable DB only. Production remains gated until commit/claim
+          # integration and schema/history reconciliation have passed.
+          SALON_REGISTRATION_V2_ENABLED: 'true'
           SKIP_ENV_VALIDATION: true
-      - name: Run E2E Tests
-        run: npm run test:e2e
-        env:
-          PLAYWRIGHT_BASE_URL: http://localhost:3000
+          PLAYWRIGHT_BASE_URL: https://localhost:3000
           NEXT_PUBLIC_SUPABASE_URL: ${{ steps.supabase.outputs.url }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.supabase.outputs.anon }}
           # /api/health の rate_limit プローブ（service_role + check_rate_limit RPC）に必須。
@@ -285,8 +313,8 @@ jobs:
     timeout-minutes: 30
     # 本番と repo migration の「静かなドリフト」（RPC 不在 / カラム欠落 / View 未作成 /
     # RLS 過大公開 / 予約 RPC の 0A000 landmine）を発症前に検知する恒久ゲート。
-    # staging 専用 secrets が未設定なら全テストが describe.skip され、本番には一切触れない。
-    # secrets を設定した時点で自動的にドリフト検知ゲートとして有効化される。
+    # staging secrets未設定でも生成型の静的照合は実行。実APIはE2E jobの隔離localで必須。
+    # 外部stagingが設定された場合もmutation probeはlocal限定で、本番へは接続しない。
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -300,16 +328,15 @@ jobs:
           STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
         run: |
           if [ -z "$STAGING_SUPABASE_URL" ] || [ -z "$STAGING_SUPABASE_ANON_KEY" ]; then
-            echo "⚠️ STAGING_SUPABASE_* 未設定: contract ドリフトゲートは **無効**（全テスト skip）。" >> "$GITHUB_STEP_SUMMARY"
-            echo "有効化するには GitHub Secrets に STAGING_SUPABASE_URL / STAGING_SUPABASE_ANON_KEY（任意で STAGING_SUPABASE_SERVICE_ROLE_KEY）を設定してください。" >> "$GITHUB_STEP_SUMMARY"
+            echo "外部staging未設定：このjobの外部Supabase接続検査は省略。生成型の静的照合は有効、実APIの2 suitesはE2E jobの隔離localで必須実行します。" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "✅ STAGING_SUPABASE_* 設定済み: contract ドリフトゲート **有効**。" >> "$GITHUB_STEP_SUMMARY"
+            echo "外部staging設定済み：読取Contract検査を実行します。mutation probeは隔離local限定です。" >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Run Contract Tests
         run: npm run test:contract
         env:
           # staging 専用シークレット（GitHub Secrets 経由・値は repo に書かない）。
-          # 未設定時は各テストが describe.skip され安全に pass する。
+          # 未設定時は外部接続検査のみskip。静的照合と別jobのlocal API gateは維持。
           STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
           STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
           STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}

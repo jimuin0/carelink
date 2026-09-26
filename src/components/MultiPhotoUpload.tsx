@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Image from 'next/image';
 
 export interface PhotoSlot {
@@ -18,61 +18,69 @@ const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
 export default function MultiPhotoUpload({ slots, onChange }: MultiPhotoUploadProps) {
   const [previews, setPreviews] = useState<(string | null)[]>(slots.map(() => null));
-  const [files, setFiles] = useState<(File | null)[]>(slots.map(() => null));
+  const files = useRef<(File | null)[]>(slots.map(() => null));
+  const generations = useRef<number[]>(slots.map(() => 0));
   const [errors, setErrors] = useState<(string | null)[]>(slots.map(() => null));
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
+  useEffect(() => () => {
+    generations.current = generations.current.map(value => value + 1);
+  }, []);
+
+  const changeFile = (index: number, file: File | null) => {
+    files.current = files.current.map((current, i) => i === index ? file : current);
+    onChange([...files.current]);
+  };
+  const changeError = (index: number, message: string | null) => {
+    setErrors(current => current.map((value, i) => i === index ? message : value));
+  };
+
   const handleChange = (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    const newErrors = [...errors];
-    newErrors[index] = null;
+    const generation = ++generations.current[index];
+    changeError(index, null);
 
     if (!file) {
-      const newPreviews = [...previews];
-      const newFiles = [...files];
-      newPreviews[index] = null;
-      newFiles[index] = null;
-      setPreviews(newPreviews);
-      setFiles(newFiles);
-      setErrors(newErrors);
-      onChange(newFiles);
+      setPreviews(current => current.map((value, i) => i === index ? null : value));
+      changeFile(index, null);
       return;
     }
 
     if (!ACCEPTED_TYPES.includes(file.type)) {
-      newErrors[index] = 'JPG、PNG、WEBP、GIF形式のみ';
-      setErrors(newErrors);
+      changeFile(index, null);
+      setPreviews(current => current.map((value, i) => i === index ? null : value));
+      changeError(index, 'JPG、PNG、WEBP、GIF形式のみ');
       return;
     }
 
     if (file.size > MAX_SIZE) {
-      newErrors[index] = '10MB以下にしてください';
-      setErrors(newErrors);
+      changeFile(index, null);
+      setPreviews(current => current.map((value, i) => i === index ? null : value));
+      changeError(index, '10MB以下にしてください');
       return;
     }
 
+    changeFile(index, file);
+    setPreviews(current => current.map((value, i) => i === index ? null : value));
     const reader = new FileReader();
     reader.onload = () => {
-      const newPreviews = [...previews];
-      const newFiles = [...files];
-      newPreviews[index] = reader.result as string;
-      newFiles[index] = file;
-      setPreviews(newPreviews);
-      setFiles(newFiles);
-      setErrors(newErrors);
-      onChange(newFiles);
+      if (generations.current[index] !== generation) return;
+      setPreviews(current => current.map((value, i) => i === index ? reader.result as string : value));
     };
-    reader.readAsDataURL(file);
+    const fail = () => {
+      if (generations.current[index] !== generation) return;
+      changeFile(index, null);
+      changeError(index, '写真を読み込めませんでした。別の写真を選択してください');
+    };
+    reader.onerror = fail;
+    try { reader.readAsDataURL(file); } catch { fail(); }
   };
 
   const handleRemove = (index: number) => {
-    const newPreviews = [...previews];
-    const newFiles = [...files];
-    newPreviews[index] = null;
-    newFiles[index] = null;
-    setPreviews(newPreviews);
-    setFiles(newFiles);
-    onChange(newFiles);
+    ++generations.current[index];
+    setPreviews(current => current.map((value, i) => i === index ? null : value));
+    changeFile(index, null);
+    changeError(index, null);
     const input = inputRefs.current[index];
     if (input) input.value = '';
   };
@@ -113,6 +121,7 @@ export default function MultiPhotoUpload({ slots, onChange }: MultiPhotoUploadPr
               <input
                 ref={(el) => { inputRefs.current[i] = el; }}
                 type="file"
+                aria-label={`${slot.label}の写真を選択`}
                 accept=".jpg,.jpeg,.png,.webp,.gif"
                 onChange={(e) => handleChange(i, e)}
                 className="hidden"

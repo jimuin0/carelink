@@ -15,7 +15,7 @@
  * 呼ばれなかったか】と【どの引数で呼ばれたか】を直接 assert する。
  */
 import '@testing-library/jest-dom';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import SignupPage from '../page';
 
 const mockPush = jest.fn();
@@ -33,12 +33,14 @@ jest.mock('next/navigation', () => ({
 const mockSignUp = jest.fn();
 const mockGetUser = jest.fn();
 const mockSignInWithOAuth = jest.fn();
+const mockResend = jest.fn();
 jest.mock('@/lib/supabase-browser', () => ({
   createBrowserSupabaseClient: () => ({
     auth: {
       signUp: (...args: unknown[]) => mockSignUp(...args),
       getUser: (...args: unknown[]) => mockGetUser(...args),
       signInWithOAuth: (...args: unknown[]) => mockSignInWithOAuth(...args),
+      resend: (...args: unknown[]) => mockResend(...args),
     },
   }),
 }));
@@ -68,8 +70,52 @@ beforeEach(() => {
   mockSearchParams = new URLSearchParams();
 });
 
+afterEach(() => jest.useRealTimers());
+
+test('既登録の疑似user応答も送達を断定しない確認・ログイン導線へ送る', async () => {
+  mockSignUp.mockResolvedValue({ data: { session: null, user: { identities: [] } }, error: null });
+  render(<SignupPage />);
+  fillForm(); submit();
+  await screen.findByText('登録を受け付けました。');
+  expect(screen.getByRole('link', { name: '既に確認を完了した方はログイン' })).toBeVisible();
+  expect(mockResend).not.toHaveBeenCalled();
+});
+
+test('email/Google共通の登録画面から利用規約とプライバシーポリシーを確認できる', () => {
+  render(<SignupPage />);
+  expect(screen.getByRole('link', { name: '利用規約' })).toHaveAttribute('href', '/terms');
+  expect(screen.getByRole('link', { name: 'プライバシーポリシー' })).toHaveAttribute('href', '/privacy');
+});
+
+test('初期セッション確認の通信例外でも登録可能', async () => {
+  mockGetUser.mockRejectedValue(new Error('network'));
+  mockSignUp.mockResolvedValue({ data: { session: null, user: { id: 'fixture' } }, error: null });
+  render(<SignupPage />);
+  fillForm(); submit();
+  await screen.findByText('登録を受け付けました。');
+});
+
+test.each([false, true])('再送は60秒待機し、成功/失敗(%s)後も連打を防ぐ', async (fails) => {
+  jest.useFakeTimers();
+  mockSignUp.mockResolvedValue({ data: { session: null, user: { id: 'fixture' } }, error: null });
+  mockResend.mockResolvedValue({ error: fails ? { message: 'private' } : null });
+  render(<SignupPage />);
+  fillForm(); submit();
+  await screen.findByText('登録を受け付けました。');
+  expect(screen.getByRole('button', { name: '確認メールの再送は1分後にできます' })).toBeDisabled();
+  await act(async () => { jest.advanceTimersByTime(60_000); });
+  const button = screen.getByRole('button', { name: '確認メールを再送する' });
+  fireEvent.click(button); fireEvent.click(button);
+  await act(async () => {});
+  expect(mockResend).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('button', { name: '確認メールの再送は1分後にできます' })).toBeDisabled();
+  expect(screen.getByText(fails ? '再送を受け付けられませんでした。時間をおいてもう一度お試しください。' : '再送を受け付けました。確認が必要なアカウントにはメールが届きます。')).toBeVisible();
+  await act(async () => { jest.advanceTimersByTime(60_000); });
+  expect(screen.getByRole('button', { name: '確認メールを再送する' })).toBeEnabled();
+});
+
 describe('/auth/signup', () => {
-  it('(i) session あり（メール確認無効）→ router.push が redirect 先で呼ばれる', async () => {
+  it('(i) session あり（メール確認無効）→ router.replace が redirect 先で呼ばれる', async () => {
     mockSignUp.mockResolvedValue({
       data: { session: { access_token: 'tok' }, user: { id: 'u1' } },
       error: null,
@@ -79,13 +125,13 @@ describe('/auth/signup', () => {
     fillForm();
     submit();
 
-    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1));
     // 呼ばれた引数まで検証する（redirect 未指定時の既定値 = DEFAULT_REDIRECT）。
-    expect(mockPush).toHaveBeenCalledWith('/mypage');
+    expect(mockReplace).toHaveBeenCalledWith('/mypage');
     expect(mockRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it('(ii) session なし（メール確認有効）→ router.push は呼ばれず確認メール文言が出る', async () => {
+  it('(ii) session なし（メール確認有効）→ 過度な送達断定をせず確認待ち画面を出す', async () => {
     mockSignUp.mockResolvedValue({
       data: { session: null, user: { id: 'u1' } },
       error: null,
@@ -95,9 +141,9 @@ describe('/auth/signup', () => {
     fillForm();
     submit();
 
-    await screen.findByText(/確認メールを送信しました/);
+    await screen.findByText('登録を受け付けました。');
     // 偽陽性防止: 呼ばれていないことを明示的に主張する（呼び出し引数ではなく「呼ばれたか」自体）。
-    expect(mockPush).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
     expect(mockRefresh).not.toHaveBeenCalled();
   });
 
@@ -121,8 +167,8 @@ describe('/auth/signup', () => {
     expectedParams.set('business_type', 'ヘアサロン');
     const expectedRedirect = `/admin/onboarding?${expectedParams.toString()}`;
 
-    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
-    expect(mockPush).toHaveBeenCalledWith(expectedRedirect);
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1));
+    expect(mockReplace).toHaveBeenCalledWith(expectedRedirect);
   });
 
   it('(iii-nested) redirect に /admin/onboarding?facility_name=...&business_type=... がネストされている場合 → そのまま push 先になる（新形式・兄弟クエリのマージ処理は空振りする）', async () => {
@@ -149,12 +195,12 @@ describe('/auth/signup', () => {
     fillForm();
     submit();
 
-    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1));
     // 兄弟クエリ用のマージ処理（facilityName || businessType のとき redirect を
     // 組み立て直す分岐）は発火しない（トップレベルに facility_name/business_type が無いため）。
     // それでも redirect 自体が既に onboarding パラメータを含んでいるので、
     // push 先には正しく facility_name/business_type が残っている。
-    expect(mockPush).toHaveBeenCalledWith(nestedRedirect);
+    expect(mockReplace).toHaveBeenCalledWith(nestedRedirect);
   });
 
   it('(iv) redirect=/\\evil.com（旧ガードは通すがsafeRedirectは止める値）→ push 先は /mypage（負の対照）', async () => {
@@ -174,11 +220,11 @@ describe('/auth/signup', () => {
     fillForm();
     submit();
 
-    await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
-    expect(mockPush).toHaveBeenCalledWith('/mypage');
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1));
+    expect(mockReplace).toHaveBeenCalledWith('/mypage');
   });
 
-  it('(v) already registered エラー → 送信済みと誤表示せず中立な失敗案内・pushされない', async () => {
+  it('(v) already registered エラー → 既登録と送達を断定せず確認待ち導線を出す', async () => {
     mockSignUp.mockResolvedValue({
       data: { session: null, user: null },
       error: { message: 'User already registered', name: 'AuthApiError', status: 422 },
@@ -188,8 +234,8 @@ describe('/auth/signup', () => {
     fillForm();
     submit();
 
-    await screen.findByText(/メールの送信状況を確認できない/);
-    expect(mockPush).not.toHaveBeenCalled();
+    await screen.findByText('登録を受け付けました。');
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 
   it('(v-対照) already registered 以外のエラー → 失敗トーストが出て push されない', async () => {
@@ -202,8 +248,8 @@ describe('/auth/signup', () => {
     fillForm();
     submit();
 
-    await screen.findByText(/メールの送信状況を確認できない/);
-    expect(mockPush).not.toHaveBeenCalled();
+    await screen.findByText(/登録処理の結果を確認できませんでした/);
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 
   it('(vi) signUp が通信例外 → 画面上で中立な失敗案内・pushされない', async () => {
@@ -213,8 +259,8 @@ describe('/auth/signup', () => {
     fillForm();
     submit();
 
-    await screen.findByText(/メールの送信状況を確認できない/);
-    expect(mockPush).not.toHaveBeenCalled();
+    await screen.findByText(/登録処理の結果を確認できませんでした/);
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 
   it('(vii) Google OAuth 起動のエラー → 画面上で案内する', async () => {

@@ -12,7 +12,7 @@ permissions:
 on:
   schedule:
     # UTC 表記。日本時間 = UTC + 9
-    - cron: '0 15 * * *'   # booking-reminder       JST 00:00 daily
+    - cron: '5 * * * *'    # booking-reminder       hourly
     - cron: '0 6 * * *'    # daily-summary          JST 15:00 daily
     - cron: '0 7 * * 0'    # customer-segment       JST 16:00 Sunday
     - cron: '0 18 * * *'   # review-request         JST 03:00 daily
@@ -92,7 +92,7 @@ jobs:
             fi
           fi
           case "$TRIGGER_CRON" in
-            "0 15 * * *")    P="/api/cron/booking-reminder" ;;
+            "5 * * * *")     P="/api/cron/booking-reminder" ;;
             "0 6 * * *")     P="/api/cron/daily-summary" ;;
             "0 7 * * 0")     P="/api/cron/customer-segment" ;;
             "0 18 * * *")    P="/api/cron/review-request" ;;

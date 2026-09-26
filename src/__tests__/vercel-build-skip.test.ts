@@ -28,6 +28,15 @@ function shouldSkipBuild(changedFiles: string[]): boolean {
 }
 
 describe('Vercel ビルドスキップ判定', () => {
+  test('CIと本番は同じWebpack production buildを使用する', () => {
+    const packageJson = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8'));
+    const vercelJson = JSON.parse(readFileSync(join(process.cwd(), 'vercel.json'), 'utf8'));
+    const e2eRunner = readFileSync(join(process.cwd(), 'scripts/run-ci-e2e.mjs'), 'utf8');
+    expect(packageJson.scripts.build).toBe('next build --webpack');
+    expect(vercelJson.buildCommand).toBe('npm run build');
+    expect(e2eRunner).toContain("await run(['run', 'build'], env)");
+  });
+
   test('スクリプトが存在し、vercel.json から呼ばれている', () => {
     expect(existsSync(join(process.cwd(), SCRIPT_PATH))).toBe(true);
     const vercelJson = JSON.parse(readFileSync(join(process.cwd(), 'vercel.json'), 'utf8'));

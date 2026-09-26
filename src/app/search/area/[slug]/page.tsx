@@ -2,22 +2,23 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { getAreaBySlug, getAreasByParent, getAreaBreadcrumb, buildAreaSearchParam } from '@/lib/areas';
-import { searchFacilities } from '@/lib/facilities';
+import { searchAreaFacilities } from '@/lib/area-facilities';
 import FacilityCard from '@/components/search/FacilityCard';
 import Pagination from '@/components/search/Pagination';
 
 export const revalidate = 3600;
+// Area data is managed in Supabase and is unavailable during an isolated
+// production build. Generate paths on first request and then use ISR instead
+// of making the build depend on a live database.
+export const dynamicParams = true;
 
 export async function generateStaticParams() {
-  const { createServerSupabaseClient } = await import('@/lib/supabase-server');
-  const supabase = createServerSupabaseClient();
-  const { data } = await supabase.from('areas').select('slug');
-  return (data || []).map((a) => ({ slug: a.slug }));
+  return [];
 }
 
 interface Props {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string | string[] }>;
 }
 
 export async function generateMetadata(props: Props): Promise<Metadata> {
@@ -48,13 +49,18 @@ export default async function AreaResultPage(props: Props) {
   ]);
 
   // Search facilities by prefecture or city（フィルタ組み立ては buildAreaSearchParam 参照）
-  const searchParam = buildAreaSearchParam(area);
+  const searchParam = buildAreaSearchParam(area, breadcrumb, children);
 
-  const currentPage = Math.max(1, parseInt(searchParams.page || '1', 10) || 1);
+  let currentPage = 1;
+  if (searchParams.page !== undefined) {
+    const rawPage = searchParams.page;
+    if (Array.isArray(rawPage) || !/^[1-9]\d{0,5}$/.test(rawPage) || Number(rawPage) > 100000) notFound();
+    currentPage = Number(rawPage);
+  }
   // 【2026年7月8日 恒久根治】従来はページネーションが一切なく、PER_PAGE(20件)超のエリアで
   // 21件目以降が無言で切り捨てられ、ユーザーが残りの施設を確認する手段が無かった。
   // /search と同じ Pagination コンポーネントを使い、total 件数に基づくページ送りを提供する。
-  const { facilities, total, perPage } = await searchFacilities({ ...searchParam, sort: 'rating', page: currentPage });
+  const { facilities, total, perPage } = await searchAreaFacilities(searchParam, currentPage);
   const totalPages = Math.ceil(total / perPage);
   const baseUrl = `/search/area/${params.slug}`;
 
@@ -81,6 +87,8 @@ export default async function AreaResultPage(props: Props) {
         </nav>
 
         <h1 className="text-2xl font-bold mb-6">{area.name}のサロン・クリニック</h1>
+        {area.area_type === 'station' && <p className="text-sm mb-4">祖先エリア内で、最寄駅欄に「{area.name}」を含む施設を表示します。駅名の部分一致検索であり、同じ文字を含む別の駅も該当する場合があります。</p>}
+        {area.area_type === 'region' && <p className="text-sm mb-4">このエリアに登録された都道府県を対象に表示します。</p>}
 
         {/* Sub-areas */}
         {children.length > 0 && (
@@ -112,7 +120,11 @@ export default async function AreaResultPage(props: Props) {
           </>
         ) : (
           <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
-            <p className="text-gray-400">このエリアにはまだサロン・クリニックが登録されていません</p>
+            <p className="text-gray-400">{searchParam.kind === 'region' && searchParam.prefectures.length === 0
+              ? '下位エリアの登録準備中です。キーワード検索をご利用ください。'
+              : total > 0 ? 'このページに該当する施設はありません。前のページをご確認ください。'
+                : 'このエリアにはまだサロン・クリニックが登録されていません'}</p>
+            {total > 0 && <Pagination currentPage={currentPage} totalPages={totalPages} baseUrl={baseUrl} />}
           </div>
         )}
       </div>

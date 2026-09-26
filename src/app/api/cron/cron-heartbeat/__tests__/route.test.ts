@@ -67,7 +67,7 @@ test('停止疑いなし・判定失敗なし → 200・アラート無し・suc
 test('stale 0 だが queryErrors あり（DB障害）→ 判定失敗を通報（無音化しない）', async () => {
   (getStaleCronJobs as jest.Mock).mockResolvedValue({ stale: [], queryErrors: ['daily-summary: boom', 'flag-reviews: boom'] });
   const res = await GET(makeRequest());
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(503);
   expect(alertWarning).toHaveBeenCalledTimes(1);
   const [msg, opts] = (alertWarning as jest.Mock).mock.calls[0];
   expect(msg).toContain('判定失敗 2件');
@@ -86,7 +86,7 @@ test('停止疑いあり（queryErrors あり）→ 集約アラート1本・que
   });
   const res = await GET(makeRequest());
   const json = await res.json();
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(503);
   expect(json.stale).toEqual(['webhook-retry', 'flag-reviews']);
   expect(alertWarning).toHaveBeenCalledTimes(1);
   const [msg, opts] = (alertWarning as jest.Mock).mock.calls[0];
@@ -94,7 +94,7 @@ test('停止疑いあり（queryErrors あり）→ 集約アラート1本・que
   expect(opts.route).toBe('/api/cron/cron-heartbeat');
   expect(opts.extra.stale_jobs).toEqual(['webhook-retry', 'flag-reviews']);
   expect(opts.extra.query_errors).toEqual(['daily-summary: boom']);
-  expect(logCronRun).toHaveBeenCalledWith('cron-heartbeat', 'success', expect.any(Date), expect.objectContaining({ processed: 2 }));
+  expect(logCronRun).toHaveBeenCalledWith('cron-heartbeat', 'error', expect.any(Date), expect.objectContaining({ processed: 2 }));
 });
 
 test('停止疑いあり（queryErrors 無し）→ extra に query_errors を含めない', async () => {
@@ -113,6 +113,34 @@ test('判定処理が例外 → 500・error ログ', async () => {
   const res = await GET(makeRequest());
   expect(res.status).toBe(500);
   expect(logCronRun).toHaveBeenCalledWith('cron-heartbeat', 'error', expect.any(Date), expect.objectContaining({ error_msg: 'db down' }));
+});
+
+test('実行履歴なしのみでも警告・応答・監査ログへ残す', async () => {
+  (getStaleCronJobs as jest.Mock).mockResolvedValue({
+    stale: [], missing: [{ name: 'booking-reminder', label: '予約リマインド' }], queryErrors: [],
+  });
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ stale: [], missing: ['booking-reminder'], queryErrors: [] });
+  expect(alertWarning).toHaveBeenCalledTimes(1);
+  expect(alertWarning).toHaveBeenCalledWith('cron 死活監視: 実行履歴なし 1件', {
+    route: '/api/cron/cron-heartbeat', extra: { stale_jobs: [], missing_jobs: ['booking-reminder'] },
+  });
+  expect(logCronRun).toHaveBeenCalledWith('cron-heartbeat', 'success', expect.any(Date), {
+    processed: 1, meta: { stale: [], missing: ['booking-reminder'], queryErrors: [] },
+  });
+});
+
+test('停止・実行履歴なし・判定失敗を1本の警告へ集約する', async () => {
+  (getStaleCronJobs as jest.Mock).mockResolvedValue({
+    stale: [{ name: 'daily-summary', label: '日次', lastRunAt: '2026-01-01', ageMinutes: 9999, thresholdMinutes: 2910 }],
+    missing: [{ name: 'booking-reminder', label: '予約リマインド' }], queryErrors: ['flag-reviews: unavailable'],
+  });
+  const res = await GET(makeRequest());
+  expect(await res.json()).toEqual({ stale: ['daily-summary'], missing: ['booking-reminder'], queryErrors: ['flag-reviews: unavailable'] });
+  expect(alertWarning).toHaveBeenCalledTimes(1);
+  expect((alertWarning as jest.Mock).mock.calls[0][0]).toBe('cron 死活監視: 停止疑い 1件 / 実行履歴なし 1件 / 判定失敗 1件');
+  expect(logCronRun).toHaveBeenCalledWith('cron-heartbeat', 'error', expect.any(Date), expect.objectContaining({ processed: 2 }));
 });
 
 test('非 Error 例外でも 500（String 化）', async () => {

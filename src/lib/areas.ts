@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from './supabase-server';
+import { prefectures } from './constants';
 import type { Area } from '@/types';
 
 /**
@@ -9,18 +10,56 @@ import type { Area } from '@/types';
  * 無関係施設が混入したり、city 列の表記が area.name と完全一致しない施設を取りこぼす
  * 可能性があった。searchFacilities がサポートする city 列の完全一致フィルタに変更する。
  */
-export function buildAreaSearchParam(area: Pick<Area, 'area_type' | 'name'>): { prefecture?: string; city?: string } {
-  if (area.area_type === 'prefecture') return { prefecture: area.name };
-  if (area.area_type === 'city') return { city: area.name };
-  return {};
+export type AreaSearchScope =
+  | { kind: 'prefecture'; prefecture: string }
+  | { kind: 'city'; prefecture: string; city: string }
+  | { kind: 'station'; prefecture: string; city?: string; station: string }
+  | { kind: 'region'; prefectures: string[] };
+
+/** Names alone do not establish geography; invalid ancestry never means all Japan. */
+export function buildAreaSearchParam(area: Area, breadcrumb: Area[], children: Area[]): AreaSearchScope {
+  if (breadcrumb.at(-1)?.id !== area.id || new Set(breadcrumb.map(item => item.id)).size !== breadcrumb.length
+    || breadcrumb[0].parent_id !== null) throw new Error('Area hierarchy is incomplete');
+  const allowedParents: Record<Area['area_type'], Area['area_type'][]> = {
+    region: [], prefecture: ['region'], city: ['prefecture'], station: ['city', 'prefecture'],
+  };
+  for (let index = 1; index < breadcrumb.length; index++) {
+    const parent = breadcrumb[index - 1]; const child = breadcrumb[index];
+    if (child.parent_id !== parent.id || !allowedParents[child.area_type].includes(parent.area_type)) {
+      throw new Error('Area hierarchy type or link is invalid');
+    }
+  }
+  if (area.area_type === 'region') {
+    if (children.some(child => child.parent_id !== area.id || child.area_type !== 'prefecture'
+      || !prefectures.includes(child.name))) throw new Error('Area region hierarchy is invalid');
+    return { kind: 'region', prefectures: [...new Set(children.map(child => child.name))] };
+  }
+  const parents = breadcrumb.filter(item => item.area_type === 'prefecture');
+  if (parents.length !== 1 || !prefectures.includes(parents[0].name)) throw new Error('Area prefecture scope is unavailable');
+  const prefecture = parents[0].name;
+  const hasRegion = breadcrumb[0].area_type === 'region';
+  if (area.area_type === 'prefecture') {
+    if (!hasRegion || breadcrumb.length !== 2 || parents[0].id !== area.id) throw new Error('Area prefecture hierarchy is invalid');
+    return { kind: 'prefecture', prefecture };
+  }
+  if (area.area_type === 'city') {
+    if (!hasRegion || breadcrumb.length !== 3 || breadcrumb.at(-2)?.area_type !== 'prefecture') {
+      throw new Error('Area city hierarchy is invalid');
+    }
+    return { kind: 'city', prefecture, city: area.name };
+  }
+  const city = breadcrumb.find(item => item.area_type === 'city');
+  // The link loop above already constrains a station's direct parent to city or prefecture.
+  if (!hasRegion) throw new Error('Area station hierarchy is invalid');
+  return { kind: 'station', prefecture, ...(city ? { city: city.name } : {}), station: area.name };
 }
 
 export async function getAreasByParent(parentId: string | null): Promise<Area[]> {
   const supabase = createServerSupabaseClient();
   let query = supabase
     .from('areas')
-    .select('*')
-    .order('sort_order');
+    .select('*', { count: 'exact' })
+    .order('sort_order').order('id');
 
   if (parentId) {
     query = query.eq('parent_id', parentId);
@@ -28,42 +67,36 @@ export async function getAreasByParent(parentId: string | null): Promise<Area[]>
     query = query.is('parent_id', null);
   }
 
-  const { data } = await query;
-  return (data ?? []) as Area[];
+  const { data, error, count } = await query;
+  if (error || !Array.isArray(data) || count !== data.length) throw new Error('Area list unavailable or truncated');
+  return data as Area[];
 }
 
 export async function getAreaBySlug(slug: string): Promise<Area | null> {
   const supabase = createServerSupabaseClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('areas')
     .select('*')
     .eq('slug', slug)
-    .single();
+    .maybeSingle();
+  if (error) throw new Error('Area lookup unavailable');
   return data as Area | null;
 }
 
 export async function getAreaBreadcrumb(area: Area): Promise<Area[]> {
   const supabase = createServerSupabaseClient();
 
-  // Collect all parent IDs first, then fetch in a single query
-  const parentIds: string[] = [];
+  const breadcrumb: Area[] = [area];
+  const visited = new Set([area.id]);
   let currentId = area.parent_id;
-  // Pre-fetch all areas to avoid N+1 (areas table is small)
-  const { data: allAreas } = await supabase.from('areas').select('*');
-  const areaMap = new Map((allAreas ?? []).map((a) => [a.id, a as Area]));
-
-  let depth = 0;
-  while (currentId && depth < 10) {
-    parentIds.unshift(currentId);
-    const parent = areaMap.get(currentId);
-    if (!parent) break;
-    currentId = parent.parent_id;
-    depth++;
+  while (currentId) {
+    if (visited.has(currentId) || breadcrumb.length >= 16) throw new Error('Area hierarchy cycle or depth limit');
+    visited.add(currentId);
+    // Fetch by PK, not an all-areas query subject to the API's row limit.
+    const { data, error } = await supabase.from('areas').select('*').eq('id', currentId).maybeSingle();
+    if (error || !data || data.id !== currentId) throw new Error('Area ancestor unavailable');
+    breadcrumb.unshift(data as Area);
+    currentId = data.parent_id;
   }
-
-  const breadcrumb: Area[] = parentIds
-    .map((id) => areaMap.get(id))
-    .filter((a): a is Area => !!a);
-  breadcrumb.push(area);
   return breadcrumb;
 }

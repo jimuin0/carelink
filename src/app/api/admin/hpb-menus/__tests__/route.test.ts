@@ -153,18 +153,49 @@ test('POST: 取得成功 → 200 with counts', async () => {
     ok: 8,
     skipped: 2,
     failed: 0,
+    saveFailed: 0,
+    complete: true,
+    stopReason: 'normal_end',
+    discoveredItems: 10,
+    unresolvedItems: 0,
+    failedPages: 0,
   });
   const res = await POST(makeReq('POST'));
   const json = await res.json();
   expect(res.status).toBe(200);
-  expect(json).toEqual({ sln_id: 'H1', fetched: 10, saved: 8, skipped: 2, failed: 0 });
+  expect(json).toEqual({
+    sln_id: 'H1', fetched: 10, saved: 8, skipped: 2, failed: 0, save_failed: 0,
+    complete: true, stop_reason: 'normal_end', unresolved_items: 0, failed_pages: 0,
+  });
   // 監査ログ（2026年7月29日追加）: HPB取得の一括保存は重要操作のため記録する
   expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
     userId: USER_ID,
     facilityId: FACILITY_UUID,
     action: 'update',
     tableName: 'hpb_menu_durations',
-  }));
+}));
+});
+
+test('POST: valid rows saved but upstream scrape incomplete → 502 with safe partial result', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  (scrapeAndSaveFacility as jest.Mock).mockResolvedValue({
+    slnId: 'H1', fetched: 3, ok: 3, skipped: 0, failed: 1, saveFailed: 0,
+    complete: false, stopReason: 'fetch_error', discoveredItems: 4, unresolvedItems: 1, failedPages: 1,
+  });
+  const res = await POST(makeReq('POST'));
+  const json = await res.json();
+  expect(res.status).toBe(502);
+  expect(json).toMatchObject({ saved: 3, complete: false, stop_reason: 'fetch_error', unresolved_items: 1 });
+  expect(json.error).toContain('一部を保存しました');
+});
+
+test('POST: save failure takes priority over fetch incompleteness → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  (scrapeAndSaveFacility as jest.Mock).mockResolvedValue({
+    slnId: 'H1', fetched: 3, ok: 2, skipped: 0, failed: 2, saveFailed: 1,
+    complete: false, stopReason: 'fetch_error', discoveredItems: 4, unresolvedItems: 1, failedPages: 1,
+  });
+  expect((await POST(makeReq('POST'))).status).toBe(500);
 });
 
 // ─── PUT (hpb_sln_id 設定) ───

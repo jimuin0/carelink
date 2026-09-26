@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
 import Image from 'next/image';
-import { Noto_Serif_JP } from 'next/font/google';
+import '@fontsource-variable/noto-serif-jp/index.css';
 import RegisterForm from '@/components/register/RegisterForm';
+
+export const dynamic = 'force-dynamic';
 
 /**
  * 見出しだけ明朝体にする。
@@ -14,19 +16,13 @@ import RegisterForm from '@/components/register/RegisterForm';
  * 余白や配置を微調整するより先に、この 3 つ（書体・配色・罫線）を変える。
  *
  * 本文はゴシックのまま残す（明朝は小さい字だと読みにくく、フォームの可読性を落とすため）。
- * このページでしか使わないので、next/font がこのルートにだけ配信する。
+ * このページだけで同梱CSSをimportする。ビルド時のGoogle Fonts応答には依存しない。
  *
  * 【配色】globals.css の `.theme-ecru` が単一ソース。実際の色コードと実測コントラストは
  * そちらに書いてある。ここで直書きしないのは、同じ色をヘッダーも使うため
  * （別々に持つと必ず片方だけ古くなる。実際にロゴだけ青が残る事故を起こした）。
  * src/__tests__/ecru-theme-single-source.test.ts が直書きへの逆戻りを CI で止める。
  */
-const serif = Noto_Serif_JP({
-  subsets: ['latin'],
-  display: 'swap',
-  weight: ['400', '500'],
-  variable: '--font-serif-jp',
-});
 
 export const metadata: Metadata = {
   title: '店舗・施設の掲載登録 | CareLink',
@@ -87,7 +83,7 @@ const STEPS = [
 export default function RegisterPage() {
   return (
     <div
-      className={`theme-ecru ${serif.variable} bg-[var(--ecru-bg)] text-[var(--ecru-text)]`}
+      className="theme-ecru bg-[var(--ecru-bg)] text-[var(--ecru-text)]"
     >
       {/* ===== ヒーロー =====
           写真の上に文字を重ねる編集誌的な組み。写真の下に文字を置く形も試したが、
@@ -253,7 +249,7 @@ export default function RegisterPage() {
         <h2 className="mb-10 text-center font-[family-name:var(--font-serif-jp)] text-lg tracking-[0.12em] sm:text-2xl">
           掲載のお申し込み
         </h2>
-        <RegisterForm />
+        <RegisterForm v2Enabled={process.env.SALON_REGISTRATION_V2_ENABLED === 'true'} />
       </section>
     </div>
   );

@@ -29,6 +29,8 @@ import { PUT, GET } from '../route';
 
 let mockGetUser: jest.Mock;
 let mockUpdate: jest.Mock;
+let mockUpdateResult: jest.Mock;
+let mockUpdateId: jest.Mock;
 
 function setupDefaultMocks(
   hasUser: boolean = true,
@@ -40,11 +42,12 @@ function setupDefaultMocks(
     data: { user: hasUser ? { id: 'user-123' } : null },
   });
 
-  mockUpdate = jest.fn().mockReturnValue({
-    eq: jest.fn().mockResolvedValue({
+  mockUpdateResult = jest.fn().mockResolvedValue({
+      data: { id: 'user-123' },
       error: updateSucceeds ? null : { message: 'Update failed' },
-    }),
   });
+  mockUpdateId = jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ maybeSingle: mockUpdateResult }) });
+  mockUpdate = jest.fn().mockReturnValue({ eq: mockUpdateId });
 
   const { createServerClient } = require('@supabase/ssr');
   createServerClient.mockReturnValue({
@@ -244,6 +247,7 @@ describe('PUT /api/profile', () => {
     }) as any);
 
     expect(res.status).toBe(200);
+    expect(mockUpdate.mock.calls[0][0].birth_date).toBeNull();
   });
 
   test('birth_date が実在する暦日（うるう年 2028-02-29）→ 200', async () => {
@@ -319,7 +323,17 @@ describe('PUT /api/profile', () => {
     await PUT(makeRequest(req) as any);
 
     expect(mockUpdate).toHaveBeenCalled();
-    // Should call .eq('id', user.id)
+    expect(mockUpdateId).toHaveBeenCalledWith('id', 'user-123');
+  });
+
+  test.each([null, undefined, {}, { id: 'another-user' }])('zero/missing/wrong-user update does not report success %#', async data => {
+    mockUpdateResult.mockResolvedValueOnce({ data, error: null });
+    const res = await PUT(makeRequest({ ...req, id: 'another-user', is_platform_admin: true }) as any);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: expect.stringContaining('保存されていません') });
+    expect(mockUpdateId).toHaveBeenCalledWith('id', 'user-123');
+    expect(mockUpdate.mock.calls[0][0]).not.toHaveProperty('is_platform_admin');
+    expect(mockUpdate.mock.calls[0][0]).not.toHaveProperty('id');
   });
 
   test('includes updated_at timestamp', async () => {

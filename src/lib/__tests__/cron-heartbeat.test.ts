@@ -44,8 +44,9 @@ beforeEach(() => {
 describe('getStaleCronJobs', () => {
   it('全ジョブが fresh → stale なし', async () => {
     setup();
-    const { stale, queryErrors } = await getStaleCronJobs(NOW);
+    const { stale, missing, queryErrors } = await getStaleCronJobs(NOW);
     expect(stale).toEqual([]);
+    expect(missing).toEqual([]);
     expect(queryErrors).toEqual([]);
   });
 
@@ -122,10 +123,11 @@ describe('getStaleCronJobs', () => {
     expect(queryErrors.join('\n')).not.toContain('<!DOCTYPE html>');
   });
 
-  it('実行履歴が無いジョブ（新規追加直後）は stale としない', async () => {
+  it('実行履歴が無いジョブは長期停止・保持期限切れを隠さずmissingで返す', async () => {
     setup({ 'birthday-coupon': { data: null, error: null } });
-    const { stale } = await getStaleCronJobs(NOW);
+    const { stale, missing } = await getStaleCronJobs(NOW);
     expect(stale.map((s) => s.name)).not.toContain('birthday-coupon');
+    expect(missing.map((s) => s.name)).toContain('birthday-coupon');
   });
 
   it('境界: 経過が閾値ちょうど → stale でない / 閾値超 → stale', async () => {

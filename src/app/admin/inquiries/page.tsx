@@ -231,7 +231,7 @@ export default function AdminInquiriesPage() {
                   <p className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 rounded-lg p-3">
                     {c.message}
                   </p>
-                
+
                   {/* 流入元情報 */}
 <div className="bg-sky-50 border border-sky-100 rounded-lg p-3">
   <p className="text-xs font-bold text-sky-700 mb-2">流入元情報</p>

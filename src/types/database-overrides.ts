@@ -52,9 +52,41 @@ type CreateBookingArgs = Omit<GeneratedCreateBooking['Args'], CreateBookingNulla
 };
 
 export type Database = Omit<GeneratedDatabase, 'public'> & {
-  public: Omit<GeneratedDatabase['public'], 'Functions'> & {
+  public: Omit<GeneratedDatabase['public'], 'Functions' | 'Tables'> & {
+    // Candidate schema only; the production introspection/Contract gate must
+    // remain red until the actual schema and migration history are reconciled.
+    Tables: Omit<GeneratedDatabase['public']['Tables'], 'salons'> & {
+      salons: Omit<GeneratedDatabase['public']['Tables']['salons'], 'Row' | 'Insert' | 'Update'> & {
+        Row: GeneratedDatabase['public']['Tables']['salons']['Row'] & { claimed_facility_id: string | null; review_revision: number };
+        Insert: GeneratedDatabase['public']['Tables']['salons']['Insert'] & { claimed_facility_id?: string | null; review_revision?: number };
+        Update: GeneratedDatabase['public']['Tables']['salons']['Update'] & { claimed_facility_id?: string | null; review_revision?: number };
+      };
+      salon_submission_photos: {
+        Row: { id: string; intent_id: string; selection_id: string; slot: number;
+          mime_type: string; byte_size: number; object_path: string; created_at: string };
+        Insert: { intent_id: string; selection_id: string; slot: number; mime_type: string; byte_size: number };
+        Update: never;
+        Relationships: [];
+      };
+    };
     Functions: Omit<GeneratedFunctions, 'create_booking_atomic'> & {
       create_booking_atomic: Omit<GeneratedCreateBooking, 'Args'> & { Args: CreateBookingArgs };
+      // Candidate migration 20260926000003. This typed, feature-gated consumer
+      // is NOT evidence of production application. Keep the production drift
+      // tests against database.types.ts; reconcile from introspection before
+      // enabling the route or merging a deployment that depends on this RPC.
+      prepare_salon_photo: {
+        Args: { p_intent_id: string; p_proof_hash: string; p_selection_id: string;
+          p_slot: number; p_mime_type: string; p_byte_size: number };
+        Returns: { outcome: string; photo_id: string | null; object_path: string | null }[];
+      };
+      setup_facility_from_registration: {
+        Args: { p_user_id: string; p_claim_mode: 'none' | 'legacy' | 'intent';
+          p_receipt_id: string | null; p_intent_id: string | null; p_proof_hash: string | null;
+          p_legacy_issued_at: string | null; p_profile: GeneratedDatabase['public']['Tables']['webhook_retry_queue']['Row']['payload'];
+          p_license_warranted: boolean };
+        Returns: { outcome: string; facility_id: string | null; facility_slug: string | null }[];
+      };
     };
   };
 };

@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -11,6 +11,26 @@ import { prefectures, SITE_URL } from '@/lib/constants';
 import Toast from '@/components/Toast';
 import { isLineLoginEnabled } from '@/lib/line-availability';
 import { safeRedirect } from '@/lib/safe-redirect';
+
+const RESEND_COOLDOWN_SECONDS = 60;
+
+function getSignupErrorMessage(error: { code?: string; message?: string }): string {
+  if (error.code === 'unexpected_failure' || /network|fetch|timeout|retry/i.test(error.message ?? '')) {
+    return '登録処理の結果を確認できませんでした。受信メールをご確認のうえ、時間をおいてもう一度お試しください。';
+  }
+  switch (error.code) {
+    case 'weak_password':
+      return 'パスワードの条件を満たしていません。入力内容をご確認ください。';
+    case 'email_address_invalid':
+    case 'validation_failed':
+      return 'メールアドレスまたは入力内容をご確認ください。';
+    case 'over_email_send_rate_limit':
+    case 'over_request_rate_limit':
+      return '送信回数の上限に達しました。時間をおいてもう一度お試しください。';
+    default:
+      return '登録を受け付けられませんでした。時間をおいてもう一度お試しください。';
+  }
+}
 
 export default function SignupPage() {
   // 見出し・カード外枠は Suspense の外（=SSR）で描画する（login と同様）。
@@ -55,12 +75,11 @@ function SignupContent() {
   }
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showPassword, setShowPassword] = useState(false);
-
-  const showSignupFailure = () => {
-    // 認証サービスが失敗した時点では確認メールの送信成否をアプリ側で断定できない。
-    // 既存メールかどうかも含めて同一文言にし、アカウント列挙を防ぐ。
-    setToast({ type: 'error', message: '新規登録を完了できませんでした。メールの送信状況を確認できないため、時間をおいてもう一度お試しください。' });
-  };
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
+  const [resendStatus, setResendStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [isResendCoolingDown, setIsResendCoolingDown] = useState(false);
+  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
+  const authOperationInFlight = useRef(false);
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
@@ -69,16 +88,50 @@ function SignupContent() {
   // ログイン済みユーザーが /auth/signup に来た場合にフォームを表示し続けないよう、
   // loginページと同様にマウント時のセッション確認でredirect先へ即座に送る。
   useEffect(() => {
-    const supabase = createBrowserSupabaseClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) router.replace(redirect);
-    });
+    let active = true;
+    const checkSession = async () => {
+      try {
+        const { data: { user } } = await createBrowserSupabaseClient().auth.getUser();
+        if (active && user) router.replace(redirect);
+      } catch {
+        // 初期確認の接続失敗でも登録フォームは利用可能に保つ。
+      }
+    };
+    void checkSession();
+    return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const releaseAfterBfcacheRestore = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      authOperationInFlight.current = false;
+      setIsGoogleSigningIn(false);
+    };
+    window.addEventListener('pageshow', releaseAfterBfcacheRestore);
+    return () => window.removeEventListener('pageshow', releaseAfterBfcacheRestore);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingVerificationEmail || !isResendCoolingDown) return;
+    const timer = window.setTimeout(() => setIsResendCoolingDown(false), RESEND_COOLDOWN_SECONDS * 1000);
+    return () => window.clearTimeout(timer);
+  }, [pendingVerificationEmail, isResendCoolingDown]);
+
+  const showVerificationGuidance = (email: string) => {
+    setPendingVerificationEmail(email);
+    setResendStatus('idle');
+    // 再送はPKCE verifierを更新するため、直後の連打で既存メールを無効化しない。
+    setIsResendCoolingDown(true);
+  };
+
   const onSubmit = async (data: SignupFormData) => {
-    const supabase = createBrowserSupabaseClient();
+    if (authOperationInFlight.current) return;
+    authOperationInFlight.current = true;
     try {
+      // Client初期化自体が失敗しても finally で排他ロックを必ず解放する。
+      const supabase = createBrowserSupabaseClient();
+      const emailRedirectTo = `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}`;
       const { data: result, error } = await supabase.auth.signUp({
         email: data.email,
         password: data.password,
@@ -86,63 +139,115 @@ function SignupContent() {
           // display_name/phone/prefecture は auth.users.raw_user_meta_data に保存され、
           // handle_new_user トリガー(DDL)経由で profiles へ複製される。
           data: { display_name: data.display_name, phone: data.phone, prefecture: data.prefecture },
-          emailRedirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}`,
+          emailRedirectTo,
         },
       });
 
-      // Supabase はメール確認が有効な既存アカウントに、列挙防止のため identities が
-      // 空のダミー user を返す。送信成功と誤表示せず、error と同じ中立な失敗案内にする。
-      const obfuscatedExistingUser = result.user?.identities?.length === 0;
-      if (error || !result.user || obfuscatedExistingUser) {
-        showSignupFailure();
+      if (error) {
+        if (/already registered/i.test(error.message ?? '')) {
+          showVerificationGuidance(data.email);
+        } else {
+          setToast({ type: 'error', message: getSignupErrorMessage(error) });
+        }
         return;
       }
 
-      // 🔴 P0-5（docs/register-blocker-instructions.md §3）: 本番の Supabase
-      // 「Confirm email」設定は当環境から確認できないため、設定を知らなくても
-      // 正しく動く形にする。data.session の有無が実行時の答え：
-      //   session あり = メール確認無効 → signUp 時点で既にログイン済み。
-      //   session なし = メール確認有効 → メール確認待ちが正しい状態。
       if (result.session) {
-        router.push(redirect);
+        router.replace(redirect);
         router.refresh();
         return;
       }
 
-      setToast({ type: 'success', message: '確認メールを送信しました。メールのリンクをクリックして登録を完了してください。' });
+      if (result.user) {
+        // identities=[]の既登録疑似応答でも登録有無・メール送達を断定しない案内に揃える。
+        showVerificationGuidance(data.email);
+        return;
+      }
+
+      setToast({ type: 'error', message: '登録状態を確認できませんでした。時間をおいてもう一度お試しください。' });
     } catch {
-      showSignupFailure();
+      setToast({ type: 'error', message: '登録処理の結果を確認できませんでした。受信メールをご確認のうえ、時間をおいてもう一度お試しください。' });
+    } finally {
+      authOperationInFlight.current = false;
+    }
+  };
+
+  const resendVerificationEmail = async () => {
+    if (!pendingVerificationEmail || resendStatus === 'sending' || isResendCoolingDown || authOperationInFlight.current) return;
+    authOperationInFlight.current = true;
+    setResendStatus('sending');
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: pendingVerificationEmail,
+        options: { emailRedirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}` },
+      });
+      setResendStatus(error ? 'error' : 'sent');
+    } catch {
+      setResendStatus('error');
+    } finally {
+      setIsResendCoolingDown(true);
+      authOperationInFlight.current = false;
     }
   };
 
   const startGoogleSignup = async () => {
+    if (authOperationInFlight.current) return;
+    authOperationInFlight.current = true;
+    setIsGoogleSigningIn(true);
     try {
       const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}` },
       });
-      if (error) {
+      if (error || !data?.url) {
         setToast({ type: 'error', message: 'Googleでの登録を開始できませんでした。時間をおいてもう一度お試しください。' });
+        authOperationInFlight.current = false;
+        setIsGoogleSigningIn(false);
       }
     } catch {
       setToast({ type: 'error', message: 'Googleでの登録を開始できませんでした。時間をおいてもう一度お試しください。' });
+      authOperationInFlight.current = false;
+      setIsGoogleSigningIn(false);
     }
   };
 
+  if (pendingVerificationEmail) {
+    return (
+      <div className="space-y-5 text-center" aria-live="polite">
+        <p className="text-gray-700 font-medium">登録を受け付けました。</p>
+        <p className="text-sm text-gray-600 leading-relaxed">確認メールが必要な場合は、届いたメールを開いて登録を完了してください。すでに登録済みの方はログインできます。見当たらない場合は迷惑メールフォルダもご確認ください。</p>
+        <button type="button" onClick={resendVerificationEmail} disabled={resendStatus === 'sending' || isResendCoolingDown} className="btn-primary w-full !py-3">
+          {resendStatus === 'sending' ? '再送を依頼中...' : isResendCoolingDown ? '確認メールの再送は1分後にできます' : '確認メールを再送する'}
+        </button>
+        {resendStatus === 'sent' && <p className="text-sm text-green-700" role="status">再送を受け付けました。確認が必要なアカウントにはメールが届きます。</p>}
+        {resendStatus === 'error' && <p className="text-sm text-red-600" role="alert">再送を受け付けられませんでした。時間をおいてもう一度お試しください。</p>}
+        <Link href={`/auth/login?redirect=${encodeURIComponent(redirect)}`} className="inline-block text-sm text-sky-700 hover:underline">既に確認を完了した方はログイン</Link>
+        <p className="text-xs text-gray-500">再送後は、届いた最新の確認メールを同じブラウザで開いてください。</p>
+      </div>
+    );
+  }
+
   return (
     <>
-          <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
+          <form onSubmit={(event) => { void handleSubmit(onSubmit)(event); }} noValidate className="space-y-4">
             <div>
               <label htmlFor="signup-name" className="form-label">お名前 <span className="text-red-500">*</span></label>
+              <p id="signup-name-help" className="mt-1 text-xs text-gray-500">1〜50文字で入力してください。</p>
               <input
                 {...register('display_name')}
                 id="signup-name"
                 className="form-input"
                 autoComplete="name"
                 aria-required="true"
+                aria-describedby={errors.display_name ? 'signup-name-help signup-name-error' : 'signup-name-help'}
+                aria-invalid={Boolean(errors.display_name)}
+                minLength={1}
+                maxLength={50}
               />
-              {errors.display_name && <p className="form-error" role="alert">{errors.display_name.message}</p>}
+              {errors.display_name && <p id="signup-name-error" className="form-error" role="alert">{errors.display_name.message}</p>}
             </div>
 
             <div>
@@ -154,12 +259,15 @@ function SignupContent() {
                 className="form-input"
                 autoComplete="email"
                 aria-required="true"
+                aria-describedby={errors.email ? 'signup-email-error' : undefined}
+                aria-invalid={Boolean(errors.email)}
               />
-              {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
+              {errors.email && <p id="signup-email-error" className="form-error" role="alert">{errors.email.message}</p>}
             </div>
 
             <div>
               <label htmlFor="signup-phone" className="form-label">電話番号 <span className="text-red-500">*</span></label>
+              <p id="signup-phone-help" className="mt-1 text-xs text-gray-500">国内の電話番号を入力してください。ハイフンの有無と全角数字は自動で整えます。</p>
               <input
                 {...register('phone')}
                 id="signup-phone"
@@ -167,8 +275,12 @@ function SignupContent() {
                 className="form-input"
                 autoComplete="tel"
                 aria-required="true"
+                aria-describedby={errors.phone ? 'signup-phone-help signup-phone-error' : 'signup-phone-help'}
+                aria-invalid={Boolean(errors.phone)}
+                inputMode="tel"
+                maxLength={20}
               />
-              {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
+              {errors.phone && <p id="signup-phone-error" className="form-error" role="alert">{errors.phone.message}</p>}
             </div>
 
             <div>
@@ -178,17 +290,20 @@ function SignupContent() {
                 id="signup-prefecture"
                 className="form-input"
                 aria-required="true"
+                aria-describedby={errors.prefecture ? 'signup-prefecture-error' : undefined}
+                aria-invalid={Boolean(errors.prefecture)}
               >
                 <option value="">選択してください</option>
                 {prefectures.map((p) => (
                   <option key={p} value={p}>{p}</option>
                 ))}
               </select>
-              {errors.prefecture && <p className="form-error" role="alert">{errors.prefecture.message}</p>}
+              {errors.prefecture && <p id="signup-prefecture-error" className="form-error" role="alert">{errors.prefecture.message}</p>}
             </div>
 
             <div>
               <label htmlFor="signup-password" className="form-label">パスワード <span className="text-red-500">*</span></label>
+              <p id="signup-password-help" className="mt-1 text-xs text-gray-500">8〜128文字で入力してください。英字・数字・記号を組み合わせる必要はありません。</p>
               <div className="relative">
                 <input
                   {...register('password')}
@@ -197,6 +312,10 @@ function SignupContent() {
                   className="form-input pr-10"
                   autoComplete="new-password"
                   aria-required="true"
+                  aria-describedby={errors.password ? 'signup-password-help signup-password-error' : 'signup-password-help'}
+                  aria-invalid={Boolean(errors.password)}
+                  minLength={8}
+                  maxLength={128}
                 />
                 <button
                   type="button"
@@ -220,7 +339,7 @@ function SignupContent() {
                   )}
                 </button>
               </div>
-              {errors.password && <p className="form-error" role="alert">{errors.password.message}</p>}
+              {errors.password && <p id="signup-password-error" className="form-error" role="alert">{errors.password.message}</p>}
             </div>
 
             <div>
@@ -232,14 +351,30 @@ function SignupContent() {
                 className="form-input"
                 autoComplete="new-password"
                 aria-required="true"
+                aria-describedby={errors.password_confirm ? 'signup-password-confirm-error' : undefined}
+                aria-invalid={Boolean(errors.password_confirm)}
+                minLength={8}
+                maxLength={128}
               />
-              {errors.password_confirm && <p className="form-error" role="alert">{errors.password_confirm.message}</p>}
+              {errors.password_confirm && <p id="signup-password-confirm-error" className="form-error" role="alert">{errors.password_confirm.message}</p>}
             </div>
 
-            <button type="submit" disabled={isSubmitting} className="btn-primary w-full !py-3">
+            <button type="submit" disabled={isSubmitting || isGoogleSigningIn} className="btn-primary w-full !py-3">
               {isSubmitting ? '登録中...' : '新規登録'}
             </button>
           </form>
+
+          <p className="mt-3 text-center text-xs text-gray-600">
+            登録前に
+            <Link href="/terms" target="_blank" rel="noopener noreferrer" className="mx-1 text-sky-700 underline">
+              利用規約
+            </Link>
+            と
+            <Link href="/privacy" target="_blank" rel="noopener noreferrer" className="mx-1 text-sky-700 underline">
+              プライバシーポリシー
+            </Link>
+            をご確認ください。
+          </p>
 
           <div className="my-6">
             <div className="relative">
@@ -256,6 +391,10 @@ function SignupContent() {
           {isLineLoginEnabled() && (
             <a
               href={`/api/auth/line?redirect=${encodeURIComponent(redirect)}`}
+              onClick={(event) => {
+                if (isSubmitting || isGoogleSigningIn) event.preventDefault();
+              }}
+              aria-disabled={isSubmitting || isGoogleSigningIn}
               className="flex items-center justify-center gap-2 w-full py-3 rounded-lg text-white font-bold hover:opacity-90 transition-opacity"
               style={{ backgroundColor: '#06C755' }}
             >
@@ -269,10 +408,11 @@ function SignupContent() {
           <button
             type="button"
             onClick={startGoogleSignup}
+            disabled={isGoogleSigningIn || isSubmitting}
             className="flex items-center justify-center gap-2 w-full py-3 mt-3 rounded-lg border border-gray-300 text-gray-700 font-bold hover:bg-gray-50 transition-colors"
           >
             <svg width="18" height="18" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-            Googleで登録
+            {isGoogleSigningIn ? 'Googleに移動しています...' : 'Googleで登録'}
           </button>
 
           <div className="mt-6 text-center">

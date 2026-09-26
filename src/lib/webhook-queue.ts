@@ -112,6 +112,7 @@ export async function enqueueWebhook(job: WebhookJob): Promise<void> {
  *               次回ディレイは「完了済み回数」で索引する（1→5分後・2→30分後）。
  *               attempt >= max_attempts(3) で全試行消化済み → dead-letter に移行。
  * @param errorMsg エラーメッセージ
+ * @param claimEpoch このworkerがclaim時に保存したclaimed_at。再取得後の別workerを更新しない。
  * @returns 'dead-letter'（再送上限到達・status='failed'・二度と自動再送されない）
  *          'rescheduled'（status='pending' に戻し次回試行を予約した）、または
  *          'uncertain'（書込み結果不明のため自動再送せず運用照合が必要）。
@@ -121,21 +122,22 @@ export async function enqueueWebhook(job: WebhookJob): Promise<void> {
 export async function scheduleRetry(
   jobId: string,
   attempt: number,
-  errorMsg: string
+  errorMsg: string,
+  claimEpoch: string,
 ): Promise<'dead-letter' | 'rescheduled' | 'uncertain'> {
   const supabase = createServiceRoleClient();
 
   // attempt は「今まで完了した試行回数」。max_attempts=3 なので attempt >= 3 で全試行消化済み
   if (attempt >= 3) {
     // 最大リトライ回数超過 → dead-letter（failed）
-    const { error: failErr } = await supabase.from('webhook_retry_queue').update({
+    const { data: failedRows, error: failErr } = await supabase.from('webhook_retry_queue').update({
       status: 'failed',
       last_error: errorMsg,
       attempt_count: attempt,
       processed_at: new Date().toISOString(),
       delivery_started_at: null,
-    }).eq('id', jobId);
-    if (failErr) {
+    }).eq('id', jobId).eq('status', 'processing').eq('claimed_at', claimEpoch).select('id');
+    if (failErr || failedRows?.length !== 1) {
       console.error('[webhook-queue] failed to mark job as failed — job stuck in processing', { jobId, err: summarizeDependencyError(failErr) });
       return 'uncertain';
     }
@@ -151,7 +153,7 @@ export async function scheduleRetry(
   const delayMs = RETRY_DELAYS_MS[attempt];
   const scheduledAt = new Date(Date.now() + delayMs).toISOString();
 
-  const { error: retryErr } = await supabase.from('webhook_retry_queue').update({
+  const { data: retryRows, error: retryErr } = await supabase.from('webhook_retry_queue').update({
     status: 'pending',
     attempt_count: attempt,   // 完了済み試行回数を記録（ワーカーは attempt_count+1 を次回 scheduleRetry へ渡す）
     last_error: errorMsg,
@@ -162,8 +164,8 @@ export async function scheduleRetry(
     // 一貫させるため pending 復帰時は必ずクリアする）。
     claimed_at: null,
     delivery_started_at: null,
-  }).eq('id', jobId);
-  if (retryErr) {
+  }).eq('id', jobId).eq('status', 'processing').eq('claimed_at', claimEpoch).select('id');
+  if (retryErr || retryRows?.length !== 1) {
     console.error('[webhook-queue] failed to reschedule job — job stuck in processing', { jobId, attempt, err: summarizeDependencyError(retryErr) });
     return 'uncertain';
   }

@@ -40,7 +40,7 @@ services:
   - type: cron
     name: carelink-booking-reminder
     runtime: node
-    schedule: "0 15 * * *"
+    schedule: "5 * * * *"
     buildCommand: echo "no build (Node 標準のみ)"
     startCommand: node scripts/cron-call.mjs booking-reminder
     envVars:

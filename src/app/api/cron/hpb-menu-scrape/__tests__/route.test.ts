@@ -28,7 +28,6 @@ jest.mock('@/lib/cron-logger', () => {
   return { logCronRun, cronError };
 });
 jest.mock('@/lib/hpb-menu', () => ({ scrapeAndSaveFacility: jest.fn() }));
-jest.mock('@/lib/alert', () => ({ alertWarning: jest.fn() }));
 
 const mockAdminFrom = jest.fn();
 jest.mock('@/lib/supabase-server', () => ({
@@ -37,9 +36,8 @@ jest.mock('@/lib/supabase-server', () => ({
 
 import { GET } from '../route';
 import { checkCronAuth } from '@/lib/cron-auth';
-import { logCronRun } from '@/lib/cron-logger';
+import { logCronRun, cronError } from '@/lib/cron-logger';
 import { scrapeAndSaveFacility } from '@/lib/hpb-menu';
-import { alertWarning } from '@/lib/alert';
 
 function req() {
   return new Request('http://localhost/api/cron/hpb-menu-scrape', {
@@ -66,7 +64,7 @@ function facChain(data: unknown, error: unknown = null, stampError: unknown = nu
   };
 }
 
-const okResult = { slnId: 'H1', fetched: 5, ok: 4, skipped: 1, failed: 0 };
+const okResult = { slnId: 'H1', fetched: 5, ok: 4, skipped: 1, failed: 0, complete: true };
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -107,9 +105,12 @@ test('複数施設を集計', async () => {
 
 test('設定済み(slnIdあり)で0件取得 → zeroFetch++ (HPB構造変化/ID誤りの発症前検知)', async () => {
   mockAdminFrom.mockReturnValue(facChain([{ id: 'f1' }]));
-  (scrapeAndSaveFacility as jest.Mock).mockResolvedValue({ slnId: 'H1', fetched: 0, ok: 0, skipped: 0, failed: 0 });
-  const json = await (await GET(req())).json();
+  (scrapeAndSaveFacility as jest.Mock).mockResolvedValue({ slnId: 'H1', fetched: 0, ok: 0, skipped: 0, failed: 1, complete: false });
+  const res = await GET(req());
+  const json = await res.json();
   expect(json.zeroFetch).toBe(1);
+  expect(res.status).toBe(500);
+  expect(cronError).toHaveBeenCalledTimes(1);
   // logCronRun の meta にも zeroFetch が出る
   const logArg = (logCronRun as jest.Mock).mock.calls[0][3];
   expect(logArg.meta.zeroFetch).toBe(1);
@@ -117,7 +118,7 @@ test('設定済み(slnIdあり)で0件取得 → zeroFetch++ (HPB構造変化/ID
 
 test('slnId 未解決(null)の0件は zeroFetch に数えない (&& 短絡)', async () => {
   mockAdminFrom.mockReturnValue(facChain([{ id: 'f1' }]));
-  (scrapeAndSaveFacility as jest.Mock).mockResolvedValue({ slnId: null, fetched: 0, ok: 0, skipped: 0, failed: 0 });
+  (scrapeAndSaveFacility as jest.Mock).mockResolvedValue({ slnId: null, fetched: 0, ok: 0, skipped: 0, failed: 0, complete: false });
   const json = await (await GET(req())).json();
   expect(json.zeroFetch).toBe(0);
 });
@@ -166,34 +167,50 @@ test('時間予算超過 → 残りを deferred', async () => {
 // C-3 根治: 全件失敗（例外経路）は無音にせず Slack へ警報する。旧実装は catch 経路だと
 // results.facilities が加算されないため「全件失敗」の分母が 0 になり判定不能だった
 // （分母を試行件数 list.length - deferred に修正した回帰テスト）。
-test('全件が例外で失敗(facilities加算なし) → attempted基準でallFailed判定しalertWarning発火', async () => {
+test('全件が例外で失敗 → error記録と500応答', async () => {
   mockAdminFrom.mockReturnValue(facChain([{ id: 'f1' }, { id: 'f2' }]));
   (scrapeAndSaveFacility as jest.Mock).mockRejectedValue(new Error('boom'));
-  const json = await (await GET(req())).json();
+  const response = await GET(req());
+  const json = await response.json();
   expect(json.facilities).toBe(0);
   expect(json.failed).toBe(2);
-  expect(alertWarning).toHaveBeenCalledTimes(1);
-  expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/全件失敗/);
+  expect(response.status).toBe(500);
+  expect(cronError).toHaveBeenCalledTimes(1);
 });
 
 // 全件0件取得(zeroFetch全滅)は saved=0 だが failed=0 のため allFailed でなく
 // allZeroFetch の分岐（メッセージの三項演算子 else 側）を通す。
-test('全件0件取得(zeroFetch全滅) → alertWarningのメッセージが「全件0件取得」', async () => {
+test('全件0件取得 → error記録と500応答', async () => {
   mockAdminFrom.mockReturnValue(facChain([{ id: 'f1' }]));
-  (scrapeAndSaveFacility as jest.Mock).mockResolvedValue({ slnId: 'H1', fetched: 0, ok: 0, skipped: 0, failed: 0 });
-  await GET(req());
-  expect(alertWarning).toHaveBeenCalledTimes(1);
-  expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/全件0件取得/);
+  (scrapeAndSaveFacility as jest.Mock).mockResolvedValue({ slnId: 'H1', fetched: 0, ok: 0, skipped: 0, failed: 1, complete: false });
+  const response = await GET(req());
+  expect(response.status).toBe(500);
+  expect(cronError).toHaveBeenCalledTimes(1);
 });
 
-// 部分失敗（1件でも成功がある）は許容し警報しない
-test('部分失敗（一部成功） → alertWarning は発火しない', async () => {
+// 部分失敗（1件でも成功がある）も正常扱いしない。
+test('部分失敗（一部成功） → error記録と500応答', async () => {
   mockAdminFrom.mockReturnValue(facChain([{ id: 'f1' }, { id: 'f2' }]));
   let callCount = 0;
   (scrapeAndSaveFacility as jest.Mock).mockImplementation(() => {
     callCount++;
     return callCount === 1 ? Promise.reject(new Error('boom')) : Promise.resolve(okResult);
   });
-  await GET(req());
-  expect(alertWarning).not.toHaveBeenCalled();
+  const response = await GET(req());
+  expect(response.status).toBe(500);
+  expect(cronError).toHaveBeenCalledTimes(1);
+  expect((logCronRun as jest.Mock).mock.calls.at(-1)?.[1]).toBe('error');
+});
+
+test('一施設内で一部メニューを保存した結果も、完全性falseならerror/500になる', async () => {
+  mockAdminFrom.mockReturnValue(facChain([{ id: 'f1' }]));
+  (scrapeAndSaveFacility as jest.Mock).mockResolvedValue({
+    slnId: 'H1', fetched: 3, ok: 3, skipped: 0, failed: 1, complete: false,
+    stopReason: 'fetch_error', unresolvedItems: 1, failedPages: 1,
+  });
+  const response = await GET(req());
+  const json = await response.json();
+  expect(response.status).toBe(500);
+  expect(json).toMatchObject({ facilities: 1, saved: 3, failed: 1 });
+  expect(cronError).toHaveBeenCalledTimes(1);
 });

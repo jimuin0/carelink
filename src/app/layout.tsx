@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-import { Noto_Sans_JP } from "next/font/google";
+import "@fontsource-variable/noto-sans-jp/index.css";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import { headers } from "next/headers";
 import { SITE_URL } from "@/lib/constants";
@@ -10,12 +10,6 @@ import { isAiEnabled } from "@/lib/integration-availability";
 import { Analytics, SpeedInsights, CookieConsent } from "@/components/DynamicRootComponents";
 import { safeJsonLd } from "@/lib/json-ld";
 
-const notoSansJp = Noto_Sans_JP({
-  subsets: ["latin"],
-  display: "swap",
-  variable: "--font-noto-sans-jp",
-  weight: ["400", "500", "700"],
-});
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -73,7 +67,7 @@ export default async function RootLayout({
   const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (
-    <html lang="ja" className={notoSansJp.variable}>
+    <html lang="ja">
       <head>
         <link rel="preload" href="/images/hero-tiny.webp" as="image" type="image/webp" />
         <link rel="preconnect" href="https://xzafxiupbflvgbarrihe.supabase.co" />

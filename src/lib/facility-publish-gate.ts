@@ -5,6 +5,14 @@ export interface PublishReadiness {
   missing: string[];
 }
 
+/** Only this known DB invariant is an actionable conflict, not any DB error. */
+export function isPublishedLocationConflict(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const value = error as { code?: unknown; message?: unknown };
+  return value.code === '23514' && typeof value.message === 'string'
+    && value.message.includes('"published_facility_location_present"');
+}
+
 /**
  * 施設を published にできる必須条件（メニュー/写真/アクティブスタッフ 各≥1）を検証する。
  * 単一公開(admin/settings)とチェーン一括公開(admin/chain/bulk-publish)で共有し、
@@ -43,7 +51,7 @@ export async function checkPublishReadiness(
     // 同種の「空の施設が検索に出て予約で行き止まり」を招く。よってここも必須条件にする。
     admin
       .from('facility_profiles')
-      .select('prefecture, city')
+      .select('prefecture, city, address')
       .eq('id', facilityId)
       .single(),
   ]);
@@ -59,8 +67,10 @@ export async function checkPublishReadiness(
   if ((menu.count ?? 0) < 1) missing.push('メニューを1つ以上登録してください');
   if ((photo.count ?? 0) < 1) missing.push('写真を1枚以上登録してください');
   if ((staff.count ?? 0) < 1) missing.push('スタッフを1人以上登録してください');
-  if (!profile.data?.prefecture) missing.push('都道府県を設定してください');
-  if (!profile.data?.city) missing.push('市区町村を設定してください');
+  if (!profile.data?.prefecture?.trim()) missing.push('都道府県を設定してください');
+  if (!profile.data?.city?.trim()) missing.push('市区町村を設定してください');
+  // 下書きでは所在地未入力を許容するが、来店先が分からない状態で公開しない。
+  if (!profile.data?.address?.trim()) missing.push('住所を設定してください');
 
   return { readiness: { ready: missing.length === 0, missing }, error: null };
 }
