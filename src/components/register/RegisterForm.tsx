@@ -20,6 +20,8 @@ import { getRecaptchaToken } from '@/lib/recaptcha-client';
 import { extractPrefecture, extractCity } from '@/lib/japan-address';
 import { SALON_FIELD_MESSAGES, type SalonFieldErrors } from '@/lib/salon-field-errors';
 import { normalizePhone } from '@/lib/phone';
+import { SalonRegistrationBrowser } from '@/lib/salon-registration-browser';
+import { SALON_COMPLETE_PATH } from '@/lib/salon-browser-context';
 
 const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
 const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
@@ -42,7 +44,7 @@ const startDateOptions = [
   ...DESIRED_START_DATES.map((value) => ({ value, label: desiredStartDateLabels[value] })),
 ];
 
-export default function RegisterForm() {
+export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolean }) {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [pendingFocus, setPendingFocus] = useState<{ field: keyof SalonFormValues } | null>(null);
@@ -50,6 +52,9 @@ export default function RegisterForm() {
   const [submitting, setSubmitting] = useState(false);
   const [submissionUnknown, setSubmissionUnknown] = useState(false);
   const submissionUnknownRef = useRef(false);
+  const v2 = useRef<SalonRegistrationBrowser | null>(null);
+  const [v2Ready, setV2Ready] = useState(!v2Enabled);
+  const [v2Message, setV2Message] = useState('');
   const addressLookupGeneration = useRef(0);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [photoFiles, setPhotoFiles] = useState<(File | null)[]>(photoSlots.map(() => null));
@@ -78,6 +83,57 @@ export default function RegisterForm() {
   const postalCode = useWatch({ control, name: 'postal_code' }) || '';
   const selectedFeatures = useWatch({ control, name: 'features' }) || [];
   const addressRegistration = register('address');
+
+  useEffect(() => {
+    if (!v2Enabled) return;
+    let cancelled = false;
+    const initialize = async () => {
+      if (!v2.current) v2.current = new SalonRegistrationBrowser({
+        store: window.sessionStorage, request: fetch, uuid: () => crypto.randomUUID(),
+        captcha: () => getRecaptchaToken('salons'), compress: compressImage,
+        upload: async (bucket, path, token, file) => supabase.storage.from(bucket)
+          .uploadToSignedUrl(path, token, file, { contentType: file.type }),
+      });
+      const result = await v2.current.reconcile();
+      if (cancelled) return;
+      if (result.state === 'confirmed') router.push(SALON_COMPLETE_PATH);
+      else if (result.state === 'ready') setV2Ready(true);
+      else {
+        submissionUnknownRef.current = true; setSubmissionUnknown(true);
+        setV2Message(result.message);
+      }
+    };
+    void initialize().catch(() => {
+      if (cancelled) return;
+      submissionUnknownRef.current = true; setSubmissionUnknown(true);
+      setV2Message('申込の確認情報を保存できません。ブラウザーの設定をご確認ください。新たに送信せず、お問い合わせください。');
+    });
+    return () => { cancelled = true; };
+  }, [v2Enabled, router]);
+
+  const acceptV2Result = (result: Awaited<ReturnType<SalonRegistrationBrowser['submit']>>) => {
+    if (result.state === 'confirmed') { setIsDirty(false); router.push(SALON_COMPLETE_PATH); }
+    else if (result.state === 'ready' || result.state === 'retryable') {
+      submissionUnknownRef.current = false; setSubmissionUnknown(false); setV2Ready(true);
+      if (result.state === 'retryable') {
+        if (result.fieldErrors) showServerErrors(result.fieldErrors);
+        setToast({ message: result.message, type: 'error' });
+      }
+    } else {
+      submissionUnknownRef.current = true; setSubmissionUnknown(true); setV2Message(result.message);
+    }
+  };
+
+  const reconcileV2 = async () => {
+    if (submitLockRef.current || !v2.current) return;
+    submitLockRef.current = true; setSubmitting(true);
+    try { acceptV2Result(await v2.current.retryUnknown()); }
+    catch {
+      submissionUnknownRef.current = true; setSubmissionUnknown(true);
+      setV2Message(SALON_SUBMISSION_UNKNOWN);
+    }
+    finally { submitLockRef.current = false; setSubmitting(false); }
+  };
 
   // Wait until the target step is mounted before expanding optional fields and
   // focusing. RHF cannot focus an unmounted or collapsed field on its own.
@@ -195,6 +251,16 @@ export default function RegisterForm() {
     if (submissionUnknownRef.current) return;
     setSubmitting(true);
     setPhotoError(null);
+    if (v2Enabled) {
+      try {
+        if (!v2.current) throw new Error('Registration context unavailable');
+        acceptV2Result(await v2.current.submit(data, photoFiles));
+      } catch {
+        submissionUnknownRef.current = true; setSubmissionUnknown(true);
+        setV2Message(SALON_SUBMISSION_UNKNOWN);
+      } finally { setSubmitting(false); }
+      return;
+    }
     // 【2026年7月8日 恒久根治】写真アップロード成功後に /api/salons が失敗（バリデーション/
     // レート制限/ネットワーク断等）すると、アップロード済みファイルがストレージに孤児として
     // 残り続けていた。再送信時は毎回新しい crypto.randomUUID() で再アップロードするため、
@@ -325,11 +391,13 @@ export default function RegisterForm() {
         <StepIndicator currentStep={step} totalSteps={3} labels={stepLabels} />
         {submissionUnknown && (
           <div role="alert" className="mb-4 rounded border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-            <p>{SALON_SUBMISSION_UNKNOWN}</p>
+            <p>{v2Enabled ? v2Message : SALON_SUBMISSION_UNKNOWN}</p>
+            {v2Enabled && <button type="button" onClick={() => void reconcileV2()} disabled={submitting}
+              className="block mt-3 underline">同じ申込の受付状況を確認</button>}
             <Link href="/contact" className="mt-2 inline-block underline">受付状況を問い合わせる</Link>
           </div>
         )}
-        {!isReady && (
+        {(!isReady || (!v2Ready && !submissionUnknown)) && (
           <div role="status" className="mb-3 text-sm text-gray-600">
             <p>入力フォームを準備しています。表示が変わらない場合はJavaScriptの設定と通信状況を確認してください。</p>
             <form action="/register" method="get">
@@ -339,7 +407,7 @@ export default function RegisterForm() {
         )}
         <form onSubmit={handleSubmit(() => setShowConfirm(true), revealErrors)} onChange={handleFieldChange} noValidate className="border-y border-[var(--ecru-line)] bg-[var(--ecru-surface)] px-5 py-7 sm:border sm:px-10 sm:py-10">
           {/* SSR中の入力をRHFの初期化が消さないよう、購読・refの準備完了まで操作を止める。 */}
-          <fieldset disabled={!isReady || submissionUnknown} aria-busy={!isReady} className="min-w-0">
+          <fieldset disabled={!isReady || !v2Ready || submissionUnknown} aria-busy={!isReady || !v2Ready} className="min-w-0">
 
           {/* Step 1: 基本情報 */}
           {step === 1 && (

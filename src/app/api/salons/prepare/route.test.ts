@@ -4,12 +4,15 @@ jest.mock('@/lib/rate-limit', () => ({ mutationRateLimit: null, checkRateLimit: 
 jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: jest.fn(() => ({})) }));
 jest.mock('@/lib/recaptcha', () => ({ verifyRecaptcha: jest.fn().mockResolvedValue({ success: true }) }));
 jest.mock('@/lib/salon-submission-intent', () => ({ prepareSalonIntent: jest.fn(), readSalonIntentStatus: jest.fn() }));
+jest.mock('@/lib/salon-registration-summary', () => ({ readSalonRegistrationSummary: jest.fn() }));
 jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
 jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 
 import { NextResponse } from 'next/server';
 import { POST as prepare } from './route';
 import { POST as status } from '../status/route';
+import { POST as summary } from '../summary/route';
+import { readSalonRegistrationSummary } from '@/lib/salon-registration-summary';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { verifyRecaptcha } from '@/lib/recaptcha';
@@ -37,6 +40,7 @@ beforeEach(() => {
   (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: true });
   (prepareSalonIntent as jest.Mock).mockResolvedValue(prepared);
   (readSalonIntentStatus as jest.Mock).mockResolvedValue({ state: 'uncommitted' });
+  (readSalonRegistrationSummary as jest.Mock).mockResolvedValue({ state: 'uncommitted' });
 });
 afterAll(() => {
   Object.assign(process.env, { NODE_ENV: originalEnv.NODE_ENV });
@@ -45,14 +49,14 @@ afterAll(() => {
   }
 });
 
-test.each([prepare, status])('inactive v2 never touches persistence %#', async route => {
+test.each([prepare, status, summary])('inactive v2 never touches persistence %#', async route => {
   delete process.env.SALON_REGISTRATION_V2_ENABLED;
   const response = await route(request({}));
   expect(response.status).toBe(404); expect(response.headers.get('cache-control')).toBe('no-store');
   expect(createServiceRoleClient).not.toHaveBeenCalled();
 });
 
-test.each([prepare, status])('CSRF and rate limit apply before the handler %#', async route => {
+test.each([prepare, status, summary])('CSRF and rate limit apply before the handler %#', async route => {
   (checkCsrf as jest.Mock).mockReturnValue(NextResponse.json({ error: 'fixture' }, { status: 403 }));
   expect((await route(request({}))).status).toBe(403);
   (checkCsrf as jest.Mock).mockReturnValue(null);
@@ -61,7 +65,7 @@ test.each([prepare, status])('CSRF and rate limit apply before the handler %#', 
   expect(createServiceRoleClient).not.toHaveBeenCalled();
 });
 
-test.each([prepare, status])('malformed JSON does not reach persistence %#', async route => {
+test.each([prepare, status, summary])('malformed JSON does not reach persistence %#', async route => {
   expect((await route(request({}, undefined, '{'))).status).toBe(400);
   expect(createServiceRoleClient).not.toHaveBeenCalled();
 });
@@ -128,4 +132,24 @@ test.each([
   expect(response.status).toBe(expected); expect(await response.json()).toEqual(result);
   expect(response.headers.get('cache-control')).toBe('no-store');
   expect(readSalonIntentStatus).toHaveBeenCalledWith({}, intent, proof);
+});
+
+test.each([{}, { intentId: 'bad' }, { intentId: intent, receiptId: other }, { intentId: intent, proof }])('summary rejects arbitrary selectors and JSON capabilities %#', async body => {
+  expect((await summary(request(body))).status).toBe(400);
+  expect(readSalonRegistrationSummary).not.toHaveBeenCalled();
+});
+test.each([undefined, `${salonIntentCookieName(intent)}=bad`, `${salonIntentCookieName(other)}=${proof}`])('summary requires the selected cookie before private access %#', async cookie => {
+  expect((await summary(request({ intentId: intent }, cookie))).status).toBe(403);
+  expect(createServiceRoleClient).not.toHaveBeenCalled();
+});
+test.each([
+  [{ state: 'uncommitted' }, 200], [{ state: 'expired' }, 200],
+  [{ state: 'unverified' }, 403], [{ state: 'unavailable' }, 503],
+  [{ state: 'confirmed', receiptId: other, name: 'Synthetic', type: 'ヘアサロン', area: '' }, 200],
+])('summary returns only the independently authorized projection %#', async (result, expected) => {
+  (readSalonRegistrationSummary as jest.Mock).mockResolvedValue(result);
+  const response = await summary(request({ intentId: intent }, `${salonIntentCookieName(intent)}=${proof}`));
+  expect(response.status).toBe(expected); expect(await response.json()).toEqual(result);
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(readSalonRegistrationSummary).toHaveBeenCalledWith({}, intent, proof);
 });

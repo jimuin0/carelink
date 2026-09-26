@@ -9,24 +9,29 @@
 //   Postgres の型検査が一度も走らない、(2) /register の送信を通す E2E が1本も無い、
 //   (3) 分岐ではなく DB の型の問題なので branches カバレッジ100%でも捕まらない。
 //   本ファイルは (2) の穴を埋める。実 DB（CI のローカル Supabase・fresh-apply）に対して
-//   実際に POST /api/salons を発火させ、型不一致が再発すれば必ず落ちる。
+//   実際に prepare→署名写真→POST /api/salons/commit を通し、型不一致を検出する。
 //
-// 対象外（意図）:
-//   このDB契約シナリオは、受付時任意の写真を0枚として検証する。
-//   写真の保持・競合は実componentを使った別の回帰テストで検証する。
+// 対象:
+//   4つの掲載希望時期を実保存し、詳細ケースでは任意slot4の写真1枚、実認証、
+//   選択申込から施設setup・管理画面まで通す。他3ケースは任意写真0枚を確認する。
+//   写真の競合・応答喪失は別の実Storage API／component回帰でも検証する。
 //   reCAPTCHA は NEXT_PUBLIC_RECAPTCHA_SITE_KEY 未設定
 //   （CI/開発の既定）だとクライアントがトークンを取得せず、サーバーも RECAPTCHA_SECRET_KEY
 //   未設定なら検証をスキップする（recaptcha-client.ts / route.ts 参照）ため、
 //   CI 環境ではreCAPTCHA関連の追加操作は不要。
 import { test, expect, type Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'node:crypto';
 
 // This suite writes synthetic applications. Never run it against a hosted DB/app.
 test.beforeAll(() => {
   // The checked-in workflow builds against its disposable DB and starts a new
   // app process (reuseExistingServer:false). An arbitrary localhost dev server
   // could use hosted credentials even when this test process uses local ones.
-  if (process.env.GITHUB_ACTIONS !== 'true' || !process.env.CI) {
+  if (process.env.GITHUB_ACTIONS !== 'true' || process.env.CI !== 'true'
+    || process.env.NEXT_PUBLIC_SUPABASE_URL !== 'https://localhost:54330'
+    || process.env.PLAYWRIGHT_BASE_URL !== 'https://localhost:3000'
+    || process.env.SALON_REGISTRATION_V2_ENABLED !== 'true') {
     throw new Error('register-submit requires the managed GitHub CI local Supabase/app lifecycle');
   }
   for (const value of [process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000']) {
@@ -41,7 +46,7 @@ test.beforeAll(() => {
 // service worker can otherwise take control during a long mobile form flow and
 // bypass Playwright's page-level route handler, allowing a real local POST.
 // Service-worker behavior is outside this submission-state test's scope.
-test.use({ serviceWorkers: 'block' });
+test.use({ serviceWorkers: 'block', trace: 'off', screenshot: 'off', video: 'off' });
 
 // Every preference is exercised through the real local database, not a mock.
 const CASES = [
@@ -102,7 +107,7 @@ test.describe('/register 送信', () => {
   });
   test('POST結果不明では完了へ進まず同画面の再送を止める', async ({ page }) => {
     let attempts = 0;
-    await page.route('**/api/salons**', async (route) => {
+    await page.route('**/api/salons/commit', async (route) => {
       if (route.request().method() !== 'POST') return route.continue();
       attempts++;
       // A 503 models a response whose server-side outcome cannot be trusted, and
@@ -124,7 +129,7 @@ test.describe('/register 送信', () => {
     // lower action after body scroll-lock; use the native touch action there.
     if ((page.viewportSize()?.width ?? 0) < 500) await confirmButton.tap();
     else await confirmButton.click();
-    await expect(page.getByText('送信結果を確認できませんでした')).toBeVisible();
+    await expect(page.getByText('送信結果を確認できませんでした。同じ申込の受付状況を確認してください。新たな申込として送信しないでください。')).toBeVisible();
     await expect(page.getByRole('button', { name: '登録する', exact: true })).toBeDisabled();
     await expect(page.getByRole('link', { name: '受付状況を問い合わせる' })).toHaveAttribute('href', '/contact');
     expect(attempts).toBe(1);
@@ -154,7 +159,7 @@ test.describe('/register 送信', () => {
 
   test('掲載希望時期の select が実在し、選択肢が4つ以上ある（空振り防止）', async ({ page }) => {
     await page.goto('/register');
-    await fillStep1(page, `e2e-register-probe-${Date.now()}@example.com`);
+    await fillStep1(page, `e2e-register-probe-${Date.now()}@example.invalid`);
     await fillStep2(page);
 
     const select = page.locator('#reg-desired-start-date');
@@ -187,12 +192,18 @@ test.describe('/register 送信', () => {
       await page.goto('/register');
 
       const detailed = value === 'immediately';
-      await fillStep1(page, `e2e-register-${value}-${Date.now()}@example.invalid`, detailed);
+      const email = `e2e-register-${value}-${randomUUID()}@example.invalid`;
+      await fillStep1(page, email, detailed);
       await fillStep2(page, detailed);
 
-      // Step 3: PR情報。受付時任意の写真は選ばない。
+      // Step 3: 詳細ケースだけメニュー写真1枚、他は任意写真0枚。
       await page.selectOption('#reg-desired-start-date', { value });
-      if (detailed) await page.fill('#reg-pr-text', '隔離E2Eの合成紹介文');
+      if (detailed) {
+        await page.fill('#reg-pr-text', '隔離E2Eの合成紹介文');
+        await page.getByLabel('メニュー 1の写真を選択').setInputFiles({ name: 'synthetic.png', mimeType: 'image/png',
+          buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jFZsAAAAASUVORK5CYII=', 'base64') });
+        await expect(page.getByRole('img', { name: 'メニュー 1', exact: true })).toBeVisible();
+      }
 
       // 許認可の表明と利用規約同意（両方 disabled ガードの対象・チェックしないと送信不可）。
       // ラベルの文言でスコープする（並び順が変わっても踏み違えないため）。
@@ -212,52 +223,91 @@ test.describe('/register 送信', () => {
       await submitButton.click();
       await expect(page.getByRole('heading', { name: '登録内容を送信しますか？' })).toBeVisible();
 
-      // POST /api/salons のレスポンスを直接観測する。画面遷移だけを見ると、
+      // POST /api/salons/commit のレスポンスを直接観測する。画面遷移だけを見ると、
       // 別の理由（クライアント側の別ルーティング等）で complete に着いた場合を見逃すため、
       // ステータスそのものを主張する（このファイルの主目的＝空振り防止その2）。
       const salonsResponse = page.waitForResponse(
-        (r) => r.url().includes('/api/salons') && r.request().method() === 'POST',
+        (r) => new URL(r.url()).pathname === '/api/salons/commit' && r.request().method() === 'POST',
         { timeout: 20000 },
       );
       await page.getByRole('button', { name: '送信する' }).click();
       const resp = await salonsResponse;
 
-      if (resp.status() !== 200) {
+      if (resp.status() !== 201) {
         throw new Error(
-          `POST /api/salons が ${resp.status()} を返した（desired_start_date=${value}）。\n` +
+          `POST /api/salons/commit が ${resp.status()} を返した（desired_start_date=${value}）。\n` +
             `これは docs/register-blocker-instructions.md の実障害（date 型不一致による 500）の\n` +
             '再発の可能性があります。request/responseの実値はログへ出しません。',
         );
       }
-      expect(resp.status(), `POST /api/salons が 200 以外（desired_start_date=${value}）`).toBe(200);
+      expect(resp.status(), `POST /api/salons/commit が 201 以外（desired_start_date=${value}）`).toBe(201);
       const receipt = await resp.json();
-      expect(receipt.success).toBe(true);
-      expect(receipt.id).toMatch(/^[0-9a-f-]{36}$/i);
+      expect(receipt.state).toBe('committed');
+      expect(receipt.receiptId).toMatch(/^[0-9a-f-]{36}$/i);
 
       await page.waitForURL('**/register/complete**', { timeout: 20000 });
       await expect(page).toHaveURL(/\/register\/complete/);
-      await expect(page.getByRole('heading', { name: '登録が完了しました！' })).toBeVisible();
-      await expect(page.getByText(receipt.id, { exact: true })).toBeVisible();
-      const claim = (await page.context().cookies()).find(cookie => cookie.name === 'clnk_salon_claim');
+      await expect(page.getByRole('heading', { name: '掲載申込を受け付けました' })).toBeVisible();
+      await expect(page.getByText(receipt.receiptId, { exact: true })).toBeVisible();
+      expect(new URL(page.url()).search).toBe('?handoff=registration');
+      const claim = (await page.context().cookies()).find(cookie => cookie.name.startsWith('carelink_salon_intent_'));
       // Never include the capability cookie value in assertion output.
       expect({ present: !!claim, secure: claim?.secure, httpOnly: claim?.httpOnly, sameSite: claim?.sameSite })
         .toEqual({ present: true, secure: true, httpOnly: true, sameSite: 'Lax' });
-      await expect(page.getByText('掲載申込の受付が完了しました。一般公開は、店舗情報の設定と公開操作の後に反映されます。')).toBeVisible();
+      await expect(page.getByText('この時点では一般公開は完了していません。店舗アカウントを作成し、管理画面で店舗情報・メニュー・スタッフ・写真を確認して公開してください。')).toBeVisible();
+      await expect(page.getByRole('link', { name: '店舗アカウントを作成する' })).toHaveAttribute('href',
+        '/auth/signup?redirect=%2Fadmin%2Fonboarding%3Fhandoff%3Dregistration');
       const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
         auth: { persistSession: false, autoRefreshToken: false },
       });
       const { data: saved, error } = await db.from('salons')
         .select('desired_start_date, phone, contact_phone, website, postal_code, address, prefecture, city, building_name, nearest_station, business_hours, regular_holiday, seat_count, staff_count, has_parking, features, pr_text, source, is_public')
-        .eq('id', receipt.id).single();
+        .eq('id', receipt.receiptId).single();
       expect(error).toBeNull();
       expect(saved).toMatchObject({ desired_start_date: value, source: 'register', is_public: false });
       if (detailed) expect(saved).toMatchObject({
-        phone: '090-1234-5678', contact_phone: '080-1234-5678', website: 'https://fixture.example.invalid/',
-        postal_code: '000-0000', address: '愛知県西尾市合成町', prefecture: '愛知県', city: '西尾市',
+        phone: '09012345678', contact_phone: '08012345678', website: 'https://fixture.example.invalid/',
+        postal_code: '0000000', address: '愛知県西尾市合成町', prefecture: '愛知県', city: '西尾市',
         building_name: '合成ビル101', nearest_station: '合成駅 徒歩5分', business_hours: '10:00〜18:00',
         regular_holiday: '月曜日', seat_count: 0, staff_count: 9999, has_parking: true,
         features: ['WiFi完備'], pr_text: '隔離E2Eの合成紹介文',
       });
+      if (detailed) {
+        // Real UI -> signed Storage -> receipt -> password login -> selected
+        // onboarding -> atomic setup. Synthetic confirmed identity, no email.
+        const password = randomUUID();
+        const created = await db.auth.admin.createUser({ email, password, email_confirm: true });
+        if (created.error || !created.data.user) throw new Error('Synthetic owner creation failed');
+        await page.getByRole('link', { name: '既存アカウントでログインする' }).click();
+        await page.fill('#login-email', email);
+        await page.fill('#login-password', password);
+        await page.getByRole('button', { name: 'ログイン', exact: true }).click();
+        await page.waitForURL('**/admin/onboarding?handoff=registration');
+        await expect(page.locator('#onboarding-business-type')).toHaveValue('ヘアサロン');
+        await expect(page.locator('#onboarding-facility-name')).toHaveValue(/^E2E登録テスト施設 /);
+        await page.getByRole('checkbox').check();
+        const setupResult = page.waitForResponse(r => new URL(r.url()).pathname === '/api/facility/setup'
+          && r.request().method() === 'POST');
+        await page.getByRole('button', { name: '施設を作成する', exact: true }).click();
+        const setup = await setupResult;
+        expect(setup.status()).toBe(201);
+        const setupBody = await setup.json();
+        expect(setupBody.success).toBe(true);
+        await page.waitForURL(url => url.pathname === '/admin');
+        const { data: claimed, error: claimError } = await db.from('salons')
+          .select('claimed_facility_id,claimed_by_user_id').eq('id', receipt.receiptId).single();
+        expect(claimError).toBeNull();
+        expect(claimed).toEqual({ claimed_facility_id: setupBody.facilityId, claimed_by_user_id: created.data.user.id });
+        const { data: photos, error: photoError } = await db.from('facility_photos')
+          .select('photo_type,sort_order,photo_url').eq('facility_id', setupBody.facilityId);
+        expect(photoError).toBeNull(); expect(photos).toHaveLength(1);
+        expect(photos![0]).toMatchObject({ photo_type: 'menu', sort_order: 0 });
+        expect(photos![0].photo_url).toContain('/salon-intents/');
+        const { data: profile, error: profileError } = await db.from('facility_profiles')
+          .select('status,address,prefecture,city').eq('id', setupBody.facilityId).single();
+        expect(profileError).toBeNull();
+        expect(profile).toMatchObject({ status: 'draft', address: '愛知県西尾市合成町', prefecture: '愛知県', city: '西尾市' });
+      }
     });
   }
 });

@@ -7,10 +7,13 @@ import { Suspense } from 'react';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import { businessTypes, UUID_REGEX } from '@/lib/constants';
 import { isAuthSessionMissingError } from '@supabase/supabase-js';
+import { readSalonBrowserContext, salonHandoffAuthPath } from '@/lib/salon-browser-context';
 
 function OnboardingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const registrationHandoff = searchParams.get('handoff') === 'registration';
+  const [selectedIntent, setSelectedIntent] = useState<string | null>(null);
   // 'form' = 施設名・業態の入力（確認）待ち。既存施設が無い認証済みユーザーは
   // クエリの有無に関わらず必ずここを経由する（下記 useEffect の 2026年8月20日コメント参照。
   // 誰でも到達できる /admin/onboarding で確認なしに施設を自動作成していた欠陥の根治）。
@@ -49,7 +52,7 @@ function OnboardingContent() {
       if (authError && !isAuthSessionMissingError(authError)) throw new Error('Authentication lookup unavailable');
 
       if (!user) {
-        router.push('/auth/login?redirect=/admin/onboarding');
+        router.push(registrationHandoff ? salonHandoffAuthPath('login') : '/auth/login?redirect=/admin/onboarding');
         return;
       }
 
@@ -70,7 +73,7 @@ function OnboardingContent() {
         return;
       }
 
-      if (existing) {
+      if (existing && !registrationHandoff) {
         // 既に施設あり → 管理ダッシュボードへ。ダッシュボードは登録状況をライブに反映する
         // 正確なオンボーディング進捗（メニュー/スタッフ/写真/スケジュール/公開）を表示する。
         // 旧実装はここで静的チェックリストを描画し、公開条件の案内もスタッフ必須が抜けて誤っていた。
@@ -78,8 +81,25 @@ function OnboardingContent() {
         return;
       }
 
-      const facilityName = searchParams.get('facility_name') || '';
-      const businessType = searchParams.get('business_type') || '';
+      let facilityName = searchParams.get('facility_name') || '';
+      let businessType = searchParams.get('business_type') || '';
+      if (registrationHandoff) {
+        const selected = readSalonBrowserContext(window.sessionStorage);
+        if (selected.state !== 'ready') throw new Error('Selected registration unavailable');
+        const response = await fetch('/api/salons/summary', { method: 'POST',
+          headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(20000),
+          body: JSON.stringify({ intentId: selected.context.intentId }) });
+        const summary = await response.json();
+        if (cancelled) return;
+        if (!response.ok || summary?.state !== 'confirmed' || typeof summary.name !== 'string'
+          || !summary.name.trim() || summary.name.length > 200 || !businessTypes.includes(summary.type)
+          || typeof summary.receiptId !== 'string' || !UUID_REGEX.test(summary.receiptId)) {
+          throw new Error('Selected registration not confirmed');
+        }
+        facilityName = summary.name;
+        businessType = summary.type;
+        setSelectedIntent(selected.context.intentId);
+      }
 
       // 【2026年8月20日・恒久根治】クエリだけで無確認に POST /api/facility/setup を
       // 撃つ経路を廃止した。旧実装は facility_name があり business_type が正規値なら
@@ -109,10 +129,21 @@ function OnboardingContent() {
       setStatus('error');
     });
     return () => { cancelled = true; };
-  }, [router, searchParams]);
+  }, [router, searchParams, registrationHandoff]);
 
   const handleFormSubmit = async () => {
     if (submitting.current) return;
+    if (registrationHandoff) {
+      try {
+        const current = readSalonBrowserContext(window.sessionStorage);
+        if (!selectedIntent || current.state !== 'ready' || current.context.intentId !== selectedIntent) {
+          throw new Error('Selected registration changed');
+        }
+      } catch {
+        setFormError('引き継ぎ対象を確認できません。申込時の同じタブで受付完了画面を開いてください。');
+        return;
+      }
+    }
     const trimmedName = facilityNameInput.trim();
     if (!trimmedName) {
       setFormError('施設名を入力してください');
@@ -143,6 +174,7 @@ function OnboardingContent() {
           business_type: businessTypeInput,
           // The API independently validates and records this explicit assertion.
           license_warranted: licenseWarranted,
+          ...(registrationHandoff ? { intentId: selectedIntent } : {}),
         }),
       });
 
@@ -194,7 +226,7 @@ function OnboardingContent() {
               id="onboarding-facility-name"
               value={facilityNameInput}
               onChange={(e) => setFacilityNameInput(e.target.value)}
-              maxLength={100}
+              maxLength={200}
             />
           </div>
           <div>

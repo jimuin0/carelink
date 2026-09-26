@@ -3,13 +3,15 @@ import { cookies } from 'next/headers';
 import { SALON_CLAIM_COOKIE_NAME } from '@/lib/salon-claim';
 import { resolveRegisteredSalon } from '@/lib/register-complete';
 import { buildOnboardingAuthPath } from '@/lib/onboarding-link';
+import RegistrationReceipt from '@/components/register/RegistrationReceipt';
 
 interface Props {
-  searchParams: Promise<{ id?: string }>;
+  searchParams: Promise<{ id?: string; handoff?: string }>;
 }
 
 export default async function RegisterCompletePage({ searchParams }: Props) {
-  const { id } = await searchParams;
+  const { id, handoff } = await searchParams;
+  if (handoff === 'registration') return <RegistrationReceipt />;
   const cookieStore = await cookies();
   const receipt = await resolveRegisteredSalon(id, cookieStore.get(SALON_CLAIM_COOKIE_NAME)?.value);
   if (receipt.status !== 'confirmed') {

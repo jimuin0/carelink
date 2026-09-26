@@ -853,6 +853,7 @@
 "column|salons.city|text|notnull=f|default=|generated=",
 "column|salons.claimed_at|timestamp with time zone|notnull=f|default=|generated=",
 "column|salons.claimed_by_user_id|uuid|notnull=f|default=|generated=",
+"column|salons.claimed_facility_id|uuid|notnull=f|default=|generated=",
 "column|salons.contact_name|text|notnull=t|default=|generated=",
 "column|salons.contact_phone|text|notnull=f|default=''::text|generated=",
 "column|salons.created_at|timestamp with time zone|notnull=f|default=now()|generated=",
@@ -1235,6 +1236,7 @@
 "constraint|facility_profiles|c|facility_profiles_deposit_type_check|CHECK ((deposit_type = ANY (ARRAY['none'::text, 'fixed'::text, 'percent'::text])))",
 "constraint|facility_profiles|c|facility_profiles_status_check|CHECK ((status = ANY (ARRAY['draft'::text, 'published'::text, 'suspended'::text])))",
 "constraint|facility_profiles|c|facility_profiles_verified_type_check|CHECK ((verified_type = ANY (ARRAY['phone'::text, 'identity'::text, 'site_visit'::text])))",
+"constraint|facility_profiles|c|published_facility_location_present|CHECK (((status IS DISTINCT FROM 'published'::text) OR ((length(btrim(COALESCE(prefecture, ''::text), '                  　﻿'::text)) > 0) AND (length(btrim(COALESCE(city, ''::text), '                  　﻿'::text)) > 0) AND (length(btrim(COALESCE(address, ''::text), '                  　﻿'::text)) > 0)))) NOT VALID",
 "constraint|facility_profiles|p|facility_profiles_pkey|PRIMARY KEY (id)",
 "constraint|facility_profiles|u|facility_profiles_slug_key|UNIQUE (slug)",
 "constraint|facility_qa|c|facility_qa_answer_check|CHECK ((length(answer) <= 1000))",
@@ -1391,7 +1393,9 @@
 "constraint|salon_submission_photos|u|salon_submission_photos_object_path_key|UNIQUE (object_path)",
 "constraint|salons|c|salons_source_check|CHECK (((source IS NULL) OR (source = ANY (ARRAY['register'::text, 'recruit'::text]))))",
 "constraint|salons|f|salons_claimed_by_user_id_fkey|FOREIGN KEY (claimed_by_user_id) REFERENCES auth.users(id) ON DELETE SET NULL",
+"constraint|salons|f|salons_claimed_facility_id_fkey|FOREIGN KEY (claimed_facility_id) REFERENCES public.facility_profiles(id) ON DELETE RESTRICT",
 "constraint|salons|p|salons_pkey|PRIMARY KEY (id)",
+"constraint|salons|u|salons_claimed_facility_id_key|UNIQUE (claimed_facility_id)",
 "constraint|schedule_overrides|f|schedule_overrides_staff_id_fkey|FOREIGN KEY (staff_id) REFERENCES public.staff_profiles(id) ON DELETE CASCADE",
 "constraint|schedule_overrides|p|schedule_overrides_pkey|PRIMARY KEY (id)",
 "constraint|schedule_overrides|u|schedule_overrides_staff_id_date_key|UNIQUE (staff_id, date)",
@@ -1474,6 +1478,7 @@
 "constraint|user_subscriptions|f|user_subscriptions_plan_id_fkey|FOREIGN KEY (plan_id) REFERENCES public.subscription_plans(id)",
 "constraint|user_subscriptions|f|user_subscriptions_user_id_fkey|FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE",
 "constraint|user_subscriptions|p|user_subscriptions_pkey|PRIMARY KEY (id)",
+"constraint|webhook_retry_queue|c|facility_welcome_reference|CHECK (((webhook_type IS DISTINCT FROM 'facility_welcome'::text) OR ((target_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'::text) AND (payload IS NOT NULL) AND (jsonb_typeof(payload) = 'object'::text) AND (payload ?& ARRAY['user_id'::text, 'template_version'::text]) AND ((payload - ARRAY['user_id'::text, 'template_version'::text]) = '{}'::jsonb) AND (jsonb_typeof((payload -> 'user_id'::text)) = 'string'::text) AND ((payload ->> 'user_id'::text) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'::text) AND ((payload -> 'template_version'::text) = '1'::jsonb))))",
 "constraint|webhook_retry_queue|c|webhook_registration_reference|CHECK ((((registration_id IS NULL) AND (notification_kind IS NULL) AND (template_version IS NULL) AND (webhook_type <> ALL (ARRAY['salon_registration_email'::text, 'salon_registration_internal'::text]))) OR ((registration_id IS NOT NULL) AND (notification_kind IS NOT NULL) AND (template_version IS NOT NULL) AND (template_version = 1) AND (payload = '{}'::jsonb) AND (target_id = (registration_id)::text) AND (((webhook_type = 'salon_registration_email'::text) AND (notification_kind = 'receipt'::text)) OR ((webhook_type = 'salon_registration_internal'::text) AND (notification_kind = 'internal'::text))))))",
 "constraint|webhook_retry_queue|c|webhook_retry_queue_status_check|CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text, 'success'::text, 'failed'::text, 'cancelled'::text])))",
 "constraint|webhook_retry_queue|f|webhook_retry_queue_registration_id_fkey|FOREIGN KEY (registration_id) REFERENCES public.salons(id) ON DELETE RESTRICT",
@@ -1546,6 +1551,7 @@
 "functiongrant|public.set_hpb_menu_durations_updated_at()|anon|EXECUTE",
 "functiongrant|public.set_hpb_menu_durations_updated_at()|authenticated|EXECUTE",
 "functiongrant|public.set_hpb_menu_durations_updated_at()|service_role|EXECUTE",
+"functiongrant|public.setup_facility_from_registration(uuid,text,uuid,uuid,text,timestamp with time zone,jsonb,boolean)|service_role|EXECUTE",
 "functiongrant|public.sync_facility_location()|anon|EXECUTE",
 "functiongrant|public.sync_facility_location()|authenticated|EXECUTE",
 "functiongrant|public.sync_facility_location()|service_role|EXECUTE",
@@ -1615,6 +1621,7 @@
 "function|record_incident_thread(p_key text, p_channel text, p_thread_ts text)|returns=void|volatile=v|secdef=t|body_md5=b246efd72764f0105c6301dd6748aba4",
 "function|search_facilities_nearby(user_lat double precision, user_lng double precision, radius_km double precision, type_filter text, limit_count integer, keyword_filter text, features_filter text[])|returns=TABLE(id uuid, slug text, name text, business_type text, catch_copy text, prefecture text, city text, access_info text, rating_avg numeric, rating_count integer, google_rating numeric, google_review_count integer, main_photo_url text, min_price integer, max_price integer, menu_count integer, coupon_count integer, photo_count integer, business_hours jsonb, seat_count integer, latitude double precision, longitude double precision, distance_km double precision)|volatile=s|secdef=f|body_md5=1445f4f542c25b7551acefce246ab728",
 "function|set_hpb_menu_durations_updated_at()|returns=trigger|volatile=v|secdef=f|body_md5=da5ac28a58c8b4bb30209bf0d3d7082c",
+"function|setup_facility_from_registration(p_user_id uuid, p_claim_mode text, p_receipt_id uuid, p_intent_id uuid, p_proof_hash text, p_legacy_issued_at timestamp with time zone, p_profile jsonb, p_license_warranted boolean)|returns=TABLE(outcome text, facility_id uuid, facility_slug text)|volatile=v|secdef=f|body_md5=555bc875a84a211b60a3ee3d9a0e2c29",
 "function|sync_facility_location()|returns=trigger|volatile=v|secdef=f|body_md5=0b72d6b7c14a5faf6c2e13e5dfbd1f0f",
 "function|update_area_seo_updated_at()|returns=trigger|volatile=v|secdef=f|body_md5=e7a0919a4073eaabf72630cc53a76237",
 "function|update_customers_updated_at()|returns=trigger|volatile=v|secdef=f|body_md5=e7a0919a4073eaabf72630cc53a76237",
@@ -2229,6 +2236,7 @@
 "index|salon_submission_photos|salon_submission_photos_pkey|CREATE UNIQUE INDEX salon_submission_photos_pkey ON public.salon_submission_photos USING btree (id)",
 "index|salons|idx_salons_email_canonical|CREATE INDEX idx_salons_email_canonical ON public.salons USING btree (email_canonical)",
 "index|salons|idx_salons_source_created_at|CREATE INDEX idx_salons_source_created_at ON public.salons USING btree (source, created_at)",
+"index|salons|salons_claimed_facility_id_key|CREATE UNIQUE INDEX salons_claimed_facility_id_key ON public.salons USING btree (claimed_facility_id)",
 "index|salons|salons_pkey|CREATE UNIQUE INDEX salons_pkey ON public.salons USING btree (id)",
 "index|schedule_overrides|idx_overrides_date_staff|CREATE INDEX idx_overrides_date_staff ON public.schedule_overrides USING btree (date, staff_id)",
 "index|schedule_overrides|idx_schedule_overrides_staff_date|CREATE INDEX idx_schedule_overrides_staff_date ON public.schedule_overrides USING btree (staff_id, date)",
@@ -2305,6 +2313,7 @@
 "index|user_subscriptions|idx_user_subscriptions_status|CREATE INDEX idx_user_subscriptions_status ON public.user_subscriptions USING btree (status)",
 "index|user_subscriptions|idx_user_subscriptions_user|CREATE INDEX idx_user_subscriptions_user ON public.user_subscriptions USING btree (user_id)",
 "index|user_subscriptions|user_subscriptions_pkey|CREATE UNIQUE INDEX user_subscriptions_pkey ON public.user_subscriptions USING btree (id)",
+"index|webhook_retry_queue|facility_welcome_once|CREATE UNIQUE INDEX facility_welcome_once ON public.webhook_retry_queue USING btree (webhook_type, target_id) WHERE (webhook_type = 'facility_welcome'::text)",
 "index|webhook_retry_queue|idx_webhook_retry_facility|CREATE INDEX idx_webhook_retry_facility ON public.webhook_retry_queue USING btree (facility_id) WHERE (facility_id IS NOT NULL)",
 "index|webhook_retry_queue|idx_webhook_retry_pending|CREATE INDEX idx_webhook_retry_pending ON public.webhook_retry_queue USING btree (scheduled_at, status) WHERE (status = 'pending'::text)",
 "index|webhook_retry_queue|idx_webhook_retry_processing_unstarted|CREATE INDEX idx_webhook_retry_processing_unstarted ON public.webhook_retry_queue USING btree (claimed_at) WHERE ((status = 'processing'::text) AND (delivery_started_at IS NULL))",

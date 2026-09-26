@@ -3,6 +3,8 @@ import Image from 'next/image';
 import '@fontsource-variable/noto-serif-jp/index.css';
 import RegisterForm from '@/components/register/RegisterForm';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * 見出しだけ明朝体にする。
  *
@@ -247,7 +249,7 @@ export default function RegisterPage() {
         <h2 className="mb-10 text-center font-[family-name:var(--font-serif-jp)] text-lg tracking-[0.12em] sm:text-2xl">
           掲載のお申し込み
         </h2>
-        <RegisterForm />
+        <RegisterForm v2Enabled={process.env.SALON_REGISTRATION_V2_ENABLED === 'true'} />
       </section>
     </div>
   );

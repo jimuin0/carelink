@@ -176,6 +176,7 @@ const IDENTITY_PATTERNS: RegExp[] = [
   /\bverifyApiKey\s*\(/,              // 施設 API キー
   /\bverifyUnsubscribeToken\s*\(/,    // 配信停止トークン
   /\breadSalonIntentStatus\s*\(/,     // intent ID＋proof一致＋server期限をDB照合し最小状態のみ返す
+  /\breadSalonRegistrationSummary\s*\(/, // 同じcapability検証後、確定receiptの表示用項目だけ読む
   /\bprepareSalonPhoto\s*\(/,         // photo RPCでintent capabilityをlock内検証
   /\bcommitSalonSubmission\s*\(/,     // status照合＋atomic commit内のproof/期限検証
 ];
@@ -265,6 +266,9 @@ describe('route.ts の CSRF / レート制限 / 本人確認を機械強制す�
       expect(hasIdentityGate('const e = checkCronAuth(request)')).toBe(true);
       expect(hasIdentityGate('event = stripe.webhooks.constructEvent(b, s, k)')).toBe(true);
       expect(hasIdentityGate('await readSalonIntentStatus(db, intentId, proof)')).toBe(true);
+      expect(hasIdentityGate('await readSalonRegistrationSummary(db, intentId, proof)')).toBe(true);
+      expect(hasIdentityGate(maskNonCode('// readSalonRegistrationSummary(db, id, proof)'))).toBe(false);
+      expect(hasIdentityGate(maskNonCode('const s = "readSalonRegistrationSummary(db, id, proof)"'))).toBe(false);
       expect(hasIdentityGate('await prepareSalonPhoto(db, input, proof)')).toBe(true);
       expect(hasIdentityGate('await commitSalonSubmission(db, input, proof)')).toBe(true);
       expect(hasIdentityGate(maskNonCode('// prepareSalonPhoto(db, input, proof)'))).toBe(false);

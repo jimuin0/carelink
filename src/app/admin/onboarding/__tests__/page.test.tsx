@@ -22,6 +22,7 @@ import '@testing-library/jest-dom';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import OnboardingPage from '../page';
 import { AuthSessionMissingError } from '@supabase/supabase-js';
+import { SALON_BROWSER_CONTEXT_KEY, salonHandoffAuthPath } from '@/lib/salon-browser-context';
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
@@ -67,6 +68,7 @@ beforeEach(() => {
   // （既定値が undefined のまま残って supabase.from(...) が undefined を返し、
   // 意図しない TypeError で全テストが偽陽性の green にならないようにするため）。
   jest.resetAllMocks();
+  window.sessionStorage.clear();
   mockSearchParams = new URLSearchParams();
   mockEq.mockImplementation(() => ({ maybeSingle: mockMaybeSingle, order: mockOrder }));
   mockOrder.mockImplementation(() => ({ limit: mockLimit }));
@@ -83,6 +85,64 @@ beforeEach(() => {
     ok: true, json: async () => ({ success: true, facilityId: '11111111-1111-4111-8111-111111111111' }),
   });
   global.fetch = mockFetch as unknown as typeof fetch;
+});
+
+describe('selected registration handoff', () => {
+  const intentId = '74000000-0000-4000-8000-000000000001';
+  const receiptId = '74000000-0000-4000-8000-000000000002';
+  const summary = { state: 'confirmed', receiptId, name: '選択した合成店舗', type: 'ヘアサロン', area: '合成住所' };
+  function context() {
+    mockSearchParams = new URLSearchParams({ handoff: 'registration', facility_name: 'untrusted name' });
+    window.sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY, JSON.stringify({ version: 1, intentId, phase: 'confirmed' }));
+    mockFetch.mockResolvedValue({ ok: true, json: async () => summary });
+  }
+  test('unauthenticated redirect keeps only the handoff mode, never applicant data', async () => {
+    context(); mockGetUser.mockResolvedValue({ data: { user: null } });
+    render(<OnboardingPage />);
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith(salonHandoffAuthPath('login')));
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+  test('existing membership cannot hide an unconsumed selected receipt', async () => {
+    context(); mockMaybeSingle.mockResolvedValue({ data: { facility_id: 'existing' }, error: null });
+    render(<OnboardingPage />);
+    expect(await screen.findByLabelText(/施設名/)).toHaveValue(summary.name);
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/salons/summary');
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ intentId });
+    fillLicenseCheckbox();
+    mockFetch.mockResolvedValue({ ok: false, json: async () => ({ code: 'ALREADY_MEMBER', error: '今回の申込は取り込んでいません。' }) });
+    submit();
+    await screen.findByText('今回の申込は取り込んでいません。');
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({ facility_name: summary.name,
+      business_type: summary.type, license_warranted: true, intentId });
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+  test.each(['missing', 'broken'])('missing/corrupt selector never becomes direct onboarding %s', async value => {
+    context();
+    if (value === 'missing') window.sessionStorage.clear();
+    else window.sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY, '{');
+    render(<OnboardingPage />);
+    await screen.findByText('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
+    expect(mockFetch).not.toHaveBeenCalled(); expect(mockReplace).not.toHaveBeenCalled();
+  });
+  test.each([
+    { ...summary, state: 'uncommitted' }, { ...summary, name: '' }, { ...summary, name: 'x'.repeat(201) },
+    { ...summary, type: 'invalid' }, { ...summary, receiptId: 'bad' }, { ...summary, name: 1 },
+  ])('unverified/malformed receipt cannot enable setup %#', async value => {
+    context(); mockFetch.mockResolvedValue({ ok: true, json: async () => value });
+    render(<OnboardingPage />);
+    await screen.findByText('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
+    expect(mockFetch).toHaveBeenCalledTimes(1); expect(mockReplace).not.toHaveBeenCalled();
+  });
+  test('changing tab context while form is open prevents wrong-receipt submission', async () => {
+    context(); render(<OnboardingPage />);
+    await screen.findByLabelText(/施設名/); fillLicenseCheckbox();
+    window.sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY, JSON.stringify({ version: 1, intentId: receiptId, phase: 'confirmed' }));
+    submit();
+    await screen.findByText('引き継ぎ対象を確認できません。申込時の同じタブで受付完了画面を開いてください。');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('onboarding transport and membership recovery', () => {
