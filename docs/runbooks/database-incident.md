@@ -66,12 +66,13 @@
 2. token rotate された痕跡があれば Vercel 環境変数を更新（直接入力）
 3. DNS 起因の場合は status page 経過観察 + [external-dep-down.md](./external-dep-down.md) 参照
 
-### 4-2. マイグレーション rollback 手順
-1. 失敗したマイグレーション SQL を特定（`supabase/migrations/` 配下 or Dashboard SQL Editor 履歴）
-2. 影響テーブルの **直前 snapshot** が Supabase backup にあるか確認
-3. 逆方向 SQL を用意（`DROP COLUMN` の逆は `ADD COLUMN` 等）
-4. **Staging で先に検証** してから本番適用（時間がかかっても確実性優先）
-5. 適用後 `audit_logs` で副作用を確認
+### 4-2. マイグレーション失敗・復旧
+1. 失敗したmigration versionと実行結果を特定する。適用結果が不明なら、再実行より先にmigration履歴とDB実定義を読み取り照合する。
+2. 影響テーブルの **直前 snapshot** と復旧可能性を確認する。復元が必要なら対象・件数・副作用を固定した計画を作り、該当する承認を得る。
+3. 既に共有環境へ適用されたmigration fileは変更しない。修復は新しいforward-fix migrationとして作り、rollbackのための破壊的DDLを安易に実行しない。
+4. **使い捨て環境またはstagingで先に検証**する。Supabase SQL Editor等からの直接DDLはADR-0005により禁止する。
+5. 適用対象と順序を明示したmigration release手順を使う。`supabase db push`は全pending migrationを適用するため、cutover/contract migrationを含む場合は全件一括適用が安全と証明できない限り実行しない。
+6. 適用後、DB実定義と `supabase_migrations.schema_migrations` の両方を照合し、必要な監査記録を確認する。
 
 ### 4-3. RLS 違反検知時
 1. 該当テーブルの RLS policy を Supabase Dashboard で確認
@@ -106,11 +107,11 @@
      `DROP POLICY IF EXISTS` → `CREATE POLICY` を使い、何度適用しても安全にする。
    - `CREATE OR REPLACE VIEW` は既存列の名前・順序・型を変えず、新列は**末尾追加のみ**
      （中間挿入は `42P16`）。
-   - 誤定義を含む過去 migration ファイル**本体も**正しい定義に修正する（書き戻し）。
-     本番だけ直して repo を放置しない（それがドリフトの発生源）。
-3. 神原さんが Dashboard で migration を 1 回適用（本番が既に正しければ実質 no-op）。
-4. 適用後に上記「検知」手順を再実行し、ドリフト解消を確認する。
-5. ADR-0005（out-of-band 修正禁止）に沿い、緊急 out-of-band 修正は当日中に書き戻す。
+   - 共有環境に適用済みのmigration fileは編集せず、新しいforward-fix migrationを作る。
+     未適用のPR内migrationだけは初回適用前に修正する。DB実体とrepo履歴を分離して放置しない。
+3. Dashboard SQL EditorでDDLを実行しない。各migrationの前提条件と適用順を確定し、承認済みのSupabase CLI migration release経路で適用する。`db push`が全pendingを含み段階適用できない状態なら、そのまま実行せず、別々に安全にリリースできるmigration構成へ整える。
+4. 適用後に上記「検知」手順を再実行し、DB実体とmigration履歴の一致を確認する。
+5. 緊急のout-of-band修正が承認された場合も、当日中に新しいforward-fix migrationとして記録する。適用済みmigration fileは書き換えない。
 
 ---
 

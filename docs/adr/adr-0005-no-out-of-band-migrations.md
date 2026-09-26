@@ -43,10 +43,12 @@ out-of-band（Dashboard SQL Editor 等での直接適用で repo 未反映）を
 実装・運用の要点:
 
 - **緊急 out-of-band 修正を例外的に行った場合は、同一作業内（遅くとも当日中）に
-  同一内容の migration を `supabase/migrations/` に書き戻す**。書き戻しを「後でやる」TODO に
+  同一内容の新しい forward-fix migration を `supabase/migrations/` へ記録する**。
+  一度でも共有環境へ適用したmigration fileは編集しない。書き戻しを「後でやる」TODOに
   しない（それがドリフトの発生源だった）。
 - migration は **冪等**に書く（`CREATE OR REPLACE` / `ADD COLUMN IF NOT EXISTS` /
   `DROP POLICY IF EXISTS` → `CREATE POLICY`）。本番に既適用でも安全に再適用できること。
+- **一度でも共有環境へ適用した migration file は不変**とする。未適用のPR内migrationに誤りがあれば初回適用前に修正する。適用済みmigrationに誤りがあれば、履歴を書き換えず、新しいforward-fix migrationで修復する。部分適用・結果不明時は履歴と実定義を照合し、盲目的な再実行や`migration repair`での履歴偽装をしない。
 - `CREATE OR REPLACE VIEW` は既存列の名前・順序・型を変えず、新列は**末尾に追加のみ**
   （中間挿入は `42P16` で失敗する）。
 - ドリフトを CI で発症前に検知する: `tests/contract/schema-invariants.contract.test.ts`
@@ -64,7 +66,7 @@ out-of-band（Dashboard SQL Editor 等での直接適用で repo 未反映）を
 - 「本番だけ直って repo は壊れている」状態が構造的に発生しなくなる。
 
 **悪い点 / 受け入れる劣化**
-- 緊急時でも migration 書き戻しの一手間が必須になる（速度より確実性を優先する方針に合致）。
+- 緊急時でも新しいforward-fix migrationを記録する一手間が必須になる（速度より確実性を優先する方針に合致）。
 - contract ドリフトゲートの実効化には staging 専用 Supabase プロジェクトと
   GitHub Secrets 設定が必要（未設定時はゲート無効・全 skip）。
 

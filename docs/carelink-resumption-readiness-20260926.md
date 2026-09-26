@@ -553,3 +553,15 @@ Previewを目視するとSharpのLinux環境に日本語フォントがなく、
 未commit差分は`src/lib/og-image.ts`、`src/app/api/og/__tests__/route.test.ts`、`src/app/api/og/route.ts`、`next.config.mjs`、`package.json`、`package-lock.json`および本記録。利用者差分を上書きしていない。新方式の本番相当build、最新SHA CI／Contract／E2E、最新immutable Previewで日本語表示、PR merge、本番deployは未完了。
 
 Contractの現在失敗は別nodeとして保持する：`salons.claimed_facility_id`／`salons.review_revision`の型不足、`salon_submission_photos`と`prepare_salon_photo`／`setup_facility_from_registration`が現production contractに未確認。Contract jobにSupabase／Upstash secretsは設定されておらず、このtest結果だけで現本番へread-only接続できたとは見なさない。migration 0004〜0007の段階適用とschema/history照合は別のread-only preflightおよび副作用gateが必要であり、このOG修正で解消したとしない。
+
+### 10.31．再開時のmigration案内矛盾の修正
+
+2026年9月27日の再開時に、PR #642の既存自動コメントを再読し「merge後にSQL Editorで全migrationを適用」と案内していることを確認した。これはADR-0005のout-of-band DDL禁止と矛盾する。`docs/runbooks/database-incident.md`にもDashboardでのmigration適用、適用済みmigration fileの書換え、破壊的rollbackを促す旧手順が残っていた。Supabase公式CLI契約では`supabase db push`は全pending migrationをtimestamp順に適用するため、契約／cutover migrationを含む段階リリースへ一括実行を案内するのも安全でない。
+
+修正対象：`.github/workflows/migration-apply-reminder.yml`を検出通知だけと明記し、適用承認・順序の指示ではないこと、Dashboard SQL EditorでのDDLを禁止すること、全pendingを適用するCLI commandを事前のbatch／cutover確認なしで実行しないことをコメントに記載。`scripts/detect-added-migrations.mjs`の説明を合わせ、`docs/runbooks/database-incident.md`の復旧手順を照合優先・forward-fix・migration経路へ更新。`docs/adr/adr-0005-no-out-of-band-migrations.md`は適用済migration fileの不変性を明記し、既存履歴を編集せず新migrationで修復する規則に統一した。新規static Jest guardで通知・Runbook・ADR間の矛盾を固定した。
+
+変更後の証拠：局所Jest 2suite・23test成功、Actionlint成功、対象ESLint成功、全体`tsc --noEmit`成功、`git diff --check`成功。変更は現在作業用checkout内で未commit。production DDL、migration history、データ、SQL Editor保存、顧客連絡は変更していない。
+
+再照合したPR #642はHEAD `09e8685bb2bc597b22fc3aa23489a326fb46a63d`でOPEN。Lint／型、Unit＋Coverage、Security、E2E、schema fingerprint等は成功、Contract Testsは失敗、Vercel Build Dry-RunはSKIPPEDであり、merge不可。Vercel PreviewはReadyだが、本番deploy証拠ではない。今回の修正をPRへpush後、同じsticky migration reminderの更新と、最新SHAでの必須CI再実行が必要。
+
+本番migration適用・型再生成・Contract再確認は未完了。Supabase CLIの本人認証を完了できておらず、認証challengeを開始した2経路は安全に中断済み。認証値・verification codeは取得・共有していない。SQL EditorでのDDLを代替にしない。西尾本店／千歳の女神について、現在の限定読取で`salons`内の完全一致件数は0だったが、問い合わせ／連絡テーブルを含む全受信経路の不在証拠ではないため、未受信と断定せず再送・返信もしない。1 ownerアカウント複数店舗の業務方針も未確定のため、既存制約は変更しない。
