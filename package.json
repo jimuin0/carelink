@@ -31,6 +31,8 @@
     "lint:debt": "node scripts/check-react-compiler-debt.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/noto-sans-jp": "5.3.0",
+    "@fontsource-variable/noto-serif-jp": "5.3.0",
     "@anthropic-ai/sdk": "^0.100.1",
     "@hookform/resolvers": "^5.7.1",
     "@line/liff": "^2.29.0",
@@ -44,7 +46,7 @@
     "@vercel/functions": "^3.9.3",
     "@vercel/speed-insights": "^2.0.0",
     "leaflet": "^1.9.4",
-    "next": "^16.3.5",
+    "next": "16.3.6",
     "qrcode": "^1.5.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

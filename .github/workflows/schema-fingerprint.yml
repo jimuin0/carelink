@@ -106,6 +106,9 @@ jobs:
       - name: Registration photo manifest contracts (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/salon-photo-fixtures.sql
 
+      - name: Registration storage historical upgrade states (disposable DB)
+        run: node scripts/check-salon-storage-upgrade.mjs
+
       - name: Registration 20-client concurrency (disposable DB)
         run: node scripts/check-salon-intent-concurrency.mjs
 

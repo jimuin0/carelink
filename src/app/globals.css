@@ -3,6 +3,8 @@
 @tailwind utilities;
 
 :root {
+  /* Version-pinned, self-hosted unicode-range subsets; no runtime font CDN. */
+  --font-noto-sans-jp: "Noto Sans JP Variable";
   /* WCAG AA(4.5:1) 準拠: 白文字/白背景で #0284C7(sky-600)は約4.08:1で不足。
      #0369A1(sky-700)は約5.79:1で合格。hover はさらに濃い #075985(sky-800)。 */
   --primary: #0369A1;
@@ -32,6 +34,7 @@
    いずれも WCAG AA を満たす。#7D7268(4.24:1) と #9C9086(2.81:1) は本文に使わないこと。
    ============================================================================= */
 .theme-ecru {
+  --font-serif-jp: "Noto Serif JP Variable", "Yu Mincho", serif;
   --ecru-bg: #F7F3EC;      /* 地色（エクリュ） */
   --ecru-surface: #FFFCF9; /* 面（アイボリー） */
   --ecru-line: #E6DCCD;    /* 罫線（ベージュ） */

@@ -2,6 +2,8 @@
 
 確認日：2026年9月26日
 
+読み方：第1〜8節は再開条件を調査した時点の記録。続く実装依頼の契約と実行証拠は第9節以降へ時系列で追記している。古いSHA、未接続、未変更などの記述を現在状態として扱わない。
+
 ## 1．今回の依頼と結論
 
 原依頼：
@@ -363,3 +365,19 @@ POSTのintent ID・選択UUID・slot・圧縮後MIME／byte数を厳密検証す
 HEAD c7b8b6bcのCI 36229069998はfresh applyに成功し、policy RENAMEの失敗は解消。Unit／Contractはphoto型未反映で失敗を維持。E2EはNext16.3.5 Turbopackのfont_file_options_from_query_mapによる内部font URL query解析でproduction buildが失敗し、ブラウザー試験は未実行。成功済み98e5a945以降、font指定／Next設定／依存lock／TLS wrapperに差分なし。外部Google Fonts応答変化が引き金かはログにURL全文がなく未確定。
 
 公式にサポートされたnext build --webpackを通常buildに設定し、Vercelもnpm run buildへ明示してCIとの差を作らない。書体・TLS・CSP・型検査・CI成功条件は維持。根拠はNext.js公式version16移行ガイドと同versionのnext_font/google/mod.rs。build方式の一致testと独立レビューは成功したが、実production build／E2Eの成功は次CIで別途確認する。
+
+### 10.14．Storage実体ドリフトの限定修復準備
+
+未deployのmigration003を、本番で確認した旧policy名にも対応させる。known 2名のrole=anon／INSERT／PERMISSIVEを要求し、同一transactionで両known名を除去後、salons/画像だけのpolicyを作成する。旧migration全体の再実行は他bucketのownershipを緩める可能性があるため採用しない。本番では適用直前に全Storage書込みpolicyを再照合し、未観測の別名permissive policy、known名の独自制限があれば計画を再判定する。現guardだけで未知設定全てを拒否するとは主張しない。
+
+使い捨てDBのupgrade試験は、実migrationのmarker内SQLを実行する。旧のみ・新のみ・両方・privateかつ5MiB/pngの既存制限を各transactionで検証しROLLBACK。許可INSERTを先に成功させ、v2prefix／別prefix／SVGの拒否を実roleで確認する。不明policy／異なるrole／MIME不一致は期待する固定メッセージの例外だけを成功とし、その他SQL障害は失敗させる。他policyの集合一致を確認する。独立レビュー追加指摘0、環境guardと期限migration整合の16test成功。実SQLとmanaged StorageのDROP/CREATE権限は変更後CIで検証する。
+
+### 10.15．ビルド時フォント外部依存の除去準備
+
+3cae4c89のCI 36230017333はWebpackへ進んだが、next/font/googleのloader.js:122でfont URL末尾の拡張子抽出がnullとなり失敗。bundler変更だけでは解決しないことを実測した。Notoの書体は変更せず、OFL-1.1のFontsource variable package 5.3.0をintegrity付きlockで固定し、同梱unicode-range CSS／woff2を通常assetとして配信する。本文100〜900、見出し200〜900の可変軸で従来weight400/500/700を維持する。display=swap、同origin配信を維持し、Google Fontsへのビルド時要求をなくす。
+
+根拠は https://fontsource.org/docs/getting-started/install と取得した両packageのindex.css／registry metadata。展開サイズは両package計約13MBだが、ブラウザーはunicode-rangeで必要subsetだけ取得する。実転送量・フォントloadはE2Eで確認する。既存next/fontの自動preload／fallback metricsとは異なるため、ブラウザーで日本語faceのloadedと表示を確認し、単にfallbackで表示されただけでは合格にしない。
+
+同時にNextを16.3.6へ固定更新する。公式GHSA-vcvr-r3jv-pc5jは16.3.5をaffectedに含めるが、当projectのapi/ogはedge runtimeであり、公式の影響除外条件に一致する。利用者からのSVG値がNode ImageResponseへ到達することは今回確認していないため、CareLinkのRCE実証とは報告しない。根拠 https://github.com/vercel/next.js/security/advisories/GHSA-vcvr-r3jv-pc5j 。修正版依存でのCI/buildは別途必須。local node_modulesが旧版の間はlocal検証を新版CIの代替にしない。
+
+localの型検査・対象lint・関連4suite50testが成功。npmはlockのみ更新し、依存差分はfont2packageとNext/env/SWCのpatch更新に限定。node_modulesは変更せず、local Nodeはengine推奨より古い22.16.0であるため、新版依存＋CI Node24での実証が必須。独立レビュー追加指摘0。ただし新版実build・font/Storage E2E・upgrade SQLは次CIで確認する。本番設定・DB・利用者データ・公開状態は変更していない。
