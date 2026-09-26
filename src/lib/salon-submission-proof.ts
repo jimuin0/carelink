@@ -3,6 +3,9 @@ import { UUID_REGEX } from './constants';
 
 export const SALON_HMAC_SCHEME = 'proof-hkdf-sha256-v1';
 export const SALON_INTENT_TTL_SECONDS = 3 * 24 * 60 * 60;
+// A shorter preparation window leaves time to recover a committed receipt;
+// the capability's server-enforced lifetime remains the existing three days.
+export const SALON_PREPARE_TTL_SECONDS = 24 * 60 * 60;
 
 export function isSalonIntentProof(value: unknown): value is string {
   return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);

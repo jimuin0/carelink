@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 const script = join(__dirname, '../../scripts/start-ci-https.mjs');
 const isolated = { CI: 'true', GITHUB_ACTIONS: 'true',
-  PLAYWRIGHT_BASE_URL: 'https://localhost:3000', NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321',
+  PLAYWRIGHT_BASE_URL: 'https://localhost:3000', NEXT_PUBLIC_SUPABASE_URL: 'https://localhost:54330',
   PATH: '/nonexistent-fixture-tools' };
 
 test.each([
@@ -13,6 +13,7 @@ test.each([
   { NEXT_PUBLIC_SUPABASE_URL: 'https://production.invalid' },
   { NEXT_PUBLIC_SUPABASE_URL: 'http://localhost.production.invalid:54321' },
   { NEXT_PUBLIC_SUPABASE_URL: 'http://user@localhost:54321' },
+  { NEXT_PUBLIC_SUPABASE_URL: 'http://127.0.0.1:54321' },
 ])('HTTPS E2E server refuses an unapproved environment %#', overrides => {
   const result = spawnSync(process.execPath, [script], {
     env: { ...isolated, ...overrides }, encoding: 'utf8', timeout: 10000,

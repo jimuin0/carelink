@@ -170,26 +170,12 @@ jobs:
         # playwright.config の 2 プロジェクト（chromium / Mobile Safari=webkit）を両方導入。
         # 従来は chromium のみで webkit 系の E2E が実行されない盲点があった。
         run: npx playwright install --with-deps chromium webkit
-      - name: Build
-        run: npm run build
+      - name: Production Build and HTTPS E2E Tests
+        # Browser and server use the same TLS local Supabase origin. In-memory
+        # private keys; public CA only for Node trust; no TLS bypass flags.
+        run: node scripts/run-ci-e2e.mjs
         env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ steps.supabase.outputs.url }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.supabase.outputs.anon }}
           SKIP_ENV_VALIDATION: true
-      - name: Run E2E Tests
-        # Ephemeral signing material is injected only into this isolated test
-        # process; it is never printed, persisted or taken from production.
-        run: |
-          node --input-type=module -e '
-            import { randomBytes } from "node:crypto";
-            import { spawnSync } from "node:child_process";
-            const result = spawnSync("npm", ["run", "test:e2e"], {
-              stdio: "inherit",
-              env: { ...process.env, ADMIN_COOKIE_SECRET: randomBytes(32).toString("hex") },
-            });
-            process.exit(result.status ?? 1);
-          '
-        env:
           PLAYWRIGHT_BASE_URL: https://localhost:3000
           NEXT_PUBLIC_SUPABASE_URL: ${{ steps.supabase.outputs.url }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.supabase.outputs.anon }}

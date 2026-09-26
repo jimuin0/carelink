@@ -292,3 +292,13 @@ schema run `36220861589` は全migration適用後、旧期待値との差分で�
 独立再レビューはCAS／ABAの解消を確認し、SQL ACL試験が内部table拒否をEXECUTE拒否と誤認し得る点を指摘。fixtureにanon／authenticatedのEXECUTEなし、service_roleのEXECUTEありの直接assertを追加した。実SQLの成功は次CIで確認する。本番DDL・実送信・merge・deployはこのcheckpointで実施していない。
 
 上記修正後の型検査と対象ESLintは成功。実pipe方式の証明書はMacのnetwork遮断下で鍵一致・localhost SAN一致を確認した（Linux／WebKit成功とは別）。SQL ACL修正の独立再レビューは追加指摘0、対象hash `abd7842126c97c3bb6cf0d0e756a35396641e99cad42d44289cbd9999a2cb888` 一致。次は同PRでCIの実SQL・競合・ブラウザー検証を再実行する。
+
+### 10.7．da0 checkpoint結果と準備／状態照会API
+
+`da0e6bb61a5c23f631110b87a9d139ac32ef32d4` のCI `36222727595` はUnit＋Coverage、Lint／型、Security、Contract jobが成功。E2Eは276成功・1失敗・4skipで未合格。以前失敗した施設登録のSecure Cookieによる受付確認は成功した。schema run `36222727651` は全migration、fingerprint、リマインドfixture、受付のrole／rollback fixture、20並列競合、function body fingerprint照合の必須stepが全て成功。これらは使い捨てCI DBでの証拠であり、本番適用証拠ではない。
+
+残るE2E失敗はMobile Safariの顧客signup後遷移。合成CI traceの限定projectionで、HTTPS画面からHTTP localhost Supabaseへの通信がmixed contentで拒否され、signupのnetwork requestが発生しないことを確認。ブラウザーの制限やCookieを弱めず、CI専用TLS dependency proxyでbuild／SSR／browser／seedのSupabase originを統一する。秘密鍵はメモリのみ、Node trustに使う公開証明書だけを専用tempへ保存し終了時に削除する。upstreamは127.0.0.1:54321固定。build/testは非同期spawnでproxyを止めない。独立レビューのWebSocket例外／cleanup指摘を修正し、process group終了も有限化する。実Linux／WebKitは変更後CIで再検証する。
+
+準備APIと状態照会APIを追加したが、`SALON_REGISTRATION_V2_ENABLED=true` のときだけ利用可能で、既存環境では有効化していない。proofはintent別HttpOnly Cookieのみ、JSON・URLへ出さない。準備にはPIIを受け付けず、状態照会はID＋proof digestの一致とserver側3日期限を確認し、receipt以外の申込内容を返さない。prepare期限は1日、response-loss照会期限は3日。未知ID／wrong proofを同じunverifiedとし、DB失敗を成功扱いしない。追加53testと型／対象lintは成功、独立レビュー追加指摘0。SQL RPC側の3日期限制約、commit API、写真manifest、W2の原子的claimは未接続のため、v2を有効化しない。
+
+現時点でmerge、deploy、本番migration、実送信は未実施。既存設計の他wave、旧台帳再判定、本番実体／履歴照合は未完了である。API局所成功やCI局所成功を全修正完了と読み替えない。

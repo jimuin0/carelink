@@ -2,15 +2,14 @@
 // lifecycle. WebKit correctly refuses Secure cookies over plain HTTP; changing
 // application cookies to insecure would hide that integration requirement.
 import { existsSync } from 'node:fs';
-import { generateKeyPairSync } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:https';
+import { createLocalCertificate } from './ci-test-tls.mjs';
 
 let phase = 'environment';
 async function main() {
   if (process.env.GITHUB_ACTIONS !== 'true' || process.env.CI !== 'true'
     || process.env.PLAYWRIGHT_BASE_URL !== 'https://localhost:3000'
-    || !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):\d+\/?$/.test(process.env.NEXT_PUBLIC_SUPABASE_URL || '')
+    || process.env.NEXT_PUBLIC_SUPABASE_URL !== 'https://localhost:54330'
     || ['.env', '.env.local', '.env.production', '.env.production.local'].some(file => existsSync(file))) {
     console.error('Isolated HTTPS E2E environment refused before application startup.');
     process.exitCode = 1;
@@ -19,15 +18,10 @@ async function main() {
   // A test-only TLS private key lives only in this process and OpenSSL stdin.
   // No key file, production material, external CA, or network request is used.
   phase = 'certificate';
-  const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
-  const key = privateKey.export({ type: 'pkcs8', format: 'pem' });
   // Node's child stdin may be a socket on Linux. OpenSSL reopens /dev/stdin,
   // which cannot reopen that socket. `cat` supplies a real POSIX pipe instead.
   // The shell program is constant; arguments and key are never interpolated.
-  const cert = execFileSync('/bin/sh', ['-c', 'cat | openssl "$@"', 'ci-test-certificate',
-    'req', '-new', '-x509', '-key', '/dev/stdin', '-subj', '/CN=localhost',
-    '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1', '-days', '1',
-  ], { input: key, env: { PATH: process.env.PATH }, stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 });
+  const { key, cert } = createLocalCertificate();
   phase = 'application-import';
   const { default: next } = await import('next');
   const app = next({ dev: false, hostname: 'localhost', port: 3000 });
