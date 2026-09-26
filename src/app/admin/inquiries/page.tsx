@@ -1,30 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
+import { inquiryListResponse, type InquiryListRow } from '@/lib/admin-inquiry-list-contract';
 
-interface Contact {
-  id: string;
-  created_at: string;
-  name: string;
-  email: string | null;
-  phone: string | null;
-  inquiry_type: string | null;
-  message: string | null;
-  ticket_status: 'open' | 'in_progress' | 'waiting' | 'resolved' | 'closed';
-  priority: 'low' | 'normal' | 'high' | 'urgent';
-  ticket_notes: string | null;
-  resolved_at: string | null;
-  traffic_source: {
-    source: string;
-    medium: string | null;
-    referrerHost: string | null;
-    landingPath: string;
-    capturedAt: string;
-  } | null;
-}
+type InquiryCursor = { createdAt: string | null; id: string };
+type Contact = InquiryListRow;
 
 const TICKET_STATUS_CONFIG = {
   open:        { label: '新着', className: 'bg-sky-100 text-sky-700' },
@@ -44,7 +26,9 @@ const PRIORITY_CONFIG = {
 export default function AdminInquiriesPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [nextCursor, setNextCursor] = useState<InquiryCursor | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('open');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingNotes, setEditingNotes] = useState<Record<string, string>>({});
@@ -53,44 +37,80 @@ export default function AdminInquiriesPage() {
   // 返信本文（問い合わせIDごと）と送信中の対象。
   const [replyBodies, setReplyBodies] = useState<Record<string, string>>({});
   const [replyingId, setReplyingId] = useState<string | null>(null);
+  const listRequestSequence = useRef(0);
+  const activeListRequest = useRef<AbortController | null>(null);
+
+  const beginListRequest = useCallback(() => {
+    activeListRequest.current?.abort();
+    const controller = new AbortController();
+    const sequence = ++listRequestSequence.current;
+    activeListRequest.current = controller;
+    return { controller, sequence };
+  }, []);
+
+  const fetchPage = useCallback(async (cursor: InquiryCursor | null, signal: AbortSignal) => {
+    const params = new URLSearchParams({ status: statusFilter || 'all' });
+    if (cursor) params.set('cursor', JSON.stringify(cursor));
+    const response = await fetch(`/api/admin/inquiries?${params.toString()}`, { cache: 'no-store', signal });
+    if (!response.ok) throw new Error('問い合わせの読み込みに失敗しました');
+    return inquiryListResponse.parse(await response.json());
+  }, [statusFilter]);
 
   const load = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    let query = supabase
-      .from('contacts')
-      .select('id, created_at, name, email, phone, inquiry_type, message, ticket_status, priority, ticket_notes, resolved_at, traffic_source')
-      .order('created_at', { ascending: false })
-      .limit(100);
-    if (statusFilter) query = query.eq('ticket_status', statusFilter);
+    const { controller, sequence } = beginListRequest();
+    setLoading(true);
+    setLoadingMore(false);
     setLoadError(false);
-    const { data, error } = await query;
-    if (error) { setLoadError(true); setLoading(false); return; }
-    setContacts((data ?? []) as Contact[]);
-    setLoading(false);
-  }, [statusFilter]);
+    setNextCursor(null);
+    try {
+      const data = await fetchPage(null, controller.signal);
+      if (sequence !== listRequestSequence.current) return;
+      setContacts(data.contacts);
+      setNextCursor(data.nextCursor);
+    } catch {
+      if (sequence === listRequestSequence.current && !controller.signal.aborted) setLoadError(true);
+    } finally {
+      if (sequence === listRequestSequence.current) {
+        activeListRequest.current = null;
+        setLoading(false);
+      }
+    }
+  }, [beginListRequest, fetchPage]);
 
-  // load は更新ボタン・保存後の再取得などイベントハンドラから引き続き呼ぶため関数として残し、
-  // マウント時・statusFilter 変更時の取得は effect 内へ同じ処理を inline する（React Compiler の
-  // set-state-in-effect：effect から外部関数を直接呼ぶと同期 setState とみなされ検出される）。
+  const loadMore = async () => {
+    if (!nextCursor || loading || loadingMore) return;
+    const { controller, sequence } = beginListRequest();
+    setLoadingMore(true);
+    try {
+      const data = await fetchPage(nextCursor, controller.signal);
+      if (sequence !== listRequestSequence.current) return;
+      setContacts((current) => [...current, ...data.contacts]);
+      setNextCursor(data.nextCursor);
+    } catch {
+      if (sequence === listRequestSequence.current && !controller.signal.aborted) {
+        setToast({ type: 'error', message: '続きの読み込みに失敗しました。再試行してください' });
+      }
+    } finally {
+      if (sequence === listRequestSequence.current) {
+        activeListRequest.current = null;
+        setLoadingMore(false);
+      }
+    }
+  };
+
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const supabase = createBrowserSupabaseClient();
-      let query = supabase
-        .from('contacts')
-        .select('id, created_at, name, email, phone, inquiry_type, message, ticket_status, priority, ticket_notes, resolved_at, traffic_source')
-        .order('created_at', { ascending: false })
-        .limit(100);
-      if (statusFilter) query = query.eq('ticket_status', statusFilter);
-      setLoadError(false);
-      const { data, error } = await query;
-      if (cancelled) return;
-      if (error) { setLoadError(true); setLoading(false); return; }
-      setContacts((data ?? []) as Contact[]);
-      setLoading(false);
-    })();
-    return () => { cancelled = true; };
-  }, [statusFilter]);
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (active) return load();
+      return undefined;
+    });
+    return () => {
+      active = false;
+      listRequestSequence.current += 1;
+      activeListRequest.current?.abort();
+      activeListRequest.current = null;
+    };
+  }, [load]);
 
   const updateTicket = async (
     id: string,
@@ -109,7 +129,9 @@ export default function AdminInquiriesPage() {
         return;
       }
       setToast({ type: 'success', message: '更新しました' });
-      load();
+      await load();
+    } catch {
+      setToast({ type: 'error', message: '更新に失敗しました。通信状況を確認して再試行してください' });
     } finally {
       setSavingId(null);
     }
@@ -139,7 +161,11 @@ export default function AdminInquiriesPage() {
       }
       setToast({ type: 'success', message: '返信を送信しました' });
       setReplyBodies((prev) => ({ ...prev, [id]: '' }));
-      load();
+      await load();
+    } catch {
+      // Keep the draft if the result is unknown. Do not make an automatic retry
+      // because the provider may have accepted the message before the timeout.
+      setToast({ type: 'error', message: '送信結果を確認できません。重複送信を避けるため再送せず、送信状況を確認してください' });
     } finally {
       setReplyingId(null);
     }
@@ -155,7 +181,7 @@ export default function AdminInquiriesPage() {
         <div>
           <h1 className="text-xl font-bold">問い合わせ管理</h1>
           {openCount > 0 && statusFilter === 'open' && (
-            <p className="text-sm text-sky-600 mt-0.5">{openCount}件の新着問い合わせ</p>
+            <p className="text-sm text-sky-600 mt-0.5">このページに{openCount}件の新着問い合わせ</p>
           )}
         </div>
         <button type="button" onClick={load} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>
@@ -211,7 +237,9 @@ export default function AdminInquiriesPage() {
                       <span className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">{c.inquiry_type}</span>
                     )}
                     <span className="text-xs text-gray-400">
-                      {new Date(c.created_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    {c.created_at
+                      ? new Date(c.created_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                      : '日時未設定'}
                     </span>
                   </div>
                   <p className="text-sm font-bold text-gray-800 truncate">{c.name}</p>
@@ -349,6 +377,18 @@ export default function AdminInquiriesPage() {
               )}
             </div>
           ))}
+        </div>
+      )}
+      {!loading && !loadError && nextCursor && (
+        <div className="text-center">
+          <button
+            type="button"
+            onClick={loadMore}
+            disabled={loadingMore}
+            className="text-sm px-4 py-2 border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {loadingMore ? '読み込み中...' : 'さらに読み込む'}
+          </button>
         </div>
       )}
     </div>

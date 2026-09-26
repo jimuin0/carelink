@@ -585,3 +585,15 @@ Contractの現在失敗は別nodeとして保持する：`salons.claimed_facilit
 CIは`supabase start`後の新規・使い捨てlocal Supabaseだけへ、project labelが一致するDB containerが一つだけ存在することをguardした上で`docker exec ... psql -v ON_ERROR_STOP=1`からdeferred SQLを適用してE2Eを動かす。これによりE2EのStorage拒否／署名uploadは最終policyを通るが、production migration replay/historyにはcutoverを混ぜない。既存のStorage historical upgrade testは新deferred pathのmarked sectionをrollback-only shadow fixtureで実行する。Jest guardはcutover SQLがactive migrationディレクトリに紛れないこととlocal E2Eでのみ適用されることを確認する。
 
 この編集開始時、worktree volumeの物理空きブロックが0で書込みに失敗した。確認済みGitignoredの`.next/cache`のみ（約1GB、シンボリックリンクなし）を除去し、空き858MiBを確認して再開した。ほかのworkspace、DB、データは変更していない。focused `salon-storage-upgrade-guard` Jestは14/14成功、対象ESLint、全体`tsc --noEmit`、Actionlint、Node構文検査、`git diff --check`も成功。既存のローカルSupabaseコンテナが起動中のため、この作業checkoutからはDB操作も`supabase start`も実行せず、ユーザーの共有local DBを保護した。最初の最新SHA CIでは、`supabase db query`がmigration複文をprepared statementとして拒否し、E2Eがcutover適用段階で失敗した。他の主要jobは成功、Contract gateは既知のproduction schema/type差により失敗。このCLI仕様を隠さず、workflowを単一の正確なlocal Docker DB containerへ`psql`入力するfail-closed方式へ修正し、再実行はこの次commit後。Supabase CLIの認証は別nodeとして未完了であり、本番migration/history/型の照合、Contract gate、PR merge、deploy、本番機能検証も引き続き未完了である。
+
+### 10.34．運営問い合わせ一覧のサーバー境界とページング競合
+
+PR #642の作業checkout（HEAD `819b7c404c483b6596a37fdc3adee1307294b0fa`）で、`/admin/inquiries`がブラウザーSupabase clientから全社横断`contacts`を直接読む既存経路を確認した。通常ユーザーにcontacts SELECT policyがないため本番画面で一覧を取得できず、最大100件だけの取得では古い問い合わせへ到達できない。また、filterを切り替えた時の逆順network responseが古い一覧を新しい画面へ上書きできた。
+
+現在の未commit差分では一覧読取を`GET /api/admin/inquiries`へ移し、`withRoute(requireAuth)`、`profiles.is_platform_admin === true`の確認後だけservice-role clientを使う。query keyと重複filterを拒否し、Zodでstatus/cursorをstrict validationする。responseは`no-store`。DB行もstrict parseし、壊れたtraffic metadataはnullにするが、DB失敗／不正row／依存exceptionは状態理由を固定enumで監視へ渡してHTTP 500とし、「0件」と偽装しない。個人情報・DB例外の生値は監視やclient応答へ出さない。1ページ50件、created_at DESC NULLS LAST＋id DESC、Postgres timestampの小数秒を維持するcursor、NULL日時用のcursor条件を設け、続き取得導線を追加した。filter/page変更・unmountで既存requestをabortし、request sequenceも検査することでabort非対応／遅着応答を捨てる。
+
+局所Jest 3suite・17test成功、全体coverage CI相当は418suite・8,502test成功（branch 100%、statements 98.55%、functions 95.75%、lines 99.38%）。全体`tsc --noEmit --incremental false`成功。全体ESLintはerror 0、warning 4で、profile遷移、`BookingFlow` effect、`ReviewForm` hook使用の既存警告で今回差分外。合成Supabase値だけを渡した本番webpack build成功、TypeScript検査成功、静的764/764ページ生成成功。build時にNext依存のmiddleware→proxy deprecationとEdge Runtime `process.cwd` warningを確認したが、今回差分の直接原因ではない。実本番問い合わせや個人情報は読んでいない。
+
+独立read-only reviewと親の反証では、routeの未認証／非platform-admin経路でservice-role読取をしないこと、query validation、PIIを含まないfailure分類、逆順の古いpage responseを捨てる競合testを確認し、追加P0〜P3は確認されていない。`/admin` middlewareとAdminLayoutはfacility owner/admin membershipも要求するため、platform adminでもfacility membershipがなければ管理UIを開けない条件がある。ただし実運営者アカウントのmembership実態は未確認で、project規則上のadmin境界を勝手に緩めていない。この条件の実影響は未判定として保持する。
+
+GitHub PR #642は引き続きOPEN、remote HEADは`819b7c4`のままでこの差分は未push。remote HEADに対する既存CIはLint/type、Unit+Coverage、Security、E2E等が成功、Contract Testsは失敗、Vercel Build Dry-RunはSKIPPEDで成功扱いできず、merge stateはUNSTABLE。今回差分の最新SHA CIは未実行。問い合わせ一覧修正は受付の有無、施設申込・登録migration、本番への返信送信を解決した証拠ではない。実メール送信、顧客への回答、登録再送、DB変更は行っていない。
