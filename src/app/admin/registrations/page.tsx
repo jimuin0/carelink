@@ -11,6 +11,7 @@ import { registrationListInput, registrationListResponse, type RegistrationListI
 export default function AdminRegistrationsPage() {
   const [salons, setSalons] = useState<Salon[]>([]);
   const [loading, setLoading] = useState(true);
+  const [interactive, setInteractive] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -40,6 +41,7 @@ export default function AdminRegistrationsPage() {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20000);
     (async () => {
+      setInteractive(true);
       setLoading(true);
       setLoadError(false);
       try {
@@ -149,7 +151,7 @@ export default function AdminRegistrationsPage() {
       <p className="text-sm mb-4">審査の承認は一般公開の完了ではありません。店舗作成後に公開条件を確認してください。</p>
       {mutationUncertain && <p role="alert">直前の更新結果が不明です。一覧の再取得に成功するまで、承認・却下はできません。</p>}
       <form onSubmit={applySearch} className="mb-5 space-y-3">
-        <fieldset disabled={processingId !== null} className="flex flex-wrap items-end gap-3">
+        <fieldset disabled={!interactive || processingId !== null} className="flex flex-wrap items-end gap-3">
           <label>検索項目<select aria-label="検索項目" value={field} onChange={event => setField(event.target.value as RegistrationListInput['field'])} className="form-input">
             <option value="facility">施設名</option><option value="receipt">受付番号</option><option value="email">メールアドレス</option>
           </select></label>
@@ -166,7 +168,7 @@ export default function AdminRegistrationsPage() {
         <button type="button" disabled={loading || processingId !== null || previous.length === 0} onClick={previousPage}>前の50件</button>
         <span>{previous.length + 1}ページ目</span>
         <button type="button" disabled={loading || processingId !== null || !nextCursor} onClick={nextPage}>次の50件</button>
-        <button type="button" disabled={processingId !== null} onClick={() => { invalidate(); setReloadKey(key => key + 1); }}>一覧を再読み込み</button>
+        <button type="button" disabled={!interactive || processingId !== null} onClick={() => { invalidate(); setReloadKey(key => key + 1); }}>一覧を再読み込み</button>
       </div>
 
       {loading ? (

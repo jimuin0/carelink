@@ -61,21 +61,26 @@ export const PUT = withRoute(async (request, ctx) => {
 
   const d = parsed.data;
   const serviceClient = createServiceRoleClient();
-  const { error } = await serviceClient
+  const { data: updated, error } = await serviceClient
     .from('profiles')
     .update({
       display_name: d.display_name,
       phone: d.phone,
       prefecture: d.prefecture,
       city: d.city ?? null,
-      birth_date: d.birth_date ?? null,
+      birth_date: d.birth_date || null,
       gender: d.gender ?? null,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', ctx.user!.id);
+    .eq('id', ctx.user!.id)
+    .select('id')
+    .maybeSingle();
 
   if (error) {
-    return serverError('profile-put', error, '/api/profile', '更新に失敗しました');
+    return serverError('profile-put', new Error('Profile update failed'), '/api/profile', '更新に失敗しました');
+  }
+  if (updated?.id !== ctx.user!.id) {
+    return NextResponse.json({ error: 'プロフィールを確認できません。入力内容は保存されていません。再読み込みしても解消しない場合はお問い合わせください。' }, { status: 409 });
   }
 
   return NextResponse.json({ success: true });

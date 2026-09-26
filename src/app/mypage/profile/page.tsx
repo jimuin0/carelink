@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { prefectures } from '@/lib/constants';
@@ -28,6 +29,7 @@ export default function ProfileEditPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [profileMissing, setProfileMissing] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [lineLinked, setLineLinked] = useState(false);
@@ -54,32 +56,33 @@ export default function ProfileEditPage() {
     (async () => {
       try {
         const supabase = createBrowserSupabaseClient();
+        setLoading(true);
         setLoadError(false);
+        setProfileMissing(false);
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { if (!cancelled) setLoading(false); return; }
+        if (!user) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
 
         // プロフィールはフォーム初期値。取得失敗を握り潰すと空フォームを保存して実データを
-        // 上書きする事故になるため、失敗時はフォームを描画しない（PGRST116=未作成は新規入力を許可）。
+        // 上書きする事故になるため、取得失敗・未作成ともフォームを描画しない。
         const { data, error } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', user.id)
-          .single();
+          .maybeSingle();
 
-        if (error && error.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (error) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
         if (cancelled) return;
-        if (data) {
-          reset({
-            display_name: data.display_name || '',
-            phone: data.phone || '',
-            prefecture: data.prefecture || '',
-            city: data.city || '',
-            birth_date: data.birth_date || '',
-            gender: data.gender || '',
-          });
-          setAvatarUrl(data.avatar_url || null);
-          setEmailUnsubscribed(data.email_unsubscribed ?? false);
-        }
+        if (!data) { setProfileMissing(true); setLoadError(true); setLoading(false); return; }
+        reset({
+          display_name: data.display_name || '',
+          phone: data.phone || '',
+          prefecture: data.prefecture || '',
+          city: data.city || '',
+          birth_date: data.birth_date || '',
+          gender: data.gender || '',
+        });
+        setAvatarUrl(data.avatar_url || null);
+        setEmailUnsubscribed(data.email_unsubscribed ?? false);
 
         // LINE連携状態チェック（補助）。失敗時は未連携表示のままにし、本体フォームは継続。
         // 【監査C2・2026年7月22日】連携の単一ソースは profiles.line_user_id（liff/link が書く唯一の正）。
@@ -120,12 +123,12 @@ export default function ProfileEditPage() {
         }),
       });
 
-      if (res.ok) {
+      const body = await res.json().catch(() => null);
+      if (res.ok && body?.success === true) {
         reset(data); // 保存成功でフォームを pristine 化（未保存ガードを解除）
         setToast({ type: 'success', message: 'プロフィールを更新しました' });
       } else {
-        const body = await res.json().catch(() => null);
-        setToast({ type: 'error', message: body?.error || '更新に失敗しました' });
+        setToast({ type: 'error', message: typeof body?.error === 'string' ? body.error : '更新結果を確認できません。入力内容を保持しています。' });
       }
     } catch {
       setToast({ type: 'error', message: '更新に失敗しました' });
@@ -142,6 +145,7 @@ export default function ProfileEditPage() {
       <div>
         <h1 className="text-xl font-bold mb-4">プロフィール編集</h1>
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="プロフィールの読み込みに失敗しました" />
+        {profileMissing && <p className="mt-4">プロフィールが見つかりません。再読み込みしても解消しない場合は、<Link href="/contact" className="text-primary underline">お問い合わせ</Link>から復旧をご依頼ください。</p>}
       </div>
     );
   }
@@ -196,7 +200,9 @@ export default function ProfileEditPage() {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
+        <form onSubmit={handleSubmit(onSubmit)} noValidate aria-busy={isSubmitting}>
+          <fieldset disabled={isSubmitting} className="space-y-4">
+          <legend className="sr-only">プロフィール情報</legend>
           <div>
             <label htmlFor="profile-name" className="form-label">お名前 <span className="text-red-500">*</span></label>
             <input
@@ -269,6 +275,7 @@ export default function ProfileEditPage() {
           <button type="submit" disabled={isSubmitting} className="btn-primary w-full !py-3">
             {isSubmitting ? '更新中...' : 'プロフィールを更新'}
           </button>
+          </fieldset>
         </form>
       </div>
 
