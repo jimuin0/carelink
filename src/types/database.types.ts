@@ -3930,6 +3930,50 @@ export type Database = {
           },
         ]
       }
+      salon_submission_intents: {
+        Row: {
+          canonical_version: number
+          committed_at: string | null
+          created_at: string
+          hmac_scheme: string
+          id: string
+          payload_hmac: string | null
+          prepare_expires_at: string
+          proof_hash: string
+          salon_id: string | null
+        }
+        Insert: {
+          canonical_version: number
+          committed_at?: string | null
+          created_at?: string
+          hmac_scheme: string
+          id: string
+          payload_hmac?: string | null
+          prepare_expires_at: string
+          proof_hash: string
+          salon_id?: string | null
+        }
+        Update: {
+          canonical_version?: number
+          committed_at?: string | null
+          created_at?: string
+          hmac_scheme?: string
+          id?: string
+          payload_hmac?: string | null
+          prepare_expires_at?: string
+          proof_hash?: string
+          salon_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "salon_submission_intents_salon_id_fkey"
+            columns: ["salon_id"]
+            isOneToOne: true
+            referencedRelation: "salons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       salons: {
         Row: {
           address: string | null
@@ -5141,11 +5185,14 @@ export type Database = {
           id: string
           last_error: string | null
           max_attempts: number
+          notification_kind: string | null
           payload: Json
           processed_at: string | null
+          registration_id: string | null
           scheduled_at: string
           status: string
           target_id: string
+          template_version: number | null
           webhook_type: string
         }
         Insert: {
@@ -5158,11 +5205,14 @@ export type Database = {
           id?: string
           last_error?: string | null
           max_attempts?: number
+          notification_kind?: string | null
           payload: Json
           processed_at?: string | null
+          registration_id?: string | null
           scheduled_at?: string
           status?: string
           target_id: string
+          template_version?: number | null
           webhook_type: string
         }
         Update: {
@@ -5175,14 +5225,25 @@ export type Database = {
           id?: string
           last_error?: string | null
           max_attempts?: number
+          notification_kind?: string | null
           payload?: Json
           processed_at?: string | null
+          registration_id?: string | null
           scheduled_at?: string
           status?: string
           target_id?: string
+          template_version?: number | null
           webhook_type?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "webhook_retry_queue_registration_id_fkey"
+            columns: ["registration_id"]
+            isOneToOne: false
+            referencedRelation: "salons"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       white_label_domains: {
         Row: {
@@ -5385,6 +5446,17 @@ export type Database = {
       }
     }
     Functions: {
+      commit_salon_submission: {
+        Args: {
+          p_intent_id: string
+          p_proof_hash: string
+          p_canonical_version: number
+          p_hmac_scheme: string
+          p_payload_hmac: string
+          p_registration: Json
+        }
+        Returns: { outcome: string; receipt_id: string | null }[]
+      }
       _postgis_deprecate: {
         Args: { newname: string; oldname: string; version: string }
         Returns: undefined

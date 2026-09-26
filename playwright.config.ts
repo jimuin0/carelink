@@ -20,6 +20,8 @@ export default defineConfig({
   expect: { timeout: 10000 },
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000',
+    // The managed CI server uses an ephemeral localhost-only certificate.
+    ignoreHTTPSErrors: process.env.CI === 'true' && process.env.PLAYWRIGHT_BASE_URL === 'https://localhost:3000',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -264,8 +266,9 @@ export default defineConfig({
   ],
   webServer: process.env.CI
     ? {
-        command: 'npm run start',
-        url: 'http://localhost:3000',
+        command: 'node scripts/start-ci-https.mjs',
+        url: 'https://localhost:3000',
+        ignoreHTTPSErrors: true,
         reuseExistingServer: false,
       }
     : undefined,

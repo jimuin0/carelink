@@ -238,6 +238,10 @@ test.describe('/register 送信', () => {
       await expect(page).toHaveURL(/\/register\/complete/);
       await expect(page.getByRole('heading', { name: '登録が完了しました！' })).toBeVisible();
       await expect(page.getByText(receipt.id, { exact: true })).toBeVisible();
+      const claim = (await page.context().cookies()).find(cookie => cookie.name === 'clnk_salon_claim');
+      // Never include the capability cookie value in assertion output.
+      expect({ present: !!claim, secure: claim?.secure, httpOnly: claim?.httpOnly, sameSite: claim?.sameSite })
+        .toEqual({ present: true, secure: true, httpOnly: true, sameSite: 'Lax' });
       await expect(page.getByText('掲載申込の受付が完了しました。一般公開は、店舗情報の設定と公開操作の後に反映されます。')).toBeVisible();
       const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
         auth: { persistSession: false, autoRefreshToken: false },

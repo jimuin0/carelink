@@ -1003,6 +1003,17 @@
     "updated_at",
     "updated_by"
   ],
+  "salon_submission_intents": [
+    "canonical_version",
+    "committed_at",
+    "created_at",
+    "hmac_scheme",
+    "id",
+    "payload_hmac",
+    "prepare_expires_at",
+    "proof_hash",
+    "salon_id"
+  ],
   "salons": [
     "address",
     "building_name",
@@ -1297,11 +1308,14 @@
     "id",
     "last_error",
     "max_attempts",
+    "notification_kind",
     "payload",
     "processed_at",
+    "registration_id",
     "scheduled_at",
     "status",
     "target_id",
+    "template_version",
     "webhook_type"
   ],
   "white_label_domains": [

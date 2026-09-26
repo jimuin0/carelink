@@ -190,7 +190,7 @@ jobs:
             process.exit(result.status ?? 1);
           '
         env:
-          PLAYWRIGHT_BASE_URL: http://localhost:3000
+          PLAYWRIGHT_BASE_URL: https://localhost:3000
           NEXT_PUBLIC_SUPABASE_URL: ${{ steps.supabase.outputs.url }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.supabase.outputs.anon }}
           # /api/health の rate_limit プローブ（service_role + check_rate_limit RPC）に必須。
