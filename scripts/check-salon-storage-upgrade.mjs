@@ -117,6 +117,9 @@ ${section}`, expected, name);
   }
 }
 try { main(); } catch (error) {
+  const stderr = error && typeof error === 'object' && error.stderr
+    ? String(error.stderr).trim() : '';
+  if (stderr) console.error(stderr);
   if (error instanceof Error && error.message.startsWith('Storage upgrade ')) console.error(error.message);
   console.error('Registration storage upgrade contract failed; no production repair was authorized.');
   process.exitCode = 1;
