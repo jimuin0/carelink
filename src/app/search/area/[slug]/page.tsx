@@ -7,13 +7,13 @@ import FacilityCard from '@/components/search/FacilityCard';
 import Pagination from '@/components/search/Pagination';
 
 export const revalidate = 3600;
+// Area data is managed in Supabase and is unavailable during an isolated
+// production build. Generate paths on first request and then use ISR instead
+// of making the build depend on a live database.
+export const dynamicParams = true;
 
 export async function generateStaticParams() {
-  const { createServerSupabaseClient } = await import('@/lib/supabase-server');
-  const supabase = createServerSupabaseClient();
-  const { data, error } = await supabase.from('areas').select('slug');
-  if (error || !Array.isArray(data)) throw new Error('Static area list unavailable');
-  return data.map((a) => ({ slug: a.slug }));
+  return [];
 }
 
 interface Props {

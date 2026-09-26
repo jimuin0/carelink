@@ -519,3 +519,13 @@ REG-12と検索台帳の直接経路を確認した。現在city検索は県を�
 旧CIのProfile E2E失敗は、API setupが作ったSSR認証Cookieを保持した同じbrowser contextでログイン画面を開く構成だった。middleware／画面の既存認証状態とブラウザーのclient sessionが異なり、通常ログインを確実に検証できないため、UI用の新規browser contextを作り、実ログインからprofile表示・保存・欠損時の409表示まで通す形へ分離した。API setup contextは保持し、テスト終了時にUI contextを閉じる。修正後のtsc、対象ESLint、diff checkは成功。CIの旧SHAでは同じフォーム要素未検出が残っていたが、この修正を含む最新SHAでのE2E結果は未取得。ローカルSupabaseはunhealthyのためローカルE2Eは未実行。
 
 Supabase Dashboardのmigration履歴は2026年9月21日の`reminder_delivery_reconciliation`が最新で、2026年9月26日付registration migrationsは未記録。migration 0004は従来の匿名Storage upload policyを削除するcutover、0005は公開済み施設の住所制約、0006は登録receipt claim／施設作成RPC、0007はreview revision triggerを含む。migration本文には適用前提と段階順序が記載されているため、全migrationの一括適用は未実施。公開済み施設の違反件数、Storage既存bucket／policy、migration ledgerとのDB実体照合は未確認であり、Supabase CLIは認証されていない。Contract Testの失敗は最新コードの合格証拠ではなく、この本番適用／型同期nodeが残っている。
+
+### 10.28．地域ページのPreview build失敗と修正
+
+`fd57fccb16c7c81d9c192d525a9332776cf0cf22` のVercel PreviewはBuild Failed。Build Logsで `/search/area/[slug]` の`generateStaticParams`がbuild時にSupabaseの`areas`を取得し、利用不可時に`Static area list unavailable`をthrowする経路を確認した。ビルド環境の一時的なDBアクセス可否へ本番buildを依存させていた。
+
+`generateStaticParams`を空配列にし、`dynamicParams=true`を明示。area slugは初回要求時に生成し、既存の1時間ISRを維持する。runtimeの`getAreaBySlug`／hierarchy／施設検索errorは引き続き空結果や404へ偽装しない。DBなしのbuild pathとISR設定を確認する回帰testを追加した。
+
+局所Jest 6件、対象ESLintは成功。秘密値なしのlocal buildはcompileとTypeScript検査を通過した後、Supabase環境変数を設定していないため別route `/facility/[slug]/blog/[postSlug]` のpage data収集で停止。area routeの完全なbuild成功は未判定であり、Node 22.16.0はpackage要求の22.22.2以上より古い。`fd57fccb`の既存CI E2Eは11分30秒で成功（fresh local DB、build、HTTPS browserを含む）。Contractは3失敗／17skip／14成功で不合格。原因は未適用migration `salon_submission_photos`、`prepare_salon_photo`、`setup_facility_from_registration`と本番由来型の不一致。どれもskipや例外台帳で隠さない。
+
+修正を含む新SHAのVercel Preview、E2E、全体CIは未実行。本番DB履歴は2026年9月21日までというDashboard記録を保持し、production DDLやV2 flag変更は行っていない。対象migrationの段階適用には、cutover前提、住所CHECKの読取preflight、現在のDB実体・履歴照合と、保護された副作用実行gateが残る。1運営者の複数店舗を一つのowner accountで管理する業務方針も未決定のため、account制約を変更していない。
