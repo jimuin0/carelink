@@ -113,7 +113,9 @@ ROLLBACK;`);
     // Execute the actual multi-statement migration section with psql and
     // require its explicit guard error. A failed psql transaction is rolled
     // back when the disposable connection closes.
-    expectRejected(`${guard}${setup}${mime}
+    expectRejected(`${guard}INSERT INTO storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
+VALUES ('carelink-uploads','carelink-uploads',true,NULL,NULL) ON CONFLICT (id) DO NOTHING;
+${setup}${mime}
 ${section}`, expected, name);
     console.log(`Storage upgrade ${name}: explicit rejection passed and rolled back.`);
   }

@@ -35,12 +35,13 @@ test('upgrade fixture executes the actual migration section and is wired before 
   expect(code).not.toContain('salon_legacy_authenticated_image_insert');
   expect(code).toContain("current_database() <> 'carelink_shadow'");
   expect(code).toContain('const expectRejected = (sql, expected, name)');
-  expect(code).toContain('expectRejected(`${guard}${setup}${mime}');
+  expect(code).toContain('expectRejected(`${guard}INSERT INTO storage.buckets');
   expect(code).not.toContain('EXECUTE $migration$');
   expect(code).toContain('missing upgrade completion marker');
   expect(code).toContain("'bucket configuration preserved safely'");
   expect(code).toContain("'unrelated Storage policies unchanged'");
   expect(code).toContain("INSERT INTO storage.buckets(id,name,public,file_size_limit,allowed_mime_types)");
+  expect(code).toContain('expectRejected(`${guard}INSERT INTO storage.buckets');
   expect(code).toContain('ROLLBACK;');
   expect(code).not.toMatch(/\bCOMMIT;/);
   const ci = readFileSync(join(process.cwd(), '.github/workflows/schema-fingerprint.yml'), 'utf8');
