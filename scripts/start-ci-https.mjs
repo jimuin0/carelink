@@ -6,6 +6,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:https';
 
+let phase = 'environment';
 async function main() {
   if (process.env.GITHUB_ACTIONS !== 'true' || process.env.CI !== 'true'
     || process.env.PLAYWRIGHT_BASE_URL !== 'https://localhost:3000'
@@ -17,16 +18,23 @@ async function main() {
   }
   // A test-only TLS private key lives only in this process and OpenSSL stdin.
   // No key file, production material, external CA, or network request is used.
+  phase = 'certificate';
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const key = privateKey.export({ type: 'pkcs8', format: 'pem' });
-  const cert = execFileSync('openssl', [
+  // Node's child stdin may be a socket on Linux. OpenSSL reopens /dev/stdin,
+  // which cannot reopen that socket. `cat` supplies a real POSIX pipe instead.
+  // The shell program is constant; arguments and key are never interpolated.
+  const cert = execFileSync('/bin/sh', ['-c', 'cat | openssl "$@"', 'ci-test-certificate',
     'req', '-new', '-x509', '-key', '/dev/stdin', '-subj', '/CN=localhost',
     '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1', '-days', '1',
   ], { input: key, env: { PATH: process.env.PATH }, stdio: ['pipe', 'pipe', 'pipe'], timeout: 10000 });
+  phase = 'application-import';
   const { default: next } = await import('next');
   const app = next({ dev: false, hostname: 'localhost', port: 3000 });
+  phase = 'application-prepare';
   await app.prepare();
   const handler = app.getRequestHandler();
+  phase = 'https-server';
   const server = createServer({ key, cert }, (request, response) => {
     handler(request, response).catch(() => {
       if (!response.headersSent) response.writeHead(500);
@@ -41,6 +49,8 @@ async function main() {
 }
 
 main().catch(() => {
-  console.error('Isolated HTTPS E2E setup failed; no application was made public.');
+  // Only this allowlisted phase is reported: child-process errors can contain
+  // TLS material and must never be serialized into CI logs.
+  console.error(`Isolated HTTPS E2E setup failed at ${phase}; no application was made public.`);
   process.exitCode = 1;
 });

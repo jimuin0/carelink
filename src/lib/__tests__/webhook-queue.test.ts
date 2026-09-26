@@ -25,11 +25,14 @@ jest.mock('@/lib/alert', () => ({
 import { enqueueWebhook, scheduleRetry } from '../webhook-queue';
 import { alertWarning } from '../alert';
 
-function updateChain(error: unknown = null) {
+const claimEpoch = '2026-09-26T00:00:00.000Z';
+function updateChain(error: unknown = null, data: unknown = [{ id: 'fixture' }]) {
+  const chain = {
+    eq: jest.fn((_key: string, _value: unknown) => chain),
+    select: jest.fn().mockResolvedValue({ data, error }),
+  };
   return {
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn(() => Promise.resolve({ error })),
-    }),
+    update: jest.fn().mockReturnValue(chain),
     insert: jest.fn(() => Promise.resolve({ error: null })),
   };
 }
@@ -203,11 +206,26 @@ test('enqueueWebhook: insert が {error} を返す・targetIdが4文字以下（
 
 // ─── scheduleRetry: max attempts exceeded ────────────────────────────────────
 
+test.each([1, 3])('scheduleRetry attempt %i only changes the exact active claim', async attempt => {
+  const table = updateChain();
+  mockFrom.mockReturnValue(table);
+  await scheduleRetry('job-owned', attempt, 'fixed fixture failure', claimEpoch);
+  expect(table.update.mock.results[0].value.eq.mock.calls).toEqual([
+    ['id', 'job-owned'], ['status', 'processing'], ['claimed_at', claimEpoch],
+  ]);
+  expect(table.update.mock.results[0].value.select).toHaveBeenCalledWith('id');
+});
+
+test.each([[1, []], [1, null], [3, []], [3, null]])('scheduleRetry attempt %i with no owned row %p is uncertain', async (attempt, data) => {
+  mockFrom.mockReturnValue(updateChain(null, data));
+  expect(await scheduleRetry('job-lost', attempt as number, 'fixture failure', claimEpoch)).toBe('uncertain');
+});
+
 test('scheduleRetry: attempt>=3 → failed状態に更新し、戻り値は "dead-letter"', async () => {
-  const updateMock = jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) });
+  const updateMock = updateChain().update;
   mockFrom.mockReturnValue({ update: updateMock });
 
-  const outcome = await scheduleRetry('job-abc', 3, 'LINE API error');
+  const outcome = await scheduleRetry('job-abc', 3, 'LINE API error', claimEpoch);
 
   expect(updateMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed' }));
   // route.ts はこの戻り値で「二度と自動再送されない」件数を数え、alertDeliveryFailures の
@@ -218,7 +236,7 @@ test('scheduleRetry: attempt>=3 → failed状態に更新し、戻り値は "dea
 test('scheduleRetry: attempt>=3 のDB失敗 → uncertain を返して無音成功にしない', async () => {
   mockFrom.mockReturnValue(updateChain({ message: 'update failed' }));
 
-  const outcome = await scheduleRetry('job-xyz', 3, 'timeout');
+  const outcome = await scheduleRetry('job-xyz', 3, 'timeout', claimEpoch);
 
   expect(console.error).toHaveBeenCalledWith(
     '[webhook-queue] failed to mark job as failed — job stuck in processing',
@@ -231,10 +249,10 @@ test('scheduleRetry: attempt>=3 のDB失敗 → uncertain を返して無音成�
 
 test('scheduleRetry: attempt=1（即時失敗）→ pending・attempt_count=1・5分後に再スケジュール・claimed_atをクリアし戻り値は"rescheduled"', async () => {
   const before = Date.now();
-  const updateMock = jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) });
+  const updateMock = updateChain().update;
   mockFrom.mockReturnValue({ update: updateMock });
 
-  const outcome = await scheduleRetry('job-def', 1, 'temporary error');
+  const outcome = await scheduleRetry('job-def', 1, 'temporary error', claimEpoch);
 
   const called = updateMock.mock.calls[0][0];
   expect(called).toEqual(expect.objectContaining({
@@ -254,10 +272,10 @@ test('scheduleRetry: attempt=1（即時失敗）→ pending・attempt_count=1・
 
 test('scheduleRetry: attempt=2（5分後失敗）→ attempt_count=2・scheduled_at が30分後', async () => {
   const before = Date.now();
-  const updateMock = jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) });
+  const updateMock = updateChain().update;
   mockFrom.mockReturnValue({ update: updateMock });
 
-  const outcome = await scheduleRetry('job-ghi', 2, 'error');
+  const outcome = await scheduleRetry('job-ghi', 2, 'error', claimEpoch);
 
   const called = updateMock.mock.calls[0][0];
   expect(called.attempt_count).toBe(2);
@@ -271,7 +289,7 @@ test('scheduleRetry: attempt=2（5分後失敗）→ attempt_count=2・scheduled
 test('scheduleRetry: 再スケジュールDB失敗 → uncertain を返して無音成功にしない', async () => {
   mockFrom.mockReturnValue(updateChain({ message: 'reschedule failed' }));
 
-  const outcome = await scheduleRetry('job-stuck', 1, 'error message');
+  const outcome = await scheduleRetry('job-stuck', 1, 'error message', claimEpoch);
 
   expect(console.error).toHaveBeenCalledWith(
     '[webhook-queue] failed to reschedule job — job stuck in processing',

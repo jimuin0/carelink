@@ -12,6 +12,13 @@ CREATE FUNCTION pg_temp.assert_registration(ok boolean, label text) RETURNS void
 LANGUAGE plpgsql AS $$ BEGIN
   IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'registration fixture failed: %', label; END IF;
 END $$;
+-- An invocation can fail on table privileges even when EXECUTE is accidentally
+-- granted. Assert the function ACL itself, separately from the runtime denial.
+SELECT pg_temp.assert_registration(
+  NOT has_function_privilege('anon', 'public.commit_salon_submission(uuid,text,smallint,text,text,jsonb)', 'EXECUTE')
+  AND NOT has_function_privilege('authenticated', 'public.commit_salon_submission(uuid,text,smallint,text,text,jsonb)', 'EXECUTE')
+  AND has_function_privilege('service_role', 'public.commit_salon_submission(uuid,text,smallint,text,text,jsonb)', 'EXECUTE'),
+  'RPC execute ACL is service-only');
 CREATE FUNCTION pg_temp.registration_payload() RETURNS jsonb LANGUAGE sql AS $$
   SELECT '{"facility_name":"Synthetic registration fixture","business_type":"ヘアサロン",
     "representative_name":"Synthetic representative","contact_name":"Synthetic contact",
@@ -33,7 +40,7 @@ SET LOCAL ROLE anon;
 DO $$ BEGIN
   BEGIN
     PERFORM public.commit_salon_submission('61000000-0000-4000-8000-000000000001',repeat('a',64),1::smallint,
-      'proof-hkdf-sha256-v1',repeat('b',64),pg_temp.registration_payload());
+      'proof-hkdf-sha256-v1',repeat('b',64),'{}'::jsonb);
     RAISE EXCEPTION 'anon executed registration RPC';
   EXCEPTION WHEN insufficient_privilege THEN NULL; END;
   BEGIN
@@ -46,7 +53,7 @@ SET LOCAL ROLE authenticated;
 DO $$ BEGIN
   BEGIN
     PERFORM public.commit_salon_submission('61000000-0000-4000-8000-000000000001',repeat('a',64),1::smallint,
-      'proof-hkdf-sha256-v1',repeat('b',64),pg_temp.registration_payload());
+      'proof-hkdf-sha256-v1',repeat('b',64),'{}'::jsonb);
     RAISE EXCEPTION 'authenticated executed registration RPC';
   EXCEPTION WHEN insufficient_privilege THEN NULL; END;
   BEGIN

@@ -28,5 +28,5 @@ test('approved CI proceeds beyond guard but fails closed without OpenSSL', () =>
   });
   expect(result.status).toBe(1);
   expect(result.stdout).toBe('');
-  expect(result.stderr).toBe('Isolated HTTPS E2E setup failed; no application was made public.\n');
+  expect(result.stderr).toBe('Isolated HTTPS E2E setup failed at certificate; no application was made public.\n');
 });

@@ -15,6 +15,7 @@ import { alertDeliveryFailures } from '@/lib/alert';
 import { retryTransientSupabaseRead, summarizeDependencyError } from '@/lib/err';
 import { fromEnv, resolveFrom } from '@/lib/email-from';
 import { sendResendForReconciliation } from '@/lib/resend-result';
+import { prepareSalonOutboxDelivery } from '@/lib/salon-outbox-delivery';
 
 export const dynamic = 'force-dynamic';
 
@@ -114,18 +115,20 @@ export async function GET(request: Request) {
     // Render が同一 */15 発火）されており、並行 run が同じ pending 行を SELECT した後に両方が
     // 無条件 UPDATE で claim を「成功」させ、同一ジョブを二重配信し得た。
     // booking-reminder / review-request の claim と同方針の CAS：status='pending' の行だけを
-    // processing へ更新し、`.select('id')` で【実際に claim できた行のみ】を後続処理対象にする
+    // processing へ更新し、返却された最新行だけを後続処理対象にする
     // （update 結果の id リストが正）。他 run に先取りされた行は UPDATE の対象外＝返却されず、
     // この run では処理しない（二重送信の発症前予防）。
     const jobIds = jobs.map((j) => j.id);
     // claimed_at＝claim 成功時刻。stale reclaim（上記）はこの値を基準に「本当に processing の
     // まま孤児化したか」を判定する（scheduled_at 流用は二重配信の温床だったため廃止）。
+    const claimEpoch = new Date().toISOString();
     const { data: claimedRows, error: claimErr } = await supabase
       .from('webhook_retry_queue')
-      .update({ status: 'processing', claimed_at: new Date().toISOString(), delivery_started_at: null })
+      .update({ status: 'processing', claimed_at: claimEpoch, delivery_started_at: null })
       .in('id', jobIds)
       .eq('status', 'pending')
-      .select('id');
+      .lte('scheduled_at', claimEpoch)
+      .select('*');
     if (claimErr) {
       console.error('[webhook-retry] status claim failed — aborting to prevent duplicate delivery', {
         err: summarizeDependencyError(claimErr),
@@ -133,8 +136,9 @@ export async function GET(request: Request) {
       return cronError('webhook-retry', startedAt, claimErr, { message: 'claim failed' });
     }
     // data が null（0行更新時のドライバ表現揺れ）も「1行も claim できなかった」として安全側に扱う。
-    const claimedIds = new Set(((claimedRows ?? []) as { id: string }[]).map((r) => r.id));
-    const claimedJobs = jobs.filter((j) => claimedIds.has(j.id));
+    // Another worker may have rescheduled a selected row in the meantime.
+    // Recheck the due time in the UPDATE and use its current payload/attempts.
+    const claimedJobs = claimedRows ?? [];
     if (claimedJobs.length === 0) {
       // 全行を並行 run に先取りされた＝この run の仕事は無い（重複配信を作らず正常終了）。
       if (deliveryUncertain > 0) {
@@ -171,7 +175,14 @@ export async function GET(request: Request) {
         // 送信前に payload と設定を検証する。この段階の失敗には外部効果がないので、
         // scheduleRetry による通常の再試行が安全である。
         let deliver: () => Promise<void>;
-        if (job.webhook_type === 'line_push') {
+        if (job.webhook_type === 'salon_registration_email' || job.webhook_type === 'salon_registration_internal') {
+          const sendRegistration = await prepareSalonOutboxDelivery(supabase, job, resend);
+          deliver = async () => {
+            const outcome = await sendRegistration();
+            definitelyRejected = outcome === 'rejected';
+            if (outcome !== 'delivered') throw new Error('registration notification delivery not confirmed');
+          };
+        } else if (job.webhook_type === 'line_push') {
           const payload = job.payload;
           if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
             throw new Error('line_push payload is not an object');
@@ -211,11 +222,22 @@ export async function GET(request: Request) {
         // 外部送信より先に「送信開始」を永続化する。ここが成功した後でのみ送信するため、
         // 送達後の success 更新が 522 等で不明になっても stale reclaim は再送しない。
         // この write が失敗した場合は送信を始めないため、scheduleRetry 経由の安全な再試行が可能。
-        const { error: deliveryStartErr } = await supabase
+        const deliveryStartedAt = new Date().toISOString();
+        const { data: startedRows, error: deliveryStartErr } = await supabase
           .from('webhook_retry_queue')
-          .update({ delivery_started_at: new Date().toISOString() })
-          .eq('id', job.id);
+          .update({ delivery_started_at: deliveryStartedAt })
+          .eq('id', job.id)
+          .eq('status', 'processing')
+          .eq('claimed_at', claimEpoch)
+          .is('delivery_started_at', null)
+          .select('id');
         if (deliveryStartErr) throw deliveryStartErr;
+        // A paused worker can outlive reclaim. Ownership must still match at
+        // the irreversible boundary, not just at the initial claim.
+        if (startedRows?.length !== 1) {
+          deliveryUncertain++;
+          continue;
+        }
 
         // `deliver()` が reject / false を返した時点では provider が受理した可能性を否定できない。
         // 呼び出し直前に立てることで、送信開始の保存失敗とは厳密に分離する。
@@ -229,7 +251,7 @@ export async function GET(request: Request) {
         // 可視化する（配信済みのため scheduleRetry で再送に回してはならない）。
         let marked = false;
         for (let attempt = 0; attempt < 3 && !marked; attempt++) {
-          const { error: successErr } = await supabase
+          const { data: successRows, error: successErr } = await supabase
             .from('webhook_retry_queue')
             .update({
               status: 'success',
@@ -237,8 +259,12 @@ export async function GET(request: Request) {
               processed_at: new Date().toISOString(),
               delivered_at: new Date().toISOString(),
             })
-            .eq('id', job.id);
-          if (!successErr) {
+            .eq('id', job.id)
+            .eq('status', 'processing')
+            .eq('claimed_at', claimEpoch)
+            .eq('delivery_started_at', deliveryStartedAt)
+            .select('id');
+          if (!successErr && successRows?.length === 1) {
             marked = true;
           } else {
             console.error('[webhook-retry] success mark failed (retrying)', {
@@ -265,7 +291,7 @@ export async function GET(request: Request) {
           deliveryUncertain++;
           continue;
         }
-        const outcome = await scheduleRetry(job.id, job.attempt_count + 1, errorMsg);
+        const outcome = await scheduleRetry(job.id, job.attempt_count + 1, errorMsg, claimEpoch);
         // scheduleRetry の戻り値で dead-letter（再送上限到達・status='failed'・二度と自動
         // 再送されない）とrescheduled（次回試行を予約）を区別する。区別しないと
         // alertDeliveryFailures が dead-letter 分にも「翌runで再送」という嘘の文言を出す。
