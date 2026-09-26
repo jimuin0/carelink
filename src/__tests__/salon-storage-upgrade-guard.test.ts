@@ -35,6 +35,9 @@ test('upgrade fixture executes the actual migration section and is wired before 
   expect(code).toContain('const expectRejected = (sql, expected, name)');
   expect(code).toContain('expectRejected(`${guard}${setup}${mime}');
   expect(code).not.toContain('EXECUTE $migration$');
+  expect(code).toContain('missing upgrade completion marker');
+  expect(code).toContain("'bucket configuration preserved safely'");
+  expect(code).toContain("'unrelated Storage policies unchanged'");
   expect(code).toContain('ROLLBACK;');
   expect(code).not.toMatch(/\bCOMMIT;/);
   const ci = readFileSync(join(process.cwd(), '.github/workflows/schema-fingerprint.yml'), 'utf8');

@@ -42,8 +42,8 @@ DO $$ BEGIN
     RAISE EXCEPTION 'empty disposable storage required';
   END IF;
 END $$;
-CREATE FUNCTION pg_temp.require(ok boolean) RETURNS void LANGUAGE plpgsql AS $$ BEGIN
-  IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'storage upgrade assertion failed'; END IF;
+CREATE FUNCTION pg_temp.require(ok boolean, assertion text) RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+  IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'storage upgrade assertion failed: %', assertion; END IF;
 END $$;
 CREATE TEMP TABLE untouched_policies AS SELECT * FROM pg_policies
   WHERE schemaname='storage' AND tablename='objects'
@@ -60,18 +60,18 @@ ${imageOnly ? `CREATE POLICY "Allow anonymous upload images only" ON storage.obj
 UPDATE storage.buckets SET public=${strict ? 'false' : 'true'},file_size_limit=${strict ? '5242880' : 'NULL'},
   allowed_mime_types=${strict ? "ARRAY['image/png']" : 'NULL'} WHERE id='carelink-uploads';`;
     const output = run(`${guard}${setup}\n${section}
-SELECT pg_temp.require((SELECT count(*)=0 FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND policyname='Allow anonymous upload'));
+SELECT pg_temp.require((SELECT count(*)=0 FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND policyname='Allow anonymous upload'), 'legacy policy removed');
 SELECT pg_temp.require((SELECT count(*)=0 FROM pg_policies WHERE schemaname='storage' AND tablename='objects'
-  AND policyname='Allow anonymous upload images only'));
+  AND policyname='Allow anonymous upload images only'), 'image-only policy removed');
 SELECT pg_temp.require((SELECT public=${strict ? 'false' : 'true'} AND file_size_limit=${strict ? '5242880' : '10485760'}
   AND allowed_mime_types=${strict ? "ARRAY['image/png']" : "ARRAY['image/jpeg','image/png','image/webp','image/gif']"}
-  FROM storage.buckets WHERE id='carelink-uploads'));
+  FROM storage.buckets WHERE id='carelink-uploads'), 'bucket configuration preserved safely');
 SELECT pg_temp.require(NOT EXISTS (
   (SELECT * FROM untouched_policies EXCEPT SELECT * FROM pg_policies)
   UNION ALL
   (SELECT * FROM pg_policies WHERE schemaname='storage' AND tablename='objects'
     AND policyname NOT IN ('Allow anonymous upload','Allow anonymous upload images only')
-    EXCEPT SELECT * FROM untouched_policies)));
+    EXCEPT SELECT * FROM untouched_policies)), 'unrelated Storage policies unchanged');
 -- The shadow bootstrap does not enable Storage RLS; enable it solely within
 -- this rolled-back fixture to test expressions with the actual role.
 ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
@@ -99,7 +99,7 @@ END $$;
 RESET ROLE;
 SELECT 'upgrade-ok';
 ROLLBACK;`);
-    if (!output.includes('upgrade-ok')) throw new Error('missing upgrade completion');
+    if (!output.includes('upgrade-ok')) throw new Error(`Storage upgrade ${name} missing upgrade completion marker`);
     console.log(`Storage upgrade ${name}: passed and rolled back.`);
   }
   // Deliberately invalid states must fail at their explicit reconciliation
