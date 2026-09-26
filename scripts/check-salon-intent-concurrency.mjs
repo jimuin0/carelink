@@ -5,6 +5,7 @@ import { execFileSync, spawn } from 'node:child_process';
 const args = ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-d', 'carelink_shadow'];
 const intent = '63000000-0000-4000-8000-000000000001';
 const expiringIntent = '63000000-0000-4000-8000-000000000002';
+const photoIntent = '63000000-0000-4000-8000-000000000003';
 const payload = JSON.stringify({
   facility_name: 'Synthetic concurrent fixture', business_type: 'ヘアサロン',
   representative_name: 'Synthetic representative', contact_name: 'Synthetic contact',
@@ -33,7 +34,10 @@ END $$;
 INSERT INTO public.salon_submission_intents
   (id, proof_hash, canonical_version, hmac_scheme, prepare_expires_at)
 VALUES ('${intent}',repeat('a',64),1,'proof-hkdf-sha256-v1',now()+interval '1 day'),
-  ('${expiringIntent}',repeat('a',64),1,'proof-hkdf-sha256-v1',now()+interval '1 day');
+  ('${expiringIntent}',repeat('a',64),1,'proof-hkdf-sha256-v1',now()+interval '1 day'),
+  ('${photoIntent}',repeat('a',64),1,'proof-hkdf-sha256-v1',now()+interval '1 day');
+INSERT INTO public.salon_submission_photos(intent_id,selection_id,slot,mime_type,byte_size)
+SELECT '${photoIntent}',gen_random_uuid(),(n%7)::smallint,'image/png',1 FROM generate_series(1,27) n;
 COMMIT;`, stdio: ['pipe', 'pipe', 'pipe'], timeout: 30000 });
 
   const outcomes = await contend(dbEnv, intent, false);
@@ -52,17 +56,23 @@ COMMIT;`, stdio: ['pipe', 'pipe', 'pipe'], timeout: 30000 });
   if (expired.length !== 20 || expired.some(outcome => outcome !== 'unverified|')) {
     throw new Error('capability expiration during lock wait was not enforced');
   }
+  const photoOutcomes = await contend(dbEnv, photoIntent, false, true);
+  if (photoOutcomes.filter(outcome => /^prepared\|[a-f0-9-]{36}$/.test(outcome)).length !== 1
+    || photoOutcomes.filter(outcome => outcome === 'limit|').length !== 19) {
+    throw new Error('concurrent photo selection cap was not enforced');
+  }
   const counts = execFileSync('psql', args, { env: dbEnv, encoding: 'utf8', timeout: 30000,
     stdio: ['pipe', 'pipe', 'pipe'], input: `SELECT
       (SELECT count(*) FROM public.salons)::text || '|' ||
       (SELECT count(*) FROM public.webhook_retry_queue WHERE registration_id=(SELECT salon_id FROM public.salon_submission_intents WHERE id='${intent}'))::text || '|' ||
       (SELECT count(*) FROM public.salon_submission_intents WHERE id='${intent}' AND salon_id IS NOT NULL)::text || '|' ||
-      (SELECT count(*) FROM public.salon_submission_intents WHERE id='${expiringIntent}' AND salon_id IS NULL)::text;` }).trim();
-  if (counts !== '1|2|1|1') throw new Error('atomic receipt/outbox count mismatch');
-  console.log('Registration concurrency passed: 20 lock-waiting calls, 1 receipt, 2 distinct logical notifications; another 20 calls rejected after capability expiry during lock wait. Disposable CI data only.');
+      (SELECT count(*) FROM public.salon_submission_intents WHERE id='${expiringIntent}' AND salon_id IS NULL)::text || '|' ||
+      (SELECT count(*) FROM public.salon_submission_photos WHERE intent_id='${photoIntent}')::text;` }).trim();
+  if (counts !== '1|2|1|1|28') throw new Error('atomic receipt/outbox/photo count mismatch');
+  console.log('Registration concurrency passed: 20 lock-waiting calls, 1 receipt, 2 distinct logical notifications; 20 calls rejected after capability expiry during lock wait; 20 competing selections respect the photo cap. Disposable CI data only.');
 }
 
-async function contend(dbEnv, targetIntent, expireWhileWaiting) {
+async function contend(dbEnv, targetIntent, expireWhileWaiting, preparePhotos = false) {
   const sql = `SET ROLE service_role;
 SELECT outcome || '|' || coalesce(receipt_id::text, '') FROM public.commit_salon_submission(
   '${targetIntent}', repeat('a',64), 1::smallint, 'proof-hkdf-sha256-v1', repeat('b',64),
@@ -115,7 +125,7 @@ SELECT pg_sleep(1.1);
 COMMIT;`);
   if (!await ready) { await coordinated; throw new Error('coordinator did not acquire intent lock'); }
 
-  const outcomes = await Promise.all(Array.from({ length: 20 }, () => new Promise((resolve, reject) => {
+  const outcomes = await Promise.all(Array.from({ length: 20 }, (_, index) => new Promise((resolve, reject) => {
     const child = spawn('psql', args, { env: { ...dbEnv, PGAPPNAME: 'carelink-intent-client' }, stdio: ['pipe', 'pipe', 'pipe'] });
     let output = '';
     let size = 0;
@@ -134,7 +144,10 @@ COMMIT;`);
       else resolve(output.trim());
     });
     child.stdin.on('error', error => { clearTimeout(timer); reject(error); });
-    child.stdin.end(sql);
+    child.stdin.end(preparePhotos ? `SET ROLE service_role;
+SELECT outcome || '|' || coalesce(photo_id::text, '') FROM public.prepare_salon_photo(
+  '${targetIntent}',repeat('a',64),'66000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}',
+  0::smallint,'image/png',1::bigint);` : sql);
   })));
   if (!await coordinated) throw new Error('database contention was not observed');
   return outcomes;

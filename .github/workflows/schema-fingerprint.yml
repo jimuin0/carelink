@@ -103,6 +103,9 @@ jobs:
       - name: Registration receipt, replay, role and rollback contracts (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/salon-submission-fixtures.sql
 
+      - name: Registration photo manifest contracts (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/salon-photo-fixtures.sql
+
       - name: Registration 20-client concurrency (disposable DB)
         run: node scripts/check-salon-intent-concurrency.mjs
 

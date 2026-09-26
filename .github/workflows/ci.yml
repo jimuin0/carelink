@@ -129,6 +129,18 @@ jobs:
         # これが従来 fake.supabase.co で握り潰されていた E2E 連鎖失敗の真因（/api/health 503）
         # を根治する: 実 Supabase をローカル起動し本物の DB/anon key を後段へ渡す。
         run: supabase start
+      - name: Generate schema types from the disposable local database
+        # Schema only, no rows or hosted-project credentials. Keep the artifact
+        # independent of later browser assertions so missing types can be fixed
+        # from actual introspection rather than guessed by hand.
+        run: supabase gen types typescript --local --schema public > "$RUNNER_TEMP/carelink-database.types.ts"
+      - name: Upload generated local schema types
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-database-types
+          path: ${{ runner.temp }}/carelink-database.types.ts
+          if-no-files-found: error
+          retention-days: 7
       - name: Export Supabase local credentials
         id: supabase
         # `supabase status -o env` は KEY=VALUE 形式で出力するが、CLI バージョンにより

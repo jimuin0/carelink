@@ -1014,6 +1014,16 @@
     "proof_hash",
     "salon_id"
   ],
+  "salon_submission_photos": [
+    "byte_size",
+    "created_at",
+    "id",
+    "intent_id",
+    "mime_type",
+    "object_path",
+    "selection_id",
+    "slot"
+  ],
   "salons": [
     "address",
     "building_name",
