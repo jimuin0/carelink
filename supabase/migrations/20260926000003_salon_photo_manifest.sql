@@ -1,6 +1,6 @@
 -- Additive infrastructure only. Does not change existing Storage policies.
--- Signed-only activation additionally requires migration 20260926000004 and
--- verified UI/commit/claim consumers. Creating this table is not activation.
+-- Signed-only activation additionally requires the deferred Storage cutover
+-- and verified UI/commit/claim consumers. Creating this table is not activation.
 BEGIN;
 
 CREATE TABLE public.salon_submission_photos (

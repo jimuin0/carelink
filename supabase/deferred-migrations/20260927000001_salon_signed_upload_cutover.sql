@@ -1,8 +1,10 @@
--- CONTRACT PHASE, NOT AN ADDITIVE PRE-DEPLOY MIGRATION.
--- Requires deployed signed-upload consumers and an approved cutover plan for
--- open legacy forms. Do not apply by bulk `db push` ahead of that deployment.
--- Keep registration v2 disabled until signed-only Storage and commit/claim
--- consumers are verified. Public schema preparation is in 000001..000003.
+-- DEFERRED CONTRACT PHASE, NOT AN ACTIVE MIGRATION.
+-- This file is intentionally outside supabase/migrations. It removes the
+-- anonymous Storage upload path used by the current V1 browser flow.
+-- Promote it to a new active migration only after the V2 signed-upload
+-- consumer is deployed and enabled, legacy V1 forms are drained or otherwise
+-- safely handled, and the production preflight/history gate is satisfied.
+-- See supabase/deferred-migrations/README.md. Never apply it from SQL Editor.
 BEGIN;
 
 -- BEGIN SALON STORAGE RECONCILIATION

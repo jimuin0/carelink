@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 const script = join(__dirname, '../../scripts/check-salon-storage-upgrade.mjs');
@@ -25,11 +25,11 @@ test('valid environment with no database tool is a distinct failure, never a pas
 test('upgrade fixture executes the actual migration section and is wired before nonempty concurrency fixtures', () => {
   const additive = readFileSync(join(process.cwd(), 'supabase/migrations/20260926000003_salon_photo_manifest.sql'), 'utf8');
   expect(additive).not.toMatch(/(?:INSERT INTO|UPDATE|ON)\s+storage\./i);
-  const sql = readFileSync(join(process.cwd(), 'supabase/migrations/20260926000004_salon_signed_upload_cutover.sql'), 'utf8');
+  const sql = readFileSync(join(process.cwd(), 'supabase/deferred-migrations/20260927000001_salon_signed_upload_cutover.sql'), 'utf8');
   expect(sql.match(/-- BEGIN SALON STORAGE RECONCILIATION/g)).toHaveLength(1);
   expect(sql.match(/-- END SALON STORAGE RECONCILIATION/g)).toHaveLength(1);
   const code = readFileSync(script, 'utf8');
-  expect(code).toContain('20260926000004_salon_signed_upload_cutover.sql');
+  expect(code).toContain('20260927000001_salon_signed_upload_cutover.sql');
   expect(code).not.toContain('salon_legacy_authenticated_image_insert');
   expect(code).toContain("current_database() <> 'carelink_shadow'");
   expect(code).toContain('ROLLBACK;');
@@ -38,4 +38,16 @@ test('upgrade fixture executes the actual migration section and is wired before 
   const upgrade = ci.indexOf('run: node scripts/check-salon-storage-upgrade.mjs');
   expect(upgrade).toBeGreaterThan(0);
   expect(upgrade).toBeLessThan(ci.indexOf('run: node scripts/check-salon-intent-concurrency.mjs'));
+});
+test('signed-upload cutover stays out of production migration replay and is applied only to disposable local E2E', () => {
+  const activeMigrations = readdirSync(join(process.cwd(), 'supabase/migrations'));
+  expect(activeMigrations.filter(name => name.includes('salon_signed_upload_cutover'))).toEqual([]);
+  const workflow = readFileSync(join(process.cwd(), '.github/workflows/ci.yml'), 'utf8');
+  const start = workflow.indexOf('run: supabase start');
+  const overlay = workflow.indexOf('supabase db query --local --file supabase/deferred-migrations/20260927000001_salon_signed_upload_cutover.sql');
+  const e2e = workflow.indexOf('run: node scripts/run-ci-e2e.mjs');
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(overlay).toBeGreaterThan(start);
+  expect(e2e).toBeGreaterThan(overlay);
+  expect(workflow).toContain('Apply deferred signed-upload cutover to disposable local Supabase only');
 });

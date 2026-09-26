@@ -575,3 +575,13 @@ Contractの現在失敗は別nodeとして保持する：`salons.claimed_facilit
 敵対確認で、`scripts/check-salon-storage-upgrade.mjs`の隔離fixtureが、実在せずmigrationにも定義されない`salon_legacy_authenticated_image_insert`を事前にDROPし、migrationがそれを除去したように見せていた。この偽の歴史状態をfixtureから除去し、実在する二つの匿名policyだけを合成してmigration SQLを評価する。変更ファイルは同scriptと`src/__tests__/salon-storage-upgrade-guard.test.ts`。局所Jest 1suite・13test、対象ESLint、Node構文検査、`git diff --check`成功。shadow DBを使う本番相当fixture再実行は最新SHAのCI待ち。現在この2ファイルだけ未commit。
 
 このread-only照会でmigrationは適用していない。最新PR #642 Contract Testは依然失敗（3 failure、17 skip、14 pass）し、型と本番schemaを一致させるnodeが残る。`supabase db push`は全pendingをtimestamp順に適用するCLI経路であり、0004を0001〜0003と同じ一括batchに含めると本番の現行anon uploadが止まる。Supabase公式資料もremote schema変更はmigration file経由とし、履歴照合を求める。段階リリースの順序と承認／本人認証が整うまで本番DDL、型の手書き同期、flag変更、merge・deployを行わない。
+
+### 10.33．Storage cutoverを遅延適用へ分離
+
+作業checkoutは`5eb851e7f8626dcab5666c42f6227976c50a82d0`から継続。`20260926000004_salon_signed_upload_cutover.sql`を通常の`supabase/migrations`から外し、`supabase/deferred-migrations/20260927000001_salon_signed_upload_cutover.sql`へ移した。理由は実本番コードが引き続き`carelink-uploads`へ匿名直接uploadするV1経路を持ち、このmigrationが対応する匿名INSERT policyを削除するため。0004相当を他の未適用migrationと一括適用すると、V1フォームの画像送信が失敗する。
+
+段階Aでは現行Storage policyを維持して加算的schema/RPCを準備し、型と本番schema/historyの不一致はContract gateで維持する。段階Bは署名upload V2とcommit/claim consumerの本番deploy・有効化、既存V1フォームの排出または検証済み互換経路、実bucket/policyのread-only preflight、schemaとmigration ledgerの整合、dry-runがこのcutover単独であること、保護されたDB変更gateの全条件成立後にだけ行う。`supabase db push`は全pendingを適用するため、未照合の履歴を含む一括pushを行わない。SQL Editor、migration repair、適用済みmigrationの書換えは使わない。
+
+CIは`supabase start`後の新規・使い捨てlocal Supabaseだけへ、deferred SQLを`supabase db query --local --file`で適用してからE2Eを動かす。これによりE2EのStorage拒否／署名uploadは最終policyを通るが、production migration replay/historyにはcutoverを混ぜない。既存のStorage historical upgrade testは新deferred pathのmarked sectionをrollback-only shadow fixtureで実行する。Jest guardはcutover SQLがactive migrationディレクトリに紛れないこととlocal E2Eでのみ適用されることを確認する。
+
+この編集開始時、worktree volumeの物理空きブロックが0で書込みに失敗した。確認済みGitignoredの`.next/cache`のみ（約1GB、シンボリックリンクなし）を除去し、空き858MiBを確認して再開した。ほかのworkspace、DB、データは変更していない。focused `salon-storage-upgrade-guard` Jestは14/14成功、対象ESLint、全体`tsc --noEmit`、Actionlint、Node構文検査、`git diff --check`も成功。既存のローカルSupabaseコンテナが起動中のため、この作業checkoutからは`db query --local`も`supabase start`も実行せず、ユーザーの共有local DBを保護した。CIのfresh instanceでの実行はpush後の最新run待ち。Supabase CLIの認証は別nodeとして未完了であり、本番migration/history/型の照合、Contract gate、PR merge、deploy、本番機能検証も引き続き未完了である。

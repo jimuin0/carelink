@@ -133,6 +133,12 @@ jobs:
         # これが従来 fake.supabase.co で握り潰されていた E2E 連鎖失敗の真因（/api/health 503）
         # を根治する: 実 Supabase をローカル起動し本物の DB/anon key を後段へ渡す。
         run: supabase start
+      - name: Apply deferred signed-upload cutover to disposable local Supabase only
+        # This SQL is intentionally not in supabase/migrations: applying it to
+        # production before the V2 consumer is deployed would break open V1
+        # registration forms. Exercise its final Storage policy in this fresh,
+        # disposable local instance without changing production migration history.
+        run: SUPABASE_TELEMETRY_DISABLED=1 supabase db query --local --file supabase/deferred-migrations/20260927000001_salon_signed_upload_cutover.sql
       - name: Generate schema types from the disposable local database
         # Schema only, no rows or hosted-project credentials. Keep the artifact
         # independent of later browser assertions so missing types can be fixed

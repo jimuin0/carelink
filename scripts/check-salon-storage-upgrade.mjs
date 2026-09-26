@@ -12,7 +12,7 @@ function main() {
     process.exitCode = 1;
     return;
   }
-  const source = readFileSync(new URL('../supabase/migrations/20260926000004_salon_signed_upload_cutover.sql', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('../supabase/deferred-migrations/20260927000001_salon_signed_upload_cutover.sql', import.meta.url), 'utf8');
   const blocks = [...source.matchAll(/-- BEGIN SALON STORAGE RECONCILIATION\n([\s\S]*?)-- END SALON STORAGE RECONCILIATION/g)];
   if (blocks.length !== 1 || /\b(?:BEGIN|COMMIT|ROLLBACK)\s*;/i.test(blocks[0][1])) {
     throw new Error('migration section boundary invalid');
