@@ -104,6 +104,31 @@ SELECT pg_temp.assert_registration(
   'different content cannot overwrite a committed receipt');
 SELECT pg_temp.assert_registration((SELECT count(*)=1 FROM public.salons) AND (SELECT count(*)=2 FROM public.webhook_retry_queue),
   'replay/conflict do not duplicate either business row or notifications');
+-- A copied cookie cannot extend access by replaying after the server deadline.
+-- This is already committed, so the gate must run BEFORE the replay branch.
+UPDATE public.salon_submission_intents SET created_at=clock_timestamp()-interval '72 hours'
+  WHERE id='61000000-0000-4000-8000-000000000001';
+SELECT pg_temp.assert_registration(
+  (SELECT outcome='unverified' AND receipt_id IS NULL FROM public.commit_salon_submission(
+    '61000000-0000-4000-8000-000000000001',repeat('a',64),1::smallint,'proof-hkdf-sha256-v1',repeat('b',64),pg_temp.registration_payload())),
+  'committed capability cannot replay at or beyond its three-day deadline');
+INSERT INTO public.salon_submission_intents
+  (id, proof_hash, canonical_version, hmac_scheme, created_at, prepare_expires_at)
+VALUES
+  ('61000000-0000-4000-8000-000000000005',repeat('a',64),1,'proof-hkdf-sha256-v1',now()-interval '4 days',now()+interval '2 days'),
+  ('61000000-0000-4000-8000-000000000006',repeat('a',64),1,'proof-hkdf-sha256-v1',now()+interval '1 day',now()+interval '2 days');
+SELECT pg_temp.assert_registration(
+  (SELECT outcome='unverified' AND receipt_id IS NULL FROM public.commit_salon_submission(
+    '61000000-0000-4000-8000-000000000005',repeat('a',64),1::smallint,'proof-hkdf-sha256-v1',repeat('b',64),pg_temp.registration_payload())),
+  'long preparation window cannot extend capability lifetime');
+SELECT pg_temp.assert_registration(
+  (SELECT outcome='unverified' AND receipt_id IS NULL FROM public.commit_salon_submission(
+    '61000000-0000-4000-8000-000000000006',repeat('a',64),1::smallint,'proof-hkdf-sha256-v1',repeat('b',64),pg_temp.registration_payload())),
+  'future issue time is rejected');
+SELECT pg_temp.assert_registration((SELECT count(*)=1 FROM public.salons) AND (SELECT count(*)=2 FROM public.webhook_retry_queue)
+  AND (SELECT count(*)=2 FROM public.salon_submission_intents
+    WHERE id IN ('61000000-0000-4000-8000-000000000005','61000000-0000-4000-8000-000000000006') AND salon_id IS NULL),
+  'capability rejection does not create receipts or outbox entries');
 SELECT pg_temp.assert_registration(
   (SELECT outcome='committed' FROM public.commit_salon_submission(
     '61000000-0000-4000-8000-000000000002',repeat('a',64),1::smallint,'proof-hkdf-sha256-v1',repeat('c',64),
