@@ -304,3 +304,13 @@ schema run `36220861589` は全migration適用後、旧期待値との差分で�
 現時点でmerge、deploy、本番migration、実送信は未実施。既存設計の他wave、旧台帳再判定、本番実体／履歴照合は未完了である。API局所成功やCI局所成功を全修正完了と読み替えない。
 
 `f58ef3a97fd64a66dfe74654f33269bcd4ece7d7` をpushし、CI `36225042704` はLint／型、Security、Contract jobが成功、schema run `36225042696` とActionlintも成功した。Unitは7930成功・2失敗で、失敗は新APIのidentity gate認識と新環境変数の文書漏れ。E2Eは依存失敗で未実行。prepareはアカウント作成前の匿名開始という根拠を既存の理由必須台帳へ追加し、状態照会はID＋proof＋server期限をDB検証するhelper呼出しを認識させる。proof形式チェックだけ／コメントだけでは認識しない負の対照も追加した。環境変数表へdefault offとrelease gateを追記。修正後の関連74testは成功。検査を削除・skipしていない。
+
+### 10.8．W2 UIの異常復帰準備
+
+店舗オンボーディングの現行コードは認証／所属照会／POSTのrejectを捕捉せず、処理中の表示が残る。POSTはHTTP statusやfacilityIdを確認せずtruthyなsuccessだけで遷移する。また所属のmaybeSingleは複数所属でエラーになる。局所修正は所属存在確認を上限1行にし、認証・照会例外は再照会導線、POST結果不明は自動再送せず再読込みで既存所属を確認する。成功判定はHTTP成功・success厳密true・UUID形式facilityIdをAND条件とする。未認証、照会失敗、JSON破損、200不正body、HTTP失敗＋success、送信拒否、二重clickを合成テストで確認する。これはW2 transaction／同メール混合廃止の代替ではなく、APIの原子性は別途未完了として維持する。
+
+W2 UI実行証拠：変更前に追加12件の失敗を確認した。認証・所属照会の例外復帰、厳密な成功応答検証、同tickの二重送信抑止、結果不明時の非再送を実装。独立レビューでPOST待機中のunmount後に遷移するP2を確認し、追加テストREDからmounted確認と待機abortへ修正。30秒timeoutを設け、29,999msでは処理中、30,000msで結果確認案内となる合成試験を含め26test成功。実SDKのAuthSessionMissingErrorと通信障害を区別し、前者だけログインへ進む。全て空env・network遮断下であり、実DB原子性の証拠ではない。最新の型検査と4変更fileのESLintは成功。独立再レビューはこのUI範囲の追加指摘0。
+
+`0c92a21ebf5ff3ab03c6571a7b3003bf047d1e9f` のCI `36225397185` は全job成功、schema run `36225397167` も成功。E2Eは277成功・4skipである。HTTPS dependency proxyにより以前のWebKit signup失敗は解消したが、skipを全必須検証成功に読み替えない。既存first-paint suiteのSafari除外4件を解除する。合成書込みは固定CI lifecycleだけに限定し、応答遅延の観測用にservice workerを遮断する。製品側の保護設定は変更しない。
+
+独立レビューでfirst-paintの予約日時変更caseが「null＝成功」のため、取得未発火でも通るP2を発見。request発火、最初の描画存在、spinner、旧枠／空きなし非表示の全条件を要求し、固定時間待機を応答保留・finally解放へ置換した。再レビューは追加指摘0。これは初回日付選択の検証で、前日を実際に読み込んだ後の2回目選択の証拠とはしない。XSSテストもnavigation前からdialogを捕捉し、早期実行を取り逃さないよう修正した。HTTPSテストの名前を実際のassert範囲へ合わせ、HTTPならskipせず失敗させる。これら追加E2Eの実ブラウザー成功は変更後CIで確認する。直前SHAの成功は流用しない。

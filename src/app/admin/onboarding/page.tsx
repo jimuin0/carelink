@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { Suspense } from 'react';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
-import { businessTypes } from '@/lib/constants';
+import { businessTypes, UUID_REGEX } from '@/lib/constants';
+import { isAuthSessionMissingError } from '@supabase/supabase-js';
 
 function OnboardingContent() {
   const router = useRouter();
@@ -22,11 +23,30 @@ function OnboardingContent() {
   // /register を経由せず直接ここへ到達して施設を作れるため、/register と同じ表明をここでも取る
   // （片方だけに置くと、表明のない施設が作れる抜け道が残る）。
   const [licenseWarranted, setLicenseWarranted] = useState(false);
+  const submitting = useRef(false);
+  const mounted = useRef(false);
+  const pendingSubmission = useRef<{ controller: AbortController; timer: ReturnType<typeof setTimeout> } | null>(null);
 
   useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      const pending = pendingSubmission.current;
+      if (pending) {
+        clearTimeout(pending.timer);
+        // Cancels only the browser wait, not an already-running DB transaction.
+        pending.controller.abort();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
     const setup = async () => {
       const supabase = createBrowserSupabaseClient();
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (cancelled) return;
+      if (authError && !isAuthSessionMissingError(authError)) throw new Error('Authentication lookup unavailable');
 
       if (!user) {
         router.push('/auth/login?redirect=/admin/onboarding');
@@ -38,7 +58,10 @@ function OnboardingContent() {
         .from('facility_members')
         .select('facility_id')
         .eq('user_id', user.id)
+        .order('created_at', { ascending: true })
+        .limit(1)
         .maybeSingle();
+      if (cancelled) return;
 
       // 取得失敗を「未登録」と誤認すると既存ユーザーで重複セットアップを試みうるため、失敗として明示する
       if (existErr) {
@@ -80,10 +103,16 @@ function OnboardingContent() {
       setStatus('form');
     };
 
-    setup();
+    void setup().catch(() => {
+      if (cancelled) return;
+      setError('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
+      setStatus('error');
+    });
+    return () => { cancelled = true; };
   }, [router, searchParams]);
 
   const handleFormSubmit = async () => {
+    if (submitting.current) return;
     const trimmedName = facilityNameInput.trim();
     if (!trimmedName) {
       setFormError('施設名を入力してください');
@@ -98,31 +127,44 @@ function OnboardingContent() {
       return;
     }
     setFormError('');
+    submitting.current = true;
     setStatus('creating');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    pendingSubmission.current = { controller, timer };
 
-    const res = await fetch('/api/facility/setup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        facility_name: trimmedName,
-        business_type: businessTypeInput,
-        // 【2026年8月20日】許認可・届出の表明が「取られた証跡」を残すための送信フラグ。
-        // ここまで到達している時点で handleFormSubmit 冒頭のガードにより licenseWarranted は
-        // 必ず true（false なら早期 return しこの fetch 自体に到達しない）。
-        // サーバー側（/api/facility/setup）は true 以外を 400 で弾き、表明の事実を
-        // audit_logs（tableName: 'facility_profiles'）へ記録する。画面のチェックだけでは
-        // フォームを経由しない POST で表明を取らずに施設を作れてしまうため、必須判定は
-        // サーバーが正で、この送信はその入力に過ぎない。
-        license_warranted: licenseWarranted,
-      }),
-    });
+    try {
+      const res = await fetch('/api/facility/setup', {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          facility_name: trimmedName,
+          business_type: businessTypeInput,
+          // The API independently validates and records this explicit assertion.
+          license_warranted: licenseWarranted,
+        }),
+      });
 
-    const data = await res.json().catch(() => ({}));
-    if (data.success) {
-      router.replace('/admin');
-    } else {
-      setError(data.error || '施設の作成に失敗しました');
+      const data = await res.json();
+      if (!mounted.current) return;
+      if (res.ok && data?.success === true && typeof data.facilityId === 'string' && UUID_REGEX.test(data.facilityId)) {
+        router.replace('/admin');
+      } else {
+        // An invalid response can follow a committed transaction. Reload checks
+        // membership first; never retry the POST automatically on ambiguity.
+        setError(typeof data?.error === 'string' && !res.ok
+          ? data.error : '作成結果を確認できませんでした。再読み込みして登録状況を確認してください');
+        setStatus('error');
+      }
+    } catch {
+      if (!mounted.current) return;
+      setError('作成結果を確認できませんでした。再読み込みして登録状況を確認してください');
       setStatus('error');
+    } finally {
+      clearTimeout(timer);
+      pendingSubmission.current = null;
+      submitting.current = false;
     }
   };
 
@@ -198,7 +240,7 @@ function OnboardingContent() {
       <div className="section-container max-w-lg mx-auto text-center py-16">
         <p role="alert" className="text-red-600 font-bold mb-4">エラーが発生しました</p>
         <p className="text-sm text-gray-600 mb-6">{error}</p>
-        <button type="button" onClick={() => window.location.reload()} className="btn-primary px-8 py-3">再試行</button>
+        <button type="button" onClick={() => window.location.reload()} className="btn-primary px-8 py-3">再読み込みして登録状況を確認</button>
       </div>
     );
   }
