@@ -44,10 +44,15 @@ test('signed-upload cutover stays out of production migration replay and is appl
   expect(activeMigrations.filter(name => name.includes('salon_signed_upload_cutover'))).toEqual([]);
   const workflow = readFileSync(join(process.cwd(), '.github/workflows/ci.yml'), 'utf8');
   const start = workflow.indexOf('run: supabase start');
-  const overlay = workflow.indexOf('supabase db query --local --file supabase/deferred-migrations/20260927000001_salon_signed_upload_cutover.sql');
+  const overlay = workflow.indexOf('docker exec -i "${db_containers[0]}" psql');
   const e2e = workflow.indexOf('run: node scripts/run-ci-e2e.mjs');
   expect(start).toBeGreaterThanOrEqual(0);
   expect(overlay).toBeGreaterThan(start);
   expect(e2e).toBeGreaterThan(overlay);
   expect(workflow).toContain('Apply deferred signed-upload cutover to disposable local Supabase only');
+  expect(workflow).toContain('label=com.supabase.cli.project=carelink');
+  expect(workflow).toContain('label=com.docker.compose.project=carelink');
+  expect(workflow).toContain('if [[ "${#db_containers[@]}" != "1" ]]');
+  expect(workflow).toContain('< supabase/deferred-migrations/20260927000001_salon_signed_upload_cutover.sql');
+  expect(workflow).not.toContain('supabase db query --linked');
 });

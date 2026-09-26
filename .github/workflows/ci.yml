@@ -138,7 +138,23 @@ jobs:
         # production before the V2 consumer is deployed would break open V1
         # registration forms. Exercise its final Storage policy in this fresh,
         # disposable local instance without changing production migration history.
-        run: SUPABASE_TELEMETRY_DISABLED=1 supabase db query --local --file supabase/deferred-migrations/20260927000001_salon_signed_upload_cutover.sql
+        run: |
+          set -euo pipefail
+          if [[ "${CI:-}" != "true" || "${GITHUB_ACTIONS:-}" != "true" ]]; then
+            echo "Refusing deferred Storage cutover outside GitHub CI."
+            exit 1
+          fi
+          mapfile -t db_containers < <(docker ps \
+            --filter 'label=com.supabase.cli.project=carelink' \
+            --filter 'label=com.docker.compose.project=carelink' \
+            --filter 'name=supabase_db_carelink' \
+            --format '{{.ID}}')
+          if [[ "${#db_containers[@]}" != "1" ]]; then
+            echo "Refusing deferred Storage cutover unless exactly one disposable CareLink database is running."
+            exit 1
+          fi
+          docker exec -i "${db_containers[0]}" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres \
+            < supabase/deferred-migrations/20260927000001_salon_signed_upload_cutover.sql
       - name: Generate schema types from the disposable local database
         # Schema only, no rows or hosted-project credentials. Keep the artifact
         # independent of later browser assertions so missing types can be fixed
