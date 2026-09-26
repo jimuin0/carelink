@@ -1,5 +1,6 @@
--- Inactive v2 infrastructure. Activation still requires immutable signed
--- uploads, commit-time object verification and the atomic ownership handoff.
+-- Additive infrastructure only. Does not change existing Storage policies.
+-- Signed-only activation additionally requires migration 20260926000004 and
+-- verified UI/commit/claim consumers. Creating this table is not activation.
 BEGIN;
 
 CREATE TABLE public.salon_submission_photos (
@@ -81,62 +82,5 @@ REVOKE ALL ON FUNCTION public.prepare_salon_photo(uuid,text,uuid,smallint,text,b
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.prepare_salon_photo(uuid,text,uuid,smallint,text,bigint)
   TO service_role;
-
--- BEGIN SALON STORAGE RECONCILIATION
--- Earlier migrations only UPDATEd this bucket, which is absent in a fresh DB.
--- Preserve an existing public/private decision and any stricter byte limit.
--- Do not turn an empty MIME intersection into a provider-specific "unlimited"
--- value. An incompatible out-of-band configuration requires reconciliation.
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM storage.buckets WHERE id='carelink-uploads'
-    AND allowed_mime_types IS NOT NULL
-    AND NOT (allowed_mime_types && ARRAY['image/jpeg','image/png','image/webp','image/gif'])) THEN
-    RAISE EXCEPTION 'registration bucket MIME configuration requires reconciliation';
-  END IF;
-END $$;
-INSERT INTO storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
-VALUES ('carelink-uploads','carelink-uploads',true,10485760,
-  ARRAY['image/jpeg','image/png','image/webp','image/gif'])
-ON CONFLICT (id) DO UPDATE SET
-  file_size_limit=LEAST(COALESCE(storage.buckets.file_size_limit,10485760),10485760),
-  allowed_mime_types=CASE WHEN storage.buckets.allowed_mime_types IS NULL
-    THEN ARRAY['image/jpeg','image/png','image/webp','image/gif']
-    ELSE ARRAY(SELECT mime FROM unnest(storage.buckets.allowed_mime_types) mime
-      WHERE mime IN ('image/jpeg','image/png','image/webp','image/gif')) END;
-
--- Production can retain the original policy even though migration history says
--- image-only was applied. Reconcile both known names atomically, without
--- replaying historical policies that would broaden unrelated buckets.
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='storage' AND tablename='objects'
-    AND policyname IN ('Allow anonymous upload','Allow anonymous upload images only'))
-    OR EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='storage' AND tablename='objects'
-      AND policyname IN ('Allow anonymous upload','Allow anonymous upload images only')
-      AND (roles IS DISTINCT FROM ARRAY['anon']::name[] OR cmd <> 'INSERT' OR permissive <> 'PERMISSIVE')) THEN
-    RAISE EXCEPTION 'registration upload policy requires reconciliation';
-  END IF;
-END $$;
-DROP POLICY IF EXISTS "Allow anonymous upload" ON storage.objects;
-DROP POLICY IF EXISTS "Allow anonymous upload images only" ON storage.objects;
-CREATE POLICY "Allow anonymous upload images only" ON storage.objects
-  FOR INSERT TO anon
-  WITH CHECK (
-    bucket_id='carelink-uploads'
-    AND (storage.foldername(name))[1]='salons'
-    AND storage.extension(name) IN ('jpg','jpeg','png','webp','gif')
-  );
--- Do not RENAME a policy: Supabase requires managed-table ownership for that
--- operation. DROP/CREATE is already used by the project's storage migrations.
--- A logged-in applicant must not fail the same public legacy form. This adds
--- only the identical image prefix for real authenticated identities.
-CREATE POLICY "salon_legacy_authenticated_image_insert" ON storage.objects
-  FOR INSERT TO authenticated
-  WITH CHECK (
-    auth.uid() IS NOT NULL
-    AND bucket_id='carelink-uploads'
-    AND (storage.foldername(name))[1]='salons'
-    AND storage.extension(name) IN ('jpg','jpeg','png','webp','gif')
-  );
--- END SALON STORAGE RECONCILIATION
 
 COMMIT;

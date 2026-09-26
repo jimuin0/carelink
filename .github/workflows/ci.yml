@@ -191,6 +191,9 @@ jobs:
         # private keys; public CA only for Node trust; no TLS bypass flags.
         run: node scripts/run-ci-e2e.mjs
         env:
+          # Disposable DB only. Production remains gated until commit/claim
+          # integration and schema/history reconciliation have passed.
+          SALON_REGISTRATION_V2_ENABLED: 'true'
           SKIP_ENV_VALIDATION: true
           PLAYWRIGHT_BASE_URL: https://localhost:3000
           NEXT_PUBLIC_SUPABASE_URL: ${{ steps.supabase.outputs.url }}

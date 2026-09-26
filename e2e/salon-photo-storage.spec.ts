@@ -52,10 +52,22 @@ function expectServiceRejection(error: unknown, operation: string) {
     `${operation}: missing service error code`).toBe(true);
 }
 
-test('legacy photo upload works for anonymous and logged-in applicants; direct v2 paths are denied', async () => {
+function expectDuplicate(error: unknown) {
+  // Invalid/expired capabilities, RLS denials and outages are not evidence
+  // that a valid signed capability refuses overwriting an existing object.
+  expect(error).toMatchObject({ name: 'StorageApiError', statusCode: '409', message: 'The resource already exists' });
+  expect([400, 409]).toContain((error as { status?: number }).status);
+}
+
+function isUploadToken(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value);
+}
+
+test('both public roles must use signed uploads, including the historical prefix', async () => {
   for (const client of [anonymous, authenticated]) {
     const legacy = await client.storage.from(bucket).upload(`salons/${randomUUID()}/exterior.png`, png, { contentType: 'image/png' });
-    expect(legacy.error === null && !!legacy.data, 'legacy synthetic image was not stored').toBe(true);
+    expectServiceRejection(legacy.error, 'unsigned legacy upload');
+    expect(legacy.data).toBeNull();
     const direct = await client.storage.from(bucket).upload(`salon-intents/${randomUUID()}/${randomUUID()}.png`, png, { contentType: 'image/png' });
     expectServiceRejection(direct.error, 'direct v2 upload');
     expect(direct.data).toBeNull();
@@ -67,6 +79,10 @@ test('legacy photo upload works for anonymous and logged-in applicants; direct v
 
 test('signed v2 upload is immutable against token replay, update and delete by either public role', async () => {
   const path = `salon-intents/${randomUUID()}/${randomUUID()}.png`;
+  const absent = await service.storage.from(bucket).info(path);
+  expect(absent.data).toBeNull();
+  expect(absent.error).toMatchObject({ name: 'StorageApiError', message: 'Object not found', statusCode: '404' });
+  expect([400, 404]).toContain(absent.error?.status);
   const token = await signed(path);
   const uploaded = await anonymous.storage.from(bucket).uploadToSignedUrl(path, token, png, { contentType: 'image/png' });
   expect(uploaded.error === null && !!uploaded.data, 'signed synthetic image was not stored').toBe(true);
@@ -80,7 +96,7 @@ test('signed v2 upload is immutable against token replay, update and delete by e
   });
   const replacement = Buffer.concat([png, Buffer.from('replacement')]);
   const replay = await anonymous.storage.from(bucket).uploadToSignedUrl(path, token, replacement, { contentType: 'image/png', upsert: true });
-  expectServiceRejection(replay.error, 'immutable token replay');
+  expectDuplicate(replay.error);
   for (const client of [anonymous, authenticated]) {
     const updated = await client.storage.from(bucket).update(path, replacement, { contentType: 'image/png' });
     expectServiceRejection(updated.error, 'public role overwrite');
@@ -109,4 +125,64 @@ test('Storage enforces image MIME and the 10MiB bound for signed uploads', async
   const unsafe = await anonymous.storage.from(bucket).uploadToSignedUrl(unsafePath, await signed(unsafePath), '<svg/>', { contentType: 'image/svg+xml' });
   expectServiceRejection(unsafe.error, 'unsafe declared MIME');
   expect(unsafe.data).toBeNull();
+});
+
+test('photo API reconciles the same capability and refuses altered metadata or missing proof', async ({ request }) => {
+  const headers = { origin: 'https://localhost:3000', 'x-real-ip': `198.18.${Math.floor(Math.random() * 254)}.${Math.floor(Math.random() * 254)}` };
+  const prepared = await request.post('/api/salons/prepare', { headers, data: {} });
+  expect(prepared.status()).toBe(201);
+  const intent = await prepared.json();
+  expect(intent.state).toBe('prepared');
+  expect(intent.proof).toBeUndefined();
+  const input = { intentId: intent.intentId, selectionId: randomUUID(), slot: 0, mimeType: 'image/png', byteSize: png.length };
+  const [issuance, concurrent] = await Promise.all([
+    request.post('/api/salons/photos', { headers, data: input }),
+    request.post('/api/salons/photos', { headers, data: input }),
+  ]);
+  expect(issuance.status()).toBe(200);
+  expect(concurrent.status()).toBe(200);
+  const upload = await issuance.json();
+  const same = await concurrent.json();
+  expect(upload.state).toBe('upload');
+  expect(same.state).toBe('upload');
+  expect(same.photoId).toBe(upload.photoId);
+  expect(same.path).toBe(upload.path);
+  if (!isUploadToken(upload.token) || !isUploadToken(same.token) || typeof upload.path !== 'string') {
+    throw new Error('photo API did not issue a usable synthetic capability');
+  }
+  const stored = await anonymous.storage.from(bucket).uploadToSignedUrl(upload.path, upload.token, png, { contentType: 'image/png' });
+  expect(stored.error === null && !!stored.data).toBe(true);
+  const overwrite = await anonymous.storage.from(bucket).uploadToSignedUrl(same.path, same.token, Buffer.concat([png, png]), { contentType: 'image/png', upsert: true });
+  expectDuplicate(overwrite.error);
+  const invalidToken = await anonymous.storage.from(bucket).uploadToSignedUrl(upload.path, 'invalid-fixture-token', png, { contentType: 'image/png', upsert: true });
+  expectServiceRejection(invalidToken.error, 'invalid capability control');
+  expect(() => expectDuplicate(invalidToken.error)).toThrow();
+  // Models loss of the upload response: query the same selection rather than
+  // uploading again. Neither an overwrite nor a second manifest is necessary.
+  const reconciled = await request.post('/api/salons/photos', { headers, data: input });
+  expect(reconciled.status()).toBe(200);
+  const existing = await reconciled.json();
+  expect(existing.state).toBe('uploaded');
+  expect(existing.photoId).toBe(upload.photoId);
+  expect(existing.path).toBe(upload.path);
+  expect(existing.token).toBeUndefined();
+  const conflict = await request.post('/api/salons/photos', { headers, data: { ...input, byteSize: png.length + 1 } });
+  expect(conflict.status()).toBe(409);
+  expect((await conflict.json()).state).toBe('conflict');
+  const unauthorized = await request.post('/api/salons/photos', { headers: { ...headers, cookie: '' }, data: input });
+  expect(unauthorized.status()).toBe(403);
+  const otherPreparation = await request.post('/api/salons/prepare', { headers, data: {} });
+  expect(otherPreparation.status()).toBe(201);
+  // Synthetic capabilities stay in memory and are never printed. A valid
+  // proof for another intent must fail at the real RPC, not only syntax checks.
+  const otherCookie = otherPreparation.headers()['set-cookie'];
+  const otherProof = otherCookie?.split(';')[0].split('=')[1];
+  if (!otherProof || !/^[a-f0-9]{64}$/.test(otherProof)) throw new Error('synthetic preparation cookie missing');
+  const crossIntent = await request.post('/api/salons/photos', {
+    headers: { ...headers, cookie: `carelink_salon_intent_${intent.intentId}=${otherProof}` }, data: input,
+  });
+  expect(crossIntent.status()).toBe(403);
+  const wrongOrigin = await request.post('/api/salons/photos', { headers: { ...headers, origin: 'https://foreign.invalid' }, data: input });
+  expect(wrongOrigin.status()).toBe(403);
+  expect((await contents(upload.path)).equals(png)).toBe(true);
 });

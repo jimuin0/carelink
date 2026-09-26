@@ -12,7 +12,7 @@ function main() {
     process.exitCode = 1;
     return;
   }
-  const source = readFileSync(new URL('../supabase/migrations/20260926000003_salon_photo_manifest.sql', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('../supabase/migrations/20260926000004_salon_signed_upload_cutover.sql', import.meta.url), 'utf8');
   const blocks = [...source.matchAll(/-- BEGIN SALON STORAGE RECONCILIATION\n([\s\S]*?)-- END SALON STORAGE RECONCILIATION/g)];
   if (blocks.length !== 1 || /\b(?:BEGIN|COMMIT|ROLLBACK)\s*;/i.test(blocks[0][1])) {
     throw new Error('migration section boundary invalid');
@@ -51,8 +51,8 @@ UPDATE storage.buckets SET public=${strict ? 'false' : 'true'},file_size_limit=$
   allowed_mime_types=${strict ? "ARRAY['image/png']" : 'NULL'} WHERE id='carelink-uploads';`;
     const output = run(`${guard}${setup}\n${section}
 SELECT pg_temp.require((SELECT count(*)=0 FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND policyname='Allow anonymous upload'));
-SELECT pg_temp.require((SELECT count(*)=1 FROM pg_policies WHERE schemaname='storage' AND tablename='objects'
-  AND policyname='Allow anonymous upload images only' AND roles=ARRAY['anon']::name[] AND cmd='INSERT'));
+SELECT pg_temp.require((SELECT count(*)=0 FROM pg_policies WHERE schemaname='storage' AND tablename='objects'
+  AND policyname IN ('Allow anonymous upload images only','salon_legacy_authenticated_image_insert')));
 SELECT pg_temp.require((SELECT public=${strict ? 'false' : 'true'} AND file_size_limit=${strict ? '5242880' : '10485760'}
   AND allowed_mime_types=${strict ? "ARRAY['image/png']" : "ARRAY['image/jpeg','image/png','image/webp','image/gif']"}
   FROM storage.buckets WHERE id='carelink-uploads'));
@@ -65,16 +65,26 @@ SELECT pg_temp.require(NOT EXISTS (
 -- The shadow bootstrap does not enable Storage RLS; enable it solely within
 -- this rolled-back fixture to test expressions with the actual role.
 ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
-GRANT INSERT ON storage.objects TO anon;
-SET LOCAL ROLE anon;
+GRANT INSERT ON storage.objects TO anon, authenticated;
+-- Positive control proves the fixture table itself accepts an object before
+-- switching roles. Public-role failures must be RLS denial, not broken SQL.
 INSERT INTO storage.objects(bucket_id,name) VALUES ('carelink-uploads','salons/synthetic.png');
+SET LOCAL ROLE anon;
 DO $$ DECLARE path text; BEGIN
-  FOREACH path IN ARRAY ARRAY['salon-intents/synthetic.png','other/synthetic.png','salons/synthetic.svg'] LOOP
+  FOREACH path IN ARRAY ARRAY['salons/unsigned.png','salon-intents/synthetic.png','other/synthetic.png','salons/synthetic.svg'] LOOP
     BEGIN
       INSERT INTO storage.objects(bucket_id,name) VALUES ('carelink-uploads',path);
       RAISE EXCEPTION 'forbidden upload permitted';
     EXCEPTION WHEN insufficient_privilege THEN NULL; END;
   END LOOP;
+END $$;
+RESET ROLE;
+SET LOCAL ROLE authenticated;
+DO $$ BEGIN
+  BEGIN
+    INSERT INTO storage.objects(bucket_id,name) VALUES ('carelink-uploads','salons/authenticated.png');
+    RAISE EXCEPTION 'authenticated bypass permitted';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
 END $$;
 RESET ROLE;
 SELECT 'upgrade-ok';

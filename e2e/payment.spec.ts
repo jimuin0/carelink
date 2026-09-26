@@ -18,14 +18,17 @@ test.describe('支払いページ', () => {
     expect(url).toMatch(/login|auth|mypage|payment/);
   });
 
-  test('支払い完了ページが正しく表示される', async ({ page }) => {
-    // Stripe の success_url パラメータを含むページ
-    await page.goto('/payment/complete?session_id=cs_test_dummy');
-    await page.waitForLoadState('networkidle');
-    // エラー500でないことを確認
-    const bodyText = await page.locator('body').textContent();
-    expect(bodyText).not.toContain('500');
-    expect(bodyText).not.toContain('Internal Server Error');
+  test('未提供の支払い完了URLは500ではなく404を表示する', async ({ page }) => {
+    // No payment completion route is implemented. This is only a not-found
+    // regression check, not evidence of a working Stripe/payment flow.
+    // body.textContent includes RSC scripts/chunk IDs (e.g. 8500), so searching
+    // it for "500" confuses a build artifact with an HTTP failure.
+    const response = await page.goto('/payment/complete?session_id=cs_test_dummy');
+    // Next's streamed not-found responses can carry HTTP 200, but must render
+    // the same not-found UI. Never accept 5xx or a hidden script substring.
+    expect([200, 404]).toContain(response?.status());
+    await expect(page.getByRole('heading', { name: '404', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'ページが見つかりません', exact: true })).toBeVisible();
   });
 });
 

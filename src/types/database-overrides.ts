@@ -55,6 +55,15 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
   public: Omit<GeneratedDatabase['public'], 'Functions'> & {
     Functions: Omit<GeneratedFunctions, 'create_booking_atomic'> & {
       create_booking_atomic: Omit<GeneratedCreateBooking, 'Args'> & { Args: CreateBookingArgs };
+      // Candidate migration 20260926000003. This typed, feature-gated consumer
+      // is NOT evidence of production application. Keep the production drift
+      // tests against database.types.ts; reconcile from introspection before
+      // enabling the route or merging a deployment that depends on this RPC.
+      prepare_salon_photo: {
+        Args: { p_intent_id: string; p_proof_hash: string; p_selection_id: string;
+          p_slot: number; p_mime_type: string; p_byte_size: number };
+        Returns: { outcome: string; photo_id: string | null; object_path: string | null }[];
+      };
     };
   };
 };

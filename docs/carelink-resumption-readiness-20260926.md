@@ -381,3 +381,17 @@ HEAD c7b8b6bcのCI 36229069998はfresh applyに成功し、policy RENAMEの失�
 同時にNextを16.3.6へ固定更新する。公式GHSA-vcvr-r3jv-pc5jは16.3.5をaffectedに含めるが、当projectのapi/ogはedge runtimeであり、公式の影響除外条件に一致する。利用者からのSVG値がNode ImageResponseへ到達することは今回確認していないため、CareLinkのRCE実証とは報告しない。根拠 https://github.com/vercel/next.js/security/advisories/GHSA-vcvr-r3jv-pc5j 。修正版依存でのCI/buildは別途必須。local node_modulesが旧版の間はlocal検証を新版CIの代替にしない。
 
 localの型検査・対象lint・関連4suite50testが成功。npmはlockのみ更新し、依存差分はfont2packageとNext/env/SWCのpatch更新に限定。node_modulesは変更せず、local Nodeはengine推奨より古い22.16.0であるため、新版依存＋CI Node24での実証が必須。独立レビュー追加指摘0。ただし新版実build・font/Storage E2E・upgrade SQLは次CIで確認する。本番設定・DB・利用者データ・公開状態は変更していない。
+
+### 10.16．9cc検証結果と署名専用移行への修正
+
+SHA 9ccdd05f654357cdedc15a2126ae3f5c3da1f080、CI 36230756559。production build成功、E2E287成功・2失敗・skipなし。日本語font faceとStorageの既存6ケースは成功。失敗2件はpayment.spec.tsがbody.textContent内の非表示RSC chunk番号8500をHTTP500と誤認したもの。決済機能は変更せず、未提供URLの回帰テストをHTTP応答とvisibleな404見出しで判定する。Nextのstreamed not-foundは200となり得るため200/404＋見出しを必須とする（https://nextjs.org/docs/app/api-reference/file-conventions/not-found）。支払い完了の実装・成功を意味しない。
+
+同SHAのUnitは8024成功・schema/type同期1失敗、Contractはphoto台帳／RPC未適用2失敗、hosted stagingの16ケースは未実行。いずれも成功扱いにしない。schema run 36230756546はfresh、upgrade、role、rollback、20client競合に成功。anon-write-policy-lint 36230756552は再作成した匿名INSERTを拒否した。既存の広い匿名uploadを狭めるだけではserver検証の迂回が残るため、例外登録やダミーauthで通さず署名uploadへ統一する。
+
+移行計画をexpand/contractへ修正する。未本番適用の003をphoto台帳／RPC追加だけへ限定し、Storage設定と旧匿名INSERT撤去は004へ分離する。003適用済みから004へのupgradeを実004のSQLで検証し、無関係なpolicyを保持する。004前は旧直接uploadが可能であり安全性の最終合格ではない。本番の一括db pushは行わない。コード配信、写真経路切替、004適用、v2受付有効化を別nodeとして扱う。写真の署名経路と旧tabの入力・写真保持／復帰が確認できるまで004を適用しない。原子的commit／claimが完成するまでv2受付flagを本番で有効にしない。具体的切替・復旧の実機証拠は未完了である。
+
+写真準備helper/APIを追加。feature flag、CSRF／rate、strict input、intent別Cookie、service専用RPC、返却1行／outcome／pathを検証する。実objectのbucket/path/MIME/size一致時だけuploadedを返し、不一致はconflict。Storageの明示的なObject not foundだけ署名へ進み、通信障害／不明404／bucket不在はunavailable。tokenはupsert=falseで発行し、raw provider error／proof／signed URLをログや応答へ出さない。呼出型overrideは候補migration用であり、prod drift gateの入力を差し替えない。
+
+関連4suite94test成功。helper/APIの65testはbranch/function/line各100％、statement98.5％。upsert=trueへの一時変異で2件RED、直ちにfalse復元・残存なし・65件再成功を確認した。型検査と対象Lint成功。固定helper/APIの独立レビューは追加P0〜P3ゼロ。ただしmockの合格は実Storage契約の代用ではない。実SDKの不存在応答、API署名→upload→同選択照会、別intent有効proof拒否、並行署名後のoverwrite拒否は次CIで必須。004分離後のupgradeも再実行する。
+
+追加レビューで、並行署名のtoken不正でも一般403拒否をimmutability成功と数えるP2を発見。両tokenの構造検証とduplicate固有応答への限定、実不正token負対照、VMで実E2E分類関数を検証する14ケースを追加した。再レビューで当該P2解消・追加指摘0。型overrideの既存回帰を含む5suite124testと対象Lintが成功。providerの実code/message契約は次CIの結果で判定する。

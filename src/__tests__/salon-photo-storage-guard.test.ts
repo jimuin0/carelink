@@ -20,8 +20,9 @@ function fixture(env: Record<string, string>) {
   const test = Object.assign(jest.fn(), { beforeAll: (callback: typeof setup) => { setup = callback; } });
   // Browser tests are registered, never run. No socket/fetch/process capability
   // is supplied; even the positive guard control cannot perform real I/O.
-  const exported: { reject?: (error: unknown, operation: string) => void } = {};
-  runInNewContext(`${compiled}\nexports.reject = expectServiceRejection;`, {
+  const exported: { reject?: (error: unknown, operation: string) => void;
+    duplicate?: (error: unknown) => void; token?: (value: unknown) => boolean } = {};
+  runInNewContext(`${compiled}\nexports.reject = expectServiceRejection; exports.duplicate = expectDuplicate; exports.token = isUploadToken;`, {
     exports: exported, Buffer, process: { env },
     require: (name: string) => {
       if (name === '@playwright/test') return { test, expect: (value: unknown) => expect(value) };
@@ -30,7 +31,7 @@ function fixture(env: Record<string, string>) {
       throw new Error('unexpected fixture import');
     },
   });
-  return { setup, createClient, createUser, signInWithPassword, reject: exported.reject! };
+  return { setup, createClient, createUser, signInWithPassword, reject: exported.reject!, duplicate: exported.duplicate!, token: exported.token! };
 }
 
 test.each([
@@ -64,4 +65,22 @@ test.each([
 
 test('a classified Storage API denial passes the rejection control', () => {
   expect(() => fixture(approved).reject({ name: 'StorageApiError', status: 403, statusCode: 'AccessDenied' }, 'synthetic operation')).not.toThrow();
+});
+
+test.each([
+  null, { name: 'StorageApiError', status: 400, statusCode: 'InvalidJWT', message: 'Invalid token' },
+  { name: 'StorageApiError', status: 403, statusCode: '403', message: 'Access denied' },
+  { name: 'StorageApiError', status: 503, statusCode: '409', message: 'The resource already exists' },
+  { name: 'StorageApiError', status: 409, statusCode: '409', message: 'Unrelated conflict' },
+])('non-duplicate errors cannot prove valid-token immutability %#', error => {
+  expect(() => fixture(approved).duplicate(error)).toThrow();
+});
+test.each([400, 409])('only explicit object duplicate passes HTTP %s', status => {
+  expect(() => fixture(approved).duplicate({ name: 'StorageApiError', status, statusCode: '409', message: 'The resource already exists' })).not.toThrow();
+});
+test.each([undefined, '', 'token', 'a.b', 'a.b.c.d', 'a.b.='])('malformed token is rejected without printing its value %#', value => {
+  expect(fixture(approved).token(value)).toBe(false);
+});
+test('synthetic token shape positive control', () => {
+  expect(fixture(approved).token('a.b.c')).toBe(true);
 });
