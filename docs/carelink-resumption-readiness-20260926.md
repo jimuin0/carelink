@@ -302,3 +302,5 @@ schema run `36220861589` は全migration適用後、旧期待値との差分で�
 準備APIと状態照会APIを追加したが、`SALON_REGISTRATION_V2_ENABLED=true` のときだけ利用可能で、既存環境では有効化していない。proofはintent別HttpOnly Cookieのみ、JSON・URLへ出さない。準備にはPIIを受け付けず、状態照会はID＋proof digestの一致とserver側3日期限を確認し、receipt以外の申込内容を返さない。prepare期限は1日、response-loss照会期限は3日。未知ID／wrong proofを同じunverifiedとし、DB失敗を成功扱いしない。追加53testと型／対象lintは成功、独立レビュー追加指摘0。SQL RPC側の3日期限制約、commit API、写真manifest、W2の原子的claimは未接続のため、v2を有効化しない。
 
 現時点でmerge、deploy、本番migration、実送信は未実施。既存設計の他wave、旧台帳再判定、本番実体／履歴照合は未完了である。API局所成功やCI局所成功を全修正完了と読み替えない。
+
+`f58ef3a97fd64a66dfe74654f33269bcd4ece7d7` をpushし、CI `36225042704` はLint／型、Security、Contract jobが成功、schema run `36225042696` とActionlintも成功した。Unitは7930成功・2失敗で、失敗は新APIのidentity gate認識と新環境変数の文書漏れ。E2Eは依存失敗で未実行。prepareはアカウント作成前の匿名開始という根拠を既存の理由必須台帳へ追加し、状態照会はID＋proof＋server期限をDB検証するhelper呼出しを認識させる。proof形式チェックだけ／コメントだけでは認識しない負の対照も追加した。環境変数表へdefault offとrelease gateを追記。修正後の関連74testは成功。検査を削除・skipしていない。
