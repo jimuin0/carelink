@@ -34,6 +34,16 @@ test.each([400, 403, 429])('保存前拒否%sは元の文言を保持し再試�
   await expect(readSalonRegistrationResult(response(status, { error: '入力を確認してください' }))).resolves.toEqual({ kind: 'rejected', message: '入力を確認してください' });
 });
 
+test.each([null, 'invalid', [], {}, { unknown_field: 'untrusted' }])('不正・未知のfieldErrors=%jは入力欄へ投影しない', async (fieldErrors) => {
+  await expect(readSalonRegistrationResult(response(400, { error: '入力を確認してください', fieldErrors })))
+    .resolves.toEqual({ kind: 'rejected', message: '入力を確認してください' });
+});
+
+test('403のfieldErrorsは検証エラーとして投影しない', async () => {
+  await expect(readSalonRegistrationResult(response(403, { error: '受付できません', fieldErrors: { email: 'untrusted' } })))
+    .resolves.toEqual({ kind: 'rejected', message: '受付できません' });
+});
+
 test.each([
   [200, null], [200, 'html'], [200, []], [200, {}],
   [200, { success: false, id }], [200, { success: true }],

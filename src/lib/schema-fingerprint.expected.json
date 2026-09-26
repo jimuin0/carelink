@@ -140,6 +140,7 @@
 "column|contacts.resolved_at|timestamp with time zone|notnull=f|default=|generated=",
 "column|contacts.ticket_notes|text|notnull=f|default=|generated=",
 "column|contacts.ticket_status|text|notnull=t|default='open'::text|generated=",
+"column|contacts.traffic_source|jsonb|notnull=f|default=|generated=",
 "column|coupon_menus.coupon_id|uuid|notnull=t|default=|generated=",
 "column|coupon_menus.id|uuid|notnull=t|default=gen_random_uuid()|generated=",
 "column|coupon_menus.menu_id|uuid|notnull=t|default=|generated=",

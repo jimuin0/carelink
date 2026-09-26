@@ -17,6 +17,13 @@ interface Contact {
   priority: 'low' | 'normal' | 'high' | 'urgent';
   ticket_notes: string | null;
   resolved_at: string | null;
+  traffic_source: {
+    source: string;
+    medium: string | null;
+    referrerHost: string | null;
+    landingPath: string;
+    capturedAt: string;
+  } | null;
 }
 
 const TICKET_STATUS_CONFIG = {
@@ -51,7 +58,7 @@ export default function AdminInquiriesPage() {
     const supabase = createBrowserSupabaseClient();
     let query = supabase
       .from('contacts')
-      .select('id, created_at, name, email, phone, inquiry_type, message, ticket_status, priority, ticket_notes, resolved_at')
+      .select('id, created_at, name, email, phone, inquiry_type, message, ticket_status, priority, ticket_notes, resolved_at, traffic_source')
       .order('created_at', { ascending: false })
       .limit(100);
     if (statusFilter) query = query.eq('ticket_status', statusFilter);
@@ -71,7 +78,7 @@ export default function AdminInquiriesPage() {
       const supabase = createBrowserSupabaseClient();
       let query = supabase
         .from('contacts')
-        .select('id, created_at, name, email, phone, inquiry_type, message, ticket_status, priority, ticket_notes, resolved_at')
+        .select('id, created_at, name, email, phone, inquiry_type, message, ticket_status, priority, ticket_notes, resolved_at, traffic_source')
         .order('created_at', { ascending: false })
         .limit(100);
       if (statusFilter) query = query.eq('ticket_status', statusFilter);
@@ -221,9 +228,44 @@ export default function AdminInquiriesPage() {
               {/* 展開エリア */}
               {expandedId === c.id && (
                 <div className="border-t border-gray-100 p-4 space-y-4">
-                  <p className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 rounded-lg p-3">{c.message}</p>
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 rounded-lg p-3">
+                    {c.message}
+                  </p>
 
-                  {/* ステータス・優先度変更 */}
+                  {/* 流入元情報 */}
+<div className="bg-sky-50 border border-sky-100 rounded-lg p-3">
+  <p className="text-xs font-bold text-sky-700 mb-2">流入元情報</p>
+
+  {c.traffic_source ? (
+    <div className="text-xs text-gray-600 space-y-1">
+      <p>
+        <span className="font-medium">流入元：</span>
+        {c.traffic_source.source}
+      </p>
+
+      <p>
+        <span className="font-medium">メディア：</span>
+        {c.traffic_source.medium ?? '不明'}
+      </p>
+
+      <p>
+        <span className="font-medium">入口ページ：</span>
+        {c.traffic_source.landingPath}
+      </p>
+
+      {c.traffic_source.referrerHost && (
+        <p>
+          <span className="font-medium">参照元：</span>
+          {c.traffic_source.referrerHost}
+        </p>
+      )}
+    </div>
+  ) : (
+    <p className="text-xs text-gray-500">流入元：不明</p>
+  )}
+</div>
+
+{/* ステータス・優先度変更 */}
                   <div className="flex flex-wrap gap-2">
                     <select
                       value={c.ticket_status}

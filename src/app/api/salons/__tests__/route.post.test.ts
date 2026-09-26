@@ -132,6 +132,17 @@ function makeRequest(body: unknown, ip = '192.168.1.1') {
 }
 
 describe('POST /api/salons', () => {
+  test('invalid detail fields return actionable errors without echoing submitted values', async () => {
+    const res = await POST(makeRequest({ ...validFull, seat_count: -1, website: 'private-invalid-input' }) as any);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.fieldErrors).toEqual(expect.objectContaining({
+      seat_count: expect.any(String), website: expect.any(String),
+    }));
+    expect(JSON.stringify(body)).not.toContain('private-invalid-input');
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
   test('CSRF check failed → 403', async () => {
     const csrfError = new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 });
     (checkCsrf as jest.Mock).mockReturnValue(csrfError as any);
@@ -265,6 +276,9 @@ describe('POST /api/salons', () => {
       makeRequest({ ...validFull, photo_url: 'https://evil.example.com/x.jpg', photo_urls: [] }) as any
     );
     expect(res.status).toBe(400);
+    const result = await res.json();
+    expect(result.fieldErrors).toEqual({ photo_url: '施設写真を確認してください' });
+    expect(JSON.stringify(result)).not.toContain('evil.example.com');
     expect(mockInsert).not.toHaveBeenCalled();
   });
 
@@ -273,6 +287,9 @@ describe('POST /api/salons', () => {
       makeRequest({ ...validFull, photo_url: null, photo_urls: [`${STORAGE_PREFIX}ok.jpg`, 'https://evil.example.com/x.jpg'] }) as any
     );
     expect(res.status).toBe(400);
+    const result = await res.json();
+    expect(result.fieldErrors).toEqual({ photo_urls: '施設写真を確認してください（最大7枚）' });
+    expect(JSON.stringify(result)).not.toContain('evil.example.com');
     expect(mockInsert).not.toHaveBeenCalled();
   });
 

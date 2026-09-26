@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { phoneField } from './phone';
 import { isValidIsoDate } from './date-utils';
-import { DESIRED_START_DATES } from './constants';
+import { businessTypes, DESIRED_START_DATES } from './constants';
 
 // 顧客マスターの入力スキーマ。name のみ必須、他は任意。
 // email / birthday は「空文字」も許容し、保存時に null へ正規化する（フォーム未入力の素通し）。
@@ -28,7 +28,7 @@ export const customerSchema = z.object({
 export const salonStep1Schema = z.object({
   // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
   facility_name: z.string().trim().min(1, '施設名を入力してください').max(200, '200文字以内で入力してください'),
-  business_type: z.string().min(1, '業種を選択してください').max(50),
+  business_type: z.enum(businessTypes as [string, ...string[]], { error: '業種を選択してください' }),
   representative_name: z.string().trim().min(1, '代表者名を入力してください').max(100, '100文字以内で入力してください'),
   contact_name: z.string().trim().min(1, '担当者名を入力してください').max(100, '100文字以内で入力してください'),
   email: z.string().email('正しいメールアドレスを入力してください').max(254),
@@ -62,6 +62,26 @@ export const salonStep3Schema = z.object({
 
 export const salonFullSchema = salonStep1Schema.merge(salonStep2Schema).merge(salonStep3Schema);
 export type SalonFormValues = z.infer<typeof salonFullSchema>;
+
+// Both entry points use the same constraints. JSON optional fields may be null;
+// only the browser form accepts NaN from an empty number input.
+export const salonInsertSchema = salonFullSchema.extend({
+  website: salonStep1Schema.shape.website.nullable(),
+  postal_code: salonStep2Schema.shape.postal_code.nullable(),
+  address: salonStep2Schema.shape.address.nullable(),
+  building_name: salonStep2Schema.shape.building_name.nullable(),
+  nearest_station: salonStep2Schema.shape.nearest_station.nullable(),
+  business_hours: salonStep2Schema.shape.business_hours.nullable(),
+  regular_holiday: salonStep2Schema.shape.regular_holiday.nullable(),
+  seat_count: z.number().int().min(0).max(9999).optional().nullable(),
+  staff_count: z.number().int().min(0).max(9999).optional().nullable(),
+  pr_text: salonStep3Schema.shape.pr_text.nullable(),
+  desired_start_date: salonStep3Schema.shape.desired_start_date.nullable(),
+  photo_url: z.string().max(2000).optional().nullable(),
+  photo_urls: z.array(z.string().max(2000)).max(7).optional(),
+  recaptcha_token: z.string().optional(),
+  source: z.enum(['recruit', 'register']),
+});
 
 // Phone auto-hyphen
 export function formatPhone(value: string): string {

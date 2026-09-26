@@ -29,19 +29,25 @@ beforeEach(() => {
   global.fetch = mockFetch;
 });
 
-async function prepareForm() {
+async function prepareForm(phone = '09012345678', contactPhone?: string) {
   render(<RegisterForm />);
   fireEvent.change(screen.getByLabelText(/^施設名/), { target: { value: '合成施設' } });
   fireEvent.change(screen.getByLabelText(/^業種/), { target: { value: 'ヘアサロン' } });
   fireEvent.change(screen.getByLabelText(/^代表者名/), { target: { value: '合成代表' } });
   fireEvent.change(screen.getByLabelText(/^担当者名/), { target: { value: '合成担当' } });
   fireEvent.change(screen.getByLabelText(/^メールアドレス/), { target: { value: 'fixture@example.invalid' } });
-  fireEvent.change(screen.getByLabelText(/^電話番号/), { target: { value: '09012345678' } });
+  fireEvent.change(screen.getByLabelText(/^電話番号/), { target: { value: phone } });
+  if (contactPhone) {
+    const direct = screen.getByLabelText('担当者直通電話');
+    direct.closest('details')!.open = true;
+    fireEvent.change(direct, { target: { value: contactPhone } });
+    expect(direct).toHaveValue('03-1234-5678');
+    expect(screen.getByLabelText(/^電話番号/)).toHaveValue('090-1234-5678');
+  }
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
   await screen.findByLabelText(/^郵便番号/);
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
-  await screen.findByLabelText(/^PR文/);
-  fireEvent.click(screen.getByRole('button', { name: '合成写真を選択' }));
+  fireEvent.click(await screen.findByRole('button', { name: '合成写真を選択' }));
   screen.getAllByRole('checkbox').forEach((box) => fireEvent.click(box));
 }
 
@@ -51,12 +57,43 @@ async function submit() {
   fireEvent.click(within(dialog).getByRole('button', { name: '送信する' }));
 }
 
+test('full-width phone and direct phone survive the real UI and submit normalized values', async () => {
+  await prepareForm('０９０１２３４５６７８', '０３ー１２３４ー５６７８');
+  await submit();
+  await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
+  const payload = JSON.parse(mockFetch.mock.calls[0][1].body);
+  expect(payload.phone).toBe('090-1234-5678');
+  expect(payload.contact_phone).toBe('03-1234-5678');
+});
+
+test('photo-specific rejection is visible without losing the selected files', async () => {
+  mockFetch.mockResolvedValueOnce(jsonResponse(400, { error: '施設写真を確認してください', fieldErrors: { photo_urls: 'invalid' } }));
+  await prepareForm();
+  await submit();
+  expect(await screen.findByText('施設写真を確認してください（最大7枚）')).toBeVisible();
+  expect(mockPush).not.toHaveBeenCalled();
+});
+
 test('正常登録は写真を保持して確認済みidの完了画面へ1回進む', async () => {
   await prepareForm();
   await submit();
   await waitFor(() => expect(mockPush).toHaveBeenCalledWith(`/register/complete?id=${id}`));
   expect(mockFetch).toHaveBeenCalledTimes(1);
   expect(mockRemove).not.toHaveBeenCalled();
+});
+
+test('server field errors return to their step, open optional fields and preserve the input', async () => {
+  mockFetch.mockResolvedValueOnce(jsonResponse(400, {
+    error: '入力内容を確認してください', fieldErrors: { website: 'WebサイトURLを確認してください' },
+  }));
+  await prepareForm();
+  await submit();
+  const website = await screen.findByLabelText('WebサイトURL');
+  expect(website.closest('details')).toHaveAttribute('open');
+  await waitFor(() => expect(website).toHaveFocus());
+  expect(screen.getByLabelText(/^施設名/)).toHaveValue('合成施設');
+  expect(screen.getByText('WebサイトURLを確認してください（2000文字以内）')).toBeVisible();
+  expect(mockPush).not.toHaveBeenCalled();
 });
 
 test('早期upload失敗後の遅延成功を待ち、成功写真をcleanupしてPOSTしない', async () => {

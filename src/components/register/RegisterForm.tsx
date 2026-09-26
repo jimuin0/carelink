@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { supabase } from '@/lib/supabase';
 import { salonStep1Schema, salonStep2Schema, salonStep3Schema, salonFullSchema, type SalonFormValues, formatPhone, businessTypes } from '@/lib/validations';
@@ -18,12 +18,14 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { getRecaptchaToken } from '@/lib/recaptcha-client';
 import { extractPrefecture, extractCity } from '@/lib/japan-address';
+import { SALON_FIELD_MESSAGES, type SalonFieldErrors } from '@/lib/salon-field-errors';
+import { normalizePhone } from '@/lib/phone';
 
 const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
 const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
 
 const photoSlots: PhotoSlot[] = [
-  { label: '外観', required: true },
+  { label: '外観' },
   { label: '内観 1' },
   { label: '内観 2' },
   { label: '内観 3' },
@@ -43,6 +45,8 @@ const startDateOptions = [
 export default function RegisterForm() {
   const router = useRouter();
   const [step, setStep] = useState(1);
+  const [pendingFocus, setPendingFocus] = useState<{ field: keyof SalonFormValues } | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submissionUnknown, setSubmissionUnknown] = useState(false);
   const submissionUnknownRef = useRef(false);
@@ -56,7 +60,7 @@ export default function RegisterForm() {
   // 独立したチェックにすることで、掲載者が届出義務を認識した上で登録した事実を明確に残す。
   const [licenseWarranted, setLicenseWarranted] = useState(false);
 
-  const { register, handleSubmit, trigger, setValue, watch, formState: { errors, isReady } } = useForm<SalonFormValues>({
+  const { register, handleSubmit, trigger, setValue, setError, getFieldState, control, formState: { errors, isReady } } = useForm<SalonFormValues>({
     resolver: zodResolver(salonFullSchema),
     mode: 'onTouched',
     defaultValues: {
@@ -69,13 +73,51 @@ export default function RegisterForm() {
     },
   });
 
-  const prText = watch('pr_text') || '';
-  const postalCode = watch('postal_code') || '';
-  const selectedFeatures = watch('features') || [];
+  const prText = useWatch({ control, name: 'pr_text' }) || '';
+  const postalCode = useWatch({ control, name: 'postal_code' }) || '';
+  const selectedFeatures = useWatch({ control, name: 'features' }) || [];
+
+  // Wait until the target step is mounted before expanding optional fields and
+  // focusing. RHF cannot focus an unmounted or collapsed field on its own.
+  useEffect(() => {
+    if (!pendingFocus) return;
+    const element = document.querySelector<HTMLElement>(`[name="${pendingFocus.field}"], [data-field="${pendingFocus.field}"]`);
+    if (element) {
+      const details = element.closest('details');
+      if (details) details.open = true;
+      element.focus();
+    }
+  }, [pendingFocus]);
+
+  const revealErrors = (fieldErrors: FieldErrors<SalonFormValues>) => {
+    for (const [index, schema] of stepSchemas.entries()) {
+      const field = (Object.keys(schema.shape) as (keyof SalonFormValues)[]).find(key => fieldErrors[key]);
+      if (field) {
+        setStep(index + 1);
+        setPendingFocus({ field: field === 'prefecture' || field === 'city' ? 'address' : field });
+        return;
+      }
+    }
+  };
+
+  const showServerErrors = (fieldErrors: SalonFieldErrors) => {
+    const visibleErrors: FieldErrors<SalonFormValues> = {};
+    for (const key of Object.keys(salonFullSchema.shape) as (keyof SalonFormValues)[]) {
+      if (!fieldErrors[key]) continue;
+      const field = key === 'prefecture' || key === 'city' ? 'address' : key;
+      const error = { type: 'server', message: fieldErrors[key] };
+      setError(field, error);
+      visibleErrors[field] = error;
+    }
+    if (fieldErrors.photo_url || fieldErrors.photo_urls) {
+      setPhotoError(SALON_FIELD_MESSAGES.photo_urls);
+    }
+    revealErrors(visibleErrors);
+  };
 
   // Phone auto-hyphen
   const handlePhoneChange = (field: 'phone' | 'contact_phone') => (e: React.ChangeEvent<HTMLInputElement>) => {
-    setValue(field, formatPhone(e.target.value), { shouldValidate: true });
+    setValue(field, formatPhone(normalizePhone(e.target.value)), { shouldValidate: true });
   };
 
   // Postal code auto-completion
@@ -128,11 +170,20 @@ export default function RegisterForm() {
     const schema = stepSchemas[step - 1];
     const fields = Object.keys(schema.shape) as (keyof SalonFormValues)[];
     if (await trigger(fields)) setStep(step + 1);
+    else {
+      const invalid: FieldErrors<SalonFormValues> = {};
+      for (const field of fields) {
+        const error = getFieldState(field).error;
+        if (error) invalid[field] = { type: 'validation', message: error.message };
+      }
+      revealErrors(invalid);
+    }
   };
 
   const onSubmit = async (data: SalonFormValues) => {
     if (submissionUnknownRef.current) return;
     setSubmitting(true);
+    setPhotoError(null);
     // 【2026年7月8日 恒久根治】写真アップロード成功後に /api/salons が失敗（バリデーション/
     // レート制限/ネットワーク断等）すると、アップロード済みファイルがストレージに孤児として
     // 残り続けていた。再送信時は毎回新しい crypto.randomUUID() で再アップロードするため、
@@ -214,6 +265,7 @@ export default function RegisterForm() {
       const result = await readSalonRegistrationResult(res);
       if (result.kind === 'rejected') {
         confirmedRejection = true;
+        if (result.fieldErrors) showServerErrors(result.fieldErrors);
         throw new Error(result.message);
       }
       if (result.kind === 'unknown') throw new Error(SALON_SUBMISSION_UNKNOWN);
@@ -251,7 +303,7 @@ export default function RegisterForm() {
     if (submitLockRef.current || submissionUnknownRef.current) return;
     submitLockRef.current = true;
     setShowConfirm(false);
-    handleSubmit(onSubmit)().finally(() => {
+    handleSubmit(onSubmit, revealErrors)().finally(() => {
       submitLockRef.current = false;
     });
   };
@@ -274,7 +326,7 @@ export default function RegisterForm() {
             </form>
           </div>
         )}
-        <form onSubmit={handleSubmit(() => setShowConfirm(true))} onChange={handleFieldChange} noValidate className="border-y border-[var(--ecru-line)] bg-[var(--ecru-surface)] px-5 py-7 sm:border sm:px-10 sm:py-10">
+        <form onSubmit={handleSubmit(() => setShowConfirm(true), revealErrors)} onChange={handleFieldChange} noValidate className="border-y border-[var(--ecru-line)] bg-[var(--ecru-surface)] px-5 py-7 sm:border sm:px-10 sm:py-10">
           {/* SSR中の入力をRHFの初期化が消さないよう、購読・refの準備完了まで操作を止める。 */}
           <fieldset disabled={!isReady || submissionUnknown} aria-busy={!isReady} className="min-w-0">
 
@@ -283,7 +335,7 @@ export default function RegisterForm() {
             <div className="space-y-4">
               <div>
                 <label htmlFor="reg-facility-name" className="form-label">施設名 <span className="text-red-500">*</span></label>
-                <input {...register('facility_name')} id="reg-facility-name" className="form-input" placeholder="リラクゼーションサロン ABC" aria-required="true" maxLength={100} />
+                <input {...register('facility_name')} id="reg-facility-name" className="form-input" placeholder="リラクゼーションサロン ABC" aria-required="true" maxLength={200} />
                 {errors.facility_name && <p className="form-error" role="alert">{errors.facility_name.message}</p>}
               </div>
               <div>
@@ -338,7 +390,7 @@ export default function RegisterForm() {
                   </div>
                   <div>
                     <label htmlFor="reg-website" className="form-label">WebサイトURL</label>
-                    <input {...register('website')} id="reg-website" type="url" className="form-input" placeholder="https://example.com" maxLength={200} />
+                    <input {...register('website')} id="reg-website" type="url" className="form-input" placeholder="https://example.com" maxLength={2000} />
                     {errors.website && <p className="form-error" role="alert">{errors.website.message}</p>}
                   </div>
                 </div>
@@ -357,7 +409,8 @@ export default function RegisterForm() {
               </div>
               <div>
                 <label htmlFor="reg-address" className="form-label">住所</label>
-                <input {...register('address')} id="reg-address" autoComplete="street-address" className="form-input" placeholder="大阪府堺市堺区…" maxLength={200} />
+                <input {...register('address')} id="reg-address" autoComplete="street-address" className="form-input" placeholder="大阪府堺市堺区…" maxLength={500} />
+                {errors.address && <p className="form-error" role="alert">{errors.address.message}</p>}
               </div>
               <details className="group border border-[var(--ecru-line)] bg-[var(--ecru-bg)]/70 px-4 py-3">
                 <summary className="cursor-pointer list-none text-xs font-medium text-[var(--ecru-muted)] marker:content-none">
@@ -369,11 +422,13 @@ export default function RegisterForm() {
                 <div className="mt-4 space-y-4">
                   <div>
                     <label htmlFor="reg-building-name" className="form-label">建物名・部屋番号</label>
-                    <input {...register('building_name')} id="reg-building-name" className="form-input" placeholder="○○ビル 3F" maxLength={100} />
+                    <input {...register('building_name')} id="reg-building-name" className="form-input" placeholder="○○ビル 3F" maxLength={200} />
+                    {errors.building_name && <p className="form-error" role="alert">{SALON_FIELD_MESSAGES.building_name}</p>}
                   </div>
                   <div>
                     <label htmlFor="reg-nearest-station" className="form-label">最寄り駅</label>
-                    <input {...register('nearest_station')} id="reg-nearest-station" className="form-input" placeholder="堺東駅 徒歩5分" maxLength={100} />
+                    <input {...register('nearest_station')} id="reg-nearest-station" className="form-input" placeholder="堺東駅 徒歩5分" maxLength={200} />
+                    {errors.nearest_station && <p className="form-error" role="alert">{SALON_FIELD_MESSAGES.nearest_station}</p>}
                   </div>
                 </div>
               </details>
@@ -381,20 +436,24 @@ export default function RegisterForm() {
                 <div>
                   <label htmlFor="reg-business-hours" className="form-label">営業時間</label>
                   <input {...register('business_hours')} id="reg-business-hours" className="form-input" placeholder="10:00〜20:00" maxLength={200} />
+                  {errors.business_hours && <p className="form-error" role="alert">{SALON_FIELD_MESSAGES.business_hours}</p>}
                 </div>
                 <div>
                   <label htmlFor="reg-regular-holiday" className="form-label">定休日</label>
-                  <input {...register('regular_holiday')} id="reg-regular-holiday" className="form-input" placeholder="毎週月曜日" maxLength={100} />
+                  <input {...register('regular_holiday')} id="reg-regular-holiday" className="form-input" placeholder="毎週月曜日" maxLength={200} />
+                  {errors.regular_holiday && <p className="form-error" role="alert">{SALON_FIELD_MESSAGES.regular_holiday}</p>}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="reg-seat-count" className="form-label">席数・ベッド数</label>
-                  <input {...register('seat_count', { valueAsNumber: true })} id="reg-seat-count" type="number" min="0" className="form-input" />
+                  <input {...register('seat_count', { valueAsNumber: true })} id="reg-seat-count" type="number" min="0" max="9999" step="1" className="form-input" />
+                  {errors.seat_count && <p className="form-error" role="alert">{SALON_FIELD_MESSAGES.seat_count}</p>}
                 </div>
                 <div>
                   <label htmlFor="reg-staff-count" className="form-label">スタッフ数</label>
-                  <input {...register('staff_count', { valueAsNumber: true })} id="reg-staff-count" type="number" min="0" className="form-input" />
+                  <input {...register('staff_count', { valueAsNumber: true })} id="reg-staff-count" type="number" min="0" max="9999" step="1" className="form-input" />
+                  {errors.staff_count && <p className="form-error" role="alert">{SALON_FIELD_MESSAGES.staff_count}</p>}
                 </div>
               </div>
               <div>
@@ -402,10 +461,11 @@ export default function RegisterForm() {
                   <input {...register('has_parking')} type="checkbox" className="w-4 h-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500" />
                   駐車場あり
                 </label>
+                {errors.has_parking && <p className="form-error" role="alert">{SALON_FIELD_MESSAGES.has_parking}</p>}
               </div>
               <div>
                 <label className="form-label">こだわり・特徴 <span className="text-gray-400 text-xs font-normal">複数選択可</span></label>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2" role="group" aria-label="こだわり・特徴" tabIndex={-1} data-field="features">
                   {facilityFeatures.map(f => (
                     <button
                       key={f}
@@ -423,6 +483,7 @@ export default function RegisterForm() {
                     </button>
                   ))}
                 </div>
+                {errors.features && <p className="form-error" role="alert">{SALON_FIELD_MESSAGES.features}</p>}
               </div>
               <div className="flex gap-4">
                 <button type="button" onClick={() => setStep(1)} className="btn-outline flex-1">戻る</button>
@@ -432,8 +493,7 @@ export default function RegisterForm() {
           )}
 
           {/* Step 3: PR情報 */}
-          {step === 3 && (
-            <div className="space-y-4">
+            <div className="space-y-4" hidden={step !== 3}>
               <div>
                 <label htmlFor="reg-pr-text" className="form-label">PR文 <span className="text-gray-400 text-xs font-normal">1000文字以内</span></label>
                 <textarea {...register('pr_text')} id="reg-pr-text" className="form-input min-h-[150px]" placeholder="お店の魅力を自由にご記入ください" maxLength={1000} />
@@ -443,14 +503,16 @@ export default function RegisterForm() {
                 </div>
               </div>
               <div>
-                <label className="form-label">施設写真 <span className="text-gray-400 text-xs font-normal">外観は必須・最大7枚</span></label>
+                <label className="form-label">施設写真 <span className="text-gray-400 text-xs font-normal">受付時は任意・最大7枚。公開時には写真の設定が必要です</span></label>
                 <MultiPhotoUpload slots={photoSlots} onChange={setPhotoFiles} />
+                {photoError && <p className="form-error" role="alert">{photoError}</p>}
               </div>
               <div>
                 <label htmlFor="reg-desired-start-date" className="form-label">掲載希望時期</label>
                 <select {...register('desired_start_date')} id="reg-desired-start-date" className="form-input">
                   {startDateOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
+                {errors.desired_start_date && <p className="form-error" role="alert">{SALON_FIELD_MESSAGES.desired_start_date}</p>}
               </div>
               <label className="flex items-start gap-2 text-sm text-gray-600">
                 <input
@@ -485,7 +547,6 @@ export default function RegisterForm() {
                 </button>
               </div>
             </div>
-          )}
           </fieldset>
         </form>
       </div>

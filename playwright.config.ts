@@ -266,7 +266,7 @@ export default defineConfig({
     ? {
         command: 'npm run start',
         url: 'http://localhost:3000',
-        reuseExistingServer: true,
+        reuseExistingServer: false,
       }
     : undefined,
 });

@@ -74,7 +74,7 @@ beforeAll(async () => {
   fillStep1AndAdvance();
   await screen.findByLabelText(/^郵便番号/);
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
-  await screen.findByLabelText(/^PR文/);
+  await screen.findByRole('textbox', { name: /^PR文/ });
   unmount();
 });
 
@@ -99,7 +99,7 @@ test('確認ダイアログの確定ボタンを連打しても /api/salons へ�
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
 
   // Step3
-  await screen.findByLabelText(/^PR文/);
+  await screen.findByRole('textbox', { name: /^PR文/ });
   checkAllConsents();
   fireEvent.click(screen.getByRole('button', { name: '登録する' }));
 
@@ -139,7 +139,7 @@ test('/api/salons への送信ボディに source: "register" が含まれる（
   await screen.findByLabelText(/^郵便番号/);
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
 
-  await screen.findByLabelText(/^PR文/);
+  await screen.findByRole('textbox', { name: /^PR文/ });
   checkAllConsents();
   fireEvent.click(screen.getByRole('button', { name: '登録する' }));
 
@@ -161,7 +161,7 @@ describe('許認可・届出の表明保証チェック', () => {
     fillStep1AndAdvance();
     await screen.findByLabelText(/^郵便番号/);
     fireEvent.click(screen.getByRole('button', { name: '次へ' }));
-    await screen.findByLabelText(/^PR文/);
+    await screen.findByRole('textbox', { name: /^PR文/ });
   }
 
   test('表明チェックが存在し、開設届に言及している', async () => {

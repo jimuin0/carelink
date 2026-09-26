@@ -64,7 +64,7 @@ function mockFetchWithZipcloud() {
 }
 
 async function submitAndGetSalonBody(fetchMock: jest.Mock) {
-  await screen.findByLabelText(/^PR文/);
+  await screen.findByRole('textbox', { name: /^PR文/ });
   checkAllConsents();
   fireEvent.click(screen.getByRole('button', { name: '登録する' }));
 
