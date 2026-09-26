@@ -90,19 +90,32 @@ async function getAdminInfo(request: NextRequest): Promise<{ userId: string; fac
   const facilityId = request.nextUrl.searchParams.get('facility_id');
   if (!facilityId || !UUID_REGEX.test(facilityId)) return null;
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
     .eq('facility_id', facilityId)
     .in('role', ['owner', 'admin'])
-    .single();
+    .maybeSingle();
 
-  return data ? { userId: user.id, facilityId: data.facility_id } : null;
+  if (error) throw new Error('Facility settings authorization unavailable');
+  return data?.facility_id === facilityId ? { userId: user.id, facilityId } : null;
 }
 
 // PATCH: Update facility settings
 export async function PATCH(request: NextRequest) {
+  try {
+    const response = await patchSettings(request);
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  } catch {
+    const response = serverError('admin-settings-dependency', new Error('Facility settings dependency failure'), '/api/admin/settings');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
+}
+
+async function patchSettings(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
@@ -133,20 +146,23 @@ export async function PATCH(request: NextRequest) {
       // 公開して公開メニュー0件の行き止まりになるのを防ぐ = BP-2）。
       const { readiness, error: gateErr } = await checkPublishReadiness(admin, auth.facilityId);
       if (gateErr) {
-        return serverError('admin-settings-status-gate', gateErr, '/api/admin/settings');
+        return serverError('admin-settings-status-gate', new Error('Facility publish readiness unavailable'), '/api/admin/settings');
       }
       if (!readiness.ready) {
         return NextResponse.json({ error: '公開するには次の項目が必要です', missing: readiness.missing }, { status: 400 });
       }
     }
 
-    const { error } = await admin
+    const { data: updated, error } = await admin
       .from('facility_profiles')
       .update({ status: parsed.data.status, updated_at: new Date().toISOString() })
-      .eq('id', auth.facilityId);
+      .eq('id', auth.facilityId)
+      .select('id')
+      .maybeSingle();
 
     if (isPublishedLocationConflict(error)) return NextResponse.json({ error: '所在地が変更されています。都道府県・市区町村・住所を確認して、再度公開してください。' }, { status: 409 });
-    if (error) return serverError('admin-settings-status-update', error, '/api/admin/settings');
+    if (error) return serverError('admin-settings-status-update', new Error('Facility status update failed'), '/api/admin/settings');
+    if (updated?.id !== auth.facilityId) return NextResponse.json({ error: '施設の状態を確認できません。再読み込みしてください。' }, { status: 409 });
 
     const { ua } = getRequestContext(request);
     void writeAuditLog({
@@ -199,13 +215,16 @@ export async function PATCH(request: NextRequest) {
   }
 
   const admin = createServiceRoleClient();
-  const { error } = await admin
+  const { data: updated, error } = await admin
     .from('facility_profiles')
     .update(updatePayload)
-    .eq('id', auth.facilityId);
+    .eq('id', auth.facilityId)
+    .select('id')
+    .maybeSingle();
 
   if (isPublishedLocationConflict(error)) return NextResponse.json({ error: '公開中の施設では都道府県・市区町村・住所を空にできません。先に非公開へ変更してください。' }, { status: 409 });
-  if (error) return serverError('admin-settings-patch', error, '/api/admin/settings');
+  if (error) return serverError('admin-settings-patch', new Error('Facility settings update failed'), '/api/admin/settings');
+  if (updated?.id !== auth.facilityId) return NextResponse.json({ error: '施設の状態を確認できません。再読み込みしてください。' }, { status: 409 });
 
   const { ua } = getRequestContext(request);
   void writeAuditLog({
