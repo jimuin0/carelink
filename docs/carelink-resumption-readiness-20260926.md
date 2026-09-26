@@ -537,3 +537,5 @@ Supabase Dashboardのmigration履歴は2026年9月21日の`reminder_delivery_rec
 `src/app/api/og/route.tsx`をNode.js runtimeへ移し、依存を明示したSharpでSVGをPNGへ変換する。PNG形式、1200×630、CareLink表示、評価、動的title/subtitle、24時間immutable cacheは維持する。動的文字はXML escapeし、制御文字・壊れたUnicodeを排除、title/subtitle長を制限、review件数を数字のみ許可する。呼出元のmetadata URLとE2E `/api/og` 経路は維持する。Node Functionの実bundle／プレビュー表示で日本語文字と画像形式を確認するまで、Vercel修正完了とは扱わない。
 
 局所Jest 9件成功。実Sharp処理によるPNG signature、default/custom文字、XML escape、制御文字、絵文字、長さ境界、rating Infinity／clamp／半星、review件数の異常値を確認した。`og-image.ts`のstatement/branch/function/lineは全100％。全体`tsc --noEmit`、対象ESLint、`git diff --check`も成功。CI E2Eは旧SHA `2efa1730`で成功、ただしこのOG修正は未commitのため適用対象外。旧SHAのContractは3失敗／17skip／14成功（生成型と未適用migration）、Vercel Previewは容量超過で失敗。新修正SHAのCI、Vercel Preview、日本語グリフの実画像確認は未実施。merge、deploy、Supabase変更は行っていない。
+
+Previewを目視するとSharpのLinux環境に日本語フォントがなく、タイトル・施設種別・評価・予約数が豆腐表示になることを確認した。CIのPNG signatureだけでは品質を保証できない。追加修正ではアプリが既に直接依存するNoto Sans JPの必要subsetだけをSVGへ埋め込み、`outputFileTracingIncludes`でNode Functionへfont CSSとfont assetを含める。Previewで日本語と英数字の描画を再確認する。

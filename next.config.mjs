@@ -1,5 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  outputFileTracingIncludes: {
+    '/api/og': [
+      './node_modules/@fontsource-variable/noto-sans-jp/wght.css',
+      './node_modules/@fontsource-variable/noto-sans-jp/files/*.woff2',
+    ],
+  },
   images: {
     formats: ['image/avif', 'image/webp'],
     // 🔴 ここに外部ホストを足さないこと。remotePatterns に載ったホストは

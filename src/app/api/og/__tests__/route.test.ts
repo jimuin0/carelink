@@ -3,7 +3,12 @@
  */
 import type { NextRequest } from 'next/server';
 import { GET } from '../route';
-import { buildOgImageSvg, OG_IMAGE_HEADERS, renderOgImagePng } from '@/lib/og-image';
+import {
+  buildOgImageSvg,
+  buildOgImageSvgWithFonts,
+  OG_IMAGE_HEADERS,
+  renderOgImagePng,
+} from '@/lib/og-image';
 
 describe('CareLink OGP image rendering', () => {
   test('defaults produce a valid 1200x630 SVG without facility rating content', () => {
@@ -73,6 +78,21 @@ describe('CareLink OGP image rendering', () => {
     expect(svg).toContain('評価 2.5');
     expect(svg).not.toContain('&lt;svg&gt;');
     expect(svg).not.toContain('件)</text>');
+  });
+
+  test('embeds the self-hosted Japanese font subsets needed for dynamic text', async () => {
+    const svg = await buildOgImageSvgWithFonts(new URLSearchParams({
+      title: '日本語グリフ確認',
+      subtitle: 'テスト施設の予約',
+    }));
+
+    expect(svg).toContain("font-family:'CareLink Noto Sans JP'");
+    expect(svg).toContain('data:font/woff2;base64,');
+    expect(svg).toContain('日本語グリフ確認</text>');
+    expect(svg).toContain('テスト施設の予約</text>');
+    const embeddedSubsetCount = (svg.match(/@font-face/gu) ?? []).length;
+    expect(embeddedSubsetCount).toBeGreaterThan(0);
+    expect(embeddedSubsetCount).toBeLessThan(124);
   });
 
   test('rasterizes PNG bytes for the public route and preserves cache/content-type headers', async () => {
