@@ -1,51 +1,46 @@
-/**
- * 施設登録一覧 API（v1.0）
- * GET /api/admin/registrations
- * プラットフォーム管理者のみ: salons テーブルの一覧を返す
- */
-
-import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { checkRateLimit } from '@/lib/rate-limit';
-import { getClientIp } from '@/lib/client-ip';
-import { serverError } from '@/lib/with-route';
+import { withRoute, serverError, type RouteContext } from '@/lib/with-route';
+import { readRegistrationList } from '@/lib/registration-list';
 
 export const dynamic = 'force-dynamic';
 
-async function getPlatformAdminUser(): Promise<string | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_platform_admin')
-    .eq('id', user.id)
-    .single();
-
-  return profile?.is_platform_admin ? user.id : null;
+const headers = { 'Cache-Control': 'no-store' };
+async function list(value: unknown, ctx: RouteContext) {
+  try {
+    const profile = await ctx.supabase!.from('profiles').select('is_platform_admin')
+      .eq('id', ctx.user!.id).maybeSingle();
+    if (profile.error !== null) throw new Error('Registration authorization unavailable');
+    if (profile.data?.is_platform_admin !== true) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers });
+    }
+    const result = await readRegistrationList(createServiceRoleClient(), value);
+    if (result.state === 'invalid') return NextResponse.json({ error: '検索条件を確認してください' }, { status: 400, headers });
+    if (result.state === 'unavailable') throw new Error('Registration list unavailable');
+    return NextResponse.json({ salons: result.salons, nextCursor: result.nextCursor }, { headers });
+  } catch {
+    // Provider exceptions may contain search terms. Report only a fixed category.
+    return serverError('admin-registrations-list', new Error('Registration list dependency failure'),
+      '/api/admin/registrations', '取得に失敗しました。申込なしとは判定できません。');
+  }
 }
-
-export async function GET(request: NextRequest) {
-  const ip = getClientIp(request);
-  if (await checkRateLimit(null, ip, 30, 60_000, 'admin-registrations-get')) {
-    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
-  }
-
-  const userId = await getPlatformAdminUser();
-  if (!userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-
-  const admin = createServiceRoleClient();
-  const { data, error } = await admin
-    .from('salons')
-    .select('id, name:facility_name, email, phone, status, created_at')
-    .order('created_at', { ascending: false })
-    .limit(100);
-
-  if (error) {
-    return serverError('admin-registrations-list', error, '/api/admin/registrations', '取得に失敗しました');
-  }
-
-  return NextResponse.json({ salons: data ?? [] });
+const post = withRoute(async (request, ctx) => list(await request.json().catch(() => null), ctx), {
+  csrf: true, requireAuth: true,
+  rateLimit: { limiter: null, limit: 30, windowMs: 60_000, prefix: 'admin-registrations-get' },
+  sentryTag: 'admin-registrations-list',
+});
+const get = withRoute(async (_request, ctx) => list({}, ctx), {
+  csrf: false, requireAuth: true,
+  rateLimit: { limiter: null, limit: 30, windowMs: 60_000, prefix: 'admin-registrations-get' },
+  sentryTag: 'admin-registrations-list',
+});
+export async function POST(request: Request) {
+  const response = await post(request);
+  response.headers.set('Cache-Control', 'no-store');
+  return response;
+}
+export async function GET(request: Request) {
+  const response = await get(request);
+  response.headers.set('Cache-Control', 'no-store');
+  return response;
 }

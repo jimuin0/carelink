@@ -10,9 +10,9 @@ END $$;
 INSERT INTO auth.users(id,email)
 SELECT ('68000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
   'synthetic-setup-'||n::text||'@example.invalid' FROM generate_series(1,6) n;
-INSERT INTO public.salons(id,facility_name,business_type,email,phone,prefecture,city,address,seat_count,staff_count,has_parking,features,photo_urls,source)
+INSERT INTO public.salons(id,facility_name,business_type,representative_name,contact_name,email,phone,prefecture,city,address,seat_count,staff_count,has_parking,features,photo_urls,source)
 SELECT ('69000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,
-  'Synthetic branch '||n::text,'ヘアサロン','same-operator@example.invalid','09000000000','愛知県','合成市','合成町'||n::text,
+  'Synthetic branch '||n::text,'ヘアサロン','Synthetic representative','Synthetic contact','same-operator@example.invalid','09000000000','愛知県','合成市','合成町'||n::text,
   0,0,false,ARRAY['synthetic'],ARRAY['https://assets.example.invalid/synthetic-'||n::text||'.png'],'register'
 FROM generate_series(1,5) n;
 SELECT pg_temp.assert_setup(

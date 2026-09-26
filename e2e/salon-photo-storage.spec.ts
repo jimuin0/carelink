@@ -197,6 +197,98 @@ const registration = { facility_name: 'Synthetic CI facility', business_type: bu
   representative_name: 'Synthetic', contact_name: 'Synthetic', email: 'registration-contract@example.invalid',
   phone: '09012345678', source: 'register' };
 
+test('platform registration search traverses over 100 real rows and rejects stale concurrent decisions', async ({ page, context, browser }) => {
+  test.setTimeout(90000);
+  const { userId } = await loginSyntheticOwner(context);
+  const marker = `Synthetic pagination ${randomUUID()}`;
+  const promotion = await service.from('profiles').update({ is_platform_admin: true }).eq('id', userId).select('id');
+  if (promotion.error || promotion.data?.length !== 1) throw new Error('synthetic platform role setup failed');
+  const facility = await service.from('facility_profiles').insert({ name: 'Synthetic admin navigation', slug: randomUUID(),
+    business_type: businessTypes[0], prefecture: '愛知県', city: '合成市', address: '合成町1', status: 'draft' }).select('id').single();
+  if (facility.error || !facility.data) throw new Error('synthetic admin navigation fixture failed');
+  const membership = await service.from('facility_members').insert({ facility_id: facility.data.id, user_id: userId, role: 'owner' });
+  if (membership.error) throw new Error('synthetic admin membership failed');
+  const rows = Array.from({ length: 125 }, (_, index) => ({ ...registration, id: randomUUID(),
+    facility_name: marker, email: `pagination-${randomUUID()}@example.invalid`,
+    status: index === 124 ? null : 'pending',
+    created_at: index < 60 ? '2026-09-26T12:30:40.123456+00:00'
+      : index < 100 ? '2026-09-26T12:30:40.123455+00:00' : null,
+  }));
+  const seed = await service.from('salons').insert(rows);
+  if (seed.error) throw new Error('synthetic registration pagination seed failed');
+  const headers = { origin: 'https://localhost:3000',
+    'x-real-ip': `198.18.${Math.floor(Math.random() * 254)}.${Math.floor(Math.random() * 254)}` };
+  const query = { field: 'facility', query: marker, status: 'all' };
+  let cursor: { id: string; createdAt: string | null } | null = null;
+  const collected: string[] = [];
+  for (const count of [50, 50, 25]) {
+    const response = await context.request.post('/api/admin/registrations', { headers, data: { ...query, cursor } });
+    expect(response.status()).toBe(200); expect(response.headers()['cache-control']).toBe('no-store');
+    const body = await response.json();
+    expect(body.salons).toHaveLength(count);
+    collected.push(...body.salons.map((item: { id: string }) => item.id));
+    cursor = body.nextCursor;
+  }
+  expect(cursor).toBeNull();
+  const expected = rows.slice().sort((a, b) => {
+    if (a.created_at === null && b.created_at !== null) return 1;
+    if (a.created_at !== null && b.created_at === null) return -1;
+    return (b.created_at ?? '').localeCompare(a.created_at ?? '') || b.id.localeCompare(a.id);
+  }).map(item => item.id);
+  expect(collected).toEqual(expected);
+  expect(new Set(collected).size).toBe(125);
+  for (const [field, value] of [['receipt', rows[124].id], ['email', rows[124].email]]) {
+    const found = await context.request.post('/api/admin/registrations', { headers, data: { field, query: value } });
+    expect(found.status()).toBe(200);
+    const body = await found.json(); expect(body.salons.map((item: { id: string }) => item.id)).toEqual([rows[124].id]);
+  }
+  const nullStatus = await context.request.post('/api/admin/registrations', { headers, data: { ...query, status: 'unknown' } });
+  expect(nullStatus.status()).toBe(200);
+  expect((await nullStatus.json()).salons.map((item: { id: string }) => item.id)).toEqual([rows[124].id]);
+  const stranger = await browser.newContext({ ignoreHTTPSErrors: true });
+  try {
+    const anonymous = await stranger.request.post('https://localhost:3000/api/admin/registrations', { headers, data: query });
+    expect(anonymous.status()).toBe(401);
+    await loginSyntheticOwner(stranger);
+    const forbidden = await stranger.request.post('https://localhost:3000/api/admin/registrations', { headers, data: query });
+    expect(forbidden.status()).toBe(403);
+  } finally { await stranger.close(); }
+  const target = rows[0].id;
+  const decisions = await Promise.all(['approved', 'rejected'].map(status => context.request.patch(`/api/admin/registrations/${target}`, {
+    headers, data: { status, expected_status: 'pending', expected_revision: 0 },
+  })));
+  expect(decisions.map(result => result.status()).sort()).toEqual([200, 409]);
+  const winner = await decisions.find(result => result.status() === 200)!.json();
+  const saved = await service.from('salons').select('status').eq('id', target).single();
+  expect(saved.error).toBeNull(); expect(saved.data?.status).toBe(winner.status);
+  const stale = await context.request.patch(`/api/admin/registrations/${target}`, {
+    headers, data: { status: winner.status === 'approved' ? 'rejected' : 'approved', expected_status: 'pending', expected_revision: 0 },
+  });
+  expect(stale.status()).toBe(409);
+  const reopen = await context.request.patch(`/api/admin/registrations/${target}`, {
+    headers, data: { status: 'pending', expected_status: winner.status, expected_revision: 1 },
+  });
+  expect(reopen.status()).toBe(200);
+  const aba = await context.request.patch(`/api/admin/registrations/${target}`, {
+    headers, data: { status: 'approved', expected_status: 'pending', expected_revision: 0 },
+  });
+  expect(aba.status()).toBe(409);
+  const afterAba = await service.from('salons').select('status,review_revision').eq('id', target).single();
+  expect(afterAba.error).toBeNull(); expect(afterAba.data).toEqual({ status: 'pending', review_revision: 2 });
+  await page.goto('/admin/registrations');
+  await page.getByLabel('検索値', { exact: true }).fill(marker);
+  await page.getByRole('button', { name: '検索する', exact: true }).click();
+  await expect(page.getByText(marker, { exact: true })).toHaveCount(50);
+  await page.getByRole('button', { name: '次の50件' }).click();
+  await expect(page.getByText('2ページ目')).toBeVisible();
+  await expect(page.getByRole('button', { name: '次の50件' })).toBeEnabled();
+  await page.getByRole('button', { name: '次の50件' }).click();
+  await expect(page.getByText(marker, { exact: true })).toHaveCount(25);
+  await expect(page.getByRole('button', { name: '次の50件' })).toBeDisabled();
+  await page.getByRole('button', { name: '前の50件' }).click();
+  await expect(page.getByText(marker, { exact: true })).toHaveCount(50);
+});
+
 async function loginSyntheticOwner(context: BrowserContext) {
   // Runs only after the suite's disposable-target guard. Use the same SSR
   // cookie codec as the app, not a hand-built bearer bypass of its auth layer.

@@ -57,9 +57,9 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
     // remain red until the actual schema and migration history are reconciled.
     Tables: Omit<GeneratedDatabase['public']['Tables'], 'salons'> & {
       salons: Omit<GeneratedDatabase['public']['Tables']['salons'], 'Row' | 'Insert' | 'Update'> & {
-        Row: GeneratedDatabase['public']['Tables']['salons']['Row'] & { claimed_facility_id: string | null };
-        Insert: GeneratedDatabase['public']['Tables']['salons']['Insert'] & { claimed_facility_id?: string | null };
-        Update: GeneratedDatabase['public']['Tables']['salons']['Update'] & { claimed_facility_id?: string | null };
+        Row: GeneratedDatabase['public']['Tables']['salons']['Row'] & { claimed_facility_id: string | null; review_revision: number };
+        Insert: GeneratedDatabase['public']['Tables']['salons']['Insert'] & { claimed_facility_id?: string | null; review_revision?: number };
+        Update: GeneratedDatabase['public']['Tables']['salons']['Update'] & { claimed_facility_id?: string | null; review_revision?: number };
       };
       salon_submission_photos: {
         Row: { id: string; intent_id: string; selection_id: string; slot: number;

@@ -29,6 +29,16 @@ function harness(phase?: 'prepared' | 'attempted' | 'confirmed') {
 const bodies = (request: jest.Mock, path: string) => request.mock.calls
   .filter(([url]) => url === path).map(([, init]) => JSON.parse(init.body));
 
+test('native-style fetch is called without an arbitrary dependency-object receiver', async () => {
+  const { deps, engine } = harness();
+  deps.request.mockImplementation(async function (this: unknown, path: string) {
+    if (this !== undefined) throw new TypeError('Illegal invocation');
+    return path === '/api/salons/prepare' ? prepared() : committed();
+  });
+  expect(await engine.submit(data, [])).toEqual({ state: 'confirmed', receiptId });
+  expect(deps.request).toHaveBeenCalledTimes(2);
+});
+
 test('prepare, persist selector before commit, canonicalize optional numbers, and confirm exactly once', async () => {
   const { deps, engine } = harness();
   deps.request.mockResolvedValueOnce(prepared()).mockImplementationOnce(async () => {

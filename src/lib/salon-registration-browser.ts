@@ -32,7 +32,10 @@ export class SalonRegistrationBrowser {
 
   private async post(path: string, body: unknown) {
     try {
-      const response = await this.deps.request(path, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      // Native Window.fetch rejects an arbitrary object as its receiver.
+      // Detach injected functions rather than invoking them as deps methods.
+      const request = this.deps.request;
+      const response = await request(path, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
       return { status: response.status, ok: response.ok, body: await response.json() };
     } catch { return null; }

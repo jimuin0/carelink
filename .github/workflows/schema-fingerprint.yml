@@ -121,6 +121,9 @@ jobs:
       - name: Atomic facility setup concurrency and lock-time expiry (disposable DB)
         run: node scripts/check-facility-setup-concurrency.mjs
 
+      - name: Registration review revision and ABA fixtures (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/registration-review-fixtures.sql
+
       - name: ズレていたら正しい期待値を成果物として出す
         # 🔴 「再生成してコミットしろ」と言うだけでは、この job と同じメジャーの
         #   PostgreSQL を手元に用意できない人は従えない（実際 2026年8月3日、

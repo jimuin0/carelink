@@ -195,6 +195,15 @@ describeIfConfigured('schema invariants (configured Supabase)', () => {
   //   desired_start_date が date 型に戻った場合、Supabase は error.code='22007' を返し、
   //   `expect(error).toBeNull()` が失敗して本テストが red になる。
   describe('型ドリフト恒久ガード（salons.desired_start_date）', () => {
+    test('申込の施設取込先と審査revision列が存在する（実レコードは取得しない）', async () => {
+      const { data, error } = await anon
+        .from('salons')
+        .select('claimed_facility_id,review_revision')
+        .limit(0);
+      expect(error).toBeNull();
+      expect(data).toEqual([]);
+    });
+
     test('salons.desired_start_date は列挙文字列を受け付ける型である（date へ逆戻りしていない）', async () => {
       const { error } = await anon
         .from('salons')
