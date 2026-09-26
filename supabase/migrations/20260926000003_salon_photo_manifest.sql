@@ -111,8 +111,9 @@ ALTER POLICY "Allow anonymous upload images only" ON storage.objects
     AND (storage.foldername(name))[1]='salons'
     AND storage.extension(name) IN ('jpg','jpeg','png','webp','gif')
   );
-ALTER POLICY "Allow anonymous upload images only" ON storage.objects
-  RENAME TO "salon_legacy_anon_image_insert";
+-- Keep the existing policy name. Supabase's migration role can change the
+-- policy expression, but RENAME requires ownership of storage.objects.
+-- A cosmetic rename must never require elevating that managed-table role.
 -- A logged-in applicant must not fail the same public legacy form. This adds
 -- only the identical image prefix for real authenticated identities.
 CREATE POLICY "salon_legacy_authenticated_image_insert" ON storage.objects

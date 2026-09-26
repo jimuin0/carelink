@@ -103,6 +103,9 @@ function setupDefaultMocks(
     emailSalonError?: unknown;
     // Cookie 経路の取得自体が失敗する。
     cookieSalonError?: unknown;
+    memberLookupError?: unknown;
+    memberLookupNull?: boolean;
+    rejectLookup?: 'membership' | 'email' | 'cookie';
     // CAS がエラー無しで data:null を返す（PostgREST の戻りが想定外の形）。
     salonClaimCasNullData?: boolean;
     // facility_profiles insert がエラー無しで data:null を返す（PostgREST の戻りが想定外の形。
@@ -131,7 +134,10 @@ function setupDefaultMocks(
     ? opts.emailSalonRows
     : (salonData ? [salonData] : []);
   mockSalonStatusNeq = jest.fn().mockReturnValue({
-    order: jest.fn().mockResolvedValue({ data: emailSalonRows, error: opts.emailSalonError ?? null }),
+    order: jest.fn().mockImplementation(async () => {
+      if (opts.rejectLookup === 'email') throw new Error('synthetic-private-contact@example.invalid');
+      return { data: emailSalonRows, error: opts.emailSalonError ?? null };
+    }),
   });
   const mockSalonEmailIs = jest.fn().mockReturnValue({ or: mockSalonStatusNeq });
 
@@ -139,9 +145,9 @@ function setupDefaultMocks(
   // .or(...) → .maybeSingle()
   mockSalonCookieIs = jest.fn().mockReturnValue({
     or: jest.fn().mockReturnValue({
-      maybeSingle: jest.fn().mockResolvedValue({
-        data: cookieSalonData,
-        error: opts.cookieSalonError ?? null,
+      maybeSingle: jest.fn().mockImplementation(async () => {
+        if (opts.rejectLookup === 'cookie') throw new Error('synthetic-private-contact@example.invalid');
+        return { data: cookieSalonData, error: opts.cookieSalonError ?? null };
       }),
     }),
   });
@@ -233,8 +239,10 @@ function setupDefaultMocks(
           select: jest.fn().mockReturnValue({
             eq: jest.fn().mockReturnValue({
               order: jest.fn().mockReturnValue({
-                limit: jest.fn().mockResolvedValue({
-                  data: alreadyOwner ? [{ facility_id: 'fac-existing' }] : [],
+                limit: jest.fn().mockImplementation(async () => {
+                  if (opts.rejectLookup === 'membership') throw new Error('synthetic-private-contact@example.invalid');
+                  return { data: opts.memberLookupNull ? null : alreadyOwner ? [{ facility_id: 'fac-existing' }] : [],
+                    error: opts.memberLookupError ?? null };
                 }),
               }),
             }),
@@ -313,6 +321,40 @@ function makeRequest(body: object = {}, ip = '192.168.1.1', cookieValue?: string
 }
 
 describe('POST /api/facility/setup', () => {
+  test.each([
+    { memberLookupError: { message: 'synthetic-private-contact@example.invalid' } },
+    { memberLookupNull: true },
+    { emailSalonError: { message: 'synthetic-private-contact@example.invalid' } },
+    { emailSalonRows: null },
+    { cookieSalonError: { message: 'synthetic-private-contact@example.invalid' } },
+    { rejectLookup: 'membership' as const }, { rejectLookup: 'email' as const }, { rejectLookup: 'cookie' as const },
+  ])('lookup uncertainty stops all writes and sends without leaking DB details %#', async opts => {
+    setupDefaultMocks(true, false, false, false, false, false, opts);
+    const { alertCaughtError } = require('@/lib/alert');
+    const { writeAuditLog } = require('@/lib/audit-logger');
+    const originalSecret = process.env.ADMIN_COOKIE_SECRET;
+    process.env.ADMIN_COOKIE_SECRET = 'test-admin-cookie-secret';
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const cookie = signSalonClaim('55555555-5555-4555-8555-555555555555')!;
+      const response = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }, '192.168.1.1', cookie) as any);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ code: 'HANDOFF_LOOKUP_UNAVAILABLE', error: '申込情報を確認できませんでした。入力内容を保持したまま、時間をおいて再度お試しください。' });
+      expect(response.cookies.getAll()).toEqual([]);
+      for (const operation of [mockFacilityInsert, mockMemberInsert, mockSalonUpdate, mockPhotoInsert, mockFacilityDelete, sendWelcomeEmail, writeAuditLog]) {
+        expect(operation).not.toHaveBeenCalled();
+      }
+      const report = (alertCaughtError as jest.Mock).mock.calls.at(-1);
+      expect(report).toBeDefined();
+      expect(report[1].message).not.toContain('synthetic-private');
+      expect(consoleSpy.mock.calls.flat().join(' ')).not.toContain('synthetic-private');
+      if ('cookieSalonError' in opts) expect(mockSalonEmailEq).not.toHaveBeenCalledWith('email_canonical', expect.anything());
+    } finally {
+      consoleSpy.mockRestore();
+      if (originalSecret === undefined) delete process.env.ADMIN_COOKIE_SECRET;
+      else process.env.ADMIN_COOKIE_SECRET = originalSecret;
+    }
+  });
   test('CSRF check failed → returns error', async () => {
     (checkCsrf as jest.Mock).mockReturnValue(
       new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 })
@@ -1175,8 +1217,9 @@ describe('POST /api/facility/setup — 所有権 claim（Cookie）', () => {
       userEmail: 'owner@example.com',
     });
     const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
-    // 施設作成自体は続行する（引き継ぎが無いだけで登録は通す）。
-    expect(res.status).toBe(200);
+    // 読取失敗は「申込が無い」証拠ではない。保存前に停止する。
+    expect(res.status).toBe(503);
+    expect(mockFacilityInsert).not.toHaveBeenCalled();
     expect(alertCaughtError).toHaveBeenCalledWith(
       'facility-setup-salon-lookup',
       expect.any(Error),
@@ -1359,7 +1402,7 @@ describe('POST /api/facility/setup — 所有権 claim（Cookie）', () => {
     );
   });
 
-  test('(i-f) Cookie 経路の取得が失敗しても通知され、施設作成は続行する', async () => {
+  test('(i-f) Cookie 経路の取得が失敗したら通知し、施設作成は開始しない', async () => {
     const { alertCaughtError } = require('@/lib/alert');
     (alertCaughtError as jest.Mock).mockClear();
     setupDefaultMocks(true, false, false, false, false, false, {
@@ -1368,7 +1411,8 @@ describe('POST /api/facility/setup — 所有権 claim（Cookie）', () => {
     });
     const cookie = signSalonClaim(COOKIE_SALON_ID)!;
     const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }, '192.168.1.1', cookie) as any);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
+    expect(mockFacilityInsert).not.toHaveBeenCalled();
     expect(alertCaughtError).toHaveBeenCalledWith(
       'facility-setup-salon-lookup',
       expect.any(Error),

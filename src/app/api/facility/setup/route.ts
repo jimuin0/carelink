@@ -32,6 +32,22 @@ const LINE_SYNTHETIC_EMAIL_DOMAIN = '@line.carelink.local';
 
 export const dynamic = 'force-dynamic';
 
+function handoffLookupUnavailable(stage: 'membership' | 'cookie' | 'email') {
+  // Never include provider errors or applicant selectors in public logs/alerts.
+  const cause = new Error(`[facility/setup] handoff lookup unavailable (${stage})`);
+  safeCaptureException(cause, 'facility-setup-salon-lookup');
+  alertCaughtError('facility-setup-salon-lookup', cause, '/api/facility/setup');
+  return NextResponse.json({
+    code: 'HANDOFF_LOOKUP_UNAVAILABLE',
+    error: '申込情報を確認できませんでした。入力内容を保持したまま、時間をおいて再度お試しください。',
+  }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+}
+
+async function handoffRead<T>(query: PromiseLike<{ data: T; error: unknown }>) {
+  try { return await query; }
+  catch { return { data: null, error: true }; }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const csrfError = checkCsrf(request);
@@ -54,14 +70,16 @@ export async function POST(request: NextRequest) {
     // 所属している状態だとガードを素通りして 3 件目を作れてしまう。
     // limit(1) で「1 件でも存在すれば拒否」とし、複数行でも壊れないようにする。
     // 複数施設（チェーン）は運営が手動で facility_members を付与した場合のみ成立する。
-    const { data: existingMembers } = await adminSupabase
+    const { data: existingMembers, error: membershipError } = await handoffRead(adminSupabase
       .from('facility_members')
       .select('facility_id')
       .eq('user_id', user.id)
       .order('created_at', { ascending: true })
-      .limit(1);
+      .limit(1));
 
-    if (existingMembers && existingMembers.length > 0) {
+    if (membershipError || !Array.isArray(existingMembers)) return handoffLookupUnavailable('membership');
+
+    if (existingMembers.length > 0) {
       return NextResponse.json({
         success: true,
         facilityId: existingMembers[0].facility_id,
@@ -111,34 +129,23 @@ export async function POST(request: NextRequest) {
     //   故障そのものなので、必ず error を見て通知する。
     const salonCandidates: SalonRow[] = [];
 
-    const reportSalonLookupFailure = (where: string, err: unknown) => {
-      const cause = new Error(
-        `[facility/setup] salons lookup failed (${where}) — 引き継ぎが無音で失われる。` +
-          `migration 20260820000004(email_canonical) / 20260820000005(claimed_by_user_id) の` +
-          `本番適用状況を scripts/diagnose-handoff-readiness.sql で確認すること。` +
-          `詳細: ${JSON.stringify(err)}`
-      );
-      safeCaptureException(cause, 'facility-setup-salon-lookup');
-      alertCaughtError('facility-setup-salon-lookup', cause, '/api/facility/setup');
-    };
-
     const claimCookieValue = request.cookies.get(SALON_CLAIM_COOKIE_NAME)?.value;
     const claimedSalonIdFromCookie = claimCookieValue ? verifySalonClaim(claimCookieValue) : null;
     if (claimedSalonIdFromCookie) {
-      const { data: cookieSalon, error: cookieSalonErr } = await adminSupabase
+      const { data: cookieSalon, error: cookieSalonErr } = await handoffRead(adminSupabase
         .from('salons')
         .select('*')
         .eq('id', claimedSalonIdFromCookie)
         .is('claimed_by_user_id', null)
         // 運営が却下した申込は引き継がない（メール経路と同じ扱い。下記コメント参照）。
         .or('status.is.null,status.neq.rejected')
-        .maybeSingle();
-      if (cookieSalonErr) reportSalonLookupFailure('cookie', cookieSalonErr);
+        .maybeSingle());
+      if (cookieSalonErr) return handoffLookupUnavailable('cookie');
       if (cookieSalon) salonCandidates.push(cookieSalon);
     }
 
     if (user.email && !isLineSyntheticEmail) {
-      const { data: emailSalons, error: emailSalonsErr } = await adminSupabase
+      const { data: emailSalons, error: emailSalonsErr } = await handoffRead(adminSupabase
         .from('salons')
         .select('*')
         .eq('email_canonical', canonicalizeEmail(user.email))
@@ -150,9 +157,9 @@ export async function POST(request: NextRequest) {
         //   まさにいま潰している「引き継ぎが無音で消える」故障そのものなので、
         //   NULL を明示的に通す形にする。
         .or('status.is.null,status.neq.rejected')
-        .order('created_at', { ascending: false });
-      if (emailSalonsErr) reportSalonLookupFailure('email', emailSalonsErr);
-      for (const row of emailSalons ?? []) salonCandidates.push(row);
+        .order('created_at', { ascending: false }));
+      if (emailSalonsErr || !Array.isArray(emailSalons)) return handoffLookupUnavailable('email');
+      for (const row of emailSalons) salonCandidates.push(row);
     }
 
     // Cookie 経路とメール経路が同じ行を拾うことがあるので id で重複を除き、新しい順に並べる

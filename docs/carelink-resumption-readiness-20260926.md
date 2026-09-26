@@ -336,3 +336,11 @@ photo fixtureにrole／metadata境界／replay／上限／commit後拒否を追�
 実DBからの型生成artifactをCIへ追加した。fingerprint期待値はCI DB生成物と照合して反映する。一方、既存Contractがdatabase.types.tsを本番introspectionの記録として扱うため、local生成型を本番適用証拠として置換して緑にしてはならない。型artifactは候補schemaの照合用であり、本番のschema／履歴／生成型の確認は別途必須である。今回のmigration・SQL fixture・Storage・競合の実行はまだ未完了。本番反映・新受付経路の有効化・merge・deployは行っていない。
 
 `4bc048e8b07ae3716ae5d94c99e15543db3322e1` のschema run `36228213298` は新DB差分で失敗。225migrationを適用した実DB生成artifact `10901362047` を照合し、そのまま期待値へ反映した。SHA-256は `090f640c77a57ff24fedbf89494e03b7c4c614153931490c3458a751287f1c69`。後続fixtureは前段失敗で未実行。CI `36228213290` はUnitの型／snapshot同期1件、Contractの新table／RPC未記録2件で失敗し、E2Eも前提job失敗で未実行だった。E2Eの実行依存をlintのみに分離するが、UnitとContractの合格義務・保護merge gateは維持する。本番未適用の赤を隠さず、独立した使い捨てDB検証を進めるためである。
+
+### 10.11．W2既存setupの読取失敗時停止
+
+原子的claimへの移行とは別に、既存setupの所属照会／申込照会がエラーでも施設INSERTへ進む不具合を局所修正する。REG-08に対応。読取失敗を未登録とみなさず503を返し、profile／member／claim／photo／welcome／auditを開始しない。Cookie由来の照会に失敗した場合はメールfallbackへ進まない。正常な0件と読取失敗を区別する。DBの生エラーに個人情報が含まれる可能性があるため、当該通知は固定された失敗段階だけにする。元の入力・claim Cookieは失敗応答で消さない。既存1owner／メールmergeの正常経路はこの局所修正では変更しないが、後者の撤去と原子性は引き続き未完了である。合成DBエラー／null応答でREDを確認後、no-write・no-send・情報非露出を検証する。
+
+5ケースで修正前200／期待503のREDを確認。修正後はさらに3照会のPromise rejectを捕捉し、生エラーを破棄して同じ固定503とした。network遮断下で89test成功、対象routeのbranches／lines／functionsは100%。型検査と対象lintも成功。独立再レビューは追加指摘0。これは読取障害時の保全だけの証拠であり、成功時writeの原子性を保証するものではない。
+
+`2d5a8f8f34667c72701ea93bf50366f2834d1bc3` のschema run `36228529236` は全fixture成功。20client実lock待機で1receipt・2通知intent、期限跨ぎ20件拒否、27写真から20競合で最大28件を実SQLで確認。CI E2E `108367333872` はfresh Supabaseのmigration003でpolicy RENAMEに42501（storage.objectsのownerが必要）となり未実行。前段WITH CHECKは通過している。不要な名称変更のみ除去し、制約は保持する。権限昇格は行わない。修正後のfresh applyと実Storage検証は次CIで必須とする。
