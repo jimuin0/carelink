@@ -1,6 +1,13 @@
 import { z } from 'zod';
 
 export const SALON_PHOTO_BUCKET = 'carelink-uploads';
+const missingObject = z.object({
+  name: z.literal('StorageApiError'), message: z.literal('Object not found'),
+  status: z.union([z.literal(400), z.literal(404)]), statusCode: z.literal('404'),
+});
+export function isMissingSalonPhoto(error: unknown): boolean {
+  return missingObject.safeParse(error).success;
+}
 const mime = z.enum(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 const extensions = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' } as const;
 

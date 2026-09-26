@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
+import { businessTypes } from '../src/lib/constants';
+
+// Trace captures HTTP Set-Cookie/JSON tokens even with synthetic identities.
+// Do not persist capabilities in retry traces, screenshots or videos.
+test.use({ trace: 'off', screenshot: 'off', video: 'off' });
 
 // Infrastructure contracts, not evidence that the v2 registration UI is wired.
 // No hosted credentials, applicants, emails or business notifications are used.
@@ -185,4 +190,83 @@ test('photo API reconciles the same capability and refuses altered metadata or m
   const wrongOrigin = await request.post('/api/salons/photos', { headers: { ...headers, origin: 'https://foreign.invalid' }, data: input });
   expect(wrongOrigin.status()).toBe(403);
   expect((await contents(upload.path)).equals(png)).toBe(true);
+});
+
+const registration = { facility_name: 'Synthetic CI facility', business_type: businessTypes[0],
+  representative_name: 'Synthetic', contact_name: 'Synthetic', email: 'registration-contract@example.invalid',
+  phone: '09012345678', source: 'register' };
+
+test('atomic registration API returns one receipt and two logical notifications for concurrent retries', async ({ request }) => {
+  const headers = { origin: 'https://localhost:3000', 'x-real-ip': `198.19.${Math.floor(Math.random() * 254)}.${Math.floor(Math.random() * 254)}` };
+  const prep = await request.post('/api/salons/prepare', { headers, data: {} });
+  expect(prep.status()).toBe(201);
+  const { intentId } = await prep.json();
+  const data = { intentId, registration, photoIds: [] };
+  const results = await Promise.all([request.post('/api/salons/commit', { headers, data }), request.post('/api/salons/commit', { headers, data })]);
+  expect(results.map(result => result.status()).sort()).toEqual([200, 201]);
+  const bodies = await Promise.all(results.map(result => result.json()));
+  expect(bodies.map(body => body.state).sort()).toEqual(['committed', 'replay']);
+  const receiptId = bodies[0].receiptId;
+  expect(bodies[1].receiptId).toBe(receiptId);
+  const salons = await service.from('salons').select('id', { count: 'exact', head: true }).eq('id', receiptId);
+  expect(salons.error).toBeNull(); expect(salons.count).toBe(1);
+  const queue = await service.from('webhook_retry_queue').select('notification_kind').eq('registration_id', receiptId);
+  expect(queue.error).toBeNull(); expect(queue.data?.map(row => row.notification_kind).sort()).toEqual(['internal', 'receipt']);
+  const conflict = await request.post('/api/salons/commit', { headers, data: { ...data, registration: { ...registration, facility_name: 'different facility' } } });
+  expect(conflict.status()).toBe(409); expect((await conflict.json()).state).toBe('conflict');
+  const unauthorized = await request.post('/api/salons/commit', { headers: { ...headers, cookie: '' }, data });
+  expect(unauthorized.status()).toBe(403);
+  const wrongOrigin = await request.post('/api/salons/commit', { headers: { ...headers, origin: 'https://foreign.invalid' }, data });
+  expect(wrongOrigin.status()).toBe(403);
+  const status = await request.post('/api/salons/status', { headers, data: { intentId } });
+  expect(status.status()).toBe(200); expect(await status.json()).toEqual({ state: 'committed', receiptId });
+});
+
+test('photo ownership is required and lost commit response is recovered without another application', async ({ page }) => {
+  const headers = { origin: 'https://localhost:3000', 'x-real-ip': `198.19.${Math.floor(Math.random() * 254)}.${Math.floor(Math.random() * 254)}` };
+  const request = page.request;
+  const prep = await request.post('/api/salons/prepare', { headers, data: {} });
+  expect(prep.status()).toBe(201);
+  const { intentId } = await prep.json();
+  const selection = { intentId, selectionId: randomUUID(), slot: 0, mimeType: 'image/png', byteSize: png.length };
+  const photoResponse = await request.post('/api/salons/photos', { headers, data: selection });
+  expect(photoResponse.status()).toBe(200);
+  const photo = await photoResponse.json();
+  expect(photo.state).toBe('upload');
+  if (!isUploadToken(photo.token) || typeof photo.path !== 'string') throw new Error('synthetic upload capability unavailable');
+  const data = { intentId, registration, photoIds: [photo.photoId] };
+  const premature = await request.post('/api/salons/commit', { headers, data });
+  expect(premature.status()).toBe(409); expect((await premature.json()).state).toBe('photo_unverified');
+  const uploaded = await anonymous.storage.from(bucket).uploadToSignedUrl(photo.path, photo.token, png, { contentType: 'image/png' });
+  expect(uploaded.error).toBeNull();
+  const otherPrep = await request.post('/api/salons/prepare', { headers, data: {} });
+  expect(otherPrep.status()).toBe(201);
+  const other = await otherPrep.json();
+  const foreignPhoto = await request.post('/api/salons/commit', { headers, data: { ...data, intentId: other.intentId } });
+  expect(foreignPhoto.status()).toBe(409); expect((await foreignPhoto.json()).state).toBe('photo_unverified');
+  const foreignStatus = await request.post('/api/salons/status', { headers, data: { intentId: other.intentId } });
+  expect(await foreignStatus.json()).toEqual({ state: 'uncommitted' });
+  await page.goto('/register');
+  let committedUpstream = false;
+  await page.route('**/api/salons/commit', async route => {
+    const upstream = await route.fetch();
+    committedUpstream = upstream.status() === 201 && (await upstream.json()).state === 'committed';
+    await route.abort('connectionreset');
+  });
+  const outcome = await page.evaluate(async ({ data, headers }) => {
+    try { await fetch('/api/salons/commit', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); return 'unexpected-response'; }
+    catch { return 'response-lost'; }
+  }, { data, headers });
+  expect(outcome).toBe('response-lost'); expect(committedUpstream).toBe(true);
+  const recovered = await request.post('/api/salons/status', { headers, data: { intentId } });
+  expect(recovered.status()).toBe(200);
+  const status = await recovered.json(); expect(status.state).toBe('committed');
+  const rows = await service.from('salons').select('id,photo_urls').eq('id', status.receiptId);
+  expect(rows.error).toBeNull(); expect(rows.data).toHaveLength(1);
+  expect(rows.data![0].photo_urls).toEqual([service.storage.from(bucket).getPublicUrl(photo.path).data.publicUrl]);
+  const replay = await request.post('/api/salons/commit', { headers, data });
+  expect(replay.status()).toBe(200); expect(await replay.json()).toEqual({ state: 'replay', receiptId: status.receiptId });
+  const count = await service.from('webhook_retry_queue').select('id', { count: 'exact', head: true }).eq('registration_id', status.receiptId);
+  expect(count.error).toBeNull(); expect(count.count).toBe(2);
+  expect((await contents(photo.path)).equals(png)).toBe(true);
 });

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { createServiceRoleClient } from './supabase-server';
 import { isSalonIntentProof, salonIntentProofHash } from './salon-submission-proof';
-import { matchesSalonPhoto, salonPhotoInput, salonPhotoPath, SALON_PHOTO_BUCKET } from './salon-photo-contract';
+import { isMissingSalonPhoto, matchesSalonPhoto, salonPhotoInput, salonPhotoPath, SALON_PHOTO_BUCKET } from './salon-photo-contract';
 
 type Database = ReturnType<typeof createServiceRoleClient>;
 const rejected = z.enum(['unverified', 'expired', 'committed', 'invalid', 'conflict', 'limit']);
@@ -9,10 +9,6 @@ const row = z.discriminatedUnion('outcome', [
   z.object({ outcome: z.literal('prepared'), photo_id: z.uuid(), object_path: z.string() }).strict(),
   z.object({ outcome: rejected, photo_id: z.null(), object_path: z.null() }).strict(),
 ]);
-const missingObject = z.object({
-  name: z.literal('StorageApiError'), message: z.literal('Object not found'),
-  status: z.union([z.literal(400), z.literal(404)]), statusCode: z.literal('404'),
-});
 export type SalonPhotoPreparation =
   | { state: z.infer<typeof rejected> | 'unavailable' }
   | { state: 'uploaded'; photoId: string; path: string }
@@ -45,7 +41,7 @@ export async function prepareSalonPhoto(db: Database, value: unknown, proof: unk
       if (!matchesSalonPhoto(info.data, path, data)) return { state: 'conflict' };
       return { state: 'uploaded', photoId: photo.photo_id, path };
     }
-    if (info.data !== null || !missingObject.safeParse(info.error).success) return { state: 'unavailable' };
+    if (info.data !== null || !isMissingSalonPhoto(info.error)) return { state: 'unavailable' };
     const signed = await storage.createSignedUploadUrl(path, { upsert: false });
     if (signed.error !== null) return { state: 'unavailable' };
     const capability = z.object({ path: z.literal(path), token: z.string().min(1).max(8192) }).safeParse(signed.data);

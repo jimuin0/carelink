@@ -52,7 +52,18 @@ type CreateBookingArgs = Omit<GeneratedCreateBooking['Args'], CreateBookingNulla
 };
 
 export type Database = Omit<GeneratedDatabase, 'public'> & {
-  public: Omit<GeneratedDatabase['public'], 'Functions'> & {
+  public: Omit<GeneratedDatabase['public'], 'Functions' | 'Tables'> & {
+    // Candidate schema only; the production introspection/Contract gate must
+    // remain red until the actual schema and migration history are reconciled.
+    Tables: GeneratedDatabase['public']['Tables'] & {
+      salon_submission_photos: {
+        Row: { id: string; intent_id: string; selection_id: string; slot: number;
+          mime_type: string; byte_size: number; object_path: string; created_at: string };
+        Insert: { intent_id: string; selection_id: string; slot: number; mime_type: string; byte_size: number };
+        Update: never;
+        Relationships: [];
+      };
+    };
     Functions: Omit<GeneratedFunctions, 'create_booking_atomic'> & {
       create_booking_atomic: Omit<GeneratedCreateBooking, 'Args'> & { Args: CreateBookingArgs };
       // Candidate migration 20260926000003. This typed, feature-gated consumer

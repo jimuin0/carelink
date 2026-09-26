@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
+import { businessTypes } from '../lib/constants';
 
 const source = readFileSync(join(process.cwd(), 'e2e/salon-photo-storage.spec.ts'), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -17,7 +18,8 @@ function fixture(env: Record<string, string>) {
   const createUser = jest.fn().mockResolvedValue({ data: { user: { id: 'synthetic' } }, error: null });
   const signInWithPassword = jest.fn().mockResolvedValue({ data: { session: {} }, error: null });
   const createClient = jest.fn().mockReturnValue({ auth: { admin: { createUser }, signInWithPassword } });
-  const test = Object.assign(jest.fn(), { beforeAll: (callback: typeof setup) => { setup = callback; } });
+  const use = jest.fn();
+  const test = Object.assign(jest.fn(), { use, beforeAll: (callback: typeof setup) => { setup = callback; } });
   // Browser tests are registered, never run. No socket/fetch/process capability
   // is supplied; even the positive guard control cannot perform real I/O.
   const exported: { reject?: (error: unknown, operation: string) => void;
@@ -28,11 +30,19 @@ function fixture(env: Record<string, string>) {
       if (name === '@playwright/test') return { test, expect: (value: unknown) => expect(value) };
       if (name === '@supabase/supabase-js') return { createClient };
       if (name === 'node:crypto') return { randomUUID: () => 'synthetic-id' };
+      if (name === '../src/lib/constants') return { businessTypes };
       throw new Error('unexpected fixture import');
     },
   });
-  return { setup, createClient, createUser, signInWithPassword, reject: exported.reject!, duplicate: exported.duplicate!, token: exported.token! };
+  return { setup, use, createClient, createUser, signInWithPassword, reject: exported.reject!, duplicate: exported.duplicate!, token: exported.token! };
 }
+
+test('capability-bearing suite overrides retry trace and media capture before any I/O', () => {
+  const { use, createClient } = fixture(approved);
+  expect(use).toHaveBeenCalledTimes(1);
+  expect(use).toHaveBeenCalledWith({ trace: 'off', screenshot: 'off', video: 'off' });
+  expect(createClient).not.toHaveBeenCalled();
+});
 
 test.each([
   { CI: '' }, { GITHUB_ACTIONS: '' }, { NEXT_PUBLIC_SUPABASE_URL: 'https://production.invalid' },
