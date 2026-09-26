@@ -16,6 +16,7 @@ import { retryTransientSupabaseRead, summarizeDependencyError } from '@/lib/err'
 import { fromEnv, resolveFrom } from '@/lib/email-from';
 import { sendResendForReconciliation } from '@/lib/resend-result';
 import { prepareSalonOutboxDelivery } from '@/lib/salon-outbox-delivery';
+import { prepareFacilityWelcomeDelivery } from '@/lib/facility-welcome-delivery';
 
 export const dynamic = 'force-dynamic';
 
@@ -175,8 +176,11 @@ export async function GET(request: Request) {
         // 送信前に payload と設定を検証する。この段階の失敗には外部効果がないので、
         // scheduleRetry による通常の再試行が安全である。
         let deliver: () => Promise<void>;
-        if (job.webhook_type === 'salon_registration_email' || job.webhook_type === 'salon_registration_internal') {
-          const sendRegistration = await prepareSalonOutboxDelivery(supabase, job, resend);
+        if (job.webhook_type === 'salon_registration_email' || job.webhook_type === 'salon_registration_internal'
+          || job.webhook_type === 'facility_welcome') {
+          const sendRegistration = job.webhook_type === 'facility_welcome'
+            ? await prepareFacilityWelcomeDelivery(supabase, job, resend)
+            : await prepareSalonOutboxDelivery(supabase, job, resend);
           deliver = async () => {
             const outcome = await sendRegistration();
             definitelyRejected = outcome === 'rejected';

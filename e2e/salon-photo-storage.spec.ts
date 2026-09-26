@@ -1,5 +1,6 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type BrowserContext } from '@playwright/test';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createServerClient } from '@supabase/ssr';
 import { randomUUID } from 'node:crypto';
 import { businessTypes } from '../src/lib/constants';
 
@@ -195,6 +196,92 @@ test('photo API reconciles the same capability and refuses altered metadata or m
 const registration = { facility_name: 'Synthetic CI facility', business_type: businessTypes[0],
   representative_name: 'Synthetic', contact_name: 'Synthetic', email: 'registration-contract@example.invalid',
   phone: '09012345678', source: 'register' };
+
+async function loginSyntheticOwner(context: BrowserContext) {
+  // Runs only after the suite's disposable-target guard. Use the same SSR
+  // cookie codec as the app, not a hand-built bearer bypass of its auth layer.
+  const email = `setup-contract-${randomUUID()}@example.invalid`;
+  const password = randomUUID();
+  const created = await service.auth.admin.createUser({ email, password, email_confirm: true });
+  if (created.error || !created.data.user) throw new Error('synthetic setup identity creation failed');
+  const jar = new Map<string, string>();
+  const auth = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+    cookies: {
+      getAll: () => Array.from(jar, ([name, value]) => ({ name, value })),
+      setAll: values => { for (const { name, value } of values) jar.set(name, value); },
+    },
+  });
+  const result = await auth.auth.signInWithPassword({ email, password });
+  if (result.error || !result.data.session) throw new Error('synthetic SSR authentication failed');
+  await context.addCookies(Array.from(jar, ([name, value]) => ({ name, value,
+    url: 'https://localhost:3000', secure: true, httpOnly: true, sameSite: 'Lax' as const })));
+  return { userId: created.data.user.id, email };
+}
+
+test('authenticated setup commits one selected receipt and reconciles a lost response without merging branches', async ({ page, context, browser }) => {
+  const { userId, email } = await loginSyntheticOwner(context);
+  const headers = { origin: 'https://localhost:3000', 'x-real-ip': `198.18.${Math.floor(Math.random() * 254)}.${Math.floor(Math.random() * 254)}` };
+  const request = context.request;
+  const prep = await request.post('/api/salons/prepare', { headers, data: {} });
+  expect(prep.status()).toBe(201);
+  const { intentId } = await prep.json();
+  const receipt = await request.post('/api/salons/commit', { headers, data: { intentId, registration: { ...registration, email }, photoIds: [] } });
+  expect(receipt.status()).toBe(201);
+  const { receiptId } = await receipt.json();
+  const next = await request.post('/api/salons/prepare', { headers, data: {} });
+  expect(next.status()).toBe(201);
+  const otherIntent = (await next.json()).intentId;
+  const second = await request.post('/api/salons/commit', { headers, data: { intentId: otherIntent,
+    registration: { ...registration, email, facility_name: 'Synthetic second branch' }, photoIds: [] } });
+  expect(second.status()).toBe(201);
+  const secondId = (await second.json()).receiptId;
+  const data = { intentId, license_warranted: true };
+  await page.goto('/register');
+  let accepted = false;
+  let facilityId = '';
+  await page.route('**/api/facility/setup', async route => {
+    const response = await route.fetch();
+    const body = await response.json();
+    accepted = response.status() === 201 && body.success === true && body.state === 'created';
+    facilityId = body.facilityId;
+    await route.abort('connectionreset');
+  });
+  const lost = await page.evaluate(async ({ data, headers }) => {
+    try { await fetch('/api/facility/setup', { method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); return false; }
+    catch { return true; }
+  }, { data, headers });
+  expect(lost && accepted, 'transaction must commit before the simulated response loss').toBe(true);
+  const unmerged = await service.from('salons').select('claimed_by_user_id,claimed_facility_id').eq('id', secondId).single();
+  expect(unmerged.error).toBeNull(); expect(unmerged.data).toEqual({ claimed_by_user_id: null, claimed_facility_id: null });
+  const profile = await service.from('facility_profiles').select('name').eq('id', facilityId).single();
+  expect(profile.error).toBeNull(); expect(profile.data?.name).toBe(registration.facility_name);
+  const replays = await Promise.all([request.post('/api/facility/setup', { headers, data }), request.post('/api/facility/setup', { headers, data })]);
+  for (const replay of replays) {
+    expect(replay.status()).toBe(200);
+    expect(await replay.json()).toMatchObject({ state: 'replay', success: true, facilityId });
+  }
+  const member = await service.from('facility_members').select('facility_id,role').eq('user_id', userId);
+  expect(member.error).toBeNull(); expect(member.data).toEqual([{ facility_id: facilityId, role: 'owner' }]);
+  const claim = await service.from('salons').select('claimed_by_user_id,claimed_facility_id').eq('id', receiptId).single();
+  expect(claim.error).toBeNull(); expect(claim.data).toEqual({ claimed_by_user_id: userId, claimed_facility_id: facilityId });
+  const welcome = await service.from('webhook_retry_queue').select('payload').eq('webhook_type', 'facility_welcome').eq('target_id', facilityId);
+  expect(welcome.error).toBeNull(); expect(welcome.data).toEqual([{ payload: { user_id: userId, template_version: 1 } }]);
+  const separate = await request.post('/api/facility/setup', { headers, data: { intentId: otherIntent, license_warranted: true } });
+  expect(separate.status()).toBe(409); expect((await separate.json()).code).toBe('ALREADY_MEMBER');
+  const untouched = await service.from('salons').select('claimed_by_user_id,claimed_facility_id').eq('id', secondId).single();
+  expect(untouched.error).toBeNull(); expect(untouched.data).toEqual({ claimed_by_user_id: null, claimed_facility_id: null });
+  const stranger = await browser.newContext({ ignoreHTTPSErrors: true });
+  try {
+    await loginSyntheticOwner(stranger);
+    const capabilities = (await context.cookies()).filter(cookie => cookie.name === `carelink_salon_intent_${intentId}`);
+    if (capabilities.length !== 1) throw new Error('synthetic selected capability missing');
+    await stranger.addCookies(capabilities);
+    const denied = await stranger.request.post('https://localhost:3000/api/facility/setup', {
+      headers: { ...headers, 'x-real-ip': `198.19.${Math.floor(Math.random() * 254)}.${Math.floor(Math.random() * 254)}` }, data,
+    });
+    expect(denied.status()).toBe(409); expect((await denied.json()).code).toBe('HANDOFF_CONFLICT');
+  } finally { await stranger.close(); }
+});
 
 test('atomic registration API returns one receipt and two logical notifications for concurrent retries', async ({ request }) => {
   const headers = { origin: 'https://localhost:3000', 'x-real-ip': `198.19.${Math.floor(Math.random() * 254)}.${Math.floor(Math.random() * 254)}` };

@@ -4,14 +4,13 @@ import { UUID_REGEX } from '@/lib/constants';
 /**
  * salons への「所有権 claim」を運ぶ HttpOnly Cookie の発行・検証（2026年8月20日 新設）。
  *
- * 【背景】/register の入力を /admin/onboarding が管理画面へ引き継ぐキーは、いまも
- * 「メールの一致（canonical）」だけ（src/app/api/facility/setup/route.ts）。salons.email は
- * 一度も検証されておらず、他人のメールアドレスで申し込むだけで別人の登録内容を横取りできる。
+ * 旧登録フォームの単一申込を、安全に /admin/onboarding へ引き継ぐ。
+ * 未検証の申込メールアドレスは所有権の証明に使わない。
  *
  * salons.id を URL・メールリンクへ載せる案は敵対検証で却下済み（GA4/Clarity/Vercel Analytics・
  * signup の emailRedirectTo・アクセスログへ残るため）。本モジュールは POST /api/salons が
  * 成功した「その場のブラウザ」にだけ、salons.id を運ぶ署名付き HttpOnly Cookie を発行し、
- * /api/facility/setup がそれを最優先の引き継ぎ元として使う。Cookie は JS からも読めず、
+ * /api/facility/setup が v2 intent 未選択時に検証する。Cookie は JS からも読めず、
  * URL・ログ・Referer のどこにも salons.id が露出しない。
  *
  * 【署名方式】src/middleware.ts の signCacheValue / verifyCacheValue を手本にする：
@@ -24,7 +23,7 @@ import { UUID_REGEX } from '@/lib/constants';
  * 生の secret をそのまま HMAC 鍵に使わず、用途ラベル付きで sha256 したものを鍵にする
  * （ドメイン分離＝一方の署名フォーマットが破られても、もう一方の偽造材料にはならない）。
  * 鍵が未設定の環境（ADMIN_COOKIE_SECRET 未設定）では発行も検証もしない（fail-safe）。
- * その場合、呼び出し側（facility/setup）は従来どおりメール一致にのみ倒れる。
+ * 存在するが無効な Cookie は拒否し、メール一致へのフォールバックはしない。
  */
 
 // 他の Cookie（_cm_mbr_* 等）と衝突しない名前。値には salons.id のみを載せる。
@@ -46,7 +45,7 @@ function computeSig(salonId: string, issuedAtEpochSec: number, key: string): str
 
 /**
  * salons.id から署名付き Cookie 値を作る。ADMIN_COOKIE_SECRET 未設定なら null
- * （呼び出し側は Cookie を発行しない＝従来のメール一致のみに倒れる）。
+ * （呼び出し側は Cookie を発行せず、メールによる所有権の推定もしない）。
  */
 export function signSalonClaim(
   salonId: string,
@@ -61,7 +60,7 @@ export function signSalonClaim(
 /**
  * Cookie 値を検証し、正当なら salons.id を返す。以下はすべて null（キャッシュ/Cookie 不成立
  * 扱い）: 鍵未設定・形式不正・salonId が UUID でない・署名不一致・発行時刻から TTL 超過
- * （未来方向のクロックスキューも含む）。呼び出し側は null をメール一致へのフォールバック契機とする。
+ * （未来方向のクロックスキューも含む）。null を他の申込選択へのフォールバックに使わない。
  */
 export function verifySalonClaim(
   cookieVal: string,
@@ -92,4 +91,16 @@ export function verifySalonClaim(
   if (ageSec < 0 || ageSec > SALON_CLAIM_TTL_SECONDS) return null;
 
   return salonId;
+}
+
+/** Preserve the authenticated issue time for expiry checks after DB lock waits.
+ * Do not call this on client JSON; its input is the HttpOnly legacy cookie. */
+export function verifySalonClaimDetails(
+  cookieVal: string, nowEpochSec: number = Math.floor(Date.now() / 1000),
+): { receiptId: string; issuedAt: string } | null {
+  const receiptId = verifySalonClaim(cookieVal, nowEpochSec);
+  if (!receiptId) return null;
+  const issuedAt = Number(cookieVal.split('.')[1]);
+  if (issuedAt + SALON_CLAIM_TTL_SECONDS <= nowEpochSec) return null;
+  return { receiptId, issuedAt: new Date(issuedAt * 1000).toISOString() };
 }

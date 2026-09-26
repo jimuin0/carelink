@@ -68,24 +68,28 @@ function updateChain(error: unknown = null, data: unknown = [{ id: SALON_UUID }]
 
 // unclaim 用: select().eq().maybeSingle() と update().eq() の両方を同じ from() 戻り値に持つ。
 function unclaimChain(opts: {
-  existing?: { id: string; claimed_by_user_id: string | null; claimed_at: string | null } | null;
+  existing?: { id: string; claimed_by_user_id: string | null; claimed_at: string | null; claimed_facility_id: string | null } | null;
   fetchError?: unknown;
   updateError?: unknown;
+  updatedRows?: { id: string }[] | null;
 } = {}) {
   const {
-    existing = { id: SALON_UUID, claimed_by_user_id: '44444444-4444-4444-4444-444444444444', claimed_at: '2026-08-01T00:00:00Z' },
+    existing = { id: SALON_UUID, claimed_by_user_id: '44444444-4444-4444-4444-444444444444', claimed_at: '2026-08-01T00:00:00Z', claimed_facility_id: null },
     fetchError = null,
     updateError = null,
   } = opts;
+  const updateQuery = {
+    eq: jest.fn().mockReturnThis(), is: jest.fn().mockReturnThis(),
+    select: jest.fn(() => Promise.resolve({ data: opts.updatedRows === undefined ? [{ id: SALON_UUID }] : opts.updatedRows, error: updateError })),
+  };
   return {
     select: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
         maybeSingle: jest.fn(() => Promise.resolve({ data: existing, error: fetchError })),
       }),
     }),
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn(() => Promise.resolve({ error: updateError })),
-    }),
+    update: jest.fn().mockReturnValue(updateQuery),
+    updateQuery,
   };
 }
 
@@ -269,6 +273,36 @@ test('PATCH unclaim: 成功 → 200 success:true・claim が null に戻る', as
   expect(json.success).toBe(true);
   // 結果（呼び出し引数だけでなく実際に null で update されたこと）を主張する。
   expect(chain.update).toHaveBeenCalledWith({ claimed_by_user_id: null, claimed_at: null });
+  expect(chain.updateQuery.eq).toHaveBeenCalledWith('claimed_by_user_id', '44444444-4444-4444-4444-444444444444');
+  expect(chain.updateQuery.eq).toHaveBeenCalledWith('claimed_at', '2026-08-01T00:00:00Z');
+  expect(chain.updateQuery.is).toHaveBeenCalledWith('claimed_facility_id', null);
+});
+
+test('PATCH unclaim: linked facility requires coordinated recovery even when auth user is deleted', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  const chain = unclaimChain({ existing: { id: SALON_UUID, claimed_by_user_id: null,
+    claimed_at: '2026-08-01T00:00:00Z', claimed_facility_id: USER_ID } });
+  mockAdminFrom.mockReturnValue(chain);
+  const res = await PATCH(makeRequest({ action: 'unclaim' }), makeProps());
+  expect(res.status).toBe(409); expect(chain.update).not.toHaveBeenCalled();
+  expect(require('@/lib/audit-logger').writeAuditLog).not.toHaveBeenCalled();
+});
+
+test.each([[], null])('PATCH unclaim: zero or unknown CAS result is not success %#', async updatedRows => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue(unclaimChain({ updatedRows }));
+  const res = await PATCH(makeRequest({ action: 'unclaim' }), makeProps());
+  expect(res.status).toBe(409);
+  expect(require('@/lib/audit-logger').writeAuditLog).not.toHaveBeenCalled();
+});
+
+test('PATCH unclaim: previously null legacy fields use SQL IS NULL guards', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  const chain = unclaimChain({ existing: { id: SALON_UUID, claimed_by_user_id: null, claimed_at: null, claimed_facility_id: null } });
+  mockAdminFrom.mockReturnValue(chain);
+  expect((await PATCH(makeRequest({ action: 'unclaim' }), makeProps())).status).toBe(200);
+  expect(chain.updateQuery.is).toHaveBeenCalledWith('claimed_by_user_id', null);
+  expect(chain.updateQuery.is).toHaveBeenCalledWith('claimed_at', null);
 });
 
 test('PATCH unclaim: 成功時に writeAuditLog が呼ばれる（旧値/新値つき）', async () => {

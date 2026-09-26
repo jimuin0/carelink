@@ -106,11 +106,20 @@ jobs:
       - name: Registration photo manifest contracts (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/salon-photo-fixtures.sql
 
+      - name: Published location write invariant (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/published-location-fixtures.sql
+
+      - name: Atomic facility setup roles, claims and rollback (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/facility-setup-fixtures.sql
+
       - name: Registration storage historical upgrade states (disposable DB)
         run: node scripts/check-salon-storage-upgrade.mjs
 
       - name: Registration 20-client concurrency (disposable DB)
         run: node scripts/check-salon-intent-concurrency.mjs
+
+      - name: Atomic facility setup concurrency and lock-time expiry (disposable DB)
+        run: node scripts/check-facility-setup-concurrency.mjs
 
       - name: ズレていたら正しい期待値を成果物として出す
         # 🔴 「再生成してコミットしろ」と言うだけでは、この job と同じメジャーの

@@ -47,6 +47,7 @@ jest.mock('@/lib/alert', () => ({
 }));
 jest.mock('resend');
 jest.mock('@/lib/salon-outbox-delivery');
+jest.mock('@/lib/facility-welcome-delivery');
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
@@ -55,6 +56,7 @@ import { sendLineText } from '@/lib/line';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { GET } from '../route';
 import { prepareSalonOutboxDelivery } from '@/lib/salon-outbox-delivery';
+import { prepareFacilityWelcomeDelivery } from '@/lib/facility-welcome-delivery';
 
 let mockJobsSelect: jest.Mock;
 let mockClaimUpdate: jest.Mock;
@@ -347,10 +349,14 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(scheduleRetry).not.toHaveBeenCalled();
   });
 
-  test.each([[], null])('lost claim marker returns %p: no external send or retry reset', async data => {
-    mockJobsSelect.mockResolvedValue({ data: [{ id: 'registration-job', webhook_type: 'salon_registration_internal', attempt_count: 0 }] });
+  test.each([
+    ['salon_registration_internal', []], ['salon_registration_internal', null],
+    ['facility_welcome', []], ['facility_welcome', null],
+  ])('lost claim marker for %s returns %p: no external send or retry reset', async (webhook_type, data) => {
+    mockJobsSelect.mockResolvedValue({ data: [{ id: 'registration-job', webhook_type, attempt_count: 0 }] });
     const deliver = jest.fn().mockResolvedValue('delivered');
     (prepareSalonOutboxDelivery as jest.Mock).mockResolvedValue(deliver);
+    (prepareFacilityWelcomeDelivery as jest.Mock).mockResolvedValue(deliver);
     mockDeliveryStartUpdate.mockResolvedValue({ data, error: null });
     const res = await GET(makeRequest());
     expect(res.status).toBe(503);
@@ -358,7 +364,7 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(scheduleRetry).not.toHaveBeenCalled();
   });
 
-  test.each(['salon_registration_email', 'salon_registration_internal'])('typed %s is sent only after the durable marker', async webhook_type => {
+  test.each(['salon_registration_email', 'salon_registration_internal', 'facility_welcome'])('typed %s is sent only after the durable marker', async webhook_type => {
     const job = { id: 'registration-job', webhook_type, attempt_count: 0 };
     mockJobsSelect.mockResolvedValue({ data: [job], error: null });
     const deliver = jest.fn(async () => {
@@ -366,6 +372,7 @@ describe('GET /api/cron/webhook-retry', () => {
       return 'delivered';
     });
     (prepareSalonOutboxDelivery as jest.Mock).mockResolvedValue(deliver);
+    (prepareFacilityWelcomeDelivery as jest.Mock).mockResolvedValue(deliver);
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
     expect(deliver).toHaveBeenCalledTimes(1);
@@ -391,6 +398,27 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(mockDeliveryStartUpdate).not.toHaveBeenCalled();
     expect(mockSuccessUpdate).not.toHaveBeenCalled();
     expect(scheduleRetry).toHaveBeenCalledTimes(1);
+  });
+
+  test.each(['rejected', 'uncertain'])('welcome %s uses the existing durable reconciliation contract', async outcome => {
+    mockJobsSelect.mockResolvedValue({ data: [{ id: 'welcome-job', webhook_type: 'facility_welcome', attempt_count: 0 }] });
+    const deliver = jest.fn().mockResolvedValue(outcome);
+    (prepareFacilityWelcomeDelivery as jest.Mock).mockResolvedValue(deliver);
+    const response = await GET(makeRequest());
+    expect(response.status).toBe(outcome === 'uncertain' ? 503 : 200);
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledTimes(outcome === 'rejected' ? 1 : 0);
+  });
+
+  test('ineligible welcome recipient never starts delivery and uses bounded retry', async () => {
+    mockJobsSelect.mockResolvedValue({ data: [{ id: 'welcome-job', webhook_type: 'facility_welcome', attempt_count: 2 }] });
+    (prepareFacilityWelcomeDelivery as jest.Mock).mockRejectedValue(new Error('Facility welcome reference unavailable'));
+    (scheduleRetry as jest.Mock).mockResolvedValue('dead-letter');
+    await GET(makeRequest());
+    expect(mockDeliveryStartUpdate).not.toHaveBeenCalled(); expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledWith('welcome-job', 3, expect.any(String), expect.any(String));
+    expect(alertDeliveryFailures).toHaveBeenCalledWith('webhook-retry', 1, { success: 0 }, 1);
   });
 
   test('failed durable marker prevents the prepared registration send', async () => {

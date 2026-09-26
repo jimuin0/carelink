@@ -124,6 +124,13 @@ describe('onboarding transport and membership recovery', () => {
     expect(mockReplace).not.toHaveBeenCalled(); expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
+  test('HTTP202 preserves the explicit uncertain-result recovery instruction', async () => {
+    mockFetch.mockResolvedValue({ ok: true, status: 202, json: async () => ({ code: 'SETUP_RESULT_UNKNOWN', error: '申込を新しく送信せず、同じ内容で確認してください。' }) });
+    await form(); submit();
+    await screen.findByText('申込を新しく送信せず、同じ内容で確認してください。');
+    expect(mockReplace).not.toHaveBeenCalled(); expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
   test('network rejection leaves the spinner and offers status recheck without retrying POST', async () => {
     mockFetch.mockRejectedValue(new Error('network'));
     await form(); submit();

@@ -409,3 +409,37 @@ REG-03／04／05／16に対応する受付確定APIを追加。inputは事業項
 UI切替、原子的店舗claim、過去台帳の他wave、本番migration実体と履歴／生成型、hosted staging、merge・deploy・実動作は引き続き未完了。今回の局所nodeは全修正完了を意味しない。
 
 最終独立レビューで、写真／受付E2Eがfirst-retry traceへ合成capabilityを保存し得るP2を確認。該当specのtrace／screenshot／videoをoffにし、実specをVM評価するguardで強制する。検証自体は省略しない。実申込・本番資格情報を使用した試験ではなく、本番漏えいを確認したという意味ではない。並行API試験のPromise.allはDB lock重複の証明ではないため、既存20clientの実lock待機試験と併用する。
+
+### 10.18．W2原子的店舗引継ぎの準備計画
+
+対象はREG-06／07／08／13／14／16。現setupの同email全件merge、部分成功後のclaim、best-effort写真引継ぎを置換する。確認済legacy署名Cookieまたはv2 intent capabilityが指す1申込のみを選ぶ。emailは選定・所有権の根拠にしない。Cookieが存在するが無効の場合は黙って新規作成へ倒さず、証明を再取得する復旧状態とする。Cookieもintent選択もない直接onboardingは独立した新規作成として維持する。
+
+- service専用RPC。user IDはサーバーのauth.getUser由来のみ。公開bodyからuser ID、claim ID、公開状態、権限を受け取らない。
+- user ID単位のtransaction advisory lock、v2 intent行lock、salons行lockの順序を固定。intentのproof／期限／receipt対応、salonsの却下／既存claimをtransaction内で再確認する。
+- salonsにclaimed_facility_idのunique FKを追加し、1申込1施設を強制する。既存claimへ推測で紐付けるdata backfillは行わない。
+- 同user・同申込・同facility ownerの再実行だけreplay。既存所属があれば新規施設は作らずalready_member。1user1owner制約は神原さんの明示変更まで維持する。
+- profile、membership、claim、写真参照、許認可audit、歓迎通知intentを1transactionで確定。歓迎通知はqueueに参照ID・template versionのみを置き、workerが所属と受信者の現在状態を確認して送る。partial uniqueで論理通知を一意化し、既存の送達不明保全を再利用する。
+- 新規profileはdraft。未提供住所のNOT NULL列は空文字として不足状態を保持し、実在地域を推測しない。入力制約と公開gateを別々に検証する。
+- 既存user削除はclaimed_by_user_idをNULLにするが、facilityは残る。claimed_facility_idがあるものを未claim扱いしない。新FKに通常削除を連鎖させず、復旧が必要な関連を保持する。
+- admin unclaimは新facility関連があるとき409で単純解除を拒否する。legacy関連なしだけ条件付き更新し、照会後競合・0行を成功扱いしない。既存不整合の復旧は当該実データを限定照合した固定計画が必要。
+
+必須証拠は、同user／同receipt／別receipt／別userの競合、却下との競合、写真／audit／outbox書込み失敗時の全rollback、欠損・他人proof、legacy claimed行、user削除後の関連、直接onboarding、同メール複数店舗の非混合。fresh／upgrade、service／anon／authenticated ACL、実SDK経由のAPI／UIを含める。本番DDLや既存申込への書込みはこの計画記録では実行しない。設計の独立反証と最小SQL実証を経て実装する。
+
+### 10.19．W2実装と現在の検証証拠
+
+3c0f1b6877550f39412d4179d7146d906f9dbb14のCI 36241082510ではproduction build、E2E295件、local Supabase Contract15件がskipなしで成功。Lint／型／Securityも成功。Unitは8183成功・1失敗で、残る失敗はproduction由来生成型とsnapshotの不一致。hosted Contractは15成功・2失敗・16未実行で、新規写真table／RPCの本番未適用を検知した。古いSHAの成功やlocal DBの成功を、本番適用・全体緑の代替にしない。
+
+005は公開状態で都道府県・市区町村・住所の空白を拒否するCHECK、settingsと一括公開の409応答を追加する。新CHECKはNOT VALIDだが以後の更新には適用されるため、本番既存違反の限定集計と事実に基づく解消計画なしに適用しない。既存違反0を確認後にVALIDATEする。JavaScript trim相当の25空白文字をSQL fixtureで照合した。
+
+006は10.18の単一申込RPC、独立claim tombstone、原子的な写真／audit／歓迎outboxを実装する。APIは認証済user IDと確認済Cookieのみを利用し、結果不明を202で返す。旧多段queryと補償削除を廃止したため、その実装順序を前提とするmock testを原子RPC入力・応答契約へ置き換え、各書込み境界の失敗はSQL fixtureで検証する。歓迎通知は現在owner・確認済email・draft/publishedを照合し、送信開始marker後に配送する。削除済／未確認／LINE合成受信者は送信前失敗として既存の有限retry/dead-letterへ進む。送信準備から外部配送までのownershipを分散transactionで保証したという意味ではない。
+
+- 外部ネットワーク遮断・秘密情報なしの4suite178test成功。新規helper2本とsetup APIの測定分岐82/82、functions6/6、lines80/80。全体coverageやCI成功ではない。
+- 全体TypeScript検査成功。対象ESLint成功。検査で発見したdiscriminated unionの型エラー2件は修正後再実行した。
+- 所有者専用0700 Unix socket、TCP listen無効、環境を空にしたPostgreSQL17.7で実migration001/002/003/005/006の構文とfixtureを実行。これは必要列のみの縮小schemaであり、全migration・本番schema parityの証拠ではない。
+- 同申込、同user別20申込、別20user同申込、v1/v2競合、両lockでのlegacy/v2期限切れの8条件×20clientを実際のactive/Lock待機から確認。setup/unclaim競合を含め5施設・5歓迎intentだけが作成された。独立レビューで期限前transaction開始条件と決定的後勝ち解除の証拠不足2件を検出し、開始時刻assertとstale CAS0行を追加した。変更後の完全schema CIは未実行。
+- 006限定静的独立レビューでは追加確定P0〜P3なし。UI／OAuth intent運搬はまだ未完了で、当該結論の対象外。
+- CIの実Supabase/SSR Cookie認証によるsetup・応答消失・replay・同メール別店舗保持・別userのconsumed receipt拒否を追加。実行結果は次SHAで確認する。trace／screenshot／videoはcapability保存防止のためoffで、検証をskipしない。
+
+本番006適用前に新setup consumerをdeployしない。005/006の適用・履歴、型再取得、staging Contract、UI接続、全体監査台帳の再判定、最新SHA必須CI、保護merge、deploy後の実動作確認は未完了。本番データ・Auth/SMTP設定・実メール送信はこの工程で変更していない。
+
+競合証拠補強後、別の新規private socket DBへ同じ縮小schemaと実migrationを適用し、005/006 fixture、歓迎queue不正payload／一意制約、8×20競合、後勝ちCAS0行を再実行して成功した。先行実行の合格を変更後へ流用していない。SSR E2Eについても独立レビューの指摘に従い、認証userと同じ合成emailの2申込を先にcommitしてから1件だけsetupする順序へ変更し、2件目未claimと1件目の施設名保持を照合する。限定再レビューで追加指摘なし。完全schemaのCI、実ブラウザでの追加E2E成功は依然未確認。

@@ -153,7 +153,7 @@ function OnboardingContent() {
       } else {
         // An invalid response can follow a committed transaction. Reload checks
         // membership first; never retry the POST automatically on ambiguity.
-        setError(typeof data?.error === 'string' && !res.ok
+        setError(typeof data?.error === 'string' && data?.success !== true
           ? data.error : '作成結果を確認できませんでした。再読み込みして登録状況を確認してください');
         setStatus('error');
       }

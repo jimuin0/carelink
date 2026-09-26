@@ -55,7 +55,12 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
   public: Omit<GeneratedDatabase['public'], 'Functions' | 'Tables'> & {
     // Candidate schema only; the production introspection/Contract gate must
     // remain red until the actual schema and migration history are reconciled.
-    Tables: GeneratedDatabase['public']['Tables'] & {
+    Tables: Omit<GeneratedDatabase['public']['Tables'], 'salons'> & {
+      salons: Omit<GeneratedDatabase['public']['Tables']['salons'], 'Row' | 'Insert' | 'Update'> & {
+        Row: GeneratedDatabase['public']['Tables']['salons']['Row'] & { claimed_facility_id: string | null };
+        Insert: GeneratedDatabase['public']['Tables']['salons']['Insert'] & { claimed_facility_id?: string | null };
+        Update: GeneratedDatabase['public']['Tables']['salons']['Update'] & { claimed_facility_id?: string | null };
+      };
       salon_submission_photos: {
         Row: { id: string; intent_id: string; selection_id: string; slot: number;
           mime_type: string; byte_size: number; object_path: string; created_at: string };
@@ -74,6 +79,13 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
         Args: { p_intent_id: string; p_proof_hash: string; p_selection_id: string;
           p_slot: number; p_mime_type: string; p_byte_size: number };
         Returns: { outcome: string; photo_id: string | null; object_path: string | null }[];
+      };
+      setup_facility_from_registration: {
+        Args: { p_user_id: string; p_claim_mode: 'none' | 'legacy' | 'intent';
+          p_receipt_id: string | null; p_intent_id: string | null; p_proof_hash: string | null;
+          p_legacy_issued_at: string | null; p_profile: GeneratedDatabase['public']['Tables']['webhook_retry_queue']['Row']['payload'];
+          p_license_warranted: boolean };
+        Returns: { outcome: string; facility_id: string | null; facility_slug: string | null }[];
       };
     };
   };

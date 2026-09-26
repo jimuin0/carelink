@@ -7,7 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { checkPublishReadiness } from '@/lib/facility-publish-gate';
+import { checkPublishReadiness, isPublishedLocationConflict } from '@/lib/facility-publish-gate';
 import { validateFacilityPrText } from '@/lib/medical-ad-guard';
 import type { Database } from '@/types/database.types';
 import { serverError } from '@/lib/with-route';
@@ -145,6 +145,7 @@ export async function PATCH(request: NextRequest) {
       .update({ status: parsed.data.status, updated_at: new Date().toISOString() })
       .eq('id', auth.facilityId);
 
+    if (isPublishedLocationConflict(error)) return NextResponse.json({ error: '所在地が変更されています。都道府県・市区町村・住所を確認して、再度公開してください。' }, { status: 409 });
     if (error) return serverError('admin-settings-status-update', error, '/api/admin/settings');
 
     const { ua } = getRequestContext(request);
@@ -203,6 +204,7 @@ export async function PATCH(request: NextRequest) {
     .update(updatePayload)
     .eq('id', auth.facilityId);
 
+  if (isPublishedLocationConflict(error)) return NextResponse.json({ error: '公開中の施設では都道府県・市区町村・住所を空にできません。先に非公開へ変更してください。' }, { status: 409 });
   if (error) return serverError('admin-settings-patch', error, '/api/admin/settings');
 
   const { ua } = getRequestContext(request);

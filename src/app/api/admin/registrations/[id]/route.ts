@@ -63,7 +63,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     const admin = createServiceRoleClient();
     const { data: existing, error: fetchErr } = await admin
       .from('salons')
-      .select('id, claimed_by_user_id, claimed_at')
+      .select('id, claimed_by_user_id, claimed_at, claimed_facility_id')
       .eq('id', params.id)
       .maybeSingle();
 
@@ -73,14 +73,26 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     if (!existing) {
       return NextResponse.json({ error: '登録が見つかりません' }, { status: 404 });
     }
+    if (existing.claimed_facility_id !== null) {
+      return NextResponse.json({ error: '施設への取り込み済み申込です。所有者・写真・通知を含む整合した復旧が必要なため、ここでは解除できません。' }, { status: 409 });
+    }
 
-    const { error: updateErr } = await admin
+    let update = admin
       .from('salons')
       .update({ claimed_by_user_id: null, claimed_at: null })
-      .eq('id', params.id);
+      .eq('id', params.id)
+      .is('claimed_facility_id', null);
+    update = existing.claimed_by_user_id === null
+      ? update.is('claimed_by_user_id', null) : update.eq('claimed_by_user_id', existing.claimed_by_user_id);
+    update = existing.claimed_at === null
+      ? update.is('claimed_at', null) : update.eq('claimed_at', existing.claimed_at);
+    const { data: updatedRows, error: updateErr } = await update.select('id');
 
     if (updateErr) {
       return serverError('admin-registrations-unclaim-update', updateErr, '/api/admin/registrations/[id]', '更新に失敗しました');
+    }
+    if (updatedRows?.length !== 1) {
+      return NextResponse.json({ error: '申込の状態が変わりました。再読込して確認してください。' }, { status: 409 });
     }
 
     const { ua } = getRequestContext(request);
