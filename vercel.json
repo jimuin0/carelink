@@ -1,4 +1,5 @@
 {
+  "buildCommand": "npm run build",
   "ignoreCommand": "bash scripts/vercel-should-build.sh",
   "rewrites": [
     {

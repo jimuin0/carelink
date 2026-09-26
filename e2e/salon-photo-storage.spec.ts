@@ -72,6 +72,12 @@ test('signed v2 upload is immutable against token replay, update and delete by e
   expect(uploaded.error === null && !!uploaded.data, 'signed synthetic image was not stored').toBe(true);
   const original = await contents(path);
   expect(original.equals(png)).toBe(true);
+  const metadata = await service.storage.from(bucket).info(path);
+  if (metadata.error || !metadata.data) throw new Error('synthetic photo metadata unavailable');
+  expect({ bucketId: metadata.data.bucketId, name: metadata.data.name,
+    size: metadata.data.size, contentType: metadata.data.contentType }).toEqual({
+    bucketId: bucket, name: path, size: png.length, contentType: 'image/png',
+  });
   const replacement = Buffer.concat([png, Buffer.from('replacement')]);
   const replay = await anonymous.storage.from(bucket).uploadToSignedUrl(path, token, replacement, { contentType: 'image/png', upsert: true });
   expectServiceRejection(replay.error, 'immutable token replay');

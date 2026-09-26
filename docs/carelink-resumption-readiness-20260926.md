@@ -344,3 +344,22 @@ photo fixtureにrole／metadata境界／replay／上限／commit後拒否を追�
 5ケースで修正前200／期待503のREDを確認。修正後はさらに3照会のPromise rejectを捕捉し、生エラーを破棄して同じ固定503とした。network遮断下で89test成功、対象routeのbranches／lines／functionsは100%。型検査と対象lintも成功。独立再レビューは追加指摘0。これは読取障害時の保全だけの証拠であり、成功時writeの原子性を保証するものではない。
 
 `2d5a8f8f34667c72701ea93bf50366f2834d1bc3` のschema run `36228529236` は全fixture成功。20client実lock待機で1receipt・2通知intent、期限跨ぎ20件拒否、27写真から20競合で最大28件を実SQLで確認。CI E2E `108367333872` はfresh Supabaseのmigration003でpolicy RENAMEに42501（storage.objectsのownerが必要）となり未実行。前段WITH CHECKは通過している。不要な名称変更のみ除去し、制約は保持する。権限昇格は行わない。修正後のfresh applyと実Storage検証は次CIで必須とする。
+
+### 10.12．W1B写真の署名準備APIと実体照合準備
+
+POSTのintent ID・選択UUID・slot・圧縮後MIME／byte数を厳密検証する。pathと署名tokenはclientから受け取らず、同intentのHttpOnly proofを検証するservice専用RPCの成功1行からのみ導く。DB成功でも返却pathがserver規則と不一致なら署名しない。Storage infoのbucket／name／size／contentTypeを台帳と照合し、既存objectが完全一致する時だけupload済みと返す。404に相当するobject不存在だけ署名準備へ進め、通信障害・5xx・不明な応答を不存在と扱わない。署名はupsert false固定。競合で既にobjectが存在した場合も上書きせず、同選択UUIDの照会へ戻す。署名／DBエラー本文は記録しない。APIは既存v2 flagで閉じ、CSRF／rate limit／no-storeを維持する。実Storageのinfo形状を使い捨てCIで確認してからAPI結合を認定する。選択上限・capability期限・commit後拒否はRPC側が正本である。
+
+入力／path／metadata比較の純粋helperを追加。写真guard・build設定guardを含む3suite70testがnetwork遮断下で成功。SDKのinfo()はrecursiveToCamelを使うことを直接確認した。実Storage E2EにbucketId／name／size／contentTypeのassertを追加したが、実行成功は未確認。独立レビュー追加指摘0。API本体への接続はまだ行っていない。
+
+### 10.13．本番の再照合とbuild修復
+
+2026年9月26日、接続browserの再探索で既存の認証済みCareLink SQL Editorを解決できた。以前のbrowser未接続は現状のblockerではない。SELECTによるschema・policy・migration履歴の限定照合のみ実施。個人情報・申込実データは取得せず、DDL・送信も実施していない。
+
+- PostgreSQL 17.6、intent／photo台帳と両RPCは実体なし。migration 20260926000001〜000003の履歴もなし。
+- carelink-uploadsはpublic、MIMEは4画像形式、bucket固有byte上限はNULL。匿名INSERTは旧Allow anonymous uploadでbucket一致のみ。想定したAllow anonymous upload images onlyは存在しない。
+- 20260420000011は履歴ありだが、上記policy実体が一致しない。20260628000002、20260919000004は限定照会で履歴なし。既存policyに別途適用されたものもあり、履歴欠損だけを理由に古いmigrationを一括再実行しない。
+- queueはdelivery_started_atまでの既存列で、registration_id／notification_kind／template_versionは未作成。salonsのINSERT triggerはon_salon_created_audit。今回の追加migrationはこれら実体とのupgrade照合を追加する必要がある。
+
+HEAD c7b8b6bcのCI 36229069998はfresh applyに成功し、policy RENAMEの失敗は解消。Unit／Contractはphoto型未反映で失敗を維持。E2EはNext16.3.5 Turbopackのfont_file_options_from_query_mapによる内部font URL query解析でproduction buildが失敗し、ブラウザー試験は未実行。成功済み98e5a945以降、font指定／Next設定／依存lock／TLS wrapperに差分なし。外部Google Fonts応答変化が引き金かはログにURL全文がなく未確定。
+
+公式にサポートされたnext build --webpackを通常buildに設定し、Vercelもnpm run buildへ明示してCIとの差を作らない。書体・TLS・CSP・型検査・CI成功条件は維持。根拠はNext.js公式version16移行ガイドと同versionのnext_font/google/mod.rs。build方式の一致testと独立レビューは成功したが、実production build／E2Eの成功は次CIで別途確認する。
