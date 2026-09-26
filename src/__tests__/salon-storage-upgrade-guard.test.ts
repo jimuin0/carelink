@@ -40,6 +40,7 @@ test('upgrade fixture executes the actual migration section and is wired before 
   expect(code).toContain('missing upgrade completion marker');
   expect(code).toContain("'bucket configuration preserved safely'");
   expect(code).toContain("'unrelated Storage policies unchanged'");
+  expect(code).toContain("INSERT INTO storage.buckets(id,name,public,file_size_limit,allowed_mime_types)");
   expect(code).toContain('ROLLBACK;');
   expect(code).not.toMatch(/\bCOMMIT;/);
   const ci = readFileSync(join(process.cwd(), '.github/workflows/schema-fingerprint.yml'), 'utf8');

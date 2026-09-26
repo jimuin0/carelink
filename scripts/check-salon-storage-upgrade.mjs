@@ -55,7 +55,9 @@ DROP POLICY IF EXISTS "Allow anonymous upload images only" ON storage.objects;
     const legacy = name !== 'image-only';
     const imageOnly = name === 'image-only' || name === 'both';
     const strict = name === 'strict-bucket';
-    const setup = `${legacy ? `CREATE POLICY "Allow anonymous upload" ON storage.objects FOR INSERT TO anon WITH CHECK (bucket_id='carelink-uploads');` : ''}
+    const setup = `INSERT INTO storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
+VALUES ('carelink-uploads','carelink-uploads',true,NULL,NULL) ON CONFLICT (id) DO NOTHING;
+${legacy ? `CREATE POLICY "Allow anonymous upload" ON storage.objects FOR INSERT TO anon WITH CHECK (bucket_id='carelink-uploads');` : ''}
 ${imageOnly ? `CREATE POLICY "Allow anonymous upload images only" ON storage.objects FOR INSERT TO anon WITH CHECK (bucket_id='carelink-uploads' AND storage.extension(name) IN ('png','jpg'));` : ''}
 UPDATE storage.buckets SET public=${strict ? 'false' : 'true'},file_size_limit=${strict ? '5242880' : 'NULL'},
   allowed_mime_types=${strict ? "ARRAY['image/png']" : 'NULL'} WHERE id='carelink-uploads';`;
