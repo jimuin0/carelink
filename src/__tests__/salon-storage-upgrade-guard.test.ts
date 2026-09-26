@@ -32,6 +32,9 @@ test('upgrade fixture executes the actual migration section and is wired before 
   expect(code).toContain('20260927000001_salon_signed_upload_cutover.sql');
   expect(code).not.toContain('salon_legacy_authenticated_image_insert');
   expect(code).toContain("current_database() <> 'carelink_shadow'");
+  expect(code).toContain('const expectRejected = (sql, expected, name)');
+  expect(code).toContain('expectRejected(`${guard}${setup}${mime}');
+  expect(code).not.toContain('EXECUTE $migration$');
   expect(code).toContain('ROLLBACK;');
   expect(code).not.toMatch(/\bCOMMIT;/);
   const ci = readFileSync(join(process.cwd(), '.github/workflows/schema-fingerprint.yml'), 'utf8');

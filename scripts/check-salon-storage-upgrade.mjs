@@ -22,6 +22,17 @@ function main() {
     PGUSER: 'postgres', PGPASSWORD: process.env.PGPASSWORD, PGSSLMODE: 'disable' };
   const run = sql => execFileSync('psql', ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-d', 'carelink_shadow'],
     { env, encoding: 'utf8', input: sql, stdio: ['pipe', 'pipe', 'pipe'], timeout: 30000 });
+  const expectRejected = (sql, expected, name) => {
+    try {
+      run(sql);
+    } catch (error) {
+      const stderr = error && typeof error === 'object' && error.stderr
+        ? String(error.stderr).trim() : '';
+      if (stderr.includes(expected)) return;
+      throw new Error(`Storage upgrade ${name} failed for an unexpected reason: ${stderr || 'psql reported no SQL error'}`);
+    }
+    throw new Error(`Storage upgrade ${name} was unexpectedly accepted`);
+  };
   const guard = `BEGIN;
 DO $$ BEGIN
   IF current_database() <> 'carelink_shadow'
@@ -97,24 +108,16 @@ ROLLBACK;`);
     const setup = name === 'missing-policy' ? '' : `CREATE POLICY "Allow anonymous upload" ON storage.objects FOR INSERT TO ${name === 'wrong-role' ? 'authenticated' : 'anon'} WITH CHECK (bucket_id='carelink-uploads');`;
     const mime = name === 'incompatible-mime' ? "UPDATE storage.buckets SET allowed_mime_types=ARRAY['application/pdf'] WHERE id='carelink-uploads';" : '';
     const expected = name === 'incompatible-mime' ? 'registration bucket MIME configuration requires reconciliation' : 'registration upload policy requires reconciliation';
-    // Catch the expected exception inside the transaction, preserving the
-    // distinction from psql failure and proving no partial change escaped.
-    const output = run(`${guard}${setup}${mime}
-DO $case$ BEGIN
-  BEGIN
-    EXECUTE $migration$${section}$migration$;
-    RAISE EXCEPTION 'invalid configuration unexpectedly accepted';
-  EXCEPTION WHEN raise_exception THEN
-    IF SQLERRM <> '${expected}' THEN RAISE; END IF;
-  END;
-END $case$;
-SELECT 'rejection-ok';
-ROLLBACK;`);
-    if (!output.includes('rejection-ok')) throw new Error('missing rejection completion');
+    // Execute the actual multi-statement migration section with psql and
+    // require its explicit guard error. A failed psql transaction is rolled
+    // back when the disposable connection closes.
+    expectRejected(`${guard}${setup}${mime}
+${section}`, expected, name);
     console.log(`Storage upgrade ${name}: explicit rejection passed and rolled back.`);
   }
 }
-try { main(); } catch {
+try { main(); } catch (error) {
+  if (error instanceof Error && error.message.startsWith('Storage upgrade ')) console.error(error.message);
   console.error('Registration storage upgrade contract failed; no production repair was authorized.');
   process.exitCode = 1;
 }
