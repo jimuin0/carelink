@@ -226,3 +226,26 @@ test('返信状態取得に失敗した場合は送信操作を無効にする',
   expect(await screen.findByRole('alert')).toHaveTextContent('送信状況を確認できません');
   expect(screen.getByRole('button', { name: '返信を送信' })).toBeDisabled();
 });
+
+test('予約前の失敗後に空の状態を再確認したら下書き編集ロックを解除する', async () => {
+  jest.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue('44444444-4444-4444-8444-444444444444');
+  mockFetch.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith('/reply') && init?.method === 'POST') {
+      return Promise.resolve(response({ error: 'rate limited' }, false));
+    }
+    return Promise.resolve(String(input).endsWith('/reply') ? response({ reply: null }) : response());
+  });
+
+  render(<Page />);
+  fireEvent.click(await screen.findByText('合成問い合わせ'));
+  const textarea = await screen.findByLabelText('合成問い合わせ 様に返信');
+  fireEvent.change(textarea, { target: { value: '送信前の下書き' } });
+  fireEvent.click(screen.getByRole('button', { name: '返信を送信' }));
+
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledWith(
+    `/api/admin/inquiries/${id}/reply`,
+    expect.objectContaining({ method: 'POST' }),
+  ));
+  await waitFor(() => expect(textarea).toBeEnabled());
+  expect(textarea).toHaveValue('送信前の下書き');
+});

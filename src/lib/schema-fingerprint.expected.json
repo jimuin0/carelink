@@ -2009,6 +2009,7 @@
 "index|bookings|idx_bookings_user|CREATE INDEX idx_bookings_user ON public.bookings USING btree (user_id)",
 "index|contact_replies|contact_replies_pkey|CREATE UNIQUE INDEX contact_replies_pkey ON public.contact_replies USING btree (id)",
 "index|contact_replies|idx_contact_replies_contact|CREATE INDEX idx_contact_replies_contact ON public.contact_replies USING btree (contact_id, created_at)",
+"index|contact_replies|idx_contact_replies_one_pending_external|CREATE UNIQUE INDEX idx_contact_replies_one_pending_external ON public.contact_replies USING btree (contact_id) WHERE ((is_internal = false) AND (sent_at IS NULL))",
 "index|contacts|contacts_pkey|CREATE UNIQUE INDEX contacts_pkey ON public.contacts USING btree (id)",
 "index|contacts|idx_contacts_priority|CREATE INDEX idx_contacts_priority ON public.contacts USING btree (priority, ticket_status)",
 "index|contacts|idx_contacts_ticket_status|CREATE INDEX idx_contacts_ticket_status ON public.contacts USING btree (ticket_status, created_at DESC)",

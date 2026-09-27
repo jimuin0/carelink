@@ -205,6 +205,12 @@ export default function AdminInquiriesPage() {
       } else if (state?.sentAt) {
         delete replyOperationIds.current[id];
         setReplyDraftLocked((current) => ({ ...current, [id]: false }));
+      } else {
+        // A rejected request can fail before its reservation reaches the database.
+        // Once a fresh status read confirms that no operation exists, let the admin
+        // edit the draft and discard the operation ID that was never persisted.
+        delete replyOperationIds.current[id];
+        setReplyDraftLocked((current) => ({ ...current, [id]: false }));
       }
       setReplyStates((current) => ({ ...current, [id]: { loading: false, failed: false, reply: state } }));
     } catch {
