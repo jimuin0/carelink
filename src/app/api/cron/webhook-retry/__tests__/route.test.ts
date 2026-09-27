@@ -63,6 +63,7 @@ let mockClaimUpdate: jest.Mock;
 let mockSuccessUpdate: jest.Mock;
 let mockReclaimUpdate: jest.Mock;
 let mockDeliveryStartUpdate: jest.Mock;
+let mockQuarantineUpdate: jest.Mock;
 let mockQueuePendingEq: jest.Mock;
 let mockHeldDeliveryLt: jest.Mock;
 let mockTableUpdateDispatch: jest.Mock;
@@ -108,14 +109,17 @@ function makeWebhookRetryQueueTable(overrides: {
   successUpdate: jest.Mock;
   reclaimUpdate: jest.Mock;
   deliveryStartUpdate?: jest.Mock;
+  quarantineUpdate?: jest.Mock;
   heldDeliveryLt?: jest.Mock;
   queuePendingEq: jest.Mock;
 }) {
   const deliveryStartUpdate = overrides.deliveryStartUpdate ?? jest.fn().mockResolvedValue({ data: [{ id: 'fixture' }], error: null });
+  const quarantineUpdate = overrides.quarantineUpdate ?? jest.fn().mockResolvedValue({ data: [{ id: 'fixture' }], error: null });
   const heldDeliveryLt = overrides.heldDeliveryLt ?? jest.fn().mockResolvedValue({ count: 0, error: null });
   const updateDispatch = jest.fn((data: any) => {
     if (data.status === 'processing') return overrides.claimUpdate(data);
     if (data.status === 'success') return overrides.successUpdate(data);
+    if (data.status === 'failed') return mutationChain(quarantineUpdate);
     if ('delivery_started_at' in data && data.delivery_started_at !== null) {
       return mutationChain(deliveryStartUpdate);
     }
@@ -217,6 +221,7 @@ function setupDefaultMocks(
   })));
 
   mockDeliveryStartUpdate = jest.fn().mockResolvedValue({ data: [{ id: 'fixture' }], error: null });
+  mockQuarantineUpdate = jest.fn().mockResolvedValue({ data: [{ id: 'fixture' }], error: null });
 
   // stale processing 再回収 update(...).eq('status','processing').or(filterString)
   mockReclaimUpdate = jest.fn().mockResolvedValue({
@@ -237,6 +242,7 @@ function setupDefaultMocks(
     successUpdate: mockSuccessUpdate,
     reclaimUpdate: mockReclaimUpdate,
     deliveryStartUpdate: mockDeliveryStartUpdate,
+    quarantineUpdate: mockQuarantineUpdate,
     heldDeliveryLt: mockHeldDeliveryLt,
     queuePendingEq: mockQueuePendingEq,
   });
@@ -719,6 +725,88 @@ describe('GET /api/cron/webhook-retry', () => {
 
     expect(Resend).toHaveBeenCalled();
   });
+
+  test('旧形式の問い合わせ返信queueは送信せずmanual reconciliation用に隔離する', async () => {
+    mockJobsSelect.mockResolvedValue({ data: [{
+      id: 'legacy-inquiry-reply',
+      webhook_type: 'email',
+      payload: {
+        to: 'synthetic@example.invalid',
+        subject: '【CareLink】お問い合わせへのご返信',
+        html: '<p>synthetic</p>',
+      },
+      status: 'pending',
+      attempt_count: 0,
+      scheduled_at: new Date(Date.now() - 1000).toISOString(),
+    }] });
+    const resendSend = jest.fn();
+    const { Resend } = require('resend');
+    Resend.mockImplementation(() => ({ emails: { send: resendSend } }));
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    expect(resendSend).not.toHaveBeenCalled();
+    expect(mockDeliveryStartUpdate).not.toHaveBeenCalled();
+    expect(mockQuarantineUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'legacy-inquiry-reply',
+      status: 'processing',
+      claimed_at: expect.any(String),
+      delivery_started_at: null,
+    }));
+    expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['rescheduled', 200, 0, 1],
+    ['dead-letter', 200, 1, 1],
+    ['uncertain', 503, 0, 0],
+  ] as const)(
+    '旧返信の隔離更新が確定しない場合も送信せず再試行結果 %s を反映する',
+    async (outcome, expectedStatus, expectedDeadLettered, expectedFailed) => {
+      setupDefaultMocks(1);
+      mockJobsSelect.mockResolvedValue({ data: [{
+        id: 'legacy-inquiry-reply',
+        webhook_type: 'email',
+        payload: {
+          to: 'synthetic@example.invalid',
+          subject: '【CareLink】お問い合わせへのご返信',
+          html: '<p>synthetic</p>',
+        },
+        status: 'pending',
+        attempt_count: 0,
+        scheduled_at: new Date(Date.now() - 1000).toISOString(),
+      }] });
+      mockQuarantineUpdate.mockResolvedValueOnce({ data: [], error: null });
+      (scheduleRetry as jest.Mock).mockResolvedValueOnce(outcome);
+      const resendSend = jest.fn();
+      const { Resend } = require('resend');
+      Resend.mockImplementation(() => ({ emails: { send: resendSend } }));
+
+      const res = await GET(makeRequest() as any);
+      const json = await res.json();
+
+      expect(res.status).toBe(expectedStatus);
+      expect(resendSend).not.toHaveBeenCalled();
+      expect(scheduleRetry).toHaveBeenCalledWith(
+        'legacy-inquiry-reply', 1, 'legacy_inquiry_reply_quarantine_not_confirmed', expect.any(String),
+      );
+      if (outcome === 'uncertain') {
+        expect(json.delivery_uncertain).toBe(1);
+        expect(logCronRun).toHaveBeenCalledWith(
+          'webhook-retry', 'error', expect.any(Date), expect.objectContaining({
+            error_msg: expect.stringContaining('結果記録が不明'),
+          }),
+        );
+      } else {
+        expect(json.skipped).toBe(expectedFailed);
+        expect(alertDeliveryFailures).toHaveBeenCalledWith(
+          'webhook-retry', expectedFailed, { success: 0 }, expectedDeadLettered,
+        );
+      }
+    },
+  );
 
   test('success → updates status=success・delivered_at・attempt_count++', async () => {
     setupDefaultMocks(1);

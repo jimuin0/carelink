@@ -157,9 +157,6 @@ const QUEUEABLE_EMAIL_CONTEXTS = new Set([
   'new_review_notification',
   'new_inquiry_notification',
   'welcome',
-  // 問い合わせへの返信は「送ったつもりで届いていない」が最も致命的（相手は返事を待ち続ける）。
-  // 失敗時は webhook-retry cron に載せて自動再送する（2026年7月28日 追加）。
-  'inquiry_reply',
 ]);
 
 /**
@@ -181,12 +178,18 @@ function toQueuePayload(
  * 「失敗時は翌 run で再送」する cron（onboarding-followup / favorites-digest）は、この戻り値で
  * 実際の送達可否を判定する。再throwすると他の一括送信が巻き込まれて止まるため throw はしない。
  */
-async function safeSend(resend: Resend, params: Parameters<Resend['emails']['send']>[0], context: string): Promise<boolean> {
+async function safeSend(
+  resend: Resend,
+  params: Parameters<Resend['emails']['send']>[0],
+  context: string,
+  options: { idempotencyKey?: string; requireMessageId?: boolean; redactFailureDetails?: boolean } = {},
+): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const fail = (detail: string): false => {
-    safeCaptureException(new Error(`resend send failed: ${detail}`), `email:${context}`);
+    const safeDetail = options.redactFailureDetails ? 'provider outcome not confirmed' : detail;
+    safeCaptureException(new Error(`resend send failed: ${safeDetail}`), `email:${context}`);
     if (!BULK_AGGREGATED_CONTEXTS.has(context)) {
-      postAlert({ level: 'error', message: `メール送信失敗(${context}): ${detail}`, route: `email:${context}`, env: process.env.VERCEL_ENV });
+      postAlert({ level: 'error', message: `メール送信失敗(${context}): ${safeDetail}`, route: `email:${context}`, env: process.env.VERCEL_ENV });
     }
     // 送信失敗を webhook_retry_queue に積み、15分毎の webhook-retry cron に自動再送させる
     // （対象 context のみ・enqueueWebhook 自体は DB 失敗を握り潰す fire-and-forget 契約のため
@@ -205,7 +208,9 @@ async function safeSend(resend: Resend, params: Parameters<Resend['emails']['sen
       // resend-checked: Promise.race に包んでいるため sendResendChecked/throwIfResendError の
       // 引数位置には直接ネストできない。直後の `if (result && result.error)` で自前に検査し、
       // fail() へ渡している（result.error 未検査のまま返す経路は無い）。
-      resend.emails.send(params),
+      options.idempotencyKey
+        ? resend.emails.send(params, { idempotencyKey: options.idempotencyKey })
+        : resend.emails.send(params),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error('resend send timeout (10s)')), 10_000);
       }),
@@ -217,6 +222,10 @@ async function safeSend(resend: Resend, params: Parameters<Resend['emails']['sen
     if (result && result.error) {
       const err = result.error as { statusCode?: number; name?: string; message?: string };
       return fail(`${err.statusCode ?? ''} ${err.name ?? ''} ${err.message ?? JSON.stringify(result.error)}`.trim());
+    }
+    if (options.requireMessageId) {
+      const data = result && result.data as { id?: unknown } | null | undefined;
+      if (!data || typeof data.id !== 'string' || data.id.length === 0) return fail('provider response missing message id');
     }
     return true;
   } catch (e) {
@@ -442,6 +451,7 @@ export async function sendInquiryReply(data: {
   to: string;
   inquirerName: string;
   body: string;
+  idempotencyKey: string;
   replyTo?: string;
 }): Promise<boolean> {
   const resend = getResend();
@@ -458,7 +468,11 @@ export async function sendInquiryReply(data: {
       <div style="white-space:pre-wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:16px 0;">${esc(data.body)}</div>
       <p style="color:#64748b;font-size:13px;">このメールにそのまま返信していただけます。</p>
     `),
-  }, 'inquiry_reply');
+  }, 'inquiry_reply', {
+    idempotencyKey: data.idempotencyKey,
+    requireMessageId: true,
+    redactFailureDetails: true,
+  });
 }
 
 export async function sendNewInquiryNotification(data: {

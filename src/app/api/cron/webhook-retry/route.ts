@@ -173,6 +173,48 @@ export async function GET(request: Request) {
       let deliveryAttempted = false;
       let definitelyRejected = false;
       try {
+        const payload = job.payload;
+        const legacyInquiryReply = job.webhook_type === 'email'
+          && typeof payload === 'object'
+          && payload !== null
+          && !Array.isArray(payload)
+          && (payload as { subject?: unknown }).subject === '【CareLink】お問い合わせへのご返信';
+        if (legacyInquiryReply) {
+          // Historical reply jobs have no durable contact_replies operation ID and no
+          // provider idempotency key. They may already have been accepted before the
+          // original request timed out, so never replay these customer-facing messages.
+          const { data: quarantinedRows, error: quarantineError } = await supabase
+            .from('webhook_retry_queue')
+            .update({
+              status: 'failed',
+              attempt_count: job.attempt_count + 1,
+              last_error: 'legacy_inquiry_reply_requires_manual_reconciliation',
+              processed_at: new Date().toISOString(),
+            })
+            .eq('id', job.id)
+            .eq('status', 'processing')
+            .eq('claimed_at', claimEpoch)
+            .is('delivery_started_at', null)
+            .select('id');
+          if (quarantineError || quarantinedRows?.length !== 1) {
+            const outcome = await scheduleRetry(
+              job.id,
+              job.attempt_count + 1,
+              'legacy_inquiry_reply_quarantine_not_confirmed',
+              claimEpoch,
+            );
+            if (outcome === 'uncertain') deliveryUncertain++;
+            else {
+              if (outcome === 'dead-letter') deadLettered++;
+              failed++;
+            }
+          } else {
+            failed++;
+            deadLettered++;
+          }
+          continue;
+        }
+
         // 送信前に payload と設定を検証する。この段階の失敗には外部効果がないので、
         // scheduleRetry による通常の再試行が安全である。
         let deliver: () => Promise<void>;

@@ -7,6 +7,16 @@ import { inquiryListResponse, type InquiryListRow } from '@/lib/admin-inquiry-li
 
 type InquiryCursor = { createdAt: string | null; id: string };
 type Contact = InquiryListRow;
+type ReplyStatus = {
+  loading: boolean;
+  failed: boolean;
+  reply: null | {
+    operationId: string;
+    body: string;
+    sentAt: string | null;
+    retryable: boolean;
+  };
+};
 
 const TICKET_STATUS_CONFIG = {
   open:        { label: '新着', className: 'bg-sky-100 text-sky-700' },
@@ -37,8 +47,15 @@ export default function AdminInquiriesPage() {
   // 返信本文（問い合わせIDごと）と送信中の対象。
   const [replyBodies, setReplyBodies] = useState<Record<string, string>>({});
   const [replyingId, setReplyingId] = useState<string | null>(null);
+  const [replyStates, setReplyStates] = useState<Record<string, ReplyStatus>>({});
+  const [replyDraftLocked, setReplyDraftLocked] = useState<Record<string, boolean>>({});
+  const replyOperationIds = useRef<Record<string, string>>({});
+  const replyStatusSequences = useRef<Record<string, number>>({});
   const listRequestSequence = useRef(0);
   const activeListRequest = useRef<AbortController | null>(null);
+  const statusFilterRef = useRef(statusFilter);
+  const pageMounted = useRef(false);
+  const replyStatusMounted = useRef(false);
 
   const beginListRequest = useCallback(() => {
     activeListRequest.current?.abort();
@@ -48,13 +65,13 @@ export default function AdminInquiriesPage() {
     return { controller, sequence };
   }, []);
 
-  const fetchPage = useCallback(async (cursor: InquiryCursor | null, signal: AbortSignal) => {
-    const params = new URLSearchParams({ status: statusFilter || 'all' });
+  const fetchPage = useCallback(async (cursor: InquiryCursor | null, signal: AbortSignal, filter: string) => {
+    const params = new URLSearchParams({ status: filter || 'all' });
     if (cursor) params.set('cursor', JSON.stringify(cursor));
     const response = await fetch(`/api/admin/inquiries?${params.toString()}`, { cache: 'no-store', signal });
     if (!response.ok) throw new Error('問い合わせの読み込みに失敗しました');
     return inquiryListResponse.parse(await response.json());
-  }, [statusFilter]);
+  }, []);
 
   const load = useCallback(async () => {
     const { controller, sequence } = beginListRequest();
@@ -63,7 +80,7 @@ export default function AdminInquiriesPage() {
     setLoadError(false);
     setNextCursor(null);
     try {
-      const data = await fetchPage(null, controller.signal);
+      const data = await fetchPage(null, controller.signal, statusFilterRef.current);
       if (sequence !== listRequestSequence.current) return;
       setContacts(data.contacts);
       setNextCursor(data.nextCursor);
@@ -82,7 +99,7 @@ export default function AdminInquiriesPage() {
     const { controller, sequence } = beginListRequest();
     setLoadingMore(true);
     try {
-      const data = await fetchPage(nextCursor, controller.signal);
+      const data = await fetchPage(nextCursor, controller.signal, statusFilterRef.current);
       if (sequence !== listRequestSequence.current) return;
       setContacts((current) => [...current, ...data.contacts]);
       setNextCursor(data.nextCursor);
@@ -100,17 +117,30 @@ export default function AdminInquiriesPage() {
 
   useEffect(() => {
     let active = true;
+    pageMounted.current = true;
     void Promise.resolve().then(() => {
       if (active) return load();
       return undefined;
     });
     return () => {
       active = false;
+      pageMounted.current = false;
       listRequestSequence.current += 1;
       activeListRequest.current?.abort();
       activeListRequest.current = null;
     };
-  }, [load]);
+  }, [load, statusFilter]);
+
+  useEffect(() => {
+    replyStatusMounted.current = true;
+    const sequences = replyStatusSequences.current;
+    return () => {
+      replyStatusMounted.current = false;
+      for (const id of Object.keys(sequences)) {
+        sequences[id] += 1;
+      }
+    };
+  }, []);
 
   const updateTicket = async (
     id: string,
@@ -125,15 +155,62 @@ export default function AdminInquiriesPage() {
         body: JSON.stringify(updates),
       });
       if (!res.ok) {
-        setToast({ type: 'error', message: '更新に失敗しました' });
+        if (pageMounted.current) setToast({ type: 'error', message: '更新に失敗しました' });
         return;
       }
+      if (!pageMounted.current) return;
       setToast({ type: 'success', message: '更新しました' });
       await load();
     } catch {
-      setToast({ type: 'error', message: '更新に失敗しました。通信状況を確認して再試行してください' });
+      if (pageMounted.current) {
+        setToast({ type: 'error', message: '更新に失敗しました。通信状況を確認して再試行してください' });
+      }
     } finally {
-      setSavingId(null);
+      if (pageMounted.current) setSavingId(null);
+    }
+  };
+
+  const loadReplyStatus = async (id: string) => {
+    const sequence = (replyStatusSequences.current[id] ?? 0) + 1;
+    replyStatusSequences.current[id] = sequence;
+    setReplyStates((current) => ({
+      ...current,
+      [id]: { loading: true, failed: false, reply: current[id]?.reply ?? null },
+    }));
+    try {
+      const response = await fetch('/api/admin/inquiries/' + id + '/reply', { cache: 'no-store' });
+      const data = await response.json().catch(() => null);
+      if (!replyStatusMounted.current || replyStatusSequences.current[id] !== sequence) return;
+      const reply = data?.reply;
+      if (!response.ok || (reply !== null && (
+        typeof reply !== 'object'
+        || typeof reply.operationId !== 'string'
+        || typeof reply.body !== 'string'
+        || !(reply.sentAt === null || typeof reply.sentAt === 'string')
+        || typeof reply.retryable !== 'boolean'
+      ))) {
+        setReplyStates((current) => ({ ...current, [id]: { loading: false, failed: true, reply: current[id]?.reply ?? null } }));
+        return;
+      }
+      const state: ReplyStatus['reply'] = reply ? {
+        operationId: reply.operationId,
+        body: reply.body,
+        sentAt: reply.sentAt,
+        retryable: reply.retryable,
+      } : null;
+      if (state && !state.sentAt) {
+        replyOperationIds.current[id] = state.operationId;
+        setReplyDraftLocked((current) => ({ ...current, [id]: true }));
+        setReplyBodies((current) => ({ ...current, [id]: state.body }));
+      } else if (state?.sentAt) {
+        delete replyOperationIds.current[id];
+        setReplyDraftLocked((current) => ({ ...current, [id]: false }));
+      }
+      setReplyStates((current) => ({ ...current, [id]: { loading: false, failed: false, reply: state } }));
+    } catch {
+      if (replyStatusMounted.current && replyStatusSequences.current[id] === sequence) {
+        setReplyStates((current) => ({ ...current, [id]: { loading: false, failed: true, reply: current[id]?.reply ?? null } }));
+      }
     }
   };
 
@@ -146,28 +223,51 @@ export default function AdminInquiriesPage() {
   const sendReply = async (id: string) => {
     const body = (replyBodies[id] ?? '').trim();
     if (!body || replyingId) return;
+    const operationId = replyOperationIds.current[id] ?? crypto.randomUUID();
+    replyOperationIds.current[id] = operationId;
+    setReplyDraftLocked((current) => ({ ...current, [id]: true }));
     setReplyingId(id);
     try {
       const res = await fetch(`/api/admin/inquiries/${id}/reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({ body, operationId }),
       });
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
         // 送信失敗時は本文を消さない（書き直しをさせない）。
-        const data = await res.json().catch(() => null);
-        setToast({ type: 'error', message: data?.error || '返信の送信に失敗しました' });
+        if (pageMounted.current) {
+          setToast({ type: 'error', message: data?.error || '返信の送信に失敗しました' });
+          await loadReplyStatus(id);
+        }
         return;
       }
-      setToast({ type: 'success', message: '返信を送信しました' });
+      if (!pageMounted.current) return;
+      if (data?.ok !== true) {
+        setToast({ type: 'error', message: '送信結果を確認できません。重複防止のため送信状態を再読み込みしてください' });
+        await loadReplyStatus(id);
+        return;
+      }
+      setToast({
+        type: data.warning ? 'error' : 'success',
+        message: data.warning
+          ? 'メールは送信済みですが、チケット状態を更新できませんでした。送信は再実行されません'
+          : '返信を送信しました',
+      });
       setReplyBodies((prev) => ({ ...prev, [id]: '' }));
+      delete replyOperationIds.current[id];
+      setReplyDraftLocked((current) => ({ ...current, [id]: false }));
+      await loadReplyStatus(id);
       await load();
     } catch {
       // Keep the draft if the result is unknown. Do not make an automatic retry
       // because the provider may have accepted the message before the timeout.
-      setToast({ type: 'error', message: '送信結果を確認できません。重複送信を避けるため再送せず、送信状況を確認してください' });
+      if (pageMounted.current) {
+        setToast({ type: 'error', message: '送信結果を確認できません。重複送信を避けるため再送せず、送信状況を確認してください' });
+        await loadReplyStatus(id);
+      }
     } finally {
-      setReplyingId(null);
+      if (pageMounted.current) setReplyingId(null);
     }
   };
 
@@ -193,7 +293,10 @@ export default function AdminInquiriesPage() {
           <button
             type="button"
             key={s}
-            onClick={() => setStatusFilter(s)}
+            onClick={() => {
+              statusFilterRef.current = s;
+              setStatusFilter(s);
+            }}
             className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
               statusFilter === s
                 ? 'bg-sky-500 text-white'
@@ -223,7 +326,14 @@ export default function AdminInquiriesPage() {
               {/* ヘッダー行 */}
               <div
                 className="flex items-start gap-3 p-4 cursor-pointer hover:bg-gray-50 transition-colors"
-                onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}
+                onClick={() => {
+                  if (expandedId === c.id) {
+                    setExpandedId(null);
+                  } else {
+                    setExpandedId(c.id);
+                    void loadReplyStatus(c.id);
+                  }
+                }}
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
@@ -341,14 +451,48 @@ export default function AdminInquiriesPage() {
                   {/* 返信フォーム（CareLink から直接送信・差出人は運営アドレスに固定） */}
                   {c.email ? (
                     <div className="border-t border-gray-100 pt-4">
-                      <label htmlFor={`reply-${c.id}`} className="block text-xs font-bold text-gray-600 mb-1.5">
+                      {replyStates[c.id]?.loading && (
+                        <p role="status" className="mb-3 text-xs text-gray-500">返信履歴を確認しています...</p>
+                      )}
+                      {replyStates[c.id]?.failed && (
+                        <div role="alert" className="mb-3 flex items-center gap-2 text-xs text-red-700">
+                          <span>送信状況を確認できません。確認できるまで返信送信を停止しています。</span>
+                          <button type="button" onClick={() => void loadReplyStatus(c.id)} className="underline">再読み込み</button>
+                        </div>
+                      )}
+                      {replyStates[c.id]?.reply?.sentAt && (
+                        <div className="mb-3 rounded-lg bg-emerald-50 p-3 text-xs text-emerald-900">
+                          <p className="font-semibold">前回の返信（送信記録あり）</p>
+                          <p className="mt-1 whitespace-pre-wrap">{replyStates[c.id].reply?.body}</p>
+                        </div>
+                      )}
+                      {replyStates[c.id]?.reply && !replyStates[c.id].reply?.sentAt && (
+                        <div role="status" className="mb-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">
+                          <p className="font-semibold">送信結果が未確定の返信があります</p>
+                          <p className="mt-1 whitespace-pre-wrap">{replyStates[c.id].reply?.body}</p>
+                          <p className="mt-1">
+                            {replyStates[c.id].reply?.retryable
+                              ? '本文と同じ操作IDを維持して再試行できます。'
+                              : '冪等保持期間を過ぎたため自動再送できません。送信記録の確認が必要です。'}
+                          </p>
+                        </div>
+                      )}
+                      <label htmlFor={'reply-' + c.id} className="block text-xs font-bold text-gray-600 mb-1.5">
                         {c.name} 様に返信
                       </label>
                       <textarea
-                        id={`reply-${c.id}`}
+                        id={'reply-' + c.id}
                         value={replyBodies[c.id] ?? ''}
+                        disabled={
+                          !replyStates[c.id]
+                          || replyStates[c.id].loading
+                          || replyStates[c.id].failed
+                          || Boolean(replyStates[c.id].reply && !replyStates[c.id].reply?.sentAt && !replyStates[c.id].reply?.retryable)
+                          || Boolean(replyDraftLocked[c.id])
+                        }
                         onChange={(e) => setReplyBodies((prev) => ({ ...prev, [c.id]: e.target.value }))}
                         rows={5}
+                        maxLength={5000}
                         className="form-input w-full text-sm"
                       />
                       <div className="flex items-center justify-between gap-3 mt-2 flex-wrap">
@@ -358,7 +502,14 @@ export default function AdminInquiriesPage() {
                         <button
                           type="button"
                           onClick={() => sendReply(c.id)}
-                          disabled={!(replyBodies[c.id] ?? '').trim() || replyingId === c.id}
+                          disabled={
+                            !(replyBodies[c.id] ?? '').trim()
+                            || replyingId === c.id
+                            || !replyStates[c.id]
+                            || replyStates[c.id].loading
+                            || replyStates[c.id].failed
+                            || Boolean(replyStates[c.id].reply && !replyStates[c.id].reply?.sentAt && !replyStates[c.id].reply?.retryable)
+                          }
                           className="btn-primary gap-1.5 text-sm !px-4 !py-2 disabled:opacity-50"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

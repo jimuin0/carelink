@@ -18,7 +18,13 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 }
-beforeEach(() => { jest.clearAllMocks(); global.fetch = mockFetch; mockFetch.mockResolvedValue(response()); });
+beforeEach(() => {
+  jest.clearAllMocks();
+  global.fetch = mockFetch;
+  mockFetch.mockImplementation((input: RequestInfo | URL) =>
+    String(input).endsWith('/reply') ? response({ reply: null }) : response(),
+  );
+});
 
 test('loads through the guarded API and reports only the visible-page count', async () => {
   render(<Page />);
@@ -110,4 +116,113 @@ test('ignores an older pagination response after a newer filter request complete
     await finalPage.promise;
   });
   await waitFor(() => expect(screen.queryByRole('button', { name: 'さらに読み込む' })).not.toBeInTheDocument());
+});
+
+test('a ticket mutation refreshes the latest filter instead of its stale captured filter', async () => {
+  const closedRow = { ...row, id: '22222222-2222-4222-8222-222222222222', name: 'クローズ済み問い合わせ', ticket_status: 'closed' };
+  const pendingPatch = deferred<Response>();
+  const firstClosedList = deferred<Response>();
+  let closedListCalls = 0;
+  mockFetch.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith('/reply')) return Promise.resolve(response({ reply: null }));
+    if (init?.method === 'PATCH') return pendingPatch.promise;
+    if (url.includes('status=closed')) {
+      closedListCalls += 1;
+      return closedListCalls === 1
+        ? firstClosedList.promise
+        : Promise.resolve(response({ contacts: [closedRow], nextCursor: null }));
+    }
+    return Promise.resolve(response({ contacts: [row], nextCursor: null }));
+  });
+
+  render(<Page />);
+  fireEvent.click(await screen.findByText('合成問い合わせ'));
+  fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'resolved' } });
+  fireEvent.click(screen.getByRole('button', { name: 'クローズ' }));
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledWith(
+    '/api/admin/inquiries?status=closed', expect.any(Object),
+  ));
+
+  // The mutation callback began before the filter changed. Its completion
+  // must not issue a request with the old `open` filter.
+  await act(async () => {
+    pendingPatch.resolve(response({ ok: true }));
+    await pendingPatch.promise;
+  });
+  await waitFor(() => expect(screen.getByText('クローズ済み問い合わせ')).toBeVisible());
+  const listUrls = mockFetch.mock.calls.filter(([, init]) => init?.method !== 'PATCH').map(([url]) => url);
+  expect(listUrls.filter((url) => url === '/api/admin/inquiries?status=open')).toHaveLength(1);
+  expect(listUrls).toContain('/api/admin/inquiries?status=closed');
+
+  await act(async () => {
+    firstClosedList.resolve(response({ contacts: [], nextCursor: null }));
+    await firstClosedList.promise;
+  });
+  await waitFor(() => expect(screen.getByText('クローズ済み問い合わせ')).toBeVisible());
+});
+
+test('a ticket mutation completing after unmount does not start a new PII list request', async () => {
+  const pendingPatch = deferred<Response>();
+  mockFetch.mockImplementation((_input: RequestInfo | URL, init?: RequestInit) =>
+    String(_input).endsWith('/reply')
+      ? Promise.resolve(response({ reply: null }))
+      : init?.method === 'PATCH' ? pendingPatch.promise : Promise.resolve(response()),
+  );
+
+  const view = render(<Page />);
+  fireEvent.click(await screen.findByText('合成問い合わせ'));
+  fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'resolved' } });
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(3));
+  view.unmount();
+
+  await act(async () => {
+    pendingPatch.resolve(response({ ok: true }));
+    await pendingPatch.promise;
+  });
+  expect(mockFetch).toHaveBeenCalledTimes(3);
+});
+
+test('reload後に未確定の返信を復元し、同じoperation IDで再試行する', async () => {
+  const pending = {
+    operationId: '44444444-4444-4444-4444-444444444444',
+    body: '保存済みの合成返信',
+    sentAt: null,
+    retryable: true,
+  };
+  let sent = false;
+  mockFetch.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith('/reply') && init?.method === 'POST') {
+      const payload = JSON.parse(String(init.body));
+      expect(payload).toEqual({ body: pending.body, operationId: pending.operationId });
+      sent = true;
+      return Promise.resolve(response({ ok: true, alreadySent: false, warning: null }));
+    }
+    if (url.endsWith('/reply')) return Promise.resolve(response({
+      reply: sent ? { ...pending, sentAt: '2026-09-27T00:00:00.000Z', retryable: false } : pending,
+    }));
+    return Promise.resolve(response());
+  });
+
+  render(<Page />);
+  fireEvent.click(await screen.findByText('合成問い合わせ'));
+  const textarea = await screen.findByLabelText('合成問い合わせ 様に返信');
+  await waitFor(() => expect(textarea).toHaveValue(pending.body));
+  expect(textarea).toBeDisabled();
+  const send = screen.getByRole('button', { name: '返信を送信' });
+  expect(send).toBeEnabled();
+  fireEvent.click(send);
+  expect(await screen.findByText('前回の返信（送信記録あり）')).toBeVisible();
+  expect(mockFetch.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true);
+});
+
+test('返信状態取得に失敗した場合は送信操作を無効にする', async () => {
+  mockFetch.mockImplementation((input: RequestInfo | URL) =>
+    String(input).endsWith('/reply') ? response({ error: 'unknown' }, false) : response(),
+  );
+  render(<Page />);
+  fireEvent.click(await screen.findByText('合成問い合わせ'));
+  expect(await screen.findByRole('alert')).toHaveTextContent('送信状況を確認できません');
+  expect(screen.getByRole('button', { name: '返信を送信' })).toBeDisabled();
 });

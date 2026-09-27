@@ -586,6 +586,30 @@ CIは`supabase start`後の新規・使い捨てlocal Supabaseだけへ、projec
 
 この編集開始時、worktree volumeの物理空きブロックが0で書込みに失敗した。確認済みGitignoredの`.next/cache`のみ（約1GB、シンボリックリンクなし）を除去し、空き858MiBを確認して再開した。ほかのworkspace、DB、データは変更していない。focused `salon-storage-upgrade-guard` Jestは14/14成功、対象ESLint、全体`tsc --noEmit`、Actionlint、Node構文検査、`git diff --check`も成功。既存のローカルSupabaseコンテナが起動中のため、この作業checkoutからはDB操作も`supabase start`も実行せず、ユーザーの共有local DBを保護した。最初の最新SHA CIでは、`supabase db query`がmigration複文をprepared statementとして拒否し、E2Eがcutover適用段階で失敗した。他の主要jobは成功、Contract gateは既知のproduction schema/type差により失敗。このCLI仕様を隠さず、workflowを単一の正確なlocal Docker DB containerへ`psql`入力するfail-closed方式へ修正し、再実行はこの次commit後。Supabase CLIの認証は別nodeとして未完了であり、本番migration/history/型の照合、Contract gate、PR merge、deploy、本番機能検証も引き続き未完了である。
 
+### 10.35．独立再レビューで見つかったmutation/filter競合と権限の本番gate
+
+2026年9月27日、PR #642 HEAD `b8a912a0b45b95b8240811f67254535258c08e6f` に対する独立read-onlyレビューで、一覧の古いpagination responseを捨てる既存対策では覆わないP2競合を確認した。問い合わせstatus PATCHまたはreply POSTがfilter `open`のrenderから開始し、応答前に運営者が別statusへ切り替えると、mutation完了後の古いclosureが新しいfilter requestをabortし、選択中filterと異なる一覧を表示し得た。
+
+修正ではfilter refをstatus切替イベント内で同期更新し、一覧load／paginationが開始時点の最新filterを読むようにする。mutationから呼ばれるstable `load`は古いrenderのfilterを保持しない。`page.test.tsx`へ「mutation pending→別statusへ切替→mutation成功」の順序を検査するテストを追加した。focused page test 8/8、対象ESLint error/warning 0をローカルで確認。全体CI・production build・独立再レビューはこの追加差分では未実行。該当テストはnetwork順序と表示値を確認するcomponent testであり、実browser/backendの遅延やabort配信を実証するE2Eではない。
+
+独立レビューは条件付きP1のproduction security gateも指摘した。`GET /api/admin/inquiries`は`profiles.is_platform_admin`を唯一のAPI認可根拠にservice-role経由の全contactsを読む。自己プロフィールUPDATE policyは存在するため、source migration `20260325000001_profiles_privilege_escalation_guard.sql`のtriggerが本番に未適用または無効だと、自己昇格後に全問い合わせPIIを読める経路となる。source migrationとmock testだけでは本番triggerの存在・有効状態を証明しない。監査目的の本番接続禁止条件を守り、productionへ接続していないため実脆弱性とは断定しないが、本番catalogのread-only照合がblocking unknownである。
+
+最新CIはSHA `b8a912a`でLint/type、Unit+Coverage、Security、複数静的gateは成功、Contract Testsは失敗、E2Eは実行中、Vercel Previewは完了。Contract失敗の詳細job log取得はrun全体の完了待ちだった。Contract失敗をskip扱いにせずmergeしない。返信APIのprovider送信後履歴insert失敗、成否不明時の重複送信可能性も既知の未修正候補として残し、次の技術nodeでcaller、DB制約、retry queue、provider idempotencyを照合する。顧客への返信、実送信、DB変更は行っていない。
+
+### 10.36．問い合わせ返信を冪等な記録先行フローへ変更する準備
+
+対象は管理画面の運営返信1件を「作成→Resendへ送信→履歴・チケット状態確認」まで通すこと。期待条件は、同じ操作のtimeout・二重クリック・再読込・並列POSTでもメールを重複させず、履歴失敗を送信成功／未送信へ偽装しないこと。業務方針や顧客への実送信は含めない。
+
+静的確認で、現APIはメールを先に送ってから`contact_replies`へinsertし、そのinsert errorをログだけで握り潰して200を返す。`contacts.ticket_status`のupdate error／0行更新も確認しない。さらに`safeSend`は`inquiry_reply`失敗を冪等キーのない汎用`webhook_retry_queue`へ積み、workerはその内容を別の外部送信として再送する。従って、Resend受理後の応答消失と履歴失敗、又はAPI＋汎用workerの経路で同じ返信を二重送信し得る。
+
+変更案は、クライアント操作IDを`contact_replies.id`に固定し、本文を保存してから送信する。未送信返信は`sent_at IS NULL AND is_internal=false`で表し、contact単位のpartial unique indexで未解決の送信を1件に制限する。並行insertのunique conflictは同じ操作ID／本文を再取得して続行し、別操作や本文差し替えは409で拒否する。送信にはResendの同一操作IDをidempotency keyとして渡し、providerの24時間保持より保守的な23時間を超えた未解決行は自動再送しない。Resend契約は[公式Idempotency Keys仕様](https://resend.com/changelog/idempotency-keys)で確認済みで、同じkey・同じpayloadの再試行は同じemail IDを返し、24時間保持、異なるpayloadのkey再利用は409となる。
+
+返信APIに管理者認証付きの最新返信照会を追加し、reload後も未送信／送信済みを識別できるようにする。未送信行は同一本文・同一操作IDだけ再試行し、送信済み行は同操作IDの再POSTで既送信成功を返す。新しい文面には新しい操作IDを発行する。汎用メールqueueへの新規登録を外し、旧形式の返信queue行は送信せず照合待ちとしてdead-letterへ分類する。返信記録がsentになった後のチケット状態更新失敗は「メール送信成功＋状態更新警告」として分離し、再POSTでもメールを送らず状態更新だけ再照合する。
+
+準備判定：目的／範囲 PASS（運営返信のみ、事業方針は変更しない）；主要経路・schema・caller PASS（route、UI、Resend wrapper、retry worker、RLS、`contact_replies`を確認）；migration影響 PASS（追加indexのみ、duplicate pendingがあればmigrationを失敗させて停止、production DDLは行わない）；冪等性の重大仮説 PASS（Resend公式契約、24h上限、同一key・同一payload）；外部送信実証 N/A（本番・実メールは禁止、mock／sandboxなしの静的・unit検証のみ）；production migration状態 UNVERIFIED（既存Contract失敗でPR統合のblocking node）。
+
+必須検証は、認証／role拒否、空・壊れたJSON・UUID・本文境界、初回成功、provider rejection／timeout／409、履歴更新失敗後の同ID再試行、送信済み再POST、同じIDの異なる本文、別IDの並行pending、unique conflict回復、23時間境界、reload後照会、旧queue quarantine、ticket update failure、PIIのresponse／log非露出。外部サービスへの実送信やDB変更は実施しない。
+
 ### 10.34．運営問い合わせ一覧のサーバー境界とページング競合
 
 PR #642の作業checkout（HEAD `819b7c404c483b6596a37fdc3adee1307294b0fa`）で、`/admin/inquiries`がブラウザーSupabase clientから全社横断`contacts`を直接読む既存経路を確認した。通常ユーザーにcontacts SELECT policyがないため本番画面で一覧を取得できず、最大100件だけの取得では古い問い合わせへ到達できない。また、filterを切り替えた時の逆順network responseが古い一覧を新しい画面へ上書きできた。
@@ -597,3 +621,15 @@ PR #642の作業checkout（HEAD `819b7c404c483b6596a37fdc3adee1307294b0fa`）で
 独立read-only reviewと親の反証では、routeの未認証／非platform-admin経路でservice-role読取をしないこと、query validation、PIIを含まないfailure分類、逆順の古いpage responseを捨てる競合testを確認し、追加P0〜P3は確認されていない。`/admin` middlewareとAdminLayoutはfacility owner/admin membershipも要求するため、platform adminでもfacility membershipがなければ管理UIを開けない条件がある。ただし実運営者アカウントのmembership実態は未確認で、project規則上のadmin境界を勝手に緩めていない。この条件の実影響は未判定として保持する。
 
 GitHub PR #642は引き続きOPEN、remote HEADは`819b7c4`のままでこの差分は未push。remote HEADに対する既存CIはLint/type、Unit+Coverage、Security、E2E等が成功、Contract Testsは失敗、Vercel Build Dry-RunはSKIPPEDで成功扱いできず、merge stateはUNSTABLE。今回差分の最新SHA CIは未実行。問い合わせ一覧修正は受付の有無、施設申込・登録migration、本番への返信送信を解決した証拠ではない。実メール送信、顧客への回答、登録再送、DB変更は行っていない。
+
+### 10.37．問い合わせ返信の重複送信防止と再開時のrelease gate
+
+作業checkoutは`/Users/kanbararyousuke/Projects/carelink-ops-remediation-20260921`、branch `codex/ops-remediation-20260921`、基点HEAD `b8a912a0b45b95b8240811f67254535258c08e6f`。この節の記録時点で、返信API、問い合わせ画面、メール送信wrapper、webhook retry worker、関連test、新migrationは未commitで保持。主checkoutのuntracked fileには触れていない。
+
+問い合わせ返信は、client UUIDを`contact_replies.id`として送信前に予約し、同じUUIDをResendのidempotency keyに使用する。既存IDのcontact／種別／本文不一致、別IDでのpending競合、予約後の再読込不能は送信前に拒否する。Resend受理後のDB更新が結果不明なら、同じIDで照合・再試行し、23時間経過後は自動再送を止める。送信済みoperationの再POSTはメールを再送せずticket状態だけ再照合する。返信を汎用retry queueへ新規投入せず、過去queueの固定返信subjectは重複の可能性を優先して送信せず隔離する。API例外は固定カテゴリへ置換して応答・監視へ流し、問い合わせ先PII／dependency error本文を含めない。画面は再読込後のpending状態を表示し、操作IDと本文を維持する。
+
+新migration `20260927000001_contact_reply_idempotency.sql`は既存pending重複があればfail closedし、contactごとの外部未送信replyを最大1件にするpartial unique indexを加える。既存行を更新・削除しない。migration適用後のschema fingerprintは未生成・未同期。PostgreSQL 17のSupabase imageはローカルに存在するが、外部通信を遮断した使い捨てcontainerの起動がDocker daemonのtemporary-directory I/O errorで失敗した。既存の共有Supabase containerは起動中のため使用せず、PostgreSQL 14での生成もCIと同版でないため行っていない。
+
+ローカル証拠：返信API／画面／メール／retry workerのfocused 4suite 216件成功。返信API routeのbranch／function／line coverage 100%、retry worker branch coverage 100%。全体coverageは418suite・8,532test成功、branch 8,789/8,789＝100%、line 99.38%、function 95.79%、statement 98.56%。`tsc --noEmit --incremental false`成功、CI対象`eslint src`はerror 0・今回差分warning 0（既存warning 4件は他file）、`git diff --check`成功。秘密を含めず外部ネットワークを遮断したproduction webpack buildはcompile／型検査／764静的page生成まで成功。検証は現在のlocal未commit差分に対するもの。実Resend送信、browser E2E、PG17 migration replay、最新SHA CI／Contract、production schema/history照合は未実行。
+
+残るrelease blocker：この環境では現在有効な`AI_RULESET_MANIFEST.md`からremote Git契約の原本を解決できていないため、fetch／push／PR更新／mergeを行わない。必要なmigration schema fingerprintを生成できておらず、Contract gate成功の証拠もない。返信APIの認証境界・PII・外部副作用に対する実装後の独立reviewも未実施であり、自分自身の再読を独立監査とは数えない。`profiles.is_platform_admin`の本番trigger有効性、管理画面owner membership、本番migration状態は未確認。この変更を本番適用・顧客送信可能と判断しない。顧客からの申込有無、再送安全性、5店舗の登録・管理手順、有料契約を望まない条件は、このコード変更から結論・顧客回答しない。決済・Stripe・キャンセル待ち、Google Calendar JST、LINE解除の既存保留は範囲外のまま。
