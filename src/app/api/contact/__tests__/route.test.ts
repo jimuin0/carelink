@@ -9,7 +9,8 @@
  *   - Email format validation
  *   - Inserts to contacts table
  *   - Fire-and-forget Slack notification via /api/notify
- */
+     - Fire-and-forget operator email notification via sendOperatorNotification
+*/
 
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/rate-limit', () => ({
@@ -20,11 +21,17 @@ jest.mock('@supabase/supabase-js');
 // Slack 通知は同一サーバー内の sendNotify を直接呼ぶ（HTTP 往復しない）。
 // server-to-server fetch は CSRF で 403 になるため fetch 経由をやめた回帰の検証。
 jest.mock('@/lib/notify', () => ({ sendNotify: jest.fn() }));
+
+jest.mock('@/lib/email', () => ({
+  sendOperatorNotification: jest.fn(),
+}));
+
 jest.mock('@/lib/recaptcha', () => ({ verifyRecaptcha: jest.fn() }));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { sendNotify } from '@/lib/notify';
+import { sendOperatorNotification } from '@/lib/email';
 import { verifyRecaptcha } from '@/lib/recaptcha';
 import { POST } from '../route';
 
@@ -45,6 +52,7 @@ function setupDefaultMocks(insertSucceeds: boolean = true) {
   });
 
   (sendNotify as jest.Mock).mockResolvedValue({ ok: true, ts: '123.456' });
+  (sendOperatorNotification as jest.Mock).mockResolvedValue(true);
   (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: true });
 
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
@@ -386,6 +394,122 @@ describe('POST /api/contact', () => {
 
     expect(res.status).toBe(200);
     expect(sendNotify).toHaveBeenCalledWith(expect.objectContaining({ type: 'contact' }));
+  });
+
+    test('sends operator email notification with contact details', async () => {
+    await POST(
+      makeRequest({
+        name: 'Test User',
+        email: 'test@example.com',
+        inquiry_type: 'support',
+        message: 'Help needed',
+        phone: '09012345678',
+        recaptcha_token: 'valid-token',
+      }) as any
+    );
+
+    expect(sendOperatorNotification).toHaveBeenCalledTimes(1);
+
+    expect(sendOperatorNotification).toHaveBeenCalledWith({
+      subject: '【CareLink】新規お問い合わせ：support',
+      lines: [
+        {
+          label: 'お名前',
+          value: 'Test User',
+        },
+        {
+          label: 'メールアドレス',
+          value: 'test@example.com',
+        },
+        {
+          label: '電話番号',
+          value: '09012345678',
+        },
+        {
+          label: 'お問い合わせ種別',
+          value: 'support',
+        },
+        {
+          label: 'お問い合わせ内容',
+          value: 'Help needed',
+        },
+      ],
+    });
+  });
+
+  test('operator email notification uses 未入力 when phone is omitted', async () => {
+    await POST(
+      makeRequest({
+        name: 'Test User',
+        email: 'test@example.com',
+        inquiry_type: 'support',
+        message: 'Help needed',
+        recaptcha_token: 'valid-token',
+      }) as any
+    );
+
+    expect(sendOperatorNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lines: expect.arrayContaining([
+          {
+            label: '電話番号',
+            value: '未入力',
+          },
+        ]),
+      })
+    );
+  });
+
+  test('operator email notification が false を返しても 200', async () => {
+    (sendOperatorNotification as jest.Mock).mockResolvedValue(false);
+
+    const res = await POST(
+      makeRequest({
+        name: 'Test',
+        email: 'test@example.com',
+        inquiry_type: 'support',
+        message: 'Help',
+        recaptcha_token: 'valid-token',
+      }) as any
+    );
+
+    expect(res.status).toBe(200);
+    expect(sendOperatorNotification).toHaveBeenCalledTimes(1);
+  });
+
+  test('operator email notification が reject しても 200', async () => {
+    (sendOperatorNotification as jest.Mock).mockRejectedValue(
+      new Error('Resend failure')
+    );
+
+    const res = await POST(
+      makeRequest({
+        name: 'Test',
+        email: 'test@example.com',
+        inquiry_type: 'support',
+        message: 'Help',
+        recaptcha_token: 'valid-token',
+      }) as any
+    );
+
+    expect(res.status).toBe(200);
+    expect(sendOperatorNotification).toHaveBeenCalledTimes(1);
+  });
+
+  test('insert error → operator email notification is not sent', async () => {
+    setupDefaultMocks(false);
+
+    await POST(
+      makeRequest({
+        name: 'Test',
+        email: 'test@example.com',
+        inquiry_type: 'support',
+        message: 'Help',
+        recaptcha_token: 'valid-token',
+      }) as any
+    );
+
+    expect(sendOperatorNotification).not.toHaveBeenCalled();
   });
 
   test('rate limit params (3 req/min per IP)', async () => {
