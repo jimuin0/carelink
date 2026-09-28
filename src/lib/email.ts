@@ -458,6 +458,26 @@ export async function sendNewInquiryNotification(data: {
   }, 'new_inquiry_notification');
 }
 
+/** 運営向けメール通知。宛先は OPERATOR_NOTIFY_EMAIL（カンマ区切りで複数可）。 */
+export async function sendOperatorNotification(data: {
+  subject: string;
+  lines: { label: string; value: string }[];
+}): Promise<boolean> {
+  const resend = getResend();
+  if (!resend) return false;
+  const to = (process.env.OPERATOR_NOTIFY_EMAIL || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (to.length === 0) return false;
+  const rows = data.lines.map((l) =>
+    `<tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;width:120px;">${esc(l.label)}</td><td style="padding:8px 12px;border:1px solid #e2e8f0;white-space:pre-wrap;">${esc(l.value)}</td></tr>`
+  ).join('');
+  return safeSend(resend, {
+    from: FROM,
+    to,
+    subject: escSubject(data.subject),
+    html: wrapHtml(`<table style="width:100%;border-collapse:collapse;margin:16px 0;">${rows}</table>`),
+  }, 'operator_notification');
+}
+
 /** 新規予約通知（施設向け） */
 export async function sendNewBookingNotification(data: BookingEmailData & { facilityEmail: string }): Promise<boolean> {
   const resend = getResend();
