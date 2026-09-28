@@ -81,28 +81,27 @@ export const POST = withRoute(async (request) => {
   // 共有ロジック sendNotify を直接呼ぶ（HTTP 往復を排除）。
   //
   // 通知失敗はお問い合わせ受付自体を失敗扱いにしない。
-  runAfterResponse(() =>
-    sendNotify({
-      type: 'contact',
-      data: {
-        name: parsed.data.name,
-        inquiry_type: parsed.data.inquiry_type,
-        email: parsed.data.email,
-        message: parsed.data.message,
-        traffic_source: parsed.data.traffic_source ?? null,
-      },
-    })
-      .then((r) => {
-        if (!r.ok) {
-          console.error('[contact] Slack notification failed', {
-            error: r.error,
-          });
-        }
-      })
-      .catch((err) => {
-        console.error('[contact] Slack notification failed', { err });
-      })
-  );
+  runAfterResponse(() => sendNotify({
+  type: 'contact',
+  data: {
+    name: parsed.data.name,
+    inquiry_type: parsed.data.inquiry_type,
+    email: parsed.data.email,
+    message: parsed.data.message,
+    traffic_source: parsed.data.traffic_source ?? null,
+  },
+})
+  .then((r) => {
+    if (!r.ok) {
+      console.error('[contact] Slack notification failed', {
+        error: r.error,
+      });
+    }
+  })
+  .catch((err) => {
+    console.error('[contact] Slack notification failed', { err });
+  })
+);
 
   // 運営向けメール通知（レスポンス送出後に実行）。
   //
