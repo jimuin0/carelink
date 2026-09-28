@@ -20,7 +20,7 @@ jest.mock('@/lib/webhook-queue', () => ({
 process.env.RESEND_API_KEY = 'test-resend-key';
 process.env.EMAIL_FROM = 'Test <test@example.com>';
 
-const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendNewInquiryNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail, sendTimeAdjustRequest, sendInquiryReply, sendRegistrationReceiptEmail, sendRegistrationLeadFollowEmail } = require('../email');
+const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendNewInquiryNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail, sendTimeAdjustRequest, sendInquiryReply, sendRegistrationReceiptEmail, sendRegistrationLeadFollowEmail, sendOperatorNotification } = require('../email');
 const { buildOnboardingAuthPath } = require('../onboarding-link');
 
 /**
@@ -247,6 +247,44 @@ describe('sendNewInquiryNotification', () => {
     inquirerPhone: '090-1234-5678',
     message: '予約について質問があります',
   };
+
+  describe('sendOperatorNotification', () => {
+  const OLD = process.env.OPERATOR_NOTIFY_EMAIL;
+  afterEach(() => {
+    if (OLD === undefined) delete process.env.OPERATOR_NOTIFY_EMAIL;
+    else process.env.OPERATOR_NOTIFY_EMAIL = OLD;
+  });
+
+  test('OPERATOR_NOTIFY_EMAIL の全宛先に送信する（カンマ区切り・空白除去）', async () => {
+    process.env.OPERATOR_NOTIFY_EMAIL = 'a@example.com, b@example.com';
+    const ok = await sendOperatorNotification({
+      subject: 'テスト件名',
+      lines: [{ label: 'お名前', value: 'テスト花子' }],
+    });
+    expect(ok).toBe(true);
+    const args = mockSend.mock.calls[0][0];
+    expect(args.to).toEqual(['a@example.com', 'b@example.com']);
+    expect(args.subject).toBe('テスト件名');
+    expect(args.html).toContain('テスト花子');
+  });
+
+  test('宛先が未設定なら送信せず false', async () => {
+    delete process.env.OPERATOR_NOTIFY_EMAIL;
+    expect(await sendOperatorNotification({ subject: 'x', lines: [] })).toBe(false);
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  test('値はHTMLエスケープされる（XSS対策）', async () => {
+    process.env.OPERATOR_NOTIFY_EMAIL = 'a@example.com';
+    await sendOperatorNotification({
+      subject: 'x',
+      lines: [{ label: '内容', value: '<script>alert(1)</script>' }],
+    });
+    const args = mockSend.mock.calls[0][0];
+    expect(args.html).not.toContain('<script>alert(1)</script>');
+    expect(args.html).toContain('&lt;script&gt;');
+  });
+});
 
   test('施設メールに送信する', async () => {
     await sendNewInquiryNotification(inquiryData);
@@ -788,26 +826,72 @@ describe('RESEND_API_KEY未設定時 — 全send関数', () => {
     jest.resetModules();
     jest.mock('resend', () => ({ Resend: jest.fn() }));
     jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
+
     const mod = require('../email');
     const noSendMock = jest.fn();
+
     const minData = {
-      customerName: 'テスト', customerEmail: 'a@b.com', facilityName: 'サロン',
-      bookingDate: '2026-04-01', startTime: '10:00', endTime: '11:00', bookingId: 'x',
+      customerName: 'テスト',
+      customerEmail: 'a@b.com',
+      facilityName: 'サロン',
+      bookingDate: '2026-04-01',
+      startTime: '10:00',
+      endTime: '11:00',
+      bookingId: 'x',
     };
+
     await mod.sendBookingConfirmation(minData);
     await mod.sendBookingReminder(minData);
     await mod.sendTimeAdjustRequest(minData);
     await mod.sendBookingConfirmed(minData);
     await mod.sendBookingCancelled(minData);
-    await mod.sendNewBookingNotification({ ...minData, facilityEmail: 'f@f.com' });
-    await mod.sendNewReviewNotification({ facilityEmail: 'f@f.com', facilityName: 'F', reviewerName: 'R', rating: 5 });
-    await mod.sendNewInquiryNotification({ facilityEmail: 'f@f.com', facilityName: 'F', inquirerName: 'I', inquirerEmail: 'i@i.com', message: 'M' });
-    await mod.sendBookingCancellationToFacility({ ...minData, facilityEmail: 'f@f.com' });
-    await mod.sendWelcomeEmail({ ownerEmail: 'o@o.com', facilityName: 'F' });
-    await mod.sendOnboardingFollowEmail({ ownerEmail: 'o@o.com', facilityName: 'F', missingSteps: [] });
-    await mod.sendBookingStatusUpdate({ ...minData, newStatus: 'confirmed' });
-    await mod.sendFavoritesDigest({ userEmail: 'u@u.com', facilities: [] });
+    await mod.sendNewBookingNotification({
+      ...minData,
+      facilityEmail: 'f@f.com',
+    });
+    await mod.sendNewReviewNotification({
+      facilityEmail: 'f@f.com',
+      facilityName: 'F',
+      reviewerName: 'R',
+      rating: 5,
+    });
+    await mod.sendNewInquiryNotification({
+      facilityEmail: 'f@f.com',
+      facilityName: 'F',
+      inquirerName: 'I',
+      inquirerEmail: 'i@i.com',
+      message: 'M',
+    });
+    await mod.sendBookingCancellationToFacility({
+      ...minData,
+      facilityEmail: 'f@f.com',
+    });
+    await mod.sendWelcomeEmail({
+      ownerEmail: 'o@o.com',
+      facilityName: 'F',
+    });
+    await mod.sendOnboardingFollowEmail({
+      ownerEmail: 'o@o.com',
+      facilityName: 'F',
+      missingSteps: [],
+    });
+    await mod.sendBookingStatusUpdate({
+      ...minData,
+      newStatus: 'confirmed',
+    });
+    await mod.sendFavoritesDigest({
+      userEmail: 'u@u.com',
+      facilities: [],
+    });
+
+    const operatorOk = await mod.sendOperatorNotification({
+      subject: 'テスト',
+      lines: [],
+    });
+
+    expect(operatorOk).toBe(false);
     expect(noSendMock).not.toHaveBeenCalled();
+
     process.env.RESEND_API_KEY = origKey;
   });
 });

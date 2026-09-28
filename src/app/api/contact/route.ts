@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { mutationRateLimit } from '@/lib/rate-limit';
 import { withRoute, serverError } from '@/lib/with-route';
 import { sendNotify } from '@/lib/notify';
+import { sendOperatorNotification } from '@/lib/email';
 import { runAfterResponse } from '@/lib/after-response';
 import { contactSchema } from '@/lib/validations-contact';
 import { zodErrorResponse } from '@/lib/api-validation';
@@ -19,20 +20,34 @@ export const dynamic = 'force-dynamic';
 export const POST = withRoute(async (request) => {
   const body = await request.json().catch(() => null);
   const parsed = contactSchema.safeParse(body);
+
   if (!parsed.success) {
     return zodErrorResponse(parsed.error);
   }
 
   // reCAPTCHA v3 検証（fail-closed: secret設定時=本番はtoken必須）。
   // review.ts と非対称に reCAPTCHA が未配線だったため、無認証で叩ける本エンドポイントが
-  // Bot対策の抜け道になっていた（contacts テーブル汚染・Slack通知の連続発火）。同一パターンで揃える。
+  // Bot対策の抜け道になっていた（contacts テーブル汚染・Slack通知の連続発火）。
+  // 同一パターンで揃える。
   if (process.env.RECAPTCHA_SECRET_KEY) {
     if (!parsed.data.recaptcha_token) {
-      return NextResponse.json({ error: 'Bot検知: 時間をおいて再度お試しください' }, { status: 403 });
+      return NextResponse.json(
+        { error: 'Bot検知: 時間をおいて再度お試しください' },
+        { status: 403 }
+      );
     }
-    const captcha = await verifyRecaptcha(parsed.data.recaptcha_token, 'contact', 0.4);
+
+    const captcha = await verifyRecaptcha(
+      parsed.data.recaptcha_token,
+      'contact',
+      0.4
+    );
+
     if (!captcha.success) {
-      return NextResponse.json({ error: 'Bot検知: 時間をおいて再度お試しください' }, { status: 403 });
+      return NextResponse.json(
+        { error: 'Bot検知: 時間をおいて再度お試しください' },
+        { status: 403 }
+      );
     }
   }
 
@@ -51,28 +66,99 @@ export const POST = withRoute(async (request) => {
   });
 
   if (error) {
-    return serverError('contact-insert', error, '/api/contact', '送信に失敗しました。時間をおいて再度お試しください。');
+    return serverError(
+      'contact-insert',
+      error,
+      '/api/contact',
+      '送信に失敗しました。時間をおいて再度お試しください。'
+    );
   }
 
-  // Slack通知（fire-and-forget）
-  // server-to-server の HTTP fetch は Origin/Referer を持たず /api/notify の CSRF で 403 になり
-  // 通知が無音欠落していたため、共有ロジック sendNotify を直接呼ぶ（HTTP 往復を排除）。
+  // Slack通知（レスポンス送出後に実行）。
+  //
+  // server-to-server の HTTP fetch は Origin/Referer を持たず
+  // /api/notify の CSRF で 403 になり通知が無音欠落していたため、
+  // 共有ロジック sendNotify を直接呼ぶ（HTTP 往復を排除）。
+  //
+  // 通知失敗はお問い合わせ受付自体を失敗扱いにしない。
   runAfterResponse(() => sendNotify({
-    type: 'contact',
-    data: {
-      name: parsed.data.name,
-      inquiry_type: parsed.data.inquiry_type,
-      email: parsed.data.email,
-      message: parsed.data.message,
-      traffic_source: parsed.data.traffic_source ?? null,
-    },
-  }).then((r) => {
-    if (!r.ok) console.error('[contact] Slack notification failed', { error: r.error });
-  }).catch((err) => console.error('[contact] Slack notification failed', { err })));
+  type: 'contact',
+  data: {
+    name: parsed.data.name,
+    inquiry_type: parsed.data.inquiry_type,
+    email: parsed.data.email,
+    message: parsed.data.message,
+    traffic_source: parsed.data.traffic_source ?? null,
+  },
+})
+  .then((r) => {
+    if (!r.ok) {
+      console.error('[contact] Slack notification failed', {
+        error: r.error,
+      });
+    }
+  })
+  .catch((err) => {
+    console.error('[contact] Slack notification failed', { err });
+  })
+);
+
+  // 運営向けメール通知（レスポンス送出後に実行）。
+  //
+  // Cloudflare Email Routing は「support@carelink-jp.com 宛てに直接届くメール」の
+  // 転送用であり、サイトのお問い合わせフォーム送信は経由しない。
+  // フォーム問い合わせは CareLink から Resend を使って
+  // OPERATOR_NOTIFY_EMAIL に直接通知する。
+  //
+  // OPERATOR_NOTIFY_EMAIL が未設定、Resend未設定、メール送信失敗の場合でも、
+  // DBへのお問い合わせ保存が成功していれば利用者には success を返す。
+  // 運営通知の失敗だけでフォーム送信を失敗扱いにしない。
+  runAfterResponse(() =>
+    sendOperatorNotification({
+      subject: `【CareLink】新規お問い合わせ：${parsed.data.inquiry_type}`,
+      lines: [
+        {
+          label: 'お名前',
+          value: parsed.data.name,
+        },
+        {
+          label: 'メールアドレス',
+          value: parsed.data.email,
+        },
+        {
+          label: '電話番号',
+          value: parsed.data.phone || '未入力',
+        },
+        {
+          label: 'お問い合わせ種別',
+          value: parsed.data.inquiry_type,
+        },
+        {
+          label: 'お問い合わせ内容',
+          value: parsed.data.message,
+        },
+      ],
+    })
+      .then((ok) => {
+        if (!ok) {
+          console.error('[contact] Operator email notification failed');
+        }
+      })
+      .catch((err) => {
+        console.error('[contact] Operator email notification failed', {
+          err,
+        });
+      })
+  );
 
   return NextResponse.json({ success: true });
 }, {
   csrf: true,
-  rateLimit: { limiter: mutationRateLimit, limit: 3, windowMs: 60_000, prefix: 'contact' },
+  rateLimit: {
+    limiter: mutationRateLimit,
+    limit: 3,
+    windowMs: 60_000,
+    prefix: 'contact',
+  },
   sentryTag: 'contact',
 });
