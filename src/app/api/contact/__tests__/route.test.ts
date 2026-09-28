@@ -8,23 +8,39 @@
  *   - Schema validation (name, email, inquiry_type, message)
  *   - Email format validation
  *   - Inserts to contacts table
- *   - Fire-and-forget Slack notification via /api/notify
+ *   - Fire-and-forget Slack notification via sendNotify
+ *   - Fire-and-forget operator email notification via sendOperatorNotification
  */
 
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
+
 jest.mock('@/lib/rate-limit', () => ({
   mutationRateLimit: 'mutationLimit',
   checkRateLimit: jest.fn(),
 }));
+
 jest.mock('@supabase/supabase-js');
+
 // Slack 通知は同一サーバー内の sendNotify を直接呼ぶ（HTTP 往復しない）。
 // server-to-server fetch は CSRF で 403 になるため fetch 経由をやめた回帰の検証。
-jest.mock('@/lib/notify', () => ({ sendNotify: jest.fn() }));
-jest.mock('@/lib/recaptcha', () => ({ verifyRecaptcha: jest.fn() }));
+jest.mock('@/lib/notify', () => ({
+  sendNotify: jest.fn(),
+}));
+
+// サイトフォームからの問い合わせは Cloudflare Email Routing を経由しない。
+// 運営向け通知は email.ts の共通関数を直接呼ぶ。
+jest.mock('@/lib/email', () => ({
+  sendOperatorNotification: jest.fn(),
+}));
+
+jest.mock('@/lib/recaptcha', () => ({
+  verifyRecaptcha: jest.fn(),
+}));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { sendNotify } from '@/lib/notify';
+import { sendOperatorNotification } from '@/lib/email';
 import { verifyRecaptcha } from '@/lib/recaptcha';
 import { POST } from '../route';
 
@@ -44,8 +60,16 @@ function setupDefaultMocks(insertSucceeds: boolean = true) {
     }),
   });
 
-  (sendNotify as jest.Mock).mockResolvedValue({ ok: true, ts: '123.456' });
-  (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: true });
+  (sendNotify as jest.Mock).mockResolvedValue({
+    ok: true,
+    ts: '123.456',
+  });
+
+  (sendOperatorNotification as jest.Mock).mockResolvedValue(true);
+
+  (verifyRecaptcha as jest.Mock).mockResolvedValue({
+    success: true,
+  });
 
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -71,7 +95,11 @@ function makeRequest(body: object, ip = '192.168.1.1') {
 
 describe('POST /api/contact', () => {
   test('CSRF check failed → returns error', async () => {
-    const csrfError = new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 });
+    const csrfError = new Response(
+      JSON.stringify({ error: 'CSRF' }),
+      { status: 403 }
+    );
+
     (checkCsrf as jest.Mock).mockReturnValue(csrfError);
 
     const res = await POST(
@@ -104,7 +132,10 @@ describe('POST /api/contact', () => {
   test('invalid JSON → 400', async () => {
     const req = new Request('http://localhost/api/contact', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '192.168.1.1' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-forwarded-for': '192.168.1.1',
+      },
       body: 'invalid {',
     });
 
@@ -252,7 +283,9 @@ describe('POST /api/contact', () => {
     );
 
     expect(res.status).toBe(200);
+
     const json = await res.json();
+
     expect(json.success).toBe(true);
   });
 
@@ -290,6 +323,7 @@ describe('POST /api/contact', () => {
     );
 
     const call = mockInsert.mock.calls[0];
+
     expect(call[0].phone).toBe('09012345678');
   });
 
@@ -323,6 +357,23 @@ describe('POST /api/contact', () => {
     expect(res.status).toBe(500);
   });
 
+  test('insert error → Slack / operator email notifications are not sent', async () => {
+    setupDefaultMocks(false);
+
+    await POST(
+      makeRequest({
+        name: 'Test',
+        email: 'test@example.com',
+        inquiry_type: 'support',
+        message: 'Help',
+        recaptcha_token: 'valid-token',
+      }) as any
+    );
+
+    expect(sendNotify).not.toHaveBeenCalled();
+    expect(sendOperatorNotification).not.toHaveBeenCalled();
+  });
+
   test('sends Slack notification (fire-and-forget)', async () => {
     await POST(
       makeRequest({
@@ -334,9 +385,10 @@ describe('POST /api/contact', () => {
       }) as any
     );
 
-    // Slack notification should be sent via sendNotify (no HTTP round-trip)
     expect(sendNotify).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'contact' })
+      expect.objectContaining({
+        type: 'contact',
+      })
     );
   });
 
@@ -352,11 +404,14 @@ describe('POST /api/contact', () => {
     );
 
     const call = (sendNotify as jest.Mock).mock.calls[0];
+
     expect(call[0].type).toBe('contact');
   });
 
   test('Slack notification error → still returns 200 (fire-and-forget)', async () => {
-    (sendNotify as jest.Mock).mockRejectedValue(new Error('Network error'));
+    (sendNotify as jest.Mock).mockRejectedValue(
+      new Error('Network error')
+    );
 
     const res = await POST(
       makeRequest({
@@ -372,7 +427,10 @@ describe('POST /api/contact', () => {
   });
 
   test('Slack notification が ok:false を返しても 200（通知失敗はログのみ）', async () => {
-    (sendNotify as jest.Mock).mockResolvedValue({ ok: false, error: 'not_configured' });
+    (sendNotify as jest.Mock).mockResolvedValue({
+      ok: false,
+      error: 'not_configured',
+    });
 
     const res = await POST(
       makeRequest({
@@ -385,7 +443,114 @@ describe('POST /api/contact', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(sendNotify).toHaveBeenCalledWith(expect.objectContaining({ type: 'contact' }));
+
+    expect(sendNotify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'contact',
+      })
+    );
+  });
+
+  test('sends operator email notification with contact details', async () => {
+    await POST(
+      makeRequest({
+        name: 'Test User',
+        email: 'test@example.com',
+        inquiry_type: 'support',
+        message: 'Help needed',
+        phone: '09012345678',
+        recaptcha_token: 'valid-token',
+      }) as any
+    );
+
+    expect(sendOperatorNotification).toHaveBeenCalledTimes(1);
+
+    expect(sendOperatorNotification).toHaveBeenCalledWith({
+      subject: '【CareLink】新規お問い合わせ：support',
+      lines: [
+        {
+          label: 'お名前',
+          value: 'Test User',
+        },
+        {
+          label: 'メールアドレス',
+          value: 'test@example.com',
+        },
+        {
+          label: '電話番号',
+          value: '09012345678',
+        },
+        {
+          label: 'お問い合わせ種別',
+          value: 'support',
+        },
+        {
+          label: 'お問い合わせ内容',
+          value: 'Help needed',
+        },
+      ],
+    });
+  });
+
+  test('operator email notification uses 未入力 when phone is omitted', async () => {
+    await POST(
+      makeRequest({
+        name: 'Test User',
+        email: 'test@example.com',
+        inquiry_type: 'support',
+        message: 'Help needed',
+        recaptcha_token: 'valid-token',
+      }) as any
+    );
+
+    expect(sendOperatorNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lines: expect.arrayContaining([
+          {
+            label: '電話番号',
+            value: '未入力',
+          },
+        ]),
+      })
+    );
+  });
+
+  test('operator email notification が false を返しても 200（通知失敗はログのみ）', async () => {
+    (sendOperatorNotification as jest.Mock).mockResolvedValue(false);
+
+    const res = await POST(
+      makeRequest({
+        name: 'Test',
+        email: 'test@example.com',
+        inquiry_type: 'support',
+        message: 'Help',
+        recaptcha_token: 'valid-token',
+      }) as any
+    );
+
+    expect(res.status).toBe(200);
+
+    expect(sendOperatorNotification).toHaveBeenCalledTimes(1);
+  });
+
+  test('operator email notification が reject しても 200（問い合わせ受付は成功）', async () => {
+    (sendOperatorNotification as jest.Mock).mockRejectedValue(
+      new Error('Resend failure')
+    );
+
+    const res = await POST(
+      makeRequest({
+        name: 'Test',
+        email: 'test@example.com',
+        inquiry_type: 'support',
+        message: 'Help',
+        recaptcha_token: 'valid-token',
+      }) as any
+    );
+
+    expect(res.status).toBe(200);
+
+    expect(sendOperatorNotification).toHaveBeenCalledTimes(1);
   });
 
   test('rate limit params (3 req/min per IP)', async () => {
@@ -404,6 +569,7 @@ describe('POST /api/contact', () => {
     );
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
+
     expect(call[1]).toBe('192.168.1.1');
     expect(call[2]).toBe(3);
     expect(call[3]).toBe(60_000);
@@ -426,6 +592,7 @@ describe('POST /api/contact', () => {
     );
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
+
     expect(call[1]).toBe('192.168.1.1');
   });
 
@@ -443,7 +610,8 @@ describe('POST /api/contact', () => {
     expect(res.status).toBe(400);
   });
 
-  // review.ts と同一パターンの reCAPTCHA fail-closed 検証（監査・contact.ts未配線の恒久根治）。
+  // review.ts と同一パターンの reCAPTCHA fail-closed 検証
+  // （監査・contact.ts未配線の恒久根治）。
   describe('reCAPTCHA', () => {
     test('secret設定済み + token欠如 → 403（fail-closed）・verifyRecaptchaは呼ばれない', async () => {
       (verifyRecaptcha as jest.Mock).mockClear();
@@ -462,7 +630,9 @@ describe('POST /api/contact', () => {
     });
 
     test('verifyRecaptcha が success:false → 403', async () => {
-      (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: false });
+      (verifyRecaptcha as jest.Mock).mockResolvedValue({
+        success: false,
+      });
 
       const res = await POST(
         makeRequest({
@@ -488,7 +658,11 @@ describe('POST /api/contact', () => {
         }) as any
       );
 
-      expect(verifyRecaptcha).toHaveBeenCalledWith('valid-token', 'contact', 0.4);
+      expect(verifyRecaptcha).toHaveBeenCalledWith(
+        'valid-token',
+        'contact',
+        0.4
+      );
     });
 
     test('RECAPTCHA_SECRET_KEY 未設定 → 検証スキップで200（開発環境互換）', async () => {
