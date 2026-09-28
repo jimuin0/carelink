@@ -826,26 +826,72 @@ describe('RESEND_API_KEY未設定時 — 全send関数', () => {
     jest.resetModules();
     jest.mock('resend', () => ({ Resend: jest.fn() }));
     jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
+
     const mod = require('../email');
     const noSendMock = jest.fn();
+
     const minData = {
-      customerName: 'テスト', customerEmail: 'a@b.com', facilityName: 'サロン',
-      bookingDate: '2026-04-01', startTime: '10:00', endTime: '11:00', bookingId: 'x',
+      customerName: 'テスト',
+      customerEmail: 'a@b.com',
+      facilityName: 'サロン',
+      bookingDate: '2026-04-01',
+      startTime: '10:00',
+      endTime: '11:00',
+      bookingId: 'x',
     };
+
     await mod.sendBookingConfirmation(minData);
     await mod.sendBookingReminder(minData);
     await mod.sendTimeAdjustRequest(minData);
     await mod.sendBookingConfirmed(minData);
     await mod.sendBookingCancelled(minData);
-    await mod.sendNewBookingNotification({ ...minData, facilityEmail: 'f@f.com' });
-    await mod.sendNewReviewNotification({ facilityEmail: 'f@f.com', facilityName: 'F', reviewerName: 'R', rating: 5 });
-    await mod.sendNewInquiryNotification({ facilityEmail: 'f@f.com', facilityName: 'F', inquirerName: 'I', inquirerEmail: 'i@i.com', message: 'M' });
-    await mod.sendBookingCancellationToFacility({ ...minData, facilityEmail: 'f@f.com' });
-    await mod.sendWelcomeEmail({ ownerEmail: 'o@o.com', facilityName: 'F' });
-    await mod.sendOnboardingFollowEmail({ ownerEmail: 'o@o.com', facilityName: 'F', missingSteps: [] });
-    await mod.sendBookingStatusUpdate({ ...minData, newStatus: 'confirmed' });
-    await mod.sendFavoritesDigest({ userEmail: 'u@u.com', facilities: [] });
+    await mod.sendNewBookingNotification({
+      ...minData,
+      facilityEmail: 'f@f.com',
+    });
+    await mod.sendNewReviewNotification({
+      facilityEmail: 'f@f.com',
+      facilityName: 'F',
+      reviewerName: 'R',
+      rating: 5,
+    });
+    await mod.sendNewInquiryNotification({
+      facilityEmail: 'f@f.com',
+      facilityName: 'F',
+      inquirerName: 'I',
+      inquirerEmail: 'i@i.com',
+      message: 'M',
+    });
+    await mod.sendBookingCancellationToFacility({
+      ...minData,
+      facilityEmail: 'f@f.com',
+    });
+    await mod.sendWelcomeEmail({
+      ownerEmail: 'o@o.com',
+      facilityName: 'F',
+    });
+    await mod.sendOnboardingFollowEmail({
+      ownerEmail: 'o@o.com',
+      facilityName: 'F',
+      missingSteps: [],
+    });
+    await mod.sendBookingStatusUpdate({
+      ...minData,
+      newStatus: 'confirmed',
+    });
+    await mod.sendFavoritesDigest({
+      userEmail: 'u@u.com',
+      facilities: [],
+    });
+
+    const operatorOk = await mod.sendOperatorNotification({
+      subject: 'テスト',
+      lines: [],
+    });
+
+    expect(operatorOk).toBe(false);
     expect(noSendMock).not.toHaveBeenCalled();
+
     process.env.RESEND_API_KEY = origKey;
   });
 });
