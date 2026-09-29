@@ -405,6 +405,62 @@ describe('getAvailableAreasAndTypes', () => {
     return { select, eq };
   }
 
+  test('Supabase query が Error で reject → 空配列へフォールバックする', async () => {
+    const consoleSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    const eq = jest.fn(() =>
+      Promise.reject(new Error('query failed')),
+    );
+
+    const select = jest.fn(() => ({ eq }));
+
+    mockFrom.mockReturnValue({ select, eq });
+
+    const result = await getAvailableAreasAndTypes();
+
+    expect(result).toEqual({
+      areas: [],
+      types: [],
+    });
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[facilities] getAvailableAreasAndTypes failed:',
+      'query failed',
+    );
+
+    consoleSpy.mockRestore();
+  });
+
+  test('Supabase query が Error 以外で reject → 空配列へフォールバックする', async () => {
+    const consoleSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    const eq = jest.fn(() =>
+      Promise.reject('query failed'),
+    );
+
+    const select = jest.fn(() => ({ eq }));
+
+    mockFrom.mockReturnValue({ select, eq });
+
+    const result = await getAvailableAreasAndTypes();
+
+    expect(result).toEqual({
+      areas: [],
+      types: [],
+    });
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[facilities] getAvailableAreasAndTypes failed:',
+      'query failed',
+    );
+
+    consoleSpy.mockRestore();
+  });
+
   test('公開施設が実在する都道府県・業種のみを重複なしで返す', async () => {
     const chain = eqTerminal({
       data: [
@@ -413,13 +469,22 @@ describe('getAvailableAreasAndTypes', () => {
         { prefecture: '大阪府', business_type: '鍼灸・整骨院' },
       ],
     });
+
     mockFrom.mockReturnValue(chain);
 
     const result = await getAvailableAreasAndTypes();
+
     expect(result.areas).toEqual(['大阪府']);
-    expect(result.types).toEqual(['鍼灸・整骨院', 'まつげ・眉毛サロン']);
+    expect(result.types).toEqual([
+      '鍼灸・整骨院',
+      'まつげ・眉毛サロン',
+    ]);
+
     // 非公開（draft 等）の施設を候補に混ぜない。
-    expect(chain.eq).toHaveBeenCalledWith('status', 'published');
+    expect(chain.eq).toHaveBeenCalledWith(
+      'status',
+      'published',
+    );
   });
 
   test('null・空文字はリンク先が壊れるため候補から除外する', async () => {
@@ -429,18 +494,45 @@ describe('getAvailableAreasAndTypes', () => {
         { prefecture: '大阪府', business_type: '鍼灸・整骨院' },
       ],
     });
+
     mockFrom.mockReturnValue(chain);
 
     const result = await getAvailableAreasAndTypes();
+
     expect(result.areas).toEqual(['大阪府']);
     expect(result.types).toEqual(['鍼灸・整骨院']);
   });
 
   test('取得失敗（data が null）でも空配列を返し画面を壊さない', async () => {
-    mockFrom.mockReturnValue(eqTerminal({ data: null, error: { message: 'boom' } }));
+    mockFrom.mockReturnValue(
+      eqTerminal({
+        data: null,
+        error: { message: 'boom' },
+      }),
+    );
 
     const result = await getAvailableAreasAndTypes();
-    expect(result).toEqual({ areas: [], types: [] });
+
+    expect(result).toEqual({
+      areas: [],
+      types: [],
+    });
+  });
+
+  test('data が null かつ error なし → 空配列を返す', async () => {
+    mockFrom.mockReturnValue(
+      eqTerminal({
+        data: null,
+        error: null,
+      }),
+    );
+
+    const result = await getAvailableAreasAndTypes();
+
+    expect(result).toEqual({
+      areas: [],
+      types: [],
+    });
   });
 });
 
