@@ -19,6 +19,7 @@ import FacilityCard from '@/components/search/FacilityCard';
 import RelatedLinks from '@/components/seo/RelatedLinks';
 
 export const revalidate = 3600;
+export const dynamic = 'force-dynamic';
 
 interface Props {
   params: Promise<{ prefectureSlug: string }>;

@@ -25,6 +25,7 @@ import RelatedLinks from '@/components/seo/RelatedLinks';
 import SafeHtmlContent from '@/components/seo/SafeHtmlContent';
 
 export const revalidate = 3600;
+export const dynamic = 'force-dynamic';
 export const dynamicParams = true;
 
 interface Props {
