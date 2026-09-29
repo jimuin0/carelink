@@ -355,16 +355,66 @@ export async function getLatestFacilities(limit = 6) {
  */
 export async function getAvailableAreasAndTypes(): Promise<{ areas: string[]; types: string[] }> {
   const supabase = createServerSupabaseClient();
-  const { data } = await supabase
-    .from(CARD_VIEW)
-    .select('prefecture, business_type')
-    .eq('status', 'published');
+  const timeoutMs = 5_000;
 
-  const rows = (data || []) as { prefecture: string | null; business_type: string | null }[];
-  // null / 空文字を候補に出すとリンク先が壊れるため除外する。
-  const areas = [...new Set(rows.map((r) => r.prefecture).filter((v): v is string => !!v))];
-  const types = [...new Set(rows.map((r) => r.business_type).filter((v): v is string => !!v))];
-  return { areas, types };
+  let timer!: ReturnType<typeof setTimeout>;
+
+  try {
+    const query = supabase
+      .from(CARD_VIEW)
+      .select('prefecture, business_type')
+      .eq('status', 'published');
+
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`getAvailableAreasAndTypes timeout ${timeoutMs}ms`)),
+        timeoutMs,
+      );
+    });
+
+    const { data, error } = await Promise.race([
+      Promise.resolve(query),
+      timeout,
+    ]);
+
+    if (error) {
+      console.error('[facilities] getAvailableAreasAndTypes failed:', error.message);
+      return { areas: [], types: [] };
+    }
+
+    const rows = (data || []) as {
+      prefecture: string | null;
+      business_type: string | null;
+    }[];
+
+    // null / 空文字を候補に出すとリンク先が壊れるため除外する。
+    const areas = [
+      ...new Set(
+        rows
+          .map((r) => r.prefecture)
+          .filter((v): v is string => !!v),
+      ),
+    ];
+
+    const types = [
+      ...new Set(
+        rows
+          .map((r) => r.business_type)
+          .filter((v): v is string => !!v),
+      ),
+    ];
+
+    return { areas, types };
+  } catch (error) {
+    console.error(
+      '[facilities] getAvailableAreasAndTypes failed:',
+      error instanceof Error ? error.message : String(error),
+    );
+
+    return { areas: [], types: [] };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Check which facilities have availability on a given date/time
