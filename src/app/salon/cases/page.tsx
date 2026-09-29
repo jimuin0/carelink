@@ -25,21 +25,53 @@ export const revalidate = 3600;
  */
 async function getPublicStats() {
   const supabase = createServerSupabaseClient();
+  const timeoutMs = 5_000;
 
-  const [facilities, reviews, menus] = await Promise.all([
-    supabase
-      .from('facility_profiles')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'published'),
-    supabase.from('public_reviews').select('id', { count: 'exact', head: true }),
-    supabase.from('facility_menus').select('id', { count: 'exact', head: true }),
-  ]);
+  let timer!: ReturnType<typeof setTimeout>;
 
-  return {
-    facilityCount: facilities.count ?? 0,
-    reviewCount: reviews.count ?? 0,
-    menuCount: menus.count ?? 0,
-  };
+  try {
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`getPublicStats timeout ${timeoutMs}ms`)),
+        timeoutMs,
+      );
+    });
+
+    const [facilities, reviews, menus] = await Promise.race([
+      Promise.all([
+        supabase
+          .from('facility_profiles')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'published'),
+        supabase
+          .from('public_reviews')
+          .select('id', { count: 'exact', head: true }),
+        supabase
+          .from('facility_menus')
+          .select('id', { count: 'exact', head: true }),
+      ]),
+      timeout,
+    ]);
+
+    return {
+      facilityCount: facilities.count ?? 0,
+      reviewCount: reviews.count ?? 0,
+      menuCount: menus.count ?? 0,
+    };
+  } catch (error) {
+    console.error(
+      '[salon/cases] getPublicStats failed:',
+      error instanceof Error ? error.message : String(error),
+    );
+
+    return {
+      facilityCount: 0,
+      reviewCount: 0,
+      menuCount: 0,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export default async function CasesPage() {

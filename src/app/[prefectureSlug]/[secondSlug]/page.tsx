@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
-  allPrefectureSlugs,
   allBusinessTypeSlugs,
   getPrefectureName,
   getBusinessTypeName,
@@ -14,7 +13,11 @@ import { searchFacilities } from '@/lib/facilities';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { getAreaSeoContent, isIndexableAreaQuality } from '@/lib/area-seo';
 import { generatePrefTypeContent, generateCityContent, type GeneratedSeoContent } from '@/lib/seo-snippets';
-import { isValidCitySlug, getCityName, getCitiesForPrefecture, getAllCitySlugs } from '@/data/city-slugs';
+import {
+  isValidCitySlug,
+  getCityName,
+  getCitiesForPrefecture,
+} from '@/data/city-slugs';
 import Breadcrumb from '@/components/Breadcrumb';
 import FacilityCard from '@/components/search/FacilityCard';
 import Pagination from '@/components/search/Pagination';
@@ -30,23 +33,7 @@ interface Props {
 }
 
 export function generateStaticParams() {
-  const params: { prefectureSlug: string; secondSlug: string }[] = [];
-
-  // 業種ページ: 47 × 8 = 376
-  for (const ps of allPrefectureSlugs) {
-    for (const ts of allBusinessTypeSlugs) {
-      params.push({ prefectureSlug: ps, secondSlug: ts });
-    }
-  }
-
-  // 市区町村ページ: 主要都府県のみ静的生成
-  const majorPrefectures = ['tokyo', 'osaka', 'kanagawa', 'aichi', 'fukuoka', 'saitama', 'chiba', 'hyogo', 'kyoto', 'hokkaido'];
-  const allCities = getAllCitySlugs();
-  for (const c of allCities.filter((c) => majorPrefectures.includes(c.prefectureSlug))) {
-    params.push({ prefectureSlug: c.prefectureSlug, secondSlug: c.citySlug });
-  }
-
-  return params;
+  return [];
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {

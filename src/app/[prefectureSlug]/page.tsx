@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
-  allPrefectureSlugs,
   allBusinessTypeSlugs,
   businessTypeSlugs,
   getPrefectureName,
@@ -26,7 +25,7 @@ interface Props {
 }
 
 export function generateStaticParams() {
-  return allPrefectureSlugs.map((slug) => ({ prefectureSlug: slug }));
+  return [];
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
