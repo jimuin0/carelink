@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
+import type { CSSProperties } from 'react';
 import Image from 'next/image';
-import { Noto_Serif_JP } from 'next/font/google';
 import RegisterForm from '@/components/register/RegisterForm';
 
 /**
@@ -21,12 +21,10 @@ import RegisterForm from '@/components/register/RegisterForm';
  * （別々に持つと必ず片方だけ古くなる。実際にロゴだけ青が残る事故を起こした）。
  * src/__tests__/ecru-theme-single-source.test.ts が直書きへの逆戻りを CI で止める。
  */
-const serif = Noto_Serif_JP({
-  subsets: ['latin'],
-  display: 'swap',
-  weight: ['400', '500'],
-  variable: '--font-serif-jp',
-});
+const serifStyle = {
+  '--font-serif-jp':
+    '"Yu Mincho", "Hiragino Mincho ProN", "Hiragino Mincho Pro", "Noto Serif JP", serif',
+} as CSSProperties;
 
 export const metadata: Metadata = {
   title: '店舗・施設の掲載登録 | CareLink',
@@ -87,7 +85,8 @@ const STEPS = [
 export default function RegisterPage() {
   return (
     <div
-      className={`theme-ecru ${serif.variable} bg-[var(--ecru-bg)] text-[var(--ecru-text)]`}
+      className="theme-ecru bg-[var(--ecru-bg)] text-[var(--ecru-text)]"
+      style={serifStyle}
     >
       {/* ===== ヒーロー =====
           写真の上に文字を重ねる編集誌的な組み。写真の下に文字を置く形も試したが、
