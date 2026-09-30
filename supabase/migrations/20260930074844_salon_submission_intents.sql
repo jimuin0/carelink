@@ -1,8 +1,48 @@
--- Align the service RPC with the server-enforced three-day intent capability.
--- Additive upgrade; preserves existing intent rows, receipts and grants.
-BEGIN;
+-- Additive infrastructure only. Do not enable the v2 entry point before its
+-- receipt, claim, photo and outbox consumers have passed their release gates.
 
-CREATE OR REPLACE FUNCTION public.commit_salon_submission(
+CREATE TABLE public.salon_submission_intents (
+  id uuid PRIMARY KEY,
+  proof_hash text NOT NULL CHECK (proof_hash ~ '^[a-f0-9]{64}$'),
+  canonical_version smallint NOT NULL CHECK (canonical_version = 1),
+  hmac_scheme text NOT NULL CHECK (hmac_scheme = 'proof-hkdf-sha256-v1'),
+  payload_hmac text CHECK (payload_hmac ~ '^[a-f0-9]{64}$'),
+  salon_id uuid UNIQUE REFERENCES public.salons(id) ON DELETE RESTRICT,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  prepare_expires_at timestamptz NOT NULL,
+  committed_at timestamptz,
+  CONSTRAINT salon_intent_expiry CHECK (prepare_expires_at > created_at),
+  CONSTRAINT salon_intent_commit_state CHECK (
+    (salon_id IS NULL AND payload_hmac IS NULL AND committed_at IS NULL)
+    OR (salon_id IS NOT NULL AND payload_hmac IS NOT NULL AND committed_at IS NOT NULL)
+  )
+);
+ALTER TABLE public.salon_submission_intents ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.salon_submission_intents FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT, INSERT, UPDATE ON public.salon_submission_intents TO service_role;
+COMMENT ON TABLE public.salon_submission_intents IS
+  'Registration intent capability digests and receipt references only; no business payload or proof plaintext. Committed intents must not be expired or deleted by routine cleanup.';
+
+ALTER TABLE public.webhook_retry_queue
+  ADD COLUMN registration_id uuid REFERENCES public.salons(id) ON DELETE RESTRICT,
+  ADD COLUMN notification_kind text,
+  ADD COLUMN template_version smallint,
+  ADD CONSTRAINT webhook_registration_reference CHECK (
+    (registration_id IS NULL AND notification_kind IS NULL AND template_version IS NULL
+      AND webhook_type NOT IN ('salon_registration_email', 'salon_registration_internal'))
+    OR
+    (registration_id IS NOT NULL AND notification_kind IS NOT NULL
+      AND template_version IS NOT NULL AND template_version = 1 AND payload = '{}'::jsonb
+      AND target_id = registration_id::text AND (
+        (webhook_type = 'salon_registration_email' AND notification_kind = 'receipt')
+        OR (webhook_type = 'salon_registration_internal' AND notification_kind = 'internal')
+      ))
+  );
+CREATE UNIQUE INDEX webhook_registration_notification_unique
+  ON public.webhook_retry_queue (registration_id, notification_kind, template_version)
+  WHERE registration_id IS NOT NULL;
+
+CREATE FUNCTION public.commit_salon_submission(
   p_intent_id uuid,
   p_proof_hash text,
   p_canonical_version smallint,
@@ -21,13 +61,6 @@ BEGIN
   IF NOT FOUND OR intent.proof_hash IS DISTINCT FROM p_proof_hash
     OR intent.canonical_version IS DISTINCT FROM p_canonical_version
     OR intent.hmac_scheme IS DISTINCT FROM p_hmac_scheme THEN
-    RETURN QUERY SELECT 'unverified'::text, NULL::uuid;
-    RETURN;
-  END IF;
-  -- The capability lifetime is independent of cookie expiration. Check after
-  -- acquiring the lock and before any receipt replay or write.
-  IF intent.created_at > clock_timestamp()
-    OR intent.created_at + interval '72 hours' <= clock_timestamp() THEN
     RETURN QUERY SELECT 'unverified'::text, NULL::uuid;
     RETURN;
   END IF;
@@ -96,6 +129,3 @@ REVOKE ALL ON FUNCTION public.commit_salon_submission(uuid,text,smallint,text,te
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.commit_salon_submission(uuid,text,smallint,text,text,jsonb)
   TO service_role;
-
-COMMIT;
-

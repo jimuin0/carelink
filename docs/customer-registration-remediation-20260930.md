@@ -2,7 +2,7 @@
 
 ## 固定範囲
 
-- GOAL ID：CARELINK-CUSTOMER-REGISTRATION-20260930、revision：1。
+- GOAL ID：CARELINK-CUSTOMER-REGISTRATION-20260930、revision：2。
 - 原依頼：現在の認証済みtask contextの「そのエラーを全部進めて」。直前の2人の掲載申込・受付・公開・複数店舗・返信の調査結果を実装対象へ引き継ぐ。message IDは公開されていないため捏造しない。
 - 原依頼のcanonical化：UTF-8、引用の括弧と末尾改行を除くexact text。SHA-256：`56c0a0b17a2d7d9c5b674f82e3a570dbe8151f6c8cc08af35b5967886913b793`。
 - 適用規則：user-level入口から解決したr41。manifest SHA-256：`41983e33d92bfd64a85ea870b9b2e9117ca3b163c9b6f61d0024b2354d02481d`。同一bundleのlocal/remote Git・品質・準備・副作用・実機契約を読了・hash照合。
@@ -67,3 +67,19 @@
 ## 完了条件
 
 C01〜C08の全必須検証が最新変更へ成功し、経営判断が結果を左右する未決事項、必要な本番schema・履歴照合、deploy後確認が解消された場合だけ完了とする。隔離test、provider受理、本番反映、受信箱到達を区別する。無関係なデータを書き換えない。
+
+## 今回限定の本番migration実行計画
+
+- 認可源：現在の認証済みtask contextでの神原さんのexact text「今回だけ、Supabase公式のmigration機能と事前・事後確認を使う方法を認める」。共通rulesetの恒久改訂ではなく、本タスクの非破壊migrationに限る後続指示。既存の専用台帳・gateway不足だけではこの限定経路を停止しない。破壊的操作、費用発生、顧客への実送信、経営方針変更は含めない。
+- 実行先：CareLink production、project ref `xzafxiupbflvgbarrihe`。既存の認証済みSupabase公式connectorの`apply_migration`を使い、SQL Editorの直接DDL、履歴INSERT、`migration repair`は使わない。
+- 対象：未履歴のWebhook delivery開始ガード、profile INSERT昇格ガード、登録intent、能力期限、写真manifest、公開所在地制約、原子的setup、review revision、返信pending unique index。既履歴の20260919000001・20260921000001とdeferred Storage cutoverは対象外。
+- 依存順：登録intent→能力期限→写真manifest→原子的setupを維持。profileガードと返信indexは独立。既存列・indexのWebhookガードは実定義と一致する場合だけ冪等な適用を記録する。
+- 変更効果：テーブル・列・制約・index・関数・trigger・grantの追加又は限定置換。既存業務行のUPDATE/DELETE、実送信、顧客の代行申込、公開化は行わない。新規resource・有料プランを作成しない。
+- 事前条件：所在地はmigrationと同じUnicode空白判定、welcomeは全statusのpayloadとtarget、登録通知のlegacy型、返信pending重複を件数のみ確認する。今回の事前結果は全て0件。PostgreSQL 17.6で接続可能。Webhook開始列はtimestamptz、indexはclaimed_at・processingかつ開始未記録predicateに一致。
+- 初回適用前の安全修正：未適用5本の最上位BEGIN/COMMITだけを除去し、公式migration transactionに履歴とDDLの確定を委ねる。関数内のBEGIN/ENDや業務処理は変更しない。Supabase公式docsはmigration失敗時rollbackを記載する。SQL内COMMITで外側transactionを先行確定させる経路を作らない。
+- 履歴整合：公式機能が発行するversionを実際の履歴から取得する。未共有適用の候補だけをそのversionへ一対一で改名し、旧名・新名・適用SQLのSHA-256を記録する。適用済み原票は不変。既存OOB定義は未履歴原票の共有適用状況も確認し、不明なら原票を変更せずforward reconciliationに分離する。
+- 事後条件：履歴の記録SQLと適用SQL、列型、index定義・validity、RLS、RPC signature・service許可・anon/authenticated拒否、trigger、制約を照合。所在地の違反0とconvalidatedは別に記録する。NOT VALIDをvalidate済みと扱わない。
+- 所在地の完結条件：既存行の違反0を再照合した後、追加forward migrationでVALIDATE CONSTRAINTを実行しconvalidated=trueを確認する。既適用のNOT VALID原票は変更しない。validationは行を修復・公開・削除せず、違反があれば公式transactionを失敗させる。
+- 成否不明：同じmigrationを再送せず、履歴と実定義を読取確認する。履歴欠落・部分状態・並行変更があれば依存する適用を止め、証拠を保持する。
+- 復旧：失敗時は公式transaction rollback、成功後は追加した業務データを消さずforward-fixで復旧する。旧本番consumerを維持し、v2機能を無条件で有効化しない。新テーブルのDROPや履歴削除をrollback手段にしない。
+- 反映後：本番から公式生成した型を反映し、最新SHAのContract・全必須CI・独立レビュー後にPR #642を保護条件内でmerge。deploy済みSHA・health・対象read-only動作を確認する。顧客への返信・掲載完了は別証拠を要する。

@@ -712,7 +712,7 @@ export type Database = {
           traffic_source?: Json | null
         }
         Relationships: []
-        }
+      }
       coupon_menus: {
         Row: {
           coupon_id: string
@@ -3974,6 +3974,47 @@ export type Database = {
           },
         ]
       }
+      salon_submission_photos: {
+        Row: {
+          byte_size: number
+          created_at: string
+          id: string
+          intent_id: string
+          mime_type: string
+          object_path: string
+          selection_id: string
+          slot: number
+        }
+        Insert: {
+          byte_size: number
+          created_at?: string
+          id?: string
+          intent_id: string
+          mime_type: string
+          object_path?: string
+          selection_id: string
+          slot: number
+        }
+        Update: {
+          byte_size?: number
+          created_at?: string
+          id?: string
+          intent_id?: string
+          mime_type?: string
+          object_path?: string
+          selection_id?: string
+          slot?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "salon_submission_photos_intent_id_fkey"
+            columns: ["intent_id"]
+            isOneToOne: false
+            referencedRelation: "salon_submission_intents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       salons: {
         Row: {
           address: string | null
@@ -3983,6 +4024,7 @@ export type Database = {
           city: string | null
           claimed_at: string | null
           claimed_by_user_id: string | null
+          claimed_facility_id: string | null
           contact_name: string
           contact_phone: string | null
           created_at: string | null
@@ -4004,6 +4046,7 @@ export type Database = {
           registration_followup_sent_at: string | null
           regular_holiday: string | null
           representative_name: string
+          review_revision: number
           seat_count: number | null
           source: string | null
           staff_count: number | null
@@ -4018,6 +4061,7 @@ export type Database = {
           city?: string | null
           claimed_at?: string | null
           claimed_by_user_id?: string | null
+          claimed_facility_id?: string | null
           contact_name: string
           contact_phone?: string | null
           created_at?: string | null
@@ -4039,6 +4083,7 @@ export type Database = {
           registration_followup_sent_at?: string | null
           regular_holiday?: string | null
           representative_name: string
+          review_revision?: number
           seat_count?: number | null
           source?: string | null
           staff_count?: number | null
@@ -4053,6 +4098,7 @@ export type Database = {
           city?: string | null
           claimed_at?: string | null
           claimed_by_user_id?: string | null
+          claimed_facility_id?: string | null
           contact_name?: string
           contact_phone?: string | null
           created_at?: string | null
@@ -4074,13 +4120,29 @@ export type Database = {
           registration_followup_sent_at?: string | null
           regular_holiday?: string | null
           representative_name?: string
+          review_revision?: number
           seat_count?: number | null
           source?: string | null
           staff_count?: number | null
           status?: string | null
           website?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "salons_claimed_facility_id_fkey"
+            columns: ["claimed_facility_id"]
+            isOneToOne: true
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "salons_claimed_facility_id_fkey"
+            columns: ["claimed_facility_id"]
+            isOneToOne: true
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       schedule_overrides: {
         Row: {
@@ -5446,17 +5508,6 @@ export type Database = {
       }
     }
     Functions: {
-      commit_salon_submission: {
-        Args: {
-          p_intent_id: string
-          p_proof_hash: string
-          p_canonical_version: number
-          p_hmac_scheme: string
-          p_payload_hmac: string
-          p_registration: Json
-        }
-        Returns: { outcome: string; receipt_id: string | null }[]
-      }
       _postgis_deprecate: {
         Args: { newname: string; oldname: string; version: string }
         Returns: undefined
@@ -5604,6 +5655,20 @@ export type Database = {
       cleanup_old_cron_logs: { Args: never; Returns: undefined }
       cleanup_old_cron_report_sends: { Args: never; Returns: undefined }
       cleanup_old_webhook_retry: { Args: never; Returns: undefined }
+      commit_salon_submission: {
+        Args: {
+          p_canonical_version: number
+          p_hmac_scheme: string
+          p_intent_id: string
+          p_payload_hmac: string
+          p_proof_hash: string
+          p_registration: Json
+        }
+        Returns: {
+          outcome: string
+          receipt_id: string
+        }[]
+      }
       consume_package_session: {
         Args: {
           p_booking_id?: string
@@ -5925,6 +5990,21 @@ export type Database = {
       }
       postgis_version: { Args: never; Returns: string }
       postgis_wagyu_version: { Args: never; Returns: string }
+      prepare_salon_photo: {
+        Args: {
+          p_byte_size: number
+          p_intent_id: string
+          p_mime_type: string
+          p_proof_hash: string
+          p_selection_id: string
+          p_slot: number
+        }
+        Returns: {
+          object_path: string
+          outcome: string
+          photo_id: string
+        }[]
+      }
       record_facility_page_view: {
         Args: { facility_uuid: string }
         Returns: undefined
@@ -5967,6 +6047,23 @@ export type Database = {
           rating_count: number
           seat_count: number
           slug: string
+        }[]
+      }
+      setup_facility_from_registration: {
+        Args: {
+          p_claim_mode: string
+          p_intent_id: string
+          p_legacy_issued_at: string
+          p_license_warranted: boolean
+          p_profile: Json
+          p_proof_hash: string
+          p_receipt_id: string
+          p_user_id: string
+        }
+        Returns: {
+          facility_id: string
+          facility_slug: string
+          outcome: string
         }[]
       }
       st_3dclosestpoint: {

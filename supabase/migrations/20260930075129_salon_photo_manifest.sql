@@ -1,7 +1,6 @@
 -- Additive infrastructure only. Does not change existing Storage policies.
 -- Signed-only activation additionally requires the deferred Storage cutover
 -- and verified UI/commit/claim consumers. Creating this table is not activation.
-BEGIN;
 
 CREATE TABLE public.salon_submission_photos (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -82,5 +81,3 @@ REVOKE ALL ON FUNCTION public.prepare_salon_photo(uuid,text,uuid,smallint,text,b
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.prepare_salon_photo(uuid,text,uuid,smallint,text,bigint)
   TO service_role;
-
-COMMIT;

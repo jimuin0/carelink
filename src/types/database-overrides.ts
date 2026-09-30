@@ -53,28 +53,22 @@ type CreateBookingArgs = Omit<GeneratedCreateBooking['Args'], CreateBookingNulla
 
 export type Database = Omit<GeneratedDatabase, 'public'> & {
   public: Omit<GeneratedDatabase['public'], 'Functions' | 'Tables'> & {
-    // Candidate schema only; the production introspection/Contract gate must
-    // remain red until the actual schema and migration history are reconciled.
-    Tables: Omit<GeneratedDatabase['public']['Tables'], 'salons'> & {
-      salons: Omit<GeneratedDatabase['public']['Tables']['salons'], 'Row' | 'Insert' | 'Update'> & {
-        Row: GeneratedDatabase['public']['Tables']['salons']['Row'] & { claimed_facility_id: string | null; review_revision: number };
-        Insert: GeneratedDatabase['public']['Tables']['salons']['Insert'] & { claimed_facility_id?: string | null; review_revision?: number };
-        Update: GeneratedDatabase['public']['Tables']['salons']['Update'] & { claimed_facility_id?: string | null; review_revision?: number };
-      };
-      salon_submission_photos: {
-        Row: { id: string; intent_id: string; selection_id: string; slot: number;
-          mime_type: string; byte_size: number; object_path: string; created_at: string };
+    // Production-introspected tables are authoritative. The service photo
+    // manifest permits only immutable, server-derived preparation inserts.
+    Tables: Omit<GeneratedDatabase['public']['Tables'], 'salon_submission_photos'> & {
+      salon_submission_photos: Omit<GeneratedDatabase['public']['Tables']['salon_submission_photos'], 'Insert' | 'Update'> & {
         Insert: { intent_id: string; selection_id: string; slot: number; mime_type: string; byte_size: number };
         Update: never;
-        Relationships: [];
       };
     };
-    Functions: Omit<GeneratedFunctions, 'create_booking_atomic'> & {
+    // Omit every overridden key before replacing it. Intersecting generated
+    // non-null strings with nullable overrides would silently reject valid SQL NULLs.
+    Functions: Omit<GeneratedFunctions, 'create_booking_atomic' | 'prepare_salon_photo' | 'setup_facility_from_registration'> & {
       create_booking_atomic: Omit<GeneratedCreateBooking, 'Args'> & { Args: CreateBookingArgs };
-      // Candidate migration 20260926000003. This typed, feature-gated consumer
-      // is NOT evidence of production application. Keep the production drift
-      // tests against database.types.ts; reconcile from introspection before
-      // enabling the route or merging a deployment that depends on this RPC.
+      // Production migration 20260930075129 and setup 20260930075358.
+      // Introspection omits SQL NULLability for function parameters/results.
+      // These NULL paths are explicit in the RPC bodies; generated-schema
+      // existence remains checked independently by Contract tests.
       prepare_salon_photo: {
         Args: { p_intent_id: string; p_proof_hash: string; p_selection_id: string;
           p_slot: number; p_mime_type: string; p_byte_size: number };

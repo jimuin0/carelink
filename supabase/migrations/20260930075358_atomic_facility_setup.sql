@@ -1,6 +1,5 @@
 -- Additive prerequisite for the new setup consumer. Do not enable that consumer
 -- until fresh/upgrade/role/concurrency/rollback contracts have passed.
-BEGIN;
 ALTER TABLE public.salons ADD COLUMN claimed_facility_id uuid UNIQUE
   REFERENCES public.facility_profiles(id) ON DELETE RESTRICT;
 COMMENT ON COLUMN public.salons.claimed_facility_id IS
@@ -178,4 +177,3 @@ REVOKE ALL ON FUNCTION public.setup_facility_from_registration(uuid,text,uuid,uu
   FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.setup_facility_from_registration(uuid,text,uuid,uuid,text,timestamptz,jsonb,boolean)
   TO service_role;
-COMMIT;

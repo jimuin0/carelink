@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { SALON_INTENT_TTL_SECONDS } from '@/lib/salon-submission-proof';
 
 const read = (path: string) => readFileSync(join(process.cwd(), path), 'utf8');
-const original = read('supabase/migrations/20260926000001_salon_submission_intents.sql');
-const upgrade = read('supabase/migrations/20260926000002_salon_intent_capability_expiry.sql');
+const original = read('supabase/migrations/20260930074844_salon_submission_intents.sql');
+const upgrade = read('supabase/migrations/20260930074857_salon_intent_capability_expiry.sql');
 const fixture = read('supabase/shadow/salon-submission-fixtures.sql');
 
 test('RPC independently rejects future and expired capabilities after lock, before receipt replay', () => {

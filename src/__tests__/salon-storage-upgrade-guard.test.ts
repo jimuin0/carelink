@@ -23,7 +23,7 @@ test('valid environment with no database tool is a distinct failure, never a pas
   expect(result.stderr).toBe('Registration storage upgrade contract failed; no production repair was authorized.\n');
 });
 test('upgrade fixture executes the actual migration section and is wired before nonempty concurrency fixtures', () => {
-  const additive = readFileSync(join(process.cwd(), 'supabase/migrations/20260926000003_salon_photo_manifest.sql'), 'utf8');
+  const additive = readFileSync(join(process.cwd(), 'supabase/migrations/20260930075129_salon_photo_manifest.sql'), 'utf8');
   expect(additive).not.toMatch(/(?:INSERT INTO|UPDATE|ON)\s+storage\./i);
   const sql = readFileSync(join(process.cwd(), 'supabase/deferred-migrations/20260927000001_salon_signed_upload_cutover.sql'), 'utf8');
   expect(sql.match(/-- BEGIN SALON STORAGE RECONCILIATION/g)).toHaveLength(1);
