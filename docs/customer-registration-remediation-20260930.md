@@ -45,7 +45,7 @@
 ## 現時点の事実と未完了
 
 - Git共通契約はr41の同一bundleを解決済み。以前の「Git契約が読めない」を現在の停止理由にしない。
-- origin/mainを既存branchへ取り込み中。登録画面のfont競合は、外部font取得不要の同梱fontとPRの登録改善を保持して解消。
+- origin/mainの`ed22894f`を既存branchへ統合済み。登録画面のfont競合は、外部font取得不要の同梱fontとPRの登録改善を保持して解消。
 - 静的Contractを実行し、salonsの2列、salon_submission_photos、prepare_salon_photo、setup_facility_from_registrationの型定義不足で3検査失敗を確認。許可リスト追加・型の架空補完で隠さない。
 - 本番のintent・photo・setup RPC・返信unique indexはこのturnの読取で未存在。個人情報は取得・転記しない。
 - 対象顧客の個別返信と実掲載は未完了。申込受理・公開・返信送達をコード修正だけで解決済みと扱わない。
@@ -54,14 +54,16 @@
 ## 2026年9月30日の実行証拠
 
 - production build：Node 24・秘密情報なしのlocal設定で成功。合成anon keyのため公開DB読取のfallback logが出ており、本番DB動作成功の証拠ではない。
-- 全unit：420スイート・8,587テスト成功。8813/8813 branches、100％。依存更新後は再検証する。
+- 全unit：依存更新と最終Link修正後も420スイート・8,587テスト成功。8813/8813 branches、100％。
 - 権限境界の負の対照：新middleware分岐を一時無効化すると対応3テストが失敗。復元後15テスト成功、source hash一致。故意の欠陥は残していない。
 - PG14のtask専用Unix socket・外部接続なしの隔離DB：旧UPDATE専用ガードでは自身の欠損profileへのINSERT昇格が成立。新migration適用後、RLS・signup・UPDATE・service_role・正常回復のfixture成功、再適用成功。PG17の全migration検証の代わりにはしない。
 - 独立review：INSERTガードとsupport pathの認可を反証。E2Eのリンク名P2を修正し、再レビューで対象差分の未解決P0〜P3を未検出。実行していないE2Eを成功扱いしない。
 - 開発依存のhigh脆弱性：brace-expansion 2.1.4を2.1.7へ更新。lock・overrideの最小差分、正常・悪意あるbrace入力検査成功。全依存npm auditは0件。公式根拠：https://github.com/advisories/GHSA-qhr7-859c-m2p7 。
-- 最新PG17 fingerprint・実E2EはCIで取得する。Dockerがcontainer作成・execともIO errorで使用不能であり、無関係な稼働containerを再起動・削除していない。
+- PG17全migration適用・生成はGitHub `schema-fingerprint` run `36678721179`、head `e761e2b09662b947e59551b0cbfed4d084edfb30` で成功。比較gateは新ガードの関数grant・関数定義・triggerの3追加を正しく検知して失敗。artifact `11080856781` の生成JSONをそのまま反映し、旧2587項目→2590項目、削除0、PG17 markerを照合。生成物SHA-256：`8bfc93c6bc82fc64a9001069cfa5f45bcd30c376b0d36003c121b9bc156e24f0`。比較後の各DB fixtureと実E2Eの成功は別gateとして確認する。
+- ローカルDockerはcontainer作成・execともIO errorで使用不能。無関係な稼働containerを再起動・削除せず、provider-hosted隔離CIを代替経路にした。
+- GitHub CI run `36678721166`、head `e761e2b09662b947e59551b0cbfed4d084edfb30`：隔離SupabaseのAPI Contractは16件・skipなしで成功。production buildとHTTPS E2Eは301件成功。施設所属なしの運営担当者の画面到達・権限失効を含む。全体runは本番由来の型定義不足によるContract失敗のため不合格であり、本番動作・実メール送達を保証しない。
 - HIGH_RISK本番DDLと実送信：接続済みSupabase connectorは読取可能だが、保護された承認binding・実行台帳・結果不明時の照合を持つ実在経路は未解決。通常shell／SQL Editorへ格下げしない。通常local・PR・CIは継続する。
 
 ## 完了条件
 
-C01〜C07の全必須検証が最新変更へ成功し、経営判断が結果を左右する未決事項、必要な本番schema・履歴照合、deploy後確認が解消された場合だけ完了とする。隔離test、provider受理、本番反映、受信箱到達を区別する。無関係なデータを書き換えない。
+C01〜C08の全必須検証が最新変更へ成功し、経営判断が結果を左右する未決事項、必要な本番schema・履歴照合、deploy後確認が解消された場合だけ完了とする。隔離test、provider受理、本番反映、受信箱到達を区別する。無関係なデータを書き換えない。
