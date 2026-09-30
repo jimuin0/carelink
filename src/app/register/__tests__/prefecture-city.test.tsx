@@ -47,6 +47,7 @@ function mockFetchWithZipcloud() {
   return jest.fn((url: string) => {
     if (url.startsWith('https://zipcloud.ibsnet.co.jp')) {
       return Promise.resolve({
+        ok: true,
         json: () =>
           Promise.resolve({
             results: [{ address1: '大阪府', address2: '堺市堺区', address3: '' }],
@@ -56,7 +57,7 @@ function mockFetchWithZipcloud() {
     if (url === '/api/salons') {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ success: true, id: 'salon-1' }),
+        json: () => Promise.resolve({ success: true, id: '11111111-1111-1111-1111-111111111111' }),
       } as Response);
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
@@ -64,7 +65,7 @@ function mockFetchWithZipcloud() {
 }
 
 async function submitAndGetSalonBody(fetchMock: jest.Mock) {
-  await screen.findByLabelText(/^PR文/);
+  await screen.findByRole('textbox', { name: /^PR文/ });
   checkAllConsents();
   fireEvent.click(screen.getByRole('button', { name: '登録する' }));
 
@@ -106,7 +107,7 @@ test('郵便番号を使わず住所を直接書いた場合、送信時に addr
     if (url === '/api/salons') {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ success: true, id: 'salon-1' }),
+        json: () => Promise.resolve({ success: true, id: '11111111-1111-1111-1111-111111111111' }),
       } as Response);
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
@@ -134,7 +135,7 @@ test('住所欄が空のまま送信すると、prefecture / city は null の�
     if (url === '/api/salons') {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ success: true, id: 'salon-1' }),
+        json: () => Promise.resolve({ success: true, id: '11111111-1111-1111-1111-111111111111' }),
       } as Response);
     }
     return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
@@ -151,4 +152,97 @@ test('住所欄が空のまま送信すると、prefecture / city は null の�
   expect(body.address).toBeNull();
   expect(body.prefecture).toBeNull();
   expect(body.city).toBeNull();
+});
+
+function deferredPostal() {
+  const pending: Array<(response: Response) => void> = [];
+  const fetchMock = jest.fn((url: string) => url.startsWith('https://zipcloud')
+    ? new Promise<Response>(resolve => pending.push(resolve))
+    : Promise.resolve({ ok: true, json: async () => ({ success: true, id: '11111111-1111-1111-1111-111111111111' }) } as Response));
+  global.fetch = fetchMock as unknown as typeof fetch;
+  const reply = async (index: number, data: unknown, ok = true) => {
+    await act(async () => pending[index]({ ok, json: async () => data } as Response));
+  };
+  return { fetchMock, pending, reply };
+}
+const osaka = { results: [{ address1: '大阪府', address2: '堺市堺区', address3: '合成町' }] };
+const aichi = { results: [{ address1: '愛知県', address2: '西尾市', address3: '合成町' }] };
+
+test('old postal responses cannot overwrite a newer postcode and region', async () => {
+  const { fetchMock, pending, reply } = deferredPostal();
+  render(<RegisterPage />); fillStep1AndAdvance();
+  const postal = await screen.findByLabelText(/^郵便番号/);
+  fireEvent.change(postal, { target: { value: '5900001' } });
+  await waitFor(() => expect(pending).toHaveLength(1));
+  fireEvent.change(postal, { target: { value: '4450001' } });
+  await waitFor(() => expect(pending).toHaveLength(2));
+  await reply(1, aichi); await reply(0, osaka);
+  expect(screen.getByLabelText('住所')).toHaveValue('愛知県西尾市合成町');
+  fireEvent.click(screen.getByRole('button', { name: '次へ' }));
+  expect(await submitAndGetSalonBody(fetchMock)).toMatchObject({ prefecture: '愛知県', city: '西尾市' });
+});
+
+test('shortening the postcode invalidates an in-flight response', async () => {
+  const { pending, reply } = deferredPostal();
+  render(<RegisterPage />); fillStep1AndAdvance();
+  const postal = await screen.findByLabelText(/^郵便番号/);
+  fireEvent.change(postal, { target: { value: '5900001' } });
+  await waitFor(() => expect(pending).toHaveLength(1));
+  fireEvent.change(postal, { target: { value: '590' } });
+  await reply(0, osaka);
+  expect(screen.getByLabelText('住所')).toHaveValue('');
+});
+
+test('manual address correction invalidates a pending lookup and old hidden region', async () => {
+  const { fetchMock, pending, reply } = deferredPostal();
+  render(<RegisterPage />); fillStep1AndAdvance();
+  const postal = await screen.findByLabelText(/^郵便番号/);
+  fireEvent.change(postal, { target: { value: '5900001' } });
+  await waitFor(() => expect(pending).toHaveLength(1));
+  await reply(0, osaka);
+  fireEvent.change(postal, { target: { value: '5900002' } });
+  await waitFor(() => expect(pending).toHaveLength(2));
+  fireEvent.change(screen.getByLabelText('住所'), { target: { value: '愛知県西尾市合成町' } });
+  await reply(1, osaka);
+  expect(screen.getByLabelText('住所')).toHaveValue('愛知県西尾市合成町');
+  fireEvent.click(screen.getByRole('button', { name: '次へ' }));
+  expect(await submitAndGetSalonBody(fetchMock)).toMatchObject({ prefecture: '愛知県', city: '西尾市' });
+});
+
+test('clearing an autocompleted address must not retain its hidden region', async () => {
+  const { fetchMock, pending, reply } = deferredPostal();
+  render(<RegisterPage />); fillStep1AndAdvance();
+  fireEvent.change(await screen.findByLabelText(/^郵便番号/), { target: { value: '5900001' } });
+  await waitFor(() => expect(pending).toHaveLength(1)); await reply(0, osaka);
+  fireEvent.change(screen.getByLabelText('住所'), { target: { value: '' } });
+  fireEvent.click(screen.getByRole('button', { name: '次へ' }));
+  expect(await submitAndGetSalonBody(fetchMock)).toMatchObject({ address: null, prefecture: null, city: null });
+});
+
+test.each([
+  { ok: false, data: osaka },
+  { ok: true, data: { results: [{ address1: {}, address2: '堺市', address3: '' }] } },
+  { ok: true, data: null },
+])('invalid postal response preserves manual input (%#)', async ({ ok, data }) => {
+  const { pending, reply } = deferredPostal();
+  render(<RegisterPage />); fillStep1AndAdvance();
+  const postal = await screen.findByLabelText(/^郵便番号/);
+  fireEvent.change(screen.getByLabelText('住所'), { target: { value: '愛知県西尾市合成町' } });
+  fireEvent.change(postal, { target: { value: '5900001' } });
+  await waitFor(() => expect(pending).toHaveLength(1)); await reply(0, data, ok);
+  expect(screen.getByLabelText('住所')).toHaveValue('愛知県西尾市合成町');
+});
+
+test.each(['network', 'json'])('postal %s failure leaves typed input available', async (failure) => {
+  global.fetch = jest.fn(() => failure === 'network'
+    ? Promise.reject(new Error('synthetic network failure'))
+    : Promise.resolve({ ok: true, json: async () => { throw new SyntaxError('synthetic malformed JSON'); } } as Response));
+  render(<RegisterPage />); fillStep1AndAdvance();
+  const postal = await screen.findByLabelText(/^郵便番号/);
+  fireEvent.change(screen.getByLabelText('住所'), { target: { value: '愛知県西尾市合成町' } });
+  await act(async () => { fireEvent.change(postal, { target: { value: '5900001' } }); });
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+  expect(screen.getByLabelText('住所')).toHaveValue('愛知県西尾市合成町');
+  fireEvent.click(screen.getByRole('button', { name: '次へ' }));
+  expect(await screen.findByRole('textbox', { name: /^PR文/ })).toBeVisible();
 });

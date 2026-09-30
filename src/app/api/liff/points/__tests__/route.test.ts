@@ -86,7 +86,7 @@ function setupDefaultMocks(
         return {
           select: jest.fn().mockReturnValue({
             eq: jest.fn().mockReturnValue({
-              single: jest.fn().mockResolvedValue({
+              maybeSingle: jest.fn().mockResolvedValue({
                 data: profileData,
               }),
             }),
@@ -157,12 +157,50 @@ describe('GET /api/liff/points', () => {
     expect(res.status).toBe(401);
   });
 
+  test.each([[429, 503], [503, 503], [400, 502]])('LINE profile API status %i → %i', async (upstreamStatus, expectedStatus) => {
+    global.fetch = jest.fn().mockResolvedValue(new Response('{}', { status: upstreamStatus })) as jest.Mock;
+    const res = await GET(makeRequest('valid-token') as any);
+    expect(res.status).toBe(expectedStatus);
+  });
+
+  test('LINE profile API network timeout → 503', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('timeout')) as jest.Mock;
+    const res = await GET(makeRequest('valid-token') as any);
+    expect(res.status).toBe(503);
+  });
+
+  test('LINE profile API receives bounded timeout', async () => {
+    await GET(makeRequest('valid-token') as any);
+    const call = (global.fetch as jest.Mock).mock.calls.find((c) => c[0].includes('api.line.me/v2/profile'));
+    expect(call[1].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test.each(['{}', 'invalid-json'])('malformed LINE profile response %s → 502', async (body) => {
+    global.fetch = jest.fn().mockResolvedValue(new Response(body, { status: 200 })) as jest.Mock;
+    const res = await GET(makeRequest('valid-token') as any);
+    expect(res.status).toBe(502);
+  });
+
   test('profile not found → 404', async () => {
     setupDefaultMocks(true, false);
 
     const res = await GET(makeRequest('valid-token') as any);
 
     expect(res.status).toBe(404);
+  });
+
+  test('profile lookup database error → 500, not user-not-found 404', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'profiles') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null, error: { message: 'database unavailable' } }) }) }) };
+        }
+        return userPointsMock([]);
+      }),
+    });
+    const res = await GET(makeRequest('valid-token') as any);
+    expect(res.status).toBe(500);
   });
 
   test('valid token with logs → 200 with logs and total', async () => {
@@ -183,7 +221,7 @@ describe('GET /api/liff/points', () => {
     createServiceRoleClient.mockReturnValue({
       from: jest.fn((table: string) => {
         if (table === 'profiles') {
-          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue({ data: { id: 'user-789' } }) }) }) };
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'user-789' } }) }) }) };
         }
         if (table === 'user_points') return userPointsMock([], undefined, { message: 'DB error' });
       }),
@@ -197,7 +235,7 @@ describe('GET /api/liff/points', () => {
     createServiceRoleClient.mockReturnValue({
       from: jest.fn((table: string) => {
         if (table === 'profiles') {
-          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue({ data: { id: 'user-789' } }) }) }) };
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'user-789' } }) }) }) };
         }
         if (table === 'user_points') return userPointsMock([], undefined, null, { message: 'DB error' });
       }),
@@ -317,12 +355,12 @@ describe('GET /api/liff/points', () => {
     }
   });
 
-  test('exception during flow → 500', async () => {
+  test('exception from LINE profile service → 503', async () => {
     (global.fetch as jest.Mock).mockRejectedValue(new Error('Network error'));
 
     const res = await GET(makeRequest('token') as any);
 
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
   });
 
   test('logs null (?? []) → total=0 and logs=[]', async () => {
@@ -337,7 +375,7 @@ describe('GET /api/liff/points', () => {
           return {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
-                single: jest.fn().mockResolvedValue({ data: { id: 'user-789' } }),
+                maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'user-789' } }),
               }),
             }),
           };
@@ -364,7 +402,7 @@ describe('GET /api/liff/points', () => {
           return {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
-                single: jest.fn().mockResolvedValue({ data: { id: 'user-789' } }),
+                maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'user-789' } }),
               }),
             }),
           };
@@ -396,7 +434,7 @@ describe('GET /api/liff/points', () => {
           return {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
-                single: jest.fn().mockResolvedValue({ data: { id: 'user-789' } }),
+                maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'user-789' } }),
               }),
             }),
           };

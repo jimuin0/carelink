@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -58,27 +58,66 @@ function LoginContent() {
     resolver: zodResolver(loginSchema),
   });
   const [showPassword, setShowPassword] = useState(false);
+  const authInFlight = useRef(false);
+  const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
+  const [resendStatus, setResendStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [resendCoolingDown, setResendCoolingDown] = useState(false);
+  const authBusy = isSubmitting || isGoogleSigningIn || resendStatus === 'sending';
+
+  useEffect(() => {
+    if (!resendCoolingDown) return;
+    const timer = window.setTimeout(() => setResendCoolingDown(false), 60_000);
+    return () => window.clearTimeout(timer);
+  }, [resendCoolingDown]);
+
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        authInFlight.current = false;
+        setIsGoogleSigningIn(false);
+      }
+    };
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, []);
 
   // ログイン済みユーザーが /auth/login に来た場合(ブックマーク・戻る操作・リンク共有等)、
   // フォームを表示し続けるとヘッダーだけログイン済みに見えて「ログインできない」と誤解される
   // (2026年7月6日・神原さん指摘)。マウント時にセッションを確認し、あれば即座にredirect先へ送る。
   useEffect(() => {
-    const supabase = createBrowserSupabaseClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) router.replace(redirect);
-    });
+    let active = true;
+    const checkSession = async () => {
+      try {
+        const { data: { user } } = await createBrowserSupabaseClient().auth.getUser();
+        if (active && user) router.replace(redirect);
+      } catch {
+        // セッション確認だけの障害でフォームを使用不能にしない。明示ログイン時に案内する。
+      }
+    };
+    void checkSession();
+    return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onSubmit = async (data: LoginFormData) => {
-    const supabase = createBrowserSupabaseClient();
+    if (authInFlight.current) return;
+    authInFlight.current = true;
+    setVerificationEmail(null);
+    setResendStatus('idle');
+    setToast(null);
     try {
+      const supabase = createBrowserSupabaseClient();
       const { error } = await supabase.auth.signInWithPassword({
         email: data.email,
         password: data.password,
       });
 
       if (error) {
+        if (error.code === 'email_not_confirmed') {
+          setVerificationEmail(data.email);
+          return;
+        }
         setToast({ type: 'error', message: 'メールアドレスまたはパスワードが正しくありません' });
         return;
       }
@@ -87,20 +126,44 @@ function LoginContent() {
       router.refresh();
     } catch {
       setToast({ type: 'error', message: 'ログイン認証に接続できませんでした。時間をおいてもう一度お試しください。' });
+    } finally {
+      authInFlight.current = false;
+    }
+  };
+
+  const resendConfirmation = async () => {
+    if (!verificationEmail || resendCoolingDown || authInFlight.current) return;
+    authInFlight.current = true;
+    setResendStatus('sending');
+    try {
+      const { error } = await createBrowserSupabaseClient().auth.resend({
+        type: 'signup', email: verificationEmail,
+        options: { emailRedirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}` },
+      });
+      setResendStatus(error ? 'error' : 'sent');
+    } catch {
+      setResendStatus('error');
+    } finally {
+      // 結果不明のタイムアウトでも連打・即再送を防ぐ。到達を確認したとは表示しない。
+      setResendCoolingDown(true);
+      authInFlight.current = false;
     }
   };
 
   const startGoogleLogin = async () => {
+    if (authInFlight.current) return;
+    authInFlight.current = true;
+    setIsGoogleSigningIn(true);
     try {
       const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}` },
       });
-      if (error) {
-        setToast({ type: 'error', message: 'Googleでのログインを開始できませんでした。時間をおいてもう一度お試しください。' });
-      }
+      if (error || !data.url) throw new Error('oauth_start_failed');
     } catch {
+      authInFlight.current = false;
+      setIsGoogleSigningIn(false);
       setToast({ type: 'error', message: 'Googleでのログインを開始できませんでした。時間をおいてもう一度お試しください。' });
     }
   };
@@ -119,7 +182,7 @@ function LoginContent() {
               ログイン後、管理画面へ移動します。
             </p>
           )}
-          <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
+          <form onSubmit={(event) => { void handleSubmit(onSubmit)(event); }} noValidate className="space-y-4">
             <div>
               <label htmlFor="login-email" className="form-label">メールアドレス</label>
               <input
@@ -169,10 +232,22 @@ function LoginContent() {
               {errors.password && <p className="form-error" role="alert">{errors.password.message}</p>}
             </div>
 
-            <button type="submit" disabled={isSubmitting} className="btn-primary w-full !py-3">
+            <button type="submit" disabled={authBusy} className="btn-primary w-full !py-3">
               {isSubmitting ? 'ログイン中...' : 'ログイン'}
             </button>
           </form>
+
+          {verificationEmail && (
+            <section className="mt-4 rounded-lg bg-sky-50 p-4 text-sm text-sky-900" aria-label="メールアドレスの確認">
+              <p role="status">メールアドレスの確認が必要です。受信箱と迷惑メールフォルダをご確認ください。</p>
+              <p className="mt-2">届いていない場合は確認メールの再送をお試しください。届いた最新のメールを同じブラウザで開いてください。</p>
+              <button type="button" onClick={resendConfirmation} disabled={authBusy || resendCoolingDown} className="mt-3 underline disabled:opacity-50">
+                {resendStatus === 'sending' ? '再送受付中...' : resendCoolingDown ? '再送は60秒ほどお待ちください' : '確認メールを再送'}
+              </button>
+              {resendStatus === 'sent' && <p role="status" className="mt-2">再送を受け付けました。確認が必要なアカウントにはメールが届きます。</p>}
+              {resendStatus === 'error' && <p role="alert" className="mt-2">再送を完了できませんでした。時間をおいてもう一度お試しください。</p>}
+            </section>
+          )}
 
           <div className="my-6">
             <div className="relative">
@@ -202,10 +277,11 @@ function LoginContent() {
           <button
             type="button"
             onClick={startGoogleLogin}
+            disabled={authBusy}
             className="flex items-center justify-center gap-2 w-full py-3 mt-3 rounded-lg border border-gray-300 text-gray-700 font-bold hover:bg-gray-50 transition-colors"
           >
             <svg width="18" height="18" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-            Googleでログイン
+            {isGoogleSigningIn ? 'Googleへ移動中...' : 'Googleでログイン'}
           </button>
 
           <div className="mt-4 text-center">

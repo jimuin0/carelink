@@ -30,7 +30,7 @@ async function enqueueFlaggedReviews(
   items: { id: string; facility_id: string | null }[],
   flagType: string,
   reason: string,
-): Promise<void> {
+): Promise<unknown | null> {
   // 【監査H3 low・恒久根治】旧実装は pending 既存を SELECT→未登録のみ INSERT の best-effort dedup で、
   // ユーザー通報(H2)や別cronが SELECT と INSERT の間に割り込むと同一レビューの pending が重複挿入され得た。
   // DB 側の部分ユニークindex（uq_moderation_pending_content）＋ enqueue_moderation(INSERT ON CONFLICT
@@ -57,7 +57,9 @@ async function enqueueFlaggedReviews(
       route: '/api/cron/flag-reviews',
       extra: { errorMessage: summarizeDependencyError(error) },
     });
+    return error;
   }
+  return null;
 }
 
 export async function GET(request: Request) {
@@ -67,15 +69,14 @@ export async function GET(request: Request) {
   // 遅延初期化: モジュールスコープで createClient を呼ぶとビルド時の
   // page data 収集フェーズで env 未設定環境（Vercel preview 等）が
   // "supabaseUrl is required" で落ちるため、リクエスト時に生成する。
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-
   const startedAt = new Date();
   let flagged = 0;
 
   try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
     // 1. 同一IPから24時間以内に3件以上 → スパム疑い
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
@@ -96,13 +97,14 @@ export async function GET(request: Request) {
         'flag-reviews: find_bulk_review_ips RPC 失敗（検知1: 同一IP大量投稿スパム検知が無効化）',
         { route: '/api/cron/flag-reviews', extra: { errorMessage: summarizeDependencyError(rpcError) } },
       );
+      return cronError('flag-reviews', startedAt, rpcError, { message: 'error' });
     }
 
     if (bulkSpam && Array.isArray(bulkSpam)) {
       for (const row of bulkSpam as { reviewer_ip: string }[]) {
         // 同一 IP の未フラグレビューを全件ページング取得（大量スパム時は 1000 件超もあり得るため
         // 無ページングだと db-max-rows(1000) で取りこぼし、フラグ漏れが起きる）。
-        const { rows: reviews } = await fetchAllPaged<{ id: string; facility_id: string | null }>(
+        const { rows: reviews, error: reviewsError } = await fetchAllPaged<{ id: string; facility_id: string | null }>(
           async (offset, limit) => {
             const { data, error } = await supabase
               .from('facility_reviews')
@@ -116,21 +118,20 @@ export async function GET(request: Request) {
           },
         );
 
+        if (reviewsError) throw reviewsError;
+
         if (reviews && reviews.length > 0) {
           const reason = `bulk_submission: ${reviews.length} reviews in 24h from same IP`;
+          // 審査キューを先に原子的に確保する。先にis_flaggedを立ててenqueueが失敗すると、
+          // 次回の未フラグ検索から外れ、審査キューへの投入を復旧できなくなる。
+          const enqueueError = await enqueueFlaggedReviews(supabase, reviews, 'bulk_submission', reason);
+          if (enqueueError) throw enqueueError;
           const { error: updateErr } = await supabase
             .from('facility_reviews')
             .update({ is_flagged: true, flag_reason: reason })
             .in('id', reviews.map((r) => r.id));
-          if (updateErr) {
-            console.error('[flag-reviews] bulk_submission update failed:', {
-              errorMessage: summarizeDependencyError(updateErr),
-            });
-          } else {
-            flagged += reviews.length;
-            // 【監査H3】審査キューへ投入し /admin/moderation に表示させる。
-            await enqueueFlaggedReviews(supabase, reviews, 'bulk_submission', reason);
-          }
+          if (updateErr) throw updateErr;
+          flagged += reviews.length;
         }
       }
     }
@@ -138,7 +139,7 @@ export async function GET(request: Request) {
     // 2. 同一IPから同一施設に複数投稿 → 自作自演疑い
     // 全未フラグ公開レビューを全件ページング取得（無ページングだと db-max-rows(1000) で頭打ちし、
     // 1000 件目以降が自作自演判定の対象から外れて永久にフラグ漏れする・順序不定で同じ先頭集合のみ評価）。
-    const { rows: dupFacility } = await fetchAllPaged<{ id: string; reviewer_ip: string; facility_id: string }>(
+    const { rows: dupFacility, error: dupFacilityError } = await fetchAllPaged<{ id: string; reviewer_ip: string; facility_id: string }>(
       async (offset, limit) => {
         const { data, error } = await supabase
           .from('facility_reviews')
@@ -151,6 +152,8 @@ export async function GET(request: Request) {
         return { data: data as { id: string; reviewer_ip: string; facility_id: string }[] | null, error };
       },
     );
+
+    if (dupFacilityError) throw dupFacilityError;
 
     {
       // dupFacility は fetchAllPaged の rows（常に配列・空なら下の for が回らないだけ）。
@@ -167,24 +170,20 @@ export async function GET(request: Request) {
         const ids = group.ids;
         if (ids.length >= 2) {
           const reason = `duplicate_facility: ${ids.length} reviews from same IP for same facility`;
+          const reviewItems = ids.map((id) => ({ id, facility_id: group.facilityId }));
+          const enqueueError = await enqueueFlaggedReviews(
+            supabase,
+            reviewItems,
+            'duplicate_facility',
+            reason,
+          );
+          if (enqueueError) throw enqueueError;
           const { error: updateErr } = await supabase
             .from('facility_reviews')
             .update({ is_flagged: true, flag_reason: reason })
             .in('id', ids);
-          if (updateErr) {
-            console.error('[flag-reviews] duplicate_facility update failed:', {
-              errorMessage: summarizeDependencyError(updateErr),
-            });
-          } else {
-            flagged += ids.length;
-            // 【監査H3】審査キューへ投入し /admin/moderation に表示させる。
-            await enqueueFlaggedReviews(
-              supabase,
-              ids.map((id) => ({ id, facility_id: group.facilityId })),
-              'duplicate_facility',
-              reason,
-            );
-          }
+          if (updateErr) throw updateErr;
+          flagged += ids.length;
         }
       }
     }

@@ -3,12 +3,12 @@
  * PR（マージ/PR-time gate）で新規追加された migration ファイルを検出する純関数群。
  *
  * 【なぜ要るか】
- *   このプロジェクトは DDL を Supabase SQL editor で手動適用する運用（migration は
- *   auto-apply されない）。migration が merge されたのに本番へ適用し忘れると、
+ *   migration は本番へ自動適用されない。migration が merge されたのに本番へ反映し忘れると、
  *   デプロイ済みコードが本番に存在しないスキーマへ黙って依存し続ける。
  *   別途の日次監視（schema-drift-check cron）が最終的に 🔴 で検知するが、それは
  *   最大24時間後。本モジュールは PR 作成/更新の**その瞬間**に「これから本番へ
- *   手動適用が必要な migration」を人に見せるための検出ロジック。
+ *   反映が必要な migration」を人に知らせる検出ロジック。通知は適用承認や順序の指示ではなく、
+ *   DDLをDashboard SQL Editorから直接適用することは禁止。各migrationの前提と段階計画を確認する。
  *
  * 【検出方式: ステータス列挙 → 木の集合差分（プロパティベース）へ (#575 直後に修正)】
  *   旧実装は `git diff --name-status` を1行ずつ読み、status フィールドが `A`
@@ -90,7 +90,7 @@ export function migrationsInTree(lsTreeText) {
 
 /**
  * base ツリーに存在せず、HEAD ツリーには存在する migration ファイルを返す
- * （＝「新規に本番へ手動適用が必要な migration」）。
+ * （＝「新規に本番反映が必要な migration」）。
  *
  * ステータス文字（A/R/C/…）を一切見ない集合差分のため、add・rename-in・copy-in の
  * いずれであっても機械的に検出される。逆に「両方に存在＝変更」「base のみ＝削除」は

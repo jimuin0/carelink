@@ -1,167 +1,91 @@
-/**
- * @jest-environment node
- *
- * Tests for GET /api/admin/registrations
- * Key assertions:
- *   - Platform-admin only → 403
- *   - DB failure → 500
- */
-
+/** @jest-environment node */
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
-
-const USER_ID = '33333333-3333-3333-3333-333333333333';
-
-const mockGetUser = jest.fn();
-const mockAnonFrom = jest.fn();
-const mockAdminFrom = jest.fn();
-
-jest.mock('@supabase/ssr', () => ({
-  createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
-}));
-jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
-}));
-
+const mockGetUser = jest.fn(); const mockAnonFrom = jest.fn(); const mockAdminFrom = jest.fn();
+jest.mock('@supabase/ssr', () => ({ createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }) }));
+jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => ({ from: mockAdminFrom }) }));
+jest.mock('@/lib/registration-list', () => ({ readRegistrationList: jest.fn() }));
 import { NextRequest } from 'next/server';
-import { GET } from '../route';
+import { GET, POST } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
-
-function makeRequest() {
-  return new NextRequest('http://localhost/api/admin/registrations', { method: 'GET' });
+import { readRegistrationList } from '@/lib/registration-list';
+const userId = '74000000-0000-4000-8000-000000000001';
+const maybeSingle = jest.fn();
+function request(method = 'GET', body = '{}', origin = 'http://localhost') {
+  return new NextRequest('http://localhost/api/admin/registrations', {
+    method, headers: { origin, host: 'localhost', 'Content-Type': 'application/json' }, ...(method === 'POST' ? { body } : {}),
+  });
 }
-
-function profileSingle(isAdmin: boolean) {
-  return {
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data: { is_platform_admin: isAdmin }, error: null })),
-  };
-}
-
-function listChain(data: unknown[], error: unknown = null) {
-  return {
-    select: jest.fn().mockReturnThis(),
-    order: jest.fn().mockReturnThis(),
-    limit: jest.fn(() => Promise.resolve({ data, error })),
-  };
-}
-
 beforeEach(() => {
   jest.clearAllMocks();
-  (checkRateLimit as jest.Mock).mockReturnValue(false);
-  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+  jest.mocked(checkRateLimit).mockResolvedValue(false);
+  mockGetUser.mockResolvedValue({ data: { user: { id: userId } }, error: null });
+  mockAnonFrom.mockReturnValue({ select: () => ({ eq: () => ({ maybeSingle }) }) });
+  maybeSingle.mockResolvedValue({ data: { is_platform_admin: true }, error: null });
+  jest.mocked(readRegistrationList).mockResolvedValue({ state: 'confirmed', salons: [], nextCursor: null });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
 });
-
-test('GET: レートリミット → 429', async () => {
-  (checkRateLimit as jest.Mock).mockReturnValue(true);
-  const res = await GET(makeRequest());
-  expect(res.status).toBe(429);
+test.each([GET, POST])('anonymous requests fail closed and no-store %#', async handler => {
+  mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
+  const response = await handler(request(handler === POST ? 'POST' : 'GET'));
+  expect(response.status).toBe(401);
+  expect(response.headers.get('Cache-Control')).toBe('no-store');
+  expect(readRegistrationList).not.toHaveBeenCalled();
 });
-
-test('GET: 未認証 → 403', async () => {
-  mockGetUser.mockResolvedValue({ data: { user: null } });
-  const res = await GET(makeRequest());
-  expect(res.status).toBe(403);
+test.each([false, null, 'true', 1, undefined])('non-boolean-admin %p is forbidden', async is_platform_admin => {
+  maybeSingle.mockResolvedValue({ data: { is_platform_admin }, error: null });
+  expect((await GET(request())).status).toBe(403);
+  expect(readRegistrationList).not.toHaveBeenCalled();
 });
-
-test('GET: 一般ユーザー → 403', async () => {
-  mockAnonFrom.mockReturnValue(profileSingle(false));
-  const res = await GET(makeRequest());
-  expect(res.status).toBe(403);
+test('absent profile is forbidden', async () => {
+  maybeSingle.mockResolvedValue({ data: null, error: null });
+  expect((await GET(request())).status).toBe(403);
 });
-
-test('GET: DB失敗 → 500', async () => {
-  mockAnonFrom.mockReturnValue(profileSingle(true));
-  mockAdminFrom.mockReturnValue(listChain([], { message: 'DB error' }));
-  const res = await GET(makeRequest());
-  expect(res.status).toBe(500);
+test.each(['error', 'throw'])('authorization %s does not use service role or disclose private details', async mode => {
+  if (mode === 'error') maybeSingle.mockResolvedValue({ data: { is_platform_admin: true }, error: { message: 'PRIVATE' } });
+  else maybeSingle.mockRejectedValue(new Error('PRIVATE'));
+  const response = await GET(request());
+  expect(response.status).toBe(500);
+  expect(await response.text()).not.toContain('PRIVATE');
+  expect(readRegistrationList).not.toHaveBeenCalled();
 });
-
-test('GET: 正常取得 → 200 with salons', async () => {
-  mockAnonFrom.mockReturnValue(profileSingle(true));
-  mockAdminFrom.mockReturnValue(listChain([{ id: 'salon-1', name: 'テストサロン' }]));
-  const res = await GET(makeRequest());
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.salons).toBeDefined();
+test.each(['GET', 'POST'])('rate limit on %s remains private and prevents list access', async method => {
+  jest.mocked(checkRateLimit).mockResolvedValue(true);
+  const response = await (method === 'GET' ? GET : POST)(request(method));
+  expect(response.status).toBe(429);
+  expect(response.headers.get('Cache-Control')).toBe('no-store');
+  expect(readRegistrationList).not.toHaveBeenCalled();
 });
-
-test('GET: データなし → 200 with empty array', async () => {
-  mockAnonFrom.mockReturnValue(profileSingle(true));
-  mockAdminFrom.mockReturnValue(listChain([]));
-  const res = await GET(makeRequest());
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.salons).toEqual([]);
+test('cross-origin search is rejected', async () => {
+  expect((await POST(request('POST', '{}', 'https://attacker.invalid'))).status).toBe(403);
+  expect(readRegistrationList).not.toHaveBeenCalled();
 });
-
-test('GET: レートリミットのIPが x-forwarded-for 先頭から取得', () => {
-  (checkRateLimit as jest.Mock).mockClear();
-  const req = new NextRequest('http://localhost/api/admin/registrations', {
-    method: 'GET',
-    headers: { 'x-forwarded-for': '10.0.0.1, 192.168.1.1' },
-  });
-  GET(req);
-  const call = (checkRateLimit as jest.Mock).mock.calls[0];
-  expect(call[1]).toBe('192.168.1.1');
+test('GET is backwards-compatible first-page listing and POST carries search only in body', async () => {
+  const input = { field: 'email', query: 'synthetic@example.invalid', status: 'all', cursor: null };
+  for (const [handler, req, value] of [[GET, request(), {}], [POST, request('POST', JSON.stringify(input)), input]] as const) {
+    const response = await handler(req);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ salons: [], nextCursor: null });
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(readRegistrationList).toHaveBeenLastCalledWith({ from: mockAdminFrom }, value);
+  }
 });
-
-test('GET: x-forwarded-for なしの場合は unknown', () => {
-  (checkRateLimit as jest.Mock).mockClear();
-  const req = new NextRequest('http://localhost/api/admin/registrations');
-  GET(req);
-  const call = (checkRateLimit as jest.Mock).mock.calls[0];
-  expect(call[1]).toBe('unknown');
+test('invalid search and broken JSON are not successful empty results', async () => {
+  jest.mocked(readRegistrationList).mockResolvedValue({ state: 'invalid' });
+  expect((await POST(request('POST', '{broken'))).status).toBe(400);
+  expect(readRegistrationList).toHaveBeenLastCalledWith({ from: mockAdminFrom }, null);
 });
-
-test('GET: レートリミットが 30req/60s で呼ばれる', () => {
-  (checkRateLimit as jest.Mock).mockClear();
-  GET(makeRequest());
-  const call = (checkRateLimit as jest.Mock).mock.calls[0];
-  expect(call[2]).toBe(30);
-  expect(call[3]).toBe(60_000);
+test.each(['unavailable', 'throw'])('list %s yields explicit unavailable result', async mode => {
+  if (mode === 'throw') jest.mocked(readRegistrationList).mockRejectedValue(new Error('PRIVATE'));
+  else jest.mocked(readRegistrationList).mockResolvedValue({ state: 'unavailable' });
+  const response = await GET(request());
+  expect(response.status).toBe(500);
+  expect(response.headers.get('Cache-Control')).toBe('no-store');
+  const body = await response.text();
+  expect(body).toContain('申込なしとは判定できません');
+  expect(body).not.toContain('PRIVATE');
 });
-
-test('GET: salons に複数件が含まれても 200', async () => {
-  mockAnonFrom.mockReturnValue(profileSingle(true));
-  mockAdminFrom.mockReturnValue(listChain([
-    { id: 's1', name: 'サロン1', status: 'active' },
-    { id: 's2', name: 'サロン2', status: 'pending' },
-  ]));
-  const res = await GET(makeRequest());
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.salons).toHaveLength(2);
-});
-
-test('GET: レスポンスが { salons: [] } 形式', async () => {
-  mockAnonFrom.mockReturnValue(profileSingle(true));
-  mockAdminFrom.mockReturnValue(listChain([]));
-  const res = await GET(makeRequest());
-  const json = await res.json();
-  expect(Array.isArray(json.salons)).toBe(true);
-});
-
-// ─── Branch coverage gaps ─────────────────────────────────────────────────────
-
-test('GET: profile が null → 403', async () => {
-  mockAnonFrom.mockReturnValue({
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data: null, error: null })),
-  });
-  const res = await GET(makeRequest());
-  expect(res.status).toBe(403);
-});
-
-test('GET: data が null → 200 with []', async () => {
-  mockAnonFrom.mockReturnValue(profileSingle(true));
-  mockAdminFrom.mockReturnValue(listChain(null as unknown as unknown[]));
-  const res = await GET(makeRequest());
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.salons).toEqual([]);
+test('rate limiter preserves trusted-proxy IP selection and budget', async () => {
+  await GET(new NextRequest('http://localhost/api/admin/registrations', { headers: { 'x-forwarded-for': '10.0.0.1, 192.168.1.1' } }));
+  expect(jest.mocked(checkRateLimit).mock.calls[0].slice(1, 4)).toEqual(['192.168.1.1', 30, 60_000]);
 });

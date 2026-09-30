@@ -105,17 +105,45 @@ export async function POST(request: NextRequest) {
     facilityId: auth.facilityId,
     action: 'update',
     tableName: 'hpb_menu_durations',
-    newValues: { sln_id: result.slnId, fetched: result.fetched, saved: result.ok, skipped: result.skipped, failed: result.failed },
+    newValues: {
+      sln_id: result.slnId,
+      fetched: result.fetched,
+      saved: result.ok,
+      skipped: result.skipped,
+      failed: result.failed,
+      complete: result.complete,
+      stop_reason: result.stopReason,
+      unresolved_items: result.unresolvedItems,
+      failed_pages: result.failedPages,
+    },
     ipAddress: ip,
   });
 
-  return NextResponse.json({
+  const response = {
     sln_id: result.slnId,
     fetched: result.fetched,
     saved: result.ok,
     skipped: result.skipped,
     failed: result.failed,
-  });
+    save_failed: result.saveFailed,
+    complete: result.complete,
+    stop_reason: result.stopReason,
+    unresolved_items: result.unresolvedItems,
+    failed_pages: result.failedPages,
+  };
+  if (result.saveFailed > 0) {
+    return serverError(
+      'admin-hpb-menus-save',
+      new Error(`HPB menu upsert failed for ${result.saveFailed} rows`),
+      '/api/admin/hpb-menus',
+      '取得したメニューの保存に失敗しました。保存状態を再読み込みしてください。',
+      response,
+    );
+  }
+  if (!result.complete) {
+    return NextResponse.json({ ...response, error: '一部を保存しましたが、HPBからの取得を完了できませんでした。' }, { status: 502 });
+  }
+  return NextResponse.json(response);
 }
 
 /** PUT: facility の HPB 店舗ID(hpb_sln_id)を設定。空文字/null で未設定に戻す。 */

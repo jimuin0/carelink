@@ -32,6 +32,30 @@ type ResendErrorShape = {
   message?: string;
 };
 
+export type ResendDeliveryOutcome = 'delivered' | 'rejected' | 'uncertain';
+
+/** 再送可否を決める経路用。SDKはネットワーク断もresolveするためerror有無だけでは不十分。 */
+export async function sendResendForReconciliation(sendCall: Promise<unknown>): Promise<ResendDeliveryOutcome> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      sendCall,
+      new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 10_000); }),
+    ]) as { data?: { id?: unknown } | null; error?: ResendErrorShape | null } | null;
+    if (result?.error) {
+      const status = result.error.statusCode;
+      // 408/409は処理済み・進行中を否定できない。5xx/SDK application_errorも照合待ち。
+      return typeof status === 'number' && status >= 400 && status < 500 && status !== 408 && status !== 409
+        ? 'rejected' : 'uncertain';
+    }
+    return typeof result?.data?.id === 'string' && result.data.id.length > 0 ? 'delivered' : 'uncertain';
+  } catch {
+    return 'uncertain';
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 /**
  * Resend の応答から人が読める失敗理由を組み立てる。
  * ログと Slack にそのまま出るので、原因の切り分けに要る 3 点（HTTP・種別・本文）を必ず含める。

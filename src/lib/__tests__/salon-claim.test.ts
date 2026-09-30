@@ -3,6 +3,7 @@ import {
   SALON_CLAIM_TTL_SECONDS,
   signSalonClaim,
   verifySalonClaim,
+  verifySalonClaimDetails,
 } from '@/lib/salon-claim';
 
 const SALON_ID = '11111111-1111-1111-1111-111111111111';
@@ -20,6 +21,15 @@ describe('salon-claim（POST /api/salons の所有権 claim Cookie）', () => {
 
   it('Cookie 名は他と衝突しない固有の名前を持つ', () => {
     expect(SALON_CLAIM_COOKIE_NAME).toBe('clnk_salon_claim');
+  });
+
+  it('atomic RPC receives authenticated issue time, not a freshly extended lifetime', () => {
+    const now = Math.floor(Date.now() / 1000);
+    const signed = signSalonClaim(SALON_ID, now - 10)!;
+    expect(verifySalonClaimDetails(signed, now)).toEqual({ receiptId: SALON_ID, issuedAt: new Date((now - 10) * 1000).toISOString() });
+    expect(verifySalonClaimDetails(signed, now - 10 + SALON_CLAIM_TTL_SECONDS)).toBeNull();
+    expect(verifySalonClaimDetails('bad', now)).toBeNull();
+    expect(verifySalonClaimDetails(signed)?.receiptId).toBe(SALON_ID);
   });
 
   it('署名→検証のラウンドトリップで salons.id が一致する', () => {

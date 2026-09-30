@@ -17,6 +17,8 @@
 import '@testing-library/jest-dom';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import RecruitPage from '@/app/recruit/page';
+import { businessTypes } from '@/lib/constants';
+import { salonInsertSchema } from '@/lib/validations';
 
 // getRecaptchaToken は本物を呼ぶと <script> onload を待って jsdom でハングする
 // （register/contact/symptoms の各テストと同じ既知の地雷）。
@@ -26,6 +28,69 @@ jest.mock('@/lib/recaptcha-client', () => ({
 
 afterEach(() => {
   jest.restoreAllMocks();
+});
+
+test.each(businessTypes)('every displayed category %s submits a valid shared API contract and receipt', async (business_type) => {
+  const id = '11111111-2222-4333-8444-555555555555';
+  const fetchMock = jest.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ success: true, id }) });
+  global.fetch = fetchMock;
+  const { container } = render(<RecruitPage />);
+  const options = Array.from(screen.getByLabelText('業種 *').querySelectorAll('option')).map(option => option.value).filter(Boolean);
+  expect(options).toEqual(businessTypes);
+  fillStep1(container, { business_type });
+  fireEvent.click(screen.getByRole('button', { name: '次へ' }));
+  await screen.findByLabelText('郵便番号');
+  fireEvent.click(screen.getByRole('button', { name: '掲載を申し込む' }));
+  await screen.findByText('掲載申し込みが完了しました');
+  expect(screen.getByText(`受付番号：${id}`)).toBeVisible();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(salonInsertSchema.safeParse(JSON.parse(fetchMock.mock.calls[0][1].body)).success).toBe(true);
+});
+
+test.each(['network', 'missing-id', 'invalid-id', 'malformed', 'business-failure'])('%s cannot display false completion or allow blind retry', async (failure) => {
+  const fetchMock = jest.fn();
+  if (failure === 'network') fetchMock.mockRejectedValue(new Error('fixture connection lost'));
+  else fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => {
+    if (failure === 'malformed') throw new Error('fixture invalid JSON');
+    return { success: failure !== 'business-failure', ...(failure === 'invalid-id' ? { id: 'invalid' } : {}) };
+  } });
+  global.fetch = fetchMock;
+  const { container } = render(<RecruitPage />);
+  fillStep1(container);
+  fireEvent.click(screen.getByRole('button', { name: '次へ' }));
+  await screen.findByLabelText('郵便番号');
+  const submit = screen.getByRole('button', { name: '掲載を申し込む' });
+  fireEvent.click(submit); fireEvent.click(submit);
+  await screen.findByRole('alert');
+  expect(submit).toBeDisabled();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText('掲載申し込みが完了しました')).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: '受付状況を問い合わせる' })).toHaveAttribute('href', '/contact');
+});
+
+test('repeated server errors restore the correct step, focus and preserve input including PR mapping', async () => {
+  const failure = (fieldErrors: Record<string, string>) => ({ ok: false, status: 400, json: async () => ({ error: '入力内容を確認してください', fieldErrors }) });
+  const fetchMock = jest.fn().mockResolvedValueOnce(failure({ contact_name: 'invalid' })).mockResolvedValueOnce(failure({ contact_name: 'invalid' })).mockResolvedValueOnce(failure({ pr_text: 'invalid' }));
+  global.fetch = fetchMock;
+  const { container } = render(<RecruitPage />);
+  fillStep1(container);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    fireEvent.click(screen.getByRole('button', { name: '次へ' }));
+    const description = await screen.findByLabelText('施設紹介');
+    if (attempt === 0) fireEvent.change(description, { target: { value: '合成紹介文' } });
+    else expect(description).toHaveValue('合成紹介文');
+    fireEvent.click(screen.getByRole('button', { name: '掲載を申し込む' }));
+    const contact = await screen.findByLabelText('担当者名 *');
+    await waitFor(() => expect(contact).toHaveFocus());
+    expect(contact).toHaveValue('山田花子');
+    fireEvent.blur(contact);
+  }
+  fireEvent.click(screen.getByRole('button', { name: '次へ' }));
+  await screen.findByLabelText('施設紹介');
+  fireEvent.click(screen.getByRole('button', { name: '掲載を申し込む' }));
+  await waitFor(() => expect(screen.getByLabelText('施設紹介')).toHaveFocus());
+  expect(screen.getByText('PR文を1000文字以内で入力してください')).toBeVisible();
+  expect(fetchMock).toHaveBeenCalledTimes(3);
 });
 
 function fillStep1(container: HTMLElement, overrides: Partial<Record<'facility_name' | 'business_type' | 'representative_name' | 'contact_name' | 'email' | 'phone', string>> = {}) {
@@ -127,14 +192,15 @@ describe('/recruit 送信失敗時のエラー表示（サーバーJSON読み取
     await advanceToStep2AndSubmit(container);
 
     const alertEl = await screen.findByRole('alert');
-    expect(alertEl).toHaveTextContent('登録に失敗しました。時間をおいて再度お試しください。');
+    expect(alertEl).toHaveTextContent('登録済みの可能性があります');
+    expect(screen.getByRole('button', { name: '掲載を申し込む' })).toBeDisabled();
     expect(alertEl.textContent).not.toMatch(/registration failed/i);
   });
 
   test('送信成功時は完了画面を表示する（回帰・成功経路は変えない）', async () => {
     global.fetch = jest.fn((url: string) => {
       if (url === '/api/salons') {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, id: 'salon-1' }) } as Response);
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true, id: '11111111-2222-4333-8444-555555555555' }) } as Response);
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
     }) as unknown as typeof fetch;
@@ -153,7 +219,7 @@ describe('/recruit 送信失敗時のエラー表示（サーバーJSON読み取
   test('/api/salons への送信ボディに source: "recruit" が含まれる（サーバー側Slack通知の振り分け用）', async () => {
     const fetchMock = jest.fn((url: string) => {
       if (url === '/api/salons') {
-        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, id: 'salon-1' }) } as Response);
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ success: true, id: '11111111-2222-4333-8444-555555555555' }) } as Response);
       }
       return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
     });

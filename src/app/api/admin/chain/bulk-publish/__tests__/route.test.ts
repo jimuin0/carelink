@@ -70,11 +70,11 @@ function membershipChain(data: unknown[]) {
 // .update().eq() で status を書く。update だけのスタブに倒すと
 // 「admin.from(...).select is not a function」でガード側が落ちる。
 // 公開ゲートの地域読み取りだけを満たす部分スタブ。update スパイを温存したいテスト用。
-function profileSelectOnly(prefecture = '大阪府', city = '堺市') {
+function profileSelectOnly(prefecture = '大阪府', city = '堺市', address = '検証町1-1') {
   return {
     select: jest.fn(() => ({
       eq: jest.fn(() => ({
-        single: jest.fn(() => Promise.resolve({ data: { prefecture, city }, error: null })),
+        single: jest.fn(() => Promise.resolve({ data: { prefecture, city, address }, error: null })),
       })),
     })),
   };
@@ -84,12 +84,14 @@ function facilityProfileChain(opts: {
   updateError?: unknown;
   prefecture?: string | null;
   city?: string | null;
+  address?: string | null;
   profileError?: unknown;
 } = {}) {
   // 既定は「地域が入っている」＝ガードの地域条件は充足。個々のテストが検証したいのは
   // メニュー/写真/スタッフの条件なので、地域で落ちない既定にしておく。
   const prefecture = opts.prefecture === undefined ? '大阪府' : opts.prefecture;
   const city = opts.city === undefined ? '堺市' : opts.city;
+  const address = opts.address === undefined ? '検証町1-1' : opts.address;
   return {
     // 一括公開は .update().in(ids) で複数施設をまとめて書く（単一施設の settings は .eq）。
     update: jest.fn().mockReturnValue({
@@ -99,7 +101,7 @@ function facilityProfileChain(opts: {
       eq: jest.fn(() => ({
         single: jest.fn(() =>
           Promise.resolve({
-            data: opts.profileError ? null : { prefecture, city },
+            data: opts.profileError ? null : { prefecture, city, address },
             error: opts.profileError ?? null,
           }),
         ),
@@ -127,6 +129,7 @@ function setupReadiness(opts: {
   updateError?: unknown;
   prefecture?: string | null;
   city?: string | null;
+  address?: string | null;
 } = {}) {
   const memberships = opts.memberships ?? [{ facility_id: FACILITY_A }, { facility_id: FACILITY_B }];
   const m = opts.menu === undefined ? 1 : opts.menu;
@@ -142,6 +145,7 @@ function setupReadiness(opts: {
       updateError: opts.updateError ?? null,
       prefecture: opts.prefecture,
       city: opts.city,
+      address: opts.address,
       profileError: e,
     });
   });
@@ -230,6 +234,25 @@ test('POST: 公開ゲートの count 取得エラー → 500', async () => {
   setupReadiness({ countError: { message: 'count failed' } });
   const res = await POST(makeRequest(validBody({ is_published: true })));
   expect(res.status).toBe(500);
+});
+
+test('POST: gate通過後の所在地競合は全体409で成功件数を返さない', async () => {
+  setupReadiness({ menu: 1, photo: 1, staff: 1,
+    updateError: { code: '23514', message: 'new row violates check constraint "published_facility_location_present"' } });
+  const res = await POST(makeRequest(validBody({ is_published: true })));
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({ error: expect.stringContaining('保存されていません') });
+});
+
+test.each(['', ' \u3000 '])('POST: 住所 %p の施設は一括公開されない', async (address) => {
+  setupReadiness({ menu: 1, photo: 1, staff: 1, address });
+  const res = await POST(makeRequest(validBody({ is_published: true })));
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.updated).toBe(0);
+  expect(json.skipped).toHaveLength(2);
+  for (const item of json.skipped) expect(item.missing).toEqual(['住所を設定してください']);
+  expect(mockAdminFrom.mock.results.flatMap((result) => result.value.update?.mock.calls ?? [])).toEqual([]);
 });
 
 test('POST: 非公開化(draft)は公開ゲートを通さず全件更新', async () => {

@@ -52,9 +52,35 @@ type CreateBookingArgs = Omit<GeneratedCreateBooking['Args'], CreateBookingNulla
 };
 
 export type Database = Omit<GeneratedDatabase, 'public'> & {
-  public: Omit<GeneratedDatabase['public'], 'Functions'> & {
-    Functions: Omit<GeneratedFunctions, 'create_booking_atomic'> & {
+  public: Omit<GeneratedDatabase['public'], 'Functions' | 'Tables'> & {
+    // Production-introspected tables are authoritative. The service photo
+    // manifest permits only immutable, server-derived preparation inserts.
+    Tables: Omit<GeneratedDatabase['public']['Tables'], 'salon_submission_photos'> & {
+      salon_submission_photos: Omit<GeneratedDatabase['public']['Tables']['salon_submission_photos'], 'Insert' | 'Update'> & {
+        Insert: { intent_id: string; selection_id: string; slot: number; mime_type: string; byte_size: number };
+        Update: never;
+      };
+    };
+    // Omit every overridden key before replacing it. Intersecting generated
+    // non-null strings with nullable overrides would silently reject valid SQL NULLs.
+    Functions: Omit<GeneratedFunctions, 'create_booking_atomic' | 'prepare_salon_photo' | 'setup_facility_from_registration'> & {
       create_booking_atomic: Omit<GeneratedCreateBooking, 'Args'> & { Args: CreateBookingArgs };
+      // Production migration 20260930075129 and setup 20260930075358.
+      // Introspection omits SQL NULLability for function parameters/results.
+      // These NULL paths are explicit in the RPC bodies; generated-schema
+      // existence remains checked independently by Contract tests.
+      prepare_salon_photo: {
+        Args: { p_intent_id: string; p_proof_hash: string; p_selection_id: string;
+          p_slot: number; p_mime_type: string; p_byte_size: number };
+        Returns: { outcome: string; photo_id: string | null; object_path: string | null }[];
+      };
+      setup_facility_from_registration: {
+        Args: { p_user_id: string; p_claim_mode: 'none' | 'legacy' | 'intent';
+          p_receipt_id: string | null; p_intent_id: string | null; p_proof_hash: string | null;
+          p_legacy_issued_at: string | null; p_profile: GeneratedDatabase['public']['Tables']['webhook_retry_queue']['Row']['payload'];
+          p_license_warranted: boolean };
+        Returns: { outcome: string; facility_id: string | null; facility_slug: string | null }[];
+      };
     };
   };
 };

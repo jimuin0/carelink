@@ -1,4 +1,5 @@
 import { Resend } from 'resend';
+import { sendResendForReconciliation } from './resend-result';
 import { safeCaptureException } from '@/lib/safe';
 import { postAlert } from '@/lib/alert';
 import { bookingStatusLabel } from '@/lib/booking-status';
@@ -156,9 +157,6 @@ const QUEUEABLE_EMAIL_CONTEXTS = new Set([
   'new_review_notification',
   'new_inquiry_notification',
   'welcome',
-  // 問い合わせへの返信は「送ったつもりで届いていない」が最も致命的（相手は返事を待ち続ける）。
-  // 失敗時は webhook-retry cron に載せて自動再送する（2026年7月28日 追加）。
-  'inquiry_reply',
 ]);
 
 /**
@@ -180,12 +178,18 @@ function toQueuePayload(
  * 「失敗時は翌 run で再送」する cron（onboarding-followup / favorites-digest）は、この戻り値で
  * 実際の送達可否を判定する。再throwすると他の一括送信が巻き込まれて止まるため throw はしない。
  */
-async function safeSend(resend: Resend, params: Parameters<Resend['emails']['send']>[0], context: string): Promise<boolean> {
+async function safeSend(
+  resend: Resend,
+  params: Parameters<Resend['emails']['send']>[0],
+  context: string,
+  options: { idempotencyKey?: string; requireMessageId?: boolean; redactFailureDetails?: boolean } = {},
+): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const fail = (detail: string): false => {
-    safeCaptureException(new Error(`resend send failed: ${detail}`), `email:${context}`);
+    const safeDetail = options.redactFailureDetails ? 'provider outcome not confirmed' : detail;
+    safeCaptureException(new Error(`resend send failed: ${safeDetail}`), `email:${context}`);
     if (!BULK_AGGREGATED_CONTEXTS.has(context)) {
-      postAlert({ level: 'error', message: `メール送信失敗(${context}): ${detail}`, route: `email:${context}`, env: process.env.VERCEL_ENV });
+      postAlert({ level: 'error', message: `メール送信失敗(${context}): ${safeDetail}`, route: `email:${context}`, env: process.env.VERCEL_ENV });
     }
     // 送信失敗を webhook_retry_queue に積み、15分毎の webhook-retry cron に自動再送させる
     // （対象 context のみ・enqueueWebhook 自体は DB 失敗を握り潰す fire-and-forget 契約のため
@@ -204,7 +208,9 @@ async function safeSend(resend: Resend, params: Parameters<Resend['emails']['sen
       // resend-checked: Promise.race に包んでいるため sendResendChecked/throwIfResendError の
       // 引数位置には直接ネストできない。直後の `if (result && result.error)` で自前に検査し、
       // fail() へ渡している（result.error 未検査のまま返す経路は無い）。
-      resend.emails.send(params),
+      options.idempotencyKey
+        ? resend.emails.send(params, { idempotencyKey: options.idempotencyKey })
+        : resend.emails.send(params),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error('resend send timeout (10s)')), 10_000);
       }),
@@ -216,6 +222,10 @@ async function safeSend(resend: Resend, params: Parameters<Resend['emails']['sen
     if (result && result.error) {
       const err = result.error as { statusCode?: number; name?: string; message?: string };
       return fail(`${err.statusCode ?? ''} ${err.name ?? ''} ${err.message ?? JSON.stringify(result.error)}`.trim());
+    }
+    if (options.requireMessageId) {
+      const data = result && result.data as { id?: unknown } | null | undefined;
+      if (!data || typeof data.id !== 'string' || data.id.length === 0) return fail('provider response missing message id');
     }
     return true;
   } catch (e) {
@@ -290,6 +300,39 @@ export async function sendBookingReminder(data: BookingEmailData, daysBefore: nu
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約詳細を見る</a></p>
     `),
   }, 'booking_reminder');
+}
+
+/** Cron用は、外部providerの送達結果不明を自動再送に変換しない。 */
+export type BookingReminderDeliveryOutcome = 'delivered' | 'rejected' | 'uncertain';
+
+export async function sendBookingReminderForCron(
+  data: BookingEmailData,
+  daysBefore: number = 1,
+): Promise<BookingReminderDeliveryOutcome> {
+  const resend = getResend();
+  if (!resend) return 'rejected';
+  const name = esc(data.customerName);
+  const facility = esc(data.facilityName);
+  const when = daysBefore === 1 ? '明日' : `${daysBefore}日後`;
+  try {
+    // Promise.raceのタイムアウトで未送信と断定すると、provider受理済みメールを次runで再送する。
+    // cronはclaimを保持して照合へ上げるため、この専用経路ではSDKの終端応答だけを未受理とする。
+    return await sendResendForReconciliation(resend.emails.send({
+      from: FROM,
+      to: data.customerEmail,
+      subject: escSubject(`【CareLink】${when}のご予約リマインド - ${data.facilityName}`),
+      html: wrapHtml(`
+        <p>${name} 様</p>
+        <p>${when}、${facility}のご予約がございます。</p>
+        ${bookingDetailHtml(data)}
+        <p>お忘れなく、お時間に余裕を持ってご来店ください。</p>
+        <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約詳細を見る</a></p>
+      `),
+    }));
+  } catch (error) {
+    safeCaptureException(error, 'email:booking_reminder_cron_uncertain');
+    return 'uncertain';
+  }
 }
 
 /**
@@ -408,6 +451,7 @@ export async function sendInquiryReply(data: {
   to: string;
   inquirerName: string;
   body: string;
+  idempotencyKey: string;
   replyTo?: string;
 }): Promise<boolean> {
   const resend = getResend();
@@ -424,7 +468,11 @@ export async function sendInquiryReply(data: {
       <div style="white-space:pre-wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:16px 0;">${esc(data.body)}</div>
       <p style="color:#64748b;font-size:13px;">このメールにそのまま返信していただけます。</p>
     `),
-  }, 'inquiry_reply');
+  }, 'inquiry_reply', {
+    idempotencyKey: data.idempotencyKey,
+    requireMessageId: true,
+    redactFailureDetails: true,
+  });
 }
 
 export async function sendNewInquiryNotification(data: {

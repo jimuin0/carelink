@@ -33,22 +33,44 @@ export async function GET(req: NextRequest) {
   }
 
   // LINE Profile APIでトークンを検証
-  const lineRes = await fetch('https://api.line.me/v2/profile', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!lineRes.ok) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  let lineRes: Response;
+  try {
+    lineRes = await fetch('https://api.line.me/v2/profile', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    return NextResponse.json({ error: 'LINE service temporarily unavailable' }, { status: 503 });
   }
-  const lineProfile = await lineRes.json() as { userId: string };
+  if (!lineRes.ok) {
+    if (lineRes.status === 401 || lineRes.status === 403) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const status = lineRes.status === 429 || lineRes.status >= 500 ? 503 : 502;
+    return NextResponse.json({ error: 'LINE service temporarily unavailable' }, { status });
+  }
+  let lineProfile: { userId: string };
+  try {
+    const payload = await lineRes.json() as { userId?: unknown };
+    if (typeof payload.userId !== 'string' || payload.userId.length === 0) {
+      return NextResponse.json({ error: 'Invalid LINE profile response' }, { status: 502 });
+    }
+    lineProfile = { userId: payload.userId };
+  } catch {
+    return NextResponse.json({ error: 'Invalid LINE profile response' }, { status: 502 });
+  }
 
   const admin = createServiceRoleClient();
 
   // line_user_idからprofilesのuser_idを取得
-  const { data: profile } = await admin
+  const { data: profile, error: profileError } = await admin
     .from('profiles')
     .select('id')
     .eq('line_user_id', lineProfile.userId)
-    .single();
+    .maybeSingle();
+  if (profileError) {
+    return serverError('liff-points-profile', profileError, '/api/liff/points', 'Internal Server Error');
+  }
   if (!profile) {
     return NextResponse.json({ error: 'User not found' }, { status: 404 });
   }

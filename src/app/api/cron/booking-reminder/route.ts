@@ -6,9 +6,10 @@ import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
 import { getEntitlementsByFacility, type EntitlementsClient } from '@/lib/entitlements';
-import { retryTransientSupabaseRead } from '@/lib/err';
+import { retryTransientSupabaseRead, summarizeDependencyError } from '@/lib/err';
 
-// Vercel Cron: runs daily at 9:00 JST (0:00 UTC)
+// Render Cron: runs hourly. 同じ日の未claim slotを再走査するため、時間予算超過や一時障害でも
+// 予約日基準の対象期間を抜ける前に回復できる。
 export const dynamic = 'force-dynamic';
 // 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
 // 既定の低い値を上書きし、下の SEND_BUDGET_MS による予算ガードが確実に発火する既知の上限を与える。
@@ -16,8 +17,8 @@ export const maxDuration = 60;
 
 // 1 回の run で「考慮」する最大予約数（メモリ上限）。到達したら警告ログを出す（silent 根絶）。
 const CONSIDER_LIMIT = 5000;
-// 送信ループの実時間予算。maxDuration(60s) 未満に設定し、超えたら残りを翌 run へ回す。
-const SEND_BUDGET_MS = 50 * 1000;
+// 送信ループの実時間予算。maxDuration(60s) 未満に設定し、超えたら残りを次の時間runへ回す。
+const SEND_BUDGET_MS = 40 * 1000;
 // .in() を chunk するサイズ（PostgREST の URL 長制限回避）。
 const IN_CHUNK = 500;
 
@@ -49,6 +50,16 @@ export async function GET(request: Request) {
   try {
     // Use service role client to bypass RLS (cron has no auth context)
     const supabase = createServiceRoleClient();
+    // claimedには外部送信前のrunだけが入る。最大実行時間60秒を十分超えたものだけ回収する。
+    const staleClaimBefore = new Date(startedAt.getTime() - 15 * 60_000).toISOString();
+    const { error: reclaimError } = await supabase.from('sent_reminders').delete()
+      .eq('delivery_state', 'claimed').lt('sent_at', staleClaimBefore);
+    if (reclaimError) throw reclaimError;
+    const { count: unresolvedCount, error: observationError } = await supabase.from('sent_reminders')
+      .select('id', { count: 'exact', head: true })
+      .or(`delivery_state.eq.uncertain,and(delivery_state.eq.delivering,sent_at.lt.${staleClaimBefore})`);
+    if (observationError) throw observationError;
+    let deliveryUncertain = unresolvedCount ?? 0;
 
     // JST（UTC+9）基準で対象日を算出（1日後/3日後/7日後）
     const now = new Date();
@@ -58,7 +69,6 @@ export async function GET(request: Request) {
       const target = new Date(jstNow.getTime() + d * 24 * 60 * 60 * 1000);
       dateToDays.set(target.toISOString().split('T')[0], d);
     }
-    const targetDates = Array.from(dateToDays.keys());
 
     // 対象3日付の confirmed 予約を全件取得（id 昇順・決定的）。
     // 旧実装は .limit(200) silent miss の教訓から fetchAllPaged + 実時間予算ガード。
@@ -68,10 +78,8 @@ export async function GET(request: Request) {
         // 回復した場合に予約リマインダー全体を 500 で落とさない。書込みや通知はここから再試行しない。
         const { data, error } = await retryTransientSupabaseRead(() =>
           supabase
-            .from('bookings')
+            .rpc('pending_booking_reminders', { p_today: jstNow.toISOString().split('T')[0] })
             .select('id, customer_name, email, booking_date, start_time, end_time, facility_id, total_price, user_id, menu_id')
-            .in('booking_date', targetDates)
-            .eq('status', 'confirmed')
             .order('id', { ascending: true })
             .range(offset, offset + limit - 1),
         );
@@ -83,9 +91,18 @@ export async function GET(request: Request) {
     // fail-safe: 予約一覧が取れない時は中止（部分処理での誤集計を避ける）。
     if (bookingsErr) {
       safeCaptureException(bookingsErr, 'booking-reminder');
-      return cronError('booking-reminder', startedAt, bookingsErr, { extraLog: { error_msg: 'bookings query failed' } });
+      return cronError('booking-reminder', startedAt, bookingsErr, {
+        extraLog: { error_msg: `bookings query failed: ${summarizeDependencyError(bookingsErr)}` },
+      });
     }
     if (bookings.length === 0) {
+      if (deliveryUncertain > 0) {
+        await logCronRun('booking-reminder', 'error', startedAt, {
+          error_msg: '予約リマインドの送達結果不明が残っています。自動再送せず照合してください。',
+          meta: { delivery_uncertain: deliveryUncertain },
+        });
+        return NextResponse.json({ processed: 0, skipped: 0, delivery_uncertain: deliveryUncertain }, { status: 503 });
+      }
       await logCronRun('booking-reminder', 'skipped', startedAt, { processed: 0, skipped: 0 });
       return NextResponse.json({ processed: 0, skipped: 0, sent: 0 });
     }
@@ -99,12 +116,18 @@ export async function GET(request: Request) {
     const facilityMap = new Map<string, string | null>();
     for (let i = 0; i < facilityIds.length; i += IN_CHUNK) {
       const idChunk = facilityIds.slice(i, i + IN_CHUNK);
-      const { data: facilities } = await supabase
+      const { data: facilities, error: facilitiesErr } = await supabase
         .from('facility_profiles')
         .select('id, name')
         .in('id', idChunk);
+      if (facilitiesErr) {
+        safeCaptureException(facilitiesErr, 'booking-reminder-facilities');
+        return cronError('booking-reminder', startedAt, facilitiesErr, { message: 'facility lookup failed' });
+      }
       for (const f of facilities ?? []) facilityMap.set(f.id, f.name);
     }
+
+    let dependencyFailures = 0;
 
     // リマインダー設定（chunked .in）。取得エラーは fail-safe（設定なし=任意リマインド送らない・
     // 前日メールは従来どおり送る）。silent にしない（Sentry 可視化）。
@@ -117,6 +140,7 @@ export async function GET(request: Request) {
         .in('facility_id', idChunk);
       if (settingsErr) {
         safeCaptureException(settingsErr, 'booking-reminder-settings');
+        dependencyFailures++;
         continue;
       }
       for (const s of (settingsRows ?? []) as ReminderSettings[]) settingsMap.set(s.facility_id, s);
@@ -125,7 +149,10 @@ export async function GET(request: Request) {
     // エンタイトルメント（有料オプション購入状態）。エラーは fail-safe=未購入扱い（安全側）。
     // 完全型付きクライアントを構造的型へ明示キャストし TS2589（深い型インスタンス化）を回避（実体同一）。
     const { map: entMap, errors: entErrors } = await getEntitlementsByFacility(supabase as unknown as EntitlementsClient, facilityIds);
-    for (const e of entErrors) safeCaptureException(e, 'booking-reminder-entitlements');
+    for (const e of entErrors) {
+      safeCaptureException(e, 'booking-reminder-entitlements');
+      dependencyFailures++;
+    }
 
     // LINE 連携（user_id → line_user_id）。LINE 送信が有効になり得る予約の user_id のみ解決。
     const lineCandidateUserIds = Array.from(new Set(
@@ -153,6 +180,7 @@ export async function GET(request: Request) {
         .in('id', idChunk);
       if (linksErr) {
         safeCaptureException(linksErr, 'booking-reminder-line-links');
+        dependencyFailures++;
         continue;
       }
       for (const l of links ?? []) {
@@ -171,6 +199,7 @@ export async function GET(request: Request) {
         .in('id', idChunk);
       if (menusErr) {
         safeCaptureException(menusErr, 'booking-reminder-menus');
+        dependencyFailures++;
         continue;
       }
       for (const m of menus ?? []) menuMap.set(m.id, m.name);
@@ -197,7 +226,7 @@ export async function GET(request: Request) {
     }
 
     // Dynamic import to avoid loading Resend/LINE unnecessarily
-    const { sendBookingReminder: sendEmailReminder } = await import('@/lib/email');
+    const { sendBookingReminderForCron: sendEmailReminder } = await import('@/lib/email');
     const { sendBookingReminder: sendLineReminder } = await import('@/lib/line');
 
     let sent = 0;
@@ -215,11 +244,10 @@ export async function GET(request: Request) {
         .filter((p) => p.kind.startsWith('email_'))
         .map((p) => `${p.booking.id}:${p.days}`)
     );
-    const loopStart = Date.now();
     for (let pi = 0; pi < plan.length; pi++) {
       const { booking, kind, days } = plan[pi];
-      // 実時間予算ガード: 残りは未処理（sent_reminders 未 claim）のまま翌 run へ。
-      if (Date.now() - loopStart > SEND_BUDGET_MS) {
+      // 実時間予算ガード: 残りは未処理（sent_reminders 未 claim）のまま次の時間runへ。
+      if (Date.now() - startedAt.getTime() > SEND_BUDGET_MS) {
         deferred = plan.length - pi;
         console.warn('[booking-reminder] time budget exceeded, deferring rest to next run', { deferred });
         break;
@@ -237,7 +265,7 @@ export async function GET(request: Request) {
       // 戻り件数のみで判定する方式は DB 側で原子的に解決されるため、その穴が構造的に無い。
       const { data: claimedRows, error: claimError } = await supabase
         .from('sent_reminders')
-        .upsert({ booking_id: booking.id, reminder_date: booking.booking_date, kind }, {
+        .upsert({ booking_id: booking.id, reminder_date: booking.booking_date, kind, delivery_state: 'claimed' }, {
           onConflict: 'booking_id,reminder_date,kind',
           ignoreDuplicates: true,
         })
@@ -246,6 +274,7 @@ export async function GET(request: Request) {
       if (claimError) {
         // Unexpected DB error — skip rather than risk duplicate send
         safeCaptureException(claimError, 'booking-reminder');
+        dependencyFailures++;
         skipped++;
         continue;
       }
@@ -270,10 +299,40 @@ export async function GET(request: Request) {
         if (releaseErr) {
           // 解放失敗はログのみ（本体は継続）。次回 run で再送されないリスクは残るが握り潰さず可視化。
           console.error('[booking-reminder] claim release failed', { bookingId: booking.id, kind, err: releaseErr });
+          dependencyFailures++;
         }
       };
 
+      const markDelivery = async (state: 'delivering' | 'delivered' | 'closed' | 'uncertain', expected = 'delivering') => {
+        const { data, error } = await supabase.from('sent_reminders').update({ delivery_state: state })
+          .match({ booking_id: booking.id, reminder_date: booking.booking_date, kind, delivery_state: expected })
+          .select('id');
+        if (error || !data?.length) {
+          dependencyFailures++;
+          return false;
+        }
+        return true;
+      };
+
       try {
+        // 一覧取得から送信までの予約取消・変更を検知し、古い宛先や予約時刻では送信しない。
+        const { data: currentBooking, error: currentError } = await supabase.from('bookings')
+          .select('id, customer_name, email, booking_date, start_time, end_time, facility_id, total_price, user_id, menu_id, status')
+          .eq('id', booking.id).maybeSingle();
+        if (currentError) { dependencyFailures++; skipped++; await releaseClaim(); continue; }
+        if (!currentBooking || currentBooking.status !== 'confirmed'
+          || Object.keys(booking).some((key) => currentBooking[key as keyof typeof currentBooking] !== booking[key as keyof BookingRow])) {
+          skipped++;
+          await releaseClaim();
+          continue;
+        }
+        // ここを永続化できなければ絶対に外部送信しない。後続の結果不明はreclaim対象外。
+        if (Date.now() - startedAt.getTime() > SEND_BUDGET_MS) {
+          await releaseClaim();
+          deferred = plan.length - pi;
+          break;
+        }
+        if (!await markDelivery('delivering', 'claimed')) { skipped++; continue; }
         if (kind === 'email_1d' || kind === 'email_3d' || kind === 'email_7d') {
           const ok = await sendEmailReminder({
             customerName: booking.customer_name as string,
@@ -285,8 +344,14 @@ export async function GET(request: Request) {
             totalPrice: booking.total_price ?? undefined,
             bookingId: booking.id,
           }, days);
-          if (ok) {
+          if (ok === 'delivered') {
+            await markDelivery('delivered');
             sent++;
+          } else if (ok === 'uncertain') {
+            // 結果不明のclaimを解放すると次runで同一メールを再送し得る。
+            deliveryUncertain++;
+            await markDelivery('uncertain');
+            skipped++;
           } else {
             // メール送信が送達不可（safeSend が false）→ claim 解放して翌 run で再送可能にする。
             // 従来は戻り値を無視し無条件 sent++ していたため、送信失敗が無音＋claim 保持で恒久 miss だった。
@@ -304,6 +369,7 @@ export async function GET(request: Request) {
             daysBefore: days,
           });
           if (outcome === 'delivered') {
+            await markDelivery('delivered');
             sent++;
           } else if (outcome === 'transient') {
             // 一時的な失敗（429・5xx・ネットワーク）→ claim 解放して翌 run で再送する。
@@ -322,6 +388,7 @@ export async function GET(request: Request) {
             linePermanentFailures++;
             const emailAlreadyPlanned = plannedEmailKeys.has(`${booking.id}:${days}`);
             if (emailAlreadyPlanned) {
+              await markDelivery('closed');
               // メール側が同じ内容を届ける。配信失敗として警報は上げない。
               skipped++;
             } else if (booking.email) {
@@ -335,9 +402,14 @@ export async function GET(request: Request) {
                 totalPrice: booking.total_price ?? undefined,
                 bookingId: booking.id,
               }, days);
-              if (fallbackOk) {
+              if (fallbackOk === 'delivered') {
+                await markDelivery('delivered');
                 lineFallbackToEmail++;
                 sent++;
+              } else if (fallbackOk === 'uncertain') {
+                await markDelivery('uncertain');
+                deliveryUncertain++;
+                skipped++;
               } else {
                 // 退避先も送れなかった。claim を解放し翌 run で（LINE 1 回を無駄打ちしてから）再試行する。
                 await releaseClaim();
@@ -345,6 +417,7 @@ export async function GET(request: Request) {
                 skipped++;
               }
             } else {
+              await markDelivery('closed');
               // 退避先が無い＝この予約者へは届けようがない。警報を上げて人間に見せる。
               deliveryFailures++;
               skipped++;
@@ -353,13 +426,32 @@ export async function GET(request: Request) {
         }
       } catch (e) {
         safeCaptureException(e, 'booking-reminder');
-        // メール送信例外時も claim を解放し恒久 miss を防ぐ。
-        await releaseClaim();
+        // 予期しない例外は未送信と断定しない。開始前のclaimedは期限後に安全に回収される。
+        deliveryUncertain++;
+        await markDelivery('uncertain');
         skipped++;
       }
     }
 
     alertDeliveryFailures('booking-reminder', deliveryFailures, { sent, skipped });
+    if (dependencyFailures > 0 || deliveryFailures > 0 || deliveryUncertain > 0) {
+      await logCronRun('booking-reminder', 'error', startedAt, {
+        processed: sent,
+        skipped,
+        error_msg: '予約リマインドで未完了の依存障害または送信障害が発生しました',
+        meta: {
+          total_bookings: bookings.length,
+          planned: plan.length,
+          deferred,
+          dependency_failures: dependencyFailures,
+          delivery_failures: deliveryFailures,
+          delivery_uncertain: deliveryUncertain,
+          line_permanent_failures: linePermanentFailures,
+          line_fallback_to_email: lineFallbackToEmail,
+        },
+      });
+      return NextResponse.json({ processed: sent, skipped, total: bookings.length, planned: plan.length, deferred, delivery_uncertain: deliveryUncertain }, { status: 503 });
+    }
     await logCronRun('booking-reminder', 'success', startedAt, {
       processed: sent,
       skipped,
@@ -367,6 +459,7 @@ export async function GET(request: Request) {
         total_bookings: bookings.length,
         planned: plan.length,
         deferred,
+        delivery_uncertain: 0,
         line_permanent_failures: linePermanentFailures,
         line_fallback_to_email: lineFallbackToEmail,
       },

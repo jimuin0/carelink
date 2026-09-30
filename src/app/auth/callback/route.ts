@@ -14,9 +14,18 @@ export async function GET(request: Request) {
   // 3箇所の判定を1本のロジックに揃え、次に判定方式が変わってもここだけ取り残されない
   // ようにするため（挙動は変わらない）。
   const redirect = safeRedirect(searchParams.get('redirect'), origin);
+  const loginUrl = new URL('/auth/login', origin);
+  loginUrl.searchParams.set('error', 'callback_failed');
+  loginUrl.searchParams.set('redirect', redirect);
 
-  if (code) {
+  // Provider の詳細をURLへ反射せず、失敗理由は同じ安全な案内に正規化する。
+  if (searchParams.get('error') || !code) {
+    return NextResponse.redirect(loginUrl);
+  }
+
+  try {
     const cookieStore = await cookies();
+    let cookieSaveFailed = false;
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -30,17 +39,21 @@ export async function GET(request: Request) {
               cookiesToSet.forEach(({ name, value, options }) =>
                 cookieStore.set(name, value, options)
               );
-            } catch {}
+            } catch {
+              cookieSaveFailed = true;
+            }
           },
         },
       }
     );
 
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) {
-      return NextResponse.redirect(`${origin}${redirect}`);
+    if (!error && !cookieSaveFailed) {
+      return NextResponse.redirect(new URL(redirect, origin));
     }
+  } catch {
+    // 認証コード・cookie・ネットワークの内部詳細を返さず、再ログインへ安全に誘導する。
   }
 
-  return NextResponse.redirect(`${origin}/auth/login?error=callback_failed`);
+  return NextResponse.redirect(loginUrl);
 }

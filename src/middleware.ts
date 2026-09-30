@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { safeRedirect } from '@/lib/safe-redirect';
+import { isPlatformSupportPath } from '@/lib/platform-support-path';
 
 const PROTECTED_PATHS = ['/mypage', '/admin'];
 
@@ -190,9 +191,24 @@ export async function middleware(request: NextRequest) {
     return withSessionCookies(NextResponse.redirect(url));
   }
 
+  // Support operators need no dummy facility. Check their DB role freshly;
+  // never cache platform privileges in the facility membership cookie.
+  let platformSupportAccess = false;
+  if (user && isPlatformSupportPath(pathname)) {
+    const { data: profile, error } = await supabase
+      .from('profiles').select('is_platform_admin').eq('id', user.id).single();
+    if (error) {
+      return withSessionCookies(NextResponse.json(
+        { error: '運営権限を確認できません。時間をおいて再度お試しください。' },
+        { status: 503, headers: { 'Cache-Control': 'no-store' } },
+      ));
+    }
+    platformSupportAccess = profile?.is_platform_admin === true;
+  }
+
   // /admin ルートへの権限チェック（facility_members owner/admin のみ）
   // /admin/onboarding は除外（施設作成前のオーナーがアクセスする）
-  if (user && request.nextUrl.pathname.startsWith('/admin') && request.nextUrl.pathname !== '/admin/onboarding') {
+  if (user && !platformSupportAccess && request.nextUrl.pathname.startsWith('/admin') && request.nextUrl.pathname !== '/admin/onboarding') {
     const cacheKey = getMembershipCacheKey(user.id);
     const cached = request.cookies.get(cacheKey)?.value;
 

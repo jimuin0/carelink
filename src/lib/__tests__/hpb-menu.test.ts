@@ -130,7 +130,10 @@ describe('scrapeAndSaveFacility', () => {
   test('sln not set → no scrape (default fetchFn branch)', async () => {
     const from = jest.fn().mockReturnValue(profileChain(null));
     const res = await scrapeAndSaveFacility(asAdmin(from), FACILITY);
-    expect(res).toEqual({ slnId: null, fetched: 0, ok: 0, skipped: 0, failed: 0 });
+    expect(res).toEqual({
+      slnId: null, fetched: 0, ok: 0, skipped: 0, failed: 0, saveFailed: 0,
+      complete: false, stopReason: null, discoveredItems: 0, unresolvedItems: 0, failedPages: 0,
+    });
     expect(fetchStoreRows).not.toHaveBeenCalled();
   });
   test('sln set → scrapes and saves (explicit fetchFn branch)', async () => {
@@ -138,11 +141,53 @@ describe('scrapeAndSaveFacility', () => {
       .fn()
       .mockReturnValueOnce(profileChain({ hpb_sln_id: 'H1' }))
       .mockReturnValueOnce(upsertChain(null));
-    (fetchStoreRows as jest.Mock).mockResolvedValue([validRow(), validRow({ refId: 'CP2' })]);
+    (fetchStoreRows as jest.Mock).mockResolvedValue({
+      rows: [validRow(), validRow({ refId: 'CP2' })], complete: true, stopReason: 'normal_end',
+      discoveredItems: 2, unresolvedItems: 0, failedPages: 0,
+    });
     const customFetch = jest.fn();
     const res = await scrapeAndSaveFacility(asAdmin(from), FACILITY, customFetch);
-    expect(res).toEqual({ slnId: 'H1', fetched: 2, ok: 2, skipped: 0, failed: 0 });
-    expect(fetchStoreRows).toHaveBeenCalledWith('H1', customFetch);
+    expect(res).toEqual({
+      slnId: 'H1', fetched: 2, ok: 2, skipped: 0, failed: 0, saveFailed: 0,
+      complete: true, stopReason: 'normal_end', discoveredItems: 2, unresolvedItems: 0, failedPages: 0,
+    });
+    expect(fetchStoreRows).toHaveBeenCalledWith('H1', customFetch, 12, undefined);
+  });
+
+  test('partial fetch still saves valid rows but remains incomplete', async () => {
+    const from = jest.fn()
+      .mockReturnValueOnce(profileChain({ hpb_sln_id: 'H1' }))
+      .mockReturnValueOnce(upsertChain(null));
+    (fetchStoreRows as jest.Mock).mockResolvedValue({
+      rows: [validRow()], complete: false, stopReason: 'fetch_error',
+      discoveredItems: 2, unresolvedItems: 1, failedPages: 1,
+    });
+    const result = await scrapeAndSaveFacility(asAdmin(from), FACILITY, jest.fn());
+    expect(result).toMatchObject({ fetched: 1, ok: 1, failed: 1, complete: false, stopReason: 'fetch_error' });
+  });
+
+  test('incomplete empty fetch still reports a failure when no item-level error explains it', async () => {
+    const from = jest.fn()
+      .mockReturnValueOnce(profileChain({ hpb_sln_id: 'H1' }))
+      .mockReturnValueOnce(upsertChain(null));
+    (fetchStoreRows as jest.Mock).mockResolvedValue({
+      rows: [], complete: false, stopReason: 'time_budget',
+      discoveredItems: 0, unresolvedItems: 0, failedPages: 0,
+    });
+    const result = await scrapeAndSaveFacility(asAdmin(from), FACILITY, jest.fn());
+    expect(result).toMatchObject({ fetched: 0, failed: 1, complete: false, stopReason: 'time_budget' });
+  });
+
+  test('complete fetch plus database failure remains an incomplete saved result', async () => {
+    const from = jest.fn()
+      .mockReturnValueOnce(profileChain({ hpb_sln_id: 'H1' }))
+      .mockReturnValueOnce(upsertChain({ message: 'db failure' }));
+    (fetchStoreRows as jest.Mock).mockResolvedValue({
+      rows: [validRow()], complete: true, stopReason: 'normal_end',
+      discoveredItems: 1, unresolvedItems: 0, failedPages: 0,
+    });
+    const result = await scrapeAndSaveFacility(asAdmin(from), FACILITY, jest.fn());
+    expect(result).toMatchObject({ fetched: 1, ok: 0, failed: 1, saveFailed: 1, complete: false });
   });
 });
 

@@ -9,6 +9,7 @@ import AdminTopNav, { type NavGroup } from '@/components/admin/AdminTopNav';
 import AdminUserMenu from '@/components/admin/AdminUserMenu';
 import { RealtimeBookingListener, AiSupportWidget } from '@/components/admin/DynamicAdminWidgets';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import { isPlatformSupportPath } from '@/lib/platform-support-path';
 
 export const metadata: Metadata = {
   title: { default: '管理画面', template: '%s | 管理画面 | CareLink' },
@@ -203,6 +204,22 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
   ]);
 
   if (!memberships || memberships.length === 0) {
+    // A platform-only operator can answer inquiries without creating a dummy
+    // facility. Ordinary admin paths still require owner/admin membership.
+    if (profile?.is_platform_admin === true && isPlatformSupportPath(pathname)) {
+      return (
+        <div className="min-h-screen bg-gray-100">
+          <header className="flex flex-wrap items-center justify-between gap-4 border-b bg-white px-4 py-3">
+            <nav aria-label="運営サポート" className="flex gap-4">
+              <Link href="/admin/inquiries">問い合わせ(運営)</Link>
+              <Link href="/admin/registrations">施設登録</Link>
+            </nav>
+            <AdminUserMenu />
+          </header>
+          <main className="mx-auto max-w-[1400px] p-4 lg:p-6">{children}</main>
+        </div>
+      );
+    }
     // 施設未作成のオーナーは onboarding 画面で施設を作成する必要がある。
     // middleware も /admin/onboarding を保護対象から除外しており（設計意図）、
     // ここで除外しないと layout が page より先に /mypage へ飛ばし施設作成導線が断たれる。

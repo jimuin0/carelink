@@ -11,6 +11,8 @@
 
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
+jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
 jest.mock('@/lib/audit-logger', () => ({
   writeAuditLog: jest.fn(),
   getRequestContext: jest.fn(() => ({ ip: '127.0.0.1', ua: 'test' })),
@@ -38,7 +40,7 @@ function makeRequest(body?: object) {
   return new Request(`http://localhost/api/admin/registrations/${SALON_UUID}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
+    body: body ? JSON.stringify({ expected_revision: 0, ...body }) : undefined,
   });
 }
 
@@ -54,38 +56,37 @@ function profileChain(isAdmin: boolean) {
   };
 }
 
-// update().eq().select('id') → { data, error }。存在する行の更新は data に1件返る。
-// 0 行更新（存在しない id）は data=[] を返し、route は 404 を返す。
+// The observed status is compared atomically; zero rows is absent-or-stale (409).
 function updateChain(error: unknown = null, data: unknown = [{ id: SALON_UUID }]) {
-  return {
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        select: jest.fn(() => Promise.resolve({ data, error })),
-      }),
-    }),
-  };
+  const query = { eq: jest.fn().mockReturnThis(), is: jest.fn().mockReturnThis(),
+    select: jest.fn(() => Promise.resolve({ data, error })) };
+  return { update: jest.fn(() => query), query };
 }
 
 // unclaim 用: select().eq().maybeSingle() と update().eq() の両方を同じ from() 戻り値に持つ。
 function unclaimChain(opts: {
-  existing?: { id: string; claimed_by_user_id: string | null; claimed_at: string | null } | null;
+  existing?: { id: string; claimed_by_user_id: string | null; claimed_at: string | null; claimed_facility_id: string | null } | null;
   fetchError?: unknown;
   updateError?: unknown;
+  updatedRows?: { id: string }[] | null;
 } = {}) {
   const {
-    existing = { id: SALON_UUID, claimed_by_user_id: '44444444-4444-4444-4444-444444444444', claimed_at: '2026-08-01T00:00:00Z' },
+    existing = { id: SALON_UUID, claimed_by_user_id: '44444444-4444-4444-4444-444444444444', claimed_at: '2026-08-01T00:00:00Z', claimed_facility_id: null },
     fetchError = null,
     updateError = null,
   } = opts;
+  const updateQuery = {
+    eq: jest.fn().mockReturnThis(), is: jest.fn().mockReturnThis(),
+    select: jest.fn(() => Promise.resolve({ data: opts.updatedRows === undefined ? [{ id: SALON_UUID }] : opts.updatedRows, error: updateError })),
+  };
   return {
     select: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
         maybeSingle: jest.fn(() => Promise.resolve({ data: existing, error: fetchError })),
       }),
     }),
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn(() => Promise.resolve({ error: updateError })),
-    }),
+    update: jest.fn().mockReturnValue(updateQuery),
+    updateQuery,
   };
 }
 
@@ -133,12 +134,12 @@ test('PATCH: DB更新失敗 → 500', async () => {
   expect(res.status).toBe(500);
 });
 
-test('PATCH: 存在しない登録 (0行更新) → 404', async () => {
+test('PATCH: 存在しないか変更された登録 (0行更新) → 409', async () => {
   mockAnonFrom.mockReturnValue(profileChain(true));
   mockAdminFrom.mockReturnValue(updateChain(null, []));
   const { writeAuditLog } = require('@/lib/audit-logger');
   const res = await PATCH(makeRequest({ status: 'approved' }), makeProps());
-  expect(res.status).toBe(404);
+  expect(res.status).toBe(409);
   // phantom success 防止: 実在しない登録に対して承認の監査ログを残さない
   await new Promise(r => setTimeout(r, 10));
   expect(writeAuditLog).not.toHaveBeenCalled();
@@ -269,6 +270,36 @@ test('PATCH unclaim: 成功 → 200 success:true・claim が null に戻る', as
   expect(json.success).toBe(true);
   // 結果（呼び出し引数だけでなく実際に null で update されたこと）を主張する。
   expect(chain.update).toHaveBeenCalledWith({ claimed_by_user_id: null, claimed_at: null });
+  expect(chain.updateQuery.eq).toHaveBeenCalledWith('claimed_by_user_id', '44444444-4444-4444-4444-444444444444');
+  expect(chain.updateQuery.eq).toHaveBeenCalledWith('claimed_at', '2026-08-01T00:00:00Z');
+  expect(chain.updateQuery.is).toHaveBeenCalledWith('claimed_facility_id', null);
+});
+
+test('PATCH unclaim: linked facility requires coordinated recovery even when auth user is deleted', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  const chain = unclaimChain({ existing: { id: SALON_UUID, claimed_by_user_id: null,
+    claimed_at: '2026-08-01T00:00:00Z', claimed_facility_id: USER_ID } });
+  mockAdminFrom.mockReturnValue(chain);
+  const res = await PATCH(makeRequest({ action: 'unclaim' }), makeProps());
+  expect(res.status).toBe(409); expect(chain.update).not.toHaveBeenCalled();
+  expect(require('@/lib/audit-logger').writeAuditLog).not.toHaveBeenCalled();
+});
+
+test.each([[], null])('PATCH unclaim: zero or unknown CAS result is not success %#', async updatedRows => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue(unclaimChain({ updatedRows }));
+  const res = await PATCH(makeRequest({ action: 'unclaim' }), makeProps());
+  expect(res.status).toBe(409);
+  expect(require('@/lib/audit-logger').writeAuditLog).not.toHaveBeenCalled();
+});
+
+test('PATCH unclaim: previously null legacy fields use SQL IS NULL guards', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  const chain = unclaimChain({ existing: { id: SALON_UUID, claimed_by_user_id: null, claimed_at: null, claimed_facility_id: null } });
+  mockAdminFrom.mockReturnValue(chain);
+  expect((await PATCH(makeRequest({ action: 'unclaim' }), makeProps())).status).toBe(200);
+  expect(chain.updateQuery.is).toHaveBeenCalledWith('claimed_by_user_id', null);
+  expect(chain.updateQuery.is).toHaveBeenCalledWith('claimed_at', null);
 });
 
 test('PATCH unclaim: 成功時に writeAuditLog が呼ばれる（旧値/新値つき）', async () => {
@@ -292,11 +323,66 @@ test('PATCH unclaim: レートリミット → 429（action分岐より前に評
   expect(res.status).toBe(429);
 });
 
-test('PATCH: action が unclaim 以外の文字列でも通常の status 更新フローに落ちる', async () => {
+test('PATCH: unknown action cannot silently become a status mutation', async () => {
   mockAnonFrom.mockReturnValue(profileChain(true));
   mockAdminFrom.mockReturnValue(updateChain());
   const res = await PATCH(makeRequest({ action: 'something-else', status: 'approved' }), makeProps());
-  const json = await res.json();
+  expect(res.status).toBe(400);
+  expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+
+test.each([undefined, null, 'approved'])('PATCH uses observed status CAS including NULL %#', async expected_status => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  const chain = updateChain(); mockAdminFrom.mockReturnValue(chain);
+  const res = await PATCH(makeRequest({ status: 'rejected', expected_status }), makeProps());
   expect(res.status).toBe(200);
-  expect(json.status).toBe('approved');
+  expect(res.headers.get('Cache-Control')).toBe('no-store');
+  expect(chain.query.eq).toHaveBeenCalledWith('id', SALON_UUID);
+  expect(chain.query.eq).toHaveBeenCalledWith('review_revision', 0);
+  if (expected_status === null) expect(chain.query.is).toHaveBeenCalledWith('status', null);
+  else expect(chain.query.eq).toHaveBeenCalledWith('status', expected_status ?? 'pending');
+});
+test.each([null, [{ id: SALON_UUID }, { id: USER_ID }]])('unknown or multiple updated rows cannot succeed %#', async data => {
+  mockAnonFrom.mockReturnValue(profileChain(true)); mockAdminFrom.mockReturnValue(updateChain(null, data));
+  expect((await PATCH(makeRequest({ status: 'approved' }), makeProps())).status).toBe(409);
+  expect(require('@/lib/audit-logger').writeAuditLog).not.toHaveBeenCalled();
+});
+test.each([{ status: 'approved' }, { action: 'unclaim' }])('strict role and profile error apply to both mutations %#', async body => {
+  mockAnonFrom.mockReturnValue(profileChain('true' as unknown as boolean));
+  expect((await PATCH(makeRequest(body), makeProps())).status).toBe(403);
+  mockAnonFrom.mockReturnValue({ select: () => ({ eq: () => ({ single: async () => ({ data: { is_platform_admin: true }, error: { message: 'PRIVATE' } }) }) }) });
+  const response = await PATCH(makeRequest(body), makeProps());
+  expect(response.status).toBe(500);
+  expect(await response.text()).not.toContain('PRIVATE');
+  expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+test('thrown provider update failure returns unavailable and never a success', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockImplementation(() => { throw new Error('PRIVATE'); });
+  const response = await PATCH(makeRequest({ status: 'approved' }), makeProps());
+  expect(response.status).toBe(500); expect(await response.text()).not.toContain('PRIVATE');
+});
+test('absent profile cannot mutate', async () => {
+  mockAnonFrom.mockReturnValue({ select: () => ({ eq: () => ({ single: async () => ({ data: null, error: null }) }) }) });
+  expect((await PATCH(makeRequest({ status: 'approved' }), makeProps())).status).toBe(403);
+});
+
+test.each([undefined, null, -1, 1.1, 2147483648, '0'])('missing/invalid revision cannot fall back to blind update %#', async expected_revision => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  expect((await PATCH(makeRequest({ status: 'approved', expected_revision }), makeProps())).status).toBe(400);
+  expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+test.each(['status', 'claim-read', 'claim-update'])('returned %s error cannot expose provider details to monitoring', async kind => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  const privateError = { message: 'PRIVATE CONTACT VALUE', details: 'PRIVATE SEARCH TERM' };
+  mockAdminFrom.mockReturnValue(kind === 'status' ? updateChain(privateError)
+    : unclaimChain(kind === 'claim-read' ? { fetchError: privateError } : { updateError: privateError }));
+  const response = await PATCH(makeRequest(kind === 'status' ? { status: 'approved' } : { action: 'unclaim' }), makeProps());
+  expect(response.status).toBe(500);
+  const { alertCaughtError } = require('@/lib/alert');
+  const { safeCaptureException } = require('@/lib/safe');
+  for (const mock of [alertCaughtError, safeCaptureException]) {
+    expect(mock).toHaveBeenCalledTimes(1);
+    expect(mock.mock.calls.flat().map((value: unknown) => String(value)).join(' ')).not.toContain('PRIVATE');
+  }
 });

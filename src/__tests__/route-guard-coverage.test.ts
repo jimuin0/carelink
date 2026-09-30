@@ -75,6 +75,10 @@ const ALLOW: Record<string, Exemption> = {
   'salons/route.ts': {
     auth: '掲載申込フォーム。申込の時点ではまだアカウントが無いので認証を要求できない',
   },
+  'salons/prepare/route.ts': {
+    auth: '未ログインの申込開始。個人情報・既存申込は読み取らず新しいランダムcapabilityだけ発行。'
+      + 'CSRF＋5回/分rate limit＋設定時captchaをroute.test.tsで検証する。状態照会にはこの免除を適用しない',
+  },
   'unsubscribe/route.ts': {
     auth: 'メール内リンクからの配信停止。HMAC 署名つきトークンが本人性の根拠でログインは要求しない',
   },
@@ -171,6 +175,10 @@ const IDENTITY_PATTERNS: RegExp[] = [
   /\bconstructEvent\s*\(/,            // Stripe 署名
   /\bverifyApiKey\s*\(/,              // 施設 API キー
   /\bverifyUnsubscribeToken\s*\(/,    // 配信停止トークン
+  /\breadSalonIntentStatus\s*\(/,     // intent ID＋proof一致＋server期限をDB照合し最小状態のみ返す
+  /\breadSalonRegistrationSummary\s*\(/, // 同じcapability検証後、確定receiptの表示用項目だけ読む
+  /\bprepareSalonPhoto\s*\(/,         // photo RPCでintent capabilityをlock内検証
+  /\bcommitSalonSubmission\s*\(/,     // status照合＋atomic commit内のproof/期限検証
 ];
 
 export function hasIdentityGate(masked: string): boolean {
@@ -257,6 +265,17 @@ describe('route.ts の CSRF / レート制限 / 本人確認を機械強制す�
       expect(hasIdentityGate('withRoute(h, { requireAuth: true })')).toBe(true);
       expect(hasIdentityGate('const e = checkCronAuth(request)')).toBe(true);
       expect(hasIdentityGate('event = stripe.webhooks.constructEvent(b, s, k)')).toBe(true);
+      expect(hasIdentityGate('await readSalonIntentStatus(db, intentId, proof)')).toBe(true);
+      expect(hasIdentityGate('await readSalonRegistrationSummary(db, intentId, proof)')).toBe(true);
+      expect(hasIdentityGate(maskNonCode('// readSalonRegistrationSummary(db, id, proof)'))).toBe(false);
+      expect(hasIdentityGate(maskNonCode('const s = "readSalonRegistrationSummary(db, id, proof)"'))).toBe(false);
+      expect(hasIdentityGate('await prepareSalonPhoto(db, input, proof)')).toBe(true);
+      expect(hasIdentityGate('await commitSalonSubmission(db, input, proof)')).toBe(true);
+      expect(hasIdentityGate(maskNonCode('// prepareSalonPhoto(db, input, proof)'))).toBe(false);
+      expect(hasIdentityGate(maskNonCode('const s = "commitSalonSubmission(db, input, proof)"'))).toBe(false);
+      expect(hasIdentityGate('await prepareSalonIntent(db)')).toBe(false);
+      expect(hasIdentityGate('isSalonIntentProof(proof)')).toBe(false);
+      expect(hasIdentityGate(maskNonCode('// readSalonIntentStatus(db, id, proof)'))).toBe(false);
       expect(hasIdentityGate('export async function POST() { return ok(); }')).toBe(false);
     });
 

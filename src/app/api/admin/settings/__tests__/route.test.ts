@@ -34,8 +34,25 @@ jest.mock('@/lib/supabase-server', () => ({
 import { NextRequest } from 'next/server';
 import { PATCH } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 const VALID_BODY = { name: 'テスト施設' };
+const locationConflict = { code: '23514', message: 'new row violates check constraint "published_facility_location_present"' };
+
+test('PATCH: published住所削除のDB拒否を成功にしない', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain(locationConflict));
+  const res = await PATCH(makePatchRequest({ ...VALID_BODY, address: '' }));
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({ error: expect.stringContaining('先に非公開') });
+});
+
+test('PATCH: gate通過後の競合によるDB拒否も409', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  publishMocks({ menu: 1, photo: 1, staff: 1, updateError: locationConflict });
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  expect(res.status).toBe(409);
+});
 
 function makePatchRequest(body: object = VALID_BODY, params: Record<string, string> = { facility_id: FACILITY_UUID }) {
   const url = new URL('http://localhost/api/admin/settings');
@@ -47,19 +64,21 @@ function makePatchRequest(body: object = VALID_BODY, params: Record<string, stri
   });
 }
 
-function memberChain(data: unknown) {
+function memberChain(data: unknown, error: unknown = null) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
     in: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data, error: null })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
   };
 }
 
-function updateChain(error: unknown = null) {
+function updateChain(error: unknown = null, data: unknown = { id: FACILITY_UUID }) {
   return {
     update: jest.fn().mockReturnValue({
-      eq: jest.fn(() => Promise.resolve({ error })),
+      eq: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ error, data }) }),
+      }),
     }),
   };
 }
@@ -85,21 +104,21 @@ function facilityProfileChain(opts: {
   updateError?: unknown;
   prefecture?: string | null;
   city?: string | null;
+  address?: string | null;
   profileError?: unknown;
 } = {}) {
   // 既定は「地域が入っている」＝ガードの地域条件は充足。個々のテストが検証したいのは
   // メニュー/写真/スタッフの条件なので、地域で落ちない既定にしておく。
   const prefecture = opts.prefecture === undefined ? '大阪府' : opts.prefecture;
   const city = opts.city === undefined ? '堺市' : opts.city;
+  const address = opts.address === undefined ? '検証町1-1' : opts.address;
   return {
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn(() => Promise.resolve({ error: opts.updateError ?? null })),
-    }),
+    update: updateChain(opts.updateError ?? null).update,
     select: jest.fn(() => ({
       eq: jest.fn(() => ({
         single: jest.fn(() =>
           Promise.resolve({
-            data: opts.profileError ? null : { prefecture, city },
+            data: opts.profileError ? null : { prefecture, city, address },
             error: opts.profileError ?? null,
           }),
         ),
@@ -120,6 +139,7 @@ function publishMocks(opts: {
   updateError?: unknown;
   prefecture?: string | null;
   city?: string | null;
+  address?: string | null;
 } = {}) {
   // undefined は既定1(充足)、null は明示的にそのまま渡す（route の `?? 0` 分岐検証用）。
   const m = opts.menu === undefined ? 1 : opts.menu;
@@ -134,6 +154,7 @@ function publishMocks(opts: {
       updateError: opts.updateError ?? null,
       prefecture: opts.prefecture,
       city: opts.city,
+      address: opts.address,
       profileError: e,
     });
   });
@@ -269,6 +290,16 @@ test('PATCH: published で count 取得エラー → 500', async () => {
   expect(res.status).toBe(500);
 });
 
+test.each(['', ' \u3000 '])('PATCH: 住所 %p の施設は単独公開されない', async (address) => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  publishMocks({ menu: 1, photo: 1, staff: 1, address });
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  const json = await res.json();
+  expect(res.status).toBe(400);
+  expect(json.missing).toEqual(['住所を設定してください']);
+  expect(mockAdminFrom.mock.results.flatMap((result) => result.value.update?.mock.calls ?? [])).toEqual([]);
+});
+
 test('PATCH: ?action=status 無効なステータス → 400', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   const res = await PATCH(makePatchRequest({ status: 'deleted' }, { facility_id: FACILITY_UUID, action: 'status' }));
@@ -352,9 +383,7 @@ test('PATCH: website_url が有効URL → 200', async () => {
 // spread の後ろに明示キーを置く旧実装だと、website_url を含まない保存で常に null 上書きされた。
 // menus/[id]（並び替えで写真が消える）・features/[id]（トグルで画像が消える）と同じ形。
 function captureSettingsUpdate() {
-  const update = jest.fn().mockReturnValue({
-    eq: jest.fn(() => Promise.resolve({ error: null })),
-  });
+  const update = updateChain().update;
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue({ update });
   return update;
@@ -416,7 +445,7 @@ test('PATCH: business_hours が valid (close > open) → 200', async () => {
 
 test('PATCH: business_hours の未知キー（曜日以外）は strip されDB更新に乗らない', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  const updateFn = jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) });
+  const updateFn = updateChain().update;
   mockAdminFrom.mockReturnValue({ update: updateFn });
   const res = await PATCH(makePatchRequest({
     name: 'test',
@@ -445,4 +474,57 @@ test('PATCH: 不正JSON → 400', async () => {
 test('PATCH: facility_id が不正UUID → 401', async () => {
   const res = await PATCH(makePatchRequest(VALID_BODY, { facility_id: 'bad-uuid' }));
   expect(res.status).toBe(401);
+});
+
+describe('保存した行の確認と依存障害', () => {
+  test.each([null, undefined, {}, { id: USER_ID }])('通常保存の欠損・別施設応答を成功にしない %#', async data => {
+    mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+    const chain = updateChain();
+    chain.update.mockReturnValue({ eq: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data, error: null }) }),
+    }) });
+    mockAdminFrom.mockReturnValue(chain);
+    const res = await PATCH(makePatchRequest());
+    expect(res.status).toBe(409);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(writeAuditLog).not.toHaveBeenCalled();
+  });
+
+  test.each(['published', 'draft', 'suspended'])('status=%sの0行更新を成功・監査にしない', async status => {
+    mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+    publishMocks();
+    const original = mockAdminFrom.getMockImplementation()!;
+    mockAdminFrom.mockImplementation(table => {
+      const chain = original(table);
+      if (table === 'facility_profiles') chain.update = updateChain(null, null).update;
+      return chain;
+    });
+    const res = await PATCH(makePatchRequest({ status }, { facility_id: FACILITY_UUID, action: 'status' }));
+    expect(res.status).toBe(409);
+    expect(writeAuditLog).not.toHaveBeenCalled();
+  });
+
+  test('認可照会のerrorとdataが併存しても書き込まない', async () => {
+    mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }, { message: 'synthetic private detail' }));
+    const res = await PATCH(makePatchRequest());
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toContain('synthetic private detail');
+    expect(mockAdminFrom).not.toHaveBeenCalled();
+    expect(writeAuditLog).not.toHaveBeenCalled();
+  });
+
+  test('異なる施設のmembership応答を信用しない', async () => {
+    mockAnonFrom.mockReturnValue(memberChain({ facility_id: USER_ID }));
+    expect((await PATCH(makePatchRequest())).status).toBe(401);
+    expect(mockAdminFrom).not.toHaveBeenCalled();
+  });
+
+  test('通信例外は固定500へ復帰し成功監査しない', async () => {
+    mockGetUser.mockRejectedValueOnce(new Error('synthetic private detail'));
+    const res = await PATCH(makePatchRequest());
+    expect(res.status).toBe(500);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(await res.text()).not.toContain('synthetic private detail');
+    expect(writeAuditLog).not.toHaveBeenCalled();
+  });
 });

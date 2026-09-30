@@ -34,24 +34,20 @@ test.describe('セキュリティヘッダー', () => {
     expect(headers['referrer-policy']).toBeTruthy();
   });
 
-  test('HTTPS リダイレクト（本番環境）', async ({ page }) => {
-    // Vercel本番環境のみ確認
-    const baseUrl = process.env.PLAYWRIGHT_BASE_URL || '';
-    if (baseUrl.startsWith('https://')) {
-      const response = await page.goto('/');
-      expect(page.url()).toMatch(/^https:/);
-    } else {
-      test.skip();
-    }
+  test('HTTPS画面を取得できる（本番のHTTPリダイレクト検証とは別）', async ({ page }) => {
+    expect(process.env.PLAYWRIGHT_BASE_URL).toMatch(/^https:/);
+    const response = await page.goto('/');
+    expect(response?.ok()).toBe(true);
+    expect(page.url()).toMatch(/^https:/);
   });
 });
 
 test.describe('XSS 防止', () => {
   test('URL パラメータの XSS がエスケープされる', async ({ page }) => {
-    await page.goto('/search?q=<script>alert(1)</script>');
     // alert が発生しないことを確認
     let alertTriggered = false;
-    page.on('dialog', () => { alertTriggered = true; });
+    page.on('dialog', async dialog => { alertTriggered = true; await dialog.dismiss(); });
+    await page.goto('/search?q=<script>alert(1)</script>');
     await page.waitForLoadState('networkidle');
     expect(alertTriggered).toBe(false);
     // スクリプトタグが DOM にそのまま出力されていない
@@ -60,9 +56,9 @@ test.describe('XSS 防止', () => {
   });
 
   test('施設名の XSS がエスケープされる', async ({ page }) => {
-    await page.goto('/search?area=<img src=x onerror=alert(1)>');
     let alertTriggered = false;
-    page.on('dialog', () => { alertTriggered = true; });
+    page.on('dialog', async dialog => { alertTriggered = true; await dialog.dismiss(); });
+    await page.goto('/search?area=<img src=x onerror=alert(1)>');
     await page.waitForLoadState('networkidle');
     expect(alertTriggered).toBe(false);
   });
@@ -74,13 +70,12 @@ test.describe('XSS 防止', () => {
       '<svg onload=alert(1)>',
       'javascript:alert(1)',
     ];
+    let alertTriggered = false;
+    page.on('dialog', async dialog => { alertTriggered = true; await dialog.dismiss(); });
     for (const payload of xssPayloads) {
-      let alertTriggered = false;
-      page.on('dialog', () => { alertTriggered = true; });
       await page.goto(`/search?q=${encodeURIComponent(payload)}`);
       await page.waitForLoadState('networkidle');
       expect(alertTriggered).toBe(false);
-      page.removeAllListeners('dialog');
     }
   });
 });

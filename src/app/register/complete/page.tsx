@@ -1,14 +1,36 @@
 import Link from 'next/link';
+import { cookies } from 'next/headers';
+import { SALON_CLAIM_COOKIE_NAME } from '@/lib/salon-claim';
 import { resolveRegisteredSalon } from '@/lib/register-complete';
 import { buildOnboardingAuthPath } from '@/lib/onboarding-link';
+import RegistrationReceipt from '@/components/register/RegistrationReceipt';
 
 interface Props {
-  searchParams: Promise<{ id?: string }>;
+  searchParams: Promise<{ id?: string; handoff?: string }>;
 }
 
 export default async function RegisterCompletePage({ searchParams }: Props) {
-  const { id } = await searchParams;
-  const { name, type, area } = await resolveRegisteredSalon(id);
+  const { id, handoff } = await searchParams;
+  if (handoff === 'registration') return <RegistrationReceipt />;
+  const cookieStore = await cookies();
+  const receipt = await resolveRegisteredSalon(id, cookieStore.get(SALON_CLAIM_COOKIE_NAME)?.value);
+  if (receipt.status !== 'confirmed') {
+    return (
+      <div className="section-container">
+        <div className="max-w-lg mx-auto text-center py-12">
+          <h1 className="text-2xl font-bold mb-4">受付状況を確認できませんでした</h1>
+          <p role="status" className="mb-4">
+            {receipt.status === 'unavailable'
+              ? '現在、受付情報の確認に時間がかかっています。'
+              : 'この画面からは受付を確認できません。申込時のブラウザでご確認ください。'}
+          </p>
+          <p className="mb-6">登録済みの可能性があります。重複を避けるため再送信せず、受付状況をお問い合わせください。</p>
+          <Link href="/contact" className="btn-primary">受付状況を問い合わせる</Link>
+        </div>
+      </div>
+    );
+  }
+  const { name, type, area } = receipt;
 
   return (
     <div className="section-container">
@@ -20,6 +42,8 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
         </div>
 
         <h1 className="text-2xl font-bold mb-4">登録が完了しました！</h1>
+        <p className="text-sm mb-4">受付番号：<span className="break-all">{receipt.id}</span></p>
+        <p className="text-sm mb-4">掲載申込の受付が完了しました。一般公開は、店舗情報の設定と公開操作の後に反映されます。</p>
         <p className="text-gray-600 mb-2">
           あと少しで掲載開始できます。
         </p>

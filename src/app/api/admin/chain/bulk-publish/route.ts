@@ -10,7 +10,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX } from '@/lib/constants';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { checkPublishReadiness } from '@/lib/facility-publish-gate';
+import { checkPublishReadiness, isPublishedLocationConflict } from '@/lib/facility-publish-gate';
 import { serverError } from '@/lib/with-route';
 
 export async function POST(req: NextRequest) {
@@ -79,6 +79,7 @@ export async function POST(req: NextRequest) {
       .update({ status: is_published ? 'published' : 'draft', updated_at: new Date().toISOString() })
       .in('id', targetIds);
 
+    if (isPublishedLocationConflict(error)) return NextResponse.json({ error: '所在地が変更された施設があります。今回の一括更新は保存されていません。所在地を確認してください。' }, { status: 409 });
     if (error) return serverError('admin-chain-bulk-publish-update', error, '/api/admin/chain/bulk-publish');
   }
 

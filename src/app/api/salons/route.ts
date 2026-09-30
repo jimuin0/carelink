@@ -1,17 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { z } from 'zod';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit, mutationRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { withRoute, serverError } from '@/lib/with-route';
 import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
-import { phoneField as sharedPhoneField } from '@/lib/phone';
+import { salonInsertSchema } from '@/lib/validations';
+import { salonFieldErrors, SALON_FIELD_MESSAGES } from '@/lib/salon-field-errors';
 import { verifyRecaptcha } from '@/lib/recaptcha';
 import { sendNotify } from '@/lib/notify';
 import { sendRegistrationReceiptEmail } from '@/lib/email';
 import { runAfterResponse } from '@/lib/after-response';
-import { businessTypes, DESIRED_START_DATES } from '@/lib/constants';
 import { extractPrefecture, extractCity } from '@/lib/japan-address';
 import { SALON_CLAIM_COOKIE_NAME, SALON_CLAIM_TTL_SECONDS, signSalonClaim } from '@/lib/salon-claim';
 
@@ -34,63 +33,6 @@ export const dynamic = 'force-dynamic';
 //   任意URL混入（保存型の不正データ）を封じる。
 // -----------------------------------------------------------------------------
 
-const salonInsertSchema = z.object({
-  // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
-  facility_name: z.string().trim().min(1).max(200),
-  // 【2026年7月29日・恒久根治】business_type は検索・カテゴリ導線・/type/* の結合キー。
-  // UI（/register）は businessTypes の <select> で選択肢を制限しているが、サーバー側は
-  // 自由文字列を受理していたため、直接APIを叩けば正規タクソノミー外の値を保存できた。
-  // 保存された不正値は /register/complete → /admin/onboarding の遷移リンクにそのまま
-  // 埋め込まれ、facility/setup 側の業種検証（後日追加）で恒久的に400を返し続ける
-  // 無限ループの発生源になる。入口を UI と同じ選択肢に揃えて、ズレる経路自体を断つ。
-  business_type: z.enum(businessTypes as [string, ...string[]]),
-  representative_name: z.string().trim().min(1).max(100),
-  contact_name: z.string().trim().min(1).max(100),
-  email: z.string().email().max(254),
-  // 【2026年7月8日 恒久根治】従来はこのファイル固有の緩い正規表現(/^[\d-]+$/、先頭0任意・
-  // 全角未対応)を独自定義しており、共通ヘルパー phoneField()（予約/問い合わせ/会員登録の
-  // 全箇所で使用・先頭0必須の phoneRegex + 全角→半角正規化）より検証が緩かった。ハイフンのみ
-  // (例:"-")や先頭0なしの数字列がこのAPI経由でのみ通過し得た。共通ヘルパーに統一する。
-  phone: sharedPhoneField({ required: true }),
-  contact_phone: sharedPhoneField(),
-  website: z.string().max(2000).url().or(z.literal('')).optional().nullable(),
-  postal_code: z.string().max(8).optional().nullable(),
-  address: z.string().max(500).optional().nullable(),
-  // 【2026年8月20日 恒久根治】facility_profiles.prefecture は /search の地域絞り込み・
-  // 「近くの施設」「似ている施設」の結合キーだが、セルフサーブ経路は salons に構造化された
-  // 都道府県/市区町村列が無く構造的に必ず null になっていた。クライアント（RegisterForm）は
-  // zipcloud 応答（address1/address2）または自由文からの復元を送ってくるが、サーバーを権威
-  // とする本ファイルの既存方針（冒頭コメント参照）に合わせ、未送出・空文字時は address から
-  // サーバー側でも復元する（下記 POST ハンドラ内）。
-  prefecture: z.string().max(10).optional().nullable(),
-  city: z.string().max(100).optional().nullable(),
-  building_name: z.string().max(200).optional().nullable(),
-  nearest_station: z.string().max(200).optional().nullable(),
-  business_hours: z.string().max(200).optional().nullable(),
-  regular_holiday: z.string().max(200).optional().nullable(),
-  seat_count: z.number().int().min(0).max(9999).optional().nullable(),
-  staff_count: z.number().int().min(0).max(9999).optional().nullable(),
-  has_parking: z.boolean().optional(),
-  features: z.array(z.string().max(50)).max(20).optional(),
-  pr_text: z.string().max(1000).optional().nullable(),
-  photo_url: z.string().max(2000).optional().nullable(),
-  photo_urls: z.array(z.string().max(2000)).max(7).optional(),
-  // 【2026年8月20日 恒久根治】「掲載希望時期」は日付ではなく意向。salons.desired_start_date
-  // を date→text に変えた（supabase/migrations/20260820000001_...）のに合わせ、サーバー側も
-  // 列挙の受け口にする。定数は UI（RegisterForm.tsx の startDateOptions）と共有し、
-  // 選択肢を足したときに片側だけ腐らないようにする（businessTypes と同じ形）。
-  desired_start_date: z.enum(DESIRED_START_DATES).or(z.literal('')).optional().nullable(),
-  recaptcha_token: z.string().optional(),
-  // 【2026年7月16日 恒久根治・/api/notify 廃止対応】recruit（掲載申し込み・簡易項目）と
-  // register（無料掲載登録・全項目＋写真）の両ページが同一の本エンドポイントへ POST する。
-  // 従来はクライアントが送信成功後に別途 /api/notify を叩き、ページごとに異なる Slack
-  // メッセージ種別（recruit→type:'facility'「施設掲載の申し込み」／register→type:'salon'
-  // 「施設掲載の新規登録」）を選んでいた。/api/notify は認証なしの公開POSTで外部から偽
-  // Slackアラートを送れる構造的脆弱性だったため廃止し、通知はこのサーバー側から直接送る。
-  // サーバーは送信元ページを区別する手段を持たないため、この非永続（DB非保存）フィールドで
-  // どちらの Slack テンプレートを使うかを明示させ、既存の通知内容を1件も欠落させない。
-  source: z.enum(['recruit', 'register']),
-});
 
 // GET（匿名・認証なし）で返してよい公開安全カラムのみ。
 // email / phone / contact_phone / contact_name / representative_name（登録者PII）と
@@ -110,7 +52,7 @@ export const POST = withRoute(async (request) => {
   const body = await request.json().catch(() => null);
   const parsed = salonInsertSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: '入力内容が不正です' }, { status: 400 });
+    return NextResponse.json({ error: '入力内容を確認してください', fieldErrors: salonFieldErrors(parsed.error.issues) }, { status: 400 });
   }
   const d = parsed.data;
 
@@ -131,10 +73,10 @@ export const POST = withRoute(async (request) => {
   // 写真URLの出所検証（自Storage公開URL以外は拒否）
   const photoUrls = (d.photo_urls ?? []).filter((u) => u.length > 0);
   if (photoUrls.some((u) => !isAllowedPhotoUrl(u))) {
-    return NextResponse.json({ error: '不正な写真URLです' }, { status: 400 });
+    return NextResponse.json({ error: '施設写真を確認してください', fieldErrors: { photo_urls: SALON_FIELD_MESSAGES.photo_urls } }, { status: 400 });
   }
   if (d.photo_url && !isAllowedPhotoUrl(d.photo_url)) {
-    return NextResponse.json({ error: '不正な写真URLです' }, { status: 400 });
+    return NextResponse.json({ error: '施設写真を確認してください', fieldErrors: { photo_url: SALON_FIELD_MESSAGES.photo_url } }, { status: 400 });
   }
 
   const supabase = createClient(

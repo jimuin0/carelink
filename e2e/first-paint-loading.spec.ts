@@ -24,6 +24,18 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 
+// Synthetic writes are confined to the disposable CI app/database lifecycle.
+test.beforeAll(() => {
+  if (process.env.GITHUB_ACTIONS !== 'true' || process.env.CI !== 'true'
+    || process.env.NEXT_PUBLIC_SUPABASE_URL !== 'https://localhost:54330'
+    || process.env.PLAYWRIGHT_BASE_URL !== 'https://localhost:3000') {
+    throw new Error('first-paint requires the managed isolated HTTPS CI lifecycle');
+  }
+});
+// These tests deliberately delay/intercept network responses; a SW must not
+// bypass that observation point. SW functionality is not their target.
+test.use({ serviceWorkers: 'block' });
+
 // supabase-js v2 は Node 20 で createClient 時に WebSocket を要求し throw する。realtime 非接続のためダミー。
 if (!globalThis.WebSocket) {
   (globalThis as unknown as { WebSocket: unknown }).WebSocket = class {};
@@ -126,13 +138,8 @@ async function readFirstPaint(page: Page) {
 }
 
 test.describe('開いた最初のフレームに、試す前の結果を出していない', () => {
-  // 🔴 chromium だけで走らせる。
-  // ここで検査しているのは【useEffect がペイント後に走る】という React のライフサイクルの性質で、
-  // ブラウザ実装に依存しない。一方 Mobile Safari（iPhone 13 エミュレーション）では、
-  // ログイン後リダイレクトの競合や狭いビューポートに起因する、検査対象とは無関係な失敗が出る
-  // （2026年8月17日 CI で実測：chromium 4/4 緑・Mobile Safari のみ 2 件失敗）。
-  // 同じ不変条件を 2 ブラウザで見ても得るものが無く、無関係な理由で赤くなる分だけ信頼性が下がる。
-  test.skip(({ browserName }) => browserName !== 'chromium', 'React のライフサイクル検査のためブラウザ差は無関係');
+  // Both configured browser engines must exercise the actual rendering and
+  // login paths. A prior WebKit failure is not evidence of non-applicability.
 
   test('駅検索：開いた最初のフレームが「該当する駅がありません」ではない', async ({ page }) => {
     // 取得を遅らせ、ローディング状態が確実に観測できる長さにする。
@@ -211,7 +218,6 @@ test.describe('開いた最初のフレームに、試す前の結果を出し�
   test('予約日時の変更：日付を選んだ最初のフレームに前日の枠や「空きなし」が出ない', async ({ page }) => {
     // シード（施設＋メニュー＋スタッフ＋利用者＋予約）と実 UI ログインを含むため既定 30 秒では足りない。
     test.setTimeout(120_000);
-    await delayRoute(page, '**/api/slots*', 3000);
 
     const { email, password, bookingId } = await seedVisitorWithBooking();
 
@@ -230,7 +236,7 @@ test.describe('開いた最初のフレームに、試す前の結果を出し�
 
     // 空き枠の表示領域の最初の描画を捕まえる。
     await page.evaluate(() => {
-      const w = window as unknown as { __fp?: string | null; __o?: MutationObserver };
+      const w = window as unknown as { __fp?: { spinner: boolean; text: string } | null; __o?: MutationObserver };
       w.__fp = null;
       if (w.__o) w.__o.disconnect();
       w.__o = new MutationObserver(() => {
@@ -238,26 +244,38 @@ test.describe('開いた最初のフレームに、試す前の結果を出し�
         // 枠の表示領域だけを見る。ページ全体だと既存予約の時刻表示（10:00 等）を拾ってしまう。
         const picker = document.querySelector('[data-testid="slot-picker"]');
         if (!picker) return;
-        const t = (picker as HTMLElement).innerText.replace(/\s+/g, ' ');
-        const m = t.match(/(この日は予約可能な時間帯がありません|\d{2}:\d{2})/);
-        if (m) w.__fp = m[1];
+        w.__fp = {
+          spinner: !!picker.querySelector('.animate-spin'),
+          text: (picker as HTMLElement).innerText.replace(/\s+/g, ' '),
+        };
       });
       w.__o.observe(document.body, { childList: true, subtree: true, characterData: true });
     });
 
-    await dateButtons.first().click();
-
-    // 取得完了を待たずに、記録された最初の描画を読む。
-    await page.waitForTimeout(500);
-    const first = await page.evaluate(() => (window as unknown as { __fp?: string | null }).__fp ?? null);
-
-    // 最初の描画で「空きなし」の断定も、前の日付の時間枠も出ていないこと。
-    // （null＝スピナーだけが出ていて、どちらも描かれなかった状態＝期待どおり）
-    expect(
-      first,
-      `日付を選んだ最初のフレームに「${first}」が出た。空き枠を取得する前に結果を見せている` +
-        '（初回は誤った「空きなし」、2回目以降は前の日付の枠が見えて別日の枠を選ばせ得る）',
-    ).toBeNull();
+    // Hold the response until observation completes, rather than racing a
+    // fixed delay. A no-op click or a fetch that never starts must fail.
+    let releaseSlots!: () => void;
+    const slotsGate = new Promise<void>((resolve) => { releaseSlots = resolve; });
+    await page.route('**/api/slots*', async (route) => {
+      await slotsGate;
+      await route.continue();
+    });
+    try {
+      await Promise.all([
+        page.waitForRequest((request) => new URL(request.url()).pathname === '/api/slots'),
+        dateButtons.first().click(),
+      ]);
+      await expect(page.getByTestId('slot-picker').locator('.animate-spin')).toBeVisible();
+      const first = await page.evaluate(() => (window as unknown as {
+        __fp?: { spinner: boolean; text: string } | null;
+      }).__fp ?? null);
+      expect(first, '取得開始と最初の描画の両方を観測する必要がある').not.toBeNull();
+      expect(first!.spinner, '最初のフレームでローディング表示が出ていない').toBe(true);
+      expect(first!.text).not.toMatch(/この日は予約可能な時間帯がありません|\d{2}:\d{2}/);
+    } finally {
+      releaseSlots();
+      await page.unrouteAll({ behavior: 'wait' });
+    }
   });
 
   test('駅検索：2回目に開いたときも前回の結果が残っていない', async ({ page }) => {

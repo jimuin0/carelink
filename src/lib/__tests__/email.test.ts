@@ -204,20 +204,26 @@ describe('sendNewReviewNotification', () => {
 // 【2026年7月28日 新設】問い合わせ返信。差出人が運営アドレスに固定されること、
 // 問い合わせ者が返信したら運営に戻る replyTo が付くことを退行させない。
 describe('sendInquiryReply', () => {
+  beforeEach(() => {
+    mockSend.mockResolvedValue({ data: { id: 'em_inquiry' }, error: null });
+  });
+
   const replyData = {
     to: 'customer@example.com',
     inquirerName: 'テスト花子',
     body: 'お問い合わせありがとうございます。',
+    idempotencyKey: '11111111-1111-4111-8111-111111111111',
   };
 
-  test('問い合わせ者へ送信し差出人は運営アドレスになる', async () => {
-    await sendInquiryReply(replyData);
+  test('問い合わせ者へ送信し運営アドレスと同一操作の冪等キーを使う', async () => {
+    expect(await sendInquiryReply(replyData)).toBe(true);
     expect(mockSend).toHaveBeenCalledTimes(1);
     const args = mockSend.mock.calls[0][0];
     expect(args.to).toBe('customer@example.com');
     expect(args.from).toBe('Test <test@example.com>');
     expect(args.html).toContain('テスト花子');
     expect(args.html).toContain('お問い合わせありがとうございます。');
+    expect(mockSend.mock.calls[0][1]).toEqual({ idempotencyKey: replyData.idempotencyKey });
   });
 
   test('replyTo 未指定なら差出人と同じアドレスに返信が戻る', async () => {
@@ -235,6 +241,18 @@ describe('sendInquiryReply', () => {
     const html = mockSend.mock.calls[0][0].html;
     expect(html).not.toContain('<script>');
     expect(html).toContain('&lt;script&gt;');
+  });
+
+  test('問い合わせ返信の失敗は汎用再送キューへ登録しない', async () => {
+    mockSend.mockResolvedValueOnce({ data: null, error: { statusCode: 500, message: 'sensitive provider detail' } });
+    expect(await sendInquiryReply(replyData)).toBe(false);
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+  });
+
+  test('provider message IDがない応答を送信成功として扱わない', async () => {
+    mockSend.mockResolvedValueOnce({ data: null, error: null });
+    expect(await sendInquiryReply(replyData)).toBe(false);
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
   });
 });
 

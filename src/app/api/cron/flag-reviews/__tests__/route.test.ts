@@ -58,27 +58,27 @@ let enqueueResult: { data?: unknown; error: unknown } = { error: null };
 
 // fetchAllPaged 化で両クエリ末尾に .order().range() が付く。1ページ目に rows、
 // 2ページ目以降(offset>0)は空配列を返して終了させる terminal。
-function pagedTerminal(rows: any[] | null) {
+function pagedTerminal(rows: any[] | null, error: unknown = null) {
   return {
     order: jest.fn().mockReturnValue({
       range: jest.fn().mockImplementation((from: number) =>
         // data:null（dupFacility null テスト）は from===0 でそのまま返し、fetchAllPaged は rows:[] になる
-        Promise.resolve({ data: from === 0 ? rows : [], error: null })),
+        Promise.resolve({ data: from === 0 ? rows : [], error })),
     }),
   };
 }
 
 // 両チェイン（bulk: eq→gte→eq, self-dealing: not→eq→eq）を pagedTerminal で終端する select モック。
-function makeSelectMock(bulkRows: any[] | null, selfDealingRows: any[] | null) {
+function makeSelectMock(bulkRows: any[] | null, selfDealingRows: any[] | null, bulkError: unknown = null, selfDealingError: unknown = null) {
   return jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
       gte: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue(pagedTerminal(bulkRows)),
+        eq: jest.fn().mockReturnValue(pagedTerminal(bulkRows, bulkError)),
       }),
     }),
     not: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue(pagedTerminal(selfDealingRows)),
+        eq: jest.fn().mockReturnValue(pagedTerminal(selfDealingRows, selfDealingError)),
       }),
     }),
   });
@@ -145,6 +145,28 @@ function makeRequest() {
 }
 
 describe('GET /api/cron/flag-reviews', () => {
+  test.each(['bulk', 'self-dealing'])('%sのレビュー読取障害を正常0件と扱わず書込前に中断する', async (phase) => {
+    const error = { message: 'reviews unavailable' };
+    mockSelectReviews = makeSelectMock([], [], phase === 'bulk' ? error : null, phase === 'self-dealing' ? error : null);
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(500);
+    expect(mockUpdateReviews).not.toHaveBeenCalled();
+    expect(mockRpcDelegate.mock.calls.some(([fn]) => fn === 'enqueue_moderation')).toBe(false);
+    expect(logCronRun).toHaveBeenCalledWith('flag-reviews', 'error', expect.any(Date), expect.any(Object));
+  });
+
+  test('自作自演の審査キュー確保に失敗した場合は未フラグ状態を維持して復旧可能にする', async () => {
+    mockSelectReviews = makeSelectMock([], [
+      { id: 'review-1', reviewer_ip: '192.0.2.1', facility_id: 'fac-fixture' },
+      { id: 'review-2', reviewer_ip: '192.0.2.1', facility_id: 'fac-fixture' },
+    ]);
+    enqueueResult = { error: { message: 'queue unavailable' } };
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(500);
+    expect(mockRpcDelegate.mock.calls.some(([fn]) => fn === 'enqueue_moderation')).toBe(true);
+    expect(mockUpdateReviews).not.toHaveBeenCalled();
+  });
+
   test('CRON_SECRET check failed → returns error', async () => {
     const errorResponse = new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
     (checkCronAuth as jest.Mock).mockReturnValue(errorResponse);
@@ -197,7 +219,7 @@ describe('GET /api/cron/flag-reviews', () => {
 
     const res = await GET(makeRequest() as any);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     expect(mockRpcDelegate.mock.calls.filter(([fn]) => fn === 'find_bulk_review_ips')).toHaveLength(2);
     expect(alertWarning).toHaveBeenCalledWith(
       expect.stringContaining('検知1'),
@@ -237,7 +259,7 @@ describe('GET /api/cron/flag-reviews', () => {
   });
 
   // C-3 根治: 検知1(同一IP大量投稿スパム)が無音で無効化される障害を Slack へ警報する
-  test('RPC error → logs and continues + alertWarning発火(検知1が無効化されたことを警報)', async () => {
+  test('RPC error → 検知不全をsuccessにせずalertWarningと500で可視化する', async () => {
     mockRpcDelegate.mockResolvedValue({
       data: null,
       error: { message: 'RPC failed' },
@@ -247,7 +269,7 @@ describe('GET /api/cron/flag-reviews', () => {
 
     const res = await GET(makeRequest() as any);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     expect(alertWarning).toHaveBeenCalledTimes(1);
     expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/検知1/);
     consoleSpy.mockRestore();
@@ -261,7 +283,7 @@ describe('GET /api/cron/flag-reviews', () => {
     expect(res.status).toBe(200);
   });
 
-  test('update error during bulk flag → logged and continues', async () => {
+  test('update error during bulk flag → successにせず500で再実行可能にする', async () => {
     mockUpdateReviews = jest.fn().mockReturnValue({
       in: jest.fn().mockResolvedValue({ error: { message: 'Update failed' } }),
     });
@@ -270,7 +292,7 @@ describe('GET /api/cron/flag-reviews', () => {
 
     const res = await GET(makeRequest() as any);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     consoleSpy.mockRestore();
   });
 
@@ -323,7 +345,7 @@ describe('GET /api/cron/flag-reviews', () => {
     expect(res.status).toBe(200);
   });
 
-  test('update エラー → console.error してフラグ数に加算しない', async () => {
+  test('update エラー → 500で停止しフラグ数を成功として返さない', async () => {
     mockUpdateReviews = jest.fn().mockReturnValue({
       in: jest.fn().mockResolvedValue({ error: { message: 'update failed' } }),
     });
@@ -339,9 +361,7 @@ describe('GET /api/cron/flag-reviews', () => {
 
     const res = await GET(makeRequest() as any);
 
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.processed).toBe(0); // updateErr → flagged not incremented
+    expect(res.status).toBe(500);
   });
 
   test('bulkSpam null (not array) → skip bulk check', async () => {
@@ -388,7 +408,7 @@ describe('GET /api/cron/flag-reviews', () => {
     expect(json.processed).toBe(0);
   });
 
-  test('self-dealing update error → logs', async () => {
+  test('self-dealing update error → successにせず500で記録する', async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     mockSelectReviews = makeSelectMock([], [
       { id: 'r1', reviewer_ip: '2.2.2.2', facility_id: 'fac-x' },
@@ -408,7 +428,7 @@ describe('GET /api/cron/flag-reviews', () => {
     });
 
     const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     consoleSpy.mockRestore();
   });
 
@@ -461,12 +481,12 @@ describe('GET /api/cron/flag-reviews', () => {
       expect(items.map((r: { content_id: string }) => r.content_id)).toEqual(['review-0', 'review-1', 'review-2']);
     });
 
-    test('enqueue_moderation 失敗 → console.error＋alertWarning で cron は 200 継続', async () => {
+    test('enqueue_moderation 失敗 → console.error＋alertWarningで500、未フラグのまま再試行できる', async () => {
       const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       const { alertWarning } = require('@/lib/alert');
       enqueueResult = { error: { message: 'rpc failed' } };
       const res = await GET(makeRequest() as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
       expect(errSpy).toHaveBeenCalledWith('[flag-reviews] moderation_queue enqueue failed:', expect.anything());
       expect(alertWarning).toHaveBeenCalled();
       errSpy.mockRestore();

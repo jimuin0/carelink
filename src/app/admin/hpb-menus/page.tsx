@@ -138,6 +138,7 @@ export default function AdminHpbMenusPage() {
       const res = await fetch(`/api/admin/hpb-menus?facility_id=${facilityId}`, { method: 'POST' });
       const json = await res.json().catch(() => null);
       if (!res.ok) {
+        if (typeof json?.saved === 'number' && json.saved > 0) await loadMenus(facilityId);
         setToast({ type: 'error', message: json?.error || '取得に失敗しました' });
         return;
       }
@@ -147,6 +148,8 @@ export default function AdminHpbMenusPage() {
       });
       await loadMenus(facilityId);
     } catch {
+      // 応答だけ失われ、保存が完了している可能性があるため再読込で状態を照合する。
+      await loadMenus(facilityId);
       setToast({ type: 'error', message: '取得に失敗しました' });
     } finally {
       setScraping(false);

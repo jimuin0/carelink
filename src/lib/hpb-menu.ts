@@ -8,7 +8,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fetchStoreRows, httpFetch, type FetchFn } from './hpb-scraper';
-import type { HpbMenuRow } from '@/types/hpb';
+import type { HpbFetchStopReason, HpbMenuRow } from '@/types/hpb';
 
 const TABLE = 'hpb_menu_durations';
 
@@ -68,18 +68,42 @@ export async function scrapeAndSaveFacility(
   admin: SupabaseClient,
   facilityId: string,
   fetchFn: FetchFn = httpFetch,
+  deadlineAt?: number,
 ): Promise<{
   slnId: string | null;
   fetched: number;
   ok: number;
   skipped: number;
   failed: number;
+  saveFailed: number;
+  complete: boolean;
+  stopReason: HpbFetchStopReason | null;
+  discoveredItems: number;
+  unresolvedItems: number;
+  failedPages: number;
 }> {
   const slnId = await getFacilitySlnId(admin, facilityId);
-  if (!slnId) return { slnId: null, fetched: 0, ok: 0, skipped: 0, failed: 0 };
-  const rows = await fetchStoreRows(slnId, fetchFn);
-  const saved = await saveHpbRows(admin, facilityId, rows);
-  return { slnId, fetched: rows.length, ...saved };
+  if (!slnId) return {
+    slnId: null, fetched: 0, ok: 0, skipped: 0, failed: 0, saveFailed: 0,
+    complete: false, stopReason: null, discoveredItems: 0, unresolvedItems: 0, failedPages: 0,
+  };
+  const fetched = await fetchStoreRows(slnId, fetchFn, 12, deadlineAt);
+  const saved = await saveHpbRows(admin, facilityId, fetched.rows);
+  const failed = saved.failed + fetched.unresolvedItems + (
+    !fetched.complete && saved.failed === 0 && fetched.unresolvedItems === 0 ? 1 : 0
+  );
+  return {
+    slnId,
+    fetched: fetched.rows.length,
+    ...saved,
+    failed,
+    saveFailed: saved.failed,
+    complete: fetched.complete && saved.failed === 0,
+    stopReason: fetched.stopReason,
+    discoveredItems: fetched.discoveredItems,
+    unresolvedItems: fetched.unresolvedItems,
+    failedPages: fetched.failedPages,
+  };
 }
 
 /**

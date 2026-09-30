@@ -38,26 +38,48 @@ export async function POST(req: NextRequest) {
     }
 
     // LINE Profile APIでトークンを検証
-    const lineRes = await fetch('https://api.line.me/v2/profile', {
-      headers: { Authorization: `Bearer ${access_token}` },
-    });
-    if (!lineRes.ok) {
-      return NextResponse.json({ error: 'Invalid LINE token' }, { status: 401 });
+    let lineRes: Response;
+    try {
+      lineRes = await fetch('https://api.line.me/v2/profile', {
+        headers: { Authorization: `Bearer ${access_token}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      return NextResponse.json({ error: 'LINE service temporarily unavailable' }, { status: 503 });
     }
-    const lineProfile = await lineRes.json() as {
+    if (!lineRes.ok) {
+      if (lineRes.status === 401 || lineRes.status === 403) {
+        return NextResponse.json({ error: 'Invalid LINE token' }, { status: 401 });
+      }
+      const status = lineRes.status === 429 || lineRes.status >= 500 ? 503 : 502;
+      return NextResponse.json({ error: 'LINE service temporarily unavailable' }, { status });
+    }
+    let lineProfile: {
       userId: string;
       displayName: string;
       pictureUrl?: string;
     };
+    try {
+      const payload = await lineRes.json() as Partial<typeof lineProfile>;
+      if (typeof payload.userId !== 'string' || !payload.userId || typeof payload.displayName !== 'string') {
+        return NextResponse.json({ error: 'Invalid LINE profile response' }, { status: 502 });
+      }
+      lineProfile = payload as typeof lineProfile;
+    } catch {
+      return NextResponse.json({ error: 'Invalid LINE profile response' }, { status: 502 });
+    }
 
     const admin = createServiceRoleClient();
 
     // LINE user_idに紐づくprofileを検索
-    const { data: profile } = await admin
+    const { data: profile, error: profileError } = await admin
       .from('profiles')
       .select('id, display_name, email, avatar_url')
       .eq('line_user_id', lineProfile.userId)
-      .single();
+      .maybeSingle();
+    if (profileError) {
+      return serverError('liff-auth-profile', profileError, '/api/liff/auth', 'Internal Server Error');
+    }
 
     return NextResponse.json({
       line_user_id: lineProfile.userId,

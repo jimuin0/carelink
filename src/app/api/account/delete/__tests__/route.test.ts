@@ -348,24 +348,20 @@ test('①PII削除バッチが部分失敗 → profiles は削除されない（
   expect(profilesDeleteSpy).not.toHaveBeenCalled();
 });
 
-test('①profiles削除自体が失敗 → auth削除せず中断して500・alertCaughtError（孤立防止）', async () => {
-  const { alertCaughtError } = require('@/lib/alert');
+test('profilesは先行削除せずauth.usersのCASCADEに委ねる', async () => {
+  const deleteProfile = jest.fn();
   mockFrom.mockImplementation((table: string) => {
     if (table === 'bookings') return bookingsMock();
     if (table === 'facility_members') return facilityMembersMock([]);
     if (table === 'profiles') {
-      return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: { message: 'profiles delete failed' } })) }) };
+      return { delete: deleteProfile };
     }
     return genericWriteMock();
   });
   const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  expect(mockDeleteUser).not.toHaveBeenCalled();
-  expect(alertCaughtError).toHaveBeenCalledWith(
-    'account-delete-profiles',
-    expect.any(Error),
-    '/api/account/delete',
-  );
+  expect(res.status).toBe(200);
+  expect(mockDeleteUser).toHaveBeenCalledWith(USER_ID);
+  expect(deleteProfile).not.toHaveBeenCalled();
 });
 
 // ─── ③ 施設削除ループ手前の memberships select が失敗 → fail-closed ────────────
@@ -466,6 +462,19 @@ test('auth.users削除失敗 → 500 (ユーザーデータが残存するため
   mockDeleteUser.mockResolvedValue({ error: { message: 'auth delete failed' } });
   const res = await POST(makeRequest());
   expect(res.status).toBe(500);
+  expect(mockFrom).not.toHaveBeenCalledWith('profiles');
+});
+
+test('null JSONは入力不正として400、削除操作なし', async () => {
+  const res = await POST(new Request('http://localhost/api/account/delete', { method: 'POST', body: 'null' }) as any);
+  expect(res.status).toBe(400);
+  expect(mockDeleteUser).not.toHaveBeenCalled();
+});
+
+test('削除後の監査ログは削除済みauth.usersをFK参照しない', async () => {
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  expect((await POST(makeRequest())).status).toBe(200);
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ userId: null, action: 'delete', recordId: USER_ID }));
 });
 
 // ─── Happy path ───────────────────────────────────────────────────────────────
@@ -611,7 +620,7 @@ test('施設オーナー(他オーナーあり) → 施設停止しない', asyn
   expect(mockSuspendUpdate).not.toHaveBeenCalled();
 });
 
-test('施設停止失敗 → ログ記録して続行', async () => {
+test('施設停止失敗 → auth削除を中断してオーナー不在の公開施設を防ぐ', async () => {
   const mockNeq = jest.fn().mockReturnValue(Promise.resolve({ count: 0, error: null }));
   const mockMemberCheckEq2 = jest.fn().mockReturnValue({ neq: mockNeq });
   const mockMemberCheckEq1 = jest.fn().mockReturnValue({ eq: mockMemberCheckEq2 });
@@ -635,11 +644,11 @@ test('施設停止失敗 → ログ記録して続行', async () => {
   });
 
   const res = await POST(makeRequest());
-  // suspend failure is logged but not fatal
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(500);
+  expect(mockDeleteUser).not.toHaveBeenCalled();
 });
 
-test('facility_members削除失敗 → auth削除せず中断して500（孤立メンバーシップ防止）', async () => {
+test('facility_membersは先行削除せずauth.usersのCASCADEに委ねる', async () => {
   mockFrom.mockImplementation((table: string) => {
     if (table === 'bookings') return bookingsMock();
     if (table === 'facility_members') {
@@ -656,8 +665,8 @@ test('facility_members削除失敗 → auth削除せず中断して500（孤立�
   });
 
   const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  expect(mockDeleteUser).not.toHaveBeenCalled();
+  expect(res.status).toBe(200);
+  expect(mockDeleteUser).toHaveBeenCalledWith(USER_ID);
 });
 
 test('未処理例外 → 500', async () => {

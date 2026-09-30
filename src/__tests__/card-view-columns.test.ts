@@ -24,14 +24,14 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 
 const ROOT = process.cwd();
-const SRC = readFileSync(join(ROOT, 'src/lib/facilities.ts'), 'utf8');
+const SRC = `${readFileSync(join(ROOT, 'src/lib/facilities.ts'), 'utf8')}\n${readFileSync(join(ROOT, 'src/lib/area-facilities.ts'), 'utf8')}`;
 const VIEW_COLUMNS: string[] = JSON.parse(
   readFileSync(join(ROOT, 'src/lib/schema-snapshot.json'), 'utf8')
 ).facility_card_view;
 
 /** `const CARD_COLS = 'a, b, c';` の列。 */
 function cardCols(): string[] {
-  const m = /const CARD_COLS\s*=\s*'([^']+)'/.exec(SRC);
+  const m = /(?:export )?const CARD_COLS\s*=\s*'([^']+)'/.exec(SRC);
   if (!m) throw new Error('CARD_COLS を抽出できなかった（定義の書き方が変わった可能性）');
   return m[1].split(',').map((c) => c.trim()).filter(Boolean);
 }
