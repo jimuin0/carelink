@@ -22,8 +22,8 @@ beforeEach(() => {
   // jsdom does not provide this Web API; requests are mocked, not sent.
   Object.defineProperty(AbortSignal, 'timeout', { configurable: true, value: () => new AbortController().signal });
 });
-async function fill() {
-  render(<RegisterForm v2Enabled />);
+async function fill(v2Enabled = true) {
+  render(<RegisterForm v2Enabled={v2Enabled} />);
   await waitFor(() => expect(screen.getByLabelText(/^施設名/)).toBeEnabled());
   for (const [label, value] of [[/^施設名/, '合成施設'], [/^業種/, 'ヘアサロン'], [/^代表者名/, '合成代表'],
     [/^担当者名/, '合成担当'], [/^メールアドレス/, 'fixture@example.invalid'], [/^電話番号/, '09012345678']] as const) {
@@ -48,6 +48,56 @@ test('v2 real form and coordinator use prepare then commit, with no legacy uploa
   expect(request.mock.calls.map(([path]) => path)).toEqual(['/api/salons/prepare', '/api/salons/commit']);
   expect(JSON.parse(sessionStorage.getItem(SALON_BROWSER_CONTEXT_KEY)!)).toEqual({ version: 1, intentId, phase: 'confirmed' });
   expect(mockLegacyUpload).not.toHaveBeenCalled(); expect(mockSignedUpload).not.toHaveBeenCalled();
+});
+
+test('OFF with attempted context reconciles instead of permitting a new V1 submission', async () => {
+  sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY, JSON.stringify({ version: 1, intentId, phase: 'attempted' }));
+  request.mockResolvedValue(response(200, { state: 'uncommitted' }));
+  render(<RegisterForm v2Enabled={false} />);
+  await screen.findByText(/送信結果を確認できませんでした。同じ申込/);
+  expect(screen.getByLabelText(/^施設名/)).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: '同じ申込の受付状況を確認' }));
+  await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+  expect(request.mock.calls.map(([path]) => path)).toEqual(['/api/salons/status', '/api/salons/status']);
+  expect(mockLegacyUpload).not.toHaveBeenCalled(); expect(mockSignedUpload).not.toHaveBeenCalled();
+  expect(mockRouter.push).not.toHaveBeenCalled();
+});
+
+test.each(['prepared', 'confirmed'])('OFF with %s context confirms the original receipt, not V1', async phase => {
+  sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY, JSON.stringify({ version: 1, intentId, phase }));
+  request.mockResolvedValue(response(200, { state: 'committed', receiptId }));
+  render(<RegisterForm v2Enabled={false} />);
+  await waitFor(() => expect(mockRouter.push).toHaveBeenCalledWith('/register/complete?handoff=registration'));
+  expect(request.mock.calls.map(([path]) => path)).toEqual(['/api/salons/status']);
+  expect(mockLegacyUpload).not.toHaveBeenCalled();
+});
+
+test('OFF with a prepared intent finishes that intent without preparing or using V1', async () => {
+  sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY, JSON.stringify({ version: 1, intentId, phase: 'prepared' }));
+  request.mockResolvedValueOnce(response(200, { state: 'uncommitted' }))
+    .mockResolvedValueOnce(response(200, { state: 'uncommitted' }))
+    .mockResolvedValueOnce(response(201, { state: 'committed', receiptId }));
+  await fill(false); await submit();
+  await waitFor(() => expect(mockRouter.push).toHaveBeenCalledTimes(1));
+  expect(request.mock.calls.map(([path]) => path)).toEqual(['/api/salons/status', '/api/salons/status', '/api/salons/commit']);
+  expect(JSON.parse(request.mock.calls[2][1].body).intentId).toBe(intentId);
+  expect(mockLegacyUpload).not.toHaveBeenCalled();
+});
+
+test('OFF with corrupt saved progress does not silently fall back to V1', async () => {
+  sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY, '{');
+  render(<RegisterForm v2Enabled={false} />);
+  await screen.findByText(/この申込の確認情報を利用できません/);
+  expect(screen.getByLabelText(/^施設名/)).toBeDisabled(); expect(request).not.toHaveBeenCalled();
+});
+
+test('OFF with unavailable session storage blocks new input instead of losing old progress', async () => {
+  const unavailable = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('fixture storage unavailable'); });
+  try {
+    render(<RegisterForm v2Enabled={false} />);
+    await screen.findByText(/この申込の確認情報を利用できません/);
+    expect(screen.getByLabelText(/^施設名/)).toBeDisabled(); expect(request).not.toHaveBeenCalled();
+  } finally { unavailable.mockRestore(); }
 });
 test('lost outcome disables new submission, then readonly reconciliation navigates once', async () => {
   request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId })).mockRejectedValueOnce(new Error('lost'))

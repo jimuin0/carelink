@@ -21,7 +21,7 @@ import { extractPrefecture, extractCity } from '@/lib/japan-address';
 import { SALON_FIELD_MESSAGES, type SalonFieldErrors } from '@/lib/salon-field-errors';
 import { normalizePhone } from '@/lib/phone';
 import { SalonRegistrationBrowser } from '@/lib/salon-registration-browser';
-import { SALON_COMPLETE_PATH } from '@/lib/salon-browser-context';
+import { readSalonBrowserContext, SALON_COMPLETE_PATH } from '@/lib/salon-browser-context';
 
 const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
 const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
@@ -53,7 +53,8 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   const [submissionUnknown, setSubmissionUnknown] = useState(false);
   const submissionUnknownRef = useRef(false);
   const v2 = useRef<SalonRegistrationBrowser | null>(null);
-  const [v2Ready, setV2Ready] = useState(!v2Enabled);
+  const [useV2, setUseV2] = useState(v2Enabled);
+  const [v2Ready, setV2Ready] = useState(false);
   const [v2Message, setV2Message] = useState('');
   const addressLookupGeneration = useRef(0);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -85,9 +86,15 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   const addressRegistration = register('address');
 
   useEffect(() => {
-    if (!v2Enabled) return;
     let cancelled = false;
     const initialize = async () => {
+      // The flag controls new registrations, not previously issued capabilities.
+      // Check saved progress before allowing V1 input after a V2 rollback.
+      if (!v2Enabled && readSalonBrowserContext(window.sessionStorage).state === 'empty') {
+        setV2Ready(true);
+        return;
+      }
+      setUseV2(true);
       if (!v2.current) v2.current = new SalonRegistrationBrowser({
         store: window.sessionStorage, request: fetch, uuid: () => crypto.randomUUID(),
         captcha: () => getRecaptchaToken('salons'), compress: compressImage,
@@ -251,7 +258,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
     if (submissionUnknownRef.current) return;
     setSubmitting(true);
     setPhotoError(null);
-    if (v2Enabled) {
+    if (useV2) {
       try {
         if (!v2.current) throw new Error('Registration context unavailable');
         acceptV2Result(await v2.current.submit(data, photoFiles));
@@ -391,8 +398,8 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
         <StepIndicator currentStep={step} totalSteps={3} labels={stepLabels} />
         {submissionUnknown && (
           <div role="alert" className="mb-4 rounded border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-            <p>{v2Enabled ? v2Message : SALON_SUBMISSION_UNKNOWN}</p>
-            {v2Enabled && <button type="button" onClick={() => void reconcileV2()} disabled={submitting}
+            <p>{useV2 ? v2Message : SALON_SUBMISSION_UNKNOWN}</p>
+            {useV2 && <button type="button" onClick={() => void reconcileV2()} disabled={submitting}
               className="block mt-3 underline">同じ申込の受付状況を確認</button>}
             <Link href="/contact" className="mt-2 inline-block underline">受付状況を問い合わせる</Link>
           </div>

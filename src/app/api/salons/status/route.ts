@@ -12,9 +12,7 @@ const headers = { 'Cache-Control': 'no-store' };
 
 // POST keeps intent selectors out of analytics, Referer and URL access logs.
 export const POST = withRoute(async request => {
-  if (process.env.SALON_REGISTRATION_V2_ENABLED !== 'true') {
-    return NextResponse.json({ code: 'NOT_ENABLED' }, { status: 404, headers });
-  }
+  // Disabling new preparation must not disable recovery for issued capabilities.
   const parsed = input.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ code: 'INVALID_REQUEST' }, { status: 400, headers });
   const name = salonIntentCookieName(parsed.data.intentId)!;

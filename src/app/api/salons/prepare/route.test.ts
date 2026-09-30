@@ -49,10 +49,26 @@ afterAll(() => {
   }
 });
 
-test.each([prepare, status, summary])('inactive v2 never touches persistence %#', async route => {
+test('inactive v2 blocks new preparation without touching persistence', async () => {
   delete process.env.SALON_REGISTRATION_V2_ENABLED;
-  const response = await route(request({}));
+  const response = await prepare(request({}));
   expect(response.status).toBe(404); expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(createServiceRoleClient).not.toHaveBeenCalled();
+});
+
+test.each([status, summary])('rollback keeps issued intent recovery available %#', async route => {
+  delete process.env.SALON_REGISTRATION_V2_ENABLED;
+  const response = await route(request({ intentId: intent }, `${salonIntentCookieName(intent)}=${proof}`));
+  expect(response.status).toBe(200); expect(await response.json()).toEqual({ state: 'uncommitted' });
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(prepareSalonIntent).not.toHaveBeenCalled();
+});
+
+test.each([status, summary])('rollback does not admit a missing or another intent cookie %#', async route => {
+  delete process.env.SALON_REGISTRATION_V2_ENABLED;
+  for (const cookie of [undefined, `${salonIntentCookieName(other)}=${proof}`]) {
+    expect((await route(request({ intentId: intent }, cookie))).status).toBe(403);
+  }
   expect(createServiceRoleClient).not.toHaveBeenCalled();
 });
 
