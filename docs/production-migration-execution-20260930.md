@@ -28,3 +28,9 @@
 全体fingerprintの事前比較には今回の対象外差分も残る。既存`deduct_points_atomic` RPCはserviceのみEXEC可能で、現行アプリ呼出元なし。今回削除・変更しない。所在地CHECKのUnicode空白は実catalogのUTF-8表現と記録SQLで保持を確認したが、fingerprint関数のlocale依存空白正規化によりshadowと本番の表示が異なる。いずれも今回の10件の履歴SQL不一致ではない。全DBの差分0とは報告しない。validation後のCI用fingerprintはPG17でmigration全再生した公式CI成果物から同期し、手編集で合格にしない。
 
 本番schemaの適用、CIの合格、merge、deploy、顧客への返信・掲載完了は別の証拠として記録する。この記録だけではPRの完了を認定しない。
+
+## 生成物同期の証拠
+
+- PG17のschema-fingerprint run `36692502579`、attempt 1、repository ID `1188003159`、HEAD `3fe081ef5dc99062719d1daa4600d05bfd93908c`。全migration再生後の差分は所在地CHECKのNOT VALID除去1行のみ。
+- provider artifact `11086686269`、name `schema-fingerprint-expected`、provider記録ZIP digest `sha256:a86edc9c285e9e7fd5b51fd3a2302aaa53bd9631f0ea69b32ef2ea2cf4f70471`。ダウンロードしたJSONと同期後ファイルのSHA-256は`20b9b9f21c3326ecb9bf7113a764487dd2d9d4a281227d603557ca3c6002eb80`で完全一致。ZIP digestはprovider報告でありlocal再算出ではない。
+- 同じHEADのUnit/Coverageは型とschema-snapshotの未同期1件を検出した。失敗を隠さず、既存生成器`gen-schema-snapshot.mjs`から本番生成型を再処理する。今回のfingerprint同期とsnapshot同期後、最新SHAで全必須CIを再実行する。

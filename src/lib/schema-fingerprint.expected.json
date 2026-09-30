@@ -1237,7 +1237,7 @@
 "constraint|facility_profiles|c|facility_profiles_deposit_type_check|CHECK ((deposit_type = ANY (ARRAY['none'::text, 'fixed'::text, 'percent'::text])))",
 "constraint|facility_profiles|c|facility_profiles_status_check|CHECK ((status = ANY (ARRAY['draft'::text, 'published'::text, 'suspended'::text])))",
 "constraint|facility_profiles|c|facility_profiles_verified_type_check|CHECK ((verified_type = ANY (ARRAY['phone'::text, 'identity'::text, 'site_visit'::text])))",
-"constraint|facility_profiles|c|published_facility_location_present|CHECK (((status IS DISTINCT FROM 'published'::text) OR ((length(btrim(COALESCE(prefecture, ''::text), '                  　﻿'::text)) > 0) AND (length(btrim(COALESCE(city, ''::text), '                  　﻿'::text)) > 0) AND (length(btrim(COALESCE(address, ''::text), '                  　﻿'::text)) > 0)))) NOT VALID",
+"constraint|facility_profiles|c|published_facility_location_present|CHECK (((status IS DISTINCT FROM 'published'::text) OR ((length(btrim(COALESCE(prefecture, ''::text), '                  　﻿'::text)) > 0) AND (length(btrim(COALESCE(city, ''::text), '                  　﻿'::text)) > 0) AND (length(btrim(COALESCE(address, ''::text), '                  　﻿'::text)) > 0))))",
 "constraint|facility_profiles|p|facility_profiles_pkey|PRIMARY KEY (id)",
 "constraint|facility_profiles|u|facility_profiles_slug_key|UNIQUE (slug)",
 "constraint|facility_qa|c|facility_qa_answer_check|CHECK ((length(answer) <= 1000))",
