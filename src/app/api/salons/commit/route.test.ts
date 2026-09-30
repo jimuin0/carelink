@@ -31,9 +31,16 @@ beforeEach(() => {
   (checkCsrf as jest.Mock).mockReturnValue(null); (checkRateLimit as jest.Mock).mockResolvedValue(false);
 });
 afterAll(() => { if (flag === undefined) delete process.env.SALON_REGISTRATION_V2_ENABLED; else process.env.SALON_REGISTRATION_V2_ENABLED = flag; });
-test('disabled route never creates a service client', async () => {
+test('rollback allows issued intent reconciliation without preparing a new intent', async () => {
   delete process.env.SALON_REGISTRATION_V2_ENABLED;
-  const res = await POST(request()); expect(res.status).toBe(404); expect(res.headers.get('cache-control')).toBe('no-store');
+  (commitSalonSubmission as jest.Mock).mockResolvedValue({ state: 'replay', receiptId: other });
+  const res = await POST(request()); expect(res.status).toBe(200); expect(res.headers.get('cache-control')).toBe('no-store');
+  expect(await res.json()).toEqual({ state: 'replay', receiptId: other });
+  expect(commitSalonSubmission).toHaveBeenCalledWith({}, input, proof);
+});
+test('rollback still rejects a missing capability before persistence', async () => {
+  delete process.env.SALON_REGISTRATION_V2_ENABLED;
+  expect((await POST(request(input, ''))).status).toBe(403);
   expect(createServiceRoleClient).not.toHaveBeenCalled();
 });
 test('CSRF and rate limit block before commit', async () => {

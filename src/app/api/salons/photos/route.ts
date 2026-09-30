@@ -9,9 +9,7 @@ import { isSalonIntentProof, salonIntentCookieName } from '@/lib/salon-submissio
 export const dynamic = 'force-dynamic';
 const headers = { 'Cache-Control': 'no-store' };
 export const POST = withRoute(async request => {
-  if (process.env.SALON_REGISTRATION_V2_ENABLED !== 'true') {
-    return NextResponse.json({ code: 'NOT_ENABLED' }, { status: 404, headers });
-  }
+  // Only a verified, unexpired intent can finish photos; new prepare stays gated.
   const parsed = salonPhotoInput.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ state: 'invalid' }, { status: 400, headers });
   const cookieName = salonIntentCookieName(parsed.data.intentId)!;

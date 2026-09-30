@@ -9,9 +9,7 @@ import { salonFieldErrors } from '@/lib/salon-field-errors';
 export const dynamic = 'force-dynamic';
 const headers = { 'Cache-Control': 'no-store' };
 export const POST = withRoute(async request => {
-  if (process.env.SALON_REGISTRATION_V2_ENABLED !== 'true') {
-    return NextResponse.json({ code: 'NOT_ENABLED' }, { status: 404, headers });
-  }
+  // Issued intents can finish/reconcile while new preparation is disabled.
   const parsed = salonCommitInput.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     const fieldErrors = salonFieldErrors(parsed.error.issues

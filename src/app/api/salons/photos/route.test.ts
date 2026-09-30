@@ -28,10 +28,17 @@ beforeEach(() => {
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
 });
 afterAll(() => { if (flag === undefined) delete process.env.SALON_REGISTRATION_V2_ENABLED; else process.env.SALON_REGISTRATION_V2_ENABLED = flag; });
-test('disabled route never creates a service client', async () => {
+test('rollback lets an issued intent finish its verified photo selection', async () => {
   delete process.env.SALON_REGISTRATION_V2_ENABLED;
+  (prepareSalonPhoto as jest.Mock).mockResolvedValue({ state: 'uploaded' });
   const res = await POST(request());
-  expect(res.status).toBe(404); expect(res.headers.get('cache-control')).toBe('no-store');
+  expect(res.status).toBe(200); expect(res.headers.get('cache-control')).toBe('no-store');
+  expect(await res.json()).toEqual({ state: 'uploaded' });
+  expect(prepareSalonPhoto).toHaveBeenCalledWith({}, input, proof);
+});
+test('rollback does not allow photos without an issued capability', async () => {
+  delete process.env.SALON_REGISTRATION_V2_ENABLED;
+  expect((await POST(request(input, ''))).status).toBe(403);
   expect(createServiceRoleClient).not.toHaveBeenCalled();
 });
 test('CSRF and rate limit block before RPC/signing', async () => {

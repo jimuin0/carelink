@@ -12,9 +12,7 @@ const headers = { 'Cache-Control': 'no-store' };
 // POST body + per-intent HttpOnly cookie. Neither the receipt nor the intent is
 // forwarded through login/OAuth URLs, analytics query strings or Referer.
 export const POST = withRoute(async request => {
-  if (process.env.SALON_REGISTRATION_V2_ENABLED !== 'true') {
-    return NextResponse.json({ code: 'NOT_ENABLED' }, { status: 404, headers });
-  }
+  // Existing receipts remain usable for confirmation and setup after rollback.
   const parsed = input.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ state: 'invalid' }, { status: 400, headers });
   const proof = new NextRequest(request.url, { headers: request.headers }).cookies
