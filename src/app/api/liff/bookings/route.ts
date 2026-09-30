@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
   // LINE Profile APIでトークンを検証
   const lineRes = await fetch('https://api.line.me/v2/profile', {
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(10_000),
   });
   if (!lineRes.ok) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

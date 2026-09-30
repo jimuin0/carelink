@@ -2,8 +2,7 @@
  * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * applyCompletionSideEffects（完了進入時の来店記録＋来店ポイント付与）の単体テスト。
- * reverseCompletionSideEffects の対称形で、両予約完了経路（/api/booking/complete・
- * /api/admin/booking-status）が共有する副作用ロジックの全ブランチを網羅する。
+ * 両予約完了経路（/api/booking/complete・/api/admin/booking-status）が共有する副作用ロジックの全ブランチを網羅する。
  */
 import { applyCompletionSideEffects, type CompletableBooking } from '../booking-completion';
 

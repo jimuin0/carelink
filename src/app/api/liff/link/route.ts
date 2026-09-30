@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
     // LINEトークンを検証
     const lineRes = await fetch('https://api.line.me/v2/profile', {
       headers: { Authorization: `Bearer ${access_token}` },
+      signal: AbortSignal.timeout(10_000),
     });
     if (!lineRes.ok) {
       return NextResponse.json({ error: 'Invalid LINE token' }, { status: 401 });

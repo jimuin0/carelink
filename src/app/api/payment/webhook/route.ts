@@ -7,7 +7,6 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { alertCaughtError } from '@/lib/alert';
 import { serverError } from '@/lib/with-route';
 import { errorMessage } from '@/lib/err';
 
@@ -188,14 +187,11 @@ export async function POST(request: Request) {
           .eq('id', bookingId)
           .select('id');
         if (error) {
-          console.error('[payment/webhook] failed to mark payment_failed', { bookingId, eventId: event.id, error });
+          await rollbackIdempotency(supabase, event.id);
+          return serverError('payment-webhook-payment-failed', error, '/api/payment/webhook', 'DB update failed');
         } else if (!updated || updated.length === 0) {
-          console.error('[payment/webhook] booking not found for payment_failed update (0 rows)', { bookingId, eventId: event.id });
-          alertCaughtError(
-            'payment-webhook-payment-failed-notfound',
-            new Error(`booking not found: ${bookingId}`),
-            '/api/payment/webhook',
-          );
+          await rollbackIdempotency(supabase, event.id);
+          return serverError('payment-webhook-payment-failed-notfound', new Error(`booking not found: ${bookingId}`), '/api/payment/webhook', 'Booking not found');
         }
       } else {
         // metadataにbooking_idがない場合はpayment_intent_idで検索
@@ -205,7 +201,8 @@ export async function POST(request: Request) {
           .eq('stripe_payment_intent_id', pi.id)
           .select('id');
         if (error) {
-          console.error('[payment/webhook] failed to mark payment_failed by pi_id', { piId: pi.id, error });
+          await rollbackIdempotency(supabase, event.id);
+          return serverError('payment-webhook-payment-failed-by-pi', error, '/api/payment/webhook', 'DB update failed');
         } else if (!updated || updated.length === 0) {
           // payment_intent は booking 以外のチャージ（サブスク・広告等）でも発火するため、
           // 該当予約が無いのは正常系としてあり得る。500 にはしない。
@@ -229,7 +226,8 @@ export async function POST(request: Request) {
           .eq('stripe_payment_intent_id', paymentIntentId)
           .select('id');
         if (error) {
-          console.error('[payment/webhook] failed to update refund status', { paymentIntentId, error });
+          await rollbackIdempotency(supabase, event.id);
+          return serverError('payment-webhook-refund', error, '/api/payment/webhook', 'DB update failed');
         } else if (!updated || updated.length === 0) {
           // charge.refunded は booking 以外のチャージ（サブスク・広告等）でも発火するため、
           // 該当予約が無いのは正常系としてあり得る。500 にはしない。
@@ -249,7 +247,8 @@ export async function POST(request: Request) {
           .eq('stripe_payment_intent_id', paymentIntentId)
           .select('id');
         if (error) {
-          console.error('[payment/webhook] failed to mark disputed', { paymentIntentId, error });
+          await rollbackIdempotency(supabase, event.id);
+          return serverError('payment-webhook-dispute-created', error, '/api/payment/webhook', 'DB update failed');
         } else if (!updated || updated.length === 0) {
           // charge.dispute.* は booking 以外のチャージでも発火するため、該当予約が無いのは正常系としてあり得る。
           console.warn('[payment/webhook] no booking matched dispute.created (0 rows, may be non-booking charge)', { eventType: event.type, paymentIntentId });
@@ -269,7 +268,8 @@ export async function POST(request: Request) {
           .eq('stripe_payment_intent_id', paymentIntentId)
           .select('id');
         if (error) {
-          console.error('[payment/webhook] failed to close dispute', { paymentIntentId, status, error });
+          await rollbackIdempotency(supabase, event.id);
+          return serverError('payment-webhook-dispute-closed', error, '/api/payment/webhook', 'DB update failed');
         } else if (!updated || updated.length === 0) {
           // charge.dispute.* は booking 以外のチャージでも発火するため、該当予約が無いのは正常系としてあり得る。
           console.warn('[payment/webhook] no booking matched dispute.closed (0 rows, may be non-booking charge)', { eventType: event.type, paymentIntentId, status });

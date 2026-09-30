@@ -510,6 +510,7 @@ export type Database = {
           end_time: string
           facility_id: string
           id: string
+          idempotency_key: string | null
           menu_id: string | null
           menu_ids: string[] | null
           note: string | null
@@ -539,6 +540,7 @@ export type Database = {
           end_time: string
           facility_id: string
           id?: string
+          idempotency_key?: string | null
           menu_id?: string | null
           menu_ids?: string[] | null
           note?: string | null
@@ -568,6 +570,7 @@ export type Database = {
           end_time?: string
           facility_id?: string
           id?: string
+          idempotency_key?: string | null
           menu_id?: string | null
           menu_ids?: string[] | null
           note?: string | null
@@ -5544,6 +5547,10 @@ export type Database = {
           p_notes?: string
           p_subscription_id: string
         }
+        Returns: Json
+      }
+      deduct_points_atomic: {
+        Args: { p_points: number; p_reason: string; p_user_id: string }
         Returns: Json
       }
       create_admin_booking_atomic: {

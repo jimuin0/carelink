@@ -27,6 +27,7 @@ jest.mock('@/lib/notification-settings', () => ({ getFacilityNotificationSetting
 const mockGetUser = jest.fn();
 const mockFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockRpc = jest.fn();
 // DB-1: bookings への書き込み(UPDATE)は service_role 経由になった。service_role クライアントの
 // 'bookings' 呼び出しだけを専用モックに振り分け、通知/user_points 等の他テーブルは従来どおり
 // mockAdminFrom に流す。これにより cookie 分岐の全テストは既定成功の update を自動で受け取り、
@@ -51,6 +52,7 @@ jest.mock('@supabase/ssr', () => ({
 }));
 jest.mock('@supabase/supabase-js', () => ({
   createClient: jest.fn(() => ({
+    rpc: mockRpc,
     from: (...args: any[]) => {
       const table = args[0];
       if (table === 'bookings') return mockBookingsWrite(...args);
@@ -72,6 +74,16 @@ const validId = '123e4567-e89b-12d3-a456-426614174000';
 
 beforeEach(() => {
   jest.clearAllMocks();
+  const { createClient } = require('@supabase/supabase-js');
+  (createClient as jest.Mock).mockReset().mockImplementation(() => ({
+    rpc: mockRpc,
+    from: (...args: any[]) => {
+      const table = args[0];
+      if (table === 'bookings') return mockBookingsWrite(...args);
+      if (table === 'facility_members' || table === 'profiles') return mockOwnerLookupFrom(...args);
+      return mockAdminFrom(...args);
+    },
+  }));
   // A-12 の開始時刻経過ガードは Date.now() を見る。予約(2026-04-01 10:00 JST)の 10 時間前に固定し、
   // ガード通過(開始前)かつ late cancel(free_cancel_hours=24 以内)を維持して既存のキャンセル料検証を保つ。
   jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-04-01T00:00:00+09:00').getTime());
@@ -79,6 +91,12 @@ beforeEach(() => {
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
   (getBearerToken as jest.Mock).mockReturnValue(null); // 既定は Cookie 経路（Bearer 無し）
   (resolveLiffUserId as jest.Mock).mockReset();
+  // Supabase RPC methods depend on their client receiver (`this.rest`). Keep that
+  // contract in the mock so extracting rpc without bind fails deterministically.
+  mockRpc.mockImplementation(function (this: { rpc?: typeof mockRpc } | undefined) {
+    if (this?.rpc !== mockRpc) throw new Error('Supabase rpc called without its client receiver');
+    return Promise.resolve({ data: { cancelled: true }, error: null });
+  });
   const { isLineWorksConfigured } = require('@/lib/integrations/line-works');
   (isLineWorksConfigured as jest.Mock).mockReturnValue(false);
   // 既定はキャンセルPush ON（既存挙動＋新機能）
@@ -113,9 +131,7 @@ function fluent(resolvedValue: unknown) {
   return self;
 }
 
-// DB-1: cancel の bookings UPDATE は service_role(createServiceRoleClient → @supabase/supabase-js
-// createClient = mockAdminFrom)経由になった。update→eq(id)→eq(user_id)→eq(status)→select('id') の
-// 3段 eq チェーンで result を解決するモックを返す。
+// DB-1: cancel の所有者/CAS検査・状態更新・ポイント返還は service-role RPCで一体実行する。
 function bookingsUpdateChain(result: unknown) {
   const sel = jest.fn(() => Promise.resolve(result));
   const eq3 = jest.fn(() => ({ select: sel }));
@@ -402,16 +418,9 @@ describe('POST /api/booking/[id]/cancel', () => {
     expect(mockGetUser).not.toHaveBeenCalled();
   });
 
-  // ポイント利用予約のキャンセルで控除済みポイントを返還する（金銭損失防止）。
-  function setupRefundMock(pointsUsed: number, insertResult: { error: unknown }) {
+  // 顧客キャンセルは状態遷移と返還を同一DB transactionで行うRPCを使う。
+  function setupRefundMock(pointsUsed: number) {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
-    const insertSpy = jest.fn(() => Promise.resolve(insertResult));
-    mockAdminFrom.mockImplementation((table: string) => {
-      if (table === 'user_points') return { insert: insertSpy };
-      // LINE/LINE Works は無効化済みのため到達しないが、フォールバックの select チェーンを返す
-      return adminReadChain();
-    });
-    // DB-1: bookings UPDATE(service_role)は既定成功(beforeEach)を使用。
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
@@ -425,30 +434,37 @@ describe('POST /api/booking/[id]/cancel', () => {
           },
         });
       }
-      const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
-      const eqFirst = jest.fn(() => ({ eq: eqTerminal }));
       return {
-        update: jest.fn(() => ({ eq: eqFirst })),
         select: jest.fn(() => ({ eq: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null })), limit: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null })) })) })) })),
       };
     });
-    return insertSpy;
   }
 
   test('ポイント利用予約のキャンセルで控除済みポイントを返還する', async () => {
-    const insertSpy = setupRefundMock(300, { error: null });
+    setupRefundMock(300);
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect((await res.json()).success).toBe(true);
-    expect(insertSpy).toHaveBeenCalledWith(expect.objectContaining({
-      user_id: 'user-1', points: 300, booking_id: validId, reason: 'キャンセル返還',
-    }));
+    expect(mockRpc).toHaveBeenCalledWith('cancel_booking_with_points_atomic', {
+      p_booking_id: validId,
+      p_facility_id: 'f-1',
+      p_user_id: 'user-1',
+      p_expected_status: 'confirmed',
+    });
   });
 
-  test('ポイント返還の insert 失敗は warn のみで成功継続', async () => {
-    const insertSpy = setupRefundMock(300, { error: { message: 'insert fail' } });
+  test('返還insert failureを含むRPC失敗 → 500（transactionで状態更新もrollback）', async () => {
+    setupRefundMock(300);
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'insert fail' } });
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
-    expect((await res.json()).success).toBe(true);
-    expect(insertSpy).toHaveBeenCalled();
+    expect(res.status).toBe(500);
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+  });
+
+  test('CAS競合でRPCがcancelled:false → 409', async () => {
+    setupRefundMock(300);
+    mockRpc.mockResolvedValue({ data: { cancelled: false }, error: null });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(409);
   });
 
   test('認証なし→401', async () => {
@@ -566,7 +582,7 @@ describe('POST /api/booking/[id]/cancel', () => {
 
 // ─── 深掘り: DB 更新失敗 ─────────────────────────────────────────────────────
 
-  test('DB update 失敗 → 500', async () => {
+  test('DB RPC 失敗 → 500', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     let callNum = 0;
     mockFrom.mockImplementation(() => {
@@ -585,13 +601,12 @@ describe('POST /api/booking/[id]/cancel', () => {
       const eqFirst = jest.fn(() => ({ eq: eqTerminal }));
       return { update: jest.fn(() => ({ eq: eqFirst })) };
     });
-    // DB-1: UPDATE は service_role 経由。DB エラーを返させて 500 を検証する。
-    mockBookingsWrite.mockReturnValue(bookingsUpdateChain({ data: null, error: { message: 'DB error' } }));
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'DB error' } });
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect(res.status).toBe(500);
   });
 
-  test('CAS: 更新0行（status が並行変化）data=[] → 409', async () => {
+  test('CAS競合でRPCが cancelled:false → 409', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     let callNum = 0;
     mockFrom.mockImplementation(() => {
@@ -610,13 +625,12 @@ describe('POST /api/booking/[id]/cancel', () => {
       const eqFirst = jest.fn(() => ({ eq: eqTerminal }));
       return { update: jest.fn(() => ({ eq: eqFirst })) };
     });
-    // DB-1: UPDATE は service_role 経由。0 行(data=[])を返させて 409 を検証する。
-    mockBookingsWrite.mockReturnValue(bookingsUpdateChain({ data: [], error: null }));
+    mockRpc.mockResolvedValue({ data: { cancelled: false }, error: null });
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect(res.status).toBe(409);
   });
 
-  test('CAS: 更新結果 data=null → 409', async () => {
+  test('CAS RPC の空結果 → 409', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     let callNum = 0;
     mockFrom.mockImplementation(() => {
@@ -635,8 +649,7 @@ describe('POST /api/booking/[id]/cancel', () => {
       const eqFirst = jest.fn(() => ({ eq: eqTerminal }));
       return { update: jest.fn(() => ({ eq: eqFirst })) };
     });
-    // DB-1: UPDATE は service_role 経由。data=null を返させて 409 を検証する。
-    mockBookingsWrite.mockReturnValue(bookingsUpdateChain({ data: null, error: null }));
+    mockRpc.mockResolvedValue({ data: null, error: null });
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect(res.status).toBe(409);
   });
@@ -753,7 +766,7 @@ describe('POST /api/booking/[id]/cancel', () => {
 
 // ─── 深掘り: IDOR defence-in-depth ──────────────────────────────────────────
 
-  test('UPDATE に user_id の WHERE 句が含まれる（IDOR 二重防御）', async () => {
+  test('atomic cancellation RPC receives authenticated user and booking scope (IDOR defense)', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
     let callNum = 0;
@@ -774,16 +787,13 @@ describe('POST /api/booking/[id]/cancel', () => {
       };
     });
 
-    // DB-1: UPDATE は service_role(mockBookingsWrite)経由。
-    // 実チェーン update→eq('id')→eq('user_id')→eq('status')→select('id') で eq('user_id',...) を検証。
-    const eqStatus = jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) }));
-    const eqUser = jest.fn(() => ({ eq: eqStatus }));
-    const eqId = jest.fn(() => ({ eq: eqUser }));
-    mockBookingsWrite.mockReturnValue({ update: jest.fn(() => ({ eq: eqId })) });
-
     await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
-    // 2段目の eq が user_id でフィルタされる（IDOR 二重防御）
-    expect(eqUser).toHaveBeenCalledWith('user_id', 'user-1');
+    expect(mockRpc).toHaveBeenCalledWith('cancel_booking_with_points_atomic', {
+      p_booking_id: validId,
+      p_facility_id: 'f-1',
+      p_user_id: 'user-1',
+      p_expected_status: 'pending',
+    });
   });
 
 // ─── 深掘り: 例外 → 500 ──────────────────────────────────────────────────────
@@ -1970,6 +1980,7 @@ describe('POST /api/booking/[id]/cancel', () => {
     const { createClient } = require('@supabase/supabase-js');
     (createClient as jest.Mock)
       .mockImplementationOnce(() => ({
+        rpc: mockRpc,
         from: (...args: any[]) => (args[0] === 'bookings' ? mockBookingsWrite(...args) : mockAdminFrom(...args)),
       }))
       .mockImplementation(() => ({ from: jest.fn(() => { throw new Error('admin client exploded'); }) }));

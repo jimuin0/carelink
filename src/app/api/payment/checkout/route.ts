@@ -93,13 +93,22 @@ export async function POST(request: NextRequest) {
       .eq('status', 'pending');
     if (stalePending && stalePending.length > 0) {
       for (const s of stalePending) {
-        await stripe.checkout.sessions.expire(s.stripe_session_id).catch(() => {});
+        try {
+          await stripe.checkout.sessions.expire(s.stripe_session_id);
+        } catch (expireError) {
+          // 失効結果が不明なまま新しいSessionを作ると、旧Sessionと新Sessionの
+          // 両方が完了して二重課金になり得る。照合できるまで新規作成を止める。
+          return serverError('payment-checkout-expire-pending', expireError, '/api/payment/checkout', '既存の決済状態を確認できないため、再決済を開始できません');
+        }
       }
-      await admin
+      const { error: expireDbError } = await admin
         .from('stripe_sessions')
         .update({ status: 'expired' })
         .eq('booking_id', bookingId)
         .eq('status', 'pending');
+      if (expireDbError) {
+        return serverError('payment-checkout-expire-persist', expireDbError, '/api/payment/checkout', '既存の決済状態を更新できませんでした');
+      }
     }
 
     const session = await stripe.checkout.sessions.create({

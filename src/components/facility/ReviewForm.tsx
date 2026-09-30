@@ -14,6 +14,7 @@ import { compressImage } from '@/lib/image-compress';
 
 const MAX_PHOTOS = 3;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB (before compression)
+const MAX_UPLOADED_FILE_SIZE = 5 * 1024 * 1024; // Storage bucket limit
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 // サーバ(src/app/api/review/route.ts)と検証水準を一致させる（監査F7）。
@@ -124,6 +125,7 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
 
   const onSubmit = async (data: ReviewFormData) => {
     const sb = createBrowserSupabaseClient();
+    const uploadedPaths: string[] = [];
 
     try {
       // ログイン状態取得
@@ -132,14 +134,16 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
       // Upload photos via Supabase Storage
       const photo_urls: string[] = [];
       if (photos.length > 0) {
+        if (!user) throw new Error('写真投稿にはログインが必要です');
         for (const file of photos) {
+          if (file.size > MAX_UPLOADED_FILE_SIZE) throw new Error('画像を5MB以下に圧縮できませんでした');
           const ext = file.name.split('.').pop() || 'jpg';
           const path = `reviews/${facilityId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
           const { error: uploadErr } = await sb.storage.from('review-photos').upload(path, file);
-          if (!uploadErr) {
-            const { data: urlData } = sb.storage.from('review-photos').getPublicUrl(path);
-            photo_urls.push(urlData.publicUrl);
-          }
+          if (uploadErr) throw uploadErr;
+          uploadedPaths.push(path);
+          const { data: urlData } = sb.storage.from('review-photos').getPublicUrl(path);
+          photo_urls.push(urlData.publicUrl);
         }
       }
 
@@ -167,6 +171,7 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
       });
 
       if (!res.ok) {
+        if (uploadedPaths.length > 0) await sb.storage.from('review-photos').remove(uploadedPaths);
         const body = await res.json().catch(() => null);
         setToast({ type: 'error', message: body?.error || '送信に失敗しました' });
         return;
@@ -180,6 +185,7 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
       onReviewSubmitted();
       setToast({ type: 'success', message: user ? '口コミを投稿しました（+50pt獲得！）' : '口コミを投稿しました' });
     } catch {
+      if (uploadedPaths.length > 0) await sb.storage.from('review-photos').remove(uploadedPaths);
       setToast({ type: 'error', message: '送信に失敗しました。もう一度お試しください。' });
     }
   };

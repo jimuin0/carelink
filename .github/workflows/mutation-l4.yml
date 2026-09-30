@@ -51,7 +51,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          # Stryker 9.6.1 の依存（brace-expansion）が Node 24 の ESM 解決で
+          # `expand` export 不整合を起こし、変異実行前に全ジョブが停止した。
+          # 本プロジェクトの engine 下限である Node 22 に固定し、CI toolchain を再現する。
+          node-version: '22.22.2'
           cache: 'npm'
       - run: npm ci
 

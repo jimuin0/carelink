@@ -780,7 +780,7 @@ describe('POST /api/payment/webhook', () => {
       warnSpy.mockRestore();
     });
 
-    test('payment_intent.payment_failed（bookingId経路）0行更新（data:null）→ 200・alertCaughtError通知', async () => {
+    test('payment_intent.payment_failed（bookingId経路）0行更新（data:null）→ 500・alertCaughtError通知', async () => {
       setupEventMock('payment_intent.payment_failed', {
         id: 'pi_bk_0rows_null',
         metadata: { booking_id: 'bk-0rows-null' },
@@ -789,7 +789,7 @@ describe('POST /api/payment/webhook', () => {
 
       const res = await POST(makeRequest('{}', 'sig') as any);
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
       expect(mockAlertCaughtError).toHaveBeenCalledWith(
         'payment-webhook-payment-failed-notfound',
         expect.any(Error),
@@ -797,7 +797,7 @@ describe('POST /api/payment/webhook', () => {
       );
     });
 
-    test('payment_intent.payment_failed（bookingId経路）0行更新（data:[]）→ 200・alertCaughtError通知', async () => {
+    test('payment_intent.payment_failed（bookingId経路）0行更新（data:[]）→ 500・alertCaughtError通知', async () => {
       setupEventMock('payment_intent.payment_failed', {
         id: 'pi_bk_0rows_empty',
         metadata: { booking_id: 'bk-0rows-empty' },
@@ -806,7 +806,7 @@ describe('POST /api/payment/webhook', () => {
 
       const res = await POST(makeRequest('{}', 'sig') as any);
 
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
       expect(mockAlertCaughtError).toHaveBeenCalledWith(
         'payment-webhook-payment-failed-notfound',
         expect.any(Error),
@@ -814,7 +814,7 @@ describe('POST /api/payment/webhook', () => {
       );
     });
 
-    test('payment_intent.payment_failed with booking_id + update error → logs, still 200', async () => {
+    test('payment_intent.payment_failed with booking_id + update error → 500', async () => {
       setupEventMock('payment_intent.payment_failed', {
         id: 'pi_err',
         metadata: { booking_id: 'b-err' },
@@ -822,17 +822,17 @@ describe('POST /api/payment/webhook', () => {
       mockUpdate = mockBookingsUpdateResult({ error: { message: 'update failed' } });
 
       const res = await POST(makeRequest('{}', 'sig') as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
     });
 
-    test('payment_intent.payment_failed without booking_id + update error → logs, still 200', async () => {
+    test('payment_intent.payment_failed without booking_id + update error → 500', async () => {
       setupEventMock('payment_intent.payment_failed', { id: 'pi_no_bk', metadata: {} });
       mockUpdate = mockBookingsUpdateResult({ error: { message: 'update failed' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
     });
 
-    test('charge.refunded update error → logs, still 200', async () => {
+    test('charge.refunded update error → 500', async () => {
       setupEventMock('charge.refunded', {
         payment_intent: 'pi_ref_err',
         amount: 5000,
@@ -840,27 +840,27 @@ describe('POST /api/payment/webhook', () => {
       });
       mockUpdate = mockBookingsUpdateResult({ error: { message: 'refund update failed' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
     });
 
-    test('charge.dispute.created update error → logs, still 200', async () => {
+    test('charge.dispute.created update error → 500', async () => {
       setupEventMock('charge.dispute.created', {
         payment_intent: 'pi_dis_err',
         status: 'needs_response',
       });
       mockUpdate = mockBookingsUpdateResult({ error: { message: 'dispute update failed' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
     });
 
-    test('charge.dispute.closed update error → logs, still 200', async () => {
+    test('charge.dispute.closed update error → 500', async () => {
       setupEventMock('charge.dispute.closed', {
         payment_intent: 'pi_dis_closed_err',
         status: 'won',
       });
       mockUpdate = mockBookingsUpdateResult({ error: { message: 'close update failed' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
     });
 
     // ─── 有料オプション（施設向け月額サブスク）のエンタイトルメント自動 ON/OFF ───

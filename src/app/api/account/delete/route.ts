@@ -127,6 +127,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 以降の個人情報削除を始める前に、所有施設の後処理に必要な照会を完了させる。
+    // profiles 等を先に削除してから owner 数の照会に失敗すると、再実行時の判断材料を失った
+    // 半端な退会状態になるため、ここで fail-closed にする。
+    const facilitiesToSuspend: string[] = [];
+    for (const membership of ownerMemberships ?? []) {
+      const { count, error: ownerCountErr } = await adminSupabase
+        .from('facility_members')
+        .select('id', { count: 'exact', head: true })
+        .eq('facility_id', membership.facility_id)
+        .eq('role', 'owner')
+        .neq('user_id', user.id);
+      if (ownerCountErr) {
+        return guardQueryFailedResponse(
+          'account-delete-owner-count',
+          `owner count query failed (facility_id=${membership.facility_id})`,
+          ownerCountErr,
+        );
+      }
+      if ((count ?? 0) === 0) facilitiesToSuspend.push(membership.facility_id);
+    }
+
     // 【監査C2 low】line_user_links.user_id は恒常的に NULL（webhook は user_id 未設定で upsert・
     // populate するコードが無い）ため、旧 .eq('user_id', user.id) 削除は一致0行でフォロー行が
     // 退会後も孤児として残存していた。連携の line_user_id を profiles（単一ソース）から解決し、
@@ -219,41 +240,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 施設オーナーの場合、施設も削除
-    const { data: memberships, error: membershipsErr } = await adminSupabase
-      .from('facility_members')
-      .select('facility_id, role')
-      .eq('user_id', user.id)
-      .eq('role', 'owner');
-    if (membershipsErr) {
-      return guardQueryFailedResponse(
-        'account-delete-memberships-select',
-        'facility_members (owner) select failed',
-        membershipsErr,
-      );
-    }
-
-    if (memberships) {
-      for (const m of memberships) {
-        // 他にオーナーがいない場合のみ施設削除
-        const { count, error: ownerCountErr } = await adminSupabase
-          .from('facility_members')
-          .select('id', { count: 'exact', head: true })
-          .eq('facility_id', m.facility_id)
-          .eq('role', 'owner')
-          .neq('user_id', user.id);
-        if (ownerCountErr) {
-          return guardQueryFailedResponse(
-            'account-delete-owner-count',
-            `owner count query failed (facility_id=${m.facility_id})`,
-            ownerCountErr,
-          );
-        }
-
-        if ((count ?? 0) === 0) {
-          const { error: suspendErr } = await adminSupabase.from('facility_profiles').update({ status: 'suspended' }).eq('id', m.facility_id);
-          if (suspendErr) console.error('[account/delete] facility suspend failed — manual cleanup required', { facilityId: m.facility_id, err: suspendErr });
-        }
+    // 退会対象の所有施設は、owner 数を事前確定したものだけ停止する。失敗を握り潰すと
+    // owner 不在の公開施設が残るため、auth.users 削除前に明示的に中断する。
+    for (const facilityId of facilitiesToSuspend) {
+      const { error: suspendErr } = await adminSupabase.from('facility_profiles').update({ status: 'suspended' }).eq('id', facilityId);
+      if (suspendErr) {
+        return guardQueryFailedResponse(
+          'account-delete-facility-suspend',
+          `facility suspend failed (facility_id=${facilityId})`,
+          suspendErr,
+        );
       }
     }
 

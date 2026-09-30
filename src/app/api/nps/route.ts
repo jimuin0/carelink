@@ -36,23 +36,30 @@ export async function POST(request: NextRequest) {
   const admin = createServiceRoleClient();
 
   // Verify booking_id ownership: the booking must belong to the authenticated user
-  let verifiedBookingId: string | null = parsed.data.booking_id ?? null;
+  const verifiedBookingId: string | null = parsed.data.booking_id ?? null;
+  let verifiedFacilityId: string | null = parsed.data.facility_id ?? null;
   if (verifiedBookingId && user) {
-    const { data: booking } = await admin
+    const { data: booking, error: bookingError } = await admin
       .from('bookings')
-      .select('id')
+      .select('id, facility_id')
       .eq('id', verifiedBookingId)
       .eq('user_id', user.id)
       .single();
-    if (!booking) verifiedBookingId = null; // reject unowned booking_id silently
+    if (bookingError) return serverError('nps-booking-verify', bookingError, '/api/nps', '送信に失敗しました');
+    if (!booking) return NextResponse.json({ error: '予約を確認できません' }, { status: 400 });
+    if (verifiedFacilityId && verifiedFacilityId !== booking.facility_id) {
+      return NextResponse.json({ error: '施設と予約の組み合わせが不正です' }, { status: 400 });
+    }
+    // booking付きの施設はclient入力を信頼せず、予約から導出する。
+    verifiedFacilityId = booking.facility_id;
   } else if (verifiedBookingId && !user) {
-    // Unauthenticated users cannot claim a booking
-    verifiedBookingId = null;
+    // Unauthenticated users cannot claim a booking。
+    return NextResponse.json({ error: '予約を確認できません' }, { status: 400 });
   }
 
   const { error } = await admin.from('nps_surveys').insert({
     user_id: user?.id ?? null,
-    facility_id: parsed.data.facility_id ?? null,
+    facility_id: verifiedFacilityId,
     booking_id: verifiedBookingId,
     score: parsed.data.score,
     comment: parsed.data.comment ?? null,

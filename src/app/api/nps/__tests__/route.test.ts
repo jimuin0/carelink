@@ -170,7 +170,30 @@ describe('POST /api/nps', () => {
     expect(mockSelectBooking).toHaveBeenCalled();
   });
 
-  test('unowned booking_id silently rejected', async () => {
+  test('予約照会エラー → 500', async () => {
+    mockSelectBooking.mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          single: jest.fn().mockResolvedValue({ data: null, error: { message: 'booking lookup failed' } }),
+        }),
+      }),
+    });
+    const { POST } = await import('../route');
+    const res = await POST(makePostRequest({ score: 8, booking_id: BOOKING_UUID }) as any);
+    expect(res.status).toBe(500);
+  });
+
+  test('未認証・予約なしでもNPSを送信できる', async () => {
+    mockGetUser = jest.fn().mockResolvedValue({ data: { user: null } });
+    const { createServerSupabaseAuthClient } = require('@/lib/supabase-server-auth');
+    createServerSupabaseAuthClient.mockResolvedValue({ auth: { getUser: mockGetUser } });
+    const { POST } = await import('../route');
+    const res = await POST(makePostRequest({ score: 8 }) as any);
+    expect(res.status).toBe(201);
+    expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({ user_id: null }));
+  });
+
+  test('unowned booking_id is rejected without creating a survey', async () => {
     setupDefaultMocks(false);
 
     const { POST } = await import('../route');
@@ -179,8 +202,8 @@ describe('POST /api/nps', () => {
       booking_id: 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
     }) as any);
 
-    // Should still succeed but booking_id set to null
-    expect([200, 201]).toContain(res.status);
+    expect(res.status).toBe(400);
+    expect(mockInsert).not.toHaveBeenCalled();
   });
 
   test('comment > 500 chars → 400', async () => {
@@ -245,7 +268,7 @@ describe('POST /api/nps', () => {
     expect(call![1]).toBe('unknown');
   });
 
-  test('booking_id set but anonymous user → silently nullified', async () => {
+  test('booking_id set but anonymous user is rejected', async () => {
     // user null + booking_id valid
     setupDefaultMocks(true);
     mockGetUser = jest.fn().mockResolvedValue({ data: { user: null } });
@@ -256,10 +279,28 @@ describe('POST /api/nps', () => {
     });
     const { POST } = await import('../route');
     const res = await POST(makePostRequest({ score: 8, booking_id: BOOKING_UUID }) as any);
-    expect([200, 201]).toContain(res.status);
-    const insertCall = mockInsert.mock.calls[0];
-    expect(insertCall[0].booking_id).toBeNull();
-    expect(insertCall[0].user_id).toBeNull();
+    expect(res.status).toBe(400);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  test('booking_id and facility_id from different facilities are rejected', async () => {
+    mockSelectBooking.mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          single: jest.fn().mockResolvedValue({ data: { id: BOOKING_UUID, facility_id: '11111111-1111-4111-8111-111111111111' } }),
+        }),
+      }),
+    });
+
+    const { POST } = await import('../route');
+    const res = await POST(makePostRequest({
+      score: 8,
+      booking_id: BOOKING_UUID,
+      facility_id: '22222222-2222-4222-8222-222222222222',
+    }) as any);
+
+    expect(res.status).toBe(400);
+    expect(mockInsert).not.toHaveBeenCalled();
   });
 
   test('insert error not 23505 → 500', async () => {

@@ -72,7 +72,7 @@ function insertChain(error: unknown = null) {
   return { insert: jest.fn(() => Promise.resolve({ error })) };
 }
 
-function setupHappyPath(insertError: unknown = null) {
+function setupHappyPath(insertError: unknown = null, bookingOverrides: Record<string, unknown> = {}) {
   let callNum = 0;
   mockFrom.mockImplementation((table: string) => {
     callNum++;
@@ -80,7 +80,7 @@ function setupHappyPath(insertError: unknown = null) {
       return singleChain({ id: FACILITY_UUID, name: 'テスト施設', slug: 'test', stripe_enabled: true, stripe_account_id: null });
     }
     if (table === 'bookings') {
-      return singleChain({ total_price: 5000, user_id: USER_ID });
+      return singleChain({ total_price: 5000, user_id: USER_ID, ...bookingOverrides });
     }
     if (table === 'stripe_sessions') {
       return insertChain(insertError);
@@ -147,6 +147,12 @@ test('正常フロー → 200 with Stripe URL', async () => {
   expect(res.status).toBe(200);
   expect(json.url).toBe(STRIPE_SESSION.url);
   expect(json.session_id).toBe(STRIPE_SESSION.id);
+});
+
+test('支払い済み予約 → 400（二重請求防止）', async () => {
+  setupHappyPath(null, { payment_status: 'paid' });
+  const res = await POST(makeRequest({ facility_id: FACILITY_UUID, booking_id: VALID_UUID }));
+  expect(res.status).toBe(400);
 });
 
 // ─── Critical: orphaned Stripe session prevention ─────────────────────────────

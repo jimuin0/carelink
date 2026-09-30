@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 
 /**
  * 並行予約・競合状態 E2E テスト
@@ -61,7 +62,7 @@ test.describe('競合状態保護（API レベル）', () => {
           customer_email: `test${i}@example.com`,
           customer_phone: '09000000000',
         },
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': randomUUID() },
       })
     );
 

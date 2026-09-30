@@ -59,16 +59,16 @@ setup('seed bookable facility', async () => {
 
   // メニュー（category/name は NOT NULL）。is_published は DEFAULT false で、
   // getFacilityMenus は is_published null/true のみ客向けに出すため true を明示する。
-  const { error: me } = await sb.from('facility_menus').insert({
+  const { data: menu, error: me } = await sb.from('facility_menus').insert({
     facility_id: facilityId,
     category: 'カット',
     name: BOOKING_SEED.menuName,
     price: BOOKING_SEED.menuPrice,
     duration_minutes: BOOKING_SEED.menuDuration,
     is_published: true,
-  });
+  }).select('id').single();
   if (me) throw new Error('seed menu: ' + me.message);
 
   fs.mkdirSync(path.dirname(BOOKING_FACILITY_FILE), { recursive: true });
-  fs.writeFileSync(BOOKING_FACILITY_FILE, JSON.stringify({ slug, facilityId }));
+  fs.writeFileSync(BOOKING_FACILITY_FILE, JSON.stringify({ slug, facilityId, staffId, menuId: menu.id }));
 });

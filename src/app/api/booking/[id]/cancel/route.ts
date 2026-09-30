@@ -108,40 +108,31 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   // CAS 条件(.eq('user_id', userId)/.eq('status', ...))はそのまま維持し、原子性・本人限定・競合検知
   // (0行→409)を保つ。LIFF 分岐は既に db=service_role だが、両分岐とも service_role 書込に統一する。
   const writeDb = createServiceRoleClient();
-  const { data: cancelled, error } = await writeDb
-    .from('bookings')
-    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-    .eq('id', params.id)
-    .eq('user_id', userId)
-    .eq('status', booking.status)
-    .select('id');
+  const rpc = writeDb.rpc.bind(writeDb) as unknown as (
+    fn: string,
+    args: Record<string, unknown>
+  ) => Promise<{ data: unknown; error: { message?: string } | null }>;
+  const { data: cancellationResult, error } = await rpc('cancel_booking_with_points_atomic', {
+    p_booking_id: booking.id,
+    p_facility_id: booking.facility_id,
+    p_user_id: userId,
+    p_expected_status: booking.status,
+  });
 
   if (error) {
-    return serverError('booking-cancel-update', error, '/api/booking/[id]/cancel', 'キャンセルに失敗しました');
+    return serverError('booking-cancel-atomic', error, '/api/booking/[id]/cancel', 'キャンセルに失敗しました');
   }
-  if (!cancelled || cancelled.length === 0) {
+  const cancelled = Boolean(
+    cancellationResult &&
+    typeof cancellationResult === 'object' &&
+    (cancellationResult as { cancelled?: unknown }).cancelled === true
+  );
+  if (!cancelled) {
     return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
   }
 
-  // ポイント返還（金銭損失防止）。予約作成時に points_used を控除済みのため、キャンセル成立時に
-  // 同額を補償行として戻す。CAS により本パスは1予約あたり1回しか到達しない（status 条件付き UPDATE が
-  // 成功した時のみ）ため、二重返還は起きない。失敗は致命でないため warn のみ（要手動照合）。
-  // user_points は authenticated に INSERT ポリシーが無いため service_role で挿入する。
-  // booking.user_id は上の所有権チェック（!== userId で 403）により userId と一致＝非 null 保証。
-  const refundPoints = booking.points_used ?? 0;
-  if (refundPoints > 0) {
-    const refundClient = createServiceRoleClient();
-    const { error: refundErr } = await refundClient.from('user_points').insert({
-      user_id: userId,
-      points: refundPoints,
-      reason: 'キャンセル返還',
-      booking_id: booking.id,
-    });
-    if (refundErr) {
-      console.error('[cancel] point refund failed — manual cleanup needed', { bookingId: booking.id, points: refundPoints, err: refundErr.message });
-    }
-  }
-
+  // キャンセル状態遷移とポイント返還はRPC内の同一DBトランザクションで確定する。
+  // 返還INSERT失敗時は状態更新もrollbackされるため、安全に再試行・照合できる。
   // 監査ログ（非ブロッキング）
   void writeAuditLog({
     userId,

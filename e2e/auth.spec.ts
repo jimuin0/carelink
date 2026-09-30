@@ -53,6 +53,7 @@ test.describe('認証フロー', () => {
     await page.selectOption('#signup-prefecture', { label: '東京都' });
     await page.fill('#signup-password', 'password123');
     await page.fill('#signup-password-confirm', 'password123');
+    await page.getByRole('checkbox', { name: /利用規約およびプライバシーポリシーに同意/ }).check();
 
     await page.getByRole('button', { name: '新規登録' }).click();
 

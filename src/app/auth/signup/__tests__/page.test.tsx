@@ -52,6 +52,7 @@ function fillForm() {
   // 「パスワード」と「パスワード（確認）」は前方一致だと曖昧になるため完全一致で区別する。
   fireEvent.change(screen.getByLabelText('パスワード *'), { target: { value: 'password123' } });
   fireEvent.change(screen.getByLabelText('パスワード（確認） *'), { target: { value: 'password123' } });
+  fireEvent.click(screen.getByLabelText(/利用規約.*プライバシーポリシー/));
 }
 
 function submit() {
@@ -85,7 +86,7 @@ describe('/auth/signup', () => {
     expect(mockRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it('(ii) session なし（メール確認有効）→ router.push は呼ばれず確認メール文言が出る', async () => {
+  it('(ii) session なし（メール確認有効）→ router.push は呼ばれず受付・確認待ち文言が出る', async () => {
     mockSignUp.mockResolvedValue({
       data: { session: null, user: { id: 'u1' } },
       error: null,
@@ -95,7 +96,7 @@ describe('/auth/signup', () => {
     fillForm();
     submit();
 
-    await screen.findByText(/確認メールを送信しました/);
+    await screen.findByText(/登録申請を受け付けました/);
     // 偽陽性防止: 呼ばれていないことを明示的に主張する（呼び出し引数ではなく「呼ばれたか」自体）。
     expect(mockPush).not.toHaveBeenCalled();
     expect(mockRefresh).not.toHaveBeenCalled();
@@ -221,6 +222,33 @@ describe('/auth/signup', () => {
     mockSignInWithOAuth.mockResolvedValue({ error: { message: 'provider unavailable' } });
 
     render(<SignupPage />);
+    fireEvent.click(screen.getByLabelText(/利用規約.*プライバシーポリシー/));
+    fireEvent.click(screen.getByRole('button', { name: 'Googleで登録' }));
+
+    await screen.findByText(/Googleでの登録を開始できませんでした/);
+  });
+
+  it('利用規約に同意しない場合はメール登録を送信しない', async () => {
+    mockSignUp.mockResolvedValue({ data: { session: null, user: { id: 'u1' } }, error: null });
+
+    render(<SignupPage />);
+    fireEvent.change(screen.getByLabelText(/^お名前/), { target: { value: 'テスト太郎' } });
+    fireEvent.change(screen.getByLabelText(/^メールアドレス/), { target: { value: 'test@example.com' } });
+    fireEvent.change(screen.getByLabelText(/^電話番号/), { target: { value: '090-1234-5678' } });
+    fireEvent.change(screen.getByLabelText(/^都道府県/), { target: { value: '東京都' } });
+    fireEvent.change(screen.getByLabelText('パスワード *'), { target: { value: 'password123' } });
+    fireEvent.change(screen.getByLabelText('パスワード（確認） *'), { target: { value: 'password123' } });
+    submit();
+
+    await screen.findByText(/利用規約とプライバシーポリシーへの同意が必要です/);
+    expect(mockSignUp).not.toHaveBeenCalled();
+  });
+
+  it('Google OAuthがURLを返さない場合は開始失敗として案内する', async () => {
+    mockSignInWithOAuth.mockResolvedValue({ data: { url: null }, error: null });
+
+    render(<SignupPage />);
+    fireEvent.click(screen.getByLabelText(/利用規約.*プライバシーポリシー/));
     fireEvent.click(screen.getByRole('button', { name: 'Googleで登録' }));
 
     await screen.findByText(/Googleでの登録を開始できませんでした/);

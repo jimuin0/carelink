@@ -161,6 +161,13 @@ describe('POST /api/liff/auth', () => {
     expect(json.profile).toBeNull();
   });
 
+  test('profile照会エラー → 500', async () => {
+    setupDefaultMocks(true, true);
+    mockSingle.mockResolvedValueOnce({ data: null, error: { message: 'profile lookup failed' } });
+    const res = await POST(makeRequest({ access_token: 'valid-token' }) as any);
+    expect(res.status).toBe(500);
+  });
+
   test('response includes LINE profile data', async () => {
     const res = await POST(
       makeRequest({ access_token: 'valid-token' }) as any

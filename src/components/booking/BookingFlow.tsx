@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -190,6 +190,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   const [phone, setPhone] = useState('');
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const bookingAttemptRef = useRef<{ key: string; requestBody: string } | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   // 【2026年8月16日 React Compiler対応】この4state（isAuthenticated/availablePoints/usePoints/
   // pointsToUse）は元々もっと下（Points fetch effectの直前）で宣言されていたが、下の
@@ -551,36 +552,47 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     setSubmitting(true);
 
     try {
+      const payload = {
+        facility_id: facility.id,
+        staff_id: selectedStaff?.id ?? null,
+        menu_id: selectedMenus[0]?.id ?? null,
+        menu_ids: selectedMenus.map((m) => m.id),
+        coupon_id: selectedCoupon?.id ?? null,
+        booking_date: selectedDate,
+        // API 契約（bookingSchema の timeString）は "HH:MM" 形式必須。空き枠の slot_start/end は
+        // get_available_slots が TIME で返すため "HH:MM:SS" になり得る。表示は slice 済みだが
+        // 送信は raw だったため、"HH:MM:SS" で届く環境では予約が 400 で必ず失敗していた。
+        // 送信時も "HH:MM" に正規化し、slot の時刻フォーマットに依存せず予約を成立させる。
+        start_time: selectedSlot?.slot_start?.slice(0, 5),
+        end_time: selectedSlot?.slot_end?.slice(0, 5),
+        customer_name: customerName,
+        email,
+        phone: phone || null,
+        note: note || null,
+        total_price: calculatePrice(),
+        points_used: usePoints && pointsToUse > 0 ? pointsToUse : undefined,
+      };
+      const requestBody = JSON.stringify(payload);
+      if (!bookingAttemptRef.current || bookingAttemptRef.current.requestBody !== requestBody) {
+        bookingAttemptRef.current = { key: crypto.randomUUID(), requestBody };
+      }
+      const idempotencyKey = bookingAttemptRef.current.key;
+
       const res = await fetch('/api/booking', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          facility_id: facility.id,
-          staff_id: selectedStaff?.id ?? null,
-          menu_id: selectedMenus[0]?.id ?? null,
-          menu_ids: selectedMenus.map((m) => m.id),
-          coupon_id: selectedCoupon?.id ?? null,
-          booking_date: selectedDate,
-          // API 契約（bookingSchema の timeString）は "HH:MM" 形式必須。空き枠の slot_start/end は
-          // get_available_slots が TIME で返すため "HH:MM:SS" になり得る。表示は slice 済みだが
-          // 送信は raw だったため、"HH:MM:SS" で届く環境では予約が 400 で必ず失敗していた。
-          // 送信時も "HH:MM" に正規化し、slot の時刻フォーマットに依存せず予約を成立させる。
-          start_time: selectedSlot?.slot_start?.slice(0, 5),
-          end_time: selectedSlot?.slot_end?.slice(0, 5),
-          customer_name: customerName,
-          email,
-          phone: phone || null,
-          note: note || null,
-          total_price: calculatePrice(),
-          points_used: usePoints && pointsToUse > 0 ? pointsToUse : undefined,
-        }),
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        body: requestBody,
         signal: AbortSignal.timeout(15000),
       });
 
       if (res.ok) {
         const body = await res.json().catch(() => null);
+        if (typeof body?.bookingId !== 'string' || !body.bookingId) {
+          throw new Error('booking response missing bookingId');
+        }
+        bookingAttemptRef.current = null;
         const completeParams = new URLSearchParams({
-          id: body?.bookingId || '',
+          id: body.bookingId,
           date: selectedDate || '',
           // 完了画面の TIME_RE は "HH:MM" 必須。slot は "HH:MM:SS" になり得るため slice して渡す
           // （raw だと .ics「カレンダーに追加」ボタンが無音で出なくなる）。

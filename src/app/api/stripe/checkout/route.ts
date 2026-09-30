@@ -67,12 +67,15 @@ export async function POST(request: NextRequest) {
   if (booking_id) {
     const { data: booking } = await admin
       .from('bookings')
-      .select('total_price, user_id')
+      .select('total_price, user_id, payment_status')
       .eq('id', booking_id)
       .eq('facility_id', facility_id)
       .single();
     if (!booking) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
     if (booking.user_id !== user.id) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
+    if (['paid', 'refunded', 'partial_refund', 'disputed', 'dispute_lost'].includes(booking.payment_status ?? '')) {
+      return NextResponse.json({ error: 'この予約は追加の支払いを受け付けられない状態です' }, { status: 400 });
+    }
     amount = booking.total_price ?? 0;
   } else {
     // No booking_id: 施設が設定した一般デポジット（特定の予約に紐付かない事前決済）。

@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
     // LINE Profile APIでトークンを検証
     const lineRes = await fetch('https://api.line.me/v2/profile', {
       headers: { Authorization: `Bearer ${access_token}` },
+      signal: AbortSignal.timeout(10_000),
     });
     if (!lineRes.ok) {
       return NextResponse.json({ error: 'Invalid LINE token' }, { status: 401 });
@@ -53,11 +54,12 @@ export async function POST(req: NextRequest) {
     const admin = createServiceRoleClient();
 
     // LINE user_idに紐づくprofileを検索
-    const { data: profile } = await admin
+    const { data: profile, error: profileError } = await admin
       .from('profiles')
       .select('id, display_name, email, avatar_url')
       .eq('line_user_id', lineProfile.userId)
       .single();
+    if (profileError) return serverError('liff-auth-profile', profileError, '/api/liff/auth', 'Internal Server Error');
 
     return NextResponse.json({
       line_user_id: lineProfile.userId,
