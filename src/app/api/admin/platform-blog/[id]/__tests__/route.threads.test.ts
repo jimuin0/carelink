@@ -160,7 +160,7 @@ test('outcome=published → threads_post_id を書き込む（finalize）', asyn
   const res = await PATCH(makePatchRequest({ is_published: true }), makeProps());
   expect(res.status).toBe(200);
   await flushThreadsTask();
-  expect(finalize.update).toHaveBeenCalledWith({ threads_post_id: 'th-999' });
+  expect(finalize.update).toHaveBeenCalledWith({ threads_post_id: 'th-999', threads_post_status: 'published', threads_last_error: null });
 });
 
 test('outcome=published かつ postId 無し → threads_post_id に null（?? null 分岐）', async () => {
@@ -174,7 +174,7 @@ test('outcome=published かつ postId 無し → threads_post_id に null（?? n
   const res = await PATCH(makePatchRequest({ is_published: true }), makeProps());
   expect(res.status).toBe(200);
   await flushThreadsTask();
-  expect(finalize.update).toHaveBeenCalledWith({ threads_post_id: null });
+  expect(finalize.update).toHaveBeenCalledWith({ threads_post_status: 'ambiguous', threads_last_error: 'Threads published response did not include postId' });
 });
 
 test('outcome=skipped → claim を解放し、通知しない', async () => {
@@ -188,7 +188,7 @@ test('outcome=skipped → claim を解放し、通知しない', async () => {
   const res = await PATCH(makePatchRequest({ is_published: true }), makeProps());
   expect(res.status).toBe(200);
   await flushThreadsTask();
-  expect(release.update).toHaveBeenCalledWith({ threads_posted_at: null });
+  expect(release.update).toHaveBeenCalledWith({ threads_posted_at: null, threads_post_status: null, threads_last_error: null });
   expect(alertWarning).not.toHaveBeenCalled();
 });
 
@@ -203,11 +203,11 @@ test('outcome=transient → claim を解放し、通知しない', async () => {
   const res = await PATCH(makePatchRequest({ is_published: true }), makeProps());
   expect(res.status).toBe(200);
   await flushThreadsTask();
-  expect(release.update).toHaveBeenCalledWith({ threads_posted_at: null });
+  expect(release.update).toHaveBeenCalledWith({ threads_posted_at: null, threads_post_status: null, threads_last_error: '503' });
   expect(alertWarning).not.toHaveBeenCalled();
 });
 
-test('outcome=permanent → claim を解放し、alertWarning で通知する', async () => {
+test('outcome=permanent → 状態を保持し、alertWarning で通知する', async () => {
   mockAdminFrom
     .mockReturnValueOnce(patchUpdateChain({ id: POST_UUID, slug: 's', title: 't', is_published: true }))
     .mockReturnValueOnce(claimChain([{ id: POST_UUID }]));
@@ -218,7 +218,7 @@ test('outcome=permanent → claim を解放し、alertWarning で通知する', 
   const res = await PATCH(makePatchRequest({ is_published: true }), makeProps());
   expect(res.status).toBe(200);
   await flushThreadsTask();
-  expect(release.update).toHaveBeenCalledWith({ threads_posted_at: null });
+  expect(release.update).toHaveBeenCalledWith({ threads_post_status: 'permanent', threads_last_error: 'token expired' });
   expect(alertWarning).toHaveBeenCalledTimes(1);
   expect((alertWarning as jest.Mock).mock.calls[0][0]).toContain('token expired');
 });
@@ -247,7 +247,7 @@ test('publishThreadsText が Error 以外を throw → String(e) に倒し claim
   const res = await PATCH(makePatchRequest({ is_published: true }), makeProps());
   expect(res.status).toBe(200);
   await flushThreadsTask();
-  expect(release.update).toHaveBeenCalledWith({ threads_posted_at: null });
+  expect(release.update).toHaveBeenCalledWith({ threads_posted_at: null, threads_post_status: null, threads_last_error: 'boom' });
 });
 
 test('publishThreadsText が Error を throw → transient 相当として claim を解放する', async () => {
@@ -261,5 +261,5 @@ test('publishThreadsText が Error を throw → transient 相当として claim
   const res = await PATCH(makePatchRequest({ is_published: true }), makeProps());
   expect(res.status).toBe(200);
   await flushThreadsTask();
-  expect(release.update).toHaveBeenCalledWith({ threads_posted_at: null });
+  expect(release.update).toHaveBeenCalledWith({ threads_posted_at: null, threads_post_status: null, threads_last_error: 'network down' });
 });

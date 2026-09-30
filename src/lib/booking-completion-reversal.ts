@@ -10,15 +10,18 @@ import { errorMessage } from './err';
  *   ※ 付与ポイントを既に使用済みの場合、削除で残高が一時的に負になり得るが、これは「本来得るべきで
  *      なかったポイント」の正しい巻き戻しであり、以後の獲得で自然回復する（予約時の残高 CAS が負利用を防ぐ）。
  *
- * 失敗は致命でないため warn のみ（admin は service_role クライアントを渡すこと）。冪等（booking_id キー）。
+ * 失敗時は例外を返し、呼び出し側が booking status を確定する前に中断する。削除は
+ * booking_id 条件で冪等（admin は service_role クライアントを渡すこと）。
  */
 export async function reverseCompletionSideEffects(admin: SupabaseClient, bookingId: string): Promise<void> {
   const { error: visitErr } = await admin.from('customer_visits').delete().eq('booking_id', bookingId);
   if (visitErr) {
     console.error('[booking-reversal] customer_visits delete failed', { bookingId, err: errorMessage(visitErr) });
+    throw new Error(`customer_visits delete failed: ${errorMessage(visitErr)}`);
   }
   const { error: pointErr } = await admin.from('user_points').delete().eq('booking_id', bookingId);
   if (pointErr) {
     console.error('[booking-reversal] user_points delete failed', { bookingId, err: errorMessage(pointErr) });
+    throw new Error(`user_points delete failed: ${errorMessage(pointErr)}`);
   }
 }

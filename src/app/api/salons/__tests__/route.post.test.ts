@@ -104,6 +104,11 @@ const validFull = {
   photo_url: `${STORAGE_PREFIX}salons/uuid/exterior.jpg`,
   photo_urls: [`${STORAGE_PREFIX}salons/uuid/exterior.jpg`],
   desired_start_date: 'immediately',
+  terms_agreed: true,
+  privacy_agreed: true,
+  consent_version: '2026-09-19',
+  license_warranted: true,
+  idempotency_key: '11111111-1111-4111-8111-111111111111',
   recaptcha_token: 'valid-token',
   source: 'register' as const,
 };
@@ -278,12 +283,93 @@ describe('POST /api/salons', () => {
 
   test('empty-string photo urls filtered out (not treated as foreign)', async () => {
     const res = await POST(
-      makeRequest({ ...validFull, photo_url: null, photo_urls: ['', `${STORAGE_PREFIX}ok.jpg`] }) as any
+      makeRequest({ ...validFull, photo_url: null, photo_urls: ['', `${STORAGE_PREFIX}salons/uuid/exterior.jpg`] }) as any
     );
     expect(res.status).toBe(200);
     const inserted = mockInsert.mock.calls[0][0];
-    expect(inserted.photo_urls).toEqual([`${STORAGE_PREFIX}ok.jpg`]);
-    expect(inserted.photo_url).toBe(`${STORAGE_PREFIX}ok.jpg`);
+    expect(inserted.photo_urls).toEqual([`${STORAGE_PREFIX}salons/uuid/exterior.jpg`]);
+    expect(inserted.photo_url).toBe(`${STORAGE_PREFIX}salons/uuid/exterior.jpg`);
+  });
+
+  test('register は外観写真・同意・資格表明・冪等キーを必須化', async () => {
+    const { photo_urls: _photos, ...withoutPhoto } = validFull;
+    void _photos;
+    expect((await POST(makeRequest({ ...withoutPhoto, photo_urls: [] }) as any)).status).toBe(400);
+    expect((await POST(makeRequest({ ...validFull, terms_agreed: false }) as any)).status).toBe(400);
+    expect((await POST(makeRequest({ ...validFull, idempotency_key: undefined }) as any)).status).toBe(400);
+  });
+
+  test('register rejects a photo set without the exterior slot', async () => {
+    const res = await POST(makeRequest({
+      ...validFull,
+      photo_url: null,
+      photo_urls: [`${STORAGE_PREFIX}salons/uuid/interior_1.jpg`],
+    }) as any);
+
+    expect(res.status).toBe(400);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['privacy consent', { privacy_agreed: false }],
+    ['license attestation', { license_warranted: false }],
+    ['consent version', { consent_version: undefined }],
+    ['stale consent version', { consent_version: 'outdated-version' }],
+  ])('register rejects missing/invalid %s', async (_label, override) => {
+    const res = await POST(makeRequest({ ...validFull, ...override }) as any);
+    expect(res.status).toBe(400);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  test('same idempotency key returns the existing registration without duplicate notifications', async () => {
+    const { createClient } = require('@supabase/supabase-js');
+    const replayLookup = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'existing-salon-id' }, error: null }),
+      }),
+    });
+    const insert = jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        single: jest.fn().mockResolvedValue({ data: null, error: { code: '23505', message: 'duplicate key' } }),
+      }),
+    });
+    createClient.mockReturnValue({
+      from: jest.fn(() => ({ insert, select: replayLookup })),
+    });
+
+    const res = await POST(makeRequest(validFull) as any);
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ success: true, id: 'existing-salon-id', replayed: true });
+    expect(sendNotify).not.toHaveBeenCalled();
+    expect(sendRegistrationReceiptEmail).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['lookup error', { data: { id: 'existing-salon-id' }, error: { message: 'lookup failed' } }],
+    ['missing row', { data: null, error: null }],
+  ])('duplicate registration whose replay lookup has %s stays an error', async (_label, replayResult) => {
+    const { createClient } = require('@supabase/supabase-js');
+    const insert = jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        single: jest.fn().mockResolvedValue({ data: null, error: { code: '23505', message: 'duplicate key' } }),
+      }),
+    });
+    createClient.mockReturnValue({
+      from: jest.fn(() => ({
+        insert,
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue(replayResult) }),
+        }),
+      })),
+    });
+
+    const res = await POST(makeRequest(validFull) as any);
+
+    expect(res.status).toBe(500);
+    expect(sendNotify).not.toHaveBeenCalled();
+    expect(sendRegistrationReceiptEmail).not.toHaveBeenCalled();
   });
 
   test('photo provided but NEXT_PUBLIC_SUPABASE_URL unset → 400 (defensive)', async () => {

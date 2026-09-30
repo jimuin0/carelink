@@ -34,14 +34,17 @@ function insertTable(result: Result, capture: { insert?: jest.Mock } = {}) {
   return { insert };
 }
 
-/** referral_uses の .update().eq().eq().select() チェーン（awardReferralPointsOnCompletion 用）。 */
+/** referral_uses の read（select…maybeSingle）と mark（update…eq）のチェーン。 */
 function referralUsesChain(result: Result, capture: { update?: jest.Mock } = {}) {
-  const select = jest.fn(() => Promise.resolve(result));
-  const eq2 = jest.fn(() => ({ select }));
-  const eq1 = jest.fn(() => ({ eq: eq2 }));
-  const update = jest.fn(() => ({ eq: eq1 }));
+  const maybeSingle = jest.fn(() => Promise.resolve(result));
+  const readEq2 = jest.fn(() => ({ maybeSingle }));
+  const readEq1 = jest.fn(() => ({ eq: readEq2 }));
+  const select = jest.fn(() => ({ eq: readEq1 }));
+  const markEq2 = jest.fn(() => Promise.resolve({ error: null }));
+  const markEq1 = jest.fn(() => ({ eq: markEq2 }));
+  const update = jest.fn(() => ({ eq: markEq1 }));
   capture.update = update;
-  return { update };
+  return { select, update };
 }
 
 function makeAdmin(opts: {
@@ -62,8 +65,8 @@ function makeAdmin(opts: {
     if (table === 'staff_profiles') return nameLookup(opts.staff ?? null, opts.staffEqCap ?? {});
     if (table === 'customer_visits') return insertTable(opts.visitResult ?? { error: null }, opts.visitCap);
     if (table === 'user_points') return insertTable(opts.pointResult ?? { error: null }, opts.pointCap);
-    // referral_uses: デフォルトは未紹介(0行)で awardReferralPointsOnCompletion を no-op にする。
-    if (table === 'referral_uses') return referralUsesChain(opts.referralClaim ?? { data: [], error: null }, opts.referralCap);
+    // referral_uses: maybeSingle の未紹介は data=null。配列を返すと実装上は紹介レコードとして扱われる。
+    if (table === 'referral_uses') return referralUsesChain(opts.referralClaim ?? { data: null, error: null }, opts.referralCap);
     throw new Error(`unexpected table ${table}`);
   });
   if (opts.fromCap) opts.fromCap.from = from;
@@ -113,16 +116,23 @@ test('menu/staff レコードが見つからない(data null) → name は null 
   }));
 });
 
-test('visit insert / point insert がエラー → safeCaptureException が2回・本体は継続', async () => {
+test('visit insert エラー → safeCaptureException後に例外を返し、ポイント処理へ進まない', async () => {
   const admin = makeAdmin({
     menu: { name: 'カット' }, staff: { name: '佐藤' },
     visitResult: { error: { message: 'visit fail' } },
     pointResult: { error: { message: 'point fail' } },
   });
-  const points = await applyCompletionSideEffects(admin, base);
-  expect(points).toBe(50);
-  expect(mockCapture).toHaveBeenCalledTimes(2);
+  await expect(applyCompletionSideEffects(admin, base)).rejects.toThrow('customer_visits insert failed');
+  expect(mockCapture).toHaveBeenCalledTimes(1);
   expect(mockCapture).toHaveBeenCalledWith({ message: 'visit fail' }, 'booking-completion');
+});
+
+test('point insert エラー → safeCaptureException後に例外を返す', async () => {
+  const admin = makeAdmin({
+    menu: { name: 'カット' }, staff: { name: '佐藤' },
+    pointResult: { error: { message: 'point fail' } },
+  });
+  await expect(applyCompletionSideEffects(admin, base)).rejects.toThrow('user_points insert failed');
   expect(mockCapture).toHaveBeenCalledWith({ message: 'point fail' }, 'booking-completion');
 });
 

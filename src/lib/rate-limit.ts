@@ -126,3 +126,28 @@ export async function checkRateLimit(
     return inMemoryRateLimit(ip, fallbackLimit, fallbackWindowMs, prefix);
   }
 }
+
+/**
+ * Cost-sensitive routes must not fall back to a per-instance memory counter when
+ * the shared quota store is unavailable. A missing/invalid RPC result is an error
+ * so the caller can fail closed before invoking a paid provider.
+ */
+export async function checkRateLimitStrict(
+  _config: RateLimitConfig | null,
+  key: string,
+  limit: number,
+  windowMs: number,
+  prefix: string
+): Promise<boolean> {
+  const supabase = createServiceRoleClient();
+  const { data, error } = await withRpcTimeout(supabase.rpc('check_rate_limit', {
+    p_key: `${prefix}:${key}`,
+    p_limit: limit,
+    p_window_ms: windowMs,
+  }));
+
+  if (error || typeof data !== 'boolean') {
+    throw new Error('Shared rate-limit service unavailable');
+  }
+  return data;
+}

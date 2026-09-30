@@ -79,9 +79,8 @@ const ALLOW: Record<string, Exemption> = {
     auth: 'メール内リンクからの配信停止。HMAC 署名つきトークンが本人性の根拠でログインは要求しない',
   },
   'chat/route.ts': {
-    auth: '未ログインの来訪者が使える公式 AI アシスタント。CSRF＋IP レート制限（5回/分）で守る。'
-      + '⚠️ 兄弟の symptoms/suggest と違い reCAPTCHA を通していない＝Anthropic の課金を'
-      + '外部から焚ける面が残る（UI 側でトークンを送る改修とセットでないと本番が壊れるため別PR）',
+    auth: '未ログインの来訪者が使える公式 AI アシスタント。CSRF、共有IPバースト制限、'
+      + '設定時のreCAPTCHA、productionで必須の共有24時間上限で保護する',
   },
   'symptoms/suggest/route.ts': {
     auth: '未ログインで使える症状チェッカー。CSRF＋IP レート制限（10回/分）＋reCAPTCHA で守る',
@@ -152,7 +151,7 @@ export function hasCsrfGuard(masked: string): boolean {
 }
 
 export function hasRateLimitGuard(masked: string): boolean {
-  return /\bcheckRateLimit\s*\(/.test(masked) || /\brateLimit\s*:/.test(masked);
+  return /\bcheckRateLimit(?:Strict)?\s*\(/.test(masked) || /\brateLimit\s*:/.test(masked);
 }
 
 /** 呼び出し元を identify する経路（どれか1つあればよい）。 */
@@ -248,6 +247,7 @@ describe('route.ts の CSRF / レート制限 / 本人確認を機械強制す�
 
     test('レート制限の検出', () => {
       expect(hasRateLimitGuard('await checkRateLimit(l, ip, 5, 60, "x")')).toBe(true);
+      expect(hasRateLimitGuard('await checkRateLimitStrict(l, key, 5, 60, "x")')).toBe(true);
       expect(hasRateLimitGuard('withRoute(h, { rateLimit: { limit: 5 } })')).toBe(true);
       expect(hasRateLimitGuard('export async function POST() { return ok(); }')).toBe(false);
     });

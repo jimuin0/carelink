@@ -97,6 +97,7 @@ function genericWriteMock() {
   return {
     delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
     update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
+    upsert: jest.fn().mockResolvedValue({ error: null }),
   };
 }
 
@@ -611,7 +612,7 @@ test('施設オーナー(他オーナーあり) → 施設停止しない', asyn
   expect(mockSuspendUpdate).not.toHaveBeenCalled();
 });
 
-test('施設停止失敗 → ログ記録して続行', async () => {
+test('施設停止失敗 → 退会を中断して500（個人情報削除を先行しない）', async () => {
   const mockNeq = jest.fn().mockReturnValue(Promise.resolve({ count: 0, error: null }));
   const mockMemberCheckEq2 = jest.fn().mockReturnValue({ neq: mockNeq });
   const mockMemberCheckEq1 = jest.fn().mockReturnValue({ eq: mockMemberCheckEq2 });
@@ -635,8 +636,8 @@ test('施設停止失敗 → ログ記録して続行', async () => {
   });
 
   const res = await POST(makeRequest());
-  // suspend failure is logged but not fatal
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(500);
+  expect(mockDeleteUser).not.toHaveBeenCalled();
 });
 
 test('facility_members削除失敗 → auth削除せず中断して500（孤立メンバーシップ防止）', async () => {
@@ -735,6 +736,68 @@ test('facility_members が null → ループをスキップして正常削除',
   expect(res.status).toBe(200);
 });
 
+test('退会Saga開始状態を保存できない場合はPII削除前に中断する', async () => {
+  const jobUpsert = jest.fn().mockResolvedValue({ error: { message: 'job storage unavailable' } });
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'bookings') return bookingsMock();
+    if (table === 'facility_members') return facilityMembersMock([]);
+    if (table === 'account_deletion_jobs') return { upsert: jobUpsert };
+    return genericWriteMock();
+  });
+
+  const res = await POST(makeRequest());
+
+  expect(res.status).toBe(500);
+  expect(jobUpsert).toHaveBeenCalledTimes(1);
+  expect(mockDeleteUser).not.toHaveBeenCalled();
+});
+
+test('退会失敗時にSaga状態の更新も失敗しても、元の処理失敗を返す', async () => {
+  let jobUpdateCount = 0;
+  const jobUpsert = jest.fn().mockImplementation(() => ({
+    error: ++jobUpdateCount === 1 ? null : { message: 'state storage unavailable' },
+  }));
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'bookings') return bookingsMock();
+    if (table === 'facility_members') return facilityMembersMock([]);
+    if (table === 'account_deletion_jobs') return { upsert: jobUpsert };
+    if (table === 'favorites') {
+      return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: { message: 'PII deletion failed' } }) }) };
+    }
+    return genericWriteMock();
+  });
+  const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+  const res = await POST(makeRequest());
+
+  expect(res.status).toBe(500);
+  expect(jobUpsert).toHaveBeenCalledTimes(2);
+  expect(errorSpy).toHaveBeenCalledWith(
+    '[account/delete] deletion job state update failed', expect.objectContaining({ status: 'retryable' }),
+  );
+  expect(mockDeleteUser).not.toHaveBeenCalled();
+  errorSpy.mockRestore();
+});
+
+test('退会完了後にSaga完了状態を確定できない場合は500を返す', async () => {
+  let jobUpdateCount = 0;
+  const jobUpsert = jest.fn().mockImplementation(() => ({
+    error: ++jobUpdateCount === 1 ? null : { message: 'completion state unavailable' },
+  }));
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'bookings') return bookingsMock();
+    if (table === 'facility_members') return facilityMembersMock([]);
+    if (table === 'account_deletion_jobs') return { upsert: jobUpsert };
+    return genericWriteMock();
+  });
+
+  const res = await POST(makeRequest());
+
+  expect(res.status).toBe(500);
+  expect(jobUpsert).toHaveBeenCalledTimes(2);
+  expect(mockDeleteUser).toHaveBeenCalledWith(USER_ID);
+});
+
 // Branch coverage: filter: r.status === 'fulfilled' but .error is falsy (no failure logged)
 test('PII削除が全て成功 → failedOps は空 → ログなし', async () => {
   const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -768,6 +831,7 @@ test('auth削除は必ずPIIスクラブの後に実行される', async () => {
     return {
       delete: jest.fn().mockReturnValue({ eq: jest.fn().mockImplementation(() => { callOrder.push(`${table}_delete`); return Promise.resolve({ error: null }); }) }),
       update: jest.fn().mockReturnValue({ eq: jest.fn().mockImplementation(() => { callOrder.push(`${table}_update`); return Promise.resolve({ error: null }); }) }),
+      upsert: jest.fn().mockResolvedValue({ error: null }),
     };
   });
   mockDeleteUser.mockImplementation(() => { callOrder.push('auth_delete'); return Promise.resolve({ error: null }); });

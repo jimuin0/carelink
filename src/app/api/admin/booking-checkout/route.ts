@@ -117,6 +117,21 @@ export async function POST(request: Request) {
 
     const nextStatus = wantComplete ? 'completed' : booking.status;
 
+    if (wantComplete) {
+      // 最終金額を使った副作用を先に冪等作成し、失敗時はcompletedへ遷移させない。
+      await applyCompletionSideEffects(supabase, {
+        id: booking.id,
+        facility_id: booking.facility_id,
+        user_id: booking.user_id,
+        customer_name: booking.customer_name,
+        email: booking.email,
+        booking_date: booking.booking_date,
+        total_price: total,
+        menu_id: booking.menu_id,
+        staff_id: booking.staff_id,
+      });
+    }
+
     // CAS: 読み取り時の status を WHERE に含め、並行更新による状態機械バイパスを防ぐ。
     const { data: updated, error: updateError } = await supabase
       .from('bookings')
@@ -137,21 +152,6 @@ export async function POST(request: Request) {
     }
     if (!updated || updated.length === 0) {
       return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
-    }
-
-    // completed へ進入した場合のみ、最終金額で来店記録・来店ポイントを付与する。
-    if (wantComplete) {
-      await applyCompletionSideEffects(supabase, {
-        id: booking.id,
-        facility_id: booking.facility_id,
-        user_id: booking.user_id,
-        customer_name: booking.customer_name,
-        email: booking.email,
-        booking_date: booking.booking_date,
-        total_price: total,
-        menu_id: booking.menu_id,
-        staff_id: booking.staff_id,
-      });
     }
 
     void writeAuditLog({

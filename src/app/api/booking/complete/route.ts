@@ -57,6 +57,9 @@ export const POST = withRoute(async (request) => {
       return NextResponse.json({ error: 'この予約は来店完了にできません（確定済みの予約のみ対応）' }, { status: 400 });
     }
 
+    // 副作用を先に冪等作成する。失敗時はcompletedへ遷移させず、部分コミットを防ぐ。
+    const pointsEarned = await applyCompletionSideEffects(supabase, booking);
+
     // Atomic status transition: require status='confirmed' in WHERE clause (optimistic lock).
     // Prevents double point awards if two concurrent requests both read 'confirmed'.
     const { data: updatedBooking, error: updateError } = await supabase
@@ -86,11 +89,6 @@ export const POST = withRoute(async (request) => {
       newValues: { status: 'completed' },
       ipAddress: ip,
     });
-
-    // 来店記録(customer_visits)と来店ポイントの付与は applyCompletionSideEffects に集約し、
-    // 管理画面のステータス変更経由の完了(/api/admin/booking-status)と完全に同一処理にする。
-    // （supabase は既に service_role クライアント。）
-    const pointsEarned = await applyCompletionSideEffects(supabase, booking);
 
     return NextResponse.json({ success: true, points_earned: pointsEarned });
 }, {

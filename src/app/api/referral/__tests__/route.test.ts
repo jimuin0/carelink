@@ -13,15 +13,17 @@ jest.mock('@/lib/rate-limit', () => ({
   checkRateLimit: jest.fn(),
 }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
-jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn(), alertWarning: jest.fn() }));
 jest.mock('@supabase/ssr');
 jest.mock('next/headers');
 
 // Lazy wrapper for adminSupabase (created at module scope in the route via createClient)
 let mockAdminFrom: jest.Mock;
+let mockAdminRpc: jest.Mock | null = null;
 jest.mock('@supabase/supabase-js', () => ({
   createClient: jest.fn(() => ({
     from: (...args: unknown[]) => mockAdminFrom(...args),
+    ...(mockAdminRpc ? { rpc: (...args: unknown[]) => mockAdminRpc!(...args) } : {}),
   })),
 }));
 
@@ -66,6 +68,7 @@ function setupDefaultMocks(
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAdminRpc = null;
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
   setupDefaultMocks();
 });
@@ -542,7 +545,7 @@ describe('cookie callbacks and body parse catch', () => {
     expect(res.status).toBe(200);
   });
 
-  test('POST: countErr truthy → logs but still 200', async () => {
+test('POST: countErr truthy → ログ・警告を出して200（紹介使用自体は成功）', async () => {
     let tableCallNum = 0;
     mockAdminFrom.mockImplementation((table: string) => {
       tableCallNum++;
@@ -585,6 +588,51 @@ describe('cookie callbacks and body parse catch', () => {
     }) as any);
     expect(res.status).toBe(200);
     expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+test.each([
+  ['success', { data: 4, error: null }, false],
+  ['database error', { data: null, error: { message: 'rpc failed' } }, true],
+  ['missing row', { data: null, error: null }, true],
+])('POST: atomic RPC %s result is handled without legacy counter update', async (_label, result, warns) => {
+    let tableCallNum = 0;
+    mockAdminFrom.mockImplementation((table: string) => {
+      tableCallNum++;
+      if (table === 'referral_codes') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: 'referrer-1', used_count: 2 }, error: null }),
+            }),
+          }),
+        };
+      }
+      if (tableCallNum === 2) {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
+            }),
+          }),
+        };
+      }
+      return { insert: jest.fn().mockResolvedValue({ error: null }) };
+    });
+    mockAdminRpc = jest.fn().mockResolvedValue(result);
+    const { alertWarning } = require('@/lib/alert');
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { POST } = await import('../route');
+    const res = await POST(new Request('http://localhost/api/referral', {
+      method: 'POST',
+      body: JSON.stringify({ code: 'VALID123' }),
+    }) as any);
+
+    expect(res.status).toBe(200);
+    expect(mockAdminRpc).toHaveBeenCalledWith('increment_referral_code_used_count', { p_code: 'VALID123' });
+    expect(alertWarning).toHaveBeenCalledTimes(warns ? 1 : 0);
+    expect(consoleSpy).toHaveBeenCalledTimes(warns ? 1 : 0);
     consoleSpy.mockRestore();
   });
 

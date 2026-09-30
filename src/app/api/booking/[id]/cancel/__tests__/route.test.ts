@@ -444,10 +444,10 @@ describe('POST /api/booking/[id]/cancel', () => {
     }));
   });
 
-  test('ポイント返還の insert 失敗は warn のみで成功継続', async () => {
+  test('ポイント返還の insert 失敗はキャンセルを中止して500', async () => {
     const insertSpy = setupRefundMock(300, { error: { message: 'insert fail' } });
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
-    expect((await res.json()).success).toBe(true);
+    expect(res.status).toBe(500);
     expect(insertSpy).toHaveBeenCalled();
   });
 

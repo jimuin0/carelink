@@ -57,6 +57,20 @@ test('execute が throw → null（fail-closed）', async () => {
   expect(await getRecaptchaToken('review')).toBeNull();
 });
 
+test('timer handle が0でも timeout を確実に clear する', async () => {
+  setSiteKey(SITE);
+  (window as unknown as { grecaptcha: unknown }).grecaptcha = {
+    ready: (cb: () => void) => cb(),
+    execute: jest.fn().mockResolvedValue('tok-zero-timer'),
+  };
+  jest.spyOn(global, 'setTimeout').mockReturnValue(0 as unknown as ReturnType<typeof setTimeout>);
+  const clearTimeoutSpy = jest.spyOn(global, 'clearTimeout');
+
+  const { getRecaptchaToken } = await import('../recaptcha-client');
+  expect(await getRecaptchaToken('review')).toBe('tok-zero-timer');
+  expect(clearTimeoutSpy).toHaveBeenCalledWith(0);
+});
+
 test('スクリプトロード成功だが grecaptcha 未注入 → null', async () => {
   setSiteKey(SITE);
   const fakeScript: Record<string, unknown> = {};

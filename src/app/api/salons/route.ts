@@ -11,7 +11,7 @@ import { verifyRecaptcha } from '@/lib/recaptcha';
 import { sendNotify } from '@/lib/notify';
 import { sendRegistrationReceiptEmail } from '@/lib/email';
 import { runAfterResponse } from '@/lib/after-response';
-import { businessTypes, DESIRED_START_DATES } from '@/lib/constants';
+import { businessTypes, DESIRED_START_DATES, SALON_CONSENT_VERSION } from '@/lib/constants';
 import { extractPrefecture, extractCity } from '@/lib/japan-address';
 import { SALON_CLAIM_COOKIE_NAME, SALON_CLAIM_TTL_SECONDS, signSalonClaim } from '@/lib/salon-claim';
 
@@ -75,6 +75,12 @@ const salonInsertSchema = z.object({
   pr_text: z.string().max(1000).optional().nullable(),
   photo_url: z.string().max(2000).optional().nullable(),
   photo_urls: z.array(z.string().max(2000)).max(7).optional(),
+  terms_agreed: z.boolean().optional(),
+  privacy_agreed: z.boolean().optional(),
+  consent_version: z.string().trim().min(1).max(50).optional(),
+  license_warranted: z.boolean().optional(),
+  consented_at: z.string().datetime({ offset: true }).optional(),
+  idempotency_key: z.string().uuid().optional(),
   // 【2026年8月20日 恒久根治】「掲載希望時期」は日付ではなく意向。salons.desired_start_date
   // を date→text に変えた（supabase/migrations/20260820000001_...）のに合わせ、サーバー側も
   // 列挙の受け口にする。定数は UI（RegisterForm.tsx の startDateOptions）と共有し、
@@ -90,6 +96,16 @@ const salonInsertSchema = z.object({
   // サーバーは送信元ページを区別する手段を持たないため、この非永続（DB非保存）フィールドで
   // どちらの Slack テンプレートを使うかを明示させ、既存の通知内容を1件も欠落させない。
   source: z.enum(['recruit', 'register']),
+}).superRefine((value, ctx) => {
+  if (value.source !== 'register') return;
+  if (!value.terms_agreed) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['terms_agreed'], message: '規約への同意が必要です' });
+  if (!value.privacy_agreed) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['privacy_agreed'], message: 'プライバシーポリシーへの同意が必要です' });
+  if (!value.license_warranted) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['license_warranted'], message: '資格・届出の表明が必要です' });
+  if (!value.consent_version) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['consent_version'], message: '同意版が必要です' });
+  if (value.consent_version && value.consent_version !== SALON_CONSENT_VERSION) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['consent_version'], message: '同意版が古いため再同意が必要です' });
+  }
+  if (!value.idempotency_key) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['idempotency_key'], message: '登録キーが必要です' });
 });
 
 // GET（匿名・認証なし）で返してよい公開安全カラムのみ。
@@ -136,6 +152,9 @@ export const POST = withRoute(async (request) => {
   if (d.photo_url && !isAllowedPhotoUrl(d.photo_url)) {
     return NextResponse.json({ error: '不正な写真URLです' }, { status: 400 });
   }
+  if (d.source === 'register' && (photoUrls.length === 0 || !photoUrls[0].includes('/exterior.'))) {
+    return NextResponse.json({ error: '外観写真は必須です' }, { status: 400 });
+  }
 
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -148,7 +167,7 @@ export const POST = withRoute(async (request) => {
   const prefecture = d.prefecture || extractPrefecture(d.address) || null;
   const city = d.city || extractCity(d.address) || null;
 
-  const { data, error } = await supabase
+  const insertResult = await supabase
     .from('salons')
     .insert({
       facility_name: d.facility_name,
@@ -176,12 +195,37 @@ export const POST = withRoute(async (request) => {
       photo_url: photoUrls[0] || null,
       photo_urls: photoUrls,
       desired_start_date: d.desired_start_date || null,
+      ...(d.source === 'register' ? {
+        terms_agreed: true,
+        privacy_agreed: true,
+        consent_version: d.consent_version,
+        license_warranted: true,
+        consented_at: new Date().toISOString(),
+        idempotency_key: d.idempotency_key,
+      } : {}),
       // Store the trusted server-side entry point so registration reports do not infer
       // attribution from a completion-page visit or a client-provided event.
       source: d.source,
     })
     .select('id')
     .single();
+
+  let data = insertResult.data;
+  let error = insertResult.error;
+  let replayed = false;
+  // 一意制約との競合は先行登録のIDを返す。同じキーで再送しても二重行・二重通知を作らない。
+  if (error?.code === '23505' && d.source === 'register' && d.idempotency_key) {
+    const replay = await supabase
+      .from('salons')
+      .select('id')
+      .eq('idempotency_key', d.idempotency_key)
+      .maybeSingle();
+    if (!replay.error && replay.data) {
+      data = replay.data;
+      error = null;
+      replayed = true;
+    }
+  }
 
   if (error || !data) {
     return serverError(
@@ -198,7 +242,7 @@ export const POST = withRoute(async (request) => {
   // URL・メールリンクに載せる代替案は敵対検証で却下済み（アクセスログ/解析ツール/Referer への
   // 露出のため）。ADMIN_COOKIE_SECRET 未設定の環境では signSalonClaim が null を返し、
   // Cookie を発行しない（fail-safe・従来のメール一致のみに倒れる）。
-  const res = NextResponse.json({ success: true, id: data.id });
+  const res = NextResponse.json({ success: true, id: data.id, replayed });
   const signedClaim = signSalonClaim(data.id);
   if (signedClaim) {
     res.cookies.set(SALON_CLAIM_COOKIE_NAME, signedClaim, {
@@ -215,7 +259,7 @@ export const POST = withRoute(async (request) => {
   // 通知が無音欠落する（contact.ts と同型）ため、共有ロジック sendNotify を直接呼ぶ。
   // d.source で recruit（掲載申し込み）/ register（無料掲載登録）を判定し、従来クライアントが
   // 送っていたのと同じ Slack メッセージ種別・内容を1件も欠落させず送る。
-  if (d.source === 'register') {
+  if (d.source === 'register' && !replayed) {
     runAfterResponse(() => sendNotify({
       type: 'salon',
       data: {
@@ -248,7 +292,7 @@ export const POST = withRoute(async (request) => {
     }).then((sent) => {
       if (!sent) console.error('[salons] Registration receipt email failed to send');
     }).catch((err) => console.error('[salons] Registration receipt email failed', { err })));
-  } else {
+  } else if (d.source === 'recruit' && !replayed) {
     runAfterResponse(() => sendNotify({
       type: 'facility',
       data: {

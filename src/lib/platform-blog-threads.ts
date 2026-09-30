@@ -25,10 +25,11 @@ export async function publishArticleToThreads(
   // 遷移させられるのは1件だけ（行ロックにより原子的）。
   const { data: claimed, error: claimError } = await admin
     .from('platform_blog_posts')
-    .update({ threads_posted_at: nowIso })
+    .update({ threads_posted_at: nowIso, threads_post_status: 'processing', threads_last_error: null })
     .eq('id', post.id)
     .is('threads_post_id', null)
     .is('threads_posted_at', null)
+    .is('threads_post_status', null)
     .select('id');
 
   if (claimError || !claimed || claimed.length === 0) {
@@ -52,11 +53,26 @@ export async function publishArticleToThreads(
   }
 
   if (result.outcome === 'published') {
-    await admin
+    if (!result.postId) {
+      await admin.from('platform_blog_posts')
+        .update({ threads_post_status: 'ambiguous', threads_last_error: 'Threads published response did not include postId' })
+        .eq('id', post.id)
+        .is('threads_post_id', null);
+      alertWarning('[platform-blog] Threads投稿成功後にpostIdを記録できませんでした。重複防止のため要照合', { route });
+      return;
+    }
+    const { error: finalizeErr } = await admin
       .from('platform_blog_posts')
-      .update({ threads_post_id: result.postId ?? null })
+      .update({ threads_post_id: result.postId, threads_post_status: 'published', threads_last_error: null })
       .eq('id', post.id)
       .is('threads_post_id', null);
+    if (finalizeErr) {
+      await admin.from('platform_blog_posts')
+        .update({ threads_post_status: 'ambiguous', threads_last_error: finalizeErr.message })
+        .eq('id', post.id)
+        .is('threads_post_id', null);
+      alertWarning('[platform-blog] Threads投稿後の記録に失敗しました。重複防止のため要照合', { route });
+    }
     return;
   }
 
@@ -67,13 +83,19 @@ export async function publishArticleToThreads(
       `[platform-blog] Threads 投稿が恒久的に失敗しました（id=${post.id}）: ${result.reason ?? 'unknown'}`,
       { route }
     );
+    await admin.from('platform_blog_posts')
+      .update({ threads_post_status: 'permanent', threads_last_error: result.reason ?? 'unknown' })
+      .eq('id', post.id)
+      .is('threads_post_id', null);
+    // 恒久失敗はcooldown付きの状態として残し、直後にclaimを解放して毎回再試行しない。
+    return;
   }
 
   // skipped（未設定・正常系）／transient（一時失敗・記録せず backfill cron に任せる）／
   // permanent（上で通知済み）のいずれも、threads_post_id は書かず claim だけ解放する。
   await admin
     .from('platform_blog_posts')
-    .update({ threads_posted_at: null })
+    .update({ threads_posted_at: null, threads_post_status: null, threads_last_error: result.reason ?? null })
     .eq('id', post.id)
     .is('threads_post_id', null);
 }

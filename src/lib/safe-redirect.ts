@@ -38,7 +38,7 @@ export const DEFAULT_REDIRECT = '/mypage';
  * @returns 安全なパス（`pathname + search + hash`）。危険・不正なら {@link DEFAULT_REDIRECT}。
  */
 export function safeRedirect(raw: string | null | undefined, origin: string): string {
-  if (!raw || !raw.startsWith('/')) return DEFAULT_REDIRECT;
+  if (!raw || !raw.startsWith('/') || /[\u0000-\u001F\u007F]/.test(raw) || raw.includes('\\')) return DEFAULT_REDIRECT;
   try {
     const resolved = new URL(raw, origin);
     // 🔴 ここが本質。文字列の形ではなく「解決後にどこへ行くか」で判定する。

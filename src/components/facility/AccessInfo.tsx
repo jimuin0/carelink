@@ -42,27 +42,31 @@ export default function AccessInfo({ facility }: { facility: Facility }) {
       </div>
 
       {/* 営業時間 */}
-      {facility.business_hours && (
+      {(facility.business_hours || facility.business_hours_text) && (
         <div>
           <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
             <span className="w-1 h-5 bg-sky-500 rounded-full" />
             営業時間
           </h3>
-          <table className="w-full text-sm">
-            <tbody>
-              {dayOrder.map((day) => {
-                const hours = facility.business_hours?.[day];
-                return (
-                  <tr key={day} className="border-b border-gray-100">
-                    <td className="py-2.5 pr-4 text-gray-500 w-16 font-medium">{dayLabels[day]}</td>
-                    <td className="py-2.5">
-                      {hours ? `${hours.open} 〜 ${hours.close}` : <span className="text-gray-400">休み</span>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          {facility.business_hours ? (
+            <table className="w-full text-sm">
+              <tbody>
+                {dayOrder.map((day) => {
+                  const hours = facility.business_hours?.[day];
+                  return (
+                    <tr key={day} className="border-b border-gray-100">
+                      <td className="py-2.5 pr-4 text-gray-500 w-16 font-medium">{dayLabels[day]}</td>
+                      <td className="py-2.5">
+                        {hours ? `${hours.open} 〜 ${hours.close}` : <span className="text-gray-400">休み</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-sm whitespace-pre-wrap text-gray-700">{facility.business_hours_text}</p>
+          )}
         </div>
       )}
 

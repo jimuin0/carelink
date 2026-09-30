@@ -62,13 +62,19 @@ export async function POST(request: NextRequest) {
 
   // Re-read to check if this insert actually inserted (ignoreDuplicates means a conflict
   // means another delivery already owns this event_id).
-  const { data: existing } = await admin
+  const { data: existing, error: existingError } = await admin
     .from('stripe_webhook_logs')
     .select('id, processed')
     .eq('event_id', event.id)
     .single();
 
-  if (existing?.processed) {
+  if (existingError) {
+    return serverError('stripe-webhook-log-read', existingError, '/api/stripe/webhook', 'Log read failed');
+  }
+  if (!existing) {
+    return serverError('stripe-webhook-log-missing', new Error(`Webhook log row missing for ${event.id}`), '/api/stripe/webhook', 'Log read failed');
+  }
+  if (existing.processed) {
     return NextResponse.json({ received: true, skipped: true });
   }
 
@@ -78,7 +84,14 @@ export async function POST(request: NextRequest) {
     // If this update fails and Stripe retries, ignoreDuplicates above will find the
     // existing row with processed=false and re-run the handler — intentionally safe
     // because all handleEvent operations are idempotent (.update/.eq patterns).
-    await admin.from('stripe_webhook_logs').update({ processed: true }).eq('event_id', event.id);
+    const { error: processedError } = await admin
+      .from('stripe_webhook_logs')
+      .update({ processed: true })
+      .eq('event_id', event.id);
+    if (processedError) {
+      // processed=false のまま5xxを返し、Stripeの再送で必ず再実行可能にする。
+      throw new Error(`stripe_webhook_logs processed update failed: ${processedError.message}`);
+    }
     void writeAuditLog({
       action: 'update',
       tableName: 'stripe_webhook_logs',
@@ -198,9 +211,10 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createS
 
     case 'checkout.session.expired': {
       const session = event.data.object as Stripe.Checkout.Session;
-      await admin.from('stripe_sessions')
+      const { error } = await admin.from('stripe_sessions')
         .update({ status: 'expired', updated_at: new Date().toISOString() })
         .eq('stripe_session_id', session.id);
+      if (error) throw new Error(`stripe_sessions expired update failed: ${error.message}`);
       break;
     }
 

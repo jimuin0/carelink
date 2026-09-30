@@ -2,7 +2,7 @@ jest.mock('../supabase-server', () => ({
   createServiceRoleClient: jest.fn(),
 }));
 
-import { inMemoryRateLimit, checkRateLimit, inMemoryStoreSize } from '../rate-limit';
+import { inMemoryRateLimit, checkRateLimit, checkRateLimitStrict, inMemoryStoreSize } from '../rate-limit';
 const { createServiceRoleClient } = require('../supabase-server');
 
 describe('inMemoryRateLimit', () => {
@@ -199,6 +199,53 @@ describe('checkRateLimit', () => {
       expect(consoleSpy).toHaveBeenCalled();
     } finally {
       consoleSpy.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('checkRateLimitStrict', () => {
+  beforeEach(() => {
+    (createServiceRoleClient as jest.Mock).mockReset();
+  });
+
+  test('uses the shared RPC key and returns its boolean decision', async () => {
+    const rpc = jest.fn().mockResolvedValue({ data: true, error: null });
+    (createServiceRoleClient as jest.Mock).mockReturnValue({ rpc });
+
+    await expect(checkRateLimitStrict(null, 'pseudonymous-key', 20, 86_400_000, 'chat-daily')).resolves.toBe(true);
+    expect(rpc).toHaveBeenCalledWith('check_rate_limit', {
+      p_key: 'chat-daily:pseudonymous-key',
+      p_limit: 20,
+      p_window_ms: 86_400_000,
+    });
+  });
+
+  test('does not fall back when the shared RPC errors or returns an invalid result', async () => {
+    (createServiceRoleClient as jest.Mock).mockReturnValue({
+      rpc: jest.fn().mockResolvedValue({ data: null, error: { message: 'private backend detail' } }),
+    });
+    await expect(checkRateLimitStrict(null, 'key', 5, 60_000, 'chat-burst')).rejects.toThrow(
+      'Shared rate-limit service unavailable',
+    );
+
+    (createServiceRoleClient as jest.Mock).mockReturnValue({
+      rpc: jest.fn().mockResolvedValue({ data: null, error: null }),
+    });
+    await expect(checkRateLimitStrict(null, 'key', 5, 60_000, 'chat-burst')).rejects.toThrow(
+      'Shared rate-limit service unavailable',
+    );
+  });
+
+  test('fails closed when the shared RPC does not settle within the bounded wait', async () => {
+    jest.useFakeTimers();
+    try {
+      (createServiceRoleClient as jest.Mock).mockReturnValue({ rpc: jest.fn(() => new Promise(() => {})) });
+      const result = checkRateLimitStrict(null, 'key', 5, 60_000, 'chat-burst');
+      const rejected = expect(result).rejects.toThrow('rate limit RPC timed out');
+      await jest.advanceTimersByTimeAsync(3_000);
+      await rejected;
+    } finally {
       jest.useRealTimers();
     }
   });

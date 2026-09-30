@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { getRecaptchaToken } from '@/lib/recaptcha-client';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -46,10 +47,15 @@ export default function AiChatbot() {
     setLoading(true);
 
     try {
+      // 公開キーが未設定の環境では、任意のreCAPTCHA取得を待たずに送信する。
+      // サーバー側でsecretが設定済みならtoken必須として拒否されるため、保護を弱めない。
+      const recaptcha_token = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY
+        ? await getRecaptchaToken('chat').catch(() => undefined)
+        : undefined;
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newMessages }),
+        body: JSON.stringify({ messages: newMessages, recaptcha_token }),
       });
       // res.ok を検証せず data.reply を表示すると、HTTPエラー（429/400/503）でも
       // フォールバック文言が「正常なAI返答」として表示され、障害がユーザーに伝わらない（成功偽装）。

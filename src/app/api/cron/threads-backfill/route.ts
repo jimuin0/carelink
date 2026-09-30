@@ -88,10 +88,11 @@ export async function GET(request: Request) {
     const staleBefore = new Date(Date.now() - CLAIM_STALE_MS).toISOString();
     const { error: reclaimErr } = await supabase
       .from('platform_blog_posts')
-      .update({ threads_posted_at: null })
+      .update({ threads_posted_at: null, threads_post_status: null, threads_last_error: null })
       .is('threads_post_id', null)
       .not('threads_posted_at', 'is', null)
-      .lt('threads_posted_at', staleBefore);
+      .lt('threads_posted_at', staleBefore)
+      .or('threads_post_status.eq.processing,threads_post_status.is.null');
     if (reclaimErr) {
       console.error('[threads-backfill] stale claim reclaim failed (continuing)', {
         err: errorMessage(reclaimErr),
@@ -104,7 +105,8 @@ export async function GET(request: Request) {
       .select('id', { count: 'exact', head: true })
       .eq('is_published', true)
       .is('threads_post_id', null)
-      .is('threads_posted_at', null);
+      .is('threads_posted_at', null)
+      .is('threads_post_status', null);
 
     if (countErr) {
       return cronError(SELF, startedAt, countErr, { message: 'Internal Server Error' });
@@ -117,6 +119,7 @@ export async function GET(request: Request) {
       .eq('is_published', true)
       .is('threads_post_id', null)
       .is('threads_posted_at', null)
+      .is('threads_post_status', null)
       .order('created_at', { ascending: true })
       .limit(MAX_POSTS_PER_RUN);
 
@@ -156,10 +159,11 @@ export async function GET(request: Request) {
       const nowIso = new Date().toISOString();
       const { data: claimed, error: claimErr } = await supabase
         .from('platform_blog_posts')
-        .update({ threads_posted_at: nowIso })
+        .update({ threads_posted_at: nowIso, threads_post_status: 'processing', threads_last_error: null })
         .eq('id', post.id)
         .is('threads_post_id', null)
         .is('threads_posted_at', null)
+        .is('threads_post_status', null)
         .select('id');
 
       if (claimErr) {
@@ -187,13 +191,24 @@ export async function GET(request: Request) {
       }
 
       if (result.outcome === 'published') {
-        const { error: finalizeErr } = await supabase
-          .from('platform_blog_posts')
-          .update({ threads_post_id: result.postId ?? null })
-          .eq('id', post.id)
-          .is('threads_post_id', null);
+        const postId = result.postId;
+        let finalizeErr: { message?: string } | Error | null = null;
+        if (postId) {
+          const result = await supabase
+            .from('platform_blog_posts')
+            .update({ threads_post_id: postId, threads_post_status: 'published', threads_last_error: null })
+            .eq('id', post.id)
+            .is('threads_post_id', null);
+          finalizeErr = result.error;
+        } else {
+          finalizeErr = new Error('Threads published response did not include postId');
+        }
         if (finalizeErr) {
-          // 投稿自体は完了済み。記録できないと reclaim 経由で再投稿され二重投稿になりうるため可視化する。
+          // 投稿自体は完了済み。記録できないと再投稿になるためambiguousへ隔離する。
+          await supabase.from('platform_blog_posts')
+            .update({ threads_post_status: 'ambiguous', threads_last_error: errorMessage(finalizeErr) })
+            .eq('id', post.id)
+            .is('threads_post_id', null);
           console.error('[threads-backfill] CRITICAL: posted but could not record threads_post_id — possible duplicate on next run', {
             postId: post.id,
             err: errorMessage(finalizeErr),
@@ -212,13 +227,17 @@ export async function GET(request: Request) {
           `[threads-backfill] Threads 投稿が恒久的に失敗しました（記事ID=${post.id}）: ${result.reason ?? 'unknown'}`,
           { route: `/api/cron/${SELF}` }
         );
+        await supabase.from('platform_blog_posts')
+          .update({ threads_post_status: 'permanent', threads_last_error: result.reason ?? 'unknown' })
+          .eq('id', post.id)
+          .is('threads_post_id', null);
         continue;
       }
 
       // transient / skipped は claim を解放する（次回また候補として拾う）。
       const { error: releaseErr } = await supabase
         .from('platform_blog_posts')
-        .update({ threads_posted_at: null })
+        .update({ threads_posted_at: null, threads_post_status: null, threads_last_error: result.reason ?? null })
         .eq('id', post.id)
         .is('threads_post_id', null);
       if (releaseErr) {

@@ -11,14 +11,101 @@
 //   本ファイルは (2) の穴を埋める。実 DB（CI のローカル Supabase・fresh-apply）に対して
 //   実際に POST /api/salons を発火させ、型不一致が再発すれば必ず落ちる。
 //
-// 対象外（意図）:
-//   写真アップロードは検証しない。「外観 *」は表示上の必須マークだけで送信前チェックが
-//   どこにも無い（RegisterForm.tsx の photoSlots に required はあるが onSubmit は見ていない）
-//   ため、写真0枚のまま送信できる。reCAPTCHA は NEXT_PUBLIC_RECAPTCHA_SITE_KEY 未設定
+//   写真は外観必須の契約どおり、合成画像をローカル Supabase Storage へアップロードする。
+//   reCAPTCHA は NEXT_PUBLIC_RECAPTCHA_SITE_KEY 未設定
 //   （CI/開発の既定）だとクライアントがトークンを取得せず、サーバーも RECAPTCHA_SECRET_KEY
 //   未設定なら検証をスキップする（recaptcha-client.ts / route.ts 参照）ため、
 //   CI 環境ではreCAPTCHA関連の追加操作は不要。
 import { test, expect, type Page } from '@playwright/test';
+import { createClient } from '@supabase/supabase-js';
+
+// Tiny synthetic image used only against the disposable local Supabase in E2E.
+const E2E_EXTERIOR_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL6WQAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+function isLocalUrl(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    const { hostname, protocol } = new URL(value);
+    return protocol === 'http:' && ['localhost', '127.0.0.1', '::1', '[::1]'].includes(hostname);
+  } catch {
+    return false;
+  }
+}
+
+test.beforeEach(async () => {
+  const appUrl = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000';
+  test.skip(
+    !isLocalUrl(appUrl) || !isLocalUrl(process.env.NEXT_PUBLIC_SUPABASE_URL),
+    'Registration E2E runs only against local app and local Supabase',
+  );
+});
+
+test('DB は新規 register に外観写真がない行を拒否する', async ({}, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium', 'DB contract は1回だけ確認');
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !isLocalUrl(url) || !serviceRoleKey || !anonKey) {
+    throw new Error('DB contract test requires the disposable local Supabase credentials');
+  }
+
+  const supabase = createClient(url, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const invalidPhotoSets = [
+    [],
+    ['https://carelink.invalid/storage/v1/object/public/carelink-uploads/salons/e2e/interior_1.jpg'],
+  ];
+  for (const [index, photo_urls] of invalidPhotoSets.entries()) {
+    const now = Date.now();
+    const { error } = await supabase.from('salons').insert({
+      facility_name: `E2E 制約検証 ${now}`,
+      business_type: 'ヘアサロン',
+      representative_name: 'E2E代表',
+      contact_name: 'E2E担当',
+      email: `e2e-photo-constraint-${now}-${index}@example.invalid`,
+      phone: '00000000000',
+      source: 'register',
+      photo_urls,
+    });
+
+    expect(error?.code).toBe('23514');
+    expect(error?.message).toContain('salons_register_requires_exterior_photo');
+  }
+
+  // SECURITY DEFINER RPC は service_role 専用。存在しない一意コードを使うため、
+  // 誤って権限が残っていても referral_codes の行は変更されない。
+  const probeCode = `__e2e_acl_probe_${crypto.randomUUID()}__`;
+  const rpcUrl = `${url}/rest/v1/rpc/increment_referral_code_used_count`;
+  const serviceRoleResponse = await fetch(rpcUrl, {
+    method: 'POST',
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ p_code: probeCode }),
+  });
+  expect(serviceRoleResponse.ok).toBe(true);
+  await expect(serviceRoleResponse.json()).resolves.toBeNull();
+
+  const anonResponse = await fetch(rpcUrl, {
+    method: 'POST',
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${anonKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ p_code: probeCode }),
+  });
+  expect(anonResponse.ok).toBe(false);
+  const anonError = await anonResponse.json().catch(() => null);
+  expect(anonError?.code).toBe('42501');
+});
 
 // 4択のうち、この2つを実際に踏む。immediately が今回の実障害の直接再現（一番最初の選択肢で
 // すぐ落ちていた）、undecided は逆側（列挙の末尾）で「配列の一部だけ通る」形の回帰も拾う。
@@ -69,12 +156,22 @@ test.describe('/register 送信', () => {
 
   for (const { value, label } of CASES) {
     test(`「掲載希望時期」で ${label}（${value}）を選んで送信すると /register/complete に着地する`, async ({ page }) => {
+      test.skip(
+        test.info().project.name !== 'chromium',
+        'Storage＋DB送信契約はChromiumで検証。WebKitは別テストで登録項目を確認し、不安定なファイル入力操作を避ける',
+      );
       await page.goto('/register');
 
       await fillStep1(page, `e2e-register-${value}-${Date.now()}@example.com`);
       await fillStep2(page);
 
-      // Step 3: PR情報。写真は選ばない（外観 * は表示上の必須マークだけで送信前チェックは無い）。
+      // Step 3: PR情報。外観写真必須の契約を満たす合成画像を選択する。
+      await page.locator('input[type="file"]').nth(0).setInputFiles({
+        name: 'e2e-exterior.png',
+        mimeType: 'image/png',
+        buffer: E2E_EXTERIOR_PNG,
+      });
+      await expect(page.getByRole('img', { name: '外観' })).toBeVisible();
       await page.selectOption('#reg-desired-start-date', { value });
 
       // 許認可の表明と利用規約同意（両方 disabled ガードの対象・チェックしないと送信不可）。
@@ -106,12 +203,9 @@ test.describe('/register 送信', () => {
       const resp = await salonsResponse;
 
       if (resp.status() !== 200) {
-        const body = await resp.text().catch(() => '(body 読取不可)');
-        const reqBody = resp.request().postData() ?? '(リクエストボディなし)';
         throw new Error(
           `POST /api/salons が ${resp.status()} を返した（desired_start_date=${value}）。\n` +
-            `これは docs/register-blocker-instructions.md の実障害（date 型不一致による 500）の\n` +
-            `再発の可能性が高い。\nresponse: ${body.slice(0, 500)}\nrequest: ${reqBody.slice(0, 500)}`,
+            '希望時期を含む店舗登録のE2E契約に失敗しました。送信データはログへ出しません。',
         );
       }
       expect(resp.status(), `POST /api/salons が 200 以外（desired_start_date=${value}）`).toBe(200);

@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { supabase } from '@/lib/supabase';
 import { salonStep1Schema, salonStep2Schema, salonStep3Schema, salonFullSchema, type SalonFormValues, formatPhone, businessTypes } from '@/lib/validations';
-import { facilityFeatures, DESIRED_START_DATES, desiredStartDateLabels } from '@/lib/constants';
+import { facilityFeatures, DESIRED_START_DATES, desiredStartDateLabels, SALON_CONSENT_VERSION } from '@/lib/constants';
 import StepIndicator from '@/components/StepIndicator';
 import MultiPhotoUpload, { type PhotoSlot } from '@/components/MultiPhotoUpload';
 import Spinner from '@/components/Spinner';
@@ -51,6 +51,8 @@ export default function RegisterForm() {
   // 一括同意に埋めると「読んでいない・気づいていない」の余地が残り、責任分界の証跡として弱い。
   // 独立したチェックにすることで、掲載者が届出義務を認識した上で登録した事実を明確に残す。
   const [licenseWarranted, setLicenseWarranted] = useState(false);
+  // 通信失敗後の再送でも同じ登録として扱い、施設・通知の二重作成を防ぐ。
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   const { register, handleSubmit, trigger, setValue, watch, formState: { errors } } = useForm<SalonFormValues>({
     resolver: zodResolver(salonFullSchema),
@@ -135,6 +137,8 @@ export default function RegisterForm() {
     // 失敗経路（アップロード自体の部分失敗・API失敗・例外）でも catch 節で確実に削除する。
     const uploadedPaths: string[] = [];
     try {
+      const idempotencyKey = idempotencyKeyRef.current ?? crypto.randomUUID();
+      idempotencyKeyRef.current = idempotencyKey;
       // Upload photos
       const uuid = crypto.randomUUID();
       const categories = ['exterior', 'interior_1', 'interior_2', 'interior_3', 'menu_1', 'menu_2', 'menu_3'];
@@ -194,6 +198,11 @@ export default function RegisterForm() {
           photo_url: photoUrls[0] || null,
           photo_urls: photoUrls,
           desired_start_date: data.desired_start_date || null,
+          terms_agreed: agreed,
+          privacy_agreed: agreed,
+          consent_version: SALON_CONSENT_VERSION,
+          license_warranted: licenseWarranted,
+          idempotency_key: idempotencyKey,
           // 【2026年7月16日 恒久根治・/api/notify 廃止対応】従来はここで送信成功後に
           // 認証なしの公開POST /api/notify を別途叩いて Slack 通知していたが、外部から
           // 偽アラートを送れる構造的脆弱性だったため廃止。/api/salons が保存成功後に
@@ -214,6 +223,7 @@ export default function RegisterForm() {
       const resBody = await res.json().catch(() => null);
 
       setIsDirty(false);
+      idempotencyKeyRef.current = null;
       // 【2026年7月8日 恒久根治】/register/complete はクライアント供給の name/type/area だけを表示
       // しており、サーバー確認なしで誰でも任意の値を使って「登録完了しました」画面を直接開けた
       // （実登録なしでの偽装表示・分析上のコンバージョン計測歪みの懸念）。/api/salons が返す

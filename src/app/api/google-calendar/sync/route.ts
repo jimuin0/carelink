@@ -225,9 +225,27 @@ export async function DELETE(req: NextRequest) {
         accessToken = refreshed.access_token;
       }
 
-      await fetch(
+      const googleDelete = await fetch(
         `https://www.googleapis.com/calendar/v3/calendars/primary/events/${calEvent.google_event_id}`,
         { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      // 404は既にGoogle側で消えている状態なのでローカル追跡も掃除できる。
+      // 403/5xx/ネットワーク失敗では外部イベントが残っている可能性があるため、
+      // ローカル行を消さずに5xxを返し、再試行可能な状態を維持する。
+      if (!googleDelete.ok && googleDelete.status !== 404) {
+        return serverError(
+          'gcal-google-delete',
+          new Error(`Google Calendar delete failed: HTTP ${googleDelete.status}`),
+          '/api/google-calendar/sync',
+          'Calendar delete failed',
+        );
+      }
+    } else {
+      return serverError(
+        'gcal-google-delete-token',
+        new Error('Google Calendar token is missing while tracked event exists'),
+        '/api/google-calendar/sync',
+        'Google Calendar connection is required',
       );
     }
 

@@ -18,18 +18,18 @@ describe('reverseCompletionSideEffects', () => {
     expect(admin.from).toHaveBeenCalledWith('user_points');
   });
 
-  test('customer_visits 削除エラー → console.error（致命にしない）', async () => {
+  test('customer_visits 削除エラー → 例外を返してポイント削除を続行しない', async () => {
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const admin = mkAdmin({ message: 'visit fail' });
-    await reverseCompletionSideEffects(admin as any, 'bk-1');
+    await expect(reverseCompletionSideEffects(admin as any, 'bk-1')).rejects.toThrow('customer_visits delete failed');
     expect(errSpy).toHaveBeenCalled();
     errSpy.mockRestore();
   });
 
-  test('user_points 削除エラー → console.error（致命にしない）', async () => {
+  test('user_points 削除エラー → 例外を返す', async () => {
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const admin = mkAdmin(null, { message: 'point fail' });
-    await reverseCompletionSideEffects(admin as any, 'bk-1');
+    await expect(reverseCompletionSideEffects(admin as any, 'bk-1')).rejects.toThrow('user_points delete failed');
     expect(errSpy).toHaveBeenCalled();
     errSpy.mockRestore();
   });

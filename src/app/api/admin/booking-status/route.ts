@@ -98,6 +98,27 @@ export async function POST(request: Request) {
       );
     }
 
+    // 先に副作用を冪等適用し、失敗時はstatusを変更しない。これにより「completedなのに
+    // 来店記録・ポイントが無い」「cancelledなのに返還が無い」という部分コミットを防ぐ。
+    if (booking.status === 'completed') {
+      await reverseCompletionSideEffects(createServiceRoleClient(), bookingId);
+    }
+    if (status === 'completed') {
+      await applyCompletionSideEffects(supabase, booking);
+    }
+    const pointsToRefund = booking.points_used ?? 0;
+    if (status === 'cancelled' && pointsToRefund > 0 && booking.user_id) {
+      const { error: refundErr } = await supabase.from('user_points').insert({
+        user_id: booking.user_id,
+        points: pointsToRefund,
+        reason: 'キャンセル返還',
+        booking_id: booking.id,
+      });
+      if (refundErr && refundErr.code !== '23505') {
+        return serverError('admin-booking-status-refund', refundErr, '/api/admin/booking-status', 'ポイント返還に失敗したため更新を中止しました');
+      }
+    }
+
     // Update status — include current status in WHERE clause (CAS) so concurrent updates
     // cannot bypass the state machine by updating a stale read.
     const { data: updated, error } = await supabase
@@ -113,41 +134,6 @@ export async function POST(request: Request) {
     }
     if (!updated || updated.length === 0) {
       return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
-    }
-
-    // completed から離脱（誤完了→no_show 修正等）した場合、完了時に付与した来店記録・ポイントを取り消す。
-    // completed からの許可遷移は no_show のみ（completed→completed は上の「既にそのステータス」で弾かれる）
-    // ため、origin が completed か否かの単一条件で足りる。
-    if (booking.status === 'completed') {
-      await reverseCompletionSideEffects(createServiceRoleClient(), bookingId);
-    }
-
-    // completed へ「進入」した場合、来店記録(customer_visits)・来店ポイントを付与する。
-    // 以前は完了の副作用が未配線の /api/booking/complete にしか無く、実運用(ステータス
-    // ドロップダウン)経由の完了では customer_visits が一切積まれず、顧客一覧の来店実績が
-    // 常に空・来店ポイント未付与だった（8体監査の追検証で確定した本番無音バグの根治）。
-    // CAS 更新成功後＝confirmed→completed が1回だけ確定した後に呼ぶため重複付与しない。
-    if (status === 'completed') {
-      await applyCompletionSideEffects(supabase, booking);
-    }
-
-    // cancelled へ「進入」した場合、予約作成時に控除した利用ポイントを返還する（金銭損失防止）。
-    // 顧客側キャンセル(/api/booking/[id]/cancel)と対称。CAS 更新成功後＝1予約あたり1回のみ到達するため
-    // 二重返還は起きない。元状態が cancelled の遷移は state machine で存在しない（cancelled は終端）。
-    // 失敗は致命でないため warn のみ（要手動照合）。
-    if (status === 'cancelled') {
-      const refundPoints = booking.points_used ?? 0;
-      if (refundPoints > 0 && booking.user_id) {
-        const { error: refundErr } = await supabase.from('user_points').insert({
-          user_id: booking.user_id,
-          points: refundPoints,
-          reason: 'キャンセル返還',
-          booking_id: booking.id,
-        });
-        if (refundErr) {
-          console.error('[admin-booking-status] point refund failed — manual cleanup needed', { bookingId: booking.id, points: refundPoints, err: refundErr.message });
-        }
-      }
     }
 
     void writeAuditLog({

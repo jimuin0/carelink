@@ -10,6 +10,8 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/types/database.types';
 import { checkCsrf } from '@/lib/csrf';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { todayJst } from '@/lib/admin-date';
@@ -21,6 +23,37 @@ import { errorMessage } from '@/lib/err';
 const ACTIVE_BOOKING_STATUSES = ['pending', 'confirmed', 'arrived'];
 
 export const dynamic = 'force-dynamic';
+
+type DeletionJobStatus = 'processing' | 'retryable' | 'awaiting_auth_delete' | 'completed';
+
+async function updateDeletionJob(
+  adminSupabase: SupabaseClient<Database>,
+  userId: string,
+  patch: { status: DeletionJobStatus; line_user_id?: string | null; last_error?: string | null },
+): Promise<{ error: unknown | null }> {
+  const { error } = await adminSupabase.from('account_deletion_jobs').upsert({
+    user_id: userId,
+    ...patch,
+    updated_at: new Date().toISOString(),
+    completed_at: patch.status === 'completed' ? new Date().toISOString() : null,
+  });
+  return { error };
+}
+
+async function markDeletionJobFailure(
+  adminSupabase: SupabaseClient<Database>,
+  userId: string,
+  status: 'retryable' | 'awaiting_auth_delete',
+  error: unknown,
+): Promise<void> {
+  const result = await updateDeletionJob(adminSupabase, userId, {
+    status,
+    last_error: errorMessage(error),
+  });
+  if (result.error) {
+    console.error('[account/delete] deletion job state update failed', { userId, status, err: result.error });
+  }
+}
 
 // DB クエリの error を検知したときの共通中断処理。
 // why: 退会ガード（未完了予約・オーナー人数）は count クエリの成否に直結する判定で、
@@ -127,6 +160,37 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 施設停止とメンバー削除に必要な照合を、PII削除より先に完了させる。途中で失敗しても
+    // プロフィールが残るため、同じ退会要求を安全に再実行できる。
+    const { data: memberships, error: membershipsErr } = await adminSupabase
+      .from('facility_members')
+      .select('facility_id, role')
+      .eq('user_id', user.id)
+      .eq('role', 'owner');
+    if (membershipsErr) {
+      return guardQueryFailedResponse('account-delete-memberships-select', 'facility_members (owner) select failed', membershipsErr);
+    }
+    for (const m of memberships ?? []) {
+      const { count, error: ownerCountErr } = await adminSupabase
+        .from('facility_members')
+        .select('id', { count: 'exact', head: true })
+        .eq('facility_id', m.facility_id)
+        .eq('role', 'owner')
+        .neq('user_id', user.id);
+      if (ownerCountErr) {
+        return guardQueryFailedResponse('account-delete-owner-count', `owner count query failed (facility_id=${m.facility_id})`, ownerCountErr);
+      }
+      if ((count ?? 0) === 0) {
+        const { error: suspendErr } = await adminSupabase
+          .from('facility_profiles')
+          .update({ status: 'suspended' })
+          .eq('id', m.facility_id);
+        if (suspendErr) {
+          return serverError('account-delete-facility-suspend', suspendErr, '/api/account/delete', '施設停止に失敗したため退会を中止しました');
+        }
+      }
+    }
+
     // 【監査C2 low】line_user_links.user_id は恒常的に NULL（webhook は user_id 未設定で upsert・
     // populate するコードが無い）ため、旧 .eq('user_id', user.id) 削除は一致0行でフォロー行が
     // 退会後も孤児として残存していた。連携の line_user_id を profiles（単一ソース）から解決し、
@@ -138,6 +202,17 @@ export async function POST(request: NextRequest) {
     // バッチが部分失敗して再実行される場合も profiles が生き残っているため、この行が
     // 毎回正しく lineUserId を再解決できる＝退会処理全体が再実行に対して冪等になる。
     const lineUserId = await resolveLineUserIdForUser(adminSupabase, user.id);
+
+    // auth.admin.deleteUser はDB transaction外のため、先にSaga状態を永続化する。
+    // auth削除だけ失敗した場合も、cronがこの行を拾って再試行できるようにする。
+    const jobStart = await updateDeletionJob(adminSupabase, user.id, {
+      status: 'processing',
+      line_user_id: lineUserId,
+      last_error: null,
+    });
+    if (jobStart.error) {
+      return serverError('account-delete-job-start', jobStart.error, '/api/account/delete', 'アカウント削除の準備に失敗しました');
+    }
 
     // 関連データ削除（CASCADE設定されていないテーブル + SET NULL で残存するPIIテーブル）
     const deleteResults = await Promise.allSettled([
@@ -187,9 +262,11 @@ export async function POST(request: NextRequest) {
       // 孤立データになり個人情報保護法違反になる（発症後では検知不能）。auth 削除の前に中断し、
       // Slack 通知して 500 を返す。各削除/NULL 化は user_id 等値で冪等のため、ユーザーは
       // 再実行で安全にやり直せる（既に消えた行は no-op・残りが消える＝発症前予防）。
+      const deletionError = new Error(`PII deletion partial failure (${failedOps.length} ops) — aborted before auth deletion`);
+      await markDeletionJobFailure(adminSupabase, user.id, 'retryable', deletionError);
       return serverError(
         'account-delete-pii',
-        new Error(`PII deletion partial failure (${failedOps.length} ops) — aborted before auth deletion`),
+        deletionError,
         '/api/account/delete',
         'アカウント削除に失敗しました。時間をおいて再度お試しください。',
       );
@@ -211,50 +288,14 @@ export async function POST(request: NextRequest) {
         userId: user.id,
         err: profilesDeleteErr,
       });
+      const deletionError = new Error(`profiles deletion failed: ${errorMessage(profilesDeleteErr)}`);
+      await markDeletionJobFailure(adminSupabase, user.id, 'retryable', deletionError);
       return serverError(
         'account-delete-profiles',
-        new Error(`profiles deletion failed: ${errorMessage(profilesDeleteErr)}`),
+        deletionError,
         '/api/account/delete',
         'アカウント削除に失敗しました。時間をおいて再度お試しください。',
       );
-    }
-
-    // 施設オーナーの場合、施設も削除
-    const { data: memberships, error: membershipsErr } = await adminSupabase
-      .from('facility_members')
-      .select('facility_id, role')
-      .eq('user_id', user.id)
-      .eq('role', 'owner');
-    if (membershipsErr) {
-      return guardQueryFailedResponse(
-        'account-delete-memberships-select',
-        'facility_members (owner) select failed',
-        membershipsErr,
-      );
-    }
-
-    if (memberships) {
-      for (const m of memberships) {
-        // 他にオーナーがいない場合のみ施設削除
-        const { count, error: ownerCountErr } = await adminSupabase
-          .from('facility_members')
-          .select('id', { count: 'exact', head: true })
-          .eq('facility_id', m.facility_id)
-          .eq('role', 'owner')
-          .neq('user_id', user.id);
-        if (ownerCountErr) {
-          return guardQueryFailedResponse(
-            'account-delete-owner-count',
-            `owner count query failed (facility_id=${m.facility_id})`,
-            ownerCountErr,
-          );
-        }
-
-        if ((count ?? 0) === 0) {
-          const { error: suspendErr } = await adminSupabase.from('facility_profiles').update({ status: 'suspended' }).eq('id', m.facility_id);
-          if (suspendErr) console.error('[account/delete] facility suspend failed — manual cleanup required', { facilityId: m.facility_id, err: suspendErr });
-        }
-      }
     }
 
     const { error: memberDeleteErr } = await adminSupabase.from('facility_members').delete().eq('user_id', user.id);
@@ -262,9 +303,11 @@ export async function POST(request: NextRequest) {
       console.error('[account/delete] facility_members deletion failed — manual cleanup required', { userId: user.id, err: memberDeleteErr });
       // facility_members が残ったまま auth.users を消すと、孤立メンバーシップ（FK RESTRICT なら
       // 後続の auth 削除自体が失敗）になる。auth 削除前に中断して再実行可能化する（冪等・発症前予防）。
+      const deletionError = new Error(`facility_members deletion failed: ${memberDeleteErr.message}`);
+      await markDeletionJobFailure(adminSupabase, user.id, 'retryable', deletionError);
       return serverError(
         'account-delete-members',
-        new Error(`facility_members deletion failed: ${memberDeleteErr.message}`),
+        deletionError,
         '/api/account/delete',
         'アカウント削除に失敗しました。時間をおいて再度お試しください。',
       );
@@ -274,10 +317,9 @@ export async function POST(request: NextRequest) {
     const { error: authDeleteErr } = await adminSupabase.auth.admin.deleteUser(user.id);
     if (authDeleteErr) {
       console.error('[account/delete] auth.users deletion failed', { userId: user.id, err: authDeleteErr });
-      // why: この中断はここまでの3経路の中で最も深刻。PII（profiles等）と facility_members は
-      // 既に全て削除済みで auth.users だけが残るため、「ログインはできるが profiles が無い
-      // 半分消えたアカウント」になる。Cookie 失効処理は成功パス（この下）にしか無いためセッションも
-      // 生きたまま残る。人による即時対応が必要な状態なので必ず Slack へ通知する。
+      // PII scrub は完了済みだが、Sagaがawaiting_auth_deleteとして保持されるため、
+      // ユーザーの再操作ではなく専用cronがauth削除を再試行する。
+      await markDeletionJobFailure(adminSupabase, user.id, 'awaiting_auth_delete', authDeleteErr);
       return serverError(
         'account-delete-auth',
         new Error(
@@ -287,6 +329,15 @@ export async function POST(request: NextRequest) {
         '/api/account/delete',
         'アカウント削除に失敗しました',
       );
+    }
+
+    const jobComplete = await updateDeletionJob(adminSupabase, user.id, {
+      status: 'completed',
+      line_user_id: lineUserId,
+      last_error: null,
+    });
+    if (jobComplete.error) {
+      return serverError('account-delete-job-complete', jobComplete.error, '/api/account/delete', '退会状態の確定に失敗しました');
     }
 
     const { ua } = getRequestContext(request);
