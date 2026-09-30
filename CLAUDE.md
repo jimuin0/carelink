@@ -361,6 +361,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 | RESEND_API_KEY | メール送信（未設定でメール系 cron は送信スキップ） |
 | EMAIL_FROM | 送信元。本番では検証済みドメイン以外だと既定値へ強制フォールバックする（`src/lib/email-from.ts`） |
 | NEWSLETTER_EMAIL_FROM | ニュースレター専用の送信元。未設定なら `CareLink <newsletter@carelink-jp.com>`。EMAIL_FROM と同じ検証を通る |
+| OPERATOR_NOTIFY_EMAIL | 運営向けメール通知の宛先（カンマ区切りで複数可・`sendOperatorNotification`）。未設定なら送信せず false |
 | NEWSLETTER_UNSUBSCRIBE_SECRET | ニュースレター配信停止リンクの HMAC 署名鍵（手動配信 `api/admin/newsletter/[id]`／`unsubscribe` 共通・一度設定したら変更しない） |
 | STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET | 決済・Stripe webhook 署名検証 |
 | LINE_CHANNEL_ACCESS_TOKEN_CARELINK / LINE_CHANNEL_SECRET / LINE_CHANNEL_SECRET_CARELINK / LINE_LOGIN_CHANNEL_ID / NEXT_PUBLIC_LIFF_ID / NEXT_PUBLIC_LINE_CHANNEL_ID | LINE Messaging／LINE Login／LIFF |

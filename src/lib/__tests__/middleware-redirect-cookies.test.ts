@@ -32,6 +32,7 @@ function makeResponse() {
 
 let getUserImpl: (opts: { cookies: { setAll: (c: unknown[]) => void } }) => Promise<{ data: { user: unknown } }>;
 let membershipResult: { data: unknown; error: unknown };
+let profileResult: { data: unknown; error: unknown };
 
 jest.mock('next/server', () => ({
   NextResponse: {
@@ -42,14 +43,18 @@ jest.mock('next/server', () => ({
       r._redirectedTo = url;
       return r;
     },
-    json: (body: unknown, init?: { status?: number }) => ({ body, status: init?.status ?? 200 }),
+    json: (body: unknown, init?: { status?: number; headers?: Record<string, string> }) => ({
+      ...makeResponse(), body, status: init?.status ?? 200, headers: new Headers(init?.headers),
+    }),
   },
 }));
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: (_url: string, _key: string, opts: { cookies: { setAll: (c: unknown[]) => void } }) => ({
     auth: { getUser: () => getUserImpl(opts) },
-    from: () => ({
+    from: (table: string) => table === 'profiles' ? ({
+      select: () => ({ eq: () => ({ single: async () => profileResult }) }),
+    }) : ({
       select: () => ({
         eq: () => ({
           in: () => ({
@@ -63,7 +68,7 @@ jest.mock('@supabase/ssr', () => ({
   }),
 }));
 
-import { middleware } from '../../middleware';
+import { middleware, signCacheValue, getMembershipCacheKey } from '../../middleware';
 
 function makeNextUrl(path: string): URL & { clone: () => URL } {
   const u = new URL('https://carelink-jp.com' + path) as URL & { clone: () => URL };
@@ -94,6 +99,7 @@ beforeEach(() => {
     return { data: { user: { id: 'u1' } } };
   };
   membershipResult = { data: { role: 'owner' }, error: null };
+  profileResult = { data: { is_platform_admin: false }, error: null };
 });
 
 test('AUTH-1: /auth/login のログイン済みリダイレクトが更新済みセッション Cookie を継承する', async () => {
@@ -119,4 +125,60 @@ test('AUTH-2 対照: facility_members 取得成功（owner）なら /admin を�
   const res: Record<string, unknown> = await middleware(makeRequest('/admin'));
   // owner なので redirect せずレスポンスを返す（_isRedirect は付かない）
   expect(res._isRedirect).toBeUndefined();
+});
+
+test.each(['/admin/inquiries', '/admin/registrations'])('platform-only operator can access support: %s', async path => {
+  membershipResult = { data: null, error: null };
+  profileResult = { data: { is_platform_admin: true }, error: null };
+  const res: Record<string, unknown> = await middleware(makeRequest(path));
+  expect(res._isRedirect).toBeUndefined();
+  const cookies = (res.cookies as ReturnType<typeof cookieStore>).getAll();
+  expect(cookies.some(c => c.name.startsWith('_cm_mbr_'))).toBe(false);
+  expect(cookies.find(c => c.name === 'sb-refresh-token')?.value).toBe('refreshed');
+});
+
+test.each([false, null, 'true'])('support privilege requires literal true, not %s', async value => {
+  membershipResult = { data: null, error: null };
+  profileResult = { data: { is_platform_admin: value }, error: null };
+  const res: Record<string, unknown> = await middleware(makeRequest('/admin/inquiries'));
+  expect(res._isRedirect).toBe(true);
+  expect((res._redirectedTo as URL).pathname).toBe('/mypage');
+});
+
+test('support role lookup failure is not cached or treated as success', async () => {
+  profileResult = { data: { is_platform_admin: true }, error: { message: 'unavailable' } };
+  const res: Record<string, unknown> = await middleware(makeRequest('/admin/inquiries'));
+  expect(res.status).toBe(503);
+});
+
+test.each(['/admin', '/admin/settings', '/admin/inquiries-evil'])('platform-only role cannot enter facility pages: %s', async path => {
+  membershipResult = { data: null, error: null };
+  profileResult = { data: { is_platform_admin: true }, error: null };
+  const res: Record<string, unknown> = await middleware(makeRequest(path));
+  expect(res._isRedirect).toBe(true);
+});
+
+test('unauthenticated support request still requires login', async () => {
+  getUserImpl = async () => ({ data: { user: null } });
+  profileResult = { data: { is_platform_admin: true }, error: null };
+  const res: Record<string, unknown> = await middleware(makeRequest('/admin/inquiries'));
+  expect((res._redirectedTo as URL).pathname).toBe('/auth/login');
+});
+
+test('signed negative membership cache cannot lock out a verified operator', async () => {
+  profileResult = { data: { is_platform_admin: true }, error: null };
+  const signed = await signCacheValue('u1', '0');
+  const res: Record<string, unknown> = await middleware(makeRequest('/admin/inquiries', {
+    [getMembershipCacheKey('u1')]: signed!,
+  }));
+  expect(res._isRedirect).toBeUndefined();
+});
+
+test('revoked platform role is freshly checked and cannot rely on past support access', async () => {
+  profileResult = { data: { is_platform_admin: true }, error: null };
+  await middleware(makeRequest('/admin/inquiries'));
+  membershipResult = { data: null, error: null };
+  profileResult = { data: { is_platform_admin: false }, error: null };
+  const res: Record<string, unknown> = await middleware(makeRequest('/admin/inquiries'));
+  expect(res._isRedirect).toBe(true);
 });

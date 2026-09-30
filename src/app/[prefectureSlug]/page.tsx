@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
-  allPrefectureSlugs,
   allBusinessTypeSlugs,
   businessTypeSlugs,
   getPrefectureName,
@@ -20,13 +19,14 @@ import FacilityCard from '@/components/search/FacilityCard';
 import RelatedLinks from '@/components/seo/RelatedLinks';
 
 export const revalidate = 3600;
+export const dynamic = 'force-dynamic';
 
 interface Props {
   params: Promise<{ prefectureSlug: string }>;
 }
 
 export function generateStaticParams() {
-  return allPrefectureSlugs.map((slug) => ({ prefectureSlug: slug }));
+  return [];
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {

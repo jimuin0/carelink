@@ -203,11 +203,9 @@ test('platform registration search traverses over 100 real rows and rejects stal
   const marker = `Synthetic pagination ${randomUUID()}`;
   const promotion = await service.from('profiles').update({ is_platform_admin: true }).eq('id', userId).select('id');
   if (promotion.error || promotion.data?.length !== 1) throw new Error('synthetic platform role setup failed');
-  const facility = await service.from('facility_profiles').insert({ name: 'Synthetic admin navigation', slug: randomUUID(),
-    business_type: businessTypes[0], prefecture: '愛知県', city: '合成市', address: '合成町1', status: 'draft' }).select('id').single();
-  if (facility.error || !facility.data) throw new Error('synthetic admin navigation fixture failed');
-  const membership = await service.from('facility_members').insert({ facility_id: facility.data.id, user_id: userId, role: 'owner' });
-  if (membership.error) throw new Error('synthetic admin membership failed');
+  const memberships = await service.from('facility_members').select('id').eq('user_id', userId);
+  if (memberships.error) throw new Error('synthetic membership read failed');
+  expect(memberships.data).toEqual([]);
   const rows = Array.from({ length: 125 }, (_, index) => ({ ...registration, id: randomUUID(),
     facility_name: marker, email: `pagination-${randomUUID()}@example.invalid`,
     status: index === 124 ? null : 'pending',
@@ -290,6 +288,23 @@ test('platform registration search traverses over 100 real rows and rejects stal
   await expect(page.getByRole('button', { name: '次の50件' })).toBeDisabled();
   await page.getByRole('button', { name: '前の50件' }).click();
   await expect(page.getByText(marker, { exact: true })).toHaveCount(50);
+  const inquiries = await context.request.get('/api/admin/inquiries');
+  expect(inquiries.status()).toBe(200);
+  expect(inquiries.headers()['cache-control']).toBe('no-store');
+  const supportPage = await page.goto('/admin/inquiries');
+  expect(supportPage?.headers()['content-security-policy']).toMatch(/nonce-/);
+  await expect(page.getByRole('heading', { name: '問い合わせ管理', exact: true })).toBeVisible();
+  const supportNavigation = page.getByRole('navigation', { name: '運営サポート', exact: true });
+  await expect(supportNavigation.getByRole('link', { name: '問い合わせ(運営)', exact: true })).toHaveAttribute('href', '/admin/inquiries');
+  await expect(supportNavigation.getByRole('link', { name: '施設登録', exact: true })).toHaveAttribute('href', '/admin/registrations');
+  await page.goto('/admin/settings');
+  await expect(page).toHaveURL(/\/mypage/);
+  const revoked = await service.from('profiles').update({ is_platform_admin: false }).eq('id', userId).select('id');
+  if (revoked.error || revoked.data?.length !== 1) throw new Error('synthetic platform role revoke failed');
+  expect((await context.request.get('/api/admin/inquiries')).status()).toBe(403);
+  expect((await context.request.post('/api/admin/registrations', { headers, data: query })).status()).toBe(403);
+  await page.goto('/admin/inquiries');
+  await expect(page).toHaveURL(/\/mypage/);
 });
 
 async function loginSyntheticOwner(context: BrowserContext) {

@@ -112,6 +112,9 @@ jobs:
       - name: Atomic facility setup roles, claims and rollback (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/facility-setup-fixtures.sql
 
+      - name: Missing profile INSERT and UPDATE privilege boundary (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/profile-privilege-fixtures.sql
+
       - name: Registration storage historical upgrade states (disposable DB)
         run: node scripts/check-salon-storage-upgrade.mjs
 

@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
-import Image from 'next/image';
+import type { CSSProperties } from 'react';
 import '@fontsource-variable/noto-serif-jp/index.css';
+import Image from 'next/image';
+import Link from 'next/link';
 import RegisterForm from '@/components/register/RegisterForm';
 
 export const dynamic = 'force-dynamic';
@@ -16,13 +18,17 @@ export const dynamic = 'force-dynamic';
  * 余白や配置を微調整するより先に、この 3 つ（書体・配色・罫線）を変える。
  *
  * 本文はゴシックのまま残す（明朝は小さい字だと読みにくく、フォームの可読性を落とすため）。
- * このページだけで同梱CSSをimportする。ビルド時のGoogle Fonts応答には依存しない。
+ * 同梱した明朝体とOS標準のfallbackを使い、ビルド時の外部フォント応答には依存しない。
  *
  * 【配色】globals.css の `.theme-ecru` が単一ソース。実際の色コードと実測コントラストは
  * そちらに書いてある。ここで直書きしないのは、同じ色をヘッダーも使うため
  * （別々に持つと必ず片方だけ古くなる。実際にロゴだけ青が残る事故を起こした）。
  * src/__tests__/ecru-theme-single-source.test.ts が直書きへの逆戻りを CI で止める。
  */
+const serifStyle = {
+  '--font-serif-jp':
+    '"Noto Serif JP Variable", "Yu Mincho", "Hiragino Mincho ProN", "Hiragino Mincho Pro", serif',
+} as CSSProperties;
 
 export const metadata: Metadata = {
   title: '店舗・施設の掲載登録 | CareLink',
@@ -84,6 +90,7 @@ export default function RegisterPage() {
   return (
     <div
       className="theme-ecru bg-[var(--ecru-bg)] text-[var(--ecru-text)]"
+      style={serifStyle}
     >
       {/* ===== ヒーロー =====
           写真の上に文字を重ねる編集誌的な組み。写真の下に文字を置く形も試したが、
@@ -241,6 +248,33 @@ export default function RegisterPage() {
               </li>
             ))}
           </ol>
+        </div>
+      </section>
+
+      <section aria-labelledby="registration-help" className="mt-16 px-7 sm:mt-24 sm:px-12">
+        <div className="mx-auto max-w-3xl">
+          <h2 id="registration-help" className="text-center font-[family-name:var(--font-serif-jp)] text-lg sm:text-2xl">
+            お申し込み前のご確認
+          </h2>
+          <dl className="mt-8 divide-y divide-[var(--ecru-line)] border-y border-[var(--ecru-line)] text-sm">
+            <div className="py-5">
+              <dt className="font-medium">この申し込みで料金は発生しますか？</dt>
+              <dd className="mt-2 leading-relaxed">掲載料・予約手数料は無料です。この掲載申し込みで有料プランや決済契約を申し込むことはありません。</dd>
+            </div>
+            <div className="py-5">
+              <dt className="font-medium">受付が完了したら、すぐに公開されますか？</dt>
+              <dd className="mt-2 leading-relaxed">受付完了と一般公開は別の手続きです。アカウントを作成し、管理画面で所在地・メニュー・写真・スタッフを整え、公開条件を確認してください。</dd>
+            </div>
+            <div className="py-5">
+              <dt className="font-medium">複数店舗はどのように登録しますか？</dt>
+              <dd className="mt-2 leading-relaxed">店舗ごとに掲載申し込みが必要です。現在、自己登録できる店舗オーナーアカウントは1アカウントにつき1店舗です。複数店舗の管理権限や既存掲載の統合は、登録前に運営へお問い合わせください。</dd>
+            </div>
+            <div className="py-5">
+              <dt className="font-medium">送信後にエラーが出た場合、再送してよいですか？</dt>
+              <dd className="mt-2 leading-relaxed">受付完了を確認できない場合は、重複を避けるため連続送信せず、画面に表示された確認方法に従ってください。解決しない場合は、施設名と送信した日時を添えて運営へお問い合わせください。</dd>
+            </div>
+          </dl>
+          <Link href="/contact" className="mt-5 inline-block underline underline-offset-4">施設掲載について運営に問い合わせる</Link>
         </div>
       </section>
 
