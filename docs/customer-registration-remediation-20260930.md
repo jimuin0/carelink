@@ -66,6 +66,10 @@ HEAD `9a8375c8428ceecccf31f0d0833930f2ee8e0181`、CI run `36878394928` はlint�
 
 これらは実際に失敗した検証の観測・操作の修正であり、旧runを合格へ書き換えるものではない。新固定SHAの独立レビューと全必須CI、公式migration、本番反映と対象動作確認を続行する。
 
+次のHEAD `b3a860264695200ca0b4fe531d86183486220306`、run `36882825623` の単体検証は、登録E2Eのguard用VMが新helperのimportを認識しない8件で失敗した。guard条件を削らず、実helperのmodule初期化をI/OのないVMで読み、指定されたimportだけを許可する。未知importは引き続き拒否する。helperの非JSON・fetch／fulfill失敗・未観測・重複POST・非POST・cleanupの回帰検証を追加し、外部通信を遮断した2 suite・16 testは成功した。独立読取レビューでこの2 testの新P0〜P3は未検出。実時間のpoll、認証、DB、browser応答はunitだけでは保証せず、最新CIの実E2Eを別gateとして維持する。
+
+同HEADのCI E2Eは308件すべて成功、隔離実API Contractは16件すべて成功、production buildとPG17全再生も成功した。ただし単体gateの失敗が残るため、merge・本番適用の合格とはしない。helper unit追加後のlocal並列coverageは9,205件成功・登録フォーム2件失敗（分岐9,349/9,349）だった。同2 suiteの単独検証12件は成功したが、これだけで全体合格に置換せず、通信遮断下の全体逐次検証と次の最新SHAの全必須CIを継続する。型・lint・対象16件の成功と固定版独立レビューを、この検証コード修正のcommit前証拠として区別する。
+
 ## 掲載と予約の分離（revision 4、現行）
 
 認証済み追加依頼の原文：`無料掲載と予約を分ける`。下のrevision 3に対する事業方針の変更であり、過去の公開準備条件は今回の掲載条件として継承しない。
