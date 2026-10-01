@@ -6,6 +6,7 @@ import { SALON_CLAIM_COOKIE_NAME, verifySalonClaimDetails } from '@/lib/salon-cl
 import { isSalonIntentProof, salonIntentCookieName } from '@/lib/salon-submission-proof';
 import { facilitySetupInput, setupFacilityAtomically, type FacilitySetupClaim } from '@/lib/facility-setup-atomic';
 import { salonRecoveryCookieName } from '@/lib/salon-recovery';
+import { getMembershipCacheKey } from '@/lib/admin-membership-cache-key';
 
 export const dynamic = 'force-dynamic';
 const headers = { 'Cache-Control': 'no-store' };
@@ -46,9 +47,16 @@ export const POST = withRoute(async (request, ctx) => {
   // Preserve the capability for a lost HTTP response/replay; the DB tombstone
   // prevents a different user from consuming it. Clearing it here would make
   // the exact result unresolvable after a disconnect.
-  return NextResponse.json({ success: true, state: result.state, facilityId: result.facilityId,
+  const response = NextResponse.json({ success: true, state: result.state, facilityId: result.facilityId,
     slug: result.slug, message: result.state === 'created' ? '店舗アカウントを作成しました。公開には管理画面の設定が必要です。' : '登録済みの店舗アカウントを確認しました。',
   }, { status: result.state === 'created' ? 201 : 200, headers });
+  // A signed negative cache may have been prefetched before membership existed.
+  // Invalidate only this authenticated user's hint; never issue a positive grant.
+  response.cookies.set(getMembershipCacheKey(ctx.user!.id), '', {
+    path: '/admin', httpOnly: true, secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax', maxAge: 0,
+  });
+  return response;
 }, { csrf: true, requireAuth: true,
   rateLimit: { limiter: mutationRateLimit, limit: 5, windowMs: 60_000, prefix: 'facility-setup' },
   sentryTag: 'facility-setup',

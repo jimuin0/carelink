@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
 import path from 'path';
 import { BOOKING_FACILITY_FILE, BOOKING_SEED } from './booking.fixtures';
+import { confirmSyntheticBookingPreparation } from './booking-preparation.seed';
 
 // supabase-js v2 は Node 20 で createClient 時に WebSocket（realtime 用）を要求し throw する。
 // seed は REST のみで realtime に接続しないため、ダミーを与えて構築時 throw を回避する。
@@ -68,6 +69,7 @@ setup('seed bookable facility', async () => {
     is_published: true,
   });
   if (me) throw new Error('seed menu: ' + me.message);
+  await confirmSyntheticBookingPreparation(sb, facilityId);
 
   fs.mkdirSync(path.dirname(BOOKING_FACILITY_FILE), { recursive: true });
   fs.writeFileSync(BOOKING_FACILITY_FILE, JSON.stringify({ slug, facilityId }));

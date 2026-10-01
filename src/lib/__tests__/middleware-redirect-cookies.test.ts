@@ -33,6 +33,7 @@ function makeResponse() {
 let getUserImpl: (opts: { cookies: { setAll: (c: unknown[]) => void } }) => Promise<{ data: { user: unknown } }>;
 let membershipResult: { data: unknown; error: unknown };
 let profileResult: { data: unknown; error: unknown };
+const mockMembershipLookup = jest.fn();
 
 jest.mock('next/server', () => ({
   NextResponse: {
@@ -59,7 +60,7 @@ jest.mock('@supabase/ssr', () => ({
         eq: () => ({
           in: () => ({
             limit: () => ({
-              maybeSingle: async () => membershipResult,
+              maybeSingle: async () => { mockMembershipLookup(); return membershipResult; },
             }),
           }),
         }),
@@ -90,6 +91,7 @@ function makeRequest(path: string, cookies: Record<string, string> = {}) {
 }
 
 beforeEach(() => {
+  mockMembershipLookup.mockClear();
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon';
   process.env.ADMIN_COOKIE_SECRET = 'test-secret';
@@ -171,6 +173,49 @@ test('signed negative membership cache cannot lock out a verified operator', asy
   const res: Record<string, unknown> = await middleware(makeRequest('/admin/inquiries', {
     [getMembershipCacheKey('u1')]: signed!,
   }));
+  expect(res._isRedirect).toBeUndefined();
+});
+
+test('new owner bypasses a still-valid negative hint after lost setup headers', async () => {
+  const signed = await signCacheValue('u1', '0');
+  const res: Record<string, unknown> = await middleware(makeRequest('/admin', {
+    [getMembershipCacheKey('u1')]: signed!,
+  }));
+  expect(mockMembershipLookup).toHaveBeenCalledTimes(1);
+  expect(res._isRedirect).toBeUndefined();
+  expect((res.cookies as ReturnType<typeof cookieStore>).get(getMembershipCacheKey('u1'))?.value.startsWith('1.')).toBe(true);
+});
+
+test('late pre-creation negative response cannot revoke a now-confirmed owner', async () => {
+  membershipResult = { data: null, error: null };
+  const denied: Record<string, unknown> = await middleware(makeRequest('/admin'));
+  expect((denied._redirectedTo as URL).pathname).toBe('/mypage');
+  const lateHint = (denied.cookies as ReturnType<typeof cookieStore>).get(getMembershipCacheKey('u1'))!;
+  expect(lateHint.value.startsWith('0.')).toBe(true);
+  membershipResult = { data: { role: 'owner' }, error: null };
+  mockMembershipLookup.mockClear();
+  const res: Record<string, unknown> = await middleware(makeRequest('/admin', { [lateHint.name]: lateHint.value }));
+  expect(mockMembershipLookup).toHaveBeenCalledTimes(1);
+  expect(res._isRedirect).toBeUndefined();
+});
+
+test.each(['absent', 'unavailable'])('negative hint still denies when current membership is %s', async state => {
+  const signed = await signCacheValue('u1', '0');
+  membershipResult = { data: null, error: state === 'unavailable' ? { message: 'db unavailable' } : null };
+  const res: Record<string, unknown> = await middleware(makeRequest('/admin', { [getMembershipCacheKey('u1')]: signed! }));
+  expect(mockMembershipLookup).toHaveBeenCalledTimes(1);
+  expect((res._redirectedTo as URL).pathname).toBe('/mypage');
+  expect((res.cookies as ReturnType<typeof cookieStore>).get('sb-refresh-token')?.value).toBe('refreshed');
+  if (state === 'unavailable') {
+    expect((res.cookies as ReturnType<typeof cookieStore>).get(getMembershipCacheKey('u1'))).toBeUndefined();
+  }
+});
+
+test('valid positive cache keeps its existing bounded optimization', async () => {
+  const signed = await signCacheValue('u1', '1');
+  membershipResult = { data: null, error: { message: 'should not be queried for valid positive hint' } };
+  const res: Record<string, unknown> = await middleware(makeRequest('/admin', { [getMembershipCacheKey('u1')]: signed! }));
+  expect(mockMembershipLookup).not.toHaveBeenCalled();
   expect(res._isRedirect).toBeUndefined();
 });
 

@@ -22,6 +22,7 @@ import { salonIntentCookieName } from '@/lib/salon-submission-proof';
 import { SALON_CLAIM_COOKIE_NAME, signSalonClaim } from '@/lib/salon-claim';
 import { businessTypes } from '@/lib/constants';
 import { salonRecoveryCookieName } from '@/lib/salon-recovery';
+import { getMembershipCacheKey } from '@/lib/admin-membership-cache-key';
 
 const userId = '68000000-0000-4000-8000-000000000001';
 const facilityId = '67000000-0000-4000-8000-000000000001';
@@ -83,6 +84,23 @@ test('direct onboarding is explicit and uses authenticated user only', async () 
   expect(response.headers.get('cache-control')).toBe('no-store');
   expect(await response.json()).toMatchObject({ success: true, state: 'created', facilityId });
   expect(setupFacilityAtomically).toHaveBeenCalledWith({}, userId, body, { mode: 'none' });
+  expect(response.cookies.get(getMembershipCacheKey(userId))).toMatchObject({
+    value: '', path: '/admin', httpOnly: true, sameSite: 'lax', maxAge: 0,
+  });
+});
+test.each(['test', 'production'])('membership hint invalidation respects %s cookie transport', async environment => {
+  const previous = process.env.NODE_ENV;
+  Object.defineProperty(process.env, 'NODE_ENV', { value: environment, configurable: true });
+  try {
+    const response = await POST(request());
+    expect(response.status).toBe(201);
+    const invalidated = response.cookies.get(getMembershipCacheKey(userId));
+    expect(invalidated).toMatchObject({ value: '', path: '/admin', httpOnly: true,
+      sameSite: 'lax', maxAge: 0, secure: environment === 'production' });
+    expect(response.cookies.getAll()).toHaveLength(1);
+  } finally {
+    Object.defineProperty(process.env, 'NODE_ENV', { value: previous, configurable: true });
+  }
 });
 test.each(['', 'bad'])('recovered handoff missing/invalid cookie never falls back %#', async value => {
   expect((await POST(request({ ...body, recoveryId: intentId }, `${salonRecoveryCookieName(intentId)}=${value}`))).status).toBe(403);
@@ -111,7 +129,9 @@ test('signed legacy cookie passes its authenticated issue time and survives resp
   const issuedAt = Math.floor(Date.now() / 1000);
   const cookie = SALON_CLAIM_COOKIE_NAME + '=' + signSalonClaim(receiptId, issuedAt);
   const response = await POST(request(body, cookie));
-  expect(response.status).toBe(201); expect(response.headers.has('set-cookie')).toBe(false);
+  expect(response.status).toBe(201);
+  expect(response.cookies.get(SALON_CLAIM_COOKIE_NAME)).toBeUndefined();
+  expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
   expect(setupFacilityAtomically).toHaveBeenCalledWith({}, userId, body,
     { mode: 'legacy', receiptId, issuedAt: new Date(issuedAt * 1000).toISOString() });
 });
@@ -137,6 +157,7 @@ test.each(['replay', 'linked'])('%s is the same successful facility, not a new c
   (setupFacilityAtomically as jest.Mock).mockResolvedValue({ state, facilityId, slug: 'synthetic' });
   const response = await POST(request());
   expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ success: true, state, facilityId });
+  expect(response.cookies.get(getMembershipCacheKey(userId))).toMatchObject({ value: '', path: '/admin', maxAge: 0 });
 });
 test('existing membership does not falsely consume selected receipt', async () => {
   (setupFacilityAtomically as jest.Mock).mockResolvedValue({ state: 'already_member', facilityId, slug: 'synthetic' });

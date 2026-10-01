@@ -1,49 +1,51 @@
 import { test, expect } from '@playwright/test';
+import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'node:crypto';
+import { confirmSyntheticBookingPreparation } from './booking-preparation.seed';
 
-/**
- * 予約フロー E2E テスト
- * NOTE: 実際の予約は作成しない（認証必要 + 副作用あり）
- * 予約フォームのUI・バリデーションのみ確認
- */
+// Listing-only stores are valid. A known ready synthetic fixture avoids both
+// an arbitrary first result and assertions that silently skip when none exists.
 test.describe('予約フロー（UI確認）', () => {
-  test('施設詳細ページが表示される', async ({ page }) => {
-    // 最初の施設ページへ
-    await page.goto('/search');
-    await page.waitForLoadState('networkidle');
-
-    const facilityLink = page.locator('a[href*="/facility/"]').first();
-    if (await facilityLink.isVisible()) {
-      const href = await facilityLink.getAttribute('href');
-      if (href) {
-        await page.goto(href);
-        await expect(page.locator('h1')).toBeVisible();
-      }
+  let slug: string;
+  test.beforeAll(async () => {
+    if (process.env.CI !== 'true' || process.env.GITHUB_ACTIONS !== 'true'
+      || process.env.NEXT_PUBLIC_SUPABASE_URL !== 'https://localhost:54330'
+      || process.env.PLAYWRIGHT_BASE_URL !== 'https://localhost:3000') {
+      throw new Error('booking UI fixture requires the managed disposable CI lifecycle');
     }
+    const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false, autoRefreshToken: false } });
+    slug = `synthetic-booking-ui-${randomUUID()}`;
+    const facility = await db.from('facility_profiles').insert({ name: '合成予約UI確認店', slug,
+      business_type: 'ヘアサロン', prefecture: '東京都', city: '検証市', address: '合成町1', status: 'published' })
+      .select('id').single();
+    if (facility.error || !facility.data) throw new Error('synthetic booking facility setup failed');
+    const id = facility.data.id;
+    const menu = await db.from('facility_menus').insert({ facility_id: id, name: '合成カット',
+      category: 'カット', price: 5000, duration_minutes: 60, is_published: true });
+    const staff = await db.from('staff_profiles').insert({ facility_id: id, name: '合成スタッフ',
+      slug: `${slug}-staff`, is_active: true });
+    if (menu.error || staff.error) throw new Error('synthetic booking catalog setup failed');
+    await confirmSyntheticBookingPreparation(db, id);
+  });
+
+  test('施設詳細ページが表示される', async ({ page }) => {
+    await page.goto(`/facility/${slug}`);
+    await expect(page.getByRole('heading', { name: '合成予約UI確認店', exact: true })).toBeVisible();
   });
 
   test('予約ページへのリンクが存在する', async ({ page }) => {
-    await page.goto('/search');
-    await page.waitForLoadState('networkidle');
-
-    const facilityLink = page.locator('a[href*="/facility/"]').first();
-    if (await facilityLink.isVisible()) {
-      const href = await facilityLink.getAttribute('href');
-      if (href) {
-        await page.goto(href);
-        // 予約ボタンがある
-        const bookingBtn = page.getByRole('link', { name: /予約|Book/ }).first();
-        await expect(bookingBtn.or(page.getByRole('button', { name: /予約|Book/ }).first())).toBeVisible();
-      }
-    }
+    await page.goto(`/facility/${slug}`);
+    const bookingLink = page.locator(`a[href="/facility/${slug}/booking"]`).first();
+    await expect(bookingLink).toBeVisible();
+    await bookingLink.click();
+    await expect(page.getByRole('button', { name: /合成カット/ })).toBeVisible();
   });
 });
 
 test.describe('予約フォーム', () => {
   test('未ログインでは認証ページにリダイレクト', async ({ page }) => {
-    // 予約ページに直接アクセス
-    const response = await page.goto('/mypage/bookings');
-    // ログインページかマイページが表示される
-    const url = page.url();
-    expect(url).toMatch(/login|auth|mypage/);
+    await page.goto('/mypage/bookings');
+    await expect(page).toHaveURL(/\/auth\/login\?redirect=/);
   });
 });

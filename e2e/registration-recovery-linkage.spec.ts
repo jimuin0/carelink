@@ -76,6 +76,14 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
     created_at: expired, committed_at: expired, prepare_expires_at: preparedExpiry });
   if (intent.error) throw new Error('Disposable expired handoff setup failed');
   await login(page, owner, '/register/recover');
+  // Establish a real signed negative membership cache before creation.
+  await page.goto('/admin');
+  await expect(page).toHaveURL(/\/mypage$/);
+  const negativeHint = (await page.context().cookies()).find(cookie => cookie.name.startsWith('_cm_mbr_'));
+  expect({ present: !!negativeHint, negative: negativeHint?.value.startsWith('0.'),
+    httpOnly: negativeHint?.httpOnly, secure: negativeHint?.secure, path: negativeHint?.path })
+    .toEqual({ present: true, negative: true, httpOnly: true, secure: true, path: '/admin' });
+  await page.goto('/register/recover');
   // New browser has no receipt capability or tab handoff. Its verified identity
   // selects the original receipt without submitting another application.
   await selectRecovery(page, id);
@@ -85,6 +93,11 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   expect({ present: !!recovery, httpOnly: recovery?.httpOnly, secure: recovery?.secure })
     .toEqual({ present: true, httpOnly: true, secure: true });
   const created = await submitSetup(page, 201, 'created');
+  // Reproduce the cookie effect of an older pre-creation response arriving late.
+  // The real middleware must recheck current DB membership, never trust denial.
+  await page.context().addCookies([negativeHint!]);
+  await page.goto('/admin');
+  await expect(page).toHaveURL(/\/admin$/);
   const claimed = await db.from('salons').select('claimed_facility_id,claimed_by_user_id').eq('id', id).single();
   expect(claimed.error).toBeNull();
   expect(claimed.data).toEqual({ claimed_facility_id: created.facilityId, claimed_by_user_id: owner.id });
@@ -118,6 +131,49 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   expect(await submitSetup(page, 200, 'replay')).toEqual(created);
   const members = await db.from('facility_members').select('facility_id').eq('user_id', owner.id);
   expect(members.error).toBeNull(); expect(members.data).toEqual([{ facility_id: created.facilityId }]);
+});
+
+test('committed direct setup with lost response reloads membership without another POST', async ({ page }, info) => {
+  await page.setExtraHTTPHeaders({ 'x-real-ip': `192.0.2.${200 + info.retry * 2 + (info.project.name === 'chromium' ? 0 : 1)}` });
+  const db = localDb(); const owner = await identity(db);
+  await login(page, owner, '/admin/onboarding');
+  await page.goto('/admin'); await expect(page).toHaveURL(/\/mypage$/);
+  const negativeHint = (await page.context().cookies()).find(cookie => cookie.name.startsWith('_cm_mbr_'));
+  expect({ present: !!negativeHint, negative: negativeHint?.value.startsWith('0.'),
+    httpOnly: negativeHint?.httpOnly, secure: negativeHint?.secure, path: negativeHint?.path })
+    .toEqual({ present: true, negative: true, httpOnly: true, secure: true, path: '/admin' });
+  const parameters = new URLSearchParams({ facility_name: `合成応答喪失 ${randomUUID()}`, business_type: 'ヘアサロン' });
+  await page.goto(`/admin/onboarding?${parameters}`);
+  await expect(page.getByRole('button', { name: '施設を作成する', exact: true })).toBeVisible();
+  let setupRequests = 0;
+  let committed: { status: number; success: boolean; state: string } | undefined;
+  page.on('request', request => {
+    if (new URL(request.url()).pathname === '/api/facility/setup' && request.method() === 'POST') setupRequests += 1;
+  });
+  await page.route('**/api/facility/setup', async route => {
+    const response = await route.fetch(); // Execute the real authorized DB transaction.
+    const result = await response.json();
+    committed = { status: response.status(), success: result.success, state: result.state };
+    await route.abort('connectionfailed'); // No successful response reaches application code.
+  });
+  await page.getByRole('checkbox').check();
+  await page.getByRole('button', { name: '施設を作成する', exact: true }).click();
+  await expect.poll(() => committed).toEqual({ status: 201, success: true, state: 'created' });
+  await expect(page.getByRole('alert')).toContainText('作成結果を確認できませんでした');
+  expect(setupRequests).toBe(1);
+  // route.fetch shares Playwright's browser-context cookie jar and can apply
+  // Set-Cookie before abort. Restore the original real signed denial so this
+  // assertion actually models missing setup headers, not merely a lost body.
+  await page.context().addCookies([negativeHint!]);
+  expect((await page.context().cookies()).some(cookie => cookie.name === negativeHint!.name
+    && cookie.value === negativeHint!.value)).toBe(true);
+  await page.unroute('**/api/facility/setup');
+  await page.reload();
+  await expect(page).toHaveURL(/\/admin$/);
+  expect(setupRequests).toBe(1);
+  const members = await db.from('facility_members').select('facility_id,role').eq('user_id', owner.id);
+  expect(members.error).toBeNull(); expect(members.data).toHaveLength(1);
+  expect(members.data![0].role).toBe('owner');
 });
 
 test('platform explicit linkage -> owner recovery resolves same store, no additional claim or welcome', async ({ page, browser }, info) => {

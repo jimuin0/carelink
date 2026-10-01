@@ -9,6 +9,7 @@ import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import { businessTypes, UUID_REGEX } from '@/lib/constants';
 import { isAuthSessionMissingError } from '@supabase/supabase-js';
 import { readSalonBrowserContext, readSalonRecoveryContext, salonHandoffAuthPath } from '@/lib/salon-browser-context';
+import { navigateAfterFacilitySetup } from '@/lib/onboarding-navigation';
 
 function OnboardingContent() {
   const router = useRouter();
@@ -82,7 +83,7 @@ function OnboardingContent() {
         // 既に施設あり → 管理ダッシュボードへ。ダッシュボードは登録状況をライブに反映する
         // 正確なオンボーディング進捗（メニュー/スタッフ/写真/スケジュール/公開）を表示する。
         // 旧実装はここで静的チェックリストを描画し、公開条件の案内もスタッフ必須が抜けて誤っていた。
-        router.replace('/admin');
+        navigateAfterFacilitySetup();
         return;
       }
 
@@ -209,7 +210,7 @@ function OnboardingContent() {
       const data = await res.json();
       if (!mounted.current) return;
       if (res.ok && data?.success === true && typeof data.facilityId === 'string' && UUID_REGEX.test(data.facilityId)) {
-        router.replace('/admin');
+        navigateAfterFacilitySetup();
       } else {
         // An invalid response can follow a committed transaction. Reload checks
         // membership first; never retry the POST automatically on ambiguity.

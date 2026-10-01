@@ -34,6 +34,25 @@
 
 M01／M02／M07の設計反証を独立監査へ依頼し、lock順序、service-only境界、NULLメール誤合算、直接来店偽造、予約削除時の既存履歴保持を検証条件へ反映した。これは設計確認であり、実装合格ではない。revision 4のQuality Acceptance Matrixを全項目継承し、予約保存／来店／メールの原子性・再実行・権限・復旧を追加する。
 
+### PR #657のCI失敗への対応と優先順位
+
+旧PR #642／#656はマージ済みであり、続行先は既存PR #657、branch `codex/salon-v2-recovery-20260930`。固定HEAD `539dd1bf3aefcd39c77d5df5769ba74d4bf8fd38` のCI run `36868992311` はlint・型・単体／coverage・Security・静的Contractに成功したが、E2Eは11件失敗、19件未実行、276件成功であり全体不合格。PG17 run `36868992204` もfixtureで失敗し、合格とは扱わない。
+
+1. 登録・無料掲載の一気通貫を最優先に、DB作成成功後の管理画面遷移と、応答喪失後の復旧を修正・検証する。
+2. 予約管理とCI検証データを正しい準備条件へ整え、同じPRの最新SHAで全必須CIを再実行する。
+3. 独立レビューと必須CIの成功後だけ、公式migrationの事前・事後照合を行う。
+4. 保護条件を満たすmergeとdeploy SHA／health／変更対象の本番確認を行う。本番解消をlocal成功で代替しない。
+
+| 対象 | 原因と修正 | 検証証拠・残るgate |
+|---|---|---|
+| 登録後の管理画面／結果不明からの復旧 | 成功応答時に本人のmembership hintだけを失効し、成功時と既存membership確認時はfresh requestへ遷移する。旧署名付きnegative hintはDB再照合し、応答喪失／旧prefetchの遅延応答で否定を固定しない。positiveのHMAC・TTL、DB role filter、CSRF、RLSは維持する | 関連6 suite・140 test、型・変更lintが成功。ネット遮断の別tempで旧negative条件へ戻すと新4 testが失敗、復元後20/20成功、source hash一致。実Auth・API・DB E2Eは最新CIの未完了gate |
+| booking準備のE2E | 従来の合成fixtureには写真・確認保存した7曜日営業時間・一部公開menuが不足。予約条件を弱めず、合成事実を明示し実facility_booking_ready RPCを照合する。任意の先頭検索結果や結果なしの条件付きassertを廃止する | 明示したfixtureと両browserの最新E2Eを必須とする。管理画面の無料掲載／予約準備中の文言assertを現行仕様へ合わせ、売上・件数KPI assertは保持 |
+| PG17 fixtureの独立性 | 先行concurrency runnerがcommitしたUUIDと次fixtureの衝突、既存queue行を含むglobal件数の誤った前提を修正。別UUID namespaceと既存ID保存を確認するqueue deltaを使用する | 実concurrency後の同じ隔離DBで後続fixtureが成功。既存行を削除して通していない。独立レビューで両SQL fixtureのP0〜P3を未検出。最新PG17 CIを別gateとして維持 |
+
+応答喪失E2EではPlaywrightのroute.fetchが共有cookie jarへ先にSet-Cookieを反映するため、abortだけを「header未着」と扱わない。元の本物の署名付きnegative hintを再注入し、同値が残る前提をbooleanで確認してから再読込する。認証情報の表示・記録、実顧客・本番へのtest書込みは行わない。
+
+追加修正前の全体coverage実行は、独立監査で新しい復旧経路P2を確認したため対象の所有processだけを中断した。途中結果を合格として使用しない。変更後の全必須検証は最新SHAのCIへ戻す。これは本番適用、merge、deployの完了記録ではない。
+
 ## 掲載と予約の分離（revision 4、現行）
 
 認証済み追加依頼の原文：`無料掲載と予約を分ける`。下のrevision 3に対する事業方針の変更であり、過去の公開準備条件は今回の掲載条件として継承しない。

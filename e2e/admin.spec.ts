@@ -19,8 +19,8 @@ test.describe.serial('管理画面（オーナー）', () => {
     await expect(page.getByText(SEED.expectedTodayRevenue).first()).toBeVisible();
     // #293 KPI：無断キャンセル率＝no_show/(completed+no_show)=50%
     await expect(page.getByText(SEED.expectedNoShowRate).first()).toBeVisible();
-    // #294 警告：公開中だがスケジュール未設定で予約不能
-    await expect(page.getByText('予約を受け付けられません')).toBeVisible();
+    // Listing remains available while this fixture's online setup is incomplete.
+    await expect(page.getByText('無料掲載は公開中です。ネット予約は準備中で、電話・店舗への問い合わせをご案内します。')).toBeVisible();
     // 最近の予約に seed した完了予約が出る（読み取り経路の実証）
     await expect(page.getByText(SEED.completedCustomer)).toBeVisible();
   });
