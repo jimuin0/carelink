@@ -42,11 +42,13 @@ function maskTargetId(targetId: unknown): string {
  */
 export async function enqueueWebhook(job: WebhookJob): Promise<void> {
   try {
+    const payload = toJsonValue(job.payload);
+    if (payload === null) throw new Error('Webhook payload must be a JSON object');
     const supabase = createServiceRoleClient();
     const { error } = await supabase.from('webhook_retry_queue').insert({
       webhook_type:  job.type,
       target_id:     job.targetId,
-      payload:       toJsonValue(job.payload),
+      payload,
       facility_id:   job.facilityId ?? null,
       attempt_count: 0,
       max_attempts:  3,

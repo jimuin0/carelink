@@ -55,6 +55,7 @@ let cfg: {
 };
 
 let mockSendEmail: jest.Mock;
+const mockQueue = jest.fn();
 let mockSendLineText: jest.Mock;
 
 function setup() {
@@ -76,6 +77,7 @@ function setup() {
 
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
+    rpc: mockQueue,
     from: jest.fn((table: string) => {
       if (table === 'bookings') {
         return {
@@ -132,8 +134,13 @@ function setup() {
 
   const emailModule = require('@/lib/email');
   // sendTimeAdjustRequest は送信成否を boolean で返す契約（route 側はこれを見て 502 を判定する）。
-  mockSendEmail = jest.fn().mockResolvedValue(true);
-  emailModule.sendTimeAdjustRequest = mockSendEmail;
+  mockSendEmail = jest.fn().mockImplementation(jest.requireActual('@/lib/email').buildTimeAdjustRequestEnvelope);
+  emailModule.buildTimeAdjustRequestEnvelope = mockSendEmail;
+  mockQueue.mockImplementation(async () => {
+    const message = !['pending','confirmed'].includes(cfg.booking?.status ?? '') ? 'INVALID_BOOKING_TRANSITION'
+      : !cfg.booking?.email ? 'BOOKING_EMAIL_MISSING' : null;
+    return message ? { data:null,error:{ message } } : { data:[{ operation_id:BOOKING_UUID,replayed:false,notification:'queued' }],error:null };
+  });
 
   const lineModule = require('@/lib/line');
   mockSendLineText = jest.fn().mockResolvedValue(true);
@@ -150,13 +157,48 @@ beforeEach(() => {
   setup();
 });
 
-function makeRequest(body: object = { bookingId: BOOKING_UUID, channel: 'email' }) {
+function makeRequest(body: unknown = { bookingId: BOOKING_UUID, channel: 'email', operationId: BOOKING_UUID }) {
   return new Request('http://localhost/api/admin/booking-adjust-request', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
 }
+
+test.each([null,[],42,'invalid'])('adjustment non-object body %j is rejected before event creation', async body => {
+  expect((await POST(makeRequest(body))).status).toBe(400); expect(mockQueue).not.toHaveBeenCalled();
+});
+test.each(['08006','PGRST116'])('adjustment booking read error %s cannot create an event', async code => {
+  const {createServiceRoleClient}=require('@/lib/supabase-server'); const client=createServiceRoleClient();
+  const fallback=client.from.getMockImplementation();
+  client.from.mockImplementation((table:string) => table==='bookings' ? {
+    select:() => ({eq:() => ({single:async () => ({data:null,error:{code,message:'synthetic failure'}})})}),
+  } : fallback(table));
+  expect((await POST(makeRequest())).status).toBe(code==='PGRST116'?404:500); expect(mockQueue).not.toHaveBeenCalled();
+});
+test('adjustment membership dependency failure is not authorization', async () => {
+  const {createServiceRoleClient}=require('@/lib/supabase-server'); const client=createServiceRoleClient();
+  const fallback=client.from.getMockImplementation();
+  client.from.mockImplementation((table:string) => table==='facility_members' ? {
+    select:() => ({eq:() => ({eq:() => ({in:() => ({maybeSingle:async () => ({data:null,error:{message:'synthetic failure'}})})})})}),
+  } : fallback(table));
+  expect((await POST(makeRequest())).status).toBe(500); expect(mockQueue).not.toHaveBeenCalled();
+});
+test('closed LINE request is rejected before delivery', async () => {
+  cfg.booking=bookingRow({status:'cancelled'});
+  expect((await POST(makeRequest({bookingId:BOOKING_UUID,channel:'line'}))).status).toBe(400);
+  expect(mockSendLineText).not.toHaveBeenCalled();
+});
+test('actual queue database error is not successful acceptance', async () => {
+  mockQueue.mockResolvedValue({data:null,error:{message:'08006'}});
+  expect((await POST(makeRequest())).status).toBe(500);
+});
+test.each([undefined, [], [{ operation_id: 'invalid', notification: 'queued' }],
+  [{ operation_id: BOOKING_UUID, notification: 'invalid' }]])('malformed adjustment reservation %j is not accepted', async data => {
+  mockQueue.mockResolvedValue({data,error:null});
+  expect((await POST(makeRequest())).status).toBe(500);
+  expect(mockSendLineText).not.toHaveBeenCalled();
+});
 
 test('CSRF 失敗 → その応答を返す', async () => {
   (checkCsrf as jest.Mock).mockReturnValue(new Response('csrf', { status: 403 }));
@@ -235,27 +277,48 @@ test('email 正常系: 無料で送信・監査ログ記録', async () => {
   }));
   expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
     action: 'booking_adjust_request',
-    newValues: { channel: 'email' },
+    newValues: { channel: 'email', notification:'queued' },
   }));
 });
 
-test('email: 施設名が引けない場合は空文字', async () => {
+test('email: 施設名が引けない場合は通知を予約せず500', async () => {
   cfg.facility = null;
   const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
-  expect(mockSendEmail).toHaveBeenCalledWith(expect.objectContaining({ facilityName: '' }));
+  expect(res.status).toBe(500);
+  expect(mockQueue).not.toHaveBeenCalled();
 });
 
-test('email: 送信失敗（sendTimeAdjustRequest が false を返す）→ 502・自動再送案内（手動リトライを誘導しない）', async () => {
-  mockSendEmail.mockResolvedValue(false);
+test('email: 台帳保存の結果不明を送信済み・自動再送保証へ変換しない', async () => {
+  mockQueue.mockResolvedValue({ data:null,error:{ message:'08006' } });
   const res = await POST(makeRequest());
-  expect(res.status).toBe(502);
+  expect(res.status).toBe(500);
   // 失敗分は webhook_retry_queue で自動再送されるため、「時間をおいて再度お試しください」と
   // 手動リトライを促すと自動再送と両方走って確定二重送信になる（文言の回帰固定）。
   const json = await res.json();
-  expect(json.error).toContain('自動で再送されます');
-  expect(json.error).toContain('手動での再送は不要');
+  expect(json.error).toContain('受付を確認できません');
+  expect(json.error).not.toContain('自動で再送されます');
   expect(json.error).not.toContain('再度お試しください');
+});
+test.each([
+  ['BOOKING_PERMISSION_DENIED',404], ['BOOKING_REVISION_CONFLICT',409], ['BOOKING_OPERATION_CONFLICT',409],
+])('email: write-time %s is not success', async (message,status) => {
+  mockQueue.mockResolvedValue({ data:null,error:{ message } });
+  expect((await POST(makeRequest())).status).toBe(status);
+});
+test('email: 同じ予約revisionの再確認は既存イベントを返す', async () => {
+  mockQueue.mockResolvedValue({ data:[{ operation_id:BOOKING_UUID,replayed:true,notification:'already_queued' }],error:null });
+  const res = await POST(makeRequest());
+  expect(await res.json()).toEqual({ ok:true,notification:'already_queued' });
+  expect(mockQueue).toHaveBeenCalledWith('save_booking_email_event_atomic',expect.objectContaining({ p_new_status:null,p_expected_status:'confirmed',p_operation_id:BOOKING_UUID }));
+});
+test.each([undefined, 'invalid', 42])('email operation ID %s cannot create a new event', async operationId => {
+  expect((await POST(makeRequest({ bookingId:BOOKING_UUID,channel:'email',operationId }))).status).toBe(400);
+  expect(mockQueue).not.toHaveBeenCalled();
+});
+test('old operation is reconciled even after the booking is cancelled', async () => {
+  cfg.booking = bookingRow({ status:'cancelled' });
+  mockQueue.mockResolvedValue({ data:[{ operation_id:BOOKING_UUID,replayed:true,notification:'already_queued' }],error:null });
+  expect(await (await POST(makeRequest())).json()).toEqual({ ok:true,notification:'already_queued' });
 });
 
 test('line: オプション未購入 → 403（有料ゲート）', async () => {

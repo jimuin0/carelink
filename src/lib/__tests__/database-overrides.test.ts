@@ -93,15 +93,14 @@ describe('database-overrides.ts の上書きが今も必要か', () => {
     // 上書きが壊れたときに実際に tsc を落とすのは、null を渡している呼び出し側のほう。
     // 実測: database-overrides.ts から 'p_staff_id' を外すと
     //   src/app/api/booking/route.ts(252,5): error TS2322
-    //   src/app/api/admin/bookings/route.ts(102,5): error TS2322
-    // の2件が出る。
+    // The manual route now uses create_manual_booking_atomic's JSON input,
+    // not this RPC/override. The public route remains the enforcing caller.
     //
     // その検知経路は「呼び出し側が null を渡し続けていること」に依存する。
     // 誰かが `?? null` を外せば tsc は静かに通るようになり、上書きの妥当性を
     // 検査するものが何も無くなる。だからここで経路の存在自体を固定する。
     const enforcingCallSites = [
       { file: 'src/app/api/booking/route.ts', pattern: /p_staff_id:\s*.*\?\?\s*null/ },
-      { file: 'src/app/api/admin/bookings/route.ts', pattern: /p_staff_id:\s*.*\?\?\s*null/ },
     ];
     for (const { file, pattern } of enforcingCallSites) {
       const src = readFileSync(join(repoRoot, file), 'utf8');

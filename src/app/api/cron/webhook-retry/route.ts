@@ -13,10 +13,12 @@ import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { retryTransientSupabaseRead, summarizeDependencyError } from '@/lib/err';
-import { fromEnv, resolveFrom } from '@/lib/email-from';
 import { sendResendForReconciliation } from '@/lib/resend-result';
 import { prepareSalonOutboxDelivery } from '@/lib/salon-outbox-delivery';
 import { prepareFacilityWelcomeDelivery } from '@/lib/facility-welcome-delivery';
+import { prepareManualBookingEnvelope } from '@/lib/manual-booking-notification';
+import { dispatchEventEmail, eventEmailEnvelopeSchema } from '@/lib/event-email-delivery';
+import { UUID_REGEX } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,12 +69,12 @@ export async function GET(request: Request) {
       .eq('status', 'processing')
       .not('delivery_started_at', 'is', null)
       .lt('delivery_started_at', staleBefore);
-    if (heldDeliveryErr) {
+    if (heldDeliveryErr || heldDeliveryCount === null || heldDeliveryCount === undefined) {
       // 結果不明の送達を監視できない状態を正常skippedにすると、保留行が無音で残る。
       // 同じcronが次回に再照合するまで処理を中断し、500とcron errorで可視化する。
-      return cronError('webhook-retry', startedAt, heldDeliveryErr, { message: 'held delivery observation failed' });
+      return cronError('webhook-retry', startedAt, heldDeliveryErr || new Error('held delivery count unavailable'), { message: 'held delivery observation failed' });
     }
-    let deliveryUncertain = heldDeliveryCount ?? 0;
+    let deliveryUncertain = heldDeliveryCount;
 
     // pending かつ scheduled_at が現在時刻以前のジョブを取得
     const { data: jobs, error: jobsError } = await retryTransientSupabaseRead(() =>
@@ -163,6 +165,7 @@ export async function GET(request: Request) {
     let success = 0;
     let failed = 0;
     let deadLettered = 0;
+    let superseded = 0;
     const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
     for (const job of claimedJobs) {
@@ -172,14 +175,12 @@ export async function GET(request: Request) {
       // 保持したまま運用照合へ上げる。
       let deliveryAttempted = false;
       let definitelyRejected = false;
+      let providerMessageId: string | null = null;
       try {
         const payload = job.payload;
-        const legacyInquiryReply = job.webhook_type === 'email'
-          && typeof payload === 'object'
-          && payload !== null
-          && !Array.isArray(payload)
-          && (payload as { subject?: unknown }).subject === '【CareLink】お問い合わせへのご返信';
-        if (legacyInquiryReply) {
+        const legacyEmail = job.webhook_type === 'email' && (typeof payload !== 'object' || payload === null
+          || Array.isArray(payload) || payload.event_email_version !== 1);
+        if (legacyEmail) {
           // Historical reply jobs have no durable contact_replies operation ID and no
           // provider idempotency key. They may already have been accepted before the
           // original request timed out, so never replay these customer-facing messages.
@@ -188,7 +189,7 @@ export async function GET(request: Request) {
             .update({
               status: 'failed',
               attempt_count: job.attempt_count + 1,
-              last_error: 'legacy_inquiry_reply_requires_manual_reconciliation',
+              last_error: 'legacy_email_requires_manual_reconciliation',
               processed_at: new Date().toISOString(),
             })
             .eq('id', job.id)
@@ -200,7 +201,7 @@ export async function GET(request: Request) {
             const outcome = await scheduleRetry(
               job.id,
               job.attempt_count + 1,
-              'legacy_inquiry_reply_quarantine_not_confirmed',
+              'legacy_email_quarantine_not_confirmed',
               claimEpoch,
             );
             if (outcome === 'uncertain') deliveryUncertain++;
@@ -241,25 +242,25 @@ export async function GET(request: Request) {
             const ok = await sendLineText(job.target_id, message);
             if (!ok) throw new Error('line_push failed after all retries');
           };
-        } else if (job.webhook_type === 'email') {
+        } else if (job.webhook_type === 'email' || job.webhook_type === 'manual_booking_confirmation') {
           if (!resend) throw new Error('email skipped: RESEND_API_KEY not configured');
-          const payload = job.payload;
-          if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
-            throw new Error('email payload is not an object');
-          }
-          const { to, subject, html, from } = payload as { to?: unknown; subject?: unknown; html?: unknown; from?: unknown };
-          if (typeof to !== 'string' || typeof subject !== 'string' || typeof html !== 'string' || (from !== undefined && typeof from !== 'string')) {
-            throw new Error('email payload is invalid');
+          const checkedEnvelope = job.webhook_type === 'manual_booking_confirmation'
+            ? eventEmailEnvelopeSchema.safeParse(await prepareManualBookingEnvelope(supabase, job))
+            : eventEmailEnvelopeSchema.safeParse(job.email_envelope);
+          if (!checkedEnvelope.success) throw new Error('email payload is invalid');
+          const envelope = checkedEnvelope.data;
+          if (job.webhook_type === 'email' && (typeof payload !== 'object' || payload === null || Array.isArray(payload)
+            || payload.idempotency_key !== `carelink-event-email/${job.id}` || job.target_id !== envelope.to)) {
+            throw new Error('email operation reference is invalid');
           }
           deliver = async () => {
-            const outcome = await sendResendForReconciliation(resend.emails.send({
-              from: from ? resolveFrom(from, process.env.NODE_ENV === 'production').from : fromEnv(),
-              to,
-              subject,
-              html,
-            }));
+            const call = dispatchEventEmail(resend, envelope, job.id);
+            const outcome = await sendResendForReconciliation(call);
             definitelyRejected = outcome === 'rejected';
             if (outcome !== 'delivered') throw new Error('email delivery not confirmed');
+            const accepted = await call;
+            if (!accepted.data || !UUID_REGEX.test(accepted.data.id)) throw new Error('email provider evidence invalid');
+            providerMessageId = accepted.data.id;
           };
         } else {
           throw new Error(`unsupported webhook_type: ${String(job.webhook_type)}`);
@@ -268,8 +269,22 @@ export async function GET(request: Request) {
         // 外部送信より先に「送信開始」を永続化する。ここが成功した後でのみ送信するため、
         // 送達後の success 更新が 522 等で不明になっても stale reclaim は再送しない。
         // この write が失敗した場合は送信を始めないため、scheduleRetry 経由の安全な再試行が可能。
-        const deliveryStartedAt = new Date().toISOString();
-        const { data: startedRows, error: deliveryStartErr } = await supabase
+        let deliveryStartedAt = new Date().toISOString();
+        if (job.booking_event_id) {
+          const { data: fenceRows, error: fenceError } = await supabase.rpc('start_booking_email_event', {
+            p_queue_id: job.id, p_claimed_at: claimEpoch,
+          });
+          if (fenceError) throw fenceError;
+          const fence = fenceRows?.[0];
+          if (fenceRows?.length !== 1 || !fence || !['ready', 'superseded', 'not_owned'].includes(fence.outcome)) {
+            throw new Error('booking event fence unavailable');
+          }
+          if (fence.outcome === 'superseded') { superseded++; continue; }
+          if (fence.outcome === 'not_owned') { deliveryUncertain++; continue; }
+          if (!fence.started_at || !Number.isFinite(Date.parse(fence.started_at))) throw new Error('invalid delivery fence time');
+          deliveryStartedAt = fence.started_at;
+        } else {
+          const { data: startedRows, error: deliveryStartErr } = await supabase
           .from('webhook_retry_queue')
           .update({ delivery_started_at: deliveryStartedAt })
           .eq('id', job.id)
@@ -283,6 +298,7 @@ export async function GET(request: Request) {
         if (startedRows?.length !== 1) {
           deliveryUncertain++;
           continue;
+        }
         }
 
         // `deliver()` が reject / false を返した時点では provider が受理した可能性を否定できない。
@@ -304,6 +320,7 @@ export async function GET(request: Request) {
               attempt_count: job.attempt_count + 1,
               processed_at: new Date().toISOString(),
               delivered_at: new Date().toISOString(),
+              ...(providerMessageId ? { provider_message_id: providerMessageId } : {}),
             })
             .eq('id', job.id)
             .eq('status', 'processing')
@@ -362,13 +379,13 @@ export async function GET(request: Request) {
         processed: success,
         skipped: failed,
         error_msg: '外部送信後の結果記録が不明なジョブを再送防止のため保留しました',
-        meta: { total: jobs.length, claimed: claimedJobs.length, delivery_uncertain: deliveryUncertain },
+        meta: { total: jobs.length, claimed: claimedJobs.length, delivery_uncertain: deliveryUncertain, superseded },
       });
       return NextResponse.json({
         error: 'delivery confirmation pending',
         delivery_uncertain: deliveryUncertain,
         processed: success,
-        skipped: failed,
+        skipped: failed + superseded,
       }, { status: 503 });
     }
 
@@ -389,11 +406,11 @@ export async function GET(request: Request) {
 
     await logCronRun('webhook-retry', 'success', startedAt, {
       processed: success,
-      skipped: failed,
-      meta: { total: jobs.length, claimed: claimedJobs.length, queue_pending: queuePending, delivery_uncertain: 0 },
+      skipped: failed + superseded,
+      meta: { total: jobs.length, claimed: claimedJobs.length, queue_pending: queuePending, delivery_uncertain: 0, superseded },
     });
 
-    return NextResponse.json({ processed: success, skipped: failed });
+    return NextResponse.json({ processed: success, skipped: failed + superseded, ...(superseded ? { superseded } : {}) });
   } catch (e) {
     return cronError('webhook-retry', startedAt, e);
   }

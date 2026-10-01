@@ -6,13 +6,17 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
-import { sendInquiryReply } from '@/lib/email';
+import { buildInquiryReplyEnvelope, deliverInquiryReply, reconcileInquiryReply } from '@/lib/email';
+import { inquiryReplyEnvelopeSchema, type InquiryReplyEnvelope } from '@/lib/inquiry-reply-delivery';
 import { serverError, withRoute } from '@/lib/with-route';
 
 const IDEMPOTENCY_RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
-const replySchema = z.object({
+const sendSchema = z.object({
   body: z.string().trim().min(1).max(5000),
   operationId: z.string().regex(UUID_REGEX),
+}).strict();
+const reconcileSchema = z.object({ action: z.literal('reconcile'),
+  operationId: z.string().regex(UUID_REGEX), providerMessageId: z.string().regex(UUID_REGEX),
 }).strict();
 
 type ReplyRow = {
@@ -24,6 +28,8 @@ type ReplyRow = {
   is_internal: boolean;
   sent_at: string | null;
   created_at: string;
+  delivery_envelope?: InquiryReplyEnvelope | null;
+  provider_message_id?: string | null;
 };
 
 async function getPlatformAdminUser(): Promise<{ id: string; name: string | null } | null> {
@@ -79,14 +85,14 @@ function protectUnexpectedErrors(tag: string, handler: () => Promise<NextRespons
 
 async function findReplyById(service: ReturnType<typeof createServiceRoleClient>, operationId: string) {
   return service.from('contact_replies')
-    .select('id, contact_id, author_id, author_name, body, is_internal, sent_at, created_at')
+    .select('*')
     .eq('id', operationId)
     .maybeSingle();
 }
 
 async function updateTicketAfterReply(service: ReturnType<typeof createServiceRoleClient>, contactId: string) {
   const { data, error } = await service.from('contacts')
-    .update({ ticket_status: 'in_progress' })
+    .update({ ticket_status: 'in_progress', resolved_at: null })
     .eq('id', contactId)
     .select('id');
   return !error && data?.length === 1;
@@ -105,7 +111,7 @@ async function handleGet(request: NextRequest, props: { params: Promise<{ id: st
 
   const service = createServiceRoleClient();
   const pendingResult = await service.from('contact_replies')
-    .select('id, contact_id, author_id, author_name, body, is_internal, sent_at, created_at')
+    .select('*')
     .eq('contact_id', id)
     .eq('is_internal', false)
     .is('sent_at', null)
@@ -121,7 +127,7 @@ async function handleGet(request: NextRequest, props: { params: Promise<{ id: st
   let replyData = pendingResult.data;
   if (!replyData) {
     const sentResult = await service.from('contact_replies')
-      .select('id, contact_id, author_id, author_name, body, is_internal, sent_at, created_at')
+      .select('*')
       .eq('contact_id', id)
       .eq('is_internal', false)
       .not('sent_at', 'is', null)
@@ -140,7 +146,9 @@ async function handleGet(request: NextRequest, props: { params: Promise<{ id: st
       body: reply.body,
       createdAt: reply.created_at,
       sentAt: reply.sent_at,
-      retryable: reply.sent_at === null && canRetryPendingReply(reply.created_at),
+      retryable: reply.sent_at === null && Boolean(reply.delivery_envelope) && canRetryPendingReply(reply.created_at),
+      recoveryAvailable: inquiryReplyEnvelopeSchema.safeParse(reply.delivery_envelope).success,
+      providerMessageId: reply.provider_message_id ?? null,
     } : null,
   });
 }
@@ -167,10 +175,27 @@ async function handlePost(request: NextRequest, props: { params: Promise<{ id: s
   if (!admin) return noStoreJson({ error: 'Unauthorized' }, 401);
 
   const json = await request.json().catch(() => null);
-  const parsed = replySchema.safeParse(json);
+  const parsed = z.union([sendSchema, reconcileSchema]).safeParse(json);
   if (!parsed.success) return noStoreJson({ error: 'リクエストが不正です' }, 400);
 
   const service = createServiceRoleClient();
+  if ('action' in parsed.data) {
+    const { operationId, providerMessageId } = parsed.data;
+    const found = await findReplyById(service, operationId);
+    if (found.error) return noStoreServerError('admin-inquiries-reply-reconcile-read', new Error('reply_operation_read_failed'));
+    const reply = found.data as ReplyRow | null;
+    if (!reply || reply.contact_id !== params.id || reply.is_internal) return noStoreJson({ error: 'この問い合わせの返信操作を確認できません' }, 409);
+    if (reply.sent_at) {
+      if (reply.provider_message_id !== providerMessageId) return noStoreJson({ error: '確認済みの送信記録と一致しません' }, 409);
+      const ticketUpdated = await updateTicketAfterReply(service, params.id);
+      return noStoreJson({ ok: true, alreadySent: true, warning: ticketUpdated ? null : 'ticket_status_update_failed' });
+    }
+    const envelope = inquiryReplyEnvelopeSchema.safeParse(reply.delivery_envelope);
+    if (!envelope.success) return noStoreJson({ error: '旧返信には照合に必要な送信内容の記録がありません。再送せず運営で記録を確認してください', pending: true }, 409);
+    const accepted = await reconcileInquiryReply(envelope.data, operationId, providerMessageId, reply.created_at);
+    if (accepted.state !== 'accepted') return noStoreJson({ error: 'この返信に対応する受理記録を確認できません。未確定のまま保持し、再送しません', pending: true }, 409);
+    return recordAcceptance(service, reply, accepted.messageId, admin.id, ip);
+  }
   const { data: contactData, error: contactError } = await service.from('contacts')
     .select('id, name, email')
     .eq('id', params.id)
@@ -192,7 +217,7 @@ async function handlePost(request: NextRequest, props: { params: Promise<{ id: s
 
   if (!existing) {
     const { data: pendingData, error: pendingError } = await service.from('contact_replies')
-      .select('id, contact_id, author_id, author_name, body, is_internal, sent_at, created_at')
+      .select('*')
       .eq('contact_id', contact.id)
       .eq('is_internal', false)
       .is('sent_at', null)
@@ -203,14 +228,18 @@ async function handlePost(request: NextRequest, props: { params: Promise<{ id: s
       return noStoreJson({ error: '未確定の返信があります。送信状況を再読み込みしてから同じ返信を再試行してください' }, 409);
     }
 
-    const { error: insertError } = await service.from('contact_replies').insert({
+    const envelope = buildInquiryReplyEnvelope({ to: contact.email, inquirerName: contact.name || 'お客様', body });
+    if (!inquiryReplyEnvelopeSchema.safeParse(envelope).success) return noStoreJson({ error: '返信の宛先と送信設定を確認してください' }, 400);
+    const reservation = {
       id: operationId,
       contact_id: contact.id,
       author_id: admin.id,
       ...(admin.name !== null ? { author_name: admin.name } : {}),
       body,
       is_internal: false,
-    });
+      delivery_envelope: envelope,
+    };
+    const { error: insertError } = await service.from('contact_replies').insert(reservation);
 
     if (insertError) {
       // Parallel requests with the same operation ID may race at the unique index.
@@ -231,6 +260,8 @@ async function handlePost(request: NextRequest, props: { params: Promise<{ id: s
         is_internal: false,
         sent_at: null,
         created_at: new Date().toISOString(),
+        delivery_envelope: envelope,
+        provider_message_id: null,
       };
     }
   }
@@ -243,18 +274,20 @@ async function handlePost(request: NextRequest, props: { params: Promise<{ id: s
     return noStoreJson({ error: '送信結果が未確定のまま再送可能期間を過ぎました。重複防止のため自動再送を停止しました。送信記録を確認してください' }, 409);
   }
 
-  const sent = await sendInquiryReply({
-    to: contact.email,
-    inquirerName: contact.name || 'お客様',
-    body,
-    idempotencyKey: operationId,
-  });
-  if (!sent) return noStoreJson({ error: '送信結果を確認できません。重複防止のため同じ操作IDでのみ再試行してください', pending: true }, 502);
+  const envelope = inquiryReplyEnvelopeSchema.safeParse(existing.delivery_envelope);
+  if (!envelope.success) return noStoreJson({ error: '旧返信の送信内容を確定できません。新しい操作で再送せず、運営で記録を確認してください', pending: true }, 409);
+  const sent = await deliverInquiryReply(envelope.data, operationId);
+  if (sent.state !== 'accepted') return noStoreJson({ error: '送信結果を確認できません。重複防止のため同じ操作IDでのみ再試行してください', pending: true }, 502);
+  return recordAcceptance(service, existing, sent.messageId, admin.id, ip);
+}
 
+async function recordAcceptance(service: ReturnType<typeof createServiceRoleClient>, reply: ReplyRow, messageId: string, adminId: string, ip: string) {
+  const operationId = reply.id;
+  const update = { sent_at: new Date().toISOString(), provider_message_id: messageId };
   const { data: markedRows, error: markError } = await service.from('contact_replies')
-    .update({ sent_at: new Date().toISOString() })
+    .update(update)
     .eq('id', operationId)
-    .eq('contact_id', contact.id)
+    .eq('contact_id', reply.contact_id)
     .eq('is_internal', false)
     .is('sent_at', null)
     .select('id');
@@ -262,25 +295,26 @@ async function handlePost(request: NextRequest, props: { params: Promise<{ id: s
     // Provider accepted the idempotent operation. Never report a clean failure that
     // would encourage a new operation ID; the same ID can reconcile during the window.
     const reread = await findReplyById(service, operationId);
-    if (reread.data?.sent_at) {
-      const ticketUpdated = await updateTicketAfterReply(service, contact.id);
+    const rereadReply = reread.data as ReplyRow | null;
+    if (rereadReply?.sent_at && rereadReply.provider_message_id === messageId) {
+      const ticketUpdated = await updateTicketAfterReply(service, reply.contact_id);
       return noStoreJson({ ok: true, alreadySent: true, warning: ticketUpdated ? null : 'ticket_status_update_failed' });
     }
     return noStoreServerError(
       'admin-inquiries-reply-mark-sent',
       new Error('provider_accepted_reply_history_unconfirmed'),
       '送信結果を記録できません。重複防止のため同じ返信操作を維持してください',
-      { pending: true },
+      { pending: true, providerMessageId: messageId },
     );
   }
 
-  const ticketUpdated = await updateTicketAfterReply(service, contact.id);
+  const ticketUpdated = await updateTicketAfterReply(service, reply.contact_id);
   void writeAuditLog({
-    userId: admin.id,
+    userId: adminId,
     action: 'create',
     tableName: 'contact_replies',
     recordId: operationId,
-    newValues: { contact_id: contact.id, sent: true },
+    newValues: { contact_id: reply.contact_id, provider_accepted: true },
     ipAddress: ip,
   });
 

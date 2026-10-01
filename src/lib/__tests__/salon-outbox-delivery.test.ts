@@ -3,6 +3,8 @@ import type { Resend } from 'resend';
 import type { createServiceRoleClient } from '../supabase-server';
 import { prepareSalonOutboxDelivery } from '../salon-outbox-delivery';
 import { postToSlack } from '../slack';
+import { SALON_ONBOARDING_PATH } from '../salon-browser-context';
+import { SITE_URL } from '../constants';
 
 jest.mock('../slack', () => ({ postToSlack: jest.fn() }));
 const id = '71000000-0000-4000-8000-000000000001';
@@ -103,7 +105,8 @@ test.each([
   expect(email.to).toBe(row.email);
   expect(email.text).toContain(id);
   expect(email.text).toContain('一般公開は');
-  expect(email.text).toContain('/admin/onboarding');
+  expect(email.text).toContain(`${SITE_URL}${SALON_ONBOARDING_PATH}\n`);
+  expect(email.text).toContain('同じタブ');
   expect(email.html).toBeUndefined();
   expect(email.subject).not.toContain(row.facility_name);
   expect(options.idempotencyKey).toBe(`salon-receipt-v1-${id}`);

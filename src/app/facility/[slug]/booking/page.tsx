@@ -5,6 +5,9 @@ import { getStaffByFacility, getMenuStaffByMenuIds } from '@/lib/staff';
 import { getActiveCouponsByFacility, getCouponMenus } from '@/lib/coupons';
 import { buildMenuStaffMap } from '@/lib/menu-staff';
 import BookingFlow from '@/components/booking/BookingFlow';
+import Link from 'next/link';
+import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -33,6 +36,14 @@ export default async function BookingPage(props: Props) {
   const searchParams = await props.searchParams;
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) notFound();
+
+  const preparation = await checkBookingReadiness(createServerSupabaseClient(), facility.id);
+  if (preparation.error) throw new Error('Online booking preparation lookup failed');
+  if (!preparation.readiness.ready) return <main className="max-w-2xl mx-auto p-6">
+    <h1>{facility.name}</h1><p>ネット予約は準備中です。ご予約については店舗へ直接お問い合わせください。</p>
+    {facility.phone && <p><a href={`tel:${facility.phone}`}>店舗に電話する</a></p>}
+    <Link href={`/facility/${params.slug}`}>店舗情報に戻る</Link>
+  </main>;
 
   const [staff, { menus }, coupons, cancelPolicy] = await Promise.all([
     getStaffByFacility(facility.id),

@@ -21,9 +21,11 @@ export interface BookingsSearchInitial {
 export default function BookingsSearchForm({
   initial,
   staffList,
+  facilityId,
 }: {
   initial: BookingsSearchInitial;
   staffList: { id: string; name: string }[];
+  facilityId?: string;
 }) {
   const router = useRouter();
   const [from, setFrom] = useState(initial.from);
@@ -38,6 +40,7 @@ export default function BookingsSearchForm({
   const submit = () => {
     router.push(
       bookingsHref({
+        facilityId,
         from: from || null,
         to: to || null,
         statuses,
@@ -53,7 +56,7 @@ export default function BookingsSearchForm({
     setStatuses([]);
     setQ('');
     setStaff('');
-    router.push('/admin/bookings');
+    router.push(bookingsHref({ facilityId }));
   };
 
   return (

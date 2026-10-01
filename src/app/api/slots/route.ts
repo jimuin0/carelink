@@ -7,6 +7,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { isValidIsoDate } from '@/lib/date-utils';
 import { todayJst } from '@/lib/admin-date';
+import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,6 +35,9 @@ export async function GET(request: Request) {
   }
 
   const supabase = createServerSupabaseClient();
+  const preparation = await checkBookingReadiness(supabase, facilityId);
+  if (preparation.error) return serverError('slots:preparation', preparation.error, '/api/slots', '予約設定を確認できません', { slots: [] });
+  if (!preparation.readiness.ready) return NextResponse.json({ slots: [], bookingAvailable: false });
   const { data, error } = await supabase.rpc('get_available_slots', {
     p_facility_id: facilityId,
     p_staff_id: staffId,

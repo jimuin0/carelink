@@ -33,3 +33,10 @@ export function toJsonValue(value: unknown): Json {
   }
   return null;
 }
+
+/** NOT NULL jsonb callers must check the converted value rather than assert its type. */
+export function toNonNullJsonValue(value: unknown): NonNullable<Json> {
+  const converted = toJsonValue(value);
+  if (converted === null) throw new TypeError('A non-null JSON value is required');
+  return converted;
+}

@@ -126,6 +126,19 @@ test('未認証 → 401', async () => {
   expect(res.status).toBe(401);
 });
 
+test('予約の本人参照は最終Auth guardより先に解除せず、FK SET NULLへ委ねる', async () => {
+  const bookingWrites=jest.fn();
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'bookings') return { ...bookingsMock(), update: bookingWrites };
+    if (table === 'facility_members') return facilityMembersMock([]);
+    return genericWriteMock();
+  });
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(200);
+  expect(bookingWrites).not.toHaveBeenCalled();
+  expect(mockDeleteUser).toHaveBeenCalledWith(USER_ID);
+});
+
 test('レートリミット → 429', async () => {
   (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await POST(makeRequest());
@@ -184,7 +197,7 @@ test('所有施設に未完了予約が残る → 409（退会不可・削除実
   expect(mockDeleteUser).not.toHaveBeenCalled();
 });
 
-test('オーナーで施設予約 count が null → ?? 0 で 0 扱い → 退会続行（200）', async () => {
+test('施設予約 count が null → 0件に変換せず退会中断', async () => {
   const mockSuspendUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) });
   const mockNeq = jest.fn().mockReturnValue(Promise.resolve({ count: 0, error: null }));
   const mockMemberCheckSelect = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ neq: mockNeq }) }) });
@@ -203,10 +216,11 @@ test('オーナーで施設予約 count が null → ?? 0 で 0 扱い → 退�
     return genericWriteMock();
   });
   const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(500);
+  expect(mockDeleteUser).not.toHaveBeenCalled();
 });
 
-test('未完了予約の count が null → 0 扱いで退会続行（200）', async () => {
+test('本人予約 count が null → 0件に変換せず退会中断', async () => {
   mockFrom.mockImplementation((table: string) => {
     if (table === 'bookings') {
       return {
@@ -226,7 +240,8 @@ test('未完了予約の count が null → 0 扱いで退会続行（200）', a
     return genericWriteMock();
   });
   const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(500);
+  expect(mockDeleteUser).not.toHaveBeenCalled();
 });
 
 // ─── ④ 退会ガードクエリが失敗 → fail-closed（500 + alertCaughtError） ────────────
@@ -366,7 +381,7 @@ test('profilesは先行削除せずauth.usersのCASCADEに委ねる', async () =
 
 // ─── ③ 施設削除ループ手前の memberships select が失敗 → fail-closed ────────────
 
-test('③施設削除前のオーナー施設一覧取得(memberships select)が失敗 → 500・auth削除せず・alertCaughtError', async () => {
+test.each([{ message: 'memberships select failed' }, null])('③owner一覧のエラー／欠損 %j はAuth削除前に500となる', async error => {
   const { alertCaughtError } = require('@/lib/alert');
   mockFrom.mockImplementation((table: string) => {
     if (table === 'bookings') return bookingsMock();
@@ -378,7 +393,7 @@ test('③施設削除前のオーナー施設一覧取得(memberships select)が
           if (fields === 'facility_id, role') {
             return {
               eq: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue(Promise.resolve({ data: null, error: { message: 'memberships select failed' } })),
+                eq: jest.fn().mockReturnValue(Promise.resolve({ data: null, error })),
               }),
             };
           }
@@ -675,7 +690,7 @@ test('未処理例外 → 500', async () => {
   expect(res.status).toBe(500);
 });
 
-// Branch coverage: if (memberships) の true ブランチ（memberships が空配列）
+// 真の空の所属一覧は退会を妨げない。
 test('施設メンバーシップが空配列 → ループをスキップして正常削除', async () => {
   mockFrom.mockImplementation((table: string) => {
     if (table === 'bookings') return bookingsMock();
@@ -687,12 +702,10 @@ test('施設メンバーシップが空配列 → ループをスキップして
   expect(res.status).toBe(200);
 });
 
-// Branch coverage: (count ?? 0) === 0 の null coalescing ブランチ（count = null → 0 として評価）
-test('オーナーカウントが null → ?? 0 で 0 として評価 → 施設停止', async () => {
+test.each([null,undefined])('オーナーカウントが %s → 結果不明を0人にせずAuth削除前に中断', async count => {
   const mockSuspendEq = jest.fn().mockReturnValue(Promise.resolve({ error: null }));
   const mockSuspendUpdate = jest.fn().mockReturnValue({ eq: mockSuspendEq });
-  // count = null triggers the ?? 0 branch → (null ?? 0) === 0 → true → suspend
-  const mockNeq = jest.fn().mockReturnValue(Promise.resolve({ count: null, error: null }));
+  const mockNeq = jest.fn().mockReturnValue(Promise.resolve({ count, error: null }));
   const mockMemberCheckEq2 = jest.fn().mockReturnValue({ neq: mockNeq });
   const mockMemberCheckEq1 = jest.fn().mockReturnValue({ eq: mockMemberCheckEq2 });
   const mockMemberCheckSelect = jest.fn().mockReturnValue({ eq: mockMemberCheckEq1 });
@@ -715,20 +728,19 @@ test('オーナーカウントが null → ?? 0 で 0 として評価 → 施設
   });
 
   const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
-  // count=null treated as 0 → facility should be suspended
-  expect(mockSuspendUpdate).toHaveBeenCalledWith({ status: 'suspended' });
+  expect(res.status).toBe(500);
+  expect(mockSuspendUpdate).not.toHaveBeenCalled();
+  expect(mockDeleteUser).not.toHaveBeenCalled();
 });
 
-// Branch coverage: if (memberships) false branch: DB returns null for memberships
-test('facility_members が null → ループをスキップして正常削除', async () => {
+// 結果不明は空の所属一覧ではない。
+test('facility_members が null → 空の所属一覧に変換せず退会中断', async () => {
   mockFrom.mockImplementation((table: string) => {
     if (table === 'bookings') return bookingsMock();
     if (table === 'facility_members') {
       return {
         select: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
-            // data: null → memberships is null → if (memberships) is false → loop skipped
             eq: jest.fn().mockReturnValue(Promise.resolve({ data: null, error: null })),
           }),
         }),
@@ -741,7 +753,8 @@ test('facility_members が null → ループをスキップして正常削除',
   });
 
   const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(500);
+  expect(mockDeleteUser).not.toHaveBeenCalled();
 });
 
 // Branch coverage: filter: r.status === 'fulfilled' but .error is falsy (no failure logged)

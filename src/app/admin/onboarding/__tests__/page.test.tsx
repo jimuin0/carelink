@@ -22,7 +22,7 @@ import '@testing-library/jest-dom';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import OnboardingPage from '../page';
 import { AuthSessionMissingError } from '@supabase/supabase-js';
-import { SALON_BROWSER_CONTEXT_KEY, salonHandoffAuthPath } from '@/lib/salon-browser-context';
+import { SALON_BROWSER_CONTEXT_KEY, SALON_RECOVERY_CONTEXT_KEY, salonHandoffAuthPath } from '@/lib/salon-browser-context';
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
@@ -85,6 +85,40 @@ beforeEach(() => {
     ok: true, json: async () => ({ success: true, facilityId: '11111111-1111-4111-8111-111111111111' }),
   });
   global.fetch = mockFetch as unknown as typeof fetch;
+});
+
+describe('verified recovery handoff', () => {
+  const recoveryId='b2000000-0000-4000-8000-000000000001';
+  const summary={state:'confirmed',receiptId:'b1000000-0000-4000-8000-000000000001',name:'Original recovered branch',type:'ヘアサロン',address:'Original address'};
+  function context() {
+    mockSearchParams=new URLSearchParams({handoff:'recovered',facility_name:'Untrusted query'});
+    window.sessionStorage.setItem(SALON_RECOVERY_CONTEXT_KEY,JSON.stringify({version:1,recoveryId}));
+    mockFetch.mockResolvedValue({ok:true,json:async()=>summary});
+  }
+  test('summary never creates; original fields are immutable and explicit license/button create',async()=>{
+    context();mockMaybeSingle.mockResolvedValue({data:{facility_id:'already-owned'},error:null});render(<OnboardingPage/>);
+    expect(await screen.findByLabelText(/施設名/)).toHaveValue(summary.name);
+    expect(screen.getByLabelText(/施設名/)).toBeDisabled();expect(screen.getByLabelText(/業態/)).toBeDisabled();
+    expect(mockFetch).toHaveBeenCalledTimes(1);expect(mockReplace).not.toHaveBeenCalled();
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({action:'summary',recoveryId});
+    submit();expect(mockFetch).toHaveBeenCalledTimes(1);
+    fillLicenseCheckbox();mockFetch.mockResolvedValue({ok:true,json:async()=>({success:true,facilityId:summary.receiptId})});
+    submit();await waitFor(()=>expect(mockReplace).toHaveBeenCalledWith('/admin'));
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({facility_name:summary.name,business_type:summary.type,license_warranted:true,recoveryId});
+  });
+  test.each([null,{...summary,state:'unverified'},{...summary,address:2},{...summary,receiptId:'bad'}])('invalid summary never becomes direct setup %#',async body=>{
+    context();mockFetch.mockResolvedValue({ok:true,json:async()=>body});render(<OnboardingPage/>);
+    await screen.findByText('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
+    expect(mockFetch).toHaveBeenCalledTimes(1);expect(mockReplace).not.toHaveBeenCalled();
+  });
+  test('missing recovery selector fails closed',async()=>{
+    context();window.sessionStorage.clear();render(<OnboardingPage/>);
+    await screen.findByText('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');expect(mockFetch).not.toHaveBeenCalled();
+  });
+  test('changed selector cannot submit a different receipt',async()=>{
+    context();render(<OnboardingPage/>);await screen.findByLabelText(/施設名/);fillLicenseCheckbox();window.sessionStorage.clear();submit();
+    expect(mockFetch).toHaveBeenCalledTimes(1);expect(mockReplace).not.toHaveBeenCalled();
+  });
 });
 
 describe('selected registration handoff', () => {

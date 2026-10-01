@@ -338,14 +338,14 @@ export interface CustomerVisit {
   id: string;
   facility_id: string;
   booking_id: string | null;
-  customer_email: string;
+  customer_email: string | null;
   customer_name: string;
   visit_date: string;
   menu_name: string | null;
   staff_name: string | null;
   amount: number | null;
   note: string | null;
-  created_at: string;
+  created_at: string | null;
 }
 
 // Treatment Catalog（ヘアカタログ）

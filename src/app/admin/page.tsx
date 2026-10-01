@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { SbPageHeader, SbCard, SbStatusChip, SbButtonLink, SbStatCard } from '@/components/admin/SbUi';
 import { todayJst, addDays, dayOfWeekUtc, jstMonthInfo } from '@/lib/admin-date';
+import { hasConfirmedBookingHours } from '@/lib/booking-preparation';
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -33,12 +34,12 @@ export default async function AdminDashboard() {
     { count: photoCount, error: photoErr },
     { data: facilityData, error: facilityErr },
   ] = await Promise.all([
-    supabase.from('facility_menus').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId),
-    supabase.from('staff_profiles').select('id').eq('facility_id', facilityId),
+    supabase.from('facility_menus').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).or('is_published.is.null,is_published.eq.true'),
+    supabase.from('staff_profiles').select('id').eq('facility_id', facilityId).eq('is_active', true),
     supabase.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId),
     // status に加えて prefecture/city も同じ1行取得に相乗り（往復を増やさない）。
     // 「基本情報（住所）」オンボーディング項目の done 判定に使う。
-    supabase.from('facility_profiles').select('status, prefecture, city').eq('id', facilityId).single(),
+    supabase.from('facility_profiles').select('status, name, prefecture, city, address, business_hours').eq('id', facilityId).single(),
   ]);
   // 取得失敗を 0/未完了 に偽装しない（error.tsx に委ねる）
   if (menuErr || staffErr || photoErr || facilityErr) {
@@ -48,9 +49,11 @@ export default async function AdminDashboard() {
   const staffIds = staffData?.map((s: { id: string }) => s.id) ?? [];
   const staffCount = staffIds.length;
 
-  const scheduleCount = staffIds.length > 0
-    ? (await supabase.from('staff_schedules').select('id', { count: 'exact', head: true }).in('staff_id', staffIds)).count ?? 0
-    : 0;
+  const scheduleResult = staffIds.length > 0
+    ? await supabase.from('staff_schedules').select('id', { count: 'exact', head: true }).in('staff_id', staffIds)
+    : { count: 0, error: null };
+  if (scheduleResult.error) throw new Error('勤務スケジュールの取得に失敗しました');
+  const scheduleCount = scheduleResult.count ?? 0;
 
   const isPublished = facilityData?.status === 'published';
   // 基本情報（住所）の充足判定。/search の地域絞り込み（facilities.ts の .eq('prefecture', …)）と
@@ -58,14 +61,17 @@ export default async function AdminDashboard() {
   // ここが空だと「公開されているのに地域で探すと出てこない」状態になる（facility-publish-gate.ts と
   // 同じ理由で公開の必須条件にもなっている）。セルフサーブ経路では構造的に空になり得るため、
   // メニュー/写真/スタッフと並ぶオンボーディング項目として明示し、/admin/settings へ導く。
-  const hasBasicAddress = Boolean(facilityData?.prefecture) && Boolean(facilityData?.city);
+  const hasBasicAddress = [facilityData?.name, facilityData?.prefecture, facilityData?.city, facilityData?.address]
+    .every(value => typeof value === 'string' && value.trim().length > 0);
+  const hasBookingHours = hasConfirmedBookingHours(facilityData?.business_hours);
   const onboardingSteps = [
     { label: '基本情報（住所）', done: hasBasicAddress, href: '/admin/settings' },
-    { label: 'メニュー登録', done: (menuCount ?? 0) > 0, href: '/admin/menus' },
-    { label: 'スタッフ登録', done: (staffCount ?? 0) > 0, href: '/admin/staff' },
-    { label: '写真アップロード', done: (photoCount ?? 0) > 0, href: '/admin/photos' },
-    { label: 'スケジュール設定', done: (scheduleCount ?? 0) > 0, href: '/admin/staff' },
-    { label: '店舗を公開', done: isPublished, href: '/admin/settings' },
+    { label: '無料掲載を公開', done: isPublished, href: '/admin/settings' },
+    { label: 'ネット予約：公開メニュー登録', done: (menuCount ?? 0) > 0, href: '/admin/menus' },
+    { label: 'ネット予約：有効スタッフ登録', done: staffCount > 0, href: '/admin/staff' },
+    { label: 'ネット予約：写真アップロード', done: (photoCount ?? 0) > 0, href: '/admin/photos' },
+    { label: 'ネット予約：営業時間の確認・保存', done: hasBookingHours, href: '/admin/settings' },
+    { label: '予約枠：勤務スケジュール設定', done: scheduleCount > 0, href: '/admin/staff' },
   ];
   const completedSteps = onboardingSteps.filter(s => s.done).length;
   const showOnboarding = completedSteps < onboardingSteps.length;
@@ -129,17 +135,12 @@ export default async function AdminDashboard() {
     count: weekCounts.get(d) ?? 0,
   }));
 
-  // 公開中なのに「構造的に予約を受け付けられない」状態の検知。
-  // 予約フローの空き枠は 100% スタッフ＋勤務スケジュール起点で導出される
-  // （BookingFlow はスタッフ0で枠取得をスキップ・/api/slots は staffId 必須で
-  // staff_schedules からスロットを算出）。公開はメニュー＋写真のみで可能なため、
-  // スタッフ未登録／スケジュール未設定のまま公開すると、来院者は予約ページに
-  // 到達しても枠が1つも出ず「公開したのに予約が来ない」という無音の機会損失になる。
-  // 公開ゲートは既存施設に影響するため掛けず、経営者に明示警告して気づけるようにする。
-  const publishBlocker = isPublished && staffCount === 0
-    ? { message: '公開中ですが、スタッフが未登録のため予約を受け付けられません。', cta: 'スタッフを登録する', href: '/admin/staff' }
+  // 掲載のみも正常な運用。ネット予約の準備は掲載公開の障害と表示しない。
+  const bookingReady = hasBasicAddress && hasBookingHours && staffCount > 0 && (menuCount ?? 0) > 0 && (photoCount ?? 0) > 0;
+  const publishBlocker = isPublished && !bookingReady
+    ? { message: '無料掲載は公開中です。ネット予約は準備中で、電話・店舗への問い合わせをご案内します。', cta: 'ネット予約の準備内容を確認する', href: '/admin/settings' }
     : isPublished && scheduleCount === 0
-    ? { message: '公開中ですが、スタッフの勤務スケジュールが未設定のため予約を受け付けられません。', cta: 'スケジュールを設定する', href: '/admin/staff' }
+    ? { message: '無料掲載は公開中です。予約枠を表示するにはスタッフの勤務スケジュールを設定してください。', cta: 'スケジュールを設定する', href: '/admin/staff' }
     : null;
 
   return (
@@ -159,7 +160,7 @@ export default async function AdminDashboard() {
             </div>
             <div>
               <p className="text-sm font-bold text-red-800">{publishBlocker.message}</p>
-              <p className="text-xs text-red-600">{publishBlocker.cta}（このままでは集客しても予約が入りません）</p>
+              <p className="text-xs text-red-600">{publishBlocker.cta}（掲載だけの利用には予約設定は不要です）</p>
             </div>
             <svg className="w-5 h-5 text-red-400 ml-auto shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
           </div>

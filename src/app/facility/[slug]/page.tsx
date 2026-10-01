@@ -35,6 +35,7 @@ import { SITE_URL } from '@/lib/constants';
 import { discountText } from '@/lib/coupon-display';
 import type { Facility, FacilityMenu, FacilityPhoto, FacilityReview, StaffProfile, Coupon, TreatmentCatalog } from '@/types';
 import { safeJsonLd } from '@/lib/json-ld';
+import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 
 export const revalidate = 3600;
 
@@ -92,6 +93,10 @@ export default async function FacilityPage(props: Props) {
   const params = await props.params;
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) notFound();
+
+  const preparation = await checkBookingReadiness(createServerSupabaseClient(), facility.id);
+  if (preparation.error) safeCaptureException(new Error('Booking preparation lookup failed'), 'facility-detail:booking-preparation');
+  const bookingAvailable = !preparation.error && preparation.readiness.ready;
 
   const results = await Promise.allSettled([
     getFacilityMenus(facility.id),
@@ -524,7 +529,7 @@ export default async function FacilityPage(props: Props) {
         )}
       </div>
       <ViewCount facilityId={facility.id} facilityName={facility.name} facilitySlug={params.slug} mainPhotoUrl={facility.main_photo_url} businessType={facility.business_type} />
-      <StickyBookingBar phone={facility.phone} facilityName={facility.name} facilitySlug={params.slug} facilityId={facility.id} />
+      <StickyBookingBar phone={facility.phone} facilityName={facility.name} facilitySlug={params.slug} facilityId={facility.id} bookingAvailable={bookingAvailable} />
     </div>
   );
 }

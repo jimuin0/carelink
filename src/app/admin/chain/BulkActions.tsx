@@ -4,6 +4,11 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { z } from 'zod';
+
+const couponResult = z.object({ ok:z.literal(true), created:z.number().int().nonnegative() });
+const publishResult = z.object({ ok:z.literal(true), updated:z.number().int().nonnegative(),
+  skipped:z.array(z.object({ facility_id:z.string(), missing:z.array(z.string()) })) });
 
 interface Props {
   facilityIds: string[];
@@ -46,13 +51,17 @@ export default function ChainBulkActions({ facilityIds, facilityNames }: Props) 
           facility_ids: facilityIds,
         }),
       });
-      const data = await res.json().catch(() => ({}));
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        setToast({ type: 'error', message: (data as { error?: string }).error || '発行に失敗しました' });
+        setToast({ type: 'error', message: typeof data?.error === 'string' ? data.error : '発行に失敗しました' });
         return;
       }
-      setToast({ type: 'success', message: `${(data as { created?: number }).created ?? 0}施設にクーポンを発行しました` });
+      const result = couponResult.safeParse(data);
+      if (!result.success || result.data.created !== facilityIds.length) throw new Error('coupon result unconfirmed');
+      setToast({ type: 'success', message: `${result.data.created}施設にクーポンを発行しました` });
       setCouponName(''); setDiscountValue(''); setValidUntil('');
+    } catch {
+      setToast({ type:'error', message:'発行結果を確認できません。重複発行を避けるため、各施設のクーポン一覧を確認してから再操作してください。' });
     } finally {
       setSubmittingCoupon(false);
     }
@@ -71,13 +80,22 @@ export default function ChainBulkActions({ facilityIds, facilityNames }: Props) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ facility_ids: facilityIds, is_published: publishAction === 'publish' }),
       });
-      const data = await res.json().catch(() => ({}));
+      const data = await res.json().catch(() => null);
       if (res.ok) {
-        setToast({ type: 'success', message: `${(data as { updated?: number }).updated ?? 0}施設の公開状態を変更しました。` });
+        const result = publishResult.safeParse(data);
+        if (!result.success || result.data.updated + result.data.skipped.length !== facilityIds.length
+          || new Set(result.data.skipped.map(row => row.facility_id)).size !== result.data.skipped.length
+          || result.data.skipped.some(row => !facilityIds.includes(row.facility_id))) throw new Error('publish result unconfirmed');
+        const skipped = result.data.skipped;
+        setToast({ type:skipped.length ? 'error' : 'success', message:skipped.length
+          ? `${result.data.updated}施設の状態を変更しました。${skipped.length}施設は掲載準備が不足しているため未変更です。各施設の設定を確認してください。`
+          : `${result.data.updated}施設の公開状態を変更しました。` });
         router.refresh(); // 手動リロード誘導をやめサーバーコンポーネントを再取得
       } else {
-        setToast({ type: 'error', message: (data as { error?: string }).error || '変更に失敗しました' });
+        setToast({ type: 'error', message: typeof data?.error === 'string' ? data.error : '変更に失敗しました' });
       }
+    } catch {
+      setToast({ type:'error', message:'変更結果を確認できません。各施設の現在の公開状態を確認してください。' });
     } finally {
       setSubmittingPublish(false);
     }

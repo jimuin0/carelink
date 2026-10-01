@@ -5,7 +5,7 @@ import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { serverError } from '@/lib/with-route';
 import { checkCsrf } from '@/lib/csrf';
-import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } from '@/lib/email';
+import { buildStatusEnvelope } from '@/lib/booking-status-envelope';
 import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
 import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { sendPushToUser } from '@/lib/push';
@@ -42,7 +42,9 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json().catch(() => ({}));
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: '不正なリクエストです' }, { status: 400 });
     const { bookingId, status, reason } = body;
+    if (reason !== undefined && (typeof reason !== 'string' || reason.length > 1000)) return NextResponse.json({ error: '理由は1000文字以内で入力してください' }, { status: 400 });
 
     if (!bookingId || !uuidRegex.test(bookingId)) {
       return NextResponse.json({ error: '不正なリクエストです' }, { status: 400 });
@@ -53,8 +55,8 @@ export async function POST(request: Request) {
 
     // Auth check（セッション検証には authClient を使用）
     const authClient = await createServerSupabaseAuthClient();
-    const { data: { user } } = await authClient.auth.getUser();
-    if (!user) {
+    const { data: { user }, error: authError } = await authClient.auth.getUser();
+    if (authError || !user) {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     }
 
@@ -62,11 +64,12 @@ export async function POST(request: Request) {
     const supabase = createServiceRoleClient();
 
     // Fetch booking first to scope the permission check
-    const { data: booking } = await supabase
+    const { data: booking, error: bookingError } = await supabase
       .from('bookings')
-      .select('id, facility_id, user_id, customer_name, email, booking_date, start_time, end_time, total_price, menu_id, staff_id, status, points_used')
+      .select('id, facility_id, user_id, customer_name, email, booking_date, start_time, end_time, total_price, menu_id, menu_ids, staff_id, status, points_used, updated_at')
       .eq('id', bookingId)
       .single();
+    if (bookingError && bookingError.code !== 'PGRST116') return serverError('admin-booking-status-read', bookingError, '/api/admin/booking-status');
 
     // Permission check: must be owner/admin of this booking's facility
     // Both "not found" and "wrong owner" return 404 to prevent booking ID enumeration
@@ -78,7 +81,7 @@ export async function POST(request: Request) {
           .eq('facility_id', booking.facility_id)
           .in('role', ['owner', 'admin'])
           .maybeSingle()
-          .then((r) => r.data)
+          .then((r) => { if (r.error) throw new Error('booking permission observation failed'); return r.data; })
       : null;
 
     if (!booking || !membership) {
@@ -98,21 +101,24 @@ export async function POST(request: Request) {
       );
     }
 
-    // Update status — include current status in WHERE clause (CAS) so concurrent updates
-    // cannot bypass the state machine by updating a stale read.
+    // Current membership, booking revision, state transition and immutable
+    // email outbox are committed together. A process crash after this RPC
+    // cannot leave a saved status without its email reservation.
+    const envelope = await buildStatusEnvelope(supabase, booking, status, reason);
     const { data: updated, error } = await supabase
-      .from('bookings')
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq('id', bookingId)
-      .eq('facility_id', booking.facility_id)
-      .eq('status', booking.status)  // atomic guard: fail if status changed since we read it
-      .select('id');
+      .rpc('save_booking_email_event_atomic', { p_actor_id: user.id, p_booking_id: bookingId,
+        p_expected_status: booking.status, p_expected_updated_at: booking.updated_at,
+        p_new_status: status, p_envelope: envelope });
 
+    if (error?.message.includes('BOOKING_PERMISSION_DENIED')) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
+    if (error?.message.includes('BOOKING_REVISION_CONFLICT')) return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
     if (error) {
       return serverError('admin-booking-status-update', error, '/api/admin/booking-status', '更新に失敗しました');
     }
-    if (!updated || updated.length === 0) {
-      return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
+    if (updated?.length !== 1 || !['queued','not_requested'].includes(updated[0].notification)
+      || (updated[0].notification === 'queued' ? !updated[0].operation_id || !uuidRegex.test(updated[0].operation_id)
+        : updated[0].operation_id !== null)) {
+      return serverError('admin-booking-status-result', new Error('status transaction not confirmed'), '/api/admin/booking-status', '変更結果を確認できません。ページを更新してください。');
     }
 
     // completed から離脱（誤完了→no_show 修正等）した場合、完了時に付与した来店記録・ポイントを取り消す。
@@ -162,7 +168,7 @@ export async function POST(request: Request) {
       userAgent: request.headers.get('user-agent') ?? null,
     });
 
-    // Fetch facility name and menu/staff names for email
+    // Remaining names are for the optional LINE path. Email is frozen above.
     const { data: facility } = await supabase
       .from('facility_profiles')
       .select('name')
@@ -170,61 +176,13 @@ export async function POST(request: Request) {
       .single();
 
     let menuName: string | undefined;
-    let staffName: string | undefined;
 
     if (booking.menu_id) {
       const { data: menu } = await supabase.from('facility_menus').select('name').eq('id', booking.menu_id).single();
       menuName = menu?.name;
     }
-    if (booking.staff_id) {
-      const { data: staff } = await supabase.from('staff_profiles').select('name').eq('id', booking.staff_id).single();
-      staffName = staff?.name;
-    }
 
-    // bookings.email は DB 上 nullable（migration 20260629000001 で NOT NULL を撤去済み・
-    // 本番の実列定義と一致）。<Database> 型配線でこの null 許容が表面化した。BookingEmailData.customerEmail
-    // は string 必須（メール送信先として null を渡すのは元々意味がない）ため、email が無い予約は
-    // メール送信自体をスキップする（送信先住所ゼロ件をゼロ件のまま数える＝集計除外と同じ考え方）。
-    // 兄弟ルート /api/booking/[id]/change が `full?.email` で同じガードを既に採用しており挙動を揃えた。
-    // 旧実装は null を渡したまま送信を試み、Resend 側の失敗（false 返却）を「送信失敗」として毎回
-    // 誤警報していた実バグで、本修正はそれも解消する。
-    const emailData = booking.email
-      ? {
-          customerName: booking.customer_name,
-          customerEmail: booking.email,
-          facilityName: facility?.name || '',
-          bookingDate: booking.booking_date,
-          startTime: booking.start_time,
-          endTime: booking.end_time,
-          menuName,
-          staffName,
-          totalPrice: booking.total_price ?? undefined,
-          bookingId: booking.id,
-        }
-      : null;
-
-    // arrived（受付＝来店中）は来店した客への内部操作のため、顧客への通知は送らない。
-    // それ以外のステータス変更は従来どおりメール＋Push で顧客へ通知する。
-    // Send appropriate email（emailData が null＝顧客メール未登録の場合は送信をスキップ）
-    if (status !== 'arrived' && emailData) {
-      try {
-        // 各 send 関数は送信失敗時も throw せず false を返す契約のため、戻り値を確認しないと
-        // 失敗が無音化する（catch は想定外の例外のみ捕捉する）。
-        const sent = status === 'confirmed'
-          ? await sendBookingConfirmed(emailData)
-          : status === 'cancelled'
-            ? await sendBookingCancelled(emailData)
-            : await sendBookingStatusUpdate({ ...emailData, newStatus: status, reason });
-        if (!sent) {
-          const err = new Error(`booking status update email send failed (status=${status})`);
-          safeCaptureException(err, 'booking-email');
-          alertCaughtError('booking-email', err, '/api/admin/booking-status');
-        }
-      } catch (e) {
-        safeCaptureException(e, 'booking-email');
-        alertCaughtError('booking-email', e, '/api/admin/booking-status');
-      }
-    }
+    // Email was already reserved by the atomic RPC, never send it again here.
 
     // cancelled への変更時、顧客の LINE へキャンセル通知（顧客側 /api/booking/[id]/cancel と対称）。
     // 旧実装はメール＋Push のみで顧客 LINE 通知が欠落しており、LINE 連携済み顧客は管理者による

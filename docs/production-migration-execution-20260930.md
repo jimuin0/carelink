@@ -1,5 +1,35 @@
 # 今回限定の公式migration実行記録
 
+## 最低限運用修正の次回適用計画（2026年10月1日、未適用）
+
+この節は実行結果ではない。現在の認証済み依頼「全部修正して」、実行契約revision 5、r44のNATIVE_PRODUCTIONで評価する。適用先は同じCareLink productionだけ。stagingなど別projectへ流用しない。
+
+- 既存認証の公式apply_migrationを使用する。SQL Editor直接DDL、履歴repair、履歴への直接INSERT、既存共有migrationの編集、全未適用migrationの一括pushをしない。
+- 最新の固定commitの独立レビューと必須CI（隔離Supabase実API Contract・Chromium/WebKit E2E・PG17全再生を含む）成功後、直前に対象projectのhealth・PG版・長時間transaction・履歴・既存catalogを照合してから進める。
+- 下記の9原票だけを依存順に一つずつ適用する。既存名・signature・indexの予期しない衝突、返信provider ID重複、来店booking ID重複／tenant不一致、既存queue constraint違反があれば、そのmigrationへ進まず実体を照合する。業務行を削除・統合して通さない。
+- DDLは公式機能のtransactionと履歴記録に委ねる。結果不明では再送せず、migration履歴の記録SQLと関数／column／index／trigger／policy／ACLを照合する。公式生成versionが原票と異なる場合は、初回適用した未共有原票のversionだけを公式記録へ同期し、SQL bytesは不変にする。
+- Auth rowの先行KEY SHARE helperは指定IDをlockするだけでAuth列を返さず、service-onlyで一般Auth SELECT権限は増やさない。削除guardは本人／所有施設のactive予約を最終transactionで確認し、予約参照は実FK SET NULLに委ねる。実アカウント削除を検証として実行しない。
+- schema追加と既存RPC置換は既存行の一括DMLを含まない。来店triggerは適用後の実予約状態変更で作動する。旧アプリの二重visit INSERTはunique拒否でデータを守るが旧コードはエラー通知し得るため、DB適用後のmerge／deployを同じrelease工程で速やかに行い、旧アプリとの時間差を監視する。
+- 失敗時は各migrationのtransaction rollback／未適用を照合し、既存アプリを保持する。成功済みschemaや操作台帳を破壊的にDROPしない。release後の不具合はforward-fixと既存hostingの前SHAへの復帰を効果別に判断し、実送信・実顧客登録・公開代行・新費用を混ぜない。
+- 事後は各原票SQLと履歴の完全一致、service許可／anon・authenticated拒否、RLS、index valid、trigger配置、NULL型、業務行件数と整合性を最小投影で確認する。全体fingerprintの対象外差分は別記し、今回の9原票一致と混同しない。本番型は公式実schemaから再生成してlocal生成との対象差分を照合する。
+- その後、保護条件を満たすmerge、deploy済みSHA、health、登録／受付回復／無料掲載と予約gate／店舗予約管理／通知監視の実動作を確認する。実メール送信や実顧客処理はこのread-only確認に含めない。
+
+| 原票version | migration名 | 適用内容／事前・事後対象 |
+|---|---|---|
+| 20260930144930 | inquiry_reply_reconciliation | provider受理ID、返信不変性guard、unique index |
+| 20260930161629 | listing_booking_separation | 確認済み営業時間、掲載／予約gate、公開予約原子性、Auth先行lock |
+| 20260930175409 | registration_recovery_grants | 本人確認済み原申込の期限付き回復、RLS・service限定 |
+| 20261001002400 | registration_duplicate_linkage | 原申込保持・同一店舗の限定関連付け・CAS・監査 |
+| 20261001042125 | manual_booking_idempotency | 同一操作1予約・全メニュー保存・不変outbox・再取得 |
+| 20261001045826 | booking_visits_atomic | visit unique、NULL email、状態と履歴の同一transaction |
+| 20261001050835 | event_email_first_delivery_ledger | 初回providerキー・envelope・開始時刻の不変性 |
+| 20261001054616 | chain_statistics_aggregate | 現在権限・tenant・JST月境界・失敗と真の0件の区別 |
+| 20261001074255 | booking_transition_outbox_and_publish_authorization | 状態CAS／通知原子性・調整replay・公開認可・最後owner非公開化・退会予約guard |
+
+SQL SHA-256は実行直前の固定commitから算出して履歴SQLと照合する。この節だけを本番適用成功と報告しない。
+
+## 過去の適用記録（2026年9月30日）
+
 認可は現在の認証済みtask contextでの神原さんの指示「今回だけ、Supabase公式のmigration機能と事前・事後確認を使う方法を認める」。対象はCareLink production `xzafxiupbflvgbarrihe`。共通規則の恒久変更、業務データ削除、実送信、費用、公開代行は含めない。
 
 実行計画はcustomer-registration-remediation-20260930.md revision 2。独立レビュー時の計画SHA-256は`bccbd76c1997b846263cbd8f01ed8c8429f1ab97e2a130635d8b0bb40e05d42a`。適用方式はSupabase公式`apply_migration`のみ。履歴のversion・記録SQLとrepo原票を照合し、未共有適用候補だけ改名する。`migration repair`、履歴INSERT/DELETE、SQL Editor直接DDLは実行しない。

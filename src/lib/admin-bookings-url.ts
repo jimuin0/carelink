@@ -10,6 +10,7 @@
  * - page は 2 以上のときのみ付与（1 ページ目は無パラメータが正規形）
  */
 export function bookingsHref(params: {
+  facilityId?: string | null;
   from?: string | null;
   to?: string | null;
   q?: string | null;
@@ -18,6 +19,7 @@ export function bookingsHref(params: {
   page?: number | null;
 }): string {
   const sp = new URLSearchParams();
+  if (params.facilityId) sp.set('facility_id', params.facilityId);
   if (params.from) sp.set('from', params.from);
   if (params.to) sp.set('to', params.to);
   if (params.statuses && params.statuses.length > 0) sp.set('status', params.statuses.join(','));

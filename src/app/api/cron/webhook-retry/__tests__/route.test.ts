@@ -48,6 +48,7 @@ jest.mock('@/lib/alert', () => ({
 jest.mock('resend');
 jest.mock('@/lib/salon-outbox-delivery');
 jest.mock('@/lib/facility-welcome-delivery');
+jest.mock('@/lib/manual-booking-notification');
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
@@ -57,6 +58,7 @@ import { alertDeliveryFailures } from '@/lib/alert';
 import { GET } from '../route';
 import { prepareSalonOutboxDelivery } from '@/lib/salon-outbox-delivery';
 import { prepareFacilityWelcomeDelivery } from '@/lib/facility-welcome-delivery';
+import { prepareManualBookingEnvelope } from '@/lib/manual-booking-notification';
 
 let mockJobsSelect: jest.Mock;
 let mockClaimUpdate: jest.Mock;
@@ -68,6 +70,7 @@ let mockQueuePendingEq: jest.Mock;
 let mockHeldDeliveryLt: jest.Mock;
 let mockTableUpdateDispatch: jest.Mock;
 let mockSendLineText: jest.Mock;
+const mockBookingFence = jest.fn();
 
 function mutationChain(result: jest.Mock) {
   const filters: Record<string, unknown> = {};
@@ -194,13 +197,17 @@ function setupDefaultMocks(
               scheduled_at: new Date(Date.now() - 1000).toISOString(),
             },
             {
-              id: 'job-2',
+              id: '88888888-8888-4888-8888-888888888880',
               webhook_type: 'email',
-              payload: {
+              payload: { event_email_version: 1, idempotency_key: "carelink-event-email/" + '88888888-8888-4888-8888-888888888880' }, email_envelope: { from: 'CareLink <noreply@carelink-jp.com>', ...{
                 to: 'user@example.com',
                 subject: 'Test',
                 html: '<p>Test</p>',
-              },
+              } }, target_id: ({ from: 'CareLink <noreply@carelink-jp.com>', ...{
+                to: 'user@example.com',
+                subject: 'Test',
+                html: '<p>Test</p>',
+              } }).to,
               status: 'pending',
               attempt_count: 1,
               scheduled_at: new Date(Date.now() - 2000).toISOString(),
@@ -250,6 +257,7 @@ function setupDefaultMocks(
 
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
+    rpc: mockBookingFence,
     from: jest.fn((table: string) => {
       if (table === 'webhook_retry_queue') {
         return webhookRetryQueueTable;
@@ -261,7 +269,7 @@ function setupDefaultMocks(
   const { Resend } = require('resend');
   Resend.mockImplementation(() => ({
     emails: {
-      send: jest.fn().mockResolvedValue({ data: { id: 'fixture-message' }, error: null }),
+      send: jest.fn().mockResolvedValue({ data: { id: '99999999-9999-4999-8999-999999999999' }, error: null }),
     },
   }));
 }
@@ -269,6 +277,7 @@ function setupDefaultMocks(
 beforeEach(() => {
   jest.clearAllMocks();
   setupDefaultMocks();
+  mockBookingFence.mockResolvedValue({ data:[{ outcome:'ready',started_at:new Date().toISOString() }],error:null });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
   process.env.CRON_SECRET = 'cron-secret';
@@ -284,6 +293,50 @@ function makeRequest(cronSecret: string = 'cron-secret') {
 }
 
 describe('GET /api/cron/webhook-retry', () => {
+  test.each(['ready','superseded','not_owned','empty','unknown','no-time','bad-time','error'])('booking event fence %s protects dispatch', async mode => {
+    const id = '88888888-8888-4888-8888-888888888881';
+    const envelope = { from:'sender@example.invalid',to:'synthetic@example.invalid',subject:'fixture',html:'<p>fixture</p>' };
+    mockJobsSelect.mockResolvedValue({ data:[{ id,webhook_type:'email',booking_event_id:'e4000000-0000-4000-8000-000000000001',
+      booking_event_revision:'2026-10-01T00:00:00Z',booking_event_kind:'status',target_id:envelope.to,
+      payload:{ event_email_version:1,idempotency_key:`carelink-event-email/${id}` },email_envelope:envelope,
+      status:'pending',attempt_count:0,scheduled_at:new Date().toISOString() }],error:null });
+    const outcome = mode === 'unknown' ? 'unexpected' : ['no-time','bad-time'].includes(mode) ? 'ready' : mode;
+    mockBookingFence.mockResolvedValue({ data:mode === 'empty' ? [] : [{ outcome,
+      started_at:mode === 'no-time' ? null : mode === 'bad-time' ? 'invalid' : '2026-10-01T00:01:00Z' }],
+      error:mode === 'error' ? { message:'08006' } : null });
+    const { Resend } = require('resend'); const send = jest.fn().mockResolvedValue({ data:{ id:'99999999-9999-4999-8999-999999999999' },error:null });
+    Resend.mockImplementation(() => ({ emails:{ send } }));
+    const response = await GET(makeRequest());
+    expect(mockBookingFence).toHaveBeenCalledWith('start_booking_email_event',expect.objectContaining({ p_queue_id:id }));
+    expect(mockDeliveryStartUpdate).not.toHaveBeenCalled();
+    if (mode === 'ready') expect(send).toHaveBeenCalledTimes(1);
+    else expect(send).not.toHaveBeenCalled();
+    if (mode === 'superseded') {
+      expect(await response.json()).toEqual({ processed:0,skipped:1,superseded:1 });
+      expect(mockSuccessUpdate).not.toHaveBeenCalled(); expect(scheduleRetry).not.toHaveBeenCalled();
+    }
+  });
+  test.each(['accepted','missing-id','wrong-key','manual'])('durable email operation validates provider/reference %s', async mode => {
+    setupDefaultMocks(1);
+    const id = '88888888-8888-4888-8888-888888888881';
+    const envelope = { from:'CareLink <noreply@carelink-jp.com>',to:'synthetic@example.invalid',subject:'synthetic',html:'<p>synthetic</p>' };
+    mockJobsSelect.mockResolvedValue({ data:[{ id, webhook_type:mode === 'manual' ? 'manual_booking_confirmation' : 'email',
+      target_id:envelope.to, payload:{ event_email_version:1,idempotency_key:mode === 'wrong-key' ? 'different' : `carelink-event-email/${id}` },
+      email_envelope:envelope,status:'pending',attempt_count:0,scheduled_at:new Date().toISOString() }] });
+    (prepareManualBookingEnvelope as jest.Mock).mockResolvedValue(envelope);
+    const send = jest.fn().mockResolvedValue({ data:mode === 'missing-id' ? { id:'invalid' } : { id },error:null });
+    require('resend').Resend.mockImplementation(() => ({ emails:{ send } }));
+    const res = await GET(makeRequest());
+    if (mode === 'wrong-key') {
+      expect(send).not.toHaveBeenCalled(); expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    } else if (mode === 'missing-id') {
+      expect(res.status).toBe(503); expect(mockSuccessUpdate).not.toHaveBeenCalled(); expect(scheduleRetry).not.toHaveBeenCalled();
+    } else {
+      expect(res.status).toBe(200); expect(send).toHaveBeenCalledTimes(1);
+      expect(mockSuccessUpdate).toHaveBeenCalled();
+      if (mode === 'manual') expect(prepareManualBookingEnvelope).toHaveBeenCalled();
+    }
+  });
   test('claim rechecks due time and consumes returned current data, not stale selection', async () => {
     const chain = claimChain(jest.fn().mockResolvedValue({ data: [{
       id: 'job-1', webhook_type: 'line_push', payload: null, attempt_count: 2,
@@ -438,11 +491,12 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(scheduleRetry).toHaveBeenCalledTimes(1);
   });
 
-  test('結果不明件数nullは0として対象なしを正常スキップする', async () => {
+  test.each([null, undefined])('結果不明件数%sは測定0に変換せず監視失敗とする', async count => {
     setupDefaultMocks(0);
-    mockHeldDeliveryLt.mockResolvedValue({ count: null, error: null });
+    mockHeldDeliveryLt.mockResolvedValue({ count, error: null });
     const res = await GET(makeRequest());
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
+    expect(mockJobsSelect).not.toHaveBeenCalled();
     expect(mockDeliveryStartUpdate).not.toHaveBeenCalled();
     expect(scheduleRetry).not.toHaveBeenCalled();
   });
@@ -455,7 +509,7 @@ describe('GET /api/cron/webhook-retry', () => {
     { to: 'fixture@example.com', subject: 'fixture', html: '<p>fixture</p>', from: 1 },
   ])('不正email payload %jは送信せず安全な失敗処理に回す', async (payload) => {
     mockJobsSelect.mockResolvedValue({ data: [{
-      id: 'email-fixture', webhook_type: 'email', payload,
+      id: '88888888-8888-4888-8888-888888888881', webhook_type: 'email', payload: { event_email_version: 1, idempotency_key: "carelink-event-email/" + '88888888-8888-4888-8888-888888888881' }, email_envelope: payload, target_id: 'fixture@example.com',
       status: 'pending', attempt_count: 0, scheduled_at: new Date().toISOString(),
     }] });
     const mockSend = jest.fn();
@@ -465,13 +519,13 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(mockSend).not.toHaveBeenCalled();
     expect(mockDeliveryStartUpdate).not.toHaveBeenCalled();
     expect(mockSuccessUpdate).not.toHaveBeenCalled();
-    expect(scheduleRetry).toHaveBeenCalledWith('email-fixture', 1, expect.stringContaining('email payload'), expect.any(String));
+    expect(scheduleRetry).toHaveBeenCalledWith('88888888-8888-4888-8888-888888888881', 1, expect.stringContaining('email payload'), expect.any(String));
   });
 
   test('SDKが明確に拒否したメールだけ再スケジュールし結果不明と区別する', async () => {
     mockJobsSelect.mockResolvedValue({ data: [{
-      id: 'email-fixture', webhook_type: 'email',
-      payload: { to: 'fixture@example.com', subject: 'fixture', html: '<p>fixture</p>' },
+      id: '88888888-8888-4888-8888-888888888881', webhook_type: 'email',
+      payload: { event_email_version: 1, idempotency_key: "carelink-event-email/" + '88888888-8888-4888-8888-888888888881' }, email_envelope: { from: 'CareLink <noreply@carelink-jp.com>', ...{ to: 'fixture@example.com', subject: 'fixture', html: '<p>fixture</p>' } }, target_id: ({ from: 'CareLink <noreply@carelink-jp.com>', ...{ to: 'fixture@example.com', subject: 'fixture', html: '<p>fixture</p>' } }).to,
       status: 'pending', attempt_count: 0, scheduled_at: new Date().toISOString(),
     }] });
     const mockSend = jest.fn().mockResolvedValue({ data: null, error: { statusCode: 429 } });
@@ -479,7 +533,7 @@ describe('GET /api/cron/webhook-retry', () => {
     const res = await GET(makeRequest());
     expect(res.status).toBe(200);
     expect(mockSend).toHaveBeenCalledTimes(1);
-    expect(scheduleRetry).toHaveBeenCalledWith('email-fixture', 1, expect.any(String), expect.any(String));
+    expect(scheduleRetry).toHaveBeenCalledWith('88888888-8888-4888-8888-888888888881', 1, expect.any(String), expect.any(String));
     expect(mockSuccessUpdate).not.toHaveBeenCalled();
   });
 
@@ -645,7 +699,7 @@ describe('GET /api/cron/webhook-retry', () => {
 
     // update({status:'processing', claimed_at}) → .in('id', ids) → .eq('status','pending') → .select('id')
     const inMock = mockClaimUpdate.mock.results[0].value.in as jest.Mock;
-    expect(inMock).toHaveBeenCalledWith('id', ['job-1', 'job-2']);
+    expect(inMock).toHaveBeenCalledWith('id', ['job-1', '88888888-8888-4888-8888-888888888880']);
     const eqMock = inMock.mock.results[0].value.eq as jest.Mock;
     expect(eqMock).toHaveBeenCalledWith('status', 'pending');
     const lteMock = eqMock.mock.results[0].value.lte as jest.Mock;
@@ -790,7 +844,7 @@ describe('GET /api/cron/webhook-retry', () => {
       expect(res.status).toBe(expectedStatus);
       expect(resendSend).not.toHaveBeenCalled();
       expect(scheduleRetry).toHaveBeenCalledWith(
-        'legacy-inquiry-reply', 1, 'legacy_inquiry_reply_quarantine_not_confirmed', expect.any(String),
+        'legacy-inquiry-reply', 1, 'legacy_email_quarantine_not_confirmed', expect.any(String),
       );
       if (outcome === 'uncertain') {
         expect(json.delivery_uncertain).toBe(1);
@@ -1250,9 +1304,9 @@ describe('GET /api/cron/webhook-retry', () => {
     delete process.env.RESEND_API_KEY;
     mockJobsSelect = jest.fn().mockResolvedValue({
       data: [{
-        id: 'je',
+        id: '88888888-8888-4888-8888-888888888882',
         webhook_type: 'email',
-        payload: { to: 't@x.com', subject: 's', html: '<p>x</p>' },
+        payload: { event_email_version: 1, idempotency_key: "carelink-event-email/" + '88888888-8888-4888-8888-888888888882' }, email_envelope: { from: 'CareLink <noreply@carelink-jp.com>', ...{ to: 't@x.com', subject: 's', html: '<p>x</p>' } }, target_id: ({ from: 'CareLink <noreply@carelink-jp.com>', ...{ to: 't@x.com', subject: 's', html: '<p>x</p>' } }).to,
         status: 'pending',
         attempt_count: 0,
         scheduled_at: new Date().toISOString(),
@@ -1277,7 +1331,7 @@ describe('GET /api/cron/webhook-retry', () => {
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
     expect(mockSuccessUpdate).not.toHaveBeenCalled();
-    expect(scheduleRetry).toHaveBeenCalledWith('je', 1, expect.stringContaining('RESEND_API_KEY not configured'), expect.any(String));
+    expect(scheduleRetry).toHaveBeenCalledWith('88888888-8888-4888-8888-888888888882', 1, expect.stringContaining('RESEND_API_KEY not configured'), expect.any(String));
     const json = await res.json();
     expect(json.processed).toBe(0);
     expect(json.skipped).toBe(1);
@@ -1286,9 +1340,9 @@ describe('GET /api/cron/webhook-retry', () => {
   test('email payload with explicit from → uses payload.from', async () => {
     mockJobsSelect = jest.fn().mockResolvedValue({
       data: [{
-        id: 'jf',
+        id: '88888888-8888-4888-8888-888888888883',
         webhook_type: 'email',
-        payload: { to: 't@x.com', subject: 's', html: '<p>x</p>', from: 'Custom <c@x.com>' },
+        payload: { event_email_version: 1, idempotency_key: "carelink-event-email/" + '88888888-8888-4888-8888-888888888883' }, email_envelope: { from: 'CareLink <noreply@carelink-jp.com>', ...{ to: 't@x.com', subject: 's', html: '<p>x</p>', from: 'Custom <c@x.com>' } }, target_id: ({ from: 'CareLink <noreply@carelink-jp.com>', ...{ to: 't@x.com', subject: 's', html: '<p>x</p>', from: 'Custom <c@x.com>' } }).to,
         status: 'pending',
         attempt_count: 0,
         scheduled_at: new Date().toISOString(),
@@ -1314,7 +1368,7 @@ describe('GET /api/cron/webhook-retry', () => {
     });
 
     await GET(makeRequest() as any);
-    expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ from: 'Custom <c@x.com>' }));
+    expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ from: 'Custom <c@x.com>' }), expect.objectContaining({ idempotencyKey: expect.any(String) }));
   });
 
   test('送信中の非Error例外も自動再送せず照合へ上げる', async () => {
@@ -1356,10 +1410,10 @@ describe('GET /api/cron/webhook-retry', () => {
     Resend.mockImplementation(() => ({ emails: { send: sendSpy } }));
     mockJobsSelect = jest.fn().mockResolvedValue({
       data: [{
-        id: 'jf2',
+        id: '88888888-8888-4888-8888-888888888884',
         webhook_type: 'email',
         // from は意図的に省略（p.from = undefined）
-        payload: { to: 't@x.com', subject: 's', html: '<p>x</p>' },
+        payload: { event_email_version: 1, idempotency_key: "carelink-event-email/" + '88888888-8888-4888-8888-888888888884' }, email_envelope: { from: 'CareLink <noreply@carelink-jp.com>', ...{ to: 't@x.com', subject: 's', html: '<p>x</p>' } }, target_id: ({ from: 'CareLink <noreply@carelink-jp.com>', ...{ to: 't@x.com', subject: 's', html: '<p>x</p>' } }).to,
         status: 'pending',
         attempt_count: 0,
         scheduled_at: new Date().toISOString(),
@@ -1384,7 +1438,7 @@ describe('GET /api/cron/webhook-retry', () => {
     await GET(makeRequest() as any);
     expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({
       from: 'CareLink <noreply@carelink-jp.com>',
-    }));
+    }), expect.objectContaining({ idempotencyKey: expect.any(String) }));
   });
 
   describe('queue_pending 観測（backlog の可視化）', () => {

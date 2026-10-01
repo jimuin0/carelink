@@ -7,7 +7,8 @@
  * 【失敗しても画面に何も出ない経路】でだけ使われる。値の作り替えを誤ると、記録された内容が
  * 静かに欠けたり壊れたりして、障害調査のときに初めて気づくことになる。分岐を全て固定する。
  */
-import { toJsonValue } from '../json-value';
+import { toJsonValue, toNonNullJsonValue } from '../json-value';
+import type { Json } from '@/types/database.types';
 
 describe('toJsonValue', () => {
   it('JSON のプリミティブはそのまま返す', () => {
@@ -45,7 +46,32 @@ describe('toJsonValue', () => {
       count: number;
     }
     const payload: AuditPayload = { action: 'update', count: 2 };
-    expect(toJsonValue(payload)).toEqual({ action: 'update', count: 2 });
+    const converted: NonNullable<Json> = toNonNullJsonValue(payload);
+    expect(converted).toEqual({ action: 'update', count: 2 });
+  });
+
+  it('非null変換はruntimeで検証し、従来の未知入力のnullable型は狭めない', () => {
+    const objectResult: NonNullable<Json> = toNonNullJsonValue({ nested: null });
+    const arrayResult: NonNullable<Json> = toNonNullJsonValue([null]);
+    const unknownInput: unknown = null;
+    const nullableResult: Json = toJsonValue(unknownInput);
+    // @ts-expect-error Unknown inputs may normalize to null.
+    const notGuaranteedNonNull: NonNullable<Json> = toJsonValue(unknownInput);
+    expect(objectResult).toEqual({ nested: null });
+    expect(arrayResult).toEqual([null]);
+    expect(nullableResult).toBeNull();
+    expect(notGuaranteedNonNull).toBeNull();
+  });
+
+  it('object型へ広げた関数も非null変換で拒否する', () => {
+    const callableAsObject: object = () => 1;
+    for (const value of [null, undefined, callableAsObject, Symbol('s'), 10n]) {
+      expect(() => toNonNullJsonValue(value)).toThrow('A non-null JSON value is required');
+      expect(toJsonValue(value)).toBeNull();
+    }
+    expect(toNonNullJsonValue(false)).toBe(false);
+    expect(toNonNullJsonValue(0)).toBe(0);
+    expect(toNonNullJsonValue('')).toBe('');
   });
 
   it('入力を破壊せず、新しい値を返す', () => {

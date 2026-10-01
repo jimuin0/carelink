@@ -100,6 +100,30 @@ jobs:
       - name: Reminder RPC candidates, roles and claim exclusion (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/reminder-delivery-fixtures.sql
 
+      - name: Inquiry reply identity, pending uniqueness and provider reconciliation (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/inquiry-reply-fixtures.sql
+
+      - name: Listing versus online booking, roles and midnight boundaries (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/listing-booking-fixtures.sql
+
+      - name: Manual reservation atomicity, replay, authorization and failure rollback (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/manual-booking-fixtures.sql
+
+      - name: Manual reservation observed concurrency and role revocation (disposable DB)
+        run: node scripts/check-manual-booking-concurrency.mjs
+
+      - name: Booking completion versus visit history atomicity and authorization (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-visit-fixtures.sql
+
+      - name: Event email immutable payload and delayed-handler CAS exclusion (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/event-email-fixtures.sql
+
+      - name: Chain aggregation full counts, JST month boundary and current roles (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/chain-statistics-fixtures.sql
+
+      - name: Booking event replay, atomic state/outbox, publication authorization and rollback (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-event-publication-fixtures.sql
+
       - name: Registration receipt, replay, role and rollback contracts (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/salon-submission-fixtures.sql
 
@@ -112,6 +136,12 @@ jobs:
       - name: Atomic facility setup roles, claims and rollback (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/facility-setup-fixtures.sql
 
+      - name: Registration recovery verified email, immutable grants and replay (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/registration-recovery-fixtures.sql
+
+      - name: Registration duplicate linkage and all setup modes (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/registration-duplicate-fixtures.sql
+
       - name: Missing profile INSERT and UPDATE privilege boundary (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/profile-privilege-fixtures.sql
 
@@ -123,6 +153,12 @@ jobs:
 
       - name: Atomic facility setup concurrency and lock-time expiry (disposable DB)
         run: node scripts/check-facility-setup-concurrency.mjs
+
+      - name: Registration recovery concurrency and current-email revocation (disposable DB)
+        run: node scripts/check-registration-recovery-concurrency.mjs
+
+      - name: Registration duplicate 20-client linkage and claim concurrency (disposable DB)
+        run: node scripts/check-registration-duplicate-concurrency.mjs
 
       - name: Registration review revision and ABA fixtures (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/registration-review-fixtures.sql

@@ -7,7 +7,7 @@
 // 読み取りを先・書き込みを後に固定する（describe.serial で宣言順を保証）。
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
-import { SEED, PENDING_BOOKING_FILE, CONFIRMED_BOOKING_FILE } from './admin.fixtures';
+import { SEED, PENDING_BOOKING_FILE, CONFIRMED_BOOKING_FILE, MANUAL_BOOKING_FILE, jstToday } from './admin.fixtures';
 
 test.describe.serial('管理画面（オーナー）', () => {
   // ── 読み取り検証（seed 初期値に依存・書き込みより前に実行）──
@@ -147,5 +147,70 @@ test.describe.serial('管理画面（オーナー）', () => {
     await page.getByRole('button', { name: 'スタッフを追加' }).click();
     await page.waitForURL('**/admin/staff', { timeout: 15000 });
     await expect(page.getByText(staffNewName)).toBeVisible();
+  });
+
+  test('手動複数メニュー予約の応答喪失・再読込・同一操作照合は二重作成しない', async ({ page }) => {
+    const fixture = JSON.parse(fs.readFileSync(MANUAL_BOOKING_FILE, 'utf8')) as { facilityId: string; menuIds: string[] };
+    const date = new Date(`${jstToday()}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + 8);
+    const dateText = date.toISOString().slice(0, 10);
+    const customerName = 'E2E手動応答喪失';
+    let postCount = 0;
+    let savedId = '';
+    let frozenInput: Record<string, unknown> = {};
+    // The real local handler commits. Only the browser response is lost.
+    // This is not a mocked business success or a production request.
+    await page.route('**/api/admin/bookings', async route => {
+      if (route.request().method() !== 'POST') return route.continue();
+      postCount += 1;
+      frozenInput = route.request().postDataJSON();
+      const response = await route.fetch();
+      expect(response.status()).toBe(201);
+      const body = await response.json();
+      expect(body.success).toBe(true);
+      expect(body.notification).toBe('not_requested');
+      savedId = body.id;
+      await route.abort('failed');
+    });
+    await page.goto(`/admin/schedule?facility_id=${fixture.facilityId}&date=${dateText}`);
+    const track = page.getByRole('button', { name: `${SEED.staffName} の空き時間に新規予約を追加`, exact: true });
+    await track.press('Enter');
+    const dialog = page.getByRole('dialog', { name: `新規予約（${SEED.staffName}）` });
+    await dialog.locator('#board-customer-name').fill(customerName);
+    await dialog.locator('#board-start-time').fill('18:00');
+    // Selection order must survive saving and detail rendering.
+    await dialog.getByRole('checkbox', { name: new RegExp(SEED.manualMenuSecond) }).check();
+    await dialog.getByRole('checkbox', { name: new RegExp(SEED.manualMenuFirst) }).check();
+    await dialog.getByRole('button', { name: '予約を確定', exact: true }).click();
+    await expect(dialog.getByRole('button', { name: '同じ操作で再確認' })).toBeVisible();
+    expect(postCount).toBe(1);
+    expect(frozenInput.menu_ids).toEqual(fixture.menuIds);
+    expect(await page.evaluate(fid => sessionStorage.getItem(`carelink-manual-booking:${fid}`), fixture.facilityId))
+      .toBe(frozenInput.operation_id);
+    await page.reload();
+    await track.press('Enter');
+    await Promise.all([
+      page.waitForResponse(async response => {
+        if (response.request().method() !== 'GET' || !response.url().includes('/api/admin/bookings?')) return false;
+        const body = await response.json();
+        return body.state === 'saved' && body.booking_id === savedId;
+      }),
+      dialog.getByRole('button', { name: '予約を確定', exact: true }).click(),
+    ]);
+    await expect(dialog).toHaveCount(0);
+    expect(postCount).toBe(1);
+    const savedLink = page.locator(`a[href="/admin/bookings/${savedId}?facility_id=${fixture.facilityId}"]`);
+    await expect(savedLink).toHaveCount(1);
+    await expect(savedLink).toContainText(`${customerName} 様`);
+    expect(await page.evaluate(fid => sessionStorage.getItem(`carelink-manual-booking:${fid}`), fixture.facilityId)).toBeNull();
+    // Replay the exact captured operation through the authenticated real API.
+    const replay = await page.request.post('/api/admin/bookings', {
+      data: frozenInput, headers: { Origin: new URL(page.url()).origin },
+    });
+    expect(replay.status()).toBe(200);
+    expect(await replay.json()).toMatchObject({ success: true, id: savedId, replayed: true });
+    await page.goto(`/admin/bookings/${savedId}?facility_id=${fixture.facilityId}`);
+    await expect(page.getByText(customerName, { exact: true })).toBeVisible();
+    await expect(page.getByText(`${SEED.manualMenuSecond}、${SEED.manualMenuFirst}`, { exact: true })).toBeVisible();
   });
 });

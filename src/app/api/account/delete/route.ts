@@ -55,8 +55,8 @@ export async function POST(request: NextRequest) {
       { cookies: { getAll: () => cookieStore.getAll() } }
     );
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
 
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== 'object' || body.confirmation !== 'DELETE') {
@@ -80,11 +80,11 @@ export async function POST(request: NextRequest) {
       .eq('user_id', user.id)
       .in('status', ACTIVE_BOOKING_STATUSES)
       .gte('booking_date', today);
-    if (ownBookingsErr) {
+    if (ownBookingsErr || ownActiveBookings === null || ownActiveBookings === undefined) {
       return guardQueryFailedResponse(
         'account-delete-guard-own-bookings',
         'active bookings guard query (own) failed',
-        ownBookingsErr,
+        ownBookingsErr ?? new Error('active bookings count unavailable'),
       );
     }
 
@@ -93,11 +93,11 @@ export async function POST(request: NextRequest) {
       .select('facility_id')
       .eq('user_id', user.id)
       .eq('role', 'owner');
-    if (ownerMembershipsErr) {
+    if (ownerMembershipsErr || !Array.isArray(ownerMemberships)) {
       return guardQueryFailedResponse(
         'account-delete-guard-owner-memberships',
         'owner memberships guard query failed',
-        ownerMembershipsErr,
+        ownerMembershipsErr ?? new Error('owner memberships unavailable'),
       );
     }
 
@@ -110,17 +110,17 @@ export async function POST(request: NextRequest) {
         .in('facility_id', facilityIds)
         .in('status', ACTIVE_BOOKING_STATUSES)
         .gte('booking_date', today);
-      if (facilityBookingsErr) {
+      if (facilityBookingsErr || facilityCount === null || facilityCount === undefined) {
         return guardQueryFailedResponse(
           'account-delete-guard-facility-bookings',
           'active bookings guard query (facility) failed',
-          facilityBookingsErr,
+          facilityBookingsErr ?? new Error('facility bookings count unavailable'),
         );
       }
-      facilityActiveBookings = facilityCount ?? 0;
+      facilityActiveBookings = facilityCount;
     }
 
-    if ((ownActiveBookings ?? 0) > 0 || facilityActiveBookings > 0) {
+    if (ownActiveBookings > 0 || facilityActiveBookings > 0) {
       return NextResponse.json(
         { error: '未完了の予約が残っているため退会できません。予約の完了またはキャンセル後に再度お試しください。' },
         { status: 409 }
@@ -161,7 +161,9 @@ export async function POST(request: NextRequest) {
       adminSupabase.from('booking_waitlist').update({ user_id: null }).eq('user_id', user.id),
       adminSupabase.from('treatment_records').update({ user_id: null }).eq('user_id', user.id),
       adminSupabase.from('treatment_plans').update({ user_id: null }).eq('user_id', user.id),
-      adminSupabase.from('bookings').update({ user_id: null }).eq('user_id', user.id),
+      // bookings.user_id is ON DELETE SET NULL. Keep that reference until the
+      // atomic Auth deletion guard runs, so a concurrently created booking is
+      // not detached early and incorrectly hidden from the final guard.
       // created_by が auth.users(id) を ON DELETE 指定なし(RESTRICT)で参照するテーブル。
       // 当該ユーザーが作成した行が残っていると下の auth.admin.deleteUser が FK 違反で失敗し、
       // アカウント削除が丸ごと 500 になる（個人情報保護法対応の致命的ブロック）。
@@ -197,44 +199,44 @@ export async function POST(request: NextRequest) {
     // 先に削除するとAuth APIの失敗時に連携・所有施設の再解決ができなくなる。
     // auth削除と同一DBトランザクションで消すことで、Auth失敗時には再実行情報が残る。
 
-    // 施設オーナーの場合、施設も削除
+    // 施設は物理削除せず非公開にする。最終owner喪失時のDB triggerが
+    // Auth CASCADEと同一transactionで再公開との競合も閉じる。
     const { data: memberships, error: membershipsErr } = await adminSupabase
       .from('facility_members')
       .select('facility_id, role')
       .eq('user_id', user.id)
       .eq('role', 'owner');
-    if (membershipsErr) {
+    if (membershipsErr || !Array.isArray(memberships)) {
       return guardQueryFailedResponse(
         'account-delete-memberships-select',
         'facility_members (owner) select failed',
-        membershipsErr,
+        membershipsErr ?? new Error('owner memberships unavailable'),
       );
     }
 
-    if (memberships) {
-      for (const m of memberships) {
-        // 他にオーナーがいない場合のみ施設削除
+    for (const m of memberships) {
+        // 他にオーナーがいない場合のみ事前に非公開にする。
         const { count, error: ownerCountErr } = await adminSupabase
           .from('facility_members')
           .select('id', { count: 'exact', head: true })
           .eq('facility_id', m.facility_id)
           .eq('role', 'owner')
           .neq('user_id', user.id);
-        if (ownerCountErr) {
+        if (ownerCountErr || count === null || count === undefined) {
           return guardQueryFailedResponse(
             'account-delete-owner-count',
             `owner count query failed (facility_id=${m.facility_id})`,
-            ownerCountErr,
+            ownerCountErr ?? new Error('owner count unavailable'),
           );
         }
 
-        if ((count ?? 0) === 0) {
-          const { error: suspendErr } = await adminSupabase.from('facility_profiles').update({ status: 'suspended' }).eq('id', m.facility_id);
+        if (count === 0) {
+          const { error: suspendErr } = await adminSupabase.from('facility_profiles')
+            .update({ status: 'suspended' }).eq('id', m.facility_id);
           if (suspendErr) {
             return guardQueryFailedResponse('account-delete-suspend', 'facility suspension failed', suspendErr);
           }
         }
-      }
     }
 
     // auth.usersから削除

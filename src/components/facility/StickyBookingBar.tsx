@@ -4,12 +4,12 @@ import Link from 'next/link';
 import { analytics } from '@/lib/analytics';
 import RemainingSlots from './RemainingSlots';
 
-export default function StickyBookingBar({ phone, facilityName, facilitySlug, facilityId }: { phone: string | null; facilityName: string; facilitySlug: string; facilityId: string }) {
+export default function StickyBookingBar({ phone, facilityName, facilitySlug, facilityId, bookingAvailable = true }: { phone: string | null; facilityName: string; facilitySlug: string; facilityId: string; bookingAvailable?: boolean }) {
   return (
     <div className="sticky-bar">
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center justify-center gap-2 mb-1">
-          <RemainingSlots facilityId={facilityId} />
+          {bookingAvailable ? <RemainingSlots facilityId={facilityId} /> : <p className="text-sm text-gray-600">ネット予約は準備中です。店舗へ直接お問い合わせください。</p>}
         </div>
         <div className="flex gap-3">
         {phone && (
@@ -24,7 +24,7 @@ export default function StickyBookingBar({ phone, facilityName, facilitySlug, fa
             電話
           </a>
         )}
-        <Link
+        {bookingAvailable && <Link
           href={`/facility/${facilitySlug}/booking`}
           onClick={() => analytics.bookingClicked(facilitySlug)}
           className="flex-1 flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-600 hover:to-sky-700 text-white font-bold rounded-xl text-sm transition-all shadow-lg"
@@ -36,7 +36,7 @@ export default function StickyBookingBar({ phone, facilityName, facilitySlug, fa
             <line x1="3" y1="10" x2="21" y2="10" />
           </svg>
           今すぐ予約する
-        </Link>
+        </Link>}
         <button
           type="button"
           onClick={() => {

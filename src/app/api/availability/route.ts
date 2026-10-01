@@ -7,6 +7,7 @@ import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { serverError } from '@/lib/with-route';
 import { todayJst } from '@/lib/admin-date';
+import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 
 /**
  * カレンダー1日分の状態。
@@ -44,6 +45,9 @@ export async function GET(request: Request) {
     }
 
     const supabase = createServerSupabaseClient();
+    const preparation = await checkBookingReadiness(supabase, facilityId);
+    if (preparation.error) return serverError('availability-preparation', preparation.error, '/api/availability');
+    if (!preparation.readiness.ready) return NextResponse.json({ dates: {}, bookingAvailable: false });
 
     // Get all staff for this facility if staffId is not provided
     let staffIds: string[] = [];
@@ -87,11 +91,12 @@ export async function GET(request: Request) {
     //   - business_hours 自体が未設定 → ゲートしない（SQL 側と同じ後方互換）
     //   - 曜日キーが存在して値が null → 定休日
     //   - 曜日キーが無い → ゲートしない
-    const { data: facRow } = await supabase
+    const { data: facRow, error: hoursError } = await supabase
       .from('facility_profiles')
       .select('business_hours')
       .eq('id', facilityId)
       .maybeSingle();
+    if (hoursError) return serverError('availability-hours', hoursError, '/api/availability');
     const businessHours = (facRow?.business_hours ?? null) as Record<string, unknown> | null;
     const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
     const isClosedOn = (dateStr: string): boolean => {
@@ -162,12 +167,14 @@ export async function GET(request: Request) {
       await Promise.all(batch.map(async (dateStr) => {
         let totalSlots = 0;
         for (const sid of staffIds) {
-          const { data } = await supabase.rpc('get_available_slots', {
+          const { data, error: slotsError } = await supabase.rpc('get_available_slots', {
             p_facility_id: facilityId,
             p_staff_id: sid,
             p_date: dateStr,
             p_duration_minutes: 60,
           });
+          // 再計算も失敗したら「満席0件」と成功応答しない。
+          if (slotsError) throw new Error('Availability fallback slot lookup failed');
           totalSlots += (data || []).length;
           if (totalSlots >= 3) break;
         }

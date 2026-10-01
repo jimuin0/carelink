@@ -5,173 +5,105 @@ import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit, mutationRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { sendBookingConfirmed } from '@/lib/email';
 import { writeAuditLog } from '@/lib/audit-logger';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
 import { serverError } from '@/lib/with-route';
 import { isValidIsoDate } from '@/lib/date-utils';
 
 export const dynamic = 'force-dynamic';
-
-// 管理者がサロンボードから手動で予約を入れる API（電話・飛び込み代行）。
-// 顧客フロー POST /api/booking と異なり email 任意・user_id なし・status=confirmed 固定。
-// 二重予約は顧客フローと同じ create_booking_atomic（FOR UPDATE ロック）で原理的に防止する。
 const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
-const adminBookingSchema = z.object({
+const schema = z.object({
+  operation_id: z.string().uuid(),
   facility_id: z.string().uuid(),
   staff_id: z.string().uuid().nullable().optional(),
-  menu_ids: z.array(z.string().uuid()).min(1).max(20),
-  // 形式に加え実在する暦日かを検証する（2026-02-30 等を弾く。RPC 内の date キャスト失敗を未然に防止）。
-  booking_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidIsoDate, '有効な日付を入力してください'),
-  start_time: z.string().regex(timeRegex),
-  end_time: z.string().regex(timeRegex),
-  customer_name: z.string().min(1).max(100),
+  menu_ids: z.array(z.string().uuid()).min(1).max(20).refine(ids => new Set(ids).size === ids.length),
+  booking_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidIsoDate),
+  start_time: z.string().regex(timeRegex), end_time: z.string().regex(timeRegex),
+  customer_name: z.string().trim().min(1).max(100),
   email: z.string().email().max(254).nullable().optional(),
-  phone: z.string().max(20).nullable().optional(),
-  note: z.string().max(500).nullable().optional(),
+  phone: z.string().max(20).nullable().optional(), note: z.string().max(500).nullable().optional(),
+});
+const resultSchema = z.object({
+  booking_id: z.string().uuid(), replayed: z.boolean(), total_price: z.number().int().nonnegative(),
+  menu_names: z.string(), staff_name: z.string().nullable(), facility_name: z.string(),
 });
 
-// 認証ユーザーが facility の owner/admin か検証し、userId を返す（IDOR 防止）
-async function verifyFacilityAdmin(facilityId: string): Promise<string | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  const { data } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-    .eq('facility_id', facilityId)
-    .in('role', ['owner', 'admin'])
-    .single();
-  return data ? user.id : null;
+export async function GET(request: NextRequest) {
+  try {
+    if (await checkRateLimit(null, getClientIp(request), 30, 60_000, 'admin-booking-recovery')) {
+      return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+    }
+    const params = new URL(request.url).searchParams;
+    const input = z.object({ operation_id: z.string().uuid(), facility_id: z.string().uuid() })
+      .safeParse({ operation_id: params.get('operation_id'), facility_id: params.get('facility_id') });
+    if (!input.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
+    const auth = await createServerSupabaseAuthClient();
+    const { data: { user }, error: authError } = await auth.auth.getUser();
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { data, error } = await createServiceRoleClient().rpc('get_manual_booking_operation', {
+      p_actor_id: user.id, p_operation_id: input.data.operation_id, p_facility_id: input.data.facility_id,
+    });
+    if (error?.code === '42501') return NextResponse.json({ error: '店舗を管理する権限がありません' }, { status: 403 });
+    if (error) return serverError('admin-bookings-recovery', error, '/api/admin/bookings', '予約結果の照合に失敗しました');
+    const checked = z.discriminatedUnion('state', [
+      z.object({ state: z.literal('saved'), booking_id: z.string().uuid() }),
+      z.object({ state: z.literal('absent') }), z.object({ state: z.literal('retired') }),
+    ]).safeParse(data);
+    if (!checked.success) return serverError('admin-bookings-recovery-result', new Error('invalid recovery result'), '/api/admin/bookings', '予約結果の照合に失敗しました');
+    return NextResponse.json(checked.data, { headers: { 'Cache-Control': 'no-store' } });
+  } catch (error) {
+    return serverError('admin-bookings-recovery', error, '/api/admin/bookings', '予約結果の照合に失敗しました');
+  }
 }
 
 export async function POST(request: NextRequest) {
-  const csrfError = checkCsrf(request);
-  if (csrfError) return csrfError;
-  const ip = getClientIp(request);
-  if (await checkRateLimit(mutationRateLimit, ip, 30, 60_000, 'admin-booking-create')) {
-    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
-  }
-
-  const body = await request.json().catch(() => null);
-  const parsed = adminBookingSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
-  const d = parsed.data;
-
-  if (d.start_time >= d.end_time) {
-    return NextResponse.json({ error: '開始時間は終了時間より前にしてください' }, { status: 400 });
-  }
-
-  const userId = await verifyFacilityAdmin(d.facility_id);
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const admin = createServiceRoleClient();
-
-  // メニューを自施設で検証し料金を合計（他施設メニュー混入を拒否＝IDOR防止）
-  const { data: menuRows } = await admin
-    .from('facility_menus')
-    .select('id, name, price')
-    .in('id', d.menu_ids)
-    .eq('facility_id', d.facility_id);
-  const menuList: { id: string; name: string; price: number | null }[] = menuRows ?? [];
-  const validIds = new Set(menuList.map((r) => r.id));
-  if (!d.menu_ids.every((id) => validIds.has(id))) {
-    return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 400 });
-  }
-  let totalPrice = menuList.reduce((s, r) => s + (r.price ?? 0), 0);
-
-  // スタッフ指定時は自施設所属を検証し、指名料を加算
-  let staffName: string | undefined;
-  if (d.staff_id) {
-    const { data: staffRow } = await admin
-      .from('staff_profiles')
-      .select('name, nomination_fee')
-      .eq('id', d.staff_id)
-      .eq('facility_id', d.facility_id)
-      .maybeSingle();
-    if (!staffRow) return NextResponse.json({ error: 'スタッフが見つかりません' }, { status: 400 });
-    staffName = staffRow.name ?? undefined;
-    if (staffRow.nomination_fee) totalPrice += staffRow.nomination_fee;
-  }
-
-  // アトミック作成（status=confirmed・user_id なし）
-  // p_enforce_schedule を渡さない＝店舗手動予約はスケジュールゲート（営業時間・定休日・指名勤務窓）対象外（意図的・電話受付等の時間外登録を塞がない）。
-  const { data: rpcResult, error } = await admin.rpc('create_booking_atomic', {
-    p_facility_id: d.facility_id,
-    p_staff_id: d.staff_id ?? null,
-    p_user_id: null,
-    p_menu_id: d.menu_ids[0],
-    p_coupon_id: null,
-    p_booking_date: d.booking_date,
-    p_start_time: d.start_time,
-    p_end_time: d.end_time,
-    p_customer_name: d.customer_name,
-    p_email: d.email ?? null,
-    p_phone: d.phone ?? null,
-    p_note: d.note ?? null,
-    p_total_price: totalPrice,
-    p_points_used: 0,
-    p_status: 'confirmed',
-  });
-
-  if (error) {
-    if (error.message?.includes('BOOKING_CONFLICT') || error.code === '23505') {
-      return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
+  try {
+    const csrfError = checkCsrf(request);
+    if (csrfError) return csrfError;
+    if (await checkRateLimit(mutationRateLimit, getClientIp(request), 30, 60_000, 'admin-booking-create')) {
+      return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
     }
-    return serverError('admin-bookings-create-rpc', error, '/api/admin/bookings', '予約に失敗しました');
-  }
-  const newId: string = rpcResult || '';
-  if (!newId) return serverError('admin-bookings-create-no-id', new Error('create_booking_atomic returned no id'), '/api/admin/bookings', '予約に失敗しました');
-
-  // 複数メニュー予約は menu_ids 列に全メニューを保存（menu_id には先頭1件しか入らず表示が1件目のみに
-  // なる・A6）。料金・所要時間は合算済みで正しい。失敗は致命でないため warn のみ。単一時はスキップ。
-  if (d.menu_ids.length > 1) {
-    const { error: menuIdsErr } = await admin.from('bookings').update({ menu_ids: d.menu_ids }).eq('id', newId);
-    if (menuIdsErr) console.error('[admin-bookings] menu_ids persist failed', { bookingId: newId, err: menuIdsErr.message });
-  }
-
-  void writeAuditLog({
-    userId,
-    facilityId: d.facility_id,
-    action: 'create',
-    tableName: 'bookings',
-    recordId: newId,
-    newValues: { customer_name: d.customer_name, booking_date: d.booking_date, start_time: d.start_time, status: 'confirmed' },
-  });
-
-  // メールがある場合のみ確認メール送信（fire-and-forget）
-  // sendBookingConfirmed は送信失敗時も throw せず false を返す契約のため、void で捨てると
-  // 失敗が無音化する。戻り値を確認して可視化する。
-  if (d.email) {
-    const { data: facility } = await admin.from('facility_profiles').select('name').eq('id', d.facility_id).single();
-    // 【2026年7月7日 本番実データで確定した恒久根治】waitUntil() の fire-and-forget は Fluid Compute
-    // 無効の本番でレスポンス返却直後に凍結され後処理が全滅していた（/api/review と同一の欠陥・同一の
-    // 根治）。レスポンス前に await で確実に送る。allSettled 相当に .catch を足し、送信失敗（reject 含む）
-    // が本体レスポンス(201)に影響しないようにする。
-    await sendBookingConfirmed({
-      bookingId: newId,
-      customerName: d.customer_name,
-      customerEmail: d.email,
-      facilityName: facility?.name ?? '',
-      bookingDate: d.booking_date,
-      startTime: d.start_time,
-      endTime: d.end_time,
-      menuName: menuList.map((r) => r.name).filter(Boolean).join('、'),
-      staffName,
-      totalPrice,
-    }).then((ok) => {
-      if (!ok) {
-        const err = new Error('admin booking confirmation email send failed');
-        safeCaptureException(err, 'admin-bookings-email');
-        alertCaughtError('admin-bookings-email', err, '/api/admin/bookings');
-      }
-    }).catch((e) => {
-      safeCaptureException(e, 'admin-bookings-email');
-      alertCaughtError('admin-bookings-email', e, '/api/admin/bookings');
+    const parsed = schema.safeParse(await request.json().catch(() => null));
+    if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
+    const d = parsed.data;
+    if (d.start_time >= d.end_time) return NextResponse.json({ error: '開始時間は終了時間より前にしてください' }, { status: 400 });
+    const auth = await createServerSupabaseAuthClient();
+    const { data: { user }, error: authError } = await auth.auth.getUser();
+    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const { data: member, error: memberError } = await auth.from('facility_members')
+      .select('facility_id').eq('user_id', user.id).eq('facility_id', d.facility_id)
+      .in('role', ['owner', 'admin']).maybeSingle();
+    if (memberError) return serverError('admin-bookings-membership', memberError, '/api/admin/bookings', '権限の確認に失敗しました');
+    if (!member) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Price, current authorization, reservation, all menus and immutable
+    // operation record are committed together. A retry does not create again.
+    const { data, error } = await createServiceRoleClient().rpc('create_manual_booking_atomic', {
+      p_actor_id: user.id, p_operation_id: d.operation_id,
+      p_input: { facility_id: d.facility_id, staff_id: d.staff_id ?? null, menu_ids: d.menu_ids,
+        booking_date: d.booking_date, start_time: d.start_time, end_time: d.end_time,
+        customer_name: d.customer_name, email: d.email ?? null, phone: d.phone ?? null, note: d.note ?? null },
     });
+    if (error) {
+      if (error.code === '42501') return NextResponse.json({ error: '店舗を管理する権限がありません' }, { status: 403 });
+      if (error.message.includes('BOOKING_CONFLICT')) return NextResponse.json({ code: 'BOOKING_CONFLICT', error: 'この時間帯は既に予約が入っています' }, { status: 409 });
+      if (/MANUAL_OPERATION_(CONFLICT|RETIRED)/.test(error.message)) {
+        return NextResponse.json({ code: 'MANUAL_OPERATION_RECOVERY', error: 'この操作は変更または削除済みです。同じ操作で原予約を照合してください' }, { status: 409 });
+      }
+      if (/MANUAL_(INPUT_INVALID|MENU_UNAVAILABLE|STAFF_UNAVAILABLE|PRICE_INVALID|FACILITY_UNAVAILABLE)/.test(error.message)) {
+        return NextResponse.json({ error: '店舗・メニュー・スタッフ・入力内容を確認してください' }, { status: 400 });
+      }
+      return serverError('admin-bookings-create-rpc', error, '/api/admin/bookings', '予約結果を確認できません。同じ操作で再確認してください');
+    }
+    const result = resultSchema.safeParse(data);
+    if (!result.success) return serverError('admin-bookings-create-result', new Error('invalid manual booking result'), '/api/admin/bookings', '予約結果を確認できません。同じ操作で再確認してください');
+    const saved = result.data;
+    if (saved.replayed) return NextResponse.json({ success: true, id: saved.booking_id, replayed: true, notification: 'not_repeated' });
+    void writeAuditLog({ userId: user.id, facilityId: d.facility_id, action: 'create', tableName: 'bookings',
+      recordId: saved.booking_id, newValues: { booking_date: d.booking_date, start_time: d.start_time, status: 'confirmed' } });
+    // The RPC atomically reserved the unique notification. Its worker can
+    // resume even if this process ends now. Queued is not provider acceptance.
+    const notification = d.email ? 'queued' : 'not_requested';
+    return NextResponse.json({ success: true, id: saved.booking_id, replayed: false, notification }, { status: 201 });
+  } catch (error) {
+    return serverError('admin-bookings-create', error, '/api/admin/bookings', '予約結果を確認できません。同じ操作で再確認してください');
   }
-
-  return NextResponse.json({ success: true, id: newId }, { status: 201 });
 }

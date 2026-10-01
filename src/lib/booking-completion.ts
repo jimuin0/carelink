@@ -6,9 +6,8 @@ import { awardReferralPointsOnCompletion } from './referral';
 /**
  * 予約が completed に「進入」した際に付与する副作用。reverseCompletionSideEffects の対称形。
  *
- * - customer_visits（来店記録）を1件挿入。これは顧客一覧（getUniqueCustomers）の
- *   「来店回数・最終来店」集計の唯一の元データであり、ここが積まれないと予約客が
- *   顧客台帳に来店実績ゼロで埋もれる（8体監査の追検証で確定した本番無音バグの根治）。
+ * - 来店記録は booking_visit_atomic DB trigger が予約の状態変更と同時に保存する。
+ *   この関数から再挿入しない。履歴保存失敗時は状態変更そのものがrollbackする。
  * - 来店ポイント（100円=1pt）を user_id があれば付与。
  *
  * 失敗は致命でないため Sentry 通知のみで本体は継続（admin は service_role を渡すこと）。
@@ -37,36 +36,6 @@ export async function applyCompletionSideEffects(
   admin: SupabaseClient,
   booking: CompletableBooking,
 ): Promise<number> {
-  // customer_visits 表示用にメニュー名・スタッフ名を解決（任意・失敗時は null のまま）。
-  // 【監査L1】名前解決は必ず当該予約の facility_id にスコープする。id のみで引くと、万一
-  // bookings.menu_id/staff_id に他施設の id が入っていた場合に他施設のメニュー名・スタッフ名が
-  // customer_visits へ越境混入し得る（booking API 側の primary menu_id 検証と多層防御で塞ぐ）。
-  let menuName: string | null = null;
-  let staffName: string | null = null;
-  if (booking.menu_id) {
-    const { data: menu } = await admin.from('facility_menus').select('name').eq('id', booking.menu_id).eq('facility_id', booking.facility_id).single();
-    menuName = menu?.name ?? null;
-  }
-  if (booking.staff_id) {
-    const { data: staff } = await admin.from('staff_profiles').select('name').eq('id', booking.staff_id).eq('facility_id', booking.facility_id).single();
-    staffName = staff?.name ?? null;
-  }
-
-  const { error: visitError } = await admin.from('customer_visits').insert({
-    facility_id: booking.facility_id,
-    booking_id: booking.id,
-    customer_email: booking.email,
-    customer_name: booking.customer_name,
-    visit_date: booking.booking_date,
-    menu_name: menuName,
-    staff_name: staffName,
-    amount: booking.total_price,
-  });
-  if (visitError) {
-    safeCaptureException(visitError, 'booking-completion');
-    alertCaughtError('booking-completion:visit', visitError, `booking:${booking.id}`);
-  }
-
   // 来店ポイント（1ポイント=100円）。user_points は authenticated に INSERT ポリシーが無いため
   // service_role（admin）で挿入する。
   // null/0/負値の total_price は floor 後の earned>0 という単一ガードで一括判定する

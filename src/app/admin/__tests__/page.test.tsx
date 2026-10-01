@@ -30,7 +30,7 @@ const FACILITY_ID = 'facility-1';
 /** 任意のメソッドチェーンを許容し、最後に .single() または直接 await で解決する thenable モック。 */
 function chain(result: { data?: unknown; count?: number | null; error?: unknown } = {}) {
   const obj: Record<string, unknown> = {};
-  const passthrough = ['select', 'eq', 'neq', 'gte', 'lte', 'in', 'order', 'limit'];
+  const passthrough = ['select', 'eq', 'neq', 'gte', 'lte', 'in', 'or', 'order', 'limit'];
   for (const m of passthrough) obj[m] = jest.fn(() => obj);
   obj.single = jest.fn(() => Promise.resolve({ data: result.data ?? null, error: result.error ?? null }));
   obj.then = (resolve: (v: { data: unknown; count: number | null; error: unknown }) => unknown) =>
@@ -42,16 +42,16 @@ function chain(result: { data?: unknown; count?: number | null; error?: unknown 
  * facility_profiles の prefecture/city を差し替えられる最小限の supabase モック。
  * bookings 系は KPI 表示に使うだけで本検査の対象外のため、常に空/0 を返す。
  */
-function mockSupabase(opts: { prefecture: string | null; city: string | null }) {
+function mockSupabase(opts: { prefecture: string | null; city: string | null; status?: string; scheduleError?: unknown; address?: string }) {
   const from = jest.fn((table: string) => {
     if (table === 'facility_members') return chain({ data: { facility_id: FACILITY_ID } });
     if (table === 'facility_menus') return chain({ count: 1 });
     if (table === 'staff_profiles') return chain({ data: [{ id: 'staff-1' }] });
     if (table === 'facility_photos') return chain({ count: 1 });
     if (table === 'facility_profiles') {
-      return chain({ data: { status: 'draft', prefecture: opts.prefecture, city: opts.city } });
+      return chain({ data: { status: opts.status ?? 'draft', name: 'テスト店舗', address: opts.address ?? 'テスト住所', prefecture: opts.prefecture, city: opts.city } });
     }
-    if (table === 'staff_schedules') return chain({ count: 1 });
+    if (table === 'staff_schedules') return chain({ count: 1, error: opts.scheduleError });
     if (table === 'bookings') return chain({ data: [], count: 0 });
     throw new Error('unexpected table: ' + table);
   });
@@ -123,4 +123,22 @@ test('(viii-d) href は /admin/settings へ導く', async () => {
   const root = await AdminDashboard();
   const link = findBasicInfoLink(root);
   expect(link.props.href).toBe('/admin/settings');
+});
+
+test('住所が空なら基本情報を完了扱いにしない', async () => {
+  mockSupabase({ prefecture: '東京都', city: '渋谷区', address: '　' });
+  expect(String(findBasicInfoLink(await AdminDashboard()).props.className)).not.toContain('line-through');
+});
+
+test('掲載済みでも未確認営業時間はネット予約準備中として説明する', async () => {
+  mockSupabase({ prefecture: '東京都', city: '渋谷区', status: 'published' });
+  const root = await AdminDashboard();
+  expect(findElementsWithDirectText(root, '無料掲載は公開中です。ネット予約は準備中で、電話・店舗への問い合わせをご案内します。')).toHaveLength(1);
+  expect(findElementsWithDirectText(root, '無料掲載を公開')).toHaveLength(1);
+  expect(findElementsWithDirectText(root, 'ネット予約：営業時間の確認・保存')).toHaveLength(1);
+});
+
+test('勤務スケジュールの読取失敗は未設定0件へ置換しない', async () => {
+  mockSupabase({ prefecture: '東京都', city: '渋谷区', scheduleError: { message: 'failed' } });
+  await expect(AdminDashboard()).rejects.toThrow('勤務スケジュールの取得に失敗しました');
 });

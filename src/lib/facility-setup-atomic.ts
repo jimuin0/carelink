@@ -12,22 +12,24 @@ export const facilitySetupInput = z.object({
   address: z.string().trim().max(200).optional(),
   license_warranted: z.literal(true),
   intentId: z.string().regex(UUID_REGEX).optional(),
-}).strict();
+  recoveryId: z.string().regex(UUID_REGEX).optional(),
+}).strict().refine(value => value.intentId === undefined || value.recoveryId === undefined);
 
 export type FacilitySetupClaim =
   | { mode: 'none' }
   | { mode: 'legacy'; receiptId: string; issuedAt: string }
-  | { mode: 'intent'; intentId: string; proof: string };
+  | { mode: 'intent'; intentId: string; proof: string }
+  | { mode: 'recovered'; recoveryId: string; proof: string };
 
 export type FacilitySetupResult =
   | { state: 'invalid' }
   | { state: 'unverified' }
   | { state: 'conflict' }
   | { state: 'unknown' }
-  | { state: 'created' | 'replay' | 'already_member'; facilityId: string; slug: string };
+  | { state: 'created' | 'replay' | 'linked' | 'already_member'; facilityId: string; slug: string };
 
 const resultSchema = z.object({
-  outcome: z.enum(['created', 'replay', 'already_member']),
+  outcome: z.enum(['created', 'replay', 'linked', 'already_member']),
   facility_id: z.string().regex(UUID_REGEX), facility_slug: z.string().min(1).max(300),
 }).strict();
 const rejectedSchema = z.object({
@@ -45,16 +47,19 @@ export async function setupFacilityAtomically(
   if (claim.mode === 'intent' && (!isSalonIntentProof(claim.proof)
     || claim.intentId !== parsed.data.intentId || !UUID_REGEX.test(claim.intentId))) return { state: 'unverified' };
   if (claim.mode !== 'intent' && parsed.data.intentId !== undefined) return { state: 'unverified' };
+  if (claim.mode === 'recovered' && (!isSalonIntentProof(claim.proof)
+    || claim.recoveryId !== parsed.data.recoveryId || !UUID_REGEX.test(claim.recoveryId))) return { state: 'unverified' };
+  if (claim.mode !== 'recovered' && parsed.data.recoveryId !== undefined) return { state: 'unverified' };
   if (claim.mode === 'legacy' && (!UUID_REGEX.test(claim.receiptId)
     || !Number.isFinite(Date.parse(claim.issuedAt)))) return { state: 'unverified' };
-  const { intentId: _intentId, license_warranted, ...profile } = parsed.data;
+  const { intentId: _intentId, recoveryId: _recoveryId, license_warranted, ...profile } = parsed.data;
   try {
     const { data, error } = await db.rpc('setup_facility_from_registration', {
       p_user_id: userId, p_claim_mode: claim.mode,
       p_receipt_id: claim.mode === 'legacy' ? claim.receiptId : null,
       p_legacy_issued_at: claim.mode === 'legacy' ? claim.issuedAt : null,
-      p_intent_id: claim.mode === 'intent' ? claim.intentId : null,
-      p_proof_hash: claim.mode === 'intent' ? salonIntentProofHash(claim.proof) : null,
+      p_intent_id: claim.mode === 'intent' ? claim.intentId : claim.mode === 'recovered' ? claim.recoveryId : null,
+      p_proof_hash: claim.mode === 'intent' || claim.mode === 'recovered' ? salonIntentProofHash(claim.proof) : null,
       p_profile: profile, p_license_warranted: license_warranted,
     });
     // Even a failure-shaped response can follow an accepted transaction if a

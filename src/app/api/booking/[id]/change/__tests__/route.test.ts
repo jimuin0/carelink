@@ -177,6 +177,14 @@ test('同一時間帯に既存予約あり（RPCがBOOKING_CONFLICT）→ 409', 
 
 // ─── Update path ─────────────────────────────────────────────────────────────
 
+test('予約準備がなくなった店舗への変更は409で拒否する', async () => {
+  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
+  mockRpc.mockResolvedValue({ error: { message: 'BOOKING_NOT_READY' } });
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(409);
+  expect((await res.json()).error).toContain('準備中');
+});
+
 test('RPC が CONFLICT 以外のエラー → 500', async () => {
   mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
   mockRpc.mockResolvedValue({ error: { message: 'DB error' } });

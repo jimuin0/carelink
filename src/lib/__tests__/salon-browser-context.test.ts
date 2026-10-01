@@ -1,6 +1,8 @@
 /** @jest-environment node */
 import { readSalonBrowserContext, saveSalonBrowserContext, SALON_BROWSER_CONTEXT_KEY,
-  SALON_ONBOARDING_PATH, SALON_COMPLETE_PATH, salonHandoffAuthPath } from '../salon-browser-context';
+  SALON_ONBOARDING_PATH, SALON_COMPLETE_PATH, salonHandoffAuthPath,
+  readSalonRecoveryContext, saveSalonRecoveryContext, SALON_RECOVERY_CONTEXT_KEY,
+  SALON_RECOVERY_ONBOARDING_PATH } from '../salon-browser-context';
 const intentId = '74000000-0000-4000-8000-000000000001';
 const context = { version: 1 as const, intentId, phase: 'attempted' as const };
 function store(value: string | null = null) {
@@ -48,4 +50,25 @@ test.each(['signup', 'login'] as const)('auth %s carries only a non-secret mode 
   expect(SALON_ONBOARDING_PATH).toBe('/admin/onboarding?handoff=registration');
   expect(SALON_COMPLETE_PATH).toBe('/register/complete?handoff=registration');
   expect(url.href).not.toContain(intentId);
+});
+test('recovery persists only its selector and is independent from the original intent', () => {
+  const storage = store();
+  expect(saveSalonRecoveryContext(storage, intentId)).toBe(true);
+  expect(storage.setItem).toHaveBeenCalledWith(SALON_RECOVERY_CONTEXT_KEY, JSON.stringify({ version: 1, recoveryId: intentId }));
+  expect(readSalonRecoveryContext(storage)).toBe(intentId);
+  expect(SALON_RECOVERY_ONBOARDING_PATH).toBe('/admin/onboarding?handoff=recovered');
+});
+test.each([null, '{', '{}', JSON.stringify({ version: 1, recoveryId: 'bad' }),
+  JSON.stringify({ version: 1, recoveryId: intentId, proof: 'secret' })])('corrupt/missing recovery is never usable %#', value => {
+  expect(readSalonRecoveryContext(store(value))).toBeNull();
+});
+test('recovery read/write denial and nondurable state refuse use', () => {
+  const read = store(); read.getItem.mockImplementation(() => { throw new Error('blocked'); });
+  expect(readSalonRecoveryContext(read)).toBeNull();
+  expect(saveSalonRecoveryContext(read, intentId)).toBe(false);
+  const write = store(); write.setItem.mockImplementation(() => { throw new Error('quota'); });
+  expect(saveSalonRecoveryContext(write, intentId)).toBe(false);
+  const lost = store(); lost.setItem.mockImplementation(() => {});
+  expect(saveSalonRecoveryContext(lost, intentId)).toBe(false);
+  expect(saveSalonRecoveryContext(store(), 'bad')).toBe(false);
 });

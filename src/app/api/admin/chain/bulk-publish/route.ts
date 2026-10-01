@@ -14,6 +14,7 @@ import { checkPublishReadiness, isPublishedLocationConflict } from '@/lib/facili
 import { serverError } from '@/lib/with-route';
 
 export async function POST(req: NextRequest) {
+  try {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const ip = getClientIp(req);
@@ -21,14 +22,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { facility_ids, is_published } = await req.json().catch(() => ({}));
-  if (!facility_ids?.length || typeof is_published !== 'boolean') {
+  const parsed: unknown = await req.json().catch(() => null);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+  const { facility_ids, is_published } = parsed as { facility_ids?: unknown; is_published?: unknown };
+  if (typeof is_published !== 'boolean') {
     return NextResponse.json({ error: 'facility_ids and is_published are required' }, { status: 400 });
   }
-  if (!Array.isArray(facility_ids) || facility_ids.length > 50) {
+  if (!Array.isArray(facility_ids) || facility_ids.length === 0 || facility_ids.length > 50 || new Set(facility_ids).size !== facility_ids.length) {
     return NextResponse.json({ error: 'facility_ids must be array of at most 50' }, { status: 400 });
   }
   if (!facility_ids.every((id: unknown) => typeof id === 'string' && UUID_REGEX.test(id))) {
@@ -38,21 +41,21 @@ export async function POST(req: NextRequest) {
   const admin = createServiceRoleClient();
 
   // 権限確認
-  const { data: memberships } = await admin
+  const { data: memberships, error: membershipError } = await admin
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
     .in('role', ['owner', 'admin'])
     .in('facility_id', facility_ids);
 
+  if (membershipError) return serverError('admin-chain-bulk-publish-membership', membershipError, '/api/admin/chain/bulk-publish');
   const allowedIds = (memberships ?? []).map((m) => m.facility_id);
   if (allowedIds.length !== facility_ids.length) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
   // 公開(published)にする場合は、単一公開(admin/settings)と同じ必須項目ゲートを施設ごとに適用する。
-  // 旧実装はこの検証を一切せず、メニュー/写真/スタッフ0件の未完成施設をそのまま公開でき、
-  // 検索に出た後の予約ページで客が行き止まりになった（BP-1）。満たさない施設は公開対象から外し、
+  // 掲載専用の条件を満たさない施設は公開対象から外し、
   // skipped で理由を返す。非公開(draft)化はゲート不要。
   let targetIds: string[] = facility_ids;
   const skipped: { facility_id: string; missing: string[] }[] = [];
@@ -74,13 +77,20 @@ export async function POST(req: NextRequest) {
   }
 
   if (targetIds.length > 0) {
-    const { error } = await admin
-      .from('facility_profiles')
-      .update({ status: is_published ? 'published' : 'draft', updated_at: new Date().toISOString() })
-      .in('id', targetIds);
+    // The earlier reads explain skipped items. Authorization and location are
+    // checked again under row locks at the actual transaction boundary.
+    const { data: updated, error } = await admin.rpc('set_facilities_publication_atomic', {
+      p_actor_id: user.id, p_facility_ids: targetIds, p_is_published: is_published,
+    });
 
+    if (error?.message.includes('FACILITY_PERMISSION_REVOKED')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (error?.message.includes('FACILITY_OWNER_REQUIRED')) return NextResponse.json({ error: '店舗所有者の確認が必要です。今回の変更は保存されていません。' }, { status: 409 });
     if (isPublishedLocationConflict(error)) return NextResponse.json({ error: '所在地が変更された施設があります。今回の一括更新は保存されていません。所在地を確認してください。' }, { status: 409 });
     if (error) return serverError('admin-chain-bulk-publish-update', error, '/api/admin/chain/bulk-publish');
+    if (!Array.isArray(updated) || updated.length !== targetIds.length
+      || new Set(updated.map(row => row.id)).size !== targetIds.length || updated.some(row => !targetIds.includes(row.id))) {
+      return serverError('admin-chain-bulk-publish-result', new Error('updated facilities not confirmed'), '/api/admin/chain/bulk-publish', '変更結果を確認できません。現在の公開状態を確認してください。');
+    }
   }
 
   const { ip: auditIp, ua } = getRequestContext(req);
@@ -94,4 +104,7 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json({ ok: true, updated: targetIds.length, skipped });
+  } catch (error) {
+    return serverError('admin-chain-bulk-publish', error, '/api/admin/chain/bulk-publish');
+  }
 }

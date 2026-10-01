@@ -15,6 +15,8 @@ jest.mock('@/lib/rate-limit', () => ({
   checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/supabase-server');
+jest.mock('@/lib/facility-publish-gate', () => ({ checkBookingReadiness: jest.fn() }));
+import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 
 import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
@@ -42,6 +44,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   setupDefaultMocks();
+  jest.mocked(checkBookingReadiness).mockResolvedValue({ readiness: { ready: true, missing: [] }, error: null });
 });
 
 const VALID_UUID = '11111111-1111-1111-1111-111111111111';
@@ -58,6 +61,20 @@ function makeRequest(facilityId: string = VALID_UUID, staffId: string = VALID_UU
 }
 
 describe('GET /api/slots', () => {
+  test('掲載のみの施設はRPCを呼ばず予約準備中を返す', async () => {
+    jest.mocked(checkBookingReadiness).mockResolvedValue({ readiness: { ready: false, missing: ['営業時間'] }, error: null });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ slots: [], bookingAvailable: false });
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(checkBookingReadiness).toHaveBeenCalledWith(expect.anything(), VALID_UUID);
+  });
+  test('準備状態のDB確認失敗は空き枠ゼロの成功ではなく500', async () => {
+    jest.mocked(checkBookingReadiness).mockResolvedValue({ readiness: { ready: false, missing: [] }, error: { message: 'unavailable' } });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
   test('rate limiting → 429', async () => {
     (checkRateLimit as jest.Mock).mockReturnValue(true);
 

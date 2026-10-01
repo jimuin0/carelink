@@ -33,7 +33,8 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const { bookingId, channel } = body as { bookingId?: string; channel?: string };
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: '不正なリクエストです' }, { status: 400 });
+    const { bookingId, channel, operationId } = body as { bookingId?: string; channel?: string; operationId?: string };
 
     if (!bookingId || !uuidRegex.test(bookingId)) {
       return NextResponse.json({ error: '不正なリクエストです' }, { status: 400 });
@@ -41,22 +42,26 @@ export async function POST(request: Request) {
     if (!VALID_CHANNELS.includes(channel as (typeof VALID_CHANNELS)[number])) {
       return NextResponse.json({ error: '送信方法が不正です' }, { status: 400 });
     }
+    if (channel === 'email' && (typeof operationId !== 'string' || !uuidRegex.test(operationId))) {
+      return NextResponse.json({ error: '操作番号が不正です。元の画面で受付結果を確認してください。' }, { status: 400 });
+    }
 
     // Auth check（セッション検証には authClient を使用）
     const authClient = await createServerSupabaseAuthClient();
-    const { data: { user } } = await authClient.auth.getUser();
-    if (!user) {
+    const { data: { user }, error: authError } = await authClient.auth.getUser();
+    if (authError || !user) {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     }
 
     // DB 操作には serviceRole を使用（RLS バイパス）
     const supabase = createServiceRoleClient();
 
-    const { data: booking } = await supabase
+    const { data: booking, error: bookingError } = await supabase
       .from('bookings')
-      .select('id, facility_id, user_id, customer_name, email, booking_date, start_time, end_time, status')
+      .select('id, facility_id, user_id, customer_name, email, booking_date, start_time, end_time, status, updated_at')
       .eq('id', bookingId)
       .single();
+    if (bookingError && bookingError.code !== 'PGRST116') return serverError('booking-adjust-read', bookingError, '/api/admin/booking-adjust-request');
 
     // Permission check: must be owner/admin of this booking's facility
     // Both "not found" and "wrong owner" return 404 to prevent booking ID enumeration
@@ -68,7 +73,7 @@ export async function POST(request: Request) {
           .eq('facility_id', booking.facility_id)
           .in('role', ['owner', 'admin'])
           .maybeSingle()
-          .then((r) => r.data)
+          .then((r) => { if (r.error) throw new Error('booking permission observation failed'); return r.data; })
       : null;
 
     if (!booking || !membership) {
@@ -76,12 +81,12 @@ export async function POST(request: Request) {
     }
 
     // 終了済み・キャンセル済み予約には送らない（誤送信防止）
-    if (booking.status !== 'pending' && booking.status !== 'confirmed') {
+    if (channel === 'line' && booking.status !== 'pending' && booking.status !== 'confirmed') {
       return NextResponse.json({ error: 'この予約には時間調整依頼を送れません' }, { status: 400 });
     }
 
     // 施設名（文面用）
-    const { data: facility } = await supabase
+    const { data: facility, error: facilityError } = await supabase
       .from('facility_profiles')
       .select('name')
       .eq('id', booking.facility_id)
@@ -89,12 +94,10 @@ export async function POST(request: Request) {
     const facilityName = facility?.name ?? '';
 
     if (channel === 'email') {
+      if (facilityError || !facilityName) return serverError('booking-adjust-facility', facilityError ?? new Error('facility unavailable'), '/api/admin/booking-adjust-request');
       // メール送信は無料
-      if (!booking.email) {
-        return NextResponse.json({ error: 'この予約にはメールアドレスがありません' }, { status: 400 });
-      }
-      const { sendTimeAdjustRequest } = await import('@/lib/email');
-      const sent = await sendTimeAdjustRequest({
+      const { buildTimeAdjustRequestEnvelope } = await import('@/lib/email');
+      const envelope = booking.email ? buildTimeAdjustRequestEnvelope({
         customerName: booking.customer_name,
         customerEmail: booking.email,
         facilityName,
@@ -102,15 +105,24 @@ export async function POST(request: Request) {
         startTime: booking.start_time,
         endTime: booking.end_time,
         bookingId: booking.id,
+      }) : null;
+      const { data: queued, error: queueError } = await supabase.rpc('save_booking_email_event_atomic', {
+        p_actor_id: user.id, p_booking_id: booking.id, p_expected_status: booking.status,
+        p_expected_updated_at: booking.updated_at, p_new_status: null, p_envelope: envelope, p_operation_id: operationId,
       });
-      // LINE経路（下）は送信失敗を502で呼び出し元に伝えているのに、メール経路だけ戻り値を
-      // 確認せず常に成功表示していた（無音成功）。同じ失敗可視性に揃える。
-      // 文言は手動リトライを誘導しない：送信失敗分は safeSend（time_adjust_request context）が
-      // webhook_retry_queue に自動登録し15分毎の webhook-retry cron が再送するため、
-      // 「時間をおいて再度お試しください」と手動再送を促すと両方走って確定二重送信になる。
-      if (!sent) {
-        return NextResponse.json({ error: 'メールの送信に失敗しました。15〜30分以内に自動で再送されます（手動での再送は不要です）。' }, { status: 502 });
+      if (queueError?.message.includes('BOOKING_PERMISSION_DENIED')) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
+      if (queueError?.message.includes('BOOKING_REVISION_CONFLICT')) return NextResponse.json({ error: '予約が変更されています。ページを更新してください。' }, { status: 409 });
+      if (queueError?.message.includes('BOOKING_OPERATION_CONFLICT')) return NextResponse.json({ error: '操作番号が別の依頼に使われています。' }, { status: 409 });
+      if (queueError?.message.includes('BOOKING_EMAIL_MISSING')) return NextResponse.json({ error: 'この予約にはメールアドレスがありません' }, { status: 400 });
+      if (queueError?.message.includes('INVALID_BOOKING_TRANSITION')) return NextResponse.json({ error: 'この予約には時間調整依頼を送れません' }, { status: 400 });
+      const event = queued?.[0];
+      if (queueError || queued?.length !== 1 || !event?.operation_id
+        || !uuidRegex.test(event.operation_id) || !['queued','already_queued'].includes(event.notification)) {
+        return serverError('booking-adjust-queue', queueError ?? new Error('notification reservation unconfirmed'), '/api/admin/booking-adjust-request', '通知の受付を確認できません。元の画面で同じ操作の受付結果を確認してください。');
       }
+      void writeAuditLog({ userId:user.id, facilityId:booking.facility_id, action:'booking_adjust_request',
+        tableName:'bookings', recordId:booking.id, newValues:{ channel, notification:event.notification } });
+      return NextResponse.json({ ok: true, notification: event.notification });
     } else {
       // LINE 送信は有料オプション time_adjust_line が必要。
       // supabase（完全型付き SupabaseClient）を構造的型 EntitlementsClient へ明示キャストし、

@@ -248,7 +248,7 @@ export async function POST(request: Request) {
   // migration 側で anon/authenticated の EXECUTE を撤回して直接呼び出し経路を塞ぐ。ここで渡す値は
   // すべて上流でサーバ側検証・算出済み（user は auth.getUser()、finalPrice はサーバ側計算）。
   const rpcClient = createServiceRoleClient();
-  const { data: rpcResult, error } = await rpcClient.rpc('create_booking_atomic', {
+  const { data: rpcResult, error } = await rpcClient.rpc('create_online_booking_atomic', {
     p_facility_id: parsed.data.facility_id,
     p_staff_id: parsed.data.staff_id ?? null,
     p_user_id: user?.id ?? null,
@@ -267,11 +267,17 @@ export async function POST(request: Request) {
     // 公開経路は営業時間・定休日・指名スタッフ勤務窓ゲートを RPC 側で強制する（get_available_slots
     // が UI に出さない枠を API 直叩きで確定できた非対称の根治・2026年7月16日）。admin の手動予約
     // （電話受付等）は意図的にゲート対象外＝パラメータ省略（DEFAULT FALSE）。
-    p_enforce_schedule: true,
+    p_menu_ids: menuIdsToPrice,
   });
   void bookingData;
 
   if (error) {
+    if (error.message?.includes('BOOKING_NOT_READY')) {
+      return NextResponse.json({ error: 'この店舗のネット予約は準備中です。店舗へ直接お問い合わせください' }, { status: 409 });
+    }
+    if (error.message?.includes('BOOKING_MENU_UNAVAILABLE')) {
+      return NextResponse.json({ error: '選択したメニューは現在受付していません。メニューを選び直してください' }, { status: 409 });
+    }
     // BOOKING_CONFLICT raised by the RPC
     if (error.message?.includes('BOOKING_CONFLICT') || error.code === '23505') {
       return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
@@ -313,15 +319,7 @@ export async function POST(request: Request) {
     );
   }
 
-  // 複数メニュー予約は menu_ids 列に全メニューを保存する。create_booking_atomic は p_menu_id(単一)
-  // しか受けず menu_id には先頭1件しか入らないため、保存しないと予約詳細の表示が1件目のみになる（A6）。
-  // 料金・所要時間は既に全メニュー合算で正しい。失敗は致命でない（menu_id への単一フォールバックで
-  // 表示は機能する）ため warn のみ。単一メニュー時は menu_id で足りるのでスキップ。
-  if (menuIdsToPrice.length > 1) {
-    const svc = createServiceRoleClient();
-    const { error: menuIdsErr } = await svc.from('bookings').update({ menu_ids: menuIdsToPrice }).eq('id', newBookingId);
-    if (menuIdsErr) console.error('[booking] menu_ids persist failed', { bookingId: newBookingId, err: menuIdsErr.message });
-  }
+  // 全選択メニューの保存もRPC内で原子的に完了済み。部分保存を成功へ変換しない。
 
   // Points deduction with CAS (compare-and-swap) to prevent race conditions:
   // Insert the deduction row via service_role (user_points has no INSERT policy for anon client),

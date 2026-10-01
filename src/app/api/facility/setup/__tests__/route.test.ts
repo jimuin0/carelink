@@ -21,6 +21,7 @@ import { setupFacilityAtomically } from '@/lib/facility-setup-atomic';
 import { salonIntentCookieName } from '@/lib/salon-submission-proof';
 import { SALON_CLAIM_COOKIE_NAME, signSalonClaim } from '@/lib/salon-claim';
 import { businessTypes } from '@/lib/constants';
+import { salonRecoveryCookieName } from '@/lib/salon-recovery';
 
 const userId = '68000000-0000-4000-8000-000000000001';
 const facilityId = '67000000-0000-4000-8000-000000000001';
@@ -83,6 +84,19 @@ test('direct onboarding is explicit and uses authenticated user only', async () 
   expect(await response.json()).toMatchObject({ success: true, state: 'created', facilityId });
   expect(setupFacilityAtomically).toHaveBeenCalledWith({}, userId, body, { mode: 'none' });
 });
+test.each(['', 'bad'])('recovered handoff missing/invalid cookie never falls back %#', async value => {
+  expect((await POST(request({ ...body, recoveryId: intentId }, `${salonRecoveryCookieName(intentId)}=${value}`))).status).toBe(403);
+  expect(createServiceRoleClient).not.toHaveBeenCalled();
+});
+test('recovered handoff selects bound cookie, ignoring unrelated anonymous cookies', async () => {
+  const response = await POST(request({ ...body, recoveryId: intentId }, `${salonRecoveryCookieName(intentId)}=${proof}; ${SALON_CLAIM_COOKIE_NAME}=bad`));
+  expect(response.status).toBe(201);
+  expect(setupFacilityAtomically).toHaveBeenCalledWith({}, userId, { ...body, recoveryId: intentId }, { mode: 'recovered', recoveryId: intentId, proof });
+});
+test('mixed handoff selectors are invalid before persistence', async () => {
+  expect((await POST(request({ ...body, intentId, recoveryId: intentId }))).status).toBe(400);
+  expect(createServiceRoleClient).not.toHaveBeenCalled();
+});
 test.each(['', 'bad'])('invalid present legacy cookie never falls back %#', async value => {
   const response = await POST(request(body, SALON_CLAIM_COOKIE_NAME + '=' + value));
   expect(response.status).toBe(403); expect(createServiceRoleClient).not.toHaveBeenCalled();
@@ -119,10 +133,10 @@ test.each([['invalid', 400], ['unverified', 403], ['conflict', 409], ['unknown',
   expect((await response.json()).success).not.toBe(true);
   expect(response.headers.has('set-cookie')).toBe(false);
 });
-test('replay is the same successful facility, not a new creation', async () => {
-  (setupFacilityAtomically as jest.Mock).mockResolvedValue({ state: 'replay', facilityId, slug: 'synthetic' });
+test.each(['replay', 'linked'])('%s is the same successful facility, not a new creation', async state => {
+  (setupFacilityAtomically as jest.Mock).mockResolvedValue({ state, facilityId, slug: 'synthetic' });
   const response = await POST(request());
-  expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ success: true, state: 'replay', facilityId });
+  expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ success: true, state, facilityId });
 });
 test('existing membership does not falsely consume selected receipt', async () => {
   (setupFacilityAtomically as jest.Mock).mockResolvedValue({ state: 'already_member', facilityId, slug: 'synthetic' });

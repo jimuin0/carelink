@@ -4,16 +4,20 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { Suspense } from 'react';
+import Link from 'next/link';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import { businessTypes, UUID_REGEX } from '@/lib/constants';
 import { isAuthSessionMissingError } from '@supabase/supabase-js';
-import { readSalonBrowserContext, salonHandoffAuthPath } from '@/lib/salon-browser-context';
+import { readSalonBrowserContext, readSalonRecoveryContext, salonHandoffAuthPath } from '@/lib/salon-browser-context';
 
 function OnboardingContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const registrationHandoff = searchParams.get('handoff') === 'registration';
+  const recoveredHandoff = searchParams.get('handoff') === 'recovered';
   const [selectedIntent, setSelectedIntent] = useState<string | null>(null);
+  const [selectedRecovery, setSelectedRecovery] = useState<string | null>(null);
+  const [receiptAddress, setReceiptAddress] = useState('');
   // 'form' = 施設名・業態の入力（確認）待ち。既存施設が無い認証済みユーザーは
   // クエリの有無に関わらず必ずここを経由する（下記 useEffect の 2026年8月20日コメント参照。
   // 誰でも到達できる /admin/onboarding で確認なしに施設を自動作成していた欠陥の根治）。
@@ -52,7 +56,8 @@ function OnboardingContent() {
       if (authError && !isAuthSessionMissingError(authError)) throw new Error('Authentication lookup unavailable');
 
       if (!user) {
-        router.push(registrationHandoff ? salonHandoffAuthPath('login') : '/auth/login?redirect=/admin/onboarding');
+        router.push(recoveredHandoff ? '/auth/login?redirect=%2Fregister%2Frecover'
+          : registrationHandoff ? salonHandoffAuthPath('login') : '/auth/login?redirect=/admin/onboarding');
         return;
       }
 
@@ -73,7 +78,7 @@ function OnboardingContent() {
         return;
       }
 
-      if (existing && !registrationHandoff) {
+      if (existing && !registrationHandoff && !recoveredHandoff) {
         // 既に施設あり → 管理ダッシュボードへ。ダッシュボードは登録状況をライブに反映する
         // 正確なオンボーディング進捗（メニュー/スタッフ/写真/スケジュール/公開）を表示する。
         // 旧実装はここで静的チェックリストを描画し、公開条件の案内もスタッフ必須が抜けて誤っていた。
@@ -83,6 +88,21 @@ function OnboardingContent() {
 
       let facilityName = searchParams.get('facility_name') || '';
       let businessType = searchParams.get('business_type') || '';
+      if (recoveredHandoff) {
+        const recoveryId = readSalonRecoveryContext(window.sessionStorage);
+        if (!recoveryId) throw new Error('Selected recovery unavailable');
+        const response = await fetch('/api/salons/recovery', { method: 'POST',
+          headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(20000),
+          body: JSON.stringify({ action: 'summary', recoveryId }) });
+        const summary = await response.json();
+        if (cancelled) return;
+        if (!response.ok || summary?.state !== 'confirmed' || typeof summary.name !== 'string'
+          || !summary.name.trim() || summary.name.length > 200 || !businessTypes.includes(summary.type)
+          || typeof summary.receiptId !== 'string' || !UUID_REGEX.test(summary.receiptId)
+          || (summary.address !== null && typeof summary.address !== 'string')) throw new Error('Selected recovery not confirmed');
+        facilityName = summary.name; businessType = summary.type;
+        setReceiptAddress(summary.address ?? ''); setSelectedRecovery(recoveryId);
+      }
       if (registrationHandoff) {
         const selected = readSalonBrowserContext(window.sessionStorage);
         if (selected.state !== 'ready') throw new Error('Selected registration unavailable');
@@ -129,10 +149,17 @@ function OnboardingContent() {
       setStatus('error');
     });
     return () => { cancelled = true; };
-  }, [router, searchParams, registrationHandoff]);
+  }, [router, searchParams, registrationHandoff, recoveredHandoff]);
 
   const handleFormSubmit = async () => {
     if (submitting.current) return;
+    if (recoveredHandoff) {
+      try {
+        if (!selectedRecovery || readSalonRecoveryContext(window.sessionStorage) !== selectedRecovery) throw new Error('Selected recovery changed');
+      } catch {
+        setFormError('復旧対象が変わっています。送信済みの掲載申込を復旧する画面で選び直してください。'); return;
+      }
+    }
     if (registrationHandoff) {
       try {
         const current = readSalonBrowserContext(window.sessionStorage);
@@ -175,6 +202,7 @@ function OnboardingContent() {
           // The API independently validates and records this explicit assertion.
           license_warranted: licenseWarranted,
           ...(registrationHandoff ? { intentId: selectedIntent } : {}),
+          ...(recoveredHandoff ? { recoveryId: selectedRecovery } : {}),
         }),
       });
 
@@ -216,7 +244,8 @@ function OnboardingContent() {
   if (status === 'form') {
     return (
       <div className="section-container max-w-lg mx-auto py-16">
-        <SbPageHeader title="施設情報を入力" description="予約管理を始めるには、まず施設の基本情報を登録してください" />
+        <SbPageHeader title="施設情報を確認" description="無料掲載と予約設定は別です。まず店舗情報を確認してください" />
+        {recoveredHandoff && <p className="text-sm mb-4">送信済みの申込を引き継ぎます。所在地：{receiptAddress || '未入力（管理画面で設定してください）'}。原申込の店舗名・業態・写真は保持します。ここではまだ一覧に公開されません。</p>}
         <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
           <div>
             <label htmlFor="onboarding-facility-name" className="form-label">
@@ -227,6 +256,7 @@ function OnboardingContent() {
               value={facilityNameInput}
               onChange={(e) => setFacilityNameInput(e.target.value)}
               maxLength={200}
+              disabled={recoveredHandoff}
             />
           </div>
           <div>
@@ -239,6 +269,7 @@ function OnboardingContent() {
               onChange={(e) => setBusinessTypeInput(e.target.value)}
               className="form-input"
               aria-required="true"
+              disabled={recoveredHandoff}
             >
               <option value="">選択してください</option>
               {businessTypes.map((t) => (
@@ -272,6 +303,7 @@ function OnboardingContent() {
       <div className="section-container max-w-lg mx-auto text-center py-16">
         <p role="alert" className="text-red-600 font-bold mb-4">エラーが発生しました</p>
         <p className="text-sm text-gray-600 mb-6">{error}</p>
+        {(registrationHandoff || recoveredHandoff) && <p className="text-sm text-gray-600 mb-6">同じタブの受付情報が使えない場合は、申込時のメールアドレスでログインし、<Link href="/register/recover" className="text-primary underline">送信済みの掲載申込を復旧</Link>してください。別のメールで申込済みの場合や他の管理者に取り込み済みの場合は、再申込せず、受付番号を添えて<Link href="/contact" className="text-primary underline">お問い合わせ</Link>ください。</p>}
         <button type="button" onClick={() => window.location.reload()} className="btn-primary px-8 py-3">再読み込みして登録状況を確認</button>
       </div>
     );

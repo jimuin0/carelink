@@ -47,6 +47,10 @@ afterEach(() => {
 });
 
 // ─── enqueueWebhook ───────────────────────────────────────────────────────────
+test('null runtime payload is rejected before a misleading queue row is saved', async () => {
+  await enqueueWebhook({ type:'email', targetId:'synthetic@example.invalid', payload:null as never });
+  expect(mockFrom).not.toHaveBeenCalled(); expect(alertWarning).toHaveBeenCalled();
+});
 
 test('enqueueWebhook: DB insert成功 → resolves without throw', async () => {
   mockFrom.mockReturnValue({ insert: jest.fn(() => Promise.resolve({ error: null })) });

@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { Suspense, useEffect, useState, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -9,6 +10,7 @@ import LoadError from '@/components/admin/LoadError';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import type { FacilityPhoto } from '@/types';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
 
 const photoTypes: { value: FacilityPhoto['photo_type']; label: string }[] = [
   { value: 'main', label: 'メイン' },
@@ -19,7 +21,9 @@ const photoTypes: { value: FacilityPhoto['photo_type']; label: string }[] = [
   { value: 'other', label: 'その他' },
 ];
 
-export default function AdminPhotosPage() {
+function AdminPhotosContent() {
+  const requestedFacility = useSearchParams().get('facility_id');
+  const [facilityChoices, setFacilityChoices] = useState<AdminFacilityChoice[]>([]);
   const [photos, setPhotos] = useState<FacilityPhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -60,18 +64,21 @@ export default function AdminPhotosPage() {
   useEffect(() => {
     (async () => {
       const supabase = createBrowserSupabaseClient();
+      setLoading(true);
+      setFacilityId(null);
+      setFacilityChoices([]);
+      setPhotos([]);
       setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
-      const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-        .in('role', ['owner', 'admin']).limit(1).single();
-      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-      if (!membership) { setLoading(false); return; }
-      setFacilityId(membership.facility_id);
-      await loadPhotos(membership.facility_id);
+      const selection = await loadAdminFacilitySelection(supabase, user.id, requestedFacility);
+      setFacilityChoices(selection.choices);
+      if (!selection.selectedId) { setLoading(false); return; }
+      setFacilityId(selection.selectedId);
+      await loadPhotos(selection.selectedId);
       setLoading(false);
     })().catch(() => { setLoadError(true); setLoading(false); });
-  }, [loadPhotos, reloadKey]);
+  }, [loadPhotos, reloadKey, requestedFacility]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -158,12 +165,12 @@ export default function AdminPhotosPage() {
     setDeleting(id);
     try {
       const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('facility_photos')
         .delete()
         .eq('id', id)
-        .eq('facility_id', facilityId);
-      if (error) throw error;
+        .eq('facility_id', facilityId).select('id');
+      if (error || data?.length !== 1 || data[0].id !== id) throw new Error('Photo deletion not confirmed');
       setToast({ type: 'success', message: '削除しました' });
       await loadPhotos(facilityId);
     } catch {
@@ -177,12 +184,12 @@ export default function AdminPhotosPage() {
     if (!facilityId || settingMain) return;
     setSettingMain(photo.id);
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase
-        .from('facility_profiles')
-        .update({ main_photo_url: photo.photo_url, updated_at: new Date().toISOString() })
-        .eq('id', facilityId);
-      if (error) throw error;
+      const response = await fetch(`/api/admin/settings?facility_id=${facilityId}&action=main-photo`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoId: photo.id }),
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || result?.ok !== true) throw new Error('Main photo update not confirmed');
       setToast({ type: 'success', message: 'メイン写真を設定しました' });
     } catch {
       setToast({ type: 'error', message: '設定に失敗しました' });
@@ -192,6 +199,8 @@ export default function AdminPhotosPage() {
   };
 
   if (loading) return <AdminPageLoading />;
+  if (loadError && !facilityId) return <LoadError onRetry={() => setReloadKey(k => k + 1)} message="管理する店舗の確認に失敗しました" />;
+  if (!facilityId) return <FacilitySelector choices={facilityChoices} selectedId={null} path="/admin/photos" />;
 
   const grouped = photoTypes.map((pt) => ({
     ...pt,
@@ -200,6 +209,7 @@ export default function AdminPhotosPage() {
 
   return (
     <div>
+      <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/photos" busy={uploading || Boolean(deleting) || Boolean(settingMain)} />
       <SbPageHeader title="写真管理" />
 
       {/* 医療広告ガイドライン注意書き */}
@@ -289,4 +299,13 @@ export default function AdminPhotosPage() {
       />
     </div>
   );
+}
+
+function PhotosSelectionRoute() {
+  const requested = useSearchParams().get('facility_id');
+  return <AdminPhotosContent key={requested ?? 'unselected'} />;
+}
+
+export default function AdminPhotosPage() {
+  return <Suspense fallback={<AdminPageLoading />}><PhotosSelectionRoute /></Suspense>;
 }

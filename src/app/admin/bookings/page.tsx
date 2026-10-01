@@ -7,20 +7,22 @@ import { bookingsHref } from '@/lib/admin-bookings-url';
 import { UUID_REGEX } from '@/lib/constants';
 import BookingsSearchForm from '@/components/admin/BookingsSearchForm';
 import { BOOKING_STATUSES } from '@/lib/booking-status';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import { loadAdminFacilitySelection } from '@/lib/admin-facility-selection';
 
 const PER_PAGE = 20;
 // 絞り込みに使える status は正準集合（全7値）を SSOT から参照（cancel_fee_paid 等の欠落を防ぐ）。
 const VALID_STATUSES: string[] = BOOKING_STATUSES;
 
 interface Props {
-  searchParams: Promise<{ from?: string; to?: string; status?: string; q?: string; staff?: string; page?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; status?: string; q?: string; staff?: string; page?: string; facility_id?: string }>;
 }
 
 // 埋め込み（menu/staff）の生成型と手動キャストが競合するため、bookings は非型付き select で取得し本型へキャスト。
 type BookingRow = {
   id: string; booking_date: string; start_time: string; end_time: string;
   customer_name: string; email: string | null; status: string; total_price: number | null;
-  menu: { name: string } | { name: string }[] | null;
+  menu_id: string | null; menu_ids: string[] | null;
   staff: { name: string } | { name: string }[] | null;
 };
 
@@ -35,15 +37,9 @@ export default async function AdminBookingsPage(props: Props) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 
-  const { data: membership } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-      .in('role', ['owner', 'admin'])
-    .limit(1)
-    .single();
-  if (!membership) notFound();
-  const facilityId = membership.facility_id;
+  const { choices, selectedId: facilityId } = await loadAdminFacilitySelection(supabase, user.id, searchParams.facility_id ?? null);
+  const selector = <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/bookings" />;
+  if (!facilityId) return <div><SbPageHeader title="予約一覧" />{selector}</div>;
 
   // 検証済みフィルタのみ採用（不正値は無視し URL にも伝播させない）
   const from = searchParams.from && isValidIsoDate(searchParams.from) ? searchParams.from : null;
@@ -85,7 +81,7 @@ export default async function AdminBookingsPage(props: Props) {
   // 2) データ取得（メニュー名・スタッフ名を埋め込み）
   let dataQuery = supabase
     .from('bookings')
-    .select('id, booking_date, start_time, end_time, customer_name, email, status, total_price, menu:facility_menus(name), staff:staff_profiles(name)')
+    .select('id, booking_date, start_time, end_time, customer_name, email, status, total_price, menu_id, menu_ids, staff:staff_profiles(name)')
     .eq('facility_id', facilityId);
   if (from) dataQuery = dataQuery.gte('booking_date', from);
   if (to) dataQuery = dataQuery.lte('booking_date', to);
@@ -101,14 +97,26 @@ export default async function AdminBookingsPage(props: Props) {
     throw new Error(`予約一覧の取得に失敗しました: ${error.message}`);
   }
   const bookings = (data ?? []) as unknown as BookingRow[];
+  const menuIdsOf = (booking: BookingRow) => booking.menu_ids?.length ? booking.menu_ids : booking.menu_id ? [booking.menu_id] : [];
+  const menuIds = [...new Set(bookings.flatMap(menuIdsOf))];
+  const menuNames = new Map<string, string>();
+  if (menuIds.length) {
+    const { data: menus, error: menuError } = await supabase.from('facility_menus')
+      .select('id, name').eq('facility_id', facilityId).in('id', menuIds);
+    if (menuError || !Array.isArray(menus)) throw new Error('予約メニューの取得に失敗しました');
+    menus.forEach(menu => menuNames.set(menu.id, menu.name));
+  }
 
-  const baseFilters = { from, to, statuses, q: q || null, staff };
+  const baseFilters = { facilityId, from, to, statuses, q: q || null, staff };
 
   return (
     <div>
       <SbPageHeader title="予約一覧" actions={<p className="text-sm text-gray-500">{total}件</p>} />
+      {selector}
 
       <BookingsSearchForm
+        key={facilityId}
+        facilityId={facilityId}
         initial={{ from: from ?? '', to: to ?? '', statuses, q, staff: staff ?? '' }}
         staffList={staffList}
       />
@@ -132,7 +140,7 @@ export default async function AdminBookingsPage(props: Props) {
               {bookings.map((b) => (
                 <tr key={b.id} className="hover:bg-gray-50">
                   <SbTd>
-                    <Link href={`/admin/bookings/${b.id}`} className="hover:text-primary">
+                    <Link href={`/admin/bookings/${b.id}?facility_id=${facilityId}`} className="hover:text-primary">
                       <p className="font-medium whitespace-nowrap">{b.booking_date}</p>
                       <p className="text-xs text-gray-500">{b.start_time?.slice(0, 5)}〜{b.end_time?.slice(0, 5)}</p>
                     </Link>
@@ -142,7 +150,7 @@ export default async function AdminBookingsPage(props: Props) {
                     <p className="text-xs text-gray-400">{b.email}</p>
                   </SbTd>
                   <SbTd className="text-gray-600 text-sm">{embedName(b.staff) ?? '指名なし'}</SbTd>
-                  <SbTd className="text-gray-600 text-sm">{embedName(b.menu) ?? '-'}</SbTd>
+                  <SbTd className="text-gray-600 text-sm">{menuIdsOf(b).map(id => menuNames.get(id) ?? 'メニュー削除済み').join('、') || '-'}</SbTd>
                   <SbTd><SbStatusChip status={b.status} /></SbTd>
                   <SbTd align="right">{b.total_price !== null ? `¥${b.total_price.toLocaleString()}` : '-'}</SbTd>
                 </tr>

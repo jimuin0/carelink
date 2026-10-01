@@ -4,7 +4,7 @@
  * checkPublishReadiness の網羅テスト（単一公開/一括公開で共有する公開ゲート）。
  */
 
-import { checkPublishReadiness, isPublishedLocationConflict } from '../facility-publish-gate';
+import { checkBookingReadiness as checkPublishReadiness, checkPublishReadiness as checkListingReadiness, isPublishedLocationConflict } from '../facility-publish-gate';
 
 test.each([null, undefined, false, '23514', {}, { code: '23514' },
   { code: '23514', message: null }, { code: '23514', message: 'another_constraint' },
@@ -29,7 +29,7 @@ function countChain(count: number | null, error: unknown = null) {
 }
 
 // facility_profiles は .select('prefecture, city').eq('id', facilityId).single() で解決する。
-function profileChain(data: { prefecture: string | null; city: string | null; address: string | null } | null, error: unknown = null) {
+function profileChain(data: { prefecture: string | null; city: string | null; address: string | null; name?: string; status?: string; business_hours?: unknown } | null, error: unknown = null) {
   const obj: Record<string, unknown> = {};
   obj.select = jest.fn(() => obj);
   obj.eq = jest.fn(() => obj);
@@ -67,6 +67,7 @@ function admin(opts: {
         // キーの有無で判定する（'prefecture' in opts）。
         return profileChain(
           {
+            name: "合成店舗", status: "published", business_hours: { mon: { open: "10:00", close: "18:00" }, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null },
             prefecture: 'prefecture' in opts ? (opts.prefecture as string | null) : '東京都',
             city: 'city' in opts ? (opts.city as string | null) : '渋谷区',
             address: 'address' in opts ? (opts.address as string | null) : '検証町1-1',
@@ -198,4 +199,33 @@ test('profile.data が null（行が見つからない）→ prefecture/city 不
   expect(readiness.ready).toBe(false);
   expect(readiness.missing).toContain('都道府県を設定してください');
   expect(readiness.missing).toContain('市区町村を設定してください');
+});
+
+describe('掲載だけの公開条件', () => {
+  test('メニュー・写真・スタッフなしでも所在地があれば掲載できる', async () => {
+    const from = jest.fn(() => profileChain({ name: '合成店舗', prefecture: '東京都', city: '検証区', address: '検証町1-1' }));
+    const result = await checkListingReadiness({ from } as never, 'f1');
+    expect(result).toEqual({ readiness: { ready: true, missing: [] }, error: null });
+    expect(from).toHaveBeenCalledTimes(1);
+    expect(from).toHaveBeenCalledWith('facility_profiles');
+  });
+  test('DB失敗は未入力扱いに変換しない', async () => {
+    const result = await checkListingReadiness({ from: () => profileChain(null, { message: 'unavailable' }) } as never, 'f1');
+    expect(result.error).toEqual({ message: 'unavailable' });
+    expect(result.readiness).toEqual({ ready: false, missing: [] });
+  });
+  test.each([null, { name: ' ', prefecture: null, city: '', address: '\u3000' }])('欠損はすべて不足として返す：%p', async (data) => {
+    const result = await checkListingReadiness({ from: () => profileChain(data) } as never, 'f1');
+    expect(result.error).toBeNull();
+    expect(result.readiness.missing).toEqual(['施設名を設定してください', '都道府県を設定してください', '市区町村を設定してください', '住所を設定してください']);
+  });
+});
+
+test('掲載済みでも営業時間未確認ならネット予約は準備中', async () => {
+  const base = admin({ menu: 1, photo: 1, staff: 1 });
+  const client = { from: (table: string) => table === 'facility_profiles'
+    ? profileChain({ name: '合成店舗', status: 'published', prefecture: '東京都', city: '検証区', address: '検証町1-1', business_hours: null })
+    : (base as unknown as { from: (t: string) => unknown }).from(table) };
+  const result = await checkPublishReadiness(client as never, 'f1');
+  expect(result.readiness.missing).toEqual(['全曜日の営業時間・定休日を確認して保存してください']);
 });
