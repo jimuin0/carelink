@@ -21,6 +21,11 @@
 | M07 | 完了予約と来店記録が部分成功で矛盾しない | 3完了経路、email無し、INSERT／DELETE失敗rollback、顧客誤合算禁止 |
 | M08 | チェーン集計DB失敗を0件や機能対象外と表示しない | 各依存の失敗と真の空集合を区別、tenant認可、表示回帰 |
 | M09 | 状態変更と通知予約の部分成功、調整再送の別UUID化、退会と公開の競合を防ぐ | 状態CASと不変outboxの同一transaction、調整UUIDの永続別名、開始前の予約revision再照合、現在memberとprofile lock、最後のowner退会後の非公開化、owner復帰時の再公開、DB障害と権限失効のUI/API回帰 |
+| M10 | 審査queueの匿名・一般会員からの直接RPC書込みを防ぐ | 新規forward ACLだけを変更。正規3service caller保持、実role拒否42501、queue件数保持、service batch／replay、旧ACL負対照、機械生成fingerprint、本番body／ACL／履歴の照合 |
+
+M10は本番の関数権限metadata、原票、3caller、独立した反証から確定したP1である。偽通報・queue汚染とdedup先取りは成立するが、直接の口コミ非公開化・個人情報漏えい・XSSまでは成立を確認していない。旧共有原票は編集せず、公式CLIで作成した新規原票にPUBLIC／anon／authenticatedのEXECUTE撤回とservice許可維持だけを置く。既存queue行・body・owner・search_pathは不変。最小ローンチの審査経路に直結するため決済等の保留対象ではない。
+
+隔離PG17で全242原票を再生し、fingerprintの変更はanon／authenticatedのEXECUTE削除2項目だけだった。実role拒否、service batch2件・replay0件・empty0件と無関係行の保持を確認した。PUBLICとauthenticatedを各transaction内で一時再許可する負対照は、それぞれ実RPCの拒否assertで失敗し、接続終了でrollbackされた。固定ACLで再実行が成功した。これらは隔離DBの証拠であり、本番への偽通報投入は行っていない。本番適用と最新CI・独立再監査は別gateとして残す。
 
 ### revision 5の直近検証（本番反映の証拠ではない）
 
@@ -69,6 +74,8 @@ HEAD `9a8375c8428ceecccf31f0d0833930f2ee8e0181`、CI run `36878394928` はlint�
 次のHEAD `b3a860264695200ca0b4fe531d86183486220306`、run `36882825623` の単体検証は、登録E2Eのguard用VMが新helperのimportを認識しない8件で失敗した。guard条件を削らず、実helperのmodule初期化をI/OのないVMで読み、指定されたimportだけを許可する。未知importは引き続き拒否する。helperの非JSON・fetch／fulfill失敗・未観測・重複POST・非POST・cleanupの回帰検証を追加し、外部通信を遮断した2 suite・16 testは成功した。独立読取レビューでこの2 testの新P0〜P3は未検出。実時間のpoll、認証、DB、browser応答はunitだけでは保証せず、最新CIの実E2Eを別gateとして維持する。
 
 同HEADのCI E2Eは308件すべて成功、隔離実API Contractは16件すべて成功、production buildとPG17全再生も成功した。ただし単体gateの失敗が残るため、merge・本番適用の合格とはしない。helper unit追加後のlocal並列coverageは9,205件成功・登録フォーム2件失敗（分岐9,349/9,349）だった。同2 suiteの単独検証12件は成功したが、これだけで全体合格に置換せず、通信遮断下の全体逐次検証と次の最新SHAの全必須CIを継続する。型・lint・対象16件の成功と固定版独立レビューを、この検証コード修正のcommit前証拠として区別する。
+
+次のHEAD `92b99f79a75a7bdf07d6e3408b83022334c144b4`、CI run `36888199784` はLint／型、Unit／Coverage、Security、静的Contract、隔離実API Contractとproduction build／E2Eの全jobが成功した。PG17 run `36888202143` も成功した。この結果にM10は含まれないため、M10変更後の最新SHAで再実行する。local逐次coverageは9,206件成功・都道府県UI1件が10秒超過で失敗し、分岐9,349/9,349だった。同UIの単独12件は成功したが、local全体の失敗を成功へ書き換えない。端末負荷の観測とprovider-native CIの成功を別々の証拠とする。
 
 ## 掲載と予約の分離（revision 4、現行）
 

@@ -6,12 +6,12 @@
 
 - 既存認証の公式apply_migrationを使用する。SQL Editor直接DDL、履歴repair、履歴への直接INSERT、既存共有migrationの編集、全未適用migrationの一括pushをしない。
 - 最新の固定commitの独立レビューと必須CI（隔離Supabase実API Contract・Chromium/WebKit E2E・PG17全再生を含む）成功後、直前に対象projectのhealth・PG版・長時間transaction・履歴・既存catalogを照合してから進める。
-- 下記の9原票だけを依存順に一つずつ適用する。既存名・signature・indexの予期しない衝突、返信provider ID重複、来店booking ID重複／tenant不一致、既存queue constraint違反があれば、そのmigrationへ進まず実体を照合する。業務行を削除・統合して通さない。
+- 下記の10原票だけを依存順に一つずつ適用する。既存名・signature・indexの予期しない衝突、返信provider ID重複、来店booking ID重複／tenant不一致、既存queue constraint違反があれば、そのmigrationへ進まず実体を照合する。業務行を削除・統合して通さない。
 - DDLは公式機能のtransactionと履歴記録に委ねる。結果不明では再送せず、migration履歴の記録SQLと関数／column／index／trigger／policy／ACLを照合する。公式生成versionが原票と異なる場合は、初回適用した未共有原票のversionだけを公式記録へ同期し、SQL bytesは不変にする。
 - Auth rowの先行KEY SHARE helperは指定IDをlockするだけでAuth列を返さず、service-onlyで一般Auth SELECT権限は増やさない。削除guardは本人／所有施設のactive予約を最終transactionで確認し、予約参照は実FK SET NULLに委ねる。実アカウント削除を検証として実行しない。
 - schema追加と既存RPC置換は既存行の一括DMLを含まない。来店triggerは適用後の実予約状態変更で作動する。旧アプリの二重visit INSERTはunique拒否でデータを守るが旧コードはエラー通知し得るため、DB適用後のmerge／deployを同じrelease工程で速やかに行い、旧アプリとの時間差を監視する。
 - 失敗時は各migrationのtransaction rollback／未適用を照合し、既存アプリを保持する。成功済みschemaや操作台帳を破壊的にDROPしない。release後の不具合はforward-fixと既存hostingの前SHAへの復帰を効果別に判断し、実送信・実顧客登録・公開代行・新費用を混ぜない。
-- 事後は各原票SQLと履歴の完全一致、service許可／anon・authenticated拒否、RLS、index valid、trigger配置、NULL型、業務行件数と整合性を最小投影で確認する。全体fingerprintの対象外差分は別記し、今回の9原票一致と混同しない。本番型は公式実schemaから再生成してlocal生成との対象差分を照合する。
+- 事後は各原票SQLと履歴の完全一致、service許可／anon・authenticated拒否、RLS、index valid、trigger配置、NULL型、業務行件数と整合性を最小投影で確認する。全体fingerprintの対象外差分は別記し、今回の10原票一致と混同しない。本番型は公式実schemaから再生成してlocal生成との対象差分を照合する。
 - その後、保護条件を満たすmerge、deploy済みSHA、health、登録／受付回復／無料掲載と予約gate／店舗予約管理／通知監視の実動作を確認する。実メール送信や実顧客処理はこのread-only確認に含めない。
 
 | 原票version | migration名 | 適用内容／事前・事後対象 |
@@ -25,6 +25,9 @@
 | 20261001050835 | event_email_first_delivery_ledger | 初回providerキー・envelope・開始時刻の不変性 |
 | 20261001054616 | chain_statistics_aggregate | 現在権限・tenant・JST月境界・失敗と真の0件の区別 |
 | 20261001074255 | booking_transition_outbox_and_publish_authorization | 状態CAS／通知原子性・調整replay・公開認可・最後owner非公開化・退会予約guard |
+| 20261001161628 | moderation_rpc_service_only | 審査queueへの匿名・一般会員の直接RPC実行を禁止。service callerと関数bodyは維持 |
+
+追加原票は、実DBのEXECUTE権限と独立した呼出経路レビューで確認したP1の直接影響範囲である。対象はenqueue_moderation(jsonb)のACLだけで、queue行・関数body・owner・search_pathを変更しない。事前に既存定義hashとPUBLIC／anon／authenticated／service権限を取得し、事後にbody不変、PUBLIC／anon／authenticated拒否、service許可、queue件数不変を照合する。復旧は匿名実行の再許可ではなく、正規service callerのforward-fixとする。隔離PGで実role拒否・正常batch・再実行と旧ACLの負対照を必須とし、本番への偽通報送信は行わない。
 
 SQL SHA-256は実行直前の固定commitから算出して履歴SQLと照合する。この節だけを本番適用成功と報告しない。
 

@@ -103,6 +103,9 @@ jobs:
       - name: Inquiry reply identity, pending uniqueness and provider reconciliation (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/inquiry-reply-fixtures.sql
 
+      - name: Moderation RPC service-only authorization and deduplication (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/moderation-rpc-privilege-fixtures.sql
+
       - name: Listing versus online booking, roles and midnight boundaries (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/listing-booking-fixtures.sql
 

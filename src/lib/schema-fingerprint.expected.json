@@ -1566,8 +1566,6 @@
 "functiongrant|public.create_booking_atomic(uuid,uuid,uuid,uuid,uuid,date,time without time zone,time without time zone,text,text,text,text,integer,integer,text,boolean)|service_role|EXECUTE",
 "functiongrant|public.create_manual_booking_atomic(uuid,uuid,jsonb)|service_role|EXECUTE",
 "functiongrant|public.create_online_booking_atomic(uuid,uuid,uuid,uuid,uuid,date,time without time zone,time without time zone,text,text,text,text,integer,integer,text,uuid[])|service_role|EXECUTE",
-"functiongrant|public.enqueue_moderation(jsonb)|anon|EXECUTE",
-"functiongrant|public.enqueue_moderation(jsonb)|authenticated|EXECUTE",
 "functiongrant|public.enqueue_moderation(jsonb)|service_role|EXECUTE",
 "functiongrant|public.facility_booking_ready(uuid)|anon|EXECUTE",
 "functiongrant|public.facility_booking_ready(uuid)|authenticated|EXECUTE",
