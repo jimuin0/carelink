@@ -53,6 +53,19 @@ M01／M02／M07の設計反証を独立監査へ依頼し、lock順序、service
 
 追加修正前の全体coverage実行は、独立監査で新しい復旧経路P2を確認したため対象の所有processだけを中断した。途中結果を合格として使用しない。変更後の全必須検証は最新SHAのCIへ戻す。これは本番適用、merge、deployの完了記録ではない。
 
+### E2Eの観測不備の修正（2026年10月2日、再検証待ち）
+
+HEAD `9a8375c8428ceecccf31f0d0833930f2ee8e0181`、CI run `36878394928` はlint・型・単体／coverage・Security・静的Contract・隔離実API Contract・production buildが成功し、E2Eは300件成功・8件失敗した。PG17 run `36878395094` は全migration再生と並行・権限fixtureを完了した。E2Eの失敗を本番解消や全体成功に置き換えない。
+
+| 失敗内訳 | 原因と修正 | 維持する合格条件 |
+|---|---|---|
+| Chromium 3件 | fresh document遷移がCDP応答bodyを破棄。実POSTの応答をroute.fetchで一度だけ読み、元の応答を未改変で届けてから観測結果を取得する | API成功の偽造・再POST・認可迂回は禁止。実status、state、DB claim／写真／owner／welcome件数とfresh管理画面遷移を確認する |
+| mobile 2件 | Cookie bannerが施設作成ボタンを覆う。新しい認証contextで利用者の「必須のみ」を実クリックする | force clickや同意の捏造はしない。通常の画面操作と登録処理を通す |
+| 応答喪失 2件 | 詳細文はalert見出しとは別paragraphで、Nextのroute announcerにもalertがある | 成否不明の完全な説明と再読込ボタンを可視確認し、POST回数1、旧署名cookie保持、再読込後owner1件を維持する |
+| mobile 1件 | 詳細h1と関連施設cardのh3が同名。対象h1をlevelで特定する | 指定fixtureの施設詳細を確認する。任意の先頭施設や条件付きassertへ変えない |
+
+これらは実際に失敗した検証の観測・操作の修正であり、旧runを合格へ書き換えるものではない。新固定SHAの独立レビューと全必須CI、公式migration、本番反映と対象動作確認を続行する。
+
 ## 掲載と予約の分離（revision 4、現行）
 
 認証済み追加依頼の原文：`無料掲載と予約を分ける`。下のrevision 3に対する事業方針の変更であり、過去の公開準備条件は今回の掲載条件として継承しない。

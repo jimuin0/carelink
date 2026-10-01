@@ -31,7 +31,7 @@ test.describe('予約フロー（UI確認）', () => {
 
   test('施設詳細ページが表示される', async ({ page }) => {
     await page.goto(`/facility/${slug}`);
-    await expect(page.getByRole('heading', { name: '合成予約UI確認店', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '合成予約UI確認店', level: 1, exact: true })).toBeVisible();
   });
 
   test('予約ページへのリンクが存在する', async ({ page }) => {

@@ -22,6 +22,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
+import { observeFacilitySetup } from './facility-setup-observer';
 
 // This suite writes synthetic applications. Never run it against a hosted DB/app.
 test.beforeAll(() => {
@@ -286,12 +287,10 @@ test.describe('/register 送信', () => {
         await expect(page.locator('#onboarding-business-type')).toHaveValue('ヘアサロン');
         await expect(page.locator('#onboarding-facility-name')).toHaveValue(/^E2E登録テスト施設 /);
         await page.getByRole('checkbox').check();
-        const setupResult = page.waitForResponse(r => new URL(r.url()).pathname === '/api/facility/setup'
-          && r.request().method() === 'POST');
-        await page.getByRole('button', { name: '施設を作成する', exact: true }).click();
-        const setup = await setupResult;
-        expect(setup.status()).toBe(201);
-        const setupBody = await setup.json();
+        const setup = await observeFacilitySetup(page,
+          () => page.getByRole('button', { name: '施設を作成する', exact: true }).click());
+        expect(setup.status).toBe(201);
+        const setupBody = setup.body;
         expect(setupBody.success).toBe(true);
         await page.waitForURL(url => url.pathname === '/admin');
         const { data: claimed, error: claimError } = await db.from('salons')

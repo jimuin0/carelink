@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
+import { observeFacilitySetup } from './facility-setup-observer';
 
 // Real browser + Auth + application API + disposable Postgres. Never reuse a
 // running developer server, hosted credentials, provider send keys or real data.
@@ -41,6 +42,10 @@ async function receipt(db: ReturnType<typeof localDb>, email: string, name: stri
 }
 async function login(page: Page, person: Awaited<ReturnType<typeof identity>>, redirect: string) {
   await page.goto(`/auth/login?redirect=${encodeURIComponent(redirect)}`);
+  // Each identity logs in from a fresh context. Make the actual privacy choice
+  // instead of force-clicking through the mobile Cookie banner or seeding consent.
+  await page.getByRole('button', { name: '必須のみ', exact: true }).click();
+  await expect(page.getByRole('button', { name: '必須のみ', exact: true })).toBeHidden();
   await page.fill('#login-email', person.email);
   await page.fill('#login-password', person.password);
   await page.getByRole('button', { name: 'ログイン', exact: true }).click();
@@ -54,12 +59,10 @@ async function selectRecovery(page: Page, id: string) {
 }
 async function submitSetup(page: Page, status: number, state: string) {
   await page.getByRole('checkbox').check();
-  const pending = page.waitForResponse(r => new URL(r.url()).pathname === '/api/facility/setup'
-    && r.request().method() === 'POST');
-  await page.getByRole('button', { name: '施設を作成する', exact: true }).click();
-  const response = await pending;
-  expect(response.status()).toBe(status);
-  const result = await response.json();
+  const response = await observeFacilitySetup(page,
+    () => page.getByRole('button', { name: '施設を作成する', exact: true }).click());
+  expect(response.status).toBe(status);
+  const result = response.body;
   expect(result).toMatchObject({ success: true, state });
   await page.waitForURL(url => url.pathname === '/admin');
   return { facilityId: result.facilityId as string, slug: result.slug as string };
@@ -159,7 +162,9 @@ test('committed direct setup with lost response reloads membership without anoth
   await page.getByRole('checkbox').check();
   await page.getByRole('button', { name: '施設を作成する', exact: true }).click();
   await expect.poll(() => committed).toEqual({ status: 201, success: true, state: 'created' });
-  await expect(page.getByRole('alert')).toContainText('作成結果を確認できませんでした');
+  await expect(page.getByText('作成結果を確認できませんでした。再読み込みして登録状況を確認してください',
+    { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '再読み込みして登録状況を確認', exact: true })).toBeVisible();
   expect(setupRequests).toBe(1);
   // route.fetch shares Playwright's browser-context cookie jar and can apply
   // Set-Cookie before abort. Restore the original real signed denial so this
