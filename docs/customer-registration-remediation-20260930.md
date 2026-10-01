@@ -85,6 +85,8 @@ HEAD `06c259bece3b9a9764480ed57eacf5de3dfda785` のCI `36892440593` は全job成
 - failed listからの明示再確認は、同じ本人と元受付を使う。単体と実ブラウザ／Auth／API／DBで、失敗を0件扱いしないこと、再確認後の受付一致、claim／grant／member未作成を検証する。ブラウザ故障注入はdispatch前の通信失敗であり、元のSQL障害原因を再現したとは報告しない。
 - CIでは`failOnFlakyTests`を有効にする。retryは診断採取用に維持するが、retry-onlyの成功では合格にしない。旧runの緑を上書きせず、最新SHAの全必須gateを再実行する。型・独立レビュー・最新E2E・本番migration／deployは別nodeとして残る。
 - 変更後の単体2 suite・77 test、型、変更eslintは成功した。隔離PG17では同Auth行UPDATEとのLock待ちを実観測し、250msの失敗後に競合側rollbackを待ち、同じ本人のlist成功とclaim／grant／member未作成を確認した。既存の3種類各20並行要求と期限検証も成功した。owned DBと合成UUID namespaceだけを変えた同一fixture sourceを使い、本番へ接続していない。この制御故障の成功を、過去のCI失敗原因の確定や本番解消の証拠へ転用しない。
+- 次のHEAD `a1dcc99f2264eac44919336483571a79a395cce8`、CI `36897036713` は単体9,230件・分岐100％、lint／型・Security・Contract・PG17検証に成功したが、E2Eは308件成功・追加2件失敗だった。新しい再確認テストは実APIの200・元受付一致まで成功した後、全画面のrole=alertを失敗表示として扱い、Next.jsのroute announcerを誤検出した。復旧main内のalertに限定し、初回エラーの存在と再確認後の消失を両方検証する。assertion削除やskipでは通さず、変更後の全必須CIを再実行する。
+- 通信遮断されたowned一時環境で、実設定のCI flaky gateを継承した合成負対照は初回失敗／retry成功でもexit 1・flaky 1だった。通常テストの成功証拠ではなく、再試行だけで緑にしないgateの実証である。元workspaceや実利用者データには変更を加えていない。
 
 ## 掲載と予約の分離（revision 4、現行）
 

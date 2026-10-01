@@ -76,7 +76,10 @@ test('failed list -> explicit retry recovers the same authenticated receipt with
   // goes through the real Auth/API/RPC with this same identity and original row.
   await page.route('**/api/salons/recovery', route => route.abort('connectionfailed'));
   await login(page, owner, '/register/recover');
-  await expect(page.getByRole('alert')).toBeVisible();
+  // Next.js' route announcer is also role=alert. Only the recovery main owns
+  // the application's failure; a navigation announcement must not satisfy it.
+  const recoveryError = page.getByRole('main').getByRole('alert');
+  await expect(recoveryError).toBeVisible();
   await expect(page.getByText('一致する受付を確認できませんでした。', { exact: false })).toBeHidden();
   await page.unroute('**/api/salons/recovery');
   const restored = page.waitForResponse(r => new URL(r.url()).pathname === '/api/salons/recovery'
@@ -86,7 +89,7 @@ test('failed list -> explicit retry recovers the same authenticated receipt with
   expect(response.status()).toBe(200);
   expect(await response.json()).toMatchObject({ state: 'ready', receipts: [{ receipt_id: id, facility_name: name }] });
   await expect(page.locator('li').filter({ hasText: `受付番号：${id}` })).toBeVisible();
-  await expect(page.getByRole('alert')).toBeHidden();
+  await expect(recoveryError).toBeHidden();
   const original = await db.from('salons').select('claimed_facility_id,claimed_by_user_id,claimed_at').eq('id', id).single();
   expect(original.error).toBeNull();
   expect(original.data).toEqual({ claimed_facility_id: null, claimed_by_user_id: null, claimed_at: null });
