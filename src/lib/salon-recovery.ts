@@ -28,13 +28,22 @@ const summary = z.object({ outcome: z.literal('confirmed'), receipt_id: z.uuid()
 const absent = z.object({ outcome: z.literal('unverified'), receipt_id: z.null(),
   facility_name: z.null(), business_type: z.null(), address: z.null() }).strict();
 type Db = ReturnType<typeof createServiceRoleClient>;
+// Provider messages/details/hints can include identifiers or customer fields.
+// Only fixed diagnostic codes enter server logs; the public API stays generic.
+const RECOVERY_DIAGNOSTIC_CODES = new Set([
+  '08006', '40001', '40P01', '42501', '53300', '55P03', '57014', '57P01',
+  'PGRST000', 'PGRST001', 'PGRST002', 'PGRST003', 'PGRST116', 'PGRST202', 'PGRST301',
+]);
 
 /** These service-only RPCs authorize the current confirmed Auth row again under
  * lock. No caller email/user selector, aliases, direct Auth grants or auto-claim. */
 export async function listSalonRecovery(db: Db, userId: string, after?: string) {
   const { data, error } = await db.rpc('list_recoverable_salon_receipts', { p_user_id: userId, ...(after ? { p_after_id: after } : {}) });
   if (error?.code === '42501' && error.message === 'REGISTRATION_ACCOUNT_UNVERIFIED') return { state: 'unverified' as const };
-  if (error) throw new Error('Registration recovery list unavailable');
+  if (error) {
+    const code = RECOVERY_DIAGNOSTIC_CODES.has(error.code) ? error.code : 'unclassified';
+    throw new Error(`Registration recovery list unavailable [${code}]`);
+  }
   const parsed = z.array(receipt).max(51).safeParse(data);
   if (!parsed.success) throw new Error('Invalid registration recovery list');
   const rows = parsed.data.slice(0, 50);

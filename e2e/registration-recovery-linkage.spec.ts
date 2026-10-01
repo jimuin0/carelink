@@ -68,6 +68,35 @@ async function submitSetup(page: Page, status: number, state: string) {
   return { facilityId: result.facilityId as string, slug: result.slug as string };
 }
 
+test('failed list -> explicit retry recovers the same authenticated receipt without creating or claiming', async ({ page }, info) => {
+  await page.setExtraHTTPHeaders({ 'x-real-ip': `192.0.2.${220 + info.retry * 2 + (info.project.name === 'chromium' ? 0 : 1)}` });
+  const db = localDb(); const owner = await identity(db);
+  const name = `合成再確認 ${randomUUID()}`; const id = await receipt(db, owner.email, name);
+  // Fail before dispatch, not after an ambiguous write. The next explicit read
+  // goes through the real Auth/API/RPC with this same identity and original row.
+  await page.route('**/api/salons/recovery', route => route.abort('connectionfailed'));
+  await login(page, owner, '/register/recover');
+  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(page.getByText('一致する受付を確認できませんでした。', { exact: false })).toBeHidden();
+  await page.unroute('**/api/salons/recovery');
+  const restored = page.waitForResponse(r => new URL(r.url()).pathname === '/api/salons/recovery'
+    && r.request().method() === 'POST' && r.request().postDataJSON().action === 'list');
+  await page.getByRole('button', { name: '先頭から再確認', exact: true }).click();
+  const response = await restored;
+  expect(response.status()).toBe(200);
+  expect(await response.json()).toMatchObject({ state: 'ready', receipts: [{ receipt_id: id, facility_name: name }] });
+  await expect(page.locator('li').filter({ hasText: `受付番号：${id}` })).toBeVisible();
+  await expect(page.getByRole('alert')).toBeHidden();
+  const original = await db.from('salons').select('claimed_facility_id,claimed_by_user_id,claimed_at').eq('id', id).single();
+  expect(original.error).toBeNull();
+  expect(original.data).toEqual({ claimed_facility_id: null, claimed_by_user_id: null, claimed_at: null });
+  const grants = await db.from('salon_recovery_grants').select('id').eq('user_id', owner.id);
+  expect(grants.error).toBeNull(); expect(grants.data).toEqual([]);
+  const members = await db.from('facility_members').select('facility_id').eq('user_id', owner.id);
+  expect(members.error).toBeNull(); expect(members.data).toEqual([]);
+  expect((await page.context().cookies()).some(cookie => cookie.name.startsWith('carelink_salon_recovery_'))).toBe(false);
+});
+
 test('expired handoff -> verified recovery -> one draft -> listing without online booking', async ({ page }, info) => {
   await page.setExtraHTTPHeaders({ 'x-real-ip': `192.0.2.${160 + info.retry * 2 + (info.project.name === 'chromium' ? 0 : 1)}` });
   const db = localDb(); const owner = await identity(db);

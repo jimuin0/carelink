@@ -77,6 +77,15 @@ HEAD `9a8375c8428ceecccf31f0d0833930f2ee8e0181`、CI run `36878394928` はlint�
 
 次のHEAD `92b99f79a75a7bdf07d6e3408b83022334c144b4`、CI run `36888199784` はLint／型、Unit／Coverage、Security、静的Contract、隔離実API Contractとproduction build／E2Eの全jobが成功した。PG17 run `36888202143` も成功した。この結果にM10は含まれないため、M10変更後の最新SHAで再実行する。local逐次coverageは9,206件成功・都道府県UI1件が10秒超過で失敗し、分岐9,349/9,349だった。同UIの単独12件は成功したが、local全体の失敗を成功へ書き換えない。端末負荷の観測とprovider-native CIの成功を別々の証拠とする。
 
+### 受付一覧の初回失敗と復旧検証（2026年10月2日、再検証待ち）
+
+HEAD `06c259bece3b9a9764480ed57eacf5de3dfda785` のCI `36892440593` は全job成功だが、E2Eは307件成功・1件flaky（初回失敗、別の新規本人での再試行成功）だった。PG17 `36892440541` は成功した。Mobile Safariの受付復旧初回で一覧RPCが失敗し、画面は確認不能と再確認ボタンを表示した。失敗を受付0件や作成成功に変換してはいない。元のRPCエラーコードが捨てられていたため、原因をtimeout／権限／PostgREST等に確定できない。独立した呼出元・SQL・lock・CI worker・proxyの反証でも、特定原因の断定には至っていない。
+
+- 一覧だけに固定allowlistの原因コードを追加し、未知のcodeは`unclassified`とする。message／details／hint、本人・受付UUID、メール、Cookie、proofは記録しない。公開APIは従来の一般的なエラー応答を維持する。prepare／setupを自動再実行しない。
+- failed listからの明示再確認は、同じ本人と元受付を使う。単体と実ブラウザ／Auth／API／DBで、失敗を0件扱いしないこと、再確認後の受付一致、claim／grant／member未作成を検証する。ブラウザ故障注入はdispatch前の通信失敗であり、元のSQL障害原因を再現したとは報告しない。
+- CIでは`failOnFlakyTests`を有効にする。retryは診断採取用に維持するが、retry-onlyの成功では合格にしない。旧runの緑を上書きせず、最新SHAの全必須gateを再実行する。型・独立レビュー・最新E2E・本番migration／deployは別nodeとして残る。
+- 変更後の単体2 suite・77 test、型、変更eslintは成功した。隔離PG17では同Auth行UPDATEとのLock待ちを実観測し、250msの失敗後に競合側rollbackを待ち、同じ本人のlist成功とclaim／grant／member未作成を確認した。既存の3種類各20並行要求と期限検証も成功した。owned DBと合成UUID namespaceだけを変えた同一fixture sourceを使い、本番へ接続していない。この制御故障の成功を、過去のCI失敗原因の確定や本番解消の証拠へ転用しない。
+
 ## 掲載と予約の分離（revision 4、現行）
 
 認証済み追加依頼の原文：`無料掲載と予約を分ける`。下のrevision 3に対する事業方針の変更であり、過去の公開準備条件は今回の掲載条件として継承しない。

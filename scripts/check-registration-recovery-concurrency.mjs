@@ -63,6 +63,24 @@ async function main() {
   query(`BEGIN; INSERT INTO auth.users(id,email,email_confirmed_at) VALUES('${user}','synthetic-recovery@example.invalid',clock_timestamp());
     INSERT INTO public.salons(id,facility_name,business_type,email,phone,representative_name,contact_name,source)
     VALUES('${receipt}','Synthetic recovery concurrency','ヘアサロン','synthetic-recovery@example.invalid','09000000000','Synthetic','Synthetic','register'); COMMIT;`);
+  // Auth changes can make the read wait. A bounded failed read must leave the
+  // original application unchanged; the SAME verified actor recovers after the
+  // competing transaction rolls back. This is a controlled scenario, not a
+  // claim that the historical CI failure was caused by this lock.
+  const blockedList=`BEGIN; SET LOCAL lock_timeout='250ms'; SET LOCAL ROLE service_role;
+    DO $$ BEGIN
+      BEGIN
+        PERFORM public.list_recoverable_salon_receipts('${user}',NULL);
+        RAISE EXCEPTION 'expected list lock timeout';
+      EXCEPTION WHEN lock_not_available THEN NULL; END;
+    END $$; SELECT 'list-lock-rejected'; ROLLBACK;`;
+  assert.deepEqual(await contend('list-lock',`UPDATE auth.users SET email_confirmed_at=NULL WHERE id='${user}'`,
+    [blockedList],`SELECT pg_sleep(0.8); ROLLBACK;`),['list-lock-rejected']);
+  assert.equal(query(`SET ROLE service_role; SELECT count(*) FROM public.list_recoverable_salon_receipts('${user}',NULL)`),'1');
+  assert.equal(query(`SELECT count(*) FROM public.salons WHERE id='${receipt}' AND claimed_facility_id IS NULL
+    AND claimed_by_user_id IS NULL AND claimed_at IS NULL`),'1');
+  assert.equal(query(`SELECT count(*) FROM public.salon_recovery_grants WHERE user_id='${user}'`),'0');
+  assert.equal(query(`SELECT count(*) FROM public.facility_members WHERE user_id='${user}'`),'0');
   const twenty=sql=>Array.from({length:20},()=>sql);
   const userLock=`SELECT pg_advisory_xact_lock(hashtextextended('carelink-setup:${user}',0))`;
   const prepare=`SET ROLE service_role; SELECT outcome FROM public.prepare_salon_recovery('${user}','${receipt}','${grant}',repeat('a',64));`;
@@ -86,7 +104,7 @@ async function main() {
       (SELECT expires_at FROM public.salon_recovery_grants WHERE id='${grant}') THEN RAISE EXCEPTION 'started after expiry'; END IF;
     END $$; SELECT pg_sleep(3.1); COMMIT;`;
   assert.deepEqual(await contend('expiry',`SELECT id FROM public.salons WHERE id='${receipt}' FOR UPDATE`,[summary],timing),['unverified']);
-  console.log('Recovery concurrency passed: 3 x 20 observed competing clients; one immutable grant, current-email revocation, one facility/welcome, and expiry after receipt lock. Synthetic disposable DB only.');
+  console.log('Recovery concurrency passed: same-actor recovery after observed Auth lock timeout with original application unchanged; 3 x 20 observed competing clients; one immutable grant, current-email revocation, one facility/welcome, and expiry after receipt lock. Synthetic disposable DB only.');
 }
 main().catch(()=>{console.error('Registration recovery concurrency failed; no production access authorized.');process.exitCode=1;})
   .finally(()=>{for(const child of children)child.kill('SIGTERM');});

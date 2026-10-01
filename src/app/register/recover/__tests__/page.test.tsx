@@ -37,6 +37,21 @@ test.each([403,500])('failed list is not shown as zero receipts (%s)',async stat
   mockFetch.mockResolvedValue(response({},status));render(<RecoverRegistrationPage/>);
   await screen.findByRole('alert');expect(screen.queryByText(/一致する受付を確認できませんでした/)).not.toBeInTheDocument();
 });
+test('manual retry after failed retrieval restores the same receipt without preparation or re-registration',async()=>{
+  mockFetch.mockResolvedValueOnce(response({},500)).mockResolvedValue(response(ready));
+  render(<RecoverRegistrationPage/>);
+  await screen.findByRole('alert');
+  fireEvent.click(screen.getByRole('button',{name:'先頭から再確認'}));
+  await screen.findByText(receipt.facility_name);
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(mockFetch).toHaveBeenCalledTimes(2);
+  for(const [url,options] of mockFetch.mock.calls){
+    expect(url).toBe('/api/salons/recovery');
+    expect(JSON.parse(options.body)).toEqual({action:'list'});
+  }
+  expect(mockPush).not.toHaveBeenCalled();
+  expect(window.sessionStorage.getItem(SALON_RECOVERY_CONTEXT_KEY)).toBeNull();
+});
 test.each([null,{...ready,receipts:[{...receipt,receipt_id:'bad'}]},{...ready,receipts:[{...receipt,email:'private@example.invalid'}]}])('invalid list fails closed %#',async body=>{
   mockFetch.mockResolvedValue(response(body));render(<RecoverRegistrationPage/>);
   await screen.findByRole('alert');expect(mockPush).not.toHaveBeenCalled();

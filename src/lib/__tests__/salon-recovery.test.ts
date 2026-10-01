@@ -39,6 +39,15 @@ test('the 51st row indicates a next page after the 50th, not silent truncation',
   rpc.mockResolvedValue({ data: [{ ...row, created_at: null }], error: null });
   expect(await listSalonRecovery(db, user)).toMatchObject({ next: null, receipts: [{ created_at: null }] });
 });
+test.each(['08006', '40001', '40P01', '42501', '53300', '55P03', '57014', '57P01',
+  'PGRST000', 'PGRST001', 'PGRST002', 'PGRST003', 'PGRST116', 'PGRST202', 'PGRST301'])('server diagnostic preserves only allowlisted code %s', async code => {
+  rpc.mockResolvedValue({ data: null, error: { code, message: 'PRIVATE EMAIL', details: 'PRIVATE UUID', hint: 'PRIVATE PROOF' } });
+  await expect(listSalonRecovery(db, user)).rejects.toThrow(new Error(`Registration recovery list unavailable [${code}]`));
+});
+test.each([undefined, null, '', 'PRIVATE EMAIL', '42501\nPRIVATE', 'toString', {}])('untrusted diagnostic code is never logged %#', async code => {
+  rpc.mockResolvedValue({ data: null, error: { code, message: 'PRIVATE EMAIL', details: 'PRIVATE UUID', hint: 'PRIVATE PROOF' } });
+  await expect(listSalonRecovery(db, user)).rejects.toThrow(new Error('Registration recovery list unavailable [unclassified]'));
+});
 test.each([null, {}, Array(52).fill(row), [{ ...row, receipt_id: 'bad' }], [{ ...row, business_type: 'bad' }],
   [{ ...row, email: 'private@example.invalid' }], [{ ...row, created_at: 'invalid' }]])('bad list is not no matches %#', async data => {
   rpc.mockResolvedValue({ data, error: null });
