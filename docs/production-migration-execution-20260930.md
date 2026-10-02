@@ -1,5 +1,42 @@
 # 今回限定の公式migration実行記録
 
+## 本番releaseの照合結果（2026年10月2日）
+
+PR #657は検証済みHEAD `0da68f8f383d5d121793d8211fbe302035df1db9`を指定し、providerの保護条件を満たしてsquash mergeした。merge SHAは`5e6bf3c3570b9175dbd41bee88def92d69776a61`、treeは両方とも`1d6f72602140ab4e103500d1292a9b975b17a0fe`で完全一致。強制merge、保護迂回、mainへの直接pushは行っていない。
+
+- 最新main CI `36952815808`は同merge SHAで成功した。447 suite・9,230単体test、branches 100％、隔離Supabase実API Contract 17件、production build、Chromium／WebKit E2E 310件が成功し、E2Eのflaky・skipは0。lint／型・Security・PG17 `36952815810`と静的guardも成功。取消された先行main run `36952641236`は合格証拠として使用していない。
+- Vercel production deployment `6799379769`は同merge SHAで成功し、immutable配信URLは`https://carelink-39vzzceoj-jimuin.vercel.app`。本番healthは2026年10月2日10時51分の確認でHTTP 200・healthy・version `5e6bf3c`、Supabase／rate limit／Resend／cronは正常。Stripeは未設定・明示保留であり確認対象に加えていない。
+- 公開登録／ログインはHTTP 200、登録V2は有効。未認証の管理画面はloginへ307、管理APIは401。予約管理APIは有効な形のqueryを付けても未認証を401で拒否した。実申込・返信・アカウント削除・公開代行は行っていない。
+- deploy後の自動実行としてbooking-reminder、webhook-retry、flag-reviews、cron-heartbeatのログ保存を確認し、その確認窓のerrorは0だった。これはendpointの実行証拠であり、個別のメール受信やschedulerのprovider帰属を証明しない。
+
+今回のreleaseの成功とGOAL全体の完成は区別する。Auth／SMTP／Googleの設定・実送達、Storage匿名upload廃止の互換gate、複数店舗管理方針は残る。下記の既知fingerprint差分も全DB正常と読み替えない。
+
+## 次の直接影響範囲の準備（監視のlocale依存差分）
+
+限定GOALは`CARELINK-CUSTOMER-REGISTRATION-20260930-MONITOR-LOCALE` revision 2。現在の認証済み依頼「優先順位つけて上から順に進めて全部解決させて」をsourceとし、親GOAL revision 5・保留範囲・費用0を維持する。契約JSONのkey昇順canonical SHA-256は`8e0e1853d0b738f685f0190b9b4ef6cf1af304e2f6bc35733e1beae39038ac04`。適用r44 manifest SHA-256は`dd7b573c7d937373e19e5c038a1588a40a5ba764b164893b98510b7c0698e51d`で照合済み。
+
+受入traceは、監視の偽差分／見逃しへの直接修正 → SQL/RPC/JSON生成・CLI/cron本文保持 → 単体とPG17実DDL負対照 → 全migration再生と最新SHA必須CI → service-only公式migrationの事前／履歴／事後照合 → 保護mergeとdeploy SHA/health/対象RPC照合。quality適用は機能正確性、異常時拒否、権限・privacy、再実行、運用監視、保守性、追加費用0。表示はJSON escapingでrecord境界を保ち、業務方針／実メール／他tenantデータ変更は対象外。読取RPCのsignature・return typeは不変で型生成差分は生じない設計。
+
+隔離PG17で243原票再生から2,701 recordを生成し、C／en_US.UTF-8の配列比較は一致した。rollback-only fixtureで43種のcatalog変更・復元、anon/authenticatedの実42501拒否、service成功を確認した。旧RPCを隔離transaction内だけへ戻す負対照はliteral保持検査で失敗し、終了後に新RPC復元とfixture残存0を確認した。実RPC JSONはgenerator→TS engine→CLI engineで5種の実DDL差分を各1missing/1extraで検知、復元後完全一致。単体78件も成功。これはlocal証拠であり、後続CI・本番適用・本番監視解消の代用ではない。
+
+親GOAL revision 5を維持する限定修正。既存`published_facility_location_present`のraw定義とvalidationは保持されているが、fingerprintの`regexp_replace`がDBの文字分類に依存し、同じUnicode空白を本番だけで変換して差分を作る。定数だけの本番read-only対照では、default処理と`COLLATE "C"`処理は異なり、後者はU202F／U205F／U3000／FEFFの文字列を保持した。業務行や設定は変更していない。
+
+独立設計反証後、限定契約revision 2へ更新した。全行regexはASCII literalの二重空白やLFまで消し、TSとCLIの末尾trimもenum変更を隠すため、正規化自体を廃止する。同一queryを新しいchronological migrationでRPCへ転記し、JSON配列をrecord境界の正本とする。生成・比較CLI・cronは有効本文をtrim／LF分割しない。RPCと生成canonical配列はUTF8 byte順を使い、比較CLIとcronの差分表示はJavaScriptの決定的なUTF16順を使う。本文の集合比較と表示順は区別する。旧LF区切りCLI入力は拒否しJSONのみ受ける。共有済み原票は不変、service-only ACL・空search_path・返却形・監視対象は維持する。
+
+期待JSONは全migrationを隔離PG17へ再生して生成し、手編集・差分allowlist・監視skipでは通さない。同一PG17／search_pathの生deparseを厳密比較するため、将来の整形差も調査対象であり、意味が同じと推定して自動消去しない。実CHECK／DEFAULT／policy／index／enumのASCII・Unicode空白とLF変更、ACL拡大、JSON異常入力を負対照で確認する。現在の区切り形式は任意catalog文字列に対する数学的collision-free形式ではなく、全識別子の完全識別は保証しない。
+
+未履歴のservice-only `deduct_points_atomic`の2項目は別baseline差分として保持し、この修正では削除・変更・無視しない。locale原因の誤検知除去を全DB差分0とは報告しない。独立設計反証、固定版レビュー、対象test／PG17全再生／必須CI、公式migrationの事前・事後照合、保護merge／deploy／対象fingerprint確認が完了条件。後続修正のDB適用結果は下記を参照し、merge／deploy成功とは区別する。
+
+本番事前照合では、新queryをread-only transaction・空search_pathで実行した。工具経由のJSON文字列では一部Unicode空白の脱落が見えたため、その出力だけをDB欠損と断定しなかった。DB内の4文字存在判定はすべてtrue。UTF8 JSONをDB側でbase64化してASCIIのまま取得・復号すると、所在地CHECKは原票と完全一致し、全2,703 recordの差分は未置換のfingerprint RPC自身1件と上記既存baseline 2件だけだった。業務constraintを修復するDDLは不要であり、実行していない。
+
+### 監視RPCの公式適用結果
+
+- 適用固定HEADは`f3381b6ef7c9030527bfa487c36d3c76c213e0fa`。独立レビューの未解決P0〜P3は0。CI `36960656805`は448 suite・9,252単体test・branches 100％、隔離Supabase実API Contract 17件、production build、Chromium／WebKit 310件の成功を確認した。PG17 `36960656837`は243原票再生、2,701 record、43 catalog変異・復元、role拒否とJSON実roundtripを成功した。古い取消runは使用していない。既存Contract jobの環境条件付き18 testは実施証拠に数えず、隔離実APIの必須17件と区別する。
+- 直前はACTIVE_HEALTHY、長時間transaction・lock待機0、候補履歴0。関数owner postgres、STABLE、SECURITY DEFINER、空search_path、body MD5 `9d65b0f2debe2cb3ebf9ad526606e455`、anon／authenticated拒否・service許可を確認した。旧定義はtask内の非機密schema証拠として保存し、復帰が必要なら現状態照合後の公式forward-fixとする。
+- 公式`apply_migration`で`fingerprint_literal_preservation`だけを適用し成功した。公式履歴versionは`20261002050559`、statementsは1件、記録SQLと固定原票は完全一致。SQL SHA-256は`3803457852224f49cc844857f2026933f999050004495bf53ed96579b10fcc95`。初回本番適用した候補のfile名だけを公式versionへ同期しSQL bytesは不変。履歴への直接書込み・repair、旧共有適用済み原票の変更はない。
+- 事後body MD5は期待値`089328ab26fd723f5a7459878db5ae0d`と一致し、owner／STABLE／SECURITY DEFINER／空search_path／ACLは不変。実RPCは2,703要素のJSON配列を返した。ASCII-safe取得で期待値のmissing 0・extra 2、追加は上記既存baselineだけ。業務行DML・所在地CHECK変更・通知送信は実行していない。
+- 公式version同期後の最新SHA必須CI、merge／deploy SHA／healthは別gateとして継続する。全GOALやAuth送達の完了証拠にはしない。
+
 ## 最新の適用結果（2026年10月2日）
 
 CareLink production `xzafxiupbflvgbarrihe`へ、下記10件を公式`apply_migration`で依存順に一件ずつ適用した。SQL Editor直接DDL、履歴repair、履歴INSERT、全未適用原票の一括push、顧客業務行のDMLは行っていない。
