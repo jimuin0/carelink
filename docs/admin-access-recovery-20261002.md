@@ -36,3 +36,11 @@ Quality Acceptance Matrixは機能正確性、失敗時UX・accessibility、secu
 必須gateは対象正常／異常／境界／権限／副作用ゼロ、負の対照、全体coverage branches 100％、lint・型・debt ratchet、静的／隔離DB Contract、production build・対象E2E、Security、固定snapshot独立レビュー、最新SHAのCI、merge後deploy／health／変更対象probe。SDK・UIの隔離検証を本番Auth障害注入やSMTP実送達の証拠と呼ばない。
 
 完了は今回の全受入条件・必須gate・対象P0〜P3ゼロ・blocking unknownゼロで認定する。CareLink全体の完了は別判定とする。問題時はprovider-nativeで直前の検証済みdeployへ復帰し、別の検証済みPRで修正する。DB変更はない。
+
+## 初回CI失敗と検証fixtureの修正
+
+PR #660のHEAD `cdf6ae3ed8c407e1fd468de222305eecd3a8dfba`、CI `36979966885`は型・lint・単体9366件／coverage・Security・静的Contract・隔離実API Contract・production buildが成功したが、E2Eは314件成功・2件失敗で全体不合格。固定プロフィールの再INSERTは`birth_md`だけを除外し、もう一つのGENERATED ALWAYS列`email_canonical`を含んでいたため、復元とfinallyが失敗した。隔離PG17の実catalogと原票を照合して両生成列を特定した。
+
+元workspaceや本番のprofile・認可・schemaは変更しない。両生成列は入力列からDBが再計算するため、合成actorの復元payloadからのみ除外する。元の全row一致、同queryのGET復帰、権限拒否、業務mutationゼロのassertは保持する。旧runを成功へ置換せず、変更後の固定版独立レビューと最新SHAの全必須CIへ戻す。
+
+所有する隔離PG17で、旧payloadが`generated_always`（SQLSTATE 428C9）で拒否される負の対照と、両生成列を除いた復元後の全row一致を確認した。BEGIN／DO／ROLLBACKが成功し、合成actorも残さない。このSQL証拠だけでブラウザ復帰の成功とはせず、両browserの最新E2Eを別gateとして維持する。

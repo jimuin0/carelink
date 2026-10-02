@@ -38,10 +38,11 @@ test('layout permission observation failure -> same-query document GET retry -> 
   await login(page, actor);
   const original = await client.from('profiles').select('*').eq('id', actor.id).single();
   if (original.error || !original.data) throw new Error('Disposable own profile snapshot failed');
-  // birth_md is GENERATED ALWAYS; restore its inputs and let Postgres compute
-  // it, rather than illegally inserting the generated column from select('*').
+  // Both derived columns are GENERATED ALWAYS (verified against the replayed
+  // catalog). Restore their inputs; never insert select('*') generated values.
   const restoreRow = { ...original.data };
   delete restoreRow.birth_md;
+  delete restoreRow.email_canonical;
   // Only this new actor's synthetic profile is removed, not the identity or any
   // business record. Restore its exact row in finally; no shared policy changes.
   const removed = await client.from('profiles').delete().eq('id', actor.id).select('id');
