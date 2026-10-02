@@ -30,7 +30,7 @@ function makeResponse() {
   return { cookies: cookieStore(), headers: new Headers() } as Record<string, unknown>;
 }
 
-let getUserImpl: (opts: { cookies: { setAll: (c: unknown[]) => void } }) => Promise<{ data: { user: unknown } }>;
+let getUserImpl: (opts: { cookies: { setAll: (c: unknown[]) => void } }) => Promise<{ data: { user: unknown }; error?: unknown }>;
 let membershipResult: { data: unknown; error: unknown };
 let profileResult: { data: unknown; error: unknown };
 const mockMembershipLookup = jest.fn();
@@ -70,6 +70,7 @@ jest.mock('@supabase/ssr', () => ({
 }));
 
 import { middleware, signCacheValue, getMembershipCacheKey } from '../../middleware';
+import { AuthRetryableFetchError, AuthSessionMissingError } from '@supabase/supabase-js';
 
 function makeNextUrl(path: string): URL & { clone: () => URL } {
   const u = new URL('https://carelink-jp.com' + path) as URL & { clone: () => URL };
@@ -102,6 +103,42 @@ beforeEach(() => {
   };
   membershipResult = { data: { role: 'owner' }, error: null };
   profileResult = { data: { is_platform_admin: false }, error: null };
+});
+
+test.each(['/admin', '/admin/onboarding', '/admin/inquiries', '/mypage', '/auth/login', '/auth/signup'])(
+  'returned Auth outage fails closed without logout/role lookup: %s', async path => {
+    const log = jest.spyOn(console, 'error').mockImplementation();
+    getUserImpl = async opts => {
+      opts.cookies.setAll([{ name: 'sb-refresh-token', value: 'refreshed', options: { path: '/' } }]);
+      return { data: { user: null }, error: new AuthRetryableFetchError('synthetic-private-value', 503) };
+    };
+    const res: Record<string, unknown> = await middleware(makeRequest(path));
+    expect(res.status).toBe(503);
+    expect(res._isRedirect).toBeUndefined();
+    expect((res.headers as Headers).get('cache-control')).toBe('no-store');
+    expect((res.headers as Headers).get('content-security-policy')).toContain('nonce-');
+    expect((res.cookies as ReturnType<typeof cookieStore>).getAll())
+      .toEqual([expect.objectContaining({ name: 'sb-refresh-token', value: 'refreshed' })]);
+    expect(mockMembershipLookup).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith('[middleware] AUTH_UNAVAILABLE');
+    expect(JSON.stringify(log.mock.calls)).not.toContain('synthetic-private-value');
+    log.mockRestore();
+  });
+test('thrown Auth failure is 503; public registration does not contact Auth', async () => {
+  const log = jest.spyOn(console, 'error').mockImplementation();
+  const auth = jest.fn(async () => { throw new Error('synthetic-private-value'); });
+  getUserImpl = auth;
+  expect((await middleware(makeRequest('/mypage'))).status).toBe(503);
+  auth.mockClear();
+  expect((await middleware(makeRequest('/register'))).status).toBeUndefined();
+  expect(auth).not.toHaveBeenCalled();
+  log.mockRestore();
+});
+test('genuine missing session keeps protected login redirect and anonymous login form', async () => {
+  getUserImpl = async () => ({ data: { user: null }, error: new AuthSessionMissingError() });
+  const protectedRes: Record<string, unknown> = await middleware(makeRequest('/mypage'));
+  expect((protectedRes._redirectedTo as URL).pathname).toBe('/auth/login');
+  expect((await middleware(makeRequest('/auth/login')))._isRedirect).toBeUndefined();
 });
 
 test('AUTH-1: /auth/login のログイン済みリダイレクトが更新済みセッション Cookie を継承する', async () => {

@@ -35,6 +35,7 @@ jest.mock('@/lib/supabase-server', () => ({
 
 import { PATCH } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { AuthRetryableFetchError } from '@supabase/supabase-js';
 
 function makeRequest(body?: object) {
   return new Request(`http://localhost/api/admin/registrations/${SALON_UUID}`, {
@@ -102,6 +103,13 @@ test('PATCH: 未認証 → 403', async () => {
   mockGetUser.mockResolvedValue({ data: { user: null } });
   const res = await PATCH(makeRequest({ status: 'approved' }), makeProps());
   expect(res.status).toBe(403);
+});
+test.each([{ status: 'approved' }, { action: 'unclaim' }])('Auth outage cannot review or release a claim %#', async body => {
+  mockGetUser.mockResolvedValue({ data: { user: null }, error: new AuthRetryableFetchError('synthetic-private', 503) });
+  const res = await PATCH(makeRequest(body), makeProps());
+  expect(res.status).toBe(503); expect(res.headers.get('cache-control')).toBe('no-store');
+  expect(mockAnonFrom).not.toHaveBeenCalled(); expect(mockAdminFrom).not.toHaveBeenCalled();
+  expect(require('@/lib/audit-logger').writeAuditLog).not.toHaveBeenCalled();
 });
 
 test('PATCH: レートリミット → 429', async () => {
@@ -352,7 +360,7 @@ test.each([{ status: 'approved' }, { action: 'unclaim' }])('strict role and prof
   expect((await PATCH(makeRequest(body), makeProps())).status).toBe(403);
   mockAnonFrom.mockReturnValue({ select: () => ({ eq: () => ({ single: async () => ({ data: { is_platform_admin: true }, error: { message: 'PRIVATE' } }) }) }) });
   const response = await PATCH(makeRequest(body), makeProps());
-  expect(response.status).toBe(500);
+  expect(response.status).toBe(503);
   expect(await response.text()).not.toContain('PRIVATE');
   expect(mockAdminFrom).not.toHaveBeenCalled();
 });

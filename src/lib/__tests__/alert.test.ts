@@ -268,6 +268,13 @@ describe('alert', () => {
   });
 
   describe('alertCaughtError（catch 経路の Slack 通知ヘルパー）', () => {
+    test('Auth availability failure reports its actual 503 status', async () => {
+      alertCaughtError('auth-verification', new Error('AUTH_UNAVAILABLE'), '/api/test', 503);
+      await new Promise((r) => setTimeout(r, 50));
+      const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+      expect(body.text).toContain('503');
+      expect(body.text).not.toContain('500');
+    });
     test('Error+stack / route 省略 / commit・VERCEL_ENV 設定済 → 全 truthy ブランチ', async () => {
       process.env.VERCEL_GIT_COMMIT_SHA = 'abcdef1234567';
       process.env.VERCEL_ENV = 'production';

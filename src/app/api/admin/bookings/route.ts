@@ -6,7 +6,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit, mutationRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
-import { serverError } from '@/lib/with-route';
+import { authUnavailable, serverError } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 import { isValidIsoDate } from '@/lib/date-utils';
 
 export const dynamic = 'force-dynamic';
@@ -37,8 +38,10 @@ export async function GET(request: NextRequest) {
       .safeParse({ operation_id: params.get('operation_id'), facility_id: params.get('facility_id') });
     if (!input.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
     const auth = await createServerSupabaseAuthClient();
-    const { data: { user }, error: authError } = await auth.auth.getUser();
-    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const verification = await verifyAuthUser(auth.auth);
+    if (verification.state === 'unavailable') return authUnavailable('admin-bookings-recovery', '/api/admin/bookings');
+    if (verification.state === 'unauthenticated') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = verification.user;
     const { data, error } = await createServiceRoleClient().rpc('get_manual_booking_operation', {
       p_actor_id: user.id, p_operation_id: input.data.operation_id, p_facility_id: input.data.facility_id,
     });
@@ -67,8 +70,10 @@ export async function POST(request: NextRequest) {
     const d = parsed.data;
     if (d.start_time >= d.end_time) return NextResponse.json({ error: '開始時間は終了時間より前にしてください' }, { status: 400 });
     const auth = await createServerSupabaseAuthClient();
-    const { data: { user }, error: authError } = await auth.auth.getUser();
-    if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const verification = await verifyAuthUser(auth.auth);
+    if (verification.state === 'unavailable') return authUnavailable('admin-bookings-create', '/api/admin/bookings');
+    if (verification.state === 'unauthenticated') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = verification.user;
     const { data: member, error: memberError } = await auth.from('facility_members')
       .select('facility_id').eq('user_id', user.id).eq('facility_id', d.facility_id)
       .in('role', ['owner', 'admin']).maybeSingle();

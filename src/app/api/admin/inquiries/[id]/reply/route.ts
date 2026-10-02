@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { verifyPlatformSupportUser } from '@/lib/platform-support-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
@@ -8,7 +8,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { buildInquiryReplyEnvelope, deliverInquiryReply, reconcileInquiryReply } from '@/lib/email';
 import { inquiryReplyEnvelopeSchema, type InquiryReplyEnvelope } from '@/lib/inquiry-reply-delivery';
-import { serverError, withRoute } from '@/lib/with-route';
+import { authUnavailable, serverError, withRoute } from '@/lib/with-route';
 
 const IDEMPOTENCY_RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
 const sendSchema = z.object({
@@ -31,21 +31,6 @@ type ReplyRow = {
   delivery_envelope?: InquiryReplyEnvelope | null;
   provider_message_id?: string | null;
 };
-
-async function getPlatformAdminUser(): Promise<{ id: string; name: string | null } | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_platform_admin, display_name')
-    .eq('id', user.id)
-    .single();
-
-  if (!profile?.is_platform_admin) return null;
-  return { id: user.id, name: profile.display_name ?? null };
-}
 
 function canRetryPendingReply(createdAt: string, now = Date.now()): boolean {
   const createdAtMs = Date.parse(createdAt);
@@ -107,7 +92,9 @@ async function handleGet(request: NextRequest, props: { params: Promise<{ id: st
     return noStoreJson({ error: 'リクエストが多すぎます' }, 429);
   }
 
-  if (!await getPlatformAdminUser()) return noStoreJson({ error: 'Unauthorized' }, 401);
+  const verification = await verifyPlatformSupportUser();
+  if (verification.state === 'unavailable') return authUnavailable('admin-inquiries-reply-status', '/api/admin/inquiries/[id]/reply');
+  if (verification.state !== 'verified') return noStoreJson({ error: 'Unauthorized' }, 401);
 
   const service = createServiceRoleClient();
   const pendingResult = await service.from('contact_replies')
@@ -171,8 +158,10 @@ async function handlePost(request: NextRequest, props: { params: Promise<{ id: s
   }
 
   if (!UUID_REGEX.test(params.id)) return noStoreJson({ error: '不正なIDです' }, 400);
-  const admin = await getPlatformAdminUser();
-  if (!admin) return noStoreJson({ error: 'Unauthorized' }, 401);
+  const verification = await verifyPlatformSupportUser();
+  if (verification.state === 'unavailable') return authUnavailable('admin-inquiries-reply', '/api/admin/inquiries/[id]/reply');
+  if (verification.state !== 'verified') return noStoreJson({ error: 'Unauthorized' }, 401);
+  const admin = { id: verification.user.id, name: verification.name };
 
   const json = await request.json().catch(() => null);
   const parsed = z.union([sendSchema, reconcileSchema]).safeParse(json);

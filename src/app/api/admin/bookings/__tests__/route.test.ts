@@ -18,6 +18,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmed } from '@/lib/email';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { AuthApiError, AuthRetryableFetchError } from '@supabase/supabase-js';
 
 function body(overrides: object = {}) {
   return { operation_id: OP, facility_id: FACILITY, menu_ids: [MENU], booking_date: '2026-07-01',
@@ -62,9 +63,21 @@ test.each([
   expect((await POST(request(body(override)) as never)).status).toBe(400);
   expect(mockRpc).not.toHaveBeenCalled();
 });
-test.each([null, { id: ACTOR }])('未認証／認証障害は401', async user => {
-  mockGetUser.mockResolvedValue({ data: { user }, error: user ? { message: 'auth failed' } : null });
+test.each([null, new AuthApiError('invalid', 401, 'bad_jwt')])('真の未認証／無効sessionは401', async error => {
+  mockGetUser.mockResolvedValue({ data: { user: null }, error });
   expect((await POST(request(body()) as never)).status).toBe(401);
+});
+test.each(['returned', 'thrown', 'error-and-user'])('認証確認不能 %s は503で照合／新規保存しない', async mode => {
+  const error = new AuthRetryableFetchError('synthetic-private-value', 503);
+  const value = { data: { user: mode === 'error-and-user' ? { id: ACTOR } : null }, error };
+  if (mode === 'thrown') mockGetUser.mockRejectedValue(error); else mockGetUser.mockResolvedValue(value);
+  for (const res of [await POST(request(body()) as never), await GET(recovery() as never)]) {
+    expect(res.status).toBe(503);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await res.json()).toEqual(expect.objectContaining({ code: 'AUTH_UNAVAILABLE' }));
+  }
+  expect(mockFrom).not.toHaveBeenCalled(); expect(mockRpc).not.toHaveBeenCalled();
+  expect(writeAuditLog).not.toHaveBeenCalled(); expect(sendBookingConfirmed).not.toHaveBeenCalled();
 });
 test('非管理者は401、所属確認障害は500で正常や非所属に変換しない', async () => {
   mockFrom.mockReturnValueOnce(member(null));

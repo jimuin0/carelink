@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { safeRedirect } from '@/lib/safe-redirect';
 import { isPlatformSupportPath } from '@/lib/platform-support-path';
 import { getMembershipCacheKey } from '@/lib/admin-membership-cache-key';
+import { AUTH_UNAVAILABLE_BODY, verifyAuthUser } from '@/lib/auth-verification';
 
 const PROTECTED_PATHS = ['/mypage', '/admin'];
 
@@ -167,14 +168,14 @@ export async function middleware(request: NextRequest) {
   };
 
   // トークンリフレッシュ（保護ルート・認証ページのみ）
-  let user: Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user'] = null;
-  try {
-    const { data } = await supabase.auth.getUser();
-    user = data.user;
-  } catch (err) {
-    // Supabase障害時はリクエストを通す（保護ルートは後段でリダイレクト）
-    console.error('[middleware] Supabase getUser failed — treating as unauthenticated:', err);
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') {
+    // Edge-safe diagnostic; never include SDK payloads, URL queries or cookies.
+    console.error('[middleware] AUTH_UNAVAILABLE');
+    return withSessionCookies(NextResponse.json(AUTH_UNAVAILABLE_BODY,
+      { status: 503, headers: { 'Cache-Control': 'no-store' } }));
   }
+  const user = verification.state === 'verified' ? verification.user : null;
 
   // 保護ルートへの未認証アクセスをリダイレクト
   if (isProtected && !user) {

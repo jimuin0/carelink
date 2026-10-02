@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { verifyPlatformSupportUser } from '@/lib/platform-support-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
@@ -13,7 +13,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { serverError } from '@/lib/with-route';
+import { authUnavailable, serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,21 +22,6 @@ const bodySchema = z.object({
   expected_status: z.string().max(100).nullable().default('pending'),
   expected_revision: z.number().int().min(0).max(2147483647),
 }).strict();
-
-async function getPlatformAdminUser(): Promise<string | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('is_platform_admin')
-    .eq('id', user.id)
-    .single();
-
-  if (error !== null) throw new Error('Registration authorization unavailable');
-  return profile?.is_platform_admin === true ? user.id : null;
-}
 
 export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   try {
@@ -66,15 +51,16 @@ async function patch(request: NextRequest, props: { params: Promise<{ id: string
   }
 
   const body = await request.json().catch(() => null);
+  const verification = await verifyPlatformSupportUser();
+  if (verification.state === 'unavailable') return authUnavailable('admin-registrations-patch', '/api/admin/registrations/[id]');
+  if (verification.state !== 'verified') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const userId = verification.user.id;
 
   // 【2026年8月20日 新設】運営による claim 解除。Cookie による所有権 claim
   // （src/lib/salon-claim.ts）は復旧手段の無い一方向の消費のため、誤 claim・不正 claim を
   // 本番に出さないための運営導線を用意する。DB上のplatform adminで
   // 保護し、writeAuditLog で記録する。
   if (body && typeof body === 'object' && (body as { action?: unknown }).action === 'unclaim') {
-    const adminUserId = await getPlatformAdminUser();
-    if (!adminUserId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-
     const admin = createServiceRoleClient();
     const { data: existing, error: fetchErr } = await admin
       .from('salons')
@@ -112,7 +98,7 @@ async function patch(request: NextRequest, props: { params: Promise<{ id: string
 
     const { ua } = getRequestContext(request);
     void writeAuditLog({
-      userId: adminUserId,
+      userId,
       action: 'update',
       tableName: 'salons',
       recordId: params.id,
@@ -124,9 +110,6 @@ async function patch(request: NextRequest, props: { params: Promise<{ id: string
 
     return NextResponse.json({ success: true });
   }
-
-  const userId = await getPlatformAdminUser();
-  if (!userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const parsed = bodySchema.safeParse(body);
   if (!parsed.success) {

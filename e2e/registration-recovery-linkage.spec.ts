@@ -100,6 +100,36 @@ test('failed list -> explicit retry recovers the same authenticated receipt with
   expect((await page.context().cookies()).some(cookie => cookie.name.startsWith('carelink_salon_recovery_'))).toBe(false);
 });
 
+test('Auth unavailable 503 -> no logout -> explicit retry reads original receipt without claim', async ({ page }, info) => {
+  await page.setExtraHTTPHeaders({ 'x-real-ip': `198.51.100.${220 + info.retry * 2 + (info.project.name === 'chromium' ? 0 : 1)}` });
+  const db = localDb(); const owner = await identity(db);
+  const id = await receipt(db, owner.email, `合成認証再確認 ${randomUUID()}`);
+  // Browser-response fault injection proves UI handling; the real SDK/API
+  // classification and no-side-effect guards are separately exercised in unit
+  // tests. Never claim this stub simulated a real hosted Auth outage.
+  await page.route('**/api/salons/recovery', route => route.fulfill({ status: 503,
+    contentType: 'application/json', headers: { 'Cache-Control': 'no-store' },
+    body: JSON.stringify({ code: 'AUTH_UNAVAILABLE', error: 'synthetic auth unavailable' }) }));
+  await login(page, owner, '/register/recover');
+  const alert = page.getByRole('main').getByRole('alert');
+  await expect(alert).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe('/register/recover');
+  await page.unroute('**/api/salons/recovery');
+  const restored = page.waitForResponse(r => new URL(r.url()).pathname === '/api/salons/recovery'
+    && r.request().method() === 'POST');
+  await page.getByRole('button', { name: '先頭から再確認', exact: true }).click();
+  expect((await restored).status()).toBe(200);
+  await expect(page.locator('li').filter({ hasText: `受付番号：${id}` })).toBeVisible();
+  await expect(alert).toBeHidden();
+  const original = await db.from('salons').select('claimed_facility_id,claimed_by_user_id,claimed_at').eq('id', id).single();
+  expect(original.error).toBeNull();
+  expect(original.data).toEqual({ claimed_facility_id: null, claimed_by_user_id: null, claimed_at: null });
+  const grants = await db.from('salon_recovery_grants').select('id').eq('user_id', owner.id);
+  expect(grants.error).toBeNull(); expect(grants.data).toEqual([]);
+  const members = await db.from('facility_members').select('facility_id').eq('user_id', owner.id);
+  expect(members.error).toBeNull(); expect(members.data).toEqual([]);
+});
+
 test('expired handoff -> verified recovery -> one draft -> listing without online booking', async ({ page }, info) => {
   await page.setExtraHTTPHeaders({ 'x-real-ip': `192.0.2.${160 + info.retry * 2 + (info.project.name === 'chromium' ? 0 : 1)}` });
   const db = localDb(); const owner = await identity(db);

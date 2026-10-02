@@ -27,6 +27,7 @@ jest.mock('@/lib/supabase-server', () => ({
 import { NextRequest } from 'next/server';
 import { PATCH } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { AuthRetryableFetchError } from '@supabase/supabase-js';
 
 function makeRequest(body: object = { ticket_status: 'in_progress' }) {
   return new NextRequest(`http://localhost/api/admin/inquiries/${INQUIRY_UUID}`, {
@@ -72,6 +73,13 @@ test('PATCH: 未認証 → 401', async () => {
   mockGetUser.mockResolvedValue({ data: { user: null } });
   const res = await PATCH(makeRequest(), makeProps());
   expect(res.status).toBe(401);
+});
+test('returned Auth outage is 503 before privilege read or ticket update', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null }, error: new AuthRetryableFetchError('synthetic-private', 503) });
+  const res = await PATCH(makeRequest(), makeProps());
+  expect(res.status).toBe(503); expect(res.headers.get('cache-control')).toBe('no-store');
+  expect((await res.json()).code).toBe('AUTH_UNAVAILABLE');
+  expect(mockAnonFrom).not.toHaveBeenCalled(); expect(mockAdminFrom).not.toHaveBeenCalled();
 });
 
 test('PATCH: レートリミット → 429', async () => {

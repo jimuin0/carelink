@@ -177,14 +177,14 @@ export function alertWarning(message: string, opts: Omit<AlertPayload, 'level' |
  * fire-and-forget で本体応答を一切妨げない（alertError は throw しない）。
  * commit_sha / env / stack を onRequestError と同等の粒度で付与する。
  */
-export function alertCaughtError(tag: string, error: unknown, route?: string | null): void {
+export function alertCaughtError(tag: string, error: unknown, route?: string | null, status: 500 | 503 = 500): void {
   const rawMessage = error instanceof Error ? error.message : String(error);
   // Error.message / stack は利用者入力・外部レスポンス・資格情報を含み得る。既知の依存障害以外は
   // 固定カテゴリへ落とし、Slackを安全な運用窓に保つ。詳細はアクセス制御されたVercelログで確認する。
   const message = summarizeCaughtError(rawMessage);
   alertError(`[${redactAlertText(tag)}] ${message}`, {
     route: route ?? null,
-    status: 500,
+    status,
     commit_sha: (process.env.VERCEL_GIT_COMMIT_SHA ?? '').slice(0, 7) || null,
     env: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? null,
     extra: { stack: null },
