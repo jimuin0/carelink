@@ -3,7 +3,7 @@
  * スキーマ・フィンガープリントの差分エンジン。
  *
  * 使い方:
- *   node scripts/schema-diff.mjs <expected.txt> <actual.txt> [--allow scripts/schema-drift-allow.txt]
+ *   node scripts/schema-diff.mjs <expected.json> <actual.json> [--allow scripts/schema-drift-allow.txt]
  *   expected = shadow（migration を全適用した使い捨て DB）
  *   actual   = 本番
  *
@@ -160,10 +160,8 @@ export function comparabilityProblem(exp, act, minLines) {
 /** フィンガープリント 2 つを突合する。 */
 export function diffFingerprints(expectedLines, actualLines, rules = []) {
   // 既知の本番専用テーブルの行は両側から落とす（本番経路 diffFingerprint と同一）。
-  const norm = (arr) =>
-    new Set(arr.map((l) => l.trim()).filter(Boolean).filter((l) => !isKnownProdOnlyLine(l)));
-  const exp = norm(expectedLines);
-  const act = norm(actualLines);
+  const exp = normalizeRecords(expectedLines);
+  const act = normalizeRecords(actualLines);
 
   const missing = [];
   const extra = [];
@@ -198,12 +196,19 @@ export function assertNotVacuous(result, minLines) {
   return problems;
 }
 
-/** JSON 配列（コミット済み期待値）とプレーンテキスト（psql 出力）の両方を受ける。 */
+/** 空入力だけ除去し、有効recordの末尾・改行を維持する（cronと同一）。 */
+export function normalizeRecords(records) {
+  return new Set(records.map((l) => l ?? '').filter((l) => l.trim().length > 0)
+    .filter((l) => !isKnownProdOnlyLine(l)));
+}
+
+/** JSON配列だけを受ける。LF区切りの旧形式はliteralの境界を保証できない。 */
 export function readLines(path) {
-  const raw = readFileSync(path, 'utf8');
-  const head = raw.trimStart();
-  if (head.startsWith('[')) return JSON.parse(raw);
-  return raw.split('\n');
+  const records = JSON.parse(readFileSync(path, 'utf8'));
+  if (!Array.isArray(records) || records.some((l) => typeof l !== 'string')) {
+    throw new Error('fingerprint must be a JSON array of strings');
+  }
+  return records;
 }
 
 function main(argv) {
@@ -214,7 +219,7 @@ function main(argv) {
   const minLines = minIdx >= 0 ? Number(args[minIdx + 1]) : 500;
 
   if (files.length < 2) {
-    console.error('usage: schema-diff.mjs <expected.txt> <actual.txt> [--allow <file>] [--min-lines N]');
+    console.error('usage: schema-diff.mjs <expected.json> <actual.json> [--allow <file>] [--min-lines N]');
     return 2;
   }
   const [expPath, actPath] = files;
@@ -236,9 +241,7 @@ function main(argv) {
 
   // 🔴 差分を出力する【前】に、突合が成立しているかを見る。成立していないのに
   //   missing/extra を出すと「存在しない事故」の報告になる。
-  const norm = (arr) =>
-    new Set(arr.map((l) => String(l ?? '').trim()).filter(Boolean).filter((l) => !isKnownProdOnlyLine(l)));
-  const problem = comparabilityProblem(norm(expected), norm(actual), minLines);
+  const problem = comparabilityProblem(normalizeRecords(expected), normalizeRecords(actual), minLines);
   if (problem) {
     console.error('🔴 突合が成立していません（差分は 1 件も主張しません）:');
     console.error(`   ${problem}`);
@@ -247,7 +250,7 @@ function main(argv) {
 
   if (result.allowed.length) {
     console.log(`ℹ️  理由付きで除外: ${result.allowed.length} 件`);
-    for (const a of result.allowed) console.log(`   [${a.kind}] ${a.line}  ← ${a.reason}`);
+    for (const a of result.allowed) console.log(`   [${a.kind}] ${JSON.stringify(a.line)}  ← ${a.reason}`);
   }
 
   if (!result.missing.length && !result.extra.length) {
@@ -257,11 +260,11 @@ function main(argv) {
 
   if (result.missing.length) {
     console.error(`\n🔴 本番に【無い】: ${result.missing.length} 件（migration 未適用 / out-of-band 削除の疑い）`);
-    for (const l of result.missing) console.error(`   - ${l}`);
+    for (const l of result.missing) console.error(`   - ${JSON.stringify(l)}`);
   }
   if (result.extra.length) {
     console.error(`\n🔴 本番に【余分】: ${result.extra.length} 件（out-of-band 追加の疑い）`);
-    for (const l of result.extra) console.error(`   + ${l}`);
+    for (const l of result.extra) console.error(`   + ${JSON.stringify(l)}`);
   }
   console.error(`\n  合計 ${result.missing.length + result.extra.length} 件のドリフト`);
   return 1;

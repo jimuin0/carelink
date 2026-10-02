@@ -67,6 +67,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
       - name: psql を用意する
         # 🔴 既に psql があるなら apt を叩かない（2026年8月19日の実障害への対処）。
         #   この 1 ステップだけが 19 分 52 秒ハングし、job の timeout-minutes: 20 に到達して
@@ -95,6 +99,15 @@ jobs:
       - name: 期待フィンガープリントが migration と一致することを検証する
         # --check は書き込まない。ズレていれば exit 1（＝再生成のコミット忘れを止める）。
         id: check
+        run: bash scripts/gen-schema-fingerprint.sh --check
+
+      - name: Fingerprint literal changes and service-only ACL (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/tests/fingerprint_literal_preservation.sql
+
+      - name: Same schema in C locale remains identical (disposable DB)
+        env:
+          SHADOW_DB: carelink_shadow_c_locale
+          SHADOW_LOCALE: C
         run: bash scripts/gen-schema-fingerprint.sh --check
 
       - name: Reminder RPC candidates, roles and claim exclusion (disposable DB)
@@ -213,3 +226,8 @@ jobs:
         # 両者がズレると本番と shadow で違う SQL を実行することになり、突合が無意味になる。
         # --ci かつ --passWithNoTests を付けない: ファイルが消えたら「0 件成功」ではなく赤にする。
         run: npx jest src/lib/__tests__/schema-fingerprint-rpc-parity.test.ts --ci
+
+      - name: Real RPC JSON through both comparison engines (disposable DB)
+        env:
+          FINGERPRINT_PG17_DB: carelink_shadow_c_locale
+        run: npx jest --testMatch '**/supabase/shadow/fingerprint-json-roundtrip.pg-test.ts' --runInBand --ci

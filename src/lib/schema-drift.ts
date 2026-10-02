@@ -186,8 +186,8 @@ export function diffFingerprint(expected: string[], actual: string[]): Fingerpri
   const norm = (arr: string[]) =>
     new Set(
       (arr ?? [])
-        .map((l) => (l ?? '').trim())
-        .filter(Boolean)
+        .map((l) => l ?? '')
+        .filter((l) => l.trim().length > 0)
         .filter((l) => !isKnownProdOnlyLine(l)),
     );
   const exp = norm(expected);

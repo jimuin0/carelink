@@ -37,13 +37,10 @@ function latestFingerprintMigration(): { name: string; text: string } {
   return { name, text: readFileSync(join(MIGRATIONS, name), 'utf8') };
 }
 
-/** 比較用の正規化。改行コードと行末空白だけを吸収し、中身は一切変えない。 */
+/** 外側のSQL framingだけ除去し、literalを含む本文の行末空白は保持する。 */
 function normalize(sql: string): string {
   return sql
     .replace(/\r\n/g, '\n')
-    .split('\n')
-    .map((l) => l.replace(/\s+$/, ''))
-    .join('\n')
     .trim();
 }
 
@@ -115,8 +112,13 @@ describe('照合順序に依存しない並び（誤報の構造的除去）', (
 
   it('🔴 生成器も取得時と比較時の両方で並びを C に固定している', () => {
     const sh = readFileSync(join(ROOT, 'scripts', 'gen-schema-fingerprint.sh'), 'utf8');
-    expect(sh).toMatch(/ORDER BY value COLLATE/);
-    expect(sh).toMatch(/LC_ALL=C sort/);
+    expect(sh).toContain('SELECT public.get_schema_fingerprint();');
+    expect(sh).toContain('scripts/fingerprint-json.mjs');
+    expect(sh).not.toContain('string_agg');
+    const json = readFileSync(join(ROOT, 'scripts', 'fingerprint-json.mjs'), 'utf8');
+    expect(json).toContain('Buffer.compare');
+    expect(json).toContain("Buffer.from(a, 'utf8')");
+    expect(readFileSync(FP_SQL, 'utf8')).not.toContain('regexp_replace');
   });
 });
 

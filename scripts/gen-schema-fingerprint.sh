@@ -26,12 +26,26 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/src/lib/schema-fingerprint.expected.json"
 DB="${SHADOW_DB:-carelink_shadow}"
-PSQL=(psql -v ON_ERROR_STOP=1 -q)
+PSQL=(psql -X -v ON_ERROR_STOP=1 -q)
 
 MODE="${1:-write}"
 
+if [[ ! "$DB" =~ ^carelink_(shadow|monitor)[a-z0-9_]*$ ]]; then
+  echo 'Refusing to recreate a database outside the disposable shadow namespace.' >&2
+  exit 1
+fi
+LOCALE="${SHADOW_LOCALE:-}"
+if [[ -n "$LOCALE" && ! "$LOCALE" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+  echo 'Invalid shadow locale.' >&2
+  exit 1
+fi
+
 "${PSQL[@]}" -d postgres -c "DROP DATABASE IF EXISTS $DB;" >/dev/null
-"${PSQL[@]}" -d postgres -c "CREATE DATABASE $DB;" >/dev/null
+if [[ -n "$LOCALE" ]]; then
+  "${PSQL[@]}" -d postgres -c "CREATE DATABASE $DB TEMPLATE template0 ENCODING 'UTF8' LOCALE '$LOCALE';" >/dev/null
+else
+  "${PSQL[@]}" -d postgres -c "CREATE DATABASE $DB;" >/dev/null
+fi
 
 # Supabase が既定で用意しているものだけを再現する（業務テーブルは 1 つも作らない）。
 "${PSQL[@]}" -d "$DB" -f "$ROOT/supabase/shadow/00_bootstrap.sql" >/dev/null
@@ -57,41 +71,10 @@ fi
 #   方式を混ぜると **全 FK と全 geography 列が差分になる**（実測: 直実行と RPC で
 #   FK/geography 行が全滅した）。両側とも RPC を呼べば構造的に一致する。
 TMP="$(mktemp)"
-psql -d "$DB" -tAc \
-  "SELECT string_agg(value, E'\n' ORDER BY value COLLATE \"C\") FROM jsonb_array_elements_text(public.get_schema_fingerprint());" \
+trap 'rm -f "$TMP"' EXIT
+"${PSQL[@]}" -d "$DB" -tAc \
+  "SELECT public.get_schema_fingerprint();" \
   > "$TMP"
-
-lines=$(wc -l < "$TMP")
-if [ "$lines" -lt 500 ]; then
-  echo "🔴 フィンガープリントが $lines 行しかない（下限 500）。introspection が空振りしている。" >&2
-  exit 1
-fi
-
-if [ "$MODE" = "--check" ]; then
-  CUR="$(mktemp)"
-  python3 -c "
-import json,sys
-print('\n'.join(json.load(open(sys.argv[1],encoding='utf-8'))))
-" "$OUT" > "$CUR"
-  # 🔴 比較前に両側を LC_ALL=C で並べ直す（2026年8月2日）。
-  #   SQL 側は COLLATE "C" で固定済みだが、シェルの sort/diff も環境ロケールに
-  #   引きずられ得る。二重に固定して「中身は同じなのに並びで差分」を構造的に潰す。
-  LC_ALL=C sort -o "$CUR" "$CUR"
-  LC_ALL=C sort -o "$TMP" "$TMP"
-  if diff -u "$CUR" "$TMP" > /tmp/fingerprint.diff 2>&1; then
-    echo "✅ コミット済みの期待フィンガープリントは最新（migration $applied 本 / $lines 項目）"
-    exit 0
-  fi
-  echo "🔴 コミット済みの期待フィンガープリントが migration とズレています。" >&2
-  echo "   → scripts/gen-schema-fingerprint.sh を実行して結果をコミットしてください。" >&2
-  head -60 /tmp/fingerprint.diff >&2
-  exit 1
-fi
-
-python3 -c "
-import json,sys
-lines=[l for l in open(sys.argv[1],encoding='utf-8').read().split('\n') if l.strip()]
-json.dump(lines, open(sys.argv[2],'w',encoding='utf-8'), ensure_ascii=False, indent=0)
-open(sys.argv[2],'a',encoding='utf-8').write('\n')
-" "$TMP" "$OUT"
-echo "✅ 生成しました: $OUT （migration $applied 本 / $lines 項目）"
+# JSON parseとUTF8 byte sortをwrite/checkで共有する。本文LFは配列要素内に残す。
+node "$ROOT/scripts/fingerprint-json.mjs" "$MODE" "$TMP" "$OUT"
+echo "migration replay：$applied"

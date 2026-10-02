@@ -158,7 +158,7 @@ describe('🔴 ガードが CLI 本体に配線されていること（関数が
 
   const write = (name: string, lines: string[]) => {
     const f = join(dir, name);
-    writeFileSync(f, lines.join('\n'), 'utf8');
+    writeFileSync(f, JSON.stringify(lines), 'utf8');
     return f;
   };
   const build = (rels: string[], pad: string, major: string) => [
