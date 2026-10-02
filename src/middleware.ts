@@ -137,35 +137,38 @@ export async function middleware(request: NextRequest) {
 
   let supabaseResponse = NextResponse.next({ request: { headers: requestHeaders } });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          );
-          supabaseResponse = NextResponse.next({ request: { headers: requestHeaders } });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          );
-        },
-      },
-    }
-  );
-
-  // redirect レスポンスに、getUser() が更新した認証 Cookie（supabaseResponse に載る）を
-  // 明示コピーしてから返す。NextResponse.redirect は新規レスポンスのため、コピーしないと
-  // リフレッシュ済みセッション Cookie が脱落し、次リクエストで断続的に強制ログアウトされる
-  // （Supabase SSR の既知の落とし穴）。CSP も併せて付与する。
+  // Retain refreshed session cookies on redirects and unavailable responses.
+  // NextResponse creates a new response; CSP must also be preserved.
   const withSessionCookies = (res: NextResponse): NextResponse => {
     for (const c of supabaseResponse.cookies.getAll()) res.cookies.set(c);
     return setCsp(res);
   };
+  let supabase: ReturnType<typeof createServerClient>;
+  try {
+    supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return request.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value }) =>
+              request.cookies.set(name, value)
+            );
+            supabaseResponse = NextResponse.next({ request: { headers: requestHeaders } });
+            cookiesToSet.forEach(({ name, value, options }) =>
+              supabaseResponse.cookies.set(name, value, options)
+            );
+          },
+        },
+      }
+    );
+  } catch {
+    return withSessionCookies(NextResponse.json(AUTH_UNAVAILABLE_BODY,
+      { status: 503, headers: { 'Cache-Control': 'no-store' } }));
+  }
 
   // トークンリフレッシュ（保護ルート・認証ページのみ）
   const verification = await verifyAuthUser(supabase.auth);
@@ -189,15 +192,17 @@ export async function middleware(request: NextRequest) {
   // never cache platform privileges in the facility membership cookie.
   let platformSupportAccess = false;
   if (user && isPlatformSupportPath(pathname)) {
-    const { data: profile, error } = await supabase
-      .from('profiles').select('is_platform_admin').eq('id', user.id).single();
-    if (error) {
+    try {
+      const { data: profile, error } = await supabase
+        .from('profiles').select('is_platform_admin').eq('id', user.id).single();
+      if (error) throw new Error('platform_access_unavailable');
+      platformSupportAccess = profile?.is_platform_admin === true;
+    } catch {
       return withSessionCookies(NextResponse.json(
         { error: '運営権限を確認できません。時間をおいて再度お試しください。' },
         { status: 503, headers: { 'Cache-Control': 'no-store' } },
       ));
     }
-    platformSupportAccess = profile?.is_platform_admin === true;
   }
 
   // /admin ルートへの権限チェック（facility_members owner/admin のみ）
@@ -218,23 +223,24 @@ export async function middleware(request: NextRequest) {
       // Positive hints still require the existing full-user HMAC and TTL.
       // owner/admin ロールの行のみを対象に絞る（複数施設に所属し、別施設では
       // staff/viewer の場合に .limit(1) が任意の行を返して誤判定するのを防ぐ）
-      const { data: membership, error: memErr } = await supabase
-        .from('facility_members')
-        .select('role')
-        .eq('user_id', user.id)
-        .in('role', ['owner', 'admin'])
-        .limit(1)
-        .maybeSingle();
-      if (memErr) {
-        // 一時的な DB エラーで data=null → hasAccess=false を 5 分キャッシュすると、正規の
-        // 管理者が blip 中に /admin から締め出され、キャッシュ期限まで固定される。エラー時は
-        // 否定結果をキャッシュせず、この request のみ fail-closed（/mypage へ）。次リクエストで
-        // 再判定されるため sticky lockout を防ぐ（発症前の恒久根治）。
-        const url = request.nextUrl.clone();
-        url.pathname = '/mypage';
-        return withSessionCookies(NextResponse.redirect(url));
+      try {
+        const { data: membership, error: memErr } = await supabase
+          .from('facility_members')
+          .select('role')
+          .eq('user_id', user.id)
+          .in('role', ['owner', 'admin'])
+          .limit(1)
+          .maybeSingle();
+        if (memErr) throw new Error('facility_access_unavailable');
+        hasAccess = !!membership;
+      } catch {
+        // Unavailability is not a confirmed denial. Keep refreshed cookies and
+        // CSP, but neither grant access nor pin a false membership hint.
+        return withSessionCookies(NextResponse.json(
+          { error: '店舗の利用権限を確認できません。時間をおいて、この画面を再確認してください。' },
+          { status: 503, headers: { 'Cache-Control': 'no-store' } },
+        ));
       }
-      hasAccess = !!membership;
 
       // キャッシュを設定（5分TTL、HttpOnly + HMAC署名）— ADMIN_COOKIE_SECRET 未設定時はキャッシュしない
       const signedVal = await signCacheValue(user.id, hasAccess ? '1' : '0');
