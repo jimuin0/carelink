@@ -7,7 +7,7 @@
  * AUTH-1: getUser() がトークンを更新すると supabaseResponse に新 Cookie が載る。
  *   redirect（/auth/login→/mypage 等）でこれをコピーしないと次リクエストで強制ログアウトされる。
  * AUTH-2: facility_members クエリが一時的 DB エラーを返したとき、hasAccess=false を 5 分
- *   キャッシュせず、この request のみ /mypage へ fail-closed する（管理者の sticky lockout 防止）。
+ *   キャッシュせず、この request のみ503へfail-closedする（拒否と障害を区別）。
  */
 
 // ---- fake NextResponse（cookies を実際に保持する）----
@@ -34,6 +34,7 @@ let getUserImpl: (opts: { cookies: { setAll: (c: unknown[]) => void } }) => Prom
 let membershipResult: { data: unknown; error: unknown };
 let profileResult: { data: unknown; error: unknown };
 const mockMembershipLookup = jest.fn();
+let mockThrowAt: string | null = null;
 
 jest.mock('next/server', () => ({
   NextResponse: {
@@ -51,22 +52,35 @@ jest.mock('next/server', () => ({
 }));
 
 jest.mock('@supabase/ssr', () => ({
-  createServerClient: (_url: string, _key: string, opts: { cookies: { setAll: (c: unknown[]) => void } }) => ({
+  createServerClient: (_url: string, _key: string, opts: { cookies: { setAll: (c: unknown[]) => void } }) => {
+    if (mockThrowAt === 'init') throw new Error('synthetic-private-value');
+    return ({
     auth: { getUser: () => getUserImpl(opts) },
-    from: (table: string) => table === 'profiles' ? ({
-      select: () => ({ eq: () => ({ single: async () => profileResult }) }),
+    from: (table: string) => {
+      if (mockThrowAt === table) throw new Error('synthetic-private-value');
+      return table === 'profiles' ? ({
+      select: () => ({ eq: () => ({ single: async () => {
+        if (mockThrowAt === 'profiles-await') throw new Error('synthetic-private-value');
+        return profileResult;
+      } }) }),
     }) : ({
       select: () => ({
         eq: () => ({
           in: () => ({
             limit: () => ({
-              maybeSingle: async () => { mockMembershipLookup(); return membershipResult; },
+              maybeSingle: async () => {
+                mockMembershipLookup();
+                if (mockThrowAt === 'facility_members-await') throw new Error('synthetic-private-value');
+                return membershipResult;
+              },
             }),
           }),
         }),
       }),
-    }),
-  }),
+    });
+    },
+  });
+  },
 }));
 
 import { middleware, signCacheValue, getMembershipCacheKey } from '../../middleware';
@@ -92,6 +106,7 @@ function makeRequest(path: string, cookies: Record<string, string> = {}) {
 }
 
 beforeEach(() => {
+  mockThrowAt = null;
   mockMembershipLookup.mockClear();
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon';
@@ -150,11 +165,11 @@ test('AUTH-1: /auth/login のログイン済みリダイレクトが更新済み
   expect(cookies.find((c) => c.name === 'sb-refresh-token')?.value).toBe('refreshed');
 });
 
-test('AUTH-2: facility_members が DB エラー時は否定結果をキャッシュせず /mypage へ fail-closed', async () => {
+test('AUTH-2: facility_members が DB エラー時は否定結果をキャッシュせず503へ fail-closed', async () => {
   membershipResult = { data: null, error: { message: 'db down' } };
   const res: Record<string, unknown> = await middleware(makeRequest('/admin'));
-  expect(res._isRedirect).toBe(true);
-  expect((res._redirectedTo as URL).pathname).toBe('/mypage');
+  expect(res.status).toBe(503);
+  expect(res._isRedirect).toBeUndefined();
   // メンバーシップ否定（_cm_mbr_*）は 5 分キャッシュされていないこと
   const cookies = (res.cookies as ReturnType<typeof cookieStore>).getAll();
   expect(cookies.some((c) => c.name.startsWith('_cm_mbr_'))).toBe(false);
@@ -241,11 +256,59 @@ test.each(['absent', 'unavailable'])('negative hint still denies when current me
   membershipResult = { data: null, error: state === 'unavailable' ? { message: 'db unavailable' } : null };
   const res: Record<string, unknown> = await middleware(makeRequest('/admin', { [getMembershipCacheKey('u1')]: signed! }));
   expect(mockMembershipLookup).toHaveBeenCalledTimes(1);
-  expect((res._redirectedTo as URL).pathname).toBe('/mypage');
+  if (state === 'absent') expect((res._redirectedTo as URL).pathname).toBe('/mypage');
+  else {
+    expect(res.status).toBe(503);
+    expect(res._isRedirect).toBeUndefined();
+  }
   expect((res.cookies as ReturnType<typeof cookieStore>).get('sb-refresh-token')?.value).toBe('refreshed');
   if (state === 'unavailable') {
     expect((res.cookies as ReturnType<typeof cookieStore>).get(getMembershipCacheKey('u1'))).toBeUndefined();
   }
+});
+
+test.each(['profiles', 'facility_members'])('%s returned/data+error/build/await failures cannot grant or cache a denial', async table => {
+  const path = table === 'profiles' ? '/admin/inquiries' : '/admin/settings?facility_id=synthetic-id';
+  const result = table === 'profiles' ? profileResult : membershipResult;
+  for (const failure of ['returned', 'data+error', 'build', 'await']) {
+    result.data = failure === 'data+error' ? { is_platform_admin: true, role: 'owner' } : null;
+    result.error = failure === 'returned' || failure === 'data+error' ? { message: 'synthetic-private-value' } : null;
+    mockThrowAt = failure === 'build' ? table : failure === 'await' ? `${table}-await` : null;
+    const res: Record<string, unknown> = await middleware(makeRequest(path));
+    expect(res.status).toBe(503);
+    expect(res._isRedirect).toBeUndefined();
+    expect((res.headers as Headers).get('location')).toBeNull();
+    expect((res.headers as Headers).get('cache-control')).toBe('no-store');
+    expect((res.headers as Headers).get('content-security-policy')).toContain('nonce-');
+    expect((res.cookies as ReturnType<typeof cookieStore>).getAll())
+      .toEqual([expect.objectContaining({ name: 'sb-refresh-token', value: 'refreshed' })]);
+    expect(JSON.stringify(res.body)).not.toContain('synthetic-private-value');
+  }
+});
+
+test('client initialization failure is no-store503 with CSP; public pages still skip initialization', async () => {
+  mockThrowAt = 'init';
+  const res: Record<string, unknown> = await middleware(makeRequest('/mypage'));
+  expect(res.status).toBe(503);
+  expect(res._isRedirect).toBeUndefined();
+  expect((res.headers as Headers).get('cache-control')).toBe('no-store');
+  expect((res.headers as Headers).get('content-security-policy')).toContain('nonce-');
+  expect(mockMembershipLookup).not.toHaveBeenCalled();
+  expect((await middleware(makeRequest('/register'))).status).toBeUndefined();
+});
+
+test.each(['expired', 'tampered'])('untrusted %s membership hint cannot hide a dependency failure', async type => {
+  const signed = await signCacheValue('u1', '1', type === 'expired' ? Math.floor(Date.now() / 1000) - 301 : undefined);
+  // Use a different valid hex digit. Non-hex aliases (e.g. 0x vs 00) can
+  // decode to the same byte and make a malformed test time-dependent.
+  const value = type === 'tampered' ? `${signed!.slice(0, -1)}${signed!.endsWith('0') ? '1' : '0'}` : signed!;
+  if (type === 'tampered') expect(value).not.toBe(signed);
+  membershipResult = { data: { role: 'owner' }, error: { message: 'synthetic-private-value' } };
+  const res: Record<string, unknown> = await middleware(makeRequest('/admin', { [getMembershipCacheKey('u1')]: value }));
+  expect(mockMembershipLookup).toHaveBeenCalledTimes(1);
+  expect(res.status).toBe(503);
+  expect(res._isRedirect).toBeUndefined();
+  expect((res.cookies as ReturnType<typeof cookieStore>).get(getMembershipCacheKey('u1'))).toBeUndefined();
 });
 
 test('valid positive cache keeps its existing bounded optimization', async () => {

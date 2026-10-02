@@ -33,6 +33,19 @@ async function login(page: Page, actor: Awaited<ReturnType<typeof identity>>) {
   await page.waitForURL(url => url.pathname === '/register/recover');
 }
 
+test('verified customer GET renders mypage navigation; anonymous GET still requires login', async ({ page }) => {
+  const client = db(), actor = await identity(client);
+  await page.goto('/mypage?access_retry=synthetic-proof');
+  await page.waitForURL(url => url.pathname === '/auth/login');
+  await login(page, actor);
+  const response = await page.goto('/mypage?access_retry=synthetic-proof');
+  expect(response?.status()).toBe(200);
+  await expect(page.locator('nav').getByRole('link', { name: 'ダッシュボード', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { name: /さん、こんにちは/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: '利用権限を再確認', exact: true })).toBeHidden();
+  expect(new URL(page.url()).search).toBe('?access_retry=synthetic-proof');
+});
+
 test('layout permission observation failure -> same-query document GET retry -> no mutation replay', async ({ page }) => {
   const client = db(), actor = await identity(client);
   await login(page, actor);

@@ -2,22 +2,35 @@ import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import Link from 'next/link';
 import RecentlyViewed from '@/components/facility/RecentlyViewed';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 
 export default async function MyPageDashboard() {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) notFound();
+  let supabase;
+  try {
+    supabase = await createServerSupabaseAuthClient();
+  } catch {
+    return <AccessVerificationUnavailable title="マイページのログイン状態を確認できません" />;
+  }
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return <AccessVerificationUnavailable title="マイページのログイン状態を確認できません" />;
+  if (verification.state !== 'verified') notFound();
+  const user = verification.user;
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('display_name, phone, prefecture')
     .eq('id', user.id)
     .single();
+  if (profileError || !profile) throw new Error('プロフィールを取得できません。時間をおいて再確認してください。');
 
-  const [{ count: favoriteCount }, { count: bookingCount }] = await Promise.all([
+  const [{ count: favoriteCount, error: favoriteError }, { count: bookingCount, error: bookingError }] = await Promise.all([
     supabase.from('favorites').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
     supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
   ]);
+  if (favoriteError || bookingError || favoriteCount == null || bookingCount == null) {
+    throw new Error('マイページの件数を取得できません。時間をおいて再確認してください。');
+  }
 
   return (
     <div className="space-y-8">
@@ -49,7 +62,7 @@ export default async function MyPageDashboard() {
               </svg>
             </div>
             <div>
-              <p className="text-2xl font-bold">{favoriteCount ?? 0}</p>
+              <p className="text-2xl font-bold">{favoriteCount}</p>
               <p className="text-sm text-gray-500">お気に入り施設</p>
             </div>
           </div>
@@ -63,7 +76,7 @@ export default async function MyPageDashboard() {
               </svg>
             </div>
             <div>
-              <p className="text-2xl font-bold">{bookingCount ?? 0}</p>
+              <p className="text-2xl font-bold">{bookingCount}</p>
               <p className="text-sm text-gray-500">予約履歴</p>
             </div>
           </div>
