@@ -21,11 +21,13 @@ PR #657は検証済みHEAD `0da68f8f383d5d121793d8211fbe302035df1db9`を指定�
 
 親GOAL revision 5を維持する限定修正。既存`published_facility_location_present`のraw定義とvalidationは保持されているが、fingerprintの`regexp_replace`がDBの文字分類に依存し、同じUnicode空白を本番だけで変換して差分を作る。定数だけの本番read-only対照では、default処理と`COLLATE "C"`処理は異なり、後者はU202F／U205F／U3000／FEFFの文字列を保持した。業務行や設定は変更していない。
 
-独立設計反証後、限定契約revision 2へ更新した。全行regexはASCII literalの二重空白やLFまで消し、TSとCLIの末尾trimもenum変更を隠すため、正規化自体を廃止する。同一queryを新しいchronological migrationでRPCへ転記し、JSON配列をrecord境界の正本とする。生成・比較CLI・cronは有効本文をtrim／LF分割せず、UTF8 byte順を使う。旧LF区切りCLI入力は拒否しJSONのみ受ける。共有済み原票は不変、service-only ACL・空search_path・返却形・監視対象は維持する。
+独立設計反証後、限定契約revision 2へ更新した。全行regexはASCII literalの二重空白やLFまで消し、TSとCLIの末尾trimもenum変更を隠すため、正規化自体を廃止する。同一queryを新しいchronological migrationでRPCへ転記し、JSON配列をrecord境界の正本とする。生成・比較CLI・cronは有効本文をtrim／LF分割しない。RPCと生成canonical配列はUTF8 byte順を使い、比較CLIとcronの差分表示はJavaScriptの決定的なUTF16順を使う。本文の集合比較と表示順は区別する。旧LF区切りCLI入力は拒否しJSONのみ受ける。共有済み原票は不変、service-only ACL・空search_path・返却形・監視対象は維持する。
 
 期待JSONは全migrationを隔離PG17へ再生して生成し、手編集・差分allowlist・監視skipでは通さない。同一PG17／search_pathの生deparseを厳密比較するため、将来の整形差も調査対象であり、意味が同じと推定して自動消去しない。実CHECK／DEFAULT／policy／index／enumのASCII・Unicode空白とLF変更、ACL拡大、JSON異常入力を負対照で確認する。現在の区切り形式は任意catalog文字列に対する数学的collision-free形式ではなく、全識別子の完全識別は保証しない。
 
 未履歴のservice-only `deduct_points_atomic`の2項目は別baseline差分として保持し、この修正では削除・変更・無視しない。locale原因の誤検知除去を全DB差分0とは報告しない。独立設計反証、固定版レビュー、対象test／PG17全再生／必須CI、公式migrationの事前・事後照合、保護merge／deploy／対象fingerprint確認が完了条件。現在は設計・最小実証までであり、この後続修正を適用済みとは扱わない。
+
+本番事前照合では、新queryをread-only transaction・空search_pathで実行した。工具経由のJSON文字列では一部Unicode空白の脱落が見えたため、その出力だけをDB欠損と断定しなかった。DB内の4文字存在判定はすべてtrue。UTF8 JSONをDB側でbase64化してASCIIのまま取得・復号すると、所在地CHECKは原票と完全一致し、全2,703 recordの差分は未置換のfingerprint RPC自身1件と上記既存baseline 2件だけだった。業務constraintを修復するDDLは不要であり、実行していない。
 
 ## 最新の適用結果（2026年10月2日）
 

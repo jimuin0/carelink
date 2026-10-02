@@ -99,6 +99,11 @@ DO $denied$ BEGIN
 END $denied$;
 RESET ROLE;
 SET LOCAL ROLE service_role;
-SELECT jsonb_array_length(public.get_schema_fingerprint()) >= 500 AS service_rpc_passed;
+DO $service$ DECLARE fp jsonb; BEGIN
+  fp := public.get_schema_fingerprint();
+  IF jsonb_typeof(fp) IS DISTINCT FROM 'array' OR coalesce(jsonb_array_length(fp), 0) < 500 THEN
+    RAISE EXCEPTION 'service RPC returned invalid or vacuous fingerprint';
+  END IF;
+END $service$;
 RESET ROLE;
 ROLLBACK;

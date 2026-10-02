@@ -102,7 +102,7 @@ jobs:
         run: bash scripts/gen-schema-fingerprint.sh --check
 
       - name: Fingerprint literal changes and service-only ACL (disposable DB)
-        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/tests/fingerprint_literal_preservation.sql
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/fingerprint-literal-fixtures.sql
 
       - name: Same schema in C locale remains identical (disposable DB)
         env:
