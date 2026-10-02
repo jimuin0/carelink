@@ -51,9 +51,14 @@ test('ordinary account cannot render support without facility membership', async
   profile.mockResolvedValue({ data: { is_platform_admin: false } });
   await expect(renderShell()).rejects.toThrow('redirect:/mypage');
 });
-test('missing or failed profile lookup cannot render privileged shell', async () => {
+test('failed profile lookup offers explicit retry, not false denial or privileged shell', async () => {
   profile.mockResolvedValue({ data: null, error: { message: 'failure' } });
-  await expect(renderShell()).rejects.toThrow('redirect:/mypage');
+  await renderShell();
+  expect(screen.getByRole('alert')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '利用権限を再確認' })).toBeInTheDocument();
+  expect(screen.queryByText('support-content')).not.toBeInTheDocument();
+  expect(screen.queryByText('facility-nav')).not.toBeInTheDocument();
+  expect(screen.queryByText('booking-listener')).not.toBeInTheDocument();
 });
 test.each(['/admin', '/admin/settings', '/admin/inquiries-evil'])('operator-only account cannot render facility route: %s', async path => {
   pathname = path;

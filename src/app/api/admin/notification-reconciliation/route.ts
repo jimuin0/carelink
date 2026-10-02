@@ -4,7 +4,8 @@ import { NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { eventEmailEnvelopeSchema, verifyEventEmailAcceptance } from '@/lib/event-email-delivery';
-import { withRoute, serverError } from '@/lib/with-route';
+import { withRoute, authUnavailable, serverError } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 import { writeAuditLog } from '@/lib/audit-logger';
 
 const inputSchema = z.object({ operationId: z.uuid(), providerMessageId: z.uuid() }).strict();
@@ -15,9 +16,11 @@ export const POST = withRoute(async request => {
   const input = inputSchema.safeParse(await request.json().catch(() => null));
   if (!input.success) return NextResponse.json({ error: '不正な照合情報です' }, { status: 400 });
   const auth = await createServerSupabaseAuthClient();
-  const user = await auth.auth.getUser();
-  if (user.error || !user.data.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const permission = await auth.from('profiles').select('is_platform_admin').eq('id', user.data.user.id).maybeSingle();
+  const verification = await verifyAuthUser(auth.auth);
+  if (verification.state === 'unavailable') return authUnavailable('notification-reconcile-auth', '/api/admin/notification-reconciliation');
+  if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = verification.user;
+  const permission = await auth.from('profiles').select('is_platform_admin').eq('id', user.id).maybeSingle();
   if (permission.error) return serverError('notification-reconcile-permission', new Error('permission observation failed'), '/api/admin/notification-reconciliation');
   if (permission.data?.is_platform_admin !== true) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const db = createServiceRoleClient();
@@ -44,7 +47,7 @@ export const POST = withRoute(async request => {
     .eq('delivery_started_at', row.delivery_started_at).select('id').maybeSingle();
   if (marked.error) return serverError('notification-reconcile-write', new Error('acceptance recording unconfirmed'), '/api/admin/notification-reconciliation');
   if (marked.data?.id !== row.id) return NextResponse.json({ error: '状態が変わりました。同じ操作を再照合してください' }, { status: 409 });
-  void writeAuditLog({ userId: user.data.user.id, action: 'update', tableName: 'webhook_retry_queue', recordId: row.id,
+  void writeAuditLog({ userId: user.id, action: 'update', tableName: 'webhook_retry_queue', recordId: row.id,
     newValues: { status: 'success', source: 'verified_provider_acceptance' } });
   return NextResponse.json({ accepted: true }, { headers: { 'Cache-Control': 'no-store' } });
 }, { rateLimit: { limiter: null, limit: 10, windowMs: 60000, prefix: 'notification-reconciliation' }, sentryTag: 'notification-reconciliation' });

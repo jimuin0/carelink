@@ -10,6 +10,8 @@ import AdminUserMenu from '@/components/admin/AdminUserMenu';
 import { RealtimeBookingListener, AiSupportWidget } from '@/components/admin/DynamicAdminWidgets';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import { isPlatformSupportPath } from '@/lib/platform-support-path';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 
 export const metadata: Metadata = {
   title: { default: '管理画面', template: '%s | 管理画面 | CareLink' },
@@ -176,8 +178,11 @@ const navGroups: NavGroup[] = [
 // （app/loading.tsx のヒーロー＋カード）が管理画面のリロード時にフラッシュする問題を根治する
 // （待機中は admin/loading.tsx・各 client ページと同一の AdminPageLoading に統一）。
 async function AdminShell({ children }: { children: React.ReactNode }) {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const supabase = await createServerSupabaseAuthClient().catch(() => null);
+  if (!supabase) return <AccessVerificationUnavailable />;
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return <AccessVerificationUnavailable />;
+  const user = verification.state === 'verified' ? verification.user : null;
 
   if (!user) {
     redirect('/auth/login?redirect=/admin');
@@ -190,7 +195,7 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
 
   // マルチ施設対応: ユーザーが所属する全施設と、プラットフォーム管理者判定を並列取得する。
   // 両クエリは user.id にのみ依存し互いに独立なので、直列にせず1往復に詰める（リロード毎の体感速度改善）。
-  const [{ data: memberships }, { data: profile }] = await Promise.all([
+  const authorization = await Promise.all([
     supabase
       .from('facility_members')
       .select('role, facility_id, facility_profiles(name)')
@@ -201,7 +206,12 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
       .select('is_platform_admin')
       .eq('id', user.id)
       .single(),
-  ]);
+  ]).catch(() => null);
+
+  if (!authorization) return <AccessVerificationUnavailable />;
+  const [{ data: memberships, error: memberError }, { data: profile, error: profileError }] = authorization;
+
+  if (memberError || profileError) return <AccessVerificationUnavailable />;
 
   if (!memberships || memberships.length === 0) {
     // A platform-only operator can answer inquiries without creating a dummy

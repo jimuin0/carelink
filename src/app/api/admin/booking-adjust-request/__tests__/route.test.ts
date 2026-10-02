@@ -184,6 +184,20 @@ test('adjustment membership dependency failure is not authorization', async () =
   } : fallback(table));
   expect((await POST(makeRequest())).status).toBe(500); expect(mockQueue).not.toHaveBeenCalled();
 });
+test.each(['data-with-error', 'throw'])('adjustment permission %s cannot create an operation or deliver', async mode => {
+  const { createServiceRoleClient } = require('@/lib/supabase-server'); const client = createServiceRoleClient();
+  const fallback = client.from.getMockImplementation();
+  client.from.mockImplementation((table: string) => table === 'facility_members' ? {
+    select: () => ({ eq: () => ({ eq: () => ({ in: () => ({ maybeSingle: async () => {
+      if (mode === 'throw') throw new Error('synthetic private dependency');
+      return { data: cfg.membership, error: { code: '08006' } };
+    } }) }) }) }),
+  } : fallback(table));
+  const response = await POST(makeRequest());
+  expect(response.status).toBe(500); expect(await response.text()).not.toContain('synthetic private dependency');
+  expect(mockQueue).not.toHaveBeenCalled(); expect(mockSendEmail).not.toHaveBeenCalled();
+  expect(mockSendLineText).not.toHaveBeenCalled(); expect(writeAuditLog).not.toHaveBeenCalled();
+});
 test('closed LINE request is rejected before delivery', async () => {
   cfg.booking=bookingRow({status:'cancelled'});
   expect((await POST(makeRequest({bookingId:BOOKING_UUID,channel:'line'}))).status).toBe(400);
@@ -235,6 +249,23 @@ test('未認証 → 401', async () => {
   });
   const res = await POST(makeRequest());
   expect(res.status).toBe(401);
+});
+
+test.each(['error', 'throw', 'malformed', 'user-with-error'])('Auth unavailable %s never reserves or sends a notification', async mode => {
+  const { createServerSupabaseAuthClient } = require('@/lib/supabase-server-auth');
+  const { createServiceRoleClient } = require('@/lib/supabase-server');
+  const getUser = jest.fn();
+  if (mode === 'throw') getUser.mockRejectedValue(new Error('synthetic dependency failure'));
+  else getUser.mockResolvedValue(mode === 'malformed' ? {} : {
+    data: { user: mode === 'user-with-error' ? { id: USER_ID } : null }, error: { status: 522 },
+  });
+  createServerSupabaseAuthClient.mockResolvedValue({ auth: { getUser } });
+  const response = await POST(makeRequest());
+  expect(response.status).toBe(503); expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(await response.json()).toEqual(expect.objectContaining({ code: 'AUTH_UNAVAILABLE' }));
+  expect(createServiceRoleClient).not.toHaveBeenCalled(); expect(mockQueue).not.toHaveBeenCalled();
+  expect(mockSendEmail).not.toHaveBeenCalled(); expect(mockSendLineText).not.toHaveBeenCalled();
+  expect(writeAuditLog).not.toHaveBeenCalled();
 });
 
 test('予約が存在しない → 404', async () => {
