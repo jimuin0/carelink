@@ -1,212 +1,44 @@
-/**
- * @jest-environment @stryker-mutator/jest-runner/jest-env/node
- *
- * applyCompletionSideEffects（完了進入時の来店記録＋来店ポイント付与）の単体テスト。
- * reverseCompletionSideEffects の対称形で、両予約完了経路（/api/booking/complete・
- * /api/admin/booking-status）が共有する副作用ロジックの全ブランチを網羅する。
- */
+/** @jest-environment node */
 import { applyCompletionSideEffects, type CompletableBooking } from '../booking-completion';
-
-const mockCapture = jest.fn();
-jest.mock('../safe', () => ({ safeCaptureException: (...args: unknown[]) => mockCapture(...args) }));
-
-type Result = { data?: unknown; error?: unknown };
-
-/**
- * facility_menus / staff_profiles の名前解決チェーン。
- * 【監査L1】名前解決は .select().eq('id').eq('facility_id').single() へ変更（越境名混入防止）。
- * eqCap.eq に 1つ目の eq（id フィルタ）スパイを、eqCap.eqFacility に 2つ目（facility_id）を露出。
- */
-function nameLookup(data: unknown, eqCap: { eq?: jest.Mock; eqFacility?: jest.Mock } = {}) {
-  const single = jest.fn(() => Promise.resolve({ data, error: null }));
-  const eqFacility = jest.fn(() => ({ single }));
-  // .eq('id') は { eq: eqFacility, single } を返し、新旧どちらの呼び出し形にも対応する。
-  const eq = jest.fn(() => ({ eq: eqFacility, single }));
-  eqCap.eq = eq;
-  eqCap.eqFacility = eqFacility;
-  return { select: jest.fn(() => ({ eq })) };
-}
-
-/** customer_visits / user_points の .insert() （await されるので Promise を返す）。 */
-function insertTable(result: Result, capture: { insert?: jest.Mock } = {}) {
-  const insert = jest.fn(() => Promise.resolve(result));
-  capture.insert = insert;
-  return { insert };
-}
-
-/** referral_uses の .update().eq().eq().select() チェーン（awardReferralPointsOnCompletion 用）。 */
-function referralUsesChain(result: Result, capture: { update?: jest.Mock } = {}) {
-  const select = jest.fn(() => Promise.resolve(result));
-  const eq2 = jest.fn(() => ({ select }));
-  const eq1 = jest.fn(() => ({ eq: eq2 }));
-  const update = jest.fn(() => ({ eq: eq1 }));
-  capture.update = update;
-  return { update };
-}
-
-function makeAdmin(opts: {
-  menu?: unknown;
-  staff?: unknown;
-  visitResult?: Result;
-  pointResult?: Result;
-  visitCap?: { insert?: jest.Mock };
-  pointCap?: { insert?: jest.Mock };
-  fromCap?: { from?: jest.Mock };
-  menuEqCap?: { eq?: jest.Mock };
-  staffEqCap?: { eq?: jest.Mock };
-  referralClaim?: Result;
-  referralCap?: { update?: jest.Mock };
-}) {
-  const from = jest.fn((table: string) => {
-    if (table === 'facility_menus') return nameLookup(opts.menu ?? null, opts.menuEqCap ?? {});
-    if (table === 'staff_profiles') return nameLookup(opts.staff ?? null, opts.staffEqCap ?? {});
-    if (table === 'customer_visits') return insertTable(opts.visitResult ?? { error: null }, opts.visitCap);
-    if (table === 'user_points') return insertTable(opts.pointResult ?? { error: null }, opts.pointCap);
-    // referral_uses: デフォルトは未紹介(0行)で awardReferralPointsOnCompletion を no-op にする。
-    if (table === 'referral_uses') return referralUsesChain(opts.referralClaim ?? { data: [], error: null }, opts.referralCap);
-    throw new Error(`unexpected table ${table}`);
-  });
-  if (opts.fromCap) opts.fromCap.from = from;
-  // SupabaseClient 型に合わせるためのキャスト
-  return { from } as unknown as Parameters<typeof applyCompletionSideEffects>[0];
-}
-
-const base: CompletableBooking = {
-  id: 'b1', facility_id: 'f1', user_id: 'u1', customer_name: '田中',
-  email: 'c@example.com', booking_date: '2026-05-01', total_price: 5000,
-  menu_id: 'menu-1', staff_id: 'staff-1',
-};
-
-beforeEach(() => jest.clearAllMocks());
-
-test('フルパス: menu/staff 解決・来店記録・ポイント(50)付与', async () => {
-  const visitCap: { insert?: jest.Mock } = {};
-  const admin = makeAdmin({
-    menu: { name: 'カット' }, staff: { name: '佐藤' }, visitCap,
-  });
-  const points = await applyCompletionSideEffects(admin, base);
-  expect(points).toBe(50); // 5000 / 100
-  expect(visitCap.insert).toHaveBeenCalledWith(expect.objectContaining({
-    booking_id: 'b1', menu_name: 'カット', staff_name: '佐藤', amount: 5000,
-  }));
-  expect(mockCapture).not.toHaveBeenCalled();
+import { awardReferralPointsOnCompletion } from '../referral';
+import { safeCaptureException } from '../safe';
+import { alertCaughtError } from '../alert';
+jest.mock('../safe', () => ({ safeCaptureException: jest.fn() }));
+jest.mock('../alert', () => ({ alertCaughtError: jest.fn() }));
+jest.mock('../referral', () => ({ awardReferralPointsOnCompletion: jest.fn().mockResolvedValue(undefined) }));
+const base: CompletableBooking = { id: 'b1', facility_id: 'f1', user_id: 'u1',
+ customer_name: 'Synthetic', email: null, booking_date: '2030-01-07', total_price: 5000, menu_id: null, staff_id: null };
+const insert = jest.fn();
+const from = jest.fn((table: string) => {
+ if (table !== 'user_points') throw new Error('visit persistence must be DB atomic, not an application side effect');
+ return { insert };
 });
-
-test('menu_id/staff_id が null → 名前解決スキップ・menu_name/staff_name は null', async () => {
-  const visitCap: { insert?: jest.Mock } = {};
-  const admin = makeAdmin({ visitCap });
-  const points = await applyCompletionSideEffects(admin, {
-    ...base, menu_id: null, staff_id: null, user_id: null,
-  });
-  expect(points).toBe(0); // user_id null → ポイント付与なし
-  expect(visitCap.insert).toHaveBeenCalledWith(expect.objectContaining({
-    menu_name: null, staff_name: null,
-  }));
+const admin = { from } as unknown as Parameters<typeof applyCompletionSideEffects>[0];
+beforeEach(() => { jest.clearAllMocks(); insert.mockResolvedValue({ error: null }); });
+test('来店ポイントと紹介処理を維持し、来店履歴は二重書込みしない', async () => {
+ expect(await applyCompletionSideEffects(admin, base)).toBe(50);
+ expect(insert).toHaveBeenCalledWith({ user_id: 'u1', points: 50, reason: '来店ポイント', booking_id: 'b1' });
+ expect(awardReferralPointsOnCompletion).toHaveBeenCalledWith(admin, 'u1');
+ expect(from).not.toHaveBeenCalledWith('customer_visits');
 });
-
-test('menu/staff レコードが見つからない(data null) → name は null フォールバック', async () => {
-  const visitCap: { insert?: jest.Mock } = {};
-  const admin = makeAdmin({ menu: null, staff: null, visitCap });
-  await applyCompletionSideEffects(admin, base);
-  expect(visitCap.insert).toHaveBeenCalledWith(expect.objectContaining({
-    menu_name: null, staff_name: null,
-  }));
+test.each([null,0,-100,50,99])('金額 %s は来店ポイントを付与しない', async total_price => {
+ expect(await applyCompletionSideEffects(admin, { ...base, total_price })).toBe(0);
+ expect(insert).not.toHaveBeenCalled();
+ expect(awardReferralPointsOnCompletion).toHaveBeenCalledWith(admin,'u1');
 });
-
-test('visit insert / point insert がエラー → safeCaptureException が2回・本体は継続', async () => {
-  const admin = makeAdmin({
-    menu: { name: 'カット' }, staff: { name: '佐藤' },
-    visitResult: { error: { message: 'visit fail' } },
-    pointResult: { error: { message: 'point fail' } },
-  });
-  const points = await applyCompletionSideEffects(admin, base);
-  expect(points).toBe(50);
-  expect(mockCapture).toHaveBeenCalledTimes(2);
-  expect(mockCapture).toHaveBeenCalledWith({ message: 'visit fail' }, 'booking-completion');
-  expect(mockCapture).toHaveBeenCalledWith({ message: 'point fail' }, 'booking-completion');
+test.each([[100,1],[5099,50]])('金額境界 %s は %s ポイント', async (total_price, expected) => {
+ expect(await applyCompletionSideEffects(admin,{ ...base,total_price })).toBe(expected);
+ expect(insert).toHaveBeenCalledWith(expect.objectContaining({ points: expected }));
 });
-
-test('total_price が小さくポイント0 → user_points.insert は呼ばれない', async () => {
-  const pointCap: { insert?: jest.Mock } = {};
-  const admin = makeAdmin({ menu: { name: 'カット' }, staff: { name: '佐藤' }, pointCap });
-  const points = await applyCompletionSideEffects(admin, { ...base, total_price: 50 });
-  expect(points).toBe(0); // floor(50/100) = 0
-  expect(pointCap.insert).toBeUndefined(); // user_points テーブルに触れていない
+test('未ログインの手動予約はポイント・紹介へ触らず履歴はDBに任せる', async () => {
+ expect(await applyCompletionSideEffects(admin,{ ...base,user_id:null })).toBe(0);
+ expect(from).not.toHaveBeenCalled();
+ expect(awardReferralPointsOnCompletion).not.toHaveBeenCalled();
 });
-
-test('total_price が 0 → ポイント条件 false（user_id あり）', async () => {
-  const pointCap: { insert?: jest.Mock } = {};
-  const admin = makeAdmin({ menu: { name: 'カット' }, staff: { name: '佐藤' }, pointCap });
-  const points = await applyCompletionSideEffects(admin, { ...base, total_price: 0 });
-  expect(points).toBe(0);
-  expect(pointCap.insert).toBeUndefined();
-});
-
-test('total_price が null → ポイント条件 false・visit.amount は null で記録', async () => {
-  const visitCap: { insert?: jest.Mock } = {};
-  const pointCap: { insert?: jest.Mock } = {};
-  const admin = makeAdmin({ menu: { name: 'カット' }, staff: { name: '佐藤' }, visitCap, pointCap });
-  const points = await applyCompletionSideEffects(admin, { ...base, total_price: null });
-  expect(points).toBe(0);
-  expect(pointCap.insert).toBeUndefined(); // user_points に触れない
-  // 来店記録は price 不明でも積む（顧客台帳の漏れ防止）。amount は null のまま。
-  expect(visitCap.insert).toHaveBeenCalledWith(expect.objectContaining({ amount: null }));
-});
-
-test('total_price が 100 ちょうど → 1ポイント（境界 floor(100/100)=1・付与される）', async () => {
-  const pointCap: { insert?: jest.Mock } = {};
-  const admin = makeAdmin({ menu: { name: 'カット' }, staff: { name: '佐藤' }, pointCap });
-  const points = await applyCompletionSideEffects(admin, { ...base, total_price: 100 });
-  expect(points).toBe(1);
-  expect(pointCap.insert).toHaveBeenCalledWith(expect.objectContaining({
-    user_id: 'u1', points: 1, booking_id: 'b1', reason: '来店ポイント',
-  }));
-});
-
-test('total_price が 99 → floor で 0・user_points.insert は呼ばれない（99/100 境界）', async () => {
-  const pointCap: { insert?: jest.Mock } = {};
-  const admin = makeAdmin({ menu: { name: 'カット' }, staff: { name: '佐藤' }, pointCap });
-  const points = await applyCompletionSideEffects(admin, { ...base, total_price: 99 });
-  expect(points).toBe(0);
-  expect(pointCap.insert).toBeUndefined();
-});
-
-test('端数あり total_price 5099 → floor(5099/100)=50（端数切り捨て）', async () => {
-  const pointCap: { insert?: jest.Mock } = {};
-  const admin = makeAdmin({ menu: { name: 'カット' }, staff: { name: '佐藤' }, pointCap });
-  const points = await applyCompletionSideEffects(admin, { ...base, total_price: 5099 });
-  expect(points).toBe(50);
-  expect(pointCap.insert).toHaveBeenCalledWith(expect.objectContaining({ points: 50 }));
-});
-
-// ── クエリ条件の検証（名前解決の分岐・列名をミューテーションから守る）──
-test('menu_id null → facility_menus を引かない（if(menu_id) 分岐の検証）', async () => {
-  const fromCap: { from?: jest.Mock } = {};
-  const admin = makeAdmin({ staff: { name: '佐藤' }, fromCap });
-  await applyCompletionSideEffects(admin, { ...base, menu_id: null });
-  expect(fromCap.from).not.toHaveBeenCalledWith('facility_menus');
-});
-
-test('staff_id null → staff_profiles を引かない（if(staff_id) 分岐の検証）', async () => {
-  const fromCap: { from?: jest.Mock } = {};
-  const admin = makeAdmin({ menu: { name: 'カット' }, fromCap });
-  await applyCompletionSideEffects(admin, { ...base, staff_id: null });
-  expect(fromCap.from).not.toHaveBeenCalledWith('staff_profiles');
-});
-
-test('menu/staff の名前解決は id 列で引く（eq の列名・値の検証）', async () => {
-  const menuEqCap: { eq?: jest.Mock } = {};
-  const staffEqCap: { eq?: jest.Mock } = {};
-  const admin = makeAdmin({ menu: { name: 'カット' }, staff: { name: '佐藤' }, menuEqCap, staffEqCap });
-  await applyCompletionSideEffects(admin, base);
-  expect(menuEqCap.eq).toHaveBeenCalledWith('id', 'menu-1');
-  expect(staffEqCap.eq).toHaveBeenCalledWith('id', 'staff-1');
-});
-
-test('user_id null かつ total_price あり → ポイント付与なし（if(user_id) 分岐の検証）', async () => {
-  const pointCap: { insert?: jest.Mock } = {};
-  const admin = makeAdmin({ menu: { name: 'カット' }, staff: { name: '佐藤' }, pointCap });
-  const points = await applyCompletionSideEffects(admin, { ...base, user_id: null, total_price: 5000 });
-  expect(points).toBe(0);
-  expect(pointCap.insert).toBeUndefined(); // user_id 無しでは user_points に触れない
+test('ポイント保存失敗を監視する既存動作を維持', async () => {
+ const error={ message:'synthetic points failure' };
+ insert.mockResolvedValue({ error });
+ expect(await applyCompletionSideEffects(admin,base)).toBe(50);
+ expect(safeCaptureException).toHaveBeenCalledWith(error,'booking-completion');
+ expect(alertCaughtError).toHaveBeenCalledWith('booking-completion:points',error,'booking:b1');
 });

@@ -17,6 +17,8 @@ jest.mock('@/lib/rate-limit', () => ({
   checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/supabase-server');
+jest.mock('@/lib/facility-publish-gate', () => ({ checkBookingReadiness: jest.fn() }));
+import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 
 import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
@@ -32,6 +34,7 @@ interface MockOpts {
   monthData?: unknown;        // 明示指定で monthRows を上書き（null テスト等）
   monthError?: { code?: string } | null;
   legacySlotsPerStaff?: number; // フォールバック時 get_available_slots が staff ごとに返す枠数
+  hoursError?: unknown;
 }
 
 function daysInMonth(year: number, month: number): number {
@@ -46,6 +49,7 @@ function setupDefaultMocks(opts: MockOpts = {}) {
     monthData,
     monthError = null,
     legacySlotsPerStaff = 5,
+    hoursError = null,
   } = opts;
 
   const staffData = Array.from({ length: staffCount }, (_, i) => ({ id: `staff-${i}` }));
@@ -85,7 +89,7 @@ function setupDefaultMocks(opts: MockOpts = {}) {
         ? {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
-                maybeSingle: jest.fn().mockResolvedValue({ data: { business_hours: businessHours } }),
+                maybeSingle: jest.fn().mockResolvedValue({ data: { business_hours: businessHours }, error: hoursError }),
               }),
             }),
           }
@@ -99,6 +103,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   setupDefaultMocks();
+  jest.mocked(checkBookingReadiness).mockResolvedValue({ readiness: { ready: true, missing: [] }, error: null });
 });
 
 const VALID_UUID = '11111111-1111-1111-1111-111111111111';
@@ -117,6 +122,20 @@ function makeRequest(
 }
 
 describe('GET /api/availability', () => {
+  test('掲載だけの施設は月次RPCも呼ばず準備中を返す', async () => {
+    jest.mocked(checkBookingReadiness).mockResolvedValue({ readiness: { ready: false, missing: ['営業時間'] }, error: null });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ dates: {}, bookingAvailable: false });
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(checkBookingReadiness).toHaveBeenCalledWith(expect.anything(), VALID_UUID);
+  });
+  test('準備状態の読取失敗は予約なしの正常に変換しない', async () => {
+    jest.mocked(checkBookingReadiness).mockResolvedValue({ readiness: { ready: false, missing: [] }, error: { message: 'unavailable' } });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
   test('rate limiting → 429', async () => {
     (checkRateLimit as jest.Mock).mockReturnValue(true);
     const res = await GET(makeRequest() as any);
@@ -393,6 +412,22 @@ describe('GET /api/availability', () => {
     const json = await res.json();
     const nonFull = Object.values(json.dates).filter((d: any) => d.status !== 'full');
     expect(nonFull).toHaveLength(0);
+  });
+
+  test('フォールバックもDB失敗なら0枠・満席の成功応答にしない', async () => {
+    setupDefaultMocks({ monthError: { code: 'PGRST202' }, staffCount: 1 });
+    mockRpc.mockImplementation((fn: string) => Promise.resolve({ data: null, error: { code: fn === 'get_month_availability' ? 'PGRST202' : '57014' } }));
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect((await res.json()).dates).toBeUndefined();
+  });
+
+  test('営業時間の再照合が失敗したらカレンダー成功応答にしない', async () => {
+    setupDefaultMocks({ hoursError: { code: '57014' } });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect((await res.json()).dates).toBeUndefined();
+    expect(mockRpc).not.toHaveBeenCalled();
   });
 
   test('集約RPCがランタイムエラー（PGRST202 以外）→ 500 にせず従来ループにフォールバック', async () => {

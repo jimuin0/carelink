@@ -4,11 +4,11 @@ import { safeCaptureException } from '@/lib/safe';
 import { postAlert } from '@/lib/alert';
 import { bookingStatusLabel } from '@/lib/booking-status';
 import { SITE_URL } from '@/lib/constants';
-import { enqueueWebhook } from '@/lib/webhook-queue';
-import { runAfterResponse } from '@/lib/after-response';
+import { sendDurableEventEmail } from './event-email-delivery';
 import { resolvedFromEnv, DEFAULT_FROM, RESEND_VERIFIED_DOMAINS } from '@/lib/email-from';
 import { buildOnboardingAuthPath } from '@/lib/onboarding-link';
 import crypto from 'crypto';
+import { sendInquiryReplyEnvelope, verifyInquiryReplyAcceptance, type InquiryReplyEnvelope } from './inquiry-reply-delivery';
 
 let _resend: Resend | null = null;
 function getResend(): Resend | null {
@@ -184,19 +184,15 @@ async function safeSend(
   context: string,
   options: { idempotencyKey?: string; requireMessageId?: boolean; redactFailureDetails?: boolean } = {},
 ): Promise<boolean> {
+  if (QUEUEABLE_EMAIL_CONTEXTS.has(context)) {
+    return sendDurableEventEmail(resend, toQueuePayload(params) as { from: string; to: string; subject: string; html: string }, context);
+  }
   let timer: ReturnType<typeof setTimeout> | undefined;
   const fail = (detail: string): false => {
     const safeDetail = options.redactFailureDetails ? 'provider outcome not confirmed' : detail;
     safeCaptureException(new Error(`resend send failed: ${safeDetail}`), `email:${context}`);
     if (!BULK_AGGREGATED_CONTEXTS.has(context)) {
       postAlert({ level: 'error', message: `メール送信失敗(${context}): ${safeDetail}`, route: `email:${context}`, env: process.env.VERCEL_ENV });
-    }
-    // 送信失敗を webhook_retry_queue に積み、15分毎の webhook-retry cron に自動再送させる
-    // （対象 context のみ・enqueueWebhook 自体は DB 失敗を握り潰す fire-and-forget 契約のため
-    // ここでの失敗が safeSend の false 契約や呼び出し元の挙動へ波及することはない）。
-    if (QUEUEABLE_EMAIL_CONTEXTS.has(context)) {
-      const queuePayload = toQueuePayload(params);
-      runAfterResponse(() => enqueueWebhook({ type: 'email', targetId: queuePayload.to, payload: queuePayload }));
     }
     return false;
   };
@@ -342,9 +338,13 @@ export async function sendBookingReminderForCron(
 export async function sendTimeAdjustRequest(data: BookingEmailData): Promise<boolean> {
   const resend = getResend();
   if (!resend) return false;
+  return safeSend(resend, buildTimeAdjustRequestEnvelope(data), 'time_adjust_request');
+}
+
+export function buildTimeAdjustRequestEnvelope(data: BookingEmailData) {
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
-  return safeSend(resend, {
+  return {
     from: FROM,
     to: data.customerEmail,
     subject: escSubject(`【CareLink】ご予約時間調整のお願い - ${data.facilityName}`),
@@ -355,16 +355,21 @@ export async function sendTimeAdjustRequest(data: BookingEmailData): Promise<boo
       <p>恐れ入りますが、マイページの予約変更または施設へのご連絡にて、ご都合の良いお時間をお知らせください。</p>
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約を変更する</a></p>
     `),
-  }, 'time_adjust_request');
+  };
 }
 
 /** 予約確定通知（顧客向け） */
 export async function sendBookingConfirmed(data: BookingEmailData): Promise<boolean> {
   const resend = getResend();
   if (!resend) return false;
+  return safeSend(resend, buildBookingConfirmedEnvelope(data), 'booking_confirmed');
+}
+
+/** Pure builder shared by the durable manual-booking outbox. */
+export function buildBookingConfirmedEnvelope(data: BookingEmailData) {
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
-  return safeSend(resend, {
+  return {
     from: FROM,
     to: data.customerEmail,
     subject: escSubject(`【CareLink】${data.facilityName}のご予約が確定しました`),
@@ -375,16 +380,20 @@ export async function sendBookingConfirmed(data: BookingEmailData): Promise<bool
       <p>当日のご来店をお待ちしております。</p>
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約詳細を見る</a></p>
     `),
-  }, 'booking_confirmed');
+  };
 }
 
 /** 予約キャンセル通知（顧客向け） */
 export async function sendBookingCancelled(data: BookingEmailData): Promise<boolean> {
   const resend = getResend();
   if (!resend) return false;
+  return safeSend(resend, buildBookingCancelledEnvelope(data), 'booking_cancelled');
+}
+
+export function buildBookingCancelledEnvelope(data: BookingEmailData) {
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
-  return safeSend(resend, {
+  return {
     from: FROM,
     to: data.customerEmail,
     subject: escSubject(`【CareLink】${data.facilityName}のご予約がキャンセルされました`),
@@ -396,7 +405,7 @@ export async function sendBookingCancelled(data: BookingEmailData): Promise<bool
       <p>またのご利用をお待ちしております。</p>
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/search" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">他のサロンを探す</a></p>
     `),
-  }, 'booking_cancelled');
+  };
 }
 
 /** 新着口コミ通知（施設向け・push_on_review設定と共通制御） */
@@ -473,6 +482,27 @@ export async function sendInquiryReply(data: {
     requireMessageId: true,
     redactFailureDetails: true,
   });
+}
+
+export function buildInquiryReplyEnvelope(data: { to: string; inquirerName: string; body: string }): InquiryReplyEnvelope {
+  return {
+    from: FROM, to: data.to, replyTo: FROM,
+    subject: escSubject('【CareLink】お問い合わせへのご返信'),
+    html: wrapHtml(`
+      <p>${esc(data.inquirerName)} 様</p>
+      <p>CareLink へお問い合わせいただきありがとうございます。</p>
+      <div style="white-space:pre-wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:16px 0;">${esc(data.body)}</div>
+      <p style="color:#64748b;font-size:13px;">このメールにそのまま返信していただけます。</p>
+    `),
+  };
+}
+
+export function deliverInquiryReply(envelope: InquiryReplyEnvelope, operationId: string) {
+  return sendInquiryReplyEnvelope(getResend(), envelope, operationId);
+}
+
+export function reconcileInquiryReply(envelope: InquiryReplyEnvelope, operationId: string, messageId: string, reservedAt: string) {
+  return verifyInquiryReplyAcceptance(getResend(), envelope, operationId, messageId, reservedAt);
 }
 
 export async function sendNewInquiryNotification(data: {
@@ -698,12 +728,16 @@ export async function sendOnboardingFollowEmail(data: {
 export async function sendBookingStatusUpdate(data: BookingEmailData & { newStatus: string; reason?: string }): Promise<boolean> {
   const resend = getResend();
   if (!resend) return false;
+  return safeSend(resend, buildBookingStatusUpdateEnvelope(data), 'booking_status_update');
+}
+
+export function buildBookingStatusUpdateEnvelope(data: BookingEmailData & { newStatus: string; reason?: string }) {
 
   const statusLabel = bookingStatusLabel(data.newStatus);
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
 
-  return safeSend(resend, {
+  return {
     from: FROM,
     to: data.customerEmail,
     subject: escSubject(`【CareLink】予約ステータスが「${statusLabel}」に変更されました`),
@@ -714,7 +748,7 @@ export async function sendBookingStatusUpdate(data: BookingEmailData & { newStat
       ${bookingDetailHtml(data)}
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約を確認する</a></p>
     `),
-  }, 'booking_status_update');
+  };
 }
 
 /** お気に入り施設ダイジェスト通知 */

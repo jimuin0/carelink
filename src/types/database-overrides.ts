@@ -50,6 +50,11 @@ type CreateBookingNullableArg = (typeof CREATE_BOOKING_NULLABLE_ARGS)[number];
 type CreateBookingArgs = Omit<GeneratedCreateBooking['Args'], CreateBookingNullableArg> & {
   [K in CreateBookingNullableArg]: string | null;
 };
+// The online wrapper passes these same six nullable fields to the unchanged
+// core RPC. SQL function introspection cannot infer that explicit NULL path.
+type OnlineBookingArgs = Omit<GeneratedFunctions['create_online_booking_atomic']['Args'], CreateBookingNullableArg> & {
+  [K in CreateBookingNullableArg]: string | null;
+};
 
 export type Database = Omit<GeneratedDatabase, 'public'> & {
   public: Omit<GeneratedDatabase['public'], 'Functions' | 'Tables'> & {
@@ -63,8 +68,21 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
     };
     // Omit every overridden key before replacing it. Intersecting generated
     // non-null strings with nullable overrides would silently reject valid SQL NULLs.
-    Functions: Omit<GeneratedFunctions, 'create_booking_atomic' | 'prepare_salon_photo' | 'setup_facility_from_registration'> & {
+    Functions: Omit<GeneratedFunctions, 'create_booking_atomic' | 'create_online_booking_atomic' | 'prepare_salon_photo' | 'setup_facility_from_registration' | 'save_booking_email_event_atomic' | 'start_booking_email_event'> & {
+      start_booking_email_event: Omit<GeneratedFunctions['start_booking_email_event'], 'Returns'> & {
+        Returns: { outcome: string; started_at: string | null }[];
+      };
+      // A NULL new status is an adjustment event; NULL envelope means no
+      // customer email/internal arrival. SQL explicitly handles NULL revisions.
+      save_booking_email_event_atomic: Omit<GeneratedFunctions['save_booking_email_event_atomic'], 'Args' | 'Returns'> & {
+        Args: Omit<GeneratedFunctions['save_booking_email_event_atomic']['Args'], 'p_new_status' | 'p_envelope' | 'p_expected_updated_at'> & {
+          p_new_status: string | null; p_envelope: GeneratedDatabase['public']['Tables']['webhook_retry_queue']['Row']['payload'] | null;
+          p_expected_updated_at: string | null;
+        };
+        Returns: { operation_id: string | null; replayed: boolean; notification: string }[];
+      };
       create_booking_atomic: Omit<GeneratedCreateBooking, 'Args'> & { Args: CreateBookingArgs };
+      create_online_booking_atomic: Omit<GeneratedFunctions['create_online_booking_atomic'], 'Args'> & { Args: OnlineBookingArgs };
       // Production migration 20260930075129 and setup 20260930075358.
       // Introspection omits SQL NULLability for function parameters/results.
       // These NULL paths are explicit in the RPC bodies; generated-schema
@@ -75,7 +93,7 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
         Returns: { outcome: string; photo_id: string | null; object_path: string | null }[];
       };
       setup_facility_from_registration: {
-        Args: { p_user_id: string; p_claim_mode: 'none' | 'legacy' | 'intent';
+        Args: { p_user_id: string; p_claim_mode: 'none' | 'legacy' | 'intent' | 'recovered';
           p_receipt_id: string | null; p_intent_id: string | null; p_proof_hash: string | null;
           p_legacy_issued_at: string | null; p_profile: GeneratedDatabase['public']['Tables']['webhook_retry_queue']['Row']['payload'];
           p_license_warranted: boolean };

@@ -10,6 +10,7 @@ import AdjustRequestButtons from '@/components/admin/AdjustRequestButtons';
 import type { Booking } from '@/types';
 import { statusBannerClass, bookingStatusLabel, getAllowedStatusTransitions } from '@/lib/booking-status';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import { UUID_REGEX } from '@/lib/constants';
 
 // 退店レジ会計の明細行（/api/admin/booking-checkout と整合）
 type ChargeType = 'menu' | 'retail' | 'discount';
@@ -23,9 +24,9 @@ const CHECKOUTABLE = ['confirmed', 'arrived'];
 const CONFIRM_STATUSES = ['cancelled', 'no_show'];
 
 function formatDate(dateStr: string): string {
-  const d = new Date(dateStr + 'T00:00:00+09:00');
+  const d = new Date(dateStr + 'T00:00:00Z');
   const days = ['日', '月', '火', '水', '木', '金', '土'];
-  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（${days[d.getDay()]}）`;
+  return `${d.getUTCFullYear()}年${d.getUTCMonth() + 1}月${d.getUTCDate()}日（${days[d.getUTCDay()]}）`;
 }
 
 export default function AdminBookingDetailPage(props: { params: Promise<{ id: string }> }) {
@@ -54,16 +55,29 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
       try {
         const supabase = createBrowserSupabaseClient();
         setLoadError(false);
-        const { data: { user } } = await supabase.auth.getUser();
+        setLoading(true);
+        setBooking(null);
+        setMenuName(null);
+        setStaffName(null);
+        if (!UUID_REGEX.test(params.id)) { if (!cancelled) setLoading(false); return; }
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError) throw new Error('authentication_lookup_failed');
         if (!user) { if (!cancelled) setLoading(false); return; }
 
+        // Locate only the tenant first under RLS, then authorize that exact
+        // tenant before loading customer fields. Never select a first member.
+        const { data: target, error: targetError } = await supabase.from('bookings')
+          .select('facility_id').eq('id', params.id).maybeSingle();
+        if (targetError) throw new Error('booking_lookup_failed');
+        if (!target) { if (!cancelled) setLoading(false); return; }
         const { data: membership, error: memErr } = await supabase
           .from('facility_members')
           .select('facility_id')
           .eq('user_id', user.id)
-          .limit(1)
-          .single();
-        if (memErr && memErr.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+          .eq('facility_id', target.facility_id)
+          .in('role', ['owner', 'admin'])
+          .maybeSingle();
+        if (memErr) throw new Error('membership_lookup_failed');
         if (!membership) { if (!cancelled) setLoading(false); return; }
 
         const { data, error } = await supabase
@@ -78,27 +92,23 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
         if (error && error.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
         if (cancelled) return;
         if (data) {
-          setBooking(data as Booking);
-          if (data.menu_ids && data.menu_ids.length > 1) {
-            // 複数メニュー予約は menu_ids の全メニュー名を「、」で連結表示（A6・menu_id 単独だと1件目のみ）。
-            // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-            const { data: menus } = await supabase.from('facility_menus').select('name').in('id', data.menu_ids);
+          const menuIds = data.menu_ids?.length ? data.menu_ids : data.menu_id ? [data.menu_id] : [];
+          if (menuIds.length) {
+            const { data: menus, error: menuError } = await supabase.from('facility_menus')
+              .select('id, name').eq('facility_id', data.facility_id).in('id', menuIds);
+            if (menuError || !Array.isArray(menus)) throw new Error('menu_lookup_failed');
             if (cancelled) return;
-            if (menus && menus.length > 0) setMenuName(menus.map((m) => m.name).join('、'));
-          } else if (data.menu_id) {
-            // メニュー名は補助表示。取得失敗時は名称未表示で予約詳細本体は継続表示する。
-            // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-            const { data: menu } = await supabase.from('facility_menus').select('name').eq('id', data.menu_id).single();
-            if (cancelled) return;
-            if (menu) setMenuName(menu.name);
+            const names = new Map(menus.map(menu => [menu.id, menu.name]));
+            setMenuName(menuIds.map(id => names.get(id) ?? 'メニュー削除済み').join('、'));
           }
           if (data.staff_id) {
-            // 担当スタッフ名は補助表示。取得失敗時は名称未表示で予約詳細本体は継続表示する。
-            // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-            const { data: staff } = await supabase.from('staff_profiles').select('name').eq('id', data.staff_id).single();
+            const { data: staff, error: staffError } = await supabase.from('staff_profiles').select('name')
+              .eq('facility_id', data.facility_id).eq('id', data.staff_id).maybeSingle();
+            if (staffError) throw new Error('staff_lookup_failed');
             if (cancelled) return;
             if (staff) setStaffName(staff.name);
           }
+          setBooking(data as Booking);
         }
         setLoading(false);
       } catch {
@@ -122,13 +132,15 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
         body: JSON.stringify({ bookingId: booking.id, status: newStatus }),
       });
 
-      if (!res.ok) {
-        const data = await res.json();
+      const data = await res.json();
+      if (!res.ok || data?.success !== true) {
         setToast({ type: 'error', message: data.error || '更新に失敗しました' });
       } else {
         setBooking((prev) => prev ? { ...prev, status: newStatus as Booking['status'] } : null);
         const label = bookingStatusLabel(newStatus);
-        setToast({ type: 'success', message: `ステータスを「${label}」に変更し、お客様に通知しました` });
+        // HTTP/business success confirms the saved status, not delivery. The
+        // API may intentionally skip notification or report it asynchronously.
+        setToast({ type: 'success', message: `ステータスを「${label}」に変更しました。通知の配達完了を保証するものではありません。` });
       }
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
@@ -187,8 +199,8 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
         }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setToast({ type: 'error', message: data.error || '会計に失敗しました' });
+      if (!res.ok || data?.success !== true || !Number.isSafeInteger(data?.total_price) || data.total_price < 0) {
+        setToast({ type: 'error', message: data?.error || '会計に失敗しました' });
       } else {
         setBooking((prev) => (prev ? { ...prev, status: 'completed', total_price: data.total_price } : null));
         setCheckoutOpen(false);
@@ -228,7 +240,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
   return (
     <div>
       <div className="flex items-center gap-3 mb-6">
-        <Link href="/admin/bookings" className="text-gray-400 hover:text-gray-600">
+        <Link href={`/admin/bookings?facility_id=${booking.facility_id}`} className="text-gray-400 hover:text-gray-600">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
         </Link>
         <h1 className="text-2xl font-bold">予約詳細</h1>
@@ -257,7 +269,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
               お断りする
             </button>
           </div>
-          <p className="text-xs text-amber-600 mt-2">※ステータス変更時にお客様へメールが自動送信されます</p>
+          <p className="text-xs text-amber-600 mt-2">※メール登録済みのお客様への通知を試みます。状態変更と配達完了は別です。</p>
         </div>
       )}
 
@@ -444,7 +456,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
                 </button>
               ))}
             </div>
-            <p className="text-xs text-gray-400 mt-2">※変更時にお客様へメール通知されます</p>
+            <p className="text-xs text-gray-400 mt-2">※受付では通知しません。その他の変更はメール登録済みのお客様への通知を試みます。</p>
           </div>
         )}
       </div>
@@ -458,8 +470,8 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
         title={pendingStatus === 'no_show' ? '無断キャンセルにする' : '予約をキャンセルする'}
         message={
           pendingStatus === 'no_show'
-            ? `${booking.customer_name}様を「無断キャンセル」にし、お客様へ通知メールを送信します。この操作は取り消せません。よろしいですか？`
-            : `${booking.customer_name}様の予約をキャンセルし、お客様へキャンセル通知メールを送信します。この操作は取り消せません。よろしいですか？`
+            ? `${booking.customer_name}様を「無断キャンセル」にします。メール登録済みの場合は通知を試みますが、配達完了は保証されません。この操作は取り消せません。よろしいですか？`
+            : `${booking.customer_name}様の予約をキャンセルします。メール登録済みの場合は通知を試みますが、配達完了は保証されません。この操作は取り消せません。よろしいですか？`
         }
         confirmLabel={pendingStatus === 'no_show' ? '無断キャンセルにする' : 'キャンセルする'}
         cancelLabel="やめる"

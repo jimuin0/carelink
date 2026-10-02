@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { phoneField } from './phone';
 import { isValidIsoDate } from './date-utils';
 import { businessTypes, DESIRED_START_DATES } from './constants';
+import { FACILITY_INPUT_LIMITS } from './facility-input-limits';
 
 // 顧客マスターの入力スキーマ。name のみ必須、他は任意。
 // email / birthday は「空文字」も許容し、保存時に null へ正規化する（フォーム未入力の素通し）。
@@ -27,28 +28,28 @@ export const customerSchema = z.object({
 // Salon form schemas (per step)
 export const salonStep1Schema = z.object({
   // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
-  facility_name: z.string().trim().min(1, '施設名を入力してください').max(200, '200文字以内で入力してください'),
+  facility_name: z.string().trim().min(1, '施設名を入力してください').max(FACILITY_INPUT_LIMITS.name, '200文字以内で入力してください'),
   business_type: z.enum(businessTypes as [string, ...string[]], { error: '業種を選択してください' }),
   representative_name: z.string().trim().min(1, '代表者名を入力してください').max(100, '100文字以内で入力してください'),
   contact_name: z.string().trim().min(1, '担当者名を入力してください').max(100, '100文字以内で入力してください'),
   email: z.string().email('正しいメールアドレスを入力してください').max(254),
   phone: phoneField({ required: true }),
   contact_phone: phoneField(),
-  website: z.string().max(2000).url('正しいURLを入力してください').or(z.literal('')).optional(),
+  website: z.string().max(FACILITY_INPUT_LIMITS.website).url('正しいURLを入力してください').or(z.literal('')).optional(),
 });
 
 export const salonStep2Schema = z.object({
   postal_code: z.string().regex(/^(\d{3}-?\d{4}|\d{7})?$/, '郵便番号を正しく入力してください（例: 5600001）').or(z.literal('')).optional(),
-  address: z.string().max(500, '500文字以内で入力してください').optional(),
+  address: z.string().max(FACILITY_INPUT_LIMITS.address, '500文字以内で入力してください').optional(),
   // 【2026年8月20日 恒久根治】入力欄は増やさない（見た目は変えない）。zipcloud 応答の
   // address1（都道府県）/ address2（市区町村）を非表示のまま保持するための隠しフィールド。
   // 送信直前のフォールバック（自由文からの復元）は RegisterForm.tsx 側が japan-address.ts で行う。
   prefecture: z.string().max(10).optional().nullable(),
-  city: z.string().max(100).optional().nullable(),
-  building_name: z.string().max(200).optional(),
-  nearest_station: z.string().max(200).optional(),
+  city: z.string().max(FACILITY_INPUT_LIMITS.city).optional().nullable(),
+  building_name: z.string().max(FACILITY_INPUT_LIMITS.building).optional(),
+  nearest_station: z.string().max(FACILITY_INPUT_LIMITS.nearestStation).optional(),
   business_hours: z.string().max(200).optional(),
-  regular_holiday: z.string().max(200).optional(),
+  regular_holiday: z.string().max(FACILITY_INPUT_LIMITS.regularHoliday).optional(),
   seat_count: z.union([z.number().int().min(0).max(9999), z.nan()]).optional().nullable(),
   staff_count: z.union([z.number().int().min(0).max(9999), z.nan()]).optional().nullable(),
   has_parking: z.boolean().optional(),

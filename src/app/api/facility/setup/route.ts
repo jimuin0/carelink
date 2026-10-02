@@ -5,6 +5,8 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { SALON_CLAIM_COOKIE_NAME, verifySalonClaimDetails } from '@/lib/salon-claim';
 import { isSalonIntentProof, salonIntentCookieName } from '@/lib/salon-submission-proof';
 import { facilitySetupInput, setupFacilityAtomically, type FacilitySetupClaim } from '@/lib/facility-setup-atomic';
+import { salonRecoveryCookieName } from '@/lib/salon-recovery';
+import { getMembershipCacheKey } from '@/lib/admin-membership-cache-key';
 
 export const dynamic = 'force-dynamic';
 const headers = { 'Cache-Control': 'no-store' };
@@ -17,7 +19,11 @@ export const POST = withRoute(async (request, ctx) => {
   if (!parsed.success) return NextResponse.json({ code: 'INVALID_INPUT', error: '入力項目と許認可・届出への同意を確認してください。' }, { status: 400, headers });
   const cookies = new NextRequest(request.url, { headers: request.headers }).cookies;
   let claim: FacilitySetupClaim = { mode: 'none' };
-  if (parsed.data.intentId !== undefined) {
+  if (parsed.data.recoveryId !== undefined) {
+    const proof = cookies.get(salonRecoveryCookieName(parsed.data.recoveryId))?.value;
+    if (!isSalonIntentProof(proof)) return NextResponse.json({ code: 'HANDOFF_UNVERIFIED', error: '復旧対象を確認できません。申込の復旧画面から選び直してください。' }, { status: 403, headers });
+    claim = { mode: 'recovered', recoveryId: parsed.data.recoveryId, proof };
+  } else if (parsed.data.intentId !== undefined) {
     const proof = cookies.get(salonIntentCookieName(parsed.data.intentId)!)?.value;
     if (!isSalonIntentProof(proof)) return NextResponse.json({ code: 'HANDOFF_UNVERIFIED', error: '申込を確認できません。申し込みに使用したブラウザーで受付状況を確認してください。' }, { status: 403, headers });
     claim = { mode: 'intent', intentId: parsed.data.intentId, proof };
@@ -41,9 +47,16 @@ export const POST = withRoute(async (request, ctx) => {
   // Preserve the capability for a lost HTTP response/replay; the DB tombstone
   // prevents a different user from consuming it. Clearing it here would make
   // the exact result unresolvable after a disconnect.
-  return NextResponse.json({ success: true, state: result.state, facilityId: result.facilityId,
+  const response = NextResponse.json({ success: true, state: result.state, facilityId: result.facilityId,
     slug: result.slug, message: result.state === 'created' ? '店舗アカウントを作成しました。公開には管理画面の設定が必要です。' : '登録済みの店舗アカウントを確認しました。',
   }, { status: result.state === 'created' ? 201 : 200, headers });
+  // A signed negative cache may have been prefetched before membership existed.
+  // Invalidate only this authenticated user's hint; never issue a positive grant.
+  response.cookies.set(getMembershipCacheKey(ctx.user!.id), '', {
+    path: '/admin', httpOnly: true, secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax', maxAge: 0,
+  });
+  return response;
 }, { csrf: true, requireAuth: true,
   rateLimit: { limiter: mutationRateLimit, limit: 5, windowMs: 60_000, prefix: 'facility-setup' },
   sentryTag: 'facility-setup',

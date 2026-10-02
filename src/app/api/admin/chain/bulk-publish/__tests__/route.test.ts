@@ -24,17 +24,19 @@ const FACILITY_B = '22222222-2222-2222-2222-222222222222';
 
 const mockGetUser = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockAdminRpc = jest.fn();
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockAdminRpc }),
 }));
 
 import { NextRequest } from 'next/server';
 import { POST } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 function makeRequest(body: object) {
   return new NextRequest('http://localhost/api/admin/chain/bulk-publish', {
@@ -74,7 +76,7 @@ function profileSelectOnly(prefecture = '大阪府', city = '堺市', address = 
   return {
     select: jest.fn(() => ({
       eq: jest.fn(() => ({
-        single: jest.fn(() => Promise.resolve({ data: { prefecture, city, address }, error: null })),
+        single: jest.fn(() => Promise.resolve({ data: { name: '合成店舗', prefecture, city, address }, error: null })),
       })),
     })),
   };
@@ -95,13 +97,13 @@ function facilityProfileChain(opts: {
   return {
     // 一括公開は .update().in(ids) で複数施設をまとめて書く（単一施設の settings は .eq）。
     update: jest.fn().mockReturnValue({
-      in: jest.fn(() => Promise.resolve({ error: opts.updateError ?? null })),
+      in: jest.fn((_column: string, ids: string[]) => ({ select: jest.fn(async () => ({ data: ids.map(id => ({ id })), error: opts.updateError ?? null })) })),
     }),
     select: jest.fn(() => ({
       eq: jest.fn(() => ({
         single: jest.fn(() =>
           Promise.resolve({
-            data: opts.profileError ? null : { prefecture, city, address },
+            data: opts.profileError ? null : { name: '合成店舗', prefecture, city, address },
             error: opts.profileError ?? null,
           }),
         ),
@@ -126,6 +128,7 @@ function setupReadiness(opts: {
   photo?: number | null;
   staff?: number | null;
   countError?: unknown;
+  profileError?: unknown;
   updateError?: unknown;
   prefecture?: string | null;
   city?: string | null;
@@ -146,7 +149,7 @@ function setupReadiness(opts: {
       prefecture: opts.prefecture,
       city: opts.city,
       address: opts.address,
-      profileError: e,
+      profileError: opts.profileError,
     });
   });
 }
@@ -157,6 +160,10 @@ function setupSuccess() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Emulate the result contract only. Row-lock/revocation behavior is tested
+  // against native PostgreSQL, not proved by this fluent mock.
+  mockAdminRpc.mockImplementation(async (_name, args) => mockAdminFrom('facility_profiles')
+    .update({ status: args.p_is_published ? 'published' : 'draft' }).in('id', args.p_facility_ids).select('id'));
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
@@ -167,6 +174,51 @@ test('POST: 未認証 → 401', async () => {
   mockGetUser.mockResolvedValue({ data: { user: null } });
   const res = await POST(makeRequest(validBody()));
   expect(res.status).toBe(401);
+});
+test('POST: 認証障害はユーザーが返っても401', async () => {
+  mockGetUser.mockResolvedValue({ data:{ user:{ id:USER_ID } },error:{ code:'08006' } });
+  expect((await POST(makeRequest(validBody()))).status).toBe(401);
+});
+test('POST: write-time permission revocation is Forbidden and never audited as success', async () => {
+  setupSuccess();
+  mockAdminRpc.mockResolvedValue({ data:null,error:{ message:'FACILITY_PERMISSION_REVOKED' } });
+  expect((await POST(makeRequest(validBody()))).status).toBe(403);
+  expect(mockAdminRpc).toHaveBeenCalledWith('set_facilities_publication_atomic', {
+    p_actor_id: USER_ID, p_facility_ids:[FACILITY_A,FACILITY_B], p_is_published:true,
+  });
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});
+test('POST: suspended retirement state cannot be reopened by a stale batch', async () => {
+  setupSuccess();
+  mockAdminRpc.mockResolvedValue({ data:null,error:{ message:'FACILITY_OWNER_REQUIRED' } });
+  const response = await POST(makeRequest(validBody()));
+  expect(response.status).toBe(409);
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});
+test.each([null, [], 'invalid', { facility_ids:[FACILITY_A,FACILITY_A],is_published:true }])('POST: malformed/duplicate input %j does not write', async body => {
+  expect((await POST(makeRequest(body as never))).status).toBe(400);
+  expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+test('POST: membership dependency failure is not Forbidden or success', async () => {
+  const chain = { select:jest.fn().mockReturnThis(),eq:jest.fn().mockReturnThis(),in:jest.fn().mockReturnThis(),
+    then:(resolve:(v:unknown) => unknown) => Promise.resolve({ data:null,error:{ code:'08006' } }).then(resolve) };
+  mockAdminFrom.mockReturnValue(chain);
+  expect((await POST(makeRequest(validBody()))).status).toBe(500);
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});
+test.each([null, [], [{ id:FACILITY_A }], [{ id:FACILITY_A },{ id:FACILITY_A }],
+  [{ id:FACILITY_A },{ id:'outside' }]])('POST: unconfirmed actual changed rows %j never becomes success', async data => {
+  setupSuccess();
+  const previous = mockAdminFrom.getMockImplementation()!;
+  mockAdminFrom.mockImplementation((table:string) => table === 'facility_profiles'
+    ? { ...profileSelectOnly(),update:jest.fn(() => ({ in:jest.fn(() => ({ select:jest.fn(async () => ({ data,error:null })) })) })) }
+    : previous(table));
+  expect((await POST(makeRequest(validBody()))).status).toBe(500);
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});
+test('POST: unexpected exception is caught and monitored', async () => {
+  mockAdminFrom.mockImplementation(() => { throw new Error('synthetic failure'); });
+  expect((await POST(makeRequest(validBody()))).status).toBe(500);
 });
 
 test('POST: レートリミット → 429', async () => {
@@ -219,21 +271,27 @@ test('POST: DB更新失敗 → 500', async () => {
 });
 
 // ─── BP-1: 公開ゲート（未完成施設は公開対象から除外して skipped に返す）──────────
-test('POST: 必須項目未充足の施設は公開対象から除外され skipped に返る', async () => {
-  // メニュー0件 → 両施設とも未充足 → 公開されず updated:0・skipped:2
-  setupReadiness({ menu: 0, photo: 1, staff: 1 });
+test('POST: 掲載情報のみの施設は一括公開できる', async () => {
+  setupReadiness({ menu: 0, photo: 0, staff: 0 });
   const res = await POST(makeRequest(validBody({ is_published: true })));
   const json = await res.json();
   expect(res.status).toBe(200);
-  expect(json.updated).toBe(0);
-  expect(json.skipped).toHaveLength(2);
-  expect(json.skipped[0].missing).toContain('メニューを1つ以上登録してください');
+  expect(json.updated).toBe(2);
+  expect(json.skipped).toHaveLength(0);
 });
 
-test('POST: 公開ゲートの count 取得エラー → 500', async () => {
+test('POST: 掲載公開は予約用count queryを呼ばない', async () => {
   setupReadiness({ countError: { message: 'count failed' } });
   const res = await POST(makeRequest(validBody({ is_published: true })));
+  expect(res.status).toBe(200);
+  expect(mockAdminFrom).not.toHaveBeenCalledWith('facility_menus');
+});
+
+test('POST: 掲載情報の読取失敗では公開を書き込まない', async () => {
+  setupReadiness({ profileError: { code: '08006' } });
+  const res = await POST(makeRequest(validBody({ is_published: true })));
   expect(res.status).toBe(500);
+  expect(writeAuditLog).not.toHaveBeenCalled();
 });
 
 test('POST: gate通過後の所在地競合は全体409で成功件数を返さない', async () => {
@@ -280,7 +338,7 @@ test('POST: 非公開に一括変更 → 200', async () => {
 });
 
 test('POST: 公開は status=published を書き込む（is_published 列は存在しない・回帰防止）', async () => {
-  const updateSpy = jest.fn().mockReturnValue({ in: jest.fn(() => Promise.resolve({ error: null })) });
+  const updateSpy = jest.fn().mockReturnValue({ in: jest.fn((_column: string, ids: string[]) => ({ select: jest.fn(async () => ({ data: ids.map(id => ({ id })), error: null })) })) });
   mockAdminFrom.mockImplementation((table: string) => {
     if (table === 'facility_members') {
       return membershipChain([{ facility_id: FACILITY_A }, { facility_id: FACILITY_B }]);
@@ -299,7 +357,7 @@ test('POST: 公開は status=published を書き込む（is_published 列は存�
 });
 
 test('POST: 非公開は status=draft を書き込む（既存 settings 単体トグルと一貫・回帰防止）', async () => {
-  const updateSpy = jest.fn().mockReturnValue({ in: jest.fn(() => Promise.resolve({ error: null })) });
+  const updateSpy = jest.fn().mockReturnValue({ in: jest.fn((_column: string, ids: string[]) => ({ select: jest.fn(async () => ({ data: ids.map(id => ({ id })), error: null })) })) });
   mockAdminFrom.mockImplementation((table: string) => {
     if (table === 'facility_members') {
       return membershipChain([{ facility_id: FACILITY_A }, { facility_id: FACILITY_B }]);

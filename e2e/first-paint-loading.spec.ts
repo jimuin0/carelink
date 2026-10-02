@@ -23,6 +23,7 @@
  */
 import { test, expect, type Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
+import { confirmSyntheticBookingPreparation } from './booking-preparation.seed';
 
 // Synthetic writes are confined to the disposable CI app/database lifecycle.
 test.beforeAll(() => {
@@ -64,7 +65,7 @@ async function seedBookableFacility() {
   if (fe) throw new Error('seed facility: ' + fe.message);
 
   const { error: me } = await sb.from('facility_menus').insert({
-    facility_id: fac.id, name: 'カット', price: 5000, duration_minutes: 60, category: 'カット',
+    facility_id: fac.id, name: 'カット', price: 5000, duration_minutes: 60, category: 'カット', is_published: true,
   });
   if (me) throw new Error('seed menu: ' + me.message);
 
@@ -72,6 +73,7 @@ async function seedBookableFacility() {
     facility_id: fac.id, name: '検証スタッフ', slug: `first-paint-staff-${ts}`, is_active: true,
   });
   if (se) throw new Error('seed staff: ' + se.message);
+  await confirmSyntheticBookingPreparation(sb, fac.id);
 
   return { facilityId: fac.id as string, facilitySlug: fac.slug as string };
 }

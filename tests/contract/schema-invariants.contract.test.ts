@@ -36,6 +36,15 @@ describeIfConfigured('schema invariants (configured Supabase)', () => {
 
   // ── 1. オブジェクト存在: RPC が schema cache に存在する（PGRST202 でない） ──
   describe('RPC 存在', () => {
+    (local && SRK ? test : test.skip)('enqueue_moderation はanonを拒否し、serviceの空batchは0件（隔離local）', async () => {
+      const denied = await anon.rpc('enqueue_moderation', { p_items: [] });
+      expect(denied.error?.code).toBe('42501');
+      const admin = createClient(URL!, SRK!);
+      const allowed = await admin.rpc('enqueue_moderation', { p_items: [] });
+      expect(allowed.error).toBeNull();
+      expect(allowed.data).toBe(0);
+    });
+
     (local && SRK ? test : test.skip)('create_booking_atomic はanonを拒否し、service_roleは既知の予約拒否へ到達する（隔離local）', async () => {
       const args = {
         p_facility_id: ZERO_UUID,

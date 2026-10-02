@@ -83,7 +83,7 @@ const ICON_PATHS: Record<'calendar' | 'card' | 'people', string> = {
 const STEPS = [
   { n: '01', title: '基本情報を入力', body: '施設名・業種・連絡先などを入力' },
   { n: '02', title: 'アカウントを作成', body: '登録内容を確認して管理画面へ進む' },
-  { n: '03', title: '掲載を準備', body: 'メニュー・写真などを整えて公開条件を確認' },
+  { n: '03', title: '掲載を準備', body: '店舗名・所在地を確認して無料掲載を公開。ネット予約の設定は別に行います' },
 ];
 
 export default function RegisterPage() {
@@ -263,7 +263,7 @@ export default function RegisterPage() {
             </div>
             <div className="py-5">
               <dt className="font-medium">受付が完了したら、すぐに公開されますか？</dt>
-              <dd className="mt-2 leading-relaxed">受付完了と一般公開は別の手続きです。アカウントを作成し、管理画面で所在地・メニュー・写真・スタッフを整え、公開条件を確認してください。</dd>
+              <dd className="mt-2 leading-relaxed">受付完了と一般公開は別の手続きです。アカウントを作成し、管理画面で店舗名・所在地を確認して掲載公開してください。無料掲載にメニュー・写真・スタッフの登録は必須ではありません。ネット予約は曜日別営業時間を含む設定完了まで利用できません。</dd>
             </div>
             <div className="py-5">
               <dt className="font-medium">複数店舗はどのように登録しますか？</dt>

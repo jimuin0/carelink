@@ -85,6 +85,13 @@
     "title",
     "updated_at"
   ],
+  "booking_adjust_operations": [
+    "actor_id",
+    "booking_id",
+    "created_at",
+    "operation_id",
+    "queue_id"
+  ],
   "booking_calendar_events": [
     "booking_id",
     "calendar_id",
@@ -148,8 +155,10 @@
     "body",
     "contact_id",
     "created_at",
+    "delivery_envelope",
     "id",
     "is_internal",
+    "provider_message_id",
     "sent_at"
   ],
   "contacts": [
@@ -805,6 +814,15 @@
     "picture_url",
     "user_id"
   ],
+  "manual_booking_operations": [
+    "actor_id",
+    "booking_id",
+    "created_at",
+    "facility_id",
+    "input",
+    "operation_id",
+    "result"
+  ],
   "menu_staff": [
     "id",
     "menu_id",
@@ -1002,6 +1020,22 @@
     "tags",
     "updated_at",
     "updated_by"
+  ],
+  "salon_duplicate_links": [
+    "canonical_receipt_id",
+    "created_at",
+    "duplicate_receipt_id",
+    "facility_id",
+    "linked_by",
+    "owner_id"
+  ],
+  "salon_recovery_grants": [
+    "created_at",
+    "expires_at",
+    "id",
+    "proof_hash",
+    "receipt_id",
+    "user_id"
   ],
   "salon_submission_intents": [
     "canonical_version",
@@ -1312,10 +1346,14 @@
   ],
   "webhook_retry_queue": [
     "attempt_count",
+    "booking_event_id",
+    "booking_event_kind",
+    "booking_event_revision",
     "claimed_at",
     "created_at",
     "delivered_at",
     "delivery_started_at",
+    "email_envelope",
     "facility_id",
     "id",
     "last_error",
@@ -1323,6 +1361,7 @@
     "notification_kind",
     "payload",
     "processed_at",
+    "provider_message_id",
     "registration_id",
     "scheduled_at",
     "status",

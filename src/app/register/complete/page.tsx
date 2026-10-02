@@ -26,6 +26,7 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
           </p>
           <p className="mb-6">登録済みの可能性があります。重複を避けるため再送信せず、受付状況をお問い合わせください。</p>
           <Link href="/contact" className="btn-primary">受付状況を問い合わせる</Link>
+          <Link href="/register/recover" className="block mt-4 underline">申込時のメールアドレスで送信済みの掲載申込を復旧</Link>
         </div>
       </div>
     );
@@ -48,7 +49,7 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
           あと少しで掲載開始できます。
         </p>
         <p className="text-sm text-gray-500 mb-8">
-          アカウントを作成して、メニュー・スタッフ・写真を登録しましょう。
+          アカウントを作成して店舗名・所在地を確認し、無料掲載を公開しましょう。ネット予約の設定は別に行います。
         </p>
 
         {(name || type || area) && (
@@ -91,7 +92,7 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
             </div>
             <div className="flex items-center gap-3">
               <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center text-xs font-bold shrink-0">3</div>
-              <span className="text-sm text-gray-500">メニュー・スタッフ・写真を追加</span>
+              <span className="text-sm text-gray-500">店舗名・所在地を確認して掲載公開</span>
             </div>
             <div className="flex items-center gap-3">
               <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center text-xs font-bold shrink-0">4</div>

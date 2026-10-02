@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { businessTypes, facilityFeatures, prefectures, dayOrder, dayLabels } from '@/lib/constants';
@@ -11,6 +12,9 @@ import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import { SbPageHeader, SbBadge, SbInput } from '@/components/admin/SbUi';
 import dynamic from 'next/dynamic';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import { FACILITY_INPUT_LIMITS } from '@/lib/facility-input-limits';
+import { hasConfirmedBookingHours } from '@/lib/booking-preparation';
+import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
 const CancelPolicySettings = dynamic(() => import('@/components/admin/CancelPolicySettings'), { ssr: false });
@@ -29,7 +33,9 @@ function toFacilityStatus(v: string | null): 'draft' | 'published' | 'suspended'
   return v === 'draft' || v === 'published' || v === 'suspended' ? v : 'draft';
 }
 
-export default function AdminSettingsPage() {
+function AdminSettingsContent() {
+  const requestedFacility = useSearchParams().get('facility_id');
+  const [facilityChoices, setFacilityChoices] = useState<AdminFacilityChoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -79,6 +85,8 @@ export default function AdminSettingsPage() {
     return init;
   });
   const [closedDays, setClosedDays] = useState<string[]>([]);
+  const [hoursConfirmed, setHoursConfirmed] = useState(false);
+  const [submittedHoursText, setSubmittedHoursText] = useState('');
 
   // React Compiler の set-state-in-effect 対策：取得処理を useCallback 関数として effect の
   // 依存に置き外部から直接呼ぶのではなく、effect 内に inline した非同期IIFEとして定義する
@@ -87,19 +95,25 @@ export default function AdminSettingsPage() {
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    let active = true;
     (async () => {
       const supabase = createBrowserSupabaseClient();
+      setLoading(true);
+      setFacilityId(null);
+      setFacilityChoices([]);
       setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
-      const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-      .in('role', ['owner', 'admin']).limit(1).single();
-      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-      if (!membership) { setLoading(false); return; }
-      setFacilityId(membership.facility_id);
-
-      const { data, error } = await supabase.from('facility_profiles').select('*').eq('id', membership.facility_id).single();
+      const selection = await loadAdminFacilitySelection(supabase, user.id, requestedFacility);
+      if (!active) return;
+      setFacilityChoices(selection.choices);
+      if (!selection.selectedId) { setLoading(false); return; }
+      const { data, error } = await supabase.from('facility_profiles').select('*').eq('id', selection.selectedId).single();
+      if (!active) return;
       if (error) { setLoadError(true); setLoading(false); return; }
+      if (!data) { setLoadError(true); setLoading(false); return; }
+      setFacilityId(selection.selectedId);
+      setDirty(false);
       if (data) {
         setName(data.name || '');
         setBusinessType(data.business_type || '');
@@ -124,6 +138,8 @@ export default function AdminSettingsPage() {
         setAutoConfirm(data.booking_auto_confirm ?? false);
         setBufferMinutes(data.booking_buffer_minutes ?? 0);
         setBoardSlotMinutes(data.board_slot_minutes ?? 60);
+        setSubmittedHoursText(data.business_hours_text || '');
+        setHoursConfirmed(hasConfirmedBookingHours(data.business_hours));
         if (data.business_hours) {
           const bh = data.business_hours as BusinessHours;
           const closed: string[] = [];
@@ -135,8 +151,9 @@ export default function AdminSettingsPage() {
         }
       }
       setLoading(false);
-    })().catch(() => { setLoadError(true); setLoading(false); });
-  }, [reloadKey]);
+    })().catch(() => { if (active) { setLoadError(true); setLoading(false); } });
+    return () => { active = false; };
+  }, [reloadKey, requestedFacility]);
 
   const toggleFeature = (f: string) => {
     setSelectedFeatures((prev) =>
@@ -165,6 +182,7 @@ export default function AdminSettingsPage() {
 
     // 営業時間の整合性チェック
     for (const d of dayOrder) {
+      if (!hoursConfirmed) break;
       if (closedDays.includes(d)) continue;
       const h = hours[d] || { open: '09:00', close: '19:00' };
       if (h.close <= h.open) {
@@ -203,16 +221,16 @@ export default function AdminSettingsPage() {
           credit_card: creditCard,
           features: selectedFeatures,
           regular_holiday: regularHoliday || null,
-          business_hours: businessHours,
+          ...(hoursConfirmed ? { business_hours: businessHours } : {}),
           booking_auto_confirm: autoConfirm,
           booking_buffer_minutes: bufferMinutes,
           board_slot_minutes: boardSlotMinutes,
         }),
       });
 
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        setToast({ type: 'error', message: e.error || '保存に失敗しました' });
+      const result = await res.json().catch(() => null);
+      if (!res.ok || result?.ok !== true) {
+        setToast({ type: 'error', message: result?.error || '保存結果を確認できませんでした。入力内容を保持しています' });
       } else {
         setDirty(false);
         setToast({ type: 'success', message: '施設情報を保存しました' });
@@ -236,8 +254,12 @@ export default function AdminSettingsPage() {
     );
   }
 
+  if (!facilityId) return <FacilitySelector choices={facilityChoices} selectedId={null} path="/admin/settings" />;
+
   return (
     <div onChange={() => setDirty(true)}>
+      <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/settings" dirty={dirty} busy={saving || publishToggling} />
+      <p className="mb-4 text-sm text-gray-600">無料掲載とネット予約は別です。所在地などの店舗情報を確認して掲載公開できます。ネット予約は、公開メニュー・写真・有効スタッフ・全曜日の営業時間設定がそろうまで利用できません。予約管理表は引き続き利用できます。</p>
       <SbPageHeader
         title="施設設定"
         actions={
@@ -259,14 +281,14 @@ export default function AdminSettingsPage() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ status: newStatus }),
                   });
-                  if (res.ok) {
+                  const body = await res.json().catch(() => null);
+                  if (res.ok && body?.ok === true) {
                     setFacilityStatus(newStatus);
                     setToast({ type: 'success', message: '施設を公開しました！' });
                   } else {
                     // サーバは不足項目を missing 配列で返す（例：スタッフを1人以上登録してください）。
                     // これを捨てて「失敗しました」だけ出すと、何を揃えれば公開できるか分からず設定画面を
                     // 行き来する。不足項目をそのまま列挙して「今何が足りないか」を一目で示す。
-                    const body = await res.json().catch(() => null);
                     const missing = Array.isArray(body?.missing) ? body.missing as string[] : [];
                     const message = missing.length > 0
                       ? `公開できません。${missing.join(' / ')}`
@@ -297,7 +319,7 @@ export default function AdminSettingsPage() {
         <div className="space-y-4">
           <div>
             <label htmlFor="fac-name" className="form-label">施設名 <span className="text-red-500">*</span></label>
-            <SbInput id="fac-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
+            <SbInput id="fac-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={FACILITY_INPUT_LIMITS.name} />
           </div>
           <div>
             <label htmlFor="fac-type" className="form-label">業種 <span className="text-red-500">*</span></label>
@@ -337,16 +359,16 @@ export default function AdminSettingsPage() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="fac-city" className="form-label">市区町村 <span className="text-red-500">*</span></label>
-              <SbInput id="fac-city" value={city} onChange={(e) => setCity(e.target.value)} maxLength={50} />
+              <SbInput id="fac-city" value={city} onChange={(e) => setCity(e.target.value)} maxLength={FACILITY_INPUT_LIMITS.city} />
             </div>
             <div>
               <label htmlFor="fac-addr" className="form-label">番地 <span className="text-red-500">*</span></label>
-              <SbInput id="fac-addr" value={address} onChange={(e) => setAddress(e.target.value)} maxLength={100} />
+              <SbInput id="fac-addr" value={address} onChange={(e) => setAddress(e.target.value)} maxLength={FACILITY_INPUT_LIMITS.address} />
             </div>
           </div>
           <div>
             <label htmlFor="fac-bldg" className="form-label">建物名・階</label>
-            <SbInput id="fac-bldg" value={building} onChange={(e) => setBuilding(e.target.value)} maxLength={100} />
+            <SbInput id="fac-bldg" value={building} onChange={(e) => setBuilding(e.target.value)} maxLength={FACILITY_INPUT_LIMITS.building} />
           </div>
           <div>
             <label htmlFor="fac-access" className="form-label">アクセス情報</label>
@@ -354,7 +376,7 @@ export default function AdminSettingsPage() {
           </div>
           <div>
             <label htmlFor="fac-station" className="form-label">最寄り駅</label>
-            <SbInput id="fac-station" value={nearestStation} onChange={(e) => setNearestStation(e.target.value)} maxLength={100} />
+            <SbInput id="fac-station" value={nearestStation} onChange={(e) => setNearestStation(e.target.value)} maxLength={FACILITY_INPUT_LIMITS.nearestStation} />
           </div>
         </div>
       </section>
@@ -369,7 +391,7 @@ export default function AdminSettingsPage() {
           </div>
           <div>
             <label htmlFor="fac-web" className="form-label">Webサイト</label>
-            <SbInput id="fac-web" type="url" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://" maxLength={200} />
+            <SbInput id="fac-web" type="url" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://" maxLength={FACILITY_INPUT_LIMITS.website} />
           </div>
         </div>
       </section>
@@ -377,6 +399,12 @@ export default function AdminSettingsPage() {
       {/* 営業時間 */}
       <section className="bg-white rounded-xl shadow-sm p-6 mb-6">
         <h2 className="text-lg font-bold mb-4">営業時間</h2>
+        {submittedHoursText && <p className="text-sm whitespace-pre-wrap mb-3">申込時の営業時間：{submittedHoursText}</p>}
+        {!hoursConfirmed && <p className="text-sm text-amber-800 mb-3">曜日別の予約営業時間は未設定です。下の表示は入力例です。確認するまでは保存内容に含めず、申込時の情報を保持します。</p>}
+        <label className="flex items-center gap-2 mb-4">
+          <input type="checkbox" checked={hoursConfirmed} onChange={e => setHoursConfirmed(e.target.checked)} />
+          曜日別の営業時間・定休日を確認し、予約用設定として保存する
+        </label>
         <div className="space-y-3">
           {dayOrder.map((day) => (
             <div key={day} className="flex items-center gap-3">
@@ -414,7 +442,7 @@ export default function AdminSettingsPage() {
         </div>
         <div className="mt-4">
           <label htmlFor="fac-holiday" className="form-label">定休日（補足）</label>
-          <SbInput id="fac-holiday" value={regularHoliday} onChange={(e) => setRegularHoliday(e.target.value)} placeholder="例: 第2・4月曜、年末年始" maxLength={100} />
+          <SbInput id="fac-holiday" value={regularHoliday} onChange={(e) => setRegularHoliday(e.target.value)} placeholder="例: 第2・4月曜、年末年始" maxLength={FACILITY_INPUT_LIMITS.regularHoliday} />
         </div>
       </section>
 
@@ -649,7 +677,8 @@ export default function AdminSettingsPage() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ status: 'draft' }),
             });
-            if (res.ok) {
+            const body = await res.json().catch(() => null);
+            if (res.ok && body?.ok === true) {
               setFacilityStatus('draft');
               setToast({ type: 'success', message: '施設を非公開にしました' });
             } else {
@@ -667,4 +696,13 @@ export default function AdminSettingsPage() {
       <WithdrawalSettings />
     </div>
   );
+}
+
+function SettingsSelectionRoute() {
+  const requested = useSearchParams().get('facility_id');
+  return <AdminSettingsContent key={requested ?? 'unselected'} />;
+}
+
+export default function AdminSettingsPage() {
+  return <Suspense fallback={<AdminPageLoading />}><SettingsSelectionRoute /></Suspense>;
 }

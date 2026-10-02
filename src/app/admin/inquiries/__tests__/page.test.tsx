@@ -36,6 +36,32 @@ test('loads through the guarded API and reports only the visible-page count', as
   }));
 });
 
+test.each([true, false])('受理照合は本文を送らずreconcileだけを実行する（成功=%s）', async (accepted) => {
+  const operationId = '44444444-4444-4444-8444-444444444444';
+  const providerMessageId = '55555555-5555-4555-8555-555555555555';
+  let sentAt: string | null = null;
+  mockFetch.mockImplementation((input: RequestInfo | URL, options?: RequestInit) => {
+    if (!String(input).endsWith('/reply')) return response();
+    if (options?.method === 'POST') {
+      expect(JSON.parse(String(options.body))).toEqual({ action: 'reconcile', operationId, providerMessageId });
+      if (accepted) sentAt = '2026-01-01T00:00:00Z';
+      return response({ ok: accepted }, accepted);
+    }
+    return response({ reply: { operationId, body: '合成予約本文', sentAt, retryable: false, recoveryAvailable: true } });
+  });
+  render(<Page />);
+  fireEvent.click(await screen.findByText('合成問い合わせ'));
+  const input = await screen.findByLabelText('送信サービスのメールID（管理者が受理記録から取得）');
+  const button = screen.getByRole('button', { name: '受理記録を照合（メールは再送しません）' });
+  expect(button).toBeDisabled();
+  fireEvent.change(input, { target: { value: providerMessageId } });
+  fireEvent.click(button);
+  expect(await screen.findByText(accepted
+    ? '送信サービスの受理記録を照合しました。メールの再送はしていません。受信箱への到着は別確認です'
+    : '受理記録を確定できません。未確定のまま保持し、メールは再送していません')).toBeVisible();
+  expect(mockFetch.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(1);
+});
+
 test('paginates with the opaque timestamp cursor and preserves existing rows', async () => {
   const cursor = { id, createdAt: row.created_at };
   mockFetch.mockResolvedValueOnce(response({ contacts: [row], nextCursor: cursor }))

@@ -124,6 +124,9 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     });
 
     if (error) {
+      if (error.message?.includes('BOOKING_NOT_READY')) {
+        return NextResponse.json({ error: 'この店舗のネット予約は準備中です。予約変更は店舗へお問い合わせください' }, { status: 409 });
+      }
       const msg = error.message || '';
       if (msg.includes('BOOKING_CONFLICT')) {
         return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });

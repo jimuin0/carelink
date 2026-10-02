@@ -22,6 +22,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
+import { observeFacilitySetup } from './facility-setup-observer';
 
 // This suite writes synthetic applications. Never run it against a hosted DB/app.
 test.beforeAll(() => {
@@ -254,7 +255,7 @@ test.describe('/register 送信', () => {
       // Never include the capability cookie value in assertion output.
       expect({ present: !!claim, secure: claim?.secure, httpOnly: claim?.httpOnly, sameSite: claim?.sameSite })
         .toEqual({ present: true, secure: true, httpOnly: true, sameSite: 'Lax' });
-      await expect(page.getByText('この時点では一般公開は完了していません。店舗アカウントを作成し、管理画面で店舗情報・メニュー・スタッフ・写真を確認して公開してください。')).toBeVisible();
+      await expect(page.getByText('この時点では一般公開は完了していません。店舗アカウントを作成し、管理画面で店舗名・所在地などを確認して無料掲載を公開してください。ネット予約はメニュー・スタッフ・写真・曜日別営業時間の設定完了まで利用できません。')).toBeVisible();
       await expect(page.getByRole('link', { name: '店舗アカウントを作成する' })).toHaveAttribute('href',
         '/auth/signup?redirect=%2Fadmin%2Fonboarding%3Fhandoff%3Dregistration');
       const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
@@ -286,12 +287,10 @@ test.describe('/register 送信', () => {
         await expect(page.locator('#onboarding-business-type')).toHaveValue('ヘアサロン');
         await expect(page.locator('#onboarding-facility-name')).toHaveValue(/^E2E登録テスト施設 /);
         await page.getByRole('checkbox').check();
-        const setupResult = page.waitForResponse(r => new URL(r.url()).pathname === '/api/facility/setup'
-          && r.request().method() === 'POST');
-        await page.getByRole('button', { name: '施設を作成する', exact: true }).click();
-        const setup = await setupResult;
-        expect(setup.status()).toBe(201);
-        const setupBody = await setup.json();
+        const setup = await observeFacilitySetup(page,
+          () => page.getByRole('button', { name: '施設を作成する', exact: true }).click());
+        expect(setup.status).toBe(201);
+        const setupBody = setup.body;
         expect(setupBody.success).toBe(true);
         await page.waitForURL(url => url.pathname === '/admin');
         const { data: claimed, error: claimError } = await db.from('salons')

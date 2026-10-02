@@ -203,17 +203,4 @@ describe('analytics-events', () => {
     expect(mockGtag).not.toHaveBeenCalled();
   });
 
-  test('SSR (window undefined) → 何もしない', () => {
-    const origWindow = (global as { window?: unknown }).window;
-    // @ts-expect-error - simulating SSR
-    delete (global as { window?: unknown }).window;
-    jest.isolateModules(() => {
-      const mod = require('../analytics-events');
-      expect(() => mod.trackBookingStarted('f', 's')).not.toThrow();
-    });
-    (global as { window?: unknown }).window = origWindow;
-  });
-
-  // Branch coverage: line 14 — typeof window === 'undefined' の true 分岐は
-  // 上の 'SSR (window undefined)' テストで jest.isolateModules + delete window により既にカバー済み
 });

@@ -10,9 +10,9 @@ jest.mock('@/lib/rate-limit', () => ({
   checkRateLimit: jest.fn(() => Promise.resolve(false)),
 }));
 jest.mock('@/lib/email', () => ({
-  sendBookingConfirmed: jest.fn(),
-  sendBookingCancelled: jest.fn(),
-  sendBookingStatusUpdate: jest.fn(),
+  buildBookingConfirmedEnvelope: jest.fn(jest.requireActual('@/lib/email').buildBookingConfirmedEnvelope),
+  buildBookingCancelledEnvelope: jest.fn(jest.requireActual('@/lib/email').buildBookingCancelledEnvelope),
+  buildBookingStatusUpdateEnvelope: jest.fn(jest.requireActual('@/lib/email').buildBookingStatusUpdateEnvelope),
 }));
 jest.mock('@/lib/push', () => ({ sendPushToUser: jest.fn(() => Promise.resolve(true)) }));
 jest.mock('@/lib/line', () => ({ sendBookingCancellation: jest.fn() }));
@@ -29,6 +29,7 @@ jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: 
 
 const mockGetUser = jest.fn();
 const mockFrom = jest.fn();
+const mockRpc = jest.fn();
 
 jest.mock('@/lib/supabase-server-auth', () => ({
   createServerSupabaseAuthClient: jest.fn(() => Promise.resolve({
@@ -36,7 +37,7 @@ jest.mock('@/lib/supabase-server-auth', () => ({
   })),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: jest.fn(() => ({ from: mockFrom })),
+  createServiceRoleClient: jest.fn(() => ({ from: mockFrom, rpc: mockRpc })),
   createServerSupabaseClient: jest.fn(() => ({ from: mockFrom })),
 }));
 jest.mock('next/headers', () => ({
@@ -46,7 +47,7 @@ jest.mock('next/headers', () => ({
 import { POST } from '../route';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } from '@/lib/email';
+import { buildBookingConfirmedEnvelope, buildBookingCancelledEnvelope, buildBookingStatusUpdateEnvelope } from '@/lib/email';
 import { sendPushToUser } from '@/lib/push';
 import { sendBookingCancellation } from '@/lib/line';
 import { alertCaughtError } from '@/lib/alert';
@@ -61,12 +62,15 @@ beforeEach(() => {
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
   // メール送信関数は boolean を返す契約（デフォルトは成功）。個別テストで false を上書きして
   // 送達失敗時のアラート分岐を検証する。
-  (sendBookingConfirmed as jest.Mock).mockResolvedValue(true);
-  (sendBookingCancelled as jest.Mock).mockResolvedValue(true);
-  (sendBookingStatusUpdate as jest.Mock).mockResolvedValue(true);
+  const actual = jest.requireActual('@/lib/email');
+  (buildBookingConfirmedEnvelope as jest.Mock).mockImplementation(actual.buildBookingConfirmedEnvelope);
+  (buildBookingCancelledEnvelope as jest.Mock).mockImplementation(actual.buildBookingCancelledEnvelope);
+  (buildBookingStatusUpdateEnvelope as jest.Mock).mockImplementation(actual.buildBookingStatusUpdateEnvelope);
+  mockRpc.mockImplementation(async (_name, args) => ({ data: [{ operation_id: args.p_envelope ? validBookingId : null,
+    replayed: false, notification: args.p_envelope ? 'queued' : 'not_requested' }], error: null }));
 });
 
-function makeRequest(body: object) {
+function makeRequest(body: unknown) {
   return new Request('http://localhost/api/admin/booking-status', {
     method: 'POST',
     headers: {
@@ -118,13 +122,7 @@ function updateChain(result: { data: unknown; error: unknown }) {
 
 /** Build a simple .select().eq().single() chain (for facility_profiles, menus, staff). */
 function singleChain(data: unknown) {
-  return {
-    select: jest.fn(() => ({
-      eq: jest.fn(() => ({
-        single: jest.fn(() => Promise.resolve({ data, error: null })),
-      })),
-    })),
-  };
+  return fluent({ data, error: null });
 }
 
 const bookingBase = {
@@ -132,6 +130,7 @@ const bookingBase = {
   customer_name: 'テスト', email: 'c@example.com',
   booking_date: '2026-05-01', start_time: '10:00', end_time: '11:00',
   total_price: 5000, menu_id: null, staff_id: null,
+  menu_ids: [], updated_at: '2026-05-01T01:00:00Z',
 };
 const bookingPending = { ...bookingBase, status: 'pending' };
 
@@ -164,6 +163,41 @@ function setupSuccessMock(fromStatus: string) {
     return singleChain({ name: 'テスト施設' });
   });
 }
+
+describe('status transaction adversarial results', () => {
+  test.each([null,[],42,'invalid'])('non-object body %j is rejected before DB access', async body => {
+    expect((await POST(makeRequest(body))).status).toBe(400); expect(mockRpc).not.toHaveBeenCalled();
+  });
+  test.each([42,null,'x'.repeat(1001)])('invalid reason is rejected', async reason => {
+    expect((await POST(makeRequest({bookingId:validBookingId,status:'confirmed',reason}))).status).toBe(400);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+  test('1000-character reason boundary is accepted', async () => {
+    setupSuccessMock('pending');
+    expect((await POST(makeRequest({bookingId:validBookingId,status:'confirmed',reason:'x'.repeat(1000)}))).status).toBe(200);
+  });
+  test.each(['08006','PGRST116'])('booking read error %s is not a successful update', async code => {
+    setupSuccessMock('pending'); const fallback=mockFrom.getMockImplementation()!;
+    mockFrom.mockImplementation(table => table==='bookings' ? fluent({data:null,error:{code,message:'synthetic read failure'}}) : fallback(table));
+    expect((await POST(makeRequest({bookingId:validBookingId,status:'confirmed'}))).status).toBe(code==='PGRST116'?404:500);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+  test('membership dependency failure cannot become an authorized transaction', async () => {
+    setupSuccessMock('pending'); const fallback=mockFrom.getMockImplementation()!;
+    mockFrom.mockImplementation(table => table==='facility_members' ? fluent({data:null,error:{message:'synthetic auth dependency'}}) : fallback(table));
+    expect((await POST(makeRequest({bookingId:validBookingId,status:'confirmed'}))).status).toBe(500);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+  test('write-time permission loss is not a status success', async () => {
+    setupSuccessMock('pending'); mockRpc.mockResolvedValue({data:null,error:{message:'BOOKING_PERMISSION_DENIED'}});
+    expect((await POST(makeRequest({bookingId:validBookingId,status:'confirmed'}))).status).toBe(404);
+  });
+  test.each([undefined,[],[{operation_id:validBookingId,notification:'invalid'}]])('malformed transaction result %j is not success', async data => {
+    setupSuccessMock('pending'); mockRpc.mockResolvedValue({data,error:null});
+    expect((await POST(makeRequest({bookingId:validBookingId,status:'confirmed'}))).status).toBe(500);
+    expect(sendPushToUser).not.toHaveBeenCalled();
+  });
+});
 
 describe('POST /api/admin/booking-status', () => {
   test('認証なし → 401', async () => {
@@ -316,6 +350,7 @@ describe('POST /api/admin/booking-status - state machine (invalid transitions)',
 // ---------------------------------------------------------------------------
 describe('POST /api/admin/booking-status - CAS and DB errors', () => {
   test('CAS競合: 読み取り後にステータスが変更された → 409', async () => {
+    mockRpc.mockResolvedValue({ data:null,error:{ message:'BOOKING_REVISION_CONFLICT' } });
     mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
     const memberData = { facility_id: facilityId, role: 'owner' };
     let callCount = 0;
@@ -336,6 +371,7 @@ describe('POST /api/admin/booking-status - CAS and DB errors', () => {
   });
 
   test('DBアップデートエラー → 500', async () => {
+    mockRpc.mockResolvedValue({ data:null,error:{ message:'DB error' } });
     mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
     const memberData = { facility_id: facilityId, role: 'owner' };
     let callCount = 0;
@@ -382,47 +418,48 @@ describe('POST /api/admin/booking-status - notifications', () => {
     expect(res.status).toBe(200);
   });
 
-  test('confirmed → sendBookingConfirmed が呼ばれる', async () => {
+  test('confirmed → buildBookingConfirmedEnvelope が呼ばれる', async () => {
     setupSuccessMock('pending');
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
     expect(res.status).toBe(200);
-    expect(sendBookingConfirmed).toHaveBeenCalledTimes(1);
-    expect(sendBookingCancelled).not.toHaveBeenCalled();
-    expect(sendBookingStatusUpdate).not.toHaveBeenCalled();
+    expect(buildBookingConfirmedEnvelope).toHaveBeenCalledTimes(1);
+    expect(buildBookingCancelledEnvelope).not.toHaveBeenCalled();
+    expect(buildBookingStatusUpdateEnvelope).not.toHaveBeenCalled();
   });
 
-  test('confirmed → メール送信失敗(false)でも200のまま（無音失敗を可視化するのみ）', async () => {
+  test('通知envelopeの検証失敗は保存前に500となる', async () => {
     setupSuccessMock('pending');
-    (sendBookingConfirmed as jest.Mock).mockResolvedValue(false);
+    (buildBookingConfirmedEnvelope as jest.Mock).mockResolvedValue(false);
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
-    expect(res.status).toBe(200);
-    expect(sendBookingConfirmed).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(500);
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(buildBookingConfirmedEnvelope).toHaveBeenCalledTimes(1);
   });
 
-  test('cancelled → sendBookingCancelled が呼ばれる', async () => {
+  test('cancelled → buildBookingCancelledEnvelope が呼ばれる', async () => {
     setupSuccessMock('pending');
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
     expect(res.status).toBe(200);
-    expect(sendBookingCancelled).toHaveBeenCalledTimes(1);
-    expect(sendBookingConfirmed).not.toHaveBeenCalled();
-    expect(sendBookingStatusUpdate).not.toHaveBeenCalled();
+    expect(buildBookingCancelledEnvelope).toHaveBeenCalledTimes(1);
+    expect(buildBookingConfirmedEnvelope).not.toHaveBeenCalled();
+    expect(buildBookingStatusUpdateEnvelope).not.toHaveBeenCalled();
   });
 
-  test('completed → sendBookingStatusUpdate が呼ばれる', async () => {
+  test('completed → buildBookingStatusUpdateEnvelope が呼ばれる', async () => {
     setupSuccessMock('confirmed');
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'completed' }));
     expect(res.status).toBe(200);
-    expect(sendBookingStatusUpdate).toHaveBeenCalledTimes(1);
-    expect(sendBookingConfirmed).not.toHaveBeenCalled();
-    expect(sendBookingCancelled).not.toHaveBeenCalled();
+    expect(buildBookingStatusUpdateEnvelope).toHaveBeenCalledTimes(1);
+    expect(buildBookingConfirmedEnvelope).not.toHaveBeenCalled();
+    expect(buildBookingCancelledEnvelope).not.toHaveBeenCalled();
   });
 
-  test('no_show → sendBookingStatusUpdate が呼ばれる', async () => {
+  test('no_show → buildBookingStatusUpdateEnvelope が呼ばれる', async () => {
     setupSuccessMock('confirmed');
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'no_show' }));
     expect(res.status).toBe(200);
-    expect(sendBookingStatusUpdate).toHaveBeenCalledTimes(1);
-    const callArg = (sendBookingStatusUpdate as jest.Mock).mock.calls[0][0];
+    expect(buildBookingStatusUpdateEnvelope).toHaveBeenCalledTimes(1);
+    const callArg = (buildBookingStatusUpdateEnvelope as jest.Mock).mock.calls[0][0];
     expect(callArg.newStatus).toBe('no_show');
   });
 
@@ -446,15 +483,15 @@ describe('POST /api/admin/booking-status - notifications', () => {
     expect(res.status).toBe(200);
     await Promise.resolve();
     // 受付は来店中の内部操作 → 顧客へのメール・Push は送らない
-    expect(sendBookingConfirmed).not.toHaveBeenCalled();
-    expect(sendBookingCancelled).not.toHaveBeenCalled();
-    expect(sendBookingStatusUpdate).not.toHaveBeenCalled();
+    expect(buildBookingConfirmedEnvelope).not.toHaveBeenCalled();
+    expect(buildBookingCancelledEnvelope).not.toHaveBeenCalled();
+    expect(buildBookingStatusUpdateEnvelope).not.toHaveBeenCalled();
     expect(sendPushToUser).not.toHaveBeenCalled();
     // completed ではないため来店記録は積まない
     expect(visitInsert).not.toHaveBeenCalled();
   });
 
-  test('arrived → completed: 来店記録(customer_visits)が積まれる', async () => {
+  test('arrived → completed: 状態更新に付随するDBトリガーへ来店記録を委ね、二重INSERTしない', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
     const visitInsert = jest.fn(() => Promise.resolve({ error: null }));
     let callCount = 0;
@@ -475,13 +512,16 @@ describe('POST /api/admin/booking-status - notifications', () => {
     });
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'completed' }));
     expect(res.status).toBe(200);
-    expect(visitInsert).toHaveBeenCalled();
+    expect(await res.json()).toEqual(expect.objectContaining({ success: true }));
+    // Atomic creation/reversal and failure rollback are exercised against real
+    // Postgres by booking_visits_atomic fixtures in schema-fingerprint CI.
+    expect(visitInsert).not.toHaveBeenCalled();
   });
 
-  test('sendBookingConfirmed に正しい emailData が渡される', async () => {
+  test('buildBookingConfirmedEnvelope に正しい emailData が渡される', async () => {
     setupSuccessMock('pending');
     await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
-    expect(sendBookingConfirmed).toHaveBeenCalledWith(
+    expect(buildBookingConfirmedEnvelope).toHaveBeenCalledWith(
       expect.objectContaining({
         customerName: bookingBase.customer_name,
         customerEmail: bookingBase.email,
@@ -511,12 +551,13 @@ describe('POST /api/admin/booking-status - notifications', () => {
     );
   });
 
-  test('メール送信エラーは無視して 200 を返す', async () => {
+  test('通知envelopeの生成例外は状態保存前に失敗する', async () => {
     setupSuccessMock('pending');
-    (sendBookingConfirmed as jest.Mock).mockRejectedValueOnce(new Error('SMTP error'));
+    (buildBookingConfirmedEnvelope as jest.Mock).mockImplementationOnce(() => { throw new Error('template error'); });
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
     // Email failure must not surface as HTTP error
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
+    expect(mockRpc).not.toHaveBeenCalled();
   });
 
   // booking.email が null（DB 上 nullable・migration 20260629000001 で NOT NULL 撤去）のとき
@@ -547,9 +588,9 @@ describe('POST /api/admin/booking-status - notifications', () => {
       await Promise.resolve();
 
       // email が無いためメール送信系はいずれも呼ばれない（emailData=null 側）
-      expect(sendBookingConfirmed).not.toHaveBeenCalled();
-      expect(sendBookingCancelled).not.toHaveBeenCalled();
-      expect(sendBookingStatusUpdate).not.toHaveBeenCalled();
+      expect(buildBookingConfirmedEnvelope).not.toHaveBeenCalled();
+      expect(buildBookingCancelledEnvelope).not.toHaveBeenCalled();
+      expect(buildBookingStatusUpdateEnvelope).not.toHaveBeenCalled();
       expect(alertCaughtError).not.toHaveBeenCalledWith('booking-email', expect.anything(), expect.anything());
 
       // メール未送信は LINE・Push という別チャネルの実行を妨げない
@@ -651,7 +692,7 @@ describe('POST /api/admin/booking-status - notifications', () => {
       mockFrom.mockImplementation((table: string) => {
         if (table === 'bookings') {
           callCount++;
-          if (callCount === 1) return fluent({ data: { ...bookingBase, status: 'confirmed', menu_id: 'menu-1' } });
+          if (callCount === 1) return fluent({ data: { ...bookingBase, email:null, status: 'confirmed', menu_id: 'menu-1' } });
           return updateChain({ data: [{ id: validBookingId }], error: null });
         }
         if (table === 'facility_members') return membershipChain({ facility_id: facilityId, role: 'owner' });
@@ -697,11 +738,11 @@ describe('POST /api/admin/booking-status - notifications', () => {
       }
       if (table === 'facility_members') return membershipChain(memberData);
       if (table === 'facility_profiles') return singleChain({ name: 'テスト施設' });
-      if (table === 'facility_menus') return singleChain({ name: 'カット' });
+      if (table === 'facility_menus') return fluent({ data:[{ id:'menu-001',name:'カット' }],error:null });
       return singleChain(null);
     });
     await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
-    expect(sendBookingConfirmed).toHaveBeenCalledWith(
+    expect(buildBookingConfirmedEnvelope).toHaveBeenCalledWith(
       expect.objectContaining({ menuName: 'カット' })
     );
   });
@@ -723,7 +764,7 @@ describe('POST /api/admin/booking-status - notifications', () => {
       return singleChain(null);
     });
     await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
-    expect(sendBookingConfirmed).toHaveBeenCalledWith(
+    expect(buildBookingConfirmedEnvelope).toHaveBeenCalledWith(
       expect.objectContaining({ staffName: '田中スタッフ' })
     );
   });
@@ -830,7 +871,7 @@ describe('POST /api/admin/booking-status - notifications', () => {
     expect(res.status).toBe(200);
   });
 
-  test('facility が null → emailData.facilityName=""', async () => {
+  test('通知元施設が失われた場合は空名称で送らず保存前に失敗する', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
     const memberData = { facility_id: facilityId, role: 'owner' };
     let callCount = 0;
@@ -845,8 +886,8 @@ describe('POST /api/admin/booking-status - notifications', () => {
       return singleChain(null);
     });
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
-    expect(res.status).toBe(200);
-    expect(sendBookingConfirmed).toHaveBeenCalledWith(expect.objectContaining({ facilityName: '' }));
+    expect(res.status).toBe(500);
+    expect(mockRpc).not.toHaveBeenCalled();
   });
 
   test('booking.total_price が null → emailData.totalPrice=undefined', async () => {
@@ -864,7 +905,7 @@ describe('POST /api/admin/booking-status - notifications', () => {
       return singleChain({ name: 'テスト' });
     });
     await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
-    expect(sendBookingConfirmed).toHaveBeenCalledWith(expect.objectContaining({ totalPrice: undefined }));
+    expect(buildBookingConfirmedEnvelope).toHaveBeenCalledWith(expect.objectContaining({ totalPrice: undefined }));
   });
 
   // Branch coverage: line 177 branch 1 (FALSE) — statusLabels[status] が falsy のとき 'ステータス更新' を使う

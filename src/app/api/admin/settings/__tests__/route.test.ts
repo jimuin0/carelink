@@ -21,6 +21,7 @@ const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 
 const mockAdminFrom = jest.fn();
+const mockAdminRpc = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockGetUser = jest.fn();
 
@@ -28,15 +29,45 @@ jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc:mockAdminRpc }),
 }));
 
 import { NextRequest } from 'next/server';
 import { PATCH } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { FACILITY_INPUT_LIMITS } from '@/lib/facility-input-limits';
 
 const VALID_BODY = { name: 'テスト施設' };
+
+test.each(['ok', 'missing-photo', 'photo-error', 'missing-profile', 'profile-error', 'malformed'])('main photo uses server authorization and confirms affected row：%s', async (mode) => {
+  const photoId = '44444444-4444-4444-8444-444444444444';
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const photo = memberChain(mode === 'missing-photo' ? null : { photo_url: 'https://example.invalid/test.png' }, mode === 'photo-error' ? { code: '08006' } : null);
+  const profile = updateChain(mode === 'profile-error' ? { code: '08006' } : null, mode === 'missing-profile' ? null : { id: FACILITY_UUID });
+  mockAdminFrom.mockImplementation((table: string) => table === 'facility_photos' ? photo : profile);
+  const response = await PATCH(makePatchRequest({ photoId: mode === 'malformed' ? 'invalid' : photoId }, { facility_id: FACILITY_UUID, action: 'main-photo' }));
+  expect(response.status).toBe({ ok: 200, 'missing-photo': 409, 'photo-error': 500, 'missing-profile': 409, 'profile-error': 500, malformed: 400 }[mode]);
+  if (mode !== 'malformed') {
+    expect(photo.eq).toHaveBeenCalledWith('facility_id', FACILITY_UUID);
+    expect(photo.eq).toHaveBeenCalledWith('id', photoId);
+  }
+  if (mode === 'ok') expect(profile.update).toHaveBeenCalledWith(expect.objectContaining({ main_photo_url: 'https://example.invalid/test.png' }));
+});
+
+test.each([
+  ['name', FACILITY_INPUT_LIMITS.name], ['city', FACILITY_INPUT_LIMITS.city],
+  ['address', FACILITY_INPUT_LIMITS.address], ['building', FACILITY_INPUT_LIMITS.building],
+  ['nearest_station', FACILITY_INPUT_LIMITS.nearestStation], ['regular_holiday', FACILITY_INPUT_LIMITS.regularHoliday],
+  ['website_url', FACILITY_INPUT_LIMITS.website],
+])('PATCH preserves intake upper bound for %s and rejects overflow', async (field, maxLength) => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const prefix = field === 'website_url' ? 'https://example.invalid/' : '';
+  const value = prefix + 'a'.repeat(Number(maxLength) - prefix.length);
+  expect((await PATCH(makePatchRequest({ ...VALID_BODY, [field]: value }))).status).toBe(200);
+  expect((await PATCH(makePatchRequest({ ...VALID_BODY, [field]: value + 'a' }))).status).toBe(400);
+});
 const locationConflict = { code: '23514', message: 'new row violates check constraint "published_facility_location_present"' };
 
 test('PATCH: published住所削除のDB拒否を成功にしない', async () => {
@@ -118,7 +149,7 @@ function facilityProfileChain(opts: {
       eq: jest.fn(() => ({
         single: jest.fn(() =>
           Promise.resolve({
-            data: opts.profileError ? null : { prefecture, city, address },
+            data: opts.profileError ? null : { name: '合成店舗', prefecture, city, address },
             error: opts.profileError ?? null,
           }),
         ),
@@ -136,6 +167,7 @@ function publishMocks(opts: {
   photo?: number | null;
   staff?: number | null;
   countError?: unknown;
+  profileError?: unknown;
   updateError?: unknown;
   prefecture?: string | null;
   city?: string | null;
@@ -155,13 +187,17 @@ function publishMocks(opts: {
       prefecture: opts.prefecture,
       city: opts.city,
       address: opts.address,
-      profileError: e,
+      profileError: opts.profileError,
     });
   });
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAdminRpc.mockImplementation(async (_name,args) => {
+    const observed = await mockAdminFrom('facility_profiles').update(args.p_patch).eq(args.p_facility_id).select('id').maybeSingle();
+    return { ...observed,data:observed.data ? [observed.data] : [] };
+  });
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
@@ -174,6 +210,33 @@ test('PATCH: 未認証 → 401', async () => {
   mockGetUser.mockResolvedValue({ data: { user: null } });
   const res = await PATCH(makePatchRequest());
   expect(res.status).toBe(401);
+});
+test.each(['patch','status','photo'])('write-time permission loss rejects %s without successful audit', async kind => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id:FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(memberChain({ photo_url:'https://example.invalid/photo.png' }));
+  mockAdminRpc.mockResolvedValue({ data:null,error:{ message:'FACILITY_PERMISSION_REVOKED' } });
+  const request = kind === 'status' ? makePatchRequest({ status:'draft' },{ facility_id:FACILITY_UUID,action:'status' })
+    : kind === 'photo' ? makePatchRequest({ photoId:'44444444-4444-4444-8444-444444444444' },{ facility_id:FACILITY_UUID,action:'main-photo' })
+    : makePatchRequest();
+  expect((await PATCH(request)).status).toBe(403); expect(writeAuditLog).not.toHaveBeenCalled();
+});
+test('settings cannot publish an ownerless facility', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id:FACILITY_UUID }));
+  publishMocks(); mockAdminRpc.mockResolvedValue({ data:null,error:{ message:'FACILITY_OWNER_REQUIRED' } });
+  expect((await PATCH(makePatchRequest({ status:'published' },{ facility_id:FACILITY_UUID,action:'status' }))).status).toBe(409);
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});
+test('auth error alongside a user is not usable authorization', async () => {
+  mockGetUser.mockResolvedValue({ data:{ user:{ id:USER_ID } },error:{ message:'08006' } });
+  expect((await PATCH(makePatchRequest())).status).toBe(401); expect(mockAdminRpc).not.toHaveBeenCalled();
+});
+test('main-photo database update failure is not successful save', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({facility_id:FACILITY_UUID}));
+  mockAdminFrom.mockReturnValue(memberChain({photo_url:'https://example.invalid/synthetic.png'}));
+  mockAdminRpc.mockResolvedValue({data:null,error:{message:'08006'}});
+  expect((await PATCH(makePatchRequest({photoId:'44444444-4444-4444-8444-444444444444'},
+    {facility_id:FACILITY_UUID,action:'main-photo'}))).status).toBe(500);
+  expect(writeAuditLog).not.toHaveBeenCalled();
 });
 
 test('PATCH: facility_id なし → 401', async () => {
@@ -256,38 +319,47 @@ test('PATCH: ?action=status published（必須項目充足）→ 200', async () 
   expect(json.ok).toBe(true);
 });
 
-test('PATCH: published でメニュー0件 → 400（公開ガード）', async () => {
+test('PATCH: 掲載のみはメニュー0件でも公開できる', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   publishMocks({ menu: null, photo: 1, staff: 1 });
   const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
   const json = await res.json();
-  expect(res.status).toBe(400);
-  expect(json.missing).toContain('メニューを1つ以上登録してください');
+  expect(res.status).toBe(200);
+  expect(json.ok).toBe(true);
 });
 
-test('PATCH: published で写真0件 → 400（公開ガード）', async () => {
+test('PATCH: 掲載のみは写真0件でも公開できる', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   publishMocks({ menu: 1, photo: null, staff: 1 });
   const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
   const json = await res.json();
-  expect(res.status).toBe(400);
-  expect(json.missing).toContain('写真を1枚以上登録してください');
+  expect(res.status).toBe(200);
+  expect(json.ok).toBe(true);
 });
 
-test('PATCH: published でスタッフ0件（count=null）→ 400（公開ガード）', async () => {
+test('PATCH: 掲載のみはスタッフ0件でも公開できる', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   publishMocks({ menu: 1, photo: 1, staff: null });
   const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
   const json = await res.json();
-  expect(res.status).toBe(400);
-  expect(json.missing).toContain('スタッフを1人以上登録してください');
+  expect(res.status).toBe(200);
+  expect(json.ok).toBe(true);
 });
 
-test('PATCH: published で count 取得エラー → 500', async () => {
+test('PATCH: 掲載公開は予約用count queryを呼ばない', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   publishMocks({ countError: { message: 'count fail' } });
   const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  expect(res.status).toBe(200);
+  expect(mockAdminFrom).not.toHaveBeenCalledWith('facility_menus');
+});
+
+test('PATCH: 掲載情報の読取失敗では公開を書き込まない', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  publishMocks({ profileError: { code: '08006' } });
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
   expect(res.status).toBe(500);
+  expect(writeAuditLog).not.toHaveBeenCalled();
 });
 
 test.each(['', ' \u3000 '])('PATCH: 住所 %p の施設は単独公開されない', async (address) => {

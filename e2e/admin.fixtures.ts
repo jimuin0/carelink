@@ -9,6 +9,7 @@ export const ADMIN_AUTH_FILE = 'e2e/.auth/admin.json';
 export const PENDING_BOOKING_FILE = 'e2e/.auth/admin-pending.json';
 // 確定(confirmed)予約の id。退店レジ会計→完了の書き込み・副作用検証に使う。
 export const CONFIRMED_BOOKING_FILE = 'e2e/.auth/admin-confirmed.json';
+export const MANUAL_BOOKING_FILE = 'e2e/.auth/admin-manual.json';
 
 // seed する固定値（admin.spec.ts の検証期待値と一致させる）
 export const SEED = {
@@ -24,6 +25,8 @@ export const SEED = {
   expectedNoShowRate: '50%',
   // 本日の売上 = 完了予約のみ = 8000 → "¥8,000"
   expectedTodayRevenue: '¥8,000',
+  manualMenuFirst: 'E2E手動カット',
+  manualMenuSecond: 'E2E手動ケア',
 };
 
 // JST の本日（YYYY-MM-DD）。CI は UTC のため +9h して算出し、

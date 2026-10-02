@@ -6,6 +6,7 @@ import Link from 'next/link';
 import BulkActions from './BulkActions';
 import { jstMonthStartIso } from '@/lib/admin-date';
 import { SbTable, SbThead, SbTh, SbTbody, SbTd, SbPageHeader } from '@/components/admin/SbUi';
+import { z } from 'zod';
 
 export const metadata: Metadata = { title: 'チェーン一括管理' };
 export const dynamic = 'force-dynamic';
@@ -26,14 +27,15 @@ interface FacilityStat {
 
 export default async function ChainManagementPage() {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect('/auth/login?redirect=/admin/chain');
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) redirect('/auth/login?redirect=/admin/chain');
 
-  const { data: memberships } = await supabase
+  const { data: memberships, error: membershipError } = await supabase
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
     .in('role', ['owner', 'admin']);
+  if (membershipError || !Array.isArray(memberships) || memberships.length > 100) throw new Error('管理店舗の取得に失敗しました');
 
   if (!memberships || memberships.length < 2) {
     return (
@@ -56,7 +58,7 @@ export default async function ChainManagementPage() {
   );
 
   // 施設基本情報
-  const { data: facilities } = await admin
+  const { data: facilities, error: facilityError } = await admin
     .from('facility_profiles')
     .select('id, name, slug, prefecture, city, status')
     .in('id', facilityIds)
@@ -65,37 +67,27 @@ export default async function ChainManagementPage() {
   // 予約数（全期間・今月＝JST 月境界）
   const monthStart = jstMonthStartIso(0);
 
-  const { data: allBookings } = await admin
-    .from('bookings')
-    .select('facility_id, created_at')
-    .in('facility_id', facilityIds);
+  const { data: measured, error: statisticsError } = await admin.rpc('get_chain_statistics', {
+    p_actor_id: user.id, p_facility_ids: facilityIds, p_month_start: monthStart,
+  });
+  const statistics = z.array(z.object({ id: z.uuid(), booking_count: z.number().int().nonnegative(),
+    monthly_bookings: z.number().int().nonnegative(), review_count: z.number().int().nonnegative(),
+    rating_avg: z.number().min(0).max(5), nps_score: z.number().min(-100).max(100).nullable(),
+  })).safeParse(measured);
 
-  // レビュー統計（公開済レビューのみ。`public_reviews` ビューが status='published' を事前フィルタ済）
-  const { data: reviews } = await admin
-    .from('public_reviews' as 'facility_reviews')
-    .select('facility_id, rating')
-    .in('facility_id', facilityIds);
-
-  // NPS
-  const { data: npsData } = await admin
-    .from('nps_surveys')
-    .select('facility_id, score')
-    .in('facility_id', facilityIds);
+  // An unavailable source is not a measured zero. Do not publish partially
+  // fabricated statistics when any of the required reads failed.
+  if (facilityError || statisticsError || !Array.isArray(facilities) || !statistics.success
+    || facilities.length !== facilityIds.length || statistics.data.length !== facilityIds.length
+    || new Set(statistics.data.map(s => s.id)).size !== facilityIds.length
+    || statistics.data.some(s => !facilityIds.includes(s.id))) {
+    throw new Error('店舗別集計の取得に失敗しました');
+  }
 
   // 集計
   const stats: FacilityStat[] = (facilities ?? []).map((f) => {
-    const fBookings = (allBookings ?? []).filter((b) => b.facility_id === f.id);
-    const fReviews = (reviews ?? []).filter((r) => r.facility_id === f.id);
-    const fNps = (npsData ?? []).filter((n) => n.facility_id === f.id);
-    const monthlyBookings = fBookings.filter((b) => b.created_at >= monthStart).length;
-    const avgRating = fReviews.length > 0 ? fReviews.reduce((s, r) => s + r.rating, 0) / fReviews.length : 0;
-
-    let npsScore: number | null = null;
-    if (fNps.length > 0) {
-      const promoters = fNps.filter((n) => n.score >= 9).length;
-      const detractors = fNps.filter((n) => n.score <= 6).length;
-      npsScore = Math.round(((promoters - detractors) / fNps.length) * 100);
-    }
+    const measured = statistics.data.find(s => s.id === f.id);
+    if (!measured) throw new Error('店舗別集計の対応関係を確認できません');
 
     return {
       id: f.id,
@@ -104,11 +96,11 @@ export default async function ChainManagementPage() {
       prefecture: f.prefecture ?? '',
       city: f.city ?? '',
       is_published: f.status === 'published',
-      booking_count: fBookings.length,
-      review_count: fReviews.length,
-      rating_avg: avgRating,
-      monthly_bookings: monthlyBookings,
-      nps_score: npsScore,
+      booking_count: measured.booking_count,
+      review_count: measured.review_count,
+      rating_avg: measured.rating_avg,
+      monthly_bookings: measured.monthly_bookings,
+      nps_score: measured.nps_score,
     };
   });
 
@@ -188,6 +180,10 @@ export default async function ChainManagementPage() {
                   )}
                 </SbTd>
                 <SbTd>
+                  <div className="flex gap-2 mb-2">
+                    <Link href={`/admin/settings?facility_id=${f.id}`} className="text-xs text-sky-600 underline">店舗情報</Link>
+                    <Link href={`/admin/photos?facility_id=${f.id}`} className="text-xs text-sky-600 underline">写真管理</Link>
+                  </div>
                   <Link href={`/facility/${f.slug}`} target="_blank" rel="noopener noreferrer"
                     className="text-xs text-sky-600 hover:underline">公開ページ →</Link>
                 </SbTd>

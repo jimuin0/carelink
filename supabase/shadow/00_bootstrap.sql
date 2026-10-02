@@ -26,6 +26,7 @@ CREATE SCHEMA IF NOT EXISTS graphql_public;
 CREATE TABLE IF NOT EXISTS auth.users (
   id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   email              text,
+  email_confirmed_at timestamptz,
   phone              text,
   raw_user_meta_data jsonb DEFAULT '{}'::jsonb,
   raw_app_meta_data  jsonb DEFAULT '{}'::jsonb,

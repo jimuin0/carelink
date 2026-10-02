@@ -6,6 +6,9 @@ import ts from 'typescript';
 const compiled = ts.transpileModule(readFileSync(join(process.cwd(), 'e2e/register-submit.spec.ts'), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
+const observerCompiled = ts.transpileModule(readFileSync(join(process.cwd(), 'e2e/facility-setup-observer.ts'), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText;
 const approved = { GITHUB_ACTIONS: 'true', CI: 'true', NEXT_PUBLIC_SUPABASE_URL: 'https://localhost:54330',
   PLAYWRIGHT_BASE_URL: 'https://localhost:3000', SUPABASE_SERVICE_ROLE_KEY: 'synthetic-service', SALON_REGISTRATION_V2_ENABLED: 'true' };
 function fixture(env: Record<string, string>) {
@@ -13,11 +16,21 @@ function fixture(env: Record<string, string>) {
   const createClient = jest.fn(); const use = jest.fn();
   const test = Object.assign(jest.fn(), { use, beforeAll: (callback: typeof setup) => { setup = callback; },
     describe: (_title: string, callback: () => void) => callback() });
+  // Execute the actual helper's module initialization in the same no-I/O VM.
+  // Do not allow arbitrary imports or stub out the guard we are verifying.
+  const observerExports = {};
+  runInNewContext(observerCompiled, { exports: observerExports,
+    require: (name: string) => {
+      if (name === '@playwright/test') return { expect };
+      throw new Error('unexpected observer import');
+    },
+  });
   runInNewContext(compiled, { exports: {}, process: { env }, URL,
     require: (name: string) => {
       if (name === '@playwright/test') return { test, expect };
       if (name === '@supabase/supabase-js') return { createClient };
       if (name === 'node:crypto') return { randomUUID: () => 'synthetic' };
+      if (name === './facility-setup-observer') return observerExports;
       throw new Error('unexpected fixture import');
     },
   });

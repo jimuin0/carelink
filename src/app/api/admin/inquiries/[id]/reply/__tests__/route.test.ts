@@ -19,6 +19,11 @@ const mockAdminFrom = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockGetUser = jest.fn();
 const mockSendInquiryReply = jest.fn();
+const mockReconcileInquiryReply = jest.fn();
+const mockBuildInquiryReplyEnvelope = jest.fn();
+const PROVIDER_ID = '55555555-5555-4555-8555-555555555555';
+const ENVELOPE = { from: 'Test <support@example.invalid>', to: CONTACT.email,
+  replyTo: 'Test <support@example.invalid>', subject: '合成件名', html: '<p>合成本文</p>' };
 let contacts: Array<Record<string, unknown>>;
 let replies: Array<Record<string, unknown>>;
 let failSentUpdate = false;
@@ -41,7 +46,12 @@ jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: () => ({ from: mockAdminFrom }),
 }));
 jest.mock('@/lib/email', () => ({
-  sendInquiryReply: (...args: unknown[]) => mockSendInquiryReply(...args),
+  buildInquiryReplyEnvelope: (data: { to: string }) => mockBuildInquiryReplyEnvelope(data),
+  deliverInquiryReply: async (envelope: unknown, operationId: string) => {
+    const result = await mockSendInquiryReply({ ...(envelope as object), idempotencyKey: operationId });
+    return result ? { state: 'accepted', messageId: PROVIDER_ID } : { state: 'unknown' };
+  },
+  reconcileInquiryReply: (...args: unknown[]) => mockReconcileInquiryReply(...args),
 }));
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -124,7 +134,7 @@ function tableQuery(table: 'contacts' | 'contact_replies') {
       if (table === 'contact_replies' && updateValues?.sent_at && failSentUpdate) {
         failSentUpdate = false;
         if (sentUpdateCommittedBeforeError) {
-          for (const row of selected) Object.assign(row, { sent_at: updateValues.sent_at });
+          for (const row of selected) Object.assign(row, updateValues);
           sentUpdateCommittedBeforeError = false;
         }
         return { data: null, error: { code: '08006' } };
@@ -164,6 +174,7 @@ function seedPending(overrides: Record<string, unknown> = {}) {
   replies.push({
     id: OPERATION_ID, contact_id: INQUIRY_UUID, author_id: USER_ID, author_name: '運営担当',
     body: '合成本文です', is_internal: false, sent_at: null, created_at: new Date().toISOString(),
+    delivery_envelope: ENVELOPE, provider_message_id: null,
     ...overrides,
   });
 }
@@ -184,6 +195,8 @@ beforeEach(() => {
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   mockAnonFrom.mockReturnValue(profileChain({ is_platform_admin: true, display_name: '運営担当' }));
   mockSendInquiryReply.mockResolvedValue(true);
+  mockBuildInquiryReplyEnvelope.mockImplementation((data: { to: string }) => ({ ...ENVELOPE, to: data.to }));
+  mockReconcileInquiryReply.mockResolvedValue({ state: 'unknown' });
   mockAdminFrom.mockImplementation((table: string) => {
     if (table === 'contacts' || table === 'contact_replies') return tableQuery(table);
     throw new Error('unexpected table');
@@ -195,6 +208,96 @@ afterEach(() => {
 });
 
 describe('POST /api/admin/inquiries/[id]/reply', () => {
+  test('照合時のDB読取失敗はproviderを呼ばず500にする', async () => {
+    seedPending();
+    replyReadFailure = 'operation';
+    const response = await POST(makeRequest({ action: 'reconcile', operationId: OPERATION_ID, providerMessageId: PROVIDER_ID }), makeProps());
+    expect(response.status).toBe(500);
+    expect(mockReconcileInquiryReply).not.toHaveBeenCalled();
+    expect(mockSendInquiryReply).not.toHaveBeenCalled();
+  });
+
+  test('不正な送信設定を予約も送信もせず400にする', async () => {
+    mockBuildInquiryReplyEnvelope.mockReturnValue({ ...ENVELOPE, to: 'invalid' });
+    expect((await POST(makeRequest(), makeProps())).status).toBe(400);
+    expect(replies).toHaveLength(0);
+    expect(mockSendInquiryReply).not.toHaveBeenCalled();
+  });
+  test('23時間後も受理証拠を照合でき、返信を再送しない', async () => {
+    seedPending({ created_at: new Date(Date.now() - 48 * 3600000).toISOString() });
+    mockReconcileInquiryReply.mockResolvedValue({ state: 'accepted', messageId: PROVIDER_ID });
+    const response = await POST(makeRequest({ action: 'reconcile', operationId: OPERATION_ID, providerMessageId: PROVIDER_ID }), makeProps());
+    expect(response.status).toBe(200);
+    expect(replies[0]).toMatchObject({ provider_message_id: PROVIDER_ID, sent_at: expect.any(String) });
+    expect(mockSendInquiryReply).not.toHaveBeenCalled();
+    expect(mockReconcileInquiryReply).toHaveBeenCalledWith(ENVELOPE, OPERATION_ID, PROVIDER_ID, replies[0].created_at);
+    const again = await POST(makeRequest({ action: 'reconcile', operationId: OPERATION_ID, providerMessageId: PROVIDER_ID }), makeProps());
+    expect(await again.json()).toMatchObject({ ok: true, alreadySent: true });
+    expect(mockReconcileInquiryReply).toHaveBeenCalledTimes(1);
+  });
+
+  test('照合の記録成功後にticket更新だけ失敗しても同じ照合で復旧できる', async () => {
+    seedPending();
+    contacts[0].ticket_status = 'resolved';
+    contacts[0].resolved_at = '2026-01-01T00:00:00Z';
+    failTicketUpdate = true;
+    mockReconcileInquiryReply.mockResolvedValue({ state: 'accepted', messageId: PROVIDER_ID });
+    const request = { action: 'reconcile', operationId: OPERATION_ID, providerMessageId: PROVIDER_ID };
+    expect(await (await POST(makeRequest(request), makeProps())).json()).toMatchObject({ warning: 'ticket_status_update_failed' });
+    expect(contacts[0].resolved_at).not.toBeNull();
+    failTicketUpdate = true;
+    expect(await (await POST(makeRequest(request), makeProps())).json()).toMatchObject({ ok: true, alreadySent: true, warning: 'ticket_status_update_failed' });
+    expect(await (await POST(makeRequest(request), makeProps())).json()).toMatchObject({ ok: true, warning: null });
+    expect(contacts[0]).toMatchObject({ ticket_status: 'in_progress', resolved_at: null });
+    expect(mockReconcileInquiryReply).toHaveBeenCalledTimes(1);
+    expect(mockSendInquiryReply).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    { contact_id: '77777777-7777-4777-8777-777777777777' }, { is_internal: true },
+    { delivery_envelope: null }, { sent_at: '2026-01-01T00:00:00Z', provider_message_id: '66666666-6666-4666-8666-666666666666' },
+  ])('照合の所属・旧履歴・確定記録の不一致を解除しない %j', async (override) => {
+    seedPending(override);
+    const response = await POST(makeRequest({ action: 'reconcile', operationId: OPERATION_ID, providerMessageId: PROVIDER_ID }), makeProps());
+    expect(response.status).toBe(409);
+    expect(mockSendInquiryReply).not.toHaveBeenCalled();
+    expect(mockReconcileInquiryReply).not.toHaveBeenCalled();
+  });
+
+  test('証拠不足ならunknownを保持し別operationの送信を禁止する', async () => {
+    seedPending();
+    const response = await POST(makeRequest({ action: 'reconcile', operationId: OPERATION_ID, providerMessageId: PROVIDER_ID }), makeProps());
+    expect(response.status).toBe(409);
+    expect(replies[0].sent_at).toBeNull();
+    expect((await POST(makeRequest({ body: '合成別返信', operationId: '66666666-6666-4666-8666-666666666666' }), makeProps())).status).toBe(409);
+    expect(mockSendInquiryReply).not.toHaveBeenCalled();
+  });
+
+  test('照合でも記録失敗は成功にしない。provider IDを復旧用に返す', async () => {
+    seedPending();
+    failSentUpdate = true;
+    mockReconcileInquiryReply.mockResolvedValue({ state: 'accepted', messageId: PROVIDER_ID });
+    const response = await POST(makeRequest({ action: 'reconcile', operationId: OPERATION_ID, providerMessageId: PROVIDER_ID }), makeProps());
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ pending: true, providerMessageId: PROVIDER_ID });
+    expect(replies[0].sent_at).toBeNull();
+    expect(mockSendInquiryReply).not.toHaveBeenCalled();
+  });
+
+  test('連絡先が変更されても再試行は予約済み送信内容だけを使う', async () => {
+    seedPending();
+    contacts[0].email = 'changed@example.invalid';
+    const response = await POST(makeRequest(), makeProps());
+    expect(response.status).toBe(200);
+    expect(mockSendInquiryReply).toHaveBeenCalledWith({ ...ENVELOPE, idempotencyKey: OPERATION_ID });
+  });
+
+  test('旧unknownの本文を再構築して送信しない', async () => {
+    seedPending({ delivery_envelope: null });
+    const response = await POST(makeRequest(), makeProps());
+    expect(response.status).toBe(409);
+    expect(mockSendInquiryReply).not.toHaveBeenCalled();
+  });
   test('返信を先に予約しprovider冪等キーと同じ操作IDで一度送信する', async () => {
     mockSendInquiryReply.mockImplementation(async (data: Record<string, unknown>) => {
       expect(replies).toHaveLength(1);
@@ -216,6 +319,13 @@ describe('POST /api/admin/inquiries/[id]/reply', () => {
     expect((await POST(makeRequest(), makeProps())).status).toBe(200);
     expect(replies[0].sent_at).toEqual(expect.any(String));
     expect(mockSendInquiryReply.mock.calls.map(([arg]) => arg.idempotencyKey)).toEqual([OPERATION_ID, OPERATION_ID]);
+  });
+
+  test('解決済みチケットへの返信は対応中と解決日時を一緒に更新する', async () => {
+    contacts[0].ticket_status = 'resolved';
+    contacts[0].resolved_at = '2026-01-01T00:00:00.000Z';
+    expect((await POST(makeRequest(), makeProps())).status).toBe(200);
+    expect(contacts[0]).toMatchObject({ ticket_status: 'in_progress', resolved_at: null });
   });
 
   test('送信済みoperationの再POSTはproviderを再呼出ししない', async () => {
@@ -250,6 +360,7 @@ describe('POST /api/admin/inquiries/[id]/reply', () => {
     const competingReply = {
       id: OPERATION_ID, contact_id: INQUIRY_UUID, author_id: USER_ID, author_name: '運営担当',
       body: '合成本文です', is_internal: false, sent_at: null, created_at: new Date().toISOString(),
+      delivery_envelope: ENVELOPE, provider_message_id: null,
     };
     replies = [];
     mockAdminFrom.mockImplementation((table: string) => {
@@ -405,7 +516,7 @@ describe('POST /api/admin/inquiries/[id]/reply', () => {
     contacts = [{ ...CONTACT, name: null }];
     const res = await POST(makeRequest(), makeProps());
     expect(res.status).toBe(200);
-    expect(mockSendInquiryReply).toHaveBeenCalledWith(expect.objectContaining({ inquirerName: 'お客様' }));
+    expect(mockBuildInquiryReplyEnvelope).toHaveBeenCalledWith(expect.objectContaining({ inquirerName: 'お客様' }));
   });
 
   test('認証依存の例外を機密を含まないno-store 500へ変換する', async () => {

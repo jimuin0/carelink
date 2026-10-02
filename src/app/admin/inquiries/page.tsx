@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
+import NotificationReconciliation from '@/components/admin/NotificationReconciliation';
 import { inquiryListResponse, type InquiryListRow } from '@/lib/admin-inquiry-list-contract';
+import { UUID_REGEX } from '@/lib/constants';
 
 type InquiryCursor = { createdAt: string | null; id: string };
 type Contact = InquiryListRow;
@@ -15,6 +17,7 @@ type ReplyStatus = {
     body: string;
     sentAt: string | null;
     retryable: boolean;
+    recoveryAvailable?: boolean;
   };
 };
 
@@ -49,6 +52,7 @@ export default function AdminInquiriesPage() {
   const [replyingId, setReplyingId] = useState<string | null>(null);
   const [replyStates, setReplyStates] = useState<Record<string, ReplyStatus>>({});
   const [replyDraftLocked, setReplyDraftLocked] = useState<Record<string, boolean>>({});
+  const [providerMessageIds, setProviderMessageIds] = useState<Record<string, string>>({});
   const replyOperationIds = useRef<Record<string, string>>({});
   const replyStatusSequences = useRef<Record<string, number>>({});
   const listRequestSequence = useRef(0);
@@ -197,6 +201,7 @@ export default function AdminInquiriesPage() {
         body: reply.body,
         sentAt: reply.sentAt,
         retryable: reply.retryable,
+        recoveryAvailable: reply.recoveryAvailable === true,
       } : null;
       if (state && !state.sentAt) {
         replyOperationIds.current[id] = state.operationId;
@@ -243,6 +248,9 @@ export default function AdminInquiriesPage() {
       if (!res.ok) {
         // 送信失敗時は本文を消さない（書き直しをさせない）。
         if (pageMounted.current) {
+          if (typeof data?.providerMessageId === 'string' && UUID_REGEX.test(data.providerMessageId)) {
+            setProviderMessageIds((current) => ({ ...current, [id]: data.providerMessageId }));
+          }
           setToast({ type: 'error', message: data?.error || '返信の送信に失敗しました' });
           await loadReplyStatus(id);
         }
@@ -277,6 +285,31 @@ export default function AdminInquiriesPage() {
     }
   };
 
+  const reconcileReply = async (id: string) => {
+    const reply = replyStates[id]?.reply;
+    const providerMessageId = (providerMessageIds[id] ?? '').trim();
+    if (!reply || reply.sentAt || !reply.recoveryAvailable || replyingId || !UUID_REGEX.test(providerMessageId)) return;
+    setReplyingId(id);
+    try {
+      const response = await fetch(`/api/admin/inquiries/${id}/reply`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reconcile', operationId: reply.operationId, providerMessageId }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!pageMounted.current) return;
+      setToast({ type: response.ok && data?.ok === true && !data.warning ? 'success' : 'error',
+        message: response.ok && data?.ok === true
+          ? '送信サービスの受理記録を照合しました。メールの再送はしていません。受信箱への到着は別確認です'
+          : '受理記録を確定できません。未確定のまま保持し、メールは再送していません' });
+      await loadReplyStatus(id);
+      await load();
+    } catch {
+      if (pageMounted.current) setToast({ type: 'error', message: '照合結果を確認できません。再送せず送信状態を再読み込みしてください' });
+    } finally {
+      if (pageMounted.current) setReplyingId(null);
+    }
+  };
+
   const openCount = contacts.filter(c => c.ticket_status === 'open').length;
 
   return (
@@ -292,6 +325,8 @@ export default function AdminInquiriesPage() {
         </div>
         <button type="button" onClick={load} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>
       </div>
+
+      <NotificationReconciliation />
 
       {/* ステータスフィルター */}
       <div className="flex flex-wrap gap-2">
@@ -481,6 +516,18 @@ export default function AdminInquiriesPage() {
                               ? '本文と同じ操作IDを維持して再試行できます。'
                               : '冪等保持期間を過ぎたため自動再送できません。送信記録の確認が必要です。'}
                           </p>
+                          {replyStates[c.id].reply?.recoveryAvailable && (
+                            <div className="mt-3 space-y-2">
+                              <label htmlFor={'provider-message-' + c.id} className="block">送信サービスのメールID（管理者が受理記録から取得）</label>
+                              <input id={'provider-message-' + c.id} value={providerMessageIds[c.id] ?? ''}
+                                onChange={(event) => setProviderMessageIds((current) => ({ ...current, [c.id]: event.target.value }))}
+                                maxLength={36} className="w-full rounded border p-2" />
+                              <button type="button" onClick={() => void reconcileReply(c.id)}
+                                disabled={replyingId !== null || replyStates[c.id].loading || replyStates[c.id].failed || !UUID_REGEX.test((providerMessageIds[c.id] ?? '').trim())}
+                                className="underline disabled:opacity-50">受理記録を照合（メールは再送しません）</button>
+                              <p>操作ID・宛先・差出人・件名・本文が一致した記録のみ確定します。IDだけでは確定しません。</p>
+                            </div>
+                          )}
                         </div>
                       )}
                       <label htmlFor={'reply-' + c.id} className="block text-xs font-bold text-gray-600 mb-1.5">

@@ -1,36 +1,17 @@
 import { reverseCompletionSideEffects } from '../booking-completion-reversal';
-
-function mkAdmin(visitErr: unknown = null, pointErr: unknown = null) {
-  return {
-    from: jest.fn((t: string) => ({
-      delete: jest.fn(() => ({
-        eq: jest.fn(() => Promise.resolve({ error: t === 'customer_visits' ? visitErr : pointErr })),
-      })),
-    })),
-  };
-}
-
-describe('reverseCompletionSideEffects', () => {
-  test('customer_visits と user_points を booking_id で削除', async () => {
-    const admin = mkAdmin();
-    await reverseCompletionSideEffects(admin as any, 'bk-1');
-    expect(admin.from).toHaveBeenCalledWith('customer_visits');
-    expect(admin.from).toHaveBeenCalledWith('user_points');
-  });
-
-  test('customer_visits 削除エラー → console.error（致命にしない）', async () => {
-    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    const admin = mkAdmin({ message: 'visit fail' });
-    await reverseCompletionSideEffects(admin as any, 'bk-1');
-    expect(errSpy).toHaveBeenCalled();
-    errSpy.mockRestore();
-  });
-
-  test('user_points 削除エラー → console.error（致命にしない）', async () => {
-    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    const admin = mkAdmin(null, { message: 'point fail' });
-    await reverseCompletionSideEffects(admin as any, 'bk-1');
-    expect(errSpy).toHaveBeenCalled();
-    errSpy.mockRestore();
-  });
+test('ポイント取り消しのみ実行し、来店履歴は原子的DB triggerへ任せる',async () => {
+ const eq=jest.fn().mockResolvedValue({ error:null });
+ const from=jest.fn(() => ({ delete:()=>({ eq }) }));
+ await reverseCompletionSideEffects({ from } as unknown as Parameters<typeof reverseCompletionSideEffects>[0],'b1');
+ expect(from).toHaveBeenCalledTimes(1);
+ expect(from).toHaveBeenCalledWith('user_points');
+ expect(eq).toHaveBeenCalledWith('booking_id','b1');
+});
+test('ポイント取り消しの失敗は可視化する',async () => {
+ const spy=jest.spyOn(console,'error').mockImplementation(()=>{});
+ try {
+ const from=jest.fn(() => ({ delete:()=>({ eq:()=>Promise.resolve({ error:{ message:'synthetic failure' } }) }) }));
+ await reverseCompletionSideEffects({ from } as unknown as Parameters<typeof reverseCompletionSideEffects>[0],'b1');
+ expect(spy).toHaveBeenCalled();
+ } finally { spy.mockRestore(); }
 });

@@ -61,7 +61,21 @@ test('v2 RPC receives only a capability digest, not its plaintext', async () => 
   expect(JSON.stringify(rpc.mock.calls[0])).not.toContain(proof);
   expect(rpc.mock.calls[0][1].p_profile).not.toHaveProperty('intentId');
 });
-test.each(['created', 'replay', 'already_member'])('recognizes %s with exact reference', async outcome => {
+test.each([
+  [body, { mode: 'recovered', recoveryId: intent, proof }],
+  [{ ...body, recoveryId: intent }, { mode: 'none' }],
+  [{ ...body, recoveryId: intent }, { mode: 'recovered', recoveryId: 'bad', proof }],
+  [{ ...body, recoveryId: intent }, { mode: 'recovered', recoveryId: intent, proof: 'bad' }],
+])('invalid recovery capability never falls back %#', async (value, claim) => {
+  expect(await setupFacilityAtomically(db, user, value, claim as FacilitySetupClaim)).toEqual({ state: 'unverified' });
+  expect(rpc).not.toHaveBeenCalled();
+});
+test('recovered mode uses its own selector and never includes it in the profile', async () => {
+  await setupFacilityAtomically(db, user, { ...body, recoveryId: intent }, { mode: 'recovered', recoveryId: intent, proof });
+  expect(rpc.mock.calls[0][1]).toMatchObject({ p_claim_mode: 'recovered', p_intent_id: intent, p_proof_hash: salonIntentProofHash(proof), p_receipt_id: null });
+  expect(rpc.mock.calls[0][1].p_profile).not.toHaveProperty('recoveryId');
+});
+test.each(['created', 'replay', 'linked', 'already_member'])('recognizes %s with exact reference', async outcome => {
   rpc.mockResolvedValue({ data: [{ outcome, facility_id: facility, facility_slug: 'synthetic' }], error: null });
   expect(await setupFacilityAtomically(db, user, body, { mode: 'none' })).toEqual({ state: outcome, facilityId: facility, slug: 'synthetic' });
 });

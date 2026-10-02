@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { safeRedirect } from '@/lib/safe-redirect';
 import { isPlatformSupportPath } from '@/lib/platform-support-path';
+import { getMembershipCacheKey } from '@/lib/admin-membership-cache-key';
 
 const PROTECTED_PATHS = ['/mypage', '/admin'];
 
@@ -65,14 +66,6 @@ async function verifyCacheValue(
   } catch {
     return null;
   }
-}
-
-function getMembershipCacheKey(userId: string): string {
-  // ハイフン除去後の先頭16桁（64bit相当）をキーに含める。先頭8文字のみだと衝突率が
-  // 高くなるため16桁まで広げている。なお別ユーザーのキャッシュ値を流用しても
-  // HMAC署名（verifyCacheValue 内で userId をペイロードに含めて検証）で弾かれるため、
-  // キー衝突が起きても誤った権限昇格にはつながらない。
-  return `_cm_mbr_${userId.replace(/-/g, '').slice(0, 16)}`;
 }
 
 // per-request nonce ベースの CSP を構築する。
@@ -217,8 +210,11 @@ export async function middleware(request: NextRequest) {
       ? await verifyCacheValue(user.id, cached)
       : null;
 
-    if (hasAccess === null) {
-      // キャッシュミス or 署名検証失敗: DBで確認してクッキーにキャッシュ
+    if (hasAccess !== true) {
+      // Negative hints cannot survive a newly committed membership: a setup
+      // response can be lost, or an older prefetch can restore a signed false
+      // cookie after invalidation. Recheck DB rather than pinning a denial.
+      // Positive hints still require the existing full-user HMAC and TTL.
       // owner/admin ロールの行のみを対象に絞る（複数施設に所属し、別施設では
       // staff/viewer の場合に .limit(1) が任意の行を返して誤判定するのを防ぐ）
       const { data: membership, error: memErr } = await supabase

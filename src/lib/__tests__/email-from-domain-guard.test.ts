@@ -1,5 +1,13 @@
 const mockPostAlert = jest.fn();
 const mockSend = jest.fn();
+jest.mock('../supabase-server', () => ({ createServiceRoleClient: () => {
+  let id: string;
+  const chain = { insert: jest.fn(row => { id = row.id; return chain; }),
+    update: jest.fn(() => chain), eq: jest.fn(() => chain), is: jest.fn(() => chain),
+    select: jest.fn(() => chain), single: jest.fn(async () => ({ data: { id }, error: null })),
+    maybeSingle: jest.fn(async () => ({ data: { id }, error: null })) };
+  return { from: () => chain };
+} }));
 
 jest.mock('resend', () => ({
   Resend: jest.fn().mockImplementation(() => ({
@@ -82,13 +90,13 @@ describe('email.ts の EMAIL_FROM ドメインガード', () => {
     process.env.NODE_ENV = 'production';
     process.env.RESEND_API_KEY = 'k';
     process.env.EMAIL_FROM = 'CareLink <onboarding@resend.dev>';
-    mockSend.mockResolvedValue({ data: { id: 'em_1' }, error: null });
+    mockSend.mockResolvedValue({ data: { id: '99999999-9999-4999-8999-999999999999' }, error: null });
     const { sendNewReviewNotification } = require('../email');
     await sendNewReviewNotification({
       facilityEmail: 'owner@example.com', facilityName: 'X', reviewerName: 'A', rating: 5, comment: null,
     });
     expect(mockSend).toHaveBeenCalledWith(
-      expect.objectContaining({ from: 'CareLink <noreply@carelink-jp.com>' })
+      expect.objectContaining({ from: 'CareLink <noreply@carelink-jp.com>' }), expect.objectContaining({ idempotencyKey: expect.any(String) })
     );
     // 倒したうえで、設定ミス自体は必ず可視化する（黙って直すと設定が誤ったまま残る）。
     expect(mockPostAlert).toHaveBeenCalledWith(
@@ -100,13 +108,13 @@ describe('email.ts の EMAIL_FROM ドメインガード', () => {
     process.env.NODE_ENV = 'production';
     process.env.RESEND_API_KEY = 'k';
     process.env.EMAIL_FROM = 'CareLink 予約 <yoyaku@carelink-jp.com>';
-    mockSend.mockResolvedValue({ data: { id: 'em_1' }, error: null });
+    mockSend.mockResolvedValue({ data: { id: '99999999-9999-4999-8999-999999999999' }, error: null });
     const { sendNewReviewNotification } = require('../email');
     await sendNewReviewNotification({
       facilityEmail: 'owner@example.com', facilityName: 'X', reviewerName: 'A', rating: 5, comment: null,
     });
     expect(mockSend).toHaveBeenCalledWith(
-      expect.objectContaining({ from: 'CareLink 予約 <yoyaku@carelink-jp.com>' })
+      expect.objectContaining({ from: 'CareLink 予約 <yoyaku@carelink-jp.com>' }), expect.objectContaining({ idempotencyKey: expect.any(String) })
     );
     expect(mockPostAlert).not.toHaveBeenCalled();
   });
@@ -116,13 +124,13 @@ describe('email.ts の EMAIL_FROM ドメインガード', () => {
     process.env.NODE_ENV = 'test';
     process.env.RESEND_API_KEY = 'k';
     process.env.EMAIL_FROM = 'CareLink <onboarding@resend.dev>';
-    mockSend.mockResolvedValue({ data: { id: 'em_1' }, error: null });
+    mockSend.mockResolvedValue({ data: { id: '99999999-9999-4999-8999-999999999999' }, error: null });
     const { sendNewReviewNotification } = require('../email');
     await sendNewReviewNotification({
       facilityEmail: 'owner@example.com', facilityName: 'X', reviewerName: 'A', rating: 5, comment: null,
     });
     expect(mockSend).toHaveBeenCalledWith(
-      expect.objectContaining({ from: 'CareLink <onboarding@resend.dev>' })
+      expect.objectContaining({ from: 'CareLink <onboarding@resend.dev>' }), expect.objectContaining({ idempotencyKey: expect.any(String) })
     );
   });
 
@@ -130,13 +138,13 @@ describe('email.ts の EMAIL_FROM ドメインガード', () => {
     process.env.NODE_ENV = 'test';
     process.env.RESEND_API_KEY = 'k';
     process.env.EMAIL_FROM = 'carelink-jp.com';
-    mockSend.mockResolvedValue({ data: { id: 'em_1' }, error: null });
+    mockSend.mockResolvedValue({ data: { id: '99999999-9999-4999-8999-999999999999' }, error: null });
     const { sendNewReviewNotification } = require('../email');
     await sendNewReviewNotification({
       facilityEmail: 'owner@example.com', facilityName: 'X', reviewerName: 'A', rating: 5, comment: null,
     });
     expect(mockSend).toHaveBeenCalledWith(
-      expect.objectContaining({ from: 'CareLink <noreply@carelink-jp.com>' })
+      expect.objectContaining({ from: 'CareLink <noreply@carelink-jp.com>' }), expect.objectContaining({ idempotencyKey: expect.any(String) })
     );
     // 非本番はドメイン検証をしない＝アラートも出さない（サンドボックス運用の正常系）。
     expect(mockPostAlert).not.toHaveBeenCalled();
@@ -146,13 +154,13 @@ describe('email.ts の EMAIL_FROM ドメインガード', () => {
     process.env.NODE_ENV = 'production';
     process.env.RESEND_API_KEY = 'k';
     process.env.EMAIL_FROM = 'carelink-jp.com';
-    mockSend.mockResolvedValue({ data: { id: 'em_1' }, error: null });
+    mockSend.mockResolvedValue({ data: { id: '99999999-9999-4999-8999-999999999999' }, error: null });
     const { sendNewReviewNotification } = require('../email');
     await sendNewReviewNotification({
       facilityEmail: 'owner@example.com', facilityName: 'X', reviewerName: 'A', rating: 5, comment: null,
     });
     expect(mockSend).toHaveBeenCalledWith(
-      expect.objectContaining({ from: 'CareLink <noreply@carelink-jp.com>' })
+      expect.objectContaining({ from: 'CareLink <noreply@carelink-jp.com>' }), expect.objectContaining({ idempotencyKey: expect.any(String) })
     );
   });
 });

@@ -1,6 +1,12 @@
 import { bookingsHref } from '../admin-bookings-url';
 
 describe('bookingsHref（検索フォーム型）', () => {
+  it('検索・ページ送り・条件クリアで選択中の店舗を保持する', () => {
+    expect(bookingsHref({ facilityId: 'synthetic-store', page: 2, q: '合成顧客' }))
+      .toBe('/admin/bookings?facility_id=synthetic-store&q=' + encodeURIComponent('合成顧客') + '&page=2');
+    expect(bookingsHref({ facilityId: 'synthetic-store' })).toBe('/admin/bookings?facility_id=synthetic-store');
+    expect(bookingsHref({ facilityId: null })).toBe('/admin/bookings');
+  });
   it('パラメータ無しは基底URL', () => {
     expect(bookingsHref({})).toBe('/admin/bookings');
   });

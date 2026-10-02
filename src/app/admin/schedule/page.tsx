@@ -7,6 +7,8 @@ import BoardScheduleGrid, { type BoardRow, type BoardMenu } from '@/components/a
 import { todayJst, isValidIsoDate, addDays } from '@/lib/admin-date';
 import { computeBoardHourRange } from '@/lib/board-time';
 import { dayOrder } from '@/lib/constants';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import { loadAdminFacilitySelection } from '@/lib/admin-facility-selection';
 
 /**
  * サロンボード（HPB サロンボード型・スタッフ×時間軸ガントビュー / CareLink 色）
@@ -42,7 +44,7 @@ function formatJp(dateStr: string): string {
 }
 
 interface Props {
-  searchParams: Promise<{ date?: string }>;
+  searchParams: Promise<{ date?: string; facility_id?: string }>;
 }
 
 export default async function AdminSchedulePage(props: Props) {
@@ -51,14 +53,10 @@ export default async function AdminSchedulePage(props: Props) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 
-  const { data: membership } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-      .in('role', ['owner', 'admin'])
-    .limit(1)
-    .single();
-  if (!membership) notFound();
+  const { choices, selectedId: facilityId } = await loadAdminFacilitySelection(supabase, user.id, searchParams.facility_id ?? null);
+  const date = searchParams.date && isValidIsoDate(searchParams.date) ? searchParams.date : todayJst();
+  const selector = <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/schedule" date={date} />;
+  if (!facilityId) return <div>{selector}</div>;
 
   // 時間軸の区切り幅（店舗設定 board_slot_minutes）。15/30/60 のみ許可・既定 60。
   // 取得失敗（列未追加＝migration 未適用 等）や想定外値は 60 にフォールバックし、
@@ -67,16 +65,12 @@ export default async function AdminSchedulePage(props: Props) {
   const { data: slotRow } = await supabase
     .from('facility_profiles')
     .select('board_slot_minutes, business_hours')
-    .eq('id', membership.facility_id)
+    .eq('id', facilityId)
     .maybeSingle();
   const rawSlot = (slotRow as { board_slot_minutes?: number | null } | null)?.board_slot_minutes;
   const slotMinutes = ALLOWED_SLOT_MINUTES.includes(rawSlot as 15 | 30 | 60) ? (rawSlot as number) : 60;
   // 営業時間（曜日別）。型は JSONB のため緩く受け、当該曜日の open/close のみ後で参照する。
   const businessHours = (slotRow as { business_hours?: Record<string, { open?: string | null; close?: string | null } | null> | null } | null)?.business_hours ?? null;
-
-  const date = searchParams.date && isValidIsoDate(searchParams.date)
-    ? searchParams.date
-    : todayJst();
 
   // 生成済みDBスキーマ型を効かせたクライアント。これにより staff_profiles /
   // facility_menus への列指定が tsc（CI: `tsc --noEmit`）で検証され、存在しない列
@@ -90,13 +84,13 @@ export default async function AdminSchedulePage(props: Props) {
     db
       .from('staff_profiles')
       .select('id, name, position, nomination_fee')
-      .eq('facility_id', membership.facility_id)
+      .eq('facility_id', facilityId)
       .eq('is_active', true)
       .order('sort_order', { ascending: true }),
     supabase
       .from('bookings')
-      .select('id, customer_name, start_time, end_time, status, staff_id, menu:facility_menus(name)')
-      .eq('facility_id', membership.facility_id)
+      .select('id, customer_name, start_time, end_time, status, staff_id, menu_id, menu_ids')
+      .eq('facility_id', facilityId)
       .eq('booking_date', date)
       .neq('status', 'cancelled')
       .order('start_time', { ascending: true }),
@@ -107,7 +101,7 @@ export default async function AdminSchedulePage(props: Props) {
       // /api/admin/bookings・packages）は facility_id のみで全件取得する。本ボードの
       // 新規予約モーダルも同一集合を出すのが正なので、ここも facility_id だけで取得する。
       .select('id, name, price, duration_minutes')
-      .eq('facility_id', membership.facility_id)
+      .eq('facility_id', facilityId)
       .order('sort_order', { ascending: true }),
   ]);
 
@@ -120,16 +114,17 @@ export default async function AdminSchedulePage(props: Props) {
   const staff = staffRows ?? [];
   type BookingChip = {
     id: string; customer_name: string; start_time: string; end_time: string;
-    status: string; staff_id: string | null; menu: { name: string } | { name: string }[] | null;
+    status: string; staff_id: string | null; menu_id: string | null; menu_ids: string[] | null;
   };
   const bookings = (bookingRows ?? []) as BookingChip[];
   const boardMenus: BoardMenu[] = (menuRows ?? []) as BoardMenu[];
 
   // 行 = スタッフ + 「指名なし」（staff_id null か、スタッフ一覧に居ない id）
   const staffIds = new Set(staff.map((s) => s.id));
+  const menuNames = new Map(boardMenus.map(menu => [menu.id, menu.name]));
   const menuNameOf = (b: BookingChip): string | null => {
-    const menu = Array.isArray(b.menu) ? b.menu[0] : b.menu;
-    return menu?.name ?? null;
+    const ids = b.menu_ids?.length ? b.menu_ids : b.menu_id ? [b.menu_id] : [];
+    return ids.length ? ids.map(id => menuNames.get(id) ?? 'メニュー削除済み').join('、') : null;
   };
   const chipsFor = (key: string) =>
     bookings
@@ -169,14 +164,15 @@ export default async function AdminSchedulePage(props: Props) {
 
   return (
     <div>
+      {selector}
       {/* ツールバー（日付送り・HPB型） */}
       <div className="bg-white rounded-t-xl border border-b-0 px-4 py-3 flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1">
-          <Link href={`/admin/schedule?date=${addDays(date, -1)}`} aria-label="前日" className="w-8 h-8 inline-flex items-center justify-center rounded border bg-white hover:bg-sky-50 text-sky-700 font-bold">◀</Link>
+          <Link href={`/admin/schedule?facility_id=${facilityId}&date=${addDays(date, -1)}`} aria-label="前日" className="w-8 h-8 inline-flex items-center justify-center rounded border bg-white hover:bg-sky-50 text-sky-700 font-bold">◀</Link>
           <span className="px-3 text-lg font-extrabold text-gray-800 whitespace-nowrap">{formatJp(date)}</span>
-          <Link href={`/admin/schedule?date=${addDays(date, 1)}`} aria-label="翌日" className="w-8 h-8 inline-flex items-center justify-center rounded border bg-white hover:bg-sky-50 text-sky-700 font-bold">▶</Link>
+          <Link href={`/admin/schedule?facility_id=${facilityId}&date=${addDays(date, 1)}`} aria-label="翌日" className="w-8 h-8 inline-flex items-center justify-center rounded border bg-white hover:bg-sky-50 text-sky-700 font-bold">▶</Link>
           {date !== today && (
-            <Link href="/admin/schedule" className="ml-2 px-3 py-1 text-xs font-bold rounded-full bg-sky-600 text-white hover:bg-sky-700">今日</Link>
+            <Link href={`/admin/schedule?facility_id=${facilityId}`} className="ml-2 px-3 py-1 text-xs font-bold rounded-full bg-sky-600 text-white hover:bg-sky-700">今日</Link>
           )}
         </div>
       </div>
@@ -216,7 +212,8 @@ export default async function AdminSchedulePage(props: Props) {
 
           {/* スタッフ行（クライアント: 空き帯クリックで新規予約モーダル） */}
           <BoardScheduleGrid
-            facilityId={membership.facility_id}
+            key={`${facilityId}:${date}`}
+            facilityId={facilityId}
             date={date}
             openHour={openHour}
             closeHour={closeHour}

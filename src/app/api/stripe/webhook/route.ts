@@ -10,7 +10,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { alertCaughtError } from '@/lib/alert';
 import { serverError } from '@/lib/with-route';
-import { toJsonValue } from '@/lib/json-value';
+import { toNonNullJsonValue } from '@/lib/json-value';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
   const { error: upsertError } = await admin.from('stripe_webhook_logs').upsert({
     event_id: event.id,
     event_type: event.type,
-    payload: toJsonValue(event),
+    payload: toNonNullJsonValue(event),
     processed: false,
   }, { onConflict: 'event_id', ignoreDuplicates: true });
 

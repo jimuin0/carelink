@@ -43,6 +43,7 @@ export default function RegistrationReceipt() {
     <p>申込に使用したブラウザーの同じタブでご確認ください。登録済みの可能性があるため、新しい申込を送信しないでください。</p>
     <button className="btn-primary mt-4" onClick={() => { setFailed(false); setReceipt(null); setAttempt(value => value + 1); }}>同じ申込の受付状況を確認</button>
     <Link href="/contact" className="block mt-4 underline">受付状況を問い合わせる</Link>
+    <Link href="/register/recover" className="block mt-4 underline">申込時のメールアドレスで送信済みの掲載申込を復旧</Link>
   </div>;
   if (!receipt) return <p className="section-container py-12" role="status">受付状況を確認しています。</p>;
   return <div className="section-container max-w-lg py-12">
@@ -53,7 +54,7 @@ export default function RegistrationReceipt() {
       <dt>業種</dt><dd>{receipt.type}</dd>
       <dt>所在地</dt><dd>{receipt.area || '未入力（公開前に設定してください）'}</dd>
     </dl>
-    <p>この時点では一般公開は完了していません。店舗アカウントを作成し、管理画面で店舗情報・メニュー・スタッフ・写真を確認して公開してください。</p>
+    <p>この時点では一般公開は完了していません。店舗アカウントを作成し、管理画面で店舗名・所在地などを確認して無料掲載を公開してください。ネット予約はメニュー・スタッフ・写真・曜日別営業時間の設定完了まで利用できません。</p>
     <p className="mt-3">掲載料・予約手数料は無料です。申込や店舗アカウント作成で有料プランの契約は行いません。</p>
     <div className="flex flex-col gap-4 mt-6">
       <Link href={salonHandoffAuthPath('signup')} className="btn-primary">店舗アカウントを作成する</Link>

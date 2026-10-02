@@ -29,6 +29,8 @@ function setupRows(boardRows: BoardRow[]) {
 }
 
 beforeEach(() => {
+  sessionStorage.clear();
+  Object.defineProperty(crypto, 'randomUUID', { configurable: true, value: () => '66666666-6666-4666-8666-666666666666' });
   // jsdom はレイアウトを持たず getBoundingClientRect が 0 を返すため width を与える
   Element.prototype.getBoundingClientRect = jest.fn(
     () => ({ left: 0, width: 840, top: 0, right: 840, bottom: 56, height: 56, x: 0, y: 0, toJSON: () => {} }) as DOMRect,
@@ -97,7 +99,7 @@ test('終了が営業終了(22:00)を超えると確定不可・警告表示・f
 
 test('正常作成で /api/admin/bookings へ正しいペイロードで POST する', async () => {
   const user = userEvent.setup();
-  const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ success: true, id: 'b1' }) });
+  const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ success: true, id: '77777777-7777-4777-8777-777777777777' }) });
   global.fetch = fetchMock as unknown as typeof fetch;
   setup();
   fireEvent.click(screen.getByRole('button', { name: /新規予約を追加/ }), { clientX: 0 }); // 08:00
@@ -204,7 +206,7 @@ test('指名料が合計に反映される（M1）', async () => {
 
 test('担当をモーダル内で変更でき payload に反映される（M3）', async () => {
   const user = userEvent.setup();
-  const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ success: true, id: 'b1' }) });
+  const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ success: true, id: '77777777-7777-4777-8777-777777777777' }) });
   global.fetch = fetchMock as unknown as typeof fetch;
   setupRows(twoStaff);
   fireEvent.click(screen.getAllByRole('button', { name: /新規予約を追加/ })[0], { clientX: 0 }); // 佐藤で開く
@@ -242,4 +244,85 @@ test('お客様名が空だと送信されない', async () => {
   await user.click(screen.getByRole('button', { name: '予約を確定' }));
   expect(screen.getByText('お客様名を入力してください')).toBeInTheDocument();
   expect(fetchMock).not.toHaveBeenCalled();
+});
+
+test('成否不明の再送は同一ID・同一本文。入力を凍結し連打・閉じるを拒否', async () => {
+  const user = userEvent.setup();
+  let settle!: (value: unknown) => void;
+  const fetchMock = jest.fn().mockRejectedValueOnce(new Error('response lost'))
+    .mockImplementationOnce(() => new Promise(resolve => { settle = resolve; }));
+  global.fetch = fetchMock as unknown as typeof fetch;
+  setup();
+  fireEvent.click(screen.getByRole('button', { name: /新規予約を追加/ }), { clientX: 0 });
+  await user.type(screen.getByLabelText(/お客様名/), '合成テスト');
+  await user.click(screen.getByRole('checkbox'));
+  await user.click(screen.getByRole('button', { name: '予約を確定' }));
+  await screen.findByRole('button', { name: '同じ操作で再確認' });
+  expect(screen.getByLabelText(/お客様名/)).toBeDisabled();
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  const retry = screen.getByRole('button', { name: '同じ操作で再確認' });
+  fireEvent.click(retry); fireEvent.click(retry);
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  expect(fetchMock.mock.calls[1][1].body).toBe(fetchMock.mock.calls[0][1].body);
+  expect(sessionStorage.getItem('carelink-manual-booking:f1')).toBe('66666666-6666-4666-8666-666666666666');
+  expect(sessionStorage.getItem('carelink-manual-booking:f1')).not.toContain('合成');
+  settle({ ok: true, json: async () => ({ success: true, id: '77777777-7777-4777-8777-777777777777' }) });
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(sessionStorage.getItem('carelink-manual-booking:f1')).toBeNull();
+});
+
+test('再読込で元の入力を失っても保存済み原操作をGET照合し、新規POSTしない', async () => {
+  sessionStorage.setItem('carelink-manual-booking:f1', '66666666-6666-4666-8666-666666666666');
+  const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ state: 'saved', booking_id: '77777777-7777-4777-8777-777777777777' }) });
+  global.fetch = fetchMock as unknown as typeof fetch;
+  setup();
+  fireEvent.click(screen.getByRole('button', { name: /新規予約を追加/ }), { clientX: 0 });
+  fireEvent.click(screen.getByRole('button', { name: '予約を確定' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock.mock.calls[0][0]).toContain('operation_id=66666666');
+  expect(fetchMock.mock.calls[0][1]).toEqual({ cache: 'no-store' });
+});
+
+test('照合失敗は不在とみなさずPOSTしない。保存不能も送信前に止める', async () => {
+  const fetchMock = jest.fn().mockRejectedValue(new Error('unavailable'));
+  global.fetch = fetchMock as unknown as typeof fetch;
+  sessionStorage.setItem('carelink-manual-booking:f1', '66666666-6666-4666-8666-666666666666');
+  const view = setup();
+  fireEvent.click(screen.getByRole('button', { name: /新規予約を追加/ }), { clientX: 0 });
+  fireEvent.click(screen.getByRole('button', { name: '予約を確定' }));
+  await screen.findByText(/原操作の結果を確認できません/);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(screen.getByLabelText(/お客様名/)).toBeDisabled();
+  view.unmount(); sessionStorage.clear(); fetchMock.mockClear();
+  jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('storage disabled'); });
+  setup();
+  fireEvent.click(screen.getByRole('button', { name: /新規予約を追加/ }), { clientX: 0 });
+  fireEvent.click(screen.getByRole('button', { name: '予約を確定' }));
+  await screen.findByText(/安全に保存できないため送信しません/);
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+test('原操作競合後は本文を再POSTせずGETで保存済み結果を確認する', async () => {
+  const user = userEvent.setup();
+  const fetchMock = jest.fn().mockResolvedValueOnce({ ok:false,status:409,json:async () => ({ code:'MANUAL_OPERATION_RECOVERY' }) })
+    .mockResolvedValueOnce({ ok:true,json:async () => ({ state:'saved',booking_id:'77777777-7777-4777-8777-777777777777' }) });
+  global.fetch = fetchMock as unknown as typeof fetch;
+  setup(); fireEvent.click(screen.getByRole('button',{ name:/新規予約を追加/ }),{ clientX:0 });
+  await user.type(screen.getByLabelText(/お客様名/),'合成テスト'); await user.click(screen.getByRole('checkbox'));
+  await user.click(screen.getByRole('button',{ name:'予約を確定' }));
+  await screen.findByText(/原操作を照合します/);
+  await user.click(screen.getByRole('button',{ name:'同じ操作で再確認' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock.mock.calls[1][1]).toEqual({ cache:'no-store' });
+});
+test('操作IDのsetItem失敗は送信前に止まり、入力を結果不明として凍結しない', async () => {
+  const user = userEvent.setup(); const fetchMock = jest.fn(); global.fetch = fetchMock as unknown as typeof fetch;
+  jest.spyOn(Storage.prototype,'setItem').mockImplementation(() => { throw new Error('storage full'); });
+  setup(); fireEvent.click(screen.getByRole('button',{ name:/新規予約を追加/ }),{ clientX:0 });
+  await user.type(screen.getByLabelText(/お客様名/),'合成テスト'); await user.click(screen.getByRole('checkbox'));
+  await user.click(screen.getByRole('button',{ name:'予約を確定' }));
+  await screen.findByText(/安全に保存できないため送信しません/);
+  expect(fetchMock).not.toHaveBeenCalled(); expect(screen.getByLabelText(/お客様名/)).not.toBeDisabled();
 });

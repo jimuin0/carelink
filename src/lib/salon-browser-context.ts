@@ -35,3 +35,22 @@ export const SALON_COMPLETE_PATH = '/register/complete?handoff=registration';
 export function salonHandoffAuthPath(page: 'signup' | 'login'): string {
   return `/auth/${page}?redirect=${encodeURIComponent(SALON_ONBOARDING_PATH)}`;
 }
+
+export const SALON_RECOVERY_CONTEXT_KEY = 'carelink.salon-recovery.v1';
+export const SALON_RECOVERY_ONBOARDING_PATH = '/admin/onboarding?handoff=recovered';
+const recoveryContext = z.object({ version: z.literal(1), recoveryId: z.uuid() }).strict();
+export function readSalonRecoveryContext(store: Store): string | null {
+  try {
+    const parsed = recoveryContext.safeParse(JSON.parse(store.getItem(SALON_RECOVERY_CONTEXT_KEY) ?? 'null'));
+    return parsed.success ? parsed.data.recoveryId : null;
+  } catch { return null; }
+}
+export function saveSalonRecoveryContext(store: Store, recoveryId: string): boolean {
+  const parsed = recoveryContext.safeParse({ version: 1, recoveryId });
+  if (!parsed.success) return false;
+  try {
+    const encoded = JSON.stringify(parsed.data);
+    store.setItem(SALON_RECOVERY_CONTEXT_KEY, encoded);
+    return store.getItem(SALON_RECOVERY_CONTEXT_KEY) === encoded;
+  } catch { return false; }
+}

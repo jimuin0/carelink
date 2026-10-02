@@ -8,6 +8,21 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- The preceding concurrency runner commits unrelated booking notifications.
+-- Preserve those rows and still assert the exact registration queue delta.
+CREATE TEMP TABLE registration_queue_baseline ON COMMIT DROP AS
+  SELECT id FROM public.webhook_retry_queue;
+GRANT SELECT ON pg_temp.registration_queue_baseline TO service_role;
+CREATE FUNCTION pg_temp.registration_queue_delta() RETURNS bigint LANGUAGE plpgsql AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_temp.registration_queue_baseline b
+    WHERE NOT EXISTS (SELECT 1 FROM public.webhook_retry_queue q WHERE q.id=b.id)) THEN
+    RAISE EXCEPTION 'registration deleted a pre-existing notification';
+  END IF;
+  RETURN (SELECT count(*) FROM public.webhook_retry_queue)
+    - (SELECT count(*) FROM pg_temp.registration_queue_baseline);
+END $$;
+
 CREATE FUNCTION pg_temp.assert_registration(ok boolean, label text) RETURNS void
 LANGUAGE plpgsql AS $$ BEGIN
   IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'registration fixture failed: %', label; END IF;
@@ -90,7 +105,9 @@ SELECT pg_temp.assert_registration(
   (SELECT count(*)=1 AND bool_and(is_public=false AND claimed_by_user_id IS NULL AND seat_count=0 AND desired_start_date='undecided') FROM public.salons),
   'input cannot set publication or claim and optional values persist');
 SELECT pg_temp.assert_registration(
-  (SELECT count(*)=2 AND count(DISTINCT notification_kind)=2 AND bool_and(payload='{}'::jsonb AND target_id=registration_id::text) FROM public.webhook_retry_queue),
+  pg_temp.registration_queue_delta()=2 AND
+  (SELECT count(*)=2 AND count(DISTINCT notification_kind)=2 AND bool_and(payload='{}'::jsonb AND target_id=registration_id::text)
+    FROM public.webhook_retry_queue WHERE id NOT IN (SELECT id FROM pg_temp.registration_queue_baseline)),
   'register creates two typed non-PII outbox references');
 UPDATE public.salon_submission_intents SET prepare_expires_at=now()-interval '1 day'
   WHERE id='61000000-0000-4000-8000-000000000001';
@@ -102,7 +119,7 @@ SELECT pg_temp.assert_registration(
   (SELECT outcome='conflict' AND receipt_id IS NULL FROM public.commit_salon_submission(
     '61000000-0000-4000-8000-000000000001',repeat('a',64),1::smallint,'proof-hkdf-sha256-v1',repeat('c',64),pg_temp.registration_payload())),
   'different content cannot overwrite a committed receipt');
-SELECT pg_temp.assert_registration((SELECT count(*)=1 FROM public.salons) AND (SELECT count(*)=2 FROM public.webhook_retry_queue),
+SELECT pg_temp.assert_registration((SELECT count(*)=1 FROM public.salons) AND pg_temp.registration_queue_delta()=2,
   'replay/conflict do not duplicate either business row or notifications');
 -- A copied cookie cannot extend access by replaying after the server deadline.
 -- This is already committed, so the gate must run BEFORE the replay branch.
@@ -125,7 +142,7 @@ SELECT pg_temp.assert_registration(
   (SELECT outcome='unverified' AND receipt_id IS NULL FROM public.commit_salon_submission(
     '61000000-0000-4000-8000-000000000006',repeat('a',64),1::smallint,'proof-hkdf-sha256-v1',repeat('b',64),pg_temp.registration_payload())),
   'future issue time is rejected');
-SELECT pg_temp.assert_registration((SELECT count(*)=1 FROM public.salons) AND (SELECT count(*)=2 FROM public.webhook_retry_queue)
+SELECT pg_temp.assert_registration((SELECT count(*)=1 FROM public.salons) AND pg_temp.registration_queue_delta()=2
   AND (SELECT count(*)=2 FROM public.salon_submission_intents
     WHERE id IN ('61000000-0000-4000-8000-000000000005','61000000-0000-4000-8000-000000000006') AND salon_id IS NULL),
   'capability rejection does not create receipts or outbox entries');
@@ -133,7 +150,7 @@ SELECT pg_temp.assert_registration(
   (SELECT outcome='committed' FROM public.commit_salon_submission(
     '61000000-0000-4000-8000-000000000002',repeat('a',64),1::smallint,'proof-hkdf-sha256-v1',repeat('c',64),
     pg_temp.registration_payload() || '{"source":"recruit"}'::jsonb)), 'distinct intent is distinct receipt');
-SELECT pg_temp.assert_registration((SELECT count(*)=2 FROM public.salons) AND (SELECT count(*)=3 FROM public.webhook_retry_queue),
+SELECT pg_temp.assert_registration((SELECT count(*)=2 FROM public.salons) AND pg_temp.registration_queue_delta()=3,
   'recruit adds only the internal notification');
 RESET ROLE;
 
@@ -155,7 +172,7 @@ DO $$ DECLARE failed boolean := false; BEGIN
   END;
   PERFORM pg_temp.assert_registration(failed, 'outbox error must escape RPC');
 END $$;
-SELECT pg_temp.assert_registration((SELECT count(*)=2 FROM public.salons) AND (SELECT count(*)=3 FROM public.webhook_retry_queue)
+SELECT pg_temp.assert_registration((SELECT count(*)=2 FROM public.salons) AND pg_temp.registration_queue_delta()=3
   AND (SELECT salon_id IS NULL AND payload_hmac IS NULL AND committed_at IS NULL FROM public.salon_submission_intents
     WHERE id='61000000-0000-4000-8000-000000000004'), 'outbox failure rolls back every write');
 RESET ROLE;

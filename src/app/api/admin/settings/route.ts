@@ -11,6 +11,8 @@ import { checkPublishReadiness, isPublishedLocationConflict } from '@/lib/facili
 import { validateFacilityPrText } from '@/lib/medical-ad-guard';
 import type { Database } from '@/types/database.types';
 import { serverError } from '@/lib/with-route';
+import { FACILITY_INPUT_LIMITS } from '@/lib/facility-input-limits';
+import { toJsonValue } from '@/lib/json-value';
 
 // facility_profiles の update() に渡すオブジェクトの型。
 // 以前は Record<string, unknown> にしていたが、Database 型配線後は
@@ -28,7 +30,7 @@ const businessHoursDaySchema = z.union([
 ]);
 
 const settingsSchema = z.object({
-  name: z.string().min(1).max(100),
+  name: z.string().min(1).max(FACILITY_INPUT_LIMITS.name),
   // 【2026年7月29日・恒久根治】business_type は検索・カテゴリ導線・SEOページの結合キー。
   // 任意文字列を許すと正規タクソノミー外の値が保存され、施設は存在するのに
   // トップのカテゴリタイル・/type/* から到達できなくなる（本番で実際に発生した無音の断線）。
@@ -47,19 +49,19 @@ const settingsSchema = z.object({
   // .nullable() を外しても現状の正常系の挙動は変わらない。入力が本当に null だった場合のみ、
   // 400（リクエストが不正です）へ変わる（従来の DB 由来の500より正確なエラーに是正される）。
   prefecture: z.string().max(20).optional(),
-  city: z.string().max(50).optional(),
-  address: z.string().max(100).optional(),
-  building: z.string().max(100).optional().nullable(),
+  city: z.string().max(FACILITY_INPUT_LIMITS.city).optional(),
+  address: z.string().max(FACILITY_INPUT_LIMITS.address).optional(),
+  building: z.string().max(FACILITY_INPUT_LIMITS.building).optional().nullable(),
   access_info: z.string().max(200).optional().nullable(),
-  nearest_station: z.string().max(100).optional().nullable(),
+  nearest_station: z.string().max(FACILITY_INPUT_LIMITS.nearestStation).optional().nullable(),
   phone: z.string().max(20).optional().nullable(),
-  website_url: z.string().url().max(200).optional().nullable().or(z.literal('')),
+  website_url: z.string().url().max(FACILITY_INPUT_LIMITS.website).optional().nullable().or(z.literal('')),
   seat_count: z.number().int().min(0).max(9999).optional().nullable(),
   staff_count: z.number().int().min(0).max(9999).optional().nullable(),
   parking: z.boolean().optional(),
   credit_card: z.boolean().optional(),
   features: z.array(z.string().max(50)).max(50).optional(),
-  regular_holiday: z.string().max(100).optional().nullable(),
+  regular_holiday: z.string().max(FACILITY_INPUT_LIMITS.regularHoliday).optional().nullable(),
   // キーは曜日（mon〜sun）の7つに限定する。z.record(z.string()) だと任意キーを無制限に
   // 受け付け、巨大な business_hours JSON で行を肥大化させられる（DoS・無意味データ混入）。
   // z.object().partial() は未知キーを既定で strip するため、7曜日以外は保存に乗らない。
@@ -84,8 +86,8 @@ const statusSchema = z.object({
 
 async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) return null;
 
   const facilityId = request.nextUrl.searchParams.get('facility_id');
   if (!facilityId || !UUID_REGEX.test(facilityId)) return null;
@@ -131,19 +133,35 @@ async function patchSettings(request: NextRequest) {
 
   // Check if this is a status-only update
   const action = request.nextUrl.searchParams.get('action');
+  if (action === 'main-photo') {
+    const parsed = z.object({ photoId: z.string().regex(UUID_REGEX) }).strict().safeParse(body);
+    if (!parsed.success) return NextResponse.json({ error: '写真IDが不正です' }, { status: 400 });
+    const admin = createServiceRoleClient();
+    const photo = await admin.from('facility_photos').select('photo_url')
+      .eq('id', parsed.data.photoId).eq('facility_id', auth.facilityId).maybeSingle();
+    if (photo.error) return serverError('admin-settings-main-photo-read', new Error('Facility photo read failed'), '/api/admin/settings');
+    if (!photo.data) return NextResponse.json({ error: 'この店舗の写真を確認できません' }, { status: 409 });
+    const updated = await admin.rpc('update_facility_settings_atomic', {
+      p_actor_id:auth.userId,p_facility_id:auth.facilityId,p_patch:{ main_photo_url:photo.data.photo_url },
+    });
+    if (updated.error?.message.includes('FACILITY_PERMISSION_REVOKED')) return NextResponse.json({ error:'店舗の管理権限がありません' },{ status:403 });
+    if (updated.error) return serverError('admin-settings-main-photo-update', new Error('Facility photo update failed'), '/api/admin/settings');
+    if (updated.data?.length !== 1 || updated.data[0].id !== auth.facilityId) return NextResponse.json({ error: '対象店舗を更新できませんでした' }, { status: 409 });
+    const { ua } = getRequestContext(request);
+    void writeAuditLog({ userId: auth.userId, facilityId: auth.facilityId, action: 'update',
+      tableName: 'facility_profiles', recordId: auth.facilityId, newValues: { main_photo_id: parsed.data.photoId },
+      ipAddress: ip, userAgent: ua });
+    return NextResponse.json({ ok: true });
+  }
   if (action === 'status') {
     const parsed = statusSchema.safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
     const admin = createServiceRoleClient();
 
-    // 公開(published)に切り替える時のみ、必須項目の充足をサーバー側で検証する。
-    // 空の施設が検索結果に出て予約ページで行き止まりになる事故を防ぐ
-    // （UI が「メニューと写真を登録すると公開できます」と案内する前提条件の実装）。
+    // 掲載公開とネット予約は別。権限確認後、掲載用の店舗情報を検証する。
     if (parsed.data.status === 'published') {
       // 単一公開の必須項目ゲート。チェーン一括公開(bulk-publish)と共通ヘルパで検証を共有する。
-      // メニュー件数は公開側の可視条件(is_published null/true)と揃える（HPB 下書きのみで
-      // 公開して公開メニュー0件の行き止まりになるのを防ぐ = BP-2）。
       const { readiness, error: gateErr } = await checkPublishReadiness(admin, auth.facilityId);
       if (gateErr) {
         return serverError('admin-settings-status-gate', new Error('Facility publish readiness unavailable'), '/api/admin/settings');
@@ -153,16 +171,15 @@ async function patchSettings(request: NextRequest) {
       }
     }
 
-    const { data: updated, error } = await admin
-      .from('facility_profiles')
-      .update({ status: parsed.data.status, updated_at: new Date().toISOString() })
-      .eq('id', auth.facilityId)
-      .select('id')
-      .maybeSingle();
+    const { data: updated, error } = await admin.rpc('update_facility_settings_atomic', {
+      p_actor_id:auth.userId,p_facility_id:auth.facilityId,p_patch:{ status:parsed.data.status },
+    });
+    if (error?.message.includes('FACILITY_PERMISSION_REVOKED')) return NextResponse.json({ error:'店舗の管理権限がありません' },{ status:403 });
+    if (error?.message.includes('FACILITY_OWNER_REQUIRED')) return NextResponse.json({ error:'店舗所有者の確認が必要です。公開変更は保存されていません' },{ status:409 });
 
     if (isPublishedLocationConflict(error)) return NextResponse.json({ error: '所在地が変更されています。都道府県・市区町村・住所を確認して、再度公開してください。' }, { status: 409 });
     if (error) return serverError('admin-settings-status-update', new Error('Facility status update failed'), '/api/admin/settings');
-    if (updated?.id !== auth.facilityId) return NextResponse.json({ error: '施設の状態を確認できません。再読み込みしてください。' }, { status: 409 });
+    if (updated?.length !== 1 || updated[0].id !== auth.facilityId) return NextResponse.json({ error: '施設の状態を確認できません。再読み込みしてください。' }, { status: 409 });
 
     const { ua } = getRequestContext(request);
     void writeAuditLog({
@@ -215,16 +232,14 @@ async function patchSettings(request: NextRequest) {
   }
 
   const admin = createServiceRoleClient();
-  const { data: updated, error } = await admin
-    .from('facility_profiles')
-    .update(updatePayload)
-    .eq('id', auth.facilityId)
-    .select('id')
-    .maybeSingle();
+  const { data: updated, error } = await admin.rpc('update_facility_settings_atomic', {
+    p_actor_id:auth.userId,p_facility_id:auth.facilityId,p_patch:toJsonValue(updatePayload),
+  });
+  if (error?.message.includes('FACILITY_PERMISSION_REVOKED')) return NextResponse.json({ error:'店舗の管理権限がありません' },{ status:403 });
 
   if (isPublishedLocationConflict(error)) return NextResponse.json({ error: '公開中の施設では都道府県・市区町村・住所を空にできません。先に非公開へ変更してください。' }, { status: 409 });
   if (error) return serverError('admin-settings-patch', new Error('Facility settings update failed'), '/api/admin/settings');
-  if (updated?.id !== auth.facilityId) return NextResponse.json({ error: '施設の状態を確認できません。再読み込みしてください。' }, { status: 409 });
+  if (updated?.length !== 1 || updated[0].id !== auth.facilityId) return NextResponse.json({ error: '施設の状態を確認できません。再読み込みしてください。' }, { status: 409 });
 
   const { ua } = getRequestContext(request);
   void writeAuditLog({

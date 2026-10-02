@@ -1,313 +1,159 @@
-/**
- * @jest-environment node
- *
- * Tests for POST /api/admin/bookings (管理者がサロンボードから手動作成)
- * Key assertions:
- *   - CSRF / RateLimit / 認証(owner|admin) / Zod / 時間整合
- *   - メニュー越境(IDOR)防止 / スタッフ越境防止 / 指名料加算
- *   - create_booking_atomic の conflict(409)/error(500)/null(500)
- *   - email 任意・ある場合のみ確認メール送信 / status=confirmed・user_id=null
- */
-
+/** @jest-environment node */
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false), mutationRateLimit: {} }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
 jest.mock('@/lib/email', () => ({ sendBookingConfirmed: jest.fn().mockResolvedValue(true) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
-
-const FACILITY_UUID = '22222222-2222-4222-8222-222222222222';
-const USER_ID = '33333333-3333-4333-8333-333333333333';
-const MENU_UUID = '44444444-4444-4444-8444-444444444444';
-const STAFF_UUID = '55555555-5555-4555-8555-555555555555';
-
-const mockGetUser = jest.fn();
-const mockAnonFrom = jest.fn();
-const mockAdminFrom = jest.fn();
-const mockRpc = jest.fn();
-
-jest.mock('@supabase/ssr', () => ({
-  createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
-}));
-jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
-}));
-
-import { POST } from '../route';
+const FACILITY = '22222222-2222-4222-8222-222222222222';
+const ACTOR = '33333333-3333-4333-8333-333333333333';
+const MENU = '44444444-4444-4444-8444-444444444444';
+const STAFF = '55555555-5555-4555-8555-555555555555';
+const OP = '66666666-6666-4666-8666-666666666666';
+const BOOKING = '77777777-7777-4777-8777-777777777777';
+const mockGetUser = jest.fn(), mockFrom = jest.fn(), mockRpc = jest.fn();
+jest.mock('@supabase/ssr', () => ({ createServerClient: () => ({ from: mockFrom, auth: { getUser: mockGetUser } }) }));
+jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => ({ rpc: mockRpc }) }));
+import { POST, GET } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmed } from '@/lib/email';
+import { writeAuditLog } from '@/lib/audit-logger';
 
-function makeRequest(body: object) {
-  return new Request('http://localhost/api/admin/bookings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+function body(overrides: object = {}) {
+  return { operation_id: OP, facility_id: FACILITY, menu_ids: [MENU], booking_date: '2026-07-01',
+    start_time: '10:00', end_time: '11:00', customer_name: 'テスト予約', ...overrides };
 }
-
-function validBody(overrides: object = {}) {
-  return {
-    facility_id: FACILITY_UUID,
-    menu_ids: [MENU_UUID],
-    booking_date: '2026-07-01',
-    start_time: '10:00',
-    end_time: '11:00',
-    customer_name: 'テスト太郎',
-    ...overrides,
-  };
+function request(value: object) {
+  return new Request('http://localhost/api/admin/bookings', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(value) });
 }
-
-// facility_members 所属チェック（anon）
-function memberChain(data: unknown) {
-  return {
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    in: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data, error: null })),
-  };
+const saved = { booking_id: BOOKING, replayed: false, total_price: 6000,
+  menu_names: 'カット、カラー', staff_name: '担当', facility_name: 'テスト店舗' };
+function member(data: unknown, error: unknown = null) {
+  return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+    in: jest.fn().mockReturnThis(), maybeSingle: jest.fn().mockResolvedValue({ data, error }) };
 }
-// facility_menus（.select().in().eq() を await）
-function menusChain(data: unknown) {
-  return {
-    select: jest.fn().mockReturnThis(),
-    in: jest.fn().mockReturnThis(),
-    eq: jest.fn(() => Promise.resolve({ data, error: null })),
-  };
-}
-// staff_profiles（.select().eq().eq().maybeSingle()）
-function staffChain(data: unknown) {
-  return {
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
-  };
-}
-// facility_profiles（.select().eq().single()）
-function facilityChain(data: unknown) {
-  return {
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data, error: null })),
-  };
-}
-
-function setupAdminTables(opts: {
-  menus?: unknown;
-  staff?: unknown;
-  facility?: unknown;
-  bookingsUpdateError?: unknown;
-} = {}) {
-  const menus = opts.menus ?? [{ id: MENU_UUID, name: 'カット', price: 5000 }];
-  const facility = opts.facility ?? { name: 'テストサロン' };
-  mockAdminFrom.mockImplementation((table: string) => {
-    if (table === 'facility_menus') return menusChain(menus);
-    if (table === 'staff_profiles') return staffChain(opts.staff ?? null);
-    if (table === 'facility_profiles') return facilityChain(facility);
-    // 複数メニュー時の menu_ids 永続化 update().eq()。
-    if (table === 'bookings') return { update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: opts.bookingsUpdateError ?? null })) })) };
-    return {};
-  });
-}
-
-const MENU_UUID2 = '44444444-4444-4444-8444-444444444445';
-
 beforeEach(() => {
   jest.clearAllMocks();
-  (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
-  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockRpc.mockResolvedValue({ data: 'booking-1', error: null });
-  setupAdminTables();
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
+  (sendBookingConfirmed as jest.Mock).mockResolvedValue(true);
+  mockGetUser.mockResolvedValue({ data: { user: { id: ACTOR } }, error: null });
+  mockFrom.mockReturnValue(member({ facility_id: FACILITY }));
+  mockRpc.mockResolvedValue({ data: saved, error: null });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon';
 });
-
-test('CSRFエラー → 返却', async () => {
-  const csrf = new Response('csrf', { status: 403 });
-  (checkCsrf as jest.Mock).mockReturnValueOnce(csrf);
-  const res = await POST(makeRequest(validBody()) as never);
-  expect(res.status).toBe(403);
+test('CSRF／レート制限はRPCより前に拒否', async () => {
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response('csrf', { status: 403 }));
+  expect((await POST(request(body()) as never)).status).toBe(403);
+  (checkRateLimit as jest.Mock).mockReturnValueOnce(true);
+  expect((await POST(request(body()) as never)).status).toBe(429);
+  expect(mockRpc).not.toHaveBeenCalled();
 });
-
-test('レートリミット → 429', async () => {
-  (checkRateLimit as jest.Mock).mockReturnValue(true);
-  const res = await POST(makeRequest(validBody()) as never);
-  expect(res.status).toBe(429);
+test('壊れたJSONは400', async () => {
+  expect((await POST(new Request('http://localhost/api/admin/bookings', { method: 'POST', body: '{' }) as never)).status).toBe(400);
 });
-
-test('不正なJSON → 400', async () => {
-  const req = new Request('http://localhost/api/admin/bookings', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: 'not-json',
-  });
-  const res = await POST(req as never);
-  expect(res.status).toBe(400);
+test.each([
+  { operation_id: undefined }, { customer_name: ' ' }, { menu_ids: [MENU, MENU] }, { menu_ids: [] },
+  { booking_date: '2026-02-30' }, { start_time: '11:00', end_time: '10:00' },
+  { email: 'not-email' }, { note: 'x'.repeat(501) }, { staff_id: 'bad' },
+])('入力境界を拒否し保存しない：%j', async override => {
+  expect((await POST(request(body(override)) as never)).status).toBe(400);
+  expect(mockRpc).not.toHaveBeenCalled();
 });
-
-test('スキーマ不正（customer_name 空） → 400', async () => {
-  const res = await POST(makeRequest(validBody({ customer_name: '' })) as never);
-  expect(res.status).toBe(400);
+test.each([null, { id: ACTOR }])('未認証／認証障害は401', async user => {
+  mockGetUser.mockResolvedValue({ data: { user }, error: user ? { message: 'auth failed' } : null });
+  expect((await POST(request(body()) as never)).status).toBe(401);
 });
-
-test('開始 >= 終了 → 400', async () => {
-  const res = await POST(makeRequest(validBody({ start_time: '11:00', end_time: '10:00' })) as never);
-  expect(res.status).toBe(400);
+test('非管理者は401、所属確認障害は500で正常や非所属に変換しない', async () => {
+  mockFrom.mockReturnValueOnce(member(null));
+  expect((await POST(request(body()) as never)).status).toBe(401);
+  mockFrom.mockReturnValueOnce(member(null, { message: 'DB unavailable' }));
+  expect((await POST(request(body()) as never)).status).toBe(500);
+  expect(mockRpc).not.toHaveBeenCalled();
 });
-
-test('未認証 → 401', async () => {
-  mockGetUser.mockResolvedValue({ data: { user: null } });
-  const res = await POST(makeRequest(validBody()) as never);
-  expect(res.status).toBe(401);
-});
-
-test('非メンバー → 401', async () => {
-  mockAnonFrom.mockReturnValue(memberChain(null));
-  const res = await POST(makeRequest(validBody()) as never);
-  expect(res.status).toBe(401);
-});
-
-test('メニューが他施設（未検出） → 400', async () => {
-  setupAdminTables({ menus: [] });
-  const res = await POST(makeRequest(validBody()) as never);
-  expect(res.status).toBe(400);
-});
-
-test('スタッフ指定が他施設（未検出） → 400', async () => {
-  setupAdminTables({ staff: null });
-  const res = await POST(makeRequest(validBody({ staff_id: STAFF_UUID })) as never);
-  expect(res.status).toBe(400);
-});
-
-test('複数メニュー → menu_ids を保存 → 201', async () => {
-  setupAdminTables({ menus: [{ id: MENU_UUID, name: 'カット', price: 5000 }, { id: MENU_UUID2, name: 'カラー', price: 3000 }] });
-  const res = await POST(makeRequest(validBody({ menu_ids: [MENU_UUID, MENU_UUID2] })) as never);
-  expect(res.status).toBe(201);
-});
-
-test('複数メニューで menu_ids 保存が失敗 → warn のみ・201', async () => {
-  setupAdminTables({
-    menus: [{ id: MENU_UUID, name: 'カット', price: 5000 }, { id: MENU_UUID2, name: 'カラー', price: 3000 }],
-    bookingsUpdateError: { message: 'persist fail' },
-  });
-  const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-  const res = await POST(makeRequest(validBody({ menu_ids: [MENU_UUID, MENU_UUID2] })) as never);
-  expect(res.status).toBe(201);
-  expect(errSpy).toHaveBeenCalled();
-  errSpy.mockRestore();
-});
-
-test('スタッフ指定（指名料あり） → 201・指名料加算', async () => {
-  setupAdminTables({ staff: { name: '佐藤', nomination_fee: 1000 } });
-  const res = await POST(makeRequest(validBody({ staff_id: STAFF_UUID })) as never);
-  expect(res.status).toBe(201);
-  // total_price = 5000 + 1000
-  expect(mockRpc).toHaveBeenCalledWith('create_booking_atomic', expect.objectContaining({ p_total_price: 6000, p_status: 'confirmed', p_user_id: null }));
-  // 店舗手動予約はスケジュールゲート対象外（意図的）: p_enforce_schedule を渡さない＝DEFAULT FALSE。
-  // 電話受付等の意図的な時間外登録を塞がない（公開経路 booking/route.ts のみ true を渡す）。
-  expect(mockRpc).toHaveBeenCalledWith('create_booking_atomic', expect.not.objectContaining({ p_enforce_schedule: expect.anything() }));
-});
-
-test('スタッフ指定（指名料なし null） → 201', async () => {
-  setupAdminTables({ staff: { name: '佐藤', nomination_fee: null } });
-  const res = await POST(makeRequest(validBody({ staff_id: STAFF_UUID })) as never);
-  expect(res.status).toBe(201);
-  expect(mockRpc).toHaveBeenCalledWith('create_booking_atomic', expect.objectContaining({ p_total_price: 5000 }));
-});
-
-test('予約競合 → 409', async () => {
-  mockRpc.mockResolvedValue({ data: null, error: { message: 'BOOKING_CONFLICT' } });
-  const res = await POST(makeRequest(validBody()) as never);
-  expect(res.status).toBe(409);
-});
-
-test('RPCエラー（その他） → 500', async () => {
-  mockRpc.mockResolvedValue({ data: null, error: { message: 'boom' } });
-  const res = await POST(makeRequest(validBody()) as never);
-  expect(res.status).toBe(500);
-});
-
-test('RPCが null id → 500', async () => {
-  mockRpc.mockResolvedValue({ data: '', error: null });
-  const res = await POST(makeRequest(validBody()) as never);
-  expect(res.status).toBe(500);
-});
-
-test('正常作成（email なし） → 201・メール送信なし', async () => {
-  const res = await POST(makeRequest(validBody()) as never);
-  const json = await res.json();
-  expect(res.status).toBe(201);
-  expect(json.success).toBe(true);
-  expect(json.id).toBe('booking-1');
+test.each([
+  ['MANUAL_FORBIDDEN', '42501', 403],
+  ['BOOKING_CONFLICT', '', 409],
+  ['MANUAL_OPERATION_CONFLICT', '', 409],
+  ['MANUAL_OPERATION_RETIRED', '', 409],
+  ['MANUAL_MENU_UNAVAILABLE', '', 400],
+  ['MANUAL_STAFF_UNAVAILABLE', '', 400],
+  ['MANUAL_PRICE_INVALID', '', 400],
+  ['unexpected DB failure', '', 500],
+])('原子的RPCエラー %s は %s/%s。成功応答しない', async (message, code, status) => {
+  mockRpc.mockResolvedValue({ data: null, error: { message, code } });
+  const res = await POST(request(body()) as never);
+  expect(res.status).toBe(status);
+  expect((await res.json()).success).not.toBe(true);
   expect(sendBookingConfirmed).not.toHaveBeenCalled();
 });
-
-test('正常作成（email あり） → 201・確認メール送信', async () => {
-  const res = await POST(makeRequest(validBody({ email: 'taro@example.com' })) as never);
+test.each([null, '', { ...saved, booking_id: 'bad' }, { ...saved, replayed: undefined }])('結果不明を成功に変換しない：%j', async data => {
+  mockRpc.mockResolvedValue({ data, error: null });
+  expect((await POST(request(body()) as never)).status).toBe(500);
+});
+test('全メニューと原操作IDを一つのRPCへ渡す。価格はブラウザから信用しない', async () => {
+  const second = '44444444-4444-4444-8444-444444444445';
+  const res = await POST(request(body({ menu_ids: [MENU, second], staff_id: STAFF, customer_name: '  テスト予約  ', total_price: 1 })) as never);
   expect(res.status).toBe(201);
-  expect(sendBookingConfirmed).toHaveBeenCalledWith(expect.objectContaining({
-    customerEmail: 'taro@example.com',
-    facilityName: 'テストサロン',
-    menuName: 'カット',
-  }));
-});
-
-// 【2026年7月7日 本番実データで確定した恒久根治の回帰防止】確認メールを fire-and-forget (waitUntil)
-// に戻すと本番(Fluid Compute 無効)でレスポンス返却後に打ち切られ通知が全滅する。レスポンスは送信の
-// 完了(await)まで確定しないことを直列に検証する。
-test('確認メール送信が完了するまでレスポンスを確定させない（awaitで確実に完了・fire-and-forget回帰防止）', async () => {
-  let resolveSend: (() => void) | undefined;
-  const pending = new Promise<boolean>((resolve) => { resolveSend = () => resolve(true); });
-  (sendBookingConfirmed as jest.Mock).mockReturnValueOnce(pending);
-
-  const postPromise = POST(makeRequest(validBody({ email: 'taro@example.com' })) as never);
-  let settled = false;
-  void postPromise.then(() => { settled = true; });
-
-  await new Promise((r) => setTimeout(r, 20));
-  expect(settled).toBe(false);
-
-  resolveSend!();
-  const res = await postPromise;
-  expect(settled).toBe(true);
-  expect(res.status).toBe(201);
-});
-
-test('メニュー price が null → 201（price フォールバック0）', async () => {
-  setupAdminTables({ menus: [{ id: MENU_UUID, name: 'カット', price: null }] });
-  const res = await POST(makeRequest(validBody()) as never);
-  expect(res.status).toBe(201);
-  expect(mockRpc).toHaveBeenCalledWith('create_booking_atomic', expect.objectContaining({ p_total_price: 0 }));
-});
-
-test('facility_menus が null → 400（menuList フォールバック分岐）', async () => {
-  mockAdminFrom.mockImplementation((t: string) => (t === 'facility_menus' ? menusChain(null) : staffChain(null)));
-  const res = await POST(makeRequest(validBody()) as never);
-  expect(res.status).toBe(400);
-});
-
-test('スタッフ name が null → 201（staffName undefined 分岐）', async () => {
-  setupAdminTables({ staff: { name: null, nomination_fee: 0 } });
-  const res = await POST(makeRequest(validBody({ staff_id: STAFF_UUID })) as never);
-  expect(res.status).toBe(201);
-});
-
-test('email あり・facility_profiles が null → 201（facilityName 空）', async () => {
-  mockAdminFrom.mockImplementation((t: string) => {
-    if (t === 'facility_menus') return menusChain([{ id: MENU_UUID, name: 'カット', price: 5000 }]);
-    if (t === 'facility_profiles') return facilityChain(null);
-    return staffChain(null);
+  expect(await res.json()).toEqual({ success: true, id: BOOKING, replayed: false, notification: 'not_requested' });
+  expect(mockRpc).toHaveBeenCalledWith('create_manual_booking_atomic', {
+    p_actor_id: ACTOR, p_operation_id: OP, p_input: { facility_id: FACILITY, staff_id: STAFF,
+      menu_ids: [MENU, second], booking_date: '2026-07-01', start_time: '10:00', end_time: '11:00',
+      customer_name: 'テスト予約', email: null, phone: null, note: null },
   });
-  const res = await POST(makeRequest(validBody({ email: 'taro@example.com' })) as never);
-  expect(res.status).toBe(201);
-  expect(sendBookingConfirmed).toHaveBeenCalledWith(expect.objectContaining({ facilityName: '' }));
+  expect(sendBookingConfirmed).not.toHaveBeenCalled();
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ recordId: BOOKING,
+    newValues: { booking_date: '2026-07-01', start_time: '10:00', status: 'confirmed' } }));
 });
-
-test('確認メール送信失敗（sendBookingConfirmed が false）→ 201のまま（fire-and-forget・可視化のみ）', async () => {
-  (sendBookingConfirmed as jest.Mock).mockResolvedValueOnce(false);
-  const res = await POST(makeRequest(validBody({ email: 'taro@example.com' })) as never);
+test('再送時は同じ予約を200で返すが再送信／監査の二重記録をしない', async () => {
+  mockRpc.mockResolvedValue({ data: { ...saved, replayed: true }, error: null });
+  const res = await POST(request(body({ email: 'test@example.invalid' })) as never);
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ success: true, id: BOOKING, replayed: true, notification: 'not_repeated' });
+  expect(sendBookingConfirmed).not.toHaveBeenCalled();
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});
+test('原子的に通知予約済みと返し、APIから非原子的な実メールを送らない', async () => {
+  mockRpc.mockResolvedValue({ data: { ...saved, staff_name: null }, error: null });
+  const res = await POST(request(body({ email: 'test@example.invalid' })) as never);
   expect(res.status).toBe(201);
-  await Promise.resolve();
-  expect(sendBookingConfirmed).toHaveBeenCalled();
+  expect((await res.json()).notification).toBe('queued');
+  expect(sendBookingConfirmed).not.toHaveBeenCalled();
+});
+test('予期しない例外は500', async () => {
+  mockRpc.mockRejectedValueOnce(new Error('network unknown'));
+  expect((await POST(request(body()) as never)).status).toBe(500);
+});
+function recovery(params = 'operation_id=' + OP + '&facility_id=' + FACILITY) {
+  return new Request('http://localhost/api/admin/bookings?' + params);
+}
+test('原操作の照合は本人IDを使い、顧客情報を応答せずキャッシュさせない', async () => {
+  mockRpc.mockResolvedValue({ data: { state: 'saved', booking_id: BOOKING, customer_name: 'not exposed' }, error: null });
+  const res = await GET(recovery() as never);
+  expect(res.status).toBe(200);
+  expect(res.headers.get('cache-control')).toBe('no-store');
+  expect(await res.json()).toEqual({ state: 'saved', booking_id: BOOKING });
+  expect(mockRpc).toHaveBeenCalledWith('get_manual_booking_operation', { p_actor_id: ACTOR,
+    p_operation_id: OP, p_facility_id: FACILITY });
+});
+test.each(['absent', 'retired'])('原操作状態 %s を保持', async state => {
+  mockRpc.mockResolvedValue({ data: { state }, error: null });
+  expect(await (await GET(recovery() as never)).json()).toEqual({ state });
+});
+test('照合の入力・認証・認可・DB異常・不正な結果・例外を拒否', async () => {
+  (checkRateLimit as jest.Mock).mockReturnValueOnce(true);
+  expect((await GET(recovery() as never)).status).toBe(429);
+  expect((await GET(recovery('') as never)).status).toBe(400);
+  mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: null });
+  expect((await GET(recovery() as never)).status).toBe(401);
+  mockRpc.mockResolvedValueOnce({ data: null, error: { code: '42501' } });
+  expect((await GET(recovery() as never)).status).toBe(403);
+  mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'DB failure' } });
+  expect((await GET(recovery() as never)).status).toBe(500);
+  mockRpc.mockResolvedValueOnce({ data: { state: 'saved', booking_id: 'bad' }, error: null });
+  expect((await GET(recovery() as never)).status).toBe(500);
+  mockRpc.mockRejectedValueOnce(new Error('network unknown'));
+  expect((await GET(recovery() as never)).status).toBe(500);
 });

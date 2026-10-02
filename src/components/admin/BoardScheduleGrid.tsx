@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { statusGanttClass } from '@/lib/booking-status';
 import { timeToMinutes, minutesToTime, snapToSlot, computeEndMinutes, endExceedsClose, assignLanes } from '@/lib/board-time';
+import { UUID_REGEX } from '@/lib/constants';
 
 export type BoardChip = {
   id: string;
@@ -179,7 +180,7 @@ export default function BoardScheduleGrid({
                 return (
                   <Link
                     key={b.id}
-                    href={`/admin/bookings/${b.id}`}
+                    href={`/admin/bookings/${b.id}?facility_id=${facilityId}`}
                     className={`absolute rounded border-l-4 px-1.5 overflow-hidden shadow-sm hover:shadow transition-shadow flex flex-col justify-center ${statusGanttClass(b.status)}`}
                     style={{ left: `${left}%`, width: `${width}%`, top: lane * laneH + 2, height: laneH - 4 }}
                     title={`${b.customer_name} 様 ${b.start_time.slice(0, 5)}〜${b.end_time.slice(0, 5)}${b.menuName ? ` / ${b.menuName}` : ''}${clipL ? '（早朝に続く）' : ''}${clipR ? '（営業時間外に続く）' : ''}`}
@@ -253,6 +254,9 @@ function BoardBookingModal({
   const [staffKey, setStaffKey] = useState(preset.staffKey); // M3: 担当をモーダル内で変更可能
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const operationRef = useRef<{ id: string; body: string } | null>(null);
+  const inFlightRef = useRef(false);
+  const [uncertain, setUncertain] = useState(false);
 
   const selectedStaff = staffOptions.find((s) => s.key === staffKey);
   const staffName = selectedStaff?.name ?? '指名なし';
@@ -268,6 +272,10 @@ function BoardBookingModal({
   const showDiscardRef = useRef(false); // ESC ハンドラ（document リスナ）から最新状態を読むため
   const closeRef = useRef<() => void>(() => {});
   function handleClose() {
+    if (submitting || uncertain) {
+      setError('予約結果を確認するまで閉じずに、同じ操作で再確認してください。再読込しても操作IDは保持されます。');
+      return;
+    }
     if (dirty) {
       showDiscardRef.current = true;
       setShowDiscard(true);
@@ -342,8 +350,49 @@ function BoardBookingModal({
   }
 
   async function submit() {
-    if (submitting) return; // 二重送信ガード
+    if (inFlightRef.current) return;
     setError(null);
+    // Recover a previous browser session before requiring customer input.
+    // Reuse the same ID when absent; never mint a replacement while a late
+    // original request could still commit. No personal data is persisted.
+    let previous: string | null;
+    try {
+      previous = sessionStorage.getItem(`carelink-manual-booking:${facilityId}`);
+      if (previous !== null && !UUID_REGEX.test(previous)) throw new Error('invalid pending operation');
+    } catch {
+      setError('操作IDを安全に保存できないため送信しません。ブラウザの保存設定を確認してください。');
+      return;
+    }
+    if (previous && !operationRef.current) {
+      inFlightRef.current = true;
+      setSubmitting(true);
+      try {
+        const recovery = await fetch(`/api/admin/bookings?facility_id=${encodeURIComponent(facilityId)}&operation_id=${previous}`, { cache: 'no-store' });
+        const original = await recovery.json().catch(() => null);
+        if (!recovery.ok || !['saved', 'absent', 'retired'].includes(original?.state)) throw new Error('recovery unknown');
+        if (original.state === 'saved') {
+          if (typeof original.booking_id !== 'string' || !UUID_REGEX.test(original.booking_id)) throw new Error('recovery invalid');
+          sessionStorage.removeItem(`carelink-manual-booking:${facilityId}`);
+          setUncertain(false);
+          onCreated();
+          return;
+        }
+        if (original.state === 'retired') {
+          sessionStorage.removeItem(`carelink-manual-booking:${facilityId}`);
+          setUncertain(false);
+          setError('原予約は削除済みです。同じ操作では再作成しません。内容を確認して新規予約として登録してください。');
+          return;
+        }
+        setUncertain(false);
+      } catch {
+        setUncertain(true);
+        setError('原操作の結果を確認できません。新しい予約を作らず、同じ操作で再確認してください。');
+        return;
+      } finally {
+        inFlightRef.current = false;
+        setSubmitting(false);
+      }
+    }
     if (!customerName.trim()) {
       setError('お客様名を入力してください');
       return;
@@ -366,37 +415,70 @@ function BoardBookingModal({
       return;
     }
     setSubmitting(true);
+    inFlightRef.current = true;
+    let requestStarted = false;
     try {
+      if (!operationRef.current) {
+        const key = `carelink-manual-booking:${facilityId}`;
+        const id = previous ?? crypto.randomUUID();
+        // Only an opaque operation ID persists. No name/email/phone is stored.
+        sessionStorage.setItem(key, id);
+        operationRef.current = { id, body: JSON.stringify({
+          operation_id: id, facility_id: facilityId,
+          staff_id: staffKey === '__unassigned__' ? null : staffKey, menu_ids: selectedMenus,
+          booking_date: date, start_time: startTime, end_time: endTime,
+          customer_name: customerName.trim(), email: email.trim() || null, phone: phone.trim() || null,
+        }) };
+      }
+      requestStarted = true;
       const res = await fetch('/api/admin/bookings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          facility_id: facilityId,
-          staff_id: staffKey === '__unassigned__' ? null : staffKey,
-          menu_ids: selectedMenus,
-          booking_date: date,
-          start_time: startTime,
-          end_time: endTime,
-          customer_name: customerName.trim(),
-          email: email.trim() || null,
-          phone: phone.trim() || null,
-        }),
+        body: operationRef.current.body,
       });
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
         // M5: 重複(409)時はボードを再取得し、最新の埋まり状況を背後に反映（モーダルは開いたまま）
-        if (res.status === 409) {
+        if (res.status === 409 && data?.code === 'BOOKING_CONFLICT') {
           setError('この時間帯は既に予約が入っています。ボードを更新したので別の時間帯を選んでください。');
+          sessionStorage.removeItem(`carelink-manual-booking:${facilityId}`);
+          operationRef.current = null;
+          setUncertain(false);
           onRefresh();
+        } else if (res.status === 409 && data?.code === 'MANUAL_OPERATION_RECOVERY') {
+          // A late original request may have committed after the reload's
+          // absent check. Switch to read-only recovery, never another create.
+          operationRef.current = null;
+          setUncertain(true);
+          setError('原操作を照合します。「同じ操作で再確認」を押してください。');
         } else {
-          setError(data.error || '予約の作成に失敗しました');
+          setError(data?.error || '予約結果を確認できません。同じ操作で再確認してください。');
+          // Only a first attempt rejected before saving can be edited. A
+          // rejection after an unknown result does not prove the original
+          // transaction failed (e.g. membership was revoked meanwhile).
+          if (!uncertain && [400, 401, 403, 429].includes(res.status)) {
+            operationRef.current = null;
+            setUncertain(false);
+          } else {
+            setUncertain(true);
+          }
         }
         setSubmitting(false);
         return;
       }
+      if (data?.success !== true || typeof data.id !== 'string' || !UUID_REGEX.test(data.id)) {
+        throw new Error('manual booking result unknown');
+      }
+      sessionStorage.removeItem(`carelink-manual-booking:${facilityId}`);
+      operationRef.current = null;
+      setUncertain(false);
       onCreated();
     } catch {
-      setError('通信エラーが発生しました');
+      setUncertain(requestStarted);
+      setError(requestStarted ? '予約結果を確認できません。新しい予約を作らず、同じ操作で再確認してください。'
+        : '操作IDを安全に保存できないため送信しません。ブラウザの保存設定を確認してください。');
+    } finally {
+      inFlightRef.current = false;
       setSubmitting(false);
     }
   }
@@ -419,7 +501,7 @@ function BoardBookingModal({
           </button>
         </div>
 
-        <div className="p-4 space-y-3">
+        <fieldset disabled={submitting || uncertain} className="p-4 space-y-3">
           <div className="text-xs text-gray-500">
             {date}　{startTime}〜{endTime}
           </div>
@@ -534,7 +616,7 @@ function BoardBookingModal({
           </div>
 
           {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
-        </div>
+        </fieldset>
 
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t">
           <button type="button" onClick={handleClose} className="px-3 py-1.5 rounded-md text-sm text-gray-600 hover:bg-gray-100">キャンセル</button>
@@ -544,7 +626,7 @@ function BoardBookingModal({
             disabled={submitting || tooLate}
             className="px-4 py-1.5 rounded-md text-sm font-bold bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50"
           >
-            {submitting ? '作成中…' : '予約を確定'}
+            {submitting ? '作成中…' : uncertain ? '同じ操作で再確認' : '予約を確定'}
           </button>
         </div>
       </div>
@@ -555,7 +637,10 @@ function BoardBookingModal({
       message="入力内容を破棄して閉じますか？"
       confirmLabel="破棄して閉じる"
       cancelLabel="編集を続ける"
-      onConfirm={() => { showDiscardRef.current = false; setShowDiscard(false); onClose(); }}
+      onConfirm={() => {
+        if (inFlightRef.current || uncertain) return;
+        showDiscardRef.current = false; setShowDiscard(false); onClose();
+      }}
       onCancel={() => { showDiscardRef.current = false; setShowDiscard(false); }}
     />
     </>

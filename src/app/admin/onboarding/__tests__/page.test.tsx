@@ -22,7 +22,9 @@ import '@testing-library/jest-dom';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import OnboardingPage from '../page';
 import { AuthSessionMissingError } from '@supabase/supabase-js';
-import { SALON_BROWSER_CONTEXT_KEY, salonHandoffAuthPath } from '@/lib/salon-browser-context';
+import { SALON_BROWSER_CONTEXT_KEY, SALON_RECOVERY_CONTEXT_KEY, salonHandoffAuthPath } from '@/lib/salon-browser-context';
+import { navigateAfterFacilitySetup } from '@/lib/onboarding-navigation';
+jest.mock('@/lib/onboarding-navigation', () => ({ navigateAfterFacilitySetup: jest.fn() }));
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
@@ -87,6 +89,44 @@ beforeEach(() => {
   global.fetch = mockFetch as unknown as typeof fetch;
 });
 
+describe('verified recovery handoff', () => {
+  const recoveryId='b2000000-0000-4000-8000-000000000001';
+  const summary={state:'confirmed',receiptId:'b1000000-0000-4000-8000-000000000001',name:'Original recovered branch',type:'ヘアサロン',address:'Original address'};
+  function context() {
+    mockSearchParams=new URLSearchParams({handoff:'recovered',facility_name:'Untrusted query'});
+    window.sessionStorage.setItem(SALON_RECOVERY_CONTEXT_KEY,JSON.stringify({version:1,recoveryId}));
+    mockFetch.mockResolvedValue({ok:true,json:async()=>summary});
+  }
+  test('summary never creates; original fields are immutable and explicit license/button create',async()=>{
+    context();mockMaybeSingle.mockResolvedValue({data:{facility_id:'already-owned'},error:null});render(<OnboardingPage/>);
+    expect(await screen.findByLabelText(/施設名/)).toHaveValue(summary.name);
+    expect(screen.getByLabelText(/施設名/)).toBeDisabled();expect(screen.getByLabelText(/業態/)).toBeDisabled();
+    expect(mockFetch).toHaveBeenCalledTimes(1);expect(mockReplace).not.toHaveBeenCalled();
+    expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({action:'summary',recoveryId});
+    submit();expect(mockFetch).toHaveBeenCalledTimes(1);
+    fillLicenseCheckbox();mockFetch.mockResolvedValue({ok:true,json:async()=>({success:true,facilityId:summary.receiptId})});
+    submit();await waitFor(()=>expect(navigateAfterFacilitySetup).toHaveBeenCalledTimes(1));
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({facility_name:summary.name,business_type:summary.type,license_warranted:true,recoveryId});
+  });
+  test.each([null,{...summary,state:'unverified'},{...summary,address:2},{...summary,receiptId:'bad'}])('invalid summary never becomes direct setup %#',async body=>{
+    context();mockFetch.mockResolvedValue({ok:true,json:async()=>body});render(<OnboardingPage/>);
+    await screen.findByText('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
+    expect(mockFetch).toHaveBeenCalledTimes(1);expect(mockReplace).not.toHaveBeenCalled();
+    expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
+  });
+  test('missing recovery selector fails closed',async()=>{
+    context();window.sessionStorage.clear();render(<OnboardingPage/>);
+    await screen.findByText('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');expect(mockFetch).not.toHaveBeenCalled();
+  });
+  test('changed selector cannot submit a different receipt',async()=>{
+    context();render(<OnboardingPage/>);await screen.findByLabelText(/施設名/);fillLicenseCheckbox();window.sessionStorage.clear();submit();
+    expect(mockFetch).toHaveBeenCalledTimes(1);expect(mockReplace).not.toHaveBeenCalled();
+    expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
+  });
+});
+
 describe('selected registration handoff', () => {
   const intentId = '74000000-0000-4000-8000-000000000001';
   const receiptId = '74000000-0000-4000-8000-000000000002';
@@ -107,6 +147,7 @@ describe('selected registration handoff', () => {
     render(<OnboardingPage />);
     expect(await screen.findByLabelText(/施設名/)).toHaveValue(summary.name);
     expect(mockReplace).not.toHaveBeenCalled();
+    expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(mockFetch.mock.calls[0][0]).toBe('/api/salons/summary');
     expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ intentId });
@@ -117,6 +158,7 @@ describe('selected registration handoff', () => {
     expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({ facility_name: summary.name,
       business_type: summary.type, license_warranted: true, intentId });
     expect(mockReplace).not.toHaveBeenCalled();
+    expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
   });
   test.each(['missing', 'broken'])('missing/corrupt selector never becomes direct onboarding %s', async value => {
     context();
@@ -125,6 +167,7 @@ describe('selected registration handoff', () => {
     render(<OnboardingPage />);
     await screen.findByText('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
     expect(mockFetch).not.toHaveBeenCalled(); expect(mockReplace).not.toHaveBeenCalled();
+    expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
   });
   test.each([
     { ...summary, state: 'uncommitted' }, { ...summary, name: '' }, { ...summary, name: 'x'.repeat(201) },
@@ -134,6 +177,7 @@ describe('selected registration handoff', () => {
     render(<OnboardingPage />);
     await screen.findByText('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
     expect(mockFetch).toHaveBeenCalledTimes(1); expect(mockReplace).not.toHaveBeenCalled();
+    expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
   });
   test('changing tab context while form is open prevents wrong-receipt submission', async () => {
     context(); render(<OnboardingPage />);
@@ -157,7 +201,8 @@ describe('onboarding transport and membership recovery', () => {
   test('membership existence query has a one-row limit even for multi-facility operators', async () => {
     mockMaybeSingle.mockResolvedValue({ data: { facility_id: '11111111-1111-4111-8111-111111111111' }, error: null });
     render(<OnboardingPage />);
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/admin'));
+    await waitFor(() => expect(navigateAfterFacilitySetup).toHaveBeenCalledTimes(1));
+    expect(mockReplace).not.toHaveBeenCalled();
     expect(mockLimit).toHaveBeenCalledWith(1);
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -174,6 +219,7 @@ describe('onboarding transport and membership recovery', () => {
     await form(); submit();
     await screen.findByRole('alert');
     expect(mockReplace).not.toHaveBeenCalled();
+    expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
@@ -182,6 +228,7 @@ describe('onboarding transport and membership recovery', () => {
     await form(); submit();
     await screen.findByText(/作成結果を確認できませんでした/);
     expect(mockReplace).not.toHaveBeenCalled(); expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
   });
 
   test('HTTP202 preserves the explicit uncertain-result recovery instruction', async () => {
@@ -189,6 +236,7 @@ describe('onboarding transport and membership recovery', () => {
     await form(); submit();
     await screen.findByText('申込を新しく送信せず、同じ内容で確認してください。');
     expect(mockReplace).not.toHaveBeenCalled(); expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
   });
 
   test('network rejection leaves the spinner and offers status recheck without retrying POST', async () => {
@@ -234,6 +282,7 @@ describe('onboarding transport and membership recovery', () => {
     view.unmount();
     await act(async () => { resolve({ data: { facility_id: 'fixture' }, error: null }); });
     expect(mockReplace).not.toHaveBeenCalled();
+    expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
   });
 
   test('same-tick clicks dispatch only one POST', async () => {
@@ -250,6 +299,7 @@ describe('onboarding transport and membership recovery', () => {
     await act(async () => { resolve({ ok: true, json: async () => ({ success: true,
       facilityId: '11111111-1111-4111-8111-111111111111' }) }); });
     expect(mockReplace).not.toHaveBeenCalled(); expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
   });
 
   test('a stalled POST times out as unknown, without another POST', async () => {
@@ -265,6 +315,7 @@ describe('onboarding transport and membership recovery', () => {
       await act(async () => { await jest.advanceTimersByTimeAsync(1); });
       expect(screen.getByText(/作成結果を確認できませんでした/)).toBeInTheDocument();
       expect(mockFetch).toHaveBeenCalledTimes(1); expect(mockReplace).not.toHaveBeenCalled();
+      expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
     } finally { jest.useRealTimers(); }
   });
 });
@@ -337,7 +388,8 @@ describe('/admin/onboarding', () => {
       }),
     }));
 
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/admin'));
+    await waitFor(() => expect(navigateAfterFacilitySetup).toHaveBeenCalledTimes(1));
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 
   it('(vii) 送信 body に license_warranted: true が載る（許認可表明の送信証跡・2026年8月20日）', async () => {
@@ -367,7 +419,8 @@ describe('/admin/onboarding', () => {
 
     render(<OnboardingPage />);
 
-    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/admin'));
+    await waitFor(() => expect(navigateAfterFacilitySetup).toHaveBeenCalledTimes(1));
+    expect(mockReplace).not.toHaveBeenCalled();
 
     // フォームは一度も出ず、確認なしPOSTも起きない。
     expect(screen.queryByRole('button', { name: '施設を作成する' })).not.toBeInTheDocument();

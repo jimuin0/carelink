@@ -7,7 +7,7 @@ import { test as setup, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
 import path from 'path';
-import { ADMIN_AUTH_FILE, PENDING_BOOKING_FILE, CONFIRMED_BOOKING_FILE, SEED, jstToday } from './admin.fixtures';
+import { ADMIN_AUTH_FILE, PENDING_BOOKING_FILE, CONFIRMED_BOOKING_FILE, MANUAL_BOOKING_FILE, SEED, jstToday } from './admin.fixtures';
 
 // supabase-js v2 は Node 20 で createClient 時に WebSocket（realtime 用）を要求し throw する。
 // seed は REST（auth.admin / from().insert）のみで realtime に接続しないため、ダミーを与えて
@@ -21,6 +21,18 @@ setup('provision test owner and authenticate', async ({ page }) => {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) {
     throw new Error('admin.setup: NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY が未設定（CI の supabase start 由来の env が必要）');
+  }
+  // Never seed into a remote project, even if credentials are accidentally
+  // inherited. Both the API and the application must be localhost resources.
+  const dbUrl = new URL(url);
+  const appUrl = new URL(process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000');
+  const localHosts = ['localhost', '127.0.0.1', '[::1]'];
+  const localDependencyPort = dbUrl.port === '54321' || (dbUrl.port === '54330'
+    && process.env.GITHUB_ACTIONS === 'true' && process.env.CI === 'true'
+    && url === 'https://localhost:54330' && process.env.PLAYWRIGHT_BASE_URL === 'https://localhost:3000');
+  if (!localHosts.includes(dbUrl.hostname) || !localDependencyPort
+    || !localHosts.includes(appUrl.hostname) || appUrl.port !== '3000') {
+    throw new Error('admin.setup: isolated localhost Supabase/application required; no seed was sent');
   }
 
   const sb = createClient(url, serviceKey, {
@@ -75,9 +87,16 @@ setup('provision test owner and authenticate', async ({ page }) => {
   if (se) throw new Error('seed staff: ' + se.message);
   const staffId = staff[0].id as string;
 
+  // Unpublished menus are available to authorized telephone/manual booking.
+  // They must not make an otherwise unprepared listing online-bookable.
+  const { data: menus, error: menuError } = await sb.from('facility_menus').insert([
+    { facility_id: facilityId, category: '合成検証', name: SEED.manualMenuFirst, price: 3000, duration_minutes: 30, sort_order: 1, is_published: false },
+    { facility_id: facilityId, category: '合成検証', name: SEED.manualMenuSecond, price: 2000, duration_minutes: 30, sort_order: 2, is_published: false },
+  ]).select('id,name');
+  if (menuError || menus?.length !== 2) throw new Error('seed manual menus failed');
+
   // 5) 予約（本日）: 完了/無断/確定 → 本日売上・無断キャンセル率・最近の予約を検証
-  // bookings の NOT NULL 必須列＝facility_id/booking_date/start_time/end_time/customer_name/email
-  // （phase4_bookings.sql で確定。types は email? だが実 DB は NOT NULL＝drift）。
+  // emailは電話・窓口予約でNULLを許可。ここはメール付き既存予約のfixture。
   const customerEmail = 'e2e-customer@example.invalid';
   const { data: seededBookings, error: be } = await sb.from('bookings').insert([
     { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '10:00', end_time: '11:00', customer_name: SEED.completedCustomer, email: customerEmail, status: 'completed', total_price: SEED.completedPriceYen },
@@ -118,4 +137,6 @@ setup('provision test owner and authenticate', async ({ page }) => {
   await page.context().storageState({ path: ADMIN_AUTH_FILE });
   fs.writeFileSync(PENDING_BOOKING_FILE, JSON.stringify({ id: pending.id }));
   fs.writeFileSync(CONFIRMED_BOOKING_FILE, JSON.stringify({ id: confirmedId }));
+  fs.writeFileSync(MANUAL_BOOKING_FILE, JSON.stringify({ facilityId, staffId,
+    menuIds: [SEED.manualMenuSecond, SEED.manualMenuFirst].map(name => menus.find(menu => menu.name === name)!.id) }));
 });

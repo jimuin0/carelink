@@ -146,7 +146,7 @@ function fluent(resolvedValue: unknown) {
 // Route call sequence (no menu/coupon/staff/points):
 // call 1: conflict check   (bookings select)
 // call 2: facility_profiles (auto-confirm setting)
-// then: supabase.rpc('create_booking_atomic')
+// then: supabase.rpc('create_online_booking_atomic')
 // subsequent calls: notification lookups (all in try/catch — failures are suppressed)
 
 // 共有: ポイント利用テスト用のメニュー価格ルックアップ chain。
@@ -421,7 +421,7 @@ describe('POST /api/booking', () => {
     });
   }
 
-  test('公開経路の create_booking_atomic は p_enforce_schedule: true を渡す（スケジュールゲート発効）', async () => {
+  test('公開専用RPCはメニュー全件を渡し、勤務ゲートを呼出側で解除できない', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     scheduleGateMocks();
 
@@ -429,9 +429,18 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
-      expect.objectContaining({ p_enforce_schedule: true })
+      'create_online_booking_atomic',
+      expect.objectContaining({ p_menu_ids: [validBooking.menu_id] })
     );
+  });
+
+  test.each(['BOOKING_NOT_READY', 'BOOKING_MENU_UNAVAILABLE'])('準備中・非公開メニューは409で拒否する：%s', async message => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    scheduleGateMocks();
+    mockRpc.mockResolvedValue({ data: null, error: { message, code: 'P0001' } });
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(409);
+    expect(await res.json()).not.toHaveProperty('success', true);
   });
 
   test('定休日（RPC が BOOKING_CLOSED_DAY を RAISE）→409', async () => {
@@ -541,7 +550,7 @@ describe('POST /api/booking', () => {
     expect(json.success).toBe(true);
     // クランプ後: p_points_used=8000（10000 ではない）, p_total_price=0
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_online_booking_atomic',
       expect.objectContaining({ p_points_used: 8000, p_total_price: 0 })
     );
     // 控除 insert も 8000（-8000）でなければならない
@@ -678,7 +687,7 @@ describe('POST /api/booking', () => {
     // 1: conflict check (bookings)
     // 2: facility_menus price lookup — returns { data: [{ id: menuId, price: 8000 }] }
     // 3: facility_profiles (auto-confirm)
-    // rpc: create_booking_atomic → success
+    // rpc: create_online_booking_atomic → success
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
 
@@ -707,7 +716,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_online_booking_atomic',
       expect.objectContaining({ p_total_price: 8000 })
     );
   });
@@ -723,7 +732,7 @@ describe('POST /api/booking', () => {
     // 3: coupons discount lookup → 20% off → 8000
     // 4: coupon_menus 対象メニューチェック（0行=全メニュー適用）
     // 5: facility_profiles (auto-confirm)
-    // rpc: create_booking_atomic with total_price: 8000
+    // rpc: create_online_booking_atomic with total_price: 8000
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
 
@@ -753,7 +762,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_online_booking_atomic',
       expect.objectContaining({ p_total_price: 8000 })
     );
   });
@@ -793,7 +802,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_online_booking_atomic',
       expect.objectContaining({ p_total_price: 0 })
     );
   });
@@ -831,7 +840,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_online_booking_atomic',
       expect.objectContaining({ p_total_price: 10000 })
     );
   });
@@ -897,7 +906,7 @@ describe('POST /api/booking', () => {
     expect(json.error).toContain('競合');
   });
 
-  test('create_booking_atomic がnullを返す→500', async () => {
+  test('create_online_booking_atomic がnullを返す→500', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     mockRpc.mockResolvedValue({ data: null, error: null });
 
@@ -948,7 +957,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_online_booking_atomic',
       expect.objectContaining({ p_total_price: 8500 })
     );
   });
@@ -987,7 +996,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_online_booking_atomic',
       expect.objectContaining({ p_total_price: 3000 })
     );
   });
@@ -1032,7 +1041,7 @@ describe('POST /api/booking', () => {
       const json = await res.json();
       expect(json.success).toBe(true);
       expect(mockRpc).toHaveBeenCalledWith(
-        'create_booking_atomic',
+        'create_online_booking_atomic',
         expect.objectContaining({ p_total_price: 9000, p_coupon_id: couponId })
       );
     });
@@ -1161,7 +1170,7 @@ describe('POST /api/booking', () => {
       const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, staff_id: staffId, total_price: 1 }));
       const json = await res.json();
       expect(json.success).toBe(true);
-      expect(mockRpc).toHaveBeenCalledWith('create_booking_atomic', expect.objectContaining({ p_staff_id: staffId }));
+      expect(mockRpc).toHaveBeenCalledWith('create_online_booking_atomic', expect.objectContaining({ p_staff_id: staffId }));
     });
 
     test('menu_staffに行あり・指名スタッフが担当外→400（fail-closed・RPC未到達）', async () => {
@@ -1290,7 +1299,7 @@ describe('POST /api/booking', () => {
       // 対象(10000)-1000=9000 + 対象外(2000)定価 = 11000（旧ANY-match実装なら 12000-1000=11000 と
       // 偶然一致してしまうため、下の percentage/special_price テストで意味論の違いを明確に検証する）
       expect(mockRpc).toHaveBeenCalledWith(
-        'create_booking_atomic',
+        'create_online_booking_atomic',
         expect.objectContaining({ p_total_price: 11000, p_coupon_id: couponId })
       );
     });
@@ -1334,7 +1343,7 @@ describe('POST /api/booking', () => {
       // 旧ANY-match方式（合計に効く）なら (10000+2000)*0.8=9600 になり、この値と一致しないことで
       // 「対象分のみ割引」の意味論が実際に効いていることを検証する。
       expect(mockRpc).toHaveBeenCalledWith(
-        'create_booking_atomic',
+        'create_online_booking_atomic',
         expect.objectContaining({ p_total_price: 10000, p_coupon_id: couponId })
       );
     });
@@ -1376,7 +1385,7 @@ describe('POST /api/booking', () => {
       expect(json.success).toBe(true);
       // 対象(10000)→special_price(5000)に置換 + 対象外(2000)定価 = 7000
       expect(mockRpc).toHaveBeenCalledWith(
-        'create_booking_atomic',
+        'create_online_booking_atomic',
         expect.objectContaining({ p_total_price: 7000, p_coupon_id: couponId })
       );
     });
@@ -1525,7 +1534,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_online_booking_atomic',
       expect.objectContaining({ p_total_price: 8500 })
     );
   });
@@ -1560,7 +1569,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_online_booking_atomic',
       expect.objectContaining({ p_total_price: 5000 })
     );
   });
@@ -1599,14 +1608,14 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_online_booking_atomic',
       expect.objectContaining({ p_menu_id: menuId1 }) // 検証済み先頭。foreignMenuId ではない。
     );
-    const rpcArg = mockRpc.mock.calls.find((c) => c[0] === 'create_booking_atomic')![1];
+    const rpcArg = mockRpc.mock.calls.find((c) => c[0] === 'create_online_booking_atomic')![1];
     expect(rpcArg.p_menu_id).not.toBe(foreignMenuId);
   });
 
-  test('複数メニューで menu_ids 保存が失敗 → warn のみ・成功継続', async () => {
+  test('複数メニューの原子的保存が失敗したら成功扱いにしない', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const menuId1 = '323e4567-e89b-12d3-a456-426614174001';
     const menuId2 = '323e4567-e89b-12d3-a456-426614174002';
@@ -1623,10 +1632,8 @@ describe('POST /api/booking', () => {
     menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
 
-    // menu_ids 永続化の update().eq() だけエラーを返す（他メソッドは fluent と同様）チェーン。
-    // 何番目の from 呼び出しが menu_ids 更新かに依存せず、update 経路だけをエラー化する。
     const restErr = fluent({ data: null });
-    restErr.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: { message: 'persist fail' } })) }));
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'synthetic atomic persistence failure' } });
 
     let callNum = 0;
     mockFrom.mockImplementation(() => {
@@ -1638,7 +1645,8 @@ describe('POST /api/booking', () => {
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const res = await POST(makeRequest({ ...validBooking, menu_ids: [menuId1, menuId2] }));
     const json = await res.json();
-    expect(json.success).toBe(true);
+    expect(res.status).toBe(500);
+    expect(json.success).not.toBe(true);
     expect(errSpy).toHaveBeenCalled();
     errSpy.mockRestore();
   });
@@ -1748,7 +1756,7 @@ describe('POST /api/booking', () => {
   });
 
   // 【監査M1】指名なし（おまかせ=staff_id null）は施設全体の時間帯重複があっても事前チェックで
-  // 409 にせず、RPC(create_booking_atomic) の G2 容量判定へ委譲する（複数スタッフ在籍施設で
+  // 409 にせず、RPC(create_online_booking_atomic) の G2 容量判定へ委譲する（複数スタッフ在籍施設で
   // 正当な2件目のおまかせ予約を誤拒否しない）。
   test('指名なし（おまかせ）は施設全体の重複があっても409にせずRPCへ委譲する（監査M1）', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
@@ -1807,7 +1815,7 @@ describe('POST /api/booking', () => {
   });
 
   test('STAFF_NOT_IN_FACILITY（RPC が G1 ガードで RAISE）→ 400', async () => {
-    // 指名スタッフが当該施設に属さない場合、create_booking_atomic が STAFF_NOT_IN_FACILITY を RAISE。
+    // 指名スタッフが当該施設に属さない場合、create_online_booking_atomic が STAFF_NOT_IN_FACILITY を RAISE。
     // API はマルチテナント違反として 400 に変換する（500 汎用に落とさない）ことを検証する。
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const conflictChain = fluent(null);
@@ -2304,7 +2312,7 @@ describe('POST /api/booking', () => {
     const res = await POST(makeRequest(validBooking));
     expect(res.status).toBe(200);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_online_booking_atomic',
       expect.objectContaining({ p_status: 'confirmed' })
     );
     // A-3: 自動確定施設(status='confirmed')では確定メール(sendBookingConfirmed)を送り、
@@ -2660,7 +2668,7 @@ describe('POST /api/booking', () => {
     expect(res.status).toBe(200);
     // menu_ids のみでもメニューは指定されているので refine を通り、サーバー価格(5000)で予約成立。
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_online_booking_atomic',
       expect.objectContaining({ p_total_price: 5000 })
     );
   });
@@ -2724,7 +2732,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_online_booking_atomic',
       expect.objectContaining({ p_total_price: 0 })
     );
   });
@@ -2820,7 +2828,7 @@ describe('POST /api/booking', () => {
     expect(json.success).toBe(true);
     // serverTotalPrice=5000, pointsUsed=500 → finalPrice=4500
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_online_booking_atomic',
       expect.objectContaining({ p_total_price: 4500, p_points_used: 500 })
     );
   });
@@ -3156,7 +3164,7 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(mockRpc).toHaveBeenCalledWith(
-      'create_booking_atomic',
+      'create_online_booking_atomic',
       expect.objectContaining({ p_total_price: 10000 })
     );
   });

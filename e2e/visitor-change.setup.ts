@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
 import path from 'path';
 import { VISITOR_CHANGE_AUTH_FILE, VISITOR_CHANGE_BOOKING_FILE, VISITOR_CHANGE_SEED } from './visitor-change.fixtures';
+import { confirmSyntheticBookingPreparation } from './booking-preparation.seed';
 
 // supabase-js v2 は Node 20 で createClient 時に WebSocket を要求し throw する。realtime 非接続のためダミー。
 if (!globalThis.WebSocket) {
@@ -58,6 +59,7 @@ setup('provision visitor and a changeable booking', async ({ page }) => {
   }).select('id').single();
   if (me) throw new Error('seed menu: ' + me.message);
   const menuId = menu.id as string;
+  await confirmSyntheticBookingPreparation(sb, facilityId);
 
   // 5) 来院者ユーザー
   const { data: cu, error: ce } = await sb.auth.admin.createUser({
