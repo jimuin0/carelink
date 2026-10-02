@@ -25,9 +25,17 @@ PR #657は検証済みHEAD `0da68f8f383d5d121793d8211fbe302035df1db9`を指定�
 
 期待JSONは全migrationを隔離PG17へ再生して生成し、手編集・差分allowlist・監視skipでは通さない。同一PG17／search_pathの生deparseを厳密比較するため、将来の整形差も調査対象であり、意味が同じと推定して自動消去しない。実CHECK／DEFAULT／policy／index／enumのASCII・Unicode空白とLF変更、ACL拡大、JSON異常入力を負対照で確認する。現在の区切り形式は任意catalog文字列に対する数学的collision-free形式ではなく、全識別子の完全識別は保証しない。
 
-未履歴のservice-only `deduct_points_atomic`の2項目は別baseline差分として保持し、この修正では削除・変更・無視しない。locale原因の誤検知除去を全DB差分0とは報告しない。独立設計反証、固定版レビュー、対象test／PG17全再生／必須CI、公式migrationの事前・事後照合、保護merge／deploy／対象fingerprint確認が完了条件。現在は設計・最小実証までであり、この後続修正を適用済みとは扱わない。
+未履歴のservice-only `deduct_points_atomic`の2項目は別baseline差分として保持し、この修正では削除・変更・無視しない。locale原因の誤検知除去を全DB差分0とは報告しない。独立設計反証、固定版レビュー、対象test／PG17全再生／必須CI、公式migrationの事前・事後照合、保護merge／deploy／対象fingerprint確認が完了条件。後続修正のDB適用結果は下記を参照し、merge／deploy成功とは区別する。
 
 本番事前照合では、新queryをread-only transaction・空search_pathで実行した。工具経由のJSON文字列では一部Unicode空白の脱落が見えたため、その出力だけをDB欠損と断定しなかった。DB内の4文字存在判定はすべてtrue。UTF8 JSONをDB側でbase64化してASCIIのまま取得・復号すると、所在地CHECKは原票と完全一致し、全2,703 recordの差分は未置換のfingerprint RPC自身1件と上記既存baseline 2件だけだった。業務constraintを修復するDDLは不要であり、実行していない。
+
+### 監視RPCの公式適用結果
+
+- 適用固定HEADは`f3381b6ef7c9030527bfa487c36d3c76c213e0fa`。独立レビューの未解決P0〜P3は0。CI `36960656805`は448 suite・9,252単体test・branches 100％、隔離Supabase実API Contract 17件、production build、Chromium／WebKit 310件の成功を確認した。PG17 `36960656837`は243原票再生、2,701 record、43 catalog変異・復元、role拒否とJSON実roundtripを成功した。古い取消runは使用していない。既存Contract jobの環境条件付き18 testは実施証拠に数えず、隔離実APIの必須17件と区別する。
+- 直前はACTIVE_HEALTHY、長時間transaction・lock待機0、候補履歴0。関数owner postgres、STABLE、SECURITY DEFINER、空search_path、body MD5 `9d65b0f2debe2cb3ebf9ad526606e455`、anon／authenticated拒否・service許可を確認した。旧定義はtask内の非機密schema証拠として保存し、復帰が必要なら現状態照合後の公式forward-fixとする。
+- 公式`apply_migration`で`fingerprint_literal_preservation`だけを適用し成功した。公式履歴versionは`20261002050559`、statementsは1件、記録SQLと固定原票は完全一致。SQL SHA-256は`3803457852224f49cc844857f2026933f999050004495bf53ed96579b10fcc95`。初回本番適用した候補のfile名だけを公式versionへ同期しSQL bytesは不変。履歴への直接書込み・repair、旧共有適用済み原票の変更はない。
+- 事後body MD5は期待値`089328ab26fd723f5a7459878db5ae0d`と一致し、owner／STABLE／SECURITY DEFINER／空search_path／ACLは不変。実RPCは2,703要素のJSON配列を返した。ASCII-safe取得で期待値のmissing 0・extra 2、追加は上記既存baselineだけ。業務行DML・所在地CHECK変更・通知送信は実行していない。
+- 公式version同期後の最新SHA必須CI、merge／deploy SHA／healthは別gateとして継続する。全GOALやAuth送達の完了証拠にはしない。
 
 ## 最新の適用結果（2026年10月2日）
 
