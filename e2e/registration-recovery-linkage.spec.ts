@@ -64,7 +64,10 @@ async function submitSetup(page: Page, status: number, state: string) {
   expect(response.status).toBe(status);
   const result = response.body;
   expect(result).toMatchObject({ success: true, state });
-  await page.waitForURL(url => url.pathname === '/admin');
+  // Setup replaces the document. Observe navigation commit and the actual
+  // dashboard instead of waiting for unrelated page resources to finish loading.
+  await page.waitForURL(url => url.pathname === '/admin', { waitUntil: 'commit' });
+  await expect(page.getByRole('heading', { name: 'ダッシュボード', exact: true })).toBeVisible();
   return { facilityId: result.facilityId as string, slug: result.slug as string };
 }
 

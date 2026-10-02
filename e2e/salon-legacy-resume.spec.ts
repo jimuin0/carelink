@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Route } from '@playwright/test';
+import { test, expect, type Page, type Route, type Response } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID, createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -62,28 +62,68 @@ async function consentAndSubmit(page: Page) {
   await page.getByRole('button', { name: '登録する', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: '送信する', exact: true }).click();
 }
+async function isolateServerRateLimit(page: Page, ip: string) {
+  // Synthetic rate-limit identity belongs only to the application API. Never
+  // add it to cross-origin Auth/Storage requests or their CORS preflights.
+  await page.route('https://localhost:3000/api/salons/**', route => route.continue({
+    headers: { ...route.request().headers(), 'x-real-ip': ip },
+  }));
+}
 async function frozenV1(page: Page) {
-  let replacements = 0;
-  const freeze = async (route: Route) => {
-    if (!route.request().isNavigationRequest()) return route.continue();
-    const response = await route.fetch();
-    const body = await response.text();
-    // Edit only the real server's serialized configuration prop before React
-    // hydrates. All JS, form behavior, API calls and Storage responses are real.
-    const marker = '\\"v2Enabled\\":true';
-    replacements += body.split(marker).length - 1;
-    await route.fulfill({ response, body: body.replaceAll(marker, '\\"v2Enabled\\":false') });
-  };
-  await page.route('**/register', freeze);
-  await page.goto('/register');
-  expect(replacements).toBe(1);
-  await page.unroute('**/register', freeze);
+  await page.addInitScript(() => {
+    const target = window as typeof window & { __next_f?: unknown[]; __carelinkV1PropFreezes?: number };
+    const queue = target.__next_f || [];
+    let downstream: (...values: unknown[]) => unknown = Array.prototype.push;
+    target.__carelinkV1PropFreezes = 0;
+    Object.defineProperty(queue, 'push', {
+      configurable: true,
+      get: () => (...entries: unknown[]) => {
+        const frozen = entries.map(entry => {
+          if (!Array.isArray(entry) || typeof entry[1] !== 'string') return entry;
+          const marker = '"v2Enabled":true';
+          const count = entry[1].split(marker).length - 1;
+          target.__carelinkV1PropFreezes! += count;
+          return count ? [entry[0], entry[1].replaceAll(marker, '"v2Enabled":false'), ...entry.slice(2)] : entry;
+        });
+        return downstream.apply(queue, frozen);
+      },
+      set: (handler: (...values: unknown[]) => unknown) => { downstream = handler; },
+    });
+    target.__next_f = queue;
+  });
+  // Keep the real HTTP response/origin, TLS, CSP and browser address space.
+  // Only the real bootstrap's parsed configuration prop is frozen before React.
+  const document = await page.goto('/register');
+  expect(document?.status()).toBe(200);
+  expect(await page.evaluate(() => (window as typeof window & { __carelinkV1PropFreezes?: number }).__carelinkV1PropFreezes)).toBe(1);
   await privacy(page);
+}
+function legacyStorageResponse(page: Page): Promise<Response> {
+  const legacy = (url: string) => /\/storage\/v1\/object\/carelink-uploads\/salons\//.test(new URL(url).pathname);
+  let detach = () => {};
+  const failed = new Promise<never>((_, reject) => {
+    const observe = (request: import('@playwright/test').Request) => {
+      if (request.method() !== 'POST' || !legacy(request.url())) return;
+      // Classify only; never log URLs, paths containing capabilities or headers.
+      const text = request.failure()?.errorText || '';
+      const category = /(?:net::)?ERR_[A-Z_]+/.exec(text)?.[0]
+        || (text === 'Load failed' ? 'browser_load_failed' : 'browser_transport_failure');
+      reject(new Error(`Legacy Storage transport failed (${category}); no policy rejection response observed`));
+    };
+    page.on('requestfailed', observe);
+    detach = () => page.off('requestfailed', observe);
+  });
+  const response = page.waitForResponse(result => result.request().method() === 'POST' && legacy(result.url()));
+  const result = Promise.race([response, failed]).finally(() => detach());
+  // Submission UI actions are awaited before this observer; retain the original
+  // rejection for its later await without an interim unhandled-rejection report.
+  void result.catch(() => {});
+  return result;
 }
 
 test('frozen V1 configuration reaches real denied legacy upload, preserves inputs, then explicit signed retry reconciles photos', async ({ page }, info) => {
   test.setTimeout(90000);
-  await page.setExtraHTTPHeaders({ 'x-real-ip': `198.18.${20 + info.retry}.${info.project.name === 'chromium' ? 21 : 22}` });
+  await isolateServerRateLimit(page, `198.18.${20 + info.retry}.${info.project.name === 'chromium' ? 21 : 22}`);
   const email = `synthetic-legacy-${randomUUID()}@example.invalid`, name = `合成旧フォーム ${randomUUID()}`;
   const files = await pictures();
   await frozenV1(page);
@@ -93,8 +133,7 @@ test('frozen V1 configuration reaches real denied legacy upload, preserves input
     if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/salons/commit') commits++;
   });
   await populate(page, email, name, files);
-  const denied = page.waitForResponse(response => response.request().method() === 'POST'
-    && /\/storage\/v1\/object\/carelink-uploads\/salons\//.test(new URL(response.url()).pathname));
+  const denied = legacyStorageResponse(page);
   await consentAndSubmit(page);
   const response = await denied;
   const rejection = await response.json();
@@ -107,7 +146,7 @@ test('frozen V1 configuration reaches real denied legacy upload, preserves input
   const failMint = async (route: Route) => {
     if (signedFailures++ === 0) return route.fulfill({ status: 503, contentType: 'application/json',
       body: JSON.stringify({ code: 'PHOTO_UNAVAILABLE' }) });
-    return route.continue();
+    return route.fallback();
   };
   await page.route('**/api/salons/photos', failMint);
   const mintFailure = page.waitForResponse(result => new URL(result.url()).pathname === '/api/salons/photos' && result.status() === 503);
@@ -124,7 +163,8 @@ test('frozen V1 configuration reaches real denied legacy upload, preserves input
   expect(saved.status()).toBe(201);
   const result = await saved.json();
   await page.waitForURL(url => url.pathname === '/register/complete');
-  await expect(page.getByRole('heading', { name: '登録が完了しました！', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '掲載申込を受け付けました', exact: true })).toBeVisible();
+  await expect(page.getByText(`受付番号：${result.receiptId}`, { exact: true })).toBeVisible();
   expect(legacyPosts).toBe(0); expect(commits).toBe(1);
   const db = service();
   const receipts = await db.from('salons').select('id,facility_name,business_hours,seat_count,staff_count,pr_text,photo_urls').eq('email', email);
@@ -179,7 +219,7 @@ function assertBackup(backup: DraftBackup, files: Awaited<ReturnType<typeof pict
 
 test('manual original-photo backup survives reload beyond capability lifetime, restores order without sending, requires fresh consent', async ({ page }, info) => {
   test.setTimeout(90000);
-  await page.setExtraHTTPHeaders({ 'x-real-ip': `198.18.${40 + info.retry}.${info.project.name === 'chromium' ? 41 : 42}` });
+  await isolateServerRateLimit(page, `198.18.${40 + info.retry}.${info.project.name === 'chromium' ? 41 : 42}`);
   const email = `synthetic-backup-${randomUUID()}@example.invalid`, name = `合成無期限下書き ${randomUUID()}`;
   const files = await pictures();
   await page.goto('/register'); await privacy(page);
