@@ -162,7 +162,13 @@ test('two-store operator keeps explicit store through dashboard, today bookings 
   const todayLink = page.getByRole('link', { name: /本日の予約一覧/ });
   const href = new URL((await todayLink.getAttribute('href'))!, 'https://localhost:3000');
   expect(Object.fromEntries(href.searchParams)).toEqual({ from: today, to: today, facility_id: second });
-  await todayLink.click();
+  // The dashboard already contains the same customer in recent bookings.
+  // Establish the actual destination before checking rows or starting another navigation.
+  await Promise.all([
+    page.waitForURL(href.toString()),
+    todayLink.click(),
+  ]);
+  await expect(page.getByRole('heading', { name: '予約一覧', exact: true })).toBeVisible();
   await expect(page.getByText(names.today, { exact: true })).toBeVisible();
   await expect(page.getByText(names.other, { exact: true })).toBeHidden();
   await expect(page.getByText(names.wrong, { exact: true })).toBeHidden();
