@@ -78,6 +78,8 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
     (async () => {
       try {
         const supabase = createBrowserSupabaseClient();
+        setLoading(true);
+        setFacilityId(null);
         setLoadError(false);
         const auth = await verifyAuthUser(supabase.auth);
         if (cancelled) return;

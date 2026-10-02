@@ -69,3 +69,18 @@ test('URL store change remounts editor so old form cannot mutate new store', asy
   await screen.findByRole('link', { name: '合成店舗A（選択中）' });
   expect(screen.queryByRole('dialog')).toBeNull(); expect(global.fetch).not.toHaveBeenCalled(); expect(scopes).toEqual([second, first]);
 });
+
+test('retry after menu outage hides old controls until identity and store are reverified', async () => {
+  menuError = { code: '08006' };
+  render(<Page />); await screen.findByRole('alert');
+  let finishAuth!: (value: unknown) => void;
+  mockAuth.mockReturnValue(new Promise(resolve => { finishAuth = resolve; }));
+  menuError = null;
+  fireEvent.click(screen.getByRole('button', { name: '再試行' }));
+  await waitFor(() => expect(mockAuth).toHaveBeenCalledTimes(2));
+  expect(screen.queryByRole('button', { name: 'メニュー追加' })).toBeNull();
+  expect(global.fetch).not.toHaveBeenCalled();
+  finishAuth({ data: { user: { id: 'synthetic-user' } }, error: null });
+  await screen.findByRole('link', { name: '合成店舗B（選択中）' });
+  expect(screen.getByRole('button', { name: 'メニュー追加' })).toBeTruthy();
+});

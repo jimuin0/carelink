@@ -42,3 +42,5 @@ PR661は2026年10月2日マージ済み、main／production配信SHA一致、必
 最終認可・URL helper通常版は2 suite・48件成功。独立再レビューは引数型修正前後のbytes/hash同等性を確認し、2 suite・20件成功。全体lint exit0、既存4warningのみ。新規source・stage差分のgitleaks redacted scanは漏洩候補0。
 
 固定版の全体回帰：457 suite・9464件成功、branches 9379/9379＝100%、lines99.38%、statements98.56%、functions95.58%、exit0。React Compiler負債ratchetは4件で基準一致。generatorのunknown table／usage出力は負例拒否テストの期待出力で、失敗suiteは0。
+
+追加の再試行防御：メニュー取得失敗後のretry開始時にloading=true・facilityId=nullへ戻し、Auth／所属の再確認中に旧操作を表示しない。遅延Auth回帰を追加、関連3 suite・44件成功、独立9件成功、対象lint成功。最終SHAはこの追加を含むCIで再確認する。
