@@ -21,7 +21,6 @@ import { extractPrefecture, extractCity } from '@/lib/japan-address';
 import { SALON_FIELD_MESSAGES, type SalonFieldErrors } from '@/lib/salon-field-errors';
 import { normalizePhone } from '@/lib/phone';
 import { SalonRegistrationBrowser } from '@/lib/salon-registration-browser';
-import { exportSalonDraftBackup, importSalonDraftBackup } from '@/lib/salon-draft-backup';
 import { readSalonBrowserContext, SALON_COMPLETE_PATH } from '@/lib/salon-browser-context';
 
 const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
@@ -45,64 +44,20 @@ const startDateOptions = [
   ...DESIRED_START_DATES.map((value) => ({ value, label: desiredStartDateLabels[value] })),
 ];
 
-
-const emptySalonValues: SalonFormValues = {
-  facility_name: '', business_type: '', representative_name: '', contact_name: '',
-  email: '', phone: '', contact_phone: '', website: '',
-  postal_code: '', address: '', prefecture: null, city: null, building_name: '', nearest_station: '',
-  business_hours: '', regular_holiday: '', seat_count: null, staff_count: null,
-  has_parking: false, features: [],
-  pr_text: '', desired_start_date: '',
-};
-
-function createRegistrationBrowser() {
-  return new SalonRegistrationBrowser({
-    store: window.sessionStorage, request: fetch, uuid: () => crypto.randomUUID(),
-    captcha: () => getRecaptchaToken('salons'), compress: compressImage,
-    upload: async (bucket, path, token, file) => supabase.storage.from(bucket)
-      .uploadToSignedUrl(path, token, file, { contentType: file.type }),
-  });
-}
-
-// A generic upload/network failure is not evidence of a policy cutover.
-function isLegacyStoragePolicyRejection(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false;
-  const value = error as { code?: unknown; statusCode?: unknown; status?: unknown; message?: unknown };
-  return value.code === '42501' || ((value.statusCode === '403' || value.statusCode === 403 || value.status === 403)
-    && typeof value.message === 'string' && /row[ -]level security|row[ -]level.*policy/i.test(value.message));
-}
-
-function readDraftContext() {
-  try { return readSalonBrowserContext(window.sessionStorage); }
-  catch { return { state: 'unavailable' } as const; }
-}
-
 export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolean }) {
   const router = useRouter();
-  const mounted = useRef(true);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [step, setStep] = useState(1);
   const [pendingFocus, setPendingFocus] = useState<{ field: keyof SalonFormValues } | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submissionUnknown, setSubmissionUnknown] = useState(false);
   const submissionUnknownRef = useRef(false);
-  const [submissionConfirmed, setSubmissionConfirmed] = useState(false);
-  const submissionConfirmedRef = useRef(false);
   const v2 = useRef<SalonRegistrationBrowser | null>(null);
   const [useV2, setUseV2] = useState(v2Enabled);
   const [v2Ready, setV2Ready] = useState(false);
   const [v2Message, setV2Message] = useState('');
   const addressLookupGeneration = useRef(0);
-  const restoredPostalCode = useRef<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [draftBusy, setDraftBusy] = useState(false);
-  const draftLockRef = useRef(false);
-  const [draftContext, setDraftContext] = useState<'empty' | 'prepared' | 'locked'>('locked');
-  const [restoreGeneration, setRestoreGeneration] = useState(0);
-  const [restoredNeedsReview, setRestoredNeedsReview] = useState(false);
-  const [restoredUnsentAcknowledged, setRestoredUnsentAcknowledged] = useState(false);
-  const [legacyStorageBlocked, setLegacyStorageBlocked] = useState(false);
   const [photoFiles, setPhotoFiles] = useState<(File | null)[]>(photoSlots.map(() => null));
   const [showConfirm, setShowConfirm] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
@@ -112,10 +67,17 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   // 独立したチェックにすることで、掲載者が届出義務を認識した上で登録した事実を明確に残す。
   const [licenseWarranted, setLicenseWarranted] = useState(false);
 
-  const { register, handleSubmit, trigger, setValue, setError, getFieldState, getValues, control, reset, formState: { errors, isReady } } = useForm<SalonFormValues>({
+  const { register, handleSubmit, trigger, setValue, setError, getFieldState, getValues, control, formState: { errors, isReady } } = useForm<SalonFormValues>({
     resolver: zodResolver(salonFullSchema),
     mode: 'onTouched',
-    defaultValues: emptySalonValues,
+    defaultValues: {
+      facility_name: '', business_type: '', representative_name: '', contact_name: '',
+      email: '', phone: '', contact_phone: '', website: '',
+      postal_code: '', address: '', prefecture: null, city: null, building_name: '', nearest_station: '',
+      business_hours: '', regular_holiday: '', seat_count: null, staff_count: null,
+      has_parking: false, features: [],
+      pr_text: '', desired_start_date: '',
+    },
   });
 
   const prText = useWatch({ control, name: 'pr_text' }) || '';
@@ -128,19 +90,20 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
     const initialize = async () => {
       // The flag controls new registrations, not previously issued capabilities.
       // Check saved progress before allowing V1 input after a V2 rollback.
-      const context = readDraftContext();
-      setDraftContext(context.state === 'empty' ? 'empty' : context.state === 'ready' && context.context.phase === 'prepared' ? 'prepared' : 'locked');
-      if (!v2Enabled && context.state === 'empty') {
+      if (!v2Enabled && readSalonBrowserContext(window.sessionStorage).state === 'empty') {
         setV2Ready(true);
         return;
       }
       setUseV2(true);
-      if (!v2.current) v2.current = createRegistrationBrowser();
+      if (!v2.current) v2.current = new SalonRegistrationBrowser({
+        store: window.sessionStorage, request: fetch, uuid: () => crypto.randomUUID(),
+        captcha: () => getRecaptchaToken('salons'), compress: compressImage,
+        upload: async (bucket, path, token, file) => supabase.storage.from(bucket)
+          .uploadToSignedUrl(path, token, file, { contentType: file.type }),
+      });
       const result = await v2.current.reconcile();
       if (cancelled) return;
-      if (result.state === 'confirmed') {
-        submissionConfirmedRef.current = true; setSubmissionConfirmed(true); router.push(SALON_COMPLETE_PATH);
-      }
+      if (result.state === 'confirmed') router.push(SALON_COMPLETE_PATH);
       else if (result.state === 'ready') setV2Ready(true);
       else {
         submissionUnknownRef.current = true; setSubmissionUnknown(true);
@@ -156,11 +119,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   }, [v2Enabled, router]);
 
   const acceptV2Result = (result: Awaited<ReturnType<SalonRegistrationBrowser['submit']>>) => {
-    const context = readDraftContext();
-    setDraftContext(context.state === 'empty' ? 'empty' : context.state === 'ready' && context.context.phase === 'prepared' ? 'prepared' : 'locked');
-    if (result.state === 'confirmed') {
-      submissionConfirmedRef.current = true; setSubmissionConfirmed(true); setIsDirty(false); router.push(SALON_COMPLETE_PATH);
-    }
+    if (result.state === 'confirmed') { setIsDirty(false); router.push(SALON_COMPLETE_PATH); }
     else if (result.state === 'ready' || result.state === 'retryable') {
       submissionUnknownRef.current = false; setSubmissionUnknown(false); setV2Ready(true);
       if (result.state === 'retryable') {
@@ -231,8 +190,6 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   useEffect(() => {
     const generation = ++addressLookupGeneration.current;
     const digits = postalCode.replace(/\D/g, '');
-    if (restoredPostalCode.current === digits) return;
-    restoredPostalCode.current = null;
     if (digits.length !== 7) return;
     let cancelled = false;
     const previousAddress = getValues('address');
@@ -298,10 +255,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   };
 
   const onSubmit = async (data: SalonFormValues) => {
-    if (submissionUnknownRef.current || submissionConfirmedRef.current || draftLockRef.current || !agreed || !licenseWarranted || (restoredNeedsReview && !restoredUnsentAcknowledged)) return;
-    if (!useV2 && readDraftContext().state !== 'empty') {
-      submissionUnknownRef.current = true; setSubmissionUnknown(true); return;
-    }
+    if (submissionUnknownRef.current) return;
     setSubmitting(true);
     setPhotoError(null);
     if (useV2) {
@@ -322,7 +276,6 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
     const uploadedPaths: string[] = [];
     let requestStarted = false;
     let confirmedRejection = false;
-    const policyRejections = new Set<unknown>();
     try {
       // Upload photos
       const uuid = crypto.randomUUID();
@@ -339,10 +292,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
           const ext = mimeToExt[compressed.type] || 'jpg';
           const path = `salons/${uuid}/${categories[i]}.${ext}`;
           const { error: uploadError } = await supabase.storage.from('carelink-uploads').upload(path, compressed);
-          if (uploadError) {
-            if (isLegacyStoragePolicyRejection(uploadError)) policyRejections.add(uploadError);
-            throw uploadError;
-          }
+          if (uploadError) throw uploadError;
           uploadedPaths.push(path);
           return supabase.storage.from('carelink-uploads').getPublicUrl(path).data.publicUrl;
         })
@@ -404,7 +354,6 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
       }
       if (result.kind === 'unknown') throw new Error(SALON_SUBMISSION_UNKNOWN);
 
-      submissionConfirmedRef.current = true; setSubmissionConfirmed(true);
       setIsDirty(false);
       // 【2026年7月8日 恒久根治】/register/complete はクライアント供給の name/type/area だけを表示
       // しており、サーバー確認なしで誰でも任意の値を使って「登録完了しました」画面を直接開けた
@@ -416,7 +365,6 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
       router.push(`/register/complete?${params.toString()}`);
     } catch (e) {
       if (!requestStarted || confirmedRejection) {
-        if (!requestStarted && policyRejections.has(e) && isLegacyStoragePolicyRejection(e)) setLegacyStorageBlocked(true);
         await rollbackUploadedSalonPhotos(uploadedPaths);
         const message = e instanceof Error ? e.message : '送信に失敗しました。時間をおいて再度お試しください。';
         setToast({ message, type: 'error' });
@@ -436,7 +384,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   const submitLockRef = useRef(false);
 
   const handleConfirmSubmit = () => {
-    if (submitLockRef.current || submissionUnknownRef.current || submissionConfirmedRef.current || draftLockRef.current || (restoredNeedsReview && !restoredUnsentAcknowledged)) return;
+    if (submitLockRef.current || submissionUnknownRef.current) return;
     submitLockRef.current = true;
     setShowConfirm(false);
     handleSubmit(onSubmit, revealErrors)().finally(() => {
@@ -444,121 +392,10 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
     });
   };
 
-  const draftAllowed = (restoring: boolean) => {
-    if (submitLockRef.current || draftLockRef.current || submissionUnknownRef.current || submissionConfirmedRef.current || submitting) return false;
-    const context = readDraftContext();
-    setDraftContext(context.state === 'empty' ? 'empty' : context.state === 'ready' && context.context.phase === 'prepared' ? 'prepared' : 'locked');
-    if (context.state === 'unavailable' || (context.state === 'ready' && (restoring || context.context.phase !== 'prepared'))) return false;
-    return true;
-  };
-
-  const downloadDraft = async () => {
-    if (!draftAllowed(false)) { setToast({ type: 'error', message: '送信状況を確認するまでバックアップできません。受付状況をお問い合わせください。' }); return; }
-    draftLockRef.current = true; setDraftBusy(true);
-    let url: string | null = null;
-    let anchor: HTMLAnchorElement | null = null;
-    try {
-      const backup = await exportSalonDraftBackup(getValues(), photoFiles);
-      if (!mounted.current) return;
-      // Serialization must not race a submission or a changed browser context.
-      const context = readDraftContext();
-      setDraftContext(context.state === 'empty' ? 'empty' : context.state === 'ready' && context.context.phase === 'prepared' ? 'prepared' : 'locked');
-      if (submissionUnknownRef.current || submissionConfirmedRef.current || submitLockRef.current || context.state === 'unavailable'
-        || (context.state === 'ready' && context.context.phase !== 'prepared')) throw new Error('backup blocked');
-      url = URL.createObjectURL(backup);
-      anchor = document.createElement('a'); anchor.href = url; anchor.download = 'carelink-draft.json';
-      document.body.appendChild(anchor); anchor.click();
-      setToast({ type: 'success', message: 'バックアップファイルを作成しました。保存先をご確認ください。' });
-    } catch {
-      setToast({ type: 'error', message: 'バックアップを保存できませんでした。入力と元の写真はこの画面に保持されています。' });
-    } finally {
-      anchor?.remove();
-      if (url) {
-        const objectUrl = url; const revoke = URL.revokeObjectURL.bind(URL);
-        window.setTimeout(() => revoke(objectUrl), 1000);
-      }
-      draftLockRef.current = false; setDraftBusy(false);
-    }
-  };
-
-  const restoreDraft = async (file: File) => {
-    if (!draftAllowed(true)) { setToast({ type: 'error', message: '既存の申込または送信状況を確認するまで復元できません。受付状況をお問い合わせください。' }); return; }
-    draftLockRef.current = true; setDraftBusy(true);
-    try {
-      const draft = await importSalonDraftBackup(file);
-      if (!mounted.current) return;
-      const context = readDraftContext();
-      setDraftContext(context.state === 'empty' ? 'empty' : context.state === 'ready' && context.context.phase === 'prepared' ? 'prepared' : 'locked');
-      if (context.state !== 'empty' || submissionUnknownRef.current || submissionConfirmedRef.current || submitLockRef.current) throw new Error('restore blocked');
-      // Decode and verify every file before changing any visible input.
-      const values = { ...emptySalonValues, ...draft.values };
-      for (const field of Object.keys(salonFullSchema.shape) as (keyof SalonFormValues)[]) {
-        if (values[field] === undefined || values[field] === null) {
-          if (!['prefecture', 'city', 'seat_count', 'staff_count'].includes(field)) {
-            Object.assign(values, { [field]: field === 'features' ? [] : field === 'has_parking' ? false : '' });
-          }
-        }
-      }
-      addressLookupGeneration.current++;
-      restoredPostalCode.current = (values.postal_code || '').replace(/\D/g, '');
-      reset(values);
-      setPhotoFiles(draft.photos); setRestoreGeneration(value => value + 1);
-      setAgreed(false); setLicenseWarranted(false); setRestoredNeedsReview(true); setRestoredUnsentAcknowledged(false);
-      setLegacyStorageBlocked(false); setShowConfirm(false); setPhotoError(null); setIsDirty(true); setStep(1);
-      setToast({ type: 'success', message: '入力と元の写真を復元しました。内容と未送信であることを確認し、規約と表明に改めて同意してください。' });
-    } catch {
-      setToast({ type: 'error', message: '下書きを復元できませんでした。入力と元の写真は変更されていません。' });
-    } finally { draftLockRef.current = false; setDraftBusy(false); }
-  };
-
-  const retrySignedUpload = () => {
-    if (!legacyStorageBlocked || submitLockRef.current || draftLockRef.current || submissionUnknownRef.current || submissionConfirmedRef.current || submitting
-      || !agreed || !licenseWarranted || (restoredNeedsReview && !restoredUnsentAcknowledged)) return;
-    // The click authorizes a new signed attempt only after V1 failed before its POST.
-    const context = readDraftContext();
-    if (context.state !== 'empty') { setToast({ type: 'error', message: '既存の申込の受付状況を先に確認してください。' }); return; }
-    submitLockRef.current = true; setSubmitting(true); setShowConfirm(false);
-    void handleSubmit(async data => {
-      try {
-        if (!v2.current) v2.current = createRegistrationBrowser();
-        setUseV2(true); setLegacyStorageBlocked(false);
-        acceptV2Result(await v2.current.submit(data, photoFiles));
-      } catch {
-        submissionUnknownRef.current = true; setSubmissionUnknown(true); setV2Message(SALON_SUBMISSION_UNKNOWN);
-      }
-    }, revealErrors)().finally(() => { submitLockRef.current = false; setSubmitting(false); });
-  };
-
-  const backupDisabled = !isReady || !v2Ready || submitting || draftBusy || submissionUnknown || submissionConfirmed || draftContext === 'locked';
-  const restoreDisabled = backupDisabled || draftContext !== 'empty';
-
   return (
     <div className="mx-auto max-w-[640px] sm:px-12">
       <div>
         <StepIndicator currentStep={step} totalSteps={3} labels={stepLabels} />
-        <section aria-label="入力の手動バックアップ" className="mb-4 rounded border p-4 text-sm">
-          <p>未送信の入力と元の写真を、自分の端末へ手動で保存・復元できます。自動保存は行いません。</p>
-          <p className="mt-2">ファイルには氏名・連絡先・写真が含まれます。安全な保存先で管理し、共有端末では保存しないでください。不要になったら削除してください。</p>
-          <div className="mt-3 flex flex-wrap gap-3">
-            <button type="button" onClick={() => void downloadDraft()} disabled={backupDisabled} className="underline">入力と元の写真をバックアップ</button>
-            <label className="underline">バックアップから入力を復元
-              <input type="file" accept="application/json,.json" aria-label="バックアップから入力を復元" disabled={restoreDisabled}
-                onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void restoreDraft(file); }} />
-            </label>
-          </div>
-          {draftContext !== 'empty' && <p className="mt-2">既存の申込確認情報があるため復元できません。送信済み・結果不明の場合は、受付状況を先に確認してください。</p>}
-          {restoredNeedsReview && <label className="mt-3 flex items-start gap-2">
-            <input type="checkbox" checked={restoredUnsentAcknowledged} disabled={submitting || submissionUnknown || submissionConfirmed || draftBusy}
-              onChange={event => setRestoredUnsentAcknowledged(event.target.checked)} />
-            <span>この下書きはまだ送信していません。送信済み・結果不明の場合は受付状況を確認します</span>
-          </label>}
-        </section>
-        {legacyStorageBlocked && !submissionUnknown && <div role="alert" className="mb-4 rounded border border-amber-300 p-4 text-sm">
-          <p>写真の旧アップロード方法が利用できません。申込はまだ送信していません。入力と元の写真を保持したまま、安全なアップロードで明示的に再試行できます。</p>
-          <button type="button" onClick={retrySignedUpload} disabled={submitting || draftBusy || !agreed || !licenseWarranted || (restoredNeedsReview && !restoredUnsentAcknowledged)}
-            className="mt-3 underline">安全なアップロードで再試行</button>
-        </div>}
-
         {submissionUnknown && (
           <div role="alert" className="mb-4 rounded border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
             <p>{useV2 ? v2Message : SALON_SUBMISSION_UNKNOWN}</p>
@@ -577,7 +414,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
         )}
         <form onSubmit={handleSubmit(() => setShowConfirm(true), revealErrors)} onChange={handleFieldChange} noValidate className="border-y border-[var(--ecru-line)] bg-[var(--ecru-surface)] px-5 py-7 sm:border sm:px-10 sm:py-10">
           {/* SSR中の入力をRHFの初期化が消さないよう、購読・refの準備完了まで操作を止める。 */}
-          <fieldset disabled={!isReady || !v2Ready || submissionUnknown || submissionConfirmed || draftBusy || submitting} aria-busy={!isReady || !v2Ready} className="min-w-0">
+          <fieldset disabled={!isReady || !v2Ready || submissionUnknown} aria-busy={!isReady || !v2Ready} className="min-w-0">
 
           {/* Step 1: 基本情報 */}
           {step === 1 && (
@@ -756,7 +593,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
               </div>
               <div>
                 <label className="form-label">施設写真 <span className="text-gray-400 text-xs font-normal">受付時は任意・最大7枚。公開時には写真の設定が必要です</span></label>
-                <MultiPhotoUpload key={restoreGeneration} slots={photoSlots} initialFiles={photoFiles} onChange={files => { setPhotoFiles(files); setIsDirty(true); }} />
+                <MultiPhotoUpload slots={photoSlots} onChange={setPhotoFiles} />
                 {photoError && <p className="form-error" role="alert">{photoError}</p>}
               </div>
               <div>
@@ -794,7 +631,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
               </label>
               <div className="flex gap-4">
                 <button type="button" onClick={() => setStep(2)} className="btn-outline flex-1">戻る</button>
-                <button type="submit" disabled={submitting || submissionUnknown || submissionConfirmed || draftBusy || legacyStorageBlocked || !agreed || !licenseWarranted || (restoredNeedsReview && !restoredUnsentAcknowledged)} className="btn-primary flex-1 !py-3">
+                <button type="submit" disabled={submitting || submissionUnknown || !agreed || !licenseWarranted} className="btn-primary flex-1 !py-3">
                   {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />送信中...</span> : '登録する'}
                 </button>
               </div>
@@ -809,7 +646,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
         message="送信後、続けてアカウントを作成すると、入力内容（営業時間・写真・特徴・PRなど）がそのまま管理画面に反映され、すぐに掲載を開始できます。"
         confirmLabel="送信する"
         cancelLabel="戻る"
-        confirmDisabled={submitting || submissionUnknown || submissionConfirmed || draftBusy || (restoredNeedsReview && !restoredUnsentAcknowledged)}
+        confirmDisabled={submitting || submissionUnknown}
         onConfirm={handleConfirmSubmit}
         onCancel={() => setShowConfirm(false)}
       />

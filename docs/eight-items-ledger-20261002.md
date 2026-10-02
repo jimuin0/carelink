@@ -48,3 +48,7 @@ PR661は2026年10月2日マージ済み、main／production配信SHA一致、必
 初回PR CIのHTTPSブラウザE2Eは315件成功・3件失敗で未合格。2店舗fixtureが複数owner禁止制約に違反していたため、既存仕様のowner＋admin所属へ修正し、実schemaへの全INSERTを隔離DB transactionで成功確認後ROLLBACK。既存スタッフ作成テストは店舗IDを保持する遷移を明示検証へ変更。KPI初回は成功し、serial retryでは先行書込済みfixtureが二次的に期待値を変えていた。期待値は弱めず、最終CIで全体を再検証する。初回失敗を成功扱いしない。
 
 再実行e80aa2ceの単体457suite/9465件・branches100%成功。E2E319成功・1flakyで未合格：Mobile Safariで予約リンク遷移前にdashboard内の同じ顧客名を拾い、次のstaff遷移と競合。クリック前から完全な予約URLを待機し、予約一覧headingへの到達を確認してから当日/別店舗除外を検証するよう修正。sleep・skip・期待値緩和は行わず最終SHAで再実行する。
+
+937b28e3 の CI は全6ジョブ成功、単体457 suite・9465件、branches100%、HTTPS E2E320件成功・flaky/skipゼロ。これは追加の旧フォーム保全機能を含まない過去snapshotの証拠であり、追加後の最終SHAの合格証拠には流用しない。
+
+項目3の追加実装・検証境界は [旧フォームの保全・再開](salon-legacy-resume-20261002.md) に記録した。期限に依存しない手動バックアップと修正後V1の明示的な署名付き再試行を追加する。本番切替承認、既に開かれた未修正JavaScriptの回収保証、全体容量の確認は依然として未完了。

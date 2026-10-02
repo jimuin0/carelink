@@ -11,20 +11,38 @@ export interface PhotoSlot {
 interface MultiPhotoUploadProps {
   slots: PhotoSlot[];
   onChange: (files: (File | null)[]) => void;
+  initialFiles?: readonly (File | null)[];
 }
 
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
-export default function MultiPhotoUpload({ slots, onChange }: MultiPhotoUploadProps) {
+export default function MultiPhotoUpload({ slots, onChange, initialFiles }: MultiPhotoUploadProps) {
   const [previews, setPreviews] = useState<(string | null)[]>(slots.map(() => null));
-  const files = useRef<(File | null)[]>(slots.map(() => null));
+  const files = useRef<(File | null)[]>(slots.map((_, index) => initialFiles?.[index] ?? null));
   const generations = useRef<number[]>(slots.map(() => 0));
   const [errors, setErrors] = useState<(string | null)[]>(slots.map(() => null));
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  useEffect(() => () => {
-    generations.current = generations.current.map(value => value + 1);
+  useEffect(() => {
+    // Restoration remounts this component with verified originals. Reading a
+    // preview never replaces or recompresses those source files.
+    files.current.forEach((file, index) => {
+      if (!file) return;
+      const generation = ++generations.current[index];
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (generations.current[index] !== generation) return;
+        setPreviews(current => current.map((value, i) => i === index ? reader.result as string : value));
+      };
+      const fail = () => {
+        if (generations.current[index] !== generation) return;
+        setErrors(current => current.map((value, i) => i === index ? '写真のプレビューを読み込めませんでした。元の写真は保持されています。' : value));
+      };
+      reader.onerror = fail;
+      try { reader.readAsDataURL(file); } catch { fail(); }
+    });
+    return () => { generations.current = generations.current.map(value => value + 1); };
   }, []);
 
   const changeFile = (index: number, file: File | null) => {
