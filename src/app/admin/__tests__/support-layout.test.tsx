@@ -17,7 +17,7 @@ jest.mock('@/lib/supabase-server-auth', () => ({
   }),
 }));
 jest.mock('next/headers', () => ({ headers: async () => new Headers({ 'x-pathname': pathname }) }));
-jest.mock('next/navigation', () => ({ redirect: (url: string) => { throw new Error(`redirect:${url}`); } }));
+jest.mock('next/navigation', () => ({ useSearchParams: () => null, redirect: (url: string) => { throw new Error(`redirect:${url}`); } }));
 jest.mock('@/components/admin/AdminMobileNav', () => ({ __esModule: true, default: () => <div>facility-mobile-nav</div> }));
 jest.mock('@/components/admin/AdminTopNav', () => ({ __esModule: true, default: () => <div>facility-nav</div> }));
 jest.mock('@/components/admin/AdminUserMenu', () => ({ __esModule: true, default: () => <div>user-menu</div> }));

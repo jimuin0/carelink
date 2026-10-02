@@ -1,13 +1,31 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/lib/admin-facility-selection';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 
 export default function NewStaffPage() {
+  const requestedFacility = useSearchParams().get('facility_id');
+  return <NewStaffPageForm key={requestedFacility ?? ''} />;
+}
+
+function NewStaffPageForm() {
   const router = useRouter();
+  const mounted = useRef(true);
+  const requestedFacility = useSearchParams().get('facility_id');
+  const [facilityChoices, setFacilityChoices] = useState<AdminFacilityChoice[]>([]);
+  const [authState, setAuthState] = useState<'verified' | 'unauthenticated' | 'unavailable'>('verified');
+  const [facilityId, setFacilityId] = useState<string | null>(null);
+  const backFacility = facilityId ?? requestedFacility;
+  const backHref = `/admin/staff${backFacility ? `?facility_id=${encodeURIComponent(backFacility)}` : ''}`;
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [name, setName] = useState('');
   const [position, setPosition] = useState('');
   const [bio, setBio] = useState('');
@@ -20,22 +38,36 @@ export default function NewStaffPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  useEffect(() => {
+    let active = true;
+    mounted.current = true;
+    (async () => {
+      setLoading(true);
+      setFacilityId(null);
+      setLoadError(false);
+      const db = createBrowserSupabaseClient();
+      const verification = await verifyAuthUser(db.auth);
+      if (!active) return;
+      setAuthState(verification.state);
+      if (verification.state !== 'verified') { setLoading(false); return; }
+      const selection = await loadAdminFacilitySelection(db, verification.user.id, requestedFacility);
+      if (!active) return;
+      setFacilityChoices(selection.choices);
+      setFacilityId(selection.selectedId);
+      setLoading(false);
+    })().catch(() => { if (active) { setLoadError(true); setLoading(false); } });
+    return () => { active = false; mounted.current = false; };
+  }, [requestedFacility]);
+
   const handleCreate = async () => {
-    if (saving || !name.trim()) {
+    if (saving || loading || !facilityId || !name.trim()) {
       setToast({ type: 'error', message: '名前は必須です' });
       return;
     }
     setSaving(true);
 
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      // 従来はセッション切れ・所属取得失敗時に無音 return でボタンが無反応に見えた。原因を明示する。
-      if (!user) { setToast({ type: 'error', message: 'セッションが切れました。再ログインしてください' }); return; }
-      const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-      if (memErr || !membership) { setToast({ type: 'error', message: '施設情報の取得に失敗しました。再読み込みしてください' }); return; }
-
-      const res = await fetch(`/api/admin/staff?facility_id=${membership.facility_id}`, {
+      const res = await fetch(`/api/admin/staff?facility_id=${facilityId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -51,11 +83,12 @@ export default function NewStaffPage() {
         }),
       });
 
+      if (!mounted.current) return;
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
         setToast({ type: 'error', message: e.error || '追加に失敗しました' });
       } else {
-        router.push('/admin/staff');
+        router.push(backHref);
       }
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
@@ -64,8 +97,16 @@ export default function NewStaffPage() {
     }
   };
 
+  if (loading) return <p role="status">読み込み中...</p>;
+  if (authState === 'unavailable') return <AccessVerificationUnavailable />;
+  if (authState === 'unauthenticated') return <p role="alert">セッションが切れました。再ログインしてください。</p>;
+  if (loadError) return <p role="alert">店舗情報の取得に失敗しました。再読み込みしてください。</p>;
+  const selector = <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/staff/new" dirty={Boolean(name || position || bio || specialties || yearsExperience || instagramUrl || nominationFee || lineWorksChannelId || lineWorksNotifyAll)} busy={saving} />;
+  if (!facilityId) return selector;
+
   return (
     <div>
+      {selector}
       <SbPageHeader title="スタッフ追加" />
 
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
@@ -125,7 +166,7 @@ export default function NewStaffPage() {
         </div>
 
         <div className="flex gap-3 pt-4">
-          <button type="button" onClick={() => router.push('/admin/staff')} className="text-sm text-gray-500 hover:underline">戻る</button>
+          <button type="button" onClick={() => router.push(backHref)} className="text-sm text-gray-500 hover:underline">戻る</button>
           <button type="button" onClick={handleCreate} disabled={saving} className="btn-primary flex-1 !py-3">
             {saving ? '追加中...' : 'スタッフを追加'}
           </button>

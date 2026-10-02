@@ -4,10 +4,13 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 import Link from 'next/link';
+import AdminFacilityLink from '@/components/admin/AdminFacilityLink';
+import AdminSelectedFacilityName from '@/components/admin/AdminSelectedFacilityName';
+import AdminSelectedFacilityNotifications from '@/components/admin/AdminSelectedFacilityNotifications';
 import AdminMobileNav from '@/components/admin/AdminMobileNav';
 import AdminTopNav, { type NavGroup } from '@/components/admin/AdminTopNav';
 import AdminUserMenu from '@/components/admin/AdminUserMenu';
-import { RealtimeBookingListener, AiSupportWidget } from '@/components/admin/DynamicAdminWidgets';
+import { AiSupportWidget } from '@/components/admin/DynamicAdminWidgets';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import { isPlatformSupportPath } from '@/lib/platform-support-path';
 import { verifyAuthUser } from '@/lib/auth-verification';
@@ -240,9 +243,10 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
     redirect('/mypage');
   }
 
-  // 現在の施設（1アカウント1施設の方針につき所属施設）
-  const membership = memberships[0];
-  const facilityName = (membership.facility_profiles as unknown as { name: string } | null)?.name ?? null;
+  const facilityChoices = memberships.map(membership => ({
+    id: membership.facility_id,
+    name: (membership.facility_profiles as unknown as { name: string } | null)?.name || '名称未設定の店舗',
+  }));
 
   const isPlatformAdmin = profile?.is_platform_admin === true;
 
@@ -269,7 +273,7 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-gray-100">
       {/* Mobile header */}
       <div className="lg:hidden bg-white border-b px-4 py-3 flex items-center justify-between">
-        <Link href="/admin" className="text-lg font-bold text-primary">管理画面</Link>
+        <AdminFacilityLink href="/admin" className="text-lg font-bold text-primary">管理画面</AdminFacilityLink>
         <div className="flex items-center gap-4 text-sm">
           <Link href="/search" className="text-gray-500">サイトへ</Link>
           <AdminUserMenu />
@@ -279,17 +283,13 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
       {/* ブランドバー（HPB サロンボード型・desktop） */}
       <div className="hidden lg:flex items-center justify-between bg-white border-b px-4 py-3">
         <div className="flex items-center gap-4">
-          <Link href="/admin" className="flex items-center gap-2">
+          <AdminFacilityLink href="/admin" className="flex items-center gap-2">
             <span className="inline-flex items-center justify-center w-8 h-8 rounded bg-sky-600 text-white text-sm font-black">CL</span>
             <span className="text-base font-extrabold text-sky-700 tracking-wide leading-none">
               CareLink<br /><span className="text-[10px] font-bold text-gray-500 tracking-widest">SALON BOARD</span>
             </span>
-          </Link>
-          {facilityName && (
-            <span className="text-sm font-bold text-gray-700 border-l border-gray-200 pl-4 truncate max-w-[240px]">
-              {facilityName}
-            </span>
-          )}
+          </AdminFacilityLink>
+          <AdminSelectedFacilityName choices={facilityChoices} />
         </div>
         <div className="flex items-center gap-4 text-sm">
           <Link href="/admin/help" className="text-gray-500 hover:text-sky-600">ヘルプ</Link>
@@ -310,7 +310,7 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
       </main>
 
       {/* リアルタイム予約通知 */}
-      <RealtimeBookingListener facilityId={membership.facility_id} />
+      <AdminSelectedFacilityNotifications choices={facilityChoices} />
       {/* AIサポートウィジェット */}
       <AiSupportWidget />
     </div>

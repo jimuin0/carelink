@@ -1,3 +1,7 @@
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import { loadAdminFacilitySelection } from '@/lib/admin-facility-selection';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -7,21 +11,18 @@ import { hasConfirmedBookingHours } from '@/lib/booking-preparation';
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
-export default async function AdminDashboard() {
+export default async function AdminDashboard(props: { searchParams: Promise<{ facility_id?: string }> }) {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) notFound();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return <AccessVerificationUnavailable />;
+  if (verification.state !== 'verified') notFound();
+  const searchParams = await props.searchParams;
+  const { choices, selectedId: facilityId } = await loadAdminFacilitySelection(supabase, verification.user.id, searchParams.facility_id ?? null);
+  const selector = <FacilitySelector choices={choices} selectedId={facilityId} path="/admin" />;
+  if (!facilityId) return <div><SbPageHeader title="ダッシュボード" />{selector}</div>;
+  const facilityHref = (path: string) => `${path}${path.includes('?') ? '&' : '?'}facility_id=${facilityId}`;
 
-  const { data: membership } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-      .in('role', ['owner', 'admin'])
-    .limit(1)
-    .single();
-  if (!membership) notFound();
 
-  const facilityId = membership.facility_id;
 
   const today = todayJst();
 
@@ -145,15 +146,16 @@ export default async function AdminDashboard() {
 
   return (
     <div>
+      {selector}
       <SbPageHeader
         title="ダッシュボード"
         description="本日の予約状況と店舗セットアップの概要"
-        actions={<SbButtonLink href="/admin/schedule">サロンボードを見る</SbButtonLink>}
+        actions={<SbButtonLink href={facilityHref("/admin/schedule")}>サロンボードを見る</SbButtonLink>}
       />
 
       {/* 公開中なのに予約不能な状態の警告（無音の機会損失を防ぐ・最優先で表示） */}
       {publishBlocker && (
-        <Link href={publishBlocker.href} className="block mb-6 bg-red-50 border border-red-200 rounded-xl p-4 hover:shadow-md transition-shadow" role="alert">
+        <Link href={facilityHref(publishBlocker.href)} className="block mb-6 bg-red-50 border border-red-200 rounded-xl p-4 hover:shadow-md transition-shadow" role="alert">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center shrink-0">
               <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
@@ -170,7 +172,7 @@ export default async function AdminDashboard() {
       {/* ヒーローアクションカード（サロンボード型・CareLink 色） */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
         <Link
-          href="/admin/schedule"
+          href={facilityHref("/admin/schedule")}
           className="group flex items-center gap-4 rounded-2xl bg-gradient-to-br from-sky-500 to-sky-600 text-white p-5 shadow-sm hover:shadow-md transition-shadow"
         >
           <span className="shrink-0 w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
@@ -183,7 +185,7 @@ export default async function AdminDashboard() {
           <svg className="w-5 h-5 text-white/80 ml-auto shrink-0 group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
         </Link>
         <Link
-          href={`/admin/bookings?date=${today}`}
+          href={facilityHref(`/admin/bookings?from=${today}&to=${today}`)}
           className="group flex items-center gap-4 rounded-2xl bg-gradient-to-br from-sky-600 to-sky-700 text-white p-5 shadow-sm hover:shadow-md transition-shadow"
         >
           <span className="shrink-0 w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
@@ -205,28 +207,28 @@ export default async function AdminDashboard() {
         <SbStatCard
           label="本日の売上"
           value={`¥${todayRevenue.toLocaleString()}`}
-          href={`/admin/bookings?date=${today}`}
+          href={facilityHref(`/admin/bookings?from=${today}&to=${today}`)}
           accent="sky"
           sub="完了予約ベース"
         />
         <SbStatCard
           label="今月の売上"
           value={`¥${monthRevenue.toLocaleString()}`}
-          href="/admin/analytics"
+          href={facilityHref("/admin/analytics")}
           accent="emerald"
           sub={`${curM}月・完了${monthCompletedCount}件`}
         />
         <SbStatCard
           label="客単価"
           value={avgTicket !== null ? `¥${avgTicket.toLocaleString()}` : '—'}
-          href="/admin/analytics"
+          href={facilityHref("/admin/analytics")}
           accent="amber"
           sub="今月の平均"
         />
         <SbStatCard
           label="無断キャンセル率"
           value={noShowRate !== null ? `${noShowRate}%` : '—'}
-          href="/admin/bookings?status=no_show"
+          href={facilityHref("/admin/bookings?status=no_show")}
           accent={noShowRate !== null && noShowRate >= 10 ? 'rose' : 'gray'}
           sub={`今月${noShowCount > 0 ? `・${noShowCount}件` : ''}`}
         />
@@ -241,7 +243,7 @@ export default async function AdminDashboard() {
             return (
               <Link
                 key={date}
-                href={`/admin/schedule?date=${date}`}
+                href={facilityHref(`/admin/schedule?date=${date}`)}
                 className={`flex flex-col items-center justify-center rounded-lg border py-2 transition-colors ${
                   isToday ? 'border-sky-400 bg-sky-50 ring-1 ring-sky-200' : 'border-gray-100 hover:bg-sky-50'
                 }`}
@@ -276,7 +278,7 @@ export default async function AdminDashboard() {
             {onboardingSteps.map((step) => (
               <Link
                 key={step.label}
-                href={step.href}
+                href={facilityHref(step.href)}
                 className={`flex items-center gap-2 text-sm ${step.done ? 'text-sky-400 line-through' : 'text-sky-800 font-medium hover:underline'}`}
               >
                 <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${step.done ? 'bg-sky-400 text-white' : 'bg-white border-2 border-sky-300 text-sky-300'}`}>
@@ -291,7 +293,7 @@ export default async function AdminDashboard() {
 
       {/* 確認待ちアラート */}
       {(pendingBookings ?? 0) > 0 && (
-        <Link href="/admin/bookings?status=pending" className="block mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4 hover:shadow-md transition-shadow">
+        <Link href={facilityHref("/admin/bookings?status=pending")} className="block mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4 hover:shadow-md transition-shadow">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center shrink-0">
               <svg className="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -308,16 +310,16 @@ export default async function AdminDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <SbCard title="クイックアクション">
           <div className="space-y-1">
-            <Link href="/admin/bookings" className="block p-2.5 rounded-md hover:bg-sky-50 text-sm text-gray-700">
+            <Link href={facilityHref("/admin/bookings")} className="block p-2.5 rounded-md hover:bg-sky-50 text-sm text-gray-700">
               予約を確認する →
             </Link>
-            <Link href="/admin/menus" className="block p-2.5 rounded-md hover:bg-sky-50 text-sm text-gray-700">
+            <Link href={facilityHref("/admin/menus")} className="block p-2.5 rounded-md hover:bg-sky-50 text-sm text-gray-700">
               メニューを管理する →
             </Link>
-            <Link href="/admin/settings" className="block p-2.5 rounded-md hover:bg-sky-50 text-sm text-gray-700">
+            <Link href={facilityHref("/admin/settings")} className="block p-2.5 rounded-md hover:bg-sky-50 text-sm text-gray-700">
               施設情報を編集する →
             </Link>
-            <Link href="/admin/analytics" className="block p-2.5 rounded-md hover:bg-sky-50 text-sm text-gray-700">
+            <Link href={facilityHref("/admin/analytics")} className="block p-2.5 rounded-md hover:bg-sky-50 text-sm text-gray-700">
               売上を分析する →
             </Link>
           </div>
@@ -325,7 +327,7 @@ export default async function AdminDashboard() {
 
         <SbCard
           title="最近の予約"
-          action={<Link href="/admin/bookings" className="text-xs font-bold text-sky-600 hover:underline">すべて見る →</Link>}
+          action={<Link href={facilityHref("/admin/bookings")} className="text-xs font-bold text-sky-600 hover:underline">すべて見る →</Link>}
         >
           <RecentBookings facilityId={facilityId} />
         </SbCard>
@@ -357,7 +359,7 @@ async function RecentBookings({ facilityId }: { facilityId: string }) {
       {data.map((b) => (
         <Link
           key={b.id}
-          href={`/admin/bookings/${b.id}`}
+          href={`/admin/bookings/${b.id}?facility_id=${facilityId}`}
           className="flex items-center justify-between p-2 rounded-md hover:bg-sky-50"
         >
           <div>

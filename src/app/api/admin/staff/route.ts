@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { getAdminApiContext } from '@/lib/admin-api-context';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
-import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -21,24 +20,6 @@ const staffSchema = z.object({
   line_works_notify_all: z.boolean().optional(),
 });
 
-async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const facilityId = request.nextUrl.searchParams.get('facility_id');
-  if (!facilityId || !UUID_REGEX.test(facilityId)) return null;
-
-  const { data } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-    .eq('facility_id', facilityId)
-    .in('role', ['owner', 'admin'])
-    .single();
-
-  return data ? { userId: user.id, facilityId: data.facility_id } : null;
-}
 
 export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
@@ -49,8 +30,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const auth = await getAdminInfo(request);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminApiContext(request);
+  if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => null);
   const parsed = staffSchema.safeParse(body);

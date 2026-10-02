@@ -224,7 +224,7 @@ export default async function AdminSchedulePage(props: Props) {
 
           {staff.length === 0 && (
             <div className="px-4 py-6 text-sm text-gray-400">
-              アクティブなスタッフが登録されていません。<Link href="/admin/staff/new" className="text-sky-600 underline">スタッフを登録</Link>すると、スタッフ別のスケジュールが表示されます。
+              アクティブなスタッフが登録されていません。<Link href={`/admin/staff/new?facility_id=${facilityId}`} className="text-sky-600 underline">スタッフを登録</Link>すると、スタッフ別のスケジュールが表示されます。
             </div>
           )}
         </div>

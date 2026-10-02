@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { adminFacilityHref } from '@/lib/admin-facility-url';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 
 /**
@@ -28,6 +29,7 @@ function matchScore(pathname: string, href: string): number {
 }
 
 export default function AdminTopNav({ groups }: { groups: NavGroup[] }) {
+  const facilityId = useSearchParams()?.get('facility_id') ?? null;
   const pathname = usePathname() ?? '/admin';
 
   // アクティブグループ＝配下リンクとの最長一致を持つグループ（/admin はホーム扱い）
@@ -71,7 +73,7 @@ export default function AdminTopNav({ groups }: { groups: NavGroup[] }) {
             return (
               <Link
                 key={g.key}
-                href={g.items[0]?.href ?? '/admin'}
+                href={adminFacilityHref(g.items[0]?.href ?? '/admin', facilityId)}
                 className={`px-6 py-3.5 text-sm font-bold transition-colors whitespace-nowrap ${
                   active
                     ? 'bg-sky-50 text-sky-700'
@@ -92,7 +94,7 @@ export default function AdminTopNav({ groups }: { groups: NavGroup[] }) {
             return (
               <Link
                 key={item.href}
-                href={item.href}
+                href={adminFacilityHref(item.href, facilityId)}
                 className={`px-4 py-1.5 text-[13px] font-semibold rounded-full whitespace-nowrap transition-colors ${
                   active
                     ? 'bg-sky-600 text-white shadow-sm'

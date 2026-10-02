@@ -1,6 +1,6 @@
 import type { Database } from '@/types/database-overrides';
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { getAdminApiContext } from '@/lib/admin-api-context';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
@@ -107,39 +107,6 @@ const deleteOverrideSchema = z.object({
   override_id: z.string().uuid(),
 });
 
-async function getAdminFacilityIdAndVerifyStaff(
-  request: NextRequest,
-  staffId: string
-): Promise<{ userId: string; facilityId: string } | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const facilityId = request.nextUrl.searchParams.get('facility_id');
-  if (!facilityId || !UUID_REGEX.test(facilityId)) return null;
-
-  // Verify user is admin/owner of the facility
-  const { data: membership } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-    .eq('facility_id', facilityId)
-    .in('role', ['owner', 'admin'])
-    .single();
-
-  if (!membership) return null;
-
-  // Verify the staff belongs to the facility
-  const admin = createServiceRoleClient();
-  const { data: staff } = await admin
-    .from('staff_profiles')
-    .select('id')
-    .eq('id', staffId)
-    .eq('facility_id', facilityId)
-    .single();
-
-  return staff ? { userId: user.id, facilityId } : null;
-}
 
 // PUT: Replace all weekly schedules for a staff member
 export async function PUT(request: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -153,8 +120,8 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const auth = await getAdminFacilityIdAndVerifyStaff(request, params.id);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminApiContext(request, params.id);
+  if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => null);
   const parsed = scheduleSchema.safeParse(body);
@@ -248,8 +215,8 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const auth = await getAdminFacilityIdAndVerifyStaff(request, params.id);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminApiContext(request, params.id);
+  if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => null);
   const parsed = overrideSchema.safeParse(body);
@@ -318,8 +285,8 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const auth = await getAdminFacilityIdAndVerifyStaff(request, params.id);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminApiContext(request, params.id);
+  if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => null);
   const parsed = deleteOverrideSchema.safeParse(body);

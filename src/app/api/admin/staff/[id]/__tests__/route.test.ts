@@ -59,7 +59,7 @@ function memberChain(data: unknown) {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
     in: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data, error: null })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
   };
 }
 

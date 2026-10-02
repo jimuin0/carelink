@@ -1,3 +1,7 @@
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import { loadAdminFacilitySelection } from '@/lib/admin-facility-selection';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import StaffSalesTab from './StaffSalesTab';
@@ -5,21 +9,17 @@ import { RevenueChart, BookingTrendChart, CustomerSegmentChart, RepeatRateCard, 
 import { jstMonthInfo } from '@/lib/admin-date';
 import { SbPageHeader, SbStatCard } from '@/components/admin/SbUi';
 
-export default async function AdminAnalyticsPage() {
+export default async function AdminAnalyticsPage(props: { searchParams: Promise<{ facility_id?: string }> }) {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) notFound();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return <AccessVerificationUnavailable />;
+  if (verification.state !== 'verified') notFound();
+  const searchParams = await props.searchParams;
+  const { choices, selectedId: facilityId } = await loadAdminFacilitySelection(supabase, verification.user.id, searchParams.facility_id ?? null);
+  const selector = <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/analytics" />;
+  if (!facilityId) return <div><SbPageHeader title="売上分析" />{selector}</div>;
 
-  const { data: membership } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-      .in('role', ['owner', 'admin'])
-    .limit(1)
-    .single();
-  if (!membership) notFound();
 
-  const facilityId = membership.facility_id;
 
   // 月別設定を事前生成（JST 月基準。booking_date は date-only のため YYYY-MM-DD で範囲指定）
   const monthConfigs = Array.from({ length: 6 }, (_, i) => {
@@ -64,6 +64,7 @@ export default async function AdminAnalyticsPage() {
 
   return (
     <div>
+      {selector}
       <SbPageHeader title="売上分析" />
 
       <div className="grid grid-cols-2 gap-4 mb-8">
@@ -96,17 +97,17 @@ export default async function AdminAnalyticsPage() {
 
       {/* recharts チャート（v8.1） */}
       <div className="grid sm:grid-cols-2 gap-4 mt-6">
-        <RevenueChart facilityId={facilityId} />
-        <BookingTrendChart facilityId={facilityId} />
+        <RevenueChart key={facilityId} facilityId={facilityId} />
+        <BookingTrendChart key={facilityId} facilityId={facilityId} />
       </div>
       <div className="grid sm:grid-cols-3 gap-4 mt-4">
-        <CustomerSegmentChart facilityId={facilityId} />
-        <RepeatRateCard facilityId={facilityId} />
-        <ViewCountCard facilityId={facilityId} />
+        <CustomerSegmentChart key={facilityId} facilityId={facilityId} />
+        <RepeatRateCard key={facilityId} facilityId={facilityId} />
+        <ViewCountCard key={facilityId} facilityId={facilityId} />
       </div>
 
       <div className="mt-6">
-        <StaffSalesTab facilityId={facilityId} />
+        <StaffSalesTab key={facilityId} facilityId={facilityId} />
       </div>
     </div>
   );

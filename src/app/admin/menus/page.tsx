@@ -1,6 +1,10 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/lib/admin-facility-selection';
+import { verifyAuthUser } from '@/lib/auth-verification';
 import Image from 'next/image';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -30,6 +34,12 @@ const emptyForm: MenuForm = {
 };
 
 export default function AdminMenusPage() {
+  const requested = useSearchParams().get('facility_id');
+  return <AdminMenusEditor key={requested ?? 'unselected'} requested={requested} />;
+}
+
+function AdminMenusEditor({ requested }: { requested: string | null }) {
+  const [choices, setChoices] = useState<AdminFacilityChoice[]>([]);
   const [menus, setMenus] = useState<FacilityMenu[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -69,19 +79,18 @@ export default function AdminMenusPage() {
       try {
         const supabase = createBrowserSupabaseClient();
         setLoadError(false);
-        const { data: { user } } = await supabase.auth.getUser();
+        const auth = await verifyAuthUser(supabase.auth);
         if (cancelled) return;
-        if (!user) { setLoading(false); return; }
-        const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-          .in('role', ['owner', 'admin']).limit(1).single();
+        if (auth.state !== 'verified') { setLoadError(true); setLoading(false); return; }
+        const selection = await loadAdminFacilitySelection(supabase, auth.user.id, requested);
         if (cancelled) return;
-        if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-        if (!membership) { setLoading(false); return; }
-        setFacilityId(membership.facility_id);
+        setChoices(selection.choices);
+        if (!selection.selectedId) { setLoading(false); return; }
+        setFacilityId(selection.selectedId);
         const { data, error } = await supabase
           .from('facility_menus')
           .select('*')
-          .eq('facility_id', membership.facility_id)
+          .eq('facility_id', selection.selectedId)
           .order('sort_order', { ascending: true });
         if (cancelled) return;
         if (error) { setLoadError(true); setLoading(false); return; }
@@ -92,7 +101,7 @@ export default function AdminMenusPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [reloadKey]);
+  }, [reloadKey, requested]);
 
   const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
@@ -218,6 +227,10 @@ export default function AdminMenusPage() {
   };
 
   if (loading) return <AdminPageLoading />;
+  if (loadError) return <LoadError onRetry={reload} />;
+  const selector = <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/menus"
+    dirty={editForm !== null} busy={saving || deleting !== null || reordering !== null} />;
+  if (!facilityId) return <div><SbPageHeader title="メニュー管理" />{selector}</div>;
 
   const grouped = menus.reduce<Record<string, FacilityMenu[]>>((acc, m) => {
     (acc[m.category] = acc[m.category] || []).push(m);
@@ -234,6 +247,8 @@ export default function AdminMenusPage() {
           </button>
         }
       />
+
+      {selector}
 
       {/* Edit/Add Form Modal */}
       {editForm && (
@@ -295,9 +310,7 @@ export default function AdminMenusPage() {
       )}
 
       {/* Menu List */}
-      {loadError ? (
-        <LoadError onRetry={reload} message="メニューの読み込みに失敗しました" />
-      ) : menus.length === 0 ? (
+      {menus.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
           <p className="text-gray-400 mb-2">メニューがまだ登録されていません</p>
           <button type="button" onClick={() => setEditForm({ ...emptyForm })} className="text-sm text-sky-600 font-medium hover:underline">最初のメニューを追加する</button>

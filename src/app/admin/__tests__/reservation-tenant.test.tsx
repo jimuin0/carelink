@@ -62,6 +62,7 @@ test('予約表は選択店舗だけを読み、日送りと全メニューの�
   mockResults.facility_menus = [{ data: [{ id: menuA, name: '施術A', price: 100, duration_minutes: 30 },
     { id: menuB, name: '施術B', price: 100, duration_minutes: 30 }] }];
   render(await Schedule({ searchParams: Promise.resolve({ facility_id: second, date: '2026-10-01' }) }));
+  expect(screen.getByRole('link', { name: 'スタッフを登録' }).getAttribute('href')).toBe(`/admin/staff/new?facility_id=${second}`);
   expect(screen.getByRole('link', { name: '翌日' }).getAttribute('href')).toContain(`facility_id=${second}&date=2026-10-02`);
   expect(mockGrid).toHaveBeenCalledWith(expect.objectContaining({ facilityId: second,
     rows: expect.arrayContaining([expect.objectContaining({ chips: expect.arrayContaining([
