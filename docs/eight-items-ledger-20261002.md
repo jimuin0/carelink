@@ -44,3 +44,5 @@ PR661は2026年10月2日マージ済み、main／production配信SHA一致、必
 固定版の全体回帰：457 suite・9464件成功、branches 9379/9379＝100%、lines99.38%、statements98.56%、functions95.58%、exit0。React Compiler負債ratchetは4件で基準一致。generatorのunknown table／usage出力は負例拒否テストの期待出力で、失敗suiteは0。
 
 追加の再試行防御：メニュー取得失敗後のretry開始時にloading=true・facilityId=nullへ戻し、Auth／所属の再確認中に旧操作を表示しない。遅延Auth回帰を追加、関連3 suite・44件成功、独立9件成功、対象lint成功。最終SHAはこの追加を含むCIで再確認する。
+
+初回PR CIのHTTPSブラウザE2Eは315件成功・3件失敗で未合格。2店舗fixtureが複数owner禁止制約に違反していたため、既存仕様のowner＋admin所属へ修正し、実schemaへの全INSERTを隔離DB transactionで成功確認後ROLLBACK。既存スタッフ作成テストは店舗IDを保持する遷移を明示検証へ変更。KPI初回は成功し、serial retryでは先行書込済みfixtureが二次的に期待値を変えていた。期待値は弱めず、最終CIで全体を再検証する。初回失敗を成功扱いしない。

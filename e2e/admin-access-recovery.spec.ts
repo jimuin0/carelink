@@ -122,7 +122,7 @@ test('browser Auth read fails -> explicit settings retry -> same tenant, no auto
   expect(stored.error).toBeNull(); expect(stored.data).toEqual({ name, status: 'draft' });
 });
 
-test('two-store owner keeps explicit store through dashboard, today bookings and staff editing; failed read cannot save', async ({ page }) => {
+test('two-store operator keeps explicit store through dashboard, today bookings and staff editing; failed read cannot save', async ({ page }) => {
   test.setTimeout(90000);
   const client = db(), actor = await identity(client);
   const first = randomUUID(), second = randomUUID(), staffA = randomUUID(), staffB = randomUUID();
@@ -134,19 +134,24 @@ test('two-store owner keeps explicit store through dashboard, today bookings and
     { id: first, slug: `synthetic-a-${first}`, name: names.a, business_type: 'ヘアサロン', prefecture: '愛知県', city: '合成市', address: '合成町A', status: 'draft' },
     { id: second, slug: `synthetic-b-${second}`, name: names.b, business_type: 'ヘアサロン', prefecture: '愛知県', city: '合成市', address: '合成町B', status: 'draft' },
   ]);
+  if (facilities.error) throw new Error(`Disposable facilities setup failed (${facilities.error.code})`);
   const memberships = await client.from('facility_members').insert([
-    { user_id: actor.id, facility_id: first, role: 'owner' }, { user_id: actor.id, facility_id: second, role: 'owner' },
+    // One self-registered owner store is enforced by the schema. A second
+    // existing store grants admin membership; this does not expand owner signup.
+    { user_id: actor.id, facility_id: first, role: 'owner' }, { user_id: actor.id, facility_id: second, role: 'admin' },
   ]);
+  if (memberships.error) throw new Error(`Disposable memberships setup failed (${memberships.error.code})`);
   const staff = await client.from('staff_profiles').insert([
     { id: staffA, facility_id: first, name: `スタッフA ${suffix}`, slug: `synthetic-${staffA}`, is_active: true },
     { id: staffB, facility_id: second, name: `スタッフB ${suffix}`, slug: `synthetic-${staffB}`, is_active: true },
   ]);
+  if (staff.error) throw new Error(`Disposable staff setup failed (${staff.error.code})`);
   const bookings = await client.from('bookings').insert([
-    { facility_id: first, staff_id: staffA, booking_date: today, start_time: '10:00', end_time: '11:00', customer_name: names.wrong, status: 'confirmed' },
-    { facility_id: second, staff_id: staffB, booking_date: today, start_time: '10:00', end_time: '11:00', customer_name: names.today, status: 'confirmed' },
-    { facility_id: second, staff_id: staffB, booking_date: tomorrow, start_time: '10:00', end_time: '11:00', customer_name: names.other, status: 'confirmed' },
+    { facility_id: first, staff_id: staffA, booking_date: today, start_time: '10:00', end_time: '11:00', customer_name: names.wrong, email: actor.email, status: 'confirmed' },
+    { facility_id: second, staff_id: staffB, booking_date: today, start_time: '10:00', end_time: '11:00', customer_name: names.today, email: actor.email, status: 'confirmed' },
+    { facility_id: second, staff_id: staffB, booking_date: tomorrow, start_time: '10:00', end_time: '11:00', customer_name: names.other, email: actor.email, status: 'confirmed' },
   ]);
-  if ([facilities, memberships, staff, bookings].some(result => result.error)) throw new Error('Disposable two-store setup failed');
+  if (bookings.error) throw new Error(`Disposable bookings setup failed (${bookings.error.code})`);
   await login(page, actor);
   for (const path of ['/admin', '/admin/menus', '/admin/staff', '/admin/analytics']) {
     await page.goto(`${path}?facility_id=${second}`);
