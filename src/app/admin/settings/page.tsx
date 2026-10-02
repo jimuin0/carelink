@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { verifyAuthUser } from '@/lib/auth-verification';
 import { businessTypes, facilityFeatures, prefectures, dayOrder, dayLabels } from '@/lib/constants';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -102,8 +103,11 @@ function AdminSettingsContent() {
       setFacilityId(null);
       setFacilityChoices([]);
       setLoadError(false);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
+      const verification = await verifyAuthUser(supabase.auth);
+      if (!active) return;
+      if (verification.state === 'unavailable') { setLoadError(true); setLoading(false); return; }
+      if (verification.state !== 'verified') { setLoading(false); return; }
+      const user = verification.user;
       const selection = await loadAdminFacilitySelection(supabase, user.id, requestedFacility);
       if (!active) return;
       setFacilityChoices(selection.choices);

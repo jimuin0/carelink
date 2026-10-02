@@ -8,6 +8,7 @@ let mockProfile: Record<string, unknown>;
 let mockReads: string[];
 const mockFetch = jest.fn();
 const mockDb = jest.fn();
+const mockGetUser = jest.fn();
 const mockPush = jest.fn();
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush }), useSearchParams: () => ({ get: () => mockRequested }) }));
 jest.mock('next/dynamic', () => ({ __esModule: true, default: () => () => null }));
@@ -20,8 +21,9 @@ beforeEach(() => {
     business_hours: null, business_hours_text: '平日10時から18時、火曜休み', status: 'draft' };
   global.fetch = mockFetch;
   mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+  mockGetUser.mockReset().mockResolvedValue({ data: { user: { id: 'synthetic-user' } }, error: null });
   mockDb.mockReturnValue({
-    auth: { getUser: async () => ({ data: { user: { id: 'synthetic-user' } } }) },
+    auth: { getUser: mockGetUser },
     from: (table: string) => {
       if (table === 'facility_members') {
         const chain = { select: () => chain, eq: () => chain, in: () => chain, order: () => chain,
@@ -34,6 +36,42 @@ beforeEach(() => {
       return chain;
     },
   });
+});
+
+test.each(['error', 'throw', 'malformed', 'user-with-error'])('Auth %s shows retry rather than empty settings, preserving the requested tenant', async mode => {
+  if (mode === 'throw') mockGetUser.mockRejectedValueOnce(new Error('synthetic dependency failure'));
+  else mockGetUser.mockResolvedValueOnce(mode === 'malformed' ? {} : {
+    data: { user: mode === 'user-with-error' ? { id: 'synthetic-user' } : null }, error: { status: 522 },
+  });
+  render(<AdminSettingsPage />);
+  await screen.findByRole('alert');
+  expect(screen.queryByRole('textbox', { name: /施設名/ })).toBeNull();
+  expect(mockReads).toEqual([]); expect(mockFetch).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '再試行' }));
+  await screen.findByDisplayValue('合成店舗B');
+  expect(mockReads).toEqual([second]); expect(mockGetUser).toHaveBeenCalledTimes(2);
+  expect(mockRequested).toBe(second); expect(mockFetch).not.toHaveBeenCalled();
+});
+
+test('successful anonymous verification does not expose or save tenant settings', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
+  render(<AdminSettingsPage />);
+  await waitFor(() => expect(mockGetUser).toHaveBeenCalled());
+  expect(screen.queryByRole('textbox', { name: /施設名/ })).toBeNull();
+  expect(mockReads).toEqual([]); expect(mockFetch).not.toHaveBeenCalled();
+});
+test('facility selection dependency failure also exposes retry, never the empty editor', async () => {
+  const original = mockDb();
+  const failing = { select: () => failing, eq: () => failing, in: () => failing, order: () => failing,
+    limit: async () => { throw new Error('synthetic private dependency'); } };
+  mockDb.mockReturnValueOnce({ ...original, from: () => failing });
+  render(<AdminSettingsPage />);
+  await screen.findByRole('alert');
+  expect(screen.queryByRole('textbox', { name: /施設名/ })).toBeNull();
+  expect(mockReads).toEqual([]); expect(mockFetch).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '再試行' }));
+  await screen.findByDisplayValue('合成店舗B'); expect(mockReads).toEqual([second]);
+  expect(mockFetch).not.toHaveBeenCalled();
 });
 
 test('複数店舗で未選択なら基本情報を読まず保存できない', async () => {

@@ -10,7 +10,8 @@ import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { checkPublishReadiness, isPublishedLocationConflict } from '@/lib/facility-publish-gate';
 import { validateFacilityPrText } from '@/lib/medical-ad-guard';
 import type { Database } from '@/types/database.types';
-import { serverError } from '@/lib/with-route';
+import { authUnavailable, serverError } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 import { FACILITY_INPUT_LIMITS } from '@/lib/facility-input-limits';
 import { toJsonValue } from '@/lib/json-value';
 
@@ -84,10 +85,12 @@ const statusSchema = z.object({
   status: z.enum(['draft', 'published', 'suspended']),
 });
 
-async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
+async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | 'unavailable' | null> {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return null;
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return 'unavailable';
+  if (verification.state !== 'verified') return null;
+  const user = verification.user;
 
   const facilityId = request.nextUrl.searchParams.get('facility_id');
   if (!facilityId || !UUID_REGEX.test(facilityId)) return null;
@@ -127,6 +130,7 @@ async function patchSettings(request: NextRequest) {
   }
 
   const auth = await getAdminInfo(request);
+  if (auth === 'unavailable') return authUnavailable('admin-settings-auth', '/api/admin/settings');
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);

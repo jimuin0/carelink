@@ -49,7 +49,16 @@ test.each([{}, null, { operationId: OP, providerMessageId: 'foreign' }])('invali
 });
 test.each([null, { id: OP }])('no valid authentication %j', async user => {
   mockUser.mockResolvedValue({ data: { user }, error: user ? {} : null });
-  expect((await POST(req() as never)).status).toBe(401); expect(mockFrom).not.toHaveBeenCalled();
+  expect((await POST(req() as never)).status).toBe(user ? 503 : 401); expect(mockFrom).not.toHaveBeenCalled();
+});
+test.each(['error', 'throw', 'malformed'])('Auth unavailable %s never reads provider evidence or writes acceptance', async mode => {
+  if (mode === 'throw') mockUser.mockRejectedValue(new Error('synthetic dependency failure'));
+  else mockUser.mockResolvedValue(mode === 'malformed' ? {} : { data: { user: null }, error: { status: 522 } });
+  const response = await POST(req() as never);
+  expect(response.status).toBe(503); expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(await response.json()).toEqual(expect.objectContaining({ code: 'AUTH_UNAVAILABLE' }));
+  expect(mockAuthFrom).not.toHaveBeenCalled(); expect(mockFrom).not.toHaveBeenCalled();
+  expect(mockVerify).not.toHaveBeenCalled();
 });
 test.each([null, { is_platform_admin: false }, { is_platform_admin: 'true' }])('facility owner or missing platform role cannot reconcile %j', async data => {
   authChain.maybeSingle.mockResolvedValue({ data });
@@ -60,6 +69,13 @@ test.each(['permission','read','write'])('DB %s failure is not acceptance', asyn
   if (step === 'read') chain.maybeSingle.mockReset().mockResolvedValue({ error: {} });
   if (step === 'write') chain.maybeSingle.mockReset().mockResolvedValueOnce({ data: row }).mockResolvedValueOnce({ error: {} });
   expect((await POST(req() as never)).status).toBe(500);
+});
+test.each(['data-with-error', 'throw'])('platform permission %s cannot observe or accept a notification', async mode => {
+  if (mode === 'throw') authChain.maybeSingle.mockRejectedValue(new Error('synthetic private dependency'));
+  else authChain.maybeSingle.mockResolvedValue({ data: { is_platform_admin: true }, error: { code: '08006' } });
+  const response = await POST(req() as never);
+  expect(response.status).toBe(500); expect(await response.text()).not.toContain('synthetic private dependency');
+  expect(mockFrom).not.toHaveBeenCalled(); expect(mockVerify).not.toHaveBeenCalled();
 });
 test.each([null, { ...row, email_envelope: {} }, { ...row, status: 'pending' }, { ...row, claimed_at: null },
   { ...row, delivery_started_at: null }, { ...row, webhook_type: 'line_push' }])('unreconcilable row %j', async data => {

@@ -228,7 +228,28 @@ test('settings cannot publish an ownerless facility', async () => {
 });
 test('auth error alongside a user is not usable authorization', async () => {
   mockGetUser.mockResolvedValue({ data:{ user:{ id:USER_ID } },error:{ message:'08006' } });
-  expect((await PATCH(makePatchRequest())).status).toBe(401); expect(mockAdminRpc).not.toHaveBeenCalled();
+  expect((await PATCH(makePatchRequest())).status).toBe(503); expect(mockAdminRpc).not.toHaveBeenCalled();
+});
+test.each(['error', 'throw', 'malformed'])('Auth unavailable %s preserves session semantics and refuses all business calls', async mode => {
+  if (mode === 'throw') mockGetUser.mockRejectedValue(new Error('synthetic dependency failure'));
+  else mockGetUser.mockResolvedValue(mode === 'malformed' ? {} : { data: { user: null }, error: { status: 522 } });
+  const response = await PATCH(makePatchRequest());
+  expect(response.status).toBe(503);
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(await response.json()).toEqual(expect.objectContaining({ code: 'AUTH_UNAVAILABLE' }));
+  expect(mockAnonFrom).not.toHaveBeenCalled();
+  expect(mockAdminFrom).not.toHaveBeenCalled(); expect(mockAdminRpc).not.toHaveBeenCalled();
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});
+test('membership transport exception never writes settings or records success', async () => {
+  const chain = memberChain({ facility_id: FACILITY_UUID });
+  chain.maybeSingle = jest.fn().mockRejectedValue(new Error('synthetic private dependency'));
+  mockAnonFrom.mockReturnValue(chain);
+  const response = await PATCH(makePatchRequest());
+  expect(response.status).toBe(500); expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(await response.text()).not.toContain('synthetic private dependency');
+  expect(mockAdminFrom).not.toHaveBeenCalled(); expect(mockAdminRpc).not.toHaveBeenCalled();
+  expect(writeAuditLog).not.toHaveBeenCalled();
 });
 test('main-photo database update failure is not successful save', async () => {
   mockAnonFrom.mockReturnValue(memberChain({facility_id:FACILITY_UUID}));
@@ -591,10 +612,10 @@ describe('保存した行の確認と依存障害', () => {
     expect(mockAdminFrom).not.toHaveBeenCalled();
   });
 
-  test('通信例外は固定500へ復帰し成功監査しない', async () => {
+  test('Auth通信例外は固定503へ復帰し成功監査しない', async () => {
     mockGetUser.mockRejectedValueOnce(new Error('synthetic private detail'));
     const res = await PATCH(makePatchRequest());
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
     expect(res.headers.get('Cache-Control')).toBe('no-store');
     expect(await res.text()).not.toContain('synthetic private detail');
     expect(writeAuditLog).not.toHaveBeenCalled();

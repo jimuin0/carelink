@@ -9,6 +9,8 @@ import BookingsSearchForm from '@/components/admin/BookingsSearchForm';
 import { BOOKING_STATUSES } from '@/lib/booking-status';
 import FacilitySelector from '@/components/admin/FacilitySelector';
 import { loadAdminFacilitySelection } from '@/lib/admin-facility-selection';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 
 const PER_PAGE = 20;
 // 絞り込みに使える status は正準集合（全7値）を SSOT から参照（cancel_fee_paid 等の欠落を防ぐ）。
@@ -34,8 +36,10 @@ function embedName(v: { name: string } | { name: string }[] | null): string | nu
 export default async function AdminBookingsPage(props: Props) {
   const searchParams = await props.searchParams;
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) notFound();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return <AccessVerificationUnavailable />;
+  if (verification.state !== 'verified') notFound();
+  const user = verification.user;
 
   const { choices, selectedId: facilityId } = await loadAdminFacilitySelection(supabase, user.id, searchParams.facility_id ?? null);
   const selector = <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/bookings" />;
