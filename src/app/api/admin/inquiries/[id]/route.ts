@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { verifyPlatformSupportUser } from '@/lib/platform-support-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
@@ -8,7 +8,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import type { Database } from '@/types/database.types';
-import { serverError } from '@/lib/with-route';
+import { authUnavailable, serverError } from '@/lib/with-route';
 
 // contacts の update() に渡すオブジェクトの型。
 // Record<string, unknown> は Database 型配線後の update() が要求する
@@ -30,20 +30,6 @@ const ticketUpdateSchema = z.object({
 // (1) contacts に facility_id 列が無く UPDATE が常に失敗、(2) 呼び出し側が facility_id を
 // 送らないため常に 401、と二重に壊れていた。プラットフォーム管理者認可（registrations 等と
 // 同方式）に統一し、id のみで更新する。
-async function getPlatformAdminUser(): Promise<string | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_platform_admin')
-    .eq('id', user.id)
-    .single();
-
-  return profile?.is_platform_admin ? user.id : null;
-}
-
 export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const csrfError = checkCsrf(request);
@@ -56,8 +42,10 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const adminUserId = await getPlatformAdminUser();
-  if (!adminUserId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const verification = await verifyPlatformSupportUser();
+  if (verification.state === 'unavailable') return authUnavailable('admin-inquiries-patch', '/api/admin/inquiries/[id]');
+  if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const adminUserId = verification.user.id;
 
   const body = await request.json().catch(() => null);
   const parsed = ticketUpdateSchema.safeParse(body);

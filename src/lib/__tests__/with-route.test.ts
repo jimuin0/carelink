@@ -15,12 +15,13 @@ jest.mock('../supabase-server-auth', () => ({
 jest.mock('../alert', () => ({ alertCaughtError: jest.fn() }));
 
 import { NextResponse } from 'next/server';
-import { withRoute, serverError } from '../with-route';
+import { withRoute, serverError, authUnavailable } from '../with-route';
 import { checkCsrf } from '../csrf';
 import { checkRateLimit } from '../rate-limit';
 import { createServerSupabaseAuthClient } from '../supabase-server-auth';
 import { alertCaughtError } from '../alert';
 import { safeCaptureException } from '../safe';
+import { AuthRetryableFetchError, AuthSessionMissingError } from '@supabase/supabase-js';
 
 jest.mock('../safe', () => ({ safeCaptureException: jest.fn() }));
 
@@ -46,6 +47,34 @@ const makeReq = (opts: { method?: string; body?: string } = {}) =>
   });
 
 describe('withRoute', () => {
+  test('a notified auth failure returned by a manual handler is not alerted twice or marked in headers', async () => {
+    const res = await withRoute(async () => authUnavailable('manual-auth', '/api/test'))(makeReq());
+    expect(res.status).toBe(503); expect(alertCaughtError).toHaveBeenCalledTimes(1);
+    expect(res.headers.get('x-clnk-alerted-500')).toBeNull();
+  });
+  test.each(['returned', 'thrown'])('requireAuth %s failure is sanitized 503 before handler', async mode => {
+    const error = new AuthRetryableFetchError('synthetic-private-value', 503);
+    const getUser = mode === 'returned' ? jest.fn().mockResolvedValue({ data: { user: null }, error })
+      : jest.fn().mockRejectedValue(error);
+    (createServerSupabaseAuthClient as jest.Mock).mockResolvedValue({ auth: { getUser } });
+    const handler = jest.fn();
+    const res = await withRoute(handler, { requireAuth: true })(makeReq());
+    expect(res.status).toBe(503);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await res.json()).toEqual(expect.objectContaining({ code: 'AUTH_UNAVAILABLE' }));
+    expect(handler).not.toHaveBeenCalled();
+    expect(alertCaughtError).toHaveBeenCalledWith('route', expect.objectContaining({ message: 'AUTH_UNAVAILABLE' }), '/api/test', 503);
+    expect(JSON.stringify((safeCaptureException as jest.Mock).mock.calls)).not.toContain('synthetic-private-value');
+  });
+  test('requireAuth genuine missing session is 401, without outage alert', async () => {
+    (createServerSupabaseAuthClient as jest.Mock).mockResolvedValue({ auth: {
+      getUser: jest.fn().mockResolvedValue({ data: { user: null }, error: new AuthSessionMissingError() }),
+    } });
+    const handler = jest.fn();
+    expect((await withRoute(handler, { requireAuth: true })(makeReq())).status).toBe(401);
+    expect(handler).not.toHaveBeenCalled();
+    expect(alertCaughtError).not.toHaveBeenCalled();
+  });
   test('正常系 → handler の Response をそのまま返す', async () => {
     const handler = jest.fn(async () => NextResponse.json({ ok: true }));
     const route = withRoute(handler);

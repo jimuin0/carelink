@@ -51,6 +51,7 @@ import { buildBookingConfirmedEnvelope, buildBookingCancelledEnvelope, buildBook
 import { sendPushToUser } from '@/lib/push';
 import { sendBookingCancellation } from '@/lib/line';
 import { alertCaughtError } from '@/lib/alert';
+import { AuthRetryableFetchError } from '@supabase/supabase-js';
 
 const validBookingId = '123e4567-e89b-12d3-a456-426614174000';
 const facilityId = 'fac00000-0000-0000-0000-000000000001';
@@ -81,6 +82,19 @@ function makeRequest(body: unknown) {
     body: JSON.stringify(body),
   });
 }
+
+test.each(['returned', 'thrown', 'error-and-user'])('Auth outage %s stops before booking read and status side effects', async mode => {
+  const error = new AuthRetryableFetchError('synthetic-private-value', 503);
+  if (mode === 'thrown') mockGetUser.mockRejectedValue(error);
+  else mockGetUser.mockResolvedValue({ data: { user: mode === 'error-and-user' ? { id: userId } : null }, error });
+  const res = await POST(makeRequest({ bookingId: validBookingId, status: 'arrived' }));
+  expect(res.status).toBe(503);
+  expect(res.headers.get('cache-control')).toBe('no-store');
+  expect((await res.json()).code).toBe('AUTH_UNAVAILABLE');
+  expect(mockFrom).not.toHaveBeenCalled(); expect(mockRpc).not.toHaveBeenCalled();
+  expect(sendPushToUser).not.toHaveBeenCalled(); expect(sendBookingCancellation).not.toHaveBeenCalled();
+  expect(alertCaughtError).toHaveBeenCalledWith('admin-booking-status', expect.objectContaining({ message: 'AUTH_UNAVAILABLE' }), '/api/admin/booking-status', 503);
+});
 
 /** Build a fluent Supabase chain that resolves to `resolvedValue` at any terminal method. */
 function fluent(resolvedValue: unknown) {
@@ -834,10 +848,11 @@ describe('POST /api/admin/booking-status - notifications', () => {
     expect(res.status).toBe(400);
   });
 
-  test('未処理例外 → 500', async () => {
+  test('認証確認の例外 → 503、業務処理を開始しない', async () => {
     mockGetUser.mockRejectedValue(new Error('Unexpected crash'));
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
+    expect(mockFrom).not.toHaveBeenCalled();
   });
 
   test('bookingId 欠落 → 400', async () => {

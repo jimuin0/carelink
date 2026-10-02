@@ -33,9 +33,24 @@ test('unauthenticated list requests login with recovery destination',async()=>{
   await waitFor(()=>expect(mockReplace).toHaveBeenCalledWith('/auth/login?redirect=%2Fregister%2Frecover'));
   expect(mockPush).not.toHaveBeenCalled();
 });
-test.each([403,500])('failed list is not shown as zero receipts (%s)',async status=>{
+test.each([403,500,503])('failed list is not shown as zero receipts (%s)',async status=>{
   mockFetch.mockResolvedValue(response({},status));render(<RecoverRegistrationPage/>);
   await screen.findByRole('alert');expect(screen.queryByText(/一致する受付を確認できませんでした/)).not.toBeInTheDocument();
+});
+test('Auth 503 keeps receipt and original selector; explicit retry alone resumes preparation',async()=>{
+  render(<RecoverRegistrationPage/>);await screen.findByText(receipt.facility_name);
+  mockFetch.mockResolvedValueOnce(response({code:'AUTH_UNAVAILABLE'},503));
+  fireEvent.click(screen.getByRole('button',{name:'この申込の店舗情報を確認'}));
+  await screen.findByRole('alert');
+  expect(screen.getByText(receipt.facility_name)).toBeInTheDocument();
+  expect(mockReplace).not.toHaveBeenCalled();expect(mockPush).not.toHaveBeenCalled();
+  expect(window.sessionStorage.getItem(SALON_RECOVERY_CONTEXT_KEY)).toBeNull();
+  mockFetch.mockResolvedValue(response({state:'prepared',recoveryId,expiresAt:new Date(Date.now()+60000).toISOString()}));
+  fireEvent.click(screen.getByRole('button',{name:'この申込の店舗情報を確認'}));
+  await waitFor(()=>expect(mockPush).toHaveBeenCalledWith(SALON_RECOVERY_ONBOARDING_PATH));
+  expect(mockFetch).toHaveBeenCalledTimes(3);
+  expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({action:'prepare',receiptId});
+  expect(JSON.parse(mockFetch.mock.calls[2][1].body)).toEqual({action:'prepare',receiptId});
 });
 test('manual retry after failed retrieval restores the same receipt without preparation or re-registration',async()=>{
   mockFetch.mockResolvedValueOnce(response({},500)).mockResolvedValue(response(ready));

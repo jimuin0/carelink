@@ -3,7 +3,8 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
-import { serverError } from '@/lib/with-route';
+import { authUnavailable, serverError } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 import { checkCsrf } from '@/lib/csrf';
 import { buildStatusEnvelope } from '@/lib/booking-status-envelope';
 import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
@@ -55,10 +56,12 @@ export async function POST(request: Request) {
 
     // Auth check（セッション検証には authClient を使用）
     const authClient = await createServerSupabaseAuthClient();
-    const { data: { user }, error: authError } = await authClient.auth.getUser();
-    if (authError || !user) {
+    const verification = await verifyAuthUser(authClient.auth);
+    if (verification.state === 'unavailable') return authUnavailable('admin-booking-status', '/api/admin/booking-status');
+    if (verification.state === 'unauthenticated') {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     }
+    const user = verification.user;
 
     // DB 操作には serviceRole を使用（RLS バイパス、RLS 変更の影響を受けない）
     const supabase = createServiceRoleClient();

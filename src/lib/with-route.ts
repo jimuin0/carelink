@@ -37,6 +37,7 @@ import { getClientIp } from './client-ip';
 import { createServerSupabaseAuthClient } from './supabase-server-auth';
 import { safeCaptureException } from './safe';
 import { alertCaughtError } from './alert';
+import { AUTH_UNAVAILABLE_BODY, verifyAuthUser } from './auth-verification';
 
 /**
  * ハンドラに渡される実行コンテキスト。
@@ -74,6 +75,7 @@ type WrappedHandler = (request: Request) => Promise<NextResponse>;
  * wrapped() は抑止判定の直後に必ず削除してから応答を返す。
  */
 const ALERTED_HEADER = 'x-clnk-alerted-500';
+const authAlertedResponses = new WeakSet<NextResponse>();
 
 interface WithRouteOptions {
   /** CSRF 検証を行う（既定: true、GET は通常 false） */
@@ -135,11 +137,12 @@ export function withRoute(handler: Handler, opts: WithRouteOptions = {}): Wrappe
       let ctx: RouteContext = { user: null, supabase: null };
       if (requireAuth) {
         const supabase = await createServerSupabaseAuthClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
+        const verification = await verifyAuthUser(supabase.auth);
+        if (verification.state === 'unavailable') return authUnavailable(sentryTag, new URL(request.url).pathname);
+        if (verification.state === 'unauthenticated') {
           return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
         }
-        ctx = { user, supabase };
+        ctx = { user: verification.user, supabase };
       }
 
       const res = await handler(request, ctx);
@@ -150,7 +153,9 @@ export function withRoute(handler: Handler, opts: WithRouteOptions = {}): Wrappe
       // 抑止するだけにする。ヘッダーはどちらの分岐でも応答前に必ず削除する
       // （内部用ヘッダーを外部へ漏らさないため）。
       if (res.status >= 500) {
-        if (res.headers.has(ALERTED_HEADER)) {
+        if (authAlertedResponses.has(res)) {
+          authAlertedResponses.delete(res);
+        } else if (res.headers.has(ALERTED_HEADER)) {
           res.headers.delete(ALERTED_HEADER);
         } else {
           alertCaughtError(
@@ -173,6 +178,17 @@ export function withRoute(handler: Handler, opts: WithRouteOptions = {}): Wrappe
       );
     }
   };
+}
+
+/** Fixed diagnostic only: raw Auth errors may contain credentials or PII. */
+export function authUnavailable(tag: string, route: string): NextResponse {
+  const diagnostic = new Error('AUTH_UNAVAILABLE');
+  safeCaptureException(diagnostic, tag);
+  alertCaughtError(tag, diagnostic, route, 503);
+  const response = NextResponse.json(AUTH_UNAVAILABLE_BODY,
+    { status: 503, headers: { 'Cache-Control': 'no-store' } });
+  authAlertedResponses.add(response);
+  return response;
 }
 
 /**

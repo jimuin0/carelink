@@ -40,7 +40,7 @@ test('unauthenticated, unconfirmed and failed auth never read receipts', async (
   getUser.mockResolvedValue({ data: { user: { id: user } } });
   expect((await POST(request({ action: 'list' }))).status).toBe(403);
   getUser.mockRejectedValue(new Error('PRIVATE'));
-  expect((await POST(request({ action: 'list' }))).status).toBe(500);
+  expect((await POST(request({ action: 'list' }))).status).toBe(503);
   expect(createServiceRoleClient).not.toHaveBeenCalled();
 });
 test.each([{}, null, [], { action: 'list', user_id: user }, { action: 'list', email: 'synthetic@example.invalid' }, { action: 'prepare', receiptId: 'bad' }])('invalid input is rejected %#', async body => {

@@ -161,6 +161,8 @@ export function hasRateLimitGuard(masked: string): boolean {
 
 /** 呼び出し元を identify する経路（どれか1つあればよい）。 */
 const IDENTITY_PATTERNS: RegExp[] = [
+  /\bverifyAuthUser\s*\(/,             // authoritative getUser＋error分類、後段はverifiedだけ許可
+  /\bverifyPlatformSupportUser\s*\(/,  // 同上＋fresh profiles literal true
   /\bauth\s*\.\s*getUser\s*\(/,      // Supabase セッション
   /\bgetUser\s*\(\s*\)/,
   /\brequireAuth\b/,                  // withRoute のオプション
@@ -261,6 +263,10 @@ describe('route.ts の CSRF / レート制限 / 本人確認を機械強制す�
     });
 
     test('本人確認の検出', () => {
+      expect(hasIdentityGate('await verifyAuthUser(auth.auth)')).toBe(true);
+      expect(hasIdentityGate('await verifyPlatformSupportUser()')).toBe(true);
+      expect(hasIdentityGate(maskNonCode('// verifyAuthUser(auth)'))).toBe(false);
+      expect(hasIdentityGate(maskNonCode('const x = "verifyPlatformSupportUser()"'))).toBe(false);
       expect(hasIdentityGate('const { data } = await supabase.auth.getUser()')).toBe(true);
       expect(hasIdentityGate('withRoute(h, { requireAuth: true })')).toBe(true);
       expect(hasIdentityGate('const e = checkCronAuth(request)')).toBe(true);

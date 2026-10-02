@@ -203,6 +203,19 @@ beforeEach(() => {
   });
 });
 
+test('returned Auth outage cannot read operations, reserve a reply, send or reconcile', async () => {
+  const { AuthRetryableFetchError } = jest.requireActual('@supabase/supabase-js');
+  mockGetUser.mockResolvedValue({ data: { user: null }, error: new AuthRetryableFetchError('synthetic-private', 503) });
+  for (const res of [await POST(makeRequest(), makeProps()),
+    await GET(new NextRequest('http://localhost/api/admin/inquiries/' + INQUIRY_UUID + '/reply'), makeProps())]) {
+    expect(res.status).toBe(503); expect(res.headers.get('cache-control')).toBe('no-store');
+    expect((await res.json()).code).toBe('AUTH_UNAVAILABLE');
+  }
+  expect(mockAnonFrom).not.toHaveBeenCalled(); expect(mockAdminFrom).not.toHaveBeenCalled();
+  expect(mockSendInquiryReply).not.toHaveBeenCalled(); expect(mockReconcileInquiryReply).not.toHaveBeenCalled();
+  expect(replies).toEqual([]);
+});
+
 afterEach(() => {
   jest.restoreAllMocks();
 });
@@ -519,13 +532,13 @@ describe('POST /api/admin/inquiries/[id]/reply', () => {
     expect(mockBuildInquiryReplyEnvelope).toHaveBeenCalledWith(expect.objectContaining({ inquirerName: 'お客様' }));
   });
 
-  test('認証依存の例外を機密を含まないno-store 500へ変換する', async () => {
+  test('認証依存の例外を機密を含まないno-store 503へ変換する', async () => {
     mockGetUser.mockRejectedValue(new Error('private@example.invalid credential detail'));
     const res = await POST(makeRequest(), makeProps());
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
     expect(res.headers.get('Cache-Control')).toBe('no-store');
     const body = await res.text();
-    expect(body).toContain('サーバーエラーが発生しました');
+    expect(body).toContain('AUTH_UNAVAILABLE');
     expect(body).not.toContain('private@example.invalid');
     expect(mockConsoleError.mock.calls.flat().join(' ')).not.toContain('private@example.invalid');
   });
@@ -600,10 +613,10 @@ describe('GET /api/admin/inquiries/[id]/reply', () => {
     expect(res.headers.get('Cache-Control')).toBe('no-store');
   });
 
-  test('認証照会例外は機密を含まないno-store 500にする', async () => {
+  test('認証照会例外は機密を含まないno-store 503にする', async () => {
     mockGetUser.mockRejectedValue(new Error('private@example.invalid credential detail'));
     const res = await GET(new NextRequest('http://localhost/api/admin/inquiries/' + INQUIRY_UUID + '/reply'), makeProps());
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
     expect(res.headers.get('Cache-Control')).toBe('no-store');
     expect(await res.text()).not.toContain('private@example.invalid');
     expect(mockConsoleError.mock.calls.flat().join(' ')).not.toContain('private@example.invalid');

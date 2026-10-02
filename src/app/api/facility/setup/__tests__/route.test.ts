@@ -64,7 +64,7 @@ test('unauthenticated user cannot call setup', async () => {
 });
 test('auth exception never falls back to anonymous service writes', async () => {
   getUser.mockRejectedValue(new Error('synthetic auth failure'));
-  expect((await POST(request())).status).toBe(500);
+  expect((await POST(request())).status).toBe(503);
   expect(createServiceRoleClient).not.toHaveBeenCalled();
 });
 test.each([null, [], {}, { ...body, license_warranted: false }, { ...body, user_id: userId },
