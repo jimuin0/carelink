@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, URL } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { transpileModule } from 'typescript';
 
@@ -94,7 +94,7 @@ test.each([
     process: { env: { STAGING_SUPABASE_URL: 'http://127.0.0.1:54321', STAGING_SUPABASE_ANON_KEY: 'fixture' } },
     describe: (_name: string, run: () => void) => run(),
     test: (_name: string, run: () => Promise<void>) => cases.push(run),
-    fetch: request, expect, AbortSignal,
+    fetch: request, expect, AbortSignal, URL,
   });
   expect(cases).toHaveLength(2);
   if (valid) await expect(cases[0]()).resolves.toBeUndefined();
