@@ -17,7 +17,7 @@ export default async function AreaSearchPage() {
         <h1 className="text-2xl font-bold mb-6">エリアから探す</h1>
 
         {regions.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
+          <div className="bg-white rounded-2xl shadow-xs p-8 text-center">
             <p className="text-gray-400">エリアデータが登録されていません</p>
           </div>
         ) : (
@@ -26,7 +26,7 @@ export default async function AreaSearchPage() {
               <Link
                 key={region.id}
                 href={`/search/area/${region.slug}`}
-                className="bg-white rounded-xl shadow-sm p-4 hover:shadow-md transition-shadow text-center"
+                className="bg-white rounded-xl shadow-xs p-4 hover:shadow-md transition-shadow text-center"
               >
                 <p className="font-bold text-sm">{region.name}</p>
               </Link>

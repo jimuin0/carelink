@@ -536,7 +536,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
     <div className="mx-auto max-w-[640px] sm:px-12">
       <div>
         <StepIndicator currentStep={step} totalSteps={3} labels={stepLabels} />
-        <section aria-label="入力の手動バックアップ" className="mb-4 rounded border p-4 text-sm">
+        <section aria-label="入力の手動バックアップ" className="mb-4 rounded-sm border p-4 text-sm">
           <p>未送信の入力と元の写真を、自分の端末へ手動で保存・復元できます。自動保存は行いません。</p>
           <p className="mt-2">ファイルには氏名・連絡先・写真が含まれます。安全な保存先で管理し、共有端末では保存しないでください。不要になったら削除してください。</p>
           <div className="mt-3 flex flex-wrap gap-3">
@@ -553,14 +553,14 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
             <span>この下書きはまだ送信していません。送信済み・結果不明の場合は受付状況を確認します</span>
           </label>}
         </section>
-        {legacyStorageBlocked && !submissionUnknown && <div role="alert" className="mb-4 rounded border border-amber-300 p-4 text-sm">
+        {legacyStorageBlocked && !submissionUnknown && <div role="alert" className="mb-4 rounded-sm border border-amber-300 p-4 text-sm">
           <p>写真の旧アップロード方法が利用できません。申込はまだ送信していません。入力と元の写真を保持したまま、安全なアップロードで明示的に再試行できます。</p>
           <button type="button" onClick={retrySignedUpload} disabled={submitting || draftBusy || !agreed || !licenseWarranted || (restoredNeedsReview && !restoredUnsentAcknowledged)}
             className="mt-3 underline">安全なアップロードで再試行</button>
         </div>}
 
         {submissionUnknown && (
-          <div role="alert" className="mb-4 rounded border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <div role="alert" className="mb-4 rounded-sm border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
             <p>{useV2 ? v2Message : SALON_SUBMISSION_UNKNOWN}</p>
             {useV2 && <button type="button" onClick={() => void reconcileV2()} disabled={submitting}
               className="block mt-3 underline">同じ申込の受付状況を確認</button>}
@@ -575,7 +575,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
             </form>
           </div>
         )}
-        <form onSubmit={handleSubmit(() => setShowConfirm(true), revealErrors)} onChange={handleFieldChange} noValidate className="border-y border-[var(--ecru-line)] bg-[var(--ecru-surface)] px-5 py-7 sm:border sm:px-10 sm:py-10">
+        <form onSubmit={handleSubmit(() => setShowConfirm(true), revealErrors)} onChange={handleFieldChange} noValidate className="border-y border-(--ecru-line) bg-(--ecru-surface) px-5 py-7 sm:border sm:px-10 sm:py-10">
           {/* SSR中の入力をRHFの初期化が消さないよう、購読・refの準備完了まで操作を止める。 */}
           <fieldset disabled={!isReady || !v2Ready || submissionUnknown || submissionConfirmed || draftBusy || submitting} aria-busy={!isReady || !v2Ready} className="min-w-0">
 
@@ -624,10 +624,10 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
               {/* 任意項目は既定で畳む。必須と同じ見た目で並べると、スマホでは入力欄の壁にしか
                   見えず「まだこんなにあるのか」と離脱を招く。details は閉じていても中身が
                   DOM に在るため、react-hook-form の登録も検証も従来どおり効く。 */}
-              <details className="group border border-[var(--ecru-line)] bg-[var(--ecru-bg)]/70 px-4 py-3">
-                <summary className="cursor-pointer list-none text-xs font-medium text-[var(--ecru-muted)] marker:content-none">
+              <details className="group border border-(--ecru-line) bg-(--ecru-bg)/70 px-4 py-3">
+                <summary className="cursor-pointer list-none text-xs font-medium text-(--ecru-muted) marker:content-none">
                   <span className="inline-flex items-center gap-1.5">
-                    <span className="text-base leading-none text-[var(--ecru-line)] transition-transform group-open:rotate-45">+</span>
+                    <span className="text-base leading-none text-(--ecru-line) transition-transform group-open:rotate-45">+</span>
                     直通電話・Webサイトを追加する
                   </span>
                 </summary>
@@ -644,7 +644,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                   </div>
                 </div>
               </details>
-              <button type="button" onClick={nextStep} className="btn-primary w-full !py-3">次へ</button>
+              <button type="button" onClick={nextStep} className="btn-primary w-full py-3!">次へ</button>
             </div>
           )}
 
@@ -664,10 +664,10 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                 }} id="reg-address" autoComplete="street-address" className="form-input" placeholder="大阪府堺市堺区…" maxLength={500} />
                 {errors.address && <p className="form-error" role="alert">{errors.address.message}</p>}
               </div>
-              <details className="group border border-[var(--ecru-line)] bg-[var(--ecru-bg)]/70 px-4 py-3">
-                <summary className="cursor-pointer list-none text-xs font-medium text-[var(--ecru-muted)] marker:content-none">
+              <details className="group border border-(--ecru-line) bg-(--ecru-bg)/70 px-4 py-3">
+                <summary className="cursor-pointer list-none text-xs font-medium text-(--ecru-muted) marker:content-none">
                   <span className="inline-flex items-center gap-1.5">
-                    <span className="text-base leading-none text-[var(--ecru-line)] transition-transform group-open:rotate-45">+</span>
+                    <span className="text-base leading-none text-(--ecru-line) transition-transform group-open:rotate-45">+</span>
                     建物名・最寄り駅を追加する
                   </span>
                 </summary>
@@ -710,7 +710,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
               </div>
               <div>
                 <label className="form-label flex items-center gap-2 cursor-pointer">
-                  <input {...register('has_parking')} type="checkbox" className="w-4 h-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500" />
+                  <input {...register('has_parking')} type="checkbox" className="w-4 h-4 rounded-sm border-gray-300 text-sky-600 focus:ring-sky-500" />
                   駐車場あり
                 </label>
                 {errors.has_parking && <p className="form-error" role="alert">{SALON_FIELD_MESSAGES.has_parking}</p>}
@@ -771,7 +771,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                   type="checkbox"
                   checked={licenseWarranted}
                   onChange={(e) => setLicenseWarranted(e.target.checked)}
-                  className="mt-0.5 rounded border-gray-300"
+                  className="mt-0.5 rounded-sm border-gray-300"
                 />
                 <span>
                   当施設の運営に法令上必要な許可・免許・届出（美容所開設届、施術所開設届、診療所開設届等）を
@@ -783,7 +783,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                   type="checkbox"
                   checked={agreed}
                   onChange={(e) => setAgreed(e.target.checked)}
-                  className="mt-0.5 rounded border-gray-300"
+                  className="mt-0.5 rounded-sm border-gray-300"
                 />
                 <span>
                   <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-primary underline">利用規約</a>
@@ -794,7 +794,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
               </label>
               <div className="flex gap-4">
                 <button type="button" onClick={() => setStep(2)} className="btn-outline flex-1">戻る</button>
-                <button type="submit" disabled={submitting || submissionUnknown || submissionConfirmed || draftBusy || legacyStorageBlocked || !agreed || !licenseWarranted || (restoredNeedsReview && !restoredUnsentAcknowledged)} className="btn-primary flex-1 !py-3">
+                <button type="submit" disabled={submitting || submissionUnknown || submissionConfirmed || draftBusy || legacyStorageBlocked || !agreed || !licenseWarranted || (restoredNeedsReview && !restoredUnsentAcknowledged)} className="btn-primary flex-1 py-3!">
                   {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />送信中...</span> : '登録する'}
                 </button>
               </div>

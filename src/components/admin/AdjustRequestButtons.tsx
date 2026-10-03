@@ -78,7 +78,7 @@ export default function AdjustRequestButtons({ bookingId, status }: { bookingId:
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm p-6 mt-6">
+    <div className="bg-white rounded-xl shadow-xs p-6 mt-6">
       <h2 className="text-sm font-bold text-gray-800 mb-1">時間調整のお願い</h2>
       {/* LINE 送信は、顧客側に LINE 連携の導線が無ければ有料オプションを買っても届かない。
           ローンチ段階では LINE を設定しない方針のため、LIFF 未設定の間はボタンごと出さず、

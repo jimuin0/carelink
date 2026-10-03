@@ -76,7 +76,7 @@ export default function ReferralPage() {
   if (loading) {
     return (
       <div className="space-y-4 animate-pulse">
-        <div className="h-8 bg-gray-200 rounded w-1/3" />
+        <div className="h-8 bg-gray-200 rounded-sm w-1/3" />
         <div className="h-32 bg-gray-200 rounded-2xl" />
       </div>
     );
@@ -97,7 +97,7 @@ export default function ReferralPage() {
       <h1 className="text-xl font-bold">友達招待プログラム</h1>
 
       {/* ポイント説明 */}
-      <div className="bg-gradient-to-br from-sky-500 to-sky-600 text-white rounded-2xl p-6">
+      <div className="bg-linear-to-br from-sky-500 to-sky-600 text-white rounded-2xl p-6">
         <p className="text-sm opacity-90 mb-2">友達を招待すると</p>
         <p className="text-3xl font-bold">双方に 300pt</p>
         <p className="text-sm opacity-80 mt-1">初回のご予約完了で、招待した方・された方の両方にポイントをプレゼント</p>
@@ -105,7 +105,7 @@ export default function ReferralPage() {
 
       {/* 自分の紹介コード */}
       {referralCode && (
-        <div className="bg-white rounded-2xl shadow-sm p-6">
+        <div className="bg-white rounded-2xl shadow-xs p-6">
           <h2 className="text-base font-bold text-gray-800 mb-4">あなたの紹介コード</h2>
           <div className="flex items-center gap-3 mb-4">
             <div className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-5 py-3 text-center">
@@ -143,7 +143,7 @@ export default function ReferralPage() {
 
       {/* 紹介コード入力（未使用の場合のみ） */}
       {!alreadyReferred ? (
-        <div className="bg-white rounded-2xl shadow-sm p-6">
+        <div className="bg-white rounded-2xl shadow-xs p-6">
           <h2 className="text-base font-bold text-gray-800 mb-2">紹介コードを入力する</h2>
           <p className="text-xs text-gray-500 mb-4">友達から紹介コードをもらったら入力してください。初回のご予約完了で300ポイントをプレゼントします。</p>
           <div className="flex gap-3">
@@ -172,7 +172,7 @@ export default function ReferralPage() {
       )}
 
       {/* 使い方 */}
-      <div className="bg-white rounded-2xl shadow-sm p-6">
+      <div className="bg-white rounded-2xl shadow-xs p-6">
         <h2 className="text-base font-bold text-gray-800 mb-4">使い方</h2>
         <ol className="space-y-3">
           {[

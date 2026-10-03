@@ -29,9 +29,9 @@ export default function Header() {
 
   return (
     <header
-      className={`sticky top-0 z-50 backdrop-blur border-b ${
+      className={`sticky top-0 z-50 backdrop-blur-sm border-b ${
         usesEcruTheme
-          ? 'theme-ecru bg-[var(--ecru-bg)] border-[var(--ecru-line)]'
+          ? 'theme-ecru bg-(--ecru-bg) border-(--ecru-line)'
           : 'bg-white/95 border-gray-100'
       }`}
     >

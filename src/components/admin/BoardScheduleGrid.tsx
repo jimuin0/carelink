@@ -142,7 +142,7 @@ export default function BoardScheduleGrid({
               role="button"
               tabIndex={0}
               aria-label={`${row.name} の空き時間に新規予約を追加`}
-              className="flex-1 relative cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400"
+              className="flex-1 relative cursor-pointer focus:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400"
               style={{ height: rowHeight }}
               onPointerDown={handleTrackPointerDown}
               onMouseDown={handleTrackPointerDown}
@@ -181,7 +181,7 @@ export default function BoardScheduleGrid({
                   <Link
                     key={b.id}
                     href={`/admin/bookings/${b.id}?facility_id=${facilityId}`}
-                    className={`absolute rounded border-l-4 px-1.5 overflow-hidden shadow-sm hover:shadow transition-shadow flex flex-col justify-center ${statusGanttClass(b.status)}`}
+                    className={`absolute rounded-sm border-l-4 px-1.5 overflow-hidden shadow-xs hover:shadow-sm transition-shadow flex flex-col justify-center ${statusGanttClass(b.status)}`}
                     style={{ left: `${left}%`, width: `${width}%`, top: lane * laneH + 2, height: laneH - 4 }}
                     title={`${b.customer_name} 様 ${b.start_time.slice(0, 5)}〜${b.end_time.slice(0, 5)}${b.menuName ? ` / ${b.menuName}` : ''}${clipL ? '（早朝に続く）' : ''}${clipR ? '（営業時間外に続く）' : ''}`}
                   >
@@ -518,7 +518,7 @@ function BoardBookingModal({
               id="board-staff"
               value={staffKey}
               onChange={(e) => setStaffKey(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
+              className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-200"
             >
               {staffOptions.map((s) => (
                 <option key={s.key} value={s.key}>
@@ -536,7 +536,7 @@ function BoardBookingModal({
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
               maxLength={100}
-              className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
+              className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-200"
             />
           </div>
 
@@ -549,7 +549,7 @@ function BoardBookingModal({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 maxLength={254}
-                className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
+                className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-200"
               />
             </div>
             <div>
@@ -559,7 +559,7 @@ function BoardBookingModal({
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 maxLength={20}
-                className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
+                className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-200"
               />
             </div>
           </div>
@@ -572,7 +572,7 @@ function BoardBookingModal({
               value={startTime}
               onChange={(e) => setStartTime(e.target.value)}
               step={slotMinutes * 60}
-              className="border border-gray-300 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
+              className="border border-gray-300 rounded-md px-2.5 py-1.5 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-200"
             />
           </div>
 
@@ -585,7 +585,7 @@ function BoardBookingModal({
             ) : (
               <div className="space-y-1 max-h-40 overflow-y-auto border border-gray-100 rounded-md p-2">
                 {menus.map((m) => (
-                  <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-sky-50 rounded px-1 py-0.5">
+                  <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-sky-50 rounded-sm px-1 py-0.5">
                     <input type="checkbox" checked={selectedMenus.includes(m.id)} onChange={() => toggleMenu(m.id)} />
                     <span className="flex-1 truncate">{m.name}</span>
                     <span className="text-xs text-gray-400">

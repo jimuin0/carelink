@@ -54,7 +54,7 @@ function UnsubscribeContent() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-sm p-8 max-w-md w-full text-center">
+      <div className="bg-white rounded-2xl shadow-xs p-8 max-w-md w-full text-center">
         <div className="text-4xl mb-4">
           {status === 'confirm' && '📧'}
           {status === 'loading' && '⏳'}

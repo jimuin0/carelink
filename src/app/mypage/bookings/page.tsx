@@ -36,7 +36,7 @@ export default async function BookingsPage() {
       <h1 className="text-xl font-bold mb-4">予約履歴</h1>
 
       {bookings.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
+        <div className="bg-white rounded-2xl shadow-xs p-8 text-center">
           <p className="text-gray-400 mb-2">予約履歴がありません</p>
           <Link href="/search" className="text-sm text-primary hover:underline">
             施設を探す
@@ -51,7 +51,7 @@ export default async function BookingsPage() {
               : null;
 
             return (
-              <div key={booking.id} className="bg-white rounded-xl shadow-sm p-4 hover:shadow-md transition-shadow">
+              <div key={booking.id} className="bg-white rounded-xl shadow-xs p-4 hover:shadow-md transition-shadow">
                 <Link href={`/mypage/bookings/${booking.id}`} className="block">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-bold">{booking.booking_date}</span>

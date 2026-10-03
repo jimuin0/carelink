@@ -184,9 +184,9 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
               <span className="text-sm text-gray-700">
                 {label}
                 {requires === null ? (
-                  <span className="ml-2 text-[10px] font-bold text-emerald-600 border border-emerald-200 bg-emerald-50 rounded px-1.5 py-0.5">無料</span>
+                  <span className="ml-2 text-[10px] font-bold text-emerald-600 border border-emerald-200 bg-emerald-50 rounded-sm px-1.5 py-0.5">無料</span>
                 ) : (
-                  <span className="ml-2 text-[10px] font-bold text-amber-600 border border-amber-200 bg-amber-50 rounded px-1.5 py-0.5">
+                  <span className="ml-2 text-[10px] font-bold text-amber-600 border border-amber-200 bg-amber-50 rounded-sm px-1.5 py-0.5">
                     有料{price !== null ? `・月額¥${price.toLocaleString()}` : ''}
                   </span>
                 )}
@@ -219,15 +219,15 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
                 </p>
               </div>
               {owned ? (
-                <span className="shrink-0 text-xs font-bold text-emerald-600 border border-emerald-200 bg-emerald-50 rounded px-2 py-1">利用中</span>
+                <span className="shrink-0 text-xs font-bold text-emerald-600 border border-emerald-200 bg-emerald-50 rounded-sm px-2 py-1">利用中</span>
               ) : requested ? (
-                <span className="shrink-0 text-xs font-bold text-sky-600 border border-sky-200 bg-sky-50 rounded px-2 py-1">申込み済み</span>
+                <span className="shrink-0 text-xs font-bold text-sky-600 border border-sky-200 bg-sky-50 rounded-sm px-2 py-1">申込み済み</span>
               ) : (
                 <button
                   type="button"
                   onClick={() => handleBuy(opt.key, opt.contact_only)}
                   disabled={buying !== null}
-                  className="shrink-0 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 disabled:opacity-50 rounded px-3 py-1.5"
+                  className="shrink-0 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 disabled:opacity-50 rounded-sm px-3 py-1.5"
                 >
                   {buying === opt.key ? '処理中...' : opt.contact_only ? '申込み（要相談）' : '購入する'}
                 </button>

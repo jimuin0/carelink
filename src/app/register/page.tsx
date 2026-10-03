@@ -89,7 +89,7 @@ const STEPS = [
 export default function RegisterPage() {
   return (
     <div
-      className="theme-ecru bg-[var(--ecru-bg)] text-[var(--ecru-text)]"
+      className="theme-ecru bg-(--ecru-bg) text-(--ecru-text)"
       style={serifStyle}
     >
       {/* ===== ヒーロー =====
@@ -106,12 +106,12 @@ export default function RegisterPage() {
             className="object-cover"
           />
           {/* 文字を置く下半分だけを沈める。全面に暗幕をかけると写真が死ぬ。 */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[var(--ecru-scrim)]/75 via-[var(--ecru-scrim)]/25 to-transparent" />
+          <div className="absolute inset-0 bg-linear-to-t from-(--ecru-scrim)/75 via-(--ecru-scrim)/25 to-transparent" />
 
           <div className="absolute inset-x-0 bottom-0 px-7 pb-12 sm:px-12 sm:pb-16">
             <div className="mx-auto max-w-5xl">
               <p className="text-[10px] tracking-[0.35em] text-white/70">SALON &amp; CLINIC</p>
-              <h1 className="mt-4 font-[family-name:var(--font-serif-jp)] text-[30px] font-normal leading-[1.6] tracking-[0.08em] text-white sm:text-5xl sm:leading-[1.5]">
+              <h1 className="mt-4 font-(family-name:--font-serif-jp) text-[30px] font-normal leading-[1.6] tracking-[0.08em] text-white sm:text-5xl sm:leading-normal">
                 予約も、集客も、
                 <br />
                 ひとつに。
@@ -127,7 +127,7 @@ export default function RegisterPage() {
           <div className="mx-auto max-w-5xl">
               <a
               href="#register-form"
-              className="mt-8 inline-flex h-14 w-full items-center justify-center border border-[var(--ecru-accent)] bg-[var(--ecru-accent)] text-xs font-medium tracking-[0.2em] text-white transition-colors hover:bg-transparent hover:text-[var(--ecru-accent)] sm:w-[280px]"
+              className="mt-8 inline-flex h-14 w-full items-center justify-center border border-(--ecru-accent) bg-(--ecru-accent) text-xs font-medium tracking-[0.2em] text-white transition-colors hover:bg-transparent hover:text-(--ecru-accent) sm:w-[280px]"
             >
               掲載条件を確認して登録を始める
             </a>
@@ -137,7 +137,7 @@ export default function RegisterPage() {
 
       {/* ===== 数字 ===== */}
       <section className="mt-14 px-7 sm:mt-20 sm:px-12">
-        <dl className="mx-auto flex max-w-5xl border-y border-[var(--ecru-line)]">
+        <dl className="mx-auto flex max-w-5xl border-y border-(--ecru-line)">
           {[
             { value: '0', unit: '円', label: '掲載料' },
             { value: '0', unit: '円', label: '予約手数料' },
@@ -145,13 +145,13 @@ export default function RegisterPage() {
           ].map((stat, i) => (
             <div
               key={stat.label}
-              className={`flex-1 py-7 text-center ${i > 0 ? 'border-l border-[var(--ecru-line)]' : ''}`}
+              className={`flex-1 py-7 text-center ${i > 0 ? 'border-l border-(--ecru-line)' : ''}`}
             >
-              <dd className="font-[family-name:var(--font-serif-jp)] text-[32px] leading-none sm:text-[40px]">
+              <dd className="font-(family-name:--font-serif-jp) text-[32px] leading-none sm:text-[40px]">
                 {stat.value}
-                <span className="ml-1 text-xs text-[var(--ecru-muted)]">{stat.unit}</span>
+                <span className="ml-1 text-xs text-(--ecru-muted)">{stat.unit}</span>
               </dd>
-              <dt className="mt-3 text-[10px] tracking-[0.2em] text-[var(--ecru-muted)]">{stat.label}</dt>
+              <dt className="mt-3 text-[10px] tracking-[0.2em] text-(--ecru-muted)">{stat.label}</dt>
             </div>
           ))}
         </dl>
@@ -160,7 +160,7 @@ export default function RegisterPage() {
       {/* ===== できること ===== */}
       <section className="mt-16 px-7 sm:mt-24 sm:px-12">
         <div className="mx-auto max-w-5xl">
-          <div className="divide-y divide-[var(--ecru-line)] border-y border-[var(--ecru-line)] sm:grid sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <div className="divide-y divide-(--ecru-line) border-y border-(--ecru-line) sm:grid sm:grid-cols-3 sm:divide-x sm:divide-y-0">
             {CAPABILITIES.map((c) => (
               <article
                 key={c.title}
@@ -174,13 +174,13 @@ export default function RegisterPage() {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   aria-hidden="true"
-                  className="h-6 w-6 shrink-0 text-[var(--ecru-accent)]"
+                  className="h-6 w-6 shrink-0 text-(--ecru-accent)"
                 >
                   <path d={ICON_PATHS[c.icon]} />
                 </svg>
                 <div>
-                  <h2 className="text-[13px] tracking-[0.1em]">{c.title}</h2>
-                  <p className="mt-1.5 text-xs leading-relaxed text-[var(--ecru-muted)]">{c.body}</p>
+                  <h2 className="text-[13px] tracking-widest">{c.title}</h2>
+                  <p className="mt-1.5 text-xs leading-relaxed text-(--ecru-muted)">{c.body}</p>
                 </div>
               </article>
             ))}
@@ -191,7 +191,7 @@ export default function RegisterPage() {
       {/* ===== 比較 ===== */}
       <section className="mt-16 px-7 sm:mt-24 sm:px-12">
         <div className="mx-auto max-w-3xl">
-          <h2 className="text-center font-[family-name:var(--font-serif-jp)] text-lg tracking-[0.12em] sm:text-2xl">
+          <h2 className="text-center font-(family-name:--font-serif-jp) text-lg tracking-[0.12em] sm:text-2xl">
             いまのやり方と、くらべると
           </h2>
 
@@ -199,28 +199,28 @@ export default function RegisterPage() {
               読み上げで「予約の受付／CareLink／24時間」と辿れる形にしておく必要がある。 */}
           <table className="mt-8 w-full table-fixed border-collapse text-left">
             <thead>
-              <tr className="border-b border-[var(--ecru-text)]">
+              <tr className="border-b border-(--ecru-text)">
                 <th scope="col" className="w-[36%] py-3">
                   <span className="sr-only">項目</span>
                 </th>
                 <th
                   scope="col"
-                  className="py-3 text-center text-[10px] font-normal tracking-[0.1em] text-[var(--ecru-muted)]"
+                  className="py-3 text-center text-[10px] font-normal tracking-widest text-(--ecru-muted)"
                 >
                   電話・紙
                 </th>
-                <th scope="col" className="py-3 text-center text-[10px] font-medium tracking-[0.1em]">
+                <th scope="col" className="py-3 text-center text-[10px] font-medium tracking-widest">
                   CareLink
                 </th>
               </tr>
             </thead>
             <tbody>
               {COMPARISON.map((row) => (
-                <tr key={row.label} className="border-b border-[var(--ecru-line)]">
+                <tr key={row.label} className="border-b border-(--ecru-line)">
                   <th scope="row" className="py-4 text-xs font-normal tracking-wide">
                     {row.label}
                   </th>
-                  <td className="py-4 text-center text-[11px] text-[var(--ecru-muted)]">{row.before}</td>
+                  <td className="py-4 text-center text-[11px] text-(--ecru-muted)">{row.before}</td>
                   <td className="py-4 text-center text-[11px] tracking-wide">{row.after}</td>
                 </tr>
               ))}
@@ -232,18 +232,18 @@ export default function RegisterPage() {
       {/* ===== 流れ ===== */}
       <section className="mt-16 px-7 sm:mt-24 sm:px-12">
         <div className="mx-auto max-w-5xl">
-          <h2 className="text-center font-[family-name:var(--font-serif-jp)] text-lg tracking-[0.12em] sm:text-2xl">
+          <h2 className="text-center font-(family-name:--font-serif-jp) text-lg tracking-[0.12em] sm:text-2xl">
             掲載までの流れ
           </h2>
-          <ol className="mt-8 divide-y divide-[var(--ecru-line)] border-y border-[var(--ecru-line)] sm:grid sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <ol className="mt-8 divide-y divide-(--ecru-line) border-y border-(--ecru-line) sm:grid sm:grid-cols-3 sm:divide-x sm:divide-y-0">
             {STEPS.map((s) => (
               <li key={s.n} className="flex items-baseline gap-5 py-6 sm:flex-col sm:gap-3 sm:px-7">
-                <span className="font-[family-name:var(--font-serif-jp)] text-base text-[var(--ecru-muted)]">
+                <span className="font-(family-name:--font-serif-jp) text-base text-(--ecru-muted)">
                   {s.n}
                 </span>
                 <div>
-                  <p className="text-[13px] tracking-[0.1em]">{s.title}</p>
-                  <p className="mt-1.5 text-xs text-[var(--ecru-muted)]">{s.body}</p>
+                  <p className="text-[13px] tracking-widest">{s.title}</p>
+                  <p className="mt-1.5 text-xs text-(--ecru-muted)">{s.body}</p>
                 </div>
               </li>
             ))}
@@ -253,10 +253,10 @@ export default function RegisterPage() {
 
       <section aria-labelledby="registration-help" className="mt-16 px-7 sm:mt-24 sm:px-12">
         <div className="mx-auto max-w-3xl">
-          <h2 id="registration-help" className="text-center font-[family-name:var(--font-serif-jp)] text-lg sm:text-2xl">
+          <h2 id="registration-help" className="text-center font-(family-name:--font-serif-jp) text-lg sm:text-2xl">
             お申し込み前のご確認
           </h2>
-          <dl className="mt-8 divide-y divide-[var(--ecru-line)] border-y border-[var(--ecru-line)] text-sm">
+          <dl className="mt-8 divide-y divide-(--ecru-line) border-y border-(--ecru-line) text-sm">
             <div className="py-5">
               <dt className="font-medium">この申し込みで料金は発生しますか？</dt>
               <dd className="mt-2 leading-relaxed">掲載料・予約手数料は無料です。この掲載申し込みで有料プランや決済契約を申し込むことはありません。</dd>
@@ -280,7 +280,7 @@ export default function RegisterPage() {
 
       {/* ===== フォーム ===== */}
       <section id="register-form" className="mt-20 scroll-mt-4 pb-24 sm:mt-28">
-        <h2 className="mb-10 text-center font-[family-name:var(--font-serif-jp)] text-lg tracking-[0.12em] sm:text-2xl">
+        <h2 className="mb-10 text-center font-(family-name:--font-serif-jp) text-lg tracking-[0.12em] sm:text-2xl">
           掲載のお申し込み
         </h2>
         <RegisterForm v2Enabled={process.env.SALON_REGISTRATION_V2_ENABLED === 'true'} />

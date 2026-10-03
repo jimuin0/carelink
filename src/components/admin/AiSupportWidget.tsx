@@ -145,7 +145,7 @@ export default function AiSupportWidget() {
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input); } }}
               placeholder="質問を入力..."
               maxLength={1000}
-              className="flex-1 text-xs border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-400"
+              className="flex-1 text-xs border border-gray-300 rounded-lg px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-sky-400"
             />
             <button type="button" onClick={() => send(input)} disabled={!input.trim() || loading} aria-label="送信"
               className="px-3 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 shrink-0">

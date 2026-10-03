@@ -171,7 +171,7 @@ export default function EditPlatformBlogPage(props: Props) {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             maxLength={200}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400"
           />
         </div>
 
@@ -180,7 +180,7 @@ export default function EditPlatformBlogPage(props: Props) {
           <input
             value={slug}
             onChange={(e) => setSlug(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-400"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-sky-400"
           />
           <p className="text-xs text-gray-400 mt-1">/blog/{slug}</p>
         </div>
@@ -192,7 +192,7 @@ export default function EditPlatformBlogPage(props: Props) {
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
             maxLength={500}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400"
           />
         </div>
 
@@ -203,7 +203,7 @@ export default function EditPlatformBlogPage(props: Props) {
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               list="category-options-edit"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400"
             />
             <datalist id="category-options-edit">
               {['美容ガイド', '健康ガイド', '鍼灸', 'ネイル', 'エステ', '整骨院'].map((c) => (
@@ -218,7 +218,7 @@ export default function EditPlatformBlogPage(props: Props) {
               value={readingTime}
               onChange={(e) => setReadingTime(parseInt(e.target.value) || 5)}
               min={1} max={60}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400"
             />
           </div>
         </div>
@@ -228,7 +228,7 @@ export default function EditPlatformBlogPage(props: Props) {
           <input
             value={tags}
             onChange={(e) => setTags(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400"
           />
         </div>
       </div>
@@ -246,7 +246,7 @@ export default function EditPlatformBlogPage(props: Props) {
               key={key}
               type="button"
               onClick={() => insertSection(template)}
-              className="text-xs px-2 py-1 bg-gray-100 hover:bg-sky-50 hover:text-sky-700 rounded border border-gray-200 transition-colors"
+              className="text-xs px-2 py-1 bg-gray-100 hover:bg-sky-50 hover:text-sky-700 rounded-sm border border-gray-200 transition-colors"
             >
               {key.replace('_', '/')}
             </button>
@@ -257,7 +257,7 @@ export default function EditPlatformBlogPage(props: Props) {
           value={contentJson}
           onChange={(e) => { setContentJson(e.target.value); validateJson(e.target.value); }}
           rows={16}
-          className={`w-full border rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-400 ${jsonError ? 'border-red-400' : 'border-gray-300'}`}
+          className={`w-full border rounded-lg px-3 py-2 text-xs font-mono focus:outline-hidden focus:ring-2 focus:ring-sky-400 ${jsonError ? 'border-red-400' : 'border-gray-300'}`}
           spellCheck={false}
         />
         {jsonError && <p role="alert" className="text-xs text-red-500">{jsonError}</p>}
@@ -269,7 +269,7 @@ export default function EditPlatformBlogPage(props: Props) {
             type="checkbox"
             checked={isPublished}
             onChange={(e) => setIsPublished(e.target.checked)}
-            className="rounded border-gray-300"
+            className="rounded-sm border-gray-300"
           />
           <span className="text-sm">公開する</span>
         </label>
@@ -296,7 +296,7 @@ export default function EditPlatformBlogPage(props: Props) {
           type="button"
           onClick={handleSave}
           disabled={saving || !title || !slug}
-          className="btn-primary !px-6 !py-2.5 text-sm"
+          className="btn-primary px-6! py-2.5! text-sm"
         >
           {saving ? '保存中...' : '保存'}
         </button>

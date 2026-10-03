@@ -170,7 +170,7 @@ export default function AdminFeaturesPage() {
       <SbPageHeader
         title="特集管理"
         actions={
-          <button type="button" onClick={() => setEditForm({ ...emptyForm, sort_order: features.length.toString() })} className="btn-primary px-5 !py-2.5">
+          <button type="button" onClick={() => setEditForm({ ...emptyForm, sort_order: features.length.toString() })} className="btn-primary px-5 py-2.5!">
             特集を追加
           </button>
         }
@@ -185,7 +185,7 @@ export default function AdminFeaturesPage() {
           footer={
             <div className="flex gap-3">
               <button type="button" onClick={() => setEditForm(null)} className="flex-1 py-2.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
-              <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-2.5">{saving ? '保存中...' : '保存'}</button>
+              <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 py-2.5!">{saving ? '保存中...' : '保存'}</button>
             </div>
           }
         >
@@ -218,7 +218,7 @@ export default function AdminFeaturesPage() {
                 </div>
                 <div className="flex items-end pb-1">
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={editForm.is_active} onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })} className="rounded border-gray-300 text-sky-500 focus:ring-sky-500" />
+                    <input type="checkbox" checked={editForm.is_active} onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })} className="rounded-sm border-gray-300 text-sky-500 focus:ring-sky-500" />
                     <span className="text-sm">公開する</span>
                   </label>
                 </div>
@@ -231,12 +231,12 @@ export default function AdminFeaturesPage() {
       {loadError ? (
         <LoadError onRetry={loadFeatures} message="特集の読み込みに失敗しました" />
       ) : features.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm p-12 text-center">
+        <div className="bg-white rounded-xl shadow-xs p-12 text-center">
           <p className="text-gray-400 mb-2">特集がまだ登録されていません</p>
           <button type="button" onClick={() => setEditForm({ ...emptyForm })} className="text-sm text-sky-600 font-medium hover:underline">最初の特集を追加する</button>
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm divide-y">
+        <div className="bg-white rounded-xl shadow-xs divide-y">
           {features.map((feature) => (
             <div key={feature.id} className="flex items-center gap-4 p-4">
               {feature.image_url ? (

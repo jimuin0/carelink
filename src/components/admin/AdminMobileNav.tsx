@@ -75,7 +75,7 @@ export default function AdminMobileNav({ items, groups }: { items: NavItem[]; gr
       )}
 
       {/* Bottom nav bar */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t z-40 flex justify-around pt-2 pb-[calc(0.5rem_+_env(safe-area-inset-bottom))]">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t z-40 flex justify-around pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
         {mainItems.map((item) => (
           <Link key={item.href} href={adminFacilityHref(item.href, facilityId)} className="flex flex-col items-center gap-0.5 px-2 py-1">
             <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">

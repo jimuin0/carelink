@@ -103,7 +103,7 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
             id="cancel-policy-free-hours"
             value={policy.free_cancel_hours}
             onChange={(e) => setPolicy({ ...policy, free_cancel_hours: Number(e.target.value) })}
-            className="form-input text-sm !w-48"
+            className="form-input text-sm w-48!"
           >
             <option value={0}>キャンセル不可</option>
             <option value={12}>12時間前まで</option>
@@ -118,7 +118,7 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
             id="cancel-policy-late-rate"
             value={policy.late_cancel_rate}
             onChange={(e) => setPolicy({ ...policy, late_cancel_rate: Number(e.target.value) })}
-            className="form-input text-sm !w-48"
+            className="form-input text-sm w-48!"
           >
             <option value={0}>0%（無料）</option>
             <option value={30}>30%</option>
@@ -133,7 +133,7 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
             id="cancel-policy-noshow-rate"
             value={policy.no_show_rate}
             onChange={(e) => setPolicy({ ...policy, no_show_rate: Number(e.target.value) })}
-            className="form-input text-sm !w-48"
+            className="form-input text-sm w-48!"
           >
             <option value={50}>50%</option>
             <option value={80}>80%</option>
@@ -152,7 +152,7 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
             maxLength={500}
           />
         </div>
-        <button type="button" onClick={handleSave} disabled={saving} className="btn-primary !py-2 text-sm">
+        <button type="button" onClick={handleSave} disabled={saving} className="btn-primary py-2! text-sm">
           {saving ? '保存中...' : saved ? '保存しました' : 'ポリシーを保存'}
         </button>
         {saveError && (

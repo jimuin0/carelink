@@ -32,7 +32,7 @@ test('オーナーがクーポンを作成→編集→削除できる（書き�
   await expect(page.getByText(couponName, { exact: true })).toBeVisible({ timeout: 15000 });
 
   // --- 編集：該当カードの「編集」リンク → 編集ページで名前変更 → 保存。
-  const card = page.locator('div.bg-white.rounded-xl.p-4.shadow-sm').filter({ hasText: couponName });
+  const card = page.locator('div.bg-white.rounded-xl.p-4.shadow-xs').filter({ hasText: couponName });
   const editLink = card.getByRole('link', { name: '編集', exact: true });
   await editLink.scrollIntoViewIfNeeded();
   await editLink.press('Enter');
@@ -55,7 +55,7 @@ test('オーナーがクーポンを作成→編集→削除できる（書き�
   await expect(page.getByText(couponName, { exact: true })).toHaveCount(0);
 
   // --- 削除：編集ページの「このクーポンを削除」→ 確認ダイアログ「削除する」→ 一覧へ遷移。
-  const editedCard = page.locator('div.bg-white.rounded-xl.p-4.shadow-sm').filter({ hasText: editedName });
+  const editedCard = page.locator('div.bg-white.rounded-xl.p-4.shadow-xs').filter({ hasText: editedName });
   const reEditLink = editedCard.getByRole('link', { name: '編集', exact: true });
   await reEditLink.scrollIntoViewIfNeeded();
   await reEditLink.press('Enter');

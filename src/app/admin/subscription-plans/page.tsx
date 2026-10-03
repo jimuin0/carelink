@@ -193,7 +193,7 @@ export default function SubscriptionPlansPage() {
         description="サブスクリプション定義と契約者管理"
         actions={tab === 'plans' && (
           <button type="button" onClick={() => setShowForm(true)}
-            className="btn-primary text-sm !px-4 !py-1.5">
+            className="btn-primary text-sm px-4! py-1.5!">
             + 新規プラン
           </button>
         )}
@@ -202,7 +202,7 @@ export default function SubscriptionPlansPage() {
       <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
         {(['plans', 'subscribers'] as const).map((t) => (
           <button type="button" key={t} onClick={() => setTab(t)}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === t ? 'bg-white shadow text-gray-800' : 'text-gray-500'}`}>
+            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === t ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500'}`}>
             {t === 'plans' ? 'プラン定義' : '契約者一覧'}
           </button>
         ))}
@@ -247,7 +247,7 @@ export default function SubscriptionPlansPage() {
               <div className="flex gap-3">
                 <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 rounded-lg">キャンセル</button>
                 <button type="button" onClick={handleCreate} disabled={saving || !form.name}
-                  className="btn-primary !px-6 !py-2 text-sm">
+                  className="btn-primary px-6! py-2! text-sm">
                   {saving ? '保存中...' : '作成'}
                 </button>
               </div>
@@ -274,11 +274,11 @@ export default function SubscriptionPlansPage() {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <button type="button" onClick={() => toggleActive(plan)}
-                      className="text-xs text-gray-500 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
+                      className="text-xs text-gray-500 border border-gray-300 rounded-sm px-2 py-1 hover:bg-gray-50">
                       {plan.is_active ? '非公開に' : '公開に'}
                     </button>
                     <button type="button" onClick={() => handleDelete(plan)}
-                      className="text-xs text-red-500 border border-red-200 rounded px-2 py-1 hover:bg-red-50">
+                      className="text-xs text-red-500 border border-red-200 rounded-sm px-2 py-1 hover:bg-red-50">
                       削除
                     </button>
                   </div>
@@ -313,24 +313,24 @@ export default function SubscriptionPlansPage() {
                   {sub.status === 'active' && (
                     <div className="flex gap-2 shrink-0">
                       <button type="button" onClick={() => updateSubStatus(sub, 'paused')}
-                        className="text-xs text-yellow-600 border border-yellow-200 rounded px-2 py-1 hover:bg-yellow-50">
+                        className="text-xs text-yellow-600 border border-yellow-200 rounded-sm px-2 py-1 hover:bg-yellow-50">
                         一時停止
                       </button>
                       <button type="button" onClick={() => updateSubStatus(sub, 'cancelled')}
-                        className="text-xs text-red-500 border border-red-200 rounded px-2 py-1 hover:bg-red-50">
+                        className="text-xs text-red-500 border border-red-200 rounded-sm px-2 py-1 hover:bg-red-50">
                         解約
                       </button>
                     </div>
                   )}
                   {sub.status === 'paused' && (
                     <button type="button" onClick={() => updateSubStatus(sub, 'active')}
-                      className="text-xs text-green-600 border border-green-200 rounded px-2 py-1 hover:bg-green-50 shrink-0">
+                      className="text-xs text-green-600 border border-green-200 rounded-sm px-2 py-1 hover:bg-green-50 shrink-0">
                       再開
                     </button>
                   )}
                   {sub.status === 'cancelled' && (
                     <button type="button" onClick={() => updateSubStatus(sub, 'active')}
-                      className="text-xs text-green-600 border border-green-200 rounded px-2 py-1 hover:bg-green-50 shrink-0">
+                      className="text-xs text-green-600 border border-green-200 rounded-sm px-2 py-1 hover:bg-green-50 shrink-0">
                       復活
                     </button>
                   )}

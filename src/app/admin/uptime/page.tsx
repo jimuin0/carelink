@@ -63,7 +63,7 @@ export default async function UptimePage() {
                 <p className="text-sm font-medium text-gray-800">{m.name}</p>
                 <p className="text-xs text-gray-500">{m.description}</p>
               </div>
-              <code className="text-xs text-gray-600 bg-white border border-gray-200 px-2 py-1 rounded font-mono truncate max-w-[200px]">
+              <code className="text-xs text-gray-600 bg-white border border-gray-200 px-2 py-1 rounded-sm font-mono truncate max-w-[200px]">
                 {m.url}
               </code>
             </div>
@@ -91,7 +91,7 @@ export default async function UptimePage() {
           <div>
             <h3 className="text-sm font-bold text-sky-700 mb-2">2. Vercel Cron（内部監視）</h3>
             <p className="text-xs text-gray-600 mb-2">
-              本システムは既に <code className="bg-gray-100 px-1 rounded text-xs">/api/health</code> エンドポイントを提供しています。
+              本システムは既に <code className="bg-gray-100 px-1 rounded-sm text-xs">/api/health</code> エンドポイントを提供しています。
               Vercelの「Monitoring」タブからも確認可能です。
             </p>
           </div>
@@ -99,13 +99,13 @@ export default async function UptimePage() {
           <div>
             <h3 className="text-sm font-bold text-sky-700 mb-2">3. Slack アラート（内蔵・Sentry は廃止済み）</h3>
             <p className="text-xs text-gray-600 mb-2">
-              API ルートの 500 級例外は <code className="bg-gray-100 px-1 rounded text-xs">instrumentation.ts</code> の
-              onRequestError 経由で自動的に Slack へ通知されます（<code className="bg-gray-100 px-1 rounded text-xs">SLACK_BOT_TOKEN</code> と
-              <code className="bg-gray-100 px-1 rounded text-xs">SLACK_DEFAULT_CHANNEL</code> が必要）。外部の Sentry 連携は不要です。
+              API ルートの 500 級例外は <code className="bg-gray-100 px-1 rounded-sm text-xs">instrumentation.ts</code> の
+              onRequestError 経由で自動的に Slack へ通知されます（<code className="bg-gray-100 px-1 rounded-sm text-xs">SLACK_BOT_TOKEN</code> と
+              <code className="bg-gray-100 px-1 rounded-sm text-xs">SLACK_DEFAULT_CHANNEL</code> が必要）。外部の Sentry 連携は不要です。
             </p>
             <ol className="text-xs text-gray-600 space-y-1 list-decimal list-inside">
               <li>Vercel 環境変数に SLACK_BOT_TOKEN / SLACK_DEFAULT_CHANNEL を設定</li>
-              <li>疎通テスト：<code className="bg-gray-100 px-1 rounded text-xs">/api/alert-check?fire=1&amp;token=&lt;ALERT_CHECK_TOKEN&gt;</code> を開く</li>
+              <li>疎通テスト：<code className="bg-gray-100 px-1 rounded-sm text-xs">/api/alert-check?fire=1&amp;token=&lt;ALERT_CHECK_TOKEN&gt;</code> を開く</li>
               <li>Slack の通知チャンネルにテスト通知が届けば疎通OK</li>
             </ol>
           </div>

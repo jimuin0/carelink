@@ -41,7 +41,7 @@ export default async function AdminCouponsPage() {
   return (
     <div>
       <SbPageHeader title="クーポン管理" actions={
-        <Link href="/admin/coupons/new" className="btn-primary text-sm !py-2 !px-4">
+        <Link href="/admin/coupons/new" className="btn-primary text-sm py-2! px-4!">
           新規作成
         </Link>
       } />
@@ -56,7 +56,7 @@ export default async function AdminCouponsPage() {
       ) : (
         <div className="space-y-3">
           {coupons.map((coupon) => (
-            <div key={coupon.id} className="bg-white rounded-xl p-4 shadow-sm">
+            <div key={coupon.id} className="bg-white rounded-xl p-4 shadow-xs">
               <div className="flex items-start justify-between">
                 <div>
                   <div className="flex items-center gap-2 mb-1">

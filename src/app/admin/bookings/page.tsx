@@ -130,7 +130,7 @@ export default async function AdminBookingsPage(props: Props) {
           <p className="text-gray-400">条件に合う予約がありません</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm overflow-x-auto">
+        <div className="bg-white rounded-xl shadow-xs overflow-x-auto">
           <SbTable>
             <SbThead>
               <SbTh>来店日時</SbTh>

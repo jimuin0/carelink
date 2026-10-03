@@ -119,7 +119,7 @@ export default async function AreaResultPage(props: Props) {
             <Pagination currentPage={currentPage} totalPages={totalPages} baseUrl={baseUrl} />
           </>
         ) : (
-          <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
+          <div className="bg-white rounded-2xl shadow-xs p-8 text-center">
             <p className="text-gray-400">{searchParam.kind === 'region' && searchParam.prefectures.length === 0
               ? '下位エリアの登録準備中です。キーワード検索をご利用ください。'
               : total > 0 ? 'このページに該当する施設はありません。前のページをご確認ください。'

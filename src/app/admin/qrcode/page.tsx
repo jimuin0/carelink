@@ -95,7 +95,7 @@ export default function AdminQrCodePage() {
 
       <div className="grid sm:grid-cols-2 gap-6">
         {/* QRコードプレビュー */}
-        <div className="bg-white rounded-xl shadow-sm p-6">
+        <div className="bg-white rounded-xl shadow-xs p-6">
           <h2 className="font-bold mb-4">施設ページQRコード</h2>
           {qrDataUrl && (
             <div className="flex flex-col items-center gap-4">
@@ -106,7 +106,7 @@ export default function AdminQrCodePage() {
                 <button
                   type="button"
                   onClick={handleDownload}
-                  className="btn-primary flex-1 !px-4 !py-2 text-sm"
+                  className="btn-primary flex-1 px-4! py-2! text-sm"
                 >
                   PNG保存
                 </button>
@@ -123,11 +123,11 @@ export default function AdminQrCodePage() {
         </div>
 
         {/* ポスター印刷プレビュー */}
-        <div className="bg-white rounded-xl shadow-sm p-6">
+        <div className="bg-white rounded-xl shadow-xs p-6">
           <h2 className="font-bold mb-4">ポスター印刷用プレビュー</h2>
           <div
             id="qr-poster"
-            className="border-2 border-sky-200 rounded-xl p-6 flex flex-col items-center gap-3 bg-gradient-to-b from-sky-50 to-white"
+            className="border-2 border-sky-200 rounded-xl p-6 flex flex-col items-center gap-3 bg-linear-to-b from-sky-50 to-white"
           >
             <p className="text-xs text-sky-500 font-bold tracking-widest uppercase">CareLink</p>
             <p className="text-lg font-bold text-center text-gray-800">{facilityName}</p>

@@ -160,7 +160,7 @@ export default function ApiKeysPage() {
             onChange={(e) => setNewKeyName(e.target.value)}
             placeholder="例: POS連携、freee自動取込"
             maxLength={50}
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-300"
           />
         </div>
 
@@ -175,10 +175,10 @@ export default function ApiKeysPage() {
                   onChange={(e) => {
                     setSelectedScopes((prev) => e.target.checked ? [...prev, s.value] : prev.filter((x) => x !== s.value));
                   }}
-                  className="rounded"
+                  className="rounded-sm"
                 />
                 <span className="text-sm text-gray-700">{s.label}</span>
-                <code className="text-xs text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{s.value}</code>
+                <code className="text-xs text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded-sm">{s.value}</code>
               </label>
             ))}
           </div>
@@ -188,7 +188,7 @@ export default function ApiKeysPage() {
           type="button"
           onClick={handleCreate}
           disabled={creating || !newKeyName.trim() || selectedScopes.length === 0}
-          className="btn-primary !px-5 !py-2.5 text-sm"
+          className="btn-primary px-5! py-2.5! text-sm"
         >
           {creating ? '作成中...' : 'APIキーを発行する'}
         </button>
@@ -247,7 +247,7 @@ export default function ApiKeysPage() {
       {/* API docs link */}
       <div className="bg-sky-50 rounded-xl p-5 text-sm text-sky-800">
         <p className="font-bold mb-2">API 使い方</p>
-        <p className="mb-1">リクエストヘッダーに <code className="bg-white px-1 rounded text-xs font-mono">Authorization: Bearer {'{YOUR_API_KEY}'}</code> を追加してください。</p>
+        <p className="mb-1">リクエストヘッダーに <code className="bg-white px-1 rounded-sm text-xs font-mono">Authorization: Bearer {'{YOUR_API_KEY}'}</code> を追加してください。</p>
         <div className="bg-white rounded-lg p-3 font-mono text-xs text-gray-700 mt-2 space-y-1">
           <p>GET /api/v1/bookings?facility_id=xxx&from=2026-04-01&to=2026-04-30</p>
           <p>GET /api/v1/customers?search=田中</p>

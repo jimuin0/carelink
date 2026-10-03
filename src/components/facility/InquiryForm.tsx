@@ -98,7 +98,7 @@ export default function InquiryForm({ facilityId }: Props) {
           {errors.message && <p className="form-error" role="alert">{errors.message.message}</p>}
         </div>
 
-        <button type="submit" disabled={isSubmitting} className="btn-primary w-full !py-3 text-sm">
+        <button type="submit" disabled={isSubmitting} className="btn-primary w-full py-3! text-sm">
           {isSubmitting ? '送信中...' : 'お問い合わせを送信する'}
         </button>
       </form>

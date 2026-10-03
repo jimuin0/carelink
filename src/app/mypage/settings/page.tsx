@@ -111,7 +111,7 @@ function SettingsContent() {
           既に連携済みの人には必ず出す：解除手段を失って連携が外せなくなるのを防ぐ。
           取得失敗（gcalError）時も出す：エラーを隠して「機能が無い」と誤認させない。 */}
       {(gcal === null || gcal.enabled !== false || gcal.connected || gcalError) && (
-      <div className="bg-white rounded-2xl shadow-sm p-6">
+      <div className="bg-white rounded-2xl shadow-xs p-6">
         <h2 className="font-semibold text-gray-900 mb-1">Googleカレンダー連携</h2>
         <p className="text-sm text-gray-500 mb-4">
           予約をGoogleカレンダーに自動で追加・同期できます。
@@ -159,7 +159,7 @@ function SettingsContent() {
           （設定すれば自動で復活する。判定理由は lib/line-availability.ts）。
           既に連携済みの人には必ず出す：解除手段を失って連携が外せなくなるのを防ぐ。 */}
       {(isLineEnabled() || lineLinked) && (
-      <div className="bg-white rounded-2xl shadow-sm p-6">
+      <div className="bg-white rounded-2xl shadow-xs p-6">
         <h2 className="font-semibold text-gray-900 mb-1">LINE連携</h2>
         <p className="text-sm text-gray-500 mb-4">
           LINEアプリからの予約確認・ポイント確認・クーポン閲覧ができるようになります。
@@ -194,7 +194,7 @@ function SettingsContent() {
       )}
 
       {/* Notifications */}
-      <div className="bg-white rounded-2xl shadow-sm p-6">
+      <div className="bg-white rounded-2xl shadow-xs p-6">
         <h2 className="font-semibold text-gray-900 mb-1">通知設定</h2>
         <p className="text-sm text-gray-500 mb-4">
           メール通知の配信設定はプロフィールページから変更できます。
@@ -205,7 +205,7 @@ function SettingsContent() {
       </div>
 
       {/* Account */}
-      <div className="bg-white rounded-2xl shadow-sm p-6">
+      <div className="bg-white rounded-2xl shadow-xs p-6">
         <h2 className="font-semibold text-gray-900 mb-1">アカウント</h2>
         <div className="space-y-3 mt-3">
           <Link href="/mypage/profile" className="block text-sm text-gray-700 hover:text-sky-600 transition-colors">

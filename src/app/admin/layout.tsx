@@ -284,7 +284,7 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
       <div className="hidden lg:flex items-center justify-between bg-white border-b px-4 py-3">
         <div className="flex items-center gap-4">
           <AdminFacilityLink href="/admin" className="flex items-center gap-2">
-            <span className="inline-flex items-center justify-center w-8 h-8 rounded bg-sky-600 text-white text-sm font-black">CL</span>
+            <span className="inline-flex items-center justify-center w-8 h-8 rounded-sm bg-sky-600 text-white text-sm font-black">CL</span>
             <span className="text-base font-extrabold text-sky-700 tracking-wide leading-none">
               CareLink<br /><span className="text-[10px] font-bold text-gray-500 tracking-widest">SALON BOARD</span>
             </span>

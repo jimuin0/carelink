@@ -122,7 +122,7 @@ export default function ReviewTab({ facilityId, facilitySlug, facilityName, init
       <div className="border-t border-gray-200 pt-6 space-y-6">
         {/* Google口コミボタン */}
         {googlePlaceId && (
-          <div className="bg-gradient-to-r from-sky-50 to-indigo-50 rounded-xl p-4 flex items-center justify-between gap-4 flex-wrap">
+          <div className="bg-linear-to-r from-sky-50 to-indigo-50 rounded-xl p-4 flex items-center justify-between gap-4 flex-wrap">
             <div>
               <p className="text-sm font-bold text-gray-800">Googleにも口コミを書いてみませんか？</p>
               <p className="text-xs text-gray-500 mt-0.5">Googleの口コミは施設の集客に大きく貢献します</p>

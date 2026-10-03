@@ -46,12 +46,12 @@ export default function NotificationReconciliation() {
     <p className="my-3 text-sm text-gray-600">結果不明で保留された予約通知などについて、監視記録の操作IDとメールサービスで確認したメッセージIDを照合します。問い合わせ返信は各問い合わせ内の照合機能を使ってください。メールは送信しません。</p>
     <div className="space-y-3">
       <label className="block text-sm" htmlFor="notification-operation">操作ID
-        <input id="notification-operation" value={operationId} onChange={e => { setOperationId(e.target.value); setResult(null); }} disabled={busy} maxLength={36} autoComplete="off" className="mt-1 block w-full rounded border p-2" />
+        <input id="notification-operation" value={operationId} onChange={e => { setOperationId(e.target.value); setResult(null); }} disabled={busy} maxLength={36} autoComplete="off" className="mt-1 block w-full rounded-sm border p-2" />
       </label>
       <label className="block text-sm" htmlFor="notification-provider">メールサービスのメッセージID
-        <input id="notification-provider" value={providerMessageId} onChange={e => { setProviderMessageId(e.target.value); setResult(null); }} disabled={busy} maxLength={36} autoComplete="off" className="mt-1 block w-full rounded border p-2" />
+        <input id="notification-provider" value={providerMessageId} onChange={e => { setProviderMessageId(e.target.value); setResult(null); }} disabled={busy} maxLength={36} autoComplete="off" className="mt-1 block w-full rounded-sm border p-2" />
       </label>
-      <button type="button" disabled={busy} onClick={reconcile} className="rounded bg-sky-700 px-3 py-2 text-sm text-white disabled:opacity-50">{busy ? '照合中…' : '受理記録を照合（送信しない）'}</button>
+      <button type="button" disabled={busy} onClick={reconcile} className="rounded-sm bg-sky-700 px-3 py-2 text-sm text-white disabled:opacity-50">{busy ? '照合中…' : '受理記録を照合（送信しない）'}</button>
       {result && <p role={result.success ? 'status' : 'alert'} className="text-sm">{result.text}</p>}
     </div>
   </details>;

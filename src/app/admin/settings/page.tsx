@@ -310,7 +310,7 @@ function AdminSettingsContent() {
             >
               {publishToggling ? '処理中...' : facilityStatus === 'published' ? '非公開にする' : '公開する'}
             </button>
-            <button type="button" onClick={handleSave} disabled={saving} className="btn-primary px-6 !py-2.5">
+            <button type="button" onClick={handleSave} disabled={saving} className="btn-primary px-6 py-2.5!">
               {saving ? '保存中...' : '保存する'}
             </button>
           </>
@@ -318,7 +318,7 @@ function AdminSettingsContent() {
       />
 
       {/* 基本情報 */}
-      <section className="bg-white rounded-xl shadow-sm p-6 mb-6">
+      <section className="bg-white rounded-xl shadow-xs p-6 mb-6">
         <h2 className="text-lg font-bold mb-4">基本情報</h2>
         <div className="space-y-4">
           <div>
@@ -344,7 +344,7 @@ function AdminSettingsContent() {
       </section>
 
       {/* 所在地 */}
-      <section className="bg-white rounded-xl shadow-sm p-6 mb-6">
+      <section className="bg-white rounded-xl shadow-xs p-6 mb-6">
         <h2 className="text-lg font-bold mb-4">所在地</h2>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -386,7 +386,7 @@ function AdminSettingsContent() {
       </section>
 
       {/* 連絡先 */}
-      <section className="bg-white rounded-xl shadow-sm p-6 mb-6">
+      <section className="bg-white rounded-xl shadow-xs p-6 mb-6">
         <h2 className="text-lg font-bold mb-4">連絡先</h2>
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -401,7 +401,7 @@ function AdminSettingsContent() {
       </section>
 
       {/* 営業時間 */}
-      <section className="bg-white rounded-xl shadow-sm p-6 mb-6">
+      <section className="bg-white rounded-xl shadow-xs p-6 mb-6">
         <h2 className="text-lg font-bold mb-4">営業時間</h2>
         {submittedHoursText && <p className="text-sm whitespace-pre-wrap mb-3">申込時の営業時間：{submittedHoursText}</p>}
         {!hoursConfirmed && <p className="text-sm text-amber-800 mb-3">曜日別の予約営業時間は未設定です。下の表示は入力例です。確認するまでは保存内容に含めず、申込時の情報を保持します。</p>}
@@ -418,7 +418,7 @@ function AdminSettingsContent() {
                   type="checkbox"
                   checked={!closedDays.includes(day)}
                   onChange={() => toggleClosed(day)}
-                  className="rounded border-gray-300 text-sky-500 focus:ring-sky-500"
+                  className="rounded-sm border-gray-300 text-sky-500 focus:ring-sky-500"
                 />
                 <span className="text-xs text-gray-500">営業</span>
               </label>
@@ -428,14 +428,14 @@ function AdminSettingsContent() {
                     type="time"
                     value={hours[day]?.open || '09:00'}
                     onChange={(e) => updateHour(day, 'open', e.target.value)}
-                    className="!py-1.5 !px-2 text-sm w-32"
+                    className="py-1.5! px-2! text-sm w-32"
                   />
                   <span className="text-gray-400">〜</span>
                   <SbInput
                     type="time"
                     value={hours[day]?.close || '19:00'}
                     onChange={(e) => updateHour(day, 'close', e.target.value)}
-                    className="!py-1.5 !px-2 text-sm w-32"
+                    className="py-1.5! px-2! text-sm w-32"
                   />
                 </div>
               ) : (
@@ -451,14 +451,14 @@ function AdminSettingsContent() {
       </section>
 
       {/* 予約設定 */}
-      <section className="bg-white rounded-xl shadow-sm p-6 mb-6">
+      <section className="bg-white rounded-xl shadow-xs p-6 mb-6">
         <h2 className="text-lg font-bold mb-4">予約設定</h2>
         <label className="flex items-start gap-3 cursor-pointer">
           <input
             type="checkbox"
             checked={autoConfirm}
             onChange={(e) => setAutoConfirm(e.target.checked)}
-            className="mt-0.5 rounded border-gray-300 text-sky-500 focus:ring-sky-500"
+            className="mt-0.5 rounded-sm border-gray-300 text-sky-500 focus:ring-sky-500"
           />
           <div>
             <p className="text-sm font-medium text-gray-800">予約を即時確定する</p>
@@ -510,7 +510,7 @@ function AdminSettingsContent() {
       </section>
 
       {/* 設備・特徴 */}
-      <section className="bg-white rounded-xl shadow-sm p-6 mb-6">
+      <section className="bg-white rounded-xl shadow-xs p-6 mb-6">
         <h2 className="text-lg font-bold mb-4">設備・特徴</h2>
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div>
@@ -524,11 +524,11 @@ function AdminSettingsContent() {
         </div>
         <div className="flex items-center gap-6 mb-4">
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={parking} onChange={(e) => setParking(e.target.checked)} className="rounded border-gray-300 text-sky-500 focus:ring-sky-500" />
+            <input type="checkbox" checked={parking} onChange={(e) => setParking(e.target.checked)} className="rounded-sm border-gray-300 text-sky-500 focus:ring-sky-500" />
             <span className="text-sm">駐車場あり</span>
           </label>
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={creditCard} onChange={(e) => setCreditCard(e.target.checked)} className="rounded border-gray-300 text-sky-500 focus:ring-sky-500" />
+            <input type="checkbox" checked={creditCard} onChange={(e) => setCreditCard(e.target.checked)} className="rounded-sm border-gray-300 text-sky-500 focus:ring-sky-500" />
             <span className="text-sm">クレジットカード可</span>
           </label>
         </div>
@@ -552,7 +552,7 @@ function AdminSettingsContent() {
       </section>
 
       {/* データエクスポート */}
-      <section className="bg-white rounded-xl shadow-sm p-6 mb-6">
+      <section className="bg-white rounded-xl shadow-xs p-6 mb-6">
         <h2 className="text-lg font-bold mb-4">データエクスポート</h2>
         <p className="text-sm text-gray-500 mb-4">予約データをCSV形式でダウンロードできます。</p>
         <button
@@ -605,7 +605,7 @@ function AdminSettingsContent() {
 
       {/* 保存ボタン(下部) */}
       <div className="flex justify-end">
-        <button type="button" onClick={handleSave} disabled={saving} className="btn-primary px-8 !py-3">
+        <button type="button" onClick={handleSave} disabled={saving} className="btn-primary px-8 py-3!">
           {saving ? '保存中...' : '施設情報を保存'}
         </button>
       </div>
@@ -620,7 +620,7 @@ function AdminSettingsContent() {
       {facilityId && <ReminderUpsellSettings facilityId={facilityId} />}
 
       {/* GBP連携（Googleビジネスプロフィール） */}
-      <section className="bg-white rounded-xl shadow-sm p-6 mt-6">
+      <section className="bg-white rounded-xl shadow-xs p-6 mt-6">
         <div className="flex items-center justify-between mb-1">
           <h2 className="text-lg font-bold">GBP連携（Googleビジネスプロフィール）</h2>
           <Link href="/admin/gbp" className="text-sm text-sky-500 underline">GBP管理画面へ →</Link>
@@ -634,13 +634,13 @@ function AdminSettingsContent() {
              target="_blank" rel="noopener noreferrer" className="underline">Place ID Finder</a>
           {' '}で自店舗を検索して取得できます（「ChIJ...」から始まる文字列）
         </div>
-        <Link href="/admin/gbp" className="btn-primary text-sm !px-5 !py-2">
+        <Link href="/admin/gbp" className="btn-primary text-sm px-5! py-2!">
           GBP設定・診断を開く
         </Link>
       </section>
 
       {/* LINE Works連携 */}
-      <section className="bg-white rounded-xl shadow-sm p-6 mt-6">
+      <section className="bg-white rounded-xl shadow-xs p-6 mt-6">
         <h2 className="text-lg font-bold mb-1">LINE Works連携</h2>
         <p className="text-sm text-gray-500 mb-4">
           新規予約・キャンセルをLINE Worksのスタッフグループに通知できます。

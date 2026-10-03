@@ -247,7 +247,7 @@ function OnboardingContent() {
       <div className="section-container max-w-lg mx-auto py-16">
         <SbPageHeader title="施設情報を確認" description="無料掲載と予約設定は別です。まず店舗情報を確認してください" />
         {recoveredHandoff && <p className="text-sm mb-4">送信済みの申込を引き継ぎます。所在地：{receiptAddress || '未入力（管理画面で設定してください）'}。原申込の店舗名・業態・写真は保持します。ここではまだ一覧に公開されません。</p>}
-        <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
           <div>
             <label htmlFor="onboarding-facility-name" className="form-label">
               施設名 <span className="text-red-500">*</span>
@@ -283,7 +283,7 @@ function OnboardingContent() {
               type="checkbox"
               checked={licenseWarranted}
               onChange={(e) => setLicenseWarranted(e.target.checked)}
-              className="mt-0.5 rounded border-gray-300"
+              className="mt-0.5 rounded-sm border-gray-300"
             />
             <span>
               当施設の運営に法令上必要な許可・免許・届出（美容所開設届、施術所開設届、診療所開設届等）を
@@ -291,7 +291,7 @@ function OnboardingContent() {
             </span>
           </label>
           {formError && <p role="alert" className="text-sm text-red-600">{formError}</p>}
-          <button type="button" onClick={handleFormSubmit} className="btn-primary w-full !py-3">
+          <button type="button" onClick={handleFormSubmit} className="btn-primary w-full py-3!">
             施設を作成する
           </button>
         </div>

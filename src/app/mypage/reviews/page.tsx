@@ -88,13 +88,13 @@ export default function MyReviewsPage() {
       <h1 className="text-xl font-bold mb-4">投稿した口コミ</h1>
 
       {reviews.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
+        <div className="bg-white rounded-2xl shadow-xs p-8 text-center">
           <p className="text-gray-400">投稿した口コミがありません</p>
         </div>
       ) : (
         <div className="space-y-4">
           {reviews.map((review) => (
-            <div key={review.id} className="bg-white rounded-2xl shadow-sm p-6">
+            <div key={review.id} className="bg-white rounded-2xl shadow-xs p-6">
               <div className="flex items-start justify-between">
                 <div>
                   <Link href={`/facility/${review.facility_slug}`} className="font-bold text-primary hover:underline">

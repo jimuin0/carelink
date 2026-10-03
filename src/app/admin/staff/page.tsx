@@ -38,7 +38,7 @@ export default async function AdminStaffPage(props: { searchParams: Promise<{ fa
       {selector}
       <SbPageHeader
         title="スタッフ管理"
-        actions={<Link href={facilityHref("/admin/staff/new")} className="btn-primary text-sm !py-2 !px-4">追加</Link>}
+        actions={<Link href={facilityHref("/admin/staff/new")} className="btn-primary text-sm py-2! px-4!">追加</Link>}
       />
 
       {staff.length === 0 ? (
@@ -46,14 +46,14 @@ export default async function AdminStaffPage(props: { searchParams: Promise<{ fa
           <p className="text-3xl mb-3">👤</p>
           <p className="text-gray-600 font-medium mb-1">まだスタッフが登録されていません</p>
           <p className="text-sm text-gray-400 mb-5">スタッフを登録すると予約枠が作られ、お客様が指名予約できるようになります。</p>
-          <Link href={facilityHref("/admin/staff/new")} className="btn-primary text-sm !py-2.5 !px-6">最初のスタッフを追加</Link>
+          <Link href={facilityHref("/admin/staff/new")} className="btn-primary text-sm py-2.5! px-6!">最初のスタッフを追加</Link>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {staff.map((s) => (
             <div
               key={s.id}
-              className={`bg-white rounded-xl p-4 shadow-sm ${s.is_active ? '' : 'opacity-60'}`}
+              className={`bg-white rounded-xl p-4 shadow-xs ${s.is_active ? '' : 'opacity-60'}`}
             >
               <Link href={facilityHref(`/admin/staff/${s.id}/edit`)} className="block hover:opacity-80">
                 <div className="flex items-center gap-3">

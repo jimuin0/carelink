@@ -42,7 +42,7 @@ export default function JobForm({
   });
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="bg-white rounded-xl shadow-sm p-6 space-y-4">
+    <form onSubmit={handleSubmit(onSubmit)} className="bg-white rounded-xl shadow-xs p-6 space-y-4">
       <div>
         <label htmlFor="job-title" className="form-label">
           求人タイトル <span className="text-red-500">*</span>
@@ -111,7 +111,7 @@ export default function JobForm({
             戻る
           </button>
         )}
-        <button type="submit" disabled={submitting} className="btn-primary flex-1 !py-3">
+        <button type="submit" disabled={submitting} className="btn-primary flex-1 py-3!">
           {submitting ? '送信中...' : submitLabel}
         </button>
       </div>

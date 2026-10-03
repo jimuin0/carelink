@@ -155,7 +155,7 @@ export default async function BookingCompletePage(props: Props) {
                 📋 来院前に問診票を記入する（推奨）
               </Link>
             )}
-            <Link href={`/facility/${params.slug}`} className="btn-primary block w-full !py-3">
+            <Link href={`/facility/${params.slug}`} className="btn-primary block w-full py-3!">
               施設ページに戻る
             </Link>
             {icsDataUri && (

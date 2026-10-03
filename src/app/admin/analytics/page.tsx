@@ -72,7 +72,7 @@ export default async function AdminAnalyticsPage(props: { searchParams: Promise<
         <SbStatCard label="完了予約数" value={totalBookings} unit="件" accent="emerald" />
       </div>
 
-      <div className="bg-white rounded-xl p-6 shadow-sm">
+      <div className="bg-white rounded-xl p-6 shadow-xs">
         <h2 className="font-bold mb-4">月別売上</h2>
         <div className="space-y-3">
           {months.map((m) => (

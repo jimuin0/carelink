@@ -140,7 +140,7 @@ function CancelContent() {
         <div className="text-center py-12 text-gray-400 text-sm">予約が見つかりません</div>
       ) : (
         <>
-          <div className="bg-white rounded-2xl shadow-sm p-5 mb-6">
+          <div className="bg-white rounded-2xl shadow-xs p-5 mb-6">
             <p className="text-sm font-bold text-gray-900">{booking.facility_profiles?.name ?? '施設'}</p>
             <p className="text-sm text-gray-600 mt-1">{booking.menu_name ?? '施術'}</p>
             <div className="flex items-center gap-3 mt-3 text-sm text-gray-500">

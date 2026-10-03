@@ -171,13 +171,13 @@ export default function AdminReviewsPage() {
       {loadError ? (
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="口コミの読み込みに失敗しました" />
       ) : reviews.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm p-12 text-center">
+        <div className="bg-white rounded-xl shadow-xs p-12 text-center">
           <p className="text-gray-400">口コミがありません</p>
         </div>
       ) : (
         <div className="space-y-4">
           {reviews.map((review) => (
-            <div key={review.id} className={`bg-white rounded-xl shadow-sm p-5 ${review.status === 'hidden' ? 'opacity-60' : ''}`}>
+            <div key={review.id} className={`bg-white rounded-xl shadow-xs p-5 ${review.status === 'hidden' ? 'opacity-60' : ''}`}>
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3 mb-1">
@@ -228,14 +228,14 @@ export default function AdminReviewsPage() {
                   placeholder="口コミに返信する..."
                   value={replyText[review.id] || ''}
                   onChange={(e) => setReplyText((prev) => ({ ...prev, [review.id]: e.target.value }))}
-                  className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-300"
+                  className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-sky-300"
                   maxLength={500}
                 />
                 <button
                   type="button"
                   onClick={() => submitReply(review.id)}
                   disabled={replyingTo === review.id || !(replyText[review.id]?.trim())}
-                  className="btn-primary shrink-0 text-xs !px-4 !py-2"
+                  className="btn-primary shrink-0 text-xs px-4! py-2!"
                 >
                   返信
                 </button>

@@ -109,7 +109,7 @@ export default async function CasesPage() {
         </p>
 
         {/* 正直な現状説明 */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sm:p-8 mb-8">
+        <div className="bg-white rounded-2xl shadow-xs border border-gray-100 p-6 sm:p-8 mb-8">
           <h2 className="text-lg font-bold text-gray-900 mb-4">いま掲載されているのは、開発元自身の施設です</h2>
           <div className="space-y-4 text-sm text-gray-600 leading-relaxed">
             <p>
@@ -138,7 +138,7 @@ export default async function CasesPage() {
         </div>
 
         {/* CTA */}
-        <div className="bg-gradient-to-br from-sky-500 to-sky-600 rounded-3xl p-8 text-center text-white">
+        <div className="bg-linear-to-br from-sky-500 to-sky-600 rounded-3xl p-8 text-center text-white">
           <h2 className="text-2xl font-bold mb-3">最初の掲載施設になっていただけませんか</h2>
           <p className="text-white/80 mb-6">
             掲載料・予約手数料の現在条件を確認し、まずは管理画面を見て自施設に合うか確かめてください。

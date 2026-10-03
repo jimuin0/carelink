@@ -74,7 +74,7 @@ export default function LiffBookingsPage() {
           {bookings.map((b) => {
             const facilityName = b.facility_profiles?.name ?? '';
             return (
-              <div key={b.id} className="bg-white rounded-2xl shadow-sm p-4">
+              <div key={b.id} className="bg-white rounded-2xl shadow-xs p-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusChipClass(b.status)}`}>
                     {bookingStatusLabel(b.status)}

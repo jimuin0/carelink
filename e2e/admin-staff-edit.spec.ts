@@ -15,7 +15,7 @@ test('オーナーがスタッフを編集できる（作成→編集→一覧�
   await page.waitForURL((u) => u.pathname === '/admin/staff', { timeout: 20000 });
 
   // 一覧から該当スタッフの「編集」リンクで編集ページへ（一意名でカードをスコープ）。
-  const card = page.locator('div.shadow-sm').filter({ hasText: original });
+  const card = page.locator('div.shadow-xs').filter({ hasText: original });
   await expect(card).toBeVisible({ timeout: 15000 });
   await card.getByRole('link', { name: '編集', exact: true }).click();
   await page.waitForURL(/\/admin\/staff\/[^/]+\/edit/, { timeout: 20000 });

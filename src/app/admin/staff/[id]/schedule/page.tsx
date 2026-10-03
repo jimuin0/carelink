@@ -269,7 +269,7 @@ function StaffSchedulePageForm() {
       </div>
 
       {/* Weekly Schedule */}
-      <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+      <div className="bg-white rounded-xl shadow-xs p-6 mb-6">
         <h2 className="font-bold mb-4">週間スケジュール</h2>
         <div className="space-y-3">
           {DAY_LABELS.map((label, i) => (
@@ -296,7 +296,7 @@ function StaffSchedulePageForm() {
                       next[i] = { ...next[i], start_time: e.target.value };
                       setSchedules(next);
                     }}
-                    className="!w-32 text-sm"
+                    className="w-32! text-sm"
                   />
                   <span className="text-gray-400">〜</span>
                   <SbInput
@@ -307,7 +307,7 @@ function StaffSchedulePageForm() {
                       next[i] = { ...next[i], end_time: e.target.value };
                       setSchedules(next);
                     }}
-                    className="!w-32 text-sm"
+                    className="w-32! text-sm"
                   />
                 </div>
               ) : (
@@ -316,13 +316,13 @@ function StaffSchedulePageForm() {
             </div>
           ))}
         </div>
-        <button type="button" onClick={() => handleSaveSchedules()} disabled={saving} className="btn-primary mt-4 !py-2">
+        <button type="button" onClick={() => handleSaveSchedules()} disabled={saving} className="btn-primary mt-4 py-2!">
           {saving ? '保存中...' : 'スケジュールを保存'}
         </button>
       </div>
 
       {/* Schedule Overrides */}
-      <div className="bg-white rounded-xl shadow-sm p-6">
+      <div className="bg-white rounded-xl shadow-xs p-6">
         <h2 className="font-bold mb-4">特別日設定</h2>
         <div className="flex flex-wrap items-end gap-3 mb-4">
           <div>
@@ -332,7 +332,7 @@ function StaffSchedulePageForm() {
               value={newOverrideDate}
               onChange={(e) => setNewOverrideDate(e.target.value)}
               min={new Date().toISOString().split('T')[0]}
-              className="text-sm !w-40"
+              className="text-sm w-40!"
             />
           </div>
           <div>
@@ -340,7 +340,7 @@ function StaffSchedulePageForm() {
             <select
               value={newOverrideHoliday ? 'holiday' : 'custom'}
               onChange={(e) => setNewOverrideHoliday(e.target.value === 'holiday')}
-              className="form-input text-sm !w-28"
+              className="form-input text-sm w-28!"
             >
               <option value="holiday">休み</option>
               <option value="custom">時間変更</option>
@@ -350,15 +350,15 @@ function StaffSchedulePageForm() {
             <>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">開始</label>
-                <SbInput type="time" value={newOverrideStart} onChange={(e) => setNewOverrideStart(e.target.value)} className="text-sm !w-28" />
+                <SbInput type="time" value={newOverrideStart} onChange={(e) => setNewOverrideStart(e.target.value)} className="text-sm w-28!" />
               </div>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">終了</label>
-                <SbInput type="time" value={newOverrideEnd} onChange={(e) => setNewOverrideEnd(e.target.value)} className="text-sm !w-28" />
+                <SbInput type="time" value={newOverrideEnd} onChange={(e) => setNewOverrideEnd(e.target.value)} className="text-sm w-28!" />
               </div>
             </>
           )}
-          <button type="button" onClick={() => handleAddOverride()} className="btn-primary text-sm !py-2 !px-4">追加</button>
+          <button type="button" onClick={() => handleAddOverride()} className="btn-primary text-sm py-2! px-4!">追加</button>
         </div>
 
         {overrides.length === 0 ? (

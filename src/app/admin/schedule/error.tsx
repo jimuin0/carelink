@@ -14,7 +14,7 @@ export default function ScheduleError({ error, reset }: { error: Error & { diges
       <button
         type="button"
         onClick={reset}
-        className="btn-primary !px-4 !py-1.5 text-sm"
+        className="btn-primary px-4! py-1.5! text-sm"
       >
         再読み込み
       </button>

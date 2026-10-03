@@ -91,7 +91,7 @@ export default function EditReviewPage() {
     <div>
       <h1 className="text-xl font-bold mb-4">口コミを編集</h1>
 
-      <div className="bg-white rounded-2xl shadow-sm p-6 space-y-4">
+      <div className="bg-white rounded-2xl shadow-xs p-6 space-y-4">
         {AXES.map(({ key, label }) => (
           <div key={key} className="flex items-center justify-between">
             <span className="text-sm text-gray-700">{label}</span>
@@ -115,7 +115,7 @@ export default function EditReviewPage() {
           <button type="button" onClick={() => router.push('/mypage/reviews')} className="text-sm text-gray-500 hover:underline">
             戻る
           </button>
-          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-3">
+          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 py-3!">
             {saving ? '保存中...' : '更新する'}
           </button>
         </div>

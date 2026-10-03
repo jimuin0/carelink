@@ -174,7 +174,7 @@ export default async function JobDetailPage(props: Props) {
 
   return (
     <div className="bg-gray-50 min-h-screen pb-20">
-      <div className="max-w-4xl mx-auto bg-white shadow-sm">
+      <div className="max-w-4xl mx-auto bg-white shadow-xs">
         {/* パンくず */}
         <nav className="px-4 sm:px-6 pt-4 pb-2" aria-label="パンくずリスト">
           <ol className="flex items-center gap-1.5 text-xs text-gray-400 overflow-x-auto">
@@ -197,8 +197,8 @@ export default async function JobDetailPage(props: Props) {
             )}
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap gap-2 mb-2">
-                <span className="text-xs bg-sky-100 text-sky-700 px-2 py-1 rounded font-medium">{job.job_type}</span>
-                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded font-medium">{job.employment_type}</span>
+                <span className="text-xs bg-sky-100 text-sky-700 px-2 py-1 rounded-sm font-medium">{job.job_type}</span>
+                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-sm font-medium">{job.employment_type}</span>
               </div>
               <h1 className="text-xl sm:text-2xl font-bold mb-2 leading-snug">{job.title}</h1>
               <Link href={`/facility/${f.slug}`} className="text-sm text-sky-600 hover:underline">

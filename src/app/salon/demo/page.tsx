@@ -60,7 +60,7 @@ export default function DemoPage() {
   return (
     <div className="min-h-screen bg-white">
       {/* Hero */}
-      <section className="bg-gradient-to-br from-sky-600 to-sky-800 text-white">
+      <section className="bg-linear-to-br from-sky-600 to-sky-800 text-white">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-16 text-center">
           <h1 className="text-3xl sm:text-4xl font-bold mb-4">
             CareLink 管理画面でできること
@@ -113,7 +113,7 @@ export default function DemoPage() {
       </section>
 
       {/* CTA */}
-      <section className="bg-gradient-to-br from-sky-600 to-sky-800 text-white">
+      <section className="bg-linear-to-br from-sky-600 to-sky-800 text-white">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-16 text-center">
           <h2 className="text-2xl font-bold mb-4">全部無料。今すぐ始められます。</h2>
           <p className="text-sky-100 mb-8">掲載条件と必要な準備を確認してから登録できます</p>

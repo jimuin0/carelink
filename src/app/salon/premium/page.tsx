@@ -143,7 +143,7 @@ export default function PremiumPage() {
   return (
     <div className="bg-gray-50 min-h-screen">
       {/* Hero */}
-      <section className="bg-gradient-to-br from-sky-700 to-violet-700 text-white py-20">
+      <section className="bg-linear-to-br from-sky-700 to-violet-700 text-white py-20">
         <div className="max-w-4xl mx-auto px-4 text-center">
           <p className="text-sky-200 text-sm font-medium mb-3 tracking-widest uppercase">CareLink Premium</p>
           <h1 className="text-4xl sm:text-5xl font-bold mb-6 leading-tight">
@@ -215,7 +215,7 @@ export default function PremiumPage() {
       {/* Feature comparison table */}
       <section className="max-w-4xl mx-auto px-4 pb-16">
         <h2 className="text-2xl font-bold text-center text-gray-900 mb-8">機能比較</h2>
-        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-xs">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-100">
@@ -261,7 +261,7 @@ export default function PremiumPage() {
           ))}
         </div>
 
-        <div className="mt-10 bg-gradient-to-r from-sky-50 to-violet-50 rounded-2xl p-8 text-center border border-sky-100">
+        <div className="mt-10 bg-linear-to-r from-sky-50 to-violet-50 rounded-2xl p-8 text-center border border-sky-100">
           <h3 className="text-xl font-bold text-gray-900 mb-2">まずは無料で始めてみませんか？</h3>
           <p className="text-gray-600 text-sm mb-6">フリープランで使い心地を確かめてから、プレミアムにアップグレードできます。</p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">

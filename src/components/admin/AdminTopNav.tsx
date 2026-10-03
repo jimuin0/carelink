@@ -64,9 +64,9 @@ export default function AdminTopNav({ groups }: { groups: NavGroup[] }) {
   }, []);
 
   return (
-    <div ref={navRef} className="hidden lg:block sticky top-0 z-40 shadow">
+    <div ref={navRef} className="hidden lg:block sticky top-0 z-40 shadow-sm">
       {/* 1段目: 主要タブ（primary グラデーション帯） */}
-      <div className="bg-gradient-to-b from-sky-600 to-sky-700">
+      <div className="bg-linear-to-b from-sky-600 to-sky-700">
         <div className="flex items-stretch px-3">
           {groups.map((g) => {
             const active = g.key === activeGroup?.key;
@@ -97,7 +97,7 @@ export default function AdminTopNav({ groups }: { groups: NavGroup[] }) {
                 href={adminFacilityHref(item.href, facilityId)}
                 className={`px-4 py-1.5 text-[13px] font-semibold rounded-full whitespace-nowrap transition-colors ${
                   active
-                    ? 'bg-sky-600 text-white shadow-sm'
+                    ? 'bg-sky-600 text-white shadow-xs'
                     : 'text-sky-800 hover:bg-sky-100'
                 }`}
               >

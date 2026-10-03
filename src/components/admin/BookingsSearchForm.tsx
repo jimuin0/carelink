@@ -65,9 +65,9 @@ export default function BookingsSearchForm({
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1.5">来店日</label>
         <div className="flex items-center gap-2">
-          <SbInput type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="!w-auto" aria-label="来店日（開始）" />
+          <SbInput type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-auto!" aria-label="来店日（開始）" />
           <span className="text-gray-400 text-sm">〜</span>
-          <SbInput type="date" value={to} onChange={(e) => setTo(e.target.value)} className="!w-auto" aria-label="来店日（終了）" />
+          <SbInput type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-auto!" aria-label="来店日（終了）" />
         </div>
       </div>
 
@@ -77,7 +77,7 @@ export default function BookingsSearchForm({
         <div className="flex flex-wrap gap-x-4 gap-y-1.5">
           {STATUS_OPTIONS.map((s) => (
             <label key={s} className="inline-flex items-center gap-1.5 text-sm cursor-pointer">
-              <input type="checkbox" checked={statuses.includes(s)} onChange={() => toggleStatus(s)} className="rounded border-gray-300" />
+              <input type="checkbox" checked={statuses.includes(s)} onChange={() => toggleStatus(s)} className="rounded-sm border-gray-300" />
               <span>{bookingStatusLabel(s)}</span>
             </label>
           ))}
@@ -104,7 +104,7 @@ export default function BookingsSearchForm({
 
       <div className="flex items-center gap-3 pt-1">
         <button type="button" onClick={clear} className="text-sm text-gray-500 hover:underline">条件をクリア</button>
-        <button type="button" onClick={submit} className="btn-primary ml-auto !py-2.5 !px-8">検索する</button>
+        <button type="button" onClick={submit} className="btn-primary ml-auto py-2.5! px-8!">検索する</button>
       </div>
     </div>
   );

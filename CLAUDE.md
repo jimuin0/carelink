@@ -10,7 +10,7 @@
 
 ## 技術スタック
 - Next.js 15.5（App Router）/ React 18 / TypeScript 5
-- Tailwind CSS 3.4
+- Tailwind CSS 4.3.3（既存v3 palette・可変theme・source範囲を維持。移行証拠＝docs/braces-dependency-remediation-20261003.md）
 - react-hook-form 7 + `@hookform/resolvers` 5 + zod 4（バリデーション）
 - Supabase＝`@supabase/supabase-js` 2 + `@supabase/ssr`（SSR Cookie 認証）
 - 決済＝Stripe（`stripe` / `@stripe/stripe-js`）
@@ -634,3 +634,13 @@ DROP・台帳登録・migration 取り込みのいずれのアクションも不
 以後 cron の `driftExtra` にこの 11 本が現れることは無い想定。もし今後これらの名前で
 `driftExtra` が再び鳴ったら、それは「本番へ何者かが再作成した」新規事象であり、
 本節の解決済み扱いを再度見直すこと。
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

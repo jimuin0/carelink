@@ -199,7 +199,7 @@ export default function CouponEditPage() {
     <div onChange={() => setDirty(true)}>
       <SbPageHeader title="クーポン編集" />
 
-      <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
+      <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
         <div>
           <label htmlFor="coupon-name" className="form-label">クーポン名 <span className="text-red-500">*</span></label>
           <SbInput id="coupon-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
@@ -295,7 +295,7 @@ export default function CouponEditPage() {
 
         <div className="flex gap-3 pt-4">
           <button type="button" onClick={() => router.push('/admin/coupons')} className="text-sm text-gray-500 hover:underline">戻る</button>
-          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-3">
+          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 py-3!">
             {saving ? '保存中...' : '保存'}
           </button>
         </div>

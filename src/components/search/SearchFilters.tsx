@@ -80,7 +80,7 @@ export default function SearchFilters({ className }: { className?: string }) {
           value={area}
           onChange={(e) => setArea(e.target.value)}
           aria-label="エリアを選択"
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-200"
         >
           <option value="">すべて</option>
           {regionGroups.map((region) => (
@@ -106,7 +106,7 @@ export default function SearchFilters({ className }: { className?: string }) {
           value={type}
           onChange={(e) => setType(e.target.value)}
           aria-label="業種を選択"
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-200"
         >
           <option value="">すべて</option>
           {businessTypes.map((t) => (
@@ -150,7 +150,7 @@ export default function SearchFilters({ className }: { className?: string }) {
             aria-label="価格帯の下限"
             value={priceMin}
             onChange={(e) => setPriceMin(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-200"
             min={0}
             step={1000}
           />
@@ -161,7 +161,7 @@ export default function SearchFilters({ className }: { className?: string }) {
             aria-label="価格帯の上限"
             value={priceMax}
             onChange={(e) => setPriceMax(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-200"
             min={0}
             step={1000}
           />
@@ -177,7 +177,7 @@ export default function SearchFilters({ className }: { className?: string }) {
           value={availableDate}
           onChange={(e) => setAvailableDate(e.target.value)}
           min={new Date().toISOString().slice(0, 10)}
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-200"
         />
       </div>
       <div className="mb-5">
@@ -186,7 +186,7 @@ export default function SearchFilters({ className }: { className?: string }) {
           id="filter-available-time"
           value={availableTime}
           onChange={(e) => setAvailableTime(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-200"
         >
           <option value="">指定なし</option>
           <option value="morning">午前（9:00〜12:00）</option>
@@ -261,7 +261,7 @@ export default function SearchFilters({ className }: { className?: string }) {
             type="checkbox"
             checked={insuranceOnly}
             onChange={(e) => setInsuranceOnly(e.target.checked)}
-            className="w-4 h-4 rounded border-gray-300 text-sky-500 focus:ring-sky-500"
+            className="w-4 h-4 rounded-sm border-gray-300 text-sky-500 focus:ring-sky-500"
           />
           <span className="text-xs text-gray-600">保険適用メニューあり</span>
         </label>

@@ -108,7 +108,7 @@ export default function NewPlatformBlogPage() {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onBlur={handleTitleBlur}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400"
             placeholder="初めての鍼灸院ガイド"
             maxLength={200}
           />
@@ -120,7 +120,7 @@ export default function NewPlatformBlogPage() {
             id="pb-slug"
             value={slug}
             onChange={(e) => setSlug(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-400"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-sky-400"
             placeholder="beginner-acupuncture-guide"
             maxLength={200}
           />
@@ -134,7 +134,7 @@ export default function NewPlatformBlogPage() {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400"
             placeholder="記事の概要（検索結果のdescriptionに使用）"
             maxLength={500}
           />
@@ -149,7 +149,7 @@ export default function NewPlatformBlogPage() {
               onChange={(e) => setCategory(e.target.value)}
               list="category-options"
               maxLength={50}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400"
               placeholder="美容ガイド"
             />
             <datalist id="category-options">
@@ -167,7 +167,7 @@ export default function NewPlatformBlogPage() {
               onChange={(e) => setReadingTime(parseInt(e.target.value) || 5)}
               min={1}
               max={60}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400"
             />
           </div>
         </div>
@@ -178,7 +178,7 @@ export default function NewPlatformBlogPage() {
             id="pb-tags"
             value={tags}
             onChange={(e) => setTags(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400"
             placeholder="鍼灸, 初めて, 効果"
             maxLength={200}
           />
@@ -200,7 +200,7 @@ export default function NewPlatformBlogPage() {
               key={key}
               type="button"
               onClick={() => insertSection(template)}
-              className="text-xs px-2 py-1 bg-gray-100 hover:bg-sky-50 hover:text-sky-700 rounded border border-gray-200 transition-colors"
+              className="text-xs px-2 py-1 bg-gray-100 hover:bg-sky-50 hover:text-sky-700 rounded-sm border border-gray-200 transition-colors"
             >
               {key.replace('_', '/')}
             </button>
@@ -212,7 +212,7 @@ export default function NewPlatformBlogPage() {
           value={contentJson}
           onChange={(e) => { setContentJson(e.target.value); validateJson(e.target.value); }}
           rows={14}
-          className={`w-full border rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-400 ${jsonError ? 'border-red-400' : 'border-gray-300'}`}
+          className={`w-full border rounded-lg px-3 py-2 text-xs font-mono focus:outline-hidden focus:ring-2 focus:ring-sky-400 ${jsonError ? 'border-red-400' : 'border-gray-300'}`}
           spellCheck={false}
         />
         {jsonError && <p role="alert" className="text-xs text-red-500">{jsonError}</p>}
@@ -227,7 +227,7 @@ export default function NewPlatformBlogPage() {
             type="checkbox"
             checked={isPublished}
             onChange={(e) => setIsPublished(e.target.checked)}
-            className="rounded border-gray-300"
+            className="rounded-sm border-gray-300"
           />
           <span className="text-sm">公開する（チェックなし = 下書き保存）</span>
         </label>
@@ -245,7 +245,7 @@ export default function NewPlatformBlogPage() {
           type="button"
           onClick={handleSave}
           disabled={saving || !title || !slug}
-          className="btn-primary flex-1 !px-4 !py-2.5 text-sm"
+          className="btn-primary flex-1 px-4! py-2.5! text-sm"
         >
           {saving ? '保存中...' : isPublished ? '公開して保存' : '下書き保存'}
         </button>

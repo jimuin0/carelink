@@ -740,7 +740,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
               type="button"
               onClick={() => setMenuTab('coupon')}
               className={`flex-1 py-2 rounded-lg transition-colors ${
-                menuTab === 'coupon' ? 'bg-white text-primary shadow-sm' : 'text-gray-500'
+                menuTab === 'coupon' ? 'bg-white text-primary shadow-xs' : 'text-gray-500'
               }`}
             >
               クーポン{coupons.length > 0 && <span className="ml-1 text-xs">({coupons.length})</span>}
@@ -749,7 +749,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
               type="button"
               onClick={() => setMenuTab('menu')}
               className={`flex-1 py-2 rounded-lg transition-colors ${
-                menuTab === 'menu' ? 'bg-white text-primary shadow-sm' : 'text-gray-500'
+                menuTab === 'menu' ? 'bg-white text-primary shadow-xs' : 'text-gray-500'
               }`}
             >
               メニューから選ぶ
@@ -870,7 +870,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 ${isSelected ? 'border-primary bg-primary' : 'border-gray-300'}`}>
+                      <div className={`w-5 h-5 rounded-sm border-2 flex items-center justify-center shrink-0 ${isSelected ? 'border-primary bg-primary' : 'border-gray-300'}`}>
                         {isSelected && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                       </div>
                       <div className="flex-1">
@@ -918,7 +918,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
               type="button"
               disabled={selectedMenus.length === 0}
               onClick={() => setStep('datetime')}
-              className="btn-primary w-full !py-3 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="btn-primary w-full py-3! disabled:opacity-40 disabled:cursor-not-allowed"
             >
               次へ（日時を選ぶ）
             </button>
@@ -1135,7 +1135,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
               戻る
             </button>
             {selectedSlot && (
-              <button type="button" onClick={() => setStep('confirm')} className="btn-primary flex-1 !py-3">
+              <button type="button" onClick={() => setStep('confirm')} className="btn-primary flex-1 py-3!">
                 次へ（確認・予約）
               </button>
             )}
@@ -1283,7 +1283,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                       max={Math.min(availablePoints, currentPrice)}
                       value={pointsToUse}
                       onChange={(e) => setPointsToUse(Math.min(Number(e.target.value) || 0, availablePoints, currentPrice))}
-                      className="form-input !w-28 text-sm"
+                      className="form-input w-28! text-sm"
                     />
                     <span className="text-xs text-gray-500">pt（1pt=1円）</span>
                     <button type="button" onClick={() => setPointsToUse(Math.min(availablePoints, currentPrice))} className="text-xs text-primary hover:underline">全額使用</button>
@@ -1330,7 +1330,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
               type="button"
               onClick={handleSubmit}
               disabled={submitting}
-              className="btn-primary flex-1 !py-3"
+              className="btn-primary flex-1 py-3!"
             >
               {submitting ? '予約中...' : 'この内容で予約する'}
             </button>

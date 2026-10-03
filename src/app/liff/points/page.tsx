@@ -75,7 +75,7 @@ export default function LiffPointsPage() {
   return (
     <div className="p-4 max-w-lg mx-auto">
       {/* 合計ポイント */}
-      <div className="bg-gradient-to-br from-sky-500 to-sky-600 rounded-2xl p-6 text-white text-center mb-6">
+      <div className="bg-linear-to-br from-sky-500 to-sky-600 rounded-2xl p-6 text-white text-center mb-6">
         <p className="text-sm opacity-80">保有ポイント</p>
         <p className="text-4xl font-bold mt-1">{total.toLocaleString()}<span className="text-lg ml-1">pt</span></p>
         <p className="text-xs opacity-70 mt-1">{liff.data.display_name} さん</p>

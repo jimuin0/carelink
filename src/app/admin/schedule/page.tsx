@@ -168,9 +168,9 @@ export default async function AdminSchedulePage(props: Props) {
       {/* ツールバー（日付送り・HPB型） */}
       <div className="bg-white rounded-t-xl border border-b-0 px-4 py-3 flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1">
-          <Link href={`/admin/schedule?facility_id=${facilityId}&date=${addDays(date, -1)}`} aria-label="前日" className="w-8 h-8 inline-flex items-center justify-center rounded border bg-white hover:bg-sky-50 text-sky-700 font-bold">◀</Link>
+          <Link href={`/admin/schedule?facility_id=${facilityId}&date=${addDays(date, -1)}`} aria-label="前日" className="w-8 h-8 inline-flex items-center justify-center rounded-sm border bg-white hover:bg-sky-50 text-sky-700 font-bold">◀</Link>
           <span className="px-3 text-lg font-extrabold text-gray-800 whitespace-nowrap">{formatJp(date)}</span>
-          <Link href={`/admin/schedule?facility_id=${facilityId}&date=${addDays(date, 1)}`} aria-label="翌日" className="w-8 h-8 inline-flex items-center justify-center rounded border bg-white hover:bg-sky-50 text-sky-700 font-bold">▶</Link>
+          <Link href={`/admin/schedule?facility_id=${facilityId}&date=${addDays(date, 1)}`} aria-label="翌日" className="w-8 h-8 inline-flex items-center justify-center rounded-sm border bg-white hover:bg-sky-50 text-sky-700 font-bold">▶</Link>
           {date !== today && (
             <Link href={`/admin/schedule?facility_id=${facilityId}`} className="ml-2 px-3 py-1 text-xs font-bold rounded-full bg-sky-600 text-white hover:bg-sky-700">今日</Link>
           )}

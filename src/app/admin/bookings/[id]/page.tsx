@@ -387,7 +387,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
       )}
 
       {/* 予約情報 */}
-      <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
+      <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
             <p className="text-gray-500">お客様名</p>

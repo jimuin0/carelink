@@ -52,13 +52,13 @@ export default async function CouponNotebookPage() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-2xl shadow-sm p-6">
+      <div className="bg-white rounded-2xl shadow-xs p-6">
         <h1 className="text-xl font-bold mb-2">クーポン手帳</h1>
         <p className="text-sm text-gray-500">お気に入り施設のクーポンをまとめて確認できます。</p>
       </div>
 
       {coupons.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-sm p-12 text-center">
+        <div className="bg-white rounded-2xl shadow-xs p-12 text-center">
           <p className="text-gray-400 mb-4">クーポンがありません</p>
           <p className="text-sm text-gray-500 mb-6">施設をお気に入りに追加すると、クーポンがここに表示されます。</p>
           <Link href="/search" className="btn-primary text-sm">施設を探す</Link>
@@ -66,7 +66,7 @@ export default async function CouponNotebookPage() {
       ) : (
         <div className="space-y-3">
           {coupons.map((coupon) => (
-            <div key={coupon.id} className="bg-white rounded-xl shadow-sm border border-dashed border-sky-200 p-4">
+            <div key={coupon.id} className="bg-white rounded-xl shadow-xs border border-dashed border-sky-200 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <Link href={`/facility/${coupon.facility_slug}`} className="text-xs text-sky-600 hover:underline">

@@ -45,7 +45,7 @@ export default async function AdminJobsPage() {
   return (
     <div>
       <SbPageHeader title="求人管理" actions={
-        <Link href="/admin/jobs/new" className="btn-primary text-sm !py-2 !px-4">新規作成</Link>
+        <Link href="/admin/jobs/new" className="btn-primary text-sm py-2! px-4!">新規作成</Link>
       } />
 
       {list.length === 0 ? (
@@ -56,14 +56,14 @@ export default async function AdminJobsPage() {
       ) : (
         <div className="space-y-3">
           {list.map((job) => (
-            <div key={job.id} className="bg-white rounded-xl p-4 shadow-sm">
+            <div key={job.id} className="bg-white rounded-xl p-4 shadow-xs">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="inline-block text-micro px-2 py-0.5 rounded bg-sky-50 text-primary">
+                    <span className="inline-block text-micro px-2 py-0.5 rounded-sm bg-sky-50 text-primary">
                       {job.employment_type}
                     </span>
-                    <span className="inline-block text-micro px-2 py-0.5 rounded bg-gray-100 text-gray-600">
+                    <span className="inline-block text-micro px-2 py-0.5 rounded-sm bg-gray-100 text-gray-600">
                       {job.job_type}
                     </span>
                     <span className="text-micro text-gray-400">

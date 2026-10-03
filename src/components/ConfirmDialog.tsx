@@ -92,7 +92,7 @@ export default function ConfirmDialog({
           <button
             type="button"
             onClick={onCancel}
-            className="btn-outline flex-1 !py-3 !px-4 text-sm"
+            className="btn-outline flex-1 py-3! px-4! text-sm"
           >
             {cancelLabel}
           </button>
@@ -100,7 +100,7 @@ export default function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={confirmDisabled}
-            className={`flex-1 !py-3 !px-4 text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+            className={`flex-1 py-3! px-4! text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
               variant === 'danger'
                 ? 'font-bold rounded-lg text-white bg-red-600 hover:bg-red-700 transition-colors'
                 : 'btn-primary'

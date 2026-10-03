@@ -48,7 +48,7 @@ export default async function Home() {
             aria-hidden="true"
             className="absolute inset-0 w-full h-full object-cover"
           />
-          <div className="absolute inset-0 bg-gradient-to-b from-sky-900/90 via-sky-800/85 to-sky-700/90" />
+          <div className="absolute inset-0 bg-linear-to-b from-sky-900/90 via-sky-800/85 to-sky-700/90" />
         </div>
 
         <div className="relative max-w-[1040px] mx-auto px-4 sm:px-6">
@@ -74,7 +74,7 @@ export default async function Home() {
                   //   /search は ƒ（オンデマンドSSR）なので、この一覧を出すだけで実DBクエリを伴う
                   //   検索レンダリングが人数分走る。詳細は e2e/home-prefetch-fanout.spec.ts。
                   prefetch={false}
-                  className="flex-shrink-0 inline-flex items-center gap-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full px-4 py-2.5 text-xs font-medium text-white transition-all shadow-sm hover:shadow whitespace-nowrap min-h-[40px]"
+                  className="shrink-0 inline-flex items-center gap-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-xs rounded-full px-4 py-2.5 text-xs font-medium text-white transition-all shadow-xs hover:shadow-sm whitespace-nowrap min-h-[40px]"
                 >
                   {cat.name}
                 </Link>

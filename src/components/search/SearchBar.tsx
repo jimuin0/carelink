@@ -120,7 +120,7 @@ export default function SearchBar() {
           ))}
         </select>
       </div>
-      <button type="submit" className="btn-primary w-full mt-3 !py-3">
+      <button type="submit" className="btn-primary w-full mt-3 py-3!">
         検索する
       </button>
       {history.length > 0 && !keyword && (

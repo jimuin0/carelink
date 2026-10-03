@@ -203,7 +203,7 @@ export default function PackagesPage() {
       <SbPageHeader
         title="回数券・パッケージ管理"
         actions={
-          <button type="button" onClick={() => setShowForm(true)} className="btn-primary text-sm !px-4 !py-1.5">
+          <button type="button" onClick={() => setShowForm(true)} className="btn-primary text-sm px-4! py-1.5!">
             + 新規作成
           </button>
         }
@@ -274,7 +274,7 @@ export default function PackagesPage() {
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 rounded-lg">キャンセル</button>
             <button type="button" onClick={handleCreate} disabled={saving || !form.name}
-              className="btn-primary !px-6 !py-2 text-sm">
+              className="btn-primary px-6! py-2! text-sm">
               {saving ? '保存中...' : '作成'}
             </button>
           </div>

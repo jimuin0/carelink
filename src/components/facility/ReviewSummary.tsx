@@ -79,8 +79,8 @@ export default function ReviewSummary({ reviews, facilityId }: Props) {
           </div>
           {loading && !displaySummary ? (
             <div className="space-y-1.5">
-              <div className="h-3 bg-sky-100 rounded animate-pulse w-full" />
-              <div className="h-3 bg-sky-100 rounded animate-pulse w-4/5" />
+              <div className="h-3 bg-sky-100 rounded-sm animate-pulse w-full" />
+              <div className="h-3 bg-sky-100 rounded-sm animate-pulse w-4/5" />
             </div>
           ) : (
             <p className="text-sm text-sky-700 leading-relaxed">{displaySummary}</p>

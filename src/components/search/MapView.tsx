@@ -105,7 +105,7 @@ export default function MapView({ facilities }: Props) {
   const validCount = facilities.filter((f) => f.latitude != null && f.longitude != null).length;
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+    <div className="bg-white rounded-2xl shadow-xs overflow-hidden">
       <div ref={mapRef} style={{ height: '500px', width: '100%', display: mapReady ? 'block' : 'none' }} />
       {!mapReady && !loadError && (
         <div className="flex items-center justify-center h-[500px] bg-gray-100">

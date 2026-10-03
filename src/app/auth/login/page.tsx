@@ -232,7 +232,7 @@ function LoginContent() {
               {errors.password && <p className="form-error" role="alert">{errors.password.message}</p>}
             </div>
 
-            <button type="submit" disabled={authBusy} className="btn-primary w-full !py-3">
+            <button type="submit" disabled={authBusy} className="btn-primary w-full py-3!">
               {isSubmitting ? 'ログイン中...' : 'ログイン'}
             </button>
           </form>

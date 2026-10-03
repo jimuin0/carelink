@@ -93,12 +93,12 @@ export default function PreferredStaffPage() {
   };
 
   if (loading) {
-    return <div className="animate-pulse space-y-4"><div className="h-8 bg-gray-200 rounded w-1/3" /><div className="h-64 bg-gray-200 rounded-xl" /></div>;
+    return <div className="animate-pulse space-y-4"><div className="h-8 bg-gray-200 rounded-sm w-1/3" /><div className="h-64 bg-gray-200 rounded-xl" /></div>;
   }
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-2xl shadow-sm p-6">
+      <div className="bg-white rounded-2xl shadow-xs p-6">
         <h1 className="text-xl font-bold">指名スタッフ</h1>
         <p className="text-sm text-gray-500 mt-1">お気に入りのスタッフを管理できます。</p>
       </div>
@@ -106,7 +106,7 @@ export default function PreferredStaffPage() {
       {loadError ? (
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="指名スタッフの読み込みに失敗しました" />
       ) : staff.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-sm p-12 text-center">
+        <div className="bg-white rounded-2xl shadow-xs p-12 text-center">
           <p className="text-gray-400 mb-4">指名スタッフが登録されていません</p>
           <p className="text-sm text-gray-500 mb-6">施設のスタッフページから「指名登録」できます。</p>
           <Link href="/search" className="btn-primary text-sm">施設を探す</Link>
@@ -114,7 +114,7 @@ export default function PreferredStaffPage() {
       ) : (
         <div className="space-y-3">
           {staff.map((s) => (
-            <div key={s.id} className="bg-white rounded-xl shadow-sm p-4 flex items-center gap-4">
+            <div key={s.id} className="bg-white rounded-xl shadow-xs p-4 flex items-center gap-4">
               <div className="w-12 h-12 rounded-full bg-sky-100 overflow-hidden shrink-0 flex items-center justify-center relative">
                 {s.staff_photo ? (
                   <Image src={s.staff_photo} alt={s.staff_name} fill className="object-cover" sizes="48px" />

@@ -154,7 +154,7 @@ export default function ProfileEditPage() {
     <div className="space-y-6">
       <h1 className="text-xl font-bold mb-4">プロフィール編集</h1>
 
-      <div className="bg-white rounded-2xl shadow-sm p-6 sm:p-8">
+      <div className="bg-white rounded-2xl shadow-xs p-6 sm:p-8">
         {/* Avatar */}
         <div className="flex items-center gap-4 mb-6 pb-6 border-b">
           <div className="w-16 h-16 rounded-full bg-sky-100 flex items-center justify-center overflow-hidden shrink-0 relative">
@@ -272,7 +272,7 @@ export default function ProfileEditPage() {
             </select>
           </div>
 
-          <button type="submit" disabled={isSubmitting} className="btn-primary w-full !py-3">
+          <button type="submit" disabled={isSubmitting} className="btn-primary w-full py-3!">
             {isSubmitting ? '更新中...' : 'プロフィールを更新'}
           </button>
           </fieldset>
@@ -360,7 +360,7 @@ export default function ProfileEditPage() {
                 setUnsubscribeToggling(false);
               }
             }}
-            className="mt-0.5 rounded border-gray-300 text-sky-500 focus:ring-sky-500"
+            className="mt-0.5 rounded-sm border-gray-300 text-sky-500 focus:ring-sky-500"
           />
           <div>
             <p className="text-sm font-medium text-gray-800">お知らせメール（クーポン・キャンペーン情報など）を受け取る</p>

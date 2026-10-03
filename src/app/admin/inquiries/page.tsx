@@ -385,7 +385,7 @@ export default function AdminInquiriesPage() {
                       [{PRIORITY_CONFIG[c.priority].label}]
                     </span>
                     {c.inquiry_type && (
-                      <span className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">{c.inquiry_type}</span>
+                      <span className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-sm">{c.inquiry_type}</span>
                     )}
                     <span className="text-xs text-gray-400">
                     {c.created_at
@@ -477,7 +477,7 @@ export default function AdminInquiriesPage() {
                       rows={2}
                       placeholder="対応履歴・メモを記入..."
                       maxLength={2000}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-sky-400"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-hidden focus:ring-2 focus:ring-sky-400"
                     />
                     <button
                       type="button"
@@ -521,7 +521,7 @@ export default function AdminInquiriesPage() {
                               <label htmlFor={'provider-message-' + c.id} className="block">送信サービスのメールID（管理者が受理記録から取得）</label>
                               <input id={'provider-message-' + c.id} value={providerMessageIds[c.id] ?? ''}
                                 onChange={(event) => setProviderMessageIds((current) => ({ ...current, [c.id]: event.target.value }))}
-                                maxLength={36} className="w-full rounded border p-2" />
+                                maxLength={36} className="w-full rounded-sm border p-2" />
                               <button type="button" onClick={() => void reconcileReply(c.id)}
                                 disabled={replyingId !== null || replyStates[c.id].loading || replyStates[c.id].failed || !UUID_REGEX.test((providerMessageIds[c.id] ?? '').trim())}
                                 className="underline disabled:opacity-50">受理記録を照合（メールは再送しません）</button>
@@ -563,7 +563,7 @@ export default function AdminInquiriesPage() {
                             || replyStates[c.id].failed
                             || Boolean(replyStates[c.id].reply && !replyStates[c.id].reply?.sentAt && !replyStates[c.id].reply?.retryable)
                           }
-                          className="btn-primary gap-1.5 text-sm !px-4 !py-2 disabled:opacity-50"
+                          className="btn-primary gap-1.5 text-sm px-4! py-2! disabled:opacity-50"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />

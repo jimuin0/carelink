@@ -244,7 +244,7 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
       <SbPageHeader
         title="メニュー管理"
         actions={
-          <button type="button" onClick={() => setEditForm({ ...emptyForm })} className="btn-primary px-5 !py-2.5">
+          <button type="button" onClick={() => setEditForm({ ...emptyForm })} className="btn-primary px-5 py-2.5!">
             メニュー追加
           </button>
         }
@@ -261,7 +261,7 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
           footer={
             <div className="flex gap-3">
               <button type="button" onClick={() => setEditForm(null)} className="flex-1 py-2.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
-              <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-2.5">{saving ? '保存中...' : '保存'}</button>
+              <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 py-2.5!">{saving ? '保存中...' : '保存'}</button>
             </div>
           }
         >
@@ -304,7 +304,7 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
                 )}
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={editForm.is_featured} onChange={(e) => setEditForm({ ...editForm, is_featured: e.target.checked })} className="rounded border-gray-300 text-sky-500 focus:ring-sky-500" />
+                <input type="checkbox" checked={editForm.is_featured} onChange={(e) => setEditForm({ ...editForm, is_featured: e.target.checked })} className="rounded-sm border-gray-300 text-sky-500 focus:ring-sky-500" />
                 <span className="text-sm">おすすめメニューとして表示</span>
               </label>
             </div>
@@ -313,7 +313,7 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
 
       {/* Menu List */}
       {menus.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm p-12 text-center">
+        <div className="bg-white rounded-xl shadow-xs p-12 text-center">
           <p className="text-gray-400 mb-2">メニューがまだ登録されていません</p>
           <button type="button" onClick={() => setEditForm({ ...emptyForm })} className="text-sm text-sky-600 font-medium hover:underline">最初のメニューを追加する</button>
         </div>
@@ -322,7 +322,7 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
           {Object.entries(grouped).map(([cat, items]) => (
             <section key={cat}>
               <h2 className="text-sm font-bold text-gray-800 mb-3 pl-3 border-l-[3px] border-sky-500">{cat}</h2>
-              <div className="bg-white rounded-xl shadow-sm divide-y">
+              <div className="bg-white rounded-xl shadow-xs divide-y">
                 {items.map((menu, index) => (
                   <div key={menu.id} className="flex items-center gap-4 p-4">
                     <div className="flex flex-col shrink-0">

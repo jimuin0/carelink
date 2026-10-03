@@ -58,19 +58,19 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
             <dl className="space-y-2 text-sm">
               {name && (
                 <div className="flex">
-                  <dt className="w-20 text-gray-500 flex-shrink-0">施設名</dt>
+                  <dt className="w-20 text-gray-500 shrink-0">施設名</dt>
                   <dd className="font-medium">{name}</dd>
                 </div>
               )}
               {type && (
                 <div className="flex">
-                  <dt className="w-20 text-gray-500 flex-shrink-0">業種</dt>
+                  <dt className="w-20 text-gray-500 shrink-0">業種</dt>
                   <dd>{type}</dd>
                 </div>
               )}
               {area && (
                 <div className="flex">
-                  <dt className="w-20 text-gray-500 flex-shrink-0">所在地</dt>
+                  <dt className="w-20 text-gray-500 shrink-0">所在地</dt>
                   <dd>{area}</dd>
                 </div>
               )}

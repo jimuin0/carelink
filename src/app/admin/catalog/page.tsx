@@ -23,7 +23,7 @@ export default async function AdminCatalogPage() {
   return (
     <div>
       <SbPageHeader title="カタログ管理" actions={
-        <Link href="/admin/catalog/new" className="btn-primary text-sm !py-2 !px-4">
+        <Link href="/admin/catalog/new" className="btn-primary text-sm py-2! px-4!">
           新規追加
         </Link>
       } />
@@ -38,7 +38,7 @@ export default async function AdminCatalogPage() {
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
           {catalogs.map((c) => (
-            <div key={c.id} className="bg-white rounded-xl p-3 shadow-sm">
+            <div key={c.id} className="bg-white rounded-xl p-3 shadow-xs">
               <p className="font-bold text-sm">{c.title}</p>
               <div className="flex flex-wrap gap-1 mt-1">
                 {(c.tags ?? []).map((tag) => (

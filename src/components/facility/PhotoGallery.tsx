@@ -43,7 +43,7 @@ export default function PhotoGallery({ photos, facilityName }: { photos: Facilit
 
   if (photos.length === 0) {
     return (
-      <div className="aspect-[16/9] bg-gradient-to-br from-sky-50 via-sky-100 to-indigo-50 flex flex-col items-center justify-center">
+      <div className="aspect-video bg-linear-to-br from-sky-50 via-sky-100 to-indigo-50 flex flex-col items-center justify-center">
         <div className="w-20 h-20 rounded-full bg-sky-200/50 flex items-center justify-center mb-3">
           <span className="text-3xl font-bold text-sky-400">{facilityName.charAt(0)}</span>
         </div>
@@ -55,9 +55,9 @@ export default function PhotoGallery({ photos, facilityName }: { photos: Facilit
 
   return (
     <div role="region" aria-label="写真ギャラリー" tabIndex={0} onKeyDown={handleKeyDown}>
-      <div className="relative aspect-[16/9] bg-gray-100 cursor-pointer" role="button" tabIndex={0} aria-label="写真を拡大表示" onClick={() => setLightboxOpen(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setLightboxOpen(true); } }}>
+      <div className="relative aspect-video bg-gray-100 cursor-pointer" role="button" tabIndex={0} aria-label="写真を拡大表示" onClick={() => setLightboxOpen(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setLightboxOpen(true); } }}>
         {imgError ? (
-          <div className="flex items-center justify-center h-full bg-gradient-to-br from-sky-100 to-sky-50">
+          <div className="flex items-center justify-center h-full bg-linear-to-br from-sky-100 to-sky-50">
             <p className="text-sky-300 text-sm">画像を読み込めませんでした</p>
           </div>
         ) : (
@@ -90,7 +90,7 @@ export default function PhotoGallery({ photos, facilityName }: { photos: Facilit
               type="button"
               key={photo.id}
               onClick={() => { setSelected(i); setImgError(false); }}
-              className={`relative w-20 h-14 flex-shrink-0 rounded-lg overflow-hidden border-2 transition-colors ${
+              className={`relative w-20 h-14 shrink-0 rounded-lg overflow-hidden border-2 transition-colors ${
                 i === selected ? 'border-sky-500' : 'border-transparent hover:border-gray-300'
               }`}
               aria-label={`写真${i + 1}を表示`}

@@ -36,7 +36,7 @@ export default function MobileFilterDrawer() {
             </svg>
           </button>
         </div>
-        <Suspense fallback={<div className="p-5 animate-pulse"><div className="h-8 bg-gray-200 rounded mb-3" /><div className="h-8 bg-gray-200 rounded mb-3" /><div className="h-8 bg-gray-200 rounded" /></div>}>
+        <Suspense fallback={<div className="p-5 animate-pulse"><div className="h-8 bg-gray-200 rounded-sm mb-3" /><div className="h-8 bg-gray-200 rounded-sm mb-3" /><div className="h-8 bg-gray-200 rounded-sm" /></div>}>
           <SearchFilters className="p-5" />
         </Suspense>
       </div>
