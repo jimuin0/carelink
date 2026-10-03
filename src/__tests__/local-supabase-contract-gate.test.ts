@@ -29,10 +29,10 @@ describe('isolated Supabase contract gate', () => {
   });
 
   const successful = () => ({
-    success: true, numTotalTestSuites: 2, numPassedTestSuites: 2, numPendingTestSuites: 0,
-    numFailedTestSuites: 0, numTotalTests: 16, numPassedTests: 16,
+    success: true, numTotalTestSuites: 3, numPassedTestSuites: 3, numPendingTestSuites: 0,
+    numFailedTestSuites: 0, numTotalTests: 17, numPassedTests: 17,
     numPendingTests: 0, numTodoTests: 0, numFailedTests: 0,
-    testResults: ['schema-invariants.contract.test.ts', 'supabase-contract.test.ts'].map((name) => ({
+    testResults: ['local-mutation.contract.test.ts', 'schema-invariants.contract.test.ts', 'supabase-contract.test.ts'].map((name) => ({
       name: `/isolated/tests/contract/${name}`, status: 'passed', assertionResults: [{ status: 'passed' }],
     })),
   });
@@ -54,7 +54,47 @@ describe('isolated Supabase contract gate', () => {
     }
   });
 
-  test('workflow runs only the two real API suites after local export with all local credentials and both gates', () => {
+  test('configured external reads require exactly twelve successful assertions and cannot substitute for local mutations', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'carelink-read-gate-'));
+    const report = join(directory, 'report.json');
+    try {
+      const result = successful();
+      result.numTotalTestSuites = result.numPassedTestSuites = 2;
+      result.numTotalTests = result.numPassedTests = 12;
+      result.testResults = result.testResults.filter(suite => !suite.name.includes('local-mutation'));
+      writeFileSync(report, JSON.stringify(result));
+      expect(run(['read-results', report]).status).toBe(0);
+      expect(run(['results', report]).status).toBe(1);
+      result.numPendingTests = 1;
+      writeFileSync(report, JSON.stringify(result));
+      expect(run(['read-results', report]).status).toBe(1);
+    } finally {
+      rmSync(directory, { recursive: true });
+    }
+  });
+
+  test.each([0, 1, 2, 3])('staging absence is explicit and partial configuration fails (%s inputs)', (count) => {
+    const directory = mkdtempSync(join(tmpdir(), 'carelink-staging-presence-'));
+    const output = join(directory, 'output');
+    const summary = join(directory, 'summary');
+    const yaml = require('js-yaml');
+    const workflow = yaml.load(readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8'));
+    const step = workflow.jobs['contract-test'].steps.find((step: { id?: string }) => step.id === 'staging');
+    try {
+      const keys = Object.keys(configured);
+      const result = spawnSync('/bin/bash', ['-e', '-c', step.run], {
+        encoding: 'utf8', env: { GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary,
+          ...Object.fromEntries(keys.slice(0, count).map(key => [key, 'fixture-input'])) },
+      });
+      expect(result.status).toBe(count === 0 || count === 3 ? 0 : 1);
+      expect(result.stdout + result.stderr).not.toContain('fixture-input');
+      if (count === 0 || count === 3) expect(readFileSync(output, 'utf8')).toContain(`configured=${count === 3}`);
+    } finally {
+      rmSync(directory, { recursive: true });
+    }
+  });
+
+  test('workflow runs all three real API suites after local export with all local credentials and both gates', () => {
     const yaml = require('js-yaml');
     const workflow = yaml.load(readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8'));
     const steps = workflow.jobs['e2e-test'].steps;
@@ -69,7 +109,7 @@ describe('isolated Supabase contract gate', () => {
       STAGING_SUPABASE_SERVICE_ROLE_KEY: '${{ steps.supabase.outputs.service_role }}',
     });
     expect(step.run).toMatch(/check-local-supabase-contract\.mjs environment/);
-    expect(step.run).toMatch(/--runTestsByPath tests\/contract\/schema-invariants\.contract\.test\.ts tests\/contract\/supabase-contract\.test\.ts --json/);
+    expect(step.run).toMatch(/--runTestsByPath tests\/contract\/schema-invariants\.contract\.test\.ts tests\/contract\/supabase-contract\.test\.ts tests\/contract\/local-mutation\.contract\.test\.ts --json/);
     expect(step.run).toMatch(/check-local-supabase-contract\.mjs results/);
     expect(step.run).not.toMatch(/\|\| true|continue-on-error|--passWithNoTests/);
   });

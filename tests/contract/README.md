@@ -1,53 +1,49 @@
-# Contract Tests（Phase 2）
+# Contract検証の実行先
 
-実 SaaS 依存（Supabase staging / Upstash / Stripe / Resend）への到達性テスト。
-Jest unit テストが mock 漏れで偽陽性 green を吐いていた問題への防御層。
+実DB/APIへ到達する検証と、migrationの静的照合を分けます。mockで外部サービスの合格を主張しません。
 
-## 実行
+| 必須検証 | 実行先 | 件数 |
+|---|---|---|
+| migration/生成型の静的ドリフト | 常時CI、credential不要 | 17 |
+| Supabaseの読取・Auth応答・schema契約 | 全migration適用後の使い捨てSupabase | 12 |
+| anon書込拒否とservice RPC拒否経路 | 同じ使い捨てloopback環境のみ | 5 |
+
+GitHub ActionsのE2E jobは実Supabaseの3suite/17件を必須で実行します。結果guardは17件すべてpass、skip/todo/failゼロ、3ファイル一致を要求します。必要なlocalテストを削除していません。
+
+引数なしの `npm run test:contract` は全suiteを実行し、接続不足や非localのmutation入力では失敗します。CIは以下の明示pathで実行先を選びます。
+
+## 静的検証
+
 ```bash
-npm run test:contract
+npm run test:contract -- --runInBand --runTestsByPath tests/contract/migration-prod-drift.contract.test.ts
 ```
 
-`STAGING_*` env vars が設定された環境（CI の contract job / 開発者ローカル）でのみ実行される。
-未設定時は全テスト skip。
+## 隔離実API検証
 
-## 含まれるテスト
-- `supabase-contract.test.ts`: 実 Supabase staging への REST 到達性
-- `upstash-contract.test.ts`: 実 Upstash Redis への ping
-- `schema-invariants.contract.test.ts`: スキーマ/RLS ドリフトの恒久ガード
-  （RPC 存在・予約 RPC の 0A000 landmine 検知・anon の過大公開防止・
-  google 列 / View / flagging 列の存在）。`STAGING_SUPABASE_SERVICE_ROLE_KEY`
-  があれば service_role 限定オブジェクトも確定検証。
+明示した `STAGING_SUPABASE_URL`、`STAGING_SUPABASE_ANON_KEY`、`STAGING_SUPABASE_SERVICE_ROLE_KEY` が必要です。Nextの.env自動読込みは無効です。
 
-## CI（GitHub Actions）
+```bash
+node scripts/check-local-supabase-contract.mjs environment
+npm run test:contract -- --runInBand --runTestsByPath tests/contract/schema-invariants.contract.test.ts tests/contract/supabase-contract.test.ts tests/contract/local-mutation.contract.test.ts --json --outputFile=/tmp/local-contract.json
+node scripts/check-local-supabase-contract.mjs results /tmp/local-contract.json
+```
 
-`.github/workflows/ci.yml` の `contract-test` ジョブが push / PR で本フォルダを
-`npm run test:contract` で実行する。staging 専用 secrets が未設定なら全テストが
-skip され（本番には一切触れない）、secrets を設定した時点でドリフト検知ゲートとして
-自動的に有効化される。secrets 未設定時はジョブ summary に「ゲート無効」警告を出して
-false-green を防ぐ。
+local-mutationの5件はRLSが退行するとINSERT等が成功し得ます。localhost/loopback以外ではテストbody開始前に失敗し、外部環境や本番へ実行できません。
 
-### 必要な GitHub Secrets（**キー名のみ・値は repo に書かない**）
+## 任意の外部staging読取検証
 
-| Secret 名 | 必須 | 用途 |
-|-----------|------|------|
-| `STAGING_SUPABASE_URL` | 必須 | staging Supabase の REST/Auth エンドポイント |
-| `STAGING_SUPABASE_ANON_KEY` | 必須 | anon 権限の RLS 不変条件検証 |
-| `STAGING_SUPABASE_SERVICE_ROLE_KEY` | 任意 | service_role 限定のカラム/View/テーブル存在の確定検証 |
-| `UPSTASH_REDIS_REST_URL` | 任意 | Upstash 疎通（Phase 6 で Postgres rate-limit に移行済みのため任意） |
-| `UPSTASH_REDIS_REST_TOKEN` | 任意 | 同上 |
+原mainのci.ymlと同じく、外部stagingが設定されたときだけ追加実行します。3入力すべて未設定なら「未実行」をsummaryに明記し、成功証拠に含めません。部分設定は省略せず失敗します。新しい有料環境の作成はmergeの必須条件ではありません。
 
-設定方法: GitHub リポジトリ → Settings → Secrets and variables → Actions →
-New repository secret。**必ず staging（本番と分離した）プロジェクトの値**を入れること。
-本番の URL / key を入れると CI が本番に到達してしまうため厳禁。
+```bash
+npm run test:contract -- --runInBand --runTestsByPath tests/contract/schema-invariants.contract.test.ts tests/contract/supabase-contract.test.ts
+```
 
-## いつ追加するか
-新規外部 SaaS を `src/lib/integrations/` に追加した時、必ず本フォルダに対応する
-contract テストを追加する。Phase 3 で `src/lib/integrations/` 抽象化と同時に
-カバレッジを上げる。
+読取り12件すべてを検証するためURL/anon/serviceの3入力が必要です。設定不足をdescribe.skipで握り潰さず、実行すると失敗します。service keyは列/View存在のlimit0読取に使います。3入力は本番から隔離したstaging専用とし、本番URL/keyをCIへ注入しません。local-mutationはこの実行対象に含めません。
 
-## 注意
-- 本番リソースには絶対に触らない（staging 専用 env vars のみ参照）
-- 1テストあたり 5秒以内のタイムアウト（外部依存の遅延が CI を詰まらせない）
-- CI で flaky な場合は `retries: 2` を許可するが、根本原因（接続不安定）の
-  調査を runbook に記録する
+この層はAuth HTTP応答とschema/権限の基礎契約であり、SMTP送達・Google本人ログイン・行のあるtenant分離・実通知成功を単独では証明しません。これらは対応する受入/E2E/運用証拠と照合します。
+
+## 削除した廃止検証
+
+Upstash pingは削除しました。src/lib/redis.tsはMemoryStore、rate limitはPostgresへ移行し、src/packageにUpstash実行依存はありません。外部依存を復活させてpingする目的はなく、必須Supabase17件とは別です。
+
+新しいSaaS依存を導入する場合は、実行先・副作用・credential・必須条件を決めて対応contractを追加します。

@@ -13,23 +13,25 @@ try {
     for (const key of ['STAGING_SUPABASE_ANON_KEY', 'STAGING_SUPABASE_SERVICE_ROLE_KEY']) {
       if (!process.env[key]?.trim()) throw new Error('local Supabase credentials required');
     }
-  } else if (process.argv[2] === 'results') {
+  } else if (['results', 'read-results'].includes(process.argv[2])) {
     const result = JSON.parse(readFileSync(process.argv[3], 'utf8'));
-    const expected = ['schema-invariants.contract.test.ts', 'supabase-contract.test.ts'];
+    const readOnly = process.argv[2] === 'read-results';
+    const expected = readOnly ? ['schema-invariants.contract.test.ts', 'supabase-contract.test.ts'] : ['local-mutation.contract.test.ts', 'schema-invariants.contract.test.ts', 'supabase-contract.test.ts'];
+    const expectedTests = readOnly ? 12 : 17;
     const names = result.testResults?.map((suite) => basename(suite.name)).sort();
     if (
-      !result.success || result.numTotalTestSuites !== 2 || result.numPassedTestSuites !== 2 ||
+      !result.success || result.numTotalTestSuites !== expected.length || result.numPassedTestSuites !== expected.length ||
       result.numPendingTestSuites !== 0 || result.numFailedTestSuites !== 0 ||
       result.numPendingTests !== 0 || result.numTodoTests !== 0 || result.numFailedTests !== 0 ||
-      !(result.numTotalTests > 0) || result.numPassedTests !== result.numTotalTests ||
+      result.numTotalTests !== expectedTests || result.numPassedTests !== result.numTotalTests ||
       JSON.stringify(names) !== JSON.stringify(expected) ||
       !result.testResults.every((suite) => suite.status === 'passed' && suite.assertionResults.length > 0 &&
         suite.assertionResults.every((test) => test.status === 'passed'))
-    ) throw new Error('both local Supabase suites must pass without skipped tests');
+    ) throw new Error('all three local Supabase suites must pass without skipped tests');
   } else {
     throw new Error('expected environment or results check');
   }
-  console.log('Local Supabase contract gate passed (not hosted staging/production evidence).');
+  console.log(process.argv[2] === 'read-results' ? 'Configured read contract gate passed (execution target must be recorded separately).' : 'Local Supabase contract gate passed (not hosted staging/production evidence).');
 } catch {
   // Never print supplied URLs, credentials, result bodies, or arbitrary exception messages.
   console.error('Local Supabase contract gate failed; verify isolated inputs and zero-skip results.');

@@ -9,9 +9,11 @@
 const STAGING_URL = process.env.STAGING_SUPABASE_URL;
 const STAGING_ANON = process.env.STAGING_SUPABASE_ANON_KEY;
 
-const describeIfConfigured = STAGING_URL && STAGING_ANON ? describe : describe.skip;
+if (!STAGING_URL || !STAGING_ANON) throw new Error('Explicit Supabase URL and anon credentials required');
 
-describeIfConfigured('Supabase configured API contract', () => {
+if (new globalThis.URL(STAGING_URL!).hostname === 'xzafxiupbflvgbarrihe.supabase.co') throw new Error('Production target is forbidden for contract execution');
+
+describe('Supabase configured API contract', () => {
   test('公開ViewのREST読み取りが200と空配列を返す（limit=0）', async () => {
     // OpenAPI全schema生成ではなく、SDKと同じ認証で実際の読み取り経路を検証する。
     // limit=0なので実レコードは取得しない。RLS/tenant分離の証明とは区別する。

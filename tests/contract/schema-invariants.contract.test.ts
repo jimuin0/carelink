@@ -12,67 +12,29 @@
  *
  * 実行条件:
  *   STAGING_SUPABASE_URL + STAGING_SUPABASE_ANON_KEY が設定された環境でのみ実行。
- *   service_role 限定オブジェクトは STAGING_SUPABASE_SERVICE_ROLE_KEY があれば追加検証。
- *   未設定時は describe.skip（本番リソースには絶対に触らない）。
+ *   全読取を実行するため STAGING_SUPABASE_SERVICE_ROLE_KEY も必須。
+ *   明示した3入力が欠けると失敗。CIは未設定の外部環境へ実行しない。
  *
- * SELECT は .limit(0/1) に限定。書込み/RPC probe は隔離ローカルだけで実行する。
- * RLSが退行するとINSERTが成功し得るため、副作用ゼロとは扱わない。
+ * 読取契約10件のみ。書込み/RPC拒否5件はlocal-mutation.contract.test.tsへ分離。
+ * 実本番への接続は禁止。
  */
 import { createClient } from '@supabase/supabase-js';
 
 const URL = process.env.STAGING_SUPABASE_URL;
 const ANON = process.env.STAGING_SUPABASE_ANON_KEY;
 const SRK = process.env.STAGING_SUPABASE_SERVICE_ROLE_KEY;
-const local = URL && /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):\d+\/?$/.test(URL);
 
-const describeIfConfigured = URL && ANON ? describe : describe.skip;
-const ZERO_UUID = '00000000-0000-0000-0000-000000000000';
+if (!URL || !ANON || !SRK) throw new Error('Explicit Supabase URL, anon and service credentials required for all read contracts');
 
-// describe.skip でも describe の body は評価されるため、未設定環境で createClient が
-// 'supabaseUrl is required' を投げないよう、設定済みのときだけ生成する（遅延・null許容）。
+if (new globalThis.URL(URL!).hostname === 'xzafxiupbflvgbarrihe.supabase.co') throw new Error('Production target is forbidden for contract execution');
+
+// 環境は上のguardで明示確認済み。
 const anon = URL && ANON ? createClient(URL, ANON) : (null as never);
 
-describeIfConfigured('schema invariants (configured Supabase)', () => {
+describe('schema invariants (configured Supabase)', () => {
 
   // ── 1. オブジェクト存在: RPC が schema cache に存在する（PGRST202 でない） ──
   describe('RPC 存在', () => {
-    (local && SRK ? test : test.skip)('enqueue_moderation はanonを拒否し、serviceの空batchは0件（隔離local）', async () => {
-      const denied = await anon.rpc('enqueue_moderation', { p_items: [] });
-      expect(denied.error?.code).toBe('42501');
-      const admin = createClient(URL!, SRK!);
-      const allowed = await admin.rpc('enqueue_moderation', { p_items: [] });
-      expect(allowed.error).toBeNull();
-      expect(allowed.data).toBe(0);
-    });
-
-    (local && SRK ? test : test.skip)('create_booking_atomic はanonを拒否し、service_roleは既知の予約拒否へ到達する（隔離local）', async () => {
-      const args = {
-        p_facility_id: ZERO_UUID,
-        p_staff_id: null,
-        p_user_id: null,
-        p_menu_id: null,
-        p_coupon_id: null,
-        p_booking_date: '2099-01-01',
-        p_start_time: '00:00',
-        p_end_time: '00:30',
-        p_customer_name: 'contract-probe',
-        p_email: 'contract-probe@example.invalid',
-        p_phone: '09000000000',
-        p_note: null,
-        p_total_price: 0,
-        p_points_used: 0,
-        p_status: 'pending',
-      };
-      const denied = await anon.rpc('create_booking_atomic', args);
-      expect(denied.error?.code).toBe('42501');
-      const admin = createClient(URL!, SRK!);
-      const { error } = await admin.rpc('create_booking_atomic', args);
-      // 存在しない施設には勤務スタッフがいないため、現行関数はFKより前に拒否する。
-      // この経路の実到達だけを検証。予約成功/別分岐はbooking E2Eが補完する。
-      expect(error?.code).toBe('P0001');
-      expect(error?.message).toMatch(/^BOOKING_CONFLICT:/);
-    });
-
     test('search_facilities_nearby が存在し実行できる', async () => {
       const { data, error } = await anon.rpc('search_facilities_nearby', {
         user_lat: 0,
@@ -129,52 +91,6 @@ describeIfConfigured('schema invariants (configured Supabase)', () => {
   // ── 2b. RLS 不変条件: anon の直接 INSERT が拒否される（攻撃面の封鎖確認） ──
   // 20260602 の RLS ハードニング（contacts 撤去 / push_subscriptions 本人限定 /
   // intake・waitlist 詐称封鎖 / nps anon 撤去）のfresh-apply結果を隔離DBで確認する。
-  (local ? describe : describe.skip)('RLS 不変条件（隔離localでanonの直接INSERT拒否）', () => {
-    test('contacts への anon 直接 INSERT は拒否される（送信は service_role 経由のみ）', async () => {
-      // contacts は INSERT ポリシーを持たない（deny by default）。
-      // 正規の問い合わせ送信は API が service_role で行うため anon 直接 INSERT は不要。
-      // 万一ポリシーが復活（WITH CHECK(true)）すると本テストが失敗し回帰を検知する。
-      const { error } = await anon
-        .from('contacts')
-        .insert({
-          name: 'contract-probe',
-          email: 'contract-probe@example.invalid',
-          inquiry_type: 'other',
-          message: 'contract drift probe (should be rejected by RLS)',
-        });
-      // RLS で弾かれる（42501 等）はず。null（成功）なら過大公開の回帰。
-      expect(error?.code).toBe('42501');
-    });
-
-    test('push_subscriptions への anon 直接 INSERT は拒否される（本人のみ）', async () => {
-      // 統合ポリシー push_subscriptions_owner_all は auth.uid() = user_id を要求。
-      // anon は auth.uid() = null のため WITH CHECK で拒否される。
-      // FK違反ではなく、RLS/権限が先に拒否したことを確認する。
-      const { error } = await anon
-        .from('push_subscriptions')
-        .insert({
-          user_id: ZERO_UUID,
-          endpoint: 'https://example.invalid/contract-probe',
-          p256dh: 'contract-probe',
-          auth: 'contract-probe',
-        });
-      expect(error?.code).toBe('42501');
-    });
-
-    test('nps_surveys への anon 直接 INSERT は拒否される（service_role 経由のみ）', async () => {
-      // nps_own_insert 撤去後は INSERT ポリシー不在 = deny by default。
-      // 正規の NPS 登録は API が service_role で行う。
-      const { error } = await anon
-        .from('nps_surveys')
-        .insert({
-          score: 0,
-          comment: 'contract drift probe (should be rejected by RLS)',
-          category: 'overall',
-        });
-      expect(error?.code).toBe('42501');
-    });
-  });
-
   // ── 2c. 型ドリフト恒久ガード: /api/salons が送る値の型と salons の実列型 ──
   //
   // 背景（docs/register-blocker-instructions.md）:
@@ -230,7 +146,7 @@ describeIfConfigured('schema invariants (configured Supabase)', () => {
   });
 
   // ── 3. カラム/View 存在（service_role があれば確定的に検証） ──
-  (URL && SRK ? describe : describe.skip)('カラム/View 存在（service_role）', () => {
+  describe('カラム/View 存在（service_role）', () => {
     // 上と同様、未設定時に createClient が throw しないよう設定済みのときだけ生成。
     const admin = URL && SRK ? createClient(URL, SRK) : (null as never);
 
