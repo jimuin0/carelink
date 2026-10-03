@@ -289,7 +289,7 @@ function ContactPageContent() {
                 type="checkbox"
                 checked={agreed}
                 onChange={(e) => setAgreed(e.target.checked)}
-                className="mt-0.5 rounded border-gray-300"
+                className="mt-0.5 rounded-sm border-gray-300"
               />
 
               <span>

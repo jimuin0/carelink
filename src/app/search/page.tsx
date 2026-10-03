@@ -130,7 +130,7 @@ export default async function SearchPage(props: Props) {
     <div className="bg-gray-50 min-h-screen">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbJsonLd) }} />
       {/* Hero */}
-      <section className="bg-gradient-to-br from-sky-50 to-white">
+      <section className="bg-linear-to-br from-sky-50 to-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
           <nav className="mb-4" aria-label="パンくずリスト">
             <ol className="flex items-center gap-1.5 text-xs text-gray-500 flex-wrap">
@@ -157,7 +157,7 @@ export default async function SearchPage(props: Props) {
           <aside className="hidden lg:block w-64 shrink-0">
             <div className="sticky top-4">
               <Suspense fallback={null}>
-                <SearchFilters className="bg-white rounded-2xl shadow-sm p-5" />
+                <SearchFilters className="bg-white rounded-2xl shadow-xs p-5" />
               </Suspense>
             </div>
           </aside>
@@ -258,7 +258,7 @@ export default async function SearchPage(props: Props) {
                 )}
 
                 {/* 施設掲載CTA */}
-                <div className="bg-gradient-to-r from-sky-50 to-indigo-50 rounded-xl p-6 flex items-center justify-between gap-4 flex-wrap">
+                <div className="bg-linear-to-r from-sky-50 to-indigo-50 rounded-xl p-6 flex items-center justify-between gap-4 flex-wrap">
                   <div>
                     <p className="font-bold text-gray-800">お探しの施設が見つかりませんでしたか？</p>
                     <p className="text-sm text-gray-500 mt-0.5">CareLink は施設の無料掲載を受け付けています。オーナー様はぜひご登録を。</p>

@@ -219,7 +219,7 @@ function SignupContent() {
       <div className="space-y-5 text-center" aria-live="polite">
         <p className="text-gray-700 font-medium">登録を受け付けました。</p>
         <p className="text-sm text-gray-600 leading-relaxed">確認メールが必要な場合は、届いたメールを開いて登録を完了してください。すでに登録済みの方はログインできます。見当たらない場合は迷惑メールフォルダもご確認ください。</p>
-        <button type="button" onClick={resendVerificationEmail} disabled={resendStatus === 'sending' || isResendCoolingDown} className="btn-primary w-full !py-3">
+        <button type="button" onClick={resendVerificationEmail} disabled={resendStatus === 'sending' || isResendCoolingDown} className="btn-primary w-full py-3!">
           {resendStatus === 'sending' ? '再送を依頼中...' : isResendCoolingDown ? '確認メールの再送は1分後にできます' : '確認メールを再送する'}
         </button>
         {resendStatus === 'sent' && <p className="text-sm text-green-700" role="status">再送を受け付けました。確認が必要なアカウントにはメールが届きます。</p>}
@@ -359,7 +359,7 @@ function SignupContent() {
               {errors.password_confirm && <p id="signup-password-confirm-error" className="form-error" role="alert">{errors.password_confirm.message}</p>}
             </div>
 
-            <button type="submit" disabled={isSubmitting || isGoogleSigningIn} className="btn-primary w-full !py-3">
+            <button type="submit" disabled={isSubmitting || isGoogleSigningIn} className="btn-primary w-full py-3!">
               {isSubmitting ? '登録中...' : '新規登録'}
             </button>
           </form>

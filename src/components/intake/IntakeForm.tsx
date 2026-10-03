@@ -128,7 +128,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
             placeholder="山田 花子"
             required
             maxLength={50}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400"
           />
         </div>
 
@@ -151,7 +151,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
                 value={(responses[field.id] as string) || ''}
                 onChange={(e) => setValue(field.id, e.target.value)}
                 placeholder={field.placeholder}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400"
               />
             )}
 
@@ -163,7 +163,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
                 placeholder={field.placeholder}
                 rows={3}
                 maxLength={2000}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 resize-none"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400 resize-none"
               />
             )}
 
@@ -172,7 +172,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
                 id={`intake-${field.id}`}
                 value={(responses[field.id] as string) || ''}
                 onChange={(e) => setValue(field.id, e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 bg-white"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400 bg-white"
               >
                 <option value="">選択してください</option>
                 {field.options.map((opt) => (
@@ -251,7 +251,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
                 type="date"
                 value={(responses[field.id] as string) || ''}
                 onChange={(e) => setValue(field.id, e.target.value)}
-                className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+                className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400"
               />
             )}
           </div>

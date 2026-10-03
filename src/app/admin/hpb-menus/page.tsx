@@ -236,7 +236,7 @@ export default function AdminHpbMenusPage() {
       />
 
       {/* HPB 店舗ID 設定 */}
-      <div className="bg-white rounded-xl shadow-sm p-5 mb-6">
+      <div className="bg-white rounded-xl shadow-xs p-5 mb-6">
         <label htmlFor="hpb-sln" className="form-label">HPB 店舗ID（slnID）</label>
         <p className="text-xs text-gray-400 mb-2">
           ホットペッパービューティーの店舗ページURL <code>beauty.hotpepper.jp/kr/sln<b>H000537368</b>/</code> の
@@ -250,7 +250,7 @@ export default function AdminHpbMenusPage() {
             maxLength={32}
             className="flex-1"
           />
-          <button type="button" onClick={handleSaveSln} disabled={savingSln} className="btn-primary px-5 !py-2.5 shrink-0">
+          <button type="button" onClick={handleSaveSln} disabled={savingSln} className="btn-primary px-5 py-2.5! shrink-0">
             {savingSln ? '保存中...' : '保存'}
           </button>
         </div>
@@ -259,7 +259,7 @@ export default function AdminHpbMenusPage() {
             type="button"
             onClick={handleScrape}
             disabled={scraping || !savedSlnId}
-            className="btn-primary px-5 !py-2.5"
+            className="btn-primary px-5 py-2.5!"
           >
             {scraping ? '取得中...' : 'HPBから取得'}
           </button>
@@ -271,18 +271,18 @@ export default function AdminHpbMenusPage() {
       {loadError ? (
         <LoadError onRetry={reload} message="HPBメニューの読み込みに失敗しました" />
       ) : menus.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm p-12 text-center">
+        <div className="bg-white rounded-xl shadow-xs p-12 text-center">
           <p className="text-gray-400">まだ取得していません。店舗IDを保存して「HPBから取得」を押してください。</p>
         </div>
       ) : (
         <>
-        <div className="bg-white rounded-xl shadow-sm p-5 mb-4">
+        <div className="bg-white rounded-xl shadow-xs p-5 mb-4">
           <div className="flex items-center gap-3 flex-wrap">
             <button
               type="button"
               onClick={handleApply}
               disabled={applying}
-              className="btn-primary px-5 !py-2.5"
+              className="btn-primary px-5 py-2.5!"
             >
               {applying ? '反映中...' : 'お客様メニューへ一括反映'}
             </button>
@@ -292,7 +292,7 @@ export default function AdminHpbMenusPage() {
             </span>
           </div>
         </div>
-        <div className="bg-white rounded-xl shadow-sm divide-y">
+        <div className="bg-white rounded-xl shadow-xs divide-y">
           {menus.map((m) => {
             const name = m.name_override ?? m.name;
             const dur = m.duration_min_override ?? m.duration_min;
@@ -335,7 +335,7 @@ export default function AdminHpbMenusPage() {
           footer={
             <div className="flex gap-3">
               <button type="button" onClick={() => setEditForm(null)} className="flex-1 py-2.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
-              <button type="button" onClick={handleSaveEdit} disabled={saving} className="btn-primary flex-1 !py-2.5">{saving ? '保存中...' : '保存'}</button>
+              <button type="button" onClick={handleSaveEdit} disabled={saving} className="btn-primary flex-1 py-2.5!">{saving ? '保存中...' : '保存'}</button>
             </div>
           }
         >
@@ -360,7 +360,7 @@ export default function AdminHpbMenusPage() {
               <textarea id="hpb-desc" value={editForm.description_override} onChange={(e) => setEditForm({ ...editForm, description_override: e.target.value })} maxLength={2000} rows={3} className="w-full rounded-lg border-gray-300 text-sm focus:ring-sky-500 focus:border-sky-500" />
             </div>
             <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={editForm.is_hidden} onChange={(e) => setEditForm({ ...editForm, is_hidden: e.target.checked })} className="rounded border-gray-300 text-sky-500 focus:ring-sky-500" />
+              <input type="checkbox" checked={editForm.is_hidden} onChange={(e) => setEditForm({ ...editForm, is_hidden: e.target.checked })} className="rounded-sm border-gray-300 text-sky-500 focus:ring-sky-500" />
               <span className="text-sm">このメニューを使わない（非表示）</span>
             </label>
           </div>

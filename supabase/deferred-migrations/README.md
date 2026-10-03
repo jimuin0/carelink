@@ -6,6 +6,8 @@ This directory contains SQL that is deliberately excluded from Supabase CLI migr
 
 `20260927000001_salon_signed_upload_cutover.sql` removes the anonymous Storage insert policies used by the legacy registration form. The current production UI still has a V1 flow that uploads directly to `carelink-uploads`; putting this file in `supabase/migrations` before that flow is retired would make submissions with photos fail.
 
+For the current approval/evidence checklist, see [the storage cutover plan](../../docs/salon-storage-cutover-20261002.md). `salon_storage_preflight.sql` collects read-only bucket, full policy, migration-version and aggregate-count evidence. It is not a migration and does not prove legacy browser tabs have drained. Reconfirm the actual deployed flag/UI rather than treating this directory's historical production observation as current evidence.
+
 ## Required release order
 
 ### Phase A: prepare the database without removing legacy uploads

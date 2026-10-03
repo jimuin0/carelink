@@ -13,7 +13,7 @@ const mockRedirect = jest.fn(), mockNotFound = jest.fn(), mockSelection = jest.f
 let mockPath = '/admin/bookings';
 jest.mock('@/lib/supabase-server-auth', () => ({ createServerSupabaseAuthClient: () => mockClient() }));
 jest.mock('next/headers', () => ({ headers: async () => ({ get: () => mockPath }) }));
-jest.mock('next/navigation', () => ({ redirect: (url: string) => mockRedirect(url), notFound: () => mockNotFound() }));
+jest.mock('next/navigation', () => ({ useSearchParams: () => null, redirect: (url: string) => mockRedirect(url), notFound: () => mockNotFound() }));
 jest.mock('@/lib/admin-facility-selection', () => ({ loadAdminFacilitySelection: (...args: unknown[]) => mockSelection(...args) }));
 jest.mock('@/components/admin/AdminMobileNav', () => ({ __esModule: true, default: () => null }));
 jest.mock('@/components/admin/AdminTopNav', () => ({ __esModule: true, default: () => null }));

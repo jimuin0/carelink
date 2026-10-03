@@ -79,10 +79,10 @@ export default function StaffSalesTab({ facilityId }: { facilityId: string }) {
 
   const maxRevenue = Math.max(...data.map((d) => d.revenue), 1);
 
-  if (loading) return <div className="bg-white rounded-xl p-6 shadow-sm mt-6 animate-pulse"><div className="h-6 bg-gray-200 rounded w-1/3" /></div>;
+  if (loading) return <div className="bg-white rounded-xl p-6 shadow-xs mt-6 animate-pulse"><div className="h-6 bg-gray-200 rounded-sm w-1/3" /></div>;
 
   return (
-    <div className="bg-white rounded-xl p-6 shadow-sm mt-6">
+    <div className="bg-white rounded-xl p-6 shadow-xs mt-6">
       <h2 className="font-bold mb-4">スタッフ別売上（今月）</h2>
       {loadError ? (
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="スタッフ別売上の読み込みに失敗しました" />

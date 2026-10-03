@@ -142,10 +142,11 @@ test.describe.serial('管理画面（オーナー）', () => {
   // POST は nomination_fee / line_works_* 列も書き込むため、本番先行列の catch-up も暗に検証する。
   test('オーナーがスタッフを追加できる（書き込み→一覧反映）', async ({ page }) => {
     const staffNewName = 'E2E追加スタッフ';
-    await page.goto('/admin/staff/new');
+    const fixture = JSON.parse(fs.readFileSync(MANUAL_BOOKING_FILE, 'utf8')) as { facilityId: string };
+    await page.goto(`/admin/staff/new?facility_id=${fixture.facilityId}`);
     await page.fill('#staff-name', staffNewName);
     await page.getByRole('button', { name: 'スタッフを追加' }).click();
-    await page.waitForURL('**/admin/staff', { timeout: 15000 });
+    await page.waitForURL(url => url.pathname === '/admin/staff' && url.searchParams.get('facility_id') === fixture.facilityId, { timeout: 15000 });
     await expect(page.getByText(staffNewName)).toBeVisible();
   });
 

@@ -26,14 +26,14 @@ export default async function PointsPage() {
       </div>
 
       {points.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
+        <div className="bg-white rounded-2xl shadow-xs p-8 text-center">
           <p className="text-gray-400">ポイント履歴がありません</p>
           <p className="text-sm text-gray-400 mt-1">予約完了でポイントが貯まります</p>
         </div>
       ) : (
         <div className="space-y-2">
           {points.map((p) => (
-            <div key={p.id} className="bg-white rounded-xl shadow-sm p-4 flex items-center justify-between">
+            <div key={p.id} className="bg-white rounded-xl shadow-xs p-4 flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">{p.reason}</p>
                 <p className="text-xs text-gray-400">

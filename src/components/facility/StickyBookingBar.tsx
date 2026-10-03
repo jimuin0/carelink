@@ -27,7 +27,7 @@ export default function StickyBookingBar({ phone, facilityName, facilitySlug, fa
         {bookingAvailable && <Link
           href={`/facility/${facilitySlug}/booking`}
           onClick={() => analytics.bookingClicked(facilitySlug)}
-          className="flex-1 flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-600 hover:to-sky-700 text-white font-bold rounded-xl text-sm transition-all shadow-lg"
+          className="flex-1 flex items-center justify-center gap-2 py-3 bg-linear-to-r from-sky-500 to-sky-600 hover:from-sky-600 hover:to-sky-700 text-white font-bold rounded-xl text-sm transition-all shadow-lg"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />

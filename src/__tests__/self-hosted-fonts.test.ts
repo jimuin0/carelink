@@ -22,6 +22,7 @@ test('body and registration heading retain Noto families without build-time Goog
   expect(register).toContain('@fontsource-variable/noto-serif-jp/index.css');
   expect(layout + register).not.toMatch(/next\/font\/google/);
   const css = read('src/app/globals.css');
-  expect(css).toContain('--font-noto-sans-jp: "Noto Sans JP Variable"');
-  expect(css).toContain('--font-serif-jp: "Noto Serif JP Variable"');
+  // CSS strings accept either quote style; the upgrade formatter uses singles.
+  expect(css).toMatch(/--font-noto-sans-jp:\s*(['"])Noto Sans JP Variable\1\s*;/);
+  expect(css).toMatch(/--font-serif-jp:\s*(['"])Noto Serif JP Variable\1\s*,\s*(['"])Yu Mincho\2\s*,\s*serif\s*;/);
 });

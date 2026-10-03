@@ -44,7 +44,7 @@ export default function RecentlyViewed() {
   if (facilities.length === 0) return null;
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm p-6">
+    <div className="bg-white rounded-2xl shadow-xs p-6">
       <h2 className="font-bold mb-3">最近見た施設</h2>
       <div className="space-y-2">
         {facilities.slice(0, 5).map((f) => (

@@ -1,9 +1,13 @@
 'use client';
 
 import { useEffect, useState, use } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/lib/admin-facility-selection';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import LoadError from '@/components/admin/LoadError';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
@@ -12,8 +16,17 @@ import AdminPageLoading from '@/components/admin/AdminPageLoading';
 type MenuOption = { id: string; name: string; price: number | null };
 
 export default function EditStaffPage(props: { params: Promise<{ id: string }> }) {
+  const requestedFacility = useSearchParams().get('facility_id');
+  const params = use(props.params);
+  return <EditStaffForm key={`${params.id}:${requestedFacility ?? ''}`} params={props.params} />;
+}
+
+function EditStaffForm(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
   const router = useRouter();
+  const requestedFacility = useSearchParams().get('facility_id');
+  const [facilityChoices, setFacilityChoices] = useState<AdminFacilityChoice[]>([]);
+  const [authState, setAuthState] = useState<'verified' | 'unauthenticated' | 'unavailable'>('verified');
   const [name, setName] = useState('');
   const [position, setPosition] = useState('');
   const [bio, setBio] = useState('');
@@ -33,6 +46,8 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
   useUnsavedGuard(dirty);
   const [saving, setSaving] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
+  const backFacility = facilityId ?? requestedFacility;
+  const backHref = `/admin/staff${backFacility ? `?facility_id=${encodeURIComponent(backFacility)}` : ''}`;
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const toggleMenu = (menuId: string) => {
@@ -47,17 +62,24 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    let active = true;
     (async () => {
       const supabase = createBrowserSupabaseClient();
       setLoadError(false);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-      const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-      if (!membership) { setLoading(false); return; }
-      setFacilityId(membership.facility_id);
-      const { data, error } = await supabase.from('staff_profiles').select('*').eq('id', params.id).eq('facility_id', membership.facility_id).single();
-      if (error) { setLoadError(true); setLoading(false); return; }
+      setLoading(true);
+      setFacilityId(null);
+      const verification = await verifyAuthUser(supabase.auth);
+      if (!active) return;
+      setAuthState(verification.state);
+      if (verification.state !== 'verified') { setLoading(false); return; }
+      const selection = await loadAdminFacilitySelection(supabase, verification.user.id, requestedFacility);
+      if (!active) return;
+      setFacilityChoices(selection.choices);
+      if (!selection.selectedId) { setLoading(false); return; }
+      const selectedFacilityId = selection.selectedId;
+      const { data, error } = await supabase.from('staff_profiles').select('*').eq('id', params.id).eq('facility_id', selectedFacilityId).single();
+      if (!active) return;
+      if (error || !data) { setLoadError(true); setLoading(false); return; }
       if (data) {
         setName(data.name || '');
         setPosition(data.position || '');
@@ -76,14 +98,18 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
       // してしまうため、失敗は loadError に倒してフォームを描画しない（クーポン編集#479と同じ設計思想）。
       const [{ data: msRows, error: msError }, { data: menus, error: menusError }] = await Promise.all([
         supabase.from('menu_staff').select('menu_id').eq('staff_id', params.id),
-        supabase.from('facility_menus').select('id, name, price').eq('facility_id', membership.facility_id).order('sort_order'),
+        supabase.from('facility_menus').select('id, name, price').eq('facility_id', selectedFacilityId).order('sort_order'),
       ]);
+      if (!active) return;
       if (msError || menusError) { setLoadError(true); setLoading(false); return; }
       setMenuIds((msRows ?? []).map((r: { menu_id: string }) => r.menu_id));
       setMenuOptions((menus ?? []) as MenuOption[]);
+      if (!active) return;
+      setFacilityId(selectedFacilityId);
       setLoading(false);
-    })().catch(() => { setLoadError(true); setLoading(false); });
-  }, [params.id, reloadKey]);
+    })().catch(() => { if (active) { setLoadError(true); setLoading(false); } });
+    return () => { active = false; };
+  }, [params.id, reloadKey, requestedFacility]);
 
   const handleSave = async () => {
     if (saving || !name || !facilityId) return;
@@ -123,6 +149,9 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
   };
 
   if (loading) return <AdminPageLoading />;
+  if (authState === 'unavailable') return <AccessVerificationUnavailable />;
+  if (authState === 'unauthenticated') return <p role="alert">セッションが切れました。再ログインしてください。</p>;
+  const selector = <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/staff" dirty={dirty} busy={saving} />;
 
   // 取得失敗時はフォームを描画しない（空フォームを保存して実データを上書きする事故を防ぐ）
   if (loadError) {
@@ -134,11 +163,14 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
     );
   }
 
+  if (!facilityId) return selector;
+
   return (
     <div onChange={() => setDirty(true)}>
+      {selector}
       <SbPageHeader title="スタッフ編集" />
 
-      <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
+      <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
         <div>
           <label htmlFor="staff-name" className="form-label">名前 <span className="text-red-500">*</span></label>
           <SbInput id="staff-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={50} />
@@ -212,7 +244,7 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
                 type="checkbox"
                 checked={lineWorksNotifyAll}
                 onChange={(e) => setLineWorksNotifyAll(e.target.checked)}
-                className="rounded border-gray-300"
+                className="rounded-sm border-gray-300"
               />
               <span className="text-sm text-gray-700">担当外の予約（全件）も通知を受け取る</span>
             </label>
@@ -227,7 +259,7 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
               type="checkbox"
               checked={!isActive}
               onChange={(e) => { setIsActive(!e.target.checked); setDirty(true); }}
-              className="rounded border-gray-300"
+              className="rounded-sm border-gray-300"
             />
             <span className="text-sm text-gray-700">このスタッフを休止する（非表示にする）</span>
           </label>
@@ -237,10 +269,10 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
         </div>
 
         <div className="flex gap-3 pt-4">
-          <button type="button" onClick={() => router.push('/admin/staff')} className="text-sm text-gray-500 hover:underline">
+          <button type="button" onClick={() => router.push(backHref)} className="text-sm text-gray-500 hover:underline">
             戻る
           </button>
-          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-3">
+          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 py-3!">
             {saving ? '保存中...' : '保存'}
           </button>
         </div>

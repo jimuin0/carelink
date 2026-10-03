@@ -186,7 +186,7 @@ export default function AdminQAPage() {
           footer={
             <div className="flex gap-3">
               <button type="button" onClick={() => { setAnsweringId(null); setAnswerText(''); }} className="flex-1 py-2.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
-              <button type="button" onClick={handleAnswer} disabled={saving || !answerText.trim()} className="btn-primary flex-1 !py-2.5">{saving ? '送信中...' : '回答を送信'}</button>
+              <button type="button" onClick={handleAnswer} disabled={saving || !answerText.trim()} className="btn-primary flex-1 py-2.5!">{saving ? '送信中...' : '回答を送信'}</button>
             </div>
           }
         >
@@ -214,7 +214,7 @@ export default function AdminQAPage() {
       {loadError ? (
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="Q&Aの読み込みに失敗しました" />
       ) : filtered.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm p-12 text-center">
+        <div className="bg-white rounded-xl shadow-xs p-12 text-center">
           <p className="text-gray-400">
             {filter === 'pending' ? '未回答の質問はありません' : filter === 'answered' ? '回答済みの質問はありません' : 'Q&Aはまだありません'}
           </p>
@@ -222,18 +222,18 @@ export default function AdminQAPage() {
       ) : (
         <div className="space-y-3">
           {filtered.map((qa) => (
-            <div key={qa.id} className="bg-white rounded-xl shadow-sm p-4">
+            <div key={qa.id} className="bg-white rounded-xl shadow-xs p-4">
               <div className="flex items-start gap-3">
                 <span className={`shrink-0 w-6 h-6 text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5 ${qa.status === 'pending' ? 'bg-red-400' : 'bg-sky-500'}`}>Q</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium">{qa.question}</p>
                   <div className="flex items-center gap-3 mt-1">
                     <span className="text-xs text-gray-400">{formatDate(qa.created_at)}</span>
-                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${qa.status === 'pending' ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-600'}`}>
+                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded-sm ${qa.status === 'pending' ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-600'}`}>
                       {qa.status === 'pending' ? '未回答' : '回答済'}
                     </span>
                     {qa.status === 'answered' && (
-                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${qa.is_public ? 'bg-sky-50 text-sky-600' : 'bg-gray-100 text-gray-500'}`}>
+                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded-sm ${qa.is_public ? 'bg-sky-50 text-sky-600' : 'bg-gray-100 text-gray-500'}`}>
                         {qa.is_public ? '公開' : '非公開'}
                       </span>
                     )}

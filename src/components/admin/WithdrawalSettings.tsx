@@ -58,7 +58,7 @@ export default function WithdrawalSettings() {
   };
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm p-6 sm:p-8 border border-red-100">
+    <div className="bg-white rounded-2xl shadow-xs p-6 sm:p-8 border border-red-100">
       <h2 className="text-lg font-bold text-red-600 mb-2">退会・データ削除</h2>
       <p className="text-xs text-gray-500 mb-4">
         退会すると施設は非公開になり、アカウントと個人データが削除されます。この操作は取り消せません。

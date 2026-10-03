@@ -28,29 +28,29 @@ export default function HomeUserPanel() {
 
   if (loading) {
     return (
-      <div className="bg-white rounded shadow-sm p-4">
-        <div className="h-4 bg-gray-50 animate-pulse rounded mb-3" />
-        <div className="h-9 bg-gray-50 animate-pulse rounded" />
+      <div className="bg-white rounded-sm shadow-xs p-4">
+        <div className="h-4 bg-gray-50 animate-pulse rounded-sm mb-3" />
+        <div className="h-9 bg-gray-50 animate-pulse rounded-sm" />
       </div>
     );
   }
 
   if (!user) {
     return (
-      <div className="bg-white rounded shadow-sm overflow-hidden">
+      <div className="bg-white rounded-sm shadow-xs overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100">
           <p className="text-tiny text-gray-500 tracking-wide">ようこそ、ゲストさん</p>
         </div>
         <div className="px-4 py-4 space-y-2.5">
           <Link
             href={`/auth/login?redirect=${encodeURIComponent(pathname)}`}
-            className="block w-full text-center py-2 bg-sky-700 text-white text-xs tracking-wider rounded hover:bg-sky-800 transition-colors"
+            className="block w-full text-center py-2 bg-sky-700 text-white text-xs tracking-wider rounded-sm hover:bg-sky-800 transition-colors"
           >
             ログインする
           </Link>
           <Link
             href="/auth/signup"
-            className="block w-full text-center py-2 border border-gray-200 text-xs text-gray-500 rounded hover:bg-gray-50 transition-colors"
+            className="block w-full text-center py-2 border border-gray-200 text-xs text-gray-500 rounded-sm hover:bg-gray-50 transition-colors"
           >
             新規会員登録（無料）
           </Link>
@@ -68,7 +68,7 @@ export default function HomeUserPanel() {
     'ユーザー';
 
   return (
-    <div className="bg-white rounded shadow-sm overflow-hidden">
+    <div className="bg-white rounded-sm shadow-xs overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-100">
         <p className="text-tiny text-gray-500 tracking-wide">ようこそ、<span className="text-gray-700">{displayName}</span>さん</p>
       </div>

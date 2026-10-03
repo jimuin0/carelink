@@ -36,7 +36,7 @@ export default function FacilityCard({ facility, showBadges = true, monthlyBooki
 
   return (
     <Link href={`/facility/${facility.slug}`} className="facility-card block">
-      <div className="relative aspect-[16/10] bg-gray-100">
+      <div className="relative aspect-16/10 bg-gray-100">
         {facility.main_photo_url ? (
           <Image
             src={cardUrl(facility.main_photo_url)}
@@ -49,7 +49,7 @@ export default function FacilityCard({ facility, showBadges = true, monthlyBooki
             priority={priority}
           />
         ) : (
-          <div className="flex flex-col items-center justify-center h-full bg-gradient-to-br from-sky-50 via-sky-100 to-indigo-50">
+          <div className="flex flex-col items-center justify-center h-full bg-linear-to-br from-sky-50 via-sky-100 to-indigo-50">
             <div className="w-12 h-12 rounded-full bg-sky-200/50 flex items-center justify-center mb-1.5">
               <span className="text-xl font-bold text-sky-400">{facility.name.charAt(0)}</span>
             </div>

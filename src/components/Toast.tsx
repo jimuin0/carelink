@@ -42,7 +42,7 @@ export default function Toast({ message, type, onClose }: ToastProps) {
     <div
       role={type === 'error' ? 'alert' : 'status'}
       aria-live={type === 'error' ? 'assertive' : 'polite'}
-      className={`fixed top-20 right-4 z-[100] max-w-sm px-6 py-4 rounded-lg text-white shadow-lg transition-all duration-300 ${bgColor} ${
+      className={`fixed top-20 right-4 z-100 max-w-sm px-6 py-4 rounded-lg text-white shadow-lg transition-all duration-300 ${bgColor} ${
         visible ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full'
       }`}
     >

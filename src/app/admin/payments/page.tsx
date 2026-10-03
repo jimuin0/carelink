@@ -195,7 +195,7 @@ export default function AdminPaymentsPage() {
             )}
 
             <button type="button" onClick={handleSave} disabled={saving}
-              className="btn-primary !px-5 !py-2.5 text-sm">
+              className="btn-primary px-5! py-2.5! text-sm">
               {saving ? '保存中...' : '設定を保存'}
             </button>
           </div>

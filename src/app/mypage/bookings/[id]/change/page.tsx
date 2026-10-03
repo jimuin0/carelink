@@ -218,13 +218,13 @@ export default function BookingChangePage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   });
 
-  if (loading) return <div className="animate-pulse space-y-4"><div className="h-8 bg-gray-200 rounded w-1/3" /><div className="h-64 bg-gray-200 rounded-xl" /></div>;
+  if (loading) return <div className="animate-pulse space-y-4"><div className="h-8 bg-gray-200 rounded-sm w-1/3" /><div className="h-64 bg-gray-200 rounded-xl" /></div>;
   if (loadError) return <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="予約情報の読み込みに失敗しました" />;
   if (!booking) return null;
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-2xl shadow-sm p-6">
+      <div className="bg-white rounded-2xl shadow-xs p-6">
         <h1 className="text-xl font-bold mb-4">予約日時の変更</h1>
         <div className="text-sm space-y-1 text-gray-600">
           <p>施設: <span className="font-medium text-gray-900">{booking.facility_name}</span></p>
@@ -234,7 +234,7 @@ export default function BookingChangePage() {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm p-6">
+      <div className="bg-white rounded-2xl shadow-xs p-6">
         <h2 className="font-bold mb-3">新しい日付を選択</h2>
         <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
           {dateOptions.map((date) => {
@@ -255,7 +255,7 @@ export default function BookingChangePage() {
       {/* data-testid は e2e/first-paint-loading.spec.ts が「枠の表示領域だけ」を観測するために使う。
           ページ全体を見ると既存予約の時刻表示（10:00 等）を拾ってしまい検査にならない。 */}
       {selectedDate && (
-        <div className="bg-white rounded-2xl shadow-sm p-6" data-testid="slot-picker">
+        <div className="bg-white rounded-2xl shadow-xs p-6" data-testid="slot-picker">
           <h2 className="font-bold mb-3">時間を選択</h2>
           {slotsPending ? (
             <div className="text-center py-8"><div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto" /></div>
@@ -277,7 +277,7 @@ export default function BookingChangePage() {
       {selectedSlot && (
         <div className="flex gap-3">
           <button type="button" onClick={() => router.back()} className="flex-1 py-3 text-sm text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">キャンセル</button>
-          <button type="button" onClick={handleSubmit} disabled={submitting} className="btn-primary flex-1 !py-3">
+          <button type="button" onClick={handleSubmit} disabled={submitting} className="btn-primary flex-1 py-3!">
             {submitting ? '変更中...' : `${selectedDate} ${selectedSlot.slot_start.slice(0, 5)}に変更する`}
           </button>
         </div>

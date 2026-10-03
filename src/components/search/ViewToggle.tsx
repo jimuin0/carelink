@@ -39,7 +39,7 @@ export default function ViewToggle({ facilities, bookingCounts, availableIds, sp
           type="button"
           onClick={() => setView('list')}
           aria-label="リスト表示"
-          className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm transition-colors ${view === 'list' ? 'bg-white text-gray-900 font-bold shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm transition-colors ${view === 'list' ? 'bg-white text-gray-900 font-bold shadow-xs' : 'text-gray-500 hover:text-gray-700'}`}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
           リスト
@@ -48,7 +48,7 @@ export default function ViewToggle({ facilities, bookingCounts, availableIds, sp
           type="button"
           onClick={() => setView('map')}
           aria-label="マップ表示"
-          className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm transition-colors ${view === 'map' ? 'bg-white text-gray-900 font-bold shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm transition-colors ${view === 'map' ? 'bg-white text-gray-900 font-bold shadow-xs' : 'text-gray-500 hover:text-gray-700'}`}
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
           マップ
@@ -64,7 +64,7 @@ export default function ViewToggle({ facilities, bookingCounts, availableIds, sp
             {facilities.map((f, i) => (<FacilityCard key={f.id} facility={f} monthlyBookings={bookingCounts?.[f.id]} isAvailable={availableIds ? availableIds.includes(f.id) : undefined} priority={i < 4} />))}
           </div>
         ) : (
-          <div className="text-center py-16 bg-white rounded-2xl shadow-sm">
+          <div className="text-center py-16 bg-white rounded-2xl shadow-xs">
             <p className="text-gray-500 text-lg mb-2">該当するサロン・クリニックが見つかりませんでした</p>
             <p className="text-gray-500 text-sm">条件を変えて再度お試しください</p>
           </div>

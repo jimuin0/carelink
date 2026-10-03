@@ -105,10 +105,10 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
 
   if (loading) {
     return (
-      <div className="bg-white rounded-2xl shadow-sm p-6 animate-pulse">
-        <div className="h-6 bg-gray-200 rounded w-1/3 mb-4" />
+      <div className="bg-white rounded-2xl shadow-xs p-6 animate-pulse">
+        <div className="h-6 bg-gray-200 rounded-sm w-1/3 mb-4" />
         <div className="space-y-3">
-          {[...Array(4)].map((_, i) => <div key={i} className="h-4 bg-gray-200 rounded" />)}
+          {[...Array(4)].map((_, i) => <div key={i} className="h-4 bg-gray-200 rounded-sm" />)}
         </div>
       </div>
     );
@@ -122,7 +122,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
 
   if (!booking) {
     return (
-      <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
+      <div className="bg-white rounded-2xl shadow-xs p-8 text-center">
         <p className="text-gray-400">予約が見つかりません</p>
       </div>
     );
@@ -133,7 +133,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
   return (
     <div>
       <h1 className="text-xl font-bold mb-4">予約詳細</h1>
-      <div className="bg-white rounded-2xl shadow-sm p-6 space-y-4">
+      <div className="bg-white rounded-2xl shadow-xs p-6 space-y-4">
         <div className="flex items-center justify-between">
           <span className="text-sm text-gray-500">ステータス</span>
           <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${statusChipClass(booking.status)}`}>

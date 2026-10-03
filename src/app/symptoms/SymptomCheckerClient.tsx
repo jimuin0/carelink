@@ -70,7 +70,7 @@ export default function SymptomCheckerClient() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-sky-50 to-white">
+    <div className="min-h-screen bg-linear-to-b from-sky-50 to-white">
       <div className="max-w-2xl mx-auto px-4 py-10 space-y-8">
         {/* ヘッダー */}
         <div className="text-center space-y-2">
@@ -80,7 +80,7 @@ export default function SymptomCheckerClient() {
         </div>
 
         {/* 入力フォーム */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-4">
+        <div className="bg-white rounded-2xl shadow-xs border border-gray-100 p-6 space-y-4">
           <div>
             <label htmlFor="symptoms-input" className="block text-sm font-medium text-gray-700 mb-2">症状・お悩みを入力</label>
             <textarea
@@ -89,7 +89,7 @@ export default function SymptomCheckerClient() {
               onChange={(e) => setSymptoms(e.target.value)}
               rows={4}
               maxLength={1000}
-              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 resize-none"
+              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400 resize-none"
               placeholder="例: 1週間前から右肩が重く、首を回すと痛みがある。デスクワークが多い。"
             />
             <p className="text-xs text-gray-400 mt-1">{symptoms.length}/1000文字</p>
@@ -101,7 +101,7 @@ export default function SymptomCheckerClient() {
               id="prefecture-input"
               value={prefecture}
               onChange={(e) => setPrefecture(e.target.value)}
-              className="w-full border border-gray-300 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
+              className="w-full border border-gray-300 rounded-xl px-4 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400"
               placeholder="大阪府"
             />
           </div>
@@ -165,13 +165,13 @@ export default function SymptomCheckerClient() {
             )}
 
             {/* サマリー */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <div className="bg-white rounded-2xl shadow-xs border border-gray-100 p-5">
               <h2 className="font-bold text-gray-800 mb-2">症状の概要</h2>
               <p className="text-sm text-gray-600">{result.summary}</p>
             </div>
 
             {/* おすすめ治療法 */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <div className="bg-white rounded-2xl shadow-xs border border-gray-100 p-5">
               <h2 className="font-bold text-gray-800 mb-3">おすすめの治療法</h2>
               <div className="space-y-3">
                 {result.recommended_treatments.map((t, i) => (
@@ -187,7 +187,7 @@ export default function SymptomCheckerClient() {
             </div>
 
             {/* 施設を探す */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <div className="bg-white rounded-2xl shadow-xs border border-gray-100 p-5">
               <h2 className="font-bold text-gray-800 mb-3">近くの施設を探す</h2>
               <div className="flex flex-wrap gap-2">
                 {result.search_keywords.map((kw) => (

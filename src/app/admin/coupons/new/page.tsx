@@ -135,7 +135,7 @@ export default function NewCouponPage() {
     <div>
       <SbPageHeader title="クーポン新規作成" />
 
-      <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
+      <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
         <div>
           <label htmlFor="coupon-name" className="form-label">クーポン名 <span className="text-red-500">*</span></label>
           <SbInput id="coupon-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="新規限定20%OFF" maxLength={100} />
@@ -229,7 +229,7 @@ export default function NewCouponPage() {
           <button type="button" onClick={() => router.push('/admin/coupons')} className="text-sm text-gray-500 hover:underline">
             戻る
           </button>
-          <button type="button" onClick={handleCreate} disabled={saving} className="btn-primary flex-1 !py-3">
+          <button type="button" onClick={handleCreate} disabled={saving} className="btn-primary flex-1 py-3!">
             {saving ? '作成中...' : 'クーポンを作成'}
           </button>
         </div>

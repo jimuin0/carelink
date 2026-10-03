@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { getAdminApiContext } from '@/lib/admin-api-context';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
@@ -30,24 +30,6 @@ const menuUpdateSchema = z.object({
   sort_order: z.number().int().min(0).max(999999).optional(),
 });
 
-async function getAdminContext(request: NextRequest): Promise<{ facilityId: string; userId: string } | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const facilityId = request.nextUrl.searchParams.get('facility_id');
-  if (!facilityId || !UUID_REGEX.test(facilityId)) return null;
-
-  const { data } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-    .eq('facility_id', facilityId)
-    .in('role', ['owner', 'admin'])
-    .single();
-
-  return data ? { facilityId: data.facility_id, userId: user.id } : null;
-}
 
 export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -61,8 +43,8 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const ctx = await getAdminContext(request);
-  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const ctx = await getAdminApiContext(request);
+  if (ctx instanceof NextResponse) return ctx;
 
   const body = await request.json().catch(() => null);
   const parsed = menuUpdateSchema.safeParse(body);
@@ -148,8 +130,8 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const ctx = await getAdminContext(request);
-  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const ctx = await getAdminApiContext(request);
+  if (ctx instanceof NextResponse) return ctx;
 
   const admin = createServiceRoleClient();
 

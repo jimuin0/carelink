@@ -55,7 +55,7 @@ export default function NewCatalogPage() {
     <div>
       <SbPageHeader title="カタログ新規追加" />
 
-      <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
+      <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
         <div>
           <label htmlFor="catalog-title" className="form-label">タイトル <span className="text-red-500">*</span></label>
           <SbInput id="catalog-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
@@ -82,7 +82,7 @@ export default function NewCatalogPage() {
           <button type="button" onClick={() => router.push('/admin/catalog')} className="text-sm text-gray-500 hover:underline">
             戻る
           </button>
-          <button type="button" onClick={handleCreate} disabled={saving} className="btn-primary flex-1 !py-3">
+          <button type="button" onClick={handleCreate} disabled={saving} className="btn-primary flex-1 py-3!">
             {saving ? '保存中...' : 'カタログを追加'}
           </button>
         </div>

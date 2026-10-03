@@ -1,9 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/lib/admin-facility-selection';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { SbInput } from '@/components/admin/SbUi';
@@ -27,10 +31,21 @@ interface Override {
 }
 
 export default function StaffSchedulePage() {
+  const requestedFacility = useSearchParams().get('facility_id');
+  const staffId = useParams().id;
+  return <StaffSchedulePageForm key={`${staffId}:${requestedFacility ?? ''}`} />;
+}
+
+function StaffSchedulePageForm() {
   const params = useParams();
   const router = useRouter();
+  const requestedFacility = useSearchParams().get('facility_id');
+  const [facilityChoices, setFacilityChoices] = useState<AdminFacilityChoice[]>([]);
+  const [authState, setAuthState] = useState<'verified' | 'unauthenticated' | 'unavailable'>('verified');
   const staffId = params.id as string;
   const [facilityId, setFacilityId] = useState<string | null>(null);
+  const backFacility = facilityId ?? requestedFacility;
+  const backHref = `/admin/staff${backFacility ? `?facility_id=${encodeURIComponent(backFacility)}` : ''}`;
   const [staffName, setStaffName] = useState('');
   const [schedules, setSchedules] = useState<Schedule[]>(
     DAY_LABELS.map((_, i) => ({ day_of_week: i, start_time: '09:00', end_time: '19:00' }))
@@ -43,6 +58,7 @@ export default function StaffSchedulePage() {
   const [newOverrideEnd, setNewOverrideEnd] = useState('19:00');
   const [saving, setSaving] = useState(false);
   const [addingOverride, setAddingOverride] = useState(false);
+  const [deletingOverride, setDeletingOverride] = useState(false);
   const [confirmDeleteOverrideId, setConfirmDeleteOverrideId] = useState<string | null>(null);
   // 既存予約への影響（API が 409+件数を返した時）を確認ダイアログで提示し、承認時のみ force で強行する。
   const [scheduleAffected, setScheduleAffected] = useState<number | null>(null);
@@ -60,20 +76,25 @@ export default function StaffSchedulePage() {
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    let active = true;
     (async () => {
       const supabase = createBrowserSupabaseClient();
       setLoadError(false);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: mem, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-        if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-        if (mem) setFacilityId(mem.facility_id);
-      }
-      // スタッフ名は補助表示。取得失敗時は名称未表示で本体は継続する。
-      // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-      const { data: staff } = await supabase.from('staff_profiles').select('name').eq('id', staffId).single();
-      if (staff) setStaffName(staff.name);
-
+      setLoading(true);
+      setFacilityId(null);
+      const verification = await verifyAuthUser(supabase.auth);
+      if (!active) return;
+      setAuthState(verification.state);
+      if (verification.state !== 'verified') { setLoading(false); return; }
+      const selection = await loadAdminFacilitySelection(supabase, verification.user.id, requestedFacility);
+      if (!active) return;
+      setFacilityChoices(selection.choices);
+      if (!selection.selectedId) { setLoading(false); return; }
+      const selectedFacilityId = selection.selectedId;
+      const { data: staff, error: staffError } = await supabase.from('staff_profiles').select('name').eq('id', staffId).eq('facility_id', selectedFacilityId).single();
+      if (!active) return;
+      if (staffError || !staff) { setLoadError(true); setLoading(false); return; }
+      setStaffName(staff.name);
       // 週間スケジュールはフォーム初期値。取得失敗を握り潰すと既定値(09:00-19:00全曜日)で
       // 実シフトを上書きする事故になるため、失敗時はフォームを描画しない。
       const { data: schData, error: schErr } = await supabase
@@ -82,6 +103,7 @@ export default function StaffSchedulePage() {
         .eq('staff_id', staffId)
         .order('day_of_week');
 
+      if (!active) return;
       if (schErr) { setLoadError(true); setLoading(false); return; }
       if (schData && schData.length > 0) {
         const newSchedules = DAY_LABELS.map((_, i) => {
@@ -103,6 +125,7 @@ export default function StaffSchedulePage() {
         .eq('staff_id', staffId)
         .gte('date', new Date().toISOString().split('T')[0])
         .order('date');
+      if (!active) return;
       if (ovErr) { setLoadError(true); setLoading(false); return; }
       // schedule_overrides の start_time/end_time も TIME 列で "HH:MM:SS" で返る。表示と再保存の
       // 一貫性のため "HH:MM" に正規化する（null=休日はそのまま）。
@@ -115,9 +138,12 @@ export default function StaffSchedulePage() {
         start_time: o.start_time ? o.start_time.slice(0, 5) : o.start_time,
         end_time: o.end_time ? o.end_time.slice(0, 5) : o.end_time,
       })));
+      if (!active) return;
+      setFacilityId(selectedFacilityId);
       setLoading(false);
-    })().catch(() => { setLoadError(true); setLoading(false); });
-  }, [staffId, reloadKey]);
+    })().catch(() => { if (active) { setLoadError(true); setLoading(false); } });
+    return () => { active = false; };
+  }, [staffId, reloadKey, requestedFacility]);
 
   const handleSaveSchedules = async (force = false) => {
     if (!facilityId) return;
@@ -194,27 +220,37 @@ export default function StaffSchedulePage() {
   };
 
   const handleDeleteOverride = async (id: string) => {
-    if (!facilityId) return;
-    const res = await fetch(`/api/admin/staff/${staffId}/schedule?facility_id=${facilityId}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ override_id: id }),
-    });
-    if (res.ok) {
-      setOverrides((prev) => prev.filter((o) => o.id !== id));
-    } else {
-      setToast({ type: 'error', message: '削除に失敗しました' });
+    if (!facilityId || deletingOverride) return;
+    setDeletingOverride(true);
+    try {
+      const res = await fetch(`/api/admin/staff/${staffId}/schedule?facility_id=${facilityId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ override_id: id }),
+      });
+      if (res.ok) {
+        setOverrides((prev) => prev.filter((o) => o.id !== id));
+      } else {
+        setToast({ type: 'error', message: '削除に失敗しました' });
+      }
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました。削除結果を再読み込みして確認してください' });
+    } finally {
+      setDeletingOverride(false);
     }
   };
 
   if (loading) return <AdminPageLoading />;
+  if (authState === 'unavailable') return <AccessVerificationUnavailable />;
+  if (authState === 'unauthenticated') return <p role="alert">セッションが切れました。再ログインしてください。</p>;
+  const selector = <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/staff" dirty={dirty} busy={saving || addingOverride || deletingOverride} />;
 
   // 取得失敗時はフォームを描画しない（既定シフトで実スケジュールを上書きする事故を防ぐ）
   if (loadError) {
     return (
       <div>
         <div className="flex items-center gap-3 mb-6">
-          <button type="button" onClick={() => router.push('/admin/staff')} className="text-sm text-gray-500 hover:underline">← 戻る</button>
+          <button type="button" onClick={() => router.push(backHref)} className="text-sm text-gray-500 hover:underline">← 戻る</button>
           <h1 className="text-2xl font-bold">スケジュール</h1>
         </div>
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="スケジュールの読み込みに失敗しました" />
@@ -222,15 +258,18 @@ export default function StaffSchedulePage() {
     );
   }
 
+  if (!facilityId) return selector;
+
   return (
     <div onChange={() => setDirty(true)}>
+      {selector}
       <div className="flex items-center gap-3 mb-6">
-        <button type="button" onClick={() => router.push('/admin/staff')} className="text-sm text-gray-500 hover:underline">← 戻る</button>
+        <button type="button" onClick={() => router.push(backHref)} className="text-sm text-gray-500 hover:underline">← 戻る</button>
         <h1 className="text-2xl font-bold">{staffName}のスケジュール</h1>
       </div>
 
       {/* Weekly Schedule */}
-      <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+      <div className="bg-white rounded-xl shadow-xs p-6 mb-6">
         <h2 className="font-bold mb-4">週間スケジュール</h2>
         <div className="space-y-3">
           {DAY_LABELS.map((label, i) => (
@@ -257,7 +296,7 @@ export default function StaffSchedulePage() {
                       next[i] = { ...next[i], start_time: e.target.value };
                       setSchedules(next);
                     }}
-                    className="!w-32 text-sm"
+                    className="w-32! text-sm"
                   />
                   <span className="text-gray-400">〜</span>
                   <SbInput
@@ -268,7 +307,7 @@ export default function StaffSchedulePage() {
                       next[i] = { ...next[i], end_time: e.target.value };
                       setSchedules(next);
                     }}
-                    className="!w-32 text-sm"
+                    className="w-32! text-sm"
                   />
                 </div>
               ) : (
@@ -277,13 +316,13 @@ export default function StaffSchedulePage() {
             </div>
           ))}
         </div>
-        <button type="button" onClick={() => handleSaveSchedules()} disabled={saving} className="btn-primary mt-4 !py-2">
+        <button type="button" onClick={() => handleSaveSchedules()} disabled={saving} className="btn-primary mt-4 py-2!">
           {saving ? '保存中...' : 'スケジュールを保存'}
         </button>
       </div>
 
       {/* Schedule Overrides */}
-      <div className="bg-white rounded-xl shadow-sm p-6">
+      <div className="bg-white rounded-xl shadow-xs p-6">
         <h2 className="font-bold mb-4">特別日設定</h2>
         <div className="flex flex-wrap items-end gap-3 mb-4">
           <div>
@@ -293,7 +332,7 @@ export default function StaffSchedulePage() {
               value={newOverrideDate}
               onChange={(e) => setNewOverrideDate(e.target.value)}
               min={new Date().toISOString().split('T')[0]}
-              className="text-sm !w-40"
+              className="text-sm w-40!"
             />
           </div>
           <div>
@@ -301,7 +340,7 @@ export default function StaffSchedulePage() {
             <select
               value={newOverrideHoliday ? 'holiday' : 'custom'}
               onChange={(e) => setNewOverrideHoliday(e.target.value === 'holiday')}
-              className="form-input text-sm !w-28"
+              className="form-input text-sm w-28!"
             >
               <option value="holiday">休み</option>
               <option value="custom">時間変更</option>
@@ -311,15 +350,15 @@ export default function StaffSchedulePage() {
             <>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">開始</label>
-                <SbInput type="time" value={newOverrideStart} onChange={(e) => setNewOverrideStart(e.target.value)} className="text-sm !w-28" />
+                <SbInput type="time" value={newOverrideStart} onChange={(e) => setNewOverrideStart(e.target.value)} className="text-sm w-28!" />
               </div>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">終了</label>
-                <SbInput type="time" value={newOverrideEnd} onChange={(e) => setNewOverrideEnd(e.target.value)} className="text-sm !w-28" />
+                <SbInput type="time" value={newOverrideEnd} onChange={(e) => setNewOverrideEnd(e.target.value)} className="text-sm w-28!" />
               </div>
             </>
           )}
-          <button type="button" onClick={() => handleAddOverride()} className="btn-primary text-sm !py-2 !px-4">追加</button>
+          <button type="button" onClick={() => handleAddOverride()} className="btn-primary text-sm py-2! px-4!">追加</button>
         </div>
 
         {overrides.length === 0 ? (
@@ -336,7 +375,7 @@ export default function StaffSchedulePage() {
                     <span className="ml-2 text-gray-600">{ov.start_time}〜{ov.end_time}</span>
                   )}
                 </div>
-                <button type="button" onClick={() => setConfirmDeleteOverrideId(ov.id)} className="text-xs text-red-400 hover:text-red-600">削除</button>
+                <button type="button" disabled={deletingOverride} onClick={() => setConfirmDeleteOverrideId(ov.id)} className="text-xs text-red-400 hover:text-red-600">削除</button>
               </div>
             ))}
           </div>

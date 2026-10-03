@@ -29,7 +29,7 @@ export default function SalonPage() {
   return (
     <>
       {/* Hero */}
-      <section className="bg-gradient-to-br from-sky-600 to-sky-800 text-white">
+      <section className="bg-linear-to-br from-sky-600 to-sky-800 text-white">
         <div className="section-container text-center">
           {/* 【2026年7月28日】ファーストビューの主語を他社から自社へ変える。
               以前は「大手ポータルと同じ機能が」と他社を基準にした表現で、
@@ -130,7 +130,7 @@ export default function SalonPage() {
               { icon: '📷', title: '写真管理', desc: '施設・メニュー・スタッフ写真をアップロード・管理' },
               { icon: '🔔', title: '通知設定', desc: '予約などの通知方法を管理画面で確認' },
             ].map((item) => (
-              <div key={item.title} className="bg-white rounded-xl p-5 shadow-sm">
+              <div key={item.title} className="bg-white rounded-xl p-5 shadow-xs">
                 <span className="text-2xl">{item.icon}</span>
                 <h3 className="text-sm font-bold text-gray-800 mt-2 mb-1">{item.title}</h3>
                 <p className="text-xs text-gray-500">{item.desc}</p>
@@ -213,7 +213,7 @@ export default function SalonPage() {
       </section>
 
       {/* CTA */}
-      <section className="bg-gradient-to-br from-sky-600 to-sky-800 text-white">
+      <section className="bg-linear-to-br from-sky-600 to-sky-800 text-white">
         <div className="section-container text-center">
           <h2 className="text-2xl sm:text-3xl font-bold mb-4">掲載条件を確認して始める</h2>
           <p className="text-sky-100 mb-8">掲載料・予約手数料の現在条件と、必要な準備を確認できます。</p>

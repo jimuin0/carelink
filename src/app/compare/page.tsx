@@ -84,7 +84,7 @@ export default async function ComparePage(props: Props) {
     { label: '特徴', render: (f) => f.features?.length > 0 ? (
       <div className="flex flex-wrap gap-1">
         {f.features.slice(0, 5).map((t) => (
-          <span key={t} className="text-micro bg-gray-100 px-1.5 py-0.5 rounded">{t}</span>
+          <span key={t} className="text-micro bg-gray-100 px-1.5 py-0.5 rounded-sm">{t}</span>
         ))}
       </div>
     ) : '-' },
@@ -101,7 +101,7 @@ export default async function ComparePage(props: Props) {
               {facilities.map((f) => (
                 <th key={f.id} className="p-2 text-center min-w-[200px]">
                   <Link href={`/facility/${f.slug}`} className="block group">
-                    <div className="relative aspect-[16/10] rounded-lg overflow-hidden bg-gray-100 mb-2">
+                    <div className="relative aspect-16/10 rounded-lg overflow-hidden bg-gray-100 mb-2">
                       {f.main_photo_url ? (
                         <Image src={f.main_photo_url} alt={f.name} fill className="object-cover" sizes="200px" />
                       ) : (
@@ -129,7 +129,7 @@ export default async function ComparePage(props: Props) {
               <td className="py-3 sticky left-0 bg-white z-10" />
               {facilities.map((f) => (
                 <td key={f.id} className="py-3 px-2 text-center">
-                  <Link href={`/facility/${f.slug}/booking`} className="btn-primary text-xs !py-2 !px-4">
+                  <Link href={`/facility/${f.slug}/booking`} className="btn-primary text-xs py-2! px-4!">
                     予約する
                   </Link>
                 </td>

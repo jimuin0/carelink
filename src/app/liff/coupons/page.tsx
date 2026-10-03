@@ -83,8 +83,8 @@ export default function LiffCouponsPage() {
       ) : (
         <div className="space-y-3">
           {coupons.map((c) => (
-            <div key={c.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
-              <div className="bg-gradient-to-r from-pink-500 to-rose-500 px-4 py-3 flex items-center justify-between">
+            <div key={c.id} className="bg-white rounded-2xl shadow-xs overflow-hidden">
+              <div className="bg-linear-to-r from-pink-500 to-rose-500 px-4 py-3 flex items-center justify-between">
                 <span className="text-white font-bold text-lg">{discountText(c, '特別割引')}</span>
                 <span className="text-white/80 text-xs">{couponTypeLabel(c.coupon_type)}</span>
               </div>

@@ -15,7 +15,7 @@
  * ⚠️ AdminDashboard はサーバーコンポーネントで、内部にネストした非同期コンポーネント
  * （RecentBookings）を持つため、@testing-library/react の render() で DOM 描画すると
  * React 18 のクライアントレンダラは非同期関数コンポーネントを扱えず sus­pend したまま
- * コミットされない。DOM には描画せず、AdminDashboard() が返す React 要素ツリーを
+ * コミットされない。DOM には描画せず、AdminDashboard({ searchParams: Promise.resolve({}) }) が返す React 要素ツリーを
  * そのまま辿って検査する（実描画に依存しない・軽量）。
  */
 import AdminDashboard from '../page';
@@ -25,7 +25,7 @@ jest.mock('@/lib/supabase-server-auth', () => ({
   createServerSupabaseAuthClient: jest.fn(),
 }));
 
-const FACILITY_ID = 'facility-1';
+const FACILITY_ID = '71000000-0000-4000-8000-000000000001';
 
 /** 任意のメソッドチェーンを許容し、最後に .single() または直接 await で解決する thenable モック。 */
 function chain(result: { data?: unknown; count?: number | null; error?: unknown } = {}) {
@@ -44,7 +44,7 @@ function chain(result: { data?: unknown; count?: number | null; error?: unknown 
  */
 function mockSupabase(opts: { prefecture: string | null; city: string | null; status?: string; scheduleError?: unknown; address?: string }) {
   const from = jest.fn((table: string) => {
-    if (table === 'facility_members') return chain({ data: { facility_id: FACILITY_ID } });
+    if (table === 'facility_members') return chain({ data: [{ facility_id: FACILITY_ID, facility_profiles: { name: 'テスト店舗' } }] });
     if (table === 'facility_menus') return chain({ count: 1 });
     if (table === 'staff_profiles') return chain({ data: [{ id: 'staff-1' }] });
     if (table === 'facility_photos') return chain({ count: 1 });
@@ -99,40 +99,40 @@ function findBasicInfoLink(root: AnyNode) {
 
 test('(viii-a) prefecture と city が両方揃っていれば「基本情報」は完了扱い（line-through）', async () => {
   mockSupabase({ prefecture: '東京都', city: '渋谷区' });
-  const root = await AdminDashboard();
+  const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
   const link = findBasicInfoLink(root);
   expect(String(link.props.className)).toContain('line-through');
 });
 
 test('(viii-b) prefecture のみ欠ければ「基本情報」は未完了のまま', async () => {
   mockSupabase({ prefecture: null, city: '渋谷区' });
-  const root = await AdminDashboard();
+  const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
   const link = findBasicInfoLink(root);
   expect(String(link.props.className)).not.toContain('line-through');
 });
 
 test('(viii-c) city のみ欠ければ「基本情報」は未完了のまま', async () => {
   mockSupabase({ prefecture: '東京都', city: null });
-  const root = await AdminDashboard();
+  const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
   const link = findBasicInfoLink(root);
   expect(String(link.props.className)).not.toContain('line-through');
 });
 
 test('(viii-d) href は /admin/settings へ導く', async () => {
   mockSupabase({ prefecture: null, city: null });
-  const root = await AdminDashboard();
+  const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
   const link = findBasicInfoLink(root);
-  expect(link.props.href).toBe('/admin/settings');
+  expect(link.props.href).toBe(`/admin/settings?facility_id=${FACILITY_ID}`);
 });
 
 test('住所が空なら基本情報を完了扱いにしない', async () => {
   mockSupabase({ prefecture: '東京都', city: '渋谷区', address: '　' });
-  expect(String(findBasicInfoLink(await AdminDashboard()).props.className)).not.toContain('line-through');
+  expect(String(findBasicInfoLink(await AdminDashboard({ searchParams: Promise.resolve({}) })).props.className)).not.toContain('line-through');
 });
 
 test('掲載済みでも未確認営業時間はネット予約準備中として説明する', async () => {
   mockSupabase({ prefecture: '東京都', city: '渋谷区', status: 'published' });
-  const root = await AdminDashboard();
+  const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
   expect(findElementsWithDirectText(root, '無料掲載は公開中です。ネット予約は準備中で、電話・店舗への問い合わせをご案内します。')).toHaveLength(1);
   expect(findElementsWithDirectText(root, '無料掲載を公開')).toHaveLength(1);
   expect(findElementsWithDirectText(root, 'ネット予約：営業時間の確認・保存')).toHaveLength(1);
@@ -140,5 +140,5 @@ test('掲載済みでも未確認営業時間はネット予約準備中とし�
 
 test('勤務スケジュールの読取失敗は未設定0件へ置換しない', async () => {
   mockSupabase({ prefecture: '東京都', city: '渋谷区', scheduleError: { message: 'failed' } });
-  await expect(AdminDashboard()).rejects.toThrow('勤務スケジュールの取得に失敗しました');
+  await expect(AdminDashboard({ searchParams: Promise.resolve({}) })).rejects.toThrow('勤務スケジュールの取得に失敗しました');
 });

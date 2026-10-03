@@ -83,7 +83,7 @@ export default function ForgotPasswordPage() {
               {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
             </div>
 
-            <button type="submit" disabled={isSubmitting} className="btn-primary w-full !py-3">
+            <button type="submit" disabled={isSubmitting} className="btn-primary w-full py-3!">
               {isSubmitting ? '送信中...' : 'リセットメールを送信'}
             </button>
           </form>

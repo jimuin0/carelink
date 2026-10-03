@@ -283,7 +283,7 @@ export default function AdminGbpPage() {
       {/* ===== GBP設定 ===== */}
       {tab === 'setup' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-xl shadow-sm p-6">
+          <div className="bg-white rounded-xl shadow-xs p-6">
             <h2 className="text-lg font-bold mb-1">Google Place ID 連携</h2>
             <p className="text-sm text-gray-500 mb-4">
               Place ID を登録すると、Googleマップのデータを取得して診断スコアとクチコミが表示されます。
@@ -303,7 +303,7 @@ export default function AdminGbpPage() {
                   onChange={(e) => setPlaceId(e.target.value)}
                   placeholder="ChIJxxxxxxxxxxxxxxxxxx"
                   maxLength={300}
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300"
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-300"
                 />
               </div>
               <div>
@@ -318,7 +318,7 @@ export default function AdminGbpPage() {
                   onChange={(e) => setGbpCid(e.target.value)}
                   placeholder="1234567890123456789"
                   maxLength={300}
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300"
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-300"
                 />
               </div>
             </div>
@@ -327,7 +327,7 @@ export default function AdminGbpPage() {
               type="button"
               onClick={saveSetup}
               disabled={savingSetup}
-              className="btn-primary text-sm !px-6 !py-2"
+              className="btn-primary text-sm px-6! py-2!"
             >
               {savingSetup ? '保存中...' : '保存'}
             </button>
@@ -351,7 +351,7 @@ export default function AdminGbpPage() {
             </ol>
           </div>
 
-          <div className="bg-white rounded-xl shadow-sm p-6">
+          <div className="bg-white rounded-xl shadow-xs p-6">
             <h2 className="text-lg font-bold mb-3">GBP最適化チェックリスト（手動確認）</h2>
             <p className="text-sm text-gray-500 mb-4">GBP管理画面で直接確認・設定してください</p>
             <div className="space-y-2">
@@ -387,7 +387,7 @@ export default function AdminGbpPage() {
 
           <div className="flex justify-end">
             <button type="button" onClick={loadAudit} disabled={auditLoading}
-                    className="btn-primary text-sm !px-4 !py-2">
+                    className="btn-primary text-sm px-4! py-2!">
               {auditLoading ? '診断中...' : '再診断'}
             </button>
           </div>
@@ -401,7 +401,7 @@ export default function AdminGbpPage() {
           {audit && !auditLoading && (
             <>
               {/* スコアカード */}
-              <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="bg-white rounded-xl shadow-xs p-6">
                 <div className="flex items-center gap-6">
                   <div className="text-center">
                     <div className={`text-5xl font-black ${
@@ -456,7 +456,7 @@ export default function AdminGbpPage() {
                 const catScore = items.reduce((s, i) => s + (i.passed === true ? i.points : 0), 0);
                 const catMax = items.reduce((s, i) => s + i.points, 0);
                 return (
-                  <div key={category} className="bg-white rounded-xl shadow-sm p-5">
+                  <div key={category} className="bg-white rounded-xl shadow-xs p-5">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="font-bold text-gray-700">{category}</h3>
                       <span className="text-sm font-medium text-gray-500">{catScore}/{catMax}点</span>
@@ -509,14 +509,14 @@ export default function AdminGbpPage() {
               {/* GoogleクチコミとCareLink口コミの比較 */}
               {place && (
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-white rounded-xl shadow-sm p-4">
+                  <div className="bg-white rounded-xl shadow-xs p-4">
                     <p className="text-xs text-gray-500 mb-1">Googleマップ</p>
                     <div className="flex items-center gap-2">
                       <span className="text-2xl font-bold text-amber-500">★ {place.rating?.toFixed(1)}</span>
                       <span className="text-sm text-gray-500">({place.user_ratings_total}件)</span>
                     </div>
                   </div>
-                  <div className="bg-white rounded-xl shadow-sm p-4">
+                  <div className="bg-white rounded-xl shadow-xs p-4">
                     <p className="text-xs text-gray-500 mb-1">Googleクチコミ取得数</p>
                     <div className="flex items-center gap-2">
                       <span className="text-2xl font-bold text-gray-700">{place.reviews?.length ?? 0}</span>
@@ -538,7 +538,7 @@ export default function AdminGbpPage() {
                     <button type="button" onClick={loadAudit} className="text-xs text-sky-500 underline">更新</button>
                   </div>
                   {place.reviews.map((review, i) => (
-                    <div key={i} className="bg-white rounded-xl shadow-sm p-5">
+                    <div key={i} className="bg-white rounded-xl shadow-xs p-5">
                       <div className="flex items-start justify-between mb-2">
                         <div>
                           <p className="font-medium text-gray-800">{review.author_name}</p>
@@ -571,7 +571,7 @@ export default function AdminGbpPage() {
                   </div>
                 </div>
               ) : (
-                <div className="bg-white rounded-xl shadow-sm p-8 text-center text-gray-400">
+                <div className="bg-white rounded-xl shadow-xs p-8 text-center text-gray-400">
                   <p>クチコミデータの取得には <span className="text-sky-500">GOOGLE_MAPS_API_KEY</span> の設定が必要です</p>
                   <p className="text-xs mt-2">Vercelの環境変数に設定してください</p>
                 </div>
@@ -590,13 +590,13 @@ export default function AdminGbpPage() {
               <p className="text-xs text-gray-500">投稿を作成してGBP管理画面からコピー貼り付けで投稿できます</p>
             </div>
             <button type="button" onClick={() => setShowPostForm(true)}
-                    className="btn-primary text-sm !px-4 !py-2">
+                    className="btn-primary text-sm px-4! py-2!">
               + 新規投稿
             </button>
           </div>
 
           {/* テンプレート */}
-          <div className="bg-white rounded-xl shadow-sm p-5">
+          <div className="bg-white rounded-xl shadow-xs p-5">
             <h3 className="text-sm font-bold text-gray-700 mb-3">テンプレートから作成</h3>
             <div className="grid grid-cols-2 gap-2">
               {POST_TEMPLATES.map((tpl) => (
@@ -617,7 +617,7 @@ export default function AdminGbpPage() {
 
           {/* 投稿フォーム */}
           {showPostForm && (
-            <div className="bg-white rounded-xl shadow-sm p-5 border-2 border-sky-200">
+            <div className="bg-white rounded-xl shadow-xs p-5 border-2 border-sky-200">
               <h3 className="font-bold text-gray-700 mb-4">投稿内容を作成</h3>
               <div className="space-y-3">
                 <div>
@@ -634,14 +634,14 @@ export default function AdminGbpPage() {
                   <input id="gbp-post-title" type="text" value={newPost.title} onChange={(e) => setNewPost((p) => ({ ...p, title: e.target.value }))}
                          placeholder="例: 【期間限定】春のキャンペーン"
                          maxLength={58}
-                         className="mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300" />
+                         className="mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-300" />
                 </div>
                 <div>
                   <label htmlFor="gbp-post-body" className="text-xs font-medium text-gray-600">本文 *</label>
                   <textarea id="gbp-post-body" value={newPost.body} onChange={(e) => setNewPost((p) => ({ ...p, body: e.target.value }))}
                             rows={6} maxLength={1500}
                             placeholder="投稿の内容を入力... (最大1500文字)"
-                            className="mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300" />
+                            className="mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-300" />
                   <p className="text-xs text-right text-gray-400">{newPost.body.length}/1500</p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -661,12 +661,12 @@ export default function AdminGbpPage() {
                     <label htmlFor="gbp-cta-url" className="text-xs font-medium text-gray-600">CTA URL（任意）</label>
                     <input id="gbp-cta-url" type="url" value={newPost.cta_url} onChange={(e) => setNewPost((p) => ({ ...p, cta_url: e.target.value }))}
                            placeholder="https://..." maxLength={500}
-                           className="mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300" />
+                           className="mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-300" />
                   </div>
                 </div>
                 <div className="flex gap-3 pt-2">
                   <button type="button" onClick={savePost} disabled={savingPost || !newPost.body.trim()}
-                          className="btn-primary flex-1 text-sm !py-2">
+                          className="btn-primary flex-1 text-sm py-2!">
                     {savingPost ? '保存中...' : '下書き保存'}
                   </button>
                   <button type="button" onClick={() => setShowPostForm(false)}
@@ -682,13 +682,13 @@ export default function AdminGbpPage() {
           {postsLoading ? (
             <div className="animate-pulse space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="h-20 bg-gray-200 rounded-xl" />)}</div>
           ) : posts.length === 0 ? (
-            <div className="bg-white rounded-xl shadow-sm p-8 text-center text-gray-400 text-sm">
+            <div className="bg-white rounded-xl shadow-xs p-8 text-center text-gray-400 text-sm">
               まだ投稿がありません。上の「テンプレートから作成」で始めましょう。
             </div>
           ) : (
             <div className="space-y-3">
               {posts.map((post) => (
-                <div key={post.id} className={`bg-white rounded-xl shadow-sm p-4 ${post.status === 'published' ? 'border-l-4 border-green-400' : ''}`}>
+                <div key={post.id} className={`bg-white rounded-xl shadow-xs p-4 ${post.status === 'published' ? 'border-l-4 border-green-400' : ''}`}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
@@ -709,13 +709,13 @@ export default function AdminGbpPage() {
                         <>
                           <a href={gbpManageUrl} target="_blank" rel="noopener noreferrer"
                              onClick={() => markPublished(post.id)}
-                             className="text-xs bg-sky-600 text-white px-3 py-1 rounded hover:bg-sky-700 text-center">
+                             className="text-xs bg-sky-600 text-white px-3 py-1 rounded-sm hover:bg-sky-700 text-center">
                             GBPに投稿 ↗
                           </a>
                         </>
                       )}
                       <button type="button" onClick={() => setConfirmDeletePostId(post.id)} disabled={deletingPostId === post.id}
-                              className="text-xs bg-red-50 text-red-500 px-3 py-1 rounded hover:bg-red-100 disabled:opacity-50">
+                              className="text-xs bg-red-50 text-red-500 px-3 py-1 rounded-sm hover:bg-red-100 disabled:opacity-50">
                         削除
                       </button>
                     </div>

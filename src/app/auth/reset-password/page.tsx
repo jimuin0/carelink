@@ -80,7 +80,7 @@ export default function ResetPasswordPage() {
               {errors.password_confirm && <p className="form-error" role="alert">{errors.password_confirm.message}</p>}
             </div>
 
-            <button type="submit" disabled={isSubmitting} className="btn-primary w-full !py-3">
+            <button type="submit" disabled={isSubmitting} className="btn-primary w-full py-3!">
               {isSubmitting ? '更新中...' : 'パスワードを更新'}
             </button>
           </form>

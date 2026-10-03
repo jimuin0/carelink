@@ -101,7 +101,7 @@ export default async function BlogDetailPage(props: Props) {
   return (
     <div className="bg-gray-50 min-h-screen">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }} />
-      <div className="max-w-4xl mx-auto bg-white shadow-sm">
+      <div className="max-w-4xl mx-auto bg-white shadow-xs">
         <nav className="px-4 sm:px-6 pt-3 pb-1" aria-label="パンくずリスト">
           <ol className="flex items-center gap-1.5 text-xs text-gray-400">
             {/* 他ページのパンくず「トップ」は全て / を指す（facility/[slug]/page.tsx等）。

@@ -153,7 +153,7 @@ export default function JapanRegionMap() {
             className={`pointer-events-auto absolute inline-block px-2.5 py-1 rounded text-xs font-bold transition-colors ${
               hoveredRegion === region.name
                 ? 'bg-orange-400 text-white shadow-md'
-                : 'bg-white/90 text-amber-900 shadow-sm hover:bg-orange-400 hover:text-white hover:shadow-md'
+                : 'bg-white/90 text-amber-900 shadow-xs hover:bg-orange-400 hover:text-white hover:shadow-md'
             }`}
             style={{
               top: region.top,

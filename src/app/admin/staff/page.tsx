@@ -1,3 +1,7 @@
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import { loadAdminFacilitySelection } from '@/lib/admin-facility-selection';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -5,19 +9,17 @@ import { SbPageHeader } from '@/components/admin/SbUi';
 
 type StaffRow = { id: string; name: string; position: string | null; specialties: string[] | null; is_active: boolean };
 
-export default async function AdminStaffPage() {
+export default async function AdminStaffPage(props: { searchParams: Promise<{ facility_id?: string }> }) {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) notFound();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return <AccessVerificationUnavailable />;
+  if (verification.state !== 'verified') notFound();
+  const searchParams = await props.searchParams;
+  const { choices, selectedId: facilityId } = await loadAdminFacilitySelection(supabase, verification.user.id, searchParams.facility_id ?? null);
+  const selector = <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/staff" />;
+  if (!facilityId) return <div><SbPageHeader title="スタッフ管理" />{selector}</div>;
+  const facilityHref = (path: string) => `${path}${path.includes('?') ? '&' : '?'}facility_id=${facilityId}`;
 
-  const { data: membership } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-      .in('role', ['owner', 'admin'])
-    .limit(1)
-    .single();
-  if (!membership) notFound();
 
   // 管理一覧は休止(is_active=false)スタッフも含めて全件表示する。公開用の getStaffByFacility は
   // active のみ返すため、これを使うと休止スタッフが一覧から消え、再開する術が無くなる。
@@ -25,7 +27,7 @@ export default async function AdminStaffPage() {
   const { data, error } = await supabase
     .from('staff_profiles')
     .select('id, name, position, specialties, is_active')
-    .eq('facility_id', membership.facility_id)
+    .eq('facility_id', facilityId)
     .order('is_active', { ascending: false })
     .order('sort_order');
   if (error) throw new Error(`スタッフ一覧の取得に失敗しました: ${error.message}`);
@@ -33,9 +35,10 @@ export default async function AdminStaffPage() {
 
   return (
     <div>
+      {selector}
       <SbPageHeader
         title="スタッフ管理"
-        actions={<Link href="/admin/staff/new" className="btn-primary text-sm !py-2 !px-4">追加</Link>}
+        actions={<Link href={facilityHref("/admin/staff/new")} className="btn-primary text-sm py-2! px-4!">追加</Link>}
       />
 
       {staff.length === 0 ? (
@@ -43,16 +46,16 @@ export default async function AdminStaffPage() {
           <p className="text-3xl mb-3">👤</p>
           <p className="text-gray-600 font-medium mb-1">まだスタッフが登録されていません</p>
           <p className="text-sm text-gray-400 mb-5">スタッフを登録すると予約枠が作られ、お客様が指名予約できるようになります。</p>
-          <Link href="/admin/staff/new" className="btn-primary text-sm !py-2.5 !px-6">最初のスタッフを追加</Link>
+          <Link href={facilityHref("/admin/staff/new")} className="btn-primary text-sm py-2.5! px-6!">最初のスタッフを追加</Link>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {staff.map((s) => (
             <div
               key={s.id}
-              className={`bg-white rounded-xl p-4 shadow-sm ${s.is_active ? '' : 'opacity-60'}`}
+              className={`bg-white rounded-xl p-4 shadow-xs ${s.is_active ? '' : 'opacity-60'}`}
             >
-              <Link href={`/admin/staff/${s.id}/edit`} className="block hover:opacity-80">
+              <Link href={facilityHref(`/admin/staff/${s.id}/edit`)} className="block hover:opacity-80">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 rounded-full bg-sky-100 flex items-center justify-center text-sky-600 font-bold">
                     {s.name.charAt(0)}
@@ -76,8 +79,8 @@ export default async function AdminStaffPage() {
                 )}
               </Link>
               <div className="flex gap-3 mt-3 pt-3 border-t">
-                <Link href={`/admin/staff/${s.id}/edit`} className="text-xs text-primary hover:underline">編集</Link>
-                <Link href={`/admin/staff/${s.id}/schedule`} className="text-xs text-gray-500 hover:underline">スケジュール</Link>
+                <Link href={facilityHref(`/admin/staff/${s.id}/edit`)} className="text-xs text-primary hover:underline">編集</Link>
+                <Link href={facilityHref(`/admin/staff/${s.id}/schedule`)} className="text-xs text-gray-500 hover:underline">スケジュール</Link>
               </div>
             </div>
           ))}

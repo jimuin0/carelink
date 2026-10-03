@@ -37,7 +37,7 @@ test('オーナーがQ&Aに回答→公開トグル→削除できる', async ({
 
   await page.goto('/admin/qa');
   // 該当質問のカードに限定（一意質問文でスコープ）。
-  const card = page.locator('div.shadow-sm').filter({ hasText: question });
+  const card = page.locator('div.shadow-xs').filter({ hasText: question });
   await expect(card).toBeVisible({ timeout: 15000 });
 
   // 回答（作成）＝POST /api/admin/qa（answer）→ status='answered' 化。Modal で回答送信。

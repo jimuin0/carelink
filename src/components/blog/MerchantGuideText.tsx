@@ -9,7 +9,7 @@ export default function MerchantGuideText({ text }: { text: string }) {
         if (token.type === 'strong') return <strong key={index}>{token.text}</strong>;
         if (token.type === 'link') {
           return (
-            <a key={index} href={token.href} className="underline underline-offset-4 break-words">
+            <a key={index} href={token.href} className="underline underline-offset-4 wrap-break-word">
               {token.text}
             </a>
           );

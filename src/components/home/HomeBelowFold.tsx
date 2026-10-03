@@ -82,7 +82,7 @@ export default function HomeBelowFold() {
               <Link
                 key={banner.title}
                 href={banner.href}
-                className="group relative block rounded-xl overflow-hidden aspect-[2/1] sm:aspect-[4/3]"
+                className="group relative block rounded-xl overflow-hidden aspect-2/1 sm:aspect-4/3"
               >
                 <Image
                   src={banner.image}
@@ -91,7 +91,7 @@ export default function HomeBelowFold() {
                   sizes="(max-width: 640px) 100vw, 33vw"
                   className="object-cover transition-transform duration-300 group-hover:scale-105"
                 />
-                <div className={`absolute inset-0 bg-gradient-to-t ${banner.color}`} />
+                <div className={`absolute inset-0 bg-linear-to-t ${banner.color}`} />
                 <div className="absolute inset-0 flex flex-col justify-end p-4">
                   <h2 className="text-white font-bold text-sm sm:text-base leading-tight">{banner.title}</h2>
                   <p className="text-white text-tiny mt-1">{banner.subtitle}</p>
@@ -127,7 +127,7 @@ export default function HomeBelowFold() {
         <div className="max-w-[1040px] mx-auto px-4 sm:px-6">
           <div className="flex flex-col md:flex-row gap-6 lg:gap-10 py-8">
             {/* Left: Map */}
-            <div className="md:w-[340px] flex-shrink-0">
+            <div className="md:w-[340px] shrink-0">
               <h2 className="text-sm font-bold text-gray-800 mb-4 pl-3 border-l-[3px] border-sky-500">エリアから探す</h2>
               <JapanRegionMap />
             </div>
@@ -223,7 +223,7 @@ export default function HomeBelowFold() {
             </div>
 
             {/* Right: User panel */}
-            <div className="hidden lg:block w-[200px] flex-shrink-0 space-y-6">
+            <div className="hidden lg:block w-[200px] shrink-0 space-y-6">
               <HomeUserPanel />
               <nav>
                 {[

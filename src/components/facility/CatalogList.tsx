@@ -85,13 +85,13 @@ export default function CatalogList({ catalogs, staff, menus }: Props) {
                   {catalog.before_photo_url && (
                     <div className="relative flex-1 aspect-square">
                       <Image src={catalog.before_photo_url} alt="Before" fill className="object-cover" sizes="25vw" placeholder="blur" blurDataURL={SHIMMER_BLUR} />
-                      <span className="absolute bottom-1 left-1 bg-black/50 text-white text-micro px-1.5 py-0.5 rounded">Before</span>
+                      <span className="absolute bottom-1 left-1 bg-black/50 text-white text-micro px-1.5 py-0.5 rounded-sm">Before</span>
                     </div>
                   )}
                   {catalog.after_photo_url && (
                     <div className="relative flex-1 aspect-square">
                       <Image src={catalog.after_photo_url} alt="After" fill className="object-cover" sizes="25vw" placeholder="blur" blurDataURL={SHIMMER_BLUR} />
-                      <span className="absolute bottom-1 left-1 bg-sky-500/80 text-white text-micro px-1.5 py-0.5 rounded">After</span>
+                      <span className="absolute bottom-1 left-1 bg-sky-500/80 text-white text-micro px-1.5 py-0.5 rounded-sm">After</span>
                     </div>
                   )}
                 </div>

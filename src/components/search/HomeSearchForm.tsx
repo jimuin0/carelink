@@ -38,12 +38,12 @@ export default function HomeSearchForm() {
 
   return (
     <div className="space-y-2">
-      <form onSubmit={handleSubmit} className="flex bg-white rounded shadow-sm overflow-hidden" role="search" aria-label="サロン検索">
+      <form onSubmit={handleSubmit} className="flex bg-white rounded-sm shadow-xs overflow-hidden" role="search" aria-label="サロン検索">
         <select
           value={area}
           onChange={(e) => setArea(e.target.value)}
           aria-label="エリアを選択"
-          className="w-[120px] px-3 py-2.5 text-base text-gray-600 bg-transparent border-r border-gray-100 focus:outline-none appearance-none"
+          className="w-[120px] px-3 py-2.5 text-base text-gray-600 bg-transparent border-r border-gray-100 focus:outline-hidden appearance-none"
         >
           <option value="">全エリア</option>
           {prefectures.map((p) => (
@@ -59,7 +59,7 @@ export default function HomeSearchForm() {
             onBlur={() => setSuggestOpen(false)}
             placeholder="サロン名・キーワード"
             aria-label="サロン名・キーワードで検索"
-            className="w-full px-4 py-2.5 text-base text-gray-700 bg-transparent focus:outline-none placeholder:text-gray-400"
+            className="w-full px-4 py-2.5 text-base text-gray-700 bg-transparent focus:outline-hidden placeholder:text-gray-400"
           />
           <SearchSuggest
             query={keyword}

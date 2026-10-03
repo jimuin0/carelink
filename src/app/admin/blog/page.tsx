@@ -30,7 +30,7 @@ export default async function AdminBlogPage() {
   return (
     <div>
       <SbPageHeader title="ブログ管理" actions={
-        <Link href="/admin/blog/new" className="btn-primary text-sm !py-2 !px-4">
+        <Link href="/admin/blog/new" className="btn-primary text-sm py-2! px-4!">
           新規作成
         </Link>
       } />
@@ -48,7 +48,7 @@ export default async function AdminBlogPage() {
             <Link
               key={post.id}
               href={`/admin/blog/${post.id}/edit`}
-              className="block bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow"
+              className="block bg-white rounded-xl p-4 shadow-xs hover:shadow-md transition-shadow"
             >
               <div className="flex items-center justify-between">
                 <div>

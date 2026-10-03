@@ -88,7 +88,7 @@ export default async function FeatureDetailPage({ params }: Props) {
 
         {/* ヒーローバナー */}
         {feature.banner_image_url && (
-          <div className="relative aspect-[3/1] rounded-2xl overflow-hidden mb-8">
+          <div className="relative aspect-3/1 rounded-2xl overflow-hidden mb-8">
             <Image
               src={feature.banner_image_url}
               alt={feature.title}
@@ -97,7 +97,7 @@ export default async function FeatureDetailPage({ params }: Props) {
               className="object-cover"
               priority
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+            <div className="absolute inset-0 bg-linear-to-t from-black/60 to-transparent" />
             <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8">
               <h1 className="text-2xl sm:text-3xl font-bold text-white">{feature.title}</h1>
               {feature.description && (
@@ -138,7 +138,7 @@ export default async function FeatureDetailPage({ params }: Props) {
               <div key={i}>
                 <h2 className="text-lg font-bold text-gray-900 mb-2">{section.heading}</h2>
                 {section.image_url && (
-                  <div className="relative aspect-[16/9] rounded-xl overflow-hidden mb-3">
+                  <div className="relative aspect-video rounded-xl overflow-hidden mb-3">
                     <Image src={section.image_url} alt={section.heading} fill sizes="(max-width: 768px) 100vw, 800px" className="object-cover" />
                   </div>
                 )}

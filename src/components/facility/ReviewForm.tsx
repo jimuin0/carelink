@@ -296,7 +296,7 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
           <p className="text-xs text-gray-400 mt-1">JPEG/PNG/WebP・最大10MB（自動圧縮されます）</p>
         </div>
 
-        <button type="submit" disabled={isSubmitting || compressing} className="btn-primary w-full !py-3 text-sm">
+        <button type="submit" disabled={isSubmitting || compressing} className="btn-primary w-full py-3! text-sm">
           {isSubmitting ? '送信中...' : '口コミを投稿する'}
         </button>
       </form>

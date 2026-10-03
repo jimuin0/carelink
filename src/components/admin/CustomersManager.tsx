@@ -220,7 +220,7 @@ export default function CustomersManager({
             📥 CSV
           </a>
         )}
-        <button type="button" onClick={() => openCreate()} className="btn-primary !py-2 !px-4 text-sm">
+        <button type="button" onClick={() => openCreate()} className="btn-primary py-2! px-4! text-sm">
           ＋ 顧客を追加
         </button>
       </div>
@@ -260,24 +260,24 @@ export default function CustomersManager({
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">来店回数</label>
             <div className="flex items-center gap-1">
-              <SbInput type="number" value={draft.visitMin} onChange={sd('visitMin')} className="!w-20" aria-label="来店回数（最小）" />
+              <SbInput type="number" value={draft.visitMin} onChange={sd('visitMin')} className="w-20!" aria-label="来店回数（最小）" />
               <span className="text-gray-400 text-sm">〜</span>
-              <SbInput type="number" value={draft.visitMax} onChange={sd('visitMax')} className="!w-20" aria-label="来店回数（最大）" />
+              <SbInput type="number" value={draft.visitMax} onChange={sd('visitMax')} className="w-20!" aria-label="来店回数（最大）" />
               <span className="text-gray-500 text-sm">回</span>
             </div>
           </div>
           <div className="sm:col-span-2">
             <label className="block text-xs font-medium text-gray-600 mb-1">最終来店日</label>
             <div className="flex items-center gap-2">
-              <SbInput type="date" value={draft.lastFrom} onChange={sd('lastFrom')} className="!w-auto" aria-label="最終来店日（開始）" />
+              <SbInput type="date" value={draft.lastFrom} onChange={sd('lastFrom')} className="w-auto!" aria-label="最終来店日（開始）" />
               <span className="text-gray-400 text-sm">〜</span>
-              <SbInput type="date" value={draft.lastTo} onChange={sd('lastTo')} className="!w-auto" aria-label="最終来店日（終了）" />
+              <SbInput type="date" value={draft.lastTo} onChange={sd('lastTo')} className="w-auto!" aria-label="最終来店日（終了）" />
             </div>
           </div>
         </div>
         <div className="flex items-center gap-3 mt-4">
           <button type="button" onClick={clearSearch} className="text-sm text-gray-500 hover:underline">条件をクリア</button>
-          <button type="button" onClick={applySearch} className="btn-primary ml-auto !py-2.5 !px-8">検索する</button>
+          <button type="button" onClick={applySearch} className="btn-primary ml-auto py-2.5! px-8!">検索する</button>
         </div>
       </div>
 
@@ -292,7 +292,7 @@ export default function CustomersManager({
           <p className="text-xs text-gray-400 mt-1">「条件をクリア」で全件表示に戻せます</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm overflow-x-auto">
+        <div className="bg-white rounded-xl shadow-xs overflow-x-auto">
           <SbTable>
             <SbThead>
               <SbTh>お客様名</SbTh>
@@ -334,8 +334,8 @@ export default function CustomersManager({
                   </SbTd>
                   <SbTd align="center">
                     <div className="flex items-center justify-center gap-1">
-                      <button type="button" onClick={() => openEdit(c)} className="px-3 py-1.5 text-xs rounded border border-sky-200 text-sky-700 hover:bg-sky-50">編集</button>
-                      <button type="button" onClick={() => setDeleteTarget({ id: c.id, facility_id: c.facility_id })} className="px-3 py-1.5 text-xs rounded border border-red-200 text-red-600 hover:bg-red-50">削除</button>
+                      <button type="button" onClick={() => openEdit(c)} className="px-3 py-1.5 text-xs rounded-sm border border-sky-200 text-sky-700 hover:bg-sky-50">編集</button>
+                      <button type="button" onClick={() => setDeleteTarget({ id: c.id, facility_id: c.facility_id })} className="px-3 py-1.5 text-xs rounded-sm border border-red-200 text-red-600 hover:bg-red-50">削除</button>
                     </div>
                   </SbTd>
                 </tr>
@@ -349,7 +349,7 @@ export default function CustomersManager({
       {filteredUnregistered.length > 0 && (
         <div className="mt-6">
           <h2 className="text-sm font-bold text-gray-700 mb-2">来店履歴から未登録のお客様</h2>
-          <div className="bg-white rounded-xl shadow-sm overflow-x-auto">
+          <div className="bg-white rounded-xl shadow-xs overflow-x-auto">
             <SbTable>
               <SbThead>
                 <SbTh>お客様名</SbTh>
@@ -366,7 +366,7 @@ export default function CustomersManager({
                     <SbTd align="center">{u.visit_count}回</SbTd>
                     <SbTd className="text-gray-500">{u.last_visit}</SbTd>
                     <SbTd align="center">
-                      <button type="button" onClick={() => openCreate({ name: u.name, email: u.email, facility_id: u.facility_id })} className="px-3 py-1.5 text-xs rounded border border-sky-200 text-sky-700 hover:bg-sky-50">＋ 登録</button>
+                      <button type="button" onClick={() => openCreate({ name: u.name, email: u.email, facility_id: u.facility_id })} className="px-3 py-1.5 text-xs rounded-sm border border-sky-200 text-sky-700 hover:bg-sky-50">＋ 登録</button>
                     </SbTd>
                   </tr>
                 ))}
@@ -385,8 +385,8 @@ export default function CustomersManager({
           maxWidthClass="max-w-md"
           footer={
             <div className="flex gap-3">
-              <button type="button" onClick={() => setForm(null)} disabled={saving} className="btn-outline flex-1 !py-2.5">キャンセル</button>
-              <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-2.5">{saving ? '保存中...' : '保存する'}</button>
+              <button type="button" onClick={() => setForm(null)} disabled={saving} className="btn-outline flex-1 py-2.5!">キャンセル</button>
+              <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 py-2.5!">{saving ? '保存中...' : '保存する'}</button>
             </div>
           }
         >

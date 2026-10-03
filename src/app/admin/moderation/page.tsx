@@ -203,7 +203,7 @@ export default function ModerationPage() {
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-bold text-gray-700 bg-gray-100 px-2 py-0.5 rounded">
+                    <span className="text-xs font-bold text-gray-700 bg-gray-100 px-2 py-0.5 rounded-sm">
                       {CONTENT_TYPE_LABELS[item.content_type] || item.content_type}
                     </span>
                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_CONFIG[item.status].className}`}>
@@ -237,7 +237,7 @@ export default function ModerationPage() {
                         placeholder="審査メモ（任意）"
                         rows={2}
                         maxLength={500}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-sky-400"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-hidden focus:ring-2 focus:ring-sky-400"
                       />
                       <div className="flex gap-2">
                         <button
@@ -285,7 +285,7 @@ export default function ModerationPage() {
                 </div>
               )}
               {item.review_note && (
-                <p className="text-xs text-gray-500 bg-gray-50 rounded px-2 py-1">審査メモ: {item.review_note}</p>
+                <p className="text-xs text-gray-500 bg-gray-50 rounded-sm px-2 py-1">審査メモ: {item.review_note}</p>
               )}
             </div>
           ))}

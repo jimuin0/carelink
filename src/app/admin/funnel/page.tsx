@@ -199,8 +199,8 @@ export default async function FunnelPage() {
           ))}
         </div>
         <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
-          <div className="flex items-center gap-1"><div className="w-3 h-3 bg-sky-500 rounded" /><span>確定予約</span></div>
-          <div className="flex items-center gap-1"><div className="w-3 h-3 bg-sky-200 rounded" /><span>総予約数</span></div>
+          <div className="flex items-center gap-1"><div className="w-3 h-3 bg-sky-500 rounded-sm" /><span>確定予約</span></div>
+          <div className="flex items-center gap-1"><div className="w-3 h-3 bg-sky-200 rounded-sm" /><span>総予約数</span></div>
         </div>
       </div>
     </div>

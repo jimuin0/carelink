@@ -73,7 +73,7 @@ export default async function CustomerDetailPage(props: Props) {
       ) : (
         <div className="space-y-2">
           {visits.map((v) => (
-            <div key={v.id} className="bg-white rounded-xl p-4 shadow-sm">
+            <div key={v.id} className="bg-white rounded-xl p-4 shadow-xs">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-medium text-sm">{v.visit_date}</p>

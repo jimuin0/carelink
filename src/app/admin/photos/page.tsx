@@ -219,7 +219,7 @@ function AdminPhotosContent() {
       </div>
 
       {/* アップロード */}
-      <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+      <div className="bg-white rounded-xl shadow-xs p-6 mb-6">
         <h2 className="font-bold mb-4">写真をアップロード</h2>
         <div className="flex flex-wrap gap-4 items-end">
           <div>
@@ -232,7 +232,7 @@ function AdminPhotosContent() {
             <label htmlFor="photo-caption" className="form-label">キャプション（任意）</label>
             <SbInput id="photo-caption" value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={200} placeholder="写真の説明" />
           </div>
-          <label className={`btn-primary !py-2.5 px-6 cursor-pointer ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
+          <label className={`btn-primary py-2.5! px-6 cursor-pointer ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
             {uploadProgress ? `アップロード中... (${uploadProgress.done}/${uploadProgress.total})` : '写真を選択（複数可）'}
             <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleUpload} className="hidden" />
           </label>
@@ -244,7 +244,7 @@ function AdminPhotosContent() {
       {loadError ? (
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="写真の読み込みに失敗しました" />
       ) : photos.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm p-12 text-center">
+        <div className="bg-white rounded-xl shadow-xs p-12 text-center">
           <p className="text-gray-400">写真がまだ登録されていません</p>
         </div>
       ) : (
@@ -254,7 +254,7 @@ function AdminPhotosContent() {
               <h2 className="text-sm font-bold text-gray-800 mb-3 pl-3 border-l-[3px] border-sky-500">{label}（{items.length}枚）</h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
                 {items.map((photo) => (
-                  <div key={photo.id} className="group relative bg-white rounded-xl shadow-sm overflow-hidden">
+                  <div key={photo.id} className="group relative bg-white rounded-xl shadow-xs overflow-hidden">
                     <div className="relative aspect-square">
                       <Image src={photo.photo_url} alt={photo.caption || label} fill className="object-cover" sizes="(max-width: 640px) 50vw, 25vw" />
                     </div>

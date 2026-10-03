@@ -67,7 +67,7 @@ export default function AbTestsPage() {
         <strong>使い方:</strong>{' '}
         <Link href="/admin/feature-flags" className="underline">Feature Flags</Link>
         でフラグのロールアウト率を1〜99%に設定するとA/Bテストが開始されます。
-        コード側で <code className="bg-sky-100 px-1 rounded">trackAbEvent()</code> を呼び出してインプレッション・コンバージョンを計測します。
+        コード側で <code className="bg-sky-100 px-1 rounded-sm">trackAbEvent()</code> を呼び出してインプレッション・コンバージョンを計測します。
       </div>
 
       {flags.length === 0 ? (

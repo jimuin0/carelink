@@ -87,7 +87,7 @@ export default function NewBlogPage() {
     <div>
       <SbPageHeader title="ブログ新規作成" />
 
-      <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
+      <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
         <div>
           <label htmlFor="blog-title" className="form-label">タイトル <span className="text-red-500">*</span></label>
           <SbInput id="blog-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
@@ -99,13 +99,13 @@ export default function NewBlogPage() {
           </label>
           <div className="border border-gray-200 rounded-xl overflow-hidden">
             <div className="flex gap-1 bg-gray-50 border-b px-3 py-2">
-              <button type="button" onClick={() => insertMd('**', '**')} className="text-xs px-2 py-1 rounded hover:bg-gray-200 font-bold">B</button>
-              <button type="button" onClick={() => insertMd('*', '*')} className="text-xs px-2 py-1 rounded hover:bg-gray-200 italic">I</button>
-              <button type="button" onClick={() => insertMd('\n## ', '')} className="text-xs px-2 py-1 rounded hover:bg-gray-200">H2</button>
-              <button type="button" onClick={() => insertMd('\n### ', '')} className="text-xs px-2 py-1 rounded hover:bg-gray-200">H3</button>
-              <button type="button" onClick={() => insertMd('\n- ', '')} className="text-xs px-2 py-1 rounded hover:bg-gray-200">リスト</button>
-              <button type="button" onClick={() => insertMd('[', '](url)')} className="text-xs px-2 py-1 rounded hover:bg-gray-200">リンク</button>
-              <button type="button" onClick={() => setShowPreview(!showPreview)} className={`text-xs px-2 py-1 rounded ml-auto ${showPreview ? 'bg-sky-100 text-sky-700' : 'hover:bg-gray-200'}`}>
+              <button type="button" onClick={() => insertMd('**', '**')} className="text-xs px-2 py-1 rounded-sm hover:bg-gray-200 font-bold">B</button>
+              <button type="button" onClick={() => insertMd('*', '*')} className="text-xs px-2 py-1 rounded-sm hover:bg-gray-200 italic">I</button>
+              <button type="button" onClick={() => insertMd('\n## ', '')} className="text-xs px-2 py-1 rounded-sm hover:bg-gray-200">H2</button>
+              <button type="button" onClick={() => insertMd('\n### ', '')} className="text-xs px-2 py-1 rounded-sm hover:bg-gray-200">H3</button>
+              <button type="button" onClick={() => insertMd('\n- ', '')} className="text-xs px-2 py-1 rounded-sm hover:bg-gray-200">リスト</button>
+              <button type="button" onClick={() => insertMd('[', '](url)')} className="text-xs px-2 py-1 rounded-sm hover:bg-gray-200">リンク</button>
+              <button type="button" onClick={() => setShowPreview(!showPreview)} className={`text-xs px-2 py-1 rounded-sm ml-auto ${showPreview ? 'bg-sky-100 text-sky-700' : 'hover:bg-gray-200'}`}>
                 {showPreview ? '編集' : 'プレビュー'}
               </button>
             </div>
@@ -116,7 +116,7 @@ export default function NewBlogPage() {
                 id="blog-content"
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                className="w-full border-0 p-4 focus:ring-0 focus:outline-none resize-y min-h-[300px] font-mono text-sm"
+                className="w-full border-0 p-4 focus:ring-0 focus:outline-hidden resize-y min-h-[300px] font-mono text-sm"
                 rows={14}
                 maxLength={50000}
               />
@@ -132,7 +132,7 @@ export default function NewBlogPage() {
           <button type="button" onClick={() => router.push('/admin/blog')} className="text-sm text-gray-500 hover:underline">
             戻る
           </button>
-          <button type="button" onClick={handleCreate} disabled={saving} className="btn-primary flex-1 !py-3">
+          <button type="button" onClick={handleCreate} disabled={saving} className="btn-primary flex-1 py-3!">
             {saving ? '保存中...' : '記事を作成'}
           </button>
         </div>

@@ -10,7 +10,7 @@ export type { AdminFacilityChoice } from '@/lib/admin-facility-selection';
 
 export default function FacilitySelector({ choices, selectedId, path, date, dirty = false, busy = false }: {
   choices: AdminFacilityChoice[]; selectedId: string | null;
-  path: '/admin/settings' | '/admin/photos' | '/admin/schedule' | '/admin/bookings';
+  path: '/admin' | '/admin/menus' | '/admin/staff' | '/admin/staff/new' | '/admin/analytics' | '/admin/settings' | '/admin/photos' | '/admin/schedule' | '/admin/bookings';
   date?: string; dirty?: boolean; busy?: boolean;
 }) {
   const router = useRouter();

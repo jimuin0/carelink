@@ -11,7 +11,7 @@ export default function SavingsSimulator() {
   const annualSaving = monthlySaving * 12;
 
   return (
-    <div className="bg-gradient-to-br from-sky-50 to-indigo-50 rounded-2xl p-6 sm:p-8 max-w-2xl mx-auto">
+    <div className="bg-linear-to-br from-sky-50 to-indigo-50 rounded-2xl p-6 sm:p-8 max-w-2xl mx-auto">
       <h3 className="text-lg font-bold text-gray-800 mb-6 text-center">💰 節約シミュレーター</h3>
 
       <div className="space-y-6 mb-8">
@@ -77,7 +77,7 @@ export default function SavingsSimulator() {
       </div>
 
       {/* 結果 */}
-      <div className="bg-white rounded-xl p-6 text-center shadow-sm">
+      <div className="bg-white rounded-xl p-6 text-center shadow-xs">
         <p className="text-sm text-gray-500 mb-1">CareLink に切り替えると</p>
         <p className="text-4xl font-extrabold text-sky-600 mb-1">
           月 ¥{monthlySaving.toLocaleString()}

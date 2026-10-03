@@ -11,20 +11,38 @@ export interface PhotoSlot {
 interface MultiPhotoUploadProps {
   slots: PhotoSlot[];
   onChange: (files: (File | null)[]) => void;
+  initialFiles?: readonly (File | null)[];
 }
 
 const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
 
-export default function MultiPhotoUpload({ slots, onChange }: MultiPhotoUploadProps) {
+export default function MultiPhotoUpload({ slots, onChange, initialFiles }: MultiPhotoUploadProps) {
   const [previews, setPreviews] = useState<(string | null)[]>(slots.map(() => null));
-  const files = useRef<(File | null)[]>(slots.map(() => null));
+  const files = useRef<(File | null)[]>(slots.map((_, index) => initialFiles?.[index] ?? null));
   const generations = useRef<number[]>(slots.map(() => 0));
   const [errors, setErrors] = useState<(string | null)[]>(slots.map(() => null));
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  useEffect(() => () => {
-    generations.current = generations.current.map(value => value + 1);
+  useEffect(() => {
+    // Restoration remounts this component with verified originals. Reading a
+    // preview never replaces or recompresses those source files.
+    files.current.forEach((file, index) => {
+      if (!file) return;
+      const generation = ++generations.current[index];
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (generations.current[index] !== generation) return;
+        setPreviews(current => current.map((value, i) => i === index ? reader.result as string : value));
+      };
+      const fail = () => {
+        if (generations.current[index] !== generation) return;
+        setErrors(current => current.map((value, i) => i === index ? '写真のプレビューを読み込めませんでした。元の写真は保持されています。' : value));
+      };
+      reader.onerror = fail;
+      try { reader.readAsDataURL(file); } catch { fail(); }
+    });
+    return () => { generations.current = generations.current.map(value => value + 1); };
   }, []);
 
   const changeFile = (index: number, file: File | null) => {
@@ -100,7 +118,7 @@ export default function MultiPhotoUpload({ slots, onChange }: MultiPhotoUploadPr
                 alt={slot.label}
                 width={160}
                 height={120}
-                className="w-full aspect-[4/3] object-cover rounded-lg border"
+                className="w-full aspect-4/3 object-cover rounded-lg border"
                 unoptimized
               />
               <button
@@ -113,7 +131,7 @@ export default function MultiPhotoUpload({ slots, onChange }: MultiPhotoUploadPr
               </button>
             </div>
           ) : (
-            <label className="flex flex-col items-center justify-center w-full aspect-[4/3] border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-sky-400 transition-colors bg-gray-50">
+            <label className="flex flex-col items-center justify-center w-full aspect-4/3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-sky-400 transition-colors bg-gray-50">
               <svg className="w-6 h-6 text-gray-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>

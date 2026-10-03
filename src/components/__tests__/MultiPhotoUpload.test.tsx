@@ -67,3 +67,20 @@ test.each(['type', 'size'])('invalid %s replacement cannot leave an invisible pr
   expect(screen.queryByAltText('外観')).not.toBeInTheDocument();
   expect(screen.getByRole('alert')).toBeVisible();
 });
+
+test('restored sparse original files populate previews and survive changing another slot in order', () => {
+  const original = photo('original.png'); const replacement = photo('replacement.png'); const onChange = jest.fn();
+  const { container } = render(<MultiPhotoUpload slots={slots} initialFiles={[original, null]} onChange={onChange} />);
+  expect(onChange).not.toHaveBeenCalled(); act(() => { readers[0].finish(preview); });
+  expect(screen.getByAltText('外観')).toBeVisible();
+  fireEvent.change(container.querySelectorAll('input[type="file"]')[0], { target: { files: [replacement] } });
+  expect(onChange).toHaveBeenLastCalledWith([original, replacement]);
+});
+test('restored preview failure preserves original file when another slot changes', () => {
+  const original = photo('original.png'); const other = photo('other.png'); const onChange = jest.fn();
+  const { container } = render(<MultiPhotoUpload slots={slots} initialFiles={[original, null]} onChange={onChange} />);
+  act(() => { readers[0].onerror?.(); });
+  expect(screen.getByRole('alert')).toHaveTextContent('元の写真は保持されています');
+  fireEvent.change(container.querySelectorAll('input[type="file"]')[1], { target: { files: [other] } });
+  expect(onChange).toHaveBeenLastCalledWith([original, other]);
+});

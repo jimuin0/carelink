@@ -146,7 +146,7 @@ export default function WhiteLabelPage() {
                 aria-label="ブランドカラー（カラーピッカー）"
                 value={form.primary_color}
                 onChange={(e) => setForm((f) => ({ ...f, primary_color: e.target.value }))}
-                className="w-10 h-10 rounded border cursor-pointer"
+                className="w-10 h-10 rounded-sm border cursor-pointer"
               />
               <input
                 id="wl-color"
@@ -176,7 +176,7 @@ export default function WhiteLabelPage() {
           type="button"
           onClick={handleSave}
           disabled={saving || !form.domain}
-          className="btn-primary !px-4 !py-2 text-sm"
+          className="btn-primary px-4! py-2! text-sm"
         >
           {saving ? '保存中...' : '設定を保存'}
         </button>
@@ -242,7 +242,7 @@ export default function WhiteLabelPage() {
         <ol className="text-sm text-gray-700 space-y-3 list-decimal pl-5">
           <li>上記フォームで独自ドメインを入力して保存</li>
           <li>ドメインのDNS管理画面でCNAMEレコードを追加：<br />
-            <code className="bg-gray-100 px-2 py-0.5 rounded text-xs">{form.domain || 'booking.yoursite.com'} → cname.vercel-dns.com</code>
+            <code className="bg-gray-100 px-2 py-0.5 rounded-sm text-xs">{form.domain || 'booking.yoursite.com'} → cname.vercel-dns.com</code>
           </li>
           <li>TXTレコードを追加してドメインを認証</li>
           <li>Vercel管理画面でカスタムドメインを設定（サポートが代行します）</li>

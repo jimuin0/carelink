@@ -124,7 +124,7 @@ export default function NewslettersPage() {
           <button
             type="button"
             onClick={() => setShowCreate(true)}
-            className="btn-primary !px-4 !py-2 text-sm"
+            className="btn-primary px-4! py-2! text-sm"
           >
             新規キャンペーン作成
           </button>
@@ -217,7 +217,7 @@ export default function NewslettersPage() {
               type="button"
               onClick={handleCreate}
               disabled={creating || !form.subject || !form.html_content}
-              className="btn-primary !px-4 !py-2 text-sm"
+              className="btn-primary px-4! py-2! text-sm"
             >
               {creating ? '作成中...' : '作成する'}
             </button>
@@ -313,7 +313,7 @@ export default function NewslettersPage() {
         <h2 className="font-semibold text-gray-900 mb-4">配信停止管理</h2>
         <p className="text-sm text-gray-600">
           ユーザーはメール末尾の配信停止リンクからいつでも解除可能です（CAN-SPAM法準拠）。
-          解除リクエストは自動的に <code className="bg-gray-100 px-1 rounded text-xs">newsletter_subscriptions</code> テーブルに反映されます。
+          解除リクエストは自動的に <code className="bg-gray-100 px-1 rounded-sm text-xs">newsletter_subscriptions</code> テーブルに反映されます。
         </p>
         <div className="mt-4 p-4 bg-blue-50 rounded-lg text-sm text-blue-800">
           <strong>ニュースレターは手動配信のみ</strong>です（自動の月次配信は廃止しました）。

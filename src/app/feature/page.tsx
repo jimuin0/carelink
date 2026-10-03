@@ -38,7 +38,7 @@ export default async function FeatureListPage() {
                 href={`/feature/${f.slug}`}
                 className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-shadow"
               >
-                <div className="relative aspect-[16/9] bg-gradient-to-br from-sky-100 to-sky-50">
+                <div className="relative aspect-video bg-linear-to-br from-sky-100 to-sky-50">
                   {f.banner_image_url ? (
                     <Image
                       src={f.banner_image_url}

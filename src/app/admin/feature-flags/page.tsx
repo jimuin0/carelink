@@ -117,7 +117,7 @@ export default function FeatureFlagsPage() {
                 type="button"
                 onClick={() => updateFlag(flag.id, { enabled: !flag.enabled, rollout_pct: !flag.enabled ? 100 : 0 })}
                 disabled={saving === flag.id}
-                className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 focus:outline-none ${
+                className={`relative w-11 h-6 rounded-full transition-colors shrink-0 focus:outline-hidden ${
                   flag.enabled ? 'bg-emerald-500' : 'bg-gray-300'
                 } disabled:opacity-50`}
                 aria-label={flag.enabled ? 'フラグを無効化' : 'フラグを有効化'}

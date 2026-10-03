@@ -188,7 +188,7 @@ export default function AdminRegistrationsPage() {
           {salons.map((salon) => {
             const st = statusLabel(salon.status);
             return (
-              <div key={salon.id} className="bg-white rounded-xl p-4 shadow-sm">
+              <div key={salon.id} className="bg-white rounded-xl p-4 shadow-xs">
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="flex items-center gap-2 mb-1">

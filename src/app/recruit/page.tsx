@@ -153,7 +153,7 @@ export default function RecruitPage() {
         <p className="text-gray-500 text-center mb-8">掲載料は一切かかりません。まずはお気軽にご登録ください。</p>
 
         <StepIndicator currentStep={step} totalSteps={2} labels={['施設情報', '施設詳細']} />
-        {unknown && <div role="alert" className="mt-4 rounded border border-amber-300 p-4"><p>{SALON_SUBMISSION_UNKNOWN}</p><Link href="/contact" className="underline">受付状況を問い合わせる</Link></div>}
+        {unknown && <div role="alert" className="mt-4 rounded-sm border border-amber-300 p-4"><p>{SALON_SUBMISSION_UNKNOWN}</p><Link href="/contact" className="underline">受付状況を問い合わせる</Link></div>}
         <form onSubmit={(event) => {
           event.preventDefault();
           if (submitLock.current || unknownRef.current) return;

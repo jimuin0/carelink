@@ -10,7 +10,7 @@
  * ガント塗り / バナーの 4 文脈それぞれに正しい配色を返す。
  *
  * 注意: 文脈別クラスは「完全なリテラル文字列」で定義する（文字列連結で
- * 組み立てない）。Tailwind の content スキャン（tailwind.config.ts に
+ * 組み立てない）。Tailwind の content スキャン（globals.css の @source に
  * ./src/lib/** を追加済み）がここを走査して purge から守るため。
  */
 

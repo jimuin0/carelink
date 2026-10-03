@@ -76,13 +76,13 @@ export default function AdminFacilityInquiriesPage() {
       {loadError ? (
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="問い合わせの読み込みに失敗しました" />
       ) : inquiries.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm p-12 text-center">
+        <div className="bg-white rounded-xl shadow-xs p-12 text-center">
           <p className="text-gray-400">お問い合わせはまだありません</p>
         </div>
       ) : (
         <div className="space-y-3">
           {inquiries.map((inq) => (
-            <div key={inq.id} className="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div key={inq.id} className="bg-white rounded-xl shadow-xs overflow-hidden">
               <div
                 className="flex items-start gap-3 p-4 cursor-pointer hover:bg-gray-50 transition-colors"
                 onClick={() => setExpandedId(expandedId === inq.id ? null : inq.id)}
@@ -107,7 +107,7 @@ export default function AdminFacilityInquiriesPage() {
                   <p className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 rounded-lg p-3">{inq.message}</p>
                   <a
                     href={`mailto:${inq.email}?subject=Re: お問い合わせの件&body=%0A%0A--- 元のメッセージ ---%0A${encodeURIComponent(inq.message)}`}
-                    className="btn-primary gap-1.5 text-sm !px-4 !py-2 inline-flex"
+                    className="btn-primary gap-1.5 text-sm px-4! py-2! inline-flex"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
