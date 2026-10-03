@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { prepareSalonPhoto } from '../salon-photo-preparation';
 import { salonIntentProofHash } from '../salon-submission-proof';
 

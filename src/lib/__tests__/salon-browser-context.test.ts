@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { readSalonBrowserContext, saveSalonBrowserContext, SALON_BROWSER_CONTEXT_KEY,
   SALON_ONBOARDING_PATH, SALON_COMPLETE_PATH, salonHandoffAuthPath,
   readSalonRecoveryContext, saveSalonRecoveryContext, SALON_RECOVERY_CONTEXT_KEY,

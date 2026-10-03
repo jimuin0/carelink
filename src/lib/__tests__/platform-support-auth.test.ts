@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 jest.mock('../supabase-server-auth', () => ({ createServerSupabaseAuthClient: jest.fn() }));
 import { AuthRetryableFetchError } from '@supabase/supabase-js';
 import { createServerSupabaseAuthClient } from '../supabase-server-auth';

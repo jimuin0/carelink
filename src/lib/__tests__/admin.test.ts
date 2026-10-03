@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 const mockFrom = jest.fn(), mockRpc = jest.fn();
 jest.mock('../supabase-server-auth', () => ({ createServerSupabaseAuthClient: () => ({ from: mockFrom, rpc: mockRpc }) }));
 import { getCustomerVisits, getUniqueCustomers } from '../admin';

@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { diffFingerprint } from '../schema-drift';
 import { join } from 'node:path';
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
