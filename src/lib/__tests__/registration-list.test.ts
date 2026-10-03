@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { readRegistrationList } from '../registration-list';
 import { registrationCursorFilter, registrationListInput } from '../registration-list-contract';
 const id = '74000000-0000-4000-8000-000000000001';

@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { applyCompletionSideEffects, type CompletableBooking } from '../booking-completion';
 import { awardReferralPointsOnCompletion } from '../referral';
 import { safeCaptureException } from '../safe';

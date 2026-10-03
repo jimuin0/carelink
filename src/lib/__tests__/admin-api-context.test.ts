@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminApiContext } from '../admin-api-context';
 import { POST as staffCreate } from '@/app/api/admin/staff/route';

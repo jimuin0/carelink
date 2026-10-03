@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 const OP = '88888888-8888-4888-8888-888888888888', PROVIDER = '99999999-9999-4999-8999-999999999999';
 const mockFrom = jest.fn(), mockAlert = jest.fn(), mockCapture = jest.fn();
 jest.mock('node:crypto', () => ({ randomUUID: () => '88888888-8888-4888-8888-888888888888' }));

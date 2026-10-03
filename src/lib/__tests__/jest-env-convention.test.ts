@@ -24,7 +24,15 @@ const TEST_DIR = join(__dirname);
 // 毎週クラッシュしていた。従来のガードは node のみを検査し jsdom/jsdom-sixteen を見逃す
 // 穴があったため、本番で実際にこの穴を突く形で再発した。node 以外の環境名も網羅する。
 const ENV_PRAGMA = '@jest-' + 'environment';
-const PLAIN_ENV = new RegExp(ENV_PRAGMA + '\\s+(node|jsdom|jsdom-sixteen)\\s*$', 'm');
+const PLAIN_ENV = new RegExp(ENV_PRAGMA + '\\s+(node|jsdom|jsdom-sixteen)\\s*(?:\\*/)?$', 'm');
+
+describe('環境指定ガードの検出', () => {
+  it.each(['node', 'jsdom', 'jsdom-sixteen'])('%s の通常・一行docblockを検出する', (environment) => {
+    expect(PLAIN_ENV.test(' * ' + ENV_PRAGMA + ' ' + environment + '\n')).toBe(true);
+    expect(PLAIN_ENV.test('/** ' + ENV_PRAGMA + ' ' + environment + ' */')).toBe(true);
+    expect(PLAIN_ENV.test('/** ' + ENV_PRAGMA + ' @stryker-mutator/jest-runner/jest-env/' + environment + ' */')).toBe(false);
+  });
+});
 
 describe('src/lib/__tests__ の jest 環境 docblock 規約', () => {
   const files = readdirSync(TEST_DIR).filter((f) => f.endsWith('.test.ts'));

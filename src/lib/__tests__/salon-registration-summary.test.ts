@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { readSalonRegistrationSummary } from '../salon-registration-summary';
 import { readSalonIntentStatus } from '../salon-submission-intent';
 jest.mock('../salon-submission-intent', () => ({ readSalonIntentStatus: jest.fn() }));

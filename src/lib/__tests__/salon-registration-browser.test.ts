@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { SalonRegistrationBrowser } from '../salon-registration-browser';
 import { SALON_BROWSER_CONTEXT_KEY, readSalonBrowserContext, saveSalonBrowserContext } from '../salon-browser-context';
 import { salonPhotoPath } from '../salon-photo-contract';

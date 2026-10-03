@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { canonicalSalonSubmission, SALON_CANONICAL_VERSION } from '../salon-submission-contract';
 import {
   isSalonIntentProof, salonIntentCookieName, salonIntentProofHash, salonPayloadHmac,
