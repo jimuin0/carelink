@@ -52,6 +52,8 @@ Next 16.3.6→16.3.8、sharp 0.35.4→0.35.5、source-map-js 1.2.1→1.2.2へ限
 
 分類は既存修正3、一部修正1、今回修正4、未修正13。全原票503ラベルをこの21項目に吸収したとは認定しない。
 
+追加変更の初回CI `37727619206` は型・lint・単体・Security・Contract・PG17に成功したが、HTTPS E2Eは323成功・1flakyで不合格。失敗時の画面はNext.jsの読み込みfallbackだけだった。登録復旧のテストはPOST前から新documentのDOMContentLoadedを待ち、実dashboardの見出しも従来どおり検証する。sleep・timeout増加・skip・flaky許容は追加しない。修正後の固定SHAで全CIを再確認する。
+
 ## 本番の読取確認と残件1〜8
 
 2026年10月8日04:19 UTCの読取transactionで、Supabase projectはACTIVE_HEALTHY、public table/viewは112、migration履歴138件、対象予約RPCはanon/authenticatedのEXECUTE不可・service_role許可。全localファイル名との履歴一致や全スキーマ無差分はこの件数だけで認定しない。
