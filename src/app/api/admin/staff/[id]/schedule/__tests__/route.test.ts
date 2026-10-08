@@ -113,6 +113,7 @@ type AdminCfg = {
   insertErr?: unknown;             // staff_schedules insert error (PUT・全insert共通)
   insertResults?: { error: unknown }[]; // staff_schedules insert 結果を呼び出し順で指定(本insert→restore insert)
   existingSchedules?: unknown[];   // PUT の delete 前 select で返す既存スケジュール(復元用退避データ)
+  backupError?: unknown;
   schedInsertSpy?: (rows: unknown) => void; // staff_schedules.insert に渡された行を検証
   upsertErr?: unknown;             // schedule_overrides upsert error (POST)
   overrideDeleteErr?: unknown;     // schedule_overrides delete error (DELETE)
@@ -123,7 +124,7 @@ type AdminCfg = {
 function setupAdmin(cfg: AdminCfg = {}) {
   const {
     staff = { id: STAFF_UUID }, bookings = [], overrides = [],
-    schedDeleteErr = null, insertErr = null, insertResults, existingSchedules = null, schedInsertSpy,
+    schedDeleteErr = null, insertErr = null, insertResults, existingSchedules = null, schedInsertSpy, backupError = null,
     upsertErr = null, overrideDeleteErr = null, overrideDeleteData, upsertSpy,
   } = cfg;
   // staff_schedules は PUT 内で select(退避)→delete→insert→(失敗時)restore insert と
@@ -131,7 +132,7 @@ function setupAdmin(cfg: AdminCfg = {}) {
   // insertCallIdx がその都度 0 にリセットされ、insertResults の呼び出し順制御(本insert→
   // restore insert)が壊れる。同一チェーンを使い回して呼び出し順の状態を1本に保つ。
   const staffSchedulesChain = chain(
-    { data: existingSchedules, error: null },
+    { data: existingSchedules, error: backupError },
     { delete: { error: schedDeleteErr }, insert: insertResults ?? { error: insertErr } },
     { insertSpy: schedInsertSpy },
   );
@@ -149,6 +150,15 @@ function setupAdmin(cfg: AdminCfg = {}) {
 }
 
 const VALID_SCHEDULE = { schedules: [{ day_of_week: 1, start_time: '09:00', end_time: '18:00' }] };
+
+test.each([null, [{ day_of_week: 1, start_time: '09:00', end_time: '18:00' }]])('PUT: 退避読取がerrorなら返却dataの有無にかかわらず削除・挿入しない', async existingSchedules => {
+  setupAdmin({ existingSchedules, backupError: { message: 'read failed' } } as AdminCfg);
+  const scheduleChain = mockAdminFrom('staff_schedules');
+  const res = await PUT(makeRequest('PUT', { ...VALID_SCHEDULE, force: true }), makeProps());
+  expect(res.status).toBe(500);
+  expect(scheduleChain.delete).not.toHaveBeenCalled();
+  expect(scheduleChain.insert).not.toHaveBeenCalled();
+});
 
 beforeEach(() => {
   jest.clearAllMocks();
