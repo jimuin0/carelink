@@ -171,6 +171,14 @@ function makeRequest(cronSecret: string = 'cron-secret') {
 }
 
 describe('GET /api/cron/review-request', () => {
+  test.each([null, [{ id: 'booking-1' }]])('claim返却errorは0件や成功扱いせず500: data=%p', async (data) => {
+    const update = mockBookingsUpdate();
+    update.eq().is().select.mockResolvedValue({ data, error: { message: 'claim failed' } });
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(500);
+    expect(mockFacilitiesSelect).not.toHaveBeenCalled();
+    expect(logCronRun).toHaveBeenCalledWith('review-request', 'error', expect.any(Date), expect.objectContaining({ processed: 0, skipped: 0 }));
+  });
   test('invalid CRON_SECRET → returns auth error', async () => {
     (checkCronAuth as jest.Mock).mockReturnValue(
       new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })

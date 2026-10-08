@@ -68,8 +68,11 @@ function setupEmailFrom(opts: {
   summaries?: Array<Record<string, number | string | null>>;
   summariesError?: { message: string } | null;
   owner?: { user_id: string } | null;
+  ownerError?: { message: string } | null;
   prof?: { email?: string | null } | null;
+  profileError?: { message: string } | null;
   fac?: { name?: string } | null;
+  facilityError?: { message: string } | null;
   claimError?: { code?: string; message?: string } | null;
 } = {}) {
   // 監査P2: facility_members/profiles/facility_profilesはバルク取得(配列)に変更済み。
@@ -79,15 +82,15 @@ function setupEmailFrom(opts: {
     if (table === 'daily_revenue_summary') return chain({ data: opts.summaries ?? [], error: opts.summariesError ?? null });
     if (table === 'facility_members') {
       const owner = 'owner' in opts ? opts.owner : { user_id: 'u1' };
-      return chain({ data: owner ? [{ facility_id: 'f-1', user_id: owner.user_id }] : [] });
+      return chain({ data: owner ? [{ facility_id: 'f-1', user_id: owner.user_id }] : [], error: opts.ownerError ?? null });
     }
     if (table === 'profiles') {
       const prof = 'prof' in opts ? opts.prof : { email: 'owner@example.com' };
-      return chain({ data: prof ? [{ id: 'u1', email: prof.email ?? null }] : [] });
+      return chain({ data: prof ? [{ id: 'u1', email: prof.email ?? null }] : [], error: opts.profileError ?? null });
     }
     if (table === 'facility_profiles') {
       const fac = 'fac' in opts ? opts.fac : { name: 'テスト施設' };
-      return chain({ data: fac ? [{ id: 'f-1', name: fac.name ?? null }] : [] });
+      return chain({ data: fac ? [{ id: 'f-1', name: fac.name ?? null }] : [], error: opts.facilityError ?? null });
     }
     // M-1: cron_report_sends の claim insert / release delete。既定は claim 成功（error:null）。
     if (table === 'cron_report_sends') return chain({ error: opts.claimError ?? null });
@@ -311,13 +314,13 @@ describe('日次売上サマリーメール（email_daily_summary）', () => {
     expect(sendDailySummaryEmail).toHaveBeenCalled();
   });
 
-  test('opt-in 一覧の取得エラー → error ログで可視化しメール送信ゼロ（集計は 200）', async () => {
+  test('opt-in一覧の取得エラー → 500・集計成功と通知失敗を分けて記録', async () => {
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     setupEmailFrom({ optedInError: { message: 'settings boom' } });
     const res = await GET(makeRequest());
     const json = await res.json();
-    expect(res.status).toBe(200);
-    expect(json.emailsSent).toBe(0);
+    expect(res.status).toBe(500);
+    expect(json.aggregationCompleted).toBe(true);
     expect(sendDailySummaryEmail).not.toHaveBeenCalled();
     expect(errSpy).toHaveBeenCalledWith(
       expect.stringContaining('[daily-summary] facility_notification_settings fetch failed'),
@@ -326,13 +329,13 @@ describe('日次売上サマリーメール（email_daily_summary）', () => {
     errSpy.mockRestore();
   });
 
-  test('daily_revenue_summary の取得エラー → error ログで可視化しメール送信ゼロ（集計は 200）', async () => {
+  test('daily_revenue_summaryの取得エラー → 500・送信なし', async () => {
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     setupEmailFrom({ optedIn: [{ facility_id: 'f-1' }], summariesError: { message: 'summary boom' } });
     const res = await GET(makeRequest());
     const json = await res.json();
-    expect(res.status).toBe(200);
-    expect(json.emailsSent).toBe(0);
+    expect(res.status).toBe(500);
+    expect(json.aggregationCompleted).toBe(true);
     expect(sendDailySummaryEmail).not.toHaveBeenCalled();
     expect(errSpy).toHaveBeenCalledWith(
       expect.stringContaining('[daily-summary] daily_revenue_summary fetch failed'),
@@ -341,12 +344,21 @@ describe('日次売上サマリーメール（email_daily_summary）', () => {
     errSpy.mockRestore();
   });
 
-  test('メール一括処理が例外でも集計成功は 200 を返す（non-blocking）', async () => {
+  test('メール一括処理の例外は500・集計本体の成功は保持', async () => {
     mockFrom.mockImplementation(() => { throw new Error('db down'); });
     const res = await GET(makeRequest());
     const json = await res.json();
-    expect(res.status).toBe(200);
-    expect(json.emailsSent).toBe(0);
+    expect(res.status).toBe(500);
+    expect(json.aggregationCompleted).toBe(true);
+  });
+
+  test.each(['ownerError', 'profileError', 'facilityError'] as const)('bulk取得障害 %s はdata同時返却でも500・送信しない', async (errorField) => {
+    setupEmailFrom({ optedIn: [{ facility_id: 'f-1' }], summaries: [{ facility_id: 'f-1', total_revenue: 1 }], [errorField]: { message: 'DB unavailable' } });
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(500);
+    expect(sendDailySummaryEmail).not.toHaveBeenCalled();
+    expect(logCronRun).toHaveBeenCalledWith('daily-summary', 'error', expect.any(Date), expect.objectContaining({ meta: expect.objectContaining({ notificationBatchFailed: true }) }));
+    expect(mockFrom).not.toHaveBeenCalledWith('cron_report_sends');
   });
 
   // 監査P2: バルク取得のnull data分岐・同一施設への重複owner行の網羅

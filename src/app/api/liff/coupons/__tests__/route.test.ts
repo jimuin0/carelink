@@ -89,7 +89,7 @@ function setupDefaultMocks(
         return {
           select: jest.fn().mockReturnValue({
             eq: jest.fn().mockReturnValue({
-              single: jest.fn().mockResolvedValue({ data: profileData }),
+              maybeSingle: jest.fn().mockResolvedValue({ data: profileData }),
             }),
           }),
         };
@@ -145,6 +145,23 @@ function makeRequest(token: string | null = 'valid-token', ip = '192.168.1.1') {
 }
 
 describe('GET /api/liff/coupons', () => {
+  test.each([
+    ['2026-10-08T14:59:59.999Z', '2026-10-08'],
+    ['2026-10-08T15:00:00.000Z', '2026-10-09'],
+  ])('LIFF表示のDATEフィルタはJST境界に揃う: %s', async (now, date) => {
+    jest.useFakeTimers(); jest.setSystemTime(new Date(now));
+    try {
+      setupDefaultMocks();
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      const from = createServiceRoleClient().from;
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      const chain = from.mock.results.find((_: unknown, i: number) => from.mock.calls[i][0] === 'coupons')?.value;
+      const firstOr = chain.select().eq().in().or;
+      expect(firstOr).toHaveBeenCalledWith(`valid_from.is.null,valid_from.lte.${date}`);
+      expect(firstOr.mock.results[0].value.or).toHaveBeenCalledWith(`valid_until.is.null,valid_until.gte.${date}`);
+    } finally { jest.useRealTimers(); }
+  });
   test('rate limiting → 429', async () => {
     (checkRateLimit as jest.Mock).mockReturnValue(true);
     const res = await GET(makeRequest() as any);
@@ -256,7 +273,7 @@ describe('GET /api/liff/coupons', () => {
           return {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
-                single: jest.fn().mockResolvedValue({ data: { id: 'user-123' } }),
+                maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'user-123' } }),
               }),
             }),
           };
@@ -297,6 +314,18 @@ describe('GET /api/liff/coupons', () => {
     expect(alertCaughtError).toHaveBeenCalledWith('liff-coupons', expect.any(Error), '/api/liff/coupons');
   });
 
+  test.each([null, { id: 'user-123' }])('profileのDB障害は未登録404へ変換しない: %p', async (data) => {
+    setupDefaultMocks();
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    const lookup = jest.fn().mockResolvedValue({ data, error: { message: 'DB unavailable' } });
+    const from = jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: lookup }) }) });
+    (createServiceRoleClient as jest.Mock).mockReturnValue({ from });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect(from).toHaveBeenCalledTimes(1);
+    expect(from).toHaveBeenCalledWith('profiles');
+  });
+
   // 【2026年7月10日 恒久根治の回帰】DB障害時に「クーポンなし」と偽装表示せず、
   // 真の失敗として500を返すことを検証する（error握り潰しの再発防止）。3クエリ全てを検証する。
   test('pastBookings取得: DB障害（error発生）→ 500（クーポンなしと偽装しない）', async () => {
@@ -304,7 +333,7 @@ describe('GET /api/liff/coupons', () => {
     createServiceRoleClient.mockReturnValue({
       from: jest.fn((table: string) => {
         if (table === 'profiles') {
-          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue({ data: { id: 'user-123' } }) }) }) };
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'user-123' } }) }) }) };
         }
         if (table === 'bookings') {
           return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } }) }) }) };
@@ -321,7 +350,7 @@ describe('GET /api/liff/coupons', () => {
     createServiceRoleClient.mockReturnValue({
       from: jest.fn((table: string) => {
         if (table === 'profiles') {
-          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue({ data: { id: 'user-123' } }) }) }) };
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'user-123' } }) }) }) };
         }
         if (table === 'bookings') {
           return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ data: [], error: null }) }) }) };
@@ -341,7 +370,7 @@ describe('GET /api/liff/coupons', () => {
     createServiceRoleClient.mockReturnValue({
       from: jest.fn((table: string) => {
         if (table === 'profiles') {
-          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue({ data: { id: 'user-123' } }) }) }) };
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'user-123' } }) }) }) };
         }
         if (table === 'bookings') {
           return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ data: [{ facility_id: 'fac-1' }], error: null }) }) }) };
@@ -381,7 +410,7 @@ describe('GET /api/liff/coupons', () => {
           return {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
-                single: jest.fn().mockResolvedValue({ data: { id: 'user-123' } }),
+                maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'user-123' } }),
               }),
             }),
           };

@@ -402,6 +402,15 @@ describe('POST /api/booking/[id]/cancel', () => {
     expect(mockGetUser).not.toHaveBeenCalled();
   });
 
+  test('LIFFの本人紐付けDB障害は401ではなく500・取消を実行しない', async () => {
+    (getBearerToken as jest.Mock).mockReturnValue('line-token');
+    (resolveLiffUserId as jest.Mock).mockRejectedValue(new Error('LIFF profile lookup failed'));
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(500);
+    expect(mockGetUser).not.toHaveBeenCalled();
+    expect(mockBookingsWrite).not.toHaveBeenCalled();
+  });
+
   // ポイント利用予約のキャンセルで控除済みポイントを返還する（金銭損失防止）。
   function setupRefundMock(pointsUsed: number, insertResult: { error: unknown }) {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });

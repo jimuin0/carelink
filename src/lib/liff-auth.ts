@@ -19,7 +19,7 @@ export function getBearerToken(request: Request): string | null {
 
 /**
  * LINE access token からアプリの user_id を解決する。解決できなければ null（呼び出し側で 401）。
- * fail-closed: audience 検証 NG・profile 取得失敗・未連携はすべて null。
+ * audience 検証 NG・LINE profile 取得失敗・未連携は null。DB障害は呼出元の500経路へ伝える。
  */
 export async function resolveLiffUserId(accessToken: string): Promise<string | null> {
   if (!accessToken) return null;
@@ -37,10 +37,11 @@ export async function resolveLiffUserId(accessToken: string): Promise<string | n
   if (!profile.userId) return null;
 
   const admin = createServiceRoleClient();
-  const { data } = await admin
+  const { data, error } = await admin
     .from('profiles')
     .select('id')
     .eq('line_user_id', profile.userId)
-    .single();
+    .maybeSingle();
+  if (error) throw new Error('LIFF profile lookup failed', { cause: error });
   return data?.id ?? null;
 }

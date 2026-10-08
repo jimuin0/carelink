@@ -18,6 +18,7 @@ import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { notifyNewBookingLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
 import { calculateCouponDiscountedTotal } from '@/lib/coupon-pricing';
 import { buildMenuStaffMap, isStaffCompatibleWithMenus } from '@/lib/menu-staff';
+import { todayJst } from '@/lib/admin-date';
 
 export const dynamic = 'force-dynamic';
 
@@ -128,7 +129,8 @@ export async function POST(request: Request) {
 
   // Apply coupon discount if provided
   if (parsed.data.coupon_id) {
-    const nowIso = new Date().toISOString();
+    // Coupon validity is stored as DATE and includes the final JST business day.
+    const businessDate = todayJst();
     const { data: coupon } = await supabase
       .from('coupons')
       .select('discount_type, discount_value, special_price, is_active, valid_from, valid_until')
@@ -138,8 +140,8 @@ export async function POST(request: Request) {
     // Validate coupon is active and within its validity window server-side
     const couponValid = coupon &&
       coupon.is_active === true &&
-      (coupon.valid_from == null || coupon.valid_from <= nowIso) &&
-      (coupon.valid_until == null || coupon.valid_until >= nowIso);
+      (coupon.valid_from == null || coupon.valid_from <= businessDate) &&
+      (coupon.valid_until == null || coupon.valid_until >= businessDate);
     if (couponValid) {
       // クーポン×メニュー適合チェック（金銭経路の穴の恒久予防・2026年7月15日追加）。
       // coupon_menus に行が無いクーポンは全メニュー適用（本番は現在全クーポン0行のため、
@@ -216,7 +218,8 @@ export async function POST(request: Request) {
   // Snapshot current balance for CAS (compare-and-swap) check later
   let pointsBalanceSnapshot = 0;
   if (pointsUsed > 0 && user) {
-    const { data: pointRows } = await supabase.from('user_points').select('points').eq('user_id', user.id);
+    const { data: pointRows, error: pointsError } = await supabase.from('user_points').select('points').eq('user_id', user.id);
+    if (pointsError) return serverError('booking-points-balance', pointsError, '/api/booking');
     pointsBalanceSnapshot = (pointRows ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
     if (pointsBalanceSnapshot < pointsUsed) {
       return NextResponse.json({ error: 'ポイント残高が不足しています' }, { status: 400 });

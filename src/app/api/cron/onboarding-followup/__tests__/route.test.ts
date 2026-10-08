@@ -61,10 +61,10 @@ let salonUpdateMock: jest.Mock;
 // facility_profiles UPDATE used for BOTH:
 //   claim:   .update({sent_at:now}).eq('id').is(null).select('id') → { data: claimed }
 //   release: .update({sent_at:null}).eq('id') (awaited) → returns eq object; { error } destructured
-function facilitiesUpdate(claimed: any[] = [{ id: 'fac-123' }], releaseError: any = null) {
+function facilitiesUpdate(claimed: any[] = [{ id: 'fac-123' }], releaseError: any = null, claimError: any = null) {
   const eqReturn: any = {
     is: jest.fn().mockReturnValue({
-      select: jest.fn().mockResolvedValue({ data: claimed }),
+      select: jest.fn().mockResolvedValue({ data: claimed, error: claimError }),
     }),
     error: releaseError ?? undefined,
   };
@@ -81,12 +81,14 @@ function buildFrom(opts: any = {}) {
     facilitiesErr = null,
     claimed = [{ id: 'fac-123' }],
     releaseError = null,
+    claimError = null,
     menuCount = 0,
     staffData = [] as any[],
     photoCount = 0,
     scheduleCount = 0,
     member = { user_id: 'owner-user-123' },
     profile = { email: 'owner@example.com' },
+    profileError = null,
     orderSpy = null as any,
     menuError = null,
     staffError = null,
@@ -98,14 +100,15 @@ function buildFrom(opts: any = {}) {
     salonsErr = null,
     salonClaimed = [{ id: 'sal-1' }],
     salonReleaseError = null,
+    salonClaimError = null,
     salonOrderSpy = null as any,
     // profiles.email = X のとき「アカウント作成済み」とみなすメール一覧。
     existingAccountEmails = [] as string[],
     profileEmailCheckError = null,
   } = opts;
 
-  facUpdateMock = facilitiesUpdate(claimed, releaseError);
-  salonUpdateMock = salonsUpdate(salonClaimed, salonReleaseError);
+  facUpdateMock = facilitiesUpdate(claimed, releaseError, claimError);
+  salonUpdateMock = salonsUpdate(salonClaimed, salonReleaseError, salonClaimError);
 
   return (table: string) => {
     if (table === 'facility_profiles') {
@@ -157,7 +160,7 @@ function buildFrom(opts: any = {}) {
             const found = canonicalExisting.includes(value) ? { id: `profile-${value}` } : null;
             return { maybeSingle: jest.fn().mockResolvedValue({ data: found, error: profileEmailCheckError }) };
           }
-          return { maybeSingle: jest.fn().mockResolvedValue({ data: profile }) };
+          return { maybeSingle: jest.fn().mockResolvedValue({ data: profile, error: profileError }) };
         }),
       }),
     };
@@ -185,6 +188,26 @@ function buildFrom(opts: any = {}) {
     return {};
   };
 }
+
+test.each([null, { email: 'owner@example.com' }])('owner profileの取得障害はclaim解放・送信なし・500: %p', async (profile) => {
+  mockFromDelegate.mockImplementation(buildFrom({ profile, profileError: { message: 'DB unavailable' } }));
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(500);
+  expect(sendOnboardingFollowEmail).not.toHaveBeenCalled();
+  expect(facUpdateMock).toHaveBeenCalledWith({ onboarding_email_sent_at: null });
+  expect(logCronRun).toHaveBeenCalledWith('onboarding-followup', 'error', expect.any(Date), expect.objectContaining({ meta: expect.objectContaining({ processingFailures: 1 }) }));
+});
+
+test.each(['facility', 'salon'])('%sのclaim取得障害は正常スキップへ変換せず500', async (target) => {
+  const err = { message: 'claim failed' };
+  mockFromDelegate.mockImplementation(buildFrom(target === 'facility'
+    ? { claimError: err }
+    : { facilities: [], salons: [{ id: 'sal-1', email: 'lead@example.com', facility_name: '施設', business_type: 'salon' }], salonClaimError: err }));
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(500);
+  expect(sendOnboardingFollowEmail).not.toHaveBeenCalled();
+  expect(sendRegistrationLeadFollowEmail).not.toHaveBeenCalled();
+});
 
 function setupDefaultMocks(
   facilitiesFound: number = 1,
@@ -427,7 +450,7 @@ describe('GET /api/cron/onboarding-followup', () => {
       releaseError: { message: 'release boom' },
     }));
     const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     expect(errSpy).toHaveBeenCalledWith(
       '[onboarding-followup] claim release failed',
       expect.objectContaining({ facilityId: 'fac-123' })
@@ -533,7 +556,7 @@ describe('GET /api/cron/onboarding-followup', () => {
       return fromImpl(table);
     });
     const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     consoleSpy.mockRestore();
   });
 
@@ -563,7 +586,7 @@ describe('GET /api/cron/onboarding-followup', () => {
       member: { user_id: 'owner' }, profile: { email: 'o@example.com' },
     }));
     const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     const json = await res.json();
     expect(json.processed).toBe(0);
     // 誤内容メールは送らない
@@ -589,7 +612,7 @@ describe('GET /api/cron/onboarding-followup', () => {
       member: { user_id: 'owner' }, profile: { email: 'o@example.com' },
     }));
     const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     expect(sendOnboardingFollowEmail).not.toHaveBeenCalled();
     const nullReleases = facUpdateMock.mock.calls.filter((c: any[]) => c[0].onboarding_email_sent_at === null);
     expect(nullReleases.length).toBe(1);
@@ -816,7 +839,7 @@ describe('GET /api/cron/onboarding-followup', () => {
         facilities: [], salons: [leadSalon], profileEmailCheckError: { message: 'profile email check boom' },
       }));
       const res = await GET(makeRequest() as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
       expect(sendRegistrationLeadFollowEmail).not.toHaveBeenCalled();
       const nullReleases = salonUpdateMock.mock.calls.filter((c: any[]) => c[0].registration_followup_sent_at === null);
       expect(nullReleases.length).toBe(1);
@@ -834,7 +857,7 @@ describe('GET /api/cron/onboarding-followup', () => {
         facilities: [], salons: [leadSalon], salonReleaseError: { message: 'salon release boom' },
       }));
       const res = await GET(makeRequest() as any);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(500);
       expect(errSpy).toHaveBeenCalledWith(
         '[onboarding-followup] salon claim release failed',
         expect.objectContaining({ salonId: 'sal-1' })

@@ -118,6 +118,7 @@ export async function GET(request: Request) {
     let skipped = 0;
     let deferred = 0;
     let deliveryFailures = 0;
+    let processingFailures = 0;
 
     for (let i = 0; i < facilities.length; i++) {
       const facility = facilities[i];
@@ -130,12 +131,16 @@ export async function GET(request: Request) {
       }
 
       // Claim before sending (CAS guard via .is('onboarding_email_sent_at', null))
-      const { data: claimed } = await supabase
+      const { data: claimed, error: claimError } = await supabase
         .from('facility_profiles')
         .update({ onboarding_email_sent_at: new Date().toISOString() })
         .eq('id', facility.id)
         .is('onboarding_email_sent_at', null)
         .select('id');
+
+      if (claimError) return cronError('onboarding-followup', startedAt, claimError, {
+        extraLog: { processed: sent, skipped },
+      });
 
       if (!claimed || claimed.length === 0) { skipped++; continue; }
 
@@ -189,11 +194,13 @@ export async function GET(request: Request) {
 
         if (!member) { noContact = true; }
         else {
-          const { data: profile } = await supabase
+          const { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select('email')
             .eq('id', member.user_id)
             .maybeSingle();
+
+          if (profileError) throw new Error('Owner profile lookup failed', { cause: profileError });
 
           if (!profile?.email) { noContact = true; }
           else {
@@ -208,6 +215,7 @@ export async function GET(request: Request) {
           }
         }
       } catch (facilityErr) {
+        processingFailures++;
         console.error('[onboarding-followup] facility processing error', { facilityId: facility.id, err: facilityErr });
       }
 
@@ -219,6 +227,7 @@ export async function GET(request: Request) {
             .update({ onboarding_email_sent_at: null })
             .eq('id', facility.id);
           if (releaseErr) {
+            processingFailures++;
             console.error('[onboarding-followup] claim release failed', { facilityId: facility.id, err: releaseErr });
           }
         }
@@ -244,12 +253,16 @@ export async function GET(request: Request) {
       }
 
       // Claim before sending (CAS guard via .is('registration_followup_sent_at', null))
-      const { data: salonClaimed } = await supabase
+      const { data: salonClaimed, error: salonClaimError } = await supabase
         .from('salons')
         .update({ registration_followup_sent_at: new Date().toISOString() })
         .eq('id', salon.id)
         .is('registration_followup_sent_at', null)
         .select('id');
+
+      if (salonClaimError) return cronError('onboarding-followup', startedAt, salonClaimError, {
+        extraLog: { processed: sent, skipped },
+      });
 
       if (!salonClaimed || salonClaimed.length === 0) { skipped++; continue; }
 
@@ -289,6 +302,7 @@ export async function GET(request: Request) {
           if (!delivered) deliveryFailures++;
         }
       } catch (salonErr) {
+        processingFailures++;
         console.error('[onboarding-followup] salon processing error', { salonId: salon.id, err: salonErr });
       }
 
@@ -300,6 +314,7 @@ export async function GET(request: Request) {
             .update({ registration_followup_sent_at: null })
             .eq('id', salon.id);
           if (salonReleaseErr) {
+            processingFailures++;
             console.error('[onboarding-followup] salon claim release failed', { salonId: salon.id, err: salonReleaseErr });
           }
         }
@@ -311,6 +326,10 @@ export async function GET(request: Request) {
     }
 
     alertDeliveryFailures('onboarding-followup', deliveryFailures, { sent, skipped });
+    if (processingFailures > 0) return cronError('onboarding-followup', startedAt, 'Follow-up processing failed', {
+      extraLog: { processed: sent, skipped, meta: { deferred, processingFailures } },
+      extraBody: { processed: sent, skipped, deferred, processingFailures },
+    });
     await logCronRun('onboarding-followup', 'success', startedAt, { processed: sent, skipped, meta: { deferred } });
     return NextResponse.json({ processed: sent, skipped, deferred, sent });
   } catch (e) {

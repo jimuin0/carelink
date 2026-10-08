@@ -8,6 +8,7 @@ import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { sendNotify } from '@/lib/notify';
 import { runAfterResponse } from '@/lib/after-response';
+import { facilityInquirySchema } from '@/lib/validations-inquiry';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,19 +29,8 @@ export const dynamic = 'force-dynamic';
 //   混入を拒否する。
 // -----------------------------------------------------------------------------
 
-const inquiryInsertSchema = z.object({
+const inquiryInsertSchema = facilityInquirySchema.extend({
   facility_id: z.string().uuid(),
-  // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
-  name: z.string().trim().min(1).max(100),
-  email: z.string().email().max(254),
-  phone: z
-    .string()
-    .max(20)
-    .regex(/^0\d{1,4}-?\d{1,4}-?\d{3,4}$/, '正しい電話番号を入力してください')
-    .or(z.literal(''))
-    .optional()
-    .nullable(),
-  message: z.string().trim().min(1).max(1000),
 });
 
 export const POST = withRoute(async (request) => {

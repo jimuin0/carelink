@@ -117,12 +117,16 @@ export async function GET(request: Request) {
       // Claim this booking before sending — prevents duplicate send on double-fire.
       // The .is('review_request_sent_at', null) condition acts as a CAS guard:
       // only one concurrent invocation can update a given row.
-      const { data: claimed } = await supabase
+      const { data: claimed, error: claimError } = await supabase
         .from('bookings')
         .update({ review_request_sent_at: new Date().toISOString() })
         .eq('id', booking.id)
         .is('review_request_sent_at', null)
         .select('id');
+
+      if (claimError) return cronError('review-request', startedAt, claimError, {
+        extraLog: { processed: sent, skipped },
+      });
 
       if (!claimed || claimed.length === 0) { skipped++; continue; } // Another invocation already claimed this booking
 
