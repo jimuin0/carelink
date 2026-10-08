@@ -10,7 +10,7 @@ Next 16.3.6→16.3.8、sharp 0.35.4→0.35.5、source-map-js 1.2.1→1.2.2へ限
 
 原票索引の503ラベル（430＋73）と355断片を858レコードとして非公開保存した。これは不具合858件という意味ではない。全原票の現在の判定は未照合のまま保持し、下記21項目の限定再判定と混同しない。歴史的索引が記録した151source中68sourceの取得不能も、今回復元済みとは認定していない。実顧客の情報を公開リポジトリへ転記しない。
 
-第1段階の固定SHA60c8d12aで新MacのStryker全10対象を完走し、結果ファイルを独立集計した。1048mutant＝Killed263＋CompileError130＋Ignored655、Survived/Timeout/NoCoverage/RuntimeError各0。3回のワーカーSIGSEGVから復帰した実行ログも保全。測定対象外の全コードの変異検出を保証する値ではない。第2段階は全体465suite・9596件、分岐9432/9432＝100%、型・lint成功（既存4warning）。新Macの並列JestではワーカーSIGSEGVが出たため、全体を逐次実行して成功を確認した。CIの並列実行は最新SHAで別途確認する。
+第1段階の固定SHA60c8d12aで新MacのStryker全10対象を完走し、結果ファイルを独立集計した。1048mutant＝Killed263＋CompileError130＋Ignored655、Survived/Timeout/NoCoverage/RuntimeError各0。3回のワーカーSIGSEGVから復帰した実行ログも保全。測定対象外の全コードの変異検出を保証する値ではない。第2段階は全体465suite・9601件、分岐9432/9432＝100%、型・lint成功（既存4warning）。新Macの並列JestではワーカーSIGSEGVが出たため、全体を逐次実行して成功を確認した。CIの並列実行は最新SHAで別途確認する。
 
 ## 過去PR
 
@@ -36,7 +36,7 @@ Next 16.3.6→16.3.8、sharp 0.35.4→0.35.5、source-map-js 1.2.1→1.2.2へ限
 | R04 | 未修正 | `api/booking` 予約・ポイント控除・補償が別I/O。補償失敗の原子化／永続復旧が必要 |
 | R05 | 未修正 | `api/booking/[id]/cancel` の返還が取消CAS後。返還失敗の安全な回復が不足 |
 | R06 | 一部修正 | 来店実績はbooking_visit_atomicで状態変更と同時保存。本番migration記録あり。`booking-completion` のポイント保存失敗・付与済み相当の返却は残る |
-| R07 | 第2段階修正・配信未確認 | DATEの期限をtodayJstの暦日と比較。期限当日23:59:59.999と翌日00:00、開始日の境界を回帰検証 |
+| R07 | 第2段階修正・配信未確認 | 予約API・施設表示・LIFF一覧のDATE期限をtodayJstの暦日へ統一。期限当日23:59:59.999と翌日00:00、開始日の境界を回帰検証 |
 | R08 | 未修正 | `api/admin/moderation/[id]` 却下後のreview非表示失敗でも成功応答。原子化／安全な再試行が必要 |
 | R09 | 未修正 | `api/admin/staff` 勤務表失敗後の補償DELETEの結果未検査。作成の原子化が必要 |
 | R10 | 未修正 | `admin/photos` 削除時にmain_photo_urlを解除しない。metadata失敗後の保存物の照合も必要 |

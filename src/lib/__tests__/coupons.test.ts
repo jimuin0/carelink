@@ -57,6 +57,17 @@ describe('getCouponsByFacility', () => {
 });
 
 describe('getActiveCouponsByFacility', () => {
+  test.each([
+    ['2026-10-08T14:59:59.999Z', '2026-10-08'],
+    ['2026-10-08T15:00:00.000Z', '2026-10-09'],
+  ])('施設表示のDATEフィルタはJST境界に揃う: %s', async (now, date) => {
+    jest.useFakeTimers(); jest.setSystemTime(new Date(now));
+    try {
+      const chain = fluent({ data: [] }); mockFrom.mockReturnValue(chain);
+      await getActiveCouponsByFacility('fac-1');
+      expect(chain.or.mock.calls).toEqual([[`valid_from.is.null,valid_from.lte.${date}`], [`valid_until.is.null,valid_until.gte.${date}`]]);
+    } finally { jest.useRealTimers(); }
+  });
   test('クーポン一覧を返す', async () => {
     const coupons = [{ id: 'c-1', title: '初回限定' }];
     const chain = fluent({ data: coupons });

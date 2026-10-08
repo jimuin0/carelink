@@ -15,6 +15,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { verifyLineAccessToken } from '@/lib/line';
 import { SLOT_OCCUPYING_STATUSES } from '@/lib/booking-status';
 import { serverError } from '@/lib/with-route';
+import { todayJst } from '@/lib/admin-date';
 
 export async function GET(req: NextRequest) {
   try {
@@ -63,7 +64,7 @@ export async function GET(req: NextRequest) {
   }
   const userId = profile.id;
 
-  const now = new Date().toISOString();
+  const businessDate = todayJst();
 
   // ユーザーが予約関係のある施設ID（占有集合＝pending/confirmed/arrived/completed）。
   // 以前は ['confirmed','completed'] で arrived（来店中）/ pending（申込中）を取りこぼし、
@@ -105,8 +106,8 @@ export async function GET(req: NextRequest) {
     .select('id, name, description, discount_type, discount_value, special_price, valid_until, coupon_type, facility_profiles(name)')
     .eq('is_active', true)
     .in('facility_id', allFacilityIds)
-    .or(`valid_from.is.null,valid_from.lte.${now}`)
-    .or(`valid_until.is.null,valid_until.gte.${now}`)
+    .or(`valid_from.is.null,valid_from.lte.${businessDate}`)
+    .or(`valid_until.is.null,valid_until.gte.${businessDate}`)
     .order('valid_until', { ascending: true, nullsFirst: false })
     .limit(30);
 

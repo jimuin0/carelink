@@ -145,6 +145,23 @@ function makeRequest(token: string | null = 'valid-token', ip = '192.168.1.1') {
 }
 
 describe('GET /api/liff/coupons', () => {
+  test.each([
+    ['2026-10-08T14:59:59.999Z', '2026-10-08'],
+    ['2026-10-08T15:00:00.000Z', '2026-10-09'],
+  ])('LIFF表示のDATEフィルタはJST境界に揃う: %s', async (now, date) => {
+    jest.useFakeTimers(); jest.setSystemTime(new Date(now));
+    try {
+      setupDefaultMocks();
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      const from = createServiceRoleClient().from;
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      const chain = from.mock.results.find((_: unknown, i: number) => from.mock.calls[i][0] === 'coupons')?.value;
+      const firstOr = chain.select().eq().in().or;
+      expect(firstOr).toHaveBeenCalledWith(`valid_from.is.null,valid_from.lte.${date}`);
+      expect(firstOr.mock.results[0].value.or).toHaveBeenCalledWith(`valid_until.is.null,valid_until.gte.${date}`);
+    } finally { jest.useRealTimers(); }
+  });
   test('rate limiting → 429', async () => {
     (checkRateLimit as jest.Mock).mockReturnValue(true);
     const res = await GET(makeRequest() as any);

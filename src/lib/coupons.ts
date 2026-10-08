@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from './supabase-server';
 import type { Coupon, CouponMenu } from '@/types';
+import { todayJst } from './admin-date';
 
 // オーナー管理画面(admin/coupons/page.tsx)向け＝is_active な全クーポンを返す（期間フィルタ
 // なし）。この画面は期間外（未来開始／期限切れ）のクーポンも一覧・編集リンク・利用実績の
@@ -21,18 +22,18 @@ export async function getCouponsByFacility(facilityId: string): Promise<Coupon[]
 // 【恒久根治】is_active=true のみでは期間外（valid_from 未到来／valid_until 経過済み）の
 // クーポンも表示され、客が選択すると api/booking のサーバー検証(同じ valid_from/valid_until
 // 判定)で 400 になる（表示と予約可否の不整合）。api/liff/coupons と同じ
-// valid_from<=now<=valid_until フィルタをDB側でも適用し、表示自体を期間内のみに揃える。
+// DATE列はJSTの業務日で比較し、予約APIと表示の期間境界を揃える。
 // オーナー管理画面はこの関数を使ってはならない（期間外クーポンが消え編集導線が失われる）。
 export async function getActiveCouponsByFacility(facilityId: string): Promise<Coupon[]> {
   const supabase = createServerSupabaseClient();
-  const now = new Date().toISOString();
+  const businessDate = todayJst();
   const { data } = await supabase
     .from('coupons')
     .select('*')
     .eq('facility_id', facilityId)
     .eq('is_active', true)
-    .or(`valid_from.is.null,valid_from.lte.${now}`)
-    .or(`valid_until.is.null,valid_until.gte.${now}`)
+    .or(`valid_from.is.null,valid_from.lte.${businessDate}`)
+    .or(`valid_until.is.null,valid_until.gte.${businessDate}`)
     .order('sort_order');
   return (data ?? []) as Coupon[];
 }
