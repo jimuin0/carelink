@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { setupFacilityAtomically, type FacilitySetupClaim } from '../facility-setup-atomic';
 import { businessTypes } from '../constants';
 import { salonIntentProofHash } from '../salon-submission-proof';

@@ -63,7 +63,10 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
       await supabase
         .from('push_subscriptions')
         .delete()
-        .eq('user_id', userId);
+        .eq('user_id', userId)
+        .eq('endpoint', pushSubscription.endpoint)
+        .eq('p256dh', pushSubscription.keys.p256dh)
+        .eq('auth', pushSubscription.keys.auth);
       return false;
     }
     // 410/404 以外（VAPID鍵不整合・ネットワーク障害・push サービス側 5xx 等）は想定外の失敗のため

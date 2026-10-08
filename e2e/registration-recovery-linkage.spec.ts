@@ -59,14 +59,17 @@ async function selectRecovery(page: Page, id: string) {
 }
 async function submitSetup(page: Page, status: number, state: string) {
   await page.getByRole('checkbox').check();
-  const response = await observeFacilitySetup(page,
-    () => page.getByRole('button', { name: '施設を作成する', exact: true }).click());
+  // A commit can still contain only Next.js' streaming loading fallback.
+  // Arm the full document readiness wait before the replacing submission.
+  const [response] = await Promise.all([
+    observeFacilitySetup(page,
+      () => page.getByRole('button', { name: '施設を作成する', exact: true }).click()),
+    page.waitForURL(url => url.pathname === '/admin', { waitUntil: 'domcontentloaded' }),
+  ]);
   expect(response.status).toBe(status);
   const result = response.body;
   expect(result).toMatchObject({ success: true, state });
-  // Setup replaces the document. Observe navigation commit and the actual
-  // dashboard instead of waiting for unrelated page resources to finish loading.
-  await page.waitForURL(url => url.pathname === '/admin', { waitUntil: 'commit' });
+  // Keep the actual dashboard assertion: a URL or loading fallback is insufficient.
   await expect(page.getByRole('heading', { name: 'ダッシュボード', exact: true })).toBeVisible();
   return { facilityId: result.facilityId as string, slug: result.slug as string };
 }

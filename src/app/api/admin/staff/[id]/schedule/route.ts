@@ -155,10 +155,11 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
   // 旧スケジュールが消えたまま残り予約枠が全滅する（無警告のデータロス）。delete 前に
   // 既存行を退避しておき、insert 失敗時はその退避データで原状復元する。復元自体が
   // 失敗した場合は真のデータロスのため Slack へ通知する（fire-and-forget・応答は妨げない）。
-  const { data: existingRows } = await admin
+  const { data: existingRows, error: backupError } = await admin
     .from('staff_schedules')
     .select('day_of_week, start_time, end_time')
     .eq('staff_id', params.id);
+  if (backupError) return serverError('admin-staff-schedule-put-backup', backupError, '/api/admin/staff/[id]/schedule');
   const backupRows = ((existingRows ?? []) as { day_of_week: number; start_time: string; end_time: string }[]).map((r) => ({
     staff_id: params.id,
     day_of_week: r.day_of_week,

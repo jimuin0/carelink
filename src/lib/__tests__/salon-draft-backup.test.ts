@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { createHash, webcrypto } from 'node:crypto';
 import { exportSalonDraftBackup, importSalonDraftBackup, SALON_DRAFT_BACKUP_ERROR,
   SALON_DRAFT_MAX_BYTES, SALON_DRAFT_MAX_PHOTO_BYTES } from '../salon-draft-backup';

@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { listSalonRecovery, prepareSalonRecovery, readSalonRecovery, salonRecoveryCookieName, salonRecoveryInput } from '../salon-recovery';
 import { businessTypes } from '../constants';
 import { salonIntentProofHash } from '../salon-submission-proof';

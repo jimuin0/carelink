@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import type { Resend } from 'resend';
 import { sendInquiryReplyEnvelope, verifyInquiryReplyAcceptance } from '../inquiry-reply-delivery';
 const operation = '71000000-0000-4000-8000-000000000001';

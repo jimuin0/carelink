@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 jest.mock('../salon-submission-intent', () => ({ readSalonIntentStatus: jest.fn() }));
 import { commitSalonSubmission } from '../salon-submission-commit';
 import { readSalonIntentStatus } from '../salon-submission-intent';

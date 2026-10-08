@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import type { Resend } from 'resend';
 import type { createServiceRoleClient } from '../supabase-server';
 import { prepareSalonOutboxDelivery } from '../salon-outbox-delivery';

@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { prepareSalonIntent, readSalonIntentStatus } from '../salon-submission-intent';
 import { salonIntentProofHash, SALON_INTENT_TTL_SECONDS, SALON_PREPARE_TTL_SECONDS } from '../salon-submission-proof';
 

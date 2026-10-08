@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 jest.mock('../email', () => ({ buildBookingConfirmedEnvelope: jest.fn(() => ({
   from: 'CareLink <noreply@carelink-jp.com>', to: 'synthetic@example.invalid', subject: '予約', html: '<p>予約</p>',
 })) }));

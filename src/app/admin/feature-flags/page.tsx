@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Toast from '@/components/Toast';
 import { SbPageHeader } from '@/components/admin/SbUi';
 
@@ -13,21 +13,35 @@ interface FeatureFlag {
   updated_at: string;
 }
 
+async function fetchFlags(): Promise<FeatureFlag[]> {
+  const res = await fetch('/api/admin/feature-flags', { cache: 'no-store' });
+  if (!res.ok) throw new Error('feature flags request failed');
+  const json = await res.json();
+  if (!Array.isArray(json.flags)) throw new Error('invalid feature flags response');
+  return json.flags;
+}
+
 export default function FeatureFlagsPage() {
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const loadGeneration = useRef(0);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
+    setLoading(true);
     try {
-      const res = await fetch('/api/admin/feature-flags');
-      const json = res.ok ? await res.json() : { flags: [] };
-      if (json.flags) setFlags(json.flags);
+      const nextFlags = await fetchFlags();
+      if (generation !== loadGeneration.current) return;
+      setFlags(nextFlags);
+      setLoadError(false);
     } catch {
-      // silent
+      if (generation === loadGeneration.current) setLoadError(true);
+    } finally {
+      if (generation === loadGeneration.current) setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   // load はイベントハンドラ（更新ボタン・保存後の再取得）からも呼ばれ続けるため関数として残し、
@@ -35,34 +49,39 @@ export default function FeatureFlagsPage() {
   // set-state-in-effect：effect から外部関数を直接呼ぶと同期 setState とみなされ検出される）。
   useEffect(() => {
     let cancelled = false;
+    const generation = ++loadGeneration.current;
     (async () => {
       try {
-        const res = await fetch('/api/admin/feature-flags');
-        const json = res.ok ? await res.json() : { flags: [] };
-        if (cancelled) return;
-        if (json.flags) setFlags(json.flags);
+        const nextFlags = await fetchFlags();
+        if (cancelled || generation !== loadGeneration.current) return;
+        setFlags(nextFlags);
+        setLoadError(false);
       } catch {
-        // silent
+        if (!cancelled && generation === loadGeneration.current) setLoadError(true);
       }
-      if (!cancelled) setLoading(false);
+      if (!cancelled && generation === loadGeneration.current) setLoading(false);
     })();
     return () => { cancelled = true; };
   }, []);
 
   const updateFlag = async (id: string, updates: Partial<Pick<FeatureFlag, 'enabled' | 'rollout_pct'>>) => {
     setSaving(id);
-    const res = await fetch(`/api/admin/feature-flags/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates),
-    });
-    if (!res.ok) {
-      setToast({ type: 'error', message: '更新に失敗しました' });
-    } else {
+    try {
+      const res = await fetch(`/api/admin/feature-flags/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) throw new Error('feature flag update failed');
       setToast({ type: 'success', message: '更新しました' });
-      load();
+      await load();
+    } catch {
+      setToast({ type: 'error', message: '更新に失敗しました' });
+      // 応答が失われた場合も実際には保存済みの可能性があるため、現在値を再確認する。
+      await load();
+    } finally {
+      setSaving(null);
     }
-    setSaving(null);
   };
 
   return (
@@ -71,19 +90,22 @@ export default function FeatureFlagsPage() {
 
       <SbPageHeader
         title="Feature Flags"
-        actions={<button type="button" onClick={load} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>}
+        actions={<button type="button" onClick={load} disabled={loading || saving !== null} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>}
       />
 
       <p className="text-sm text-gray-500">
         機能の段階的リリース・緊急停止スイッチを管理します。変更後は反映まで5分程度かかります（サーバーキャッシュ）。
       </p>
 
+      {loadError && <p role="alert" className="text-sm text-red-600">機能フラグの読み込みに失敗しました。更新ボタンで再試行してください。</p>}
+
       {loading ? (
         <div className="py-12 text-center">
           <div className="w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto" />
         </div>
-      ) : (
+      ) : loadError ? null : (
         <div className="bg-white rounded-xl border border-gray-100 overflow-hidden divide-y divide-gray-50">
+          {flags.length === 0 && <p className="px-4 py-6 text-sm text-gray-500">機能フラグがありません</p>}
           {flags.map((flag) => (
             <div key={flag.id} className={`flex items-center gap-4 px-4 py-3.5 ${saving === flag.id ? 'opacity-50' : ''}`}>
               <div className="flex-1 min-w-0">
@@ -104,7 +126,7 @@ export default function FeatureFlagsPage() {
               <select
                 value={flag.rollout_pct}
                 onChange={(e) => updateFlag(flag.id, { rollout_pct: parseInt(e.target.value, 10) })}
-                disabled={saving === flag.id || !flag.enabled}
+                disabled={saving !== null || !flag.enabled}
                 className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 bg-white disabled:opacity-50 w-20"
               >
                 {[0, 1, 5, 10, 25, 50, 75, 100].map((v) => (
@@ -116,7 +138,7 @@ export default function FeatureFlagsPage() {
               <button
                 type="button"
                 onClick={() => updateFlag(flag.id, { enabled: !flag.enabled, rollout_pct: !flag.enabled ? 100 : 0 })}
-                disabled={saving === flag.id}
+                disabled={saving !== null}
                 className={`relative w-11 h-6 rounded-full transition-colors shrink-0 focus:outline-hidden ${
                   flag.enabled ? 'bg-emerald-500' : 'bg-gray-300'
                 } disabled:opacity-50`}
