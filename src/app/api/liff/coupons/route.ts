@@ -50,11 +50,14 @@ export async function GET(req: NextRequest) {
   const admin = createServiceRoleClient();
 
   // line_user_id から profiles の user_id を取得
-  const { data: profile } = await admin
+  const { data: profile, error: profileError } = await admin
     .from('profiles')
     .select('id')
     .eq('line_user_id', lineProfile.userId)
-    .single();
+    .maybeSingle();
+  if (profileError) {
+    return serverError('liff-coupons-profile', profileError, '/api/liff/coupons', 'Internal Server Error');
+  }
   if (!profile) {
     return NextResponse.json({ error: 'User not found' }, { status: 404 });
   }

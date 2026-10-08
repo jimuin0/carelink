@@ -500,6 +500,42 @@ describe('POST /api/booking', () => {
     expect(json.error).toContain('ポイント');
   });
 
+  test.each([null, [{ points: 10000 }]])('残高SELECT障害は不足扱いせず500・予約を作成しない: %p', async (data) => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    const pointsChain = fluent(null);
+    pointsChain.eq = jest.fn().mockResolvedValue({ data, error: { message: 'DB unavailable' } });
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'facility_menus') return menuLookupChain();
+      if (table === 'user_points') return pointsChain;
+      return fluent({ data: null });
+    });
+    const res = await POST(makeRequest({ ...validBooking, points_used: 500 }));
+    expect(res.status).toBe(500);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['2026-10-08T14:59:59.999Z', '2026-10-08', '2026-10-08', 200],
+    ['2026-10-08T15:00:00.000Z', '2026-10-08', '2026-10-08', 400],
+    ['2026-10-08T15:00:00.000Z', '2026-10-09', '2026-10-09', 200],
+    ['2026-10-08T14:59:59.999Z', '2026-10-09', '2026-10-09', 400],
+  ])('DATEクーポンはJST境界で判定する: now=%s from=%s until=%s', async (now, validFrom, validUntil, status) => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(now));
+    try {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'facility_menus') return menuLookupChain();
+        if (table === 'coupons') return fluent({ data: { is_active: true, valid_from: validFrom, valid_until: validUntil, discount_type: 'fixed', discount_value: 500 } });
+        if (table === 'coupon_menus') return couponMenusChain([]);
+        return fluent({ data: null });
+      });
+      const res = await POST(makeRequest({ ...validBooking, coupon_id: '623e4567-e89b-12d3-a456-426614174000' }));
+      expect(res.status).toBe(status);
+      if (status === 400) expect(mockRpc).not.toHaveBeenCalled();
+    } finally { jest.useRealTimers(); }
+  });
+
   test('価格を超える points_used はサーバ価格にクランプして控除（過剰控除防止・回帰防止）', async () => {
     // menu 価格 8000 に対し points_used=10000 を送る。クランプで pointsUsed=8000・請求=0 になる。
     // 旧コードは full 10000 を p_points_used に渡し 2000pt 過剰控除していた。

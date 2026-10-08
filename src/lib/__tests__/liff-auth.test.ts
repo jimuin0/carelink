@@ -12,12 +12,12 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 const mockVerify = verifyLineAccessToken as jest.MockedFunction<typeof verifyLineAccessToken>;
 const mockCreateAdmin = createServiceRoleClient as jest.MockedFunction<typeof createServiceRoleClient>;
 
-function adminReturning(data: unknown) {
+function adminReturning(data: unknown, error: unknown = null) {
   return {
     from: jest.fn().mockReturnValue({
       select: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          single: jest.fn().mockResolvedValue({ data }),
+          maybeSingle: jest.fn().mockResolvedValue({ data, error }),
         }),
       }),
     }),
@@ -79,5 +79,12 @@ describe('resolveLiffUserId', () => {
     global.fetch = jest.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ userId: 'U1' }) }) as unknown as typeof fetch;
     mockCreateAdmin.mockReturnValue(adminReturning({ id: 'app-user-1' }));
     expect(await resolveLiffUserId('tok')).toBe('app-user-1');
+  });
+
+  it.each([null, { id: 'app-user-1' }])('DB障害は未連携へ変換せず、data=%pでもrejectする', async (data) => {
+    mockVerify.mockResolvedValue({ ok: true });
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ userId: 'U1' }) }) as unknown as typeof fetch;
+    mockCreateAdmin.mockReturnValue(adminReturning(data, { message: 'connection failed' }));
+    await expect(resolveLiffUserId('tok')).rejects.toThrow('LIFF profile lookup failed');
   });
 });

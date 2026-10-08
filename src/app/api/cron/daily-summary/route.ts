@@ -46,7 +46,7 @@ async function sendDailySummaryEmails(
   // skip される（設定 ON なのに届かない silent miss）。error を可視化して原因を追える様にする。
   if (optedInErr) {
     console.error('[daily-summary] facility_notification_settings fetch failed', { err: optedInErr });
-    return { sent: 0, failed: 0, skipped: 0 };
+    throw new Error('Daily summary notification settings lookup failed', { cause: optedInErr });
   }
   if (optedIn.length === 0) return { sent: 0, failed: 0, skipped: 0 };
   const facilityIds = optedIn.map((r) => r.facility_id);
@@ -59,7 +59,7 @@ async function sendDailySummaryEmails(
   // 同上：daily_revenue_summary の取得失敗を「サマリ 0 件」と区別できず無音 skip するのを防ぐ。
   if (summariesErr) {
     console.error('[daily-summary] daily_revenue_summary fetch failed', { err: summariesErr, date: dateStr });
-    return { sent: 0, failed: 0, skipped: 0 };
+    throw new Error('Daily summary data lookup failed', { cause: summariesErr });
   }
   if (!summaries || summaries.length === 0) return { sent: 0, failed: 0, skipped: 0 };
 
@@ -69,22 +69,25 @@ async function sendDailySummaryEmails(
   // ループ内はマップ参照のみにする(クエリ数はO(1)、件数に依存しない)。
   const summaryFacilityIds = [...new Set((summaries as Array<{ facility_id: string }>).map((s) => s.facility_id))];
 
-  const { data: owners } = await supabase
+  const { data: owners, error: ownersError } = await supabase
     .from('facility_members').select('facility_id, user_id')
     .in('facility_id', summaryFacilityIds).eq('role', 'owner');
+  if (ownersError) throw new Error('Daily summary owners lookup failed', { cause: ownersError });
   const ownerByFacility = new Map<string, string>();
   for (const o of (owners ?? []) as Array<{ facility_id: string; user_id: string }>) {
     if (!ownerByFacility.has(o.facility_id)) ownerByFacility.set(o.facility_id, o.user_id);
   }
 
   const ownerUserIds = [...new Set(ownerByFacility.values())];
-  const { data: profs } = ownerUserIds.length
+  const { data: profs, error: profilesError } = ownerUserIds.length
     ? await supabase.from('profiles').select('id, email').in('id', ownerUserIds)
-    : { data: [] as Array<{ id: string; email: string | null }> };
+    : { data: [] as Array<{ id: string; email: string | null }>, error: null };
+  if (profilesError) throw new Error('Daily summary owner profiles lookup failed', { cause: profilesError });
   const emailByUserId = new Map((profs ?? []).map((p) => [p.id as string, p.email as string | null]));
 
-  const { data: facs } = await supabase
+  const { data: facs, error: facilitiesError } = await supabase
     .from('facility_profiles').select('id, name').in('id', summaryFacilityIds);
+  if (facilitiesError) throw new Error('Daily summary facilities lookup failed', { cause: facilitiesError });
   const nameByFacility = new Map((facs ?? []).map((f) => [f.id as string, f.name as string | null]));
 
   let sent = 0;
@@ -180,6 +183,10 @@ export async function GET(request: Request) {
       emailsSkipped = r.skipped;
     } catch (e) {
       console.error('[daily-summary] summary email batch failed', e);
+      return cronError('daily-summary', startedAt, e, {
+        extraLog: { processed: count, meta: { date: dateStr, aggregationCompleted: true, notificationBatchFailed: true } },
+        extraBody: { processed: count, date: dateStr, aggregationCompleted: true },
+      });
     }
 
     // processed/skipped は aggregate_daily_revenue RPC（施設単位の集計）の文脈の値で、

@@ -6,13 +6,7 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
-
-const inquirySchema = z.object({
-  name: z.string().min(1, 'お名前を入力してください'),
-  email: z.string().email('正しいメールアドレスを入力してください'),
-  phone: z.string().regex(/^0\d{1,4}-?\d{1,4}-?\d{3,4}$/, '正しい電話番号を入力してください').or(z.literal('')).optional(),
-  message: z.string().min(1, 'お問い合わせ内容を入力してください').max(1000, '1000文字以内で入力してください'),
-});
+import { facilityInquirySchema as inquirySchema } from '@/lib/validations-inquiry';
 
 type InquiryFormData = z.infer<typeof inquirySchema>;
 
