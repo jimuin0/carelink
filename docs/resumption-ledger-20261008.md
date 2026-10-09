@@ -70,10 +70,10 @@ PR #632の全差分を読み、プロフィール作成失敗をAuth登録成功
 - レビューの元画像・容量・MIME・実ownerを照合し、画像失敗で本文だけを送らない。結果不明は入力と受付fenceを保持する。Threadsも開始前の永続証明と公開済みの証拠を照合し、containerの準備完了だけを公開成功としない。
 - ニュースレターは同一キャンペーンの固定operation・宛先別queueで受理／不明／抑止を区別し、配信停止を原子化。clientの任意メール購読書込みを閉じる。受付・配信停止・Auth削除の実競合を確認。
 - LINEは両表で一致する本人確認済みの所有者だけを認め、自己編集profile・未確認リンク・email一致からログインを作らない。標準Supabase接続では作成できないAuth索引を除去し、信頼候補が複数なら選ばず停止する。外部Auth作成の厳密な1回保証や既存dataの推測統合は約束しない。
-- Auth/reCAPTCHAの待機を制限し、障害で入力を消さない。新しい登録は同意記録を保存し、旧フォームは同意なしの履歴を推測追加せず段階移行を維持する。
+- Auth/reCAPTCHAの待機を制限し、障害で入力を消さない。ログイン・新規登録のSSR入力欄はhydration完了まで停止し、初期化による入力喪失を防ぐ。新しい登録は同意記録を保存し、旧フォームは同意なしの履歴を推測追加せず段階移行を維持する。
 - AIは共有24時間quota、retention、bot proof、SDK再試行0と全応答deadlineを確認し、医療相談本文をログへ出さない。回答待ち中の次の入力を保持する。Blogの障害を404と扱わず、Calendar DELETEは削除証拠と同じ記録へのCASだけで解除する。時差の変更は保留。
 
-全500suite・10,485test、分岐10,519/10,519＝100%。258 migrationのfresh PG17/C localeが一致しfingerprint2,942項目、34 SQL rollback fixtureが成功。標準ローカルSupabaseで同じmigration本文を検証し、公式CLIから型を生成（public119table/view）、隔離実API17件・静的契約17件、実ロック競合、Chromium/Safariの対象検証も確認した。追加段階の最終GitHub CI/全体HTTPS E2Eは別途確認する。
+全500suite・10,487test、分岐10,519/10,519＝100%。258 migrationのfresh PG17/C localeが一致しfingerprint2,942項目、34 SQL rollback fixtureが成功。標準ローカルSupabaseで同じmigration本文を検証し、公式CLIから型を生成（public119table/view）、隔離実API17件・静的契約17件、実ロック競合、Chromium/Safariの対象検証も確認した。追加段階の最終GitHub CI/全体HTTPS E2Eは別途確認する。
 
 本番の基準は引き続きa46f5e18。第1段階PR #665の7本の正式migration要求はcancelledのため未適用を確認し、再開の本人確認待ち。第2段階の8本も未適用。旧OAuth/古いscheduler・pinned経路の停止とdrain、新workerの稼働確認は本番の実確認が必要で、新mainの配信だけで証明済みとはしない。
 

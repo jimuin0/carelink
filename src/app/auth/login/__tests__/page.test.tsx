@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { renderToString } from 'react-dom/server.node';
 import { AuthApiError, AuthRetryableFetchError } from '@supabase/supabase-js';
 import LoginPage from '../page';
 
@@ -38,9 +39,20 @@ function submit(email = 'owner@example.com') {
   fireEvent.change(screen.getByLabelText('パスワード'), { target: { value: 'password123' } });
   fireEvent.click(screen.getByRole('button', { name: 'ログイン', exact: true }));
 }
+test('SSR keeps login controls and Google disabled until client handlers are installed', () => {
+  const document = window.document.createElement('div');
+  document.innerHTML = renderToString(<LoginPage />);
+  expect(document.querySelector('#login-email')).toBeDisabled();
+  expect(document.querySelector('#login-password')).toBeDisabled();
+  expect(Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Googleでログイン')).toBeDisabled();
+  expect(mockGetUser).not.toHaveBeenCalled();
+  expect(mockSignIn).not.toHaveBeenCalled();
+});
 test('unsettled initial verification keeps the form/input and does not navigate for a late user',async()=>{
  jest.useFakeTimers();let finish!: (value:unknown)=>void;
  mockGetUser.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));render(<LoginPage />);
+ expect(screen.getByLabelText('メールアドレス')).toBeEnabled();
+ expect(screen.getByRole('button',{name:'Googleでログイン'})).toBeEnabled();
  fireEvent.change(screen.getByLabelText('メールアドレス'),{target:{value:'retained@example.invalid'}});
  await act(async()=>{await jest.advanceTimersByTimeAsync(5000);});
  await act(async()=>{finish({data:{user:{id:'late'}}});await Promise.resolve();});

@@ -16,6 +16,7 @@
  */
 import '@testing-library/jest-dom';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { renderToString } from 'react-dom/server.node';
 import SignupPage from '../page';
 
 const mockPush = jest.fn();
@@ -61,6 +62,17 @@ function submit() {
   fireEvent.click(screen.getByRole('button', { name: '新規登録' }));
 }
 
+test('SSR keeps signup controls and Google disabled until client handlers are installed', () => {
+  const document = window.document.createElement('div');
+  document.innerHTML = renderToString(<SignupPage />);
+  expect(document.querySelector('#signup-name')).toBeDisabled();
+  expect(document.querySelector('#signup-email')).toBeDisabled();
+  expect(document.querySelector('#signup-terms')).toBeDisabled();
+  expect(Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Googleで登録')).toBeDisabled();
+  expect(mockGetUser).not.toHaveBeenCalled();
+  expect(mockSignUp).not.toHaveBeenCalled();
+});
+
 test('email and Google registration require fresh explicit consent without calling Auth', async () => {
   render(<SignupPage />);fillForm();
   fireEvent.click(screen.getByRole('checkbox',{name:/利用規約/}));
@@ -74,6 +86,8 @@ test('email and Google registration require fresh explicit consent without calli
 test('unsettled initial verification leaves signup usable and ignores a late user',async()=>{
  jest.useFakeTimers();let finish!: (value:unknown)=>void;
  mockGetUser.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));render(<SignupPage />);
+ expect(screen.getByLabelText(/^メールアドレス/)).toBeEnabled();
+ expect(screen.getByRole('button',{name:'Googleで登録'})).toBeEnabled();
  fireEvent.change(screen.getByLabelText(/^メールアドレス/),{target:{value:'retained@example.invalid'}});
  await act(async()=>{await jest.advanceTimersByTimeAsync(5000);});
  await act(async()=>{finish({data:{user:{id:'late'}}});await Promise.resolve();});
