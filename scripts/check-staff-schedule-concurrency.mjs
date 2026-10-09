@@ -1,8 +1,9 @@
 // Observe actual PostgreSQL lock contention using only disposable synthetic rows.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-const local = process.argv[2] === '--local-docker';
-const database = local ? 'postgres' : 'carelink_shadow';
+const shadowDocker = process.argv[2] === '--local-docker-shadow';
+const local = shadowDocker || process.argv[2] === '--local-docker';
+const database = local && !shadowDocker ? 'postgres' : 'carelink_shadow';
 let executable; let argumentsFor; let environment;
 if (local) {
   assert.match(process.env.DOCKER_HOST || '', /^unix:\/\/.+\/\.docker\/run\/docker\.sock$/);

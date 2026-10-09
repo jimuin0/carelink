@@ -1,13 +1,15 @@
 // Synthetic-only PG17 race contracts. No HTTP, Storage, provider or production I/O.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-const localDocker = process.argv[2] === '--local-docker';
+const shadowDocker = process.argv[2] === '--local-docker-shadow';
+const localDocker = shadowDocker || process.argv[2] === '--local-docker';
+const database = localDocker && !shadowDocker ? 'postgres' : 'carelink_shadow';
 assert.ok(process.argv.length <= 3 && (!process.argv[2] || localDocker), 'unsupported runner mode');
 if (process.env.PGSERVICE || process.env.PGSERVICEFILE || process.env.PGHOSTADDR) throw new Error('alternate connection refused');
 let binary, args, dbEnv;
 if (localDocker) {
   assert.match(process.env.DOCKER_HOST || '', /^unix:\/\/\/Users\/kam\/\.carelink-vm-20261008\/\.docker\/run\/docker\.sock$/);
-  binary = 'docker'; args = ['exec', '-i', 'supabase_db_carelink', 'psql', '-U', 'postgres', '-d', 'postgres'];
+  binary = 'docker'; args = ['exec', '-i', 'supabase_db_carelink', 'psql', '-U', 'postgres', '-d', database];
   dbEnv = { PATH: process.env.PATH, DOCKER_HOST: process.env.DOCKER_HOST, DOCKER_CONFIG: process.env.DOCKER_CONFIG };
 } else {
   assert.equal(process.env.GITHUB_ACTIONS, 'true'); assert.equal(process.env.CI, 'true');
@@ -68,7 +70,7 @@ const remove = pid => `SELECT count(*) FROM public.delete_facility_photo_atomic(
 const moderate = decision => `SELECT replayed FROM public.moderate_content_atomic('${actor}','${queue}','pending','${decision}',NULL)`;
 let created = false;
 async function main() {
-  assert.equal(query('SELECT current_database()'), localDocker ? 'postgres' : 'carelink_shadow');
+  assert.equal(query('SELECT current_database()'), database);
   assert.equal(query("SELECT current_setting('server_version_num')::integer BETWEEN 170000 AND 179999"), 't');
   assert.equal(query(`SELECT EXISTS(SELECT 1 FROM auth.users WHERE id='${actor}') OR EXISTS(SELECT 1 FROM public.facility_profiles WHERE id='${fid}')`), 'f');
   query(`BEGIN;
@@ -100,6 +102,16 @@ async function main() {
   race = await orderedRace('duplicate-url-two-server-deletes', `DELETE FROM public.facility_photos WHERE id='${photo}'`, `WITH removed AS (DELETE FROM public.facility_photos WHERE id='${otherPhoto}' RETURNING id) SELECT count(*) FROM removed`);
   assert.equal(race.code, 0, race.errors); assert.equal(race.output, '1');
   assert.equal(query(`SELECT main_photo_url IS NULL AND NOT EXISTS(SELECT 1 FROM public.facility_photos WHERE facility_id='${fid}') FROM public.facility_profiles WHERE id='${fid}'`), 't');
+  addPhoto(photo);
+  const revoke = `UPDATE public.facility_members SET role='staff' WHERE facility_id='${fid}' AND user_id='${actor}'`;
+  race = await orderedRace('role-revoked-before-main', revoke, setMain(photo));
+  assert.notEqual(race.code, 0); assert.match(race.errors, /FACILITY_PERMISSION_REVOKED/);
+  assert.equal(query(`SELECT main_photo_url IS NULL FROM public.facility_profiles WHERE id='${fid}'`),'t');
+  query(`UPDATE public.facility_members SET role='owner' WHERE facility_id='${fid}' AND user_id='${actor}'`);
+  race = await orderedRace('role-revoked-before-delete', revoke, remove(photo));
+  assert.notEqual(race.code, 0); assert.match(race.errors, /FACILITY_PERMISSION_REVOKED/);
+  assert.equal(query(`SELECT count(*) FROM public.facility_photos WHERE id='${photo}'`),'1');
+  query(`UPDATE public.facility_members SET role='owner' WHERE facility_id='${fid}' AND user_id='${actor}'`);
   race = await orderedRace('same-decision-replay', moderate('rejected'), moderate('rejected'));
   assert.equal(race.code, 0, race.errors); assert.equal(race.output, 't');
   assert.equal(query(`SELECT q.status='rejected' AND r.status='hidden' AND q.reviewed_by='${actor}' FROM public.moderation_queue q JOIN public.facility_reviews r ON r.id=q.content_id WHERE q.id='${queue}'`), 't');
@@ -122,7 +134,21 @@ async function main() {
   race = await orderedRace('parent-cascade-before-moderation', `DELETE FROM public.facility_profiles WHERE id='${fid}'`, `SELECT count(*) FROM public.moderate_content_atomic('${actor}','${queue}','pending','rejected',NULL)`);
   assert.equal(race.code, 0, race.errors); assert.equal(race.output, '0');
   assert.equal(query(`SELECT EXISTS(SELECT 1 FROM public.facility_profiles WHERE id='${fid}') OR EXISTS(SELECT 1 FROM public.moderation_queue WHERE id='${queue}')`), 'f');
-  console.log('Moderation/photo PG17 concurrency passed: 9 observed overlaps, both set/delete orders, new-main preservation, duplicate-URL server deletion, exact replay, conflicting decision CAS, authority revocation and both parent-cascade/moderation orders. Synthetic local/shadow only.');
+  const recreate = () => {
+    query(`INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status)
+      VALUES('${fid}','Synthetic photo parent race','synthetic-modphoto-concurrency','その他','合成県','合成市','合成住所','draft');
+      INSERT INTO public.facility_members(user_id,facility_id,role) VALUES('${actor}','${fid}','owner');`);
+    addPhoto(photo);
+  };
+  recreate();
+  race = await orderedRace('parent-delete-before-photo', `DELETE FROM public.facility_profiles WHERE id='${fid}'`, setMain(photo));
+  assert.equal(race.code,0,race.errors);assert.equal(race.output,'0');
+  assert.equal(query(`SELECT count(*) FROM public.facility_photos WHERE id='${photo}'`),'0');
+  recreate();
+  race = await orderedRace('photo-before-parent-delete', setMain(photo), `WITH removed AS (DELETE FROM public.facility_profiles WHERE id='${fid}' RETURNING id) SELECT count(*) FROM removed`);
+  assert.equal(race.code,0,race.errors);assert.equal(race.output,'1');
+  assert.equal(query(`SELECT count(*) FROM public.facility_profiles WHERE id='${fid}'`),'0');
+  console.log('Moderation/photo PG17 concurrency passed: 13 observed overlaps, both set/delete orders, new-main preservation, duplicate-URL server deletion, exact replay, conflicting decision CAS, authority revocation, photo role revocation and both parent-cascade/moderation/photo orders. Synthetic local/shadow only.');
 }
 try { await main(); } finally {
   for (const child of children) child.kill('SIGTERM');

@@ -61,8 +61,11 @@ REVOKE ALL ON FUNCTION public.moderate_content_atomic(uuid,uuid,text,text,text,t
 GRANT EXECUTE ON FUNCTION public.moderate_content_atomic(uuid,uuid,text,text,text,timestamptz) TO service_role;
 
 -- R10: new deletion and main-photo designation use the same lock order:
--- actor account -> profile -> membership -> photo. Account deletion cannot
--- hold a membership while this writer holds its facility lock. The photo is
+-- actor account -> profile KEY SHARE -> membership SHARE -> profile NO KEY
+-- UPDATE -> photo. The weak parent lock protects DELETE without preventing a
+-- pending role change from finishing before the final membership check.
+-- Non-key upgrades remain compatible with other writers' initial KEY SHARE.
+-- The photo is
 -- selected inside that transaction,
 -- never converted to a URL by an earlier unlocked application-side read.
 CREATE FUNCTION public.set_facility_main_photo_atomic(p_actor_id uuid,p_facility_id uuid,p_photo_id uuid)
@@ -70,11 +73,12 @@ RETURNS TABLE(id uuid) LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS
 DECLARE url text;
 BEGIN
   PERFORM public.lock_booking_account(p_actor_id);
-  PERFORM 1 FROM public.facility_profiles p WHERE p.id=p_facility_id FOR UPDATE;
+  PERFORM 1 FROM public.facility_profiles p WHERE p.id=p_facility_id FOR KEY SHARE;
   IF NOT FOUND THEN RETURN; END IF;
   PERFORM 1 FROM public.facility_members m WHERE m.facility_id=p_facility_id AND m.user_id=p_actor_id
     AND m.role IN ('owner','admin') FOR SHARE;
   IF NOT FOUND THEN RAISE EXCEPTION 'FACILITY_PERMISSION_REVOKED'; END IF;
+  PERFORM 1 FROM public.facility_profiles p WHERE p.id=p_facility_id FOR NO KEY UPDATE;
   SELECT p.photo_url INTO url FROM public.facility_photos p WHERE p.id=p_photo_id
     AND p.facility_id=p_facility_id FOR SHARE;
   IF NOT FOUND THEN RETURN; END IF;
@@ -89,11 +93,12 @@ CREATE FUNCTION public.delete_facility_photo_atomic(p_actor_id uuid,p_facility_i
 RETURNS TABLE(id uuid) LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS $$
 BEGIN
   PERFORM public.lock_booking_account(p_actor_id);
-  PERFORM 1 FROM public.facility_profiles p WHERE p.id=p_facility_id FOR UPDATE;
+  PERFORM 1 FROM public.facility_profiles p WHERE p.id=p_facility_id FOR KEY SHARE;
   IF NOT FOUND THEN RETURN; END IF;
   PERFORM 1 FROM public.facility_members m WHERE m.facility_id=p_facility_id AND m.user_id=p_actor_id
     AND m.role IN ('owner','admin') FOR SHARE;
   IF NOT FOUND THEN RAISE EXCEPTION 'FACILITY_PERMISSION_REVOKED'; END IF;
+  PERFORM 1 FROM public.facility_profiles p WHERE p.id=p_facility_id FOR NO KEY UPDATE;
   -- Listing publication remains separate from booking preparation. Deleting
   -- the last photo does not silently change publication; booking readiness
   -- requires a remaining photo and the authoritative booking RPC rechecks it.
@@ -116,7 +121,7 @@ BEGIN
     -- Lock first, then inspect remaining references in a fresh statement.
     -- Otherwise two direct server deletes can each see the other's pending
     -- duplicate URL and both leave a dangling main URL at commit.
-    PERFORM 1 FROM public.facility_profiles WHERE id=OLD.facility_id FOR UPDATE;
+    PERFORM 1 FROM public.facility_profiles WHERE id=OLD.facility_id FOR NO KEY UPDATE;
     UPDATE public.facility_profiles SET main_photo_url=NULL,updated_at=clock_timestamp()
       WHERE facility_profiles.id=OLD.facility_id AND main_photo_url=OLD.photo_url
         AND NOT EXISTS(SELECT 1 FROM public.facility_photos p WHERE p.facility_id=OLD.facility_id AND p.photo_url=OLD.photo_url);
@@ -148,11 +153,12 @@ BEGIN
       'features','regular_holiday','business_hours','booking_auto_confirm','booking_buffer_minutes',
       'board_slot_minutes','status','updated_at'])) THEN RAISE EXCEPTION 'INVALID_FACILITY_PATCH'; END IF;
   PERFORM public.lock_booking_account(p_actor_id);
-  SELECT * INTO f FROM public.facility_profiles p WHERE p.id=p_facility_id FOR UPDATE;
+  PERFORM 1 FROM public.facility_profiles p WHERE p.id=p_facility_id FOR KEY SHARE;
   IF NOT FOUND THEN RAISE EXCEPTION 'FACILITY_NOT_FOUND'; END IF;
   PERFORM 1 FROM public.facility_members m WHERE m.facility_id=p_facility_id AND m.user_id=p_actor_id
     AND m.role IN ('owner','admin') FOR SHARE;
   IF NOT FOUND THEN RAISE EXCEPTION 'FACILITY_PERMISSION_REVOKED'; END IF;
+  SELECT * INTO f FROM public.facility_profiles p WHERE p.id=p_facility_id FOR NO KEY UPDATE;
   n := jsonb_populate_record(f,p_patch);
   IF n.status='published' AND NOT EXISTS(SELECT 1 FROM public.facility_members
     WHERE facility_id=p_facility_id AND role='owner') THEN RAISE EXCEPTION 'FACILITY_OWNER_REQUIRED'; END IF;

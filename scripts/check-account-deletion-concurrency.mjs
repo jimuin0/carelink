@@ -1,8 +1,10 @@
 // Synthetic PG17 transactions only. No provider calls, real recipients or business cleanup.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-const local = process.argv[2] === '--local-docker';
-const database = local ? 'postgres' : 'carelink_shadow';
+const shadowDocker = process.argv[2] === '--local-docker-shadow';
+const local = shadowDocker || process.argv[2] === '--local-docker';
+const actualProviderRole = local && !shadowDocker;
+const database = actualProviderRole ? 'postgres' : 'carelink_shadow';
 const prefix = `retirement-race-${Date.now().toString(36)}-${process.pid}`;
 let executable; let argumentsFor; let environment;
 if (local) {
@@ -81,7 +83,7 @@ async function ownerJoinWhileDeleting() {
   coordinator.child.stdin.write(`BEGIN; SELECT id FROM auth.users WHERE id='${owner}' FOR KEY SHARE; SELECT 'locked';\n`);
   const deadline=Date.now()+20000;
   while(!coordinator.output().includes('locked\n')) {if(Date.now()>deadline)throw new Error('owner fixture lock missing');await new Promise(resolve=>setTimeout(resolve,20));}
-  const removal=client(deletion(owner),name,local);
+  const removal=client(deletion(owner),name,actualProviderRole);
   while(query(`SELECT count(*) FROM pg_stat_activity a WHERE a.datname=current_database() AND a.application_name='${name}'
     AND a.wait_event_type='Lock' AND EXISTS(SELECT 1 FROM pg_stat_activity c WHERE c.application_name='${name}-coord' AND c.pid=ANY(pg_blocking_pids(a.pid)))`)!=='1') {
     if(Date.now()>deadline)throw new Error('Auth deletion overlap missing');await new Promise(resolve=>setTimeout(resolve,20));
@@ -99,7 +101,7 @@ async function lastOwnerVsPublication() {
   coordinator.child.stdin.write(`BEGIN; SELECT id FROM public.facility_profiles WHERE id='${facility}' FOR UPDATE; SELECT 'locked';\n`);
   const deadline=Date.now()+20000;
   while(!coordinator.output().includes('locked\n')) {if(Date.now()>deadline)throw new Error('profile fixture lock missing');await new Promise(resolve=>setTimeout(resolve,20));}
-  const removal=client(deletion(coowner),name,local);
+  const removal=client(deletion(coowner),name,actualProviderRole);
   while(query(`SELECT count(*) FROM pg_stat_activity a WHERE a.datname=current_database() AND a.application_name='${name}' AND a.wait_event_type='Lock'
     AND EXISTS(SELECT 1 FROM pg_stat_activity c WHERE c.application_name='${name}-coord' AND c.pid=ANY(pg_blocking_pids(a.pid)))`)!=='1') {
     if(Date.now()>deadline)throw new Error('retirement parent lock overlap missing');await new Promise(resolve=>setTimeout(resolve,20));
@@ -120,7 +122,7 @@ async function main() {
   assert.equal(query('SELECT current_database()'),database); assert.equal(query("SELECT current_setting('server_version_num')::int/10000"),'17');
   assert.equal(query('SELECT public.account_deletion_cleanup_version()'),'1');
   assert.equal(query(`SELECT count(*) FROM public.facility_profiles WHERE id IN ('${facility}','${failingFacility}')`),'0');
-  if(local) {
+  if(actualProviderRole) {
     const role=await client('SELECT current_user;',`${prefix}-auth-check`,true).done; assert.equal(role,'supabase_auth_admin');
     assert.equal(query("SELECT has_function_privilege('supabase_auth_admin','public.cleanup_deleting_account_personal_data()','EXECUTE')"),'f');
   }
@@ -128,7 +130,7 @@ async function main() {
     INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES('${facility}','Synthetic retirement race','synthetic-retirement-race','その他','検証県','検証市','検証住所','published'),('${failingFacility}','Synthetic Auth failure','synthetic-auth-failure-race','その他','検証県','検証市','検証住所','published');
     INSERT INTO public.facility_members(user_id,facility_id,role) VALUES('${owner}','${facility}','owner'),('${failingOwner}','${failingFacility}','owner');
     UPDATE public.profiles SET line_user_id='${line}' WHERE id='${failingOwner}';
-    INSERT INTO public.line_user_links(line_user_id,display_name) VALUES('${line}','Synthetic retained follower');
+    INSERT INTO public.line_user_links(line_user_id,user_id,display_name) VALUES('${line}','${failingOwner}','Synthetic retained follower');
     INSERT INTO public.favorites(user_id,facility_id) VALUES('${failingOwner}','${failingFacility}');
     INSERT INTO public.user_points(user_id,points,reason) VALUES('${failingOwner}',123,'Synthetic failed-retirement balance'); COMMIT;`);
   fixtureCreated=true;
@@ -136,14 +138,14 @@ async function main() {
   // Force a failure AFTER all 17 cleanup operations executed, without adding
   // any global fixture trigger/permission. A transaction rollback must restore
   // every earlier cleanup and the last-owner suspension.
-  const rollback=await client(`BEGIN; DELETE FROM auth.users WHERE id='${failingOwner}' RETURNING id; ROLLBACK;`,`${prefix}-provider-rollback`,local).done;
+  const rollback=await client(`BEGIN; DELETE FROM auth.users WHERE id='${failingOwner}' RETURNING id; ROLLBACK;`,`${prefix}-provider-rollback`,actualProviderRole).done;
   assert.equal(rollback,failingOwner);
   assert.equal(query(`SELECT count(*) FROM auth.users WHERE id='${failingOwner}'`),'1');
   assert.equal(query(`SELECT count(*) FROM public.favorites WHERE user_id='${failingOwner}'`),'1');
   assert.equal(query(`SELECT sum(points) FROM public.user_points WHERE user_id='${failingOwner}'`),'123');
   assert.equal(query(`SELECT count(*) FROM public.line_user_links WHERE line_user_id='${line}'`),'1');
   assert.equal(query(`SELECT status FROM public.facility_profiles WHERE id='${failingFacility}'`),'published');
-  console.log(`retirement concurrency passed: new co-owner race, last-owner/stale-publication race, complete cleanup rollback${local ? ', actual existing Auth DB role with no direct trigger EXECUTE' : ', standalone shadow role semantics'}; synthetic only`);
+  console.log(`retirement concurrency passed: new co-owner race, last-owner/stale-publication race, complete cleanup rollback${actualProviderRole ? ', actual existing Auth DB role with no direct trigger EXECUTE' : ', standalone shadow role semantics'}; synthetic only`);
 }
 try { await main(); }
 finally {

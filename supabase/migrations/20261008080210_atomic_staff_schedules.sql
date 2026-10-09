@@ -206,6 +206,20 @@ GRANT EXECUTE ON FUNCTION public.get_staff_mutation_operation(uuid,uuid,uuid,tex
 
 -- Preserve current authoritative booking bodies and grants. Insert the common
 -- schedule lock before any day lock or schedule read, including outer wrappers.
+-- A role-revocation writer already owns its member row before the AFTER
+-- last-owner trigger runs. Its non-key status update must not conflict with
+-- a booking's parent KEY SHARE while that booking waits for the same member.
+-- Auth's active-booking/retirement guard keeps its stronger parent protection.
+DO $$
+DECLARE definition text; old text := 'WHERE id=OLD.facility_id FOR UPDATE;';
+BEGIN
+  definition := pg_catalog.pg_get_functiondef('public.suspend_last_owned_facility()'::regprocedure);
+  IF (length(definition)-length(replace(definition,old,'')))/length(old)<>1
+    THEN RAISE EXCEPTION 'STAFF_OWNER_LOCK_FORWARD_UPDATE_MISMATCH'; END IF;
+  EXECUTE replace(definition,old,'WHERE id=OLD.facility_id FOR NO KEY UPDATE;');
+END;
+$$;
+
 DO $$
 DECLARE definition text; signature text; old text; replacement text;
 BEGIN
