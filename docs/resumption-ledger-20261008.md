@@ -15,7 +15,7 @@
 | #661 / #662 | マージ済み。#662のmain CI 37110697542で単体9,559件、分岐100%、隔離実API17件、E2E324件、flaky/skip0。本番version1801e66を確認 |
 | #663 | CI 37729102345、PG17 37729102316成功後にmerge117e42a。単体9,573件、分岐100%、実API17件、E2E324件・flaky/skip0。本番200・healthy・version一致 |
 | #664 | PR head b85d2084のCI 37734023083・PG17 37734023084成功。merge a46f5e1のmain CI37735593929・PG17 37735594002も成功。単体9,601件、分岐100%、実API17件、E2E324件・unexpected/flaky/skipped各0。Production deployment6928478917成功、06:21 UTCの本番200・healthy・version a46f5e1 |
-| #665 | head12a395d3のCI37871000634・PG17 37871000612成功、HTTPS E2E348件・unexpected/flaky/skipped各0。レビューで判明した退会前の共有fenceと未復元下書きの自動上書きを追加修正し、480suite/9956test・分岐9758/9758・型・lint負債3件を再確認。追加commitのCIと本番適用は未完了 |
+| #665 | head12a395d3のCI37871000634・PG17 37871000612成功、HTTPS E2E348件・unexpected/flaky/skipped各0。レビューで判明した退会前の共有fenceと未復元下書きの自動上書きを追加修正し、480suite/9956test・分岐9758/9758・型・lint負債3件を再確認。後続CI3318ee1aはE2Eに旧自動保存期待8件が残って失敗。未復元の保存原本を上書きできない期待へ修正し、実Chromium/Safariの18件・retry0が成功。最新commitの全体CIと本番適用は未完了 |
 | #647 / #651 | 全差分を現mainと照合し、traffic_source保存とSlack本文の変更は現存。再マージ不要。PRの閉鎖は未実施 |
 | #646 | 追加された流入元テスト3件のTypeScript構文木も現mainと一致。単なる整形だけの提案ではないが、再マージ不要。PRの閉鎖は未実施 |
 | #632 / #640 / #641、#626〜#630 | 原指摘・現main・最新lock・テスト単位の全照合は未完了。古いbranchを丸ごと再マージしない。Stripe更新は保留 |

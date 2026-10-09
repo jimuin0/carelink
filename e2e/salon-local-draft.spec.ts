@@ -34,7 +34,13 @@ async function raw(page: Page) {
 }
 const section = (page: Page) => page.getByRole('region', { name: 'この端末の下書き' });
 const optIn = (page: Page) => section(page).getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' });
-async function ready(page: Page) { await page.goto('/register'); await expect(page.locator('#reg-facility-name')).toBeEnabled(); await expect(optIn(page)).toBeEnabled(); }
+async function ready(page: Page, hasSavedDraft = false) {
+  await page.goto('/register'); await expect(page.locator('#reg-facility-name')).toBeEnabled();
+  if (hasSavedDraft) {
+    await expect(section(page).getByRole('button', { name: '端末の下書きを復元' })).toBeEnabled();
+    await expect(optIn(page)).toBeDisabled();
+  } else await expect(optIn(page)).toBeEnabled();
+}
 async function save(page: Page) {
   await optIn(page).click(); await expect(section(page).getByText('入力と元の写真を保存し、読み戻して確認しました。')).toBeVisible();
   return (await raw(page))!;
@@ -76,7 +82,12 @@ test('opt-in retains original photo bytes and partial input across a real Indexe
 });
 test('two actual browser tabs cannot overwrite an already advanced draft revision', async ({ page, context }) => {
   await isolated(context); await ready(page); await page.fill('#reg-facility-name', '先の入力'); const first = await save(page);
-  const other = await context.newPage(); await ready(other);
+  const other = await context.newPage(); await ready(other, true);
+  await expect(other.locator('#reg-facility-name')).toHaveValue('');
+  expect((await raw(other))!.revision).toBe(first.revision);
+  await section(other).getByRole('button', { name: '端末の下書きを復元' }).click();
+  await expect(other.locator('#reg-facility-name')).toHaveValue('先の入力');
+  await expect(optIn(other)).toBeEnabled();
   await page.fill('#reg-facility-name', '先のタブの新しい入力');
   await expect.poll(async () => (await raw(page))?.revision).toBeGreaterThan(first.revision);
   await optIn(other).click(); await expect(section(other).getByText(/別のタブで下書きが変更されました/)).toBeVisible();
@@ -120,7 +131,7 @@ test('transport sees a committed fence; lost session context and failed clearing
 test('manual import of the same saved original input adopts its revision and fences the next transport without autosave opt-in', async ({ page, context }) => {
   await isolated(context); await ready(page); await step3(page); const saved = await save(page);
   page.once('dialog', dialog => dialog.accept()); await page.reload();
-  await expect(optIn(page)).toBeEnabled();
+  await expect(optIn(page)).toBeDisabled();
   await page.getByLabel('バックアップから入力を復元').setInputFiles({ name: 'synthetic-backup.json', mimeType: 'application/json',
     buffer: Buffer.from(JSON.stringify(saved.backup)) });
   await expect(page.locator('#reg-facility-name')).toHaveValue('端末下書きの合成店舗');
@@ -142,7 +153,7 @@ test('different manual input cannot replace a saved draft; explicit clearing per
   await page.fill('#reg-facility-name', '端末に残す別の入力');
   await expect.poll(async () => (await raw(page))?.revision).toBeGreaterThan(earlier.revision);
   const latest = await raw(page); page.once('dialog', dialog => dialog.accept()); await page.reload();
-  await expect(optIn(page)).toBeEnabled();
+  await expect(optIn(page)).toBeDisabled();
   const file = { name: 'synthetic-earlier.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(earlier.backup)) };
   await page.getByLabel('バックアップから入力を復元').setInputFiles(file);
   await expect(section(page).getByText(/他の下書きがこの端末に保存されています/)).toBeVisible();
@@ -173,7 +184,7 @@ test('actual IndexedDB quota failure never shows a saved confirmation', async ({
 });
 test('an old retirement-tab cookie blocks restoration until real boot cleanup and its retry verify both stores', async ({ page, context }) => {
   await isolated(context); await ready(page); await page.fill('#reg-facility-name', '退会前の合成下書き'); const saved = await save(page);
-  const oldForm = await context.newPage(); await ready(oldForm);
+  const oldForm = await context.newPage(); await ready(oldForm, true);
   await page.evaluate(() => {
     sessionStorage.setItem('booking-draft:synthetic', JSON.stringify({ name: 'synthetic previous input' }));
     document.cookie = 'carelink_client_cleanup=1; Path=/; SameSite=Lax';
