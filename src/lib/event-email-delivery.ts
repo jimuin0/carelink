@@ -7,9 +7,9 @@ import { postAlert } from './alert';
 import { z } from 'zod';
 import { UUID_REGEX } from './constants';
 
-export type EventEmailEnvelope = { from: string; to: string; subject: string; html: string };
+export type EventEmailEnvelope = { from: string; to: string; subject: string; html: string; text?: string };
 export const eventEmailEnvelopeSchema = z.object({ from: z.string().min(1).max(320), to: z.email().max(254),
-  subject: z.string().min(1).max(200), html: z.string().min(1).max(100000) }).strict();
+  subject: z.string().min(1).max(200), html: z.string().min(1).max(100000), text: z.string().max(100000).optional() }).strict();
 
 export function dispatchEventEmail(resend: Resend, envelope: EventEmailEnvelope, id: string) {
   if (!UUID_REGEX.test(id) || !eventEmailEnvelopeSchema.safeParse(envelope).success) throw new Error('invalid event email');
@@ -38,7 +38,7 @@ export async function sendDurableEventEmail(resend: Resend, envelope: EventEmail
     const db = createServiceRoleClient();
     const { data: reserved, error: reserveError } = await db.from('webhook_retry_queue').insert({
       id, webhook_type: 'email', target_id: envelope.to,
-      payload: { event_email_version: 1, idempotency_key: key }, email_envelope: envelope,
+      payload: { event_email_version: 1, idempotency_key: key, dispatch_version: 2 }, email_envelope: envelope,
       status: 'processing', claimed_at: claimEpoch, delivery_started_at: null,
       attempt_count: 0, max_attempts: 3, scheduled_at: claimEpoch,
     }).select('id').single();
@@ -89,6 +89,7 @@ export async function verifyEventEmailAcceptance(resend: Resend, envelope: Event
     if (result?.error || !m) return false;
     const created = Date.parse(m.created_at);
     return m.id === messageId && m.from === envelope.from && m.subject === envelope.subject && m.html === envelope.html
+      && (envelope.text === undefined || m.text === envelope.text)
       && Array.isArray(m.to) && m.to.length === 1 && m.to[0] === envelope.to
       && Array.isArray(m.tags) && m.tags.some(t => t.name === 'carelink_event_operation' && t.value === id)
       && Number.isFinite(created) && created >= Date.parse(startedAt) - 300000 && created <= Date.now() + 300000;

@@ -3,8 +3,9 @@ import { canonicalSalonSubmission } from './salon-submission-contract';
 import { salonPhotoPath, SALON_PHOTO_BUCKET } from './salon-photo-contract';
 import { readSalonBrowserContext, saveSalonBrowserContext, type SalonBrowserContext } from './salon-browser-context';
 import type { SalonFormValues } from './validations';
-import { salonFieldErrors, type SalonFieldErrors } from './salon-field-errors';
+import type { SalonFieldErrors } from './salon-field-errors';
 import { salonStorageLimitsSchema, type SalonStorageLimits } from './salon-storage-limits';
+import { registrationConsentSchema, REGISTRATION_CONSENT_REQUIRED, type RegistrationConsent } from './registration-consent';
 
 type Store = Parameters<typeof readSalonBrowserContext>[0];
 type Dependencies = {
@@ -16,7 +17,7 @@ type Dependencies = {
 type Result = { state: 'ready' } | { state: 'confirmed'; receiptId: string }
   | { state: 'blocked' | 'unknown'; message: string }
   | { state: 'retryable'; message: string; fieldErrors?: SalonFieldErrors };
-type CommitInput = { intentId: string; registration: object; photoIds: string[] };
+type CommitInput = { intentId: string; registration: object; photoIds: string[]; consent: RegistrationConsent };
 const uuid = z.uuid();
 const uncertain: Result = { state: 'unknown', message: '送信結果を確認できませんでした。同じ申込の受付状況を確認してください。新たな申込として送信しないでください。' };
 const blocked: Result = { state: 'blocked', message: 'この申込の確認情報を利用できません。申込時のブラウザーの同じタブで確認するか、お問い合わせください。' };
@@ -76,13 +77,15 @@ export class SalonRegistrationBrowser {
       if (!this.saveCurrent({ version: 1, intentId: input.intentId, phase: 'confirmed' })) return blocked;
       return { state: 'confirmed', receiptId: result.body.receiptId };
     }
-    if (result?.status === 400 && result.body?.state === 'invalid') {
-      this.pending = null;
-      if (!this.saveCurrent({ version: 1, intentId: input.intentId, phase: 'prepared' })) return blocked;
-      const fields = result.body.fieldErrors;
-      const fieldErrors = fields && typeof fields === 'object' && !Array.isArray(fields)
-        ? salonFieldErrors(Object.keys(fields).map(field => ({ path: [field] }))) : {};
-      return { state: 'retryable', message: '入力内容を確認してください。申込はまだ確定していません。', fieldErrors };
+    if (result?.status === 400) {
+      // A validation/consent rejection describes this attempt, not an earlier
+      // commit whose reply was lost. Never reopen the attempted-input fence.
+      const latest = readSalonBrowserContext(this.deps.store);
+      if (latest.state !== 'ready' || latest.context.intentId !== input.intentId) return blocked;
+      const checked = await this.reconcile();
+      if (checked.state === 'confirmed') return checked;
+      if (checked.state === 'ready' || checked.state === 'blocked') return blocked;
+      return uncertain;
     }
     return uncertain;
   }
@@ -102,7 +105,13 @@ export class SalonRegistrationBrowser {
     return current.state === 'empty' || (current.state === 'ready' && current.context.phase === 'prepared'
       && current.context.intentId === this.createdIntentId);
   }
-  async submit(data: SalonFormValues, files: (File | null)[]): Promise<Result> {
+  async submit(data: SalonFormValues, files: (File | null)[], consent?: unknown): Promise<Result> {
+    if (this.commitAttempted) {
+      const current = await this.reconcile();
+      return current.state === 'confirmed' || current.state === 'blocked' ? current : uncertain;
+    }
+    const agreement = registrationConsentSchema.safeParse(consent);
+    if (!agreement.success) return { state: 'retryable', message: REGISTRATION_CONSENT_REQUIRED };
     const canonical = canonicalSalonSubmission({ ...data,
       seat_count: Number.isNaN(data.seat_count) ? null : data.seat_count,
       staff_count: Number.isNaN(data.staff_count) ? null : data.staff_count,
@@ -177,7 +186,7 @@ export class SalonRegistrationBrowser {
     const photoIds: string[] = [];
     for (const result of results) if (result.status === 'fulfilled' && result.value) photoIds.push(result.value);
     const { photo_url: _photoUrl, photo_urls: _photoUrls, ...registration } = canonical.row;
-    this.pending = { intentId, registration, photoIds };
+    this.pending = { intentId, registration, photoIds, consent: agreement.data };
     return this.commit(this.pending);
   }
 }

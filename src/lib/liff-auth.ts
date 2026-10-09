@@ -8,7 +8,8 @@
  * 検証してから /v2/profile を呼ぶ。/v2/profile は発行元チャネルを検証しないため、これを省くと
  * 他チャネル発行トークンで line_user_id を詐称し他人の予約を操作する IDOR が成立する。
  */
-import { verifyLineAccessToken } from '@/lib/line';
+import { fetchVerifiedLiffProfile } from '@/lib/liff-profile';
+import { resolveVerifiedLineOwner } from '@/lib/verified-line-owner';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 
 /** リクエストの Authorization ヘッダから Bearer トークンを取り出す（無ければ null）。 */
@@ -24,24 +25,7 @@ export function getBearerToken(request: Request): string | null {
 export async function resolveLiffUserId(accessToken: string): Promise<string | null> {
   if (!accessToken) return null;
 
-  const tokenCheck = await verifyLineAccessToken(accessToken);
-  if (!tokenCheck.ok) return null;
-
-  const res = await fetch('https://api.line.me/v2/profile', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    signal: AbortSignal.timeout(10000),
-  });
-  if (!res.ok) return null;
-
-  const profile = (await res.json()) as { userId?: string };
-  if (!profile.userId) return null;
-
-  const admin = createServiceRoleClient();
-  const { data, error } = await admin
-    .from('profiles')
-    .select('id')
-    .eq('line_user_id', profile.userId)
-    .maybeSingle();
-  if (error) throw new Error('LIFF profile lookup failed', { cause: error });
-  return data?.id ?? null;
+  const identity = await fetchVerifiedLiffProfile(accessToken);
+  if (!identity.ok) return null;
+  return resolveVerifiedLineOwner(createServiceRoleClient(), identity.lineUserId);
 }

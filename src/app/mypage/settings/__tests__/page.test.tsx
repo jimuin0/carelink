@@ -18,10 +18,12 @@ function routeFetch(handler: (url: string) => { ok: boolean; status: number; bod
   }) as unknown as typeof fetch;
 }
 
+const originalChannelId=process.env.NEXT_PUBLIC_LINE_CHANNEL_ID;
 const originalLiffId = process.env.NEXT_PUBLIC_LIFF_ID;
 
 afterEach(() => {
   jest.clearAllMocks();
+  if(originalChannelId===undefined)delete process.env.NEXT_PUBLIC_LINE_CHANNEL_ID;else process.env.NEXT_PUBLIC_LINE_CHANNEL_ID=originalChannelId;
   if (originalLiffId === undefined) delete process.env.NEXT_PUBLIC_LIFF_ID;
   else process.env.NEXT_PUBLIC_LIFF_ID = originalLiffId;
 });
@@ -77,4 +79,11 @@ test('取得成功 → 連携状態を正しく表示しエラーは出さない
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   // gcal も「連携する」ボタン（未連携UI）でなく連携済みUIになっている
   expect(screen.queryByText('Googleカレンダーと連携する')).not.toBeInTheDocument();
+});
+
+test('configured account reconfirmation uses explicit local OAuth linking mode',async()=>{
+ process.env.NEXT_PUBLIC_LIFF_ID='synthetic-liff';process.env.NEXT_PUBLIC_LINE_CHANNEL_ID='synthetic-channel';
+ routeFetch(()=>({ok:true,status:200,body:{linked:false,connected:false}}));render(<SettingsPage/>);
+ const button=await screen.findByRole('button',{name:'LINE連携を再確認'});const form=button.closest('form')!;
+ expect(form).toHaveAttribute('action','/api/auth/line');expect(form).toHaveAttribute('method','get');expect(form.querySelector('input[name="mode"]')).toHaveAttribute('value','link');expect(form.querySelector('input[name="redirect"]')).toHaveAttribute('value','/mypage/settings');
 });

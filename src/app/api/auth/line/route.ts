@@ -4,6 +4,8 @@ import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +26,14 @@ export async function GET(request: Request) {
 
     const state = crypto.randomUUID();
 
+    let linkActor: string | null = null;
+    if (searchParams.get('mode') === 'link') {
+      const verification = await verifyAuthUser((await createServerSupabaseAuthClient()).auth);
+      if (verification.state === 'unavailable') return NextResponse.redirect(new URL('/auth/login?error=line_auth_unavailable', request.url));
+      if (verification.state !== 'verified') return NextResponse.redirect(new URL('/auth/login?redirect=%2Fmypage%2Fprofile', request.url));
+      linkActor = verification.user.id;
+    }
+
     const cookieStore = await cookies();
     const cookieOptions = {
       httpOnly: true,
@@ -34,6 +44,9 @@ export async function GET(request: Request) {
     };
     cookieStore.set('line_oauth_state', state, cookieOptions);
     cookieStore.set('line_oauth_redirect', redirect, cookieOptions);
+    // Consumed together with OAuth state, and checked against the still-current
+    // Supabase identity in the callback before any binding mutation.
+    cookieStore.set('line_oauth_link_actor', linkActor ?? '', { ...cookieOptions, maxAge: linkActor ? 600 : 0 });
 
     const callbackUrl = `${new URL(request.url).origin}/api/auth/line/callback`;
 

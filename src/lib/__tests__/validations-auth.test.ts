@@ -32,6 +32,7 @@ describe('signupSchema', () => {
     prefecture: '東京都',
     password: '12345678',
     password_confirm: '12345678',
+    terms_agreed: true,
   };
 
   test('正常データが通過する', () => {
@@ -67,7 +68,7 @@ describe('signupSchema', () => {
   });
 
   test('パスワードが短いとエラー', () => {
-    expect(signupSchema.safeParse({ ...valid, password: 'short', password_confirm: 'short' }).success).toBe(false);
+    expect(signupSchema.safeParse({ ...valid, password: 'short', password_confirm: 'short', terms_agreed: true }).success).toBe(false);
   });
 
   test('電話番号が空だとエラー', () => {
@@ -147,7 +148,7 @@ describe('signupSchema - 境界値・エッジケース', () => {
     phone: '090-1234-5678',
     prefecture: '東京都',
     password: '12345678',
-    password_confirm: '12345678',
+    password_confirm: '12345678', terms_agreed: true
   };
 
   test('display_name 1 文字は OK', () => {
@@ -167,11 +168,11 @@ describe('signupSchema - 境界値・エッジケース', () => {
 
   test('パスワードちょうど 8 文字は OK', () => {
     const pw = 'abcdefgh';
-    expect(signupSchema.safeParse({ ...base, password: pw, password_confirm: pw }).success).toBe(true);
+    expect(signupSchema.safeParse({ ...base, password: pw, password_confirm: pw, terms_agreed: true }).success).toBe(true);
   });
 
   test('password が 7 文字で password_confirm が一致でも NG', () => {
-    expect(signupSchema.safeParse({ ...base, password: 'short12', password_confirm: 'short12' }).success).toBe(false);
+    expect(signupSchema.safeParse({ ...base, password: 'short12', password_confirm: 'short12', terms_agreed: true }).success).toBe(false);
   });
 
   test('password_confirm が空文字 → パスワード不一致エラー', () => {
@@ -209,7 +210,7 @@ describe('予約ドメイン @line.carelink.local の拒否（アカウント先
     phone: '090-1234-5678',
     prefecture: '東京都',
     password: '12345678',
-    password_confirm: '12345678',
+    password_confirm: '12345678', terms_agreed: true
   };
 
   test('loginSchema は line_ 合成メールを拒否する', () => {

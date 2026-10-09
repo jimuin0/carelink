@@ -1,6 +1,6 @@
 /**
  * Tests for lib/threads.ts
- * Covers: publishThreadsText, refreshThreadsToken, buildArticlePostText
+ * Covers: publishThreadsText, readThreadsContainerStatus, refreshThreadsToken, buildArticlePostText
  */
 
 type MaybeSingleResult = { data: unknown; error: unknown };
@@ -27,7 +27,7 @@ jest.mock('@/lib/supabase-server', () => ({
   }),
 }));
 
-import { publishThreadsText, refreshThreadsToken, buildArticlePostText } from '../threads';
+import { publishThreadsText, readThreadsContainerStatus, refreshThreadsToken, buildArticlePostText } from '../threads';
 
 function mockFetchSequence(responses: Array<Partial<Response> & { ok: boolean }>) {
   const fn = jest.fn();
@@ -67,6 +67,8 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.THREADS_USER_ID;
   jest.restoreAllMocks();
+
+
 });
 
 describe('publishThreadsText', () => {
@@ -104,19 +106,19 @@ describe('publishThreadsText', () => {
 
   test('published: happy path returns postId', async () => {
     mockFetchSequence([
-      jsonResponse(true, 200, { id: 'container-1' }),
-      jsonResponse(true, 200, { id: 'post-1' }),
+      jsonResponse(true, 200, { id: '123' }),
+      jsonResponse(true, 200, { id: '456' }),
     ]);
     const result = await publishThreadsText('hello world');
     expect(result.outcome).toBe('published');
-    expect(result.postId).toBe('post-1');
+    expect(result.postId).toBe('456');
     expect(global.fetch).toHaveBeenCalledTimes(2);
     const [containerUrl] = (global.fetch as jest.Mock).mock.calls[0];
     expect(String(containerUrl)).toContain('/user-123/threads?');
     expect(String(containerUrl)).toContain('media_type=TEXT');
     const [publishUrl] = (global.fetch as jest.Mock).mock.calls[1];
     expect(String(publishUrl)).toContain('/user-123/threads_publish?');
-    expect(String(publishUrl)).toContain('creation_id=container-1');
+    expect(String(publishUrl)).toContain('creation_id=123');
   });
 
   test('permanent: container creation returns 4xx (not 429)', async () => {
@@ -161,27 +163,27 @@ describe('publishThreadsText', () => {
     expect(result.outcome).toBe('transient');
   });
 
-  test('permanent: publish step returns 4xx', async () => {
+  test('unknown: publish step returns 4xx', async () => {
     mockFetchSequence([
-      jsonResponse(true, 200, { id: 'container-1' }),
+      jsonResponse(true, 200, { id: '123' }),
       jsonResponse(false, 400, { error: 'bad creation_id' }),
     ]);
     const result = await publishThreadsText('hello');
-    expect(result.outcome).toBe('permanent');
+    expect(result.outcome).toBe('unknown');
   });
 
-  test('transient: publish step returns 5xx', async () => {
+  test('unknown: publish step returns 5xx', async () => {
     mockFetchSequence([
-      jsonResponse(true, 200, { id: 'container-1' }),
+      jsonResponse(true, 200, { id: '123' }),
       jsonResponse(false, 500, { error: 'oops' }),
     ]);
     const result = await publishThreadsText('hello');
-    expect(result.outcome).toBe('transient');
+    expect(result.outcome).toBe('unknown');
   });
 
-  test('permanent: publish step returns 4xx and body text() itself rejects', async () => {
+  test('unknown: publish step returns 4xx and body text() itself rejects', async () => {
     const fn = jest.fn();
-    fn.mockImplementationOnce(async () => jsonResponse(true, 200, { id: 'container-1' }) as Response);
+    fn.mockImplementationOnce(async () => jsonResponse(true, 200, { id: '123' }) as Response);
     fn.mockImplementationOnce(async () => ({
       ok: false,
       status: 400,
@@ -191,24 +193,24 @@ describe('publishThreadsText', () => {
     } as unknown as Response));
     global.fetch = fn as unknown as typeof fetch;
     const result = await publishThreadsText('hello');
-    expect(result.outcome).toBe('permanent');
+    expect(result.outcome).toBe('unknown');
   });
 
-  test('permanent: publish ok but response has no id', async () => {
-    mockFetchSequence([jsonResponse(true, 200, { id: 'container-1' }), jsonResponse(true, 200, {})]);
+  test('unknown: publish ok but response has no id', async () => {
+    mockFetchSequence([jsonResponse(true, 200, { id: '123' }), jsonResponse(true, 200, {})]);
     const result = await publishThreadsText('hello');
-    expect(result.outcome).toBe('permanent');
+    expect(result.outcome).toBe('unknown');
   });
 
-  test('transient: publish step fetch throws', async () => {
+  test('unknown: publish step fetch throws', async () => {
     const fn = jest.fn();
-    fn.mockImplementationOnce(async () => jsonResponse(true, 200, { id: 'container-1' }) as Response);
+    fn.mockImplementationOnce(async () => jsonResponse(true, 200, { id: '123' }) as Response);
     fn.mockImplementationOnce(async () => {
       throw new Error('network down');
     });
     global.fetch = fn as unknown as typeof fetch;
     const result = await publishThreadsText('hello');
-    expect(result.outcome).toBe('transient');
+    expect(result.outcome).toBe('unknown');
   });
 });
 
@@ -356,5 +358,47 @@ describe('buildArticlePostText', () => {
   test('empty title returns separator + URL when it fits', () => {
     const text = buildArticlePostText('', URL);
     expect(text).toBe(`\n\n${URL}`);
+  });
+});
+
+
+describe('durable publication boundary and read-only reconciliation',()=>{
+  test('durable start callback must settle successfully before public POST', async () => {
+    mockFetchSequence([jsonResponse(true,200,{id:'123'}),jsonResponse(true,200,{id:'456'})]);
+    const beforePublish=jest.fn(async()=>{expect(global.fetch).toHaveBeenCalledTimes(1);});
+    expect((await publishThreadsText('hello',{beforePublish})).postId).toBe('456');
+    expect(beforePublish).toHaveBeenCalledWith('123');
+    expect(String((global.fetch as jest.Mock).mock.calls[0][0])).toContain('auto_publish=false');
+  });
+  test('start marker uncertainty prevents public POST', async () => {
+    mockFetchSequence([jsonResponse(true,200,{id:'123'})]);
+    const result=await publishThreadsText('hello',{beforePublish:async()=>{throw new Error('lost DB reply');}});
+    expect(result.outcome).toBe('transient');expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+  test.each(['FINISHED','PUBLISHED','IN_PROGRESS','ERROR','EXPIRED'])('container reconciliation reads %s without POST',async status=>{
+    mockFetchSequence([jsonResponse(true,200,{id:'123',status})]);
+    expect(await readThreadsContainerStatus('123')).toBe(status);
+    expect((global.fetch as jest.Mock).mock.calls[0][1].method).toBe('GET');expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+  test('mismatched container/read failure remains unknown',async()=>{
+    mockFetchSequence([jsonResponse(true,200,{id:'999',status:'PUBLISHED'})]);expect(await readThreadsContainerStatus('123')).toBeNull();
+    global.fetch=jest.fn().mockRejectedValue(new Error('private token'));expect(await readThreadsContainerStatus('123')).toBeNull();
+  });
+});
+
+
+describe('read-only reconciliation refuses unavailable evidence', () => {
+  test('invalid creation ID performs no credential/provider request', async () => {
+    global.fetch = jest.fn(); expect(await readThreadsContainerStatus('not-an-id')).toBeNull();
+    expect(mockFrom).not.toHaveBeenCalled(); expect(global.fetch).not.toHaveBeenCalled();
+  });
+  test('absent credential never attempts a provider GET or a new POST', async () => {
+    maybeSingleResult = { data: null, error: null }; global.fetch = jest.fn();
+    expect(await readThreadsContainerStatus('123')).toBeNull(); expect(global.fetch).not.toHaveBeenCalled();
+  });
+  test('provider HTTP failure remains unconfirmed without another publication', async () => {
+    const fetch = mockFetchSequence([jsonResponse(false, 503, { id:'123', status:'PUBLISHED' })]);
+    expect(await readThreadsContainerStatus('123')).toBeNull(); expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][1].method).toBe('GET'); expect(mockUpdate).not.toHaveBeenCalled();
   });
 });

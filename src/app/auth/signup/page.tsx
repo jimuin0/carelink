@@ -11,6 +11,7 @@ import { prefectures, SITE_URL } from '@/lib/constants';
 import Toast from '@/components/Toast';
 import { isLineLoginEnabled } from '@/lib/line-availability';
 import { safeRedirect } from '@/lib/safe-redirect';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 const RESEND_COOLDOWN_SECONDS = 60;
 
@@ -81,7 +82,7 @@ function SignupContent() {
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
   const authOperationInFlight = useRef(false);
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
+  const { register, handleSubmit, getValues, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
   });
 
@@ -91,8 +92,8 @@ function SignupContent() {
     let active = true;
     const checkSession = async () => {
       try {
-        const { data: { user } } = await createBrowserSupabaseClient().auth.getUser();
-        if (active && user) router.replace(redirect);
+        const identity = await verifyAuthUser(createBrowserSupabaseClient().auth);
+        if (active && identity.state === 'verified') router.replace(redirect);
       } catch {
         // 初期確認の接続失敗でも登録フォームは利用可能に保つ。
       }
@@ -193,6 +194,10 @@ function SignupContent() {
   };
 
   const startGoogleSignup = async () => {
+    if (getValues('terms_agreed') !== true) {
+      setToast({ type: 'error', message: 'Googleで登録する場合も、利用規約とプライバシーポリシーへの同意が必要です。' });
+      return;
+    }
     if (authOperationInFlight.current) return;
     authOperationInFlight.current = true;
     setIsGoogleSigningIn(true);
@@ -359,22 +364,19 @@ function SignupContent() {
               {errors.password_confirm && <p id="signup-password-confirm-error" className="form-error" role="alert">{errors.password_confirm.message}</p>}
             </div>
 
+            <label htmlFor="signup-terms" className="flex items-start gap-2 text-sm text-gray-600">
+              <input {...register('terms_agreed')} id="signup-terms" type="checkbox" aria-required="true"
+                aria-invalid={Boolean(errors.terms_agreed)} aria-describedby={errors.terms_agreed ? 'signup-terms-error' : undefined}
+                className="mt-0.5 rounded-sm border-gray-300" />
+              <span><Link href="/terms" target="_blank" rel="noopener noreferrer" className="text-sky-700 underline">利用規約</Link>
+                および<Link href="/privacy" target="_blank" rel="noopener noreferrer" className="text-sky-700 underline">プライバシーポリシー</Link>に同意する（必須）</span>
+            </label>
+            {errors.terms_agreed && <p id="signup-terms-error" className="form-error" role="alert">{errors.terms_agreed.message}</p>}
             <button type="submit" disabled={isSubmitting || isGoogleSigningIn} className="btn-primary w-full py-3!">
               {isSubmitting ? '登録中...' : '新規登録'}
             </button>
           </form>
 
-          <p className="mt-3 text-center text-xs text-gray-600">
-            登録前に
-            <Link href="/terms" target="_blank" rel="noopener noreferrer" className="mx-1 text-sky-700 underline">
-              利用規約
-            </Link>
-            と
-            <Link href="/privacy" target="_blank" rel="noopener noreferrer" className="mx-1 text-sky-700 underline">
-              プライバシーポリシー
-            </Link>
-            をご確認ください。
-          </p>
 
           <div className="my-6">
             <div className="relative">

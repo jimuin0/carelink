@@ -40,6 +40,7 @@ test.each(businessTypes)('every displayed category %s submits a valid shared API
   fillStep1(container, { business_type });
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
   await screen.findByLabelText('郵便番号');
+  acceptConsent();
   fireEvent.click(screen.getByRole('button', { name: '掲載を申し込む' }));
   await screen.findByText('掲載申し込みが完了しました');
   expect(screen.getByText(`受付番号：${id}`)).toBeVisible();
@@ -59,6 +60,7 @@ test.each(['network', 'missing-id', 'invalid-id', 'malformed', 'business-failure
   fillStep1(container);
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
   await screen.findByLabelText('郵便番号');
+  acceptConsent();
   const submit = screen.getByRole('button', { name: '掲載を申し込む' });
   fireEvent.click(submit); fireEvent.click(submit);
   await screen.findByRole('alert');
@@ -79,7 +81,8 @@ test('repeated server errors restore the correct step, focus and preserve input 
     const description = await screen.findByLabelText('施設紹介');
     if (attempt === 0) fireEvent.change(description, { target: { value: '合成紹介文' } });
     else expect(description).toHaveValue('合成紹介文');
-    fireEvent.click(screen.getByRole('button', { name: '掲載を申し込む' }));
+    acceptConsent();
+  fireEvent.click(screen.getByRole('button', { name: '掲載を申し込む' }));
     const contact = await screen.findByLabelText('担当者名 *');
     await waitFor(() => expect(contact).toHaveFocus());
     expect(contact).toHaveValue('山田花子');
@@ -87,11 +90,19 @@ test('repeated server errors restore the correct step, focus and preserve input 
   }
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
   await screen.findByLabelText('施設紹介');
+  acceptConsent();
   fireEvent.click(screen.getByRole('button', { name: '掲載を申し込む' }));
   await waitFor(() => expect(screen.getByLabelText('施設紹介')).toHaveFocus());
   expect(screen.getByText('PR文を1000文字以内で入力してください')).toBeVisible();
   expect(fetchMock).toHaveBeenCalledTimes(3);
 });
+
+function acceptConsent() {
+  for (const name of [/利用規約/, /許可・免許/]) {
+    const box = screen.getByRole('checkbox', { name }) as HTMLInputElement;
+    if (!box.checked) fireEvent.click(box);
+  }
+}
 
 function fillStep1(container: HTMLElement, overrides: Partial<Record<'facility_name' | 'business_type' | 'representative_name' | 'contact_name' | 'email' | 'phone', string>> = {}) {
   const values = {
@@ -151,7 +162,8 @@ describe('/recruit 送信失敗時のエラー表示（サーバーJSON読み取
     fillStep1(container);
     fireEvent.click(screen.getByRole('button', { name: '次へ' }));
     await waitFor(() => expect(container.querySelector('[name="postal_code"]')).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: '掲載を申し込む' }));
+    acceptConsent();
+  fireEvent.click(screen.getByRole('button', { name: '掲載を申し込む' }));
   }
 
   test('サーバーが具体的な理由（error）を返した場合、そのメッセージのみを日本語で表示する', async () => {

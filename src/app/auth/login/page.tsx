@@ -10,6 +10,7 @@ import { loginSchema, type LoginFormData } from '@/lib/validations-auth';
 import Toast from '@/components/Toast';
 import { isLineLoginEnabled } from '@/lib/line-availability';
 import { safeRedirect } from '@/lib/safe-redirect';
+import { verifyAuthUser } from '@/lib/auth-verification';
 import { SITE_URL } from '@/lib/constants';
 
 export default function LoginPage() {
@@ -47,7 +48,11 @@ function LoginContent() {
   const redirect = safeRedirect(searchParams.get('redirect'), origin);
   const errorParam = searchParams.get('error');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(
-    errorParam?.startsWith('line_')
+    errorParam === 'line_link_required'
+      ? { type: 'error', message: 'LINE の連携を再確認してください。以前からお使いのアカウントでログインして、LINE を連携してください。' }
+      : errorParam === 'line_auth_unavailable'
+        ? { type: 'error', message: 'LINE ログインの確認結果が不明です。時間をおいて同じ LINE アカウントで再確認してください。' }
+      : errorParam?.startsWith('line_')
       ? { type: 'error', message: 'LINEログインに失敗しました。もう一度お試しください。' }
       : errorParam === 'callback_failed'
         ? { type: 'error', message: 'ログイン認証を完了できませんでした。時間をおいてもう一度お試しください。' }
@@ -89,8 +94,8 @@ function LoginContent() {
     let active = true;
     const checkSession = async () => {
       try {
-        const { data: { user } } = await createBrowserSupabaseClient().auth.getUser();
-        if (active && user) router.replace(redirect);
+        const identity = await verifyAuthUser(createBrowserSupabaseClient().auth);
+        if (active && identity.state === 'verified') router.replace(redirect);
       } catch {
         // セッション確認だけの障害でフォームを使用不能にしない。明示ログイン時に案内する。
       }

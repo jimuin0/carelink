@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { createServiceRoleClient } from './supabase-server';
 import { salonInsertSchema } from './validations';
+import { registrationConsentSchema, REGISTRATION_TERMS_SHA256 } from './registration-consent';
 import { canonicalSalonSubmission, SALON_CANONICAL_VERSION } from './salon-submission-contract';
 import { isSalonIntentProof, salonIntentProofHash, salonPayloadHmac, SALON_HMAC_SCHEME } from './salon-submission-proof';
 import { readSalonIntentStatus } from './salon-submission-intent';
@@ -10,6 +11,7 @@ export const salonCommitInput = z.object({
   intentId: z.uuid(),
   registration: salonInsertSchema.omit({ photo_url: true, photo_urls: true, recaptcha_token: true }).strict(),
   photoIds: z.array(z.uuid()).max(7).refine(ids => new Set(ids.map(id => id.toLowerCase())).size === ids.length),
+  consent: registrationConsentSchema.optional(),
 }).strict();
 const manifest = z.object({
   id: z.uuid(), intent_id: z.uuid(), slot: salonPhotoInput.shape.slot,
@@ -75,11 +77,16 @@ export async function commitSalonSubmission(db: Database, value: unknown, proof:
     const canonical = canonicalSalonSubmission({ ...input.registration, photo_urls: urls });
     if (!canonical) return { state: 'invalid' };
     attemptedCommit = true;
-    const result = await db.rpc('commit_salon_submission', {
+    const args = {
       p_intent_id: input.intentId, p_proof_hash: salonIntentProofHash(proof),
       p_canonical_version: SALON_CANONICAL_VERSION, p_hmac_scheme: SALON_HMAC_SCHEME,
       p_payload_hmac: salonPayloadHmac(proof, canonical.serialized), p_registration: canonical.row,
-    });
+    };
+    // Grace preserves already-issued legacy intents and their exact business
+    // comparison. Only fresh verified declarations create a consent record.
+    const result = input.consent === undefined
+      ? await db.rpc('commit_salon_submission', args)
+      : await db.rpc('commit_salon_submission_with_consent', { ...args, p_terms_sha256: REGISTRATION_TERMS_SHA256 });
     if (result.error !== null) return { state: 'unknown' };
     const response = z.array(receipt).length(1).safeParse(result.data);
     if (!response.success) return { state: 'unknown' };

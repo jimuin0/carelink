@@ -1,4 +1,4 @@
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { createHmac, timingSafeEqual } from 'crypto';
@@ -7,6 +7,9 @@ import { alertCaughtError } from '@/lib/alert';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { resolveVerifiedLineOwner } from '@/lib/verified-line-owner';
+import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,23 +29,9 @@ function timingSafeStrEqual(a: string, b: string): boolean {
   return timingSafeEqual(ba, bb);
 }
 
-/**
- * LINE の email 非提供時に使う合成メールを、サーバ秘密（LINE_CHANNEL_SECRET）で
- * HMAC 導出して予測不能にする（監査A1・アカウント先回り乗っ取りの根治）。
- *
- * 旧実装は `line_${userId}@line.carelink.local` と userId 平文で予測可能だったため、
- * 攻撃者が被害者の LINE userId を知っていれば、その合成メールをパスワード付きで
- * 先回り登録でき、被害者の初回 LINE ログイン（この合成メール経路）を
- * verifyOtp で攻撃者アカウントに流し込めた。HMAC 化で第三者は合成メールを
- * 算出できず先回り登録が不能になる。
- *
- * - userId 起点の決定的導出なので冪等（リトライで同一メール＝createUser も冪等）。
- * - 既存 LINE ユーザーは line_user_links 経由（line_user_id 起点）で照合され、
- *   GoTrue に保存済みの実 email を使うため、この合成メール形式変更の影響を受けない
- *   （新形式が効くのは link 未作成の初回ログインのみ）。
- * - LINE_CHANNEL_SECRET は token 交換（上流）でも必須のため、ここに到達する時点で
- *   必ず設定済み。未設定なら LINE ログイン自体が先に失敗する。
- */
+/** Stable secret-derived address for a new LINE-only account. It does not
+ * authorize an existing account; only provider-verified binding or admin-issued
+ * app_metadata can do that. */
 function syntheticLineEmail(userId: string): string {
   // ここに到達する時点で LINE_CHANNEL_SECRET は必須（上流のトークン交換で使用済み）。
   const secret = process.env.LINE_CHANNEL_SECRET!;
@@ -63,12 +52,14 @@ export async function GET(request: NextRequest) {
 
   const cookieStore = await cookies();
   const savedState = cookieStore.get('line_oauth_state')?.value;
+  const linkActor = cookieStore.get('line_oauth_link_actor')?.value;
   const redirect = cookieStore.get('line_oauth_redirect')?.value || '/mypage';
   const safeRedirect = redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/mypage';
 
   // Clean up OAuth cookies
   cookieStore.delete('line_oauth_state');
   cookieStore.delete('line_oauth_redirect');
+  cookieStore.delete('line_oauth_link_actor');
 
   if (lineError) {
     return NextResponse.redirect(`${origin}/auth/login?error=line_denied`);
@@ -79,6 +70,13 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    if (linkActor) {
+      const verification = await verifyAuthUser((await createServerSupabaseAuthClient()).auth);
+      if (verification.state === 'unavailable') return NextResponse.redirect(`${origin}/auth/login?error=line_auth_unavailable`);
+      if (verification.state !== 'verified' || verification.user.id !== linkActor) {
+        return NextResponse.redirect(`${origin}/auth/login?error=line_link_required`);
+      }
+    }
     // Exchange code for tokens
     const callbackUrl = `${origin}/api/auth/line/callback`;
     const tokenRes = await fetch('https://api.line.me/oauth2/v2.1/token', {
@@ -105,6 +103,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(`${origin}/auth/login?error=line_token_failed`);
     }
 
+    if (typeof tokens.access_token !== 'string' || !tokens.access_token || tokens.access_token.length > 512) {
+      return NextResponse.redirect(`${origin}/auth/login?error=line_token_failed`);
+    }
+
     // Get user profile from LINE
     const profileRes = await fetch('https://api.line.me/v2/profile', {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
@@ -122,12 +124,19 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(`${origin}/auth/login?error=line_profile_failed`);
     }
 
+    if (!lineProfile || typeof lineProfile.userId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(lineProfile.userId) || typeof lineProfile.displayName !== 'string') {
+      return NextResponse.redirect(`${origin}/auth/login?error=line_profile_failed`);
+    }
+
     // Extract email from id_token with HMAC-SHA256 signature verification (LINE OIDC HS256)
     let email: string | null = null;
     if (tokens.id_token) {
       try {
         const parts = tokens.id_token.split('.');
-        if (parts.length === 3) {
+        if (parts.length !== 3 || JSON.parse(Buffer.from(parts[0], 'base64url').toString()).alg !== 'HS256') {
+          return NextResponse.redirect(`${origin}/auth/login?error=line_token_invalid`);
+        }
+        {
           // Verify HS256 signature using LINE_CHANNEL_SECRET
           const secret = process.env.LINE_CHANNEL_SECRET!;
           const data = `${parts[0]}.${parts[1]}`;
@@ -147,13 +156,18 @@ export async function GET(request: NextRequest) {
           const payload = JSON.parse(
             Buffer.from(parts[1], 'base64url').toString()
           );
-          email = payload.email || null;
+          if (payload.iss !== 'https://access.line.me' || payload.sub !== lineProfile.userId ||
+            payload.aud !== process.env.NEXT_PUBLIC_LINE_CHANNEL_ID || typeof payload.exp !== 'number' ||
+            payload.exp <= Date.now() / 1000 || (payload.email !== undefined && (typeof payload.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)))) {
+            return NextResponse.redirect(`${origin}/auth/login?error=line_token_invalid`);
+          }
+          email = payload.email ?? null;
         }
-      } catch (e) {
+      } catch {
         // ★ id_token 検証中に例外が出た場合は fallback email に流さず明確に拒否する。
         //   従来はここで握り潰して未検証のまま処理を続けていたため、署名検証を
         //   バイパスする経路になり得た（agent監査指摘）。fail-closed にする。
-        console.error('[line-callback] id_token verification threw', e);
+        console.error('[line-callback] id_token verification unavailable');
         return NextResponse.redirect(`${origin}/auth/login?error=line_token_invalid`);
       }
     }
@@ -161,75 +175,71 @@ export async function GET(request: NextRequest) {
     // Admin client (service role) for user management
     const adminSupabase = createServiceRoleClient();
 
-    if (!email) {
-      // line_user_links テーブルで既存ユーザーを直接検索（O(1)、listUsers全件取得を回避）
-      // listUsers() はデフォルト50件しか返さないため50人超で重複アカウントが発生していた
-      const { data: linkRow } = await adminSupabase
-        .from('line_user_links')
-        .select('user_id')
-        .eq('line_user_id', lineProfile.userId)
-        .maybeSingle();
-      if (linkRow?.user_id) {
-        const { data: { user: existingUser } } = await adminSupabase.auth.admin.getUserById(linkRow.user_id);
-        email = existingUser?.email || syntheticLineEmail(lineProfile.userId);
-      } else {
-        email = syntheticLineEmail(lineProfile.userId);
+    if (linkActor) {
+      const bound = await adminSupabase.rpc('bind_verified_liff_account_atomic', { p_actor_id: linkActor, p_line_user_id: lineProfile.userId });
+      if (bound.error || (bound.data !== 'linked' && bound.data !== 'conflict')) return NextResponse.redirect(`${origin}/auth/login?error=line_auth_unavailable`);
+      if (bound.data === 'conflict') return NextResponse.redirect(`${origin}/auth/login?error=line_link_required`);
+      // Linking retains the existing Supabase account; no alternate magic-link
+      // login or new account is generated in this explicit reconfirmation flow.
+      return NextResponse.redirect(`${origin}${safeRedirect}`);
+    }
+
+    // Both profile and immutable provider-proof ownership are required for an
+    // existing link. Never issue Auth from a public user_metadata/email match.
+    let actorId = await resolveVerifiedLineOwner(adminSupabase, lineProfile.userId);
+    if (!actorId) {
+      const trusted = await adminSupabase.rpc('find_trusted_line_auth_user', { p_line_user_id: lineProfile.userId });
+      if (trusted.error) return NextResponse.redirect(`${origin}/auth/login?error=line_auth_unavailable`);
+      if (trusted.data !== null && (typeof trusted.data !== 'string' || !trusted.data)) {
+        return NextResponse.redirect(`${origin}/auth/login?error=line_auth_unavailable`);
       }
+      actorId = trusted.data;
     }
-
-    // Create user if not exists (ignore "already registered" error)
-    const { error: createErr } = await adminSupabase.auth.admin.createUser({
-      email,
-      email_confirm: true,
-      user_metadata: {
-        display_name: lineProfile.displayName,
-        avatar_url: lineProfile.pictureUrl || '',
-        line_user_id: lineProfile.userId,
-      },
-    });
-    if (createErr && !createErr.message?.includes('already registered')) {
-      // PII（LINE userId）を本番ログ/Slack に残さない。原因究明はエラーメッセージで足りる。
-      console.error('[line-callback] createUser failed', { err: createErr.message });
+    if (!actorId) {
+      const legacy = await adminSupabase.rpc('line_identity_requires_reconfirmation', { p_line_user_id: lineProfile.userId });
+      if (legacy.error || typeof legacy.data !== 'boolean') return NextResponse.redirect(`${origin}/auth/login?error=line_auth_unavailable`);
+      if (legacy.data) return NextResponse.redirect(`${origin}/auth/login?error=line_link_required`);
+      email ??= syntheticLineEmail(lineProfile.userId);
+      let created: Awaited<ReturnType<typeof adminSupabase.auth.admin.createUser>> | null = null;
+      try {
+        created = await adminSupabase.auth.admin.createUser({
+          email, email_confirm: true,
+          app_metadata: { carelink_line_identity_version: 1, carelink_line_user_id: lineProfile.userId },
+          user_metadata: { display_name: lineProfile.displayName, avatar_url: lineProfile.pictureUrl || '' },
+        });
+      } catch { /* The trusted marker below is the only recovery evidence. */ }
+      if (created && !created.error && created.data?.user?.id) actorId = created.data.user.id;
+      else {
+        // A lost create response is recovered only from the trusted admin marker.
+        // Never generateLink after an unrelated already-existing email error.
+        const recovered = await adminSupabase.rpc('find_trusted_line_auth_user', { p_line_user_id: lineProfile.userId });
+        if (recovered.error) return NextResponse.redirect(`${origin}/auth/login?error=line_auth_unavailable`);
+        if (typeof recovered.data !== 'string' || !recovered.data) {
+          const existingEmail = created?.error?.code === 'email_exists' || created?.error?.code === 'user_already_exists';
+          return NextResponse.redirect(`${origin}/auth/login?error=${existingEmail ? 'line_link_required' : 'line_auth_unavailable'}`);
+        }
+        actorId = recovered.data;
+      }
+      // Admin creation crosses an external transaction. A successful response
+      // must also match the sole trusted database candidate; duplicate markers
+      // or an unknown result never authorize binding or magic-link issuance.
+      const confirmed = await adminSupabase.rpc('find_trusted_line_auth_user', { p_line_user_id: lineProfile.userId });
+      if (confirmed.error || confirmed.data !== actorId) return NextResponse.redirect(`${origin}/auth/login?error=line_auth_unavailable`);
     }
-
-    // Generate magic link token (works for both new and existing users)
-    const { data: linkData, error: linkError } =
-      await adminSupabase.auth.admin.generateLink({ type: 'magiclink', email });
-
-    if (linkError || !linkData?.properties?.hashed_token) {
+    const bound = await adminSupabase.rpc('bind_verified_liff_account_atomic', { p_actor_id: actorId, p_line_user_id: lineProfile.userId });
+    if (bound.error || bound.data !== 'linked') return NextResponse.redirect(`${origin}/auth/login?error=line_link_required`);
+    const existing = await adminSupabase.auth.admin.getUserById(actorId);
+    if (existing.error || existing.data?.user?.id !== actorId || !existing.data.user.email) {
+      return NextResponse.redirect(`${origin}/auth/login?error=line_auth_unavailable`);
+    }
+    const { data: linkData, error: linkError } = await adminSupabase.auth.admin.generateLink({ type: 'magiclink', email: existing.data.user.email });
+    if (linkError || !linkData?.properties?.hashed_token || linkData.user?.id !== actorId) {
       return NextResponse.redirect(`${origin}/auth/login?error=line_auth_failed`);
     }
 
-    // Update LINE metadata for existing users
-    if (linkData.user) {
-      const meta = linkData.user.user_metadata || {};
-      if (!meta.line_user_id) {
-        await adminSupabase.auth.admin.updateUserById(linkData.user.id, {
-          user_metadata: {
-            ...meta,
-            line_user_id: lineProfile.userId,
-            avatar_url: lineProfile.pictureUrl || meta.avatar_url || '',
-          },
-        });
-      }
-
-      // 【監査C2・敵対検証 恒久根治】profiles.line_user_id を LINE ログイン時にもバックフィルする。
-      // サーバ起点の全 LINE 送信経路は profiles.line_user_id を単一ソースに解決する（監査C2）。
-      // 旧来 profiles.line_user_id を書くのは POST /api/liff/link のみで、LIFF ミニアプリで明示連携
-      // していない「LINE ログインのみ」の顧客は bot をフォロー済みでも全 LINE 通知を受け取れなかった。
-      // LINE userId は Login/LIFF/Messaging 間で一致するため、ここで profiles へ確実に紐付けることで
-      // その未達コホートを恒久解消する。UNIQUE 違反（別ユーザーに同 line_user_id が既存＝通常起きない）
-      // やエラーは握り潰してログのみ（ログイン自体は成立させる・非ブロッキング）。
-      const { error: profileLinkErr } = await adminSupabase
-        .from('profiles')
-        .update({ line_user_id: lineProfile.userId, updated_at: new Date().toISOString() })
-        .eq('id', linkData.user.id);
-      if (profileLinkErr) {
-        console.error('[line-callback] profiles.line_user_id backfill failed', { err: profileLinkErr.message });
-      }
-    }
-
-    // Cookie-aware client to establish session
+    // Do not publish SDK cookies before its authoritative result identifies the
+    // intended actor. Late/error/wrong-user SDK updates remain buffered.
+    const pendingCookies: { name: string; value: string; options?: CookieOptions }[] = [];
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -239,31 +249,29 @@ export async function GET(request: NextRequest) {
             return cookieStore.getAll();
           },
           setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options)
-              );
-            } catch {
-              // Server Component context — ignore
-            }
+            pendingCookies.push(...cookiesToSet);
           },
         },
       }
     );
 
-    const { error: verifyError } = await supabase.auth.verifyOtp({
+    const { data: verifiedSession, error: verifyError } = await supabase.auth.verifyOtp({
       token_hash: linkData.properties.hashed_token,
       type: 'magiclink',
     });
 
-    if (verifyError) {
+    if (verifyError || verifiedSession?.user?.id !== actorId) {
       return NextResponse.redirect(`${origin}/auth/login?error=line_session_failed`);
     }
 
+    try { pendingCookies.forEach(({ name, value, options }) => cookieStore.set(name, value, options)); }
+    catch { return NextResponse.redirect(`${origin}/auth/login?error=line_session_failed`); }
+
     return NextResponse.redirect(`${origin}${safeRedirect}`);
-  } catch (e) {
-    safeCaptureException(e, 'line-auth');
-    alertCaughtError('line-auth', e, '/api/auth/line/callback');
+  } catch {
+    const unavailable = new Error('LINE authentication unavailable');
+    safeCaptureException(unavailable, 'line-auth');
+    alertCaughtError('line-auth', unavailable, '/api/auth/line/callback');
     return NextResponse.redirect(`${origin}/auth/login?error=line_unexpected`);
   }
 }

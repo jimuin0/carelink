@@ -7,7 +7,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { verifyLineAccessToken } from '@/lib/line';
+import { fetchVerifiedLiffProfile } from '@/lib/liff-profile';
+import { resolveVerifiedLineOwner } from '@/lib/verified-line-owner';
 import { serverError } from '@/lib/with-route';
 
 export async function GET(req: NextRequest) {
@@ -24,35 +25,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // ★ audience(channel)検証: /v2/profile は発行元チャネル(client_id)を検証しないため、
-  //   oauth2/v2.1/verify で自社チャネルID一致を必須化する（他チャネル発行トークンでの
-  //   line_user_id 詐称＝他人予約のIDOR閲覧を遮断）。fail-closed。
-  const tokenCheck = await verifyLineAccessToken(accessToken);
-  if (!tokenCheck.ok) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // LINE Profile APIでトークンを検証
-  const lineRes = await fetch('https://api.line.me/v2/profile', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!lineRes.ok) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  const lineProfile = await lineRes.json() as { userId: string };
+  const identity = await fetchVerifiedLiffProfile(accessToken);
+  if (!identity.ok) return NextResponse.json({ error: identity.status === 401 ? 'Unauthorized' : identity.error }, { status: identity.status });
 
   const admin = createServiceRoleClient();
 
-  // line_user_idからprofilesのuser_idを取得
-  const { data: profile } = await admin
-    .from('profiles')
-    .select('id')
-    .eq('line_user_id', lineProfile.userId)
-    .single();
-  if (!profile) {
-    return NextResponse.json({ error: 'User not found' }, { status: 404 });
-  }
-  const userId = profile.id;
+  const userId = await resolveVerifiedLineOwner(admin, identity.lineUserId);
+  if (!userId) return NextResponse.json({ error: 'LINE の連携を再確認してください。本人のアカウントでログインして LINE を連携してください。', code: 'LINE_LINK_REQUIRED' }, { status: 404 });
 
   const bookingId = req.nextUrl.searchParams.get('booking_id');
   const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

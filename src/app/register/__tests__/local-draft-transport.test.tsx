@@ -64,6 +64,7 @@ test('a known prepare failure before any commit may release only the same owned 
 });
 test.each(['invalid','unknown'])('commit %s must never release local input fence', async result => {
  mockFetch.mockResolvedValueOnce(prepared()).mockResolvedValueOnce(result === 'invalid' ? response(400, { state: 'invalid' }) : response(202, { state: 'unknown' }));
- await fill(); await submit(); await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+ await fill(); await submit(); await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(result === 'invalid' ? 3 : 2));
+ if(result==='invalid')expect(mockFetch.mock.calls[2][0]).toBe('/api/salons/status');
  expect(mockKnownRejection).not.toHaveBeenCalled(); expect(mockConfirmed).not.toHaveBeenCalled(); expect(mockPush).not.toHaveBeenCalled();
 });

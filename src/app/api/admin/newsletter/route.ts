@@ -49,6 +49,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'html_content must be under 100KB' }, { status: 400 });
   }
 
+  if (text_content != null && (typeof text_content !== 'string' || text_content.length > 100_000)) return NextResponse.json({ error: 'text_content must be under 100KB' }, { status: 400 });
+
   const VALID_TYPES = ['owner_monthly', 'user_digest', 'user_coupon', 'promo'];
   if (!VALID_TYPES.includes(campaign_type)) {
     return NextResponse.json({ error: 'Invalid campaign_type' }, { status: 400 });

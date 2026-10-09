@@ -8,6 +8,7 @@ import { safeJsonLd } from '@/lib/json-ld';
 import type { Json } from '@/types/database.types';
 import MerchantGuideText from '@/components/blog/MerchantGuideText';
 import { isMerchantGuide } from '@/lib/merchant-guide';
+import { normalizeBlogTags } from '@/lib/blog';
 
 export const revalidate = 3600;
 
@@ -73,21 +74,23 @@ function toArticleSections(content: Json): ArticleSection[] {
 }
 
 async function getPost(slug: string): Promise<DbPost | null> {
+  let readFailed = false;
   try {
     const supabase = createServerSupabaseClient();
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('platform_blog_posts')
       .select('slug, title, description, category, tags, reading_time, content, published_at, author_name')
       .eq('slug', slug)
       .eq('is_published', true)
-      .single();
+      .maybeSingle();
+    if (error) throw new Error('Article unavailable');
     if (data) {
       return {
         slug: data.slug,
         title: data.title,
         description: data.description,
         category: data.category,
-        tags: data.tags,
+        tags: normalizeBlogTags(data.tags),
         reading_time: data.reading_time,
         content: toArticleSections(data.content),
         published_at: data.published_at,
@@ -95,18 +98,22 @@ async function getPost(slug: string): Promise<DbPost | null> {
       };
     }
   } catch {
-    // フォールバックへ
+    readFailed = true;
   }
 
   // 静的データからフォールバック
   const a = articles.find((a) => a.slug === slug);
-  if (!a) return null;
+  if (!a) {
+    // An unavailable DB is not authoritative evidence of a missing article.
+    if (readFailed) throw new Error('Article unavailable');
+    return null;
+  }
   return {
     slug: a.slug,
     title: a.title,
     description: a.description,
     category: a.category,
-    tags: a.tags,
+    tags: normalizeBlogTags(a.tags),
     reading_time: a.readingTime,
     content: a.content,
     published_at: a.publishedAt,

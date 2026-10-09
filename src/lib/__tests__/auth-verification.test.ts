@@ -1,6 +1,6 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { createClient, AuthApiError, AuthSessionMissingError, AuthRetryableFetchError, AuthUnknownError } from '@supabase/supabase-js';
-import { classifyAuthVerification, verifyAuthUser } from '../auth-verification';
+import { AUTH_VERIFICATION_TIMEOUT_MS, classifyAuthVerification, verifyAuthUser } from '../auth-verification';
 
 const result = (error: unknown, user: unknown = null) => ({ data: { user }, error });
 
@@ -72,4 +72,34 @@ test.each([503, 429, 401])('actual SDK fetch pipeline returns errors rather than
   expect(response.data.user).toBeNull(); expect(response.error).not.toBeNull();
   expect(classifyAuthVerification(response).state).toBe(status === 401 ? 'unauthenticated' : 'unavailable');
   expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+test('unsettled getUser reaches unavailable at 5s; late authenticated result cannot revise it', async () => {
+  jest.useFakeTimers();
+  try {
+    let finish!: (value: unknown) => void;
+    const pending = verifyAuthUser({ getUser: () => new Promise(resolve => { finish = resolve; }) });
+    const checked = expect(pending).resolves.toEqual({ state: 'unavailable' });
+    await jest.advanceTimersByTimeAsync(AUTH_VERIFICATION_TIMEOUT_MS);
+    await checked;
+    finish(result(null, { id: 'late-user' }));
+    await Promise.resolve();
+    expect(await pending).toEqual({ state: 'unavailable' });
+    expect(jest.getTimerCount()).toBe(0);
+  } finally { jest.useRealTimers(); }
+});
+
+test('late rejected getUser is handled and a subsequent verification can succeed', async () => {
+  jest.useFakeTimers();
+  try {
+    let fail!: (error: Error) => void;
+    const pending = verifyAuthUser({ getUser: () => new Promise((_resolve, reject) => { fail = reject; }) });
+    await jest.advanceTimersByTimeAsync(AUTH_VERIFICATION_TIMEOUT_MS);
+    expect(await pending).toEqual({ state: 'unavailable' });
+    fail(new Error('late private provider error'));
+    await Promise.resolve();
+    expect(await verifyAuthUser({ getUser: async () => result(null, { id: 'retry-user' }) }))
+      .toEqual({ state: 'verified', user: { id: 'retry-user' } });
+    expect(jest.getTimerCount()).toBe(0);
+  } finally { jest.useRealTimers(); }
 });

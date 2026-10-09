@@ -22,6 +22,8 @@ import { alertCaughtError } from '@/lib/alert';
 import { serverError } from '@/lib/with-route';
 import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
 import { runAfterResponse } from '@/lib/after-response';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import { verifyReviewPhotos } from '@/lib/review-photo-verification';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,7 +53,7 @@ const reviewSchema = z.object({
     ),
 });
 
-export async function POST(request: Request) {
+async function submitReview(request: Request, markCommitStarted: () => void) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
@@ -64,6 +66,13 @@ export async function POST(request: Request) {
   const parsed = reviewSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: '入力内容が不正です' }, { status: 400 });
+  }
+  // Compatibility evidence only; this header is not an identity credential.
+  // Old photo forms cannot prove whether an omitted image was intentionally
+  // unselected or silently lost. Keep their memory and refuse before mutation.
+  if (request.headers.get('X-CareLink-Review-Consumer') !== '1') {
+    return NextResponse.json({ code: 'REVIEW_CONSUMER_RELOAD_REQUIRED',
+      error: 'この口コミ画面では写真と投稿結果の確認ができません。投稿は行っていません。入力を控えてから、口コミ投稿画面を開き直してください。' }, { status: 409 });
   }
 
   // reCAPTCHA v3 検証（fail-closed: secret設定時=本番はtoken必須）
@@ -90,7 +99,12 @@ export async function POST(request: Request) {
   );
   const supabase = createServiceRoleClient();
 
-  const { data: { user } } = await authClient.auth.getUser();
+  const identity = await verifyAuthUser(authClient.auth);
+  if (identity.state === 'unavailable') return NextResponse.json({ error: 'ログイン状態を確認できません。入力を保持して再確認してください。' }, { status: 503 });
+  const user = identity.state === 'verified' ? identity.user : null;
+  const photoState = await verifyReviewPhotos(supabase, user?.id ?? null, parsed.data.facility_id, parsed.data.photo_urls);
+  if (photoState !== 'ready') return NextResponse.json({ error: '写真の保存・所有権を確認できません。入力と元写真を保持して再確認してください。' },
+    { status: photoState === 'unavailable' ? 503 : 400 });
 
   // 【2026年7月29日・恒久根治】reviewer_name は body の自由入力文字列をそのまま保存しており、
   // ログイン済みユーザーでも実在の他人の氏名を名乗って投稿できた（他人名義投稿・なりすまし）。
@@ -149,6 +163,7 @@ export async function POST(request: Request) {
   // 医療機関では体験談の掲載自体が制限されるため、検知した口コミは必ず人が判断する。
   const medicalAdViolations = findMedicalAdViolations(parsed.data.comment);
 
+  markCommitStarted();
   const { data: review, error } = await supabase
     .from('facility_reviews')
     .insert({
@@ -321,4 +336,13 @@ export async function POST(request: Request) {
   await Promise.allSettled(reviewSideEffects);
 
   return NextResponse.json({ success: true, id: review.id });
+}
+
+export async function POST(request: Request) {
+  let commitStarted = false;
+  const response = await submitReview(request, () => { commitStarted = true; });
+  // Only a response produced before any INSERT attempt can authorize a client
+  // retry. An insert error can be a lost commit reply; it is not absence proof.
+  if (!commitStarted) response.headers.set('X-CareLink-Review-Commit', 'not-started');
+  return response;
 }

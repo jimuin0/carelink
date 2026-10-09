@@ -15,10 +15,11 @@
 | #661 / #662 | マージ済み。#662のmain CI 37110697542で単体9,559件、分岐100%、隔離実API17件、E2E324件、flaky/skip0。本番version1801e66を確認 |
 | #663 | CI 37729102345、PG17 37729102316成功後にmerge117e42a。単体9,573件、分岐100%、実API17件、E2E324件・flaky/skip0。本番200・healthy・version一致 |
 | #664 | PR head b85d2084のCI 37734023083・PG17 37734023084成功。merge a46f5e1のmain CI37735593929・PG17 37735594002も成功。単体9,601件、分岐100%、実API17件、E2E324件・unexpected/flaky/skipped各0。Production deployment6928478917成功、06:21 UTCの本番200・healthy・version a46f5e1 |
-| #665 | head12a395d3のCI37871000634・PG17 37871000612成功、HTTPS E2E348件・unexpected/flaky/skipped各0。レビューで判明した退会前の共有fenceと未復元下書きの自動上書きを追加修正し、480suite/9956test・分岐9758/9758・型・lint負債3件を再確認。後続CI3318ee1aはE2Eに旧自動保存期待8件が残って失敗。未復元の保存原本を上書きできない期待へ修正し、実Chromium/Safariの18件・retry0が成功。最新commitの全体CIと本番適用は未完了 |
+| #665 | head12a395d3のCI37871000634・PG17 37871000612成功、HTTPS E2E348件・unexpected/flaky/skipped各0。レビューで判明した退会前の共有fenceと未復元下書きの自動上書きを追加修正し、480suite/9956test・分岐9758/9758・型・lint負債3件を再確認。head2cf83a21の全CI37881907492・PG17 37881907456成功、HTTPS E2E348件・unexpected/flaky/skipped各0。原本保護・復元後のrevision競合も実Chromium/Safari18件・retry0で確認。本番の正式DB適用・配信は未完了 |
 | #647 / #651 | 全差分を現mainと照合し、traffic_source保存とSlack本文の変更は現存。再マージ不要。PRの閉鎖は未実施 |
 | #646 | 追加された流入元テスト3件のTypeScript構文木も現mainと一致。単なる整形だけの提案ではないが、再マージ不要。PRの閉鎖は未実施 |
-| #632 / #640 / #641、#626〜#630 | 原指摘・現main・最新lock・テスト単位の全照合は未完了。古いbranchを丸ごと再マージしない。Stripe更新は保留 |
+| #632 / #640 / #641 | 全差分から失敗条件を再判定。プロフィール失敗、予約receipt、レビュー写真、Threads、Auth待機、配信の整合などを個別修正。元PRの全未適用を不具合とは数えない |
+| #626〜#630 | 全9file差分・36hunkの照合完了。4件は未採用の依存更新、Stripe1件は保留。版の差だけから新たな重大不具合を認定しない。同一package/lockの既存CIはhigh/critical0・moderate19 |
 
 ## 直近21項目
 
@@ -58,6 +59,25 @@ Storageの容量とprofile削除後の古いJWTからの書込みを制限する
 PR #632の全差分を読み、プロフィール作成失敗をAuth登録成功として扱うcatch-allが残っていたため、既存metadata・ACLを維持して登録transactionの失敗へ戻す第7の正式migrationを追加した。ローカルの実Auth SDKで失敗時のAuth/profile残存0と正常OAuth metadataを確認。初回メール再送の60秒制限と無料掲載CTAも修正した。
 
 #640/#641の照合では、予約の応答喪失後の再送、レビュー画像保存失敗、Threadsの結果不明送信、公開AIの共有費用上限などの追加差分が見つかった。現存・別方式解決・未対応・既存保留を区別して別途修正する。古い提案の全未適用を不具合と数えず、全提案済みとも扱わない。
+
+## 2026年10月9日 追加修正の検証
+
+作業先は `/Users/kam/Projects/carelink-final-followups-20261009`。以下はコード・隔離検証の状態であり、本番適用を示さない。
+
+- 予約の固定UUIDとactor/HttpOnly guest scope、入力hashのDB receiptで、応答喪失・二重クリック・再読込後も同じ受付を照合する。操作の変更や別actorは拒否し、不明な受付を新しいUUIDで送らない。予約・各通知outboxは同transactionに保存する。
+- 通知対象は全所属・設定・宛先と比較し、読取障害や集合変更では予約を部分受付しない。actor、弱い親ロック、所属、非キー親ロックの順で競合を検証。内容・権限が変わった作成通知は開始前に抑止する。
+- 新配信にはdispatch version2の正式claimを必須化し、旧raw workerの取得・attempt消費を拒否する。producerもDB readinessを確認し、部分DDL中は受付を停止する。開始後の結果不明は自動再送しない。
+- レビューの元画像・容量・MIME・実ownerを照合し、画像失敗で本文だけを送らない。結果不明は入力と受付fenceを保持する。Threadsも開始前の永続証明と公開済みの証拠を照合し、containerの準備完了だけを公開成功としない。
+- ニュースレターは同一キャンペーンの固定operation・宛先別queueで受理／不明／抑止を区別し、配信停止を原子化。clientの任意メール購読書込みを閉じる。受付・配信停止・Auth削除の実競合を確認。
+- LINEは両表で一致する本人確認済みの所有者だけを認め、自己編集profile・未確認リンク・email一致からログインを作らない。標準Supabase接続では作成できないAuth索引を除去し、信頼候補が複数なら選ばず停止する。外部Auth作成の厳密な1回保証や既存dataの推測統合は約束しない。
+- Auth/reCAPTCHAの待機を制限し、障害で入力を消さない。新しい登録は同意記録を保存し、旧フォームは同意なしの履歴を推測追加せず段階移行を維持する。
+- AIは共有24時間quota、retention、bot proof、SDK再試行0と全応答deadlineを確認し、医療相談本文をログへ出さない。回答待ち中の次の入力を保持する。Blogの障害を404と扱わず、Calendar DELETEは削除証拠と同じ記録へのCASだけで解除する。時差の変更は保留。
+
+全500suite・10,485test、分岐10,519/10,519＝100%。258 migrationのfresh PG17/C localeが一致しfingerprint2,942項目、34 SQL rollback fixtureが成功。標準ローカルSupabaseで同じmigration本文を検証し、公式CLIから型を生成（public119table/view）、隔離実API17件・静的契約17件、実ロック競合、Chromium/Safariの対象検証も確認した。追加段階の最終GitHub CI/全体HTTPS E2Eは別途確認する。
+
+本番の基準は引き続きa46f5e18。第1段階PR #665の7本の正式migration要求はcancelledのため未適用を確認し、再開の本人確認待ち。第2段階の8本も未適用。旧OAuth/古いscheduler・pinned経路の停止とdrain、新workerの稼働確認は本番の実確認が必要で、新mainの配信だけで証明済みとはしない。
+
+149原票の未回収を保全し、現行コードの独立した再監査として進める。原索引の全文照合・全コード監査の飽和・未修正ゼロ・全体完了は認定していない。
 
 ## 今回の検証と残る作業
 

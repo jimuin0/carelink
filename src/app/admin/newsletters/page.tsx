@@ -12,7 +12,8 @@ type Campaign = {
   status: 'draft' | 'scheduled' | 'sending' | 'sent' | 'cancelled';
   scheduled_at: string | null;
   sent_at: string | null;
-  stats: { sent: number; opened: number; clicked: number; bounced: number };
+  stats: { sent: number; opened: number; clicked: number; bounced: number; delivery_mode?: string; total?: number; queued?: number; unconfirmed?: number; accepted?: number; suppressed?: number; failed?: number };
+  updated_at: string;
   created_at: string;
 };
 
@@ -26,8 +27,8 @@ const TYPE_LABELS: Record<string, string> = {
 const STATUS_LABELS: Record<string, { label: string; tone: SbBadgeTone }> = {
   draft: { label: '下書き', tone: 'neutral' },
   scheduled: { label: '配信予定', tone: 'info' },
-  sending: { label: '配信中', tone: 'warning' },
-  sent: { label: '配信済み', tone: 'success' },
+  sending: { label: '受付・結果確認中', tone: 'warning' },
+  sent: { label: '処理完了', tone: 'success' },
   cancelled: { label: 'キャンセル', tone: 'danger' },
 };
 
@@ -53,7 +54,7 @@ export default function NewslettersPage() {
     fetch('/api/admin/newsletter')
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => { setCampaigns(d.campaigns || []); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch(() => { setLoading(false); setResult({ ok: false, message: '一覧を取得できませんでした。受付状況は未確認です。' }); });
   }, []);
 
   const handleCreate = async () => {
@@ -74,23 +75,29 @@ export default function NewslettersPage() {
       } else {
         setResult({ ok: false, message: data.error || '作成に失敗しました' });
       }
+    } catch {
+      setResult({ ok: false, message: '作成結果を確認できません。一覧を確認してから操作してください。' });
     } finally {
       setCreating(false);
     }
   };
 
-  const handleAction = async (id: string, action: 'schedule' | 'cancel' | 'send') => {
-    const res = await fetch(`/api/admin/newsletter/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action }),
-    });
-    if (res.ok) {
+  const handleAction = async (id: string, action: 'schedule' | 'cancel' | 'send' | 'inspect') => {
+    try {
+      const observed = campaigns.find(c => c.id === id);
+      const res = await fetch(`/api/admin/newsletter/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, expected_updated_at: observed?.updated_at }),
+      });
       const data = await res.json();
-      setCampaigns((prev) => prev.map((c) => c.id === id ? data.campaign : c));
-    } else {
-      const data = await res.json().catch(() => ({}));
-      setResult({ ok: false, message: data.error || '操作に失敗しました' });
+      if (res.ok) {
+        setCampaigns(prev => prev.map(c => c.id === id ? data.campaign : c));
+        if (data.message) setResult({ ok: true, message: data.message });
+      } else {
+        setResult({ ok: false, message: data.error || '操作に失敗しました' });
+      }
+    } catch {
+      setResult({ ok: false, message: '受付結果を確認できません。同じキャンペーンの「受付状況を確認」から照合してください。' });
     }
   };
 
@@ -108,12 +115,6 @@ export default function NewslettersPage() {
   };
 
   const sendConfirmSubject = campaigns.find((c) => c.id === sendConfirmId)?.subject ?? '';
-
-  const openRate = (stats: Campaign['stats']) =>
-    stats.sent > 0 ? Math.round((stats.opened / stats.sent) * 100) : 0;
-
-  const clickRate = (stats: Campaign['stats']) =>
-    stats.opened > 0 ? Math.round((stats.clicked / stats.opened) * 100) : 0;
 
   return (
     <div className="max-w-5xl space-y-6">
@@ -142,7 +143,7 @@ export default function NewslettersPage() {
       {/* Quick stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <SbStatCard label="総キャンペーン" value={campaigns.length} unit="件" accent="sky" />
-        <SbStatCard label="配信済み" value={campaigns.filter((c) => c.status === 'sent').length} unit="件" accent="emerald" />
+        <SbStatCard label="処理完了" value={campaigns.filter((c) => c.status === 'sent').length} unit="件" accent="emerald" />
         <SbStatCard label="予定" value={campaigns.filter((c) => c.status === 'scheduled').length} unit="件" accent="amber" />
         <SbStatCard label="下書き" value={campaigns.filter((c) => c.status === 'draft').length} unit="件" accent="gray" />
       </div>
@@ -258,19 +259,20 @@ export default function NewslettersPage() {
                     <div className="font-medium text-gray-900 mt-1 truncate">{c.subject}</div>
                     <div className="text-xs text-gray-500 mt-1 space-x-3">
                       {c.scheduled_at && <span>予定：{new Date(c.scheduled_at).toLocaleString('ja-JP')}</span>}
-                      {c.sent_at && <span>送信：{new Date(c.sent_at).toLocaleString('ja-JP')}</span>}
+                      {c.sent_at && <span>処理完了：{new Date(c.sent_at).toLocaleString('ja-JP')}</span>}
                       <span>作成：{new Date(c.created_at).toLocaleDateString('ja-JP')}</span>
                     </div>
-                    {c.status === 'sent' && (
-                      <div className="mt-2 flex gap-4 text-xs text-gray-600">
-                        <span>送信 <strong>{c.stats.sent}</strong></span>
-                        <span>開封率 <strong>{openRate(c.stats)}%</strong></span>
-                        <span>クリック率 <strong>{clickRate(c.stats)}%</strong></span>
-                        <span>バウンス <strong>{c.stats.bounced}</strong></span>
+                    {c.stats.delivery_mode === 'newsletter_outbox_v1' ? (
+                      <div className="mt-2 text-xs text-gray-600 space-y-1">
+                        <p>対象 {c.stats.total} / 待機 {c.stats.queued} / 結果未確認 {c.stats.unconfirmed} / 提供元受理 {c.stats.accepted} / 配信停止・対象外 {c.stats.suppressed} / 失敗 {c.stats.failed}</p>
+                        <p>提供元の受理はメール到達の確認ではありません。開封・クリックは未計測です。</p>
                       </div>
-                    )}
+                    ) : c.status === 'sent' || c.status === 'sending' ? (
+                      <p className="mt-2 text-xs text-gray-600">旧方式の記録です。実際の到達・開封は未確認です。結果不明の配信は自動再送しません。</p>
+                    ) : null}
                   </div>
                   <div className="flex gap-2 shrink-0">
+                    <button type="button" className="text-xs border rounded-lg px-3 py-1" onClick={() => handleAction(c.id, 'inspect')}>受付状況を確認</button>
                     {c.status === 'draft' && (
                       <>
                         <button
@@ -312,8 +314,7 @@ export default function NewslettersPage() {
       <div className="bg-white rounded-xl border p-6">
         <h2 className="font-semibold text-gray-900 mb-4">配信停止管理</h2>
         <p className="text-sm text-gray-600">
-          ユーザーはメール末尾の配信停止リンクからいつでも解除可能です（CAN-SPAM法準拠）。
-          解除リクエストは自動的に <code className="bg-gray-100 px-1 rounded-sm text-xs">newsletter_subscriptions</code> テーブルに反映されます。
+          ユーザーはメール末尾の配信停止リンクから解除できます。アカウントの配信停止設定と購読設定を照合し、送信開始直前にも対象か確認します。
         </p>
         <div className="mt-4 p-4 bg-blue-50 rounded-lg text-sm text-blue-800">
           <strong>ニュースレターは手動配信のみ</strong>です（自動の月次配信は廃止しました）。
@@ -323,9 +324,9 @@ export default function NewslettersPage() {
 
       <ConfirmDialog
         open={sendConfirmId !== null}
-        title="今すぐ一斉配信しますか？"
-        message={`「${sendConfirmSubject}」を対象購読者全員へ今すぐメール配信します。配信後は取り消せません。よろしいですか？`}
-        confirmLabel={sending ? '配信中...' : '配信する'}
+        title="送信キューに登録しますか？"
+        message={`「${sendConfirmSubject}」の宛先と本文を確定して送信キューに登録します。送信開始後は取り消せません。メール到達は別途確認が必要です。`}
+        confirmLabel={sending ? '受付中...' : 'キューに登録する'}
         confirmDisabled={sending}
         onConfirm={handleConfirmSend}
         onCancel={() => { if (!sending) setSendConfirmId(null); }}
