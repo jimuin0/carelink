@@ -9,7 +9,7 @@ if (local) {
   assert.match(process.env.DOCKER_HOST || '', /^unix:\/\/.+\/\.docker\/run\/docker\.sock$/);
   assert.equal(process.argv.length, 3);
   executable = 'docker'; environment = process.env;
-  argumentsFor = name => ['exec','-i','-e',`PGAPPNAME=${name}`,'supabase_db_carelink','psql','-U','postgres','-X','-qAt','-v','ON_ERROR_STOP=1','-d',database];
+  argumentsFor = () => ['exec','-i','supabase_db_carelink','psql','-U','postgres','-X','-qAt','-v','ON_ERROR_STOP=1','-d',database];
 } else {
   assert.equal(process.env.GITHUB_ACTIONS,'true'); assert.equal(process.env.CI,'true');
   assert.ok(['localhost','127.0.0.1'].includes(process.env.PGHOST)); assert.equal(process.env.PGPORT,'5432'); assert.equal(process.env.PGUSER,'postgres');
@@ -20,6 +20,7 @@ if (local) {
 const children = new Set();
 const query = sql => execFileSync(executable, argumentsFor('staff-fixture-query'), { env:environment,input:sql,encoding:'utf8',timeout:30000,stdio:['pipe','pipe','pipe'] }).trim();
 function client(sql, name) {
+  assert.match(name,/^[a-z0-9-]+$/);
   const child=spawn(executable,argumentsFor(name),{ env:environment,stdio:['pipe','pipe','pipe'] });
   children.add(child); let output='';
   const done=new Promise((resolve,reject) => {
@@ -29,6 +30,9 @@ function client(sql, name) {
     child.on('close',code=>{ clearTimeout(timer); children.delete(child); if(code===0)resolve(output.trim());else reject(new Error('fixture query failed')); });
     child.stdin.on('error',()=>child.kill('SIGTERM'));
   });
+  // Use SQL in both modes: PGAPPNAME in Docker had hidden the missing name
+  // on the real psql CI path, so the overlap barrier never saw its clients.
+  child.stdin.write(`SET application_name='${name}';\n`);
   if(sql!==undefined)child.stdin.end(sql); return { child,done,output:()=>output };
 }
 async function contend(label, lock, calls) {
