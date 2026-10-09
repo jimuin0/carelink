@@ -15,6 +15,7 @@ interface ModerationItem {
   auto_flags: string[];
   status: 'pending' | 'approved' | 'rejected' | 'escalated';
   review_note: string | null;
+  reviewed_at: string | null;
   created_at: string;
   // joined
   facility_name?: string;
@@ -64,6 +65,7 @@ export default function ModerationPage() {
   const [reviewNote, setReviewNote] = useState('');
 
   const load = useCallback(async () => {
+    try {
     const supabase = createBrowserSupabaseClient();
     let query = supabase
       .from('moderation_queue')
@@ -85,9 +87,11 @@ export default function ModerationPage() {
       auto_flags: toStringArray(row.auto_flags),
       status: toModerationStatus(row.status),
       review_note: row.review_note,
+      reviewed_at: row.reviewed_at,
       created_at: row.created_at,
     })));
     setLoading(false);
+    } catch { setLoadError(true); setLoading(false); }
   }, [statusFilter]);
 
   // load は更新ボタン・審査後の再取得などイベントハンドラから引き続き呼ぶため関数として残し、
@@ -118,33 +122,38 @@ export default function ModerationPage() {
         auto_flags: toStringArray(row.auto_flags),
         status: toModerationStatus(row.status),
         review_note: row.review_note,
+        reviewed_at: row.reviewed_at,
         created_at: row.created_at,
       })));
       setLoading(false);
-    })();
+    })().catch(() => { if (!cancelled) { setLoadError(true); setLoading(false); } });
     return () => { cancelled = true; };
   }, [statusFilter]);
 
   const handleDecision = async (id: string, decision: 'approved' | 'rejected' | 'escalated') => {
     if (processingId) return; // 二重送信ガード（連打抑止）
+    const observed = items.find(item => item.id === id);
+    if (!observed) return;
     setProcessingId(id);
     try {
       const res = await fetch(`/api/admin/moderation/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ decision, review_note: reviewNote || null }),
+        body: JSON.stringify({ decision, expected_status: observed.status, expected_reviewed_at: observed.reviewed_at ?? null, review_note: reviewNote || null }),
       });
 
       if (!res.ok) {
-        setToast({ type: 'error', message: '更新に失敗しました' });
+        setToast({ type: 'error', message: res.status === 409 ? '審査状態が変更されています。再読み込みして確認してください' : '更新に失敗しました' });
         return;
       }
 
+      await load();
       const labels = { approved: '承認', rejected: '却下', escalated: 'エスカレーション' };
       setToast({ type: 'success', message: `${labels[decision]}しました` });
       setReviewingId(null);
       setReviewNote('');
-      load();
+    } catch {
+      setToast({ type: 'error', message: '審査結果を確認できませんでした。メモは保持されています。再読み込みして状態を確認してください' });
     } finally {
       setProcessingId(null);
     }

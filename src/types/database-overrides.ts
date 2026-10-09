@@ -68,7 +68,24 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
     };
     // Omit every overridden key before replacing it. Intersecting generated
     // non-null strings with nullable overrides would silently reject valid SQL NULLs.
-    Functions: Omit<GeneratedFunctions, 'create_booking_atomic' | 'create_online_booking_atomic' | 'prepare_salon_photo' | 'setup_facility_from_registration' | 'save_booking_email_event_atomic' | 'start_booking_email_event'> & {
+    Functions: Omit<GeneratedFunctions, 'create_booking_atomic' | 'create_online_booking_atomic' | 'prepare_salon_photo' | 'setup_facility_from_registration' | 'save_booking_email_event_atomic' | 'start_booking_email_event' | 'checkout_booking_with_points_atomic' | 'moderate_content_atomic' | 'save_staff_override_atomic' | 'get_staff_mutation_operation'> & {
+      // These NULL paths are explicit in the forward atomicity migrations.
+      checkout_booking_with_points_atomic: Omit<GeneratedFunctions['checkout_booking_with_points_atomic'], 'Args'> & {
+        Args: Omit<GeneratedFunctions['checkout_booking_with_points_atomic']['Args'], 'p_expected_updated_at' | 'p_paid_amount'> & {
+          p_expected_updated_at: string | null; p_paid_amount: number | null;
+        };
+      };
+      moderate_content_atomic: Omit<GeneratedFunctions['moderate_content_atomic'], 'Args'> & {
+        Args: Omit<GeneratedFunctions['moderate_content_atomic']['Args'], 'p_review_note' | 'p_expected_reviewed_at'> & { p_review_note?: string | null; p_expected_reviewed_at?: string | null };
+      };
+      save_staff_override_atomic: Omit<GeneratedFunctions['save_staff_override_atomic'], 'Args'> & {
+        Args: Omit<GeneratedFunctions['save_staff_override_atomic']['Args'], 'p_start_time' | 'p_end_time'> & {
+          p_start_time: string | null; p_end_time: string | null;
+        };
+      };
+      get_staff_mutation_operation: Omit<GeneratedFunctions['get_staff_mutation_operation'], 'Args'> & {
+        Args: Omit<GeneratedFunctions['get_staff_mutation_operation']['Args'], 'p_staff_id'> & { p_staff_id?: string | null };
+      };
       start_booking_email_event: Omit<GeneratedFunctions['start_booking_email_event'], 'Returns'> & {
         Returns: { outcome: string; started_at: string | null }[];
       };

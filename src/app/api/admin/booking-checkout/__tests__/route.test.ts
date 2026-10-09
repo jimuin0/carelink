@@ -19,12 +19,13 @@ jest.mock('@/lib/booking-completion', () => ({
 
 const mockGetUser = jest.fn();
 const mockFrom = jest.fn();
+const mockRpc = jest.fn();
 
 jest.mock('@/lib/supabase-server-auth', () => ({
   createServerSupabaseAuthClient: jest.fn(() => Promise.resolve({ auth: { getUser: mockGetUser } })),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: jest.fn(() => ({ from: mockFrom })),
+  createServiceRoleClient: jest.fn(() => ({ from: mockFrom, rpc: mockRpc })),
 }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 
@@ -88,6 +89,7 @@ function updateChain(result: { data: unknown; error: unknown }) {
 
 /** 標準成功モック: status=fromStatus の予約・owner・CAS 成功。 */
 function setupSuccess(fromStatus: string, updateResult?: { data: unknown; error: unknown }) {
+  mockRpc.mockImplementation((_name, args) => Promise.resolve(updateResult ?? { data: [{ id: validBookingId, total_price: Math.max(0,args.p_charges.reduce((sum: number,c: {amount:number})=>sum+c.amount,0)), points_earned: 33 }], error: null }));
   let bookingCall = 0;
   mockFrom.mockImplementation((table: string) => {
     if (table === 'bookings') {
@@ -226,8 +228,8 @@ test('割引で合計が負 → 0 にクランプ', async () => {
 });
 
 // ─── CAS / DB エラー ─────────────────────────────────────
-test('CAS 競合（0 行更新）→ 409', async () => {
-  setupSuccess('confirmed', { data: [], error: null });
+test('CAS 競合はtransactionで拒否 → 409', async () => {
+  setupSuccess('confirmed', { data: null, error: {message:'BOOKING_REVISION_CONFLICT'} });
   const res = await POST(makeRequest(validBody()));
   expect(res.status).toBe(409);
 });
@@ -242,4 +244,25 @@ test('予期せぬ例外 → 500（catch）', async () => {
   mockGetUser.mockRejectedValue(new Error('boom'));
   const res = await POST(makeRequest(validBody()));
   expect(res.status).toBe(500);
+});
+
+
+test.each([['BOOKING_PERMISSION_DENIED',404],['BOOKING_REVISION_CONFLICT',409],['SYNTHETIC_POINT_FAILURE',500]])('原子会計 %s は副作用なし',async(message,status)=>{
+ setupSuccess('confirmed',{data:null,error:{message}});
+ expect((await POST(makeRequest(validBody({complete:true})))).status).toBe(status);
+ expect(mockApply).not.toHaveBeenCalled();
+});
+test.each([null,[],[{id:'wrong',total_price:3300}],[{id:validBookingId,total_price:999}]])('会計結果未確認 %j は成功にしない',async(data)=>{
+ setupSuccess('confirmed',{data,error:null}); expect((await POST(makeRequest(validBody()))).status).toBe(500);
+});
+
+test('旧DBで原子会計RPCが未適用でも直接UPDATE/ポイント副作用へ戻らない',async()=>{
+ setupSuccess('confirmed');
+ mockRpc.mockResolvedValue({data:null,error:{code:'PGRST202',message:'checkout_booking_with_points_atomic was not found'}});
+ expect((await POST(makeRequest(validBody({complete:true})))).status).toBe(500);
+ expect(mockRpc).toHaveBeenCalledWith('checkout_booking_with_points_atomic',expect.anything());
+ expect(mockFrom.mock.calls.filter(([table])=>table==='bookings')).toHaveLength(1);
+ expect(mockFrom).not.toHaveBeenCalledWith('user_points');expect(mockFrom).not.toHaveBeenCalledWith('customer_visits');
+ expect(mockApply).not.toHaveBeenCalled();
+ expect(jest.requireMock('@/lib/audit-logger').writeAuditLog).not.toHaveBeenCalled();
 });

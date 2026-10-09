@@ -41,7 +41,7 @@ async function submit() {
   fireEvent.click(within(dialog).getByRole('button', { name: '送信する' }));
 }
 test('v2 real form and coordinator use prepare then commit, with no legacy upload or PII redirect', async () => {
-  request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId }))
+  request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 10485760, mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] } }))
     .mockResolvedValueOnce(response(201, { state: 'committed', receiptId }));
   await fill(); await submit();
   await waitFor(() => expect(mockRouter.push).toHaveBeenCalledWith('/register/complete?handoff=registration'));
@@ -72,15 +72,17 @@ test.each(['prepared', 'confirmed'])('OFF with %s context confirms the original 
   expect(mockLegacyUpload).not.toHaveBeenCalled();
 });
 
-test('OFF with a prepared intent finishes that intent without preparing or using V1', async () => {
+test('OFF with a prepared intent refreshes its own handshake and finishes without a new intent or V1', async () => {
   sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY, JSON.stringify({ version: 1, intentId, phase: 'prepared' }));
   request.mockResolvedValueOnce(response(200, { state: 'uncommitted' }))
     .mockResolvedValueOnce(response(200, { state: 'uncommitted' }))
+    .mockResolvedValueOnce(response(200, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 10485760, mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] } }))
     .mockResolvedValueOnce(response(201, { state: 'committed', receiptId }));
   await fill(false); await submit();
   await waitFor(() => expect(mockRouter.push).toHaveBeenCalledTimes(1));
-  expect(request.mock.calls.map(([path]) => path)).toEqual(['/api/salons/status', '/api/salons/status', '/api/salons/commit']);
-  expect(JSON.parse(request.mock.calls[2][1].body).intentId).toBe(intentId);
+  expect(request.mock.calls.map(([path]) => path)).toEqual(['/api/salons/status', '/api/salons/status', '/api/salons/prepare', '/api/salons/commit']);
+  expect(JSON.parse(request.mock.calls[2][1].body)).toEqual({ intentId });
+  expect(JSON.parse(request.mock.calls[3][1].body).intentId).toBe(intentId);
   expect(mockLegacyUpload).not.toHaveBeenCalled();
 });
 
@@ -100,7 +102,7 @@ test('OFF with unavailable session storage blocks new input instead of losing ol
   } finally { unavailable.mockRestore(); }
 });
 test('lost outcome disables new submission, then readonly reconciliation navigates once', async () => {
-  request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId })).mockRejectedValueOnce(new Error('lost'))
+  request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 10485760, mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] } })).mockRejectedValueOnce(new Error('lost'))
     .mockResolvedValueOnce(response(200, { state: 'committed', receiptId }));
   await fill(); await submit();
   await screen.findByText(/送信結果を確認できませんでした。同じ申込/);
@@ -126,7 +128,7 @@ test('server item rejection restores prior step, expands/focuses its field and p
   const photoId = '33333333-3333-4333-8333-333333333333';
   const path = salonPhotoPath(intentId, photoId, 'image/png');
   Object.defineProperty(crypto, 'randomUUID', { configurable: true, value: () => '44444444-4444-4444-8444-444444444444' });
-  request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId }))
+  request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 10485760, mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] } }))
     .mockResolvedValueOnce(response(200, { state: 'uploaded', photoId, path }))
     .mockResolvedValueOnce(response(400, { state: 'invalid', fieldErrors: { contact_phone: 'PRIVATE' } }))
     .mockResolvedValueOnce(response(200, { state: 'uncommitted' }))

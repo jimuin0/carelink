@@ -33,13 +33,16 @@ function unauthorized() {
 async function resolveApiKey(apiKey: string): Promise<{ facility_id: string; scopes: string[] } | null> {
   const keyHash = createHash('sha256').update(apiKey).digest('hex');
   const admin = createServiceRoleClient();
-  const { data } = await admin
+  const { data, error } = await admin
     .from('api_keys')
     .select('facility_id, scopes, is_active, expires_at')
     .eq('key_hash', keyHash)
     .single();
 
-  if (!data || !data.is_active) return null;
+  // A normal missing key is unauthorized. Database/transport failure,
+  // including data alongside an error, is never proof of key authority.
+  if (error && (error.code !== 'PGRST116' || data != null)) throw new Error('API key verification unavailable');
+  if (error || !data || !data.is_active) return null;
   if (data.expires_at && new Date(data.expires_at) < new Date()) return null;
   return { facility_id: data.facility_id, scopes: data.scopes ?? [] };
 }
@@ -79,8 +82,9 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
   const sp = request.nextUrl.searchParams;
   const facilityId = sp.get('facility_id') ?? principal.facility_id;
 
-  // API keyのfacility_idと異なる施設を指定した場合はエラー
-  if (facilityId !== principal.facility_id && !principal.scopes.includes('*')) {
+  // '*' grants every operation scope inside this key's facility. There is
+  // no separately authorized platform-global key in the current data model.
+  if (facilityId !== principal.facility_id) {
     return NextResponse.json({ error: 'Forbidden', message: '別施設のデータにはアクセスできません' }, { status: 403 });
   }
 

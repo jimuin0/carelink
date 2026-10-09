@@ -99,6 +99,9 @@ jobs:
       - name: 期待フィンガープリントが migration と一致することを検証する
         # --check は書き込まない。ズレていれば exit 1（＝再生成のコミット忘れを止める）。
         id: check
+        env:
+          CARELINK_POINTS_UPGRADE_FIXTURE: '1'
+          CARELINK_COUPON_UPGRADE_FIXTURE: '1'
         run: bash scripts/gen-schema-fingerprint.sh --check
 
       - name: Fingerprint literal changes and service-only ACL (disposable DB)
@@ -130,6 +133,44 @@ jobs:
 
       - name: Booking completion versus visit history atomicity and authorization (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-visit-fixtures.sql
+
+      - name: Booking points transactional failure and legacy compatibility (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-points-fixtures.sql
+
+      - name: Booking points observed concurrency and replay (disposable DB)
+        env:
+          CARELINK_POINTS_TEST_DB: carelink_shadow
+        run: node scripts/verify-booking-points-concurrency.mjs
+
+      - name: Staff schedules transactional failure and immutable replay (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f scripts/check-staff-schedule-transactions.sql
+
+      - name: Staff schedule booking contention (disposable DB)
+        run: node scripts/check-staff-schedule-concurrency.mjs
+
+      - name: Moderation and photo atomicity (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/atomic-moderation-photo-fixtures.sql
+
+      - name: Moderation and photo observed concurrency (disposable DB)
+        run: node scripts/check-moderation-photo-concurrency.mjs
+
+      - name: Coupon delivery identity and acceptance rollback (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/customer-coupon-email-fixtures.sql
+
+      - name: Coupon reservation and acceptance contention (disposable DB)
+        run: node scripts/check-coupon-email-concurrency.mjs
+
+      - name: Account retirement transactional cleanup and retention (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/account-deletion-fixtures.sql
+
+      - name: Account retirement and ownership contention (disposable DB)
+        run: node scripts/check-account-deletion-concurrency.mjs
+
+      - name: Storage capacity and deleted-account write scope (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/storage-capacity-scope-fixtures.sql
+
+      - name: Signup profile transaction and metadata privilege boundary (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/handle-new-user-profile-fixtures.sql
 
       - name: Event email immutable payload and delayed-handler CAS exclusion (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/event-email-fixtures.sql

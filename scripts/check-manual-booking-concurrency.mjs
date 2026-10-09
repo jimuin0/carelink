@@ -3,14 +3,27 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { realpathSync, statSync } from 'node:fs';
 
-const root = process.argv[2];
+const localDockerShadow = process.argv[2] === '--local-docker-shadow';
+const root = localDockerShadow ? undefined : process.argv[2];
 const database = root ? (process.argv[3] || 'carelink_shadow') : 'carelink_shadow';
 assert.ok(['carelink_shadow', 'carelink_manual_20261001', 'carelink_shadow_m09_20261001', 'carelink_shadow_m09_final_20261001'].includes(database));
-const args = ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-d', database];
+const psql = localDockerShadow ? '/Users/kam/Projects/carelink-resume-evidence-20261008/runtime/pg-cli-bridge/psql' : 'psql';
+const args = ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose', '-d', database];
+const runPrefix = `mb-${process.pid}-${Date.now().toString(36).slice(-5)}`;
 const children = new Set();
 let dbEnv;
-const query = sql => execFileSync('psql', args, { env: dbEnv, input: sql, encoding: 'utf8',
-  stdio: ['pipe', 'pipe', 'pipe'], timeout: 30000 }).trim();
+let fixtureOwned = false;
+const query = sql => {
+  try { return execFileSync(psql, args, { env: dbEnv, input: sql, encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'pipe'], timeout: 30000 }).trim(); }
+  catch (error) {
+    const text = String(error.stderr || '');
+    const state = text.match(/ERROR:\s+([0-9A-Z]{5}):/);
+    const contract = text.match(/ERROR:\s+P0001:\s+([A-Z][A-Z0-9_]+)\b/);
+    const constraint = text.match(/violates unique constraint "([a-z_]+)"/);
+    throw new Error(`fixture query failed${state ? ` SQLSTATE=${state[1]}` : ''}${contract ? ` contract=${contract[1]}` : ''}${constraint ? ` constraint=${constraint[1]}` : ''}`);
+  }
+};
 function stop(child) {
   if (child.exitCode !== null || child.signalCode !== null) return;
   child.kill('SIGTERM');
@@ -18,15 +31,23 @@ function stop(child) {
   timer.unref(); child.once('close', () => clearTimeout(timer));
 }
 function client(sql, name) {
-  const child = spawn('psql', args, { env: { ...dbEnv, PGAPPNAME: name }, stdio: ['pipe','pipe','pipe'] });
-  children.add(child); let output = '';
+  const child = spawn(psql, args, { env: { ...dbEnv, PGAPPNAME: name }, stdio: ['pipe','pipe','pipe'] });
+  children.add(child); let output = '', errors = '';
   const done = new Promise((resolve, reject) => {
     const timer = setTimeout(() => { stop(child); reject(new Error('fixture timeout')); }, 30000);
     child.stdout.on('data', chunk => { output += chunk; if (output.length > 4096) stop(child); });
-    child.stderr.resume();
+    child.stderr.on('data', chunk => { if(errors.length < 8192) errors += chunk; });
     child.once('error', () => { clearTimeout(timer); reject(new Error('fixture process failed')); });
     child.once('close', code => { children.delete(child); clearTimeout(timer);
-      if (code === 0) resolve(output.trim()); else reject(new Error('fixture query failed')); });
+      if (code === 0) resolve(output.trim()); else {
+        const state = errors.match(/ERROR:\s+([0-9A-Z]{5}):/);
+        const contractError = errors.match(/ERROR:\s+P0001:\s+([A-Z][A-Z0-9_]+)\b/);
+        const cycle = Array.from(errors.matchAll(/Process (\d+) waits for ([A-Za-z]+) on transaction (\d+); blocked by process (\d+)/g))
+          .map(row => `${row[1]} waits ${row[2]} tx${row[3]} blocked-by ${row[4]}`).join(', ');
+        const functions = [...new Set(Array.from(errors.matchAll(/PL\/pgSQL function ([a-z_]+)\(/g)).map(row => row[1]))].join(',');
+        const relations = [...new Set(Array.from(errors.matchAll(/in relation "([a-z_]+)"/g)).map(row => row[1]))].join(',');
+        reject(new Error(`fixture query failed${state ? ` SQLSTATE=${state[1]}` : ''}${contractError ? ` contract=${contractError[1]}` : ''}${cycle ? ` cycle=${cycle}` : ''}${functions ? ` functions=${functions}` : ''}${relations ? ` relations=${relations}` : ''}`));
+      } });
     child.stdin.on('error', () => stop(child));
   });
   if (sql !== undefined) child.stdin.end(sql);
@@ -34,7 +55,7 @@ function client(sql, name) {
 }
 async function contend(label, lock, calls, release = 'COMMIT;', firstBeforeRest = false) {
   console.log(`Observed-lock concurrency phase: ${label}`);
-  const name = `manual-booking-${label}`;
+  const name = `${runPrefix}-${label}`;
   const coordinator = client(undefined, `${name}-coordinator`);
   let ended = false;
   const coordinated = coordinator.done.then(value => { ended = true; return value; }, () => { ended = true; return ''; });
@@ -69,7 +90,8 @@ async function contend(label, lock, calls, release = 'COMMIT;', firstBeforeRest 
     END LOOP; END $$; SELECT 'overlap-observed'; ${release}`);
   const results = await Promise.allSettled(workers);
   assert.match(await coordinated, /overlap-observed/);
-  assert.ok(results.every(row => row.status === 'fulfilled'));
+  assert.ok(results.every(row => row.status === 'fulfilled'),
+    results.filter(row => row.status === 'rejected').map(row => row.reason.message).join('; '));
   return results.map(row => row.value);
 }
 const actor = 'd1000000-0000-4000-8000-000000000001';
@@ -87,7 +109,12 @@ function call(n, day) {
 }
 async function main() {
   if (process.env.PGSERVICE || process.env.PGSERVICEFILE || process.env.PGHOSTADDR) throw new Error('alternate connection refused');
-  if (root) {
+  if (localDockerShadow) {
+    assert.equal(process.argv.length, 3);
+    assert.equal(realpathSync(psql), psql);
+    dbEnv = { PATH:process.env.PATH, PGSSLMODE:'disable' };
+    assert.equal(query("SELECT current_setting('server_version_num')::int BETWEEN 170000 AND 179999"), 't');
+  } else if (root) {
     assert.match(root, /^\/tmp\/carelink-pg17-postgis\.[a-zA-Z0-9]+$/);
     const info = statSync(root); assert.ok(info.isDirectory());
     assert.equal(info.uid, process.getuid()); assert.equal(info.mode & 0o777, 0o700);
@@ -104,6 +131,11 @@ async function main() {
   }
   assert.equal(query('SELECT current_database()'), database);
   assert.equal(query("SELECT to_regprocedure('public.create_manual_booking_atomic(uuid,uuid,jsonb)') IS NOT NULL"), 't');
+  assert.equal(query(`SELECT count(*) FROM public.facility_profiles WHERE id IN ('${facility}',
+    'd2000000-0000-4000-8000-000000000003','d2000000-0000-4000-8000-000000000005','d2000000-0000-4000-8000-000000000006')`),'0');
+  assert.equal(query(`SELECT count(*) FROM auth.users WHERE id IN ('${actor}',
+    'd1000000-0000-4000-8000-000000000003','d1000000-0000-4000-8000-000000000004','d1000000-0000-4000-8000-000000000005')`),'0');
+  assert.equal(query("SELECT count(*) FROM public.booking_adjust_operations WHERE operation_id='d6000000-0000-4000-8000-000000000001'"),'0');
   query(`BEGIN; INSERT INTO auth.users(id,email,email_confirmed_at) VALUES('${actor}','manual-owner-fixture@example.invalid',now());
     INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status)
       VALUES('${facility}','Synthetic manual race','synthetic-manual-race','その他','検証県','検証市','検証住所','draft');
@@ -112,6 +144,7 @@ async function main() {
       VALUES('${menu}','${facility}','synthetic','Synthetic menu',1000,60,false);
     INSERT INTO public.staff_profiles(id,facility_id,name,slug,nomination_fee)
       VALUES('${staff}','${facility}','Synthetic staff','synthetic-manual-race-staff',0); COMMIT;`);
+  fixtureOwned = true;
   const twenty = fn => Array.from({ length:20 }, (_,n) => fn(n));
   const replay = await contend('same-operation',
     `SELECT pg_advisory_xact_lock(hashtextextended('manual-booking:${op(1)}',0))`, twenty(() => call(1,'07')));
@@ -198,17 +231,21 @@ async function main() {
   query(`BEGIN; INSERT INTO auth.users(id,email,email_confirmed_at)
     VALUES('${retiringActor}','retirement-race@example.invalid',now());
     INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status)
-      VALUES('${retiringFacility}','Synthetic retirement race','synthetic-retirement-race','その他','検証県','検証市','検証住所','draft');
+      VALUES('${retiringFacility}','Synthetic manual retirement race','synthetic-manual-retirement-race','その他','検証県','検証市','検証住所','draft');
     INSERT INTO public.facility_members(user_id,facility_id,role) VALUES('${retiringActor}','${retiringFacility}','owner');
     INSERT INTO public.facility_menus(id,facility_id,category,name,price,duration_minutes,is_published)
       VALUES('${retiringMenu}','${retiringFacility}','synthetic','Synthetic retirement menu',1000,60,false);
     INSERT INTO public.staff_profiles(id,facility_id,name,slug,nomination_fee)
-      VALUES('${retiringStaff}','${retiringFacility}','Synthetic retiring staff','synthetic-retiring-staff',0); COMMIT;`);
+      VALUES('${retiringStaff}','${retiringFacility}','Synthetic manual retiring staff','synthetic-manual-retiring-staff',0); COMMIT;`);
   assert.equal(query(`SELECT count(*) FROM public.bookings WHERE facility_id='${retiringFacility}'`),'0');
   const retirementInput=JSON.stringify({facility_id:retiringFacility,staff_id:retiringStaff,menu_ids:[retiringMenu],
     booking_date:'2030-01-10',start_time:'10:00',end_time:'11:00',customer_name:'Synthetic',email:null,phone:null,note:null});
   const retirement = await contend('reservation-after-retirement-count',
-    `SELECT id FROM public.facility_members WHERE user_id='${retiringActor}' FOR SHARE;
+    // Match the actual manual writer: it protects its actor before any
+    // membership/profile lock. A synthetic member-first barrier creates a
+    // cycle with Auth DELETE that no longer represents this RPC's order.
+    `SELECT public.lock_booking_account('${retiringActor}');
+     SELECT id FROM public.facility_members WHERE user_id='${retiringActor}' FOR SHARE;
      SELECT id FROM public.facility_profiles WHERE id='${retiringFacility}' FOR SHARE`,
     [`CREATE FUNCTION pg_temp.attempt() RETURNS text LANGUAGE plpgsql AS $$ BEGIN
       DELETE FROM auth.users WHERE id='${retiringActor}'; RETURN 'deleted';
@@ -261,7 +298,30 @@ async function main() {
   ],`DELETE FROM auth.users WHERE id='${retiringActor}'; COMMIT;`);
   assert.deepEqual(deletionFirst,['account-deleted']);
   assert.equal(query(`SELECT count(*) FROM public.bookings WHERE facility_id='${retiringFacility}' AND status='confirmed'`),'0');
-  console.log('Reservation/publication concurrency passed: 7 x 20 observed lock-waiting clients plus two simultaneous Auth owner departures; manual replay/capacity/revocation, publication/settings revocation and owner restoration, adjustment event reuse, state/outbox/visit CAS, ownerless listing suspension. Synthetic disposable DB only.');
+  const deletedFacility='d2000000-0000-4000-8000-000000000006';
+  const deletedMenu='d3000000-0000-4000-8000-000000000006';
+  const deletedStaff='d4000000-0000-4000-8000-000000000006';
+  query(`BEGIN; INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status)
+    VALUES('${deletedFacility}','Synthetic manual parent race','synthetic-manual-parent-race','その他','検証県','検証市','検証住所','draft');
+    -- This actor already owns the main fixture. Existing one-owner-per-user
+    -- policy permits an additional admin membership, not a second owner row.
+    INSERT INTO public.facility_members(user_id,facility_id,role) VALUES('${actor}','${deletedFacility}','admin');
+    INSERT INTO public.facility_menus(id,facility_id,category,name,price,duration_minutes,is_published)
+    VALUES('${deletedMenu}','${deletedFacility}','synthetic','Synthetic parent menu',1000,60,false);
+    INSERT INTO public.staff_profiles(id,facility_id,name,slug,nomination_fee)
+    VALUES('${deletedStaff}','${deletedFacility}','Synthetic parent staff','synthetic-parent-staff',0); COMMIT;`);
+  const deletedInput=JSON.stringify({facility_id:deletedFacility,staff_id:deletedStaff,menu_ids:[deletedMenu],booking_date:'2030-01-11',
+    start_time:'10:00',end_time:'11:00',customer_name:'Synthetic parent race',email:null,phone:null,note:null});
+  const deleted=await contend('parent-delete-before-manual',
+    `SELECT id FROM public.facility_profiles WHERE id='${deletedFacility}' FOR UPDATE`,
+    twenty(n=>`SET ROLE service_role; CREATE FUNCTION pg_temp.attempt() RETURNS text LANGUAGE plpgsql AS $$ BEGIN
+      RETURN public.create_manual_booking_atomic('${actor}','${op(120+n)}','${deletedInput}'::jsonb)->>'booking_id';
+      EXCEPTION WHEN insufficient_privilege THEN RETURN 'forbidden'; END $$; SELECT pg_temp.attempt();`),
+    `DELETE FROM public.facility_profiles WHERE id='${deletedFacility}'; COMMIT;`);
+  assert.ok(deleted.every(value=>value==='forbidden'));
+  assert.equal(query(`SELECT count(*) FROM public.bookings WHERE facility_id='${deletedFacility}'`),'0');
+  assert.equal(query(`SELECT count(*) FROM public.manual_booking_operations WHERE facility_id='${deletedFacility}'`),'0');
+  console.log('Reservation/publication concurrency passed: 8 x 20 observed lock-waiting clients plus two simultaneous Auth owner departures; manual replay/capacity/revocation and parent deletion, publication/settings revocation and owner restoration, adjustment event reuse, state/outbox/visit CAS, ownerless listing suspension. Synthetic disposable DB only.');
 }
 main().catch(error => {
   // Never print psql's raw query/arguments. Assert labels and our bounded
@@ -271,4 +331,20 @@ main().catch(error => {
       error instanceof Error && /^(fixture |lock |overlap)/.test(error.message) ? error.message : 'fixture preflight/query failed',
   }); process.exitCode = 1;
 })
-  .finally(() => { for (const child of children) stop(child); });
+  .finally(() => {
+    for (const child of children) stop(child);
+    if (!fixtureOwned) return;
+    query(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=current_database()
+      AND application_name LIKE '${runPrefix}-%' AND pid<>pg_backend_pid()`);
+    query(`BEGIN; DELETE FROM public.booking_adjust_operations WHERE operation_id='d6000000-0000-4000-8000-000000000001' AND actor_id='${actor}';
+      DELETE FROM public.webhook_retry_queue WHERE facility_id IN ('${facility}',
+      'd2000000-0000-4000-8000-000000000003','d2000000-0000-4000-8000-000000000005','d2000000-0000-4000-8000-000000000006');
+      DELETE FROM public.manual_booking_operations WHERE facility_id IN ('${facility}',
+      'd2000000-0000-4000-8000-000000000003','d2000000-0000-4000-8000-000000000005','d2000000-0000-4000-8000-000000000006');
+      DELETE FROM public.bookings WHERE facility_id IN ('${facility}',
+      'd2000000-0000-4000-8000-000000000003','d2000000-0000-4000-8000-000000000005','d2000000-0000-4000-8000-000000000006');
+      DELETE FROM public.facility_profiles WHERE id IN ('${facility}',
+      'd2000000-0000-4000-8000-000000000003','d2000000-0000-4000-8000-000000000005','d2000000-0000-4000-8000-000000000006');
+      DELETE FROM auth.users WHERE id IN ('${actor}',
+      'd1000000-0000-4000-8000-000000000003','d1000000-0000-4000-8000-000000000004','d1000000-0000-4000-8000-000000000005'); COMMIT;`);
+  });

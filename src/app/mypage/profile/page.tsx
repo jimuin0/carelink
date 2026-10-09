@@ -1,5 +1,6 @@
 'use client';
 
+import { ACCOUNT_DELETION_NOTICE, FACILITY_RETIREMENT_NOTICE, ACCOUNT_DELETION_BOOKING_GUARD_NOTICE } from '@/lib/account-deletion-policy';
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -14,7 +15,8 @@ import LoadError from '@/components/admin/LoadError';
 import { isLineEnabled } from '@/lib/line-availability';
 import PageLoading from '@/components/PageLoading';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
-import { clearStoredPersonalData } from '@/lib/client-storage';
+import { clearAccountLocalData, LOCAL_DATA_CLEAR_FAILED } from '@/lib/client-storage';
+import { completeClientCleanupMarker, prepareClientCleanupMarker } from '@/lib/client-cleanup-marker';
 
 interface ProfileForm {
   display_name: string;
@@ -41,6 +43,7 @@ export default function ProfileEditPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [deletionConfirmed, setDeletionConfirmed] = useState(false);
 
   const { register, handleSubmit, reset, formState: { isSubmitting, errors, isDirty } } = useForm<ProfileForm>();
   // 未保存の編集があるまま離脱/リロードしたら警告（データ消失防止）
@@ -373,12 +376,15 @@ export default function ProfileEditPage() {
       <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-8 border border-red-100">
         <h2 className="text-lg font-bold text-red-600 mb-2">アカウント削除</h2>
         <p className="text-xs text-gray-500 mb-4">
-          アカウントを削除すると、予約履歴・お気に入り・ポイントなど全てのデータが完全に削除されます。この操作は取り消せません。
+          {ACCOUNT_DELETION_NOTICE}
         </p>
+        <p className="text-xs text-gray-500 mb-4">{FACILITY_RETIREMENT_NOTICE}</p>
+        <p className="text-xs text-gray-500 mb-4">{ACCOUNT_DELETION_BOOKING_GUARD_NOTICE}</p>
         <button
           id="delete"
           type="button"
           onClick={() => setShowDeleteModal(true)}
+          disabled={deletionConfirmed}
           className="text-xs text-red-500 hover:text-red-700 font-bold transition-colors"
         >
           アカウントを削除する
@@ -386,6 +392,7 @@ export default function ProfileEditPage() {
       </div>
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+      {deletionConfirmed && <p className="text-xs text-gray-600 mt-3">アカウントの削除は確認済みです。端末の下書きを確認してから<Link href="/" onClick={event => { event.preventDefault(); window.location.assign(window.location.origin); }} className="ml-1 underline">トップページへ進む</Link>ことができます。</p>}
 
       <ConfirmDialog
         open={showLineUnlinkConfirm}
@@ -417,23 +424,28 @@ export default function ProfileEditPage() {
 
       {/* アカウント削除確認モーダル */}
       {showDeleteModal && (
-        <Modal open onClose={() => { setShowDeleteModal(false); setDeleteConfirmText(''); }} maxWidthClass="max-w-sm">
+        <Modal open onClose={() => { if (!deleting) { setShowDeleteModal(false); setDeleteConfirmText(''); } }} maxWidthClass="max-w-sm">
             <h3 className="text-lg font-bold text-red-600 mb-2">アカウントを削除する</h3>
             <p className="text-sm text-gray-600 mb-4">
-              予約履歴・お気に入り・ポイントなど全てのデータが完全に削除されます。この操作は取り消せません。
+              {ACCOUNT_DELETION_NOTICE}
             </p>
+            <p className="text-xs text-gray-600 mb-4">{FACILITY_RETIREMENT_NOTICE}</p>
+            <p className="text-xs text-gray-600 mb-4">{ACCOUNT_DELETION_BOOKING_GUARD_NOTICE}</p>
             <p className="text-xs font-medium text-gray-700 mb-2">
               確認のため「<span className="font-bold text-red-600">DELETE</span>」と入力してください
             </p>
             <input
               type="text"
               value={deleteConfirmText}
+              disabled={deleting}
+              aria-label="確認コード DELETE を入力"
               onChange={(e) => setDeleteConfirmText(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 font-mono"
             />
             <div className="flex gap-3">
               <button
                 type="button"
+                disabled={deleting}
                 onClick={() => { setShowDeleteModal(false); setDeleteConfirmText(''); }}
                 className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
               >
@@ -443,14 +455,27 @@ export default function ProfileEditPage() {
                 type="button"
                 disabled={deleteConfirmText !== 'DELETE' || deleting}
                 onClick={async () => {
+                  if (deleting || deletionConfirmed) return;
                   setDeleting(true);
                   try {
+                    try { prepareClientCleanupMarker(); await clearAccountLocalData(); }
+                    catch {
+                      setToast({ type: 'error', message: `${LOCAL_DATA_CLEAR_FAILED} アカウントの削除は行っていません。` });
+                      return;
+                    }
                     const res = await fetch('/api/account/delete', {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
+                      headers: { 'Content-Type': 'application/json', 'X-CareLink-Client-Cleanup': '1' },
                       body: JSON.stringify({ confirmation: 'DELETE' }),
                     });
-                    if (res.ok) {
+                    const data = await res.json().catch(() => null);
+                    if (res.ok && data?.success === true) {
+                      setDeletionConfirmed(true); setShowDeleteModal(false); setDeleteConfirmText('');
+                      try { await clearAccountLocalData(); completeClientCleanupMarker(); }
+                      catch {
+                        setToast({ type: 'error', message: `アカウントの削除は確認済みですが、${LOCAL_DATA_CLEAR_FAILED} 削除要求は再送しないでください。` });
+                        return;
+                      }
                       // アカウント削除成功後は router.push ではなく全ページリロードを意図的に使う。
                       // 破棄したいのは【ブラウザのメモリ上にあるもの】：supabase-js の
                       // クライアント実体（削除済みアカウントのトークン更新を試み続ける）と、
@@ -465,13 +490,14 @@ export default function ProfileEditPage() {
                       // 退会したのに入力済みの個人情報（氏名・メール・電話）が端末に
                       // 残らないよう、遷移の前に sessionStorage の下書きを消す。
                       // 【全リロードでは sessionStorage は消えない】ため明示的に消す必要がある。
-                      clearStoredPersonalData();
                       window.location.href = '/';
                     } else {
                       setShowDeleteModal(false);
                       setDeleteConfirmText('');
-                      setToast({ type: 'error', message: 'アカウント削除に失敗しました' });
+                      setToast({ type: 'error', message: !res.ok && typeof data?.error === 'string' ? data.error : '削除結果を確認できませんでした。再送せず、ログイン状態をご確認ください。' });
                     }
+                  } catch {
+                    setToast({ type: 'error', message: '削除結果を確認できませんでした。再送せず、ログイン状態をご確認ください。' });
                   } finally {
                     setDeleting(false);
                   }

@@ -13,8 +13,6 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
 import { serverError } from '@/lib/with-route';
 
@@ -22,10 +20,20 @@ export const dynamic = 'force-dynamic';
 
 const bodySchema = z.object({
   decision: z.enum(['approved', 'rejected', 'escalated']),
+  expected_status: z.enum(['pending', 'approved', 'rejected', 'escalated']).optional(),
+  expected_reviewed_at: z.string().datetime({ offset: true }).nullable().optional(),
   review_note: z.string().max(500).optional().nullable(),
 });
 
 export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  try {
+    return await moderateContent(request, props);
+  } catch (error) {
+    return serverError('admin-moderation-dependency', error, '/api/admin/moderation/[id]', '審査結果を保存できませんでした');
+  }
+}
+
+async function moderateContent(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
@@ -50,7 +58,8 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
   }
 
-  const { decision, review_note } = parsed.data;
+  const { decision, review_note, expected_status, expected_reviewed_at } = parsed.data;
+  if (!expected_status || expected_reviewed_at === undefined) return NextResponse.json({ error: '画面を再読み込みし、現在の審査状態を確認してから保存してください' }, { status: 409 });
   const admin = createServiceRoleClient();
 
   // Fetch the queue item first to validate content_id and get content_type
@@ -58,9 +67,10 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .from('moderation_queue')
     .select('id, content_type, content_id, status')
     .eq('id', params.id)
-    .single();
+    .maybeSingle();
 
-  if (fetchErr || !item) {
+  if (fetchErr) return serverError('admin-moderation-read', fetchErr, '/api/admin/moderation/[id]', '審査対象を確認できませんでした');
+  if (!item) {
     return NextResponse.json({ error: '対象が見つかりません' }, { status: 404 });
   }
 
@@ -74,44 +84,31 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     );
   }
 
-  // Update moderation_queue
-  // 更新件数(affected rows)を検証せず常に成功を返していたため、TOCTOU（直前のfetch後に
-  // 対象行が削除される等）による0件更新も「成功」と偽装していた（phantom success）。
-  // .select() で更新行を受け取り、0件なら404を返す（catalog/[id]等と同型）。
+  // Final authorization, the decision and review visibility belong to one
+  // transaction. A lost HTTP response may replay the exact same decision;
+  // a different concurrent decision must be read again before saving.
   const { data: updatedRows, error: updateErr } = await admin
-    .from('moderation_queue')
-    .update({
-      status: decision,
-      reviewed_at: new Date().toISOString(),
-      review_note: review_note ?? null,
-    })
-    .eq('id', params.id)
-    .select();
+    .rpc('moderate_content_atomic', {
+      p_actor_id: userId,
+      p_queue_id: params.id,
+      p_expected_status: expected_status,
+      p_expected_reviewed_at: expected_reviewed_at,
+      p_decision: decision,
+      p_review_note: review_note ?? null,
+    });
 
+  if (updateErr?.message.includes('MODERATION_PERMISSION_REVOKED')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (updateErr?.message.includes('MODERATION_REVISION_CONFLICT')) return NextResponse.json({ error: '審査状態が変更されています。再読み込みしてください' }, { status: 409 });
+  if (updateErr?.message.includes('MODERATION_REVIEW_UNAVAILABLE')) return NextResponse.json({ error: '対象レビューを確認できません。審査結果は保存されていません' }, { status: 409 });
   if (updateErr) {
     return serverError('admin-moderation-update', updateErr, '/api/admin/moderation/[id]', '更新に失敗しました');
   }
-  if (!updatedRows || updatedRows.length === 0) {
+  if (updatedRows?.length === 0) {
     return NextResponse.json({ error: '対象が見つかりません' }, { status: 404 });
   }
 
-  // 却下の場合: facility_reviews を非表示にする
-  // content_id は上でUUID検証済み
-  if (decision === 'rejected' && item.content_type === 'review') {
-    const { error: hideErr } = await admin
-      .from('facility_reviews')
-      .update({
-        status: 'hidden',
-        is_flagged: true,
-        flag_reason: review_note || '管理者による非承認',
-      })
-      .eq('id', item.content_id);
-    if (hideErr) {
-      safeCaptureException(hideErr, 'moderation-review-hide');
-      alertCaughtError('moderation-review-hide', hideErr, '/api/admin/moderation/[id]');
-      console.error('[moderation] review hide failed — review remains visible', { reviewId: item.content_id, err: hideErr });
-    }
-  }
+  if (updatedRows?.length !== 1 || updatedRows[0].id !== params.id) return serverError('admin-moderation-result', new Error('Moderation commit not confirmed'), '/api/admin/moderation/[id]', '審査結果の保存を確認できませんでした');
+  const updated = updatedRows[0];
 
   const { ua } = getRequestContext(request);
   void writeAuditLog({
@@ -119,7 +116,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     action: decision === 'approved' ? 'approve' : decision === 'rejected' ? 'reject' : 'update',
     tableName: 'moderation_queue',
     recordId: params.id,
-    newValues: { decision, content_type: item.content_type, content_id: item.content_id, review_note: review_note ?? null },
+    newValues: { decision, content_type: updated.content_type, content_id: updated.content_id, review_note: review_note ?? null, replayed: updated.replayed },
     ipAddress: ip,
     userAgent: ua,
   });
