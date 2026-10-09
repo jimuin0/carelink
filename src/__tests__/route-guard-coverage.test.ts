@@ -83,9 +83,8 @@ const ALLOW: Record<string, Exemption> = {
     auth: 'メール内リンクからの配信停止。HMAC 署名つきトークンが本人性の根拠でログインは要求しない',
   },
   'chat/route.ts': {
-    auth: '未ログインの来訪者が使える公式 AI アシスタント。CSRF＋IP レート制限（5回/分）で守る。'
-      + '⚠️ 兄弟の symptoms/suggest と違い reCAPTCHA を通していない＝Anthropic の課金を'
-      + '外部から焚ける面が残る（UI 側でトークンを送る改修とセットでないと本番が壊れるため別PR）',
+    auth: '未ログインの来訪者が使える公式 AI アシスタント。CSRF・設定時reCAPTCHA・'
+      + 'checkChatLimitの共有DB counter（IP burst＋全体24時間上限）を通してから外部APIを開始する',
   },
   'symptoms/suggest/route.ts': {
     auth: '未ログインで使える症状チェッカー。CSRF＋IP レート制限（10回/分）＋reCAPTCHA で守る',
@@ -156,7 +155,7 @@ export function hasCsrfGuard(masked: string): boolean {
 }
 
 export function hasRateLimitGuard(masked: string): boolean {
-  return /\bcheckRateLimit\s*\(/.test(masked) || /\brateLimit\s*:/.test(masked);
+  return /\b(?:checkRateLimit|checkChatLimit)\s*\(/.test(masked) || /\brateLimit\s*:/.test(masked);
 }
 
 /** 呼び出し元を identify する経路（どれか1つあればよい）。 */
@@ -174,6 +173,7 @@ const IDENTITY_PATTERNS: RegExp[] = [
   /\bresolveLiffUserId\s*\(/,         // LIFF
   /\bverifyLineSignature\s*\(/,       // LINE 署名（Messaging API webhook）
   /\bverifyLineAccessToken\s*\(/,     // LINE アクセストークン（自社チャネル一致を検証）
+  /\bfetchVerifiedLiffProfile\s*\(/,  // 同じchannel検証後、LINE自身のprofile応答からidentityを得る
   /\bverifySlackRequest\s*\(/,        // Slack 署名
   /\bconstructEvent\s*\(/,            // Stripe 署名
   /\bverifyApiKey\s*\(/,              // 施設 API キー
@@ -260,10 +260,16 @@ describe('route.ts の CSRF / レート制限 / 本人確認を機械強制す�
     test('レート制限の検出', () => {
       expect(hasRateLimitGuard('await checkRateLimit(l, ip, 5, 60, "x")')).toBe(true);
       expect(hasRateLimitGuard('withRoute(h, { rateLimit: { limit: 5 } })')).toBe(true);
+      expect(hasRateLimitGuard('await checkChatLimit(admin, ip)')).toBe(true);
+      expect(hasRateLimitGuard(maskNonCode('// checkChatLimit(admin, ip)'))).toBe(false);
+      expect(hasRateLimitGuard(maskNonCode('const x = "checkChatLimit(admin, ip)"'))).toBe(false);
       expect(hasRateLimitGuard('export async function POST() { return ok(); }')).toBe(false);
     });
 
     test('本人確認の検出', () => {
+      expect(hasIdentityGate('await fetchVerifiedLiffProfile(accessToken)')).toBe(true);
+      expect(hasIdentityGate(maskNonCode('// fetchVerifiedLiffProfile(accessToken)'))).toBe(false);
+      expect(hasIdentityGate(maskNonCode('const x = "fetchVerifiedLiffProfile(accessToken)"'))).toBe(false);
       expect(hasIdentityGate('await verifyAuthUser(auth.auth)')).toBe(true);
       expect(hasIdentityGate('await getAdminApiContext(request, staffId)')).toBe(true);
       expect(hasIdentityGate(maskNonCode('// getAdminApiContext(request)'))).toBe(false);

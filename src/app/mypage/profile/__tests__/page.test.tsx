@@ -12,12 +12,14 @@ jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: () => 
   from: () => ({ select: () => ({ eq: () => ({ maybeSingle: mockMaybeSingle }) }) }),
 }) }));
 jest.mock('@/hooks/useUnsavedGuard', () => ({ useUnsavedGuard: jest.fn() }));
-jest.mock('@/lib/line-availability', () => ({ isLineEnabled: () => false }));
+jest.mock('@/lib/line-availability', () => ({ isLineEnabled: jest.fn(()=>false), isLineLoginEnabled: jest.fn(()=>false) }));
 
 const profile = { display_name: '合成プロフィール', phone: '09000000000', prefecture: '東京都',
   city: '', birth_date: '', gender: '', avatar_url: null, email_unsubscribed: false, line_user_id: null };
 beforeEach(() => {
   jest.clearAllMocks();
+  require('@/lib/line-availability').isLineEnabled.mockReturnValue(false);
+  require('@/lib/line-availability').isLineLoginEnabled.mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: 'synthetic-user' } }, error: null });
   mockMaybeSingle.mockResolvedValue({ data: profile, error: null });
   global.fetch = mockFetch;
@@ -91,4 +93,17 @@ test('保存応答待ちでは全入力をロックし送信後の編集が成�
   fireEvent.change(name, { target: { value: '次の未保存入力' } });
   expect(name).toHaveValue('次の未保存入力');
   await waitFor(() => expect(useUnsavedGuard).toHaveBeenLastCalledWith(true));
+});
+
+test('legacy profile LINE ID alone shows reconfirmation rather than a verified badge',async()=>{
+ require('@/lib/line-availability').isLineEnabled.mockReturnValue(true);require('@/lib/line-availability').isLineLoginEnabled.mockReturnValue(true);
+ mockMaybeSingle.mockResolvedValue({data:{...profile,line_user_id:'U_legacy'},error:null});render(<ProfileEditPage/>);
+ const button=await screen.findByRole('button',{name:'LINE連携を再確認'});const form=button.closest('form')!;
+ expect(form).toHaveAttribute('action','/api/auth/line');expect(form).toHaveAttribute('method','get');
+ expect(form.querySelector('input[name="mode"]')).toHaveAttribute('value','link');expect(form.querySelector('input[name="redirect"]')).toHaveAttribute('value','/mypage/profile');
+ expect(screen.queryByText('LINE連携済み')).not.toBeInTheDocument();expect(screen.getByText('友だち追加だけではアカウント連携は完了しません。')).toBeInTheDocument();
+});
+test('current profile and server-verified owner show the same verified badge',async()=>{
+ mockMaybeSingle.mockResolvedValueOnce({data:{...profile,line_user_id:'U_owned'},error:null}).mockResolvedValueOnce({data:{line_user_id:'U_owned'},error:null}).mockResolvedValueOnce({data:{user_id:'synthetic-user',line_user_id:'U_owned',proof_version:1,verified_at:'2026-10-09T00:00:00Z'},error:null});
+ render(<ProfileEditPage/>);expect(await screen.findByText('LINE連携済み')).toBeInTheDocument();
 });

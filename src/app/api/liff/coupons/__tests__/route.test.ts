@@ -85,6 +85,7 @@ function setupDefaultMocks(
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
     from: jest.fn((table: string) => {
+      if (table === 'line_user_links') { const chain: any = {}; chain.select = jest.fn(() => chain); chain.eq = jest.fn(() => chain); chain.maybeSingle = jest.fn().mockResolvedValue({ data: { user_id: 'user-123', proof_version: 1, verified_at: '2026-10-09T00:00:00Z' }, error: null }); return chain; }
       if (table === 'profiles') {
         return {
           select: jest.fn().mockReturnValue({
@@ -269,7 +270,8 @@ describe('GET /api/liff/coupons', () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
       from: jest.fn((table: string) => {
-        if (table === 'profiles') {
+        if (table === 'line_user_links') { const chain: any = {}; chain.select = jest.fn(() => chain); chain.eq = jest.fn(() => chain); chain.maybeSingle = jest.fn().mockResolvedValue({ data: { user_id: 'user-123', proof_version: 1, verified_at: '2026-10-09T00:00:00Z' }, error: null }); return chain; }
+      if (table === 'profiles') {
           return {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
@@ -332,7 +334,8 @@ describe('GET /api/liff/coupons', () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
       from: jest.fn((table: string) => {
-        if (table === 'profiles') {
+        if (table === 'line_user_links') { const chain: any = {}; chain.select = jest.fn(() => chain); chain.eq = jest.fn(() => chain); chain.maybeSingle = jest.fn().mockResolvedValue({ data: { user_id: 'user-123', proof_version: 1, verified_at: '2026-10-09T00:00:00Z' }, error: null }); return chain; }
+      if (table === 'profiles') {
           return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'user-123' } }) }) }) };
         }
         if (table === 'bookings') {
@@ -349,7 +352,8 @@ describe('GET /api/liff/coupons', () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
       from: jest.fn((table: string) => {
-        if (table === 'profiles') {
+        if (table === 'line_user_links') { const chain: any = {}; chain.select = jest.fn(() => chain); chain.eq = jest.fn(() => chain); chain.maybeSingle = jest.fn().mockResolvedValue({ data: { user_id: 'user-123', proof_version: 1, verified_at: '2026-10-09T00:00:00Z' }, error: null }); return chain; }
+      if (table === 'profiles') {
           return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'user-123' } }) }) }) };
         }
         if (table === 'bookings') {
@@ -369,7 +373,8 @@ describe('GET /api/liff/coupons', () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
       from: jest.fn((table: string) => {
-        if (table === 'profiles') {
+        if (table === 'line_user_links') { const chain: any = {}; chain.select = jest.fn(() => chain); chain.eq = jest.fn(() => chain); chain.maybeSingle = jest.fn().mockResolvedValue({ data: { user_id: 'user-123', proof_version: 1, verified_at: '2026-10-09T00:00:00Z' }, error: null }); return chain; }
+      if (table === 'profiles') {
           return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'user-123' } }) }) }) };
         }
         if (table === 'bookings') {
@@ -406,7 +411,8 @@ describe('GET /api/liff/coupons', () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
       from: jest.fn((table: string) => {
-        if (table === 'profiles') {
+        if (table === 'line_user_links') { const chain: any = {}; chain.select = jest.fn(() => chain); chain.eq = jest.fn(() => chain); chain.maybeSingle = jest.fn().mockResolvedValue({ data: { user_id: 'user-123', proof_version: 1, verified_at: '2026-10-09T00:00:00Z' }, error: null }); return chain; }
+      if (table === 'profiles') {
           return {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
@@ -458,3 +464,5 @@ describe('GET /api/liff/coupons', () => {
     expect(json.coupons).toEqual([]);
   });
 });
+
+test('provider unavailable is visible as 503 rather than token refusal or empty coupons',async()=>{global.fetch=jest.fn().mockResolvedValue(new Response('',{status:503}));const res=await GET(makeRequest() as any);expect(res.status).toBe(503);expect(await res.json()).not.toHaveProperty('coupons');});

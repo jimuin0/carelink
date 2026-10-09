@@ -71,7 +71,9 @@ BEGIN
     FOREACH role_name IN ARRAY ARRAY['anon','authenticated'] LOOP
       IF has_function_privilege(role_name,signature,'EXECUTE') THEN RAISE EXCEPTION 'Public mutation permission'; END IF;
     END LOOP;
-    IF NOT has_function_privilege('service_role',signature,'EXECUTE') THEN RAISE EXCEPTION 'Service mutation permission missing'; END IF;
+    IF signature LIKE 'public.create_online_booking_atomic%' THEN
+      IF has_function_privilege('service_role',signature,'EXECUTE') THEN RAISE EXCEPTION 'Unkeyed public booking bypass'; END IF;
+    ELSIF NOT has_function_privilege('service_role',signature,'EXECUTE') THEN RAISE EXCEPTION 'Service mutation permission missing'; END IF;
   END LOOP;
 END $$;
 ROLLBACK;

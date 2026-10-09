@@ -71,8 +71,8 @@ export async function verifyLineAccessToken(
       return { ok: true };
     }
     return { ok: false };
-  } catch (e) {
-    console.error('[LINE] verifyLineAccessToken error:', e);
+  } catch {
+    console.error('[LINE] verifyLineAccessToken unavailable');
     return { ok: false };
   }
 }

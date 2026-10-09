@@ -7,7 +7,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { verifyLineAccessToken } from '@/lib/line';
+import { fetchVerifiedLiffProfile } from '@/lib/liff-profile';
+import { resolveVerifiedLineOwner } from '@/lib/verified-line-owner';
 import { serverError } from '@/lib/with-route';
 
 export async function GET(req: NextRequest) {
@@ -24,57 +25,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // ★ audience(channel)検証: /v2/profile は発行元チャネル(client_id)を検証しないため、
-  //   oauth2/v2.1/verify で自社チャネルID一致を必須化する（他チャネル発行トークンでの
-  //   line_user_id 詐称＝他人ポイント履歴のIDOR閲覧を遮断）。fail-closed。
-  const tokenCheck = await verifyLineAccessToken(accessToken);
-  if (!tokenCheck.ok) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // LINE Profile APIでトークンを検証
-  let lineRes: Response;
-  try {
-    lineRes = await fetch('https://api.line.me/v2/profile', {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      signal: AbortSignal.timeout(10_000),
-    });
-  } catch {
-    return NextResponse.json({ error: 'LINE service temporarily unavailable' }, { status: 503 });
-  }
-  if (!lineRes.ok) {
-    if (lineRes.status === 401 || lineRes.status === 403) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    const status = lineRes.status === 429 || lineRes.status >= 500 ? 503 : 502;
-    return NextResponse.json({ error: 'LINE service temporarily unavailable' }, { status });
-  }
-  let lineProfile: { userId: string };
-  try {
-    const payload = await lineRes.json() as { userId?: unknown };
-    if (typeof payload.userId !== 'string' || payload.userId.length === 0) {
-      return NextResponse.json({ error: 'Invalid LINE profile response' }, { status: 502 });
-    }
-    lineProfile = { userId: payload.userId };
-  } catch {
-    return NextResponse.json({ error: 'Invalid LINE profile response' }, { status: 502 });
-  }
+  const identity = await fetchVerifiedLiffProfile(accessToken);
+  if (!identity.ok) return NextResponse.json({ error: identity.status === 401 ? 'Unauthorized' : identity.error }, { status: identity.status });
 
   const admin = createServiceRoleClient();
 
-  // line_user_idからprofilesのuser_idを取得
-  const { data: profile, error: profileError } = await admin
-    .from('profiles')
-    .select('id')
-    .eq('line_user_id', lineProfile.userId)
-    .maybeSingle();
-  if (profileError) {
-    return serverError('liff-points-profile', profileError, '/api/liff/points', 'Internal Server Error');
-  }
-  if (!profile) {
-    return NextResponse.json({ error: 'User not found' }, { status: 404 });
-  }
-  const userId = profile.id;
+  const userId = await resolveVerifiedLineOwner(admin, identity.lineUserId);
+  if (!userId) return NextResponse.json({ error: 'LINE の連携を再確認してください。本人のアカウントでログインして LINE を連携してください。', code: 'LINE_LINK_REQUIRED' }, { status: 404 });
 
   // 表示用の履歴は直近50件に制限する（一覧描画コストの抑制）。
   // 【2026年7月10日 恒久根治】以下2クエリとも error を検査せず null→空配列/0にフォールバック

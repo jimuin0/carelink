@@ -1,8 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 
 /**
  * 並行予約・競合状態 E2E テスト
- * - 同一スロットへの同時予約でダブルブッキング防止確認
+ * - 旧受付番号なしリクエストの作成前拒否（実予約競合は専用PG/browser runner）
  * - 同時キャンセルの冪等性
  * - API レベルでの競合状態検証
  * NOTE: 実際の予約は作成しない（API レベルの状態コード確認のみ）
@@ -48,32 +49,14 @@ test.describe('競合状態保護（API レベル）', () => {
     expect(statuses.every(s => s !== 500)).toBe(true);
   });
 
-  test('同一スロットへの並行予約が 500 を返さない', async ({ request }) => {
-    const requests = Array.from({ length: 10 }, (_, i) =>
-      request.post('/api/booking', {
-        data: {
-          facility_id: '11111111-1111-1111-1111-111111111111',
-          menu_id: '22222222-2222-2222-2222-222222222222',
-          booking_date: '2099-12-31',
-          start_time: '10:00:00',
-          end_time: '11:00:00',
-          customer_name: `テスト顧客${i}`,
-          customer_email: `test${i}@example.com`,
-          customer_phone: '09000000000',
-        },
-        headers: { 'Content-Type': 'application/json' },
-      })
-    );
-
-    const responses = await Promise.all(requests);
-    const statuses = responses.map(r => r.status());
-
-    // 500 は絶対に返らない
-    const has500 = statuses.some(s => s === 500);
-    expect(has500).toBe(false);
-
-    // 許可される状態コードのみ
-    expect(statuses.every(s => [200, 201, 400, 401, 403, 409, 429].includes(s))).toBe(true);
+  test('旧受付番号なし予約リクエストは作成前に拒否される', async ({ request }) => {
+    const base=new URL(process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000');
+    if(!['localhost','127.0.0.1','[::1]'].includes(base.hostname))throw new Error('legacy rejection proof requires loopback app');
+    const ip='2001:db8:'+randomUUID().replace(/-/g,'').match(/.{1,4}/g)!.slice(0,6).join(':');
+    const responses=await Promise.all(Array.from({length:10},()=>request.post('/api/booking',{data:{},headers:{Origin:base.origin,'x-real-ip':ip}})));
+    expect(responses.every(response=>[428,429].includes(response.status()))).toBe(true);
+    const rejected=responses.filter(response=>response.status()===428);expect(rejected.length).toBeGreaterThan(0);
+    for(const response of rejected)expect((await response.json()).code).toBe('BOOKING_CREATE_KEY_REQUIRED');
   });
 
   test('お気に入りの並行トグルが安全に処理される', async ({ request }) => {

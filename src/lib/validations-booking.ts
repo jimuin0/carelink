@@ -70,3 +70,6 @@ export const bookingSchema = z.object({
   );
 
 export type BookingFormData = z.infer<typeof bookingSchema>;
+
+// Replays retain structural validation without reinterpreting the calendar after acceptance.
+export const bookingReplaySchema = bookingSchema.safeExtend({ booking_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidIsoDate) });

@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
-import { isLineEnabled } from '@/lib/line-availability';
+import { isLineEnabled, isLineLoginEnabled } from '@/lib/line-availability';
 
 function SettingsContent() {
   const searchParams = useSearchParams();
@@ -29,7 +29,7 @@ function SettingsContent() {
       .then(setGcal)
       .catch(() => setGcalError(true));
 
-    // LINE連携状態を確認（GET /api/profile が profiles.line_user_id の非NULLを { linked } で返す・監査C2）
+    // LINE連携状態は現在の確認済み所有者記録で判定する。
     fetch('/api/profile')
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => setLineLinked(!!d.linked))
@@ -161,6 +161,10 @@ function SettingsContent() {
       {(isLineEnabled() || lineLinked) && (
       <div className="bg-white rounded-2xl shadow-xs p-6">
         <h2 className="font-semibold text-gray-900 mb-1">LINE連携</h2>
+          {isLineLoginEnabled() && <form action="/api/auth/line" method="get" className="mb-3">
+            <input type="hidden" name="mode" value="link" /><input type="hidden" name="redirect" value="/mypage/settings" />
+            <button type="submit" className="text-sm font-medium text-green-700 underline">LINE連携を再確認</button>
+          </form>}
         <p className="text-sm text-gray-500 mb-4">
           LINEアプリからの予約確認・ポイント確認・クーポン閲覧ができるようになります。
         </p>

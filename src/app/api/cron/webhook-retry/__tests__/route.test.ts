@@ -49,6 +49,7 @@ jest.mock('resend');
 jest.mock('@/lib/salon-outbox-delivery');
 jest.mock('@/lib/facility-welcome-delivery');
 jest.mock('@/lib/manual-booking-notification');
+jest.mock('@/lib/booking-create-notifications',()=>({prepareBookingCreationChannel:jest.fn(async()=>async()=>{}),sendBookingCreationLine:jest.fn(async()=>true)}));
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
@@ -71,6 +72,7 @@ let mockHeldDeliveryLt: jest.Mock;
 let mockTableUpdateDispatch: jest.Mock;
 let mockSendLineText: jest.Mock;
 const mockBookingFence = jest.fn();
+const mockClaimGateway = jest.fn();
 
 function mutationChain(result: jest.Mock) {
   const filters: Record<string, unknown> = {};
@@ -257,7 +259,7 @@ function setupDefaultMocks(
 
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
-    rpc: mockBookingFence,
+    rpc:(name:string,args:Record<string,unknown>)=>name==='claim_webhook_retry_queue_v2'?mockClaimGateway(args):mockBookingFence(name,args),
     from: jest.fn((table: string) => {
       if (table === 'webhook_retry_queue') {
         return webhookRetryQueueTable;
@@ -277,7 +279,8 @@ function setupDefaultMocks(
 beforeEach(() => {
   jest.clearAllMocks();
   setupDefaultMocks();
-  mockBookingFence.mockResolvedValue({ data:[{ outcome:'ready',started_at:new Date().toISOString() }],error:null });
+  mockClaimGateway.mockReset().mockImplementation(args => mockClaimUpdate({status:'processing',claimed_at:args.p_claimed_at,delivery_started_at:null}).in('id',args.p_job_ids).eq('status','pending').lte('scheduled_at',args.p_claimed_at).select('*'));
+  mockBookingFence.mockReset().mockResolvedValue({ data:[{ outcome:'ready',started_at:new Date().toISOString() }],error:null });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
   process.env.CRON_SECRET = 'cron-secret';
@@ -293,6 +296,32 @@ function makeRequest(cronSecret: string = 'cron-secret') {
 }
 
 describe('GET /api/cron/webhook-retry', () => {
+  test.each(['booking-create','newsletter'])('%s fenced publication skips old generic start and sends once',async namespace=>{
+    const id='88888888-8888-4888-8888-888888888881';const envelope={from:'sender@example.invalid',to:'recipient@example.invalid',subject:'Synthetic',html:'<p>Synthetic</p>',...(namespace==='newsletter'?{text:'Exact text'}:{})};
+    mockJobsSelect.mockResolvedValue({data:[{id,webhook_type:'email',target_id:envelope.to,payload:{event_email_version:1,idempotency_key:`carelink-event-email/${id}`,...(namespace==='newsletter'?{newsletter_delivery_version:1}:{booking_create_operation:'e4000000-0000-4000-8000-000000000001'})},email_envelope:envelope,attempt_count:0,status:'pending'}],error:null});
+    const {Resend}=require('resend');const send=jest.fn().mockResolvedValue({data:{id:'99999999-9999-4999-8999-999999999999'},error:null});Resend.mockImplementation(()=>({emails:{send}}));
+    await GET(makeRequest());expect(mockBookingFence).toHaveBeenCalledWith(namespace==='newsletter'?'start_newsletter_delivery':'start_booking_create_notification',expect.objectContaining({p_queue_id:id}));expect(mockDeliveryStartUpdate).not.toHaveBeenCalled();expect(send).toHaveBeenCalledTimes(1);if(namespace==='newsletter')expect(send.mock.calls[0][0].text).toBe('Exact text');
+  });
+  test.each(['booking-create','newsletter'])('%s unknown start outcomes never invoke provider',async namespace=>{
+    const id='88888888-8888-4888-888888888881';const envelope={from:'sender@example.invalid',to:'recipient@example.invalid',subject:'Synthetic',html:'<p>Synthetic</p>'};
+    mockJobsSelect.mockResolvedValue({data:[{id,webhook_type:'email',target_id:envelope.to,payload:{event_email_version:1,idempotency_key:`carelink-event-email/${id}`,...(namespace==='newsletter'?{newsletter_delivery_version:1}:{booking_create_operation:'e4000000-0000-4000-8000-000000000001'})},email_envelope:envelope,attempt_count:0,status:'pending'}],error:null});
+    const {Resend}=require('resend');const send=jest.fn().mockResolvedValue({data:{id:'99999999-9999-4999-8999-999999999999'},error:null});Resend.mockImplementation(()=>({emails:{send}}));
+    for(const mode of ['superseded','not_owned','empty','bad','no-time','bad-time','error']){
+      jest.clearAllMocks();mockBookingFence.mockResolvedValue({data:mode==='empty'?[]:[{outcome:['bad','error'].includes(mode)?'bad':['no-time','bad-time'].includes(mode)?'ready':mode,started_at:mode==='no-time'?null:mode==='bad-time'?'invalid':new Date().toISOString()}],error:mode==='error'?{code:'522'}:null});
+      await GET(makeRequest());expect(send).not.toHaveBeenCalled();expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    }
+  });
+  test.each(['allowed','false','error','throw','uncertain-provider'])('newsletter definitive rejection release %s is permission-fenced',async mode=>{
+    const id='88888888-8888-4888-8888-888888888881';const started='2026-10-09T00:00:00Z';const envelope={from:'sender@example.invalid',to:'recipient@example.invalid',subject:'Synthetic',html:'<p>Synthetic</p>'};
+    mockJobsSelect.mockResolvedValue({data:[{id,webhook_type:'email',target_id:envelope.to,payload:{event_email_version:1,idempotency_key:`carelink-event-email/${id}`,newsletter_delivery_version:1},email_envelope:envelope,attempt_count:0,status:'pending'}],error:null});
+    mockBookingFence.mockImplementation(async(name:string)=>{if(name==='authorize_newsletter_rejected_retry'){if(mode==='throw')throw Error('synthetic');return{data:mode==='allowed',error:mode==='error'?{code:'522'}:null};}return{data:[{outcome:'ready',started_at:started}],error:null};});
+    const {Resend}=require('resend');const send=jest.fn().mockResolvedValue({data:null,error:{statusCode:mode==='uncertain-provider'?500:422}});Resend.mockImplementation(()=>({emails:{send}}));(scheduleRetry as jest.Mock).mockResolvedValue('rescheduled');
+    await GET(makeRequest());expect(send).toHaveBeenCalledTimes(1);
+    if(mode==='uncertain-provider')expect(mockBookingFence).not.toHaveBeenCalledWith('authorize_newsletter_rejected_retry',expect.anything());
+    else expect(mockBookingFence).toHaveBeenCalledWith('authorize_newsletter_rejected_retry',expect.objectContaining({p_queue_id:id,p_started_at:started}));
+    if(mode==='allowed')expect(scheduleRetry).toHaveBeenCalledWith(id,1,'newsletter_provider_rejected',expect.any(String));else expect(scheduleRetry).not.toHaveBeenCalled();
+  });
+
   test.each(['ready','superseded','not_owned','empty','unknown','no-time','bad-time','error'])('booking event fence %s protects dispatch', async mode => {
     const id = '88888888-8888-4888-8888-888888888881';
     const envelope = { from:'sender@example.invalid',to:'synthetic@example.invalid',subject:'fixture',html:'<p>fixture</p>' };
@@ -750,15 +779,15 @@ describe('GET /api/cron/webhook-retry', () => {
     );
   });
 
-  test('claim の update 結果 data=null（error無し）→ 0行claim扱いで安全側に倒す', async () => {
+  test('claim の update 結果 data=null（error無し）→ 不明なRPC結果として500で停止', async () => {
     setupDefaultMocks(1);
     mockClaimUpdate.mockReturnValue(claimChain(jest.fn().mockResolvedValue({ data: null, error: null })));
 
     const res = await GET(makeRequest() as any);
     const json = await res.json();
 
-    expect(res.status).toBe(200);
-    expect(json.processed).toBe(0);
+    expect(res.status).toBe(500);
+    expect(json.error).toBe('claim confirmation unavailable');
     expect(mockSendLineText).not.toHaveBeenCalled();
   });
 
@@ -1030,6 +1059,7 @@ describe('GET /api/cron/webhook-retry', () => {
   test('exception during processing → 500', async () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
+    rpc:(name:string,args:Record<string,unknown>)=>name==='claim_webhook_retry_queue_v2'?mockClaimGateway(args):mockBookingFence(name,args),
       from: jest.fn().mockImplementation(() => { throw new Error('Fatal'); }),
     });
 
@@ -1108,6 +1138,7 @@ describe('GET /api/cron/webhook-retry', () => {
     });
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
+    rpc:(name:string,args:Record<string,unknown>)=>name==='claim_webhook_retry_queue_v2'?mockClaimGateway(args):mockBookingFence(name,args),
       from: jest.fn((table: string) => {
         if (table === 'webhook_retry_queue') {
           return makeWebhookRetryQueueTable({
@@ -1150,6 +1181,7 @@ describe('GET /api/cron/webhook-retry', () => {
     });
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
+    rpc:(name:string,args:Record<string,unknown>)=>name==='claim_webhook_retry_queue_v2'?mockClaimGateway(args):mockBookingFence(name,args),
       from: jest.fn((table: string) => {
         if (table === 'webhook_retry_queue') {
           return makeWebhookRetryQueueTable({
@@ -1192,6 +1224,7 @@ describe('GET /api/cron/webhook-retry', () => {
     });
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
+    rpc:(name:string,args:Record<string,unknown>)=>name==='claim_webhook_retry_queue_v2'?mockClaimGateway(args):mockBookingFence(name,args),
       from: jest.fn((table: string) => {
         if (table === 'webhook_retry_queue') {
           return makeWebhookRetryQueueTable({
@@ -1234,6 +1267,7 @@ describe('GET /api/cron/webhook-retry', () => {
     });
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
+    rpc:(name:string,args:Record<string,unknown>)=>name==='claim_webhook_retry_queue_v2'?mockClaimGateway(args):mockBookingFence(name,args),
       from: jest.fn((table: string) => {
         if (table === 'webhook_retry_queue') {
           return makeWebhookRetryQueueTable({
@@ -1274,6 +1308,7 @@ describe('GET /api/cron/webhook-retry', () => {
     });
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
+    rpc:(name:string,args:Record<string,unknown>)=>name==='claim_webhook_retry_queue_v2'?mockClaimGateway(args):mockBookingFence(name,args),
       from: jest.fn((table: string) => {
         if (table === 'webhook_retry_queue') {
           return makeWebhookRetryQueueTable({
@@ -1314,6 +1349,7 @@ describe('GET /api/cron/webhook-retry', () => {
     });
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
+    rpc:(name:string,args:Record<string,unknown>)=>name==='claim_webhook_retry_queue_v2'?mockClaimGateway(args):mockBookingFence(name,args),
       from: jest.fn((table: string) => {
         if (table === 'webhook_retry_queue') {
           return makeWebhookRetryQueueTable({
@@ -1353,6 +1389,7 @@ describe('GET /api/cron/webhook-retry', () => {
     Resend.mockImplementation(() => ({ emails: { send: sendSpy } }));
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
+    rpc:(name:string,args:Record<string,unknown>)=>name==='claim_webhook_retry_queue_v2'?mockClaimGateway(args):mockBookingFence(name,args),
       from: jest.fn((table: string) => {
         if (table === 'webhook_retry_queue') {
           return makeWebhookRetryQueueTable({
@@ -1383,6 +1420,7 @@ describe('GET /api/cron/webhook-retry', () => {
   test('non-Error throw in outer catch → String fallback', async () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
+    rpc:(name:string,args:Record<string,unknown>)=>name==='claim_webhook_retry_queue_v2'?mockClaimGateway(args):mockBookingFence(name,args),
       from: jest.fn(() => { throw 'outer-string'; }),
     });
 
@@ -1421,6 +1459,7 @@ describe('GET /api/cron/webhook-retry', () => {
     });
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
+    rpc:(name:string,args:Record<string,unknown>)=>name==='claim_webhook_retry_queue_v2'?mockClaimGateway(args):mockBookingFence(name,args),
       from: jest.fn((table: string) => {
         if (table === 'webhook_retry_queue') {
           return makeWebhookRetryQueueTable({
@@ -1487,3 +1526,12 @@ describe('GET /api/cron/webhook-retry', () => {
     });
   });
 });
+test.each(['booking_creation_push','booking_creation_lineworks','line_push'])('booking channel %s uses same durable start before dispatch',async webhook_type=>{
+ const id='88888888-8888-4888-8888-888888888881';
+ mockJobsSelect.mockResolvedValue({data:[{id,webhook_type,target_id:'synthetic',payload:{booking_create_operation:'e4000000-0000-4000-8000-000000000001',message:'Synthetic'},attempt_count:0,status:'pending'}],error:null});
+ await GET(makeRequest());expect(mockBookingFence).toHaveBeenCalledWith('start_booking_create_notification',expect.objectContaining({p_queue_id:id}));
+ const channel=jest.requireMock('@/lib/booking-create-notifications');
+ if(webhook_type==='line_push'){expect(channel.sendBookingCreationLine).toHaveBeenCalledWith('synthetic','Synthetic');expect(sendLineText).not.toHaveBeenCalled();}
+ else expect(channel.prepareBookingCreationChannel).toHaveBeenCalled();
+});
+test('missing formal claim RPC cannot fall back to raw UPDATE or dispatch',async()=>{mockClaimGateway.mockResolvedValue({data:null,error:{code:'PGRST202'}});const response=await GET(makeRequest());expect(response.status).toBe(500);expect(mockDeliveryStartUpdate).not.toHaveBeenCalled();expect(mockBookingFence).not.toHaveBeenCalled();});

@@ -43,6 +43,7 @@ import { runAfterResponse } from '@/lib/after-response';
 import { DESIRED_START_DATES } from '@/lib/constants';
 import { SALON_CLAIM_COOKIE_NAME, verifySalonClaim } from '@/lib/salon-claim';
 import { POST } from '../route';
+import { REGISTRATION_TERMS_SHA256 } from '@/lib/registration-consent';
 
 const STORAGE_PREFIX =
   'https://test.supabase.co/storage/v1/object/public/carelink-uploads/';
@@ -106,6 +107,7 @@ const validFull = {
   desired_start_date: 'immediately',
   recaptcha_token: 'valid-token',
   source: 'register' as const,
+  consent: { terms_agreed: true, license_warranted: true },
 };
 
 const validMinimal = {
@@ -121,6 +123,7 @@ const validMinimal = {
   pr_text: null,
   recaptcha_token: 'valid-token',
   source: 'recruit' as const,
+  consent: { terms_agreed: true, license_warranted: true },
 };
 
 function makeRequest(body: unknown, ip = '192.168.1.1') {
@@ -132,6 +135,26 @@ function makeRequest(body: unknown, ip = '192.168.1.1') {
 }
 
 describe('POST /api/salons', () => {
+  test.each([null,{terms_agreed:false,license_warranted:true},{terms_agreed:true,license_warranted:false}])(
+    'explicit invalid declaration %j never inserts or sends a receipt',async consent=>{
+      const response=await POST(makeRequest({...validFull,consent}) as any);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({code:'REGISTRATION_CONSENT_REQUIRED'});
+      expect(mockInsert).not.toHaveBeenCalled();expect(sendRegistrationReceiptEmail).not.toHaveBeenCalled();
+    });
+  test('omitted legacy consent remains accepted and never claims a recorded agreement',async()=>{
+    const {consent,...legacy}=validFull;void consent;
+    expect((await POST(makeRequest(legacy) as any)).status).toBe(200);
+    const row=mockInsert.mock.calls[0][0];
+    expect(row).not.toHaveProperty('registration_terms_sha256');
+    expect(row).not.toHaveProperty('registration_terms_accepted_at');
+    expect(row).not.toHaveProperty('registration_license_warranted');
+  });
+  test('new checked declaration is saved with the same receipt insert and server time',async()=>{
+    expect((await POST(makeRequest(validFull) as any)).status).toBe(200);
+    expect(mockInsert.mock.calls[0][0]).toMatchObject({registration_terms_sha256:REGISTRATION_TERMS_SHA256,
+      registration_terms_accepted_at:expect.any(String),registration_license_warranted:true});
+  });
   test('invalid detail fields return actionable errors without echoing submitted values', async () => {
     const res = await POST(makeRequest({ ...validFull, seat_count: -1, website: 'private-invalid-input' }) as any);
     expect(res.status).toBe(400);

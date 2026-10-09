@@ -12,7 +12,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { verifyLineAccessToken } from '@/lib/line';
+import { fetchVerifiedLiffProfile } from '@/lib/liff-profile';
+import { resolveVerifiedLineOwner } from '@/lib/verified-line-owner';
 import { SLOT_OCCUPYING_STATUSES } from '@/lib/booking-status';
 import { serverError } from '@/lib/with-route';
 import { todayJst } from '@/lib/admin-date';
@@ -31,38 +32,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // ★ audience(channel)検証: /v2/profile は発行元チャネルを検証しないため、
-  //   oauth2/v2.1/verify で自社チャネルID一致を必須化する（他チャネル発行トークンでの
-  //   line_user_id 詐称＝他人クーポン一覧の IDOR 閲覧を遮断）。fail-closed。
-  const tokenCheck = await verifyLineAccessToken(accessToken);
-  if (!tokenCheck.ok) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  // LINE Profile API でトークンを検証し line_user_id を取得
-  const lineRes = await fetch('https://api.line.me/v2/profile', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!lineRes.ok) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  const lineProfile = await lineRes.json() as { userId: string };
+  const identity = await fetchVerifiedLiffProfile(accessToken);
+  if (!identity.ok) return NextResponse.json({ error: identity.status === 401 ? 'Unauthorized' : identity.error }, { status: identity.status });
 
   const admin = createServiceRoleClient();
 
-  // line_user_id から profiles の user_id を取得
-  const { data: profile, error: profileError } = await admin
-    .from('profiles')
-    .select('id')
-    .eq('line_user_id', lineProfile.userId)
-    .maybeSingle();
-  if (profileError) {
-    return serverError('liff-coupons-profile', profileError, '/api/liff/coupons', 'Internal Server Error');
-  }
-  if (!profile) {
-    return NextResponse.json({ error: 'User not found' }, { status: 404 });
-  }
-  const userId = profile.id;
+  const userId = await resolveVerifiedLineOwner(admin, identity.lineUserId);
+  if (!userId) return NextResponse.json({ error: 'LINE の連携を再確認してください。本人のアカウントでログインして LINE を連携してください。', code: 'LINE_LINK_REQUIRED' }, { status: 404 });
 
   const businessDate = todayJst();
 

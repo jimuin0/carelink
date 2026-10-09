@@ -12,6 +12,7 @@ import {
   sendLineWorksMessage,
   notifyNewBookingLineWorks,
   notifyCancellationLineWorks,
+  prepareNewBookingLineWorksDelivery,
   __resetLineWorksTokenCacheForTest,
 } from '../line-works';
 
@@ -332,4 +333,23 @@ describe('buildJwt PRIVATE_KEY 未設定', () => {
     global.fetch = jest.fn();
     expect(await getLineWorksToken()).toBeNull();
   });
+});
+
+describe('prepareNewBookingLineWorksDelivery', () => {
+  test('missing configuration cannot start a booking message', async () => {
+    await expect(prepareNewBookingLineWorksDelivery('synthetic', { customerName:'N',menuName:'M',bookingDate:'D',startTime:'T' })).rejects.toThrow();
+  });
+  test('token failure happens before a provider message closure exists', async () => {
+    setEnv();
+    jest.spyOn(console,'error').mockImplementation(() => {});
+    await expect(prepareNewBookingLineWorksDelivery('synthetic', { customerName:'N',menuName:'M',bookingDate:'D',startTime:'T' })).rejects.toThrow();
+  });
+});
+it('booking preparer finishes token acquisition before returned message closure',async()=>{
+  setEnv({LINE_WORKS_PRIVATE_KEY:'-----BEGIN PRIVATE KEY-----\nYWJj\n-----END PRIVATE KEY-----'});
+  jest.spyOn(crypto.subtle,'importKey').mockResolvedValue({} as CryptoKey);
+  jest.spyOn(crypto.subtle,'sign').mockResolvedValue(new Uint8Array([1,2,3]).buffer);
+  global.fetch=jest.fn().mockResolvedValueOnce({ok:true,json:async()=>({access_token:'synthetic',expires_in:3600})}).mockResolvedValueOnce({ok:true});
+  const send=await prepareNewBookingLineWorksDelivery('synthetic',{customerName:'N',menuName:'M',bookingDate:'D',startTime:'T'});
+  expect(global.fetch).toHaveBeenCalledTimes(1); expect(await send()).toBe(true); expect(global.fetch).toHaveBeenCalledTimes(2);
 });

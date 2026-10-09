@@ -119,7 +119,17 @@ export default async function BookingCompletePage(props: Props) {
   const params = await props.params;
   const bookingId = searchParams.id;
   const bookingStatus = await getBookingStatus(bookingId);
-  const isConfirmed = bookingStatus === 'confirmed';
+  const currentMessages: Record<string,{ title:string; message:string }> = {
+    pending:{title:'予約を受け付けました',message:'施設からの確認をお待ちください。'},
+    confirmed:{title:'予約を受け付けました',message:'ご予約が確定しました。ご来店をお待ちしております。'},
+    arrived:{title:'来店受付が完了しています',message:'現在、この予約は来店受付済みです。'},
+    completed:{title:'この予約は対応済みです',message:'この予約の来店対応は完了しています。'},
+    cancelled:{title:'この予約は終了しています',message:'この予約はキャンセル済みです。'},
+    no_show:{title:'この予約は終了しています',message:'この予約は来店なしとして終了しています。'},
+    cancel_fee_paid:{title:'この予約は終了しています',message:'この予約はキャンセル済みで、手続きが完了しています。'},
+  };
+  const current = bookingStatus ? currentMessages[bookingStatus] : undefined;
+  const canAddCalendar = bookingStatus === 'pending' || bookingStatus === 'confirmed';
   // has_intake=1 の明示指定、または施設に有効な問診テンプレが実在すればバナーを出す（INTAKE-1）。
   // 【監査M2/H1・神原さん決定】ローンチでは問診を顧客に出さないため、ゲート OFF 時は
   // バナーを一切表示しない（テンプレ有無の DB 参照もスキップ）。再開は INTAKE_CUSTOMER_ENABLED で。
@@ -137,13 +147,13 @@ export default async function BookingCompletePage(props: Props) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h1 className="text-xl font-bold mb-2">予約を受け付けました</h1>
+          <h1 className="text-xl font-bold mb-2">{current?.title ?? '予約の受付状況を確認しています'}</h1>
           {bookingId && (
             <p className="text-xs text-gray-400 mb-1 font-mono">予約番号: {bookingId.slice(0, 8).toUpperCase()}</p>
           )}
           <p className="text-sm text-gray-500 mb-6">
-            ご登録のメールアドレスに{isConfirmed ? '確定' : '確認'}メールをお送りしました。
-            {isConfirmed ? 'ご予約が確定しました。ご来店をお待ちしております。' : '施設からの確認をお待ちください。'}
+            メール通知は予約の受付とは別に処理されます。ご登録のメールアドレスへの到着もご確認ください。
+            {current?.message ?? '受付状況を取得できません。予約番号で店舗へ確認してください。'}
           </p>
           <div className="space-y-3">
             {/* 問診票バナー */}
@@ -158,7 +168,7 @@ export default async function BookingCompletePage(props: Props) {
             <Link href={`/facility/${params.slug}`} className="btn-primary block w-full py-3!">
               施設ページに戻る
             </Link>
-            {icsDataUri && (
+            {canAddCalendar && icsDataUri && (
               <a
                 href={icsDataUri}
                 download="carelink-booking.ics"

@@ -432,6 +432,67 @@ export type Database = {
           },
         ]
       }
+      booking_create_operations: {
+        Row: {
+          actor_user_id: string | null
+          actor_was_authenticated: boolean
+          booking_id: string | null
+          created_at: string
+          facility_id: string | null
+          guest_scope_hash: string | null
+          id: string
+          payload_hash: string | null
+          response_payload: Json | null
+          state: string
+        }
+        Insert: {
+          actor_user_id?: string | null
+          actor_was_authenticated: boolean
+          booking_id?: string | null
+          created_at?: string
+          facility_id?: string | null
+          guest_scope_hash?: string | null
+          id: string
+          payload_hash?: string | null
+          response_payload?: Json | null
+          state: string
+        }
+        Update: {
+          actor_user_id?: string | null
+          actor_was_authenticated?: boolean
+          booking_id?: string | null
+          created_at?: string
+          facility_id?: string | null
+          guest_scope_hash?: string | null
+          id?: string
+          payload_hash?: string | null
+          response_payload?: Json | null
+          state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_create_operations_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_create_operations_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_create_operations_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       booking_waitlist: {
         Row: {
           created_at: string
@@ -3243,7 +3304,9 @@ export type Database = {
           line_user_id: string
           linked_at: string | null
           picture_url: string | null
+          proof_version: number | null
           user_id: string | null
+          verified_at: string | null
         }
         Insert: {
           display_name?: string | null
@@ -3251,7 +3314,9 @@ export type Database = {
           line_user_id: string
           linked_at?: string | null
           picture_url?: string | null
+          proof_version?: number | null
           user_id?: string | null
+          verified_at?: string | null
         }
         Update: {
           display_name?: string | null
@@ -3259,7 +3324,9 @@ export type Database = {
           line_user_id?: string
           linked_at?: string | null
           picture_url?: string | null
+          proof_version?: number | null
           user_id?: string | null
+          verified_at?: string | null
         }
         Relationships: []
       }
@@ -3463,6 +3530,92 @@ export type Database = {
           },
         ]
       }
+      newsletter_send_operations: {
+        Row: {
+          actor_id: string
+          campaign_id: string
+          campaign_revision: string
+          campaign_snapshot: Json
+          created_at: string
+          operation_id: string
+        }
+        Insert: {
+          actor_id: string
+          campaign_id: string
+          campaign_revision: string
+          campaign_snapshot: Json
+          created_at?: string
+          operation_id: string
+        }
+        Update: {
+          actor_id?: string
+          campaign_id?: string
+          campaign_revision?: string
+          campaign_snapshot?: Json
+          created_at?: string
+          operation_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "newsletter_send_operations_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: true
+            referencedRelation: "newsletter_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      newsletter_send_recipients: {
+        Row: {
+          email: string
+          operation_id: string
+          queue_id: string
+          recipient_id: string
+          rejected_retry_authorized: boolean
+          start_claimed_at: string | null
+          start_time: string | null
+          state: string
+          suppressed_authorized: boolean
+        }
+        Insert: {
+          email: string
+          operation_id: string
+          queue_id: string
+          recipient_id: string
+          rejected_retry_authorized?: boolean
+          start_claimed_at?: string | null
+          start_time?: string | null
+          state?: string
+          suppressed_authorized?: boolean
+        }
+        Update: {
+          email?: string
+          operation_id?: string
+          queue_id?: string
+          recipient_id?: string
+          rejected_retry_authorized?: boolean
+          start_claimed_at?: string | null
+          start_time?: string | null
+          state?: string
+          suppressed_authorized?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "newsletter_send_recipients_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: false
+            referencedRelation: "newsletter_send_operations"
+            referencedColumns: ["operation_id"]
+          },
+          {
+            foreignKeyName: "newsletter_send_recipients_queue_id_fkey"
+            columns: ["queue_id"]
+            isOneToOne: true
+            referencedRelation: "webhook_retry_queue"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       newsletter_subscriptions: {
         Row: {
           created_at: string
@@ -3639,7 +3792,12 @@ export type Database = {
           reading_time: number
           slug: string
           tags: string[]
+          threads_creation_id: string | null
+          threads_delivery_attempt_id: string | null
+          threads_delivery_started_at: string | null
+          threads_last_error: string | null
           threads_post_id: string | null
+          threads_post_status: string | null
           threads_posted_at: string | null
           thumbnail_url: string | null
           title: string
@@ -3657,7 +3815,12 @@ export type Database = {
           reading_time?: number
           slug: string
           tags?: string[]
+          threads_creation_id?: string | null
+          threads_delivery_attempt_id?: string | null
+          threads_delivery_started_at?: string | null
+          threads_last_error?: string | null
           threads_post_id?: string | null
+          threads_post_status?: string | null
           threads_posted_at?: string | null
           thumbnail_url?: string | null
           title: string
@@ -3675,7 +3838,12 @@ export type Database = {
           reading_time?: number
           slug?: string
           tags?: string[]
+          threads_creation_id?: string | null
+          threads_delivery_attempt_id?: string | null
+          threads_delivery_started_at?: string | null
+          threads_last_error?: string | null
           threads_post_id?: string | null
+          threads_post_status?: string | null
           threads_posted_at?: string | null
           thumbnail_url?: string | null
           title?: string
@@ -3931,6 +4099,36 @@ export type Database = {
           },
           {
             foreignKeyName: "review_helpful_review_id_fkey"
+            columns: ["review_id"]
+            isOneToOne: false
+            referencedRelation: "public_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      review_photo_references: {
+        Row: {
+          object_id: string
+          review_id: string
+        }
+        Insert: {
+          object_id: string
+          review_id: string
+        }
+        Update: {
+          object_id?: string
+          review_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "review_photo_references_review_id_fkey"
+            columns: ["review_id"]
+            isOneToOne: false
+            referencedRelation: "facility_reviews"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "review_photo_references_review_id_fkey"
             columns: ["review_id"]
             isOneToOne: false
             referencedRelation: "public_reviews"
@@ -4233,6 +4431,9 @@ export type Database = {
           pr_text: string | null
           prefecture: string | null
           registration_followup_sent_at: string | null
+          registration_license_warranted: boolean | null
+          registration_terms_accepted_at: string | null
+          registration_terms_sha256: string | null
           regular_holiday: string | null
           representative_name: string
           review_revision: number
@@ -4270,6 +4471,9 @@ export type Database = {
           pr_text?: string | null
           prefecture?: string | null
           registration_followup_sent_at?: string | null
+          registration_license_warranted?: boolean | null
+          registration_terms_accepted_at?: string | null
+          registration_terms_sha256?: string | null
           regular_holiday?: string | null
           representative_name: string
           review_revision?: number
@@ -4307,6 +4511,9 @@ export type Database = {
           pr_text?: string | null
           prefecture?: string | null
           registration_followup_sent_at?: string | null
+          registration_license_warranted?: boolean | null
+          registration_terms_accepted_at?: string | null
+          registration_terms_sha256?: string | null
           regular_holiday?: string | null
           representative_name?: string
           review_revision?: number
@@ -5461,6 +5668,32 @@ export type Database = {
           },
         ]
       }
+      webhook_dispatch_claim_proofs: {
+        Row: {
+          claimed_at: string
+          consumed: boolean
+          queue_id: string
+        }
+        Insert: {
+          claimed_at: string
+          consumed?: boolean
+          queue_id: string
+        }
+        Update: {
+          claimed_at?: string
+          consumed?: boolean
+          queue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webhook_dispatch_claim_proofs_queue_id_fkey"
+            columns: ["queue_id"]
+            isOneToOne: true
+            referencedRelation: "webhook_retry_queue"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       webhook_retry_queue: {
         Row: {
           attempt_count: number
@@ -5877,9 +6110,25 @@ export type Database = {
             Returns: string
           }
       aggregate_daily_revenue: { Args: { p_date: string }; Returns: number }
+      apply_referral_code_atomic: {
+        Args: { p_code: string; p_user_id: string }
+        Returns: {
+          code: string
+          replayed: boolean
+          use_id: string
+        }[]
+      }
+      authorize_newsletter_rejected_retry: {
+        Args: { p_claimed_at: string; p_queue_id: string; p_started_at: string }
+        Returns: boolean
+      }
       award_referral_points_atomic: {
         Args: { p_user_id: string }
         Returns: boolean
+      }
+      bind_verified_liff_account_atomic: {
+        Args: { p_actor_id: string; p_line_user_id: string }
+        Returns: string
       }
       booking_point_legacy_issues: {
         Args: never
@@ -5910,6 +6159,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      chat_quota_retention_version: { Args: never; Returns: number }
       check_rate_limit: {
         Args: { p_key: string; p_limit: number; p_window_ms: number }
         Returns: boolean
@@ -5930,6 +6180,41 @@ export type Database = {
           total_price: number
         }[]
       }
+      claim_threads_article: { Args: { p_post_id: string }; Returns: Json }
+      claim_webhook_retry_queue_v2: {
+        Args: { p_claimed_at: string; p_job_ids: string[] }
+        Returns: {
+          attempt_count: number
+          booking_event_id: string | null
+          booking_event_kind: string | null
+          booking_event_revision: string | null
+          claimed_at: string | null
+          created_at: string
+          delivered_at: string | null
+          delivery_started_at: string | null
+          email_envelope: Json | null
+          facility_id: string | null
+          id: string
+          last_error: string | null
+          max_attempts: number
+          notification_kind: string | null
+          payload: Json
+          processed_at: string | null
+          provider_message_id: string | null
+          registration_id: string | null
+          scheduled_at: string
+          status: string
+          target_id: string
+          template_version: number | null
+          webhook_type: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "webhook_retry_queue"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       cleanup_old_audit_logs: { Args: never; Returns: undefined }
       cleanup_old_cron_logs: { Args: never; Returns: undefined }
       cleanup_old_cron_report_sends: { Args: never; Returns: undefined }
@@ -5942,6 +6227,21 @@ export type Database = {
           p_payload_hmac: string
           p_proof_hash: string
           p_registration: Json
+        }
+        Returns: {
+          outcome: string
+          receipt_id: string
+        }[]
+      }
+      commit_salon_submission_with_consent: {
+        Args: {
+          p_canonical_version: number
+          p_hmac_scheme: string
+          p_intent_id: string
+          p_payload_hmac: string
+          p_proof_hash: string
+          p_registration: Json
+          p_terms_sha256: string
         }
         Returns: {
           outcome: string
@@ -5998,6 +6298,34 @@ export type Database = {
         }
         Returns: string
       }
+      create_booking_with_receipt_atomic: {
+        Args: {
+          p_actor_id: string
+          p_booking_date: string
+          p_coupon_id: string
+          p_customer_name: string
+          p_email: string
+          p_end_time: string
+          p_facility_id: string
+          p_guest_hash: string
+          p_id: string
+          p_menu_id: string
+          p_menu_ids: string[]
+          p_note: string
+          p_notifications: Json
+          p_payload_hash: string
+          p_phone: string
+          p_points_used: number
+          p_staff_id: string
+          p_start_time: string
+          p_status: string
+          p_total_price: number
+        }
+        Returns: {
+          replayed: boolean
+          response_payload: Json
+        }[]
+      }
       create_manual_booking_atomic: {
         Args: { p_actor_id: string; p_input: Json; p_operation_id: string }
         Returns: Json
@@ -6032,7 +6360,6 @@ export type Database = {
         }
         Returns: Json
       }
-      dearmor: { Args: { "": string }; Returns: string }
       delete_facility_photo_atomic: {
         Args: { p_actor_id: string; p_facility_id: string; p_photo_id: string }
         Returns: {
@@ -6092,8 +6419,19 @@ export type Database = {
           reviewer_ip: string
         }[]
       }
-      gen_random_uuid: { Args: never; Returns: string }
-      gen_salt: { Args: { "": string }; Returns: string }
+      find_trusted_line_auth_user: {
+        Args: { p_line_user_id: string }
+        Returns: string
+      }
+      finish_threads_article_publish: {
+        Args: {
+          p_attempt_id: string
+          p_outcome: string
+          p_post_id: string
+          p_post_id_external?: string
+        }
+        Returns: string
+      }
       geometry: { Args: { "": string }; Returns: unknown }
       geometry_above: {
         Args: { geom1: unknown; geom2: unknown }
@@ -6281,6 +6619,26 @@ export type Database = {
         Args: { facility_uuid: string }
         Returns: undefined
       }
+      inspect_booking_create_operation: {
+        Args: {
+          p_actor_id: string
+          p_close?: boolean
+          p_guest_hash: string
+          p_id: string
+        }
+        Returns: {
+          response_payload: Json
+          state: string
+        }[]
+      }
+      inspect_newsletter_send_operation: {
+        Args: { p_actor_id: string; p_campaign_id: string }
+        Returns: Json
+      }
+      line_identity_requires_reconfirmation: {
+        Args: { p_line_user_id: string }
+        Returns: boolean
+      }
       link_duplicate_registration: {
         Args: {
           p_actor: string
@@ -6303,6 +6661,10 @@ export type Database = {
         }[]
       }
       lock_booking_account: { Args: { p_user_id: string }; Returns: undefined }
+      lock_booking_create_scope: {
+        Args: { p_actor_id: string; p_guest_hash: string; p_id: string }
+        Returns: undefined
+      }
       lock_booking_point_actors: {
         Args: { p_actor_id: string; p_customer_id: string }
         Returns: undefined
@@ -6322,6 +6684,27 @@ export type Database = {
           content_type: string
           id: string
           replayed: boolean
+        }[]
+      }
+      newsletter_current_recipients: {
+        Args: { p_kind: string }
+        Returns: string[]
+      }
+      newsletter_operation_receipt: {
+        Args: { p_campaign_id: string }
+        Returns: Json
+      }
+      owned_review_photo_metadata: {
+        Args: {
+          p_actor_id: string
+          p_facility_id: string
+          p_object_path: string
+        }
+        Returns: {
+          byte_size: number
+          mime_type: string
+          object_id: string
+          object_path: string
         }[]
       }
       pending_booking_reminders: {
@@ -6361,10 +6744,6 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
-      }
-      pgp_armor_headers: {
-        Args: { "": string }
-        Returns: Record<string, unknown>[]
       }
       populate_geometry_columns:
         | { Args: { tbl_oid: unknown; use_typmod?: boolean }; Returns: number }
@@ -6406,6 +6785,19 @@ export type Database = {
       }
       postgis_version: { Args: never; Returns: string }
       postgis_wagyu_version: { Args: never; Returns: string }
+      prepare_booking_create_operation: {
+        Args: {
+          p_actor_id: string
+          p_facility_id: string
+          p_guest_hash: string
+          p_id: string
+          p_payload_hash: string
+        }
+        Returns: {
+          response_payload: Json
+          state: string
+        }[]
+      }
       prepare_customer_coupon_email_atomic: {
         Args: { p_envelope: Json; p_operation_id: string }
         Returns: {
@@ -6441,6 +6833,17 @@ export type Database = {
           outcome: string
         }[]
       }
+      publish_newsletter_send_operation: {
+        Args: {
+          p_actor_id: string
+          p_campaign_id: string
+          p_expected_emails: string[]
+          p_expected_revision: string
+          p_from: string
+          p_unsubscribe_links: Json
+        }
+        Returns: Json
+      }
       read_salon_recovery: {
         Args: { p_grant_id: string; p_proof_hash: string; p_user_id: string }
         Returns: {
@@ -6450,6 +6853,15 @@ export type Database = {
           outcome: string
           receipt_id: string
         }[]
+      }
+      reconcile_threads_article_publish: {
+        Args: {
+          p_attempt_id: string
+          p_creation_id: string
+          p_post_id: string
+          p_provider_status: string
+        }
+        Returns: boolean
       }
       record_facility_page_view: {
         Args: { facility_uuid: string }
@@ -7163,6 +7575,13 @@ export type Database = {
         Args: { geom: unknown; move: number; wrap: number }
         Returns: unknown
       }
+      start_booking_create_notification: {
+        Args: { p_claimed_at: string; p_queue_id: string }
+        Returns: {
+          outcome: string
+          started_at: string
+        }[]
+      }
       start_booking_email_event: {
         Args: { p_claimed_at: string; p_queue_id: string }
         Returns: {
@@ -7170,7 +7589,22 @@ export type Database = {
           started_at: string
         }[]
       }
+      start_newsletter_delivery: {
+        Args: { p_claimed_at: string; p_queue_id: string }
+        Returns: {
+          outcome: string
+          started_at: string
+        }[]
+      }
+      start_threads_article_publish: {
+        Args: { p_attempt_id: string; p_creation_id: string; p_post_id: string }
+        Returns: boolean
+      }
       unlockrows: { Args: { "": string }; Returns: number }
+      unsubscribe_newsletter_atomic: {
+        Args: { p_email: string; p_token: string }
+        Returns: Json
+      }
       update_facility_settings_atomic: {
         Args: { p_actor_id: string; p_facility_id: string; p_patch: Json }
         Returns: {
@@ -7187,22 +7621,7 @@ export type Database = {
         }
         Returns: string
       }
-      uuid_generate_v1: { Args: never; Returns: string }
-      uuid_generate_v1mc: { Args: never; Returns: string }
-      uuid_generate_v3: {
-        Args: { name: string; namespace: string }
-        Returns: string
-      }
-      uuid_generate_v4: { Args: never; Returns: string }
-      uuid_generate_v5: {
-        Args: { name: string; namespace: string }
-        Returns: string
-      }
-      uuid_nil: { Args: never; Returns: string }
-      uuid_ns_dns: { Args: never; Returns: string }
-      uuid_ns_oid: { Args: never; Returns: string }
-      uuid_ns_url: { Args: never; Returns: string }
-      uuid_ns_x500: { Args: never; Returns: string }
+      webhook_dispatch_v2_version: { Args: never; Returns: number }
     }
     Enums: {
       [_ in never]: never

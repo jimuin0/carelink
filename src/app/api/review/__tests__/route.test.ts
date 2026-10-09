@@ -131,7 +131,7 @@ function makeRequest(body: object, ip = '192.168.1.1') {
   return new Request('http://localhost/api/review', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/json', 'X-CareLink-Review-Consumer': '1',
       'x-forwarded-for': ip,
     },
     body: JSON.stringify(body),
@@ -268,7 +268,7 @@ describe('POST /api/review', () => {
   test('invalid JSON → 400', async () => {
     const req = new Request('http://localhost/api/review', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '192.168.1.1' },
+      headers: { 'Content-Type': 'application/json', 'X-CareLink-Review-Consumer': '1', 'x-forwarded-for': '192.168.1.1' },
       body: 'invalid json {',
     });
 
@@ -315,7 +315,7 @@ describe('POST /api/review', () => {
 
     const req = new Request('http://localhost/api/review', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CareLink-Review-Consumer': '1' },
       body: JSON.stringify(validReview),
     });
 
@@ -911,10 +911,14 @@ describe('POST /api/review', () => {
       // チェック)後は、任意ドメインのURL（旧: https://example.com/...）は 400 で拒否されるため、
       // 実際にアップロード先となる review-photos バケットの公開URL形式に合わせる。
       const photoUrls = [
-        'https://test.supabase.co/storage/v1/object/public/review-photos/facility-1/photo1.jpg',
-        'https://test.supabase.co/storage/v1/object/public/review-photos/facility-1/photo2.jpg',
+        'https://test.supabase.co/storage/v1/object/public/review-photos/reviews/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/photo1.jpg',
+        'https://test.supabase.co/storage/v1/object/public/review-photos/reviews/a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11/photo2.jpg',
       ];
 
+      const objectId='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+      const server = (require('@/lib/supabase-server').createServiceRoleClient as jest.Mock)();
+      server.storage={getBucket:jest.fn(async()=>({data:{id:'review-photos',public:true,file_size_limit:5242880,allowed_mime_types:null},error:null})),from:()=>({info:async(path:string)=>({data:{id:objectId,bucketId:'review-photos',name:path,size:128,contentType:'image/jpeg'},error:null})})};
+      mockRpc.mockImplementation(async(name:string,args:{p_object_path:string})=>name==='owned_review_photo_metadata'?{data:[{object_id:objectId,object_path:args.p_object_path,byte_size:128,mime_type:'image/jpeg'}],error:null}:{data:null,error:null});
       await POST(makeRequest({ ...bizReview, photo_urls: photoUrls }));
 
       expect(mockInsert).toHaveBeenCalled();
@@ -1345,4 +1349,20 @@ describe('POST /api/review', () => {
       expect(mockPointsInsert).not.toHaveBeenCalled();
     });
   });
+});
+
+describe('new consumer compatibility and known pre-insert refusal',()=>{
+ test.each([null,'','0','true','2'])('legacy marker %p refuses before auth/data mutation and preserves caller context',async marker=>{
+  setupDefaultMocks();const request=makeRequest({...validReview,facility_id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'});if(marker===null)request.headers.delete('X-CareLink-Review-Consumer');else request.headers.set('X-CareLink-Review-Consumer',marker);
+  const res=await POST(request);expect(res.status).toBe(409);expect(res.headers.get('X-CareLink-Review-Commit')).toBe('not-started');
+  expect((await res.json()).code).toBe('REVIEW_CONSUMER_RELOAD_REQUIRED');expect(mockInsert).not.toHaveBeenCalled();expect(mockGetUser).not.toHaveBeenCalled();
+ });
+});
+
+
+test('conflicting Auth data plus SDK error is unavailable and cannot commit a review', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: { id: 'authenticated-user' } }, error: { status: 503, message: 'dependency unavailable' } });
+  const res = await POST(makeRequest({...validReview, facility_id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'}));
+  expect(res.status).toBe(503); expect(res.headers.get('X-CareLink-Review-Commit')).toBe('not-started');
+  expect(mockInsert).not.toHaveBeenCalled(); expect(mockRpc).not.toHaveBeenCalled();
 });

@@ -330,7 +330,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
     if (useV2) {
       try {
         if (!v2.current) throw new Error('Registration context unavailable');
-        await acceptV2Result(await v2.current.submit(data, photoFiles));
+        await acceptV2Result(await v2.current.submit(data, photoFiles, { terms_agreed: agreed, license_warranted: licenseWarranted }));
       } catch {
         submissionUnknownRef.current = true; setSubmissionUnknown(true);
         setV2Message(SALON_SUBMISSION_UNKNOWN);
@@ -416,6 +416,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
           // サーバー側から直接 Slack 通知を送るため、どちらのテンプレートを使うかを
           // このフィールドで伝える（DBには保存されない）。
           source: 'register',
+          consent: { terms_agreed: agreed, license_warranted: licenseWarranted },
           ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
         }),
       });
@@ -556,7 +557,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
         if (!v2.current) v2.current = createRegistrationBrowser();
         if (!(await localDraft.current?.beforeSubmit(data, photoFiles))) return;
         setUseV2(true); setLegacyStorageBlocked(false);
-        await acceptV2Result(await v2.current.submit(data, photoFiles));
+        await acceptV2Result(await v2.current.submit(data, photoFiles, { terms_agreed: agreed, license_warranted: licenseWarranted }));
       } catch {
         submissionUnknownRef.current = true; setSubmissionUnknown(true); setV2Message(SALON_SUBMISSION_UNKNOWN);
       }

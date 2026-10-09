@@ -12,9 +12,9 @@
  */
 
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
-jest.mock('@/lib/rate-limit', () => ({
-  checkRateLimit: jest.fn(() => false),
-}));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/chat-rate-limit', () => ({ ...jest.requireActual('@/lib/chat-rate-limit'), checkChatLimit: jest.fn() }));
+jest.mock('@/lib/recaptcha', () => ({ verifyRecaptcha: jest.fn() }));
 // Use closure so module-level `new Anthropic()` in route always delegates to current mockMessagesCreate
 let mockMessagesCreate: jest.Mock = jest.fn();
 jest.mock('@anthropic-ai/sdk', () => ({
@@ -27,8 +27,14 @@ jest.mock('@anthropic-ai/sdk', () => ({
 }));
 
 import { checkCsrf } from '@/lib/csrf';
-import { checkRateLimit } from '@/lib/rate-limit';
+import { checkChatLimit } from '@/lib/chat-rate-limit';
+import { verifyRecaptcha } from '@/lib/recaptcha';
 import { POST } from '../route';
+import Anthropic from '@anthropic-ai/sdk';
+const originalNodeEnv = process.env.NODE_ENV;
+let logSpy: jest.SpyInstance;
+beforeEach(() => { logSpy = jest.spyOn(console, 'info').mockImplementation(() => {}); });
+afterEach(() => { logSpy.mockRestore(); (process.env as Record<string, string | undefined>).NODE_ENV = originalNodeEnv; delete process.env.RECAPTCHA_SECRET_KEY; delete process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY; });
 
 function setupDefaultMocks(aiSucceeds: boolean = true) {
   (checkCsrf as jest.Mock).mockReturnValue(null);
@@ -47,7 +53,9 @@ function setupDefaultMocks(aiSucceeds: boolean = true) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (checkRateLimit as jest.Mock).mockReturnValue(false);
+  (checkChatLimit as jest.Mock).mockResolvedValue('allowed');
+  (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: true, score: 0.9 });
+  delete process.env.AI_CHAT_DAILY_REQUEST_LIMIT;
   setupDefaultMocks();
 });
 
@@ -63,6 +71,114 @@ function makeRequest(body: object, ip = '192.168.1.1') {
 }
 
 describe('POST /api/chat', () => {
+  test('provider setup exceeding the deadline cannot start a paid call', async () => {
+    jest.useFakeTimers();
+    try {
+      const started=Date.now();
+      (Anthropic as jest.Mock).mockImplementationOnce(()=> {
+        jest.setSystemTime(started+10000);return {messages:{create:mockMessagesCreate}};
+      });
+      const response=await POST(makeRequest({messages:[{role:'user',content:'Synthetic'}]}));
+      expect(response.status).toBe(503);expect(mockMessagesCreate).not.toHaveBeenCalled();
+      expect(checkChatLimit).toHaveBeenCalledTimes(2);expect(jest.getTimerCount()).toBe(0);
+    } finally {jest.useRealTimers();}
+  });
+  test.each([10000,10001])('provider elapsed %ims cannot become a reply before its timer callback', async elapsed => {
+    jest.useFakeTimers();
+    try {
+      const started=Date.now();
+      mockMessagesCreate.mockImplementation(async()=> {
+        jest.setSystemTime(started+elapsed);
+        return {content:[{type:'text',text:'late synthetic reply'}],usage:{input_tokens:1,output_tokens:1}};
+      });
+      const response=await POST(makeRequest({messages:[{role:'user',content:'Synthetic'}]}));
+      expect(response.status).toBe(503); expect(await response.json()).not.toHaveProperty('reply');
+      expect(mockMessagesCreate).toHaveBeenCalledTimes(1); expect(checkChatLimit).toHaveBeenCalledTimes(2);
+      expect(logSpy).toHaveBeenCalledWith('[chat] provider_call',{outcome:'unavailable'});
+      expect(logSpy.mock.calls).not.toEqual(expect.arrayContaining([expect.arrayContaining(['late synthetic reply'])]));
+      expect(jest.getTimerCount()).toBe(0);
+    } finally { jest.useRealTimers(); }
+  });
+  test('provider completing before the deadline is still confirmed with no retry', async () => {
+    jest.useFakeTimers();
+    try {
+      const started=Date.now();
+      mockMessagesCreate.mockImplementation(async()=> {jest.setSystemTime(started+9999);return {content:[{type:'text',text:'Confirmed'}]};});
+      const response=await POST(makeRequest({messages:[{role:'user',content:'Synthetic'}]}));
+      expect(response.status).toBe(200);expect(await response.json()).toEqual({reply:'Confirmed'});
+      expect(mockMessagesCreate).toHaveBeenCalledTimes(1);expect(jest.getTimerCount()).toBe(0);
+    } finally {jest.useRealTimers();}
+  });
+  test('stalled parsed reply is bounded including after HTTP headers; no retry/refund', async () => {
+    jest.useFakeTimers();
+    try {
+      mockMessagesCreate.mockReturnValue(new Promise(()=>{}));
+      const pending=POST(makeRequest({messages:[{role:'user',content:'Test'}]}));
+      await jest.advanceTimersByTimeAsync(10000);
+      expect((await pending).status).toBe(503);
+      expect(mockMessagesCreate).toHaveBeenCalledTimes(1);
+      expect(mockMessagesCreate.mock.calls[0][1].signal.aborted).toBe(true);
+      expect(checkChatLimit).toHaveBeenCalledTimes(2);
+    } finally {jest.useRealTimers();}
+  });
+  test.each([null, false, [], 'text'])('invalid envelope %j is rejected without provider', async value => {
+    const res = await POST(makeRequest(value as any));
+    expect(res.status).toBe(400); expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+  test('distributed burst is unavailable →503 without provider', async () => {
+    (checkChatLimit as jest.Mock).mockResolvedValue('unavailable');
+    expect((await POST(makeRequest({ messages: [{ role: 'user', content: 'Test' }] }))).status).toBe(503);
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+  test.each(['unavailable', 'limited'])('global quota %s cannot issue provider call', async state => {
+    (checkChatLimit as jest.Mock).mockResolvedValueOnce('allowed').mockResolvedValueOnce(state);
+    const res = await POST(makeRequest({ messages: [{ role: 'user', content: 'Test' }] }));
+    expect(res.status).toBe(state === 'limited' ? 429 : 503);
+    expect(mockMessagesCreate).not.toHaveBeenCalled();
+    expect(checkChatLimit).toHaveBeenLastCalledWith('chat-daily:global', 100, 86400000);
+  });
+  test('bad configured daily limit and missing API key stop before bot/provider', async () => {
+    process.env.AI_CHAT_DAILY_REQUEST_LIMIT = '0';
+    expect((await POST(makeRequest({ messages: [{ role: 'user', content: 'Test' }] }))).status).toBe(503);
+    delete process.env.AI_CHAT_DAILY_REQUEST_LIMIT; delete process.env.ANTHROPIC_API_KEY;
+    expect((await POST(makeRequest({ messages: [{ role: 'user', content: 'Test' }] }))).status).toBe(503);
+    expect(verifyRecaptcha).not.toHaveBeenCalled(); expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+  test('production missing bot configuration stops without shared helper alerts', async () => {
+    (process.env as Record<string,string|undefined>).NODE_ENV = 'production';
+    const request = () => makeRequest({ messages: [{ role: 'user', content: 'Test' }] });
+    expect((await POST(request())).status).toBe(503);
+    process.env.RECAPTCHA_SECRET_KEY = 'synthetic-secret';
+    expect((await POST(request())).status).toBe(503);
+    expect(verifyRecaptcha).not.toHaveBeenCalled(); expect(mockMessagesCreate).not.toHaveBeenCalled();
+  });
+  test.each([{ success: false }, { success: true }, { success: true, score: Infinity }, { success: true, score: 'secret' }])('production bot proof is authoritative %j', async proof => {
+    (process.env as Record<string,string|undefined>).NODE_ENV = 'production';
+    process.env.RECAPTCHA_SECRET_KEY = 'synthetic-secret'; process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY = 'synthetic-site';
+    (verifyRecaptcha as jest.Mock).mockResolvedValue(proof);
+    const res = await POST(makeRequest({ messages: [{ role: 'user', content: 'Test' }], recaptcha_token: 7 }));
+    expect(res.status).toBe(403); expect(mockMessagesCreate).not.toHaveBeenCalled();
+    expect(checkChatLimit).toHaveBeenCalledTimes(1);
+  });
+  test('token/action verified, positive production proof and finite quota permit one bounded call', async () => {
+    (process.env as Record<string,string|undefined>).NODE_ENV = 'production';
+    process.env.RECAPTCHA_SECRET_KEY = 'synthetic-secret'; process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY = 'synthetic-site';
+    process.env.AI_CHAT_DAILY_REQUEST_LIMIT = '25';
+    mockMessagesCreate.mockResolvedValue({ content: [{ type: 'text', text: 'Confirmed reply' }], usage: { input_tokens: 12, output_tokens: 4 } });
+    const res = await POST(makeRequest({ messages: [{ role: 'user', content: 'private synthetic input' }], recaptcha_token: 'synthetic-token' }));
+    expect(res.status).toBe(200); expect(verifyRecaptcha).toHaveBeenCalledWith('synthetic-token', 'chat');
+    expect(checkChatLimit).toHaveBeenLastCalledWith('chat-daily:global', 25, 86400000);
+    expect(Anthropic).toHaveBeenCalledWith({ apiKey: 'test-key', timeout: 10000, maxRetries: 0 });
+    expect(mockMessagesCreate).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledWith('[chat] provider_call', { outcome: 'completed', inputTokens: 12, outputTokens: 4 });
+    expect(JSON.stringify(logSpy.mock.calls)).not.toContain('private synthetic input');
+  });
+  test.each([null, {}, '   ', ''])('unconfirmed reply %j returns503; no auto retry or quota refund', async text => {
+    mockMessagesCreate.mockResolvedValue({ content: [{ type: 'text', text }] });
+    const res = await POST(makeRequest({ messages: [{ role: 'user', content: 'Test' }] }));
+    expect(res.status).toBe(503); expect(mockMessagesCreate).toHaveBeenCalledTimes(1);
+    expect(checkChatLimit).toHaveBeenCalledTimes(2);
+  });
   test('CSRF check failed → returns error', async () => {
     const csrfError = new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 });
     (checkCsrf as jest.Mock).mockReturnValue(csrfError);
@@ -75,7 +191,7 @@ describe('POST /api/chat', () => {
   });
 
   test('rate limiting → 429', async () => {
-    (checkRateLimit as jest.Mock).mockReturnValue(true);
+    (checkChatLimit as jest.Mock).mockResolvedValue('limited');
 
     const res = await POST(
       makeRequest({ messages: [{ role: 'user', content: 'Hello' }] }) as any
@@ -278,7 +394,7 @@ describe('POST /api/chat', () => {
   });
 
   test('rate limit params (5 req/min per IP)', async () => {
-    (checkRateLimit as jest.Mock).mockClear();
+    (checkChatLimit as jest.Mock).mockClear();
 
     await POST(
       makeRequest(
@@ -287,15 +403,12 @@ describe('POST /api/chat', () => {
       ) as any
     );
 
-    const call = (checkRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe('192.168.1.1');
-    expect(call[2]).toBe(5);
-    expect(call[3]).toBe(60000);
-    expect(call[4]).toBe('chat');
+    const call = (checkChatLimit as jest.Mock).mock.calls[0];
+    expect(call).toEqual(['chat:192.168.1.1', 5, 60000]);
   });
 
   test('extracts last (trusted) IP from x-forwarded-for', async () => {
-    (checkRateLimit as jest.Mock).mockClear();
+    (checkChatLimit as jest.Mock).mockClear();
 
     await POST(
       makeRequest(
@@ -304,20 +417,20 @@ describe('POST /api/chat', () => {
       ) as any
     );
 
-    const call = (checkRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe('192.168.1.1');
+    const call = (checkChatLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('chat:192.168.1.1');
   });
 
   test('missing x-forwarded-for → uses "unknown" IP', async () => {
-    (checkRateLimit as jest.Mock).mockClear();
+    (checkChatLimit as jest.Mock).mockClear();
     const req = new Request('http://localhost/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: [{ role: 'user', content: 'Hi' }] }),
     });
     await POST(req as any);
-    const call = (checkRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe('unknown');
+    const call = (checkChatLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('chat:unknown');
   });
 
   test('null entry in messages array → filtered out', async () => {
@@ -347,16 +460,16 @@ describe('POST /api/chat', () => {
     expect(json.error).toContain('No valid messages');
   });
 
-  test('AI response content[0] undefined → empty reply', async () => {
+  test('AI response without confirmed text →503', async () => {
     mockMessagesCreate.mockResolvedValue({ content: [] });
     const res = await POST(
       makeRequest({ messages: [{ role: 'user', content: 'Test' }] }) as any
     );
     const json = await res.json();
-    expect(json.reply).toBe('');
+    expect(res.status).toBe(503); expect(json.reply).toBeUndefined();
   });
 
-  test('AI response with non-text content → empty reply', async () => {
+  test('AI response with non-text content →503', async () => {
     mockMessagesCreate.mockResolvedValue({
       content: [{ type: 'image' }],
     });
@@ -366,6 +479,6 @@ describe('POST /api/chat', () => {
     );
 
     const json = await res.json();
-    expect(json.reply).toBe('');
+    expect(res.status).toBe(503); expect(json.reply).toBeUndefined();
   });
 });

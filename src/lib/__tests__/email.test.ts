@@ -952,3 +952,8 @@ describe('sendRegistrationLeadFollowEmail', () => {
     process.env.RESEND_API_KEY = origKey;
   });
 });
+it('auto-confirmed booking owner mail never requests an unnecessary approval',()=>{
+ const {buildNewBookingNotificationEnvelope}=require('../email');
+ const mail=buildNewBookingNotificationEnvelope({...baseData,facilityEmail:'synthetic@example.invalid',bookingStatus:'confirmed'});
+ expect(mail.html).toContain('新しい予約が確定しました');expect(mail.html).not.toContain('確認・承認してください');
+});

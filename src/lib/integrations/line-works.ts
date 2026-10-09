@@ -277,3 +277,9 @@ export function isLineWorksConfigured(): boolean {
     process.env.LINE_WORKS_BOT_ID
   );
 }
+
+/** Token acquisition cannot send a booking message; complete it before the durable queue's delivery fence. */
+export async function prepareNewBookingLineWorksDelivery(channelId: string, booking: Parameters<typeof notifyNewBookingLineWorks>[1]): Promise<() => Promise<boolean>> {
+  if (!isLineWorksConfigured() || !await getLineWorksToken()) throw new Error('LINE Works delivery preparation unavailable');
+  return () => notifyNewBookingLineWorks(channelId, booking);
+}

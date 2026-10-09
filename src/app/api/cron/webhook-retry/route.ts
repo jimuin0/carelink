@@ -18,6 +18,7 @@ import { prepareSalonOutboxDelivery } from '@/lib/salon-outbox-delivery';
 import { prepareFacilityWelcomeDelivery } from '@/lib/facility-welcome-delivery';
 import { prepareManualBookingEnvelope } from '@/lib/manual-booking-notification';
 import { dispatchEventEmail, eventEmailEnvelopeSchema } from '@/lib/event-email-delivery';
+import { prepareBookingCreationChannel, sendBookingCreationLine } from '@/lib/booking-create-notifications';
 import { UUID_REGEX } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
@@ -125,13 +126,9 @@ export async function GET(request: Request) {
     // claimed_at＝claim 成功時刻。stale reclaim（上記）はこの値を基準に「本当に processing の
     // まま孤児化したか」を判定する（scheduled_at 流用は二重配信の温床だったため廃止）。
     const claimEpoch = new Date().toISOString();
-    const { data: claimedRows, error: claimErr } = await supabase
-      .from('webhook_retry_queue')
-      .update({ status: 'processing', claimed_at: claimEpoch, delivery_started_at: null })
-      .in('id', jobIds)
-      .eq('status', 'pending')
-      .lte('scheduled_at', claimEpoch)
-      .select('*');
+    const { data: claimedRows, error: claimErr } = await supabase.rpc('claim_webhook_retry_queue_v2', {
+      p_job_ids: jobIds, p_claimed_at: claimEpoch,
+    });
     if (claimErr) {
       console.error('[webhook-retry] status claim failed — aborting to prevent duplicate delivery', {
         err: summarizeDependencyError(claimErr),
@@ -141,7 +138,8 @@ export async function GET(request: Request) {
     // data が null（0行更新時のドライバ表現揺れ）も「1行も claim できなかった」として安全側に扱う。
     // Another worker may have rescheduled a selected row in the meantime.
     // Recheck the due time in the UPDATE and use its current payload/attempts.
-    const claimedJobs = claimedRows ?? [];
+    if (!Array.isArray(claimedRows)) return cronError('webhook-retry',startedAt,new Error('claim receipt malformed'),{message:'claim confirmation unavailable'});
+    const claimedJobs = claimedRows;
     if (claimedJobs.length === 0) {
       // 全行を並行 run に先取りされた＝この run の仕事は無い（重複配信を作らず正常終了）。
       if (deliveryUncertain > 0) {
@@ -176,8 +174,11 @@ export async function GET(request: Request) {
       let deliveryAttempted = false;
       let definitelyRejected = false;
       let providerMessageId: string | null = null;
+      let newsletterJob = false;
+      let newsletterStartedAt: string | null = null;
       try {
         const payload = job.payload;
+        newsletterJob = typeof payload === 'object' && payload !== null && !Array.isArray(payload) && payload.newsletter_delivery_version === 1;
         const legacyEmail = job.webhook_type === 'email' && (typeof payload !== 'object' || payload === null
           || Array.isArray(payload) || payload.event_email_version !== 1);
         if (legacyEmail) {
@@ -229,6 +230,8 @@ export async function GET(request: Request) {
             definitelyRejected = outcome === 'rejected';
             if (outcome !== 'delivered') throw new Error('registration notification delivery not confirmed');
           };
+        } else if (job.webhook_type === 'booking_creation_push' || job.webhook_type === 'booking_creation_lineworks') {
+          deliver = await prepareBookingCreationChannel(job);
         } else if (job.webhook_type === 'line_push') {
           const payload = job.payload;
           if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
@@ -239,7 +242,8 @@ export async function GET(request: Request) {
             throw new Error('line_push payload.message is missing or not a string');
           }
           deliver = async () => {
-            const ok = await sendLineText(job.target_id, message);
+            const isBookingCreate = typeof payload.booking_create_operation === 'string';
+            const ok = isBookingCreate ? await sendBookingCreationLine(job.target_id, message) : await sendLineText(job.target_id, message);
             if (!ok) throw new Error('line_push failed after all retries');
           };
         } else if (job.webhook_type === 'email' || job.webhook_type === 'manual_booking_confirmation') {
@@ -270,7 +274,27 @@ export async function GET(request: Request) {
         // 送達後の success 更新が 522 等で不明になっても stale reclaim は再送しない。
         // この write が失敗した場合は送信を始めないため、scheduleRetry 経由の安全な再試行が可能。
         let deliveryStartedAt = new Date().toISOString();
-        if (job.booking_event_id) {
+        const bookingCreation = typeof payload === 'object' && payload !== null && !Array.isArray(payload) && typeof payload.booking_create_operation === 'string';
+        if (bookingCreation) {
+          const { data: fenceRows, error: fenceError } = await supabase.rpc('start_booking_create_notification', { p_queue_id: job.id, p_claimed_at: claimEpoch });
+          if (fenceError) throw fenceError;
+          const fence = fenceRows?.length === 1 ? fenceRows[0] : null;
+          if (!fence || !['ready','superseded','not_owned'].includes(fence.outcome)) throw new Error('booking creation fence unavailable');
+          if (fence.outcome === 'superseded') { superseded++; continue; }
+          if (fence.outcome === 'not_owned') { deliveryUncertain++; continue; }
+          if (!fence.started_at || !Number.isFinite(Date.parse(fence.started_at))) throw new Error('invalid booking creation fence time');
+          deliveryStartedAt = fence.started_at;
+        } else if (newsletterJob) {
+          const { data: fenceRows, error: fenceError } = await supabase.rpc('start_newsletter_delivery', { p_queue_id: job.id, p_claimed_at: claimEpoch });
+          if (fenceError) throw fenceError;
+          const fence = fenceRows?.length === 1 ? fenceRows[0] : null;
+          if (!fence || !['ready','superseded','not_owned'].includes(fence.outcome)) throw new Error('newsletter fence unavailable');
+          if (fence.outcome === 'superseded') { superseded++; continue; }
+          if (fence.outcome === 'not_owned') { deliveryUncertain++; continue; }
+          if (!fence.started_at || !Number.isFinite(Date.parse(fence.started_at))) throw new Error('invalid newsletter fence time');
+          newsletterStartedAt = fence.started_at;
+          deliveryStartedAt = fence.started_at;
+        } else if (job.booking_event_id) {
           const { data: fenceRows, error: fenceError } = await supabase.rpc('start_booking_email_event', {
             p_queue_id: job.id, p_claimed_at: claimEpoch,
           });
@@ -354,7 +378,16 @@ export async function GET(request: Request) {
           deliveryUncertain++;
           continue;
         }
-        const outcome = await scheduleRetry(job.id, job.attempt_count + 1, errorMsg, claimEpoch);
+        if (newsletterJob && deliveryAttempted && definitelyRejected) {
+          try {
+            const permission = await supabase.rpc('authorize_newsletter_rejected_retry', {
+              p_queue_id:job.id,p_claimed_at:claimEpoch,p_started_at:newsletterStartedAt!,
+            });
+            if (permission.error || permission.data !== true) { deliveryUncertain++; continue; }
+          } catch { deliveryUncertain++; continue; }
+        }
+        const outcome = await scheduleRetry(job.id, job.attempt_count + 1,
+          newsletterJob && definitelyRejected ? 'newsletter_provider_rejected' : errorMsg, claimEpoch);
         // scheduleRetry の戻り値で dead-letter（再送上限到達・status='failed'・二度と自動
         // 再送されない）とrescheduled（次回試行を予約）を区別する。区別しないと
         // alertDeliveryFailures が dead-letter 分にも「翌runで再送」という嘘の文言を出す。

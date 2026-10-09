@@ -7,6 +7,7 @@ import { alertDeliveryFailures } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
 import { getEntitlementsByFacility, type EntitlementsClient } from '@/lib/entitlements';
 import { retryTransientSupabaseRead, summarizeDependencyError } from '@/lib/err';
+import { resolveLineUserIdsForUsers } from '@/lib/line-link';
 
 // Render Cron: runs hourly. 同じ日の未claim slotを再走査するため、時間予算超過や一時障害でも
 // 予約日基準の対象期間を抜ける前に回復できる。
@@ -168,23 +169,13 @@ export async function GET(request: Request) {
         .map((b) => b.user_id as string),
     ));
     const lineMap = new Map<string, string>();
-    // 【監査C2】連携の単一ソースは profiles.line_user_id（liff/link が書く唯一の正）。
-    // 旧実装は line_user_links を user_id で引いていたが同列は常に NULL でヒット0＝
-    // リマインダーLINEが無音失効していた。chunk 分割・エラーハンドリングは維持し、
-    // 参照先だけ profiles(id, line_user_id) へ切り替える。
     for (let i = 0; i < lineCandidateUserIds.length; i += IN_CHUNK) {
-      const idChunk = lineCandidateUserIds.slice(i, i + IN_CHUNK);
-      const { data: links, error: linksErr } = await supabase
-        .from('profiles')
-        .select('id, line_user_id')
-        .in('id', idChunk);
-      if (linksErr) {
-        safeCaptureException(linksErr, 'booking-reminder-line-links');
+      try {
+        const verified = await resolveLineUserIdsForUsers(supabase, lineCandidateUserIds.slice(i, i + IN_CHUNK));
+        for (const [userId, lineId] of verified) lineMap.set(userId, lineId);
+      } catch {
+        safeCaptureException(new Error('Verified LINE recipients unavailable'), 'booking-reminder-line-links');
         dependencyFailures++;
-        continue;
-      }
-      for (const l of links ?? []) {
-        if (l.id && l.line_user_id) lineMap.set(l.id, l.line_user_id);
       }
     }
 

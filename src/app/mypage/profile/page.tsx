@@ -1,5 +1,6 @@
 'use client';
 
+import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { ACCOUNT_DELETION_NOTICE, FACILITY_RETIREMENT_NOTICE, ACCOUNT_DELETION_BOOKING_GUARD_NOTICE } from '@/lib/account-deletion-policy';
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
@@ -12,7 +13,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
-import { isLineEnabled } from '@/lib/line-availability';
+import { isLineEnabled, isLineLoginEnabled } from '@/lib/line-availability';
 import PageLoading from '@/components/PageLoading';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import { clearAccountLocalData, LOCAL_DATA_CLEAR_FAILED } from '@/lib/client-storage';
@@ -87,21 +88,11 @@ export default function ProfileEditPage() {
         setAvatarUrl(data.avatar_url || null);
         setEmailUnsubscribed(data.email_unsubscribed ?? false);
 
-        // LINE連携状態チェック（補助）。失敗時は未連携表示のままにし、本体フォームは継続。
-        // 【監査C2・2026年7月22日】連携の単一ソースは profiles.line_user_id（liff/link が書く唯一の正）。
-        // 旧実装は line_user_links を user_id で引いていたが、同列は常に NULL のうえ RLS も
-        // auth.uid()=user_id のためブラウザからは永久に0件＝LIFF連携済みでも常に未連携表示だった。
-        // profiles は own 行 RLS で読めるため、line_user_id の非 NULL で連携判定する。
-        // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-        const { data: lineProfile } = await supabase
-          .from('profiles')
-          .select('line_user_id')
-          .eq('id', user.id)
-          .maybeSingle();
-        if (cancelled) return;
-        if (lineProfile?.line_user_id) {
-          setLineLinked(true);
-        }
+        // Supplemental badge uses the same server-verified ownership as senders.
+        try {
+          const lineId = await resolveLineUserIdForUser(supabase, user.id);
+          if (!cancelled) setLineLinked(!!lineId);
+        } catch { if (!cancelled) setLineLinked(false); }
 
         setLoading(false);
       } catch {
@@ -319,7 +310,11 @@ export default function ProfileEditPage() {
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.627-.63h2.386c.349 0 .63.285.63.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.627-.63.349 0 .631.285.631.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.281.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/></svg>
               LINEで友だち追加
             </a>
-            <p className="text-xs text-gray-400 mt-2">友だち追加後、CareLink上でアカウントが自動連携されます。</p>
+            <p className="text-xs text-gray-500 mt-2">友だち追加だけではアカウント連携は完了しません。</p>
+            {isLineLoginEnabled() && <form action="/api/auth/line" method="get" className="mt-3">
+              <input type="hidden" name="mode" value="link" /><input type="hidden" name="redirect" value="/mypage/profile" />
+              <button type="submit" className="text-sm font-medium text-green-700 underline">LINE連携を再確認</button>
+            </form>}
           </div>
         )}
       </div>

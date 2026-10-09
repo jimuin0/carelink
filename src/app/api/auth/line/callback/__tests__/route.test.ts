@@ -1,944 +1,120 @@
-/**
- * @jest-environment node
- *
- * Tests for GET /api/auth/line/callback - LINE OAuth callback
- * Key assertions:
- *   - Rate limiting (10 req/min per IP)
- *   - State parameter validation (CSRF protection)
- *   - LINE error handling
- *   - Token exchange with LINE API
- *   - User profile fetch from LINE
- *   - ID token signature verification (HMAC-SHA256)
- *   - Email extraction from existing user or auto-generated
- *   - Supabase user creation/linking
- *   - Magic link generation and verification
- */
-
-jest.mock('@/lib/rate-limit', () => ({
-  checkRateLimit: jest.fn(() => Promise.resolve(false)),
-}));
+/** @jest-environment node */
+jest.mock('@/lib/rate-limit',()=>({checkRateLimit:jest.fn()}));
 jest.mock('@/lib/supabase-server');
 jest.mock('@supabase/ssr');
 jest.mock('next/headers');
-jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
-
-import { checkRateLimit } from '@/lib/rate-limit';
-import { GET } from '../route';
-
-let mockCookieGet: jest.Mock;
-let mockCookieDelete: jest.Mock;
-
-function setupDefaultMocks(
-  // 呼び出し側が位置引数で tokenOk 以降を渡すため、未使用でも引数位置を保つ必要がある
-  _lineError: boolean = false,
-  _validState: boolean = true,
-  tokenOk: boolean = true,
-  profileOk: boolean = true,
-  userExists: boolean = false,
-  signatureValid: boolean = true
-) {
-  mockCookieGet = jest.fn((name: string) => {
-    if (name === 'line_oauth_state') return { value: 'saved-state' };
-    if (name === 'line_oauth_redirect') return { value: '/mypage' };
-    return undefined;
-  });
-  mockCookieDelete = jest.fn();
-
-  const { cookies } = require('next/headers');
-  cookies.mockResolvedValue({
-    get: mockCookieGet,
-    delete: mockCookieDelete,
-    getAll: jest.fn(() => []),
-    set: jest.fn(),
-  });
-
-  global.fetch = jest.fn((url: string) => {
-    // LINE token endpoint
-    if (url.includes('oauth2/v2.1/token')) {
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            access_token: 'test-access-token',
-            id_token: signatureValid ? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwiZW1haWwiOiJ0ZXN0QGV4YW1wbGUuY29tIiwiaWF0IjoxNTE2MjM5MDIyfQ.hXRQ_qNLqRN_eitThQ4wttMuNEiMgltw56x6mZtgZvM' : 'invalid',
-          }),
-          { ok: tokenOk, status: tokenOk ? 200 : 401 }
-        )
-      );
-    }
-    // LINE profile endpoint
-    if (url.includes('api.line.me/v2/profile')) {
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            userId: 'line-user-123',
-            displayName: 'Test User',
-            pictureUrl: 'https://example.com/pic.jpg',
-          }),
-          { ok: profileOk, status: profileOk ? 200 : 401 }
-        )
-      );
-    }
-    return Promise.resolve(new Response('{}'));
-  }) as jest.Mock;
-
-  const { createServiceRoleClient } = require('@/lib/supabase-server');
-  createServiceRoleClient.mockReturnValue({
-    from: jest.fn((table: string) => {
-      if (table === 'line_user_links') {
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              maybeSingle: jest.fn().mockResolvedValue({
-                data: userExists ? { user_id: 'existing-user-id' } : null,
-              }),
-            }),
-          }),
-        };
-      }
-      // 【監査C2】profiles.line_user_id バックフィル（update().eq()）。
-      if (table === 'profiles') {
-        return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) };
-      }
-    }),
-    auth: {
-      admin: {
-        createUser: jest
-          .fn()
-          .mockResolvedValue({ error: null }),
-        generateLink: jest.fn().mockResolvedValue({
-          data: {
-            properties: { hashed_token: 'test-hashed-token' },
-            user: { id: 'user-id-123', user_metadata: {} },
-          },
-          error: null,
-        }),
-        getUserById: jest.fn().mockResolvedValue({
-          data: {
-            user: {
-              id: 'existing-user-id',
-              email: 'existing@example.com',
-              user_metadata: {},
-            },
-          },
-        }),
-        updateUserById: jest.fn().mockResolvedValue({ data: {}, error: null }),
-      },
-    },
-  });
-
-  const { createServerClient } = require('@supabase/ssr');
-  createServerClient.mockReturnValue({
-    auth: {
-      verifyOtp: jest.fn().mockResolvedValue({ error: null }),
-    },
-  });
-
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
-  process.env.NEXT_PUBLIC_LINE_CHANNEL_ID = 'test-channel-id';
-  process.env.LINE_CHANNEL_SECRET = 'test-secret';
+jest.mock('@/lib/supabase-server-auth',()=>({createServerSupabaseAuthClient:jest.fn()}));
+jest.mock('@/lib/safe',()=>({safeCaptureException:jest.fn()}));
+jest.mock('@/lib/alert',()=>({alertCaughtError:jest.fn()}));
+import {createHmac} from 'crypto';
+import {checkRateLimit} from '@/lib/rate-limit';
+import {createServiceRoleClient} from '@/lib/supabase-server';
+import {createServerClient} from '@supabase/ssr';
+import {cookies} from 'next/headers';
+import {GET} from '../route';
+const actor='c9010000-0000-4000-8000-000000000001';
+const other='c9010000-0000-4000-8000-000000000002';
+let admin:any;let store:any;let session:any;
+function signed(overrides:object={},header:object={alg:'HS256'}) {
+ const h=Buffer.from(JSON.stringify(header)).toString('base64url');
+ const p=Buffer.from(JSON.stringify({iss:'https://access.line.me',sub:'U_actor',aud:'channel',exp:Date.now()/1000+3600,...overrides})).toString('base64url');
+ return `${h}.${p}.${createHmac('sha256','secret').update(`${h}.${p}`).digest('base64url')}`;
 }
+function provider(token:object={access_token:'provider-token'},profile:unknown={userId:'U_actor',displayName:'Synthetic'}) {
+ global.fetch=jest.fn((url:string)=>Promise.resolve(new Response(JSON.stringify(url.includes('/token')?token:profile))));
+}
+function setup(owned=false) {
+ store={get:jest.fn((name:string)=>name==='line_oauth_state'?{value:'state'}:name==='line_oauth_redirect'?{value:'/mypage'}:undefined),delete:jest.fn(),getAll:jest.fn(()=>[]),set:jest.fn()};
+ (cookies as jest.Mock).mockResolvedValue(store);
+ admin={from:jest.fn((table:string)=>{const q:any={};q.select=jest.fn(()=>q);q.eq=jest.fn(()=>q);q.maybeSingle=jest.fn().mockResolvedValue({data:owned?(table==='profiles'?{id:actor}:{user_id:actor,proof_version:1,verified_at:'2026-10-09T00:00:00Z'}):null,error:null});return q;}),
+ rpc:jest.fn((name:string)=>Promise.resolve({data:name==='find_trusted_line_auth_user'?(admin.auth.admin.createUser.mock.calls.length?actor:null):name==='line_identity_requires_reconfirmation'?false:'linked',error:null})),
+ auth:{admin:{createUser:jest.fn().mockResolvedValue({data:{user:{id:actor}},error:null}),getUserById:jest.fn().mockResolvedValue({data:{user:{id:actor,email:'synthetic@example.invalid',user_metadata:{}}},error:null}),generateLink:jest.fn().mockResolvedValue({data:{user:{id:actor},properties:{hashed_token:'hash'}},error:null}),updateUserById:jest.fn()}}};
+ (createServiceRoleClient as jest.Mock).mockReturnValue(admin);
+ session={auth:{verifyOtp:jest.fn().mockResolvedValue({data:{user:{id:actor}},error:null})}};
+ (createServerClient as jest.Mock).mockReturnValue(session);
+ provider();
+}
+function request(query='?code=code&state=state',ip:string|null='192.0.2.1'):any {return new Request(`https://example.invalid/api/auth/line/callback${query}`,{headers:ip?{'x-forwarded-for':ip}:{}});}
+async function run(){return GET(request());}
+beforeEach(()=>{jest.clearAllMocks();(checkRateLimit as jest.Mock).mockResolvedValue(false);process.env.NEXT_PUBLIC_LINE_CHANNEL_ID='channel';process.env.LINE_CHANNEL_SECRET='secret';process.env.NEXT_PUBLIC_SUPABASE_URL='https://test.supabase.co';process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY='test';setup();});
+test('rate limit stops all provider/identity operations',async()=>{(checkRateLimit as jest.Mock).mockResolvedValue(true);expect((await run()).headers.get('location')).toContain('too_many_requests');expect(fetch).not.toHaveBeenCalled();});
+test.each(['?error=access_denied','?code=code','?state=state','?code=code&state=wrong','?code=code&state=very-long-wrong'])('OAuth refusal %s',async q=>{expect((await GET(request(q))).headers.get('location')).toContain(q.includes('error=')?'line_denied':'line_invalid_state');expect(fetch).not.toHaveBeenCalled();});
+test('missing state cookie never grants Auth',async()=>{store.get.mockReturnValue(undefined);expect((await run()).headers.get('location')).toContain('line_invalid_state');});
+test('OAuth cookies consumed before any upstream operation',async()=>{await run();expect(store.delete).toHaveBeenCalledWith('line_oauth_state');expect(store.delete).toHaveBeenCalledWith('line_oauth_redirect');});
+test.each([null,'192.0.2.2','untrusted, 192.0.2.3'])('trusted IP rate guard %p',async ip=>{await GET(request(undefined,ip));expect(checkRateLimit).toHaveBeenCalledWith(null,ip===null?'unknown':ip.split(', ').pop(),10,60000,'line-callback');});
+test('verified new LINE-only identity records server app metadata and binds before Auth',async()=>{expect((await run()).headers.get('location')).toBe('https://example.invalid/mypage');const input=admin.auth.admin.createUser.mock.calls[0][0];expect(input.app_metadata).toEqual({carelink_line_identity_version:1,carelink_line_user_id:'U_actor'});expect(input.user_metadata).not.toHaveProperty('line_user_id');expect(admin.rpc).toHaveBeenCalledWith('bind_verified_liff_account_atomic',{p_actor_id:actor,p_line_user_id:'U_actor'});expect(admin.auth.admin.updateUserById).not.toHaveBeenCalled();});
+test('no provider email uses stable secret-derived synthetic address',async()=>{await run();expect(admin.auth.admin.createUser.mock.calls[0][0].email).toBe(`line_${createHmac('sha256','secret').update('U_actor').digest('hex')}@line.carelink.local`);});
+test('channel code exchange and profile use bounded server requests',async()=>{await run();expect((fetch as jest.Mock).mock.calls[0][1]).toMatchObject({method:'POST',signal:expect.any(AbortSignal)});expect((fetch as jest.Mock).mock.calls[1][1]).toMatchObject({headers:{Authorization:'Bearer provider-token'},signal:expect.any(AbortSignal)});});
+test.each(['//evil.invalid','/mypage/bookings',''])('saved redirect remains local %p',async redirect=>{const get=store.get.getMockImplementation();store.get.mockImplementation((name:string)=>name==='line_oauth_redirect'?{value:redirect}:get(name));expect((await run()).headers.get('location')).toBe(`https://example.invalid${redirect.startsWith('//')||!redirect?'/mypage':redirect}`);});
+test.each(['token-http','token-json','token-empty','token-type','profile-http','profile-json','profile-malformed'])('provider failure %s grants no Auth',async kind=>{global.fetch=jest.fn((url:string)=>{if(url.includes('/token')){if(kind==='token-http')return Promise.resolve(new Response('',{status:500}));if(kind==='token-json')return Promise.resolve(new Response('{'));if(kind==='token-empty')return Promise.resolve(new Response('{}'));if(kind==='token-type')return Promise.resolve(new Response('{"access_token":1}'));return Promise.resolve(new Response('{"access_token":"token"}'));}return Promise.resolve(kind==='profile-http'?new Response('',{status:503}):kind==='profile-json'?new Response('{'):new Response('{}'));});expect((await run()).headers.get('location')).toContain(kind.startsWith('token')?'line_token_failed':'line_profile_failed');expect(admin.auth.admin.createUser).not.toHaveBeenCalled();expect(session.auth.verifyOtp).not.toHaveBeenCalled();});
+test('provider throw remains unknown, never emits a magic link',async()=>{global.fetch=jest.fn().mockRejectedValue(new Error('synthetic transport'));expect((await run()).headers.get('location')).toContain('line_unexpected');expect(admin.auth.admin.generateLink).not.toHaveBeenCalled();});
+test('valid OIDC email requires signature, channel, subject, issuer and expiry',async()=>{provider({access_token:'token',id_token:signed({email:'verified@example.invalid'})});await run();expect(admin.auth.admin.createUser.mock.calls[0][0].email).toBe('verified@example.invalid');});
+test.each([{aud:'other'},{sub:'U_other'},{iss:'https://other.invalid'},{exp:1},{exp:'future'},{email:1},{email:'invalid-email'}])('signed but invalid OIDC claims %p refused',async claims=>{provider({access_token:'token',id_token:signed(claims)});expect((await run()).headers.get('location')).toContain('line_token_invalid');expect(admin.auth.admin.createUser).not.toHaveBeenCalled();});
+test.each(['a.b','a.b.c',''])('malformed provided ID token %p refused or absent',async idToken=>{provider({access_token:'token',id_token:idToken});const loc=(await run()).headers.get('location');expect(loc).toContain(idToken?'line_token_invalid':'/mypage');});
+test('wrong JWT algorithm refused despite valid HMAC bytes',async()=>{provider({access_token:'token',id_token:signed({},{alg:'none'})});expect((await run()).headers.get('location')).toContain('line_token_invalid');});
+test('wrong HMAC signature refused',async()=>{provider({access_token:'token',id_token:signed().replace(/.$/,'!')});expect((await run()).headers.get('location')).toContain('line_token_invalid');});
+test('existing verified owner uses its current Auth email without another create',async()=>{setup(true);expect((await run()).headers.get('location')).toContain('/mypage');expect(admin.auth.admin.createUser).not.toHaveBeenCalled();expect(admin.auth.admin.generateLink).toHaveBeenCalledWith({type:'magiclink',email:'synthetic@example.invalid'});});
+test('legacy profile or unverified owned row requires Supabase login plus live link proof',async()=>{admin.rpc.mockImplementation((name:string)=>Promise.resolve({data:name==='find_trusted_line_auth_user'?null:true,error:null}));expect((await run()).headers.get('location')).toContain('line_link_required');expect(admin.auth.admin.createUser).not.toHaveBeenCalled();expect(admin.auth.admin.generateLink).not.toHaveBeenCalled();});
+test('trusted app marker recovers exact Auth account before any creation',async()=>{admin.rpc.mockImplementation((name:string)=>Promise.resolve({data:name==='find_trusted_line_auth_user'?actor:'linked',error:null}));expect((await run()).headers.get('location')).toContain('/mypage');expect(admin.auth.admin.createUser).not.toHaveBeenCalled();});
+test.each([null,actor])('identity lookup data+error %p cannot issue Auth',async data=>{admin.rpc.mockResolvedValue({data,error:{code:'XX000'}});expect((await run()).headers.get('location')).toContain('line_auth_unavailable');expect(admin.auth.admin.generateLink).not.toHaveBeenCalled();});
+test.each([false,undefined,{}])('malformed trusted lookup %p fails closed',async data=>{admin.rpc.mockResolvedValue({data,error:null});expect((await run()).headers.get('location')).toContain('line_auth_unavailable');});
+test.each([null,undefined,'not-a-boolean'])('malformed legacy verdict %p fails closed',async data=>{admin.rpc.mockImplementation((name:string)=>Promise.resolve({data:name==='find_trusted_line_auth_user'?null:data,error:null}));expect((await run()).headers.get('location')).toContain('line_auth_unavailable');expect(admin.auth.admin.createUser).not.toHaveBeenCalled();});
+test('unrelated existing email never causes magic link issuance',async()=>{admin.rpc.mockImplementation((name:string)=>Promise.resolve({data:name==='find_trusted_line_auth_user'?null:false,error:null}));admin.auth.admin.createUser.mockResolvedValue({data:{user:{id:other}},error:{code:'email_exists'}});expect((await run()).headers.get('location')).toContain('line_link_required');expect(admin.auth.admin.generateLink).not.toHaveBeenCalled();});
+test('lost create response recovers only exact trusted app marker',async()=>{admin.auth.admin.createUser.mockResolvedValue({data:null,error:{code:'request_failed'}});let lookups=0;admin.rpc.mockImplementation((name:string)=>Promise.resolve({data:name==='find_trusted_line_auth_user'?(++lookups===1?null:actor):name==='line_identity_requires_reconfirmation'?false:'linked',error:null}));expect((await run()).headers.get('location')).toContain('/mypage');expect(admin.auth.admin.createUser).toHaveBeenCalledTimes(1);});
+test.each(['conflict',null,'invalid'])('binding result %p never establishes Auth',async data=>{setup(true);admin.rpc.mockResolvedValue({data,error:null});expect((await run()).headers.get('location')).toContain('line_link_required');expect(admin.auth.admin.generateLink).not.toHaveBeenCalled();expect(session.auth.verifyOtp).not.toHaveBeenCalled();});
+test('binding data+error cannot establish Auth',async()=>{setup(true);admin.rpc.mockResolvedValue({data:'linked',error:{code:'XX000'}});expect((await run()).headers.get('location')).toContain('line_link_required');expect(session.auth.verifyOtp).not.toHaveBeenCalled();});
+test.each([{data:{user:null},error:null},{data:{user:{id:other,email:'other@example.invalid'}},error:null},{data:{user:{id:actor,email:null}},error:null},{data:{user:{id:actor,email:'ok@example.invalid'}},error:{code:'XX000'}}])('Auth lookup unexpected/error %p cannot issue a link',async result=>{admin.auth.admin.getUserById.mockResolvedValue(result);expect((await run()).headers.get('location')).toContain('line_auth_unavailable');expect(admin.auth.admin.generateLink).not.toHaveBeenCalled();});
+test.each([{data:null,error:{code:'XX000'}},{data:{user:{id:actor},properties:{}},error:null},{data:{user:{id:other},properties:{hashed_token:'hash'}},error:null},{data:{user:null,properties:{hashed_token:'hash'}},error:null}])('magic link proof %p requires exact actor',async result=>{admin.auth.admin.generateLink.mockResolvedValue(result);expect((await run()).headers.get('location')).toContain('line_auth_failed');expect(session.auth.verifyOtp).not.toHaveBeenCalled();});
+test('verify OTP failure cannot claim a login',async()=>{session.auth.verifyOtp.mockResolvedValue({error:{code:'XX000'}});expect((await run()).headers.get('location')).toContain('line_session_failed');});
+test('SSR cookie writer preserves session and catches Server Component restriction',async()=>{store.set.mockImplementation(()=>{throw new Error('Server Component');});(createServerClient as jest.Mock).mockImplementation((_url,_key,opts)=>{expect(opts.cookies.getAll()).toEqual([]);opts.cookies.setAll([{name:'sb-session',value:'test',options:{}}]);return session;});expect((await run()).headers.get('location')).toContain('line_session_failed');expect(store.set).toHaveBeenCalled();});
 
-beforeEach(() => {
-  jest.clearAllMocks();
-  (checkRateLimit as jest.Mock).mockResolvedValue(false);
-  setupDefaultMocks();
+function linkMode(user:any={id:actor},error:any=null) {
+ const previous=store.get.getMockImplementation();store.get.mockImplementation((name:string)=>name==='line_oauth_link_actor'?{value:actor}:previous(name));
+ require('@/lib/supabase-server-auth').createServerSupabaseAuthClient.mockResolvedValue({auth:{getUser:jest.fn().mockResolvedValue({data:{user},error})}});
+}
+test('explicit link reconfirms the same Supabase account and live provider identity without issuing Auth',async()=>{
+ linkMode();expect((await run()).headers.get('location')).toContain('/mypage');
+ expect(admin.rpc).toHaveBeenCalledWith('bind_verified_liff_account_atomic',{p_actor_id:actor,p_line_user_id:'U_actor'});
+ expect(admin.auth.admin.createUser).not.toHaveBeenCalled();expect(admin.auth.admin.generateLink).not.toHaveBeenCalled();expect(session.auth.verifyOtp).not.toHaveBeenCalled();
+ expect(store.delete).toHaveBeenCalledWith('line_oauth_link_actor');
+});
+test.each([null,{id:other}])('link callback current actor %p cannot bind the saved actor',async user=>{
+ linkMode(user);expect((await run()).headers.get('location')).toContain('line_link_required');expect(fetch).not.toHaveBeenCalled();expect(admin.rpc).not.toHaveBeenCalled();
+});
+test('link callback Auth data+error cannot grant a binding',async()=>{linkMode({id:actor},{status:503});expect((await run()).headers.get('location')).toContain('line_auth_unavailable');expect(admin.rpc).not.toHaveBeenCalled();});
+test.each([{data:'linked',error:{code:'XX000'}},{data:null,error:null},{data:'unexpected',error:null}])('link callback ambiguous mutation %p remains unknown',async result=>{linkMode();admin.rpc.mockResolvedValue(result);expect((await run()).headers.get('location')).toContain('line_auth_unavailable');expect(admin.auth.admin.generateLink).not.toHaveBeenCalled();});
+test('link callback conflicting owner does not switch either account',async()=>{linkMode();admin.rpc.mockResolvedValue({data:'conflict',error:null});expect((await run()).headers.get('location')).toContain('line_link_required');expect(admin.auth.admin.generateLink).not.toHaveBeenCalled();});
+test('SDK create throw can recover only the trusted identity marker',async()=>{
+ admin.auth.admin.createUser.mockRejectedValue(new Error('lost response'));let lookups=0;
+ admin.rpc.mockImplementation((name:string)=>Promise.resolve({data:name==='find_trusted_line_auth_user'?(++lookups===1?null:actor):name==='line_identity_requires_reconfirmation'?false:'linked',error:null}));
+ expect((await run()).headers.get('location')).toContain('/mypage');expect(admin.auth.admin.createUser).toHaveBeenCalledTimes(1);
+});
+test('unconfirmed creation cannot become a successful login or a fresh-user assertion',async()=>{admin.rpc.mockImplementation((name:string)=>Promise.resolve({data:name==='find_trusted_line_auth_user'?null:false,error:null}));
+ admin.auth.admin.createUser.mockResolvedValue({data:null,error:{code:'request_failed'}});expect((await run()).headers.get('location')).toContain('line_auth_unavailable');expect(admin.auth.admin.generateLink).not.toHaveBeenCalled();
 });
 
-function makeRequest(query: string = '', ip = '192.168.1.1') {
-  const req = new Request(`http://localhost/api/auth/line/callback${query}`, {
-    method: 'GET',
-    headers: { 'x-forwarded-for': ip },
-  });
-  Object.defineProperty(req, 'nextUrl', {
-    value: new URL(req.url),
-    writable: true,
-  });
-  return req;
-}
-
-describe('GET /api/auth/line/callback', () => {
-  test('rate limiting → 302 with error', async () => {
-    (checkRateLimit as jest.Mock).mockResolvedValue(true);
-
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('error=too_many_requests');
-  });
-
-  test('LINE error parameter → 302 with line_denied', async () => {
-    const res = await GET(makeRequest('?error=access_denied') as any);
-
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('error=line_denied');
-  });
-
-  test('missing code parameter → 302 with line_invalid_state', async () => {
-    const res = await GET(makeRequest('?state=test-state') as any);
-
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('error=line_invalid_state');
-  });
-
-  test('missing state parameter → 302 with line_invalid_state', async () => {
-    const res = await GET(makeRequest('?code=test-code') as any);
-
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('error=line_invalid_state');
-  });
-
-  test('state mismatch → 302 with line_invalid_state', async () => {
-    const res = await GET(
-      makeRequest('?code=test-code&state=wrong-state') as any
-    );
-
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('error=line_invalid_state');
-  });
-
-  test('state cookie 欠落（savedState undefined）→ line_invalid_state', async () => {
-    // state パラメータは存在するが line_oauth_state cookie が無いケース。
-    // 定数時間比較ヘルパー導入で savedState undefined を呼び出し側 !savedState で
-    // 早期 false にする分岐の検証（タイミング攻撃対策のブランチ網羅）。
-    const { cookies } = require('next/headers');
-    cookies.mockResolvedValue({
-      get: jest.fn((name: string) => {
-        if (name === 'line_oauth_redirect') return { value: '/mypage' };
-        return undefined; // line_oauth_state cookie 無し
-      }),
-      delete: jest.fn(),
-      getAll: jest.fn(() => []),
-      set: jest.fn(),
-    });
-
-    const res = await GET(makeRequest('?code=test-code&state=some-state') as any);
-
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('error=line_invalid_state');
-  });
-
-  test('valid state → deletes OAuth cookies', async () => {
-    await GET(makeRequest('?code=test-code&state=saved-state') as any);
-
-    expect(mockCookieDelete).toHaveBeenCalledWith('line_oauth_state');
-    expect(mockCookieDelete).toHaveBeenCalledWith('line_oauth_redirect');
-  });
-
-  test('valid request with valid profile → 302 redirect to saved redirect', async () => {
-    const res = await GET(makeRequest('?code=test-code&state=saved-state') as any);
-
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('/mypage');
-  });
-
-  test('LINE token endpoint failure → 302 with line_token_failed', async () => {
-    setupDefaultMocks(false, true, false);
-
-    const res = await GET(makeRequest('?code=test-code&state=saved-state') as any);
-
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('error=line_token_failed');
-  });
-
-  test('LINE profile endpoint failure → 302 with line_profile_failed', async () => {
-    setupDefaultMocks(false, true, true, false);
-
-    const res = await GET(makeRequest('?code=test-code&state=saved-state') as any);
-
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('error=line_profile_failed');
-  });
-
-  test('calls LINE token API with code and client credentials', async () => {
-    await GET(makeRequest('?code=test-code&state=saved-state') as any);
-
-    const tokenCall = (global.fetch as jest.Mock).mock.calls.find((call) =>
-      call[0].includes('oauth2/v2.1/token')
-    );
-    expect(tokenCall).toBeDefined();
-    expect(tokenCall[1].method).toBe('POST');
-  });
-
-  test('calls LINE profile API with access_token', async () => {
-    await GET(makeRequest('?code=test-code&state=saved-state') as any);
-
-    const profileCall = (global.fetch as jest.Mock).mock.calls.find((call) =>
-      call[0].includes('api.line.me/v2/profile')
-    );
-    expect(profileCall).toBeDefined();
-    expect(profileCall[1].headers.Authorization).toBe(
-      'Bearer test-access-token'
-    );
-  });
-
-  test('rate limit params (10 req/min per IP)', () => {
-    (checkRateLimit as jest.Mock).mockClear();
-
-    GET(makeRequest('?code=test-code&state=saved-state', '192.168.1.1') as any);
-
-    const call = (checkRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe('192.168.1.1');
-    expect(call[2]).toBe(10);
-    expect(call[3]).toBe(60_000);
-    expect(call[4]).toBe('line-callback');
-  });
-
-  test('extracts last (trusted) IP from x-forwarded-for', () => {
-    (checkRateLimit as jest.Mock).mockClear();
-
-    GET(makeRequest('?code=test-code&state=saved-state', '10.0.0.1, 192.168.1.1') as any);
-
-    const call = (checkRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe('192.168.1.1');
-  });
-
-  test('uses unknown IP when x-forwarded-for missing', () => {
-    (checkRateLimit as jest.Mock).mockClear();
-
-    const req = new Request('http://localhost/api/auth/line/callback?code=test-code&state=saved-state', {
-      method: 'GET',
-    });
-    Object.defineProperty(req, 'nextUrl', {
-      value: new URL(req.url),
-      writable: true,
-    });
-
-    GET(req as any);
-
-    const call = (checkRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe('unknown');
-  });
-
-  test('exception during flow → 302 with line_unexpected', async () => {
-    (global.fetch as jest.Mock).mockRejectedValue(new Error('Network error'));
-
-    const res = await GET(makeRequest('?code=test-code&state=saved-state') as any);
-
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('error=line_unexpected');
-  });
-
-  test('既存ユーザーの場合は line_user_links からメールを取得', async () => {
-    setupDefaultMocks(false, true, true, true, true);
-
-    const res = await GET(makeRequest('?code=test-code&state=saved-state') as any);
-
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('/mypage');
-  });
-
-  test('id_token なし（no email）+ line_user_links 未登録 → ダミーメール生成', async () => {
-    // Token response without id_token
-    global.fetch = jest.fn((url: string) => {
-      if (url.includes('oauth2/v2.1/token')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ access_token: 'test-token' }), // no id_token
-          { ok: true, status: 200 }
-        ));
-      }
-      if (url.includes('api.line.me/v2/profile')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ userId: 'line-no-email', displayName: 'No Email User' }),
-          { ok: true, status: 200 }
-        ));
-      }
-      return Promise.resolve(new Response('{}'));
-    }) as jest.Mock;
-
-    const res = await GET(makeRequest('?code=test-code&state=saved-state') as any);
-    expect(res.status).toBe(307);
-  });
-
-  test('合成メールは HMAC 導出で予測不能（監査A1・先回り登録乗っ取り対策）', async () => {
-    // id_token 無し + line_user_links 未登録 → 合成メール生成経路。
-    // 旧実装の予測可能な line_${userId}@... ではなく、LINE_CHANNEL_SECRET を
-    // 鍵にした HMAC-SHA256 で導出されることを固定する。
-    const { createHmac } = require('crypto');
-    const userId = 'line-no-email';
-    global.fetch = jest.fn((url: string) => {
-      if (url.includes('oauth2/v2.1/token')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ access_token: 'test-token' }), // no id_token
-          { ok: true, status: 200 }
-        ));
-      }
-      if (url.includes('api.line.me/v2/profile')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ userId, displayName: 'No Email User' }),
-          { ok: true, status: 200 }
-        ));
-      }
-      return Promise.resolve(new Response('{}'));
-    }) as jest.Mock;
-
-    await GET(makeRequest('?code=test-code&state=saved-state') as any);
-
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    const adminClient = createServiceRoleClient.mock.results[
-      createServiceRoleClient.mock.results.length - 1
-    ].value;
-    const createUserArg = adminClient.auth.admin.createUser.mock.calls[0][0];
-
-    const expectedDigest = createHmac('sha256', 'test-secret').update(userId).digest('hex');
-    expect(createUserArg.email).toBe(`line_${expectedDigest}@line.carelink.local`);
-    // 旧・予測可能形式では絶対にないこと（回帰防止）
-    expect(createUserArg.email).not.toBe(`line_${userId}@line.carelink.local`);
-  });
-
-  test('generateLink失敗 → 302 with line_auth_failed', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn(() => ({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn().mockResolvedValue({ data: null }),
-      })),
-      auth: {
-        admin: {
-          createUser: jest.fn().mockResolvedValue({ error: null }),
-          generateLink: jest.fn().mockResolvedValue({ data: null, error: { message: 'link failed' } }),
-          getUserById: jest.fn().mockResolvedValue({ data: { user: null } }),
-          updateUserById: jest.fn().mockResolvedValue({ data: {}, error: null }),
-        },
-      },
-    });
-
-    const res = await GET(makeRequest('?code=test-code&state=saved-state') as any);
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('error=line_auth_failed');
-  });
-
-  test('verifyOtp失敗 → 302 with line_session_failed', async () => {
-    const { createServerClient } = require('@supabase/ssr');
-    createServerClient.mockReturnValue({
-      auth: {
-        verifyOtp: jest.fn().mockResolvedValue({ error: { message: 'OTP failed' } }),
-      },
-    });
-
-    const res = await GET(makeRequest('?code=test-code&state=saved-state') as any);
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('error=line_session_failed');
-  });
-
-  test('無効なリダイレクトURL(//から始まる) → /mypageにフォールバック', async () => {
-    const { cookies } = require('next/headers');
-    cookies.mockResolvedValue({
-      get: jest.fn((name: string) => {
-        if (name === 'line_oauth_state') return { value: 'saved-state' };
-        if (name === 'line_oauth_redirect') return { value: '//evil.com/steal' };
-        return undefined;
-      }),
-      delete: jest.fn(),
-      getAll: jest.fn(() => []),
-      set: jest.fn(),
-    });
-
-    const res = await GET(makeRequest('?code=test-code&state=saved-state') as any);
-    expect(res.status).toBe(307);
-    expect(res.headers.get('location')).toContain('/mypage');
-    expect(res.headers.get('location')).not.toContain('evil.com');
-  });
-
-  test('meta.line_user_id未設定 → updateUserById呼ぶ', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    const mockUpdateUserById = jest.fn().mockResolvedValue({ data: {}, error: null });
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn(() => ({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn().mockResolvedValue({ data: null }),
-      })),
-      auth: {
-        admin: {
-          createUser: jest.fn().mockResolvedValue({ error: null }),
-          generateLink: jest.fn().mockResolvedValue({
-            data: {
-              properties: { hashed_token: 'test-token' },
-              user: { id: 'user-123', user_metadata: {} }, // no line_user_id in metadata
-            },
-            error: null,
-          }),
-          getUserById: jest.fn().mockResolvedValue({ data: { user: null } }),
-          updateUserById: mockUpdateUserById,
-        },
-      },
-    });
-
-    await GET(makeRequest('?code=test-code&state=saved-state') as any);
-    expect(mockUpdateUserById).toHaveBeenCalled();
-  });
-
-  test('meta.line_user_id設定済み → updateUserById不呼', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    const mockUpdateUserById = jest.fn().mockResolvedValue({ data: {}, error: null });
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn(() => ({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn().mockResolvedValue({ data: null }),
-      })),
-      auth: {
-        admin: {
-          createUser: jest.fn().mockResolvedValue({ error: null }),
-          generateLink: jest.fn().mockResolvedValue({
-            data: {
-              properties: { hashed_token: 'test-token' },
-              user: { id: 'user-123', user_metadata: { line_user_id: 'already-set' } },
-            },
-            error: null,
-          }),
-          getUserById: jest.fn().mockResolvedValue({ data: { user: null } }),
-          updateUserById: mockUpdateUserById,
-        },
-      },
-    });
-
-    await GET(makeRequest('?code=test-code&state=saved-state') as any);
-    expect(mockUpdateUserById).not.toHaveBeenCalled();
-  });
-
-  test('missing x-forwarded-for → uses "unknown" IP for rate limit', () => {
-    (checkRateLimit as jest.Mock).mockClear();
-    const req = new Request('http://localhost/api/auth/line/callback?code=c&state=saved-state');
-    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
-    GET(req as any);
-    const call = (checkRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe('unknown');
-  });
-
-  test('cookie redirect missing → falls back to /mypage default', async () => {
-    const { cookies } = require('next/headers');
-    cookies.mockResolvedValue({
-      get: jest.fn((name: string) => {
-        if (name === 'line_oauth_state') return { value: 'saved-state' };
-        return undefined; // no redirect cookie
-      }),
-      delete: jest.fn(),
-      getAll: jest.fn(() => []),
-      set: jest.fn(),
-    });
-    const res = await GET(makeRequest('?code=c&state=saved-state') as any);
-    expect(res.headers.get('location')).toContain('/mypage');
-  });
-
-  test('token response json() throws → line_token_failed', async () => {
-    global.fetch = jest.fn((url: string) => {
-      if (url.includes('oauth2/v2.1/token')) {
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          json: () => Promise.reject(new Error('parse error')),
-        } as any);
-      }
-      return Promise.resolve(new Response('{}'));
-    }) as jest.Mock;
-    const res = await GET(makeRequest('?code=c&state=saved-state') as any);
-    expect(res.headers.get('location')).toContain('error=line_token_failed');
-  });
-
-  test('profile response json() throws → line_profile_failed', async () => {
-    global.fetch = jest.fn((url: string) => {
-      if (url.includes('oauth2/v2.1/token')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ access_token: 'tok' }),
-          { ok: true, status: 200 }
-        ));
-      }
-      if (url.includes('api.line.me/v2/profile')) {
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          json: () => Promise.reject(new Error('parse error')),
-        } as any);
-      }
-      return Promise.resolve(new Response('{}'));
-    }) as jest.Mock;
-    const res = await GET(makeRequest('?code=c&state=saved-state') as any);
-    expect(res.headers.get('location')).toContain('error=line_profile_failed');
-  });
-
-  test('id_token with parts.length !== 3 → email stays null, fallback path', async () => {
-    global.fetch = jest.fn((url: string) => {
-      if (url.includes('oauth2/v2.1/token')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ access_token: 'tok', id_token: 'a.b' }), // 2 parts
-          { ok: true, status: 200 }
-        ));
-      }
-      if (url.includes('api.line.me/v2/profile')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ userId: 'lu', displayName: 'D' }),
-          { ok: true, status: 200 }
-        ));
-      }
-      return Promise.resolve(new Response('{}'));
-    }) as jest.Mock;
-    const res = await GET(makeRequest('?code=c&state=saved-state') as any);
-    expect(res.status).toBe(307);
-  });
-
-  test('id_token signature mismatch → line_token_invalid', async () => {
-    global.fetch = jest.fn((url: string) => {
-      if (url.includes('oauth2/v2.1/token')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({
-            access_token: 'tok',
-            // 3 parts but signature is wrong
-            id_token: 'aGVhZGVy.eyJlbWFpbCI6InRAdC5jb20ifQ.AAAAAAAA',
-          }),
-          { ok: true, status: 200 }
-        ));
-      }
-      if (url.includes('api.line.me/v2/profile')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ userId: 'lu', displayName: 'D' }),
-          { ok: true, status: 200 }
-        ));
-      }
-      return Promise.resolve(new Response('{}'));
-    }) as jest.Mock;
-    const res = await GET(makeRequest('?code=c&state=saved-state') as any);
-    expect(res.headers.get('location')).toContain('error=line_token_invalid');
-  });
-
-  test('既存ユーザーの email がDB上にある → そのemailを使用', async () => {
-    // userExists=true で line_user_links に行があり、getUserById がメールを返す
-    setupDefaultMocks(false, true, true, true, true);
-    // id_token なし
-    global.fetch = jest.fn((url: string) => {
-      if (url.includes('oauth2/v2.1/token')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ access_token: 'tok' }),
-          { ok: true, status: 200 }
-        ));
-      }
-      if (url.includes('api.line.me/v2/profile')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ userId: 'lu', displayName: 'D' }),
-          { ok: true, status: 200 }
-        ));
-      }
-      return Promise.resolve(new Response('{}'));
-    }) as jest.Mock;
-    const res = await GET(makeRequest('?code=c&state=saved-state') as any);
-    expect(res.status).toBe(307);
-  });
-
-  test('createUser 失敗（already registered）→ ログ無し', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn(() => ({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn().mockResolvedValue({ data: null }),
-      })),
-      auth: {
-        admin: {
-          createUser: jest.fn().mockResolvedValue({ error: { message: 'User already registered' } }),
-          generateLink: jest.fn().mockResolvedValue({
-            data: {
-              properties: { hashed_token: 'tk' },
-              user: { id: 'u', user_metadata: { line_user_id: 'set' } },
-            },
-            error: null,
-          }),
-          getUserById: jest.fn().mockResolvedValue({ data: { user: null } }),
-          updateUserById: jest.fn().mockResolvedValue({ data: {}, error: null }),
-        },
-      },
-    });
-    const res = await GET(makeRequest('?code=c&state=saved-state') as any);
-    expect(res.status).toBe(307);
-    expect(consoleSpy).not.toHaveBeenCalledWith(
-      expect.stringContaining('createUser failed'),
-      expect.anything()
-    );
-    consoleSpy.mockRestore();
-  });
-
-  test('generateLink: linkData.user 不在 → updateUserById不呼', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    const mockUpdate = jest.fn().mockResolvedValue({ data: {}, error: null });
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn(() => ({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn().mockResolvedValue({ data: null }),
-      })),
-      auth: {
-        admin: {
-          createUser: jest.fn().mockResolvedValue({ error: null }),
-          generateLink: jest.fn().mockResolvedValue({
-            data: { properties: { hashed_token: 'tk' }, user: null },
-            error: null,
-          }),
-          getUserById: jest.fn().mockResolvedValue({ data: { user: null } }),
-          updateUserById: mockUpdate,
-        },
-      },
-    });
-    await GET(makeRequest('?code=c&state=saved-state') as any);
-    expect(mockUpdate).not.toHaveBeenCalled();
-  });
-
-  test('cookieStore.set throws → setAll catch silences', async () => {
-    const { cookies } = require('next/headers');
-    cookies.mockResolvedValue({
-      get: jest.fn((name: string) => {
-        if (name === 'line_oauth_state') return { value: 'saved-state' };
-        if (name === 'line_oauth_redirect') return { value: '/mypage' };
-        return undefined;
-      }),
-      delete: jest.fn(),
-      getAll: jest.fn(() => []),
-      set: jest.fn(() => { throw new Error('Server Component'); }),
-    });
-    const { createServerClient } = require('@supabase/ssr');
-    createServerClient.mockImplementation((_u: string, _k: string, opts: any) => {
-      // Trigger setAll path
-      opts.cookies.setAll([{ name: 'sb', value: 'v', options: {} }]);
-      return {
-        auth: { verifyOtp: jest.fn().mockResolvedValue({ error: null }) },
-      };
-    });
-    const res = await GET(makeRequest('?code=c&state=saved-state') as any);
-    expect(res.status).toBe(307);
-  });
-
-  // Branch coverage: line 107 — payload.email が null/undefined の場合 email = null になる
-  test('id_token payload に email なし → email=null になり fallback path へ', async () => {
-    // id_token payload without email field
-    // Build a valid 3-part token but with no email in payload
-    // We need a valid HMAC so we use the existing valid token mechanism but clear email
-    global.fetch = jest.fn((url: string) => {
-      if (url.includes('oauth2/v2.1/token')) {
-        // Create a token with payload {"sub":"123"} (no email)
-        // The test doesn't need a cryptographically valid token —
-        // we use signatureValid=false path to fall through to the catch block
-        // which leaves email null, then follows the email=null branch
-        return Promise.resolve(new Response(
-          JSON.stringify({
-            access_token: 'tok',
-            // 3 parts but payload has no email — HMAC will fail (different secret)
-            // so we reach the catch block and email stays null
-            id_token: 'aGVhZGVy.eyJzdWIiOiIxMjMifQ.AAAAAAAA',
-          }),
-          { ok: true, status: 200 }
-        ));
-      }
-      if (url.includes('api.line.me/v2/profile')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ userId: 'lu-no-email', displayName: 'D' }),
-          { ok: true, status: 200 }
-        ));
-      }
-      return Promise.resolve(new Response('{}'));
-    }) as jest.Mock;
-    // The signature will mismatch → redirect line_token_invalid OR catch → email=null path
-    const res = await GET(makeRequest('?code=c&state=saved-state') as any);
-    // Either line_token_invalid or fallback to /mypage (both are valid outcomes for this branch)
-    expect(res.status).toBe(307);
-  });
-
-  // Branch coverage: line 127 — existingUser?.email が falsy → fallback email
-  test('line_user_links にユーザーあり、getUserById が email=null → ダミーメール生成', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn((table: string) => {
-        if (table === 'line_user_links') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                maybeSingle: jest.fn().mockResolvedValue({
-                  data: { user_id: 'found-user-id' },
-                }),
-              }),
-            }),
-          };
-        }
-      }),
-      auth: {
-        admin: {
-          // getUserById returns user with no email (email = undefined/null)
-          getUserById: jest.fn().mockResolvedValue({
-            data: { user: { id: 'found-user-id', email: null } },
-          }),
-          createUser: jest.fn().mockResolvedValue({ error: null }),
-          generateLink: jest.fn().mockResolvedValue({
-            data: {
-              properties: { hashed_token: 'tk' },
-              user: { id: 'found-user-id', user_metadata: { line_user_id: 'already-set' } },
-            },
-            error: null,
-          }),
-          updateUserById: jest.fn().mockResolvedValue({ data: {}, error: null }),
-        },
-      },
-    });
-
-    // Use token without id_token so email is null → triggers line_user_links lookup
-    global.fetch = jest.fn((url: string) => {
-      if (url.includes('oauth2/v2.1/token')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ access_token: 'tok' }), // no id_token
-          { ok: true, status: 200 }
-        ));
-      }
-      if (url.includes('api.line.me/v2/profile')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ userId: 'lu-no-mail', displayName: 'D' }),
-          { ok: true, status: 200 }
-        ));
-      }
-      return Promise.resolve(new Response('{}'));
-    }) as jest.Mock;
-
-    const res = await GET(makeRequest('?code=c&state=saved-state') as any);
-    // Should use fallback email line_lu-no-mail@line.carelink.local
-    expect(res.status).toBe(307);
-  });
-
-  // Branch coverage: line 107 — payload.email が falsy → email = null
-  test('id_token の payload に email フィールドなし（署名有効）→ email=null になり fallback path へ', async () => {
-    // Build a valid HS256 token with payload {"sub":"123"} — no email field
-    const { createHmac } = require('crypto');
-    const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-    const payloadNoEmail = Buffer.from(JSON.stringify({ sub: '123' })).toString('base64url');
-    const signingInput = `${header}.${payloadNoEmail}`;
-    const secret = 'test-secret'; // matches process.env.LINE_CHANNEL_SECRET set in setupDefaultMocks
-    const sig = createHmac('sha256', secret).update(signingInput).digest('base64url');
-    const idTokenNoEmail = `${header}.${payloadNoEmail}.${sig}`;
-
-    global.fetch = jest.fn((url: string) => {
-      if (url.includes('oauth2/v2.1/token')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ access_token: 'tok', id_token: idTokenNoEmail }),
-          { ok: true, status: 200 }
-        ));
-      }
-      if (url.includes('api.line.me/v2/profile')) {
-        return Promise.resolve(new Response(
-          JSON.stringify({ userId: 'lu-noemail', displayName: 'D' }),
-          { ok: true, status: 200 }
-        ));
-      }
-      return Promise.resolve(new Response('{}'));
-    }) as jest.Mock;
-
-    const res = await GET(makeRequest('?code=c&state=saved-state') as any);
-    // email=null → line_user_links lookup → no link → fallback dummy email → generateLink → /mypage
-    expect(res.status).toBe(307);
-    // Should NOT hit line_token_invalid since signature IS valid
-    expect(res.headers.get('location')).not.toContain('error=line_token_invalid');
-  });
-
-  // Branch coverage: line 157 — linkData.user.user_metadata || {} when user_metadata is null
-  test('generateLink user_metadata が null → {} にフォールバックして line_user_id を設定', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    const mockUpdateUserById = jest.fn().mockResolvedValue({ data: {}, error: null });
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn(() => ({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn().mockResolvedValue({ data: null }),
-      })),
-      auth: {
-        admin: {
-          createUser: jest.fn().mockResolvedValue({ error: null }),
-          generateLink: jest.fn().mockResolvedValue({
-            data: {
-              properties: { hashed_token: 'test-token' },
-              // user_metadata is null → triggers || {} branch at line 157
-              user: { id: 'user-123', user_metadata: null },
-            },
-            error: null,
-          }),
-          getUserById: jest.fn().mockResolvedValue({ data: { user: null } }),
-          updateUserById: mockUpdateUserById,
-        },
-      },
-    });
-
-    await GET(makeRequest('?code=test-code&state=saved-state') as any);
-    // meta = null || {} = {} → !meta.line_user_id → updateUserById is called
-    expect(mockUpdateUserById).toHaveBeenCalled();
-  });
-
-  test('createUser 失敗（already registered以外）→ ログだけで続行', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn(() => ({
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn().mockResolvedValue({ data: null }),
-      })),
-      auth: {
-        admin: {
-          createUser: jest.fn().mockResolvedValue({ error: { message: 'something went wrong' } }),
-          generateLink: jest.fn().mockResolvedValue({
-            data: {
-              properties: { hashed_token: 'test-token' },
-              user: { id: 'user-123', user_metadata: {} },
-            },
-            error: null,
-          }),
-          getUserById: jest.fn().mockResolvedValue({ data: { user: null } }),
-          updateUserById: jest.fn().mockResolvedValue({ data: {}, error: null }),
-        },
-      },
-    });
-
-    const res = await GET(makeRequest('?code=test-code&state=saved-state') as any);
-    expect(res.status).toBe(307);
-    expect(consoleSpy).toHaveBeenCalled();
-    consoleSpy.mockRestore();
-  });
-
-  // ─── 監査C2: LINEログイン時の profiles.line_user_id バックフィル ──────────────
-  function adminWithProfiles(profilesUpdateResult: { error: unknown }) {
-    const profilesEq = jest.fn().mockResolvedValue(profilesUpdateResult);
-    const profilesUpdate = jest.fn().mockReturnValue({ eq: profilesEq });
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn((table: string) => {
-        if (table === 'line_user_links') {
-          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null }) }) }) };
-        }
-        if (table === 'profiles') return { update: profilesUpdate };
-      }),
-      auth: {
-        admin: {
-          createUser: jest.fn().mockResolvedValue({ error: null }),
-          generateLink: jest.fn().mockResolvedValue({
-            data: { properties: { hashed_token: 't' }, user: { id: 'u-backfill', user_metadata: {} } },
-            error: null,
-          }),
-          getUserById: jest.fn().mockResolvedValue({ data: { user: { email: 'e@example.com', user_metadata: {} } } }),
-          updateUserById: jest.fn().mockResolvedValue({ data: {}, error: null }),
-        },
-      },
-    });
-    return { profilesUpdate, profilesEq };
-  }
-
-  test('【監査C2】LINEログイン成功時に profiles.line_user_id をバックフィルする', async () => {
-    const { profilesUpdate, profilesEq } = adminWithProfiles({ error: null });
-    const res = await GET(makeRequest('?code=c&state=saved-state') as any);
-    expect(res.status).toBe(307);
-    expect(profilesUpdate).toHaveBeenCalledWith(expect.objectContaining({ line_user_id: expect.any(String) }));
-    expect(profilesEq).toHaveBeenCalledWith('id', 'u-backfill');
-  });
-
-  test('【監査C2】profiles バックフィル失敗 → console.error のみでログインは成立（非ブロッキング）', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    adminWithProfiles({ error: { message: 'unique violation' } });
-    const res = await GET(makeRequest('?code=c&state=saved-state') as any);
-    expect(res.status).toBe(307); // ログイン自体は成立（リダイレクト）
-    expect(consoleSpy).toHaveBeenCalledWith('[line-callback] profiles.line_user_id backfill failed', expect.anything());
-    consoleSpy.mockRestore();
-  });
+test.each([null,{id:other},{id:actor}])('SDK cookie writes are not published on error or wrong-user result %p',async user=>{
+ (createServerClient as jest.Mock).mockImplementation((_url,_key,opts)=>({auth:{verifyOtp:jest.fn().mockImplementation(async()=>{opts.cookies.setAll([{name:'sb-session',value:'test',options:{}}]);return {data:{user},error:user?.id===actor?{code:'XX000'}:null};})}}));
+ expect((await run()).headers.get('location')).toContain('line_session_failed');expect(store.set).not.toHaveBeenCalled();
+});
+test('SDK cookies publish only after the exact actor result and ignore later changes',async()=>{
+ let write:any;(createServerClient as jest.Mock).mockImplementation((_url,_key,opts)=>{write=opts.cookies.setAll;return {auth:{verifyOtp:jest.fn().mockImplementation(async()=>{write([{name:'sb-session',value:'confirmed',options:{}}]);return {data:{user:{id:actor}},error:null};})}};});
+ expect((await run()).headers.get('location')).toContain('/mypage');expect(store.set).toHaveBeenCalledWith('sb-session','confirmed',{});
+ write([{name:'sb-session',value:'late',options:{}}]);expect(store.set).toHaveBeenCalledTimes(1);
+});
+
+test('signed OIDC with no email uses the trusted synthetic creation path',async()=>{provider({access_token:'token',id_token:signed()});expect((await run()).headers.get('location')).toContain('/mypage');expect(admin.auth.admin.createUser.mock.calls[0][0].email).toContain('@line.carelink.local');});
+
+test('ambiguous trusted Auth recovery stops before creation, binding or session issuance',async()=>{
+ admin.rpc.mockResolvedValue({data:null,error:{code:'P0001',message:'LINE_AUTH_IDENTITY_AMBIGUOUS'}});
+ expect((await run()).headers.get('location')).toContain('line_auth_unavailable');expect(admin.auth.admin.createUser).not.toHaveBeenCalled();expect(admin.auth.admin.generateLink).not.toHaveBeenCalled();expect(session.auth.verifyOtp).not.toHaveBeenCalled();
+});
+test.each([{data:null,error:{code:'P0001',message:'LINE_AUTH_IDENTITY_AMBIGUOUS'}},{data:actor,error:{code:'XX000'}},{data:other,error:null},{data:null,error:null}])('creation response cannot override ambiguous/missing/wrong trusted DB result %p',async result=>{
+ let lookups=0;admin.rpc.mockImplementation((name:string)=>Promise.resolve(name==='find_trusted_line_auth_user'?(++lookups===1?{data:null,error:null}:result):{data:false,error:null}));
+ expect((await run()).headers.get('location')).toContain('line_auth_unavailable');expect(admin.auth.admin.createUser).toHaveBeenCalledTimes(1);expect(admin.rpc.mock.calls.some(call=>call[0]==='bind_verified_liff_account_atomic')).toBe(false);expect(admin.auth.admin.generateLink).not.toHaveBeenCalled();expect(session.auth.verifyOtp).not.toHaveBeenCalled();
+});
+test('lost creation with duplicate markers is unavailable even if original SDK error is email-exists',async()=>{
+ admin.auth.admin.createUser.mockResolvedValue({data:null,error:{code:'email_exists'}});let lookups=0;
+ admin.rpc.mockImplementation((name:string)=>Promise.resolve(name==='find_trusted_line_auth_user'?(++lookups===1?{data:null,error:null}:{data:null,error:{code:'P0001',message:'LINE_AUTH_IDENTITY_AMBIGUOUS'}}):{data:false,error:null}));
+ expect((await run()).headers.get('location')).toContain('line_auth_unavailable');expect(admin.auth.admin.generateLink).not.toHaveBeenCalled();
 });

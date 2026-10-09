@@ -15,6 +15,7 @@ jest.mock('@/lib/rate-limit', () => ({
   checkRateLimit: jest.fn(() => Promise.resolve(false)),
 }));
 jest.mock('next/headers');
+jest.mock('@/lib/supabase-server-auth',()=>({createServerSupabaseAuthClient:jest.fn()}));
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -230,5 +231,28 @@ describe('GET /api/auth/line', () => {
       (call) => call[0] === 'line_oauth_state'
     );
     expect(stateCookie[2].secure).toBe(false);
+  });
+});
+
+const mockLinkAuth=()=>require('@/lib/supabase-server-auth').createServerSupabaseAuthClient;
+describe('explicit verified-account LINE reconfirmation',()=>{
+  test('same current Supabase account is stored in a protected short-lived state cookie',async()=>{
+    mockLinkAuth().mockResolvedValue({auth:{getUser:jest.fn().mockResolvedValue({data:{user:{id:'actor'}},error:null})}});
+    const res=await GET(makeRequest('?mode=link&redirect=%2Fmypage%2Fprofile') as any);
+    expect(res.headers.get('location')).toContain('https://access.line.me/');
+    expect(mockCookieSet).toHaveBeenCalledWith('line_oauth_link_actor','actor',expect.objectContaining({httpOnly:true,sameSite:'lax',maxAge:600}));
+  });
+  test.each([null,{id:'actor'}])('unavailable Auth data %p cannot start linking',async user=>{
+    mockLinkAuth().mockResolvedValue({auth:{getUser:jest.fn().mockResolvedValue({data:{user},error:{status:503}})}});
+    const res=await GET(makeRequest('?mode=link') as any);
+    expect(res.headers.get('location')).toContain('line_auth_unavailable');expect(mockCookieSet).not.toHaveBeenCalled();
+  });
+  test('signed-out visitor must sign in before linking',async()=>{
+    mockLinkAuth().mockResolvedValue({auth:{getUser:jest.fn().mockResolvedValue({data:{user:null},error:null})}});
+    const res=await GET(makeRequest('?mode=link') as any);
+    expect(res.headers.get('location')).toContain('/auth/login?redirect=');expect(mockCookieSet).not.toHaveBeenCalled();
+  });
+  test('normal LINE login removes a stale linking actor',async()=>{
+    await GET(makeRequest() as any);expect(mockCookieSet).toHaveBeenCalledWith('line_oauth_link_actor','',expect.objectContaining({maxAge:0}));
   });
 });

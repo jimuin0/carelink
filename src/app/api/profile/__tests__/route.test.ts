@@ -423,17 +423,9 @@ describe('PUT /api/profile', () => {
 // 【監査C2】連携の単一ソースは profiles.line_user_id（旧 line_user_links.user_id は常に NULL で
 // LIFF 連携済みでも常に未連携表示だった）。line_user_id の非 NULL で linked を判定する。
 describe('GET /api/profile', () => {
-  function setupLinkMock(row: unknown, error: unknown = null) {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    (createServiceRoleClient as jest.Mock).mockReturnValue({
-      from: jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            maybeSingle: jest.fn().mockResolvedValue({ data: row, error }),
-          }),
-        }),
-      }),
-    });
+  function setupLinkMock(data:any,error:any=null,link:any={user_id:'user-123',line_user_id:'U-abc',proof_version:1,verified_at:'2026-10-09T00:00:00Z'}) {
+    const {createServiceRoleClient}=require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({from:jest.fn((table:string)=>{const q:any={};q.select=jest.fn(()=>q);q.eq=jest.fn(()=>q);q.maybeSingle=jest.fn().mockResolvedValue(table==='profiles'?{data,error}:{data:link,error:null});return q;})});
   }
 
   function makeGet() {
