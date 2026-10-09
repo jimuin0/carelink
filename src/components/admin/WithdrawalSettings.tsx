@@ -6,7 +6,7 @@ import Toast from '@/components/Toast';
 import Link from 'next/link';
 import { clearAccountLocalData, LOCAL_DATA_CLEAR_FAILED } from '@/lib/client-storage';
 import { ACCOUNT_DELETION_NOTICE, FACILITY_RETIREMENT_NOTICE, ACCOUNT_DELETION_BOOKING_GUARD_NOTICE } from '@/lib/account-deletion-policy';
-import { completeClientCleanupMarker } from '@/lib/client-cleanup-marker';
+import { completeClientCleanupMarker, prepareClientCleanupMarker } from '@/lib/client-cleanup-marker';
 
 /**
  * 施設オーナー向け退会（アカウント・データ削除）セクション。
@@ -29,7 +29,7 @@ export default function WithdrawalSettings() {
     if (deleting || deletionConfirmed) return;
     setDeleting(true);
     try {
-      try { await clearAccountLocalData(); }
+      try { prepareClientCleanupMarker(); await clearAccountLocalData(); }
       catch {
         setToast({ type: 'error', message: `${LOCAL_DATA_CLEAR_FAILED} アカウントの削除は行っていません。` });
         return;

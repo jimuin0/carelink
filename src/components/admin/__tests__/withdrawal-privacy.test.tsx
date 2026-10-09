@@ -4,9 +4,9 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import WithdrawalSettings from '../WithdrawalSettings';
 import ProfileEditPage from '@/app/mypage/profile/page';
 import { ACCOUNT_DELETION_NOTICE, FACILITY_RETIREMENT_NOTICE, ACCOUNT_DELETION_BOOKING_GUARD_NOTICE } from '@/lib/account-deletion-policy';
-const mockClear = jest.fn(); const mockComplete = jest.fn(); const mockFetch = jest.fn();
+const mockClear = jest.fn(); const mockComplete = jest.fn(); const mockPrepare = jest.fn(); const mockFetch = jest.fn();
 jest.mock('@/lib/client-storage', () => ({ clearAccountLocalData: () => mockClear(), LOCAL_DATA_CLEAR_FAILED: 'この端末の下書きの削除を確認できませんでした。' }));
-jest.mock('@/lib/client-cleanup-marker', () => ({ completeClientCleanupMarker: () => mockComplete() }));
+jest.mock('@/lib/client-cleanup-marker', () => ({ completeClientCleanupMarker: () => mockComplete(), prepareClientCleanupMarker: () => mockPrepare() }));
 jest.mock('@/components/Modal', () => ({ __esModule: true, default: ({ children }: { children: React.ReactNode }) => <section role="dialog">{children}</section> }));
 jest.mock('@/components/Toast', () => ({ __esModule: true, default: ({ message }: { message: string }) => <p role="alert">{message}</p> }));
 jest.mock('@/hooks/useUnsavedGuard', () => ({ useUnsavedGuard: () => undefined }));
@@ -15,7 +15,7 @@ jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: () => 
  auth: { getUser: async () => ({ data: { user: { id: 'synthetic' } }, error: null }) },
  from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { display_name: 'Synthetic profile', phone: '09000000000', prefecture: '東京都', city: '', birth_date: '', gender: '', avatar_url: null, email_unsubscribed: false }, error: null }) }) }) }),
 }) }));
-beforeEach(() => { jest.clearAllMocks(); mockClear.mockReset().mockResolvedValue(undefined); mockComplete.mockReset(); mockFetch.mockReset(); global.fetch = mockFetch; });
+beforeEach(() => { jest.clearAllMocks(); mockClear.mockReset().mockResolvedValue(undefined); mockComplete.mockReset(); mockPrepare.mockReset(); mockFetch.mockReset(); global.fetch = mockFetch; });
 async function open(kind: 'owner' | 'profile') {
  render(kind === 'owner' ? <WithdrawalSettings /> : <ProfileEditPage />);
  fireEvent.click(await screen.findByRole('button', { name: kind === 'owner' ? '退会する' : 'アカウントを削除する', exact: true }));
@@ -31,8 +31,11 @@ test.each(['owner','profile'] as const)('%s cleanup readback must finish before 
  let release!: () => void; mockClear.mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; }));
  mockFetch.mockResolvedValue({ ok: false, json: async () => ({ error: '本日以降の対象予約が残っています' }) });
  const ui = await open(kind); ui.submit(); await waitFor(() => expect(mockClear).toHaveBeenCalledTimes(1));
+ expect(mockPrepare).toHaveBeenCalledTimes(1);
+ expect(mockPrepare.mock.invocationCallOrder[0]).toBeLessThan(mockClear.mock.invocationCallOrder[0]);
  expect(mockFetch).not.toHaveBeenCalled(); expect(screen.getByLabelText('確認コード DELETE を入力')).toBeDisabled();
  release(); await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+ expect(mockPrepare.mock.invocationCallOrder[0]).toBeLessThan(mockFetch.mock.invocationCallOrder[0]);
  expect(mockFetch).toHaveBeenCalledWith('/api/account/delete', expect.objectContaining({ headers: { 'Content-Type': 'application/json', 'X-CareLink-Client-Cleanup': '1' } }));
  expect(await screen.findByRole('alert')).toHaveTextContent('本日以降の対象予約が残っています');
 });
@@ -47,6 +50,13 @@ test.each(['owner','profile'] as const)('%s verified deletion with post-response
 test.each(['owner','profile'] as const)('%s lost/malformed deletion reply is uncertain rather than success or definite failure', async kind => {
  mockFetch.mockRejectedValue(new Error('lost reply')); const ui = await open(kind); ui.submit();
  expect(await screen.findByRole('alert')).toHaveTextContent('結果を確認できません'); expect(mockComplete).not.toHaveBeenCalled();
+ expect(mockPrepare).toHaveBeenCalledTimes(1);
+});
+test.each(['owner','profile'] as const)('%s shared-fence write/readback failure blocks account deletion before HTTP', async kind => {
+ mockPrepare.mockImplementation(() => { throw new Error('synthetic shared storage failure'); });
+ const ui = await open(kind); ui.submit();
+ expect(await screen.findByRole('alert')).toHaveTextContent('アカウントの削除は行っていません');
+ expect(mockClear).not.toHaveBeenCalled(); expect(mockFetch).not.toHaveBeenCalled();
 });
 test('owner retirement display uses the same scoped account, remaining-owner and date/status rules as the platform policy', () => {
  render(<WithdrawalSettings />);

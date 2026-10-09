@@ -85,3 +85,22 @@ test('corrupt generation state never restores as legacy, but a verified wipe can
   marker.markClientCleanupNeeded(); marker.completeClientCleanupMarker();
   expect(marker.hasClientCleanupNeeded()).toBe(false); expect(marker.getClientCleanupGeneration()).toMatch(/^[a-f0-9-]{36}$/);
 });
+test('deletion preflight persists a shared generation without releasing the cookie, even when no response arrives', () => {
+  marker.prepareClientCleanupMarker();
+  const generation = marker.getClientCleanupGeneration();
+  expect(generation).toMatch(/^[a-f0-9-]{36}$/);
+  expect(cookie).toBe('carelink_client_cleanup=1');
+  // Another tab has no knowledge of the initiating tab's in-memory flag.
+  jest.resetModules();
+  const otherTab: typeof marker = require('../client-cleanup-marker');
+  expect(otherTab.hasClientCleanupNeeded()).toBe(true);
+  expect(otherTab.getClientCleanupGeneration()).toBe(generation);
+  otherTab.completeClientCleanupMarker();
+  expect(cookie).toBe('');
+  expect(otherTab.getClientCleanupGeneration()).not.toBe(generation);
+});
+test.each(['write', 'drop', 'read', 'generationRead', 'generationWrite', 'generationDrop'])('deletion preflight %s failure cannot claim shared-fence readiness', kind => {
+  fault = kind;
+  expect(() => marker.prepareClientCleanupMarker()).toThrow(/確認情報を更新できません/);
+  expect(marker.hasClientCleanupNeeded()).toBe(true);
+});

@@ -4,7 +4,7 @@
 
 ## 新Macと原監査資料
 
-独立した作業環境と専用node_modules・Node 24.21.0・Docker/Supabaseを用意し、旧checkout・復元済み未commit変更は保全した。新Macの関連1,313文書と151原票の保存済みhashを照合した結果は2一致・149未回収。さらにCareLinkの旧セッション19件とiCloudの関連文書を調べたが、新しい原票一致は得られなかった。旧Macの一時ディレクトリにあった149原票は、元ファイルまたはbackupの回収が必要である。
+独立した作業環境と専用node_modules・Node 24.21.0・Docker/Supabaseを用意し、旧checkout・復元済み未commit変更は保全した。新Macの関連1,313文書と151原票の保存済みhashを照合した結果は2一致・149未回収。さらにCareLinkの旧セッション19件とiCloudの関連文書を調べたが、新しい原票一致は得られなかった。旧Macの一時ディレクトリにあった149原票は、元ファイルまたはbackupの回収が必要である。 旧セッションの復元は作業再開の前提にしない。未回収でも、保存済みコード・Git・PR・DB・運用ログを根拠に現行コードの再監査を進める。元の全文との完全照合はできないため、索引を保全して「元資料照合不能」を修正状態と別に記録する。旧Macを確認できないことだけで永久消失と断定しない。
 
 503ラベルと355断片の858記録は非公開の索引として保全した。858件の不具合や、全文監査の完了を意味しない。原票の内容を推測して補完せず、未照合のまま保持する。実顧客情報を公開Gitへ転記しない。
 
@@ -15,6 +15,7 @@
 | #661 / #662 | マージ済み。#662のmain CI 37110697542で単体9,559件、分岐100%、隔離実API17件、E2E324件、flaky/skip0。本番version1801e66を確認 |
 | #663 | CI 37729102345、PG17 37729102316成功後にmerge117e42a。単体9,573件、分岐100%、実API17件、E2E324件・flaky/skip0。本番200・healthy・version一致 |
 | #664 | PR head b85d2084のCI 37734023083・PG17 37734023084成功。merge a46f5e1のmain CI37735593929・PG17 37735594002も成功。単体9,601件、分岐100%、実API17件、E2E324件・unexpected/flaky/skipped各0。Production deployment6928478917成功、06:21 UTCの本番200・healthy・version a46f5e1 |
+| #665 | head12a395d3のCI37871000634・PG17 37871000612成功、HTTPS E2E348件・unexpected/flaky/skipped各0。レビューで判明した退会前の共有fenceと未復元下書きの自動上書きを追加修正し、480suite/9956test・分岐9758/9758・型・lint負債3件を再確認。追加commitのCIと本番適用は未完了 |
 | #647 / #651 | 全差分を現mainと照合し、traffic_source保存とSlack本文の変更は現存。再マージ不要。PRの閉鎖は未実施 |
 | #646 | 追加された流入元テスト3件のTypeScript構文木も現mainと一致。単なる整形だけの提案ではないが、再マージ不要。PRの閉鎖は未実施 |
 | #632 / #640 / #641、#626〜#630 | 原指摘・現main・最新lock・テスト単位の全照合は未完了。古いbranchを丸ごと再マージしない。Stripe更新は保留 |
@@ -60,7 +61,7 @@ PR #632の全差分を読み、プロフィール作成失敗をAuth登録成功
 
 ## 今回の検証と残る作業
 
-全480suite・9,945test成功、測定対象の分岐9,758/9,758＝100%、型検査と静的migration契約17件が成功。PG17で250 migrationを新規再生しfingerprint2,778項目が一致。C locale一致と25 SQL fixtureも成功。失敗・競合・SDK権限・Chromium/Safariの対象確認は個別ログに保存した。全体CIと本番適用後の証拠はまだこのsnapshotに含まない。
+全480suite・9,956test成功、測定対象の分岐9,758/9,758＝100%、型検査と静的migration契約17件が成功。PG17で250 migrationを新規再生しfingerprint2,778項目が一致。C locale一致と25 SQL fixtureも成功。失敗・競合・SDK権限・Chromium/Safariの対象確認は個別ログに保存した。head12a395d3の全体CI/PG17/HTTPS E2Eは成功。後続レビュー修正のCIと本番適用後の証拠はまだこのsnapshotに含まない。本番への正式migration要求はコネクターからcancelledを返したため未適用を確認し、直接DDLや履歴repairで迂回していない。
 
 - 本番の最新SHAによるCI・PG17・HTTPS E2Eと正式migration履歴／実体照合。
 - Supabase本人ログイン後のSMTP設定、本人メール→リンク→ログイン、Google→callbackの実成功。

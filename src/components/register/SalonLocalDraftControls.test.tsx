@@ -89,6 +89,26 @@ test('saved inputs require an explicit restore and submission-context permission
   expect(api.restoreLocalSalonDraft).toHaveBeenCalledWith(6);
   expect(api.saveLocalSalonDraft).not.toHaveBeenCalled();
 });
+test('autosave cannot overwrite a saved original until it is explicitly restored', async () => {
+  current = sample(6); const view = mount();
+  await waitFor(() => expect(screen.getByRole('button', { name: '端末の下書きを復元' })).toBeEnabled());
+  const button = screen.getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' });
+  expect(button).toBeDisabled(); fireEvent.click(button);
+  expect(api.saveLocalSalonDraft).not.toHaveBeenCalled();
+  expect(current?.revision).toBe(6);
+  fireEvent.click(screen.getByRole('button', { name: '端末の下書きを復元' }));
+  await waitFor(() => expect(view.onRestore).toHaveBeenCalledWith(backup));
+  await enable();
+  expect(api.saveLocalSalonDraft).toHaveBeenCalledWith(values, [], 6);
+});
+test('explicitly clearing an unrestored saved original permits a new autosave', async () => {
+  current = sample(6); mount();
+  await waitFor(() => expect(screen.getByRole('button', { name: '端末の下書きを削除' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: '端末の下書きを削除' }));
+  await waitFor(() => expect(api.clearLocalSalonDraft).toHaveBeenCalledWith(6));
+  await enable();
+  expect(api.saveLocalSalonDraft).toHaveBeenCalledWith(values, [], 7);
+});
 test('a locked draft after reopening cannot restore, opt in or be unlocked by deleting its photos', async () => {
   current = sample(6, 'locked'); const view = mount();
   await waitFor(() => expect(screen.getByText(/送信に使用した下書きです/)).toBeInTheDocument());

@@ -48,6 +48,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
   const [busy, setBusy] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [saved, setSaved] = useState<LocalSalonDraft | null>(null);
+  const [ownsSaved, setOwnsSaved] = useState(false);
   const [message, setMessage] = useState('自動保存は無効です。');
   useEffect(() => { latest.current = props; });
 
@@ -60,6 +61,10 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
     current.current = value;
     if (mounted.current) setSaved(value);
   }
+  function takeOwnership(value: boolean) {
+    owned.current = value;
+    if (mounted.current) setOwnsSaved(value);
+  }
   function stop() {
     opted.current = false;
     if (timer.current) { clearTimeout(timer.current); timer.current = null; }
@@ -68,7 +73,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
   function failed(error: unknown) { blocked.current = true; stop(); if (mounted.current) setMessage(failureMessage(error)); }
   async function save(values: SalonFormValues, photos: readonly (File | null)[]) {
     const result = await saveLocalSalonDraft(values, photos, current.current?.revision ?? null);
-    remember(result); owned.current = true;
+    remember(result); takeOwnership(true);
     if (mounted.current) setMessage('入力と元の写真を保存し、読み戻して確認しました。');
     return result;
   }
@@ -107,7 +112,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
   useEffect(() => { schedule(); }, [props.photos]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const resetAfterCleanup = () => {
-      stop(); owned.current = false; required.current = false; editBeforeCommit.current = false;
+      stop(); takeOwnership(false); required.current = false; editBeforeCommit.current = false;
       fenceRequested.current = false; remember(null);
       void serial(async () => {
         try {
@@ -181,7 +186,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
           const value = await readLocalSalonDraft();
           if (value?.state === 'locked') throw new SalonLocalDraftError('locked');
           if (!value?.backup) {
-            stop(); remember(value); owned.current = false; required.current = false;
+            stop(); remember(value); takeOwnership(false); required.current = false;
             blocked.current = false; fenceRequested.current = false; editBeforeCommit.current = false;
             return true;
           }
@@ -192,7 +197,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
           }
           const checked = await readLocalSalonDraft();
           if (checked?.state !== 'saved' || checked.revision !== value.revision) throw new SalonLocalDraftError('conflict');
-          remember(checked); owned.current = true; required.current = true; blocked.current = false;
+          remember(checked); takeOwnership(true); required.current = true; blocked.current = false;
           return true;
         } catch (error) { failed(error); throw error; }
       });
@@ -200,7 +205,8 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
   }));
 
   function enable() {
-    if (!ready || busy || current.current?.state === 'locked' || !latest.current.canSave()) return;
+    if (!ready || busy || current.current?.state === 'locked'
+      || (current.current?.state === 'saved' && !owned.current) || !latest.current.canSave()) return;
     opted.current = true; required.current = true; blocked.current = false; fenceRequested.current = false; setEnabled(true); setBusy(true);
     void serial(async () => {
       try {
@@ -219,7 +225,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
         const backup = await restoreLocalSalonDraft(revision);
         if (!latest.current.canRestore()) throw new SalonLocalDraftError('locked');
         await latest.current.onRestore(backup);
-        owned.current = true; required.current = true;
+        takeOwnership(true); required.current = true;
         if (mounted.current) setMessage('下書きを検証しました。復元結果を入力欄でご確認ください。規約と表明への同意は保存されません。');
       } catch (error) { failed(error); }
       finally { if (mounted.current) setBusy(false); }
@@ -231,7 +237,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
     setBusy(true);
     void serial(async () => {
       try {
-        remember(await clearLocalSalonDraft(current.current!.revision)); owned.current = false;
+        remember(await clearLocalSalonDraft(current.current!.revision)); takeOwnership(false);
         if (current.current?.state !== 'locked') fenceRequested.current = false;
         if (mounted.current) setMessage('端末に保存した入力と写真を削除しました。画面の入力と写真はそのままです。');
       } catch (error) { failed(error); }
@@ -244,7 +250,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
     <p className="mt-2">氏名・連絡先・写真が端末に残ります。共有端末では利用しないでください。別端末へ移す場合は手動バックアップを使い、不要なファイルも削除してください。</p>
     <div className="mt-3 flex flex-wrap gap-3">
       {enabled ? <button type="button" onClick={stop} disabled={busy} className="underline">自動保存を止める</button>
-        : <button type="button" onClick={enable} disabled={!ready || busy || saved?.state === 'locked' || !props.canSave()} className="underline">この端末で下書きを自動保存する（7日間）</button>}
+        : <button type="button" onClick={enable} disabled={!ready || busy || saved?.state === 'locked' || (saved?.state === 'saved' && !ownsSaved) || !props.canSave()} className="underline">この端末で下書きを自動保存する（7日間）</button>}
       <button type="button" onClick={restore} disabled={!ready || busy || saved?.state !== 'saved' || !props.canRestore()} className="underline">端末の下書きを復元</button>
       <button type="button" onClick={clear} disabled={!ready || busy || !saved?.backup} className="underline">端末の下書きを削除</button>
     </div>

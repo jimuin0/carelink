@@ -43,6 +43,22 @@ export function markClientCleanupNeeded(): void {
   if (!stored) throw new Error(MARKER_FAILED);
 }
 
+function persistGeneration(): void {
+  try {
+    const generation = crypto.randomUUID();
+    localStorage.setItem(CLIENT_CLEANUP_GENERATION_KEY, generation);
+    if (getClientCleanupGeneration() !== generation) throw new Error();
+  } catch { throw new Error(MARKER_FAILED); }
+}
+
+/** Fence every tab before the irreversible request, including when its reply
+ * and Set-Cookie headers never arrive. Keep the cookie pending, and persist a
+ * generation so another tab consuming the cookie cannot revive older drafts. */
+export function prepareClientCleanupMarker(): void {
+  markClientCleanupNeeded();
+  persistGeneration();
+}
+
 /** Call only after both local stores have been wiped and read back. A failed
  * clear remains fenced rather than reporting an unverified privacy success. */
 export function completeClientCleanupMarker(): void {
@@ -51,11 +67,7 @@ export function completeClientCleanupMarker(): void {
     // Another tab may consume the cookie while a sleeping tab retains its own
     // sessionStorage; that old input still cannot match this generation.
     localCleanupNeeded = true;
-    try {
-      const generation = crypto.randomUUID();
-      localStorage.setItem(CLIENT_CLEANUP_GENERATION_KEY, generation);
-      if (getClientCleanupGeneration() !== generation) throw new Error();
-    } catch { throw new Error(MARKER_FAILED); }
+    persistGeneration();
   }
   write('', 0);
   localCleanupNeeded = false;

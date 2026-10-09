@@ -16,7 +16,7 @@ import { isLineEnabled } from '@/lib/line-availability';
 import PageLoading from '@/components/PageLoading';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import { clearAccountLocalData, LOCAL_DATA_CLEAR_FAILED } from '@/lib/client-storage';
-import { completeClientCleanupMarker } from '@/lib/client-cleanup-marker';
+import { completeClientCleanupMarker, prepareClientCleanupMarker } from '@/lib/client-cleanup-marker';
 
 interface ProfileForm {
   display_name: string;
@@ -458,7 +458,7 @@ export default function ProfileEditPage() {
                   if (deleting || deletionConfirmed) return;
                   setDeleting(true);
                   try {
-                    try { await clearAccountLocalData(); }
+                    try { prepareClientCleanupMarker(); await clearAccountLocalData(); }
                     catch {
                       setToast({ type: 'error', message: `${LOCAL_DATA_CLEAR_FAILED} アカウントの削除は行っていません。` });
                       return;
