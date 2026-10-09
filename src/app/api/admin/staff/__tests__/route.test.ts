@@ -24,12 +24,15 @@ const USER_ID       = '33333333-3333-3333-3333-333333333333';
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockAdminRpc = jest.fn();
+const OPERATION_ID = '55555555-5555-4555-8555-555555555555';
+const STAFF_ID = '66666666-6666-4666-8666-666666666666';
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockAdminRpc }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -47,7 +50,7 @@ function makeRequest(body: object, facilityId: string | null = FACILITY_UUID) {
 }
 
 function validBody(overrides: object = {}) {
-  return { name: 'テストスタッフ', ...overrides };
+  return { operation_id: OPERATION_ID, name: 'テストスタッフ', ...overrides };
 }
 
 function memberSingle(data: unknown) {
@@ -60,13 +63,8 @@ function memberSingle(data: unknown) {
 }
 
 function insertSingle(data: unknown, error: unknown = null) {
-  return {
-    insert: jest.fn().mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        single: jest.fn(() => Promise.resolve({ data, error })),
-      }),
-    }),
-  };
+  mockAdminRpc.mockResolvedValue({ data: error ? null : { staff: { ...(data as object), id: STAFF_ID }, replayed: false }, error });
+  return {};
 }
 
 beforeEach(() => {
@@ -228,7 +226,7 @@ test('POST: レスポンスが { staff: ... } 形式', async () => {
   const res = await POST(makeRequest(validBody()));
   const json = await res.json();
   expect(json.staff).toBeDefined();
-  expect(json.staff.id).toBe('aaa');
+  expect(json.staff.id).toBe(STAFF_ID);
 });
 
 test('POST: レートリミット params (20/60s)', async () => {
@@ -242,46 +240,61 @@ test('POST: レートリミット params (20/60s)', async () => {
   expect(call[3]).toBe(60_000);
 });
 
-// staff_profiles.insert(obj).select().single() と staff_schedules.insert(array) を
-// 単一の from() モックで両対応する（insert 引数が配列なら schedule 用と判定）。
-function staffWithScheduleMock(opts: {
-  staffId?: string;
-  scheduleInsert: jest.Mock;
-  deleteEq?: jest.Mock;
-}) {
-  const obj: Record<string, unknown> = {
-    insert: jest.fn((arg: unknown) =>
-      Array.isArray(arg)
-        ? opts.scheduleInsert(arg)
-        : {
-            select: jest.fn().mockReturnValue({
-              single: jest.fn(() => Promise.resolve({ data: { id: opts.staffId ?? 'staff-1' }, error: null })),
-            }),
-          }
-    ),
-  };
-  if (opts.deleteEq) obj.delete = jest.fn(() => ({ eq: opts.deleteEq }));
-  return obj;
-}
-
-test('POST: 正常作成時にデフォルト勤務スケジュール(全7日09:00-19:00)を seed する', async () => {
+test('POST: actor/facility/operation and validated input go to one atomic RPC, no separate inserts/deletes', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  const scheduleInsert = jest.fn(() => Promise.resolve({ error: null }));
-  mockAdminFrom.mockReturnValue(staffWithScheduleMock({ scheduleInsert }));
-  const res = await POST(makeRequest(validBody()));
+  insertSingle({ id: STAFF_ID });
+  const res = await POST(makeRequest(validBody({ name: '  trimmed  ' })));
   expect(res.status).toBe(201);
-  const rows = scheduleInsert.mock.calls[0][0] as Array<{ staff_id: string; day_of_week: number; start_time: string; end_time: string }>;
-  expect(rows).toHaveLength(7);
-  expect(rows.map((r) => r.day_of_week)).toEqual([0, 1, 2, 3, 4, 5, 6]);
-  expect(rows.every((r) => r.staff_id === 'staff-1' && r.start_time === '09:00' && r.end_time === '19:00')).toBe(true);
+  expect(mockAdminRpc).toHaveBeenCalledWith('create_staff_with_schedules_atomic', {
+    p_actor_id: USER_ID, p_facility_id: FACILITY_UUID, p_operation_id: OPERATION_ID, p_input: { name: 'trimmed' },
+  });
+  expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+test('POST: data alongside RPC error never counts as successful staff creation', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminRpc.mockResolvedValue({ data: { staff: { id: STAFF_ID }, replayed: false }, error: { message: 'schedule seed failed' } });
+  const res = await POST(makeRequest(validBody()));
+  expect(res.status).toBe(500); expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+test.each([null, {}, { staff: {}, replayed: false }, { staff: { id: STAFF_ID } }])('POST: malformed RPC success fails visibly', async data => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminRpc.mockResolvedValue({ data, error: null });
+  expect((await POST(makeRequest(validBody()))).status).toBe(500);
+});
+test('POST: replay returns original staff and receipt flag without a second insert', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminRpc.mockResolvedValue({ data: { staff: { id: STAFF_ID }, replayed: true }, error: null });
+  expect(await (await POST(makeRequest(validBody()))).json()).toEqual({ staff: { id: STAFF_ID }, replayed: true });
+});
+test.each([{ operation_id: undefined }, { operation_id: 'invalid' }])('POST: stale/non-idempotent clients must reload instead of creating twice', async fields => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makeRequest(validBody(fields)));
+  expect(res.status).toBe(400); expect((await res.json()).error).toContain('再読み込み'); expect(mockAdminRpc).not.toHaveBeenCalled();
 });
 
-test('POST: スケジュール seed 失敗時はスタッフを削除して 500', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  const deleteEq = jest.fn(() => Promise.resolve({ error: null }));
-  const scheduleInsert = jest.fn(() => Promise.resolve({ error: { message: 'seed fail' } }));
-  mockAdminFrom.mockReturnValue(staffWithScheduleMock({ scheduleInsert, deleteEq }));
-  const res = await POST(makeRequest(validBody()));
-  expect(res.status).toBe(500);
-  expect(deleteEq).toHaveBeenCalledWith('id', 'staff-1');
+import { GET } from '../route';
+function recoveryRequest(query = `operation_id=${OPERATION_ID}`) { return new NextRequest(`http://localhost/api/admin/staff?facility_id=${FACILITY_UUID}&${query}`); }
+test('GET recovery validates current membership and never caches operation state', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID })); mockAdminRpc.mockResolvedValue({ data: { state: 'saved', staff_id: STAFF_ID }, error: null });
+  const res = await GET(recoveryRequest()); expect(res.status).toBe(200); expect(res.headers.get('Cache-Control')).toBe('no-store');
+  expect(await res.json()).toEqual({ state: 'saved', staff_id: STAFF_ID });
+  expect(mockAdminRpc).toHaveBeenCalledWith('get_staff_mutation_operation', { p_actor_id: USER_ID, p_facility_id: FACILITY_UUID, p_operation_id: OPERATION_ID, p_kind: 'create', p_staff_id: null });
+});
+test.each(['absent','retired'])('GET confirmed %s operation allowed', async state => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID })); mockAdminRpc.mockResolvedValue({ data: { state }, error: null }); expect((await GET(recoveryRequest())).status).toBe(200);
+});
+test.each(['operation_id=bad', `operation_id=${OPERATION_ID}&kind=weekly`, `operation_id=${OPERATION_ID}&kind=unknown`])('GET invalid operation input rejected', async query => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID })); expect((await GET(recoveryRequest(query))).status).toBe(400); expect(mockAdminRpc).not.toHaveBeenCalled();
+});
+test('GET weekly operation target is passed without changing it', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID })); mockAdminRpc.mockResolvedValue({ data: { state: 'absent' }, error: null });
+  expect((await GET(recoveryRequest(`operation_id=${OPERATION_ID}&kind=weekly&staff_id=${STAFF_ID}`))).status).toBe(200);
+  expect(mockAdminRpc).toHaveBeenCalledWith('get_staff_mutation_operation', expect.objectContaining({ p_kind: 'weekly', p_staff_id: STAFF_ID }));
+});
+test('GET rate limit/unauthenticated block RPC', async () => {
+  (checkRateLimit as jest.Mock).mockReturnValueOnce(true); expect((await GET(recoveryRequest())).status).toBe(429);
+  mockGetUser.mockResolvedValue({ data: { user: null }, error: null }); expect((await GET(recoveryRequest())).status).toBe(401); expect(mockAdminRpc).not.toHaveBeenCalled();
+});
+test.each([{ data: { state: 'saved', staff_id: STAFF_ID }, error: { message: 'read error' } }, { data: null, error: null }])('GET error/malformed state stays failure', async result => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID })); mockAdminRpc.mockResolvedValue(result); expect((await GET(recoveryRequest())).status).toBe(500);
 });

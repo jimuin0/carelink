@@ -53,30 +53,21 @@ export const POST = withRoute(async (request) => {
       return NextResponse.json({ error: '権限がありません' }, { status: 403 });
     }
 
-    if (booking.status !== 'confirmed') {
+    if (booking.status !== 'confirmed' && booking.status !== 'completed') {
       return NextResponse.json({ error: 'この予約は来店完了にできません（確定済みの予約のみ対応）' }, { status: 400 });
     }
 
-    // Atomic status transition: require status='confirmed' in WHERE clause (optimistic lock).
-    // Prevents double point awards if two concurrent requests both read 'confirmed'.
-    const { data: updatedBooking, error: updateError } = await supabase
-      .from('bookings')
-      .update({ status: 'completed', updated_at: new Date().toISOString() })
-      .eq('id', bookingId)
-      .eq('facility_id', membership.facility_id)
-      .eq('status', 'confirmed')
-      .select('id')
-      .maybeSingle();
-
-    if (updateError) {
-      return serverError('booking-complete-update', updateError, '/api/booking/complete', 'ステータスの更新に失敗しました');
-    }
-    if (!updatedBooking) {
-      // Zero rows updated: status was already changed by another request
-      return NextResponse.json({ error: 'この予約は来店完了にできません（既に処理済みの可能性があります）' }, { status: 409 });
+    const { data: completed, error: updateError } = await supabase.rpc('complete_booking_with_points_atomic', {
+      p_actor_id: user.id, p_booking_id: bookingId, p_expected_status: 'confirmed',
+    });
+    if (updateError?.message.includes('BOOKING_PERMISSION_DENIED')) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
+    if (updateError?.message.includes('BOOKING_REVISION_CONFLICT')) return NextResponse.json({ error: 'この予約は来店完了にできません（既に処理済みの可能性があります）' }, { status: 409 });
+    if (updateError) return serverError('booking-complete-update', updateError, '/api/booking/complete', 'ステータスの更新に失敗しました');
+    if (!completed || completed.length !== 1 || completed[0].id !== bookingId || !Number.isInteger(completed[0].points_earned) || completed[0].points_earned < 0 || typeof completed[0].replayed !== 'boolean') {
+      return serverError('booking-complete-result', new Error('completion transaction not confirmed'), '/api/booking/complete');
     }
 
-    void writeAuditLog({
+    if (!completed[0].replayed) void writeAuditLog({
       userId: user.id,
       facilityId: booking.facility_id,
       action: 'confirm',
@@ -87,12 +78,12 @@ export const POST = withRoute(async (request) => {
       ipAddress: ip,
     });
 
-    // 来店記録(customer_visits)と来店ポイントの付与は applyCompletionSideEffects に集約し、
-    // 管理画面のステータス変更経由の完了(/api/admin/booking-status)と完全に同一処理にする。
-    // （supabase は既に service_role クライアント。）
-    const pointsEarned = await applyCompletionSideEffects(supabase, booking);
+    // 来店記録と来店ポイントはRPC内で確定済み。保存後の任意の紹介報酬を
+    // 他の完了経路と同じhelperで処理し、失敗分はverified replayで再試行できる。
+    await applyCompletionSideEffects(supabase, booking);
+    const pointsEarned = completed[0].points_earned;
 
-    return NextResponse.json({ success: true, points_earned: pointsEarned });
+    return NextResponse.json({ success: true, points_earned: pointsEarned, replayed: completed[0].replayed });
 }, {
   csrf: true,
   rateLimit: { limiter: mutationRateLimit, limit: 10, windowMs: 60_000, prefix: 'complete' },

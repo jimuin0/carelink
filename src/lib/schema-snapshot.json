@@ -234,6 +234,12 @@
     "period_key",
     "sent_at"
   ],
+  "customer_coupon_email_operations": [
+    "coupon_id",
+    "created_at",
+    "facility_id",
+    "id"
+  ],
   "customer_segments": [
     "customer_email",
     "customer_name",
@@ -1142,6 +1148,16 @@
     "srid",
     "srtext"
   ],
+  "staff_mutation_operations": [
+    "actor_id",
+    "created_at",
+    "facility_id",
+    "input_digest",
+    "kind",
+    "operation_id",
+    "result",
+    "staff_id"
+  ],
   "staff_photos": [
     "caption",
     "created_at",
@@ -1301,7 +1317,7 @@
     "email",
     "facility_id",
     "id",
-    "notified_at",
+    "provider_accepted_at",
     "reason",
     "used_at",
     "valid_until"
@@ -1319,6 +1335,7 @@
   ],
   "user_points": [
     "booking_id",
+    "booking_operation",
     "created_at",
     "id",
     "points",

@@ -36,17 +36,18 @@ describe('退会時の端末側 PII 消去', () => {
     }
   });
 
-  it.each(WITHDRAWAL_FILES)('%s は全リロードの前に消去を呼ぶ', (file) => {
+  it.each(WITHDRAWAL_FILES)('%s は不可逆な削除HTTPより前に非同期の端末消去を検証する', (file) => {
     const source = readFileSync(join(process.cwd(), file), 'utf8');
 
     // 空振り防止: そもそも全リロードしている画面であることを先に確かめる。
     const reloadIndex = source.indexOf("window.location.href = '/'");
     expect(reloadIndex).toBeGreaterThan(-1);
 
-    const clearIndex = source.indexOf('clearStoredPersonalData()');
+    const clearIndex = source.indexOf('await clearAccountLocalData()');
     expect(clearIndex).toBeGreaterThan(-1);
     // 遷移してからでは同じタブで実行される保証がない。必ず前に置く。
     expect(clearIndex).toBeLessThan(reloadIndex);
+    expect(clearIndex).toBeLessThan(source.indexOf("fetch('/api/account/delete'"));
   });
 
   it("下書きキーの組み立ては client-storage.ts だけが持つ", () => {

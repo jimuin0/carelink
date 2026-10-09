@@ -1,3 +1,4 @@
+import { ACCOUNT_DELETION_NOTICE, BUSINESS_RECORD_RETENTION_NOTICE } from '@/lib/account-deletion-policy';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
@@ -110,6 +111,29 @@ export default function PrivacyPage() {
           </p>
           <p className="text-gray-600 text-sm">
             開示等のご請求は、第10条のお問い合わせ窓口までご連絡ください。手続きの詳細・必要書類についてご案内いたします。なお、法令に定める場合を除き、手数料は無料です。本人確認ができない場合や、法令上の例外に該当する場合は、ご請求にお応えできないことがあります。
+          </p>
+        </section>
+
+        <section className="mb-8">
+          <h2 className="text-xl font-bold mb-4">第7条の2（退会時の削除と業務記録の保持）</h2>
+          <p className="text-gray-600 mb-2">{ACCOUNT_DELETION_NOTICE}</p>
+          <p className="text-gray-600">{BUSINESS_RECORD_RETENTION_NOTICE}</p>
+          <p className="text-gray-600 text-sm mt-2">
+            業務記録のアカウント参照の解除は、本文や予約時の連絡先の匿名化を意味しません。
+            保持される情報の確認・消去のご請求は、本人確認のうえ、第10条のお問い合わせ窓口で受け付けます。
+          </p>
+        </section>
+
+        <section className="mb-8">
+          <h2 className="text-xl font-bold mb-4">第7条の3（端末に保存する下書きと写真）</h2>
+          <p className="text-gray-600 mb-2">
+            掲載申込で「この端末で下書きを自動保存する」を選んだ場合、入力した氏名・連絡先等と元の写真を、そのブラウザー内に保存します。保存機能自体は下書きをサーバーへ送信せず、規約同意、許認可の表明、送信権限のtokenやproofを保存しません。共有端末では利用しないでください。
+          </p>
+          <p className="text-gray-600 mb-2">
+            保存した入力と写真の期限は最後の保存から7日間です。期限を過ぎたデータは、次にこの保存機能へアクセスした際に削除します。この画面が送信に使った下書きは、受付の確認後に削除を試みます。端末の下書き削除、ログアウト・退会時にも削除を試み、確認できない場合は画面でお知らせします。送信結果が不明な下書きは、重複送信を防ぐため復元をロックします。
+          </p>
+          <p className="text-gray-600">
+            ブラウザーの保存データの削除でも下書きは失われます。手動でダウンロードしたバックアップファイルは、この期限やログアウトで自動削除されません。氏名・連絡先・写真を含むため、ご本人が安全な保存先で管理し、不要になった際に削除してください。
           </p>
         </section>
 

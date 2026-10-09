@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { createServiceRoleClient } from './supabase-server';
 import { isSalonIntentProof, salonIntentProofHash } from './salon-submission-proof';
 import { isMissingSalonPhoto, matchesSalonPhoto, salonPhotoInput, salonPhotoPath, SALON_PHOTO_BUCKET } from './salon-photo-contract';
+import { readSalonStorageLimits } from './salon-storage-limits';
 
 type Database = ReturnType<typeof createServiceRoleClient>;
 const rejected = z.enum(['unverified', 'expired', 'committed', 'invalid', 'conflict', 'limit']);
@@ -23,6 +24,9 @@ export async function prepareSalonPhoto(db: Database, value: unknown, proof: unk
   if (!isSalonIntentProof(proof)) return { state: 'unverified' };
   const data = input.data;
   try {
+    const configured = await readSalonStorageLimits(db);
+    if (configured.state !== 'ready') return { state: 'unavailable' };
+    if (data.byteSize > configured.limits.maxBytes || !configured.limits.mimeTypes.includes(data.mimeType)) return { state: 'invalid' };
     const rpc = await db.rpc('prepare_salon_photo', {
       p_intent_id: data.intentId, p_proof_hash: salonIntentProofHash(proof),
       p_selection_id: data.selectionId, p_slot: data.slot,

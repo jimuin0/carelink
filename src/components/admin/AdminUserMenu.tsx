@@ -1,8 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import Link from 'next/link';
+import { clearAccountLocalData, LOCAL_DATA_CLEAR_FAILED } from '@/lib/client-storage';
+import { markClientCleanupNeeded, completeClientCleanupMarker } from '@/lib/client-cleanup-marker';
 
 /**
  * 管理画面ヘッダーのアカウントメニュー（ログアウト導線）。
@@ -16,13 +19,16 @@ export default function AdminUserMenu() {
   const [email, setEmail] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutNotice, setLogoutNotice] = useState<{ cleanupOnly: boolean; message: string } | null>(null);
+  const authGeneration = useRef(0);
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
+    const generation = ++authGeneration.current;
     supabase.auth
       .getUser()
-      .then(({ data: { user } }) => setEmail(user?.email ?? null))
-      .catch(() => setEmail(null));
+      .then(({ data: { user }, error }) => { if (generation === authGeneration.current) setEmail(error ? null : user?.email ?? null); })
+      .catch(() => { if (generation === authGeneration.current) setEmail(null); });
   }, []);
 
   // ESC で閉じる（WAI-ARIA APG 推奨）。
@@ -38,17 +44,35 @@ export default function AdminUserMenu() {
   const handleLogout = async () => {
     if (loggingOut) return;
     setLoggingOut(true);
+    let cleared = true;
+    try { await clearAccountLocalData(); } catch { cleared = false; }
     try {
       const supabase = createBrowserSupabaseClient();
-      await supabase.auth.signOut();
+      const result = await supabase.auth.signOut();
+      if (result?.error !== null) throw new Error('Logout not confirmed');
+      authGeneration.current++;
+      setEmail(null);
       setMenuOpen(false);
+      try { markClientCleanupNeeded(); await clearAccountLocalData(); completeClientCleanupMarker(); cleared = true; }
+      catch { cleared = false; }
+      if (!cleared) {
+        setLogoutNotice({ cleanupOnly: true, message: `ログアウトしましたが、${LOCAL_DATA_CLEAR_FAILED}` });
+        return;
+      }
+      setLogoutNotice(null);
       router.push('/auth/login');
       router.refresh();
     } catch {
-      // signOut が失敗してもログイン画面へ誘導する（そこで再ログインできる）。
-      setLoggingOut(false);
-      router.push('/auth/login');
-    }
+      setMenuOpen(false);
+      setLogoutNotice({ cleanupOnly: false, message: `ログアウトを確認できませんでした。再試行するか、ログイン状態をご確認ください。${cleared ? '' : LOCAL_DATA_CLEAR_FAILED}` });
+    } finally { setLoggingOut(false); }
+  };
+  const retryCleanup = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try { markClientCleanupNeeded(); await clearAccountLocalData(); completeClientCleanupMarker(); setLogoutNotice(null); router.push('/auth/login'); router.refresh(); }
+    catch { setLogoutNotice({ cleanupOnly: true, message: `ログアウトは完了していますが、${LOCAL_DATA_CLEAR_FAILED}` }); }
+    finally { setLoggingOut(false); }
   };
 
   return (
@@ -88,6 +112,13 @@ export default function AdminUserMenu() {
           </div>
         </>
       )}
+      {logoutNotice && <div role="alert" className="absolute right-0 top-full z-50 mt-2 w-80 rounded-sm border border-amber-300 bg-white p-3 text-xs text-gray-700">
+        <p>{logoutNotice.message}</p>
+        <button type="button" disabled={loggingOut} onClick={logoutNotice.cleanupOnly ? retryCleanup : handleLogout} className="mt-2 underline">
+          {logoutNotice.cleanupOnly ? '端末の下書き削除を再試行' : 'ログアウトを再試行'}
+        </button>
+        <Link href="/auth/login" className="ml-3 underline">ログイン画面へ進む</Link>
+      </div>}
     </div>
   );
 }

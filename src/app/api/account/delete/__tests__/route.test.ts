@@ -1,803 +1,110 @@
-/**
- * @jest-environment node
- *
- * Tests for POST /api/account/delete
- * Key assertions:
- *   - auth.users delete failure must return 500 (user remains; PII not deleted)
- *   - confirmation code required (prevents accidental deletion)
- *   - PII scrub runs before auth delete
- *   - 未完了予約が残る間は退会不可（顧客分・施設分の両ガード）
- */
-
-jest.mock('@/lib/rate-limit', () => ({
-  mutationRateLimit: {},
-  checkRateLimit: jest.fn(() => false),
-}));
+/** @jest-environment node */
+jest.mock('@/lib/rate-limit', () => ({ mutationRateLimit: {}, checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
-jest.mock('@/lib/audit-logger', () => ({
-  writeAuditLog: jest.fn(),
-  getRequestContext: jest.fn(() => ({ ua: 'test-ua', ip: '127.0.0.1' })),
-}));
-jest.mock('@/lib/admin-date', () => ({ todayJst: jest.fn(() => '2026-06-23') }));
+jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn(), getRequestContext: jest.fn(() => ({ ua: 'test', ip: '127.0.0.1' })) }));
+jest.mock('@/lib/admin-date', () => ({ todayJst: jest.fn(() => '2026-10-08') }));
 jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
-const mockGetAll = jest.fn(() => [] as { name: string; value: string }[]);
+const mockCleanupVersion = jest.fn(); const mockGetAll = jest.fn(); const mockGetUser = jest.fn(); const mockFrom = jest.fn(); const mockDeleteUser = jest.fn();
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: mockGetAll }) }));
-
-const USER_ID = 'user-delete-test';
-
-const mockGetUser = jest.fn();
-const mockFrom = jest.fn();
-const mockDeleteUser = jest.fn();
-
-// SSR client (anon key — reads session)
-jest.mock('@supabase/ssr', () => ({
-  createServerClient: () => ({ auth: { getUser: mockGetUser } }),
-}));
-
-// Service role client (supabase-js createClient)
-jest.mock('@supabase/supabase-js', () => ({
-  createClient: () => ({
-    from: mockFrom,
-    auth: { admin: { deleteUser: mockDeleteUser } },
-  }),
-}));
-
-// 【監査C2 low】line_user_links は line_user_id 起点で削除するため、連携解決 helper をモックする。
-jest.mock('@/lib/line-link', () => ({ resolveLineUserIdForUser: jest.fn().mockResolvedValue('U-line-1') }));
-
+jest.mock('@supabase/ssr', () => ({ createServerClient: () => ({ auth: { getUser: mockGetUser } }) }));
+jest.mock('@supabase/supabase-js', () => ({ createClient: jest.fn(() => ({ from: mockFrom, rpc: mockCleanupVersion, auth: { admin: { deleteUser: mockDeleteUser } } })) }));
 import { POST } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
-
-function makeRequest(body: object = { confirmation: 'DELETE' }) {
-  return new Request('http://localhost/api/account/delete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+import { writeAuditLog } from '@/lib/audit-logger';
+import { createClient } from '@supabase/supabase-js';
+const USER='user-delete-test';
+function request(body: unknown = { confirmation: 'DELETE' }, cleanupHeader: string | null = '1') {
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  if (cleanupHeader !== null) headers.set('X-CareLink-Client-Cleanup', cleanupHeader);
+  return new Request('http://localhost/api/account/delete', { method: 'POST', headers, body: JSON.stringify(body) });
+}
+function setup({ own = 0, facility = 0, ownError = null, facilityError = null, memberships = [] as unknown, membershipError = null }: {own?: number | null; facility?: number | null; ownError?: unknown; facilityError?: unknown; memberships?: unknown; membershipError?: unknown} = {}) {
+  mockFrom.mockImplementation((table: string) => {
+    if (table==='facility_members') return { select: () => ({ eq: () => ({ eq: async () => ({ data: memberships, error: membershipError }) }) }) };
+    if(table==='bookings') {
+      let ownRead=false; const chain={ eq: jest.fn(() => { ownRead=true;return chain; }), in: jest.fn(() => chain), gte: jest.fn(async () => ({ count: ownRead ? own : facility, error: ownRead ? ownError : facilityError })) };
+      return { select: jest.fn(() => chain) };
+    }
+    throw new Error(`unexpected non-atomic application cleanup of ${table}`);
   });
 }
-
-/**
- * bookings テーブルのモック。退会ガードの 2 クエリ（顧客自身 / 所有施設）と、
- * PII スクラブの update().eq() の両方をサポートする。
- * - 顧客クエリ: select().eq('user_id').in('status').gte('booking_date') → count=own
- * - 施設クエリ: select().in('facility_id').in('status').gte('booking_date') → count=facility
- *   （.eq が呼ばれたら顧客クエリと判定して own を返す）
- */
-function bookingsMock({ own = 0, facility = 0 }: { own?: number | null; facility?: number | null } = {}) {
-  const writeResolved = Promise.resolve({ error: null });
-  return {
-    select: jest.fn(() => {
-      let isOwn = false;
-      const chain: Record<string, unknown> = {
-        eq: jest.fn(() => { isOwn = true; return chain; }),
-        in: jest.fn(() => chain),
-        gte: jest.fn(() => Promise.resolve({ count: isOwn ? own : facility, data: [], error: null })),
-      };
-      return chain;
-    }),
-    update: jest.fn(() => ({ eq: jest.fn(() => writeResolved) })),
-    delete: jest.fn(() => ({ eq: jest.fn(() => writeResolved) })),
-  };
-}
-
-// facility_members の所有施設リスト取得（guard と既存ロジック共通の select().eq().eq() 形）
-function facilityMembersMock(data: Array<{ facility_id: string; role?: string }> = []) {
-  return {
-    select: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue(Promise.resolve({ data, error: null })),
-      }),
-    }),
-    delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
-  };
-}
-
-function genericWriteMock() {
-  return {
-    delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
-    update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
-  };
-}
-
 beforeEach(() => {
-  jest.clearAllMocks();
-  (checkRateLimit as jest.Mock).mockReturnValue(false);
-  (checkCsrf as jest.Mock).mockReturnValue(null);
-  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
-  mockDeleteUser.mockResolvedValue({ error: null });
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
-  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-key';
-
-  // Default: no active bookings, no facility ownership, all DB ops succeed
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock();
-    if (table === 'facility_members') return facilityMembersMock([]);
-    return genericWriteMock();
-  });
+  jest.clearAllMocks(); (checkRateLimit as jest.Mock).mockResolvedValue(false); (checkCsrf as jest.Mock).mockReturnValue(null);
+  mockGetAll.mockReturnValue([]); mockGetUser.mockResolvedValue({ data: { user: { id: USER } }, error: null }); mockDeleteUser.mockResolvedValue({ error: null }); mockCleanupVersion.mockReset().mockResolvedValue({ data: 1, error: null }); setup();
+  process.env.NEXT_PUBLIC_SUPABASE_URL='https://test.supabase.co'; process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY='anon'; process.env.SUPABASE_SERVICE_ROLE_KEY='service';
 });
-
-// ─── Security guards ──────────────────────────────────────────────────────────
-
-test('未認証 → 401', async () => {
-  mockGetUser.mockResolvedValue({ data: { user: null } });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(401);
+test('CSRF and rate limits block even Auth lookup', async () => {
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response('{}',{status:403})); expect((await POST(request())).status).toBe(403);
+  (checkRateLimit as jest.Mock).mockResolvedValueOnce(true); expect((await POST(request())).status).toBe(429); expect(mockGetUser).not.toHaveBeenCalled(); expect(mockDeleteUser).not.toHaveBeenCalled();
 });
-
-test('予約の本人参照は最終Auth guardより先に解除せず、FK SET NULLへ委ねる', async () => {
-  const bookingWrites=jest.fn();
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return { ...bookingsMock(), update: bookingWrites };
-    if (table === 'facility_members') return facilityMembersMock([]);
-    return genericWriteMock();
-  });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
-  expect(bookingWrites).not.toHaveBeenCalled();
-  expect(mockDeleteUser).toHaveBeenCalledWith(USER_ID);
+test.each([{ data: { user: null }, error: null }, { data: { user: { id: USER } }, error: { message: 'identity failed' } }])('verified identity required even with accompanying data', async identity => {
+  mockGetUser.mockResolvedValue(identity); expect((await POST(request())).status).toBe(401); expect(mockFrom).not.toHaveBeenCalled(); expect(mockDeleteUser).not.toHaveBeenCalled();
 });
-
-test('レートリミット → 429', async () => {
-  (checkRateLimit as jest.Mock).mockReturnValue(true);
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(429);
+test.each([{}, { confirmation: 'delete' }, null, 'DELETE', []])('explicit DELETE confirmation required', async body => {
+  expect((await POST(request(body))).status).toBe(400); expect(mockFrom).not.toHaveBeenCalled(); expect(mockDeleteUser).not.toHaveBeenCalled();
 });
-
-test('CSRFエラー → 403', async () => {
-  (checkCsrf as jest.Mock).mockReturnValue(new Response(JSON.stringify({ error: 'csrf' }), { status: 403 }));
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(403);
+test('malformed JSON safely rejected', async () => {
+  const req=new Request('http://localhost/api/account/delete',{method:'POST',body:'invalid'}); expect((await POST(req)).status).toBe(400); expect(mockDeleteUser).not.toHaveBeenCalled();
 });
-
-// ─── Input validation ─────────────────────────────────────────────────────────
-
-test('confirmationなし → 400', async () => {
-  const res = await POST(makeRequest({}));
-  expect(res.status).toBe(400);
-});
-
-test('confirmation が "DELETE" 以外 → 400', async () => {
-  const res = await POST(makeRequest({ confirmation: 'delete' }));
-  expect(res.status).toBe(400);
-});
-
-test('不正なJSONボディ → 400', async () => {
-  const req = new Request('http://localhost/api/account/delete', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: 'invalid json',
-  });
-  const res = await POST(req);
-  expect(res.status).toBe(400);
-});
-
-// ─── 退会ガード: 未完了予約が残る間は不可 ──────────────────────────────────────
-
-test('顧客自身に未完了予約が残る → 409（退会不可・削除実行なし）', async () => {
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock({ own: 2 });
-    if (table === 'facility_members') return facilityMembersMock([]);
-    return genericWriteMock();
-  });
-  const res = await POST(makeRequest());
+test.each([null, '', '0', 'true', '2', '1, 1'])('missing/invalid local cleanup consumer marker %p rejects old retirement tabs before privileged work', async marker => {
+  const res = await POST(request({ confirmation: 'DELETE' }, marker));
   expect(res.status).toBe(409);
+  expect(await res.json()).toEqual(expect.objectContaining({ code: 'CLIENT_CLEANUP_REQUIRED', error: expect.stringContaining('退会画面を開き直して') }));
+  expect(res.headers.get('Cache-Control')).toBe('no-store');
+  expect(res.headers.get('set-cookie')).toBeNull();
+  expect(mockGetUser).toHaveBeenCalledTimes(1);
+  expect(createClient).not.toHaveBeenCalled();
+  expect(mockFrom).not.toHaveBeenCalled();
+  expect(mockCleanupVersion).not.toHaveBeenCalled();
   expect(mockDeleteUser).not.toHaveBeenCalled();
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});
+test.each([{ own: 1 }, { memberships: [{ facility_id: 'facility' }], facility: 1 }])('active own/owned-facility bookings prevent all deletion', async cfg => {
+  setup(cfg); const res=await POST(request()); expect(res.status).toBe(409); expect((await res.json()).error).toContain('未完了の予約'); expect(mockDeleteUser).not.toHaveBeenCalled(); expect(writeAuditLog).not.toHaveBeenCalled();
+});
+test.each([{ own: null }, { ownError: { message: 'failed' } }, { own: 2, ownError: { message: 'partial data rejected' } }])('unknown own booking count stays failure', async cfg => {
+  setup(cfg); expect((await POST(request())).status).toBe(500); expect(mockDeleteUser).not.toHaveBeenCalled();
+});
+test.each([{ memberships: null }, { memberships: [] , membershipError: { message: 'failed' } }, { memberships: [{ facility_id: 'facility' }], membershipError: { message: 'partial data rejected' } }])('unknown memberships stay failure', async cfg => {
+  setup(cfg); expect((await POST(request())).status).toBe(500); expect(mockDeleteUser).not.toHaveBeenCalled();
+});
+test.each([{ facility: null }, { facilityError: { message: 'failed' } }, { facility: 2, facilityError: { message: 'partial data rejected' } }])('unknown facility count stays failure', async cfg => {
+  setup({ memberships: [{ facility_id: 'facility' }], ...cfg }); expect((await POST(request())).status).toBe(500); expect(mockDeleteUser).not.toHaveBeenCalled();
+});
+test.each([{ memberships: [] }, { memberships: [{ facility_id: 'facility' }] }])('successful retirement performs only one Auth transaction, no HTTP cleanup/presuspension', async ({ memberships }) => {
+  setup({ memberships }); const res=await POST(request()); expect(res.status).toBe(200); expect(await res.json()).toEqual({success:true});
+  expect(mockDeleteUser).toHaveBeenCalledTimes(1); expect(mockDeleteUser).toHaveBeenCalledWith(USER);
+  expect(mockFrom.mock.calls.map(call=>call[0])).toEqual(memberships.length ? ['bookings','facility_members','bookings'] : ['bookings','facility_members']);
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({userId:null,recordId:USER,tableName:'profiles'}));
+});
+test('Auth failure leaves account context to its transaction; no premature cleanup, suspension or success audit', async () => {
+  setup({ memberships: [{ facility_id: 'facility' }] }); mockDeleteUser.mockResolvedValue({error:{message:'Auth database failure'}});
+  expect((await POST(request())).status).toBe(500); expect(mockFrom.mock.calls.map(call=>call[0])).toEqual(['bookings','facility_members','bookings']); expect(writeAuditLog).not.toHaveBeenCalled();
+});
+test.each([new Error('Auth dependency threw'), { message:'plain provider failure' }])('thrown Auth dependency failures are visible', async error => {
+  mockDeleteUser.mockRejectedValue(error); expect((await POST(request())).status).toBe(500); expect(writeAuditLog).not.toHaveBeenCalled();
+});
+test('successful retirement clears only Auth cookies after commit', async () => {
+  mockGetAll.mockReturnValue([{name:'sb-project-auth-token',value:'synthetic'},{name:'sb-project-auth-token.0',value:'synthetic'},{name:'_cm_mbr_cache',value:'synthetic'},{name:'theme',value:'dark'}]);
+  const res=await POST(request()); expect(res.status).toBe(200); const cookies=res.headers.get('set-cookie') || '';
+  expect(cookies).toContain('sb-project-auth-token='); expect(cookies).toContain('sb-project-auth-token.0='); expect(cookies).toContain('Max-Age=0'); expect(cookies).not.toContain('theme='); expect(cookies).not.toContain('_cm_mbr_cache=');
+});
+test('failed Auth transaction never clears session cookies', async () => {
+  mockGetAll.mockReturnValue([{name:'sb-project-auth-token',value:'synthetic'}]); mockDeleteUser.mockResolvedValue({error:{message:'cleanup trigger failed'}});
+  const res=await POST(request()); expect(res.status).toBe(500); expect(res.headers.get('set-cookie')).toBeNull();
 });
 
-test('所有施設に未完了予約が残る → 409（退会不可・削除実行なし）', async () => {
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock({ own: 0, facility: 3 });
-    if (table === 'facility_members') return facilityMembersMock([{ facility_id: 'fac-1', role: 'owner' }]);
-    return genericWriteMock();
-  });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(409);
-  expect(mockDeleteUser).not.toHaveBeenCalled();
+test.each([{data:null,error:null},{data:0,error:null},{data:'1',error:null},{data:[1],error:null},{data:1,error:{message:'unknown response'}}])('migration gate unconfirmed %# prevents Auth deletion and all other writes',async readiness=>{
+  mockCleanupVersion.mockResolvedValue(readiness);const res=await POST(request());expect(res.status).toBe(503);expect((await res.json()).code).toBe('ACCOUNT_DELETE_UNAVAILABLE');
+  expect(mockCleanupVersion).toHaveBeenCalledWith('account_deletion_cleanup_version');expect(mockDeleteUser).not.toHaveBeenCalled();expect(writeAuditLog).not.toHaveBeenCalled();expect(res.headers.get('Cache-Control')).toBe('no-store');
+});
+test('thrown readiness request also returns safe503 before Auth',async()=>{
+ mockCleanupVersion.mockRejectedValue(new Error('readiness network failed'));expect((await POST(request())).status).toBe(503);expect(mockDeleteUser).not.toHaveBeenCalled();
 });
 
-test('施設予約 count が null → 0件に変換せず退会中断', async () => {
-  const mockSuspendUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) });
-  const mockNeq = jest.fn().mockReturnValue(Promise.resolve({ count: 0, error: null }));
-  const mockMemberCheckSelect = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ neq: mockNeq }) }) });
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock({ own: 0, facility: null });
-    if (table === 'facility_members') {
-      return {
-        select: jest.fn().mockImplementation((fields: string, opts?: object) => {
-          if (opts && (opts as any).count === 'exact') return mockMemberCheckSelect(fields, opts);
-          return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ data: [{ facility_id: 'fac-1', role: 'owner' }], error: null })) }) };
-        }),
-        delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
-      };
-    }
-    if (table === 'facility_profiles') return { update: mockSuspendUpdate };
-    return genericWriteMock();
-  });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  expect(mockDeleteUser).not.toHaveBeenCalled();
-});
-
-test('本人予約 count が null → 0件に変換せず退会中断', async () => {
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') {
-      return {
-        select: jest.fn(() => {
-          const chain: Record<string, unknown> = {
-            eq: jest.fn(() => chain),
-            in: jest.fn(() => chain),
-            gte: jest.fn(() => Promise.resolve({ count: null, data: [], error: null })),
-          };
-          return chain;
-        }),
-        update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
-        delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
-      };
-    }
-    if (table === 'facility_members') return facilityMembersMock([]);
-    return genericWriteMock();
-  });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  expect(mockDeleteUser).not.toHaveBeenCalled();
-});
-
-// ─── ④ 退会ガードクエリが失敗 → fail-closed（500 + alertCaughtError） ────────────
-
-test('④顧客自身の未完了予約ガードクエリ(bookings)が失敗 → 500・auth削除せず・alertCaughtError', async () => {
-  const { alertCaughtError } = require('@/lib/alert');
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') {
-      return {
-        select: jest.fn(() => {
-          const chain: Record<string, unknown> = {
-            eq: jest.fn(() => chain),
-            in: jest.fn(() => chain),
-            gte: jest.fn(() => Promise.resolve({ count: null, data: null, error: { message: 'own bookings query failed' } })),
-          };
-          return chain;
-        }),
-        update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
-        delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
-      };
-    }
-    if (table === 'facility_members') return facilityMembersMock([]);
-    return genericWriteMock();
-  });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  expect(mockDeleteUser).not.toHaveBeenCalled();
-  expect(alertCaughtError).toHaveBeenCalledWith(
-    'account-delete-guard-own-bookings',
-    expect.any(Error),
-    '/api/account/delete',
-  );
-});
-
-test('④オーナー施設一覧ガードクエリ(facility_members)が失敗 → 500・auth削除せず・alertCaughtError', async () => {
-  const { alertCaughtError } = require('@/lib/alert');
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock();
-    if (table === 'facility_members') {
-      return {
-        select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue(Promise.resolve({ data: null, error: { message: 'owner memberships query failed' } })),
-          }),
-        }),
-        delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
-      };
-    }
-    return genericWriteMock();
-  });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  expect(mockDeleteUser).not.toHaveBeenCalled();
-  expect(alertCaughtError).toHaveBeenCalledWith(
-    'account-delete-guard-owner-memberships',
-    expect.any(Error),
-    '/api/account/delete',
-  );
-});
-
-test('④所有施設の未完了予約ガードクエリ(bookings/facility)が失敗 → 500・auth削除せず・alertCaughtError（非オブジェクトerror）', async () => {
-  const { alertCaughtError } = require('@/lib/alert');
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') {
-      return {
-        select: jest.fn(() => {
-          let isOwn = false;
-          const chain: Record<string, unknown> = {
-            eq: jest.fn(() => { isOwn = true; return chain; }),
-            in: jest.fn(() => chain),
-            gte: jest.fn(() =>
-              isOwn
-                ? Promise.resolve({ count: 0, error: null })
-                // 非オブジェクトの error（文字列）でも共有ヘルパー errorMessage（@/lib/err）に
-                // 委譲した guardQueryFailedResponse が例外を出さず 500 で中断できることを確認する
-                // （errorMessage 自体の分岐網羅は src/lib/__tests__/err.test.ts が担う）。
-                : Promise.resolve({ count: null, error: 'facility bookings query failed' })
-            ),
-          };
-          return chain;
-        }),
-        update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
-        delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
-      };
-    }
-    if (table === 'facility_members') return facilityMembersMock([{ facility_id: 'fac-1', role: 'owner' }]);
-    return genericWriteMock();
-  });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  expect(mockDeleteUser).not.toHaveBeenCalled();
-  expect(alertCaughtError).toHaveBeenCalledWith(
-    'account-delete-guard-facility-bookings',
-    expect.any(Error),
-    '/api/account/delete',
-  );
-});
-
-// ─── ① profiles はバッチ外で最後に削除される（再実行の冪等性） ─────────────────
-
-test('①PII削除バッチが部分失敗 → profiles は削除されない（バッチに含まれないため。再実行時に lineUserId を再解決できる）', async () => {
-  const profilesDeleteSpy = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) });
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock();
-    if (table === 'facility_members') return facilityMembersMock([]);
-    if (table === 'favorites') {
-      return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: { message: 'constraint' } })) }) };
-    }
-    if (table === 'profiles') return { delete: profilesDeleteSpy };
-    return genericWriteMock();
-  });
-
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  expect(mockDeleteUser).not.toHaveBeenCalled();
-  // profiles はバッチ(Promise.allSettled)に含まれないため、favorites 失敗で中断した時点で
-  // profiles.delete は一度も呼ばれていない（＝再実行時に resolveLineUserIdForUser が
-  // profiles.line_user_id を再解決できる状態が保たれる）。
-  expect(profilesDeleteSpy).not.toHaveBeenCalled();
-});
-
-test('profilesは先行削除せずauth.usersのCASCADEに委ねる', async () => {
-  const deleteProfile = jest.fn();
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock();
-    if (table === 'facility_members') return facilityMembersMock([]);
-    if (table === 'profiles') {
-      return { delete: deleteProfile };
-    }
-    return genericWriteMock();
-  });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
-  expect(mockDeleteUser).toHaveBeenCalledWith(USER_ID);
-  expect(deleteProfile).not.toHaveBeenCalled();
-});
-
-// ─── ③ 施設削除ループ手前の memberships select が失敗 → fail-closed ────────────
-
-test.each([{ message: 'memberships select failed' }, null])('③owner一覧のエラー／欠損 %j はAuth削除前に500となる', async error => {
-  const { alertCaughtError } = require('@/lib/alert');
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock();
-    if (table === 'facility_members') {
-      return {
-        // guard 側の select('facility_id') と施設削除前の select('facility_id, role') を
-        // fields 引数で区別する（前者は成功、後者だけ失敗させて対象の分岐を単独で踏む）。
-        select: jest.fn().mockImplementation((fields: string) => {
-          if (fields === 'facility_id, role') {
-            return {
-              eq: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue(Promise.resolve({ data: null, error })),
-              }),
-            };
-          }
-          return {
-            eq: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue(Promise.resolve({ data: [], error: null })),
-            }),
-          };
-        }),
-        delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
-      };
-    }
-    return genericWriteMock();
-  });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  expect(mockDeleteUser).not.toHaveBeenCalled();
-  expect(alertCaughtError).toHaveBeenCalledWith(
-    'account-delete-memberships-select',
-    expect.any(Error),
-    '/api/account/delete',
-  );
-});
-
-// ─── ② オーナー人数チェック(count)が失敗 → fail-closed（誤suspend防止） ─────────
-
-test('②他オーナー人数チェック(count)が失敗 → 500・施設は停止せず・auth削除せず・alertCaughtError（非messageオブジェクト）', async () => {
-  const { alertCaughtError } = require('@/lib/alert');
-  const mockSuspendUpdate = jest.fn();
-  // message を持たない DB error オブジェクトでも共有ヘルパー errorMessage（@/lib/err）に
-  // 委譲した guardQueryFailedResponse が例外を出さず 500 で中断できることを確認する
-  // （errorMessage 自体の分岐網羅は src/lib/__tests__/err.test.ts が担う）。
-  const mockNeq = jest.fn().mockReturnValue(Promise.resolve({ count: null, error: { code: 'PGRST999' } }));
-  const mockMemberCheckEq2 = jest.fn().mockReturnValue({ neq: mockNeq });
-  const mockMemberCheckEq1 = jest.fn().mockReturnValue({ eq: mockMemberCheckEq2 });
-  const mockMemberCheckSelect = jest.fn().mockReturnValue({ eq: mockMemberCheckEq1 });
-
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock();
-    if (table === 'facility_members') {
-      return {
-        select: jest.fn().mockImplementation((fields: string, opts?: object) => {
-          if (opts && (opts as any).count === 'exact') return mockMemberCheckSelect(fields, opts);
-          return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ data: [{ facility_id: 'fac-1', role: 'owner' }], error: null })) }) };
-        }),
-        delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
-      };
-    }
-    if (table === 'facility_profiles') return { update: mockSuspendUpdate };
-    return genericWriteMock();
-  });
-
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  expect(mockDeleteUser).not.toHaveBeenCalled();
-  expect(mockSuspendUpdate).not.toHaveBeenCalled();
-  expect(alertCaughtError).toHaveBeenCalledWith(
-    'account-delete-owner-count',
-    expect.any(Error),
-    '/api/account/delete',
-  );
-});
-
-// ─── ⑤ auth.users削除失敗時のSlack通知 ────────────────────────────────────────
-
-test('⑤auth.users削除失敗 → alertCaughtError が呼ばれる（PII削除済み・auth.usersのみ残存を可視化）', async () => {
-  const { alertCaughtError } = require('@/lib/alert');
-  mockDeleteUser.mockResolvedValue({ error: { message: 'auth delete failed' } });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  expect(alertCaughtError).toHaveBeenCalledWith(
-    'account-delete-auth',
-    expect.any(Error),
-    '/api/account/delete',
-  );
-});
-
-// ─── Critical: auth.users delete failure ─────────────────────────────────────
-
-test('auth.users削除失敗 → 500 (ユーザーデータが残存するため公開しない)', async () => {
-  mockDeleteUser.mockResolvedValue({ error: { message: 'auth delete failed' } });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  expect(mockFrom).not.toHaveBeenCalledWith('profiles');
-});
-
-test('null JSONは入力不正として400、削除操作なし', async () => {
-  const res = await POST(new Request('http://localhost/api/account/delete', { method: 'POST', body: 'null' }) as any);
-  expect(res.status).toBe(400);
-  expect(mockDeleteUser).not.toHaveBeenCalled();
-});
-
-test('削除後の監査ログは削除済みauth.usersをFK参照しない', async () => {
-  const { writeAuditLog } = require('@/lib/audit-logger');
-  expect((await POST(makeRequest())).status).toBe(200);
-  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ userId: null, action: 'delete', recordId: USER_ID }));
-});
-
-// ─── Happy path ───────────────────────────────────────────────────────────────
-
-test('正常削除フロー → 200 success:true', async () => {
-  const res = await POST(makeRequest());
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.success).toBe(true);
-  expect(mockDeleteUser).toHaveBeenCalledWith(USER_ID);
-});
-
-test('正常削除で Supabase auth-token Cookie を失効させる（他Cookieは触らない）', async () => {
-  mockGetAll.mockReturnValueOnce([
-    { name: 'sb-xzafxiupbflvgbarrihe-auth-token', value: 'tok' },     // 失効対象
-    { name: 'sb-xzafxiupbflvgbarrihe-auth-token.0', value: 'chunk0' }, // 失効対象（チャンク）
-    { name: 'sb-xzafxiupbflvgbarrihe-other', value: 'keep' },          // sb- だが auth-token でない → 触らない
-    { name: 'unrelated', value: 'keep' },                              // sb- でない → 触らない
-  ]);
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
-  const setCookie = res.headers.get('set-cookie') ?? '';
-  expect(setCookie).toContain('sb-xzafxiupbflvgbarrihe-auth-token=');
-  expect(setCookie).toContain('Max-Age=0');
-  expect(setCookie).not.toContain('sb-xzafxiupbflvgbarrihe-other=');
-  expect(setCookie).not.toContain('unrelated=');
-});
-
-test('writeAuditLog が呼ばれる', async () => {
-  const { writeAuditLog } = require('@/lib/audit-logger');
-  await POST(makeRequest());
-  await new Promise(r => setTimeout(r, 10));
-  expect(writeAuditLog).toHaveBeenCalled();
-});
-
-test('【監査C2】LINE未連携（line_user_id null）→ line_user_links の削除を発行しない', async () => {
-  (require('@/lib/line-link').resolveLineUserIdForUser as jest.Mock).mockResolvedValueOnce(null);
-  const lineDeleteSpy = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) });
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock();
-    if (table === 'line_user_links') return { delete: lineDeleteSpy };
-    if (table === 'facility_members') return facilityMembersMock([]);
-    return genericWriteMock();
-  });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
-  // lineUserId null → Promise.resolve() で置換され line_user_links への削除は発行されない。
-  expect(lineDeleteSpy).not.toHaveBeenCalled();
-});
-
-test('PII削除部分失敗(reject) → auth削除せず中断して500（孤立PII防止）', async () => {
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock();
-    if (table === 'line_user_links') {
-      return {
-        delete: jest.fn().mockReturnValue({ eq: jest.fn().mockRejectedValue(new Error('DB failure')) }),
-      };
-    }
-    if (table === 'facility_members') return facilityMembersMock([]);
-    return genericWriteMock();
-  });
-
-  const res = await POST(makeRequest());
-  // PII 削除が部分失敗した状態で auth.users を消すと孤立 PII（個人情報保護法違反）。
-  // auth 削除前に中断し 500。冪等のためユーザーは再実行で安全にやり直せる。
-  expect(res.status).toBe(500);
-  expect(mockDeleteUser).not.toHaveBeenCalled();
-});
-
-test('PII削除でerrorあり → auth削除せず中断して500（孤立PII防止）', async () => {
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock();
-    if (table === 'favorites') {
-      return {
-        delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: { message: 'constraint' } })) }),
-      };
-    }
-    if (table === 'facility_members') return facilityMembersMock([]);
-    return genericWriteMock();
-  });
-
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  expect(mockDeleteUser).not.toHaveBeenCalled();
-});
-
-test('施設オーナー(他オーナーなし) → 施設を停止', async () => {
-  const mockSuspendEq = jest.fn().mockReturnValue(Promise.resolve({ error: null }));
-  const mockSuspendUpdate = jest.fn().mockReturnValue({ eq: mockSuspendEq });
-  const mockNeq = jest.fn().mockReturnValue(Promise.resolve({ count: 0, error: null }));
-  const mockMemberCheckEq2 = jest.fn().mockReturnValue({ neq: mockNeq });
-  const mockMemberCheckEq1 = jest.fn().mockReturnValue({ eq: mockMemberCheckEq2 });
-  const mockMemberCheckSelect = jest.fn().mockReturnValue({ eq: mockMemberCheckEq1 });
-
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock();
-    if (table === 'facility_members') {
-      return {
-        select: jest.fn().mockImplementation((fields: string, opts?: object) => {
-          if (opts && (opts as any).count === 'exact') return mockMemberCheckSelect(fields, opts);
-          return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ data: [{ facility_id: 'fac-1', role: 'owner' }], error: null })) }) };
-        }),
-        delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
-      };
-    }
-    if (table === 'facility_profiles') {
-      return { update: mockSuspendUpdate };
-    }
-    return genericWriteMock();
-  });
-
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
-  expect(mockSuspendUpdate).toHaveBeenCalledWith({ status: 'suspended' });
-});
-
-test('施設オーナー(他オーナーあり) → 施設停止しない', async () => {
-  const mockSuspendUpdate = jest.fn();
-  const mockNeq = jest.fn().mockReturnValue(Promise.resolve({ count: 1, error: null }));
-  const mockMemberCheckEq2 = jest.fn().mockReturnValue({ neq: mockNeq });
-  const mockMemberCheckEq1 = jest.fn().mockReturnValue({ eq: mockMemberCheckEq2 });
-  const mockMemberCheckSelect = jest.fn().mockReturnValue({ eq: mockMemberCheckEq1 });
-
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock();
-    if (table === 'facility_members') {
-      return {
-        select: jest.fn().mockImplementation((fields: string, opts?: object) => {
-          if (opts && (opts as any).count === 'exact') return mockMemberCheckSelect(fields, opts);
-          return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ data: [{ facility_id: 'fac-1', role: 'owner' }], error: null })) }) };
-        }),
-        delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
-      };
-    }
-    if (table === 'facility_profiles') {
-      return { update: mockSuspendUpdate };
-    }
-    return genericWriteMock();
-  });
-
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
-  expect(mockSuspendUpdate).not.toHaveBeenCalled();
-});
-
-test('施設停止失敗 → auth削除を中断してオーナー不在の公開施設を防ぐ', async () => {
-  const mockNeq = jest.fn().mockReturnValue(Promise.resolve({ count: 0, error: null }));
-  const mockMemberCheckEq2 = jest.fn().mockReturnValue({ neq: mockNeq });
-  const mockMemberCheckEq1 = jest.fn().mockReturnValue({ eq: mockMemberCheckEq2 });
-  const mockMemberCheckSelect = jest.fn().mockReturnValue({ eq: mockMemberCheckEq1 });
-
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock();
-    if (table === 'facility_members') {
-      return {
-        select: jest.fn().mockImplementation((fields: string, opts?: object) => {
-          if (opts && (opts as any).count === 'exact') return mockMemberCheckSelect(fields, opts);
-          return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ data: [{ facility_id: 'fac-2', role: 'owner' }], error: null })) }) };
-        }),
-        delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
-      };
-    }
-    if (table === 'facility_profiles') {
-      return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: { message: 'suspend failed' } })) }) };
-    }
-    return genericWriteMock();
-  });
-
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  expect(mockDeleteUser).not.toHaveBeenCalled();
-});
-
-test('facility_membersは先行削除せずauth.usersのCASCADEに委ねる', async () => {
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock();
-    if (table === 'facility_members') {
-      return {
-        select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue(Promise.resolve({ data: [], error: null })),
-          }),
-        }),
-        delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: { message: 'member delete failed' } })) }),
-      };
-    }
-    return genericWriteMock();
-  });
-
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
-  expect(mockDeleteUser).toHaveBeenCalledWith(USER_ID);
-});
-
-test('未処理例外 → 500', async () => {
-  mockGetUser.mockRejectedValue(new Error('Unexpected error'));
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-});
-
-// 真の空の所属一覧は退会を妨げない。
-test('施設メンバーシップが空配列 → ループをスキップして正常削除', async () => {
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock();
-    if (table === 'facility_members') return facilityMembersMock([]);
-    return genericWriteMock();
-  });
-
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
-});
-
-test.each([null,undefined])('オーナーカウントが %s → 結果不明を0人にせずAuth削除前に中断', async count => {
-  const mockSuspendEq = jest.fn().mockReturnValue(Promise.resolve({ error: null }));
-  const mockSuspendUpdate = jest.fn().mockReturnValue({ eq: mockSuspendEq });
-  const mockNeq = jest.fn().mockReturnValue(Promise.resolve({ count, error: null }));
-  const mockMemberCheckEq2 = jest.fn().mockReturnValue({ neq: mockNeq });
-  const mockMemberCheckEq1 = jest.fn().mockReturnValue({ eq: mockMemberCheckEq2 });
-  const mockMemberCheckSelect = jest.fn().mockReturnValue({ eq: mockMemberCheckEq1 });
-
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock();
-    if (table === 'facility_members') {
-      return {
-        select: jest.fn().mockImplementation((fields: string, opts?: object) => {
-          if (opts && (opts as any).count === 'exact') return mockMemberCheckSelect(fields, opts);
-          return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ data: [{ facility_id: 'fac-null', role: 'owner' }], error: null })) }) };
-        }),
-        delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
-      };
-    }
-    if (table === 'facility_profiles') {
-      return { update: mockSuspendUpdate };
-    }
-    return genericWriteMock();
-  });
-
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  expect(mockSuspendUpdate).not.toHaveBeenCalled();
-  expect(mockDeleteUser).not.toHaveBeenCalled();
-});
-
-// 結果不明は空の所属一覧ではない。
-test('facility_members が null → 空の所属一覧に変換せず退会中断', async () => {
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock();
-    if (table === 'facility_members') {
-      return {
-        select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue(Promise.resolve({ data: null, error: null })),
-          }),
-        }),
-        delete: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })),
-        }),
-      };
-    }
-    return genericWriteMock();
-  });
-
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-  expect(mockDeleteUser).not.toHaveBeenCalled();
-});
-
-// Branch coverage: filter: r.status === 'fulfilled' but .error is falsy (no failure logged)
-test('PII削除が全て成功 → failedOps は空 → ログなし', async () => {
-  const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-  // Default mock: all ops succeed with error: null
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
-  // PII partial-failure log should NOT have been called
-  expect(consoleSpy).not.toHaveBeenCalledWith(
-    expect.stringContaining('PII deletion partial failure'),
-    expect.anything(),
-  );
-  consoleSpy.mockRestore();
-});
-
-test('auth削除は必ずPIIスクラブの後に実行される', async () => {
-  const callOrder: string[] = [];
-  mockFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') return bookingsMock();
-    if (table === 'facility_members') {
-      return {
-        select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue(Promise.resolve({ data: [], error: null })),
-          }),
-        }),
-        delete: jest.fn().mockReturnValue({
-          eq: jest.fn().mockImplementation(() => { callOrder.push('facility_members_delete'); return Promise.resolve({ error: null }); }),
-        }),
-      };
-    }
-    return {
-      delete: jest.fn().mockReturnValue({ eq: jest.fn().mockImplementation(() => { callOrder.push(`${table}_delete`); return Promise.resolve({ error: null }); }) }),
-      update: jest.fn().mockReturnValue({ eq: jest.fn().mockImplementation(() => { callOrder.push(`${table}_update`); return Promise.resolve({ error: null }); }) }),
-    };
-  });
-  mockDeleteUser.mockImplementation(() => { callOrder.push('auth_delete'); return Promise.resolve({ error: null }); });
-
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
-  // auth_delete must come after PII scrub operations
-  const authIdx = callOrder.indexOf('auth_delete');
-  expect(authIdx).toBeGreaterThan(0);
-  expect(callOrder.slice(0, authIdx).length).toBeGreaterThan(0);
+test('only confirmed Auth success sets a host-only non-secret cleanup marker for legacy tabs',async()=>{
+ const res=await POST(request());expect(res.status).toBe(200);const marker=res.cookies.get('carelink_client_cleanup');
+ expect(marker?.value).toBe('1');expect(marker?.path).toBe('/');expect(marker?.sameSite).toBe('lax');expect(marker?.maxAge).toBe(604800);expect(marker?.domain).toBeUndefined();expect(marker?.httpOnly).not.toBe(true);
+ const header=res.headers.get('set-cookie')||'';expect(header).not.toContain(USER);expect(header).not.toContain('facility');
 });
