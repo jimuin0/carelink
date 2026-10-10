@@ -9,8 +9,7 @@
  *   { email: "...", hmac: "<64-char hex>" }  — HMAC-SHA256 で検証（ステートレス）
  */
 
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createHmac, timingSafeEqual } from 'crypto';
@@ -36,15 +35,11 @@ const tokenEncSchema = z.object({
   n: z.string().min(1).max(512),
 });
 
-function verifyUnsubHmac(email: string, hmac: string): boolean {
-  const secret = process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
-  if (!secret) return false;
+function verifyUnsubHmac(email: string, hmac: string, secret: string): boolean {
   const expected = createHmac('sha256', secret).update(email.toLowerCase()).digest('hex');
-  try {
-    return timingSafeEqual(Buffer.from(hmac, 'hex'), Buffer.from(expected, 'hex'));
-  } catch {
-    return false;
-  }
+  // The validated request contains 64 hex digits; SHA-256 also produces 32
+  // bytes. Unexpected crypto failures must reach the API dependency error.
+  return timingSafeEqual(Buffer.from(hmac, 'hex'), Buffer.from(expected, 'hex'));
 }
 
 export async function POST(request: Request) {
@@ -59,109 +54,39 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => null);
 
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { cookies: { getAll: () => cookieStore.getAll() } }
-    );
-
-    // メール起点の配信停止（方式B / 方式C 共通）。newsletter_subscriptions と profiles を停止する。
-    const unsubscribeByEmail = async (email: string): Promise<NextResponse> => {
-      const normalizedEmail = email.toLowerCase();
-
-      // D-4: 対応する profiles があれば user_id を紐付ける（監査・以後の判定で有用。取得できない
-      // アドレス（アカウント未登録のオーナー等）は null のまま）。
-      const { data: profileRow } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('email', normalizedEmail)
-        .maybeSingle();
-      const linkedUserId = (profileRow as { id: string } | null)?.id ?? null;
-
-      // already 判定（UI 表示用）。この読みの TOCTOU は表示メッセージのみに影響し無害。
-      const { data: sub } = await supabase
-        .from('newsletter_subscriptions')
-        .select('id, is_active')
-        .eq('email', normalizedEmail)
-        .maybeSingle();
-
-      if (sub?.is_active === false) {
-        return NextResponse.json({ success: true, already: true });
-      }
-
-      const unsubbedAt = new Date().toISOString();
-      const row = {
-        email: normalizedEmail,
-        subscription_type: 'all',
-        is_active: false,
-        unsubscribed_at: unsubbedAt,
-        source: 'unsubscribe',
-        user_id: linkedUserId,
-      };
-
-      // D-3: 書き込みは email を衝突キーにした upsert で原子的に行い、並行解除で重複 inactive 行が
-      // できる TOCTOU を塞ぐ。email に UNIQUE 制約がある前提。制約未適用（migration 前）は onConflict が
-      // 42P10 で失敗するため、従来の update/insert 分岐へフォールバックする（deploy 順序非依存）。
-      const up = await supabase
-        .from('newsletter_subscriptions')
-        .upsert(row, { onConflict: 'email' });
-
-      if (up.error) {
-        const missingConstraint =
-          up.error.code === '42P10' || /no unique or exclusion constraint/i.test(up.error.message ?? '');
-        if (!missingConstraint) {
-          return serverError('unsubscribe-newsletter-upsert', up.error, '/api/unsubscribe', '配信停止の処理に失敗しました。時間をおいて再度お試しください。');
-        }
-        // フォールバック（UNIQUE 未適用）: 既存行があれば update、無ければ insert。
-        if (sub) {
-          const { error: unsubErr } = await supabase
-            .from('newsletter_subscriptions')
-            .update({ is_active: false, unsubscribed_at: unsubbedAt, user_id: linkedUserId })
-            .eq('id', sub.id);
-          if (unsubErr) {
-            return serverError('unsubscribe-newsletter-update', unsubErr, '/api/unsubscribe', '配信停止の処理に失敗しました。時間をおいて再度お試しください。');
-          }
-        } else {
-          const { error: insertErr } = await supabase
-            .from('newsletter_subscriptions')
-            .insert(row);
-          if (insertErr) {
-            return serverError('unsubscribe-newsletter-insert', insertErr, '/api/unsubscribe', '配信停止の処理に失敗しました。時間をおいて再度お試しください。');
-          }
-        }
-      }
-
-      // profiles に一致するアカウントがあれば email_unsubscribed もセット
-      const { error: profileUnsubErr } = await supabase
-        .from('profiles')
-        .update({ email_unsubscribed: true })
-        .eq('email', normalizedEmail);
-      if (profileUnsubErr) console.error('[unsubscribe] profiles email_unsubscribed update failed', { err: profileUnsubErr });
-
-      return NextResponse.json({ success: true, already: false });
+    const supabase = createServiceRoleClient();
+    const applySuppression = async (email: string | null, token: string | null): Promise<NextResponse> => {
+      type Rpc = (name: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }>;
+      const result = await (supabase.rpc as unknown as Rpc)('unsubscribe_newsletter_atomic', { p_email: email, p_token: token });
+      if (result.error !== null) return serverError('unsubscribe-atomic', result.error, '/api/unsubscribe', '配信停止の処理を確認できません。時間をおいて再度お試しください。');
+      const parsed = z.object({ success: z.literal(true), already: z.boolean() }).strict().safeParse(result.data);
+      if (!parsed.success) return serverError('unsubscribe-atomic-receipt', new Error('Invalid unsubscribe receipt'), '/api/unsubscribe', '配信停止の結果を確認できません。再度お試しください。');
+      return NextResponse.json(parsed.data);
     };
 
     // 方式C: 暗号化トークン（推奨・メールを URL に露出しない）。サーバで復号して停止する。
     const encParsed = tokenEncSchema.safeParse(body);
     if (encParsed.success) {
+      if (!process.env.NEWSLETTER_UNSUBSCRIBE_SECRET) return NextResponse.json({ error: '配信停止の設定を確認できません。時間をおいて再度お試しください。' }, { status: 503 });
       const email = decryptUnsubEmail(encParsed.data.n);
       // 復号失敗（不正/改ざん/鍵不一致）は成功扱い（列挙攻撃防止）。
       if (!email) {
         return NextResponse.json({ success: true, already: true });
       }
-      return unsubscribeByEmail(email);
+      return await applySuppression(email, null);
     }
 
     // 方式B: HMAC ベースのニュースレター配信停止（既送信メールの後方互換）
     const hmacParsed = hmacSchema.safeParse(body);
     if (hmacParsed.success) {
+      const secret = process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
+      if (!secret) return NextResponse.json({ error: '配信停止の設定を確認できません。時間をおいて再度お試しください。' }, { status: 503 });
       const { email, hmac } = hmacParsed.data;
-      if (!verifyUnsubHmac(email, hmac)) {
+      if (!verifyUnsubHmac(email, hmac, secret)) {
         // HMACが不正でも成功扱い（列挙攻撃防止）
         return NextResponse.json({ success: true, already: true });
       }
-      return unsubscribeByEmail(email);
+      return await applySuppression(email, null);
     }
 
     // 方式A: DB トークンベース
@@ -170,55 +95,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'トークンが不正です' }, { status: 400 });
     }
 
-    // トークン検索（未使用のもののみ）
-    const { data: tokenRow, error: tokenErr } = await supabase
-      .from('email_unsubscribe_tokens')
-      .select('user_id, used_at')
-      .eq('token', tokenParsed.data.token)
-      .single();
-
-    if (tokenErr || !tokenRow) {
-      // トークン不明 → 成功扱い（列挙攻撃防止）
-      return NextResponse.json({ success: true, already: true });
-    }
-
-    // 使用済みトークンの再利用を拒否（idempotent: already=true で返す）
-    if (tokenRow.used_at !== null) {
-      return NextResponse.json({ success: true, already: true });
-    }
-
-    // profiles のフラグを確認（既に停止済みか）
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('email_unsubscribed')
-      .eq('id', tokenRow.user_id)
-      .single();
-
-    if (profile?.email_unsubscribed) {
-      await supabase
-        .from('email_unsubscribe_tokens')
-        .update({ used_at: new Date().toISOString() })
-        .eq('token', tokenParsed.data.token);
-      return NextResponse.json({ success: true, already: true });
-    }
-
-    // 配信停止フラグをセット
-    const { error: profileFlagErr } = await supabase
-      .from('profiles')
-      .update({ email_unsubscribed: true })
-      .eq('id', tokenRow.user_id);
-    if (profileFlagErr) {
-      return serverError('unsubscribe-profile-flag', profileFlagErr, '/api/unsubscribe', '配信停止の処理に失敗しました。時間をおいて再度お試しください。');
-    }
-
-    // トークンを使用済みにマーク
-    const { error: tokenMarkErr } = await supabase
-      .from('email_unsubscribe_tokens')
-      .update({ used_at: new Date().toISOString() })
-      .eq('token', tokenParsed.data.token);
-    if (tokenMarkErr) console.error('[unsubscribe] token mark-used failed — token may be reused', { err: tokenMarkErr });
-
-    return NextResponse.json({ success: true, already: false });
+    return await applySuppression(null, tokenParsed.data.token);
   } catch (e) {
     return serverError('unsubscribe', e, '/api/unsubscribe');
   }

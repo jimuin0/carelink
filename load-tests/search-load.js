@@ -2,19 +2,21 @@
  * CareLink 負荷テスト: 検索エンドポイント
  *
  * 実行: k6 run search-load.js
- * 本番: k6 run -e TARGET_URL=https://carelink-jp.com search-load.js
+ * 本番・remoteターゲットは禁止。DBと送信サービスも隔離したlocal合成fixtureのみ。
  */
 import http from 'k6/http';
+import { requireLocalLoadTarget } from './local-target.mjs';
 import { check, sleep } from 'k6';
 import { Trend, Rate, Counter } from 'k6/metrics';
 
-const BASE_URL = __ENV.TARGET_URL || 'http://localhost:3000';
+const BASE_URL = requireLocalLoadTarget(__ENV.TARGET_URL);
 
 const searchDuration = new Trend('search_duration');
 const searchSuccessRate = new Rate('search_success_rate');
 const rateLimitCount = new Counter('rate_limit_hits');
 
 export const options = {
+  maxRedirects: 0,
   scenarios: {
     // 通常負荷
     normal_load: {

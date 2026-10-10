@@ -100,6 +100,18 @@
     "synced_at",
     "user_id"
   ],
+  "booking_create_operations": [
+    "actor_user_id",
+    "actor_was_authenticated",
+    "booking_id",
+    "created_at",
+    "facility_id",
+    "guest_scope_hash",
+    "id",
+    "payload_hash",
+    "response_payload",
+    "state"
+  ],
   "booking_waitlist": [
     "created_at",
     "customer_name",
@@ -233,6 +245,12 @@
     "job",
     "period_key",
     "sent_at"
+  ],
+  "customer_coupon_email_operations": [
+    "coupon_id",
+    "created_at",
+    "facility_id",
+    "id"
   ],
   "customer_segments": [
     "customer_email",
@@ -812,7 +830,9 @@
     "line_user_id",
     "linked_at",
     "picture_url",
-    "user_id"
+    "proof_version",
+    "user_id",
+    "verified_at"
   ],
   "manual_booking_operations": [
     "actor_id",
@@ -862,6 +882,25 @@
     "email",
     "period",
     "sent_at"
+  ],
+  "newsletter_send_operations": [
+    "actor_id",
+    "campaign_id",
+    "campaign_revision",
+    "campaign_snapshot",
+    "created_at",
+    "operation_id"
+  ],
+  "newsletter_send_recipients": [
+    "email",
+    "operation_id",
+    "queue_id",
+    "recipient_id",
+    "rejected_retry_authorized",
+    "start_claimed_at",
+    "start_time",
+    "state",
+    "suppressed_authorized"
   ],
   "newsletter_subscriptions": [
     "created_at",
@@ -913,7 +952,12 @@
     "reading_time",
     "slug",
     "tags",
+    "threads_creation_id",
+    "threads_delivery_attempt_id",
+    "threads_delivery_started_at",
+    "threads_last_error",
     "threads_post_id",
+    "threads_post_status",
     "threads_posted_at",
     "thumbnail_url",
     "title",
@@ -1003,6 +1047,10 @@
     "review_id",
     "user_id"
   ],
+  "review_photo_references": [
+    "object_id",
+    "review_id"
+  ],
   "review_replies": [
     "content",
     "created_at",
@@ -1086,6 +1134,9 @@
     "pr_text",
     "prefecture",
     "registration_followup_sent_at",
+    "registration_license_warranted",
+    "registration_terms_accepted_at",
+    "registration_terms_sha256",
     "regular_holiday",
     "representative_name",
     "review_revision",
@@ -1141,6 +1192,16 @@
     "proj4text",
     "srid",
     "srtext"
+  ],
+  "staff_mutation_operations": [
+    "actor_id",
+    "created_at",
+    "facility_id",
+    "input_digest",
+    "kind",
+    "operation_id",
+    "result",
+    "staff_id"
   ],
   "staff_photos": [
     "caption",
@@ -1301,7 +1362,7 @@
     "email",
     "facility_id",
     "id",
-    "notified_at",
+    "provider_accepted_at",
     "reason",
     "used_at",
     "valid_until"
@@ -1319,6 +1380,7 @@
   ],
   "user_points": [
     "booking_id",
+    "booking_operation",
     "created_at",
     "id",
     "points",
@@ -1343,6 +1405,11 @@
     "started_at",
     "status",
     "user_id"
+  ],
+  "webhook_dispatch_claim_proofs": [
+    "claimed_at",
+    "consumed",
+    "queue_id"
   ],
   "webhook_retry_queue": [
     "attempt_count",

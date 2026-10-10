@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useForm, useWatch, type FieldErrors } from 'react-hook-form';
@@ -23,6 +23,8 @@ import { normalizePhone } from '@/lib/phone';
 import { SalonRegistrationBrowser } from '@/lib/salon-registration-browser';
 import { exportSalonDraftBackup, importSalonDraftBackup } from '@/lib/salon-draft-backup';
 import { readSalonBrowserContext, SALON_COMPLETE_PATH } from '@/lib/salon-browser-context';
+import { SalonLocalDraftControls, type SalonLocalDraftHandle } from '@/components/register/SalonLocalDraftControls';
+import { readLocalSalonDraft } from '@/lib/salon-local-draft';
 
 const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
 const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
@@ -90,6 +92,8 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   const [submissionConfirmed, setSubmissionConfirmed] = useState(false);
   const submissionConfirmedRef = useRef(false);
   const v2 = useRef<SalonRegistrationBrowser | null>(null);
+  const localDraft = useRef<SalonLocalDraftHandle | null>(null);
+  const [confirmedCleanupPath, setConfirmedCleanupPath] = useState<string | null>(null);
   const [useV2, setUseV2] = useState(v2Enabled);
   const [v2Ready, setV2Ready] = useState(false);
   const [v2Message, setV2Message] = useState('');
@@ -112,7 +116,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   // 独立したチェックにすることで、掲載者が届出義務を認識した上で登録した事実を明確に残す。
   const [licenseWarranted, setLicenseWarranted] = useState(false);
 
-  const { register, handleSubmit, trigger, setValue, setError, getFieldState, getValues, control, reset, formState: { errors, isReady } } = useForm<SalonFormValues>({
+  const { register, handleSubmit, trigger, setValue, setError, getFieldState, getValues, watch, control, reset, formState: { errors, isReady } } = useForm<SalonFormValues>({
     resolver: zodResolver(salonFullSchema),
     mode: 'onTouched',
     defaultValues: emptySalonValues,
@@ -122,10 +126,21 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   const postalCode = useWatch({ control, name: 'postal_code' }) || '';
   const selectedFeatures = useWatch({ control, name: 'features' }) || [];
   const addressRegistration = register('address');
+  const completeConfirmedRegistration = useCallback(async (path: string) => {
+    try { await localDraft.current?.confirmed(); }
+    catch {
+      // Local cleanup failure cannot turn a verified receipt into an unknown
+      // submission. Stay here with its fence and an explicit receipt link.
+      setConfirmedCleanupPath(path);
+      return;
+    }
+    router.push(path);
+  }, [router]);
 
   useEffect(() => {
     let cancelled = false;
     const initialize = async () => {
+      if (submissionConfirmedRef.current) return;
       // The flag controls new registrations, not previously issued capabilities.
       // Check saved progress before allowing V1 input after a V2 rollback.
       const context = readDraftContext();
@@ -137,9 +152,9 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
       setUseV2(true);
       if (!v2.current) v2.current = createRegistrationBrowser();
       const result = await v2.current.reconcile();
-      if (cancelled) return;
+      if (cancelled || submissionConfirmedRef.current) return;
       if (result.state === 'confirmed') {
-        submissionConfirmedRef.current = true; setSubmissionConfirmed(true); router.push(SALON_COMPLETE_PATH);
+        submissionConfirmedRef.current = true; setSubmissionConfirmed(true); await completeConfirmedRegistration(SALON_COMPLETE_PATH);
       }
       else if (result.state === 'ready') setV2Ready(true);
       else {
@@ -153,17 +168,20 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
       setV2Message('申込の確認情報を保存できません。ブラウザーの設定をご確認ください。新たに送信せず、お問い合わせください。');
     });
     return () => { cancelled = true; };
-  }, [v2Enabled, router]);
+  }, [v2Enabled, completeConfirmedRegistration]);
 
-  const acceptV2Result = (result: Awaited<ReturnType<SalonRegistrationBrowser['submit']>>) => {
+  const acceptV2Result = async (result: Awaited<ReturnType<SalonRegistrationBrowser['submit']>>) => {
     const context = readDraftContext();
     setDraftContext(context.state === 'empty' ? 'empty' : context.state === 'ready' && context.context.phase === 'prepared' ? 'prepared' : 'locked');
     if (result.state === 'confirmed') {
-      submissionConfirmedRef.current = true; setSubmissionConfirmed(true); setIsDirty(false); router.push(SALON_COMPLETE_PATH);
+      submissionConfirmedRef.current = true; setSubmissionConfirmed(true); setIsDirty(false); await completeConfirmedRegistration(SALON_COMPLETE_PATH);
     }
     else if (result.state === 'ready' || result.state === 'retryable') {
       submissionUnknownRef.current = false; setSubmissionUnknown(false); setV2Ready(true);
       if (result.state === 'retryable') {
+        if (v2.current?.canReviseUnsubmittedInput()) {
+          try { await localDraft.current?.rejectedBeforeCommit(); } catch { /* Local controls keep their fence and show the failure. */ }
+        }
         if (result.fieldErrors) showServerErrors(result.fieldErrors);
         setToast({ message: result.message, type: 'error' });
       }
@@ -175,7 +193,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   const reconcileV2 = async () => {
     if (submitLockRef.current || !v2.current) return;
     submitLockRef.current = true; setSubmitting(true);
-    try { acceptV2Result(await v2.current.retryUnknown()); }
+    try { await acceptV2Result(await v2.current.retryUnknown()); }
     catch {
       submissionUnknownRef.current = true; setSubmissionUnknown(true);
       setV2Message(SALON_SUBMISSION_UNKNOWN);
@@ -304,10 +322,15 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
     }
     setSubmitting(true);
     setPhotoError(null);
+    try {
+      if (!(await localDraft.current?.beforeSubmit(data, photoFiles))) { setSubmitting(false); return; }
+    } catch {
+      setSubmitting(false); setToast({ type: 'error', message: '端末の下書きを確認できませんでした。送信せず、入力と元の写真を保持しています。' }); return;
+    }
     if (useV2) {
       try {
         if (!v2.current) throw new Error('Registration context unavailable');
-        acceptV2Result(await v2.current.submit(data, photoFiles));
+        await acceptV2Result(await v2.current.submit(data, photoFiles, { terms_agreed: agreed, license_warranted: licenseWarranted }));
       } catch {
         submissionUnknownRef.current = true; setSubmissionUnknown(true);
         setV2Message(SALON_SUBMISSION_UNKNOWN);
@@ -393,6 +416,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
           // サーバー側から直接 Slack 通知を送るため、どちらのテンプレートを使うかを
           // このフィールドで伝える（DBには保存されない）。
           source: 'register',
+          consent: { terms_agreed: agreed, license_warranted: licenseWarranted },
           ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
         }),
       });
@@ -413,9 +437,12 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
       // サーバー側の実データを表示する方式に変更する。
       const params = new URLSearchParams();
       params.set('id', result.id);
-      router.push(`/register/complete?${params.toString()}`);
+      await completeConfirmedRegistration(`/register/complete?${params.toString()}`);
     } catch (e) {
       if (!requestStarted || confirmedRejection) {
+        if (!requestStarted) {
+          try { await localDraft.current?.rejectedBeforeCommit(); } catch { /* Do not weaken the local submission fence. */ }
+        }
         if (!requestStarted && policyRejections.has(e) && isLegacyStoragePolicyRejection(e)) setLegacyStorageBlocked(true);
         await rollbackUploadedSalonPhotos(uploadedPaths);
         const message = e instanceof Error ? e.message : '送信に失敗しました。時間をおいて再度お試しください。';
@@ -481,12 +508,17 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
     }
   };
 
-  const restoreDraft = async (file: File) => {
-    if (!draftAllowed(true)) { setToast({ type: 'error', message: '既存の申込または送信状況を確認するまで復元できません。受付状況をお問い合わせください。' }); return; }
+  const restoreDraft = async (file: File, fromLocal = false) => {
+    if (!draftAllowed(true)) { setToast({ type: 'error', message: '既存の申込または送信状況を確認するまで復元できません。受付状況をお問い合わせください。' }); return false; }
     draftLockRef.current = true; setDraftBusy(true);
     try {
+      const local = await readLocalSalonDraft();
+      if (local?.state === 'locked') throw new Error('Submitted local draft remains fenced');
       const draft = await importSalonDraftBackup(file);
       if (!mounted.current) return;
+      const currentLocal = await readLocalSalonDraft();
+      if (currentLocal?.state === 'locked') throw new Error('Local draft was fenced while decoding backup');
+      if (!fromLocal && !(await localDraft.current?.adoptManualBackup(file))) throw new Error('Portable backup cannot bypass another local draft');
       const context = readDraftContext();
       setDraftContext(context.state === 'empty' ? 'empty' : context.state === 'ready' && context.context.phase === 'prepared' ? 'prepared' : 'locked');
       if (context.state !== 'empty' || submissionUnknownRef.current || submissionConfirmedRef.current || submitLockRef.current) throw new Error('restore blocked');
@@ -506,8 +538,10 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
       setAgreed(false); setLicenseWarranted(false); setRestoredNeedsReview(true); setRestoredUnsentAcknowledged(false);
       setLegacyStorageBlocked(false); setShowConfirm(false); setPhotoError(null); setIsDirty(true); setStep(1);
       setToast({ type: 'success', message: '入力と元の写真を復元しました。内容と未送信であることを確認し、規約と表明に改めて同意してください。' });
+      return true;
     } catch {
       setToast({ type: 'error', message: '下書きを復元できませんでした。入力と元の写真は変更されていません。' });
+      return false;
     } finally { draftLockRef.current = false; setDraftBusy(false); }
   };
 
@@ -521,8 +555,9 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
     void handleSubmit(async data => {
       try {
         if (!v2.current) v2.current = createRegistrationBrowser();
+        if (!(await localDraft.current?.beforeSubmit(data, photoFiles))) return;
         setUseV2(true); setLegacyStorageBlocked(false);
-        acceptV2Result(await v2.current.submit(data, photoFiles));
+        await acceptV2Result(await v2.current.submit(data, photoFiles, { terms_agreed: agreed, license_warranted: licenseWarranted }));
       } catch {
         submissionUnknownRef.current = true; setSubmissionUnknown(true); setV2Message(SALON_SUBMISSION_UNKNOWN);
       }
@@ -536,8 +571,16 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
     <div className="mx-auto max-w-[640px] sm:px-12">
       <div>
         <StepIndicator currentStep={step} totalSteps={3} labels={stepLabels} />
+        <SalonLocalDraftControls ref={localDraft} getValues={getValues} watch={watch} photos={photoFiles}
+          canSave={() => !backupDisabled && (() => { const context = readDraftContext(); return context.state === 'empty' || (context.state === 'ready' && context.context.phase === 'prepared'); })()}
+          canRestore={() => !restoreDisabled && readDraftContext().state === 'empty'}
+          onRestore={async blob => { if (!(await restoreDraft(new File([blob], 'carelink-local-draft.json', { type: 'application/json' }), true))) throw new Error('Local draft restoration not confirmed'); }} />
+        {confirmedCleanupPath && <div role="alert" className="mb-4 rounded-sm border p-4 text-sm">
+          <p>掲載申込の受付は確認済みです。この端末の下書き削除を確認できませんでした。下書きの復元はロックされています。「端末の下書きを削除」をお試しください。</p>
+          <Link href={confirmedCleanupPath} className="mt-2 inline-block underline">受付内容を確認する</Link>
+        </div>}
         <section aria-label="入力の手動バックアップ" className="mb-4 rounded-sm border p-4 text-sm">
-          <p>未送信の入力と元の写真を、自分の端末へ手動で保存・復元できます。自動保存は行いません。</p>
+          <p>未送信の入力と元の写真を、ファイルへ手動で保存・復元できます。端末への自動保存は、上の「この端末で下書きを自動保存する」を選んだ場合だけ行います。</p>
           <p className="mt-2">ファイルには氏名・連絡先・写真が含まれます。安全な保存先で管理し、共有端末では保存しないでください。不要になったら削除してください。</p>
           <div className="mt-3 flex flex-wrap gap-3">
             <button type="button" onClick={() => void downloadDraft()} disabled={backupDisabled} className="underline">入力と元の写真をバックアップ</button>

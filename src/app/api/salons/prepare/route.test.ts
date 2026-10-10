@@ -2,6 +2,7 @@
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/rate-limit', () => ({ mutationRateLimit: null, checkRateLimit: jest.fn().mockResolvedValue(false) }));
 jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: jest.fn(() => ({})) }));
+jest.mock('@/lib/salon-storage-limits', () => ({ readSalonStorageLimits: jest.fn() }));
 jest.mock('@/lib/recaptcha', () => ({ verifyRecaptcha: jest.fn().mockResolvedValue({ success: true }) }));
 jest.mock('@/lib/salon-submission-intent', () => ({ prepareSalonIntent: jest.fn(), readSalonIntentStatus: jest.fn() }));
 jest.mock('@/lib/salon-registration-summary', () => ({ readSalonRegistrationSummary: jest.fn() }));
@@ -18,6 +19,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { verifyRecaptcha } from '@/lib/recaptcha';
 import { prepareSalonIntent, readSalonIntentStatus } from '@/lib/salon-submission-intent';
 import { salonIntentCookieName } from '@/lib/salon-submission-proof';
+import { readSalonStorageLimits } from '@/lib/salon-storage-limits';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 
 const intent = '64000000-0000-4000-8000-000000000001';
@@ -38,6 +40,7 @@ beforeEach(() => {
   (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
   (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: true });
+  (readSalonStorageLimits as jest.Mock).mockResolvedValue({ state: 'ready', limits: { maxBytes: 10485760, mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] } });
   (prepareSalonIntent as jest.Mock).mockResolvedValue(prepared);
   (readSalonIntentStatus as jest.Mock).mockResolvedValue({ state: 'uncommitted' });
   (readSalonRegistrationSummary as jest.Mock).mockResolvedValue({ state: 'uncommitted' });
@@ -101,7 +104,7 @@ test.each(['production', 'test'])('prepare keeps proof out of JSON and configure
   Object.assign(process.env, { NODE_ENV: environment });
   const response = await prepare(request({ recaptcha_token: 'fixture-token' }));
   expect(response.status).toBe(201);
-  expect(await response.json()).toEqual({ state: 'prepared', intentId: intent, expiresAt: prepared.expiresAt });
+  expect(await response.json()).toEqual({ state: 'prepared', intentId: intent, expiresAt: prepared.expiresAt, consumerVersion: 2, photoLimits: { maxBytes: 10485760, mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] } });
   expect(response.headers.get('cache-control')).toBe('no-store');
   expect(response.cookies.get(salonIntentCookieName(intent)!)).toEqual(expect.objectContaining({
     value: proof, httpOnly: true, secure: environment === 'production', sameSite: 'lax', path: '/', maxAge: 259200,
@@ -168,4 +171,29 @@ test.each([
   expect(response.status).toBe(expected); expect(await response.json()).toEqual(result);
   expect(response.headers.get('cache-control')).toBe('no-store');
   expect(readSalonRegistrationSummary).toHaveBeenCalledWith({}, intent, proof);
+});
+
+
+test('Storage configuration failure is 503 before any new reservation/cookie', async () => {
+  (readSalonStorageLimits as jest.Mock).mockResolvedValue({ state: 'unavailable' });
+  const response = await prepare(request({ recaptcha_token: 'fixture-token' }));
+  expect(response.status).toBe(503); expect(await response.json()).toEqual({ code: 'PHOTO_CONFIGURATION_UNAVAILABLE' });
+  expect(prepareSalonIntent).not.toHaveBeenCalled(); expect(response.cookies.getAll()).toEqual([]);
+});
+test('already issued selector refreshes handshake even when new preparation is disabled, without reminting', async () => {
+  delete process.env.SALON_REGISTRATION_V2_ENABLED;
+  const response = await prepare(request({ intentId: intent }, `${salonIntentCookieName(intent)}=${proof}`));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ state: 'prepared', intentId: intent, consumerVersion: 2, photoLimits: { maxBytes: 10485760, mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] } });
+  expect(readSalonIntentStatus).toHaveBeenCalledWith({}, intent, proof);
+  expect(prepareSalonIntent).not.toHaveBeenCalled(); expect(verifyRecaptcha).not.toHaveBeenCalled(); expect(response.cookies.getAll()).toEqual([]);
+});
+test.each([undefined, `${salonIntentCookieName(other)}=${proof}`, `${salonIntentCookieName(intent)}=bad`])('handshake refresh rejects missing/other/invalid cookie %#', async cookie => {
+  const response = await prepare(request({ intentId: intent }, cookie));
+  expect(response.status).toBe(403); expect(readSalonIntentStatus).not.toHaveBeenCalled(); expect(prepareSalonIntent).not.toHaveBeenCalled();
+});
+test.each([[{ state: 'unavailable' }, 503], [{ state: 'unverified' }, 403], [{ state: 'committed', receiptId: other }, 409], [{ state: 'expired' }, 409]])('refresh classifies existing state instead of reminting %#', async (result, expected) => {
+  (readSalonIntentStatus as jest.Mock).mockResolvedValue(result);
+  const response = await prepare(request({ intentId: intent }, `${salonIntentCookieName(intent)}=${proof}`));
+  expect(response.status).toBe(expected); expect(await response.json()).toEqual(result); expect(prepareSalonIntent).not.toHaveBeenCalled();
 });

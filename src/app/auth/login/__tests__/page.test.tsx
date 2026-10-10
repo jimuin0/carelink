@@ -1,6 +1,8 @@
 /** @jest-environment jsdom */
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { renderToString } from 'react-dom/server.node';
+import { AuthApiError, AuthRetryableFetchError } from '@supabase/supabase-js';
 import LoginPage from '../page';
 
 const mockPush = jest.fn();
@@ -37,12 +39,39 @@ function submit(email = 'owner@example.com') {
   fireEvent.change(screen.getByLabelText('パスワード'), { target: { value: 'password123' } });
   fireEvent.click(screen.getByRole('button', { name: 'ログイン', exact: true }));
 }
+test('SSR keeps login controls and Google disabled until client handlers are installed', () => {
+  const document = window.document.createElement('div');
+  document.innerHTML = renderToString(<LoginPage />);
+  expect(document.querySelector('#login-email')).toBeDisabled();
+  expect(document.querySelector('#login-password')).toBeDisabled();
+  expect(Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Googleでログイン')).toBeDisabled();
+  expect(mockGetUser).not.toHaveBeenCalled();
+  expect(mockSignIn).not.toHaveBeenCalled();
+});
+test('unsettled initial verification keeps the form/input and does not navigate for a late user',async()=>{
+ jest.useFakeTimers();let finish!: (value:unknown)=>void;
+ mockGetUser.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));render(<LoginPage />);
+ expect(screen.getByLabelText('メールアドレス')).toBeEnabled();
+ expect(screen.getByRole('button',{name:'Googleでログイン'})).toBeEnabled();
+ fireEvent.change(screen.getByLabelText('メールアドレス'),{target:{value:'retained@example.invalid'}});
+ await act(async()=>{await jest.advanceTimersByTimeAsync(5000);});
+ await act(async()=>{finish({data:{user:{id:'late'}}});await Promise.resolve();});
+ expect(mockReplace).not.toHaveBeenCalled();expect(screen.getByLabelText('メールアドレス')).toHaveValue('retained@example.invalid');
+ expect(screen.getByRole('button',{name:'ログイン',exact:true})).toBeEnabled();
+});
 
 async function unconfirmed() {
-  mockSignIn.mockResolvedValue({ error: { code: 'email_not_confirmed' } });
+  jest.useFakeTimers();
+  mockSignIn.mockResolvedValue({ error: new AuthApiError('Email not confirmed', 400, 'email_not_confirmed') });
   render(<LoginPage />);
-  submit();
-  await screen.findByRole('button', { name: '確認メールを再送' });
+  await act(async () => { submit(); });
+  expect(screen.getByRole('button', { name: '再送は60秒ほどお待ちください' })).toBeDisabled();
+}
+
+async function readyForResend() {
+  await unconfirmed();
+  await act(async () => { jest.advanceTimersByTime(60_000); });
+  expect(screen.getByRole('button', { name: '確認メールを再送' })).toBeEnabled();
 }
 
 test('正しい認証後は安全な店舗redirectへ遷移する', async () => {
@@ -61,6 +90,22 @@ test('未確認メールはパスワード誤りとせず案内し、自動送�
   expect(mockPush).not.toHaveBeenCalled();
 });
 
+test('signupからログインへ移っても初回未確認SDK応答から60秒間は再送を開始できない', async () => {
+  await unconfirmed();
+  fireEvent.click(screen.getByRole('button', { name: '再送は60秒ほどお待ちください' }));
+  expect(mockResend).not.toHaveBeenCalled();
+  await act(async () => { jest.advanceTimersByTime(59_999); });
+  expect(screen.getByRole('button', { name: '再送は60秒ほどお待ちください' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: '再送は60秒ほどお待ちください' }));
+  expect(mockResend).not.toHaveBeenCalled();
+  await act(async () => { jest.advanceTimersByTime(1); });
+  fireEvent.click(screen.getByRole('button', { name: '確認メールを再送' }));
+  await act(async () => {});
+  expect(mockSignIn).toHaveBeenCalledTimes(1);
+  expect(mockResend).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('button', { name: '再送は60秒ほどお待ちください' })).toBeDisabled();
+});
+
 test('不正資格情報では登録有無を明かさず再送導線を表示しない', async () => {
   mockSignIn.mockResolvedValue({ error: { code: 'invalid_credentials' } });
   render(<LoginPage />);
@@ -69,9 +114,42 @@ test('不正資格情報では登録有無を明かさず再送導線を表示�
   expect(screen.queryByRole('button', { name: '確認メールを再送' })).not.toBeInTheDocument();
 });
 
+test.each([
+  new AuthRetryableFetchError('private gateway detail', 522),
+  new AuthRetryableFetchError('private network detail', 0),
+  new AuthApiError('private upstream detail', 500, 'unexpected_failure'),
+  new AuthApiError('private unknown detail', 400, 'unknown_server_code'),
+])('SDKが返す通信・不明エラー（%s）は資格情報誤りにせず、入力保持で再試行できる', async error => {
+  mockSignIn.mockResolvedValueOnce({ error });
+  render(<LoginPage />); submit('retry@example.invalid');
+  await screen.findByText('ログイン認証に接続できませんでした。時間をおいてもう一度お試しください。');
+  expect(screen.queryByText('メールアドレスまたはパスワードが正しくありません')).not.toBeInTheDocument();
+  expect(screen.queryByText(/private .* detail/)).not.toBeInTheDocument();
+  expect(screen.getByLabelText('メールアドレス')).toHaveValue('retry@example.invalid');
+  expect(screen.getByLabelText('パスワード')).toHaveValue('password123');
+  expect(mockPush).not.toHaveBeenCalled(); expect(mockResend).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'ログイン', exact: true }));
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/mypage'));
+  expect(mockSignIn).toHaveBeenLastCalledWith({ email: 'retry@example.invalid', password: 'password123' });
+});
+
+test.each([
+  new AuthApiError('private throttle detail', 429, 'unknown_server_code'),
+  new AuthApiError('private throttle detail', 400, 'over_request_rate_limit'),
+  new AuthApiError('private throttle detail', 400, 'over_email_send_rate_limit'),
+])('返却rate-limit（%s）は待機案内を表示し、送信や画面遷移を始めない', async error => {
+  mockSignIn.mockResolvedValueOnce({ error });
+  render(<LoginPage />); submit();
+  await screen.findByText('ログインの試行回数が上限に達しました。時間をおいてもう一度お試しください。');
+  expect(screen.queryByText(/private throttle detail/)).not.toBeInTheDocument();
+  expect(screen.queryByText('メールアドレスまたはパスワードが正しくありません')).not.toBeInTheDocument();
+  expect(mockPush).not.toHaveBeenCalled(); expect(mockResend).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'ログイン', exact: true })).toBeEnabled();
+});
+
 test('再送は確認対象のメールと店舗遷移を保持し、連打を抑止する', async () => {
   mockParams = new URLSearchParams({ redirect: '/admin/onboarding?facility_name=test' });
-  await unconfirmed();
+  await readyForResend();
   // 入力欄を変えても別アドレスへ誤送信しない。
   fireEvent.change(screen.getByLabelText('メールアドレス'), { target: { value: 'other@example.com' } });
   const button = screen.getByRole('button', { name: '確認メールを再送' });
@@ -87,8 +165,7 @@ test('再送は確認対象のメールと店舗遷移を保持し、連打を�
 });
 
 test.each(['returned', 'thrown'])('再送失敗（%s）は中立案内と60秒制限の後に再試行可能', async (failure) => {
-  await unconfirmed();
-  jest.useFakeTimers();
+  await readyForResend();
   if (failure === 'returned') mockResend.mockResolvedValueOnce({ error: { message: 'private detail' } });
   else mockResend.mockRejectedValueOnce(new Error('private detail'));
   fireEvent.click(screen.getByRole('button', { name: '確認メールを再送' }));
@@ -105,7 +182,7 @@ test.each(['returned', 'thrown'])('再送失敗（%s）は中立案内と60秒�
 
 test('悪意あるredirectを再送のcallbackへ渡さない', async () => {
   mockParams = new URLSearchParams({ redirect: '/\\evil.example' });
-  await unconfirmed();
+  await readyForResend();
   fireEvent.click(screen.getByRole('button', { name: '確認メールを再送' }));
   await waitFor(() => expect(mockResend).toHaveBeenCalledWith(expect.objectContaining({
     options: { emailRedirectTo: 'http://localhost/auth/callback?redirect=%2Fmypage' },

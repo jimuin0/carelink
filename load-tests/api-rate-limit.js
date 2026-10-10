@@ -4,16 +4,18 @@
  * 実行: k6 run api-rate-limit.js
  */
 import http from 'k6/http';
+import { requireLocalLoadTarget } from './local-target.mjs';
 import { check, sleep } from 'k6';
 import { Counter, Rate } from 'k6/metrics';
 
-const BASE_URL = __ENV.TARGET_URL || 'http://localhost:3000';
+const BASE_URL = requireLocalLoadTarget(__ENV.TARGET_URL);
 
 const rateLimitCorrect = new Rate('rate_limit_correct');
 const falsePositives = new Counter('rate_limit_false_positives');
 const falseNegatives = new Counter('rate_limit_false_negatives');
 
 export const options = {
+  maxRedirects: 0,
   scenarios: {
     // 各 IP から 5 req/min 制限のエンドポイントを検証
     burst_test: {

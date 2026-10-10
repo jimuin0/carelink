@@ -6,16 +6,18 @@
  * 短縮: k6 run -e DURATION=5m soak-test.js
  */
 import http from 'k6/http';
+import { requireLocalLoadTarget } from './local-target.mjs';
 import { check, sleep } from 'k6';
 import { Trend, Rate } from 'k6/metrics';
 
-const BASE_URL = __ENV.TARGET_URL || 'http://localhost:3000';
+const BASE_URL = requireLocalLoadTarget(__ENV.TARGET_URL);
 const DURATION = __ENV.DURATION || '30m';
 
 const responseTrend = new Trend('response_over_time');
 const errorRate = new Rate('error_rate');
 
 export const options = {
+  maxRedirects: 0,
   scenarios: {
     soak: {
       executor: 'constant-vus',

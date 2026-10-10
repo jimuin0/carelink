@@ -66,6 +66,7 @@ async function sendWeeklyReports(
         .from('facility_notification_settings')
         .select('facility_id')
         .eq('email_weekly_report', false)
+        .order('facility_id')
         .range(offset, offset + limit - 1);
       return { data: res.data, error: res.error };
     },
@@ -86,26 +87,48 @@ async function sendWeeklyReports(
   // 監査P2: 従来は施設ごとにfacility_members→profiles→facility_profilesの3クエリを
   // ループ内で直列発行していた(O(N))。施設数増加でVercel関数のmaxDuration(60s)を超えて
   // timeoutし、未処理施設のメールが恒久欠落するリスクがあった。前段でバルク一括取得し
-  // ループ内はマップ参照のみにする(クエリ数はO(1)、件数に依存しない)。
+  // ページ単位で一括取得し、ループ内はマップ参照にする。取得障害・上限到達では送信前に停止する。
   const targetFacilityIds = [...byFacility.keys()].filter((id) => !optedOutSet.has(id));
 
-  const { data: owners } = await supabase
-    .from('facility_members').select('facility_id, user_id')
-    .in('facility_id', targetFacilityIds).eq('role', 'owner');
+  const { rows: owners, error: ownersError } = await fetchAllPaged<{ facility_id: string; user_id: string }>(
+    async (offset, limit) => {
+      const result = await supabase.from('facility_members').select('facility_id, user_id')
+        .in('facility_id', targetFacilityIds).eq('role', 'owner')
+        .order('facility_id').order('user_id').range(offset, offset + limit - 1);
+      return { data: result.data, error: result.error };
+    },
+    { failOnTruncation: true },
+  );
+  if (ownersError) throw ownersError;
   const ownerByFacility = new Map<string, string>();
-  for (const o of (owners ?? []) as Array<{ facility_id: string; user_id: string }>) {
+  for (const o of owners) {
     if (!ownerByFacility.has(o.facility_id)) ownerByFacility.set(o.facility_id, o.user_id);
   }
 
   const ownerUserIds = [...new Set(ownerByFacility.values())];
-  const { data: profs } = ownerUserIds.length
-    ? await supabase.from('profiles').select('id, email').in('id', ownerUserIds)
-    : { data: [] as Array<{ id: string; email: string | null }> };
-  const emailByUserId = new Map((profs ?? []).map((p) => [p.id as string, p.email as string | null]));
+  const { rows: profs, error: profilesError } = ownerUserIds.length
+    ? await fetchAllPaged<{ id: string; email: string | null }>(
+      async (offset, limit) => {
+        const result = await supabase.from('profiles').select('id, email').in('id', ownerUserIds)
+          .order('id').range(offset, offset + limit - 1);
+        return { data: result.data, error: result.error };
+      },
+      { failOnTruncation: true },
+    )
+    : { rows: [] as Array<{ id: string; email: string | null }>, error: null };
+  if (profilesError) throw profilesError;
+  const emailByUserId = new Map(profs.map((p) => [p.id, p.email]));
 
-  const { data: facs } = await supabase
-    .from('facility_profiles').select('id, name').in('id', targetFacilityIds);
-  const nameByFacility = new Map((facs ?? []).map((f) => [f.id as string, f.name as string | null]));
+  const { rows: facs, error: facilitiesError } = await fetchAllPaged<{ id: string; name: string | null }>(
+    async (offset, limit) => {
+      const result = await supabase.from('facility_profiles').select('id, name').in('id', targetFacilityIds)
+        .order('id').range(offset, offset + limit - 1);
+      return { data: result.data, error: result.error };
+    },
+    { failOnTruncation: true },
+  );
+  if (facilitiesError) throw facilitiesError;
+  const nameByFacility = new Map(facs.map((f) => [f.id, f.name]));
 
   let sent = 0;
   let failed = 0;
@@ -173,11 +196,16 @@ export async function GET(request: Request) {
     const end = addDays(todayJst(), -1);
     const start = addDays(end, -6);
 
-    const { data: rows, error } = await supabase
-      .from('daily_revenue_summary')
-      .select('facility_id, total_revenue, booking_count, completed_count, cancelled_count, new_customer_count, repeat_customer_count')
-      .gte('date', start)
-      .lte('date', end);
+    const { rows, error } = await fetchAllPaged<Record<string, number | string | null>>(
+      async (offset, limit) => {
+        const result = await supabase.from('daily_revenue_summary')
+          .select('facility_id, total_revenue, booking_count, completed_count, cancelled_count, new_customer_count, repeat_customer_count')
+          .gte('date', start).lte('date', end)
+          .order('facility_id').order('date').range(offset, offset + limit - 1);
+        return { data: result.data, error: result.error };
+      },
+      { failOnTruncation: true },
+    );
 
     if (error) {
       console.error('[weekly-report] daily_revenue_summary fetch failed', { err: error });
@@ -188,8 +216,8 @@ export async function GET(request: Request) {
     let deliveryFailures = 0;
     let emailsSkipped = 0;
     let optedOut = 0;
-    if (rows && rows.length > 0) {
-      const r = await sendWeeklyReports(supabase, rows as Array<Record<string, number | string | null>>, start, end);
+    if (rows.length > 0) {
+      const r = await sendWeeklyReports(supabase, rows, start, end);
       emailsSent = r.sent;
       deliveryFailures = r.failed;
       emailsSkipped = r.skipped;

@@ -3,7 +3,9 @@ import { canonicalSalonSubmission } from './salon-submission-contract';
 import { salonPhotoPath, SALON_PHOTO_BUCKET } from './salon-photo-contract';
 import { readSalonBrowserContext, saveSalonBrowserContext, type SalonBrowserContext } from './salon-browser-context';
 import type { SalonFormValues } from './validations';
-import { salonFieldErrors, type SalonFieldErrors } from './salon-field-errors';
+import type { SalonFieldErrors } from './salon-field-errors';
+import { salonStorageLimitsSchema, type SalonStorageLimits } from './salon-storage-limits';
+import { registrationConsentSchema, REGISTRATION_CONSENT_REQUIRED, type RegistrationConsent } from './registration-consent';
 
 type Store = Parameters<typeof readSalonBrowserContext>[0];
 type Dependencies = {
@@ -15,7 +17,7 @@ type Dependencies = {
 type Result = { state: 'ready' } | { state: 'confirmed'; receiptId: string }
   | { state: 'blocked' | 'unknown'; message: string }
   | { state: 'retryable'; message: string; fieldErrors?: SalonFieldErrors };
-type CommitInput = { intentId: string; registration: object; photoIds: string[] };
+type CommitInput = { intentId: string; registration: object; photoIds: string[]; consent: RegistrationConsent };
 const uuid = z.uuid();
 const uncertain: Result = { state: 'unknown', message: '送信結果を確認できませんでした。同じ申込の受付状況を確認してください。新たな申込として送信しないでください。' };
 const blocked: Result = { state: 'blocked', message: 'この申込の確認情報を利用できません。申込時のブラウザーの同じタブで確認するか、お問い合わせください。' };
@@ -28,6 +30,9 @@ export class SalonRegistrationBrowser {
   private photos = new Map<number, { original: File; compressed: File; selectionId: string }>();
   private pending: CommitInput | null = null;
   private replayVerified = false;
+  private photoLimits: SalonStorageLimits | null = null;
+  private commitAttempted = false;
+  private createdIntentId: string | null = null;
   constructor(private readonly deps: Dependencies) {}
 
   private async post(path: string, body: unknown) {
@@ -65,19 +70,22 @@ export class SalonRegistrationBrowser {
   }
   private async commit(input: CommitInput): Promise<Result> {
     if (!this.saveCurrent({ version: 1, intentId: input.intentId, phase: 'attempted' })) return blocked;
+    this.commitAttempted = true;
     const result = await this.post('/api/salons/commit', input);
     if (result?.ok && [200, 201].includes(result.status)
       && ['committed', 'replay'].includes(result.body?.state) && uuid.safeParse(result.body?.receiptId).success) {
       if (!this.saveCurrent({ version: 1, intentId: input.intentId, phase: 'confirmed' })) return blocked;
       return { state: 'confirmed', receiptId: result.body.receiptId };
     }
-    if (result?.status === 400 && result.body?.state === 'invalid') {
-      this.pending = null;
-      if (!this.saveCurrent({ version: 1, intentId: input.intentId, phase: 'prepared' })) return blocked;
-      const fields = result.body.fieldErrors;
-      const fieldErrors = fields && typeof fields === 'object' && !Array.isArray(fields)
-        ? salonFieldErrors(Object.keys(fields).map(field => ({ path: [field] }))) : {};
-      return { state: 'retryable', message: '入力内容を確認してください。申込はまだ確定していません。', fieldErrors };
+    if (result?.status === 400) {
+      // A validation/consent rejection describes this attempt, not an earlier
+      // commit whose reply was lost. Never reopen the attempted-input fence.
+      const latest = readSalonBrowserContext(this.deps.store);
+      if (latest.state !== 'ready' || latest.context.intentId !== input.intentId) return blocked;
+      const checked = await this.reconcile();
+      if (checked.state === 'confirmed') return checked;
+      if (checked.state === 'ready' || checked.state === 'blocked') return blocked;
+      return uncertain;
     }
     return uncertain;
   }
@@ -88,7 +96,22 @@ export class SalonRegistrationBrowser {
     if (checked.state !== 'unknown' || !this.pending || !this.replayVerified) return checked;
     return this.commit(this.pending);
   }
-  async submit(data: SalonFormValues, files: (File | null)[]): Promise<Result> {
+  /** This is an in-memory transport fact, not a server receipt or authority.
+   * A commit400, lost commit reply or a restored historical selector never
+   * grants permission to replace a fenced input snapshot. */
+  canReviseUnsubmittedInput(): boolean {
+    if (this.commitAttempted) return false;
+    const current = readSalonBrowserContext(this.deps.store);
+    return current.state === 'empty' || (current.state === 'ready' && current.context.phase === 'prepared'
+      && current.context.intentId === this.createdIntentId);
+  }
+  async submit(data: SalonFormValues, files: (File | null)[], consent?: unknown): Promise<Result> {
+    if (this.commitAttempted) {
+      const current = await this.reconcile();
+      return current.state === 'confirmed' || current.state === 'blocked' ? current : uncertain;
+    }
+    const agreement = registrationConsentSchema.safeParse(consent);
+    if (!agreement.success) return { state: 'retryable', message: REGISTRATION_CONSENT_REQUIRED };
     const canonical = canonicalSalonSubmission({ ...data,
       seat_count: Number.isNaN(data.seat_count) ? null : data.seat_count,
       staff_count: Number.isNaN(data.staff_count) ? null : data.staff_count,
@@ -104,21 +127,46 @@ export class SalonRegistrationBrowser {
       if (!preparation?.ok || preparation.status !== 201 || preparation.body?.state !== 'prepared'
         || !uuid.safeParse(preparation.body?.intentId).success) return retryable;
       if (!this.saveCurrent({ version: 1, intentId: preparation.body.intentId, phase: 'prepared' }, true)) return blocked;
+      this.createdIntentId = preparation.body.intentId;
+      const limits = salonStorageLimitsSchema.safeParse(preparation.body.photoLimits);
+      if (preparation.body.consumerVersion !== 2 || !limits.success) return retryable;
+      this.photoLimits = limits.data;
       current = readSalonBrowserContext(this.deps.store);
     }
     if (current.state !== 'ready') return blocked;
     const intentId = current.context.intentId;
+    if (!this.photoLimits) {
+      const refreshed = await this.post('/api/salons/prepare', { intentId });
+      const limits = salonStorageLimitsSchema.safeParse(refreshed?.body?.photoLimits);
+      if (!refreshed?.ok || refreshed.status !== 200 || refreshed.body?.state !== 'prepared'
+        || refreshed.body?.intentId !== intentId || refreshed.body?.consumerVersion !== 2 || !limits.success) return retryable;
+      const latest = readSalonBrowserContext(this.deps.store);
+      if (latest.state !== 'ready' || latest.context.intentId !== intentId || latest.context.phase !== 'prepared') return blocked;
+      this.photoLimits = limits.data;
+    }
+    const photoLimits = this.photoLimits;
+    let outsideLimits = false;
     const results = await Promise.allSettled(files.map(async (file, slot) => {
       if (!file) return null;
       let selection = this.photos.get(slot);
       if (!selection || selection.original !== file) {
-        const compressed = await this.deps.compress(file).catch(() => file);
+        const candidate = await this.deps.compress(file).catch(() => file);
+        // Compression may change PNG/GIF to JPEG. A narrower provider MIME
+        // policy must not make an otherwise accepted original impossible to
+        // upload, nor cause us to relax that policy.
+        const compressed = candidate.size <= photoLimits.maxBytes
+          && photoLimits.mimeTypes.includes(candidate.type as SalonStorageLimits['mimeTypes'][number]) ? candidate : file;
         selection = { original: file, compressed, selectionId: this.deps.uuid() };
         this.photos.set(slot, selection);
+      }
+      if (selection.compressed.size > photoLimits.maxBytes || !photoLimits.mimeTypes.includes(selection.compressed.type as SalonStorageLimits['mimeTypes'][number])) {
+        outsideLimits = true;
+        throw new Error('Photo outside current Storage restrictions');
       }
       const body = { intentId, selectionId: selection.selectionId, slot,
         mimeType: selection.compressed.type, byteSize: selection.compressed.size };
       const prepared = await this.post('/api/salons/photos', body);
+      if (prepared?.status === 400 && prepared.body?.state === 'invalid') this.photoLimits = null;
       if (!prepared?.ok || !uuid.safeParse(prepared.body?.photoId).success) throw new Error('Photo preparation unavailable');
       const path = salonPhotoPath(intentId, prepared.body.photoId, body.mimeType);
       if (!path || prepared.body.path !== path) throw new Error('Photo path mismatch');
@@ -133,11 +181,12 @@ export class SalonRegistrationBrowser {
         || verified.body.path !== path) throw new Error('Photo upload unconfirmed');
       return prepared.body.photoId as string;
     }));
+    if (outsideLimits) return { state: 'retryable', message: `現在の写真の上限は${photoLimits.maxBytes.toLocaleString('ja-JP')}バイト、対応形式は${photoLimits.mimeTypes.map(type => type.replace('image/', '')).join('・')}です。元の写真は保持されています。` };
     if (results.some(result => result.status === 'rejected')) return retryable;
     const photoIds: string[] = [];
     for (const result of results) if (result.status === 'fulfilled' && result.value) photoIds.push(result.value);
     const { photo_url: _photoUrl, photo_urls: _photoUrls, ...registration } = canonical.row;
-    this.pending = { intentId, registration, photoIds };
+    this.pending = { intentId, registration, photoIds, consent: agreement.data };
     return this.commit(this.pending);
   }
 }

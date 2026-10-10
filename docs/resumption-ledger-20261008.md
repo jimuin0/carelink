@@ -1,75 +1,106 @@
 # 2026年10月8日 再開・再判定台帳
 
-全体は未完了。初回評価基準のmainは `1801e66fdf33b6a09491c207f35905d0eacadae5`。PR #663は全CI成功後に `117e42a61f1662a39e42cf64957126936e036542` へマージし、本番healthの200・healthy・version117e42aを2026年10月8日05:12 UTCに確認した。この文書は続く第2段階のCI・配信前の検証記録を含む。
+## 2026年10月10日 更新（以下の旧snapshotより優先）
 
-## 新Macと証拠の範囲
+本番適用・配信の再開指示は受領済み。現在の停止理由は本番Supabaseへの接続timeoutであり、本人による再開承認待ちではない。読み取りSQL2回とmigration一覧1回が接続timeout、公開healthはHTTP503・unhealthy・version a46f5e1。対象時間帯のSupabase edgeログ集計も522を確認した。本番DDL/merge/deployは今回実施していない。管理APIのACTIVE_HEALTHYだけでDB接続正常とは判定しない。
 
-旧checkoutと復元済みの未commit変更は保全し、独立worktreeと専用node_modulesで再開した。Vercel設定・CIに合わせNode 24.21.0を使用。npm ci、以前失敗したE2E時間予算・minimatch互換12件、今回の関連85件、型検査、lint、全体単体9,573件・464suite、分岐9,410/9,410＝100%、production buildが成功した。lintの既存warningは4件。buildは合成キーを使い、本番DBへ接続していない。
+原資料は新Macの現在ファイル1,667件とGit履歴内文書227件を追加でhash照合し、151原票中2一致・149未回収のまま。旧セッション2件の読取は旧Mac接続不可。永久消失や全文復元の成功を断定しない。858索引記録はそのまま保全し、原文の有無・コード状態・検証・本番・残る境界を別欄へ分けた非公開対応表を作成した。ID引用・似た題名・過去のhash一致ラベルだけで重複/解消を確定しない。
 
-Next 16.3.6→16.3.8、sharp 0.35.4→0.35.5、source-map-js 1.2.1→1.2.2へ限定更新し、2026年10月8日のnpm auditはhigh/critical各0、moderate19。moderateは未解消として残す。根拠は [Next修正版](https://github.com/advisories/GHSA-cjq9-62q9-8jv4)、[sharp修正版](https://github.com/advisories/GHSA-wq5f-xc86-pv6w)、[source-map-js修正版](https://github.com/advisories/GHSA-68fv-2mgg-jv7q)。脆弱性情報は更新されるため、過去のaudit成功を現状へ流用しない。
+直近R01〜R21の条件と、61索引記録の限定した失敗条件を修正・テスト証拠へ結び付けた。61は記録数であり不具合数ではない。残る427ラベルの現行コード再判定と355断片の指摘同一性/範囲確認は未完了。台帳の構造整備を全件再判定完了とは説明しない。個別の決済・Stripe・キャンセル待ち・Calendar時差・LINE外部解除の保留を維持する。
 
-原票索引の503ラベル（430＋73）と355断片を858レコードとして非公開保存した。これは不具合858件という意味ではない。全原票の現在の判定は未照合のまま保持し、下記21項目の限定再判定と混同しない。歴史的索引が記録した151source中68sourceの取得不能も、今回復元済みとは認定していない。実顧客の情報を公開リポジトリへ転記しない。
+PR666のhead10713262はCI37894387642・PG17 37894387561成功。HTTPS E2E360/360、unexpected/flaky/skipped0。ただし、このCIは以下の週次追加修正を含まない。週次レポートで集計上限とowner/profile/facilityの返却error→skipが現存することを再確認し、全件pagination・安定した順序・後続page失敗/安全上限の送信前停止へ修正した。対象34テスト、分岐48/48、型/lint成功。実メールや本番データ変更は行っていない。
 
-第1段階の固定SHA60c8d12aで新MacのStryker全10対象を完走し、結果ファイルを独立集計した。1048mutant＝Killed263＋CompileError130＋Ignored655、Survived/Timeout/NoCoverage/RuntimeError各0。4回のワーカーSIGSEGVから復帰した実行ログも保全。測定対象外の全コードの変異検出を保証する値ではない。第2段階は全体465suite・9601件、分岐9432/9432＝100%、型・lint成功（既存4warning）。新Macの並列JestではワーカーSIGSEGVが出たため、全体を逐次実行して成功を確認した。CIの並列実行は最新SHAで別途確認する。
+原票回収・全索引の個別再判定・本番適用/認証済み実動作が未完了のため、過去の全指摘解消・全体完了は認定しない。
 
-## 過去PR
+**全体は未完了。** 本番確認済みの基準はPR #664のmerge `a46f5e18d68ba6cb032d76f85194b30d15f95c03`。今回の追加修正は、以下のローカル検証を終えた時点の記録であり、まだ本番適用・配信成功を示さない。
 
-| PR | 再判定 |
+## 新Macと原監査資料
+
+独立した作業環境と専用node_modules・Node 24.21.0・Docker/Supabaseを用意し、旧checkout・復元済み未commit変更は保全した。新Macの関連1,313文書と151原票の保存済みhashを照合した結果は2一致・149未回収。さらにCareLinkの旧セッション19件とiCloudの関連文書を調べたが、新しい原票一致は得られなかった。旧Macの一時ディレクトリにあった149原票は、元ファイルまたはbackupの回収が必要である。 旧セッションの復元は作業再開の前提にしない。未回収でも、保存済みコード・Git・PR・DB・運用ログを根拠に現行コードの再監査を進める。元の全文との完全照合はできないため、索引を保全して「元資料照合不能」を修正状態と別に記録する。旧Macを確認できないことだけで永久消失と断定しない。
+
+503ラベルと355断片の858記録は非公開の索引として保全した。858件の不具合や、全文監査の完了を意味しない。原票の内容を推測して補完せず、未照合のまま保持する。実顧客情報を公開Gitへ転記しない。
+
+## 過去PRの再判定
+
+| PR | 確認した結果 |
 |---|---|
-| #661 | マージ済み。過去の未マージ記録を現状としない |
-| #662 | マージ済み。main CI 37110697542成功、単体9,559件・branches100%、隔離実API17件、E2E324件・flaky/skip0。本番healthのversion1801e66と一致 |
-| #663 | マージ・配信済み。60c8d12aのCI 37729102345、PG17 37729102316成功。単体9573件・branches100%、隔離実API17件、HTTPS E2E324件・flaky/skip0。merge117e42aと本番versionが一致 |
-| #647 / #651 | contactのtraffic_source保存・Slack本文は現mainに存在。提案をそのまま再マージする必要はない。PRの閉鎖は未実施 |
-| #646 | テスト整形の提案。現機能の修正要否とは別に差分精査を残す |
-| #632 / #640 / #641 | 古い基準の提案。ブランチ全体を再マージせず、原指摘・現main・テスト単位で再判定。全提案の照合は未完了 |
-| #626〜#630 | 依存更新提案は最新lockとの差分・互換性で再判定が必要。Stripe更新は保留範囲 |
+| #661 / #662 | マージ済み。#662のmain CI 37110697542で単体9,559件、分岐100%、隔離実API17件、E2E324件、flaky/skip0。本番version1801e66を確認 |
+| #663 | CI 37729102345、PG17 37729102316成功後にmerge117e42a。単体9,573件、分岐100%、実API17件、E2E324件・flaky/skip0。本番200・healthy・version一致 |
+| #664 | PR head b85d2084のCI 37734023083・PG17 37734023084成功。merge a46f5e1のmain CI37735593929・PG17 37735594002も成功。単体9,601件、分岐100%、実API17件、E2E324件・unexpected/flaky/skipped各0。Production deployment6928478917成功、06:21 UTCの本番200・healthy・version a46f5e1 |
+| #665 | head12a395d3のCI37871000634・PG17 37871000612成功、HTTPS E2E348件・unexpected/flaky/skipped各0。レビューで判明した退会前の共有fenceと未復元下書きの自動上書きを追加修正し、480suite/9956test・分岐9758/9758・型・lint負債3件を再確認。head2cf83a21の全CI37881907492・PG17 37881907456成功、HTTPS E2E348件・unexpected/flaky/skipped各0。原本保護・復元後のrevision競合も実Chromium/Safari18件・retry0で確認。本番の正式DB適用・配信は未完了 |
+| #647 / #651 | 全差分を現mainと照合し、traffic_source保存とSlack本文の変更は現存。再マージ不要。PRの閉鎖は未実施 |
+| #646 | 追加された流入元テスト3件のTypeScript構文木も現mainと一致。単なる整形だけの提案ではないが、再マージ不要。PRの閉鎖は未実施 |
+| #632 / #640 / #641 | 全差分から失敗条件を再判定。プロフィール失敗、予約receipt、レビュー写真、Threads、Auth待機、配信の整合などを個別修正。元PRの全未適用を不具合とは数えない |
+| #626〜#630 | 全9file差分・36hunkの照合完了。4件は未採用の依存更新、Stripe1件は保留。版の差だけから新たな重大不具合を認定しない。同一package/lockの既存CIはhigh/critical0・moderate19 |
 
-## 直近の原指摘21項目
+## 直近21項目
 
-参照IDは旧 `carelink-current-unresolved-20260930.md` のR01〜R21を維持する。原指摘の失敗条件を現mainで読み取り、同じファイル名だけで修正済みとは判定していない。未修正は本番で実害を観測したという意味ではない。
+IDは旧 `carelink-current-unresolved-20260930.md` のR01〜R21を維持する。「追加修正」はコードと隔離検証の状態であり、本番反映とは区別する。
 
-| ID | 現在の判定 | 現コード・残る条件 |
+| ID | 現在の判定 | 根拠・残る境界 |
 |---|---|---|
-| R01 | 修正済み・実配送は別確認 | `api/admin/inquiries/[id]/reply` のreconcile、`inquiry-reply-delivery`、正式migrationでprovider IDと封筒を保存。本文を再送せず受理照合する回帰あり |
-| R02 | 修正済み | `create_online_booking_atomic` 内で全menu_ids保存。同transactionで予約を作成。一般roleの直接EXECUTEは本番でも拒否 |
-| R03 | 第2段階修正・配信未確認 | 初回残高SELECTのerrorを500にし、予約作成前に停止。dataとerror同時返却も拒否 |
-| R04 | 未修正 | `api/booking` 予約・ポイント控除・補償が別I/O。補償失敗の原子化／永続復旧が必要 |
-| R05 | 未修正 | `api/booking/[id]/cancel` の返還が取消CAS後。返還失敗の安全な回復が不足 |
-| R06 | 一部修正 | 来店実績はbooking_visit_atomicで状態変更と同時保存。本番migration記録あり。`booking-completion` のポイント保存失敗・付与済み相当の返却は残る |
-| R07 | 第2段階修正・配信未確認 | 予約API・施設表示・LIFF一覧のDATE期限をtodayJstの暦日へ統一。期限当日23:59:59.999と翌日00:00、開始日の境界を回帰検証 |
-| R08 | 未修正 | `api/admin/moderation/[id]` 却下後のreview非表示失敗でも成功応答。原子化／安全な再試行が必要 |
-| R09 | 未修正 | `api/admin/staff` 勤務表失敗後の補償DELETEの結果未検査。作成の原子化が必要 |
-| R10 | 未修正 | `admin/photos` 削除時にmain_photo_urlを解除しない。metadata失敗後の保存物の照合も必要 |
-| R11 | 修正・配信済み #663 | Push失効削除をuser_id＋送信したendpoint＋鍵に限定。新登録を巻き込む競合回帰あり |
-| R12 | 第2段階修正・配信未確認 | claim返却errorを500＋error記録。正常なCAS負けは従来どおりskip。結果不明claimの自動復旧全般は別課題 |
-| R13 | 第2段階修正・配信未確認 | profileの読取errorなら送らずclaim解放。前処理・解放の障害は正常終了せず500＋error記録。owner/leadのclaim障害も拒否 |
-| R14 | 第2段階修正・配信未確認 | 5種の通知データ取得障害とbatch例外を500＋error記録。集計済みの事実を応答・ログへ保存。正常な0件・連絡先なしとは区別 |
-| R15 | 未修正 | `cron/customer-segment` メール受理後marker保存失敗の重複再送防止が不足 |
-| R16 | 修正済み | `admin/bookings/[id]` 保存成功と配達完了を区別する表示・回帰テストあり |
-| R17 | 修正・配信済み #663 | feature flagsのHTTP／通信／不正応答を表示。正常0件と区別し再試行可 |
-| R18 | 修正・配信済み #663 | 保存はtry/catch/finally。応答喪失後に現在値を再取得し、読取失敗なら旧値で変更させない |
-| R19 | 第2段階修正・配信未確認 | formとAPIのschemaを共通化。空白・名前100/101文字・本文trimをフォームから検証。email/phone上限も一致 |
-| R20 | 修正・配信済み #663 | 勤務表退避の返却errorならDELETE／INSERT前に停止。dataとerror同時返却も拒否。全置換の原子化／復元失敗は別途残る |
-| R21 | 第2段階修正・配信未確認 | maybeSingleで未連携と障害を区別。helperはthrowし呼出元の500へ、couponsも500。dataとerror同時返却を拒否 |
+| R01 | 既存修正 | inquiry返信の永続ID・封筒とprovider受理照合。実返信の到達は別確認 |
+| R02 | 既存修正 | 予約RPC内で全menu_idsを同transactionに保存。一般roleの直接EXECUTEは拒否 |
+| R03 | #664配信済み | ポイント残高SELECT障害は予約作成前に500 |
+| R04 / R05 / R06 | 追加修正 | 予約作成・控除、取消・返還、完了・付与／取消をDBの同transactionへ移動。競合・rollback・正確な再試行・旧consumer互換を検証。曖昧な旧台帳を推測して変更しない |
+| R07 | #664配信済み | DATEの期限と開始日をJST暦日に統一、日境界を検証 |
+| R08 | 追加修正 | 却下・review非表示を原子化。確認したstatusとreviewed_atのCAS、同じactor・判断・本文の再試行、権限変更を検証。直接queue書込みも閉じる |
+| R09 | 追加修正 | staffと初期7日勤務表を同transactionに保存。UUIDと入力hashの永続receiptで応答喪失後も照合 |
+| R10 | 追加修正 | 写真metadata削除と最後の参照に対応するmain_photo_url解除を原子化。Storage実ファイルの削除は含まない |
+| R11 | #663配信済み | Push失効削除は送信したendpointと鍵に限定 |
+| R12 / R13 / R14 | #664配信済み | 通知claim・profile読取・batch取得の障害を成功扱いせず、errorとして記録 |
+| R15 | 追加修正 | クーポンごとに不変の配送IDと封筒を保存し、既存webhook workerへ渡す。provider受理とmarkerを同transactionで保存。旧null markerは結果不明として保留。受理列のrenameで旧consumerの安全なfallbackへ誘導し、operationがない新at_risk INSERTをcommit前に拒否。実RESTで旧直接INSERT拒否・新RPC成功を検証。既に開始した旧送信を遡って取消す保証はしない |
+| R16 | 既存修正 | 予約保存と配達完了を区別する画面・回帰あり |
+| R17 / R18 | #663配信済み | flagsの読取・保存・応答喪失を表示、再読取失敗時は旧値で変更しない |
+| R19 | #664配信済み | form/APIの共通schemaで入力上限・trimを一致 |
+| R20 | #663配信済み＋追加修正 | 既存の読取障害停止に加え、全週勤務表の置換・例外日・強制変更を原子化。操作receiptと再試行、予約との実ロック競合を検証 |
+| R21 | #664配信済み | LIFFの未連携とDB障害を区別、障害は500 |
 
-原指摘21項目の分類は既存修正3、第1段階配信済み4、第2段階修正7、一部修正1、未修正6（R04/R05/R08/R09/R10/R15）。全原票503ラベルをこの21項目に吸収したとは認定しない。R06のポイント付与、R20とは別の全置換の原子化も残る。
+追加でV1 APIの `*` scopeによる別施設アクセスを拒否した。施設の範囲は操作scopeと独立に確認する。ログイン画面もSDKの522/500/結果不明を「パスワード違い」と表示しない。
 
-追加変更の初回CI `37727619206` は型・lint・単体・Security・Contract・PG17に成功したが、HTTPS E2Eは323成功・1flakyで不合格。失敗時の画面はNext.jsの読み込みfallbackだけだった。登録復旧のテストはPOST前から新documentのDOMContentLoadedを待ち、実dashboardの見出しも従来どおり検証する。sleep・timeout増加・skip・flaky許容は追加しない。修正後60c8d12aのCI 37729102345で324件成功・flaky0を確認した。
+## Storage・退会処理
 
-## 本番の読取確認と残件1〜8
+Storageの容量とprofile削除後の古いJWTからの書込みを制限するmigrationを用意した。匿名V1経路を保った容量設定と、匿名INSERTを閉じる全面切替は別段階である。新consumerは実bucket設定を確認し、本人が選ぶ端末下書き保存・元画像backup・同じ申込の結果照合を備える。旧V1の未送信入力を遠隔復元できるとは説明しない。[切替計画](salon-storage-cutover-20261008.md)の影響判断とDashboardのglobal上限確認が未完了。
 
-2026年10月8日04:19 UTCの読取transactionで、Supabase projectはACTIVE_HEALTHY、public table/viewは112、migration履歴138件、対象予約RPCはanon/authenticatedのEXECUTE不可・service_role許可。全localファイル名との履歴一致や全スキーマ無差分はこの件数だけで認定しない。
+退会の17項目の整理をAuth削除と同transactionへ移し、失敗時の巻戻しと最後のowner判定を検証した。APIはDB readinessが確認できなければAuth削除前に停止する。規約・privacy・画面は、アカウント等の削除、業務記録の保持、最後のowner退会時の公開ページ／オンライン予約の停止を区別する。Storage画像の物理消去を約束せず、保存期間の新方針や無断の実データ削除は導入しない。
 
-直近8日のcron_logsはsuccess/skippedのみでerror0、CareLinkのpg_cronジョブ0。external contact_repliesのsent_at未確定は0件。結果不明を正常へ書き換えたり、再送したりしていない。Render providerのログ取得はworkspace指定確認待ち。上記のDB記録だけで各実行のprovider帰属・個別メール到達を断定しない。
+端末の削除cookie・共有世代・IndexedDB/sessionStorageの読戻し確認で、別タブ・削除失敗・新しい画面での古い予約下書き復元を防ぐ。すでに読み込まれた任意の旧JavaScriptのメモリ消去は保証しない。
 
-| 残件 | 現在の境界 |
-|---|---|
-| 1 店舗選択 / 2 本日の予約 | #662でコード・CI・配信完了。認証済み本人操作の本番smokeは未確認 |
-| 3 Storage | carelink-uploadsのanon INSERT許可が現存、bucket byte上限null、許可MIMEは画像4種。旧フォーム保全は配信済みだが旧タブの回収、global上限、正式切替は未完了。deferred SQLを本番へ直接実行しない |
-| 4 SMTP / Google | 本人メール→リンク→ログインとGoogle callbackの実成功証拠不足。本人ログイン・対象限定が必要 |
-| 5 本番一気通貫 | production healthだけでは完了しない。合成対象・公開副作用・後始末を固定してから実施 |
-| 6 Cron / 通知 | 今回DB実行記録を更新。Render一次ログとprovider送達確認は残る。R12〜R14は第2段階で修正、R15の重複再送防止は未修正 |
-| 7 規約 / 退会 | 非公開化・保持と「削除」の説明の整合、目的・期間の判断が残る。実データ削除は行わない |
-| 8 最終台帳 / 監査 | 過去状態を訂正し、858原記録の索引を保全。個別照合・未取得source・最終CI／配信証拠は残る |
+## 追加の再判定
 
-支払い・Stripe・キャンセル待ち・Googleカレンダー時差・LINE解除、実顧客への返信・代理掲載は既存の保留を維持。全コード監査の飽和、未修正ゼロ、全体完了を認定していない。
+PR #632の全差分を読み、プロフィール作成失敗をAuth登録成功として扱うcatch-allが残っていたため、既存metadata・ACLを維持して登録transactionの失敗へ戻す第7の正式migrationを追加した。ローカルの実Auth SDKで失敗時のAuth/profile残存0と正常OAuth metadataを確認。初回メール再送の60秒制限と無料掲載CTAも修正した。
+
+#640/#641の照合では、予約の応答喪失後の再送、レビュー画像保存失敗、Threadsの結果不明送信、公開AIの共有費用上限などの追加差分が見つかった。現存・別方式解決・未対応・既存保留を区別して別途修正する。古い提案の全未適用を不具合と数えず、全提案済みとも扱わない。
+
+## 2026年10月9日 追加修正の検証
+
+作業先は `/Users/kam/Projects/carelink-final-followups-20261009`。以下はコード・隔離検証の状態であり、本番適用を示さない。
+
+- 予約の固定UUIDとactor/HttpOnly guest scope、入力hashのDB receiptで、応答喪失・二重クリック・再読込後も同じ受付を照合する。操作の変更や別actorは拒否し、不明な受付を新しいUUIDで送らない。予約・各通知outboxは同transactionに保存する。
+- 通知対象は全所属・設定・宛先と比較し、読取障害や集合変更では予約を部分受付しない。actor、弱い親ロック、所属、非キー親ロックの順で競合を検証。内容・権限が変わった作成通知は開始前に抑止する。
+- 新配信にはdispatch version2の正式claimを必須化し、旧raw workerの取得・attempt消費を拒否する。producerもDB readinessを確認し、部分DDL中は受付を停止する。開始後の結果不明は自動再送しない。
+- レビューの元画像・容量・MIME・実ownerを照合し、画像失敗で本文だけを送らない。結果不明は入力と受付fenceを保持する。Threadsも開始前の永続証明と公開済みの証拠を照合し、containerの準備完了だけを公開成功としない。
+- ニュースレターは同一キャンペーンの固定operation・宛先別queueで受理／不明／抑止を区別し、配信停止を原子化。clientの任意メール購読書込みを閉じる。受付・配信停止・Auth削除の実競合を確認。
+- LINEは両表で一致する本人確認済みの所有者だけを認め、自己編集profile・未確認リンク・email一致からログインを作らない。標準Supabase接続では作成できないAuth索引を除去し、信頼候補が複数なら選ばず停止する。外部Auth作成の厳密な1回保証や既存dataの推測統合は約束しない。
+- Auth/reCAPTCHAの待機を制限し、障害で入力を消さない。ログイン・新規登録のSSR入力欄はhydration完了まで停止し、初期化による入力喪失を防ぐ。新しい登録は同意記録を保存し、旧フォームは同意なしの履歴を推測追加せず段階移行を維持する。
+- AIは共有24時間quota、retention、bot proof、SDK再試行0と全応答deadlineを確認し、医療相談本文をログへ出さない。回答待ち中の次の入力を保持する。Blogの障害を404と扱わず、Calendar DELETEは削除証拠と同じ記録へのCASだけで解除する。時差の変更は保留。
+
+全500suite・10,487test、分岐10,519/10,519＝100%。258 migrationのfresh PG17/C localeが一致しfingerprint2,942項目、34 SQL rollback fixtureが成功。標準ローカルSupabaseで同じmigration本文を検証し、公式CLIから型を生成（public119table/view）、隔離実API17件・静的契約17件、実ロック競合、Chromium/Safariの対象検証も確認した。追加段階の最終GitHub CI/全体HTTPS E2Eは別途確認する。
+
+本番の基準は引き続きa46f5e18。第1段階PR #665の7本の正式migration要求はcancelledのため未適用を確認し、再開の本人確認待ち。第2段階の8本も未適用。旧OAuth/古いscheduler・pinned経路の停止とdrain、新workerの稼働確認は本番の実確認が必要で、新mainの配信だけで証明済みとはしない。
+
+149原票の未回収を保全し、現行コードの独立した再監査として進める。原索引の全文照合・全コード監査の飽和・未修正ゼロ・全体完了は認定していない。
+
+## 今回の検証と残る作業
+
+全480suite・9,956test成功、測定対象の分岐9,758/9,758＝100%、型検査と静的migration契約17件が成功。PG17で250 migrationを新規再生しfingerprint2,778項目が一致。C locale一致と25 SQL fixtureも成功。失敗・競合・SDK権限・Chromium/Safariの対象確認は個別ログに保存した。head12a395d3の全体CI/PG17/HTTPS E2Eは成功。後続レビュー修正のCIと本番適用後の証拠はまだこのsnapshotに含まない。本番への正式migration要求はコネクターからcancelledを返したため未適用を確認し、直接DDLや履歴repairで迂回していない。
+
+- 本番の最新SHAによるCI・PG17・HTTPS E2Eと正式migration履歴／実体照合。
+- Supabase本人ログイン後のSMTP設定、本人メール→リンク→ログイン、Google→callbackの実成功。
+- 認証済み店舗操作と本番一気通貫、Render一次ログ・provider受理／到達確認。
+- Storage全面切替の影響判断、旧タブの入力保全、global上限確認。
+- 149原票の回収と858索引の個別再判定、残る古いPR差分の照合。
+
+npm auditは直近確認でhigh/critical各0、moderate19を未解消として残す。lintは既存warning3件。以前の10対象Strykerは1048mutantのSurvived/Timeout等0であり、今回の新SQLや対象外の全コードの検出保証ではない。新Macの並列Node SIGSEGVの原因も未確定で、今回の全体Jestは逐次実行した。
+
+決済・Stripe・キャンセル待ち・Googleカレンダー時差・LINE解除、実顧客への返信・代理掲載は保留を維持。原票回収・全コード監査の飽和・未修正ゼロ・全体完了を認定していない。

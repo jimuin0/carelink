@@ -1,575 +1,120 @@
-/**
- * @jest-environment node
- *
- * Tests for PUT/POST/DELETE /api/admin/staff/[id]/schedule
- * Key assertions:
- *   - UUID_REGEX for [id]
- *   - Non-member → 401 / Staff not in facility → 401
- *   - PUT/POST: time validation
- *   - DELETE: override_id must be RFC 4122 UUID
- *   - G7 ガード: 既存予約に影響がある変更は force なしで 409(BOOKINGS_AFFECTED)、force で実行
- */
-
+/** @jest-environment node */
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
+jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
-jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
-
-const STAFF_UUID    = '11111111-1111-1111-1111-111111111111';
-const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
-const USER_ID       = '33333333-3333-3333-3333-333333333333';
-const OVERRIDE_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'; // RFC 4122
-const MONDAY = '2099-01-05'; // 未来の月曜(DOW=1)
-const TUESDAY = '2099-01-06'; // 未来の火曜(DOW=2)
-
-const mockGetUser = jest.fn();
-const mockAnonFrom = jest.fn();
-const mockAdminFrom = jest.fn();
-
-jest.mock('@supabase/ssr', () => ({
-  createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
-}));
-jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
-}));
-
+const STAFF = '11111111-1111-4111-8111-111111111111';
+const FACILITY = '22222222-2222-4222-8222-222222222222';
+const USER = '33333333-3333-4333-8333-333333333333';
+const OP = '44444444-4444-4444-8444-444444444444';
+const OV = '55555555-5555-4555-8555-555555555555';
+const mockGetUser = jest.fn(); const mockAnonFrom = jest.fn(); const mockAdminFrom = jest.fn(); const mockRpc = jest.fn();
+jest.mock('@supabase/ssr', () => ({ createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }) }));
+jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }) }));
 import { NextRequest } from 'next/server';
 import { PUT, POST, DELETE } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
-import { alertCaughtError } from '@/lib/alert';
-
-function makeProps(id = STAFF_UUID) {
-  return { params: Promise.resolve({ id }) };
+import { writeAuditLog } from '@/lib/audit-logger';
+const body = { operation_id: OP, schedules: [{ day_of_week: 1, start_time: '09:00', end_time: '18:00' }] };
+function request(method: string, payload: unknown, facility: string | null = FACILITY) {
+  return new NextRequest(`http://localhost/api/admin/staff/${STAFF}/schedule${facility ? `?facility_id=${facility}` : ''}`, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
 }
-
-function makeRequest(method: string, body: object, facilityId: string | null = FACILITY_UUID) {
-  const url = new URL(`http://localhost/api/admin/staff/${STAFF_UUID}/schedule`);
-  if (facilityId) url.searchParams.set('facility_id', facilityId);
-  return new NextRequest(url.toString(), {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+function props(id = STAFF) { return { params: Promise.resolve({ id }) }; }
+function chain(data: unknown, error: unknown = null) {
+  const c = { select: jest.fn(), eq: jest.fn(), in: jest.fn(), maybeSingle: jest.fn(async () => ({ data, error })) };
+  c.select.mockReturnValue(c); c.eq.mockReturnValue(c); c.in.mockReturnValue(c); return c;
 }
-
-// Anon client: facility_members membership check (ends with .single())
-function memberSingle(data: unknown) {
-  return {
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    in: jest.fn().mockReturnThis(),
-    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
-  };
-}
-
-// 汎用: await でも .single()/.maybeSingle() でも result を返し、insert/upsert/delete も設定可能なチェーン。
-// insert は terminals.insert に配列を渡すと呼び出し順(1回目=本insert・2回目=restore insert)で
-// 別々の結果を返せる(delete→insert 非アトミック根治の復元経路検証用)。単一値なら毎回同じ結果。
-type Res = { data?: unknown; error?: unknown };
-function chain(
-  readResult: Res = { data: null, error: null },
-  terminals: { insert?: Res | Res[]; upsert?: Res; delete?: Res } = {},
-  opts: { insertSpy?: (rows: unknown) => void } = {},
-) {
-  const self: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'in', 'gte', 'lte', 'lt', 'gt', 'order', 'limit', 'not', 'update']) {
-    self[m] = jest.fn(() => self);
-  }
-  self.single = jest.fn(() => Promise.resolve(readResult));
-  self.maybeSingle = jest.fn(() => Promise.resolve(readResult));
-  self.then = (res: (v: Res) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(readResult).then(res, rej);
-  let insertCallIdx = 0;
-  self.insert = jest.fn((rows: unknown) => {
-    opts.insertSpy?.(rows);
-    const cfg = terminals.insert;
-    const result: Res = Array.isArray(cfg)
-      ? (cfg[Math.min(insertCallIdx, cfg.length - 1)] ?? { error: null })
-      : (cfg ?? { error: null });
-    insertCallIdx += 1;
-    return Promise.resolve(result);
-  });
-  self.upsert = jest.fn(() => Promise.resolve(terminals.upsert ?? { error: null }));
-  self.delete = jest.fn(() => {
-    const d: Record<string, unknown> = {};
-    d.eq = jest.fn(() => d);
-    d.then = (res: (v: Res) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(terminals.delete ?? { error: null }).then(res, rej);
-    // .delete().eq(...).eq(...).select() 経路（削除件数検証の恒久修正）用。
-    // terminals.delete に data 未指定なら1件削除された想定でデフォルト値を返す。
-    d.select = jest.fn(() => {
-      const t = terminals.delete ?? { error: null };
-      return Promise.resolve({ data: t.error ? null : (t.data ?? [{ id: 'x' }]), error: t.error ?? null });
-    });
-    return d;
-  });
-  return self;
-}
-
-type AdminCfg = {
-  staff?: unknown;                 // staff_profiles.single result data
-  bookings?: unknown[];            // bookings guard read
-  overrides?: unknown[];           // schedule_overrides guard read (PUT)
-  schedDeleteErr?: unknown;        // staff_schedules delete error (PUT)
-  insertErr?: unknown;             // staff_schedules insert error (PUT・全insert共通)
-  insertResults?: { error: unknown }[]; // staff_schedules insert 結果を呼び出し順で指定(本insert→restore insert)
-  existingSchedules?: unknown[];   // PUT の delete 前 select で返す既存スケジュール(復元用退避データ)
-  backupError?: unknown;
-  schedInsertSpy?: (rows: unknown) => void; // staff_schedules.insert に渡された行を検証
-  upsertErr?: unknown;             // schedule_overrides upsert error (POST)
-  overrideDeleteErr?: unknown;     // schedule_overrides delete error (DELETE)
-  overrideDeleteData?: unknown;    // schedule_overrides delete後 .select() の data（DELETE件数検証用）
-  upsertSpy?: (row: unknown) => void;
-};
-
-function setupAdmin(cfg: AdminCfg = {}) {
-  const {
-    staff = { id: STAFF_UUID }, bookings = [], overrides = [],
-    schedDeleteErr = null, insertErr = null, insertResults, existingSchedules = null, schedInsertSpy, backupError = null,
-    upsertErr = null, overrideDeleteErr = null, overrideDeleteData, upsertSpy,
-  } = cfg;
-  // staff_schedules は PUT 内で select(退避)→delete→insert→(失敗時)restore insert と
-  // 複数回 admin.from('staff_schedules') される。呼び出し毎に chain() を作り直すと
-  // insertCallIdx がその都度 0 にリセットされ、insertResults の呼び出し順制御(本insert→
-  // restore insert)が壊れる。同一チェーンを使い回して呼び出し順の状態を1本に保つ。
-  const staffSchedulesChain = chain(
-    { data: existingSchedules, error: backupError },
-    { delete: { error: schedDeleteErr }, insert: insertResults ?? { error: insertErr } },
-    { insertSpy: schedInsertSpy },
-  );
-  mockAdminFrom.mockImplementation((table: string) => {
-    if (table === 'staff_profiles') return chain({ data: staff, error: null });
-    if (table === 'bookings') return chain({ data: bookings, error: null });
-    if (table === 'staff_schedules') return staffSchedulesChain;
-    if (table === 'schedule_overrides') {
-      const c = chain({ data: overrides, error: null }, { upsert: { error: upsertErr }, delete: { error: overrideDeleteErr, data: overrideDeleteData } });
-      if (upsertSpy) c.upsert = jest.fn((row: unknown) => { upsertSpy(row); return Promise.resolve({ error: upsertErr }); });
-      return c;
-    }
-    return chain();
-  });
-}
-
-const VALID_SCHEDULE = { schedules: [{ day_of_week: 1, start_time: '09:00', end_time: '18:00' }] };
-
-test.each([null, [{ day_of_week: 1, start_time: '09:00', end_time: '18:00' }]])('PUT: 退避読取がerrorなら返却dataの有無にかかわらず削除・挿入しない', async existingSchedules => {
-  setupAdmin({ existingSchedules, backupError: { message: 'read failed' } } as AdminCfg);
-  const scheduleChain = mockAdminFrom('staff_schedules');
-  const res = await PUT(makeRequest('PUT', { ...VALID_SCHEDULE, force: true }), makeProps());
-  expect(res.status).toBe(500);
-  expect(scheduleChain.delete).not.toHaveBeenCalled();
-  expect(scheduleChain.insert).not.toHaveBeenCalled();
-});
-
 beforeEach(() => {
   jest.clearAllMocks();
-  (checkRateLimit as jest.Mock).mockReturnValue(false);
-  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  setupAdmin();
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+  (checkRateLimit as jest.Mock).mockResolvedValue(false); (checkCsrf as jest.Mock).mockReturnValue(null);
+  mockGetUser.mockResolvedValue({ data: { user: { id: USER } }, error: null });
+  mockAnonFrom.mockReturnValue(chain({ facility_id: FACILITY }));
+  mockAdminFrom.mockReturnValue(chain({ id: STAFF }));
+  mockRpc.mockResolvedValue({ data: { ok: true, replayed: false }, error: null });
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co'; process.env.SUPABASE_SERVICE_ROLE_KEY = 'test';
 });
-
-// ─── auth / verify ────────────────────────────────────────────────────────────
-
-test('PUT: 未認証ユーザー → 401', async () => {
-  mockGetUser.mockResolvedValue({ data: { user: null } });
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
-  expect(res.status).toBe(401);
+test.each([PUT, POST, DELETE])('csrf, rate limiting and invalid staff ID block mutations', async handler => {
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response('{}', { status: 403 }));
+  expect((await handler(request('PUT', body), props())).status).toBe(403);
+  (checkRateLimit as jest.Mock).mockResolvedValueOnce(true);
+  expect((await handler(request('PUT', body), props())).status).toBe(429);
+  expect((await handler(request('PUT', body), props('bad'))).status).toBe(400);
+  expect(mockRpc).not.toHaveBeenCalled();
 });
-
-test('PUT: facility_id なし → 401', async () => {
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE, null), makeProps());
-  expect(res.status).toBe(401);
+test.each([PUT, POST, DELETE])('verified membership and staff tenant required', async handler => {
+  mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: null });
+  expect((await handler(request('PUT', body), props())).status).toBe(401);
+  expect((await handler(request('PUT', body, null), props())).status).toBe(401);
+  expect((await handler(request('PUT', body, 'bad'), props())).status).toBe(401);
+  mockAnonFrom.mockReturnValueOnce(chain(null));
+  expect((await handler(request('PUT', body), props())).status).toBe(401);
+  mockAdminFrom.mockReturnValueOnce(chain(null));
+  expect((await handler(request('PUT', body), props())).status).toBe(401);
+  expect(mockRpc).not.toHaveBeenCalled();
 });
-
-test('PUT: 不正な facility_id UUID → 401', async () => {
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE, 'not-a-uuid'), makeProps());
-  expect(res.status).toBe(401);
+test.each([
+  { schedules: body.schedules },
+  { ...body, operation_id: 'bad' },
+  { ...body, schedules: [{ day_of_week: 7, start_time: '09:00', end_time: '18:00' }] },
+  { ...body, schedules: [{ day_of_week: 1, start_time: '25:00', end_time: '18:00' }] },
+  { ...body, schedules: [{ day_of_week: 1, start_time: '18:00', end_time: '09:00' }] },
+  { ...body, schedules: [body.schedules[0], body.schedules[0]] },
+  null,
+])('PUT rejects malformed schedules before transaction', async payload => {
+  expect((await PUT(request('PUT', payload), props())).status).toBe(400); expect(mockRpc).not.toHaveBeenCalled();
 });
-
-test('PUT: 非管理者 → 401', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle(null));
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
-  expect(res.status).toBe(401);
-});
-
-test('PUT: スタッフが施設に所属しない → 401', async () => {
-  setupAdmin({ staff: null });
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
-  expect(res.status).toBe(401);
-});
-
-// ─── PUT ──────────────────────────────────────────────────────────────────────
-
-test('PUT: 不正UUID → 400', async () => {
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps('bad-id'));
-  expect(res.status).toBe(400);
-});
-
-test('PUT: レートリミット → 429', async () => {
-  (checkRateLimit as jest.Mock).mockReturnValue(true);
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
-  expect(res.status).toBe(429);
-});
-
-test('PUT: end_time が start_time 以前 → 400', async () => {
-  const res = await PUT(makeRequest('PUT', {
-    schedules: [{ day_of_week: 1, start_time: '18:00', end_time: '09:00' }],
-  }), makeProps());
-  expect(res.status).toBe(400);
-});
-
-test('PUT: 正常更新（スケジュールあり・影響予約なし）→ 200', async () => {
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
-  const json = await res.json();
+test('PUT uses one transaction with trusted actor, facility, target, immutable operation and strict force boolean', async () => {
+  const res = await PUT(request('PUT', { ...body, force: 'true' }), props());
   expect(res.status).toBe(200);
-  expect(json.ok).toBe(true);
+  expect(mockRpc).toHaveBeenCalledWith('replace_staff_schedules_atomic', { p_actor_id: USER, p_facility_id: FACILITY, p_staff_id: STAFF, p_operation_id: OP, p_schedules: body.schedules, p_force: false });
+  expect(mockAdminFrom.mock.calls).toEqual([['staff_profiles']]);
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ tableName: 'staff_schedules', facilityId: FACILITY }));
 });
-
-test('PUT: delete DBエラー → 500', async () => {
-  setupAdmin({ schedDeleteErr: { message: 'delete failed' } });
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
-  expect(res.status).toBe(500);
+test('PUT empty schedule/force/replay accepted, no old receipt overwrites a newer schedule', async () => {
+  mockRpc.mockResolvedValue({ data: { ok: true, replayed: true }, error: null });
+  expect((await PUT(request('PUT', { operation_id: OP, schedules: [], force: true }), props())).status).toBe(200);
+  expect(mockRpc).toHaveBeenCalledWith('replace_staff_schedules_atomic', expect.objectContaining({ p_schedules: [], p_force: true }));
 });
-
-test('PUT: insert DBエラー → 500', async () => {
-  setupAdmin({ insertErr: { message: 'insert failed' } });
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
-  expect(res.status).toBe(500);
+test.each([null, {}, { ok: false }, { ok: true }, { code: 'BOOKINGS_AFFECTED', affectedBookings: -1 }])('PUT malformed RPC result is visible failure', async data => {
+  mockRpc.mockResolvedValue({ data, error: null }); expect((await PUT(request('PUT', body), props())).status).toBe(500); expect(writeAuditLog).not.toHaveBeenCalled();
 });
-
-// 【恒久根治の回帰防止】同じ曜日を複数件送ると zod 段階で拒否する（重複は
-// get_available_slots 側の判定を不定にするため）。
-test('PUT: 同じ曜日が重複 → 400', async () => {
-  const res = await PUT(makeRequest('PUT', {
-    schedules: [
-      { day_of_week: 1, start_time: '09:00', end_time: '18:00' },
-      { day_of_week: 1, start_time: '10:00', end_time: '19:00' },
-    ],
-  }), makeProps());
-  expect(res.status).toBe(400);
+test('PUT exact affected booking count comes from final DB transaction', async () => {
+  mockRpc.mockResolvedValue({ data: { code: 'BOOKINGS_AFFECTED', affectedBookings: 2 }, error: null });
+  const res = await PUT(request('PUT', body), props()); expect(res.status).toBe(409);
+  expect(await res.json()).toMatchObject({ code: 'BOOKINGS_AFFECTED', affectedBookings: 2 }); expect(writeAuditLog).not.toHaveBeenCalled();
 });
-
-// 【恒久根治の回帰防止】delete→insert は非アトミック。insert 失敗時に旧スケジュールが
-// 消えたまま残らないよう、delete 前に退避した既存行で復元を試みる。
-test('PUT: insert失敗時、既存スケジュールを退避データで復元する', async () => {
-  const existing = [{ day_of_week: 2, start_time: '10:00:00', end_time: '12:00:00' }];
-  const insertSpyCalls: unknown[] = [];
-  setupAdmin({
-    existingSchedules: existing,
-    insertResults: [{ error: { message: 'insert failed' } }, { error: null }],
-    schedInsertSpy: (rows) => insertSpyCalls.push(rows),
-  });
-
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
-
-  expect(res.status).toBe(500);
-  expect(insertSpyCalls).toHaveLength(2);
-  // 1回目 = 本来の新スケジュール、2回目 = 退避データによる復元
-  expect(insertSpyCalls[1]).toEqual([
-    { staff_id: STAFF_UUID, day_of_week: 2, start_time: '10:00:00', end_time: '12:00:00' },
-  ]);
+test.each([null, { ok: true, replayed: false }])('PUT error rejects accompanying data without compensating I/O', async data => {
+  mockRpc.mockResolvedValue({ data, error: { message: 'transaction insert failed' } });
+  expect((await PUT(request('PUT', body), props())).status).toBe(500); expect(mockRpc).toHaveBeenCalledTimes(1); expect(mockAdminFrom.mock.calls).toEqual([['staff_profiles']]); expect(writeAuditLog).not.toHaveBeenCalled();
 });
-
-// 復元自体も失敗した場合は真のデータロスのため Slack へ通知する。
-test('PUT: insert失敗＋復元も失敗 → alertCaughtError で通知', async () => {
-  const existing = [{ day_of_week: 2, start_time: '10:00:00', end_time: '12:00:00' }];
-  setupAdmin({
-    existingSchedules: existing,
-    insertResults: [{ error: { message: 'insert failed' } }, { error: { message: 'restore failed' } }],
-  });
-
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
-
-  expect(res.status).toBe(500);
-  expect(alertCaughtError).toHaveBeenCalledWith(
-    'staff-schedule-put:restore-failed',
-    { message: 'restore failed' },
-    `staff:${STAFF_UUID}`,
-  );
+test.each([
+  { date: 'bad', is_holiday: false }, { date: '2027-02-30', is_holiday: false },
+  { date: '2099-01-05', is_holiday: false, start_time: '09:00' }, { date: '2099-01-05', is_holiday: false, end_time: '18:00' }, { date: '2099-01-05', is_holiday: false, start_time: '18:00', end_time: '09:00' }, null,
+])('POST validation rejects malformed overrides', async payload => {
+  expect((await POST(request('POST', payload), props())).status).toBe(400); expect(mockRpc).not.toHaveBeenCalled();
 });
-
-// 既存スケジュールが無い(新規スタッフ等)場合は復元対象が無いため insert を1回のみ試みる。
-test('PUT: 既存スケジュール無し＋insert失敗 → 復元は試みない', async () => {
-  const insertSpyCalls: unknown[] = [];
-  setupAdmin({
-    existingSchedules: [],
-    insertErr: { message: 'insert failed' },
-    schedInsertSpy: (rows) => insertSpyCalls.push(rows),
-  });
-
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
-
-  expect(res.status).toBe(500);
-  expect(insertSpyCalls).toHaveLength(1);
+test.each([true, false])('POST override final impact check and upsert share one DB transaction', async holiday => {
+  expect((await POST(request('POST', { date: '2099-01-05', is_holiday: holiday, start_time: '09:00', end_time: '18:00', force: true }), props())).status).toBe(201);
+  expect(mockRpc).toHaveBeenCalledWith('save_staff_override_atomic', { p_actor_id: USER, p_facility_id: FACILITY, p_staff_id: STAFF, p_date: '2099-01-05', p_is_holiday: holiday, p_start_time: holiday ? null : '09:00', p_end_time: holiday ? null : '18:00', p_force: true });
 });
-
-test('PUT: 正常更新（空スケジュール）→ 200', async () => {
-  const res = await PUT(makeRequest('PUT', { schedules: [] }), makeProps());
-  expect(res.status).toBe(200);
+test('POST unspecified times retain weekly fallback', async () => {
+  expect((await POST(request('POST', { date: '2099-01-05', is_holiday: false }), props())).status).toBe(201);
+  expect(mockRpc).toHaveBeenCalledWith('save_staff_override_atomic', expect.objectContaining({ p_start_time: null, p_end_time: null, p_force: false }));
 });
-
-// ─── PUT: G7 ガード ──────────────────────────────────────────────────────────
-
-test('PUT: 曜日削除で不在になる予約あり → 409 BOOKINGS_AFFECTED', async () => {
-  // 火曜の予約があるが新スケジュールは月曜のみ → 火曜が休みになり不在
-  setupAdmin({ bookings: [{ booking_date: TUESDAY, start_time: '10:00:00', end_time: '11:00:00' }] });
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
-  const json = await res.json();
-  expect(res.status).toBe(409);
-  expect(json.code).toBe('BOOKINGS_AFFECTED');
-  expect(json.affectedBookings).toBe(1);
+test('POST booking impact never writes/audits', async () => {
+  mockRpc.mockResolvedValue({ data: { code: 'BOOKINGS_AFFECTED', affectedBookings: 1 }, error: null });
+  expect((await POST(request('POST', { date: '2099-01-05', is_holiday: true }), props())).status).toBe(409); expect(writeAuditLog).not.toHaveBeenCalled();
 });
-
-test('PUT: 勤務時間外へはみ出す予約あり → 409', async () => {
-  // 月曜だが 08:00 開始で新勤務(09:00-18:00)の外
-  setupAdmin({ bookings: [{ booking_date: MONDAY, start_time: '08:00:00', end_time: '09:30:00' }] });
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
-  expect(res.status).toBe(409);
+test.each([{ data: { ok: true }, error: { message: 'db failed' } }, { data: null, error: null }])('POST db error/malformed result cannot look successful', async result => {
+  mockRpc.mockResolvedValue(result); expect((await POST(request('POST', { date: '2099-01-05', is_holiday: true }), props())).status).toBe(500); expect(writeAuditLog).not.toHaveBeenCalled();
 });
-
-test('PUT: 新勤務時間内に収まる予約 → 影響なし 200', async () => {
-  setupAdmin({ bookings: [{ booking_date: MONDAY, start_time: '10:00:00', end_time: '11:00:00' }] });
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
-  expect(res.status).toBe(200);
+test('DELETE malformed id rejected', async () => { expect((await DELETE(request('DELETE', { override_id: 'bad' }), props())).status).toBe(400); expect(mockRpc).not.toHaveBeenCalled(); });
+test.each([true, false, null])('DELETE validates exact transaction outcome', async data => {
+  mockRpc.mockResolvedValue({ data, error: null });
+  expect((await DELETE(request('DELETE', { override_id: OV }), props())).status).toBe(data === true ? 200 : data === false ? 404 : 500);
+  expect(mockRpc).toHaveBeenCalledWith('delete_staff_override_atomic', { p_actor_id: USER, p_facility_id: FACILITY, p_staff_id: STAFF, p_override_id: OV });
 });
-
-test('PUT: 影響予約が override 日にある → 対象外(200)', async () => {
-  // 火曜の予約だが、その日は override 設定済み → 週間変更の対象外
-  setupAdmin({
-    bookings: [{ booking_date: TUESDAY, start_time: '10:00:00', end_time: '11:00:00' }],
-    overrides: [{ date: TUESDAY }],
-  });
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
-  expect(res.status).toBe(200);
-});
-
-test('PUT: 影響予約あり + force:true → 実行(200)', async () => {
-  setupAdmin({ bookings: [{ booking_date: TUESDAY, start_time: '10:00:00', end_time: '11:00:00' }] });
-  const res = await PUT(makeRequest('PUT', { ...VALID_SCHEDULE, force: true }), makeProps());
-  expect(res.status).toBe(200);
-});
-
-test('PUT: bookings/overrides クエリが null → ?? [] で 0件扱い 200', async () => {
-  setupAdmin({ bookings: null as unknown as unknown[], overrides: null as unknown as unknown[] });
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
-  expect(res.status).toBe(200);
-});
-
-// ─── POST ─────────────────────────────────────────────────────────────────────
-
-test('POST: 不正UUID → 400', async () => {
-  const res = await POST(makeRequest('POST', { date: MONDAY, is_holiday: false }), makeProps('bad-id'));
-  expect(res.status).toBe(400);
-});
-
-test('POST: date 不正形式 → 400', async () => {
-  const res = await POST(makeRequest('POST', { date: '2026/01/15', is_holiday: false }), makeProps());
-  expect(res.status).toBe(400);
-});
-
-test('POST: 終了時間が開始時間より前 → 400', async () => {
-  const res = await POST(makeRequest('POST', {
-    date: MONDAY, is_holiday: false, start_time: '18:00', end_time: '09:00',
-  }), makeProps());
-  expect(res.status).toBe(400);
-});
-
-test('POST: 正常作成（休日・影響予約なし）→ 201', async () => {
-  const res = await POST(makeRequest('POST', { date: MONDAY, is_holiday: true }), makeProps());
-  expect(res.status).toBe(201);
-});
-
-test('POST: 正常作成（勤務・影響予約なし）→ 201', async () => {
-  const res = await POST(makeRequest('POST', {
-    date: MONDAY, is_holiday: false, start_time: '09:00', end_time: '18:00',
-  }), makeProps());
-  expect(res.status).toBe(201);
-});
-
-test('POST: upsert DBエラー → 500', async () => {
-  setupAdmin({ upsertErr: { message: 'upsert failed' } });
-  const res = await POST(makeRequest('POST', { date: MONDAY, is_holiday: true }), makeProps());
-  expect(res.status).toBe(500);
-});
-
-test('POST: is_holiday=true → times not included in row', async () => {
-  let upsertArgs: unknown;
-  setupAdmin({ upsertSpy: (row) => { upsertArgs = row; } });
-  await POST(makeRequest('POST', { date: MONDAY, is_holiday: true, start_time: '09:00', end_time: '18:00' }), makeProps());
-  expect((upsertArgs as { start_time?: unknown }).start_time).toBeUndefined();
-  expect((upsertArgs as { end_time?: unknown }).end_time).toBeUndefined();
-});
-
-test('POST: is_holiday=false で start/end 未指定でも upsert される', async () => {
-  const res = await POST(makeRequest('POST', { date: MONDAY, is_holiday: false }), makeProps());
-  expect(res.status).toBe(201);
-});
-
-// ─── POST: G7 ガード ─────────────────────────────────────────────────────────
-
-test('POST: 休日化でその日の予約あり → 409 BOOKINGS_AFFECTED', async () => {
-  setupAdmin({ bookings: [{ start_time: '10:00:00', end_time: '11:00:00' }] });
-  const res = await POST(makeRequest('POST', { date: MONDAY, is_holiday: true }), makeProps());
-  const json = await res.json();
-  expect(res.status).toBe(409);
-  expect(json.code).toBe('BOOKINGS_AFFECTED');
-  expect(json.affectedBookings).toBe(1);
-});
-
-test('POST: 休日化 + force:true → 実行(201)', async () => {
-  setupAdmin({ bookings: [{ start_time: '10:00:00', end_time: '11:00:00' }] });
-  const res = await POST(makeRequest('POST', { date: MONDAY, is_holiday: true, force: true }), makeProps());
-  expect(res.status).toBe(201);
-});
-
-test('POST: 時間変更で新時間外の予約あり → 409', async () => {
-  setupAdmin({ bookings: [{ start_time: '08:00:00', end_time: '09:00:00' }] });
-  const res = await POST(makeRequest('POST', {
-    date: MONDAY, is_holiday: false, start_time: '09:00', end_time: '18:00',
-  }), makeProps());
-  expect(res.status).toBe(409);
-});
-
-test('POST: 時間変更でも新時間内の予約は影響なし → 201', async () => {
-  setupAdmin({ bookings: [{ start_time: '10:00:00', end_time: '11:00:00' }] });
-  const res = await POST(makeRequest('POST', {
-    date: MONDAY, is_holiday: false, start_time: '09:00', end_time: '18:00',
-  }), makeProps());
-  expect(res.status).toBe(201);
-});
-
-test('POST: bookings クエリが null → ?? [] で 0件扱い 201', async () => {
-  setupAdmin({ bookings: null as unknown as unknown[] });
-  const res = await POST(makeRequest('POST', { date: MONDAY, is_holiday: true }), makeProps());
-  expect(res.status).toBe(201);
-});
-
-// ─── DELETE ───────────────────────────────────────────────────────────────────
-
-test('DELETE: override_id が非RFC4122UUID → 400', async () => {
-  const res = await DELETE(makeRequest('DELETE', { override_id: 'bad-uuid' }), makeProps());
-  expect(res.status).toBe(400);
-});
-
-test('DELETE: DB失敗 → 500', async () => {
-  setupAdmin({ overrideDeleteErr: { message: 'DB error' } });
-  const res = await DELETE(makeRequest('DELETE', { override_id: OVERRIDE_UUID }), makeProps());
-  expect(res.status).toBe(500);
-});
-
-// 【2026年7月10日 恒久根治の回帰】他スタッフのoverride_idを指定した0件削除
-// （staff_id不一致）が「成功」と偽装されないことを検証する（phantom success の再発防止）。
-test('DELETE: 0件削除（他スタッフのoverride_id等）→ 404（成功と偽装しない）', async () => {
-  setupAdmin({ overrideDeleteData: [] });
-  const res = await DELETE(makeRequest('DELETE', { override_id: OVERRIDE_UUID }), makeProps());
-  expect(res.status).toBe(404);
-});
-
-test('DELETE: 正常削除 → 200', async () => {
-  const res = await DELETE(makeRequest('DELETE', { override_id: OVERRIDE_UUID }), makeProps());
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.ok).toBe(true);
-});
-
-// ─── CSRF / rate limit / JSON / その他分岐 ────────────────────────────────────
-
-test('PUT: CSRFエラー → そのまま返却', async () => {
-  const csrfRes = new Response('csrf', { status: 403 });
-  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
-  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
-  expect(res).toBe(csrfRes);
-});
-
-test('POST: CSRFエラー → そのまま返却', async () => {
-  const csrfRes = new Response('csrf', { status: 403 });
-  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
-  const res = await POST(makeRequest('POST', { date: MONDAY, is_holiday: true }), makeProps());
-  expect(res).toBe(csrfRes);
-});
-
-test('DELETE: CSRFエラー → そのまま返却', async () => {
-  const csrfRes = new Response('csrf', { status: 403 });
-  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
-  const res = await DELETE(makeRequest('DELETE', { override_id: OVERRIDE_UUID }), makeProps());
-  expect(res).toBe(csrfRes);
-});
-
-test('POST: レートリミット → 429', async () => {
-  (checkRateLimit as jest.Mock).mockReturnValue(true);
-  const res = await POST(makeRequest('POST', { date: MONDAY, is_holiday: true }), makeProps());
-  expect(res.status).toBe(429);
-});
-
-test('DELETE: レートリミット → 429', async () => {
-  (checkRateLimit as jest.Mock).mockReturnValue(true);
-  const res = await DELETE(makeRequest('DELETE', { override_id: OVERRIDE_UUID }), makeProps());
-  expect(res.status).toBe(429);
-});
-
-test('DELETE: 不正な params.id UUID → 400', async () => {
-  const res = await DELETE(makeRequest('DELETE', { override_id: OVERRIDE_UUID }), makeProps('bad-id'));
-  expect(res.status).toBe(400);
-});
-
-test('PUT: 不正な JSON body → 400', async () => {
-  const url = new URL(`http://localhost/api/admin/staff/${STAFF_UUID}/schedule`);
-  url.searchParams.set('facility_id', FACILITY_UUID);
-  const req = new NextRequest(url.toString(), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: 'not-json' });
-  const res = await PUT(req, makeProps());
-  expect(res.status).toBe(400);
-});
-
-test('POST: 不正な JSON body → 400', async () => {
-  const url = new URL(`http://localhost/api/admin/staff/${STAFF_UUID}/schedule`);
-  url.searchParams.set('facility_id', FACILITY_UUID);
-  const req = new NextRequest(url.toString(), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: 'not-json' });
-  const res = await POST(req, makeProps());
-  expect(res.status).toBe(400);
-});
-
-test('DELETE: 不正な JSON body → 400', async () => {
-  const url = new URL(`http://localhost/api/admin/staff/${STAFF_UUID}/schedule`);
-  url.searchParams.set('facility_id', FACILITY_UUID);
-  const req = new NextRequest(url.toString(), { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: 'not-json' });
-  const res = await DELETE(req, makeProps());
-  expect(res.status).toBe(400);
-});
-
-test('POST: 非管理者 (memberSingle null) → 401', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle(null));
-  const res = await POST(makeRequest('POST', { date: MONDAY, is_holiday: true }), makeProps());
-  expect(res.status).toBe(401);
-});
-
-test('POST: スタッフが施設に所属しない → 401', async () => {
-  setupAdmin({ staff: null });
-  const res = await POST(makeRequest('POST', { date: MONDAY, is_holiday: true }), makeProps());
-  expect(res.status).toBe(401);
-});
-
-test('DELETE: 非管理者 (memberSingle null) → 401', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle(null));
-  const res = await DELETE(makeRequest('DELETE', { override_id: OVERRIDE_UUID }), makeProps());
-  expect(res.status).toBe(401);
-});
-
-test('DELETE: スタッフが施設に所属しない → 401', async () => {
-  setupAdmin({ staff: null });
-  const res = await DELETE(makeRequest('DELETE', { override_id: OVERRIDE_UUID }), makeProps());
-  expect(res.status).toBe(401);
-});
-
-test('PUT: x-forwarded-for ヘッダから IP 取得', async () => {
-  const url = new URL(`http://localhost/api/admin/staff/${STAFF_UUID}/schedule`);
-  url.searchParams.set('facility_id', FACILITY_UUID);
-  const req = new NextRequest(url.toString(), {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.4, 5.6.7.8' },
-    body: JSON.stringify(VALID_SCHEDULE),
-  });
-  const res = await PUT(req, makeProps());
-  expect(res.status).toBe(200);
+test('DELETE error beats accompanying success', async () => {
+  mockRpc.mockResolvedValue({ data: true, error: { message: 'delete failed' } }); expect((await DELETE(request('DELETE', { override_id: OV }), props())).status).toBe(500); expect(writeAuditLog).not.toHaveBeenCalled();
 });

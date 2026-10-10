@@ -11,6 +11,8 @@ import { prefectures, SITE_URL } from '@/lib/constants';
 import Toast from '@/components/Toast';
 import { isLineLoginEnabled } from '@/lib/line-availability';
 import { safeRedirect } from '@/lib/safe-redirect';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import { useClientReady } from '@/lib/use-client-ready';
 
 const RESEND_COOLDOWN_SECONDS = 60;
 
@@ -53,6 +55,7 @@ export default function SignupPage() {
 function SignupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const clientReady = useClientReady();
   // 🔴 P0-4（docs/register-blocker-instructions.md §3）: 旧ガード
   // `raw.startsWith('/') && !raw.startsWith('//')` は `/\evil.com` を通してしまう
   // （URLパーサがバックスラッシュを `/` に正規化し、Next 16.3.0 の router.push が
@@ -81,7 +84,7 @@ function SignupContent() {
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
   const authOperationInFlight = useRef(false);
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
+  const { register, handleSubmit, getValues, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
   });
 
@@ -91,8 +94,8 @@ function SignupContent() {
     let active = true;
     const checkSession = async () => {
       try {
-        const { data: { user } } = await createBrowserSupabaseClient().auth.getUser();
-        if (active && user) router.replace(redirect);
+        const identity = await verifyAuthUser(createBrowserSupabaseClient().auth);
+        if (active && identity.state === 'verified') router.replace(redirect);
       } catch {
         // 初期確認の接続失敗でも登録フォームは利用可能に保つ。
       }
@@ -193,6 +196,10 @@ function SignupContent() {
   };
 
   const startGoogleSignup = async () => {
+    if (getValues('terms_agreed') !== true) {
+      setToast({ type: 'error', message: 'Googleで登録する場合も、利用規約とプライバシーポリシーへの同意が必要です。' });
+      return;
+    }
     if (authOperationInFlight.current) return;
     authOperationInFlight.current = true;
     setIsGoogleSigningIn(true);
@@ -233,6 +240,7 @@ function SignupContent() {
   return (
     <>
           <form onSubmit={(event) => { void handleSubmit(onSubmit)(event); }} noValidate className="space-y-4">
+            <fieldset disabled={!clientReady} className="space-y-4">
             <div>
               <label htmlFor="signup-name" className="form-label">お名前 <span className="text-red-500">*</span></label>
               <p id="signup-name-help" className="mt-1 text-xs text-gray-500">1〜50文字で入力してください。</p>
@@ -359,22 +367,20 @@ function SignupContent() {
               {errors.password_confirm && <p id="signup-password-confirm-error" className="form-error" role="alert">{errors.password_confirm.message}</p>}
             </div>
 
+            <label htmlFor="signup-terms" className="flex items-start gap-2 text-sm text-gray-600">
+              <input {...register('terms_agreed')} id="signup-terms" type="checkbox" aria-required="true"
+                aria-invalid={Boolean(errors.terms_agreed)} aria-describedby={errors.terms_agreed ? 'signup-terms-error' : undefined}
+                className="mt-0.5 rounded-sm border-gray-300" />
+              <span><Link href="/terms" target="_blank" rel="noopener noreferrer" className="text-sky-700 underline">利用規約</Link>
+                および<Link href="/privacy" target="_blank" rel="noopener noreferrer" className="text-sky-700 underline">プライバシーポリシー</Link>に同意する（必須）</span>
+            </label>
+            {errors.terms_agreed && <p id="signup-terms-error" className="form-error" role="alert">{errors.terms_agreed.message}</p>}
             <button type="submit" disabled={isSubmitting || isGoogleSigningIn} className="btn-primary w-full py-3!">
               {isSubmitting ? '登録中...' : '新規登録'}
             </button>
+            </fieldset>
           </form>
 
-          <p className="mt-3 text-center text-xs text-gray-600">
-            登録前に
-            <Link href="/terms" target="_blank" rel="noopener noreferrer" className="mx-1 text-sky-700 underline">
-              利用規約
-            </Link>
-            と
-            <Link href="/privacy" target="_blank" rel="noopener noreferrer" className="mx-1 text-sky-700 underline">
-              プライバシーポリシー
-            </Link>
-            をご確認ください。
-          </p>
 
           <div className="my-6">
             <div className="relative">
@@ -408,7 +414,7 @@ function SignupContent() {
           <button
             type="button"
             onClick={startGoogleSignup}
-            disabled={isGoogleSigningIn || isSubmitting}
+            disabled={!clientReady || isGoogleSigningIn || isSubmitting}
             className="flex items-center justify-center gap-2 w-full py-3 mt-3 rounded-lg border border-gray-300 text-gray-700 font-bold hover:bg-gray-50 transition-colors"
           >
             <svg width="18" height="18" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>

@@ -5,8 +5,10 @@ import RegisterForm from '@/components/register/RegisterForm';
 import { SALON_BROWSER_CONTEXT_KEY } from '@/lib/salon-browser-context';
 const mockRouter = { push: jest.fn() };
 const mockExport = jest.fn(); const mockImport = jest.fn(); const mockLegacyUpload = jest.fn(); const mockSignedUpload = jest.fn(); const mockCaptcha = jest.fn();
+const mockReadLocal = jest.fn();
 jest.mock('next/navigation', () => ({ useRouter: () => mockRouter }));
 jest.mock('@/lib/salon-draft-backup', () => ({ exportSalonDraftBackup: (...args: unknown[]) => mockExport(...args), importSalonDraftBackup: (...args: unknown[]) => mockImport(...args) }));
+jest.mock('@/lib/salon-local-draft', () => ({ ...jest.requireActual('@/lib/salon-local-draft'), readLocalSalonDraft: () => mockReadLocal() }));
 jest.mock('@/lib/recaptcha-client', () => ({ getRecaptchaToken: () => mockCaptcha() }));
 jest.mock('@/lib/image-compress', () => ({ compressImage: async (file: File) => file }));
 jest.mock('@/lib/supabase', () => ({ supabase: { storage: { from: () => ({ upload: mockLegacyUpload, uploadToSignedUrl: mockSignedUpload, remove: jest.fn(), getPublicUrl: () => ({ data: { publicUrl: 'https://fixture.invalid/original.png' } }) }) } } }));
@@ -18,6 +20,7 @@ const response = (status: number, body: unknown) => ({ status, ok: status >= 200
 let request: jest.Mock;
 beforeEach(() => {
   jest.clearAllMocks(); sessionStorage.clear(); request = jest.fn(); global.fetch = request;
+  mockReadLocal.mockResolvedValue(null);
   mockExport.mockResolvedValue(new Blob(['backup'], { type: 'application/json' })); mockCaptcha.mockResolvedValue('fresh-captcha');
   Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: jest.fn(() => 'blob:fixture') });
   Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: jest.fn() });
@@ -123,7 +126,7 @@ test.each([{ statusCode: '403', message: 'new row violates row-level security po
 test('signed photo-token issue failure after manual retry retains originals and never commits', async () => {
   mockLegacyUpload.mockResolvedValue({ error: { code: '42501' } }); await fill(); const original = new File(['original'], 'original.png', { type: 'image/png' });
   fireEvent.change(screen.getByLabelText('外観の写真を選択'), { target: { files: [original] } }); await submit();
-  request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId })).mockResolvedValueOnce(response(503, { state: 'unavailable' }));
+  request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 10485760, mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] } })).mockResolvedValueOnce(response(503, { state: 'unavailable' }));
   fireEvent.click(await screen.findByRole('button', { name: '安全なアップロードで再試行' })); await screen.findByText(/送信の準備が完了していません/);
   expect(request.mock.calls.map(([path]) => path)).toEqual(['/api/salons/prepare', '/api/salons/photos']); expect(mockSignedUpload).not.toHaveBeenCalled();
   expect(await screen.findByAltText('外観')).toBeVisible(); expect(restore()).toBeDisabled(); expect(download()).toBeEnabled();
@@ -195,4 +198,22 @@ test('known V1 acceptance latches until redirect and blocks backup/import/re-sub
   fireEvent.click(download()); fireEvent.change(restore(), { target: { files: [draftFile] } }); fireEvent.click(screen.getByRole('button', { name: '登録する' }));
   await act(async () => { await Promise.resolve(); });
   expect(mockExport).not.toHaveBeenCalled(); expect(mockImport).not.toHaveBeenCalled(); expect(request.mock.calls.map(([path]) => path)).toEqual(['/api/salons']);
+});
+
+test.each(['locked','unavailable'])('manual file restoration cannot bypass a durable %s fence after session storage loss', async kind => {
+ await mount(); fireEvent.change(screen.getByLabelText(/^施設名/), { target: { value: 'Unchanged unsent input' } });
+ mockReadLocal.mockImplementation(async () => { if (kind === 'unavailable') throw new Error('unknown local state'); return { state: 'locked' }; });
+ fireEvent.change(restore(), { target: { files: [draftFile] } });
+ await screen.findByText(/下書きを復元できませんでした/);
+ expect(mockImport).not.toHaveBeenCalled(); expect(screen.getByLabelText(/^施設名/)).toHaveValue('Unchanged unsent input');
+ expect(request).not.toHaveBeenCalled(); expect(mockCaptcha).not.toHaveBeenCalled();
+});
+
+test('a durable fence acquired while a portable backup is decoded prevents all input changes', async () => {
+ await mount(); fireEvent.change(screen.getByLabelText(/^施設名/), { target: { value: 'Original input' } });
+ mockReadLocal.mockResolvedValueOnce(null).mockResolvedValueOnce({ state: 'locked' });
+ mockImport.mockResolvedValue({ values: validValues, photos: Array(7).fill(null) });
+ fireEvent.change(restore(), { target: { files: [draftFile] } });
+ await screen.findByText(/下書きを復元できませんでした/);
+ expect(screen.getByLabelText(/^施設名/)).toHaveValue('Original input'); expect(request).not.toHaveBeenCalled();
 });

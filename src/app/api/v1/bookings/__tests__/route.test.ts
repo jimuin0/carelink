@@ -268,7 +268,7 @@ describe('GET /api/v1/bookings', () => {
     expect(res.status).toBe(403);
   });
 
-  test('wildcard scope * allows cross-facility', async () => {
+  test('wildcard scope * cannot access another facility', async () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     let cc = 0;
     createServiceRoleClient.mockImplementation(() => {
@@ -294,7 +294,8 @@ describe('GET /api/v1/bookings', () => {
       return { from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ range: jest.fn().mockReturnValue(chain) }) }) }) }) };
     });
     const res = await GET(makeRequest('test-api-key', '?facility_id=different-facility') as any);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
+    expect(cc).toBe(1);
   });
 
   test('Authorization not Bearer scheme → 401', async () => {
@@ -452,4 +453,31 @@ describe('GET /api/v1/bookings', () => {
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(500);
   });
+});
+
+function scopedClient(scopes: string[] = ['*'], keyError: unknown = null, keyData: unknown = undefined) {
+  const principal={facility_id:'fac-123',scopes,is_active:true,expires_at:null};
+  const c: any={};
+  for(const method of ['select','eq','order','range','gte','lte'])c[method]=jest.fn(()=>c);
+  c.single=jest.fn(async()=>({data:keyData===undefined?principal:keyData,error:keyError}));
+  c.then=(resolve:any)=>Promise.resolve({data:[],error:null,count:0}).then(resolve);
+  const client={from:jest.fn(()=>c),rpc:jest.fn(async()=>({data:[],error:null}))};
+  require('@/lib/supabase-server').createServiceRoleClient.mockReturnValue(client);
+  return {client,c};
+}
+test.each(['*','bookings:read'])('facility-bound %s key rejects another tenant before any data read',async scope=>{
+ const {client}=scopedClient([scope]);const res=await GET(makeRequest('synthetic-key','?facility_id=fac-other') as any);
+ expect(res.status).toBe(403);expect(client.from.mock.calls.map((call:any[])=>call[0])).toEqual(['api_keys']);expect(client.rpc).not.toHaveBeenCalled();
+});
+test.each(['','?facility_id=fac-123'])('wildcard grants operations only inside its bound facility: %s',async query=>{
+ const {c}=scopedClient();const res=await GET(makeRequest('synthetic-key',query) as any);expect(res.status).toBe(200);
+ expect(c.eq).toHaveBeenCalledWith('facility_id','fac-123');expect((await res.json()).facility_id).toBe('fac-123');
+});
+test.each([null,{facility_id:'fac-123',scopes:['*'],is_active:true,expires_at:null}])('key lookup error with/without data never grants access',async data=>{
+ const {client}=scopedClient(['*'],{code:'DB_UNAVAILABLE',message:'synthetic error'},data);
+ expect((await GET(makeRequest() as any)).status).toBe(500);expect(client.from.mock.calls.map((call:any[])=>call[0])).toEqual(['api_keys']);expect(client.rpc).not.toHaveBeenCalled();
+});
+test('normal missing-key PGRST116 is401 but accompanying data isunconfirmed500',async()=>{
+ scopedClient(['*'],{code:'PGRST116'},null);expect((await GET(makeRequest() as any)).status).toBe(401);
+ scopedClient(['*'],{code:'PGRST116'},{facility_id:'fac-123',scopes:['*'],is_active:true,expires_at:null});expect((await GET(makeRequest() as any)).status).toBe(500);
 });

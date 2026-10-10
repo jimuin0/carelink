@@ -244,3 +244,18 @@ test('POST: POST レートリミット params (5/60s)', async () => {
   expect(postCall).toBeDefined();
   expect(postCall[3]).toBe(60_000);
 });
+
+
+test.each([7, 'x'.repeat(100001)])('POST: invalid plaintext content cannot create an unpublishable draft', async text_content => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  const res = await POST(makePostRequest(validPostBody({ text_content })));
+  expect(res.status).toBe(400); expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+test('POST: valid plaintext is retained for the immutable delivery envelope', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  const stored = { id: 'camp-text', text_content: 'Synthetic plaintext', status: 'draft' };
+  const chain = insertCampaignSingle(stored); mockAdminFrom.mockReturnValue(chain);
+  const res = await POST(makePostRequest(validPostBody({ text_content: stored.text_content })));
+  expect(res.status).toBe(201); expect((await res.json()).campaign.text_content).toBe(stored.text_content);
+  expect(chain.insert).toHaveBeenCalledWith(expect.objectContaining({ text_content: stored.text_content }));
+});

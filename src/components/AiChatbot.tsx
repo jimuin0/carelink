@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { getRecaptchaToken, RecaptchaClientError, RECAPTCHA_CLIENT_UNAVAILABLE_MESSAGE } from '@/lib/recaptcha-client';
+import { CLIENT_CLEANUP_COMPLETED_EVENT, CLIENT_CLEANUP_GENERATION_KEY } from '@/lib/client-cleanup-marker';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -20,8 +22,31 @@ export default function AiChatbot() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [unread, setUnread] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const inFlight = useRef(false);
+  const cleanupEpoch = useRef(0);
+  const activeController = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const clear = () => {
+      cleanupEpoch.current += 1;
+      activeController.current?.abort(); activeController.current = null;
+      inFlight.current = false;
+      setMessages([]); setInput(''); setErrorMessage(null); setLoading(false); setUnread(false); setOpen(false);
+    };
+    const fromOtherTab = (event: StorageEvent) => {
+      if (event.key === CLIENT_CLEANUP_GENERATION_KEY && event.newValue !== null) clear();
+    };
+    window.addEventListener(CLIENT_CLEANUP_COMPLETED_EVENT, clear);
+    window.addEventListener('storage', fromOtherTab);
+    return () => {
+      window.removeEventListener(CLIENT_CLEANUP_COMPLETED_EVENT, clear);
+      window.removeEventListener('storage', fromOtherTab);
+      cleanupEpoch.current += 1; activeController.current?.abort();
+    };
+  }, []);
 
   // 未読バッジのクリアは「開くボタンを押した」というイベントに対する更新であり、
   // effect で open の変化を監視して同期させる必要はない（React Compiler の
@@ -38,33 +63,49 @@ export default function AiChatbot() {
   }, [messages]);
 
   const sendMessage = useCallback(async (text: string) => {
-    if (!text.trim() || loading) return;
+    if (!text.trim() || loading || inFlight.current) return;
+    inFlight.current = true;
+    const epoch = cleanupEpoch.current;
     const userMsg: Message = { role: 'user', content: text.trim() };
     const newMessages = [...messages, userMsg];
-    setMessages(newMessages);
-    setInput('');
+    setErrorMessage(null);
+    setInput(text.trim());
     setLoading(true);
+    const controller = new AbortController();
+    activeController.current = controller;
+    const timeout = setTimeout(() => controller.abort(), 30_000);
 
     try {
+      const token = await getRecaptchaToken('chat');
+      if (epoch !== cleanupEpoch.current) return;
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newMessages }),
+        body: JSON.stringify({ messages: newMessages, ...(token ? { recaptcha_token: token } : {}) }),
+        signal: controller.signal,
       });
       // res.ok を検証せず data.reply を表示すると、HTTPエラー（429/400/503）でも
       // フォールバック文言が「正常なAI返答」として表示され、障害がユーザーに伝わらない（成功偽装）。
-      const data: { reply?: string } = await res.json().catch(() => ({}));
-      const reply = res.ok
-        ? (data.reply || 'すみません、うまく回答できませんでした。')
-        : res.status === 429
-          ? '混み合っています。少し時間をおいて再度お試しください。'
-          : 'エラーが発生しました。もう一度お試しください。';
-      setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
+      const data: { reply?: unknown; code?: unknown } = await res.json().catch(() => ({}));
+      if (epoch !== cleanupEpoch.current) return;
+      if (!res.ok || typeof data.reply !== 'string' || !data.reply.trim()) {
+        setErrorMessage(res.status === 429 ? (data.code === 'CHAT_GLOBAL_QUOTA_LIMIT'
+          ? '24時間のAI利用上限に達しました。入力を保持しました。時間をおいて再試行してください。'
+          : '混み合っています。入力を保持しました。時間をおいて再試行してください。')
+          : '回答を確認できませんでした。入力を保持しました。時間をおいて再試行してください。');
+        return;
+      }
+      setMessages([...newMessages, { role: 'assistant', content: data.reply }]);
+      setInput(current => current === userMsg.content ? '' : current);
       if (!open) setUnread(true);
-    } catch {
-      setMessages((prev) => [...prev, { role: 'assistant', content: '通信エラーが発生しました。もう一度お試しください。' }]);
+    } catch (error) {
+      if (epoch !== cleanupEpoch.current) return;
+      setErrorMessage(error instanceof RecaptchaClientError ? RECAPTCHA_CLIENT_UNAVAILABLE_MESSAGE
+        : '通信エラーが発生しました。入力を保持しました。時間をおいて再試行してください。');
     } finally {
-      setLoading(false);
+      clearTimeout(timeout);
+      if (activeController.current === controller) activeController.current = null;
+      if (epoch === cleanupEpoch.current) { inFlight.current = false; setLoading(false); }
     }
   }, [messages, loading, open]);
 
@@ -101,6 +142,7 @@ export default function AiChatbot() {
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {errorMessage && <p role="alert" className="text-sm text-red-700">{errorMessage}</p>}
             {messages.length === 0 && (
               <div className="space-y-3">
                 <div className="flex justify-start">

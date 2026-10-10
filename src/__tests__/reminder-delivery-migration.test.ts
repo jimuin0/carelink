@@ -5,6 +5,8 @@ import { join } from 'path';
 const sql = readFileSync(join(process.cwd(), 'supabase/migrations/20260921000001_reminder_delivery_reconciliation.sql'), 'utf8');
 const schema = JSON.parse(readFileSync(join(process.cwd(), 'src/lib/schema-snapshot.json'), 'utf8'));
 const route = readFileSync(join(process.cwd(), 'src/app/api/cron/booking-reminder/route.ts'), 'utf8');
+const proofMigration = readFileSync(join(process.cwd(), 'supabase/migrations/20261009023828_verified_liff_line_ownership.sql'), 'utf8');
+const lineResolver = readFileSync(join(process.cwd(), 'src/lib/line-link.ts'), 'utf8');
 
 test('追加migrationは旧claimを保持し、匿名/一般ユーザーにRPCを公開しない', () => {
   expect(sql).toContain("DEFAULT 'legacy'");
@@ -41,7 +43,14 @@ test('全通知種別で空文字宛先を上限適用前に除外し、送信�
     expect(candidate).toContain("p.line_user_id IS NOT NULL AND p.line_user_id <> ''");
   }
   expect(route).toContain('if (booking.email) plan.push');
-  expect(route).toContain('if (l.id && l.line_user_id) lineMap.set');
+  expect(route).toContain('await resolveLineUserIdsForUsers(supabase, lineCandidateUserIds.slice(i, i + IN_CHUNK))');
+  expect(route).toContain('for (const [userId, lineId] of verified) lineMap.set(userId, lineId)');
+  expect(lineResolver).toContain(".from('line_user_links')");
+  expect(lineResolver).toContain('byUser.get(link.user_id) === link.line_user_id');
+  expect(lineResolver).toContain('link.proof_version === 1');
+  expect(lineResolver).toContain('Number.isFinite(Date.parse(link.verified_at))');
+  expect(proofMigration).toContain('l.user_id=b.user_id AND l.line_user_id=p.line_user_id AND l.proof_version=1 AND l.verified_at IS NOT NULL');
+  expect(proofMigration).toContain("replace(definition,old_candidate,'l.user_id IS NOT NULL')");
 });
 
 test('実DB fixtureは使い捨てshadowだけで全件rollbackし、fresh-apply後にCIから実行される', () => {
@@ -52,6 +61,10 @@ test('実DB fixtureは使い捨てshadowだけで全件rollbackし、fresh-apply
   expect(fixture).toMatch(/BEGIN;[\s\S]*ROLLBACK;/);
   expect(fixture).not.toMatch(/\bCOMMIT;/);
   for (const role of ['anon', 'authenticated', 'service_role']) expect(fixture).toContain(`SET LOCAL ROLE ${role};`);
+  expect(fixture).toContain('public.bind_verified_liff_account_atomic(');
+  expect(fixture).toContain('proof_version=1 AND verified_at IS NOT NULL');
+  expect(fixture).toContain("ARRAY['01','08','09','10','12']");
+  expect(fixture).toContain('generate_series(1, 5001)');
   expect(workflow).toContain('psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/reminder-delivery-fixtures.sql');
   expect(workflow.indexOf('bash scripts/gen-schema-fingerprint.sh --check')).toBeLessThan(workflow.indexOf('-f supabase/shadow/reminder-delivery-fixtures.sql'));
 });

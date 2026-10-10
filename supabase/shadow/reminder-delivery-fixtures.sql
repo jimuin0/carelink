@@ -28,7 +28,14 @@ VALUES ('10000000-0000-0000-0000-000000000003', 'reminder_email_3d'),
 INSERT INTO auth.users (id, email)
 VALUES ('20000000-0000-0000-0000-000000000001', 'reminder-fixture@example.invalid'),
        ('20000000-0000-0000-0000-000000000002', 'empty-fixture@example.invalid');
-UPDATE public.profiles SET line_user_id = 'synthetic-line-id' WHERE id = '20000000-0000-0000-0000-000000000001';
+SET LOCAL ROLE service_role;
+SELECT pg_temp.assert_reminder(public.bind_verified_liff_account_atomic(
+  '20000000-0000-0000-0000-000000000001','synthetic-line-id')='linked',
+  'positive LINE recipient requires verified atomic binding');
+SELECT pg_temp.assert_reminder(EXISTS(SELECT 1 FROM public.line_user_links
+  WHERE user_id='20000000-0000-0000-0000-000000000001' AND line_user_id='synthetic-line-id'
+    AND proof_version=1 AND verified_at IS NOT NULL),'positive LINE recipient has persisted provider proof');
+RESET ROLE;
 UPDATE public.profiles SET line_user_id = '' WHERE id = '20000000-0000-0000-0000-000000000002';
 
 INSERT INTO public.bookings (id, facility_id, user_id, booking_date, start_time, end_time, customer_name, email, status)

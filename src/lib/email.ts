@@ -55,7 +55,7 @@ function escSubject(str: string): string {
   return str.replace(/[\r\n\t]/g, ' ').slice(0, 200);
 }
 
-interface BookingEmailData {
+export interface BookingEmailData {
   customerName: string;
   customerEmail: string;
   facilityName: string;
@@ -66,6 +66,7 @@ interface BookingEmailData {
   staffName?: string;
   totalPrice?: number;
   bookingId: string;
+  bookingStatus?: string;
   // キャンセル料（無料期限超過時のみ正の値・客への通知用。実徴収は店舗と客で直接）。
   cancelFee?: number;
 }
@@ -237,9 +238,13 @@ async function safeSend(
 export async function sendBookingConfirmation(data: BookingEmailData): Promise<boolean> {
   const resend = getResend();
   if (!resend) return false;
+  return safeSend(resend, buildBookingConfirmationEnvelope(data), 'booking_confirmation');
+}
+
+export function buildBookingConfirmationEnvelope(data: BookingEmailData) {
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
-  return safeSend(resend, {
+  return {
     from: FROM,
     to: data.customerEmail,
     subject: escSubject(`【CareLink】${data.facilityName}のご予約を受け付けました`),
@@ -249,7 +254,7 @@ export async function sendBookingConfirmation(data: BookingEmailData): Promise<b
       ${bookingDetailHtml(data)}
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約を確認する</a></p>
     `),
-  }, 'booking_confirmation');
+  };
 }
 
 /** 予約日時の変更確認（顧客向け・A-4）。作成/キャンセルと対称に、変更後の新しい日時を顧客へ通知する。 */
@@ -560,14 +565,21 @@ export async function sendOperatorNotification(data: {
 export async function sendNewBookingNotification(data: BookingEmailData & { facilityEmail: string }): Promise<boolean> {
   const resend = getResend();
   if (!resend) return false;
+  return safeSend(resend, buildNewBookingNotificationEnvelope(data), 'new_booking_notification');
+}
+
+export function buildNewBookingNotificationEnvelope(data: BookingEmailData & { facilityEmail: string }) {
   const name = esc(data.customerName);
   const email = esc(data.customerEmail);
-  return safeSend(resend, {
+  const introduction = data.bookingStatus === 'confirmed'
+    ? '新しい予約が確定しました。管理画面から内容をご確認ください。'
+    : '新しい予約が入りました。管理画面から確認・承認してください。';
+  return {
     from: FROM,
     to: data.facilityEmail,
     subject: escSubject(`【CareLink】新しい予約が入りました - ${data.customerName}様`),
     html: wrapHtml(`
-      <p>新しい予約が入りました。管理画面から確認・承認してください。</p>
+      <p>${introduction}</p>
       <table style="width:100%;border-collapse:collapse;margin:16px 0;">
         <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;width:120px;">お客様名</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${name}</td></tr>
         <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">メール</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${email}</td></tr>
@@ -575,7 +587,7 @@ export async function sendNewBookingNotification(data: BookingEmailData & { faci
       ${bookingDetailHtml(data)}
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/bookings" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で確認する</a></p>
     `),
-  }, 'new_booking_notification');
+  };
 }
 
 /** 予約キャンセル通知（施設向け） */

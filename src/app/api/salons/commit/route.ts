@@ -5,13 +5,38 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { commitSalonSubmission, salonCommitInput } from '@/lib/salon-submission-commit';
 import { isSalonIntentProof, salonIntentCookieName } from '@/lib/salon-submission-proof';
 import { salonFieldErrors } from '@/lib/salon-field-errors';
+import { registrationConsentSchema, REGISTRATION_CONSENT_REQUIRED } from '@/lib/registration-consent';
+import { z } from 'zod';
+import { readSalonIntentStatus } from '@/lib/salon-submission-intent';
 
 export const dynamic = 'force-dynamic';
 const headers = { 'Cache-Control': 'no-store' };
 export const POST = withRoute(async request => {
   // Issued intents can finish/reconcile while new preparation is disabled.
-  const parsed = salonCommitInput.safeParse(await request.json().catch(() => null));
+  const body = await request.json().catch(() => null);
+  const parsed = salonCommitInput.safeParse(body);
   if (!parsed.success) {
+    if (body?.consent !== undefined && !registrationConsentSchema.safeParse(body.consent).success) {
+      // Old requests can be retried after their original transaction committed.
+      // No fresh consent is recorded on a status-only reconciliation response.
+      const selector = z.object({ intentId: z.uuid() }).safeParse(body);
+      const proof = selector.success ? new NextRequest(request.url, { headers: request.headers }).cookies
+        .get(salonIntentCookieName(selector.data.intentId)!)?.value : undefined;
+      if (selector.success && isSalonIntentProof(proof)) {
+        const prior = await readSalonIntentStatus(createServiceRoleClient(), selector.data.intentId, proof);
+        if (prior.state === 'committed') {
+          // Recheck original content/HMAC as well as the proof. Merely knowing
+          // a committed selector must not certify an altered registration.
+          const replay = await commitSalonSubmission(createServiceRoleClient(), { ...body, consent: undefined }, proof);
+          if (replay.state === 'replay' && replay.receiptId === prior.receiptId) {
+            return NextResponse.json(replay, { status: 200, headers });
+          }
+        }
+      }
+      // Do not call this a known unsubmitted application: another attempt may
+      // be in flight. Old/new clients retain their attempted/unknown fence.
+      return NextResponse.json({ state: 'consent_required', error: REGISTRATION_CONSENT_REQUIRED }, { status: 400, headers });
+    }
     const fieldErrors = salonFieldErrors(parsed.error.issues
       .filter(issue => issue.path[0] === 'registration').map(issue => ({ path: issue.path.slice(1) })));
     return NextResponse.json({ state: 'invalid', fieldErrors }, { status: 400, headers });

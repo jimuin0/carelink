@@ -4,6 +4,7 @@ export const AUTH_UNAVAILABLE_BODY = {
   code: 'AUTH_UNAVAILABLE',
   error: 'ログイン状態を確認できません。時間をおいて、同じ操作を再確認してください。',
 };
+export const AUTH_VERIFICATION_TIMEOUT_MS = 5000;
 
 export type AuthVerification =
   | { state: 'verified'; user: User }
@@ -41,9 +42,17 @@ export function classifyAuthVerification(result: unknown): AuthVerification {
 }
 
 export async function verifyAuthUser(auth: { getUser: () => Promise<unknown> }): Promise<AuthVerification> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = Date.now() + AUTH_VERIFICATION_TIMEOUT_MS;
   try {
-    return classifyAuthVerification(await auth.getUser());
+    const response = await Promise.race([
+      auth.getUser(),
+      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), AUTH_VERIFICATION_TIMEOUT_MS); }),
+    ]);
+    return Date.now() >= deadline ? { state: 'unavailable' } : classifyAuthVerification(response);
   } catch {
     return { state: 'unavailable' };
+  } finally {
+    clearTimeout(timer);
   }
 }

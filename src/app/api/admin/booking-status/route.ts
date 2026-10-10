@@ -10,7 +10,6 @@ import { buildStatusEnvelope } from '@/lib/booking-status-envelope';
 import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
 import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { sendPushToUser } from '@/lib/push';
-import { reverseCompletionSideEffects } from '@/lib/booking-completion-reversal';
 import { applyCompletionSideEffects } from '@/lib/booking-completion';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -124,40 +123,8 @@ export async function POST(request: Request) {
       return serverError('admin-booking-status-result', new Error('status transaction not confirmed'), '/api/admin/booking-status', '変更結果を確認できません。ページを更新してください。');
     }
 
-    // completed から離脱（誤完了→no_show 修正等）した場合、完了時に付与した来店記録・ポイントを取り消す。
-    // completed からの許可遷移は no_show のみ（completed→completed は上の「既にそのステータス」で弾かれる）
-    // ため、origin が completed か否かの単一条件で足りる。
-    if (booking.status === 'completed') {
-      await reverseCompletionSideEffects(createServiceRoleClient(), bookingId);
-    }
-
-    // completed へ「進入」した場合、来店記録(customer_visits)・来店ポイントを付与する。
-    // 以前は完了の副作用が未配線の /api/booking/complete にしか無く、実運用(ステータス
-    // ドロップダウン)経由の完了では customer_visits が一切積まれず、顧客一覧の来店実績が
-    // 常に空・来店ポイント未付与だった（8体監査の追検証で確定した本番無音バグの根治）。
-    // CAS 更新成功後＝confirmed→completed が1回だけ確定した後に呼ぶため重複付与しない。
-    if (status === 'completed') {
-      await applyCompletionSideEffects(supabase, booking);
-    }
-
-    // cancelled へ「進入」した場合、予約作成時に控除した利用ポイントを返還する（金銭損失防止）。
-    // 顧客側キャンセル(/api/booking/[id]/cancel)と対称。CAS 更新成功後＝1予約あたり1回のみ到達するため
-    // 二重返還は起きない。元状態が cancelled の遷移は state machine で存在しない（cancelled は終端）。
-    // 失敗は致命でないため warn のみ（要手動照合）。
-    if (status === 'cancelled') {
-      const refundPoints = booking.points_used ?? 0;
-      if (refundPoints > 0 && booking.user_id) {
-        const { error: refundErr } = await supabase.from('user_points').insert({
-          user_id: booking.user_id,
-          points: refundPoints,
-          reason: 'キャンセル返還',
-          booking_id: booking.id,
-        });
-        if (refundErr) {
-          console.error('[admin-booking-status] point refund failed — manual cleanup needed', { bookingId: booking.id, points: refundPoints, err: refundErr.message });
-        }
-      }
-    }
+    // 来店・取消ポイントも上のtransaction内で保存済み。紹介処理だけを追加で実行する。
+    if (status === 'completed') await applyCompletionSideEffects(supabase, booking);
 
     void writeAuditLog({
       userId: user.id,

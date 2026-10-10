@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import type { User } from '@supabase/supabase-js';
+import { clearAccountLocalData, LOCAL_DATA_CLEAR_FAILED } from '@/lib/client-storage';
+import { markClientCleanupNeeded, completeClientCleanupMarker } from '@/lib/client-cleanup-marker';
 
 export default function AuthButton() {
   const router = useRouter();
@@ -13,31 +15,41 @@ export default function AuthButton() {
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isFacilityMember, setIsFacilityMember] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutNotice, setLogoutNotice] = useState<{ cleanupOnly: boolean; message: string } | null>(null);
+  const authGeneration = useRef(0);
 
   // 施設オーナー/スタッフが自分の管理画面(/admin)へ辿り着く導線がヘッダーに一切無く、
   // URLを直接知らないと迷子になっていた(2026年7月6日・神原さん指摘)。facility_members
   // に自分が所属していれば「管理画面」リンクを表示する。
   const checkFacilityMembership = (userId: string) => {
     const supabase = createBrowserSupabaseClient();
-    supabase
+    const generation = authGeneration.current;
+    void Promise.resolve(supabase
       .from('facility_members')
       .select('facility_id')
       .eq('user_id', userId)
-      .limit(1)
-      .then(({ data }) => setIsFacilityMember(!!data && data.length > 0));
+      .limit(1))
+      .then(({ data, error }) => { if (generation === authGeneration.current) setIsFacilityMember(!error && !!data && data.length > 0); })
+      .catch(() => { if (generation === authGeneration.current) setIsFacilityMember(false); });
   };
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
+    const generation = ++authGeneration.current;
 
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    supabase.auth.getUser().then(({ data: { user }, error }) => {
+      if (generation !== authGeneration.current) return;
+      if (error) throw new Error('User read unavailable');
       setUser(user);
       setLoading(false);
       if (user) checkFacilityMembership(user.id);
-    }).catch(() => setLoading(false));
+    }).catch(() => { if (generation === authGeneration.current) setLoading(false); });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      authGeneration.current++;
       setUser(session?.user ?? null);
+      setLoading(false);
       if (session?.user) checkFacilityMembership(session.user.id);
       else setIsFacilityMember(false);
     });
@@ -64,12 +76,42 @@ export default function AuthButton() {
   }, [menuOpen]);
 
   const handleLogout = async () => {
-    const supabase = createBrowserSupabaseClient();
-    await supabase.auth.signOut();
-    setMenuOpen(false);
-    router.push('/search');
-    router.refresh();
+    if (loggingOut) return;
+    setLoggingOut(true);
+    let cleared = true;
+    try { await clearAccountLocalData(); } catch { cleared = false; }
+    try {
+      const result = await createBrowserSupabaseClient().auth.signOut();
+      if (result?.error !== null) throw new Error('Logout not confirmed');
+      authGeneration.current++;
+      setUser(null); setIsFacilityMember(false); setMenuOpen(false);
+      try { markClientCleanupNeeded(); await clearAccountLocalData(); completeClientCleanupMarker(); cleared = true; }
+      catch { cleared = false; }
+      if (!cleared) {
+        setLogoutNotice({ cleanupOnly: true, message: `ログアウトしましたが、${LOCAL_DATA_CLEAR_FAILED}` });
+        return;
+      }
+      setLogoutNotice(null); router.push('/search'); router.refresh();
+    } catch {
+      setMenuOpen(false);
+      setLogoutNotice({ cleanupOnly: false, message: `ログアウトを確認できませんでした。再試行するか、ログイン状態をご確認ください。${cleared ? '' : LOCAL_DATA_CLEAR_FAILED}` });
+    } finally { setLoggingOut(false); }
   };
+
+  const retryCleanup = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try { markClientCleanupNeeded(); await clearAccountLocalData(); completeClientCleanupMarker(); setLogoutNotice(null); router.push('/search'); router.refresh(); }
+    catch { setLogoutNotice({ cleanupOnly: true, message: `ログアウトは完了していますが、${LOCAL_DATA_CLEAR_FAILED}` }); }
+    finally { setLoggingOut(false); }
+  };
+  const notice = logoutNotice && <div role="alert" className="mt-2 max-w-sm rounded-sm border border-amber-300 bg-white p-3 text-xs text-gray-700">
+    <p>{logoutNotice.message}</p>
+    <button type="button" disabled={loggingOut} onClick={logoutNotice.cleanupOnly ? retryCleanup : handleLogout} className="mt-2 underline">
+      {logoutNotice.cleanupOnly ? '端末の下書き削除を再試行' : 'ログアウトを再試行'}
+    </button>
+    <Link href="/auth/login" className="ml-3 underline">ログイン画面へ進む</Link>
+  </div>;
 
   if (loading) {
     return <div className="w-8 h-8 rounded-full bg-gray-200 animate-pulse" />;
@@ -77,12 +119,12 @@ export default function AuthButton() {
 
   if (!user) {
     return (
-      <Link
+      <div><Link
         href={`/auth/login?redirect=${encodeURIComponent(pathname)}`}
         className="text-sm text-gray-600 hover:text-primary px-3 py-1.5 rounded-full hover:bg-sky-50 transition-colors"
       >
         ログイン
-      </Link>
+      </Link>{notice}</div>
     );
   }
 
@@ -151,13 +193,15 @@ export default function AuthButton() {
             <button
               type="button"
               onClick={handleLogout}
+              disabled={loggingOut}
               className="flex items-center w-full min-h-[44px] text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 active:bg-red-100"
             >
-              ログアウト
+              {loggingOut ? 'ログアウト中…' : 'ログアウト'}
             </button>
           </div>
         </>
       )}
+      {notice}
     </div>
   );
 }

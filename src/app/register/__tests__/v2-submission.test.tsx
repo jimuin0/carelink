@@ -41,7 +41,7 @@ async function submit() {
   fireEvent.click(within(dialog).getByRole('button', { name: '送信する' }));
 }
 test('v2 real form and coordinator use prepare then commit, with no legacy upload or PII redirect', async () => {
-  request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId }))
+  request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 10485760, mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] } }))
     .mockResolvedValueOnce(response(201, { state: 'committed', receiptId }));
   await fill(); await submit();
   await waitFor(() => expect(mockRouter.push).toHaveBeenCalledWith('/register/complete?handoff=registration'));
@@ -72,15 +72,17 @@ test.each(['prepared', 'confirmed'])('OFF with %s context confirms the original 
   expect(mockLegacyUpload).not.toHaveBeenCalled();
 });
 
-test('OFF with a prepared intent finishes that intent without preparing or using V1', async () => {
+test('OFF with a prepared intent refreshes its own handshake and finishes without a new intent or V1', async () => {
   sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY, JSON.stringify({ version: 1, intentId, phase: 'prepared' }));
   request.mockResolvedValueOnce(response(200, { state: 'uncommitted' }))
     .mockResolvedValueOnce(response(200, { state: 'uncommitted' }))
+    .mockResolvedValueOnce(response(200, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 10485760, mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] } }))
     .mockResolvedValueOnce(response(201, { state: 'committed', receiptId }));
   await fill(false); await submit();
   await waitFor(() => expect(mockRouter.push).toHaveBeenCalledTimes(1));
-  expect(request.mock.calls.map(([path]) => path)).toEqual(['/api/salons/status', '/api/salons/status', '/api/salons/commit']);
-  expect(JSON.parse(request.mock.calls[2][1].body).intentId).toBe(intentId);
+  expect(request.mock.calls.map(([path]) => path)).toEqual(['/api/salons/status', '/api/salons/status', '/api/salons/prepare', '/api/salons/commit']);
+  expect(JSON.parse(request.mock.calls[2][1].body)).toEqual({ intentId });
+  expect(JSON.parse(request.mock.calls[3][1].body).intentId).toBe(intentId);
   expect(mockLegacyUpload).not.toHaveBeenCalled();
 });
 
@@ -100,7 +102,7 @@ test('OFF with unavailable session storage blocks new input instead of losing ol
   } finally { unavailable.mockRestore(); }
 });
 test('lost outcome disables new submission, then readonly reconciliation navigates once', async () => {
-  request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId })).mockRejectedValueOnce(new Error('lost'))
+  request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 10485760, mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] } })).mockRejectedValueOnce(new Error('lost'))
     .mockResolvedValueOnce(response(200, { state: 'committed', receiptId }));
   await fill(); await submit();
   await screen.findByText(/送信結果を確認できませんでした。同じ申込/);
@@ -122,35 +124,30 @@ test('corrupt saved context fails closed before any request or user input', asyn
   await screen.findByText(/この申込の確認情報を利用できません/);
   expect(screen.getByLabelText(/^施設名/)).toBeDisabled(); expect(request).not.toHaveBeenCalled();
 });
-test('server item rejection restores prior step, expands/focuses its field and preserves selected photo for retry', async () => {
+test('commit400 preserves original input/photos and only replays the same payload after status verification', async () => {
   const photoId = '33333333-3333-4333-8333-333333333333';
   const path = salonPhotoPath(intentId, photoId, 'image/png');
   Object.defineProperty(crypto, 'randomUUID', { configurable: true, value: () => '44444444-4444-4444-8444-444444444444' });
-  request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId }))
+  request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 10485760, mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] } }))
     .mockResolvedValueOnce(response(200, { state: 'uploaded', photoId, path }))
     .mockResolvedValueOnce(response(400, { state: 'invalid', fieldErrors: { contact_phone: 'PRIVATE' } }))
     .mockResolvedValueOnce(response(200, { state: 'uncommitted' }))
-    .mockResolvedValueOnce(response(200, { state: 'uploaded', photoId, path }))
-    .mockResolvedValueOnce(response(201, { state: 'committed', receiptId }));
+    .mockResolvedValueOnce(response(200, { state: 'uncommitted' }))
+    .mockResolvedValueOnce(response(200, { state: 'replay', receiptId }));
   await fill();
   fireEvent.change(screen.getByLabelText('メニュー 1の写真を選択'), {
     target: { files: [new File(['fixture'], 'fixture.png', { type: 'image/png' })] },
   });
   await submit();
-  const directPhone = await screen.findByLabelText('担当者直通電話');
-  await waitFor(() => expect(directPhone).toHaveFocus());
-  expect(directPhone.closest('details')).toHaveAttribute('open');
-  expect(screen.getByLabelText(/^施設名/)).toHaveValue('合成施設');
-  expect(screen.getByText('担当者直通電話を確認してください')).toBeVisible();
+  await screen.findByText(/送信結果を確認できませんでした。同じ申込/);
+  expect(screen.getByRole('button', { name: '登録する' })).toBeDisabled();
   expect(screen.queryByText('PRIVATE')).not.toBeInTheDocument();
-  fireEvent.change(directPhone, { target: { value: '08012345678' } });
-  fireEvent.click(screen.getByRole('button', { name: '次へ' }));
-  await waitFor(() => expect(screen.getByLabelText(/^郵便番号/)).toBeVisible());
-  fireEvent.click(screen.getByRole('button', { name: '次へ' }));
-  await screen.findByRole('button', { name: '登録する' });
-  await submit();
+  fireEvent.click(screen.getByRole('button', { name: '同じ申込の受付状況を確認' }));
   await waitFor(() => expect(mockRouter.push).toHaveBeenCalledTimes(1));
+  const commits = request.mock.calls.filter(([url]) => url === '/api/salons/commit').map(([, init]) => JSON.parse(init.body));
+  expect(commits).toHaveLength(2); expect(commits[1]).toEqual(commits[0]);
+  expect(commits[0].registration.facility_name).toBe('合成施設');
   const photos = request.mock.calls.filter(([url]) => url === '/api/salons/photos').map(([, init]) => JSON.parse(init.body));
-  expect(photos).toHaveLength(2); expect(photos[1]).toEqual(photos[0]); expect(photos[0].slot).toBe(4);
+  expect(photos).toHaveLength(1); expect(photos[0].slot).toBe(4);
   expect(mockLegacyUpload).not.toHaveBeenCalled();
 });

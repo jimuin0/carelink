@@ -1,69 +1,95 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { bookingSchema } from '@/lib/validations-booking';
-import { zodErrorResponse } from '@/lib/api-validation';
+import { bookingSchema, bookingReplaySchema } from '@/lib/validations-booking';
 import { checkCsrf } from '@/lib/csrf';
-import { sendBookingConfirmation, sendBookingConfirmed, sendNewBookingNotification } from '@/lib/email';
 import { bookingRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { sendPushToFacilityOwners, sendPushToUser } from '@/lib/push';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
-import { serverError } from '@/lib/with-route';
-import { getFacilityNotificationSettings } from '@/lib/notification-settings';
-import { sendBookingConfirmation as sendLineBookingConfirm } from '@/lib/line';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { resolveLineUserIdForUser } from '@/lib/line-link';
-import { notifyNewBookingLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
 import { calculateCouponDiscountedTotal } from '@/lib/coupon-pricing';
 import { buildMenuStaffMap, isStaffCompatibleWithMenus } from '@/lib/menu-staff';
 import { todayJst } from '@/lib/admin-date';
+import { UUID_REGEX } from '@/lib/constants';
+import { BOOKING_CREATE_COOKIE, newBookingGuestScope, bookingGuestScopeHash, bookingPayloadHash, acceptedBookingResponse } from '@/lib/booking-create-receipt';
+import { dispatchBookingCreationNotifications } from '@/lib/booking-create-dispatch';
+import { buildBookingCreateNotifications, BookingNotificationPlanError } from '@/lib/booking-create-notifications';
 
 export const dynamic = 'force-dynamic';
+const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 
 export async function POST(request: Request) {
   try {
-  const csrfError = checkCsrf(request);
-  if (csrfError) return csrfError;
-
-  const ip = getClientIp(request);
-  if (await checkRateLimit(bookingRateLimit, ip, 3, 300_000, 'booking')) {
-    return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
-  }
-
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return cookieStore.getAll(); },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          } catch {}
-        },
-      },
+    const csrfError = checkCsrf(request); if (csrfError) return csrfError;
+    const action = request.headers.get('X-Booking-Action') ?? 'create';
+    if (!['context','prepare','create','status','close'].includes(action)) return json({ error: '受付操作が無効です' }, 400);
+    const ip = getClientIp(request);
+    if (await checkRateLimit(bookingRateLimit, ip, action === 'create' ? 3 : 30, 300_000, `booking-${action}`))
+      return json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, 429);
+    const cookieStore = await cookies();
+    const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+      cookies: { getAll() { return cookieStore.getAll(); }, setAll(values) { try { values.forEach(({name,value,options}) => cookieStore.set(name,value,options)); } catch {} } },
+    });
+    const verification = await verifyAuthUser(supabase.auth);
+    if (verification.state === 'unavailable') return authUnavailable('booking-auth', '/api/booking');
+    const user = verification.state === 'verified' ? verification.user : null;
+    const currentScope = cookieStore.get(BOOKING_CREATE_COOKIE)?.value;
+    if (action === 'context') {
+      const response = json({ state: 'context_ready' });
+      if (!bookingGuestScopeHash(currentScope)) response.cookies.set(BOOKING_CREATE_COOKIE, newBookingGuestScope(), {
+        httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 7 * 86400,
+      });
+      return response;
     }
-  );
-
-  // getUser() before schema parsing (security order: CSRF → RateLimit → getUser → schema)
-  const { data: { user } } = await supabase.auth.getUser();
-
-  const body = await request.json().catch(() => ({}));
-  const parsed = bookingSchema.safeParse(body);
-  if (!parsed.success) {
-    return zodErrorResponse(parsed.error);
-  }
-
-  // 時間バリデーション
-  if (parsed.data.start_time >= parsed.data.end_time) {
-    return NextResponse.json({ error: '開始時間は終了時間より前にしてください' }, { status: 400 });
-  }
-
+    const suppliedId = request.headers.get('Idempotency-Key');
+    if (!suppliedId || !UUID_REGEX.test(suppliedId)) return json({ error: '予約画面を更新して受付番号を確認してください。入力内容は保持されています。', code: 'BOOKING_CREATE_KEY_REQUIRED' }, 428);
+    const operationId = suppliedId.toLowerCase();
+    const guestHash = user ? null : bookingGuestScopeHash(currentScope);
+    if (!user && !guestHash) return json({ error: '同じブラウザの受付情報を確認できません。Cookieを有効にして受付状況を照合してください。', code: 'BOOKING_CREATE_CONTEXT_REQUIRED' }, 428);
+    const rpcClient = createServiceRoleClient();
+    const scope = { p_id: operationId, p_actor_id: user?.id ?? null, p_guest_hash: guestHash };
+    const inspect = async (close: boolean) => {
+      const result = await rpcClient.rpc('inspect_booking_create_operation', { ...scope, p_close: close });
+      if (result.error) throw result.error;
+      const row = result.data?.length === 1 ? result.data[0] : null;
+      if (!row || !['committed','prepared','closed','missing','retired'].includes(row.state)) throw new Error('BOOKING_CREATE_RECEIPT_INVALID');
+      if (row.state === 'committed') {
+        const accepted = acceptedBookingResponse(row.response_payload, operationId);
+        if (!accepted) throw new Error('BOOKING_CREATE_RECEIPT_INVALID');
+        return { state: 'accepted', accepted };
+      }
+      return { state: row.state, accepted: null };
+    };
+    const reject = async (error: string, status: number) => {
+      const receipt = await inspect(true);
+      return receipt.accepted ? json(receipt.accepted) : json({ state: receipt.state, operationId, error }, status);
+    };
+    if (action === 'status' || action === 'close') {
+      const receipt = await inspect(action === 'close');
+      return json(receipt.accepted ?? { state: receipt.state, operationId });
+    }
+    const body = await request.json().catch(() => null);
+    const replayParsed = bookingReplaySchema.safeParse(body);
+    if (!replayParsed.success) return reject(replayParsed.error.issues[0]!.message, 400);
+    const payloadHash = bookingPayloadHash(replayParsed.data);
+    // Prepare checks payload equality before replay, without repeating time/price/point/slot checks on an accepted operation.
+    const prepared = await rpcClient.rpc('prepare_booking_create_operation', { ...scope, p_facility_id: replayParsed.data.facility_id, p_payload_hash: payloadHash });
+    if (prepared.error) {
+      if (prepared.error.code === 'P0001' && prepared.error.message === 'BOOKING_CREATE_CLOSED') return json({ state: 'closed', operationId, error: 'この受付番号は終了しています。内容を確認して再度予約してください。' }, 409);
+      throw prepared.error;
+    }
+    const receipt = prepared.data?.length === 1 ? prepared.data[0] : null;
+    if (!receipt || !['prepared','committed'].includes(receipt.state)) throw new Error('BOOKING_CREATE_RECEIPT_INVALID');
+    if (receipt.state === 'committed') {
+      const accepted = acceptedBookingResponse(receipt.response_payload, operationId);
+      if (!accepted) throw new Error('BOOKING_CREATE_RECEIPT_INVALID');
+      return json(accepted);
+    }
+    if (action === 'prepare') return json({ state: 'prepared', operationId });
+    const parsed = bookingSchema.safeParse(body);
+    if (!parsed.success) return reject(parsed.error.issues[0]!.message, 400);
+    if (parsed.data.start_time >= parsed.data.end_time) return reject('開始時間は終了時間より前にしてください', 400);
   // 競合チェック（早期 fast-fail）は【指名あり（staff_id 指定）】のときだけ実行する（監査M1・恒久根治）。
   // 指名なし（おまかせ=staff_id null）で施設全体の単純重複を 409 にすると容量を 1 とみなすことになり、
   // 権威側 RPC(create_booking_atomic) の G2 容量モデル（勤務中 is_active スタッフ数まで同時予約を許可）
@@ -83,7 +109,7 @@ export async function POST(request: Request) {
       .gt('end_time', parsed.data.start_time)
       .eq('staff_id', parsed.data.staff_id);
     if (conflicts && conflicts.length > 0) {
-      return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
+      return reject('この時間帯は既に予約が入っています', 409);
     }
   }
 
@@ -98,7 +124,7 @@ export async function POST(request: Request) {
     ? parsed.data.menu_ids
     : [parsed.data.menu_id!];
 
-  const { data: menuRows } = await supabase
+  const { data: menuRows, error:menuLookupError } = await supabase
     .from('facility_menus')
     .select('id, price')
     .in('id', menuIdsToPrice)
@@ -106,11 +132,13 @@ export async function POST(request: Request) {
     // 非公開(is_published=false)メニューは予約不可。見つからない扱いになり下の allValid で 400。
     .or('is_published.is.null,is_published.eq.true');
 
+  if (menuLookupError) return serverError('booking-menu-lookup',menuLookupError,'/api/booking');
+
   // Only count menus that actually belong to this facility (prevent foreign-facility injection)
   const validIds = new Set((menuRows ?? []).map((r: { id: string }) => r.id));
   const allValid = menuIdsToPrice.every((id) => validIds.has(id));
   if (!allValid) {
-    return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 400 });
+    return reject('メニューが見つかりません', 400);
   }
 
   // 【監査L1】RPC(create_booking_atomic)へ渡す primary menu_id は必ず施設所属検証済みの値にする。
@@ -131,12 +159,13 @@ export async function POST(request: Request) {
   if (parsed.data.coupon_id) {
     // Coupon validity is stored as DATE and includes the final JST business day.
     const businessDate = todayJst();
-    const { data: coupon } = await supabase
+    const { data: coupon, error:couponLookupError } = await supabase
       .from('coupons')
       .select('discount_type, discount_value, special_price, is_active, valid_from, valid_until')
       .eq('id', parsed.data.coupon_id)
       .eq('facility_id', parsed.data.facility_id)
       .single();
+    if (couponLookupError) return serverError('booking-coupon-lookup',couponLookupError,'/api/booking');
     // Validate coupon is active and within its validity window server-side
     const couponValid = coupon &&
       coupon.is_active === true &&
@@ -165,7 +194,7 @@ export async function POST(request: Request) {
         const allowedSet = new Set(allowedMenuIds);
         const hasMatchingMenu = menuIdsToPrice.some((id) => allowedSet.has(id));
         if (!hasMatchingMenu) {
-          return NextResponse.json({ error: 'クーポンの対象メニューが選択されていません' }, { status: 400 });
+          return reject('クーポンの対象メニューが選択されていません', 400);
         }
       }
       // special_price 型は専用列 special_price に実額が入る（discount_value は null）。
@@ -175,17 +204,18 @@ export async function POST(request: Request) {
       serverTotalPrice = calculateCouponDiscountedTotal(menuRows!, coupon, allowedMenuIds);
     } else {
       // coupon_id 設定済み（このブロック内は常に真）かつ couponValid = false → 無効クーポン
-      return NextResponse.json({ error: 'クーポンが無効または期限切れです' }, { status: 400 });
+      return reject('クーポンが無効または期限切れです', 400);
     }
   }
   // Add nomination fee if staff is designated
   if (parsed.data.staff_id) {
-    const { data: staffRow } = await supabase
+    const { data: staffRow, error:staffLookupError } = await supabase
       .from('staff_profiles')
       .select('nomination_fee')
       .eq('id', parsed.data.staff_id)
       .eq('facility_id', parsed.data.facility_id)
       .maybeSingle();
+    if (staffLookupError) return serverError('booking-staff-lookup',staffLookupError,'/api/booking');
     if (staffRow?.nomination_fee) {
       serverTotalPrice += staffRow.nomination_fee;
     }
@@ -202,27 +232,26 @@ export async function POST(request: Request) {
     }
     const menuStaffMap = buildMenuStaffMap(menuStaffRows ?? []);
     if (!isStaffCompatibleWithMenus(menuStaffMap, menuIdsToPrice, parsed.data.staff_id)) {
-      return NextResponse.json({ error: '指名されたスタッフは選択したメニューを担当していません' }, { status: 400 });
+      return reject('指名されたスタッフは選択したメニューを担当していません', 400);
     }
   }
 
   // Handle points deduction
   const requestedPoints = parsed.data.points_used || 0;
   if (requestedPoints > 0 && !user) {
-    return NextResponse.json({ error: 'ポイント利用には認証が必要です' }, { status: 401 });
+    return reject('ポイント利用には認証が必要です', 401);
   }
   // 価格を超えるポイントは利用できない（クライアントが価格変更後の stale な points_used を送ると、
   // 請求は Math.max(0,...) で 0 に丸まる一方ポイントは full 控除され、超過分が消失する＝金銭損失）。
   // メニュー必須化により serverTotalPrice は常に権威的な数値のため、その価格でクランプする。
   const pointsUsed = Math.min(requestedPoints, serverTotalPrice);
-  // Snapshot current balance for CAS (compare-and-swap) check later
-  let pointsBalanceSnapshot = 0;
+  // Early UX check only. The transaction locks the account and validates again.
   if (pointsUsed > 0 && user) {
     const { data: pointRows, error: pointsError } = await supabase.from('user_points').select('points').eq('user_id', user.id);
     if (pointsError) return serverError('booking-points-balance', pointsError, '/api/booking');
-    pointsBalanceSnapshot = (pointRows ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
+    const pointsBalanceSnapshot = (pointRows ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
     if (pointsBalanceSnapshot < pointsUsed) {
-      return NextResponse.json({ error: 'ポイント残高が不足しています' }, { status: 400 });
+      return reject('ポイント残高が不足しています', 400);
     }
   }
 
@@ -232,397 +261,43 @@ export async function POST(request: Request) {
     : serverTotalPrice;
 
   // 施設の即時確定モード取得
-  const { data: facilitySettings } = await supabase
+  const { data: facilitySettings, error:settingsLookupError } = await supabase
     .from('facility_profiles')
     .select('booking_auto_confirm')
     .eq('id', parsed.data.facility_id)
     .single();
+  if (settingsLookupError) return serverError('booking-settings-lookup',settingsLookupError,'/api/booking');
   const bookingStatus = facilitySettings?.booking_auto_confirm ? 'confirmed' : 'pending';
 
-  // Strip non-DB fields before insert
-  const { points_used: _pointsUsed, total_price: _clientPrice, menu_ids: _menuIds, ...bookingData } = parsed.data;
-  void _pointsUsed; void _clientPrice; void _menuIds;
 
-  // Use atomic RPC that does FOR UPDATE locking + INSERT in one transaction,
-  // preventing double-booking race conditions at the DB level.
-  // DB-2: create_booking_atomic は p_user_id / p_total_price / p_status を検証せず全入力を信頼する
-  // ため、anon/authenticated が PostgREST から直接呼ぶとサーバ側の認証・価格計算を迂回して
-  // total_price=0・任意 user_id・status 捏造の予約を作れてしまう。RPC は必ず service_role で呼び、
-  // migration 側で anon/authenticated の EXECUTE を撤回して直接呼び出し経路を塞ぐ。ここで渡す値は
-  // すべて上流でサーバ側検証・算出済み（user は auth.getUser()、finalPrice はサーバ側計算）。
-  const rpcClient = createServiceRoleClient();
-  const { data: rpcResult, error } = await rpcClient.rpc('create_online_booking_atomic', {
-    p_facility_id: parsed.data.facility_id,
-    p_staff_id: parsed.data.staff_id ?? null,
-    p_user_id: user?.id ?? null,
-    p_menu_id: primaryMenuId,
-    p_coupon_id: parsed.data.coupon_id ?? null,
-    p_booking_date: parsed.data.booking_date,
-    p_start_time: parsed.data.start_time,
-    p_end_time: parsed.data.end_time,
-    p_customer_name: parsed.data.customer_name,
-    p_email: /* istanbul ignore next */ parsed.data.email ?? null,
-    p_phone: parsed.data.phone ?? null,
-    p_note: parsed.data.note ?? null,
-    p_total_price: finalPrice,
-    p_points_used: pointsUsed,
-    p_status: bookingStatus,
-    // 公開経路は営業時間・定休日・指名スタッフ勤務窓ゲートを RPC 側で強制する（get_available_slots
-    // が UI に出さない枠を API 直叩きで確定できた非対称の根治・2026年7月16日）。admin の手動予約
-    // （電話受付等）は意図的にゲート対象外＝パラメータ省略（DEFAULT FALSE）。
-    p_menu_ids: menuIdsToPrice,
-  });
-  void bookingData;
-
-  if (error) {
-    if (error.message?.includes('BOOKING_NOT_READY')) {
-      return NextResponse.json({ error: 'この店舗のネット予約は準備中です。店舗へ直接お問い合わせください' }, { status: 409 });
+    const notifications = await buildBookingCreateNotifications(rpcClient, parsed.data, user?.id ?? null, primaryMenuId, finalPrice, bookingStatus);
+    const { data: result, error } = await rpcClient.rpc('create_booking_with_receipt_atomic', {
+      ...scope, p_payload_hash: payloadHash, p_facility_id: parsed.data.facility_id, p_staff_id: parsed.data.staff_id ?? null,
+      p_menu_id: primaryMenuId, p_coupon_id: parsed.data.coupon_id ?? null, p_booking_date: parsed.data.booking_date,
+      p_start_time: parsed.data.start_time, p_end_time: parsed.data.end_time, p_customer_name: parsed.data.customer_name,
+      p_email: parsed.data.email, p_phone: parsed.data.phone ?? null, p_note: parsed.data.note ?? null, p_total_price: finalPrice,
+      p_points_used: pointsUsed, p_status: bookingStatus, p_menu_ids: menuIdsToPrice, p_notifications: notifications,
+    });
+    if (error) {
+      if(error.code==='P0001' && error.message==='WEBHOOK_DISPATCH_V2_UNAVAILABLE')return json({error:'現在この予約を安全に処理できません。時間をおいて同じ受付番号で再確認してください。',code:'BOOKING_DISPATCH_UNAVAILABLE'},503);
+      const known: Record<string, string> = {
+        POINTS_INSUFFICIENT: 'ポイント残高が不足しています', BOOKING_NOT_READY: 'この店舗のネット予約は準備中です。店舗へ直接お問い合わせください',
+        BOOKING_MENU_UNAVAILABLE: '選択したメニューは現在受付していません', BOOKING_CONFLICT: 'この時間帯は既に予約が入っています',
+        STAFF_NOT_IN_FACILITY: '指定されたスタッフはこの施設で予約できません', BOOKING_CLOSED_DAY: 'この日は定休日のため予約できません',
+        BOOKING_OUTSIDE_HOURS: '営業時間外のため予約できません', STAFF_NOT_WORKING: '指名されたスタッフはこの日時には勤務していません',
+        COUPON_LIMIT: 'このクーポンは利用上限に達しています', COUPON_ALREADY_USED: 'このクーポンは既に利用済みです',
+      };
+      if (error.code === 'P0001' && known[error.message]) return reject(known[error.message], 409);
+      throw error;
     }
-    if (error.message?.includes('BOOKING_MENU_UNAVAILABLE')) {
-      return NextResponse.json({ error: '選択したメニューは現在受付していません。メニューを選び直してください' }, { status: 409 });
-    }
-    // BOOKING_CONFLICT raised by the RPC
-    if (error.message?.includes('BOOKING_CONFLICT') || error.code === '23505') {
-      return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
-    }
-    // 指名スタッフが当該施設に属さない（create_booking_atomic が G1 ガードで RAISE）。
-    // 他施設スタッフの割り当て＝マルチテナント違反を fail-closed で拒否する。
-    if (error.message?.includes('STAFF_NOT_IN_FACILITY')) {
-      return NextResponse.json({ error: '指定されたスタッフはこの施設で予約できません' }, { status: 400 });
-    }
-    // スケジュールゲート（p_enforce_schedule=true で RPC が RAISE・2026年7月16日）。
-    // UI(get_available_slots) が出さない枠の API 直叩きを、時間帯利用不可＝BOOKING_CONFLICT と
-    // 同じ流儀の 409 で拒否する。
-    if (error.message?.includes('BOOKING_CLOSED_DAY')) {
-      return NextResponse.json({ error: 'この日は定休日のため予約できません' }, { status: 409 });
-    }
-    if (error.message?.includes('BOOKING_OUTSIDE_HOURS')) {
-      return NextResponse.json({ error: '営業時間外のため予約できません' }, { status: 409 });
-    }
-    if (error.message?.includes('STAFF_NOT_WORKING')) {
-      return NextResponse.json({ error: '指名されたスタッフはこの日時には勤務していません' }, { status: 409 });
-    }
-    // クーポン使用制限（create_booking_atomic が RAISE する。トランザクションごとロールバック済み）
-    if (error.message?.includes('COUPON_LIMIT')) {
-      return NextResponse.json({ error: 'このクーポンは利用上限に達しています' }, { status: 409 });
-    }
-    if (error.message?.includes('COUPON_ALREADY_USED')) {
-      return NextResponse.json({ error: 'このクーポンは既に利用済みです' }, { status: 409 });
-    }
-    return serverError('booking-rpc', error, '/api/booking', '予約に失敗しました');
-  }
-
-  const newBookingId: string = rpcResult || '';
-  if (!newBookingId) {
-    return serverError(
-      'booking-rpc-null-result',
-      new Error('create_booking_atomic returned null with no error'),
-      '/api/booking',
-      '予約に失敗しました',
-    );
-  }
-
-  // 全選択メニューの保存もRPC内で原子的に完了済み。部分保存を成功へ変換しない。
-
-  // Points deduction with CAS (compare-and-swap) to prevent race conditions:
-  // Insert the deduction row via service_role (user_points has no INSERT policy for anon client),
-  // then verify the running balance is still non-negative.
-  // If another concurrent request already deducted points (balance changed since snapshot),
-  // roll back and cancel the booking.
-  if (pointsUsed > 0 && user && newBookingId) {
-    const serviceSupabase = createServiceRoleClient();
-    // ロールバック共通処理: 予約をキャンセルし、成立しなかったクーポン利用(coupon_redemptions)も解放する。
-    // クーポンを解放しないと、予約が成立していないのに「1人1回」上限が恒久消費され、以後そのクーポンが
-    // COUPON_ALREADY_USED で使えなくなる（SM-6）。coupon_redemptions は booking_id 列で一意特定できる。
-    const rollbackBooking = async () => {
-      const { error: rbErr } = await serviceSupabase.from('bookings').update({ status: 'cancelled' }).eq('id', newBookingId);
-      if (rbErr) console.error('[booking] booking rollback failed — manual cleanup needed', { bookingId: newBookingId, err: rbErr.message });
-      if (parsed.data.coupon_id) {
-        const { error: crErr } = await serviceSupabase.from('coupon_redemptions').delete().eq('booking_id', newBookingId);
-        /* istanbul ignore next — 解放 delete 失敗は DB 障害時のみの防御ログ */
-        if (crErr) console.error('[booking] coupon redemption release failed — manual cleanup needed', { bookingId: newBookingId, err: crErr.message });
-      }
-    };
-
-    const { data: deductionRow, error: deductErr } = await serviceSupabase
-      .from('user_points')
-      .insert({
-        user_id: user.id,
-        points: -pointsUsed,
-        reason: `予約利用 (${newBookingId.slice(0, 8)})`,
-      })
-      .select('id')
-      .single();
-
-    // 控除 INSERT が失敗すると、控除行が入らないのに total_price は値引き済で予約が確定し、
-    // 客はポイントを保持したまま値引きを得る（キャンセル返還でポイント鋳造にも波及）＝金銭損失。
-    // 従来 error を捨てていたためこの経路が無音だった。失敗時は予約をキャンセルして 500 で明示する。
-    if (deductErr) {
-      await rollbackBooking();
-      return serverError('booking-points-deduct', deductErr, '/api/booking', 'ポイントの利用処理に失敗しました。時間をおいて再度お試しください。');
-    }
-
-    // Re-verify balance to detect concurrent deductions since our snapshot
-    const { data: recheck, error: recheckErr } = await serviceSupabase.from('user_points').select('points').eq('user_id', user.id);
-    // recheck の取得失敗を fail-open（残高不明を 0 扱い）にすると `0 < 0` が成立せず負残高検知が無効化し、
-    // 残高を超えるポイント利用が通ってしまう。取得できない場合は安全側で控除と予約をロールバックする。
-    if (recheckErr) {
-      /* istanbul ignore next — deductionRow は直前の insert 成功で常に存在する防御チェック */
-      if (deductionRow?.id) await serviceSupabase.from('user_points').delete().eq('id', deductionRow.id);
-      await rollbackBooking();
-      return serverError('booking-points-recheck', recheckErr, '/api/booking', 'ポイント残高の確認に失敗しました。時間をおいて再度お試しください。');
-    }
-    const newBalance = (recheck ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
-    if (newBalance < 0) {
-      // CAS failed: another concurrent request deducted points between our read and write.
-      // Rollback: delete this specific deduction row by ID (not by reason, to avoid ambiguity)
-      if (deductionRow?.id) {
-        const { error: rollbackPointsErr } = await serviceSupabase.from('user_points').delete().eq('id', deductionRow.id);
-        if (rollbackPointsErr) console.error('[booking] point deduction rollback failed — manual cleanup needed', { deductionId: deductionRow.id, err: rollbackPointsErr });
-      }
-      await rollbackBooking();
-      return NextResponse.json({ error: 'ポイント残高が不足しています（競合が発生しました）' }, { status: 400 });
-    }
-  }
-
-  // レスポンス返却後に走らせていた副作用（メール・Push・LINE 通知）をここに集約し、return 直前に
-  // await Promise.allSettled でまとめて完了させる。【2026年7月7日 本番実データで確定した恒久根治】
-  // 従来は各副作用を Vercel の waitUntil() に渡す fire-and-forget だったが、Fluid Compute 無効の
-  // 本番では関数がレスポンス返却直後に凍結され、waitUntil の後処理が一切完走せず通知が全滅していた
-  // （口コミルート /api/review と同一の欠陥・同一の根治）。各 send は safeSend 等の契約で失敗しても
-  // reject せず、末尾 .catch でも握るため allSettled で本体レスポンス(200)には影響しない。
-  const bookingSideEffects: Promise<unknown>[] = [];
-
-  // Send email notifications (non-blocking)
-  try {
-    // facility_members（RLS: USING(auth.uid()=user_id)）は匿名予約では anon 権限の supabase では
-    // 常に0行（本人の行しか見えない）。同じく profiles（RLS: USING(auth.uid()=id)）も匿名では
-    // 0行。この2クエリだけは service role（RLSバイパス）で引く。facility_profiles / facility_menus
-    // / staff_profiles は「公開施設は誰でも読める」ポリシー（Public read published 等）があるため
-    // anon のままで問題ない（2026年7月16日 本番実データで確定：匿名予約でオーナー通知メールが
-    // 一度も送信されない事故の根治）。
-    const ownerLookupClient = createServiceRoleClient();
-    const [facilityResult, menuResult, staffResult, ownerResult] = await Promise.all([
-      supabase.from('facility_profiles').select('name, phone').eq('id', parsed.data.facility_id).single(),
-      parsed.data.menu_id
-        ? supabase.from('facility_menus').select('name').eq('id', parsed.data.menu_id).eq('facility_id', parsed.data.facility_id).single()
-        : Promise.resolve({ data: null }),
-      parsed.data.staff_id
-        ? supabase.from('staff_profiles').select('name').eq('id', parsed.data.staff_id).eq('facility_id', parsed.data.facility_id).single()
-        : Promise.resolve({ data: null }),
-      // 施設の全オーナー・管理者を取得（配列）。旧実装は .limit(1).single() で非決定的に1人だけ取得し、
-      // push.ts(sendPushToFacilityOwners) が owner/admin 全員へ送るのと非対称で、複数オーナー運用時に
-      // 一部オーナーへ新規予約メールが届かなかった。配列 select なら複数行でも PGRST116 にならず、
-      // 全員へ送れる（下でメール宛先を全員化する）。role も push.ts と揃え owner に加え admin も対象にする
-      // （2026年7月17日 恒久根治：facility_members の admin ロールは Push は受け取るがメール通知は
-      // .eq('role','owner') のため受け取れない非対称があった）。
-      ownerLookupClient.from('facility_members').select('user_id').eq('facility_id', parsed.data.facility_id).in('role', ['owner', 'admin']),
-    ]);
-
-    const emailData = {
-      customerName: parsed.data.customer_name,
-      customerEmail: parsed.data.email,
-      facilityName: facilityResult.data?.name || '',
-      bookingDate: parsed.data.booking_date,
-      startTime: parsed.data.start_time,
-      endTime: parsed.data.end_time,
-      menuName: menuResult.data?.name,
-      staffName: staffResult.data?.name,
-      totalPrice: finalPrice,
-      bookingId: newBookingId,
-    };
-
-    // 即時確定（booking_auto_confirm=true）施設では status='confirmed' になるため、
-    // 「確認待ち＋確定メールを後送」を案内する sendBookingConfirmation ではなく、確定メール
-    // sendBookingConfirmed を送る。従来は常に確認待ちメールを送り、自動確定施設の顧客は
-    // 来ることのない確定メールを待ち続けた（確定メールは admin 経路からしか送られない）。
-    // いずれの送信関数も失敗時 throw せず false を返す契約のため、.catch() だけでは失敗が
-    // 無音化する（想定外の例外のみ catch が発火する）。戻り値を確認して可視化する。
-    const confirmationEmailSend = bookingStatus === 'confirmed'
-      ? sendBookingConfirmed(emailData)
-      : sendBookingConfirmation(emailData);
-    bookingSideEffects.push(
-      confirmationEmailSend.then((ok) => {
-        if (!ok) {
-          const err = new Error('booking confirmation email send failed');
-          safeCaptureException(err, 'booking-email');
-          alertCaughtError('booking-email', err, '/api/booking');
-        }
-      }).catch((e) => {
-        safeCaptureException(e, 'booking-email');
-        alertCaughtError('booking-email', e, '/api/booking');
-      })
-    );
-
-    // Notify ALL facility owners（メールを全オーナーへ）。push.ts の owner 全員通知と対称にする。
-    const ownerRows = (ownerResult.data as { user_id: string }[] | null) ?? [];
-    if (ownerRows.length > 0) {
-      const ownerUserIds = Array.from(new Set(ownerRows.map((o) => o.user_id).filter(Boolean)));
-      const { data: ownerProfiles } = await ownerLookupClient.from('profiles').select('email').in('id', ownerUserIds);
-      const ownerEmails = Array.from(new Set(
-        ((ownerProfiles as { email: string | null }[] | null) ?? []).map((p) => p.email).filter(Boolean) as string[]
-      ));
-      for (const facilityEmail of ownerEmails) {
-        bookingSideEffects.push(
-          sendNewBookingNotification({ ...emailData, facilityEmail }).then((ok) => {
-            if (!ok) {
-              const err = new Error('new booking notification email send failed');
-              safeCaptureException(err, 'booking-email-owner');
-              alertCaughtError('booking-email-owner', err, '/api/booking');
-            }
-          }).catch((e) => {
-            safeCaptureException(e, 'booking-email-owner');
-            alertCaughtError('booking-email-owner', e, '/api/booking');
-          })
-        );
-      }
-    }
-  } catch (e) {
-    safeCaptureException(e, 'booking-email-setup');
-  }
-
-  // Push notifications (non-blocking)
-  try {
-    // 施設オーナーへの新規予約 Push は施設の通知設定（push_on_new_booking）で制御する。
-    // 客本人への確認 Push（下）は施設設定の対象外（客自身の予約確認のため常に送る）。
-    const notif = await getFacilityNotificationSettings(parsed.data.facility_id);
-    if (notif.pushOnNewBooking) {
-      bookingSideEffects.push(
-        sendPushToFacilityOwners(parsed.data.facility_id, {
-          title: '新規予約',
-          body: `${parsed.data.customer_name}様から${parsed.data.booking_date} ${parsed.data.start_time}〜の予約が入りました`,
-          url: '/admin/bookings',
-          tag: `booking-${newBookingId}`,
-        }).catch((e) => safeCaptureException(e, 'booking-push-owner'))
-      );
-    }
-
-    if (user) {
-      bookingSideEffects.push(
-        sendPushToUser(user.id, {
-          title: '予約を受け付けました',
-          body: `${parsed.data.booking_date} ${parsed.data.start_time}〜のご予約を承りました`,
-          url: `/mypage/bookings/${newBookingId}`,
-          tag: `booking-confirm-${newBookingId}`,
-        }).catch((e) => safeCaptureException(e, 'booking-push-user'))
-      );
-    }
-  } catch (e) {
-    safeCaptureException(e, 'booking-push-setup');
-  }
-
-  // LINE notification (non-blocking)
-  try {
-    if (user && process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
-      const adminSupabase = createServiceRoleClient();
-      // 【監査C2】連携の単一ソース profiles.line_user_id で解決する（line_user_links.user_id は
-      // どの経路でも populate されず常に0件ヒットで LINE 通知が無音失効していた）。
-      const lineUserId = await resolveLineUserIdForUser(adminSupabase, user.id);
-
-      if (lineUserId) {
-        const { data: facilityForLine } = await supabase
-          .from('facility_profiles')
-          .select('name')
-          .eq('id', parsed.data.facility_id)
-          .maybeSingle();
-
-        let lineMenuName = '';
-        if (parsed.data.menu_id) {
-          const { data: menuForLine } = await supabase.from('facility_menus').select('name').eq('id', parsed.data.menu_id).eq('facility_id', parsed.data.facility_id).maybeSingle();
-          lineMenuName = menuForLine?.name || '';
-        }
-
-        // 指名予約の担当スタッフ名を LINE 確認に含める（A-14）。lib/line は staffName 対応済みだが
-        // 従来この呼び出しが渡しておらず、顧客の LINE 予約確認に担当名が出ていなかった。
-        let lineStaffName = '';
-        if (parsed.data.staff_id) {
-          const { data: staffForLine } = await supabase.from('staff_profiles').select('name').eq('id', parsed.data.staff_id).eq('facility_id', parsed.data.facility_id).maybeSingle();
-          lineStaffName = staffForLine?.name || '';
-        }
-
-        // sendLineBookingConfirm は sendLinePush 経由で送信失敗時も throw せず false を返す
-        // 契約のため、.catch() だけでは失敗が無音化する。戻り値を確認して可視化する。
-        // 本パスは line_user_id 連携済みの時のみ到達するため、false は「連携なし」でなく真の未送達。
-        bookingSideEffects.push(
-          sendLineBookingConfirm(lineUserId, {
-            facilityName: facilityForLine?.name || '',
-            menuName: lineMenuName,
-            staffName: lineStaffName || undefined,
-            date: parsed.data.booking_date,
-            time: parsed.data.start_time,
-          }).then((ok) => {
-            if (!ok) {
-              const err = new Error('LINE booking confirmation send failed');
-              console.error('[booking] LINE booking confirmation not delivered', { userId: user.id, bookingId: newBookingId });
-              safeCaptureException(err, 'booking-line');
-              alertCaughtError('booking-line', err, '/api/booking');
-            }
-          }).catch((e) => {
-            safeCaptureException(e, 'booking-line');
-            alertCaughtError('booking-line', e, '/api/booking');
-          })
-        );
-      }
-    }
-  } catch (e) {
-    safeCaptureException(e, 'booking-line-setup');
-  }
-
-  // LINE Works staff notification (non-blocking)
-  if (isLineWorksConfigured()) {
-    try {
-      const adminSupabase = createServiceRoleClient();
-      // Fetch staff with LINE Works channel IDs: assigned staff + all-notify staff
-      const { data: staffList } = await adminSupabase
-        .from('staff_profiles')
-        .select('line_works_channel_id, line_works_notify_all, id')
-        .eq('facility_id', parsed.data.facility_id)
-        .not('line_works_channel_id', 'is', null);
-
-      if (staffList && staffList.length > 0) {
-        const [menuRow, staffRow, facilityRow] = await Promise.all([
-          parsed.data.menu_id
-            ? adminSupabase.from('facility_menus').select('name').eq('id', parsed.data.menu_id).maybeSingle()
-            : Promise.resolve({ data: null }),
-          parsed.data.staff_id
-            ? adminSupabase.from('staff_profiles').select('name').eq('id', parsed.data.staff_id).maybeSingle()
-            : Promise.resolve({ data: null }),
-          adminSupabase.from('facility_profiles').select('name').eq('id', parsed.data.facility_id).maybeSingle(),
-        ]);
-
-        const bookingInfo = {
-          customerName: parsed.data.customer_name,
-          menuName: menuRow.data?.name || '',
-          bookingDate: parsed.data.booking_date,
-          startTime: parsed.data.start_time,
-          staffName: staffRow.data?.name,
-        };
-
-        for (const staff of staffList) {
-          if (!staff.line_works_channel_id) continue;
-          const isAssigned = staff.id === parsed.data.staff_id;
-          if (isAssigned || staff.line_works_notify_all) {
-            // notifyNewBookingLineWorks も失敗時 throw せず false を返す契約。line_works_channel_id
-            // 設定済みスタッフのみが対象なので false は真の未送達＝ログ化して可観測にする（非ブロッキング維持）。
-            bookingSideEffects.push(
-              notifyNewBookingLineWorks(staff.line_works_channel_id, bookingInfo)
-                .then((ok) => { if (!ok) console.error('[booking] LINE Works new-booking notification not delivered', { bookingId: newBookingId, staffId: staff.id }); })
-                .catch((e) => safeCaptureException(e, 'booking-lineworks'))
-            );
-          }
-        }
-        void facilityRow;
-      }
-    } catch (e) {
-      safeCaptureException(e, 'booking-lineworks-setup');
-    }
-  }
-
-  // レスポンス返却前に副作用を確実に完了させる（waitUntil 後処理が本番で全滅していた恒久根治）。
-  await Promise.allSettled(bookingSideEffects);
-
-  return NextResponse.json({ success: true, bookingId: newBookingId });
-  } catch (e) {
-    return serverError('booking', e, '/api/booking');
+    const row = result?.length === 1 ? result[0] : null;
+    const accepted = row && typeof row.replayed === 'boolean' ? acceptedBookingResponse(row.response_payload, operationId) : null;
+    if (!accepted) throw new Error('BOOKING_CREATE_RECEIPT_INVALID');
+    const delivery = await dispatchBookingCreationNotifications(operationId);
+    return json({ ...accepted, delivery });
+  } catch (error) {
+    if(error instanceof BookingNotificationPlanError)return json({error:'予約の通知準備を確認できません。同じ受付番号で再確認してください。',code:'BOOKING_NOTIFICATION_UNAVAILABLE'},503);
+    // An unconfirmed response must retain the original key. A follow-up status/close operation resolves it.
+    return serverError('booking-create-unconfirmed', error, '/api/booking', '予約の受付結果を確認できません。同じ受付番号で照合してください。');
   }
 }

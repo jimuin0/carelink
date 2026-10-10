@@ -1,5 +1,7 @@
 'use client';
 
+import { resolveLineUserIdForUser } from '@/lib/line-link';
+import { ACCOUNT_DELETION_NOTICE, FACILITY_RETIREMENT_NOTICE, ACCOUNT_DELETION_BOOKING_GUARD_NOTICE } from '@/lib/account-deletion-policy';
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -11,10 +13,11 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
-import { isLineEnabled } from '@/lib/line-availability';
+import { isLineEnabled, isLineLoginEnabled } from '@/lib/line-availability';
 import PageLoading from '@/components/PageLoading';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
-import { clearStoredPersonalData } from '@/lib/client-storage';
+import { clearAccountLocalData, LOCAL_DATA_CLEAR_FAILED } from '@/lib/client-storage';
+import { completeClientCleanupMarker, prepareClientCleanupMarker } from '@/lib/client-cleanup-marker';
 
 interface ProfileForm {
   display_name: string;
@@ -41,6 +44,7 @@ export default function ProfileEditPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [deletionConfirmed, setDeletionConfirmed] = useState(false);
 
   const { register, handleSubmit, reset, formState: { isSubmitting, errors, isDirty } } = useForm<ProfileForm>();
   // 未保存の編集があるまま離脱/リロードしたら警告（データ消失防止）
@@ -84,21 +88,11 @@ export default function ProfileEditPage() {
         setAvatarUrl(data.avatar_url || null);
         setEmailUnsubscribed(data.email_unsubscribed ?? false);
 
-        // LINE連携状態チェック（補助）。失敗時は未連携表示のままにし、本体フォームは継続。
-        // 【監査C2・2026年7月22日】連携の単一ソースは profiles.line_user_id（liff/link が書く唯一の正）。
-        // 旧実装は line_user_links を user_id で引いていたが、同列は常に NULL のうえ RLS も
-        // auth.uid()=user_id のためブラウザからは永久に0件＝LIFF連携済みでも常に未連携表示だった。
-        // profiles は own 行 RLS で読めるため、line_user_id の非 NULL で連携判定する。
-        // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-        const { data: lineProfile } = await supabase
-          .from('profiles')
-          .select('line_user_id')
-          .eq('id', user.id)
-          .maybeSingle();
-        if (cancelled) return;
-        if (lineProfile?.line_user_id) {
-          setLineLinked(true);
-        }
+        // Supplemental badge uses the same server-verified ownership as senders.
+        try {
+          const lineId = await resolveLineUserIdForUser(supabase, user.id);
+          if (!cancelled) setLineLinked(!!lineId);
+        } catch { if (!cancelled) setLineLinked(false); }
 
         setLoading(false);
       } catch {
@@ -316,7 +310,11 @@ export default function ProfileEditPage() {
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.627-.63h2.386c.349 0 .63.285.63.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.627-.63.349 0 .631.285.631.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.281.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/></svg>
               LINEで友だち追加
             </a>
-            <p className="text-xs text-gray-400 mt-2">友だち追加後、CareLink上でアカウントが自動連携されます。</p>
+            <p className="text-xs text-gray-500 mt-2">友だち追加だけではアカウント連携は完了しません。</p>
+            {isLineLoginEnabled() && <form action="/api/auth/line" method="get" className="mt-3">
+              <input type="hidden" name="mode" value="link" /><input type="hidden" name="redirect" value="/mypage/profile" />
+              <button type="submit" className="text-sm font-medium text-green-700 underline">LINE連携を再確認</button>
+            </form>}
           </div>
         )}
       </div>
@@ -373,12 +371,15 @@ export default function ProfileEditPage() {
       <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-8 border border-red-100">
         <h2 className="text-lg font-bold text-red-600 mb-2">アカウント削除</h2>
         <p className="text-xs text-gray-500 mb-4">
-          アカウントを削除すると、予約履歴・お気に入り・ポイントなど全てのデータが完全に削除されます。この操作は取り消せません。
+          {ACCOUNT_DELETION_NOTICE}
         </p>
+        <p className="text-xs text-gray-500 mb-4">{FACILITY_RETIREMENT_NOTICE}</p>
+        <p className="text-xs text-gray-500 mb-4">{ACCOUNT_DELETION_BOOKING_GUARD_NOTICE}</p>
         <button
           id="delete"
           type="button"
           onClick={() => setShowDeleteModal(true)}
+          disabled={deletionConfirmed}
           className="text-xs text-red-500 hover:text-red-700 font-bold transition-colors"
         >
           アカウントを削除する
@@ -386,6 +387,7 @@ export default function ProfileEditPage() {
       </div>
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+      {deletionConfirmed && <p className="text-xs text-gray-600 mt-3">アカウントの削除は確認済みです。端末の下書きを確認してから<Link href="/" onClick={event => { event.preventDefault(); window.location.assign(window.location.origin); }} className="ml-1 underline">トップページへ進む</Link>ことができます。</p>}
 
       <ConfirmDialog
         open={showLineUnlinkConfirm}
@@ -417,23 +419,28 @@ export default function ProfileEditPage() {
 
       {/* アカウント削除確認モーダル */}
       {showDeleteModal && (
-        <Modal open onClose={() => { setShowDeleteModal(false); setDeleteConfirmText(''); }} maxWidthClass="max-w-sm">
+        <Modal open onClose={() => { if (!deleting) { setShowDeleteModal(false); setDeleteConfirmText(''); } }} maxWidthClass="max-w-sm">
             <h3 className="text-lg font-bold text-red-600 mb-2">アカウントを削除する</h3>
             <p className="text-sm text-gray-600 mb-4">
-              予約履歴・お気に入り・ポイントなど全てのデータが完全に削除されます。この操作は取り消せません。
+              {ACCOUNT_DELETION_NOTICE}
             </p>
+            <p className="text-xs text-gray-600 mb-4">{FACILITY_RETIREMENT_NOTICE}</p>
+            <p className="text-xs text-gray-600 mb-4">{ACCOUNT_DELETION_BOOKING_GUARD_NOTICE}</p>
             <p className="text-xs font-medium text-gray-700 mb-2">
               確認のため「<span className="font-bold text-red-600">DELETE</span>」と入力してください
             </p>
             <input
               type="text"
               value={deleteConfirmText}
+              disabled={deleting}
+              aria-label="確認コード DELETE を入力"
               onChange={(e) => setDeleteConfirmText(e.target.value)}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 font-mono"
             />
             <div className="flex gap-3">
               <button
                 type="button"
+                disabled={deleting}
                 onClick={() => { setShowDeleteModal(false); setDeleteConfirmText(''); }}
                 className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
               >
@@ -443,14 +450,27 @@ export default function ProfileEditPage() {
                 type="button"
                 disabled={deleteConfirmText !== 'DELETE' || deleting}
                 onClick={async () => {
+                  if (deleting || deletionConfirmed) return;
                   setDeleting(true);
                   try {
+                    try { prepareClientCleanupMarker(); await clearAccountLocalData(); }
+                    catch {
+                      setToast({ type: 'error', message: `${LOCAL_DATA_CLEAR_FAILED} アカウントの削除は行っていません。` });
+                      return;
+                    }
                     const res = await fetch('/api/account/delete', {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
+                      headers: { 'Content-Type': 'application/json', 'X-CareLink-Client-Cleanup': '1' },
                       body: JSON.stringify({ confirmation: 'DELETE' }),
                     });
-                    if (res.ok) {
+                    const data = await res.json().catch(() => null);
+                    if (res.ok && data?.success === true) {
+                      setDeletionConfirmed(true); setShowDeleteModal(false); setDeleteConfirmText('');
+                      try { await clearAccountLocalData(); completeClientCleanupMarker(); }
+                      catch {
+                        setToast({ type: 'error', message: `アカウントの削除は確認済みですが、${LOCAL_DATA_CLEAR_FAILED} 削除要求は再送しないでください。` });
+                        return;
+                      }
                       // アカウント削除成功後は router.push ではなく全ページリロードを意図的に使う。
                       // 破棄したいのは【ブラウザのメモリ上にあるもの】：supabase-js の
                       // クライアント実体（削除済みアカウントのトークン更新を試み続ける）と、
@@ -465,13 +485,14 @@ export default function ProfileEditPage() {
                       // 退会したのに入力済みの個人情報（氏名・メール・電話）が端末に
                       // 残らないよう、遷移の前に sessionStorage の下書きを消す。
                       // 【全リロードでは sessionStorage は消えない】ため明示的に消す必要がある。
-                      clearStoredPersonalData();
                       window.location.href = '/';
                     } else {
                       setShowDeleteModal(false);
                       setDeleteConfirmText('');
-                      setToast({ type: 'error', message: 'アカウント削除に失敗しました' });
+                      setToast({ type: 'error', message: !res.ok && typeof data?.error === 'string' ? data.error : '削除結果を確認できませんでした。再送せず、ログイン状態をご確認ください。' });
                     }
+                  } catch {
+                    setToast({ type: 'error', message: '削除結果を確認できませんでした。再送せず、ログイン状態をご確認ください。' });
                   } finally {
                     setDeleting(false);
                   }

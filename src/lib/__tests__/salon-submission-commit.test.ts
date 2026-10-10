@@ -5,6 +5,7 @@ import { readSalonIntentStatus } from '../salon-submission-intent';
 import { businessTypes } from '../constants';
 import { salonPayloadHmac, salonIntentProofHash } from '../salon-submission-proof';
 import { canonicalSalonSubmission } from '../salon-submission-contract';
+import { REGISTRATION_TERMS_SHA256 } from '../registration-consent';
 
 const intentId = '64000000-0000-4000-8000-000000000001';
 const photoId = '64000000-0000-4000-8000-000000000002';
@@ -13,7 +14,7 @@ const secondId = '64000000-0000-4000-8000-000000000004';
 const proof = 'ab'.repeat(32);
 const registration = { facility_name: 'Synthetic', representative_name: 'Synthetic', contact_name: 'Synthetic',
   business_type: businessTypes[0], email: 'synthetic@example.invalid', phone: '09012345678', source: 'register' };
-const input = { intentId, registration, photoIds: [photoId] };
+const input = { intentId, registration, photoIds: [photoId], consent: { terms_agreed: true, license_warranted: true } };
 const path = `salon-intents/${intentId}/${photoId}.png`;
 const url = `https://storage.example.invalid/storage/v1/object/public/carelink-uploads/${path}`;
 const photo = { id: photoId, intent_id: intentId, slot: 0, mime_type: 'image/png', byte_size: 10, object_path: path };
@@ -38,6 +39,17 @@ test('invalid proof performs no I/O', async () => {
   const f = fixture(); expect(await commitSalonSubmission(f.db, input, 'bad')).toEqual({ state: 'unverified' });
   expect(readSalonIntentStatus).not.toHaveBeenCalled();
 });
+test('legacy omitted declaration uses the original RPC and exact original canonical comparison',async()=>{
+  const {consent,...legacy}=input;void consent;const f=fixture();
+  expect((await commitSalonSubmission(f.db,legacy,proof)).state).toBe('committed');
+  expect(f.rpc.mock.calls[0][0]).toBe('commit_salon_submission');
+  expect(f.rpc.mock.calls[0][1]).not.toHaveProperty('p_terms_sha256');
+});
+test.each([null,{terms_agreed:false,license_warranted:true},{terms_agreed:true,license_warranted:false}])(
+ 'explicit invalid declarations %j do not call a mutation RPC',async consent=>{
+  const f=fixture();expect((await commitSalonSubmission(f.db,{...input,consent},proof)).state).toBe('invalid');
+  expect(f.rpc).not.toHaveBeenCalled();
+ });
 test.each(['unverified', 'expired', 'unavailable'])('status %s prevents manifest reads and writes', async state => {
   const f = fixture(); (readSalonIntentStatus as jest.Mock).mockResolvedValue({ state });
   expect(await commitSalonSubmission(f.db, input, proof)).toEqual({ state }); expect(f.from).not.toHaveBeenCalled(); expect(f.rpc).not.toHaveBeenCalled();
@@ -49,8 +61,8 @@ test('selected objects are scoped, verified and hashed before atomic commit', as
   expect(f.query.eq).toHaveBeenCalledWith('intent_id', intentId); expect(f.query.in).toHaveBeenCalledWith('id', [photoId]);
   expect(f.storage.info).toHaveBeenCalledWith(path);
   const canonical = canonicalSalonSubmission({ ...registration, photo_urls: [url] })!;
-  expect(f.rpc).toHaveBeenCalledWith('commit_salon_submission', { p_intent_id: intentId, p_proof_hash: salonIntentProofHash(proof),
-    p_canonical_version: 1, p_hmac_scheme: 'proof-hkdf-sha256-v1', p_payload_hmac: salonPayloadHmac(proof, canonical.serialized), p_registration: canonical.row });
+  expect(f.rpc).toHaveBeenCalledWith('commit_salon_submission_with_consent', { p_intent_id: intentId, p_proof_hash: salonIntentProofHash(proof),
+    p_canonical_version: 1, p_hmac_scheme: 'proof-hkdf-sha256-v1', p_payload_hmac: salonPayloadHmac(proof, canonical.serialized), p_registration: canonical.row, p_terms_sha256: REGISTRATION_TERMS_SHA256 });
 });
 test('no-photo submission verifies proof but does not touch Storage or manifest', async () => {
   const f = fixture(); expect(await commitSalonSubmission(f.db, { ...input, photoIds: [] }, proof)).toEqual({ state: 'committed', receiptId });

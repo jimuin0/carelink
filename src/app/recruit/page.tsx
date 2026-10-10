@@ -13,6 +13,7 @@ import { formatPhone, salonStep1Schema, salonStep2Schema, salonStep3Schema, busi
 import { normalizePhone } from '@/lib/phone';
 import { getRecaptchaToken } from '@/lib/recaptcha-client';
 import { readSalonRegistrationResult, SALON_SUBMISSION_UNKNOWN } from '@/lib/salon-registration-delivery';
+import { registrationConsentSchema, REGISTRATION_CONSENT_REQUIRED } from '@/lib/registration-consent';
 
 // 【2026年7月16日 恒久根治】従来はこのページ固有の緩い正規表現(/^[\d-]+$/、先頭0任意・
 // 全角未対応)を独自定義しており、サーバー側 /api/salons が使う共通ヘルパー phoneField()
@@ -34,6 +35,8 @@ type FormValues = z.infer<typeof fullSchema>;
 export default function RecruitPage() {
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  const [licenseWarranted, setLicenseWarranted] = useState(false);
   const [done, setDone] = useState(false);
   const [receipt, setReceipt] = useState('');
   const [unknown, setUnknown] = useState(false);
@@ -80,6 +83,11 @@ export default function RecruitPage() {
 
   async function onSubmit(data: FormValues) {
     if (unknownRef.current) return;
+    const consent = registrationConsentSchema.safeParse({ terms_agreed: agreed, license_warranted: licenseWarranted });
+    if (!consent.success) {
+      setToast({ type: 'error', message: REGISTRATION_CONSENT_REQUIRED });
+      return;
+    }
     setSubmitting(true);
     let requestStarted = false;
     let rejected = false;
@@ -106,6 +114,7 @@ export default function RecruitPage() {
           // サーバー側から直接 Slack 通知を送るため、どちらのテンプレートを使うかを
           // このフィールドで伝える（DBには保存されない）。
           source: 'recruit',
+          consent: consent.data,
           ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
         }),
       });
@@ -226,6 +235,15 @@ export default function RecruitPage() {
                 <textarea {...register('description')} id="recruit-description" className="form-input w-full" rows={4} maxLength={1000} placeholder="施設の特徴やPRをご記入ください" />
                 {errors.description && <p className="form-error" role="alert">{errors.description.message}</p>}
               </div>
+              <label className="flex items-start gap-2 text-sm text-gray-600">
+                <input type="checkbox" checked={licenseWarranted} onChange={event => setLicenseWarranted(event.target.checked)} className="mt-0.5 rounded-sm border-gray-300" />
+                <span>当施設の運営に法令上必要な許可・免許・届出を完了し、施術は必要な資格を有する者が提供することを表明します（必須）</span>
+              </label>
+              <label className="flex items-start gap-2 text-sm text-gray-600">
+                <input type="checkbox" checked={agreed} onChange={event => setAgreed(event.target.checked)} className="mt-0.5 rounded-sm border-gray-300" />
+                <span><Link href="/terms" target="_blank" rel="noopener noreferrer" className="text-primary underline">利用規約</Link>
+                  および<Link href="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline">プライバシーポリシー</Link>に同意する（必須）</span>
+              </label>
             </div>
           )}
 
@@ -237,7 +255,7 @@ export default function RecruitPage() {
               {step < 2 ? (
                 <button type="button" onClick={nextStep} className="btn-primary px-8 py-2">次へ</button>
               ) : (
-                <button type="submit" disabled={submitting} className="btn-primary px-8 py-2 disabled:opacity-50">
+                <button type="submit" disabled={submitting || !agreed || !licenseWarranted} className="btn-primary px-8 py-2 disabled:opacity-50">
                   {submitting ? <Spinner /> : '掲載を申し込む'}
                 </button>
               )}

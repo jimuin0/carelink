@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -8,7 +8,9 @@ import type { StaffProfile, FacilityMenu, Coupon, AvailableSlot } from '@/types'
 import { describeCancelPolicy, type CancelPolicy } from '@/lib/cancel-fee';
 import { calculateCouponDiscountedTotal } from '@/lib/coupon-pricing';
 import { isStaffCompatibleWithMenus, filterEligibleStaff } from '@/lib/menu-staff';
-import { bookingDraftKey } from '@/lib/client-storage';
+import { consumeBookingDraft, saveBookingDraftForLogin, BOOKING_DRAFT_STORAGE_FAILED, BookingDraftStorageError } from '@/lib/booking-draft-storage';
+import { BookingCreateClient, type BookingCreateClientResult, BOOKING_CREATE_UNKNOWN } from '@/lib/booking-create-client';
+import type { BookingFormData } from '@/lib/validations-booking';
 import { WAITLIST_NOTICE } from '@/lib/coming-soon';
 
 type Step = 'menu' | 'datetime' | 'confirm';
@@ -190,6 +192,27 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   const [phone, setPhone] = useState('');
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const bookingCreate = useRef<BookingCreateClient | null>(null);
+  const [bookingOperationId, setBookingOperationId] = useState<string | null>(null);
+  const [bookingReady, setBookingReady] = useState(false);
+  const [bookingPending, setBookingPending] = useState(false);
+  const [bookingAccepted, setBookingAccepted] = useState(false);
+  const [bookingRecoveryError, setBookingRecoveryError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    // Read the external browser snapshot after hydration; a detached effect
+    // must never install its coordinator in a newly mounted facility form.
+    queueMicrotask(() => {
+      if (!active) return;
+      try {
+        const coordinator = new BookingCreateClient(facility.id, window.sessionStorage);
+        coordinator.load(); bookingCreate.current = coordinator;
+        setBookingPending(coordinator.pending); setBookingAccepted(coordinator.accepted); setBookingOperationId(coordinator.operationId);
+      } catch (error) { setBookingPending(true); setBookingRecoveryError(error instanceof Error ? error.message : BOOKING_CREATE_UNKNOWN); }
+      finally { setBookingReady(true); }
+    });
+    return () => { active = false; };
+  }, [facility.id]);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   // 【2026年8月16日 React Compiler対応】この4state（isAuthenticated/availablePoints/usePoints/
   // pointsToUse）は元々もっと下（Points fetch effectの直前）で宣言されていたが、下の
@@ -209,12 +232,16 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   // スロット選択(selectedSlot)は復元しない：ログイン滞在中に他ユーザーに取られている可能性が
   // あり、鮮度不明な枠をそのまま確認画面に出すと在庫と乖離した表示になるため、日時ステップに
   // 戻して枠を再取得・再選択させる（1クリックのみの負担・在庫整合性を優先）。
-  const draftKey = bookingDraftKey(facility.id);
   const BOOKING_DRAFT_TTL_MS = 15 * 60 * 1000; // 15分。ログイン離脱後の長時間放置は復元しない。
+  const loginDraftSaving = useRef(false);
+  const [savingLoginDraft, setSavingLoginDraft] = useState(false);
+  const draftRestoreRequest = useRef<{ facilityId: string; promise: Promise<string | null> } | null>(null);
 
-  function saveBookingDraftBeforeLogin() {
+  async function saveBookingDraftBeforeLogin() {
+    if (loginDraftSaving.current) return;
+    loginDraftSaving.current = true; setSavingLoginDraft(true);
     try {
-      sessionStorage.setItem(draftKey, JSON.stringify({
+      await saveBookingDraftForLogin(facility.id, JSON.stringify({
         savedAt: Date.now(),
         menuIds: selectedMenus.map((m) => m.id),
         staffId: selectedStaff?.id ?? null,
@@ -227,9 +254,10 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
         usePoints,
         pointsToUse,
       }));
+      router.push(`/auth/login?redirect=/facility/${facility.slug}/booking`);
     } catch {
-      // sessionStorage 不可（プライベートモード等）でも遷移自体は妨げない。
-    }
+      setToast({ type: 'error', message: BOOKING_DRAFT_STORAGE_FAILED });
+    } finally { loginDraftSaving.current = false; setSavingLoginDraft(false); }
   }
 
   // Pre-fill from user profile
@@ -249,93 +277,69 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     }).catch(() => {});
   }, []);
 
-  // ログイン遷移からの復帰時、保存済みドラフトを1回だけ復元する（読み取り後は消去）。
-  // 【2026年8月16日 React Compiler対応・未解決（意図的に残置）】
-  // react-hooks/set-state-in-effect がこの effect の setSelectedMenus 呼び出し（下記）を検出する。
-  // 以前このタスクで一度「async IIFE で本体全体を包む」形に直したが、レビューで差し戻された：
-  // このロジックには await が1つも無い（sessionStorage は同期API）ため、async IIFE は実行タイミング
-  // にも実行時の挙動にも一切寄与せず、検出を逃れるためだけの飾りだった（アンラップした版と
-  // 実行順序まで完全に同一であることを実測で確認済み）。これは変種Hが禁止する「アナライザを
-  // 欺くだけの症状ブロック」と同じ性質の問題であり、包み直すだけでは根治にならないと判断し、
-  // 元の（IIFEなしの）形へ戻した。
-  //
-  // 検討した代替案と、それぞれ採用しなかった理由：
-  // 1. useState の遅延初期化子へ寄せる（sessionStorage を state の初期値計算に含める）
-  //    → SSR時にサーバーは復元済みでない空の値を出力するが、クライアントの初回（ハイドレーション）
-  //      レンダーでは同じ遅延初期化子が sessionStorage を同期的に読めてしまい、SSR出力と
-  //      ハイドレーション結果が食い違う（hydration mismatch）。この effect のすぐ上のコメントで
-  //      「マウント後にのみ復元する構造は意図的な設計」と明記されている前提と矛盾するため不採用。
-  // 2. レンダー中に直接 setState する（下のクーポン/スタッフ適合・ポイントclampと同型のパターン）
-  //    → その3箇所は「入力(props/state)から導出できる純粋な補正」だが、この復元は
-  //      sessionStorage.removeItem という外部システムへの破壊的な書き込み（副作用）を伴う。
-  //      レンダー本体は純粋であることが前提（React Strict Mode の二重呼び出し・discardされる
-  //      レンダーパスに対して安全であることが前提）で、removeItem をレンダー中に置くと
-  //      「読み取り後に消去」を1回だけ行うという要求を満たせなくなる（discardされたレンダーで
-  //      消去だけ実行され復元されない、等の実害が起こり得る）ため不採用。
-  // 3. Promise.resolve().then(...) / requestAnimationFrame(...) / flushSync(...) 等で
-  //    setState 呼び出し部分だけを別の関数へネストする
-  //    → 実測したところ、これらもすべて react-hooks/set-state-in-effect の検出を逃れる
-  //      （同ルールは「effect本体の直下」というASTの形しか見ていない浅い構文チェックであり、
-  //      ネストの意味は問わない）。しかしこれは async IIFE と同じ「検出だけを逃れる包み」で
-  //      あることに変わりなく、しかも本物の非同期化（Promise.then／rAF）は復元完了までの
-  //      待ち時間を新たに生む挙動変化そのものになる（「タイミングを変えてはならない」に抵触）。
-  //      flushSync は本来不要な同期フラッシュを強制するAPIの誤用であり、正当化できる理由が無い。
-  //      いずれも採用しなかった。
-  //
-  // 結論：このロジックは「マウント後に1回だけ、ブラウザ専用の外部システム(sessionStorage)から
-  // 複数のstateへ反映する」という、effect の正当な用途（React公式ドキュメントが認める
-  // 「外部システムとの同期」）そのものであり、上記の代替案はいずれも「挙動を変えない」
-  // 「hydration mismatchを起こさない」「検出を欺くだけの包みを使わない」の少なくとも1つに
-  // 抵触する。禁止事項2(eslint-disable禁止)の趣旨は「検出を隠して済ませない」ことにあると
-  // 理解しており、機能的に同じことをする別の包み方へ逃げるのも同じ趣旨に反すると判断したため、
-  // ここでは検出を残したまま報告する（統括側の判断を仰ぐ）。
+  // Restore only after the cleanup generation and checksum are verified.
+  // This browser-storage read is genuinely async; no form state changes or
+  // navigation happen while verification is unresolved.
   useEffect(() => {
-    let raw: string | null = null;
-    try {
-      raw = sessionStorage.getItem(draftKey);
-      sessionStorage.removeItem(draftKey);
-    } catch {
-      return;
-    }
-    if (!raw) return;
-    try {
-      const draft = JSON.parse(raw) as {
-        savedAt: number;
-        menuIds: string[];
-        staffId: string | null;
-        couponId: string | null;
-        selectedDate: string;
-        customerName: string;
-        email: string;
-        phone: string;
-        note: string;
-        usePoints: boolean;
-        pointsToUse: number;
-      };
-      if (Date.now() - draft.savedAt > BOOKING_DRAFT_TTL_MS) return;
+    let active = true;
+    const restore = async () => {
+      let raw: string | null;
+      try {
+        // React's development effect replay must reuse the same consumed
+        // snapshot rather than consume once and lose it before application.
+        if (draftRestoreRequest.current?.facilityId !== facility.id) {
+          draftRestoreRequest.current = { facilityId: facility.id, promise: consumeBookingDraft(facility.id) };
+        }
+        raw = await draftRestoreRequest.current.promise;
+      }
+      catch (error) {
+        if (active) setToast({ type: 'error', message: error instanceof BookingDraftStorageError ? error.message : BOOKING_DRAFT_STORAGE_FAILED });
+        return;
+      }
+      if (!active || !raw) return;
+      try {
+        const draft = JSON.parse(raw) as {
+          savedAt: number;
+          menuIds: string[];
+          staffId: string | null;
+          couponId: string | null;
+          selectedDate: string;
+          customerName: string;
+          email: string;
+          phone: string;
+          note: string;
+          usePoints: boolean;
+          pointsToUse: number;
+        };
+        if (Date.now() - draft.savedAt > BOOKING_DRAFT_TTL_MS) return;
 
-      const restoredMenus = draft.menuIds
-        .map((id) => menus.find((m) => m.id === id))
-        .filter((m): m is FacilityMenu => !!m);
-      if (restoredMenus.length === 0) return; // メニューが復元できなければ復元しない（不整合な部分復元を避ける）
+        const restoredMenus = draft.menuIds
+          .map((id) => menus.find((m) => m.id === id))
+          .filter((m): m is FacilityMenu => !!m);
+        if (restoredMenus.length === 0) return; // メニューが復元できなければ復元しない（不整合な部分復元を避ける）
 
-      setSelectedMenus(restoredMenus);
-      setSelectedStaff(draft.staffId ? (staff.find((s) => s.id === draft.staffId) ?? null) : null);
-      setSelectedCoupon(draft.couponId ? (coupons.find((c) => c.id === draft.couponId) ?? null) : null);
-      if (draft.selectedDate) setSelectedDate(draft.selectedDate);
-      if (draft.customerName) setCustomerName(draft.customerName);
-      if (draft.email) setEmail(draft.email);
-      if (draft.phone) setPhone(draft.phone);
-      if (draft.note) setNote(draft.note);
-      setUsePoints(draft.usePoints);
-      setPointsToUse(draft.pointsToUse);
-      // 日時ステップへ（枠は在庫鮮度のため再取得・再選択させる）。
-      setStep(draft.selectedDate ? 'datetime' : 'menu');
-    } catch {
-      // 破損データは無視して通常フローを続行。
-    }
+        setSelectedMenus(restoredMenus);
+        setSelectedStaff(draft.staffId ? (staff.find((s) => s.id === draft.staffId) ?? null) : null);
+        setSelectedCoupon(draft.couponId ? (coupons.find((c) => c.id === draft.couponId) ?? null) : null);
+        if (draft.selectedDate) setSelectedDate(draft.selectedDate);
+        if (draft.customerName) setCustomerName(draft.customerName);
+        if (draft.email) setEmail(draft.email);
+        if (draft.phone) setPhone(draft.phone);
+        if (draft.note) setNote(draft.note);
+        setUsePoints(draft.usePoints);
+        setPointsToUse(draft.pointsToUse);
+        // 日時ステップへ（枠は在庫鮮度のため再取得・再選択させる）。
+        setStep(draft.selectedDate ? 'datetime' : 'menu');
+
+      } catch {
+        // Invalid business input is consumed but never applied to the form.
+      }
+    };
+    void restore();
+    return () => { active = false; };
+    // Restore once per facility, using the initial current menu/staff catalog.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [facility.id]);
 
   const totalDuration = selectedMenus.reduce((sum, m) => sum + (m.duration_minutes || 60), 0);
 
@@ -538,66 +542,36 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     return () => window.removeEventListener('beforeunload', handler);
   }, [step]);
 
+  const acceptCreateResult = (result: BookingCreateClientResult) => {
+    setBookingOperationId(bookingCreate.current?.operationId ?? null);
+    setBookingPending(result.state === 'pending' || (bookingCreate.current?.pending ?? true));
+    if (result.state === 'accepted') {
+      setBookingAccepted(true); setBookingRecoveryError(null);
+      const booked = result.receipt;
+      const params = new URLSearchParams({ id: booked.bookingId, date: booked.bookingDate, time: booked.startTime, end_time: booked.endTime, facility: facility.name });
+      router.push(`/facility/${encodeURIComponent(facility.slug)}/booking/complete?${params}`);
+    } else if (result.state === 'closed') {
+      setBookingRecoveryError(null); setBookingAccepted(false);
+      if (result.error) setToast({ type: 'error', message: result.error });
+    } else setBookingRecoveryError(result.error);
+  };
   const handleSubmit = async () => {
-    if (submitting) return;
-    if (!customerName || !email) {
-      setToast({ type: 'error', message: 'お名前とメールアドレスは必須です' });
-      return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setToast({ type: 'error', message: '正しいメールアドレスを入力してください' });
-      return;
-    }
-    setSubmitting(true);
-
+    if (submitting || !bookingCreate.current) return;
+    if (!customerName || !email) { setToast({ type: 'error', message: 'お名前とメールアドレスは必須です' }); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setToast({ type: 'error', message: '正しいメールアドレスを入力してください' }); return; }
+    setSubmitting(true); setBookingPending(true);
     try {
-      const res = await fetch('/api/booking', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          facility_id: facility.id,
-          staff_id: selectedStaff?.id ?? null,
-          menu_id: selectedMenus[0]?.id ?? null,
-          menu_ids: selectedMenus.map((m) => m.id),
-          coupon_id: selectedCoupon?.id ?? null,
-          booking_date: selectedDate,
-          // API 契約（bookingSchema の timeString）は "HH:MM" 形式必須。空き枠の slot_start/end は
-          // get_available_slots が TIME で返すため "HH:MM:SS" になり得る。表示は slice 済みだが
-          // 送信は raw だったため、"HH:MM:SS" で届く環境では予約が 400 で必ず失敗していた。
-          // 送信時も "HH:MM" に正規化し、slot の時刻フォーマットに依存せず予約を成立させる。
-          start_time: selectedSlot?.slot_start?.slice(0, 5),
-          end_time: selectedSlot?.slot_end?.slice(0, 5),
-          customer_name: customerName,
-          email,
-          phone: phone || null,
-          note: note || null,
-          total_price: calculatePrice(),
-          points_used: usePoints && pointsToUse > 0 ? pointsToUse : undefined,
-        }),
-        signal: AbortSignal.timeout(15000),
-      });
-
-      if (res.ok) {
-        const body = await res.json().catch(() => null);
-        const completeParams = new URLSearchParams({
-          id: body?.bookingId || '',
-          date: selectedDate || '',
-          // 完了画面の TIME_RE は "HH:MM" 必須。slot は "HH:MM:SS" になり得るため slice して渡す
-          // （raw だと .ics「カレンダーに追加」ボタンが無音で出なくなる）。
-          time: selectedSlot?.slot_start?.slice(0, 5) || '',
-          end_time: selectedSlot?.slot_end?.slice(0, 5) || '',
-          facility: facility.name || '',
-        });
-        router.push(`/facility/${encodeURIComponent(facility.slug)}/booking/complete?${completeParams.toString()}`);
-      } else {
-        const body = await res.json().catch(() => null);
-        setToast({ type: 'error', message: body?.error || '予約に失敗しました' });
-      }
-    } catch {
-      setToast({ type: 'error', message: '通信エラーが発生しました。もう一度お試しください。' });
-    } finally {
-      setSubmitting(false);
-    }
+      acceptCreateResult(await bookingCreate.current.submit({ facility_id: facility.id, staff_id: selectedStaff?.id ?? null,
+        menu_id: selectedMenus[0]?.id ?? null, menu_ids: selectedMenus.map(m => m.id), coupon_id: selectedCoupon?.id ?? null,
+        booking_date: selectedDate, start_time: selectedSlot?.slot_start?.slice(0,5) ?? '', end_time: selectedSlot?.slot_end?.slice(0,5) ?? '',
+        customer_name: customerName, email, phone: phone || null, note: note || null, total_price: calculatePrice(),
+        points_used: usePoints && pointsToUse > 0 ? pointsToUse : undefined } as BookingFormData));
+    } finally { setSubmitting(false); }
+  };
+  const reconcileBooking = async (close: boolean) => {
+    if (submitting || !bookingCreate.current) return;
+    setSubmitting(true);
+    try { acceptCreateResult(await bookingCreate.current.reconcile(close)); } finally { setSubmitting(false); }
   };
 
   const calculatePrice = () =>
@@ -714,6 +688,22 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
 
   return (
     <div>
+      {bookingPending && <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 mb-4" aria-live="polite">
+        <p>{bookingRecoveryError ?? (bookingAccepted ? 'この予約は受け付け済みです。' : '前の予約の受付状況を確認しています。')}</p>
+        {bookingOperationId && <p className="text-xs break-all mt-2">受付照合番号: {bookingOperationId}</p>}
+        <div className="flex gap-3 mt-3 flex-wrap">
+          <button type="button" disabled={submitting} onClick={() => void reconcileBooking(false)}>受付状況を照合する</button>
+          {bookingAccepted ? <button type="button" disabled={submitting} onClick={() => {
+            try { bookingCreate.current?.newAfterAcceptance(); setBookingPending(false); setBookingAccepted(false); setBookingOperationId(null); }
+            catch { setBookingRecoveryError(BOOKING_CREATE_UNKNOWN); }
+          }}>新しい予約を入力する</button> : <>
+            <button type="button" disabled={submitting} onClick={() => void handleSubmit()}>同じ内容で再確認する</button>
+            <button type="button" disabled={submitting} onClick={() => void reconcileBooking(true)}>未受付の終了を確認して編集する</button>
+          </>}
+        </div>
+      </div>}
+      <fieldset disabled={!bookingReady || bookingPending || submitting} className="contents">
+
       {/* Progress */}
       <div className="flex items-center gap-1 mb-6 overflow-x-auto pb-2">
         {steps.map((s, i) => (
@@ -1302,7 +1292,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
               <p className="text-xs mt-1">ログインせずに予約すると、予約履歴から確認・キャンセルできません。</p>
               <a
                 href={`/auth/login?redirect=/facility/${facility.slug}/booking`}
-                onClick={saveBookingDraftBeforeLogin}
+                onClick={event => { event.preventDefault(); void saveBookingDraftBeforeLogin(); }}
+                aria-disabled={savingLoginDraft}
                 className="text-xs text-primary hover:underline mt-1 inline-block"
               >
                 ログインする
@@ -1338,6 +1329,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
         </div>
       )}
 
+      </fieldset>
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
     </div>
   );

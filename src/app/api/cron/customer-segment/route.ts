@@ -8,14 +8,11 @@ import { alertDeliveryFailures } from '@/lib/alert';
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
-import { escSubject } from '@/lib/email';
 import { fetchAllPaged } from '@/lib/paginate';
-import { isMissingColumnError, warnMissingColumnFallback, type DbError } from '@/lib/db-fallback';
+import { isMissingColumnError, type DbError } from '@/lib/db-fallback';
 import { canonicalizeEmail } from '@/lib/email-canonical';
-import { fromEnv } from '@/lib/email-from';
-import { sendResendChecked } from '@/lib/resend-result';
+import { queueCustomerCouponEmail } from '@/lib/customer-coupon-email';
 
 export const dynamic = 'force-dynamic';
 // 既定の低い上限を上書きし、下の時間予算ガードが確実に発火する既知の上限を与える。
@@ -68,15 +65,15 @@ export async function GET(request: Request) {
       return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', count: 0 });
     }
 
-    // Build facility lookup map once (avoids per-facility re-fetch in email section)
-    const facilityMap = new Map(facilities.map((f) => [f.id, f]));
-
     const now = new Date();
     const twoYearsAgo = new Date(now.getTime() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     let count = 0;
     let skipped = 0;
     let deferred = 0;
-    let deliveryFailures = 0; // at_risk クーポンメールの送達失敗（run 単位で集約 Slack 通報）
+    let deliveryFailures = 0;
+    let queued = 0;
+    let processingFailures = 0;
+    let legacyUncertain = 0;
 
     const loopStart = Date.now();
     for (const facility of facilities) {
@@ -124,6 +121,7 @@ export async function GET(request: Request) {
       // （1 施設の失敗で他施設を止めない best-effort・skip として計上）。
       if (bookingsError) {
         console.error('[customer-segment] bookings fetch failed', { facilityId: facility.id, err: bookingsError });
+        processingFailures++;
         skipped++;
         continue;
       }
@@ -185,188 +183,28 @@ export async function GET(request: Request) {
           .from('customer_segments')
           .upsert(upsertRows.slice(i, i + CHUNK), { onConflict: 'facility_id,customer_email' });
         if (upsertErr) {
+          processingFailures++;
           console.error('[customer-segment] upsert chunk failed', { facilityId: facility.id, chunkStart: i, err: upsertErr });
         }
       }
 
-      // 離脱リスク顧客に自動フォローメール
+      // Coupon creation and immutable delivery identity are one transaction.
+      // Dispatch is owned by webhook-retry, including acceptance reconciliation.
       if (process.env.RESEND_API_KEY) {
-        const facilityInfo = facilityMap.get(facility.id);
-        // facilityMap is built from the same facilities array, so facilityInfo is always defined.
-        // The false branch is structurally unreachable.
-        /* istanbul ignore next */
-        if (facilityInfo) {
-          const resend = new Resend(process.env.RESEND_API_KEY);
-
-          // Collect at-risk candidates first
-          const atRiskCandidates = entries.filter(([, data]) => {
-            const daysSince = Math.floor((now.getTime() - new Date(data.lastVisit).getTime()) / (1000 * 60 * 60 * 24));
-            // 窓幅は週次 run 間隔(7日)以上にする。上限 65 だと窓幅 6 < 7 で、daysSince が 60→67 と 7 刻みで
-            // 進む位相の顧客が [60,65] を飛び越え、ウィンバックメールが永久に送られない（M-5）。66 で 7 値幅に
-            // し全位相を最低1回は捕捉する（30日以内の重複送信は notified_at + cutoff30d で別途防止済み）。
-            return classifySegment(data.visits, daysSince) === 'at_risk' && daysSince >= 60 && daysSince <= 66;
-          });
-
-          if (atRiskCandidates.length > 0) {
-            const atRiskEmails = atRiskCandidates.map(([email]) => email);
-
-            // Batch check for existing coupons (one query instead of N)
-            // code と notified_at も取得することで、クーポン作成済み・メール未送信（notified_at IS NULL）の
-            // ケースを検出し、翌 run でメール再送できるようにする。
-            // notified_at 列が未適用（migration 前にコードが先行デプロイ）の場合は 42703 で
-            // クエリ全体が失敗するため、旧来の列のみ（email, code）で再取得し、
-            // 「クーポン作成済み = 送信済み」の旧 dedup にフォールバックする。
-            // これによりデプロイ順序に依存せず、過去送信済み顧客への重複送信を防ぐ（発症前予防）。
-            type CouponRow = { email: string; code: string; notified_at?: string | null };
-            const cutoff30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-            const couponSel = await supabase
-              .from('user_coupon_codes')
-              .select('email, code, notified_at')
-              .eq('facility_id', facility.id)
-              .in('email', atRiskEmails)
-              .eq('reason', 'at_risk')
-              .gte('created_at', cutoff30d);
-            let existingCoupons = couponSel.data as CouponRow[] | null;
-            let notifiedColumnReady = true;
-            if (isMissingColumnError(couponSel.error as DbError | null)) {
-              notifiedColumnReady = false;
-              warnMissingColumnFallback('customer-segment user_coupon_codes.notified_at');
-              const fallbackSel = await supabase
-                .from('user_coupon_codes')
-                .select('email, code')
-                .eq('facility_id', facility.id)
-                .in('email', atRiskEmails)
-                .eq('reason', 'at_risk')
-                .gte('created_at', cutoff30d);
-              existingCoupons = fallbackSel.data as CouponRow[] | null;
-            }
-
-            // メール送達済み → 完全スキップ。
-            // 列適用済み: notified_at IS NOT NULL のみ。列未適用: 作成済み全件（旧来の dedup）。
-            const alreadyNotifiedEmails = new Set(
-              notifiedColumnReady
-                ? (existingCoupons || []).filter((c) => c.notified_at !== null).map((c) => c.email)
-                : (existingCoupons || []).map((c) => c.email)
-            );
-            // クーポン作成済みだがメール未送信（notified_at IS NULL）→ クーポン再作成せずメールを再送。
-            // 列未適用時は notified_at を判定できないため pending 概念を持たない（旧来動作）。
-            const pendingCoupons = new Map(
-              notifiedColumnReady
-                ? (existingCoupons || []).filter((c) => c.notified_at === null).map((c) => [c.email, c.code])
-                : []
-            );
-
-            for (const [email, data] of atRiskCandidates) {
-              if (alreadyNotifiedEmails.has(email)) continue;
-
-              const daysSince = Math.floor((now.getTime() - new Date(data.lastVisit).getTime()) / (1000 * 60 * 60 * 24));
-              const validUntil = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-              let couponCode: string;
-              if (pendingCoupons.has(email)) {
-                // クーポン作成済み・メール未送信 → 既存コードを再利用（重複クーポン防止）
-                couponCode = pendingCoupons.get(email)!;
-              } else {
-                // TOCTOU 二重発行対策: 既存クーポンのバッチ取得は loop の前（205 行目付近）で一度だけ行うため、
-                // その取得時点と個々の insert の間に別 invocation（cron 三重化=GitHub Actions/pg_cron/Render
-                // の近接同時発火等）が同一 (facility_id, email, reason='at_risk') のクーポンを作ると二重発行
-                // ＆二重メールになる恐れがある。insert 直前に 30 日窓の最新状態を再確認し、既に発行済みなら
-                // この email をスキップして実到達可能な race の大半を塞ぐ（アプリ側の前置フィルタ・30日
-                // ルールの担い手）。
-                // recheck は select→insert が非原子な以上、recheck 自体と insert の間にも狭いレース窓が残る。
-                // その窓を物理封鎖するのは DB 側の部分UNIQUEインデックス uq_user_coupon_codes_at_risk_daily
-                // （migration 20260717000001_user_coupon_codes_at_risk_daily_unique.sql・同一UTC日内の
-                // (facility_id, email) 重複を 23505 で拒否）。DDL 未適用の期間は本 recheck のみが dedup を
-                // 担う＝現行と完全同一の挙動（fail-open・デプロイ順序非依存、下の couponErr.code==='23505'
-                // 分岐が「先着 invocation に負けた」ケースを正常系として処理する）。
-                const recheck = await supabase
-                  .from('user_coupon_codes')
-                  .select('code')
-                  .eq('facility_id', facility.id)
-                  .eq('email', email)
-                  .eq('reason', 'at_risk')
-                  .gte('created_at', cutoff30d)
-                  .limit(1);
-                if (recheck.error) {
-                  console.error('[customer-segment] coupon recheck failed, skipping email', { email: String(email).replace(/(.).*@/, '$1***@'), error: recheck.error });
-                  continue;
-                }
-                if (recheck.data && recheck.data.length > 0) {
-                  // 別 invocation が既に 30 日以内の at_risk クーポンを発行済み → 二重発行を回避してスキップ。
-                  continue;
-                }
-
-                // 初回: クーポンを新規作成
-                couponCode = `BACK${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-                const { error: couponErr } = await supabase.from('user_coupon_codes').insert({
-                  facility_id: facility.id,
-                  email,
-                  code: couponCode,
-                  discount_type: 'fixed',
-                  discount_value: 500,
-                  reason: 'at_risk',
-                  valid_until: validUntil,
-                });
-                if (couponErr) {
-                  if ((couponErr as { code?: string }).code === '23505') {
-                    // 並行 invocation が同一UTC日内に先着で at_risk クーポンを発行済み（claim負け）。
-                    // uq_user_coupon_codes_at_risk_daily（DDL適用時のみ有効）による正常なレース決着で
-                    // あり障害ではないため、console.error ではなく console.warn で記録してメール送信を
-                    // スキップする（先着 invocation が既にメール送信済みのはず・二重送信を避ける）。
-                    console.warn('[customer-segment] coupon insert lost concurrent claim (23505), skipping email — another invocation already issued today\'s at_risk coupon', { email: String(email).replace(/(.).*@/, '$1***@') });
-                  } else {
-                    console.error('[customer-segment] coupon insert failed, skipping email', { email: String(email).replace(/(.).*@/, '$1***@'), error: couponErr });
-                  }
-                  continue;
-                }
-              }
-
-              // メール送信と、送信成功後の notified_at 更新を分離する。
-              // 送達失敗（deliveryFailures）は send そのものの失敗だけを数える。notified_at 更新の失敗は
-              // 「送達済みだが記録できなかった」＝送達失敗ではないので別 try で握る（誤計上・重複送信防止）。
-              let sendOk = false;
-              try {
-                // Resend SDK は API エラーを throw せず戻り値の error に載せる。検査しないと
-                // 送れていないのに sendOk=true になり notified_at まで書く（lib/resend-result.ts 参照）。
-                // sendResendChecked に send 呼び出し自体を渡し、検査未経由の握り方を作れなくする。
-                await sendResendChecked(resend.emails.send({
-                  from: fromEnv(),
-                  to: email,
-                  subject: escSubject(`【${facilityInfo.name}】お久しぶりです！特別クーポンをお届けします`),
-                  html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-                  <p>${data.name || 'お客'}様</p>
-                  <p>前回のご来店から${daysSince}日が経ちました。お体の調子はいかがですか？</p>
-                  <p>${facilityInfo.name}からお帰りいただきたく、<strong>特別割引クーポン</strong>をご用意いたしました。</p>
-                  <div style="background:#f0f9ff;border:2px solid #0ea5e9;border-radius:12px;padding:20px;text-align:center;margin:20px 0;">
-                    <p style="font-size:12px;color:#64748b;margin:0 0 8px;">クーポンコード</p>
-                    <p style="font-size:28px;font-weight:700;letter-spacing:0.1em;color:#0284c7;margin:0;">${couponCode}</p>
-                    <p style="font-size:14px;color:#475569;margin:8px 0 0;">500円引き｜有効期限: ${validUntil}</p>
-                  </div>
-                  <p style="text-align:center;">
-                    <a href="https://carelink-jp.com/facility/${facilityInfo.slug}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">ご予約・クーポン利用はこちら</a>
-                  </p>
-                  <p style="font-size:12px;color:#94a3b8;margin-top:24px;">このメールは CareLink から自動送信されています。</p>
-                </div>`,
-                }), 'cron/customer-segment');
-                sendOk = true;
-              } catch (err) {
-                deliveryFailures++;
-                console.error('[customer-segment] email send failed', { email: String(email).replace(/(.).*@/, '$1***@'), err });
-              }
-
-              // 送信成功時のみ notified_at を記録（列未適用時は skip・記録失敗は送達失敗に数えない）。
-              if (sendOk && notifiedColumnReady) {
-                const { error: notifiedErr } = await supabase
-                  .from('user_coupon_codes')
-                  .update({ notified_at: now.toISOString() })
-                  .eq('facility_id', facility.id)
-                  .eq('email', email)
-                  .eq('reason', 'at_risk')
-                  .gte('created_at', cutoff30d)
-                  .is('notified_at', null);
-                if (notifiedErr) console.error('[customer-segment] notified_at update failed (mail already sent)', { email: String(email).replace(/(.).*@/, '$1***@'), err: notifiedErr });
-              }
-            }
+        for (const [email, data] of entries) {
+          const daysSince = Math.floor((now.getTime() - new Date(data.lastVisit).getTime()) / (1000 * 60 * 60 * 24));
+          if (classifySegment(data.visits, daysSince) !== 'at_risk' || daysSince < 60 || daysSince > 66) continue;
+          try {
+            const outcome = await queueCustomerCouponEmail(supabase, {
+              facilityId: facility.id, facilityName: facility.name, facilitySlug: facility.slug,
+              email, customerName: data.name, daysSince,
+              validUntil: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            });
+            if (outcome === 'queued') queued++;
+            else if (outcome === 'uncertain') legacyUncertain++;
+          } catch (cause) {
+            deliveryFailures++;
+            console.error('[customer-segment] coupon delivery reservation failed', { facilityId: facility.id, cause });
           }
         }
       }
@@ -374,10 +212,16 @@ export async function GET(request: Request) {
       count++;
     }
 
-    await logCronRun('customer-segment', 'success', startedAt, { processed: count, skipped, meta: { deferred } });
-    // 送達失敗を run 単位で集約 Slack 通知（0 件は no-op）。
     alertDeliveryFailures('customer-segment', deliveryFailures, { processed: count, skipped });
-    return NextResponse.json({ processed: count, skipped, deferred });
+    const meta = { deferred, queued, processingFailures, deliveryFailures, deliveryUncertain: legacyUncertain };
+    if (processingFailures || deliveryFailures || legacyUncertain) return cronError(
+      'customer-segment', startedAt, 'Customer segment processing or delivery confirmation failed', {
+        extraLog: { processed: count, skipped, meta },
+        extraBody: { processed: count, skipped, ...meta },
+      },
+    );
+    await logCronRun('customer-segment', 'success', startedAt, { processed: count, skipped, meta });
+    return NextResponse.json({ processed: count, skipped, deferred, queued });
   } catch (e) {
     console.error('[customer-segment] Error:', e);
     return cronError('customer-segment', startedAt, e);

@@ -191,6 +191,11 @@ function setup(cfg: Cfg = {}) {
           }),
         };
       }
+      if (table === 'line_user_links') {
+        return { select: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({
+          data: cfg.lineLinks?.data?.map(row => ({user_id:row.id,line_user_id:row.line_user_id,proof_version:1,verified_at:'2026-10-09T00:00:00Z'})) ?? [], error:null,
+        }) }) };
+      }
       if (table === 'profiles') {
         return {
           select: jest.fn().mockReturnValue({
