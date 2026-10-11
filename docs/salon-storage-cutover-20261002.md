@@ -1,3 +1,21 @@
+## 2026-10-11 全書き込みpolicyの追加検証
+
+元のcutover sourceは本番履歴の本文hash一致を確認済みのため変更しない。追加forward `20261011080147_salon_signed_upload_policy_guard.sql`で、Storage objectsのINSERT/ALL全policyを検証する。既知の他bucket用3policyは名前だけでなく、roles・cmd・permissive・qual・with_checkの完全定義fingerprintを照合する。未知の別名、carelink文字列を含まない広い述語、既知名の定義変更はreconciliationエラーで停止し、同じtransaction内で既知旧匿名経路の閉鎖を再確認する。
+
+本番の最初のcutoverは全11policyのpreflightと、適用後の匿名API拒否・他policy hash一致・65object保持を確認している。追加検証は将来のdriftを黙って許可しないための補強で、現在の別名迂回を発見したという意味ではない。fixtureでは別名anon INSERT、authenticated ALL、非literalのbucket条件、既知名/旧名の広い定義を実SQLで拒否しrollbackを検証する。新規環境の最終replayにも追加guardを含める。
+
+## 2026-10-11 forward切替案（下記10月2日の計画への追補）
+
+新V2 UIは本番配信され、公開registerのrendered prop `v2Enabled:true`を読取確認した。global50MB、carelink-uploads10MiB/jpg/png/webp/gifも本番で確認済み。旧匿名INSERTはまだ残り、旧タブの排出は証明していない。
+
+正式source `supabase/migrations/20261011054500_salon_signed_upload_cutover.sql`を用意した。旧deferredのmarked SQL sectionはbyte一致。260migration replay、fingerprint2,945一致、関連guard56件と型検査を隔離環境で確認。sourceに存在することと本番適用を区別する。旧タブの新規写真アップロード拒否と未送信内容の自動復元を保証できない影響について、本人が「影響を受け入れ、恒久修正へ切り替える」と回答済み。本番適用はCIとfresh preflight照合後に行う。
+
+旧フォームの保存・移行機能は存在しない。未送信入力や写真をサーバーから回収したり自動復元したりできるとは説明しない。旧タブを壊さずに退役する証拠を得る方法に加え、未送信内容を確保してから再読み込みが必要になる影響を本人が明示的に受け入れる方法を本人が選択した判断として記録する。既存画像は削除しない。
+
+今回の正式適用は、検証したこのforward sourceのみを公式Supabase apply_migrationへ渡す方法を使う。生成remote versionとsource filenameの対応、保存本文hash、bucket/full policy/RLS実体を個別に照合する。古いpendingをまとめてdb pushしたり、SQL Editor DDLや履歴repairで差分を隠したりしない。Source promotionに合わせ、CIの旧post-start overlayを撤去しfresh-applyで一度だけ再生する。
+
+下記の旧「未配信」「deferredだけ」という説明は当時の観測である。最終状態E2Eを旧タブの無損失移行や実メール到達の証拠にしない点、無署名拒否を通信失敗で代用しない点、匿名権限を自動再開放しない点は継続する。
+
 # 登録写真の匿名アップロード切替準備
 
 残件3の適用待ち計画。コード根拠は現在のcheckoutで照合し、本番設定・migration履歴・実権限は別に確認する。本資料だけでは本番解消済みとしない。
