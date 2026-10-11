@@ -5,6 +5,9 @@
 BEGIN;
 -- BEGIN SALON STORAGE WRITE POLICY VALIDATION
 SET LOCAL search_path = pg_catalog, public;
+-- Serialize policy DDL with validation so another policy cannot appear
+-- between the approved-set check and closure.
+LOCK TABLE storage.objects IN ACCESS EXCLUSIVE MODE;
 DO $$ BEGIN
   IF EXISTS (
     SELECT 1 FROM pg_catalog.pg_policies p
