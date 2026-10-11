@@ -8,12 +8,13 @@ import { join } from 'node:path';
 function runHealth(mode: string, slack = false) {
   const script = pathToFileURL(join(process.cwd(), 'scripts/health-check.mjs')).href;
   const program = `
+    const fixtureMode = ${JSON.stringify(mode)};
     globalThis.fetch = async (url) => {
       if (url.endsWith('/api/health')) {
-        if (process.env.FIXTURE_MODE === 'network') throw new Error('fixture connection failed');
-        if (process.env.FIXTURE_MODE === 'invalid') return new Response('invalid JSON');
-        const status = process.env.FIXTURE_MODE === 'healthy' ? 'healthy' : 'degraded';
-        return new Response(JSON.stringify({status}), {status: process.env.FIXTURE_MODE === 'http500' ? 500 : 200});
+        if (fixtureMode === 'network') throw new Error('fixture connection failed');
+        if (fixtureMode === 'invalid') return new Response('invalid JSON');
+        const status = fixtureMode === 'healthy' ? 'healthy' : 'degraded';
+        return new Response(JSON.stringify({status}), {status: fixtureMode === 'http500' ? 500 : 200});
       }
       if (url === 'https://slack.com/api/chat.postMessage') {
         console.log('fixture alert attempted');
@@ -27,7 +28,6 @@ function runHealth(mode: string, slack = false) {
     encoding: 'utf8', timeout: 10000,
     env: {
       CARELINK_BASE_URL: mode === 'missing' ? '' : 'https://carelink.example.invalid',
-      FIXTURE_MODE: mode,
       SLACK_BOT_TOKEN: slack ? 'synthetic-fixture-token' : '',
       SLACK_DEFAULT_CHANNEL: slack ? 'synthetic-fixture-channel' : '',
     },
