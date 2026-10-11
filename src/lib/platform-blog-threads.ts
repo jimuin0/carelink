@@ -1,79 +1,56 @@
-/**
- * プラットフォームブログ記事の Threads 自動投稿（2026年8月21日 新設）
- *
- * 🔴 **なぜ独立モジュールにしているか。** この処理は POST（新規作成時に公開）と
- * PATCH（非公開→公開）の2経路から呼ばれる。route.ts は HTTP メソッド以外を export
- * できないため、素直に書くと同じ関数が2ファイルに複製される。
- * ここには **claim のプロトコル**（どの列を条件に、どの順で焼き切るか）が入っており、
- * 2つの複製が少しでもズレると【片方だけが二重投稿する】。しかも
- * `src/app/api/cron/threads-backfill` が同じ3条件で行を選ぶため、ズレは3者間に波及する。
- * 「同じであること」をレビューで担保するのは無理なので、1箇所に集約している。
- */
-import { createServiceRoleClient } from '@/lib/supabase-server';
-import { alertWarning } from '@/lib/alert';
-import { publishThreadsText, buildArticlePostText } from '@/lib/threads';
-import { SITE_URL } from '@/lib/constants';
+import { z } from 'zod';
+import type { createServiceRoleClient } from './supabase-server';
+import { alertWarning } from './alert';
+import { publishThreadsText, buildArticlePostText, readThreadsContainerStatus } from './threads';
+import { SITE_URL } from './constants';
 
-export async function publishArticleToThreads(
-  admin: ReturnType<typeof createServiceRoleClient>,
-  post: { id: string; slug: string; title: string },
-  route: string
-): Promise<void> {
-  const nowIso = new Date().toISOString();
-
-  // claim: 同時に複数リクエストが来ても、threads_posted_at を実際に null → 非null へ
-  // 遷移させられるのは1件だけ（行ロックにより原子的）。
-  const { data: claimed, error: claimError } = await admin
-    .from('platform_blog_posts')
-    .update({ threads_posted_at: nowIso })
-    .eq('id', post.id)
-    .is('threads_post_id', null)
-    .is('threads_posted_at', null)
-    .select('id');
-
-  if (claimError || !claimed || claimed.length === 0) {
-    // claim できなかった = 既に投稿済み／投稿処理中／過去の試行が claim を保持したまま。
-    // 二重投稿を避けるのが目的なので、ここは正常系として何もしない。
-    return;
-  }
-
+type Admin = ReturnType<typeof createServiceRoleClient>;
+type RpcResponse = { data: unknown; error: unknown };
+const claimSchema = z.object({ attemptId: z.string().uuid(), title: z.string(), slug: z.string() });
+export type ArticleDelivery = 'published' | 'skipped' | 'transient' | 'permanent' | 'ambiguous' | 'raced' | 'unavailable';
+async function rpc(db: Admin, name: string, args: Record<string, unknown>): Promise<RpcResponse> {
+  const call = db.rpc as unknown as (name: string, args: Record<string, unknown>) => PromiseLike<RpcResponse>;
+  try { return await call.call(db, name, args); }
+  catch { return { data: null, error: new Error('THREADS_DEPENDENCY_UNAVAILABLE') }; }
+}
+export async function publishArticleToThreads(db: Admin, post: { id: string; slug: string; title: string }, route: string): Promise<ArticleDelivery> {
+  const response = await rpc(db, 'claim_threads_article', { p_post_id: post.id });
+  if (response.error !== null) return 'unavailable';
+  if (response.data === null) return 'raced';
+  const claim = claimSchema.safeParse(response.data);
+  if (!claim.success) return 'unavailable';
+  const attempt = claim.data.attemptId;
   let result;
   try {
-    const url = `${SITE_URL}/blog/${post.slug}`;
-    result = await publishThreadsText(buildArticlePostText(post.title, url));
-  } catch (e) {
-    // publishThreadsText はエラーを outcome として返す契約だが、想定外の throw で
-    // claim が解放されないまま恒久的に固着する（＝以後二度と投稿もアラートも発生しない）
-    // 事故を避けるため、transient 相当として扱い claim を解放する。
-    result = {
-      outcome: 'transient' as const,
-      reason: e instanceof Error ? e.message : String(e),
-    };
+    result = await publishThreadsText(buildArticlePostText(claim.data.title, `${SITE_URL}/blog/${claim.data.slug}`), {
+      beforePublish: async creationId => {
+        const start = await rpc(db, 'start_threads_article_publish', { p_post_id: post.id, p_attempt_id: attempt, p_creation_id: creationId });
+        if (start.error !== null || start.data !== true) throw new Error('THREADS_START_UNVERIFIED');
+      },
+    });
+  } catch { result = { outcome: 'unknown' as const }; }
+  // Missing/malformed replies never authorize release. Only prepublication
+  // failures may become retryable; the SQL start marker independently guards it.
+  const outcome = result?.outcome === 'published' && typeof result.postId === 'string' && /^[0-9]{1,100}$/.test(result.postId)
+    ? 'published' : ['skipped','transient','permanent'].includes(result?.outcome) ? result.outcome : 'unknown';
+  const finish = await rpc(db, 'finish_threads_article_publish', { p_post_id: post.id, p_attempt_id: attempt,
+    p_outcome: outcome, p_post_id_external: outcome === 'published' ? result.postId : null });
+  if (finish.error !== null || !['published','skipped','transient','permanent','ambiguous'].includes(finish.data as string)) {
+    alertWarning('[platform-blog] Threads投稿の結果記録を確認できません。再投稿せず照合してください。', { route });
+    return 'ambiguous';
   }
-
-  if (result.outcome === 'published') {
-    await admin
-      .from('platform_blog_posts')
-      .update({ threads_post_id: result.postId ?? null })
-      .eq('id', post.id)
-      .is('threads_post_id', null);
-    return;
+  const state = finish.data as Exclude<ArticleDelivery, 'raced' | 'unavailable'>;
+  if (state === 'ambiguous' || state === 'permanent') {
+    alertWarning('[platform-blog] Threads投稿は照合または設定確認が必要です。自動で再公開しません。', { route });
   }
+  return state;
+}
 
-  if (result.outcome === 'permanent') {
-    // トークン失効等＝次回以降も必ず失敗する。専用の記録列が無いため「一度だけ通知」はできず、
-    // claim を解放して次の編集保存でも同じ理由で再試行・再通知させる（直るまで気づき続けられる形）。
-    alertWarning(
-      `[platform-blog] Threads 投稿が恒久的に失敗しました（id=${post.id}）: ${result.reason ?? 'unknown'}`,
-      { route }
-    );
-  }
-
-  // skipped（未設定・正常系）／transient（一時失敗・記録せず backfill cron に任せる）／
-  // permanent（上で通知済み）のいずれも、threads_post_id は書かず claim だけ解放する。
-  await admin
-    .from('platform_blog_posts')
-    .update({ threads_posted_at: null })
-    .eq('id', post.id)
-    .is('threads_post_id', null);
+export async function reconcileArticleThreads(db: Admin, post: { id: string; attemptId: string | null; creationId: string | null }): Promise<boolean> {
+  if (!post.attemptId || !post.creationId) return false;
+  const status = await readThreadsContainerStatus(post.creationId);
+  if (status !== 'PUBLISHED') return false;
+  const result = await rpc(db, 'reconcile_threads_article_publish', { p_post_id: post.id, p_attempt_id: post.attemptId,
+    p_creation_id: post.creationId, p_provider_status: status });
+  return result.error === null && result.data === true;
 }

@@ -277,7 +277,7 @@ async function main() {
   const selfBooking=await contend('online-owner-versus-retirement',
     `SELECT id FROM auth.users WHERE id='${retiringActor}' FOR KEY SHARE;
      SELECT id FROM public.facility_profiles WHERE id='${retiringFacility}' FOR UPDATE`,[
-      `SET ROLE service_role; SELECT public.create_online_booking_atomic('${retiringFacility}','${retiringStaff}','${retiringActor}',
+      `RESET ROLE; SELECT public.create_online_booking_atomic('${retiringFacility}','${retiringStaff}','${retiringActor}',
         '${retiringMenu}',NULL,'2030-01-10','11:00','12:00','Synthetic',NULL,NULL,NULL,1000,0,'confirmed',ARRAY['${retiringMenu}'::uuid]);`,
       `CREATE FUNCTION pg_temp.attempt() RETURNS text LANGUAGE plpgsql AS $$ BEGIN
         DELETE FROM auth.users WHERE id='${retiringActor}'; RETURN 'deleted'; EXCEPTION WHEN raise_exception THEN
@@ -289,7 +289,7 @@ async function main() {
   assert.equal(query(`SELECT count(*) FROM public.bookings WHERE facility_id='${retiringFacility}' AND user_id='${retiringActor}' AND status='confirmed'`),'1');
   query(`UPDATE public.bookings SET status='cancelled' WHERE facility_id='${retiringFacility}'`);
   const deletionFirst=await contend('retirement-before-online',`SELECT id FROM auth.users WHERE id='${retiringActor}' FOR UPDATE`,[
-    `SET ROLE service_role; CREATE FUNCTION pg_temp.attempt() RETURNS text LANGUAGE plpgsql AS $$ BEGIN
+    `RESET ROLE; CREATE FUNCTION pg_temp.attempt() RETURNS text LANGUAGE plpgsql AS $$ BEGIN
       PERFORM public.create_online_booking_atomic('${retiringFacility}','${retiringStaff}','${retiringActor}',
         '${retiringMenu}',NULL,'2030-01-10','12:00','13:00','Synthetic',NULL,NULL,NULL,1000,0,'confirmed',ARRAY['${retiringMenu}'::uuid]);
       RETURN 'booked'; EXCEPTION WHEN raise_exception THEN

@@ -34,14 +34,14 @@ function setupDefaultMocks(signatureValid: boolean = true) {
     upsert: mockUpsert,
   });
 
-  global.fetch = jest.fn().mockResolvedValue(
+  global.fetch = jest.fn().mockImplementation(() => Promise.resolve(
     new Response(
       JSON.stringify({ displayName: 'Test User', pictureUrl: 'https://example.com/pic.jpg' }),
       { status: 200 }
     )
-  );
+  ));
 
-  (sendLineReply as jest.Mock).mockResolvedValue({ ok: true });
+  (sendLineReply as jest.Mock).mockResolvedValue(true);
 
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -389,7 +389,7 @@ describe('POST /api/line/webhook', () => {
     expect(call[0].display_name).toBeDefined();
   });
 
-  test('invalid JSON → 200 (graceful error)', async () => {
+  test('invalid JSON → 400 not accepted', async () => {
     const req = new Request('http://localhost/api/line/webhook', {
       method: 'POST',
       headers: {
@@ -401,10 +401,10 @@ describe('POST /api/line/webhook', () => {
 
     const res = await POST(req as any);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
   });
 
-  test('exception during profile fetch → continues', async () => {
+  test('profile fetch failure → 500 not accepted', async () => {
     global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
 
     const res = await POST(
@@ -419,7 +419,7 @@ describe('POST /api/line/webhook', () => {
       }) as any
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
   });
 
   test('returns OK status always', async () => {
@@ -530,4 +530,32 @@ describe('POST /api/line/webhook', () => {
     expect(mockUpsert).not.toHaveBeenCalled();
     expect(sendLineReply).not.toHaveBeenCalled();
   });
+});
+
+describe('follow acceptance and reply uncertainty',()=>{
+ const event={type:'follow',source:{userId:VALID_LINE_USER_ID},replyToken:'same-one-use-token'};
+ test.each([{data:null,error:{code:'XX000'}},{data:{line_user_id:VALID_LINE_USER_ID},error:{code:'XX000'}}])('follow DB response %p is not acknowledged before storage succeeds',async result=>{
+  mockUpsert.mockResolvedValue(result);const res=await POST(makeRequest({events:[event]}) as any);
+  expect(res.status).toBe(500);expect(sendLineReply).not.toHaveBeenCalled();
+ });
+ test('lost follow DB result is retryable metadata upsert with no reply sent',async()=>{
+  mockUpsert.mockRejectedValue(new Error('lost DB response'));expect((await POST(makeRequest({events:[event]}) as any)).status).toBe(500);expect(sendLineReply).not.toHaveBeenCalled();
+ });
+ test('all follow writes precede replies even when a later event fails',async()=>{
+  mockUpsert.mockResolvedValueOnce({error:null}).mockResolvedValueOnce({error:{code:'XX000'}});
+  const res=await POST(makeRequest({events:[event,{...event,source:{userId:'U_second'}}]}) as any);
+  expect(res.status).toBe(500);expect(sendLineReply).not.toHaveBeenCalled();
+ });
+ test.each(['false','throw'])('reply %s remains unknown, acknowledged durable follow is never called sent',async kind=>{
+  if(kind==='false')(sendLineReply as jest.Mock).mockResolvedValue(false);else(sendLineReply as jest.Mock).mockRejectedValue(new Error('lost provider response'));
+  const res=await POST(makeRequest({events:[event]}) as any);expect(res.status).toBe(200);expect(await res.json()).toMatchObject({status:'ok',reply_delivery:'unknown'});expect(sendLineReply).toHaveBeenCalledTimes(1);
+ });
+ test('redelivery uses exactly the same one-use replyToken and never replaces it',async()=>{
+  await POST(makeRequest({events:[event]}) as any);await POST(makeRequest({events:[{...event,deliveryContext:{isRedelivery:true}}]}) as any);
+  expect((sendLineReply as jest.Mock).mock.calls.map(call=>call[0])).toEqual(['same-one-use-token','same-one-use-token']);
+ });
+ test('follow metadata does not overwrite owner or provider-proof fields',async()=>{
+  await POST(makeRequest({events:[event]}) as any);expect(mockUpsert.mock.calls[0][0]).not.toHaveProperty('user_id');expect(mockUpsert.mock.calls[0][0]).not.toHaveProperty('proof_version');expect(mockUpsert.mock.calls[0][0]).not.toHaveProperty('verified_at');
+ });
+ test('non-array events rejected before writes or replies',async()=>{const res=await POST(makeRequest({events:{}}) as any);expect(res.status).toBe(400);expect(mockUpsert).not.toHaveBeenCalled();});
 });

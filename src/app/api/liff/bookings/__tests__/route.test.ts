@@ -104,6 +104,7 @@ function setupDefaultMocks(
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
     from: jest.fn((table: string) => {
+      if (table === 'line_user_links') { const chain: any = {}; chain.select = jest.fn(() => chain); chain.eq = jest.fn(() => chain); chain.maybeSingle = jest.fn().mockResolvedValue({ data: { user_id: 'db-user-123', proof_version: 1, verified_at: '2026-10-09T00:00:00Z' }, error: null }); return chain; }
       if (table === 'profiles') {
         return createChainableMock(profileData);
       } else if (table === 'bookings') {
@@ -245,7 +246,8 @@ describe('GET /api/liff/bookings', () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
       from: jest.fn((table: string) => {
-        if (table === 'profiles') return createChainableMock({ data: { id: 'db-user-123' }, error: null });
+        if (table === 'line_user_links') { const chain: any = {}; chain.select = jest.fn(() => chain); chain.eq = jest.fn(() => chain); chain.maybeSingle = jest.fn().mockResolvedValue({ data: { user_id: 'db-user-123', proof_version: 1, verified_at: '2026-10-09T00:00:00Z' }, error: null }); return chain; }
+      if (table === 'profiles') return createChainableMock({ data: { id: 'db-user-123' }, error: null });
         return createChainableMock({ data: null, error: null });
       }),
     });
@@ -290,7 +292,8 @@ describe('GET /api/liff/bookings', () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
       from: jest.fn((table: string) => {
-        if (table === 'profiles') return createChainableMock({ data: { id: 'db-user-123' }, error: null });
+        if (table === 'line_user_links') { const chain: any = {}; chain.select = jest.fn(() => chain); chain.eq = jest.fn(() => chain); chain.maybeSingle = jest.fn().mockResolvedValue({ data: { user_id: 'db-user-123', proof_version: 1, verified_at: '2026-10-09T00:00:00Z' }, error: null }); return chain; }
+      if (table === 'profiles') return createChainableMock({ data: { id: 'db-user-123' }, error: null });
         return createChainableMock({ data: null, error: { message: 'DB error' } });
       }),
     });
@@ -303,7 +306,8 @@ describe('GET /api/liff/bookings', () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
       from: jest.fn((table: string) => {
-        if (table === 'profiles') return createChainableMock({ data: { id: 'db-user-123' }, error: null });
+        if (table === 'line_user_links') { const chain: any = {}; chain.select = jest.fn(() => chain); chain.eq = jest.fn(() => chain); chain.maybeSingle = jest.fn().mockResolvedValue({ data: { user_id: 'db-user-123', proof_version: 1, verified_at: '2026-10-09T00:00:00Z' }, error: null }); return chain; }
+      if (table === 'profiles') return createChainableMock({ data: { id: 'db-user-123' }, error: null });
         return createChainableMock({ data: null, error: { message: 'DB error' } });
       }),
     });
@@ -312,12 +316,12 @@ describe('GET /api/liff/bookings', () => {
     expect(res.status).toBe(500);
   });
 
-  test('unexpected error → 500', async () => {
+  test('profile transport error → 503', async () => {
     (global.fetch as jest.Mock).mockRejectedValue(new Error('Network failure'));
 
     const res = await GET(makeRequest() as any);
 
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
   });
 
   // R2 audience検証: 他チャネル発行トークン（client_id不一致）→ 401（!tokenCheck.ok 分岐）

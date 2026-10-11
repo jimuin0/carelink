@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { phoneField } from './phone';
+import { termsConsentSchema } from './registration-consent';
 
 /**
  * LINE ログイン用の合成メール（`line_...@line.carelink.local`）は、パスワード認証の
@@ -30,6 +31,7 @@ export const signupSchema = z.object({
   prefecture: z.string().min(1, '都道府県を選択してください').max(20),
   password: z.string().min(8, 'パスワードは8文字以上で入力してください').max(128),
   password_confirm: z.string().max(128),
+  terms_agreed: termsConsentSchema.shape.terms_agreed,
 }).refine((data) => data.password === data.password_confirm, {
   message: 'パスワードが一致しません',
   path: ['password_confirm'],

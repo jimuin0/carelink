@@ -39,7 +39,25 @@ export async function POST(request: Request) {
 
   try {
     const parsed = JSON.parse(body);
-    const events: LineEvent[] = parsed.events || [];
+    const events: LineEvent[] = parsed.events ?? [];
+    if (!Array.isArray(events)) return NextResponse.json({ error: 'Invalid events' }, { status: 400 });
+
+    // Finish all follow writes before any external reply. A DB failure can then
+    // request webhook redelivery without claiming acceptance or resending an
+    // already attempted reply because a later follow write failed.
+    for (const event of events) {
+      const lineUserId = event.source?.userId;
+      if (!lineUserId || !/^[A-Za-z0-9_-]+$/.test(lineUserId)) continue;
+      if (event.type === 'follow') await handleFollow(lineUserId);
+      else if (event.type === 'unfollow') await handleUnfollow(lineUserId);
+    }
+    let attempted = false;
+    let replyUnknown = false;
+    const reply = async (token: string, text: string) => {
+      attempted = true;
+      try { if (await sendLineReply(token, [{ type: 'text', text }]) !== true) replyUnknown = true; }
+      catch { replyUnknown = true; }
+    };
 
     for (const event of events) {
       const lineUserId = event.source?.userId;
@@ -47,34 +65,28 @@ export async function POST(request: Request) {
 
       switch (event.type) {
         case 'follow':
-          await handleFollow(lineUserId);
           if (event.replyToken) {
-            await sendLineReply(event.replyToken, [{
-              type: 'text',
-              text: 'CareLink をフォローいただきありがとうございます！\n\nサロン・クリニックの検索・予約はこちら👇\nhttps://carelink-jp.com',
-            }]);
+            await reply(event.replyToken, 'CareLink をフォローいただきありがとうございます！\n\nサロン・クリニックの検索・予約はこちら👇\nhttps://carelink-jp.com');
           }
           break;
 
         case 'unfollow':
-          await handleUnfollow(lineUserId);
           break;
 
         case 'message':
           if (event.replyToken && event.message?.type === 'text') {
-            await sendLineReply(event.replyToken, [{
-              type: 'text',
-              text: 'お問い合わせありがとうございます。\n\nサロン検索・予約はこちら👇\nhttps://carelink-jp.com/search',
-            }]);
+            await reply(event.replyToken, 'お問い合わせありがとうございます。\n\nサロン検索・予約はこちら👇\nhttps://carelink-jp.com/search');
           }
           break;
       }
     }
 
-    return NextResponse.json({ status: 'ok' });
+    // LINE redelivery retains the same one-use replyToken. We never replace it
+    // with a push/retry token. A lost reply response remains unknown, not sent.
+    return NextResponse.json({ status: 'ok', reply_delivery: replyUnknown ? 'unknown' : attempted ? 'sent' : 'not_attempted' });
   } catch (e) {
-    console.error('[LINE Webhook] Error:', e);
-    return NextResponse.json({ status: 'ok' });
+    if (e instanceof SyntaxError) return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    return serverError('line-webhook-follow', new Error('Follow acceptance unavailable'), '/api/line/webhook');
   }
 }
 
@@ -82,14 +94,14 @@ async function handleFollow(lineUserId: string) {
   // LINEプロフィール取得
   try {
     const token = process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
-    if (!token) return;
+    if (!token) throw new Error('LINE follow configuration unavailable');
 
     const res = await fetch(`https://api.line.me/v2/bot/profile/${lineUserId}`, {
       headers: { 'Authorization': `Bearer ${token}` },
       signal: AbortSignal.timeout(5000),
     });
 
-    if (!res.ok) return;
+    if (!res.ok) throw new Error('LINE follow profile unavailable');
 
     const profile = await res.json();
 
@@ -103,18 +115,20 @@ async function handleFollow(lineUserId: string) {
 
     // line_user_linksに仮登録（user_id=NULLの状態、後でアカウント連携時に紐づけ）
     // → RLSがuser_id必須なので、service_roleで直接INSERT
-    await supabaseAdmin
+    const { error } = await supabaseAdmin
       .from('line_user_links')
       .upsert(
         {
           line_user_id: lineUserId,
-          display_name: profile.displayName || null,
-          picture_url: profile.pictureUrl || null,
+          display_name: typeof profile.displayName === 'string' ? profile.displayName : null,
+          picture_url: typeof profile.pictureUrl === 'string' ? profile.pictureUrl : null,
         },
         { onConflict: 'line_user_id' }
       );
-  } catch (e) {
-    console.error('[LINE Webhook] Follow handler error:', e);
+    if (error) throw new Error('LINE follow storage unavailable');
+  } catch {
+    // Preserve the failure for HTTP acceptance. Do not log a profile/token.
+    throw new Error('LINE follow acceptance unavailable');
   }
 }
 

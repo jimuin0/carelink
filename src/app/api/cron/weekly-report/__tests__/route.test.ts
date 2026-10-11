@@ -48,7 +48,7 @@ function makeRequest() {
 function chain(resolved: unknown) {
   const p = Promise.resolve(resolved);
   const obj: Record<string, unknown> = {
-    select: () => obj, eq: () => obj, gte: () => obj, lte: () => obj, in: () => obj, limit: () => obj, range: () => obj,
+    select: () => obj, eq: () => obj, gte: () => obj, lte: () => obj, in: () => obj, limit: () => obj, range: () => obj, order: () => obj,
     insert: () => obj, delete: () => obj,
     maybeSingle: () => Promise.resolve(resolved),
     then: (onF: (v: unknown) => unknown, onR?: (e: unknown) => unknown) => p.then(onF, onR),
@@ -61,8 +61,11 @@ function setupFrom(opts: {
   optedOut?: { facility_id: string }[] | null;
   optedOutError?: { message: string } | null;
   owner?: { user_id: string } | null;
+  ownerError?: { message: string };
   prof?: { email?: string | null } | null;
+  profileError?: { message: string };
   fac?: { name?: string } | null;
+  facilityError?: { message: string };
   claimError?: { code?: string; message?: string } | null;
 } = {}) {
   // 監査P2: facility_members/profiles/facility_profilesはバルク取得(配列)に変更済み。
@@ -72,15 +75,15 @@ function setupFrom(opts: {
     if (table === 'facility_notification_settings') return chain({ data: 'optedOut' in opts ? opts.optedOut : [], error: opts.optedOutError ?? null });
     if (table === 'facility_members') {
       const owner = 'owner' in opts ? opts.owner : { user_id: 'u1' };
-      return chain({ data: owner ? [{ facility_id: 'f-1', user_id: owner.user_id }] : [] });
+      return chain({ data: owner ? [{ facility_id: 'f-1', user_id: owner.user_id }] : [], error: opts.ownerError });
     }
     if (table === 'profiles') {
       const prof = 'prof' in opts ? opts.prof : { email: 'owner@example.com' };
-      return chain({ data: prof ? [{ id: 'u1', email: prof.email ?? null }] : [] });
+      return chain({ data: prof ? [{ id: 'u1', email: prof.email ?? null }] : [], error: opts.profileError });
     }
     if (table === 'facility_profiles') {
       const fac = 'fac' in opts ? opts.fac : { name: 'テスト施設' };
-      return chain({ data: fac ? [{ id: 'f-1', name: fac.name ?? null }] : [] });
+      return chain({ data: fac ? [{ id: 'f-1', name: fac.name ?? null }] : [], error: opts.facilityError });
     }
     // M-1: cron_report_sends の claim insert / release delete。既定は claim 成功（error:null）。
     if (table === 'cron_report_sends') return chain({ error: opts.claimError ?? null });
@@ -344,3 +347,67 @@ test('facility_profilesがdata:nullを返す → 施設名は既定「施設」�
   await GET(makeRequest());
   expect(sendWeeklyReportEmail).toHaveBeenCalledWith(expect.objectContaining({ facilityName: '施設' }));
 });
+
+test.each(['ownerError', 'profileError', 'facilityError'] as const)(
+  '%sは部分dataがあっても送信/claim前に停止し、正常skipとしない', async (errorField) => {
+    setupFrom({ rows: { data: [{ facility_id: 'f-1', booking_count: 1 }], error: null },
+      [errorField]: { message: 'recipient dependency unavailable' } });
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(500);
+    expect(sendWeeklyReportEmail).not.toHaveBeenCalled();
+    expect(mockFrom.mock.calls.some(([table]) => table === 'cron_report_sends')).toBe(false);
+    expect(logCronRun).toHaveBeenCalledWith('weekly-report', 'error', expect.anything(),
+      expect.objectContaining({ error_msg: 'recipient dependency unavailable' }));
+    expect(logCronRun).not.toHaveBeenCalledWith('weekly-report', 'success', expect.anything(), expect.anything());
+  },
+);
+
+function pagedOverride(table: string, page: (offset: number) => unknown) {
+  const delegate = mockFrom.getMockImplementation()!;
+  mockFrom.mockImplementation((name: string) => {
+    if (name !== table) return delegate(name);
+    const query = chain({ data: [], error: null });
+    query.range = (offset: number) => chain(page(offset));
+    return query;
+  });
+}
+
+test('集計1000件を越えた次ページも含めて送信する', async () => {
+  setupFrom();
+  pagedOverride('daily_revenue_summary', (offset) => ({ data: offset === 0
+    ? Array.from({ length: 1000 }, (_, i) => ({ facility_id: `other-${i}`, booking_count: 1 }))
+    : [{ facility_id: 'f-1', booking_count: 7, total_revenue: 700 }], error: null }));
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(200);
+  expect(sendWeeklyReportEmail).toHaveBeenCalledTimes(1);
+  expect(sendWeeklyReportEmail).toHaveBeenCalledWith(expect.objectContaining({ bookingCount: 7, totalRevenue: 700 }));
+});
+
+test.each(['daily_revenue_summary', 'facility_members', 'profiles', 'facility_profiles'])(
+  '%sの後続ページ障害では取得済み部分集合から送信しない', async (table) => {
+    setupFrom({ rows: { data: [{ facility_id: 'f-1', booking_count: 1 }], error: null } });
+    const row = { facility_id: 'f-1', user_id: 'u1', id: 'u1', email: 'owner@example.invalid', name: 'fixture', booking_count: 1 };
+    pagedOverride(table, (offset) => offset === 0
+      ? { data: Array(1000).fill(row), error: null }
+      : { data: null, error: { message: 'later page unavailable' } });
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(500);
+    expect(sendWeeklyReportEmail).not.toHaveBeenCalled();
+    expect(mockFrom.mock.calls.some(([name]) => name === 'cron_report_sends')).toBe(false);
+    expect(logCronRun).not.toHaveBeenCalledWith('weekly-report', 'success', expect.anything(), expect.anything());
+  },
+);
+
+test.each(['daily_revenue_summary', 'facility_members', 'profiles', 'facility_profiles'])(
+  '%sの安全上限に達した場合は部分成功扱いせず送信前に停止する', async (table) => {
+    setupFrom({ rows: { data: [{ facility_id: 'f-1', booking_count: 1 }], error: null } });
+    const row = { facility_id: 'f-1', user_id: 'u1', id: 'u1', email: 'owner@example.invalid', name: 'fixture', booking_count: 1 };
+    pagedOverride(table, () => ({ data: Array(1000).fill(row), error: null }));
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(500);
+    expect(sendWeeklyReportEmail).not.toHaveBeenCalled();
+    expect(logCronRun).toHaveBeenCalledWith('weekly-report', 'error', expect.anything(),
+      expect.objectContaining({ error_msg: expect.stringContaining('maxRows=100000') }));
+    expect(mockFrom.mock.calls.some(([name]) => name === 'cron_report_sends')).toBe(false);
+  },
+);

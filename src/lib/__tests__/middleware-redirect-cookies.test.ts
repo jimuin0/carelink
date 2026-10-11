@@ -120,7 +120,7 @@ beforeEach(() => {
   profileResult = { data: { is_platform_admin: false }, error: null };
 });
 
-test.each(['/admin', '/admin/onboarding', '/admin/inquiries', '/mypage', '/auth/login', '/auth/signup'])(
+test.each(['/admin', '/admin/onboarding', '/admin/inquiries', '/mypage'])(
   'returned Auth outage fails closed without logout/role lookup: %s', async path => {
     const log = jest.spyOn(console, 'error').mockImplementation();
     getUserImpl = async opts => {
@@ -139,6 +139,60 @@ test.each(['/admin', '/admin/onboarding', '/admin/inquiries', '/mypage', '/auth/
     expect(JSON.stringify(log.mock.calls)).not.toContain('synthetic-private-value');
     log.mockRestore();
   });
+test.each(['/auth/login', '/auth/signup'])('Auth outage retains public form and refreshed cookies: %s', async path => {
+  const log = jest.spyOn(console, 'error').mockImplementation();
+  getUserImpl = async opts => {
+    opts.cookies.setAll([{ name: 'sb-refresh-token', value: 'refreshed' }]);
+    return { data: { user: null }, error: new AuthRetryableFetchError('private', 503) };
+  };
+  const res = await middleware(makeRequest(path));
+  expect(res.status).toBeUndefined();expect(res._isRedirect).toBeUndefined();
+  expect((res.headers as Headers).get('content-security-policy')).toContain('nonce-');
+  expect((res.cookies as ReturnType<typeof cookieStore>).getAll()).toEqual([expect.objectContaining({ value: 'refreshed' })]);
+  expect(mockMembershipLookup).not.toHaveBeenCalled();log.mockRestore();
+});
+test.each(['/auth/login', '/auth/signup', '/admin'])('timeout freezes response/cookies and grants no late access: %s', async path => {
+  jest.useFakeTimers();const log = jest.spyOn(console, 'error').mockImplementation();
+  try {
+    let finish!: () => void;
+    getUserImpl = opts => new Promise(resolve => {
+      opts.cookies.setAll([{ name: 'sb-refresh-token', value: 'before-deadline' }]);
+      finish = () => {
+        opts.cookies.setAll([{ name: 'sb-refresh-token', value: 'late-replacement' }]);
+        resolve({ data: { user: { id: 'late-user' } } });
+      };
+    });
+    const request = makeRequest(path), pending = middleware(request);
+    await jest.advanceTimersByTimeAsync(5000);
+    const res = await pending;
+    expect(res.status).toBe(path === '/admin' ? 503 : undefined);
+    expect(res._isRedirect).toBeUndefined();
+    expect((res.headers as Headers).get('content-security-policy')).toContain('nonce-');
+    finish();await Promise.resolve();
+    expect((res.cookies as ReturnType<typeof cookieStore>).get('sb-refresh-token')?.value).toBe('before-deadline');
+    expect(request.cookies.get('sb-refresh-token')?.value).toBe('before-deadline');
+    expect(mockMembershipLookup).not.toHaveBeenCalled();
+  } finally { log.mockRestore();jest.useRealTimers(); }
+});
+test('a cookie callback at the deadline cannot change the response before the timeout continuation',async()=>{
+  jest.useFakeTimers();const log=jest.spyOn(console,'error').mockImplementation();
+  try {
+    getUserImpl=opts=>new Promise(resolve=>{setTimeout(()=>{
+      opts.cookies.setAll([{name:'sb-refresh-token',value:'at-deadline'}]);
+      resolve({data:{user:{id:'too-late'}}});
+    },5000);});
+    const pending=middleware(makeRequest('/admin'));
+    await jest.advanceTimersByTimeAsync(5000);const res=await pending;
+    expect(res.status).toBe(503);expect(res._isRedirect).toBeUndefined();
+    expect((res.cookies as ReturnType<typeof cookieStore>).getAll()).toEqual([]);
+    expect(mockMembershipLookup).not.toHaveBeenCalled();
+  }finally{log.mockRestore();jest.useRealTimers();}
+});
+test.each(['/auth/login','/auth/signup'])('client init outage still renders a public auth form with CSP: %s',async path=>{
+  mockThrowAt='init';const res=await middleware(makeRequest(path));
+  expect(res.status).toBeUndefined();expect(res._isRedirect).toBeUndefined();
+  expect((res.headers as Headers).get('content-security-policy')).toContain('nonce-');
+});
 test('thrown Auth failure is 503; public registration does not contact Auth', async () => {
   const log = jest.spyOn(console, 'error').mockImplementation();
   const auth = jest.fn(async () => { throw new Error('synthetic-private-value'); });

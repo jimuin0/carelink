@@ -11,7 +11,7 @@ jest.mock('../supabase-server', () => ({
   createServerSupabaseClient: jest.fn(() => ({ from: mockFrom })),
 }));
 
-import { getBlogsByFacility, getBlogPost } from '../blog';
+import { getBlogsByFacility, getBlogPost, normalizeBlogTags } from '../blog';
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -66,7 +66,7 @@ describe('getBlogPost()', () => {
     const chain = {
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
-      single: jest.fn(() => Promise.resolve({ data: post })),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: post })),
     };
     mockFrom.mockReturnValue(chain);
 
@@ -78,11 +78,20 @@ describe('getBlogPost()', () => {
     const chain = {
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
-      single: jest.fn(() => Promise.resolve({ data: null })),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: null })),
     };
     mockFrom.mockReturnValue(chain);
 
     const result = await getBlogPost('f1', 'nonexistent');
     expect(result).toBeNull();
   });
+});
+
+
+test.each([null,undefined,{},'tag',1])('non-array tags %j are empty', value=>{expect(normalizeBlogTags(value)).toEqual([]);});
+test('unknown tag elements cannot reach JSX/JSON-LD, valid strings remain',()=>{expect(normalizeBlogTags(['valid',null,{},0,'second'])).toEqual(['valid','second']);});
+test.each(['list','post'])('DB %s failure/data plus error is not empty or not-found', async kind=>{
+ const chain={select:jest.fn().mockReturnThis(),eq:jest.fn().mockReturnThis(),order:jest.fn().mockResolvedValue({data:[{id:'partial'}],error:{message:'private detail'}}),maybeSingle:jest.fn().mockResolvedValue({data:{id:'partial'},error:{message:'private detail'}})};
+ mockFrom.mockReturnValue(chain);
+ await expect(kind==='list'?getBlogsByFacility('f1'):getBlogPost('f1','post')).rejects.toThrow('unavailable');
 });

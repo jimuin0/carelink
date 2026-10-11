@@ -36,7 +36,7 @@ const ELLIPSIS = '…';
 /** fetch のタイムアウト（Threads API 呼び出し1回あたり）。 */
 const FETCH_TIMEOUT_MS = 10000;
 
-export type ThreadsOutcome = 'published' | 'skipped' | 'transient' | 'permanent';
+export type ThreadsOutcome = 'published' | 'skipped' | 'transient' | 'permanent' | 'unknown';
 
 export interface ThreadsPublishResult {
   outcome: ThreadsOutcome;
@@ -97,7 +97,7 @@ function buildUrl(path: string, params: Record<string, string>): string {
  * 未設定（THREADS_USER_ID が無い、または threads_credentials が空）は 'skipped' を返す
  * （エラーにも通知にもしない＝未設定は誤設定ではない）。
  */
-export async function publishThreadsText(text: string): Promise<ThreadsPublishResult> {
+export async function publishThreadsText(text: string, options?: { beforePublish: (creationId: string) => Promise<void> }): Promise<ThreadsPublishResult> {
   const userId = getThreadsUserId();
   if (!userId) {
     return { outcome: 'skipped', reason: 'THREADS_USER_ID is not configured' };
@@ -114,6 +114,7 @@ export async function publishThreadsText(text: string): Promise<ThreadsPublishRe
     const res = await fetch(
       buildUrl(`/${userId}/threads`, {
         media_type: 'TEXT',
+        auto_publish: 'false',
         text,
         access_token: credential.accessToken,
       }),
@@ -121,20 +122,24 @@ export async function publishThreadsText(text: string): Promise<ThreadsPublishRe
     );
 
     if (!res.ok) {
-      const body = await res.text().catch(() => '');
       return {
         outcome: outcomeFromStatus(res.status),
-        reason: `container creation failed: ${res.status} ${body}`,
+        reason: `container creation failed: ${res.status}`,
       };
     }
 
     const json = (await res.json()) as { id?: string };
-    if (!json.id) {
+    if (typeof json.id !== 'string' || !/^[0-9]{1,100}$/.test(json.id)) {
       return { outcome: 'permanent', reason: 'container creation: response has no id' };
     }
     creationId = json.id;
-  } catch (e) {
-    return { outcome: 'transient', reason: `container creation error: ${String(e)}` };
+  } catch {
+    return { outcome: 'transient', reason: 'container creation unavailable' };
+  }
+
+  if (options) {
+    try { await options.beforePublish(creationId); }
+    catch { return { outcome: 'transient', reason: 'publication start could not be verified' }; }
   }
 
   // ── 2. 公開 ──────────────────────────────────────────────────────────
@@ -148,21 +153,36 @@ export async function publishThreadsText(text: string): Promise<ThreadsPublishRe
     );
 
     if (!res.ok) {
-      const body = await res.text().catch(() => '');
       return {
-        outcome: outcomeFromStatus(res.status),
-        reason: `publish failed: ${res.status} ${body}`,
+        outcome: 'unknown',
+        reason: `publication result unconfirmed: ${res.status}`,
       };
     }
 
     const json = (await res.json()) as { id?: string };
-    if (!json.id) {
-      return { outcome: 'permanent', reason: 'publish: response has no id' };
+    if (typeof json.id !== 'string' || !/^[0-9]{1,100}$/.test(json.id)) {
+      return { outcome: 'unknown', reason: 'publication reply has no valid post id' };
     }
     return { outcome: 'published', postId: json.id };
-  } catch (e) {
-    return { outcome: 'transient', reason: `publish error: ${String(e)}` };
+  } catch {
+    return { outcome: 'unknown', reason: 'publication result unconfirmed' };
   }
+}
+
+/** Read-only reconciliation. PUBLISHED proves publication, but the container's
+ * ID is not the public post ID. Other states never authorize republishing. */
+export async function readThreadsContainerStatus(creationId: string): Promise<string | null> {
+  if (!/^[0-9]{1,100}$/.test(creationId)) return null;
+  const credential = await getStoredCredential();
+  if (!credential) return null;
+  try {
+    const res = await fetch(buildUrl(`/${creationId}`, { fields: 'id,status,error_message', access_token: credential.accessToken }),
+      { method: 'GET', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    if (!res.ok) return null;
+    const body = await res.json() as { id?: unknown; status?: unknown };
+    return body.id === creationId && typeof body.status === 'string' &&
+      ['PUBLISHED','FINISHED','IN_PROGRESS','ERROR','EXPIRED'].includes(body.status) ? body.status : null;
+  } catch { return null; }
 }
 
 /**

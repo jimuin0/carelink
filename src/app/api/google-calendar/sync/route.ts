@@ -6,23 +6,36 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { serverError } from '@/lib/with-route';
+import { AUTH_UNAVAILABLE_BODY, verifyAuthUser } from '@/lib/auth-verification';
+import { z } from 'zod';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
 
 async function refreshAccessToken(refreshToken: string) {
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: GOOGLE_CLIENT_ID,
-      client_secret: GOOGLE_CLIENT_SECRET,
-      refresh_token: refreshToken,
-      grant_type: 'refresh_token',
-    }),
-  });
-  if (!res.ok) throw new Error('Token refresh failed');
-  return res.json();
+  const deadline = Date.now() + 10_000;
+  try {
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      signal: AbortSignal.timeout(10_000),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    });
+    if (!res.ok) throw new Error();
+    const data: unknown = await res.json();
+    const parsed = z.object({ access_token: z.string().min(1), expires_in: z.number().finite().positive() }).safeParse(data);
+    if (!parsed.success || Date.now() >= deadline) throw new Error();
+    return parsed.data;
+  } catch {
+    // JSON parse errors can contain a fragment of the credential response.
+    // Never pass the raw exception or its cause to monitoring/logging.
+    throw new Error('Calendar token refresh unavailable');
+  }
 }
 
 // POST /api/google-calendar/sync
@@ -194,51 +207,55 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
     }
     const supabase = await createServerSupabaseAuthClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
+    const verification = await verifyAuthUser(supabase.auth);
+    if (verification.state === 'unavailable') return NextResponse.json(AUTH_UNAVAILABLE_BODY, { status: 503 });
+    if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = verification.user;
     const bookingId = req.nextUrl.searchParams.get('bookingId');
     if (!bookingId) return NextResponse.json({ error: 'bookingId required' }, { status: 400 });
     if (!UUID_REGEX.test(bookingId)) return NextResponse.json({ error: 'Invalid bookingId' }, { status: 400 });
-
     const admin = createServiceRoleClient();
-
-    const { data: calEvent } = await admin
-      .from('booking_calendar_events')
-      .select('google_event_id')
-      .eq('booking_id', bookingId)
-      .eq('user_id', user.id)
-      .single();
-
+    const { data: calEvent, error: readError } = await admin.from('booking_calendar_events')
+      .select('id, google_event_id, calendar_id, synced_at').eq('booking_id', bookingId).eq('user_id', user.id).maybeSingle();
+    if (readError) return serverError('gcal-delete-read', new Error('Calendar mapping lookup unavailable'), '/api/google-calendar/sync');
     if (!calEvent) return NextResponse.json({ ok: true });
-
-    const { data: tokenRow } = await admin
-      .from('google_calendar_tokens')
-      .select('access_token, refresh_token, expires_at')
-      .eq('user_id', user.id)
-      .single();
-
-    if (tokenRow) {
-      let accessToken = tokenRow.access_token;
-      if (new Date(tokenRow.expires_at) < new Date() && tokenRow.refresh_token) {
-        const refreshed = await refreshAccessToken(tokenRow.refresh_token);
-        accessToken = refreshed.access_token;
-      }
-
-      await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${calEvent.google_event_id}`,
-        { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }
-      );
+    if (!UUID_REGEX.test(calEvent.id) || !calEvent.google_event_id || !calEvent.calendar_id || !calEvent.synced_at) {
+      return serverError('gcal-delete-unconfirmed-map', new Error('Calendar mapping not confirmed'), '/api/google-calendar/sync');
     }
-
-    const { error: calEventDeleteErr } = await admin.from('booking_calendar_events').delete()
-      .eq('booking_id', bookingId).eq('user_id', user.id);
-    if (calEventDeleteErr) {
-      return serverError('gcal-sync-delete-record', calEventDeleteErr, '/api/google-calendar/sync', 'Internal Server Error');
+    const { data: tokenRow, error: tokenError } = await admin.from('google_calendar_tokens')
+      .select('access_token, refresh_token, expires_at').eq('user_id', user.id).maybeSingle();
+    if (tokenError) return serverError('gcal-delete-token-read', new Error('Calendar credential lookup unavailable'), '/api/google-calendar/sync');
+    if (!tokenRow) return NextResponse.json({ error: 'カレンダー連携を確認できません。記録を保持しました。' }, { status: 503 });
+    let accessToken = tokenRow.access_token;
+    const expiresAt = Date.parse(tokenRow.expires_at);
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      if (!tokenRow.refresh_token) return NextResponse.json({ error: 'カレンダーの再認証が必要です。記録を保持しました。' }, { status: 503 });
+      const refreshed = await refreshAccessToken(tokenRow.refresh_token);
+      accessToken = refreshed.access_token;
     }
-
+    if (typeof accessToken !== 'string' || !accessToken) return NextResponse.json({ error: 'カレンダー認証を確認できません。記録を保持しました。' }, { status: 503 });
+    const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calEvent.calendar_id)}/events/${encodeURIComponent(calEvent.google_event_id)}`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(10_000),
+    });
+    let confirmed = response.status === 204;
+    if (response.status === 410) {
+      const body: unknown = await response.json().catch(() => null);
+      // Google's 410 also covers expired sync tokens. Only reason=deleted
+      // proves this event was deleted. 404 may mean an inaccessible calendar.
+      const errors = body && typeof body === 'object' && 'error' in body
+        && body.error && typeof body.error === 'object' && 'errors' in body.error ? body.error.errors : null;
+      confirmed = Array.isArray(errors) && errors.some(error => error && typeof error === 'object' && error.reason === 'deleted');
+    }
+    if (!confirmed) return NextResponse.json({ error: 'カレンダーの削除結果を確認できません。記録を保持しました。' }, { status: 503 });
+    const removed = await admin.from('booking_calendar_events').delete()
+      .eq('id', calEvent.id).eq('user_id', user.id).eq('booking_id', bookingId)
+      .eq('google_event_id', calEvent.google_event_id).eq('calendar_id', calEvent.calendar_id).eq('synced_at', calEvent.synced_at).select('id');
+    if (removed.error) return serverError('gcal-sync-delete-record', new Error('Calendar mapping removal unavailable'), '/api/google-calendar/sync');
+    if (!removed.data || removed.data.length !== 1 || removed.data[0].id !== calEvent.id) {
+      return NextResponse.json({ error: 'カレンダー記録が変更されています。現在の状態を再確認してください。' }, { status: 409 });
+    }
     return NextResponse.json({ ok: true });
-  } catch (e) {
-    return serverError('gcal-sync-delete', e, '/api/google-calendar/sync', 'Internal Server Error');
+  } catch {
+    return serverError('gcal-sync-delete', new Error('Calendar deletion outcome unconfirmed'), '/api/google-calendar/sync', 'Internal Server Error');
   }
 }

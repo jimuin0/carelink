@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { safeRedirect } from '@/lib/safe-redirect';
 import { isPlatformSupportPath } from '@/lib/platform-support-path';
 import { getMembershipCacheKey } from '@/lib/admin-membership-cache-key';
-import { AUTH_UNAVAILABLE_BODY, verifyAuthUser } from '@/lib/auth-verification';
+import { AUTH_UNAVAILABLE_BODY, AUTH_VERIFICATION_TIMEOUT_MS, verifyAuthUser } from '@/lib/auth-verification';
 
 const PROTECTED_PATHS = ['/mypage', '/admin'];
 
@@ -144,6 +144,8 @@ export async function middleware(request: NextRequest) {
     return setCsp(res);
   };
   let supabase: ReturnType<typeof createServerClient>;
+  let authCookiesOpen = true;
+  const authCookieDeadline = Date.now() + AUTH_VERIFICATION_TIMEOUT_MS;
   try {
     supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -154,6 +156,10 @@ export async function middleware(request: NextRequest) {
             return request.cookies.getAll();
           },
           setAll(cookiesToSet) {
+            // A late refresh belongs to the expired verification attempt. It
+            // must not replace cookies/response after a public form or 503 was
+            // already selected, even before its awaited continuation resumes.
+            if (!authCookiesOpen || Date.now() >= authCookieDeadline) return;
             cookiesToSet.forEach(({ name, value }) =>
               request.cookies.set(name, value)
             );
@@ -166,15 +172,21 @@ export async function middleware(request: NextRequest) {
       }
     );
   } catch {
+    authCookiesOpen = false;
+    if (isAuthPage) return setCsp(supabaseResponse);
     return withSessionCookies(NextResponse.json(AUTH_UNAVAILABLE_BODY,
       { status: 503, headers: { 'Cache-Control': 'no-store' } }));
   }
 
   // トークンリフレッシュ（保護ルート・認証ページのみ）
   const verification = await verifyAuthUser(supabase.auth);
+  authCookiesOpen = false;
   if (verification.state === 'unavailable') {
     // Edge-safe diagnostic; never include SDK payloads, URL queries or cookies.
     console.error('[middleware] AUTH_UNAVAILABLE');
+    // Login/signup grant no protected access and must remain available for
+    // retry. Preserve their CSP/refreshed cookies, without calling it logout.
+    if (isAuthPage) return setCsp(supabaseResponse);
     return withSessionCookies(NextResponse.json(AUTH_UNAVAILABLE_BODY,
       { status: 503, headers: { 'Cache-Control': 'no-store' } }));
   }

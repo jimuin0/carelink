@@ -27,6 +27,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { POST, DELETE } from '../route';
 
+let mockRpc: jest.Mock;
 let mockGetUser: jest.Mock;
 let mockProfilesSelect: jest.Mock;
 let mockProfilesUpdate: jest.Mock;
@@ -55,6 +56,7 @@ function setupDefaultMocks(
     return Promise.resolve(new Response('{}'));
   }) as jest.Mock;
 
+  mockRpc = jest.fn().mockResolvedValue({ data: otherUserHasLineId ? 'conflict' : 'linked', error: updateFails ? { code: 'XX000' } : null });
   const selectResult = { data: otherUserHasLineId ? { id: 'user-999' } : null };
   mockProfilesSelect = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
@@ -77,6 +79,7 @@ function setupDefaultMocks(
 
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
+    rpc: mockRpc,
     from: jest.fn().mockReturnValue({
       select: mockProfilesSelect,
       update: mockProfilesUpdate,
@@ -184,7 +187,7 @@ describe('POST/DELETE /api/liff/link', () => {
 
       expect(res.status).toBe(409);
       const json = await res.json();
-      expect(json.error).toContain('別のユーザーに紐付けられています');
+      expect(json.error).toContain('別のユーザーに紐付けられているか');
     });
 
     test('valid linking → 200 with ok: true', async () => {
@@ -197,25 +200,20 @@ describe('POST/DELETE /api/liff/link', () => {
       expect(json.ok).toBe(true);
     });
 
-    test('update fails → 500', async () => {
+    test('mutation response error → 503 unknown', async () => {
       setupDefaultMocks(true, true, false, true);
 
       const res = await POST(
         makePostRequest({ access_token: 'valid-token' }) as any
       );
 
-      expect(res.status).toBe(500);
+      expect(res.status).toBe(503);
     });
 
-    test('profile update includes line_user_id and updated_at', async () => {
-      await POST(makePostRequest({ access_token: 'valid-token' }) as any);
-
-      expect(mockProfilesUpdate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          line_user_id: 'line-user-456',
-          updated_at: expect.any(String),
-        })
-      );
+    test('server-verified identity and current actor are saved by one atomic RPC', async () => {
+      await POST(makePostRequest({ access_token: 'valid-token', user_id: 'other' }) as any);
+      expect(mockRpc).toHaveBeenCalledWith('bind_verified_liff_account_atomic', { p_actor_id: 'user-123', p_line_user_id: 'line-user-456' });
+      expect(mockProfilesUpdate).not.toHaveBeenCalled();
     });
 
     test('rate limit params (10 req/min per IP)', async () => {
@@ -261,14 +259,14 @@ describe('POST/DELETE /api/liff/link', () => {
       expect(call[1]).toBe('unknown');
     });
 
-    test('exception during flow → 500', async () => {
+    test('profile transport failure → 503', async () => {
       (global.fetch as jest.Mock).mockRejectedValue(new Error('Network'));
 
       const res = await POST(
         makePostRequest({ access_token: 'token' }) as any
       );
 
-      expect(res.status).toBe(500);
+      expect(res.status).toBe(503);
     });
 
     test('max-length access_token (512) accepted', async () => {
@@ -279,11 +277,20 @@ describe('POST/DELETE /api/liff/link', () => {
       expect(res.status).toBe(200);
     });
 
-    test('checks other users do not have this line_user_id', async () => {
-      await POST(makePostRequest({ access_token: 'token' }) as any);
-
-      // Should call select().eq('line_user_id', ...).neq('id', ...)
-      expect(mockProfilesSelect).toHaveBeenCalled();
+    test.each([null, 'unexpected'])('null/unknown mutation outcome remains unknown: %p', async data => {
+      mockRpc.mockResolvedValue({ data, error: null });
+      const res = await POST(makePostRequest({ access_token: 'token' }) as any);
+      expect(res.status).toBe(503); expect((await res.json()).code).toBe('LINE_LINK_RESULT_UNKNOWN');
+    });
+    test('lost mutation response remains unknown, no old profile update fallback', async () => {
+      mockRpc.mockRejectedValue(new Error('lost response'));
+      const res = await POST(makePostRequest({ access_token: 'token' }) as any);
+      expect(res.status).toBe(503); expect(mockProfilesUpdate).not.toHaveBeenCalled();
+    });
+    test('Auth data plus error fails closed before provider or mutation', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: { id: 'user-123' } }, error: { status: 503 } });
+      const res = await POST(makePostRequest({ access_token: 'token' }) as any);
+      expect(res.status).toBe(503); expect(mockRpc).not.toHaveBeenCalled(); expect(global.fetch).not.toHaveBeenCalled();
     });
 
     // R2 audience検証: 他チャネル発行トークン（client_id不一致）→ 401（!tokenCheck.ok 分岐）
@@ -365,7 +372,7 @@ describe('POST/DELETE /api/liff/link', () => {
       expect(call[4]).toBe('liff-link-delete');
     });
 
-    test('exception during flow → 500', async () => {
+    test('profile transport failure → 503', async () => {
       mockGetUser.mockRejectedValue(new Error('Auth error'));
 
       const res = await DELETE(makeDeleteRequest() as any);

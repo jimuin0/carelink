@@ -61,12 +61,10 @@ function setupDefaultMocks(
 
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
-    from: jest.fn().mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          maybeSingle: mockSingle,
-        }),
-      }),
+    from: jest.fn((table: string) => {
+      const chain: any = {}; chain.select = jest.fn(() => chain); chain.eq = jest.fn(() => chain);
+      chain.maybeSingle = table === 'line_user_links' ? jest.fn().mockResolvedValue({ data: { user_id: 'user-456', proof_version: 1, verified_at: '2026-10-09T00:00:00Z' } }) : mockSingle;
+      return chain;
     }),
   });
 }
@@ -315,3 +313,6 @@ describe('POST /api/liff/auth', () => {
     expect(json.error).toContain('Invalid LINE token');
   });
 });
+
+test('provider profile lacking display name is rejected before database lookup',async()=>{global.fetch=jest.fn().mockResolvedValue(new Response(JSON.stringify({userId:'U_provider'})));const res=await POST(makeRequest({access_token:'token'}) as any);expect(res.status).toBe(502);expect(mockSingle).not.toHaveBeenCalled();});
+test('second profile read DB error does not expose linked user data',async()=>{mockSingle.mockResolvedValueOnce({data:{id:'user-456'},error:null}).mockResolvedValueOnce({data:{id:'user-456',email:'synthetic@example.invalid'},error:{code:'XX000'}});const res=await POST(makeRequest({access_token:'token'}) as any);expect(res.status).toBe(500);expect(await res.json()).not.toHaveProperty('profile');});

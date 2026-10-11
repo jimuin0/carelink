@@ -51,11 +51,17 @@ function makePostReq(body: object) {
 }
 
 function singleChain(data: unknown, error: unknown = null) {
+  if (data && typeof data==='object' && 'google_event_id' in data) data={id:BOOKING_UUID,calendar_id:'primary',synced_at:'2026-01-01T00:00:00Z',...data};
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
     single: jest.fn(() => Promise.resolve({ data, error })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
   };
+}
+
+function deleteChain(result: unknown) {
+ const chain: Record<string,any>={}; chain.delete=jest.fn(()=>chain);chain.eq=jest.fn(()=>chain);chain.select=jest.fn(async()=>result);return chain;
 }
 
 const FUTURE_DATE = new Date(Date.now() + 60 * 60 * 1000).toISOString();
@@ -190,17 +196,11 @@ test('DELETE: カレンダーイベントレコード削除失敗 → 500', asyn
   mockFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return singleChain({ google_event_id: GOOGLE_EVENT_ID }); // cal event
-    if (callNum === 2) return singleChain(null); // no token (skip Google API call)
+    if (callNum === 2) return singleChain(TOKEN_ROW); // verified token
     // delete call
-    return {
-      delete: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn(() => Promise.resolve({ error: { message: 'DB delete failed' } })),
-        }),
-      }),
-    };
+    return deleteChain({data:null,error:{message:'DB delete failed'}});
   });
-  mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
+  mockFetch.mockResolvedValue({ ok: true, status:204, json: () => Promise.resolve({}) });
 
   const res = await DELETE(makeDeleteRequest(BOOKING_UUID));
   expect(res.status).toBe(500);
@@ -221,15 +221,9 @@ test('DELETE: 正常削除 → 200 ok:true', async () => {
     if (callNum === 1) return singleChain({ google_event_id: GOOGLE_EVENT_ID }); // cal event
     if (callNum === 2) return singleChain(TOKEN_ROW); // token
     // delete call
-    return {
-      delete: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn(() => Promise.resolve({ error: null })),
-        }),
-      }),
-    };
+    return deleteChain({data:[{id:BOOKING_UUID}],error:null});
   });
-  mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
+  mockFetch.mockResolvedValue({ ok: true, status:204, json: () => Promise.resolve({}) });
 
   const res = await DELETE(makeDeleteRequest(BOOKING_UUID));
   const json = await res.json();
@@ -349,18 +343,12 @@ test('DELETE: トークン期限切れ → リフレッシュして削除', asyn
     callNum++;
     if (callNum === 1) return singleChain({ google_event_id: GOOGLE_EVENT_ID });
     if (callNum === 2) return singleChain(expiredToken);
-    return {
-      delete: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn(() => Promise.resolve({ error: null })),
-        }),
-      }),
-    };
+    return deleteChain({data:[{id:BOOKING_UUID}],error:null});
   });
 
   mockFetch
     .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ access_token: 'new-token', expires_in: 3600 }) })
-    .mockResolvedValueOnce({ ok: true }); // DELETE event call
+    .mockResolvedValueOnce({ ok: true, status:204 }); // DELETE event call
 
   const res = await DELETE(makeDeleteRequest(BOOKING_UUID));
   expect(res.status).toBe(200);
@@ -482,4 +470,72 @@ test('DELETE: CSRF エラー → 403', async () => {
   (checkCsrf as jest.Mock).mockReturnValue(NextResponse.json({ error: 'CSRF' }, { status: 403 }));
   const res = await DELETE(makeDeleteRequest(BOOKING_UUID));
   expect(res.status).toBe(403);
+});
+
+
+function setupDeletion(readError: unknown=null, tokenError: unknown=null, token: unknown=TOKEN_ROW, removed: unknown={data:[{id:BOOKING_UUID}],error:null}) {
+ const mapping=singleChain({google_event_id:GOOGLE_EVENT_ID},readError);const tokenLookup=singleChain(token,tokenError);const mutation=deleteChain(removed);
+ let n=0;mockFrom.mockImplementation(()=>[++n===1?mapping:n===2?tokenLookup:mutation][0]);return {mapping,tokenLookup,mutation};
+}
+test.each([401,403,404,429,500,200])('DELETE providerHTTP%s cannot erase recovery mapping',async status=>{
+ const{mutation}=setupDeletion();mockFetch.mockResolvedValue({status,ok:status<400,json:async()=>({})});
+ expect((await DELETE(makeDeleteRequest(BOOKING_UUID))).status).toBe(503);expect(mutation.delete).not.toHaveBeenCalled();
+});
+test.each([null,{}, {error:{errors:[]}}, {error:{errors:[{reason:'fullSyncRequired'}]}}, {error:{errors:'deleted'}}])('DELETE410 unconfirmed body %j retains mapping',async body=>{
+ const{mutation}=setupDeletion();mockFetch.mockResolvedValue({status:410,json:async()=>body});expect((await DELETE(makeDeleteRequest(BOOKING_UUID))).status).toBe(503);expect(mutation.delete).not.toHaveBeenCalled();
+});
+test('DELETE410 deleted is authoritative, same observed mapping only',async()=>{
+ const{mutation}=setupDeletion();mockFetch.mockResolvedValue({status:410,json:async()=>({error:{errors:[{reason:'deleted'}]}})});
+ expect((await DELETE(makeDeleteRequest(BOOKING_UUID))).status).toBe(200);
+ expect(mutation.eq).toHaveBeenCalledWith('google_event_id',GOOGLE_EVENT_ID);expect(mutation.eq).toHaveBeenCalledWith('synced_at','2026-01-01T00:00:00Z');
+ expect(mutation.eq).toHaveBeenCalledWith('calendar_id','primary');expect(mutation.eq).toHaveBeenCalledWith('booking_id',BOOKING_UUID);
+});
+test('DELETE410 malformed JSON cannot confirm absence',async()=>{
+ const{mutation}=setupDeletion();mockFetch.mockResolvedValue({status:410,json:async()=>{throw new Error('malformed');}});
+ expect((await DELETE(makeDeleteRequest(BOOKING_UUID))).status).toBe(503);expect(mutation.delete).not.toHaveBeenCalled();
+});
+test('DELETE DB read data plus error and token data plus error stop before external call',async()=>{
+ setupDeletion({message:'private'});expect((await DELETE(makeDeleteRequest(BOOKING_UUID))).status).toBe(500);
+ setupDeletion(null,{message:'private'});expect((await DELETE(makeDeleteRequest(BOOKING_UUID))).status).toBe(500);expect(mockFetch).not.toHaveBeenCalled();
+});
+test.each([null,{...TOKEN_ROW,access_token:''},{...TOKEN_ROW,expires_at:'bad',refresh_token:null},{...TOKEN_ROW,expires_at:'2000-01-01',refresh_token:null}])('DELETE unconfirmed token %j preserves mapping',async token=>{
+ const{mutation}=setupDeletion(null,null,token);expect((await DELETE(makeDeleteRequest(BOOKING_UUID))).status).toBe(503);expect(mutation.delete).not.toHaveBeenCalled();
+});
+test('DELETE malformed mapping is not a harmless no-op',async()=>{mockFrom.mockReturnValue(singleChain({google_event_id:''}));expect((await DELETE(makeDeleteRequest(BOOKING_UUID))).status).toBe(500);expect(mockFetch).not.toHaveBeenCalled();});
+test('DELETE unknown provider acceptance leaves mapping for later410 reconciliation',async()=>{
+ const{mutation}=setupDeletion();mockFetch.mockRejectedValue(new Error('synthetic response lost'));expect((await DELETE(makeDeleteRequest(BOOKING_UUID))).status).toBe(500);expect(mutation.delete).not.toHaveBeenCalled();
+});
+test('DELETE malformed credential JSON never leaks its response fragment to monitoring', async () => {
+ const { mutation } = setupDeletion(null, null, { ...TOKEN_ROW, expires_at: '2000-01-01' });
+ const privateFragment = 'synthetic-private-refresh-token-value';
+ mockFetch.mockResolvedValueOnce(new Response(privateFragment, { status: 200 }));
+ const { alertCaughtError } = require('@/lib/alert');
+ expect((await DELETE(makeDeleteRequest(BOOKING_UUID))).status).toBe(500);
+ expect(mutation.delete).not.toHaveBeenCalled();
+ const error = (alertCaughtError as jest.Mock).mock.calls.at(-1)![1] as Error;
+ expect(error.message).toBe('Calendar deletion outcome unconfirmed');
+ expect(error.stack).not.toContain(privateFragment);
+});
+test('DELETE malformed refreshed credentials stop before event deletion', async () => {
+ const { mutation } = setupDeletion(null, null, { ...TOKEN_ROW, expires_at: '2000-01-01' });
+ mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: '', expires_in: 3600 }) });
+ expect((await DELETE(makeDeleteRequest(BOOKING_UUID))).status).toBe(500);
+ expect(mockFetch).toHaveBeenCalledTimes(1);expect(mutation.delete).not.toHaveBeenCalled();
+});
+test('DELETE rejects a refreshed token parsed after its deadline even before the timeout callback runs', async () => {
+ const fixed = Date.now(); const clock = jest.spyOn(Date, 'now').mockReturnValue(fixed);
+ try {
+  const { mutation } = setupDeletion(null, null, { ...TOKEN_ROW, expires_at: '2000-01-01' });
+  mockFetch.mockResolvedValueOnce({ ok: true, json: async () => {
+   clock.mockReturnValue(fixed + 10_000);return { access_token: 'synthetic-token', expires_in: 3600 };
+  } });
+  expect((await DELETE(makeDeleteRequest(BOOKING_UUID))).status).toBe(500);
+  expect(mockFetch).toHaveBeenCalledTimes(1);expect(mutation.delete).not.toHaveBeenCalled();
+ } finally { clock.mockRestore(); }
+});
+test.each([{data:[],error:null},{data:[{id:'another-id'}],error:null},{data:null,error:null}])('DELETE CAS lost mapping %j is409 not blanket erasure',async removed=>{
+ setupDeletion(null,null,TOKEN_ROW,removed);mockFetch.mockResolvedValue({status:204});expect((await DELETE(makeDeleteRequest(BOOKING_UUID))).status).toBe(409);
+});
+test('DELETE inconsistent auth with user is503 and never touches provider/mapping',async()=>{
+ mockGetUser.mockResolvedValue({data:{user:{id:USER_ID}},error:{code:'unknown'}});expect((await DELETE(makeDeleteRequest(BOOKING_UUID))).status).toBe(503);expect(mockFrom).not.toHaveBeenCalled();
 });

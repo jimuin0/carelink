@@ -14,12 +14,8 @@ const mockCreateAdmin = createServiceRoleClient as jest.MockedFunction<typeof cr
 
 function adminReturning(data: unknown, error: unknown = null) {
   return {
-    from: jest.fn().mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          maybeSingle: jest.fn().mockResolvedValue({ data, error }),
-        }),
-      }),
+    from: jest.fn((table:string) => { const q:any={}; q.select=jest.fn(()=>q); q.eq=jest.fn(()=>q);
+      q.maybeSingle=jest.fn().mockResolvedValue(table==='profiles'?{data,error}:{data:{user_id:'app-user-1',proof_version:1,verified_at:'2026-10-09T00:00:00Z'},error:null}); return q;
     }),
   } as unknown as ReturnType<typeof createServiceRoleClient>;
 }
@@ -85,6 +81,6 @@ describe('resolveLiffUserId', () => {
     mockVerify.mockResolvedValue({ ok: true });
     global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ userId: 'U1' }) }) as unknown as typeof fetch;
     mockCreateAdmin.mockReturnValue(adminReturning(data, { message: 'connection failed' }));
-    await expect(resolveLiffUserId('tok')).rejects.toThrow('LIFF profile lookup failed');
+    await expect(resolveLiffUserId('tok')).rejects.toThrow('LINE profile lookup unavailable');
   });
 });

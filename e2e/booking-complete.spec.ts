@@ -27,14 +27,14 @@ test('来院者が予約を最後まで完走できる', async ({ page }) => {
   await page.fill('#booking-name', BOOKING_SEED.customerName);
   await page.fill('#booking-email', BOOKING_SEED.customerEmail);
   // 予約 POST のレスポンスを捕捉し、失敗時は status＋本文を明示して投げる（推測せず真因確定）。
-  const bookingResp = page.waitForResponse((r) => r.url().includes('/api/booking') && r.request().method() === 'POST', { timeout: 20000 });
+  const bookingResp = page.waitForResponse((r) => r.url().includes('/api/booking') && r.request().method() === 'POST' && r.request().headers()['x-booking-action'] === 'create', { timeout: 20000 });
   await page.getByRole('button', { name: 'この内容で予約する' }).click();
   const resp = await bookingResp;
-  if (!resp.ok()) {
-    const body = await resp.text().catch(() => '(body 読取不可)');
-    const reqBody = resp.request().postData() ?? '(req body なし)';
-    throw new Error(`POST /api/booking failed: status=${resp.status()} resp=${body.slice(0, 200)} sent=${reqBody.slice(0, 400)}`);
-  }
+  expect(resp.status()).toBe(200);
+  const accepted=await resp.json();
+  expect(accepted.success).toBe(true);expect(accepted.state).toBe('accepted');
+  expect(accepted.operationId).toBe(resp.request().headers()['idempotency-key']);
+  expect(accepted.bookingId).toMatch(/^[a-f0-9-]{36}$/);
 
   // 完了ページへ遷移すること（予約が DB に作成され成功）
   await page.waitForURL('**/booking/complete**', { timeout: 20000 });

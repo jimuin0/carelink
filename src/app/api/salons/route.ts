@@ -6,6 +6,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { withRoute, serverError } from '@/lib/with-route';
 import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
 import { salonInsertSchema } from '@/lib/validations';
+import { registrationConsentSchema, REGISTRATION_CONSENT_REQUIRED, REGISTRATION_TERMS_SHA256 } from '@/lib/registration-consent';
 import { salonFieldErrors, SALON_FIELD_MESSAGES } from '@/lib/salon-field-errors';
 import { verifyRecaptcha } from '@/lib/recaptcha';
 import { sendNotify } from '@/lib/notify';
@@ -55,6 +56,15 @@ export const POST = withRoute(async (request) => {
     return NextResponse.json({ error: '入力内容を確認してください', fieldErrors: salonFieldErrors(parsed.error.issues) }, { status: 400 });
   }
   const d = parsed.data;
+  const declaration = registrationConsentSchema.safeParse(body?.consent);
+  // Omitted V1 declarations remain a temporary grace contract for already
+  // open forms. Absence is never fabricated into a recorded agreement.
+  if (body?.consent !== undefined && !declaration.success) {
+    // V1 has no request identity. A previous request may have committed before
+    // losing its reply; legacy callers must retain their unknown-result fence.
+    return NextResponse.json({ error: REGISTRATION_CONSENT_REQUIRED, code: 'REGISTRATION_CONSENT_REQUIRED' },
+      { status: 503, headers: { 'Cache-Control': 'no-store' } });
+  }
 
   // reCAPTCHA v3 検証（fail-closed: secret設定時=本番はtoken必須）。
   // 施設掲載登録は氏名・電話・メール等の実データを伴う無認証公開フォームのため、
@@ -121,6 +131,11 @@ export const POST = withRoute(async (request) => {
       // Store the trusted server-side entry point so registration reports do not infer
       // attribution from a completion-page visit or a client-provided event.
       source: d.source,
+      ...(declaration.success ? {
+        registration_terms_sha256: REGISTRATION_TERMS_SHA256,
+        registration_terms_accepted_at: new Date().toISOString(),
+        registration_license_warranted: true,
+      } : {}),
     })
     .select('id')
     .single();

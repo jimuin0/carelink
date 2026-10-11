@@ -2,7 +2,7 @@
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL statement_timeout='15s';
-DO $$ BEGIN IF current_database() NOT IN ('carelink_shadow','postgres') THEN RAISE EXCEPTION 'isolated database required'; END IF; END $$;
+DO $$ BEGIN IF current_database() NOT IN ('carelink_shadow','carelink_shadow_batch2_points','postgres') THEN RAISE EXCEPTION 'isolated database required'; END IF; END $$;
 CREATE FUNCTION pg_temp.assert_points(ok boolean,label text) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'booking point fixture: %',label; END IF; END $$;
 SELECT pg_temp.assert_points(NOT has_function_privilege('anon','public.booking_points_atomic_version()','EXECUTE')
@@ -63,7 +63,8 @@ UPDATE public.facility_profiles SET status='published',business_hours='{"mon":{"
 CREATE FUNCTION pg_temp.fail_full_menu() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
  IF NEW.facility_id='fc120000-0000-4000-8000-000000000001' THEN RAISE EXCEPTION 'SYNTHETIC_MENU_SAVE_FAILURE'; END IF; RETURN NEW; END $$;
 CREATE TRIGGER synthetic_menu_save_failure BEFORE UPDATE OF menu_ids ON public.bookings FOR EACH ROW EXECUTE FUNCTION pg_temp.fail_full_menu();
-SET LOCAL ROLE service_role;
+-- The internal primitive remains owner-only behind the receipt wrapper.
+RESET ROLE;
 DO $$ BEGIN
  BEGIN PERFORM public.create_online_booking_atomic('fc120000-0000-4000-8000-000000000001','fc160000-0000-4000-8000-000000000001','fc110000-0000-4000-8000-000000000002',
   'fc150000-0000-4000-8000-000000000001',NULL,'2030-01-07','15:00','16:00','Synthetic',NULL,NULL,NULL,900,100,'confirmed',
@@ -210,6 +211,8 @@ DO $$ BEGIN
 END $$;
 -- Existing referral bonus is atomic, replay-safe and not claim-then-partial-insert.
 RESET ROLE;
+INSERT INTO public.referral_codes(user_id,code,used_count)
+ VALUES('fc110000-0000-4000-8000-000000000004','SYNTHETIC',0);
 INSERT INTO public.referral_uses(id,code,referred_user_id,referrer_user_id,points_awarded)
  VALUES('fc140000-0000-4000-8000-000000000001','SYNTHETIC','fc110000-0000-4000-8000-000000000002','fc110000-0000-4000-8000-000000000004',false);
 CREATE FUNCTION pg_temp.fail_referral() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN

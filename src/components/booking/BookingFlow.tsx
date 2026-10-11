@@ -9,6 +9,8 @@ import { describeCancelPolicy, type CancelPolicy } from '@/lib/cancel-fee';
 import { calculateCouponDiscountedTotal } from '@/lib/coupon-pricing';
 import { isStaffCompatibleWithMenus, filterEligibleStaff } from '@/lib/menu-staff';
 import { consumeBookingDraft, saveBookingDraftForLogin, BOOKING_DRAFT_STORAGE_FAILED, BookingDraftStorageError } from '@/lib/booking-draft-storage';
+import { BookingCreateClient, type BookingCreateClientResult, BOOKING_CREATE_UNKNOWN } from '@/lib/booking-create-client';
+import type { BookingFormData } from '@/lib/validations-booking';
 import { WAITLIST_NOTICE } from '@/lib/coming-soon';
 
 type Step = 'menu' | 'datetime' | 'confirm';
@@ -190,6 +192,27 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   const [phone, setPhone] = useState('');
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const bookingCreate = useRef<BookingCreateClient | null>(null);
+  const [bookingOperationId, setBookingOperationId] = useState<string | null>(null);
+  const [bookingReady, setBookingReady] = useState(false);
+  const [bookingPending, setBookingPending] = useState(false);
+  const [bookingAccepted, setBookingAccepted] = useState(false);
+  const [bookingRecoveryError, setBookingRecoveryError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    // Read the external browser snapshot after hydration; a detached effect
+    // must never install its coordinator in a newly mounted facility form.
+    queueMicrotask(() => {
+      if (!active) return;
+      try {
+        const coordinator = new BookingCreateClient(facility.id, window.sessionStorage);
+        coordinator.load(); bookingCreate.current = coordinator;
+        setBookingPending(coordinator.pending); setBookingAccepted(coordinator.accepted); setBookingOperationId(coordinator.operationId);
+      } catch (error) { setBookingPending(true); setBookingRecoveryError(error instanceof Error ? error.message : BOOKING_CREATE_UNKNOWN); }
+      finally { setBookingReady(true); }
+    });
+    return () => { active = false; };
+  }, [facility.id]);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   // 【2026年8月16日 React Compiler対応】この4state（isAuthenticated/availablePoints/usePoints/
   // pointsToUse）は元々もっと下（Points fetch effectの直前）で宣言されていたが、下の
@@ -519,66 +542,36 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     return () => window.removeEventListener('beforeunload', handler);
   }, [step]);
 
+  const acceptCreateResult = (result: BookingCreateClientResult) => {
+    setBookingOperationId(bookingCreate.current?.operationId ?? null);
+    setBookingPending(result.state === 'pending' || (bookingCreate.current?.pending ?? true));
+    if (result.state === 'accepted') {
+      setBookingAccepted(true); setBookingRecoveryError(null);
+      const booked = result.receipt;
+      const params = new URLSearchParams({ id: booked.bookingId, date: booked.bookingDate, time: booked.startTime, end_time: booked.endTime, facility: facility.name });
+      router.push(`/facility/${encodeURIComponent(facility.slug)}/booking/complete?${params}`);
+    } else if (result.state === 'closed') {
+      setBookingRecoveryError(null); setBookingAccepted(false);
+      if (result.error) setToast({ type: 'error', message: result.error });
+    } else setBookingRecoveryError(result.error);
+  };
   const handleSubmit = async () => {
-    if (submitting) return;
-    if (!customerName || !email) {
-      setToast({ type: 'error', message: 'お名前とメールアドレスは必須です' });
-      return;
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setToast({ type: 'error', message: '正しいメールアドレスを入力してください' });
-      return;
-    }
-    setSubmitting(true);
-
+    if (submitting || !bookingCreate.current) return;
+    if (!customerName || !email) { setToast({ type: 'error', message: 'お名前とメールアドレスは必須です' }); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setToast({ type: 'error', message: '正しいメールアドレスを入力してください' }); return; }
+    setSubmitting(true); setBookingPending(true);
     try {
-      const res = await fetch('/api/booking', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          facility_id: facility.id,
-          staff_id: selectedStaff?.id ?? null,
-          menu_id: selectedMenus[0]?.id ?? null,
-          menu_ids: selectedMenus.map((m) => m.id),
-          coupon_id: selectedCoupon?.id ?? null,
-          booking_date: selectedDate,
-          // API 契約（bookingSchema の timeString）は "HH:MM" 形式必須。空き枠の slot_start/end は
-          // get_available_slots が TIME で返すため "HH:MM:SS" になり得る。表示は slice 済みだが
-          // 送信は raw だったため、"HH:MM:SS" で届く環境では予約が 400 で必ず失敗していた。
-          // 送信時も "HH:MM" に正規化し、slot の時刻フォーマットに依存せず予約を成立させる。
-          start_time: selectedSlot?.slot_start?.slice(0, 5),
-          end_time: selectedSlot?.slot_end?.slice(0, 5),
-          customer_name: customerName,
-          email,
-          phone: phone || null,
-          note: note || null,
-          total_price: calculatePrice(),
-          points_used: usePoints && pointsToUse > 0 ? pointsToUse : undefined,
-        }),
-        signal: AbortSignal.timeout(15000),
-      });
-
-      if (res.ok) {
-        const body = await res.json().catch(() => null);
-        const completeParams = new URLSearchParams({
-          id: body?.bookingId || '',
-          date: selectedDate || '',
-          // 完了画面の TIME_RE は "HH:MM" 必須。slot は "HH:MM:SS" になり得るため slice して渡す
-          // （raw だと .ics「カレンダーに追加」ボタンが無音で出なくなる）。
-          time: selectedSlot?.slot_start?.slice(0, 5) || '',
-          end_time: selectedSlot?.slot_end?.slice(0, 5) || '',
-          facility: facility.name || '',
-        });
-        router.push(`/facility/${encodeURIComponent(facility.slug)}/booking/complete?${completeParams.toString()}`);
-      } else {
-        const body = await res.json().catch(() => null);
-        setToast({ type: 'error', message: body?.error || '予約に失敗しました' });
-      }
-    } catch {
-      setToast({ type: 'error', message: '通信エラーが発生しました。もう一度お試しください。' });
-    } finally {
-      setSubmitting(false);
-    }
+      acceptCreateResult(await bookingCreate.current.submit({ facility_id: facility.id, staff_id: selectedStaff?.id ?? null,
+        menu_id: selectedMenus[0]?.id ?? null, menu_ids: selectedMenus.map(m => m.id), coupon_id: selectedCoupon?.id ?? null,
+        booking_date: selectedDate, start_time: selectedSlot?.slot_start?.slice(0,5) ?? '', end_time: selectedSlot?.slot_end?.slice(0,5) ?? '',
+        customer_name: customerName, email, phone: phone || null, note: note || null, total_price: calculatePrice(),
+        points_used: usePoints && pointsToUse > 0 ? pointsToUse : undefined } as BookingFormData));
+    } finally { setSubmitting(false); }
+  };
+  const reconcileBooking = async (close: boolean) => {
+    if (submitting || !bookingCreate.current) return;
+    setSubmitting(true);
+    try { acceptCreateResult(await bookingCreate.current.reconcile(close)); } finally { setSubmitting(false); }
   };
 
   const calculatePrice = () =>
@@ -695,6 +688,22 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
 
   return (
     <div>
+      {bookingPending && <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 mb-4" aria-live="polite">
+        <p>{bookingRecoveryError ?? (bookingAccepted ? 'この予約は受け付け済みです。' : '前の予約の受付状況を確認しています。')}</p>
+        {bookingOperationId && <p className="text-xs break-all mt-2">受付照合番号: {bookingOperationId}</p>}
+        <div className="flex gap-3 mt-3 flex-wrap">
+          <button type="button" disabled={submitting} onClick={() => void reconcileBooking(false)}>受付状況を照合する</button>
+          {bookingAccepted ? <button type="button" disabled={submitting} onClick={() => {
+            try { bookingCreate.current?.newAfterAcceptance(); setBookingPending(false); setBookingAccepted(false); setBookingOperationId(null); }
+            catch { setBookingRecoveryError(BOOKING_CREATE_UNKNOWN); }
+          }}>新しい予約を入力する</button> : <>
+            <button type="button" disabled={submitting} onClick={() => void handleSubmit()}>同じ内容で再確認する</button>
+            <button type="button" disabled={submitting} onClick={() => void reconcileBooking(true)}>未受付の終了を確認して編集する</button>
+          </>}
+        </div>
+      </div>}
+      <fieldset disabled={!bookingReady || bookingPending || submitting} className="contents">
+
       {/* Progress */}
       <div className="flex items-center gap-1 mb-6 overflow-x-auto pb-2">
         {steps.map((s, i) => (
@@ -1320,6 +1329,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
         </div>
       )}
 
+      </fieldset>
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
     </div>
   );

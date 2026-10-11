@@ -10,7 +10,11 @@ import Toast from '@/components/Toast';
 import StarRating from './StarRating';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { getRecaptchaToken } from '@/lib/recaptcha-client';
-import { compressImage } from '@/lib/image-compress';
+import { reviewPhotoLimitsSchema } from '@/lib/review-photo-limits';
+import { uploadReviewPhotos, type ReviewPhotoUploads } from '@/lib/review-photo-upload';
+import { finishReviewFence, readReviewFence, withReviewTransportFence } from '@/lib/review-transport-fence';
+import { getClientCleanupGeneration, hasClientCleanupNeeded, CLIENT_CLEANUP_COMPLETED_EVENT } from '@/lib/client-cleanup-marker';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 const MAX_PHOTOS = 3;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB (before compression)
@@ -55,6 +59,19 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
   const [submitted, setSubmitted] = useState(false);
   const [photos, setPhotos] = useState<File[]>([]);
   const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
+  const [resultUnknown, setResultUnknown] = useState(false);
+  const uploads = useRef<ReviewPhotoUploads>(new Map());
+  const submitting = useRef(false);
+  const unknown = useRef(false);
+  const photoActor = useRef<string | null>(null);
+  useEffect(() => {
+    const check = () => {
+      try { if (readReviewFence(facilityId) !== null) { unknown.current = true; setResultUnknown(true); } }
+      catch { unknown.current = true; setResultUnknown(true); }
+    };
+    check(); window.addEventListener('storage', check);
+    return () => window.removeEventListener('storage', check);
+  }, [facilityId]);
 
   const { register, handleSubmit, setValue, watch, formState: { errors, isSubmitting, isDirty }, reset } = useForm<ReviewFormData>({
     resolver: zodResolver(reviewSchema),
@@ -68,6 +85,15 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
       comment: '',
     },
   });
+  useEffect(() => {
+    const eraseInput = () => {
+      photoPreviewsRef.current.forEach(url => URL.revokeObjectURL(url));
+      setPhotos([]); setPhotoPreviews([]); uploads.current.clear(); photoActor.current = null; setShowConfirm(false); reset();
+      // Do not erase the opaque unknown-result receipt fence.
+    };
+    window.addEventListener(CLIENT_CLEANUP_COMPLETED_EVENT, eraseInput);
+    return () => window.removeEventListener(CLIENT_CLEANUP_COMPLETED_EVENT, eraseInput);
+  }, [reset]);
 
   useEffect(() => {
     if ((!isDirty && photos.length === 0) || submitted) return;
@@ -86,6 +112,7 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
   const [compressing, setCompressing] = useState(false);
 
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (unknown.current || submitting.current) return;
     const files = Array.from(e.target.files || []);
     e.target.value = '';
 
@@ -102,8 +129,9 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
 
     setCompressing(true);
     try {
-      const compressed = await Promise.all(typeValid.map((f) => compressImage(f)));
-      const combined = [...photos, ...compressed].slice(0, MAX_PHOTOS);
+      // Keep originals; compression is a derived upload prepared only after
+      // the effective live bucket limits have been checked.
+      const combined = [...photos, ...typeValid].slice(0, MAX_PHOTOS);
       // combined 全件分の blob URL を作り直すため、既存 previews の旧 URL を先に revoke する。
       // これを怠ると写真追加のたびに既存分の旧 URL が revoke されず、ドキュメント生存期間リークする。
       photoPreviews.forEach((url) => URL.revokeObjectURL(url));
@@ -117,41 +145,52 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
   };
 
   const removePhoto = (index: number) => {
+    if (unknown.current || submitting.current) return;
     URL.revokeObjectURL(photoPreviews[index]);
     setPhotos((prev) => prev.filter((_, i) => i !== index));
     setPhotoPreviews((prev) => prev.filter((_, i) => i !== index));
   };
 
   const onSubmit = async (data: ReviewFormData) => {
-    const sb = createBrowserSupabaseClient();
-
+    if (unknown.current || submitting.current) return;
+    submitting.current = true;
+    let commitAttempted = false;
+    let confirmed = false;
     try {
+      const generation = getClientCleanupGeneration();
+      if (hasClientCleanupNeeded() || readReviewFence(facilityId) !== null) throw new Error('前の投稿結果を確認できません。再送せず口コミ一覧をご確認ください。');
+      const sb = createBrowserSupabaseClient();
       // ログイン状態取得
-      const { data: { user } } = await sb.auth.getUser();
+      const identity = await verifyAuthUser(sb.auth);
+      if (identity.state === 'unavailable') throw new Error('ログイン状態を確認できません。入力と元写真を保持しています。');
+      const user = identity.state === 'verified' ? identity.user : null;
 
       // Upload photos via Supabase Storage
-      const photo_urls: string[] = [];
+      let photo_urls: string[] = [];
       if (photos.length > 0) {
-        for (const file of photos) {
-          const ext = file.name.split('.').pop() || 'jpg';
-          const path = `reviews/${facilityId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-          const { error: uploadErr } = await sb.storage.from('review-photos').upload(path, file);
-          if (!uploadErr) {
-            const { data: urlData } = sb.storage.from('review-photos').getPublicUrl(path);
-            photo_urls.push(urlData.publicUrl);
-          }
-        }
+        if (!user) throw new Error('写真投稿にはログインが必要です。入力と元写真を保持しています。');
+        if (photoActor.current !== null && photoActor.current !== user.id) throw new Error('ログイン状態が変わりました。投稿は行っていません。入力を確認してください。');
+        photoActor.current = user.id;
+        const response = await fetch('/api/review/photo-limits', { signal: AbortSignal.timeout(10_000), cache: 'no-store' });
+        const limits = reviewPhotoLimitsSchema.safeParse(await response.json().catch(() => null));
+        if (!response.ok || !limits.success) throw new Error('写真の保存設定を確認できません。入力と元写真を保持して、時間をおいて再確認してください。');
+        photo_urls = await uploadReviewPhotos(sb, facilityId, photos, limits.data, uploads.current);
       }
 
       // reCAPTCHA v3 トークン取得（site key 設定時のみ実トークン・未設定の dev/CI では null）。
       // サーバ /api/review は secret 設定時に token を必須化（fail-closed）するため、ここで送らないと
       // 本番で全レビュー投稿が 403 になる。null の場合は従来通り token 無しで送る（secret 未設定環境）。
       const recaptchaToken = await getRecaptchaToken('review');
+      if (hasClientCleanupNeeded() || generation !== getClientCleanupGeneration()) throw new Error('ログイン状態が変わりました。本文は送信していません。入力を確認してください。');
 
       // レビュー投稿はサーバーサイドAPIを経由（IP記録のため）
+      const operationId = crypto.randomUUID();
+      await withReviewTransportFence(facilityId, operationId, async () => {
+      commitAttempted = true;
       const res = await fetch('/api/review', {
+        signal: AbortSignal.timeout(20_000),
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'required' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'required', 'X-CareLink-Review-Consumer': '1' },
         body: JSON.stringify({
           facility_id: facilityId,
           reviewer_name: data.reviewer_name,
@@ -165,22 +204,33 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
           ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
         }),
       });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        setToast({ type: 'error', message: body?.error || '送信に失敗しました' });
-        return;
+      const body = await res.json().catch(() => null);
+      if (!res.ok && res.headers.get('X-CareLink-Review-Commit') === 'not-started') {
+        finishReviewFence(facilityId, operationId);
+        commitAttempted = false;
+        throw new Error(typeof body?.error === 'string' ? body.error : '本文は送信されていません。入力を確認してください。');
       }
-
+      if (!res.ok || body?.success !== true || typeof body.id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.id)) {
+        throw new Error('REVIEW_RESULT_UNCONFIRMED');
+      }
+      confirmed = true;
+      try { finishReviewFence(facilityId, operationId); }
+      catch { setToast({ type: 'error', message: '口コミの受付は確認済みですが、端末の確認記録を消せませんでした。投稿要求は再送しないでください。' }); }
+      });
       setSubmitted(true);
       setPhotos([]);
       photoPreviews.forEach((url) => URL.revokeObjectURL(url));
       setPhotoPreviews([]);
       reset();
       onReviewSubmitted();
-      setToast({ type: 'success', message: user ? '口コミを投稿しました（+50pt獲得！）' : '口コミを投稿しました' });
-    } catch {
-      setToast({ type: 'error', message: '送信に失敗しました。もう一度お試しください。' });
+      setToast({ type: 'success', message: '口コミの受付を確認しました' });
+    } catch (error) {
+      if (commitAttempted && !confirmed) {
+        unknown.current = true; setResultUnknown(true);
+        setToast({ type: 'error', message: '投稿結果を確認できません。入力と元写真を保持しています。再送せず、口コミ一覧または運営に受付状況をご確認ください。' });
+      } else if (!confirmed) setToast({ type: 'error', message: error instanceof Error ? error.message : '本文は送信していません。入力と元写真を保持しています。' });
+    } finally {
+      submitting.current = false;
     }
   };
 
@@ -296,7 +346,8 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
           <p className="text-xs text-gray-400 mt-1">JPEG/PNG/WebP・最大10MB（自動圧縮されます）</p>
         </div>
 
-        <button type="submit" disabled={isSubmitting || compressing} className="btn-primary w-full py-3! text-sm">
+        {resultUnknown && <p role="alert" className="text-sm text-red-700">前の口コミの受付状況が未確認です。投稿は再送せず、口コミ一覧または運営へ確認してください。</p>}
+        <button type="submit" disabled={isSubmitting || compressing || resultUnknown} className="btn-primary w-full py-3! text-sm">
           {isSubmitting ? '送信中...' : '口コミを投稿する'}
         </button>
       </form>
@@ -307,7 +358,7 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
         message="投稿後の編集・削除はできません。"
         confirmLabel="投稿する"
         cancelLabel="戻る"
-        onConfirm={() => { if (isSubmitting) return; setShowConfirm(false); handleSubmit(onSubmit)(); }}
+        onConfirm={() => { if (isSubmitting || unknown.current || submitting.current) return; setShowConfirm(false); handleSubmit(onSubmit)(); }}
         onCancel={() => setShowConfirm(false)}
       />
 
