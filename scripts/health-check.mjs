@@ -78,7 +78,8 @@ async function main() {
   } catch (e) {
     await postSlack(`🔴 CareLink production 到達不可（Render 監視）\n> ${e instanceof Error ? e.message : String(e)}`);
     await pushAdminHeartbeat('fail');
-    process.exit(0); // 通報済み。Render 側は「実行成功（通報した）」として扱う。
+    process.exitCode = 1;
+    return;
   }
   if (isHealthy(httpStatus, body)) {
     console.log(`[health-check] healthy: ${formatHealthSummary(httpStatus, body)}`);
@@ -87,6 +88,7 @@ async function main() {
   }
   await postSlack(`🔴 CareLink production unhealthy（Render 監視）\n> ${formatHealthSummary(httpStatus, body)}`);
   await pushAdminHeartbeat('fail');
+  process.exitCode = 1;
 }
 
 main().catch((e) => {
