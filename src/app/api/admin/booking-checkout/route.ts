@@ -90,7 +90,7 @@ export async function POST(request: Request) {
     // 予約取得（権限スコープ確定のため先に取る）
     const { data: booking } = await supabase
       .from('bookings')
-      .select('id, facility_id, user_id, customer_name, email, booking_date, menu_id, staff_id, status')
+      .select('id, facility_id, user_id, customer_name, email, booking_date, menu_id, staff_id, status, updated_at')
       .eq('id', bookingId)
       .single();
 
@@ -117,26 +117,15 @@ export async function POST(request: Request) {
 
     const nextStatus = wantComplete ? 'completed' : booking.status;
 
-    // CAS: 読み取り時の status を WHERE に含め、並行更新による状態機械バイパスを防ぐ。
-    const { data: updated, error: updateError } = await supabase
-      .from('bookings')
-      .update({
-        charges,
-        total_price: total,
-        ...(paidAmount !== null ? { paid_amount: paidAmount } : {}),
-        status: nextStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', bookingId)
-      .eq('facility_id', booking.facility_id)
-      .eq('status', booking.status)
-      .select('id');
-
-    if (updateError) {
-      return serverError('admin-booking-checkout-update', updateError, '/api/admin/booking-checkout', '会計の保存に失敗しました');
-    }
-    if (!updated || updated.length === 0) {
-      return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
+    const { data: updated, error: updateError } = await supabase.rpc('checkout_booking_with_points_atomic', {
+      p_actor_id: user.id, p_booking_id: bookingId, p_expected_status: booking.status,
+      p_expected_updated_at: booking.updated_at, p_charges: charges, p_paid_amount: paidAmount, p_complete: wantComplete,
+    });
+    if (updateError?.message.includes('BOOKING_PERMISSION_DENIED')) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
+    if (updateError?.message.includes('BOOKING_REVISION_CONFLICT')) return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
+    if (updateError) return serverError('admin-booking-checkout-update', updateError, '/api/admin/booking-checkout', '会計の保存に失敗しました');
+    if (!updated || updated.length !== 1 || updated[0].id !== bookingId || updated[0].total_price !== total) {
+      return serverError('admin-booking-checkout-result', new Error('checkout transaction not confirmed'), '/api/admin/booking-checkout');
     }
 
     // completed へ進入した場合のみ、最終金額で来店記録・来店ポイントを付与する。

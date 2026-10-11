@@ -9,6 +9,7 @@ import TrafficSourceTracker from "@/components/TrafficSourceTracker";
 import { isAiEnabled } from "@/lib/integration-availability";
 import { Analytics, SpeedInsights, CookieConsent } from "@/components/DynamicRootComponents";
 import { safeJsonLd } from "@/lib/json-ld";
+import ClientLocalDataCleanup from "@/components/ClientLocalDataCleanup";
 
 import "./globals.css";
 
@@ -75,6 +76,7 @@ export default async function RootLayout({
         {clarityId && <link rel="dns-prefetch" href="https://www.clarity.ms" />}
       </head>
       <body className="antialiased min-h-screen flex flex-col">
+        <ClientLocalDataCleanup />
         <TrafficSourceTracker />
         <script
           type="application/ld+json"

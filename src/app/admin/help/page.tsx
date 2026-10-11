@@ -1,11 +1,12 @@
 import Link from 'next/link';
 import { SbPageHeader } from '@/components/admin/SbUi';
+import { ACCOUNT_DELETION_NOTICE, FACILITY_RETIREMENT_NOTICE, ACCOUNT_DELETION_BOOKING_GUARD_NOTICE } from '@/lib/account-deletion-policy';
 
 const faqItems = [
   {
     category: 'はじめに',
     items: [
-      { q: '店舗情報を公開するには？', a: '「設定」→ 基本情報を入力 → メニュー・写真を最低1つ登録 →「公開する」ボタンをクリック。' },
+      { q: '店舗情報を公開するには？', a: '「設定」で店舗名・所在地を確認して「公開する」を選びます。無料掲載にメニュー・写真・スタッフは必須ではありません。ネット予約の受付は曜日別営業時間・メニュー・写真・スタッフ等の準備後に利用できます。' },
       { q: 'スタッフのスケジュールを設定するには？', a: '「スタッフ」→ スタッフ名の「スケジュール」リンク → 曜日別に勤務時間を設定 →「保存」。' },
       { q: 'メニューを追加するには？', a: '「メニュー」→ カテゴリ・名前・価格・施術時間を入力 → 保存。写真もアップロード可能。' },
     ],
@@ -30,7 +31,7 @@ const faqItems = [
     category: 'アカウント・その他',
     items: [
       { q: '掲載を一時停止するには？', a: '「設定」→ ページ上部の「非公開にする」ボタン。いつでも再公開可能。' },
-      { q: '退会・データ削除は？', a: '「設定」ページ下部の「退会・データ削除」から行えます。退会すると施設は非公開になり、アカウントと個人データが削除されます（取り消し不可）。未完了の予約が残っている間は退会できないため、予約の完了またはキャンセル後に行ってください。' },
+      { q: '退会・データ削除は？', a: `「設定」ページ下部の「退会・データ削除」から行えます。${ACCOUNT_DELETION_NOTICE}${FACILITY_RETIREMENT_NOTICE}${ACCOUNT_DELETION_BOOKING_GUARD_NOTICE}` },
       { q: '料金はかかりますか？', a: '基本機能は全て無料です。今後有料プランを検討する場合は事前にお知らせします。' },
     ],
   },

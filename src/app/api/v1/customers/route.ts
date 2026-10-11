@@ -16,12 +16,15 @@ const API_VERSION = '1.0.0';
 async function resolveApiKey(apiKey: string) {
   const keyHash = createHash('sha256').update(apiKey).digest('hex');
   const admin = createServiceRoleClient();
-  const { data } = await admin
+  const { data, error } = await admin
     .from('api_keys')
     .select('facility_id, scopes, is_active, expires_at')
     .eq('key_hash', keyHash)
     .single();
-  if (!data || !data.is_active) return null;
+  // A normal missing key is unauthorized. Database/transport failure,
+  // including data alongside an error, is never proof of key authority.
+  if (error && (error.code !== 'PGRST116' || data != null)) throw new Error('API key verification unavailable');
+  if (error || !data || !data.is_active) return null;
   if (data.expires_at && new Date(data.expires_at) < new Date()) return null;
   return { facility_id: data.facility_id, scopes: data.scopes ?? [] as string[] };
 }
@@ -56,6 +59,10 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
   }
 
   const sp = request.nextUrl.searchParams;
+  const requestedFacility = sp.get('facility_id');
+  if (requestedFacility !== null && requestedFacility !== principal.facility_id) {
+    return NextResponse.json({ error: 'Forbidden', message: '別施設のデータにはアクセスできません' }, { status: 403 });
+  }
   const limit = Math.min(parseInt(sp.get('limit') ?? '50') || 50, 100);
   const page = Math.min(Math.max(parseInt(sp.get('page') ?? '1') || 1, 1), 10000);
   const offset = (page - 1) * limit;

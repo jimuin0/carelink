@@ -993,16 +993,16 @@ describe('POST /api/admin/booking-status - ポイント返還（cancelled）', (
     const spy = setupCancelRefund(300, 'customer-1', { error: null });
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
     expect(res.status).toBe(200);
-    expect(spy).toHaveBeenCalledWith(expect.objectContaining({
-      user_id: 'customer-1', points: 300, booking_id: validBookingId, reason: 'キャンセル返還',
-    }));
+    expect(spy).not.toHaveBeenCalled();
+    expect(mockRpc).toHaveBeenCalledWith('save_booking_email_event_atomic',expect.objectContaining({p_actor_id:userId,p_booking_id:validBookingId,p_new_status:'cancelled'}));
   });
 
-  test('返還 insert 失敗 → warn のみで 200', async () => {
+  test('返還 insert 失敗はstatus transactionを500にする', async () => {
     const spy = setupCancelRefund(300, 'customer-1', { error: { message: 'insert fail' } });
+    mockRpc.mockResolvedValue({data:null,error:{message:'SYNTHETIC_REFUND_FAILURE'}});
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
-    expect(res.status).toBe(200);
-    expect(spy).toHaveBeenCalled();
+    expect(res.status).toBe(500);
+    expect(spy).not.toHaveBeenCalled();
   });
 
   test('ゲスト予約(user_id=null)はポイント返還しない（&& booking.user_id false 分岐）', async () => {

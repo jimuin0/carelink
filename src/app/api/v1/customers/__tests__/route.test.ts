@@ -416,3 +416,30 @@ describe('GET /api/v1/customers', () => {
     expect(rpc).toHaveBeenCalledWith('get_facility_customers_v1', expect.objectContaining({ p_search: '' }));
   });
 });
+
+function scopedClient(scopes: string[] = ['*'], keyError: unknown = null, keyData: unknown = undefined) {
+  const principal={facility_id:'fac-123',scopes,is_active:true,expires_at:null};
+  const c: any={};
+  for(const method of ['select','eq','order','range','gte','lte'])c[method]=jest.fn(()=>c);
+  c.single=jest.fn(async()=>({data:keyData===undefined?principal:keyData,error:keyError}));
+  c.then=(resolve:any)=>Promise.resolve({data:[],error:null,count:0}).then(resolve);
+  const client={from:jest.fn(()=>c),rpc:jest.fn(async()=>({data:[],error:null}))};
+  require('@/lib/supabase-server').createServiceRoleClient.mockReturnValue(client);
+  return {client,c};
+}
+test.each(['*','customers:read'])('facility-bound %s key rejects another tenant before any data read',async scope=>{
+ const {client}=scopedClient([scope]);const res=await GET(makeRequest('synthetic-key','?facility_id=fac-other') as any);
+ expect(res.status).toBe(403);expect(client.from.mock.calls.map((call:any[])=>call[0])).toEqual(['api_keys']);expect(client.rpc).not.toHaveBeenCalled();
+});
+test.each(['','?facility_id=fac-123'])('wildcard grants operations only inside its bound facility: %s',async query=>{
+ const {client}=scopedClient();const res=await GET(makeRequest('synthetic-key',query) as any);expect(res.status).toBe(200);
+ expect(client.rpc).toHaveBeenCalledWith('get_facility_customers_v1',expect.objectContaining({p_facility_id:'fac-123'}));
+});
+test.each([null,{facility_id:'fac-123',scopes:['*'],is_active:true,expires_at:null}])('key lookup error with/without data never grants access',async data=>{
+ const {client}=scopedClient(['*'],{code:'DB_UNAVAILABLE',message:'synthetic error'},data);
+ expect((await GET(makeRequest() as any)).status).toBe(500);expect(client.from.mock.calls.map((call:any[])=>call[0])).toEqual(['api_keys']);expect(client.rpc).not.toHaveBeenCalled();
+});
+test('normal missing-key PGRST116 is401 but accompanying data isunconfirmed500',async()=>{
+ scopedClient(['*'],{code:'PGRST116'},null);expect((await GET(makeRequest() as any)).status).toBe(401);
+ scopedClient(['*'],{code:'PGRST116'},{facility_id:'fac-123',scopes:['*'],is_active:true,expires_at:null});expect((await GET(makeRequest() as any)).status).toBe(500);
+});

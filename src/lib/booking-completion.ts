@@ -1,6 +1,4 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { safeCaptureException } from './safe';
-import { alertCaughtError } from './alert';
 import { awardReferralPointsOnCompletion } from './referral';
 
 /**
@@ -10,15 +8,14 @@ import { awardReferralPointsOnCompletion } from './referral';
  *   この関数から再挿入しない。履歴保存失敗時は状態変更そのものがrollbackする。
  * - 来店ポイント（100円=1pt）を user_id があれば付与。
  *
- * 失敗は致命でないため Sentry 通知のみで本体は継続（admin は service_role を渡すこと）。
- * 呼び出し側が status='confirmed'→'completed' を CAS で1回だけ確定してから呼ぶ前提
- * （重複付与防止）。返り値は付与した来店ポイント数。
+ * 来店記録・ポイント保存失敗はDB transactionそのものをrollbackする。ここは保存後の紹介処理のみ。
+ * 呼び出し側がcompletedへの遷移またはDBで確認した完了のreplay後に呼ぶ。
+ * 返り値は表示用の算出額。確定した付与額が必要ならtransactionの結果を使う。
  *
- * 【不変条件】completed へ進入する全経路で本関数を、completed から離脱する全経路で
- * reverseCompletionSideEffects を必ず対で呼ぶ（対称性）。現在の完了経路は3つ＝
+ * 任意の紹介報酬の回復を可能にするため、現在の完了経路3つで本関数を呼ぶ＝
  * /api/booking/complete・/api/admin/booking-status・/api/admin/booking-checkout
- * （退店レジ会計・total_price を確定してから呼ぶ）。新たな完了 / 離脱経路を足す時は
- * apply / reverse の配線を必ず対で追加すること（片側漏れは来店実績・ポイントの無音欠落になる）。
+ * （退店レジ会計・total_price を確定してから呼ぶ）。来店記録とポイントの保存・取消は
+ * DBトリガが同じtransaction内で処理し、アプリから二度目の台帳更新をしない。
  */
 export interface CompletableBooking {
   id: string;
@@ -36,27 +33,8 @@ export async function applyCompletionSideEffects(
   admin: SupabaseClient,
   booking: CompletableBooking,
 ): Promise<number> {
-  // 来店ポイント（1ポイント=100円）。user_points は authenticated に INSERT ポリシーが無いため
-  // service_role（admin）で挿入する。
-  // null/0/負値の total_price は floor 後の earned>0 という単一ガードで一括判定する
-  // （total_price>0 と pointsEarned>0 の多重ガードは境界が観測不能な等価変異を生むため避ける）。
-  let pointsEarned = 0;
-  if (booking.user_id) {
-    const earned = Math.floor((booking.total_price ?? 0) / 100);
-    if (earned > 0) {
-      pointsEarned = earned;
-      const { error: pointError } = await admin.from('user_points').insert({
-        user_id: booking.user_id,
-        points: pointsEarned,
-        reason: '来店ポイント',
-        booking_id: booking.id,
-      });
-      if (pointError) {
-        safeCaptureException(pointError, 'booking-completion');
-        alertCaughtError('booking-completion:points', pointError, `booking:${booking.id}`);
-      }
-    }
-  }
+  // booking_points_atomic が状態・来店記録と一緒に保存済み。ここでは再挿入しない。
+  const pointsEarned = booking.user_id ? Math.max(0, Math.floor((booking.total_price ?? 0) / 100)) : 0;
 
   // 紹介ボーナス: 被紹介者の初回予約完了時に紹介者500pt・被紹介者300ptを付与する（A-7 根治）。
   // 適用時の即時付与は捨てアカウント量産で悪用できたため、実来店(予約完了)を付与ゲートにする。

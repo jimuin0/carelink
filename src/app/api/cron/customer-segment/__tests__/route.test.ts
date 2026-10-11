@@ -32,7 +32,7 @@ jest.mock('@/lib/cron-logger', () => {
   });
   return { logCronRun, cronError };
 });
-jest.mock('resend');
+jest.mock('@/lib/customer-coupon-email');
 jest.mock('@/lib/email', () => ({ escSubject: jest.fn((s: string) => s) }));
 
 // Module-level supabase = createClient(...) — use wrapper for lazy delegation
@@ -46,23 +46,12 @@ jest.mock('@supabase/supabase-js', () => ({
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
 import { GET } from '../route';
+import { queueCustomerCouponEmail } from '@/lib/customer-coupon-email';
 
 let mockFacilitiesSelect: jest.Mock;
 let mockBookingsSelect: jest.Mock;
 let mockBookingsIn: jest.Mock;
 let mockUpsert: jest.Mock;
-
-// user_coupon_codes.select は 2 経路で呼ばれる:
-//  (1) loop 前のバッチ dedup: .eq().in().eq().gte()          → await で {data} を解決
-//  (2) insert 直前の TOCTOU 再チェック: .eq().eq().eq().gte().limit(1) → await で {data} を解決
-// そのため .gte() の戻りを「await 可能(thenable)」かつ「.limit() を持つ」オブジェクトにして両対応する。
-// batchVal = バッチ取得の解決値、recheckVal = 再チェック(.limit)の解決値（既定は「既存なし」）。
-function thenableWithLimit(batchVal: any, recheckVal: any = { data: [], error: null }) {
-  return {
-    then: (onF: any, onR: any) => Promise.resolve(batchVal).then(onF, onR),
-    limit: jest.fn().mockResolvedValue(recheckVal),
-  };
-}
 
 function setupDefaultMocks(
   facilitiesCount: number = 2,
@@ -131,6 +120,8 @@ function setupDefaultMocks(
 
 beforeEach(() => {
   jest.clearAllMocks();
+  delete process.env.RESEND_API_KEY;
+  (queueCustomerCouponEmail as jest.Mock).mockResolvedValue('queued');
   // 時刻を固定する（発症前予防）。route の daysSinceLastVisit は実 now と fixture 日付の差で
   // 算出されるため、固定しないと実日付の経過で classifySegment の分岐カバレッジが変動し
   // （30/60/120日境界を跨ぐ）、ある日突然 global branch=100% ゲートが落ちる時限フレークになる。
@@ -409,7 +400,7 @@ describe('GET /api/cron/customer-segment', () => {
   // -----------------------------------------------------------------------
   // Branch: upsert error → log and continue (line 114-116)
   // -----------------------------------------------------------------------
-  test('upsert chunk error → logs and continues (no throw)', async () => {
+  test('upsert chunk error → continues other work but reports failed run', async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     mockUpsert = jest.fn().mockResolvedValue({
       data: null,
@@ -427,551 +418,12 @@ describe('GET /api/cron/customer-segment', () => {
 
     const res = await GET(makeRequest() as any);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('[customer-segment] upsert chunk failed'),
       expect.anything()
     );
     consoleSpy.mockRestore();
-  });
-
-  // -----------------------------------------------------------------------
-  // Branch: RESEND_API_KEY block — at-risk email sending
-  // -----------------------------------------------------------------------
-  describe('RESEND_API_KEY email path', () => {
-    let mockSend: jest.Mock;
-    let mockCouponInsert: jest.Mock;
-    let mockCouponSelect: jest.Mock;
-
-    // Build bookings where one customer has 2+ visits and last visit ~62 days ago
-    function makeAtRiskBookings(now: Date) {
-      const daysAgo62 = new Date(now.getTime() - 62 * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .split('T')[0];
-      const daysAgo90 = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .split('T')[0];
-      return [
-        {
-          email_canonical: 'atrisk@example.com',
-          customer_name: 'At Risk Customer',
-          booking_date: daysAgo62, // last visit
-          total_price: 5000,
-          status: 'completed',
-        },
-        {
-          email_canonical: 'atrisk@example.com',
-          customer_name: 'At Risk Customer',
-          booking_date: daysAgo90, // first visit (2 total → at_risk eligible)
-          total_price: 5000,
-          status: 'completed',
-        },
-      ];
-    }
-
-    beforeEach(() => {
-      jest.useFakeTimers();
-      jest.setSystemTime(new Date('2026-04-21T10:00:00Z'));
-      process.env.RESEND_API_KEY = 'test-resend-key';
-
-      const { Resend } = require('resend');
-      mockSend = jest.fn().mockResolvedValue({ data: { id: 'email-id' }, error: null });
-      (Resend as jest.Mock).mockImplementation(() => ({ emails: { send: mockSend } }));
-
-      const now = new Date('2026-04-21T10:00:00Z');
-      const atRiskBookings = makeAtRiskBookings(now);
-
-      mockBookingsSelect = jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            in: jest.fn().mockReturnValue({
-              gte: jest.fn().mockReturnValue({
-                range: jest.fn().mockResolvedValue({ data: atRiskBookings }),
-              }),
-            }),
-          }),
-        }),
-      });
-
-      // user_coupon_codes select (already-sent check) → empty = not sent yet
-      mockCouponSelect = jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnThis(),
-        in: jest.fn().mockReturnThis(),
-        gte: jest.fn(() => thenableWithLimit({ data: [] })),
-      });
-
-      // user_coupon_codes insert → success
-      mockCouponInsert = jest.fn().mockResolvedValue({ data: null, error: null });
-
-      mockUpsert = jest.fn().mockResolvedValue({ data: [], error: null });
-
-      mockFromDelegate.mockImplementation((table: string) => {
-        if (table === 'facility_profiles') {
-          return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
-        } else if (table === 'bookings') {
-          return mockBookingsSelect();
-        } else if (table === 'customer_segments') {
-          return { upsert: (...args: any[]) => mockUpsert(...args) };
-        } else if (table === 'user_coupon_codes') {
-          // update は notified_at 記録用のチェーン: .eq().eq().eq().gte().is()
-          const makeUpdateChain = () => ({
-            eq: jest.fn().mockReturnThis(),
-            gte: jest.fn().mockReturnThis(),
-            is: jest.fn().mockResolvedValue({ error: null }),
-          });
-          return {
-            select: () => mockCouponSelect(),
-            insert: (...args: any[]) => mockCouponInsert(...args),
-            update: jest.fn().mockReturnValue(makeUpdateChain()),
-          };
-        }
-      });
-    });
-
-    afterEach(() => {
-      jest.useRealTimers();
-      delete process.env.RESEND_API_KEY;
-    });
-
-    test('at-risk customer (60-65 days) → coupon inserted and email sent', async () => {
-      const res = await GET(makeRequest() as any);
-
-      expect(res.status).toBe(200);
-      expect(mockCouponInsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          email: 'atrisk@example.com',
-          reason: 'at_risk',
-          discount_value: 500,
-        })
-      );
-      expect(mockSend).toHaveBeenCalled();
-    });
-
-    test('alreadyNotifiedEmails（notified_at あり）→ クーポン作成・メール送信をスキップ', async () => {
-      // notified_at が非 null → alreadyNotifiedEmails に含まれ完全スキップ
-      mockCouponSelect = jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnThis(),
-        in: jest.fn().mockReturnThis(),
-        gte: jest.fn().mockResolvedValue({
-          data: [{ email: 'atrisk@example.com', code: 'BACK123', notified_at: '2026-03-01T00:00:00Z' }],
-        }),
-      });
-      const makeUpdateChain = () => ({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
-      mockFromDelegate.mockImplementation((table: string) => {
-        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
-        if (table === 'bookings') return mockBookingsSelect();
-        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
-        if (table === 'user_coupon_codes') return {
-          select: () => mockCouponSelect(),
-          insert: (...args: any[]) => mockCouponInsert(...args),
-          update: jest.fn().mockReturnValue(makeUpdateChain()),
-        };
-      });
-
-      const res = await GET(makeRequest() as any);
-
-      expect(res.status).toBe(200);
-      expect(mockCouponInsert).not.toHaveBeenCalled();
-      expect(mockSend).not.toHaveBeenCalled();
-    });
-
-    test('クーポン作成済み・notified_at IS NULL → 既存コードを再利用してメール再送（重複クーポン作成なし）', async () => {
-      // pendingCoupons: クーポンは存在するが notified_at = null → email retry
-      mockCouponSelect = jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnThis(),
-        in: jest.fn().mockReturnThis(),
-        gte: jest.fn().mockResolvedValue({
-          data: [{ email: 'atrisk@example.com', code: 'EXISTCD', notified_at: null }],
-        }),
-      });
-      const mockUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
-      mockFromDelegate.mockImplementation((table: string) => {
-        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
-        if (table === 'bookings') return mockBookingsSelect();
-        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
-        if (table === 'user_coupon_codes') return {
-          select: () => mockCouponSelect(),
-          insert: (...args: any[]) => mockCouponInsert(...args),
-          update: mockUpdate,
-        };
-      });
-
-      const res = await GET(makeRequest() as any);
-
-      expect(res.status).toBe(200);
-      // 既存クーポンを再利用 → insert は呼ばない
-      expect(mockCouponInsert).not.toHaveBeenCalled();
-      // メールは送信する
-      expect(mockSend).toHaveBeenCalled();
-      // メール中に既存コード EXISTCD が含まれる
-      const htmlArg = mockSend.mock.calls[0][0].html;
-      expect(htmlArg).toContain('EXISTCD');
-    });
-
-    test('メール送信成功 → notified_at を update する', async () => {
-      const mockUpdate = jest.fn();
-      const updateChain = { eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) };
-      mockUpdate.mockReturnValue(updateChain);
-      mockFromDelegate.mockImplementation((table: string) => {
-        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
-        if (table === 'bookings') return mockBookingsSelect();
-        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
-        if (table === 'user_coupon_codes') return {
-          select: () => mockCouponSelect(),
-          insert: (...args: any[]) => mockCouponInsert(...args),
-          update: mockUpdate,
-        };
-      });
-
-      const res = await GET(makeRequest() as any);
-
-      expect(res.status).toBe(200);
-      expect(mockSend).toHaveBeenCalled();
-      // 送信成功後に notified_at を update する
-      expect(mockUpdate).toHaveBeenCalledWith(
-        expect.objectContaining({ notified_at: expect.any(String) })
-      );
-    });
-
-    test('メール送信失敗 → notified_at を update しない（翌 run で再送される）', async () => {
-      mockSend = jest.fn().mockRejectedValue(new Error('send failed'));
-      const { Resend } = require('resend');
-      (Resend as jest.Mock).mockImplementation(() => ({ emails: { send: mockSend } }));
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-
-      const mockUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
-      mockFromDelegate.mockImplementation((table: string) => {
-        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
-        if (table === 'bookings') return mockBookingsSelect();
-        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
-        if (table === 'user_coupon_codes') return {
-          select: () => mockCouponSelect(),
-          insert: (...args: any[]) => mockCouponInsert(...args),
-          update: mockUpdate,
-        };
-      });
-
-      const res = await GET(makeRequest() as any);
-
-      expect(res.status).toBe(200);
-      // 送信失敗時は notified_at を update しない
-      expect(mockUpdate).not.toHaveBeenCalled();
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[customer-segment] email send failed'),
-        expect.anything()
-      );
-      consoleSpy.mockRestore();
-    });
-
-    test('coupon insert error（非23505・通常のDBエラー）→ console.error でログし email をスキップ', async () => {
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      mockCouponInsert = jest.fn().mockResolvedValue({ data: null, error: { message: 'insert failed' } });
-      mockFromDelegate.mockImplementation((table: string) => {
-        if (table === 'facility_profiles') {
-          return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
-        } else if (table === 'bookings') {
-          return mockBookingsSelect();
-        } else if (table === 'customer_segments') {
-          return { upsert: (...args: any[]) => mockUpsert(...args) };
-        } else if (table === 'user_coupon_codes') {
-          return {
-            select: () => mockCouponSelect(),
-            insert: (...args: any[]) => mockCouponInsert(...args),
-          };
-        }
-      });
-
-      const res = await GET(makeRequest() as any);
-
-      expect(res.status).toBe(200);
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[customer-segment] coupon insert failed, skipping email'),
-        expect.anything()
-      );
-      // 23505 専用の警告ログは呼ばれない（正常系ではなく本物のエラーとして扱う）
-      expect(consoleWarnSpy).not.toHaveBeenCalledWith(
-        expect.stringContaining('lost concurrent claim'),
-        expect.anything()
-      );
-      expect(mockSend).not.toHaveBeenCalled();
-      consoleErrorSpy.mockRestore();
-      consoleWarnSpy.mockRestore();
-    });
-
-    // -------------------------------------------------------------------
-    // uq_user_coupon_codes_at_risk_daily（migration 20260717000001）による
-    // 並行 cron invocation の claim 負け＝23505 は正常なレース決着として扱う。
-    // -------------------------------------------------------------------
-    test('coupon insert error（23505・並行invocationが同日先着発行済み）→ console.warn でログしメール送信をスキップ・処理継続', async () => {
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      mockCouponInsert = jest.fn().mockResolvedValue({ data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "uq_user_coupon_codes_at_risk_daily"' } });
-      mockFromDelegate.mockImplementation((table: string) => {
-        if (table === 'facility_profiles') {
-          return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
-        } else if (table === 'bookings') {
-          return mockBookingsSelect();
-        } else if (table === 'customer_segments') {
-          return { upsert: (...args: any[]) => mockUpsert(...args) };
-        } else if (table === 'user_coupon_codes') {
-          return {
-            select: () => mockCouponSelect(),
-            insert: (...args: any[]) => mockCouponInsert(...args),
-          };
-        }
-      });
-
-      const res = await GET(makeRequest() as any);
-
-      expect(res.status).toBe(200);
-      // 23505 は正常なレース決着 → console.error ではなく console.warn
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('lost concurrent claim (23505)'),
-        expect.anything()
-      );
-      expect(consoleErrorSpy).not.toHaveBeenCalledWith(
-        expect.stringContaining('[customer-segment] coupon insert failed, skipping email'),
-        expect.anything()
-      );
-      // メール送信はスキップ（先着 invocation が既に送信済みのはず・二重送信防止）
-      expect(mockSend).not.toHaveBeenCalled();
-      // 処理は継続し 200 を返す（例外化しない）
-      consoleErrorSpy.mockRestore();
-      consoleWarnSpy.mockRestore();
-    });
-
-    // insert 成功 → メール送信されるケースは本 describe 冒頭の
-    // 'at-risk customer (60-65 days) → coupon inserted and email sent' で既に検証済み（重複回避のため追加しない）。
-
-    test('atRiskCandidates.length === 0 → no coupon insert, no email sent', async () => {
-      // Override bookings to have a customer whose last visit is 30 days ago (not at_risk range 60-65)
-      const now = new Date('2026-04-21T10:00:00Z');
-      const daysAgo30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .split('T')[0];
-      const daysAgo60 = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .split('T')[0];
-
-      mockBookingsSelect = jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            in: jest.fn().mockReturnValue({
-              gte: jest.fn().mockReturnValue({
-                range: jest.fn().mockResolvedValue({
-                  data: [
-                    // recent customer (not at_risk by day range)
-                    { email_canonical: 'recent@example.com', customer_name: 'Recent', booking_date: daysAgo30, total_price: 5000, status: 'completed' },
-                    { email_canonical: 'recent@example.com', customer_name: 'Recent', booking_date: daysAgo60, total_price: 5000, status: 'completed' },
-                  ],
-                }),
-              }),
-            }),
-          }),
-        }),
-      });
-      mockFromDelegate.mockImplementation((table: string) => {
-        if (table === 'facility_profiles') {
-          return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
-        } else if (table === 'bookings') {
-          return mockBookingsSelect();
-        } else if (table === 'customer_segments') {
-          return { upsert: (...args: any[]) => mockUpsert(...args) };
-        } else if (table === 'user_coupon_codes') {
-          return {
-            select: () => mockCouponSelect(),
-            insert: (...args: any[]) => mockCouponInsert(...args),
-          };
-        }
-      });
-
-      const res = await GET(makeRequest() as any);
-
-      expect(res.status).toBe(200);
-      expect(mockCouponInsert).not.toHaveBeenCalled();
-      expect(mockSend).not.toHaveBeenCalled();
-    });
-
-    // -------------------------------------------------------------------
-    // デプロイ順序非依存フォールバック: notified_at 列が未適用（migration 前）
-    // -------------------------------------------------------------------
-    test('notified_at 列未適用(42703) + 過去クーポンあり → email,code で再取得し旧 dedup でスキップ（重複防止）', async () => {
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      // 1回目(notified_at 含む select)が 42703、2回目(email,code フォールバック)が過去クーポン1件
-      // 施設を1件に絞る（gte の Once モックを 2 回ぶんで使い切るため）
-      mockFacilitiesSelect = jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          range: jest.fn().mockResolvedValue({ data: [{ id: 'fac-0', name: 'Salon 0', slug: 'salon-0' }] }),
-        }),
-      });
-      const gteMock = jest.fn()
-        .mockResolvedValueOnce({ data: null, error: { code: '42703', message: 'column "notified_at" does not exist' } })
-        .mockResolvedValueOnce({ data: [{ email: 'atrisk@example.com', code: 'OLDCODE' }] });
-      mockCouponSelect = jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnThis(),
-        in: jest.fn().mockReturnThis(),
-        gte: gteMock,
-      });
-      const mockUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
-      mockFromDelegate.mockImplementation((table: string) => {
-        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
-        if (table === 'bookings') return mockBookingsSelect();
-        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
-        if (table === 'user_coupon_codes') return {
-          select: () => mockCouponSelect(),
-          insert: (...args: any[]) => mockCouponInsert(...args),
-          update: mockUpdate,
-        };
-      });
-
-      const res = await GET(makeRequest() as any);
-
-      expect(res.status).toBe(200);
-      // フォールバック取得が走る（2回 select）
-      expect(gteMock).toHaveBeenCalledTimes(2);
-      // 過去クーポン作成済み = 送信済み扱い → クーポン再作成もメールもしない（旧来の重複防止）
-      expect(mockCouponInsert).not.toHaveBeenCalled();
-      expect(mockSend).not.toHaveBeenCalled();
-      // 列未適用なので update も呼ばない
-      expect(mockUpdate).not.toHaveBeenCalled();
-      expect(warnSpy).toHaveBeenCalled();
-      warnSpy.mockRestore();
-    });
-
-    test('notified_at 列未適用(42703) + 過去クーポンなし → 新規クーポン作成しメール送信、update は呼ばない', async () => {
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-      // 施設を1件に絞る（gte の Once モックを 2 回ぶんで使い切るため）
-      mockFacilitiesSelect = jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          range: jest.fn().mockResolvedValue({ data: [{ id: 'fac-0', name: 'Salon 0', slug: 'salon-0' }] }),
-        }),
-      });
-      const gteMock = jest.fn()
-        .mockResolvedValueOnce({ data: null, error: { code: '42703', message: 'column "notified_at" does not exist' } })
-        .mockResolvedValueOnce({ data: [] }) // フォールバック: 過去クーポンなし
-        // 3回目 = insert 直前の TOCTOU 再チェック（.gte().limit()）。既存なし({data:[]})で insert に進む。
-        .mockReturnValue(thenableWithLimit({ data: [] }));
-      mockCouponSelect = jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnThis(),
-        in: jest.fn().mockReturnThis(),
-        gte: gteMock,
-      });
-      const mockUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
-      mockFromDelegate.mockImplementation((table: string) => {
-        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
-        if (table === 'bookings') return mockBookingsSelect();
-        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
-        if (table === 'user_coupon_codes') return {
-          select: () => mockCouponSelect(),
-          insert: (...args: any[]) => mockCouponInsert(...args),
-          update: mockUpdate,
-        };
-      });
-
-      const res = await GET(makeRequest() as any);
-
-      expect(res.status).toBe(200);
-      // 2 = バッチ(original 42703 + fallback)、+1 = insert 直前の TOCTOU 再チェック。
-      expect(gteMock).toHaveBeenCalledTimes(3);
-      // 新規顧客 → クーポン作成 + メール送信（旧来動作）
-      expect(mockCouponInsert).toHaveBeenCalled();
-      expect(mockSend).toHaveBeenCalled();
-      // 列未適用なので update は呼ばない（送信成功後も skip）
-      expect(mockUpdate).not.toHaveBeenCalled();
-      warnSpy.mockRestore();
-    });
-
-    // -------------------------------------------------------------------
-    // F-7(A): bookings 取得の列欠落以外の DB エラーを可視化（無音 skip にしない）
-    // -------------------------------------------------------------------
-    test('bookings 取得が列欠落以外の DB エラー → error ログで可視化し当該施設を skip', async () => {
-      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-      // fetchBookings('email_canonical') が 42703 以外の DB エラーを返す（missing column ではない）。
-      mockBookingsSelect = jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            in: jest.fn().mockReturnValue({
-              gte: jest.fn().mockReturnValue({
-                range: jest.fn().mockResolvedValue({ data: null, error: { message: 'db boom' } }),
-              }),
-            }),
-          }),
-        }),
-      });
-      mockFromDelegate.mockImplementation((table: string) => {
-        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
-        if (table === 'bookings') return mockBookingsSelect();
-        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
-        if (table === 'user_coupon_codes') return { select: () => mockCouponSelect(), insert: (...args: any[]) => mockCouponInsert(...args) };
-      });
-
-      const res = await GET(makeRequest() as any);
-
-      expect(res.status).toBe(200);
-      expect(errSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[customer-segment] bookings fetch failed'),
-        expect.anything(),
-      );
-      // 予約 0 件扱いにせず skip → クーポンもメールも作らない
-      expect(mockCouponInsert).not.toHaveBeenCalled();
-      expect(mockSend).not.toHaveBeenCalled();
-      errSpy.mockRestore();
-    });
-
-    // -------------------------------------------------------------------
-    // F-7(B): insert 直前の TOCTOU 再チェック
-    // -------------------------------------------------------------------
-    test('再チェックが DB エラー → error ログで当該 email を skip（新規発行しない）', async () => {
-      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-      mockCouponSelect = jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnThis(),
-        in: jest.fn().mockReturnThis(),
-        // バッチ=既存なし([])で new 分岐へ。再チェック(.limit)は DB エラーを返す。
-        gte: jest.fn(() => thenableWithLimit({ data: [] }, { data: null, error: { message: 'recheck boom' } })),
-      });
-      const mockUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
-      mockFromDelegate.mockImplementation((table: string) => {
-        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
-        if (table === 'bookings') return mockBookingsSelect();
-        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
-        if (table === 'user_coupon_codes') return { select: () => mockCouponSelect(), insert: (...args: any[]) => mockCouponInsert(...args), update: mockUpdate };
-      });
-
-      const res = await GET(makeRequest() as any);
-
-      expect(res.status).toBe(200);
-      expect(errSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[customer-segment] coupon recheck failed'),
-        expect.anything(),
-      );
-      expect(mockCouponInsert).not.toHaveBeenCalled();
-      expect(mockSend).not.toHaveBeenCalled();
-      errSpy.mockRestore();
-    });
-
-    test('再チェックで既存クーポン検出（別 invocation が発行済み）→ 二重発行を回避しスキップ', async () => {
-      mockCouponSelect = jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnThis(),
-        in: jest.fn().mockReturnThis(),
-        // バッチ=既存なし([])で new 分岐へ。再チェック(.limit)は既存クーポン1件を返す。
-        gte: jest.fn(() => thenableWithLimit({ data: [] }, { data: [{ code: 'EXIST1' }], error: null })),
-      });
-      const mockUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
-      mockFromDelegate.mockImplementation((table: string) => {
-        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
-        if (table === 'bookings') return mockBookingsSelect();
-        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
-        if (table === 'user_coupon_codes') return { select: () => mockCouponSelect(), insert: (...args: any[]) => mockCouponInsert(...args), update: mockUpdate };
-      });
-
-      const res = await GET(makeRequest() as any);
-
-      expect(res.status).toBe(200);
-      // 既存が見つかったので二重発行しない・メールも送らない
-      expect(mockCouponInsert).not.toHaveBeenCalled();
-      expect(mockSend).not.toHaveBeenCalled();
-    });
   });
 
   test('repeat customer aggregation updates firstVisit/lastVisit/name', async () => {
@@ -1159,117 +611,6 @@ describe('GET /api/cron/customer-segment', () => {
     }
   });
 
-  // Branch coverage: line 126 - RESEND_API_KEY あり + facilityInfo が null → email block スキップ
-  test('RESEND_API_KEY あり + facilityMap.get が null → email block スキップ', async () => {
-    process.env.RESEND_API_KEY = 'test-key';
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date('2026-04-21T10:00:00Z'));
-
-    const { Resend } = require('resend');
-    const mockSend = jest.fn().mockResolvedValue({ data: { id: 'id' }, error: null });
-    (Resend as jest.Mock).mockImplementation(() => ({ emails: { send: mockSend } }));
-
-    // 施設がないがブッキングは存在する状況を作る（facilityMap.get → undefined）
-    // facility_profiles に fac-0 のみ返すが、bookings の処理はそれ用
-    // facilityMap には fac-0 が入っているので facilityInfo は取れる
-    // → facilityInfoが null になるケース: facilities.length=0 だとそもそも loop しない
-    // ここでは facilitiesCount=1 で bookings を at-risk にして facilityInfo があることを確認し
-    // atRiskCandidates=0 (dayRange外) のケースをテスト → email block に入らない
-    const now = new Date('2026-04-21T10:00:00Z');
-    const daysAgo10 = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const daysAgo20 = new Date(now.getTime() - 20 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-    mockBookingsSelect = jest.fn().mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          in: jest.fn().mockReturnValue({
-            gte: jest.fn().mockReturnValue({
-              range: jest.fn().mockResolvedValue({
-                data: [
-                  { email_canonical: 'recent@ex.com', customer_name: 'R', booking_date: daysAgo10, total_price: 5000, status: 'completed' },
-                  { email_canonical: 'recent@ex.com', customer_name: 'R', booking_date: daysAgo20, total_price: 5000, status: 'completed' },
-                ],
-              }),
-            }),
-          }),
-        }),
-      }),
-    });
-    setupDefaultMocks(1, 0);
-    mockFromDelegate.mockImplementation((table: string) => {
-      if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
-      if (table === 'bookings') return mockBookingsSelect();
-      if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
-    });
-
-    const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
-    // atRiskCandidates=0 → email not sent
-    expect(mockSend).not.toHaveBeenCalled();
-
-    jest.useRealTimers();
-    delete process.env.RESEND_API_KEY;
-  });
-
-  // Branch coverage: line 148 - 対象外の at-risk email は alreadySentEmails に含まれないため continue しない
-  test('RESEND_API_KEY: existingCoupons が null → alreadySentEmails が空集合', async () => {
-    process.env.RESEND_API_KEY = 'test-key';
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date('2026-04-21T10:00:00Z'));
-
-    const { Resend } = require('resend');
-    const mockSend = jest.fn().mockResolvedValue({ data: { id: 'id' }, error: null });
-    (Resend as jest.Mock).mockImplementation(() => ({ emails: { send: mockSend } }));
-
-    const now = new Date('2026-04-21T10:00:00Z');
-    const daysAgo62 = new Date(now.getTime() - 62 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const daysAgo90 = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-    mockBookingsSelect = jest.fn().mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          in: jest.fn().mockReturnValue({
-            gte: jest.fn().mockReturnValue({
-              range: jest.fn().mockResolvedValue({
-                data: [
-                  { email_canonical: 'atrisk2@example.com', customer_name: 'AR2', booking_date: daysAgo62, total_price: 5000, status: 'completed' },
-                  { email_canonical: 'atrisk2@example.com', customer_name: 'AR2', booking_date: daysAgo90, total_price: 5000, status: 'completed' },
-                ],
-              }),
-            }),
-          }),
-        }),
-      }),
-    });
-
-    // existingCoupons is null → alreadySentEmails = new Set([])
-    const mockCouponSelect = jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnThis(),
-      in: jest.fn().mockReturnThis(),
-      gte: jest.fn(() => thenableWithLimit({ data: null })),
-    });
-    const mockCouponInsert = jest.fn().mockResolvedValue({ data: null, error: null });
-    const makeUC = () => ({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
-
-    mockFromDelegate.mockImplementation((table: string) => {
-      if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
-      if (table === 'bookings') return mockBookingsSelect();
-      if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
-      if (table === 'user_coupon_codes') return {
-        select: () => mockCouponSelect(),
-        insert: (...args: any[]) => mockCouponInsert(...args),
-        update: jest.fn().mockReturnValue(makeUC()),
-      };
-    });
-
-    const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
-    expect(mockCouponInsert).toHaveBeenCalled();
-
-    jest.useRealTimers();
-    delete process.env.RESEND_API_KEY;
-  });
-
   // Branch coverage: line 86 - new customerMap entry with null customer_name → name: '' (|| '' falsy branch)
   test('first booking entry with null customer_name → name stored as empty string', async () => {
     mockBookingsSelect = jest.fn().mockReturnValue({
@@ -1383,69 +724,6 @@ describe('GET /api/cron/customer-segment', () => {
     jest.useRealTimers();
   });
 
-  test('resend.emails.send が reject → .catch() でログ出力し処理継続', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    process.env.RESEND_API_KEY = 'test-key';
-    // 固定日時でルート内の daysSince 計算を安定させる
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date('2026-04-21T10:00:00Z'));
-    const { Resend } = require('resend');
-    const mockSend = jest.fn().mockRejectedValue(new Error('Resend failed'));
-    (Resend as jest.Mock).mockImplementation(() => ({ emails: { send: mockSend } }));
-
-    const now = new Date('2026-04-21T10:00:00Z');
-    const daysAgo62 = new Date(now.getTime() - 62 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    const daysAgo90 = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-    mockBookingsSelect = jest.fn().mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          in: jest.fn().mockReturnValue({
-            gte: jest.fn().mockReturnValue({
-              range: jest.fn().mockResolvedValue({
-                data: [
-                  { email_canonical: 'atrisk3@example.com', customer_name: 'AR3', booking_date: daysAgo62, total_price: 5000, status: 'completed' },
-                  { email_canonical: 'atrisk3@example.com', customer_name: 'AR3', booking_date: daysAgo90, total_price: 5000, status: 'completed' },
-                ],
-              }),
-            }),
-          }),
-        }),
-      }),
-    });
-
-    const mockCouponSelect = jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnThis(),
-      in: jest.fn().mockReturnThis(),
-      gte: jest.fn(() => thenableWithLimit({ data: [] })),
-    });
-    const mockCouponInsert = jest.fn().mockResolvedValue({ data: null, error: null });
-    const makeUpdateChain2 = () => ({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
-
-    mockFromDelegate.mockImplementation((table: string) => {
-      if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
-      if (table === 'bookings') return mockBookingsSelect();
-      if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
-      if (table === 'user_coupon_codes') return {
-        select: () => mockCouponSelect(),
-        insert: (...args: any[]) => mockCouponInsert(...args),
-        update: jest.fn().mockReturnValue(makeUpdateChain2()),
-      };
-    });
-
-    const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
-    // route は await resend.emails.send(...).then(...).catch() で待機するため
-    // GET() 解決後には既に .catch() が実行されている（setTimeout 不要）
-    expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[customer-segment] email send failed'),
-      expect.anything()
-    );
-    consoleSpy.mockRestore();
-    jest.useRealTimers();
-    delete process.env.RESEND_API_KEY;
-  });
-
   test('email_canonical 列が未適用(42703) → email でフォールバックし JS canonical 化で集計', async () => {
     delete process.env.RESEND_API_KEY; // メール経路を無効化して集計のみ検証
     // 1回目(email_canonical select)は列不在エラー、2回目(email フォールバック)は gmail 別名2件
@@ -1476,6 +754,51 @@ describe('GET /api/cron/customer-segment', () => {
     const rows = upsertMock.mock.calls[0][0];
     expect(rows).toHaveLength(1);
     expect(rows[0].total_visits).toBe(2);
+  });
+});
+
+describe('durable coupon dispatch', () => {
+  function atRisk(days=62) {
+    setupDefaultMocks(1,0);
+    process.env.RESEND_API_KEY='configured-for-worker';
+    const now=new Date('2026-05-15T00:00:00Z');
+    const rows=[days,days+30].map(n=>({email_canonical:'person@example.com',customer_name:'Patient',
+      booking_date:new Date(now.getTime()-n*86400000).toISOString().split('T')[0],total_price:5000,status:'completed'}));
+    mockBookingsIn.mockReturnValue({gte:()=>({range:async()=>({data:rows,error:null})})});
+  }
+  test('reserves delivery once and reports queued separately from sent',async()=>{
+    atRisk(); const response=await GET(makeRequest());
+    expect(response.status).toBe(200);expect((await response.json()).queued).toBe(1);
+    expect(queueCustomerCouponEmail).toHaveBeenCalledTimes(1);
+    expect(queueCustomerCouponEmail).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({
+      facilityId:'fac-0',email:'person@example.com',daysSince:62,
+    }));
+  });
+  test('known provider acceptance does not reserve a new message',async()=>{
+    atRisk();(queueCustomerCouponEmail as jest.Mock).mockResolvedValue('already_notified');
+    const response=await GET(makeRequest());expect(response.status).toBe(200);expect((await response.json()).queued).toBe(0);
+  });
+  test('historical null marker is unresolved, not a successful skip or resend',async()=>{
+    atRisk();(queueCustomerCouponEmail as jest.Mock).mockResolvedValue('uncertain');
+    const response=await GET(makeRequest());expect(response.status).toBe(500);
+    expect((await response.json()).deliveryUncertain).toBe(1);
+    expect(logCronRun).toHaveBeenCalledWith('customer-segment','error',expect.any(Date),expect.anything());
+  });
+  test('publication failure reports error while preserving segment computation',async()=>{
+    atRisk();(queueCustomerCouponEmail as jest.Mock).mockRejectedValue(new Error('lost response'));
+    const response=await GET(makeRequest());expect(response.status).toBe(500);
+    expect((await response.json()).deliveryFailures).toBe(1);expect(mockUpsert).toHaveBeenCalled();
+  });
+  test.each([59,60,70,121])('does not enqueue outside the original eligible window at %s days',async days=>{
+    atRisk(days);expect((await GET(makeRequest())).status).toBe(200);expect(queueCustomerCouponEmail).not.toHaveBeenCalled();
+  });
+  test('missing email provider configuration does not publish a delivery',async()=>{
+    atRisk();delete process.env.RESEND_API_KEY;expect((await GET(makeRequest())).status).toBe(200);
+    expect(queueCustomerCouponEmail).not.toHaveBeenCalled();
+  });
+  test('booking lookup failure is not a successful empty run',async()=>{
+    atRisk();mockBookingsIn.mockReturnValue({gte:()=>({range:async()=>({data:null,error:{message:'DB unavailable'}})})});
+    const response=await GET(makeRequest());expect(response.status).toBe(500);expect(queueCustomerCouponEmail).not.toHaveBeenCalled();
   });
 });
 

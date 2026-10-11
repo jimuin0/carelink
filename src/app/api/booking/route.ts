@@ -215,12 +215,11 @@ export async function POST(request: Request) {
   // 請求は Math.max(0,...) で 0 に丸まる一方ポイントは full 控除され、超過分が消失する＝金銭損失）。
   // メニュー必須化により serverTotalPrice は常に権威的な数値のため、その価格でクランプする。
   const pointsUsed = Math.min(requestedPoints, serverTotalPrice);
-  // Snapshot current balance for CAS (compare-and-swap) check later
-  let pointsBalanceSnapshot = 0;
+  // Early UX check only. The transaction locks the account and validates again.
   if (pointsUsed > 0 && user) {
     const { data: pointRows, error: pointsError } = await supabase.from('user_points').select('points').eq('user_id', user.id);
     if (pointsError) return serverError('booking-points-balance', pointsError, '/api/booking');
-    pointsBalanceSnapshot = (pointRows ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
+    const pointsBalanceSnapshot = (pointRows ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
     if (pointsBalanceSnapshot < pointsUsed) {
       return NextResponse.json({ error: 'ポイント残高が不足しています' }, { status: 400 });
     }
@@ -251,6 +250,23 @@ export async function POST(request: Request) {
   // migration 側で anon/authenticated の EXECUTE を撤回して直接呼び出し経路を塞ぐ。ここで渡す値は
   // すべて上流でサーバ側検証・算出済み（user は auth.getUser()、finalPrice はサーバ側計算）。
   const rpcClient = createServiceRoleClient();
+  // A preview/new server can still target an older DB where this same-named
+  // create RPC exists but does not deduct points. Stop before any mutation
+  // unless both transactional point guards are positively confirmed.
+  if (pointsUsed > 0) {
+    let pointsReady = false;
+    try {
+      const readiness = await rpcClient.rpc('booking_points_atomic_version');
+      pointsReady = !readiness.error && readiness.data === 1;
+    } catch { /* An uncertain dependency response cannot authorize spending. */ }
+    if (!pointsReady) {
+      const diagnostic = new Error('BOOKING_POINTS_ATOMIC_UNAVAILABLE');
+      safeCaptureException(diagnostic, 'booking-points-unavailable');
+      alertCaughtError('booking-points-unavailable', diagnostic, '/api/booking', 503);
+      return NextResponse.json({ error: '現在ポイントを利用する予約を安全に処理できません。時間をおいて再度お試しください。', code: 'BOOKING_POINTS_UNAVAILABLE' },
+        { status: 503, headers: { 'Cache-Control': 'no-store', 'Retry-After': '60' } });
+    }
+  }
   const { data: rpcResult, error } = await rpcClient.rpc('create_online_booking_atomic', {
     p_facility_id: parsed.data.facility_id,
     p_staff_id: parsed.data.staff_id ?? null,
@@ -275,6 +291,9 @@ export async function POST(request: Request) {
   void bookingData;
 
   if (error) {
+    if (error.message?.includes('POINTS_INSUFFICIENT')) {
+      return NextResponse.json({ error: 'ポイント残高が不足しています' }, { status: 400 });
+    }
     if (error.message?.includes('BOOKING_NOT_READY')) {
       return NextResponse.json({ error: 'この店舗のネット予約は準備中です。店舗へ直接お問い合わせください' }, { status: 409 });
     }
@@ -324,66 +343,7 @@ export async function POST(request: Request) {
 
   // 全選択メニューの保存もRPC内で原子的に完了済み。部分保存を成功へ変換しない。
 
-  // Points deduction with CAS (compare-and-swap) to prevent race conditions:
-  // Insert the deduction row via service_role (user_points has no INSERT policy for anon client),
-  // then verify the running balance is still non-negative.
-  // If another concurrent request already deducted points (balance changed since snapshot),
-  // roll back and cancel the booking.
-  if (pointsUsed > 0 && user && newBookingId) {
-    const serviceSupabase = createServiceRoleClient();
-    // ロールバック共通処理: 予約をキャンセルし、成立しなかったクーポン利用(coupon_redemptions)も解放する。
-    // クーポンを解放しないと、予約が成立していないのに「1人1回」上限が恒久消費され、以後そのクーポンが
-    // COUPON_ALREADY_USED で使えなくなる（SM-6）。coupon_redemptions は booking_id 列で一意特定できる。
-    const rollbackBooking = async () => {
-      const { error: rbErr } = await serviceSupabase.from('bookings').update({ status: 'cancelled' }).eq('id', newBookingId);
-      if (rbErr) console.error('[booking] booking rollback failed — manual cleanup needed', { bookingId: newBookingId, err: rbErr.message });
-      if (parsed.data.coupon_id) {
-        const { error: crErr } = await serviceSupabase.from('coupon_redemptions').delete().eq('booking_id', newBookingId);
-        /* istanbul ignore next — 解放 delete 失敗は DB 障害時のみの防御ログ */
-        if (crErr) console.error('[booking] coupon redemption release failed — manual cleanup needed', { bookingId: newBookingId, err: crErr.message });
-      }
-    };
-
-    const { data: deductionRow, error: deductErr } = await serviceSupabase
-      .from('user_points')
-      .insert({
-        user_id: user.id,
-        points: -pointsUsed,
-        reason: `予約利用 (${newBookingId.slice(0, 8)})`,
-      })
-      .select('id')
-      .single();
-
-    // 控除 INSERT が失敗すると、控除行が入らないのに total_price は値引き済で予約が確定し、
-    // 客はポイントを保持したまま値引きを得る（キャンセル返還でポイント鋳造にも波及）＝金銭損失。
-    // 従来 error を捨てていたためこの経路が無音だった。失敗時は予約をキャンセルして 500 で明示する。
-    if (deductErr) {
-      await rollbackBooking();
-      return serverError('booking-points-deduct', deductErr, '/api/booking', 'ポイントの利用処理に失敗しました。時間をおいて再度お試しください。');
-    }
-
-    // Re-verify balance to detect concurrent deductions since our snapshot
-    const { data: recheck, error: recheckErr } = await serviceSupabase.from('user_points').select('points').eq('user_id', user.id);
-    // recheck の取得失敗を fail-open（残高不明を 0 扱い）にすると `0 < 0` が成立せず負残高検知が無効化し、
-    // 残高を超えるポイント利用が通ってしまう。取得できない場合は安全側で控除と予約をロールバックする。
-    if (recheckErr) {
-      /* istanbul ignore next — deductionRow は直前の insert 成功で常に存在する防御チェック */
-      if (deductionRow?.id) await serviceSupabase.from('user_points').delete().eq('id', deductionRow.id);
-      await rollbackBooking();
-      return serverError('booking-points-recheck', recheckErr, '/api/booking', 'ポイント残高の確認に失敗しました。時間をおいて再度お試しください。');
-    }
-    const newBalance = (recheck ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
-    if (newBalance < 0) {
-      // CAS failed: another concurrent request deducted points between our read and write.
-      // Rollback: delete this specific deduction row by ID (not by reason, to avoid ambiguity)
-      if (deductionRow?.id) {
-        const { error: rollbackPointsErr } = await serviceSupabase.from('user_points').delete().eq('id', deductionRow.id);
-        if (rollbackPointsErr) console.error('[booking] point deduction rollback failed — manual cleanup needed', { deductionId: deductionRow.id, err: rollbackPointsErr });
-      }
-      await rollbackBooking();
-      return NextResponse.json({ error: 'ポイント残高が不足しています（競合が発生しました）' }, { status: 400 });
-    }
-  }
+  // 利用ポイントの控除は booking_points_atomic trigger が予約と同じtransactionで確定する。
 
   // レスポンス返却後に走らせていた副作用（メール・Push・LINE 通知）をここに集約し、return 直前に
   // await Promise.allSettled でまとめて完了させる。【2026年7月7日 本番実データで確定した恒久根治】

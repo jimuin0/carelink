@@ -164,17 +164,13 @@ function AdminPhotosContent() {
     setConfirmDeleteId(null);
     setDeleting(id);
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { data, error } = await supabase
-        .from('facility_photos')
-        .delete()
-        .eq('id', id)
-        .eq('facility_id', facilityId).select('id');
-      if (error || data?.length !== 1 || data[0].id !== id) throw new Error('Photo deletion not confirmed');
-      setToast({ type: 'success', message: '削除しました' });
+      const response = await fetch(`/api/admin/photos/${id}?facility_id=${facilityId}`, { method: 'DELETE' });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || result?.ok !== true || result.photoId !== id) throw new Error('Photo deletion not confirmed');
+      setToast({ type: 'success', message: '掲載写真を外しました' });
       await loadPhotos(facilityId);
     } catch {
-      setToast({ type: 'error', message: '削除に失敗しました' });
+      setToast({ type: 'error', message: '削除を確認できませんでした。再読み込みして確認してください' });
     } finally {
       setDeleting(null);
     }
@@ -192,7 +188,7 @@ function AdminPhotosContent() {
       if (!response.ok || result?.ok !== true) throw new Error('Main photo update not confirmed');
       setToast({ type: 'success', message: 'メイン写真を設定しました' });
     } catch {
-      setToast({ type: 'error', message: '設定に失敗しました' });
+      setToast({ type: 'error', message: '設定を確認できませんでした。再読み込みして確認してください' });
     } finally {
       setSettingMain(null);
     }
@@ -276,7 +272,7 @@ function AdminPhotosContent() {
                         disabled={deleting === photo.id}
                         className="px-3 py-1.5 bg-white text-red-600 text-xs font-bold rounded-lg hover:bg-red-50"
                       >
-                        削除
+                        掲載から外す
                       </button>
                     </div>
                   </div>
@@ -290,9 +286,9 @@ function AdminPhotosContent() {
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
       <ConfirmDialog
         open={confirmDeleteId !== null}
-        title="写真を削除"
-        message="この写真を削除しますか？削除すると元に戻せません。"
-        confirmLabel="削除する"
+        title="掲載写真を外す"
+        message="この写真を施設ページの表示から外します。保存済み画像そのものを削除したり、公開画像URLを失効させる操作ではありません。"
+        confirmLabel="掲載から外す"
         cancelLabel="キャンセル"
         onConfirm={executeDelete}
         onCancel={() => setConfirmDeleteId(null)}

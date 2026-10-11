@@ -7,11 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "14.5"
-  }
   public: {
     Tables: {
       ab_test_events: {
@@ -113,7 +108,7 @@ export type Database = {
           business_type_slug: string | null
           city_slug: string | null
           created_at: string
-          faq_items: NonNullable<Json>
+          faq_items: Json
           h2_title: string | null
           id: string
           prefecture_slug: string
@@ -124,7 +119,7 @@ export type Database = {
           business_type_slug?: string | null
           city_slug?: string | null
           created_at?: string
-          faq_items?: NonNullable<Json>
+          faq_items?: Json
           h2_title?: string | null
           id?: string
           prefecture_slug: string
@@ -135,7 +130,7 @@ export type Database = {
           business_type_slug?: string | null
           city_slug?: string | null
           created_at?: string
-          faq_items?: NonNullable<Json>
+          faq_items?: Json
           h2_title?: string | null
           id?: string
           prefecture_slug?: string
@@ -559,7 +554,7 @@ export type Database = {
           created_at?: string | null
           customer_name: string
           email?: string | null
-          email_canonical?: never
+          email_canonical?: string | null
           end_time: string
           facility_id: string
           id?: string
@@ -588,7 +583,7 @@ export type Database = {
           created_at?: string | null
           customer_name?: string
           email?: string | null
-          email_canonical?: never
+          email_canonical?: string | null
           end_time?: string
           facility_id?: string
           id?: string
@@ -995,6 +990,49 @@ export type Database = {
           },
         ]
       }
+      customer_coupon_email_operations: {
+        Row: {
+          coupon_id: string
+          created_at: string
+          facility_id: string
+          id: string
+        }
+        Insert: {
+          coupon_id: string
+          created_at?: string
+          facility_id: string
+          id?: string
+        }
+        Update: {
+          coupon_id?: string
+          created_at?: string
+          facility_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_coupon_email_operations_coupon_id_fkey"
+            columns: ["coupon_id"]
+            isOneToOne: true
+            referencedRelation: "user_coupon_codes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_coupon_email_operations_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "customer_coupon_email_operations_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customer_segments: {
         Row: {
           customer_email: string
@@ -1070,7 +1108,7 @@ export type Database = {
           created_at?: string | null
           customer_email?: string | null
           customer_name: string
-          email_canonical?: never
+          email_canonical?: string | null
           facility_id: string
           id?: string
           menu_name?: string | null
@@ -1084,7 +1122,7 @@ export type Database = {
           created_at?: string | null
           customer_email?: string | null
           customer_name?: string
-          email_canonical?: never
+          email_canonical?: string | null
           facility_id?: string
           id?: string
           menu_name?: string | null
@@ -2840,7 +2878,7 @@ export type Database = {
           customer_name: string
           facility_id: string
           id: string
-          responses: NonNullable<Json>
+          responses: Json
           submitted_at: string
           template_id: string
           user_id: string | null
@@ -2852,7 +2890,7 @@ export type Database = {
           customer_name: string
           facility_id: string
           id?: string
-          responses?: NonNullable<Json>
+          responses?: Json
           submitted_at?: string
           template_id: string
           user_id?: string | null
@@ -2864,7 +2902,7 @@ export type Database = {
           customer_name?: string
           facility_id?: string
           id?: string
-          responses?: NonNullable<Json>
+          responses?: Json
           submitted_at?: string
           template_id?: string
           user_id?: string | null
@@ -2906,7 +2944,7 @@ export type Database = {
           created_at: string
           description: string | null
           facility_id: string
-          fields: NonNullable<Json>
+          fields: Json
           id: string
           is_active: boolean
           title: string
@@ -2916,7 +2954,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           facility_id: string
-          fields?: NonNullable<Json>
+          fields?: Json
           id?: string
           is_active?: boolean
           title?: string
@@ -2926,7 +2964,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           facility_id?: string
-          fields?: NonNullable<Json>
+          fields?: Json
           id?: string
           is_active?: boolean
           title?: string
@@ -3231,27 +3269,27 @@ export type Database = {
           booking_id: string
           created_at: string
           facility_id: string
-          input: NonNullable<Json>
+          input: Json
           operation_id: string
-          result: NonNullable<Json>
+          result: Json
         }
         Insert: {
           actor_id: string
           booking_id: string
           created_at?: string
           facility_id: string
-          input: NonNullable<Json>
+          input: Json
           operation_id: string
-          result: NonNullable<Json>
+          result: Json
         }
         Update: {
           actor_id?: string
           booking_id?: string
           created_at?: string
           facility_id?: string
-          input?: NonNullable<Json>
+          input?: Json
           operation_id?: string
-          result?: NonNullable<Json>
+          result?: Json
         }
         Relationships: []
       }
@@ -3592,7 +3630,7 @@ export type Database = {
         Row: {
           author_name: string
           category: string
-          content: NonNullable<Json>
+          content: Json
           created_at: string
           description: string
           id: string
@@ -3610,7 +3648,7 @@ export type Database = {
         Insert: {
           author_name?: string
           category?: string
-          content?: NonNullable<Json>
+          content?: Json
           created_at?: string
           description?: string
           id?: string
@@ -3628,7 +3666,7 @@ export type Database = {
         Update: {
           author_name?: string
           category?: string
-          content?: NonNullable<Json>
+          content?: Json
           created_at?: string
           description?: string
           id?: string
@@ -3669,12 +3707,12 @@ export type Database = {
         Insert: {
           avatar_url?: string | null
           birth_date?: string | null
-          birth_md?: never
+          birth_md?: string | null
           city?: string | null
           created_at?: string | null
           display_name?: string
           email?: string | null
-          email_canonical?: never
+          email_canonical?: string | null
           email_unsubscribed?: boolean | null
           favorites_digest_sent_week?: string | null
           gender?: string | null
@@ -3689,12 +3727,12 @@ export type Database = {
         Update: {
           avatar_url?: string | null
           birth_date?: string | null
-          birth_md?: never
+          birth_md?: string | null
           city?: string | null
           created_at?: string | null
           display_name?: string
           email?: string | null
-          email_canonical?: never
+          email_canonical?: string | null
           email_unsubscribed?: boolean | null
           favorites_digest_sent_week?: string | null
           gender?: string | null
@@ -4142,7 +4180,7 @@ export type Database = {
           id?: string
           intent_id: string
           mime_type: string
-          object_path?: never
+          object_path?: string
           selection_id: string
           slot: number
         }
@@ -4152,7 +4190,7 @@ export type Database = {
           id?: string
           intent_id?: string
           mime_type?: string
-          object_path?: never
+          object_path?: string
           selection_id?: string
           slot?: number
         }
@@ -4218,7 +4256,7 @@ export type Database = {
           created_at?: string | null
           desired_start_date?: string | null
           email: string
-          email_canonical?: never
+          email_canonical?: string | null
           facility_name: string
           features?: string[] | null
           has_parking?: boolean | null
@@ -4255,7 +4293,7 @@ export type Database = {
           created_at?: string | null
           desired_start_date?: string | null
           email?: string
-          email_canonical?: never
+          email_canonical?: string | null
           facility_name?: string
           features?: string[] | null
           has_parking?: boolean | null
@@ -4486,6 +4524,39 @@ export type Database = {
           proj4text?: string | null
           srid?: number
           srtext?: string | null
+        }
+        Relationships: []
+      }
+      staff_mutation_operations: {
+        Row: {
+          actor_id: string
+          created_at: string
+          facility_id: string
+          input_digest: string
+          kind: string
+          operation_id: string
+          result: Json
+          staff_id: string
+        }
+        Insert: {
+          actor_id: string
+          created_at?: string
+          facility_id: string
+          input_digest: string
+          kind: string
+          operation_id: string
+          result: Json
+          staff_id: string
+        }
+        Update: {
+          actor_id?: string
+          created_at?: string
+          facility_id?: string
+          input_digest?: string
+          kind?: string
+          operation_id?: string
+          result?: Json
+          staff_id?: string
         }
         Relationships: []
       }
@@ -4741,7 +4812,7 @@ export type Database = {
           event_id: string
           event_type: string
           id: string
-          payload: NonNullable<Json>
+          payload: Json
           processed: boolean
         }
         Insert: {
@@ -4750,7 +4821,7 @@ export type Database = {
           event_id: string
           event_type: string
           id?: string
-          payload: NonNullable<Json>
+          payload: Json
           processed?: boolean
         }
         Update: {
@@ -4759,7 +4830,7 @@ export type Database = {
           event_id?: string
           event_type?: string
           id?: string
-          payload?: NonNullable<Json>
+          payload?: Json
           processed?: boolean
         }
         Relationships: []
@@ -5153,7 +5224,7 @@ export type Database = {
           email: string
           facility_id: string
           id: string
-          notified_at: string | null
+          provider_accepted_at: string | null
           reason: string | null
           used_at: string | null
           valid_until: string
@@ -5166,7 +5237,7 @@ export type Database = {
           email: string
           facility_id: string
           id?: string
-          notified_at?: string | null
+          provider_accepted_at?: string | null
           reason?: string | null
           used_at?: string | null
           valid_until: string
@@ -5179,7 +5250,7 @@ export type Database = {
           email?: string
           facility_id?: string
           id?: string
-          notified_at?: string | null
+          provider_accepted_at?: string | null
           reason?: string | null
           used_at?: string | null
           valid_until?: string
@@ -5262,6 +5333,7 @@ export type Database = {
       user_points: {
         Row: {
           booking_id: string | null
+          booking_operation: string | null
           created_at: string | null
           id: string
           points: number
@@ -5270,6 +5342,7 @@ export type Database = {
         }
         Insert: {
           booking_id?: string | null
+          booking_operation?: string | null
           created_at?: string | null
           id?: string
           points: number
@@ -5278,6 +5351,7 @@ export type Database = {
         }
         Update: {
           booking_id?: string | null
+          booking_operation?: string | null
           created_at?: string | null
           id?: string
           points?: number
@@ -5403,7 +5477,7 @@ export type Database = {
           last_error: string | null
           max_attempts: number
           notification_kind: string | null
-          payload: NonNullable<Json>
+          payload: Json
           processed_at: string | null
           provider_message_id: string | null
           registration_id: string | null
@@ -5428,7 +5502,7 @@ export type Database = {
           last_error?: string | null
           max_attempts?: number
           notification_kind?: string | null
-          payload: NonNullable<Json>
+          payload: Json
           processed_at?: string | null
           provider_message_id?: string | null
           registration_id?: string | null
@@ -5453,7 +5527,7 @@ export type Database = {
           last_error?: string | null
           max_attempts?: number
           notification_kind?: string | null
-          payload?: NonNullable<Json>
+          payload?: Json
           processed_at?: string | null
           provider_message_id?: string | null
           registration_id?: string | null
@@ -5682,14 +5756,8 @@ export type Database = {
         Args: { col: string; tbl: unknown }
         Returns: unknown
       }
-      _postgis_pgsql_version: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      _postgis_scripts_pgsql_version: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
+      _postgis_pgsql_version: { Args: never; Returns: string }
+      _postgis_scripts_pgsql_version: { Args: never; Returns: string }
       _postgis_selectivity: {
         Args: { att_name: string; geom: unknown; mode?: string; tbl: unknown }
         Returns: number
@@ -5769,6 +5837,8 @@ export type Database = {
         Returns: unknown
       }
       _st_within: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
+      account_deletion_cleanup_version: { Args: never; Returns: number }
+      addauth: { Args: { "": string }; Returns: boolean }
       addgeometrycolumn:
         | {
             Args: {
@@ -5807,6 +5877,28 @@ export type Database = {
             Returns: string
           }
       aggregate_daily_revenue: { Args: { p_date: string }; Returns: number }
+      award_referral_points_atomic: {
+        Args: { p_user_id: string }
+        Returns: boolean
+      }
+      booking_point_legacy_issues: {
+        Args: never
+        Returns: {
+          booking_id: string
+          issue: string
+        }[]
+      }
+      booking_points_atomic_version: { Args: never; Returns: number }
+      cancel_booking_with_points_atomic: {
+        Args: {
+          p_actor_id: string
+          p_booking_id: string
+          p_expected_status: string
+        }
+        Returns: {
+          id: string
+        }[]
+      }
       change_booking_atomic: {
         Args: {
           p_booking_date: string
@@ -5822,22 +5914,26 @@ export type Database = {
         Args: { p_key: string; p_limit: number; p_window_ms: number }
         Returns: boolean
       }
-      cleanup_old_audit_logs: {
-        Args: Record<PropertyKey, never>
-        Returns: undefined
+      checkout_booking_with_points_atomic: {
+        Args: {
+          p_actor_id: string
+          p_booking_id: string
+          p_charges: Json
+          p_complete: boolean
+          p_expected_status: string
+          p_expected_updated_at: string
+          p_paid_amount: number
+        }
+        Returns: {
+          id: string
+          points_earned: number
+          total_price: number
+        }[]
       }
-      cleanup_old_cron_logs: {
-        Args: Record<PropertyKey, never>
-        Returns: undefined
-      }
-      cleanup_old_cron_report_sends: {
-        Args: Record<PropertyKey, never>
-        Returns: undefined
-      }
-      cleanup_old_webhook_retry: {
-        Args: Record<PropertyKey, never>
-        Returns: undefined
-      }
+      cleanup_old_audit_logs: { Args: never; Returns: undefined }
+      cleanup_old_cron_logs: { Args: never; Returns: undefined }
+      cleanup_old_cron_report_sends: { Args: never; Returns: undefined }
+      cleanup_old_webhook_retry: { Args: never; Returns: undefined }
       commit_salon_submission: {
         Args: {
           p_canonical_version: number
@@ -5850,6 +5946,18 @@ export type Database = {
         Returns: {
           outcome: string
           receipt_id: string
+        }[]
+      }
+      complete_booking_with_points_atomic: {
+        Args: {
+          p_actor_id: string
+          p_booking_id: string
+          p_expected_status: string
+        }
+        Returns: {
+          id: string
+          points_earned: number
+          replayed: boolean
         }[]
       }
       confirmed_booking_hours: { Args: { p_hours: Json }; Returns: boolean }
@@ -5915,7 +6023,32 @@ export type Database = {
         }
         Returns: string
       }
+      create_staff_with_schedules_atomic: {
+        Args: {
+          p_actor_id: string
+          p_facility_id: string
+          p_input: Json
+          p_operation_id: string
+        }
+        Returns: Json
+      }
       dearmor: { Args: { "": string }; Returns: string }
+      delete_facility_photo_atomic: {
+        Args: { p_actor_id: string; p_facility_id: string; p_photo_id: string }
+        Returns: {
+          id: string
+        }[]
+      }
+      delete_staff_override_atomic: {
+        Args: {
+          p_actor_id: string
+          p_facility_id: string
+          p_override_id: string
+          p_staff_id: string
+        }
+        Returns: boolean
+      }
+      disablelongtransactions: { Args: never; Returns: string }
       dropgeometrycolumn:
         | {
             Args: {
@@ -5946,6 +6079,7 @@ export type Database = {
           }
         | { Args: { schema_name: string; table_name: string }; Returns: string }
         | { Args: { table_name: string }; Returns: string }
+      enablelongtransactions: { Args: never; Returns: string }
       enqueue_moderation: { Args: { p_items: Json }; Returns: number }
       equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
       facility_booking_ready: {
@@ -5958,7 +6092,7 @@ export type Database = {
           reviewer_ip: string
         }[]
       }
-      gen_random_uuid: { Args: Record<PropertyKey, never>; Returns: string }
+      gen_random_uuid: { Args: never; Returns: string }
       gen_salt: { Args: { "": string }; Returns: string }
       geometry: { Args: { "": string }; Returns: unknown }
       geometry_above: {
@@ -6014,10 +6148,6 @@ export type Database = {
         Returns: boolean
       }
       geometry_lt: {
-        Args: { geom1: unknown; geom2: unknown }
-        Returns: boolean
-      }
-      geometry_neq: {
         Args: { geom1: unknown; geom2: unknown }
         Returns: boolean
       }
@@ -6124,13 +6254,17 @@ export type Database = {
           slots: number
         }[]
       }
-      get_public_columns: { Args: Record<PropertyKey, never>; Returns: Json }
-      get_public_constraints: {
-        Args: Record<PropertyKey, never>
-        Returns: Json
-      }
-      get_schema_fingerprint: {
-        Args: Record<PropertyKey, never>
+      get_public_columns: { Args: never; Returns: Json }
+      get_public_constraints: { Args: never; Returns: Json }
+      get_schema_fingerprint: { Args: never; Returns: Json }
+      get_staff_mutation_operation: {
+        Args: {
+          p_actor_id: string
+          p_facility_id: string
+          p_kind: string
+          p_operation_id: string
+          p_staff_id?: string
+        }
         Returns: Json
       }
       get_unique_customers: {
@@ -6142,6 +6276,7 @@ export type Database = {
           visit_count: number
         }[]
       }
+      gettransactionid: { Args: never; Returns: unknown }
       increment_view_count: {
         Args: { facility_uuid: string }
         Returns: undefined
@@ -6168,6 +6303,27 @@ export type Database = {
         }[]
       }
       lock_booking_account: { Args: { p_user_id: string }; Returns: undefined }
+      lock_booking_point_actors: {
+        Args: { p_actor_id: string; p_customer_id: string }
+        Returns: undefined
+      }
+      longtransactionsenabled: { Args: never; Returns: boolean }
+      moderate_content_atomic: {
+        Args: {
+          p_actor_id: string
+          p_decision: string
+          p_expected_reviewed_at?: string
+          p_expected_status: string
+          p_queue_id: string
+          p_review_note?: string
+        }
+        Returns: {
+          content_id: string
+          content_type: string
+          id: string
+          replayed: boolean
+        }[]
+      }
       pending_booking_reminders: {
         Args: { p_today: string }
         Returns: {
@@ -6225,114 +6381,21 @@ export type Database = {
         Args: { geomcolumn: string; geomschema: string; geomtable: string }
         Returns: string
       }
-      postgis_extensions_upgrade: {
-        Args: { target_version?: string }
-        Returns: string
-      }
-      postgis_full_version: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      postgis_geos_compiled_version: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      postgis_geos_version: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      postgis_lib_build_date: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      postgis_lib_revision: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      postgis_lib_version: { Args: Record<PropertyKey, never>; Returns: string }
-      postgis_libjson_version: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      postgis_liblwgeom_version: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      postgis_libprotobuf_version: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      postgis_libxml_version: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      postgis_proj_compiled_version: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      postgis_proj_version: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      postgis_scripts_build_date: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      postgis_scripts_installed: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      postgis_scripts_released: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      postgis_srs: {
-        Args: { auth_name: string; auth_srid: string }
-        Returns: {
-          auth_name: string
-          auth_srid: string
-          point_ne: unknown
-          point_sw: unknown
-          proj4text: string
-          srname: string
-          srtext: string
-        }[]
-      }
-      postgis_srs_all: {
-        Args: Record<PropertyKey, never>
-        Returns: {
-          auth_name: string
-          auth_srid: string
-          point_ne: unknown
-          point_sw: unknown
-          proj4text: string
-          srname: string
-          srtext: string
-        }[]
-      }
-      postgis_srs_codes: { Args: { auth_name: string }; Returns: string[] }
-      postgis_srs_search: {
-        Args: { authname?: string; bounds: unknown }
-        Returns: {
-          auth_name: string
-          auth_srid: string
-          point_ne: unknown
-          point_sw: unknown
-          proj4text: string
-          srname: string
-          srtext: string
-        }[]
-      }
-      postgis_svn_version: { Args: Record<PropertyKey, never>; Returns: string }
-      postgis_transform_pipeline_geometry: {
-        Args: {
-          forward: boolean
-          geom: unknown
-          pipeline: string
-          to_srid: number
-        }
-        Returns: unknown
-      }
+      postgis_extensions_upgrade: { Args: never; Returns: string }
+      postgis_full_version: { Args: never; Returns: string }
+      postgis_geos_version: { Args: never; Returns: string }
+      postgis_lib_build_date: { Args: never; Returns: string }
+      postgis_lib_revision: { Args: never; Returns: string }
+      postgis_lib_version: { Args: never; Returns: string }
+      postgis_libjson_version: { Args: never; Returns: string }
+      postgis_liblwgeom_version: { Args: never; Returns: string }
+      postgis_libprotobuf_version: { Args: never; Returns: string }
+      postgis_libxml_version: { Args: never; Returns: string }
+      postgis_proj_version: { Args: never; Returns: string }
+      postgis_scripts_build_date: { Args: never; Returns: string }
+      postgis_scripts_installed: { Args: never; Returns: string }
+      postgis_scripts_released: { Args: never; Returns: string }
+      postgis_svn_version: { Args: never; Returns: string }
       postgis_type_name: {
         Args: {
           coord_dimension: number
@@ -6341,10 +6404,14 @@ export type Database = {
         }
         Returns: string
       }
-      postgis_version: { Args: Record<PropertyKey, never>; Returns: string }
-      postgis_wagyu_version: {
-        Args: Record<PropertyKey, never>
-        Returns: string
+      postgis_version: { Args: never; Returns: string }
+      postgis_wagyu_version: { Args: never; Returns: string }
+      prepare_customer_coupon_email_atomic: {
+        Args: { p_envelope: Json; p_operation_id: string }
+        Returns: {
+          id: string
+          status: string
+        }[]
       }
       prepare_salon_photo: {
         Args: {
@@ -6396,6 +6463,27 @@ export type Database = {
         Args: { p_receipt_id?: string; p_user_id: string }
         Returns: boolean
       }
+      replace_staff_schedules_atomic: {
+        Args: {
+          p_actor_id: string
+          p_facility_id: string
+          p_force: boolean
+          p_operation_id: string
+          p_schedules: Json
+          p_staff_id: string
+        }
+        Returns: Json
+      }
+      reserve_customer_coupon_email_atomic: {
+        Args: { p_email: string; p_facility_id: string; p_valid_until: string }
+        Returns: {
+          code: string
+          coupon_id: string
+          operation_id: string
+          state: string
+          valid_until: string
+        }[]
+      }
       save_booking_email_event_atomic: {
         Args: {
           p_actor_id: string
@@ -6411,6 +6499,19 @@ export type Database = {
           operation_id: string
           replayed: boolean
         }[]
+      }
+      save_staff_override_atomic: {
+        Args: {
+          p_actor_id: string
+          p_date: string
+          p_end_time: string
+          p_facility_id: string
+          p_force: boolean
+          p_is_holiday: boolean
+          p_staff_id: string
+          p_start_time: string
+        }
+        Returns: Json
       }
       search_facilities_nearby: {
         Args: {
@@ -6454,6 +6555,12 @@ export type Database = {
           p_facility_ids: string[]
           p_is_published: boolean
         }
+        Returns: {
+          id: string
+        }[]
+      }
+      set_facility_main_photo_atomic: {
+        Args: { p_actor_id: string; p_facility_id: string; p_photo_id: string }
         Returns: {
           id: string
         }[]
@@ -6533,7 +6640,6 @@ export type Database = {
         | {
             Args: {
               geom_column?: string
-              id_column?: string
               maxdecimaldigits?: number
               pretty_bool?: boolean
               r: Record<string, unknown>
@@ -6693,7 +6799,6 @@ export type Database = {
         | { Args: { geog1: unknown; geog2: unknown }; Returns: boolean }
         | { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
       st_crosses: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
-      st_curven: { Args: { geometry: unknown; i: number }; Returns: unknown }
       st_curvetoline: {
         Args: { flags?: number; geom: unknown; tol?: number; toltype?: number }
         Returns: unknown
@@ -6821,10 +6926,6 @@ export type Database = {
       st_intersects:
         | { Args: { geog1: unknown; geog2: unknown }; Returns: boolean }
         | { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
-      st_inversetransformpipeline: {
-        Args: { geom: unknown; pipeline: string; to_srid?: number }
-        Returns: unknown
-      }
       st_isvaliddetail: {
         Args: { flags?: number; geom: unknown }
         Returns: Database["public"]["CompositeTypes"]["valid_detail"]
@@ -6835,10 +6936,6 @@ export type Database = {
           isSetofReturn: false
         }
       }
-      st_largestemptycircle: {
-        Args: { boundary?: unknown; geom: unknown; tolerance?: number }
-        Returns: Record<string, unknown>
-      }
       st_length:
         | { Args: { geog: unknown; use_spheroid?: boolean }; Returns: number }
         | { Args: { "": string }; Returns: number }
@@ -6846,14 +6943,6 @@ export type Database = {
       st_linecrossingdirection: {
         Args: { line1: unknown; line2: unknown }
         Returns: number
-      }
-      st_lineextend: {
-        Args: {
-          distance_backward?: number
-          distance_forward: number
-          geom: unknown
-        }
-        Returns: unknown
       }
       st_linefromencodedpolyline: {
         Args: { nprecision?: number; txtin: string }
@@ -6914,7 +7003,6 @@ export type Database = {
       st_multipolygonfromtext: { Args: { "": string }; Returns: unknown }
       st_node: { Args: { g: unknown }; Returns: unknown }
       st_normalize: { Args: { geom: unknown }; Returns: unknown }
-      st_numcurves: { Args: { geometry: unknown }; Returns: number }
       st_offsetcurve: {
         Args: { distance: number; line: unknown; params?: string }
         Returns: unknown
@@ -6962,23 +7050,10 @@ export type Database = {
       }
       st_polyfromtext: { Args: { "": string }; Returns: unknown }
       st_polygonfromtext: { Args: { "": string }; Returns: unknown }
-      st_project:
-        | {
-            Args: { azimuth: number; distance: number; geog: unknown }
-            Returns: unknown
-          }
-        | {
-            Args: { distance: number; geog_from: unknown; geog_to: unknown }
-            Returns: unknown
-          }
-        | {
-            Args: { azimuth: number; distance: number; geom1: unknown }
-            Returns: unknown
-          }
-        | {
-            Args: { distance: number; geom1: unknown; geom2: unknown }
-            Returns: unknown
-          }
+      st_project: {
+        Args: { azimuth: number; distance: number; geog: unknown }
+        Returns: unknown
+      }
       st_quantizecoordinates: {
         Args: {
           g: unknown
@@ -7066,10 +7141,6 @@ export type Database = {
             Returns: unknown
           }
         | { Args: { geom: unknown; to_proj: string }; Returns: unknown }
-      st_transformpipeline: {
-        Args: { geom: unknown; pipeline: string; to_srid?: number }
-        Returns: unknown
-      }
       st_triangulatepolygon: { Args: { g1: unknown }; Returns: unknown }
       st_union:
         | { Args: { geom1: unknown; geom2: unknown }; Returns: unknown }
@@ -7099,6 +7170,7 @@ export type Database = {
           started_at: string
         }[]
       }
+      unlockrows: { Args: { "": string }; Returns: number }
       update_facility_settings_atomic: {
         Args: { p_actor_id: string; p_facility_id: string; p_patch: Json }
         Returns: {
@@ -7115,22 +7187,22 @@ export type Database = {
         }
         Returns: string
       }
-      uuid_generate_v1: { Args: Record<PropertyKey, never>; Returns: string }
-      uuid_generate_v1mc: { Args: Record<PropertyKey, never>; Returns: string }
+      uuid_generate_v1: { Args: never; Returns: string }
+      uuid_generate_v1mc: { Args: never; Returns: string }
       uuid_generate_v3: {
         Args: { name: string; namespace: string }
         Returns: string
       }
-      uuid_generate_v4: { Args: Record<PropertyKey, never>; Returns: string }
+      uuid_generate_v4: { Args: never; Returns: string }
       uuid_generate_v5: {
         Args: { name: string; namespace: string }
         Returns: string
       }
-      uuid_nil: { Args: Record<PropertyKey, never>; Returns: string }
-      uuid_ns_dns: { Args: Record<PropertyKey, never>; Returns: string }
-      uuid_ns_oid: { Args: Record<PropertyKey, never>; Returns: string }
-      uuid_ns_url: { Args: Record<PropertyKey, never>; Returns: string }
-      uuid_ns_x500: { Args: Record<PropertyKey, never>; Returns: string }
+      uuid_nil: { Args: never; Returns: string }
+      uuid_ns_dns: { Args: never; Returns: string }
+      uuid_ns_oid: { Args: never; Returns: string }
+      uuid_ns_url: { Args: never; Returns: string }
+      uuid_ns_x500: { Args: never; Returns: string }
     }
     Enums: {
       [_ in never]: never
@@ -7157,12 +7229,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
+  TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never) = never,
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -7186,11 +7258,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
+  TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never) = never,
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -7211,11 +7283,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
+  TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never) = never,
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -7236,11 +7308,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never) = never,
+    : never = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -7253,11 +7325,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never) = never,
+    : never = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

@@ -47,13 +47,12 @@ export const RATCHET_RULES = [
 ];
 
 /**
- * 現在の負債件数。CI 36217561970（2026年9月26日、e38538e1）で4件を実測。
+ * 現在の負債件数。CI 37865994726（2026年10月9日、66dbad45）で3件を実測。
  * 返済したらこの数を下げること（下げ忘れは checkDebt が検知する）。
  *
- * 内訳（4 件）:
+ * 内訳（3 件）:
  *   incompatible-library 1 件 … ReviewForm。react-hook-form の watch()。
  *   no-location-assign   2 件 … 退会後の全リロード（mypage/profile と WithdrawalSettings）。
- *   set-state-in-effect  1 件 … BookingFlow の下書き復元。
  *
  * 🔴 【2026年8月18日 実測】react-hook-form を 7.82.0 → 7.85.0 へ上げても incompatible-library は
  * 3 件のまま消えなかった（上流未対応）。「次のリリースで消えるかもしれない」ではなく、
@@ -88,8 +87,10 @@ export const RATCHET_RULES = [
  *        で検証した。旧コードで実際に落ちることを確認済み（gbp 5 件中 4 件・ReviewSummary 1 件）。
  *   4  … register/recruitをuseWatchへ移行し2件減（2026年9月26日）。
  *        ルール無効化や検査対象の縮小は行わず、CI実測にbaselineを厳格化する。
+ *   3  … BookingFlowの復元は削除世代と非同期SHA照合を伴う処理へ移行。
+ *        同期state更新の指摘がなくなった実CI結果に合わせる（2026年10月9日）。
  */
-export const BASELINE = 4;
+export const BASELINE = 3;
 
 /**
  * eslint の JSON 出力から、ラチェット対象ルールの指摘件数を数える。

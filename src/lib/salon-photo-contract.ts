@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
 export const SALON_PHOTO_BUCKET = 'carelink-uploads';
+export const SALON_PHOTO_MAX_BYTES = 10 * 1024 * 1024;
+export const SALON_PHOTO_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const;
 const missingObject = z.object({
   name: z.literal('StorageApiError'), message: z.literal('Object not found'),
   status: z.union([z.literal(400), z.literal(404)]), statusCode: z.literal('404'),
@@ -8,13 +10,13 @@ const missingObject = z.object({
 export function isMissingSalonPhoto(error: unknown): boolean {
   return missingObject.safeParse(error).success;
 }
-const mime = z.enum(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const mime = z.enum(SALON_PHOTO_MIME_TYPES);
 const extensions = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' } as const;
 
 export const salonPhotoInput = z.object({
   intentId: z.uuid(), selectionId: z.uuid(),
   slot: z.number().int().min(0).max(6), mimeType: mime,
-  byteSize: z.number().int().min(1).max(10 * 1024 * 1024),
+  byteSize: z.number().int().min(1).max(SALON_PHOTO_MAX_BYTES),
 }).strict();
 export type SalonPhotoInput = z.infer<typeof salonPhotoInput>;
 

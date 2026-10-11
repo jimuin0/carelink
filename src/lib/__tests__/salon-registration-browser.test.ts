@@ -13,7 +13,7 @@ const data: SalonFormValues = { facility_name: '合成施設', business_type: '�
   representative_name: '合成代表', contact_name: '合成担当', email: 'Fixture@example.invalid', phone: '09012345678' };
 const response = (status: number, body: unknown) => ({ status, ok: status >= 200 && status < 300,
   json: async () => body }) as Response;
-const prepared = () => response(201, { state: 'prepared', intentId });
+const prepared = () => response(201, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 10485760, mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] } });
 const committed = () => response(201, { state: 'committed', receiptId });
 const uncommitted = () => response(200, { state: 'uncommitted' });
 function harness(phase?: 'prepared' | 'attempted' | 'confirmed') {
@@ -210,7 +210,7 @@ test('captcha exception performs no request', async () => {
   const { deps, engine } = harness(); deps.captcha.mockRejectedValueOnce(new Error('captcha failure'));
   expect((await engine.submit(data, [])).state).toBe('retryable'); expect(deps.request).not.toHaveBeenCalled();
 });
-test.each([response(503, {}), response(200, { state: 'prepared', intentId }),
+test.each([response(503, {}), response(200, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 10485760, mimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] } }),
   response(201, { state: 'unknown' }), response(201, { state: 'prepared', intentId: 'bad' })])('failed preparation never commits %#', async result => {
   const { deps, engine } = harness(); deps.request.mockResolvedValueOnce(result);
   expect((await engine.submit(data, [])).state).toBe('retryable');
@@ -249,4 +249,92 @@ test.each([undefined, null, [], 'invalid', { contact_phone: 'PRIVATE raw input',
     fieldErrors: fieldErrors && !Array.isArray(fieldErrors) && typeof fieldErrors === 'object'
       ? { contact_phone: '担当者直通電話を確認してください' } : {} });
   expect(JSON.stringify(result)).not.toContain('PRIVATE');
+});
+
+test.each([{}, { consumerVersion: 1 }, { consumerVersion: 2, photoLimits: { maxBytes: 10485761, mimeTypes: ['image/jpeg'] } }])('malformed new handshake preserves its selector and refreshes without a replacement %#', async handshake => {
+  const { deps, engine } = harness();
+  deps.request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId, ...handshake }));
+  expect((await engine.submit(data, [])).state).toBe('retryable');
+  expect(readSalonBrowserContext(deps.store)).toEqual({ state: 'ready', context: { version: 1, intentId, phase: 'prepared' } });
+  expect(bodies(deps.request, '/api/salons/commit')).toHaveLength(0);
+  deps.request.mockResolvedValueOnce(uncommitted()).mockResolvedValueOnce(response(200, { state: 'prepared', intentId,
+    consumerVersion: 2, photoLimits: { maxBytes: 10485760, mimeTypes: ['image/jpeg'] } })).mockResolvedValueOnce(committed());
+  expect((await engine.submit(data, [])).state).toBe('confirmed');
+  expect(bodies(deps.request, '/api/salons/prepare')).toEqual([{}, { intentId }]);
+  expect(deps.captcha).toHaveBeenCalledTimes(1);
+});
+test.each([
+ response(503, {}), response(201, { state: 'prepared', intentId }), response(200, { state: 'unknown', intentId }),
+ response(200, { state: 'prepared', intentId: otherId }), response(200, { state: 'prepared', intentId, consumerVersion: 1 }),
+ response(200, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 0, mimeTypes: [] } }),
+])('refresh failure preserves fixed intent and never commits/uploads %#', async result => {
+ const { deps, engine } = harness('prepared'); deps.request.mockResolvedValueOnce(uncommitted()).mockResolvedValueOnce(result);
+ expect((await engine.submit(data, [])).state).toBe('retryable');
+ expect(bodies(deps.request, '/api/salons/prepare')).toEqual([{ intentId }]);
+ expect(bodies(deps.request, '/api/salons/commit')).toHaveLength(0); expect(deps.upload).not.toHaveBeenCalled();
+ expect(readSalonBrowserContext(deps.store)).toEqual({ state: 'ready', context: { version: 1, intentId, phase: 'prepared' } });
+});
+test.each(['missing','other','attempted'])('selector change during refresh %s blocks any manifest allocation', async mode => {
+ const { deps, values, engine } = harness('prepared'); deps.request.mockResolvedValueOnce(uncommitted()).mockImplementationOnce(async () => {
+  if (mode === 'missing') values.clear();
+  else saveSalonBrowserContext(deps.store, { version: 1, intentId: mode === 'other' ? otherId : intentId, phase: mode === 'attempted' ? 'attempted' : 'prepared' });
+  return response(200, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 10, mimeTypes: ['image/jpeg'] } });
+ });
+ expect((await engine.submit(data, [new File(['jpeg'], 'synthetic.jpg', { type: 'image/jpeg' })])).state).toBe('blocked');
+ expect(bodies(deps.request, '/api/salons/photos')).toHaveLength(0); expect(deps.upload).not.toHaveBeenCalled();
+});
+test.each(['size', 'mime'])('stricter handshake %s preserves originals and explains limits before manifest/signing', async kind => {
+ const { deps, engine } = harness();
+ const file = new File(['jpeg'], 'synthetic.jpg', { type: 'image/jpeg' });
+ deps.request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId, consumerVersion: 2,
+  photoLimits: { maxBytes: kind === 'size' ? 3 : 10, mimeTypes: kind === 'mime' ? ['image/png'] : ['image/jpeg'] } }));
+ const result = await engine.submit(data, [file]); expect(result.state).toBe('retryable');
+ expect(result).toEqual(expect.objectContaining({ message: expect.stringContaining('元の写真は保持されています') }));
+ expect(bodies(deps.request, '/api/salons/photos')).toHaveLength(0); expect(deps.upload).not.toHaveBeenCalled();
+ expect(file.size).toBe(4);
+});
+
+test('local input may be revised only before this coordinator has ever attempted a commit', async () => {
+ const { deps, engine } = harness(); expect(engine.canReviseUnsubmittedInput()).toBe(true);
+ deps.request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 1, mimeTypes: ['image/jpeg'] } }));
+ expect((await engine.submit(data, [new File(['too-large'], 'synthetic.jpg', { type: 'image/jpeg' })])).state).toBe('retryable');
+ expect(engine.canReviseUnsubmittedInput()).toBe(true);
+ deps.request.mockResolvedValueOnce(uncommitted()).mockResolvedValueOnce(response(400, { state: 'invalid' }));
+ expect((await engine.submit(data, [])).state).toBe('retryable');
+ expect(readSalonBrowserContext(deps.store)).toMatchObject({ context: { phase: 'prepared' } });
+ expect(engine.canReviseUnsubmittedInput()).toBe(false);
+});
+test.each(['prepared','attempted','confirmed'] as const)('historical %s context is not proof of never committing', phase => {
+ const { engine } = harness(phase); expect(engine.canReviseUnsubmittedInput()).toBe(false);
+});
+test('changed/corrupt selector cannot release a local pretransport input fence', async () => {
+ const { deps, values, engine } = harness();
+ deps.request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId, consumerVersion: 1 }));
+ expect((await engine.submit(data, [])).state).toBe('retryable');
+ saveSalonBrowserContext(deps.store, { version: 1, intentId: otherId, phase: 'prepared' });
+ expect(engine.canReviseUnsubmittedInput()).toBe(false);
+ values.set(SALON_BROWSER_CONTEXT_KEY, '{'); expect(engine.canReviseUnsubmittedInput()).toBe(false);
+});
+
+test('a narrower PNG-only bucket preserves the accepted original when compression converts it to JPEG', async () => {
+ const { deps, engine } = harness(); const original = new File(['png'], 'original.png', { type: 'image/png' });
+ deps.compress.mockResolvedValue(new File(['jpg'], 'compressed.jpg', { type: 'image/jpeg' }));
+ deps.request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 10, mimeTypes: ['image/png'] } }))
+  .mockResolvedValueOnce(response(200, { state: 'uploaded', photoId, path: salonPhotoPath(intentId, photoId, 'image/png') }))
+  .mockResolvedValueOnce(committed());
+ expect((await engine.submit(data, [original])).state).toBe('confirmed');
+ expect(bodies(deps.request, '/api/salons/photos')[0]).toMatchObject({ byteSize: original.size, mimeType: 'image/png' });
+ expect(original.name).toBe('original.png');
+});
+
+test('a live restriction changed after handshake refreshes the same intent and does not rewrite a fixed selection', async () => {
+ const { deps, engine } = harness(); const original = new File(['jpeg'], 'original.jpg', { type: 'image/jpeg' });
+ deps.request.mockResolvedValueOnce(prepared()).mockResolvedValueOnce(response(400, { state: 'invalid' }));
+ expect((await engine.submit(data, [original])).state).toBe('retryable');
+ deps.request.mockResolvedValueOnce(uncommitted()).mockResolvedValueOnce(response(200, { state: 'prepared', intentId,
+  consumerVersion: 2, photoLimits: { maxBytes: 3, mimeTypes: ['image/jpeg'] } }));
+ expect((await engine.submit(data, [original])).state).toBe('retryable');
+ expect(bodies(deps.request, '/api/salons/prepare')).toEqual([{}, { intentId }]);
+ expect(bodies(deps.request, '/api/salons/photos')).toHaveLength(1);
+ expect(deps.compress).toHaveBeenCalledTimes(1); expect(deps.uuid).toHaveBeenCalledTimes(1); expect(deps.upload).not.toHaveBeenCalled();
 });

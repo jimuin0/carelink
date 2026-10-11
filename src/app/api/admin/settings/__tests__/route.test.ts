@@ -40,19 +40,16 @@ import { FACILITY_INPUT_LIMITS } from '@/lib/facility-input-limits';
 
 const VALID_BODY = { name: 'テスト施設' };
 
-test.each(['ok', 'missing-photo', 'photo-error', 'missing-profile', 'profile-error', 'malformed'])('main photo uses server authorization and confirms affected row：%s', async (mode) => {
+test.each(['ok', 'missing-photo', 'db-error', 'wrong-facility', 'malformed'])('main photo commits existence and authorization in one RPC: %s', async mode => {
   const photoId = '44444444-4444-4444-8444-444444444444';
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  const photo = memberChain(mode === 'missing-photo' ? null : { photo_url: 'https://example.invalid/test.png' }, mode === 'photo-error' ? { code: '08006' } : null);
-  const profile = updateChain(mode === 'profile-error' ? { code: '08006' } : null, mode === 'missing-profile' ? null : { id: FACILITY_UUID });
-  mockAdminFrom.mockImplementation((table: string) => table === 'facility_photos' ? photo : profile);
+  mockAdminRpc.mockResolvedValue({ data: mode === 'missing-photo' ? [] : [{ id: mode === 'wrong-facility' ? USER_ID : FACILITY_UUID }], error: mode === 'db-error' ? { message: '08006' } : null });
   const response = await PATCH(makePatchRequest({ photoId: mode === 'malformed' ? 'invalid' : photoId }, { facility_id: FACILITY_UUID, action: 'main-photo' }));
-  expect(response.status).toBe({ ok: 200, 'missing-photo': 409, 'photo-error': 500, 'missing-profile': 409, 'profile-error': 500, malformed: 400 }[mode]);
-  if (mode !== 'malformed') {
-    expect(photo.eq).toHaveBeenCalledWith('facility_id', FACILITY_UUID);
-    expect(photo.eq).toHaveBeenCalledWith('id', photoId);
-  }
-  if (mode === 'ok') expect(profile.update).toHaveBeenCalledWith(expect.objectContaining({ main_photo_url: 'https://example.invalid/test.png' }));
+  expect(response.status).toBe({ ok: 200, 'missing-photo': 409, 'db-error': 500, 'wrong-facility': 409, malformed: 400 }[mode]);
+  expect(mockAdminFrom).not.toHaveBeenCalled();
+  if (mode !== 'malformed') expect(mockAdminRpc).toHaveBeenCalledWith('set_facility_main_photo_atomic', { p_actor_id: USER_ID, p_facility_id: FACILITY_UUID, p_photo_id: photoId });
+  else expect(mockAdminRpc).not.toHaveBeenCalled();
+  if (mode !== 'ok') expect(writeAuditLog).not.toHaveBeenCalled();
 });
 
 test.each([

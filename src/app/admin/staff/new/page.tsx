@@ -8,6 +8,7 @@ import FacilitySelector from '@/components/admin/FacilitySelector';
 import { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/lib/admin-facility-selection';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
+import { staffOperationKey, beginStaffOperation, finishStaffOperation, recoverStaffOperation } from '@/lib/staff-operation';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 
 export default function NewStaffPage() {
@@ -35,6 +36,9 @@ function NewStaffPageForm() {
   const [nominationFee, setNominationFee] = useState('');
   const [lineWorksChannelId, setLineWorksChannelId] = useState('');
   const [lineWorksNotifyAll, setLineWorksNotifyAll] = useState(false);
+  const operationKey = useRef<string | null>(null);
+  const pendingInput = useRef<Record<string, unknown> | null>(null);
+  const [pendingSave, setPendingSave] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -52,25 +56,31 @@ function NewStaffPageForm() {
       if (verification.state !== 'verified') { setLoading(false); return; }
       const selection = await loadAdminFacilitySelection(db, verification.user.id, requestedFacility);
       if (!active) return;
+      if (selection.selectedId) {
+        const key = staffOperationKey(verification.user.id, selection.selectedId);
+        const recovered = await recoverStaffOperation(key, selection.selectedId);
+        if (!active) return;
+        operationKey.current = key;
+        if (recovered === 'saved') { router.push(`/admin/staff?facility_id=${selection.selectedId}`); return; }
+        if (recovered === 'retired') setToast({ type: 'error', message: '前回追加したスタッフは削除されています。スタッフ一覧で確認してください。' });
+      }
       setFacilityChoices(selection.choices);
       setFacilityId(selection.selectedId);
       setLoading(false);
     })().catch(() => { if (active) { setLoadError(true); setLoading(false); } });
     return () => { active = false; mounted.current = false; };
-  }, [requestedFacility]);
+  }, [requestedFacility, router]);
 
   const handleCreate = async () => {
-    if (saving || loading || !facilityId || !name.trim()) {
+    if (saving || loading || !facilityId || !operationKey.current || !name.trim()) {
       setToast({ type: 'error', message: '名前は必須です' });
       return;
     }
     setSaving(true);
 
     try {
-      const res = await fetch(`/api/admin/staff?facility_id=${facilityId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      if (pendingInput.current === null) {
+        pendingInput.current = { operation_id: beginStaffOperation(operationKey.current),
           name: name.trim(),
           position: position.trim() || null,
           bio: bio.trim() || null,
@@ -80,14 +90,27 @@ function NewStaffPageForm() {
           nomination_fee: nominationFee ? parseInt(nominationFee) : 0,
           line_works_channel_id: lineWorksChannelId.trim() || null,
           line_works_notify_all: lineWorksNotifyAll,
-        }),
+        };
+        setPendingSave(true);
+      }
+      const res = await fetch(`/api/admin/staff?facility_id=${facilityId}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pendingInput.current),
       });
 
       if (!mounted.current) return;
       if (!res.ok) {
+        if (res.status < 500 && res.status !== 409) {
+          // A 429/401 on a retry cannot prove the previous request rolled back.
+          // Resolve the original receipt under its DB lock before replacing UUID.
+          const recovered = await recoverStaffOperation(operationKey.current, facilityId);
+          if (!mounted.current) return;
+          if (recovered === 'saved') { router.push(backHref); return; }
+          pendingInput.current = null; setPendingSave(false);
+        }
         const e = await res.json().catch(() => ({}));
         setToast({ type: 'error', message: e.error || '追加に失敗しました' });
       } else {
+        finishStaffOperation(operationKey.current);
         router.push(backHref);
       }
     } catch {
@@ -101,7 +124,7 @@ function NewStaffPageForm() {
   if (authState === 'unavailable') return <AccessVerificationUnavailable />;
   if (authState === 'unauthenticated') return <p role="alert">セッションが切れました。再ログインしてください。</p>;
   if (loadError) return <p role="alert">店舗情報の取得に失敗しました。再読み込みしてください。</p>;
-  const selector = <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/staff/new" dirty={Boolean(name || position || bio || specialties || yearsExperience || instagramUrl || nominationFee || lineWorksChannelId || lineWorksNotifyAll)} busy={saving} />;
+  const selector = <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/staff/new" dirty={Boolean(name || position || bio || specialties || yearsExperience || instagramUrl || nominationFee || lineWorksChannelId || lineWorksNotifyAll)} busy={saving || pendingSave} />;
   if (!facilityId) return selector;
 
   return (
@@ -110,6 +133,8 @@ function NewStaffPageForm() {
       <SbPageHeader title="スタッフ追加" />
 
       <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
+        {pendingSave && <p role="status">前回の保存結果を確認するため、同じ内容で再試行してください。</p>}
+        <fieldset disabled={saving || pendingSave} className="space-y-4">
         <div>
           <label htmlFor="staff-name" className="form-label">名前 <span className="text-red-500">*</span></label>
           <SbInput id="staff-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={50} />
@@ -165,6 +190,7 @@ function NewStaffPageForm() {
           </div>
         </div>
 
+        </fieldset>
         <div className="flex gap-3 pt-4">
           <button type="button" onClick={() => router.push(backHref)} className="text-sm text-gray-500 hover:underline">戻る</button>
           <button type="button" onClick={handleCreate} disabled={saving} className="btn-primary flex-1 py-3!">

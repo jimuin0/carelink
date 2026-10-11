@@ -116,9 +116,17 @@ function LoginContent() {
       if (error) {
         if (error.code === 'email_not_confirmed') {
           setVerificationEmail(data.email);
+          // Signup already sends the first confirmation email. Moving here
+          // must not expose an immediately usable resend button.
+          setResendCoolingDown(true);
           return;
         }
-        setToast({ type: 'error', message: 'メールアドレスまたはパスワードが正しくありません' });
+        const message = error.code === 'invalid_credentials'
+          ? 'メールアドレスまたはパスワードが正しくありません'
+          : error.status === 429 || error.code === 'over_request_rate_limit' || error.code === 'over_email_send_rate_limit'
+            ? 'ログインの試行回数が上限に達しました。時間をおいてもう一度お試しください。'
+            : 'ログイン認証に接続できませんでした。時間をおいてもう一度お試しください。';
+        setToast({ type: 'error', message });
         return;
       }
 

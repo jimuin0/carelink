@@ -52,9 +52,25 @@ fi
 
 applied=0
 for f in "$ROOT"/supabase/migrations/*.sql; do
+  # Optional disposable old-schema upgrade probe. The fixture refuses any
+  # database other than carelink_shadow and is not production business DML.
+  if [[ "${CARELINK_POINTS_UPGRADE_FIXTURE:-}" == 1 && "$DB" == carelink_shadow
+    && "$f" == *"_atomic_booking_points.sql" ]]; then
+    "${PSQL[@]}" -d "$DB" -f "$ROOT/supabase/shadow/booking-points-legacy-before.sql" >/dev/null
+  fi
+  if [[ "${CARELINK_COUPON_UPGRADE_FIXTURE:-}" == 1 && "$DB" == carelink_shadow
+    && "$f" == *"_customer_coupon_email_operations.sql" ]]; then
+    "${PSQL[@]}" -d "$DB" -f "$ROOT/supabase/shadow/coupon-email-legacy-before.sql" >/dev/null
+  fi
   "${PSQL[@]}" -d "$DB" -f "$f" >/dev/null
   applied=$((applied + 1))
 done
+if [[ "${CARELINK_POINTS_UPGRADE_FIXTURE:-}" == 1 && "$DB" == carelink_shadow ]]; then
+  "${PSQL[@]}" -d "$DB" -f "$ROOT/supabase/shadow/booking-points-legacy-after.sql" >/dev/null
+fi
+if [[ "${CARELINK_COUPON_UPGRADE_FIXTURE:-}" == 1 && "$DB" == carelink_shadow ]]; then
+  "${PSQL[@]}" -d "$DB" -f "$ROOT/supabase/shadow/coupon-email-legacy-after.sql" >/dev/null
+fi
 
 # 走査が空振りしていないことの下限。migration が 1 本も当たっていないのに
 # 「一致」と言えてしまう状態を作らない。

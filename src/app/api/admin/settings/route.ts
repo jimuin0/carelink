@@ -141,16 +141,12 @@ async function patchSettings(request: NextRequest) {
     const parsed = z.object({ photoId: z.string().regex(UUID_REGEX) }).strict().safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: '写真IDが不正です' }, { status: 400 });
     const admin = createServiceRoleClient();
-    const photo = await admin.from('facility_photos').select('photo_url')
-      .eq('id', parsed.data.photoId).eq('facility_id', auth.facilityId).maybeSingle();
-    if (photo.error) return serverError('admin-settings-main-photo-read', new Error('Facility photo read failed'), '/api/admin/settings');
-    if (!photo.data) return NextResponse.json({ error: 'この店舗の写真を確認できません' }, { status: 409 });
-    const updated = await admin.rpc('update_facility_settings_atomic', {
-      p_actor_id:auth.userId,p_facility_id:auth.facilityId,p_patch:{ main_photo_url:photo.data.photo_url },
+    const updated = await admin.rpc('set_facility_main_photo_atomic', {
+      p_actor_id: auth.userId, p_facility_id: auth.facilityId, p_photo_id: parsed.data.photoId,
     });
     if (updated.error?.message.includes('FACILITY_PERMISSION_REVOKED')) return NextResponse.json({ error:'店舗の管理権限がありません' },{ status:403 });
-    if (updated.error) return serverError('admin-settings-main-photo-update', new Error('Facility photo update failed'), '/api/admin/settings');
-    if (updated.data?.length !== 1 || updated.data[0].id !== auth.facilityId) return NextResponse.json({ error: '対象店舗を更新できませんでした' }, { status: 409 });
+    if (updated.error) return serverError('admin-settings-main-photo-update', new Error('Facility photo update failed'), '/api/admin/settings', 'メイン写真を更新できませんでした。再読み込みしてから操作してください');
+    if (updated.data?.length !== 1 || updated.data[0].id !== auth.facilityId) return NextResponse.json({ error: 'この店舗の写真を確認できません。再読み込みしてください' }, { status: 409 });
     const { ua } = getRequestContext(request);
     void writeAuditLog({ userId: auth.userId, facilityId: auth.facilityId, action: 'update',
       tableName: 'facility_profiles', recordId: auth.facilityId, newValues: { main_photo_id: parsed.data.photoId },

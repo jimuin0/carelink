@@ -1,3 +1,4 @@
+import { FACILITY_RETIREMENT_NOTICE, BUSINESS_RECORD_RETENTION_NOTICE } from '@/lib/account-deletion-policy';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
@@ -129,7 +130,7 @@ export default function TermsPage() {
             <li>掲載者は自ら登録した情報の正確性について責任を負うものとします。</li>
             <li>掲載者はいつでも施設情報の公開・非公開を切り替えることができます。</li>
             <li>当事業者は、法令違反・公序良俗違反等の掲載を事前の通知なく非公開にできるものとします。</li>
-            <li>掲載者が本サービスを退会した場合、当該施設の情報は速やかに削除されます。</li>
+            <li>{FACILITY_RETIREMENT_NOTICE}</li>
           </ul>
         </section>
 
@@ -141,6 +142,7 @@ export default function TermsPage() {
           <ul className="list-disc pl-6 text-gray-600 space-y-2 text-sm">
             <li>当事業者はサービス運営・改善の目的でのみデータを利用します。</li>
             <li>掲載者は退会時にデータのエクスポートを請求できます。</li>
+            <li>{BUSINESS_RECORD_RETENTION_NOTICE}</li>
             <li>当事業者は、統計的に処理された匿名データを事業改善に利用できるものとします。</li>
           </ul>
         </section>

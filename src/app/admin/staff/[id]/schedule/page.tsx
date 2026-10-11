@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { staffOperationKey, beginStaffOperation, finishStaffOperation, recoverStaffOperation } from '@/lib/staff-operation';
 import Toast from '@/components/Toast';
 import FacilitySelector from '@/components/admin/FacilitySelector';
 import { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/lib/admin-facility-selection';
@@ -56,6 +57,9 @@ function StaffSchedulePageForm() {
   const [newOverrideHoliday, setNewOverrideHoliday] = useState(true);
   const [newOverrideStart, setNewOverrideStart] = useState('09:00');
   const [newOverrideEnd, setNewOverrideEnd] = useState('19:00');
+  const operationKey = useRef<string | null>(null);
+  const pendingSchedules = useRef<{ operation_id: string; schedules: Schedule[]; force?: boolean } | null>(null);
+  const [pendingSave, setPendingSave] = useState(false);
   const [saving, setSaving] = useState(false);
   const [addingOverride, setAddingOverride] = useState(false);
   const [deletingOverride, setDeletingOverride] = useState(false);
@@ -91,6 +95,12 @@ function StaffSchedulePageForm() {
       setFacilityChoices(selection.choices);
       if (!selection.selectedId) { setLoading(false); return; }
       const selectedFacilityId = selection.selectedId;
+      if (selectedFacilityId) {
+        const key = staffOperationKey(verification.user.id, selectedFacilityId, staffId);
+        await recoverStaffOperation(key, selectedFacilityId, staffId);
+        if (!active) return;
+        operationKey.current = key;
+      }
       const { data: staff, error: staffError } = await supabase.from('staff_profiles').select('name').eq('id', staffId).eq('facility_id', selectedFacilityId).single();
       if (!active) return;
       if (staffError || !staff) { setLoadError(true); setLoading(false); return; }
@@ -104,8 +114,8 @@ function StaffSchedulePageForm() {
         .order('day_of_week');
 
       if (!active) return;
-      if (schErr) { setLoadError(true); setLoading(false); return; }
-      if (schData && schData.length > 0) {
+      if (schErr || !Array.isArray(schData)) { setLoadError(true); setLoading(false); return; }
+      {
         const newSchedules = DAY_LABELS.map((_, i) => {
           const existing = schData.find((s) => s.day_of_week === i);
           // staff_schedules.start_time/end_time は TIME 列で "HH:MM:SS" で返る。API/入力は "HH:MM"
@@ -146,31 +156,42 @@ function StaffSchedulePageForm() {
   }, [staffId, reloadKey, requestedFacility]);
 
   const handleSaveSchedules = async (force = false) => {
-    if (!facilityId) return;
+    if (!facilityId || !operationKey.current || saving) return;
     setSaving(true);
     try {
       const rows = schedules
         .filter((_, i) => enabledDays[i])
         .map((s) => ({ day_of_week: s.day_of_week, start_time: s.start_time, end_time: s.end_time }));
 
+      if (pendingSchedules.current === null) {
+        pendingSchedules.current = { operation_id: beginStaffOperation(operationKey.current), schedules: rows, ...(force ? { force: true } : {}) };
+        setPendingSave(true);
+      }
       const res = await fetch(`/api/admin/staff/${staffId}/schedule?facility_id=${facilityId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ schedules: rows, ...(force ? { force: true } : {}) }),
+        body: JSON.stringify(pendingSchedules.current),
       });
       // 既存予約に影響がある場合は 409+件数。無警告で上書きせず確認ダイアログを出す。
       if (res.status === 409) {
         const e = await res.json().catch(() => ({}));
-        if (e.code === 'BOOKINGS_AFFECTED') { setScheduleAffected(e.affectedBookings ?? 0); return; }
+        if (e.code === 'BOOKINGS_AFFECTED') { finishStaffOperation(operationKey.current); pendingSchedules.current = null; setPendingSave(false); setScheduleAffected(e.affectedBookings ?? 0); return; }
         setToast({ type: 'error', message: e.error || '保存に失敗しました' });
         return;
       }
       if (!res.ok) {
+        if (res.status < 500) {
+          const recovered = await recoverStaffOperation(operationKey.current, facilityId, staffId);
+          pendingSchedules.current = null; setPendingSave(false);
+          if (recovered === 'saved') { setReloadKey(k => k + 1); setDirty(false); return; }
+        }
         const e = await res.json().catch(() => ({}));
         setToast({ type: 'error', message: e.error || '保存に失敗しました' });
         return;
       }
+      finishStaffOperation(operationKey.current); pendingSchedules.current = null; setPendingSave(false);
       setDirty(false);
+      setReloadKey(k => k + 1);
       setToast({ type: 'success', message: 'スケジュールを保存しました' });
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
@@ -243,7 +264,7 @@ function StaffSchedulePageForm() {
   if (loading) return <AdminPageLoading />;
   if (authState === 'unavailable') return <AccessVerificationUnavailable />;
   if (authState === 'unauthenticated') return <p role="alert">セッションが切れました。再ログインしてください。</p>;
-  const selector = <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/staff" dirty={dirty} busy={saving || addingOverride || deletingOverride} />;
+  const selector = <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/staff" dirty={dirty} busy={saving || addingOverride || deletingOverride || pendingSave} />;
 
   // 取得失敗時はフォームを描画しない（既定シフトで実スケジュールを上書きする事故を防ぐ）
   if (loadError) {
@@ -271,7 +292,7 @@ function StaffSchedulePageForm() {
       {/* Weekly Schedule */}
       <div className="bg-white rounded-xl shadow-xs p-6 mb-6">
         <h2 className="font-bold mb-4">週間スケジュール</h2>
-        <div className="space-y-3">
+        <fieldset disabled={saving || pendingSave} className="space-y-3">
           {DAY_LABELS.map((label, i) => (
             <div key={i} className="flex items-center gap-3">
               <label className="flex items-center gap-2 w-16">
@@ -315,7 +336,8 @@ function StaffSchedulePageForm() {
               )}
             </div>
           ))}
-        </div>
+        </fieldset>
+        {pendingSave && <p role="status">前回の保存結果を確認するため、同じ内容で再試行してください。</p>}
         <button type="button" onClick={() => handleSaveSchedules()} disabled={saving} className="btn-primary mt-4 py-2!">
           {saving ? '保存中...' : 'スケジュールを保存'}
         </button>

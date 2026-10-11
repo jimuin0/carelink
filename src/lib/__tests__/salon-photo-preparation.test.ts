@@ -15,8 +15,10 @@ function fixture() {
   const info = jest.fn().mockResolvedValue({ data: null, error: absent });
   const createSignedUploadUrl = jest.fn().mockResolvedValue({ data: { path, token: 'synthetic-capability', signedUrl: 'not-returned' }, error: null });
   const from = jest.fn().mockReturnValue({ info, createSignedUploadUrl });
-  const db = { rpc, storage: { from } } as unknown as Parameters<typeof prepareSalonPhoto>[0];
-  return { db, rpc, info, createSignedUploadUrl, from };
+  const getBucket = jest.fn().mockResolvedValue({ data: { id: 'carelink-uploads', file_size_limit: 10485760,
+    allowed_mime_types: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] }, error: null });
+  const db = { rpc, storage: { from, getBucket } } as unknown as Parameters<typeof prepareSalonPhoto>[0];
+  return { db, rpc, info, createSignedUploadUrl, from, getBucket };
 }
 test.each([{}, { ...input, path: 'other' }, { ...input, slot: 7 }, { ...input, byteSize: 0 }])('invalid request never reaches persistence %#', async value => {
   const f = fixture();
@@ -92,4 +94,16 @@ test.each([
 test.each(['rpc', 'info', 'createSignedUploadUrl'] as const)('exception in %s returns a fixed retryable result', async stage => {
   const f = fixture(); f[stage].mockRejectedValue(new Error('private provider payload'));
   expect(await prepareSalonPhoto(f.db, input, proof)).toEqual({ state: 'unavailable' });
+});
+
+test.each(['size', 'mime'])('stricter live bucket %s is refused before manifest or signing', async kind => {
+  const f = fixture(); f.getBucket.mockResolvedValue({ data: { id: 'carelink-uploads', file_size_limit: kind === 'size' ? 9 : 10,
+    allowed_mime_types: kind === 'mime' ? ['image/jpeg'] : ['image/png'] }, error: null });
+  expect(await prepareSalonPhoto(f.db, input, proof)).toEqual({ state: 'invalid' });
+  expect(f.rpc).not.toHaveBeenCalled(); expect(f.from).not.toHaveBeenCalled();
+});
+test('unavailable bucket configuration cannot allocate a manifest or token', async () => {
+  const f = fixture(); f.getBucket.mockResolvedValue({ data: null, error: { status: 404 } });
+  expect(await prepareSalonPhoto(f.db, input, proof)).toEqual({ state: 'unavailable' });
+  expect(f.rpc).not.toHaveBeenCalled(); expect(f.createSignedUploadUrl).not.toHaveBeenCalled();
 });
