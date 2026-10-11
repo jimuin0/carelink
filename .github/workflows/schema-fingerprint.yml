@@ -107,6 +107,9 @@ jobs:
       - name: Fingerprint literal changes and service-only ACL (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/fingerprint-literal-fixtures.sql
 
+      - name: Complete points ledger and owner-scoped aggregate (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/points-balance-read-fixtures.sql
+
       - name: Same schema in C locale remains identical (disposable DB)
         env:
           SHADOW_DB: carelink_shadow_c_locale

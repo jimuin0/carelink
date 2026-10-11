@@ -11,6 +11,8 @@ import { StrictMode } from 'react';
 import { webcrypto } from 'node:crypto';
 import { TextEncoder } from 'node:util';
 import BookingFlow from '../BookingFlow';
+import { readPointsBalance } from '@/lib/points-balance';
+jest.mock('@/lib/points-balance');
 import { saveBookingDraftForLogin, BOOKING_DRAFT_OBSOLETE, BOOKING_DRAFT_STORAGE_FAILED } from '@/lib/booking-draft-storage';
 import { CLIENT_CLEANUP_GENERATION_KEY, completeClientCleanupMarker } from '@/lib/client-cleanup-marker';
 import type { FacilityMenu, StaffProfile, Coupon } from '@/types';
@@ -50,6 +52,7 @@ beforeEach(() => {
   Object.defineProperty(globalThis, 'crypto', { configurable: true, value: webcrypto });
   Object.defineProperty(globalThis, 'TextEncoder', { configurable: true, value: TextEncoder });
   mockGetUser.mockResolvedValue({ data: { user: null } }); // 未認証固定（ログインバナー表示のため）
+  (readPointsBalance as jest.Mock).mockResolvedValue(0);
   global.fetch = jest.fn(() =>
     Promise.resolve({ ok: true, json: () => Promise.resolve({ slots: [] }) })
   ) as unknown as typeof fetch;
@@ -62,6 +65,38 @@ afterEach(() => {
 function draftKey() {
   return `booking-draft:${FACILITY.id}`;
 }
+
+async function openPointConfirmation() {
+  (global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: true,
+    json: () => Promise.resolve({ slots: [{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: 'staff-1' }] }),
+  }));
+  render(<BookingFlow facility={FACILITY} staff={STAFF} menus={MENUS} coupons={COUPONS} />);
+  fireEvent.click(await screen.findByText('カット'));
+  fireEvent.click(screen.getByText('次へ（日時を選ぶ）'));
+  fireEvent.click((await screen.findAllByText('△'))[0]);
+  fireEvent.click(screen.getByText('次へ（確認・予約）'));
+  await screen.findByText('予約内容の確認・お客様情報');
+}
+
+test('booking displays the complete points aggregate instead of summing a capped ledger page', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: { id: 'verified-owner' } } });
+  (readPointsBalance as jest.Mock).mockResolvedValue(2001);
+  await openPointConfirmation();
+  expect(await screen.findByText('ポイントを使う（2,001pt 利用可能）')).toBeInTheDocument();
+  expect(readPointsBalance).toHaveBeenCalledWith(expect.anything(), 'verified-owner');
+});
+
+test('an unavailable points balance stays distinct from zero and recovers through retry', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: { id: 'verified-owner' } } });
+  (readPointsBalance as jest.Mock).mockRejectedValueOnce(new Error('fixture unavailable'));
+  await openPointConfirmation();
+  expect(await screen.findByText('ポイント残高を取得できませんでした。')).toBeInTheDocument();
+  expect(screen.queryByText(/ポイントを使う/)).not.toBeInTheDocument();
+  (readPointsBalance as jest.Mock).mockResolvedValue(1300);
+  fireEvent.click(screen.getByRole('button', { name: 'ポイントを再取得' }));
+  expect(await screen.findByText('ポイントを使う（1,300pt 利用可能）')).toBeInTheDocument();
+  expect(screen.queryByText('ポイント残高を取得できませんでした。')).not.toBeInTheDocument();
+});
 
 test('確認ステップで「ログインする」を押すと選択内容がsessionStorageに保存され、フルページ遷移前に消えない', async () => {
   (global.fetch as jest.Mock).mockImplementation(() =>

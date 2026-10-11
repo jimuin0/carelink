@@ -18,22 +18,20 @@ jest.mock('@/lib/line', () => ({
   verifyLineAccessToken: jest.fn(() => Promise.resolve({ ok: true, userId: 'line-user-verified' })),
 }));
 jest.mock('@/lib/supabase-server');
+jest.mock('@/lib/points-balance');
 
 import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
+import { readPointsBalance } from '@/lib/points-balance';
 
-// user_points は 2 回クエリされる:
-//   (1) 履歴表示用: select('id, points, reason, created_at').eq().order().limit(50)
-//   (2) 残高(total)用: select('points').eq()  ← 全件（.order/.limit なし・直接 await）
-// mock は select の引数で 2 経路を分岐させる。allData を渡すと (2) はそれを、無ければ logsData を返す
-// （＝残高は全履歴合計で算出されるという F9 の仕様を検証可能にする）。
+// History is bounded to 50 rows; the separate balance RPC is mocked from a
+// complete synthetic ledger. The real aggregate and owner permissions are
+// verified in points-balance-read-fixtures.sql, including 2002 ledger rows.
 function userPointsMock(logsData: unknown[], allData?: unknown[], logsError: unknown = null, allError: unknown = null) {
+  if (allError) (readPointsBalance as jest.Mock).mockRejectedValue(new Error('fixture balance unavailable'));
+  else (readPointsBalance as jest.Mock).mockResolvedValue(((allData ?? logsData ?? []) as { points: number | null }[]).reduce((sum, row) => sum + (row.points ?? 0), 0));
   return {
-    select: jest.fn((cols: string) => {
-      if (cols === 'points') {
-        // 残高用（全件）
-        return { eq: jest.fn().mockResolvedValue({ data: allError ? null : (allData ?? logsData), error: allError }) };
-      }
+    select: jest.fn(() => {
       // 履歴用（直近50件）
       return {
         eq: jest.fn().mockReturnValue({
