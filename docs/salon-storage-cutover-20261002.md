@@ -1,3 +1,9 @@
+## 2026-10-11 全書き込みpolicyの追加検証
+
+元のcutover sourceは本番履歴の本文hash一致を確認済みのため変更しない。追加forward `20261011080147_salon_signed_upload_policy_guard.sql`で、Storage objectsのINSERT/ALL全policyを検証する。既知の他bucket用3policyは名前だけでなく、roles・cmd・permissive・qual・with_checkの完全定義fingerprintを照合する。未知の別名、carelink文字列を含まない広い述語、既知名の定義変更はreconciliationエラーで停止し、同じtransaction内で既知旧匿名経路の閉鎖を再確認する。
+
+本番の最初のcutoverは全11policyのpreflightと、適用後の匿名API拒否・他policy hash一致・65object保持を確認している。追加検証は将来のdriftを黙って許可しないための補強で、現在の別名迂回を発見したという意味ではない。fixtureでは別名anon INSERT、authenticated ALL、非literalのbucket条件、既知名/旧名の広い定義を実SQLで拒否しrollbackを検証する。新規環境の最終replayにも追加guardを含める。
+
 ## 2026-10-11 forward切替案（下記10月2日の計画への追補）
 
 新V2 UIは本番配信され、公開registerのrendered prop `v2Enabled:true`を読取確認した。global50MB、carelink-uploads10MiB/jpg/png/webp/gifも本番で確認済み。旧匿名INSERTはまだ残り、旧タブの排出は証明していない。

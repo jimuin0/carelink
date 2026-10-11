@@ -17,7 +17,10 @@ function main() {
   if (blocks.length !== 1 || /\b(?:BEGIN|COMMIT|ROLLBACK)\s*;/i.test(blocks[0][1])) {
     throw new Error('migration section boundary invalid');
   }
-  const section = blocks[0][1];
+  const validationSource = readFileSync(new URL('../supabase/migrations/20261011080147_salon_signed_upload_policy_guard.sql', import.meta.url), 'utf8');
+  const validations = [...validationSource.matchAll(/-- BEGIN SALON STORAGE WRITE POLICY VALIDATION\n([\s\S]*?)-- END SALON STORAGE WRITE POLICY VALIDATION/g)];
+  if (validations.length !== 1 || /\b(?:BEGIN|COMMIT|ROLLBACK)\s*;/i.test(validations[0][1])) throw new Error('write policy validation boundary invalid');
+  const section = validations[0][1] + blocks[0][1];
   const env = { PATH: process.env.PATH, PGHOST: '127.0.0.1', PGPORT: '5432',
     PGUSER: 'postgres', PGPASSWORD: process.env.PGPASSWORD, PGSSLMODE: 'disable' };
   const run = sql => execFileSync('psql', ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-d', 'carelink_shadow'],
@@ -109,7 +112,8 @@ ROLLBACK;`);
   for (const name of ['missing-policy', 'wrong-role', 'incompatible-mime']) {
     const setup = name === 'missing-policy' ? '' : `CREATE POLICY "Allow anonymous upload" ON storage.objects FOR INSERT TO ${name === 'wrong-role' ? 'authenticated' : 'anon'} WITH CHECK (bucket_id='carelink-uploads');`;
     const mime = name === 'incompatible-mime' ? "UPDATE storage.buckets SET allowed_mime_types=ARRAY['application/pdf'] WHERE id='carelink-uploads';" : '';
-    const expected = name === 'incompatible-mime' ? 'registration bucket MIME configuration requires reconciliation' : 'registration upload policy requires reconciliation';
+    const expected = name === 'wrong-role' ? 'registration write policy set requires reconciliation'
+      : name === 'incompatible-mime' ? 'registration bucket MIME configuration requires reconciliation' : 'registration upload policy requires reconciliation';
     // Execute the actual multi-statement migration section with psql and
     // require its explicit guard error. A failed psql transaction is rolled
     // back when the disposable connection closes.
@@ -118,6 +122,17 @@ VALUES ('carelink-uploads','carelink-uploads',true,NULL,NULL) ON CONFLICT (id) D
 ${setup}${mime}
 ${section}`, expected, name);
     console.log(`Storage upgrade ${name}: explicit rejection passed and rolled back.`);
+  }
+  for (const [name, policy] of [
+    ['alternate-anonymous', `CREATE POLICY synthetic_alternate ON storage.objects FOR INSERT TO anon WITH CHECK (true);`],
+    ['alternate-all', `CREATE POLICY synthetic_alternate ON storage.objects FOR ALL TO authenticated USING (true) WITH CHECK (true);`],
+    ['nonliteral-bypass', `CREATE POLICY synthetic_alternate ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id <> 'avatars');`],
+    ['changed-known-policy', `DROP POLICY photos_insert_facility_admin ON storage.objects; CREATE POLICY photos_insert_facility_admin ON storage.objects FOR INSERT TO authenticated WITH CHECK (true);`],
+    ['changed-legacy-policy', `DROP POLICY "Allow anonymous upload" ON storage.objects; CREATE POLICY "Allow anonymous upload" ON storage.objects FOR INSERT TO anon WITH CHECK (true);`],
+  ]) {
+    expectRejected(`${guard}CREATE POLICY "Allow anonymous upload" ON storage.objects FOR INSERT TO anon WITH CHECK (bucket_id='carelink-uploads');\n${policy}\n${section}`,
+      'registration write policy set requires reconciliation', name);
+    console.log(`Storage upgrade ${name}: complete write-policy rejection passed and rolled back.`);
   }
 }
 try { main(); } catch (error) {

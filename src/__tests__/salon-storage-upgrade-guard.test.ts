@@ -32,6 +32,12 @@ test('upgrade fixture executes the actual migration section and is wired before 
   expect(sql).toContain('WHERE allowed_mime.mime IN');
   const code = readFileSync(script, 'utf8');
   expect(code).toContain('20261011054500_salon_signed_upload_cutover.sql');
+  expect(code).toContain('20261011080147_salon_signed_upload_policy_guard.sql');
+  expect(code).toContain('alternate-anonymous');
+  expect(code).toContain('alternate-all');
+  expect(code).toContain('nonliteral-bypass');
+  expect(code).toContain('changed-known-policy');
+  expect(code).toContain('changed-legacy-policy');
   expect(code).not.toContain('salon_legacy_authenticated_image_insert');
   expect(code).toContain("current_database() <> 'carelink_shadow'");
   expect(code).toContain('const expectRejected = (sql, expected, name)');
@@ -56,6 +62,10 @@ test('forward signed-upload cutover is replayed once by supabase start without t
   const frozen = readFileSync(join(process.cwd(), 'supabase/deferred-migrations/20260927000001_salon_signed_upload_cutover.sql'), 'utf8');
   const section = (sql: string) => sql.split('-- BEGIN SALON STORAGE RECONCILIATION\n')[1].split('-- END SALON STORAGE RECONCILIATION')[0];
   expect(section(active)).toBe(section(frozen));
+  const validation = readFileSync(join(process.cwd(), 'supabase/migrations/20261011080147_salon_signed_upload_policy_guard.sql'), 'utf8');
+  expect(validation).toContain("p.cmd IN ('INSERT','ALL')");
+  expect(validation.indexOf('registration write policy set requires reconciliation')).toBeLessThan(validation.indexOf('DROP POLICY'));
+  expect(validation).toContain("'with_check',p.with_check");
   expect(active).not.toMatch(/DELETE\s+FROM\s+storage\.objects/i);
   const workflow = readFileSync(join(process.cwd(), '.github/workflows/ci.yml'), 'utf8');
   const start = workflow.indexOf('run: supabase start');
