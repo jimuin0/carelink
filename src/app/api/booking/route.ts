@@ -245,15 +245,8 @@ export async function POST(request: Request) {
   // 請求は Math.max(0,...) で 0 に丸まる一方ポイントは full 控除され、超過分が消失する＝金銭損失）。
   // メニュー必須化により serverTotalPrice は常に権威的な数値のため、その価格でクランプする。
   const pointsUsed = Math.min(requestedPoints, serverTotalPrice);
-  // Early UX check only. The transaction locks the account and validates again.
-  if (pointsUsed > 0 && user) {
-    const { data: pointRows, error: pointsError } = await supabase.from('user_points').select('points').eq('user_id', user.id);
-    if (pointsError) return serverError('booking-points-balance', pointsError, '/api/booking');
-    const pointsBalanceSnapshot = (pointRows ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
-    if (pointsBalanceSnapshot < pointsUsed) {
-      return reject('ポイント残高が不足しています', 400);
-    }
-  }
+  // The atomic creator locks the account and checks the complete ledger.
+  // A capped pre-read must not reject an otherwise valid spend before it runs.
 
   // ポイント値引き反映
   const finalPrice = pointsUsed > 0

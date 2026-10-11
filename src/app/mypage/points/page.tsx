@@ -1,24 +1,40 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import type { UserPoint } from '@/types';
+import { readPointsBalance } from '@/lib/points-balance';
 
 export default async function PointsPage() {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 
-  const { data } = await supabase
-    .from('user_points')
-    .select('id, points, reason, created_at')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false });
-
-  const points = (data ?? []) as UserPoint[];
-  const totalPoints = points.reduce((sum, p) => sum + p.points, 0);
+  let points: UserPoint[];
+  let totalPoints: number;
+  try {
+    const [history, balance] = await Promise.all([
+      supabase.from('user_points').select('id, points, reason, created_at')
+        .eq('user_id', user.id).order('created_at', { ascending: false }).limit(50),
+      readPointsBalance(supabase, user.id),
+    ]);
+    if (history.error || !history.data) throw new Error('POINTS_HISTORY_UNAVAILABLE');
+    points = history.data as UserPoint[];
+    totalPoints = balance;
+  } catch {
+    return (
+      <div role="alert">
+        <h1 className="text-xl font-bold mb-4">ポイント履歴</h1>
+        <p>ポイントを取得できませんでした。</p>
+        <form action="/mypage/points" method="get">
+          <button type="submit" className="text-primary underline">再読み込み</button>
+        </form>
+      </div>
+    );
+  }
 
   return (
     <div>
       <h1 className="text-xl font-bold mb-4">ポイント履歴</h1>
+      <p className="text-sm text-gray-500 mb-4">残高は全履歴の合計です。履歴は直近50件を表示します。</p>
 
       <div className="bg-primary text-white rounded-2xl p-6 mb-6">
         <p className="text-sm opacity-80">保有ポイント</p>

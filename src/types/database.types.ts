@@ -6614,6 +6614,7 @@ export type Database = {
           visit_count: number
         }[]
       }
+      get_user_points_balance: { Args: { p_user_id: string }; Returns: number }
       gettransactionid: { Args: never; Returns: unknown }
       increment_view_count: {
         Args: { facility_uuid: string }

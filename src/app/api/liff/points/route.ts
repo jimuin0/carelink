@@ -10,6 +10,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { fetchVerifiedLiffProfile } from '@/lib/liff-profile';
 import { resolveVerifiedLineOwner } from '@/lib/verified-line-owner';
 import { serverError } from '@/lib/with-route';
+import { readPointsBalance } from '@/lib/points-balance';
 
 export async function GET(req: NextRequest) {
   try {
@@ -49,20 +50,7 @@ export async function GET(req: NextRequest) {
     return serverError('liff-points-logs', logsError, '/api/liff/points', 'Internal Server Error');
   }
 
-  // 残高(total)は【全履歴の合計】で算出する。直近50件だけの合計を残高にすると、履歴が51件以上ある
-  // ユーザーで残高が実際とずれ、Web版マイページ(mypage/points は .limit なしで全件合計)と食い違う。
-  // user_points は残高カラムを持たない純台帳のため、全 points 列を取得して合算する
-  // （booking/route.ts の残高算出と同じ全件合計方式に統一）。
-  const { data: allPoints, error: allPointsError } = await admin
-    .from('user_points')
-    .select('points')
-    .eq('user_id', userId);
-
-  if (allPointsError) {
-    return serverError('liff-points-total', allPointsError, '/api/liff/points', 'Internal Server Error');
-  }
-
-  const total = (allPoints ?? []).reduce((sum, row) => sum + (row.points ?? 0), 0);
+  const total = await readPointsBalance(admin, userId);
 
   return NextResponse.json({ logs: logs ?? [], total });
   } catch (e) {

@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { readPointsBalance } from '@/lib/points-balance';
 import Toast from '@/components/Toast';
 import type { StaffProfile, FacilityMenu, Coupon, AvailableSlot } from '@/types';
 import { describeCancelPolicy, type CancelPolicy } from '@/lib/cancel-fee';
@@ -222,6 +223,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   // 宣言順を早めるだけで挙動は変わらない（フックは条件無しで毎レンダー同じ順で呼ばれ続ける）。
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [availablePoints, setAvailablePoints] = useState(0);
+  const [pointsLoadFailed, setPointsLoadFailed] = useState(false);
+  const [pointsRetryTick, setPointsRetryTick] = useState(0);
   const [usePoints, setUsePoints] = useState(false);
   const [pointsToUse, setPointsToUse] = useState(0);
 
@@ -522,17 +525,22 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   }, [matrix]);
 
   useEffect(() => {
+    let active = true;
     const supabase = createBrowserSupabaseClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!active) return;
       setIsAuthenticated(!!user);
       if (user) {
-        supabase.from('user_points').select('points').eq('user_id', user.id).then(({ data }) => {
-          const total = (data ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
-          setAvailablePoints(Math.max(0, total));
-        });
+        try {
+          const total = await readPointsBalance(supabase, user.id);
+          if (active) { setAvailablePoints(Math.max(0, total)); setPointsLoadFailed(false); }
+        } catch {
+          if (active) setPointsLoadFailed(true);
+        }
       }
-    }).catch(() => setIsAuthenticated(false));
-  }, []);
+    }).catch(() => { if (active) setIsAuthenticated(false); });
+    return () => { active = false; };
+  }, [pointsRetryTick]);
 
   // Warn on unsaved changes
   useEffect(() => {
@@ -557,6 +565,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   };
   const handleSubmit = async () => {
     if (submitting || !bookingCreate.current) return;
+    if (usePoints && pointsLoadFailed && !bookingCreate.current.pending) {
+      setToast({ type: 'error', message: 'ポイント残高を再取得してください' }); return;
+    }
     if (!customerName || !email) { setToast({ type: 'error', message: 'お名前とメールアドレスは必須です' }); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setToast({ type: 'error', message: '正しいメールアドレスを入力してください' }); return; }
     setSubmitting(true); setBookingPending(true);
@@ -1256,9 +1267,15 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
           </div>
 
           {/* Points */}
+          {isAuthenticated && pointsLoadFailed && (
+            <div role="alert" className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm">
+              <p>ポイント残高を取得できませんでした。</p>
+              <button type="button" onClick={() => setPointsRetryTick(tick => tick + 1)} className="text-primary underline">ポイントを再取得</button>
+            </div>
+          )}
           {(() => {
             const currentPrice = calculatePrice();
-            if (!isAuthenticated || availablePoints <= 0 || currentPrice === null) return null;
+            if (!isAuthenticated || pointsLoadFailed || availablePoints <= 0 || currentPrice === null) return null;
             return (
               <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 space-y-2">
                 <label className="flex items-center gap-2 text-sm">
@@ -1320,7 +1337,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={submitting}
+              disabled={submitting || (usePoints && pointsLoadFailed)}
               className="btn-primary flex-1 py-3!"
             >
               {submitting ? '予約中...' : 'この内容で予約する'}
