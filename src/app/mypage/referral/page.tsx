@@ -99,7 +99,7 @@ export default function ReferralPage() {
       {/* ポイント説明 */}
       <div className="bg-linear-to-br from-sky-500 to-sky-600 text-white rounded-2xl p-6">
         <p className="text-sm opacity-90 mb-2">友達を招待すると</p>
-        <p className="text-3xl font-bold">双方に 300pt</p>
+        <p className="text-3xl font-bold">あなたに500pt・友達に300pt</p>
         <p className="text-sm opacity-80 mt-1">初回のご予約完了で、招待した方・された方の両方にポイントをプレゼント</p>
       </div>
 
@@ -178,7 +178,7 @@ export default function ReferralPage() {
           {[
             '上記の紹介コードを友達に教える',
             '友達がCareLinkに登録後、紹介コードを入力',
-            '友達に300pt・あなたに300ptを自動でプレゼント',
+            '友達に300pt・あなたに500ptを自動でプレゼント',
           ].map((step, i) => (
             <li key={i} className="flex items-start gap-3 text-sm text-gray-600">
               <span className="w-5 h-5 rounded-full bg-sky-100 text-sky-600 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>

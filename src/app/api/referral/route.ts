@@ -38,26 +38,30 @@ export async function GET(request: NextRequest) {
       { cookies: { getAll: () => cookieStore.getAll() } }
     );
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const verification = await verifyAuthUser(supabase.auth);
+    if (verification.state === 'unavailable') return authUnavailable('referral-get-auth', '/api/referral');
+    if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const user = verification.user;
 
     const adminSupabase = createServiceRoleClient();
 
     // 自分が既に他人の紹介コードを使用済みか（適用済みフラグの永続化 = REF-2）。
-    // これを返さないと、フロントの「適用済み」表示が再読込で消える。error は best-effort(未適用扱い)。
+    // 読み取り失敗を未適用に変換しない。再適用を案内する前に状態を確認する。
     const { data: usedRow, error: usedErr } = await adminSupabase
       .from('referral_uses')
       .select('id')
       .eq('referred_user_id', user.id)
       .maybeSingle();
-    const already_referred = !usedErr && !!usedRow;
+    if (usedErr) return serverError('referral-use-read', usedErr, '/api/referral', '招待情報を確認できません');
+    const already_referred = !!usedRow;
 
     // 既存コード取得
-    const { data: existing } = await adminSupabase
+    const { data: existing, error: existingErr } = await adminSupabase
       .from('referral_codes')
       .select('code, used_count')
       .eq('user_id', user.id)
       .maybeSingle();
+    if (existingErr) return serverError('referral-code-read', existingErr, '/api/referral', '紹介コードを確認できません');
 
     if (existing) return NextResponse.json({ ...existing, already_referred });
 
@@ -65,6 +69,12 @@ export async function GET(request: NextRequest) {
     const code = generateCode();
     const { error: insertErr } = await adminSupabase.from('referral_codes').insert({ user_id: user.id, code });
     if (insertErr) {
+      // 同時に開いた別画面が先に発行した場合は、その同じコードを返す。
+      if (insertErr.code === '23505') {
+        const recorded = await adminSupabase.from('referral_codes').select('code, used_count')
+          .eq('user_id', user.id).maybeSingle();
+        if (!recorded.error && recorded.data) return NextResponse.json({ ...recorded.data, already_referred });
+      }
       return serverError('referral-code-generate', insertErr, '/api/referral', '紹介コードの生成に失敗しました');
     }
     return NextResponse.json({ code, used_count: 0, already_referred });

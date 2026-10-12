@@ -48,7 +48,7 @@ INSERT INTO public.facility_menus(facility_id,category,name,price,duration_minut
 INSERT INTO public.staff_profiles(facility_id,name,slug,is_active) VALUES ('f8510000-0000-4000-8000-000000000001','Synthetic staff','modphoto-staff',true);
 INSERT INTO public.facility_reviews(id,facility_id,reviewer_name,rating,comment,reviewer_ip) VALUES
  ('f8530000-0000-4000-8000-000000000001','f8510000-0000-4000-8000-000000000001','Synthetic reviewer',4,'fixture','127.0.0.1'),
- ('f8530000-0000-4000-8000-000000000002','f8510000-0000-4000-8000-000000000001','Synthetic rollback',4,'fixture','127.0.0.1'),
+ ('f8530000-0000-4000-8000-000000000002','f8510000-0000-4000-8000-000000000001','Synthetic rollback',4,'fixture','192.0.2.132'),
  ('f8530000-0000-4000-8000-000000000003','f8510000-0000-4000-8000-000000000002','Synthetic other',4,'fixture','127.0.0.1');
 INSERT INTO public.moderation_queue(id,content_type,content_id,facility_id) VALUES
  ('f8540000-0000-4000-8000-000000000001','review','f8530000-0000-4000-8000-000000000001','f8510000-0000-4000-8000-000000000001'),

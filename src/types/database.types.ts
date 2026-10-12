@@ -5981,6 +5981,10 @@ export type Database = {
       }
     }
     Functions: {
+      edit_review_atomic: {
+        Args: { p_actor_id: string; p_review_id: string; p_patch: Json }
+        Returns: { id: string }[]
+      }
       _postgis_deprecate: {
         Args: { newname: string; oldname: string; version: string }
         Returns: undefined
