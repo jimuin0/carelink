@@ -379,6 +379,8 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 | ADMIN_HEARTBEAT_URL / ADMIN_HEARTBEAT_TOKEN | 管理画面ハートビートの送信先とトークン（未設定で送信しない・`src/lib/admin-heartbeat.ts`） |
 | THREADS_USER_ID | Threads 自動投稿の投稿先ユーザーID（未設定なら投稿は `skipped`＝正常扱い）。**アクセストークンは env に置かない**（60日で失効し `threads-token-refresh` cron が自動更新するが、env はコードから書き換えられないため）。トークンは `threads_credentials` テーブルに入る（RLS 有効・許可ポリシー無し＝service role のみ読める） |
 
+テスト専用の隔離fixtureは `CI`・`GITHUB_ACTIONS`・`PLAYWRIGHT_BASE_URL` でGitHubのローカル実行対象を確認し、`PATH` を使って固定Dockerコンテナの保守用データを準備する。本番のアプリ設定には追加しない。fixtureは `example.invalid` の合成申込だけを受け付け、過去申込の同意NULLを保持する。
+
 ## テスト・CI（`.github/workflows/ci.yml`）
 - Lint & Type Check：`npm run lint` ＋ `npx tsc --noEmit`
 - Unit Tests + Coverage：`npm run test:coverage:ci`。`jest.config.js` の `coverageThreshold`＝branches【100】/ lines 80 / functions 75 / statements 80。測定対象＝`src/lib/**/*.ts` ＋ `src/app/api/**/*.{ts,tsx}`（JSX を返す Route Handler の測定漏れ防止）＋ `src/lib/**/*.mjs`（Render cron dispatcher の純粋ロジック `render-cron.mjs` もゲート対象）、`src/**/*.d.ts` は除外。下回ると Coverage Gate で fail。

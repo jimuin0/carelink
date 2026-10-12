@@ -100,9 +100,9 @@ DO $$ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN NULL; END;
 END $$;
 
-SELECT pg_temp.assert_photo((SELECT outcome='committed' FROM public.commit_salon_submission(
+SELECT pg_temp.assert_photo((SELECT outcome='committed' FROM public.commit_salon_submission_with_consent(
   '64000000-0000-4000-8000-000000000001',repeat('a',64),1::smallint,'proof-hkdf-sha256-v1',repeat('c',64),
-  '{"facility_name":"Synthetic photo contract","business_type":"ヘアサロン","representative_name":"Synthetic representative", "contact_name":"Synthetic contact","email":"photo-fixture@example.invalid","phone":"09000000000","features":[],"photo_urls":[],"source":"recruit"}'::jsonb)),
+  '{"facility_name":"Synthetic photo contract","business_type":"ヘアサロン","representative_name":"Synthetic representative", "contact_name":"Synthetic contact","email":"photo-fixture@example.invalid","phone":"09000000000","features":[],"photo_urls":[],"source":"recruit"}'::jsonb,'7680f8bffe58b63041fb8afd0c9e81e69dbe5dabafdbe7a73bbc9d2c86f8f04a')),
   'commit fixture has a confirmed receipt');
 SELECT pg_temp.assert_photo((SELECT outcome='committed' AND photo_id IS NULL AND object_path IS NULL FROM public.prepare_salon_photo(
   '64000000-0000-4000-8000-000000000001',repeat('a',64),gen_random_uuid(),0::smallint,'image/png',1::bigint)),

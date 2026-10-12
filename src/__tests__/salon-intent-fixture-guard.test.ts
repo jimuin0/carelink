@@ -25,3 +25,10 @@ test('an approved environment reaches the distinct database failure path', () =>
   expect(result.stdout).toBe('');
   expect(result.stderr).toBe('Registration concurrency contract failed; no production probe was authorized.\n');
 });
+
+test.each(['', 'unix:///other/docker.sock', 'tcp://production.invalid:2375'])('local shadow requires its exact isolated socket (%s)', DOCKER_HOST => {
+  const result = spawnSync(process.execPath, [script, '--local-docker-shadow'], { env: { ...isolated, DOCKER_HOST }, encoding: 'utf8' });
+  expect(result.status).toBe(1);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toBe('Registration concurrency contract failed; no production probe was authorized.\n');
+});

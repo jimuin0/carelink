@@ -1,12 +1,13 @@
 /**
  * @jest-environment jsdom
  *
- * /register ページ: 確認ダイアログの確定ボタンを連打しても /api/salons への
+ * /register ページ: 確認ダイアログの確定ボタンを連打しても /api/salons/commit への
  * 登録POSTは1回だけであることを検証する回帰テスト（二重登録防止）。
  */
 import '@testing-library/jest-dom';
 import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react';
 import RegisterPage from '@/app/register/page';
+import { submissionResponse } from '../test-support/submission-response';
 
 const pushMock = jest.fn();
 jest.mock('next/navigation', () => ({
@@ -20,6 +21,8 @@ jest.mock('next/navigation', () => ({
 jest.mock('@/lib/recaptcha-client', () => ({
   getRecaptchaToken: jest.fn().mockResolvedValue(null),
 }));
+
+beforeEach(() => { sessionStorage.clear(); });
 
 afterEach(() => {
   jest.restoreAllMocks();
@@ -78,15 +81,9 @@ beforeAll(async () => {
   unmount();
 });
 
-test('確認ダイアログの確定ボタンを連打しても /api/salons への送信は1回だけ（二重登録防止・回帰）', async () => {
+test('確認ダイアログの確定ボタンを連打しても /api/salons/commit への送信は1回だけ（二重登録防止・回帰）', async () => {
   const fetchMock = jest.fn((url: string) => {
-    if (url === '/api/salons') {
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ success: true, id: '11111111-1111-1111-1111-111111111111' }),
-      } as Response);
-    }
-    return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    return submissionResponse(url);
   });
   global.fetch = fetchMock as unknown as typeof fetch;
 
@@ -113,22 +110,16 @@ test('確認ダイアログの確定ボタンを連打しても /api/salons へ�
   });
 
   await waitFor(() => expect(pushMock).toHaveBeenCalled());
-  const salonPostCalls = fetchMock.mock.calls.filter(([url]) => url === '/api/salons');
+  const salonPostCalls = fetchMock.mock.calls.filter(([url]) => url === '/api/salons/commit');
   expect(salonPostCalls).toHaveLength(1);
 });
 
 // 【2026年7月16日 恒久根治】/api/notify（認証なし公開POST）廃止に伴い、Slack通知は
 // /api/salons が保存成功後にサーバー側から直接送るよう移行した。/register 由来か
 // /recruit 由来かをサーバーが区別できるよう source フィールドを送る回帰テスト。
-test('/api/salons への送信ボディに source: "register" が含まれる（サーバー側Slack通知の振り分け用）', async () => {
+test('/api/salons/commit への送信ボディに source: "register" が含まれる（サーバー側Slack通知の振り分け用）', async () => {
   const fetchMock = jest.fn((url: string) => {
-    if (url === '/api/salons') {
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ success: true, id: '11111111-1111-1111-1111-111111111111' }),
-      } as Response);
-    }
-    return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    return submissionResponse(url);
   });
   global.fetch = fetchMock as unknown as typeof fetch;
 
@@ -147,8 +138,8 @@ test('/api/salons への送信ボディに source: "register" が含まれる（
   fireEvent.click(within(dialog).getByRole('button', { name: '送信する' }));
 
   await waitFor(() => expect(pushMock).toHaveBeenCalled());
-  const [, options] = fetchMock.mock.calls.find(([url]) => url === '/api/salons')!;
-  const body = JSON.parse((options as RequestInit).body as string);
+  const [, options] = fetchMock.mock.calls.find(([url]) => url === '/api/salons/commit')!;
+  const body = JSON.parse((options as RequestInit).body as string).registration;
   expect(body.source).toBe('register');
 });
 

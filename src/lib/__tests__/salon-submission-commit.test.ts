@@ -39,9 +39,16 @@ test('invalid proof performs no I/O', async () => {
   const f = fixture(); expect(await commitSalonSubmission(f.db, input, 'bad')).toEqual({ state: 'unverified' });
   expect(readSalonIntentStatus).not.toHaveBeenCalled();
 });
-test('legacy omitted declaration uses the original RPC and exact original canonical comparison',async()=>{
+test('missing declaration cannot create a fresh registration',async()=>{
   const {consent,...legacy}=input;void consent;const f=fixture();
-  expect((await commitSalonSubmission(f.db,legacy,proof)).state).toBe('committed');
+  expect((await commitSalonSubmission(f.db,legacy,proof)).state).toBe('consent_required');
+  expect(f.rpc).not.toHaveBeenCalled(); expect(f.from).not.toHaveBeenCalled();
+});
+test('historical receipt replay does not invent a declaration',async()=>{
+  const {consent,...legacy}=input;void consent;const f=fixture();
+  (readSalonIntentStatus as jest.Mock).mockResolvedValue({state:'committed',receiptId});
+  f.rpc.mockResolvedValue({data:[{outcome:'replay',receipt_id:receiptId}],error:null});
+  expect(await commitSalonSubmission(f.db,legacy,proof)).toEqual({state:'replay',receiptId});
   expect(f.rpc.mock.calls[0][0]).toBe('commit_salon_submission');
   expect(f.rpc.mock.calls[0][1]).not.toHaveProperty('p_terms_sha256');
 });

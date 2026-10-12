@@ -259,3 +259,9 @@ test('POST: valid plaintext is retained for the immutable delivery envelope', as
   expect(res.status).toBe(201); expect((await res.json()).campaign.text_content).toBe(stored.text_content);
   expect(chain.insert).toHaveBeenCalledWith(expect.objectContaining({ text_content: stored.text_content }));
 });
+
+test('予約日時を含む作成は保存せず、手動配信の方針を返す', async () => {
+  const response = await POST(makePostRequest(validPostBody({ scheduled_at: '2030-01-01T00:00:00Z' })));
+  expect(response.status).toBe(400); expect((await response.json()).code).toBe('NEWSLETTER_MANUAL_ONLY');
+  expect(mockAdminFrom).not.toHaveBeenCalled();
+});

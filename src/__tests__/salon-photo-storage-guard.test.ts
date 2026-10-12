@@ -31,6 +31,7 @@ function fixture(env: Record<string, string>) {
       if (name === '@supabase/supabase-js') return { createClient };
       if (name === '@supabase/ssr') return { createServerClient: () => { throw new Error('SSR client must not run during registration'); } };
       if (name === 'node:crypto') return { randomUUID: () => 'synthetic-id' };
+      if (name === './synthetic-salon-history') return { seedSyntheticSalonHistory: () => { throw new Error('History seed must not execute in suite guard'); } };
       if (name === '../src/lib/constants') return { businessTypes };
       throw new Error('unexpected fixture import');
     },

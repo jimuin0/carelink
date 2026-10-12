@@ -46,7 +46,7 @@ export const POST = withRoute(async request => {
   if (!isSalonIntentProof(proof)) return NextResponse.json({ state: 'unverified' }, { status: 403, headers });
   const result = await commitSalonSubmission(createServiceRoleClient(), parsed.data, proof);
   const status = { invalid: 400, unverified: 403, expired: 410, conflict: 409,
-    unavailable: 503, photo_unverified: 409, unknown: 202, committed: 201, replay: 200 }[result.state];
+    unavailable: 503, photo_unverified: 409, unknown: 202, consent_required: 400, committed: 201, replay: 200 }[result.state];
   // Keep the same HttpOnly capability for response-loss reconciliation. Do not
   // create an unbound legacy claim cookie from a public receipt identifier.
   return NextResponse.json(result, { status, headers });

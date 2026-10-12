@@ -50,9 +50,12 @@ SELECT pg_temp.assert_consent((SELECT outcome='unverified' FROM public.commit_sa
  'c8010000-0000-4000-8000-000000000003',repeat('f',64),1::smallint,'proof-hkdf-sha256-v1',repeat('b',64),pg_temp.consent_payload(),repeat('c',64))),
  'wrong capability does not record an agreement');
 
--- Legacy grace remains callable; a later new wrapper replay does not backfill it.
+-- Seed a historical receipt as database-owner maintenance. Application grace
+-- is closed; a later new wrapper replay must not fabricate its declaration.
+RESET ROLE;
 SELECT * FROM public.commit_salon_submission('c8010000-0000-4000-8000-000000000002',repeat('a',64),1::smallint,
  'proof-hkdf-sha256-v1',repeat('b',64),pg_temp.consent_payload());
+SET LOCAL ROLE service_role;
 SELECT * FROM public.commit_salon_submission_with_consent('c8010000-0000-4000-8000-000000000002',repeat('a',64),1::smallint,
  'proof-hkdf-sha256-v1',repeat('b',64),pg_temp.consent_payload(),repeat('c',64));
 SELECT pg_temp.assert_consent((SELECT s.registration_terms_sha256 IS NULL AND s.registration_terms_accepted_at IS NULL
@@ -94,5 +97,5 @@ DO $$ BEGIN
  EXCEPTION WHEN check_violation THEN NULL; END;
 END $$;
 RESET ROLE;
-SELECT 'consent receipt/replay/grace/ACL/rollback checks passed';
+SELECT 'consent receipt/historical replay/ACL/rollback checks passed';
 ROLLBACK;

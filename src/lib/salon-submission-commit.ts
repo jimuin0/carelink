@@ -24,7 +24,7 @@ const receipt = z.discriminatedUnion('outcome', [
   z.object({ outcome: rejection, receipt_id: z.null() }).strict(),
 ]);
 export type SalonCommitResult =
-  | { state: 'invalid' | 'unverified' | 'expired' | 'conflict' | 'unavailable' | 'photo_unverified' | 'unknown' }
+  | { state: 'invalid' | 'unverified' | 'expired' | 'conflict' | 'unavailable' | 'photo_unverified' | 'unknown' | 'consent_required' }
   | { state: 'committed' | 'replay'; receiptId: string };
 type Database = ReturnType<typeof createServiceRoleClient>;
 
@@ -43,6 +43,9 @@ export async function commitSalonSubmission(db: Database, value: unknown, proof:
     // empty photo selection. The RPC independently rechecks it under lock.
     const status = await readSalonIntentStatus(db, input.intentId, proof);
     if (status.state !== 'uncommitted' && status.state !== 'committed') return { state: status.state };
+    // A historical committed receipt can still be replayed exactly. New
+    // registrations always require the current explicit declaration.
+    if (status.state === 'uncommitted' && input.consent === undefined) return { state: 'consent_required' };
     const urls: string[] = [];
     if (input.photoIds.length > 0) {
       const ids = input.photoIds.map(id => id.toLowerCase());
@@ -82,8 +85,8 @@ export async function commitSalonSubmission(db: Database, value: unknown, proof:
       p_canonical_version: SALON_CANONICAL_VERSION, p_hmac_scheme: SALON_HMAC_SCHEME,
       p_payload_hmac: salonPayloadHmac(proof, canonical.serialized), p_registration: canonical.row,
     };
-    // Grace preserves already-issued legacy intents and their exact business
-    // comparison. Only fresh verified declarations create a consent record.
+    // Missing declarations are allowed only for exact historical receipt replay.
+    // A fresh transaction always calls the declaration-recording wrapper.
     const result = input.consent === undefined
       ? await db.rpc('commit_salon_submission', args)
       : await db.rpc('commit_salon_submission_with_consent', { ...args, p_terms_sha256: REGISTRATION_TERMS_SHA256 });

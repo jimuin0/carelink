@@ -26,7 +26,7 @@ const TYPE_LABELS: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, { label: string; tone: SbBadgeTone }> = {
   draft: { label: '下書き', tone: 'neutral' },
-  scheduled: { label: '配信予定', tone: 'info' },
+  scheduled: { label: '旧予約（自動配信なし）', tone: 'info' },
   sending: { label: '受付・結果確認中', tone: 'warning' },
   sent: { label: '処理完了', tone: 'success' },
   cancelled: { label: 'キャンセル', tone: 'danger' },
@@ -42,7 +42,6 @@ export default function NewslettersPage() {
     subject: '',
     html_content: '',
     text_content: '',
-    scheduled_at: '',
   });
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
   // 「今すぐ配信」は不可逆な一斉メール送信のため確認ダイアログを挟む。送信対象キャンペーンID。
@@ -70,7 +69,7 @@ export default function NewslettersPage() {
       if (res.ok) {
         setCampaigns((prev) => [data.campaign, ...prev]);
         setShowCreate(false);
-        setForm({ campaign_type: 'owner_monthly', subject: '', html_content: '', text_content: '', scheduled_at: '' });
+        setForm({ campaign_type: 'owner_monthly', subject: '', html_content: '', text_content: '' });
         setResult({ ok: true, message: 'キャンペーンを作成しました' });
       } else {
         setResult({ ok: false, message: data.error || '作成に失敗しました' });
@@ -144,7 +143,7 @@ export default function NewslettersPage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <SbStatCard label="総キャンペーン" value={campaigns.length} unit="件" accent="sky" />
         <SbStatCard label="処理完了" value={campaigns.filter((c) => c.status === 'sent').length} unit="件" accent="emerald" />
-        <SbStatCard label="予定" value={campaigns.filter((c) => c.status === 'scheduled').length} unit="件" accent="amber" />
+        <SbStatCard label="旧予約" value={campaigns.filter((c) => c.status === 'scheduled').length} unit="件" accent="amber" />
         <SbStatCard label="下書き" value={campaigns.filter((c) => c.status === 'draft').length} unit="件" accent="gray" />
       </div>
 
@@ -166,16 +165,7 @@ export default function NewslettersPage() {
                 ))}
               </select>
             </div>
-            <div>
-              <label htmlFor="nl-scheduled" className="block text-xs font-medium text-gray-700 mb-1">配信予定日時（任意）</label>
-              <input
-                id="nl-scheduled"
-                type="datetime-local"
-                value={form.scheduled_at}
-                onChange={(e) => setForm((f) => ({ ...f, scheduled_at: e.target.value }))}
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-              />
-            </div>
+
           </div>
           <div>
             <label htmlFor="nl-subject" className="block text-xs font-medium text-gray-700 mb-1">件名 <span className="text-red-500">*</span></label>
@@ -258,7 +248,7 @@ export default function NewslettersPage() {
                     </div>
                     <div className="font-medium text-gray-900 mt-1 truncate">{c.subject}</div>
                     <div className="text-xs text-gray-500 mt-1 space-x-3">
-                      {c.scheduled_at && <span>予定：{new Date(c.scheduled_at).toLocaleString('ja-JP')}</span>}
+                      {c.scheduled_at && <span>旧予約日時（自動配信なし）：{new Date(c.scheduled_at).toLocaleString('ja-JP')}</span>}
                       {c.sent_at && <span>処理完了：{new Date(c.sent_at).toLocaleString('ja-JP')}</span>}
                       <span>作成：{new Date(c.created_at).toLocaleDateString('ja-JP')}</span>
                     </div>
@@ -282,15 +272,6 @@ export default function NewslettersPage() {
                         >
                           今すぐ配信
                         </button>
-                        {c.scheduled_at && (
-                          <button
-                            type="button"
-                            onClick={() => handleAction(c.id, 'schedule')}
-                            className="text-xs bg-sky-600 text-white px-3 py-1 rounded-lg hover:bg-sky-700 transition-colors"
-                          >
-                            予約配信
-                          </button>
-                        )}
                       </>
                     )}
                     {c.status === 'scheduled' && (

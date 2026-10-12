@@ -74,7 +74,7 @@ function setupDefaultMocks(
           select: jest.fn().mockReturnValue({
             eq: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
-                single: jest.fn().mockResolvedValue({
+                maybeSingle: jest.fn().mockResolvedValue({
                   data: dbError ? null : singleData,
                   error: dbError ? { message: 'DB error' } : null,
                 }),
@@ -133,12 +133,10 @@ describe('GET /api/salons', () => {
     expect(json.name).toBe('Salon ABC');
   });
 
-  test('single salon by ID (invalid UUID format) → empty list', async () => {
+  test('invalid ID is refused rather than returning an unrelated list', async () => {
     const res = await GET(makeRequest('id=not-a-uuid') as any);
 
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(Array.isArray(json)).toBe(true);
+    expect(res.status).toBe(400);
   });
 
   test('single salon not found → 404', async () => {
@@ -289,10 +287,10 @@ describe('GET /api/salons', () => {
     expect(res.status).toBe(200);
   });
 
-  test('UUID too short (not 36 chars) → list fallback', async () => {
+  test('UUID too short is refused', async () => {
     const res = await GET(makeRequest('id=11111111-1111-1111') as any);
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
   });
 
   test('empty area parameter ignored', async () => {
@@ -351,4 +349,12 @@ describe('GET /api/salons', () => {
     const json = await res.json();
     expect(json).toEqual([]);
   });
+});
+
+test('single lookup DB failure is not reported as a missing facility', async () => {
+  setupDefaultMocks(false, false, true);
+  expect((await GET(makeRequest(`id=${VALID_UUID}`) as any)).status).toBe(500);
+});
+test.each(['', '-'.repeat(36), 'a'.repeat(36)])('malformed ID %s cannot fall through to a public list', async id => {
+  expect((await GET(makeRequest(`id=${id}`) as any)).status).toBe(400);
 });

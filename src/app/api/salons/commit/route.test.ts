@@ -69,7 +69,7 @@ test.each(['', `${salonIntentCookieName(intentId)}=bad`, `${salonIntentCookieNam
 });
 test.each([
   ['invalid', 400], ['unverified', 403], ['unavailable', 503], ['expired', 410],
-  ['committed', 201], ['conflict', 409], ['photo_unverified', 409], ['unknown', 202], ['replay', 200],
+  ['committed', 201], ['conflict', 409], ['photo_unverified', 409], ['unknown', 202], ['replay', 200], ['consent_required', 400],
 ])('maps %s explicitly without leaking proof or issuing a legacy cookie', async (state, status) => {
   const result = state === 'committed' || state === 'replay' ? { state, receiptId: other } : { state };
   (commitSalonSubmission as jest.Mock).mockResolvedValue(result);
