@@ -40,7 +40,7 @@ DO $$ DECLARE qid uuid; observed jsonb; h text; rev timestamptz; BEGIN
  PERFORM pg_temp.assert_review_cas((SELECT NOT is_flagged AND status='hidden' FROM public.facility_reviews WHERE id='fa130002-0000-4000-8000-000000000001'),'approval never republishes independent hidden status');
  PERFORM pg_temp.assert_review_cas((SELECT decision_content_hash=h FROM public.moderation_queue WHERE id=qid),'decision records exact reviewed hash');
  PERFORM public.edit_review_atomic('fa130000-0000-4000-8000-000000000001','fa130002-0000-4000-8000-000000000001','{"comment":"New flagged revision","is_flagged":true,"flag_reason":"Synthetic changed text"}');
- SELECT public.review_content_hash(r) INTO h FROM public.facility_reviews r WHERE r.id='fa130002-0000-4000-8000-000000000001';
+ SELECT public.moderation_review_context_hash(q,r) INTO h FROM public.facility_reviews r JOIN public.moderation_queue q ON q.content_id=r.id WHERE q.id=qid;
  SELECT reviewed_at INTO rev FROM public.moderation_queue WHERE id=qid;
  BEGIN PERFORM public.moderate_review_content_atomic('fa130000-0000-4000-8000-000000000001',qid,'approved','approved',NULL,rev,h);
   RAISE EXCEPTION 'old approval released new flagged content'; EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'MODERATION_REVISION_CONFLICT' THEN RAISE; END IF; END;
@@ -59,7 +59,7 @@ CREATE TRIGGER synthetic_review_cas_failure BEFORE UPDATE ON public.moderation_q
 SET LOCAL ROLE service_role;
 DO $$ DECLARE qid uuid; h text; BEGIN
  SELECT id INTO qid FROM public.moderation_queue WHERE content_id='fa130002-0000-4000-8000-000000000002';
- SELECT public.review_content_hash(r) INTO h FROM public.facility_reviews r WHERE r.id='fa130002-0000-4000-8000-000000000002';
+ SELECT public.moderation_review_context_hash(q,r) INTO h FROM public.facility_reviews r JOIN public.moderation_queue q ON q.content_id=r.id WHERE q.id=qid;
  BEGIN PERFORM public.moderate_review_content_atomic('fa130000-0000-4000-8000-000000000001',qid,'pending','approved',p_expected_content_hash=>h);RAISE EXCEPTION 'failed queue write accepted';
  EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'SYNTHETIC_DECISION_WRITE_FAILURE' THEN RAISE; END IF; END;
  PERFORM pg_temp.assert_review_cas((SELECT is_flagged FROM public.facility_reviews WHERE id='fa130002-0000-4000-8000-000000000002'),'failed decision rolls back flag release');

@@ -64,7 +64,7 @@ DO $$ DECLARE i integer; rid uuid; qid uuid; prior text; BEGIN
       (rid,'fa120001-0000-4000-8000-000000000001','Reported review',4,'192.0.2.'||(10+i));
     INSERT INTO public.moderation_queue(id,content_type,content_id,facility_id,reporter_id,report_reason,auto_flags,status) VALUES
       (qid,'review',rid,'fa120001-0000-4000-8000-000000000001','fa120000-0000-4000-8000-000000000002','Original report','["user_report"]',prior);
-    PERFORM * FROM public.moderate_review_content_atomic('fa120000-0000-4000-8000-000000000002',qid,prior,'rejected','Synthetic decision',NULL,p_expected_content_hash=>coalesce((SELECT public.review_content_hash(r) FROM public.moderation_queue mq JOIN public.facility_reviews r ON r.id=mq.content_id WHERE mq.id=qid),repeat('a',64)));
+    PERFORM * FROM public.moderate_review_content_atomic('fa120000-0000-4000-8000-000000000002',qid,prior,'rejected','Synthetic decision',NULL,p_expected_content_hash=>coalesce((SELECT public.moderation_review_context_hash(mq,r) FROM public.moderation_queue mq JOIN public.facility_reviews r ON r.id=mq.content_id WHERE mq.id=qid),repeat('a',64)));
     PERFORM pg_temp.assert_review((SELECT status='rejected' AND reporter_id='fa120000-0000-4000-8000-000000000002'
       AND report_reason='Original report' AND auto_flags='["user_report"]'::jsonb FROM public.moderation_queue WHERE id=qid),'rejection retains original report metadata');
     PERFORM pg_temp.assert_review((SELECT count(*)=1 AND count(*) FILTER(WHERE status='pending')=0 FROM public.moderation_queue WHERE content_type='review' AND content_id=rid),'rejection does not reopen pending review');

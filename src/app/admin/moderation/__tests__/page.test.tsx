@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import ModerationPage from '../page';
 const id = '11111111-1111-4111-8111-111111111111';
 const mockFetch = jest.fn(); const mockDb = jest.fn(); const mutation=jest.fn();
-const snapshot={id,content_id:id,content_type:'review',status:'pending',reviewed_at:null,content_hash:'a'.repeat(64),review:{comment:'Original content for moderation',rating:4,photo_urls:null,rating_skill:4,rating_service:4,rating_atmosphere:4,rating_cleanliness:4,rating_explanation:4}};
+const snapshot={id,content_id:id,content_type:'review',report_reason:'Synthetic report',auto_flags:['user_report'],status:'pending',reviewed_at:null,content_hash:'a'.repeat(64),review:{flag_reason:'Synthetic flag',comment:'Original content for moderation',rating:4,photo_urls:null,rating_skill:4,rating_service:4,rating_atmosphere:4,rating_cleanliness:4,rating_explanation:4}};
 const actions = () => within(screen.getByPlaceholderText('審査メモ（任意）').parentElement!);
 jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: () => mockDb() }));
 jest.mock('@/components/Toast', () => ({ __esModule: true, default: ({ message }: { message: string }) => <p role="status">{message}</p> }));

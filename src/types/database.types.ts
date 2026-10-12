@@ -3401,6 +3401,7 @@ export type Database = {
           created_at: string
           decision_content_hash: string | null
           facility_id: string | null
+          flag_evidence: Json
           id: string
           report_reason: string | null
           reporter_id: string | null
@@ -3416,6 +3417,7 @@ export type Database = {
           created_at?: string
           decision_content_hash?: string | null
           facility_id?: string | null
+          flag_evidence?: Json
           id?: string
           report_reason?: string | null
           reporter_id?: string | null
@@ -3431,6 +3433,7 @@ export type Database = {
           created_at?: string
           decision_content_hash?: string | null
           facility_id?: string | null
+          flag_evidence?: Json
           id?: string
           report_reason?: string | null
           reporter_id?: string | null
@@ -6420,6 +6423,12 @@ export type Database = {
         Args: { p_facility_id: string }
         Returns: boolean
       }
+      flag_review_group_atomic: {
+        Args: { p_flag_type: string; p_items: Json }
+        Returns: {
+          id: string
+        }[]
+      }
       find_bulk_review_ips: {
         Args: { p_since: string; p_threshold: number }
         Returns: {
@@ -6710,6 +6719,13 @@ export type Database = {
           id: string
           replayed: boolean
         }[]
+      }
+      moderation_review_context_hash: {
+        Args: {
+          q: Database["public"]["Tables"]["moderation_queue"]["Row"]
+          r: Database["public"]["Tables"]["facility_reviews"]["Row"]
+        }
+        Returns: string
       }
       moderation_review_snapshot: {
         Args: { p_actor_id: string; p_queue_id: string }
