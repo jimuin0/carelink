@@ -10,12 +10,12 @@ const mockAdminFrom = jest.fn(); const mockAdminRpc = jest.fn();
 const mockAnonFrom = jest.fn(); const mockGetUser = jest.fn();
 jest.mock('@supabase/ssr', () => ({ createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }) }));
 jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockAdminRpc }) }));
-import { PATCH } from '../route';
+import { PATCH, GET } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 import { writeAuditLog } from '@/lib/audit-logger';
 function request(body: unknown = { decision: 'approved' }, id = QUEUE_UUID) {
-  return new Request(`http://localhost/api/admin/moderation/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body && typeof body === 'object' ? { expected_status: 'pending', expected_reviewed_at: null, ...body } : body) }) as Parameters<typeof PATCH>[0];
+  return new Request(`http://localhost/api/admin/moderation/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body && typeof body === 'object' ? { expected_status: 'pending', expected_reviewed_at: null, expected_content_hash:'a'.repeat(64), ...body } : body) }) as Parameters<typeof PATCH>[0];
 }
 function props(id = QUEUE_UUID) { return { params: Promise.resolve({ id }) }; }
 function chain(data: unknown, error: unknown = null) {
@@ -34,17 +34,17 @@ beforeEach(() => {
 test.each(['approved', 'rejected', 'escalated'])('decision %s uses one atomic RPC and logs only confirmed commit', async decision => {
   const res = await PATCH(request({ decision, review_note: '合成審査' }), props());
   expect(res.status).toBe(200); expect(await res.json()).toEqual({ success: true, decision });
-  expect(mockAdminRpc).toHaveBeenCalledWith('moderate_content_atomic', { p_actor_id: USER_ID, p_queue_id: QUEUE_UUID, p_expected_status: 'pending', p_expected_reviewed_at: null, p_decision: decision, p_review_note: '合成審査' });
+  expect(mockAdminRpc).toHaveBeenCalledWith('moderate_review_content_atomic', { p_actor_id: USER_ID, p_queue_id: QUEUE_UUID, p_expected_status: 'pending', p_expected_reviewed_at: null, p_expected_content_hash:'a'.repeat(64), p_decision: decision, p_review_note: '合成審査' });
   expect(mockAdminFrom).toHaveBeenCalledTimes(1); expect(mockAdminFrom).toHaveBeenCalledWith('moderation_queue');
   expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: decision === 'approved' ? 'approve' : decision === 'rejected' ? 'reject' : 'update' }));
 });
 test('lost-response replay is accepted and records the persisted result', async () => {
   mockAdminRpc.mockResolvedValue({ data: [{ ...item, replayed: true }], error: null });
   expect((await PATCH(request({ decision: 'rejected' }), props())).status).toBe(200);
-  expect(mockAdminRpc).toHaveBeenCalledWith('moderate_content_atomic', expect.objectContaining({ p_review_note: null }));
+  expect(mockAdminRpc).toHaveBeenCalledWith('moderate_review_content_atomic', expect.objectContaining({ p_review_note: null }));
   expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ newValues: expect.objectContaining({ replayed: true }) }));
 });
-test.each([['MODERATION_PERMISSION_REVOKED', 403], ['MODERATION_REVISION_CONFLICT', 409], ['MODERATION_REVIEW_UNAVAILABLE', 409], ['review hide failed', 500]])('atomic failure %s is visible and never logs successful moderation', async (message, expected) => {
+test.each([['MODERATION_PERMISSION_REVOKED', 403], ['MODERATION_REVISION_CONFLICT', 409], ['MODERATION_REVIEW_UNAVAILABLE', 409], ['MODERATION_CONTENT_CHANGED',409], ['MODERATION_UNSUPPORTED_CONTENT',400], ['review hide failed', 500]])('atomic failure %s is visible and never logs successful moderation', async (message, expected) => {
   mockAdminRpc.mockResolvedValue({ data: [{ ...item }], error: { message } });
   expect((await PATCH(request({ decision: 'rejected' }), props())).status).toBe(expected);
   expect(writeAuditLog).not.toHaveBeenCalled(); expect(mockAdminFrom).toHaveBeenCalledTimes(1);
@@ -91,7 +91,7 @@ test('lost A approval response, B rejection, then A retry retains original expec
     error: args.p_expected_status === 'pending' ? { message: 'MODERATION_REVISION_CONFLICT' } : null }));
   const response = await PATCH(request({ decision: 'approved', expected_status: 'pending' }), props());
   expect(response.status).toBe(409);
-  expect(mockAdminRpc).toHaveBeenCalledWith('moderate_content_atomic', expect.objectContaining({ p_expected_status: 'pending' }));
+  expect(mockAdminRpc).toHaveBeenCalledWith('moderate_review_content_atomic', expect.objectContaining({ p_expected_status: 'pending' }));
   expect(writeAuditLog).not.toHaveBeenCalled();
 });
 
@@ -104,6 +104,34 @@ test('original review revision is forwarded despite a later same-status ABA stat
   mockAdminFrom.mockReturnValue(chain({ ...item, status: 'approved', reviewed_at: '2026-10-08T00:03:00.000Z' }));
   mockAdminRpc.mockResolvedValue({ data: null, error: { message: 'MODERATION_REVISION_CONFLICT' } });
   expect((await PATCH(request({ decision: 'rejected', expected_status: 'approved', expected_reviewed_at: original }), props())).status).toBe(409);
-  expect(mockAdminRpc).toHaveBeenCalledWith('moderate_content_atomic', expect.objectContaining({ p_expected_reviewed_at: original }));
+  expect(mockAdminRpc).toHaveBeenCalledWith('moderate_review_content_atomic', expect.objectContaining({ p_expected_reviewed_at: original }));
   expect(writeAuditLog).not.toHaveBeenCalled();
+});
+
+test('old state-only client cannot moderate unseen content', async()=>{
+ const req=new Request('http://localhost/api/admin/moderation/x',{method:'PATCH',body:JSON.stringify({decision:'approved',expected_status:'pending',expected_reviewed_at:null})}) as Parameters<typeof PATCH>[0];
+ expect((await PATCH(req,props())).status).toBe(409);expect(mockAdminRpc).not.toHaveBeenCalled();
+});
+const snapshotId='11111111-1111-4111-8111-111111111111';
+const snapshot={id:snapshotId,content_id:'22222222-2222-4222-8222-222222222222',content_type:'review',status:'pending',reviewed_at:null,content_hash:'a'.repeat(64),review:{comment:'Synthetic original content',rating:4,photo_urls:null,rating_skill:null,rating_service:4,rating_atmosphere:4,rating_cleanliness:4,rating_explanation:4}};
+const get=()=>GET(new Request('http://localhost/api/admin/moderation/'+snapshotId) as Parameters<typeof GET>[0],props(snapshotId));
+test('admin snapshot returns content and version without caching',async()=>{
+ mockAdminRpc.mockResolvedValue({data:[{snapshot}],error:null});const result=await get();
+ expect(result.status).toBe(200);expect(result.headers.get('Cache-Control')).toBe('no-store');expect(await result.json()).toEqual({snapshot});
+ expect(mockAdminRpc).toHaveBeenCalledWith('moderation_review_snapshot',{p_actor_id:USER_ID,p_queue_id:snapshotId});
+});
+test.each([[],null,[{snapshot:{...snapshot,id:'33333333-3333-4333-8333-333333333333'}}],[{snapshot:{...snapshot,content_hash:'bad'}}],[{snapshot},{snapshot}]])('invalid/missing snapshot %j cannot enable decisions',async data=>{
+ mockAdminRpc.mockResolvedValue({data,error:null});expect((await get()).status).toBe(Array.isArray(data)&&data.length===0?404:500);
+});
+test.each([['MODERATION_PERMISSION_REVOKED',403],['snapshot database unavailable',500]])('snapshot error %s is explicit',async(message,code)=>{
+ mockAdminRpc.mockResolvedValue({data:[{snapshot}],error:{message}});expect((await get()).status).toBe(code);
+});
+test('snapshot dependency rejection is handled',async()=>{mockAdminRpc.mockRejectedValue(new Error('dependency'));expect((await get()).status).toBe(500);});
+test('non-admin cannot read snapshot',async()=>{mockAnonFrom.mockReturnValue(chain({is_platform_admin:false}));expect((await get()).status).toBe(403);expect(mockAdminRpc).not.toHaveBeenCalled();});
+test('invalid snapshot ID stops before DB',async()=>{expect((await GET(new Request('http://localhost/api/admin/moderation/x') as Parameters<typeof GET>[0],props('invalid'))).status).toBe(400);expect(mockAdminRpc).not.toHaveBeenCalled();});
+
+test('non-review queue keeps the existing general decision contract',async()=>{
+ mockAdminFrom.mockReturnValue(chain({...item,content_type:'photo'}));
+ expect((await PATCH(request(),props())).status).toBe(200);
+ expect(mockAdminRpc).toHaveBeenCalledWith('moderate_content_atomic',expect.objectContaining({p_decision:'approved'}));
 });

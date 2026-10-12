@@ -87,18 +87,18 @@ END $$;
 RESET ROLE;
 SET LOCAL ROLE service_role;
 DO $$ BEGIN
- PERFORM pg_temp.assert_modphoto((SELECT count(*)=1 FROM public.moderate_content_atomic('f8500000-0000-4000-8000-000000000003','f8540000-0000-4000-8000-000000000001','pending','rejected','Synthetic rejection')),'rejected decision commits');
+ PERFORM pg_temp.assert_modphoto((SELECT count(*)=1 FROM public.moderate_review_content_atomic('f8500000-0000-4000-8000-000000000003','f8540000-0000-4000-8000-000000000001','pending','rejected','Synthetic rejection',p_expected_content_hash=>coalesce((SELECT public.review_content_hash(r) FROM public.moderation_queue mq JOIN public.facility_reviews r ON r.id=mq.content_id WHERE mq.id='f8540000-0000-4000-8000-000000000001'),repeat('a',64)))),'rejected decision commits');
  PERFORM pg_temp.assert_modphoto((SELECT status='rejected' AND reviewed_by='f8500000-0000-4000-8000-000000000003' AND reviewed_at IS NOT NULL FROM public.moderation_queue WHERE id='f8540000-0000-4000-8000-000000000001'),'decision/admin recorded');
  PERFORM pg_temp.assert_modphoto((SELECT status='hidden' AND is_flagged AND flag_reason='Synthetic rejection' FROM public.facility_reviews WHERE id='f8530000-0000-4000-8000-000000000001'),'same commit hides review');
- PERFORM pg_temp.assert_modphoto((SELECT replayed FROM public.moderate_content_atomic('f8500000-0000-4000-8000-000000000003','f8540000-0000-4000-8000-000000000001','pending','rejected','Synthetic rejection')),'exact response-loss replay');
- BEGIN PERFORM public.moderate_content_atomic('f8500000-0000-4000-8000-000000000003','f8540000-0000-4000-8000-000000000001','pending','approved',NULL);
+ PERFORM pg_temp.assert_modphoto((SELECT replayed FROM public.moderate_review_content_atomic('f8500000-0000-4000-8000-000000000003','f8540000-0000-4000-8000-000000000001','pending','rejected','Synthetic rejection',p_expected_content_hash=>coalesce((SELECT public.review_content_hash(r) FROM public.moderation_queue mq JOIN public.facility_reviews r ON r.id=mq.content_id WHERE mq.id='f8540000-0000-4000-8000-000000000001'),repeat('a',64)))),'exact response-loss replay');
+ BEGIN PERFORM public.moderate_review_content_atomic('f8500000-0000-4000-8000-000000000003','f8540000-0000-4000-8000-000000000001','pending','approved',NULL,p_expected_content_hash=>coalesce((SELECT public.review_content_hash(r) FROM public.moderation_queue mq JOIN public.facility_reviews r ON r.id=mq.content_id WHERE mq.id='f8540000-0000-4000-8000-000000000001'),repeat('a',64)));
   RAISE EXCEPTION 'conflicting stale decision accepted'; EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'MODERATION_REVISION_CONFLICT' THEN RAISE; END IF; END;
- BEGIN PERFORM public.moderate_content_atomic('f8500000-0000-4000-8000-000000000001','f8540000-0000-4000-8000-000000000002','pending','rejected',NULL);
+ BEGIN PERFORM public.moderate_review_content_atomic('f8500000-0000-4000-8000-000000000001','f8540000-0000-4000-8000-000000000002','pending','rejected',NULL,p_expected_content_hash=>coalesce((SELECT public.review_content_hash(r) FROM public.moderation_queue mq JOIN public.facility_reviews r ON r.id=mq.content_id WHERE mq.id='f8540000-0000-4000-8000-000000000002'),repeat('a',64)));
   RAISE EXCEPTION 'non-platform actor accepted'; EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'MODERATION_PERMISSION_REVOKED' THEN RAISE; END IF; END;
- BEGIN PERFORM public.moderate_content_atomic('f8500000-0000-4000-8000-000000000003','f8540000-0000-4000-8000-000000000003','pending','rejected',NULL);
+ BEGIN PERFORM public.moderate_review_content_atomic('f8500000-0000-4000-8000-000000000003','f8540000-0000-4000-8000-000000000003','pending','rejected',NULL,p_expected_content_hash=>coalesce((SELECT public.review_content_hash(r) FROM public.moderation_queue mq JOIN public.facility_reviews r ON r.id=mq.content_id WHERE mq.id='f8540000-0000-4000-8000-000000000003'),repeat('a',64)));
   RAISE EXCEPTION 'cross-facility content accepted'; EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'MODERATION_REVIEW_UNAVAILABLE' THEN RAISE; END IF; END;
  PERFORM pg_temp.assert_modphoto((SELECT status='published' FROM public.facility_reviews WHERE id='f8530000-0000-4000-8000-000000000003'),'scope mismatch leaves other review intact');
- PERFORM pg_temp.assert_modphoto((SELECT count(*)=0 FROM public.moderate_content_atomic('f8500000-0000-4000-8000-000000000003','f8540000-0000-4000-8000-000000000099','pending','approved',NULL)),'missing queue not success');
+ PERFORM pg_temp.assert_modphoto((SELECT count(*)=0 FROM public.moderate_review_content_atomic('f8500000-0000-4000-8000-000000000003','f8540000-0000-4000-8000-000000000099','pending','approved',NULL,p_expected_content_hash=>coalesce((SELECT public.review_content_hash(r) FROM public.moderation_queue mq JOIN public.facility_reviews r ON r.id=mq.content_id WHERE mq.id='f8540000-0000-4000-8000-000000000099'),repeat('a',64)))),'missing queue not success');
  PERFORM public.moderate_content_atomic('f8500000-0000-4000-8000-000000000003','f8540000-0000-4000-8000-000000000004','pending','escalated',NULL);
  PERFORM pg_temp.assert_modphoto((SELECT status='escalated' FROM public.moderation_queue WHERE id='f8540000-0000-4000-8000-000000000004'),'non-review decision remains supported');
 END $$;
@@ -107,10 +107,10 @@ UPDATE public.profiles SET is_platform_admin=true WHERE id='f8500000-0000-4000-8
 SET LOCAL ROLE service_role;
 DO $$ DECLARE rev timestamptz; BEGIN
  SELECT reviewed_at INTO rev FROM public.moderation_queue WHERE id='f8540000-0000-4000-8000-000000000001';
- PERFORM public.moderate_content_atomic('f8500000-0000-4000-8000-000000000002','f8540000-0000-4000-8000-000000000001','rejected','approved',NULL,rev);
+ PERFORM public.moderate_review_content_atomic('f8500000-0000-4000-8000-000000000002','f8540000-0000-4000-8000-000000000001','rejected','approved',NULL,rev,p_expected_content_hash=>coalesce((SELECT public.review_content_hash(r) FROM public.moderation_queue mq JOIN public.facility_reviews r ON r.id=mq.content_id WHERE mq.id='f8540000-0000-4000-8000-000000000001'),repeat('a',64)));
  SELECT reviewed_at INTO rev FROM public.moderation_queue WHERE id='f8540000-0000-4000-8000-000000000001';
- PERFORM public.moderate_content_atomic('f8500000-0000-4000-8000-000000000002','f8540000-0000-4000-8000-000000000001','approved','rejected','Synthetic rejection',rev);
- BEGIN PERFORM public.moderate_content_atomic('f8500000-0000-4000-8000-000000000003','f8540000-0000-4000-8000-000000000001','pending','rejected','Synthetic rejection',NULL);
+ PERFORM public.moderate_review_content_atomic('f8500000-0000-4000-8000-000000000002','f8540000-0000-4000-8000-000000000001','approved','rejected','Synthetic rejection',rev,p_expected_content_hash=>coalesce((SELECT public.review_content_hash(r) FROM public.moderation_queue mq JOIN public.facility_reviews r ON r.id=mq.content_id WHERE mq.id='f8540000-0000-4000-8000-000000000001'),repeat('a',64)));
+ BEGIN PERFORM public.moderate_review_content_atomic('f8500000-0000-4000-8000-000000000003','f8540000-0000-4000-8000-000000000001','pending','rejected','Synthetic rejection',NULL,p_expected_content_hash=>coalesce((SELECT public.review_content_hash(r) FROM public.moderation_queue mq JOIN public.facility_reviews r ON r.id=mq.content_id WHERE mq.id='f8540000-0000-4000-8000-000000000001'),repeat('a',64)));
   RAISE EXCEPTION 'old actor ABA retry accepted'; EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'MODERATION_REVISION_CONFLICT' THEN RAISE; END IF; END;
  PERFORM pg_temp.assert_modphoto((SELECT reviewed_by='f8500000-0000-4000-8000-000000000002' FROM public.moderation_queue WHERE id='f8540000-0000-4000-8000-000000000001'),'ABA retry preserves newer reviewer');
 END $$;
@@ -121,7 +121,7 @@ CREATE FUNCTION pg_temp.reject_synthetic_hide() RETURNS trigger LANGUAGE plpgsql
 CREATE TRIGGER synthetic_hide_failure BEFORE UPDATE ON public.facility_reviews FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_synthetic_hide();
 SET LOCAL ROLE service_role;
 DO $$ BEGIN
- BEGIN PERFORM public.moderate_content_atomic('f8500000-0000-4000-8000-000000000003','f8540000-0000-4000-8000-000000000002','pending','rejected',NULL);
+ BEGIN PERFORM public.moderate_review_content_atomic('f8500000-0000-4000-8000-000000000003','f8540000-0000-4000-8000-000000000002','pending','rejected',NULL,p_expected_content_hash=>coalesce((SELECT public.review_content_hash(r) FROM public.moderation_queue mq JOIN public.facility_reviews r ON r.id=mq.content_id WHERE mq.id='f8540000-0000-4000-8000-000000000002'),repeat('a',64)));
   RAISE EXCEPTION 'hide failure accepted'; EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'SYNTHETIC_HIDE_FAILURE' THEN RAISE; END IF; END;
  PERFORM pg_temp.assert_modphoto((SELECT status='pending' FROM public.moderation_queue WHERE id='f8540000-0000-4000-8000-000000000002'),'hide failure leaves decision pending');
  PERFORM pg_temp.assert_modphoto((SELECT status='published' FROM public.facility_reviews WHERE id='f8530000-0000-4000-8000-000000000002'),'hide failure leaves original review');
@@ -133,7 +133,7 @@ CREATE FUNCTION pg_temp.reject_synthetic_decision() RETURNS trigger LANGUAGE plp
 CREATE TRIGGER synthetic_decision_failure BEFORE UPDATE ON public.moderation_queue FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_synthetic_decision();
 SET LOCAL ROLE service_role;
 DO $$ BEGIN
- BEGIN PERFORM public.moderate_content_atomic('f8500000-0000-4000-8000-000000000003','f8540000-0000-4000-8000-000000000002','pending','rejected',NULL);
+ BEGIN PERFORM public.moderate_review_content_atomic('f8500000-0000-4000-8000-000000000003','f8540000-0000-4000-8000-000000000002','pending','rejected',NULL,p_expected_content_hash=>coalesce((SELECT public.review_content_hash(r) FROM public.moderation_queue mq JOIN public.facility_reviews r ON r.id=mq.content_id WHERE mq.id='f8540000-0000-4000-8000-000000000002'),repeat('a',64)));
   RAISE EXCEPTION 'decision failure accepted'; EXCEPTION WHEN raise_exception THEN IF SQLERRM <> 'SYNTHETIC_DECISION_FAILURE' THEN RAISE; END IF; END;
  PERFORM pg_temp.assert_modphoto((SELECT status='published' AND NOT is_flagged FROM public.facility_reviews WHERE id='f8530000-0000-4000-8000-000000000002'),'decision save failure rolls hide back');
 END $$;

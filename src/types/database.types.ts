@@ -3399,6 +3399,7 @@ export type Database = {
           content_id: string
           content_type: string
           created_at: string
+          decision_content_hash: string | null
           facility_id: string | null
           id: string
           report_reason: string | null
@@ -3413,6 +3414,7 @@ export type Database = {
           content_id: string
           content_type: string
           created_at?: string
+          decision_content_hash?: string | null
           facility_id?: string | null
           id?: string
           report_reason?: string | null
@@ -3427,6 +3429,7 @@ export type Database = {
           content_id?: string
           content_type?: string
           created_at?: string
+          decision_content_hash?: string | null
           facility_id?: string | null
           id?: string
           report_reason?: string | null
@@ -6691,6 +6694,29 @@ export type Database = {
           replayed: boolean
         }[]
       }
+      moderate_review_content_atomic: {
+        Args: {
+          p_actor_id: string
+          p_decision: string
+          p_expected_content_hash?: string
+          p_expected_reviewed_at?: string
+          p_expected_status: string
+          p_queue_id: string
+          p_review_note?: string
+        }
+        Returns: {
+          content_id: string
+          content_type: string
+          id: string
+          replayed: boolean
+        }[]
+      }
+      moderation_review_snapshot: {
+        Args: { p_actor_id: string; p_queue_id: string }
+        Returns: {
+          snapshot: Json
+        }[]
+      }
       newsletter_current_recipients: {
         Args: { p_kind: string }
         Returns: string[]
@@ -6900,6 +6926,10 @@ export type Database = {
           state: string
           valid_until: string
         }[]
+      }
+      review_content_hash: {
+        Args: { r: Database["public"]["Tables"]["facility_reviews"]["Row"] }
+        Returns: string
       }
       save_booking_email_event_atomic: {
         Args: {
