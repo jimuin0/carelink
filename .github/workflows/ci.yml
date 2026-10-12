@@ -226,10 +226,10 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm ci
-      - name: npm audit（high以上の脆弱性チェック）
-        # L6 基準「high=0」を CI で物理ゲート化する。high 脆弱性で CI を落とす
-        # （continue-on-error で握り潰すと high 混入のまま merge できる盲点になる）。
-        run: npm audit --audit-level=high
+      - name: npm audit（moderate以上の脆弱性チェック）
+        # 開発依存も含め moderate 以上を CI で拒否し、既知の脆弱性を取り込まない
+        # continue-on-error による握り潰しは行わない。
+        run: npm audit --audit-level=moderate
       - name: Critical 脆弱性は失敗させる
         run: |
           CRITICAL=$(npm audit --json 2>/dev/null | python3 -c "
