@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const SALON_BROWSER_CONTEXT_KEY = 'carelink.salon-submission.v1';
+export const SALON_RECRUIT_BROWSER_CONTEXT_KEY = 'carelink.recruit-submission.v1';
 const contextSchema = z.object({ version: z.literal(1), intentId: z.uuid(),
   phase: z.enum(['prepared', 'attempted', 'confirmed']),
 }).strict();
@@ -11,21 +12,21 @@ export type SalonBrowserRead = { state: 'empty' } | { state: 'unavailable' }
 
 /** Tab-scoped selector and progress only, not authorization. Never persist
  * names, contact details, form bodies, files, signed upload tokens or proof. */
-export function readSalonBrowserContext(store: Store): SalonBrowserRead {
+export function readSalonBrowserContext(store: Store, key = SALON_BROWSER_CONTEXT_KEY): SalonBrowserRead {
   try {
-    const value = store.getItem(SALON_BROWSER_CONTEXT_KEY);
+    const value = store.getItem(key);
     if (value === null) return { state: 'empty' };
     const parsed = contextSchema.safeParse(JSON.parse(value));
     return parsed.success ? { state: 'ready', context: parsed.data } : { state: 'unavailable' };
   } catch { return { state: 'unavailable' }; }
 }
-export function saveSalonBrowserContext(store: Store, value: SalonBrowserContext): boolean {
+export function saveSalonBrowserContext(store: Store, value: SalonBrowserContext, key = SALON_BROWSER_CONTEXT_KEY): boolean {
   const parsed = contextSchema.safeParse(value);
   if (!parsed.success) return false;
   try {
     const encoded = JSON.stringify(parsed.data);
-    store.setItem(SALON_BROWSER_CONTEXT_KEY, encoded);
-    return store.getItem(SALON_BROWSER_CONTEXT_KEY) === encoded;
+    store.setItem(key, encoded);
+    return store.getItem(key) === encoded;
   } catch { return false; }
 }
 // URL contains only a mode marker, never a selector or applicant data. The

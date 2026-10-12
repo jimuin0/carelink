@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import RegisterForm from '@/components/register/RegisterForm';
-import { SALON_BROWSER_CONTEXT_KEY } from '@/lib/salon-browser-context';
+import { SALON_BROWSER_CONTEXT_KEY, SALON_RECRUIT_BROWSER_CONTEXT_KEY } from '@/lib/salon-browser-context';
 import { salonPhotoPath } from '@/lib/salon-photo-contract';
 const mockRouter = { push: jest.fn() };
 jest.mock('next/navigation', () => ({ useRouter: () => mockRouter }));
@@ -150,4 +150,15 @@ test('commit400 preserves original input/photos and only replays the same payloa
   const photos = request.mock.calls.filter(([url]) => url === '/api/salons/photos').map(([, init]) => JSON.parse(init.body));
   expect(photos).toHaveLength(1); expect(photos[0].slot).toBe(4);
   expect(mockLegacyUpload).not.toHaveBeenCalled();
+});
+
+test.each(['prepared','attempted','confirmed'])('recruit %s selector never routes register to a recruitment receipt', async phase => {
+  sessionStorage.setItem(SALON_RECRUIT_BROWSER_CONTEXT_KEY, JSON.stringify({version:1,intentId,phase}));
+  const original=sessionStorage.getItem(SALON_RECRUIT_BROWSER_CONTEXT_KEY);
+  request.mockResolvedValueOnce(response(201, {state:'prepared',intentId,consumerVersion:2,photoLimits:{maxBytes:10485760,mimeTypes:['image/png','image/jpeg','image/webp','image/gif']}}))
+    .mockResolvedValueOnce(response(201,{state:'committed',receiptId}));
+  await fill();await submit();
+  await waitFor(()=>expect(mockRouter.push).toHaveBeenCalledWith('/register/complete?handoff=registration'));
+  expect(request.mock.calls.map(([path])=>path)).toEqual(['/api/salons/prepare','/api/salons/commit']);
+  expect(sessionStorage.getItem(SALON_RECRUIT_BROWSER_CONTEXT_KEY)).toBe(original);
 });

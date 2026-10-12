@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { canonicalSalonSubmission } from './salon-submission-contract';
 import { salonPhotoPath, SALON_PHOTO_BUCKET } from './salon-photo-contract';
-import { readSalonBrowserContext, saveSalonBrowserContext, type SalonBrowserContext } from './salon-browser-context';
+import { readSalonBrowserContext, saveSalonBrowserContext, type SalonBrowserContext, SALON_BROWSER_CONTEXT_KEY, SALON_RECRUIT_BROWSER_CONTEXT_KEY } from './salon-browser-context';
 import type { SalonFormValues } from './validations';
 import type { SalonFieldErrors } from './salon-field-errors';
 import { salonStorageLimitsSchema, type SalonStorageLimits } from './salon-storage-limits';
@@ -34,7 +34,10 @@ export class SalonRegistrationBrowser {
   private photoLimits: SalonStorageLimits | null = null;
   private commitAttempted = false;
   private createdIntentId: string | null = null;
-  constructor(private readonly deps: Dependencies) {}
+  private readonly contextKey: string;
+  constructor(private readonly deps: Dependencies) {
+    this.contextKey = deps.source === 'recruit' ? SALON_RECRUIT_BROWSER_CONTEXT_KEY : SALON_BROWSER_CONTEXT_KEY;
+  }
 
   private async post(path: string, body: unknown) {
     try {
@@ -48,7 +51,7 @@ export class SalonRegistrationBrowser {
   }
   async reconcile(): Promise<Result> {
     this.replayVerified = false;
-    const current = readSalonBrowserContext(this.deps.store);
+    const current = readSalonBrowserContext(this.deps.store, this.contextKey);
     if (current.state === 'empty') return { state: 'ready' };
     if (current.state !== 'ready') return blocked;
     const result = await this.post('/api/salons/status', { intentId: current.context.intentId });
@@ -64,10 +67,10 @@ export class SalonRegistrationBrowser {
     return blocked;
   }
   private saveCurrent(context: SalonBrowserContext, initialize = false) {
-    const current = readSalonBrowserContext(this.deps.store);
+    const current = readSalonBrowserContext(this.deps.store, this.contextKey);
     if (current.state === 'unavailable' || (current.state === 'empty' && !initialize)
       || (current.state === 'ready' && current.context.intentId !== context.intentId)) return false;
-    return saveSalonBrowserContext(this.deps.store, context);
+    return saveSalonBrowserContext(this.deps.store, context, this.contextKey);
   }
   private async commit(input: CommitInput): Promise<Result> {
     if (!this.saveCurrent({ version: 1, intentId: input.intentId, phase: 'attempted' })) return blocked;
@@ -81,7 +84,7 @@ export class SalonRegistrationBrowser {
     if (result?.status === 400) {
       // A validation/consent rejection describes this attempt, not an earlier
       // commit whose reply was lost. Never reopen the attempted-input fence.
-      const latest = readSalonBrowserContext(this.deps.store);
+      const latest = readSalonBrowserContext(this.deps.store, this.contextKey);
       if (latest.state !== 'ready' || latest.context.intentId !== input.intentId) return blocked;
       const checked = await this.reconcile();
       if (checked.state === 'confirmed') return checked;
@@ -102,7 +105,7 @@ export class SalonRegistrationBrowser {
    * grants permission to replace a fenced input snapshot. */
   canReviseUnsubmittedInput(): boolean {
     if (this.commitAttempted) return false;
-    const current = readSalonBrowserContext(this.deps.store);
+    const current = readSalonBrowserContext(this.deps.store, this.contextKey);
     return current.state === 'empty' || (current.state === 'ready' && current.context.phase === 'prepared'
       && current.context.intentId === this.createdIntentId);
   }
@@ -120,7 +123,7 @@ export class SalonRegistrationBrowser {
     if (!canonical || files.length > 7) return { state: 'retryable', message: '入力内容と写真を確認してください。' };
     const checked = await this.reconcile();
     if (checked.state !== 'ready') return checked;
-    let current = readSalonBrowserContext(this.deps.store);
+    let current = readSalonBrowserContext(this.deps.store, this.contextKey);
     if (current.state === 'empty') {
       let captcha: string | null;
       try { captcha = await this.deps.captcha(); } catch { return retryable; }
@@ -132,7 +135,7 @@ export class SalonRegistrationBrowser {
       const limits = salonStorageLimitsSchema.safeParse(preparation.body.photoLimits);
       if (preparation.body.consumerVersion !== 2 || !limits.success) return retryable;
       this.photoLimits = limits.data;
-      current = readSalonBrowserContext(this.deps.store);
+      current = readSalonBrowserContext(this.deps.store, this.contextKey);
     }
     if (current.state !== 'ready') return blocked;
     const intentId = current.context.intentId;
@@ -141,7 +144,7 @@ export class SalonRegistrationBrowser {
       const limits = salonStorageLimitsSchema.safeParse(refreshed?.body?.photoLimits);
       if (!refreshed?.ok || refreshed.status !== 200 || refreshed.body?.state !== 'prepared'
         || refreshed.body?.intentId !== intentId || refreshed.body?.consumerVersion !== 2 || !limits.success) return retryable;
-      const latest = readSalonBrowserContext(this.deps.store);
+      const latest = readSalonBrowserContext(this.deps.store, this.contextKey);
       if (latest.state !== 'ready' || latest.context.intentId !== intentId || latest.context.phase !== 'prepared') return blocked;
       this.photoLimits = limits.data;
     }

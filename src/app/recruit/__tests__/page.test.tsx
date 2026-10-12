@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import RecruitPage from '../page';
 import { businessTypes } from '@/lib/constants';
 import { salonInsertSchema } from '@/lib/validations';
-import { SALON_BROWSER_CONTEXT_KEY } from '@/lib/salon-browser-context';
+import { SALON_RECRUIT_BROWSER_CONTEXT_KEY, SALON_BROWSER_CONTEXT_KEY } from '@/lib/salon-browser-context';
 jest.mock('@/lib/recaptcha-client', () => ({ getRecaptchaToken: async () => null }));
 const intentId='11111111-2222-4333-8444-555555555551';
 const receiptId='11111111-2222-4333-8444-555555555552';
@@ -65,12 +65,12 @@ test('lost reply is replayed only after same-intent status verification with ide
  expect(commit.mock.calls[1][0].body).toBe(commit.mock.calls[0][0].body);
 });
 test('reload reconciles a committed selector without a new preparation or empty payload',async()=>{
- window.sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY,JSON.stringify({version:1,intentId,phase:'attempted'}));
+ window.sessionStorage.setItem(SALON_RECRUIT_BROWSER_CONTEXT_KEY,JSON.stringify({version:1,intentId,phase:'attempted'}));
  status.mockResolvedValue(response(200,{state:'committed',receiptId}));render(<RecruitPage/>);
  expect(await screen.findByText('掲載申し込みが完了しました')).toBeVisible();expect(prepare).not.toHaveBeenCalled();expect(commit).not.toHaveBeenCalled();
 });
 test('reload of an uncommitted attempted selector cannot reconstruct or send a new body',async()=>{
- window.sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY,JSON.stringify({version:1,intentId,phase:'attempted'}));render(<RecruitPage/>);
+ window.sessionStorage.setItem(SALON_RECRUIT_BROWSER_CONTEXT_KEY,JSON.stringify({version:1,intentId,phase:'attempted'}));render(<RecruitPage/>);
  await screen.findByRole('alert');fireEvent.click(screen.getByRole('button',{name:'同じ申込の受付状況を確認する'}));
  await waitFor(()=>expect(status).toHaveBeenCalledTimes(2));expect(prepare).not.toHaveBeenCalled();expect(commit).not.toHaveBeenCalled();
 });
@@ -95,4 +95,14 @@ test('full-width phone is normalized before validation',()=>{
 test('unavailable session storage blocks new preparation',async()=>{
  jest.spyOn(Storage.prototype,'getItem').mockImplementation(()=>{throw new Error('blocked storage');});render(<RecruitPage/>);
  await screen.findByRole('alert');expect(prepare).not.toHaveBeenCalled();expect(commit).not.toHaveBeenCalled();
+});
+
+test.each(['prepared','attempted','confirmed'])('register %s context cannot complete or block a recruit application', async phase => {
+ window.sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY,JSON.stringify({version:1,intentId,phase}));
+ const original = window.sessionStorage.getItem(SALON_BROWSER_CONTEXT_KEY);
+ const {container}=render(<RecruitPage/>);await submit(container);
+ expect(await screen.findByText('掲載申し込みが完了しました')).toBeVisible();
+ expect(prepare).toHaveBeenCalledTimes(1);expect(commit).toHaveBeenCalledTimes(1);expect(status).not.toHaveBeenCalled();
+ expect(window.sessionStorage.getItem(SALON_BROWSER_CONTEXT_KEY)).toBe(original);
+ expect(JSON.parse(window.sessionStorage.getItem(SALON_RECRUIT_BROWSER_CONTEXT_KEY)!)).toEqual({version:1,intentId,phase:'confirmed'});
 });
