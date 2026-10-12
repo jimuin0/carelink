@@ -9,6 +9,7 @@ import { registrationConsentSchema, REGISTRATION_CONSENT_REQUIRED, type Registra
 
 type Store = Parameters<typeof readSalonBrowserContext>[0];
 type Dependencies = {
+  source?: 'register' | 'recruit';
   store: Store; request: typeof fetch; uuid: () => string;
   captcha: () => Promise<string | null>;
   compress: (file: File) => Promise<File>;
@@ -115,7 +116,7 @@ export class SalonRegistrationBrowser {
     const canonical = canonicalSalonSubmission({ ...data,
       seat_count: Number.isNaN(data.seat_count) ? null : data.seat_count,
       staff_count: Number.isNaN(data.staff_count) ? null : data.staff_count,
-      source: 'register', photo_urls: [] });
+      source: this.deps.source ?? 'register', photo_urls: [] });
     if (!canonical || files.length > 7) return { state: 'retryable', message: '入力内容と写真を確認してください。' };
     const checked = await this.reconcile();
     if (checked.state !== 'ready') return checked;

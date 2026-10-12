@@ -7,7 +7,7 @@
  * 凍結・終了してよいため、`sendNotify(...)` を文の先頭で呼びっぱなしにすると完了が保証されない。
  * 該当していたのは【全部が問い合わせ・申し込みの受信通知】で、失われると気づく手段が無い:
  *   ・/api/contact  … 問い合わせフォームの受信通知
- *   ・/api/salons   … 施設掲載の新規登録／掲載申し込みの受信通知（2箇所）
+ *   ・旧 /api/salons … 現在は同一DBトランザクションの永続通知キューへ移行済み
  *   ・/api/inquiry  … 施設への問い合わせの受信通知
  *     （このファイルは await Promise.allSettled を持つが、sendNotify はその【後ろ】にあり
  *       待たれていなかった。「allSettled があるから安全」と読めてしまう紛らわしい形だった）
@@ -50,7 +50,11 @@ describe('応答後の Slack 通知が投げっぱなしになっていない', 
 
   it('sendNotify を呼ぶルートが実在する（空振りを緑にしない）', () => {
     const callers = routes.filter((f) => readFileSync(f, 'utf8').includes('sendNotify('));
-    expect(callers.length).toBeGreaterThanOrEqual(3);
+    expect(callers.map(f => relative(ROOT, f).split(sep).join('/')).sort()).toEqual([
+      'src/app/api/contact/route.ts', 'src/app/api/inquiry/route.ts',
+    ]);
+    // Registration must not add a second, direct notification path beside its durable outbox.
+    expect(readFileSync(join(ROOT, 'src/app/api/salons/commit/route.ts'), 'utf8')).not.toContain('sendNotify(');
   });
 
   it('投げっぱなしの sendNotify が残っていない', () => {

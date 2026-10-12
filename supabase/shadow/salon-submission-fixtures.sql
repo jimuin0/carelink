@@ -54,8 +54,8 @@ FROM generate_series(1,4) n;
 SET LOCAL ROLE anon;
 DO $$ BEGIN
   BEGIN
-    PERFORM public.commit_salon_submission('61000000-0000-4000-8000-000000000001',repeat('a',64),1::smallint,
-      'proof-hkdf-sha256-v1',repeat('b',64),'{}'::jsonb);
+    PERFORM public.commit_salon_submission_with_consent('61000000-0000-4000-8000-000000000001',repeat('a',64),1::smallint,
+      'proof-hkdf-sha256-v1',repeat('b',64),'{}'::jsonb,'7680f8bffe58b63041fb8afd0c9e81e69dbe5dabafdbe7a73bbc9d2c86f8f04a');
     RAISE EXCEPTION 'anon executed registration RPC';
   EXCEPTION WHEN insufficient_privilege THEN NULL; END;
   BEGIN
@@ -67,8 +67,8 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 DO $$ BEGIN
   BEGIN
-    PERFORM public.commit_salon_submission('61000000-0000-4000-8000-000000000001',repeat('a',64),1::smallint,
-      'proof-hkdf-sha256-v1',repeat('b',64),'{}'::jsonb);
+    PERFORM public.commit_salon_submission_with_consent('61000000-0000-4000-8000-000000000001',repeat('a',64),1::smallint,
+      'proof-hkdf-sha256-v1',repeat('b',64),'{}'::jsonb,'7680f8bffe58b63041fb8afd0c9e81e69dbe5dabafdbe7a73bbc9d2c86f8f04a');
     RAISE EXCEPTION 'authenticated executed registration RPC';
   EXCEPTION WHEN insufficient_privilege THEN NULL; END;
   BEGIN
@@ -97,9 +97,9 @@ SELECT pg_temp.assert_registration(
     '61000000-0000-4000-8000-000000000003',repeat('a',64),1::smallint,'proof-hkdf-sha256-v1',repeat('b',64),pg_temp.registration_payload())),
   'uncommitted expired intent cannot create a receipt');
 SELECT pg_temp.assert_registration(
-  (SELECT outcome='committed' AND receipt_id IS NOT NULL FROM public.commit_salon_submission(
+  (SELECT outcome='committed' AND receipt_id IS NOT NULL FROM public.commit_salon_submission_with_consent(
     '61000000-0000-4000-8000-000000000001',repeat('a',64),1::smallint,'proof-hkdf-sha256-v1',repeat('b',64),
-    pg_temp.registration_payload() || '{"is_public":true,"status":"published","claimed_by_user_id":"62000000-0000-4000-8000-000000000001"}'::jsonb)),
+    pg_temp.registration_payload() || '{"is_public":true,"status":"published","claimed_by_user_id":"62000000-0000-4000-8000-000000000001"}'::jsonb,'7680f8bffe58b63041fb8afd0c9e81e69dbe5dabafdbe7a73bbc9d2c86f8f04a')),
   'service role commits valid registration');
 SELECT pg_temp.assert_registration(
   (SELECT count(*)=1 AND bool_and(is_public=false AND claimed_by_user_id IS NULL AND seat_count=0 AND desired_start_date='undecided') FROM public.salons),
@@ -147,9 +147,9 @@ SELECT pg_temp.assert_registration((SELECT count(*)=1 FROM public.salons) AND pg
     WHERE id IN ('61000000-0000-4000-8000-000000000005','61000000-0000-4000-8000-000000000006') AND salon_id IS NULL),
   'capability rejection does not create receipts or outbox entries');
 SELECT pg_temp.assert_registration(
-  (SELECT outcome='committed' FROM public.commit_salon_submission(
+  (SELECT outcome='committed' FROM public.commit_salon_submission_with_consent(
     '61000000-0000-4000-8000-000000000002',repeat('a',64),1::smallint,'proof-hkdf-sha256-v1',repeat('c',64),
-    pg_temp.registration_payload() || '{"source":"recruit"}'::jsonb)), 'distinct intent is distinct receipt');
+    pg_temp.registration_payload() || '{"source":"recruit"}'::jsonb,'7680f8bffe58b63041fb8afd0c9e81e69dbe5dabafdbe7a73bbc9d2c86f8f04a')), 'distinct intent is distinct receipt');
 SELECT pg_temp.assert_registration((SELECT count(*)=2 FROM public.salons) AND pg_temp.registration_queue_delta()=3,
   'recruit adds only the internal notification');
 RESET ROLE;
@@ -164,8 +164,8 @@ CREATE TRIGGER fixture_reject_registration_receipt BEFORE INSERT ON public.webho
 SET LOCAL ROLE service_role;
 DO $$ DECLARE failed boolean := false; BEGIN
   BEGIN
-    PERFORM public.commit_salon_submission('61000000-0000-4000-8000-000000000004',repeat('a',64),1::smallint,
-      'proof-hkdf-sha256-v1',repeat('b',64),pg_temp.registration_payload());
+    PERFORM public.commit_salon_submission_with_consent('61000000-0000-4000-8000-000000000004',repeat('a',64),1::smallint,
+      'proof-hkdf-sha256-v1',repeat('b',64),pg_temp.registration_payload(),'7680f8bffe58b63041fb8afd0c9e81e69dbe5dabafdbe7a73bbc9d2c86f8f04a');
   EXCEPTION WHEN raise_exception THEN
     IF SQLERRM <> 'synthetic outbox failure' THEN RAISE; END IF;
     failed := true;

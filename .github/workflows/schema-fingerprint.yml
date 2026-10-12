@@ -160,6 +160,12 @@ jobs:
       - name: Review submission and edit observed contention (disposable DB)
         run: node scripts/check-review-atomic-concurrency.mjs
 
+      - name: Registration application intent and declaration boundaries (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/salon-application-guard-fixtures.sql
+
+      - name: Manual newsletter policy and historical schedules (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/newsletter-manual-policy-fixtures.sql
+
       - name: Moderation and photo observed concurrency (disposable DB)
         run: node scripts/check-moderation-photo-concurrency.mjs
 

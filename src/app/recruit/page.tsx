@@ -12,7 +12,8 @@ import Spinner from '@/components/Spinner';
 import { formatPhone, salonStep1Schema, salonStep2Schema, salonStep3Schema, businessTypes } from '@/lib/validations';
 import { normalizePhone } from '@/lib/phone';
 import { getRecaptchaToken } from '@/lib/recaptcha-client';
-import { readSalonRegistrationResult, SALON_SUBMISSION_UNKNOWN } from '@/lib/salon-registration-delivery';
+import { SALON_SUBMISSION_UNKNOWN } from '@/lib/salon-registration-delivery';
+import { SalonRegistrationBrowser } from '@/lib/salon-registration-browser';
 import { registrationConsentSchema, REGISTRATION_CONSENT_REQUIRED } from '@/lib/registration-consent';
 
 // 【2026年7月16日 恒久根治】従来はこのページ固有の緩い正規表現(/^[\d-]+$/、先頭0任意・
@@ -32,6 +33,14 @@ const step2Schema = z.object({
 const fullSchema = step1Schema.merge(step2Schema);
 type FormValues = z.infer<typeof fullSchema>;
 
+function createRecruitSubmission() {
+    return new SalonRegistrationBrowser({
+      source: 'recruit', store: window.sessionStorage, request: fetch, uuid: () => crypto.randomUUID(),
+      captcha: () => getRecaptchaToken('salons'), compress: async file => file,
+      upload: async () => { throw new Error('Recruit form has no photo selection'); },
+    });
+  }
+
 export default function RecruitPage() {
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
@@ -42,6 +51,8 @@ export default function RecruitPage() {
   const [unknown, setUnknown] = useState(false);
   const unknownRef = useRef(false);
   const submitLock = useRef(false);
+  const submission = useRef<SalonRegistrationBrowser | null>(null);
+  const [submissionMessage, setSubmissionMessage] = useState(SALON_SUBMISSION_UNKNOWN);
   const [pendingFocus, setPendingFocus] = useState<{ field: keyof FormValues } | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -89,58 +100,58 @@ export default function RecruitPage() {
       return;
     }
     setSubmitting(true);
-    let requestStarted = false;
-    let rejected = false;
     try {
-      const recaptchaToken = await getRecaptchaToken('salons');
-      requestStarted = true;
-      const res = await fetch('/api/salons', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          facility_name: data.facility_name,
-          business_type: data.business_type,
-          representative_name: data.representative_name,
-          contact_name: data.contact_name,
-          email: data.email,
-          phone: data.phone,
-          postal_code: data.postal_code || null,
-          address: data.address || null,
-          website: data.website || null,
-          pr_text: data.description || null,
-          // 【2026年7月16日 恒久根治・/api/notify 廃止対応】従来はここで送信成功後に
-          // 認証なしの公開POST /api/notify を別途叩いて Slack 通知していたが、外部から
-          // 偽アラートを送れる構造的脆弱性だったため廃止。/api/salons が保存成功後に
-          // サーバー側から直接 Slack 通知を送るため、どちらのテンプレートを使うかを
-          // このフィールドで伝える（DBには保存されない）。
-          source: 'recruit',
-          consent: consent.data,
-          ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
-        }),
-      });
-      const result = await readSalonRegistrationResult(res);
-      if (result.kind === 'rejected') {
-        rejected = true;
-        const invalid: FieldErrors<FormValues> = {};
-        for (const field of Object.keys(fullSchema.shape) as (keyof FormValues)[]) {
-          const message = result.fieldErrors?.[field === 'description' ? 'pr_text' : field];
-          if (message) { const error = { type: 'server', message }; setError(field, error); invalid[field] = error; }
-        }
-        revealErrors(invalid);
-        throw new Error(result.message);
-      }
-      if (result.kind === 'unknown') throw new Error(SALON_SUBMISSION_UNKNOWN);
-      setReceipt(result.id);
-      setDone(true);
-    } catch (e: unknown) {
-      // e.message は上の throw で日本語の理由（サーバーJSONのerror or 既定文言）が
-      // 入っているため、そのまま表示する（"登録に失敗しました: " の二重prefixをしない）。
-      if (requestStarted && !rejected) { unknownRef.current = true; setUnknown(true); }
-      else setToast({ message: e instanceof Error ? e.message : '登録に失敗しました。時間をおいて再度お試しください。', type: 'error' });
-    } finally {
-      setSubmitting(false);
-    }
+      if (!submission.current) submission.current = createRecruitSubmission();
+      const result = await submission.current.submit({
+        ...data, contact_phone: '', website: data.website || '', postal_code: data.postal_code || '',
+        address: data.address || '', prefecture: null, city: null, building_name: '', nearest_station: '',
+        business_hours: '', regular_holiday: '', seat_count: null, staff_count: null,
+        has_parking: false, features: [], pr_text: data.description || '', desired_start_date: '',
+      }, [], consent.data);
+      acceptSubmission(result);
+    } catch {
+      unknownRef.current = true; setUnknown(true); setSubmissionMessage(SALON_SUBMISSION_UNKNOWN);
+    } finally { setSubmitting(false); }
   }
+
+
+  function acceptSubmission(result: Awaited<ReturnType<SalonRegistrationBrowser['submit']>>) {
+    if (result.state === 'confirmed') { setReceipt(result.receiptId); setDone(true); return; }
+    if (result.state === 'ready') return;
+    if (result.state === 'retryable') {
+      const invalid: FieldErrors<FormValues> = {};
+      for (const field of Object.keys(fullSchema.shape) as (keyof FormValues)[]) {
+        const message = result.fieldErrors?.[field === 'description' ? 'pr_text' : field];
+        if (message) { const error = { type: 'server', message }; setError(field, error); invalid[field] = error; }
+      }
+      revealErrors(invalid); setToast({ type: 'error', message: result.message }); return;
+    }
+    unknownRef.current = true; setUnknown(true); setSubmissionMessage(result.message);
+  }
+
+  async function checkSubmission() {
+    if (submitLock.current || !submission.current) return;
+    submitLock.current = true; setSubmitting(true);
+    try { acceptSubmission(await submission.current.retryUnknown()); }
+    catch { setSubmissionMessage(SALON_SUBMISSION_UNKNOWN); }
+    finally { submitLock.current = false; setSubmitting(false); }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    const initialize = async () => {
+      if (!submission.current) submission.current = createRecruitSubmission();
+      const result = await submission.current.reconcile();
+      if (cancelled) return;
+      if (result.state === 'confirmed') { setReceipt(result.receiptId); setDone(true); }
+      else if (result.state !== 'ready') { unknownRef.current = true; setUnknown(true); setSubmissionMessage(result.message); }
+    };
+    void initialize().catch(() => {
+      if (cancelled) return;
+      unknownRef.current = true; setUnknown(true); setSubmissionMessage('申込の確認情報を利用できません。新たに送信せず、受付状況をお問い合わせください。');
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   if (done) {
     return (
@@ -162,7 +173,7 @@ export default function RecruitPage() {
         <p className="text-gray-500 text-center mb-8">掲載料は一切かかりません。まずはお気軽にご登録ください。</p>
 
         <StepIndicator currentStep={step} totalSteps={2} labels={['施設情報', '施設詳細']} />
-        {unknown && <div role="alert" className="mt-4 rounded-sm border border-amber-300 p-4"><p>{SALON_SUBMISSION_UNKNOWN}</p><Link href="/contact" className="underline">受付状況を問い合わせる</Link></div>}
+        {unknown && <div role="alert" className="mt-4 rounded-sm border border-amber-300 p-4"><p>{submissionMessage}</p><button type="button" onClick={() => void checkSubmission()} disabled={submitting} className="underline mr-4">同じ申込の受付状況を確認する</button><Link href="/contact" className="underline">受付状況を問い合わせる</Link></div>}
         <form onSubmit={(event) => {
           event.preventDefault();
           if (submitLock.current || unknownRef.current) return;

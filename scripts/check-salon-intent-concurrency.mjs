@@ -1,8 +1,10 @@
-// Deliberately restricted to GitHub's ephemeral PostgreSQL service. Never use
+// Restricted to GitHub ephemeral PG17 or the explicit local shadow container. Never use
 // this as a production probe: it creates synthetic receipts and outbox rows.
 import { execFileSync, spawn } from 'node:child_process';
 
-const args = ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-d', 'carelink_shadow'];
+const localDocker = process.argv[2] === '--local-docker-shadow';
+const binary = localDocker ? 'docker' : 'psql';
+const args = [...(localDocker ? ['exec','-i','supabase_db_carelink','psql','-U','postgres'] : []), '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-d', 'carelink_shadow'];
 const intent = '63000000-0000-4000-8000-000000000001';
 const expiringIntent = '63000000-0000-4000-8000-000000000002';
 const photoIntent = '63000000-0000-4000-8000-000000000003';
@@ -13,17 +15,25 @@ const payload = JSON.stringify({
   features: [], photo_urls: [], has_parking: false, source: 'register',
 });
 async function main() {
-  if (process.env.GITHUB_ACTIONS !== 'true' || process.env.CI !== 'true'
-    || !['localhost', '127.0.0.1'].includes(process.env.PGHOST)
-    || process.env.PGPORT !== '5432' || process.env.PGUSER !== 'postgres'
-    || !process.env.PGPASSWORD || process.env.PGSERVICE || process.env.PGSERVICEFILE || process.env.PGHOSTADDR) {
-    console.error('Registration concurrency environment refused before database access.');
-    process.exitCode = 1;
-    return;
+  if (process.argv.length > 3 || (process.argv[2] && !localDocker)
+    || process.env.PGSERVICE || process.env.PGSERVICEFILE || process.env.PGHOSTADDR) {
+    console.error('Registration concurrency environment refused before database access.'); process.exitCode=1; return;
   }
-  const dbEnv = { PATH: process.env.PATH, PGHOST: '127.0.0.1', PGPORT: '5432',
-    PGUSER: 'postgres', PGPASSWORD: process.env.PGPASSWORD, PGSSLMODE: 'disable' };
-  execFileSync('psql', args, { env: dbEnv, encoding: 'utf8', input: `
+  let dbEnv;
+  if (localDocker) {
+    if (process.env.DOCKER_HOST !== 'unix:///Users/kam/.carelink-vm-20261008/.docker/run/docker.sock') {
+      throw new Error('Local shadow container required.');
+    }
+    dbEnv = { PATH: process.env.PATH, DOCKER_HOST: process.env.DOCKER_HOST, DOCKER_CONFIG: process.env.DOCKER_CONFIG };
+  } else {
+    if (process.env.GITHUB_ACTIONS !== 'true' || process.env.CI !== 'true'
+      || !['localhost','127.0.0.1'].includes(process.env.PGHOST) || process.env.PGPORT !== '5432'
+      || process.env.PGUSER !== 'postgres' || !process.env.PGPASSWORD) {
+      console.error('Registration concurrency environment refused before database access.'); process.exitCode=1; return;
+    }
+    dbEnv = { PATH: process.env.PATH, PGHOST:'127.0.0.1',PGPORT:'5432',PGUSER:'postgres',PGPASSWORD:process.env.PGPASSWORD,PGSSLMODE:'disable' };
+  }
+  execFileSync(binary, args, { env: dbEnv, encoding: 'utf8', input: `
 BEGIN;
 DO $$ BEGIN
   IF current_database() <> 'carelink_shadow' OR EXISTS (SELECT 1 FROM public.salons)
@@ -61,7 +71,7 @@ COMMIT;`, stdio: ['pipe', 'pipe', 'pipe'], timeout: 30000 });
     || photoOutcomes.filter(outcome => outcome === 'limit|').length !== 19) {
     throw new Error('concurrent photo selection cap was not enforced');
   }
-  const counts = execFileSync('psql', args, { env: dbEnv, encoding: 'utf8', timeout: 30000,
+  const counts = execFileSync(binary, args, { env: dbEnv, encoding: 'utf8', timeout: 30000,
     stdio: ['pipe', 'pipe', 'pipe'], input: `SELECT
       (SELECT count(*) FROM public.salons)::text || '|' ||
       (SELECT count(*) FROM public.webhook_retry_queue WHERE registration_id=(SELECT salon_id FROM public.salon_submission_intents WHERE id='${intent}'))::text || '|' ||
@@ -74,14 +84,14 @@ COMMIT;`, stdio: ['pipe', 'pipe', 'pipe'], timeout: 30000 });
 
 async function contend(dbEnv, targetIntent, expireWhileWaiting, preparePhotos = false) {
   const sql = `SET ROLE service_role;
-SELECT outcome || '|' || coalesce(receipt_id::text, '') FROM public.commit_salon_submission(
+SELECT outcome || '|' || coalesce(receipt_id::text, '') FROM public.commit_salon_submission_with_consent(
   '${targetIntent}', repeat('a',64), 1::smallint, 'proof-hkdf-sha256-v1', repeat('b',64),
-  $registration$${payload}$registration$::jsonb);`;
+  $registration$${payload}$registration$::jsonb,'7680f8bffe58b63041fb8afd0c9e81e69dbe5dabafdbe7a73bbc9d2c86f8f04a');`;
   // Hold the intent row until all 20 clients are actually waiting for a lock.
   // Merely spawning 20 processes does not prove overlapping database work.
   let announceReady;
   const ready = new Promise(resolve => { announceReady = resolve; });
-  const coordinator = spawn('psql', args, { env: dbEnv, stdio: ['pipe', 'pipe', 'pipe'] });
+  const coordinator = spawn(binary, args, { env: dbEnv, stdio: ['pipe', 'pipe', 'pipe'] });
   let coordinatorOutput = '';
   const coordinated = new Promise(resolve => {
     const timer = setTimeout(() => { coordinator.kill('SIGTERM'); announceReady(false); resolve(false); }, 30000);
@@ -126,7 +136,7 @@ COMMIT;`);
   if (!await ready) { await coordinated; throw new Error('coordinator did not acquire intent lock'); }
 
   const outcomes = await Promise.all(Array.from({ length: 20 }, (_, index) => new Promise((resolve, reject) => {
-    const child = spawn('psql', args, { env: { ...dbEnv, PGAPPNAME: 'carelink-intent-client' }, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(binary, args, { env: { ...dbEnv, PGAPPNAME: 'carelink-intent-client' }, stdio: ['pipe', 'pipe', 'pipe'] });
     let output = '';
     let size = 0;
     const timer = setTimeout(() => { child.kill('SIGTERM'); reject(new Error('concurrent query timeout')); }, 30000);
@@ -144,16 +154,17 @@ COMMIT;`);
       else resolve(output.trim());
     });
     child.stdin.on('error', error => { clearTimeout(timer); reject(error); });
-    child.stdin.end(preparePhotos ? `SET ROLE service_role;
+    child.stdin.end("SET application_name='carelink-intent-client';\n" + (preparePhotos ? `SET ROLE service_role;
 SELECT outcome || '|' || coalesce(photo_id::text, '') FROM public.prepare_salon_photo(
   '${targetIntent}',repeat('a',64),'66000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}',
-  0::smallint,'image/png',1::bigint);` : sql);
+  0::smallint,'image/png',1::bigint);` : sql));
   })));
   if (!await coordinated) throw new Error('database contention was not observed');
   return outcomes;
 }
 
-main().catch(() => {
+main().catch(error => {
+  if (localDocker && process.env.CARELINK_CONCURRENCY_DIAGNOSTIC === '1') console.error(error.message);
   console.error('Registration concurrency contract failed; no production probe was authorized.');
   process.exitCode = 1;
 });

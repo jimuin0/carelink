@@ -38,6 +38,9 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}));
   const { campaign_type, subject, html_content, text_content, scheduled_at } = body;
+  if (scheduled_at != null && scheduled_at !== '') {
+    return NextResponse.json({ code: 'NEWSLETTER_MANUAL_ONLY', error: 'ニュースレターは手動配信のみです。予約日時を指定せず下書きを作成してください。' }, { status: 400 });
+  }
 
   if (!campaign_type || !subject || !html_content) {
     return NextResponse.json({ error: 'campaign_type, subject, html_content are required' }, { status: 400 });
@@ -64,7 +67,7 @@ export async function POST(req: NextRequest) {
       subject,
       html_content,
       text_content: text_content || null,
-      scheduled_at: scheduled_at || null,
+      scheduled_at: null,
       status: 'draft',
       created_by: user.id,
     })
@@ -79,7 +82,7 @@ export async function POST(req: NextRequest) {
     action: 'create',
     tableName: 'newsletter_campaigns',
     recordId: campaign.id,
-    newValues: { campaign_type, subject, scheduled_at: scheduled_at || null },
+    newValues: { campaign_type, subject },
     ipAddress: ip,
     userAgent: ua,
   });

@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  *
- * /register ページ: zipcloud 応答から prefecture / city が保持され、/api/salons への
+ * /register ページ: zipcloud 応答から prefecture / city が保持され、/api/salons/commit への
  * 送信ボディに含まれることの回帰テスト（2026年8月20日）。
  *
  * 【背景】facility_profiles.prefecture は /search の地域絞り込み・「近くの施設」
@@ -13,6 +13,7 @@
 import '@testing-library/jest-dom';
 import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react';
 import RegisterPage from '@/app/register/page';
+import { submissionResponse } from '../test-support/submission-response';
 
 const pushMock = jest.fn();
 jest.mock('next/navigation', () => ({
@@ -23,6 +24,8 @@ jest.mock('next/navigation', () => ({
 jest.mock('@/lib/recaptcha-client', () => ({
   getRecaptchaToken: jest.fn().mockResolvedValue(null),
 }));
+
+beforeEach(() => { sessionStorage.clear(); });
 
 afterEach(() => {
   jest.restoreAllMocks();
@@ -54,13 +57,7 @@ function mockFetchWithZipcloud() {
           }),
       } as Response);
     }
-    if (url === '/api/salons') {
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ success: true, id: '11111111-1111-1111-1111-111111111111' }),
-      } as Response);
-    }
-    return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    return submissionResponse(url);
   });
 }
 
@@ -75,8 +72,8 @@ async function submitAndGetSalonBody(fetchMock: jest.Mock) {
   });
 
   await waitFor(() => expect(pushMock).toHaveBeenCalled());
-  const [, options] = fetchMock.mock.calls.find(([url]) => url === '/api/salons')!;
-  return JSON.parse((options as RequestInit).body as string);
+  const [, options] = fetchMock.mock.calls.find(([url]) => url === '/api/salons/commit')!;
+  return JSON.parse((options as RequestInit).body as string).registration;
 }
 
 test('郵便番号から住所を自動補完すると、prefecture / city が送信ボディに保持される（表示は連結済み address のまま）', async () => {
@@ -104,13 +101,7 @@ test('郵便番号から住所を自動補完すると、prefecture / city が�
 
 test('郵便番号を使わず住所を直接書いた場合、送信時に address から prefecture / city が復元される', async () => {
   const fetchMock = jest.fn((url: string) => {
-    if (url === '/api/salons') {
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ success: true, id: '11111111-1111-1111-1111-111111111111' }),
-      } as Response);
-    }
-    return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    return submissionResponse(url);
   });
   global.fetch = fetchMock as unknown as typeof fetch;
 
@@ -132,13 +123,7 @@ test('郵便番号を使わず住所を直接書いた場合、送信時に addr
 
 test('住所欄が空のまま送信すると、prefecture / city は null のまま送られる（推測で埋めない）', async () => {
   const fetchMock = jest.fn((url: string) => {
-    if (url === '/api/salons') {
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ success: true, id: '11111111-1111-1111-1111-111111111111' }),
-      } as Response);
-    }
-    return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    return submissionResponse(url);
   });
   global.fetch = fetchMock as unknown as typeof fetch;
 
@@ -158,7 +143,7 @@ function deferredPostal() {
   const pending: Array<(response: Response) => void> = [];
   const fetchMock = jest.fn((url: string) => url.startsWith('https://zipcloud')
     ? new Promise<Response>(resolve => pending.push(resolve))
-    : Promise.resolve({ ok: true, json: async () => ({ success: true, id: '11111111-1111-1111-1111-111111111111' }) } as Response));
+    : submissionResponse(url));
   global.fetch = fetchMock as unknown as typeof fetch;
   const reply = async (index: number, data: unknown, ok = true) => {
     await act(async () => pending[index]({ ok, json: async () => data } as Response));

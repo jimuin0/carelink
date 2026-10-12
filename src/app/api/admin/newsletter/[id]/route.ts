@@ -28,6 +28,9 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const { action, expected_updated_at } = await req.json().catch(() => ({}));
+  if (action === 'schedule') {
+    return NextResponse.json({ code: 'NEWSLETTER_MANUAL_ONLY', error: 'ニュースレターは手動配信のみです。予約配信は受け付けていません。' }, { status: 400 });
+  }
   const admin = createServiceRoleClient();
 
   const { data: campaign, error: fetchErr } = await admin
@@ -70,42 +73,6 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
         recordId: params.id,
         oldValues: { status: campaign.status },
         newValues: { status: 'cancelled' },
-        ipAddress: auditIp,
-        userAgent: ua,
-      });
-    }
-
-    return NextResponse.json({ campaign: updated[0] });
-  }
-
-  if (action === 'schedule') {
-    if (campaign.status !== 'draft') {
-      return NextResponse.json({ error: 'Only draft campaigns can be scheduled' }, { status: 400 });
-    }
-    // cancel と同型: TOCTOU による0件更新を、楽観的並行制御(status='draft'をWHEREに追加)＋
-    // 行数検証で 409 に正しく分類する（従来は .single() が0件で 500 に丸めていた）。
-    const { data: updated, error: scheduleErr } = await admin
-      .from('newsletter_campaigns')
-      .update({ status: 'scheduled', updated_at: new Date().toISOString() })
-      .eq('id', params.id)
-      .eq('status', 'draft')
-      .select();
-    if (scheduleErr) return serverError('admin-newsletter-schedule', scheduleErr, '/api/admin/newsletter/[id]');
-    if (!updated || updated.length === 0) {
-      return NextResponse.json({ error: 'キャンペーンの状態が変更されているため予約できません' }, { status: 409 });
-    }
-
-    {
-      // AuditAction に 'schedule' 相当の値が無いため、状態遷移を表す 'update' で記録する
-      // （cancel は AuditAction に専用値があるため 'cancel' を使う）。
-      const { ip: auditIp, ua } = getRequestContext(req);
-      void writeAuditLog({
-        userId: user.id,
-        action: 'update',
-        tableName: 'newsletter_campaigns',
-        recordId: params.id,
-        oldValues: { status: campaign.status },
-        newValues: { status: 'scheduled' },
         ipAddress: auditIp,
         userAgent: ua,
       });
