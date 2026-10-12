@@ -1,10 +1,13 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { SbPageHeader } from '@/components/admin/SbUi';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
+import Image from 'next/image';
+import { moderationReviewSnapshotSchema, type ModerationReviewSnapshot } from '@/lib/moderation-review-snapshot';
+import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
 
 interface ModerationItem {
   id: string;
@@ -63,6 +66,8 @@ export default function ModerationPage() {
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState('');
+  const [snapshot, setSnapshot] = useState<ModerationReviewSnapshot | null>(null);
+  const operationLock = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -130,16 +135,38 @@ export default function ModerationPage() {
     return () => { cancelled = true; };
   }, [statusFilter]);
 
+  const openReview = async (id: string) => {
+    if (operationLock.current) return;
+    const item=items.find(item=>item.id===id);
+    if (!item) return;
+    setReviewingId(id);setSnapshot(null);
+    if (item.content_type!=='review') return;
+    operationLock.current=true;setProcessingId(id);
+    try {
+      const response=await fetch(`/api/admin/moderation/${id}`,{cache:'no-store'});
+      const body=await response.json();
+      const parsed=moderationReviewSnapshotSchema.safeParse(body.snapshot);
+      if (!response.ok || !parsed.success || parsed.data.id!==id) {
+        setToast({type:'error',message:'審査する口コミを確認できません。内容を再取得してから審査してください'});return;
+      }
+      setSnapshot(parsed.data);
+    } catch {setToast({type:'error',message:'審査する口コミを取得できませんでした'});}
+    finally {operationLock.current=false;setProcessingId(null);}
+  };
+
   const handleDecision = async (id: string, decision: 'approved' | 'rejected' | 'escalated') => {
-    if (processingId) return; // 二重送信ガード（連打抑止）
-    const observed = items.find(item => item.id === id);
-    if (!observed) return;
+    const item=items.find(item=>item.id===id);
+    if (operationLock.current || !item) return;
+    if (item.content_type==='review' && (!snapshot || snapshot.id!==id
+      || snapshot.review.photo_urls?.some(url=>!isAllowedStorageUrl(url,'review-photos')))) return;
+    const observed=item.content_type==='review'?snapshot!:item;
+    operationLock.current=true;
     setProcessingId(id);
     try {
       const res = await fetch(`/api/admin/moderation/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ decision, expected_status: observed.status, expected_reviewed_at: observed.reviewed_at ?? null, review_note: reviewNote || null }),
+        body: JSON.stringify({ decision, expected_status: observed.status, expected_reviewed_at: observed.reviewed_at, ...(item.content_type==='review'?{expected_content_hash:snapshot!.content_hash}:{}), review_note: reviewNote || null }),
       });
 
       if (!res.ok) {
@@ -150,12 +177,12 @@ export default function ModerationPage() {
       await load();
       const labels = { approved: '承認', rejected: '却下', escalated: 'エスカレーション' };
       setToast({ type: 'success', message: `${labels[decision]}しました` });
-      setReviewingId(null);
+      setReviewingId(null);setSnapshot(null);
       setReviewNote('');
     } catch {
       setToast({ type: 'error', message: '審査結果を確認できませんでした。メモは保持されています。再読み込みして状態を確認してください' });
     } finally {
-      setProcessingId(null);
+      operationLock.current=false;setProcessingId(null);
     }
   };
 
@@ -167,7 +194,7 @@ export default function ModerationPage() {
 
       <SbPageHeader
         title="コンテンツモデレーション"
-        description="投稿されたレビュー・写真・Q&A回答を審査・管理します"
+        description="口コミの本文と写真を確認して審査します。ほかの投稿種別は一覧で確認できます"
         actions={
           <button type="button" onClick={load} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>
         }
@@ -240,6 +267,15 @@ export default function ModerationPage() {
                 <div className="border-t border-gray-100 pt-3 space-y-2">
                   {reviewingId === item.id ? (
                     <>
+                      {item.content_type==='review' && (snapshot?.id===item.id ? <div className="space-y-2 rounded border p-3">
+                        <p className="text-sm">総合評価：{snapshot.review.rating} / 5</p>
+                        <p className="text-sm">技術：{snapshot.review.rating_skill}・接客：{snapshot.review.rating_service}・雰囲気：{snapshot.review.rating_atmosphere}・清潔感：{snapshot.review.rating_cleanliness}・説明：{snapshot.review.rating_explanation}</p>
+                        <p className="whitespace-pre-wrap break-words">{snapshot.review.comment || '本文なし'}</p>
+                        <div className="flex flex-wrap gap-2">{snapshot.review.photo_urls?.map((url,index)=>isAllowedStorageUrl(url,'review-photos')
+                          ? <a key={url} href={url} target="_blank" rel="noopener noreferrer"><Image src={url} width={160} height={160} alt={`口コミ写真${index+1}`} className="rounded object-cover" /></a>
+                          : <p key={url} role="alert">写真を安全に確認できません。この口コミは審査できません</p>)}</div>
+                      </div> : <p role="status">審査する口コミの内容を取得してください</p>)}
+                      {item.content_type==='review' && <button type="button" disabled={processingId!==null} onClick={()=>void openReview(item.id)} className="text-sm underline">内容を再取得</button>}
                       <textarea
                         value={reviewNote}
                         onChange={(e) => setReviewNote(e.target.value)}
@@ -251,7 +287,7 @@ export default function ModerationPage() {
                       <div className="flex gap-2">
                         <button
                           type="button"
-                          disabled={processingId !== null}
+                          disabled={processingId !== null || (item.content_type==='review' && (snapshot?.id!==item.id || snapshot.review.photo_urls?.some(url=>!isAllowedStorageUrl(url,'review-photos'))))}
                           onClick={() => handleDecision(item.id, 'approved')}
                           className="flex-1 py-2 bg-emerald-500 text-white rounded-lg text-sm font-bold hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
@@ -259,7 +295,7 @@ export default function ModerationPage() {
                         </button>
                         <button
                           type="button"
-                          disabled={processingId !== null}
+                          disabled={processingId !== null || (item.content_type==='review' && (snapshot?.id!==item.id || snapshot.review.photo_urls?.some(url=>!isAllowedStorageUrl(url,'review-photos'))))}
                           onClick={() => handleDecision(item.id, 'rejected')}
                           className="flex-1 py-2 bg-red-500 text-white rounded-lg text-sm font-bold hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
@@ -267,7 +303,7 @@ export default function ModerationPage() {
                         </button>
                         <button
                           type="button"
-                          disabled={processingId !== null}
+                          disabled={processingId !== null || (item.content_type==='review' && (snapshot?.id!==item.id || snapshot.review.photo_urls?.some(url=>!isAllowedStorageUrl(url,'review-photos'))))}
                           onClick={() => handleDecision(item.id, 'escalated')}
                           className="flex-1 py-2 bg-purple-500 text-white rounded-lg text-sm font-bold hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
@@ -275,7 +311,7 @@ export default function ModerationPage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => { setReviewingId(null); setReviewNote(''); }}
+                          disabled={processingId!==null} onClick={() => { setReviewingId(null);setSnapshot(null); setReviewNote(''); }}
                           className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
                         >
                           戻る
@@ -285,7 +321,7 @@ export default function ModerationPage() {
                   ) : (
                     <button
                       type="button"
-                      onClick={() => setReviewingId(item.id)}
+                      disabled={processingId!==null} onClick={() => void openReview(item.id)}
                       className="text-sm px-4 py-2 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200 font-medium"
                     >
                       審査する

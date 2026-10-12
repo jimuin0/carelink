@@ -67,7 +67,7 @@ const review = 'f8630000-0000-4000-8000-000000000001';
 const queue = 'f8640000-0000-4000-8000-000000000001';
 const setMain = pid => `SELECT count(*) FROM public.set_facility_main_photo_atomic('${actor}','${fid}','${pid}')`;
 const remove = pid => `SELECT count(*) FROM public.delete_facility_photo_atomic('${actor}','${fid}','${pid}')`;
-const moderate = decision => `SELECT replayed FROM public.moderate_content_atomic('${actor}','${queue}','pending','${decision}',NULL)`;
+const moderate = decision => `SELECT replayed FROM public.moderate_review_content_atomic('${actor}','${queue}','pending','${decision}',NULL,p_expected_content_hash=>'${query(`SELECT public.review_content_hash(r) FROM public.facility_reviews r WHERE id=\'${review}\'`)}')`;
 let created = false;
 async function main() {
   assert.equal(query('SELECT current_database()'), database);
@@ -131,7 +131,7 @@ async function main() {
     VALUES('${fid}','Synthetic cascade order','synthetic-modphoto-concurrency','その他','合成県','合成市','合成住所','draft');
     INSERT INTO public.facility_reviews(id,facility_id,reviewer_name,rating,reviewer_ip) VALUES('${review}','${fid}','Synthetic cascade',4,'127.0.0.1');
     INSERT INTO public.moderation_queue(id,content_type,content_id,facility_id) VALUES('${queue}','review','${review}','${fid}'); COMMIT;`);
-  race = await orderedRace('parent-cascade-before-moderation', `DELETE FROM public.facility_profiles WHERE id='${fid}'`, `SELECT count(*) FROM public.moderate_content_atomic('${actor}','${queue}','pending','rejected',NULL)`);
+  race = await orderedRace('parent-cascade-before-moderation', `DELETE FROM public.facility_profiles WHERE id='${fid}'`, `SELECT count(*) FROM public.moderate_review_content_atomic('${actor}','${queue}','pending','rejected',NULL,p_expected_content_hash=>'${query(`SELECT public.review_content_hash(r) FROM public.facility_reviews r WHERE id=\'${review}\'`)}')`);
   assert.equal(race.code, 0, race.errors); assert.equal(race.output, '0');
   assert.equal(query(`SELECT EXISTS(SELECT 1 FROM public.facility_profiles WHERE id='${fid}') OR EXISTS(SELECT 1 FROM public.moderation_queue WHERE id='${queue}')`), 'f');
   const recreate = () => {

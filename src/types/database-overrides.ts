@@ -74,7 +74,7 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
     };
     // Omit every overridden key before replacing it. Intersecting generated
     // non-null strings with nullable overrides would silently reject valid SQL NULLs.
-    Functions: Omit<GeneratedFunctions, 'create_booking_atomic' | 'create_online_booking_atomic' | 'prepare_salon_photo' | 'setup_facility_from_registration' | 'save_booking_email_event_atomic' | 'start_booking_email_event' | 'checkout_booking_with_points_atomic' | 'moderate_content_atomic' | 'save_staff_override_atomic' | 'get_staff_mutation_operation' | BookingScopeFunctionName | 'create_booking_with_receipt_atomic'> & {
+    Functions: Omit<GeneratedFunctions, 'create_booking_atomic' | 'create_online_booking_atomic' | 'prepare_salon_photo' | 'setup_facility_from_registration' | 'save_booking_email_event_atomic' | 'start_booking_email_event' | 'checkout_booking_with_points_atomic' | 'moderate_content_atomic' | 'moderate_review_content_atomic' | 'save_staff_override_atomic' | 'get_staff_mutation_operation' | BookingScopeFunctionName | 'create_booking_with_receipt_atomic'> & {
       // The gateway accepts either a verified actor or a signed guest scope,
       // not both. Its SQL body also permits no staff/coupon/phone/note.
       prepare_booking_create_operation: NullableBookingScopeFunction<'prepare_booking_create_operation'>;
@@ -91,6 +91,9 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
         Args: Omit<GeneratedFunctions['checkout_booking_with_points_atomic']['Args'], 'p_expected_updated_at' | 'p_paid_amount'> & {
           p_expected_updated_at: string | null; p_paid_amount: number | null;
         };
+      };
+      moderate_review_content_atomic: Omit<GeneratedFunctions['moderate_review_content_atomic'], 'Args'> & {
+        Args: Omit<GeneratedFunctions['moderate_review_content_atomic']['Args'], 'p_review_note' | 'p_expected_reviewed_at'> & { p_review_note?: string | null; p_expected_reviewed_at?: string | null };
       };
       moderate_content_atomic: Omit<GeneratedFunctions['moderate_content_atomic'], 'Args'> & {
         Args: Omit<GeneratedFunctions['moderate_content_atomic']['Args'], 'p_review_note' | 'p_expected_reviewed_at'> & { p_review_note?: string | null; p_expected_reviewed_at?: string | null };
