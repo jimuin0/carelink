@@ -2,6 +2,8 @@
 -- Old service RPC calls cannot approve a changed/unseen review; hidden owner
 -- status is independent of the moderation flag and is never restored here.
 BEGIN;
+ALTER TABLE public.moderation_queue ADD COLUMN decision_content_hash text
+  CHECK(decision_content_hash IS NULL OR decision_content_hash ~ '^[a-f0-9]{64}$');
 CREATE FUNCTION public.review_content_hash(r public.facility_reviews) RETURNS text
 LANGUAGE sql IMMUTABLE SECURITY INVOKER SET search_path='' AS $$
   SELECT encode(sha256(convert_to(jsonb_build_object('id',r.id,'facility_id',r.facility_id,
@@ -119,8 +121,12 @@ BEGIN
     THEN RAISE EXCEPTION 'MODERATION_REVIEW_UNAVAILABLE'; END IF;
   IF public.review_content_hash(r) IS DISTINCT FROM p_expected_content_hash
     THEN RAISE EXCEPTION 'MODERATION_CONTENT_CHANGED'; END IF;
+  IF EXISTS(SELECT 1 FROM public.moderation_queue newer WHERE newer.content_type='review'
+    AND newer.content_id=q.content_id AND newer.status='pending' AND newer.id<>q.id)
+    THEN RAISE EXCEPTION 'MODERATION_REVISION_CONFLICT'; END IF;
   exact_replay := q.status=p_decision AND q.review_note IS NOT DISTINCT FROM p_review_note
-    AND q.reviewed_by IS NOT DISTINCT FROM p_actor_id;
+    AND q.reviewed_by IS NOT DISTINCT FROM p_actor_id
+    AND q.decision_content_hash IS NOT DISTINCT FROM p_expected_content_hash;
   IF NOT exact_replay AND (q.status IS DISTINCT FROM p_expected_status
     OR q.reviewed_at IS DISTINCT FROM p_expected_reviewed_at)
     THEN RAISE EXCEPTION 'MODERATION_REVISION_CONFLICT'; END IF;
@@ -138,7 +144,7 @@ BEGIN
   END IF;
   IF NOT exact_replay THEN
     UPDATE public.moderation_queue SET status=p_decision,reviewed_by=p_actor_id,
-      reviewed_at=clock_timestamp(),review_note=p_review_note WHERE moderation_queue.id=q.id;
+      reviewed_at=clock_timestamp(),review_note=p_review_note,decision_content_hash=p_expected_content_hash WHERE moderation_queue.id=q.id;
   END IF;
   RETURN QUERY SELECT q.id,q.content_type,q.content_id,exact_replay;
 END;

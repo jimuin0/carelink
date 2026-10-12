@@ -3399,6 +3399,7 @@ export type Database = {
           content_id: string
           content_type: string
           created_at: string
+          decision_content_hash: string | null
           facility_id: string | null
           id: string
           report_reason: string | null
@@ -3413,6 +3414,7 @@ export type Database = {
           content_id: string
           content_type: string
           created_at?: string
+          decision_content_hash?: string | null
           facility_id?: string | null
           id?: string
           report_reason?: string | null
@@ -3427,6 +3429,7 @@ export type Database = {
           content_id?: string
           content_type?: string
           created_at?: string
+          decision_content_hash?: string | null
           facility_id?: string | null
           id?: string
           report_reason?: string | null
