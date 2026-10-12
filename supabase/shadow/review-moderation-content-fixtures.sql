@@ -27,6 +27,12 @@ DO $$ DECLARE qid uuid; observed jsonb; h text; rev timestamptz; BEGIN
  PERFORM public.moderate_review_content_atomic('fa130000-0000-4000-8000-000000000001',qid,'pending','approved',p_expected_content_hash=>h);
  PERFORM pg_temp.assert_review_cas((SELECT NOT is_flagged AND flag_reason IS NULL AND status='published' FROM public.facility_reviews WHERE id='fa130002-0000-4000-8000-000000000001'),'approval releases flags in same commit');
  PERFORM pg_temp.assert_review_cas((SELECT replayed FROM public.moderate_review_content_atomic('fa130000-0000-4000-8000-000000000001',qid,'pending','approved',p_expected_content_hash=>h)),'exact lost response replays');
+ -- Simulate the legacy flagging worker's gap before a new queue is inserted.
+ UPDATE public.facility_reviews SET is_flagged=true,flag_reason='Synthetic fresh flag without queue yet' WHERE id='fa130002-0000-4000-8000-000000000001';
+ BEGIN PERFORM public.moderate_review_content_atomic('fa130000-0000-4000-8000-000000000001',qid,'pending','approved',p_expected_content_hash=>h);
+  RAISE EXCEPTION 'old replay cleared new flag'; EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'MODERATION_REVISION_CONFLICT' THEN RAISE; END IF; END;
+ PERFORM pg_temp.assert_review_cas((SELECT is_flagged AND flag_reason='Synthetic fresh flag without queue yet' FROM public.facility_reviews WHERE id='fa130002-0000-4000-8000-000000000001'),'approval retry cannot undo a new flag before enqueue');
+ UPDATE public.facility_reviews SET is_flagged=false,flag_reason=NULL WHERE id='fa130002-0000-4000-8000-000000000001';
  SELECT reviewed_at INTO rev FROM public.moderation_queue WHERE id=qid;
  PERFORM public.moderate_review_content_atomic('fa130000-0000-4000-8000-000000000001',qid,'approved','rejected','Synthetic rejection',rev,h);
  SELECT reviewed_at INTO rev FROM public.moderation_queue WHERE id=qid;

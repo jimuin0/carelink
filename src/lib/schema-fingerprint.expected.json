@@ -1889,7 +1889,7 @@
 "function|lock_booking_point_actors(p_actor_id uuid, p_customer_id uuid)|returns=void|volatile=v|secdef=f|body_md5=e7fa5520128d810f8085a702ebe5f592",
 "function|lock_review_submission()|returns=trigger|volatile=v|secdef=f|body_md5=c2693289cf6477592269c56c2bf4c67f",
 "function|moderate_content_atomic(p_actor_id uuid, p_queue_id uuid, p_expected_status text, p_decision text, p_review_note text, p_expected_reviewed_at timestamp with time zone)|returns=TABLE(id uuid, content_type text, content_id uuid, replayed boolean)|volatile=v|secdef=f|body_md5=3c0f273779a2a30484091a061bb11b45",
-"function|moderate_review_content_atomic(p_actor_id uuid, p_queue_id uuid, p_expected_status text, p_decision text, p_review_note text, p_expected_reviewed_at timestamp with time zone, p_expected_content_hash text)|returns=TABLE(id uuid, content_type text, content_id uuid, replayed boolean)|volatile=v|secdef=f|body_md5=559b35536c7de17690779fa697ceefee",
+"function|moderate_review_content_atomic(p_actor_id uuid, p_queue_id uuid, p_expected_status text, p_decision text, p_review_note text, p_expected_reviewed_at timestamp with time zone, p_expected_content_hash text)|returns=TABLE(id uuid, content_type text, content_id uuid, replayed boolean)|volatile=v|secdef=f|body_md5=eb23752e5bead870c7d26d2a290666c7",
 "function|moderation_review_snapshot(p_actor_id uuid, p_queue_id uuid)|returns=TABLE(snapshot jsonb)|volatile=v|secdef=f|body_md5=b42e3e2b2728d583e875c6b2681b99c3",
 "function|newsletter_current_recipients(p_kind text)|returns=SETOF text|volatile=s|secdef=t|body_md5=d1e9bac13071f27d1ad68dddc249f2d0",
 "function|newsletter_operation_receipt(p_campaign_id uuid)|returns=jsonb|volatile=s|secdef=t|body_md5=c899770b26807d4f25ea43335e865740",

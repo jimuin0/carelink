@@ -124,13 +124,17 @@ BEGIN
   IF EXISTS(SELECT 1 FROM public.moderation_queue newer WHERE newer.content_type='review'
     AND newer.content_id=q.content_id AND newer.status='pending' AND newer.id<>q.id)
     THEN RAISE EXCEPTION 'MODERATION_REVISION_CONFLICT'; END IF;
+  -- A persisted approval released its flag. A new flag is a new moderation
+  -- event, even before the legacy flagging worker finishes enqueueing it.
+  IF q.status='approved' AND q.decision_content_hash IS NOT NULL AND r.is_flagged IS TRUE
+    THEN RAISE EXCEPTION 'MODERATION_REVISION_CONFLICT'; END IF;
   exact_replay := q.status=p_decision AND q.review_note IS NOT DISTINCT FROM p_review_note
     AND q.reviewed_by IS NOT DISTINCT FROM p_actor_id
     AND q.decision_content_hash IS NOT DISTINCT FROM p_expected_content_hash;
   IF NOT exact_replay AND (q.status IS DISTINCT FROM p_expected_status
     OR q.reviewed_at IS DISTINCT FROM p_expected_reviewed_at)
     THEN RAISE EXCEPTION 'MODERATION_REVISION_CONFLICT'; END IF;
-  IF p_decision='rejected' AND q.content_type='review' THEN
+  IF NOT exact_replay AND p_decision='rejected' AND q.content_type='review' THEN
     SELECT * INTO r FROM public.facility_reviews v WHERE v.id=q.content_id FOR UPDATE;
     IF NOT FOUND OR r.facility_id IS DISTINCT FROM locked_facility
       OR (q.facility_id IS NOT NULL AND r.facility_id IS DISTINCT FROM q.facility_id)
@@ -138,7 +142,7 @@ BEGIN
     UPDATE public.facility_reviews SET status='hidden',is_flagged=true,
       flag_reason=coalesce(nullif(p_review_note,''),'管理者による非承認') WHERE facility_reviews.id=r.id;
   END IF;
-  IF p_decision='approved' THEN
+  IF NOT exact_replay AND p_decision='approved' THEN
     -- Release moderation flags without undoing the owner's independent hidden state.
     UPDATE public.facility_reviews SET is_flagged=false,flag_reason=NULL WHERE facility_reviews.id=r.id;
   END IF;
