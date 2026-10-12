@@ -18,3 +18,7 @@ test('YAML configuration does not construct functions from an unsafe tag',async(
  writeFileSync(join(directory,'.nycrc.yaml'),'hook: !!js/function "function () { return 1; }"\n');
  await expect(loadNycConfig({cwd:directory})).rejects.toThrow(/unknown tag/);
 });
+test('YAML aliases retain their referenced array values',async()=>{
+ writeFileSync(join(directory,'.nycrc.yml'),'include: &sources ["src/**/*.ts"]\nexclude: *sources\n');
+ expect(await loadNycConfig({cwd:directory})).toMatchObject({include:['src/**/*.ts'],exclude:['src/**/*.ts']});
+});
