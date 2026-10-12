@@ -235,7 +235,7 @@ export default function ModerationPage() {
       ) : (
         <div className="space-y-3">
           {items.map((item) => (
-            <div key={item.id} className="bg-white rounded-xl border border-gray-100 p-4 space-y-3">
+            <div key={item.id} data-testid={`moderation-${item.id}`} className="bg-white rounded-xl border border-gray-100 p-4 space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2 flex-wrap">
