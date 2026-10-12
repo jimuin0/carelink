@@ -855,6 +855,7 @@
     "created_at",
     "decision_content_hash",
     "facility_id",
+    "flag_evidence",
     "id",
     "report_reason",
     "reporter_id",

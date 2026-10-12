@@ -471,3 +471,16 @@ describe('POST: ストリーミングの複数ページ処理', () => {
     expect((await res.text()).trim().split('\n')).toHaveLength(1001);
   });
 });
+
+// First-open spreadsheet protection includes invisible prefixes and Japanese full-width initiators.
+test.each(['\t=1+2','\r=1+2','\n=1+2','  =1+2','\uFEFF=1+2','＝1+2','＋1+2','－1+2','＠SUM(1,2)'])('POST: untrusted CSV text %j stays a text value',async value=>{
+ mockAnonFrom.mockReturnValue(profileChain(true));
+ mockAdminFrom.mockReturnValue({select:()=>({order:()=>({range:async()=>({data:[{id:'synthetic',name:value}],error:null})})})});
+ const response=await POST(makePostRequest());expect(response.status).toBe(200);
+ const csv=await response.text();expect(csv).toContain("'"+value.replace(/"/g,'""'));
+});
+test('POST: carriage returns and semicolons inside a cell are quoted',async()=>{
+ mockAnonFrom.mockReturnValue(profileChain(true));
+ mockAdminFrom.mockReturnValue({select:()=>({order:()=>({range:async()=>({data:[{id:'synthetic',name:'safe\rtext',note:'safe;=1+2'}],error:null})})})});
+ const csv=await(await POST(makePostRequest())).text();expect(csv).toContain('"safe\rtext"');expect(csv).toContain('"safe;=1+2"');
+});

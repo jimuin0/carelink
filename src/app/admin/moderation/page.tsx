@@ -268,6 +268,8 @@ export default function ModerationPage() {
                   {reviewingId === item.id ? (
                     <>
                       {item.content_type==='review' && (snapshot?.id===item.id ? <div className="space-y-2 rounded border p-3">
+                        <p className="text-sm">審査理由：{snapshot.report_reason || '理由の記録なし'} / 検知：{snapshot.auto_flags.join('、') || 'なし'}</p>
+                        <p className="text-sm">現在のフラグ理由：{snapshot.review.flag_reason || 'なし'}</p>
                         <p className="text-sm">総合評価：{snapshot.review.rating} / 5</p>
                         <p className="text-sm">技術：{snapshot.review.rating_skill}・接客：{snapshot.review.rating_service}・雰囲気：{snapshot.review.rating_atmosphere}・清潔感：{snapshot.review.rating_cleanliness}・説明：{snapshot.review.rating_explanation}</p>
                         <p className="whitespace-pre-wrap break-words">{snapshot.review.comment || '本文なし'}</p>

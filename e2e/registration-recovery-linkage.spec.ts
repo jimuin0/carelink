@@ -137,6 +137,8 @@ test('Auth unavailable 503 -> no logout -> explicit retry reads original receipt
 });
 
 test('expired handoff -> verified recovery -> one draft -> listing without online booking', async ({ page }, info) => {
+  // This verifies Auth, three navigations, creation, publication and booking readiness.
+  test.setTimeout(60000);
   await page.setExtraHTTPHeaders({ 'x-real-ip': `192.0.2.${160 + info.retry * 2 + (info.project.name === 'chromium' ? 0 : 1)}` });
   const db = localDb(); const owner = await identity(db);
   const name = `復旧掲載 ${randomUUID()}`; const id = await receipt(db, owner.email, name);
@@ -154,7 +156,12 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   expect({ present: !!negativeHint, negative: negativeHint?.value.startsWith('0.'),
     httpOnly: negativeHint?.httpOnly, secure: negativeHint?.secure, path: negativeHint?.path })
     .toEqual({ present: true, negative: true, httpOnly: true, secure: true, path: '/admin' });
+  const listing=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/salons/recovery'
+    && response.request().method()==='POST' && response.request().postDataJSON().action==='list',{timeout:30000});
   await page.goto('/register/recover');
+  const listed=await listing;
+  expect(listed.status()).toBe(200);
+  expect((await listed.json()).receipts).toEqual(expect.arrayContaining([expect.objectContaining({receipt_id:id})]));
   // New browser has no receipt capability or tab handoff. Its verified identity
   // selects the original receipt without submitting another application.
   await selectRecovery(page, id);

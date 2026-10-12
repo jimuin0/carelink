@@ -21,8 +21,8 @@ import { assertNoRowsBeyondExportLimit } from '@/lib/backup-export';
 function csvEscape(val: unknown): string {
   if (val === null || val === undefined) return '';
   const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
-  const safe = /^[=+\-@|]/.test(str) ? `'${str}` : str;
-  return safe.includes(',') || safe.includes('\n') || safe.includes('"')
+  const safe = /^(?:[\s\uFEFF]*[=+\-@|＝＋－＠]|[\t\r\n])/.test(str) ? `'${str}` : str;
+  return safe.includes(',') || safe.includes('\n') || safe.includes('\r') || safe.includes(';') || safe.includes('"')
     ? `"${safe.replace(/"/g, '""')}"`
     : safe;
 }

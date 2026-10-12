@@ -113,7 +113,7 @@ test('old state-only client cannot moderate unseen content', async()=>{
  expect((await PATCH(req,props())).status).toBe(409);expect(mockAdminRpc).not.toHaveBeenCalled();
 });
 const snapshotId='11111111-1111-4111-8111-111111111111';
-const snapshot={id:snapshotId,content_id:'22222222-2222-4222-8222-222222222222',content_type:'review',status:'pending',reviewed_at:null,content_hash:'a'.repeat(64),review:{comment:'Synthetic original content',rating:4,photo_urls:null,rating_skill:null,rating_service:4,rating_atmosphere:4,rating_cleanliness:4,rating_explanation:4}};
+const snapshot={id:snapshotId,content_id:'22222222-2222-4222-8222-222222222222',content_type:'review',report_reason:'Synthetic report',auto_flags:['user_report'],status:'pending',reviewed_at:null,content_hash:'a'.repeat(64),review:{flag_reason:'Synthetic flag',comment:'Synthetic original content',rating:4,photo_urls:null,rating_skill:null,rating_service:4,rating_atmosphere:4,rating_cleanliness:4,rating_explanation:4}};
 const get=()=>GET(new Request('http://localhost/api/admin/moderation/'+snapshotId) as Parameters<typeof GET>[0],props(snapshotId));
 test('admin snapshot returns content and version without caching',async()=>{
  mockAdminRpc.mockResolvedValue({data:[{snapshot}],error:null});const result=await get();

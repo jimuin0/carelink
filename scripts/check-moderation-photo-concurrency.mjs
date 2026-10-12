@@ -67,7 +67,7 @@ const review = 'f8630000-0000-4000-8000-000000000001';
 const queue = 'f8640000-0000-4000-8000-000000000001';
 const setMain = pid => `SELECT count(*) FROM public.set_facility_main_photo_atomic('${actor}','${fid}','${pid}')`;
 const remove = pid => `SELECT count(*) FROM public.delete_facility_photo_atomic('${actor}','${fid}','${pid}')`;
-const moderate = decision => `SELECT replayed FROM public.moderate_review_content_atomic('${actor}','${queue}','pending','${decision}',NULL,p_expected_content_hash=>'${query(`SELECT public.review_content_hash(r) FROM public.facility_reviews r WHERE id=\'${review}\'`)}')`;
+const moderate = decision => `SELECT replayed FROM public.moderate_review_content_atomic('${actor}','${queue}','pending','${decision}',NULL,p_expected_content_hash=>'${query(`SELECT public.moderation_review_context_hash(q,r) FROM public.facility_reviews r JOIN public.moderation_queue q ON q.content_id=r.id WHERE q.id=\'${queue}\'`)}')`;
 let created = false;
 async function main() {
   assert.equal(query('SELECT current_database()'), database);
@@ -139,6 +139,23 @@ async function main() {
   assert.notEqual(race.code, 0); assert.match(race.errors, /MODERATION_PERMISSION_REVOKED/);
   query(`UPDATE public.profiles SET is_platform_admin=true WHERE id='${actor}';
     UPDATE public.moderation_queue SET status='pending',review_note=NULL,reviewed_at=NULL,reviewed_by=NULL WHERE id='${queue}';`);
+  const flagFacilities=['f8650000-0000-4000-8000-000000000001','f8650000-0000-4000-8000-000000000002'];
+  const flagReviews=['f8660000-0000-4000-8000-000000000001','f8660000-0000-4000-8000-000000000002'];
+  for(let i=0;i<2;i++)query(`INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status)
+    VALUES('${flagFacilities[i]}','Synthetic flag race','synthetic-flag-race-${i}','その他','合成県','合成市','合成住所','draft');
+    INSERT INTO public.facility_reviews(id,facility_id,reviewer_name,reviewer_ip,rating,status) VALUES('${flagReviews[i]}','${flagFacilities[i]}','Synthetic flag race','127.0.0.1',4,'published');`);
+  query(`UPDATE public.facility_reviews SET is_flagged=false,flag_reason=NULL WHERE id='${review}'`);
+  const flagInput=JSON.stringify([{id:review,facility_id:fid},...flagReviews.map((id,i)=>({id,facility_id:flagFacilities[i]}))]);
+  const flagGroup=`SELECT count(*) FROM public.flag_review_group_atomic($flags$${flagInput}$flags$::jsonb,'bulk_submission')`;
+  const staleFlagDecision=moderate('approved');
+  race=await orderedRace('automatic-flag-before-stale-decision',flagGroup,staleFlagDecision);
+  assert.notEqual(race.code,0);assert.match(race.errors,/MODERATION_CONTENT_CHANGED/);
+  assert.equal(query(`SELECT q.status='pending' AND r.is_flagged FROM public.moderation_queue q JOIN public.facility_reviews r ON r.id=q.content_id WHERE q.id='${queue}'`),'t');
+  race=await orderedRace('decision-before-same-evidence-flag',moderate('approved'),flagGroup);
+  assert.equal(race.code,0,race.errors);assert.equal(race.output,'0');
+  assert.equal(query(`SELECT q.status='approved' AND NOT r.is_flagged FROM public.moderation_queue q JOIN public.facility_reviews r ON r.id=q.content_id WHERE q.id='${queue}'`),'t');
+  query(`DELETE FROM public.facility_profiles WHERE id IN('${flagFacilities[0]}','${flagFacilities[1]}');
+    UPDATE public.moderation_queue SET status='pending',review_note=NULL,reviewed_at=NULL,reviewed_by=NULL WHERE id='${queue}'`);
   race = await orderedRace('moderation-before-parent-cascade', moderate('rejected'), `WITH removed AS (DELETE FROM public.facility_profiles WHERE id='${fid}' RETURNING id) SELECT count(*) FROM removed`);
   assert.equal(race.code, 0, race.errors); assert.equal(race.output, '1');
   assert.equal(query(`SELECT EXISTS(SELECT 1 FROM public.facility_reviews WHERE id='${review}') OR EXISTS(SELECT 1 FROM public.moderation_queue WHERE id='${queue}')`), 'f');
@@ -146,7 +163,7 @@ async function main() {
     VALUES('${fid}','Synthetic cascade order','synthetic-modphoto-concurrency','その他','合成県','合成市','合成住所','draft');
     INSERT INTO public.facility_reviews(id,facility_id,reviewer_name,rating,reviewer_ip) VALUES('${review}','${fid}','Synthetic cascade',4,'127.0.0.1');
     INSERT INTO public.moderation_queue(id,content_type,content_id,facility_id) VALUES('${queue}','review','${review}','${fid}'); COMMIT;`);
-  race = await orderedRace('parent-cascade-before-moderation', `DELETE FROM public.facility_profiles WHERE id='${fid}'`, `SELECT count(*) FROM public.moderate_review_content_atomic('${actor}','${queue}','pending','rejected',NULL,p_expected_content_hash=>'${query(`SELECT public.review_content_hash(r) FROM public.facility_reviews r WHERE id=\'${review}\'`)}')`);
+  race = await orderedRace('parent-cascade-before-moderation', `DELETE FROM public.facility_profiles WHERE id='${fid}'`, `SELECT count(*) FROM public.moderate_review_content_atomic('${actor}','${queue}','pending','rejected',NULL,p_expected_content_hash=>'${query(`SELECT public.moderation_review_context_hash(q,r) FROM public.facility_reviews r JOIN public.moderation_queue q ON q.content_id=r.id WHERE q.id=\'${queue}\'`)}')`);
   assert.equal(race.code, 0, race.errors); assert.equal(race.output, '0');
   assert.equal(query(`SELECT EXISTS(SELECT 1 FROM public.facility_profiles WHERE id='${fid}') OR EXISTS(SELECT 1 FROM public.moderation_queue WHERE id='${queue}')`), 'f');
   const recreate = () => {
@@ -163,7 +180,7 @@ async function main() {
   race = await orderedRace('photo-before-parent-delete', setMain(photo), `WITH removed AS (DELETE FROM public.facility_profiles WHERE id='${fid}' RETURNING id) SELECT count(*) FROM removed`);
   assert.equal(race.code,0,race.errors);assert.equal(race.output,'1');
   assert.equal(query(`SELECT count(*) FROM public.facility_profiles WHERE id='${fid}'`),'0');
-  console.log('Moderation/photo PG17 concurrency passed: 15 observed overlaps, both author-edit/approval orders, both set/delete orders, new-main preservation, duplicate-URL server deletion, exact replay, conflicting decision CAS, authority revocation, photo role revocation and both parent-cascade/moderation/photo orders. Synthetic local/shadow only.');
+  console.log('Moderation/photo PG17 concurrency passed: 17 observed overlaps, automatic-flag/decision races, both author-edit/approval orders, both set/delete orders, new-main preservation, duplicate-URL server deletion, exact replay, conflicting decision CAS, authority revocation, photo role revocation and both parent-cascade/moderation/photo orders. Synthetic local/shadow only.');
 }
 try { await main(); } finally {
   for (const child of children) child.kill('SIGTERM');

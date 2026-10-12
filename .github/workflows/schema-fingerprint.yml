@@ -163,6 +163,9 @@ jobs:
       - name: Review moderation observed-content and approval rollback (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/review-moderation-content-fixtures.sql
 
+      - name: Atomic automatic flags and approved detection evidence (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/review-flags-atomic-fixtures.sql
+
       - name: Registration application intent and declaration boundaries (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/salon-application-guard-fixtures.sql
 

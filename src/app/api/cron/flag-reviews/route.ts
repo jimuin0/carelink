@@ -14,52 +14,24 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { fetchAllPaged } from '@/lib/paginate';
 import { alertWarning } from '@/lib/alert';
+import { UUID_REGEX } from '@/lib/constants';
 import { retryTransientSupabaseRead, summarizeDependencyError } from '@/lib/err';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * 【監査H3】自動フラグしたレビューを moderation_queue へ pending 投入し、審査画面
- * /admin/moderation に必ず表示させる（旧実装は is_flagged を立てるだけで、隠蔽・審査キュー
- * 投入・集計除外のいずれの下流にも接続されず自動検知が実質 no-op だった）。
- * 既に pending キューにあるコンテンツ（ユーザー通報 H2 等）は重複投入しない。
- * route.ts は HTTP メソッド以外を export できないため、この helper は非 export のローカル関数。
- */
-async function enqueueFlaggedReviews(
-  supabase: SupabaseClient,
-  items: { id: string; facility_id: string | null }[],
-  flagType: string,
-  reason: string,
-): Promise<unknown | null> {
-  // 【監査H3 low・恒久根治】旧実装は pending 既存を SELECT→未登録のみ INSERT の best-effort dedup で、
-  // ユーザー通報(H2)や別cronが SELECT と INSERT の間に割り込むと同一レビューの pending が重複挿入され得た。
-  // DB 側の部分ユニークindex（uq_moderation_pending_content）＋ enqueue_moderation(INSERT ON CONFLICT
-  // DO NOTHING)で原子的に排除する（migration 20260722000001）。バッチ全体を jsonb で一括投入し、
-  // 既存 pending は自動スキップされる（バッチ全体を壊さない）。
-  const { error } = await supabase.rpc('enqueue_moderation', {
-    p_items: items.map((i) => ({
-      content_type: 'review',
-      content_id: i.id,
-      facility_id: i.facility_id,
-      reporter_id: null, // 自動検知（人間の通報者なし）
-      report_reason: reason,
-      auto_flags: [flagType],
-    })),
-  });
-  if (error) {
-    // enqueue が恒常失敗（関数不在/スキーマドリフト等）すると、フラグ済みレビューが is_flagged=true の
-    // まま審査キューに載らず、本 cron が解消したはずの no-op を無音で再現する。RPC 失敗警報と整合させ
-    // Slack にも警報する。
-    console.error('[flag-reviews] moderation_queue enqueue failed:', {
-      errorMessage: summarizeDependencyError(error),
-    });
-    alertWarning('flag-reviews: moderation_queue への審査キュー投入に失敗（フラグ済みが審査に載らない）', {
-      route: '/api/cron/flag-reviews',
-      extra: { errorMessage: summarizeDependencyError(error) },
-    });
-    return error;
+// Flags and pending queue entries commit together. The returned IDs attest only
+// actual mutations, including concurrent removals and reviewed evidence skips.
+async function flagReviewsAtomically(supabase:SupabaseClient,items:{id:string;facility_id:string|null}[],flagType:string):Promise<number> {
+  const result=await supabase.rpc('flag_review_group_atomic',{p_items:items,p_flag_type:flagType});
+  if(result.error) throw result.error;
+  if(!Array.isArray(result.data)) throw new Error('REVIEW_FLAG_RESULT_UNCONFIRMED');
+  const selected=new Set(items.map(item=>item.id)),returned=new Set<string>();
+  for(const row of result.data){
+    if(!row || typeof row.id!=='string' || !UUID_REGEX.test(row.id) || !selected.has(row.id) || returned.has(row.id))
+      throw new Error('REVIEW_FLAG_RESULT_UNCONFIRMED');
+    returned.add(row.id);
   }
-  return null;
+  return returned.size;
 }
 
 export async function GET(request: Request) {
@@ -121,17 +93,7 @@ export async function GET(request: Request) {
         if (reviewsError) throw reviewsError;
 
         if (reviews && reviews.length > 0) {
-          const reason = `bulk_submission: ${reviews.length} reviews in 24h from same IP`;
-          // 審査キューを先に原子的に確保する。先にis_flaggedを立ててenqueueが失敗すると、
-          // 次回の未フラグ検索から外れ、審査キューへの投入を復旧できなくなる。
-          const enqueueError = await enqueueFlaggedReviews(supabase, reviews, 'bulk_submission', reason);
-          if (enqueueError) throw enqueueError;
-          const { error: updateErr } = await supabase
-            .from('facility_reviews')
-            .update({ is_flagged: true, flag_reason: reason })
-            .in('id', reviews.map((r) => r.id));
-          if (updateErr) throw updateErr;
-          flagged += reviews.length;
+          flagged += await flagReviewsAtomically(supabase,reviews,'bulk_submission');
         }
       }
     }
@@ -169,21 +131,7 @@ export async function GET(request: Request) {
       for (const [, group] of Array.from(ipFacilityMap)) {
         const ids = group.ids;
         if (ids.length >= 2) {
-          const reason = `duplicate_facility: ${ids.length} reviews from same IP for same facility`;
-          const reviewItems = ids.map((id) => ({ id, facility_id: group.facilityId }));
-          const enqueueError = await enqueueFlaggedReviews(
-            supabase,
-            reviewItems,
-            'duplicate_facility',
-            reason,
-          );
-          if (enqueueError) throw enqueueError;
-          const { error: updateErr } = await supabase
-            .from('facility_reviews')
-            .update({ is_flagged: true, flag_reason: reason })
-            .in('id', ids);
-          if (updateErr) throw updateErr;
-          flagged += ids.length;
+          flagged += await flagReviewsAtomically(supabase,ids.map(id=>({id,facility_id:group.facilityId})),'duplicate_facility');
         }
       }
     }
