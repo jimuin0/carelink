@@ -21,7 +21,6 @@ import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { serverError } from '@/lib/with-route';
 import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
-import { runAfterResponse } from '@/lib/after-response';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { verifyReviewPhotos } from '@/lib/review-photo-verification';
 
@@ -113,11 +112,12 @@ async function submitReview(request: Request, markCommitStarted: () => void) {
   // display_name 未設定ユーザーは元々名乗る本名を持たない状態のため、従来通り自由入力を許容する。
   let effectiveReviewerName = parsed.data.reviewer_name;
   if (user) {
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('display_name')
       .eq('id', user.id)
       .maybeSingle();
+    if (profileError) return serverError('review-profile-read', profileError, '/api/review', '投稿者情報を確認できません');
     if (profile?.display_name) {
       effectiveReviewerName = profile.display_name;
     }
@@ -128,13 +128,14 @@ async function submitReview(request: Request, markCommitStarted: () => void) {
   // ログイン有無を問わず reviewer_ip で判定する（reviewer_ip は投稿時に常に保存される）。
   // 旧実装はログイン時に user_id で絞っており、存在しない列参照で 400 → 重複防止が無効だった。
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { data: recent } = await supabase
+  const { data: recent, error: recentError } = await supabase
     .from('facility_reviews')
     .select('id')
     .eq('facility_id', parsed.data.facility_id)
     .eq('reviewer_ip', ip)
     .gte('created_at', since)
     .limit(1);
+  if (recentError) return serverError('review-duplicate-read', recentError, '/api/review', '投稿履歴を確認できません');
   if (recent && recent.length > 0) {
     return NextResponse.json({ error: '同じ施設への口コミは24時間に1回までです' }, { status: 429 });
   }
@@ -142,13 +143,14 @@ async function submitReview(request: Request, markCommitStarted: () => void) {
   // 来店確認
   let isVerifiedVisit = false;
   if (user) {
-    const { data: completedBooking } = await supabase
+    const { data: completedBooking, error: bookingError } = await supabase
       .from('bookings')
       .select('id')
       .eq('facility_id', parsed.data.facility_id)
       .eq('user_id', user.id)
       .eq('status', 'completed')
       .limit(1);
+    if (bookingError) return serverError('review-visit-read', bookingError, '/api/review', '来店履歴を確認できません');
     isVerifiedVisit = (completedBooking?.length ?? 0) > 0;
   }
 
@@ -178,7 +180,8 @@ async function submitReview(request: Request, markCommitStarted: () => void) {
       comment: parsed.data.comment || null,
       photo_urls: parsed.data.photo_urls?.length ? parsed.data.photo_urls : null,
       reviewer_ip: ip,
-      ...(medicalAdViolations.length > 0 ? { is_flagged: true } : {}),
+      ...(medicalAdViolations.length > 0 ? { is_flagged: true,
+        flag_reason: `医療広告ガイドラインの禁止表現: ${medicalAdViolations.map(v => v.term).join('、')}` } : {}),
       // facility_reviews.user_id は投稿者本人によるレビュー編集・削除の判定に使う
       // （2026年7月6日DDL追加、ALTER TABLE facility_reviews ADD COLUMN user_id）。
       ...(user ? { user_id: user.id, is_verified_visit: isVerifiedVisit } : {}),
@@ -187,83 +190,16 @@ async function submitReview(request: Request, markCommitStarted: () => void) {
     .single();
 
   if (error) {
+    if (error.code === 'P0001' && error.message === 'REVIEW_RECENT_DUPLICATE') {
+      return NextResponse.json({ error: '同じ施設への口コミは24時間に1回までです' }, { status: 429 });
+    }
     return serverError('review-insert', error, '/api/review', '投稿に失敗しました');
   }
 
-  // 医療広告ガイドライン上の禁止表現を検知した口コミは審査キューへ載せる。
-  // is_flagged を立てるだけだと /admin/moderation に現れず、誰も気づかないまま
-  // 表示され続ける（flag-reviews cron が enqueue まで行うのと同じ理由）。
-  // 投稿自体は成功しているため fire-and-forget（失敗しても投稿は巻き戻さない）。
-  if (medicalAdViolations.length > 0) {
-    runAfterResponse(() => supabase.rpc('enqueue_moderation', {
-      p_items: [{
-        content_type: 'review',
-        content_id: review.id,
-        facility_id: parsed.data.facility_id,
-        reporter_id: null, // 自動検知（人間の通報者なし）
-        report_reason: `医療広告ガイドラインの禁止表現: ${medicalAdViolations.map((v) => v.term).join('、')}`,
-        auto_flags: ['medical_ad'],
-      }],
-    }).then(({ error: enqueueError }) => {
-      if (enqueueError) {
-        console.error('[review] medical-ad moderation enqueue failed:', enqueueError.message);
-      }
-    }));
-  }
-
-  // ポイント付与（fire-and-forget）— 来店確認済み(completed 予約あり)のユーザーに限る。
-  // is_verified_visit が false の口コミにもポイントを付けると、来店実績ゼロのまま複数施設へ
-  // 投稿して 50pt×施設数 を稼ぐポイントファーミング（換金可能）が成立する。付与を来店者限定に
-  // することで、算出済みの来店確認フラグを実際のゲートとして機能させ、悪用を根本から断つ。
-  // 監査D4: 従来は review.id 単位の dedup だったため、同一ユーザーが同一施設に二重投稿すると
-  // review.id が異なり 50pt×2 のポイントファーミングが成立した（換金可能）。dedup キーを
-  // 施設単位（user_id × facility_id）に変え、1ユーザー・1施設あたり口コミポイントは1回のみにする。
-  // TOCTOU（select→insert 非原子）による同時二重投稿は、DB 側の部分 UNIQUE インデックス
-  // uq_user_points_review（別途 SQL を神原さんへ提示）で最終的に閉じる。
-  // レスポンス返却後に走らせる副作用（ポイント付与・Push・メール）をここに集約し、
-  // return の直前に await Promise.allSettled でまとめて完了させる。
-  // 【重要・2026年7月7日 本番実データで確定した恒久根治】
-  //   従来は各副作用を Vercel の waitUntil() に渡す fire-and-forget だったが、Fluid Compute が
-  //   無効の本番では関数がレスポンス返却直後に凍結され、waitUntil のバックグラウンド処理が
-  //   一切完走していなかった。Resend の全送信履歴を照会したところ、ローンチ(2026年4月)以来
-  //   waitUntil 経由の通知メール(口コミ通知・予約確認等)は1通も送信されておらず、cron
-  //   (ニュースレター)と手動テストのみが配信されていた＝waitUntil 後処理が全滅していた。
-  //   よってレスポンス前に await して確実に実行する(各 send は safeSend の 10s タイムアウトで
-  //   保護され、失敗しても Promise.allSettled で握り、本体レスポンスは常に成功で返す)。
+  // 投稿・来店確認済みポイント・審査投入はDBトリガーで同時に確定する。
+  // エラー時は投稿も巻き戻る。通信結果不明のときは再投稿を案内しない。
+  // 外部通知は保存後に待ち合わせる（DBの確定とは区別する）。
   const reviewSideEffects: Promise<unknown>[] = [];
-
-  if (user && review && isVerifiedVisit) {
-    const reviewReason = `口コミポイント:${parsed.data.facility_id}`;
-    reviewSideEffects.push((async () => {
-      const { data: existing, error: selectErr } = await supabase.from('user_points')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('reason', reviewReason)
-        .limit(1);
-      if (selectErr) {
-        console.error('[review] points dedup check failed', { userId: user.id, reviewId: review.id, err: selectErr });
-        return;
-      }
-      if (!existing || existing.length === 0) {
-        const { error: insertErr } = await supabase.from('user_points').insert({
-          user_id: user.id,
-          points: 50,
-          reason: reviewReason,
-        });
-        if (insertErr) {
-          if ((insertErr as { code?: string }).code === '23505') {
-            // uq_user_points_review（部分UNIQUEインデックス）が防いだ想定内の重複。
-            // select→insert が非原子な TOCTOU で先に別リクエストが成立しただけで、
-            // ポイント自体はその成立分で正しく1回だけ付与されているため異常ではない。
-            return;
-          }
-          console.error('[review] points insert failed', { userId: user.id, reviewId: review.id, err: insertErr });
-          safeCaptureException(insertErr, 'review-points-insert');
-          alertCaughtError('review:points', insertErr, `review:${review.id}`);
-        }
-      }
-    })());
-  }
 
   // 施設オーナーへの口コミ投稿 Push + メール（non-blocking）。施設の通知設定 push_on_review で
   // 両方を共通制御する（設定画面のトグルが一つで足り、後から個別設定を増やす場合は容易に分離できる）。

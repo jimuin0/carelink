@@ -18,18 +18,20 @@ const REVIEW_UUID = '11111111-1111-1111-1111-111111111111';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 
 const mockAdminFrom = jest.fn();
+const mockRpc = jest.fn();
 const mockGetUser = jest.fn();
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
 import { PATCH, DELETE } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
+import { AuthRetryableFetchError } from '@supabase/supabase-js';
 
 function makeRequest(method: string, body?: object) {
   return new Request(`http://localhost/api/review/1`, {
@@ -57,12 +59,6 @@ function validBody() {
 // ルートは .select().maybeSingle() を使う（0行=他人/存在しないレビュー を not found として扱い、
 // PGRST116→500 化を防ぐ根治）。モックも maybeSingle を終端にする。maybeSingle の0行は現実に
 // { data: null, error: null } を返すため、not found テスト（data:null,error:null→404）は現実的。
-function updateChain(data: unknown, error: unknown = null) {
-  const eq2 = jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ maybeSingle: jest.fn(() => Promise.resolve({ data, error })) }) });
-  const eq1 = jest.fn().mockReturnValue({ eq: eq2 });
-  return { update: jest.fn().mockReturnValue({ eq: eq1 }), _eq1: eq1, _eq2: eq2 };
-}
-
 function deleteChain(data: unknown, error: unknown = null) {
   const eq2 = jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ maybeSingle: jest.fn(() => Promise.resolve({ data, error })) }) });
   const eq1 = jest.fn().mockReturnValue({ eq: eq2 });
@@ -74,6 +70,7 @@ beforeEach(() => {
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+  mockRpc.mockResolvedValue({ data: [{ id: REVIEW_UUID }], error: null });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon-key';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -97,35 +94,49 @@ test('PATCH: 評価が範囲外 → 400', async () => {
   expect(res.status).toBe(400);
 });
 
-test('PATCH: 正常更新 → 200、WHEREにuser_idが含まれる', async () => {
-  const chain = updateChain({ id: REVIEW_UUID });
-  mockAdminFrom.mockReturnValue(chain);
+test('PATCH: 正常更新 → 本人を指定した原子編集だけを実行する', async () => {
   const res = await PATCH(makeRequest('PATCH', validBody()), makeProps());
   expect(res.status).toBe(200);
-  expect(chain._eq1).toHaveBeenCalledWith('id', REVIEW_UUID);
-  expect(chain._eq2).toHaveBeenCalledWith('user_id', USER_ID);
+  expect(mockRpc).toHaveBeenCalledWith('edit_review_atomic', { p_actor_id: USER_ID, p_review_id: REVIEW_UUID, p_patch: validBody() });
+  expect(mockAdminFrom).not.toHaveBeenCalled();
 });
 
 test('PATCH: 他人のレビュー(該当なし) → 404', async () => {
-  mockAdminFrom.mockReturnValue(updateChain(null));
+  mockRpc.mockResolvedValue({ data: [], error: null });
   const res = await PATCH(makeRequest('PATCH', validBody()), makeProps());
   expect(res.status).toBe(404);
 });
 
 test('PATCH: comment省略時はnullとして保存', async () => {
-  const chain = updateChain({ id: REVIEW_UUID });
-  mockAdminFrom.mockReturnValue(chain);
   const { comment: _omit, ...bodyWithoutComment } = validBody();
   const res = await PATCH(makeRequest('PATCH', bodyWithoutComment), makeProps());
   expect(res.status).toBe(200);
-  const updateArg = chain.update.mock.calls[0][0];
+  const updateArg = mockRpc.mock.calls[0][1].p_patch;
   expect(updateArg.comment).toBeNull();
 });
 
 test('PATCH: DB更新失敗 → 500', async () => {
-  mockAdminFrom.mockReturnValue(updateChain(null, { message: 'DB error' }));
+  mockRpc.mockResolvedValue({ data: null, error: { message: 'DB error' } });
   const res = await PATCH(makeRequest('PATCH', validBody()), makeProps());
   expect(res.status).toBe(500);
+});
+
+test('PATCH: 編集でも表現を検査し、フラグと理由を同じ原子編集へ渡す', async () => {
+  const response = await PATCH(makeRequest('PATCH', { ...validBody(), comment: '日本一で必ず治る' }), makeProps());
+  expect(response.status).toBe(200);
+  expect(mockRpc.mock.calls[0][1].p_patch).toMatchObject({ is_flagged: true, flag_reason: expect.stringContaining('日本一') });
+  expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+
+test.each([null, undefined, [{ id: 'other' }], [{ id: REVIEW_UUID }, { id: REVIEW_UUID }]])('PATCH: 結果%sを確認できなければ成功にしない', async data => {
+  mockRpc.mockResolvedValue({ data, error: null });
+  expect((await PATCH(makeRequest('PATCH', validBody()), makeProps())).status).toBe(500);
+});
+
+test.each(['PATCH','DELETE'])('%s: Auth障害をログアウトにしない・書き込まない', async method => {
+  mockGetUser.mockResolvedValue({ data: { user: null }, error: new AuthRetryableFetchError('synthetic', 522) });
+  const response = method === 'PATCH' ? await PATCH(makeRequest(method, validBody()), makeProps()) : await DELETE(makeRequest(method), makeProps());
+  expect(response.status).toBe(503); expect(mockRpc).not.toHaveBeenCalled(); expect(mockAdminFrom).not.toHaveBeenCalled();
 });
 
 test('PATCH: CSRFエラー → そのまま返却', async () => {

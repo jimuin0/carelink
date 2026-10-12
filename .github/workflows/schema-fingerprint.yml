@@ -154,6 +154,12 @@ jobs:
       - name: Moderation and photo atomicity (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/atomic-moderation-photo-fixtures.sql
 
+      - name: Review point and moderation transactional rollback (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/review-atomic-effects-fixtures.sql
+
+      - name: Review submission and edit observed contention (disposable DB)
+        run: node scripts/check-review-atomic-concurrency.mjs
+
       - name: Moderation and photo observed concurrency (disposable DB)
         run: node scripts/check-moderation-photo-concurrency.mjs
 

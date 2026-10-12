@@ -14,13 +14,13 @@ jest.mock('next/headers', () => ({ cookies: jest.fn() }));
 const mockRpc = jest.fn(), mockFrom = jest.fn(), mockUser = jest.fn();
 jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => ({ rpc: mockRpc, from: mockFrom }) }));
 const USE = 'bead0000-0000-4000-8000-000000000001';
-let own: unknown, used: unknown, usedError: unknown, insertError: unknown;
+let own: unknown, used: unknown, usedError: unknown, ownError: unknown, insertError: unknown;
 function req(body: unknown = { code: 'ABC12345' }) {
   return new Request('http://localhost/api/referral', { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '127.0.0.1' } });
 }
 function getReq() { return new Request('http://localhost/api/referral') as never; }
 beforeEach(() => {
-  jest.clearAllMocks(); own = null; used = null; usedError = null; insertError = null;
+  jest.clearAllMocks(); own = null; used = null; usedError = null; ownError = null; insertError = null;
   (checkCsrf as jest.Mock).mockReturnValue(null); (checkRateLimit as jest.Mock).mockResolvedValue(false);
   mockUser.mockResolvedValue({ data: { user: { id: 'user-123' } }, error: null });
   (cookies as jest.Mock).mockResolvedValue({ getAll: () => [] });
@@ -28,7 +28,7 @@ beforeEach(() => {
     options.cookies.getAll(); return { auth: { getUser: mockUser } };
   });
   mockFrom.mockImplementation(table => ({
-    select: () => ({ eq: () => ({ maybeSingle: async () => table === 'referral_uses' ? { data: used, error: usedError } : { data: own, error: null } }) }),
+    select: () => ({ eq: () => ({ maybeSingle: async () => table === 'referral_uses' ? { data: used, error: usedError } : { data: own, error: ownError } }) }),
     insert: async () => ({ error: insertError }),
   }));
   mockRpc.mockResolvedValue({ data: [{ use_id: USE, code: 'ABC12345', replayed: false }], error: null });
@@ -45,9 +45,33 @@ describe('GET existing behavior', () => {
     const response = await GET(getReq()); expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ code: 'ABC12345', used_count: 2, already_referred: hasUse });
   });
-  test('failed use observation does not falsely claim an application; own code still returns', async () => {
+  test('failed use observation refuses to claim an application state or create a code', async () => {
     own = { code: 'ABC12345', used_count: 2 }; used = { id: USE }; usedError = { code: '500' };
-    expect((await (await GET(getReq())).json()).already_referred).toBe(false);
+    const response = await GET(getReq()); expect(response.status).toBe(500);
+    expect(await response.json()).not.toHaveProperty('already_referred');
+    expect(mockFrom).not.toHaveBeenCalledWith('referral_codes');
+  });
+  test('failed own-code observation refuses code creation', async () => {
+    ownError = { code: '522' };
+    const response = await GET(getReq()); expect(response.status).toBe(500);
+    expect(await response.json()).not.toHaveProperty('code');
+  });
+  test('a concurrent issuance returns the already recorded code', async () => {
+    mockFrom.mockImplementation(table => ({
+      select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: table === 'referral_uses' ? null : own, error: null }) }) }),
+      insert: async () => { own = { code: 'ABC12345', used_count: 0 }; return { error: { code: '23505' } }; },
+    }));
+    expect(await (await GET(getReq())).json()).toEqual({ code: 'ABC12345', used_count: 0, already_referred: false });
+  });
+  test('a conflicting insert without a confirmed recorded code stays an error', async () => {
+    insertError = { code: '23505' };
+    expect((await GET(getReq())).status).toBe(500);
+    ownError = { code: '522' };
+    expect((await GET(getReq())).status).toBe(500);
+  });
+  test('returned auth outage is unavailable, not logout, and cannot create a code', async () => {
+    mockUser.mockResolvedValueOnce({ data: { user: null }, error: new AuthRetryableFetchError('private details', 522) });
+    expect((await GET(getReq())).status).toBe(503); expect(mockFrom).not.toHaveBeenCalled();
   });
   test('new code retains eight-character nonambiguous alphabet', async () => {
     const response = await GET(getReq()); expect(response.status).toBe(200);
@@ -55,7 +79,7 @@ describe('GET existing behavior', () => {
   });
   test('failed insertion and thrown auth are visible errors', async () => {
     insertError = { code: '500' }; expect((await GET(getReq())).status).toBe(500);
-    mockUser.mockRejectedValueOnce(new Error('synthetic')); expect((await GET(getReq())).status).toBe(500);
+    mockUser.mockRejectedValueOnce(new Error('synthetic')); expect((await GET(getReq())).status).toBe(503);
   });
 });
 
