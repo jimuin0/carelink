@@ -1852,7 +1852,7 @@
 "function|find_bulk_review_ips(p_since timestamp with time zone, p_threshold integer)|returns=TABLE(reviewer_ip text)|volatile=s|secdef=t|body_md5=8e7a5d9b6df86e2b939bf3775b85a271",
 "function|find_trusted_line_auth_user(p_line_user_id text)|returns=uuid|volatile=s|secdef=t|body_md5=76e7c1c4941279f87da29eee0b199852",
 "function|finish_threads_article_publish(p_post_id uuid, p_attempt_id uuid, p_outcome text, p_post_id_external text)|returns=text|volatile=v|secdef=t|body_md5=3ff479c450d4f76aae895e482e367ebb",
-"function|flag_review_group_atomic(p_items jsonb, p_flag_type text)|returns=TABLE(id uuid)|volatile=v|secdef=f|body_md5=cef5c145f898226e3beffbc561af1f32",
+"function|flag_review_group_atomic(p_items jsonb, p_flag_type text)|returns=TABLE(id uuid)|volatile=v|secdef=f|body_md5=36c2937baa75304f64c8bcdb85c23b4d",
 "function|fn_set_review_verified_visit()|returns=trigger|volatile=v|secdef=t|body_md5=9684286bbb62ab7de785ebcdce5e8ba9",
 "function|get_available_slots(p_facility_id uuid, p_staff_id uuid, p_date date, p_duration_minutes integer)|returns=TABLE(slot_start time without time zone, slot_end time without time zone)|volatile=v|secdef=t|body_md5=d0bef6e4a172795d70d7eb1b3865c85d",
 "function|get_chain_statistics(p_actor_id uuid, p_facility_ids uuid[], p_month_start timestamp with time zone)|returns=jsonb|volatile=v|secdef=f|body_md5=1263d72bbb94f08b24ecfa8d97c0aa08",

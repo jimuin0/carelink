@@ -33,6 +33,17 @@ DO $$ DECLARE input jsonb; BEGIN
  PERFORM pg_temp.assert_flags((SELECT count(*)=2 FROM public.flag_review_group_atomic(input,'bulk_submission')),'new group evidence flags new and previously approved candidates');
  PERFORM pg_temp.assert_flags((SELECT count(*)=4 FROM public.moderation_queue WHERE status='pending' AND content_id IN(SELECT id FROM public.facility_reviews WHERE reviewer_ip='192.0.2.14')),'one pending per current flagged review');
 END $$;
+-- Aging out old evidence is not new suspicious activity.
+DO $$ DECLARE q record; snap jsonb; input jsonb; BEGIN
+ FOR q IN SELECT id FROM public.moderation_queue WHERE status='pending' AND content_id IN(SELECT id FROM public.facility_reviews WHERE reviewer_ip='192.0.2.14') LOOP
+  SELECT snapshot INTO snap FROM public.moderation_review_snapshot('fa140000-0000-4000-8000-000000000001',q.id);
+  PERFORM public.moderate_review_content_atomic('fa140000-0000-4000-8000-000000000001',q.id,'pending','approved',p_expected_content_hash=>snap->>'content_hash');
+ END LOOP;
+ UPDATE public.facility_reviews SET created_at=clock_timestamp()-interval '25 hours' WHERE id='fa140002-0000-4000-8000-000000000003';
+ SELECT jsonb_agg(jsonb_build_object('id',v.id,'facility_id',v.facility_id)) INTO input FROM public.facility_reviews v WHERE v.reviewer_ip='192.0.2.14';
+ PERFORM pg_temp.assert_flags((SELECT count(*)=0 FROM public.flag_review_group_atomic(input,'bulk_submission')),'expiration of an approved member does not reflag remaining three');
+ PERFORM pg_temp.assert_flags(NOT EXISTS(SELECT 1 FROM public.moderation_queue WHERE status='pending' AND content_id IN(SELECT id FROM public.facility_reviews WHERE reviewer_ip='192.0.2.14')),'time passage creates no new pending moderation');
+END $$;
 -- Duplicate-facility rules also cover historical visits beyond the 24h guard.
 INSERT INTO public.facility_reviews(id,facility_id,reviewer_name,reviewer_ip,rating,created_at,status)
  SELECT ('fa140002-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'fa140001-0000-4000-8000-000000000005','Synthetic old visit','2001:db8::14',4,now()-interval '3 days','published' FROM generate_series(5,6) n;

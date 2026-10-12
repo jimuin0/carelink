@@ -104,7 +104,7 @@ GRANT EXECUTE ON FUNCTION public.moderate_review_content_atomic(uuid,uuid,text,t
 CREATE FUNCTION public.flag_review_group_atomic(p_items jsonb,p_flag_type text)
 RETURNS TABLE(id uuid) LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS $$
 DECLARE ids uuid[]; group_ids uuid[]; ip text; facility uuid; ip_count integer; facility_count integer;
- n bigint; since_time timestamptz; evidence text; reason text; r public.facility_reviews%ROWTYPE;
+ n bigint; since_time timestamptz; evidence text; scope_hash text; members jsonb; evidence_record jsonb; reason text; r public.facility_reviews%ROWTYPE;
 BEGIN
  IF jsonb_typeof(p_items) IS DISTINCT FROM 'array' OR p_flag_type IS NULL
   OR p_flag_type NOT IN ('bulk_submission','duplicate_facility') OR EXISTS(
@@ -130,25 +130,28 @@ BEGIN
  PERFORM 1 FROM public.facility_reviews v WHERE v.id=ANY(group_ids) ORDER BY v.id FOR UPDATE;
  since_time:=clock_timestamp()-interval '24 hours';
  IF p_flag_type='bulk_submission' THEN
-  SELECT count(*),encode(sha256(convert_to(jsonb_build_object('rule',p_flag_type,'ip',ip,
-   'reviews',jsonb_agg(v.id ORDER BY v.id))::text,'UTF8')),'hex') INTO n,evidence
+  SELECT count(*),jsonb_agg(v.id ORDER BY v.id),encode(sha256(convert_to(jsonb_build_object('rule',p_flag_type,'ip',ip,
+   'reviews',jsonb_agg(v.id ORDER BY v.id))::text,'UTF8')),'hex') INTO n,members,evidence
    FROM public.facility_reviews v WHERE v.reviewer_ip=ip AND v.created_at>=since_time;
   IF n<3 THEN RETURN; END IF;
   reason:='bulk_submission: '||n||' reviews in 24h from same IP';
  ELSE
-  SELECT count(*) FILTER(WHERE v.is_flagged IS FALSE),
+  SELECT count(*) FILTER(WHERE v.is_flagged IS FALSE),jsonb_agg(v.id ORDER BY v.id),
    encode(sha256(convert_to(jsonb_build_object('rule',p_flag_type,'ip',ip,'facility',facility,
-    'reviews',jsonb_agg(v.id ORDER BY v.id))::text,'UTF8')),'hex') INTO n,evidence
+    'reviews',jsonb_agg(v.id ORDER BY v.id))::text,'UTF8')),'hex') INTO n,members,evidence
    FROM public.facility_reviews v WHERE v.reviewer_ip=ip AND v.facility_id=facility AND v.status='published';
   IF n<2 THEN RETURN; END IF;
   reason:='duplicate_facility: '||n||' unflagged reviews from same IP for same facility';
  END IF;
+ scope_hash:=encode(sha256(convert_to(jsonb_build_object('rule',p_flag_type,'ip',ip,
+   'facility',CASE WHEN p_flag_type='duplicate_facility' THEN facility ELSE NULL END)::text,'UTF8')),'hex');
+ evidence_record:=jsonb_build_object('hash',evidence,'scope',scope_hash,'members',members);
  -- Refresh pending detection context for this locked group, including already
  -- flagged rows. A moderator who saw the earlier evidence must read it again.
  IF EXISTS(SELECT 1 FROM public.moderation_queue q WHERE q.content_type='review' AND q.content_id=ANY(group_ids)
   AND q.status='pending' AND q.auto_flags IS NOT NULL AND jsonb_typeof(q.auto_flags)<>'array')
   THEN RAISE EXCEPTION 'INVALID_MODERATION_FLAGS'; END IF;
- UPDATE public.moderation_queue SET flag_evidence=flag_evidence||jsonb_build_object(p_flag_type,evidence),
+ UPDATE public.moderation_queue SET flag_evidence=flag_evidence||jsonb_build_object(p_flag_type,evidence_record),
   auto_flags=(SELECT jsonb_agg(DISTINCT f) FROM jsonb_array_elements(coalesce(auto_flags,'[]'::jsonb)||jsonb_build_array(p_flag_type)) f),
   report_reason=CASE WHEN reporter_id IS NULL AND (report_reason LIKE 'bulk_submission:%' OR report_reason LIKE 'duplicate_facility:%') THEN reason ELSE report_reason END
   WHERE content_type='review' AND content_id=ANY(group_ids) AND status='pending';
@@ -157,13 +160,14 @@ BEGIN
      ELSE v.facility_id=facility AND v.status='published' END) ORDER BY v.id LOOP
   IF EXISTS(SELECT 1 FROM public.moderation_queue approved WHERE approved.content_type='review'
    AND approved.content_id=r.id AND approved.status='approved'
-   AND approved.flag_evidence->>p_flag_type=evidence
+   AND approved.flag_evidence->p_flag_type->>'scope'=scope_hash
+   AND approved.flag_evidence->p_flag_type->'members' @> members
    AND approved.decision_content_hash=public.moderation_review_context_hash(approved,r)) THEN CONTINUE; END IF;
   IF EXISTS(SELECT 1 FROM public.moderation_queue q WHERE q.content_type='review' AND q.content_id=r.id
    AND q.status='pending' AND q.auto_flags IS NOT NULL AND jsonb_typeof(q.auto_flags)<>'array')
    THEN RAISE EXCEPTION 'INVALID_MODERATION_FLAGS'; END IF;
   INSERT INTO public.moderation_queue(content_type,content_id,facility_id,report_reason,auto_flags,flag_evidence,status)
-   VALUES('review',r.id,r.facility_id,reason,jsonb_build_array(p_flag_type),jsonb_build_object(p_flag_type,evidence),'pending')
+   VALUES('review',r.id,r.facility_id,reason,jsonb_build_array(p_flag_type),jsonb_build_object(p_flag_type,evidence_record),'pending')
    ON CONFLICT(content_type,content_id) WHERE status='pending' DO UPDATE
     SET flag_evidence=moderation_queue.flag_evidence||EXCLUDED.flag_evidence,
       auto_flags=(SELECT jsonb_agg(DISTINCT f) FROM jsonb_array_elements(coalesce(moderation_queue.auto_flags,'[]'::jsonb)||EXCLUDED.auto_flags) f);
