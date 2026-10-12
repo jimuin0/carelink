@@ -20,6 +20,7 @@ INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
  ('fa120000-0000-4000-8000-000000000001','review-visit@example.invalid',now()),
  ('fa120000-0000-4000-8000-000000000002','review-no-visit@example.invalid',now()),
  ('fa120000-0000-4000-8000-000000000003','review-failure@example.invalid',now());
+UPDATE public.profiles SET is_platform_admin=true WHERE id='fa120000-0000-4000-8000-000000000002';
 INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES
  ('fa120001-0000-4000-8000-000000000001','Synthetic review','synthetic-review-atomic','その他','検証県','検証市','検証住所','draft');
 SET LOCAL ROLE service_role;
@@ -52,6 +53,23 @@ SELECT pg_temp.assert_review((SELECT count(*)=1 AND bool_and(report_reason='Edit
 UPDATE public.moderation_queue SET status='approved' WHERE content_id='fa120002-0000-4000-8000-000000000001';
 SELECT * FROM public.edit_review_atomic('fa120000-0000-4000-8000-000000000001','fa120002-0000-4000-8000-000000000001','{"comment":"Changed after decision"}');
 SELECT pg_temp.assert_review((SELECT count(*)=1 FROM public.moderation_queue WHERE content_id='fa120002-0000-4000-8000-000000000001' AND status='pending'),'editing flagged reviewed content reopens review');
+-- Rejection is not an author edit. Both pending and escalated reports retain
+-- their reason, reporter and flags, with no new pending queue created.
+DO $$ DECLARE i integer; rid uuid; qid uuid; prior text; BEGIN
+  FOR i IN 4..5 LOOP
+    rid := ('fa120002-0000-4000-8000-'||lpad(i::text,12,'0'))::uuid;
+    qid := ('fa120003-0000-4000-8000-'||lpad(i::text,12,'0'))::uuid;
+    prior := CASE WHEN i=4 THEN 'pending' ELSE 'escalated' END;
+    INSERT INTO public.facility_reviews(id,facility_id,reviewer_name,rating,reviewer_ip) VALUES
+      (rid,'fa120001-0000-4000-8000-000000000001','Reported review',4,'192.0.2.'||(10+i));
+    INSERT INTO public.moderation_queue(id,content_type,content_id,facility_id,reporter_id,report_reason,auto_flags,status) VALUES
+      (qid,'review',rid,'fa120001-0000-4000-8000-000000000001','fa120000-0000-4000-8000-000000000002','Original report','["user_report"]',prior);
+    PERFORM * FROM public.moderate_content_atomic('fa120000-0000-4000-8000-000000000002',qid,prior,'rejected','Synthetic decision',NULL);
+    PERFORM pg_temp.assert_review((SELECT status='rejected' AND reporter_id='fa120000-0000-4000-8000-000000000002'
+      AND report_reason='Original report' AND auto_flags='["user_report"]'::jsonb FROM public.moderation_queue WHERE id=qid),'rejection retains original report metadata');
+    PERFORM pg_temp.assert_review((SELECT count(*)=1 AND count(*) FILTER(WHERE status='pending')=0 FROM public.moderation_queue WHERE content_type='review' AND content_id=rid),'rejection does not reopen pending review');
+  END LOOP;
+END $$;
 RESET ROLE;
 CREATE FUNCTION pg_temp.fail_review_point() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN IF NEW.reason LIKE '口コミポイント:%' THEN RAISE EXCEPTION 'SYNTHETIC_REVIEW_POINT_FAILURE'; END IF; RETURN NEW; END $$;

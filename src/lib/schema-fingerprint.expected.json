@@ -1820,7 +1820,7 @@
 "function|cleanup_old_cron_report_sends()|returns=void|volatile=v|secdef=t|body_md5=1558e91aba38d50e3715cfe3823eba5c",
 "function|cleanup_old_webhook_retry()|returns=void|volatile=v|secdef=f|body_md5=08a501a2b42325a86abb608982cefb2a",
 "function|clear_removed_facility_main_photo()|returns=trigger|volatile=v|secdef=t|body_md5=dc597f4ab49cd4d708278fc93dc7cfe2",
-"function|commit_review_effects()|returns=trigger|volatile=v|secdef=f|body_md5=8f091d719822e000c30b419d300c36a9",
+"function|commit_review_effects()|returns=trigger|volatile=v|secdef=f|body_md5=c9a3c2557f3d7951574d0a1d13c2f808",
 "function|commit_salon_submission(p_intent_id uuid, p_proof_hash text, p_canonical_version smallint, p_hmac_scheme text, p_payload_hmac text, p_registration jsonb)|returns=TABLE(outcome text, receipt_id uuid)|volatile=v|secdef=f|body_md5=7da6511719d5c323b49b5dc0160dd9a3",
 "function|commit_salon_submission_with_consent(p_intent_id uuid, p_proof_hash text, p_canonical_version smallint, p_hmac_scheme text, p_payload_hmac text, p_registration jsonb, p_terms_sha256 text)|returns=TABLE(outcome text, receipt_id uuid)|volatile=v|secdef=f|body_md5=27bfa91ebbea9b154cd7667280342cd4",
 "function|complete_booking_with_points_atomic(p_actor_id uuid, p_booking_id uuid, p_expected_status text)|returns=TABLE(id uuid, points_earned integer, replayed boolean)|volatile=v|secdef=f|body_md5=0f736c4c0d7ee30ad2d5a8a78b127f62",

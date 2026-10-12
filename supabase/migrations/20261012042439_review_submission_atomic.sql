@@ -32,8 +32,9 @@ BEGIN
       VALUES(NEW.user_id,50,'口コミポイント:'||NEW.facility_id::text)
       ON CONFLICT(user_id,reason) WHERE reason LIKE '口コミポイント:%' DO NOTHING;
   END IF;
-  IF NEW.is_flagged IS TRUE AND (TG_OP='INSERT' OR NEW.comment IS DISTINCT FROM OLD.comment
-    OR NEW.is_flagged IS DISTINCT FROM OLD.is_flagged) THEN
+  -- A moderator rejection changes the flag, not the authored content. Preserve
+  -- its report metadata and do not manufacture another pending decision.
+  IF NEW.is_flagged IS TRUE AND (TG_OP='INSERT' OR NEW.comment IS DISTINCT FROM OLD.comment) THEN
     INSERT INTO public.moderation_queue(content_type,content_id,facility_id,report_reason,auto_flags,status)
       VALUES('review',NEW.id,NEW.facility_id,coalesce(NEW.flag_reason,'口コミの内容を確認してください'),
         CASE WHEN TG_OP='INSERT' THEN '["medical_ad"]'::jsonb ELSE '["content_changed"]'::jsonb END,'pending')
