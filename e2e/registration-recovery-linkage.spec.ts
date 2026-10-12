@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
+import { seedSyntheticSalonHistory } from './synthetic-salon-history';
 import { observeFacilitySetup } from './facility-setup-observer';
 
 // Real browser + Auth + application API + disposable Postgres. Never reuse a
@@ -32,12 +33,11 @@ async function identity(db: ReturnType<typeof localDb>, platform = false) {
   }
   return { email, password, id: result.data.user.id };
 }
-async function receipt(db: ReturnType<typeof localDb>, email: string, name: string) {
+async function receipt(_db: ReturnType<typeof localDb>, email: string, name: string) {
   const id = randomUUID();
-  const result = await db.from('salons').insert({ id, email, facility_name: name, business_type: 'ヘアサロン',
+  seedSyntheticSalonHistory([{ id, email, facility_name: name, business_type: 'ヘアサロン',
     phone: '09000000000', representative_name: '合成代表', contact_name: '合成担当', source: 'register',
-    prefecture: '愛知県', city: '西尾市', address: '合成町1', building_name: '合成建物', is_public: false });
-  if (result.error) throw new Error('Disposable application setup failed');
+    prefecture: '愛知県', city: '西尾市', address: '合成町1', building_name: '合成建物', is_public: false }]);
   return id;
 }
 async function login(page: Page, person: Awaited<ReturnType<typeof identity>>, redirect: string) {

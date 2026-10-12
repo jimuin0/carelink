@@ -2,6 +2,7 @@ import { test, expect, type BrowserContext } from '@playwright/test';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createServerClient } from '@supabase/ssr';
 import { randomUUID } from 'node:crypto';
+import { seedSyntheticSalonHistory } from './synthetic-salon-history';
 import { businessTypes } from '../src/lib/constants';
 
 // Trace captures HTTP Set-Cookie/JSON tokens even with synthetic identities.
@@ -212,8 +213,7 @@ test('platform registration search traverses over 100 real rows and rejects stal
     created_at: index < 60 ? '2026-09-26T12:30:40.123456+00:00'
       : index < 100 ? '2026-09-26T12:30:40.123455+00:00' : null,
   }));
-  const seed = await service.from('salons').insert(rows);
-  if (seed.error) throw new Error('synthetic registration pagination seed failed');
+  seedSyntheticSalonHistory(rows);
   const headers = { origin: 'https://localhost:3000',
     'x-real-ip': `198.18.${Math.floor(Math.random() * 254)}.${Math.floor(Math.random() * 254)}` };
   const query = { field: 'facility', query: marker, status: 'all' };
@@ -380,14 +380,14 @@ test('authenticated setup commits one selected receipt and reconciles a lost res
   const prep = await request.post('/api/salons/prepare', { headers, data: {} });
   expect(prep.status()).toBe(201);
   const { intentId } = await prep.json();
-  const receipt = await request.post('/api/salons/commit', { headers, data: { intentId, registration: { ...registration, email }, photoIds: [] } });
+  const receipt = await request.post('/api/salons/commit', { headers, data: { intentId, registration: { ...registration, email }, photoIds: [], consent: {terms_agreed:true,license_warranted:true} } });
   expect(receipt.status()).toBe(201);
   const { receiptId } = await receipt.json();
   const next = await request.post('/api/salons/prepare', { headers, data: {} });
   expect(next.status()).toBe(201);
   const otherIntent = (await next.json()).intentId;
   const second = await request.post('/api/salons/commit', { headers, data: { intentId: otherIntent,
-    registration: { ...registration, email, facility_name: 'Synthetic second branch' }, photoIds: [] } });
+    registration: { ...registration, email, facility_name: 'Synthetic second branch' }, photoIds: [], consent: {terms_agreed:true,license_warranted:true} } });
   expect(second.status()).toBe(201);
   const secondId = (await second.json()).receiptId;
   const data = { intentId, license_warranted: true };
@@ -443,7 +443,7 @@ test('atomic registration API returns one receipt and two logical notifications 
   const prep = await request.post('/api/salons/prepare', { headers, data: {} });
   expect(prep.status()).toBe(201);
   const { intentId } = await prep.json();
-  const data = { intentId, registration, photoIds: [] };
+  const data = { intentId, registration, photoIds: [], consent: {terms_agreed:true,license_warranted:true} };
   const results = await Promise.all([request.post('/api/salons/commit', { headers, data }), request.post('/api/salons/commit', { headers, data })]);
   expect(results.map(result => result.status()).sort()).toEqual([200, 201]);
   const bodies = await Promise.all(results.map(result => result.json()));
@@ -476,7 +476,7 @@ test('photo ownership is required and lost commit response is recovered without 
   const photo = await photoResponse.json();
   expect(photo.state).toBe('upload');
   if (!isUploadToken(photo.token) || typeof photo.path !== 'string') throw new Error('synthetic upload capability unavailable');
-  const data = { intentId, registration, photoIds: [photo.photoId] };
+  const data = { intentId, registration, photoIds: [photo.photoId], consent: {terms_agreed:true,license_warranted:true} };
   const premature = await request.post('/api/salons/commit', { headers, data });
   expect(premature.status()).toBe(409); expect((await premature.json()).state).toBe('photo_unverified');
   const uploaded = await anonymous.storage.from(bucket).uploadToSignedUrl(photo.path, photo.token, png, { contentType: 'image/png' });
@@ -511,4 +511,14 @@ test('photo ownership is required and lost commit response is recovered without 
   const count = await service.from('webhook_retry_queue').select('id', { count: 'exact', head: true }).eq('registration_id', status.receiptId);
   expect(count.error).toBeNull(); expect(count.count).toBe(2);
   expect((await contents(photo.path)).equals(png)).toBe(true);
+});
+
+test('fresh registration without declaration is refused without linking a receipt', async ({request})=>{
+ const headers={origin:'https://localhost:3000','x-real-ip':`198.19.${Math.floor(Math.random()*254)}.${Math.floor(Math.random()*254)}`};
+ const preparation=await request.post('/api/salons/prepare',{headers,data:{}});expect(preparation.status()).toBe(201);
+ const {intentId}=await preparation.json();
+ const refused=await request.post('/api/salons/commit',{headers,data:{intentId,registration,photoIds:[]}});
+ expect(refused.status()).toBe(400);expect((await refused.json()).state).toBe('consent_required');
+ const stored=await service.from('salon_submission_intents').select('salon_id').eq('id',intentId).single();
+ expect(stored.error).toBeNull();expect(stored.data?.salon_id).toBeNull();
 });
