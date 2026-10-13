@@ -123,6 +123,11 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
           p_start_time: string; p_end_time: string; p_enforce_schedule: boolean };
         Returns: undefined;
       };
+      change_customer_booking_with_outbox_receipt_atomic: {
+        Args: { p_booking_id: string; p_user_id: string; p_booking_date: string;
+          p_start_time: string; p_end_time: string; p_enforce_schedule: boolean };
+        Returns: { id: string; replayed: boolean }[];
+      };
       // A NULL new status is an adjustment event; NULL envelope means no
       // customer email/internal arrival. SQL explicitly handles NULL revisions.
       save_booking_email_event_atomic: Omit<GeneratedFunctions['save_booking_email_event_atomic'], 'Args' | 'Returns'> & {

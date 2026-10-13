@@ -110,7 +110,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     // service_role で呼び、migration 側で anon/authenticated の EXECUTE を撤回して直接呼び出しを塞ぐ。
     // 所有権(booking.user_id === user.id)・状態は上の同期ブロックでサーバ側検証済み。
     const rpcClient = createServiceRoleClient();
-    const { error } = await rpcClient.rpc('change_customer_booking_with_outbox_atomic', {
+    const { data: changed, error } = await rpcClient.rpc('change_customer_booking_with_outbox_receipt_atomic', {
       p_booking_id: params.id,
       p_user_id: user.id,
       p_booking_date: parsed.data.booking_date,
@@ -153,6 +153,11 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       }
       return serverError('booking-change-rpc', error, '/api/booking/[id]/change', '変更に失敗しました');
     }
+
+    if (!changed || changed.length !== 1 || changed[0].id !== params.id || typeof changed[0].replayed !== 'boolean') {
+      return serverError('booking-change-receipt', new Error('booking change receipt unavailable'), '/api/booking/[id]/change', '変更結果を確認できません。ページを更新してください。');
+    }
+    if (changed[0].replayed) return NextResponse.json({ success: true });
 
     void writeAuditLog({
       userId: user.id,

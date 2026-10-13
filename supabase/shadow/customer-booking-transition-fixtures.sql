@@ -48,17 +48,19 @@ END $$;
 RESET ROLE;
 DROP TRIGGER synthetic_transition_queue_failure ON public.webhook_retry_queue;
 SET LOCAL ROLE service_role;
-DO $$ DECLARE revision timestamptz; q public.webhook_retry_queue%ROWTYPE; fence record;
+DO $$ DECLARE revision timestamptz; q public.webhook_retry_queue%ROWTYPE; fence record; receipt record;
 BEGIN
  BEGIN
   PERFORM public.cancel_customer_booking_with_outbox_atomic('be110000-0000-4000-8000-000000000003','be130000-0000-4000-8000-000000000001','confirmed');
   RAISE EXCEPTION 'wrong actor accepted';
  EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'BOOKING_PERMISSION_DENIED' THEN RAISE; END IF; END;
- PERFORM public.change_customer_booking_with_outbox_atomic('be130000-0000-4000-8000-000000000001','be110000-0000-4000-8000-000000000001','2030-01-07','12:00','13:00',true);
+ SELECT * INTO receipt FROM public.change_customer_booking_with_outbox_receipt_atomic('be130000-0000-4000-8000-000000000001','be110000-0000-4000-8000-000000000001','2030-01-07','12:00','13:00',true);
+ PERFORM pg_temp.assert_transition(receipt.id='be130000-0000-4000-8000-000000000001' AND receipt.replayed=false,'first change has an authoritative changed receipt');
  SELECT updated_at INTO revision FROM public.bookings WHERE id='be130000-0000-4000-8000-000000000001';
  PERFORM pg_temp.assert_transition((SELECT count(*)=1 FROM public.webhook_retry_queue WHERE payload->>'customer_booking_transition_version'='1'
   AND payload->>'kind'='rescheduled'),'one customer change email committed');
- PERFORM public.change_customer_booking_with_outbox_atomic('be130000-0000-4000-8000-000000000001','be110000-0000-4000-8000-000000000001','2030-01-07','12:00','13:00',true);
+ SELECT * INTO receipt FROM public.change_customer_booking_with_outbox_receipt_atomic('be130000-0000-4000-8000-000000000001','be110000-0000-4000-8000-000000000001','2030-01-07','12:00','13:00',true);
+ PERFORM pg_temp.assert_transition(receipt.replayed=true,'repeated time has an authoritative replay receipt');
  PERFORM pg_temp.assert_transition((SELECT updated_at=revision FROM public.bookings WHERE id='be130000-0000-4000-8000-000000000001')
   AND (SELECT count(*)=1 FROM public.webhook_retry_queue WHERE payload->>'customer_booking_transition_version'='1'),'same-request replay neither resends nor changes revision');
  PERFORM public.change_customer_booking_with_outbox_atomic('be130000-0000-4000-8000-000000000001','be110000-0000-4000-8000-000000000001','2030-01-07','14:00','15:00',true);

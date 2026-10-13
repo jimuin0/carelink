@@ -6191,6 +6191,20 @@ export type Database = {
         }
         Returns: undefined
       }
+      change_customer_booking_with_outbox_receipt_atomic: {
+        Args: {
+          p_booking_date: string
+          p_booking_id: string
+          p_end_time: string
+          p_enforce_schedule?: boolean
+          p_start_time: string
+          p_user_id: string
+        }
+        Returns: {
+          id: string
+          replayed: boolean
+        }[]
+      }
       chat_quota_retention_version: { Args: never; Returns: number }
       check_rate_limit: {
         Args: { p_key: string; p_limit: number; p_window_ms: number }

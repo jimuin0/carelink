@@ -83,6 +83,28 @@ function makeProps(id = BOOKING_UUID) {
   return { params: Promise.resolve({ id }) };
 }
 
+test('same-time replay returns success without duplicate audit, push, LINE Works or email', async () => {
+  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
+  mockRpc.mockResolvedValue({data:[{id:BOOKING_UUID,replayed:true}],error:null});
+  const res=await POST(makeRequest(),makeProps());
+  expect(res.status).toBe(200);expect(await res.json()).toEqual({success:true});
+  expect(jest.requireMock('@/lib/audit-logger').writeAuditLog).not.toHaveBeenCalled();
+  expect(jest.requireMock('@/lib/push').sendPushToUser).not.toHaveBeenCalled();
+  expect(jest.requireMock('@/lib/push').sendPushToFacilityOwners).not.toHaveBeenCalled();
+  expect(jest.requireMock('@/lib/email').sendBookingRescheduled).not.toHaveBeenCalled();
+  expect(jest.requireMock('@/lib/integrations/line-works').sendLineWorksMessage).not.toHaveBeenCalled();
+});
+
+test.each([null,[],[{id:BOOKING_UUID,replayed:false},{id:BOOKING_UUID,replayed:false}],
+  [{id:'wrong',replayed:false}],[{id:BOOKING_UUID,replayed:null}]
+])('unconfirmed transition receipt stops side effects %#',async data=>{
+  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
+  mockRpc.mockResolvedValue({data,error:null});
+  const res=await POST(makeRequest(),makeProps());expect(res.status).toBe(500);
+  expect(jest.requireMock('@/lib/audit-logger').writeAuditLog).not.toHaveBeenCalled();
+  expect(jest.requireMock('@/lib/push').sendPushToUser).not.toHaveBeenCalled();
+});
+
 function singleChain(data: unknown, error: unknown = null) {
   return {
     select: jest.fn().mockReturnThis(),
@@ -103,7 +125,7 @@ beforeEach(() => {
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   // change_booking_atomic はデフォルト成功（error:null）。競合/失敗テストで上書きする。
-  mockRpc.mockResolvedValue({ error: null });
+  mockRpc.mockResolvedValue({ data: [{id:BOOKING_UUID,replayed:false}], error: null });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -229,7 +251,7 @@ test('公開経路の change_booking_atomic は p_enforce_schedule: true を渡�
   mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
   const res = await POST(makeRequest(), makeProps());
   expect(res.status).toBe(200);
-  expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_outbox_atomic', expect.objectContaining({
+  expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_outbox_receipt_atomic', expect.objectContaining({
     p_enforce_schedule: true,
   }));
 });
@@ -291,7 +313,7 @@ test('正常変更 → 200 success:true, RPC に p_user_id を渡す（IDOR defe
   expect(res.status).toBe(200);
   expect(json.success).toBe(true);
   // 所有権検証は change_booking_atomic 内で p_user_id により行う（IDOR defence-in-depth）。
-  expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_outbox_atomic', expect.objectContaining({
+  expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_outbox_receipt_atomic', expect.objectContaining({
     p_booking_id: BOOKING_UUID,
     p_user_id: USER_ID,
     p_booking_date: VALID_BODY.booking_date,
@@ -366,7 +388,7 @@ test('指名なし(staff_id null)予約も RPC で容量判定して変更可 �
   mockFrom.mockReturnValue(singleChain({ ...CONFIRMED_BOOKING, staff_id: null }));
   const res = await POST(makeRequest(), makeProps());
   expect(res.status).toBe(200);
-  expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_outbox_atomic', expect.objectContaining({ p_booking_id: BOOKING_UUID }));
+  expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_outbox_receipt_atomic', expect.objectContaining({ p_booking_id: BOOKING_UUID }));
 });
 
 test('HH:MM:SS 形式の start_time も受け付ける', async () => {
