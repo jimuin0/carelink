@@ -51,6 +51,10 @@ BEGIN IF NEW.payload ? 'customer_booking_channel_version' THEN RAISE EXCEPTION '
 CREATE TRIGGER synthetic_channel_insert_failure BEFORE INSERT ON public.webhook_retry_queue
  FOR EACH ROW EXECUTE FUNCTION pg_temp.fail_channel_insert();
 SET LOCAL ROLE service_role;
+-- Other bookings may already have queued work from earlier concurrency probes.
+INSERT INTO public.webhook_retry_queue(id,webhook_type,target_id,facility_id,payload,status,scheduled_at)
+ VALUES('be180000-0000-4000-8000-000000000001','email','unrelated@example.invalid',
+ 'be120000-0000-4000-8000-000000000001','{"synthetic_unrelated":true}','pending',now());
 DO $$ BEGIN
  BEGIN
   PERFORM public.change_customer_booking_with_outbox_receipt_atomic('be130000-0000-4000-8000-000000000001','be110000-0000-4000-8000-000000000001','2030-01-07','12:00','13:00',true);
@@ -58,7 +62,10 @@ DO $$ BEGIN
   RAISE EXCEPTION 'missing channel rollback failure';
  EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'SYNTHETIC_CHANNEL_INSERT_FAILURE' THEN RAISE; END IF; END;
  PERFORM pg_temp.assert_channel((SELECT start_time='10:00' FROM public.bookings WHERE id='be130000-0000-4000-8000-000000000001')
-  AND NOT EXISTS(SELECT 1 FROM public.customer_booking_channel_events) AND NOT EXISTS(SELECT 1 FROM public.webhook_retry_queue),
+  AND NOT EXISTS(SELECT 1 FROM public.customer_booking_channel_events WHERE booking_id='be130000-0000-4000-8000-000000000001')
+  AND NOT EXISTS(SELECT 1 FROM public.webhook_retry_queue WHERE payload->'snapshot'->>'bookingId'='be130000-0000-4000-8000-000000000001'
+    OR payload->>'bookingId'='be130000-0000-4000-8000-000000000001')
+  AND EXISTS(SELECT 1 FROM public.webhook_retry_queue WHERE id='be180000-0000-4000-8000-000000000001'),
   'source mutation, email and complete channel plan all roll back together');
 END $$;
 RESET ROLE;
