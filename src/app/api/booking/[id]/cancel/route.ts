@@ -4,25 +4,29 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { getBearerToken, resolveLiffUserId } from '@/lib/liff-auth';
-import { sendPushToFacilityOwners } from '@/lib/push';
-import { getFacilityNotificationSettings } from '@/lib/notification-settings';
-import { computeCancelFee, hoursUntilBookingStart, type CancelPolicy } from '@/lib/cancel-fee';
+import { computeCancelFee, hoursUntilBookingStart } from '@/lib/cancel-fee';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
 import { serverError, authUnavailable } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
-import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { writeAuditLog } from '@/lib/audit-logger';
-import { notifyCancellationLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
 import { canCustomerCancelBooking } from '@/lib/booking-status';
 
+import { z } from 'zod';
+import { isValidIsoDate } from '@/lib/date-utils';
+
 export const dynamic = 'force-dynamic';
+
+const feeContextSchema = z.object({
+  policy: z.object({ free_cancel_hours: z.number().finite().nullable(), late_cancel_rate: z.number().finite().nullable() }).nullable(),
+  totalPrice: z.number().finite().nullable(),
+  bookingDate: z.string().refine(isValidIsoDate),
+  startTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/),
+  capturedAt: z.string().datetime({ offset: true }),
+});
 
 export async function POST(_request: Request, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -103,7 +107,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
 
   // 本人・状態・開始時刻をtransaction内で再検証し、返還と取消を一緒に保存する。
   const writeDb = createServiceRoleClient();
-  const { data: cancelled, error } = await writeDb.rpc('cancel_customer_booking_with_outbox_atomic', {
+  const { data: cancelled, error } = await writeDb.rpc('cancel_customer_booking_with_channels_atomic', {
     p_actor_id: userId, p_booking_id: params.id, p_expected_status: booking.status,
   });
   if (error?.message.includes('BOOKING_PERMISSION_DENIED')) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
@@ -112,6 +116,9 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   if (error) return serverError('booking-cancel-update', databaseDiagnostic(error), '/api/booking/[id]/cancel', 'キャンセルに失敗しました');
   if (!cancelled || cancelled.length !== 1) return NextResponse.json({ error: 'キャンセル結果を確認できません。ページを更新してください。' }, { status: 409 });
   if (cancelled[0].id !== params.id) return serverError('booking-cancel-result', new Error('cancel transaction target not confirmed'), '/api/booking/[id]/cancel');
+
+  const feeContext = feeContextSchema.safeParse(cancelled[0].fee_context);
+  if (!feeContext.success) return serverError('booking-cancel-receipt', new Error('cancel fee context not confirmed'), '/api/booking/[id]/cancel');
 
   // 監査ログ（非ブロッキング）
   void writeAuditLog({
@@ -125,132 +132,9 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
     ipAddress: getClientIp(_request),
   });
 
-  // キャンセル料（無料期限超過時のみ正の値・客への通知用。実徴収は店舗と客が直接やり取りする方針）。
-  // facility_cancel_policies の料率と予約開始までの残時間から算出する。取得失敗してもキャンセルは成立。
-  let cancelFee = 0;
-  try {
-    const { data: policy } = await db
-      .from('facility_cancel_policies')
-      .select('free_cancel_hours, late_cancel_rate, no_show_rate')
-      .eq('facility_id', booking.facility_id)
-      .maybeSingle();
-    const hours = hoursUntilBookingStart(booking.booking_date, booking.start_time, Date.now());
-    cancelFee = computeCancelFee(policy as CancelPolicy | null, booking.total_price, hours).fee;
-  } catch (e) {
-    safeCaptureException(e, 'cancel-fee-calc');
-  }
-
-  // レスポンス返却後に走らせていた副作用（メール・LINE・Push 通知）をここに集約し、return 直前に
-  // await Promise.allSettled でまとめて完了させる。【2026年7月7日 本番実データで確定した恒久根治】
-  // waitUntil() の fire-and-forget は Fluid Compute 無効の本番でレスポンス返却直後に凍結され後処理が
-  // 全滅していた（口コミルート /api/review と同一の欠陥・同一の根治）。allSettled なので個別 send の
-  // 失敗（reject 含む）は本体レスポンス(200)に影響しない。
-  const cancelSideEffects: Promise<unknown>[] = [];
-
-  // Customer/owner emails were saved with the cancellation. The durable worker
-  // owns delivery; this request never creates another provider operation.
-
-  // LINE cancellation notification (non-blocking)
-  try {
-    if (process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
-      const adminSupabase = createServiceRoleClient();
-      // 【監査C2】連携の単一ソース profiles.line_user_id で解決（line_user_links.user_id は常にNULL）。
-      const lineUserId = await resolveLineUserIdForUser(adminSupabase, userId);
-
-      if (lineUserId) {
-        const { data: facilityForLine } = await db
-          .from('facility_profiles')
-          .select('name')
-          .eq('id', booking.facility_id)
-          .maybeSingle();
-
-        let cancelMenuName = '';
-        if (booking.menu_id) {
-          const { data: menuForLine } = await db.from('facility_menus').select('name').eq('id', booking.menu_id).maybeSingle();
-          cancelMenuName = menuForLine?.name || '';
-        }
-
-        // sendLineCancellation は失敗時 throw せず false を返す契約。void で捨てると送達失敗が
-        // 完全に無音化するため、戻り値を確認して未送達をログに残す（可観測性の確保）。
-        const lineOk = await sendLineCancellation(lineUserId, {
-          facilityName: facilityForLine?.name || '',
-          menuName: cancelMenuName,
-          date: booking.booking_date,
-          time: booking.start_time,
-        });
-        if (!lineOk) {
-          const err = new Error('LINE cancellation notification not delivered');
-          console.error('[cancel] LINE cancellation notification not delivered', { userId, bookingId: booking.id });
-          safeCaptureException(err, 'cancel-line');
-          alertCaughtError('cancel-line', err, '/api/booking/[id]/cancel');
-        }
-      }
-    }
-  } catch (err) {
-    console.error('[cancel] LINE notification failed:', err);
-    safeCaptureException(err, 'cancel-line-setup');
-    alertCaughtError('cancel-line-setup', err, '/api/booking/[id]/cancel');
-  }
-
-  // LINE Works cancellation notification (non-blocking)
-  if (isLineWorksConfigured()) {
-    try {
-      const adminSupabase = createServiceRoleClient();
-      const { data: staffList } = await adminSupabase
-        .from('staff_profiles')
-        .select('line_works_channel_id, line_works_notify_all, id')
-        .eq('facility_id', booking.facility_id)
-        .not('line_works_channel_id', 'is', null);
-
-      if (staffList && staffList.length > 0) {
-        let cancelMenuName = '';
-        if (booking.menu_id) {
-          const { data: menuForLW } = await adminSupabase.from('facility_menus').select('name').eq('id', booking.menu_id).maybeSingle();
-          cancelMenuName = menuForLW?.name || '';
-        }
-        const cancelInfo = {
-          customerName: booking.customer_name,
-          menuName: cancelMenuName,
-          bookingDate: booking.booking_date,
-          startTime: booking.start_time,
-        };
-        for (const staff of staffList) {
-          if (!staff.line_works_channel_id) continue;
-          const isAssigned = staff.id === booking.staff_id;
-          if (isAssigned || staff.line_works_notify_all) {
-            cancelSideEffects.push(
-              notifyCancellationLineWorks(staff.line_works_channel_id, cancelInfo).catch((e) =>
-                safeCaptureException(e, 'cancel-lineworks')
-              )
-            );
-          }
-        }
-      }
-    } catch (e) {
-      safeCaptureException(e, 'cancel-lineworks-setup');
-    }
-  }
-
-  // 施設オーナーへのキャンセル Push（non-blocking）。施設の通知設定 push_on_cancel で制御する。
-  // 旧実装はキャンセル時にメール/LINE のみで Push 送信が無く、設定トグルが効かない飾りだった。
-  try {
-    const notif = await getFacilityNotificationSettings(booking.facility_id);
-    if (notif.pushOnCancel) {
-      cancelSideEffects.push(
-        sendPushToFacilityOwners(booking.facility_id, {
-          title: '予約がキャンセルされました',
-          body: `${booking.customer_name ?? 'お客様'}様 ${booking.booking_date} ${String(booking.start_time).slice(0, 5)}〜 の予約がキャンセルされました`,
-          url: '/admin/bookings',
-          tag: `cancel-${booking.id}`,
-        }).catch((e) => safeCaptureException(e, 'cancel-push-owner'))
-      );
-    }
-  } catch (e) {
-    safeCaptureException(e, 'cancel-push-setup');
-  }
-
-  // レスポンス返却前に副作用を確実に完了させる（waitUntil 後処理が本番で全滅していた恒久根治）。
-  await Promise.allSettled(cancelSideEffects);
+  // The receipt includes fee inputs captured by the committed transaction.
+  const cancelFee = computeCancelFee(feeContext.data.policy, feeContext.data.totalPrice,
+    hoursUntilBookingStart(feeContext.data.bookingDate, feeContext.data.startTime, Date.parse(feeContext.data.capturedAt))).fee;
 
   return NextResponse.json({ success: true, cancelFee });
   } catch (e) {
