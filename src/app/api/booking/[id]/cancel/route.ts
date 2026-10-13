@@ -11,7 +11,9 @@ import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { resolveLineUserIdForUser } from '@/lib/line-link';
@@ -68,20 +70,22 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
         },
       }
     );
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
+    const verification = await verifyAuthUser(supabase.auth);
+    if (verification.state === 'unavailable') return authUnavailable('booking-cancel-auth', '/api/booking/[id]/cancel');
+    if (verification.state !== 'verified') {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     }
-    userId = user.id;
+    userId = verification.user.id;
     db = supabase as unknown as SupabaseClient;
   }
 
-  const { data: booking } = await db
+  const { data: booking, error: bookingReadError } = await db
     .from('bookings')
     .select('id, user_id, status, facility_id, customer_name, email, booking_date, start_time, end_time, total_price, menu_id, staff_id, points_used')
     .eq('id', params.id)
-    .single();
+    .maybeSingle();
 
+  if (bookingReadError) return serverError('booking-cancel-read', databaseDiagnostic(bookingReadError), '/api/booking/[id]/cancel', '予約を確認できません。時間をおいて再確認してください。');
   if (!booking) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
   if (booking.user_id !== userId) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
   // キャンセル済み・キャンセル料支払い済み・完了済みは操作不可
@@ -105,7 +109,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   if (error?.message.includes('BOOKING_PERMISSION_DENIED')) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
   if (error?.message.includes('BOOKING_REVISION_CONFLICT')) return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
   if (error?.message.includes('BOOKING_ALREADY_STARTED')) return NextResponse.json({ error: '予約開始時刻を過ぎているため、オンラインでのキャンセルはできません。施設へ直接ご連絡ください。' }, { status: 400 });
-  if (error) return serverError('booking-cancel-update', error, '/api/booking/[id]/cancel', 'キャンセルに失敗しました');
+  if (error) return serverError('booking-cancel-update', databaseDiagnostic(error), '/api/booking/[id]/cancel', 'キャンセルに失敗しました');
   if (!cancelled || cancelled.length !== 1) return NextResponse.json({ error: 'キャンセル結果を確認できません。ページを更新してください。' }, { status: 409 });
   if (cancelled[0].id !== params.id) return serverError('booking-cancel-result', new Error('cancel transaction target not confirmed'), '/api/booking/[id]/cancel');
 

@@ -51,6 +51,7 @@ jest.mock('@supabase/ssr', () => ({
   }),
 }));
 jest.mock('@supabase/supabase-js', () => ({
+  ...jest.requireActual('@supabase/supabase-js'),
   createClient: jest.fn(() => ({
     rpc: mockRpc,
     from: (...args: any[]) => {
@@ -114,6 +115,7 @@ function fluent(resolvedValue: unknown) {
   self.update = handler;
   self.limit = handler;
   self.single = jest.fn(() => Promise.resolve(resolvedValue));
+  self.maybeSingle = jest.fn(() => Promise.resolve(resolvedValue));
   return self;
 }
 
@@ -388,7 +390,7 @@ describe('POST /api/booking/[id]/cancel', () => {
       bookingsCall++;
       if (bookingsCall === 1) {
         return {
-          select: jest.fn(() => ({ eq: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: {
+          select: jest.fn(() => ({ eq: jest.fn(() => ({ maybeSingle: jest.fn(() => Promise.resolve({ data: {
             id: validId, user_id: 'user-1', status: 'pending', facility_id: 'f-1',
             customer_name: 'テスト', email: 't@example.com', booking_date: '2026-04-01',
             start_time: '10:00', end_time: '11:00', total_price: 5000, menu_id: null, staff_id: null, points_used: 0,
@@ -790,10 +792,11 @@ describe('POST /api/booking/[id]/cancel', () => {
 
 // ─── 深掘り: 例外 → 500 ──────────────────────────────────────────────────────
 
-  test('予期しない例外 → 500', async () => {
+  test('認証取得の例外 → 503、予約の変更は開始しない', async () => {
     mockGetUser.mockImplementation(() => { throw new Error('Unexpected'); });
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
+    expect(mockRpc).not.toHaveBeenCalled();
   });
 
 // ─── 深掘り: menu_id ありのキャンセル ────────────────────────────────────────
@@ -1665,4 +1668,45 @@ test('旧DBで原子取消RPCが未適用でも直接UPDATE/返還INSERTへ戻�
  expect(mockRpc).toHaveBeenCalledWith('cancel_customer_booking_with_outbox_atomic',expect.anything());
  expect(mockBookingsWrite).not.toHaveBeenCalled();expect(mockAdminFrom).not.toHaveBeenCalledWith('user_points');
  expect(jest.requireMock('@/lib/email').sendBookingCancelled).not.toHaveBeenCalled();
+});
+
+test.each([
+  { data: { user: null }, error: { status: 503, message: 'private credential' } },
+  { data: { user: { id: 'user-1' } }, error: { status: 503, message: 'private credential' } },
+  null,
+])('認証結果が不明なら503にし、予約読取・取消・通知をしない (%p)', async result => {
+  mockGetUser.mockResolvedValue(result);
+  const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+  expect(res.status).toBe(503);
+  expect(res.headers.get('Cache-Control')).toBe('no-store');
+  expect((await res.json()).code).toBe('AUTH_UNAVAILABLE');
+  expect(mockFrom).not.toHaveBeenCalled();
+  expect(mockRpc).not.toHaveBeenCalled();
+  expect(jest.requireMock('@/lib/audit-logger').writeAuditLog).not.toHaveBeenCalled();
+  expect(jest.requireMock('@/lib/email').sendBookingCancelled).not.toHaveBeenCalled();
+});
+
+test('認証通信の例外でも401に変換せず、取消RPCへ進まない', async () => {
+  mockGetUser.mockRejectedValue(new Error('private credential'));
+  const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+  expect(res.status).toBe(503);
+  expect(mockRpc).not.toHaveBeenCalled();
+});
+
+test.each([null, { id: validId, user_id: 'user-1' }])('予約取得エラーは404に変換せず、取消・通知をしない (%p)', async data => {
+  mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null });
+  mockFrom.mockReturnValue(fluent({ data, error: { code: '57014', message: 'private credential' } }));
+  const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+  expect(res.status).toBe(500);
+  expect(JSON.stringify(await res.json())).not.toContain('private credential');
+  expect(mockRpc).not.toHaveBeenCalled();
+  expect(jest.requireMock('@/lib/audit-logger').writeAuditLog).not.toHaveBeenCalled();
+  expect(jest.requireMock('@/lib/push').sendPushToFacilityOwners).not.toHaveBeenCalled();
+});
+
+test('予約が正常に取得されて0件なら404を維持する', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null });
+  mockFrom.mockReturnValue(fluent({ data: null, error: null }));
+  expect((await POST(makeRequest(), { params: Promise.resolve({ id: validId }) })).status).toBe(404);
+  expect(mockRpc).not.toHaveBeenCalled();
 });
