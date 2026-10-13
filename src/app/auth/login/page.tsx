@@ -248,23 +248,22 @@ function LoginContent() {
       <div className="space-y-4">
         <h2 className="text-lg font-bold">店舗ログイン</h2>
         <p className="text-sm break-all">
-          {switchSignedOut ? 'ログアウト済みです。端末の下書き削除を再試行してください。' : `ログイン中のアカウント：${currentAccount.email ?? 'メールアドレス未設定'}`}
+          {switchSignedOut ? 'ログアウト済みです。端末の下書き削除を再試行してください。' : `ログイン中：${currentAccount.email ?? 'メールアドレス未設定'}`}
         </p>
         {errorParam === 'store_access_required' && <div className="space-y-2 text-sm text-gray-700">
-          <p role="alert">このアカウントで管理できる店舗は、現在ありません。</p>
-          <p>店舗を登録済みの方は、登録に使ったアカウントでログインしてください。</p>
+          <p role="alert">このアカウントでは、お店を管理できません。</p>
+          <p>お店を登録したアカウントでログインしてください。</p>
         </div>}
         {!switchSignedOut && errorParam !== 'store_access_required' && <Link href={redirect} className="btn-primary block text-center">このアカウントで管理画面を開く</Link>}
         <div className="rounded-lg bg-gray-50 p-3 text-xs leading-relaxed text-gray-600">
-          <p className="font-medium text-gray-700">登録済みの店舗情報・写真・予約は、そのまま残ります。</p>
-          <p className="mt-1">このブラウザーに残っている、送信前の店舗登録・予約の入力内容と写真だけは、切り替え時に消去します。必要な入力は先にメモし、写真は元画像を手元に残してから進んでください。</p>
+          <p className="font-medium text-gray-700">登録したお店・写真・予約はそのままです。</p>
+          <p className="mt-1">このブラウザーにある入力途中の内容・写真は、切り替えると消えます。</p>
         </div>
         <button type="button" disabled={switchingAccount} onClick={switchAccount} className={`${errorParam === 'store_access_required' ? 'btn-primary' : 'btn-secondary'} w-full`}>
-          {switchingAccount ? '切り替え準備中…' : switchSignedOut ? '端末の下書き削除を再試行' : '別アカウントでログイン'}
+          {switchingAccount ? '切り替え準備中…' : switchSignedOut ? '端末の下書き削除を再試行' : '別のアカウントでログイン'}
         </button>
         {!switchSignedOut && <div className="border-t border-gray-100 pt-4 text-center text-sm">
-          <p className="mb-2 text-gray-600">新しく店舗を掲載する方はこちら</p>
-          <Link href="/admin/onboarding" className="text-sky-700 underline">このアカウントで新しく店舗を登録する</Link>
+          <Link href="/admin/onboarding" className="text-sky-700 underline">新しくお店を登録する</Link>
         </div>}
         {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
       </div>

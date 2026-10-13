@@ -152,7 +152,7 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   // Establish a real signed negative membership cache before creation.
   await page.goto('/admin');
   await expect(page).toHaveURL(/\/auth\/login\?redirect=%2Fadmin&error=store_access_required$/);
-  await expect(page.getByRole('alert').filter({ hasText: 'このアカウントで管理できる店舗は、現在ありません。' })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'このアカウントでは、お店を管理できません。' })).toBeVisible();
   const negativeHint = (await page.context().cookies()).find(cookie => cookie.name.startsWith('_cm_mbr_'));
   expect({ present: !!negativeHint, negative: negativeHint?.value.startsWith('0.'),
     httpOnly: negativeHint?.httpOnly, secure: negativeHint?.secure, path: negativeHint?.path })
@@ -217,7 +217,7 @@ test('committed direct setup with lost response reloads membership without anoth
   const db = localDb(); const owner = await identity(db);
   await login(page, owner, '/admin/onboarding');
   await page.goto('/admin'); await expect(page).toHaveURL(/\/auth\/login\?redirect=%2Fadmin&error=store_access_required$/);
-  await expect(page.getByRole('alert').filter({ hasText: 'このアカウントで管理できる店舗は、現在ありません。' })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'このアカウントでは、お店を管理できません。' })).toBeVisible();
   const negativeHint = (await page.context().cookies()).find(cookie => cookie.name.startsWith('_cm_mbr_'));
   expect({ present: !!negativeHint, negative: negativeHint?.value.startsWith('0.'),
     httpOnly: negativeHint?.httpOnly, secure: negativeHint?.secure, path: negativeHint?.path })
