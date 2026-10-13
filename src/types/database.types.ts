@@ -7118,6 +7118,10 @@ export type Database = {
         Args: { p_since: string; p_user_id: string }
         Returns: Json
       }
+      scheduled_digest_snapshot_valid: {
+        Args: { p_facilities: Json; p_since: string; p_user_id: string }
+        Returns: boolean
+      }
       scheduled_email_cutover_at: { Args: never; Returns: string }
       scheduled_email_legacy_holds: { Args: never; Returns: Json }
       search_facilities_nearby: {
