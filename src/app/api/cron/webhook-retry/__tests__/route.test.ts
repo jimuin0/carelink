@@ -50,6 +50,7 @@ jest.mock('@/lib/salon-outbox-delivery');
 jest.mock('@/lib/facility-welcome-delivery');
 jest.mock('@/lib/manual-booking-notification');
 jest.mock('@/lib/customer-booking-transition-email');
+jest.mock('@/lib/scheduled-email-recipient',()=>({checkScheduledEmailRecipient:jest.fn(async()=>true)}));
 jest.mock('@/lib/booking-create-notifications',()=>({prepareBookingCreationChannel:jest.fn(async()=>async()=>{}),sendBookingCreationLine:jest.fn(async()=>true)}));
 
 import { checkCronAuth } from '@/lib/cron-auth';
@@ -347,13 +348,14 @@ describe('GET /api/cron/webhook-retry', () => {
       expect(mockSuccessUpdate).not.toHaveBeenCalled(); expect(scheduleRetry).not.toHaveBeenCalled();
     }
   });
-  test.each(['accepted','missing-id','wrong-key','manual','customer-transition','customer-transition-invalid'])('durable email operation validates provider/reference %s', async mode => {
+  test.each(['accepted','missing-id','wrong-key','manual','customer-transition','customer-transition-invalid','scheduled'])('durable email operation validates provider/reference %s', async mode => {
     setupDefaultMocks(1);
     const id = '88888888-8888-4888-8888-888888888881';
     const envelope = { from:'CareLink <noreply@carelink-jp.com>',to:'synthetic@example.invalid',subject:'synthetic',html:'<p>synthetic</p>' };
     mockJobsSelect.mockResolvedValue({ data:[{ id, webhook_type:mode === 'manual' ? 'manual_booking_confirmation' : 'email',
       target_id:envelope.to, payload:{ event_email_version:1,idempotency_key:mode === 'wrong-key' ? 'different' : `carelink-event-email/${id}`,
-        ...(mode.startsWith('customer-transition') ? {customer_booking_transition_version:1} : {}) },
+        ...(mode.startsWith('customer-transition') ? {customer_booking_transition_version:1} : {}),
+        ...(mode==='scheduled' ? {scheduled_email_version:1} : {}) },
       email_envelope:envelope,status:'pending',attempt_count:0,scheduled_at:new Date().toISOString() }] });
     (prepareManualBookingEnvelope as jest.Mock).mockResolvedValue(envelope);
     (prepareCustomerBookingTransitionEnvelope as jest.Mock).mockResolvedValue(mode === 'customer-transition-invalid' ? {} : envelope);
@@ -373,6 +375,7 @@ describe('GET /api/cron/webhook-retry', () => {
         expect(prepareCustomerBookingTransitionEnvelope).toHaveBeenCalled();
         expect(mockBookingFence).toHaveBeenCalledWith('start_customer_booking_transition_email', expect.objectContaining({p_queue_id:id}));
       }
+      if (mode === 'scheduled') expect(mockBookingFence).toHaveBeenCalledWith('start_scheduled_email_delivery',expect.objectContaining({p_queue_id:id}));
     }
   });
   test('claim rechecks due time and consumes returned current data, not stale selection', async () => {

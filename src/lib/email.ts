@@ -781,6 +781,15 @@ export async function sendFavoritesDigest(data: {
   const resend = getResend();
   // API キー未設定は送達不可＝false（cron 側で未送信扱い）。
   if (!resend) return false;
+  return safeSend(resend, buildFavoritesDigestEnvelope(data), 'favorites_digest');
+}
+
+export function buildFavoritesDigestEnvelope(data: {
+  userEmail: string;
+  userName?: string;
+  facilities: { name: string; slug: string; newCoupons: number; hasNewMenus: boolean }[];
+  unsubscribeToken?: string;
+}) {
 
   const name = esc(data.userName || 'お客様');
   const facilityRows = data.facilities.map((f) => {
@@ -797,7 +806,7 @@ export async function sendFavoritesDigest(data: {
     `;
   }).join('');
 
-  return safeSend(resend, {
+  return {
     from: FROM,
     to: data.userEmail,
     subject: escSubject(`【CareLink】お気に入り施設の新着情報があります`),
@@ -819,7 +828,18 @@ export async function sendFavoritesDigest(data: {
         </a>
       </p>
     `, data.unsubscribeToken),
-  }, 'favorites_digest');
+  };
+}
+
+/** Pure template for the booking-owned durable review invitation. */
+export function buildReviewRequestEnvelope(data: {
+  email: string; customerName: string | null; facilityName: string; facilitySlug: string;
+}) {
+  const reviewUrl = `${SITE_URL}/facility/${encodeURIComponent(data.facilitySlug)}#review`;
+  return { from: FROM, to: data.email,
+    subject: escSubject(`【${data.facilityName}】ご来店ありがとうございました`),
+    html: `<p>${esc(data.customerName || 'お客')}様</p><p>先日は<strong>${esc(data.facilityName)}</strong>にご来店いただきありがとうございました。</p><p>よろしければ、口コミを投稿していただけると嬉しいです。</p><p><a href="${reviewUrl}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">口コミを書く</a></p><p style="color:#999;font-size:12px;">口コミを投稿すると50ポイントがもらえます！</p>`,
+  };
 }
 
 // ---------------------------------------------------------------------------
