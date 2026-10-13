@@ -280,6 +280,9 @@ jobs:
       - name: Registration duplicate 20-client linkage and claim concurrency (disposable DB)
         run: node scripts/check-registration-duplicate-concurrency.mjs
 
+      - name: Customer booking channel privacy, fence and rejection fixtures (disposable DB)
+        run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/customer-booking-channel-fixtures.sql
+
       - name: Registration review revision and ABA fixtures (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/registration-review-fixtures.sql
 

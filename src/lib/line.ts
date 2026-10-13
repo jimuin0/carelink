@@ -6,6 +6,7 @@
 import crypto from 'crypto';
 import { enqueueWebhook } from '@/lib/webhook-queue';
 import { runAfterResponse } from '@/lib/after-response';
+import { channelDeliveryResult, type ChannelDeliveryResult } from '@/lib/channel-delivery-result';
 
 const LINE_API_URL = 'https://api.line.me/v2/bot/message/push';
 const LINE_REPLY_URL = 'https://api.line.me/v2/bot/message/reply';
@@ -81,6 +82,21 @@ function getToken(): string {
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
   if (!token) throw new Error('LINE_CHANNEL_ACCESS_TOKEN_CARELINK is not set');
   return token;
+}
+
+/** One provider call only. Unknown delivery outcomes must stay behind the DB fence. */
+export function prepareSingleLineDelivery(target: string, text: string): () => Promise<ChannelDeliveryResult> {
+  const token = getToken();
+  const body = JSON.stringify({ to: target, messages: [{ type: 'text', text }] });
+  return async () => {
+    try {
+      const response = await fetch(LINE_API_URL, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body, signal: AbortSignal.timeout(10000) });
+      return channelDeliveryResult(response.status);
+    } catch {
+      return { outcome: 'uncertain', status: null };
+    }
+  };
 }
 
 interface LineMessage {

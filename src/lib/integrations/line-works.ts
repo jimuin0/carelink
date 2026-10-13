@@ -12,6 +12,7 @@
 
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
+import { channelDeliveryResult, type ChannelDeliveryResult } from '@/lib/channel-delivery-result';
 
 const LINE_WORKS_API_BASE = 'https://www.worksapis.com/v1.0';
 const LINE_WORKS_AUTH_URL = 'https://auth.worksmobile.com/oauth2/v2.0/token';
@@ -135,6 +136,27 @@ type LineWorksMessage = {
     contents?: object;
   };
 };
+
+/** Auth preparation is safe before the durable fence. The closure performs
+ * exactly one message request; even 401 never causes an inline second send. */
+export async function prepareSingleLineWorksDelivery(channelId: string, text: string): Promise<() => Promise<ChannelDeliveryResult>> {
+  const botId = process.env.LINE_WORKS_BOT_ID;
+  if (!botId) throw new Error('LINE_WORKS_PREPARATION_UNAVAILABLE');
+  const token = await getLineWorksToken();
+  if (!token) throw new Error('LINE_WORKS_PREPARATION_UNAVAILABLE');
+  const url = `${LINE_WORKS_API_BASE}/bots/${encodeURIComponent(botId)}/channels/${encodeURIComponent(channelId)}/messages`;
+  const body = JSON.stringify({ content: { type: 'text', text } });
+  return async () => {
+    try {
+      const response = await fetch(url, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body, signal: AbortSignal.timeout(10000) });
+      if (response.status === 401 || response.status === 403) cachedToken = null;
+      return channelDeliveryResult(response.status);
+    } catch {
+      return { outcome: 'uncertain', status: null };
+    }
+  };
+}
 
 /**
  * LINE Worksチャンネルにメッセージ送信
