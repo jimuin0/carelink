@@ -8,6 +8,7 @@ import { alertCaughtError } from '@/lib/alert';
 import { serverError } from '@/lib/with-route';
 import { todayJst } from '@/lib/admin-date';
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
+import { readCompleteAvailabilityStaff, readCompleteMonthAvailability, countConfirmedAvailabilitySlots } from '@/lib/availability-results';
 
 /**
  * カレンダー1日分の状態。
@@ -54,18 +55,12 @@ export async function GET(request: Request) {
     if (staffId) {
       staffIds = [staffId];
     } else {
-      const { data: staffList, error: staffErr } = await supabase
-        .from('staff_profiles')
-        .select('id')
-        .eq('facility_id', facilityId)
-        .eq('is_active', true)
-        .limit(10);
-      // error を握り潰すと staffIds=[] → {dates:{}} を静かに返し「空きカレンダー」を偽装する
-      // （DB障害を『予約不可』に化けさせる）。slots ルートと同じく 500 で顕在化させる。
-      if (staffErr) {
-        return serverError('availability-staff-profiles', staffErr, '/api/availability');
-      }
-      staffIds = (staffList || []).map((s: { id: string }) => s.id);
+      staffIds = await readCompleteAvailabilityStaff(async (afterId) => {
+        let query = supabase.from('staff_profiles').select('id')
+          .eq('facility_id', facilityId).eq('is_active', true).order('id').limit(100);
+        if (afterId) query = query.gt('id', afterId);
+        return await query;
+      });
     }
 
     if (staffIds.length === 0) {
@@ -130,15 +125,12 @@ export async function GET(request: Request) {
     });
 
     if (!monthErr) {
-      const slotMap = new Map<string, number>();
-      for (const row of (monthRows ?? []) as { d: string; slots: number }[]) {
-        slotMap.set(row.d, row.slots);
-      }
+      const slotMap = readCompleteMonthAvailability(monthRows, year, month);
       for (let day = 1; day <= daysInMonth; day++) {
         const dateStr = dateStrFor(day);
         dates[dateStr] = isPast(dateStr)
           ? { slots: 0, status: 'past' }
-          : summarizeDay(dateStr, slotMap.get(dateStr) ?? 0);
+          : summarizeDay(dateStr, slotMap.get(dateStr)!);
       }
       return NextResponse.json({ dates });
     }
@@ -175,7 +167,7 @@ export async function GET(request: Request) {
           });
           // 再計算も失敗したら「満席0件」と成功応答しない。
           if (slotsError) throw new Error('Availability fallback slot lookup failed');
-          totalSlots += (data || []).length;
+          totalSlots += countConfirmedAvailabilitySlots(data);
           if (totalSlots >= 3) break;
         }
         dates[dateStr] = summarizeDay(dateStr, totalSlots);

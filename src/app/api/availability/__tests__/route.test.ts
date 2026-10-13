@@ -52,12 +52,15 @@ function setupDefaultMocks(opts: MockOpts = {}) {
     hoursError = null,
   } = opts;
 
-  const staffData = Array.from({ length: staffCount }, (_, i) => ({ id: `staff-${i}` }));
+  const staffData = Array.from({ length: staffCount }, (_, i) => ({ id: `${String(i + 1).padStart(8, '0')}-0000-4000-8000-000000000001` }));
 
   mockStaffSelect = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        limit: jest.fn().mockResolvedValue({ data: staffData }),
+        order: jest.fn().mockReturnValue({limit: jest.fn().mockImplementation(() => {
+          const query = {gt: jest.fn().mockResolvedValue({data:[],error:null}),then: (resolve: (value: unknown) => unknown) => Promise.resolve({data:staffData,error:null}).then(resolve)};
+          return query;
+        })}),
       }),
     }),
   });
@@ -75,7 +78,7 @@ function setupDefaultMocks(opts: MockOpts = {}) {
     }
     // get_available_slots（フォールバック経路）
     return Promise.resolve({
-      data: Array.from({ length: legacySlotsPerStaff }, (_, i) => ({ slot_start: `${9 + i}:00` })),
+      data: Array.from({ length: legacySlotsPerStaff }, (_, i) => ({ slot_start: `${String(9 + i).padStart(2, '0')}:00` })),
     });
   });
 
@@ -202,10 +205,10 @@ describe('GET /api/availability', () => {
     expect(innerEq).toHaveBeenCalledWith('is_active', true);
   });
 
-  test('limits to 10 active staff', async () => {
-    await GET(makeRequest() as any);
-    const limitCall = mockStaffSelect().eq().eq().limit;
-    expect(limitCall).toHaveBeenCalledWith(10);
+  test('all eleven active staff reach the aggregate instead of taking only ten', async () => {
+    setupDefaultMocks({ staffCount: 11 });
+    expect((await GET(makeRequest())).status).toBe(200);
+    expect(mockRpc.mock.calls[0][1].p_staff_ids).toHaveLength(11);
   });
 
   test('no active staff → returns empty dates（RPC は呼ばれない）', async () => {
@@ -297,7 +300,7 @@ describe('GET /api/availability', () => {
     expect(monthCalls).toHaveLength(1);
     expect(monthCalls[0][1]).toEqual({
       p_facility_id: VALID_UUID,
-      p_staff_ids: ['staff-0', 'staff-1'],
+      p_staff_ids: ['00000001-0000-4000-8000-000000000001', '00000002-0000-4000-8000-000000000001'],
       p_year: FUTURE_YEAR,
       p_month: 6,
       p_duration_minutes: 60,
@@ -332,23 +335,11 @@ describe('GET /api/availability', () => {
     expect(nonFull).toHaveLength(0);
   });
 
-  test('monthRows=null（?? []）→ 未来日 status=full', async () => {
-    setupDefaultMocks({ monthData: null });
-    const res = await GET(makeRequest() as any);
-    const json = await res.json();
-    const nonFull = Object.values(json.dates).filter((d: any) => d.status !== 'full');
-    expect(nonFull).toHaveLength(0);
-  });
-
-  test('集約結果に存在しない日（slotMap miss ?? 0）→ full', async () => {
-    // 1 日のみ slots を返し、それ以外の未来日は ?? 0 で full になる
-    setupDefaultMocks({ monthData: [{ d: `${FUTURE_YEAR}-06-15`, slots: 8 }] });
-    const res = await GET(makeRequest(VALID_UUID, undefined, FUTURE_YEAR, 6) as any);
-    const json = await res.json();
-    expect(json.dates[`${FUTURE_YEAR}-06-15`].status).toBe('available');
-    // 別の未来日は full（rows に無い）
-    expect(json.dates[`${FUTURE_YEAR}-06-16`].status).toBe('full');
-    expect(json.dates[`${FUTURE_YEAR}-06-16`].slots).toBe(0);
+  test.each([null, [], [{d: `${FUTURE_YEAR}-06-15`, slots:8}]])('incomplete monthly result never fabricates full days %#', async monthData => {
+    setupDefaultMocks({monthData});
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(500);
+    expect((await res.json()).dates).toBeUndefined();
   });
 
   test('集約関数未デプロイ（PGRST202）→ get_available_slots ループにフォールバック', async () => {
@@ -401,17 +392,11 @@ describe('GET /api/availability', () => {
     expect(mockRpc.mock.calls.some((c) => c[0] === 'get_available_slots')).toBe(false);
   });
 
-  test('フォールバック: get_available_slots が null data（|| []）→ full', async () => {
-    setupDefaultMocks({ monthError: { code: 'PGRST202' }, staffCount: 1 });
-    // get_available_slots を null data に上書き
-    mockRpc.mockImplementation((fn: string) => {
-      if (fn === 'get_month_availability') return Promise.resolve({ data: null, error: { code: 'PGRST202' } });
-      return Promise.resolve({ data: null });
-    });
-    const res = await GET(makeRequest() as any);
-    const json = await res.json();
-    const nonFull = Object.values(json.dates).filter((d: any) => d.status !== 'full');
-    expect(nonFull).toHaveLength(0);
+  test('null fallback result never fabricates full days', async () => {
+    setupDefaultMocks({monthError:{code:'PGRST202'},staffCount:1});
+    mockRpc.mockResolvedValue({data:null,error:{code:'PGRST202'}});
+    mockRpc.mockImplementation((fn:string) => Promise.resolve({data:null,error:fn==='get_month_availability'?{code:'PGRST202'}:null}));
+    const res=await GET(makeRequest());expect(res.status).toBe(500);expect((await res.json()).dates).toBeUndefined();
   });
 
   test('フォールバックもDB失敗なら0枠・満席の成功応答にしない', async () => {
@@ -522,7 +507,7 @@ describe('GET /api/availability', () => {
         select: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
             eq: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({ data: null }),
+              order: jest.fn().mockReturnValue({limit: jest.fn().mockResolvedValue({ data: [], error:null })}),
             }),
           }),
         }),
@@ -579,7 +564,7 @@ test('AV-2: staff_profiles 取得エラー → 500', async () => {
       select: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }),
+            order: jest.fn().mockReturnValue({limit: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } })}),
           }),
         }),
       }),
