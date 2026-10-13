@@ -68,25 +68,28 @@ export async function POST(request: NextRequest) {
   const admin = createServiceRoleClient();
 
   // Duplicate name check
-  const { data: existing } = await admin
+  const { data: existing, error: duplicateError } = await admin
     .from('facility_menus')
     .select('id')
     .eq('facility_id', facilityId)
     .eq('name', parsed.data.name)
     .maybeSingle();
+  if (duplicateError) return serverError('admin-menus-duplicate-check', duplicateError, '/api/admin/menus');
   if (existing) return NextResponse.json({ error: '同じ名前のメニューが既に存在します' }, { status: 409 });
 
   // Count for sort_order default
-  const { count } = await admin
+  const { count, error: countError } = await admin
     .from('facility_menus')
     .select('id', { count: 'exact', head: true })
     .eq('facility_id', facilityId);
+  if (countError) return serverError('admin-menus-count', countError, '/api/admin/menus');
+  if (count === null) return serverError('admin-menus-count', new Error('MENU_COUNT_UNAVAILABLE'), '/api/admin/menus');
 
   const { data, error } = await admin.from('facility_menus').insert({
     facility_id: facilityId,
     ...parsed.data,
     photo_url: parsed.data.photo_url || null,
-    sort_order: parsed.data.sort_order ?? (count ?? 0),
+    sort_order: parsed.data.sort_order ?? count,
     // facility_menus に updated_at 列は存在しない（created_at のみ）。書き込むと 400 になるため付けない。
   }).select().single();
 
