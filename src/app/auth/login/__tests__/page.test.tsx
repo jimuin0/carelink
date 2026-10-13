@@ -55,12 +55,14 @@ test('signed-in store login offers choices without silently routing to admin/myp
   expect(mockSignOut).not.toHaveBeenCalled();
   expect(screen.queryByLabelText('パスワード')).not.toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'このアカウントで管理画面を開く' })).toHaveAttribute('href', '/admin/bookings?date=2026-10-13');
-  expect(screen.getByRole('link', { name: 'このアカウントで店舗登録へ進む' })).toHaveAttribute('href', '/admin/onboarding');
+  expect(screen.getByRole('link', { name: 'このアカウントで新しく店舗を登録する' })).toHaveAttribute('href', '/admin/onboarding');
 });
 
 test('permission denial explains missing store access and keeps account switching available', async () => {
   await signedInStoreLogin('store_access_required');
-  expect(screen.getByRole('alert')).toHaveTextContent('このアカウントには、店舗の管理権限がありません');
+  expect(screen.getByRole('alert')).toHaveTextContent('このアカウントで管理できる店舗は、現在ありません');
+  expect(screen.queryByRole('link', { name: 'このアカウントで管理画面を開く' })).not.toBeInTheDocument();
+  expect(screen.getByText('登録済みの店舗情報・写真・予約は、そのまま残ります。')).toBeInTheDocument();
   expect(mockReplace).not.toHaveBeenCalled();
 });
 

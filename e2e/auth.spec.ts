@@ -204,8 +204,8 @@ test.describe('認証フロー', () => {
     await page.goto('/auth/login?redirect=/admin/bookings');
     await page.getByRole('link', { name: 'このアカウントで管理画面を開く', exact: true }).click();
     await expect(page).toHaveURL(/\/auth\/login\?redirect=%2Fadmin%2Fbookings&error=store_access_required$/);
-    await expect(page.getByRole('alert').filter({ hasText: 'このアカウントには、店舗の管理権限がありません。' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'このアカウントで店舗登録へ進む' })).toHaveAttribute('href', '/admin/onboarding');
+    await expect(page.getByRole('alert').filter({ hasText: 'このアカウントで管理できる店舗は、現在ありません。' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'このアカウントで新しく店舗を登録する' })).toHaveAttribute('href', '/admin/onboarding');
 
     // This disposable identity has no real drafts. Switching must actually end
     // its local Auth session before another account's credentials are offered.
