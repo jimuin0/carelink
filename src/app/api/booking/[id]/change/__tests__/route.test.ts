@@ -300,6 +300,22 @@ test('正常変更 → 200 success:true, RPC に p_user_id を渡す（IDOR defe
   }));
 });
 
+test('notification settings failure skips owner Push but does not repeat a committed change', async () => {
+  const { getFacilityNotificationSettings } = jest.requireMock('@/lib/notification-settings');
+  const { sendPushToFacilityOwners, sendPushToUser } = jest.requireMock('@/lib/push');
+  const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  getFacilityNotificationSettings.mockRejectedValueOnce(new Error('settings read failed'));
+  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(200);
+  expect((await res.json()).success).toBe(true);
+  expect(mockRpc).toHaveBeenCalledTimes(1);
+  expect(sendPushToFacilityOwners).not.toHaveBeenCalled();
+  expect(sendPushToUser).toHaveBeenCalledTimes(1);
+  expect(log).toHaveBeenCalledWith('[safeCaptureException:change-notify-setup]', 'settings read failed', expect.any(String));
+  log.mockRestore();
+});
+
 // ─── 深掘りテスト: 境界値・エッジケース ─────────────────────────────────────
 
 test('CSRF 失敗 → 403', async () => {

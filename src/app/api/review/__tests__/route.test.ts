@@ -554,11 +554,15 @@ describe('POST /api/review', () => {
 
     test('Push 設定取得が例外でも投稿成功を返す（防御 catch）', async () => {
       const { getFacilityNotificationSettings } = require('@/lib/notification-settings');
+      const { sendPushToFacilityOwners } = require('@/lib/push');
+      const { sendNewReviewNotification } = require('@/lib/email');
       (getFacilityNotificationSettings as jest.Mock).mockRejectedValue(new Error('settings down'));
       setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
       const res = await POST(makeRequest(bizReview));
       expect(res.status).toBe(200);
       expect((await res.json()).success).toBe(true);
+      expect(sendPushToFacilityOwners).not.toHaveBeenCalled();
+      expect(sendNewReviewNotification).not.toHaveBeenCalled();
     });
 
     test('口コミ投稿成功時 push_on_review=true → 施設オーナーへメールを送る', async () => {

@@ -309,6 +309,22 @@ describe('POST /api/booking/[id]/cancel', () => {
     expect(sendPushToFacilityOwners).not.toHaveBeenCalled();
   });
 
+  test('notification settings failure skips owner Push without repeating a committed cancellation', async () => {
+    const { sendPushToFacilityOwners } = jest.requireMock('@/lib/push');
+    const { getFacilityNotificationSettings } = jest.requireMock('@/lib/notification-settings');
+    const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    getFacilityNotificationSettings.mockRejectedValueOnce(new Error('settings read failed'));
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    setupSuccessfulCancelFrom();
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    expect((await res.json()).success).toBe(true);
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(sendPushToFacilityOwners).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith('[safeCaptureException:cancel-push-setup]', 'settings read failed', expect.any(String));
+    log.mockRestore();
+  });
+
   test('customer_name が null でも Push 本文は「お客様」でフォールバック', async () => {
     const { sendPushToFacilityOwners } = require('@/lib/push');
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
