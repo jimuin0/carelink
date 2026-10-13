@@ -163,324 +163,194 @@ test('POST: テーブル名なし → 400', async () => {
   expect(res.status).toBe(400);
 });
 
-// ─── POST: export failure ─────────────────────────────────────────────────────
 
-test('POST: エクスポートクエリ失敗 → 500', async () => {
-  mockAnonFrom.mockReturnValue(profileChain(true));
-  mockAdminFrom.mockReturnValue({
-    select: jest.fn().mockReturnValue({
-      order: jest.fn().mockReturnValue({
-        range: jest.fn(() => Promise.resolve({ data: null, error: { message: 'query failed' } })),
-      }),
-    }),
+// Query mocks consume pages and expose the real cursor, limit and abort contract.
+type PageResult = { data: unknown; error?: unknown };
+function mockExportPages(...pages: Array<PageResult | Error | string>) {
+  const read = jest.fn(async () => {
+    const result = pages.shift() ?? { data: [], error: null };
+    if (result instanceof Error || typeof result === 'string') throw result;
+    return result;
   });
-
-  const res = await POST(makePostRequest({ table: 'bookings' }));
-  expect(res.status).toBe(500);
-});
-
-test('POST: 1ページ目がdata:null（エラーなし）→ 500', async () => {
-  mockAnonFrom.mockReturnValue(profileChain(true));
-  mockAdminFrom.mockReturnValue({
-    select: jest.fn().mockReturnValue({
-      order: jest.fn().mockReturnValue({
-        range: jest.fn(() => Promise.resolve({ data: null, error: null })),
-      }),
-    }),
-  });
-  const res = await POST(makePostRequest({ table: 'bookings' }));
-  expect(res.status).toBe(500);
-});
-
-test('POST: データ0件 → 404', async () => {
-  mockAnonFrom.mockReturnValue(profileChain(true));
-  mockAdminFrom.mockReturnValue({
-    select: jest.fn().mockReturnValue({
-      order: jest.fn().mockReturnValue({
-        range: jest.fn(() => Promise.resolve({ data: [], error: null })),
-      }),
-    }),
-  });
-
-  const res = await POST(makePostRequest({ table: 'bookings' }));
-  expect(res.status).toBe(404);
-});
-
-// ─── POST: CSV injection prevention ──────────────────────────────────────────
-
-test('POST: CSVインジェクション防止 (= で始まる値を引用符付き文字列に変換)', async () => {
-  mockAnonFrom.mockReturnValue(profileChain(true));
-  mockAdminFrom.mockReturnValue({
-    select: jest.fn().mockReturnValue({
-      order: jest.fn().mockReturnValue({
-        range: jest.fn(() => Promise.resolve({
-          data: [{ id: '=SUM(A1)', name: '=CMD|"/c calc"!A0', created_at: '2026-01-01' }],
-          error: null,
-        })),
-      }),
-    }),
-  });
-
-  const res = await POST(makePostRequest({ table: 'bookings' }));
-  expect(res.status).toBe(200);
-  const csv = await res.text();
-  // Values starting with = should be prefixed with ' to neutralize formula injection
-  expect(csv).toContain("'=SUM(A1)");
-  expect(csv).toContain("'=CMD");
-});
-
-test('POST: 正常CSVエクスポート → 200 Content-Type: text/csv', async () => {
-  mockAnonFrom.mockReturnValue(profileChain(true));
-  mockAdminFrom.mockReturnValue({
-    select: jest.fn().mockReturnValue({
-      order: jest.fn().mockReturnValue({
-        range: jest.fn(() => Promise.resolve({
-          data: [{ id: '1', name: '施設A', created_at: '2026-01-01' }],
-          error: null,
-        })),
-      }),
-    }),
-  });
-
-  const res = await POST(makePostRequest({ table: 'facility_profiles' }));
-  expect(res.status).toBe(200);
-  expect(res.headers.get('Content-Type')).toContain('text/csv');
-  expect(res.headers.get('Content-Disposition')).toContain('facility_profiles');
-});
-
-// ─── 追加ブランチカバレッジ ───────────────────────────────────────────
-
-test('POST: CSRFエラー → そのまま返却', async () => {
-  const csrfRes = new Response('csrf', { status: 403 });
-  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
-  const res = await POST(makePostRequest());
-  expect(res).toBe(csrfRes);
-});
-
-test('POST: レートリミット → 429', async () => {
-  (checkRateLimit as jest.Mock).mockReturnValue(true);
-  const res = await POST(makePostRequest());
-  expect(res.status).toBe(429);
-});
-
-test('POST: profile レコードなし (null) → 403', async () => {
-  mockAnonFrom.mockReturnValue({
+  const query = {
     select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data: null, error: null })),
-  });
-  const res = await POST(makePostRequest());
-  expect(res.status).toBe(403);
+    order: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockReturnThis(),
+    gt: jest.fn().mockReturnThis(),
+    abortSignal: jest.fn().mockReturnThis(),
+    then: (resolve: (value: PageResult) => unknown, reject: (reason: unknown) => unknown) => read().then(resolve, reject),
+  };
+  mockAdminFrom.mockReturnValue(query);
+  return { query, read };
+}
+function row(i: number, values: Record<string, unknown> = {}) {
+  return { id: `00000000-0000-0000-0000-${String(i + 1).padStart(12, '0')}`, created_at: '2026-01-01', ...values };
+}
+function admin() { mockAnonFrom.mockReturnValue(profileChain(true)); }
+
+import { writeAuditLog } from '@/lib/audit-logger';
+
+test.each([
+  { data: null, error: { message: 'query failed' } },
+  { data: null, error: null },
+  { data: {} },
+  { data: [row(0)], error: { message: 'partial result' } },
+  { data: [{ id: 1 }] },
+])('POST: invalid first read %j returns500 before CSV headers', async result => {
+  admin(); mockExportPages(result);
+  const response = await POST(makePostRequest());
+  expect(response.status).toBe(500);
+  expect(writeAuditLog).not.toHaveBeenCalled();
 });
 
-test('POST: 不正な JSON body → 400 (table 欠落)', async () => {
-  mockAnonFrom.mockReturnValue(profileChain(true));
-  const req = new NextRequest('http://localhost/api/admin/backup', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: 'not-json',
-  });
-  const res = await POST(req);
-  expect(res.status).toBe(400);
+test.each([new Error('connection lost'), 'connection lost'])('POST: first read rejects %p returns500', async failure => {
+  admin(); mockExportPages(failure);
+  expect((await POST(makePostRequest())).status).toBe(500);
 });
 
-test('POST: CSV 値に null/undefined/object/カンマ含む → 適切にエスケープ', async () => {
-  mockAnonFrom.mockReturnValue(profileChain(true));
-  mockAdminFrom.mockReturnValue({
-    select: jest.fn().mockReturnValue({
-      order: jest.fn().mockReturnValue({
-        range: jest.fn(() => Promise.resolve({
-          data: [{
-            id: '1',
-            nullable: null,
-            undef: undefined,
-            obj: { foo: 'bar' },
-            csv: 'a,b',
-            quote: 'has "quote"',
-            newline: 'a\nb',
-          }],
-          error: null,
-        })),
-      }),
-    }),
-  });
-  const res = await POST(makePostRequest({ table: 'bookings' }));
-  expect(res.status).toBe(200);
-  const csv = await res.text();
+test('POST: empty first page returns404', async () => {
+  admin(); mockExportPages({ data: [] });
+  expect((await POST(makePostRequest())).status).toBe(404);
+});
+
+test('POST: JSON null, array or scalar is a400 rather than a server exception', async () => {
+  admin();
+  for (const body of ['null', '[]', '123', '"bookings"', 'invalid-json']) {
+    const request = new NextRequest('http://localhost/api/admin/backup', { method: 'POST', body });
+    expect((await POST(request)).status).toBe(400);
+  }
+  expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+
+test('POST: CSRF is returned without DB reads', async () => {
+  const blocked = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(blocked);
+  expect(await POST(makePostRequest())).toBe(blocked);
+  expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+
+test('POST: rate limit returns429', async () => {
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
+  expect((await POST(makePostRequest())).status).toBe(429);
+});
+
+test('POST: absent platform role returns403', async () => {
+  mockAnonFrom.mockReturnValue({ select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), single: async () => ({ data: null, error: null }) });
+  expect((await POST(makePostRequest())).status).toBe(403);
+});
+
+test.each(['bookings', 'facility_profiles', 'profiles', 'facility_reviews'])('POST: complete CSV %s records completion only after EOF', async table => {
+  admin(); const { query } = mockExportPages({ data: [row(0, { name: '施設A' })] });
+  const response = await POST(makePostRequest({ table }));
+  expect(response.status).toBe(200);
+  expect(response.headers.get('Content-Type')).toContain('text/csv');
+  expect(response.headers.get('Content-Disposition')).toContain(table);
+  expect(writeAuditLog).not.toHaveBeenCalled();
+  expect(await response.text()).toContain('施設A');
+  expect(query.order).toHaveBeenCalledWith('id', { ascending: true });
+  expect(query.gt).toHaveBeenCalledWith('id', row(0).id);
+  expect(query.limit).toHaveBeenCalledWith(1000);
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ newValues: { row_count: 1 } }));
+});
+
+test('POST: smaller server cap does not terminate an export early; equal timestamps remain ordered by ID', async () => {
+  admin(); const { query, read } = mockExportPages({ data: [row(0), row(1)] }, { data: [row(2)] });
+  const response = await POST(makePostRequest());
+  const csv = await response.text();
+  expect(csv.trim().split('\n')).toHaveLength(4);
+  expect(read).toHaveBeenCalledTimes(3);
+  expect(query.gt.mock.calls).toEqual([['id', row(1).id], ['id', row(2).id]]);
+});
+
+test('POST: consumer demand bounds page reads, and cancellation aborts without a completed audit', async () => {
+  admin(); const { read, query } = mockExportPages({ data: [row(0)] }, { data: [row(1)] });
+  const response = await POST(makePostRequest());
+  await new Promise(resolve => setImmediate(resolve));
+  expect(read).toHaveBeenCalledTimes(1);
+  const reader = response.body!.getReader();
+  await reader.read();
+  await new Promise(resolve => setImmediate(resolve));
+  expect(read).toHaveBeenCalledTimes(1);
+  await reader.cancel();
+  expect(read).toHaveBeenCalledTimes(1);
+  expect(query.abortSignal.mock.calls[0][0].aborted).toBe(true);
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});
+
+test('POST: deleting an earlier row between pages does not skip the remaining rows', async () => {
+  admin();
+  let records = Array.from({ length: 6 }, (_, i) => row(i));
+  let afterId = '';
+  const query = {
+    select: jest.fn().mockReturnThis(), order: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockReturnThis(), abortSignal: jest.fn().mockReturnThis(),
+    gt: jest.fn((_column: string, cursor: string) => { afterId = cursor; return query; }),
+    then: (resolve: (value: unknown) => unknown) => Promise.resolve({
+      data: records.filter(item => item.id > afterId).slice(0, 2), error: null,
+    }).then(resolve),
+  };
+  mockAdminFrom.mockReturnValue(query);
+  const response = await POST(makePostRequest());
+  const reader = response.body!.getReader();
+  const chunks = [new TextDecoder().decode((await reader.read()).value)];
+  records = records.filter(item => item.id !== row(0).id);
+  for (;;) {
+    const next = await reader.read();
+    if (next.done) break;
+    chunks.push(new TextDecoder().decode(next.value));
+  }
+  const csv = chunks.join('');
+  for (let i = 0; i < 6; i++) expect(csv.match(new RegExp(row(i).id, 'g'))).toHaveLength(1);
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ newValues: { row_count: 6 } }));
+});
+
+test.each([
+  { data: null, error: { message: 'page failed' } },
+  { data: null },
+  { data: [row(1)], error: { message: 'partial page' } },
+  { data: [row(0)] },
+  new Error('connection lost'),
+  'connection lost',
+])('POST: later failure %p rejects the CSV body without a completed audit', async result => {
+  admin(); mockExportPages({ data: [row(0)] }, result);
+  const response = await POST(makePostRequest());
+  expect(response.status).toBe(200);
+  await expect(response.text()).rejects.toThrow();
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});
+
+test('POST: CSV handles null, missing, object, comma, quotes and newlines', async () => {
+  admin(); mockExportPages({ data: [row(0, { nullable: null, missing: undefined, object: { foo: 'bar' }, comma: 'a,b', quote: 'has "quote"', newline: 'a\nb' })] });
+  const csv = await (await POST(makePostRequest())).text();
   expect(csv).toContain('"a,b"');
   expect(csv).toContain('"has ""quote"""');
-  // JSON オブジェクトは JSON.stringify → CSV クォート（" → ""）でエスケープされる
   expect(csv).toContain('"{""foo"":""bar""}"');
+  expect(csv).toContain('"a\nb"');
 });
 
-test('GET: NEXT_PUBLIC_SUPABASE_URL 未設定 → unknown', async () => {
+test.each(['=SUM(A1)', '+CMD', '-1+2', '@SUM(1,2)', '\t=1+2', '\r=1+2', '\n=1+2', '  =1+2', '\uFEFF=1+2', '＝1+2', '＋1+2', '－1+2', '＠SUM(1,2)'])('POST: untrusted CSV text %j is escaped', async value => {
+  admin(); mockExportPages({ data: [row(0, { name: value })] });
+  const csv = await (await POST(makePostRequest())).text();
+  expect(csv).toContain("'" + value.replace(/"/g, '""'));
+});
+
+test('POST: carriage returns and semicolons are quoted', async () => {
+  admin(); mockExportPages({ data: [row(0, { name: 'safe\rtext', note: 'safe;=1+2' })] });
+  const csv = await (await POST(makePostRequest())).text();
+  expect(csv).toContain('"safe\rtext"');
+  expect(csv).toContain('"safe;=1+2"');
+});
+
+test.each([null, undefined, -1, 1.5, '0', Infinity])('GET: invalid count %p is degraded, not zero', async count => {
+  admin(); mockAdminFrom.mockReturnValue({ select: () => Promise.resolve({ count, error: null }) });
+  const result = await (await GET(makeGetRequest())).json();
+  expect(result.status).toBe('degraded');
+  expect(result.table_counts.bookings).toBeNull();
+  expect(result.failed_tables).toHaveLength(8);
+});
+
+test('GET: missing project URL returns unknown', async () => {
   delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-  mockAnonFrom.mockReturnValue(profileChain(true));
-  mockAdminFrom.mockReturnValue({
-    select: jest.fn().mockReturnValue({
-      then: (fn: (v: unknown) => unknown) => Promise.resolve({ count: 0 }).then(fn),
-    }),
-  });
-  const res = await GET(makeGetRequest());
-  const json = await res.json();
-  expect(json.supabase_project).toBe('unknown');
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-});
-
-test('GET: count が null → 0 にフォールバック', async () => {
-  mockAnonFrom.mockReturnValue(profileChain(true));
-  mockAdminFrom.mockReturnValue({
-    select: jest.fn().mockReturnValue({
-      then: (fn: (v: unknown) => unknown) => Promise.resolve({ count: null }).then(fn),
-    }),
-  });
-  const res = await GET(makeGetRequest());
-  const json = await res.json();
-  expect(json.table_counts.bookings).toBe(0);
-});
-
-// 監査P9: ReadableStreamのページング（複数ページにまたがるケース）
-describe('POST: ストリーミングの複数ページ処理', () => {
-  function makeRow(i: number) {
-    return { id: String(i), name: `row-${i}`, created_at: '2026-01-01' };
-  }
-
-  test('1ページ目ちょうど1000件 → 2ページ目を取得し全件出力', async () => {
-    mockAnonFrom.mockReturnValue(profileChain(true));
-    let rangeCallCount = 0;
-    mockAdminFrom.mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        order: jest.fn().mockReturnValue({
-          range: jest.fn(() => {
-            rangeCallCount++;
-            if (rangeCallCount === 1) {
-              return Promise.resolve({ data: Array.from({ length: 1000 }, (_, i) => makeRow(i)), error: null });
-            }
-            return Promise.resolve({ data: [makeRow(1000)], error: null });
-          }),
-        }),
-      }),
-    });
-    const res = await POST(makePostRequest({ table: 'bookings' }));
-    expect(res.status).toBe(200);
-    const csv = await res.text();
-    const lines = csv.trim().split('\n');
-    expect(lines.length).toBe(1 + 1001); // header + 1001 rows
-    expect(rangeCallCount).toBe(2);
-  });
-
-  test('2ページ目取得でエラー → 不完全CSVを成功扱いしない', async () => {
-    mockAnonFrom.mockReturnValue(profileChain(true));
-    let rangeCallCount = 0;
-    mockAdminFrom.mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        order: jest.fn().mockReturnValue({
-          range: jest.fn(() => {
-            rangeCallCount++;
-            if (rangeCallCount === 1) {
-              return Promise.resolve({ data: Array.from({ length: 1000 }, (_, i) => makeRow(i)), error: null });
-            }
-            return Promise.resolve({ data: null, error: { message: 'page2 failed' } });
-          }),
-        }),
-      }),
-    });
-    const res = await POST(makePostRequest({ table: 'bookings' }));
-    expect(res.status).toBe(200); // stream開始後の失敗はbody errorとして通知
-    await expect(res.text()).rejects.toThrow();
-  });
-
-  test('2ページ目がdata:nullを返す → 不完全CSVを成功扱いしない', async () => {
-    mockAnonFrom.mockReturnValue(profileChain(true));
-    let rangeCallCount = 0;
-    mockAdminFrom.mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        order: jest.fn().mockReturnValue({
-          range: jest.fn(() => {
-            rangeCallCount++;
-            if (rangeCallCount === 1) {
-              return Promise.resolve({ data: Array.from({ length: 1000 }, (_, i) => makeRow(i)), error: null });
-            }
-            return Promise.resolve({ data: null, error: null });
-          }),
-        }),
-      }),
-    });
-    const res = await POST(makePostRequest({ table: 'bookings' }));
-    await expect(res.text()).rejects.toThrow();
-  });
-
-  test.each([new Error('database connection lost'), 'connection dropped'])('2ページ目取得の例外(%p) → 不完全CSVをstream errorとして返す', async (failure) => {
-    mockAnonFrom.mockReturnValue(profileChain(true));
-    let rangeCallCount = 0;
-    mockAdminFrom.mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        order: jest.fn().mockReturnValue({
-          range: jest.fn(() => {
-            rangeCallCount++;
-            if (rangeCallCount === 1) {
-              return Promise.resolve({ data: Array.from({ length: 1000 }, (_, i) => makeRow(i)), error: null });
-            }
-            return Promise.reject(failure);
-          }),
-        }),
-      }),
-    });
-    const res = await POST(makePostRequest({ table: 'bookings' }));
-    await expect(res.text()).rejects.toThrow();
-  });
-
-  test('2ページ目取得がreject → 不完全CSVをstream errorとして返す', async () => {
-    mockAnonFrom.mockReturnValue(profileChain(true));
-    let rangeCallCount = 0;
-    mockAdminFrom.mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        order: jest.fn().mockReturnValue({
-          range: jest.fn(() => {
-            rangeCallCount++;
-            if (rangeCallCount === 1) {
-              return Promise.resolve({ data: Array.from({ length: 1000 }, (_, i) => makeRow(i)), error: null });
-            }
-            return Promise.reject('connection dropped');
-          }),
-        }),
-      }),
-    });
-    const res = await POST(makePostRequest({ table: 'bookings' }));
-    await expect(res.text()).rejects.toThrow();
-  });
-
-  test('2ページ目が空配列 → CSVを正常終了する', async () => {
-    mockAnonFrom.mockReturnValue(profileChain(true));
-    let rangeCallCount = 0;
-    mockAdminFrom.mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        order: jest.fn().mockReturnValue({
-          range: jest.fn(() => {
-            rangeCallCount++;
-            if (rangeCallCount === 1) {
-              return Promise.resolve({ data: Array.from({ length: 1000 }, (_, i) => makeRow(i)), error: null });
-            }
-            return Promise.resolve({ data: [], error: null });
-          }),
-        }),
-      }),
-    });
-    const res = await POST(makePostRequest({ table: 'bookings' }));
-    expect(res.status).toBe(200);
-    expect((await res.text()).trim().split('\n')).toHaveLength(1001);
-  });
-});
-
-// First-open spreadsheet protection includes invisible prefixes and Japanese full-width initiators.
-test.each(['\t=1+2','\r=1+2','\n=1+2','  =1+2','\uFEFF=1+2','＝1+2','＋1+2','－1+2','＠SUM(1,2)'])('POST: untrusted CSV text %j stays a text value',async value=>{
- mockAnonFrom.mockReturnValue(profileChain(true));
- mockAdminFrom.mockReturnValue({select:()=>({order:()=>({range:async()=>({data:[{id:'synthetic',name:value}],error:null})})})});
- const response=await POST(makePostRequest());expect(response.status).toBe(200);
- const csv=await response.text();expect(csv).toContain("'"+value.replace(/"/g,'""'));
-});
-test('POST: carriage returns and semicolons inside a cell are quoted',async()=>{
- mockAnonFrom.mockReturnValue(profileChain(true));
- mockAdminFrom.mockReturnValue({select:()=>({order:()=>({range:async()=>({data:[{id:'synthetic',name:'safe\rtext',note:'safe;=1+2'}],error:null})})})});
- const csv=await(await POST(makePostRequest())).text();expect(csv).toContain('"safe\rtext"');expect(csv).toContain('"safe;=1+2"');
+  admin(); mockAdminFrom.mockReturnValue({ select: () => Promise.resolve({ count: 0 }) });
+  expect((await (await GET(makeGetRequest())).json()).supabase_project).toBe('unknown');
 });

@@ -15,7 +15,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { serverError } from '@/lib/with-route';
-import { assertNoRowsBeyondExportLimit } from '@/lib/backup-export';
+import { assertExportPageCursor, createBackupExportStream } from '@/lib/backup-export';
 
 /** 1つのCSV値を安全にエスケープする（CSVインジェクション対策込み）。 */
 function csvEscape(val: unknown): string {
@@ -54,7 +54,8 @@ async function getTableCount(
 ): Promise<{ count: number | null; ok: boolean }> {
   try {
     const { count, error } = await supabase.from(table).select('id', { count: 'exact', head: true });
-    return error ? { count: null, ok: false } : { count: count ?? 0, ok: true };
+    const valid = typeof count === 'number' && Number.isSafeInteger(count) && count >= 0;
+    return error || !valid ? { count: null, ok: false } : { count, ok: true };
   } catch {
     return { count: null, ok: false };
   }
@@ -65,7 +66,7 @@ async function getTableCount(
 // 具体的なリテラル型へ narrow できる。
 type ExportableTable = 'facility_profiles' | 'bookings' | 'profiles' | 'facility_reviews';
 
-function isExportableTable(value: string): value is ExportableTable {
+function isExportableTable(value: unknown): value is ExportableTable {
   return (
     value === 'facility_profiles' ||
     value === 'bookings' ||
@@ -122,8 +123,10 @@ export async function POST(request: NextRequest) {
   const user = await requirePlatformAdmin();
   if (!user) return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
 
-  const body = await request.json().catch(() => ({}));
-  const table = body.table as string;
+  const body: unknown = await request.json().catch(() => null);
+  const table = body !== null && typeof body === 'object' && !Array.isArray(body)
+    ? (body as Record<string, unknown>).table
+    : undefined;
 
   // <Database> 配線後は .from(table) が table の型からテーブル名を解決する。
   // isExportableTable の型ガードで narrow すると、以降のスコープ（fetchPage クロージャ
@@ -135,31 +138,35 @@ export async function POST(request: NextRequest) {
 
   const serviceSupabase = createServiceRoleClient();
 
-  // 監査P9: 従来は fetchAllPaged で全件（最大100万行）を一度に JS 配列へ蓄積してから
-  // CSV文字列化していた（大テーブルでメモリ全展開＝OOMリスク）。ReadableStream で
-  // ページ(1000件)ごとに読み取り即flushし、常時メモリに載るのは1ページ分のみにする。
-  //
-  // ただし「データ0件→404」「取得失敗→500」の判定はレスポンス開始（ヘッダ確定）前に
-  // 行う必要がある（ストリーム開始後はHTTPステータスを変更できない）。そのため最初の
-  // ページだけ先に取得して判定し、ヘッダー確定後にストリームへ引き継いで残りを読む。
+  // First read precedes HTTP headers. Later pages follow consumer demand and
+  // immutable IDs, avoiding offset shifts when earlier rows are deleted.
+  // This operational CSV export is not a transaction-wide DB snapshot.
   const PAGE_SIZE = 1000;
   const MAX_ROWS = 1000000;
-
-  const fetchPage = (offset: number) =>
-    serviceSupabase
+  const downloadAbort = new AbortController();
+  const signal = AbortSignal.any([request.signal, downloadAbort.signal]);
+  const fetchPage = async (afterId: string) => {
+    let query = serviceSupabase
       .from(table)
       .select('*')
-      .order('created_at', { ascending: false })
-      .range(offset, offset + PAGE_SIZE - 1);
+      .order('id', { ascending: true })
+      .limit(PAGE_SIZE)
+      .abortSignal(signal);
+    if (afterId) query = query.gt('id', afterId);
+    const { data, error } = await query;
+    if (error) throw error;
+    if (!Array.isArray(data)) throw new Error('Invalid export query result');
+    const rows = data as Record<string, unknown>[];
+    assertExportPageCursor(rows, afterId);
+    return rows;
+  };
 
-  const first = await fetchPage(0);
-  if (first.error) {
-    return serverError('admin-backup-export', first.error, '/api/admin/backup', 'データの取得に失敗しました');
+  let firstRows: Record<string, unknown>[];
+  try {
+    firstRows = await fetchPage('');
+  } catch (error) {
+    return serverError('admin-backup-export', error, '/api/admin/backup', 'データの取得に失敗しました');
   }
-  if (!first.data) {
-    return serverError('admin-backup-export', new Error('Query returned no data'), '/api/admin/backup', 'データの取得に失敗しました');
-  }
-  const firstRows = first.data as Record<string, unknown>[];
   if (firstRows.length === 0) {
     return NextResponse.json({ error: 'エクスポート対象のデータがありません' }, { status: 404 });
   }
@@ -167,51 +174,24 @@ export async function POST(request: NextRequest) {
   const headers = Object.keys(firstRows[0]);
   const encoder = new TextEncoder();
 
-  const stream = new ReadableStream({
-    async start(controller) {
-      let totalRows = 0;
-      let streamFailed = false;
-      try {
-        controller.enqueue(encoder.encode(headers.join(',') + '\n'));
-        let page = firstRows;
-        let offset = 0;
-        for (;;) {
-          for (const row of page) controller.enqueue(encoder.encode(csvRow(headers, row) + '\n'));
-          totalRows += page.length;
-          if (page.length < PAGE_SIZE) break;
-          offset += PAGE_SIZE;
-          const next = await fetchPage(offset);
-          if (next.error) {
-            console.error('[backup] export streaming query failed (partial export)', { table, offset, code: next.error.code });
-            streamFailed = true;
-            controller.error(new Error('バックアップの出力中にデータ取得に失敗しました'));
-            return;
-          }
-          if (!next.data) {
-            streamFailed = true;
-            controller.error(new Error('バックアップの出力中にデータ取得結果が不正でした'));
-            return;
-          }
-          page = next.data as Record<string, unknown>[];
-          if (page.length === 0) break;
-          assertNoRowsBeyondExportLimit(totalRows, page.length, MAX_ROWS);
-        }
-
-        const { ip: auditIp, ua } = getRequestContext(request);
-        void writeAuditLog({
-          userId: user.id,
-          action: 'export',
-          tableName: table,
-          newValues: { row_count: totalRows },
-          ipAddress: auditIp,
-          userAgent: ua,
-        });
-      } catch (error) {
-        streamFailed = true;
-        controller.error(error instanceof Error ? error : new Error('バックアップの出力に失敗しました'));
-      } finally {
-        if (!streamFailed) controller.close();
-      }
+  const stream = createBackupExportStream({
+    firstPage: firstRows,
+    maxRows: MAX_ROWS,
+    readNext: fetchPage,
+    encodePage: (rows, first) => encoder.encode(
+      (first ? headers.join(',') + '\n' : '') + rows.map(row => csvRow(headers, row) + '\n').join('')
+    ),
+    onCancel: () => downloadAbort.abort(),
+    onComplete(totalRows) {
+      const { ip: auditIp, ua } = getRequestContext(request);
+      void writeAuditLog({
+        userId: user.id,
+        action: 'export',
+        tableName: table,
+        newValues: { row_count: totalRows },
+        ipAddress: auditIp,
+        userAgent: ua,
+      });
     },
   });
 
