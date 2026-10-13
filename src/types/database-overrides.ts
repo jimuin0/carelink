@@ -119,6 +119,11 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
         Args: { p_queue_id: string; p_claimed_at: string; p_recipient_current: boolean };
         Returns: { outcome: string; started_at: string | null }[];
       };
+      reserve_scheduled_email_atomic: {Args:{p_kind:string;p_source_id:string;p_email:string|null};Returns:{state:string;operation_id:string|null;snapshot:GeneratedDatabase['public']['Tables']['webhook_retry_queue']['Row']['payload']}[]};
+      prepare_scheduled_email_atomic: {Args:{p_operation_id:string;p_envelope:GeneratedDatabase['public']['Tables']['webhook_retry_queue']['Row']['payload']};Returns:{id:string;status:string;created:boolean}[]};
+      list_scheduled_review_recipients: {Args:{p_after_updated_at:string|null;p_after_id:string|null;p_limit:number};Returns:{id:string;updated_at:string}[]};
+      list_scheduled_digest_recipients: {Args:{p_after:string|null;p_limit:number};Returns:{user_id:string}[]};
+      scheduled_email_legacy_holds:{Args:Record<string,never>;Returns:GeneratedDatabase['public']['Tables']['webhook_retry_queue']['Row']['payload']};
       cancel_customer_booking_with_outbox_atomic: {
         Args: { p_actor_id: string; p_booking_id: string; p_expected_status: string };
         Returns: { id: string }[];

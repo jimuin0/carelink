@@ -5,7 +5,6 @@ import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
-import { alertCaughtError } from '@/lib/alert';
 import { serverError } from '@/lib/with-route';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { z } from 'zod';
