@@ -7,6 +7,11 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.4"
+  }
   public: {
     Tables: {
       ab_test_events: {
@@ -5987,10 +5992,6 @@ export type Database = {
       }
     }
     Functions: {
-      edit_review_atomic: {
-        Args: { p_actor_id: string; p_review_id: string; p_patch: Json }
-        Returns: { id: string }[]
-      }
       _postgis_deprecate: {
         Args: { newname: string; oldname: string; version: string }
         Returns: undefined
@@ -6158,7 +6159,28 @@ export type Database = {
           id: string
         }[]
       }
+      cancel_customer_booking_with_outbox_atomic: {
+        Args: {
+          p_actor_id: string
+          p_booking_id: string
+          p_expected_status: string
+        }
+        Returns: {
+          id: string
+        }[]
+      }
       change_booking_atomic: {
+        Args: {
+          p_booking_date: string
+          p_booking_id: string
+          p_end_time: string
+          p_enforce_schedule?: boolean
+          p_start_time: string
+          p_user_id: string
+        }
+        Returns: undefined
+      }
+      change_customer_booking_with_outbox_atomic: {
         Args: {
           p_booking_date: string
           p_booking_id: string
@@ -6370,6 +6392,10 @@ export type Database = {
         }
         Returns: Json
       }
+      deduct_points_atomic: {
+        Args: { p_points: number; p_reason: string; p_user_id: string }
+        Returns: Json
+      }
       delete_facility_photo_atomic: {
         Args: { p_actor_id: string; p_facility_id: string; p_photo_id: string }
         Returns: {
@@ -6416,18 +6442,18 @@ export type Database = {
           }
         | { Args: { schema_name: string; table_name: string }; Returns: string }
         | { Args: { table_name: string }; Returns: string }
+      edit_review_atomic: {
+        Args: { p_actor_id: string; p_patch: Json; p_review_id: string }
+        Returns: {
+          id: string
+        }[]
+      }
       enablelongtransactions: { Args: never; Returns: string }
       enqueue_moderation: { Args: { p_items: Json }; Returns: number }
       equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
       facility_booking_ready: {
         Args: { p_facility_id: string }
         Returns: boolean
-      }
-      flag_review_group_atomic: {
-        Args: { p_flag_type: string; p_items: Json }
-        Returns: {
-          id: string
-        }[]
       }
       find_bulk_review_ips: {
         Args: { p_since: string; p_threshold: number }
@@ -6447,6 +6473,12 @@ export type Database = {
           p_post_id_external?: string
         }
         Returns: string
+      }
+      flag_review_group_atomic: {
+        Args: { p_flag_type: string; p_items: Json }
+        Returns: {
+          id: string
+        }[]
       }
       geometry: { Args: { "": string }; Returns: unknown }
       geometry_above: {
@@ -6879,6 +6911,10 @@ export type Database = {
           grant_id: string
           outcome: string
         }[]
+      }
+      publish_customer_booking_transition_email: {
+        Args: { p_booking_id: string; p_kind: string }
+        Returns: number
       }
       publish_newsletter_send_operation: {
         Args: {
@@ -7640,6 +7676,13 @@ export type Database = {
           started_at: string
         }[]
       }
+      start_customer_booking_transition_email: {
+        Args: { p_claimed_at: string; p_queue_id: string }
+        Returns: {
+          outcome: string
+          started_at: string
+        }[]
+      }
       start_newsletter_delivery: {
         Args: { p_claimed_at: string; p_queue_id: string }
         Returns: {
@@ -7699,12 +7742,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -7728,11 +7771,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -7753,11 +7796,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -7778,11 +7821,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -7795,11 +7838,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
