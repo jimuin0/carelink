@@ -160,6 +160,8 @@ test.describe('認証フロー', () => {
   // 保証できないため、実 Supabase に対して実際に送信し着地することを見る。
   test('新規登録に成功すると /mypage へ遷移する（signUp後に画面が止まらない）', async ({ page }) => {
     await page.goto('/auth/signup');
+    await page.getByRole('button', { name: '必須のみ', exact: true }).click();
+    await expect(page.getByRole('button', { name: '必須のみ', exact: true })).toBeHidden();
 
     const uniqueEmail = `e2e-signup-${randomUUID()}@example.invalid`;
     await fillSignup(page, uniqueEmail);
@@ -185,6 +187,7 @@ test.describe('認証フロー', () => {
     // bouncing back to mypage. Actual middleware membership denial retains the
     // destination and exposes the account choice; it never grants store access.
     await page.goto('/search');
+    await expect(page.locator('header').getByRole('button', { name: 'ユーザーメニュー', exact: true }).filter({ visible: true })).toBeVisible();
     const menu = page.getByRole('button', { name: 'メニュー', exact: true });
     if (await menu.isVisible()) {
       // Also exercise a short mobile panel: the store link must be reachable
