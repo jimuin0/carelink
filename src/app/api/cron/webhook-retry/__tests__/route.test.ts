@@ -49,6 +49,7 @@ jest.mock('resend');
 jest.mock('@/lib/salon-outbox-delivery');
 jest.mock('@/lib/facility-welcome-delivery');
 jest.mock('@/lib/manual-booking-notification');
+jest.mock('@/lib/customer-booking-transition-email');
 jest.mock('@/lib/booking-create-notifications',()=>({prepareBookingCreationChannel:jest.fn(async()=>async()=>{}),sendBookingCreationLine:jest.fn(async()=>true)}));
 
 import { checkCronAuth } from '@/lib/cron-auth';
@@ -60,6 +61,7 @@ import { GET } from '../route';
 import { prepareSalonOutboxDelivery } from '@/lib/salon-outbox-delivery';
 import { prepareFacilityWelcomeDelivery } from '@/lib/facility-welcome-delivery';
 import { prepareManualBookingEnvelope } from '@/lib/manual-booking-notification';
+import { prepareCustomerBookingTransitionEnvelope } from '@/lib/customer-booking-transition-email';
 
 let mockJobsSelect: jest.Mock;
 let mockClaimUpdate: jest.Mock;
@@ -345,18 +347,21 @@ describe('GET /api/cron/webhook-retry', () => {
       expect(mockSuccessUpdate).not.toHaveBeenCalled(); expect(scheduleRetry).not.toHaveBeenCalled();
     }
   });
-  test.each(['accepted','missing-id','wrong-key','manual'])('durable email operation validates provider/reference %s', async mode => {
+  test.each(['accepted','missing-id','wrong-key','manual','customer-transition','customer-transition-invalid'])('durable email operation validates provider/reference %s', async mode => {
     setupDefaultMocks(1);
     const id = '88888888-8888-4888-8888-888888888881';
     const envelope = { from:'CareLink <noreply@carelink-jp.com>',to:'synthetic@example.invalid',subject:'synthetic',html:'<p>synthetic</p>' };
     mockJobsSelect.mockResolvedValue({ data:[{ id, webhook_type:mode === 'manual' ? 'manual_booking_confirmation' : 'email',
-      target_id:envelope.to, payload:{ event_email_version:1,idempotency_key:mode === 'wrong-key' ? 'different' : `carelink-event-email/${id}` },
+      target_id:envelope.to, payload:{ event_email_version:1,idempotency_key:mode === 'wrong-key' ? 'different' : `carelink-event-email/${id}`,
+        ...(mode.startsWith('customer-transition') ? {customer_booking_transition_version:1} : {}) },
       email_envelope:envelope,status:'pending',attempt_count:0,scheduled_at:new Date().toISOString() }] });
     (prepareManualBookingEnvelope as jest.Mock).mockResolvedValue(envelope);
+    (prepareCustomerBookingTransitionEnvelope as jest.Mock).mockResolvedValue(mode === 'customer-transition-invalid' ? {} : envelope);
+    mockBookingFence.mockResolvedValue({data:[{outcome:'ready',started_at:new Date().toISOString()}],error:null});
     const send = jest.fn().mockResolvedValue({ data:mode === 'missing-id' ? { id:'invalid' } : { id },error:null });
     require('resend').Resend.mockImplementation(() => ({ emails:{ send } }));
     const res = await GET(makeRequest());
-    if (mode === 'wrong-key') {
+    if (mode === 'wrong-key' || mode === 'customer-transition-invalid') {
       expect(send).not.toHaveBeenCalled(); expect(mockSuccessUpdate).not.toHaveBeenCalled();
     } else if (mode === 'missing-id') {
       expect(res.status).toBe(503); expect(mockSuccessUpdate).not.toHaveBeenCalled(); expect(scheduleRetry).not.toHaveBeenCalled();
@@ -364,6 +369,10 @@ describe('GET /api/cron/webhook-retry', () => {
       expect(res.status).toBe(200); expect(send).toHaveBeenCalledTimes(1);
       expect(mockSuccessUpdate).toHaveBeenCalled();
       if (mode === 'manual') expect(prepareManualBookingEnvelope).toHaveBeenCalled();
+      if (mode === 'customer-transition') {
+        expect(prepareCustomerBookingTransitionEnvelope).toHaveBeenCalled();
+        expect(mockBookingFence).toHaveBeenCalledWith('start_customer_booking_transition_email', expect.objectContaining({p_queue_id:id}));
+      }
     }
   });
   test('claim rechecks due time and consumes returned current data, not stale selection', async () => {

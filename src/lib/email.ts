@@ -261,9 +261,13 @@ export function buildBookingConfirmationEnvelope(data: BookingEmailData) {
 export async function sendBookingRescheduled(data: BookingEmailData): Promise<boolean> {
   const resend = getResend();
   if (!resend) return false;
+  return safeSend(resend, buildBookingRescheduledEnvelope(data), 'booking_rescheduled');
+}
+
+export function buildBookingRescheduledEnvelope(data: BookingEmailData) {
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
-  return safeSend(resend, {
+  return {
     from: FROM,
     to: data.customerEmail,
     subject: escSubject(`【CareLink】${data.facilityName}のご予約日時を変更しました`),
@@ -273,7 +277,7 @@ export async function sendBookingRescheduled(data: BookingEmailData): Promise<bo
       ${bookingDetailHtml(data)}
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約を確認する</a></p>
     `),
-  }, 'booking_rescheduled');
+  };
 }
 
 /**
@@ -594,9 +598,13 @@ export function buildNewBookingNotificationEnvelope(data: BookingEmailData & { f
 export async function sendBookingCancellationToFacility(data: BookingEmailData & { facilityEmail: string }): Promise<boolean> {
   const resend = getResend();
   if (!resend) return false;
+  return safeSend(resend, buildBookingCancellationToFacilityEnvelope(data), 'booking_cancellation_facility');
+}
+
+export function buildBookingCancellationToFacilityEnvelope(data: BookingEmailData & { facilityEmail: string }) {
   const name = esc(data.customerName);
   const email = esc(data.customerEmail);
-  return safeSend(resend, {
+  return {
     from: FROM,
     to: data.facilityEmail,
     subject: escSubject(`【CareLink】予約がキャンセルされました - ${data.customerName}様`),
@@ -609,7 +617,7 @@ export async function sendBookingCancellationToFacility(data: BookingEmailData &
       ${bookingDetailHtml(data)}
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/bookings" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で確認する</a></p>
     `),
-  }, 'booking_cancellation_facility');
+  };
 }
 
 /** 日次売上サマリー（施設オーナー向け・email_daily_summary 有効時のみ daily-summary cron から送信） */

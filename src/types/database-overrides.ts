@@ -109,6 +109,11 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
       start_booking_email_event: Omit<GeneratedFunctions['start_booking_email_event'], 'Returns'> & {
         Returns: { outcome: string; started_at: string | null }[];
       };
+      // Consumer-first rollout: invoked only for new atomic transition jobs.
+      start_customer_booking_transition_email: {
+        Args: { p_queue_id: string; p_claimed_at: string };
+        Returns: { outcome: string; started_at: string | null }[];
+      };
       // A NULL new status is an adjustment event; NULL envelope means no
       // customer email/internal arrival. SQL explicitly handles NULL revisions.
       save_booking_email_event_atomic: Omit<GeneratedFunctions['save_booking_email_event_atomic'], 'Args' | 'Returns'> & {
