@@ -151,7 +151,8 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   await login(page, owner, '/register/recover');
   // Establish a real signed negative membership cache before creation.
   await page.goto('/admin');
-  await expect(page).toHaveURL(/\/mypage$/);
+  await expect(page).toHaveURL(/\/auth\/login\?redirect=%2Fadmin&error=store_access_required$/);
+  await expect(page.getByRole('alert').filter({ hasText: 'このアカウントには、店舗の管理権限がありません。' })).toBeVisible();
   const negativeHint = (await page.context().cookies()).find(cookie => cookie.name.startsWith('_cm_mbr_'));
   expect({ present: !!negativeHint, negative: negativeHint?.value.startsWith('0.'),
     httpOnly: negativeHint?.httpOnly, secure: negativeHint?.secure, path: negativeHint?.path })
@@ -215,7 +216,8 @@ test('committed direct setup with lost response reloads membership without anoth
   await page.setExtraHTTPHeaders({ 'x-real-ip': `192.0.2.${200 + info.retry * 2 + (info.project.name === 'chromium' ? 0 : 1)}` });
   const db = localDb(); const owner = await identity(db);
   await login(page, owner, '/admin/onboarding');
-  await page.goto('/admin'); await expect(page).toHaveURL(/\/mypage$/);
+  await page.goto('/admin'); await expect(page).toHaveURL(/\/auth\/login\?redirect=%2Fadmin&error=store_access_required$/);
+  await expect(page.getByRole('alert').filter({ hasText: 'このアカウントには、店舗の管理権限がありません。' })).toBeVisible();
   const negativeHint = (await page.context().cookies()).find(cookie => cookie.name.startsWith('_cm_mbr_'));
   expect({ present: !!negativeHint, negative: negativeHint?.value.startsWith('0.'),
     httpOnly: negativeHint?.httpOnly, secure: negativeHint?.secure, path: negativeHint?.path })

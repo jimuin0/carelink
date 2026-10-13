@@ -77,7 +77,7 @@ test('switch logs out only this session and waits for privacy cleanup before sho
   expect(mockSignOut).toHaveBeenCalledWith({ scope: 'local' });
   expect(mockClearData).toHaveBeenCalledTimes(2);
   expect(mockCompleteCleanup).toHaveBeenCalledTimes(1);
-  expect(mockRefresh).toHaveBeenCalledTimes(1);
+  expect(mockRefresh).not.toHaveBeenCalled();
 });
 
 test('pre-logout privacy cleanup failure blocks logout and new credentials', async () => {

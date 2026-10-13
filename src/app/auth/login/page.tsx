@@ -141,7 +141,9 @@ function LoginContent() {
       setSessionCheck({ destination: redirect, state: 'unauthenticated' });
       setCurrentAccount(null);
       setSwitchSignedOut(false);
-      router.refresh();
+      // Auth subscribers update the header. Refreshing this already-public
+      // login document can race the user's next login/navigation; protected
+      // destinations reverify the new identity on their own request.
     } catch {
       setToast({ type: 'error', message: `アカウントの切り替え準備を完了できませんでした。再試行してください。${LOCAL_DATA_CLEAR_FAILED}` });
     } finally {
