@@ -5,7 +5,8 @@ CREATE FUNCTION pg_temp.assert_scheduled(ok boolean,label text) RETURNS void LAN
 BEGIN IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'scheduled fixture failed: %',label; END IF; END $$;
 INSERT INTO auth.users(id,email,created_at) VALUES
  ('ce110000-0000-4000-8000-000000000001','scheduled-one@example.invalid',now()),
- ('ce110000-0000-4000-8000-000000000002','scheduled-two@example.invalid',now());
+ ('ce110000-0000-4000-8000-000000000002','scheduled-two@example.invalid',now()),
+ ('ce110000-0000-4000-8000-000000000003','scheduled-three@example.invalid',now());
 INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES
  ('ce120000-0000-4000-8000-000000000001','Public clinic','scheduled-public','その他','検証県','検証市','検証住所','published'),
  ('ce120000-0000-4000-8000-000000000002','Hidden clinic','scheduled-hidden','その他','検証県','検証市','検証住所','draft');
@@ -16,7 +17,8 @@ INSERT INTO public.facility_menus(id,facility_id,category,name,price,duration_mi
 INSERT INTO public.favorites(user_id,facility_id) VALUES
  ('ce110000-0000-4000-8000-000000000001','ce120000-0000-4000-8000-000000000001'),
  ('ce110000-0000-4000-8000-000000000001','ce120000-0000-4000-8000-000000000002'),
- ('ce110000-0000-4000-8000-000000000002','ce120000-0000-4000-8000-000000000001');
+ ('ce110000-0000-4000-8000-000000000002','ce120000-0000-4000-8000-000000000001'),
+ ('ce110000-0000-4000-8000-000000000003','ce120000-0000-4000-8000-000000000001');
 SET LOCAL ROLE service_role;
 DO $$ DECLARE r record; BEGIN
  SELECT * INTO r FROM public.reserve_scheduled_email_atomic('favorites_digest','ce110000-0000-4000-8000-000000000001','scheduled-one@example.invalid');
@@ -73,6 +75,8 @@ BEGIN
  PERFORM pg_temp.assert_scheduled(again.operation_id=operation AND again.snapshot=snap,'same user/week retains original email/token/snapshot');
  envelope:=jsonb_build_object('from','a@example.invalid','to',snap->>'email','subject','Synthetic','html','Synthetic');
  PERFORM public.prepare_scheduled_email_atomic(operation,envelope);
+ INSERT INTO public.coupons(facility_id,name,discount_value,is_active) VALUES('ce120000-0000-4000-8000-000000000001','Added after reservation',50,true);
+ PERFORM pg_temp.assert_scheduled(public.scheduled_digest_snapshot_valid('ce110000-0000-4000-8000-000000000001',snap->'facilities',(snap->>'since')::timestamptz),'additional news does not invalidate the captured subset');
  PERFORM public.claim_webhook_retry_queue_v2(ARRAY[operation],now());
  UPDATE public.profiles SET email_unsubscribed=true WHERE id='ce110000-0000-4000-8000-000000000001';
  SELECT * INTO fence FROM public.start_scheduled_email_delivery(operation,now(),true);
@@ -86,6 +90,16 @@ BEGIN
  UPDATE public.facility_profiles SET status='draft' WHERE id='ce120000-0000-4000-8000-000000000001';
  SELECT * INTO fence FROM public.start_scheduled_email_delivery(operation,now(),true);
  PERFORM pg_temp.assert_scheduled(fence.outcome='superseded' AND fence.started_at IS NULL,'unpublished after reservation cannot leak through digest');
+ UPDATE public.facility_profiles SET status='published' WHERE id='ce120000-0000-4000-8000-000000000001';
+ SELECT * INTO r FROM public.reserve_scheduled_email_atomic('favorites_digest','ce110000-0000-4000-8000-000000000003','scheduled-three@example.invalid');
+ operation:=r.operation_id;snap:=r.snapshot;
+ envelope:=jsonb_build_object('from','a@example.invalid','to',snap->>'email','subject','Synthetic','html','Captured content');
+ PERFORM public.prepare_scheduled_email_atomic(operation,envelope);
+ INSERT INTO public.coupons(facility_id,name,discount_value,is_active) VALUES('ce120000-0000-4000-8000-000000000001','More public news',50,true);
+ PERFORM public.claim_webhook_retry_queue_v2(ARRAY[operation],now());
+ SELECT * INTO fence FROM public.start_scheduled_email_delivery(operation,now(),true);
+ PERFORM pg_temp.assert_scheduled(fence.outcome='ready' AND (SELECT email_envelope->>'html'='Captured content' FROM public.webhook_retry_queue WHERE id=operation),
+  'new content still dispatches the SAME immutable digest');
 END $$;
 RESET ROLE;
 DO $$ BEGIN
