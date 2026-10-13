@@ -8,6 +8,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { isStockImageUrl, STOCK_IMAGE_ERROR } from '@/lib/stock-image-guard';
 import { serverError } from '@/lib/with-route';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 
 const menuSchema = z.object({
   category: z.string().min(1).max(50),
@@ -38,7 +39,7 @@ export async function GET(request: NextRequest) {
     .eq('facility_id', facilityId)
     .order('sort_order', { ascending: true });
 
-  if (error) return serverError('admin-menus-list', error, '/api/admin/menus');
+  if (error) return serverError('admin-menus-list', databaseDiagnostic(error), '/api/admin/menus');
   return NextResponse.json({ menus: data });
 }
 
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
     .eq('facility_id', facilityId)
     .eq('name', parsed.data.name)
     .maybeSingle();
-  if (duplicateError) return serverError('admin-menus-duplicate-check', duplicateError, '/api/admin/menus');
+  if (duplicateError) return serverError('admin-menus-duplicate-check', databaseDiagnostic(duplicateError), '/api/admin/menus');
   if (existing) return NextResponse.json({ error: '同じ名前のメニューが既に存在します' }, { status: 409 });
 
   // Count for sort_order default
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
     .from('facility_menus')
     .select('id', { count: 'exact', head: true })
     .eq('facility_id', facilityId);
-  if (countError) return serverError('admin-menus-count', countError, '/api/admin/menus');
+  if (countError) return serverError('admin-menus-count', databaseDiagnostic(countError), '/api/admin/menus');
   if (count === null) return serverError('admin-menus-count', new Error('MENU_COUNT_UNAVAILABLE'), '/api/admin/menus');
 
   const { data, error } = await admin.from('facility_menus').insert({
@@ -93,7 +94,7 @@ export async function POST(request: NextRequest) {
     // facility_menus に updated_at 列は存在しない（created_at のみ）。書き込むと 400 になるため付けない。
   }).select().single();
 
-  if (error) return serverError('admin-menus-create', error, '/api/admin/menus');
+  if (error) return serverError('admin-menus-create', databaseDiagnostic(error), '/api/admin/menus');
 
   const { ua } = getRequestContext(request);
   void writeAuditLog({

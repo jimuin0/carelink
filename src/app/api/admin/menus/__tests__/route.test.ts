@@ -172,6 +172,25 @@ test('POST: DB挿入失敗 → 500', async () => {
   expect(res.status).toBe(500);
 });
 
+test('POST: DB失敗ログにコードを残し、エラー本文と詳細は公開しない', async () => {
+  const logging = jest.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+    mockAdminFrom.mockReturnValueOnce(dupCheckChain(null))
+      .mockReturnValueOnce(countChain(0))
+      .mockReturnValueOnce(insertSingle(null, { code: '57014', message: 'private credential', details: 'customer@example.com' }));
+    const res = await POST(makePostRequest(validBody()));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'サーバーエラーが発生しました' });
+    const logged = JSON.stringify(logging.mock.calls);
+    expect(logged).toContain('admin-menus-create');
+    expect(logged).toContain('DATABASE_FAILURE:57014');
+    expect(logged).not.toMatch(/private credential|customer@example\.com/);
+  } finally {
+    logging.mockRestore();
+  }
+});
+
 test('POST: 正常作成 → 201 with menu', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   let callNum = 0;
