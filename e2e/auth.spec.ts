@@ -186,7 +186,15 @@ test.describe('認証フロー', () => {
     // destination and exposes the account choice; it never grants store access.
     await page.goto('/search');
     const menu = page.getByRole('button', { name: 'メニュー', exact: true });
-    if (await menu.isVisible()) await menu.click();
+    if (await menu.isVisible()) {
+      // Also exercise a short mobile panel: the store link must be reachable
+      // by normal scrolling rather than clipped below a fixed-height menu.
+      await page.setViewportSize({ width: 390, height: 360 });
+      await menu.click();
+      await expect.poll(() => page.locator('#mobile-nav').evaluate(element =>
+        element.scrollHeight <= element.clientHeight || getComputedStyle(element).overflowY === 'auto'
+      )).toBe(true);
+    }
     await page.locator('header').getByRole('link', { name: '店舗ログイン', exact: true }).filter({ visible: true }).click();
     await expect(page.getByRole('heading', { name: '店舗ログイン', exact: true })).toBeVisible();
     await expect(page.getByText(`ログイン中のアカウント：${uniqueEmail}`, { exact: true })).toBeVisible();
