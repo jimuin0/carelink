@@ -46,7 +46,7 @@ async function signedInStoreLogin(error?: string) {
   mockParams = new URLSearchParams({ redirect: '/admin/bookings?date=2026-10-13', ...(error ? { error } : {}) });
   mockGetUser.mockResolvedValue({ data: { user: { id: 'customer', email: 'customer@example.invalid' } } });
   render(<LoginPage />);
-  await screen.findByRole('button', { name: '別アカウントでログイン' });
+  await screen.findByRole('button', { name: '別のアカウントでログイン' });
 }
 
 test('signed-in store login offers choices without silently routing to admin/mypage or logging out', async () => {
@@ -55,14 +55,14 @@ test('signed-in store login offers choices without silently routing to admin/myp
   expect(mockSignOut).not.toHaveBeenCalled();
   expect(screen.queryByLabelText('パスワード')).not.toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'このアカウントで管理画面を開く' })).toHaveAttribute('href', '/admin/bookings?date=2026-10-13');
-  expect(screen.getByRole('link', { name: 'このアカウントで新しく店舗を登録する' })).toHaveAttribute('href', '/admin/onboarding');
+  expect(screen.getByRole('link', { name: '新しくお店を登録する' })).toHaveAttribute('href', '/admin/onboarding');
 });
 
 test('permission denial explains missing store access and keeps account switching available', async () => {
   await signedInStoreLogin('store_access_required');
-  expect(screen.getByRole('alert')).toHaveTextContent('このアカウントで管理できる店舗は、現在ありません');
+  expect(screen.getByRole('alert')).toHaveTextContent('このアカウントでは、お店を管理できません');
   expect(screen.queryByRole('link', { name: 'このアカウントで管理画面を開く' })).not.toBeInTheDocument();
-  expect(screen.getByText('登録済みの店舗情報・写真・予約は、そのまま残ります。')).toBeInTheDocument();
+  expect(screen.getByText('登録したお店・写真・予約はそのままです。')).toBeInTheDocument();
   expect(mockReplace).not.toHaveBeenCalled();
 });
 
@@ -70,7 +70,7 @@ test('switch logs out only this session and waits for privacy cleanup before sho
   await signedInStoreLogin();
   let finish!: () => void;
   mockClearData.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
-  fireEvent.click(screen.getByRole('button', { name: '別アカウントでログイン' }));
+  fireEvent.click(screen.getByRole('button', { name: '別のアカウントでログイン' }));
   expect(screen.queryByLabelText('パスワード')).not.toBeInTheDocument();
   expect(mockSignOut).not.toHaveBeenCalled();
   await act(async () => { finish(); });
@@ -85,7 +85,7 @@ test('switch logs out only this session and waits for privacy cleanup before sho
 test('pre-logout privacy cleanup failure blocks logout and new credentials', async () => {
   await signedInStoreLogin();
   mockClearData.mockRejectedValueOnce(new Error('storage unavailable'));
-  fireEvent.click(screen.getByRole('button', { name: '別アカウントでログイン' }));
+  fireEvent.click(screen.getByRole('button', { name: '別のアカウントでログイン' }));
   await screen.findByRole('alert');
   expect(mockSignOut).not.toHaveBeenCalled();
   expect(screen.queryByLabelText('パスワード')).not.toBeInTheDocument();
@@ -95,7 +95,7 @@ test('pre-logout privacy cleanup failure blocks logout and new credentials', asy
 test('logout provider error never claims that account switching completed', async () => {
   await signedInStoreLogin();
   mockSignOut.mockResolvedValueOnce({ error: { message: 'unavailable' } });
-  fireEvent.click(screen.getByRole('button', { name: '別アカウントでログイン' }));
+  fireEvent.click(screen.getByRole('button', { name: '別のアカウントでログイン' }));
   await screen.findByRole('alert');
   expect(screen.queryByLabelText('パスワード')).not.toBeInTheDocument();
   expect(mockRefresh).not.toHaveBeenCalled();
@@ -104,7 +104,7 @@ test('logout provider error never claims that account switching completed', asyn
 test('post-logout cleanup failure retries cleanup without another logout or exposing login controls', async () => {
   await signedInStoreLogin();
   mockClearData.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('storage unavailable'));
-  fireEvent.click(screen.getByRole('button', { name: '別アカウントでログイン' }));
+  fireEvent.click(screen.getByRole('button', { name: '別のアカウントでログイン' }));
   await screen.findByRole('button', { name: '端末の下書き削除を再試行' });
   expect(screen.queryByLabelText('パスワード')).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '端末の下書き削除を再試行' }));
@@ -124,7 +124,7 @@ test('store credentials remain absent while identity is pending, including befor
   expect(screen.queryByLabelText('パスワード')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Googleでログイン' })).not.toBeInTheDocument();
   await act(async () => { finish({ data: { user: { id: 'customer' } }, error: null }); });
-  await screen.findByRole('button', { name: '別アカウントでログイン' });
+  await screen.findByRole('button', { name: '別のアカウントでログイン' });
   expect(mockSignIn).not.toHaveBeenCalled();
   expect(mockClearData).not.toHaveBeenCalled();
 });

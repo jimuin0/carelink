@@ -200,16 +200,16 @@ test.describe('認証フロー', () => {
     }
     await page.locator('header').getByRole('link', { name: '店舗ログイン', exact: true }).filter({ visible: true }).click();
     await expect(page.getByRole('heading', { name: '店舗ログイン', exact: true })).toBeVisible();
-    await expect(page.getByText(`ログイン中のアカウント：${uniqueEmail}`, { exact: true })).toBeVisible();
+    await expect(page.getByText(`ログイン中：${uniqueEmail}`, { exact: true })).toBeVisible();
     await page.goto('/auth/login?redirect=/admin/bookings');
     await page.getByRole('link', { name: 'このアカウントで管理画面を開く', exact: true }).click();
     await expect(page).toHaveURL(/\/auth\/login\?redirect=%2Fadmin%2Fbookings&error=store_access_required$/);
-    await expect(page.getByRole('alert').filter({ hasText: 'このアカウントで管理できる店舗は、現在ありません。' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'このアカウントで新しく店舗を登録する' })).toHaveAttribute('href', '/admin/onboarding');
+    await expect(page.getByRole('alert').filter({ hasText: 'このアカウントでは、お店を管理できません。' })).toBeVisible();
+    await expect(page.getByRole('link', { name: '新しくお店を登録する' })).toHaveAttribute('href', '/admin/onboarding');
 
     // This disposable identity has no real drafts. Switching must actually end
     // its local Auth session before another account's credentials are offered.
-    await page.getByRole('button', { name: '別アカウントでログイン', exact: true }).click();
+    await page.getByRole('button', { name: '別のアカウントでログイン', exact: true }).click();
     await expect(page.locator('#login-email')).toBeEditable();
     await page.goto('/admin/bookings');
     await expect(page).toHaveURL(/\/auth\/login\?redirect=%2Fadmin%2Fbookings$/);
