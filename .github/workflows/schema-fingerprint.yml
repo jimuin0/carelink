@@ -232,6 +232,9 @@ jobs:
       - name: Event email immutable payload and delayed-handler CAS exclusion (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/event-email-fixtures.sql
 
+      - name: Customer booking transition atomic outbox (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/customer-booking-transition-fixtures.sql
+
       - name: Chain aggregation full counts, JST month boundary and current roles (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/chain-statistics-fixtures.sql
 

@@ -9,7 +9,6 @@ import { getFacilityNotificationSettings } from '@/lib/notification-settings';
 import { computeCancelFee, hoursUntilBookingStart, type CancelPolicy } from '@/lib/cancel-fee';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { sendBookingCancelled, sendBookingCancellationToFacility } from '@/lib/email';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { serverError } from '@/lib/with-route';
@@ -100,7 +99,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
 
   // 本人・状態・開始時刻をtransaction内で再検証し、返還と取消を一緒に保存する。
   const writeDb = createServiceRoleClient();
-  const { data: cancelled, error } = await writeDb.rpc('cancel_booking_with_points_atomic', {
+  const { data: cancelled, error } = await writeDb.rpc('cancel_customer_booking_with_outbox_atomic', {
     p_actor_id: userId, p_booking_id: params.id, p_expected_status: booking.status,
   });
   if (error?.message.includes('BOOKING_PERMISSION_DENIED')) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
@@ -144,88 +143,8 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   // 失敗（reject 含む）は本体レスポンス(200)に影響しない。
   const cancelSideEffects: Promise<unknown>[] = [];
 
-  // Send cancellation email (non-blocking)
-  try {
-    const { data: facility } = await db.from('facility_profiles').select('name').eq('id', booking.facility_id).single();
-    let menuName: string | undefined;
-    if (booking.menu_id) {
-      const { data: menu } = await db.from('facility_menus').select('name').eq('id', booking.menu_id).single();
-      menuName = menu?.name;
-    }
-    const emailData = {
-      customerName: booking.customer_name,
-      customerEmail: booking.email,
-      facilityName: facility?.name || '',
-      bookingDate: booking.booking_date,
-      startTime: booking.start_time,
-      endTime: booking.end_time,
-      menuName,
-      totalPrice: booking.total_price ?? undefined,
-      bookingId: booking.id,
-      cancelFee,
-    };
-    // sendBookingCancelled/sendBookingCancellationToFacility は送信失敗時も throw せず false を
-    // 返す契約のため、void で捨てると失敗が無音化する。戻り値を確認して可視化する。
-    cancelSideEffects.push(
-      sendBookingCancelled(emailData).then((ok) => {
-        if (!ok) {
-          const err = new Error('booking cancellation email send failed');
-          safeCaptureException(err, 'cancel-email');
-          alertCaughtError('cancel-email', err, '/api/booking/[id]/cancel');
-        }
-      })
-    );
-
-    // サロンオーナーにキャンセル通知。
-    // facility_members(RLS: USING(auth.uid()=user_id))・profiles(RLS: USING(auth.uid()=id))は、
-    // Web/Cookie 経路(db=anon の SSR クライアント)ではキャンセルする顧客自身の auth.uid() でしか
-    // 行が見えず、施設オーナーの行は常に0行になる（#483と同型の本番バグ・2026年7月16日確定）。
-    // LIFF 経路は db が既に service role のため実害は無かったが、両経路で挙動を統一するため、
-    // この2クエリだけは常に service role（RLSバイパス）で引く。facility_profiles / facility_menus は
-    // 「公開施設は誰でも読める」ポリシーがあるため anon(db)のままで問題ない（越境しない）。
-    // 【2026年7月17日 恒久根治・#510敵対検証】旧実装は .limit(1).single() で非決定的に1人だけ取得し、
-    // 新規予約通知(/api/booking)・口コミ通知(/api/review)・問い合わせ通知(/api/inquiry)が
-    // 施設の全オーナーへループ送信するのと非対称だった（複数オーナー施設でキャンセルだけ一部の
-    // オーナーに届かない）。上記3経路と同じパターン（全オーナー取得→メール重複排除→ループ送信）に
-    // 統一する。role も push.ts(sendPushToFacilityOwners) と揃え owner に加え admin も対象にする
-    // （facility_members の admin ロールは Push は受け取るがメール通知は owner 限定のため受け取れない
-    // 非対称があった）。
-    const ownerLookupClient = createServiceRoleClient();
-    const { data: ownerRows } = await ownerLookupClient
-      .from('facility_members')
-      .select('user_id')
-      .eq('facility_id', booking.facility_id)
-      .in('role', ['owner', 'admin']);
-    const ownerUserIds = Array.from(new Set(
-      ((ownerRows ?? []) as { user_id: string }[]).map((o) => o.user_id).filter(Boolean)
-    ));
-    if (ownerUserIds.length > 0) {
-      const { data: ownerProfiles } = await ownerLookupClient.from('profiles').select('email').in('id', ownerUserIds);
-      const ownerEmails = Array.from(new Set(
-        ((ownerProfiles ?? []) as { email: string | null }[]).map((p) => p.email).filter(Boolean) as string[]
-      ));
-      for (const facilityEmail of ownerEmails) {
-        // 店向けは顧客向けテンプレートの流用ではなく、施設向け文面（顧客名・メールを明記し
-        // 管理画面へ誘導）で送る。customerEmail は顧客のまま保持し facilityEmail に宛先を渡す。
-        cancelSideEffects.push(
-          sendBookingCancellationToFacility({ ...emailData, facilityEmail }).then((ok) => {
-            if (!ok) {
-              const err = new Error('booking cancellation facility email send failed');
-              safeCaptureException(err, 'cancel-email-owner');
-              alertCaughtError('cancel-email-owner', err, '/api/booking/[id]/cancel');
-            }
-          }).catch((e) => {
-            safeCaptureException(e, 'cancel-email-owner');
-            alertCaughtError('cancel-email-owner', e, '/api/booking/[id]/cancel');
-          })
-        );
-      }
-    }
-  } catch (err) {
-    console.error('[cancel] email notification failed:', err);
-    safeCaptureException(err, 'cancel-email-setup');
-    alertCaughtError('cancel-email-setup', err, '/api/booking/[id]/cancel');
-  }
+  // Customer/owner emails were saved with the cancellation. The durable worker
+  // owns delivery; this request never creates another provider operation.
 
   // LINE cancellation notification (non-blocking)
   try {

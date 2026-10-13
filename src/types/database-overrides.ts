@@ -114,6 +114,15 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
         Args: { p_queue_id: string; p_claimed_at: string };
         Returns: { outcome: string; started_at: string | null }[];
       };
+      cancel_customer_booking_with_outbox_atomic: {
+        Args: { p_actor_id: string; p_booking_id: string; p_expected_status: string };
+        Returns: { id: string }[];
+      };
+      change_customer_booking_with_outbox_atomic: {
+        Args: { p_booking_id: string; p_user_id: string; p_booking_date: string;
+          p_start_time: string; p_end_time: string; p_enforce_schedule: boolean };
+        Returns: undefined;
+      };
       // A NULL new status is an adjustment event; NULL envelope means no
       // customer email/internal arrival. SQL explicitly handles NULL revisions.
       save_booking_email_event_atomic: Omit<GeneratedFunctions['save_booking_email_event_atomic'], 'Args' | 'Returns'> & {
