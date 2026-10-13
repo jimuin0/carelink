@@ -5,7 +5,8 @@ import { computeCancelFee, hoursUntilBookingStart } from './cancel-fee';
 import { eventEmailEnvelopeSchema, type EventEmailEnvelope } from './event-email-delivery';
 
 const snapshotSchema = z.object({
-  bookingId: z.uuid(), customerName: z.string(), customerEmail: z.string(), facilityName: z.string(),
+  bookingId: z.uuid(), bookingRevision: z.iso.datetime({ offset: true }),
+  customerName: z.string(), customerEmail: z.string(), facilityName: z.string(),
   bookingDate: z.iso.date(), startTime: z.string().regex(/^\d{2}:\d{2}:\d{2}$/),
   endTime: z.string().regex(/^\d{2}:\d{2}:\d{2}$/), menuName: z.string().nullable(),
   totalPrice: z.number().int().nonnegative().nullable(), capturedAt: z.iso.datetime({ offset: true }),

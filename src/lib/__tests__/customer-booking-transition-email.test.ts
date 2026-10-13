@@ -2,7 +2,7 @@
 import { prepareCustomerBookingTransitionEnvelope } from '../customer-booking-transition-email';
 
 const id = '11111111-1111-4111-8111-111111111111';
-const snapshot = { bookingId:'22222222-2222-4222-8222-222222222222', customerName:'<script>customer</script>',
+const snapshot = { bookingId:'22222222-2222-4222-8222-222222222222', bookingRevision:'2030-01-06T21:00:00+00:00', customerName:'<script>customer</script>',
   customerEmail:'customer@example.invalid',facilityName:'A <clinic>',bookingDate:'2030-01-07',startTime:'12:00:00',
   endTime:'13:00:00',menuName:'Menu <test>',totalPrice:5000,capturedAt:'2030-01-06T21:00:00+00:00',
   cancelPolicy:{free_cancel_hours:24,late_cancel_rate:50} };
