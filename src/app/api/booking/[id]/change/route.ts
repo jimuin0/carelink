@@ -4,15 +4,13 @@ import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { safeCaptureException } from '@/lib/safe';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { z } from 'zod';
-import { sendLineWorksMessage, isLineWorksConfigured } from '@/lib/integrations/line-works';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { writeAuditLog } from '@/lib/audit-logger';
-import { sendPushToUser, sendPushToFacilityOwners } from '@/lib/push';
-import { getFacilityNotificationSettings } from '@/lib/notification-settings';
 import { getTodayString, getMaxDateString } from '@/lib/validations-booking';
 import { isValidIsoDate } from '@/lib/date-utils';
 
@@ -83,18 +81,21 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       }
     );
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
+    const verification = await verifyAuthUser(supabase.auth);
+    if (verification.state === 'unavailable') return authUnavailable('booking-change-auth', '/api/booking/[id]/change');
+    if (verification.state !== 'verified') {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     }
+    const user = verification.user;
 
     // Fetch existing booking
-    const { data: booking } = await supabase
+    const { data: booking, error: bookingReadError } = await supabase
       .from('bookings')
       .select('id, user_id, status, facility_id, staff_id')
       .eq('id', params.id)
-      .single();
+      .maybeSingle();
 
+    if (bookingReadError) return serverError('booking-change-read', databaseDiagnostic(bookingReadError), '/api/booking/[id]/change', '予約を確認できません。時間をおいて再確認してください。');
     if (!booking) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
     if (booking.user_id !== user.id) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
     if (!['pending', 'confirmed'].includes(booking.status)) {
@@ -109,7 +110,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     // service_role で呼び、migration 側で anon/authenticated の EXECUTE を撤回して直接呼び出しを塞ぐ。
     // 所有権(booking.user_id === user.id)・状態は上の同期ブロックでサーバ側検証済み。
     const rpcClient = createServiceRoleClient();
-    const { data: changed, error } = await rpcClient.rpc('change_customer_booking_with_outbox_receipt_atomic', {
+    const { data: changed, error } = await rpcClient.rpc('change_customer_booking_with_channels_atomic', {
       p_booking_id: params.id,
       p_user_id: user.id,
       p_booking_date: parsed.data.booking_date,
@@ -150,7 +151,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       if (msg.includes('STAFF_NOT_WORKING')) {
         return NextResponse.json({ error: '担当スタッフはこの日時には勤務していません' }, { status: 409 });
       }
-      return serverError('booking-change-rpc', error, '/api/booking/[id]/change', '変更に失敗しました');
+      return serverError('booking-change-rpc', databaseDiagnostic(error), '/api/booking/[id]/change', '変更に失敗しました');
     }
 
     if (!changed || changed.length !== 1 || changed[0].id !== params.id || typeof changed[0].replayed !== 'boolean') {
@@ -168,93 +169,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       ipAddress: ip,
     });
 
-    // レスポンス返却後に走らせていた副作用（メール・Push・LINE Works 通知）をここに集約し、return 直前に
-    // await Promise.allSettled でまとめて完了させる。【2026年7月7日 本番実データで確定した恒久根治】
-    // waitUntil() の fire-and-forget は Fluid Compute 無効の本番でレスポンス返却直後に凍結され後処理が
-    // 全滅していた（口コミルート /api/review と同一の欠陥・同一の根治）。allSettled なので個別 send の
-    // 失敗（reject 含む）は本体レスポンス(200)に影響しない。
-    const changeSideEffects: Promise<unknown>[] = [];
-
-    // 顧客・オーナーへの変更通知（作成/キャンセルと対称・A-4）。従来はスタッフ向け LINE Works のみで、
-    // 顧客への確認(メール/Push)もオーナー Push も欠落していた。変更後の新日時を通知する。非ブロッキング。
-    try {
-      const notifyDb = createServiceRoleClient();
-      const { data: full } = await notifyDb
-        .from('bookings')
-        .select('customer_name, email, menu_id, total_price')
-        .eq('id', params.id)
-        .maybeSingle();
-      // The customer email is already in the atomic booking outbox.
-      changeSideEffects.push(
-        sendPushToUser(user.id, {
-          title: 'ご予約日時を変更しました',
-          body: `${parsed.data.booking_date} ${parsed.data.start_time}〜に変更しました`,
-          url: `/mypage/bookings/${params.id}`,
-          tag: `booking-change-${params.id}`,
-        }).catch((e) => safeCaptureException(e, 'change-push-user'))
-      );
-      const notif = await getFacilityNotificationSettings(booking.facility_id);
-      if (notif.pushOnNewBooking) {
-        changeSideEffects.push(
-          sendPushToFacilityOwners(booking.facility_id, {
-            title: '予約日時変更',
-            body: `${full?.customer_name ?? 'お客様'}が${parsed.data.booking_date} ${parsed.data.start_time}〜に変更しました`,
-            url: '/admin/bookings',
-            tag: `booking-change-owner-${params.id}`,
-          }).catch((e) => safeCaptureException(e, 'change-push-owner'))
-        );
-      }
-    } catch (e) {
-      safeCaptureException(e, 'change-notify-setup');
-    }
-
-    // LINE Works change notification (non-blocking)
-    if (isLineWorksConfigured()) {
-      try {
-        const adminSupabase = createServiceRoleClient();
-        const { data: staffList } = await adminSupabase
-          .from('staff_profiles')
-          .select('line_works_channel_id, line_works_notify_all, id')
-          .eq('facility_id', booking.facility_id)
-          .not('line_works_channel_id', 'is', null);
-
-        if (staffList && staffList.length > 0) {
-          const { data: customerBooking } = await adminSupabase
-            .from('bookings')
-            .select('customer_name, menu_id')
-            .eq('id', params.id)
-            .maybeSingle();
-
-          let menuName = '';
-          if (customerBooking?.menu_id) {
-            const { data: menu } = await adminSupabase.from('facility_menus').select('name').eq('id', customerBooking.menu_id).maybeSingle();
-            menuName = menu?.name || '';
-          }
-
-          const text = [
-            '🔄 予約変更',
-            '',
-            `お客様: ${customerBooking?.customer_name || '不明'}`,
-            menuName ? `メニュー: ${menuName}` : '',
-            `変更後日時: ${parsed.data.booking_date} ${parsed.data.start_time}`,
-          ].filter(Boolean).join('\n');
-
-          for (const staff of staffList) {
-            if (!staff.line_works_channel_id) continue;
-            if (staff.id !== booking.staff_id && !staff.line_works_notify_all) continue;
-            changeSideEffects.push(
-              sendLineWorksMessage(staff.line_works_channel_id, { content: { type: 'text', text } })
-                .catch((e) => safeCaptureException(e, 'change-lineworks'))
-            );
-          }
-        }
-      } catch (e) {
-        safeCaptureException(e, 'change-lineworks-setup');
-      }
-    }
-
-    // レスポンス返却前に副作用を確実に完了させる（waitUntil 後処理が本番で全滅していた恒久根治）。
-    await Promise.allSettled(changeSideEffects);
+    // All notification intents committed with the booking; only the worker sends.
 
     return NextResponse.json({ success: true });
   } catch (e) {

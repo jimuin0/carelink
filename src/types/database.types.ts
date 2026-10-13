@@ -6329,6 +6329,17 @@ export type Database = {
           id: string
         }[]
       }
+      cancel_customer_booking_with_channels_atomic: {
+        Args: {
+          p_actor_id: string
+          p_booking_id: string
+          p_expected_status: string
+        }
+        Returns: {
+          fee_context: Json
+          id: string
+        }[]
+      }
       cancel_customer_booking_with_outbox_atomic: {
         Args: {
           p_actor_id: string
@@ -6349,6 +6360,20 @@ export type Database = {
           p_user_id: string
         }
         Returns: undefined
+      }
+      change_customer_booking_with_channels_atomic: {
+        Args: {
+          p_booking_date: string
+          p_booking_id: string
+          p_end_time: string
+          p_enforce_schedule?: boolean
+          p_start_time: string
+          p_user_id: string
+        }
+        Returns: {
+          id: string
+          replayed: boolean
+        }[]
       }
       change_customer_booking_with_outbox_atomic: {
         Args: {
