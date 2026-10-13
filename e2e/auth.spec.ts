@@ -180,5 +180,28 @@ test.describe('認証フロー', () => {
     await page.waitForURL('**/mypage**', { timeout: 20000 });
     await expect(page).toHaveURL(/\/mypage/);
     await expect(page.getByRole('heading', { name: 'E2E登録太郎さん、こんにちは', exact: true })).toBeVisible();
+
+    // A signed-in customer must be able to reach store login without silently
+    // bouncing back to mypage. Actual middleware membership denial retains the
+    // destination and exposes the account choice; it never grants store access.
+    await page.goto('/search');
+    const menu = page.getByRole('button', { name: 'メニュー', exact: true });
+    if (await menu.isVisible()) await menu.click();
+    await page.locator('header').getByRole('link', { name: '店舗ログイン', exact: true }).filter({ visible: true }).click();
+    await expect(page.getByRole('heading', { name: '店舗ログイン', exact: true })).toBeVisible();
+    await expect(page.getByText(`ログイン中のアカウント：${uniqueEmail}`, { exact: true })).toBeVisible();
+    await page.goto('/auth/login?redirect=/admin/bookings');
+    await page.getByRole('link', { name: 'このアカウントで管理画面を開く', exact: true }).click();
+    await expect(page).toHaveURL(/\/auth\/login\?redirect=%2Fadmin%2Fbookings&error=store_access_required$/);
+    await expect(page.getByRole('alert').filter({ hasText: 'このアカウントには、店舗の管理権限がありません。' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'このアカウントで店舗登録へ進む' })).toHaveAttribute('href', '/admin/onboarding');
+
+    // This disposable identity has no real drafts. Switching must actually end
+    // its local Auth session before another account's credentials are offered.
+    await page.getByRole('button', { name: '別アカウントでログイン', exact: true }).click();
+    await expect(page.locator('#login-email')).toBeEditable();
+    await page.goto('/admin/bookings');
+    await expect(page).toHaveURL(/\/auth\/login\?redirect=%2Fadmin%2Fbookings$/);
+    await expect(page.locator('#login-email')).toBeEditable();
   });
 });

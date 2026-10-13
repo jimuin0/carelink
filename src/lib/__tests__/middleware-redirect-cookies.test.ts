@@ -250,7 +250,8 @@ test.each([false, null, 'true'])('support privilege requires literal true, not %
   profileResult = { data: { is_platform_admin: value }, error: null };
   const res: Record<string, unknown> = await middleware(makeRequest('/admin/inquiries'));
   expect(res._isRedirect).toBe(true);
-  expect((res._redirectedTo as URL).pathname).toBe('/mypage');
+  expect((res._redirectedTo as URL).pathname).toBe('/auth/login');
+  expect((res._redirectedTo as URL).searchParams.get('error')).toBe('store_access_required');
 });
 
 test('support role lookup failure is not cached or treated as success', async () => {
@@ -295,7 +296,7 @@ test('new owner bypasses a still-valid negative hint after lost setup headers', 
 test('late pre-creation negative response cannot revoke a now-confirmed owner', async () => {
   membershipResult = { data: null, error: null };
   const denied: Record<string, unknown> = await middleware(makeRequest('/admin'));
-  expect((denied._redirectedTo as URL).pathname).toBe('/mypage');
+  expect((denied._redirectedTo as URL).pathname).toBe('/auth/login');
   const lateHint = (denied.cookies as ReturnType<typeof cookieStore>).get(getMembershipCacheKey('u1'))!;
   expect(lateHint.value.startsWith('0.')).toBe(true);
   membershipResult = { data: { role: 'owner' }, error: null };
@@ -305,12 +306,25 @@ test('late pre-creation negative response cannot revoke a now-confirmed owner', 
   expect(res._isRedirect).toBeUndefined();
 });
 
+test('store access denial leads to an available login page without a redirect loop', async () => {
+  membershipResult = { data: null, error: null };
+  const denied: Record<string, unknown> = await middleware(makeRequest('/admin/bookings?date=2026-10-13'));
+  const login = denied._redirectedTo as URL;
+  expect(login.pathname).toBe('/auth/login');
+  expect(login.searchParams.get('redirect')).toBe('/admin/bookings?date=2026-10-13');
+  expect(login.searchParams.get('error')).toBe('store_access_required');
+  expect((denied.cookies as ReturnType<typeof cookieStore>).get('sb-refresh-token')?.value).toBe('refreshed');
+  const available: Record<string, unknown> = await middleware(makeRequest(login.pathname + login.search));
+  expect(available._isRedirect).toBeUndefined();
+  expect((available.cookies as ReturnType<typeof cookieStore>).get('sb-refresh-token')?.value).toBe('refreshed');
+});
+
 test.each(['absent', 'unavailable'])('negative hint still denies when current membership is %s', async state => {
   const signed = await signCacheValue('u1', '0');
   membershipResult = { data: null, error: state === 'unavailable' ? { message: 'db unavailable' } : null };
   const res: Record<string, unknown> = await middleware(makeRequest('/admin', { [getMembershipCacheKey('u1')]: signed! }));
   expect(mockMembershipLookup).toHaveBeenCalledTimes(1);
-  if (state === 'absent') expect((res._redirectedTo as URL).pathname).toBe('/mypage');
+  if (state === 'absent') expect((res._redirectedTo as URL).pathname).toBe('/auth/login');
   else {
     expect(res.status).toBe(503);
     expect(res._isRedirect).toBeUndefined();

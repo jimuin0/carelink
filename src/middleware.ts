@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { safeRedirect } from '@/lib/safe-redirect';
+import { isStoreManagementRedirect } from '@/lib/store-login';
 import { isPlatformSupportPath } from '@/lib/platform-support-path';
 import { getMembershipCacheKey } from '@/lib/admin-membership-cache-key';
 import { AUTH_UNAVAILABLE_BODY, AUTH_VERIFICATION_TIMEOUT_MS, verifyAuthUser } from '@/lib/auth-verification';
@@ -269,21 +270,27 @@ export async function middleware(request: NextRequest) {
 
     if (!hasAccess) {
       const url = request.nextUrl.clone();
-      url.pathname = '/mypage';
+      const destination = url.pathname + url.search;
+      url.pathname = '/auth/login';
+      url.search = '';
+      url.searchParams.set('redirect', destination);
+      url.searchParams.set('error', 'store_access_required');
       return withSessionCookies(NextResponse.redirect(url));
     }
   }
 
-  // 認証済みユーザーがログイン/登録ページにアクセスした場合リダイレクト
+  // 店舗ログインでは現在のアカウントを選べる画面を残す。その他の認証済みログイン/登録は目的地へ進める。
   // ?redirect を尊重する（safeRedirect が同一オリジンのパスだけを許可・それ以外は /mypage）。
   // 🔴 redirect が /admin/* を指していても抜け道にはならない: ここでは権限チェックをしておらず
   // 単にブラウザを飛ばすだけで、飛んだ先の /admin へのアクセスは「次のリクエスト」として
   // このミドルウェアを再度通り、上の「/admin ルートへの権限チェック」ブロックが
   // facility_members の owner/admin を再確認する（fail-closed は維持される）。
-  if (user && (request.nextUrl.pathname === '/auth/login' || request.nextUrl.pathname === '/auth/signup')) {
+  const authDestination = safeRedirect(request.nextUrl.searchParams.get('redirect'), request.nextUrl.origin);
+  const storeLogin = request.nextUrl.pathname === '/auth/login' && isStoreManagementRedirect(authDestination);
+  if (user && !storeLogin && (request.nextUrl.pathname === '/auth/login' || request.nextUrl.pathname === '/auth/signup')) {
     const url = request.nextUrl.clone();
     const dest = new URL(
-      safeRedirect(request.nextUrl.searchParams.get('redirect'), request.nextUrl.origin),
+      authDestination,
       request.nextUrl.origin
     );
     url.pathname = dest.pathname;
