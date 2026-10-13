@@ -192,13 +192,13 @@ describe('POST /api/booking/[id]/cancel', () => {
   // 【2026年7月7日 本番実データで確定した恒久根治の回帰防止】キャンセル通知を fire-and-forget
   // (waitUntil) に戻すと本番(Fluid Compute 無効)でレスポンス返却後に打ち切られ通知が全滅する。
   // レスポンスは副作用の完了(await Promise.allSettled)まで確定しないことを直列に検証する。
-  test('キャンセル通知送信が完了するまでレスポンスを確定させない（awaitで確実に完了・fire-and-forget回帰防止）', async () => {
+  test('取消と通知予定のDB commit確認を待って成功を返し、APIから再送しない', async () => {
     setupCancelHappyMocks();
 
     const { sendBookingCancelled } = require('@/lib/email');
-    let resolveSend: (() => void) | undefined;
-    const pending = new Promise<boolean>((resolve) => { resolveSend = () => resolve(true); });
-    (sendBookingCancelled as jest.Mock).mockReturnValueOnce(pending);
+    let resolveCommit: (() => void) | undefined;
+    const pending = new Promise((resolve) => { resolveCommit = () => resolve({data:[{id:validId}],error:null}); });
+    mockRpc.mockReturnValueOnce(pending);
 
     const postPromise = POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     let settled = false;
@@ -207,10 +207,11 @@ describe('POST /api/booking/[id]/cancel', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(settled).toBe(false);
 
-    resolveSend!();
+    resolveCommit!();
     const res = await postPromise;
     expect(settled).toBe(true);
     expect((await res.json()).success).toBe(true);
+    expect(sendBookingCancelled).not.toHaveBeenCalled();
   });
 
   test('正常にキャンセルする', async () => {
@@ -373,7 +374,7 @@ describe('POST /api/booking/[id]/cancel', () => {
     // 予約日(2026-04-01)は過去＝期限超過 → 5000×50% = 2500
     expect(json.cancelFee).toBe(2500);
     await new Promise(r => setTimeout(r, 10));
-    expect(sendBookingCancelled).toHaveBeenCalledWith(expect.objectContaining({ cancelFee: 2500 }));
+    expect(sendBookingCancelled).not.toHaveBeenCalled();
   });
 
   test('LIFF（Bearer）認証で本人がキャンセルできる → 200（Cookie 経路を使わない）', async () => {
@@ -469,7 +470,7 @@ describe('POST /api/booking/[id]/cancel', () => {
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect((await res.json()).success).toBe(true);
     expect(insertSpy).not.toHaveBeenCalled();
-    expect(mockRpc).toHaveBeenCalledWith('cancel_booking_with_points_atomic',expect.objectContaining({p_actor_id:'user-1',p_booking_id:validId,p_expected_status:'confirmed'}));
+    expect(mockRpc).toHaveBeenCalledWith('cancel_customer_booking_with_outbox_atomic',expect.objectContaining({p_actor_id:'user-1',p_booking_id:validId,p_expected_status:'confirmed'}));
   });
 
   test('ポイント返還失敗は取消を成功に変換せず500', async () => {
@@ -704,34 +705,6 @@ describe('POST /api/booking/[id]/cancel', () => {
 
 // ─── 深掘り: sendBookingCancelled 呼び出し確認 ───────────────────────────────
 
-  test('キャンセル成功時に email 送信関数が呼ばれる', async () => {
-    const { sendBookingCancelled } = require('@/lib/email');
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
-
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) {
-        return fluent({
-          data: {
-            id: validId, user_id: 'user-1', status: 'pending',
-            facility_id: 'f-1', customer_name: 'テスト花子', email: 'test@example.com',
-            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
-            total_price: 5000, menu_id: null, staff_id: null,
-          },
-        });
-      }
-      const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: validId }], error: null })) })) }));
-      const eqFirst = jest.fn(() => ({ eq: eqTerminal }));
-      return {
-        update: jest.fn(() => ({ eq: eqFirst })),
-        select: jest.fn(() => ({ eq: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: { name: 'Salon X' } })), limit: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null })) })) })) })),
-      };
-    });
-
-    await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
-    expect(sendBookingCancelled).toHaveBeenCalled();
-  });
 
 // ─── 深掘り: レートリミットパラメーター ─────────────────────────────────────
 
@@ -812,7 +785,7 @@ describe('POST /api/booking/[id]/cancel', () => {
 
     await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     // 2段目の eq が user_id でフィルタされる（IDOR 二重防御）
-    expect(mockRpc).toHaveBeenCalledWith('cancel_booking_with_points_atomic',{p_actor_id:'user-1',p_booking_id:validId,p_expected_status:'pending'});
+    expect(mockRpc).toHaveBeenCalledWith('cancel_customer_booking_with_outbox_atomic',{p_actor_id:'user-1',p_booking_id:validId,p_expected_status:'pending'});
   });
 
 // ─── 深掘り: 例外 → 500 ──────────────────────────────────────────────────────
@@ -825,37 +798,6 @@ describe('POST /api/booking/[id]/cancel', () => {
 
 // ─── 深掘り: menu_id ありのキャンセル ────────────────────────────────────────
 
-  test('menu_id ありでメニュー名を取得', async () => {
-    const { sendBookingCancelled } = require('@/lib/email');
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
-
-    let callNum = 0;
-    mockFrom.mockImplementation((table: string) => {
-      callNum++;
-      if (callNum === 1) {
-        return fluent({
-          data: {
-            id: validId, user_id: 'user-1', status: 'pending',
-            facility_id: 'f-1', customer_name: 'テスト', email: 'test@example.com',
-            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
-            total_price: 5000, menu_id: 'menu-1', staff_id: null,
-          },
-        });
-      }
-      if (callNum === 2) {
-        // update → eq → eq
-        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: validId }], error: null })) })) }));
-        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
-      }
-      // email path: facility_profiles, facility_menus, facility_members
-      if (table === 'facility_menus') return fluent({ data: { name: 'カット' } });
-      return fluent({ data: null });
-    });
-
-    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
-    expect(res.status).toBe(200);
-    expect(sendBookingCancelled).toHaveBeenCalled();
-  });
 
 // ─── 深掘り: オーナーへのキャンセル通知 ──────────────────────────────────────
 
@@ -867,126 +809,13 @@ describe('POST /api/booking/[id]/cancel', () => {
   // 実際に service role 経由（mockAdminFrom）で行われたことを直接アサートする。テーブル名一致
   // だけの検証だと anon 経由でも service role 経由でも同じ値を返せてしまい退行を検知できないため、
   // mockAdminFrom への呼び出し自体を独立してトラッキングして検証する。
-  test('オーナーメールが存在する場合は顧客に sendBookingCancelled・店に sendBookingCancellationToFacility を呼ぶ（オーナー取得はservice role経由）', async () => {
-    const { sendBookingCancelled, sendBookingCancellationToFacility } = require('@/lib/email');
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
-    let callNum = 0;
-    mockFrom.mockImplementation((table: string) => {
-      callNum++;
-      if (callNum === 1) {
-        return fluent({
-          data: {
-            id: validId, user_id: 'user-1', status: 'pending',
-            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
-            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
-            total_price: 5000, menu_id: null, staff_id: null,
-          },
-        });
-      }
-      if (callNum === 2) {
-        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: validId }], error: null })) })) }));
-        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
-      }
-      if (table === 'facility_profiles') return fluent({ data: { name: 'Salon X' } });
-      return fluent({ data: null });
-    });
-    mockOwnerLookupFrom.mockImplementation((table: string) => {
-      if (table === 'facility_members') return ownerRowsChain({ data: [{ user_id: 'owner-1' }] });
-      if (table === 'profiles') return ownerRowsChain({ data: [{ email: 'owner@example.com' }] });
-      return adminReadChain();
-    });
-
-    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
-    expect(res.status).toBe(200);
-    expect(sendBookingCancelled).toHaveBeenCalledTimes(1);
-    expect(sendBookingCancellationToFacility).toHaveBeenCalledTimes(1);
-    expect(sendBookingCancellationToFacility).toHaveBeenCalledWith(
-      expect.objectContaining({ facilityEmail: 'owner@example.com', customerEmail: 'c@example.com' })
-    );
-    // 【回帰防止の核心】facility_members / profiles の取得が createServiceRoleClient()（service role）
-    // 経由で行われたことを検証する。anon の db に戻す退行があれば、この2クエリは mockOwnerLookupFrom
-    // を経由しなくなり、以下のアサーションが失敗する。
-    expect(mockOwnerLookupFrom).toHaveBeenCalledWith('facility_members');
-    expect(mockOwnerLookupFrom).toHaveBeenCalledWith('profiles');
-  });
 
   // 【2026年7月17日 恒久根治・#510敵対検証】キャンセルのオーナー通知が .limit(1).single() で
   // 非決定的に1人だけ取得し、新規予約通知(/api/booking)・口コミ通知(/api/review)・
   // 問い合わせ通知(/api/inquiry)が施設の全オーナーへループ送信するのと非対称だった。
   // 複数オーナー施設で一部のオーナーにキャンセル通知が届かない実害を回帰防止する。
-  test('オーナー2人（メールが別々）→ 施設向けキャンセルメールを2通送る（新規予約通知と対称）', async () => {
-    const { sendBookingCancellationToFacility } = require('@/lib/email');
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
-    let callNum = 0;
-    mockFrom.mockImplementation((table: string) => {
-      callNum++;
-      if (callNum === 1) {
-        return fluent({
-          data: {
-            id: validId, user_id: 'user-1', status: 'pending',
-            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
-            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
-            total_price: 5000, menu_id: null, staff_id: null,
-          },
-        });
-      }
-      if (callNum === 2) {
-        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: validId }], error: null })) })) }));
-        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
-      }
-      if (table === 'facility_profiles') return fluent({ data: { name: 'Salon X' } });
-      return fluent({ data: null });
-    });
-    mockOwnerLookupFrom.mockImplementation((table: string) => {
-      if (table === 'facility_members') return ownerRowsChain({ data: [{ user_id: 'owner-1' }, { user_id: 'owner-2' }] });
-      if (table === 'profiles') return ownerRowsChain({ data: [{ email: 'owner1@example.com' }, { email: 'owner2@example.com' }] });
-      return adminReadChain();
-    });
-
-    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
-    expect(res.status).toBe(200);
-    expect(sendBookingCancellationToFacility).toHaveBeenCalledTimes(2);
-    expect(sendBookingCancellationToFacility).toHaveBeenCalledWith(expect.objectContaining({ facilityEmail: 'owner1@example.com' }));
-    expect(sendBookingCancellationToFacility).toHaveBeenCalledWith(expect.objectContaining({ facilityEmail: 'owner2@example.com' }));
-  });
-
-  test('オーナー2人が同じメールアドレス → 重複排除で施設向けキャンセルメールは1通のみ', async () => {
-    const { sendBookingCancellationToFacility } = require('@/lib/email');
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
-
-    let callNum = 0;
-    mockFrom.mockImplementation((table: string) => {
-      callNum++;
-      if (callNum === 1) {
-        return fluent({
-          data: {
-            id: validId, user_id: 'user-1', status: 'pending',
-            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
-            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
-            total_price: 5000, menu_id: null, staff_id: null,
-          },
-        });
-      }
-      if (callNum === 2) {
-        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: validId }], error: null })) })) }));
-        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
-      }
-      if (table === 'facility_profiles') return fluent({ data: { name: 'Salon X' } });
-      return fluent({ data: null });
-    });
-    mockOwnerLookupFrom.mockImplementation((table: string) => {
-      if (table === 'facility_members') return ownerRowsChain({ data: [{ user_id: 'owner-1' }, { user_id: 'owner-2' }] });
-      if (table === 'profiles') return ownerRowsChain({ data: [{ email: 'shared@example.com' }, { email: 'shared@example.com' }] });
-      return adminReadChain();
-    });
-
-    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
-    expect(res.status).toBe(200);
-    expect(sendBookingCancellationToFacility).toHaveBeenCalledTimes(1);
-    expect(sendBookingCancellationToFacility).toHaveBeenCalledWith(expect.objectContaining({ facilityEmail: 'shared@example.com' }));
-  });
 
   test('オーナー0人（facility_members 0行）→ 施設向けキャンセルメール送信はスキップされ本体は成功', async () => {
     const { sendBookingCancellationToFacility } = require('@/lib/email');
@@ -1062,44 +891,6 @@ describe('POST /api/booking/[id]/cancel', () => {
     expect(sendBookingCancellationToFacility).not.toHaveBeenCalled();
   });
 
-  test('sendBookingCancelled/sendBookingCancellationToFacility が送達失敗(false)を返す → 無音化せず可視化するのみ（200のまま）', async () => {
-    const { sendBookingCancelled, sendBookingCancellationToFacility } = require('@/lib/email');
-    (sendBookingCancelled as jest.Mock).mockResolvedValueOnce(false);
-    (sendBookingCancellationToFacility as jest.Mock).mockResolvedValueOnce(false);
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
-
-    let callNum = 0;
-    mockFrom.mockImplementation((table: string) => {
-      callNum++;
-      if (callNum === 1) {
-        return fluent({
-          data: {
-            id: validId, user_id: 'user-1', status: 'pending',
-            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
-            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
-            total_price: 5000, menu_id: null, staff_id: null,
-          },
-        });
-      }
-      if (callNum === 2) {
-        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: validId }], error: null })) })) }));
-        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
-      }
-      if (table === 'facility_profiles') return fluent({ data: { name: 'Salon X' } });
-      return fluent({ data: null });
-    });
-    mockOwnerLookupFrom.mockImplementation((table: string) => {
-      if (table === 'facility_members') return ownerRowsChain({ data: [{ user_id: 'owner-1' }] });
-      if (table === 'profiles') return ownerRowsChain({ data: [{ email: 'owner@example.com' }] });
-      return adminReadChain();
-    });
-
-    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
-    expect(res.status).toBe(200);
-    await new Promise((resolve) => setImmediate(resolve));
-    expect(sendBookingCancelled).toHaveBeenCalledTimes(1);
-    expect(sendBookingCancellationToFacility).toHaveBeenCalledTimes(1);
-  });
 
   // 【2026年7月17日 恒久根治】施設向けキャンセルメール送信 Promise の .catch((e)=>{...}) 経路に
   // テストが無かった（false 返却の .then 分岐は既存でテスト済みだが、reject による .catch 分岐は
@@ -1107,86 +898,14 @@ describe('POST /api/booking/[id]/cancel', () => {
   // 500化しない）ことを検証する。alertCaughtError/safeCaptureException はこのファイルでは
   // モックせず実装のまま呼ぶ（SLACK_BOT_TOKEN 未設定のテスト環境ではサイレントスキップの契約・
   // 既存の「送達失敗(false)」テストも同様に実装のまま検証済み）。
-  test('施設向けキャンセルメール送信が例外を投げる(reject) → catchされ本体は200のまま完了する', async () => {
-    const { sendBookingCancellationToFacility } = require('@/lib/email');
-    (sendBookingCancellationToFacility as jest.Mock).mockRejectedValueOnce(new Error('network down'));
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
-    let callNum = 0;
-    mockFrom.mockImplementation((table: string) => {
-      callNum++;
-      if (callNum === 1) {
-        return fluent({
-          data: {
-            id: validId, user_id: 'user-1', status: 'pending',
-            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
-            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
-            total_price: 5000, menu_id: null, staff_id: null,
-          },
-        });
-      }
-      if (callNum === 2) {
-        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: validId }], error: null })) })) }));
-        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
-      }
-      if (table === 'facility_profiles') return fluent({ data: { name: 'Salon X' } });
-      return fluent({ data: null });
-    });
-    mockOwnerLookupFrom.mockImplementation((table: string) => {
-      if (table === 'facility_members') return ownerRowsChain({ data: [{ user_id: 'owner-1' }] });
-      if (table === 'profiles') return ownerRowsChain({ data: [{ email: 'owner@example.com' }] });
-      return adminReadChain();
-    });
-
-    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
-    expect(res.status).toBe(200);
-    await new Promise((resolve) => setImmediate(resolve));
-    expect(sendBookingCancellationToFacility).toHaveBeenCalledTimes(1);
-  });
 
   // 【2026年7月17日 admin ロールへのメール通知統一】facility_members の admin ロールは
   // push.ts(sendPushToFacilityOwners) では通知対象だが、キャンセル通知メールは .eq('role','owner')
   // のため対象外という非対称があった。role フィルタが push.ts と同じ .in('role',['owner','admin'])
   // で呼ばれること（.eq('role','owner') に戻す退行があれば失敗する）と、admin ロールのメンバーにも
   // 実際にメールが届くこと（owner・admin混在で重複排除も維持されること）を検証する。
-  test('owner+adminが混在 → 両ロールへ施設向けキャンセルメールが送られ、role フィルタは owner/admin 両方を含む', async () => {
-    const { sendBookingCancellationToFacility } = require('@/lib/email');
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
-    let callNum = 0;
-    mockFrom.mockImplementation((table: string) => {
-      callNum++;
-      if (callNum === 1) {
-        return fluent({
-          data: {
-            id: validId, user_id: 'user-1', status: 'pending',
-            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
-            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
-            total_price: 5000, menu_id: null, staff_id: null,
-          },
-        });
-      }
-      if (callNum === 2) {
-        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: validId }], error: null })) })) }));
-        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
-      }
-      if (table === 'facility_profiles') return fluent({ data: { name: 'Salon X' } });
-      return fluent({ data: null });
-    });
-    const membersChain = ownerRowsChain({ data: [{ user_id: 'owner-1' }, { user_id: 'admin-1' }] });
-    mockOwnerLookupFrom.mockImplementation((table: string) => {
-      if (table === 'facility_members') return membersChain;
-      if (table === 'profiles') return ownerRowsChain({ data: [{ email: 'owner1@example.com' }, { email: 'admin1@example.com' }] });
-      return adminReadChain();
-    });
-
-    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
-    expect(res.status).toBe(200);
-    expect(membersChain.in).toHaveBeenCalledWith('role', ['owner', 'admin']);
-    expect(sendBookingCancellationToFacility).toHaveBeenCalledTimes(2);
-    expect(sendBookingCancellationToFacility).toHaveBeenCalledWith(expect.objectContaining({ facilityEmail: 'owner1@example.com' }));
-    expect(sendBookingCancellationToFacility).toHaveBeenCalledWith(expect.objectContaining({ facilityEmail: 'admin1@example.com' }));
-  });
 
 // ─── 深掘り: LINE Works キャンセル通知 ──────────────────────────────────────
 
@@ -1552,93 +1271,6 @@ describe('POST /api/booking/[id]/cancel', () => {
     await new Promise(r => setTimeout(r, 10));
   });
 
-  test('total_price null → undefined フォールバック', async () => {
-    const { sendBookingCancelled } = require('@/lib/email');
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) {
-        return fluent({
-          data: {
-            id: validId, user_id: 'user-1', status: 'pending',
-            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
-            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
-            total_price: null, menu_id: null, staff_id: null,
-          },
-        });
-      }
-      if (callNum === 2) {
-        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: validId }], error: null })) })) }));
-        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
-      }
-      return fluent({ data: null });
-    });
-    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
-    expect(res.status).toBe(200);
-    expect(sendBookingCancelled).toHaveBeenCalledWith(expect.objectContaining({ totalPrice: undefined }));
-  });
-
-  test('facility が null でも email 送信続行（facility?.name フォールバック）', async () => {
-    const { sendBookingCancelled } = require('@/lib/email');
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) {
-        return fluent({
-          data: {
-            id: validId, user_id: 'user-1', status: 'pending',
-            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
-            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
-            total_price: 5000, menu_id: null, staff_id: null,
-          },
-        });
-      }
-      if (callNum === 2) {
-        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: validId }], error: null })) })) }));
-        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
-      }
-      // すべて null
-      return fluent({ data: null });
-    });
-    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
-    expect(res.status).toBe(200);
-    expect(sendBookingCancelled).toHaveBeenCalledWith(expect.objectContaining({ facilityName: '' }));
-  });
-
-  test('owner 取得できるが ownerProfile.email なし → 送信は1回のみ', async () => {
-    const { sendBookingCancelled } = require('@/lib/email');
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
-    let callNum = 0;
-    mockFrom.mockImplementation((table: string) => {
-      callNum++;
-      if (callNum === 1) {
-        return fluent({
-          data: {
-            id: validId, user_id: 'user-1', status: 'pending',
-            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
-            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
-            total_price: 5000, menu_id: null, staff_id: null,
-          },
-        });
-      }
-      if (callNum === 2) {
-        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: validId }], error: null })) })) }));
-        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
-      }
-      if (table === 'facility_profiles') return fluent({ data: { name: 'Salon Y' } });
-      return fluent({ data: null });
-    });
-    mockOwnerLookupFrom.mockImplementation((table: string) => {
-      if (table === 'facility_members') return ownerRowsChain({ data: [{ user_id: 'owner-1' }] });
-      if (table === 'profiles') return ownerRowsChain({ data: [{ email: null }] });
-      return adminReadChain();
-    });
-    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
-    expect(res.status).toBe(200);
-    expect(sendBookingCancelled).toHaveBeenCalledTimes(1);
-  });
 
   test('LINE通知時の email 取得 throw → 内側 catch で握り潰し 200', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
@@ -2030,7 +1662,7 @@ test('旧DBで原子取消RPCが未適用でも直接UPDATE/返還INSERTへ戻�
  mockFrom.mockReturnValue(fluent({data:{id:validId,user_id:'user-1',status:'confirmed',facility_id:'f1',booking_date:'2030-01-07',start_time:'10:00'}}));
  mockRpc.mockResolvedValue({data:null,error:{code:'PGRST202',message:'cancel_booking_with_points_atomic was not found'}});
  expect((await POST(makeRequest(),{params:Promise.resolve({id:validId})})).status).toBe(500);
- expect(mockRpc).toHaveBeenCalledWith('cancel_booking_with_points_atomic',expect.anything());
+ expect(mockRpc).toHaveBeenCalledWith('cancel_customer_booking_with_outbox_atomic',expect.anything());
  expect(mockBookingsWrite).not.toHaveBeenCalled();expect(mockAdminFrom).not.toHaveBeenCalledWith('user_points');
  expect(jest.requireMock('@/lib/email').sendBookingCancelled).not.toHaveBeenCalled();
 });

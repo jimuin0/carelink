@@ -12,7 +12,6 @@ import { z } from 'zod';
 import { sendLineWorksMessage, isLineWorksConfigured } from '@/lib/integrations/line-works';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { writeAuditLog } from '@/lib/audit-logger';
-import { sendBookingRescheduled } from '@/lib/email';
 import { sendPushToUser, sendPushToFacilityOwners } from '@/lib/push';
 import { getFacilityNotificationSettings } from '@/lib/notification-settings';
 import { getTodayString, getMaxDateString } from '@/lib/validations-booking';
@@ -111,7 +110,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     // service_role で呼び、migration 側で anon/authenticated の EXECUTE を撤回して直接呼び出しを塞ぐ。
     // 所有権(booking.user_id === user.id)・状態は上の同期ブロックでサーバ側検証済み。
     const rpcClient = createServiceRoleClient();
-    const { error } = await rpcClient.rpc('change_booking_atomic', {
+    const { data: changed, error } = await rpcClient.rpc('change_customer_booking_with_outbox_receipt_atomic', {
       p_booking_id: params.id,
       p_user_id: user.id,
       p_booking_date: parsed.data.booking_date,
@@ -155,6 +154,11 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       return serverError('booking-change-rpc', error, '/api/booking/[id]/change', '変更に失敗しました');
     }
 
+    if (!changed || changed.length !== 1 || changed[0].id !== params.id || typeof changed[0].replayed !== 'boolean') {
+      return serverError('booking-change-receipt', new Error('booking change receipt unavailable'), '/api/booking/[id]/change', '変更結果を確認できません。ページを更新してください。');
+    }
+    if (changed[0].replayed) return NextResponse.json({ success: true });
+
     void writeAuditLog({
       userId: user.id,
       facilityId: booking.facility_id,
@@ -181,38 +185,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
         .select('customer_name, email, menu_id, total_price')
         .eq('id', params.id)
         .maybeSingle();
-      const [{ data: facility }, menuRes] = await Promise.all([
-        notifyDb.from('facility_profiles').select('name').eq('id', booking.facility_id).maybeSingle(),
-        full?.menu_id
-          ? notifyDb.from('facility_menus').select('name').eq('id', full.menu_id).maybeSingle()
-          : Promise.resolve({ data: null }),
-      ]);
-      if (full?.email) {
-        // sendBookingRescheduled は送信失敗時も throw せず false を返す契約のため、.catch() だけでは
-        // 失敗が無音化する（想定外の例外のみ catch が発火する）。戻り値を確認して可視化する。
-        changeSideEffects.push(
-          sendBookingRescheduled({
-            customerName: full.customer_name ?? '',
-            customerEmail: full.email,
-            facilityName: facility?.name ?? '',
-            bookingDate: parsed.data.booking_date,
-            startTime: parsed.data.start_time,
-            endTime: parsed.data.end_time,
-            menuName: menuRes.data?.name ?? undefined,
-            totalPrice: full.total_price ?? undefined,
-            bookingId: params.id,
-          }).then((ok) => {
-            if (!ok) {
-              const err = new Error('booking rescheduled email send failed');
-              safeCaptureException(err, 'change-email');
-              alertCaughtError('change-email', err, '/api/booking/[id]/change');
-            }
-          }).catch((e) => {
-            safeCaptureException(e, 'change-email');
-            alertCaughtError('change-email', e, '/api/booking/[id]/change');
-          })
-        );
-      }
+      // The customer email is already in the atomic booking outbox.
       changeSideEffects.push(
         sendPushToUser(user.id, {
           title: 'ご予約日時を変更しました',

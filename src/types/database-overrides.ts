@@ -74,7 +74,7 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
     };
     // Omit every overridden key before replacing it. Intersecting generated
     // non-null strings with nullable overrides would silently reject valid SQL NULLs.
-    Functions: Omit<GeneratedFunctions, 'create_booking_atomic' | 'create_online_booking_atomic' | 'prepare_salon_photo' | 'setup_facility_from_registration' | 'save_booking_email_event_atomic' | 'start_booking_email_event' | 'checkout_booking_with_points_atomic' | 'moderate_content_atomic' | 'moderate_review_content_atomic' | 'save_staff_override_atomic' | 'get_staff_mutation_operation' | BookingScopeFunctionName | 'create_booking_with_receipt_atomic'> & {
+    Functions: Omit<GeneratedFunctions, 'create_booking_atomic' | 'create_online_booking_atomic' | 'prepare_salon_photo' | 'setup_facility_from_registration' | 'save_booking_email_event_atomic' | 'start_booking_email_event' | 'start_customer_booking_transition_email' | 'checkout_booking_with_points_atomic' | 'moderate_content_atomic' | 'moderate_review_content_atomic' | 'save_staff_override_atomic' | 'get_staff_mutation_operation' | BookingScopeFunctionName | 'create_booking_with_receipt_atomic'> & {
       // The gateway accepts either a verified actor or a signed guest scope,
       // not both. Its SQL body also permits no staff/coupon/phone/note.
       prepare_booking_create_operation: NullableBookingScopeFunction<'prepare_booking_create_operation'>;
@@ -113,6 +113,20 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
       start_customer_booking_transition_email: {
         Args: { p_queue_id: string; p_claimed_at: string };
         Returns: { outcome: string; started_at: string | null }[];
+      };
+      cancel_customer_booking_with_outbox_atomic: {
+        Args: { p_actor_id: string; p_booking_id: string; p_expected_status: string };
+        Returns: { id: string }[];
+      };
+      change_customer_booking_with_outbox_atomic: {
+        Args: { p_booking_id: string; p_user_id: string; p_booking_date: string;
+          p_start_time: string; p_end_time: string; p_enforce_schedule: boolean };
+        Returns: undefined;
+      };
+      change_customer_booking_with_outbox_receipt_atomic: {
+        Args: { p_booking_id: string; p_user_id: string; p_booking_date: string;
+          p_start_time: string; p_end_time: string; p_enforce_schedule: boolean };
+        Returns: { id: string; replayed: boolean }[];
       };
       // A NULL new status is an adjustment event; NULL envelope means no
       // customer email/internal arrival. SQL explicitly handles NULL revisions.

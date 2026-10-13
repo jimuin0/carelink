@@ -83,6 +83,28 @@ function makeProps(id = BOOKING_UUID) {
   return { params: Promise.resolve({ id }) };
 }
 
+test('same-time replay returns success without duplicate audit, push, LINE Works or email', async () => {
+  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
+  mockRpc.mockResolvedValue({data:[{id:BOOKING_UUID,replayed:true}],error:null});
+  const res=await POST(makeRequest(),makeProps());
+  expect(res.status).toBe(200);expect(await res.json()).toEqual({success:true});
+  expect(jest.requireMock('@/lib/audit-logger').writeAuditLog).not.toHaveBeenCalled();
+  expect(jest.requireMock('@/lib/push').sendPushToUser).not.toHaveBeenCalled();
+  expect(jest.requireMock('@/lib/push').sendPushToFacilityOwners).not.toHaveBeenCalled();
+  expect(jest.requireMock('@/lib/email').sendBookingRescheduled).not.toHaveBeenCalled();
+  expect(jest.requireMock('@/lib/integrations/line-works').sendLineWorksMessage).not.toHaveBeenCalled();
+});
+
+test.each([null,[],[{id:BOOKING_UUID,replayed:false},{id:BOOKING_UUID,replayed:false}],
+  [{id:'wrong',replayed:false}],[{id:BOOKING_UUID,replayed:null}]
+])('unconfirmed transition receipt stops side effects %#',async data=>{
+  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
+  mockRpc.mockResolvedValue({data,error:null});
+  const res=await POST(makeRequest(),makeProps());expect(res.status).toBe(500);
+  expect(jest.requireMock('@/lib/audit-logger').writeAuditLog).not.toHaveBeenCalled();
+  expect(jest.requireMock('@/lib/push').sendPushToUser).not.toHaveBeenCalled();
+});
+
 function singleChain(data: unknown, error: unknown = null) {
   return {
     select: jest.fn().mockReturnThis(),
@@ -103,7 +125,7 @@ beforeEach(() => {
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   // change_booking_atomic はデフォルト成功（error:null）。競合/失敗テストで上書きする。
-  mockRpc.mockResolvedValue({ error: null });
+  mockRpc.mockResolvedValue({ data: [{id:BOOKING_UUID,replayed:false}], error: null });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -229,7 +251,7 @@ test('公開経路の change_booking_atomic は p_enforce_schedule: true を渡�
   mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
   const res = await POST(makeRequest(), makeProps());
   expect(res.status).toBe(200);
-  expect(mockRpc).toHaveBeenCalledWith('change_booking_atomic', expect.objectContaining({
+  expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_outbox_receipt_atomic', expect.objectContaining({
     p_enforce_schedule: true,
   }));
 });
@@ -291,7 +313,7 @@ test('正常変更 → 200 success:true, RPC に p_user_id を渡す（IDOR defe
   expect(res.status).toBe(200);
   expect(json.success).toBe(true);
   // 所有権検証は change_booking_atomic 内で p_user_id により行う（IDOR defence-in-depth）。
-  expect(mockRpc).toHaveBeenCalledWith('change_booking_atomic', expect.objectContaining({
+  expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_outbox_receipt_atomic', expect.objectContaining({
     p_booking_id: BOOKING_UUID,
     p_user_id: USER_ID,
     p_booking_date: VALID_BODY.booking_date,
@@ -366,7 +388,7 @@ test('指名なし(staff_id null)予約も RPC で容量判定して変更可 �
   mockFrom.mockReturnValue(singleChain({ ...CONFIRMED_BOOKING, staff_id: null }));
   const res = await POST(makeRequest(), makeProps());
   expect(res.status).toBe(200);
-  expect(mockRpc).toHaveBeenCalledWith('change_booking_atomic', expect.objectContaining({ p_booking_id: BOOKING_UUID }));
+  expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_outbox_receipt_atomic', expect.objectContaining({ p_booking_id: BOOKING_UUID }));
 });
 
 test('HH:MM:SS 形式の start_time も受け付ける', async () => {
@@ -593,7 +615,7 @@ test('LINE Works通知パス (isLineWorksConfigured=true, menu_id あり)', asyn
   // A-4: 変更後に顧客メール・顧客Push・オーナーPushが送られる（email/menu あり・pushOnNewBooking true 経路）。
   const email = jest.requireMock('@/lib/email');
   const push = jest.requireMock('@/lib/push');
-  expect(email.sendBookingRescheduled).toHaveBeenCalledWith(expect.objectContaining({ customerEmail: 'c@example.com', menuName: 'カット', totalPrice: 5000 }));
+  expect(email.sendBookingRescheduled).not.toHaveBeenCalled();
   expect(push.sendPushToUser).toHaveBeenCalled();
   expect(push.sendPushToFacilityOwners).toHaveBeenCalled();
   isLineWorksConfigured.mockReturnValue(false);
@@ -637,49 +659,12 @@ test('A-4: 変更通知 (email あり・menu_id なし・total_price なし・pu
   const email = jest.requireMock('@/lib/email');
   const push = jest.requireMock('@/lib/push');
   // email あり → 送信。customer_name/facility/menu/total_price は null のため空文字/undefined へフォールバック。
-  expect(email.sendBookingRescheduled).toHaveBeenCalledWith(expect.objectContaining({ customerEmail: 'c@example.com', customerName: '', facilityName: '', menuName: undefined, totalPrice: undefined }));
+  expect(email.sendBookingRescheduled).not.toHaveBeenCalled();
   // 顧客 Push は常に送る。pushOnNewBooking=false のためオーナー Push は送らない。
   expect(push.sendPushToUser).toHaveBeenCalled();
   expect(push.sendPushToFacilityOwners).not.toHaveBeenCalled();
 });
 
-test('A-4: sendBookingRescheduled が送達失敗(false)を返す → 無音化せず可視化するのみ（200のまま）', async () => {
-  const email = jest.requireMock('@/lib/email') as { sendBookingRescheduled: jest.Mock };
-  email.sendBookingRescheduled.mockResolvedValueOnce(false);
-  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
-  mockAdminFrom.mockImplementation((table: string) => {
-    if (table === 'bookings') {
-      return {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn(() => Promise.resolve({ data: { customer_name: 'テスト', email: 'c@example.com', menu_id: null, total_price: 5000 } })),
-      };
-    }
-    return {
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      maybeSingle: jest.fn(() => Promise.resolve({ data: { name: 'Salon' } })),
-    };
-  });
-  let callNum = 0;
-  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
-  const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
-  mockFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return singleChain(CONFIRMED_BOOKING);
-    if (callNum === 2) return {
-      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
-      in: jest.fn().mockReturnThis(), neq: jest.fn().mockReturnThis(),
-      lt: jest.fn().mockReturnThis(), gt: jest.fn().mockReturnThis(),
-      limit: jest.fn(() => Promise.resolve({ data: [], error: null })),
-    };
-    return { update: jest.fn().mockReturnValue({ eq: outerEq }) };
-  });
-  const res = await POST(makeRequest(), makeProps());
-  expect(res.status).toBe(200);
-  await new Promise((resolve) => setImmediate(resolve));
-  expect(email.sendBookingRescheduled).toHaveBeenCalled();
-});
 
 test('A-4: 変更後の booking 取得が null(email 取得不可) → 顧客メール送信なし・200', async () => {
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
