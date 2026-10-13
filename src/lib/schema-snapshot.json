@@ -151,7 +151,8 @@
     "payment_status",
     "phone",
     "points_used",
-    "review_request_sent_at",
+    "review_request_legacy_claimed_at",
+    "review_request_provider_accepted_at",
     "source",
     "staff_id",
     "start_time",
@@ -975,7 +976,8 @@
     "email",
     "email_canonical",
     "email_unsubscribed",
-    "favorites_digest_sent_week",
+    "favorites_digest_legacy_claimed_week",
+    "favorites_digest_provider_accepted_week",
     "gender",
     "id",
     "is_platform_admin",
@@ -1155,6 +1157,20 @@
     "is_holiday",
     "staff_id",
     "start_time"
+  ],
+  "scheduled_email_cutover": [
+    "installed_at",
+    "singleton"
+  ],
+  "scheduled_email_operations": [
+    "accepted_at",
+    "created_at",
+    "id",
+    "kind",
+    "period",
+    "published_at",
+    "snapshot",
+    "source_id"
   ],
   "sent_reminders": [
     "booking_id",
