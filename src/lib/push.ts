@@ -1,6 +1,7 @@
 import { createServiceRoleClient } from './supabase-server';
 import { safeCaptureException } from './safe';
 import { alertCaughtError } from './alert';
+import { channelDeliveryResult, type ChannelDeliveryResult } from './channel-delivery-result';
 
 const VAPID_SUBJECT = 'mailto:support@carelink-jp.com';
 let vapidConfigured = false;
@@ -28,6 +29,27 @@ interface PushPayload {
   body: string;
   url?: string;
   tag?: string;
+}
+
+/** Capture one endpoint before the DB send fence. No recipient lookup, cleanup,
+ * retry, or raw provider error logging occurs in this one-attempt transport. */
+export function prepareCapturedPushDelivery(subscription: { endpoint: string; p256dh: string; auth: string },
+  payload: PushPayload): () => Promise<ChannelDeliveryResult> {
+  if (!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) throw new Error('PUSH_PREPARATION_UNAVAILABLE');
+  const webpush = getWebPush();
+  const captured = { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } };
+  const message = JSON.stringify(payload);
+  try { webpush.generateRequestDetails(captured, message); }
+  catch { throw new Error('PUSH_PREPARATION_UNAVAILABLE'); }
+  return async () => {
+    try {
+      const result = await webpush.sendNotification(captured, message, { timeout: 10000 });
+      return channelDeliveryResult(result?.statusCode);
+    } catch (error) {
+      const result = channelDeliveryResult(typeof error === 'object' && error !== null && 'statusCode' in error ? error.statusCode : null);
+      return result.outcome === 'delivered' ? { outcome: 'uncertain', status: result.status } : result;
+    }
+  };
 }
 
 /**

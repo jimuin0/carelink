@@ -22,6 +22,8 @@ import { dispatchEventEmail, eventEmailEnvelopeSchema } from '@/lib/event-email-
 import { prepareBookingCreationChannel, sendBookingCreationLine } from '@/lib/booking-create-notifications';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkScheduledEmailRecipient } from '@/lib/scheduled-email-recipient';
+import { prepareCustomerBookingChannel } from '@/lib/customer-booking-channel';
+import { channelDeliveryResult } from '@/lib/channel-delivery-result';
 
 export const dynamic = 'force-dynamic';
 
@@ -178,8 +180,13 @@ export async function GET(request: Request) {
       let providerMessageId: string | null = null;
       let newsletterJob = false;
       let newsletterStartedAt: string | null = null;
+      let bookingChannelJob = false;
+      let bookingChannelStartedAt: string | null = null;
+      let bookingChannelRejectedStatus: number | null = null;
       try {
         const payload = job.payload;
+        bookingChannelJob = job.webhook_type.startsWith('customer_booking_') ||
+          (typeof payload === 'object' && payload !== null && !Array.isArray(payload) && 'customer_booking_channel_version' in payload);
         newsletterJob = typeof payload === 'object' && payload !== null && !Array.isArray(payload) && payload.newsletter_delivery_version === 1;
         const scheduledEmailJob = job.webhook_type === 'email' && typeof payload === 'object' && payload !== null
           && !Array.isArray(payload) && 'scheduled_email_version' in payload;
@@ -224,7 +231,15 @@ export async function GET(request: Request) {
         // 送信前に payload と設定を検証する。この段階の失敗には外部効果がないので、
         // scheduleRetry による通常の再試行が安全である。
         let deliver: () => Promise<void>;
-        if (job.webhook_type === 'salon_registration_email' || job.webhook_type === 'salon_registration_internal'
+        if (bookingChannelJob) {
+          const sendChannel = await prepareCustomerBookingChannel(job);
+          deliver = async () => {
+            const result = await sendChannel();
+            const checked = channelDeliveryResult(result.status);
+            if (result.outcome === 'rejected' && checked.outcome === 'rejected') { definitelyRejected = true; bookingChannelRejectedStatus = result.status; }
+            if (result.outcome !== 'delivered' || checked.outcome !== 'delivered') throw new Error('BOOKING_CHANNEL_ACCEPTANCE_UNCONFIRMED');
+          };
+        } else if (job.webhook_type === 'salon_registration_email' || job.webhook_type === 'salon_registration_internal'
           || job.webhook_type === 'facility_welcome') {
           const sendRegistration = job.webhook_type === 'facility_welcome'
             ? await prepareFacilityWelcomeDelivery(supabase, job, resend)
@@ -281,7 +296,19 @@ export async function GET(request: Request) {
         // この write が失敗した場合は送信を始めないため、scheduleRetry 経由の安全な再試行が可能。
         let deliveryStartedAt = new Date().toISOString();
         const bookingCreation = typeof payload === 'object' && payload !== null && !Array.isArray(payload) && typeof payload.booking_create_operation === 'string';
-        if (bookingCreation) {
+        if (bookingChannelJob) {
+          const { data: fenceRows, error: fenceError } = await supabase.rpc('start_customer_booking_channel', {
+            p_queue_id: job.id, p_claimed_at: claimEpoch,
+          });
+          if (fenceError) throw fenceError;
+          const fence = fenceRows?.length === 1 ? fenceRows[0] : null;
+          if (!fence || !['ready','superseded','not_owned'].includes(fence.outcome)) throw new Error('BOOKING_CHANNEL_FENCE_UNAVAILABLE');
+          if (fence.outcome === 'superseded') { superseded++; continue; }
+          if (fence.outcome === 'not_owned') { deliveryUncertain++; continue; }
+          if (!fence.started_at || !Number.isFinite(Date.parse(fence.started_at))) throw new Error('BOOKING_CHANNEL_FENCE_TIME_INVALID');
+          bookingChannelStartedAt = fence.started_at;
+          deliveryStartedAt = fence.started_at;
+        } else if (bookingCreation) {
           const { data: fenceRows, error: fenceError } = await supabase.rpc('start_booking_create_notification', { p_queue_id: job.id, p_claimed_at: claimEpoch });
           if (fenceError) throw fenceError;
           const fence = fenceRows?.length === 1 ? fenceRows[0] : null;
@@ -385,6 +412,18 @@ export async function GET(request: Request) {
             err: errorMsg,
           });
           deliveryUncertain++;
+          continue;
+        }
+        if (bookingChannelJob && deliveryAttempted && definitelyRejected) {
+          try {
+            const recorded = await supabase.rpc('record_customer_booking_channel_rejection', {
+              p_queue_id: job.id, p_claimed_at: claimEpoch, p_started_at: bookingChannelStartedAt!,
+              p_provider_status: bookingChannelRejectedStatus!,
+            });
+            if (recorded.error || !['rescheduled','dead-letter'].includes(recorded.data!)) { deliveryUncertain++; continue; }
+            if (recorded.data === 'dead-letter') deadLettered++;
+            failed++;
+          } catch { deliveryUncertain++; }
           continue;
         }
         if (newsletterJob && deliveryAttempted && definitelyRejected) {

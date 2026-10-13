@@ -1059,6 +1059,118 @@ export type Database = {
           },
         ]
       }
+      customer_booking_channel_events: {
+        Row: {
+          booking_id: string
+          booking_revision: string
+          created_at: string
+          id: string
+          kind: string
+        }
+        Insert: {
+          booking_id: string
+          booking_revision: string
+          created_at?: string
+          id?: string
+          kind: string
+        }
+        Update: {
+          booking_id?: string
+          booking_revision?: string
+          created_at?: string
+          id?: string
+          kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_booking_channel_events_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_booking_channel_operations: {
+        Row: {
+          booking_id: string
+          booking_revision: string
+          channel: string
+          created_at: string
+          event_id: string
+          id: string
+          kind: string
+          role: string
+          target_hash: string
+        }
+        Insert: {
+          booking_id: string
+          booking_revision: string
+          channel: string
+          created_at?: string
+          event_id: string
+          id: string
+          kind: string
+          role: string
+          target_hash: string
+        }
+        Update: {
+          booking_id?: string
+          booking_revision?: string
+          channel?: string
+          created_at?: string
+          event_id?: string
+          id?: string
+          kind?: string
+          role?: string
+          target_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_booking_channel_oper_event_id_booking_id_booking__fkey"
+            columns: ["event_id", "booking_id", "booking_revision", "kind"]
+            isOneToOne: false
+            referencedRelation: "customer_booking_channel_events"
+            referencedColumns: ["id", "booking_id", "booking_revision", "kind"]
+          },
+          {
+            foreignKeyName: "customer_booking_channel_operations_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_booking_channel_rejections: {
+        Row: {
+          observed_at: string
+          operation_id: string
+          provider_status: number
+          started_at: string
+        }
+        Insert: {
+          observed_at?: string
+          operation_id: string
+          provider_status: number
+          started_at: string
+        }
+        Update: {
+          observed_at?: string
+          operation_id?: string
+          provider_status?: number
+          started_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_booking_channel_rejections_operation_id_fkey"
+            columns: ["operation_id"]
+            isOneToOne: false
+            referencedRelation: "customer_booking_channel_operations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customer_coupon_email_operations: {
         Row: {
           coupon_id: string
@@ -6203,6 +6315,10 @@ export type Database = {
         }[]
       }
       booking_points_atomic_version: { Args: never; Returns: number }
+      booking_push_subscription_fingerprint: {
+        Args: { p_auth: string; p_endpoint: string; p_p256dh: string }
+        Returns: string
+      }
       cancel_booking_with_points_atomic: {
         Args: {
           p_actor_id: string
@@ -7006,6 +7122,10 @@ export type Database = {
           status: string
         }[]
       }
+      publish_customer_booking_channels: {
+        Args: { p_booking_id: string; p_kind: string }
+        Returns: number
+      }
       publish_customer_booking_transition_email: {
         Args: { p_booking_id: string; p_kind: string }
         Returns: number
@@ -7039,6 +7159,15 @@ export type Database = {
           p_provider_status: string
         }
         Returns: boolean
+      }
+      record_customer_booking_channel_rejection: {
+        Args: {
+          p_claimed_at: string
+          p_provider_status: number
+          p_queue_id: string
+          p_started_at: string
+        }
+        Returns: string
       }
       record_facility_page_view: {
         Args: { facility_uuid: string }
@@ -7782,6 +7911,13 @@ export type Database = {
         }[]
       }
       start_booking_email_event: {
+        Args: { p_claimed_at: string; p_queue_id: string }
+        Returns: {
+          outcome: string
+          started_at: string
+        }[]
+      }
+      start_customer_booking_channel: {
         Args: { p_claimed_at: string; p_queue_id: string }
         Returns: {
           outcome: string

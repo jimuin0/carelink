@@ -247,6 +247,30 @@
     "period_key",
     "sent_at"
   ],
+  "customer_booking_channel_events": [
+    "booking_id",
+    "booking_revision",
+    "created_at",
+    "id",
+    "kind"
+  ],
+  "customer_booking_channel_operations": [
+    "booking_id",
+    "booking_revision",
+    "channel",
+    "created_at",
+    "event_id",
+    "id",
+    "kind",
+    "role",
+    "target_hash"
+  ],
+  "customer_booking_channel_rejections": [
+    "observed_at",
+    "operation_id",
+    "provider_status",
+    "started_at"
+  ],
   "customer_coupon_email_operations": [
     "coupon_id",
     "created_at",
