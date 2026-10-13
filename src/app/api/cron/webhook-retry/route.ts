@@ -17,6 +17,7 @@ import { sendResendForReconciliation } from '@/lib/resend-result';
 import { prepareSalonOutboxDelivery } from '@/lib/salon-outbox-delivery';
 import { prepareFacilityWelcomeDelivery } from '@/lib/facility-welcome-delivery';
 import { prepareManualBookingEnvelope } from '@/lib/manual-booking-notification';
+import { prepareCustomerBookingTransitionEnvelope } from '@/lib/customer-booking-transition-email';
 import { dispatchEventEmail, eventEmailEnvelopeSchema } from '@/lib/event-email-delivery';
 import { prepareBookingCreationChannel, sendBookingCreationLine } from '@/lib/booking-create-notifications';
 import { UUID_REGEX } from '@/lib/constants';
@@ -250,6 +251,8 @@ export async function GET(request: Request) {
           if (!resend) throw new Error('email skipped: RESEND_API_KEY not configured');
           const checkedEnvelope = job.webhook_type === 'manual_booking_confirmation'
             ? eventEmailEnvelopeSchema.safeParse(await prepareManualBookingEnvelope(supabase, job))
+            : typeof payload === 'object' && payload !== null && 'customer_booking_transition_version' in payload
+              ? eventEmailEnvelopeSchema.safeParse(await prepareCustomerBookingTransitionEnvelope(supabase, job))
             : eventEmailEnvelopeSchema.safeParse(job.email_envelope);
           if (!checkedEnvelope.success) throw new Error('email payload is invalid');
           const envelope = checkedEnvelope.data;
@@ -294,8 +297,10 @@ export async function GET(request: Request) {
           if (!fence.started_at || !Number.isFinite(Date.parse(fence.started_at))) throw new Error('invalid newsletter fence time');
           newsletterStartedAt = fence.started_at;
           deliveryStartedAt = fence.started_at;
-        } else if (job.booking_event_id) {
-          const { data: fenceRows, error: fenceError } = await supabase.rpc('start_booking_email_event', {
+        } else if (job.booking_event_id || (typeof payload === 'object' && payload !== null && !Array.isArray(payload)
+          && payload.customer_booking_transition_version === 1)) {
+          const { data: fenceRows, error: fenceError } = await supabase.rpc(
+            job.booking_event_id ? 'start_booking_email_event' : 'start_customer_booking_transition_email', {
             p_queue_id: job.id, p_claimed_at: claimEpoch,
           });
           if (fenceError) throw fenceError;
