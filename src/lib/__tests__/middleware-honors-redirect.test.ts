@@ -104,8 +104,8 @@ beforeEach(() => {
 
 test('(i) 認証済み + /auth/login?redirect=/admin → /admin へ', async () => {
   const res: Record<string, unknown> = await middleware(makeRequest('/auth/login?redirect=/admin'));
-  expect(res._isRedirect).toBe(true);
-  expect((res._redirectedTo as URL).pathname).toBe('/admin');
+  expect(res._isRedirect).toBeUndefined();
+  expect((res.headers as Headers).get('content-security-policy')).toContain('nonce-');
 });
 
 test('(ii) 認証済み + /auth/login?redirect=https://evil.example.com → /mypage へ', async () => {

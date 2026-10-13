@@ -137,7 +137,7 @@ test('confirmed owner renders business child, no membership is denied except exi
   expect(renderToStaticMarkup(await shell())).toContain('synthetic protected business child');
   members.data = [];
   await expect(shell()).rejects.toThrow('synthetic redirect');
-  expect(mockRedirect).toHaveBeenCalledWith('/mypage');
+  expect(mockRedirect).toHaveBeenCalledWith('/auth/login?redirect=/admin&error=store_access_required');
   mockPath = '/admin/onboarding';
   expect(renderToStaticMarkup(await shell())).toContain('synthetic protected business child');
   mockPath = '/admin/registrations'; profile.data = { is_platform_admin: true };

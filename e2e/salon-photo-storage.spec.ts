@@ -298,13 +298,19 @@ test('platform registration search traverses over 100 real rows and rejects stal
   await expect(supportNavigation.getByRole('link', { name: '問い合わせ(運営)', exact: true })).toHaveAttribute('href', '/admin/inquiries');
   await expect(supportNavigation.getByRole('link', { name: '施設登録', exact: true })).toHaveAttribute('href', '/admin/registrations');
   await page.goto('/admin/settings');
-  await expect(page).toHaveURL(/\/mypage/);
+  await expect(page).toHaveURL(/\/auth\/login\?redirect=%2Fadmin%2Fsettings&error=store_access_required$/);
+  // This server-authorization fixture intentionally stores Auth cookies as
+  // HttpOnly. The browser SDK cannot read its identity; real browser account
+  // choices and their warning are covered by auth.spec.ts's UI signup flow.
+  await expect(page.getByRole('heading', { name: 'ログイン', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '問い合わせ管理', exact: true })).toBeHidden();
   const revoked = await service.from('profiles').update({ is_platform_admin: false }).eq('id', userId).select('id');
   if (revoked.error || revoked.data?.length !== 1) throw new Error('synthetic platform role revoke failed');
   expect((await context.request.get('/api/admin/inquiries')).status()).toBe(403);
   expect((await context.request.post('/api/admin/registrations', { headers, data: query })).status()).toBe(403);
   await page.goto('/admin/inquiries');
-  await expect(page).toHaveURL(/\/mypage/);
+  await expect(page).toHaveURL(/\/auth\/login\?redirect=%2Fadmin%2Finquiries&error=store_access_required$/);
+  await expect(page.getByRole('heading', { name: 'ログイン', exact: true })).toBeVisible();
 });
 
 async function loginSyntheticOwner(context: BrowserContext) {

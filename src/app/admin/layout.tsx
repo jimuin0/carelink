@@ -240,7 +240,9 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
     if (isOnboarding) {
       return <>{children}</>;
     }
-    redirect('/mypage');
+    // Membership can disappear while middleware's short-lived positive cache
+    // is still valid. Keep the same explicit account-choice destination here.
+    redirect('/auth/login?redirect=/admin&error=store_access_required');
   }
 
   const facilityChoices = memberships.map(membership => ({

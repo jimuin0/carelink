@@ -49,7 +49,7 @@ test.each(['/admin/inquiries', '/admin/registrations'])('operator without facili
 });
 test('ordinary account cannot render support without facility membership', async () => {
   profile.mockResolvedValue({ data: { is_platform_admin: false } });
-  await expect(renderShell()).rejects.toThrow('redirect:/mypage');
+  await expect(renderShell()).rejects.toThrow('redirect:/auth/login?redirect=/admin&error=store_access_required');
 });
 test('failed profile lookup offers explicit retry, not false denial or privileged shell', async () => {
   profile.mockResolvedValue({ data: null, error: { message: 'failure' } });
@@ -62,7 +62,7 @@ test('failed profile lookup offers explicit retry, not false denial or privilege
 });
 test.each(['/admin', '/admin/settings', '/admin/inquiries-evil'])('operator-only account cannot render facility route: %s', async path => {
   pathname = path;
-  await expect(renderShell()).rejects.toThrow('redirect:/mypage');
+  await expect(renderShell()).rejects.toThrow('redirect:/auth/login?redirect=/admin&error=store_access_required');
 });
 test('onboarding still works without a facility', async () => {
   pathname = '/admin/onboarding';

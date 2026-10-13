@@ -13,6 +13,9 @@ import { safeRedirect } from '@/lib/safe-redirect';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { SITE_URL } from '@/lib/constants';
 import { useClientReady } from '@/lib/use-client-ready';
+import { isStoreManagementRedirect } from '@/lib/store-login';
+import { clearAccountLocalData, LOCAL_DATA_CLEAR_FAILED } from '@/lib/client-storage';
+import { markClientCleanupNeeded, completeClientCleanupMarker } from '@/lib/client-cleanup-marker';
 
 export default function LoginPage() {
   // 見出し・カード外枠は Suspense の外（=SSR）で描画する。
@@ -48,6 +51,7 @@ function LoginContent() {
   // window.location.origin を使い、プレビュー環境等でも同一オリジン判定が正しく働く。
   const origin = typeof window !== 'undefined' ? window.location.origin : SITE_URL;
   const redirect = safeRedirect(searchParams.get('redirect'), origin);
+  const storeManagementLogin = isStoreManagementRedirect(redirect);
   const errorParam = searchParams.get('error');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(
     errorParam === 'line_link_required'
@@ -65,6 +69,11 @@ function LoginContent() {
     resolver: zodResolver(loginSchema),
   });
   const [showPassword, setShowPassword] = useState(false);
+  const [currentAccount, setCurrentAccount] = useState<{ email: string | undefined } | null>(null);
+  const [sessionCheck, setSessionCheck] = useState<{ destination: string; state: 'verified' | 'unauthenticated' | 'unavailable' } | null>(null);
+  const [checkAttempt, setCheckAttempt] = useState(0);
+  const [switchingAccount, setSwitchingAccount] = useState(false);
+  const [switchSignedOut, setSwitchSignedOut] = useState(false);
   const authInFlight = useRef(false);
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
   const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
@@ -91,21 +100,57 @@ function LoginContent() {
 
   // ログイン済みユーザーが /auth/login に来た場合(ブックマーク・戻る操作・リンク共有等)、
   // フォームを表示し続けるとヘッダーだけログイン済みに見えて「ログインできない」と誤解される
-  // (2026年7月6日・神原さん指摘)。マウント時にセッションを確認し、あれば即座にredirect先へ送る。
+  // 店舗管理へのログインはアカウント選択を表示する。通常の利用者ログインは目的地へ進める。
   useEffect(() => {
     let active = true;
     const checkSession = async () => {
       try {
         const identity = await verifyAuthUser(createBrowserSupabaseClient().auth);
-        if (active && identity.state === 'verified') router.replace(redirect);
+        if (active && storeManagementLogin) {
+          setSessionCheck({ destination: redirect, state: identity.state });
+          if (identity.state === 'unauthenticated') setCurrentAccount(null);
+        }
+        if (active && identity.state === 'verified') {
+          if (storeManagementLogin) setCurrentAccount({ email: identity.user.email });
+          else router.replace(redirect);
+        }
       } catch {
-        // セッション確認だけの障害でフォームを使用不能にしない。明示ログイン時に案内する。
+        if (active && storeManagementLogin) setSessionCheck({ destination: redirect, state: 'unavailable' });
       }
     };
     void checkSession();
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [redirect, storeManagementLogin, checkAttempt]);
+
+  const switchAccount = async () => {
+    if (authInFlight.current) return;
+    authInFlight.current = true;
+    setSwitchingAccount(true);
+    setToast(null);
+    try {
+      markClientCleanupNeeded();
+      if (!switchSignedOut) {
+        await clearAccountLocalData();
+        const result = await createBrowserSupabaseClient().auth.signOut({ scope: 'local' });
+        if (result.error !== null) throw new Error('account logout not confirmed');
+        setSwitchSignedOut(true);
+      }
+      await clearAccountLocalData();
+      completeClientCleanupMarker();
+      setSessionCheck({ destination: redirect, state: 'unauthenticated' });
+      setCurrentAccount(null);
+      setSwitchSignedOut(false);
+      // Auth subscribers update the header. Refreshing this already-public
+      // login document can race the user's next login/navigation; protected
+      // destinations reverify the new identity on their own request.
+    } catch {
+      setToast({ type: 'error', message: `アカウントの切り替え準備を完了できませんでした。再試行してください。${LOCAL_DATA_CLEAR_FAILED}` });
+    } finally {
+      authInFlight.current = false;
+      setSwitchingAccount(false);
+    }
+  };
 
   const onSubmit = async (data: LoginFormData) => {
     if (authInFlight.current) return;
@@ -173,7 +218,8 @@ function LoginContent() {
       const supabase = createBrowserSupabaseClient();
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}` },
+        options: { redirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}`,
+          ...(storeManagementLogin ? { queryParams: { prompt: 'select_account' } } : {}) },
       });
       if (error || !data.url) throw new Error('oauth_start_failed');
     } catch {
@@ -187,6 +233,38 @@ function LoginContent() {
   // 客用ログインと同じ画面に見えて「ここで合っているのか」が分からなかった。
   // h1 は SSR 維持のため触らず（上のコメント参照）、この補足行で着地点を明示する。
   const isStoreLogin = redirect.startsWith('/admin');
+
+  if (storeManagementLogin && (!sessionCheck || sessionCheck.destination !== redirect)) {
+    return <p role="status">ログイン中のアカウントを確認しています…</p>;
+  }
+  if (storeManagementLogin && sessionCheck?.state === 'unavailable') {
+    return <div className="space-y-4">
+      <p role="alert">ログイン状態を確認できません。アカウントの切り替え前に、再確認してください。</p>
+      <button type="button" className="btn-secondary w-full" onClick={() => { setSessionCheck(null); setCheckAttempt(value => value + 1); }}>ログイン状態を再確認</button>
+    </div>;
+  }
+  if (currentAccount && storeManagementLogin) {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-lg font-bold">店舗ログイン</h2>
+        <p className="text-sm break-all">
+          {switchSignedOut ? 'ログアウト済みです。端末の下書き削除を再試行してください。' : `ログイン中のアカウント：${currentAccount.email ?? 'メールアドレス未設定'}`}
+        </p>
+        {errorParam === 'store_access_required' && <p role="alert" className="text-sm text-amber-800">
+          このアカウントには、店舗の管理権限がありません。店舗用のアカウントでログインするか、店舗登録へ進んでください。
+        </p>}
+        {!switchSignedOut && <>
+          <Link href={redirect} className="btn-primary block text-center">このアカウントで管理画面を開く</Link>
+          <Link href="/admin/onboarding" className="block text-center text-sm text-sky-700 underline">このアカウントで店舗登録へ進む</Link>
+        </>}
+        <p className="text-xs text-gray-600">別アカウントに切り替えると、この端末にある未送信の店舗登録・予約の下書きを削除します。</p>
+        <button type="button" disabled={switchingAccount} onClick={switchAccount} className="btn-secondary w-full">
+          {switchingAccount ? '切り替え準備中…' : switchSignedOut ? '端末の下書き削除を再試行' : '別アカウントでログイン'}
+        </button>
+        {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+      </div>
+    );
+  }
 
   return (
     <>

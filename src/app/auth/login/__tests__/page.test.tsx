@@ -14,6 +14,10 @@ const mockGetUser = jest.fn();
 const mockSignIn = jest.fn();
 const mockOAuth = jest.fn();
 const mockResend = jest.fn();
+const mockSignOut = jest.fn();
+const mockClearData = jest.fn();
+const mockMarkCleanup = jest.fn();
+const mockCompleteCleanup = jest.fn();
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush, refresh: mockRefresh, replace: mockReplace }),
@@ -21,18 +25,135 @@ jest.mock('next/navigation', () => ({
 }));
 jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: () => mockCreate() }));
 jest.mock('@/lib/line-availability', () => ({ isLineLoginEnabled: () => false }));
+jest.mock('@/lib/client-storage', () => ({ clearAccountLocalData: () => mockClearData(), LOCAL_DATA_CLEAR_FAILED: '端末の下書き削除を確認できませんでした。' }));
+jest.mock('@/lib/client-cleanup-marker', () => ({ markClientCleanupNeeded: () => mockMarkCleanup(), completeClientCleanupMarker: () => mockCompleteCleanup() }));
 
 beforeEach(() => {
   jest.resetAllMocks();
   mockParams = new URLSearchParams();
   mockCreate.mockImplementation(() => ({ auth: {
-    getUser: mockGetUser, signInWithPassword: mockSignIn, signInWithOAuth: mockOAuth, resend: mockResend,
+    getUser: mockGetUser, signInWithPassword: mockSignIn, signInWithOAuth: mockOAuth, resend: mockResend, signOut: mockSignOut,
   } }));
   mockGetUser.mockResolvedValue({ data: { user: null } });
   mockSignIn.mockResolvedValue({ error: null });
   mockResend.mockResolvedValue({ error: null });
+  mockSignOut.mockResolvedValue({ error: null });
+  mockClearData.mockResolvedValue(undefined);
 });
 afterEach(() => { jest.useRealTimers(); });
+
+async function signedInStoreLogin(error?: string) {
+  mockParams = new URLSearchParams({ redirect: '/admin/bookings?date=2026-10-13', ...(error ? { error } : {}) });
+  mockGetUser.mockResolvedValue({ data: { user: { id: 'customer', email: 'customer@example.invalid' } } });
+  render(<LoginPage />);
+  await screen.findByRole('button', { name: '別アカウントでログイン' });
+}
+
+test('signed-in store login offers choices without silently routing to admin/mypage or logging out', async () => {
+  await signedInStoreLogin();
+  expect(mockReplace).not.toHaveBeenCalled();
+  expect(mockSignOut).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText('パスワード')).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'このアカウントで管理画面を開く' })).toHaveAttribute('href', '/admin/bookings?date=2026-10-13');
+  expect(screen.getByRole('link', { name: 'このアカウントで店舗登録へ進む' })).toHaveAttribute('href', '/admin/onboarding');
+});
+
+test('permission denial explains missing store access and keeps account switching available', async () => {
+  await signedInStoreLogin('store_access_required');
+  expect(screen.getByRole('alert')).toHaveTextContent('このアカウントには、店舗の管理権限がありません');
+  expect(mockReplace).not.toHaveBeenCalled();
+});
+
+test('switch logs out only this session and waits for privacy cleanup before showing credentials', async () => {
+  await signedInStoreLogin();
+  let finish!: () => void;
+  mockClearData.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+  fireEvent.click(screen.getByRole('button', { name: '別アカウントでログイン' }));
+  expect(screen.queryByLabelText('パスワード')).not.toBeInTheDocument();
+  expect(mockSignOut).not.toHaveBeenCalled();
+  await act(async () => { finish(); });
+  await screen.findByLabelText('パスワード');
+  expect(mockSignOut).toHaveBeenCalledTimes(1);
+  expect(mockSignOut).toHaveBeenCalledWith({ scope: 'local' });
+  expect(mockClearData).toHaveBeenCalledTimes(2);
+  expect(mockCompleteCleanup).toHaveBeenCalledTimes(1);
+  expect(mockRefresh).not.toHaveBeenCalled();
+});
+
+test('pre-logout privacy cleanup failure blocks logout and new credentials', async () => {
+  await signedInStoreLogin();
+  mockClearData.mockRejectedValueOnce(new Error('storage unavailable'));
+  fireEvent.click(screen.getByRole('button', { name: '別アカウントでログイン' }));
+  await screen.findByRole('alert');
+  expect(mockSignOut).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText('パスワード')).not.toBeInTheDocument();
+  expect(mockCompleteCleanup).not.toHaveBeenCalled();
+});
+
+test('logout provider error never claims that account switching completed', async () => {
+  await signedInStoreLogin();
+  mockSignOut.mockResolvedValueOnce({ error: { message: 'unavailable' } });
+  fireEvent.click(screen.getByRole('button', { name: '別アカウントでログイン' }));
+  await screen.findByRole('alert');
+  expect(screen.queryByLabelText('パスワード')).not.toBeInTheDocument();
+  expect(mockRefresh).not.toHaveBeenCalled();
+});
+
+test('post-logout cleanup failure retries cleanup without another logout or exposing login controls', async () => {
+  await signedInStoreLogin();
+  mockClearData.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('storage unavailable'));
+  fireEvent.click(screen.getByRole('button', { name: '別アカウントでログイン' }));
+  await screen.findByRole('button', { name: '端末の下書き削除を再試行' });
+  expect(screen.queryByLabelText('パスワード')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '端末の下書き削除を再試行' }));
+  await screen.findByLabelText('パスワード');
+  expect(mockSignOut).toHaveBeenCalledTimes(1);
+  expect(mockCompleteCleanup).toHaveBeenCalledTimes(1);
+});
+
+test('store credentials remain absent while identity is pending, including before hydration', async () => {
+  mockParams = new URLSearchParams({ redirect: '/admin' });
+  let finish!: (value: unknown) => void;
+  mockGetUser.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const html = renderToString(<LoginPage />);
+  expect(html).not.toContain('id="login-password"');
+  render(<LoginPage />);
+  expect(screen.getByRole('status')).toBeInTheDocument();
+  expect(screen.queryByLabelText('パスワード')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Googleでログイン' })).not.toBeInTheDocument();
+  await act(async () => { finish({ data: { user: { id: 'customer' } }, error: null }); });
+  await screen.findByRole('button', { name: '別アカウントでログイン' });
+  expect(mockSignIn).not.toHaveBeenCalled();
+  expect(mockClearData).not.toHaveBeenCalled();
+});
+
+test('unknown store identity keeps credentials locked and can retry to a confirmed absent session', async () => {
+  mockParams = new URLSearchParams({ redirect: '/admin' });
+  mockGetUser.mockRejectedValueOnce(new Error('network unavailable'));
+  render(<LoginPage />);
+  await screen.findByRole('button', { name: 'ログイン状態を再確認' });
+  expect(screen.queryByLabelText('パスワード')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'ログイン状態を再確認' }));
+  await screen.findByLabelText('パスワード');
+  expect(mockGetUser).toHaveBeenCalledTimes(2);
+  expect(mockSignOut).not.toHaveBeenCalled();
+});
+
+test('normal consumer login still automatically continues a verified session', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: { id: 'customer' } } });
+  render(<LoginPage />);
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/mypage'));
+});
+
+test('store Google login requests explicit account selection', async () => {
+  mockParams = new URLSearchParams({ redirect: '/admin' });
+  mockOAuth.mockResolvedValue({ data: { url: 'https://accounts.google.com/example' }, error: null });
+  render(<LoginPage />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Googleでログイン' }));
+  await waitFor(() => expect(mockOAuth).toHaveBeenCalledWith(expect.objectContaining({
+    options: expect.objectContaining({ queryParams: { prompt: 'select_account' } }),
+  })));
+});
 
 function submit(email = 'owner@example.com') {
   fireEvent.change(screen.getByLabelText('メールアドレス'), { target: { value: email } });
