@@ -603,7 +603,8 @@ export type Database = {
           payment_status: string | null
           phone: string | null
           points_used: number | null
-          review_request_sent_at: string | null
+          review_request_legacy_claimed_at: string | null
+          review_request_provider_accepted_at: string | null
           source: string
           staff_id: string | null
           start_time: string
@@ -632,7 +633,8 @@ export type Database = {
           payment_status?: string | null
           phone?: string | null
           points_used?: number | null
-          review_request_sent_at?: string | null
+          review_request_legacy_claimed_at?: string | null
+          review_request_provider_accepted_at?: string | null
           source?: string
           staff_id?: string | null
           start_time: string
@@ -661,7 +663,8 @@ export type Database = {
           payment_status?: string | null
           phone?: string | null
           points_used?: number | null
-          review_request_sent_at?: string | null
+          review_request_legacy_claimed_at?: string | null
+          review_request_provider_accepted_at?: string | null
           source?: string
           staff_id?: string | null
           start_time?: string
@@ -3873,7 +3876,8 @@ export type Database = {
           email: string | null
           email_canonical: string | null
           email_unsubscribed: boolean | null
-          favorites_digest_sent_week: string | null
+          favorites_digest_legacy_claimed_week: string | null
+          favorites_digest_provider_accepted_week: string | null
           gender: string | null
           id: string
           is_platform_admin: boolean
@@ -3893,7 +3897,8 @@ export type Database = {
           email?: string | null
           email_canonical?: string | null
           email_unsubscribed?: boolean | null
-          favorites_digest_sent_week?: string | null
+          favorites_digest_legacy_claimed_week?: string | null
+          favorites_digest_provider_accepted_week?: string | null
           gender?: string | null
           id: string
           is_platform_admin?: boolean
@@ -3913,7 +3918,8 @@ export type Database = {
           email?: string | null
           email_canonical?: string | null
           email_unsubscribed?: boolean | null
-          favorites_digest_sent_week?: string | null
+          favorites_digest_legacy_claimed_week?: string | null
+          favorites_digest_provider_accepted_week?: string | null
           gender?: string | null
           id?: string
           is_platform_admin?: boolean
@@ -4585,6 +4591,54 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      scheduled_email_cutover: {
+        Row: {
+          installed_at: string
+          singleton: boolean
+        }
+        Insert: {
+          installed_at?: string
+          singleton?: boolean
+        }
+        Update: {
+          installed_at?: string
+          singleton?: boolean
+        }
+        Relationships: []
+      }
+      scheduled_email_operations: {
+        Row: {
+          accepted_at: string | null
+          created_at: string
+          id: string
+          kind: string
+          period: string
+          published_at: string | null
+          snapshot: Json
+          source_id: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          created_at?: string
+          id?: string
+          kind: string
+          period: string
+          published_at?: string | null
+          snapshot: Json
+          source_id: string
+        }
+        Update: {
+          accepted_at?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          period?: string
+          published_at?: string | null
+          snapshot?: Json
+          source_id?: string
+        }
+        Relationships: []
       }
       sent_reminders: {
         Row: {
@@ -6723,6 +6777,23 @@ export type Database = {
           receipt_id: string
         }[]
       }
+      list_scheduled_digest_recipients: {
+        Args: { p_after?: string; p_limit?: number }
+        Returns: {
+          user_id: string
+        }[]
+      }
+      list_scheduled_review_recipients: {
+        Args: {
+          p_after_id?: string
+          p_after_updated_at?: string
+          p_limit?: number
+        }
+        Returns: {
+          id: string
+          updated_at: string
+        }[]
+      }
       lock_booking_account: { Args: { p_user_id: string }; Returns: undefined }
       lock_booking_create_scope: {
         Args: { p_actor_id: string; p_guest_hash: string; p_id: string }
@@ -6821,7 +6892,8 @@ export type Database = {
           payment_status: string | null
           phone: string | null
           points_used: number | null
-          review_request_sent_at: string | null
+          review_request_legacy_claimed_at: string | null
+          review_request_provider_accepted_at: string | null
           source: string
           staff_id: string | null
           start_time: string
@@ -6926,6 +6998,14 @@ export type Database = {
           outcome: string
         }[]
       }
+      prepare_scheduled_email_atomic: {
+        Args: { p_envelope: Json; p_operation_id: string }
+        Returns: {
+          created: boolean
+          id: string
+          status: string
+        }[]
+      }
       publish_customer_booking_transition_email: {
         Args: { p_booking_id: string; p_kind: string }
         Returns: number
@@ -6993,6 +7073,14 @@ export type Database = {
           valid_until: string
         }[]
       }
+      reserve_scheduled_email_atomic: {
+        Args: { p_email?: string; p_kind: string; p_source_id: string }
+        Returns: {
+          operation_id: string
+          snapshot: Json
+          state: string
+        }[]
+      }
       review_content_hash: {
         Args: { r: Database["public"]["Tables"]["facility_reviews"]["Row"] }
         Returns: string
@@ -7026,6 +7114,16 @@ export type Database = {
         }
         Returns: Json
       }
+      scheduled_digest_content: {
+        Args: { p_since: string; p_user_id: string }
+        Returns: Json
+      }
+      scheduled_digest_snapshot_valid: {
+        Args: { p_facilities: Json; p_since: string; p_user_id: string }
+        Returns: boolean
+      }
+      scheduled_email_cutover_at: { Args: never; Returns: string }
+      scheduled_email_legacy_holds: { Args: never; Returns: Json }
       search_facilities_nearby: {
         Args: {
           features_filter?: string[]
@@ -7699,6 +7797,17 @@ export type Database = {
       }
       start_newsletter_delivery: {
         Args: { p_claimed_at: string; p_queue_id: string }
+        Returns: {
+          outcome: string
+          started_at: string
+        }[]
+      }
+      start_scheduled_email_delivery: {
+        Args: {
+          p_claimed_at: string
+          p_queue_id: string
+          p_recipient_current: boolean
+        }
         Returns: {
           outcome: string
           started_at: string

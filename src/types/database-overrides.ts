@@ -74,7 +74,7 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
     };
     // Omit every overridden key before replacing it. Intersecting generated
     // non-null strings with nullable overrides would silently reject valid SQL NULLs.
-    Functions: Omit<GeneratedFunctions, 'create_booking_atomic' | 'create_online_booking_atomic' | 'prepare_salon_photo' | 'setup_facility_from_registration' | 'save_booking_email_event_atomic' | 'start_booking_email_event' | 'start_customer_booking_transition_email' | 'checkout_booking_with_points_atomic' | 'moderate_content_atomic' | 'moderate_review_content_atomic' | 'save_staff_override_atomic' | 'get_staff_mutation_operation' | BookingScopeFunctionName | 'create_booking_with_receipt_atomic'> & {
+    Functions: Omit<GeneratedFunctions, 'create_booking_atomic' | 'create_online_booking_atomic' | 'prepare_salon_photo' | 'setup_facility_from_registration' | 'save_booking_email_event_atomic' | 'start_booking_email_event' | 'start_customer_booking_transition_email' | 'start_scheduled_email_delivery' | 'reserve_scheduled_email_atomic' | 'list_scheduled_review_recipients' | 'list_scheduled_digest_recipients' | 'checkout_booking_with_points_atomic' | 'moderate_content_atomic' | 'moderate_review_content_atomic' | 'save_staff_override_atomic' | 'get_staff_mutation_operation' | BookingScopeFunctionName | 'create_booking_with_receipt_atomic'> & {
       // The gateway accepts either a verified actor or a signed guest scope,
       // not both. Its SQL body also permits no staff/coupon/phone/note.
       prepare_booking_create_operation: NullableBookingScopeFunction<'prepare_booking_create_operation'>;
@@ -119,6 +119,11 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
         Args: { p_queue_id: string; p_claimed_at: string; p_recipient_current: boolean };
         Returns: { outcome: string; started_at: string | null }[];
       };
+      reserve_scheduled_email_atomic: {Args:{p_kind:string;p_source_id:string;p_email:string|null};Returns:{state:string;operation_id:string|null;snapshot:GeneratedDatabase['public']['Tables']['webhook_retry_queue']['Row']['payload']}[]};
+      prepare_scheduled_email_atomic: {Args:{p_operation_id:string;p_envelope:GeneratedDatabase['public']['Tables']['webhook_retry_queue']['Row']['payload']};Returns:{id:string;status:string;created:boolean}[]};
+      list_scheduled_review_recipients: {Args:{p_after_updated_at:string|null;p_after_id:string|null;p_limit:number};Returns:{id:string;updated_at:string}[]};
+      list_scheduled_digest_recipients: {Args:{p_after:string|null;p_limit:number};Returns:{user_id:string}[]};
+      scheduled_email_legacy_holds:{Args:Record<string,never>;Returns:GeneratedDatabase['public']['Tables']['webhook_retry_queue']['Row']['payload']};
       cancel_customer_booking_with_outbox_atomic: {
         Args: { p_actor_id: string; p_booking_id: string; p_expected_status: string };
         Returns: { id: string }[];
