@@ -70,6 +70,8 @@ function LoginContent() {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [currentAccount, setCurrentAccount] = useState<{ email: string | undefined } | null>(null);
+  const [sessionCheck, setSessionCheck] = useState<{ destination: string; state: 'verified' | 'unauthenticated' | 'unavailable' } | null>(null);
+  const [checkAttempt, setCheckAttempt] = useState(0);
   const [switchingAccount, setSwitchingAccount] = useState(false);
   const [switchSignedOut, setSwitchSignedOut] = useState(false);
   const authInFlight = useRef(false);
@@ -104,18 +106,22 @@ function LoginContent() {
     const checkSession = async () => {
       try {
         const identity = await verifyAuthUser(createBrowserSupabaseClient().auth);
+        if (active && storeManagementLogin) {
+          setSessionCheck({ destination: redirect, state: identity.state });
+          if (identity.state === 'unauthenticated') setCurrentAccount(null);
+        }
         if (active && identity.state === 'verified') {
           if (storeManagementLogin) setCurrentAccount({ email: identity.user.email });
           else router.replace(redirect);
         }
       } catch {
-        // セッション確認だけの障害でフォームを使用不能にしない。明示ログイン時に案内する。
+        if (active && storeManagementLogin) setSessionCheck({ destination: redirect, state: 'unavailable' });
       }
     };
     void checkSession();
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [redirect, storeManagementLogin, checkAttempt]);
 
   const switchAccount = async () => {
     if (authInFlight.current) return;
@@ -132,6 +138,7 @@ function LoginContent() {
       }
       await clearAccountLocalData();
       completeClientCleanupMarker();
+      setSessionCheck({ destination: redirect, state: 'unauthenticated' });
       setCurrentAccount(null);
       setSwitchSignedOut(false);
       router.refresh();
@@ -225,7 +232,16 @@ function LoginContent() {
   // h1 は SSR 維持のため触らず（上のコメント参照）、この補足行で着地点を明示する。
   const isStoreLogin = redirect.startsWith('/admin');
 
-  if (currentAccount) {
+  if (storeManagementLogin && (!sessionCheck || sessionCheck.destination !== redirect)) {
+    return <p role="status">ログイン中のアカウントを確認しています…</p>;
+  }
+  if (storeManagementLogin && sessionCheck?.state === 'unavailable') {
+    return <div className="space-y-4">
+      <p role="alert">ログイン状態を確認できません。アカウントの切り替え前に、再確認してください。</p>
+      <button type="button" className="btn-secondary w-full" onClick={() => { setSessionCheck(null); setCheckAttempt(value => value + 1); }}>ログイン状態を再確認</button>
+    </div>;
+  }
+  if (currentAccount && storeManagementLogin) {
     return (
       <div className="space-y-4">
         <h2 className="text-lg font-bold">店舗ログイン</h2>

@@ -111,6 +111,34 @@ test('post-logout cleanup failure retries cleanup without another logout or expo
   expect(mockCompleteCleanup).toHaveBeenCalledTimes(1);
 });
 
+test('store credentials remain absent while identity is pending, including before hydration', async () => {
+  mockParams = new URLSearchParams({ redirect: '/admin' });
+  let finish!: (value: unknown) => void;
+  mockGetUser.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  const html = renderToString(<LoginPage />);
+  expect(html).not.toContain('id="login-password"');
+  render(<LoginPage />);
+  expect(screen.getByRole('status')).toBeInTheDocument();
+  expect(screen.queryByLabelText('パスワード')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Googleでログイン' })).not.toBeInTheDocument();
+  await act(async () => { finish({ data: { user: { id: 'customer' } }, error: null }); });
+  await screen.findByRole('button', { name: '別アカウントでログイン' });
+  expect(mockSignIn).not.toHaveBeenCalled();
+  expect(mockClearData).not.toHaveBeenCalled();
+});
+
+test('unknown store identity keeps credentials locked and can retry to a confirmed absent session', async () => {
+  mockParams = new URLSearchParams({ redirect: '/admin' });
+  mockGetUser.mockRejectedValueOnce(new Error('network unavailable'));
+  render(<LoginPage />);
+  await screen.findByRole('button', { name: 'ログイン状態を再確認' });
+  expect(screen.queryByLabelText('パスワード')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'ログイン状態を再確認' }));
+  await screen.findByLabelText('パスワード');
+  expect(mockGetUser).toHaveBeenCalledTimes(2);
+  expect(mockSignOut).not.toHaveBeenCalled();
+});
+
 test('normal consumer login still automatically continues a verified session', async () => {
   mockGetUser.mockResolvedValue({ data: { user: { id: 'customer' } } });
   render(<LoginPage />);
@@ -121,7 +149,7 @@ test('store Google login requests explicit account selection', async () => {
   mockParams = new URLSearchParams({ redirect: '/admin' });
   mockOAuth.mockResolvedValue({ data: { url: 'https://accounts.google.com/example' }, error: null });
   render(<LoginPage />);
-  fireEvent.click(screen.getByRole('button', { name: 'Googleでログイン' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Googleでログイン' }));
   await waitFor(() => expect(mockOAuth).toHaveBeenCalledWith(expect.objectContaining({
     options: expect.objectContaining({ queryParams: { prompt: 'select_account' } }),
   })));
