@@ -71,6 +71,15 @@ BEGIN
 END $$;
 RESET ROLE;
 DROP TRIGGER synthetic_plan_failure ON public.webhook_retry_queue;
+-- Simulate a policy edit during channel planning, after email snapshot capture.
+CREATE FUNCTION pg_temp.change_policy_during_plan() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF NEW.payload->>'kind'='cancelled' AND NEW.payload ? 'customer_booking_channel_version' THEN
+  UPDATE public.facility_cancel_policies SET late_cancel_rate=0 WHERE facility_id=NEW.facility_id;
+ END IF;
+ RETURN NEW;
+END $$;
+CREATE TRIGGER synthetic_policy_edit AFTER INSERT ON public.webhook_retry_queue FOR EACH ROW EXECUTE FUNCTION pg_temp.change_policy_during_plan();
 SET LOCAL ROLE service_role;
 DO $$ DECLARE receipt record; revision timestamptz; intents integer; balance bigint;
 BEGIN
@@ -93,6 +102,15 @@ BEGIN
   AND receipt.fee_context->>'totalPrice'='5000' AND receipt.fee_context->>'bookingDate'='2030-01-07'
   AND receipt.fee_context->>'startTime'='12:00:00' AND (receipt.fee_context->>'capturedAt')::timestamptz>=revision,
   'cancel returns fee inputs from the committed transaction');
+ PERFORM pg_temp.assert_channel(NOT EXISTS(SELECT 1 FROM public.webhook_retry_queue q
+  WHERE q.facility_id='be120000-0000-4000-8000-000000000001'
+    AND q.payload->>'kind'='cancelled' AND q.payload ? 'customer_booking_transition_version'
+    AND jsonb_build_object('policy',q.payload->'snapshot'->'cancelPolicy','totalPrice',q.payload->'snapshot'->'totalPrice',
+      'bookingDate',q.payload->'snapshot'->'bookingDate','startTime',q.payload->'snapshot'->'startTime',
+      'capturedAt',q.payload->'snapshot'->'capturedAt') IS DISTINCT FROM receipt.fee_context),
+  'email and API fee context share the exact clock and policy snapshot');
+ PERFORM pg_temp.assert_channel((SELECT late_cancel_rate=0 FROM public.facility_cancel_policies
+  WHERE facility_id='be120000-0000-4000-8000-000000000001'),'new policy does not replace the captured fee context');
  PERFORM pg_temp.assert_channel((SELECT sum(points)=balance+100 FROM public.user_points WHERE user_id='be110000-0000-4000-8000-000000000001')
   AND (SELECT count(*)=2 FROM public.webhook_retry_queue WHERE facility_id='be120000-0000-4000-8000-000000000001' AND payload->>'kind'='cancelled' AND payload ? 'customer_booking_transition_version')
   AND (SELECT count(*)=3 FROM public.webhook_retry_queue WHERE facility_id='be120000-0000-4000-8000-000000000001' AND payload->>'kind'='cancelled' AND payload ? 'customer_booking_channel_version'),
@@ -105,6 +123,23 @@ BEGIN
  PERFORM pg_temp.assert_channel((SELECT count(*)=intents FROM public.webhook_retry_queue WHERE facility_id='be120000-0000-4000-8000-000000000001')
   AND (SELECT sum(points)=balance+100 FROM public.user_points WHERE user_id='be110000-0000-4000-8000-000000000001'),
   'repeat cancellation never refunds or plans twice');
+END $$;
+RESET ROLE;
+DROP TRIGGER synthetic_policy_edit ON public.webhook_retry_queue;
+-- No email recipients: the API still returns a verified fee context.
+UPDATE public.profiles SET email='' WHERE id IN ('be110000-0000-4000-8000-000000000002','be110000-0000-4000-8000-000000000003');
+DELETE FROM public.facility_cancel_policies WHERE facility_id='be120000-0000-4000-8000-000000000001';
+SET LOCAL ROLE service_role;
+INSERT INTO public.bookings(id,facility_id,user_id,staff_id,menu_id,booking_date,start_time,end_time,customer_name,email,status,total_price,points_used)
+ VALUES('be130000-0000-4000-8000-000000000002','be120000-0000-4000-8000-000000000001','be110000-0000-4000-8000-000000000001',
+ 'be160000-0000-4000-8000-000000000001','be150000-0000-4000-8000-000000000001','2030-01-07','15:00','16:00','Synthetic','', 'confirmed',5000,0);
+DO $$ DECLARE receipt record;
+BEGIN
+ SELECT * INTO receipt FROM public.cancel_customer_booking_with_channels_atomic('be110000-0000-4000-8000-000000000001','be130000-0000-4000-8000-000000000002','confirmed');
+ PERFORM pg_temp.assert_channel(receipt.fee_context->'policy'='null'::jsonb
+  AND receipt.fee_context->>'startTime'='15:00:00' AND (receipt.fee_context->>'capturedAt')::timestamptz IS NOT NULL
+  AND NOT EXISTS(SELECT 1 FROM public.webhook_retry_queue WHERE payload ? 'customer_booking_transition_version'
+    AND payload->'snapshot'->>'bookingId'=receipt.id::text),'no-email cancellation remains valid without fabricating a policy');
 END $$;
 RESET ROLE;
 ROLLBACK;

@@ -45,11 +45,13 @@ function expectNoInlineSend(){for(const [module,names] of [
 const body={booking_date:'2026-10-15',start_time:'12:00',end_time:'13:00'};
 function request(input:unknown=body){return new Request(`http://localhost/api/booking/${ID}/change`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input)});}
 beforeEach(()=>{
+ jest.useFakeTimers({now:new Date('2026-10-14T00:00:00Z'),doNotFake:['setTimeout','clearTimeout']});
  jest.clearAllMocks();mockRotateCookies=false;mockSetCookie.mockReset();
  (checkCsrf as jest.Mock).mockReturnValue(null);(checkRateLimit as jest.Mock).mockResolvedValue(false);
  (verifyAuthUser as jest.Mock).mockResolvedValue({state:'verified',user:{id:USER}});
  mockFrom.mockReturnValue(chain(booking));mockRpc.mockResolvedValue({data:[{id:ID,replayed:false}],error:null});
 });
+afterEach(()=>jest.useRealTimers());
 test('change commits complete notifications with explicit owned actor and schedule gate',async()=>{
  const res=await POST(request(),props());expect(res.status).toBe(200);expect(await res.json()).toEqual({success:true});
  expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_channels_atomic',{p_booking_id:ID,p_user_id:USER,p_booking_date:body.booking_date,p_start_time:body.start_time,p_end_time:body.end_time,p_enforce_schedule:true});
