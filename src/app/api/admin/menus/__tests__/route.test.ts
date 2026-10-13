@@ -69,19 +69,19 @@ function listChain(data: unknown[], error: unknown = null) {
 }
 
 // Duplicate name check: maybeSingle()
-function dupCheckChain(data: unknown) {
+function dupCheckChain(data: unknown, error: unknown = null) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
-    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
   };
 }
 
 // Count check: select with count option returns { count }
-function countChain(count: number) {
+function countChain(count: number, error: unknown = null) {
   return {
     select: jest.fn().mockReturnThis(),
-    eq: jest.fn(() => Promise.resolve({ count, error: null })),
+    eq: jest.fn(() => Promise.resolve({ count, error })),
   };
 }
 
@@ -327,7 +327,7 @@ test('POST: sort_order 明示指定 → 201', async () => {
   expect(res.status).toBe(201);
 });
 
-test('POST: count が null → sort_order=0 で挿入 → 201', async () => {
+test('POST: count が null → 保存をせず 500', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   let callNum = 0;
   mockAdminFrom.mockImplementation(() => {
@@ -340,7 +340,32 @@ test('POST: count が null → sort_order=0 で挿入 → 201', async () => {
     return insertSingle({ id: 'menu-y' });
   });
   const res = await POST(makePostRequest(validBody()));
-  expect(res.status).toBe(201);
+  expect(res.status).toBe(500);
+  expect(mockAdminFrom).toHaveBeenCalledTimes(2);
+});
+
+test('POST: 重複確認失敗 → DBへの挿入も監査記録も行わない', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const insertion = insertSingle({ id: 'must-not-create' });
+  mockAdminFrom.mockReturnValueOnce(dupCheckChain(null, { code: '57014', message: 'query timeout' }))
+    .mockReturnValue(insertion);
+  const res = await POST(makePostRequest(validBody()));
+  expect(res.status).toBe(500);
+  expect(await res.json()).toEqual({ error: 'サーバーエラーが発生しました' });
+  expect(mockAdminFrom).toHaveBeenCalledTimes(1);
+  expect(insertion.insert).not.toHaveBeenCalled();
+});
+
+test('POST: 件数取得失敗 → 明示sort_orderでもDBへ挿入しない', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const insertion = insertSingle({ id: 'must-not-create' });
+  mockAdminFrom.mockReturnValueOnce(dupCheckChain(null))
+    .mockReturnValueOnce(countChain(0, { code: '57014', message: 'query timeout' }))
+    .mockReturnValue(insertion);
+  const res = await POST(makePostRequest(validBody({ sort_order: 99 })));
+  expect(res.status).toBe(500);
+  expect(mockAdminFrom).toHaveBeenCalledTimes(2);
+  expect(insertion.insert).not.toHaveBeenCalled();
 });
 
 // ─── ストック写真ガード（2026年8月11日・src/lib/stock-image-guard.ts）─────────
