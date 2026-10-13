@@ -114,6 +114,11 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
         Args: { p_queue_id: string; p_claimed_at: string };
         Returns: { outcome: string; started_at: string | null }[];
       };
+      // Staged consumer; producers create these jobs only after the RPC is installed.
+      start_scheduled_email_delivery: {
+        Args: { p_queue_id: string; p_claimed_at: string; p_recipient_current: boolean };
+        Returns: { outcome: string; started_at: string | null }[];
+      };
       cancel_customer_booking_with_outbox_atomic: {
         Args: { p_actor_id: string; p_booking_id: string; p_expected_status: string };
         Returns: { id: string }[];

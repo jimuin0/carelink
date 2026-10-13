@@ -21,6 +21,7 @@ import { prepareCustomerBookingTransitionEnvelope } from '@/lib/customer-booking
 import { dispatchEventEmail, eventEmailEnvelopeSchema } from '@/lib/event-email-delivery';
 import { prepareBookingCreationChannel, sendBookingCreationLine } from '@/lib/booking-create-notifications';
 import { UUID_REGEX } from '@/lib/constants';
+import { checkScheduledEmailRecipient } from '@/lib/scheduled-email-recipient';
 
 export const dynamic = 'force-dynamic';
 
@@ -180,6 +181,8 @@ export async function GET(request: Request) {
       try {
         const payload = job.payload;
         newsletterJob = typeof payload === 'object' && payload !== null && !Array.isArray(payload) && payload.newsletter_delivery_version === 1;
+        const scheduledEmailJob = job.webhook_type === 'email' && typeof payload === 'object' && payload !== null
+          && !Array.isArray(payload) && 'scheduled_email_version' in payload;
         const legacyEmail = job.webhook_type === 'email' && (typeof payload !== 'object' || payload === null
           || Array.isArray(payload) || payload.event_email_version !== 1);
         if (legacyEmail) {
@@ -297,11 +300,12 @@ export async function GET(request: Request) {
           if (!fence.started_at || !Number.isFinite(Date.parse(fence.started_at))) throw new Error('invalid newsletter fence time');
           newsletterStartedAt = fence.started_at;
           deliveryStartedAt = fence.started_at;
-        } else if (job.booking_event_id || (typeof payload === 'object' && payload !== null && !Array.isArray(payload)
+        } else if (scheduledEmailJob || job.booking_event_id || (typeof payload === 'object' && payload !== null && !Array.isArray(payload)
           && payload.customer_booking_transition_version === 1)) {
           const { data: fenceRows, error: fenceError } = await supabase.rpc(
-            job.booking_event_id ? 'start_booking_email_event' : 'start_customer_booking_transition_email', {
+            scheduledEmailJob ? 'start_scheduled_email_delivery' : job.booking_event_id ? 'start_booking_email_event' : 'start_customer_booking_transition_email', {
             p_queue_id: job.id, p_claimed_at: claimEpoch,
+            ...(scheduledEmailJob ? {p_recipient_current:await checkScheduledEmailRecipient(supabase,payload,job.target_id)} : {}),
           });
           if (fenceError) throw fenceError;
           const fence = fenceRows?.[0];
