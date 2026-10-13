@@ -19,7 +19,7 @@ test('failure after a successful page never produces a partial staff set', async
     .mockResolvedValueOnce({ data: null, error: { code: '08006', message: 'private source error' } });
   await expect(readCompleteAvailabilityStaff(read)).rejects.toThrow('DATABASE_FAILURE:08006');
 });
-test.each([null, {}, [{}], [{ id: 'not-a-uuid' }]])('unverified staff page is rejected %#', async data => {
+test.each([null, {}, [{}], [{ id: 'not-a-uuid' }]].map(data => [data]))('unverified staff page is rejected %#', async data => {
   await expect(readCompleteAvailabilityStaff(async () => ({ data, error: null }))).rejects.toThrow('staff page invalid');
 });
 test.each([[{ id: id(1) }, { id: id(1) }], [{ id: id(2) }, { id: id(1) }]].map(data => [data]))('duplicate or backwards cursor cannot hide more staff %#', async data => {
@@ -36,7 +36,7 @@ test('complete leap month includes every day and real zero-slot days', () => {
 test.each([null, [], monthRows().slice(1), monthRows().concat([{ d: '2028-03-01', slots: 0 }]),
   monthRows().map((row, i) => i === 0 ? { ...row, slots: -1 } : row),
   monthRows().map((row, i) => i === 0 ? { ...row, slots: 0.5 } : row),
-])('missing or invalid month result never becomes zero slots %#', raw => {
+].map(raw => [raw]))('missing or invalid month result never becomes zero slots %#', raw => {
   expect(() => readCompleteMonthAvailability(raw, 2028, 2)).toThrow('month result incomplete');
 });
 test.each(['2028-03-01', '2028-02-29'])('wrong month or duplicate day is rejected: %s', d => {
@@ -47,6 +47,6 @@ test('valid fallback rows and explicit empty rows count correctly', () => {
   expect(countConfirmedAvailabilitySlots([{ slot_start: '09:00:00' }, { slot_start: '10:00' }])).toBe(2);
   expect(countConfirmedAvailabilitySlots([])).toBe(0);
 });
-test.each([null, {}, [{}], [{ slot_start: '25:00' }]])('unverified fallback result is rejected %#', raw => {
+test.each([null, {}, [{}], [{ slot_start: '25:00' }]].map(raw => [raw]))('unverified fallback result is rejected %#', raw => {
   expect(() => countConfirmedAvailabilitySlots(raw)).toThrow('fallback result invalid');
 });
