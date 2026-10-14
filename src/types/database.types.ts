@@ -7210,6 +7210,14 @@ export type Database = {
           state: string
         }[]
       }
+      retire_admin_coupon_atomic: {
+        Args: { p_actor_id: string; p_coupon_id: string; p_facility_id: string }
+        Returns: {
+          coupon_id: string
+          facility_id: string
+          outcome: string
+        }[]
+      }
       review_content_hash: {
         Args: { r: Database["public"]["Tables"]["facility_reviews"]["Row"] }
         Returns: string
