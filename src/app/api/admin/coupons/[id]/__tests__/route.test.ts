@@ -64,30 +64,9 @@ function setupOwnership() {
   mockAdminFrom.mockImplementation(() => {
     adminCallNum++;
     if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
-    return buildUpdateOrDeleteChain();
+    throw new Error('direct coupon writes forbidden');
   });
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
-}
-
-function buildUpdateOrDeleteChain(error: unknown = null) {
-  return {
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          select: jest.fn().mockReturnValue({
-            maybeSingle: jest.fn(() => Promise.resolve({ data: { id: COUPON_UUID }, error })),
-          }),
-        }),
-      }),
-    }),
-    delete: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          select: jest.fn(() => Promise.resolve({ data: error ? null : [{ id: COUPON_UUID }], error })),
-        }),
-      }),
-    }),
-  };
 }
 
 beforeEach(() => {
@@ -98,179 +77,6 @@ beforeEach(() => {
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
-});
-
-// ─── DELETE: guards ───────────────────────────────────────────────────────────
-
-test('DELETE: 不正なUUID → 400', async () => {
-  const res = await DELETE(makeRequest('DELETE'), makeProps('bad-id'));
-  expect(res.status).toBe(400);
-});
-
-test('DELETE: 他施設のクーポン → 401', async () => {
-  mockAdminFrom.mockReturnValue(singleChain({ facility_id: 'other-facility' }));
-  mockAnonFrom.mockReturnValue(singleChain(null));
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(401);
-});
-
-function redemptionCountChain(count: number, error: unknown = null) {
-  return { select: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ count, error })) }) };
-}
-
-test('DELETE: 利用実績なし → DELETEのWHEREにfacility_idが含まれ成功 → 200', async () => {
-  let adminCallNum = 0;
-  const innerEq = jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: COUPON_UUID }], error: null })) });
-  const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
-  const deleteMock = jest.fn().mockReturnValue({ eq: outerEq });
-
-  mockAdminFrom.mockImplementation(() => {
-    adminCallNum++;
-    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
-    if (adminCallNum === 2) return redemptionCountChain(0);
-    return { delete: deleteMock };
-  });
-  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
-
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.message).toBe('deleted');
-  expect(outerEq).toHaveBeenCalledWith('id', COUPON_UUID);
-  expect(innerEq).toHaveBeenCalledWith('facility_id', FACILITY_UUID);
-});
-
-test('DELETE: 利用実績あり → 削除せず無効化のみ → 200', async () => {
-  let adminCallNum = 0;
-  const updateSelect = jest.fn(() => Promise.resolve({ data: [{ id: COUPON_UUID }], error: null }));
-  const updateEq2 = jest.fn().mockReturnValue({ select: updateSelect });
-  const updateEq1 = jest.fn().mockReturnValue({ eq: updateEq2 });
-  const updateMock = jest.fn().mockReturnValue({ eq: updateEq1 });
-
-  mockAdminFrom.mockImplementation(() => {
-    adminCallNum++;
-    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
-    if (adminCallNum === 2) return redemptionCountChain(3);
-    return { update: updateMock };
-  });
-  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
-
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.message).toBe('利用実績があるため無効化しました');
-  expect(updateMock).toHaveBeenCalledWith({ is_active: false });
-});
-
-test('DELETE: 利用実績あり → 無効化のDB更新自体が失敗 → 500', async () => {
-  let adminCallNum = 0;
-  const updateSelect = jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } }));
-  const updateEq2 = jest.fn().mockReturnValue({ select: updateSelect });
-  const updateEq1 = jest.fn().mockReturnValue({ eq: updateEq2 });
-  const updateMock = jest.fn().mockReturnValue({ eq: updateEq1 });
-
-  mockAdminFrom.mockImplementation(() => {
-    adminCallNum++;
-    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
-    if (adminCallNum === 2) return redemptionCountChain(3);
-    return { update: updateMock };
-  });
-  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
-
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(500);
-});
-
-test('DELETE: 利用実績あり・無効化0行（verify後にTOCTOU削除）→ 404', async () => {
-  let adminCallNum = 0;
-  const updateSelect = jest.fn(() => Promise.resolve({ data: [], error: null }));
-  const updateEq2 = jest.fn().mockReturnValue({ select: updateSelect });
-  const updateEq1 = jest.fn().mockReturnValue({ eq: updateEq2 });
-  const updateMock = jest.fn().mockReturnValue({ eq: updateEq1 });
-
-  mockAdminFrom.mockImplementation(() => {
-    adminCallNum++;
-    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
-    if (adminCallNum === 2) return redemptionCountChain(3);
-    return { update: updateMock };
-  });
-  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
-
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(404);
-});
-
-test('DELETE: 利用実績カウント取得失敗 → 500', async () => {
-  let adminCallNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    adminCallNum++;
-    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
-    return redemptionCountChain(0, { message: 'DB error' });
-  });
-  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(500);
-});
-
-test('DELETE: DB削除失敗 → 500', async () => {
-  let adminCallNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    adminCallNum++;
-    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
-    if (adminCallNum === 2) return redemptionCountChain(0);
-    return {
-      delete: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            select: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
-          }),
-        }),
-      }),
-    };
-  });
-  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(500);
-});
-
-test('DELETE: 利用実績なし・削除0行 (verify後にTOCTOU削除) → 404', async () => {
-  let adminCallNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    adminCallNum++;
-    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
-    if (adminCallNum === 2) return redemptionCountChain(0);
-    return {
-      delete: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            select: jest.fn(() => Promise.resolve({ data: [], error: null })),
-          }),
-        }),
-      }),
-    };
-  });
-  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(404);
-});
-
-test('DELETE: CSRFエラー → そのまま返却', async () => {
-  const csrfRes = new Response('csrf', { status: 403 });
-  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res).toBe(csrfRes);
-});
-
-test('DELETE: レートリミット → 429', async () => {
-  (checkRateLimit as jest.Mock).mockReturnValue(true);
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(429);
-});
-
-test('DELETE: 未認証 → 401', async () => {
-  mockGetUser.mockResolvedValue({ data: { user: null } });
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(401);
 });
 
 describe('PATCH atomic fields and restrictions',()=>{
@@ -294,4 +100,23 @@ describe('PATCH atomic fields and restrictions',()=>{
  test.each([PATCH,DELETE])('membership read error with data cannot authorize mutation',async route=>{mockAnonFrom.mockReturnValue(singleChain({facility_id:FACILITY_UUID},{code:'08006'}));expect((await route(makeRequest(route===PATCH?'PATCH':'DELETE',{name:'x'}),makeProps())).status).toBe(500);expect(mockRpc).not.toHaveBeenCalled();});
  test('nonmember cannot save public coupon',async()=>{mockAnonFrom.mockReturnValue(singleChain(null));expect((await PATCH(makeRequest('PATCH',{name:'x'}),makeProps())).status).toBe(401);expect(mockRpc).not.toHaveBeenCalled();});
  test('missing coupon before lookup has no mutation',async()=>{mockAdminFrom.mockReturnValue(singleChain(null));expect((await PATCH(makeRequest('PATCH',{name:'x'}),makeProps())).status).toBe(401);expect(mockRpc).not.toHaveBeenCalled();});
+});
+
+describe('DELETE atomic usage and retirement',()=>{
+ beforeEach(()=>{setupOwnership();mockRpc.mockResolvedValue({data:[{outcome:'deleted',coupon_id:COUPON_UUID,facility_id:FACILITY_UUID}],error:null});});
+ test.each(['deleted','deactivated'])('confirmed %s returns success and corresponding audit only after gateway',async outcome=>{
+  mockRpc.mockResolvedValue({data:[{outcome,coupon_id:COUPON_UUID,facility_id:FACILITY_UUID}],error:null});
+  const res=await DELETE(makeRequest('DELETE'),makeProps());expect(res.status).toBe(200);
+  expect(mockRpc).toHaveBeenCalledWith('retire_admin_coupon_atomic',{p_actor_id:USER_ID,p_facility_id:FACILITY_UUID,p_coupon_id:COUPON_UUID});
+  expect(mockAdminFrom).toHaveBeenCalledTimes(1);const {writeAuditLog}=require('@/lib/audit-logger');expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({action:outcome==='deleted'?'delete':'update',recordId:COUPON_UUID}));
+ });
+ test.each([['42501',401],['08006',500]])('gateway failure %s returns %s without success audit',async(code,status)=>{mockRpc.mockResolvedValue({data:null,error:{code,message:'private'}});expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(status);const {writeAuditLog}=require('@/lib/audit-logger');expect(writeAuditLog).not.toHaveBeenCalled();});
+ test('missing/deleted row is 404, not phantom success',async()=>{mockRpc.mockResolvedValue({data:[],error:null});expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(404);});
+ test('valid uppercase UUID matches the canonical database receipt',async()=>{const id='FA760003-0000-4000-8000-000000000001';mockRpc.mockResolvedValue({data:[{outcome:'deleted',coupon_id:id.toLowerCase(),facility_id:FACILITY_UUID}],error:null});expect((await DELETE(makeRequest('DELETE'),makeProps(id))).status).toBe(200);});
+ test.each([{outcome:'bad',coupon_id:COUPON_UUID,facility_id:FACILITY_UUID},{outcome:'deleted',coupon_id:'wrong',facility_id:FACILITY_UUID},{outcome:'deleted',coupon_id:COUPON_UUID,facility_id:'wrong'}])('malformed scope receipt does not report success: %j',async receipt=>{mockRpc.mockResolvedValue({data:[receipt],error:null});expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(500);const {writeAuditLog}=require('@/lib/audit-logger');expect(writeAuditLog).not.toHaveBeenCalled();});
+ test('bad UUID is rejected',async()=>{expect((await DELETE(makeRequest('DELETE'),makeProps('bad'))).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
+ test('no identity is rejected',async()=>{mockGetUser.mockResolvedValue({data:{user:null},error:null});expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(401);});
+ test('no membership cannot retire public coupon',async()=>{mockAnonFrom.mockReturnValue(singleChain(null));expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(401);});
+ test('rate limit is respected',async()=>{(checkRateLimit as jest.Mock).mockReturnValue(true);expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(429);});
+ test('CSRF denial is respected',async()=>{(checkCsrf as jest.Mock).mockReturnValue(new Response('{}',{status:403}));expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(403);});
 });

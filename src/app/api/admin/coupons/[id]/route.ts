@@ -129,57 +129,17 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   const admin = createServiceRoleClient();
 
-  // 利用実績(coupon_redemptions)がある場合は削除しない。ON DELETE CASCADEにより
-  // 監査記録である利用実績が道連れで消えるため、packages/subscription-plansと同様に
-  // 無効化のみに留める。
-  const { count, error: countErr } = await admin
-    .from('coupon_redemptions')
-    .select('id', { count: 'exact', head: true })
-    .eq('coupon_id', params.id);
-  if (countErr) return serverError('admin-coupons-delete-count', countErr, '/api/admin/coupons/[id]');
-  if (count && count > 0) {
-    // 更新件数(affected rows)を検証せず常に成功を返し、監査ログも無条件で書いていたため、
-    // TOCTOU（利用実績カウント確認後に既削除等）による0件更新も「無効化しました」と偽装していた
-    // （phantom success）。.select() で更新行を受け取り、0件なら404（実際に変更が起きた時のみ
-    // 監査ログを書く。ハード削除分岐・catalog/[id]・packages/[id] と同型）。
-    const { data: deactivated, error: deactivateErr } = await admin
-      .from('coupons')
-      .update({ is_active: false })
-      .eq('id', params.id)
-      .eq('facility_id', facilityId)
-      .select();
-    if (deactivateErr) return serverError('admin-coupons-delete-deactivate', deactivateErr, '/api/admin/coupons/[id]');
-    if (!deactivated || deactivated.length === 0) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 404 });
-
-    void writeAuditLog({
-      userId: user.id,
-      facilityId,
-      action: 'update',
-      tableName: 'coupons',
-      recordId: params.id,
-      newValues: { is_active: false },
-      ipAddress: ip,
-    });
-
-    return NextResponse.json({ message: '利用実績があるため無効化しました' });
-  }
-
-  // Include facility_id in WHERE as defence-in-depth (CAS guard against stale verifyCouponAdmin read)
-  // 削除件数(affected rows)を検証せず常に成功を返していたため、TOCTOU（利用実績カウント確認後に
-  // 既削除等）による0件削除も「成功」と偽装していた（phantom success）。.select() で削除行を受け取り、
-  // 0件なら404を返す（customers/[id]・menus/[id]・catalog/[id] と同型）。
-  const { data, error } = await admin.from('coupons').delete().eq('id', params.id).eq('facility_id', facilityId).select();
-  if (error) return serverError('admin-coupons-delete', error, '/api/admin/coupons/[id]');
-  if (!data || data.length === 0) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 404 });
-
-  void writeAuditLog({
-    userId: user.id,
-    facilityId,
-    action: 'delete',
-    tableName: 'coupons',
-    recordId: params.id,
-    ipAddress: ip,
+  const {data:results,error}=await admin.rpc('retire_admin_coupon_atomic',{
+    p_actor_id:user.id,p_facility_id:facilityId,p_coupon_id:params.id,
   });
-
-  return NextResponse.json({ message: 'deleted' });
+  if(error?.code==='42501')return NextResponse.json({error:'Unauthorized'},{status:401});
+  if(error)return serverError('admin-coupons-retire',databaseDiagnostic(error),'/api/admin/coupons/[id]');
+  const result=results?.[0];
+  if(!result)return NextResponse.json({error:'クーポンが見つかりません'},{status:404});
+  if(result.coupon_id!==params.id.toLowerCase() || result.facility_id!==facilityId || !['deactivated','deleted'].includes(result.outcome))
+    return serverError('admin-coupons-retire-receipt',new Error('COUPON_RETIRE_RECEIPT_INVALID'),'/api/admin/coupons/[id]');
+  const deactivated=result.outcome==='deactivated';
+  void writeAuditLog({userId:user.id,facilityId,action:deactivated?'update':'delete',tableName:'coupons',recordId:params.id,
+    ...(deactivated?{newValues:{is_active:false}}:{}),ipAddress:ip});
+  return NextResponse.json({message:deactivated?'利用記録または予約があるため無効化しました':'deleted'});
 }

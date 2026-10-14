@@ -86,6 +86,17 @@ try {
  assert.ok(updates.every(r=>r.status==='fulfilled'&&r.value==='1'));
  const final=JSON.parse(query(`SELECT jsonb_build_object('name',c.name,'menus',array_agg(m.menu_id)) FROM public.coupons c JOIN public.coupon_menus m ON m.coupon_id=c.id WHERE c.id='${coupon}' GROUP BY c.id;`));
  assert.deepEqual(final.menus,[final.name==='A'?menuA:menuB]);
+ const retire=`SET ROLE service_role; SELECT row_to_json(r) FROM public.retire_admin_coupon_atomic('${actor}','${facility}','${coupon}') r;`;
+ const redemption=await contend('redemption-before-retirement',`INSERT INTO public.coupon_redemptions(coupon_id) VALUES('${coupon}')`,[retire]);
+ assert.equal(redemption[0].status,'fulfilled');assert.equal(JSON.parse(redemption[0].value).outcome,'deactivated');
+ assert.equal(query(`SELECT count(*) FROM public.coupon_redemptions WHERE coupon_id='${coupon}'`),'1');
+ assert.equal(query(`SELECT is_active FROM public.coupons WHERE id='${coupon}'`),'f');
+ query(`DELETE FROM public.coupon_redemptions WHERE coupon_id='${coupon}'`);
+ // Restore the coordinator's original local role before inspecting pg_stat_activity.
+ // The restricted service role cannot observe postgres sessions' lock wait state.
+ const booking=await contend('booking-before-retirement',`SET LOCAL ROLE service_role; INSERT INTO public.bookings(facility_id,coupon_id,booking_date,start_time,end_time,customer_name,status,total_price,points_used) VALUES('${facility}','${coupon}','2030-01-07','10:00','11:00','Synthetic','completed',1000,0); RESET ROLE`,[retire]);
+ assert.equal(booking[0].status,'fulfilled');assert.equal(JSON.parse(booking[0].value).outcome,'deactivated');
+ assert.equal(query(`SELECT count(*) FROM public.bookings WHERE coupon_id='${coupon}'`),'1');
  const before=query(`SELECT name FROM public.coupons WHERE id='${coupon}'`);
  const moves=await contend('menu-scope-recheck',`UPDATE public.facility_menus SET facility_id='${other}' WHERE id='${menuB}'`,[save('Foreign',menuB)]);
  assert.equal(moves[0].status,'rejected');assert.match(moves[0].reason.message,/COUPON_MENU_SCOPE_INVALID/);
