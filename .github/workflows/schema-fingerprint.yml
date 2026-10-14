@@ -292,6 +292,12 @@ jobs:
       - name: Public views, coupon visibility and private menu role boundaries (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/public-view-scope-fixtures.sql
 
+      - name: Coupon fields and target-menu transactional rollback (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/coupon-management-fixtures.sql
+
+      - name: Coupon parallel save, current menu ownership and role revocation (disposable DB)
+        run: node scripts/check-coupon-management-concurrency.mjs
+
       - name: ズレていたら正しい期待値を成果物として出す
         # 🔴 「再生成してコミットしろ」と言うだけでは、この job と同じメジャーの
         #   PostgreSQL を手元に用意できない人は従えない（実際 2026年8月3日、

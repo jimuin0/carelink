@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
-import { UUID_REGEX } from '@/lib/constants';
+import { getAdminApiContext } from '@/lib/admin-api-context';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -33,32 +33,13 @@ const couponSchema = z.object({
   target_menu_ids: z.array(z.string().uuid()).max(100).optional(),
 }).superRefine(validateCouponDiscountFields).transform(normalizeCouponDiscountFields);
 
-async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const facilityId = request.nextUrl.searchParams.get('facility_id');
-  if (!facilityId || !UUID_REGEX.test(facilityId)) return null;
-
-  const { data } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-    .eq('facility_id', facilityId)
-    .in('role', ['owner', 'admin'])
-    .single();
-
-  return data ? { userId: user.id, facilityId: data.facility_id } : null;
-}
-
 export async function GET(request: NextRequest) {
   const ip = getClientIp(request);
   if (await checkRateLimit(null, ip, 30, 60_000, 'coupons-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
-  const auth = await getAdminInfo(request);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminApiContext(request);
+  if (auth instanceof NextResponse) return auth;
 
   const admin = createServiceRoleClient();
   const { data, error } = await admin
@@ -67,7 +48,7 @@ export async function GET(request: NextRequest) {
     .eq('facility_id', auth.facilityId)
     .order('created_at', { ascending: false });
 
-  if (error) return serverError('admin-coupons-list', error, '/api/admin/coupons');
+  if (error) return serverError('admin-coupons-list', databaseDiagnostic(error), '/api/admin/coupons');
   return NextResponse.json({ coupons: data });
 }
 
@@ -78,73 +59,24 @@ export async function POST(request: NextRequest) {
   if (await checkRateLimit(null, ip, 20, 60_000, 'coupons-create')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
-  const auth = await getAdminInfo(request);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminApiContext(request);
+  if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => null);
   const parsed = couponSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
-  // target_menu_ids は coupons テーブルの列ではない（coupon_menus へ別途保存）ため insert 前に分離する。
   const { target_menu_ids: targetMenuIds, ...couponData } = parsed.data;
-
   const admin = createServiceRoleClient();
-
-  // 対象メニューは必ず自施設の facility_menus に実在するものに限定する（他施設メニューIDの
-  // 注入を 400 で拒否。coupon_menus は金銭経路＝割引の適用範囲を決めるため fail-closed）。
-  if (targetMenuIds && targetMenuIds.length > 0) {
-    const { data: menuRows, error: menuErr } = await admin
-      .from('facility_menus')
-      .select('id')
-      .in('id', targetMenuIds)
-      .eq('facility_id', auth.facilityId);
-    if (menuErr) return serverError('admin-coupons-create-menu-validate', menuErr, '/api/admin/coupons');
-    const validIds = new Set((menuRows ?? []).map((r: { id: string }) => r.id));
-    if (!targetMenuIds.every((id) => validIds.has(id))) {
-      return NextResponse.json({ error: '対象メニューが不正です' }, { status: 400 });
-    }
-  }
-
-  const { data, error } = await admin.from('coupons').insert({
-    facility_id: auth.facilityId,
-    ...couponData,
-    is_active: couponData.is_active ?? true,
-  }).select().single();
-
-  if (error) return serverError('admin-coupons-create', error, '/api/admin/coupons');
-
-  // 対象メニュー限定（coupon_menus）の保存。失敗した場合、クーポンだけが残ると「対象メニュー
-  // 限定なし＝全メニュー適用」の意味になってしまう（例：1メニュー限定の特別価格が全メニューに
-  // 効く金銭事故）。fail-closed としてクーポン自体をロールバック削除して 500 を返す。
-  if (targetMenuIds && targetMenuIds.length > 0) {
-    const { error: cmError } = await admin
-      .from('coupon_menus')
-      .insert(targetMenuIds.map((menuId) => ({ coupon_id: data.id, menu_id: menuId })));
-    if (cmError) {
-      const { error: rollbackErr } = await admin.from('coupons').delete().eq('id', data.id);
-      if (rollbackErr) {
-        // ロールバック削除も失敗＝限定なしクーポンが残存する最悪ケース。無効化で金銭事故を防ぐ。
-        const { error: deactivateErr } = await admin.from('coupons').update({ is_active: false }).eq('id', data.id);
-        if (deactivateErr) {
-          // 三重失敗（coupon_menus insert 失敗→ロールバック削除失敗→無効化失敗）＝
-          // 「対象メニュー限定なし（全メニュー適用）のまま is_active=true」のクーポンが残存する
-          // 金銭事故状態。無音にせず Sentry＋Slack で顕在化し、レスポンスにも明示する
-          // （旧実装は無効化の成否未チェックで、三重失敗時に防いだはずの事故が無音再現していた）。
-          const tripleFailure = new Error(
-            `coupon create rollback triple-failure: coupon_id=${data.id} が全メニュー適用のまま有効で残存の可能性 ` +
-            `(insert: ${cmError.message} / delete: ${rollbackErr.message} / deactivate: ${deactivateErr.message})`
-          );
-          return serverError(
-            'admin-coupons-create-rollback',
-            tripleFailure,
-            '/api/admin/coupons',
-            '対象メニューの保存に失敗し、クーポンを無効化できませんでした。作成されたクーポンが全メニュー適用のまま有効になっている可能性があります。至急クーポン一覧を確認し、該当クーポンを無効化してください。',
-          );
-        }
-      }
-      return serverError('admin-coupons-create-menu-link', cmError, '/api/admin/coupons');
-    }
-  }
+  const { data: saved, error } = await admin.rpc('save_admin_coupon_atomic', {
+    p_actor_id: auth.userId, p_facility_id: auth.facilityId, p_coupon_id: null,
+    p_fields: couponData, p_target_menu_ids: targetMenuIds ?? [],
+  });
+  if (error?.code === '42501') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (error?.code === '22023') return NextResponse.json({ error: 'クーポンまたは対象メニューが不正です' }, { status: 400 });
+  if (error) return serverError('admin-coupons-create', databaseDiagnostic(error), '/api/admin/coupons');
+  const data = saved?.[0];
+  if (!data) return serverError('admin-coupons-create-receipt', new Error('COUPON_SAVE_RECEIPT_MISSING'), '/api/admin/coupons');
 
   const { ua } = getRequestContext(request);
   void writeAuditLog({

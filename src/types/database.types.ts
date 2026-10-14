@@ -6107,38 +6107,6 @@ export type Database = {
           reviewer_name: string | null
           status: string | null
         }
-        Insert: {
-          comment?: string | null
-          created_at?: string | null
-          facility_id?: string | null
-          id?: string | null
-          is_verified_visit?: boolean | null
-          photo_urls?: string[] | null
-          rating?: number | null
-          rating_atmosphere?: number | null
-          rating_cleanliness?: number | null
-          rating_explanation?: number | null
-          rating_service?: number | null
-          rating_skill?: number | null
-          reviewer_name?: string | null
-          status?: string | null
-        }
-        Update: {
-          comment?: string | null
-          created_at?: string | null
-          facility_id?: string | null
-          id?: string | null
-          is_verified_visit?: boolean | null
-          photo_urls?: string[] | null
-          rating?: number | null
-          rating_atmosphere?: number | null
-          rating_cleanliness?: number | null
-          rating_explanation?: number | null
-          rating_service?: number | null
-          rating_skill?: number | null
-          reviewer_name?: string | null
-          status?: string | null
-        }
         Relationships: [
           {
             foreignKeyName: "facility_reviews_facility_id_fkey"
@@ -7238,6 +7206,44 @@ export type Database = {
       review_content_hash: {
         Args: { r: Database["public"]["Tables"]["facility_reviews"]["Row"] }
         Returns: string
+      }
+      save_admin_coupon_atomic: {
+        Args: {
+          p_actor_id: string
+          p_coupon_id: string
+          p_facility_id: string
+          p_fields: Json
+          p_target_menu_ids?: string[]
+        }
+        Returns: {
+          coupon_type: string
+          created_at: string | null
+          description: string | null
+          discount_type: string
+          discount_value: number | null
+          duration_minutes: number | null
+          facility_id: string
+          id: string
+          image_submission: boolean
+          image_url: string | null
+          is_active: boolean | null
+          max_uses: number | null
+          name: string
+          presentation_timing: string | null
+          search_category1: string | null
+          search_category2: string | null
+          sort_order: number | null
+          special_price: number | null
+          usage_condition: string | null
+          valid_from: string | null
+          valid_until: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "coupons"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       save_booking_email_event_atomic: {
         Args: {
