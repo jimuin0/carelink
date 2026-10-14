@@ -15,6 +15,10 @@ test('オーナーがクーポンを作成→編集→削除できる（書き�
   // 一覧へは遷移しない＝0円引きクーポン禁止の E2E 担保。
   // 固定オーバーレイ（Cookie 同意バナー/AIサポート）の hit-test 被り対策で focus→Enter で押す。
   await page.goto('/admin/coupons/new');
+  const selectedHref=await page.locator('section[aria-label="編集する店舗"] a[aria-current="page"]').getAttribute('href');
+  expect(selectedHref).toBeTruthy();
+  const facilityId=new URL(selectedHref!,page.url()).searchParams.get('facility_id');
+  expect(facilityId).toMatch(/^[0-9a-f-]{36}$/);
   await page.locator('#coupon-name').fill(couponName);
   const createBtn = page.getByRole('button', { name: 'クーポンを作成', exact: true });
   await createBtn.scrollIntoViewIfNeeded();
@@ -25,10 +29,12 @@ test('オーナーがクーポンを作成→編集→削除できる（書き�
   // --- 作成：割引額に有効値(500円)を入力（PR#479 で fixed→discount_value 1以上必須）→ 作成 → 一覧へ遷移。
   await page.locator('#coupon-value').fill('500');
   await createBtn.scrollIntoViewIfNeeded();
-  await createBtn.press('Enter');
+  const [created]=await Promise.all([page.waitForResponse(r=>new URL(r.url()).pathname==='/api/admin/coupons' && r.request().method()==='POST'),createBtn.press('Enter')]);
+  expect(created.status()).toBe(201);
+  expect((await created.json()).coupon.facility_id).toBe(facilityId);
 
   // POST /api/admin/coupons 成功で一覧へ router.push → 作成したクーポンが表示される（永続化）。
-  await expect(page).toHaveURL(/\/admin\/coupons$/, { timeout: 15000 });
+  await page.waitForURL(url => url.pathname === '/admin/coupons' && url.searchParams.get('facility_id') === facilityId, { timeout: 15000 });
   await expect(page.getByText(couponName, { exact: true })).toBeVisible({ timeout: 15000 });
 
   // --- 編集：該当カードの「編集」リンク → 編集ページで名前変更 → 保存。
@@ -36,7 +42,7 @@ test('オーナーがクーポンを作成→編集→削除できる（書き�
   const editLink = card.getByRole('link', { name: '編集', exact: true });
   await editLink.scrollIntoViewIfNeeded();
   await editLink.press('Enter');
-  await expect(page).toHaveURL(/\/admin\/coupons\/[^/]+\/edit$/, { timeout: 15000 });
+  await page.waitForURL(url => /^\/admin\/coupons\/[^/]+\/edit$/.test(url.pathname) && url.searchParams.get('facility_id') === facilityId, { timeout: 15000 });
 
   await page.locator('#coupon-name').fill(editedName);
   const saveBtn = page.getByRole('button', { name: '保存', exact: true });
@@ -45,12 +51,12 @@ test('オーナーがクーポンを作成→編集→削除できる（書き�
   // PATCH /api/admin/coupons/{id} の成功を、4秒で自動消滅し CI では消滅後にポーリングして
   // flake する成功トーストではなく API 応答そのもので判定する（唯一の副作用ゼロな決定的判定）。
   await Promise.all([
-    page.waitForResponse((r) => /\/api\/admin\/coupons\/[^/]+$/.test(r.url()) && r.request().method() === 'PATCH' && r.ok()),
+    page.waitForResponse((r) => /^\/api\/admin\/coupons\/[^/]+$/.test(new URL(r.url()).pathname) && new URL(r.url()).searchParams.get('facility_id') === facilityId && r.request().method() === 'PATCH' && r.ok()),
     saveBtn.press('Enter'),
   ]);
 
   // 一覧へ戻ると編集後の名前が反映され、旧名は消えている（書き込み永続化＋再読込＝永続 DOM 証拠）。
-  await page.goto('/admin/coupons');
+  await page.goto(`/admin/coupons?facility_id=${facilityId}`);
   await expect(page.getByText(editedName, { exact: true })).toBeVisible({ timeout: 15000 });
   await expect(page.getByText(couponName, { exact: true })).toHaveCount(0);
 
@@ -59,7 +65,7 @@ test('オーナーがクーポンを作成→編集→削除できる（書き�
   const reEditLink = editedCard.getByRole('link', { name: '編集', exact: true });
   await reEditLink.scrollIntoViewIfNeeded();
   await reEditLink.press('Enter');
-  await expect(page).toHaveURL(/\/admin\/coupons\/[^/]+\/edit$/, { timeout: 15000 });
+  await page.waitForURL(url => /^\/admin\/coupons\/[^/]+\/edit$/.test(url.pathname) && url.searchParams.get('facility_id') === facilityId, { timeout: 15000 });
 
   const deleteLink = page.getByRole('button', { name: 'このクーポンを削除', exact: true });
   await deleteLink.scrollIntoViewIfNeeded();
@@ -72,6 +78,6 @@ test('オーナーがクーポンを作成→編集→削除できる（書き�
   await confirmDel.press('Enter');
 
   // DELETE /api/admin/coupons/{id} 成功で一覧へ router.push → 一覧から消滅（永続削除）。
-  await expect(page).toHaveURL(/\/admin\/coupons$/, { timeout: 15000 });
+  await page.waitForURL(url => url.pathname === '/admin/coupons' && url.searchParams.get('facility_id') === facilityId, { timeout: 15000 });
   await expect(page.getByText(editedName, { exact: true })).toHaveCount(0);
 });

@@ -128,13 +128,16 @@ test.describe.serial('管理画面（オーナー）', () => {
 
   // オーナーのクーポン作成（CRUD の C）＝新規作成→一覧へ反映。
   test('オーナーがクーポンを作成できる（書き込み→一覧反映）', async ({ page }) => {
-    const couponName = 'E2E追加クーポン';
-    await page.goto('/admin/coupons/new');
+    const couponName = `E2E追加クーポン_${Date.now()}`;
+    const fixture=JSON.parse(fs.readFileSync(MANUAL_BOOKING_FILE,'utf8')) as {facilityId:string};
+    await page.goto(`/admin/coupons/new?facility_id=${fixture.facilityId}`);
     await page.fill('#coupon-name', couponName);
     await page.fill('#coupon-value', '500'); // discount_type=fixed の既定で割引額が必要
-    await page.getByRole('button', { name: 'クーポンを作成' }).click();
+    const [created]=await Promise.all([page.waitForResponse(r=>new URL(r.url()).pathname==='/api/admin/coupons' && r.request().method()==='POST'),page.getByRole('button',{name:'クーポンを作成'}).click()]);
+    expect(created.status()).toBe(201);
+    expect((await created.json()).coupon.facility_id).toBe(fixture.facilityId);
     // 作成成功で /admin/coupons へ遷移し、一覧に出る（書き込み永続化）
-    await page.waitForURL('**/admin/coupons', { timeout: 15000 });
+    await page.waitForURL(url => url.pathname === '/admin/coupons' && url.searchParams.get('facility_id') === fixture.facilityId, { timeout: 15000 });
     await expect(page.getByText(couponName)).toBeVisible();
   });
 
