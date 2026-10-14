@@ -9,6 +9,7 @@ import LoadError from '@/components/admin/LoadError';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import {couponOperationKey,beginCouponOperation,finishCouponOperation,recoverCouponOperation} from '@/lib/coupon-operation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
@@ -39,6 +40,7 @@ function NewCouponEditor({requested}:{requested:string|null}) {
 
   const [choices,setChoices] = useState<AdminFacilityChoice[]>([]);
   const [facilityId,setFacilityId] = useState<string|null>(null);
+  const [actorId,setActorId] = useState<string|null>(null);
   const [loading,setLoading] = useState(true);
   const [dirty,setDirty] = useState(false);
   const [confirmBack,setConfirmBack] = useState(false);
@@ -57,15 +59,18 @@ function NewCouponEditor({requested}:{requested:string|null}) {
         if(cancelled)return;
         setChoices(selection.choices);
         if(!selection.selectedId){setLoading(false);return;}
+        const recovered=await recoverCouponOperation(couponOperationKey(identity.user.id,selection.selectedId,'create'),selection.selectedId,'create');
+        if(cancelled)return;
+        if(recovered!=='absent'){router.push(`/admin/coupons?facility_id=${selection.selectedId}`);return;}
         const {data:menus,error}=await supabase.from('facility_menus').select('id, name, price')
           .eq('facility_id',selection.selectedId).order('sort_order');
         if(error||!Array.isArray(menus))throw new Error('COUPON_MENUS_UNAVAILABLE');
         if(cancelled)return;
-        setFacilityId(selection.selectedId);setMenuOptions(menus as MenuOption[]);setLoading(false);
+        setActorId(identity.user.id);setFacilityId(selection.selectedId);setMenuOptions(menus as MenuOption[]);setLoading(false);
       }catch{if(!cancelled){setMenuLoadError(true);setLoading(false);}}
     })();
     return ()=>{cancelled=true;};
-  },[reloadKey,requested]);
+  },[reloadKey,requested,router]);
 
   const toggleTargetMenu = (menuId: string) => {
     setTargetMenuIds((prev) =>
@@ -102,24 +107,17 @@ function NewCouponEditor({requested}:{requested:string|null}) {
     try {
       const supabase=createBrowserSupabaseClient();
       const identity=await verifyAuthUser(supabase.auth);
-      if(identity.state!=='verified')throw new Error('COUPON_ACCESS_UNAVAILABLE');
+      if(identity.state!=='verified' || identity.user.id!==actorId)throw new Error('COUPON_ACCESS_UNAVAILABLE');
       const current=await loadAdminFacilitySelection(supabase,identity.user.id,facilityId);
       if(current.selectedId!==facilityId)throw new Error('COUPON_ACCESS_UNAVAILABLE');
 
-      const res = await fetch(`/api/admin/coupons?facility_id=${facilityId}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name.trim(),
-          description: description.trim() || null,
-          coupon_type: couponType,
-          discount_type: discountType,
-          discount_value: discountType !== 'special_price' ? dv : null,
-          special_price: discountType === 'special_price' ? sp : null,
-          valid_from: validFrom || null,
-          valid_until: validUntil || null,
-          target_menu_ids: targetMenuIds,
-        }),
+      const operationKey=couponOperationKey(identity.user.id,facilityId,'create');
+      const operation=beginCouponOperation(operationKey);
+      const res=await fetch(`/api/admin/coupons?facility_id=${facilityId}`,{
+        method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':operation},
+        body:JSON.stringify({name:name.trim(),description:description.trim()||null,coupon_type:couponType,
+          discount_type:discountType,discount_value:discountType!=='special_price'?dv:null,special_price:discountType==='special_price'?sp:null,
+          valid_from:validFrom||null,valid_until:validUntil||null,target_menu_ids:targetMenuIds}),
       });
 
       if (!res.ok) {
@@ -128,6 +126,7 @@ function NewCouponEditor({requested}:{requested:string|null}) {
         // 何を直せばよいか分からないため（formatApiErrorMessage が fieldErrors を整形する）
         setToast({ type: 'error', message: formatApiErrorMessage(err, '作成に失敗しました') });
       } else {
+        finishCouponOperation(operationKey);
         setDirty(false);
         router.push(`/admin/coupons?facility_id=${facilityId}`);
       }

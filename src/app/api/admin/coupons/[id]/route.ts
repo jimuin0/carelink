@@ -11,6 +11,9 @@ import { validateCouponDiscountFields, normalizeCouponDiscountFields } from '@/l
 import { serverError } from '@/lib/with-route';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { verifyAuthUser, AUTH_UNAVAILABLE_BODY } from '@/lib/auth-verification';
+import { getAdminApiContext } from '@/lib/admin-api-context';
+import { couponSavedResult,couponOperationResult } from '@/lib/coupon-operation-result';
+import { randomUUID } from 'node:crypto';
 
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
@@ -70,8 +73,15 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (identity.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const user = identity.user;
   let facilityId: string | null;
-  try { facilityId = await verifyCouponAdmin(params.id, user.id); }
-  catch (error) { return serverError('admin-coupons-access', error, '/api/admin/coupons/[id]'); }
+  if(new URL(request.url).searchParams.has('facility_id')){
+    const context=await getAdminApiContext(new NextRequest(request.url));
+    if(context instanceof NextResponse)return context;
+    if(context.userId!==user.id)return NextResponse.json(AUTH_UNAVAILABLE_BODY,{status:503});
+    facilityId=context.facilityId;
+  }else{
+    try { facilityId = await verifyCouponAdmin(params.id,user.id); }
+    catch(error){return serverError('admin-coupons-access',error,'/api/admin/coupons/[id]');}
+  }
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
@@ -84,17 +94,23 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   const admin = createServiceRoleClient();
 
-  const { data: saved, error } = await admin.rpc('save_admin_coupon_atomic', {
-    p_actor_id: user.id, p_facility_id: facilityId, p_coupon_id: params.id,
-    p_fields: couponFields, p_target_menu_ids: targetMenuIds ?? null,
+  const operationId=request.headers.get('Idempotency-Key') ?? randomUUID();
+  if(!UUID_REGEX.test(operationId))return NextResponse.json({error:'Invalid operation'},{status:400});
+  const {data:result,error}=await admin.rpc('manage_admin_coupon_with_receipt_atomic',{
+    p_actor_id:user.id,p_facility_id:facilityId,p_coupon_id:params.id,p_operation_id:operationId,p_kind:'update',
+    p_fields:couponFields,p_target_menu_ids:targetMenuIds ?? null,
   });
-  if (error?.code === '42501') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (error?.code === '22023') return NextResponse.json({ error: 'クーポンまたは対象メニューが不正です' }, { status: 400 });
-  if (error) return serverError('admin-coupons-patch', databaseDiagnostic(error), '/api/admin/coupons/[id]');
-  const data = saved?.[0];
-  if (!data) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 404 });
+  if(error?.code==='42501')return NextResponse.json({error:'Unauthorized'},{status:401});
+  if(error?.code==='22023')return NextResponse.json({error:'クーポンまたは対象メニューが不正です'},{status:400});
+  if(error?.code==='23505')return NextResponse.json({error:'この操作は別の入力で保存済みです。一覧で保存内容を確認してください。'},{status:409});
+  if(error?.code==='P0002')return NextResponse.json({error:'この操作のクーポンは削除済みです。一覧で確認してください。'},{status:410});
+  if(error)return serverError('admin-coupons-patch',databaseDiagnostic(error),'/api/admin/coupons/[id]');
+  if(result===null)return NextResponse.json({error:'クーポンが見つかりません'},{status:404});
+  let receipt:ReturnType<typeof couponSavedResult>;
+  try{receipt=couponSavedResult(result,facilityId,params.id);}catch(error){return serverError('admin-coupons-save-receipt',error,'/api/admin/coupons/[id]');}
+  const data=receipt.coupon;
 
-  void writeAuditLog({
+  if(!receipt.wasReplay)void writeAuditLog({
     userId: user.id,
     facilityId,
     action: 'update',
@@ -123,23 +139,35 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   if (identity.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const user = identity.user;
   let facilityId: string | null;
-  try { facilityId = await verifyCouponAdmin(params.id, user.id); }
-  catch (error) { return serverError('admin-coupons-access', error, '/api/admin/coupons/[id]'); }
+  if(new URL(request.url).searchParams.has('facility_id')){
+    const context=await getAdminApiContext(new NextRequest(request.url));
+    if(context instanceof NextResponse)return context;
+    if(context.userId!==user.id)return NextResponse.json(AUTH_UNAVAILABLE_BODY,{status:503});
+    facilityId=context.facilityId;
+  }else{
+    try { facilityId = await verifyCouponAdmin(params.id,user.id); }
+    catch(error){return serverError('admin-coupons-access',error,'/api/admin/coupons/[id]');}
+  }
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
 
-  const {data:results,error}=await admin.rpc('retire_admin_coupon_atomic',{
-    p_actor_id:user.id,p_facility_id:facilityId,p_coupon_id:params.id,
+  const operationId=request.headers.get('Idempotency-Key') ?? randomUUID();
+  if(!UUID_REGEX.test(operationId))return NextResponse.json({error:'Invalid operation'},{status:400});
+  const {data:raw,error}=await admin.rpc('manage_admin_coupon_with_receipt_atomic',{
+    p_actor_id:user.id,p_facility_id:facilityId,p_coupon_id:params.id,p_operation_id:operationId,p_kind:'retire',
+    p_fields:{},p_target_menu_ids:null,
   });
   if(error?.code==='42501')return NextResponse.json({error:'Unauthorized'},{status:401});
+  if(error?.code==='23505')return NextResponse.json({error:'この操作は別の内容で処理済みです。一覧で確認してください。'},{status:409});
   if(error)return serverError('admin-coupons-retire',databaseDiagnostic(error),'/api/admin/coupons/[id]');
-  const result=results?.[0];
-  if(!result)return NextResponse.json({error:'クーポンが見つかりません'},{status:404});
+  if(raw===null)return NextResponse.json({error:'クーポンが見つかりません'},{status:404});
+  let result:ReturnType<typeof couponOperationResult>;
+  try{result=couponOperationResult(raw);}catch(error){return serverError('admin-coupons-retire-receipt',error,'/api/admin/coupons/[id]');}
   if(result.coupon_id!==params.id.toLowerCase() || result.facility_id!==facilityId || !['deactivated','deleted'].includes(result.outcome))
     return serverError('admin-coupons-retire-receipt',new Error('COUPON_RETIRE_RECEIPT_INVALID'),'/api/admin/coupons/[id]');
   const deactivated=result.outcome==='deactivated';
-  void writeAuditLog({userId:user.id,facilityId,action:deactivated?'update':'delete',tableName:'coupons',recordId:params.id,
+  if(!result.was_replay)void writeAuditLog({userId:user.id,facilityId,action:deactivated?'update':'delete',tableName:'coupons',recordId:params.id,
     ...(deactivated?{newValues:{is_active:false}}:{}),ipAddress:ip});
   return NextResponse.json({message:deactivated?'利用記録または予約があるため無効化しました':'deleted'});
 }

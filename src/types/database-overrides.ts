@@ -74,7 +74,15 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
     };
     // Omit every overridden key before replacing it. Intersecting generated
     // non-null strings with nullable overrides would silently reject valid SQL NULLs.
-    Functions: Omit<GeneratedFunctions, 'save_admin_coupon_atomic' | 'create_booking_atomic' | 'create_online_booking_atomic' | 'prepare_salon_photo' | 'setup_facility_from_registration' | 'save_booking_email_event_atomic' | 'start_booking_email_event' | 'start_customer_booking_transition_email' | 'start_scheduled_email_delivery' | 'reserve_scheduled_email_atomic' | 'list_scheduled_review_recipients' | 'list_scheduled_digest_recipients' | 'checkout_booking_with_points_atomic' | 'moderate_content_atomic' | 'moderate_review_content_atomic' | 'save_staff_override_atomic' | 'get_staff_mutation_operation' | BookingScopeFunctionName | 'create_booking_with_receipt_atomic'> & {
+    Functions: Omit<GeneratedFunctions, 'manage_admin_coupon_with_receipt_atomic' | 'get_admin_coupon_operation' | 'save_admin_coupon_atomic' | 'create_booking_atomic' | 'create_online_booking_atomic' | 'prepare_salon_photo' | 'setup_facility_from_registration' | 'save_booking_email_event_atomic' | 'start_booking_email_event' | 'start_customer_booking_transition_email' | 'start_scheduled_email_delivery' | 'reserve_scheduled_email_atomic' | 'list_scheduled_review_recipients' | 'list_scheduled_digest_recipients' | 'checkout_booking_with_points_atomic' | 'moderate_content_atomic' | 'moderate_review_content_atomic' | 'save_staff_override_atomic' | 'get_staff_mutation_operation' | BookingScopeFunctionName | 'create_booking_with_receipt_atomic'> & {
+      manage_admin_coupon_with_receipt_atomic: Omit<GeneratedFunctions['manage_admin_coupon_with_receipt_atomic'],'Args'> & {
+        Args: Omit<GeneratedFunctions['manage_admin_coupon_with_receipt_atomic']['Args'],'p_coupon_id'|'p_target_menu_ids'> & {
+          p_coupon_id:string|null;p_target_menu_ids?:string[]|null;
+        };
+      };
+      get_admin_coupon_operation: Omit<GeneratedFunctions['get_admin_coupon_operation'],'Args'> & {
+        Args: Omit<GeneratedFunctions['get_admin_coupon_operation']['Args'],'p_coupon_id'> & {p_coupon_id?:string|null};
+      };
       // SQL explicitly permits NULL coupon ID for creation and NULL menu array
       // for unchanged restrictions. Introspection cannot infer these paths.
       save_admin_coupon_atomic: Omit<GeneratedFunctions['save_admin_coupon_atomic'], 'Args'> & {

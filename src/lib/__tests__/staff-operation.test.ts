@@ -20,7 +20,8 @@ test.each(['absent','saved','retired'] as const)('confirmed %s receipt resolves 
   sessionStorage.setItem(key,ID); mockFetch.mockResolvedValue({ ok: true, json: async () => ({ state }) });
   expect(await recoverStaffOperation(key,'facility')).toBe(state);
   expect(mockFetch).toHaveBeenCalledWith(`/api/admin/staff?facility_id=facility&operation_id=${ID}&kind=create`, { cache: 'no-store' });
-  expect(pendingStaffOperation(key)).toBeNull();
+  expect(pendingStaffOperation(key)).toBe(state==='absent'?ID:null);
+  if(state==='absent')expect(beginStaffOperation(key)).toBe(ID);
 });
 test('weekly recovery is bound to staff target', async () => {
   sessionStorage.setItem(key,ID); mockFetch.mockResolvedValue({ ok: true, json: async () => ({ state: 'saved' }) });

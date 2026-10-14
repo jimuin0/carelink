@@ -25,5 +25,7 @@ export async function recoverStaffOperation(key: string, facility: string, staff
   if (!res.ok) throw new Error('Operation recovery unavailable');
   const data = await res.json();
   if (!['absent', 'saved', 'retired'].includes(data?.state)) throw new Error('Invalid operation recovery');
-  finishStaffOperation(key); return data.state;
+  // A delayed original HTTP request can still arrive after an absent read.
+  // Preserve its UUID until a completed/retired receipt is confirmed.
+  if(data.state !== 'absent')finishStaffOperation(key); return data.state;
 }
