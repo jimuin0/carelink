@@ -9,6 +9,8 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { validateCouponDiscountFields, normalizeCouponDiscountFields } from '@/lib/coupon-validation';
 import { serverError } from '@/lib/with-route';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
+import { verifyAuthUser, AUTH_UNAVAILABLE_BODY } from '@/lib/auth-verification';
 
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
@@ -35,17 +37,19 @@ const updateSchema = z.object({
 
 async function verifyCouponAdmin(couponId: string, userId: string): Promise<string | null> {
   const admin = createServiceRoleClient();
-  const { data: coupon } = await admin.from('coupons').select('facility_id').eq('id', couponId).single();
+  const { data: coupon, error: couponError } = await admin.from('coupons').select('facility_id').eq('id', couponId).maybeSingle();
+  if (couponError) throw databaseDiagnostic(couponError);
   if (!coupon) return null;
 
   const supabase = await createServerSupabaseAuthClient();
-  const { data: mem } = await supabase
+  const { data: mem, error: memberError } = await supabase
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', userId)
     .eq('facility_id', coupon.facility_id)
     .in('role', ['owner', 'admin'])
-    .single();
+    .maybeSingle();
+  if (memberError) throw databaseDiagnostic(memberError);
 
   return mem ? coupon.facility_id : null;
 }
@@ -61,10 +65,13 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
 
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const facilityId = await verifyCouponAdmin(params.id, user.id);
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return NextResponse.json(AUTH_UNAVAILABLE_BODY, { status: 503 });
+  if (identity.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = identity.user;
+  let facilityId: string | null;
+  try { facilityId = await verifyCouponAdmin(params.id, user.id); }
+  catch (error) { return serverError('admin-coupons-access', error, '/api/admin/coupons/[id]'); }
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
@@ -77,72 +84,15 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   const admin = createServiceRoleClient();
 
-  // 対象メニューは必ず自施設の facility_menus に実在するものに限定する（他施設メニューIDの
-  // 注入を 400 で拒否。coupon_menus は金銭経路＝割引の適用範囲を決めるため fail-closed）。
-  if (targetMenuIds && targetMenuIds.length > 0) {
-    const { data: menuRows, error: menuErr } = await admin
-      .from('facility_menus')
-      .select('id')
-      .in('id', targetMenuIds)
-      .eq('facility_id', facilityId);
-    if (menuErr) return serverError('admin-coupons-patch-menu-validate', menuErr, '/api/admin/coupons/[id]');
-    const validIds = new Set((menuRows ?? []).map((r: { id: string }) => r.id));
-    if (!targetMenuIds.every((id) => validIds.has(id))) {
-      return NextResponse.json({ error: '対象メニューが不正です' }, { status: 400 });
-    }
-  }
-
-  // Include facility_id in WHERE as defence-in-depth (CAS guard against stale verifyCouponAdmin read)
-  // .maybeSingle(): verify と update の間に削除される TOCTOU 等で該当0行になった場合、.single() だと
-  // PGRST116 error が先に発火し if(error)→500 になり下の 404 分岐が到達不能になる（PR#465 と同型）。
-  // target_menu_ids のみの更新（coupons 列の変更なし）は update({}) が PostgREST エラーになるため、
-  // 存在確認の SELECT に切り替える（404/TOCTOU の意味論は update 経路と同一に保つ）。
-  let data: Record<string, unknown> | null;
-  if (Object.keys(couponFields).length > 0) {
-    const { data: updated, error } = await admin.from('coupons').update(couponFields).eq('id', params.id).eq('facility_id', facilityId).select().maybeSingle();
-    if (error) return serverError('admin-coupons-patch-update', error, '/api/admin/coupons/[id]');
-    data = updated;
-  } else {
-    const { data: existing, error } = await admin.from('coupons').select('*').eq('id', params.id).eq('facility_id', facilityId).maybeSingle();
-    if (error) return serverError('admin-coupons-patch-select', error, '/api/admin/coupons/[id]');
-    data = existing;
-  }
+  const { data: saved, error } = await admin.rpc('save_admin_coupon_atomic', {
+    p_actor_id: user.id, p_facility_id: facilityId, p_coupon_id: params.id,
+    p_fields: couponFields, p_target_menu_ids: targetMenuIds ?? null,
+  });
+  if (error?.code === '42501') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (error?.code === '22023') return NextResponse.json({ error: 'クーポンまたは対象メニューが不正です' }, { status: 400 });
+  if (error) return serverError('admin-coupons-patch', databaseDiagnostic(error), '/api/admin/coupons/[id]');
+  const data = saved?.[0];
   if (!data) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 404 });
-
-  // 対象メニュー限定（coupon_menus）の同期。undefined＝今回のリクエストでは触らない。
-  // 空配列＝限定解除（全行 delete のみ＝全メニュー適用へ）。非空＝delete→insert で置換。
-  if (targetMenuIds !== undefined) {
-    const { error: delErr } = await admin.from('coupon_menus').delete().eq('coupon_id', params.id);
-    if (delErr) return serverError('admin-coupons-patch-menu-delete', delErr, '/api/admin/coupons/[id]');
-    if (targetMenuIds.length > 0) {
-      const { error: insErr } = await admin
-        .from('coupon_menus')
-        .insert(targetMenuIds.map((menuId) => ({ coupon_id: params.id, menu_id: menuId })));
-      if (insErr) {
-        // delete 済み・insert 失敗＝対象メニュー限定が消えて「全メニュー適用」になった状態で
-        // 残ると金銭事故（例：1メニュー限定の特別価格が全メニューに効く）。fail-closed として
-        // クーポンを無効化してから 500 を返す（管理者が保存し直せば復旧する）。
-        const { error: deactivateErr } = await admin.from('coupons').update({ is_active: false }).eq('id', params.id);
-        if (deactivateErr) {
-          // 二重失敗（insert 失敗→無効化失敗）＝「対象メニュー限定が消えて全メニュー適用のまま
-          // is_active=true」のクーポンが残存する金銭事故状態。無音にせず Sentry＋Slack で顕在化し、
-          // レスポンスにも明示する（旧実装は無効化の成否未チェックで、二重失敗時に防いだはずの
-          // 事故が無音再現していた）。
-          const doubleFailure = new Error(
-            `coupon update sync double-failure: coupon_id=${params.id} が全メニュー適用のまま有効で残存の可能性 ` +
-            `(insert: ${insErr.message} / deactivate: ${deactivateErr.message})`
-          );
-          return serverError(
-            'admin-coupons-update-sync',
-            doubleFailure,
-            '/api/admin/coupons/[id]',
-            '対象メニューの保存に失敗し、クーポンを無効化できませんでした。このクーポンが全メニュー適用のまま有効になっている可能性があります。至急このクーポンの状態を確認し、対象メニューを設定し直すか無効化してください。',
-          );
-        }
-        return serverError('admin-coupons-patch-menu-link', insErr, '/api/admin/coupons/[id]');
-      }
-    }
-  }
 
   void writeAuditLog({
     userId: user.id,
@@ -168,10 +118,13 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
 
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const facilityId = await verifyCouponAdmin(params.id, user.id);
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return NextResponse.json(AUTH_UNAVAILABLE_BODY, { status: 503 });
+  if (identity.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = identity.user;
+  let facilityId: string | null;
+  try { facilityId = await verifyCouponAdmin(params.id, user.id); }
+  catch (error) { return serverError('admin-coupons-access', error, '/api/admin/coupons/[id]'); }
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
