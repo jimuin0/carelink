@@ -189,6 +189,17 @@
     "ticket_status",
     "traffic_source"
   ],
+  "coupon_management_operations": [
+    "actor_id",
+    "created_at",
+    "facility_id",
+    "input_digest",
+    "kind",
+    "operation_id",
+    "outcome",
+    "result_coupon_id",
+    "target_coupon_id"
+  ],
   "coupon_menus": [
     "coupon_id",
     "id",

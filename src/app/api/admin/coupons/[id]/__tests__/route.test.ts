@@ -71,7 +71,7 @@ function setupOwnership() {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockRpc.mockResolvedValue({ data: [{ id: COUPON_UUID, facility_id: FACILITY_UUID }], error: null });
+  mockRpc.mockResolvedValue({ data: {was_replay:false,outcome:'saved',coupon:{ id: COUPON_UUID, facility_id: FACILITY_UUID }}, error: null });
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
@@ -83,12 +83,12 @@ describe('PATCH atomic fields and restrictions',()=>{
  beforeEach(()=>{setupOwnership();});
  test('normal partial update invokes one transaction; omitted restrictions remain unchanged',async()=>{
   expect((await PATCH(makeRequest('PATCH',{name:'Updated'}),makeProps())).status).toBe(200);
-  expect(mockRpc).toHaveBeenCalledWith('save_admin_coupon_atomic',{p_actor_id:USER_ID,p_facility_id:FACILITY_UUID,p_coupon_id:COUPON_UUID,p_fields:{name:'Updated'},p_target_menu_ids:null});
+  expect(mockRpc).toHaveBeenCalledWith('manage_admin_coupon_with_receipt_atomic',{p_actor_id:USER_ID,p_facility_id:FACILITY_UUID,p_coupon_id:COUPON_UUID,p_fields:{name:'Updated'},p_target_menu_ids:null,p_kind:'update',p_operation_id:expect.any(String)});
  });
- test('empty target array explicitly removes restriction',async()=>{expect((await PATCH(makeRequest('PATCH',{target_menu_ids:[]}),makeProps())).status).toBe(200);expect(mockRpc).toHaveBeenCalledWith('save_admin_coupon_atomic',expect.objectContaining({p_target_menu_ids:[],p_fields:{}}));});
- test('nonempty targets are committed with normalized coupon fields',async()=>{const target=['44444444-4444-4444-8444-444444444444'];expect((await PATCH(makeRequest('PATCH',{discount_type:'special_price',special_price:500,discount_value:50,target_menu_ids:target}),makeProps())).status).toBe(200);expect(mockRpc).toHaveBeenCalledWith('save_admin_coupon_atomic',expect.objectContaining({p_target_menu_ids:target,p_fields:expect.objectContaining({discount_value:null,special_price:500})}));});
+ test('empty target array explicitly removes restriction',async()=>{expect((await PATCH(makeRequest('PATCH',{target_menu_ids:[]}),makeProps())).status).toBe(200);expect(mockRpc).toHaveBeenCalledWith('manage_admin_coupon_with_receipt_atomic',expect.objectContaining({p_target_menu_ids:[],p_fields:{}}));});
+ test('nonempty targets are committed with normalized coupon fields',async()=>{const target=['44444444-4444-4444-8444-444444444444'];expect((await PATCH(makeRequest('PATCH',{discount_type:'special_price',special_price:500,discount_value:50,target_menu_ids:target}),makeProps())).status).toBe(200);expect(mockRpc).toHaveBeenCalledWith('manage_admin_coupon_with_receipt_atomic',expect.objectContaining({p_target_menu_ids:target,p_fields:expect.objectContaining({discount_value:null,special_price:500})}));});
  test.each([['42501',401],['22023',400],['08006',500]])('failed transaction %s returns %s without success audit',async(code,status)=>{mockRpc.mockResolvedValue({data:null,error:{code,message:'private'}});expect((await PATCH(makeRequest('PATCH',{name:'Updated'}),makeProps())).status).toBe(status);const {writeAuditLog}=require('@/lib/audit-logger');expect(writeAuditLog).not.toHaveBeenCalled();expect(mockAdminFrom).toHaveBeenCalledTimes(1);});
- test('missing/deleted row after lookup returns 404',async()=>{mockRpc.mockResolvedValue({data:[],error:null});expect((await PATCH(makeRequest('PATCH',{name:'Updated'}),makeProps())).status).toBe(404);});
+ test('missing/deleted row after lookup returns 404',async()=>{mockRpc.mockResolvedValue({data:null,error:null});expect((await PATCH(makeRequest('PATCH',{name:'Updated'}),makeProps())).status).toBe(404);});
  test.each([{discount_value:1},{special_price:1},{discount_type:'percentage',discount_value:101},{name:''},{target_menu_ids:['bad']}])('invalid patch cannot write: %j',async body=>{expect((await PATCH(makeRequest('PATCH',body),makeProps())).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
  test('malformed JSON cannot write',async()=>{expect((await PATCH(new Request('https://localhost/api/admin/coupons/id',{method:'PATCH',body:'{'}),makeProps())).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
  test('bad coupon UUID cannot write',async()=>{expect((await PATCH(makeRequest('PATCH',{name:'x'}),makeProps('bad'))).status).toBe(400);});
@@ -103,20 +103,33 @@ describe('PATCH atomic fields and restrictions',()=>{
 });
 
 describe('DELETE atomic usage and retirement',()=>{
- beforeEach(()=>{setupOwnership();mockRpc.mockResolvedValue({data:[{outcome:'deleted',coupon_id:COUPON_UUID,facility_id:FACILITY_UUID}],error:null});});
+ beforeEach(()=>{setupOwnership();mockRpc.mockResolvedValue({data:{was_replay:false,outcome:'deleted',coupon_id:COUPON_UUID,facility_id:FACILITY_UUID},error:null});});
  test.each(['deleted','deactivated'])('confirmed %s returns success and corresponding audit only after gateway',async outcome=>{
-  mockRpc.mockResolvedValue({data:[{outcome,coupon_id:COUPON_UUID,facility_id:FACILITY_UUID}],error:null});
+  mockRpc.mockResolvedValue({data:{was_replay:false,outcome,coupon_id:COUPON_UUID,facility_id:FACILITY_UUID},error:null});
   const res=await DELETE(makeRequest('DELETE'),makeProps());expect(res.status).toBe(200);
-  expect(mockRpc).toHaveBeenCalledWith('retire_admin_coupon_atomic',{p_actor_id:USER_ID,p_facility_id:FACILITY_UUID,p_coupon_id:COUPON_UUID});
+  expect(mockRpc).toHaveBeenCalledWith('manage_admin_coupon_with_receipt_atomic',{p_actor_id:USER_ID,p_facility_id:FACILITY_UUID,p_coupon_id:COUPON_UUID,p_kind:'retire',p_operation_id:expect.any(String),p_fields:{},p_target_menu_ids:null});
   expect(mockAdminFrom).toHaveBeenCalledTimes(1);const {writeAuditLog}=require('@/lib/audit-logger');expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({action:outcome==='deleted'?'delete':'update',recordId:COUPON_UUID}));
  });
  test.each([['42501',401],['08006',500]])('gateway failure %s returns %s without success audit',async(code,status)=>{mockRpc.mockResolvedValue({data:null,error:{code,message:'private'}});expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(status);const {writeAuditLog}=require('@/lib/audit-logger');expect(writeAuditLog).not.toHaveBeenCalled();});
- test('missing/deleted row is 404, not phantom success',async()=>{mockRpc.mockResolvedValue({data:[],error:null});expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(404);});
- test('valid uppercase UUID matches the canonical database receipt',async()=>{const id='FA760003-0000-4000-8000-000000000001';mockRpc.mockResolvedValue({data:[{outcome:'deleted',coupon_id:id.toLowerCase(),facility_id:FACILITY_UUID}],error:null});expect((await DELETE(makeRequest('DELETE'),makeProps(id))).status).toBe(200);});
- test.each([{outcome:'bad',coupon_id:COUPON_UUID,facility_id:FACILITY_UUID},{outcome:'deleted',coupon_id:'wrong',facility_id:FACILITY_UUID},{outcome:'deleted',coupon_id:COUPON_UUID,facility_id:'wrong'}])('malformed scope receipt does not report success: %j',async receipt=>{mockRpc.mockResolvedValue({data:[receipt],error:null});expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(500);const {writeAuditLog}=require('@/lib/audit-logger');expect(writeAuditLog).not.toHaveBeenCalled();});
+ test('missing/deleted row is 404, not phantom success',async()=>{mockRpc.mockResolvedValue({data:null,error:null});expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(404);});
+ test('valid uppercase UUID matches the canonical database receipt',async()=>{const id='FA760003-0000-4000-8000-000000000001';mockRpc.mockResolvedValue({data:{was_replay:false,outcome:'deleted',coupon_id:id.toLowerCase(),facility_id:FACILITY_UUID},error:null});expect((await DELETE(makeRequest('DELETE'),makeProps(id))).status).toBe(200);});
+ test.each([{outcome:'bad',coupon_id:COUPON_UUID,facility_id:FACILITY_UUID},{outcome:'deleted',coupon_id:'wrong',facility_id:FACILITY_UUID},{outcome:'deleted',coupon_id:COUPON_UUID,facility_id:'wrong'}])('malformed scope receipt does not report success: %j',async receipt=>{mockRpc.mockResolvedValue({data:{was_replay:false,...receipt},error:null});expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(500);const {writeAuditLog}=require('@/lib/audit-logger');expect(writeAuditLog).not.toHaveBeenCalled();});
  test('bad UUID is rejected',async()=>{expect((await DELETE(makeRequest('DELETE'),makeProps('bad'))).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
  test('no identity is rejected',async()=>{mockGetUser.mockResolvedValue({data:{user:null},error:null});expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(401);});
  test('no membership cannot retire public coupon',async()=>{mockAnonFrom.mockReturnValue(singleChain(null));expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(401);});
  test('rate limit is respected',async()=>{(checkRateLimit as jest.Mock).mockReturnValue(true);expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(429);});
  test('CSRF denial is respected',async()=>{(checkCsrf as jest.Mock).mockReturnValue(new Response('{}',{status:403}));expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(403);});
+});
+
+describe('modern coupon operations remain bound to verified actor/store',()=>{
+ beforeEach(()=>{setupOwnership();});
+ function modern(method:string){return new Request(`https://localhost/api/admin/coupons/${COUPON_UUID}?facility_id=${FACILITY_UUID}`,{method,headers:{'Content-Type':'application/json','Idempotency-Key':COUPON_UUID},...(method==='PATCH'?{body:JSON.stringify({name:'x'})}:{})});}
+ test.each([PATCH,DELETE])('modern selected-store requests authorize scope without relying on a deleted target row',async route=>{const method=route===PATCH?'PATCH':'DELETE';mockRpc.mockResolvedValue({data:route===PATCH?{was_replay:true,outcome:'saved',coupon:{id:COUPON_UUID,facility_id:FACILITY_UUID}}:{was_replay:true,outcome:'deleted',coupon_id:COUPON_UUID,facility_id:FACILITY_UUID},error:null});expect((await route(modern(method),makeProps())).status).toBe(200);expect(mockAdminFrom).not.toHaveBeenCalled();const {writeAuditLog}=require('@/lib/audit-logger');expect(writeAuditLog).not.toHaveBeenCalled();});
+ test.each([PATCH,DELETE])('current selected-store context denial is preserved',async route=>{mockAnonFrom.mockReturnValue(singleChain(null));expect((await route(modern(route===PATCH?'PATCH':'DELETE'),makeProps())).status).toBe(401);expect(mockRpc).not.toHaveBeenCalled();});
+ test.each([PATCH,DELETE])('identity change during context verification is unavailable, not authorized',async route=>{mockGetUser.mockResolvedValueOnce({data:{user:{id:USER_ID}},error:null}).mockResolvedValueOnce({data:{user:{id:'changed-actor'}},error:null});expect((await route(modern(route===PATCH?'PATCH':'DELETE'),makeProps())).status).toBe(503);expect(mockRpc).not.toHaveBeenCalled();});
+ test.each([PATCH,DELETE])('invalid operation header cannot mutate',async route=>{const r=modern(route===PATCH?'PATCH':'DELETE');r.headers.set('Idempotency-Key','bad');expect((await route(r,makeProps())).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
+ test.each([['23505',409],['P0002',410]])('update conflict/retired state %s yields %s',async(code,status)=>{mockRpc.mockResolvedValue({data:null,error:{code}});expect((await PATCH(makeRequest('PATCH',{name:'x'}),makeProps())).status).toBe(status);});
+ test('retirement operation conflict is 409',async()=>{mockRpc.mockResolvedValue({data:null,error:{code:'23505'}});expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(409);});
+ test.each([null,[],{}, {was_replay:false,outcome:'saved',coupon:{id:'fa830003-0000-4000-8000-000000000099',facility_id:FACILITY_UUID}}])('update malformed receipt is not success: %j',async data=>{mockRpc.mockResolvedValue({data,error:null});expect((await PATCH(makeRequest('PATCH',{name:'x'}),makeProps())).status).toBe(data===null?404:500);});
+ test('retirement malformed receipt is not success',async()=>{mockRpc.mockResolvedValue({data:{},error:null});expect((await DELETE(makeRequest('DELETE'),makeProps())).status).toBe(500);});
 });

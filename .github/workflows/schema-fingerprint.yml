@@ -304,6 +304,9 @@ jobs:
       - name: Coupon retirement preserves usage and booking history (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/coupon-retirement-fixtures.sql
 
+      - name: Coupon operation replay, conflict, retired result and rollback (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/coupon-operation-fixtures.sql
+
       - name: ズレていたら正しい期待値を成果物として出す
         # 🔴 「再生成してコミットしろ」と言うだけでは、この job と同じメジャーの
         #   PostgreSQL を手元に用意できない人は従えない（実際 2026年8月3日、

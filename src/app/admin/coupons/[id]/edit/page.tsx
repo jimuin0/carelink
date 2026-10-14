@@ -13,6 +13,7 @@ import { formatApiErrorMessage } from '@/lib/api-error-message';
 import FacilitySelector from '@/components/admin/FacilitySelector';
 import { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/lib/admin-facility-selection';
 import { verifyAuthUser } from '@/lib/auth-verification';
+import {couponOperationKey,beginCouponOperation,finishCouponOperation,recoverCouponOperation} from '@/lib/coupon-operation';
 
 type MenuOption = { id: string; name: string; price: number | null };
 
@@ -26,6 +27,7 @@ export default function CouponEditPage() {
 function CouponEditor({couponId,requested}:{couponId:string;requested:string|null}) {
   const router=useRouter();
   const [facilityId,setFacilityId]=useState<string|null>(null);
+  const [actorId,setActorId]=useState<string|null>(null);
   const [choices,setChoices]=useState<AdminFacilityChoice[]>([]);
   const [deleting,setDeleting]=useState(false);
   const [confirmBack,setConfirmBack]=useState(false);
@@ -70,10 +72,20 @@ function CouponEditor({couponId,requested}:{couponId:string;requested:string|nul
         const identity=await verifyAuthUser(supabase.auth);
         if(identity.state!=='verified')throw new Error('COUPON_ACCESS_UNAVAILABLE');
 
+        if(requested!==null){
+          const selected=await loadAdminFacilitySelection(supabase,identity.user.id,requested);
+          if(!selected.selectedId)throw new Error('COUPON_ACCESS_UNAVAILABLE');
+          for(const kind of ['update','retire'] as const){
+            const recovered=await recoverCouponOperation(couponOperationKey(identity.user.id,selected.selectedId,kind,couponId),selected.selectedId,kind,couponId);
+            if(cancelled)return;
+            if(recovered!=='absent'){router.push(`/admin/coupons?facility_id=${selected.selectedId}`);return;}
+          }
+        }
         const {data,error}=await supabase.from('coupons').select('*').eq('id',couponId).maybeSingle();
         if(error||!data)throw new Error('COUPON_READ_UNAVAILABLE');
         const selection=await loadAdminFacilitySelection(supabase,identity.user.id,requested ?? data.facility_id);
         if(selection.selectedId!==data.facility_id)throw new Error('COUPON_SCOPE_MISMATCH');
+        if(requested===null){router.push(`/admin/coupons/${couponId}/edit?facility_id=${data.facility_id}`);return;}
         if(cancelled)return;
         setChoices(selection.choices);
         setName(data.name);
@@ -101,7 +113,7 @@ function CouponEditor({couponId,requested}:{couponId:string;requested:string|nul
         if (cancelled) return;
         setTargetMenuIds((cmRows ?? []).map((r: { menu_id: string }) => r.menu_id));
         setMenuOptions((menus ?? []) as MenuOption[]);
-        setFacilityId(selection.selectedId);
+        setActorId(identity.user.id);setFacilityId(selection.selectedId);
         setLoading(false);
       } catch {
         if (!cancelled) { setLoadError(true); setLoading(false); }
@@ -111,7 +123,7 @@ function CouponEditor({couponId,requested}:{couponId:string;requested:string|nul
     return () => {
       cancelled = true;
     };
-  }, [couponId, requested, reloadKey]);
+  }, [couponId, requested, reloadKey,router]);
 
   const handleSave = async () => {
     if (saving || deleting || loading || loadError || !facilityId) return;
@@ -140,9 +152,13 @@ function CouponEditor({couponId,requested}:{couponId:string;requested:string|nul
 
     setSaving(true);
     try {
+      const identity=await verifyAuthUser(createBrowserSupabaseClient().auth);
+      if(identity.state!=='verified' || identity.user.id!==actorId)throw new Error('COUPON_ACCESS_UNAVAILABLE');
+      const operationKey=couponOperationKey(identity.user.id,facilityId,'update',couponId);
+      const operation=beginCouponOperation(operationKey);
       const res = await fetch(`/api/admin/coupons/${couponId}?facility_id=${facilityId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json','Idempotency-Key':operation },
         body: JSON.stringify({
           name: name.trim(),
           description: description.trim() || null,
@@ -163,6 +179,7 @@ function CouponEditor({couponId,requested}:{couponId:string;requested:string|nul
         // 何を直せばよいか分からないため（formatApiErrorMessage が fieldErrors を整形する）
         setToast({ type: 'error', message: formatApiErrorMessage(err, '保存に失敗しました') });
       } else {
+        finishCouponOperation(operationKey);
         setDirty(false);
         setToast({ type: 'success', message: '保存しました' });
       }
@@ -181,14 +198,18 @@ function CouponEditor({couponId,requested}:{couponId:string;requested:string|nul
     if(saving || deleting || !facilityId)return;
     setConfirmDelete(false);setDeleting(true);
     try {
+      const identity=await verifyAuthUser(createBrowserSupabaseClient().auth);
+      if(identity.state!=='verified' || identity.user.id!==actorId)throw new Error('COUPON_ACCESS_UNAVAILABLE');
+      const operationKey=couponOperationKey(identity.user.id,facilityId,'retire',couponId);
+      const operation=beginCouponOperation(operationKey);
       const res = await fetch(`/api/admin/coupons/${couponId}?facility_id=${facilityId}`, {
-        method: 'DELETE',
+        method: 'DELETE',headers:{'Idempotency-Key':operation},
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         setToast({ type: 'error', message: err.error ?? '削除に失敗しました' });
       } else {
-        setDirty(false);router.push(`/admin/coupons?facility_id=${facilityId}`);
+        finishCouponOperation(operationKey);setDirty(false);router.push(`/admin/coupons?facility_id=${facilityId}`);
       }
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });

@@ -3,6 +3,9 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { getAdminApiContext } from '@/lib/admin-api-context';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
+import { UUID_REGEX } from '@/lib/constants';
+import { randomUUID } from 'node:crypto';
+import { couponSavedResult } from '@/lib/coupon-operation-result';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -41,6 +44,21 @@ export async function GET(request: NextRequest) {
   const auth = await getAdminApiContext(request);
   if (auth instanceof NextResponse) return auth;
 
+  const operation=request.nextUrl.searchParams.get('operation_id');
+  if(operation!==null){
+    const kind=request.nextUrl.searchParams.get('kind');
+    const coupon=request.nextUrl.searchParams.get('coupon_id');
+    if(!UUID_REGEX.test(operation) || !['create','update','retire'].includes(kind ?? '')
+      || (kind==='create' ? coupon!==null : coupon===null || !UUID_REGEX.test(coupon)))
+      return NextResponse.json({error:'Invalid operation'},{status:400});
+    const {data:state,error}=await createServiceRoleClient().rpc('get_admin_coupon_operation',{
+      p_actor_id:auth.userId,p_facility_id:auth.facilityId,p_operation_id:operation,p_kind:kind!,p_coupon_id:coupon,
+    });
+    if(error)return serverError('admin-coupons-operation-read',databaseDiagnostic(error),'/api/admin/coupons');
+    if(!['absent','saved','retired'].includes(state ?? ''))return serverError('admin-coupons-operation-state',new Error('COUPON_OPERATION_STATE_INVALID'),'/api/admin/coupons');
+    return NextResponse.json({state});
+  }
+
   const admin = createServiceRoleClient();
   const { data, error } = await admin
     .from('coupons')
@@ -68,18 +86,23 @@ export async function POST(request: NextRequest) {
 
   const { target_menu_ids: targetMenuIds, ...couponData } = parsed.data;
   const admin = createServiceRoleClient();
-  const { data: saved, error } = await admin.rpc('save_admin_coupon_atomic', {
-    p_actor_id: auth.userId, p_facility_id: auth.facilityId, p_coupon_id: null,
-    p_fields: couponData, p_target_menu_ids: targetMenuIds ?? [],
+  const operationId=request.headers.get('Idempotency-Key') ?? randomUUID();
+  if(!UUID_REGEX.test(operationId))return NextResponse.json({error:'Invalid operation'},{status:400});
+  const {data:result,error}=await admin.rpc('manage_admin_coupon_with_receipt_atomic',{
+    p_actor_id:auth.userId,p_facility_id:auth.facilityId,p_coupon_id:null,p_operation_id:operationId,p_kind:'create',
+    p_fields:couponData,p_target_menu_ids:targetMenuIds ?? [],
   });
-  if (error?.code === '42501') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (error?.code === '22023') return NextResponse.json({ error: 'クーポンまたは対象メニューが不正です' }, { status: 400 });
-  if (error) return serverError('admin-coupons-create', databaseDiagnostic(error), '/api/admin/coupons');
-  const data = saved?.[0];
-  if (!data) return serverError('admin-coupons-create-receipt', new Error('COUPON_SAVE_RECEIPT_MISSING'), '/api/admin/coupons');
+  if(error?.code==='42501')return NextResponse.json({error:'Unauthorized'},{status:401});
+  if(error?.code==='22023')return NextResponse.json({error:'クーポンまたは対象メニューが不正です'},{status:400});
+  if(error?.code==='23505')return NextResponse.json({error:'この操作は別の入力で保存済みです。一覧で保存内容を確認してください。'},{status:409});
+  if(error?.code==='P0002')return NextResponse.json({error:'この操作のクーポンは削除済みです。一覧で確認してください。'},{status:410});
+  if(error)return serverError('admin-coupons-create',databaseDiagnostic(error),'/api/admin/coupons');
+  let receipt:ReturnType<typeof couponSavedResult>;
+  try{receipt=couponSavedResult(result,auth.facilityId);}catch(error){return serverError('admin-coupons-create-receipt',error,'/api/admin/coupons');}
+  const data=receipt.coupon;
 
   const { ua } = getRequestContext(request);
-  void writeAuditLog({
+  if(!receipt.wasReplay)void writeAuditLog({
     userId: auth.userId,
     facilityId: auth.facilityId,
     action: 'create',

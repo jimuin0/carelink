@@ -64,6 +64,7 @@ const actor='fa710000-0000-4000-8000-000000000001';
 const facility='fa710001-0000-4000-8000-000000000001';
 const other='fa710001-0000-4000-8000-000000000002';
 const coupon='fa710003-0000-4000-8000-000000000001';
+const operation='fa710004-0000-4000-8000-000000000001';
 const menuA='fa710002-0000-4000-8000-000000000001';
 const menuB='fa710002-0000-4000-8000-000000000002';
 const save=(name,menu)=>`SET ROLE service_role; SELECT count(*) FROM public.save_admin_coupon_atomic('${actor}','${facility}','${coupon}','{"name":"${name}"}',ARRAY['${menu}'::uuid]);`;
@@ -82,6 +83,13 @@ try {
  INSERT INTO public.coupons(id,facility_id,name,discount_type,discount_value) VALUES('${coupon}','${facility}','Initial','fixed',500);
  INSERT INTO public.coupon_menus(coupon_id,menu_id) VALUES('${coupon}','${menuA}'); COMMIT;`);
  seeded=true;
+ const operationCall=`SET ROLE service_role; SELECT public.manage_admin_coupon_with_receipt_atomic('${actor}','${facility}',NULL,'${operation}','create','{"name":"Receipt once","discount_type":"fixed","discount_value":100}',ARRAY['${menuA}'::uuid]);`;
+ const repeated=await contend('duplicate-operation',`SELECT pg_advisory_xact_lock(hashtextextended('carelink-coupon-operation:${operation}',0))`,[operationCall,operationCall]);
+ assert.ok(repeated.every(r=>r.status==='fulfilled'));
+ const receipts=repeated.map(r=>JSON.parse(r.value));
+ assert.equal(receipts[0].coupon.id,receipts[1].coupon.id);
+ assert.deepEqual(receipts.map(r=>r.was_replay).sort(),[false,true]);
+ assert.equal(query(`SELECT count(*) FROM public.coupons WHERE facility_id='${facility}' AND name='Receipt once'`),'1');
  const updates=await contend('consistent-update',`SELECT id FROM public.coupons WHERE id='${coupon}' FOR UPDATE`,[save('A',menuA),save('B',menuB)]);
  assert.ok(updates.every(r=>r.status==='fulfilled'&&r.value==='1'));
  const final=JSON.parse(query(`SELECT jsonb_build_object('name',c.name,'menus',array_agg(m.menu_id)) FROM public.coupons c JOIN public.coupon_menus m ON m.coupon_id=c.id WHERE c.id='${coupon}' GROUP BY c.id;`));
@@ -107,5 +115,5 @@ try {
  console.log('coupon management: consistent parallel save, current menu scope and role revocation verified');
 } finally {
  for(const child of children)child.kill('SIGTERM');
- if(seeded)query(`BEGIN; DELETE FROM public.facility_profiles WHERE id IN ('${facility}','${other}'); DELETE FROM auth.users WHERE id='${actor}'; COMMIT;`);
+ if(seeded)query(`BEGIN; DELETE FROM public.coupon_management_operations WHERE operation_id='${operation}'; DELETE FROM public.facility_profiles WHERE id IN ('${facility}','${other}'); DELETE FROM auth.users WHERE id='${actor}'; COMMIT;`);
 }

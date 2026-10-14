@@ -807,6 +807,42 @@ export type Database = {
         }
         Relationships: []
       }
+      coupon_management_operations: {
+        Row: {
+          actor_id: string
+          created_at: string
+          facility_id: string
+          input_digest: string
+          kind: string
+          operation_id: string
+          outcome: string
+          result_coupon_id: string
+          target_coupon_id: string | null
+        }
+        Insert: {
+          actor_id: string
+          created_at?: string
+          facility_id: string
+          input_digest: string
+          kind: string
+          operation_id: string
+          outcome: string
+          result_coupon_id: string
+          target_coupon_id?: string | null
+        }
+        Update: {
+          actor_id?: string
+          created_at?: string
+          facility_id?: string
+          input_digest?: string
+          kind?: string
+          operation_id?: string
+          outcome?: string
+          result_coupon_id?: string
+          target_coupon_id?: string | null
+        }
+        Relationships: []
+      }
       coupon_menus: {
         Row: {
           coupon_id: string
@@ -6755,6 +6791,16 @@ export type Database = {
         Returns: boolean
       }
       geomfromewkt: { Args: { "": string }; Returns: unknown }
+      get_admin_coupon_operation: {
+        Args: {
+          p_actor_id: string
+          p_coupon_id?: string
+          p_facility_id: string
+          p_kind: string
+          p_operation_id: string
+        }
+        Returns: string
+      }
       get_admin_coupon_usage: {
         Args: { p_actor_id: string; p_facility_id: string }
         Returns: {
@@ -6920,6 +6966,18 @@ export type Database = {
         Returns: undefined
       }
       longtransactionsenabled: { Args: never; Returns: boolean }
+      manage_admin_coupon_with_receipt_atomic: {
+        Args: {
+          p_actor_id: string
+          p_coupon_id: string
+          p_facility_id: string
+          p_fields?: Json
+          p_kind: string
+          p_operation_id: string
+          p_target_menu_ids?: string[]
+        }
+        Returns: Json
+      }
       moderate_content_atomic: {
         Args: {
           p_actor_id: string
