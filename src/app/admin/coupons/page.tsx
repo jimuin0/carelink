@@ -6,42 +6,42 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import CouponBadge from '@/components/facility/CouponBadge';
 import { SbPageHeader } from '@/components/admin/SbUi';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import { loadAdminFacilitySelection } from '@/lib/admin-facility-selection';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 
-export default async function AdminCouponsPage() {
+export default async function AdminCouponsPage(props: { searchParams: Promise<{ facility_id?: string }> }) {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) notFound();
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return <AccessVerificationUnavailable />;
+  if (identity.state !== 'verified') notFound();
+  const params = await props.searchParams;
+  const { choices, selectedId: facilityId } = await loadAdminFacilitySelection(supabase, identity.user.id, params.facility_id ?? null);
+  const selector = <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/coupons" />;
+  if (!facilityId) return <div><SbPageHeader title="クーポン管理" />{selector}</div>;
+  const coupons = await getCouponsByFacility(facilityId);
 
-  const { data: membership } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-      .in('role', ['owner', 'admin'])
-    .limit(1)
-    .single();
-  if (!membership) notFound();
-
-  const coupons = await getCouponsByFacility(membership.facility_id);
-
-  // 監査対応: 従来はクーポンの発行内容のみで利用実績(使用件数)が一切見えず、
-  // 経営者がROI判断できなかった。coupon_redemptionsはRLSポリシー未整備(service role限定)
-  // のため、施設の全クーポンID分をservice roleでまとめて集計する。
+  // Aggregate in DB, including counts above PostgREST's row cap. The gateway
+  // rechecks this actor's selected store and exposes counts, not customer rows.
   const usageByCoupon = new Map<string, number>();
   if (coupons.length > 0) {
     const admin = createServiceRoleClient();
-    const { data: redemptions } = await admin
-      .from('coupon_redemptions')
-      .select('coupon_id')
-      .in('coupon_id', coupons.map((c) => c.id));
-    for (const r of (redemptions ?? []) as Array<{ coupon_id: string }>) {
-      usageByCoupon.set(r.coupon_id, (usageByCoupon.get(r.coupon_id) ?? 0) + 1);
+    const { data: counts, error } = await admin.rpc('get_admin_coupon_usage', {p_actor_id:identity.user.id,p_facility_id:facilityId});
+    if (error) throw databaseDiagnostic(error);
+    for (const r of counts ?? []) {
+      if (!Number.isSafeInteger(r.usage_count) || r.usage_count < 0 || usageByCoupon.has(r.coupon_id)) throw new Error('COUPON_USAGE_UNAVAILABLE');
+      usageByCoupon.set(r.coupon_id,r.usage_count);
     }
+    if (coupons.some(c=>!usageByCoupon.has(c.id))) throw new Error('COUPON_USAGE_UNAVAILABLE');
   }
 
   return (
     <div>
+      {selector}
       <SbPageHeader title="クーポン管理" actions={
-        <Link href="/admin/coupons/new" className="btn-primary text-sm py-2! px-4!">
+        <Link href={`/admin/coupons/new?facility_id=${facilityId}`} className="btn-primary text-sm py-2! px-4!">
           新規作成
         </Link>
       } />
@@ -49,7 +49,7 @@ export default async function AdminCouponsPage() {
       {coupons.length === 0 ? (
         <div className="bg-white rounded-xl p-8 text-center">
           <p className="text-gray-400 mb-3">クーポンがありません</p>
-          <Link href="/admin/coupons/new" className="text-sm text-primary hover:underline">
+          <Link href={`/admin/coupons/new?facility_id=${facilityId}`} className="text-sm text-primary hover:underline">
             最初のクーポンを作成
           </Link>
         </div>
@@ -80,7 +80,7 @@ export default async function AdminCouponsPage() {
                 <span className="text-xs text-gray-500">
                   利用実績：<span className="font-bold text-gray-700">{usageByCoupon.get(coupon.id) ?? 0}</span>件
                 </span>
-                <Link href={`/admin/coupons/${coupon.id}/edit`} className="text-xs text-primary hover:underline ml-auto">編集</Link>
+                <Link href={`/admin/coupons/${coupon.id}/edit?facility_id=${facilityId}`} className="text-xs text-primary hover:underline ml-auto">編集</Link>
               </div>
             </div>
           ))}
