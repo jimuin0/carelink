@@ -77,4 +77,12 @@ SELECT pg_temp.assert_scope((SELECT count(*)=5 FROM public.coupon_menus WHERE co
 SELECT pg_temp.assert_scope((SELECT count(*)=4 FROM public.facility_menus WHERE id::text LIKE 'fa690002-%'),'member retains own draft and private menus');
 SELECT pg_temp.assert_scope((SELECT min(min_price)=500 AND min(menu_count)=2 AND min(coupon_count)=1 FROM public.facility_card_view WHERE id='fa690001-0000-4000-8000-000000000001'),'owner public card still excludes draft prices and inactive coupons');
 RESET ROLE;
+SET LOCAL ROLE service_role;
+SELECT pg_temp.assert_scope((SELECT count(*)=1 FROM public.coupons c
+ JOIN public.facility_profiles f ON f.id=c.facility_id
+ WHERE c.id::text LIKE 'fa690003-%' AND f.status='published' AND c.is_active=true
+ AND (c.valid_from IS NULL OR c.valid_from<=(now() AT TIME ZONE 'Asia/Tokyo')::date)
+ AND (c.valid_until IS NULL OR c.valid_until>=(now() AT TIME ZONE 'Asia/Tokyo')::date)),
+ 'service-role customer query explicitly filters published parent and validity');
+RESET ROLE;
 ROLLBACK;

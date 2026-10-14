@@ -79,8 +79,11 @@ export async function GET(req: NextRequest) {
 
   const { data: coupons, error: couponsError } = await admin
     .from('coupons')
-    .select('id, name, description, discount_type, discount_value, special_price, valid_until, coupon_type, facility_profiles(name)')
+    .select('id, name, description, discount_type, discount_value, special_price, valid_until, coupon_type, facility_profiles!inner(name)')
     .eq('is_active', true)
+    // This service-role read bypasses coupon RLS. Filter before LIMIT, including
+    // facilities retained in booking/favorite history after unpublication.
+    .eq('facility_profiles.status', 'published')
     .in('facility_id', allFacilityIds)
     .or(`valid_from.is.null,valid_from.lte.${businessDate}`)
     .or(`valid_until.is.null,valid_until.gte.${businessDate}`)
