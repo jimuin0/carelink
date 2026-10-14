@@ -1,7 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/lib/admin-facility-selection';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import LoadError from '@/components/admin/LoadError';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
@@ -10,6 +17,11 @@ import { formatApiErrorMessage } from '@/lib/api-error-message';
 type MenuOption = { id: string; name: string; price: number | null };
 
 export default function NewCouponPage() {
+  const requested = useSearchParams().get('facility_id');
+  return <NewCouponEditor key={requested ?? 'unselected'} requested={requested} />;
+}
+
+function NewCouponEditor({requested}:{requested:string|null}) {
   const router = useRouter();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -25,34 +37,35 @@ export default function NewCouponPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // 対象メニュー選択肢のロード（自施設の facility_menus）。取得失敗は「メニューなし」に
-  // 偽装せずエラーメッセージを明示する（作成自体＝全メニュー適用クーポンは妨げない）。
-  const [menuLoadError, setMenuLoadError] = useState(false);
-  useEffect(() => {
-    (async () => {
+  const [choices,setChoices] = useState<AdminFacilityChoice[]>([]);
+  const [facilityId,setFacilityId] = useState<string|null>(null);
+  const [loading,setLoading] = useState(true);
+  const [dirty,setDirty] = useState(false);
+  const [confirmBack,setConfirmBack] = useState(false);
+  useUnsavedGuard(dirty);
+  const [menuLoadError,setMenuLoadError] = useState(false);
+  const [reloadKey,setReloadKey] = useState(0);
+  useEffect(()=>{
+    let cancelled=false;
+    (async()=>{
       try {
-        const supabase = createBrowserSupabaseClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        const { data: membership, error: memError } = await supabase
-          .from('facility_members')
-          .select('facility_id')
-          .eq('user_id', user.id)
-          .limit(1)
-          .single();
-        if (memError || !membership) { setMenuLoadError(true); return; }
-        const { data: menus, error: menusError } = await supabase
-          .from('facility_menus')
-          .select('id, name, price')
-          .eq('facility_id', membership.facility_id)
-          .order('sort_order');
-        if (menusError) { setMenuLoadError(true); return; }
-        setMenuOptions((menus ?? []) as MenuOption[]);
-      } catch {
-        setMenuLoadError(true);
-      }
+        setLoading(true);setMenuLoadError(false);setFacilityId(null);
+        const supabase=createBrowserSupabaseClient();
+        const identity=await verifyAuthUser(supabase.auth);
+        if (identity.state!=='verified') throw new Error('COUPON_ACCESS_UNAVAILABLE');
+        const selection=await loadAdminFacilitySelection(supabase,identity.user.id,requested);
+        if(cancelled)return;
+        setChoices(selection.choices);
+        if(!selection.selectedId){setLoading(false);return;}
+        const {data:menus,error}=await supabase.from('facility_menus').select('id, name, price')
+          .eq('facility_id',selection.selectedId).order('sort_order');
+        if(error||!Array.isArray(menus))throw new Error('COUPON_MENUS_UNAVAILABLE');
+        if(cancelled)return;
+        setFacilityId(selection.selectedId);setMenuOptions(menus as MenuOption[]);setLoading(false);
+      }catch{if(!cancelled){setMenuLoadError(true);setLoading(false);}}
     })();
-  }, []);
+    return ()=>{cancelled=true;};
+  },[reloadKey,requested]);
 
   const toggleTargetMenu = (menuId: string) => {
     setTargetMenuIds((prev) =>
@@ -61,7 +74,7 @@ export default function NewCouponPage() {
   };
 
   const handleCreate = async () => {
-    if (saving) return;
+    if (saving || loading || menuLoadError || !facilityId) return;
     if (!name.trim()) {
       setToast({ type: 'error', message: 'クーポン名を入力してください' });
       return;
@@ -87,20 +100,13 @@ export default function NewCouponPage() {
 
     setSaving(true);
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setSaving(false); return; }
+      const supabase=createBrowserSupabaseClient();
+      const identity=await verifyAuthUser(supabase.auth);
+      if(identity.state!=='verified')throw new Error('COUPON_ACCESS_UNAVAILABLE');
+      const current=await loadAdminFacilitySelection(supabase,identity.user.id,facilityId);
+      if(current.selectedId!==facilityId)throw new Error('COUPON_ACCESS_UNAVAILABLE');
 
-      const { data: membership, error: memErr } = await supabase
-        .from('facility_members')
-        .select('facility_id')
-        .eq('user_id', user.id)
-        .limit(1)
-        .single();
-
-      if (memErr || !membership) { setSaving(false); return; }
-
-      const res = await fetch(`/api/admin/coupons?facility_id=${membership.facility_id}`, {
+      const res = await fetch(`/api/admin/coupons?facility_id=${facilityId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -122,7 +128,8 @@ export default function NewCouponPage() {
         // 何を直せばよいか分からないため（formatApiErrorMessage が fieldErrors を整形する）
         setToast({ type: 'error', message: formatApiErrorMessage(err, '作成に失敗しました') });
       } else {
-        router.push('/admin/coupons');
+        setDirty(false);
+        router.push(`/admin/coupons?facility_id=${facilityId}`);
       }
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
@@ -131,8 +138,14 @@ export default function NewCouponPage() {
     }
   };
 
+  if(loading)return <AdminPageLoading />;
+  if(menuLoadError)return <LoadError onRetry={()=>setReloadKey(k=>k+1)} />;
+  const selector=<FacilitySelector choices={choices} selectedId={facilityId} path="/admin/coupons/new" dirty={dirty} busy={saving} />;
+  if(!facilityId)return <div><SbPageHeader title="クーポン新規作成" />{selector}</div>;
+
   return (
-    <div>
+    <div onChange={()=>setDirty(true)}>
+      {selector}
       <SbPageHeader title="クーポン新規作成" />
 
       <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
@@ -194,9 +207,7 @@ export default function NewCouponPage() {
           <p className="text-xs text-gray-400 mb-2">
             選択したメニューにのみクーポンが適用されます（対象外メニューは定価）。未選択の場合は全メニューに適用されます。
           </p>
-          {menuLoadError ? (
-            <p className="text-xs text-red-500 border border-red-200 rounded-lg p-3">メニューの読み込みに失敗しました。対象メニューを設定する場合はページを再読み込みしてください。</p>
-          ) : menuOptions.length === 0 ? (
+          {menuOptions.length === 0 ? (
             <p className="text-xs text-gray-400 border rounded-lg p-3">選択できるメニューがありません（メニュー未登録）</p>
           ) : (
             <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
@@ -226,7 +237,7 @@ export default function NewCouponPage() {
         </div>
 
         <div className="flex gap-3 pt-4">
-          <button type="button" onClick={() => router.push('/admin/coupons')} className="text-sm text-gray-500 hover:underline">
+          <button type="button" disabled={saving} onClick={() => {if(dirty)setConfirmBack(true);else router.push(`/admin/coupons?facility_id=${facilityId}`);}} className="text-sm text-gray-500 hover:underline">
             戻る
           </button>
           <button type="button" onClick={handleCreate} disabled={saving} className="btn-primary flex-1 py-3!">
@@ -236,6 +247,8 @@ export default function NewCouponPage() {
       </div>
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+      <ConfirmDialog open={confirmBack} title="未保存の変更があります" message="未保存の変更を破棄して一覧へ戻りますか？" confirmLabel="破棄して戻る" confirmDisabled={saving}
+        onCancel={()=>setConfirmBack(false)} onConfirm={()=>{if(!saving)router.push(`/admin/coupons?facility_id=${facilityId}`);}} />
     </div>
   );
 }

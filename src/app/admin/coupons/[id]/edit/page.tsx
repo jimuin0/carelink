@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -10,13 +10,25 @@ import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import { formatApiErrorMessage } from '@/lib/api-error-message';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/lib/admin-facility-selection';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 type MenuOption = { id: string; name: string; price: number | null };
 
 export default function CouponEditPage() {
   const params = useParams();
-  const router = useRouter();
-  const couponId = params.id as string;
+  const requested=useSearchParams().get('facility_id');
+  const couponId=params.id as string;
+  return <CouponEditor key={`${couponId}:${requested ?? 'unselected'}`} couponId={couponId} requested={requested} />;
+}
+
+function CouponEditor({couponId,requested}:{couponId:string;requested:string|null}) {
+  const router=useRouter();
+  const [facilityId,setFacilityId]=useState<string|null>(null);
+  const [choices,setChoices]=useState<AdminFacilityChoice[]>([]);
+  const [deleting,setDeleting]=useState(false);
+  const [confirmBack,setConfirmBack]=useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [couponType, setCouponType] = useState('all');
@@ -54,19 +66,16 @@ export default function CouponEditPage() {
     (async () => {
       try {
         const supabase = createBrowserSupabaseClient();
-        setLoadError(false);
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { router.push('/admin/coupons'); return; }
+        setLoadError(false);setLoading(true);setFacilityId(null);
+        const identity=await verifyAuthUser(supabase.auth);
+        if(identity.state!=='verified')throw new Error('COUPON_ACCESS_UNAVAILABLE');
 
-        const { data, error } = await supabase.from('coupons').select('*').eq('id', couponId).single();
-        // 行なし（PGRST116）は従来どおり一覧へ戻す。通信/権限エラーは空フォーム上書き事故を防ぐため明示する
-        if (error) {
-          if (error.code === 'PGRST116') { router.push('/admin/coupons'); return; }
-          if (!cancelled) { setLoadError(true); setLoading(false); }
-          return;
-        }
-        if (!data) { router.push('/admin/coupons'); return; }
-        if (cancelled) return;
+        const {data,error}=await supabase.from('coupons').select('*').eq('id',couponId).maybeSingle();
+        if(error||!data)throw new Error('COUPON_READ_UNAVAILABLE');
+        const selection=await loadAdminFacilitySelection(supabase,identity.user.id,requested ?? data.facility_id);
+        if(selection.selectedId!==data.facility_id)throw new Error('COUPON_SCOPE_MISMATCH');
+        if(cancelled)return;
+        setChoices(selection.choices);
         setName(data.name);
         setDescription(data.description || '');
         setCouponType(data.coupon_type);
@@ -85,13 +94,14 @@ export default function CouponEditPage() {
           supabase.from('coupon_menus').select('menu_id').eq('coupon_id', couponId),
           supabase.from('facility_menus').select('id, name, price').eq('facility_id', data.facility_id).order('sort_order'),
         ]);
-        if (cmError || menusError) {
+        if (cmError || menusError || !Array.isArray(cmRows) || !Array.isArray(menus)) {
           if (!cancelled) { setLoadError(true); setLoading(false); }
           return;
         }
         if (cancelled) return;
         setTargetMenuIds((cmRows ?? []).map((r: { menu_id: string }) => r.menu_id));
         setMenuOptions((menus ?? []) as MenuOption[]);
+        setFacilityId(selection.selectedId);
         setLoading(false);
       } catch {
         if (!cancelled) { setLoadError(true); setLoading(false); }
@@ -101,10 +111,11 @@ export default function CouponEditPage() {
     return () => {
       cancelled = true;
     };
-  }, [couponId, router, reloadKey]);
+  }, [couponId, requested, reloadKey]);
 
   const handleSave = async () => {
-    if (saving || !name.trim()) {
+    if (saving || deleting || loading || loadError || !facilityId) return;
+    if (!name.trim()) {
       setToast({ type: 'error', message: 'クーポン名は必須です' });
       return;
     }
@@ -129,7 +140,7 @@ export default function CouponEditPage() {
 
     setSaving(true);
     try {
-      const res = await fetch(`/api/admin/coupons/${couponId}`, {
+      const res = await fetch(`/api/admin/coupons/${couponId}?facility_id=${facilityId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -167,26 +178,27 @@ export default function CouponEditPage() {
   };
 
   const doDelete = async () => {
-    setConfirmDelete(false);
+    if(saving || deleting || !facilityId)return;
+    setConfirmDelete(false);setDeleting(true);
     try {
-      const res = await fetch(`/api/admin/coupons/${couponId}`, {
+      const res = await fetch(`/api/admin/coupons/${couponId}?facility_id=${facilityId}`, {
         method: 'DELETE',
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         setToast({ type: 'error', message: err.error ?? '削除に失敗しました' });
       } else {
-        router.push('/admin/coupons');
+        setDirty(false);router.push(`/admin/coupons?facility_id=${facilityId}`);
       }
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
-    }
+    } finally {setDeleting(false);}
   };
 
   if (loading) return <AdminPageLoading />;
 
   // 取得失敗時はフォームを描画しない（空フォームを保存して実データを上書きする事故を防ぐ）
-  if (loadError) {
+  if (loadError || !facilityId) {
     return (
       <div>
         <SbPageHeader title="クーポン編集" />
@@ -197,6 +209,7 @@ export default function CouponEditPage() {
 
   return (
     <div onChange={() => setDirty(true)}>
+      <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/coupons" dirty={dirty} busy={saving || deleting} />
       <SbPageHeader title="クーポン編集" />
 
       <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
@@ -294,16 +307,18 @@ export default function CouponEditPage() {
         </div>
 
         <div className="flex gap-3 pt-4">
-          <button type="button" onClick={() => router.push('/admin/coupons')} className="text-sm text-gray-500 hover:underline">戻る</button>
-          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 py-3!">
+          <button type="button" disabled={saving || deleting} onClick={() => {if(dirty)setConfirmBack(true);else router.push(`/admin/coupons?facility_id=${facilityId}`);}} className="text-sm text-gray-500 hover:underline">戻る</button>
+          <button type="button" onClick={handleSave} disabled={saving || deleting} className="btn-primary flex-1 py-3!">
             {saving ? '保存中...' : '保存'}
           </button>
         </div>
         <div className="pt-2 border-t">
-          <button type="button" onClick={handleDelete} className="text-sm text-red-500 hover:underline">このクーポンを削除</button>
+          <button type="button" disabled={saving || deleting} onClick={handleDelete} className="text-sm text-red-500 hover:underline">このクーポンを削除</button>
         </div>
       </div>
 
+      <ConfirmDialog open={confirmBack} title="未保存の変更があります" message="未保存の変更を破棄して一覧へ戻りますか？" confirmLabel="破棄して戻る" confirmDisabled={saving || deleting}
+        onCancel={()=>setConfirmBack(false)} onConfirm={()=>{if(!saving && !deleting)router.push(`/admin/coupons?facility_id=${facilityId}`);}} />
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
       <ConfirmDialog
@@ -312,6 +327,7 @@ export default function CouponEditPage() {
         message="このクーポンを削除しますか？"
         confirmLabel="削除する"
         variant="danger"
+        confirmDisabled={saving || deleting}
         onConfirm={doDelete}
         onCancel={() => setConfirmDelete(false)}
       />

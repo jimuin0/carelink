@@ -298,6 +298,9 @@ jobs:
       - name: Coupon parallel save, current menu ownership and role revocation (disposable DB)
         run: node scripts/check-coupon-management-concurrency.mjs
 
+      - name: Coupon usage complete counts and selected-owner privacy (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/admin-coupon-usage-fixtures.sql
+
       - name: ズレていたら正しい期待値を成果物として出す
         # 🔴 「再生成してコミットしろ」と言うだけでは、この job と同じメジャーの
         #   PostgreSQL を手元に用意できない人は従えない（実際 2026年8月3日、

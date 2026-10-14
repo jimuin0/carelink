@@ -6755,6 +6755,13 @@ export type Database = {
         Returns: boolean
       }
       geomfromewkt: { Args: { "": string }; Returns: unknown }
+      get_admin_coupon_usage: {
+        Args: { p_actor_id: string; p_facility_id: string }
+        Returns: {
+          coupon_id: string
+          usage_count: number
+        }[]
+      }
       get_available_slots: {
         Args: {
           p_date: string
