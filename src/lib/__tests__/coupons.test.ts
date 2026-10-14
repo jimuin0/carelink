@@ -1,4 +1,6 @@
 const mockFrom = jest.fn();
+const mockAuthCreator = jest.fn(async () => ({from:mockFrom}));
+jest.mock('../supabase-server-auth', () => ({createServerSupabaseAuthClient: () => mockAuthCreator()}));
 
 jest.mock('../supabase-server', () => ({
   createServerSupabaseClient: () => ({ from: mockFrom }),
@@ -8,6 +10,7 @@ import { getCouponsByFacility, getActiveCouponsByFacility, getCouponMenus } from
 
 beforeEach(() => {
   mockFrom.mockReset();
+  mockAuthCreator.mockClear();
 });
 
 function fluent(resolvedValue: unknown) {
@@ -123,3 +126,9 @@ describe('getCouponMenus', () => {
     expect(result).toEqual([]);
   });
 });
+
+test('owner list uses the authenticated cookie context', async () => { mockFrom.mockReturnValue(fluent({data:[]})); await getCouponsByFacility('fac-1'); expect(mockAuthCreator).toHaveBeenCalledTimes(1); });
+
+test.each([getCouponsByFacility,getActiveCouponsByFacility])('coupon lookup failure is never an empty successful list %#', async read => { mockFrom.mockReturnValue(fluent({data:null,error:{code:'08006',message:'private source'}})); await expect(read('fac-1')).rejects.toThrow('DATABASE_FAILURE:08006'); });
+
+test('coupon-menu lookup failure is never interpreted as applies to all menus', async () => { mockFrom.mockReturnValue({select:()=>({eq:()=>Promise.resolve({data:null,error:{code:'08006'}})})}); await expect(getCouponMenus('c-1')).rejects.toThrow('DATABASE_FAILURE:08006'); });

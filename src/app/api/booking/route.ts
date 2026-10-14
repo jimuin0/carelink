@@ -164,7 +164,7 @@ export async function POST(request: Request) {
       .select('discount_type, discount_value, special_price, is_active, valid_from, valid_until')
       .eq('id', parsed.data.coupon_id)
       .eq('facility_id', parsed.data.facility_id)
-      .single();
+      .maybeSingle();
     if (couponLookupError) return serverError('booking-coupon-lookup',couponLookupError,'/api/booking');
     // Validate coupon is active and within its validity window server-side
     const couponValid = coupon &&

@@ -1,19 +1,22 @@
 import { createServerSupabaseClient } from './supabase-server';
 import type { Coupon, CouponMenu } from '@/types';
 import { todayJst } from './admin-date';
+import { createServerSupabaseAuthClient } from './supabase-server-auth';
+import { databaseDiagnostic } from './database-diagnostic';
 
 // オーナー管理画面(admin/coupons/page.tsx)向け＝is_active な全クーポンを返す（期間フィルタ
 // なし）。この画面は期間外（未来開始／期限切れ）のクーポンも一覧・編集リンク・利用実績の
 // 到達導線を出す必要があるため、valid_from/valid_until での絞り込みをしてはならない。
 // 顧客向けの表示は getActiveCouponsByFacility を使うこと（下記）。
 export async function getCouponsByFacility(facilityId: string): Promise<Coupon[]> {
-  const supabase = createServerSupabaseClient();
-  const { data } = await supabase
+  const supabase = await createServerSupabaseAuthClient();
+  const { data, error } = await supabase
     .from('coupons')
     .select('*')
     .eq('facility_id', facilityId)
     .eq('is_active', true)
     .order('sort_order');
+  if (error) throw databaseDiagnostic(error);
   return (data ?? []) as Coupon[];
 }
 
@@ -27,7 +30,7 @@ export async function getCouponsByFacility(facilityId: string): Promise<Coupon[]
 export async function getActiveCouponsByFacility(facilityId: string): Promise<Coupon[]> {
   const supabase = createServerSupabaseClient();
   const businessDate = todayJst();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('coupons')
     .select('*')
     .eq('facility_id', facilityId)
@@ -35,14 +38,16 @@ export async function getActiveCouponsByFacility(facilityId: string): Promise<Co
     .or(`valid_from.is.null,valid_from.lte.${businessDate}`)
     .or(`valid_until.is.null,valid_until.gte.${businessDate}`)
     .order('sort_order');
+  if (error) throw databaseDiagnostic(error);
   return (data ?? []) as Coupon[];
 }
 
 export async function getCouponMenus(couponId: string): Promise<CouponMenu[]> {
   const supabase = createServerSupabaseClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('coupon_menus')
     .select('*')
     .eq('coupon_id', couponId);
+  if (error) throw databaseDiagnostic(error);
   return (data ?? []) as CouponMenu[];
 }
