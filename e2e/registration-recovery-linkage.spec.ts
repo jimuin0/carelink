@@ -49,7 +49,8 @@ async function login(page: Page, person: Awaited<ReturnType<typeof identity>>, r
   await page.fill('#login-email', person.email);
   await page.fill('#login-password', person.password);
   await page.getByRole('button', { name: 'ログイン', exact: true }).click();
-  await page.waitForURL(url => url.pathname === redirect.split('?')[0]);
+  await page.waitForURL(url => url.pathname === redirect.split('?')[0],{waitUntil:'domcontentloaded'});
+  if(redirect==='/register/recover')await expect(page.getByRole('heading',{name:'送信済みの掲載申込を復旧',exact:true})).toBeVisible();
 }
 async function selectRecovery(page: Page, id: string) {
   const row = page.locator('li').filter({ hasText: `受付番号：${id}` });
@@ -150,7 +151,7 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   if (intent.error) throw new Error('Disposable expired handoff setup failed');
   await login(page, owner, '/register/recover');
   // Establish a real signed negative membership cache before creation.
-  await page.goto('/admin');
+  await page.goto('/admin',{waitUntil:'domcontentloaded'});
   await expect(page).toHaveURL(/\/auth\/login\?redirect=%2Fadmin&error=store_access_required$/);
   await expect(page.getByRole('alert').filter({ hasText: 'このアカウントでは、お店を管理できません。' })).toBeVisible();
   const negativeHint = (await page.context().cookies()).find(cookie => cookie.name.startsWith('_cm_mbr_'));
@@ -175,7 +176,7 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   // Reproduce the cookie effect of an older pre-creation response arriving late.
   // The real middleware must recheck current DB membership, never trust denial.
   await page.context().addCookies([negativeHint!]);
-  await page.goto('/admin');
+  await page.goto('/admin',{waitUntil:'domcontentloaded'});
   await expect(page).toHaveURL(/\/admin$/);
   const claimed = await db.from('salons').select('claimed_facility_id,claimed_by_user_id').eq('id', id).single();
   expect(claimed.error).toBeNull();
@@ -191,7 +192,7 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   expect(published.status()).toBe(200);
   await page.goto(`/search?area=${encodeURIComponent('愛知県')}&keyword=${encodeURIComponent(name)}`);
   await expect(page.locator(`a[href="/facility/${created.slug}"]`).first()).toBeVisible();
-  await page.goto(`/facility/${created.slug}/booking`);
+  await page.goto(`/facility/${created.slug}/booking`,{waitUntil:'domcontentloaded'});
   await expect(page.getByText('ネット予約は準備中です。ご予約については店舗へ直接お問い合わせください。')).toBeVisible();
   await expect(page.getByRole('link', { name: '店舗に電話する' })).toBeVisible();
   const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -216,7 +217,7 @@ test('committed direct setup with lost response reloads membership without anoth
   await page.setExtraHTTPHeaders({ 'x-real-ip': `192.0.2.${200 + info.retry * 2 + (info.project.name === 'chromium' ? 0 : 1)}` });
   const db = localDb(); const owner = await identity(db);
   await login(page, owner, '/admin/onboarding');
-  await page.goto('/admin'); await expect(page).toHaveURL(/\/auth\/login\?redirect=%2Fadmin&error=store_access_required$/);
+  await page.goto('/admin',{waitUntil:'domcontentloaded'}); await expect(page).toHaveURL(/\/auth\/login\?redirect=%2Fadmin&error=store_access_required$/);
   await expect(page.getByRole('alert').filter({ hasText: 'このアカウントでは、お店を管理できません。' })).toBeVisible();
   const negativeHint = (await page.context().cookies()).find(cookie => cookie.name.startsWith('_cm_mbr_'));
   expect({ present: !!negativeHint, negative: negativeHint?.value.startsWith('0.'),
