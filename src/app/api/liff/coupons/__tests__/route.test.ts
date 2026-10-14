@@ -112,6 +112,7 @@ function setupDefaultMocks(
         return {
           select: jest.fn().mockReturnValue({
             eq: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnThis(),
               in: jest.fn().mockReturnValue({
                 or: jest.fn().mockReturnValue({
                   or: jest.fn().mockReturnValue({
@@ -146,6 +147,14 @@ function makeRequest(token: string | null = 'valid-token', ip = '192.168.1.1') {
 }
 
 describe('GET /api/liff/coupons', () => {
+  test('service-role read requires a published parent before limiting customer coupons', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    const from = createServiceRoleClient().from;
+    expect((await GET(makeRequest() as any)).status).toBe(200);
+    const chain = from.mock.results.find((_: unknown, i: number) => from.mock.calls[i][0] === 'coupons')?.value;
+    expect(chain.select).toHaveBeenCalledWith(expect.stringContaining('facility_profiles!inner(name)'));
+    expect(chain.select().eq().eq).toHaveBeenCalledWith('facility_profiles.status', 'published');
+  });
   test.each([
     ['2026-10-08T14:59:59.999Z', '2026-10-08'],
     ['2026-10-08T15:00:00.000Z', '2026-10-09'],
@@ -387,6 +396,7 @@ describe('GET /api/liff/coupons', () => {
           return {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
+                eq: jest.fn().mockReturnThis(),
                 in: jest.fn().mockReturnValue({
                   or: jest.fn().mockReturnValue({
                     or: jest.fn().mockReturnValue({
@@ -441,6 +451,7 @@ describe('GET /api/liff/coupons', () => {
           return {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
+                eq: jest.fn().mockReturnThis(),
                 in: jest.fn().mockReturnValue({
                   or: jest.fn().mockReturnValue({
                     or: jest.fn().mockReturnValue({
