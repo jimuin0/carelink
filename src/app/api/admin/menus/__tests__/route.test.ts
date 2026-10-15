@@ -13,18 +13,19 @@ jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 
-const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
+const FACILITY_UUID = '22222222-2222-4222-8222-222222222222';
 const USER_ID       = '33333333-3333-3333-3333-333333333333';
 
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockRpc = jest.fn();
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -60,12 +61,8 @@ function memberSingle(data: unknown) {
   };
 }
 
-function listChain(data: unknown[], error: unknown = null) {
-  return {
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    order: jest.fn(() => Promise.resolve({ data, error })),
-  };
+function snapshotResult(data: unknown[], error: unknown = null) {
+  return { data: { menus: data.map(() => ({ id: '11111111-1111-4111-8111-111111111111', facility_id: FACILITY_UUID })), revision: null }, error };
 }
 
 // Duplicate name check: maybeSingle()
@@ -125,7 +122,7 @@ test('GET: 非管理者 → 401', async () => {
 
 test('GET: 正常取得 → 200 with menus', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(listChain([{ id: 'menu-1' }]));
+  mockRpc.mockResolvedValue(snapshotResult([{ id: 'menu-1' }]));
   const res = await GET(makeGetRequest());
   const json = await res.json();
   expect(res.status).toBe(200);
@@ -230,14 +227,14 @@ test('POST: CSRF エラー → 403', async () => {
 
 test('GET: DB失敗 → 500', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(listChain([], { message: 'DB error' }));
+  mockRpc.mockResolvedValue(snapshotResult([], { message: 'DB error' }));
   const res = await GET(makeGetRequest());
   expect(res.status).toBe(500);
 });
 
 test('GET: rate limit params (30/60s)', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(listChain([]));
+  mockRpc.mockResolvedValue(snapshotResult([]));
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkRateLimit as jest.Mock).mockClear();
   await GET(makeGetRequest());
@@ -266,7 +263,7 @@ test('POST: rate limit params (20/60s)', async () => {
 
 test('GET: レスポンスが { menus: [] } 形式', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(listChain([]));
+  mockRpc.mockResolvedValue(snapshotResult([]));
   const res = await GET(makeGetRequest());
   const json = await res.json();
   expect(Array.isArray(json.menus)).toBe(true);
@@ -301,7 +298,7 @@ test('GET: facility_id が不正UUID → 401', async () => {
 
 test('GET: x-forwarded-for ヘッダあり → IP抽出', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(listChain([]));
+  mockRpc.mockResolvedValue(snapshotResult([]));
   (checkRateLimit as jest.Mock).mockClear();
   const url = new URL('http://localhost/api/admin/menus');
   url.searchParams.set('facility_id', FACILITY_UUID);
@@ -397,4 +394,13 @@ test('POST: photo_url がストック写真(images.unsplash.com) → 400', async
   );
   expect(res.status).toBe(400);
   expect((await res.json()).error).toContain('ストック写真');
+});
+
+
+test.each([['42501',403],['P0002',404],['08006',500]])('GET current DB scope error %s rejects partial snapshot',async(code,status)=>{
+ mockAnonFrom.mockReturnValue(memberSingle({facility_id:FACILITY_UUID})); mockRpc.mockResolvedValue({data:{menus:[],revision:null},error:{code,message:'PRIVATE_DETAIL'}});
+ const response=await GET(makeGetRequest());expect(response.status).toBe(status);expect(JSON.stringify(await response.json())).not.toContain('PRIVATE_DETAIL');
+});
+test.each([null,{menus:[],revision:'invalid'},{menus:[{id:'11111111-1111-4111-8111-111111111111',facility_id:'99999999-9999-4999-8999-999999999999'}],revision:null}])('GET malformed or foreign snapshot is never exposed %#',async data=>{
+ mockAnonFrom.mockReturnValue(memberSingle({facility_id:FACILITY_UUID}));mockRpc.mockResolvedValue({data,error:null});expect((await GET(makeGetRequest())).status).toBe(500);
 });

@@ -25,7 +25,11 @@ beforeEach(() => {
     q.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data: membershipRows, error: membershipError }).then(resolve);
     return q;
   });
-  global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
+  global.fetch = jest.fn().mockImplementation((url, options) => {
+    if (!options?.method) { scopes.push(new URL(url,'https://example.invalid').searchParams.get('facility_id')!);
+      return menuDeferred ?? Promise.resolve({ok:!menuError,json:async()=>({menus:[],revision:null})}); }
+    return Promise.resolve({ok:true,json:async()=>({})});
+  });
 });
 test('second store is displayed and menu creation sends only selected ID', async () => {
   render(<Page />);
@@ -67,7 +71,7 @@ test('URL store change remounts editor so old form cannot mutate new store', asy
   fireEvent.change(screen.getByLabelText(/メニュー名/), { target: { value: 'old form' } });
   requested = first; rerender(<Page />);
   await screen.findByRole('link', { name: '合成店舗A（選択中）' });
-  expect(screen.queryByRole('dialog')).toBeNull(); expect(global.fetch).not.toHaveBeenCalled(); expect(scopes).toEqual([second, first]);
+  expect(screen.queryByRole('dialog')).toBeNull(); expect((global.fetch as jest.Mock).mock.calls.filter(([,options])=>options?.method)).toEqual([]); expect(scopes).toEqual([second, first]);
 });
 
 test('retry after menu outage hides old controls until identity and store are reverified', async () => {
@@ -79,8 +83,29 @@ test('retry after menu outage hides old controls until identity and store are re
   fireEvent.click(screen.getByRole('button', { name: '再試行' }));
   await waitFor(() => expect(mockAuth).toHaveBeenCalledTimes(2));
   expect(screen.queryByRole('button', { name: 'メニュー追加' })).toBeNull();
-  expect(global.fetch).not.toHaveBeenCalled();
+  expect((global.fetch as jest.Mock).mock.calls.filter(([,options])=>options?.method)).toEqual([]);
   finishAuth({ data: { user: { id: 'synthetic-user' } }, error: null });
   await screen.findByRole('link', { name: '合成店舗B（選択中）' });
   expect(screen.getByRole('button', { name: 'メニュー追加' })).toBeTruthy();
+});
+
+
+const menuA='00000000-0000-4000-8000-000000000010'; const menuB='00000000-0000-4000-8000-000000000020';
+const orderRevision='2026-10-15T01:00:00.000Z';
+function orderedSnapshot() { return {menus:[{id:menuA,facility_id:second,name:'A',category:'カット',sort_order:0,price:1000},{id:menuB,facility_id:second,name:'B',category:'カット',sort_order:0,price:2000}],revision:orderRevision}; }
+test('reordering sends one category transaction with the selected store and original revision',async()=>{
+ (global.fetch as jest.Mock).mockResolvedValue({ok:true,json:async()=>orderedSnapshot()});render(<Page/>);await screen.findByText('A');
+ fireEvent.click(screen.getAllByRole('button',{name:'下へ'})[0]);
+ await waitFor(()=>expect((global.fetch as jest.Mock).mock.calls.some(([url])=>url.includes('/reorder?'))).toBe(true));
+ const mutations=(global.fetch as jest.Mock).mock.calls.filter(([,options])=>options?.method);
+ expect(mutations).toHaveLength(1);expect(mutations[0][0]).toBe(`/api/admin/menus/reorder?facility_id=${second}`);
+ expect(JSON.parse(mutations[0][1].body)).toEqual({menu_ids:[menuB,menuA],expected_ids:[menuA,menuB],expected_revision:orderRevision});
+});
+test.each(['lost-response','conflict'])('reorder %s reloads authoritative result without another mutation',async mode=>{
+ (global.fetch as jest.Mock).mockImplementation((_url,options)=>{
+  if(options?.method) return mode==='lost-response'?Promise.reject(new Error('network')):Promise.resolve({ok:false,json:async()=>({error:'一覧が更新されています'})});
+  return Promise.resolve({ok:true,json:async()=>orderedSnapshot()});
+ });render(<Page/>);await screen.findByText('A');fireEvent.click(screen.getAllByRole('button',{name:'下へ'})[0]);
+ await waitFor(()=>expect((global.fetch as jest.Mock).mock.calls.filter(([,options])=>!options?.method)).toHaveLength(2));
+ expect((global.fetch as jest.Mock).mock.calls.filter(([,options])=>options?.method)).toHaveLength(1);
 });

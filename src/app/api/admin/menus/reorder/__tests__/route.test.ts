@@ -1,0 +1,20 @@
+/** @jest-environment node */
+import { NextRequest, NextResponse } from 'next/server';
+const facility='22222222-2222-4222-8222-222222222222'; const a='11111111-1111-4111-8111-111111111111';const b='11111111-1111-4111-8111-111111111112';const rev='2026-10-15T01:00:00.000Z';
+const mockContext=jest.fn();const mockRpc=jest.fn();
+jest.mock('@/lib/admin-api-context',()=>({getAdminApiContext:(...args:unknown[])=>mockContext(...args)}));
+jest.mock('@/lib/supabase-server',()=>({createServiceRoleClient:()=>({rpc:mockRpc})}));
+jest.mock('@/lib/csrf',()=>({checkCsrf:jest.fn(()=>null)}));jest.mock('@/lib/rate-limit',()=>({checkRateLimit:jest.fn(()=>false)}));jest.mock('@/lib/audit-logger',()=>({writeAuditLog:jest.fn()}));
+import { POST } from '../route';import { checkCsrf } from '@/lib/csrf';import { checkRateLimit } from '@/lib/rate-limit';import { writeAuditLog } from '@/lib/audit-logger';
+const body=()=>({menu_ids:[b,a],expected_ids:[a,b],expected_revision:rev});
+const req=(data:unknown=body())=>new NextRequest(`https://example.invalid/api/admin/menus/reorder?facility_id=${facility}`,{method:'POST',body:JSON.stringify(data),headers:{'Content-Type':'application/json'}});
+beforeEach(()=>{jest.clearAllMocks();mockContext.mockResolvedValue({userId:'actor',facilityId:facility});mockRpc.mockResolvedValue({data:{outcome:'saved',facility_id:facility,revision:rev},error:null});});
+test('order and exact version are sent to one scoped transaction',async()=>{expect((await POST(req())).status).toBe(200);expect(mockRpc).toHaveBeenCalledWith('reorder_admin_menus_atomic',{p_actor_id:'actor',p_facility_id:facility,p_menu_ids:[b,a],p_expected_ids:[a,b],p_expected_revision:rev});expect(writeAuditLog).toHaveBeenCalledTimes(1);});
+test('legacy nullable timestamp keeps compare-and-set semantics',async()=>{expect((await POST(req({...body(),expected_revision:null}))).status).toBe(200);expect(mockRpc.mock.calls[0][1].p_expected_revision).toBe('');});
+test('CSRF prevents reorder',async()=>{(checkCsrf as jest.Mock).mockReturnValueOnce(NextResponse.json({}, {status:403}));expect((await POST(req())).status).toBe(403);expect(mockRpc).not.toHaveBeenCalled();});
+test('rate limit prevents reorder',async()=>{(checkRateLimit as jest.Mock).mockReturnValueOnce(true);expect((await POST(req())).status).toBe(429);expect(mockRpc).not.toHaveBeenCalled();});
+test('identity outage is not a successful save',async()=>{mockContext.mockResolvedValue(NextResponse.json({}, {status:503}));expect((await POST(req())).status).toBe(503);expect(mockRpc).not.toHaveBeenCalled();});
+test.each([null,{}, {...body(),menu_ids:[]},{...body(),expected_revision:'invalid'}])('invalid payload rejected %#',async data=>{expect((await POST(req(data))).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
+test('invalid JSON cannot mutate',async()=>{const r=new NextRequest('https://example.invalid/api/admin/menus/reorder',{method:'POST',body:'bad'});expect((await POST(r)).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
+test.each([['42501',403],['P0002',404],['40001',409],['22023',400],['08006',500]])('DB %s is %i with no success audit',async(code,status)=>{mockRpc.mockResolvedValue({data:{outcome:'saved',facility_id:facility,revision:rev},error:{code,message:'PRIVATE_DETAIL'}});const r=await POST(req());expect(r.status).toBe(status);expect(JSON.stringify(await r.json())).not.toContain('PRIVATE_DETAIL');expect(writeAuditLog).not.toHaveBeenCalled();});
+test.each([null,{outcome:'saved',facility_id:a,revision:rev},{outcome:'deleted',facility_id:facility,revision:rev}])('invalid scoped receipt fails closed %#',async data=>{mockRpc.mockResolvedValue({data,error:null});expect((await POST(req())).status).toBe(500);expect(writeAuditLog).not.toHaveBeenCalled();});
