@@ -53,6 +53,8 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm ci
+      - name: Seed helper destination safety
+        run: node --test scripts/local-seed-target.test.mjs
       - name: Run Tests with Coverage
         run: npm run test:coverage:ci
         env:

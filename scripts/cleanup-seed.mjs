@@ -1,7 +1,8 @@
 // CareLink: シードデータ一括削除スクリプト
 // -------------------------------------------------------------
 // 実行方法（プロジェクトルートで）:
-//   node --env-file=.env.local scripts/cleanup-seed.mjs
+//   CARELINK_DISPOSABLE_SUPABASE_URL=http://127.0.0.1:54321 node --env-file=.env.local scripts/cleanup-seed.mjs --local-test-data
+// 接続先は使い捨てのローカルSupabase（port 54321）限定。本番・共有stagingでは使わない。
 //
 // 動作:
 //   - facility_profiles.is_seed = true の施設を全削除
@@ -11,8 +12,9 @@
 // -------------------------------------------------------------
 
 import { createClient } from '@supabase/supabase-js';
+import { requireDisposableSeedTarget } from './local-seed-target.mjs';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_URL = requireDisposableSeedTarget();
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL || !SERVICE_KEY) {
