@@ -72,7 +72,10 @@ export default async function SearchPage(props: Props) {
     available_time: searchParams.available_time,
   };
 
-  const { facilities, total, perPage } = await searchFacilities(params);
+  const { facilities, total, perPage, error } = await searchFacilities(params);
+  // A failed read (including partial data) is not an empty search. Use the
+  // existing search error boundary, without exposing database response details.
+  if (error) throw new Error('SEARCH_RESULTS_UNAVAILABLE');
   const totalPages = Math.ceil(total / perPage);
 
   // 広告枠: 1ページ目のみ上位表示施設を取得
