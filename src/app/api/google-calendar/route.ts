@@ -10,6 +10,7 @@ import { isGoogleCalendarEnabled } from '@/lib/integration-availability';
 import { SITE_URL } from '@/lib/constants';
 import { authUnavailable, serverError } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.events',
@@ -29,11 +30,17 @@ export async function GET(req: NextRequest) {
   const user = identity.user;
 
   const admin = createServiceRoleClient();
-  const { data: token } = await admin
+  const { data: token, error: tokenError } = await admin
     .from('google_calendar_tokens')
     .select('expires_at, scope, updated_at')
     .eq('user_id', user.id)
-    .single();
+    .maybeSingle();
+
+  if (tokenError) {
+    const response = serverError('google-calendar-status-read', databaseDiagnostic(tokenError), '/api/google-calendar');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
 
   // 【2026年7月30日】GOOGLE_CLIENT_ID / SECRET が未設定だと OAuth が成立せず連携できない。
   // 本番は両方とも未設定のまま、マイページに「Googleカレンダーと連携する」ボタンが出ていた。

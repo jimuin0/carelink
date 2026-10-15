@@ -46,7 +46,7 @@ beforeEach(() => {
       updated_at: new Date().toISOString(),
     },
   });
-  const mockTokenEq = jest.fn().mockReturnValue({ single: mockTokenMaybeSingle });
+  const mockTokenEq = jest.fn().mockReturnValue({ maybeSingle: mockTokenMaybeSingle });
   const mockTokenSelect = jest.fn().mockReturnValue({ eq: mockTokenEq });
 
   mockDelete = jest.fn().mockResolvedValue({ error: null });
@@ -142,6 +142,23 @@ describe.each(['GET', 'CONNECT', 'DISCONNECT'] as const)('Google calendar %s ide
 });
 
 describe('GET /api/google-calendar', () => {
+  test.each([
+    { data: null, error: { code: '08006', message: 'private access_token=secret', details: 'private details' } },
+    { data: { expires_at: '2099-01-01T00:00:00Z', updated_at: 'private timestamp' }, error: { code: '08006', message: 'private access_token=secret' } },
+    { data: null, error: { code: 'PGRST116', message: 'multiple rows with private details' } },
+  ])('token lookup failure is not a disconnected or connected success: %j', async (result) => {
+    mockTokenMaybeSingle.mockResolvedValueOnce(result);
+    const res = await GET(makeGetRequest() as any);
+    expect(res.status).toBe(500);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(await res.json()).toEqual({ error: 'サーバーエラーが発生しました' });
+    const diagnostic = `DATABASE_FAILURE:${result.error.code}`;
+    expect(require('@/lib/alert').alertCaughtError).toHaveBeenCalledWith('google-calendar-status-read', expect.objectContaining({ message: diagnostic }), '/api/google-calendar');
+    expect(require('@/lib/safe').safeCaptureException).toHaveBeenCalledWith(expect.objectContaining({ message: diagnostic }), 'google-calendar-status-read');
+    expect(mockDelete).not.toHaveBeenCalled();
+    expect(require('next/headers').cookies).not.toHaveBeenCalled();
+  });
+
   test('rate limiting → 429', async () => {
     (checkRateLimit as jest.Mock).mockReturnValue(true);
 
