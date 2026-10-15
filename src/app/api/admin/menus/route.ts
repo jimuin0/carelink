@@ -94,6 +94,9 @@ export async function POST(request: NextRequest) {
     // facility_menus に updated_at 列は存在しない（created_at のみ）。書き込むと 400 になるため付けない。
   }).select().single();
 
+  // The unique index is authoritative when another request wins after the read,
+  // or btrim(name) detects a whitespace-equivalent name the exact lookup missed.
+  if (error?.code === '23505') return NextResponse.json({ error: 'メニューが競合しました。一覧を確認してから、もう一度お試しください。' }, { status: 409 });
   if (error) return serverError('admin-menus-create', databaseDiagnostic(error), '/api/admin/menus');
 
   const { ua } = getRequestContext(request);

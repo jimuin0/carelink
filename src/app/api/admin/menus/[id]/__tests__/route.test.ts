@@ -203,6 +203,18 @@ test('PATCH: DB更新失敗 → 500', async () => {
   expect(res.status).toBe(500);
 });
 
+test.each([null, { id: MENU_UUID }])('PATCH: unique violation after duplicate read is409 without success audit: %j', async (data) => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReset();
+  mockAdminFrom.mockReturnValueOnce(maybeSingleChain(null))
+    .mockReturnValueOnce(updateSingleChain(data, { code: '23505', message: 'private duplicate details' }));
+  const res = await PATCH(makeRequest('PATCH', { name: 'test' }), makeProps());
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({ error: 'メニューが競合しました。一覧を確認してから、もう一度お試しください。' });
+  expect(writeAuditLog).not.toHaveBeenCalled();
+  expect(mockAdminFrom).toHaveBeenCalledTimes(2);
+});
+
 // ─── 追加ブランチカバレッジ ───────────────────────────────────────────
 
 test('PATCH: CSRFエラー → そのまま返却', async () => {

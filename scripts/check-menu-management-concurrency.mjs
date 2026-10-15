@@ -91,7 +91,14 @@ try {
  assert.equal(query(`SELECT string_agg(name,',' ORDER BY sort_order,id) FROM public.facility_menus WHERE facility_id='${facility}'`),'B,A');
  const revoked=await contend('revoked-membership',`UPDATE public.facility_members SET role='staff' WHERE user_id='${actor}' AND facility_id='${facility}'`,[drop(a)]);
  assert.equal(revoked[0].status,'rejected');assert.equal(query(`SELECT count(*) FROM public.facility_menus WHERE facility_id='${facility}'`),'2');
- console.log('menu concurrency: four actual lock overlaps, final-menu retention, stale reorder denial and revoked-role denial verified');
+ const insert=`SET ROLE service_role; INSERT INTO public.facility_menus(facility_id,category,name) VALUES('${facility}','その他','Concurrent name') RETURNING id`;
+ const created=await contend('duplicate-name-insert',`SELECT id FROM public.facility_profiles WHERE id='${facility}' FOR UPDATE`,[insert,insert]);
+ assert.equal(created.filter(x=>x.status==='fulfilled').length,1);
+ const failed=created.filter(x=>x.status==='rejected'); assert.equal(failed.length,1);
+ assert.match(failed[0].reason.message,/uniq_facility_menu_name/);
+ assert.equal(query(`SELECT count(*) FROM public.facility_menus WHERE facility_id='${facility}' AND name='Concurrent name'`),'1');
+ query(`DO $$ BEGIN BEGIN INSERT INTO public.facility_menus(facility_id,category,name) VALUES('${facility}','その他',' Concurrent name '); RAISE EXCEPTION 'whitespace duplicate was accepted'; EXCEPTION WHEN unique_violation THEN NULL; END; END $$;`);
+ console.log('menu concurrency: five actual lock overlaps; duplicate name and whitespace-equivalent name rejected by unique index; prior deletion/reorder/role checks retained');
 } finally {
  for(const child of children)child.kill('SIGTERM');
  if(seeded) query(`BEGIN; DELETE FROM public.facility_profiles WHERE id='${facility}'; DELETE FROM auth.users WHERE id='${actor}'; COMMIT;`);

@@ -108,6 +108,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     // 0行→PGRST116で if(error)→500 が先に発火し if(!data)→404 が到達不能になる（500に化ける）。
     .maybeSingle();
 
+  if (error?.code === '23505') return NextResponse.json({ error: 'メニューが競合しました。一覧を確認してから、もう一度お試しください。' }, { status: 409 });
   if (error) return serverError('admin-menus-patch', databaseDiagnostic(error), '/api/admin/menus/[id]');
   if (!data) return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 404 });
 
