@@ -6609,6 +6609,14 @@ export type Database = {
         Args: { p_points: number; p_reason: string; p_user_id: string }
         Returns: Json
       }
+      delete_admin_menu_atomic: {
+        Args: { p_actor_id: string; p_facility_id: string; p_menu_id: string }
+        Returns: {
+          facility_id: string
+          id: string
+          outcome: string
+        }[]
+      }
       delete_facility_photo_atomic: {
         Args: { p_actor_id: string; p_facility_id: string; p_photo_id: string }
         Returns: {
@@ -7199,6 +7207,10 @@ export type Database = {
         }
         Returns: Json
       }
+      read_admin_menu_snapshot: {
+        Args: { p_actor_id: string; p_facility_id: string }
+        Returns: Json
+      }
       read_salon_recovery: {
         Args: { p_grant_id: string; p_proof_hash: string; p_user_id: string }
         Returns: {
@@ -7238,6 +7250,16 @@ export type Database = {
       registration_verified_account: {
         Args: { p_receipt_id?: string; p_user_id: string }
         Returns: boolean
+      }
+      reorder_admin_menus_atomic: {
+        Args: {
+          p_actor_id: string
+          p_expected_ids: string[]
+          p_expected_revision: string
+          p_facility_id: string
+          p_menu_ids: string[]
+        }
+        Returns: Json
       }
       replace_staff_schedules_atomic: {
         Args: {

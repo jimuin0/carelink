@@ -27,7 +27,7 @@ const menuUpdateSchema = z.object({
   duration_minutes: z.number().int().min(0).max(1440).optional().nullable(),
   photo_url: z.string().url().max(500).optional().nullable().or(z.literal('')),
   is_featured: z.boolean().optional(),
-  // 監査対応: メニュー一覧の並び替え(↑↓ボタン)用。同一カテゴリ内で隣接メニューと交換する。
+  // 旧画面のsort_order入力を検知して409を返す。並び替えは専用の原子APIを使う。
   sort_order: z.number().int().min(0).max(999999).optional(),
 });
 
@@ -50,6 +50,8 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const body = await request.json().catch(() => null);
   const parsed = menuUpdateSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
+
+  if (parsed.data.sort_order !== undefined) return NextResponse.json({ error: '画面を再読み込みして並び替えてください' }, { status: 409 });
 
   const admin = createServiceRoleClient();
 
@@ -139,48 +141,20 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   const admin = createServiceRoleClient();
 
-  // 公開中の施設で最後のメニューを削除すると、公開のまま予約不能（メニュー0件の行き止まり）になる。
-  // 公開ガード（公開にはメニュー≥1 が必須）と整合させ、公開中は最後の1件の削除を拒否する
-  // （先に施設を非公開にするか別のメニューを追加してもらう。サイレント非公開化より明示的で安全）。
-  const { data: facility, error: facilityError } = await admin
-    .from('facility_profiles')
-    .select('status')
-    .eq('id', ctx.facilityId)
-    .maybeSingle();
-  if (facilityError) return serverError('admin-menus-facility-check', databaseDiagnostic(facilityError), '/api/admin/menus/[id]');
-  if (!facility) return NextResponse.json({ error: '店舗が見つかりません' }, { status: 404 });
-  if (typeof facility.status !== 'string' || !['draft', 'published', 'suspended'].includes(facility.status)) {
-    return serverError('admin-menus-facility-check', new Error('MENU_FACILITY_STATUS_UNAVAILABLE'), '/api/admin/menus/[id]');
+  const { data, error } = await admin.rpc('delete_admin_menu_atomic', {
+    p_actor_id: ctx.userId, p_facility_id: ctx.facilityId, p_menu_id: params.id,
+  });
+  if (error) {
+    if (error.code === '42501') return NextResponse.json({ error: '店舗の管理権限を確認してください' }, { status: 403 });
+    if (error.code === 'P0002') return NextResponse.json({ error: '店舗が見つかりません' }, { status: 404 });
+    return serverError('admin-menus-delete', databaseDiagnostic(error), '/api/admin/menus/[id]');
   }
-  if (facility.status === 'published') {
-    const { count, error: countError } = await admin
-      .from('facility_menus')
-      .select('id', { count: 'exact', head: true })
-      .eq('facility_id', ctx.facilityId);
-    if (countError) return serverError('admin-menus-count', databaseDiagnostic(countError), '/api/admin/menus/[id]');
-    if (count === null || !Number.isSafeInteger(count) || count < 0) {
-      return serverError('admin-menus-count', new Error('MENU_COUNT_UNAVAILABLE'), '/api/admin/menus/[id]');
-    }
-    if (count <= 1) {
-      return NextResponse.json(
-        { error: '公開中は最後のメニューを削除できません。先に施設を非公開にするか、別のメニューを追加してください。' },
-        { status: 400 }
-      );
-    }
-  }
-
-  // 【2026年7月10日 恒久根治】削除件数(affected rows)を検証せず常に { ok: true } を返していたため、
-  // 他施設のIDを指定した0件削除（facility_id不一致でWHEREにマッチしない）も「成功」と偽装していた
-  // （phantom success）。.select() で削除された行を受け取り、0件なら404を返す。
-  const { data, error } = await admin
-    .from('facility_menus')
-    .delete()
-    .eq('id', params.id)
-    .eq('facility_id', ctx.facilityId)
-    .select();
-
-  if (error) return serverError('admin-menus-delete', databaseDiagnostic(error), '/api/admin/menus/[id]');
   if (!data || data.length === 0) return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 404 });
+  if (data.length !== 1 || data[0].id !== params.id.toLowerCase() || data[0].facility_id !== ctx.facilityId.toLowerCase()) {
+    return serverError('admin-menus-delete-receipt', new Error('MENU_RESULT_INVALID'), '/api/admin/menus/[id]');
+  }
+  if (data[0].outcome === 'last_menu') return NextResponse.json({ error: '公開中は最後のメニューを削除できません。先に施設を非公開にするか、別のメニューを追加してください。' }, { status: 400 });
+  if (data[0].outcome !== 'deleted') return serverError('admin-menus-delete-receipt', new Error('MENU_RESULT_INVALID'), '/api/admin/menus/[id]');
 
   void writeAuditLog({
     userId: ctx.userId,

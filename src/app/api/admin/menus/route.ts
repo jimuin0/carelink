@@ -30,17 +30,17 @@ export async function GET(request: NextRequest) {
   }
   const auth = await getAdminApiContext(request);
   if (auth instanceof NextResponse) return auth;
-  const { facilityId } = auth;
+  const { facilityId, userId } = auth;
+  const { data, error } = await createServiceRoleClient().rpc('read_admin_menu_snapshot', { p_actor_id: userId, p_facility_id: facilityId });
+  if (error) {
+    if (error.code === '42501') return NextResponse.json({ error: '店舗の管理権限を確認してください' }, { status: 403 });
+    if (error.code === 'P0002') return NextResponse.json({ error: '店舗が見つかりません' }, { status: 404 });
+    return serverError('admin-menus-list', databaseDiagnostic(error), '/api/admin/menus');
+  }
+  const snapshot = z.object({ menus: z.array(z.object({ id: z.uuid(), facility_id: z.uuid() }).passthrough()), revision: z.iso.datetime({ offset: true }).nullable() }).safeParse(data);
+  if (!snapshot.success || snapshot.data.menus.some(menu => menu.facility_id !== facilityId.toLowerCase())) return serverError('admin-menus-list', new Error('MENU_SNAPSHOT_INVALID'), '/api/admin/menus');
+  return NextResponse.json(snapshot.data);
 
-  const admin = createServiceRoleClient();
-  const { data, error } = await admin
-    .from('facility_menus')
-    .select('*')
-    .eq('facility_id', facilityId)
-    .order('sort_order', { ascending: true });
-
-  if (error) return serverError('admin-menus-list', databaseDiagnostic(error), '/api/admin/menus');
-  return NextResponse.json({ menus: data });
 }
 
 export async function POST(request: NextRequest) {

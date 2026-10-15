@@ -1,0 +1,22 @@
+/** @jest-environment node */
+import { NextRequest, NextResponse } from 'next/server';
+const facility = '22222222-2222-4222-8222-222222222222'; const id = '11111111-1111-4111-8111-111111111111';
+const mockContext = jest.fn(); const mockRpc = jest.fn();
+jest.mock('@/lib/admin-api-context', () => ({ getAdminApiContext: (...a: unknown[]) => mockContext(...a) }));
+jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => ({ rpc: mockRpc }) }));
+jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
+import { DELETE } from '../route'; import { checkCsrf } from '@/lib/csrf'; import { checkRateLimit } from '@/lib/rate-limit'; import { writeAuditLog } from '@/lib/audit-logger';
+const request = () => new NextRequest(`https://example.invalid/api/admin/menus/${id}?facility_id=${facility}`, { method: 'DELETE' });
+const props = (target=id) => ({ params: Promise.resolve({ id: target }) });
+beforeEach(() => { jest.clearAllMocks(); mockContext.mockResolvedValue({ userId:'actor',facilityId:facility }); mockRpc.mockResolvedValue({data:[{id,facility_id:facility,outcome:'deleted'}],error:null}); });
+test('one scoped atomic deletion and success audit after receipt', async () => { expect((await DELETE(request(),props())).status).toBe(200);expect(mockRpc).toHaveBeenCalledWith('delete_admin_menu_atomic',{p_actor_id:'actor',p_facility_id:facility,p_menu_id:id});expect(writeAuditLog).toHaveBeenCalledTimes(1); });
+test('CSRF denial prevents context and mutation', async () => { (checkCsrf as jest.Mock).mockReturnValueOnce(NextResponse.json({}, {status:403})); expect((await DELETE(request(),props())).status).toBe(403);expect(mockRpc).not.toHaveBeenCalled(); });
+test('rate limit prevents mutation', async () => { (checkRateLimit as jest.Mock).mockReturnValueOnce(true); expect((await DELETE(request(),props())).status).toBe(429);expect(mockRpc).not.toHaveBeenCalled(); });
+test('bad target rejected', async () => {expect((await DELETE(request(),props('bad'))).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
+test.each([401,503])('identity verification status %i is retained',async status=>{mockContext.mockResolvedValue(NextResponse.json({}, {status}));expect((await DELETE(request(),props())).status).toBe(status);expect(mockRpc).not.toHaveBeenCalled();});
+test.each([['42501',403],['P0002',404],['08006',500]])('DB %s stops success and hides private diagnostics',async(code,status)=>{mockRpc.mockResolvedValue({data:[{id,facility_id:facility,outcome:'deleted'}],error:{code,message:'PRIVATE_DETAIL'}});const r=await DELETE(request(),props());expect(r.status).toBe(status);expect(JSON.stringify(await r.json())).not.toContain('PRIVATE_DETAIL');expect(writeAuditLog).not.toHaveBeenCalled();});
+test.each([null,[]])('missing target %p is 404, not success',async data=>{mockRpc.mockResolvedValue({data,error:null});expect((await DELETE(request(),props())).status).toBe(404);expect(writeAuditLog).not.toHaveBeenCalled();});
+test('published last-menu restriction stays 400',async()=>{mockRpc.mockResolvedValue({data:[{id,facility_id:facility,outcome:'last_menu'}],error:null});expect((await DELETE(request(),props())).status).toBe(400);expect(writeAuditLog).not.toHaveBeenCalled();});
+test.each([[{id:'other',facility_id:facility,outcome:'deleted'}],[{id,facility_id:'other',outcome:'deleted'}],[{id,facility_id:facility,outcome:'unexpected'}],[{id,facility_id:facility,outcome:'deleted'},{id,facility_id:facility,outcome:'deleted'}]])('malformed receipt cannot acknowledge deletion %#',async(...rows)=>{mockRpc.mockResolvedValue({data:rows,error:null});expect((await DELETE(request(),props())).status).toBe(500);expect(writeAuditLog).not.toHaveBeenCalled();});

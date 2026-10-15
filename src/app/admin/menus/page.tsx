@@ -33,6 +33,15 @@ const emptyForm: MenuForm = {
   category: 'カット', name: '', description: '', price: '', price_note: '', duration_minutes: '60', photo_url: '', is_featured: false,
 };
 
+async function fetchMenuSnapshot(facilityId: string) {
+  const response = await fetch(`/api/admin/menus?facility_id=${facilityId}`, { cache: 'no-store' });
+  if (!response.ok) throw new Error('MENU_READ_UNAVAILABLE');
+  const snapshot = await response.json() as { menus: FacilityMenu[]; revision: string | null };
+  if (!Array.isArray(snapshot.menus) || !snapshot.menus.every(menu => menu.facility_id === facilityId)
+    || (snapshot.revision !== null && typeof snapshot.revision !== 'string')) throw new Error('MENU_SNAPSHOT_INVALID');
+  return snapshot;
+}
+
 export default function AdminMenusPage() {
   const requested = useSearchParams().get('facility_id');
   return <AdminMenusEditor key={requested ?? 'unselected'} requested={requested} />;
@@ -41,6 +50,7 @@ export default function AdminMenusPage() {
 function AdminMenusEditor({ requested }: { requested: string | null }) {
   const [choices, setChoices] = useState<AdminFacilityChoice[]>([]);
   const [menus, setMenus] = useState<FacilityMenu[]>([]);
+  const [revision, setRevision] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
@@ -54,15 +64,11 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
   const [reordering, setReordering] = useState<string | null>(null);
 
   const loadMenus = useCallback(async (fId: string) => {
-    const supabase = createBrowserSupabaseClient();
     setLoadError(false);
-    const { data, error } = await supabase
-      .from('facility_menus')
-      .select('*')
-      .eq('facility_id', fId)
-      .order('sort_order', { ascending: true });
-    if (error) { setLoadError(true); return; }
-    setMenus((data ?? []) as FacilityMenu[]);
+    try {
+      const snapshot = await fetchMenuSnapshot(fId);
+      setMenus(snapshot.menus); setRevision(snapshot.revision);
+    } catch { setLoadError(true); }
   }, []);
 
   // user→membership→facilityId→一覧取得 の全工程。リトライ時も facilityId を再導出するため
@@ -89,14 +95,9 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
         setChoices(selection.choices);
         if (!selection.selectedId) { setLoading(false); return; }
         setFacilityId(selection.selectedId);
-        const { data, error } = await supabase
-          .from('facility_menus')
-          .select('*')
-          .eq('facility_id', selection.selectedId)
-          .order('sort_order', { ascending: true });
+        const snapshot = await fetchMenuSnapshot(selection.selectedId);
         if (cancelled) return;
-        if (error) { setLoadError(true); setLoading(false); return; }
-        setMenus((data ?? []) as FacilityMenu[]);
+        setMenus(snapshot.menus); setRevision(snapshot.revision);
         setLoading(false);
       } catch {
         if (!cancelled) { setLoadError(true); setLoading(false); }
@@ -182,33 +183,28 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
     }
   };
 
-  // カテゴリ内で隣接するメニュー(direction: -1=上へ, 1=下へ)とsort_orderを交換する。
+  // カテゴリ全体の並び順と取得時のrevisionを、一度の原子操作へ渡す。
   const handleReorder = async (categoryItems: FacilityMenu[], index: number, direction: -1 | 1) => {
     const targetIndex = index + direction;
     if (!facilityId || reordering || targetIndex < 0 || targetIndex >= categoryItems.length) return;
     const current = categoryItems[index];
-    const target = categoryItems[targetIndex];
     setReordering(current.id);
     try {
-      const [resA, resB] = await Promise.all([
-        fetch(`/api/admin/menus/${current.id}?facility_id=${facilityId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sort_order: target.sort_order }),
-        }),
-        fetch(`/api/admin/menus/${target.id}?facility_id=${facilityId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sort_order: current.sort_order }),
-        }),
-      ]);
-      if (!resA.ok || !resB.ok) {
-        setToast({ type: 'error', message: '並び替えに失敗しました' });
-        return;
+      const ids = categoryItems.map(menu => menu.id);
+      const desired = [...ids]; [desired[index], desired[targetIndex]] = [desired[targetIndex], desired[index]];
+      const response = await fetch(`/api/admin/menus/reorder?facility_id=${facilityId}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ menu_ids: desired, expected_ids: ids, expected_revision: revision }),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        setToast({ type: 'error', message: error.error || '並び替えの結果を確認できませんでした' });
+        await loadMenus(facilityId); return;
       }
       await loadMenus(facilityId);
     } catch {
-      setToast({ type: 'error', message: '並び替えに失敗しました' });
+      setToast({ type: 'error', message: '並び替えの結果を確認できませんでした' });
+      await loadMenus(facilityId);
     } finally {
       setReordering(null);
     }
