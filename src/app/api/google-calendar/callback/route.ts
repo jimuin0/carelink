@@ -9,6 +9,17 @@ import { alertCaughtError } from '@/lib/alert';
 import { SITE_URL } from '@/lib/constants';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { authUnavailable } from '@/lib/with-route';
+import { safeCaptureException } from '@/lib/safe';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
+
+// Callers supply bounded diagnostics; provider/DB exceptions can contain tokens.
+function callbackFailure(req: NextRequest, tag: string, diagnostic: Error) {
+  safeCaptureException(diagnostic, tag);
+  alertCaughtError(tag, diagnostic, '/api/google-calendar/callback');
+  const response = NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
+  response.headers.set('Cache-Control', 'no-store');
+  return response;
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -119,7 +130,7 @@ export async function GET(req: NextRequest) {
     .eq('user_id', userId)
     .maybeSingle();
   if (existingTokenError) {
-    return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
+    return callbackFailure(req, 'gcal-callback-token-read', databaseDiagnostic(existingTokenError));
   }
   // トークン保存失敗を成功扱いにしない。失敗のまま success へ飛ばすと、
   // 連携できたと誤認させつつ以後のカレンダー同期がサイレントに動かなくなる。
@@ -148,14 +159,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
   }
   if (tokenSaveError) {
-    return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
+    return callbackFailure(req, 'gcal-callback-token-save', databaseDiagnostic(tokenSaveError));
   }
 
   return NextResponse.redirect(new URL('/mypage/settings?gcal=success', req.url));
-  } catch (e) {
-    console.error('[google-calendar/callback] unexpected error:', e);
-    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
-    alertCaughtError('gcal-callback', e, '/api/google-calendar/callback');
-    return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
+  } catch {
+    return callbackFailure(req, 'gcal-callback', new Error('GOOGLE_CALENDAR_CALLBACK_FAILURE'));
   }
 }

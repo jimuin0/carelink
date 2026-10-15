@@ -129,6 +129,46 @@ function createValidState(): string {
 }
 
 describe('GET /api/google-calendar/callback', () => {
+  test.each(['read', 'upsert', 'update'] as const)('DB %s failure is monitored without credential details', async (operation) => {
+    const failure = { code: '08006', message: 'private refresh_token=synthetic-secret', details: 'private SQL input' };
+    if (operation === 'read') mockMaybeSingle.mockResolvedValue({ data: null, error: failure });
+    if (operation === 'upsert') mockUpsert.mockResolvedValue({ error: failure });
+    if (operation === 'update') {
+      mockMaybeSingle.mockResolvedValue({ data: { refresh_token: 'existing-refresh' }, error: null });
+      global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({ access_token: 'new-access', expires_in: 3600 }), { status: 200 }));
+      mockUpdate.mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: failure }) });
+    }
+    const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe('http://localhost/mypage/settings?gcal=error');
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    const tag = operation === 'read' ? 'gcal-callback-token-read' : 'gcal-callback-token-save';
+    const diagnostic = expect.objectContaining({ message: 'DATABASE_FAILURE:08006' });
+    expect(require('@/lib/safe').safeCaptureException).toHaveBeenCalledTimes(1);
+    expect(require('@/lib/safe').safeCaptureException).toHaveBeenCalledWith(diagnostic, tag);
+    expect(require('@/lib/alert').alertCaughtError).toHaveBeenCalledWith(tag, diagnostic, '/api/google-calendar/callback');
+    if (operation === 'read') {
+      expect(mockUpsert).not.toHaveBeenCalled();
+      expect(mockUpdate).not.toHaveBeenCalled();
+    }
+  });
+
+  test('unexpected provider rejection never forwards the raw exception to logs or monitoring', async () => {
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      global.fetch = jest.fn().mockRejectedValue(new Error('private access_token=synthetic-secret'));
+      const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
+      expect(res.headers.get('location')).toBe('http://localhost/mypage/settings?gcal=error');
+      expect(res.headers.get('Cache-Control')).toBe('no-store');
+      expect(log).not.toHaveBeenCalled();
+      const diagnostic = expect.objectContaining({ message: 'GOOGLE_CALENDAR_CALLBACK_FAILURE' });
+      expect(require('@/lib/safe').safeCaptureException).toHaveBeenCalledWith(diagnostic, 'gcal-callback');
+      expect(require('@/lib/alert').alertCaughtError).toHaveBeenCalledWith('gcal-callback', diagnostic, '/api/google-calendar/callback');
+      expect(mockUpsert).not.toHaveBeenCalled();
+      expect(mockUpdate).not.toHaveBeenCalled();
+    } finally { log.mockRestore(); }
+  });
+
   test.each([
     { data: { user: null }, error: { status: 503, message: 'private auth details' } },
     { data: { user: { id: '550e8400-e29b-41d4-a716-446655440000' } }, error: { status: 503, message: 'private auth details' } },
