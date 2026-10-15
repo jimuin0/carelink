@@ -5,10 +5,8 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 import { z } from 'zod';
-import { serverError } from '@/lib/with-route';
-import { AUTH_UNAVAILABLE_BODY, verifyAuthUser } from '@/lib/auth-verification';
-
-const authUnavailable = () => NextResponse.json(AUTH_UNAVAILABLE_BODY, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 const schema = z.object({
   score: z.number().int().min(0).max(10),
@@ -28,7 +26,7 @@ async function submitNps(request: NextRequest) {
 
   const supabase = await createServerSupabaseAuthClient();
   const identity = await verifyAuthUser(supabase.auth);
-  if (identity.state === 'unavailable') return authUnavailable();
+  if (identity.state === 'unavailable') return authUnavailable('nps-post-auth', '/api/nps');
   const user = identity.state === 'verified' ? identity.user : null;
 
   const body = await request.json().catch(() => null);
@@ -92,7 +90,7 @@ async function readNps(request: NextRequest) {
   }
   const supabase = await createServerSupabaseAuthClient();
   const identity = await verifyAuthUser(supabase.auth);
-  if (identity.state === 'unavailable') return authUnavailable();
+  if (identity.state === 'unavailable') return authUnavailable('nps-get-auth', '/api/nps');
   if (identity.state === 'unauthenticated') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const user = identity.user;
 

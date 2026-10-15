@@ -15,6 +15,8 @@ jest.mock('@/lib/rate-limit', () => ({
 }));
 jest.mock('@/lib/supabase-server-auth');
 jest.mock('@/lib/supabase-server');
+jest.mock('@/lib/safe', () => ({ ...jest.requireActual('@/lib/safe'), safeCaptureException: jest.fn() }));
+jest.mock('@/lib/alert', () => ({ ...jest.requireActual('@/lib/alert'), alertCaughtError: jest.fn() }));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -102,6 +104,8 @@ describe.each(['POST', 'GET'] as const)('%s identity verification boundary', (me
     expect(res.status).toBe(503);
     expect(res.headers.get('Cache-Control')).toBe('no-store');
     expect(await res.json()).toEqual({ code: 'AUTH_UNAVAILABLE', error: 'ログイン状態を確認できません。時間をおいて、同じ操作を再確認してください。' });
+    expect(require('@/lib/alert').alertCaughtError).toHaveBeenCalledWith(`nps-${method.toLowerCase()}-auth`, expect.objectContaining({ message: 'AUTH_UNAVAILABLE' }), '/api/nps', 503);
+    expect(require('@/lib/safe').safeCaptureException).toHaveBeenCalledWith(expect.objectContaining({ message: 'AUTH_UNAVAILABLE' }), `nps-${method.toLowerCase()}-auth`);
     expect(require('@/lib/supabase-server').createServiceRoleClient).not.toHaveBeenCalled();
     expect(mockInsert).not.toHaveBeenCalled();
   });
