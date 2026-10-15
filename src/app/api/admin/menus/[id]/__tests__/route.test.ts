@@ -12,6 +12,10 @@
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
+jest.mock('@/lib/with-route', () => {
+  const actual = jest.requireActual('@/lib/with-route');
+  return { ...actual, serverError: jest.fn(actual.serverError) };
+});
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
 
 const MENU_UUID = '11111111-1111-1111-1111-111111111111';
@@ -33,6 +37,8 @@ import { NextRequest } from 'next/server';
 import { PATCH, DELETE } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
+import { writeAuditLog } from '@/lib/audit-logger';
+import * as routeErrors from '@/lib/with-route';
 
 function makeRequest(method: string, body?: object, facilityId: string | null = FACILITY_UUID) {
   const url = new URL(`http://localhost/api/admin/menus/${MENU_UUID}`);
@@ -57,12 +63,12 @@ function memberChain(data: unknown) {
   };
 }
 
-function maybeSingleChain(data: unknown) {
+function maybeSingleChain(data: unknown, error: unknown = null) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
     neq: jest.fn().mockReturnThis(),
-    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
   };
 }
 
@@ -216,12 +222,13 @@ test('DELETE: 不正なUUID → 400', async () => {
 });
 
 // 公開ガード（最後のメニュー削除で行き止まり防止）用に facility_profiles.status を返すチェーン。
-function statusChain(status: string) {
-  return { select: jest.fn(() => ({ eq: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: { status } })) })) })) };
+function statusChain(status: string | null, error: unknown = null) {
+  const chain = maybeSingleChain(status === null ? null : { status }, error);
+  return { ...chain, single: chain.maybeSingle };
 }
 // facility_menus の count select（公開ガード）。
-function menusCountSelect(count: number | null) {
-  return { select: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ count })) })) };
+function menusCountSelect(count: unknown, error: unknown = null) {
+  return { select: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ count, error })) })) };
 }
 
 test('DELETE: DELETEのWHEREにfacility_idが含まれる', async () => {
@@ -271,13 +278,13 @@ test('DELETE: 公開中に最後のメニューを削除 → 400（行き止ま�
   expect(res.status).toBe(400);
 });
 
-test('DELETE: 公開中でメニュー数が取得不能（count=null）→ 400（フェイルセーフ）', async () => {
+test('DELETE: 公開中でメニュー数が取得不能（count=null）→ 500（取得障害）', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockImplementation((table: string) =>
     table === 'facility_profiles' ? statusChain('published') : menusCountSelect(null)
   );
   const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(400);
+  expect(res.status).toBe(500);
 });
 
 test('DELETE: 公開中でもメニューが複数あれば削除可 → 200', async () => {
@@ -449,11 +456,11 @@ test('PATCH: 既存値と同一のストック写真は素通し → 200（差�
   expect(res.status).toBe(200);
 });
 
-test('PATCH: 該当メニューが無い状態でストック写真 → 400（現在値を読めなくても素通ししない）', async () => {
+test('PATCH: 該当メニューが無い状態でストック写真 → 404（対象なし）', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockImplementation(() => maybeSingleChain(null));
   const res = await PATCH(makeRequest('PATCH', { photo_url: STOCK_A }), makeProps());
-  expect(res.status).toBe(400);
+  expect(res.status).toBe(404);
 });
 
 test('PATCH: 現在値が null のメニューへストック写真 → 400', async () => {
@@ -461,4 +468,76 @@ test('PATCH: 現在値が null のメニューへストック写真 → 400', as
   mockAdminFrom.mockImplementation(() => maybeSingleChain({ photo_url: null }));
   const res = await PATCH(makeRequest('PATCH', { photo_url: STOCK_A }), makeProps());
   expect(res.status).toBe(400);
+});
+
+// Read failures must stop before any mutation or success audit, even if a
+// provider returns partial data alongside its error.
+describe('menu mutation prerequisite failures', () => {
+  const privateFailure = { code: '08006', message: 'PRIVATE_DATABASE_DETAIL', details: 'PRIVATE_DATABASE_DETAIL' };
+  const report = jest.mocked(routeErrors.serverError);
+  beforeEach(() => {
+    mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  });
+
+  test.each([null, { photo_url: STOCK_A }])('photo lookup error with data=%p stops update', async data => {
+    mockAdminFrom.mockReturnValue(maybeSingleChain(data, privateFailure));
+    const res = await PATCH(makeRequest('PATCH', { photo_url: STOCK_A }), makeProps());
+    expect(res.status).toBe(500);
+    expect(mockAdminFrom).toHaveBeenCalledTimes(1);
+    expect(writeAuditLog).not.toHaveBeenCalled();
+    expect(report.mock.calls[0][1].message).toBe('DATABASE_FAILURE:08006');
+    expect(JSON.stringify(await res.json())).not.toContain('PRIVATE_DATABASE_DETAIL');
+  });
+  test.each([null, { id: MENU_UUID }])('duplicate lookup error with data=%p stops update', async data => {
+    mockAdminFrom.mockReturnValue(maybeSingleChain(data, privateFailure));
+    const res = await PATCH(makeRequest('PATCH', { name: 'Changed' }), makeProps());
+    expect(res.status).toBe(500);
+    expect(mockAdminFrom).toHaveBeenCalledTimes(1);
+    expect(writeAuditLog).not.toHaveBeenCalled();
+    expect(report.mock.calls[0][1].message).toBe('DATABASE_FAILURE:08006');
+  });
+  test.each([null, 'draft', 'published'])('parent status error with partial status=%p stops delete', async status => {
+    mockAdminFrom.mockReturnValue(statusChain(status, privateFailure));
+    const res = await DELETE(makeRequest('DELETE'), makeProps());
+    expect(res.status).toBe(500);
+    expect(mockAdminFrom).toHaveBeenCalledTimes(1);
+    expect(writeAuditLog).not.toHaveBeenCalled();
+    expect(report.mock.calls[0][1].message).toBe('DATABASE_FAILURE:08006');
+  });
+  test('missing parent is not an editable draft', async () => {
+    mockAdminFrom.mockReturnValue(statusChain(null));
+    const res = await DELETE(makeRequest('DELETE'), makeProps());
+    expect(res.status).toBe(404);
+    expect(mockAdminFrom).toHaveBeenCalledTimes(1);
+    expect(writeAuditLog).not.toHaveBeenCalled();
+  });
+  test.each(['unknown', '', undefined])('unrecognized publication status=%p stops delete', async status => {
+    mockAdminFrom.mockReturnValue(statusChain(status));
+    const res = await DELETE(makeRequest('DELETE'), makeProps());
+    expect(res.status).toBe(500);
+    expect(mockAdminFrom).toHaveBeenCalledTimes(1);
+    expect(writeAuditLog).not.toHaveBeenCalled();
+  });
+  test.each([null, 3])('count read error is not a normal deletion condition (count=%p)', async count => {
+    mockAdminFrom.mockImplementation(table => table === 'facility_profiles'
+      ? statusChain('published') : menusCountSelect(count, privateFailure));
+    const res = await DELETE(makeRequest('DELETE'), makeProps());
+    expect(res.status).toBe(500);
+    expect(mockAdminFrom).toHaveBeenCalledTimes(2);
+    expect(writeAuditLog).not.toHaveBeenCalled();
+    expect(report.mock.calls[0][1].message).toBe('DATABASE_FAILURE:08006');
+  });
+  test.each([undefined, -1, 1.5, '3', Number.NaN, Number.MAX_SAFE_INTEGER + 1])('invalid count=%p stops delete', async count => {
+    mockAdminFrom.mockImplementation(table => table === 'facility_profiles'
+      ? statusChain('published') : menusCountSelect(count));
+    const res = await DELETE(makeRequest('DELETE'), makeProps());
+    expect(res.status).toBe(500);
+    expect(mockAdminFrom).toHaveBeenCalledTimes(2);
+    expect(writeAuditLog).not.toHaveBeenCalled();
+  });
+  test('suspended facility can still remove a menu', async () => {
+    mockAdminFrom.mockImplementation(table => table === 'facility_profiles'
+      ? statusChain('suspended') : deleteSingleChain());
+    expect((await DELETE(makeRequest('DELETE'), makeProps())).status).toBe(200);
+  });
 });

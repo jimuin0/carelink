@@ -10,6 +10,7 @@ import { writeAuditLog } from '@/lib/audit-logger';
 import { isStockImageUrl, isNewStockImage, STOCK_IMAGE_ERROR } from '@/lib/stock-image-guard';
 import type { Database } from '@/types/database.types';
 import { serverError } from '@/lib/with-route';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 
 // facility_menus の update() に渡すオブジェクトの型。
 // Record<string, unknown> は Database 型配線後の update() が要求する
@@ -57,26 +58,29 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   // 送るので、写真を変えない更新でも photo_url は必ず載ってくる）。
   // facility_id で絞るのは他施設のメニューの値を照会させないため（存在判定の情報漏れ防止）。
   if (isStockImageUrl(parsed.data.photo_url)) {
-    const { data: current } = await admin
+    const { data: current, error: photoError } = await admin
       .from('facility_menus')
       .select('photo_url')
       .eq('id', params.id)
       .eq('facility_id', ctx.facilityId)
       .maybeSingle();
-    if (isNewStockImage(parsed.data.photo_url, current?.photo_url ?? null)) {
+    if (photoError) return serverError('admin-menus-photo-check', databaseDiagnostic(photoError), '/api/admin/menus/[id]');
+    if (!current) return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 404 });
+    if (isNewStockImage(parsed.data.photo_url, current.photo_url)) {
       return NextResponse.json({ error: STOCK_IMAGE_ERROR }, { status: 400 });
     }
   }
 
   // Duplicate name check (if name is being changed)
   if (parsed.data.name) {
-    const { data: existing } = await admin
+    const { data: existing, error: duplicateError } = await admin
       .from('facility_menus')
       .select('id')
       .eq('facility_id', ctx.facilityId)
       .eq('name', parsed.data.name)
       .neq('id', params.id)
       .maybeSingle();
+    if (duplicateError) return serverError('admin-menus-duplicate-check', databaseDiagnostic(duplicateError), '/api/admin/menus/[id]');
     if (existing) return NextResponse.json({ error: '同じ名前のメニューが既に存在します' }, { status: 409 });
   }
 
@@ -102,7 +106,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     // 0行→PGRST116で if(error)→500 が先に発火し if(!data)→404 が到達不能になる（500に化ける）。
     .maybeSingle();
 
-  if (error) return serverError('admin-menus-patch', error, '/api/admin/menus/[id]');
+  if (error) return serverError('admin-menus-patch', databaseDiagnostic(error), '/api/admin/menus/[id]');
   if (!data) return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 404 });
 
   void writeAuditLog({
@@ -138,17 +142,26 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   // 公開中の施設で最後のメニューを削除すると、公開のまま予約不能（メニュー0件の行き止まり）になる。
   // 公開ガード（公開にはメニュー≥1 が必須）と整合させ、公開中は最後の1件の削除を拒否する
   // （先に施設を非公開にするか別のメニューを追加してもらう。サイレント非公開化より明示的で安全）。
-  const { data: facility } = await admin
+  const { data: facility, error: facilityError } = await admin
     .from('facility_profiles')
     .select('status')
     .eq('id', ctx.facilityId)
-    .single();
-  if (facility?.status === 'published') {
-    const { count } = await admin
+    .maybeSingle();
+  if (facilityError) return serverError('admin-menus-facility-check', databaseDiagnostic(facilityError), '/api/admin/menus/[id]');
+  if (!facility) return NextResponse.json({ error: '店舗が見つかりません' }, { status: 404 });
+  if (typeof facility.status !== 'string' || !['draft', 'published', 'suspended'].includes(facility.status)) {
+    return serverError('admin-menus-facility-check', new Error('MENU_FACILITY_STATUS_UNAVAILABLE'), '/api/admin/menus/[id]');
+  }
+  if (facility.status === 'published') {
+    const { count, error: countError } = await admin
       .from('facility_menus')
       .select('id', { count: 'exact', head: true })
       .eq('facility_id', ctx.facilityId);
-    if ((count ?? 0) <= 1) {
+    if (countError) return serverError('admin-menus-count', databaseDiagnostic(countError), '/api/admin/menus/[id]');
+    if (count === null || !Number.isSafeInteger(count) || count < 0) {
+      return serverError('admin-menus-count', new Error('MENU_COUNT_UNAVAILABLE'), '/api/admin/menus/[id]');
+    }
+    if (count <= 1) {
       return NextResponse.json(
         { error: '公開中は最後のメニューを削除できません。先に施設を非公開にするか、別のメニューを追加してください。' },
         { status: 400 }
@@ -166,7 +179,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     .eq('facility_id', ctx.facilityId)
     .select();
 
-  if (error) return serverError('admin-menus-delete', error, '/api/admin/menus/[id]');
+  if (error) return serverError('admin-menus-delete', databaseDiagnostic(error), '/api/admin/menus/[id]');
   if (!data || data.length === 0) return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 404 });
 
   void writeAuditLog({
