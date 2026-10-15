@@ -1,7 +1,8 @@
 // CareLink: 都道府県ページ用ダミー施設・求人 一括生成スクリプト
 // -------------------------------------------------------------
 // 実行方法（プロジェクトルートで）:
-//   node --env-file=.env.local scripts/seed-facilities.mjs
+//   CARELINK_DISPOSABLE_SUPABASE_URL=http://127.0.0.1:54321 node --env-file=.env.local scripts/seed-facilities.mjs --local-test-data
+// 接続先は使い捨てのローカルSupabase（port 54321）限定。本番・共有stagingでは使わない。
 //
 // 必須環境変数:
 //   NEXT_PUBLIC_SUPABASE_URL
@@ -18,8 +19,9 @@
 // -------------------------------------------------------------
 
 import { createClient } from '@supabase/supabase-js';
+import { requireDisposableSeedTarget } from './local-seed-target.mjs';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_URL = requireDisposableSeedTarget();
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL || !SERVICE_KEY) {
