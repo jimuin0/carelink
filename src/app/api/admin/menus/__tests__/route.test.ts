@@ -11,6 +11,7 @@
 
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
+jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn(), getRequestContext: () => ({ ua: null }) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 
 const FACILITY_UUID = '22222222-2222-4222-8222-222222222222';
@@ -31,6 +32,7 @@ jest.mock('@/lib/supabase-server', () => ({
 import { NextRequest } from 'next/server';
 import { GET, POST } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 function makeGetRequest(facilityId: string | null = FACILITY_UUID) {
   const url = new URL('http://localhost/api/admin/menus');
@@ -167,6 +169,18 @@ test('POST: DB挿入失敗 → 500', async () => {
   });
   const res = await POST(makePostRequest(validBody()));
   expect(res.status).toBe(500);
+});
+
+test.each([null, { id: 'not-a-success' }])('POST: unique violation after duplicate read is409 without success audit: %j', async (data) => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReset();
+  mockAdminFrom.mockReturnValueOnce(dupCheckChain(null)).mockReturnValueOnce(countChain(3))
+    .mockReturnValueOnce(insertSingle(data, { code: '23505', message: 'private duplicate details' }));
+  const res = await POST(makePostRequest(validBody()));
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({ error: 'メニューが競合しました。一覧を確認してから、もう一度お試しください。' });
+  expect(writeAuditLog).not.toHaveBeenCalled();
+  expect(mockAdminFrom).toHaveBeenCalledTimes(3);
 });
 
 test('POST: DB失敗ログにコードを残し、エラー本文と詳細は公開しない', async () => {
