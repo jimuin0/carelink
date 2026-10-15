@@ -26,6 +26,6 @@ test.each([{ facilities: [] }, { facilities: [{ id: 'partial', name: 'partial re
 test('a genuinely empty successful read still renders search suggestions', async () => {
   (searchFacilities as jest.Mock).mockResolvedValue({ facilities: [], total: 0, perPage: 20, error: null });
   const html = renderToStaticMarkup(await SearchPage({ searchParams: Promise.resolve({ keyword: 'test' }) }));
-  expect(html.replace(/<[^>]*>/g, '')).toContain('0件見つかりました');
+  expect(html.replace(/<[^>]*>/g, '')).toMatch(/0\s*件見つかりました/);
   expect(getAvailableAreasAndTypes).toHaveBeenCalledTimes(1);
 });
