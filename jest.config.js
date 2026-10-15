@@ -5,6 +5,8 @@ const createJestConfig = nextJest({ dir: './' });
 /** @type {import('jest').Config} */
 const config = {
   testEnvironment: 'jsdom',
+  // Local worktrees and evidence are kept together without loading their duplicate modules.
+  modulePathIgnorePatterns: ['<rootDir>/work/'],
   setupFiles: ['<rootDir>/jest.setup.js'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
