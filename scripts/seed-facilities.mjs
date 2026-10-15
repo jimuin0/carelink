@@ -195,7 +195,7 @@ async function main() {
   }
 
   console.log(`\n✅ 完了: 施設 ${totalFacilities}件 / 求人 ${totalJobs}件 を投入しました`);
-  console.log('💡 削除する場合: node --env-file=.env.local scripts/cleanup-seed.mjs');
+  console.log(`💡 削除する場合: CARELINK_DISPOSABLE_SUPABASE_URL=${SUPABASE_URL} node --env-file=.env.local scripts/cleanup-seed.mjs --local-test-data`);
 }
 
 main().catch((e) => {
