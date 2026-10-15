@@ -11,7 +11,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { serverError } from '@/lib/with-route';
+import { authUnavailable, serverError } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 export async function DELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -23,8 +24,10 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   }
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return authUnavailable('admin-api-keys-delete-auth', '/api/admin/api-keys/[id]');
+  if (identity.state === 'unauthenticated') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = identity.user;
 
   const admin = createServiceRoleClient();
 
