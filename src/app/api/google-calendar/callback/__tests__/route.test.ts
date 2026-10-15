@@ -22,6 +22,8 @@ jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/supabase-server-auth');
 jest.mock('next/headers');
 jest.mock('crypto');
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
+jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
 
 import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
@@ -127,6 +129,42 @@ function createValidState(): string {
 }
 
 describe('GET /api/google-calendar/callback', () => {
+  test.each([
+    { data: { user: null }, error: { status: 503, message: 'private auth details' } },
+    { data: { user: { id: '550e8400-e29b-41d4-a716-446655440000' } }, error: { status: 503, message: 'private auth details' } },
+    null,
+  ])('uncertain identity stops before token exchange: %j', async (result) => {
+    mockAuthGetUser.mockResolvedValueOnce(result);
+    const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(await res.json()).toEqual({ code: 'AUTH_UNAVAILABLE', error: 'ログイン状態を確認できません。時間をおいて、同じ操作を再確認してください。' });
+    expect(require('@/lib/alert').alertCaughtError).toHaveBeenCalledWith('gcal-callback-auth', expect.objectContaining({ message: 'AUTH_UNAVAILABLE' }), '/api/google-calendar/callback', 503);
+    expect(require('@/lib/safe').safeCaptureException).toHaveBeenCalledWith(expect.objectContaining({ message: 'AUTH_UNAVAILABLE' }), 'gcal-callback-auth');
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(require('@/lib/supabase-server').createServiceRoleClient).not.toHaveBeenCalled();
+  });
+
+  test('auth SDK rejection stops before token exchange', async () => {
+    mockAuthGetUser.mockRejectedValueOnce(new Error('private auth details'));
+    const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
+    expect(res.status).toBe(503);
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(require('@/lib/supabase-server').createServiceRoleClient).not.toHaveBeenCalled();
+  });
+
+  test('auth verification timeout stops before token exchange', async () => {
+    jest.useFakeTimers();
+    try {
+      mockAuthGetUser.mockImplementationOnce(() => new Promise(() => {}));
+      const pending = GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
+      await jest.advanceTimersByTimeAsync(5000);
+      expect((await pending).status).toBe(503);
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(require('@/lib/supabase-server').createServiceRoleClient).not.toHaveBeenCalled();
+    } finally { jest.useRealTimers(); }
+  });
+
   test('rate limiting → 429', async () => {
     (checkRateLimit as jest.Mock).mockReturnValue(true);
 

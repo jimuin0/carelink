@@ -8,7 +8,8 @@ import { getClientIp } from '@/lib/client-ip';
 import crypto from 'crypto';
 import { isGoogleCalendarEnabled } from '@/lib/integration-availability';
 import { SITE_URL } from '@/lib/constants';
-import { serverError } from '@/lib/with-route';
+import { authUnavailable, serverError } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.events',
@@ -22,8 +23,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return authUnavailable('google-calendar-get-auth', '/api/google-calendar');
+  if (identity.state === 'unauthenticated') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = identity.user;
 
   const admin = createServiceRoleClient();
   const { data: token } = await admin
@@ -51,8 +54,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return authUnavailable('google-calendar-post-auth', '/api/google-calendar');
+  if (identity.state === 'unauthenticated') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = identity.user;
 
   const googleClientId = process.env.GOOGLE_CLIENT_ID;
   if (!googleClientId) {

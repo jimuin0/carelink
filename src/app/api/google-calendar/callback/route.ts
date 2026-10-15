@@ -7,6 +7,8 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { alertCaughtError } from '@/lib/alert';
 import { SITE_URL } from '@/lib/constants';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import { authUnavailable } from '@/lib/with-route';
 
 export async function GET(req: NextRequest) {
   try {
@@ -67,8 +69,11 @@ export async function GET(req: NextRequest) {
   // Bind the state to the authenticated browser session as well as its nonce. A valid
   // nonce must not authorize saving a token for a different user encoded in state.
   const authClient = await createServerSupabaseAuthClient();
-  const { data: { user: currentUser } } = await authClient.auth.getUser();
-  if (!currentUser || currentUser.id !== userId) {
+  const identity = await verifyAuthUser(authClient.auth);
+  if (identity.state === 'unavailable') {
+    return authUnavailable('gcal-callback-auth', '/api/google-calendar/callback');
+  }
+  if (identity.state === 'unauthenticated' || identity.user.id !== userId) {
     return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
   }
 

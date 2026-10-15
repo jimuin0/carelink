@@ -12,6 +12,7 @@ jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
 jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
+jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
 
 const BOOKING_UUID = '11111111-1111-1111-1111-111111111111';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
@@ -93,6 +94,46 @@ beforeEach(() => {
   process.env.GOOGLE_CLIENT_SECRET = 'test-client-secret';
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+});
+
+describe.each(['POST', 'DELETE'] as const)('Calendar sync %s identity verification', (method) => {
+  const request = () => method === 'POST' ? POST(makePostReq({ bookingId: BOOKING_UUID })) : DELETE(makeDeleteRequest(BOOKING_UUID));
+  function expectNoOperation() {
+    expect(mockFrom).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+  }
+
+  test.each([
+    { data: { user: null }, error: { status: 503, message: 'private auth details' } },
+    { data: { user: { id: USER_ID } }, error: { status: 503, message: 'private auth details' } },
+    null,
+  ])('uncertain Google identity stops operations: %j', async (result) => {
+    mockGetUser.mockResolvedValueOnce(result);
+    const res = await request();
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect((await res.json()).code).toBe('AUTH_UNAVAILABLE');
+    expectNoOperation();
+    const tag = method === 'POST' ? 'gcal-sync-auth' : 'gcal-sync-delete-auth';
+    expect(require('@/lib/alert').alertCaughtError).toHaveBeenCalledWith(tag, expect.objectContaining({ message: 'AUTH_UNAVAILABLE' }), '/api/google-calendar/sync', 503);
+  });
+
+  test('SDK rejection stops operations', async () => {
+    mockGetUser.mockRejectedValueOnce(new Error('private auth details'));
+    expect((await request()).status).toBe(503);
+    expectNoOperation();
+  });
+
+  test('authentication timeout stops operations', async () => {
+    jest.useFakeTimers();
+    try {
+      mockGetUser.mockImplementationOnce(() => new Promise(() => {}));
+      const pending = request();
+      await jest.advanceTimersByTimeAsync(5000);
+      expect((await pending).status).toBe(503);
+      expectNoOperation();
+    } finally { jest.useRealTimers(); }
+  });
 });
 
 // ─── POST: security guards ────────────────────────────────────────────────────

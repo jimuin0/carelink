@@ -5,7 +5,8 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 import { z } from 'zod';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 const schema = z.object({
   score: z.number().int().min(0).max(10),
@@ -24,7 +25,9 @@ async function submitNps(request: NextRequest) {
   }
 
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return authUnavailable('nps-post-auth', '/api/nps');
+  const user = identity.state === 'verified' ? identity.user : null;
 
   const body = await request.json().catch(() => null);
   const parsed = schema.safeParse(body);
@@ -86,8 +89,10 @@ async function readNps(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return authUnavailable('nps-get-auth', '/api/nps');
+  if (identity.state === 'unauthenticated') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = identity.user;
 
   const facilityId = request.nextUrl.searchParams.get('facility_id');
   if (!facilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });

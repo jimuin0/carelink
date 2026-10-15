@@ -5,7 +5,7 @@
  * Key assertions:
  *   - POST: CSRF + rate limiting (5 req/hour), score validation (0-10), booking ownership
  *   - GET: Auth required, facility_id param, rate limiting (20 req/min)
- *   - IP hash for anonymous NPS
+ *   - Anonymous NPS does not retain an IP hash
  *   - Duplicate handling (23505)
  */
 
@@ -15,6 +15,8 @@ jest.mock('@/lib/rate-limit', () => ({
 }));
 jest.mock('@/lib/supabase-server-auth');
 jest.mock('@/lib/supabase-server');
+jest.mock('@/lib/safe', () => ({ ...jest.requireActual('@/lib/safe'), safeCaptureException: jest.fn() }));
+jest.mock('@/lib/alert', () => ({ ...jest.requireActual('@/lib/alert'), alertCaughtError: jest.fn() }));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -83,6 +85,51 @@ beforeEach(() => {
   setupDefaultMocks();
 });
 
+describe.each(['POST', 'GET'] as const)('%s identity verification boundary', (method) => {
+  function request() {
+    const req = new Request(`http://localhost/api/nps?facility_id=${BOOKING_FACILITY_UUID}`, {
+      method, ...(method === 'POST' ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ score: 8 }) } : {}),
+    });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url) });
+    return req;
+  }
+  test.each([
+    { data: { user: null }, error: { status: 503, message: 'private dependency details' } },
+    { data: { user: { id: 'user-123' } }, error: { status: 503, message: 'private dependency details' } },
+    null,
+  ])('cannot use an uncertain or malformed identity: %j', async (result) => {
+    mockGetUser.mockResolvedValueOnce(result);
+    const route = await import('../route');
+    const res = await route[method](request() as any);
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(await res.json()).toEqual({ code: 'AUTH_UNAVAILABLE', error: 'ログイン状態を確認できません。時間をおいて、同じ操作を再確認してください。' });
+    expect(require('@/lib/alert').alertCaughtError).toHaveBeenCalledWith(`nps-${method.toLowerCase()}-auth`, expect.objectContaining({ message: 'AUTH_UNAVAILABLE' }), '/api/nps', 503);
+    expect(require('@/lib/safe').safeCaptureException).toHaveBeenCalledWith(expect.objectContaining({ message: 'AUTH_UNAVAILABLE' }), `nps-${method.toLowerCase()}-auth`);
+    expect(require('@/lib/supabase-server').createServiceRoleClient).not.toHaveBeenCalled();
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+  test('SDK throw is unavailable, not proof of logout', async () => {
+    mockGetUser.mockRejectedValueOnce(new Error('private dependency details'));
+    const route = await import('../route');
+    const res = await route[method](request() as any);
+    expect(res.status).toBe(503);
+    expect(require('@/lib/supabase-server').createServiceRoleClient).not.toHaveBeenCalled();
+  });
+  test('verification timeout stops before business reads or writes', async () => {
+    jest.useFakeTimers();
+    try {
+      mockGetUser.mockImplementationOnce(() => new Promise(() => {}));
+      const route = await import('../route');
+      const pending = route[method](request() as any);
+      await jest.advanceTimersByTimeAsync(5000);
+      expect((await pending).status).toBe(503);
+      expect(require('@/lib/supabase-server').createServiceRoleClient).not.toHaveBeenCalled();
+      expect(mockInsert).not.toHaveBeenCalled();
+    } finally { jest.useRealTimers(); }
+  });
+});
+
 function makePostRequest(body: object, ip = '192.168.1.1') {
   return new Request('http://localhost/api/nps', {
     method: 'POST',
@@ -110,11 +157,11 @@ describe('POST /api/nps', () => {
     expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({ booking_id: BOOKING_UUID, facility_id: BOOKING_FACILITY_UUID, ip_hash: null }));
   });
 
-  test('認証基盤の例外は制御された500になり、書込しない', async () => {
+  test('認証基盤の例外は確認不能503になり、書込しない', async () => {
     mockGetUser.mockRejectedValueOnce(new Error('network'));
     const { POST } = await import('../route');
     const res = await POST(makePostRequest({ score: 8 }) as any);
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
     expect(mockInsert).not.toHaveBeenCalled();
   });
 

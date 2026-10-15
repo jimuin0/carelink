@@ -10,6 +10,7 @@ const createJestConfig = nextJest();
 
 const config = {
   testEnvironment: 'node',
+  modulePathIgnorePatterns: ['<rootDir>/work/'],
   setupFiles: ['<rootDir>/jest.setup.contract.js'],
   moduleNameMapper: { '^@/(.*)$': '<rootDir>/src/$1' },
   testMatch: ['<rootDir>/tests/contract/**/*.test.{ts,tsx}'],

@@ -15,6 +15,8 @@ jest.mock('@/lib/rate-limit', () => ({
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/supabase-server-auth');
 jest.mock('@/lib/supabase-server');
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
+jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
 jest.mock('next/headers');
 jest.mock('crypto', () => ({
   randomBytes: jest.fn(() => Buffer.alloc(32, 'a')),
@@ -94,6 +96,50 @@ function makePostRequest(body: object, ip = '192.168.1.1') {
     body: JSON.stringify(body),
   });
 }
+
+describe.each(['GET', 'CONNECT', 'DISCONNECT'] as const)('Google calendar %s identity verification', (operation) => {
+  const request = () => operation === 'GET'
+    ? GET(makeGetRequest() as any)
+    : POST(makePostRequest({ action: operation === 'DISCONNECT' ? 'disconnect' : 'connect' }) as any);
+
+  function expectNoOperation() {
+    expect(require('@/lib/supabase-server').createServiceRoleClient).not.toHaveBeenCalled();
+    expect(require('next/headers').cookies).not.toHaveBeenCalled();
+    expect(require('crypto').randomBytes).not.toHaveBeenCalled();
+  }
+
+  test.each([
+    { data: { user: null }, error: { status: 503, message: 'private auth details' } },
+    { data: { user: { id: 'user-123' } }, error: { status: 503, message: 'private auth details' } },
+    null,
+  ])('uncertain Google identity stops operations: %j', async (result) => {
+    mockGetUser.mockResolvedValueOnce(result);
+    const res = await request();
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect((await res.json()).code).toBe('AUTH_UNAVAILABLE');
+    expectNoOperation();
+    const tag = operation === 'GET' ? 'google-calendar-get-auth' : 'google-calendar-post-auth';
+    expect(require('@/lib/alert').alertCaughtError).toHaveBeenCalledWith(tag, expect.objectContaining({ message: 'AUTH_UNAVAILABLE' }), '/api/google-calendar', 503);
+  });
+
+  test('SDK rejection stops operations', async () => {
+    mockGetUser.mockRejectedValueOnce(new Error('private auth details'));
+    expect((await request()).status).toBe(503);
+    expectNoOperation();
+  });
+
+  test('authentication timeout stops operations', async () => {
+    jest.useFakeTimers();
+    try {
+      mockGetUser.mockImplementationOnce(() => new Promise(() => {}));
+      const pending = request();
+      await jest.advanceTimersByTimeAsync(5000);
+      expect((await pending).status).toBe(503);
+      expectNoOperation();
+    } finally { jest.useRealTimers(); }
+  });
+});
 
 describe('GET /api/google-calendar', () => {
   test('rate limiting → 429', async () => {
