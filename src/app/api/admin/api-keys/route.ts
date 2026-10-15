@@ -12,7 +12,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { serverError } from '@/lib/with-route';
+import { authUnavailable, serverError } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 const VALID_SCOPES = ['bookings:read', 'customers:read', 'reviews:read'];
 
@@ -31,8 +32,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return authUnavailable('admin-api-keys-create-auth', '/api/admin/api-keys');
+  if (identity.state === 'unauthenticated') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = identity.user;
 
   const body = await request.json().catch(() => ({}));
   const { facility_id, name, scopes } = body as { facility_id?: string; name?: string; scopes?: string[] };
@@ -100,8 +103,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return authUnavailable('admin-api-keys-list-auth', '/api/admin/api-keys');
+  if (identity.state === 'unauthenticated') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = identity.user;
 
   const facilityId = request.nextUrl.searchParams.get('facility_id');
   if (!facilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
