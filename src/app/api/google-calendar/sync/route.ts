@@ -5,8 +5,8 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { serverError } from '@/lib/with-route';
-import { AUTH_UNAVAILABLE_BODY, verifyAuthUser } from '@/lib/auth-verification';
+import { authUnavailable, serverError } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 import { z } from 'zod';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
@@ -49,8 +49,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return authUnavailable('gcal-sync-auth', '/api/google-calendar/sync');
+  if (identity.state === 'unauthenticated') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = identity.user;
 
   const { bookingId } = await req.json().catch(() => ({}));
   if (!bookingId) return NextResponse.json({ error: 'bookingId required' }, { status: 400 });
@@ -208,7 +210,7 @@ export async function DELETE(req: NextRequest) {
     }
     const supabase = await createServerSupabaseAuthClient();
     const verification = await verifyAuthUser(supabase.auth);
-    if (verification.state === 'unavailable') return NextResponse.json(AUTH_UNAVAILABLE_BODY, { status: 503 });
+    if (verification.state === 'unavailable') return authUnavailable('gcal-sync-delete-auth', '/api/google-calendar/sync');
     if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const user = verification.user;
     const bookingId = req.nextUrl.searchParams.get('bookingId');
