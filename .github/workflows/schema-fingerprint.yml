@@ -110,6 +110,12 @@ jobs:
       - name: Complete points ledger and owner-scoped aggregate (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/points-balance-read-fixtures.sql
 
+      - name: Install locked dependencies for calendar protocol verification
+        run: npm ci --ignore-scripts
+
+      - name: Calendar durable intent, provider uncertainty and observed concurrency (disposable DB)
+        run: node scripts/check-calendar-operation-concurrency.mjs
+
       - name: Same schema in C locale remains identical (disposable DB)
         env:
           SHADOW_DB: carelink_shadow_c_locale

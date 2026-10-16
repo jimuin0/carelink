@@ -712,6 +712,75 @@ export type Database = {
           },
         ]
       }
+      calendar_sync_operations: {
+        Row: {
+          action: string
+          actor_id: string
+          booking_id: string
+          calendar_id: string | null
+          created_at: string
+          google_event_id: string | null
+          id: string
+          kind: string
+          mapping_calendar_id: string | null
+          mapping_id: string | null
+          mapping_synced_at: string | null
+          payload: Json
+          state: string
+          token_id: string | null
+          token_updated_at: string | null
+        }
+        Insert: {
+          action: string
+          actor_id: string
+          booking_id: string
+          calendar_id?: string | null
+          created_at?: string
+          google_event_id?: string | null
+          id: string
+          kind: string
+          mapping_calendar_id?: string | null
+          mapping_id?: string | null
+          mapping_synced_at?: string | null
+          payload: Json
+          state: string
+          token_id?: string | null
+          token_updated_at?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string
+          booking_id?: string
+          calendar_id?: string | null
+          created_at?: string
+          google_event_id?: string | null
+          id?: string
+          kind?: string
+          mapping_calendar_id?: string | null
+          mapping_id?: string | null
+          mapping_synced_at?: string | null
+          payload?: Json
+          state?: string
+          token_id?: string | null
+          token_updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_sync_operations_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_sync_operations_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contact_replies: {
         Row: {
           author_id: string | null
@@ -6686,6 +6755,10 @@ export type Database = {
         Args: { p_line_user_id: string }
         Returns: string
       }
+      finish_calendar_operation: {
+        Args: { p_actor: string; p_event_id: string; p_id: string }
+        Returns: Json
+      }
       finish_threads_article_publish: {
         Args: {
           p_attempt_id: string
@@ -6918,6 +6991,15 @@ export type Database = {
           state: string
         }[]
       }
+      inspect_calendar_operation: {
+        Args: {
+          p_actor: string
+          p_booking: string
+          p_id: string
+          p_kind: string
+        }
+        Returns: Json
+      }
       inspect_newsletter_send_operation: {
         Args: { p_actor_id: string; p_campaign_id: string }
         Returns: Json
@@ -7144,6 +7226,19 @@ export type Database = {
           response_payload: Json
           state: string
         }[]
+      }
+      prepare_calendar_operation: {
+        Args: {
+          p_actor: string
+          p_booking: string
+          p_calendar: string
+          p_id: string
+          p_kind: string
+          p_payload: Json
+          p_token_id: string
+          p_token_updated_at: string
+        }
+        Returns: Json
       }
       prepare_customer_coupon_email_atomic: {
         Args: { p_envelope: Json; p_operation_id: string }
@@ -8042,6 +8137,16 @@ export type Database = {
           outcome: string
           started_at: string
         }[]
+      }
+      start_calendar_operation: {
+        Args: {
+          p_actor: string
+          p_calendar: string
+          p_id: string
+          p_token_id: string
+          p_token_updated_at: string
+        }
+        Returns: Json
       }
       start_customer_booking_channel: {
         Args: { p_claimed_at: string; p_queue_id: string }

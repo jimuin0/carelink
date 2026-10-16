@@ -9,6 +9,8 @@ import LoadError from '@/components/admin/LoadError';
 import type { Booking } from '@/types';
 import { statusChipClass, bookingStatusLabel, canCustomerCancelBooking } from '@/lib/booking-status';
 import { ONLINE_PREPAYMENT_NOTICE } from '@/lib/coming-soon';
+import { beginStaffOperation, finishStaffOperation } from '@/lib/staff-operation';
+import { UUID_REGEX } from '@/lib/constants';
 
 export default function BookingDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
@@ -19,6 +21,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
   const [cancelling, setCancelling] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [gcalConnected, setGcalConnected] = useState(false);
+  const [calendarActor, setCalendarActor] = useState<string | null>(null);
   // 連携状態の取得失敗を握り潰すと、連携済みでも非連携扱いになる。失敗は明示する。
   const [gcalError, setGcalError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -44,6 +47,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) { if (!cancelled) setLoading(false); return; }
 
+        if (!cancelled) setCalendarActor(user.id);
         const { data, error } = await supabase
           .from('bookings')
           .select('*')
@@ -202,18 +206,25 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
               onClick={async () => {
                 setSyncing(true);
                 try {
+                  if (!calendarActor) throw new Error('Calendar identity unavailable');
+                  const key = `carelink-calendar-operation:${calendarActor}:${booking.id}:sync`;
+                  const operationId = beginStaffOperation(key);
                   const res = await fetch('/api/google-calendar/sync', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ bookingId: booking.id }),
+                    body: JSON.stringify({ bookingId: booking.id, operationId }),
+                    signal: AbortSignal.timeout(30000),
                   });
-                  if (res.ok) {
+                  const outcome = await res.json();
+                  if (res.ok && outcome?.ok === true && outcome.operationId === operationId) {
+                    finishStaffOperation(key);
                     setToast({ type: 'success', message: 'Googleカレンダーに同期しました' });
                   } else {
-                    setToast({ type: 'error', message: '同期に失敗しました' });
+                    if (outcome?.code === 'CALENDAR_BUSY' && typeof outcome.pendingOperationId === 'string' && UUID_REGEX.test(outcome.pendingOperationId)) sessionStorage.setItem(key, outcome.pendingOperationId);
+                    setToast({ type: 'error', message: '同期結果を確認できません。同じボタンで結果を再確認してください。' });
                   }
                 } catch {
-                  setToast({ type: 'error', message: '同期に失敗しました' });
+                  setToast({ type: 'error', message: '同期結果を確認できません。同じボタンで結果を再確認してください。' });
                 } finally {
                   setSyncing(false);
                 }

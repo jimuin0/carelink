@@ -162,6 +162,23 @@
     "updated_at",
     "user_id"
   ],
+  "calendar_sync_operations": [
+    "action",
+    "actor_id",
+    "booking_id",
+    "calendar_id",
+    "created_at",
+    "google_event_id",
+    "id",
+    "kind",
+    "mapping_calendar_id",
+    "mapping_id",
+    "mapping_synced_at",
+    "payload",
+    "state",
+    "token_id",
+    "token_updated_at"
+  ],
   "contact_replies": [
     "author_id",
     "author_name",

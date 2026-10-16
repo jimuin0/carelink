@@ -114,3 +114,30 @@ test('completed予約（キャンセル不可）→ オンライン事前決済�
   await screen.findByText('テスト施設');
   expect(screen.queryByText(/オンライン事前決済（近日公開）/)).not.toBeInTheDocument();
 });
+
+const CALENDAR_ID='fc160004-0000-4000-8000-000000000001';
+const CALENDAR_OTHER_ID='fc160004-0000-4000-8000-000000000002';
+const CALENDAR_KEY='carelink-calendar-operation:u1:b1:sync';
+function calendarResponses(action:(body:any)=>Promise<any>) {
+ global.fetch=jest.fn(async(url,options)=>{
+  if(url==='/api/google-calendar')return {ok:true,status:200,json:async()=>({connected:true,isExpired:false})};
+  return action(JSON.parse(String(options?.body)));
+ }) as any;
+}
+beforeEach(()=>{sessionStorage.clear();jest.restoreAllMocks();jest.spyOn(crypto,'randomUUID').mockReturnValue(CALENDAR_ID);});
+test('lost sync response and component reload retain the same operation UUID',async()=>{
+ mockSupabase();const seen:any[]=[];calendarResponses(async body=>{seen.push(body);throw new Error('synthetic response lost')});
+ const page=renderPage();const {fireEvent}=await import('@testing-library/react');fireEvent.click(await screen.findByText(/カレンダーに同期/));
+ await screen.findByText(/同じボタンで結果を再確認/);expect(sessionStorage.getItem(CALENDAR_KEY)).toBe(CALENDAR_ID);page.unmount();
+ calendarResponses(async body=>{seen.push(body);return{ok:true,status:200,json:async()=>({ok:true,operationId:body.operationId})}});renderPage();fireEvent.click(await screen.findByText(/カレンダーに同期/));
+ await screen.findByText('Googleカレンダーに同期しました');expect(seen.map(x=>x.operationId)).toEqual([CALENDAR_ID,CALENDAR_ID]);expect(sessionStorage.getItem(CALENDAR_KEY)).toBeNull();expect(seen[0]).toEqual({bookingId:'b1',operationId:CALENDAR_ID});
+});
+test('a same-kind busy operation is adopted for result reconciliation',async()=>{
+ mockSupabase();calendarResponses(async()=>({ok:false,status:409,json:async()=>({code:'CALENDAR_BUSY',pendingOperationId:CALENDAR_OTHER_ID})}));renderPage();const{fireEvent}=await import('@testing-library/react');fireEvent.click(await screen.findByText(/カレンダーに同期/));await screen.findByText(/同じボタンで結果を再確認/);expect(sessionStorage.getItem(CALENDAR_KEY)).toBe(CALENDAR_OTHER_ID);
+});
+test.each([{ok:true,operationId:CALENDAR_OTHER_ID},{ok:false,operationId:CALENDAR_ID},{code:'CALENDAR_BUSY',pendingOperationId:'invalid'}])('unconfirmed response %j does not clear UUID or show success',async data=>{
+ mockSupabase();calendarResponses(async()=>({ok:true,status:200,json:async()=>data}));renderPage();const{fireEvent}=await import('@testing-library/react');fireEvent.click(await screen.findByText(/カレンダーに同期/));await screen.findByText(/同じボタンで結果を再確認/);expect(sessionStorage.getItem(CALENDAR_KEY)).toBe(CALENDAR_ID);expect(screen.queryByText('Googleカレンダーに同期しました')).not.toBeInTheDocument();
+});
+test('unavailable browser storage prevents an unrecoverable request',async()=>{
+ mockSupabase();calendarResponses(async()=>{throw new Error('must not dispatch')});jest.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw new Error('storage unavailable')});renderPage();const{fireEvent}=await import('@testing-library/react');fireEvent.click(await screen.findByText(/カレンダーに同期/));await screen.findByText(/同じボタンで結果を再確認/);expect((global.fetch as jest.Mock).mock.calls.every(([url])=>url==='/api/google-calendar')).toBe(true);
+});
