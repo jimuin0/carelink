@@ -202,7 +202,7 @@ test('正しい認証後は安全な店舗redirectへ遷移する', async () => 
   render(<LoginPage />);
   submit();
   await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/admin/onboarding?facility_name=test'));
-  expect(mockRefresh).toHaveBeenCalledTimes(1);
+  expect(mockRefresh).not.toHaveBeenCalled();
 });
 
 test('未確認メールはパスワード誤りとせず案内し、自動送信しない', async () => {
@@ -366,4 +366,35 @@ test('callback失敗はログイン画面で説明する', () => {
   mockParams = new URLSearchParams({ error: 'callback_failed' });
   render(<LoginPage />);
   expect(screen.getByText('ログイン認証を完了できませんでした。時間をおいてもう一度お試しください。')).toBeVisible();
+});
+
+test('password login grants one navigation and does not refresh the outgoing document', async () => {
+  render(<LoginPage />);
+  submit();
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/mypage'));
+  expect(mockPush).toHaveBeenCalledTimes(1);
+  expect(mockRefresh).not.toHaveBeenCalled();
+  submit();
+  await act(async () => {});
+  expect(mockSignIn).toHaveBeenCalledTimes(1);
+});
+
+test('late initial identity observation cannot replace a successful password navigation', async () => {
+  let release!: (value: unknown) => void;
+  mockGetUser.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  render(<LoginPage />);
+  submit();
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/mypage'));
+  await act(async () => { release({ data: { user: { id: 'synthetic-late-identity' } }, error: null }); });
+  expect(mockReplace).not.toHaveBeenCalled();
+  expect(mockRefresh).not.toHaveBeenCalled();
+});
+
+test('a failed navigation releases its latch so the user can explicitly retry', async () => {
+  mockPush.mockImplementationOnce(() => { throw new Error('synthetic navigation failure'); });
+  render(<LoginPage />);
+  submit();
+  await screen.findByText('ログイン認証に接続できませんでした。時間をおいてもう一度お試しください。');
+  submit();
+  await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(2));
 });

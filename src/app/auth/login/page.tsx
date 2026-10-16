@@ -75,6 +75,8 @@ function LoginContent() {
   const [switchingAccount, setSwitchingAccount] = useState(false);
   const [switchSignedOut, setSwitchSignedOut] = useState(false);
   const authInFlight = useRef(false);
+  const navigationStarted = useRef(false);
+  const sessionObservationVersion = useRef(0);
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
   const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
   const [resendStatus, setResendStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
@@ -91,6 +93,7 @@ function LoginContent() {
     const onPageShow = (event: PageTransitionEvent) => {
       if (event.persisted) {
         authInFlight.current = false;
+        navigationStarted.current = false;
         setIsGoogleSigningIn(false);
       }
     };
@@ -103,19 +106,24 @@ function LoginContent() {
   // 店舗管理へのログインはアカウント選択を表示する。通常の利用者ログインは目的地へ進める。
   useEffect(() => {
     let active = true;
+    const version = sessionObservationVersion.current;
     const checkSession = async () => {
       try {
         const identity = await verifyAuthUser(createBrowserSupabaseClient().auth);
-        if (active && storeManagementLogin) {
+        if (!active || version !== sessionObservationVersion.current) return;
+        if (storeManagementLogin) {
           setSessionCheck({ destination: redirect, state: identity.state });
           if (identity.state === 'unauthenticated') setCurrentAccount(null);
         }
         if (active && identity.state === 'verified') {
           if (storeManagementLogin) setCurrentAccount({ email: identity.user.email });
-          else router.replace(redirect);
+          else if (!navigationStarted.current) { navigationStarted.current = true; router.replace(redirect); }
         }
       } catch {
-        if (active && storeManagementLogin) setSessionCheck({ destination: redirect, state: 'unavailable' });
+        if (active && version === sessionObservationVersion.current) {
+          navigationStarted.current = false;
+          if (storeManagementLogin) setSessionCheck({ destination: redirect, state: 'unavailable' });
+        }
       }
     };
     void checkSession();
@@ -153,8 +161,10 @@ function LoginContent() {
   };
 
   const onSubmit = async (data: LoginFormData) => {
-    if (authInFlight.current) return;
+    if (authInFlight.current || navigationStarted.current) return;
     authInFlight.current = true;
+    // A delayed pre-submit observation must not start a competing navigation.
+    sessionObservationVersion.current += 1;
     setVerificationEmail(null);
     setResendStatus('idle');
     setToast(null);
@@ -182,9 +192,12 @@ function LoginContent() {
         return;
       }
 
+      navigationStarted.current = true;
       router.push(redirect);
-      router.refresh();
+      // The destination verifies the new identity. Refreshing this outgoing
+      // document would race this navigation and the user's next destination.
     } catch {
+      navigationStarted.current = false;
       setToast({ type: 'error', message: 'ログイン認証に接続できませんでした。時間をおいてもう一度お試しください。' });
     } finally {
       authInFlight.current = false;

@@ -1,3 +1,4 @@
+import { observeNavigations } from './helpers/navigation-observation';
 import { test, expect, type Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
@@ -14,6 +15,7 @@ test.beforeAll(() => {
   }
 });
 test.use({ serviceWorkers: 'block', trace: 'off', screenshot: 'off', video: 'off' });
+observeNavigations(test);
 function db() {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false, autoRefreshToken: false } });

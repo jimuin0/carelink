@@ -1,3 +1,4 @@
+import { observeNavigations } from './helpers/navigation-observation';
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -8,6 +9,7 @@ import { bookingDraftKey } from '../src/lib/client-storage';
 // API requests and every external URL are intercepted; no booking, login,
 // logout, email or account deletion is executed.
 test.use({ serviceWorkers: 'block', trace: 'off', screenshot: 'off', video: 'off' });
+observeNavigations(test);
 const facilityId = randomUUID(), menuId = randomUUID(), staffId = randomUUID();
 const slug = `synthetic-booking-generation-${facilityId}`;
 let seeded = false, container: string;
@@ -92,6 +94,9 @@ test('new guest booking input saved after cleanup retains its exact value and re
   await isolated(context); await page.goto('/register'); const generation = await cleanupEpoch(page); await page.goto(bookingPath); await confirmStep(page);
   await page.fill('#booking-name', '新しい合成氏名'); await page.fill('#booking-email', 'fresh@example.invalid'); await page.fill('#booking-note', '合成の新しい備考');
   await page.getByRole('link', { name: 'ログインする', exact: true }).click(); await expect(page).toHaveURL(/\/auth\/login\?/);
+  // URL changes before an App Router transition has committed its destination.
+  // Wait for the real login form before starting the deliberate return visit.
+  await expect(page.locator('#login-email')).toBeVisible();
   const stored = await page.evaluate(({ key, metaKey }) => ({ value: JSON.parse(sessionStorage.getItem(key)!), meta: JSON.parse(sessionStorage.getItem(metaKey)!) }),
     { key: bookingDraftKey(facilityId), metaKey: `${CLIENT_BOOKING_DRAFT_META_PREFIX}${facilityId}` });
   expect(stored.value).toMatchObject({ customerName: '新しい合成氏名', email: 'fresh@example.invalid', note: '合成の新しい備考', menuIds: [menuId] });
