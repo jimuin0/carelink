@@ -64,7 +64,7 @@ function setupDefaultMocks(
   const mockEq = jest
     .fn()
     .mockReturnValue({
-      single: mockSingle,
+      maybeSingle: mockSingle,
     });
 
   const mockSelect = jest.fn().mockReturnValue({
@@ -266,7 +266,7 @@ describe('GET /api/booking/[id]/ical', () => {
     const mockEq = jest
       .fn()
       .mockReturnValue({
-        single: mockSingle,
+        maybeSingle: mockSingle,
       });
 
     createServiceRoleClient.mockReturnValue({
@@ -386,7 +386,7 @@ describe('GET /api/booking/[id]/ical', () => {
       },
     });
     createServiceRoleClient.mockReturnValue({
-      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: mockSingle }) }) }),
+      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: mockSingle }) }) }),
     });
     const res = await GET(makeRequest() as any, { params: Promise.resolve({ id: BOOKING_UUID }) } as any);
     expect(res.status).toBe(200);
@@ -410,7 +410,7 @@ describe('GET /api/booking/[id]/ical', () => {
       },
     });
     createServiceRoleClient.mockReturnValue({
-      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: mockSingle }) }) }),
+      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: mockSingle }) }) }),
     });
     const res = await GET(makeRequest() as any, { params: Promise.resolve({ id: BOOKING_UUID }) } as any);
     expect(res.status).toBe(200);
@@ -443,7 +443,7 @@ describe('GET /api/booking/[id]/ical', () => {
       },
     });
     createServiceRoleClient.mockReturnValue({
-      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: mockSingle }) }) }),
+      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: mockSingle }) }) }),
     });
     const res = await GET(makeRequest() as any, { params: Promise.resolve({ id: BOOKING_UUID }) } as any);
     expect(res.status).toBe(200);
@@ -484,4 +484,17 @@ describe('uncertain authentication cannot grant service-role access', () => {
       expect(jest.requireMock('@/lib/supabase-server').createServiceRoleClient).not.toHaveBeenCalled();
     } finally { jest.useRealTimers(); }
   });
+});
+
+
+test.each([true, false])('booking read error with data=%s cannot disclose calendar content', async hasData => {
+  const { createServiceRoleClient } = jest.requireMock('@/lib/supabase-server');
+  const result = { data: hasData ? { id: BOOKING_UUID, user_id: 'user-123' } : null, error: { code: '08006', message: 'private-db-diagnostic' } };
+  createServiceRoleClient.mockReturnValue({ from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), single: async () => result, maybeSingle: async () => result }) });
+  const response = await GET(makeRequest() as any, { params: Promise.resolve({ id: BOOKING_UUID }) });
+  expect(response.status).toBe(500);
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  const text = await response.text();
+  expect(text).not.toContain('private-db-diagnostic');
+  expect(text).not.toContain('BEGIN:VCALENDAR');
 });

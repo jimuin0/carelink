@@ -81,3 +81,19 @@ describe('uncertain authentication cannot grant service-role access', () => {
     } finally { jest.useRealTimers(); }
   });
 });
+
+
+test.each(['booking-data-error', 'booking-null-error', 'membership-data-error', 'membership-null-error'])('read failure %s cannot complete a booking', async fault => {
+  mockFrom.mockImplementation(table => {
+    const failed = table === (fault.startsWith('booking') ? 'bookings' : 'facility_members');
+    const data = table === 'bookings' ? booking : { facility_id: 'f1', role: 'owner' };
+    const result = { data: failed && fault.includes('null') ? null : data, error: failed ? { code: '08006', message: 'private-db-diagnostic' } : null };
+    return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), in: jest.fn().mockReturnThis(), single: async () => result, maybeSingle: async () => result };
+  });
+  const response = await POST(request());
+  expect(response.status).toBe(500);
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(await response.text()).not.toContain('private-db-diagnostic');
+  expect(mockRpc).not.toHaveBeenCalled();
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});

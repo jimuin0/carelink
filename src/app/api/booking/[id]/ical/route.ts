@@ -4,6 +4,7 @@
  * Googleカレンダー・Appleカレンダー等にインポート可能
  */
 
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
@@ -51,12 +52,17 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
-  const { data: booking } = await admin
+  const { data: booking, error: bookingError } = await admin
     .from('bookings')
     .select('id, user_id, facility_id, booking_date, start_time, end_time, menu:facility_menus(name), staff:staff_profiles(name), facility_profiles(name, address, phone)')
     .eq('id', params.id)
-    .single();
+    .maybeSingle();
 
+  if (bookingError) {
+    const response = serverError('booking-ical-read', databaseDiagnostic(bookingError), '/api/booking/[id]/ical');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
   if (!booking) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   // 本人のみ

@@ -1,3 +1,4 @@
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { NextResponse } from 'next/server';
 import { mutationRateLimit } from '@/lib/rate-limit';
@@ -33,18 +34,23 @@ export const POST = withRoute(async (request) => {
     const supabase = createServiceRoleClient();
 
     // Fetch booking first to know which facility to authorize against
-    const { data: booking } = await supabase
+    const { data: booking, error: bookingError } = await supabase
       .from('bookings')
       .select('id, facility_id, user_id, customer_name, email, booking_date, start_time, end_time, total_price, menu_id, staff_id, status')
       .eq('id', bookingId)
-      .single();
+      .maybeSingle();
 
+    if (bookingError) {
+      const response = serverError('booking-complete-read', databaseDiagnostic(bookingError), '/api/booking/complete');
+      response.headers.set('Cache-Control', 'no-store');
+      return response;
+    }
     if (!booking) {
       return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
     }
 
     // Permission check: must be owner/admin of this booking's facility
-    const { data: membership } = await supabase
+    const { data: membership, error: membershipError } = await supabase
       .from('facility_members')
       .select('facility_id, role')
       .eq('user_id', user.id)
@@ -52,6 +58,11 @@ export const POST = withRoute(async (request) => {
       .in('role', ['owner', 'admin'])
       .maybeSingle();
 
+    if (membershipError) {
+      const response = serverError('booking-complete-membership', databaseDiagnostic(membershipError), '/api/booking/complete');
+      response.headers.set('Cache-Control', 'no-store');
+      return response;
+    }
     if (!membership) {
       return NextResponse.json({ error: '権限がありません' }, { status: 403 });
     }
