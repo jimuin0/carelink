@@ -161,7 +161,8 @@ describe('GET /api/recommendations', () => {
   // だった（他ルート共通の catch+alert 契約からの逸脱）。予期しないDBエラー等でも
   // クラッシュせず空配列で継続応答することを保証する回帰テスト。
   test('DB クエリが例外を投げても 200 + 空配列で継続応答する', async () => {
-    mockGetUser.mockRejectedValue(new Error('unexpected auth failure'));
+    const { createClient } = jest.requireMock('@supabase/supabase-js');
+    createClient.mockImplementationOnce(() => { throw new Error('unexpected DB failure'); });
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
     const res = await GET(makeRequest() as any);
@@ -493,4 +494,35 @@ describe('GET /api/recommendations', () => {
     const json = await res.json();
     expect(json.recommendations.length).toBe(6);
   });
+});
+
+
+test.each(['data-error','null-error','throw'])('GET uncertain auth %s blocks private data access and event writes',async fault=>{
+ if(fault==='throw') mockGetUser.mockRejectedValue(new Error('private-auth-diagnostic'));
+ else mockGetUser.mockResolvedValue({data:{user:fault==='data-error'?{id:'synthetic-user'}:null},error:{message:'private-auth-diagnostic'}});
+ const response=await GET(makeRequest() as any);
+ expect(response.status).toBe(503);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.json()).toMatchObject({code:'AUTH_UNAVAILABLE'});
+ expect(jest.requireMock('@supabase/supabase-js').createClient).not.toHaveBeenCalled();
+});
+
+
+test.each(['bookings','favorites','matches','fallback'].flatMap(target=>[false,true].map(hasData=>[target,hasData] as const)))('%s error with data=%s does not become partial or fabricated empty history',async (target,hasData)=>{
+ const { createClient }=jest.requireMock('@supabase/supabase-js');
+ const history={facility_id:'synthetic-history',facility_profiles:{id:'synthetic-history',business_type:'massage',prefecture:'synthetic-pref',city:'synthetic-city'}};
+  let cards=0;
+  createClient.mockReturnValue({from:(table:string)=>{
+   const kind=table==='facility_card_view'?(++cards===1?'matches':'fallback'):table;
+   const data=table==='bookings'?[history]:[];
+   const result=kind===target?{data:hasData?(table==='bookings'||table==='favorites'?[history]:[{id:'synthetic-candidate'}]):null,error:{code:'08006',message:'private-db-diagnostic'}}:{data,error:null};
+   return {select:jest.fn().mockReturnThis(),eq:jest.fn().mockReturnThis(),order:jest.fn().mockReturnThis(),limit:async()=>result};
+  }});
+  const log=jest.spyOn(console,'error').mockImplementation(()=>{});
+  try {
+   const response=await GET(makeRequest() as any);
+   expect(response.status).toBe(200);expect(await response.json()).toEqual({recommendations:[]});
+   expect(response.headers.get('cache-control')).toBe('no-store');
+   const diagnostic=log.mock.calls.find(call=>call[0]==='[recommendations] Error:')?.[1];
+   expect(diagnostic).toBeInstanceOf(Error);expect(diagnostic.message).toBe('DATABASE_FAILURE:08006');
+   expect(log.mock.calls.flat().map(String).join(' ')).not.toContain('private-db-diagnostic');
+  } finally {log.mockRestore();}
 });
