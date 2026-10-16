@@ -6,6 +6,7 @@ import FacilityCard from '@/components/search/FacilityCard';
 import { getSymptomSeo } from '@/data/symptom-seo';
 import { SITE_URL } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/json-ld';
+import { readPageResult } from '@/lib/page-read-verification';
 
 // 遅延初期化: モジュールスコープで createClient を呼ぶとビルド時の
 // page data 収集フェーズで env 未設定環境（Vercel preview 等）が
@@ -31,11 +32,11 @@ interface Props {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const supabase = getSupabase();
-  const { data: symptom } = await supabase
+  const { data: symptom } = await readPageResult(() => supabase
     .from('symptoms')
     .select('name, category')
     .eq('slug', slug)
-    .maybeSingle();
+    .maybeSingle(), 'symptom-metadata');
 
   if (!symptom) return { title: '症状が見つかりません' };
 
@@ -54,43 +55,43 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function SymptomPage({ params }: Props) {
   const { slug } = await params;
   const supabase = getSupabase();
-  const { data: symptom } = await supabase
+  const { data: symptom } = await readPageResult(() => supabase
     .from('symptoms')
     .select('id, name, slug, category')
     .eq('slug', slug)
-    .maybeSingle();
+    .maybeSingle(), 'symptom-page');
 
   if (!symptom) notFound();
 
   const seo = getSymptomSeo(slug);
 
   // この症状に対応する施設を取得
-  const { data: facilitySymptoms } = await supabase
+  const { data: facilitySymptoms } = await readPageResult(() => supabase
     .from('facility_symptoms')
     .select('facility_id, description')
-    .eq('symptom_id', symptom.id);
+    .eq('symptom_id', symptom.id), 'symptom-facility-links');
 
   const facilityIds = (facilitySymptoms || []).map(fs => fs.facility_id);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let facilities: any[] = [];
   if (facilityIds.length > 0) {
-    const { data } = await supabase
+    const { data } = await readPageResult(() => supabase
       .from('facility_profiles')
       .select('id, name, slug, business_type, prefecture, city, main_photo_url, rating_avg, rating_count, catch_copy')
       .eq('status', 'published')
-      .in('id', facilityIds);
+      .in('id', facilityIds), 'symptom-facilities');
     facilities = data || [];
   }
 
   // 同カテゴリの他の症状
-  const { data: relatedSymptoms } = await supabase
+  const { data: relatedSymptoms } = await readPageResult(() => supabase
     .from('symptoms')
     .select('name, slug')
     .eq('category', symptom.category)
     .neq('id', symptom.id)
     .order('sort_order')
-    .limit(10);
+    .limit(10), 'symptom-related');
 
   // FAQPage JSON-LD
   const faqJsonLd = seo && seo.faqs.length > 0 ? {
