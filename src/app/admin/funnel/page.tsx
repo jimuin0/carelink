@@ -129,7 +129,7 @@ export default async function FunnelPage() {
 
       {/* ファネルチャート */}
       <div className="bg-white rounded-xl border border-gray-100 p-6">
-        <h2 className="font-bold text-sm mb-5">過去30日間のファネル</h2>
+        <h2 className="font-bold text-sm mb-5">先月1日以降のファネル</h2>
         <div className="space-y-3">
           {steps.map((step, i) => {
             const pct = Math.round((step.count / maxCount) * 100);
