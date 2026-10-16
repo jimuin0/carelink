@@ -1,3 +1,4 @@
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -7,7 +8,8 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import type { Database } from '@/types/database.types';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 // job_applications の update() に渡すオブジェクトの型。
 // Record<string, unknown> は Database 型配線後の update() が要求する
@@ -26,27 +28,40 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
 
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-job-applications-auth', '/api/admin/job-applications/[id]');
+  const user = verification.state === 'verified' ? verification.user : null;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
 
   // Verify ownership — both "not found" and "wrong owner" return 404 to prevent ID enumeration
-  const { data: existing } = await admin
+  const { data: existing, error: existingError } = await admin
     .from('job_applications')
     .select('facility_id, status')
     .eq('id', params.id)
-    .single();
+    .maybeSingle();
 
-  const { data: membership } = existing
+  if (existingError) {
+    const response = serverError('admin-job-applications-read', databaseDiagnostic(existingError), '/api/admin/job-applications/[id]');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
+  const { data: membership, error: membershipError } = existing
     ? await admin
         .from('facility_members')
         .select('role')
         .eq('facility_id', existing.facility_id)
         .eq('user_id', user.id)
         .in('role', ['owner', 'admin'])
-        .single()
-    : { data: null };
+        .maybeSingle()
+    : { data: null, error: null };
+
+  if (membershipError) {
+    const response = serverError('admin-job-applications-membership', databaseDiagnostic(membershipError), '/api/admin/job-applications/[id]');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
 
   if (!existing || !membership) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 

@@ -1,3 +1,4 @@
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -5,15 +6,21 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 import { UUID_REGEX } from '@/lib/constants';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
-async function getFacilityIds(userId: string): Promise<string[]> {
+async function getFacilityIds(userId: string): Promise<string[] | NextResponse> {
   const admin = createServiceRoleClient();
-  const { data } = await admin
+  const { data, error } = await admin
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', userId)
     .in('role', ['owner', 'admin']);
+  if (error) {
+    const response = serverError('admin-job-applications-membership', databaseDiagnostic(error), '/api/admin/job-applications');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
   return (data ?? []).map((m) => m.facility_id as string);
 }
 
@@ -23,10 +30,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-job-applications-auth', '/api/admin/job-applications');
+  const user = verification.state === 'verified' ? verification.user : null;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const facilityIds = await getFacilityIds(user.id);
+  if (facilityIds instanceof NextResponse) return facilityIds;
   if (facilityIds.length === 0) return NextResponse.json({ error: 'No facility' }, { status: 403 });
 
   const admin = createServiceRoleClient();
@@ -81,7 +91,12 @@ export async function POST(req: NextRequest) {
   dupQuery = job_posting_id
     ? dupQuery.eq('job_posting_id', job_posting_id)
     : dupQuery.is('job_posting_id', null);
-  const { data: existing } = await dupQuery.limit(1);
+  const { data: existing, error: duplicateError } = await dupQuery.limit(1);
+  if (duplicateError) {
+    const response = serverError('admin-job-applications-duplicate', databaseDiagnostic(duplicateError), '/api/admin/job-applications');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
 
   if (existing && existing.length > 0) {
     return NextResponse.json({ error: 'Already applied' }, { status: 409 });
@@ -89,7 +104,9 @@ export async function POST(req: NextRequest) {
 
   // Check if user is logged in
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-job-applications-auth', '/api/admin/job-applications');
+  const user = verification.state === 'verified' ? verification.user : null;
 
   const { data: application, error } = await admin
     .from('job_applications')
