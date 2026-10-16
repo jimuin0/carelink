@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
@@ -7,8 +8,8 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { authUnavailable, serverError } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
+import { runCalendarOperation, type CalendarCredentials } from '@/lib/calendar-sync-operation';
 import { z } from 'zod';
-import { databaseDiagnostic } from '@/lib/database-diagnostic';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
@@ -39,74 +40,47 @@ async function refreshAccessToken(refreshToken: string) {
   }
 }
 
-// Accept only sanitized diagnostics: token and provider errors may carry credentials.
-function syncFailure(tag: string, diagnostic: Error) {
-  const response = serverError(tag, diagnostic, '/api/google-calendar/sync', 'Internal Server Error');
-  response.headers.set('Cache-Control', 'no-store');
-  return response;
+
+async function calendarCredentials(admin: SupabaseClient, userId: string): Promise<CalendarCredentials | null> {
+  const result=await admin.from('google_calendar_tokens').select('*').eq('user_id',userId).maybeSingle();
+  if(result.error)throw new Error('CALENDAR_CREDENTIAL_READ_UNAVAILABLE');
+  if(!result.data)return null;
+  const token=result.data;
+  if(!UUID_REGEX.test(token.id) || typeof token.access_token!=='string' || !token.access_token || !Number.isFinite(Date.parse(token.updated_at)))throw new Error('CALENDAR_CREDENTIAL_INVALID');
+  let accessToken=token.access_token;let updatedAt=token.updated_at;
+  if(!Number.isFinite(Date.parse(token.expires_at)) || Date.parse(token.expires_at)<=Date.now()) {
+    if(typeof token.refresh_token!=='string'||!token.refresh_token)throw new Error('CALENDAR_REAUTHENTICATION_REQUIRED');
+    const refreshed=await refreshAccessToken(token.refresh_token);
+    accessToken=refreshed.access_token;updatedAt=new Date().toISOString();
+    const expiresAt=new Date(Date.now()+refreshed.expires_in*1000).toISOString();
+    const saved=await admin.from('google_calendar_tokens').update({access_token:accessToken,expires_at:expiresAt,updated_at:updatedAt},{count:'exact'}).eq('user_id',userId).eq('id',token.id).eq('updated_at',token.updated_at).select('id, updated_at').maybeSingle();
+    if(saved.error || saved.count!==1 || !saved.data || saved.data.id!==token.id || !Number.isFinite(Date.parse(saved.data.updated_at)))throw new Error('CALENDAR_CREDENTIAL_SAVE_UNCONFIRMED');
+    updatedAt=saved.data.updated_at;
+  }
+  return {accessToken,tokenId:token.id,updatedAt};
+}
+function invalidOperation() {
+  return NextResponse.json({code:'CALENDAR_OPERATION_ID_REQUIRED',error:'画面を再読み込みして操作を再確認してください。'},{status:400,headers:{'Cache-Control':'no-store'}});
 }
 
-// POST /api/google-calendar/sync
-// Syncs a booking to Google Calendar
 export async function POST(req: NextRequest) {
-  try {
-  const csrfError = checkCsrf(req);
-  if (csrfError) return csrfError;
-  const ip = getClientIp(req);
-  if (await checkRateLimit(null, ip, 20, 60_000, 'gcal-sync')) {
-    return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
-  }
-  const supabase = await createServerSupabaseAuthClient();
-  const identity = await verifyAuthUser(supabase.auth);
-  if (identity.state === 'unavailable') return authUnavailable('gcal-sync-auth', '/api/google-calendar/sync');
-  if (identity.state === 'unauthenticated') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const user = identity.user;
-
-  const { bookingId } = await req.json().catch(() => ({}));
-  if (!bookingId) return NextResponse.json({ error: 'bookingId required' }, { status: 400 });
-  if (!UUID_REGEX.test(bookingId)) return NextResponse.json({ error: 'Invalid bookingId' }, { status: 400 });
-
-  const admin = createServiceRoleClient();
-
-  // Verify booking ownership
-  const { data: booking, error: bookingError } = await admin
-    .from('bookings')
-    .select('*, facility_profiles(name, address, phone), menu:facility_menus(name)')
-    .eq('id', bookingId)
-    .eq('user_id', user.id)
-    .maybeSingle();
-
-  if (bookingError) return syncFailure('gcal-sync-booking-read', databaseDiagnostic(bookingError));
-  if (!booking) return NextResponse.json({ error: 'Booking not found' }, { status: 404 });
-
-  // Get user's Google token
-  const { data: tokenRow, error: tokenReadError } = await admin
-    .from('google_calendar_tokens')
-    .select('*')
-    .eq('user_id', user.id)
-    .maybeSingle();
-
-  if (tokenReadError) return syncFailure('gcal-sync-token-read', databaseDiagnostic(tokenReadError));
-  if (!tokenRow) return NextResponse.json({ error: 'Google Calendar not connected' }, { status: 400 });
-
-  // Refresh token if expired
-  let accessToken = tokenRow.access_token;
-  if (new Date(tokenRow.expires_at) < new Date() && tokenRow.refresh_token) {
-    const refreshed = await refreshAccessToken(tokenRow.refresh_token);
-    accessToken = refreshed.access_token;
-    const expiresAt = new Date(Date.now() + refreshed.expires_in * 1000).toISOString();
-    const { error: tokenUpdateErr, count: tokenUpdateCount } = await admin
-      .from('google_calendar_tokens')
-      .update({ access_token: accessToken, expires_at: expiresAt, updated_at: new Date().toISOString() }, { count: 'exact' })
-      .eq('user_id', user.id);
-    if (tokenUpdateErr) {
-      return syncFailure('gcal-sync-token-save', databaseDiagnostic(tokenUpdateErr));
-    }
-    if (tokenUpdateCount !== 1) {
-      return syncFailure('gcal-sync-token-save', new Error('GOOGLE_CALENDAR_TOKEN_SAVE_UNCONFIRMED'));
-    }
-  }
-
+ try {
+  const csrfError=checkCsrf(req);if(csrfError)return csrfError;
+  if(await checkRateLimit(null,getClientIp(req),20,60000,'gcal-sync'))return NextResponse.json({error:'Too Many Requests'},{status:429});
+  const supabase=await createServerSupabaseAuthClient();const identity=await verifyAuthUser(supabase.auth);
+  if(identity.state==='unavailable')return authUnavailable('gcal-sync-auth','/api/google-calendar/sync');
+  if(identity.state==='unauthenticated')return NextResponse.json({error:'Unauthorized'},{status:401});
+  const user=identity.user;
+  const input=await req.json().catch(()=>null);
+  if(!input?.bookingId)return NextResponse.json({error:'bookingId required'},{status:400});
+  const {bookingId,operationId}=input;
+  if(typeof bookingId!=='string'||!UUID_REGEX.test(bookingId))return NextResponse.json({error:'Invalid bookingId'},{status:400});
+  if(typeof operationId!=='string'||!UUID_REGEX.test(operationId))return invalidOperation();
+  const admin=createServiceRoleClient();
+  const found=await admin.from('bookings').select('*, facility_profiles(name, address, phone), menu:facility_menus(name)').eq('id',bookingId).eq('user_id',user.id).maybeSingle();
+  if(found.error)throw new Error('CALENDAR_BOOKING_READ_UNAVAILABLE');
+  if(!found.data)return NextResponse.json({error:'Booking not found'},{status:404});
+  const booking=found.data;
   // Build calendar event
   const facilityName = Array.isArray(booking.facility_profiles)
     ? booking.facility_profiles[0]?.name
@@ -141,139 +115,26 @@ export async function POST(req: NextRequest) {
     },
   };
 
-  // Check if event already exists
-  const { data: existing, error: mappingReadError } = await admin
-    .from('booking_calendar_events')
-    .select('google_event_id')
-    .eq('booking_id', bookingId)
-    .eq('user_id', user.id)
-    .maybeSingle();
 
-  if (mappingReadError) return syncFailure('gcal-sync-mapping-read', databaseDiagnostic(mappingReadError));
-
-  let googleEventId: string;
-
-  if (existing?.google_event_id) {
-    // Update existing event
-    const res = await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${existing.google_event_id}`,
-      {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(event),
-      }
-    );
-    if (!res.ok) {
-      return serverError('gcal-sync-update', new Error(`Calendar update failed: HTTP ${res.status}`), '/api/google-calendar/sync', 'Calendar update failed');
-    }
-    const data = await res.json();
-    googleEventId = data.id;
-  } else {
-    // Create new event
-    const res = await fetch(
-      'https://www.googleapis.com/calendar/v3/calendars/primary/events',
-      {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(event),
-      }
-    );
-    if (!res.ok) {
-      return serverError('gcal-sync-create', new Error(`Calendar create failed: HTTP ${res.status}`), '/api/google-calendar/sync', 'Calendar create failed');
-    }
-    const data = await res.json();
-    googleEventId = data.id;
-
-    const { error: trackErr } = await admin.from('booking_calendar_events').upsert({
-      booking_id: bookingId,
-      user_id: user.id,
-      google_event_id: googleEventId,
-      calendar_id: 'primary',
-      synced_at: new Date().toISOString(),
-    }, { onConflict: 'booking_id,user_id' });
-
-    if (trackErr) {
-      // 追跡行の保存に失敗。放置すると次回同期で existing を引けず Google 側に重複イベントを
-      // 作るため、作成直後の Google イベントの取消を試みる。DBと外部APIは原子的ではなく、
-      // 取消の失敗/応答喪失は未確定として残る（無条件再送で解決済みとはしない）。
-      await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${googleEventId}`,
-        { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }
-      );
-      return serverError(
-        'gcal-sync-track',
-        databaseDiagnostic(trackErr),
-        '/api/google-calendar/sync',
-        'Calendar sync failed',
-      );
-    }
-  }
-
-  return NextResponse.json({ ok: true, googleEventId });
-  } catch {
-    return syncFailure('gcal-sync', new Error('Calendar sync outcome unconfirmed'));
-  }
+  return await runCalendarOperation(admin,{operationId,userId:user.id,bookingId,kind:'sync',payload:event,credentials:()=>calendarCredentials(admin,user.id)});
+ } catch {
+  const response=serverError('gcal-sync',new Error('Calendar sync outcome unconfirmed'),'/api/google-calendar/sync','Internal Server Error');response.headers.set('Cache-Control','no-store');return response;
+ }
 }
-
-// DELETE /api/google-calendar/sync?bookingId=xxx — remove event
 export async function DELETE(req: NextRequest) {
-  try {
-    const csrfError = checkCsrf(req);
-    if (csrfError) return csrfError;
-    const ip = getClientIp(req);
-    if (await checkRateLimit(null, ip, 20, 60_000, 'gcal-sync-delete')) {
-      return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
-    }
-    const supabase = await createServerSupabaseAuthClient();
-    const verification = await verifyAuthUser(supabase.auth);
-    if (verification.state === 'unavailable') return authUnavailable('gcal-sync-delete-auth', '/api/google-calendar/sync');
-    if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const user = verification.user;
-    const bookingId = req.nextUrl.searchParams.get('bookingId');
-    if (!bookingId) return NextResponse.json({ error: 'bookingId required' }, { status: 400 });
-    if (!UUID_REGEX.test(bookingId)) return NextResponse.json({ error: 'Invalid bookingId' }, { status: 400 });
-    const admin = createServiceRoleClient();
-    const { data: calEvent, error: readError } = await admin.from('booking_calendar_events')
-      .select('id, google_event_id, calendar_id, synced_at').eq('booking_id', bookingId).eq('user_id', user.id).maybeSingle();
-    if (readError) return serverError('gcal-delete-read', new Error('Calendar mapping lookup unavailable'), '/api/google-calendar/sync');
-    if (!calEvent) return NextResponse.json({ ok: true });
-    if (!UUID_REGEX.test(calEvent.id) || !calEvent.google_event_id || !calEvent.calendar_id || !calEvent.synced_at) {
-      return serverError('gcal-delete-unconfirmed-map', new Error('Calendar mapping not confirmed'), '/api/google-calendar/sync');
-    }
-    const { data: tokenRow, error: tokenError } = await admin.from('google_calendar_tokens')
-      .select('access_token, refresh_token, expires_at').eq('user_id', user.id).maybeSingle();
-    if (tokenError) return serverError('gcal-delete-token-read', new Error('Calendar credential lookup unavailable'), '/api/google-calendar/sync');
-    if (!tokenRow) return NextResponse.json({ error: 'カレンダー連携を確認できません。記録を保持しました。' }, { status: 503 });
-    let accessToken = tokenRow.access_token;
-    const expiresAt = Date.parse(tokenRow.expires_at);
-    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
-      if (!tokenRow.refresh_token) return NextResponse.json({ error: 'カレンダーの再認証が必要です。記録を保持しました。' }, { status: 503 });
-      const refreshed = await refreshAccessToken(tokenRow.refresh_token);
-      accessToken = refreshed.access_token;
-    }
-    if (typeof accessToken !== 'string' || !accessToken) return NextResponse.json({ error: 'カレンダー認証を確認できません。記録を保持しました。' }, { status: 503 });
-    const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calEvent.calendar_id)}/events/${encodeURIComponent(calEvent.google_event_id)}`, {
-      method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(10_000),
-    });
-    let confirmed = response.status === 204;
-    if (response.status === 410) {
-      const body: unknown = await response.json().catch(() => null);
-      // Google's 410 also covers expired sync tokens. Only reason=deleted
-      // proves this event was deleted. 404 may mean an inaccessible calendar.
-      const errors = body && typeof body === 'object' && 'error' in body
-        && body.error && typeof body.error === 'object' && 'errors' in body.error ? body.error.errors : null;
-      confirmed = Array.isArray(errors) && errors.some(error => error && typeof error === 'object' && error.reason === 'deleted');
-    }
-    if (!confirmed) return NextResponse.json({ error: 'カレンダーの削除結果を確認できません。記録を保持しました。' }, { status: 503 });
-    const removed = await admin.from('booking_calendar_events').delete()
-      .eq('id', calEvent.id).eq('user_id', user.id).eq('booking_id', bookingId)
-      .eq('google_event_id', calEvent.google_event_id).eq('calendar_id', calEvent.calendar_id).eq('synced_at', calEvent.synced_at).select('id');
-    if (removed.error) return serverError('gcal-sync-delete-record', new Error('Calendar mapping removal unavailable'), '/api/google-calendar/sync');
-    if (!removed.data || removed.data.length !== 1 || removed.data[0].id !== calEvent.id) {
-      return NextResponse.json({ error: 'カレンダー記録が変更されています。現在の状態を再確認してください。' }, { status: 409 });
-    }
-    return NextResponse.json({ ok: true });
-  } catch {
-    return serverError('gcal-sync-delete', new Error('Calendar deletion outcome unconfirmed'), '/api/google-calendar/sync', 'Internal Server Error');
-  }
+ try {
+  const csrfError=checkCsrf(req);if(csrfError)return csrfError;
+  if(await checkRateLimit(null,getClientIp(req),20,60000,'gcal-sync-delete'))return NextResponse.json({error:'Too Many Requests'},{status:429});
+  const supabase=await createServerSupabaseAuthClient();const identity=await verifyAuthUser(supabase.auth);
+  if(identity.state==='unavailable')return authUnavailable('gcal-sync-delete-auth','/api/google-calendar/sync');
+  if(identity.state==='unauthenticated')return NextResponse.json({error:'Unauthorized'},{status:401});
+  const bookingId=req.nextUrl.searchParams.get('bookingId');const operationId=req.nextUrl.searchParams.get('operationId');
+  if(!bookingId)return NextResponse.json({error:'bookingId required'},{status:400});
+  if(!UUID_REGEX.test(bookingId))return NextResponse.json({error:'Invalid bookingId'},{status:400});
+  if(!operationId||!UUID_REGEX.test(operationId))return invalidOperation();
+  const admin=createServiceRoleClient();
+  return await runCalendarOperation(admin,{operationId,userId:identity.user.id,bookingId,kind:'delete',payload:{},credentials:()=>calendarCredentials(admin,identity.user.id)});
+ } catch {
+  const response=serverError('gcal-sync-delete',new Error('Calendar deletion outcome unconfirmed'),'/api/google-calendar/sync','Internal Server Error');response.headers.set('Cache-Control','no-store');return response;
+ }
 }
