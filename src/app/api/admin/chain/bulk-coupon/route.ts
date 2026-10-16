@@ -12,7 +12,9 @@ import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX } from '@/lib/constants';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { validateCouponDiscountFields, normalizeCouponDiscountFields } from '@/lib/coupon-validation';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
 
@@ -30,6 +32,7 @@ const bulkCouponDiscountSchema = z.object({
 }).superRefine(validateCouponDiscountFields).transform(normalizeCouponDiscountFields);
 
 export async function POST(req: NextRequest) {
+  try {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const ip = getClientIp(req);
@@ -37,7 +40,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-chain-bulk-coupon-auth', '/api/admin/chain/bulk-coupon');
+  const user = verification.state === 'verified' ? verification.user : null;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { name, coupon_type, discount_type, discount_value, special_price, valid_from, valid_until, facility_ids } = await req.json().catch(() => ({}));
@@ -73,13 +78,18 @@ export async function POST(req: NextRequest) {
 
   // 権限確認: 全施設に対してowner/adminであること
   const admin = createServiceRoleClient();
-  const { data: memberships } = await admin
+  const { data: memberships, error: membershipError } = await admin
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
     .in('role', ['owner', 'admin'])
     .in('facility_id', facility_ids);
 
+  if (membershipError) {
+    const response = serverError('admin-chain-bulk-coupon-membership', databaseDiagnostic(membershipError), '/api/admin/chain/bulk-coupon');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
   const allowedIds = (memberships ?? []).map((m) => m.facility_id);
   if (allowedIds.length !== facility_ids.length) {
     return NextResponse.json({ error: 'Forbidden: some facilities not authorized' }, { status: 403 });
@@ -114,4 +124,9 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json({ ok: true, created: data?.length ?? 0 }, { status: 201 });
+  } catch (error) {
+    const response = serverError('admin-chain-bulk-coupon-dependency', databaseDiagnostic(error), '/api/admin/chain/bulk-coupon');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
 }

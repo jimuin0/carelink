@@ -11,7 +11,9 @@ import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX } from '@/lib/constants';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { checkPublishReadiness, isPublishedLocationConflict } from '@/lib/facility-publish-gate';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 
 export async function POST(req: NextRequest) {
   try {
@@ -22,8 +24,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-chain-bulk-publish-auth', '/api/admin/chain/bulk-publish');
+  const user = verification.state === 'verified' ? verification.user : null;
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const parsed: unknown = await req.json().catch(() => null);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
@@ -48,7 +52,11 @@ export async function POST(req: NextRequest) {
     .in('role', ['owner', 'admin'])
     .in('facility_id', facility_ids);
 
-  if (membershipError) return serverError('admin-chain-bulk-publish-membership', membershipError, '/api/admin/chain/bulk-publish');
+  if (membershipError) {
+    const response = serverError('admin-chain-bulk-publish-membership', databaseDiagnostic(membershipError), '/api/admin/chain/bulk-publish');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
   const allowedIds = (memberships ?? []).map((m) => m.facility_id);
   if (allowedIds.length !== facility_ids.length) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -105,6 +113,8 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ ok: true, updated: targetIds.length, skipped });
   } catch (error) {
-    return serverError('admin-chain-bulk-publish', error, '/api/admin/chain/bulk-publish');
+    const response = serverError('admin-chain-bulk-publish', databaseDiagnostic(error), '/api/admin/chain/bulk-publish');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
   }
 }

@@ -9,11 +9,14 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  try {
   const ip = getClientIp(request);
   if (await checkRateLimit(null, ip, 10, 60_000, 'admin-report')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
@@ -47,11 +50,13 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-report-auth', '/api/admin/report');
+  const user = verification.state === 'verified' ? verification.user : null;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   // Revenue data is restricted to owner/admin only
-  const { data: member } = await supabase
+  const { data: member, error: membershipError } = await supabase
     .from('facility_members')
     .select('role')
     .eq('facility_id', facilityId)
@@ -59,6 +64,11 @@ export async function GET(request: NextRequest) {
     .in('role', ['owner', 'admin'])
     .maybeSingle();
 
+  if (membershipError) {
+    const response = serverError('admin-report-membership', databaseDiagnostic(membershipError), '/api/admin/report');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
   if (!member) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const admin = createServiceRoleClient();
@@ -92,4 +102,9 @@ export async function GET(request: NextRequest) {
       'Content-Disposition': `attachment; filename="report_${from}_${to}.csv"`,
     },
   });
+  } catch (error) {
+    const response = serverError('admin-report-dependency', databaseDiagnostic(error), '/api/admin/report');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
 }

@@ -1,3 +1,6 @@
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
+import { authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 /**
  * パーソナライズ推薦 API
  * GET /api/recommendations?limit=6
@@ -26,7 +29,9 @@ export async function GET(request: NextRequest) {
   // （従来は例外が無捕捉のままクラッシュし、Slack通知されない監視の穴だった）。
   try {
     const supabase = await createServerSupabaseAuthClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const verification = await verifyAuthUser(supabase.auth);
+    if (verification.state === 'unavailable') return authUnavailable('recommendations-auth', '/api/recommendations');
+    const user = verification.state === 'verified' ? verification.user : null;
     if (!user) return NextResponse.json({ recommendations: [] });
 
     // limit は非数値（NaN）・負数・0 を弾いて 1〜12 に正規化する。未指定/不正は既定 6。
@@ -41,19 +46,21 @@ export async function GET(request: NextRequest) {
     );
 
     // 予約履歴から業種・エリアを取得
-    const { data: bookings } = await admin
+    const { data: bookings, error: bookingsError } = await admin
       .from('bookings')
       .select('facility_id, facility_profiles(id, business_type, prefecture, city)')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(20);
+    if (bookingsError) throw bookingsError;
 
     // お気に入りから取得
-    const { data: favorites } = await admin
+    const { data: favorites, error: favoritesError } = await admin
       .from('favorites')
       .select('facility_id, facility_profiles(id, business_type, prefecture, city)')
       .eq('user_id', user.id)
       .limit(20);
+    if (favoritesError) throw favoritesError;
 
     // 業種・エリアの出現頻度をカウント
     const typeCount: Record<string, number> = {};
@@ -94,20 +101,22 @@ export async function GET(request: NextRequest) {
     if (topType) query = query.eq('business_type', topType);
     if (topPref) query = query.eq('prefecture', topPref);
 
-    const { data: typeAreaMatches } = await query.order('rating_avg', { ascending: false }).limit(limit * 2);
+    const { data: typeAreaMatches, error: matchesError } = await query.order('rating_avg', { ascending: false }).limit(limit * 2);
+    if (matchesError) throw matchesError;
 
     // 訪問済みを除外してリミットまで取得
     const filtered = (typeAreaMatches ?? []).filter((f) => !visitedIds.has(f.id)).slice(0, limit);
 
     // 足りない場合は同タイプから補完
     if (filtered.length < limit && topType) {
-      const { data: typeMatches } = await admin
+      const { data: typeMatches, error: fallbackError } = await admin
         .from('facility_card_view')
         .select('*')
         .eq('status', 'published')
         .eq('business_type', topType)
         .order('rating_avg', { ascending: false })
         .limit(limit * 2);
+      if (fallbackError) throw fallbackError;
 
       const extra = (typeMatches ?? []).filter((f) => !visitedIds.has(f.id) && !filtered.find((r) => r.id === f.id));
       filtered.push(...extra.slice(0, limit - filtered.length));
@@ -121,9 +130,10 @@ export async function GET(request: NextRequest) {
   } catch (e) {
     // catch して 200(空配列) を返すと instrumentation.ts の onRequestError に伝播せず
     // Slack 通知が漏れるため明示通知する。推薦は非致命機能のため画面には空配列で継続させる。
-    console.error('[recommendations] Error:', e);
-    safeCaptureException(e, 'recommendations');
-    alertCaughtError('recommendations', e, '/api/recommendations');
-    return NextResponse.json({ recommendations: [] });
+    const diagnostic = databaseDiagnostic(e);
+    console.error('[recommendations] Error:', diagnostic);
+    safeCaptureException(diagnostic, 'recommendations');
+    alertCaughtError('recommendations', diagnostic, '/api/recommendations');
+    return NextResponse.json({ recommendations: [] }, { headers: { 'Cache-Control': 'no-store' } });
   }
 }

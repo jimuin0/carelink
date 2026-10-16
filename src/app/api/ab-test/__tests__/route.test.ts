@@ -32,7 +32,7 @@ function setupDefaultMocks(hasUser: boolean = false, isAdmin: boolean = false) {
         return {
           select: jest.fn().mockReturnValue({
             eq: jest.fn().mockReturnValue({
-              single: jest.fn().mockResolvedValue({
+              maybeSingle: jest.fn().mockResolvedValue({
                 data: isAdmin ? { id: 'user-123', is_platform_admin: true } : null,
               }),
             }),
@@ -408,4 +408,44 @@ describe('GET /api/ab-test', () => {
     const json = await res.json();
     expect(json.error).toBeDefined();
   });
+});
+
+
+test.each(['data-error','null-error','throw'])('POST uncertain auth %s blocks private data access and event writes',async fault=>{
+ if(fault==='throw') mockGetUser.mockRejectedValue(new Error('private-auth-diagnostic'));
+ else mockGetUser.mockResolvedValue({data:{user:fault==='data-error'?{id:'synthetic-user'}:null},error:{message:'private-auth-diagnostic'}});
+ const response=await POST(makePostRequest({experiment_key:'synthetic',variant:'control',event_type:'impression'}) as any);
+ expect(response.status).toBe(503);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.json()).toMatchObject({code:'AUTH_UNAVAILABLE'});
+ expect(jest.requireMock('@/lib/supabase-server').createServiceRoleClient).not.toHaveBeenCalled();
+});
+
+
+test.each(['data-error','null-error','throw'])('GET uncertain auth %s blocks private data access and event writes',async fault=>{
+ if(fault==='throw') mockGetUser.mockRejectedValue(new Error('private-auth-diagnostic'));
+ else mockGetUser.mockResolvedValue({data:{user:fault==='data-error'?{id:'synthetic-user'}:null},error:{message:'private-auth-diagnostic'}});
+ const response=await GET(makeGetRequest() as any);
+ expect(response.status).toBe(503);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.json()).toMatchObject({code:'AUTH_UNAVAILABLE'});
+ expect(jest.requireMock('@/lib/supabase-server').createServiceRoleClient).not.toHaveBeenCalled();
+});
+
+
+test.each([true,false])('POST database error with data=%s cannot acknowledge event storage',async hasData=>{
+ mockInsert.mockResolvedValue({data:hasData?{id:'synthetic'}:null,error:{code:'08006',message:'private-db-diagnostic'}});
+ const response=await POST(makePostRequest({experiment_key:'synthetic',variant:'control',event_type:'impression'}) as any);
+ expect(response.status).toBe(500);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.text()).not.toContain('private-db-diagnostic');
+});
+test.each([true,false])('GET database error with data=%s cannot report empty or partial statistics',async hasData=>{
+ setupDefaultMocks(true,true);
+ const {createServiceRoleClient}=jest.requireMock('@/lib/supabase-server');
+ createServiceRoleClient.mockReturnValue({from:()=>({select:()=>({eq:async()=>({data:hasData?[{variant:'control',event_type:'impression'}]:null,error:{code:'08006',message:'private-db-diagnostic'}})})})});
+ const response=await GET(makeGetRequest() as any);
+ expect(response.status).toBe(500);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.text()).not.toContain('private-db-diagnostic');
+});
+test.each(['data-error','null-error','throw'])('GET platform privilege %s cannot read experiment results',async fault=>{
+ setupDefaultMocks(true,true);
+ const {createServerSupabaseAuthClient}=jest.requireMock('@/lib/supabase-server-auth');
+ const terminal=async()=>{if(fault==='throw')throw new Error('private-profile-diagnostic');return {data:fault==='data-error'?{is_platform_admin:true}:null,error:{message:'private-profile-diagnostic'}};};
+ createServerSupabaseAuthClient.mockResolvedValue({auth:{getUser:mockGetUser},from:()=>({select:jest.fn().mockReturnThis(),eq:jest.fn().mockReturnThis(),single:terminal,maybeSingle:terminal})});
+ const response=await GET(makeGetRequest() as any);
+ expect(response.status).toBe(503);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.json()).toMatchObject({code:'AUTH_UNAVAILABLE'});expect(jest.requireMock('@/lib/supabase-server').createServiceRoleClient).not.toHaveBeenCalled();
 });
