@@ -8,5 +8,5 @@ test('real local socket fixtures detect a silent HEAD close without hiding faile
   });
   expect(result.error).toBeUndefined();
   expect(result.status).toBe(0);
-  expect(result.stderr).toContain('Ran 4 tests');
+  expect(result.stderr).toContain('Ran 8 tests');
 });

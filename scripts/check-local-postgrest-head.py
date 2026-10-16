@@ -12,7 +12,19 @@ import socket
 import subprocess
 import sys
 
-FIXED_IMAGE = 'public.ecr.aws/supabase/postgrest:v14.15'
+FIXED_IMAGES = {
+    'public.ecr.aws/supabase/postgrest:v14.15',
+    'ghcr.io/supabase/postgrest:v14.15',
+}
+
+
+class VerificationError(ValueError):
+    pass
+INSPECT_FORMAT = (
+    '{"Name":{{json .Name}},"State":{"Running":{{json .State.Running}}},'
+    '"Config":{"Image":{{json .Config.Image}}},'
+    '"NetworkSettings":{"Networks":{{json .NetworkSettings.Networks}}}}'
+)
 REQUEST = (
     b'HEAD /facility_profiles?select=id&limit=0 HTTP/1.1\r\n'
     b'Host: local-rest\r\nPrefer: count=exact\r\n'
@@ -72,28 +84,29 @@ def local_target():
     config = (root / 'supabase/config.toml').read_text()
     project = re.search(r'^project_id\s*=\s*"([a-zA-Z0-9_-]+)"\s*$', config, re.M)
     if not project:
-        raise ValueError('Local project ID is required')
+        raise VerificationError('Local project ID is required')
     name = 'supabase_rest_' + project.group(1)
-    info = json.loads(subprocess.check_output(['docker', 'inspect', '--type=container', name]))[0]
+    info = json.loads(subprocess.check_output(['docker', 'inspect', '--type=container', '--format', INSPECT_FORMAT, name]))
     if info['Name'] != '/' + name or not info['State']['Running']:
-        raise ValueError('Expected local PostgREST container is not running')
-    if info['Config']['Image'] != FIXED_IMAGE:
-        raise ValueError('Local PostgREST image does not match the fixed CI pin')
+        raise VerificationError('Expected local PostgREST container is not running')
+    if info['Config']['Image'] not in FIXED_IMAGES:
+        raise VerificationError('Local PostgREST image does not match the fixed official CI pin')
     network = info['NetworkSettings']['Networks']['supabase_network_' + project.group(1)]
     address = ipaddress.ip_address(network['IPAddress'])
     ranges = [ipaddress.ip_network(value) for value in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16')]
     if address.version != 4 or not any(address in block for block in ranges):
-        raise ValueError('Only the project Docker bridge is allowed')
-    return str(address)
+        raise VerificationError('Only the project Docker bridge is allowed')
+    return str(address), info['Config']['Image']
 
 
 def main():
     # Linux CI can reach its local Docker bridge directly. No hosted URL, key,
     # arbitrary CLI destination, or credential file is accepted by this check.
     if len(sys.argv) != 1:
-        raise ValueError('No external destination arguments are accepted')
-    result = probe(local_target())
-    print(json.dumps({'image': FIXED_IMAGE, **result}))
+        raise VerificationError('No external destination arguments are accepted')
+    host, image = local_target()
+    result = probe(host)
+    print(json.dumps({'image': image, **result}))
     if not result['ok']:
         raise SystemExit('Local PostgREST HEAD connection contract failed')
 
@@ -101,5 +114,7 @@ def main():
 if __name__ == '__main__':
     try:
         main()
+    except VerificationError as error:
+        raise SystemExit(str(error))
     except (KeyError, OSError, ValueError, subprocess.CalledProcessError):
         raise SystemExit('Local PostgREST HEAD verification could not run')
