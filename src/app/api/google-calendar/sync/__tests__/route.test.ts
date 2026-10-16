@@ -296,7 +296,7 @@ test('POST: トークン期限切れ → リフレッシュして同期成功', 
     if (callNum === 3) {
       // token update after refresh
       return {
-        update: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }),
+        update: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ count: 1, error: null })) }),
       };
     }
     if (callNum === 4) return singleChain(null); // no existing calendar event
@@ -434,8 +434,8 @@ test('POST: トークンリフレッシュ失敗（fetch ok=false）→ 500', as
   expect(res.status).toBe(500);
 });
 
-// Branch coverage: line 75 — トークン更新後DB保存エラー（ログ出力のみで続行）
-test('POST: トークンリフレッシュ後のDB保存失敗でも同期は続行 → 200', async () => {
+// Refreshed credentials must be confirmed before writing calendar events.
+test('POST: トークンリフレッシュ後のDB保存失敗は外部イベント変更前に500', async () => {
   const expiredToken = { ...TOKEN_ROW, expires_at: new Date(Date.now() - 1000).toISOString() };
 
   let callNum = 0;
@@ -460,8 +460,10 @@ test('POST: トークンリフレッシュ後のDB保存失敗でも同期は続
     .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ id: 'new-event-id' }) });
 
   const res = await POST(makePostReq({ bookingId: BOOKING_UUID }));
-  // tokenUpdateErr があってもログのみで処理続行する
-  expect(res.status).toBe(200);
+  // Only token exchange ran; no event mutation or mapping persistence follows.
+  expect(res.status).toBe(500);
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+  expect(mockFrom).toHaveBeenCalledTimes(3);
 });
 
 // Branch coverage: line 92 (×2) — facility_profiles が null の場合の分岐
@@ -579,4 +581,47 @@ test.each([{data:[],error:null},{data:[{id:'another-id'}],error:null},{data:null
 });
 test('DELETE inconsistent auth with user is503 and never touches provider/mapping',async()=>{
  mockGetUser.mockResolvedValue({data:{user:{id:USER_ID}},error:{code:'unknown'}});expect((await DELETE(makeDeleteRequest(BOOKING_UUID))).status).toBe(503);expect(mockFrom).not.toHaveBeenCalled();
+});
+
+
+describe.each(['bookings', 'google_calendar_tokens', 'booking_calendar_events'])('POST read boundary: %s', (stage) => {
+  test.each(['empty-error', 'data-error', 'throw'])('%s stops before external event writes', async (kind) => {
+    const failure = { code: '08006', message: 'private access_token=synthetic-secret', details: 'private SQL data' };
+    mockFrom.mockImplementation((table) => {
+      if (table !== stage) return singleChain(table === 'bookings' ? BOOKING_DATA : TOKEN_ROW);
+      const data = kind === 'data-error' ? (table === 'bookings' ? BOOKING_DATA : table === 'google_calendar_tokens' ? TOKEN_ROW : { google_event_id: GOOGLE_EVENT_ID }) : null;
+      const chain = singleChain(data, failure);
+      if (kind === 'throw') {
+        chain.single.mockRejectedValue(failure);
+        chain.maybeSingle.mockRejectedValue(failure);
+      }
+      return chain;
+    });
+    const res = await POST(makePostReq({ bookingId: BOOKING_UUID }));
+    expect(res.status).toBe(500);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(mockFetch).not.toHaveBeenCalled();
+    const diagnostics = require('@/lib/safe').safeCaptureException.mock.calls;
+    expect(diagnostics).toHaveLength(1);
+    expect(JSON.stringify(diagnostics)).not.toContain('synthetic-secret');
+    expect(JSON.stringify(diagnostics)).not.toContain('private SQL');
+    expect((await res.json()).ok).not.toBe(true);
+  });
+});
+
+test.each([0, null, undefined, 2])('POST refreshed credential update count %s stops before creating event', async (count) => {
+  mockFrom.mockImplementation((table) => {
+    if (table === 'bookings') return singleChain(BOOKING_DATA);
+    if (table === 'google_calendar_tokens') return {
+      ...singleChain({ ...TOKEN_ROW, expires_at: '2000-01-01T00:00:00Z' }),
+      update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ count, error: null }) }),
+    };
+    return singleChain(null);
+  });
+  mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ access_token: 'new-access', expires_in: 3600 }) });
+  const res = await POST(makePostReq({ bookingId: BOOKING_UUID }));
+  expect(res.status).toBe(500);
+  expect(res.headers.get('Cache-Control')).toBe('no-store');
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+  expect(mockFrom.mock.calls.every(([table]) => table !== 'booking_calendar_events')).toBe(true);
 });

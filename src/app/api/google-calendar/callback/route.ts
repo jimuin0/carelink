@@ -151,8 +151,15 @@ export async function GET(req: NextRequest) {
   } else if (existingToken?.refresh_token) {
     // Update without the refresh_token column so even a concurrent callback cannot
     // replace the durable refresh credential with null.
-    const result = await admin.from('google_calendar_tokens').update(tokenFields).eq('user_id', userId);
+    const result = await admin.from('google_calendar_tokens')
+      .update(tokenFields, { count: 'exact' })
+      .eq('user_id', userId);
     tokenSaveError = result.error;
+    // Disconnect can remove this row after the read. A successful HTTP response
+    // alone does not prove that a renewable connection was actually saved.
+    if (!tokenSaveError && result.count !== 1) {
+      return callbackFailure(req, 'gcal-callback-token-save', new Error('GOOGLE_CALENDAR_TOKEN_SAVE_UNCONFIRMED'));
+    }
   } else {
     // A first-time connection without a refresh token cannot keep syncing after the
     // access token expires. Do not persist a misleading, non-renewable connection.

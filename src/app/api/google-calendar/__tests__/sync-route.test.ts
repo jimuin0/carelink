@@ -47,7 +47,7 @@ beforeEach(() => {
       menus: { name: 'Eyelash' }
     }
   });
-  const mockEq2 = jest.fn().mockReturnValue({ single: mockSingle });
+  const mockEq2 = jest.fn().mockReturnValue({ maybeSingle: mockSingle });
   const mockEq1 = jest.fn().mockReturnValue({ eq: mockEq2 });
   const mockSelect = jest.fn().mockReturnValue({ eq: mockEq1 });
 
@@ -58,7 +58,7 @@ beforeEach(() => {
       refresh_token: 'refresh-123'
     }
   });
-  const mockTokenEq = jest.fn().mockReturnValue({ single: mockTokenSingle });
+  const mockTokenEq = jest.fn().mockReturnValue({ maybeSingle: mockTokenSingle });
   const mockTokenSelect = jest.fn().mockReturnValue({ eq: mockTokenEq });
 
   const { createServiceRoleClient } = require('@/lib/supabase-server');
