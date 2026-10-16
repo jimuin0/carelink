@@ -11,6 +11,8 @@
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn(), getRequestContext: jest.fn(() => ({ ip: null, ua: null })) }));
+jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
 
 const CATALOG_UUID = '11111111-1111-1111-1111-111111111111';
@@ -49,7 +51,7 @@ function singleChain(data: unknown, error: unknown = null) {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
     in: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data, error })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
   };
 }
 
@@ -62,6 +64,41 @@ function setupOwnership() {
   });
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
 }
+
+test.each(['PATCH', 'DELETE'])('%s stops uncertain auth and catalog authorization before mutation', async method => {
+  const faultCases = ['auth-data-error', 'auth-null-error', 'auth-throw', 'auth-timeout',
+    'catalog-data-error', 'catalog-null-error', 'member-data-error', 'member-null-error', 'catalog-throw', 'member-throw'];
+  for (const fault of faultCases) {
+    jest.clearAllMocks();
+    mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } }, error: null });
+    setupOwnership();
+    const unavailable = { code: '08006', message: 'private provider details' };
+    if (fault === 'auth-data-error') mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } }, error: unavailable });
+    if (fault === 'auth-null-error') mockGetUser.mockResolvedValue({ data: { user: null }, error: unavailable });
+    if (fault === 'auth-throw') mockGetUser.mockRejectedValue(new Error('private provider details'));
+    if (fault.startsWith('catalog-') && fault !== 'catalog-throw') {
+      mockAdminFrom.mockReturnValue(singleChain(fault === 'catalog-data-error' ? { facility_id: FACILITY_UUID } : null, unavailable));
+    }
+    if (fault.startsWith('member-')) mockAnonFrom.mockReturnValue(singleChain(fault === 'member-data-error' ? { facility_id: FACILITY_UUID } : null, unavailable));
+    if (fault === 'member-throw') mockAnonFrom.mockImplementation(() => { throw new Error('private provider details'); });
+    if (fault === 'catalog-throw') mockAdminFrom.mockImplementation(() => { throw new Error('private provider details'); });
+    if (fault === 'auth-timeout') {
+      jest.useFakeTimers();
+      mockGetUser.mockImplementation(() => new Promise(() => {}));
+    }
+    try {
+      const pending = method === 'PATCH' ? PATCH(makeRequest(method, { name: 'synthetic' }), makeProps()) : DELETE(makeRequest(method), makeProps());
+      if (fault === 'auth-timeout') await jest.advanceTimersByTimeAsync(5000);
+      const res = await pending;
+      expect(res.status).toBe(503);
+      expect(res.headers.get('Cache-Control')).toBe('no-store');
+      expect((await res.json()).code).toBe('AUTH_UNAVAILABLE');
+      expect(mockAdminFrom).toHaveBeenCalledTimes(fault.startsWith('auth-') ? 0 : 1);
+      expect(require('@/lib/audit-logger').writeAuditLog).not.toHaveBeenCalled();
+      expect(require('@/lib/safe').safeCaptureException).toHaveBeenCalledWith(expect.objectContaining({ message: 'AUTH_UNAVAILABLE' }), expect.any(String));
+    } finally { if (fault === 'auth-timeout') jest.useRealTimers(); }
+  }
+});
 
 function buildUpdateOrDeleteChain(error: unknown = null) {
   return {

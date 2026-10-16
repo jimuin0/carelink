@@ -7,7 +7,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { serverError } from '@/lib/with-route';
+import { authUnavailable, serverError } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 const updateSchema = z.object({
   name: z.string().min(1).max(200).optional(), // title として保存
@@ -15,21 +16,28 @@ const updateSchema = z.object({
   tags: z.array(z.string().max(50)).max(20).optional().nullable(),
 });
 
-async function verifyCatalogAdmin(catalogId: string, userId: string): Promise<string | null> {
-  const admin = createServiceRoleClient();
-  const { data: catalog } = await admin.from('treatment_catalogs').select('facility_id').eq('id', catalogId).single();
-  if (!catalog) return null;
+async function verifyCatalogAdmin(catalogId: string, userId: string): Promise<string | null | NextResponse> {
+  const unavailable = () => authUnavailable('admin-catalog-access', '/api/admin/catalog/[id]');
+  try {
+    const admin = createServiceRoleClient();
+    const { data: catalog, error: catalogError } = await admin.from('treatment_catalogs').select('facility_id').eq('id', catalogId).maybeSingle();
+    if (catalogError) return unavailable();
+    if (!catalog) return null;
 
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: mem } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', userId)
-    .eq('facility_id', catalog.facility_id)
-    .in('role', ['owner', 'admin'])
-    .single();
+    const supabase = await createServerSupabaseAuthClient();
+    const { data: mem, error: membershipError } = await supabase
+      .from('facility_members')
+      .select('facility_id')
+      .eq('user_id', userId)
+      .eq('facility_id', catalog.facility_id)
+      .in('role', ['owner', 'admin'])
+      .maybeSingle();
+    if (membershipError) return unavailable();
 
-  return mem ? catalog.facility_id : null;
+    return mem ? catalog.facility_id : null;
+  } catch {
+    return unavailable();
+  }
 }
 
 export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -43,10 +51,13 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
 
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return authUnavailable('admin-catalog-patch-auth', '/api/admin/catalog/[id]');
+  if (identity.state === 'unauthenticated') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = identity.user;
 
   const facilityId = await verifyCatalogAdmin(params.id, user.id);
+  if (facilityId instanceof NextResponse) return facilityId;
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
@@ -89,10 +100,13 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
 
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return authUnavailable('admin-catalog-delete-auth', '/api/admin/catalog/[id]');
+  if (identity.state === 'unauthenticated') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = identity.user;
 
   const facilityId = await verifyCatalogAdmin(params.id, user.id);
+  if (facilityId instanceof NextResponse) return facilityId;
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();

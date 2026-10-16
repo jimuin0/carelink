@@ -34,15 +34,20 @@ const RECOVERY_DIAGNOSTIC_CODES = new Set([
   '08006', '40001', '40P01', '42501', '53300', '55P03', '57014', '57P01',
   'PGRST000', 'PGRST001', 'PGRST002', 'PGRST003', 'PGRST116', 'PGRST202', 'PGRST301',
 ]);
+// Fixed categories distinguish transport (0) from HTTP failures without logging
+// provider messages, request identifiers, headers, or arbitrary status values.
+const RECOVERY_HTTP_STATUSES = new Set([0, 400, 401, 403, 404, 408, 409, 429, 500, 502, 503, 504]);
 
 /** These service-only RPCs authorize the current confirmed Auth row again under
  * lock. No caller email/user selector, aliases, direct Auth grants or auto-claim. */
 export async function listSalonRecovery(db: Db, userId: string, after?: string) {
-  const { data, error } = await db.rpc('list_recoverable_salon_receipts', { p_user_id: userId, ...(after ? { p_after_id: after } : {}) });
+  const response = await db.rpc('list_recoverable_salon_receipts', { p_user_id: userId, ...(after ? { p_after_id: after } : {}) });
+  const { data, error } = response;
   if (error?.code === '42501' && error.message === 'REGISTRATION_ACCOUNT_UNVERIFIED') return { state: 'unverified' as const };
   if (error) {
     const code = RECOVERY_DIAGNOSTIC_CODES.has(error.code) ? error.code : 'unclassified';
-    throw new Error(`Registration recovery list unavailable [${code}]`);
+    const status = RECOVERY_HTTP_STATUSES.has(response.status) ? response.status : 'other';
+    throw new Error(`Registration recovery list unavailable [${code}] [http:${status}]`);
   }
   const parsed = z.array(receipt).max(51).safeParse(data);
   if (!parsed.success) throw new Error('Invalid registration recovery list');
