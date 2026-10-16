@@ -1,24 +1,31 @@
+import { readPageResult } from '@/lib/page-read-verification';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { getCatalogsByFacility } from '@/lib/catalogs';
+import type { TreatmentCatalog } from '@/types';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { SbPageHeader } from '@/components/admin/SbUi';
 
 export default async function AdminCatalogPage() {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) notFound();
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return <AccessVerificationUnavailable />;
+  if (identity.state !== 'verified') notFound();
+  const user = identity.user;
 
-  const { data: membership } = await supabase
+  const { data: membership } = await readPageResult(() => supabase
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
       .in('role', ['owner', 'admin'])
     .limit(1)
-    .single();
+    .maybeSingle(), '/admin/catalog');
   if (!membership) notFound();
 
-  const catalogs = await getCatalogsByFacility(membership.facility_id);
+  const { data: catalogRows } = await readPageResult(() => supabase.from('treatment_catalogs')
+    .select('*').eq('facility_id', membership.facility_id).order('created_at', { ascending: false }), '/admin/catalog');
+  const catalogs = (catalogRows ?? []) as TreatmentCatalog[];
 
   return (
     <div>

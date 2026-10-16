@@ -1,3 +1,6 @@
+import { readPageResult } from '@/lib/page-read-verification';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { getCustomerVisits } from '@/lib/admin';
@@ -18,32 +21,32 @@ export default async function CustomerDetailPage(props: Props) {
   if (!UUID_REGEX.test(id)) notFound();
 
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) notFound();
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return <AccessVerificationUnavailable />;
+  if (identity.state !== 'verified') notFound();
+  const user = identity.user;
 
   // 【監査M3】owner/admin である【全施設】を対象にする。旧実装は role フィルタ無し・
   // arbitrary limit(1) で先頭の1施設だけを選び、その施設スコープで顧客を引いていたため、
   // 複数施設に所属するオーナーが「先頭以外の施設」の顧客詳細を開くと該当施設が一致せず
   // 誤って 404 になっていた（詳細ページのみ role フィルタが無く単一施設に固定される非対称）。
   // owner/admin 限定で所属施設をすべて集め、そのいずれかに属する顧客を引く（テナント分離は維持）。
-  // 注：一覧ページ(page.tsx)は現状 .in('role',...).limit(1).single() で単一施設のみを表示する既存
-  // 制約が残る（複数施設の全顧客一覧は未対応）。詳細への導線は一覧の各行からのみのため facility は
-  // 常に一致し 404 は解消する。全施設一覧化は別タスク（監査M3 low #12）。
-  const { data: memberships } = await supabase
+  // 一覧ページと同じ全owner/admin施設の範囲で照会し、施設をまたいだ顧客情報の混在を防ぐ。
+  const { data: memberships } = await readPageResult(() => supabase
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
-    .in('role', ['owner', 'admin']);
+    .in('role', ['owner', 'admin']), '/admin/customers/[id]');
   if (!memberships || memberships.length === 0) notFound();
   const facilityIds = memberships.map((m) => m.facility_id);
 
   // 施設スコープで顧客マスターを取得（自分が owner/admin の施設の顧客のみ・他施設は見せない）。
-  const { data: customer } = await supabase
+  const { data: customer } = await readPageResult(() => supabase
     .from('customers')
     .select('name, email, facility_id')
     .eq('id', id)
     .in('facility_id', facilityIds)
-    .single();
+    .maybeSingle(), '/admin/customers/[id]');
   if (!customer) notFound();
 
   // 来店履歴は email キー。email 未登録の顧客で getCustomerVisits を空 email で呼ぶと施設の全来店が

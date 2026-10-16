@@ -1,3 +1,6 @@
+import { readPageResult } from '@/lib/page-read-verification';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
@@ -12,34 +15,36 @@ export const metadata: Metadata = {
 
 export default async function CouponNotebookPage() {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) notFound();
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return <AccessVerificationUnavailable title="マイページのログイン状態を確認できません" />;
+  if (identity.state !== 'verified') notFound();
+  const user = identity.user;
 
   // Get favorite facility IDs
-  const { data: favorites } = await supabase
+  const { data: favorites } = await readPageResult(() => supabase
     .from('favorites')
     .select('facility_id')
-    .eq('user_id', user.id);
+    .eq('user_id', user.id), '/mypage/coupons');
 
   const facilityIds = (favorites || []).map((f) => f.facility_id);
 
   let coupons: { id: string; name: string; discount_type: string; discount_value: number | null; special_price: number | null; valid_until: string | null; facility_name: string; facility_slug: string }[] = [];
 
   if (facilityIds.length > 0) {
-    const { data } = await supabase
+    const { data } = await readPageResult(() => supabase
       .from('coupons')
       .select('id, name, discount_type, discount_value, special_price, valid_until, facility_id')
       .in('facility_id', facilityIds)
       .eq('is_active', true)
       .order('created_at', { ascending: false })
-      .limit(50);
+      .limit(50), '/mypage/coupons');
 
     if (data && data.length > 0) {
       // Get facility names
-      const { data: profiles } = await supabase
+      const { data: profiles } = await readPageResult(() => supabase
         .from('facility_profiles')
         .select('id, name, slug')
-        .in('id', facilityIds);
+        .in('id', facilityIds), '/mypage/coupons');
       const profileMap = Object.fromEntries((profiles || []).map((p) => [p.id, p]));
 
       coupons = data.map((c) => ({

@@ -1,3 +1,7 @@
+import { readPageResult } from '@/lib/page-read-verification';
+import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { NextResponse } from 'next/server';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -16,23 +20,16 @@ interface PlatformPost {
 }
 
 export default async function PlatformBlogPage() {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await requirePlatformAdmin();
+  if (user instanceof NextResponse) return <AccessVerificationUnavailable />;
   if (!user) notFound();
+  const supabase = await createServerSupabaseAuthClient();
 
-  // プラットフォームブログはプラットフォーム管理者専用
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_platform_admin')
-    .eq('id', user.id)
-    .single();
-  if (!profile?.is_platform_admin) notFound();
-
-  const { data } = await supabase
+  const { data } = await readPageResult(() => supabase
     .from('platform_blog_posts')
     .select('id, slug, title, category, is_published, published_at, updated_at')
     .order('updated_at', { ascending: false })
-    .limit(200);
+    .limit(200), '/admin/platform-blog');
 
   const posts = (data ?? []) as PlatformPost[];
 
