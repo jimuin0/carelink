@@ -89,7 +89,7 @@ function setupDefaultMocks(
   const { createServerSupabaseAuthClient } = require('@/lib/supabase-server-auth');
   createServerSupabaseAuthClient.mockResolvedValue({ auth: { getUser: mockAuthGetUser } });
   mockMaybeSingle = jest.fn().mockResolvedValue({ data: null, error: null });
-  mockUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) });
+  mockUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ count: 1, error: null }) });
 
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
@@ -658,9 +658,27 @@ describe('GET /api/google-calendar/callback', () => {
     const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
 
     expect(res.headers.get('location')).toContain('gcal=success');
-    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ access_token: 'new-access' }));
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ access_token: 'new-access' }), { count: 'exact' });
     expect(mockUpdate.mock.calls[0][0]).not.toHaveProperty('refresh_token');
     expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  test.each([0, null, undefined, 2, -1])('更新件数%sは接続保存の成功と認めない', async (count) => {
+    mockMaybeSingle.mockResolvedValue({ data: { refresh_token: 'existing-refresh' }, error: null });
+    const eq = jest.fn().mockResolvedValue({ count, error: null });
+    mockUpdate.mockReturnValue({ eq });
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({ access_token: 'new-access', expires_in: 3600 }), { status: 200 }));
+
+    const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
+
+    expect(res.headers.get('location')).toBe('http://localhost/mypage/settings?gcal=error');
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(eq).toHaveBeenCalledWith('user_id', '550e8400-e29b-41d4-a716-446655440000');
+    expect(require('@/lib/safe').safeCaptureException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'GOOGLE_CALENDAR_TOKEN_SAVE_UNCONFIRMED' }), 'gcal-callback-token-save',
+    );
   });
 
   test('refresh token付き応答でscope省略 → scopeをnullに正規化して保存', async () => {
@@ -697,5 +715,33 @@ describe('GET /api/google-calendar/callback', () => {
 
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toContain('gcal=error');
+  });
+});
+
+describe('callback save confirmation using the real Supabase HTTP decoder', () => {
+  test.each([0, 1, null])('PostgREST affected-row count %s', async (count) => {
+    const { createClient } = jest.requireActual('@supabase/supabase-js');
+    const databaseFetch = jest.fn(async (_url: unknown, options: RequestInit) => {
+      if (options.method === 'PATCH') {
+        return new Response(null, { status: 204, headers: count === null ? {} : { 'Content-Range': `*/${count}` } });
+      }
+      return new Response(JSON.stringify([{ refresh_token: 'existing-refresh' }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    const client = createClient('http://127.0.0.1:1', 'synthetic-service-key', {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      global: { fetch: databaseFetch },
+    });
+    require('@/lib/supabase-server').createServiceRoleClient.mockReturnValue(client);
+    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({ access_token: 'new-access', expires_in: 3600 }), { status: 200 }));
+
+    const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
+
+    expect(res.headers.get('location')).toContain(count === 1 ? 'gcal=success' : 'gcal=error');
+    expect(databaseFetch).toHaveBeenCalledTimes(2);
+    const [url, options] = databaseFetch.mock.calls[1];
+    expect(new URL(String(url)).searchParams.get('user_id')).toBe('eq.550e8400-e29b-41d4-a716-446655440000');
+    expect(options.method).toBe('PATCH');
+    expect(new Headers(options.headers).get('Prefer')).toContain('count=exact');
+    expect(JSON.parse(String(options.body))).not.toHaveProperty('refresh_token');
   });
 });
