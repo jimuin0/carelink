@@ -45,7 +45,7 @@ function singleChain(data: unknown, error: unknown = null) {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
     in: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data, error })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
   };
 }
 
@@ -105,7 +105,7 @@ test('無効化DB失敗 → 500 (サイレント成功を防ぐ)', async () => {
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
       in: jest.fn().mockReturnThis(),
-      single: jest.fn(() => {
+      maybeSingle: jest.fn(() => {
         calls.push(1);
         if (calls.length === 1) return Promise.resolve({ data: { facility_id: FACILITY_UUID }, error: null });
         return Promise.resolve({ data: null, error: null });
@@ -132,7 +132,7 @@ test('無効化0行 (key/membership確認後にTOCTOU削除) → 404', async () 
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
       in: jest.fn().mockReturnThis(),
-      single: jest.fn(() => {
+      maybeSingle: jest.fn(() => {
         calls.push(1);
         if (calls.length === 1) return Promise.resolve({ data: { facility_id: FACILITY_UUID }, error: null });
         return Promise.resolve({ data: null, error: null });

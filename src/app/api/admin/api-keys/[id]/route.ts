@@ -13,6 +13,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { authUnavailable, serverError } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 
 export async function DELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -31,14 +32,24 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   const admin = createServiceRoleClient();
 
-  const { data: key } = await admin.from('api_keys').select('facility_id').eq('id', params.id).single();
+  const { data: key, error: keyError } = await admin.from('api_keys').select('facility_id').eq('id', params.id).maybeSingle();
+  if (keyError) {
+    const response = serverError('admin-api-keys-delete-read', databaseDiagnostic(keyError), '/api/admin/api-keys/[id]');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
   // Verify ownership first, then check existence — both return 404 to prevent ID enumeration
-  const { data: mem } = key
+  const { data: mem, error: membershipError } = key
     ? await supabase
         .from('facility_members').select('role')
         .eq('user_id', user.id).eq('facility_id', key.facility_id)
-        .in('role', ['owner', 'admin']).single()
-    : { data: null };
+        .in('role', ['owner', 'admin']).maybeSingle()
+    : { data: null, error: null };
+  if (membershipError) {
+    const response = serverError('admin-api-keys-delete-membership', databaseDiagnostic(membershipError), '/api/admin/api-keys/[id]');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
   if (!key || !mem) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   // 更新件数(affected rows)を検証せず常に success:true を返していたため、TOCTOU（key/membership確認後に
