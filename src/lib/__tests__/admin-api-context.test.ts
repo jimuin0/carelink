@@ -8,6 +8,8 @@ import { PATCH as menuEdit, DELETE as menuDelete } from '@/app/api/admin/menus/[
 import { PUT as scheduleReplace, POST as scheduleOverride, DELETE as scheduleDelete } from '@/app/api/admin/staff/[id]/schedule/route';
 import { POST as customerCreate } from '@/app/api/admin/customers/route';
 import { PATCH as customerEdit, DELETE as customerDelete } from '@/app/api/admin/customers/[id]/route';
+import { POST as blogCreate } from '@/app/api/admin/blog/route';
+import { PATCH as blogEdit, DELETE as blogDelete } from '@/app/api/admin/blog/[id]/route';
 
 const mockGetUser = jest.fn();
 const mockMembership = jest.fn();
@@ -104,6 +106,8 @@ const routes = [
   ['schedule DELETE', 'DELETE', scheduleDelete, true],
   ['customers POST', 'POST', customerCreate, false],
   ['customers PATCH', 'PATCH', customerEdit, false], ['customers DELETE', 'DELETE', customerDelete, false],
+  ['blog POST', 'POST', blogCreate, false], ['blog PATCH', 'PATCH', blogEdit, false],
+  ['blog DELETE', 'DELETE', blogDelete, false],
 ] as const;
 test.each(routes)('%s rejects ambiguous identity and membership before service access', async (_name, method, handler) => {
   for (const failure of ['auth-with-data', 'auth-throw', 'member-with-data', 'member-throw']) {
