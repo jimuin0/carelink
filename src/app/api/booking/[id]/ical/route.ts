@@ -4,13 +4,14 @@
  * Googleカレンダー・Appleカレンダー等にインポート可能
  */
 
+import { verifyAuthUser } from '@/lib/auth-verification';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
 
 function escapeIcal(str: string): string {
   return str
@@ -44,7 +45,9 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
 
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('booking-ical', '/api/booking/[id]/ical');
+  const user = verification.state === 'verified' ? verification.user : null;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();

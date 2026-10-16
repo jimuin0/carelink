@@ -1,3 +1,4 @@
+import { verifyAuthUser } from '@/lib/auth-verification';
 import { NextResponse } from 'next/server';
 import { mutationRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -5,7 +6,7 @@ import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { withRoute, serverError } from '@/lib/with-route';
+import { withRoute, serverError, authUnavailable } from '@/lib/with-route';
 import { applyCompletionSideEffects } from '@/lib/booking-completion';
 
 export const dynamic = 'force-dynamic';
@@ -22,12 +23,14 @@ export const POST = withRoute(async (request) => {
 
     // Auth check（セッション検証には authClient を使用）
     const authClient = await createServerSupabaseAuthClient();
-    const { data: { user } } = await authClient.auth.getUser();
-    // DB 操作には serviceRole を使用（RLS バイパス）
-    const supabase = createServiceRoleClient();
+    const verification = await verifyAuthUser(authClient.auth);
+    if (verification.state === 'unavailable') return authUnavailable('booking-complete', '/api/booking/complete');
+    const user = verification.state === 'verified' ? verification.user : null;
     if (!user) {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     }
+    // DB access starts only after authoritative authentication.
+    const supabase = createServiceRoleClient();
 
     // Fetch booking first to know which facility to authorize against
     const { data: booking } = await supabase

@@ -372,3 +372,23 @@ describe('POST /api/push/subscribe', () => {
     expect(call[1]).toBe('unknown');
   });
 });
+
+
+describe('uncertain authentication cannot grant service-role access', () => {
+  test.each(['data-and-error', 'missing-user-and-error', 'throw', 'timeout'])('%s returns sanitized 503 before DB work', async fault => {
+    if (fault === 'timeout') jest.useFakeTimers();
+    if (fault === 'data-and-error') mockGetUser.mockResolvedValue({ data: { user: { id: 'synthetic-actor' } }, error: { message: 'private-auth-diagnostic' } });
+    if (fault === 'missing-user-and-error') mockGetUser.mockResolvedValue({ data: { user: null }, error: { message: 'private-auth-diagnostic' } });
+    if (fault === 'throw') mockGetUser.mockRejectedValue(new Error('private-auth-diagnostic'));
+    if (fault === 'timeout') mockGetUser.mockImplementation(() => new Promise(() => {}));
+    try {
+      const pending = POST(makeRequest({ endpoint: 'https://fcm.googleapis.com/fcm/send/synthetic', keys: { p256dh: 'abc', auth: 'def' } }) as any);
+      if (fault === 'timeout') await jest.advanceTimersByTimeAsync(5000);
+      const response = await pending;
+      expect(response.status).toBe(503);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(await response.json()).toMatchObject({ code: 'AUTH_UNAVAILABLE' });
+      expect(jest.requireMock('@/lib/supabase-server').createServiceRoleClient).not.toHaveBeenCalled();
+    } finally { jest.useRealTimers(); }
+  });
+});

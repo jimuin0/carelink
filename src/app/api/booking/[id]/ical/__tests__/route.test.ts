@@ -465,3 +465,23 @@ describe('GET /api/booking/[id]/ical', () => {
     expect(res.status).toBe(500);
   });
 });
+
+
+describe('uncertain authentication cannot grant service-role access', () => {
+  test.each(['data-and-error', 'missing-user-and-error', 'throw', 'timeout'])('%s returns sanitized 503 before DB work', async fault => {
+    if (fault === 'timeout') jest.useFakeTimers();
+    if (fault === 'data-and-error') mockGetUser.mockResolvedValue({ data: { user: { id: 'synthetic-actor' } }, error: { message: 'private-auth-diagnostic' } });
+    if (fault === 'missing-user-and-error') mockGetUser.mockResolvedValue({ data: { user: null }, error: { message: 'private-auth-diagnostic' } });
+    if (fault === 'throw') mockGetUser.mockRejectedValue(new Error('private-auth-diagnostic'));
+    if (fault === 'timeout') mockGetUser.mockImplementation(() => new Promise(() => {}));
+    try {
+      const pending = GET(makeRequest() as any, { params: Promise.resolve({ id: BOOKING_UUID }) });
+      if (fault === 'timeout') await jest.advanceTimersByTimeAsync(5000);
+      const response = await pending;
+      expect(response.status).toBe(503);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(await response.json()).toMatchObject({ code: 'AUTH_UNAVAILABLE' });
+      expect(jest.requireMock('@/lib/supabase-server').createServiceRoleClient).not.toHaveBeenCalled();
+    } finally { jest.useRealTimers(); }
+  });
+});
