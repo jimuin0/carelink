@@ -60,8 +60,9 @@ async function harness() {
   const flush = async () => { for (let i = 0; i < 10; i += 1) await Promise.resolve(); };
   await flush();
   const finish = async (code = 0) => {
-    children[0].emit('exit', code); await flush();
-    if (children[1]) { children[1].emit('exit', code); await flush(); }
+    for (let index = 0; index < children.length; index += 1) {
+      children[index].emit('exit', code); await flush();
+    }
   };
   return { server, children, spawn, upstreams, httpRequest, handler, fs, process, error, flush, finish };
 }
@@ -72,7 +73,7 @@ test('one trusted HTTPS origin is used for build and E2E; only public certificat
   expect(h.server.listen).toHaveBeenCalledWith(54330, 'localhost', expect.any(Function));
   expect(h.fs.writeFileSync).toHaveBeenCalledWith('/tmp/fixture-public-ca/certificate.pem', 'PUBLIC_FIXTURE', expect.anything());
   await h.finish();
-  expect(h.spawn.mock.calls.map(call => call[1])).toEqual([['run', 'build'], ['run', 'test:e2e']]);
+  expect(h.spawn.mock.calls.map(call => call[1])).toEqual([['run', 'test:e2e', '--', '--list'], ['run', 'build'], ['run', 'test:e2e']]);
   for (const call of h.spawn.mock.calls) {
     expect(call[2]).toMatchObject({ detached: true, env: {
       NEXT_PUBLIC_SUPABASE_URL: 'https://localhost:54330', NODE_EXTRA_CA_CERTS: '/tmp/fixture-public-ca/certificate.pem',
@@ -108,7 +109,7 @@ test.each(['https://attacker.invalid', '//attacker.invalid'])('refuses a non-ori
   expect(h.httpRequest).not.toHaveBeenCalled(); await h.finish();
 });
 
-test('upstream errors are 502 without raw details, build failure prevents E2E and cleans resources', async () => {
+test('upstream errors are 502 without raw details; collection failure prevents build/E2E and cleans resources', async () => {
   const h = await harness(); const res = stream();
   h.handler(Object.assign(stream(), { url: '/rest/v1/', headers: {}, method: 'GET' }), res);
   h.upstreams[0].emit('error', new Error('PRIVATE_FIXTURE'));
@@ -116,7 +117,7 @@ test('upstream errors are 502 without raw details, build failure prevents E2E an
   await h.finish(1);
   expect(h.spawn).toHaveBeenCalledTimes(1);
   expect(h.fs.unlinkSync).toHaveBeenCalled();
-  expect(h.error).toHaveBeenCalledWith('Isolated TLS dependency lifecycle failed at production-build.');
+  expect(h.error).toHaveBeenCalledWith('Isolated TLS dependency lifecycle failed at playwright-collection.');
 });
 
 test('WebSocket errors before handshake and invalid upgrades are contained', async () => {
@@ -139,5 +140,17 @@ test('upgraded peers, initial frame bytes and process groups are handled through
   await h.finish();
   expect(socket.destroyed).toBe(true); expect(peer.destroyed).toBe(true);
   expect(h.process.kill).toHaveBeenCalledWith(-10000, 'SIGTERM');
+  expect(h.server.closeAllConnections).toHaveBeenCalled();
+});
+
+test('production build failure after successful collection still prevents tests and cleans resources', async () => {
+  const h = await harness();
+  h.children[0].emit('exit', 0); await h.flush();
+  expect(h.spawn).toHaveBeenCalledTimes(2);
+  expect(h.spawn.mock.calls[1][1]).toEqual(['run', 'build']);
+  h.children[1].emit('exit', 1); await h.flush();
+  expect(h.spawn).toHaveBeenCalledTimes(2);
+  expect(h.error).toHaveBeenCalledWith('Isolated TLS dependency lifecycle failed at production-build.');
+  expect(h.fs.unlinkSync).toHaveBeenCalled();
   expect(h.server.closeAllConnections).toHaveBeenCalled();
 });

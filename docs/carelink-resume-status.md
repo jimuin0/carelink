@@ -228,3 +228,8 @@ PR #709初回head CIは復旧一覧のHTTP 502後に受付行待ちが失敗し�
 匿名のAPI性能テストだけは初回失敗のtraceも保持し、通信時間を次の試行の値で代用しない。診断追加後は全537 suites/11,415 tests、分岐10,937/10,937（100%）、型・Lint（既存warning4件）成功。dotenv復元済み。根因未確定の性能事象は記録を維持する。
 
 保存索引CL-AUD-288の期間表示も現行コードで確認した。ファネルは `jstMonthStartIso(-1)` 以降を読むのに「過去30日間」と表示していたため、「先月1日以降」に訂正した。JST境界・集計クエリ・数値は変えない。全文未回収の元指摘全体を閉じたとは扱わない。
+
+
+head a62e43adのCI 38855172083はproduction build後、`trace` がworker単位の設定なのにdescribe内に置いたためテスト定義の読込で停止した。追加設定の誤りであり、healthの1,184msとは別の事象として保持する。health性能テストを専用ファイルへ移し、同じ500ms検査をファイル先頭のtrace指定で実行する。試行回数・待ち時間・テスト数は維持し、隔離環境の実Playwright collectionで364テストを読めることを確認した。CIも本番ビルド前にcollectionを実行し、設定不良でビルド枠を消費することを防ぐ。collection失敗時とbuild失敗時のそれぞれで、後続処理を始めずTLS/子プロセスを清掃することを実行型harnessで検査する。
+
+collection設定修正後も全537 suites/11,416 tests、分岐10,937/10,937（100%）、型・Lint（既存warning4件）が成功。実Playwright collectionは364件、dotenv復元済み。

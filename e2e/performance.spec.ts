@@ -1,4 +1,3 @@
-import { healthPerformanceDiagnostic } from './helpers/health-performance-diagnostic';
 import { test, expect } from '@playwright/test';
 
 /**
@@ -71,21 +70,6 @@ test.describe('ページロード パフォーマンス', () => {
 });
 
 test.describe('API レスポンスタイム', () => {
-  // These anonymous local requests need the first failure's transport timings.
-  test.use({ trace: 'retain-on-failure' });
-  test('/api/health が 500ms 以内に応答する', async ({ request }, testInfo) => {
-    const start = Date.now();
-    const response = await request.get('/api/health');
-    const elapsed = Date.now() - start;
-    if (elapsed >= 500 || response.status() !== 200) {
-      const body: unknown = await response.json().catch(() => null);
-      const diagnostic = healthPerformanceDiagnostic(elapsed, response.status(), body, response.headers()['server-timing'] ?? null);
-      await testInfo.attach('health-performance-diagnostic', { body: JSON.stringify(diagnostic), contentType: 'application/json' });
-    }
-    expect(response.status()).toBe(200);
-    expect(elapsed).toBeLessThan(500);
-  });
-
   test('/api/salons が 2 秒以内に応答する', async ({ request }) => {
     const start = Date.now();
     const response = await request.get('/api/salons');
