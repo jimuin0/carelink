@@ -64,7 +64,7 @@ function setupDefaultMocks(
   const mockEq = jest
     .fn()
     .mockReturnValue({
-      single: mockSingle,
+      maybeSingle: mockSingle,
     });
 
   const mockSelect = jest.fn().mockReturnValue({
@@ -266,7 +266,7 @@ describe('GET /api/booking/[id]/ical', () => {
     const mockEq = jest
       .fn()
       .mockReturnValue({
-        single: mockSingle,
+        maybeSingle: mockSingle,
       });
 
     createServiceRoleClient.mockReturnValue({
@@ -386,7 +386,7 @@ describe('GET /api/booking/[id]/ical', () => {
       },
     });
     createServiceRoleClient.mockReturnValue({
-      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: mockSingle }) }) }),
+      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: mockSingle }) }) }),
     });
     const res = await GET(makeRequest() as any, { params: Promise.resolve({ id: BOOKING_UUID }) } as any);
     expect(res.status).toBe(200);
@@ -410,7 +410,7 @@ describe('GET /api/booking/[id]/ical', () => {
       },
     });
     createServiceRoleClient.mockReturnValue({
-      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: mockSingle }) }) }),
+      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: mockSingle }) }) }),
     });
     const res = await GET(makeRequest() as any, { params: Promise.resolve({ id: BOOKING_UUID }) } as any);
     expect(res.status).toBe(200);
@@ -443,7 +443,7 @@ describe('GET /api/booking/[id]/ical', () => {
       },
     });
     createServiceRoleClient.mockReturnValue({
-      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: mockSingle }) }) }),
+      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: mockSingle }) }) }),
     });
     const res = await GET(makeRequest() as any, { params: Promise.resolve({ id: BOOKING_UUID }) } as any);
     expect(res.status).toBe(200);
@@ -464,4 +464,37 @@ describe('GET /api/booking/[id]/ical', () => {
 
     expect(res.status).toBe(500);
   });
+});
+
+
+describe('uncertain authentication cannot grant service-role access', () => {
+  test.each(['data-and-error', 'missing-user-and-error', 'throw', 'timeout'])('%s returns sanitized 503 before DB work', async fault => {
+    if (fault === 'timeout') jest.useFakeTimers();
+    if (fault === 'data-and-error') mockGetUser.mockResolvedValue({ data: { user: { id: 'synthetic-actor' } }, error: { message: 'private-auth-diagnostic' } });
+    if (fault === 'missing-user-and-error') mockGetUser.mockResolvedValue({ data: { user: null }, error: { message: 'private-auth-diagnostic' } });
+    if (fault === 'throw') mockGetUser.mockRejectedValue(new Error('private-auth-diagnostic'));
+    if (fault === 'timeout') mockGetUser.mockImplementation(() => new Promise(() => {}));
+    try {
+      const pending = GET(makeRequest() as any, { params: Promise.resolve({ id: BOOKING_UUID }) });
+      if (fault === 'timeout') await jest.advanceTimersByTimeAsync(5000);
+      const response = await pending;
+      expect(response.status).toBe(503);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(await response.json()).toMatchObject({ code: 'AUTH_UNAVAILABLE' });
+      expect(jest.requireMock('@/lib/supabase-server').createServiceRoleClient).not.toHaveBeenCalled();
+    } finally { jest.useRealTimers(); }
+  });
+});
+
+
+test.each([true, false])('booking read error with data=%s cannot disclose calendar content', async hasData => {
+  const { createServiceRoleClient } = jest.requireMock('@/lib/supabase-server');
+  const result = { data: hasData ? { id: BOOKING_UUID, user_id: 'user-123' } : null, error: { code: '08006', message: 'private-db-diagnostic' } };
+  createServiceRoleClient.mockReturnValue({ from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), single: async () => result, maybeSingle: async () => result }) });
+  const response = await GET(makeRequest() as any, { params: Promise.resolve({ id: BOOKING_UUID }) });
+  expect(response.status).toBe(500);
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  const text = await response.text();
+  expect(text).not.toContain('private-db-diagnostic');
+  expect(text).not.toContain('BEGIN:VCALENDAR');
 });

@@ -1,10 +1,11 @@
+import { verifyAuthUser } from '@/lib/auth-verification';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
@@ -47,7 +48,9 @@ export async function POST(request: NextRequest) {
       { cookies: { getAll: () => cookieStore.getAll() } }
     );
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const verification = await verifyAuthUser(supabase.auth);
+    if (verification.state === 'unavailable') return authUnavailable('push-subscribe', '/api/push/subscribe');
+    const user = verification.state === 'verified' ? verification.user : null;
 
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

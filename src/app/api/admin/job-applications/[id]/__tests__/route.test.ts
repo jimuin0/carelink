@@ -46,7 +46,7 @@ function existingChain(data: unknown) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data, error: null })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
   };
 }
 
@@ -55,7 +55,7 @@ function membershipChain(data: unknown) {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
     in: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data, error: null })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
   };
 }
 
@@ -381,4 +381,40 @@ test('PATCH: x-forwarded-for ヘッダから IP 取得', async () => {
   });
   const res = await PATCH(req, makeProps());
   expect(res.status).toBe(200);
+});
+
+
+describe('PATCH uncertain auth', () => {
+ test.each(['data-error','null-error','throw','timeout'])('%s does not access application data', async fault => {
+  if (fault === 'timeout') jest.useFakeTimers();
+  if (fault === 'data-error') mockGetUser.mockResolvedValue({data:{user:{id:USER_ID}},error:{message:'private-auth-diagnostic'}});
+  if (fault === 'null-error') mockGetUser.mockResolvedValue({data:{user:null},error:{message:'private-auth-diagnostic'}});
+  if (fault === 'throw') mockGetUser.mockRejectedValue(new Error('private-auth-diagnostic'));
+  if (fault === 'timeout') mockGetUser.mockImplementation(() => new Promise(() => {}));
+  // Public submission still performs its existing duplicate lookup before optional auth.
+
+  try {
+   const pending = PATCH(makeRequest(), makeProps());
+   if (fault === 'timeout') await jest.advanceTimersByTimeAsync(5000);
+   const response = await pending;
+   expect(response.status).toBe(503);
+   expect(response.headers.get('cache-control')).toBe('no-store');
+   expect(await response.json()).toMatchObject({code:'AUTH_UNAVAILABLE'});
+   expect(mockAdminFrom).not.toHaveBeenCalled();
+  } finally { jest.useRealTimers(); }
+ });
+});
+
+
+test.each(['application-data','application-null','membership-data','membership-null'])('PATCH failed %s lookup cannot update the application', async fault => {
+ let reads=0;
+ mockAdminFrom.mockImplementation(()=>{
+  reads++;
+  const failed=reads===(fault.startsWith('application')?1:2);
+  const data=reads===1?{facility_id:FACILITY_UUID,status:'pending'}:{role:'owner'};
+  const result={data:failed&&fault.endsWith('null')?null:data,error:failed?{code:'08006',message:'private-db-diagnostic'}:null};
+  return {select:jest.fn().mockReturnThis(),eq:jest.fn().mockReturnThis(),in:jest.fn().mockReturnThis(),single:async()=>result,maybeSingle:async()=>result};
+ });
+ const response=await PATCH(makeRequest(),makeProps());
+ expect(response.status).toBe(500);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.text()).not.toContain('private-db-diagnostic');expect(reads).toBe(fault.startsWith('application')?1:2);
 });

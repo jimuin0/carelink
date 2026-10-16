@@ -40,7 +40,7 @@ test.each([['BOOKING_PERMISSION_DENIED',403],['BOOKING_REVISION_CONFLICT',409],[
 });
 test.each([null,[],[{id:'wrong',points_earned:50,replayed:false}],[{id,points_earned:null}],[{id,points_earned:-1}],[{id,points_earned:1.5}]])('未確認結果%jは500',async data=>{mockRpc.mockResolvedValue({data,error:null});expect((await POST(request())).status).toBe(500);});
 test('dataとerror同時でも500',async()=>{mockRpc.mockResolvedValue({data:[{id,points_earned:50,replayed:false}],error:{message:'fail'}});expect((await POST(request())).status).toBe(500);});
-test('未処理例外は500',async()=>{mockGetUser.mockRejectedValue(new Error('synthetic'));expect((await POST(request())).status).toBe(500);});
+test('auth exception is unavailable',async()=>{mockGetUser.mockRejectedValue(new Error('synthetic'));expect((await POST(request())).status).toBe(503);});
 
 
 test('保存済み完了のreplayで未付与紹介ボーナスを再試行する・監査や台帳を二重保存しない',async()=>{
@@ -60,4 +60,40 @@ test('旧DBで原子完了RPCが未適用でも直接UPDATE/台帳INSERTへ戻�
  expect(mockFrom).not.toHaveBeenCalledWith('user_points');expect(mockFrom).not.toHaveBeenCalledWith('customer_visits');
  expect(writeAuditLog).not.toHaveBeenCalled();
  expect(jest.requireMock('@/lib/referral').awardReferralPointsOnCompletion).not.toHaveBeenCalled();
+});
+
+
+describe('uncertain authentication cannot grant service-role access', () => {
+  test.each(['data-and-error', 'missing-user-and-error', 'throw', 'timeout'])('%s returns sanitized 503 before DB work', async fault => {
+    if (fault === 'timeout') jest.useFakeTimers();
+    if (fault === 'data-and-error') mockGetUser.mockResolvedValue({ data: { user: { id: 'synthetic-actor' } }, error: { message: 'private-auth-diagnostic' } });
+    if (fault === 'missing-user-and-error') mockGetUser.mockResolvedValue({ data: { user: null }, error: { message: 'private-auth-diagnostic' } });
+    if (fault === 'throw') mockGetUser.mockRejectedValue(new Error('private-auth-diagnostic'));
+    if (fault === 'timeout') mockGetUser.mockImplementation(() => new Promise(() => {}));
+    try {
+      const pending = POST(request());
+      if (fault === 'timeout') await jest.advanceTimersByTimeAsync(5000);
+      const response = await pending;
+      expect(response.status).toBe(503);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(await response.json()).toMatchObject({ code: 'AUTH_UNAVAILABLE' });
+      expect(mockFrom).not.toHaveBeenCalled(); expect(mockRpc).not.toHaveBeenCalled(); expect(writeAuditLog).not.toHaveBeenCalled();
+    } finally { jest.useRealTimers(); }
+  });
+});
+
+
+test.each(['booking-data-error', 'booking-null-error', 'membership-data-error', 'membership-null-error'])('read failure %s cannot complete a booking', async fault => {
+  mockFrom.mockImplementation(table => {
+    const failed = table === (fault.startsWith('booking') ? 'bookings' : 'facility_members');
+    const data = table === 'bookings' ? booking : { facility_id: 'f1', role: 'owner' };
+    const result = { data: failed && fault.includes('null') ? null : data, error: failed ? { code: '08006', message: 'private-db-diagnostic' } : null };
+    return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), in: jest.fn().mockReturnThis(), single: async () => result, maybeSingle: async () => result };
+  });
+  const response = await POST(request());
+  expect(response.status).toBe(500);
+  expect(response.headers.get('cache-control')).toBe('no-store');
+  expect(await response.text()).not.toContain('private-db-diagnostic');
+  expect(mockRpc).not.toHaveBeenCalled();
+  expect(writeAuditLog).not.toHaveBeenCalled();
 });

@@ -400,3 +400,59 @@ test('GET: facility_members から data=null 返却 → facilityIds が空配列
   const res = await GET(makeGetRequest());
   expect(res.status).toBe(403);
 });
+
+
+describe('GET uncertain auth', () => {
+ test.each(['data-error','null-error','throw','timeout'])('%s does not access application data', async fault => {
+  if (fault === 'timeout') jest.useFakeTimers();
+  if (fault === 'data-error') mockGetUser.mockResolvedValue({data:{user:{id:USER_ID}},error:{message:'private-auth-diagnostic'}});
+  if (fault === 'null-error') mockGetUser.mockResolvedValue({data:{user:null},error:{message:'private-auth-diagnostic'}});
+  if (fault === 'throw') mockGetUser.mockRejectedValue(new Error('private-auth-diagnostic'));
+  if (fault === 'timeout') mockGetUser.mockImplementation(() => new Promise(() => {}));
+  // Public submission still performs its existing duplicate lookup before optional auth.
+
+  try {
+   const pending = GET(makeGetRequest());
+   if (fault === 'timeout') await jest.advanceTimersByTimeAsync(5000);
+   const response = await pending;
+   expect(response.status).toBe(503);
+   expect(response.headers.get('cache-control')).toBe('no-store');
+   expect(await response.json()).toMatchObject({code:'AUTH_UNAVAILABLE'});
+   expect(mockAdminFrom).not.toHaveBeenCalled();
+  } finally { jest.useRealTimers(); }
+ });
+});
+
+
+describe('POST uncertain auth', () => {
+ test.each(['data-error','null-error','throw','timeout'])('%s does not access application data', async fault => {
+  if (fault === 'timeout') jest.useFakeTimers();
+  if (fault === 'data-error') mockGetUser.mockResolvedValue({data:{user:{id:USER_ID}},error:{message:'private-auth-diagnostic'}});
+  if (fault === 'null-error') mockGetUser.mockResolvedValue({data:{user:null},error:{message:'private-auth-diagnostic'}});
+  if (fault === 'throw') mockGetUser.mockRejectedValue(new Error('private-auth-diagnostic'));
+  if (fault === 'timeout') mockGetUser.mockImplementation(() => new Promise(() => {}));
+  // Public submission still performs its existing duplicate lookup before optional auth.
+  mockAdminFrom.mockReturnValue(dupCheckChain([]));
+  try {
+   const pending = POST(makePostRequest(validPostBody()));
+   if (fault === 'timeout') await jest.advanceTimersByTimeAsync(5000);
+   const response = await pending;
+   expect(response.status).toBe(503);
+   expect(response.headers.get('cache-control')).toBe('no-store');
+   expect(await response.json()).toMatchObject({code:'AUTH_UNAVAILABLE'});
+   expect(mockAdminFrom).toHaveBeenCalledTimes(1);
+  } finally { jest.useRealTimers(); }
+ });
+});
+
+
+test.each([true, false])('GET membership read error with data=%s is unavailable, not an empty facility list', async hasData => {
+ mockAdminFrom.mockReturnValue({select:jest.fn().mockReturnThis(),eq:jest.fn().mockReturnThis(),in:async()=>({data:hasData?[{facility_id:FACILITY_UUID}]:null,error:{code:'08006',message:'private-db-diagnostic'}})});
+ const response=await GET(makeGetRequest());
+ expect(response.status).toBe(500);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.text()).not.toContain('private-db-diagnostic');expect(mockAdminFrom).toHaveBeenCalledTimes(1);
+});
+test.each([true, false])('POST duplicate lookup failure with data=%s cannot save an application', async hasData => {
+ mockAdminFrom.mockReturnValue({select:jest.fn().mockReturnThis(),eq:jest.fn().mockReturnThis(),is:jest.fn().mockReturnThis(),limit:async()=>({data:hasData?[{id:'synthetic'}]:null,error:{code:'08006',message:'private-db-diagnostic'}})});
+ const response=await POST(makePostRequest(validPostBody()));
+ expect(response.status).toBe(500);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.text()).not.toContain('private-db-diagnostic');expect(mockAdminFrom).toHaveBeenCalledTimes(1);
+});
