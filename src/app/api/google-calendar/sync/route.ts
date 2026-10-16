@@ -73,9 +73,11 @@ export async function POST(req: NextRequest) {
   const user=identity.user;
   const input=await req.json().catch(()=>null);
   if(!input?.bookingId)return NextResponse.json({error:'bookingId required'},{status:400});
-  const {bookingId,operationId}=input;
+  const {bookingId:rawBookingId,operationId:rawOperationId}=input;
+  const bookingId=typeof rawBookingId==='string'?rawBookingId.toLowerCase():rawBookingId;
+  const operationId=typeof rawOperationId==='string'?rawOperationId.toLowerCase():rawOperationId;
   if(typeof bookingId!=='string'||!UUID_REGEX.test(bookingId))return NextResponse.json({error:'Invalid bookingId'},{status:400});
-  if(typeof operationId!=='string'||!UUID_REGEX.test(operationId))return invalidOperation();
+  if(typeof operationId!=='string'||!z.uuid().safeParse(operationId).success)return invalidOperation();
   const admin=createServiceRoleClient();
   const found=await admin.from('bookings').select('*, facility_profiles(name, address, phone), menu:facility_menus(name)').eq('id',bookingId).eq('user_id',user.id).maybeSingle();
   if(found.error)throw new Error('CALENDAR_BOOKING_READ_UNAVAILABLE');
@@ -128,10 +130,10 @@ export async function DELETE(req: NextRequest) {
   const supabase=await createServerSupabaseAuthClient();const identity=await verifyAuthUser(supabase.auth);
   if(identity.state==='unavailable')return authUnavailable('gcal-sync-delete-auth','/api/google-calendar/sync');
   if(identity.state==='unauthenticated')return NextResponse.json({error:'Unauthorized'},{status:401});
-  const bookingId=req.nextUrl.searchParams.get('bookingId');const operationId=req.nextUrl.searchParams.get('operationId');
+  const bookingId=req.nextUrl.searchParams.get('bookingId')?.toLowerCase();const operationId=req.nextUrl.searchParams.get('operationId')?.toLowerCase();
   if(!bookingId)return NextResponse.json({error:'bookingId required'},{status:400});
   if(!UUID_REGEX.test(bookingId))return NextResponse.json({error:'Invalid bookingId'},{status:400});
-  if(!operationId||!UUID_REGEX.test(operationId))return invalidOperation();
+  if(!operationId||!z.uuid().safeParse(operationId).success)return invalidOperation();
   const admin=createServiceRoleClient();
   return await runCalendarOperation(admin,{operationId,userId:identity.user.id,bookingId,kind:'delete',payload:{},credentials:()=>calendarCredentials(admin,identity.user.id)});
  } catch {

@@ -106,6 +106,7 @@ try {
  const n2=counts.POST;const different=await observeOverlap(()=>Promise.all([call(input()),call(input())]));assert.equal(counts.POST,n2+1);assert.equal(mapCount(),1);assert.ok(different.some(r=>r.status===200));verified.push('different operation IDs serialize first create, two DB lock waiters observed');
  await removeCurrent();
  loseCreate=true;const lost=input();const n3=counts.POST;assert.equal((await call(lost)).status,503);assert.equal(mapCount(),0);assert.equal(activeCount(),1);
+ let bookingRetirementBlocked=false;try{querySync(`BEGIN; DELETE FROM public.bookings WHERE id=${quote(booking)}; ROLLBACK;`);}catch(error){bookingRetirementBlocked=String(error.stderr).includes('CALENDAR_OPERATION_PENDING');}assert.equal(bookingRetirementBlocked,true);assert.equal(activeCount(),1);verified.push('booking deletion cannot erase an unresolved external intent');
  let retirementBlocked=false;try{querySync(`BEGIN; DELETE FROM auth.users WHERE id=${quote(actor)}; COMMIT;`);}catch(error){retirementBlocked=String(error.stderr).includes('CALENDAR_OPERATION_PENDING');}assert.equal(retirementBlocked,true);assert.equal(querySync(`SELECT count(*) FROM public.google_calendar_tokens WHERE user_id=${quote(actor)}`),'1');verified.push('retirement rolls back credential cleanup and preserves unknown intent');
  assert.equal((await call(lost)).status,200);assert.equal(counts.POST,n3+1);assert.equal(mapCount(),1);verified.push('lost create response reconciles by GET, no second create');
  const deletes=counts.DELETE;
@@ -146,5 +147,9 @@ try {
  const authRole=`carelink_calendar_fixture_auth_${process.pid}`;querySync(`CREATE ROLE ${authRole} NOLOGIN; GRANT USAGE ON SCHEMA auth TO ${authRole}; GRANT SELECT,DELETE ON auth.users TO ${authRole}; GRANT ${authRole} TO postgres;`);
  try{querySync(`SET ROLE ${authRole}; DELETE FROM auth.users WHERE id=${quote(actor)};`);assert.equal(querySync(`SELECT count(*) FROM public.profiles WHERE id=${quote(actor)}`),'0');verified.push('limited Auth role can retire after resolution; no private receipt privilege added');}
  finally{querySync(`REVOKE SELECT,DELETE ON auth.users FROM ${authRole}; REVOKE USAGE ON SCHEMA auth FROM ${authRole}; DROP ROLE ${authRole};`);}
- console.log(JSON.stringify({database,verified,providerMutations:counts,allPassed:true,productionTraffic:false},null,2));
+ // Auth retirement anonymizes bookings instead of deleting them. Remove only
+ // this script's synthetic fixtures so later disposable-DB suites start clean.
+ querySync(`DELETE FROM public.bookings WHERE id=${quote(booking)}; DELETE FROM public.facility_profiles WHERE id='fc160001-0000-4000-8000-000000000001'; DELETE FROM auth.users WHERE id='fc160000-0000-4000-8000-000000000002';`);
+ assert.equal(querySync(`SELECT count(*) FROM public.bookings WHERE id=${quote(booking)}`),'0');
+ console.log(JSON.stringify({database,verified,providerMutations:counts,allPassed:true,fixturesCleaned:true,productionTraffic:false},null,2));
 } finally {globalThis.fetch=originalFetch;server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
