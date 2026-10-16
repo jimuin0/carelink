@@ -11,7 +11,8 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX } from '@/lib/constants';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,35 @@ function sanitizeForPrompt(text: string): string {
   return text.replace(/</g, '＜').replace(/>/g, '＞');
 }
 
+async function checkReviewAccess(facilityId: string): Promise<NextResponse | null> {
+  try {
+    const supabase = await createServerSupabaseAuthClient();
+    const verification = await verifyAuthUser(supabase.auth);
+    if (verification.state === 'unavailable') return authUnavailable('admin-review-summary-access', '/api/admin/review-summary');
+    const user = verification.state === 'verified' ? verification.user : null;
+    if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
+
+    // Platform admin or facility member (owner/admin) only
+    const { data: profile, error: profileError } = await supabase.from('profiles').select('is_platform_admin').eq('id', user.id).maybeSingle();
+    if (profileError) return authUnavailable('admin-review-summary-access', '/api/admin/review-summary');
+    if (!profile?.is_platform_admin) {
+      const { data: mem, error: membershipError } = await supabase
+        .from('facility_members')
+        .select('facility_id')
+        .eq('user_id', user.id)
+        .eq('facility_id', facilityId)
+        .in('role', ['owner', 'admin'])
+        .limit(1)
+        .maybeSingle();
+      if (membershipError) return authUnavailable('admin-review-summary-access', '/api/admin/review-summary');
+      if (!mem) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
+    }
+    return null;
+  } catch {
+    return authUnavailable('admin-review-summary-access', '/api/admin/review-summary');
+  }
+}
+
 export async function GET(request: Request) {
   const ip = getClientIp(request);
   if (await checkRateLimit(null, ip, 5, 60_000, 'review-summary')) {
@@ -47,23 +77,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'AI機能は設定されていません' }, { status: 503 });
   }
 
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
-
-  // Platform admin or facility member (owner/admin) only
-  const { data: profile } = await supabase.from('profiles').select('is_platform_admin').eq('id', user.id).single();
-  if (!profile?.is_platform_admin) {
-    const { data: mem } = await supabase
-      .from('facility_members')
-      .select('facility_id')
-      .eq('user_id', user.id)
-      .eq('facility_id', facilityId)
-      .in('role', ['owner', 'admin'])
-      .limit(1)
-      .maybeSingle();
-    if (!mem) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
-  }
+  const accessError = await checkReviewAccess(facilityId);
+  if (accessError) return accessError;
 
   const admin = createServiceRoleClient();
   const { data: reviews, error: reviewsErr } = await admin

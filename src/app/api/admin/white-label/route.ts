@@ -6,7 +6,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 import { getAdminFacilityIds, resolveTargetFacilityId } from '@/lib/facility-membership';
 
 export async function GET(req: NextRequest) {
@@ -15,7 +16,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-facility-auth', '/api/admin/white-label');
+  const user = verification.state === 'verified' ? verification.user : null;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   // 監査A2: facility_id をリクエスト(クエリ)から受け取り所属集合で検証する。
@@ -23,7 +26,8 @@ export async function GET(req: NextRequest) {
   // 施設選択（従来のlimit(1)決め打ち）を排し、明示指定を要求する。
   // (既存どおりservice roleクライアントでfacility_membersを問い合わせる)
   const admin = createServiceRoleClient();
-  const facilityIds = await getAdminFacilityIds(admin, user.id);
+  const facilityIds = await getAdminFacilityIds(admin, user.id, '/api/admin/white-label');
+  if (facilityIds instanceof NextResponse) return facilityIds;
   const requested = req.nextUrl.searchParams.get('facility_id');
   const { facilityId, reason } = resolveTargetFacilityId(facilityIds, requested);
   if (reason === 'none') return NextResponse.json({ error: 'No facility' }, { status: 403 });
@@ -47,13 +51,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-facility-auth', '/api/admin/white-label');
+  const user = verification.state === 'verified' ? verification.user : null;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { domain, brand_name, primary_color, logo_url, facility_id } = await req.json().catch(() => ({}));
 
   const admin = createServiceRoleClient();
-  const facilityIds = await getAdminFacilityIds(admin, user.id);
+  const facilityIds = await getAdminFacilityIds(admin, user.id, '/api/admin/white-label');
+  if (facilityIds instanceof NextResponse) return facilityIds;
   const { facilityId, reason } = resolveTargetFacilityId(facilityIds, facility_id);
   if (reason === 'none') return NextResponse.json({ error: 'No facility' }, { status: 403 });
   if (reason === 'forbidden') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
