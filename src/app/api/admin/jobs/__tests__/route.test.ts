@@ -273,10 +273,10 @@ test('GET: data が null → 200 with []', async () => {
   expect(json.jobs).toEqual([]);
 });
 
-test('GET: 未処理例外 → 500', async () => {
+test('GET: 認証確認不能 → 503', async () => {
   mockGetUser.mockRejectedValue(new Error('crash'));
   const res = await GET(makeGetRequest());
-  expect(res.status).toBe(500);
+  expect(res.status).toBe(503);
 });
 
 test('POST: 不正JSONボディ → 400', async () => {
@@ -303,10 +303,10 @@ test('POST: 全任意フィールド指定 → 201', async () => {
   expect(res.status).toBe(201);
 });
 
-test('POST: 未処理例外 → 500', async () => {
+test('POST: 認証確認不能 → 503', async () => {
   mockGetUser.mockRejectedValue(new Error('crash'));
   const res = await POST(makePostRequest(validJob()));
-  expect(res.status).toBe(500);
+  expect(res.status).toBe(503);
 });
 
 test('GET: x-forwarded-for ヘッダ → IP抽出', async () => {

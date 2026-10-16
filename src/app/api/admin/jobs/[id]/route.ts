@@ -1,5 +1,7 @@
+import { verifyAuthUser } from '@/lib/auth-verification';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { NextRequest, NextResponse } from 'next/server';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
@@ -15,16 +17,19 @@ async function authorize(jobId: string) {
   if (!UUID_REGEX.test(jobId)) return { error: NextResponse.json({ error: '不正なIDです' }, { status: 400 }) };
 
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return { error: authUnavailable('admin-jobs-access', '/api/admin/jobs') };
+  const user = identity.state === 'verified' ? identity.user : null;
   if (!user) return { error: NextResponse.json({ error: '認証が必要です' }, { status: 401 }) };
 
   // facility_members は auth クライアント（RLS 束縛・自分のメンバーシップのみ）で取得
-  const { data: memberships } = await supabase
+  const { data: memberships, error: membershipError } = await supabase
     .from('facility_members')
     .select('facility_id, role')
     .eq('user_id', user.id)
     .in('role', ['owner', 'admin']);
 
+  if (membershipError) throw membershipError;
   const facilityIds = (memberships ?? []).map((m) => m.facility_id as string);
   if (facilityIds.length === 0) return { error: NextResponse.json({ error: '権限がありません' }, { status: 403 }) };
 
@@ -32,13 +37,14 @@ async function authorize(jobId: string) {
   // auth クライアントでは読めず 404 になる実バグがあった。jobs/route.ts と同様に
   // service role で読み取り、IDOR は facilityIds（auth 経由）による .in() で防止する。
   const admin = createServiceRoleClient();
-  const { data: job } = await admin
+  const { data: job, error: jobError } = await admin
     .from('facility_jobs')
     .select('*')
     .eq('id', jobId)
     .in('facility_id', facilityIds)
-    .single();
+    .maybeSingle();
 
+  if (jobError) throw jobError;
   if (!job) return { error: NextResponse.json({ error: '求人が見つかりません' }, { status: 404 }) };
   return { job, userId: user.id };
 }
@@ -54,7 +60,9 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     if ('error' in result) return result.error;
     return NextResponse.json({ job: result.job });
   } catch (e) {
-    return serverError('admin-jobs-get', e, '/api/admin/jobs/[id]', 'サーバーエラー');
+    const response = serverError('admin-jobs-get', databaseDiagnostic(e), '/api/admin/jobs/[id]', 'サーバーエラー');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
   }
 }
 
@@ -124,7 +132,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
 
     return NextResponse.json({ job: data });
   } catch (e) {
-    return serverError('admin-jobs-update', e, '/api/admin/jobs/[id]', 'サーバーエラー');
+    const response = serverError('admin-jobs-update', databaseDiagnostic(e), '/api/admin/jobs/[id]', 'サーバーエラー');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
   }
 }
 
@@ -172,6 +182,8 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
 
     return NextResponse.json({ success: true });
   } catch (e) {
-    return serverError('admin-jobs-delete', e, '/api/admin/jobs/[id]', 'サーバーエラー');
+    const response = serverError('admin-jobs-delete', databaseDiagnostic(e), '/api/admin/jobs/[id]', 'サーバーエラー');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
   }
 }

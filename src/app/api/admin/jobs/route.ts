@@ -1,5 +1,7 @@
+import { verifyAuthUser } from '@/lib/auth-verification';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { NextRequest, NextResponse } from 'next/server';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
@@ -12,15 +14,18 @@ export const dynamic = 'force-dynamic';
 
 async function getOwnerFacilityIds() {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return { error: authUnavailable('admin-jobs-access', '/api/admin/jobs') };
+  const user = identity.state === 'verified' ? identity.user : null;
   if (!user) return { supabase, user: null, facilityIds: [] as string[] };
 
-  const { data: memberships } = await supabase
+  const { data: memberships, error: membershipError } = await supabase
     .from('facility_members')
     .select('facility_id, role')
     .eq('user_id', user.id)
     .in('role', ['owner', 'admin']);
 
+  if (membershipError) throw membershipError;
   const facilityIds = (memberships ?? []).map((m) => m.facility_id as string);
   return { supabase, user, facilityIds };
 }
@@ -31,7 +36,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   try {
-    const { user, facilityIds } = await getOwnerFacilityIds();
+    const access = await getOwnerFacilityIds();
+    if ('error' in access) return access.error;
+    const { user, facilityIds } = access;
     if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     if (facilityIds.length === 0) return NextResponse.json({ jobs: [] });
 
@@ -48,7 +55,9 @@ export async function GET(request: NextRequest) {
     if (error) return serverError('admin-jobs-list-query', error, '/api/admin/jobs', '取得に失敗しました');
     return NextResponse.json({ jobs: data ?? [] });
   } catch (e) {
-    return serverError('admin-jobs-list', e, '/api/admin/jobs', 'サーバーエラー');
+    const response = serverError('admin-jobs-list', databaseDiagnostic(e), '/api/admin/jobs', 'サーバーエラー');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
   }
 }
 
@@ -66,7 +75,9 @@ export async function POST(request: Request) {
     // 実行していたため、未認証のリクエストでも「入力値が不正です」+ issues（バリデーションルールの
     // 詳細）を得られてしまっていた（withRoute 標準順序＝CSRF→RateLimit→認証→zod に反する）。
     // 認証・権限チェックを zod より前に移動し、未認証者はバリデーション結果に触れずに 401 で弾く。
-    const { user, facilityIds } = await getOwnerFacilityIds();
+    const access = await getOwnerFacilityIds();
+    if ('error' in access) return access.error;
+    const { user, facilityIds } = access;
     if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     if (facilityIds.length === 0) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
@@ -131,6 +142,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ job: data }, { status: 201 });
   } catch (e) {
-    return serverError('admin-jobs-create', e, '/api/admin/jobs', 'サーバーエラー');
+    const response = serverError('admin-jobs-create', databaseDiagnostic(e), '/api/admin/jobs', 'サーバーエラー');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
   }
 }
