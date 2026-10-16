@@ -46,7 +46,7 @@ export async function updateUserProfile(
   return { error: error?.message ?? null };
 }
 
-export async function getUserFavorites(): Promise<(Favorite & { facility: FacilityCardData })[]> {
+export async function getUserFavorites(): Promise<(Favorite & { facility: FacilityCardData | null })[]> {
   try {
     const supabase = await createServerSupabaseAuthClient();
     const identity = await verifyAuthUser(supabase.auth);
@@ -68,7 +68,7 @@ export async function getUserFavorites(): Promise<(Favorite & { facility: Facili
       .order('created_at', { ascending: false });
 
     if (error) throw new Error('FAVORITES_UNAVAILABLE');
-    return (data ?? []) as (Favorite & { facility: FacilityCardData })[];
+    return (data ?? []) as (Favorite & { facility: FacilityCardData | null })[];
   } catch {
     throw new Error('FAVORITES_UNAVAILABLE');
   }

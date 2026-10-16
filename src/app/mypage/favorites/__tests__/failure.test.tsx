@@ -4,7 +4,7 @@ import Page from '../page';
 import FavoritesError from '../error';
 const mockFavorites=jest.fn();
 jest.mock('@/lib/user',()=>({getUserFavorites:()=>mockFavorites()}));
-jest.mock('@/components/search/FacilityCard',()=>({__esModule:true,default:()=> <div>favorite-facility</div>}));
+jest.mock('@/components/search/FacilityCard',()=>({__esModule:true,default:({facility}: {facility:unknown})=> {if(!facility)throw new Error('Cannot render an unavailable facility');return <div>favorite-facility</div>;}}));
 beforeEach(()=>jest.clearAllMocks());
 
 test('failed reads reject the page and show a retry error instead of a fabricated empty state',async()=>{
@@ -27,4 +27,14 @@ test('a successful empty query preserves the genuine empty state',async()=>{
 });
 test('a successful nonempty query preserves facility cards',async()=>{
  mockFavorites.mockResolvedValue([{id:'synthetic-favorite',facility:{id:'synthetic-facility'}}]);const html=renderToStaticMarkup(await Page());expect(html).toContain('favorite-facility');expect(html).not.toContain('お気に入りがありません');
+});
+
+
+test('an unavailable joined facility retains the favorite without rendering a broken card or false empty state',async()=>{
+ mockFavorites.mockResolvedValue([{id:'synthetic-unavailable',facility:null}]);
+ const html=renderToStaticMarkup(await Page());expect(html).toContain('施設情報を現在表示できません');expect(html).toContain('お気に入りの登録は保持されています');expect(html).not.toContain('お気に入りがありません');expect(html).not.toContain('favorite-facility');
+});
+test('one unavailable facility cannot hide other available favorite cards',async()=>{
+ mockFavorites.mockResolvedValue([{id:'synthetic-unavailable',facility:null},{id:'synthetic-available',facility:{id:'synthetic-facility'}}]);
+ const html=renderToStaticMarkup(await Page());expect(html).toContain('施設情報を現在表示できません');expect(html).toContain('favorite-facility');expect(html).not.toContain('お気に入りがありません');
 });
