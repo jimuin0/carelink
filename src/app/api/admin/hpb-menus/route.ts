@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { getAdminApiContext } from '@/lib/admin-api-context';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -38,26 +37,6 @@ export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 /** 認可: ログインユーザーが facility_id の owner/admin か検証。可なら userId/facilityId を返す。 */
-async function getAdminFacilityId(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const facilityId = request.nextUrl.searchParams.get('facility_id');
-  if (!facilityId || !UUID_REGEX.test(facilityId)) return null;
-
-  const { data } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-    .eq('facility_id', facilityId)
-    .in('role', ['owner', 'admin'])
-    .single();
-
-  return data?.facility_id ? { userId: user.id, facilityId: data.facility_id } : null;
-}
 
 /** GET: facility の HPB メニュー一覧(手直し列含む)。 */
 export async function GET(request: NextRequest) {
@@ -65,8 +44,8 @@ export async function GET(request: NextRequest) {
   if (await checkRateLimit(null, ip, 30, 60_000, 'hpb-menus-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
-  const auth = await getAdminFacilityId(request);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminApiContext(request);
+  if (auth instanceof NextResponse) return auth;
 
   const admin = createServiceRoleClient();
   const menus = await listHpbMenus(admin, auth.facilityId);
@@ -86,8 +65,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const auth = await getAdminFacilityId(request);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminApiContext(request);
+  if (auth instanceof NextResponse) return auth;
 
   const admin = createServiceRoleClient();
   const result = await scrapeAndSaveFacility(admin, auth.facilityId);
@@ -156,8 +135,8 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const auth = await getAdminFacilityId(request);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminApiContext(request);
+  if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => null);
   const parsed = slnSchema.safeParse(body);
@@ -192,8 +171,8 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const auth = await getAdminFacilityId(request);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminApiContext(request);
+  if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => null);
   const parsed = overrideSchema.safeParse(body);
