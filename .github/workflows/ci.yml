@@ -127,6 +127,14 @@ jobs:
           # ローカル fresh-apply 実測で確認済み。下の `supabase start` ゲートが将来の
           # ピン更新時の退行も検知する二重防御。
           version: 2.104.0
+      - name: Pin local PostgREST with correct HEAD connection semantics
+        # CLI 2.104.0's v14.12 silently closes HEAD connections, allowing Kong
+        # to pool a dead socket and fail the next POST/PATCH with HTTP 502.
+        # v14.15 advertises Connection: close (supabase/cli#6674). Keep the
+        # tested CLI/parser and replace only this disposable local API image.
+        run: |
+          mkdir -p supabase/.temp
+          printf '%s' 'v14.15' > supabase/.temp/rest-version
       - name: Start Supabase (fresh-apply gate)
         # 恒久・発症前予防の中核ゲート。`supabase start` は supabase/migrations/*.sql を
         # 「新規環境へ全 replay（fresh-apply）」する。version 衝突・42P16（View 列改名）・
@@ -135,6 +143,10 @@ jobs:
         # これが従来 fake.supabase.co で握り潰されていた E2E 連鎖失敗の真因（/api/health 503）
         # を根治する: 実 Supabase をローカル起動し本物の DB/anon key を後段へ渡す。
         run: supabase start
+      - name: Verify local PostgREST HEAD connection semantics
+        # Actual headers/socket behavior, not an image-tag-only assertion.
+        # No rows, keys, remote URLs, test retries or application replay.
+        run: python3 scripts/check-local-postgrest-head.py
       - name: Generate schema types from the disposable local database
         # Schema only, no rows or hosted-project credentials. Keep the artifact
         # independent of later browser assertions so missing types can be fixed
