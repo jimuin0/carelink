@@ -203,4 +203,8 @@ PR #709初回head CIは復旧一覧のHTTP 502後に受付行待ちが失敗し�
 
 修正前は不確かな認証/権限/求人取得の45ケースで失敗、真正の求人なし3ケースは成功。修正後の関連125ケースが成功。実施設の認証状態や求人は変更せず、顧客通知・公開・削除試験を本番で行っていない。ローカル全体検査の最初の実行は追加テストの環境docblock規約1件で失敗し、実装の検査と分岐100%は成功。規約修正後、全533 suites/11,258 tests、分岐10,935/10,935（100%）、型・Lint（既存warning4件）が成功。dotenvは復元済み。
 
-先行PR #709は最終head `a852341b2a8730a9805726eabbb1cd87e79c46b1` のCI/PG17と実E2E364件（unexpected/flaky/skipped各0）が成功。merge `cb68232b368c369bac961255bd54f847c95f7b98` は検証headと同じtree。Web本番health200/healthy/version cb68232、未認証の管理キー/NPS/ABテスト401・feature flags403、Renderのmain配信18件すべて同SHA liveを照合した。merge後main CIは別に確認中で、完了前に成功とは扱わない。
+先行PR #709は最終head `a852341b2a8730a9805726eabbb1cd87e79c46b1` のCI/PG17と実E2E364件（unexpected/flaky/skipped各0）が成功。merge `cb68232b368c369bac961255bd54f847c95f7b98` は検証headと同じtree。Web本番health200/healthy/version cb68232、未認証の管理キー/NPS/ABテスト401・feature flags403、Renderのmain配信18件すべて同SHA liveを照合した。merge後main CI `38850237485`・PG17 `38850237425` と実E2E364件も成功し、unexpected/flaky/skipped各0を実レポートで確認済み。
+
+求人管理のサーバー画面も同じアクセス境界へ揃える。認証確認不能で未ログインへリダイレクトせず、施設権限/求人の取得失敗で「求人なし」「管理可能な施設なし」や作成操作を出さない。既存のAccessVerificationUnavailable/LoadErrorを再利用し、データ再確認はGETフォームだけとする。修正前の画面検査は異常系9件失敗・正常系4件成功、修正後は画面13件・APIと合わせて138件成功。真正の未ログイン・施設なし・求人なし・既存求人の表示は維持し、作成/更新/削除の再送や端末状態の削除は加えない。
+
+画面追加後の最終全体検証も全534 suites/11,271 tests、分岐10,935/10,935（100%）、型・Lint（既存warning4件）成功。dotenv復元済み。

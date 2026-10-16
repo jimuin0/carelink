@@ -1,3 +1,6 @@
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
+import LoadError from '@/components/admin/LoadError';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
@@ -9,16 +12,35 @@ export const dynamic = 'force-dynamic';
 
 export const metadata = { title: '求人管理' };
 
+function JobsLoadUnavailable() {
+  return <section>
+    <SbPageHeader title="求人管理" />
+    <LoadError message="求人情報を取得できませんでした" />
+    <form action="/admin/jobs" method="get" className="mt-4 text-center">
+      <button type="submit" className="btn-primary">再読み込み</button>
+    </form>
+  </section>;
+}
+
 export default async function AdminJobsPage() {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect('/auth/login?redirect=/admin/jobs');
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return <AccessVerificationUnavailable />;
+  if (identity.state !== 'verified') redirect('/auth/login?redirect=/admin/jobs');
+  const user = identity.user;
 
-  const { data: memberships } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-    .in('role', ['owner', 'admin']);
+  let membershipResult;
+  try {
+    membershipResult = await supabase
+      .from('facility_members')
+      .select('facility_id')
+      .eq('user_id', user.id)
+      .in('role', ['owner', 'admin']);
+  } catch {
+    return <JobsLoadUnavailable />;
+  }
+  if (membershipResult.error) return <JobsLoadUnavailable />;
+  const memberships = membershipResult.data;
 
   const facilityIds = (memberships ?? []).map((m) => m.facility_id);
   if (facilityIds.length === 0) {
@@ -33,12 +55,19 @@ export default async function AdminJobsPage() {
   // メンバーシップ検証後の facility_jobs read は service role で行う（API ルート POST/GET と同型）。
   // facility_jobs の RLS は「published 施設の公開 read」のみで、未公開施設のオーナーは auth
   // クライアントでは自店の求人を読めず一覧が空になる（自店管理が機能しない実バグ）ため。
-  const admin = createServiceRoleClient();
-  const { data: jobs } = await admin
-    .from('facility_jobs')
-    .select('id, facility_id, title, job_type, employment_type, salary_min, salary_max, created_at, updated_at, salary_note, description, requirements, benefits')
-    .in('facility_id', facilityIds)
-    .order('created_at', { ascending: false });
+  let jobsResult;
+  try {
+    const admin = createServiceRoleClient();
+    jobsResult = await admin
+      .from('facility_jobs')
+      .select('id, facility_id, title, job_type, employment_type, salary_min, salary_max, created_at, updated_at, salary_note, description, requirements, benefits')
+      .in('facility_id', facilityIds)
+      .order('created_at', { ascending: false });
+  } catch {
+    return <JobsLoadUnavailable />;
+  }
+  if (jobsResult.error) return <JobsLoadUnavailable />;
+  const jobs = jobsResult.data;
 
   const list = (jobs ?? []) as FacilityJob[];
 
