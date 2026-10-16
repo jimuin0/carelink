@@ -52,7 +52,7 @@ function profileSingle(isAdmin: boolean) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data: { is_platform_admin: isAdmin }, error: null })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data: { is_platform_admin: isAdmin }, error: null })),
   };
 }
 
@@ -250,7 +250,7 @@ test('GET: profile が null → 403', async () => {
   mockAnonFrom.mockReturnValue({
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data: null, error: null })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: null })),
   });
   const res = await GET(makeGetRequest());
   expect(res.status).toBe(403);

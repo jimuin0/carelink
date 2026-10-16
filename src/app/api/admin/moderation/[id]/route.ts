@@ -51,6 +51,7 @@ async function moderateContent(request: NextRequest, props: { params: Promise<{ 
   }
 
   const adminUser = await requirePlatformAdmin();
+  if (adminUser instanceof NextResponse) return adminUser;
   if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const userId = adminUser.id;
 
@@ -138,6 +139,7 @@ export async function GET(_request: NextRequest, props: { params: Promise<{id:st
     const {id}=await props.params;
     if (!UUID_REGEX.test(id)) return NextResponse.json({error:'不正なIDです'},{status:400,headers});
     const user=await requirePlatformAdmin();
+    if (user instanceof NextResponse) return user;
     if (!user) return NextResponse.json({error:'Forbidden'},{status:403,headers});
     const result=await createServiceRoleClient().rpc('moderation_review_snapshot',{p_actor_id:user.id,p_queue_id:id});
     if (result.error?.message.includes('MODERATION_PERMISSION_REVOKED')) return NextResponse.json({error:'Forbidden'},{status:403,headers});

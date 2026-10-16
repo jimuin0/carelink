@@ -51,7 +51,7 @@ function profileChain(isAdmin: boolean) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data: { is_platform_admin: isAdmin }, error: null })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data: { is_platform_admin: isAdmin }, error: null })),
   };
 }
 
@@ -235,7 +235,7 @@ test('POST: rate limit returns429', async () => {
 });
 
 test('POST: absent platform role returns403', async () => {
-  mockAnonFrom.mockReturnValue({ select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), single: async () => ({ data: null, error: null }) });
+  mockAnonFrom.mockReturnValue({ select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), maybeSingle: async () => ({ data: null, error: null }) });
   expect((await POST(makePostRequest())).status).toBe(403);
 });
 

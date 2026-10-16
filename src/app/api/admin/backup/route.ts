@@ -82,6 +82,7 @@ export async function GET(request: NextRequest) {
   }
   // 管理者権限チェック
   const user = await requirePlatformAdmin();
+  if (user instanceof NextResponse) return user;
   if (!user) return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
 
   const serviceSupabase = createServiceRoleClient();
@@ -121,6 +122,7 @@ export async function POST(request: NextRequest) {
   }
   // 管理者権限チェック
   const user = await requirePlatformAdmin();
+  if (user instanceof NextResponse) return user;
   if (!user) return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
 
   const body: unknown = await request.json().catch(() => null);

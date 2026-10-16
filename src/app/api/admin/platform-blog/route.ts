@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
   }
 
   const adminUser = await requirePlatformAdmin();
+  if (adminUser instanceof NextResponse) return adminUser;
   if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const userId = adminUser.id;
 

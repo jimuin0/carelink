@@ -25,6 +25,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
   }
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   const user = await requirePlatformAdmin();
+  if (user instanceof NextResponse) return user;
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const { action, expected_updated_at } = await req.json().catch(() => ({}));

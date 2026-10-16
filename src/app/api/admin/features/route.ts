@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
 
   // feature_articles はサイトワイドコンテンツ(facility_idを持たない) — プラットフォーム管理者のみ編集可（監査A6b）
   const user = await requirePlatformAdmin();
+  if (user instanceof NextResponse) return user;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const userId = user.id;
 

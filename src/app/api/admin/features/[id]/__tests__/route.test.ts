@@ -70,7 +70,7 @@ function profileChain(isAdmin: boolean | null) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data: isAdmin === null ? null : { is_platform_admin: isAdmin }, error: null })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data: isAdmin === null ? null : { is_platform_admin: isAdmin }, error: null })),
   };
 }
 

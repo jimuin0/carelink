@@ -61,7 +61,7 @@ function profileSingle(isAdmin: boolean) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data: { is_platform_admin: isAdmin }, error: null })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data: { is_platform_admin: isAdmin }, error: null })),
   };
 }
 
