@@ -14,6 +14,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { authUnavailable, serverError } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 
 const VALID_SCOPES = ['bookings:read', 'customers:read', 'reviews:read'];
 
@@ -58,13 +59,18 @@ export async function POST(request: NextRequest) {
   const uniqueScopes = [...new Set(scopes)];
 
   // APIキー発行は owner のみ（神原さん確定: 鍵に関わる発行操作は持ち主限定。admin=任命従業員には発行させない）。
-  const { data: mem } = await supabase
+  const { data: mem, error: membershipError } = await supabase
     .from('facility_members')
     .select('role')
     .eq('user_id', user.id)
     .eq('facility_id', facility_id)
     .eq('role', 'owner')
-    .single();
+    .maybeSingle();
+  if (membershipError) {
+    const response = serverError('admin-api-keys-create-membership', databaseDiagnostic(membershipError), '/api/admin/api-keys');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
   if (!mem) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
 
   const admin = createServiceRoleClient();
@@ -112,10 +118,15 @@ export async function GET(request: NextRequest) {
   if (!facilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
   if (!UUID_REGEX.test(facilityId)) return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
 
-  const { data: mem } = await supabase
+  const { data: mem, error: membershipError } = await supabase
     .from('facility_members').select('role')
     .eq('user_id', user.id).eq('facility_id', facilityId)
-    .in('role', ['owner', 'admin']).single();
+    .in('role', ['owner', 'admin']).maybeSingle();
+  if (membershipError) {
+    const response = serverError('admin-api-keys-list-membership', databaseDiagnostic(membershipError), '/api/admin/api-keys');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
   if (!mem) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
 
   const admin = createServiceRoleClient();
