@@ -7,7 +7,8 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { getAdminFacilityIds, resolveTargetFacilityId } from '@/lib/facility-membership';
 import type { Database } from '@/types/database.types';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 // gbp_posts.facility_id は migrations 上 NOT NULL（database.types.ts の Row/Insert/Update いずれも
 // facility_id は string で null を許容しない）。PATCH で送る更新差分の型はここから取る。
@@ -19,11 +20,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-facility-auth', '/api/admin/gbp/posts');
+  const user = verification.state === 'verified' ? verification.user : null;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   // 監査A2: facility_id をクエリから受け取り所属集合で検証する（非決定的なlimit(1)決め打ち排除）。
-  const facilityIds = await getAdminFacilityIds(supabase, user.id);
+  const facilityIds = await getAdminFacilityIds(supabase, user.id, '/api/admin/gbp/posts');
+  if (facilityIds instanceof NextResponse) return facilityIds;
   const requested = req.nextUrl.searchParams.get('facility_id');
   const { facilityId, reason } = resolveTargetFacilityId(facilityIds, requested);
   if (reason === 'none') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -49,13 +53,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-facility-auth', '/api/admin/gbp/posts');
+  const user = verification.state === 'verified' ? verification.user : null;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
   const { title, body: postBody, post_type, photo_url, cta_type, cta_url, scheduled_at, facility_id } = body;
 
-  const facilityIds = await getAdminFacilityIds(supabase, user.id);
+  const facilityIds = await getAdminFacilityIds(supabase, user.id, '/api/admin/gbp/posts');
+  if (facilityIds instanceof NextResponse) return facilityIds;
   const { facilityId, reason } = resolveTargetFacilityId(facilityIds, facility_id);
   if (reason === 'none') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   if (reason === 'forbidden') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -105,14 +112,17 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-facility-auth', '/api/admin/gbp/posts');
+  const user = verification.state === 'verified' ? verification.user : null;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   // 監査A2: 非会員は id の有無に関わらず即403にする（元の設計どおり）。
   // PATCH/DELETEはid(投稿)起点のため、投稿が実際に属するfacility_idをDBから引き、
   // それが自分の所属集合に含まれるかを検証する（非決定的なlimit(1)決め打ちでは、複数施設
   // 所有者の場合に自分の別施設の投稿でもWHERE不一致で操作できなくなるバグがあった）。
-  const facilityIds = await getAdminFacilityIds(supabase, user.id);
+  const facilityIds = await getAdminFacilityIds(supabase, user.id, '/api/admin/gbp/posts');
+  if (facilityIds instanceof NextResponse) return facilityIds;
   if (facilityIds.length === 0) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
@@ -177,11 +187,14 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-facility-auth', '/api/admin/gbp/posts');
+  const user = verification.state === 'verified' ? verification.user : null;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   // 監査A2: 非会員は id の有無に関わらず即403にする（元の設計どおり）。
-  const facilityIds = await getAdminFacilityIds(supabase, user.id);
+  const facilityIds = await getAdminFacilityIds(supabase, user.id, '/api/admin/gbp/posts');
+  if (facilityIds instanceof NextResponse) return facilityIds;
   if (facilityIds.length === 0) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const id = req.nextUrl.searchParams.get('id');

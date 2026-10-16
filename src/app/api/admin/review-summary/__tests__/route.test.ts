@@ -54,7 +54,7 @@ function profileSingle(isAdmin: boolean) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data: { is_platform_admin: isAdmin }, error: null })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data: { is_platform_admin: isAdmin }, error: null })),
   };
 }
 
@@ -237,4 +237,27 @@ test('GET: facility_reviews DB エラー → 500 (L63 reviewsErr 分岐)', async
   expect(res.status).toBe(500);
   const json = await res.json();
   expect(json.error).toBeDefined();
+});
+
+
+test.each(['auth-data-error', 'auth-null-error', 'auth-throw', 'member-data-error', 'member-null-error', 'member-throw', 'profile-data-error', 'profile-null-error', 'profile-throw'])('access failure %s cannot invoke AI or read review content', async fault => {
+ if (fault.startsWith('auth')) {
+  if (fault.endsWith('throw')) mockGetUser.mockRejectedValue(new Error('private-auth-diagnostic'));
+  else mockGetUser.mockResolvedValue({data:{user:fault.includes('null')?null:{id:USER_ID}},error:{message:'private-auth-diagnostic'}});
+ }
+ mockAnonFrom.mockImplementation(table => {
+  const failed=table===(fault.startsWith('profile')?'profiles':'facility_members');
+  const data=table==='profiles'?{is_platform_admin:failed}:{facility_id:'synthetic-facility',role:'owner'};
+  const terminal=async()=>{
+   if(failed&&fault.endsWith('throw'))throw new Error('private-db-diagnostic');
+   return {data:failed&&fault.includes('null')?null:data,error:failed?{message:'private-db-diagnostic'}:null};
+  };
+  return {select:jest.fn().mockReturnThis(),eq:jest.fn().mockReturnThis(),in:jest.fn().mockReturnThis(),limit:jest.fn().mockReturnThis(),single:terminal,maybeSingle:terminal};
+ });
+ const response=await GET(makeRequest());
+ expect(response.status).toBe(503);
+ expect(response.headers.get('cache-control')).toBe('no-store');
+ expect(await response.json()).toMatchObject({code:'AUTH_UNAVAILABLE'});
+ expect(getMockCreate()).not.toHaveBeenCalled();
+ expect(mockAdminFrom).not.toHaveBeenCalled();
 });

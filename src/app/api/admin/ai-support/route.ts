@@ -11,7 +11,8 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -36,6 +37,30 @@ const SYSTEM_PROMPT = `あなたはCareLink（鍼灸・整体・マッサージ�
 回答は簡潔に（最大300字程度）。操作手順は番号付きリストで。
 専門的すぎる法律・医療アドバイスは「専門家にご相談ください」と伝えること。`;
 
+async function checkSupportAccess(): Promise<NextResponse | null> {
+  try {
+    const supabase = await createServerSupabaseAuthClient();
+    const verification = await verifyAuthUser(supabase.auth);
+    if (verification.state === 'unavailable') return authUnavailable('admin-ai-support-access', '/api/admin/ai-support');
+    const user = verification.state === 'verified' ? verification.user : null;
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    // 施設管理者のみ
+    const { data: mem, error: membershipError } = await supabase
+      .from('facility_members')
+      .select('role')
+      .eq('user_id', user.id)
+      .in('role', ['owner', 'admin'])
+      .limit(1)
+      .maybeSingle();
+    if (membershipError) return authUnavailable('admin-ai-support-access', '/api/admin/ai-support');
+    if (!mem) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return null;
+  } catch {
+    return authUnavailable('admin-ai-support-access', '/api/admin/ai-support');
+  }
+}
+
 export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
@@ -44,19 +69,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  // 施設管理者のみ
-  const { data: mem } = await supabase
-    .from('facility_members')
-    .select('role')
-    .eq('user_id', user.id)
-    .in('role', ['owner', 'admin'])
-    .limit(1)
-    .single();
-  if (!mem) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const accessError = await checkSupportAccess();
+  if (accessError) return accessError;
 
   const body = await request.json().catch(() => null);
   const parsed = schema.safeParse(body);

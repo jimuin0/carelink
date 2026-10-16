@@ -1,3 +1,6 @@
+import { NextResponse } from 'next/server';
+import { serverError } from './with-route';
+import { databaseDiagnostic } from './database-diagnostic';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 /**
@@ -14,13 +17,25 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 export async function getAdminFacilityIds(
   supabase: SupabaseClient,
   userId: string,
-): Promise<string[]> {
-  const { data } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', userId)
-    .in('role', ['owner', 'admin']);
-  return (data ?? []).map((m) => m.facility_id as string);
+  route = '/api/admin',
+): Promise<string[] | NextResponse> {
+  try {
+    const { data, error } = await supabase
+      .from('facility_members')
+      .select('facility_id')
+      .eq('user_id', userId)
+      .in('role', ['owner', 'admin']);
+    if (error) return membershipReadFailure(error, route);
+    return (data ?? []).map((m) => m.facility_id as string);
+  } catch (error) {
+    return membershipReadFailure(error, route);
+  }
+}
+
+function membershipReadFailure(error: unknown, route: string): NextResponse {
+  const response = serverError('admin-facility-membership', databaseDiagnostic(error), route);
+  response.headers.set('Cache-Control', 'no-store');
+  return response;
 }
 
 export type ResolveFacilityReason = 'ok' | 'forbidden' | 'ambiguous' | 'none';

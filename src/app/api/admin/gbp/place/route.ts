@@ -7,7 +7,8 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { getAdminFacilityIds, resolveTargetFacilityId } from '@/lib/facility-membership';
 import { toJsonValue } from '@/lib/json-value';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
 
 
 export async function GET(req: NextRequest) {
@@ -25,11 +26,14 @@ export async function GET(req: NextRequest) {
   }
   try {
     const supabase = await createServerSupabaseAuthClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const verification = await verifyAuthUser(supabase.auth);
+    if (verification.state === 'unavailable') return authUnavailable('admin-facility-auth', '/api/admin/gbp/place');
+    const user = verification.state === 'verified' ? verification.user : null;
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     // 監査A2: facility_id をクエリから受け取り所属集合で検証する（非決定的なlimit(1)決め打ち排除）。
-    const facilityIds = await getAdminFacilityIds(supabase, user.id);
+    const facilityIds = await getAdminFacilityIds(supabase, user.id, '/api/admin/gbp/place');
+    if (facilityIds instanceof NextResponse) return facilityIds;
     const requested = req.nextUrl.searchParams.get('facility_id');
     const { facilityId, reason } = resolveTargetFacilityId(facilityIds, requested);
     if (reason === 'none') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -109,13 +113,16 @@ export async function POST(req: NextRequest) {
   }
   // place_id を facility_profiles に保存
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-facility-auth', '/api/admin/gbp/place');
+  const user = verification.state === 'verified' ? verification.user : null;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
   const { gbp_place_id, gbp_cid, facility_id } = body;
 
-  const facilityIds = await getAdminFacilityIds(supabase, user.id);
+  const facilityIds = await getAdminFacilityIds(supabase, user.id, '/api/admin/gbp/place');
+  if (facilityIds instanceof NextResponse) return facilityIds;
   const { facilityId, reason } = resolveTargetFacilityId(facilityIds, facility_id);
   if (reason === 'none') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   if (reason === 'forbidden') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
