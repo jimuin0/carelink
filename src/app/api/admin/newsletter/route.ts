@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const user = await requirePlatformAdmin();
+  if (user instanceof NextResponse) return user;
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const admin = createServiceRoleClient();
@@ -34,6 +35,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const user = await requirePlatformAdmin();
+  if (user instanceof NextResponse) return user;
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));

@@ -1,10 +1,12 @@
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
+import { verifyAuthUser } from '@/lib/auth-verification';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
 import { z } from 'zod';
 import { toJsonValue } from '@/lib/json-value';
 
@@ -49,11 +51,13 @@ export async function POST(request: NextRequest) {
 
     // user_id はセッションから取得（リクエストボディの値は使わない）
     const supabase = await createServerSupabaseAuthClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const verification = await verifyAuthUser(supabase.auth);
+    if (verification.state === 'unavailable') return authUnavailable('ab-test-auth', '/api/ab-test');
+    const user = verification.state === 'verified' ? verification.user : null;
 
     const admin = createServiceRoleClient();
 
-    await admin.from('ab_test_events').insert({
+    const { error: insertError } = await admin.from('ab_test_events').insert({
       experiment_key: parsed.data.experiment_key,
       variant: parsed.data.variant,
       event_type: parsed.data.event_type,
@@ -63,6 +67,11 @@ export async function POST(request: NextRequest) {
       metadata: toJsonValue(parsed.data.metadata ?? {}),
     });
 
+    if (insertError) {
+      const response = serverError('ab-test-insert', databaseDiagnostic(insertError), '/api/ab-test');
+      response.headers.set('Cache-Control', 'no-store');
+      return response;
+    }
     return NextResponse.json({ ok: true });
   } catch (e) {
     return serverError('ab-test-post', e, '/api/ab-test');
@@ -77,21 +86,33 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
     }
     const supabase = await createServerSupabaseAuthClient();
-    const { data: { user } } = await supabase.auth.getUser();
+    const verification = await verifyAuthUser(supabase.auth);
+    if (verification.state === 'unavailable') return authUnavailable('ab-test-auth', '/api/ab-test');
+    const user = verification.state === 'verified' ? verification.user : null;
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const { data: profile } = await supabase.from('profiles').select('is_platform_admin').eq('id', user.id).single();
-    if (!profile?.is_platform_admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    try {
+      const { data: profile, error: profileError } = await supabase.from('profiles').select('is_platform_admin').eq('id', user.id).maybeSingle();
+      if (profileError) return authUnavailable('ab-test-platform-access', '/api/ab-test');
+      if (profile?.is_platform_admin !== true) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    } catch {
+      return authUnavailable('ab-test-platform-access', '/api/ab-test');
+    }
 
     const key = request.nextUrl.searchParams.get('key');
     if (!key || key.length > 100) return NextResponse.json({ error: 'key required' }, { status: 400 });
 
     const admin = createServiceRoleClient();
 
-    const { data } = await admin
+    const { data, error: eventsError } = await admin
       .from('ab_test_events')
       .select('variant, event_type')
       .eq('experiment_key', key);
 
+    if (eventsError) {
+      const response = serverError('ab-test-results', databaseDiagnostic(eventsError), '/api/ab-test');
+      response.headers.set('Cache-Control', 'no-store');
+      return response;
+    }
     if (!data) return NextResponse.json({ results: null });
 
     const stats: Record<string, Record<string, number>> = { control: {}, treatment: {} };

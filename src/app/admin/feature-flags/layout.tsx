@@ -1,19 +1,13 @@
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { requirePlatformAdmin } from '@/lib/platform-admin';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
+import { NextResponse } from 'next/server';
 import { notFound } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
 
 export default async function FeatureFlagsLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await requirePlatformAdmin();
+  if (user instanceof NextResponse) return <AccessVerificationUnavailable />;
   if (!user) notFound();
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_platform_admin')
-    .eq('id', user.id)
-    .single();
-  if (!profile?.is_platform_admin) notFound();
-
   return <>{children}</>;
 }

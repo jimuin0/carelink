@@ -209,3 +209,15 @@ describe('updateUserProfile undefined error fallback', () => {
     expect(result.error).toBeNull();
   });
 });
+
+
+test.each(['auth-data-error','auth-null-error','auth-throw','read-data-error','read-null-error','read-throw'])('favorites failure %s is not empty or partial history',async fault=>{
+ const getUser=jest.fn().mockResolvedValue({data:{user:{id:USER_ID}},error:null});
+ if(fault==='auth-throw')getUser.mockRejectedValue(new Error('private-auth-diagnostic'));
+ else if(fault.startsWith('auth'))getUser.mockResolvedValue({data:{user:fault.includes('null')?null:{id:USER_ID}},error:{message:'private-auth-diagnostic'}});
+ const terminal=async()=>{if(fault==='read-throw')throw new Error('private-db-diagnostic');return {data:fault.includes('null')?null:[{id:'synthetic-favorite'}],error:{message:'private-db-diagnostic'}};};
+ const from=jest.fn().mockReturnValue({select:jest.fn().mockReturnThis(),eq:jest.fn().mockReturnThis(),order:terminal});
+ createServerSupabaseAuthClient.mockResolvedValue({auth:{getUser},from});
+ await expect(getUserFavorites()).rejects.toThrow('FAVORITES_UNAVAILABLE');
+ if(fault.startsWith('auth'))expect(from).not.toHaveBeenCalled();
+});

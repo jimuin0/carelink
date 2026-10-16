@@ -1,3 +1,4 @@
+import { verifyAuthUser } from '@/lib/auth-verification';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import type { Profile, Favorite, FacilityCardData } from '@/types';
 import type { Database } from '@/types/database.types';
@@ -45,25 +46,32 @@ export async function updateUserProfile(
   return { error: error?.message ?? null };
 }
 
-export async function getUserFavorites(): Promise<(Favorite & { facility: FacilityCardData })[]> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
+export async function getUserFavorites(): Promise<(Favorite & { facility: FacilityCardData | null })[]> {
+  try {
+    const supabase = await createServerSupabaseAuthClient();
+    const identity = await verifyAuthUser(supabase.auth);
+    if (identity.state === 'unavailable') throw new Error('FAVORITES_UNAVAILABLE');
+    if (identity.state === 'unauthenticated') return [];
+    const user = identity.user;
 
-  const { data } = await supabase
-    .from('favorites')
-    .select(`
-      *,
-      facility:facility_profiles (
-        id, slug, name, business_type, catch_copy,
-        prefecture, city, access_info,
-        rating_avg, rating_count, main_photo_url
-      )
-    `)
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false });
+    const { data, error } = await supabase
+      .from('favorites')
+      .select(`
+        *,
+        facility:facility_profiles (
+          id, slug, name, business_type, catch_copy,
+          prefecture, city, access_info,
+          rating_avg, rating_count, main_photo_url
+        )
+      `)
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
 
-  return (data ?? []) as (Favorite & { facility: FacilityCardData })[];
+    if (error) throw new Error('FAVORITES_UNAVAILABLE');
+    return (data ?? []) as (Favorite & { facility: FacilityCardData | null })[];
+  } catch {
+    throw new Error('FAVORITES_UNAVAILABLE');
+  }
 }
 
 export async function toggleFavorite(facilityId: string): Promise<{ isFavorited: boolean; error: string | null }> {

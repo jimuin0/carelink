@@ -175,9 +175,9 @@ test('POST: 未認証 → 401', async () => {
   const res = await POST(makeRequest(validBody()));
   expect(res.status).toBe(401);
 });
-test('POST: 認証障害はユーザーが返っても401', async () => {
+test('POST: 認証障害はユーザーが返っても503', async () => {
   mockGetUser.mockResolvedValue({ data:{ user:{ id:USER_ID } },error:{ code:'08006' } });
-  expect((await POST(makeRequest(validBody()))).status).toBe(401);
+  expect((await POST(makeRequest(validBody()))).status).toBe(503);
 });
 test('POST: write-time permission revocation is Forbidden and never audited as success', async () => {
   setupSuccess();

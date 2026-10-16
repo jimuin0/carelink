@@ -12,19 +12,24 @@ import { csvEscape } from '@/lib/csv';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { fetchAllPaged } from '@/lib/paginate';
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 
 function toCsvRow(cols: (string | number | null | undefined)[]): string {
   return cols.map(csvEscape).join(',');
 }
 
 export async function GET(request: NextRequest) {
+  try {
   const ip = getClientIp(request);
   if (await checkRateLimit(null, ip, 10, 60_000, 'accounting-export')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const verification = await verifyAuthUser(supabase.auth);
+  if (verification.state === 'unavailable') return authUnavailable('admin-accounting-export-auth', '/api/admin/accounting-export');
+  const user = verification.state === 'verified' ? verification.user : null;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const facilityId = request.nextUrl.searchParams.get('facility_id');
@@ -49,13 +54,18 @@ export async function GET(request: NextRequest) {
     if (diffDays > 366) return NextResponse.json({ error: 'エクスポート範囲は最大366日です' }, { status: 400 });
   }
 
-  const { data: mem } = await supabase
+  const { data: mem, error: membershipError } = await supabase
     .from('facility_members')
     .select('role')
     .eq('user_id', user.id)
     .eq('facility_id', facilityId)
     .in('role', ['owner', 'admin'])
-    .single();
+    .maybeSingle();
+  if (membershipError) {
+    const response = serverError('admin-accounting-export-membership', databaseDiagnostic(membershipError), '/api/admin/accounting-export');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
   if (!mem) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
@@ -224,4 +234,9 @@ export async function GET(request: NextRequest) {
       'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
     },
   });
+  } catch (error) {
+    const response = serverError('admin-accounting-export-dependency', databaseDiagnostic(error), '/api/admin/accounting-export');
+    response.headers.set('Cache-Control', 'no-store');
+    return response;
+  }
 }

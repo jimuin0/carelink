@@ -18,8 +18,13 @@ export default async function FavoritesPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {favorites.map((fav) => (
+          {favorites.map((fav) => fav.facility ? (
             <FacilityCard key={fav.id} facility={fav.facility} />
+          ) : (
+            <div key={fav.id} className="bg-white rounded-2xl shadow-xs p-6" role="status">
+              <p className="font-medium text-gray-700">施設情報を現在表示できません</p>
+              <p className="mt-2 text-sm text-gray-500">お気に入りの登録は保持されています。</p>
+            </div>
           ))}
         </div>
       )}

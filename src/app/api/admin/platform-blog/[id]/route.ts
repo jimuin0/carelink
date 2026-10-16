@@ -62,6 +62,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
   const adminUser = await requirePlatformAdmin();
+  if (adminUser instanceof NextResponse) return adminUser;
   if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const userId = adminUser.id;
 
@@ -132,6 +133,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
   const adminUser = await requirePlatformAdmin();
+  if (adminUser instanceof NextResponse) return adminUser;
   if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const userId = adminUser.id;
 

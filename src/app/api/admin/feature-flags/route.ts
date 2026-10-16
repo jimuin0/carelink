@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { requirePlatformAdmin } from '@/lib/platform-admin';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -16,28 +16,15 @@ import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
-async function getAdminUser(): Promise<string | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_platform_admin')
-    .eq('id', user.id)
-    .single();
-
-  return profile?.is_platform_admin ? user.id : null;
-}
-
 export async function GET(request: NextRequest) {
   const ip = getClientIp(request);
   if (await checkRateLimit(null, ip, 30, 60_000, 'admin-feature-flags-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const userId = await getAdminUser();
-  if (!userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const adminUser = await requirePlatformAdmin();
+  if (adminUser instanceof NextResponse) return adminUser;
+  if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const { ab } = Object.fromEntries(request.nextUrl.searchParams);
 
@@ -76,8 +63,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const userId = await getAdminUser();
-  if (!userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const adminUser = await requirePlatformAdmin();
+  if (adminUser instanceof NextResponse) return adminUser;
+  if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await request.json().catch(() => null);
   const parsed = flagCreateSchema.safeParse(body);
@@ -106,7 +94,7 @@ export async function POST(request: NextRequest) {
 
   const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({
-    userId,
+    userId: adminUser.id,
     action: 'create',
     tableName: 'feature_flags',
     recordId: data.id,
