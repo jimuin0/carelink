@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { getAdminApiContext } from '@/lib/admin-api-context';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
@@ -9,25 +9,6 @@ import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { customerSchema } from '@/lib/validations';
 import { zodErrorResponse } from '@/lib/api-validation';
 import { serverError } from '@/lib/with-route';
-
-async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const facilityId = request.nextUrl.searchParams.get('facility_id');
-  if (!facilityId || !UUID_REGEX.test(facilityId)) return null;
-
-  const { data } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-    .eq('facility_id', facilityId)
-    .in('role', ['owner', 'admin'])
-    .single();
-
-  return data ? { userId: user.id, facilityId: data.facility_id } : null;
-}
 
 export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -41,8 +22,8 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const auth = await getAdminInfo(request);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminApiContext(request);
+  if (auth instanceof NextResponse) return auth;
 
   const body = await request.json().catch(() => null);
   const parsed = customerSchema.safeParse(body);
@@ -64,7 +45,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .eq('facility_id', auth.facilityId)
     .select()
     // .maybeSingle(): 該当0行（他施設の顧客/存在しないid/同時削除）は正常結果でありDBエラーではない。
-    // getAdminInfo は facility メンバーシップのみ検証し顧客idの存在は未検証のため0行は頻出パス。
+    // getAdminApiContext は facility メンバーシップのみ検証し顧客idの存在は未検証のため0行は頻出パス。
     // .single() だと0行→PGRST116→下の if(error) が先に発火し 404 が到達不能（500に化ける）。
     // 23505（重複メール）は制約エラーとして maybeSingle でも error に入るため 409 判定は維持される。
     .maybeSingle();
@@ -103,8 +84,8 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const auth = await getAdminInfo(request);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminApiContext(request);
+  if (auth instanceof NextResponse) return auth;
 
   const admin = createServiceRoleClient();
   const { data, error } = await admin
