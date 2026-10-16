@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { getAdminApiContext } from '@/lib/admin-api-context';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
-import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -23,24 +22,6 @@ const deleteSchema = z.object({
   qa_id: z.string().uuid(),
 });
 
-async function getAdminFacilityId(request: NextRequest): Promise<{ facilityId: string; userId: string } | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const facilityId = request.nextUrl.searchParams.get('facility_id');
-  if (!facilityId || !UUID_REGEX.test(facilityId)) return null;
-
-  const { data } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-    .eq('facility_id', facilityId)
-    .in('role', ['owner', 'admin'])
-    .single();
-
-  return data ? { facilityId, userId: user.id } : null;
-}
 
 // POST: Submit an answer
 export async function POST(request: NextRequest) {
@@ -52,8 +33,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const result = await getAdminFacilityId(request);
-  if (!result) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const result = await getAdminApiContext(request);
+  if (result instanceof NextResponse) return result;
 
   const body = await request.json().catch(() => null);
   const action = request.nextUrl.searchParams.get('action');

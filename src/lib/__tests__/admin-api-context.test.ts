@@ -10,6 +10,10 @@ import { POST as customerCreate } from '@/app/api/admin/customers/route';
 import { PATCH as customerEdit, DELETE as customerDelete } from '@/app/api/admin/customers/[id]/route';
 import { POST as blogCreate } from '@/app/api/admin/blog/route';
 import { PATCH as blogEdit, DELETE as blogDelete } from '@/app/api/admin/blog/[id]/route';
+import { POST as catalogCreate } from '@/app/api/admin/catalog/route';
+import { POST as qaWrite } from '@/app/api/admin/qa/route';
+import { GET as hpbList, POST as hpbFetch, PUT as hpbConfigure, PATCH as hpbEdit } from '@/app/api/admin/hpb-menus/route';
+import { POST as hpbApply } from '@/app/api/admin/hpb-menus/apply/route';
 
 const mockGetUser = jest.fn();
 const mockMembership = jest.fn();
@@ -108,6 +112,10 @@ const routes = [
   ['customers PATCH', 'PATCH', customerEdit, false], ['customers DELETE', 'DELETE', customerDelete, false],
   ['blog POST', 'POST', blogCreate, false], ['blog PATCH', 'PATCH', blogEdit, false],
   ['blog DELETE', 'DELETE', blogDelete, false],
+  ['catalog POST', 'POST', catalogCreate, false], ['qa POST', 'POST', qaWrite, false],
+  ['HPB GET', 'GET', hpbList, false], ['HPB POST', 'POST', hpbFetch, false],
+  ['HPB PUT', 'PUT', hpbConfigure, false], ['HPB PATCH', 'PATCH', hpbEdit, false],
+  ['HPB apply POST', 'POST', hpbApply, false],
 ] as const;
 test.each(routes)('%s rejects ambiguous identity and membership before service access', async (_name, method, handler) => {
   for (const failure of ['auth-with-data', 'auth-throw', 'member-with-data', 'member-throw']) {
