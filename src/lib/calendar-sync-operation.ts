@@ -103,7 +103,7 @@ export async function runCalendarOperation(admin: Pick<SupabaseClient,'rpc'>, in
     const blocked=boundary(prepared,input);if(blocked)return blocked;
     let op=operation(prepared,input);if(op.state==='succeeded')return complete(op);
     if(!credentials || op.calendar_id!==calendar)return unavailable(input.operationId);
-    const started=await rpc(admin,'start_calendar_operation',{p_id:op.id,p_actor:input.userId});
+    const started=await rpc(admin,'start_calendar_operation',{p_id:op.id,p_actor:input.userId,p_calendar:calendar,p_token_id:credentials.tokenId,p_token_updated_at:credentials.updatedAt});
     const startBlocked=boundary(started,input);if(startBlocked)return startBlocked;
     op=operation(started,input);if(op.state==='succeeded')return complete(op);
     if(op.state!=='started')return unavailable(input.operationId);
@@ -120,6 +120,8 @@ export async function runCalendarOperation(admin: Pick<SupabaseClient,'rpc'>, in
     } else {
       const res=await google(url,credentials.accessToken);
       if(res.ok) {const data:unknown=await res.json();confirmed=op.action==='delete'?deletedProof(data,op):activeProof(data,op);}
+      else if(op.action==='delete')confirmed=await deletionConfirmed(res);
+      // A plain 404 can also hide missing access. Never infer deletion from it.
     }
     if(!confirmed)return unavailable(input.operationId);
     const finished=await rpc(admin,'finish_calendar_operation',{p_id:op.id,p_actor:input.userId,p_event_id:op.google_event_id});

@@ -31,6 +31,7 @@ test('create uses reserved ID and frozen payload, and finalizes only matching pr
  const write=s.fetcher.mock.calls.find(([,init])=>init.method==='POST')!;const payload=JSON.parse(write[1].body);
  expect(payload).toMatchObject({id:TARGET,summary:'Synthetic',extendedProperties:{private:{carelinkOperation:ID}}});expect(payload.summary).not.toContain('retry');
  expect(write[1].signal).toBeInstanceOf(AbortSignal);expect(res.headers.get('Cache-Control')).toBe('no-store');
+ expect(s.rpc).toHaveBeenCalledWith('start_calendar_operation',{p_id:ID,p_actor:ACTOR,p_calendar:CALENDAR,p_token_id:'fc160003-0000-4000-8000-000000000001',p_token_updated_at:'2026-01-01T00:00:00Z'});
  expect(s.rpc).toHaveBeenLastCalledWith('finish_calendar_operation',{p_id:ID,p_actor:ACTOR,p_event_id:TARGET});
 });
 test('update uses PUT at encoded concrete calendar and existing event ID',async()=>{
@@ -126,4 +127,8 @@ test('unconfirmed finalization is not acknowledged as saved',async()=>{
 });
 test('transport errors never expose credentials or repeat a mutation',async()=>{
  const s=setup();s.fetcher.mockResolvedValueOnce(Response.json({id:CALENDAR})).mockRejectedValueOnce(new Error('private access_token=synthetic-secret'));expect((await s.run()).status).toBe(503);expect(s.fetcher).toHaveBeenCalledTimes(2);const error=(safeCaptureException as jest.Mock).mock.calls[0][0];expect(error.message).toBe('CALENDAR_OPERATION_UNCONFIRMED');expect(error.stack).not.toContain('synthetic-secret');
+});
+
+test.each([204,404,410,403])('delete recovery HTTP %s accepts only explicit deletion evidence',async status=>{
+ const s=setup({doc:{kind:'delete',action:'delete'}});s.responses.start_calendar_operation.dispatch=false;s.fetcher.mockResolvedValueOnce(Response.json({id:CALENDAR})).mockResolvedValueOnce(new Response(status===204?null:JSON.stringify({error:{errors:[{reason:'deleted'}]}}),{status}));expect((await s.run()).status).toBe(status===410?200:503);
 });

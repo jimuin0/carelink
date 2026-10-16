@@ -8139,7 +8139,13 @@ export type Database = {
         }[]
       }
       start_calendar_operation: {
-        Args: { p_actor: string; p_id: string }
+        Args: {
+          p_actor: string
+          p_calendar: string
+          p_id: string
+          p_token_id: string
+          p_token_updated_at: string
+        }
         Returns: Json
       }
       start_customer_booking_channel: {
