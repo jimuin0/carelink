@@ -206,6 +206,7 @@ async function probeCronFreshness(): Promise<DepResult> {
 }
 
 export async function GET(request: Request) {
+  const requestStarted = performance.now();
   // 無認証エンドポイントだが、1 リクエストで Stripe/Resend/Supabase(DB+RPC) を代理起動するため、
   // 連打されると外部 API への増幅 DoS・コスト増を招く。IP 単位でレート制限する。
   // 複数の正規監視（Render・外部監視・運用ダッシュボード）が同一の出口 IP を共有しても
@@ -216,6 +217,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
 
+  const gateElapsed = performance.now() - requestStarted;
+  const checksStarted = performance.now();
   const start = Date.now();
 
   const [supabase, rate_limit, stripe, resend, cron] = await Promise.all([
@@ -245,6 +248,8 @@ export async function GET(request: Request) {
       version: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'local',
       deps,
     },
-    { status: httpStatus }
+    { status: httpStatus, headers: {
+      'Server-Timing': `gate;dur=${gateElapsed.toFixed(1)}, checks;dur=${(performance.now() - checksStarted).toFixed(1)}, app;dur=${(performance.now() - requestStarted).toFixed(1)}`,
+    } }
   );
 }

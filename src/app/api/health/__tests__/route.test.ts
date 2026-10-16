@@ -594,3 +594,21 @@ describe('GET /api/health の Resend 送信元ドメイン照合', () => {
     expect(json.deps.resend.ok).toBe(true);
   });
 });
+
+// Separate latency before the dependency timer from the dependency work itself.
+test('server timings include rate-limit gate latency without altering health status', async () => {
+  mockCheckRateLimit.mockImplementationOnce(() => new Promise(resolve => setTimeout(() => resolve(false), 40)));
+  const response = await GET(makeReq());
+  expect(response.status).toBe(200);
+  const timing = response.headers.get('server-timing')!;
+  expect(timing).toMatch(/^gate;dur=\d+\.\d, checks;dur=\d+\.\d, app;dur=\d+\.\d$/);
+  const values = [...timing.matchAll(/dur=(\d+\.\d)/g)].map(match => Number(match[1]));
+  expect(values[0]).toBeGreaterThanOrEqual(30);
+  expect(values[2]).toBeGreaterThanOrEqual(values[0] + values[1] - 1);
+});
+test('unhealthy response retains safe timing diagnostics and its 503 status', async () => {
+  setupDefaultMocks({supabaseOk:false});
+  const response = await GET(makeReq());
+  expect(response.status).toBe(503);
+  expect(response.headers.get('server-timing')).toMatch(/^gate;dur=\d+\.\d, checks;dur=\d+\.\d, app;dur=\d+\.\d$/);
+});
