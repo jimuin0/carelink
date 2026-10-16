@@ -1,3 +1,6 @@
+import { readPageResult } from '@/lib/page-read-verification';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { getUniqueCustomers } from '@/lib/admin';
 import { canonicalizeEmail } from '@/lib/email-canonical';
@@ -7,27 +10,29 @@ import CustomersManager, { type MasterCustomer, type UnregisteredCustomer } from
 
 export default async function AdminCustomersPage() {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) notFound();
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return <AccessVerificationUnavailable />;
+  if (identity.state !== 'verified') notFound();
+  const user = identity.user;
 
   // 【監査M3】owner/admin である【全施設】を対象にする。旧実装は .limit(1).single() で先頭1施設のみ
   // 表示し、複数施設オーナーは他施設の顧客が一覧に出なかった。全所属施設(owner/admin)を取得し、
   // 顧客マスター・来店・セグメントを【施設ごとに突合】して集約する（施設を跨いだ email 突合は
   // 別施設の来店を誤って混ぜるため必ず facility 単位で行う）。追加/編集/削除は各顧客の
   // facility_id を用いる（CustomersManager 側で施設セレクタ・行の施設スコープを扱う）。
-  const { data: membershipRows } = await supabase
+  const { data: membershipRows } = await readPageResult(() => supabase
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
-    .in('role', ['owner', 'admin']);
+    .in('role', ['owner', 'admin']), '/admin/customers');
   if (!membershipRows || membershipRows.length === 0) notFound();
   const facilityIds = Array.from(new Set(membershipRows.map((m) => m.facility_id)));
 
   // 施設名（一覧の施設列・追加フォームの施設セレクタ用）。公開/非公開を問わず自施設は表示する。
-  const { data: facilityRows } = await supabase
+  const { data: facilityRows } = await readPageResult(() => supabase
     .from('facility_profiles')
     .select('id, name')
-    .in('id', facilityIds);
+    .in('id', facilityIds), '/admin/customers');
   const facilityNameById = new Map<string, string>(
     (facilityRows ?? []).map((f) => [f.id as string, (f.name as string) ?? '施設']),
   );

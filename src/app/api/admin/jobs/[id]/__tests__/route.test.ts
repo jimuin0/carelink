@@ -85,7 +85,7 @@ function jobSelectChain(data: unknown) {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
     in: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data, error: null })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
   };
 }
 
@@ -350,10 +350,10 @@ test('DELETE: 例外発生 → 500 (catchブロック)', async () => {
   expect(res.status).toBe(500);
 });
 
-test('GET: 例外発生 → 500 (catchブロック)', async () => {
+test('GET: 認証確認不能 → 503', async () => {
   mockGetUser.mockRejectedValueOnce(new Error('boom'));
   const res = await GET(makeGetRequest(), makeProps());
-  expect(res.status).toBe(500);
+  expect(res.status).toBe(503);
 });
 
 // Branch coverage: memberships が null のとき ?? [] でフォールバック（true 分岐 → facilityIds.length===0 → 403）

@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { requirePlatformAdmin } from '@/lib/platform-admin';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
 import { UUID_REGEX } from '@/lib/constants';
@@ -23,20 +23,6 @@ export const dynamic = 'force-dynamic';
 // テーブルの Update 型そのものを使い、意味を変えずに型検査を通す。
 type FacilityProfileUpdate = Database['public']['Tables']['facility_profiles']['Update'];
 
-async function getPlatformAdminUser(): Promise<string | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_platform_admin')
-    .eq('id', user.id)
-    .single();
-
-  return profile?.is_platform_admin ? user.id : null;
-}
-
 export async function PATCH(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
@@ -45,9 +31,11 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const userId = await getPlatformAdminUser();
-  if (!userId) return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
+  const user = await requirePlatformAdmin();
+  if (user instanceof NextResponse) return user;
+  if (!user) return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
 
+  const userId = user.id;
   const body = await request.json().catch(() => ({}));
   const { facility_id, is_verified, verified_type } = body;
 

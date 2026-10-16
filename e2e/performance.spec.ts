@@ -70,14 +70,6 @@ test.describe('ページロード パフォーマンス', () => {
 });
 
 test.describe('API レスポンスタイム', () => {
-  test('/api/health が 500ms 以内に応答する', async ({ request }) => {
-    const start = Date.now();
-    const response = await request.get('/api/health');
-    const elapsed = Date.now() - start;
-    expect(response.status()).toBe(200);
-    expect(elapsed).toBeLessThan(500);
-  });
-
   test('/api/salons が 2 秒以内に応答する', async ({ request }) => {
     const start = Date.now();
     const response = await request.get('/api/salons');

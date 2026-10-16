@@ -1,3 +1,6 @@
+import { readPageResult } from '@/lib/page-read-verification';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import type { Metadata } from 'next';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -12,15 +15,17 @@ export const dynamic = 'force-dynamic';
 
 export default async function UsageStatsPage() {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) notFound();
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return <AccessVerificationUnavailable />;
+  if (identity.state !== 'verified') notFound();
+  const user = identity.user;
 
-  const { data: mem } = await supabase
+  const { data: mem } = await readPageResult(() => supabase
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
       .in('role', ['owner', 'admin'])
-    .limit(1).single();
+    .limit(1).maybeSingle(), '/admin/usage-stats');
   if (!mem) notFound();
 
   const facilityId = mem.facility_id;
@@ -33,11 +38,11 @@ export default async function UsageStatsPage() {
   const prevMonthAgo = jstMonthStartIso(-2);
 
   // 予約データ
-  const { data: allBookings } = await admin
+  const { data: allBookings } = await readPageResult(() => admin
     .from('bookings')
     .select('user_id, created_at, status')
     .eq('facility_id', facilityId)
-    .gte('created_at', jstMonthStartIso(-12));
+    .gte('created_at', jstMonthStartIso(-12)), '/admin/usage-stats');
 
   const bookings = allBookings ?? [];
 
@@ -97,10 +102,10 @@ export default async function UsageStatsPage() {
   }
 
   // NPS
-  const { data: npsData } = await admin
+  const { data: npsData } = await readPageResult(() => admin
     .from('nps_surveys')
     .select('score')
-    .eq('facility_id', facilityId);
+    .eq('facility_id', facilityId), '/admin/usage-stats');
 
   const npsScores = (npsData ?? []).map((n) => n.score);
   const npsPromoters = npsScores.filter((s) => s >= 9).length;

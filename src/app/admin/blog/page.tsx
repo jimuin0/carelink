@@ -1,3 +1,6 @@
+import { readPageResult } from '@/lib/page-read-verification';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -6,24 +9,26 @@ import { SbPageHeader } from '@/components/admin/SbUi';
 
 export default async function AdminBlogPage() {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) notFound();
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return <AccessVerificationUnavailable />;
+  if (identity.state !== 'verified') notFound();
+  const user = identity.user;
 
-  const { data: membership } = await supabase
+  const { data: membership } = await readPageResult(() => supabase
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
       .in('role', ['owner', 'admin'])
     .limit(1)
-    .single();
+    .maybeSingle(), '/admin/blog');
   if (!membership) notFound();
 
-  const { data } = await supabase
+  const { data } = await readPageResult(() => supabase
     .from('blog_posts')
     .select('*')
     .eq('facility_id', membership.facility_id)
     .order('created_at', { ascending: false })
-    .limit(100);
+    .limit(100), '/admin/blog');
 
   const posts = (data ?? []) as BlogPost[];
 

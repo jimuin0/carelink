@@ -1,3 +1,5 @@
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import type { UserPoint } from '@/types';
@@ -5,8 +7,10 @@ import { readPointsBalance } from '@/lib/points-balance';
 
 export default async function PointsPage() {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) notFound();
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return <AccessVerificationUnavailable title="マイページのログイン状態を確認できません" />;
+  if (identity.state !== 'verified') notFound();
+  const user = identity.user;
 
   let points: UserPoint[];
   let totalPoints: number;

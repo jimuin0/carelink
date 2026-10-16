@@ -1,3 +1,6 @@
+import { readPageResult } from '@/lib/page-read-verification';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -5,14 +8,16 @@ import { statusChipClass, bookingStatusLabel } from '@/lib/booking-status';
 
 export default async function BookingsPage() {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) notFound();
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return <AccessVerificationUnavailable title="マイページのログイン状態を確認できません" />;
+  if (identity.state !== 'verified') notFound();
+  const user = identity.user;
 
-  const { data } = await supabase
+  const { data } = await readPageResult(() => supabase
     .from('bookings')
     .select('id, booking_date, start_time, end_time, status, total_price, facility_id, menu_id, staff_id')
     .eq('user_id', user.id)
-    .order('booking_date', { ascending: false });
+    .order('booking_date', { ascending: false }), '/mypage/bookings');
 
   const bookings = data ?? [];
 
@@ -20,10 +25,10 @@ export default async function BookingsPage() {
   const facilityIds = Array.from(new Set(bookings.map((b) => b.facility_id).filter(Boolean)));
   const slugMap = new Map<string, string>();
   if (facilityIds.length > 0) {
-    const { data: facilityData } = await supabase
+    const { data: facilityData } = await readPageResult(() => supabase
       .from('facility_profiles')
       .select('id, slug, name')
-      .in('id', facilityIds);
+      .in('id', facilityIds), '/mypage/bookings');
     for (const f of facilityData ?? []) {
       slugMap.set(f.id, f.slug);
     }

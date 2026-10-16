@@ -1,3 +1,6 @@
+import { readPageResult } from '@/lib/page-read-verification';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import type { Metadata } from 'next';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -10,15 +13,17 @@ export const dynamic = 'force-dynamic';
 
 export default async function FunnelPage() {
   const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) notFound();
+  const identity = await verifyAuthUser(supabase.auth);
+  if (identity.state === 'unavailable') return <AccessVerificationUnavailable />;
+  if (identity.state !== 'verified') notFound();
+  const user = identity.user;
 
-  const { data: mem } = await supabase
+  const { data: mem } = await readPageResult(() => supabase
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
       .in('role', ['owner', 'admin'])
-    .limit(1).single();
+    .limit(1).maybeSingle(), '/admin/funnel');
   if (!mem) notFound();
 
   const facilityId = mem.facility_id;
@@ -34,27 +39,25 @@ export default async function FunnelPage() {
     { count: bookingCompleted },
     { count: reviewPosted },
   ] = await Promise.all([
-    // ページ閲覧（施設ページの閲覧記録）
-    admin.from('facility_page_views').select('id', { count: 'exact', head: true })
-      .eq('facility_id', facilityId).gte('created_at', since),
-    // 予約開始（全ステータス）
-    admin.from('bookings').select('id', { count: 'exact', head: true })
-      .eq('facility_id', facilityId).gte('created_at', since),
-    // 予約確定（確定以降＝confirmed/arrived/completed）。arrived（受付＝確定後に来店中）の
-    // 取りこぼしで確定数を過少集計しない。cancelled/no_show は pending からの遷移も有り得て
-    // 「確定した」とは断定できないため除外する。
-    admin.from('bookings').select('id', { count: 'exact', head: true })
+    readPageResult(() => admin.from('facility_page_views').select('id', { count: 'exact', head: true })
+      .eq('facility_id', facilityId).gte('created_at', since), '/admin/funnel'),
+    readPageResult(() => admin.from('bookings').select('id', { count: 'exact', head: true })
+      .eq('facility_id', facilityId).gte('created_at', since), '/admin/funnel'),
+    readPageResult(() => admin.from('bookings').select('id', { count: 'exact', head: true })
       .eq('facility_id', facilityId).gte('created_at', since)
-      .in('status', ['confirmed', 'arrived', 'completed']),
-    // レビュー投稿
-    admin.from('facility_reviews').select('id', { count: 'exact', head: true })
-      .eq('facility_id', facilityId).gte('created_at', since),
+      .in('status', ['confirmed', 'arrived', 'completed']), '/admin/funnel'),
+    readPageResult(() => admin.from('facility_reviews').select('id', { count: 'exact', head: true })
+      .eq('facility_id', facilityId).gte('created_at', since), '/admin/funnel'),
   ]);
 
-  const views = pageViews ?? 0;
-  const totalBookings = bookingStarts ?? 0;
-  const confirmedBookings = bookingCompleted ?? 0;
-  const reviews = reviewPosted ?? 0;
+  const verifiedCount = (count: number | null) => {
+    if (count === null || !Number.isSafeInteger(count) || count < 0) throw new Error('PAGE_DATA_UNAVAILABLE');
+    return count;
+  };
+  const views = verifiedCount(pageViews);
+  const totalBookings = verifiedCount(bookingStarts);
+  const confirmedBookings = verifiedCount(bookingCompleted);
+  const reviews = verifiedCount(reviewPosted);
 
   // ファネル（ページ閲覧を基準）
   const steps = [
@@ -97,11 +100,11 @@ export default async function FunnelPage() {
   // 月別予約推移（過去6ヶ月・JST 月境界）
   const monthlyBookings: { month: string; total: number; confirmed: number }[] = [];
 
-  const { data: allBookings } = await admin
+  const { data: allBookings } = await readPageResult(() => admin
     .from('bookings')
     .select('created_at, status')
     .eq('facility_id', facilityId)
-    .gte('created_at', jstMonthStartIso(-6));
+    .gte('created_at', jstMonthStartIso(-6)), '/admin/funnel');
 
   for (let i = 5; i >= 0; i--) {
     const start = jstMonthStartIso(-i);
@@ -126,7 +129,7 @@ export default async function FunnelPage() {
 
       {/* ファネルチャート */}
       <div className="bg-white rounded-xl border border-gray-100 p-6">
-        <h2 className="font-bold text-sm mb-5">過去30日間のファネル</h2>
+        <h2 className="font-bold text-sm mb-5">先月1日以降のファネル</h2>
         <div className="space-y-3">
           {steps.map((step, i) => {
             const pct = Math.round((step.count / maxCount) * 100);

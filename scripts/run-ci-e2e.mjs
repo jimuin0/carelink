@@ -131,6 +131,9 @@ async function main() {
       server.once('error', reject);
       server.listen(54330, 'localhost', resolve);
     });
+    // Validate worker-scoped fixture options before spending a production build.
+    phase = 'playwright-collection';
+    await run(['run', 'test:e2e', '--', '--list'], env);
     phase = 'production-build';
     await run(['run', 'build'], env);
     phase = 'playwright';
