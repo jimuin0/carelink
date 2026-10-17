@@ -35,5 +35,18 @@ test.describe('検索フロー', () => {
     await page.goto('/search/area');
     // ページ固有の見出しを限定（`h1, h2` は共通フッター見出しにも一致して曖昧なため）。
     await expect(page.getByRole('heading', { name: 'エリアから探す' })).toBeVisible();
+    // The index can succeed while every on-demand statically generated child
+    // fails. Follow the actual stored area link, then exercise request pagination.
+    const region = page.locator('a[href^="/search/area/"]').first();
+    await expect(region).toBeVisible();
+    const href = await region.getAttribute('href');
+    expect(href).toMatch(/^\/search\/area\/[^/?]+$/);
+    await region.click();
+    await expect(page).toHaveURL(url => url.pathname === href);
+    await expect(page.getByRole('heading', { level: 1, name: /のサロン・クリニック$/ })).toBeVisible();
+    const paged = await page.goto(`${href}?page=2`);
+    expect(paged?.status()).toBe(200);
+    await expect(page.getByRole('heading', { level: 1, name: /のサロン・クリニック$/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'エラーが発生しました', exact: true })).toBeHidden();
   });
 });
