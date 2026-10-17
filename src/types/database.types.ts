@@ -7118,6 +7118,16 @@ export type Database = {
         }
         Returns: Json
       }
+      manage_facility_api_key_atomic: {
+        Args: {
+          p_action: string
+          p_actor_id: string
+          p_facility_id: string
+          p_key_id: string
+          p_values: Json
+        }
+        Returns: Json
+      }
       moderate_content_atomic: {
         Args: {
           p_actor_id: string

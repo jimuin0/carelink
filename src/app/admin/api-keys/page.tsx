@@ -58,7 +58,7 @@ export default function ApiKeysPage() {
         if (!mem) { if (!cancelled) setLoading(false); return; }
         if (cancelled) return;
         setFacilityId(mem.facility_id);
-        const { data, error } = await supabase.from('api_keys').select('*').eq('facility_id', mem.facility_id).order('created_at', { ascending: false });
+        const { data, error } = await supabase.from('api_keys').select('id, name, key_prefix, scopes, is_active, last_used_at, expires_at, created_at').eq('facility_id', mem.facility_id).order('created_at', { ascending: false });
         if (error) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
         if (cancelled) return;
         setKeys((data ?? []) as ApiKey[]);

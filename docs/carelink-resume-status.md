@@ -1,3 +1,12 @@
+## 2026-10-18 APIキー発行・無効化の権限検証（PR #723へ同梱）
+
+- 再現: 旧 `api_keys` ALLポリシーは任命adminの直接INSERTを許し、owner限定の発行APIを迂回できた。旧APIの事前認可後に権限を失ってもservice-role書き込みが実行される経路と、JSON nullの例外も再現した。
+- 修正: `manage_facility_api_key_atomic` が現時点の会員行をロックし、発行はowner・無効化はowner/adminのみ。anonの表権限を撤去し、authenticatedは従来の会員範囲でSELECTだけを保持。service-roleのみRPCを実行できる。キーの応答は明示投影とno-store、ハッシュを返さない。
+- 実証: PG17の292マイグレーション新規再生／3185 fingerprint、46ケース／実ロック待ち10件、全556スイート11,825テスト成功、11,078/11,078 branches。lint 0 errors（既存4 warnings）、tsc成功。
+- 本番DDL `20261017172144_api_key_write_authority_atomic` 適用済み。関数MD5 `6f6c69dff4af8fe9a229e76a892a2fe1`、invoker／service-only、通常ロールのINSERT/UPDATE/DELETE/TRUNCATE不可とauthenticatedのSELECT保持を照合。security advisorの分類・件数は不変。
+- アプリはPR #723でCI・本番配信確認を継続中。本番の試験キー発行・既存キー無効化・顧客操作は行っていない。既発行キーの扱いを変更していない。プロジェクト全体の未修正ゼロは未証明。
+- 証拠: `.local-consolidation-20261016/error-improvement-handoff/api-key-write-adversarial-verification-20261018.json`。
+
 # CareLink 修正の再開状況
 
 ## 2026-10-17 敵対検証追加：カタログ・ブログ・QA・求人の書込み

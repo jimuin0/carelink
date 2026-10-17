@@ -18,11 +18,12 @@ jest.mock('@/lib/audit-logger', () => ({
 }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
 
-const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
+const FACILITY_UUID = '22222222-2222-4222-8222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
-const KEY_UUID = '44444444-4444-4444-4444-444444444444';
+const KEY_UUID = '44444444-4444-4444-8444-444444444444';
 
 const mockAdminFrom = jest.fn();
+const mockRpc = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockGetUser = jest.fn();
 
@@ -30,7 +31,7 @@ jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -80,6 +81,7 @@ function insertChain(data: unknown, error: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockRpc.mockImplementation(async (_name, args) => { const r = await mockAdminFrom('api_keys').insert(args.p_values).select().single(); return { ...r, data: r.data && { facility_id: FACILITY_UUID, key_prefix: 'ck_live_12345678', scopes: ['bookings:read'], is_active: true, last_used_at: null, expires_at: null, created_at: '2026-10-17T00:00:00Z', ...r.data } }; });
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';

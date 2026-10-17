@@ -13,6 +13,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { authUnavailable, serverError } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
+import { manageFacilityApiKey } from '@/lib/api-key-write';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
 
 export async function DELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -52,19 +53,9 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   }
   if (!key || !mem) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  // 更新件数(affected rows)を検証せず常に success:true を返していたため、TOCTOU（key/membership確認後に
-  // 既削除等）による0件更新も「成功」と偽装していた（phantom success）。.select() で更新行を受け取り、
-  // 0件なら404を返す（customers/[id]・menus/[id]・catalog/[id] と同型）。
-  const { data: deactivated, error: deactivateErr } = await admin
-    .from('api_keys')
-    .update({ is_active: false })
-    .eq('id', params.id)
-    .eq('facility_id', key.facility_id)
-    .select();
-  if (deactivateErr) {
-    return serverError('admin-api-keys-delete', deactivateErr, '/api/admin/api-keys/[id]', 'Failed to deactivate key');
-  }
-  if (!deactivated || deactivated.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  const deactivated = await manageFacilityApiKey({ actorId: user.id, facilityId: key.facility_id,
+    keyId: params.id, action: 'revoke', values: {} });
+  if (deactivated instanceof NextResponse) return deactivated;
 
   const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({
