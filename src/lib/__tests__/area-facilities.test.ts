@@ -4,16 +4,17 @@ jest.mock('../redis');
 import { searchAreaFacilities } from '../area-facilities';
 
 const mockQuery = {
-  select: jest.fn(), eq: jest.fn(), in: jest.fn(), ilike: jest.fn(), order: jest.fn(), range: jest.fn(),
+  select: jest.fn(), eq: jest.fn(), in: jest.fn(), ilike: jest.fn(), order: jest.fn(), range: jest.fn(), then: jest.fn(),
 };
 const mockCreateServerClient = jest.fn(() => ({ from: () => mockQuery }));
-let result: { data: unknown; count: number | null; error: unknown };
+let result: { data: unknown; count: number | null; error: unknown; status?: number };
 jest.mock('../supabase-server', () => ({ createServerSupabaseClient: () => mockCreateServerClient() }));
 
 beforeEach(() => {
   jest.clearAllMocks(); result = { data: [], count: 0, error: null };
   for (const method of ['select', 'eq', 'in', 'ilike', 'order']) mockQuery[method as keyof typeof mockQuery].mockReturnValue(mockQuery);
   mockQuery.range.mockImplementation(async () => result);
+  mockQuery.then.mockImplementation((resolve: (value: unknown) => unknown) => Promise.resolve({ count: 1, error: null }).then(resolve));
 });
 
 test.each([
@@ -76,4 +77,32 @@ test('uses exact count and stable ordered pagination', async () => {
   result = { data: [], count: 41, error: null };
   await expect(searchAreaFacilities({ kind: 'prefecture', prefecture: '大阪府' }, 3)).resolves.toMatchObject({ total: 41, perPage: 20 });
   expect(mockQuery.range).toHaveBeenCalledWith(40, 59);
+});
+
+test('out-of-range 416 requires a successful scoped recount before returning the empty page', async () => {
+  result = { data: null, count: null, error: { code: 'PGRST103' }, status: 416 };
+  await expect(searchAreaFacilities({ kind: 'city', prefecture: '大阪府', city: '堺市堺区' }, 2))
+    .resolves.toEqual({ facilities: [], total: 1, perPage: 20 });
+  expect(mockQuery.select).toHaveBeenLastCalledWith(expect.any(String), { count: 'exact', head: true });
+  expect(mockQuery.eq.mock.calls.filter(([key]) => key === 'city')).toEqual([['city', '堺市堺区'], ['city', '堺市堺区']]);
+});
+
+test.each([
+  { count: null, error: null }, { count: -1, error: null }, { count: 1.5, error: null },
+  { count: 21, error: null }, { count: 1, error: { code: 'DB' } },
+])('unverified or now in-range recount cannot disguise the failed query %#', async recount => {
+  result = { data: null, count: null, error: { code: 'PGRST103' }, status: 416 };
+  mockQuery.then.mockImplementation((resolve: (value: unknown) => unknown) => Promise.resolve(recount).then(resolve));
+  await expect(searchAreaFacilities({ kind: 'prefecture', prefecture: '大阪府' }, 2)).rejects.toThrow('Area facilities unavailable');
+});
+
+test.each([
+  { status: 500, error: { code: 'PGRST103' }, page: 2 },
+  { status: 416, error: { code: 'OTHER' }, page: 2 },
+  { status: 416, error: null, page: 2 },
+  { status: 416, error: { code: 'PGRST103' }, page: 1 },
+])('only a classified later-page range error can trigger recount %#', async ({ status, error, page }) => {
+  result = { data: null, count: null, error, status };
+  await expect(searchAreaFacilities({ kind: 'prefecture', prefecture: '大阪府' }, page)).rejects.toThrow('Area facilities unavailable');
+  expect(mockQuery.then).not.toHaveBeenCalled();
 });
