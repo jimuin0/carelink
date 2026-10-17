@@ -26,6 +26,10 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm ci
+      - name: Verify admin schedule export against cron registry
+        run: |
+          node --test scripts/export-admin-schedules.test.mjs
+          node scripts/export-admin-schedules.mjs --check
       - name: Lint
         run: npm run lint
       # React Compiler 系ルール（set-state-in-effect 等）は警告に落としてある。
