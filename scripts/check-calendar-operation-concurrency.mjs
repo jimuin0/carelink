@@ -145,9 +145,15 @@ try {
  const contested=input();const initial=await admin.rpc('prepare_calendar_operation',{p_id:contested.operationId,p_actor:actor,p_booking:booking,p_kind:'sync',p_payload:payload,p_calendar:primary,p_token_id:token,p_token_updated_at:'2026-01-01T00:00:00Z'});assert.equal(initial.error,null);
  const starters=await observeOverlap(()=>Promise.all([admin.rpc('start_calendar_operation',{p_id:contested.operationId,p_actor:actor,p_calendar:primary,p_token_id:token,p_token_updated_at:'2026-01-01T00:00:00Z'}),admin.rpc('start_calendar_operation',{p_id:contested.operationId,p_actor:actor,p_calendar:primary,p_token_id:token,p_token_updated_at:'2026-01-01T00:00:00Z'})]),'start_calendar_operation');assert.equal(starters.filter(x=>x.data.dispatch===true).length,1);
  events.set(initial.data.google_event_id,{...payload,id:initial.data.google_event_id,status:'confirmed',extendedProperties:{private:{carelinkOperation:contested.operationId}}});assert.equal((await call(contested)).status,200);verified.push('two simultaneous SQL dispatch claims authorize exactly one writer');
+ // No provider write was authorized for a prepared receipt. It must not strand
+ // retirement after a failed credential read or abandoned browser request.
+ const undispatched=input();const undispatchedPrepared=await admin.rpc('prepare_calendar_operation',{p_id:undispatched.operationId,p_actor:actor,p_booking:booking,p_kind:'sync',p_payload:payload,p_calendar:primary,p_token_id:token,p_token_updated_at:'2026-01-01T00:00:00Z'});assert.equal(undispatchedPrepared.data.state,'prepared');
+ const noRetirementWrites={...counts};
+ querySync(`BEGIN; SET ROLE service_role; DELETE FROM public.bookings WHERE id=${quote(booking)}; ROLLBACK;`);
+ assert.equal(querySync(`SELECT state FROM public.calendar_sync_operations WHERE id=${quote(undispatched.operationId)}`),'prepared');assert.deepEqual(counts,noRetirementWrites);verified.push('booking retirement permits undispatched preparation; rollback restores its receipt');
  // Simulate the limited Auth role, not the migration owner, for successful retirement.
  const authRole=`carelink_calendar_fixture_auth_${process.pid}`;querySync(`CREATE ROLE ${authRole} NOLOGIN; GRANT USAGE ON SCHEMA auth TO ${authRole}; GRANT SELECT,DELETE ON auth.users TO ${authRole}; GRANT ${authRole} TO postgres;`);
- try{querySync(`SET ROLE ${authRole}; DELETE FROM auth.users WHERE id=${quote(actor)};`);assert.equal(querySync(`SELECT count(*) FROM public.profiles WHERE id=${quote(actor)}`),'0');verified.push('limited Auth role can retire after resolution; no private receipt privilege added');}
+ try{querySync(`SET ROLE ${authRole}; DELETE FROM auth.users WHERE id=${quote(actor)};`);assert.equal(querySync(`SELECT count(*) FROM public.profiles WHERE id=${quote(actor)}`),'0');assert.equal(querySync(`SELECT count(*) FROM public.calendar_sync_operations WHERE actor_id=${quote(actor)}`),'0');assert.deepEqual(counts,noRetirementWrites);verified.push('limited Auth role retires with undispatched preparation and no provider calls or extra privileges');}
  finally{querySync(`REVOKE SELECT,DELETE ON auth.users FROM ${authRole}; REVOKE USAGE ON SCHEMA auth FROM ${authRole}; DROP ROLE ${authRole};`);}
  // Auth retirement anonymizes bookings instead of deleting them. Remove only
  // this script's synthetic fixtures so later disposable-DB suites start clean.
