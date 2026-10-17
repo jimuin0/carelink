@@ -7476,6 +7476,16 @@ export type Database = {
         }
         Returns: Json
       }
+      save_admin_staff_atomic: {
+        Args: {
+          p_actor_id: string
+          p_facility_id: string
+          p_menu_ids: string[]
+          p_staff_id: string
+          p_values: Json
+        }
+        Returns: Json
+      }
       save_booking_email_event_atomic: {
         Args: {
           p_actor_id: string
