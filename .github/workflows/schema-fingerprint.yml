@@ -325,6 +325,9 @@ jobs:
       - name: Menu writes reject revoked roles, stale photo exemptions and partial rollback (disposable DB)
         run: python3 scripts/check-menu-write-concurrency.py
 
+      - name: Staff profile and assignment rollback, revocation and concurrent edits (disposable DB)
+        run: python3 scripts/check-staff-write-concurrency.py
+
       - name: Coupon operation replay, conflict, retired result and rollback (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/coupon-operation-fixtures.sql
 
