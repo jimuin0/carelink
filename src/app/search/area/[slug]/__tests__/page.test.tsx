@@ -1,6 +1,6 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { renderToStaticMarkup } from 'react-dom/server';
-import Page, { dynamicParams, generateStaticParams, revalidate } from '../page';
+import Page, { dynamic } from '../page';
 import { notFound } from 'next/navigation';
 import { getAreaBySlug, getAreaBreadcrumb, getAreasByParent, buildAreaSearchParam } from '@/lib/areas';
 import { searchAreaFacilities } from '@/lib/area-facilities';
@@ -25,10 +25,8 @@ beforeEach(() => {
   (searchAreaFacilities as jest.Mock).mockResolvedValue({ facilities: [], total: 0, perPage: 20 });
 });
 
-test('does not require live area data during build and keeps on-demand ISR enabled', async () => {
-  await expect(generateStaticParams()).resolves.toEqual([]);
-  expect(dynamicParams).toBe(true);
-  expect(revalidate).toBe(3600);
+test('renders request-time nonce and page context without on-demand static generation', () => {
+  expect(dynamic).toBe('force-dynamic');
 });
 
 test('uses ancestry-scoped search; only a genuinely empty query says there are no listings', async () => {

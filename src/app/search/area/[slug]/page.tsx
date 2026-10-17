@@ -6,15 +6,10 @@ import { searchAreaFacilities } from '@/lib/area-facilities';
 import FacilityCard from '@/components/search/FacilityCard';
 import Pagination from '@/components/search/Pagination';
 
-export const revalidate = 3600;
-// Area data is managed in Supabase and is unavailable during an isolated
-// production build. Generate paths on first request and then use ISR instead
-// of making the build depend on a live database.
-export const dynamicParams = true;
-
-export async function generateStaticParams() {
-  return [];
-}
+// The root layout reads per-request CSP nonce headers; this page also reads
+// searchParams for pagination. On-demand static generation cannot render this
+// request context and fails with DYNAMIC_SERVER_USAGE on the first visit.
+export const dynamic = 'force-dynamic';
 
 interface Props {
   params: Promise<{ slug: string }>;
