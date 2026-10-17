@@ -1,0 +1,200 @@
+[
+  {
+    "time": "毎時 5分",
+    "desc": "予約リマインド",
+    "job_id": "booking-reminder",
+    "cron_services": [
+      "carelink-booking-reminder"
+    ],
+    "runner": "cron:carelink-booking-reminder",
+    "source": "render_cron",
+    "cron_utc": "5 * * * *"
+  },
+  {
+    "time": "毎日 15:00",
+    "desc": "日次集計",
+    "job_id": "daily-summary",
+    "cron_services": [
+      "carelink-daily-summary"
+    ],
+    "runner": "cron:carelink-daily-summary",
+    "source": "render_cron",
+    "cron_utc": "0 6 * * *"
+  },
+  {
+    "time": "毎週日 16:00",
+    "desc": "顧客セグメント",
+    "job_id": "customer-segment",
+    "cron_services": [
+      "carelink-customer-segment"
+    ],
+    "runner": "cron:carelink-customer-segment",
+    "source": "render_cron",
+    "cron_utc": "0 7 * * 0"
+  },
+  {
+    "time": "毎日 3:00",
+    "desc": "レビュー依頼",
+    "job_id": "review-request",
+    "cron_services": [
+      "carelink-review-request"
+    ],
+    "runner": "cron:carelink-review-request",
+    "source": "render_cron",
+    "cron_utc": "0 18 * * *"
+  },
+  {
+    "time": "毎週日 18:00",
+    "desc": "Googleレーティング同期",
+    "job_id": "sync-google-ratings",
+    "cron_services": [
+      "carelink-sync-google-ratings"
+    ],
+    "runner": "cron:carelink-sync-google-ratings",
+    "source": "render_cron",
+    "cron_utc": "0 9 * * 0"
+  },
+  {
+    "time": "毎日 1:00",
+    "desc": "オンボーディングフォロー",
+    "job_id": "onboarding-followup",
+    "cron_services": [
+      "carelink-onboarding-followup"
+    ],
+    "runner": "cron:carelink-onboarding-followup",
+    "source": "render_cron",
+    "cron_utc": "0 16 * * *"
+  },
+  {
+    "time": "毎日 23:00",
+    "desc": "誕生日クーポン",
+    "job_id": "birthday-coupon",
+    "cron_services": [
+      "carelink-birthday-coupon"
+    ],
+    "runner": "cron:carelink-birthday-coupon",
+    "source": "render_cron",
+    "cron_utc": "0 14 * * *"
+  },
+  {
+    "time": "毎時 0分",
+    "desc": "レビューフラグ",
+    "job_id": "flag-reviews",
+    "cron_services": [
+      "carelink-flag-reviews"
+    ],
+    "runner": "cron:carelink-flag-reviews",
+    "source": "render_cron",
+    "cron_utc": "0 * * * *"
+  },
+  {
+    "time": "毎週火 0:00",
+    "desc": "お気に入りダイジェスト",
+    "job_id": "favorites-digest",
+    "cron_services": [
+      "carelink-favorites-digest"
+    ],
+    "runner": "cron:carelink-favorites-digest",
+    "source": "render_cron",
+    "cron_utc": "0 15 * * 1"
+  },
+  {
+    "time": "毎週月 7:10",
+    "desc": "週次レポート",
+    "job_id": "weekly-report",
+    "cron_services": [
+      "carelink-weekly-report"
+    ],
+    "runner": "cron:carelink-weekly-report",
+    "source": "render_cron",
+    "cron_utc": "10 22 * * 0"
+  },
+  {
+    "time": "毎時 30分",
+    "desc": "キャンセル待ち通知",
+    "job_id": "waitlist-notify",
+    "cron_services": [
+      "carelink-waitlist-notify"
+    ],
+    "runner": "cron:carelink-waitlist-notify",
+    "source": "render_cron",
+    "cron_utc": "30 * * * *"
+  },
+  {
+    "time": "15分ごと",
+    "desc": "Webhook再送",
+    "job_id": "webhook-retry",
+    "cron_services": [
+      "carelink-webhook-retry"
+    ],
+    "runner": "cron:carelink-webhook-retry",
+    "source": "render_cron",
+    "cron_utc": "*/15 * * * *"
+  },
+  {
+    "time": "毎日 2:20",
+    "desc": "HPBメニュー取得",
+    "job_id": "hpb-menu-scrape",
+    "cron_services": [
+      "carelink-hpb-menu-scrape"
+    ],
+    "runner": "cron:carelink-hpb-menu-scrape",
+    "source": "render_cron",
+    "cron_utc": "20 17 * * *"
+  },
+  {
+    "time": "毎日 2:40",
+    "desc": "スキーマドリフト監視",
+    "job_id": "schema-drift-check",
+    "cron_services": [
+      "carelink-schema-drift-check"
+    ],
+    "runner": "cron:carelink-schema-drift-check",
+    "source": "render_cron",
+    "cron_utc": "40 17 * * *"
+  },
+  {
+    "time": "毎時 7・37分",
+    "desc": "cron死活監視",
+    "job_id": "cron-heartbeat",
+    "cron_services": [
+      "carelink-cron-heartbeat"
+    ],
+    "runner": "cron:carelink-cron-heartbeat",
+    "source": "render_cron",
+    "cron_utc": "7,37 * * * *"
+  },
+  {
+    "time": "毎時 50分",
+    "desc": "Threads投稿バックフィル",
+    "job_id": "threads-backfill",
+    "cron_services": [
+      "carelink-threads-backfill"
+    ],
+    "runner": "cron:carelink-threads-backfill",
+    "source": "render_cron",
+    "cron_utc": "50 * * * *"
+  },
+  {
+    "time": "毎週水 14:25",
+    "desc": "Threadsトークン更新",
+    "job_id": "threads-token-refresh",
+    "cron_services": [
+      "carelink-threads-token-refresh"
+    ],
+    "runner": "cron:carelink-threads-token-refresh",
+    "source": "render_cron",
+    "cron_utc": "25 5 * * 3"
+  },
+  {
+    "time": "5分ごと",
+    "desc": "外形死活監視",
+    "job_id": "health-check",
+    "cron_services": [
+      "carelink-health-check"
+    ],
+    "runner": "cron:carelink-health-check",
+    "source": "render_cron",
+    "cron_utc": "*/5 * * * *"
+  }
+]
