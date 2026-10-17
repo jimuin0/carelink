@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminApiContext } from '@/lib/admin-api-context';
-import { createServiceRoleClient } from '@/lib/supabase-server';
+import { manageAdminCustomer } from '@/lib/admin-customer-write';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -8,7 +8,6 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { customerSchema } from '@/lib/validations';
 import { zodErrorResponse } from '@/lib/api-validation';
-import { serverError } from '@/lib/with-route';
 
 export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -29,34 +28,12 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const parsed = customerSchema.safeParse(body);
   if (!parsed.success) return zodErrorResponse(parsed.error);
 
-  const admin = createServiceRoleClient();
-  const { data, error } = await admin
-    .from('customers')
-    .update({
-      name: parsed.data.name,
-      name_kana: parsed.data.name_kana ?? null,
-      email: parsed.data.email || null,
-      phone: parsed.data.phone ?? null,
-      birthday: parsed.data.birthday || null,
-      gender: parsed.data.gender ?? null,
-      notes: parsed.data.notes ?? null,
-    })
-    .eq('id', params.id)
-    .eq('facility_id', auth.facilityId)
-    .select()
-    // .maybeSingle(): 該当0行（他施設の顧客/存在しないid/同時削除）は正常結果でありDBエラーではない。
-    // getAdminApiContext は facility メンバーシップのみ検証し顧客idの存在は未検証のため0行は頻出パス。
-    // .single() だと0行→PGRST116→下の if(error) が先に発火し 404 が到達不能（500に化ける）。
-    // 23505（重複メール）は制約エラーとして maybeSingle でも error に入るため 409 判定は維持される。
-    .maybeSingle();
-
-  if (error) {
-    if (error.code === '23505') {
-      return NextResponse.json({ error: 'このメールアドレスの顧客は既に登録されています' }, { status: 409 });
-    }
-    return serverError('admin-customers-patch', error, '/api/admin/customers/[id]');
-  }
-  if (!data) return NextResponse.json({ error: '顧客が見つかりません' }, { status: 404 });
+  const data = await manageAdminCustomer({actorId:auth.userId,facilityId:auth.facilityId,customerId:params.id,action:'update',values:{
+    name: parsed.data.name, name_kana: parsed.data.name_kana ?? null,
+    email: parsed.data.email || null, phone: parsed.data.phone ?? null,
+    birthday: parsed.data.birthday || null, gender: parsed.data.gender ?? null, notes: parsed.data.notes ?? null,
+  }});
+  if (data instanceof NextResponse) return data;
 
   const { ua } = getRequestContext(request);
   void writeAuditLog({
@@ -87,19 +64,8 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   const auth = await getAdminApiContext(request);
   if (auth instanceof NextResponse) return auth;
 
-  const admin = createServiceRoleClient();
-  const { data, error } = await admin
-    .from('customers')
-    .delete()
-    .eq('id', params.id)
-    .eq('facility_id', auth.facilityId)
-    .select()
-    // .maybeSingle(): 0行（他施設の顧客/存在しないid）を not found として扱うため。
-    // .single() だと PGRST116 で if(error)→500 が先に発火し 404 分岐が到達不能になる。
-    .maybeSingle();
-
-  if (error) return serverError('admin-customers-delete', error, '/api/admin/customers/[id]');
-  if (!data) return NextResponse.json({ error: '顧客が見つかりません' }, { status: 404 });
+  const data = await manageAdminCustomer({actorId:auth.userId,facilityId:auth.facilityId,customerId:params.id,action:'delete',values:{}});
+  if (data instanceof NextResponse) return data;
 
   const { ua } = getRequestContext(request);
   void writeAuditLog({
