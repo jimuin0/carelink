@@ -11,6 +11,7 @@ import { verifyAuthUser } from '@/lib/auth-verification';
 import { authUnavailable } from '@/lib/with-route';
 import { safeCaptureException } from '@/lib/safe';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
+import { calendarGoogleJSON, verifiedCalendarRefreshToken } from '@/lib/calendar-reconsent';
 
 // Callers supply bounded diagnostics; provider/DB exceptions can contain tokens.
 function callbackFailure(req: NextRequest, tag: string, diagnostic: Error) {
@@ -89,7 +90,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Exchange code for tokens
-  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+  const tokenPayload = await calendarGoogleJSON('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -101,11 +102,6 @@ export async function GET(req: NextRequest) {
     }),
   });
 
-  if (!tokenRes.ok) {
-    return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
-  }
-
-  const tokenPayload = await tokenRes.json() as unknown;
   const tokenRecord = tokenPayload && typeof tokenPayload === 'object'
     ? tokenPayload as Record<string, unknown>
     : null;
@@ -126,7 +122,7 @@ export async function GET(req: NextRequest) {
   const admin = createServiceRoleClient();
   const { data: existingToken, error: existingTokenError } = await admin
     .from('google_calendar_tokens')
-    .select('refresh_token')
+    .select('id, updated_at, refresh_token')
     .eq('user_id', userId)
     .maybeSingle();
   if (existingTokenError) {
@@ -149,11 +145,16 @@ export async function GET(req: NextRequest) {
     }, { onConflict: 'user_id' });
     tokenSaveError = result.error;
   } else if (existingToken?.refresh_token) {
-    // Update without the refresh_token column so even a concurrent callback cannot
-    // replace the durable refresh credential with null.
+    if (typeof existingToken.id !== 'string' || !existingToken.id || !Number.isFinite(Date.parse(existingToken.updated_at))) {
+      return callbackFailure(req, 'gcal-callback-token-save', new Error('GOOGLE_CALENDAR_TOKEN_SAVE_UNCONFIRMED'));
+    }
+    const durableRefresh = await verifiedCalendarRefreshToken(accessToken, existingToken.refresh_token, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
+    // Match the exact version that supplied the proved refresh credential. A
+    // concurrent disconnect/reconnect/refresh must never receive this old access
+    // token or lose its new durable credential. Preserve a rotated grant too.
     const result = await admin.from('google_calendar_tokens')
-      .update(tokenFields, { count: 'exact' })
-      .eq('user_id', userId);
+      .update({ ...tokenFields, ...(durableRefresh === existingToken.refresh_token ? {} : { refresh_token: durableRefresh }) }, { count: 'exact' })
+      .eq('user_id', userId).eq('id', existingToken.id).eq('updated_at', existingToken.updated_at);
     tokenSaveError = result.error;
     // Disconnect can remove this row after the read. A successful HTTP response
     // alone does not prove that a renewable connection was actually saved.

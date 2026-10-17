@@ -36,6 +36,15 @@ let mockAuthGetUser: jest.Mock;
 let mockMaybeSingle: jest.Mock;
 let mockUpdate: jest.Mock;
 
+function updateChain(result: unknown) {
+  const eq = jest.fn();
+  const chain = { eq, then: (resolve: (value: unknown) => unknown, reject: (error: unknown) => unknown) => Promise.resolve(result).then(resolve, reject) };
+  eq.mockReturnValue(chain); return chain;
+}
+function reconsentFetch(url: string) {
+  return Promise.resolve(new Response(JSON.stringify(url.includes('oauth2.googleapis.com') ? { access_token: 'new-access', expires_in: 3600 } : { id: 'owner@example.invalid' }), { status: 200 }));
+}
+
 function setupDefaultMocks(
   rateLimited: boolean = false,
   nonceCookieFound: boolean = true,
@@ -76,7 +85,7 @@ function setupDefaultMocks(
         )
       );
     }
-    return Promise.resolve(new Response('{}'));
+    return Promise.resolve(new Response(JSON.stringify({id:'owner@example.invalid'})));
   }) as jest.Mock;
 
   mockUpsert = jest.fn().mockResolvedValue({
@@ -89,7 +98,7 @@ function setupDefaultMocks(
   const { createServerSupabaseAuthClient } = require('@/lib/supabase-server-auth');
   createServerSupabaseAuthClient.mockResolvedValue({ auth: { getUser: mockAuthGetUser } });
   mockMaybeSingle = jest.fn().mockResolvedValue({ data: null, error: null });
-  mockUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ count: 1, error: null }) });
+  mockUpdate = jest.fn().mockReturnValue(updateChain({count:1,error:null}));
 
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
@@ -134,9 +143,9 @@ describe('GET /api/google-calendar/callback', () => {
     if (operation === 'read') mockMaybeSingle.mockResolvedValue({ data: null, error: failure });
     if (operation === 'upsert') mockUpsert.mockResolvedValue({ error: failure });
     if (operation === 'update') {
-      mockMaybeSingle.mockResolvedValue({ data: { refresh_token: 'existing-refresh' }, error: null });
-      global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({ access_token: 'new-access', expires_in: 3600 }), { status: 200 }));
-      mockUpdate.mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: failure }) });
+      mockMaybeSingle.mockResolvedValue({ data: { id: 'fc170001-0000-4000-8000-000000000001', updated_at: '2026-01-01T00:00:00Z', refresh_token: 'existing-refresh' }, error: null });
+      global.fetch = jest.fn(reconsentFetch);
+      mockUpdate.mockReturnValue(updateChain({error:failure}));
     }
     const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
     expect(res.status).toBe(307);
@@ -454,7 +463,7 @@ describe('GET /api/google-calendar/callback', () => {
   ])('malformed token response (%s) → error redirect without saving credentials', async (_label, tokenJson) => {
     global.fetch = jest.fn((url: string) => url.includes('oauth2.googleapis.com/token')
       ? Promise.resolve(new Response(tokenJson, { status: 200 }))
-      : Promise.resolve(new Response('{}'))) as jest.Mock;
+      : Promise.resolve(new Response(JSON.stringify({id:'owner@example.invalid'})))) as jest.Mock;
     const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
     expect(res.headers.get('location')).toContain('gcal=error');
     expect(mockUpsert).not.toHaveBeenCalled();
@@ -632,7 +641,7 @@ describe('GET /api/google-calendar/callback', () => {
           )
         );
       }
-      return Promise.resolve(new Response('{}'));
+      return Promise.resolve(new Response(JSON.stringify({id:'owner@example.invalid'})));
     }) as jest.Mock;
 
     const res = await GET(
@@ -647,12 +656,12 @@ describe('GET /api/google-calendar/callback', () => {
   });
 
   test('再認可でrefresh_tokenが省略されたら既存tokenを保持する', async () => {
-    mockMaybeSingle.mockResolvedValue({ data: { refresh_token: 'existing-refresh' }, error: null });
+    mockMaybeSingle.mockResolvedValue({ data: { id: 'fc170001-0000-4000-8000-000000000001', updated_at: '2026-01-01T00:00:00Z', refresh_token: 'existing-refresh' }, error: null });
     global.fetch = jest.fn((url: string) => {
       if (url.includes('oauth2.googleapis.com/token')) {
         return Promise.resolve(new Response(JSON.stringify({ access_token: 'new-access', expires_in: 3600 }), { status: 200 }));
       }
-      return Promise.resolve(new Response('{}'));
+      return Promise.resolve(new Response(JSON.stringify({id:'owner@example.invalid'})));
     }) as jest.Mock;
 
     const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
@@ -664,10 +673,10 @@ describe('GET /api/google-calendar/callback', () => {
   });
 
   test.each([0, null, undefined, 2, -1])('更新件数%sは接続保存の成功と認めない', async (count) => {
-    mockMaybeSingle.mockResolvedValue({ data: { refresh_token: 'existing-refresh' }, error: null });
-    const eq = jest.fn().mockResolvedValue({ count, error: null });
-    mockUpdate.mockReturnValue({ eq });
-    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({ access_token: 'new-access', expires_in: 3600 }), { status: 200 }));
+    mockMaybeSingle.mockResolvedValue({ data: { id: 'fc170001-0000-4000-8000-000000000001', updated_at: '2026-01-01T00:00:00Z', refresh_token: 'existing-refresh' }, error: null });
+    const chain=updateChain({count,error:null}); const eq=chain.eq;
+    mockUpdate.mockReturnValue(chain);
+    global.fetch = jest.fn(reconsentFetch);
 
     const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
 
@@ -686,20 +695,20 @@ describe('GET /api/google-calendar/callback', () => {
       if (url.includes('oauth2.googleapis.com/token')) {
         return Promise.resolve(new Response(JSON.stringify({ access_token: 'access', refresh_token: 'refresh', expires_in: 3600 }), { status: 200 }));
       }
-      return Promise.resolve(new Response('{}'));
+      return Promise.resolve(new Response(JSON.stringify({id:'owner@example.invalid'})));
     }) as jest.Mock;
     await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
     expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({ scope: null, refresh_token: 'refresh' }), expect.anything());
   });
 
   test('既存token更新が失敗 → redirect with gcal=error', async () => {
-    mockMaybeSingle.mockResolvedValue({ data: { refresh_token: 'existing-refresh' }, error: null });
-    mockUpdate.mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: new Error('update failed') }) });
+    mockMaybeSingle.mockResolvedValue({ data: { id: 'fc170001-0000-4000-8000-000000000001', updated_at: '2026-01-01T00:00:00Z', refresh_token: 'existing-refresh' }, error: null });
+    mockUpdate.mockReturnValue(updateChain({error:new Error('update failed')}));
     global.fetch = jest.fn((url: string) => {
       if (url.includes('oauth2.googleapis.com/token')) {
         return Promise.resolve(new Response(JSON.stringify({ access_token: 'new-access', expires_in: 3600 }), { status: 200 }));
       }
-      return Promise.resolve(new Response('{}'));
+      return Promise.resolve(new Response(JSON.stringify({id:'owner@example.invalid'})));
     }) as jest.Mock;
     const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
     expect(res.headers.get('location')).toContain('gcal=error');
@@ -725,14 +734,14 @@ describe('callback save confirmation using the real Supabase HTTP decoder', () =
       if (options.method === 'PATCH') {
         return new Response(null, { status: 204, headers: count === null ? {} : { 'Content-Range': `*/${count}` } });
       }
-      return new Response(JSON.stringify([{ refresh_token: 'existing-refresh' }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(JSON.stringify([{ id: 'fc170001-0000-4000-8000-000000000001', updated_at: '2026-01-01T00:00:00Z', refresh_token: 'existing-refresh' }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
     });
     const client = createClient('http://127.0.0.1:1', 'synthetic-service-key', {
       auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
       global: { fetch: databaseFetch },
     });
     require('@/lib/supabase-server').createServiceRoleClient.mockReturnValue(client);
-    global.fetch = jest.fn().mockResolvedValue(new Response(JSON.stringify({ access_token: 'new-access', expires_in: 3600 }), { status: 200 }));
+    global.fetch = jest.fn(reconsentFetch);
 
     const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
 
@@ -740,8 +749,37 @@ describe('callback save confirmation using the real Supabase HTTP decoder', () =
     expect(databaseFetch).toHaveBeenCalledTimes(2);
     const [url, options] = databaseFetch.mock.calls[1];
     expect(new URL(String(url)).searchParams.get('user_id')).toBe('eq.550e8400-e29b-41d4-a716-446655440000');
+    expect(new URL(String(url)).searchParams.get('id')).toBe('eq.fc170001-0000-4000-8000-000000000001');
+    expect(new URL(String(url)).searchParams.get('updated_at')).toBe('eq.2026-01-01T00:00:00Z');
     expect(options.method).toBe('PATCH');
     expect(new Headers(options.headers).get('Prefer')).toContain('count=exact');
     expect(JSON.parse(String(options.body))).not.toHaveProperty('refresh_token');
   });
+});
+
+// Reconsent must not splice credentials belonging to two Google accounts.
+test('different Google primary with omitted refresh token cannot overwrite the prior connection', async () => {
+  mockMaybeSingle.mockResolvedValue({ data: { id: 'fc170001-0000-4000-8000-000000000001', updated_at: '2026-01-01T00:00:00Z', refresh_token: 'existing-refresh' }, error: null });
+  global.fetch = jest.fn(async (url: string, options: RequestInit) => {
+    if (url.includes('oauth2.googleapis.com')) return new Response(JSON.stringify({ access_token: String(options.body).includes('grant_type=refresh_token') ? 'old-account-access' : 'new-account-access', expires_in: 3600 }));
+    return new Response(JSON.stringify({ id: new Headers(options.headers).get('Authorization') === 'Bearer old-account-access' ? 'old-owner@example.invalid' : 'new-owner@example.invalid' }));
+  }) as jest.Mock;
+  const res=await GET(makeRequest({code:'code-123',state:createValidState()}) as any);
+  expect(res.headers.get('location')).toContain('gcal=error');
+  expect(mockUpdate).not.toHaveBeenCalled();expect(mockUpsert).not.toHaveBeenCalled();
+});
+
+test.each([{id:undefined,updated_at:'2026-01-01'}, {id:'',updated_at:'2026-01-01'}, {id:'token-id',updated_at:'invalid'}])('missing credential version stops before reuse: %j', async metadata => {
+  mockMaybeSingle.mockResolvedValue({data:{...metadata,refresh_token:'existing-refresh'},error:null});
+  global.fetch=jest.fn(reconsentFetch) as jest.Mock;
+  const res=await GET(makeRequest({code:'code-123',state:createValidState()}) as any);
+  expect(res.headers.get('location')).toContain('gcal=error');expect(fetch).toHaveBeenCalledTimes(1);expect(mockUpdate).not.toHaveBeenCalled();
+});
+test('proved refresh rotation is saved with the exact credential generation',async()=>{
+  mockMaybeSingle.mockResolvedValue({data:{id:'token-id',updated_at:'2026-01-01',refresh_token:'existing-refresh'},error:null});
+  global.fetch=jest.fn(async(url:string,options:RequestInit)=>new Response(JSON.stringify(url.includes('oauth2.googleapis.com')?{access_token:'access',expires_in:3600,...(String(options.body).includes('grant_type=refresh_token')?{refresh_token:'rotated-refresh'}:{})}:{id:'owner@example.invalid'}))) as jest.Mock;
+  const chain=updateChain({count:1,error:null});mockUpdate.mockReturnValue(chain);
+  const res=await GET(makeRequest({code:'code-123',state:createValidState()}) as any);
+  expect(res.headers.get('location')).toContain('gcal=success');expect(mockUpdate.mock.calls[0][0].refresh_token).toBe('rotated-refresh');
+  expect(chain.eq.mock.calls).toEqual([['user_id','550e8400-e29b-41d4-a716-446655440000'],['id','token-id'],['updated_at','2026-01-01']]);
 });
