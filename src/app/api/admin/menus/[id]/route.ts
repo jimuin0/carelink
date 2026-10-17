@@ -11,6 +11,7 @@ import { isStockImageUrl, isNewStockImage, STOCK_IMAGE_ERROR } from '@/lib/stock
 import type { Database } from '@/types/database.types';
 import { serverError } from '@/lib/with-route';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
+import { saveAdminMenu } from '@/lib/admin-menu-write';
 
 // facility_menus の update() に渡すオブジェクトの型。
 // Record<string, unknown> は Database 型配線後の update() が要求する
@@ -54,6 +55,8 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (parsed.data.sort_order !== undefined) return NextResponse.json({ error: '画面を再読み込みして並び替えてください' }, { status: 409 });
 
   const admin = createServiceRoleClient();
+  let expectedPhoto: string | null = null;
+  let checkPhoto = false;
 
   // ストック写真ガード（src/lib/stock-image-guard.ts）。既存値と同一なら素通しする＝
   // ストック画像が残っているメニューの価格修正等を壊さないため（管理画面はフォーム全体を
@@ -68,22 +71,11 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
       .maybeSingle();
     if (photoError) return serverError('admin-menus-photo-check', databaseDiagnostic(photoError), '/api/admin/menus/[id]');
     if (!current) return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 404 });
+    checkPhoto = true;
+    expectedPhoto = current.photo_url;
     if (isNewStockImage(parsed.data.photo_url, current.photo_url)) {
       return NextResponse.json({ error: STOCK_IMAGE_ERROR }, { status: 400 });
     }
-  }
-
-  // Duplicate name check (if name is being changed)
-  if (parsed.data.name) {
-    const { data: existing, error: duplicateError } = await admin
-      .from('facility_menus')
-      .select('id')
-      .eq('facility_id', ctx.facilityId)
-      .eq('name', parsed.data.name)
-      .neq('id', params.id)
-      .maybeSingle();
-    if (duplicateError) return serverError('admin-menus-duplicate-check', databaseDiagnostic(duplicateError), '/api/admin/menus/[id]');
-    if (existing) return NextResponse.json({ error: '同じ名前のメニューが既に存在します' }, { status: 409 });
   }
 
   // 【2026年8月11日 恒久根治】空文字は「写真を外す」意思表示なので null に倒す。ただし
@@ -97,20 +89,9 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     updatePayload.photo_url = parsed.data.photo_url || null;
   }
 
-  const { data, error } = await admin
-    .from('facility_menus')
-    // facility_menus に updated_at 列は無い（created_at のみ）→ 書き込むと 400 になるため付けない
-    .update(updatePayload)
-    .eq('id', params.id)
-    .eq('facility_id', ctx.facilityId)
-    .select()
-    // .maybeSingle(): 該当0行（他施設のメニュー/存在しないid）を not found として扱う。.single() だと
-    // 0行→PGRST116で if(error)→500 が先に発火し if(!data)→404 が到達不能になる（500に化ける）。
-    .maybeSingle();
-
-  if (error?.code === '23505') return NextResponse.json({ error: 'メニューが競合しました。一覧を確認してから、もう一度お試しください。' }, { status: 409 });
-  if (error) return serverError('admin-menus-patch', databaseDiagnostic(error), '/api/admin/menus/[id]');
-  if (!data) return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 404 });
+  const data = await saveAdminMenu({ actorId: ctx.userId, facilityId: ctx.facilityId, menuId: params.id,
+    values: updatePayload, checkPhoto, expectedPhoto });
+  if (data instanceof NextResponse) return data;
 
   void writeAuditLog({
     userId: ctx.userId,

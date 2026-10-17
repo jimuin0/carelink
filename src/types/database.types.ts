@@ -7465,6 +7465,17 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      save_admin_menu_atomic: {
+        Args: {
+          p_actor_id: string
+          p_check_photo: boolean
+          p_expected_photo: string
+          p_facility_id: string
+          p_menu_id: string
+          p_values: Json
+        }
+        Returns: Json
+      }
       save_booking_email_event_atomic: {
         Args: {
           p_actor_id: string
