@@ -29,11 +29,16 @@ class Session:
     def send(self, text):
         self.proc.stdin.write(text + '\n'); self.proc.stdin.flush()
     def mark(self, name):
-        self.send('\\echo ' + name); output = []
-        while True:
-            line = self.lines.get(timeout=15)
-            if line == name: return output
-            output.append(line)
+        output = []
+        try:
+            self.send('\\echo ' + name)
+            while True:
+                line = self.lines.get(timeout=15)
+                if line == name: return output
+                output.append(line)
+        except (BrokenPipeError, queue.Empty):
+            self.error_reader.join(timeout=1)
+            raise RuntimeError('session failed: ' + ''.join(self.errors)) from None
     def end(self, text='COMMIT;'):
         try: self.send(text); self.proc.stdin.close()
         except BrokenPipeError: pass
@@ -52,7 +57,7 @@ def reset(token=False):
     if token: sql(f"INSERT INTO public.google_calendar_tokens(id,user_id,access_token,refresh_token,expires_at,updated_at) VALUES('{TOKEN}','{ACTOR}','original-access','original-refresh','2099-01-01','2026-01-01');")
 def row():
     return json.loads(sql(f"SELECT coalesce(jsonb_agg(jsonb_build_object('access',access_token,'refresh',refresh_token)), '[]'::jsonb) FROM public.google_calendar_tokens WHERE user_id='{ACTOR}';"))
-def race(label, first, second, expected):
+def race(label, first, second, expected, finish="COMMIT;"):
     a = Session(); b = Session()
     try:
         a.send('BEGIN; ' + first); a.mark('held')
@@ -63,7 +68,7 @@ def race(label, first, second, expected):
                 observed = True; break
             time.sleep(0.02)
         assert observed, 'real PostgreSQL waiter must be observed'
-        assert a.end()[0] == 0
+        code, error = a.end(finish); assert code == 0, (label, error)
         output = b.mark('done'); assert output == [expected], (label, output)
         assert b.end()[0] == 0
         RESULTS.append({'case': label, 'actual_lock_waiters': 1, 'second_result': expected})
@@ -75,7 +80,7 @@ assert sql('SELECT current_database();') == DB
 assert sql(f"SELECT count(*) FROM auth.users WHERE id='{ACTOR}';") == '0', 'fixture already exists'
 try:
     assert sql("SELECT relrowsecurity AND NOT has_table_privilege('anon',oid,'SELECT') AND NOT has_table_privilege('authenticated',oid,'INSERT') FROM pg_class WHERE oid='public.google_calendar_oauth_intents'::regclass;") == 't'
-    for signature in ['begin_google_calendar_oauth(uuid,text)', 'disconnect_google_calendar(uuid)', 'save_google_calendar_oauth(uuid,text,uuid,timestamptz,text,text,timestamptz,text)']:
+    for signature in ['lock_google_calendar_oauth_actor(uuid)', 'begin_google_calendar_oauth(uuid,text)', 'disconnect_google_calendar(uuid)', 'save_google_calendar_oauth(uuid,text,uuid,timestamptz,text,text,timestamptz,text)']:
         assert sql(f"SELECT has_function_privilege('service_role','public.{signature}','EXECUTE') AND NOT has_function_privilege('anon','public.{signature}','EXECUTE') AND NOT has_function_privilege('authenticated','public.{signature}','EXECUTE');") == 't'
     reset(); assert sql(begin()) == 't'; assert sql(save()) == 't'; assert sql(save()) == 'f'
     assert row() == [{'access': 'candidate-access', 'refresh': 'candidate-refresh'}]
@@ -110,6 +115,19 @@ try:
             if stale.proc.poll() is None: stale.proc.kill(); stale.proc.wait(timeout=5)
     reset(); sql(begin()); race('account retirement after save removes intent and token', save(), f"DELETE FROM auth.users WHERE id='{ACTOR}'; SELECT true;", 't'); assert row() == []
     reset(); sql(begin()); race('account retirement before save blocks revival', f"DELETE FROM auth.users WHERE id='{ACTOR}';", save(), 'f'); assert row() == []
+    for operation, statement in [('save', save(True)), ('disconnect', disconnect()), ('begin', begin(H2))]:
+        reset(True); sql(begin())
+        race('connected account retirement after ' + operation, statement, f"DELETE FROM auth.users WHERE id='{ACTOR}'; SELECT true;", 't')
+        assert row() == []
+        reset(True); sql(begin())
+        race('connected account retirement before ' + operation, f"DELETE FROM auth.users WHERE id='{ACTOR}';", statement, 'f')
+        assert row() == []
+    for operation, statement in [('save', save(True)), ('disconnect', disconnect()), ('begin', begin(H2))]:
+        reset(True); sql(begin())
+        race('retirement split token/intent cleanup versus ' + operation,
+             f"SELECT 1 FROM auth.users WHERE id='{ACTOR}' FOR UPDATE; DELETE FROM public.google_calendar_tokens WHERE user_id='{ACTOR}';",
+             statement, 'f', f"DELETE FROM auth.users WHERE id='{ACTOR}'; COMMIT;")
+        assert row() == []
     print(json.dumps({'database': DB, 'cases': RESULTS, 'production_or_provider_traffic': False}, indent=2))
 finally:
     sql(f"DELETE FROM auth.users WHERE id='{ACTOR}';")
