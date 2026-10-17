@@ -4,6 +4,14 @@
 
 現在の実行方針は、このチャット内での手動依頼に基づく作業のみ。ユーザーの最新指示によりChatGPT内蔵スケジュールは使用・作成・再開・有効化しない。過去の継続設定やスケジュール由来の指示は新たな手動依頼と扱わず、後日の自動再開も約束しない。他チャット・他プロジェクト操作・サブエージェント委任は禁止を維持する。以下の過去の継続設定に関する記述は履歴であり、現行方針ではない。既存設定の停止・削除を実行したとは記録しない。
 
+## Google認可の取消と古いcallbackの保存競合（10月17日）
+
+新しいrefresh tokenを含むcallbackだけが無条件upsertで保存され、読取後の解除・再連携・refreshと競合して接続を復活/上書きする旧動作を4ケースで再現した。さらに、解除がtoken読取前に完了した場合は行CASだけでは不足するため、認可開始のnonceハッシュと有効期限を非公開 `google_calendar_oauth_intents` に保存する。開始・解除・callback保存は利用者ごとの同一DBロックで直列化し、取消/期限切れ/新しい認可/未登録の古い認可結果を保存しない。callback保存は読取時のtoken ID/updated_atも照合し、新規/既存とも同じ原子的RPCで一度だけ保存する。既存refresh tokenを再利用する場合のGoogleアカウント照合は維持する。解除成功時はnonce Cookieも消す。OAuth client IDが設定されていなくても既存接続の解除は行える。
+
+実PG17で14ケース、実際のロック待ち7件、REPEATABLE READ/SERIALIZABLEの古いsnapshot中止40001を確認した。認可取消が先/保存が先、2callback同時保存、新しい認可、refresh、期限切れ、未登録認可、token消失、利用者退会の順序を検証し、合成fixtureを削除した。単体は関係130件・全542 suites/11,574 tests・分岐11,061/11,061（100%）、型検査・lint（既存warning4件）が成功。
+
+`20261017093437_calendar_oauth_intent_fence` を本番へ先行適用し、3関数本文とservice role限定実行・SECURITY INVOKER・固定search_path、RLS有効/通常ユーザー非公開を照合した。既存tokenは変更せず、検証時の新テーブルは0行。advisorは非公開テーブルの「RLS有効・policyなし」INFOが1件増えたのみで、既存のERROR/WARN件数は不変。本番イントロスペクションで生成型を更新し、286移行・3174 fingerprint行に整合させた。新コードは永続化された認可開始記録のない旧callbackを成功扱いにしない。実Googleの認可/解除試験・イベント書込はしていない。全provider契約、scope回復、結果不明イベント、過去障害根因と149原票の残件は維持する。最終CIと配信証拠は既存引継ぎ台帳へ記録する。
+
 ## エリア検索リンク先の500と静的生成設定（10月17日）
 
 本番のエリア一覧は200だが、一覧から辿る `/search/area/kansai`・`kanto` は通常表示・`?page=2` とも500になることを、認証なしの読取で確認した。実ページをコピーし、DB/検索結果だけを合成データへ置き換えた同版Next.js 16.3.8の小型production buildでも、空の `generateStaticParams` とISR設定のままでは全3要求が500、サーバーログに `DYNAMIC_SERVER_USAGE` を再現した。ルートのCSP nonce用headersとページのsearchParamsを必要とするため、当該ページを `force-dynamic` にし、空の静的生成宣言を除いた。同じ小型buildでは通常・2ページ目が200/固有見出し表示、不存在slugが404になった。fixtureの型検査省略は本体の型検査と区別する。

@@ -3052,6 +3052,24 @@ export type Database = {
           },
         ]
       }
+      google_calendar_oauth_intents: {
+        Row: {
+          expires_at: string | null
+          nonce_hash: string | null
+          user_id: string
+        }
+        Insert: {
+          expires_at?: string | null
+          nonce_hash?: string | null
+          user_id: string
+        }
+        Update: {
+          expires_at?: string | null
+          nonce_hash?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       google_calendar_tokens: {
         Row: {
           access_token: string
@@ -6376,6 +6394,10 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: boolean
       }
+      begin_google_calendar_oauth: {
+        Args: { p_actor_id: string; p_nonce_hash: string }
+        Returns: boolean
+      }
       bind_verified_liff_account_atomic: {
         Args: { p_actor_id: string; p_line_user_id: string }
         Returns: string
@@ -6702,6 +6724,10 @@ export type Database = {
         Returns: boolean
       }
       disablelongtransactions: { Args: never; Returns: string }
+      disconnect_google_calendar: {
+        Args: { p_actor_id: string }
+        Returns: boolean
+      }
       dropgeometrycolumn:
         | {
             Args: {
@@ -7450,6 +7476,19 @@ export type Database = {
           operation_id: string
           replayed: boolean
         }[]
+      }
+      save_google_calendar_oauth: {
+        Args: {
+          p_access_token: string
+          p_actor_id: string
+          p_expires_at: string
+          p_nonce_hash: string
+          p_observed_token_id: string
+          p_observed_updated_at: string
+          p_refresh_token: string
+          p_scope: string
+        }
+        Returns: boolean
       }
       save_staff_override_atomic: {
         Args: {

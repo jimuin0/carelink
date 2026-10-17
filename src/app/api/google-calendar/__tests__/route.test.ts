@@ -20,6 +20,7 @@ jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
 jest.mock('next/headers');
 jest.mock('crypto', () => ({
   randomBytes: jest.fn(() => Buffer.alloc(32, 'a')),
+  createHash: jest.requireActual('crypto').createHash,
 }));
 
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -29,6 +30,7 @@ import { GET, POST } from '../route';
 let mockGetUser: jest.Mock;
 let mockTokenMaybeSingle: jest.Mock;
 let mockDelete: jest.Mock;
+let mockRpc: jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -58,8 +60,10 @@ beforeEach(() => {
     auth: { getUser: mockGetUser },
   });
 
+  mockRpc = jest.fn().mockResolvedValue({ data: true, error: null });
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
+    rpc: mockRpc,
     from: jest.fn((table: string) => {
       if (table === 'google_calendar_tokens') {
         return {
@@ -72,7 +76,7 @@ beforeEach(() => {
 
   const { cookies } = require('next/headers');
   cookies.mockResolvedValue({
-    set: jest.fn(),
+    set: jest.fn(), delete: jest.fn(),
   });
 
   process.env.GOOGLE_CLIENT_ID = 'test-client-id';
@@ -358,18 +362,13 @@ describe('POST /api/google-calendar', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.ok).toBe(true);
-    expect(mockDelete).toHaveBeenCalled();
+    expect(mockRpc).toHaveBeenCalledWith('disconnect_google_calendar', { p_actor_id: 'user-123' });
+    expect((await require('next/headers').cookies()).delete).toHaveBeenCalledWith('google_oauth_state');
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 
   test('disconnect action with DB error → 500', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn(() => ({
-        delete: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({ error: { message: 'DB error' } }),
-        }),
-      })),
-    });
+    mockRpc.mockResolvedValue({ data: null, error: { code: '08006', message: 'private-token' } });
 
     const res = await POST(makePostRequest({ action: 'disconnect' }) as any);
 
@@ -442,4 +441,28 @@ describe('POST /api/google-calendar', () => {
       expect.objectContaining({ httpOnly: true, maxAge: 600 })
     );
   });
+});
+
+test.each(['connect', 'disconnect'])('unconfirmed %s transaction cannot report success or modify cookies', async action => {
+  mockRpc.mockResolvedValue({ data: null, error: null });
+  const res = await POST(makePostRequest({ action }) as any);
+  expect(res.status).toBe(500);
+  expect(require('next/headers').cookies).not.toHaveBeenCalled();
+});
+test('begin DB failure cannot issue an authorization URL or nonce cookie', async () => {
+  mockRpc.mockResolvedValue({ error: { code: '08006', message: 'private-token' } });
+  const res = await POST(makePostRequest({ action: 'connect' }) as any);
+  expect(res.status).toBe(500); expect(require('next/headers').cookies).not.toHaveBeenCalled();
+  expect(require('@/lib/safe').safeCaptureException).toHaveBeenCalledWith(expect.objectContaining({ message: 'DATABASE_FAILURE:08006' }), 'google-calendar-begin');
+});
+test('begin stores only the issued nonce hash and verified actor', async () => {
+  const res = await POST(makePostRequest({ action: 'connect' }) as any);const body = await res.json();
+  const state = JSON.parse(Buffer.from(new URL(body.authUrl).searchParams.get('state')!, 'base64url').toString());
+  expect(mockRpc).toHaveBeenCalledWith('begin_google_calendar_oauth', { p_actor_id: 'user-123', p_nonce_hash: require('crypto').createHash('sha256').update(state.nonce).digest('hex') });
+});
+
+test('disconnect remains possible when OAuth client configuration is absent', async () => {
+  delete process.env.GOOGLE_CLIENT_ID;
+  expect((await POST(makePostRequest({ action: 'disconnect' }) as any)).status).toBe(200);
+  expect(mockRpc).toHaveBeenCalledWith('disconnect_google_calendar', { p_actor_id: 'user-123' });
 });

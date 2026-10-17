@@ -758,6 +758,11 @@
     "srid",
     "type"
   ],
+  "google_calendar_oauth_intents": [
+    "expires_at",
+    "nonce_hash",
+    "user_id"
+  ],
   "google_calendar_tokens": [
     "access_token",
     "created_at",

@@ -119,6 +119,9 @@ jobs:
       - name: Calendar retirement ordering and stale snapshots (disposable DB)
         run: python3 scripts/check-calendar-retirement-concurrency.py
 
+      - name: Calendar authorization, cancellation and token generation races (disposable DB)
+        run: python3 scripts/check-calendar-oauth-concurrency.py
+
       - name: Same schema in C locale remains identical (disposable DB)
         env:
           SHADOW_DB: carelink_shadow_c_locale
