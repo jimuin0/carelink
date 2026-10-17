@@ -55,3 +55,10 @@ supabase start       # または: supabase db reset --local
 ## デプロイ
 
 Vercelにインポートし、環境変数を設定してデプロイ。
+
+## admin向け予定定義
+
+`schedules.json` は `src/lib/cron-jobs.data.json` と `render.yaml` から生成する読み取り用の一覧です。
+ジョブの追加・変更後は `node scripts/export-admin-schedules.mjs` を実行してください。
+CIが `--check` で更新漏れを検知します。UTCからJSTへの変換では日付・曜日の繰り上がりも反映します。
+このファイルは既存Cronの予定と実行先を表示するためのもので、新しいCronやメッセージ送信を作りません。
