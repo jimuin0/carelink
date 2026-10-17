@@ -9,6 +9,7 @@ import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { isStockImageUrl, STOCK_IMAGE_ERROR } from '@/lib/stock-image-guard';
 import { serverError } from '@/lib/with-route';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
+import { saveAdminMenu } from '@/lib/admin-menu-write';
 
 const menuSchema = z.object({
   category: z.string().min(1).max(50),
@@ -66,38 +67,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: STOCK_IMAGE_ERROR }, { status: 400 });
   }
 
-  const admin = createServiceRoleClient();
-
-  // Duplicate name check
-  const { data: existing, error: duplicateError } = await admin
-    .from('facility_menus')
-    .select('id')
-    .eq('facility_id', facilityId)
-    .eq('name', parsed.data.name)
-    .maybeSingle();
-  if (duplicateError) return serverError('admin-menus-duplicate-check', databaseDiagnostic(duplicateError), '/api/admin/menus');
-  if (existing) return NextResponse.json({ error: '同じ名前のメニューが既に存在します' }, { status: 409 });
-
-  // Count for sort_order default
-  const { count, error: countError } = await admin
-    .from('facility_menus')
-    .select('id', { count: 'exact', head: true })
-    .eq('facility_id', facilityId);
-  if (countError) return serverError('admin-menus-count', databaseDiagnostic(countError), '/api/admin/menus');
-  if (count === null) return serverError('admin-menus-count', new Error('MENU_COUNT_UNAVAILABLE'), '/api/admin/menus');
-
-  const { data, error } = await admin.from('facility_menus').insert({
-    facility_id: facilityId,
-    ...parsed.data,
-    photo_url: parsed.data.photo_url || null,
-    sort_order: parsed.data.sort_order ?? count,
-    // facility_menus に updated_at 列は存在しない（created_at のみ）。書き込むと 400 になるため付けない。
-  }).select().single();
-
-  // The unique index is authoritative when another request wins after the read,
-  // or btrim(name) detects a whitespace-equivalent name the exact lookup missed.
-  if (error?.code === '23505') return NextResponse.json({ error: 'メニューが競合しました。一覧を確認してから、もう一度お試しください。' }, { status: 409 });
-  if (error) return serverError('admin-menus-create', databaseDiagnostic(error), '/api/admin/menus');
+  const data = await saveAdminMenu({ actorId: userId, facilityId, menuId: null,
+    values: { ...parsed.data, photo_url: parsed.data.photo_url || null } });
+  if (data instanceof NextResponse) return data;
 
   const { ua } = getRequestContext(request);
   void writeAuditLog({

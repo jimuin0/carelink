@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for PATCH/DELETE /api/admin/menus/[id]
  * Key assertions:
@@ -18,11 +18,12 @@ jest.mock('@/lib/with-route', () => {
 });
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
 
-const MENU_UUID = '11111111-1111-1111-1111-111111111111';
-const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
+const MENU_UUID = '11111111-1111-4111-8111-111111111111';
+const FACILITY_UUID = '22222222-2222-4222-8222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 
 const mockAdminFrom = jest.fn();
+const mockRpc = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockGetUser = jest.fn();
 
@@ -30,10 +31,10 @@ jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { PATCH } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
@@ -72,326 +73,42 @@ function maybeSingleChain(data: unknown, error: unknown = null) {
   };
 }
 
-function updateSingleChain(data: unknown, error: unknown = null) {
-  return {
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          select: jest.fn().mockReturnValue({
-            maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
-          }),
-        }),
-      }),
-    }),
-  };
-}
 
-beforeEach(() => {
-  jest.clearAllMocks();
-  (checkRateLimit as jest.Mock).mockReturnValue(false);
-  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+beforeEach(()=>{
+ jest.clearAllMocks();mockRpc.mockReset();mockAdminFrom.mockReset();
+ (checkRateLimit as jest.Mock).mockReturnValue(false);(checkCsrf as jest.Mock).mockReturnValue(null);
+ mockGetUser.mockResolvedValue({data:{user:{id:USER_ID}}});mockAnonFrom.mockReturnValue(memberChain({facility_id:FACILITY_UUID}));
+ mockRpc.mockResolvedValue({data:{id:MENU_UUID,facility_id:FACILITY_UUID},error:null});
+ process.env.NEXT_PUBLIC_SUPABASE_URL='https://test.supabase.co';process.env.SUPABASE_SERVICE_ROLE_KEY='test-key';
 });
-
-// ─── PATCH: guards ────────────────────────────────────────────────────────────
-
-test('PATCH: 未認証 → 401', async () => {
-  mockGetUser.mockResolvedValue({ data: { user: null } });
-  const res = await PATCH(makeRequest('PATCH', { name: 'test' }), makeProps());
-  expect(res.status).toBe(401);
+test('PATCH unauthenticated',async()=>{mockGetUser.mockResolvedValue({data:{user:null}});expect((await PATCH(makeRequest('PATCH',{price:100}),makeProps())).status).toBe(401);expect(mockRpc).not.toHaveBeenCalled();});
+test('PATCH missing facility',async()=>{expect((await PATCH(makeRequest('PATCH',{price:100},null),makeProps())).status).toBe(401);});
+test('PATCH invalid ID',async()=>{expect((await PATCH(makeRequest('PATCH',{price:100}),makeProps('bad'))).status).toBe(400);});
+test('PATCH no membership',async()=>{mockAnonFrom.mockReturnValue(memberChain(null));expect((await PATCH(makeRequest('PATCH',{price:100}),makeProps())).status).toBe(401);});
+test('PATCH CSRF',async()=>{(checkCsrf as jest.Mock).mockReturnValue(NextResponse.json({}, {status:403}));expect((await PATCH(makeRequest('PATCH',{price:100}),makeProps())).status).toBe(403);});
+test('PATCH rate limit',async()=>{(checkRateLimit as jest.Mock).mockReturnValue(true);expect((await PATCH(makeRequest('PATCH',{price:100}),makeProps())).status).toBe(429);});
+test.each([{name:''},{name:'x'.repeat(101)},{category:''},{category:'x'.repeat(51)},{price:-1},{price:10000000},{duration_minutes:-1},{duration_minutes:1441},{sort_order:-1},{sort_order:1000000},{photo_url:'bad'},{description:'x'.repeat(501)},{price_note:'x'.repeat(101)}])('PATCH rejects invalid field: %p',async payload=>{
+ expect((await PATCH(makeRequest('PATCH',payload),makeProps())).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();
 });
-
-test('PATCH: facility_id クエリパラメータなし → 401', async () => {
-  const res = await PATCH(makeRequest('PATCH', { name: 'test' }, null), makeProps());
-  expect(res.status).toBe(401);
+test('PATCH old reorder rejected',async()=>{expect((await PATCH(makeRequest('PATCH',{sort_order:3}),makeProps())).status).toBe(409);expect(mockRpc).not.toHaveBeenCalled();});
+test.each([{price:100},{photo_url:''},{photo_url:null},{name:'Rename',description:'New'},{is_featured:false},{duration_minutes:0}])('PATCH scoped save: %p',async payload=>{
+ const r=await PATCH(makeRequest('PATCH',payload),makeProps());expect(r.status).toBe(200);expect((await r.json()).menu.id).toBe(MENU_UUID);
+ expect(mockRpc).toHaveBeenCalledWith('save_admin_menu_atomic',expect.objectContaining({p_actor_id:USER_ID,p_facility_id:FACILITY_UUID,p_menu_id:MENU_UUID}));expect(writeAuditLog).toHaveBeenCalledTimes(1);
+ const values=mockRpc.mock.calls[0][1].p_values;if('photo_url' in payload)expect(values.photo_url).toBeNull();else expect(values).not.toHaveProperty('photo_url');
 });
-
-test('PATCH: 不正なUUID → 400', async () => {
-  const res = await PATCH(makeRequest('PATCH', { name: 'test' }), makeProps('not-uuid'));
-  expect(res.status).toBe(400);
+test.each([['42501',403],['P0002',404],['23505',409],['40001',409],['22023',400],['57014',500]])('PATCH SQL failure %s cannot audit success',async(code,status)=>{
+ mockRpc.mockResolvedValue({data:null,error:{code,message:'PRIVATE_DETAIL'}});const r=await PATCH(makeRequest('PATCH',{price:100}),makeProps());expect(r.status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expect(JSON.stringify(await r.json())).not.toContain('PRIVATE_DETAIL');
 });
-
-test('PATCH: レートリミット → 429', async () => {
-  (checkRateLimit as jest.Mock).mockReturnValue(true);
-  const res = await PATCH(makeRequest('PATCH', { name: 'test' }), makeProps());
-  expect(res.status).toBe(429);
+const STOCK='https://images.unsplash.com/existing';
+test('PATCH retains a legacy photo only with the observed value bound into SQL',async()=>{
+ mockAdminFrom.mockReturnValue(maybeSingleChain({photo_url:STOCK}));expect((await PATCH(makeRequest('PATCH',{photo_url:STOCK,price:200}),makeProps())).status).toBe(200);
+ expect(mockRpc.mock.calls[0][1]).toMatchObject({p_check_photo:true,p_expected_photo:STOCK});
 });
-
-// ─── PATCH: schema validation ─────────────────────────────────────────────────
-
-test('PATCH: photo_url が無効URL → 400', async () => {
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  const res = await PATCH(makeRequest('PATCH', { photo_url: 'not-a-url' }), makeProps());
-  expect(res.status).toBe(400);
+test.each([null,'https://images.unsplash.com/different'])('PATCH cannot add stock image over %p',async photo=>{
+ mockAdminFrom.mockReturnValue(maybeSingleChain({photo_url:photo}));expect((await PATCH(makeRequest('PATCH',{photo_url:STOCK}),makeProps())).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();
 });
-
-test('PATCH: photo_url が空文字 → 許可', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return maybeSingleChain(null); // no duplicate
-    return updateSingleChain({ id: MENU_UUID, name: 'テスト', photo_url: null });
-  });
-  const res = await PATCH(makeRequest('PATCH', { name: 'テスト', photo_url: '' }), makeProps());
-  expect(res.status).toBe(200);
+test('PATCH missing photo row',async()=>{mockAdminFrom.mockReturnValue(maybeSingleChain(null));expect((await PATCH(makeRequest('PATCH',{photo_url:STOCK}),makeProps())).status).toBe(404);expect(mockRpc).not.toHaveBeenCalled();});
+test.each([null,{photo_url:STOCK}])('PATCH photo query failure stops before mutation: %p',async data=>{
+ mockAdminFrom.mockReturnValue(maybeSingleChain(data,{code:'08006',message:'PRIVATE_DETAIL'}));const r=await PATCH(makeRequest('PATCH',{photo_url:STOCK}),makeProps());expect(r.status).toBe(500);expect(mockRpc).not.toHaveBeenCalled();expect(writeAuditLog).not.toHaveBeenCalled();expect(jest.mocked(routeErrors.serverError).mock.calls[0][1].message).toBe('DATABASE_FAILURE:08006');
 });
-
-test('PATCH: old two-request reorder is rejected before mutation', async () => {
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockImplementation(() => updateSingleChain({ id: MENU_UUID, sort_order: 3 }));
-  const res = await PATCH(makeRequest('PATCH', { sort_order: 3 }), makeProps());
-  expect(res.status).toBe(409);
-  expect(mockAdminFrom).not.toHaveBeenCalled();
-});
-
-test('PATCH: sort_order が範囲外(負数) → 400', async () => {
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  const res = await PATCH(makeRequest('PATCH', { sort_order: -1 }), makeProps());
-  expect(res.status).toBe(400);
-});
-
-test('PATCH: price が 10000000 (max 9999999超) → 400', async () => {
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  const res = await PATCH(makeRequest('PATCH', { price: 10000000 }), makeProps());
-  expect(res.status).toBe(400);
-});
-
-// ─── PATCH: duplicate name check ─────────────────────────────────────────────
-
-test('PATCH: 同じ名前のメニューが既存 → 409', async () => {
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(maybeSingleChain({ id: 'other-menu-id' })); // duplicate found
-  const res = await PATCH(makeRequest('PATCH', { name: '重複メニュー' }), makeProps());
-  expect(res.status).toBe(409);
-});
-
-// ─── PATCH: defence-in-depth ─────────────────────────────────────────────────
-
-test('PATCH: UPDATEのWHEREにfacility_idが含まれる', async () => {
-  let callNum = 0;
-  const innerEq = jest.fn().mockReturnValue({
-    select: jest.fn().mockReturnValue({
-      maybeSingle: jest.fn(() => Promise.resolve({ data: { id: MENU_UUID }, error: null })),
-    }),
-  });
-  const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
-  const updateMock = jest.fn().mockReturnValue({ eq: outerEq });
-
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return maybeSingleChain(null); // no duplicate
-    return { update: updateMock };
-  });
-
-  await PATCH(makeRequest('PATCH', { name: 'updated' }), makeProps());
-  expect(outerEq).toHaveBeenCalledWith('id', MENU_UUID);
-  expect(innerEq).toHaveBeenCalledWith('facility_id', FACILITY_UUID);
-});
-
-test('PATCH: DB更新失敗 → 500', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return maybeSingleChain(null);
-    return updateSingleChain(null, { message: 'DB error' });
-  });
-  const res = await PATCH(makeRequest('PATCH', { name: 'test' }), makeProps());
-  expect(res.status).toBe(500);
-});
-
-test.each([null, { id: MENU_UUID }])('PATCH: unique violation after duplicate read is409 without success audit: %j', async (data) => {
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReset();
-  mockAdminFrom.mockReturnValueOnce(maybeSingleChain(null))
-    .mockReturnValueOnce(updateSingleChain(data, { code: '23505', message: 'private duplicate details' }));
-  const res = await PATCH(makeRequest('PATCH', { name: 'test' }), makeProps());
-  expect(res.status).toBe(409);
-  expect(await res.json()).toEqual({ error: 'メニューが競合しました。一覧を確認してから、もう一度お試しください。' });
-  expect(writeAuditLog).not.toHaveBeenCalled();
-  expect(mockAdminFrom).toHaveBeenCalledTimes(2);
-});
-
-// ─── 追加ブランチカバレッジ ───────────────────────────────────────────
-
-test('PATCH: CSRFエラー → そのまま返却', async () => {
-  const csrfRes = new Response('csrf', { status: 403 });
-  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
-  const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
-  expect(res).toBe(csrfRes);
-});
-
-test('PATCH: facility_id が UUID 形式でない → 401', async () => {
-  const res = await PATCH(makeRequest('PATCH', { name: 'x' }, 'not-uuid'), makeProps());
-  expect(res.status).toBe(401);
-});
-
-test('PATCH: data null → 404', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return maybeSingleChain(null);
-    return updateSingleChain(null, null);
-  });
-  const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
-  expect(res.status).toBe(404);
-});
-
-test('PATCH: x-forwarded-for ヘッダから IP 取得', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return maybeSingleChain(null);
-    return updateSingleChain({ id: MENU_UUID }, null);
-  });
-  const url = new URL(`http://localhost/api/admin/menus/${MENU_UUID}`);
-  url.searchParams.set('facility_id', FACILITY_UUID);
-  const req = new NextRequest(url.toString(), {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.4, 5.6.7.8' },
-    body: JSON.stringify({ name: 'x' }),
-  });
-  const res = await PATCH(req, makeProps());
-  expect(res.status).toBe(200);
-});
-
-test('PATCH: 不正な JSON body → 400', async () => {
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  const url = new URL(`http://localhost/api/admin/menus/${MENU_UUID}`);
-  url.searchParams.set('facility_id', FACILITY_UUID);
-  const req = new NextRequest(url.toString(), {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: 'not-json',
-  });
-  const res = await PATCH(req, makeProps());
-  expect(res.status).toBe(400);
-});
-
-test('PATCH: name 未指定でも更新可 (重複チェックスキップ)', async () => {
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateSingleChain({ id: MENU_UUID }, null));
-  const res = await PATCH(makeRequest('PATCH', { price: 1000 }), makeProps());
-  expect(res.status).toBe(200);
-});
-
-// Branch coverage: line 37 — verifyMenuAdmin が data=null のとき null を返す（false 分岐 → 401）
-test('PATCH: facility_members が null → verifyMenuAdmin null → 401（line 37 false 分岐）', async () => {
-  mockAnonFrom.mockReturnValue(memberChain(null));
-  const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
-  expect(res.status).toBe(401);
-});
-
-// ─── 部分更新で写真が消える回帰（2026年8月11日 恒久根治）─────────────────────
-// メニュー一覧の並び替え(↑↓)は `{ sort_order }` だけを PATCH する。旧実装は
-// `{ ...parsed.data, photo_url: parsed.data.photo_url || null }` だったため、
-// 並び替えるだけで photo_url が null 上書きされ、メニュー写真が無言で消えていた。
-function captureMenuUpdate(data: unknown = { id: MENU_UUID }) {
-  const update = jest.fn().mockReturnValue({
-    eq: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
-        }),
-      }),
-    }),
-  });
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue({ update });
-  return update;
-}
-
-test('PATCH: price-only update does not erase the existing photo', async () => {
-  const update = captureMenuUpdate();
-  const res = await PATCH(makeRequest('PATCH', { price: 1000 }), makeProps());
-  expect(res.status).toBe(200);
-  expect(update).toHaveBeenCalledWith({ price: 1000 });
-  expect(Object.keys(update.mock.calls[0][0])).not.toContain('photo_url');
-});
-
-test('PATCH: photo_url に空文字を送ったときだけ null で消す', async () => {
-  const update = captureMenuUpdate();
-  const res = await PATCH(makeRequest('PATCH', { photo_url: '' }), makeProps());
-  expect(res.status).toBe(200);
-  expect(update).toHaveBeenCalledWith({ photo_url: null });
-});
-
-test('PATCH: photo_url に null を送ったら null で消す', async () => {
-  const update = captureMenuUpdate();
-  const res = await PATCH(makeRequest('PATCH', { photo_url: null }), makeProps());
-  expect(res.status).toBe(200);
-  expect(update).toHaveBeenCalledWith({ photo_url: null });
-});
-
-// ─── ストック写真ガード（2026年8月11日・src/lib/stock-image-guard.ts）─────────
-// 「既存値と同一なら素通し」が本体。これが無いと、ストック画像が残っているメニューの
-// 価格修正すら 400 になり、本番データの差し替え前にガードを入れられなくなる。
-const STOCK_A = 'https://images.unsplash.com/photo-1560066984?w=800';
-const STOCK_B = 'https://images.unsplash.com/photo-9999999?w=800';
-
-test('PATCH: 既存と異なるストック写真へ差し替え → 400', async () => {
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockImplementation(() => maybeSingleChain({ photo_url: STOCK_A }));
-  const res = await PATCH(makeRequest('PATCH', { photo_url: STOCK_B }), makeProps());
-  expect(res.status).toBe(400);
-  expect((await res.json()).error).toContain('ストック写真');
-});
-
-test('PATCH: 既存値と同一のストック写真は素通し → 200（差し替え前でも編集できる）', async () => {
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  let call = 0;
-  mockAdminFrom.mockImplementation(() => {
-    call++;
-    if (call === 1) return maybeSingleChain({ photo_url: STOCK_A }); // ガードが読む現在値
-    return updateSingleChain({ id: MENU_UUID, price: 5000, photo_url: STOCK_A });
-  });
-  const res = await PATCH(makeRequest('PATCH', { price: 5000, photo_url: STOCK_A }), makeProps());
-  expect(res.status).toBe(200);
-});
-
-test('PATCH: 該当メニューが無い状態でストック写真 → 404（対象なし）', async () => {
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockImplementation(() => maybeSingleChain(null));
-  const res = await PATCH(makeRequest('PATCH', { photo_url: STOCK_A }), makeProps());
-  expect(res.status).toBe(404);
-});
-
-test('PATCH: 現在値が null のメニューへストック写真 → 400', async () => {
-  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockImplementation(() => maybeSingleChain({ photo_url: null }));
-  const res = await PATCH(makeRequest('PATCH', { photo_url: STOCK_A }), makeProps());
-  expect(res.status).toBe(400);
-});
-
-// Read failures must stop before any mutation or success audit, even if a
-// provider returns partial data alongside its error.
-describe('menu mutation prerequisite failures', () => {
-  const privateFailure = { code: '08006', message: 'PRIVATE_DATABASE_DETAIL', details: 'PRIVATE_DATABASE_DETAIL' };
-  const report = jest.mocked(routeErrors.serverError);
-  beforeEach(() => {
-    mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  });
-
-  test.each([null, { photo_url: STOCK_A }])('photo lookup error with data=%p stops update', async data => {
-    mockAdminFrom.mockReturnValue(maybeSingleChain(data, privateFailure));
-    const res = await PATCH(makeRequest('PATCH', { photo_url: STOCK_A }), makeProps());
-    expect(res.status).toBe(500);
-    expect(mockAdminFrom).toHaveBeenCalledTimes(1);
-    expect(writeAuditLog).not.toHaveBeenCalled();
-    expect(report.mock.calls[0][1].message).toBe('DATABASE_FAILURE:08006');
-    expect(JSON.stringify(await res.json())).not.toContain('PRIVATE_DATABASE_DETAIL');
-  });
-  test.each([null, { id: MENU_UUID }])('duplicate lookup error with data=%p stops update', async data => {
-    mockAdminFrom.mockReturnValue(maybeSingleChain(data, privateFailure));
-    const res = await PATCH(makeRequest('PATCH', { name: 'Changed' }), makeProps());
-    expect(res.status).toBe(500);
-    expect(mockAdminFrom).toHaveBeenCalledTimes(1);
-    expect(writeAuditLog).not.toHaveBeenCalled();
-    expect(report.mock.calls[0][1].message).toBe('DATABASE_FAILURE:08006');
-  });
-});
+test('PATCH malformed JSON',async()=>{expect((await PATCH(new NextRequest('http://localhost/api/admin/menus/'+MENU_UUID+'?facility_id='+FACILITY_UUID,{method:'PATCH',body:'{'}),makeProps())).status).toBe(400);});
