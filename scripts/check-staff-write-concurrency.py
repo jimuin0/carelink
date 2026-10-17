@@ -115,6 +115,9 @@ try:
     for action in [f"DELETE FROM public.facility_members WHERE user_id='{ACTOR}' AND facility_id='{FACILITY}'",f"UPDATE public.facility_members SET role='staff' WHERE user_id='{ACTOR}' AND facility_id='{FACILITY}'"]:
         reset();before=snapshot();race('revocation first denies atomic save',action,attempt(save(menus=[MENU2])),'42501');assert snapshot()==before
         reset();race('save first holds authority until commit','SET LOCAL ROLE service_role; '+save(menus=[MENU2]),attempt(action),'OK');assert snapshot()['menus']==[MENU2]
+    reset();before=snapshot()
+    race('member locked first, staff holds parent before revoke trigger',f"SELECT user_id FROM public.facility_members WHERE user_id='{ACTOR}' AND facility_id='{FACILITY}' FOR UPDATE",attempt(save(menus=[MENU2])),'42501',finish=f"DELETE FROM public.facility_members WHERE user_id='{ACTOR}' AND facility_id='{FACILITY}'; COMMIT;")
+    assert snapshot()==before
     reset();race('menu deletion first rejects whole save',f"DELETE FROM public.facility_menus WHERE id='{MENU2}'",attempt(save(menus=[MENU2])),'22023');assert snapshot()['profile']['name']=='Original' and snapshot()['menus']==[MENU]
     reset();race('save first holds menu scope until commit','SET LOCAL ROLE service_role; '+save(menus=[MENU2]),attempt(f"UPDATE public.facility_menus SET facility_id='{OTHER_FACILITY}' WHERE id='{MENU2}'"),'OK')
     # Last serialized edit wins as a complete profile+assignment pair, never mixed.

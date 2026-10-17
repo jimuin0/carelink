@@ -7098,6 +7098,16 @@ export type Database = {
         }
         Returns: Json
       }
+      manage_admin_customer_atomic: {
+        Args: {
+          p_action: string
+          p_actor_id: string
+          p_customer_id: string
+          p_facility_id: string
+          p_values: Json
+        }
+        Returns: Json
+      }
       moderate_content_atomic: {
         Args: {
           p_actor_id: string
