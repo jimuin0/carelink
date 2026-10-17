@@ -4,6 +4,9 @@ const config = {
   testRunner: 'jest',
   reporters: ['progress', 'clear-text', 'json'],
   checkers: ['typescript'],
+  // Keep source-byte policy fingerprints intact in the sandbox. Type checking
+  // remains enabled through the TypeScript checker above.
+  disableTypeChecks: false,
   // tsconfig.json ではなく Stryker 専用 tsconfig を使う。tsconfig.json は include に
   // .next/types/**/*.ts を含むため、Next.js が build/dev 時に生成するルート型（ブランチ依存で
   // stale 化し、main 不在ルートを参照して TS2307 を出す）に TS チェッカーが巻き込まれてクラッシュし、
@@ -36,7 +39,9 @@ const config = {
     low: 100,
     break: 100,
   },
-  ignorePatterns: ['.claude/**', 'reports/**'],
+  // Consolidated checkouts/evidence are not application sources; their bundled
+  // runtimes contain symlinks that cannot be copied into a mutation sandbox.
+  ignorePatterns: ['.claude/**', 'reports/**', 'work/**', '.local-consolidation-*/**'],
   // 静的変異体（モジュール読み込み時評価）はJestをハングさせるためスキップ
   // L3で100%分岐カバレッジ済みのため品質担保あり
   ignoreStatic: true,
