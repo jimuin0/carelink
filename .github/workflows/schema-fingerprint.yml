@@ -331,6 +331,12 @@ jobs:
       - name: Customer writes recheck revoked authority and preserve scoped atomic results (disposable DB)
         run: python3 scripts/check-customer-write-concurrency.py
 
+      - name: Content writes serialize current authority across catalog, blog, QA and jobs (disposable DB)
+        run: python3 scripts/check-content-write-concurrency.py
+
+      - name: Verify API-key issuance and revocation authority races
+        run: python3 scripts/check-api-key-write-concurrency.py
+
       - name: Coupon operation replay, conflict, retired result and rollback (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/coupon-operation-fixtures.sql
 

@@ -1,284 +1,34 @@
-/**
- * @jest-environment node
- *
- * Tests for PATCH/DELETE /api/admin/blog/[id]
- * Key assertions:
- *   - Non-member → 401 (IDOR prevention via facility_id query param)
- *   - facility_id defence-in-depth in UPDATE/DELETE WHERE
- *   - Record not found → 404
- *   - DB failure → 500
- */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
+import {NextRequest,NextResponse} from 'next/server';
+const actor='33333333-3333-4333-8333-333333333333',facility='22222222-2222-4222-8222-222222222222',id='11111111-1111-4111-8111-111111111111';
+const mockContext=jest.fn(),mockRpc=jest.fn(),mockDirect=jest.fn();
+jest.mock('@/lib/admin-api-context',()=>({getAdminApiContext:()=>mockContext()}));
+jest.mock('@/lib/supabase-server',()=>({createServiceRoleClient:()=>({rpc:mockRpc,from:mockDirect})}));
+jest.mock('@/lib/csrf',()=>({checkCsrf:jest.fn(()=>null)}));
+jest.mock('@/lib/rate-limit',()=>({checkRateLimit:jest.fn(()=>false)}));
+jest.mock('@/lib/audit-logger',()=>({writeAuditLog:jest.fn(),getRequestContext:()=>({ua:'test',ip:'127.0.0.1'})}));
+import {checkCsrf} from '@/lib/csrf';
+import {checkRateLimit} from '@/lib/rate-limit';
+import {writeAuditLog} from '@/lib/audit-logger';
+import {PATCH,DELETE} from '../route';
+const cases=[['blog:update','PATCH',{title:'Changed'},PATCH,'','post'],['blog:delete','DELETE',{},DELETE,'','ok']] as const;
+function invalidBodies(_kind:string):unknown[]{return [null,{title:'x'.repeat(201)},{content:'x'.repeat(50001)}];}
 
-jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
-jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
-jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
-
-const POST_UUID     = '11111111-1111-1111-1111-111111111111';
-const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
-const USER_ID       = '33333333-3333-3333-3333-333333333333';
-
-const mockGetUser = jest.fn();
-const mockAnonFrom = jest.fn();
-const mockAdminFrom = jest.fn();
-
-jest.mock('@supabase/ssr', () => ({
-  createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
-}));
-jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
-}));
-
-import { NextRequest } from 'next/server';
-import { PATCH, DELETE } from '../route';
-import { checkRateLimit } from '@/lib/rate-limit';
-
-function makeProps(id = POST_UUID) {
-  return { params: Promise.resolve({ id }) };
+beforeEach(()=>{jest.clearAllMocks();mockContext.mockResolvedValue({userId:actor,facilityId:facility});mockRpc.mockResolvedValue({data:{id,facility_id:facility},error:null});});
+function req(method:string,body:unknown,suffix=''){return new NextRequest('http://localhost/api/admin/example?facility_id='+facility+suffix,{method,body:JSON.stringify(body),headers:{'Content-Type':'application/json'}});}
+for(const [kind,method,body,handler,suffix,wrapper] of cases){
+ const invoke=(r:NextRequest,record=id)=>handler(r,{params:Promise.resolve({id:record})});
+ describe(kind,()=>{
+ test('CSRF rejection prevents auth and mutation',async()=>{jest.mocked(checkCsrf).mockReturnValueOnce(NextResponse.json({error:'csrf'},{status:403}));expect((await invoke(req(method,body,suffix))).status).toBe(403);expect(mockContext).not.toHaveBeenCalled();});
+ test('rate guard prevents mutation',async()=>{jest.mocked(checkRateLimit).mockResolvedValueOnce(true);expect((await invoke(req(method,body,suffix))).status).toBe(429);expect(mockRpc).not.toHaveBeenCalled();});
+ test.each([401,403,503])('auth denial %s prevents mutation',async status=>{mockContext.mockResolvedValue(NextResponse.json({error:'denied'},{status}));expect((await invoke(req(method,body,suffix))).status).toBe(status);expect(mockRpc).not.toHaveBeenCalled();});
+ if(kind.startsWith('blog:') && method!=='POST')test('invalid record ID prevents mutation',async()=>{expect((await invoke(req(method,body,suffix),'bad')).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
+ test.each([['42501',403],['P0002',404],['23505',409],['40001',409],['22023',400],['XX000',500]])('SQL failure %s never audits success',async(code,status)=>{mockRpc.mockResolvedValue({data:null,error:{code,message:'PRIVATE'}});expect((await invoke(req(method,body,suffix))).status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expect(mockDirect).not.toHaveBeenCalled();});
+ test('successful result verifies scope and retains response envelope',async()=>{const r=await invoke(req(method,body,suffix));expect(r.status).toBe(kind.endsWith(':create')?201:200);expect(await r.json()).toEqual(wrapper==='ok'?{ok:true}:{[wrapper]:{id,facility_id:facility}});expect(mockRpc).toHaveBeenCalledTimes(1);expect(mockRpc.mock.calls[0][1]).toMatchObject({p_actor_id:actor,p_facility_id:facility,p_record_id:kind.endsWith(':create')?null:id,p_kind:kind});expect(mockDirect).not.toHaveBeenCalled();expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({userId:actor,facilityId:facility,recordId:id}));});
+ if(method!=='DELETE'){
+ test('invalid JSON prevents mutation',async()=>{const r=new NextRequest('http://localhost/api/admin/example?facility_id='+facility+suffix,{method,body:'{'});expect((await invoke(r)).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
+ for(const invalid of invalidBodies(kind))test('invalid input '+JSON.stringify(invalid).slice(0,70),async()=>{expect((await invoke(req(method,invalid,suffix))).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
+ }
+ });
 }
-
-function makeRequest(method: string, body?: object, facilityId: string | null = FACILITY_UUID) {
-  const url = new URL(`http://localhost/api/admin/blog/${POST_UUID}`);
-  if (facilityId) url.searchParams.set('facility_id', facilityId);
-  return new NextRequest(url.toString(), {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-}
-
-function memberSingle(data: unknown) {
-  return {
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    in: jest.fn().mockReturnThis(),
-    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
-  };
-}
-
-// mutation は .select().maybeSingle()（0行=他施設/存在しない記事 を not found として扱う根治）。
-function updateFacilityChain(data: unknown, error: unknown = null) {
-  return {
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          select: jest.fn().mockReturnValue({
-            maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
-          }),
-        }),
-      }),
-    }),
-  };
-}
-
-function deleteFacilityChain(error: unknown = null, data: unknown = [{ id: 'blog-1' }]) {
-  return {
-    delete: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          select: jest.fn(() => Promise.resolve({ data: error ? null : data, error })),
-        }),
-      }),
-    }),
-  };
-}
-
-beforeEach(() => {
-  jest.clearAllMocks();
-  (checkRateLimit as jest.Mock).mockReturnValue(false);
-  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
-});
-
-// ─── PATCH ────────────────────────────────────────────────────────────────────
-
-test('PATCH: 未認証 → 401', async () => {
-  mockGetUser.mockResolvedValue({ data: { user: null } });
-  const res = await PATCH(makeRequest('PATCH', { title: 'New' }), makeProps());
-  expect(res.status).toBe(401);
-});
-
-test('PATCH: レートリミット → 429', async () => {
-  (checkRateLimit as jest.Mock).mockReturnValue(true);
-  const res = await PATCH(makeRequest('PATCH', { title: 'New' }), makeProps());
-  expect(res.status).toBe(429);
-});
-
-test('PATCH: 不正なUUID → 400', async () => {
-  const res = await PATCH(makeRequest('PATCH', { title: 'New' }), makeProps('bad-id'));
-  expect(res.status).toBe(400);
-});
-
-test('PATCH: facility_id なし → 401', async () => {
-  const res = await PATCH(makeRequest('PATCH', { title: 'New' }, null), makeProps());
-  expect(res.status).toBe(401);
-});
-
-test('PATCH: 非管理者 → 401', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle(null));
-  const res = await PATCH(makeRequest('PATCH', { title: 'New' }), makeProps());
-  expect(res.status).toBe(401);
-});
-
-test('PATCH: title が 201文字 → 400', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  const res = await PATCH(makeRequest('PATCH', { title: 'a'.repeat(201) }), makeProps());
-  expect(res.status).toBe(400);
-});
-
-test('PATCH: 記事が見つからない → 404', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateFacilityChain(null)); // null data = not found
-  const res = await PATCH(makeRequest('PATCH', { title: 'New' }), makeProps());
-  expect(res.status).toBe(404);
-});
-
-test('PATCH: DB更新失敗 → 500', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateFacilityChain(null, { message: 'DB error' }));
-  const res = await PATCH(makeRequest('PATCH', { title: 'New' }), makeProps());
-  expect(res.status).toBe(500);
-});
-
-test('PATCH: 正常更新 → 200 with post', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateFacilityChain({ id: POST_UUID, title: 'New' }));
-  const res = await PATCH(makeRequest('PATCH', { title: 'New' }), makeProps());
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.post).toBeDefined();
-});
-
-// ─── DELETE ───────────────────────────────────────────────────────────────────
-
-test('DELETE: 未認証 → 401', async () => {
-  mockGetUser.mockResolvedValue({ data: { user: null } });
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(401);
-});
-
-test('DELETE: 不正なUUID → 400', async () => {
-  const res = await DELETE(makeRequest('DELETE'), makeProps('bad-id'));
-  expect(res.status).toBe(400);
-});
-
-test('DELETE: 非管理者 → 401', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle(null));
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(401);
-});
-
-test('DELETE: DB削除失敗 → 500', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(deleteFacilityChain({ message: 'DB error' }));
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(500);
-});
-
-// 【2026年7月10日 恒久根治の回帰】他施設のIDを指定した0件削除が「成功」と偽装されない
-// ことを検証する（phantom success の再発防止）。
-test('DELETE: 0件削除（他施設のID等）→ 404（成功と偽装しない）', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(deleteFacilityChain(null, []));
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(404);
-});
-
-test('DELETE: 正常削除 → 200 ok:true', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(deleteFacilityChain(null));
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.ok).toBe(true);
-});
-
-test('PATCH: CSRF エラー → 403', async () => {
-  const { checkCsrf } = require('@/lib/csrf');
-  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
-  const res = await PATCH(makeRequest('PATCH', { title: 'New' }), makeProps());
-  expect(res.status).toBe(403);
-});
-
-test('PATCH: content が 50001文字 → 400', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  const res = await PATCH(makeRequest('PATCH', { content: 'a'.repeat(50001) }), makeProps());
-  expect(res.status).toBe(400);
-});
-
-test('PATCH: is_published=false → 200', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateFacilityChain({ id: POST_UUID, is_published: false }));
-  const res = await PATCH(makeRequest('PATCH', { is_published: false }), makeProps());
-  expect(res.status).toBe(200);
-});
-
-test('PATCH: facility_id が不正UUID → 401', async () => {
-  const url = new URL(`http://localhost/api/admin/blog/${POST_UUID}`);
-  url.searchParams.set('facility_id', 'bad-uuid');
-  const req = new NextRequest(url.toString(), {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title: 'New' }),
-  });
-  const res = await PATCH(req, makeProps());
-  expect(res.status).toBe(401);
-});
-
-test('PATCH: レートリミット params (20/60s)', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateFacilityChain({ id: POST_UUID, title: 'New' }));
-  (checkRateLimit as jest.Mock).mockReturnValue(false);
-  (checkRateLimit as jest.Mock).mockClear();
-  await PATCH(makeRequest('PATCH', { title: 'New' }), makeProps());
-  const call = (checkRateLimit as jest.Mock).mock.calls[0];
-  expect(call[2]).toBe(20);
-  expect(call[3]).toBe(60_000);
-});
-
-test('PATCH: レスポンスが { post: ... } 形式', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateFacilityChain({ id: POST_UUID, title: 'New' }));
-  const res = await PATCH(makeRequest('PATCH', { title: 'New' }), makeProps());
-  const json = await res.json();
-  expect(json.post).toBeDefined();
-  expect(json.post.id).toBe(POST_UUID);
-});
-
-test('DELETE: CSRF エラー → 403', async () => {
-  const { checkCsrf } = require('@/lib/csrf');
-  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(403);
-});
-
-test('DELETE: レートリミット → 429', async () => {
-  (checkRateLimit as jest.Mock).mockReturnValue(true);
-  const res = await DELETE(makeRequest('DELETE'), makeProps());
-  expect(res.status).toBe(429);
-});
-
-test('PATCH: is_published=true → published_at が設定されて 200', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateFacilityChain({ id: POST_UUID, is_published: true }));
-  const res = await PATCH(makeRequest('PATCH', { is_published: true }), makeProps());
-  expect(res.status).toBe(200);
-});
-
-test('PATCH: 不正JSON → 400', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  const url = new URL(`http://localhost/api/admin/blog/${POST_UUID}`);
-  url.searchParams.set('facility_id', FACILITY_UUID);
-  const req = new NextRequest(url.toString(), {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: 'not-json',
-  });
-  const res = await PATCH(req, makeProps());
-  expect(res.status).toBe(400);
-});
-
-test('DELETE: facility_id なし → 401', async () => {
-  const res = await DELETE(makeRequest('DELETE', undefined, null), makeProps());
-  expect(res.status).toBe(401);
-});
+test.each([true,false])('publication flag %s goes to DB authority without caller timestamp',async is_published=>{expect((await PATCH(req('PATCH',{is_published}),{params:Promise.resolve({id})})).status).toBe(200);expect(mockRpc.mock.calls[0][1].p_values).toEqual({is_published});});

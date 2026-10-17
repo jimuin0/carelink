@@ -7086,6 +7086,16 @@ export type Database = {
         Returns: boolean
       }
       longtransactionsenabled: { Args: never; Returns: boolean }
+      manage_admin_content_atomic: {
+        Args: {
+          p_actor_id: string
+          p_facility_id: string
+          p_kind: string
+          p_record_id: string
+          p_values: Json
+        }
+        Returns: Json
+      }
       manage_admin_coupon_with_receipt_atomic: {
         Args: {
           p_actor_id: string
@@ -7104,6 +7114,16 @@ export type Database = {
           p_actor_id: string
           p_customer_id: string
           p_facility_id: string
+          p_values: Json
+        }
+        Returns: Json
+      }
+      manage_facility_api_key_atomic: {
+        Args: {
+          p_action: string
+          p_actor_id: string
+          p_facility_id: string
+          p_key_id: string
           p_values: Json
         }
         Returns: Json

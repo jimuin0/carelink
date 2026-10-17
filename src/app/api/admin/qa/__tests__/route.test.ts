@@ -1,261 +1,34 @@
-/**
- * @jest-environment node
- *
- * Tests for POST /api/admin/qa
- * Key assertions:
- *   - Non-member → 401 (IDOR prevention)
- *   - action=toggle-public, action=delete, default=answer
- *   - qa_id uses z.string().uuid() → requires RFC 4122 UUID
- *   - DB failure → 500
- */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
+import {NextRequest,NextResponse} from 'next/server';
+const actor='33333333-3333-4333-8333-333333333333',facility='22222222-2222-4222-8222-222222222222',id='11111111-1111-4111-8111-111111111111';
+const mockContext=jest.fn(),mockRpc=jest.fn(),mockDirect=jest.fn();
+jest.mock('@/lib/admin-api-context',()=>({getAdminApiContext:()=>mockContext()}));
+jest.mock('@/lib/supabase-server',()=>({createServiceRoleClient:()=>({rpc:mockRpc,from:mockDirect})}));
+jest.mock('@/lib/csrf',()=>({checkCsrf:jest.fn(()=>null)}));
+jest.mock('@/lib/rate-limit',()=>({checkRateLimit:jest.fn(()=>false)}));
+jest.mock('@/lib/audit-logger',()=>({writeAuditLog:jest.fn(),getRequestContext:()=>({ua:'test',ip:'127.0.0.1'})}));
+import {checkCsrf} from '@/lib/csrf';
+import {checkRateLimit} from '@/lib/rate-limit';
+import {writeAuditLog} from '@/lib/audit-logger';
+import {POST} from '../route';
+const cases=[['qa:answer','POST',{qa_id:id,answer:'Answer'},POST,'','ok'],['qa:toggle','POST',{qa_id:id,is_public:true},POST,'&action=toggle-public','ok'],['qa:delete','POST',{qa_id:id},POST,'&action=delete','ok']] as const;
+function invalidBodies(kind:string):unknown[]{return kind==='qa:answer'?[null,{qa_id:'bad',answer:'A'},{qa_id:id,answer:''},{qa_id:id,answer:'x'.repeat(2001)}]:kind==='qa:toggle'?[null,{qa_id:'bad',is_public:true},{qa_id:id}]:[null,{qa_id:'bad'}];}
 
-jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
-jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
-jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
-
-const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
-const USER_ID       = '33333333-3333-3333-3333-333333333333';
-const QA_UUID       = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'; // RFC 4122
-
-const mockGetUser = jest.fn();
-const mockAnonFrom = jest.fn();
-const mockAdminFrom = jest.fn();
-
-jest.mock('@supabase/ssr', () => ({
-  createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
-}));
-jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
-}));
-
-import { NextRequest } from 'next/server';
-import { POST } from '../route';
-import { checkRateLimit } from '@/lib/rate-limit';
-
-function makeRequest(body: object, action: string | null = null, facilityId: string | null = FACILITY_UUID) {
-  const url = new URL('http://localhost/api/admin/qa');
-  if (facilityId) url.searchParams.set('facility_id', facilityId);
-  if (action) url.searchParams.set('action', action);
-  return new NextRequest(url.toString(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+beforeEach(()=>{jest.clearAllMocks();mockContext.mockResolvedValue({userId:actor,facilityId:facility});mockRpc.mockResolvedValue({data:{id,facility_id:facility},error:null});});
+function req(method:string,body:unknown,suffix=''){return new NextRequest('http://localhost/api/admin/example?facility_id='+facility+suffix,{method,body:JSON.stringify(body),headers:{'Content-Type':'application/json'}});}
+for(const [kind,method,body,handler,suffix,wrapper] of cases){
+ const invoke=(r:NextRequest,record=id)=>handler(r,{params:Promise.resolve({id:record})});
+ describe(kind,()=>{
+ test('CSRF rejection prevents auth and mutation',async()=>{jest.mocked(checkCsrf).mockReturnValueOnce(NextResponse.json({error:'csrf'},{status:403}));expect((await invoke(req(method,body,suffix))).status).toBe(403);expect(mockContext).not.toHaveBeenCalled();});
+ test('rate guard prevents mutation',async()=>{jest.mocked(checkRateLimit).mockResolvedValueOnce(true);expect((await invoke(req(method,body,suffix))).status).toBe(429);expect(mockRpc).not.toHaveBeenCalled();});
+ test.each([401,403,503])('auth denial %s prevents mutation',async status=>{mockContext.mockResolvedValue(NextResponse.json({error:'denied'},{status}));expect((await invoke(req(method,body,suffix))).status).toBe(status);expect(mockRpc).not.toHaveBeenCalled();});
+ if(kind.startsWith('blog:') && method!=='POST')test('invalid record ID prevents mutation',async()=>{expect((await invoke(req(method,body,suffix),'bad')).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
+ test.each([['42501',403],['P0002',404],['23505',409],['40001',409],['22023',400],['XX000',500]])('SQL failure %s never audits success',async(code,status)=>{mockRpc.mockResolvedValue({data:null,error:{code,message:'PRIVATE'}});expect((await invoke(req(method,body,suffix))).status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expect(mockDirect).not.toHaveBeenCalled();});
+ test('successful result verifies scope and retains response envelope',async()=>{const r=await invoke(req(method,body,suffix));expect(r.status).toBe(kind.endsWith(':create')?201:200);expect(await r.json()).toEqual(wrapper==='ok'?{ok:true}:{[wrapper]:{id,facility_id:facility}});expect(mockRpc).toHaveBeenCalledTimes(1);expect(mockRpc.mock.calls[0][1]).toMatchObject({p_actor_id:actor,p_facility_id:facility,p_record_id:kind.endsWith(':create')?null:id,p_kind:kind});expect(mockDirect).not.toHaveBeenCalled();expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({userId:actor,facilityId:facility,recordId:id}));});
+ if(method!=='DELETE'){
+ test('invalid JSON prevents mutation',async()=>{const r=new NextRequest('http://localhost/api/admin/example?facility_id='+facility+suffix,{method,body:'{'});expect((await invoke(r)).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
+ for(const invalid of invalidBodies(kind))test('invalid input '+JSON.stringify(invalid).slice(0,70),async()=>{expect((await invoke(req(method,invalid,suffix))).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
+ }
+ });
 }
-
-function memberSingle(data: unknown) {
-  return {
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    in: jest.fn().mockReturnThis(),
-    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
-  };
-}
-
-// update().eq().eq().select('id') → { data, error }。存在行の更新は data に1件、
-// 0 行更新（他施設/存在しない qa_id）は data=[] を返し route は 404。
-function updateEqEq(error: unknown = null, data: unknown = [{ id: QA_UUID }]) {
-  return {
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          select: jest.fn(() => Promise.resolve({ data: error ? null : data, error })),
-        }),
-      }),
-    }),
-  };
-}
-
-function deleteEqEq(error: unknown = null, data: unknown = [{ id: QA_UUID }]) {
-  return {
-    delete: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          select: jest.fn(() => Promise.resolve({ data: error ? null : data, error })),
-        }),
-      }),
-    }),
-  };
-}
-
-beforeEach(() => {
-  jest.clearAllMocks();
-  (checkRateLimit as jest.Mock).mockReturnValue(false);
-  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
-});
-
-test('POST: 未認証 → 401', async () => {
-  mockGetUser.mockResolvedValue({ data: { user: null } });
-  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: 'テスト回答' }));
-  expect(res.status).toBe(401);
-});
-
-test('POST: レートリミット → 429', async () => {
-  (checkRateLimit as jest.Mock).mockReturnValue(true);
-  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: 'テスト回答' }));
-  expect(res.status).toBe(429);
-});
-
-test('POST: 非管理者 → 401', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle(null));
-  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: 'テスト回答' }));
-  expect(res.status).toBe(401);
-});
-
-test('POST: answer が空 → 400', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: '' }));
-  expect(res.status).toBe(400);
-});
-
-test('POST: answer が不正なqa_id → 400 (非RFC4122UUID)', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  const res = await POST(makeRequest({ qa_id: 'not-a-uuid', answer: 'テスト回答' }));
-  expect(res.status).toBe(400);
-});
-
-test('POST: answer DB失敗 → 500', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateEqEq({ message: 'DB error' }));
-  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: 'テスト回答' }));
-  expect(res.status).toBe(500);
-});
-
-test('POST: answer 正常 → 200', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateEqEq(null));
-  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: 'テスト回答' }));
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.ok).toBe(true);
-});
-
-test('POST: answer, 存在しない qa_id (0行更新) → 404', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateEqEq(null, []));
-  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: 'テスト回答' }));
-  expect(res.status).toBe(404);
-});
-
-test('POST: toggle-public, qa_id 不正 → 400', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  const res = await POST(makeRequest({ qa_id: 'bad', is_public: true }, 'toggle-public'));
-  expect(res.status).toBe(400);
-});
-
-test('POST: toggle-public, is_public 欠落 → 400', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  const res = await POST(makeRequest({ qa_id: QA_UUID }, 'toggle-public'));
-  expect(res.status).toBe(400);
-});
-
-test('POST: toggle-public, DB失敗 → 500', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateEqEq({ message: 'DB error' }));
-  const res = await POST(makeRequest({ qa_id: QA_UUID, is_public: true }, 'toggle-public'));
-  expect(res.status).toBe(500);
-});
-
-test('POST: toggle-public, 正常 → 200', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateEqEq(null));
-  const res = await POST(makeRequest({ qa_id: QA_UUID, is_public: false }, 'toggle-public'));
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.ok).toBe(true);
-});
-
-test('POST: toggle-public, 存在しない qa_id (0行更新) → 404', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateEqEq(null, []));
-  const res = await POST(makeRequest({ qa_id: QA_UUID, is_public: false }, 'toggle-public'));
-  expect(res.status).toBe(404);
-});
-
-test('POST: delete, DB失敗 → 500', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(deleteEqEq({ message: 'DB error' }));
-  const res = await POST(makeRequest({ qa_id: QA_UUID }, 'delete'));
-  expect(res.status).toBe(500);
-});
-
-// 【2026年7月10日 恒久根治の回帰】他施設のqa_idを指定した0件削除が「成功」と偽装されない
-// ことを検証する（phantom success の再発防止）。
-test('POST: delete, 0件削除（他施設のqa_id等）→ 404（成功と偽装しない）', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(deleteEqEq(null, []));
-  const res = await POST(makeRequest({ qa_id: QA_UUID }, 'delete'));
-  expect(res.status).toBe(404);
-});
-
-test('POST: delete, 正常 → 200', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(deleteEqEq(null));
-  const res = await POST(makeRequest({ qa_id: QA_UUID }, 'delete'));
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.ok).toBe(true);
-});
-
-test('POST: CSRF エラー → 403', async () => {
-  const { checkCsrf } = require('@/lib/csrf');
-  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
-  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: '回答' }));
-  expect(res.status).toBe(403);
-});
-
-test('POST: レートリミット params (20/60s)', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateEqEq(null));
-  (checkRateLimit as jest.Mock).mockReturnValue(false);
-  (checkRateLimit as jest.Mock).mockClear();
-  await POST(makeRequest({ qa_id: QA_UUID, answer: '回答' }));
-  const call = (checkRateLimit as jest.Mock).mock.calls[0];
-  expect(call[2]).toBe(20);
-  expect(call[3]).toBe(60_000);
-});
-
-test('POST: answer が 2001文字 → 400', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: 'a'.repeat(2001) }));
-  expect(res.status).toBe(400);
-});
-
-test('POST: answer が 2000文字 → 200 (上限ぴったり)', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateEqEq(null));
-  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: 'a'.repeat(2000) }));
-  expect(res.status).toBe(200);
-});
-
-test('POST: facility_id なし → 401', async () => {
-  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: '回答' }, null, null));
-  expect(res.status).toBe(401);
-});
-
-test('POST: facility_id が不正UUID → 401', async () => {
-  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: '回答' }, null, 'not-uuid'));
-  expect(res.status).toBe(401);
-});
-
-test('POST: 不正JSON → 400', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  const url = new URL('http://localhost/api/admin/qa');
-  url.searchParams.set('facility_id', FACILITY_UUID);
-  const req = new NextRequest(url.toString(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: 'not-json',
-  });
-  const res = await POST(req);
-  expect(res.status).toBe(400);
-});
-
-// Branch coverage: line 75 — action=delete で deleteSchema バリデーション失敗 → 400（true 分岐）
-test('POST: delete, qa_id が不正UUID → deleteSchema 失敗 → 400（line 75 true 分岐）', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  const res = await POST(makeRequest({ qa_id: 'not-a-uuid' }, 'delete'));
-  expect(res.status).toBe(400);
-});
+test('answer at maximum length is saved without forged responder identity',async()=>{expect((await POST(req('POST',{qa_id:id,answer:'x'.repeat(2000),answered_by:facility}))).status).toBe(200);expect(mockRpc.mock.calls[0][1].p_values).toEqual({answer:'x'.repeat(2000)});});

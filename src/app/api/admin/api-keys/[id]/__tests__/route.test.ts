@@ -14,11 +14,12 @@ jest.mock('@/lib/audit-logger', () => ({
 }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
 
-const KEY_UUID = '11111111-1111-1111-1111-111111111111';
-const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
+const KEY_UUID = '11111111-1111-4111-8111-111111111111';
+const FACILITY_UUID = '22222222-2222-4222-8222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 
 const mockAdminFrom = jest.fn();
+const mockRpc = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockGetUser = jest.fn();
 
@@ -26,7 +27,7 @@ jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
 import { DELETE } from '../route';
@@ -51,6 +52,7 @@ function singleChain(data: unknown, error: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockRpc.mockImplementation(async () => { const r = await mockAdminFrom('api_keys').update({is_active:false}).eq('id',KEY_UUID).eq('facility_id',FACILITY_UUID).select(); return { ...r, error: r.error || (!r.data?.length ? {code:'P0002'} : null), data: r.data?.length ? {id:KEY_UUID,facility_id:FACILITY_UUID,name:'Synthetic',key_prefix:'ck_live_12345678',scopes:['bookings:read'],is_active:false,last_used_at:null,expires_at:null,created_at:'2026-10-17T00:00:00Z'} : null }; });
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });

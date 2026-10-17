@@ -1,3 +1,4 @@
+import { manageAdminContent } from '@/lib/admin-content-write';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -7,7 +8,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { authUnavailable, serverError } from '@/lib/with-route';
+import { authUnavailable } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
 
 const updateSchema = z.object({
@@ -64,15 +65,11 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
-  const admin = createServiceRoleClient();
   const { name, ...rest } = parsed.data;
   const updateValues = { ...rest, ...(name !== undefined ? { title: name } : {}) };
 
-  // .maybeSingle(): verify と update の間に削除される TOCTOU 等で該当0行になった場合、.single() だと
-  // PGRST116 error が先に発火し if(error)→500 になり下の 404 分岐が到達不能になる（PR#465 と同型）。
-  const { data, error } = await admin.from('treatment_catalogs').update(updateValues).eq('id', params.id).eq('facility_id', facilityId).select().maybeSingle();
-  if (error) return serverError('admin-catalog-patch', error, '/api/admin/catalog/[id]');
-  if (!data) return NextResponse.json({ error: 'カタログが見つかりません' }, { status: 404 });
+  const data = await manageAdminContent({actorId:user.id,facilityId,recordId:params.id,kind:'catalog:update',values:updateValues});
+  if (data instanceof NextResponse) return data;
 
   const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({
@@ -109,13 +106,8 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   if (facilityId instanceof NextResponse) return facilityId;
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const admin = createServiceRoleClient();
-  // 削除件数(affected rows)を検証せず常に成功を返していたため、TOCTOU（verify後に既削除等）による
-  // 0件削除も「成功」と偽装していた（phantom success）。.select() で削除行を受け取り、0件なら404を返す
-  // （customers/[id]・menus/[id] と同型）。
-  const { data, error } = await admin.from('treatment_catalogs').delete().eq('id', params.id).eq('facility_id', facilityId).select();
-  if (error) return serverError('admin-catalog-delete', error, '/api/admin/catalog/[id]');
-  if (!data || data.length === 0) return NextResponse.json({ error: 'カタログが見つかりません' }, { status: 404 });
+  const data = await manageAdminContent({actorId:user.id,facilityId,recordId:params.id,kind:'catalog:delete',values:{}});
+  if (data instanceof NextResponse) return data;
 
   const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({

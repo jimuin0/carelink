@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminApiContext } from '@/lib/admin-api-context';
-import { createServiceRoleClient } from '@/lib/supabase-server';
+import { manageAdminContent } from '@/lib/admin-content-write';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { serverError } from '@/lib/with-route';
 
 const blogPostSchema = z.object({
   title: z.string().min(1).max(200),
@@ -48,17 +47,10 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
   const isPublished = parsed.data.is_published ?? false;
-  const admin = createServiceRoleClient();
-  const { data, error } = await admin.from('blog_posts').insert({
-    facility_id: auth.facilityId,
-    title: parsed.data.title,
-    slug: generateBlogSlug(parsed.data.title),
-    content: parsed.data.content,
-    is_published: isPublished,
-    published_at: isPublished ? new Date().toISOString() : null,
-  }).select().single();
-
-  if (error) return serverError('admin-blog-create', error, '/api/admin/blog');
+  const data = await manageAdminContent({actorId:auth.userId,facilityId:auth.facilityId,recordId:null,kind:'blog:create',values:{
+    title:parsed.data.title,slug:generateBlogSlug(parsed.data.title),content:parsed.data.content,is_published:isPublished,
+  }});
+  if (data instanceof NextResponse) return data;
 
   const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({

@@ -14,6 +14,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { authUnavailable, serverError } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
+import { manageFacilityApiKey } from '@/lib/api-key-write';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
 
 const VALID_SCOPES = ['bookings:read', 'customers:read', 'reviews:read'];
@@ -39,6 +40,7 @@ export async function POST(request: NextRequest) {
   const user = identity.user;
 
   const body = await request.json().catch(() => ({}));
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
   const { facility_id, name, scopes } = body as { facility_id?: string; name?: string; scopes?: string[] };
 
   if (!facility_id || typeof facility_id !== 'string') return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
@@ -52,6 +54,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `scopes must be 1-${VALID_SCOPES.length} items` }, { status: 400 });
   }
 
+  if (scopes.some(s => typeof s !== 'string')) return NextResponse.json({ error: 'Invalid scopes' }, { status: 400 });
   const invalidScopes = scopes.filter((s) => !VALID_SCOPES.includes(s));
   if (invalidScopes.length > 0) return NextResponse.json({ error: `Invalid scopes: ${invalidScopes.join(', ')}` }, { status: 400 });
 
@@ -73,19 +76,10 @@ export async function POST(request: NextRequest) {
   }
   if (!mem) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
 
-  const admin = createServiceRoleClient();
   const { raw, hash, prefix } = generateApiKey();
-
-  const { data: newKey, error } = await admin.from('api_keys').insert({
-    facility_id,
-    name: name.trim(),
-    key_hash: hash,
-    key_prefix: prefix,
-    scopes: uniqueScopes,
-    created_by: user.id,
-  }).select('id, name, key_prefix, scopes, is_active, last_used_at, expires_at, created_at').single();
-
-  if (error || !newKey) return serverError('admin-api-keys-create', error ?? new Error('api_keys insert returned no row'), '/api/admin/api-keys', 'APIキーの作成に失敗しました');
+  const newKey = await manageFacilityApiKey({ actorId: user.id, facilityId: facility_id, keyId: null,
+    action: 'create', values: { name: name.trim(), key_hash: hash, key_prefix: prefix, scopes: uniqueScopes } });
+  if (newKey instanceof NextResponse) return newKey;
 
   const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({
@@ -100,7 +94,7 @@ export async function POST(request: NextRequest) {
   });
 
   // Return the raw key ONCE — it won't be retrievable after this
-  return NextResponse.json({ raw_key: raw, key: newKey }, { status: 201 });
+  return NextResponse.json({ raw_key: raw, key: newKey }, { status: 201, headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function GET(request: NextRequest) {

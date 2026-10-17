@@ -1,4 +1,23 @@
+## 2026-10-18 APIキー発行・無効化の権限検証（PR #723へ同梱）
+
+- 再現: 旧 `api_keys` ALLポリシーは任命adminの直接INSERTを許し、owner限定の発行APIを迂回できた。旧APIの事前認可後に権限を失ってもservice-role書き込みが実行される経路と、JSON nullの例外も再現した。
+- 修正: `manage_facility_api_key_atomic` が現時点の会員行をロックし、発行はowner・無効化はowner/adminのみ。anonの表権限を撤去し、authenticatedは従来の会員範囲でSELECTだけを保持。service-roleのみRPCを実行できる。キーの応答は明示投影とno-store、ハッシュを返さない。
+- 実証: PG17の292マイグレーション新規再生／3185 fingerprint、46ケース／実ロック待ち10件、全556スイート11,825テスト成功、11,078/11,078 branches。lint 0 errors（既存4 warnings）、tsc成功。
+- 本番DDL `20261017172144_api_key_write_authority_atomic` 適用済み。関数MD5 `6f6c69dff4af8fe9a229e76a892a2fe1`、invoker／service-only、通常ロールのINSERT/UPDATE/DELETE/TRUNCATE不可とauthenticatedのSELECT保持を照合。security advisorの分類・件数は不変。
+- アプリはPR #723でCI・本番配信確認を継続中。本番の試験キー発行・既存キー無効化・顧客操作は行っていない。既発行キーの扱いを変更していない。プロジェクト全体の未修正ゼロは未証明。
+- 証拠: `.local-consolidation-20261016/error-improvement-handoff/api-key-write-adversarial-verification-20261018.json`。
+
 # CareLink 修正の再開状況
+
+## 2026-10-17 敵対検証追加：カタログ・ブログ・QA・求人の書込み
+
+HTTP権限確認後に取消が確定しても直接service_roleで書ける経路を、症例カタログ3操作・ブログ3操作・QA3操作・求人3操作の計12操作で再現した。同じ権限競合の横展開であり、12種類の独立障害として数えない。旧実ルートは初回8操作、追加カタログ2操作、正しい取得モックへ修正した旧求人2操作で未許可の成功応答を確認した。使い捨てPG17でも取消後の旧12操作を再現した。
+
+`manage_admin_content_atomic`で操作名・書込み列を固定し、現在のowner/adminと対象施設をロックしてから保存する。動的SQLや任意テーブル指定はない。成功レシートの施設・対象IDを検証してから監査する。公開日時とQA回答者はDB側で確定し、タイトルのみの編集では公開日時や旧NULL公開フラグを保持する。SECURITY INVOKER・固定search_path・service_role専用。実施設・実顧客への投稿、返信、通知、削除の試験は行わない。
+
+別件として、求人給与に小数やPostgres INTEGER範囲外の値が通ることを旧スキーマ8件で確認し、実DBの22P02/22003と照合した。共有入力スキーマで整数・0以上・2147483647以下へ制限し、作成・編集の両方でDB到達前に400とする。これは過去のメニュー500等の根因とは認定しない。
+
+検証：実PG17の102ケース（旧処理再現1を含む）・48実ロック待機、291マイグレーションの全新規適用／指紋3184件。全554スイート11796テスト・分岐11058/11058成功。型検査・lintエラー0（既存警告4）。実Supabase SDK HTTP試験と給与の境界値試験を追加。本番加算DDLは適用済みで、関数本体MD5、実行権限、advisor分類・件数を照合した。給与スキーマのStryker実測とGitHub/配信の最終結果はローカル証拠・PRの最新記録を正とする。本人操作・原票149・保留、過去障害の根因不足を完了へ読み替えず、全件ゼロは未証明。
 
 ## 2026-10-17 敵対検証追加：顧客台帳の権限取消競合
 

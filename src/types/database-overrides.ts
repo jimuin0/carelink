@@ -74,7 +74,7 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
     };
     // Omit every overridden key before replacing it. Intersecting generated
     // non-null strings with nullable overrides would silently reject valid SQL NULLs.
-    Functions: Omit<GeneratedFunctions, 'manage_admin_customer_atomic' | 'save_admin_staff_atomic' | 'save_admin_menu_atomic' | 'save_google_calendar_oauth' | 'manage_admin_coupon_with_receipt_atomic' | 'get_admin_coupon_operation' | 'save_admin_coupon_atomic' | 'create_booking_atomic' | 'create_online_booking_atomic' | 'prepare_salon_photo' | 'setup_facility_from_registration' | 'save_booking_email_event_atomic' | 'start_booking_email_event' | 'start_customer_booking_transition_email' | 'start_scheduled_email_delivery' | 'reserve_scheduled_email_atomic' | 'list_scheduled_review_recipients' | 'list_scheduled_digest_recipients' | 'checkout_booking_with_points_atomic' | 'moderate_content_atomic' | 'moderate_review_content_atomic' | 'save_staff_override_atomic' | 'get_staff_mutation_operation' | BookingScopeFunctionName | 'create_booking_with_receipt_atomic'> & {
+    Functions: Omit<GeneratedFunctions, 'manage_facility_api_key_atomic' | 'manage_admin_content_atomic' | 'manage_admin_customer_atomic' | 'save_admin_staff_atomic' | 'save_admin_menu_atomic' | 'save_google_calendar_oauth' | 'manage_admin_coupon_with_receipt_atomic' | 'get_admin_coupon_operation' | 'save_admin_coupon_atomic' | 'create_booking_atomic' | 'create_online_booking_atomic' | 'prepare_salon_photo' | 'setup_facility_from_registration' | 'save_booking_email_event_atomic' | 'start_booking_email_event' | 'start_customer_booking_transition_email' | 'start_scheduled_email_delivery' | 'reserve_scheduled_email_atomic' | 'list_scheduled_review_recipients' | 'list_scheduled_digest_recipients' | 'checkout_booking_with_points_atomic' | 'moderate_content_atomic' | 'moderate_review_content_atomic' | 'save_staff_override_atomic' | 'get_staff_mutation_operation' | BookingScopeFunctionName | 'create_booking_with_receipt_atomic'> & {
       manage_admin_coupon_with_receipt_atomic: Omit<GeneratedFunctions['manage_admin_coupon_with_receipt_atomic'],'Args'> & {
         Args: Omit<GeneratedFunctions['manage_admin_coupon_with_receipt_atomic']['Args'],'p_coupon_id'|'p_target_menu_ids'> & {
           p_coupon_id:string|null;p_target_menu_ids?:string[]|null;
@@ -163,6 +163,12 @@ export type Database = Omit<GeneratedDatabase, 'public'> & {
         Returns: { operation_id: string | null; replayed: boolean; notification: string }[];
       };
       // A first connection observes no token; scope can also be absent.
+      manage_facility_api_key_atomic: Omit<GeneratedFunctions['manage_facility_api_key_atomic'], 'Args'> & {
+        Args: Omit<GeneratedFunctions['manage_facility_api_key_atomic']['Args'], 'p_key_id'> & { p_key_id: string | null };
+      };
+      manage_admin_content_atomic: Omit<GeneratedFunctions['manage_admin_content_atomic'], 'Args'> & {
+        Args: Omit<GeneratedFunctions['manage_admin_content_atomic']['Args'], 'p_record_id'> & { p_record_id: string | null };
+      };
       manage_admin_customer_atomic: Omit<GeneratedFunctions['manage_admin_customer_atomic'], 'Args'> & {
         Args: Omit<GeneratedFunctions['manage_admin_customer_atomic']['Args'], 'p_customer_id'> & { p_customer_id: string | null };
       };
