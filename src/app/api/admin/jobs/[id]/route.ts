@@ -1,3 +1,4 @@
+import { manageAdminContent } from '@/lib/admin-content-write';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { NextRequest, NextResponse } from 'next/server';
@@ -89,36 +90,12 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       return NextResponse.json({ error: '入力値が不正です', issues: parsed.error.issues }, { status: 400 });
     }
 
-    // DB 書き込みは service role クライアント（facility_jobs の RLS は公開 read のみ・
-    // UPDATE/DELETE ポリシーが無いため auth クライアントでは失敗する）
-    const serviceAdmin = createServiceRoleClient();
     const v = parsed.data;
-    const { data, error } = await serviceAdmin
-      .from('facility_jobs')
-      .update({
-        title: v.title,
-        job_type: v.job_type,
-        employment_type: v.employment_type,
-        salary_min: v.salary_min,
-        salary_max: v.salary_max,
-        salary_note: v.salary_note || null,
-        description: v.description || null,
-        requirements: v.requirements || null,
-        benefits: v.benefits || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', job.id)
-      .eq('facility_id', job.facility_id)
-      .select('*')
-      // .maybeSingle(): authorize と update の間に削除される TOCTOU 等で該当0行になった場合、.single()
-      // だと PGRST116 error が先に発火し if(error)→500 になり 404 分岐が到達不能になる（catalog/coupons/
-      // packages/api-keys の同型 [id] ルートと統一）。
-      .maybeSingle();
-
-    if (error) {
-      return serverError('admin-jobs-update-db', error, '/api/admin/jobs/[id]', '更新に失敗しました');
-    }
-    if (!data) return NextResponse.json({ error: '求人が見つかりません' }, { status: 404 });
+    const data = await manageAdminContent({actorId:userId,facilityId:job.facility_id,recordId:job.id,kind:'job:update',values:{
+      title:v.title,job_type:v.job_type,employment_type:v.employment_type,salary_min:v.salary_min,salary_max:v.salary_max,
+      salary_note:v.salary_note || null,description:v.description || null,requirements:v.requirements || null,benefits:v.benefits || null,
+    }});
+    if (data instanceof NextResponse) return data;
 
     void writeAuditLog({
       userId,
@@ -153,23 +130,8 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
     if ('error' in result) return result.error;
     const { job, userId } = result;
 
-    // DB 書き込みは service role クライアント（facility_jobs の RLS は公開 read のみ・
-    // DELETE ポリシーが無いため auth クライアントでは失敗する）
-    const serviceAdmin = createServiceRoleClient();
-    // 削除件数(affected rows)を検証せず常に success:true を返していたため、TOCTOU（authorize後に
-    // 既削除等）による0件削除も「成功」と偽装していた（phantom success）。.select() で削除行を受け取り、
-    // 0件なら404を返す（customers/[id]・menus/[id] と同型）。
-    const { data, error } = await serviceAdmin
-      .from('facility_jobs')
-      .delete()
-      .eq('id', job.id)
-      .eq('facility_id', job.facility_id)
-      .select();
-
-    if (error) {
-      return serverError('admin-jobs-delete-db', error, '/api/admin/jobs/[id]', '削除に失敗しました');
-    }
-    if (!data || data.length === 0) return NextResponse.json({ error: '求人が見つかりません' }, { status: 404 });
+    const data = await manageAdminContent({actorId:userId,facilityId:job.facility_id,recordId:job.id,kind:'job:delete',values:{}});
+    if (data instanceof NextResponse) return data;
 
     void writeAuditLog({
       userId,

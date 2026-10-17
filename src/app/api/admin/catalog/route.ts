@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminApiContext } from '@/lib/admin-api-context';
-import { createServiceRoleClient } from '@/lib/supabase-server';
+import { manageAdminContent } from '@/lib/admin-content-write';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { serverError } from '@/lib/with-route';
 
 // treatment_catalogs は Before/After 等の症例カタログ（実列: title, description, tags[],
 // before_photo_url, after_photo_url）。旧 schema は name/price/category/duration_minutes/
@@ -35,15 +34,10 @@ export async function POST(request: NextRequest) {
   const parsed = catalogSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
-  const admin = createServiceRoleClient();
-  const { data, error } = await admin.from('treatment_catalogs').insert({
-    facility_id: auth.facilityId,
-    title: parsed.data.name,
-    description: parsed.data.description ?? null,
-    tags: parsed.data.tags ?? null,
-  }).select().single();
-
-  if (error) return serverError('admin-catalog-create', error, '/api/admin/catalog');
+  const data = await manageAdminContent({actorId:auth.userId,facilityId:auth.facilityId,recordId:null,kind:'catalog:create',values:{
+    title:parsed.data.name,description:parsed.data.description ?? null,tags:parsed.data.tags ?? null,
+  }});
+  if (data instanceof NextResponse) return data;
 
   const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({

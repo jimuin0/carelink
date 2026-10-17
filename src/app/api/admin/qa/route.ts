@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminApiContext } from '@/lib/admin-api-context';
-import { createServiceRoleClient } from '@/lib/supabase-server';
+import { manageAdminContent } from '@/lib/admin-content-write';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
-import { serverError } from '@/lib/with-route';
 
 const answerSchema = z.object({
   qa_id: z.string().uuid(),
@@ -43,18 +42,8 @@ export async function POST(request: NextRequest) {
     const parsed = publicToggleSchema.safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
-    const admin = createServiceRoleClient();
-    // .select() で更新行を受け取り 0 件なら 404。旧実装は件数を検証せず、他施設/存在しない qa_id への
-    // 0 件更新も「成功」と偽装し監査ログを残していた（delete 分岐と同型の phantom success）。
-    const { data, error } = await admin
-      .from('facility_qa')
-      .update({ is_public: parsed.data.is_public })
-      .eq('id', parsed.data.qa_id)
-      .eq('facility_id', result.facilityId)
-      .select('id');
-
-    if (error) return serverError('admin-qa-toggle-public', error, '/api/admin/qa');
-    if (!data || data.length === 0) return NextResponse.json({ error: '質問が見つかりません' }, { status: 404 });
+    const data = await manageAdminContent({actorId:result.userId,facilityId:result.facilityId,recordId:parsed.data.qa_id,kind:'qa:toggle',values:{is_public:parsed.data.is_public}});
+    if (data instanceof NextResponse) return data;
 
     void writeAuditLog({
       userId: result.userId,
@@ -73,19 +62,8 @@ export async function POST(request: NextRequest) {
     const parsed = deleteSchema.safeParse(body);
     if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
-    const admin = createServiceRoleClient();
-    // 【2026年7月10日 恒久根治】削除件数を検証せず常に成功を返していたため、他施設のqa_idを
-    // 指定した0件削除（facility_id不一致）も「成功」と偽装していた（phantom success）。
-    // .select() で削除された行を受け取り、0件なら404を返す。
-    const { data, error } = await admin
-      .from('facility_qa')
-      .delete()
-      .eq('id', parsed.data.qa_id)
-      .eq('facility_id', result.facilityId)
-      .select();
-
-    if (error) return serverError('admin-qa-delete', error, '/api/admin/qa');
-    if (!data || data.length === 0) return NextResponse.json({ error: '質問が見つかりません' }, { status: 404 });
+    const data = await manageAdminContent({actorId:result.userId,facilityId:result.facilityId,recordId:parsed.data.qa_id,kind:'qa:delete',values:{}});
+    if (data instanceof NextResponse) return data;
 
     void writeAuditLog({
       userId: result.userId,
@@ -103,22 +81,8 @@ export async function POST(request: NextRequest) {
   const parsed = answerSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
-  const admin = createServiceRoleClient();
-  // .select() で更新行を受け取り 0 件なら 404（他施設/存在しない qa_id への phantom success 防止）。
-  const { data, error } = await admin
-    .from('facility_qa')
-    .update({
-      answer: parsed.data.answer,
-      answered_by: result.userId,
-      answered_at: new Date().toISOString(),
-      status: 'answered',
-    })
-    .eq('id', parsed.data.qa_id)
-    .eq('facility_id', result.facilityId)
-    .select('id');
-
-  if (error) return serverError('admin-qa-answer', error, '/api/admin/qa');
-  if (!data || data.length === 0) return NextResponse.json({ error: '質問が見つかりません' }, { status: 404 });
+  const data = await manageAdminContent({actorId:result.userId,facilityId:result.facilityId,recordId:parsed.data.qa_id,kind:'qa:answer',values:{answer:parsed.data.answer}});
+  if (data instanceof NextResponse) return data;
 
   void writeAuditLog({
     userId: result.userId,

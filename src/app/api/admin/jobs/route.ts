@@ -1,3 +1,4 @@
+import { manageAdminContent } from '@/lib/admin-content-write';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { NextRequest, NextResponse } from 'next/server';
@@ -105,7 +106,6 @@ export async function POST(request: Request) {
 
     const v = parsed.data;
     const insertRow = {
-      facility_id: targetFacilityId,
       title: v.title,
       job_type: v.job_type,
       employment_type: v.employment_type,
@@ -119,16 +119,8 @@ export async function POST(request: Request) {
 
     // メンバーシップ検証後の INSERT は service role で行う（RLS に INSERT ポリシーが無く
     // auth クライアントでは弾かれるため。menus/staff と同型の信頼サーバ文脈での書き込み）。
-    const admin = createServiceRoleClient();
-    const { data, error } = await admin
-      .from('facility_jobs')
-      .insert(insertRow)
-      .select('*')
-      .single();
-
-    if (error) {
-      return serverError('admin-jobs-create-insert', error, '/api/admin/jobs', '作成に失敗しました');
-    }
+    const data = await manageAdminContent({actorId:user.id,facilityId:targetFacilityId,recordId:null,kind:'job:create',values:insertRow});
+    if (data instanceof NextResponse) return data;
 
     void writeAuditLog({
       userId: user.id,

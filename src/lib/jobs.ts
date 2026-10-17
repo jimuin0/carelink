@@ -14,12 +14,14 @@ export const jobFormSchema = z
       .union([z.string(), z.number(), z.null()])
       .optional()
       .transform((v) => (v === '' || v == null ? null : Number(v)))
-      .refine((v) => v === null || (Number.isFinite(v) && v >= 0), '0以上の数値を入力'),
+      .refine((v) => v === null || (Number.isInteger(v) && v >= 0), '0以上の整数を入力')
+      .refine((v) => v === null || v <= 2147483647, '給与額が上限を超えています'),
     salary_max: z
       .union([z.string(), z.number(), z.null()])
       .optional()
       .transform((v) => (v === '' || v == null ? null : Number(v)))
-      .refine((v) => v === null || (Number.isFinite(v) && v >= 0), '0以上の数値を入力'),
+      .refine((v) => v === null || (Number.isInteger(v) && v >= 0), '0以上の整数を入力')
+      .refine((v) => v === null || v <= 2147483647, '給与額が上限を超えています'),
     salary_note: z.string().trim().max(200).optional().or(z.literal('')),
     description: z.string().trim().max(4000).optional().or(z.literal('')),
     requirements: z.string().trim().max(2000).optional().or(z.literal('')),
