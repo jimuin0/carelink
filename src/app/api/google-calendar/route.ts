@@ -66,20 +66,22 @@ export async function POST(req: NextRequest) {
   if (identity.state === 'unauthenticated') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const user = identity.user;
 
-  const googleClientId = process.env.GOOGLE_CLIENT_ID;
-  if (!googleClientId) {
-    return NextResponse.json({ error: 'Google Calendar integration not configured' }, { status: 503 });
-  }
-
   const { action } = await req.json().catch(() => ({}));
 
   if (action === 'disconnect') {
     const admin = createServiceRoleClient();
-    const { error: disconnectErr } = await admin.from('google_calendar_tokens').delete().eq('user_id', user.id);
+    const { data: disconnected, error: disconnectErr } = await admin.rpc('disconnect_google_calendar', { p_actor_id: user.id });
     if (disconnectErr) {
-      return serverError('google-calendar-disconnect', disconnectErr, '/api/google-calendar');
+      return serverError('google-calendar-disconnect', databaseDiagnostic(disconnectErr), '/api/google-calendar');
     }
+    if (disconnected !== true) return serverError('google-calendar-disconnect', new Error('GOOGLE_CALENDAR_DISCONNECT_UNCONFIRMED'), '/api/google-calendar');
+    (await cookies()).delete('google_oauth_state');
     return NextResponse.json({ ok: true });
+  }
+
+  const googleClientId = process.env.GOOGLE_CLIENT_ID;
+  if (!googleClientId) {
+    return NextResponse.json({ error: 'Google Calendar integration not configured' }, { status: 503 });
   }
 
   // Generate OAuth2 authorization URL with CSRF-safe state
@@ -89,6 +91,11 @@ export async function POST(req: NextRequest) {
   const redirectUri = `${SITE_URL}/api/google-calendar/callback`;
   const nonce = crypto.randomBytes(32).toString('hex');
   const state = Buffer.from(JSON.stringify({ userId: user.id, ts: Date.now(), nonce })).toString('base64url');
+  const { data: begun, error: beginError } = await createServiceRoleClient().rpc('begin_google_calendar_oauth', {
+    p_actor_id: user.id, p_nonce_hash: crypto.createHash('sha256').update(nonce).digest('hex'),
+  });
+  if (beginError) return serverError('google-calendar-begin', databaseDiagnostic(beginError), '/api/google-calendar');
+  if (begun !== true) return serverError('google-calendar-begin', new Error('GOOGLE_CALENDAR_BEGIN_UNCONFIRMED'), '/api/google-calendar');
 
   const cookieStore = await cookies();
   cookieStore.set('google_oauth_state', nonce, {

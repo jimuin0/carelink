@@ -28,13 +28,14 @@ jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
 import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
 
-let mockUpsert: jest.Mock;
+let mockInsert: jest.Mock;
 let mockCookieGet: jest.Mock;
 let mockCookieDelete: jest.Mock;
 let mockTimingSafeEqual: jest.Mock;
 let mockAuthGetUser: jest.Mock;
 let mockMaybeSingle: jest.Mock;
 let mockUpdate: jest.Mock;
+let mockSave: jest.Mock;
 
 function updateChain(result: unknown) {
   const eq = jest.fn();
@@ -50,7 +51,7 @@ function setupDefaultMocks(
   nonceCookieFound: boolean = true,
   nonceValid: boolean = true,
   tokenExchangeSucceeds: boolean = true,
-  upsertSucceeds: boolean = true
+  insertSucceeds: boolean = true
 ) {
   (checkRateLimit as jest.Mock).mockReturnValue(rateLimited);
 
@@ -70,6 +71,7 @@ function setupDefaultMocks(
 
   const crypto = require('crypto');
   crypto.timingSafeEqual = mockTimingSafeEqual;
+  crypto.createHash.mockImplementation(jest.requireActual('crypto').createHash);
 
   global.fetch = jest.fn((url: string) => {
     if (url.includes('oauth2.googleapis.com/token')) {
@@ -88,8 +90,9 @@ function setupDefaultMocks(
     return Promise.resolve(new Response(JSON.stringify({id:'owner@example.invalid'})));
   }) as jest.Mock;
 
-  mockUpsert = jest.fn().mockResolvedValue({
-    error: upsertSucceeds ? null : new Error('Upsert failed'),
+  mockSave = jest.fn().mockResolvedValue({ data: true, error: insertSucceeds ? null : new Error('Save failed') });
+  mockInsert = jest.fn().mockResolvedValue({
+    count: 1, error: insertSucceeds ? null : new Error('Insert failed'),
   });
 
   mockAuthGetUser = jest.fn().mockResolvedValue({
@@ -102,12 +105,13 @@ function setupDefaultMocks(
 
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
+    rpc: mockSave,
     from: jest.fn().mockReturnValue({
       select: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({ maybeSingle: mockMaybeSingle }),
       }),
       update: mockUpdate,
-      upsert: mockUpsert,
+      insert: mockInsert,
     }),
   });
 }
@@ -138,14 +142,14 @@ function createValidState(): string {
 }
 
 describe('GET /api/google-calendar/callback', () => {
-  test.each(['read', 'upsert', 'update'] as const)('DB %s failure is monitored without credential details', async (operation) => {
+  test.each(['read', 'insert', 'update'] as const)('DB %s failure is monitored without credential details', async (operation) => {
     const failure = { code: '08006', message: 'private refresh_token=synthetic-secret', details: 'private SQL input' };
     if (operation === 'read') mockMaybeSingle.mockResolvedValue({ data: null, error: failure });
-    if (operation === 'upsert') mockUpsert.mockResolvedValue({ error: failure });
+    if (operation === 'insert') mockSave.mockResolvedValue({ error: failure });
     if (operation === 'update') {
       mockMaybeSingle.mockResolvedValue({ data: { id: 'fc170001-0000-4000-8000-000000000001', updated_at: '2026-01-01T00:00:00Z', refresh_token: 'existing-refresh' }, error: null });
       global.fetch = jest.fn(reconsentFetch);
-      mockUpdate.mockReturnValue(updateChain({error:failure}));
+      mockSave.mockResolvedValue({ error: failure });
     }
     const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
     expect(res.status).toBe(307);
@@ -157,7 +161,7 @@ describe('GET /api/google-calendar/callback', () => {
     expect(require('@/lib/safe').safeCaptureException).toHaveBeenCalledWith(diagnostic, tag);
     expect(require('@/lib/alert').alertCaughtError).toHaveBeenCalledWith(tag, diagnostic, '/api/google-calendar/callback');
     if (operation === 'read') {
-      expect(mockUpsert).not.toHaveBeenCalled();
+      expect(mockInsert).not.toHaveBeenCalled();
       expect(mockUpdate).not.toHaveBeenCalled();
     }
   });
@@ -173,7 +177,7 @@ describe('GET /api/google-calendar/callback', () => {
       const diagnostic = expect.objectContaining({ message: 'GOOGLE_CALENDAR_CALLBACK_FAILURE' });
       expect(require('@/lib/safe').safeCaptureException).toHaveBeenCalledWith(diagnostic, 'gcal-callback');
       expect(require('@/lib/alert').alertCaughtError).toHaveBeenCalledWith('gcal-callback', diagnostic, '/api/google-calendar/callback');
-      expect(mockUpsert).not.toHaveBeenCalled();
+      expect(mockInsert).not.toHaveBeenCalled();
       expect(mockUpdate).not.toHaveBeenCalled();
     } finally { log.mockRestore(); }
   });
@@ -466,7 +470,7 @@ describe('GET /api/google-calendar/callback', () => {
       : Promise.resolve(new Response(JSON.stringify({id:'owner@example.invalid'})))) as jest.Mock;
     const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
     expect(res.headers.get('location')).toContain('gcal=error');
-    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockInsert).not.toHaveBeenCalled();
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
@@ -476,7 +480,7 @@ describe('GET /api/google-calendar/callback', () => {
 
     expect(res.headers.get('location')).toContain('gcal=error');
     expect((global.fetch as jest.Mock).mock.calls.some((call) => call[0].includes('oauth2.googleapis.com/token'))).toBe(false);
-    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockInsert).not.toHaveBeenCalled();
   });
 
   test('認証済みセッションがない → tokenを保存しない', async () => {
@@ -484,7 +488,7 @@ describe('GET /api/google-calendar/callback', () => {
     const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
 
     expect(res.headers.get('location')).toContain('gcal=error');
-    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockInsert).not.toHaveBeenCalled();
   });
 
   test('既存token照会が失敗 → tokenを上書きしない', async () => {
@@ -492,47 +496,17 @@ describe('GET /api/google-calendar/callback', () => {
     const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
 
     expect(res.headers.get('location')).toContain('gcal=error');
-    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockInsert).not.toHaveBeenCalled();
   });
 
-  test('upserts tokens to google_calendar_tokens', async () => {
-    setupDefaultMocks(false, true, true, true);
-
-    await GET(
-      makeRequest({ code: 'code-123', state: createValidState() }) as any
-    );
-
-    expect(mockUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        access_token: 'access-token-xyz',
-        refresh_token: 'refresh-token-abc',
-      }),
-      expect.objectContaining({
-        onConflict: 'user_id',
-      })
-    );
-  });
-
-  test('upsert includes expires_at', async () => {
-    setupDefaultMocks(false, true, true, true);
-
-    await GET(
-      makeRequest({ code: 'code-123', state: createValidState() }) as any
-    );
-
-    const call = mockUpsert.mock.calls[0];
-    expect(call[0].expires_at).toBeDefined();
-  });
-
-  test('upsert includes scope', async () => {
-    setupDefaultMocks(false, true, true, true);
-
-    await GET(
-      makeRequest({ code: 'code-123', state: createValidState() }) as any
-    );
-
-    const call = mockUpsert.mock.calls[0];
-    expect(call[0].scope).toEqual('calendar');
+  test('saves the complete new grant through the fenced service RPC', async () => {
+    await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
+    expect(mockSave).toHaveBeenCalledWith('save_google_calendar_oauth', expect.objectContaining({
+      p_actor_id: '550e8400-e29b-41d4-a716-446655440000', p_access_token: 'access-token-xyz',
+      p_refresh_token: 'refresh-token-abc', p_expires_at: expect.any(String), p_scope: 'calendar',
+      p_observed_token_id: null, p_observed_updated_at: null, p_nonce_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    }));
+    expect(mockInsert).not.toHaveBeenCalled(); expect(mockUpdate).not.toHaveBeenCalled();
   });
 
   test('successful token exchange → redirect with gcal=success', async () => {
@@ -651,7 +625,7 @@ describe('GET /api/google-calendar/callback', () => {
     // A connection without a refresh token would stop working after access-token expiry.
     expect(res.status).toBe(307);
     expect(res.headers.get('location')).toContain('gcal=error');
-    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockInsert).not.toHaveBeenCalled();
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
@@ -667,27 +641,8 @@ describe('GET /api/google-calendar/callback', () => {
     const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
 
     expect(res.headers.get('location')).toContain('gcal=success');
-    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ access_token: 'new-access' }), { count: 'exact' });
-    expect(mockUpdate.mock.calls[0][0]).not.toHaveProperty('refresh_token');
-    expect(mockUpsert).not.toHaveBeenCalled();
-  });
-
-  test.each([0, null, undefined, 2, -1])('更新件数%sは接続保存の成功と認めない', async (count) => {
-    mockMaybeSingle.mockResolvedValue({ data: { id: 'fc170001-0000-4000-8000-000000000001', updated_at: '2026-01-01T00:00:00Z', refresh_token: 'existing-refresh' }, error: null });
-    const chain=updateChain({count,error:null}); const eq=chain.eq;
-    mockUpdate.mockReturnValue(chain);
-    global.fetch = jest.fn(reconsentFetch);
-
-    const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
-
-    expect(res.headers.get('location')).toBe('http://localhost/mypage/settings?gcal=error');
-    expect(res.headers.get('Cache-Control')).toBe('no-store');
-    expect(mockUpsert).not.toHaveBeenCalled();
-    expect(mockUpdate).toHaveBeenCalledTimes(1);
-    expect(eq).toHaveBeenCalledWith('user_id', '550e8400-e29b-41d4-a716-446655440000');
-    expect(require('@/lib/safe').safeCaptureException).toHaveBeenCalledWith(
-      expect.objectContaining({ message: 'GOOGLE_CALENDAR_TOKEN_SAVE_UNCONFIRMED' }), 'gcal-callback-token-save',
-    );
+    expect(mockSave).toHaveBeenCalledWith('save_google_calendar_oauth', expect.objectContaining({ p_access_token: 'new-access', p_refresh_token: 'existing-refresh' }));
+    expect(mockInsert).not.toHaveBeenCalled(); expect(mockUpdate).not.toHaveBeenCalled();
   });
 
   test('refresh token付き応答でscope省略 → scopeをnullに正規化して保存', async () => {
@@ -698,12 +653,12 @@ describe('GET /api/google-calendar/callback', () => {
       return Promise.resolve(new Response(JSON.stringify({id:'owner@example.invalid'})));
     }) as jest.Mock;
     await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
-    expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({ scope: null, refresh_token: 'refresh' }), expect.anything());
+    expect(mockSave).toHaveBeenCalledWith('save_google_calendar_oauth', expect.objectContaining({ p_scope: null, p_refresh_token: 'refresh' }));
   });
 
   test('既存token更新が失敗 → redirect with gcal=error', async () => {
     mockMaybeSingle.mockResolvedValue({ data: { id: 'fc170001-0000-4000-8000-000000000001', updated_at: '2026-01-01T00:00:00Z', refresh_token: 'existing-refresh' }, error: null });
-    mockUpdate.mockReturnValue(updateChain({error:new Error('update failed')}));
+    mockSave.mockResolvedValue({ error: new Error('save failed') });
     global.fetch = jest.fn((url: string) => {
       if (url.includes('oauth2.googleapis.com/token')) {
         return Promise.resolve(new Response(JSON.stringify({ access_token: 'new-access', expires_in: 3600 }), { status: 200 }));
@@ -715,7 +670,7 @@ describe('GET /api/google-calendar/callback', () => {
   });
 
   // Branch coverage: トークン upsert が失敗 → 成功扱いにせず gcal=error へ
-  test('token upsert が失敗 → redirect with gcal=error', async () => {
+  test('token insert が失敗 → redirect with gcal=error', async () => {
     setupDefaultMocks(false, true, true, true, false);
 
     const res = await GET(
@@ -728,32 +683,16 @@ describe('GET /api/google-calendar/callback', () => {
 });
 
 describe('callback save confirmation using the real Supabase HTTP decoder', () => {
-  test.each([0, 1, null])('PostgREST affected-row count %s', async (count) => {
+  test.each([true, false, null, 1])('only boolean true confirms the fenced transaction: %s', async data => {
     const { createClient } = jest.requireActual('@supabase/supabase-js');
-    const databaseFetch = jest.fn(async (_url: unknown, options: RequestInit) => {
-      if (options.method === 'PATCH') {
-        return new Response(null, { status: 204, headers: count === null ? {} : { 'Content-Range': `*/${count}` } });
-      }
-      return new Response(JSON.stringify([{ id: 'fc170001-0000-4000-8000-000000000001', updated_at: '2026-01-01T00:00:00Z', refresh_token: 'existing-refresh' }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
-    });
-    const client = createClient('http://127.0.0.1:1', 'synthetic-service-key', {
-      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-      global: { fetch: databaseFetch },
-    });
-    require('@/lib/supabase-server').createServiceRoleClient.mockReturnValue(client);
+    const databaseFetch = jest.fn(async (url: unknown) => new Response(JSON.stringify(String(url).includes('/rpc/') ? data : [{ id: 'fc170001-0000-4000-8000-000000000001', updated_at: '2026-01-01T00:00:00Z', refresh_token: 'existing-refresh' }]), { headers: { 'Content-Type': 'application/json' } }));
+    require('@/lib/supabase-server').createServiceRoleClient.mockReturnValue(createClient('http://127.0.0.1:1', 'synthetic-service-key', {
+      global: { fetch: databaseFetch }, auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    }));
     global.fetch = jest.fn(reconsentFetch);
-
     const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
-
-    expect(res.headers.get('location')).toContain(count === 1 ? 'gcal=success' : 'gcal=error');
+    expect(res.headers.get('location')).toContain(data === true ? 'gcal=success' : 'gcal=error');
     expect(databaseFetch).toHaveBeenCalledTimes(2);
-    const [url, options] = databaseFetch.mock.calls[1];
-    expect(new URL(String(url)).searchParams.get('user_id')).toBe('eq.550e8400-e29b-41d4-a716-446655440000');
-    expect(new URL(String(url)).searchParams.get('id')).toBe('eq.fc170001-0000-4000-8000-000000000001');
-    expect(new URL(String(url)).searchParams.get('updated_at')).toBe('eq.2026-01-01T00:00:00Z');
-    expect(options.method).toBe('PATCH');
-    expect(new Headers(options.headers).get('Prefer')).toContain('count=exact');
-    expect(JSON.parse(String(options.body))).not.toHaveProperty('refresh_token');
   });
 });
 
@@ -766,7 +705,7 @@ test('different Google primary with omitted refresh token cannot overwrite the p
   }) as jest.Mock;
   const res=await GET(makeRequest({code:'code-123',state:createValidState()}) as any);
   expect(res.headers.get('location')).toContain('gcal=error');
-  expect(mockUpdate).not.toHaveBeenCalled();expect(mockUpsert).not.toHaveBeenCalled();
+  expect(mockUpdate).not.toHaveBeenCalled();expect(mockInsert).not.toHaveBeenCalled();
 });
 
 test.each([{id:undefined,updated_at:'2026-01-01'}, {id:'',updated_at:'2026-01-01'}, {id:'token-id',updated_at:'invalid'}])('missing credential version stops before reuse: %j', async metadata => {
@@ -778,8 +717,56 @@ test.each([{id:undefined,updated_at:'2026-01-01'}, {id:'',updated_at:'2026-01-01
 test('proved refresh rotation is saved with the exact credential generation',async()=>{
   mockMaybeSingle.mockResolvedValue({data:{id:'token-id',updated_at:'2026-01-01',refresh_token:'existing-refresh'},error:null});
   global.fetch=jest.fn(async(url:string,options:RequestInit)=>new Response(JSON.stringify(url.includes('oauth2.googleapis.com')?{access_token:'access',expires_in:3600,...(String(options.body).includes('grant_type=refresh_token')?{refresh_token:'rotated-refresh'}:{})}:{id:'owner@example.invalid'}))) as jest.Mock;
-  const chain=updateChain({count:1,error:null});mockUpdate.mockReturnValue(chain);
   const res=await GET(makeRequest({code:'code-123',state:createValidState()}) as any);
-  expect(res.headers.get('location')).toContain('gcal=success');expect(mockUpdate.mock.calls[0][0].refresh_token).toBe('rotated-refresh');
-  expect(chain.eq.mock.calls).toEqual([['user_id','550e8400-e29b-41d4-a716-446655440000'],['id','token-id'],['updated_at','2026-01-01']]);
+  expect(res.headers.get('location')).toContain('gcal=success');
+  expect(mockSave).toHaveBeenCalledWith('save_google_calendar_oauth', expect.objectContaining({ p_refresh_token: 'rotated-refresh', p_observed_token_id: 'token-id', p_observed_updated_at: '2026-01-01' }));
+});
+
+// A complete OAuth grant must obey the same observed-row fence as a reused one.
+// The real SDK builds requests; the synthetic database applies their predicates
+// and uniqueness semantics after an intervening connection change.
+test.each(['disconnect', 'reconnect', 'refresh', 'first-connect-race'])('full grant cannot overwrite concurrent %s', async mode => {
+  const { createClient } = jest.requireActual('@supabase/supabase-js');
+  const old = { id: 'fc170001-0000-4000-8000-000000000001', updated_at: '2026-01-01T00:00:00Z', refresh_token: 'original-refresh' };
+  const latest = { ...old, id: mode === 'refresh' ? old.id : 'fc170002-0000-4000-8000-000000000002', updated_at: '2026-01-02T00:00:00Z', refresh_token: 'latest-refresh' };
+  let stored: Record<string, unknown> | null = mode === 'disconnect' ? null : { ...latest };
+  const databaseFetch = jest.fn(async (url: unknown, init: RequestInit) => {
+    if (init.method === 'GET') return new Response(JSON.stringify(mode === 'first-connect-race' ? [] : [old]), { headers: { 'Content-Type': 'application/json' } });
+    if (String(url).includes('/rpc/save_google_calendar_oauth')) return new Response('false', { headers: { 'Content-Type': 'application/json' } });
+    const fields = JSON.parse(String(init.body));
+    if (init.method === 'PATCH') {
+      const params = new URL(String(url)).searchParams;
+      const matches = stored !== null && params.get('id') === `eq.${stored.id}` && params.get('updated_at') === `eq.${stored.updated_at}`;
+      if (matches) stored = { ...stored, ...fields };
+      return new Response(null, { status: 204, headers: { 'Content-Range': `*/${matches ? 1 : 0}` } });
+    }
+    // Upsert resurrects deleted state and replaces newer credentials; a plain
+    // insert instead loses to the unique user_id row without overwriting it.
+    if (new Headers(init.headers).get('Prefer')?.includes('resolution=merge-duplicates')) {
+      stored = { ...stored, ...fields };
+      return new Response(null, { status: 201, headers: { 'Content-Range': '*/1' } });
+    }
+    return new Response(JSON.stringify({ code: '23505', message: 'synthetic unique conflict' }), { status: 409 });
+  });
+  require('@/lib/supabase-server').createServiceRoleClient.mockReturnValue(createClient('http://127.0.0.1:1', 'synthetic-service-key', {
+    global: { fetch: databaseFetch }, auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  }));
+  const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
+  expect(stored).toEqual(mode === 'disconnect' ? null : latest);
+  expect(res.headers.get('location')).toContain('gcal=error');
+  const [url, init] = databaseFetch.mock.calls[1];
+  expect(new URL(String(url)).searchParams.has('on_conflict')).toBe(false);
+  expect(new Headers(init.headers).get('Prefer') ?? '').not.toContain('resolution=merge-duplicates');
+  expect(new URL(String(url)).pathname).toBe('/rest/v1/rpc/save_google_calendar_oauth');
+  expect(JSON.parse(String(init.body))).toMatchObject({ p_nonce_hash: expect.stringMatching(/^[a-f0-9]{64}$/) });
+});
+
+test.each([false, true])('complete grants carry the observed token revision into the transaction, existing=%s', async existing => {
+  mockMaybeSingle.mockResolvedValue({ data: existing ? { id: 'token-id', updated_at: '2026-01-01', refresh_token: 'old' } : null, error: null });
+  const res = await GET(makeRequest({ code: 'code-123', state: createValidState() }) as any);
+  expect(res.headers.get('location')).toContain('gcal=success');
+  expect(mockSave).toHaveBeenCalledWith('save_google_calendar_oauth', expect.objectContaining({
+    p_observed_token_id: existing ? 'token-id' : null, p_observed_updated_at: existing ? '2026-01-01' : null,
+    p_refresh_token: 'refresh-token-abc',
+  }));
 });

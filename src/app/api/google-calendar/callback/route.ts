@@ -134,40 +134,35 @@ export async function GET(req: NextRequest) {
     access_token: accessToken,
     expires_at: expiresAt,
     scope: typeof scope === 'string' && scope ? scope : null,
-    updated_at: new Date().toISOString(),
   };
-  let tokenSaveError: { message?: string } | null;
+  if (existingToken && (typeof existingToken.id !== 'string' || !existingToken.id || !Number.isFinite(Date.parse(existingToken.updated_at)))) {
+    return callbackFailure(req, 'gcal-callback-token-save', new Error('GOOGLE_CALENDAR_TOKEN_SAVE_UNCONFIRMED'));
+  }
+  let resolvedRefresh: string;
   if (refreshToken) {
-    const result = await admin.from('google_calendar_tokens').upsert({
-      user_id: userId,
-      ...tokenFields,
-      refresh_token: refreshToken,
-    }, { onConflict: 'user_id' });
-    tokenSaveError = result.error;
+    resolvedRefresh = refreshToken;
   } else if (existingToken?.refresh_token) {
-    if (typeof existingToken.id !== 'string' || !existingToken.id || !Number.isFinite(Date.parse(existingToken.updated_at))) {
-      return callbackFailure(req, 'gcal-callback-token-save', new Error('GOOGLE_CALENDAR_TOKEN_SAVE_UNCONFIRMED'));
-    }
-    const durableRefresh = await verifiedCalendarRefreshToken(accessToken, existingToken.refresh_token, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
-    // Match the exact version that supplied the proved refresh credential. A
-    // concurrent disconnect/reconnect/refresh must never receive this old access
-    // token or lose its new durable credential. Preserve a rotated grant too.
-    const result = await admin.from('google_calendar_tokens')
-      .update({ ...tokenFields, ...(durableRefresh === existingToken.refresh_token ? {} : { refresh_token: durableRefresh }) }, { count: 'exact' })
-      .eq('user_id', userId).eq('id', existingToken.id).eq('updated_at', existingToken.updated_at);
-    tokenSaveError = result.error;
-    // Disconnect can remove this row after the read. A successful HTTP response
-    // alone does not prove that a renewable connection was actually saved.
-    if (!tokenSaveError && result.count !== 1) {
-      return callbackFailure(req, 'gcal-callback-token-save', new Error('GOOGLE_CALENDAR_TOKEN_SAVE_UNCONFIRMED'));
-    }
+    resolvedRefresh = await verifiedCalendarRefreshToken(accessToken, existingToken.refresh_token, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET);
   } else {
-    // A first-time connection without a refresh token cannot keep syncing after the
-    // access token expires. Do not persist a misleading, non-renewable connection.
+    // A first connection needs a renewable grant; never report success without it.
     return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
   }
-  if (tokenSaveError) {
-    return callbackFailure(req, 'gcal-callback-token-save', databaseDiagnostic(tokenSaveError));
+
+  const result = await admin.rpc('save_google_calendar_oauth', {
+    p_actor_id: userId,
+    p_nonce_hash: crypto.createHash('sha256').update(savedNonce!).digest('hex'),
+    p_observed_token_id: existingToken?.id ?? null,
+    p_observed_updated_at: existingToken?.updated_at ?? null,
+    p_access_token: tokenFields.access_token,
+    p_refresh_token: resolvedRefresh,
+    p_expires_at: tokenFields.expires_at,
+    p_scope: tokenFields.scope,
+  });
+  if (result.error) {
+    return callbackFailure(req, 'gcal-callback-token-save', databaseDiagnostic(result.error));
+  }
+  if (result.data !== true) {
+    return callbackFailure(req, 'gcal-callback-token-save', new Error('GOOGLE_CALENDAR_TOKEN_SAVE_UNCONFIRMED'));
   }
 
   return NextResponse.redirect(new URL('/mypage/settings?gcal=success', req.url));
