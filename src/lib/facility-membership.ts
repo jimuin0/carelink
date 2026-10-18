@@ -1,3 +1,4 @@
+import { readAuthorization, AuthorizationReadTimeoutError } from './authorization-read';
 import { NextResponse } from 'next/server';
 import { serverError } from './with-route';
 import { databaseDiagnostic } from './database-diagnostic';
@@ -20,11 +21,11 @@ export async function getAdminFacilityIds(
   route = '/api/admin',
 ): Promise<string[] | NextResponse> {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await readAuthorization(supabase
       .from('facility_members')
       .select('facility_id')
       .eq('user_id', userId)
-      .in('role', ['owner', 'admin']);
+      .in('role', ['owner', 'admin']));
     if (error) return membershipReadFailure(error, route);
     return (data ?? []).map((m) => m.facility_id as string);
   } catch (error) {
@@ -33,7 +34,7 @@ export async function getAdminFacilityIds(
 }
 
 function membershipReadFailure(error: unknown, route: string): NextResponse {
-  const response = serverError('admin-facility-membership', databaseDiagnostic(error), route);
+  const response = serverError('admin-facility-membership', error instanceof AuthorizationReadTimeoutError ? error : databaseDiagnostic(error), route);
   response.headers.set('Cache-Control', 'no-store');
   return response;
 }

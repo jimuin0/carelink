@@ -1,3 +1,4 @@
+import { readAuthorization } from '@/lib/authorization-read';
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { safeRedirect } from '@/lib/safe-redirect';
@@ -206,8 +207,8 @@ export async function middleware(request: NextRequest) {
   let platformSupportAccess = false;
   if (user && isPlatformSupportPath(pathname)) {
     try {
-      const { data: profile, error } = await supabase
-        .from('profiles').select('is_platform_admin').eq('id', user.id).single();
+      const { data: profile, error } = await readAuthorization(supabase
+        .from('profiles').select('is_platform_admin').eq('id', user.id).single());
       if (error) throw new Error('platform_access_unavailable');
       platformSupportAccess = profile?.is_platform_admin === true;
     } catch {
@@ -237,13 +238,13 @@ export async function middleware(request: NextRequest) {
       // owner/admin ロールの行のみを対象に絞る（複数施設に所属し、別施設では
       // staff/viewer の場合に .limit(1) が任意の行を返して誤判定するのを防ぐ）
       try {
-        const { data: membership, error: memErr } = await supabase
+        const { data: membership, error: memErr } = await readAuthorization(supabase
           .from('facility_members')
           .select('role')
           .eq('user_id', user.id)
           .in('role', ['owner', 'admin'])
           .limit(1)
-          .maybeSingle();
+          .maybeSingle());
         if (memErr) throw new Error('facility_access_unavailable');
         hasAccess = !!membership;
       } catch {

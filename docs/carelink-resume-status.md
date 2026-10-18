@@ -362,3 +362,13 @@ PR #724のhead b640a8ecad3f162d58b022117c4beb733c2a2929はCI39093013799・PG17 3
 settings初回ナビゲーション失敗は根因未確定のまま保持し、document commit/DOM ready/loadと固定エラー分類だけを失敗時証拠へ加える。生メッセージ・stack・query・資格情報は保存せず、既存のタイムアウト/再試行/skip/判定基準は変更しない。この診断追加を障害修正と数えない。全原指摘解消・全体未修正ゼロも未認定。
 
 PR #725レビューの基本設定→GBP導線も確認した。2つのリンクが選択済みfacility_idを落とすため、両方へ引き継いだ。実画面の同じ検査は修正前1失敗/20成功・修正後21成功。2店舗ブラウザ検査でも基本設定の2リンク先を照合する。最終560 suites/11,905 tests・分岐11,120/11,120、型とLint成功（既存warning4件）。
+
+## 2026-10-18 過去障害の隔離再構築と権限読取の上限
+
+旧メニュー保存500の2つの版8668fb97/0f331476を、各269/271 migrationsから専用の隔離PG17 DBへ再構築し、当時のfingerprint2,981/3,029件との一致を確認。当時の公開施設・owner・名前だけ入力するUIの値でservice_role INSERT RETURNINGを各2回成功させ、全業務fixtureをROLLBACKし、専用DBは削除した。priceはnullable、sort_orderの索引は非unique、categoryはUI既定カット、元INSERTにupdated_atは無いため、これらの欠落/違反を当時の原因と認定しない。ただしこれはSQLの再構築であり、失われたPostgREST通信/キャッシュ/元SQLSTATEを復元したものではない。過去500の根因は未確定。Renderのrepository webhook一覧は空で、GitHub App/Render間の配信来歴は当接続から取得できず、新たなtriggerは送っていない。取消済みPR725初期reportも366 skippedで、診断可能な追加失敗はなかった。
+
+現行コードでは、本人認証に5秒上限がある一方、その後の店舗/運営権限SELECTに上限が無く、DBが応答しないとアクセス確認が待ち続けることをmiddlewareの2ケースで再現した。これは現在の独立した不具合であり、過去のナビゲーション障害の根因と同一だとは認定しない。
+
+SELECT専用readAuthorizationを導入し、AbortSignalと5秒deadlineを組み合わせる。SDKが中止に協力しなくてもcallerは確認不能へ進み、期限ちょうど/後に届く権限を採用しない。middlewareは既存503/no-storeを返して許可/否認キャッシュを書かず、admin shellは既存の読取再確認画面を返す。共通の施設ID/選択、運営管理者/support確認にも同じ上限を適用した。通常の成功・真正の権限なし・署名済みpositive cacheの仕様は維持する。書込み/トークンrefreshを包まず、再試行や業務変更を追加しない。実SDKと無応答のloopback HTTPでも5秒後の中止・GET1回だけを確認した。
+
+最終564 suites/11,924 tests、分岐11,126/11,126（100%）、型・Lint（既存warning4件）・React負債基準3件に成功。最初の全体実行は新設テスト4ファイルのJest環境docblock規約で失敗し、mixinへ訂正後に全件成功した。既存E2Eのtimeout/retry/skip/判定は変更しない。GitHub検査と本番版の証拠は既存引継ぎ台帳へ保存し、過去原因・原票149・本人/所有者/保留条件と全体ゼロ未認定は維持する。

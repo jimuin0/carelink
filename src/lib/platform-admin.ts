@@ -1,3 +1,4 @@
+import { readAuthorization } from './authorization-read';
 import { NextResponse } from 'next/server';
 import type { User } from '@supabase/supabase-js';
 import { createServerSupabaseAuthClient } from './supabase-server-auth';
@@ -12,8 +13,8 @@ export async function requirePlatformAdmin(): Promise<User | null | NextResponse
     const identity = await verifyAuthUser(supabase.auth);
     if (identity.state === 'unavailable') return authUnavailable('platform-admin-access', '/api/admin');
     if (identity.state === 'unauthenticated') return null;
-    const { data: profile, error } = await supabase
-      .from('profiles').select('is_platform_admin').eq('id', identity.user.id).maybeSingle();
+    const { data: profile, error } = await readAuthorization(supabase
+      .from('profiles').select('is_platform_admin').eq('id', identity.user.id).maybeSingle());
     if (error) return authUnavailable('platform-admin-access', '/api/admin');
     if (profile?.is_platform_admin !== true) return null;
     return identity.user;
