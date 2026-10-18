@@ -219,6 +219,10 @@ test('two-store integration settings select and save only the requested tenant',
   ]);
   if (members.error) throw new Error('Disposable integration memberships failed');
   await login(page, actor);
+  await page.goto(`/admin/settings?facility_id=${second}`);
+  for (const name of ['GBP管理画面へ →', 'GBP設定・診断を開く']) {
+    await expect(page.getByRole('link', { name, exact: true })).toHaveAttribute('href', `/admin/gbp?facility_id=${second}`);
+  }
   for (const path of ['/admin/gbp', '/admin/white-label']) {
     await page.goto(path);
     await expect(page.getByText('編集する店舗を選択してください', { exact: true })).toBeVisible();

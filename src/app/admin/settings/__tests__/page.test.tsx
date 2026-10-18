@@ -170,3 +170,9 @@ test.each(['business-failure', 'invalid-json', 'http-failure'])('公開の成功
   expect(screen.getByText('非公開')).toBeTruthy();
   expect(screen.queryByText('施設を公開しました！')).toBeNull();
 });
+
+test('both GBP entry links preserve the explicitly selected second facility',async()=>{
+ render(<AdminSettingsPage/>);await screen.findByDisplayValue('合成店舗B');
+ expect(screen.getByRole('link',{name:'GBP管理画面へ →',exact:true}).getAttribute('href')).toBe('/admin/gbp?facility_id='+second);
+ expect(screen.getByRole('link',{name:'GBP設定・診断を開く',exact:true}).getAttribute('href')).toBe('/admin/gbp?facility_id='+second);
+});

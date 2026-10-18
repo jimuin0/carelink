@@ -623,7 +623,7 @@ function AdminSettingsContent() {
       <section className="bg-white rounded-xl shadow-xs p-6 mt-6">
         <div className="flex items-center justify-between mb-1">
           <h2 className="text-lg font-bold">GBP連携（Googleビジネスプロフィール）</h2>
-          <Link href="/admin/gbp" className="text-sm text-sky-500 underline">GBP管理画面へ →</Link>
+          <Link href={`/admin/gbp?facility_id=${facilityId}`} className="text-sm text-sky-500 underline">GBP管理画面へ →</Link>
         </div>
         <p className="text-sm text-gray-500 mb-4">
           Google Place ID を登録すると、Googleマップの診断スコア・クチコミ・投稿管理が使えます。
@@ -634,7 +634,7 @@ function AdminSettingsContent() {
              target="_blank" rel="noopener noreferrer" className="underline">Place ID Finder</a>
           {' '}で自店舗を検索して取得できます（「ChIJ...」から始まる文字列）
         </div>
-        <Link href="/admin/gbp" className="btn-primary text-sm px-5! py-2!">
+        <Link href={`/admin/gbp?facility_id=${facilityId}`} className="btn-primary text-sm px-5! py-2!">
           GBP設定・診断を開く
         </Link>
       </section>
