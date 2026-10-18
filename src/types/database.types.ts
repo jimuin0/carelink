@@ -6124,14 +6124,14 @@ export type Database = {
           {
             foreignKeyName: "white_label_domains_facility_id_fkey"
             columns: ["facility_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "facility_card_view"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "white_label_domains_facility_id_fkey"
             columns: ["facility_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "facility_profiles"
             referencedColumns: ["id"]
           },
@@ -7494,6 +7494,16 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      save_admin_facility_integration_atomic: {
+        Args: {
+          p_actor_id: string
+          p_expected: Json
+          p_facility_id: string
+          p_kind: string
+          p_values: Json
+        }
+        Returns: Json
       }
       save_admin_menu_atomic: {
         Args: {

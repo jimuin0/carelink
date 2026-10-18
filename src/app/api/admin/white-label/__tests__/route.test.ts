@@ -26,12 +26,13 @@ const USER_ID       = '33333333-3333-3333-3333-333333333333';
 
 const mockGetUser = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockRpc = jest.fn();
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -68,11 +69,12 @@ function multiFacilityIdChain(facilityIds: string[]) {
   };
 }
 
-function configSingle(data: unknown) {
+function configSingle(data: unknown, error: unknown = null) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data, error: null })),
+    single: jest.fn(() => Promise.resolve({ data, error })),
+    maybeSingle: jest.fn(() => Promise.resolve({data,error})),
   };
 }
 
@@ -88,6 +90,7 @@ function upsertSingle(data: unknown, error: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockRpc.mockImplementation(async(_name,args)=>{const r=await mockAdminFrom('white_label_domains').upsert({...args.p_values,facility_id:args.p_facility_id,is_verified:false}).select().single();return {...r,data:r.data && {...args.p_values,...r.data,facility_id:args.p_facility_id,is_verified:false}};});
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
@@ -188,7 +191,7 @@ test('POST: 正常登録 → 201 with config（監査ログ記録）', async () 
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return facilityIdChain(FACILITY_UUID);
-    return upsertSingle({ id: 'wl-1', domain: 'my.salon.example.com' });
+    return upsertSingle({ id: '44444444-4444-4444-8444-444444444444', domain: 'my.salon.example.com' });
   });
   const res = await POST(makePostRequest({ domain: 'my.salon.example.com', brand_name: 'My Salon' }));
   const json = await res.json();
@@ -213,7 +216,7 @@ test('POST: primary_color が不正形式 → デフォルト色で 201', async 
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return facilityIdChain(FACILITY_UUID);
-    return upsertSingle({ id: 'wl-x', domain: 'my.salon.jp', primary_color: '#0ea5e9' });
+    return upsertSingle({ id: '44444444-4444-4444-8444-444444444444', domain: 'my.salon.jp', primary_color: '#0ea5e9' });
   });
   const res = await POST(makePostRequest({ domain: 'my.salon.jp', primary_color: 'red' }));
   expect(res.status).toBe(201);
@@ -224,7 +227,7 @@ test('POST: logo_url が http:// → null として保存されて 201', async (
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return facilityIdChain(FACILITY_UUID);
-    return upsertSingle({ id: 'wl-y', domain: 'my.salon.jp', logo_url: null });
+    return upsertSingle({ id: '44444444-4444-4444-8444-444444444444', domain: 'my.salon.jp', logo_url: null });
   });
   const res = await POST(makePostRequest({ domain: 'my.salon.jp', logo_url: 'http://example.com/logo.png' }));
   expect(res.status).toBe(201);
@@ -235,7 +238,7 @@ test('POST: primary_color が #RRGGBB 形式 → 201', async () => {
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return facilityIdChain(FACILITY_UUID);
-    return upsertSingle({ id: 'wl-2', domain: 'my.salon.jp', primary_color: '#FF5733' });
+    return upsertSingle({ id: '44444444-4444-4444-8444-444444444444', domain: 'my.salon.jp', primary_color: '#FF5733' });
   });
   const res = await POST(makePostRequest({ domain: 'my.salon.jp', primary_color: '#FF5733' }));
   expect(res.status).toBe(201);
@@ -246,13 +249,13 @@ test('GET: 設定あり → 200 with config', async () => {
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return facilityIdChain(FACILITY_UUID);
-    return configSingle({ id: 'wl-1', domain: 'my.salon.jp' });
+    return configSingle({ id: '44444444-4444-4444-8444-444444444444', domain: 'my.salon.jp' });
   });
   const res = await GET(makeGetRequest());
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.config).toBeDefined();
-  expect(json.config.id).toBe('wl-1');
+  expect(json.config.id).toBe('44444444-4444-4444-8444-444444444444');
 });
 
 test('POST: レートリミット → 429', async () => {
@@ -277,7 +280,7 @@ test('POST: brand_name と logo_url が正常 → 201 (truthy ブランチ)', as
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return facilityIdChain(FACILITY_UUID);
-    return upsertSingle({ id: 'wl-ok', domain: 'my.salon.jp', brand_name: 'ブランド', logo_url: 'https://cdn.example.com/logo.png' });
+    return upsertSingle({ id: '44444444-4444-4444-8444-444444444444', domain: 'my.salon.jp', brand_name: 'ブランド', logo_url: 'https://cdn.example.com/logo.png' });
   });
   const res = await POST(makePostRequest({
     domain: 'my.salon.jp',
@@ -313,12 +316,12 @@ test('POST: レスポンスが { config: ... } 形式', async () => {
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return facilityIdChain(FACILITY_UUID);
-    return upsertSingle({ id: 'wl-3', domain: 'my.salon.jp' });
+    return upsertSingle({ id: '44444444-4444-4444-8444-444444444444', domain: 'my.salon.jp' });
   });
   const res = await POST(makePostRequest({ domain: 'my.salon.jp' }));
   const json = await res.json();
   expect(json.config).toBeDefined();
-  expect(json.config.id).toBe('wl-3');
+  expect(json.config.id).toBe('44444444-4444-4444-8444-444444444444');
 });
 
 // ─── 監査A2: 複数施設所有者の非決定的施設選択の根治確認 ────────────────────────
@@ -338,13 +341,13 @@ test('GET: 複数施設所有・facility_id指定 → 200（指定施設のconfi
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return multiFacilityIdChain([FACILITY_UUID, FACILITY_UUID_2]);
-    return configSingle({ id: 'wl-multi', domain: 'facility2.example.com' });
+    return configSingle({ id: '44444444-4444-4444-8444-444444444444', domain: 'facility2.example.com' });
   });
   const req = new NextRequest(`http://localhost/api/admin/white-label?facility_id=${FACILITY_UUID_2}`, { method: 'GET' });
   const res = await GET(req);
   expect(res.status).toBe(200);
   const json = await res.json();
-  expect(json.config.id).toBe('wl-multi');
+  expect(json.config.id).toBe('44444444-4444-4444-8444-444444444444');
 });
 
 test('GET: 複数施設所有・所属していないfacility_id指定 → 403（越境防止）', async () => {
@@ -371,10 +374,13 @@ test('POST: 複数施設所有・facility_id指定 → 201（指定施設に保�
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return multiFacilityIdChain([FACILITY_UUID, FACILITY_UUID_2]);
-    return upsertSingle({ id: 'wl-multi-2', domain: 'my.salon.jp', facility_id: FACILITY_UUID_2 });
+    return upsertSingle({ id: '44444444-4444-4444-8444-444444444444', domain: 'my.salon.jp', facility_id: FACILITY_UUID_2 });
   });
   const res = await POST(makePostRequest({ domain: 'my.salon.jp', facility_id: FACILITY_UUID_2 }));
   expect(res.status).toBe(201);
   const json = await res.json();
   expect(json.config.facility_id).toBe(FACILITY_UUID_2);
 });
+
+test.each([null,{id:'44444444-4444-4444-8444-444444444444'}])('GET read outage never becomes config absence or stale success: %p',async data=>{let n=0;mockAdminFrom.mockImplementation(()=>++n===1?facilityIdChain(FACILITY_UUID):configSingle(data,{code:'08006',message:'private'}));const res=await GET(makeGetRequest());expect(res.status).toBe(500);expect(JSON.stringify(await res.json())).not.toContain('private');});
+test.each([{brand_name:{}},{logo_url:false},{primary_color:1}])('POST rejects unsafe scalar conversion: %p',async fields=>{const res=await POST(makePostRequest({domain:'new.example.invalid',...fields}));expect(res.status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
