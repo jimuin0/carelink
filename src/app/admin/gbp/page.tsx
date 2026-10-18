@@ -1,6 +1,9 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { Suspense, useEffect, useState, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import type { PlaceDetails, GbpAuditResult } from '@/lib/gbp';
 import Toast from '@/components/Toast';
@@ -48,14 +51,16 @@ const POST_TEMPLATES = [
   },
 ];
 
-export default function AdminGbpPage() {
+function AdminGbpContent({ requestedFacility }: { requestedFacility: string | null }) {
+  const [choices, setChoices] = useState<AdminFacilityChoice[]>([]);
+  const [savedSetup, setSavedSetup] = useState({ placeId: '', gbpCid: '' });
   const [tab, setTab] = useState<TabId>('setup');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Setup
-  const [, setFacilityId] = useState<string | null>(null);
+  const [facilityId, setFacilityId] = useState<string | null>(null);
   const [placeId, setPlaceId] = useState('');
   const [gbpCid, setGbpCid] = useState('');
   const [savingSetup, setSavingSetup] = useState(false);
@@ -84,19 +89,19 @@ export default function AdminGbpPage() {
     (async () => {
       try {
         const supabase = createBrowserSupabaseClient();
+        setLoading(true);
         setLoadError(false);
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { if (!cancelled) setLoading(false); return; }
-        const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-          .in('role', ['owner', 'admin']).limit(1).single();
-        if (memErr && memErr.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
-        if (!membership) { if (!cancelled) setLoading(false); return; }
+        const identity = await verifyAuthUser(supabase.auth);
+        if (identity.state !== 'verified') throw new Error('auth_unconfirmed');
+        const selection = await loadAdminFacilitySelection(supabase, identity.user.id, requestedFacility);
         if (cancelled) return;
-        setFacilityId(membership.facility_id);
+        setChoices(selection.choices); setFacilityId(selection.selectedId);
+        if (!selection.selectedId) { setLoading(false); return; }
         // GBP設定（placeId/gbpCid）はフォーム初期値。取得失敗を握り潰すと空値で実設定を上書きしうるため明示する
-        const { data: fp, error: fpErr } = await supabase.from('facility_profiles').select('gbp_place_id,gbp_cid').eq('id', membership.facility_id).single();
-        if (fpErr) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        const { data: fp, error: fpErr } = await supabase.from('facility_profiles').select('gbp_place_id,gbp_cid').eq('id', selection.selectedId).maybeSingle();
+        if (fpErr || !fp) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
         if (fp && !cancelled) {
+          setSavedSetup({ placeId: fp.gbp_place_id ?? '', gbpCid: fp.gbp_cid ?? '' });
           setPlaceId(fp.gbp_place_id ?? '');
           setGbpCid(fp.gbp_cid ?? '');
         }
@@ -106,17 +111,19 @@ export default function AdminGbpPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [reloadKey]);
+  }, [reloadKey, requestedFacility]);
 
   const saveSetup = async () => {
+    if (!facilityId || savingSetup) return;
     setSavingSetup(true);
     try {
       const res = await fetch('/api/admin/gbp/place', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gbp_place_id: placeId, gbp_cid: gbpCid }),
+        body: JSON.stringify({ gbp_place_id: placeId, gbp_cid: gbpCid, facility_id: facilityId }),
       });
       if (!res.ok) throw new Error();
+      setSavedSetup({ placeId, gbpCid });
       setToast({ type: 'success', message: '保存しました' });
     } catch {
       setToast({ type: 'error', message: '保存に失敗しました' });
@@ -126,9 +133,10 @@ export default function AdminGbpPage() {
   };
 
   const loadAudit = useCallback(async () => {
+    if (!facilityId) return;
     setAuditLoading(true);
     try {
-      const res = await fetch('/api/admin/gbp/place');
+      const res = await fetch('/api/admin/gbp/place?facility_id=' + facilityId);
       if (!res.ok) throw new Error();
       const data = await res.json();
       setAuditData(data);
@@ -137,12 +145,13 @@ export default function AdminGbpPage() {
     } finally {
       setAuditLoading(false);
     }
-  }, []);
+  }, [facilityId]);
 
   const loadPosts = useCallback(async () => {
+    if (!facilityId) return;
     setPostsLoading(true);
     try {
-      const res = await fetch('/api/admin/gbp/posts');
+      const res = await fetch('/api/admin/gbp/posts?facility_id=' + facilityId);
       if (!res.ok) throw new Error();
       const data = await res.json();
       setPosts(data.posts ?? []);
@@ -151,7 +160,7 @@ export default function AdminGbpPage() {
     } finally {
       setPostsLoading(false);
     }
-  }, []);
+  }, [facilityId]);
 
   // 🔴 タブ切替時の自動読み込みは【イベントハンドラ側】で起こす（effect ではない）。
   //
@@ -175,13 +184,13 @@ export default function AdminGbpPage() {
   }, [auditData, posts.length, loadAudit, loadPosts]);
 
   const savePost = async () => {
-    if (!newPost.body.trim()) return;
+    if (!newPost.body.trim() || !facilityId || savingPost) return;
     setSavingPost(true);
     try {
       const res = await fetch('/api/admin/gbp/posts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newPost),
+        body: JSON.stringify({ ...newPost, facility_id: facilityId }),
       });
       if (!res.ok) throw new Error();
       setToast({ type: 'success', message: '投稿を保存しました' });
@@ -241,6 +250,8 @@ export default function AdminGbpPage() {
     );
   }
 
+  if (!facilityId) return <FacilitySelector choices={choices} selectedId={null} path="/admin/gbp" />;
+
   const audit = auditData?.audit;
   const place = auditData?.placeData;
 
@@ -260,6 +271,9 @@ export default function AdminGbpPage() {
 
   return (
     <div>
+      <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/gbp"
+        dirty={placeId !== savedSetup.placeId || gbpCid !== savedSetup.gbpCid || Boolean(showPostForm && (newPost.title || newPost.body || newPost.cta_type || newPost.cta_url || newPost.post_type !== 'STANDARD'))}
+        busy={savingSetup || savingPost || Boolean(deletingPostId) || auditLoading || postsLoading} />
       <SbPageHeader
         title="GBP管理（Googleビジネスプロフィール）"
         actions={placeId && (
@@ -753,4 +767,12 @@ export default function AdminGbpPage() {
       />
     </div>
   );
+}
+
+function GbpSelectionRoute() {
+  const requested = useSearchParams().get('facility_id');
+  return <AdminGbpContent key={requested ?? 'unselected'} requestedFacility={requested} />;
+}
+export default function AdminGbpPage() {
+  return <Suspense fallback={<AdminPageLoading />}><GbpSelectionRoute /></Suspense>;
 }

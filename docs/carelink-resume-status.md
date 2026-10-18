@@ -350,3 +350,13 @@ collection設定修正後も全537 suites/11,416 tests、分岐10,937/10,937（1
 本番マイグレーション20261018023710_facility_integration_write_authority_atomicを適用し、関数本体MD5 f2f8e0e4375e5cd4dc9c1dc28f25ddbd、SECURITY INVOKER、空search_path、通常ロールの実行不可/書込不可、認証済みSELECT維持、一意制約、生成型を照合。Advisorは前後とも7分類68件で増加なし。Supabase所有者対応・本人操作・原票149全文・保留と過去原因未確定は維持し、全プロジェクト未修正ゼロは認定しない。実顧客/店舗/ドメイン/DNS/外部Googleへの変更試験はしていない。GitHub検査・配信証拠は既存引継ぎ台帳に追記する。
 
 PR #724のレビューで、既存管理UIが空本文のPOSTでドメイン検証を要求していることを確認した。空本文を{}として扱う互換性を維持し、壊れたJSON/null/配列は拒否する。実Requestを使った旧UI形式の検査は修正前400で失敗・修正後成功し、最終全体558 suites/11,878 tests・分岐11,120/11,120（100%）、型と変更箇所Lintも成功した。
+
+## 2026-10-18 PR #724の配信と店舗選択の追加確認
+
+PR #724のhead b640a8ecad3f162d58b022117c4beb733c2a2929はCI39093013799・PG17 39093013870と実E2E364件（unexpected/flaky/skipped各0）が成功。merge75d68cf79c7e06bc6eebe2f71d0f0490f2d91f90は同一treeで、Vercel dpl_89LfdEm1N6unenn6booPiQCYNynn Ready、public health healthy/version75d68cf、Render18件すべて同SHA liveを照合した。main PG17 39094624509も成功。一方main CI39094624482は363 expected/1 flakyで失敗し、完了扱いにしない。Mobile Safariの認証読取障害検査でsettingsへのdocument GETが28,278ms待ったまま30秒のテスト予算を超えた。失敗時はregister/recover文書、settingsのHTTP応答なし、React root errorは非表示、分類不能pageerror2件を記録。再試行成功を根因解消と扱わず、変更なしの再実行はしていない。本番カレンダー操作/対応表の読取集計は各0件だが、外部Googleの過去イベント不存在まで証明したものではない。
+
+追加の画面点検で、GBP/独自ドメインの呼出元がfacility_idを渡さず、複数の既存施設のowner/adminがAPIのambiguous拒否で操作できない経路を確認。既存のloadAdminFacilitySelection/FacilitySelectorを再利用し、単独所属は従来どおり、複数は明示選択とする。GBP接続・診断・投稿一覧/下書き作成、ドメイン読取・保存・検証に選択IDを引き継ぐ。既存投稿のID起点更新/削除の施設確認は維持する。店舗の新規作成/所有者数の仕様は変更しない。
+
+認証のerrorとuser同時返却・所属/設定取得の失敗で、空の編集フォームを表示しない。取得の再確認は読取のみ。店舗IDで編集コンポーネントを分離し、旧リクエストの後着/失敗を新店舗へ反映せず、未保存入力の破棄確認と送信中の切替防止を既存機構へ委ねる。修正前9ケース失敗/1成功を比較し、後着応答・不正応答・入力保持も追加検査した。最終560 suites/11,904 tests、分岐11,120/11,120（100%）、型・Lint（既存warning4件）・React負債3件の既存基準に成功。実Playwright collectionは新規2件を含む366件。追加ブラウザ試験は隔離CIの合成2店舗だけで接続設定と未検証ドメインを保存し、実Google/DNSへのアクセス・公開・顧客変更をしない。
+
+settings初回ナビゲーション失敗は根因未確定のまま保持し、document commit/DOM ready/loadと固定エラー分類だけを失敗時証拠へ加える。生メッセージ・stack・query・資格情報は保存せず、既存のタイムアウト/再試行/skip/判定基準は変更しない。この診断追加を障害修正と数えない。全原指摘解消・全体未修正ゼロも未認定。
