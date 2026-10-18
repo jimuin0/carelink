@@ -315,3 +315,13 @@ test('不正なJSON body → 検証・書込み前に400', async () => {
 });
 
 test.each([null,DOMAIN_CONFIG])('lookup outage cannot certify DNS or pretend no config: %p',async data=>{let n=0;mockAdminFrom.mockImplementation(()=>++n===1?facilityIdsChain([FACILITY_UUID]):singleChain(data,{code:'08006',message:'private'}));const res=await POST(makeRequest());expect(res.status).toBe(500);expect(dns.resolveTxt).not.toHaveBeenCalled();expect(mockRpc).not.toHaveBeenCalled();});
+
+// The existing admin UI intentionally submits a bodyless POST.
+test('existing bodyless UI verification request still verifies the configured facility',async()=>{
+ setupOwnershipAndDomain();
+ (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]);
+ const request=new Request('http://localhost/api/admin/white-label/verify',{method:'POST'});
+ const res=await POST(request as Parameters<typeof POST>[0]);
+ expect(res.status).toBe(200);expect(await res.json()).toEqual({verified:true});
+ expect(mockRpc).toHaveBeenCalledWith('save_admin_facility_integration_atomic',expect.objectContaining({p_facility_id:FACILITY_UUID,p_kind:'domain:verify'}));
+});

@@ -26,8 +26,8 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   // 監査A2: white-label/route.tsと同一パターン。POSTはbody未読前提のためbodyから
-  // facility_idを受け取る。壊れたJSONは拒否し、既存どおりservice roleで問い合わせる。
-  const body=await req.json().catch(()=>null);
+  // facility_idを受け取る。既存UIの空本文は{}とし、壊れたJSONは拒否する。
+  const body=await req.text().then(raw => raw === '' ? {} : JSON.parse(raw)).catch(()=>null);
   if(body===null||typeof body!=='object'||Array.isArray(body))return NextResponse.json({error:'Invalid request'},{status:400});
   const {facility_id}=body;
   const admin = createServiceRoleClient();
