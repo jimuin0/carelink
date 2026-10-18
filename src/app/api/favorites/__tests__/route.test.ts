@@ -28,6 +28,7 @@ import { POST } from '../route';
 
 let mockGetUser: jest.Mock;
 let mockInsert: jest.Mock;
+let mockRpc: jest.Mock;
 let mockDelete: jest.Mock;
 
 function setupDefaultMocks(
@@ -42,6 +43,7 @@ function setupDefaultMocks(
   });
 
   mockInsert = jest.fn().mockResolvedValue({ error: null });
+  mockRpc = jest.fn().mockResolvedValue({data: facilityExists ? !isFavorited : null,error: facilityExists ? null : {code:'P0002'}});
 
   mockDelete = jest.fn().mockReturnValue({
     eq: jest.fn(() => Promise.resolve({ error: null })),
@@ -59,6 +61,7 @@ function setupDefaultMocks(
   // DB 操作は service_role クライアント（createServiceRoleClient）
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   (createServiceRoleClient as jest.Mock).mockReturnValue({
+    rpc: mockRpc,
     from: jest.fn().mockReturnValue({
       select: jest.fn()
         .mockReturnValueOnce({
@@ -175,18 +178,19 @@ describe('POST /api/favorites', () => {
     expect(json.isFavorited).toBe(false);
   });
 
-  test('inserts when not favorited', async () => {
+  test('uses the serialized RPC when not favorited', async () => {
     await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
 
-    expect(mockInsert).toHaveBeenCalled();
+    expect(mockRpc).toHaveBeenCalledWith('toggle_user_favorite_atomic',{p_actor_id:'user-123',p_facility_id:'11111111-1111-1111-1111-111111111111'});
+    expect(mockInsert).not.toHaveBeenCalled();
   });
 
-  test('deletes when already favorited', async () => {
+  test('uses the serialized RPC when already favorited', async () => {
     setupDefaultMocks(true, true, true);
 
     await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
 
-    expect(mockDelete).toHaveBeenCalled();
+    expect(mockRpc).toHaveBeenCalledTimes(1);expect(mockDelete).not.toHaveBeenCalled();
   });
 
   test('rate limit params (10 req/min per IP)', async () => {
@@ -221,26 +225,24 @@ describe('POST /api/favorites', () => {
   });
 
   test('insert error → 500', async () => {
-    mockInsert.mockResolvedValue({ error: { message: 'insert failed' } });
+    mockRpc.mockResolvedValue({data:null,error:{code:'08006',message:'synthetic-private'}});
 
     const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
 
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toContain('追加に失敗');
+    expect(json.error).toContain('変更できません');
   });
 
   test('delete error → 500', async () => {
     setupDefaultMocks(true, true, true); // isFavorited=true → delete path
-    mockDelete.mockReturnValue({
-      eq: jest.fn(() => Promise.resolve({ error: { message: 'delete failed' } })),
-    });
+    mockRpc.mockResolvedValue({data:false,error:{code:'08006',message:'synthetic-private'}});
 
     const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
 
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toContain('削除に失敗');
+    expect(json.error).toContain('変更できません');
   });
 
   test('exception during processing → 500', async () => {
@@ -263,4 +265,21 @@ describe('POST /api/favorites', () => {
     const res = await POST(req as any);
     expect(res.status).toBe(400);
   });
+});
+
+
+test.each([null,false,true])('a mutation failure cannot become a success receipt even alongside data=%p',async data=>{
+ mockRpc.mockResolvedValue({data,error:{code:'08006',message:'synthetic-private'}});
+ const response=await POST(makeRequest({facilityId:'11111111-1111-1111-1111-111111111111'}) as any);
+ expect(response.status).toBe(500);expect(JSON.stringify(await response.json())).not.toContain('synthetic-private');
+ const {createServiceRoleClient}=require('@/lib/supabase-server');expect(createServiceRoleClient().from).not.toHaveBeenCalled();
+});
+test.each([null,{},[],1,'true'])('malformed RPC receipt %p cannot be presented as a confirmed toggle',async data=>{
+ mockRpc.mockResolvedValue({data,error:null});expect((await POST(makeRequest({facilityId:'11111111-1111-1111-1111-111111111111'}) as any)).status).toBe(500);
+});
+test.each([[],1,'a',{facilityId:123}])('non-object or non-string input %p is rejected before the RPC',async body=>{
+ expect((await POST(makeRequest(body as any) as any)).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();
+});
+test('JSON null is an invalid input rather than a server failure',async()=>{
+ expect((await POST(makeRequest(null as any) as any)).status).toBe(400);
 });

@@ -8289,6 +8289,10 @@ export type Database = {
         Returns: boolean
       }
       unlockrows: { Args: { "": string }; Returns: number }
+      toggle_user_favorite_atomic: {
+        Args: { p_actor_id: string; p_facility_id: string }
+        Returns: boolean
+      }
       unsubscribe_newsletter_atomic: {
         Args: { p_email: string; p_token: string }
         Returns: Json

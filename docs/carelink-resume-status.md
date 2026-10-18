@@ -382,3 +382,11 @@ SELECT専用readAuthorizationを導入し、AbortSignalと5秒deadlineを組み�
 ローカル全564 suites/11,941 tests、branches11,133/11,133（100%）、型/Lint（既存warning4件）成功。最初の全件実行はローカル.envが隔離CIガードの前提に干渉して2件失敗したため、.envを退避した隔離条件で全件実行後に原位置へ戻した。失敗記録も保存する。新規E2Eは隔離localhostでだけ合成draft施設/APIキーを作り、実APIの負limit・不正暦日・別施設拒否・期限切れ/失効キー拒否を検証し、作成IDのみcleanupする。顧客/予約/店舗/外部providerの本番試験変更は行わない。E2E一覧368件（60files）を確認。
 
 本人/所有者側に必要な認証・同意、supabase_admin所有のspatial_ref_sys対応、原票149全文、保持/公開/登録方針、明示保留は別台帳carelink-owner-only-actions-20261018.mdへ具体化した。過去根因と全原指摘の解消・全コード未修正ゼロは未認定。他チャット連絡・サブエージェント・ChatGPTスケジュールは使用しない。head/main CI・本番配信証拠は既存のローカル台帳に保存する。
+
+## 2026-10-18 お気に入り更新の原子的切替とUIの敵対検証
+
+現行コードで、施設/既存お気に入りの読取エラー（data同梱）を無視して更新し成功表示する2ケースとJSON nullの500を再現。隔離PG17では旧read/read/insert/insert方式を2セッションで実行し23505を実測した。service-only/security-invoker/empty-search_pathのtoggle_user_favorite_atomicへ集約し、アカウント生存→同一利用者/施設のtransaction advisory lock→公開施設FOR SHARE→delete/insertを同一transactionで実施する。利用者の直接DMLは取り消し、既存のown-row SELECT/RLSは維持する。未使用だったserver helperも同じgatewayへ移し、認証不能・DB例外・非boolean receiptを成功にしない。
+
+UIは送信中の二重切替、別施設へ移った後の旧切替応答/初期読取、壊れた200応答の楽観成功を修正。4ケース修正前全失敗・修正後全成功。実DB14ケース（旧不具合の再現を含む）とロック待ち6件、rollback・非公開化・account削除の両順序、他利用者の分離、通常ロールのRPC/直接DML拒否を実測。294 migration全replay、fingerprint3189 recordsを導出した。
+
+全565 suites/11,963 tests、分岐11,136/11,136（100%）、型/Lint（既存warning4）・React負債基準3件が成功。既存visitorお気に入りE2Eに、実HTTPの同時2toggle、結果false/true・実DB1行・reload後表示の照合を追加。隔離localhost限定で、実顧客通知・本番利用者/店舗/予約への試験変更は行わない。新規migrationは通常の許可済み本番配信手順で適用し、Supabase所有者専用の別件には触れない。head/main CI・配信・権限/関数本文照合・Advisor前後差は既存台帳へ保存する。

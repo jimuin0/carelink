@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { analytics } from '@/lib/analytics';
@@ -11,13 +11,22 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
   const [isFavorited, setIsFavorited] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState(false);
+  const inFlight = useRef(false);
+  const currentFacility = useRef<string | null>(facilityId);
 
   useEffect(() => {
+    let active = true;
+    currentFacility.current = facilityId;
+    inFlight.current = false;
     const checkStatus = async () => {
       const supabase = createBrowserSupabaseClient();
       const { data: { user } } = await supabase.auth.getUser();
 
+      if (!active) return;
       if (!user) {
+        setIsLoggedIn(false);
+        setPending(false);
         setLoading(false);
         return;
       }
@@ -34,18 +43,24 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
         .eq('facility_id', facilityId)
         .maybeSingle();
 
+      if (!active) return;
       setIsFavorited(!!data);
+      setPending(false);
       setLoading(false);
     };
-    checkStatus().catch(() => setLoading(false));
+    checkStatus().catch(() => { if (active) { setPending(false); setLoading(false); } });
+    return () => { active = false; currentFacility.current = null; };
   }, [facilityId]);
 
   const handleToggle = async () => {
+    if (inFlight.current) return;
     if (!isLoggedIn) {
       router.push(`/auth/login?redirect=${encodeURIComponent(pathname)}`);
       return;
     }
 
+    inFlight.current = true;
+    setPending(true);
     const previousState = isFavorited;
     setIsFavorited(!previousState);
 
@@ -57,16 +72,20 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
         signal: AbortSignal.timeout(10000),
       });
 
+      if (currentFacility.current !== facilityId) return;
       if (res.ok) {
         const body = await res.json().catch(() => null);
-        const newState = body?.isFavorited ?? !previousState;
+        if (typeof body?.isFavorited !== 'boolean') throw new Error('Unconfirmed favorite result');
+        const newState = body.isFavorited;
         setIsFavorited(newState);
         analytics.favoriteToggled(facilityId, newState ? 'add' : 'remove');
       } else {
         setIsFavorited(previousState);
       }
     } catch {
-      setIsFavorited(previousState);
+      if (currentFacility.current === facilityId) setIsFavorited(previousState);
+    } finally {
+      if (currentFacility.current === facilityId) { inFlight.current = false; setPending(false); }
     }
   };
 
@@ -84,6 +103,8 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
     <button
       type="button"
       onClick={handleToggle}
+      disabled={pending}
+      aria-busy={pending}
       className="p-2 min-h-[44px] min-w-[44px] transition-transform active:scale-90"
       aria-label={isFavorited ? 'お気に入りから削除' : 'お気に入りに追加'}
     >

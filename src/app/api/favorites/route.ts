@@ -7,41 +7,17 @@ import { withRoute, serverError } from '@/lib/with-route';
 export const dynamic = 'force-dynamic';
 
 export const POST = withRoute(async (request, ctx) => {
-  const { facilityId } = await request.json().catch(() => ({}));
-  if (!facilityId || !uuidRegex.test(facilityId)) {
-    return NextResponse.json({ error: '無効な施設IDです' }, { status: 400 });
-  }
+  const body: unknown = await request.json().catch(() => null);
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: '無効な施設IDです' }, { status: 400 });
+  const facilityId = (body as Record<string, unknown>).facilityId;
+  if (typeof facilityId !== 'string' || !uuidRegex.test(facilityId)) return NextResponse.json({ error: '無効な施設IDです' }, { status: 400 });
+  const { data, error } = await createServiceRoleClient().rpc('toggle_user_favorite_atomic', {
+    p_actor_id: ctx.user!.id, p_facility_id: facilityId,
+  });
+  if (error?.code === 'P0002') return NextResponse.json({ error: '施設が見つかりません' }, { status: 404 });
+  if (error || typeof data !== 'boolean') return serverError('favorites-toggle', new Error('FAVORITE_MUTATION_UNCONFIRMED'), '/api/favorites', 'お気に入りを変更できませんでした。現在の状態を確認してください。');
+  return NextResponse.json({ isFavorited: data }, { headers: { 'Cache-Control': 'no-store' } });
 
-  // DB 操作は service_role に集約（anon ポリシー削除後も継続動作・RLS 依存排除）。
-  const supabase = createServiceRoleClient();
-
-  // Verify facility exists and is published before toggling favorite
-  const { data: facility } = await supabase
-    .from('facility_profiles')
-    .select('id')
-    .eq('id', facilityId)
-    .eq('status', 'published')
-    .maybeSingle();
-  if (!facility) {
-    return NextResponse.json({ error: '施設が見つかりません' }, { status: 404 });
-  }
-
-  const { data: existing } = await supabase
-    .from('favorites')
-    .select('id')
-    .eq('user_id', ctx.user!.id)
-    .eq('facility_id', facilityId)
-    .maybeSingle();
-
-  if (existing) {
-    const { error } = await supabase.from('favorites').delete().eq('id', existing.id);
-    if (error) return serverError('favorites-delete', error, '/api/favorites', '削除に失敗しました');
-    return NextResponse.json({ isFavorited: false });
-  } else {
-    const { error } = await supabase.from('favorites').insert({ user_id: ctx.user!.id, facility_id: facilityId });
-    if (error) return serverError('favorites-insert', error, '/api/favorites', '追加に失敗しました');
-    return NextResponse.json({ isFavorited: true });
-  }
 }, {
   csrf: true,
   requireAuth: true,
