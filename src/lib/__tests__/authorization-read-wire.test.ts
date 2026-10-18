@@ -7,7 +7,7 @@ import { readAuthorization, AuthorizationReadTimeoutError } from '../authorizati
 test('real SDK SELECT aborts a nonresponding local HTTP transport without retries or mutations',async()=>{
  const calls:Array<{method:string|undefined;path:string|undefined}>=[];const sockets=new Set<Socket>();
  let sawClose! :()=>void;const closed=new Promise<void>(resolve=>{sawClose=resolve;});
- const server=createServer((request,_response)=>{calls.push({method:request.method,path:request.url});request.on('close',sawClose);});
+ const server=createServer((request,_response)=>{calls.push({method:request.method,path:request.url});request.socket.once('close',sawClose);});
  server.on('connection',socket=>{sockets.add(socket);socket.on('close',()=>sockets.delete(socket));});
  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
  try {
