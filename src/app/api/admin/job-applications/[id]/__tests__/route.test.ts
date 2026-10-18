@@ -361,7 +361,7 @@ test('PATCH: status=hired が既に hired → hired_at は更新しない', asyn
   expect(captured?.hired_at).toBeUndefined();
 });
 
-test('PATCH: 不正な JSON body でも 200 (空オブジェクト扱い)', async () => {
+test('PATCH: 不正な JSON body は 400 で更新しない', async () => {
   setupOwnership();
   const req = new Request(`http://localhost/api/admin/job-applications/${APP_UUID}`, {
     method: 'PATCH',
@@ -369,7 +369,8 @@ test('PATCH: 不正な JSON body でも 200 (空オブジェクト扱い)', asyn
     body: 'not-json',
   });
   const res = await PATCH(req, makeProps());
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(400);
+  expect(mockAdminFrom).toHaveBeenCalledTimes(2);
 });
 
 test('PATCH: x-forwarded-for ヘッダから IP 取得', async () => {
@@ -417,4 +418,8 @@ test.each(['application-data','application-null','membership-data','membership-n
  });
  const response=await PATCH(makeRequest(),makeProps());
  expect(response.status).toBe(500);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.text()).not.toContain('private-db-diagnostic');expect(reads).toBe(fault.startsWith('application')?1:2);
+});
+
+test.each([null,[],1])('non-object JSON %p is rejected as input, not a server failure',async body=>{setupOwnership();
+ expect((await PATCH(makeRequest(body as any),makeProps())).status).toBe(400);
 });

@@ -26,7 +26,9 @@ export async function POST(req: NextRequest) {
     if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const user = verification.user;
 
-    const { access_token } = await req.json();
+    const body = await req.json().catch(() => null);
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+    const { access_token } = body;
     if (!access_token || typeof access_token !== 'string' || access_token.length > 512) {
       return NextResponse.json({ error: 'access_token required' }, { status: 400 });
     }

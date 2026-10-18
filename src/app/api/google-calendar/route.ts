@@ -66,7 +66,9 @@ export async function POST(req: NextRequest) {
   if (identity.state === 'unauthenticated') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const user = identity.user;
 
-  const { action } = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null);
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+  const { action } = body;
 
   if (action === 'disconnect') {
     const admin = createServiceRoleClient();

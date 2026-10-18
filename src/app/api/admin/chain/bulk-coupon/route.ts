@@ -45,7 +45,9 @@ export async function POST(req: NextRequest) {
   const user = verification.state === 'verified' ? verification.user : null;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { name, coupon_type, discount_type, discount_value, special_price, valid_from, valid_until, facility_ids } = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null);
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+  const { name, coupon_type, discount_type, discount_value, special_price, valid_from, valid_until, facility_ids } = body;
 
   if (!name || !discount_type || !facility_ids?.length) {
     return NextResponse.json({ error: 'name, discount_type, facility_ids are required' }, { status: 400 });

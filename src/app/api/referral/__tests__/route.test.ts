@@ -116,3 +116,7 @@ describe('POST atomic referral use', () => {
   });
   test('throwing RPC stays visible and causes no fallback mutation', async () => { mockRpc.mockRejectedValueOnce(new Error('synthetic')); expect((await POST(req() as never)).status).toBe(500); expect(mockFrom).not.toHaveBeenCalled(); });
 });
+
+test.each([null,[],1])('non-object JSON %p is rejected as input, not a server failure',async body=>{
+ expect((await POST(req(body) as never)).status).toBe(400);
+});

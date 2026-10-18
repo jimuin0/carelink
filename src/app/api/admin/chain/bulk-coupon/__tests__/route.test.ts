@@ -380,3 +380,7 @@ test('POST: x-forwarded-for ヘッダあり → IP抽出', async () => {
   const call = (checkRateLimit as jest.Mock).mock.calls[0];
   expect(call[1]).toBe('1.2.3.4');
 });
+
+test.each([null,[],1])('non-object JSON %p is rejected as input, not a server failure',async body=>{
+ expect((await POST(makeRequest(body as any))).status).toBe(400);
+});

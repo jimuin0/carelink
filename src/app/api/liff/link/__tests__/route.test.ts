@@ -390,3 +390,7 @@ describe('POST/DELETE /api/liff/link', () => {
     });
   });
 });
+
+test.each([null,[],1])('non-object JSON %p is rejected as input, not a server failure',async body=>{
+ expect((await POST(makePostRequest(body as any) as any)).status).toBe(400);
+});

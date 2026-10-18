@@ -65,7 +65,9 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
 
   if (!existing || !membership) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const { status, referral_fee_yen, notes } = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null);
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+  const { status, referral_fee_yen, notes } = body;
 
   const VALID_STATUSES = [
     'pending', 'reviewing', 'interview_scheduled', 'interview_done',

@@ -396,3 +396,11 @@ UIは送信中の二重切替、別施設へ移った後の旧切替応答/初�
 最終ローカル検証は565 suites/11,972 tests、分岐11,142/11,142（100%）、型/Lint成功（実ログを台帳保存）。本番DBの関数追加/通常ロール直接DML取消を先行適用し、MCPが採番した実versionにファイルを合わせて20261018140406_favorite_toggle_atomic.sqlへ整理した。関数本文MD5 272190ace10479d17fd0f2d6796980deをローカルfingerprintと照合、SECURITY INVOKER/empty search_path/サービスのみEXECUTE・通常ロールSELECT維持/DML6種禁止・既存RLS不変を確認。Advisor7分類68件は適用前後で不変。業務行の本番試験書込みはしていない。初回PR728 head445572e9cb84adbc4a216821d8d07f992c229181のCI/PGは追加修正のため中止し、成功に数えない。最終headのCIと実E2Eでコード配信を検証する。
 
 最終の遅延本文/telemetry検証でも修正前2件失敗を確認。fetchのヘッダー受信だけでなくJSON本文のawait後にも世代を照合し、施設キーでstateを再生成する。認証/初期お気に入り読取は5秒で検証し、data同梱error・無応答を「未登録」に偽装せず操作不能の状態不明表示とする。解析providerの例外は共通analyticsと確認済みUI更新から分離する。UI11ケースを含む最終565 suites/11,979 tests・分岐11,142/11,142（100%）、型/Lint（既存warning4）・React負債基準3が成功。これ以降の最終headのCI/E2E・配信証拠をローカル台帳へ保存する。
+
+## 2026-10-18 追加API入力境界と独立した管理権限読取
+
+8 API（LIFF認証/連携POST、紹介コード、GoogleカレンダーPOST、オプション問合せ、チェーンcoupon、応募更新、手動newsletter更新）の非object JSONを調査し、修正前12ケース失敗を確認。null/array/numberを400で止め、壊れたJSONでOAuth intentや空の応募更新へ進まない。正しいobjectの既存動作、LINE解除/決済/保留の仕様は変更しない。従来invalidJSONを500または更新成功に固定していた3テストは、DB/外部処理へ進まない400契約へ修正した。8 suites/268 tests成功。
+
+共通ヘルパー外のAPIキー一覧/発行/取消、施設設定、一括公開でもpending権限5ケースが止まらず、修正前全失敗を確認。既存readAuthorizationでSELECTのみ5秒に制限し、例外を既存500/no-storeへ変換して遅れたowner結果で書込みへ進めない。取消の対象キー読取も同じ上限。5 suites/168 tests成功。
+
+全566 suites/12,009 tests・分岐11,182/11,182（100%）、型/Lint（既存warning4）が成功。失敗/成功ログはnon-object-json-*.log/independent-authority-*.log/input-fences-full.logへ保存。他チャット連絡・委任・ChatGPTスケジュール、実顧客/本番業務行/外部provider試験は行っていない。配信証拠は既存台帳へ保存する。

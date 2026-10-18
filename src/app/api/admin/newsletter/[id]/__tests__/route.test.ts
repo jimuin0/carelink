@@ -42,3 +42,7 @@ test('manual-only policy rejects scheduling before any campaign read or transiti
  expect((await response.json()).code).toBe('NEWSLETTER_MANUAL_ONLY');expect(mockFrom).not.toHaveBeenCalled();
  expect(publishNewsletterOperation).not.toHaveBeenCalled();
 });
+
+test.each([null,[],1])('non-object JSON %p is rejected as input, not a server failure',async body=>{
+ expect((await PATCH(req(body),props)).status).toBe(400);
+});

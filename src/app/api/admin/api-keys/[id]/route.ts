@@ -1,3 +1,4 @@
+import { readAuthorization } from '@/lib/authorization-read';
 /**
  * APIキー 無効化
  * DELETE /api/admin/api-keys/[id]
@@ -33,7 +34,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   const admin = createServiceRoleClient();
 
-  const { data: key, error: keyError } = await admin.from('api_keys').select('facility_id').eq('id', params.id).maybeSingle();
+  const { data: key, error: keyError } = await readAuthorization(admin.from('api_keys').select('facility_id').eq('id', params.id).maybeSingle()).catch(error => ({ data: null, error }));
   if (keyError) {
     const response = serverError('admin-api-keys-delete-read', databaseDiagnostic(keyError), '/api/admin/api-keys/[id]');
     response.headers.set('Cache-Control', 'no-store');
@@ -41,10 +42,10 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   }
   // Verify ownership first, then check existence — both return 404 to prevent ID enumeration
   const { data: mem, error: membershipError } = key
-    ? await supabase
+    ? await readAuthorization(supabase
         .from('facility_members').select('role')
         .eq('user_id', user.id).eq('facility_id', key.facility_id)
-        .in('role', ['owner', 'admin']).maybeSingle()
+        .in('role', ['owner', 'admin']).maybeSingle()).catch(error => ({ data: null, error }))
     : { data: null, error: null };
   if (membershipError) {
     const response = serverError('admin-api-keys-delete-membership', databaseDiagnostic(membershipError), '/api/admin/api-keys/[id]');

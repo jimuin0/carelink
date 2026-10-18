@@ -165,3 +165,7 @@ test('予期しない例外 → 500＋Slack通知（無音catch根治）', async
     '/api/options/inquiry',
   );
 });
+
+test.each([null,[],1])('non-object JSON %p is rejected as input, not a server failure',async body=>{
+ expect((await POST(makeRequest(body as any))).status).toBe(400);
+});
