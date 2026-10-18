@@ -404,3 +404,9 @@ UIは送信中の二重切替、別施設へ移った後の旧切替応答/初�
 共通ヘルパー外のAPIキー一覧/発行/取消、施設設定、一括公開でもpending権限5ケースが止まらず、修正前全失敗を確認。既存readAuthorizationでSELECTのみ5秒に制限し、例外を既存500/no-storeへ変換して遅れたowner結果で書込みへ進めない。取消の対象キー読取も同じ上限。5 suites/168 tests成功。
 
 全566 suites/12,009 tests・分岐11,182/11,182（100%）、型/Lint（既存warning4）が成功。失敗/成功ログはnon-object-json-*.log/independent-authority-*.log/input-fences-full.logへ保存。他チャット連絡・委任・ChatGPTスケジュール、実顧客/本番業務行/外部provider試験は行っていない。配信証拠は既存台帳へ保存する。
+
+## 2026-10-19 採用応募の入力・同時実行・権限取消境界
+
+現行コードの入力回帰14件が修正前に失敗。隔離PG17で、権限取消後の旧service更新、並行採用によるhired_at上書き、NULL求人IDの同時二重応募を実測した。入力schemaと保存receipt照合を追加し、一般応募も含むDB一意制約、service-only/SECURITY INVOKERの更新gatewayに集約。account生存→施設KEY SHARE→現在のowner/admin SHARE→対象応募UPDATEの順で、権限と更新を同一transaction内に固定する。通常ロールの直接DMLを取り消し、SELECT/RLSを維持。既存feeの値とnull契約を維持し、請求・決済処理や保留の仕様には触れない。
+
+37件の実DB検証と16件の実ロック待ち、295 migration replay/3193 fingerprint、全566 suites/12,057 tests・分岐11,167/11,167（100%）、型/Lint（既存warning4）が成功。E2Eにlocalhost限定の同時応募1件を各browserで追加し370件/61files。試験用施設・応募は隔離DBのみで作成/削除する。本番応募は事前集計0件/重複0件であり、業務行の試験変更なし。通常DDLを本番へ先行適用し実version20261018153016に履歴を一致、関数MD5 053f9fcd0a8a5a2f46c1830bf67729be・RLS/権限・Advisor68件不変を確認。head/main CIと配信証拠は既存台帳へ保存する。原票149・本人操作・所有者権限・保留・過去原因の証拠不足は完了に置き換えない。

@@ -8293,6 +8293,10 @@ export type Database = {
         Args: { p_actor_id: string; p_facility_id: string; p_desired?: boolean }
         Returns: boolean
       }
+      update_job_application_atomic: {
+        Args: { p_actor_id: string; p_facility_id: string; p_application_id: string; p_patch: Json }
+        Returns: Json
+      }
       unsubscribe_newsletter_atomic: {
         Args: { p_email: string; p_token: string }
         Returns: Json

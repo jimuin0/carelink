@@ -92,7 +92,7 @@ function insertSingle(data: unknown, error: unknown = null) {
   return {
     insert: jest.fn().mockReturnValue({
       select: jest.fn().mockReturnValue({
-        single: jest.fn(() => Promise.resolve({ data, error })),
+        single: jest.fn(() => Promise.resolve({ data: data && typeof data === 'object' ? { facility_id: FACILITY_UUID, status: 'pending', ...data } : data, error })),
       }),
     }),
   };
@@ -129,7 +129,7 @@ test('GET: 管理施設なし → 403', async () => {
 test('GET: 正常取得 → 200 with applications', async () => {
   mockAdminFrom.mockImplementation((table: string) => {
     if (table === 'facility_members') return membersChain([FACILITY_UUID]);
-    return listChain([{ id: 'app-1' }]);
+    return listChain([{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1' }]);
   });
   const res = await GET(makeGetRequest());
   const json = await res.json();
@@ -203,7 +203,7 @@ test('POST: 正常応募 → 201 with application', async () => {
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return dupCheckChain([]);
-    return insertSingle({ id: 'app-1', applicant_name: '山田太郎' });
+    return insertSingle({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', applicant_name: '山田太郎' });
   });
   const res = await POST(makePostRequest(validPostBody()));
   const json = await res.json();
@@ -216,7 +216,7 @@ test('POST: job_posting_id 付き応募 → 201', async () => {
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return dupCheckChain([]);
-    return insertSingle({ id: 'app-1' });
+    return insertSingle({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1' });
   });
   const res = await POST(makePostRequest(validPostBody({ job_posting_id: JOB_POSTING_UUID })));
   expect(res.status).toBe(201);
@@ -242,7 +242,7 @@ test('POST: rate limit params (5/60s)', async () => {
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return dupCheckChain([]);
-    return insertSingle({ id: 'app-1' });
+    return insertSingle({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1' });
   });
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkRateLimit as jest.Mock).mockClear();
@@ -270,15 +270,15 @@ test('POST: applicant_email 欠落 → 400', async () => {
   expect(res.status).toBe(400);
 });
 
-test('GET: applications が null → 200 with []', async () => {
+test('GET: a null SELECT receipt is unavailable500, not zero applications', async () => {
   mockAdminFrom.mockImplementation((table: string) => {
     if (table === 'facility_members') return membersChain([FACILITY_UUID]);
     return listChain(null as unknown as unknown[]);
   });
   const res = await GET(makeGetRequest());
   const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.applications).toEqual([]);
+  expect(res.status).toBe(500);
+  expect(json).not.toHaveProperty('applications');
 });
 
 // 【2026年7月10日 恒久根治の回帰】DB障害時に「応募0件」と偽装表示せず、
@@ -307,7 +307,7 @@ test('POST: ログイン中ユーザーで応募 → 201', async () => {
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return dupCheckChain([]);
-    return insertSingle({ id: 'app-2' });
+    return insertSingle({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2' });
   });
   // user is logged in (default mock)
   const res = await POST(makePostRequest(validPostBody()));
@@ -320,7 +320,7 @@ test('POST: 未ログインで応募 → 201 (applicant_user_id=null)', async ()
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return dupCheckChain([]);
-    return insertSingle({ id: 'app-3' });
+    return insertSingle({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3' });
   });
   const res = await POST(makePostRequest(validPostBody()));
   expect(res.status).toBe(201);
@@ -331,7 +331,7 @@ test('POST: applicant_phone と cover_letter 付き → 201', async () => {
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return dupCheckChain([]);
-    return insertSingle({ id: 'app-4' });
+    return insertSingle({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4' });
   });
   const res = await POST(makePostRequest(validPostBody({
     applicant_phone: '09012345678',
@@ -345,7 +345,7 @@ test('POST: existing が null → 201 (length checkの分岐)', async () => {
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return dupCheckChain(null as unknown as unknown[]);
-    return insertSingle({ id: 'app-5' });
+    return insertSingle({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5' });
   });
   const res = await POST(makePostRequest(validPostBody()));
   expect(res.status).toBe(201);
@@ -389,16 +389,16 @@ test('POST: CSRF検証失敗 → csrfError をそのまま返す', async () => {
   expect(res.status).toBe(403);
 });
 
-// Branch coverage: line 15 — getFacilityIds returns data=null → (data ?? []) right side → empty array []
+// A malformed SELECT receipt is unavailable, not an authoritative empty membership.
 // Branch coverage: line 44 — facilityIds.length === 0 → 403
-test('GET: facility_members から data=null 返却 → facilityIds が空配列 → 403', async () => {
+test('GET: facility_members data=null is unavailable500', async () => {
   mockAdminFrom.mockReturnValue({
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
     in: jest.fn(() => Promise.resolve({ data: null, error: null })),
   });
   const res = await GET(makeGetRequest());
-  expect(res.status).toBe(403);
+  expect(res.status).toBe(500);
 });
 
 
@@ -455,4 +455,47 @@ test.each([true, false])('POST duplicate lookup failure with data=%s cannot save
  mockAdminFrom.mockReturnValue({select:jest.fn().mockReturnThis(),eq:jest.fn().mockReturnThis(),is:jest.fn().mockReturnThis(),limit:async()=>({data:hasData?[{id:'synthetic'}]:null,error:{code:'08006',message:'private-db-diagnostic'}})});
  const response=await POST(makePostRequest(validPostBody()));
  expect(response.status).toBe(500);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.text()).not.toContain('private-db-diagnostic');expect(mockAdminFrom).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+ {applicant_name:1},{applicant_name:[]},{applicant_name:'   '},{applicant_email:['a@b.com']},
+ {applicant_phone:1},{cover_letter:1},{applicant_email:'a'.repeat(250)+'@example.com'},
+])('malformed applicant fields %p are rejected before any lookup or insert',async fields=>{
+ let calls=0;mockAdminFrom.mockImplementation(()=>++calls===1?dupCheckChain([]):insertSingle({id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1'}));
+ const response=await POST(makePostRequest(validPostBody(fields)));
+ expect(response.status).toBe(400);expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+test('null application body is400, without any DB work',async()=>{
+ expect((await POST(makePostRequest(null as any))).status).toBe(400);expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+test('a concurrent duplicate rejected by the database is409 rather than500',async()=>{
+ let calls=0;mockAdminFrom.mockImplementation(()=>++calls===1?dupCheckChain([]):insertSingle(null,{code:'23505',message:'synthetic-private'}));
+ const response=await POST(makePostRequest(validPostBody()));expect(response.status).toBe(409);expect(JSON.stringify(await response.json())).not.toContain('synthetic-private');
+});
+
+test.each([null,{}, {id:'not-a-uuid'},{id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',facility_id:USER_ID,status:'pending'},{id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',facility_id:FACILITY_UUID,status:'hired'}])('an invalid or wrong-scope creation receipt %p cannot report success',async data=>{
+ let calls=0;mockAdminFrom.mockImplementation(()=>++calls===1?dupCheckChain([]):insertSingle(data));expect((await POST(makePostRequest(validPostBody()))).status).toBe(500);
+});
+test('missing referenced facility or job is400, not an internal database error',async()=>{
+ let calls=0;mockAdminFrom.mockImplementation(()=>++calls===1?dupCheckChain([]):insertSingle(null,{code:'23503'}));expect((await POST(makePostRequest(validPostBody()))).status).toBe(400);
+});
+test('Unicode applicant fields remain valid strings and caller-supplied authority fields are ignored',async()=>{
+ const insert=insertSingle({id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'});let calls=0;mockAdminFrom.mockImplementation(()=>++calls===1?dupCheckChain([]):insert);
+ const response=await POST(makePostRequest(validPostBody({applicant_name:'😀'.repeat(101),applicant_phone:'😀'.repeat(21),cover_letter:'😀'.repeat(2001),applicant_user_id:FACILITY_UUID,status:'hired',notes:'forged'})));
+ expect(response.status).toBe(201);expect(insert.insert.mock.calls[0][0]).toMatchObject({applicant_name:'😀'.repeat(100),applicant_phone:'😀'.repeat(20),cover_letter:'😀'.repeat(2000),applicant_user_id:USER_ID});expect(insert.insert.mock.calls[0][0]).not.toHaveProperty('status');expect(insert.insert.mock.calls[0][0]).not.toHaveProperty('notes');
+});
+test('uppercase facility UUIDs use the same persisted identity',async()=>{
+ const id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';let calls=0;mockAdminFrom.mockImplementation(()=>++calls===1?dupCheckChain([]):insertSingle({id,facility_id:id}));
+ expect((await POST(makePostRequest(validPostBody({facility_id:id.toUpperCase()})))).status).toBe(201);
+});
+test.each(['GET','POST'])('unexpected %s dependency rejection remains private JSON500/no-store',async method=>{
+ (checkRateLimit as jest.Mock).mockRejectedValueOnce(new Error('synthetic-private'));
+ const response=method==='GET'?await GET(makeGetRequest()):await POST(makePostRequest(validPostBody()));expect(response.status).toBe(500);expect(response.headers.get('cache-control')).toBe('no-store');expect(JSON.stringify(await response.json())).not.toContain('synthetic-private');
+});
+test('malformed membership receipt is unavailable, not a false No facility denial',async()=>{
+ mockAdminFrom.mockReturnValue({select:()=>({eq:()=>({in:async()=>({data:null,error:null})})})});expect((await GET(makeGetRequest())).status).toBe(500);
+});
+
+test.each([null,{}])('a malformed application list %p is not reported as zero applications',async data=>{
+ mockAdminFrom.mockImplementation(table=>table==='facility_members'?membersChain([FACILITY_UUID]):listChain(data as any));expect((await GET(makeGetRequest())).status).toBe(500);
 });
