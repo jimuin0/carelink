@@ -372,3 +372,13 @@ PR #725レビューの基本設定→GBP導線も確認した。2つのリンク
 SELECT専用readAuthorizationを導入し、AbortSignalと5秒deadlineを組み合わせる。SDKが中止に協力しなくてもcallerは確認不能へ進み、期限ちょうど/後に届く権限を採用しない。middlewareは既存503/no-storeを返して許可/否認キャッシュを書かず、admin shellは既存の読取再確認画面を返す。共通の施設ID/選択、運営管理者/support確認にも同じ上限を適用した。通常の成功・真正の権限なし・署名済みpositive cacheの仕様は維持する。書込み/トークンrefreshを包まず、再試行や業務変更を追加しない。実SDKと無応答のloopback HTTPでも5秒後の中止・GET1回だけを確認した。
 
 最終564 suites/11,924 tests、分岐11,126/11,126（100%）、型・Lint（既存warning4件）・React負債基準3件に成功。最初の全体実行は新設テスト4ファイルのJest環境docblock規約で失敗し、mixinへ訂正後に全件成功した。既存E2Eのtimeout/retry/skip/判定は変更しない。GitHub検査と本番版の証拠は既存引継ぎ台帳へ保存し、過去原因・原票149・本人/所有者/保留条件と全体ゼロ未認定は維持する。
+
+## 2026-10-18 現行管理API・外部APIの敵対境界検証
+
+過去ログの再読ではなく、現行の共通管理権限ヘルパーと外部APIを対象に検証。修正前12ケース失敗を確認した。共通管理APIのmembership/staff権限SELECTと外部APIのキーSELECTに既存の5秒readAuthorizationを適用し、無応答/期限後の権限結果ではデータ読取・書込へ進めない。mutation/refreshは包まず、retryも追加しない。
+
+外部bookings/customersのlimit下限が無く、負のrange/RPC引数・負のpaginationを生成していたため1〜100へ制約。既存の未指定/0/数値以外のdefault50、page上限10000は維持する。bookingsは実在暦日・Postgresに存在する西暦1年以降・from<=toを検証し、無効値をDBへ送る前に400を返す。正当なうるう日/同日/年境界を保持する。
+
+ローカル全564 suites/11,941 tests、branches11,133/11,133（100%）、型/Lint（既存warning4件）成功。最初の全件実行はローカル.envが隔離CIガードの前提に干渉して2件失敗したため、.envを退避した隔離条件で全件実行後に原位置へ戻した。失敗記録も保存する。新規E2Eは隔離localhostでだけ合成draft施設/APIキーを作り、実APIの負limit・不正暦日・別施設拒否・期限切れ/失効キー拒否を検証し、作成IDのみcleanupする。顧客/予約/店舗/外部providerの本番試験変更は行わない。E2E一覧368件（60files）を確認。
+
+本人/所有者側に必要な認証・同意、supabase_admin所有のspatial_ref_sys対応、原票149全文、保持/公開/登録方針、明示保留は別台帳carelink-owner-only-actions-20261018.mdへ具体化した。過去根因と全原指摘の解消・全コード未修正ゼロは未認定。他チャット連絡・サブエージェント・ChatGPTスケジュールは使用しない。head/main CI・本番配信証拠は既存のローカル台帳に保存する。

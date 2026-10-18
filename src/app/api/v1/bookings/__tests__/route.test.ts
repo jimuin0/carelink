@@ -481,3 +481,37 @@ test('normal missing-key PGRST116 is401 but accompanying data isunconfirmed500',
  scopedClient(['*'],{code:'PGRST116'},null);expect((await GET(makeRequest() as any)).status).toBe(401);
  scopedClient(['*'],{code:'PGRST116'},{facility_id:'fac-123',scopes:['*'],is_active:true,expires_at:null});expect((await GET(makeRequest() as any)).status).toBe(500);
 });
+
+
+describe('adversarial pagination boundaries', () => {
+ test.each(['-1', '-100', '-999999999999999999999999999999999999999999'])('negative limit %s never reaches a negative range', async value => {
+  const response=await GET(makeRequest('test-api-key', `?page=2&limit=${value}`) as any);
+  expect(response.status).toBe(200);const body=await response.json();expect(body.pagination.limit).toBe(1);
+  const {createServiceRoleClient}=require('@/lib/supabase-server');const client=createServiceRoleClient.mock.results.at(-1).value;
+  const bookings=client.from.mock.results[client.from.mock.calls.findIndex(([table]:[string])=>table==='bookings')].value;expect(bookings.select.mock.results[0].value.eq.mock.results[0].value.order.mock.results[0].value.range).toHaveBeenCalledWith(1,1);
+ });
+});
+
+describe('adversarial booking date filters', () => {
+ test.each(['?from=2026-02-30','?to=2026-13-01','?to=0000-12-31','?from=0000-01-01','?from=2026-10-19&to=2026-10-18'])('invalid calendar range %s stops before bookings access',async query=>{
+  const response=await GET(makeRequest('test-api-key',query) as any);expect(response.status).toBe(400);
+  const {createServiceRoleClient}=require('@/lib/supabase-server');expect(createServiceRoleClient.mock.results.at(-1).value.from.mock.calls.every(([table]:[string])=>table==='api_keys')).toBe(true);
+ });
+});
+
+test.each(['?from=2028-02-29&to=2028-02-29','?from=0001-01-01&to=9999-12-31'])('valid boundary range %s retains normal queries',async query=>{
+ expect((await GET(makeRequest('test-api-key',query) as any)).status).toBe(200);
+});
+
+test('a pending API key SELECT cannot leave the request pending or start a data read after expiry',async()=>{
+ jest.useFakeTimers();
+ try{
+  const {createServiceRoleClient}=require('@/lib/supabase-server');const client=createServiceRoleClient();
+  let resolve!: (value:unknown)=>void;const pending=new Promise(r=>{resolve=r;});
+  client.from.mockImplementation(()=>({select:()=>({eq:()=>({single:()=>pending})})}));client.from.mockClear();createServiceRoleClient.mockClear();
+  let settled=false;const result=GET(makeRequest() as any).then(r=>{settled=true;return r;});
+  await jest.advanceTimersByTimeAsync(5000);expect(settled).toBe(true);expect((await result).status).toBe(500);
+  resolve({data:{facility_id:'fac-123',scopes:['*'],is_active:true,expires_at:null},error:null});await Promise.resolve();
+  expect(client.from.mock.calls.map(([table]:[string])=>table)).toEqual(['api_keys']);expect(createServiceRoleClient).toHaveBeenCalledTimes(1);
+ }finally{jest.useRealTimers();}
+});

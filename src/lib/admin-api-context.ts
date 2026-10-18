@@ -1,3 +1,4 @@
+import { readAuthorization } from './authorization-read';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from './supabase-server-auth';
 import { createServiceRoleClient } from './supabase-server';
@@ -21,16 +22,16 @@ export async function getAdminApiContext(
 
     const facilityId = request.nextUrl.searchParams.get('facility_id');
     if (!facilityId || !UUID_REGEX.test(facilityId)) return denied();
-    const membership = await supabase.from('facility_members').select('facility_id')
+    const membership = await readAuthorization(supabase.from('facility_members').select('facility_id')
       .eq('user_id', identity.user.id).eq('facility_id', facilityId)
-      .in('role', ['owner', 'admin']).maybeSingle();
+      .in('role', ['owner', 'admin']).maybeSingle());
     if (membership.error !== null) return unavailable();
     if (membership.data === null) return denied();
     if (membership.data?.facility_id !== facilityId) return unavailable();
 
     if (staffId !== undefined) {
-      const staff = await createServiceRoleClient().from('staff_profiles').select('id')
-        .eq('id', staffId).eq('facility_id', facilityId).maybeSingle();
+      const staff = await readAuthorization(createServiceRoleClient().from('staff_profiles').select('id')
+        .eq('id', staffId).eq('facility_id', facilityId).maybeSingle());
       if (staff.error !== null) return unavailable();
       if (staff.data === null) return denied();
       if (staff.data?.id !== staffId) return unavailable();

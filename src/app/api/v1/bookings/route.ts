@@ -13,6 +13,8 @@
  * 用途: POS・会計ソフト・独自アプリとの連携
  */
 
+import { isValidIsoDate } from '@/lib/date-utils';
+import { readAuthorization } from '@/lib/authorization-read';
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -33,11 +35,11 @@ function unauthorized() {
 async function resolveApiKey(apiKey: string): Promise<{ facility_id: string; scopes: string[] } | null> {
   const keyHash = createHash('sha256').update(apiKey).digest('hex');
   const admin = createServiceRoleClient();
-  const { data, error } = await admin
+  const { data, error } = await readAuthorization(admin
     .from('api_keys')
     .select('facility_id, scopes, is_active, expires_at')
     .eq('key_hash', keyHash)
-    .single();
+    .single());
 
   // A normal missing key is unauthorized. Database/transport failure,
   // including data alongside an error, is never proof of key authority.
@@ -88,7 +90,6 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Forbidden', message: '別施設のデータにはアクセスできません' }, { status: 403 });
   }
 
-  const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
   // 受理する status は正準集合（全7値）を SSOT から参照。以前は4値固定で arrived / no_show /
   // cancel_fee_paid を 400 で拒否し、有効な状態の予約を API で絞り込めなかった（受理値が増えるだけ
   // で既存の4値クライアントには後方互換）。
@@ -98,11 +99,14 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
   const toRaw = sp.get('to');
   const statusRaw = sp.get('status');
 
-  if (fromRaw && !ISO_DATE_RE.test(fromRaw)) {
+  if (fromRaw && (!isValidIsoDate(fromRaw) || fromRaw < '0001-01-01')) {
     return NextResponse.json({ error: 'from は YYYY-MM-DD 形式で指定してください' }, { status: 400 });
   }
-  if (toRaw && !ISO_DATE_RE.test(toRaw)) {
+  if (toRaw && (!isValidIsoDate(toRaw) || toRaw < '0001-01-01')) {
     return NextResponse.json({ error: 'to は YYYY-MM-DD 形式で指定してください' }, { status: 400 });
+  }
+  if (fromRaw && toRaw && fromRaw > toRaw) {
+    return NextResponse.json({ error: 'from は to 以前の日付で指定してください' }, { status: 400 });
   }
   if (statusRaw && !VALID_STATUSES.includes(statusRaw)) {
     return NextResponse.json({ error: `status は ${VALID_STATUSES.join('|')} のいずれかです` }, { status: 400 });
@@ -111,7 +115,7 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
   const from = fromRaw;
   const to = toRaw;
   const status = statusRaw;
-  const limit = Math.min(parseInt(sp.get('limit') ?? '50') || 50, 100);
+  const limit = Math.min(Math.max(parseInt(sp.get('limit') ?? '50') || 50, 1), 100);
   const page = Math.min(Math.max(parseInt(sp.get('page') ?? '1') || 1, 1), 10000);
   const offset = (page - 1) * limit;
 

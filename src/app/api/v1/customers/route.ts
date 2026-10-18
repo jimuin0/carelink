@@ -4,6 +4,7 @@
  * Authorization: Bearer {API_KEY}
  */
 
+import { readAuthorization } from '@/lib/authorization-read';
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -16,11 +17,11 @@ const API_VERSION = '1.0.0';
 async function resolveApiKey(apiKey: string) {
   const keyHash = createHash('sha256').update(apiKey).digest('hex');
   const admin = createServiceRoleClient();
-  const { data, error } = await admin
+  const { data, error } = await readAuthorization(admin
     .from('api_keys')
     .select('facility_id, scopes, is_active, expires_at')
     .eq('key_hash', keyHash)
-    .single();
+    .single());
   // A normal missing key is unauthorized. Database/transport failure,
   // including data alongside an error, is never proof of key authority.
   if (error && (error.code !== 'PGRST116' || data != null)) throw new Error('API key verification unavailable');
@@ -63,7 +64,7 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
   if (requestedFacility !== null && requestedFacility !== principal.facility_id) {
     return NextResponse.json({ error: 'Forbidden', message: '別施設のデータにはアクセスできません' }, { status: 403 });
   }
-  const limit = Math.min(parseInt(sp.get('limit') ?? '50') || 50, 100);
+  const limit = Math.min(Math.max(parseInt(sp.get('limit') ?? '50') || 50, 1), 100);
   const page = Math.min(Math.max(parseInt(sp.get('page') ?? '1') || 1, 1), 10000);
   const offset = (page - 1) * limit;
   const search = sp.get('search');

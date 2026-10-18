@@ -151,3 +151,18 @@ test.each([{}, { data: undefined, error: null }, null])('malformed staff envelop
   mockStaff.mockResolvedValue(result);
   await expectStatus(getAdminApiContext(request(), staffId), 503);
 });
+
+
+test.each(['membership','staff'])('pending %s authority is unavailable and late success cannot grant access',async stage=>{
+ jest.useFakeTimers();
+ try{
+  let resolve!: (value:unknown)=>void;const pending=new Promise(r=>{resolve=r;});
+  (stage==='membership'?mockMembership:mockStaff).mockReturnValue(pending);
+  let settled=false;const result=getAdminApiContext(request(),stage==='staff'?staffId:undefined).then(r=>{settled=true;return r;});
+  await jest.advanceTimersByTimeAsync(5000);expect(settled).toBe(true);
+  if(!settled){resolve({data:stage==='membership'?{facility_id:facilityId}:{id:staffId},error:null});await result;return;}
+  await expectStatus(result,503);
+  resolve({data:stage==='membership'?{facility_id:facilityId}:{id:staffId},error:null});await Promise.resolve();
+  if(stage==='membership')expect(mockServiceClient).not.toHaveBeenCalled();
+ }finally{jest.useRealTimers();}
+});

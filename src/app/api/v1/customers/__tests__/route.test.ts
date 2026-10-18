@@ -443,3 +443,26 @@ test('normal missing-key PGRST116 is401 but accompanying data isunconfirmed500',
  scopedClient(['*'],{code:'PGRST116'},null);expect((await GET(makeRequest() as any)).status).toBe(401);
  scopedClient(['*'],{code:'PGRST116'},{facility_id:'fac-123',scopes:['*'],is_active:true,expires_at:null});expect((await GET(makeRequest() as any)).status).toBe(500);
 });
+
+
+describe('adversarial pagination boundaries', () => {
+ test.each(['-1', '-100', '-999999999999999999999999999999999999999999'])('negative limit %s never reaches a negative range', async value => {
+  const response=await GET(makeRequest('test-api-key', `?page=2&limit=${value}`) as any);
+  expect(response.status).toBe(200);const body=await response.json();expect(body.pagination.limit).toBe(1);
+  const {createServiceRoleClient}=require('@/lib/supabase-server');const client=createServiceRoleClient.mock.results.at(-1).value;
+  expect(client.rpc).toHaveBeenCalledWith('get_facility_customers_v1',expect.objectContaining({p_limit:1,p_offset:1}));
+ });
+});
+
+test('a pending API key SELECT cannot leave the request pending or start a data read after expiry',async()=>{
+ jest.useFakeTimers();
+ try{
+  const {createServiceRoleClient}=require('@/lib/supabase-server');const client=createServiceRoleClient();
+  let resolve!: (value:unknown)=>void;const pending=new Promise(r=>{resolve=r;});
+  client.from.mockImplementation(()=>({select:()=>({eq:()=>({single:()=>pending})})}));client.from.mockClear();createServiceRoleClient.mockClear();
+  let settled=false;const result=GET(makeRequest() as any).then(r=>{settled=true;return r;});
+  await jest.advanceTimersByTimeAsync(5000);expect(settled).toBe(true);expect((await result).status).toBe(500);
+  resolve({data:{facility_id:'fac-123',scopes:['*'],is_active:true,expires_at:null},error:null});await Promise.resolve();
+  expect(client.from.mock.calls.map(([table]:[string])=>table)).toEqual(['api_keys']);expect(createServiceRoleClient).toHaveBeenCalledTimes(1);
+ }finally{jest.useRealTimers();}
+});
