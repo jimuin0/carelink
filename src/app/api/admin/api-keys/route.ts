@@ -1,3 +1,4 @@
+import { readAuthorization } from '@/lib/authorization-read';
 /**
  * APIキー管理
  * POST /api/admin/api-keys — 新規作成
@@ -62,13 +63,13 @@ export async function POST(request: NextRequest) {
   const uniqueScopes = [...new Set(scopes)];
 
   // APIキー発行は owner のみ（神原さん確定: 鍵に関わる発行操作は持ち主限定。admin=任命従業員には発行させない）。
-  const { data: mem, error: membershipError } = await supabase
+  const { data: mem, error: membershipError } = await readAuthorization(supabase
     .from('facility_members')
     .select('role')
     .eq('user_id', user.id)
     .eq('facility_id', facility_id)
     .eq('role', 'owner')
-    .maybeSingle();
+    .maybeSingle()).catch(error => ({ data: null, error }));
   if (membershipError) {
     const response = serverError('admin-api-keys-create-membership', databaseDiagnostic(membershipError), '/api/admin/api-keys');
     response.headers.set('Cache-Control', 'no-store');
@@ -112,10 +113,10 @@ export async function GET(request: NextRequest) {
   if (!facilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
   if (!UUID_REGEX.test(facilityId)) return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
 
-  const { data: mem, error: membershipError } = await supabase
+  const { data: mem, error: membershipError } = await readAuthorization(supabase
     .from('facility_members').select('role')
     .eq('user_id', user.id).eq('facility_id', facilityId)
-    .in('role', ['owner', 'admin']).maybeSingle();
+    .in('role', ['owner', 'admin']).maybeSingle()).catch(error => ({ data: null, error }));
   if (membershipError) {
     const response = serverError('admin-api-keys-list-membership', databaseDiagnostic(membershipError), '/api/admin/api-keys');
     response.headers.set('Cache-Control', 'no-store');

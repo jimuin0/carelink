@@ -1,3 +1,4 @@
+import { readAuthorization } from '@/lib/authorization-read';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -95,13 +96,13 @@ async function getAdminInfo(request: NextRequest): Promise<{ userId: string; fac
   const facilityId = request.nextUrl.searchParams.get('facility_id');
   if (!facilityId || !UUID_REGEX.test(facilityId)) return null;
 
-  const { data, error } = await supabase
+  const { data, error } = await readAuthorization(supabase
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
     .eq('facility_id', facilityId)
     .in('role', ['owner', 'admin'])
-    .maybeSingle();
+    .maybeSingle());
 
   if (error) throw new Error('Facility settings authorization unavailable');
   return data?.facility_id === facilityId ? { userId: user.id, facilityId } : null;

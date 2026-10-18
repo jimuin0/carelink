@@ -248,7 +248,7 @@ describe('POST /api/liff/auth', () => {
     expect(call[1]).toBe('unknown');
   });
 
-  test('invalid JSON → 500', async () => {
+  test('invalid JSON → 400', async () => {
     const req = new Request('http://localhost/api/liff/auth', {
       method: 'POST',
       headers: {
@@ -260,7 +260,7 @@ describe('POST /api/liff/auth', () => {
 
     const res = await POST(req as any);
 
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(400);
   });
 
   test('exception during LINE profile lookup → 503', async () => {
@@ -316,3 +316,7 @@ describe('POST /api/liff/auth', () => {
 
 test('provider profile lacking display name is rejected before database lookup',async()=>{global.fetch=jest.fn().mockResolvedValue(new Response(JSON.stringify({userId:'U_provider'})));const res=await POST(makeRequest({access_token:'token'}) as any);expect(res.status).toBe(502);expect(mockSingle).not.toHaveBeenCalled();});
 test('second profile read DB error does not expose linked user data',async()=>{mockSingle.mockResolvedValueOnce({data:{id:'user-456'},error:null}).mockResolvedValueOnce({data:{id:'user-456',email:'synthetic@example.invalid'},error:{code:'XX000'}});const res=await POST(makeRequest({access_token:'token'}) as any);expect(res.status).toBe(500);expect(await res.json()).not.toHaveProperty('profile');});
+
+test.each([null,[],1])('non-object JSON %p is rejected as input, not a server failure',async body=>{
+ expect((await POST(makeRequest(body as any) as any)).status).toBe(400);
+});

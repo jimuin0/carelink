@@ -305,8 +305,8 @@ describe('POST /api/google-calendar', () => {
 
     const res = await POST(req as any);
 
-    // Should not return 4xx validation error, proceeds with flow
-    expect(res.status).not.toBe(400);
+    // Invalid JSON is input failure and must not create an OAuth intent.
+    expect(res.status).toBe(400);
   });
 
   test('rate limit params (10 req/min per IP)', () => {
@@ -465,4 +465,8 @@ test('disconnect remains possible when OAuth client configuration is absent', as
   delete process.env.GOOGLE_CLIENT_ID;
   expect((await POST(makePostRequest({ action: 'disconnect' }) as any)).status).toBe(200);
   expect(mockRpc).toHaveBeenCalledWith('disconnect_google_calendar', { p_actor_id: 'user-123' });
+});
+
+test.each([null,[],1])('non-object JSON %p is rejected as input, not a server failure',async body=>{
+ expect((await POST(makePostRequest(body as any) as any)).status).toBe(400);
 });

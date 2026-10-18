@@ -96,7 +96,9 @@ export const POST = withRoute(async (request) => {
   if (verification.state !== 'verified') return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const user = verification.user;
 
-  const { code } = await request.json().catch(() => ({}));
+  const body = await request.json().catch(() => null);
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+  const { code } = body;
   if (!code || typeof code !== 'string' || code.length > 100) return NextResponse.json({ error: 'コードが必要です' }, { status: 400 });
 
   const adminSupabase = createServiceRoleClient();

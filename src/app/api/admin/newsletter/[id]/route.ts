@@ -28,7 +28,9 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
   if (user instanceof NextResponse) return user;
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const { action, expected_updated_at } = await req.json().catch(() => ({}));
+  const body = await req.json().catch(() => null);
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+  const { action, expected_updated_at } = body;
   if (action === 'schedule') {
     return NextResponse.json({ code: 'NEWSLETTER_MANUAL_ONLY', error: 'ニュースレターは手動配信のみです。予約配信は受け付けていません。' }, { status: 400 });
   }

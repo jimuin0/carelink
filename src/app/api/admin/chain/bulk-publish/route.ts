@@ -1,3 +1,4 @@
+import { readAuthorization } from '@/lib/authorization-read';
 /**
  * POST /api/admin/chain/bulk-publish
  * チェーン全施設の公開/非公開を一括変更
@@ -45,12 +46,12 @@ export async function POST(req: NextRequest) {
   const admin = createServiceRoleClient();
 
   // 権限確認
-  const { data: memberships, error: membershipError } = await admin
+  const { data: memberships, error: membershipError } = await readAuthorization(admin
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
     .in('role', ['owner', 'admin'])
-    .in('facility_id', facility_ids);
+    .in('facility_id', facility_ids));
 
   if (membershipError) {
     const response = serverError('admin-chain-bulk-publish-membership', databaseDiagnostic(membershipError), '/api/admin/chain/bulk-publish');

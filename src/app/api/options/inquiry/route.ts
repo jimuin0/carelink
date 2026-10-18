@@ -39,7 +39,9 @@ export async function POST(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
 
-    const { facilityId, optionKey } = await request.json().catch(() => ({}));
+    const body = await request.json().catch(() => null);
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
+    const { facilityId, optionKey } = body;
     if (!facilityId || !UUID_REGEX.test(facilityId) || !optionKey || !OPTION_KEY_REGEX.test(optionKey)) {
       return NextResponse.json({ error: 'パラメータが不正です' }, { status: 400 });
     }
