@@ -17,7 +17,12 @@ test('来院者が施設をお気に入り登録できる', async ({ page, baseU
   // 初期は未登録（aria-label「お気に入りに追加」）。クリックで POST /api/favorites → 登録。
   const addBtn = page.getByRole('button', { name: 'お気に入りに追加' });
   await expect(addBtn).toBeVisible({ timeout: 15000 });
-  await addBtn.click();
+  const [added] = await Promise.all([
+    page.waitForResponse(response => new URL(response.url()).pathname === '/api/favorites' && response.request().method() === 'POST'),
+    addBtn.click(),
+  ]);
+  expect(added.status()).toBe(200);
+  expect((await added.json()).isFavorited).toBe(true);
 
   // 登録成功＝aria-label が「お気に入りから削除」に変わる（favorites に1行 INSERT・サーバ応答で確定）。
   await expect(page.getByRole('button', { name: 'お気に入りから削除' })).toBeVisible({ timeout: 15000 });
