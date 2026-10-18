@@ -316,6 +316,9 @@ jobs:
       - name: Coupon retirement preserves usage and booking history (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/coupon-retirement-fixtures.sql
 
+      - name: Favorite toggle serialization, publication and account deletion fences (disposable DB)
+        run: python3 scripts/check-favorite-toggle-concurrency.py
+
       - name: Menu atomic deletion, ordering rollback and complete snapshot (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/menu-atomic-fixtures.sql
 

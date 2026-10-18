@@ -1,3 +1,4 @@
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import type { Profile, Favorite, FacilityCardData } from '@/types';
@@ -75,28 +76,18 @@ export async function getUserFavorites(): Promise<(Favorite & { facility: Facili
 }
 
 export async function toggleFavorite(facilityId: string): Promise<{ isFavorited: boolean; error: string | null }> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { isFavorited: false, error: '認証が必要です' };
-
-  const { data: existing } = await supabase
-    .from('favorites')
-    .select('id')
-    .eq('user_id', user.id)
-    .eq('facility_id', facilityId)
-    .maybeSingle();
-
-  if (existing) {
-    const { error } = await supabase
-      .from('favorites')
-      .delete()
-      .eq('id', existing.id);
-    return { isFavorited: false, error: error?.message ?? null };
-  } else {
-    const { error } = await supabase
-      .from('favorites')
-      .insert({ user_id: user.id, facility_id: facilityId });
-    return { isFavorited: true, error: error?.message ?? null };
+  try {
+    const supabase = await createServerSupabaseAuthClient();
+    const identity = await verifyAuthUser(supabase.auth);
+    if (identity.state === 'unauthenticated') return { isFavorited: false, error: '認証が必要です' };
+    if (identity.state !== 'verified') return { isFavorited: false, error: 'お気に入りを確認できません' };
+    const { data, error } = await createServiceRoleClient().rpc('toggle_user_favorite_atomic', {
+      p_actor_id: identity.user.id, p_facility_id: facilityId,
+    });
+    if (error || typeof data !== 'boolean') return { isFavorited: false, error: 'お気に入りを変更できません' };
+    return { isFavorited: data, error: null };
+  } catch {
+    return { isFavorited: false, error: 'お気に入りを変更できません' };
   }
 }
 

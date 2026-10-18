@@ -84,3 +84,8 @@ describe('analytics', () => {
     expect(mockGtag).not.toHaveBeenCalled();
   });
 });
+
+test('a broken analytics provider cannot interrupt an application action',()=>{
+ mockGtag.mockImplementationOnce(()=>{throw new Error('synthetic analytics failure');});
+ expect(()=>analytics.favoriteToggled('synthetic-facility','add')).not.toThrow();
+});

@@ -7,6 +7,9 @@
  */
 
 jest.mock('@/lib/supabase-server-auth');
+jest.mock('@/lib/supabase-server');
+const { createServiceRoleClient } = require('@/lib/supabase-server');
+const mockFavoriteRpc=jest.fn();
 
 import {
   getUserProfile,
@@ -62,6 +65,8 @@ function buildMock(overrides: Partial<{
 
   const mockInsert = jest.fn().mockResolvedValue({ error: o.insertError });
 
+  mockFavoriteRpc.mockResolvedValue({data:!o.favoriteExisting,error:o.deleteError ?? o.insertError});
+  createServiceRoleClient.mockReturnValue({rpc:mockFavoriteRpc});
   createServerSupabaseAuthClient.mockResolvedValue({
     auth: { getUser: jest.fn().mockResolvedValue({ data: { user: o.user } }) },
     from: jest.fn((table: string) => {
@@ -176,7 +181,7 @@ describe('toggleFavorite', () => {
     buildMock({ favoriteExisting: { id: 'fav-1' }, deleteError: { message: 'del-err' } });
     const result = await toggleFavorite(FAC_ID);
     expect(result.isFavorited).toBe(false);
-    expect(result.error).toBe('del-err');
+    expect(result.error).toBe('お気に入りを変更できません');
   });
 
   test('inserts new favorite and returns isFavorited true', async () => {
@@ -189,8 +194,8 @@ describe('toggleFavorite', () => {
   test('returns insert error message', async () => {
     buildMock({ favoriteExisting: null, insertError: { message: 'ins-err' } });
     const result = await toggleFavorite(FAC_ID);
-    expect(result.isFavorited).toBe(true);
-    expect(result.error).toBe('ins-err');
+    expect(result.isFavorited).toBe(false);
+    expect(result.error).toBe('お気に入りを変更できません');
   });
 });
 
@@ -220,4 +225,15 @@ test.each(['auth-data-error','auth-null-error','auth-throw','read-data-error','r
  createServerSupabaseAuthClient.mockResolvedValue({auth:{getUser},from});
  await expect(getUserFavorites()).rejects.toThrow('FAVORITES_UNAVAILABLE');
  if(fault.startsWith('auth'))expect(from).not.toHaveBeenCalled();
+});
+
+test('toggleFavorite refuses unavailable identity without a service-role mutation',async()=>{
+ buildMock();createServiceRoleClient.mockClear();createServerSupabaseAuthClient.mockResolvedValue({auth:{getUser:async()=>({data:{user:null},error:{code:'unknown'}})}});
+ expect(await toggleFavorite(FAC_ID)).toEqual({isFavorited:false,error:'お気に入りを確認できません'});expect(createServiceRoleClient).not.toHaveBeenCalled();
+});
+test.each([null,{},'true'])('toggleFavorite refuses invalid receipt %p',async data=>{
+ buildMock();mockFavoriteRpc.mockResolvedValue({data,error:null});expect((await toggleFavorite(FAC_ID)).error).toBe('お気に入りを変更できません');
+});
+test('toggleFavorite converts a rejected mutation to an unconfirmed result',async()=>{
+ buildMock();mockFavoriteRpc.mockRejectedValue(new Error('synthetic-private'));expect(await toggleFavorite(FAC_ID)).toEqual({isFavorited:false,error:'お気に入りを変更できません'});
 });

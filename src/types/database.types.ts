@@ -6909,7 +6909,7 @@ export type Database = {
         Returns: string
       }
       get_admin_coupon_usage: {
-        Args: { p_actor_id: string; p_facility_id: string }
+        Args: { p_actor_id: string; p_facility_id: string; p_desired?: boolean }
         Returns: {
           coupon_id: string
           usage_count: number
@@ -7363,7 +7363,7 @@ export type Database = {
         Returns: Json
       }
       read_admin_menu_snapshot: {
-        Args: { p_actor_id: string; p_facility_id: string }
+        Args: { p_actor_id: string; p_facility_id: string; p_desired?: boolean }
         Returns: Json
       }
       read_salon_recovery: {
@@ -8289,6 +8289,10 @@ export type Database = {
         Returns: boolean
       }
       unlockrows: { Args: { "": string }; Returns: number }
+      toggle_user_favorite_atomic: {
+        Args: { p_actor_id: string; p_facility_id: string; p_desired?: boolean }
+        Returns: boolean
+      }
       unsubscribe_newsletter_atomic: {
         Args: { p_email: string; p_token: string }
         Returns: Json

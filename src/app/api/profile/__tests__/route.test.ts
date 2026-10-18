@@ -459,3 +459,8 @@ describe('GET /api/profile', () => {
     expect(res.status).toBe(500);
   });
 });
+
+test('a year-zero birth date is rejected before any profile write',async()=>{
+ const response=await PUT(makeRequest({display_name:'Synthetic',phone:'090-1234-5678',prefecture:'東京都',birth_date:'0000-01-01'}) as any);
+ expect(response.status).toBe(400);expect(mockUpdate).not.toHaveBeenCalled();
+});
