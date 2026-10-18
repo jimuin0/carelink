@@ -1,3 +1,4 @@
+import { readAuthorization } from '@/lib/authorization-read';
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
@@ -199,16 +200,16 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
   // マルチ施設対応: ユーザーが所属する全施設と、プラットフォーム管理者判定を並列取得する。
   // 両クエリは user.id にのみ依存し互いに独立なので、直列にせず1往復に詰める（リロード毎の体感速度改善）。
   const authorization = await Promise.all([
-    supabase
+    readAuthorization(supabase
       .from('facility_members')
       .select('role, facility_id, facility_profiles(name)')
       .eq('user_id', user.id)
-      .in('role', ['owner', 'admin']),
-    supabase
+      .in('role', ['owner', 'admin'])),
+    readAuthorization(supabase
       .from('profiles')
       .select('is_platform_admin')
       .eq('id', user.id)
-      .single(),
+      .single()),
   ]).catch(() => null);
 
   if (!authorization) return <AccessVerificationUnavailable />;

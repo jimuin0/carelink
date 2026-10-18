@@ -54,3 +54,12 @@ describe('resolveTargetFacilityId', () => {
     expect(resolveTargetFacilityId(['fac-1'], 123)).toEqual({ facilityId: 'fac-1', reason: 'ok' });
   });
 });
+
+test('a pending membership lookup fails closed without reporting zero memberships',async()=>{
+ jest.useFakeTimers();
+ try {
+  const supabase={from:()=>({select:()=>({eq:()=>({in:()=>new Promise(()=>{})})})})} as unknown as import('@supabase/supabase-js').SupabaseClient;
+  const reading=getAdminFacilityIds(supabase,'synthetic-user');await jest.advanceTimersByTimeAsync(5001);const result=await reading;
+  expect(result).not.toEqual([]);expect((result as Response).status).toBe(500);expect((result as Response).headers.get('Cache-Control')).toBe('no-store');
+ } finally {jest.useRealTimers();}
+});

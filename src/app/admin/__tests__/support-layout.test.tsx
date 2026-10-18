@@ -81,3 +81,13 @@ test('unauthenticated layout still redirects to login', async () => {
   auth.mockResolvedValue({ data: { user: null } });
   await expect(renderShell()).rejects.toThrow('redirect:/auth/login?redirect=/admin');
 });
+
+test.each(['membership','profile'])('pending %s observation returns retry without the private shell',async target=>{
+ jest.useFakeTimers();
+ try {
+  (target==='membership'?membership:profile).mockReturnValueOnce(new Promise(()=>{}));
+  const rendering=renderShell();await jest.advanceTimersByTimeAsync(5001);await rendering;
+  expect(screen.getByRole('alert')).toBeInTheDocument();expect(screen.getByRole('button',{name:'利用権限を再確認'})).toBeInTheDocument();
+  expect(screen.queryByText('support-content')).not.toBeInTheDocument();expect(screen.queryByText('facility-nav')).not.toBeInTheDocument();
+ } finally {jest.useRealTimers();}
+});

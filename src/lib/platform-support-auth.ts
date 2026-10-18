@@ -1,3 +1,4 @@
+import { readAuthorization } from './authorization-read';
 import type { User } from '@supabase/supabase-js';
 import { createServerSupabaseAuthClient } from './supabase-server-auth';
 import { verifyAuthUser } from './auth-verification';
@@ -12,8 +13,8 @@ export async function verifyPlatformSupportUser(): Promise<SupportVerification> 
     const supabase = await createServerSupabaseAuthClient();
     const verification = await verifyAuthUser(supabase.auth);
     if (verification.state !== 'verified') return verification;
-    const { data: profile, error } = await supabase.from('profiles')
-      .select('is_platform_admin, display_name').eq('id', verification.user.id).single();
+    const { data: profile, error } = await readAuthorization(supabase.from('profiles')
+      .select('is_platform_admin, display_name').eq('id', verification.user.id).single());
     if (error) return { state: 'unavailable' };
     if (profile?.is_platform_admin !== true) return { state: 'forbidden' };
     return { state: 'verified', user: verification.user,

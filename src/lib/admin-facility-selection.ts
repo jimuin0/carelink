@@ -1,3 +1,4 @@
+import { readAuthorization } from './authorization-read';
 import type { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { UUID_REGEX } from '@/lib/constants';
 
@@ -9,9 +10,9 @@ export async function loadAdminFacilitySelection(
   db: ReturnType<typeof createBrowserSupabaseClient>, userId: string, requested: string | null,
 ) {
   if (requested !== null && !UUID_REGEX.test(requested)) throw new Error('invalid_facility_selection');
-  const { data, error } = await db.from('facility_members')
+  const { data, error } = await readAuthorization(db.from('facility_members')
     .select('facility_id, facility_profiles(name)').eq('user_id', userId)
-    .in('role', ['owner', 'admin']).order('facility_id').limit(101);
+    .in('role', ['owner', 'admin']).order('facility_id').limit(101));
   if (error || !Array.isArray(data) || data.length > 100) throw new Error('facility_selection_unavailable');
   const choices: AdminFacilityChoice[] = data.map(row => {
     const profile = row.facility_profiles as unknown as { name: string } | null;
