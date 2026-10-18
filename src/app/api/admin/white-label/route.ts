@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
+import { saveAdminFacilityIntegration } from '@/lib/admin-facility-integration-write';
 import { randomBytes } from 'crypto';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -34,13 +36,14 @@ export async function GET(req: NextRequest) {
   if (reason === 'forbidden') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   if (reason === 'ambiguous') return NextResponse.json({ error: '施設を指定してください', facilityIds }, { status: 400 });
 
-  const { data: config } = await admin
+  const { data: config, error: configError } = await admin
     .from('white_label_domains')
     .select('*')
     .eq('facility_id', facilityId)
-    .single();
+    .maybeSingle();
 
-  return NextResponse.json({ config: config || null });
+  if(configError)return serverError('admin-white-label-read',databaseDiagnostic(configError),'/api/admin/white-label');
+  return NextResponse.json({config:config || null});
 }
 
 export async function POST(req: NextRequest) {
@@ -56,7 +59,10 @@ export async function POST(req: NextRequest) {
   const user = verification.state === 'verified' ? verification.user : null;
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { domain, brand_name, primary_color, logo_url, facility_id } = await req.json().catch(() => ({}));
+  const body=await req.json().catch(()=>null);
+  if(body===null||typeof body!=='object'||Array.isArray(body))return NextResponse.json({error:'Invalid request'},{status:400});
+  const {domain,brand_name,primary_color,logo_url,facility_id}=body;
+  if([brand_name,primary_color,logo_url].some(v=>v!=null&&typeof v!=='string'))return NextResponse.json({error:'Invalid request'},{status:400});
 
   const admin = createServiceRoleClient();
   const facilityIds = await getAdminFacilityIds(admin, user.id, '/api/admin/white-label');
@@ -79,24 +85,11 @@ export async function POST(req: NextRequest) {
 
   const txtRecord = `carelink-verify=${randomBytes(16).toString('hex')}`;
 
-  const { data: config, error } = await admin
-    .from('white_label_domains')
-    .upsert({
-      facility_id: facilityId,
-      domain: domain.toLowerCase(),
-      brand_name: brand_name ? String(brand_name).slice(0, 100) : null,
-      primary_color: primary_color && /^#[0-9a-fA-F]{6}$/.test(primary_color) ? primary_color : '#0ea5e9',
-      logo_url: logo_url && /^https:\/\/[^\s]{1,490}$/.test(String(logo_url)) ? String(logo_url) : null,
-      txt_record: txtRecord,
-      is_verified: false,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'facility_id' })
-    .select()
-    .single();
-
-  if (error) {
-    return serverError('white-label-upsert', error, '/api/admin/white-label');
-  }
+  const config=await saveAdminFacilityIntegration({actorId:user.id,facilityId,kind:'domain:configure',expected:{},values:{
+    domain:domain.toLowerCase(),brand_name:brand_name ? brand_name.slice(0,100) : null,
+    primary_color:primary_color && /^#[0-9a-fA-F]{6}$/.test(primary_color) ? primary_color : '#0ea5e9',
+    logo_url:logo_url && /^https:\/\/[^\s]{1,490}$/.test(logo_url) ? logo_url : null,txt_record:txtRecord}});
+  if(config instanceof NextResponse)return config;
 
   // カスタムドメイン設定は重要操作のため監査ログに記録（fire-and-forget・本体を止めない）。
   const { ua } = getRequestContext(req);

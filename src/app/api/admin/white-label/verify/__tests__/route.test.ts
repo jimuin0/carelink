@@ -18,13 +18,14 @@ const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 
 const mockAdminFrom = jest.fn();
+const mockRpc = jest.fn();
 const mockGetUser = jest.fn();
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: jest.fn(), auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
 import { POST } from '../route';
@@ -52,6 +53,7 @@ function singleChain(data: unknown, error: unknown = null) {
     in: jest.fn().mockReturnThis(),
     limit: jest.fn().mockReturnThis(),
     single: jest.fn(() => Promise.resolve({ data, error })),
+    maybeSingle: jest.fn(() => Promise.resolve({data,error})),
   };
 }
 
@@ -79,6 +81,7 @@ function updateChain(error: unknown = null, updatedRows?: unknown[] | null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockRpc.mockImplementation(async(_name,args)=>{const r=await mockAdminFrom('white_label_domains').update({is_verified:true}).eq('facility_id',args.p_facility_id).eq('domain',args.p_expected.domain).eq('txt_record',args.p_expected.txt_record).select('facility_id');return {...r,error:r.error || (!r.data?.length ? {code:'40001'} : null),data:r.data?.length ? {id:args.p_facility_id,facility_id:args.p_facility_id,...args.p_expected,is_verified:true} : null};});
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
@@ -162,23 +165,26 @@ test('TXTレコード不一致 → 200 { verified: false }', async () => {
   expect(json.verified).toBe(false);
 });
 
-test('DNS検証成功だが txt_record が null（不変条件違反） → 500（型ガード分岐カバー）', async () => {
-  // config.txt_record は DB定義上 nullable。verified===true は通常
-  // flatRecords.some((r) => r === config.txt_record) が真になった場合のみ成立し、
-  // dns.resolveTxt が返す文字列が null と一致することは実運用ではあり得ないため
-  // route.ts 側の null ガード（56-58行目）は実装上到達しない防御分岐。
-  // branches 100% ゲートのため、dns.resolveTxt のモック戻り値に意図的に null を混ぜ、
-  // txt_record=null の設定と一致させることでこの分岐をカバーする。
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return facilityIdsChain([FACILITY_UUID]);
-    return singleChain({ domain: DOMAIN_CONFIG.domain, txt_record: null });
-  });
-  (dns.resolveTxt as jest.Mock).mockResolvedValue([[null]]);
-
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
+test.each([null, ''])('verification token missing (%p) never performs DNS or a write', async token => {
+  let calls=0;
+  mockAdminFrom.mockImplementation(()=>++calls===1?facilityIdsChain([FACILITY_UUID]):singleChain({...DOMAIN_CONFIG,txt_record:token}));
+  const res=await POST(makeRequest());
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({verified:false,reason:'Verification token missing'});
+  expect(dns.resolveTxt).not.toHaveBeenCalled();
+  expect(mockRpc).not.toHaveBeenCalled();
+});
+test.each([
+  {records:[[DOMAIN_CONFIG.txt_record.slice(0,12),DOMAIN_CONFIG.txt_record.slice(12)]],verified:true},
+  {records:[[DOMAIN_CONFIG.txt_record,'suffix']],verified:false},
+  {records:[[DOMAIN_CONFIG.txt_record.slice(0,12)],[DOMAIN_CONFIG.txt_record.slice(12)]],verified:false},
+])('TXT ownership compares complete records: %p',async ({records,verified})=>{
+  setupOwnershipAndDomain();
+  (dns.resolveTxt as jest.Mock).mockResolvedValue(records);
+  const res=await POST(makeRequest());
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({verified});
+  expect(mockRpc).toHaveBeenCalledTimes(verified?1:0);
 });
 
 // ─── Critical: DB write failure after successful verification ─────────────────
@@ -295,7 +301,7 @@ test('複数施設所有・所属していないfacility_id指定 → 403（越�
   expect(res.status).toBe(403);
 });
 
-test('不正なJSON body → catchでfacility_id未指定扱い（単一施設なら自動選択）', async () => {
+test('不正なJSON body → 検証・書込み前に400', async () => {
   setupOwnershipAndDomain(null);
   (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]);
   const req = new Request('http://localhost/api/admin/white-label/verify', {
@@ -304,5 +310,18 @@ test('不正なJSON body → catchでfacility_id未指定扱い（単一施設�
     body: 'not-json',
   });
   const res = await POST(req);
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(400);
+  expect(mockRpc).not.toHaveBeenCalled();
+});
+
+test.each([null,DOMAIN_CONFIG])('lookup outage cannot certify DNS or pretend no config: %p',async data=>{let n=0;mockAdminFrom.mockImplementation(()=>++n===1?facilityIdsChain([FACILITY_UUID]):singleChain(data,{code:'08006',message:'private'}));const res=await POST(makeRequest());expect(res.status).toBe(500);expect(dns.resolveTxt).not.toHaveBeenCalled();expect(mockRpc).not.toHaveBeenCalled();});
+
+// The existing admin UI intentionally submits a bodyless POST.
+test('existing bodyless UI verification request still verifies the configured facility',async()=>{
+ setupOwnershipAndDomain();
+ (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]);
+ const request=new Request('http://localhost/api/admin/white-label/verify',{method:'POST'});
+ const res=await POST(request as Parameters<typeof POST>[0]);
+ expect(res.status).toBe(200);expect(await res.json()).toEqual({verified:true});
+ expect(mockRpc).toHaveBeenCalledWith('save_admin_facility_integration_atomic',expect.objectContaining({p_facility_id:FACILITY_UUID,p_kind:'domain:verify'}));
 });

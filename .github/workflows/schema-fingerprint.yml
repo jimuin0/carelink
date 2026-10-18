@@ -337,6 +337,9 @@ jobs:
       - name: Verify API-key issuance and revocation authority races
         run: python3 scripts/check-api-key-write-concurrency.py
 
+      - name: Facility integration authority, provider fences and rollback
+        run: python3 scripts/check-facility-integration-concurrency.py
+
       - name: Coupon operation replay, conflict, retired result and rollback (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/coupon-operation-fixtures.sql
 
