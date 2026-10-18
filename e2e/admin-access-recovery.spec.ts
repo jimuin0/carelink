@@ -204,3 +204,50 @@ test('two-store operator keeps explicit store through dashboard, today bookings 
   await expect(page.locator('#staff-name')).toHaveValue(edited);
   expect(mutations).toBe(1);
 });
+
+test('two-store integration settings select and save only the requested tenant', async ({ page }) => {
+  test.setTimeout(90000);
+  const client = db(), actor = await identity(client);
+  const first = randomUUID(), second = randomUUID(), suffix = randomUUID();
+  const facilities = await client.from('facility_profiles').insert([
+    { id: first, slug: `synthetic-integration-a-${suffix}`, name: `合成連携A ${suffix}`, business_type: 'ヘアサロン', prefecture: '愛知県', city: '合成市', address: '合成町A', status: 'draft' },
+    { id: second, slug: `synthetic-integration-b-${suffix}`, name: `合成連携B ${suffix}`, business_type: 'ヘアサロン', prefecture: '愛知県', city: '合成市', address: '合成町B', status: 'draft' },
+  ]);
+  if (facilities.error) throw new Error('Disposable integration facilities failed');
+  const members = await client.from('facility_members').insert([
+    { user_id: actor.id, facility_id: first, role: 'owner' }, { user_id: actor.id, facility_id: second, role: 'admin' },
+  ]);
+  if (members.error) throw new Error('Disposable integration memberships failed');
+  await login(page, actor);
+  await page.goto(`/admin/settings?facility_id=${second}`);
+  for (const name of ['GBP管理画面へ →', 'GBP設定・診断を開く']) {
+    await expect(page.getByRole('link', { name, exact: true })).toHaveAttribute('href', `/admin/gbp?facility_id=${second}`);
+  }
+  for (const path of ['/admin/gbp', '/admin/white-label']) {
+    await page.goto(path);
+    await expect(page.getByText('編集する店舗を選択してください', { exact: true })).toBeVisible();
+    await expect(page.getByRole('textbox')).toHaveCount(0);
+    await page.getByRole('link', { name: `合成連携B ${suffix}`, exact: true }).click();
+    await expect(page.getByRole('region', { name: '編集する店舗' }).getByRole('link', { name: `合成連携B ${suffix}（選択中）`, exact: true })).toHaveAttribute('aria-current', 'page');
+    expect(new URL(page.url()).searchParams.get('facility_id')).toBe(second);
+    if (path === '/admin/gbp') {
+      await page.locator('#gbp-place-id').fill('SyntheticPlaceB');
+      const saved = page.waitForResponse(r => new URL(r.url()).pathname === '/api/admin/gbp/place' && r.request().method() === 'POST');
+      await page.getByRole('button', { name: '保存', exact: true }).click();
+      expect((await saved).status()).toBe(200);
+    } else {
+      await page.locator('#wl-domain').fill(`synthetic-${suffix}.example.invalid`);
+      const saved = page.waitForResponse(r => new URL(r.url()).pathname === '/api/admin/white-label' && r.request().method() === 'POST');
+      await page.getByRole('button', { name: '設定を保存', exact: true }).click();
+      expect((await saved).status()).toBe(201);
+      await expect(page.getByRole('button', { name: '認証を確認する', exact: true })).toBeVisible();
+    }
+  }
+  const profiles = await client.from('facility_profiles').select('id,gbp_place_id').in('id', [first, second]);
+  expect(profiles.error).toBeNull();
+  expect(profiles.data).toEqual(expect.arrayContaining([{ id: first, gbp_place_id: null }, { id: second, gbp_place_id: 'SyntheticPlaceB' }]));
+  const domains = await client.from('white_label_domains').select('facility_id,domain,is_verified').in('facility_id', [first, second]);
+  expect(domains.error).toBeNull();
+  expect(domains.data).toEqual([{ facility_id: second, domain: `synthetic-${suffix}.example.invalid`, is_verified: false }]);
+  // No Google fetch, DNS verification, external publication or real tenant writes.
+});

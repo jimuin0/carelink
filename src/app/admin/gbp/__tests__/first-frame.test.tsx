@@ -18,6 +18,8 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { clickFirstFrame, mountFirstFrame, type FirstFrameHandle } from '@/test-utils/first-frame';
 import AdminGbpPage from '../page';
 
+jest.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(), useRouter: () => ({ push: jest.fn() }) }));
+
 jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: jest.fn() }));
 
 const API_KEY_MESSAGE = 'GOOGLE_MAPS_API_KEY';
@@ -30,11 +32,7 @@ function mockSupabase() {
         return {
           select: () => ({
             eq: () => ({
-              in: () => ({
-                limit: () => ({
-                  single: () => Promise.resolve({ data: { facility_id: 'facility-1' }, error: null }),
-                }),
-              }),
+              in: () => ({ order: () => ({ limit: () => Promise.resolve({ data: [{ facility_id: 'facility-1', facility_profiles: { name: 'Synthetic' } }], error: null }) }) }),
             }),
           }),
         };
@@ -42,7 +40,7 @@ function mockSupabase() {
       return {
         select: () => ({
           eq: () => ({
-            single: () =>
+            maybeSingle: () =>
               Promise.resolve({ data: { gbp_place_id: 'ChIJtest', gbp_cid: '' }, error: null }),
           }),
         }),
@@ -98,7 +96,7 @@ describe('GBP 管理画面のタブ切替', () => {
     clickFirstFrame(tabButton(handle, 'Googleクチコミ'));
     await handle.settle();
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/admin/gbp/place');
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/gbp/place?facility_id=facility-1');
 
     handle.unmount();
   });
@@ -147,7 +145,7 @@ describe('GBP 管理画面のタブ切替', () => {
     clickFirstFrame(tabButton(handle, '診断スコア'));
     await handle.settle();
 
-    expect(fetchMock.mock.calls.filter((c) => c[0] === '/api/admin/gbp/place')).toHaveLength(1);
+    expect(fetchMock.mock.calls.filter((c) => c[0] === '/api/admin/gbp/place?facility_id=facility-1')).toHaveLength(1);
 
     handle.unmount();
   });

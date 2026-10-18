@@ -1,11 +1,18 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import LoadError from '@/components/admin/LoadError';
 import Toast from '@/components/Toast';
 import { SbPageHeader } from '@/components/admin/SbUi';
 
 type WhiteLabelDomain = {
   id: string;
+  facility_id: string;
   domain: string;
   is_verified: boolean;
   verified_at: string | null;
@@ -16,7 +23,12 @@ type WhiteLabelDomain = {
   created_at: string;
 };
 
-export default function WhiteLabelPage() {
+function WhiteLabelContent({ requestedFacility }: { requestedFacility: string | null }) {
+  const [facilityId, setFacilityId] = useState<string | null>(null);
+  const [choices, setChoices] = useState<AdminFacilityChoice[]>([]);
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [verifying, setVerifying] = useState(false);
   const [config, setConfig] = useState<WhiteLabelDomain | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -26,62 +38,86 @@ export default function WhiteLabelPage() {
     primary_color: '#0ea5e9',
     logo_url: '',
   });
+  const [savedForm, setSavedForm] = useState(JSON.stringify(form));
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
-    fetch('/api/admin/white-label')
-      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
-      .then((d) => {
-        if (d.config) {
-          setConfig(d.config);
-          setForm({
-            domain: d.config.domain || '',
-            brand_name: d.config.brand_name || '',
-            primary_color: d.config.primary_color || '#0ea5e9',
-            logo_url: d.config.logo_url || '',
-          });
+    let cancelled = false;
+    void (async () => {
+      setLoading(true); setLoadError(false);
+      try {
+        const db = createBrowserSupabaseClient();
+        const identity = await verifyAuthUser(db.auth);
+        if (identity.state !== 'verified') throw new Error('auth_unconfirmed');
+        const selection = await loadAdminFacilitySelection(db, identity.user.id, requestedFacility);
+        if (cancelled) return;
+        setChoices(selection.choices); setFacilityId(selection.selectedId);
+        if (!selection.selectedId) return;
+        const res = await fetch('/api/admin/white-label?facility_id=' + selection.selectedId);
+        if (!res.ok) throw new Error('domain_read_unavailable');
+        const data = await res.json();
+        if (!data || !('config' in data) || (data.config !== null && data.config.facility_id !== selection.selectedId)) throw new Error('domain_scope_unconfirmed');
+        if (cancelled) return;
+        setConfig(data.config);
+        if (data.config) {
+          const values = { domain: data.config.domain || '', brand_name: data.config.brand_name || '',
+            primary_color: data.config.primary_color || '#0ea5e9', logo_url: data.config.logo_url || '' };
+          setForm(values); setSavedForm(JSON.stringify(values));
         }
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, []);
+      } catch { if (!cancelled) setLoadError(true); }
+      finally { if (!cancelled) setLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [requestedFacility, reloadKey]);
 
   const handleSave = async () => {
-    if (!form.domain) return;
+    if (!form.domain || !facilityId || saving || verifying) return;
     setSaving(true);
     try {
       const res = await fetch('/api/admin/white-label', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, facility_id: facilityId }),
       });
       const data = await res.json();
-      if (res.ok) {
+      if (res.ok && data.config?.facility_id === facilityId) {
         setConfig(data.config);
+        setSavedForm(JSON.stringify(form));
         setMessage({ ok: true, text: '設定を保存しました。DNSレコードを設定してドメインを認証してください。' });
       } else {
         setMessage({ ok: false, text: data.error || '保存に失敗しました' });
       }
+    } catch {
+      setMessage({ ok: false, text: '保存に失敗しました' });
     } finally {
       setSaving(false);
     }
   };
 
   const handleVerify = async () => {
-    if (!config) return;
-    const res = await fetch(`/api/admin/white-label/verify`, { method: 'POST' });
-    if (!res.ok) { setMessage({ ok: false, text: 'サーバーエラーが発生しました' }); return; }
-    const data = await res.json();
-    if (data.verified) {
-      setConfig((prev) => prev ? { ...prev, is_verified: true, verified_at: new Date().toISOString() } : null);
-      setMessage({ ok: true, text: 'ドメインを認証しました！' });
-    } else {
-      setMessage({ ok: false, text: 'DNS TXTレコードが確認できませんでした。設定を確認してください。' });
-    }
+    if (!config || !facilityId || saving || verifying) return;
+    setVerifying(true);
+    try {
+      const res = await fetch('/api/admin/white-label/verify', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ facility_id: facilityId }) });
+      if (!res.ok) throw new Error('verification_unavailable');
+      const data = await res.json();
+      if (data.verified === true) {
+        setConfig(prev => prev ? { ...prev, is_verified: true, verified_at: new Date().toISOString() } : null);
+        setMessage({ ok: true, text: 'ドメインを認証しました！' });
+      } else setMessage({ ok: false, text: 'DNS TXTレコードが確認できませんでした。設定を確認してください。' });
+    } catch { setMessage({ ok: false, text: 'サーバーエラーが発生しました' }); }
+    finally { setVerifying(false); }
   };
+
+  if (loading) return <AdminPageLoading />;
+  if (loadError) return <LoadError onRetry={() => setReloadKey(k => k + 1)} message="ドメイン設定の読み込みに失敗しました" />;
+  if (!facilityId) return <FacilitySelector choices={choices} selectedId={null} path="/admin/white-label" />;
 
   return (
     <div className="max-w-3xl space-y-6">
+      <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/white-label"
+        dirty={JSON.stringify(form) !== savedForm} busy={saving || verifying} />
       <SbPageHeader title="ホワイトラベル設定" description="施設独自のドメインでCareLink予約ページを提供できます（エンタープライズプラン）" />
 
       {message && (
@@ -175,7 +211,7 @@ export default function WhiteLabelPage() {
         <button
           type="button"
           onClick={handleSave}
-          disabled={saving || !form.domain}
+          disabled={saving || verifying || !form.domain}
           className="btn-primary px-4! py-2! text-sm"
         >
           {saving ? '保存中...' : '設定を保存'}
@@ -206,6 +242,7 @@ export default function WhiteLabelPage() {
           <button
             type="button"
             onClick={handleVerify}
+            disabled={saving || verifying}
             className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-600 transition-colors"
           >
             認証を確認する
@@ -251,4 +288,12 @@ export default function WhiteLabelPage() {
       </div>
     </div>
   );
+}
+
+function WhiteLabelSelectionRoute() {
+  const requested = useSearchParams().get('facility_id');
+  return <WhiteLabelContent key={requested ?? 'unselected'} requestedFacility={requested} />;
+}
+export default function WhiteLabelPage() {
+  return <Suspense fallback={<AdminPageLoading />}><WhiteLabelSelectionRoute /></Suspense>;
 }

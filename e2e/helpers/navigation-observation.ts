@@ -1,3 +1,4 @@
+import { navigationErrorClassification, navigationTransportFailure } from './navigation-observation-errors';
 import { test as playwrightTest, type Page } from '@playwright/test';
 
 // Failure-only diagnostics: pathnames and fixed classifications, never query
@@ -16,11 +17,13 @@ export function observeNavigations(test: typeof playwrightTest) {
       if (request.isNavigationRequest() && request.frame() === page.mainFrame()) record({ type: 'response', path: new URL(response.url()).pathname, status: response.status() });
     });
     page.on('requestfailed', request => {
-      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) record({ type: 'navigation_failed', path: new URL(request.url()).pathname });
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) record({ type: 'navigation_failed', path: new URL(request.url()).pathname, failure: navigationTransportFailure(request.failure()?.errorText ?? '') });
     });
+    page.on('framenavigated', frame => { if (frame === page.mainFrame()) record({ type: 'document_commit', path: new URL(frame.url()).pathname }); });
+    page.on('domcontentloaded', () => record({ type: 'dom_ready', path: new URL(page.url()).pathname }));
+    page.on('load', () => record({ type: 'document_loaded', path: new URL(page.url()).pathname }));
     page.on('pageerror', error => {
-      record({ type: 'pageerror', reactCode: /Minified React error #(\d+)/.exec(error.message)?.[1] ?? null,
-        transportFailure: /Failed to fetch|Load failed|NetworkError/.test(error.message) });
+      record({ type: 'pageerror', ...navigationErrorClassification(error) });
     });
   });
   test.afterEach(async ({ page }, info) => {
