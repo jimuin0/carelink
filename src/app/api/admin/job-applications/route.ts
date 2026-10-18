@@ -1,3 +1,5 @@
+import { applicationCreateSchema, applicationSavedSchema } from '@/lib/job-application-validation';
+import { readAuthorization } from '@/lib/authorization-read';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
@@ -5,26 +7,25 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
-import { UUID_REGEX } from '@/lib/constants';
 import { serverError, authUnavailable } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
 
 async function getFacilityIds(userId: string): Promise<string[] | NextResponse> {
   const admin = createServiceRoleClient();
-  const { data, error } = await admin
+  const { data, error } = await readAuthorization(admin
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', userId)
-    .in('role', ['owner', 'admin']);
-  if (error) {
+    .in('role', ['owner', 'admin'])).catch(error => ({ data: null, error }));
+  if (error || !Array.isArray(data)) {
     const response = serverError('admin-job-applications-membership', databaseDiagnostic(error), '/api/admin/job-applications');
     response.headers.set('Cache-Control', 'no-store');
     return response;
   }
-  return (data ?? []).map((m) => m.facility_id as string);
+  return data.map((m) => m.facility_id as string);
 }
 
-export async function GET(req: NextRequest) {
+async function getApplications(req: NextRequest) {
   const ip = getClientIp(req);
   if (await checkRateLimit(null, ip, 20, 60_000, 'job-applications-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
@@ -49,32 +50,22 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: false })
     .limit(200);
 
-  if (error) return serverError('admin-job-applications-list', error, '/api/admin/job-applications');
+  if (error || !Array.isArray(applications)) return serverError('admin-job-applications-list', databaseDiagnostic(error), '/api/admin/job-applications');
 
-  return NextResponse.json({ applications: applications ?? [] });
+  return NextResponse.json({ applications });
 }
 
 // Public POST: submit application
-export async function POST(req: NextRequest) {
+async function createApplication(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const ip = getClientIp(req);
   if (await checkRateLimit(null, ip, 5, 60_000, 'job-apply')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
-  const body = await req.json().catch(() => ({}));
-  const { job_posting_id, facility_id, applicant_name, applicant_email, applicant_phone, cover_letter } = body;
-
-  if (!facility_id || !applicant_name || !applicant_email) {
-    return NextResponse.json({ error: 'facility_id, applicant_name, applicant_email required' }, { status: 400 });
-  }
-  if (!UUID_REGEX.test(facility_id)) return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
-  if (job_posting_id && !UUID_REGEX.test(job_posting_id)) return NextResponse.json({ error: 'Invalid job_posting_id' }, { status: 400 });
-
-  // Basic email validation
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(applicant_email)) {
-    return NextResponse.json({ error: 'Invalid email' }, { status: 400 });
-  }
+  const parsed = applicationCreateSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return NextResponse.json({ error: 'Invalid application' }, { status: 400 });
+  const { job_posting_id, facility_id, applicant_name, applicant_email, applicant_phone, cover_letter } = parsed.data;
 
   const admin = createServiceRoleClient();
 
@@ -114,14 +105,35 @@ export async function POST(req: NextRequest) {
       job_posting_id: job_posting_id || null,
       facility_id,
       applicant_user_id: user?.id || null,
-      applicant_name: applicant_name.slice(0, 100),
+      applicant_name,
       applicant_email,
-      applicant_phone: applicant_phone?.slice(0, 20) || null,
-      cover_letter: cover_letter?.slice(0, 2000) || null,
+      applicant_phone: applicant_phone || null,
+      cover_letter: cover_letter || null,
     })
     .select()
     .single();
 
-  if (error) return serverError('admin-job-applications-create', error, '/api/admin/job-applications', '応募の保存に失敗しました');
-  return NextResponse.json({ application }, { status: 201 });
+  if (error?.code === '23505') return NextResponse.json({ error: 'Already applied' }, { status: 409 });
+  if (error?.code === '23503') return NextResponse.json({ error: 'Invalid facility or job' }, { status: 400 });
+  if (error) return serverError('admin-job-applications-create', databaseDiagnostic(error), '/api/admin/job-applications', '応募の保存に失敗しました');
+  const receipt = applicationSavedSchema.safeParse(application);
+  if (!receipt.success || receipt.data.facility_id !== facility_id || receipt.data.status !== 'pending') return serverError('admin-job-applications-create-receipt', new Error('APPLICATION_RESULT_UNCONFIRMED'), '/api/admin/job-applications');
+  return NextResponse.json({ application: receipt.data }, { status: 201, headers: { 'Cache-Control': 'no-store' } });
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const response = await getApplications(req); response.headers.set('Cache-Control', 'no-store'); return response;
+  } catch (error) {
+    const response = serverError('admin-job-applications-get-dependency', databaseDiagnostic(error), '/api/admin/job-applications');
+    response.headers.set('Cache-Control', 'no-store'); return response;
+  }
+}
+export async function POST(req: NextRequest) {
+  try {
+    const response = await createApplication(req); response.headers.set('Cache-Control', 'no-store'); return response;
+  } catch (error) {
+    const response = serverError('admin-job-applications-create-dependency', databaseDiagnostic(error), '/api/admin/job-applications');
+    response.headers.set('Cache-Control', 'no-store'); return response;
+  }
 }

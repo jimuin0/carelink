@@ -1,425 +1,73 @@
-/**
- * @jest-environment node
- *
- * Tests for PATCH /api/admin/job-applications/[id]
- * Key assertions:
- *   - Both "not found" and "wrong owner" → 404 (ID enumeration prevention)
- *   - Invalid status → 400
- *   - DB failure → 500
- */
-
-jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
-jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
-jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
-
-const APP_UUID = '11111111-1111-1111-1111-111111111111';
-const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
-const USER_ID = '33333333-3333-3333-3333-333333333333';
-
-const mockAdminFrom = jest.fn();
-const mockAnonFrom = jest.fn();
-const mockGetUser = jest.fn();
-
-jest.mock('@supabase/ssr', () => ({
-  createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
-}));
-jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
-}));
-
+/** @jest-environment node */
 import { PATCH } from '../route';
+import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
-
-function makeRequest(body: object = { status: 'reviewing' }) {
-  return new Request(`http://localhost/api/admin/job-applications/${APP_UUID}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-}
-
-function makeProps(id = APP_UUID) {
-  return { params: Promise.resolve({ id }) };
-}
-
-function existingChain(data: unknown) {
-  return {
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
-  };
-}
-
-function membershipChain(data: unknown) {
-  return {
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    in: jest.fn().mockReturnThis(),
-    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
-  };
-}
-
-function updateChain(data: unknown, error: unknown = null) {
-  return {
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          select: jest.fn().mockReturnValue({
-            single: jest.fn(() => Promise.resolve({ data, error })),
-            maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
-          }),
-        }),
-      }),
-    }),
-  };
-}
-
-function setupOwnership() {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
-    if (callNum === 2) return membershipChain({ role: 'owner' });
-    return updateChain({ id: APP_UUID, status: 'reviewing' });
-  });
-}
-
-beforeEach(() => {
-  jest.clearAllMocks();
-  (checkRateLimit as jest.Mock).mockReturnValue(false);
-  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+import { writeAuditLog } from '@/lib/audit-logger';
+const APP_UUID='11111111-1111-4111-8111-111111111111';
+const FACILITY_UUID='22222222-2222-4222-8222-222222222222';
+const USER_ID='33333333-3333-4333-8333-333333333333';
+const mockGetUser=jest.fn();const mockApplication=jest.fn();const mockMember=jest.fn();const mockAdminFrom=jest.fn();const mockRpc=jest.fn();
+jest.mock('@/lib/rate-limit',()=>({checkRateLimit:jest.fn()}));
+jest.mock('@/lib/csrf',()=>({checkCsrf:jest.fn()}));
+jest.mock('@/lib/audit-logger',()=>({writeAuditLog:jest.fn(),getRequestContext:()=>({ua:'synthetic'})}));
+jest.mock('next/headers',()=>({cookies:async()=>({getAll:()=>[],set:jest.fn()})}));
+jest.mock('@supabase/ssr',()=>({createServerClient:()=>({auth:{getUser:mockGetUser}})}));
+jest.mock('@/lib/supabase-server',()=>({createServiceRoleClient:()=>({from:mockAdminFrom,rpc:mockRpc})}));
+function chain(terminal:jest.Mock){const c:Record<string,unknown>={};for(const key of ['select','eq','in'])c[key]=jest.fn(()=>c);c.maybeSingle=terminal;return c;}
+function makeRequest(body:unknown={status:'reviewing'},ip='1.2.3.4'){return new Request('https://carelink.invalid/api/admin/job-applications/'+APP_UUID,{method:'PATCH',headers:{'Content-Type':'application/json','x-forwarded-for':ip},body:JSON.stringify(body)});}
+function props(id=APP_UUID){return {params:Promise.resolve({id})};}
+function receipt(status='reviewing',application:object={}){return {application:{id:APP_UUID,facility_id:FACILITY_UUID,status,...application},previous_status:'pending'};}
+beforeEach(()=>{
+ jest.resetAllMocks();(checkCsrf as jest.Mock).mockReturnValue(null);(checkRateLimit as jest.Mock).mockResolvedValue(false);
+ process.env.NEXT_PUBLIC_SUPABASE_URL='https://test.supabase.co';process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY='synthetic';
+ mockGetUser.mockResolvedValue({data:{user:{id:USER_ID}},error:null});
+ mockApplication.mockResolvedValue({data:{facility_id:FACILITY_UUID,status:'pending'},error:null});mockMember.mockResolvedValue({data:{role:'owner'},error:null});
+ mockAdminFrom.mockImplementation(table=>chain(table==='job_applications'?mockApplication:mockMember));
+ mockRpc.mockImplementation(async(_name,args)=>({data:receipt(args.p_patch.status??'pending'),error:null}));
 });
-
-test('PATCH: 未認証 → 401', async () => {
-  mockGetUser.mockResolvedValue({ data: { user: null } });
-  const res = await PATCH(makeRequest(), makeProps());
-  expect(res.status).toBe(401);
+afterEach(()=>jest.useRealTimers());
+test('CSRF denial precedes all authority reads',async()=>{(checkCsrf as jest.Mock).mockReturnValue(new Response(null,{status:403}));expect((await PATCH(makeRequest(),props())).status).toBe(403);expect(mockGetUser).not.toHaveBeenCalled();});
+test('rate limit denial is429 before auth',async()=>{(checkRateLimit as jest.Mock).mockResolvedValue(true);expect((await PATCH(makeRequest(),props())).status).toBe(429);expect(mockGetUser).not.toHaveBeenCalled();});
+test('rate limit uses20/min and the last trusted forwarded address',async()=>{expect((await PATCH(makeRequest({},'1.2.3.4, 5.6.7.8'),props())).status).toBe(400);expect(checkRateLimit).toHaveBeenCalledWith(null,'5.6.7.8',20,60000,'job-applications-patch');});
+test('invalid ID is400 before auth',async()=>{expect((await PATCH(makeRequest(),props('malformed'))).status).toBe(400);expect(mockGetUser).not.toHaveBeenCalled();});
+test('authoritatively absent identity is401 without reading applications',async()=>{mockGetUser.mockResolvedValue({data:{user:null},error:null});expect((await PATCH(makeRequest(),props())).status).toBe(401);expect(mockAdminFrom).not.toHaveBeenCalled();});
+test.each(['data-error','null-error','throw','timeout'])('uncertain auth %s is503/no-store and cannot read private rows',async fault=>{
+ if(fault==='data-error')mockGetUser.mockResolvedValue({data:{user:{id:USER_ID}},error:{code:'unknown'}});
+ if(fault==='null-error')mockGetUser.mockResolvedValue({data:{user:null},error:{code:'unknown'}});
+ if(fault==='throw')mockGetUser.mockRejectedValue(new Error('synthetic-private'));
+ if(fault==='timeout'){jest.useFakeTimers();mockGetUser.mockReturnValue(new Promise(()=>{}));}
+ const result=PATCH(makeRequest(),props());if(fault==='timeout')await jest.advanceTimersByTimeAsync(5000);
+ const response=await result;expect(response.status).toBe(503);expect(response.headers.get('cache-control')).toBe('no-store');expect(mockAdminFrom).not.toHaveBeenCalled();
 });
-
-test('PATCH: レートリミット → 429', async () => {
-  (checkRateLimit as jest.Mock).mockReturnValue(true);
-  const res = await PATCH(makeRequest(), makeProps());
-  expect(res.status).toBe(429);
+test.each(['application','membership'])('an authoritative missing %s is404',async stage=>{(stage==='application'?mockApplication:mockMember).mockResolvedValue({data:null,error:null});expect((await PATCH(makeRequest(),props())).status).toBe(404);expect(mockRpc).not.toHaveBeenCalled();});
+test.each(['application','membership'])('errored %s with or without data never grants authority',async stage=>{
+ for(const data of [null,{facility_id:FACILITY_UUID,role:'owner'}]){
+  (stage==='application'?mockApplication:mockMember).mockResolvedValue({data,error:{code:'08006',message:'synthetic-private'}});
+  const response=await PATCH(makeRequest(),props());expect(response.status).toBe(500);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.text()).not.toContain('synthetic-private');
+ }
+ expect(mockRpc).not.toHaveBeenCalled();
 });
-
-test('PATCH: 不正なUUID → 400', async () => {
-  const res = await PATCH(makeRequest(), makeProps('bad-id'));
-  expect(res.status).toBe(400);
+test.each(['application','membership'])('a rejected %s query is unavailable, not a missing row',async stage=>{(stage==='application'?mockApplication:mockMember).mockRejectedValue(new Error('synthetic-private'));expect((await PATCH(makeRequest(),props())).status).toBe(500);expect(mockRpc).not.toHaveBeenCalled();});
+test.each(['application','membership'])('a pending %s query expires before business writes',async stage=>{
+ jest.useFakeTimers();(stage==='application'?mockApplication:mockMember).mockReturnValue(new Promise(()=>{}));
+ const result=PATCH(makeRequest(),props());await jest.advanceTimersByTimeAsync(5000);expect((await result).status).toBe(500);expect(mockRpc).not.toHaveBeenCalled();
 });
-
-test('PATCH: 応募が存在しない → 404 (ID列挙防止)', async () => {
-  mockAdminFrom.mockReturnValue(existingChain(null)); // not found
-  const res = await PATCH(makeRequest(), makeProps());
-  expect(res.status).toBe(404);
+test.each([null,[],1,{}, {status:'invalid'}, {status:null},{status:0},{notes:1},{notes:{}},{referral_fee_yen:-1},{referral_fee_yen:'100'},{referral_fee_yen:10000000},{referral_fee_yen:1.2}])('invalid application patch %p is400 without a write',async body=>{expect((await PATCH(makeRequest(body),props())).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
+test('broken JSON is400 without mutation',async()=>{const request=new Request('https://carelink.invalid/api/admin/job-applications/'+APP_UUID,{method:'PATCH',body:'not-json'});expect((await PATCH(request,props())).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
+test.each(['pending','reviewing','interview_scheduled','interview_done','offer_made','hired','rejected','withdrawn'])('valid status %s uses the atomic actor/facility scope',async status=>{
+ const response=await PATCH(makeRequest({status}),props());expect(response.status).toBe(200);expect((await response.json()).application.id).toBe(APP_UUID);
+ expect(mockRpc).toHaveBeenCalledWith('update_job_application_atomic',{p_actor_id:USER_ID,p_facility_id:FACILITY_UUID,p_application_id:APP_UUID,p_patch:{status}});
+ expect(mockAdminFrom.mock.calls.map(([table])=>table)).toEqual(['job_applications','facility_members']);
 });
+test.each([0,300000,9999999,null])('valid/null fee %p keeps existing semantics in the gateway',async value=>{expect((await PATCH(makeRequest({referral_fee_yen:value}),props())).status).toBe(200);expect(mockRpc.mock.calls[0][1].p_patch).toEqual({referral_fee_yen:value});});
+test.each(['',null,'Synthetic note'])('valid notes %p are retained exactly',async notes=>{expect((await PATCH(makeRequest({notes}),props())).status).toBe(200);expect(mockRpc.mock.calls[0][1].p_patch).toEqual({notes});});
+test('note truncation cannot split a Unicode surrogate pair',async()=>{expect((await PATCH(makeRequest({notes:'😀'.repeat(2001)}),props())).status).toBe(200);expect(mockRpc.mock.calls[0][1].p_patch.notes).toBe('😀'.repeat(2000));});
+test('client timestamps, billing flags and actor IDs cannot enter a valid patch',async()=>{expect((await PATCH(makeRequest({status:'hired',hired_at:'2000-01-01',fee_paid_at:'2000-01-01',user_id:FACILITY_UUID}),props())).status).toBe(200);expect(mockRpc.mock.calls[0][1].p_patch).toEqual({status:'hired'});});
+test('a current already-hired receipt uses the DB timestamp decision, not the stale preflight state',async()=>{mockRpc.mockResolvedValue({data:{...receipt('hired',{hired_at:'2000-01-01T00:00:00Z'}),previous_status:'hired'},error:null});const response=await PATCH(makeRequest({status:'hired'}),props());expect(response.status).toBe(200);expect(mockRpc.mock.calls[0][1].p_patch).not.toHaveProperty('hired_at');expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({oldValues:{status:'hired'}}));});
+test.each([['42501',404],['P0002',404],['22023',400],['08006',500]])('gateway rejection %s maps to%s and never becomes success alongside data',async(code,status)=>{mockRpc.mockResolvedValue({data:receipt(),error:{code,message:'synthetic-private'}});const response=await PATCH(makeRequest(),props());expect(response.status).toBe(status);expect(await response.text()).not.toContain('synthetic-private');expect(writeAuditLog).not.toHaveBeenCalled();});
+test.each([null,{},[],receipt('reviewing',{id:FACILITY_UUID}),receipt('reviewing',{facility_id:USER_ID}),receipt('hired')])('unconfirmed gateway receipt %p is500 without a success audit',async data=>{mockRpc.mockResolvedValue({data,error:null});expect((await PATCH(makeRequest(),props())).status).toBe(500);expect(writeAuditLog).not.toHaveBeenCalled();});
+test('uppercase UUIDs retain the same application identity',async()=>{const id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';mockRpc.mockResolvedValue({data:receipt('reviewing',{id}),error:null});expect((await PATCH(makeRequest(),props(id.toUpperCase()))).status).toBe(200);expect(mockRpc.mock.calls[0][1].p_application_id).toBe(id);});
 
-test('PATCH: 他施設の応募 → 404 (ID列挙防止)', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return existingChain({ facility_id: 'other-facility', status: 'pending' });
-    return membershipChain(null); // not a member of that facility
-  });
-  const res = await PATCH(makeRequest(), makeProps());
-  expect(res.status).toBe(404);
-});
-
-test('PATCH: 不正なstatus → 400', async () => {
-  setupOwnership();
-  const res = await PATCH(makeRequest({ status: 'ghosted' }), makeProps());
-  expect(res.status).toBe(400);
-});
-
-test('PATCH: DB更新失敗 → 500', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
-    if (callNum === 2) return membershipChain({ role: 'admin' });
-    return updateChain(null, { message: 'DB error' });
-  });
-  const res = await PATCH(makeRequest({ status: 'reviewing' }), makeProps());
-  expect(res.status).toBe(500);
-});
-
-test('PATCH: 更新0行（verify後にTOCTOUで他施設化/削除）→ 404', async () => {
-  // .maybeSingle() が error なし・data null（0行）を返すケース。ownership 確認後に facility_id
-  // が変わる/削除される TOCTOU 等で発生。defence-in-depth の facility_id CAS ガードが機能した
-  // 場合の 404 分岐（menus/[id] 等の同型ルートと同一パターン）の回帰防止。
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
-    if (callNum === 2) return membershipChain({ role: 'admin' });
-    return updateChain(null, null);
-  });
-  const res = await PATCH(makeRequest({ status: 'reviewing' }), makeProps());
-  expect(res.status).toBe(404);
-});
-
-test('PATCH: 正常更新 → 200 with application', async () => {
-  setupOwnership();
-  const res = await PATCH(makeRequest({ status: 'interview_scheduled', notes: 'meeting at 14:00' }), makeProps());
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.application).toBeDefined();
-});
-
-test('PATCH: status=hired → 200', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'offer_made' });
-    if (callNum === 2) return membershipChain({ role: 'owner' });
-    return updateChain({ id: APP_UUID, status: 'hired' });
-  });
-  const res = await PATCH(makeRequest({ status: 'hired' }), makeProps());
-  expect(res.status).toBe(200);
-});
-
-test('PATCH: status=withdrawn → 200', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
-    if (callNum === 2) return membershipChain({ role: 'admin' });
-    return updateChain({ id: APP_UUID, status: 'withdrawn' });
-  });
-  const res = await PATCH(makeRequest({ status: 'withdrawn' }), makeProps());
-  expect(res.status).toBe(200);
-});
-
-test('PATCH: CSRF エラー → 403', async () => {
-  const { checkCsrf } = require('@/lib/csrf');
-  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
-  const res = await PATCH(makeRequest(), makeProps());
-  expect(res.status).toBe(403);
-});
-
-test('PATCH: レートリミット params (20/60s)', async () => {
-  setupOwnership();
-  (checkRateLimit as jest.Mock).mockReturnValue(false);
-  (checkRateLimit as jest.Mock).mockClear();
-  await PATCH(makeRequest({ status: 'reviewing' }), makeProps());
-  const call = (checkRateLimit as jest.Mock).mock.calls[0];
-  expect(call[2]).toBe(20);
-  expect(call[3]).toBe(60_000);
-});
-
-test('PATCH: レスポンスが { application: ... } 形式', async () => {
-  setupOwnership();
-  const res = await PATCH(makeRequest({ status: 'reviewing' }), makeProps());
-  const json = await res.json();
-  expect(json.application).toBeDefined();
-});
-
-// ─── 追加ブランチカバレッジ ───────────────────────────────────────────
-
-// 【2026年7月29日】referral_fee_yen の範囲外・非数値は静かに矯正せず 400 で明示的に拒否する
-// 仕様に変更（他の金額フィールドと同じ 0〜9,999,999円 の範囲チェック）。
-test('PATCH: referral_fee_yen が負数 → 400（範囲外を明示的に拒否）', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
-    return membershipChain({ role: 'admin' });
-  });
-  const res = await PATCH(makeRequest({ referral_fee_yen: -100 }), makeProps());
-  expect(res.status).toBe(400);
-});
-
-test('PATCH: referral_fee_yen が非数値 → 400（範囲外を明示的に拒否）', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
-    return membershipChain({ role: 'admin' });
-  });
-  const res = await PATCH(makeRequest({ referral_fee_yen: 'not-a-number' }), makeProps());
-  expect(res.status).toBe(400);
-});
-
-test('PATCH: referral_fee_yen が 9999999 を超える → 400', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
-    return membershipChain({ role: 'admin' });
-  });
-  const res = await PATCH(makeRequest({ referral_fee_yen: 10000000 }), makeProps());
-  expect(res.status).toBe(400);
-});
-
-test('PATCH: referral_fee_yen が整数でない(小数) → 400', async () => {
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
-    return membershipChain({ role: 'admin' });
-  });
-  const res = await PATCH(makeRequest({ referral_fee_yen: 100.5 }), makeProps());
-  expect(res.status).toBe(400);
-});
-
-test('PATCH: referral_fee_yen が範囲内 → 保存される', async () => {
-  let callNum = 0;
-  let captured: Record<string, unknown> | undefined;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
-    if (callNum === 2) return membershipChain({ role: 'admin' });
-    return {
-      update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            select: jest.fn().mockReturnValue({
-              single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
-              maybeSingle: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
-            }),
-          }),
-        }),
-      };}),
-    };
-  });
-  const res = await PATCH(makeRequest({ referral_fee_yen: 300000 }), makeProps());
-  expect(res.status).toBe(200);
-  expect(captured?.referral_fee_yen).toBe(300000);
-});
-
-test('PATCH: referral_fee_yen が null → クリアされる（明示的な null 送信は許可）', async () => {
-  let callNum = 0;
-  let captured: Record<string, unknown> | undefined;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
-    if (callNum === 2) return membershipChain({ role: 'admin' });
-    return {
-      update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            select: jest.fn().mockReturnValue({
-              single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
-              maybeSingle: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
-            }),
-          }),
-        }),
-      };}),
-    };
-  });
-  const res = await PATCH(makeRequest({ referral_fee_yen: null }), makeProps());
-  expect(res.status).toBe(200);
-  expect(captured?.referral_fee_yen).toBeNull();
-});
-
-test('PATCH: notes が非文字列 → null で保存', async () => {
-  let callNum = 0;
-  let captured: Record<string, unknown> | undefined;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
-    if (callNum === 2) return membershipChain({ role: 'admin' });
-    return {
-      update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            select: jest.fn().mockReturnValue({
-              single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
-              maybeSingle: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
-            }),
-          }),
-        }),
-      };}),
-    };
-  });
-  await PATCH(makeRequest({ notes: 12345 }), makeProps());
-  expect(captured?.notes).toBeNull();
-});
-
-test('PATCH: status=hired が既に hired → hired_at は更新しない', async () => {
-  let callNum = 0;
-  let captured: Record<string, unknown> | undefined;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'hired' });
-    if (callNum === 2) return membershipChain({ role: 'admin' });
-    return {
-      update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            select: jest.fn().mockReturnValue({
-              single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
-              maybeSingle: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
-            }),
-          }),
-        }),
-      };}),
-    };
-  });
-  await PATCH(makeRequest({ status: 'hired' }), makeProps());
-  expect(captured?.hired_at).toBeUndefined();
-});
-
-test('PATCH: 不正な JSON body は 400 で更新しない', async () => {
-  setupOwnership();
-  const req = new Request(`http://localhost/api/admin/job-applications/${APP_UUID}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: 'not-json',
-  });
-  const res = await PATCH(req, makeProps());
-  expect(res.status).toBe(400);
-  expect(mockAdminFrom).toHaveBeenCalledTimes(2);
-});
-
-test('PATCH: x-forwarded-for ヘッダから IP 取得', async () => {
-  setupOwnership();
-  const req = new Request(`http://localhost/api/admin/job-applications/${APP_UUID}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.4, 5.6.7.8' },
-    body: JSON.stringify({ status: 'reviewing' }),
-  });
-  const res = await PATCH(req, makeProps());
-  expect(res.status).toBe(200);
-});
-
-
-describe('PATCH uncertain auth', () => {
- test.each(['data-error','null-error','throw','timeout'])('%s does not access application data', async fault => {
-  if (fault === 'timeout') jest.useFakeTimers();
-  if (fault === 'data-error') mockGetUser.mockResolvedValue({data:{user:{id:USER_ID}},error:{message:'private-auth-diagnostic'}});
-  if (fault === 'null-error') mockGetUser.mockResolvedValue({data:{user:null},error:{message:'private-auth-diagnostic'}});
-  if (fault === 'throw') mockGetUser.mockRejectedValue(new Error('private-auth-diagnostic'));
-  if (fault === 'timeout') mockGetUser.mockImplementation(() => new Promise(() => {}));
-  // Public submission still performs its existing duplicate lookup before optional auth.
-
-  try {
-   const pending = PATCH(makeRequest(), makeProps());
-   if (fault === 'timeout') await jest.advanceTimersByTimeAsync(5000);
-   const response = await pending;
-   expect(response.status).toBe(503);
-   expect(response.headers.get('cache-control')).toBe('no-store');
-   expect(await response.json()).toMatchObject({code:'AUTH_UNAVAILABLE'});
-   expect(mockAdminFrom).not.toHaveBeenCalled();
-  } finally { jest.useRealTimers(); }
- });
-});
-
-
-test.each(['application-data','application-null','membership-data','membership-null'])('PATCH failed %s lookup cannot update the application', async fault => {
- let reads=0;
- mockAdminFrom.mockImplementation(()=>{
-  reads++;
-  const failed=reads===(fault.startsWith('application')?1:2);
-  const data=reads===1?{facility_id:FACILITY_UUID,status:'pending'}:{role:'owner'};
-  const result={data:failed&&fault.endsWith('null')?null:data,error:failed?{code:'08006',message:'private-db-diagnostic'}:null};
-  return {select:jest.fn().mockReturnThis(),eq:jest.fn().mockReturnThis(),in:jest.fn().mockReturnThis(),single:async()=>result,maybeSingle:async()=>result};
- });
- const response=await PATCH(makeRequest(),makeProps());
- expect(response.status).toBe(500);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.text()).not.toContain('private-db-diagnostic');expect(reads).toBe(fault.startsWith('application')?1:2);
-});
-
-test.each([null,[],1])('non-object JSON %p is rejected as input, not a server failure',async body=>{setupOwnership();
- expect((await PATCH(makeRequest(body as any),makeProps())).status).toBe(400);
+test('an unexpected rejected gateway cannot escape as HTML or reveal its details',async()=>{
+ mockRpc.mockRejectedValue(new Error('synthetic-private'));const response=await PATCH(makeRequest(),props());expect(response.status).toBe(500);expect(response.headers.get('cache-control')).toBe('no-store');expect(JSON.stringify(await response.json())).not.toContain('synthetic-private');expect(writeAuditLog).not.toHaveBeenCalled();
 });
