@@ -283,3 +283,14 @@ test.each([[],1,'a',{facilityId:123}])('non-object or non-string input %p is rej
 test('JSON null is an invalid input rather than a server failure',async()=>{
  expect((await POST(makeRequest(null as any) as any)).status).toBe(400);
 });
+
+test.each([true,false])('explicit desired state %p is sent to the atomic gateway',async desired=>{
+ mockRpc.mockResolvedValue({data:desired,error:null});const response=await POST(makeRequest({facilityId:'11111111-1111-1111-1111-111111111111',isFavorited:desired}) as any);
+ expect(response.status).toBe(200);expect(mockRpc).toHaveBeenCalledWith('toggle_user_favorite_atomic',{p_actor_id:'user-123',p_facility_id:'11111111-1111-1111-1111-111111111111',p_desired:desired});
+});
+test.each([null,0,'false',{}])('an invalid desired state %p is rejected before mutation',async desired=>{
+ expect((await POST(makeRequest({facilityId:'11111111-1111-1111-1111-111111111111',isFavorited:desired}) as any)).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();
+});
+test('a receipt contradicting desired state cannot confirm success',async()=>{
+ mockRpc.mockResolvedValue({data:false,error:null});expect((await POST(makeRequest({facilityId:'11111111-1111-1111-1111-111111111111',isFavorited:true}) as any)).status).toBe(500);
+});

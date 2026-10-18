@@ -99,10 +99,10 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
   const toRaw = sp.get('to');
   const statusRaw = sp.get('status');
 
-  if (fromRaw && (!isValidIsoDate(fromRaw) || fromRaw < '0001-01-01')) {
+  if (fromRaw && !isValidIsoDate(fromRaw)) {
     return NextResponse.json({ error: 'from は YYYY-MM-DD 形式で指定してください' }, { status: 400 });
   }
-  if (toRaw && (!isValidIsoDate(toRaw) || toRaw < '0001-01-01')) {
+  if (toRaw && !isValidIsoDate(toRaw)) {
     return NextResponse.json({ error: 'to は YYYY-MM-DD 形式で指定してください' }, { status: 400 });
   }
   if (fromRaw && toRaw && fromRaw > toRaw) {

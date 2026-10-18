@@ -390,3 +390,7 @@ SELECT専用readAuthorizationを導入し、AbortSignalと5秒deadlineを組み�
 UIは送信中の二重切替、別施設へ移った後の旧切替応答/初期読取、壊れた200応答の楽観成功を修正。4ケース修正前全失敗・修正後全成功。実DB14ケース（旧不具合の再現を含む）とロック待ち6件、rollback・非公開化・account削除の両順序、他利用者の分離、通常ロールのRPC/直接DML拒否を実測。294 migration全replay、fingerprint3189 recordsを導出した。
 
 全565 suites/11,963 tests、分岐11,136/11,136（100%）、型/Lint（既存warning4）・React負債基準3件が成功。既存visitorお気に入りE2Eに、実HTTPの同時2toggle、結果false/true・実DB1行・reload後表示の照合を追加。隔離localhost限定で、実顧客通知・本番利用者/店舗/予約への試験変更は行わない。新規migrationは通常の許可済み本番配信手順で適用し、Supabase所有者専用の別件には触れない。head/main CI・配信・権限/関数本文照合・Advisor前後差は既存台帳へ保存する。
+
+お気に入りの通信失敗後の再送でも逆転しないよう、UIは明示desired booleanを送信し、gatewayは同じ状態の要求を冪等化する。旧2引数toggle互換は維持。実PGは16ケース/実ロック待ち8件へ拡張し、同じdesiredの並行再送も検証した。UI世代を単調増加で管理してA→B→Aの旧応答も破棄する。追検証でprofileの西暦0000がJS検証を通りDB22008になることも確認し、共通isValidIsoDateでyear0を拒否するよう修正した（実SQLではyear0拒否/year1成功）。予約APIの重複境界チェックは共通関数へ統合。profileの回帰テストは修正前失敗・後成功。最新の全件件数とhead/main証拠はローカル台帳を正とする。
+
+最終ローカル検証は565 suites/11,972 tests、分岐11,142/11,142（100%）、型/Lint成功（実ログを台帳保存）。本番DBの関数追加/通常ロール直接DML取消を先行適用し、MCPが採番した実versionにファイルを合わせて20261018140406_favorite_toggle_atomic.sqlへ整理した。関数本文MD5 272190ace10479d17fd0f2d6796980deをローカルfingerprintと照合、SECURITY INVOKER/empty search_path/サービスのみEXECUTE・通常ロールSELECT維持/DML6種禁止・既存RLS不変を確認。Advisor7分類68件は適用前後で不変。業務行の本番試験書込みはしていない。初回PR728 head445572e9cb84adbc4a216821d8d07f992c229181のCI/PGは追加修正のため中止し、成功に数えない。最終headのCIと実E2Eでコード配信を検証する。

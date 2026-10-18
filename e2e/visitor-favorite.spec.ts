@@ -34,6 +34,16 @@ test('来院者が施設をお気に入り登録できる', async ({ page, baseU
   expect(states.sort()).toEqual([false, true]);
   const rows = await db.from('favorites').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId);
   expect(rows.error).toBeNull(); expect(rows.count).toBe(1);
+  for (const desired of [true, false, true]) {
+    const repeated = await Promise.all([1, 2].map(() => page.request.post('/api/favorites', {
+      headers: { Origin: new URL(baseURL).origin }, data: { facilityId, isFavorited: desired },
+    })));
+    for (const response of repeated) {
+      expect(response.status()).toBe(200); expect((await response.json()).isFavorited).toBe(desired);
+    }
+    const actual = await db.from('favorites').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId);
+    expect(actual.error).toBeNull(); expect(actual.count).toBe(desired ? 1 : 0);
+  }
   await page.reload();
   await expect(page.getByRole('button', { name: 'お気に入りから削除' })).toBeVisible();
 });

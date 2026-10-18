@@ -13,11 +13,11 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const inFlight = useRef(false);
-  const currentFacility = useRef<string | null>(facilityId);
+  const generation = useRef(0);
 
   useEffect(() => {
     let active = true;
-    currentFacility.current = facilityId;
+    generation.current += 1;
     inFlight.current = false;
     const checkStatus = async () => {
       const supabase = createBrowserSupabaseClient();
@@ -49,7 +49,7 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
       setLoading(false);
     };
     checkStatus().catch(() => { if (active) { setPending(false); setLoading(false); } });
-    return () => { active = false; currentFacility.current = null; };
+    return () => { active = false; generation.current += 1; };
   }, [facilityId]);
 
   const handleToggle = async () => {
@@ -59,6 +59,7 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
       return;
     }
 
+    const epoch = generation.current;
     inFlight.current = true;
     setPending(true);
     const previousState = isFavorited;
@@ -68,14 +69,14 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
       const res = await fetch('/api/favorites', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ facilityId }),
+        body: JSON.stringify({ facilityId, isFavorited: !previousState }),
         signal: AbortSignal.timeout(10000),
       });
 
-      if (currentFacility.current !== facilityId) return;
+      if (generation.current !== epoch) return;
       if (res.ok) {
         const body = await res.json().catch(() => null);
-        if (typeof body?.isFavorited !== 'boolean') throw new Error('Unconfirmed favorite result');
+        if (typeof body?.isFavorited !== 'boolean' || body.isFavorited !== !previousState) throw new Error('Unconfirmed favorite result');
         const newState = body.isFavorited;
         setIsFavorited(newState);
         analytics.favoriteToggled(facilityId, newState ? 'add' : 'remove');
@@ -83,9 +84,9 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
         setIsFavorited(previousState);
       }
     } catch {
-      if (currentFacility.current === facilityId) setIsFavorited(previousState);
+      if (generation.current === epoch) setIsFavorited(previousState);
     } finally {
-      if (currentFacility.current === facilityId) { inFlight.current = false; setPending(false); }
+      if (generation.current === epoch) { inFlight.current = false; setPending(false); }
     }
   };
 

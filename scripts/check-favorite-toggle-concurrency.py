@@ -69,9 +69,9 @@ def race(label, first, second, expected, finish="COMMIT;"):
 FACILITY='fa7e0001-0000-4000-8000-000000000091'
 OTHER='fa7e0000-0000-4000-8000-000000000092'
 ACTOR='fa7e0000-0000-4000-8000-000000000091'
-def toggle(actor=ACTOR,facility=FACILITY):
+def toggle(actor=ACTOR,facility=FACILITY,desired=None):
     actor="NULL" if actor is None else "'"+actor+"'"
-    return f"SELECT public.toggle_user_favorite_atomic({actor},'{facility}')"
+    return f"SELECT public.toggle_user_favorite_atomic({actor},'{facility}', {'NULL' if desired is None else str(desired).lower()})"
 def attempt(statement,role='service_role'):
     return "CREATE FUNCTION pg_temp.favorite_try(statement text) RETURNS text LANGUAGE plpgsql AS $try$ BEGIN EXECUTE statement; RETURN 'OK'; EXCEPTION WHEN OTHERS THEN RETURN SQLSTATE; END $try$; SET ROLE "+role+"; SELECT pg_temp.favorite_try($stmt$"+statement+"$stmt$)"
 def reset():
@@ -99,6 +99,12 @@ try:
     reset();race('toggle first fences unpublish','SET LOCAL ROLE service_role; '+toggle(),attempt(f"UPDATE public.facility_profiles SET status='draft' WHERE id='{FACILITY}'"),'OK');assert count()=='1'
     reset();race('account removal first rejects toggle',f"DELETE FROM auth.users WHERE id='{ACTOR}'",attempt(toggle()),'P0001');assert count()=='0'
     reset();race('toggle first fences account deletion','SET LOCAL ROLE service_role; '+toggle(),attempt(f"DELETE FROM auth.users WHERE id='{ACTOR}'",role='postgres'),'OK');assert count()=='0'
+    for desired in (True,False):
+        reset()
+        if not desired: assert sql('SET ROLE service_role; '+toggle(desired=True))=='t'
+        result='t' if desired else 'f'
+        race('same desired state is idempotent '+str(desired),'SET LOCAL ROLE service_role; '+toggle(desired=desired),'SET ROLE service_role; '+toggle(desired=desired),result)
+        assert count()==('1' if desired else '0')
     reset()
     assert sql('SET ROLE service_role; '+toggle()+'; '+toggle(OTHER))=='t\nt';assert count()=='2'
     RESULTS.append({'case':'users have independent favorites','rows':2})

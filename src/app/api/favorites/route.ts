@@ -11,11 +11,13 @@ export const POST = withRoute(async (request, ctx) => {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: '無効な施設IDです' }, { status: 400 });
   const facilityId = (body as Record<string, unknown>).facilityId;
   if (typeof facilityId !== 'string' || !uuidRegex.test(facilityId)) return NextResponse.json({ error: '無効な施設IDです' }, { status: 400 });
+  const desired = (body as Record<string, unknown>).isFavorited;
+  if (desired !== undefined && typeof desired !== 'boolean') return NextResponse.json({ error: 'お気に入り状態が不正です' }, { status: 400 });
   const { data, error } = await createServiceRoleClient().rpc('toggle_user_favorite_atomic', {
-    p_actor_id: ctx.user!.id, p_facility_id: facilityId,
+    p_actor_id: ctx.user!.id, p_facility_id: facilityId, ...(desired === undefined ? {} : { p_desired: desired }),
   });
   if (error?.code === 'P0002') return NextResponse.json({ error: '施設が見つかりません' }, { status: 404 });
-  if (error || typeof data !== 'boolean') return serverError('favorites-toggle', new Error('FAVORITE_MUTATION_UNCONFIRMED'), '/api/favorites', 'お気に入りを変更できませんでした。現在の状態を確認してください。');
+  if (error || typeof data !== 'boolean' || (desired !== undefined && data !== desired)) return serverError('favorites-toggle', new Error('FAVORITE_MUTATION_UNCONFIRMED'), '/api/favorites', 'お気に入りを変更できませんでした。現在の状態を確認してください。');
   return NextResponse.json({ isFavorited: data }, { headers: { 'Cache-Control': 'no-store' } });
 
 }, {

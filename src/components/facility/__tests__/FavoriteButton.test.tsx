@@ -60,3 +60,12 @@ test('a late initial read for another facility is discarded', async () => {
   await act(async () => { resolve({ data: { id: 'old-favorite' }, error: null }); });
   expect(screen.getByRole('button', { name: 'お気に入りに追加' })).toBeEnabled();
 });
+
+test('an earlier visit to the same facility cannot overwrite a later visit',async()=>{
+ let resolve!:(value:unknown)=>void;(fetch as jest.Mock).mockReturnValue(new Promise(r=>{resolve=r;}));
+ const view=render(<FavoriteButton facilityId="facility-a" />);fireEvent.click(await screen.findByRole('button',{name:'お気に入りに追加'}));
+ view.rerender(<FavoriteButton facilityId="facility-b" />);await screen.findByRole('button',{name:'お気に入りに追加'});
+ view.rerender(<FavoriteButton facilityId="facility-a" />);await screen.findByRole('button',{name:'お気に入りに追加'});
+ await act(async()=>{resolve({ok:true,json:async()=>({isFavorited:true})});});
+ expect(screen.getByRole('button',{name:'お気に入りに追加'})).toBeEnabled();expect(mockAnalytics).not.toHaveBeenCalled();
+});
