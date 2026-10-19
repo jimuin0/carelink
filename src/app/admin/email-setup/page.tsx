@@ -11,29 +11,30 @@ export default function EmailSetupPage() {
 
       {/* Current config */}
       <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">
-        <h2 className="font-bold text-gray-800">現在の配信設定</h2>
+        <h2 className="font-bold text-gray-800">配信設定の確認項目</h2>
+        <p className="text-sm text-gray-600">このページは設定ガイドです。DNSや送信ドメインの実状態は照合していません。設定例をそのまま適用せず、ResendとDNS管理画面で現在の設定をご確認ください。</p>
         <div className="space-y-3">
           {[
-            { label: 'メール配信サービス', value: 'Resend', status: 'ok' },
-            { label: '送信ドメイン', value: 'carelink-jp.com', status: 'ok' },
-            { label: 'SPFレコード', value: 'v=spf1 include:_spf.resend.com ~all', status: 'pending' },
-            { label: 'DKIM', value: 'Resend DKIM設定が必要', status: 'pending' },
-            { label: 'DMARC', value: 'v=DMARC1; p=none; rua=mailto:...', status: 'pending' },
+            { label: 'メール配信サービス', value: 'Resend' },
+            { label: '送信ドメイン', value: 'carelink-jp.com' },
+            { label: 'SPFレコード', value: 'Resendで指定されたSPFレコードを確認' },
+            { label: 'DKIM', value: 'Resendで指定されたDKIMレコードを確認' },
+            { label: 'DMARC', value: '既存のDMARCポリシーとレポート受信先を確認'},
           ].map((item) => (
             <div key={item.label} className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-sm font-medium text-gray-800">{item.label}</p>
                 <code className="text-xs text-gray-500">{item.value}</code>
               </div>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-bold shrink-0 ${
-                item.status === 'ok' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-              }`}>
-                {item.status === 'ok' ? '設定済み' : '要設定'}
+              <span className="text-xs px-2 py-0.5 rounded-full font-bold shrink-0 bg-gray-100 text-gray-700">
+                確認項目
               </span>
             </div>
           ))}
         </div>
       </div>
+
+      <a href="https://resend.com/docs/dashboard/domains/introduction" target="_blank" rel="noopener noreferrer" className="text-sm text-sky-600 underline">Resend公式のドメイン設定ガイド</a>
 
       {/* Setup steps */}
       <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-6">
@@ -43,13 +44,13 @@ export default function EmailSetupPage() {
           <div>
             <h3 className="text-sm font-bold text-sky-700 mb-2">Step 1: SPF レコード設定</h3>
             <p className="text-xs text-gray-600 mb-2">
-              お使いのDNSプロバイダー（お名前.com, Cloudflare等）で以下のTXTレコードを追加:
+              Resendで対象ドメインに表示されたレコードの名前・種類・値を確認します。既存のDNS設定を推測で上書きせず、変更前に現在の設定との整合を確認してください。
             </p>
             <div className="bg-gray-900 rounded-lg p-3">
               <code className="text-xs text-green-400 font-mono">
-                <span className="text-gray-400"># ホスト名: </span>@ または carelink-jp.com<br />
+                <span className="text-gray-400"># ホスト名: </span>Resendに表示されたホスト名<br />
                 <span className="text-gray-400"># タイプ: </span>TXT<br />
-                <span className="text-gray-400"># 値: </span>v=spf1 include:_spf.resend.com ~all
+                <span className="text-gray-400"># 値: </span>Resendに表示されたSPF TXT値
               </code>
             </div>
           </div>
@@ -58,13 +59,13 @@ export default function EmailSetupPage() {
             <h3 className="text-sm font-bold text-sky-700 mb-2">Step 2: DKIM 設定（Resend）</h3>
             <ol className="text-xs text-gray-600 space-y-1 list-decimal list-inside">
               <li>Resend ダッシュボード（resend.com）にログイン</li>
-              <li>Settings → Domains → Add Domain → carelink-jp.com を追加</li>
+              <li>対象の送信ドメインを開き、指定されたレコードを確認</li>
               <li>表示されたDKIM TXTレコードをDNSに追加</li>
               <li>Verify ボタンを押して確認</li>
             </ol>
             <div className="mt-2 bg-gray-900 rounded-lg p-3">
               <code className="text-xs text-green-400 font-mono">
-                <span className="text-gray-400"># ホスト名: </span>resend._domainkey.carelink-jp.com<br />
+                <span className="text-gray-400"># ホスト名: </span>Resendに表示されたDKIMホスト名<br />
                 <span className="text-gray-400"># タイプ: </span>TXT<br />
                 <span className="text-gray-400"># 値: </span>Resendのダッシュボードで確認
               </code>
@@ -74,13 +75,13 @@ export default function EmailSetupPage() {
           <div>
             <h3 className="text-sm font-bold text-sky-700 mb-2">Step 3: DMARC 設定</h3>
             <p className="text-xs text-gray-600 mb-2">
-              まず監視モード（p=none）から始めて、レポートを確認してから p=quarantine → p=reject に変更します:
+              既存ポリシーとレポートを確認し、適用するポリシーは運用担当者が判断してください。レポート受信先は、実際に受信・確認できるアドレスを指定します。
             </p>
             <div className="bg-gray-900 rounded-lg p-3">
               <code className="text-xs text-green-400 font-mono">
                 <span className="text-gray-400"># ホスト名: </span>_dmarc.carelink-jp.com<br />
                 <span className="text-gray-400"># タイプ: </span>TXT<br />
-                <span className="text-gray-400"># 値（初期）: </span>v=DMARC1; p=none; rua=mailto:dmarc@carelink-jp.com; ruf=mailto:dmarc@carelink-jp.com; fo=1
+                <span className="text-gray-400"># 値: </span>運用方針と受信先を確認して決定
               </code>
             </div>
           </div>
@@ -90,7 +91,7 @@ export default function EmailSetupPage() {
             <ol className="text-xs text-gray-600 space-y-1 list-decimal list-inside">
               <li><a href="https://www.mail-tester.com/" target="_blank" rel="noopener noreferrer" className="text-sky-600 underline">mail-tester.com</a> でスコア確認（10/10を目標）</li>
               <li><a href="https://mxtoolbox.com/emailhealth/" target="_blank" rel="noopener noreferrer" className="text-sky-600 underline">MXToolbox</a> でSPF/DKIM/DMARCを確認</li>
-              <li>Gmailのヘッダー確認で「mailed-by」「signed-by」が carelink-jp.com になっているか確認</li>
+              <li>メールヘッダーでSPF・DKIM・DMARCの検証結果と送信ドメインの整合を確認</li>
             </ol>
           </div>
         </div>
@@ -98,9 +99,9 @@ export default function EmailSetupPage() {
 
       {/* Email monitoring */}
       <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">
-        <h2 className="font-bold text-gray-800">メール到達率モニタリング</h2>
+        <h2 className="font-bold text-gray-800">メール到達率の確認目安</h2>
         <p className="text-xs text-gray-600">
-          Resend ダッシュボードで以下の指標を定期確認してください:
+          以下は運用上の目安です。この画面では実績や到達率を照合していません。実際の配信記録と受信結果を確認してください。
         </p>
         <div className="grid grid-cols-2 gap-3">
           {[

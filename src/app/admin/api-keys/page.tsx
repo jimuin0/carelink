@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { UUID_REGEX } from '@/lib/constants';
+import { useConfirmedClipboard } from '@/hooks/useConfirmedClipboard';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
@@ -19,6 +21,12 @@ interface ApiKey {
   created_at: string;
 }
 
+function isApiKey(value:unknown):value is ApiKey {
+  if(!value||typeof value!=='object')return false;
+  const key=value as Record<string,unknown>;
+  return typeof key.id==='string'&&UUID_REGEX.test(key.id)&&typeof key.name==='string'&&typeof key.key_prefix==='string'&&typeof key.is_active==='boolean'&&typeof key.created_at==='string'&&Array.isArray(key.scopes)&&key.scopes.every(scope=>typeof scope==='string');
+}
+
 const AVAILABLE_SCOPES = [
   { value: 'bookings:read', label: '予約 — 読み取り' },
   { value: 'customers:read', label: '顧客 — 読み取り' },
@@ -34,7 +42,11 @@ export default function ApiKeysPage() {
   const [newKeyName, setNewKeyName] = useState('');
   const [selectedScopes, setSelectedScopes] = useState<string[]>(['bookings:read']);
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [generatedKeyId,setGeneratedKeyId]=useState<string|null>(null);
+  const clipboard=useConfirmedClipboard(generatedKeyId);
+  const copied=clipboard.status==='copied';
+  const creatingRef=useRef(false);
+  const revokingRef=useRef(false);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -50,18 +62,19 @@ export default function ApiKeysPage() {
       try {
         const supabase = createBrowserSupabaseClient();
         setLoadError(false);
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { if (!cancelled) setLoading(false); return; }
+        const { data: { user },error:authError } = await supabase.auth.getUser();
+        if (authError||!user) { if (!cancelled) {setLoadError(true);setLoading(false);} return; }
         const { data: mem, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
           .in('role', ['owner', 'admin']).limit(1).single();
-        if (memErr && memErr.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
-        if (!mem) { if (!cancelled) setLoading(false); return; }
+        if (memErr) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        if (!mem||typeof mem.facility_id!=='string'||!UUID_REGEX.test(mem.facility_id)) { if (!cancelled) {setLoadError(true);setLoading(false);} return; }
         if (cancelled) return;
         setFacilityId(mem.facility_id);
         const { data, error } = await supabase.from('api_keys').select('id, name, key_prefix, scopes, is_active, last_used_at, expires_at, created_at').eq('facility_id', mem.facility_id).order('created_at', { ascending: false });
         if (error) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
         if (cancelled) return;
-        setKeys((data ?? []) as ApiKey[]);
+        if(!Array.isArray(data)||!data.every(isApiKey))throw new Error('UNCONFIRMED_KEY_LIST');
+        setKeys(data);
         setLoading(false);
       } catch {
         if (!cancelled) { setLoadError(true); setLoading(false); }
@@ -74,7 +87,8 @@ export default function ApiKeysPage() {
   }, [reloadKey]);
 
   const handleCreate = async () => {
-    if (!facilityId || !newKeyName.trim() || selectedScopes.length === 0) return;
+    if (!facilityId || !newKeyName.trim() || selectedScopes.length === 0 || creatingRef.current) return;
+    creatingRef.current=true;
     setCreating(true);
 
     try {
@@ -85,14 +99,19 @@ export default function ApiKeysPage() {
       });
       const data = await res.json();
       if (res.ok) {
+        if(typeof data.raw_key!=='string'||!data.raw_key||!isApiKey(data.key)||data.key.name!==newKeyName.trim()||data.key.is_active!==true)throw new Error('UNCONFIRMED_API_KEY');
+        setGeneratedKeyId(data.key.id);
         setGeneratedKey(data.raw_key);
         setKeys((prev) => [data.key, ...prev]);
         setNewKeyName('');
         setSelectedScopes(['bookings:read']);
       } else {
-        setToast({ type: 'error', message: data.error || 'APIキーの作成に失敗しました' });
+        setToast({ type: 'error', message: typeof data.error==='string'?data.error:'APIキーの作成に失敗しました' });
       }
+    } catch {
+      setToast({type:'error',message:'APIキーの発行結果を確認できません。一覧を照合してから操作してください。'});
     } finally {
+      creatingRef.current=false;
       setCreating(false);
     }
   };
@@ -103,25 +122,20 @@ export default function ApiKeysPage() {
   };
 
   const doRevoke = async () => {
-    if (!confirmRevokeId) return;
-    setConfirmRevoke(false);
-    const id = confirmRevokeId;
-    setConfirmRevokeId(null);
-    const res = await fetch(`/api/admin/api-keys/${id}`, { method: 'DELETE' });
-    if (res.ok) {
-      setKeys((prev) => prev.map((k) => k.id === id ? { ...k, is_active: false } : k));
-      setToast({ type: 'success', message: 'APIキーを無効化しました' });
-    } else {
-      setToast({ type: 'error', message: '無効化に失敗しました' });
-    }
+    if (!confirmRevokeId||revokingRef.current) return;
+    revokingRef.current=true;setConfirmRevoke(false);
+    const id=confirmRevokeId;setConfirmRevokeId(null);
+    try {
+      const res=await fetch(`/api/admin/api-keys/${id}`,{method:'DELETE'});
+      if(res.ok){
+        const data=await res.json();if(data.success!==true)throw new Error('UNCONFIRMED_REVOCATION');
+        setKeys(prev=>prev.map(key=>key.id===id?{...key,is_active:false}:key));
+        setToast({type:'success',message:'APIキーを無効化しました'});
+      }else setToast({type:'error',message:'無効化に失敗しました'});
+    }catch{setToast({type:'error',message:'無効化の結果を確認できません。一覧を再取得して照合してください。'});}
+    finally{revokingRef.current=false;}
   };
-
-  const copyKey = () => {
-    if (!generatedKey) return;
-    navigator.clipboard.writeText(generatedKey);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const copyKey=()=>{if(generatedKey)void clipboard.copy(generatedKey);};
 
   if (loading) return <AdminPageLoading />;
 
@@ -131,17 +145,18 @@ export default function ApiKeysPage() {
 
       {/* Generated key banner */}
       {generatedKey && (
-        <div className="bg-green-50 border border-green-200 rounded-xl p-5">
+        <div data-clarity-mask="true" className="bg-green-50 border border-green-200 rounded-xl p-5">
           <p className="font-bold text-green-800 mb-1">APIキーを発行しました</p>
           <p className="text-xs text-green-700 mb-3">このキーは一度しか表示されません。今すぐコピーして安全な場所に保管してください。</p>
           <div className="flex items-center gap-2">
             <code className="flex-1 bg-white border border-green-200 rounded-lg px-3 py-2 text-sm font-mono break-all">{generatedKey}</code>
-            <button type="button" onClick={copyKey}
+            <button type="button" onClick={copyKey} disabled={clipboard.copying}
               className="shrink-0 px-3 py-2 bg-green-500 text-white rounded-lg text-sm font-bold hover:bg-green-600 transition-colors">
-              {copied ? '✓ コピー済み' : 'コピー'}
+              {clipboard.copying?'コピー中...':copied ? '✓ コピー済み' : 'コピー'}
             </button>
           </div>
-          <button type="button" onClick={() => setGeneratedKey(null)}
+          {clipboard.status==='failed'&&<p role="alert" className="mt-2 text-sm text-red-600">APIキーをコピーできませんでした。この画面のキーを選択してコピーするか、ブラウザの権限をご確認ください。</p>}
+          <button type="button" onClick={() => {setGeneratedKey(null);setGeneratedKeyId(null);}}
             className="mt-3 text-xs text-green-600 hover:underline">
             確認しました・閉じる
           </button>
@@ -149,12 +164,13 @@ export default function ApiKeysPage() {
       )}
 
       {/* Create new key */}
-      <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">
-        <h2 className="font-bold text-gray-800">新しいAPIキーを作成</h2>
+      <fieldset disabled={creating} aria-labelledby="key-create-heading" className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">
+        <h2 id="key-create-heading" className="font-bold text-gray-800">新しいAPIキーを作成</h2>
 
         <div>
-          <label className="block text-xs text-gray-500 mb-1">キー名（用途を分かりやすく）</label>
+          <label htmlFor="api-key-name" className="block text-xs text-gray-500 mb-1">キー名（用途を分かりやすく）</label>
           <input
+            id="api-key-name"
             type="text"
             value={newKeyName}
             onChange={(e) => setNewKeyName(e.target.value)}
@@ -192,7 +208,7 @@ export default function ApiKeysPage() {
         >
           {creating ? '作成中...' : 'APIキーを発行する'}
         </button>
-      </div>
+      </fieldset>
 
       {/* Key list */}
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">

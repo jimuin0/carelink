@@ -5,7 +5,7 @@ test.use({trace:'off',screenshot:'off',video:'off',serviceWorkers:'block'});
 test.beforeAll(()=>{
  if(process.env.CI!=='true'||process.env.GITHUB_ACTIONS!=='true'||process.env.NEXT_PUBLIC_SUPABASE_URL!=='https://localhost:54330'||process.env.PLAYWRIGHT_BASE_URL!=='https://localhost:3000'||!process.env.SUPABASE_SERVICE_ROLE_KEY||process.env.RESEND_API_KEY||process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK)throw new Error('Editor fixture requires isolated CI without provider credentials');
 });
-test('platform drafts persist exact values, never enqueue delivery, and reject a revoked editor',async({page})=>{
+test('platform drafts, guide failures and revoked writes stay scoped to owned fixtures',async({page})=>{
  const db=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.SUPABASE_SERVICE_ROLE_KEY!,{auth:{persistSession:false,autoRefreshToken:false}});
  const token=randomUUID(),email=`synthetic-editor-${token}@example.invalid`,password=randomUUID();
  const identity=await db.auth.admin.createUser({email,password,email_confirm:true});if(identity.error||!identity.data.user)throw new Error('Synthetic editor identity unavailable');
@@ -26,6 +26,10 @@ test('platform drafts persist exact values, never enqueue delivery, and reject a
   const savedDraft=await db.from('newsletter_campaigns').select('status,created_by,scheduled_at').eq('id',campaign.id).single();expect(savedDraft.error).toBeNull();expect(savedDraft.data).toEqual({status:'draft',created_by:actor,scheduled_at:null});
   const queue=await db.from('webhook_retry_queue').select('id').eq('target_id',campaign.id);expect(queue.error).toBeNull();expect(queue.data).toEqual([]);
   const refusedCancel=await page.request.patch(`/api/admin/newsletter/${campaign.id}`,{headers,data:{action:'cancel'}});expect(refusedCancel.status()).toBe(400);
+  await page.goto('/admin/email-setup');await expect(page.getByRole('heading',{name:'配信設定の確認項目',exact:true})).toBeVisible();await expect(page.getByText('設定済み',{exact:true})).toHaveCount(0);
+  await page.goto('/admin/line-richmenu');await page.getByLabel('LIFF ID（マイページ用）').fill('12345-Synthetic');
+  await page.evaluate(()=>{Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw new Error('Synthetic permission denial');}}});});
+  await page.getByRole('button',{name:'JSONをコピー',exact:true}).click();await expect(page.getByRole('alert')).toContainText('コピーできませんでした');await expect(page.getByText('✓ コピー済み',{exact:true})).toHaveCount(0);
   await page.goto('/admin/platform-blog');await expect(page.getByText(featureTitle,{exact:true})).toBeVisible();
   await page.goto('/admin/features');await expect(page.getByText(changedTitle,{exact:true})).toBeVisible();
   expect((await db.from('facility_profiles').insert(facilities.map((id,i)=>({id,name:`Synthetic editor facility ${i}`,slug:`synthetic-editor-${token}-${i}`,business_type:'その他',prefecture:'Synthetic',city:'Synthetic',address:'Synthetic',status:'draft'})))).error).toBeNull();
