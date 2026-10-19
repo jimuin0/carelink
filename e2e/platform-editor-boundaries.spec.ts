@@ -29,7 +29,7 @@ test('platform drafts, guide failures and revoked writes stay scoped to owned fi
   await page.goto('/admin/email-setup');await expect(page.getByRole('heading',{name:'配信設定の確認項目',exact:true})).toBeVisible();await expect(page.getByText('設定済み',{exact:true})).toHaveCount(0);
   await page.goto('/admin/line-richmenu');await page.getByLabel('LIFF ID（マイページ用）').fill('12345-Synthetic');
   await page.evaluate(()=>{Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw new Error('Synthetic permission denial');}}});});
-  await page.getByRole('button',{name:'JSONをコピー',exact:true}).click();await expect(page.getByRole('alert')).toContainText('コピーできませんでした');await expect(page.getByText('✓ コピー済み',{exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'JSONをコピー',exact:true}).click();const clipboardError=page.getByRole('alert').filter({hasText:'コピーできませんでした'});await expect(clipboardError).toHaveCount(1);await expect(clipboardError).toBeVisible();await expect(page.getByText('✓ コピー済み',{exact:true})).toHaveCount(0);
   await page.goto('/admin/platform-blog');await expect(page.getByText(featureTitle,{exact:true})).toBeVisible();
   await page.goto('/admin/features');await expect(page.getByText(changedTitle,{exact:true})).toBeVisible();
   expect((await db.from('facility_profiles').insert(facilities.map((id,i)=>({id,name:`Synthetic editor facility ${i}`,slug:`synthetic-editor-${token}-${i}`,business_type:'その他',prefecture:'Synthetic',city:'Synthetic',address:'Synthetic',status:'draft'})))).error).toBeNull();
