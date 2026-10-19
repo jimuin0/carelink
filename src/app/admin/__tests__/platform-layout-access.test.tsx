@@ -1,5 +1,7 @@
 /** @jest-environment node */
 import { renderToStaticMarkup } from 'react-dom/server';
+import EmailGuide from '../email-setup/layout';
+import LineGuide from '../line-richmenu/layout';
 import Features from '../features/layout';
 import Flags from '../feature-flags/layout';
 import Experiments from '../ab-tests/layout';
@@ -13,7 +15,7 @@ beforeEach(()=>{
  jest.clearAllMocks();mockGetUser.mockResolvedValue({data:{user},error:null});mockProfile.mockResolvedValue({data:{is_platform_admin:true},error:null});
  mockFrom.mockReturnValue({select:jest.fn().mockReturnThis(),eq:jest.fn().mockReturnThis(),single:mockProfile,maybeSingle:mockProfile});
 });
-describe.each([['features',Features],['flags',Flags],['experiments',Experiments],['moderation',Moderation]] as const)('%s layout',(_name,Layout)=>{
+describe.each([['email guide',EmailGuide],['LINE guide',LineGuide],['features',Features],['flags',Flags],['experiments',Experiments],['moderation',Moderation]] as const)('%s layout',(_name,Layout)=>{
  test('confirmed platform access preserves private children',async()=>{
   const html=renderToStaticMarkup(await Layout({children:<div>private-controls</div>}));expect(html).toContain('private-controls');expect(html).not.toContain('role="alert"');
  });

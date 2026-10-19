@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useConfirmedClipboard } from '@/hooks/useConfirmedClipboard';
 import { SbPageHeader } from '@/components/admin/SbUi';
 
 const RICH_MENU_AREAS = [
@@ -56,7 +57,6 @@ const RICH_MENU_AREAS = [
 
 export default function LineRichMenuPage() {
   const [liffId, setLiffId] = useState('');
-  const [copied, setCopied] = useState(false);
 
   const richMenuJson = {
     size: { width: 2500, height: 1686 },
@@ -73,11 +73,10 @@ export default function LineRichMenuPage() {
     ],
   };
 
-  const copyJson = () => {
-    navigator.clipboard.writeText(JSON.stringify(richMenuJson, null, 2));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const jsonText=JSON.stringify(richMenuJson,null,2);
+  const clipboard=useConfirmedClipboard(jsonText);
+  const copyState=clipboard.status;
+  const copyJson=()=>clipboard.copy(jsonText);
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -112,7 +111,8 @@ export default function LineRichMenuPage() {
             id="lr-liff"
             type="text"
             value={liffId}
-            onChange={(e) => setLiffId(e.target.value)}
+            disabled={clipboard.copying}
+            onChange={(e) => {setLiffId(e.target.value);}}
             placeholder="例：1234567890-AbCdEfGh"
             maxLength={50}
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-sky-300"
@@ -164,12 +164,14 @@ export default function LineRichMenuPage() {
       <div className="bg-white rounded-xl border border-gray-100 p-6">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-bold text-gray-800">設定JSON</h2>
-          <button type="button" onClick={copyJson}
+          <button type="button" onClick={copyJson} disabled={clipboard.copying}
             className="text-xs px-3 py-1.5 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition-colors font-bold">
-            {copied ? '✓ コピー済み' : 'JSONをコピー'}
+            {clipboard.copying?'コピー中...':copyState==='copied'?'✓ コピー済み':'JSONをコピー'}
           </button>
         </div>
-        <pre className="bg-gray-900 rounded-lg p-4 text-xs text-green-400 font-mono overflow-auto max-h-80">
+        {copyState==='failed'&&<p role="alert" className="text-sm text-red-600 mb-3">コピーできませんでした。ブラウザの権限をご確認いただくか、下のJSONを選択してコピーしてください。</p>}
+        {copyState==='copied'&&<p role="status" className="sr-only">JSONのコピーを確認しました</p>}
+        <pre tabIndex={0} className="bg-gray-900 rounded-lg p-4 text-xs text-green-400 font-mono overflow-auto max-h-80">
           {JSON.stringify(richMenuJson, null, 2)}
         </pre>
       </div>

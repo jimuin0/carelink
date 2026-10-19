@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useConfirmedClipboard } from '@/hooks/useConfirmedClipboard';
 
 interface Props {
   url: string;
@@ -8,20 +8,15 @@ interface Props {
 }
 
 export default function ShareButtons({ url, title }: Props) {
-  const [copied, setCopied] = useState(false);
+  const clipboard=useConfirmedClipboard(url);
+  const copied=clipboard.status==='copied';
   const encoded = encodeURIComponent(url);
   const encodedTitle = encodeURIComponent(title);
 
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch { /* clipboard not available */ }
-  };
+  const handleCopy=()=>clipboard.copy(url);
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex flex-wrap items-center gap-1.5">
       {/* LINE */}
       <a
         href={`https://social-plugins.line.me/lineit/share?url=${encoded}`}
@@ -61,7 +56,7 @@ export default function ShareButtons({ url, title }: Props) {
       {/* コピー */}
       <button
         type="button"
-        onClick={handleCopy}
+        onClick={handleCopy} disabled={clipboard.copying}
         className="min-w-[44px] min-h-[44px] rounded-full bg-gray-100 text-gray-500 flex items-center justify-center hover:bg-gray-200 transition-colors relative"
         aria-label="URLをコピー"
       >
@@ -75,6 +70,8 @@ export default function ShareButtons({ url, title }: Props) {
           </svg>
         )}
       </button>
+      {clipboard.status==='failed'&&<span role="alert" className="w-full text-xs text-red-600">URLをコピーできませんでした。ブラウザの権限をご確認ください。</span>}
+      {copied&&<span role="status" className="sr-only">URLをコピーしました</span>}
     </div>
   );
 }

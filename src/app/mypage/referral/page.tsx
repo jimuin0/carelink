@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useConfirmedClipboard } from '@/hooks/useConfirmedClipboard';
 import Toast from '@/components/Toast';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://carelink-jp.com';
@@ -14,7 +15,8 @@ export default function ReferralPage() {
   const [loadError, setLoadError] = useState(false);
   const [inputCode, setInputCode] = useState('');
   const [applying, setApplying] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const clipboard=useConfirmedClipboard(referralCode);
+  const copied=clipboard.status==='copied';
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
@@ -29,12 +31,7 @@ export default function ReferralPage() {
       .catch(() => { setLoadError(true); setLoading(false); });
   }, []);
 
-  const copyCode = async () => {
-    if (!referralCode) return;
-    await navigator.clipboard.writeText(referralCode).catch(() => {});
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const copyCode=()=>{if(referralCode)void clipboard.copy(referralCode);};
 
   const shareUrl = `${SITE_URL}?ref=${referralCode ?? ''}`;
 
@@ -113,10 +110,10 @@ export default function ReferralPage() {
             </div>
             <button
               type="button"
-              onClick={copyCode}
+              onClick={copyCode} disabled={clipboard.copying}
               className="px-4 py-3 rounded-xl bg-sky-600 text-white text-sm font-bold hover:bg-sky-700 transition-colors shrink-0"
             >
-              {copied ? 'コピー済み' : 'コピー'}
+              {clipboard.copying?'コピー中...':copied ? 'コピー済み' : 'コピー'}
             </button>
           </div>
           <div className="flex gap-3">
@@ -140,6 +137,8 @@ export default function ReferralPage() {
           )}
         </div>
       )}
+
+      {clipboard.status==='failed'&&<p role="alert" className="text-sm text-red-600">紹介コードをコピーできませんでした。コードを選択してコピーするか、ブラウザの権限をご確認ください。</p>}
 
       {/* 紹介コード入力（未使用の場合のみ） */}
       {!alreadyReferred ? (
