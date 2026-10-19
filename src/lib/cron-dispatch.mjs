@@ -35,14 +35,29 @@ export function matchesSchedule(schedule, date) {
 
 export function cutoverTime(value) {
   if (!value) return Infinity; // Preparation deploy preserves all legacy jobs.
-  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:00Z$/.test(value) || !Number.isFinite(Date.parse(value))) {
+  if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:00Z$/.test(value) || !Number.isFinite(Date.parse(value)) ||
+      new Date(Date.parse(value)).toISOString().replace('.000Z', 'Z') !== value) {
     throw new Error('Invalid CARELINK_CRON_DISPATCH_FROM');
   }
   return Date.parse(value);
 }
 
-export function retiredLegacyJob(name, cutover, now) {
-  return now.getTime() >= cutover && DISPATCH_GROUPS.some(group => group.jobs.includes(name));
+function scheduledSlot(schedule, now) {
+  let slot = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
+  while (!matchesSchedule(schedule, slot)) {
+    slot = new Date(slot.getTime() - 60_000);
+    if (now.getTime() - slot.getTime() >= 300_000) throw new Error('Runner started outside its scheduled window');
+  }
+  return slot;
+}
+
+export function retiredLegacyJob(name, jobs, cutover, now) {
+  if (!Number.isFinite(cutover) || !DISPATCH_GROUPS.some(group => group.jobs.includes(name))) return false;
+  const job = jobs.find(job => job.name === name);
+  if (!job) throw new Error('Missing cron registry job');
+  // A delayed pre-cutover run still belongs to the legacy owner, even if its
+  // container starts after the wall-clock cutover. Both owners use the slot.
+  return scheduledSlot(job.schedule, now).getTime() >= cutover;
 }
 
 export function dispatchPlan(groupName, jobs, now, cutover) {
@@ -50,11 +65,7 @@ export function dispatchPlan(groupName, jobs, now, cutover) {
   if (!group) throw new Error('Unknown dispatch group');
   // Render starts containers several seconds after the scheduled minute. Resolve
   // the latest runner tick, bounded to five minutes, including day rollover.
-  let slot = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
-  while (!matchesSchedule(group.schedule, slot)) {
-    slot = new Date(slot.getTime() - 60_000);
-    if (now.getTime() - slot.getTime() >= 300_000) throw new Error('Runner started outside its scheduled window');
-  }
+  const slot = scheduledSlot(group.schedule, now);
   const names = slot.getTime() < cutover ? [group.legacy] : group.jobs;
   const selected = names.map(name => {
     const job = jobs.find(j => j.name === name);

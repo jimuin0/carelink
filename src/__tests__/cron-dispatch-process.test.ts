@@ -96,3 +96,13 @@ test('legacy executable reports HTTP errors, unknown job names and missing argum
   expect(run('cron-call.mjs', ['unknown']).status).toBe(1);
   expect(run('cron-call.mjs', []).status).toBe(1);
 });
+
+test('a delayed legacy weekly job is not lost across a wall-clock cutover', () => {
+  const options = {render: true, at: '2026-10-18T22:13:00Z', cutover: '2026-10-18T22:12:00Z'};
+  const legacy = run('cron-call.mjs', ['weekly-report'], options);
+  const dispatcher = run('cron-dispatch.mjs', ['calendar'], options);
+  expect(legacy.status).toBe(0);
+  expect(legacy.stdout).toContain('weekly-report 成功: HTTP 200');
+  expect(dispatcher.status).toBe(0);
+  expect(dispatcher.stdout).not.toContain('fixture request');
+});

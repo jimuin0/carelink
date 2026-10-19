@@ -20,15 +20,17 @@ test('invalid dates and cutover values cannot silently activate runners', () => 
   expect(cutoverTime('')).toBe(Infinity);
   expect(cutoverTime('2026-10-19T06:12:00Z')).toBe(Date.parse('2026-10-19T06:12:00Z'));
   expect(() => cutoverTime('tomorrow')).toThrow();
+  expect(() => cutoverTime('2026-02-30T06:12:00Z')).toThrow();
+  expect(() => cutoverTime('2026-10-19T24:00:00Z')).toThrow();
   expect(() => cutoverTime('2026-99-99T99:99:00Z')).toThrow();
 });
 test('preparation preserves legacy ownership; activation disables only consolidated legacy jobs', () => {
   const at = new Date('2026-10-19T06:00:00Z');
-  expect(retiredLegacyJob('webhook-retry', Infinity, at)).toBe(false);
-  expect(retiredLegacyJob('webhook-retry', at.getTime(), at)).toBe(true);
-  expect(retiredLegacyJob('cron-heartbeat', 0, at)).toBe(false);
-  expect(retiredLegacyJob('health-check', 0, at)).toBe(false);
-  expect(retiredLegacyJob('unknown', 0, at)).toBe(false);
+  expect(retiredLegacyJob('webhook-retry', jobs, Infinity, at)).toBe(false);
+  expect(retiredLegacyJob('webhook-retry', jobs, at.getTime(), at)).toBe(true);
+  expect(retiredLegacyJob('cron-heartbeat', jobs, 0, at)).toBe(false);
+  expect(retiredLegacyJob('health-check', jobs, 0, at)).toBe(false);
+  expect(retiredLegacyJob('unknown', jobs, 0, at)).toBe(false);
 });
 test('parallel peers are selected only at their own UTC schedule', () => {
   expect(dispatchPlan('quarter-hour', jobs, new Date('2026-10-19T06:00:35Z'), 0).jobs)
@@ -65,3 +67,15 @@ test('exhaustive 8-day schedule equivalence includes all weekdays and every minu
     }
   }
 }, 20000);
+
+test('delayed runs on both sides of cutover have exactly one nominal-slot owner', () => {
+  const cutover = Date.parse('2026-10-18T22:12:00Z');
+  const delayed = new Date('2026-10-18T22:13:00Z');
+  expect(retiredLegacyJob('weekly-report', jobs, cutover, delayed)).toBe(false);
+  expect(dispatchPlan('calendar', jobs, delayed, cutover).jobs).not.toContain('weekly-report');
+  const next = new Date('2026-10-18T22:16:00Z');
+  expect(retiredLegacyJob('webhook-retry', jobs, cutover, next)).toBe(true);
+  expect(dispatchPlan('quarter-hour', jobs, next, cutover).jobs).toContain('webhook-retry');
+  expect(() => retiredLegacyJob('weekly-report', [], cutover, delayed)).toThrow();
+  expect(() => retiredLegacyJob('weekly-report', jobs, cutover, new Date('2026-10-18T22:16:00Z'))).toThrow();
+});

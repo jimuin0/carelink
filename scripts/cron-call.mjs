@@ -26,7 +26,7 @@ async function main() {
     console.error('[cron-call] ジョブ名の引数が必要です（例: node scripts/cron-call.mjs booking-reminder）');
     process.exit(1);
   }
-  if (process.env.RENDER_SERVICE_ID && retiredLegacyJob(name,
+  if (process.env.RENDER_SERVICE_ID && retiredLegacyJob(name, CRON_JOBS,
     cutoverTime(process.env.CARELINK_CRON_DISPATCH_FROM), new Date())) {
     console.log(`[cron-call] ${name} owned by consolidated runner; legacy invocation skipped`);
     return;

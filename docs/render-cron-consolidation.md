@@ -40,9 +40,10 @@ and container startup can delay wall-clock execution within the nominal minute.
 4. Add `CARELINK_CRON_DISPATCH_FROM` to existing `carelink-cron-env` as an explicit
    future UTC minute (`YYYY-MM-DDTHH:mm:00Z`). Choose a minute that is not any old
    or new cron tick, allowing all linked deployments to finish first. Confirm the
-   value has propagated to all 18 linked services before this instant. Before it,
-   legacy owns its slots; afterward, consolidated runners own their slots and
-   old single-job scripts skip their calls.
+   value has propagated to all 18 linked services before this instant. Ownership is based on the nominal scheduled slot on both owners, including
+   delayed pre-cutover starts. Slots before the instant belong to legacy; slots
+   at or after it belong to the dispatcher. Old single-job scripts skip only
+   dispatcher-owned slots.
 5. Observe scheduled executions, including a multi-job quarter-hour tick, an
    hourly job, a calendar runner, and both monitors. Do not manually trigger
    production side effects to simulate a future weekly/daily time. Tests cover
