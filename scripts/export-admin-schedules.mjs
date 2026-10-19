@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { DISPATCH_GROUPS } from '../src/lib/cron-dispatch.mjs';
 
 // Only the cron forms in the canonical registry are supported. Reject new forms
 // until their JST calendar conversion is reviewed, preserving the last export.
@@ -30,10 +31,21 @@ export function exportSchedules(jobs, blueprint) {
     block.match(/^\s*schedule:\s*"([^"]+)"/m)?.[1],
   ]));
   const all = [...jobs, { name: 'health-check', label: '外形死活監視', schedule: actual.get('carelink-health-check') }];
-  if (actual.size !== all.length) throw new Error('Cron registry coverage mismatch');
+  const expected = new Map(DISPATCH_GROUPS.map(group => [group.service, group.schedule]));
+  expected.set('carelink-cron-heartbeat', '7,37 * * * *');
+  expected.set('carelink-health-check', '*/5 * * * *');
+  if (actual.size !== expected.size) throw new Error('Cron registry coverage mismatch');
+  for (const [name, schedule] of expected) {
+    if (actual.get(name) !== schedule) throw new Error(`Runner schedule mismatch: ${name}`);
+  }
+  const groupedNames = DISPATCH_GROUPS.flatMap(group => group.jobs);
+  const names = [...groupedNames, 'cron-heartbeat'];
+  if (new Set(names).size !== names.length || names.length !== jobs.length ||
+      jobs.some(job => !names.includes(job.name))) throw new Error('Dispatch registry coverage mismatch');
   return all.map((job) => {
-    const service = `carelink-${job.name}`;
-    if (!job.schedule || actual.get(service) !== job.schedule) throw new Error(`Cron registry mismatch: ${service}`);
+    const group = DISPATCH_GROUPS.find(group => group.jobs.includes(job.name));
+    const service = group ? group.service : `carelink-${job.name}`;
+    if (!job.schedule) throw new Error(`Cron registry mismatch: ${service}`);
     return { time: jstSchedule(job.schedule), desc: job.label, job_id: job.name,
       cron_services: [service], runner: `cron:${service}`, source: 'render_cron', cron_utc: job.schedule };
   });

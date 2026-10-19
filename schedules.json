@@ -26,9 +26,9 @@
     "desc": "顧客セグメント",
     "job_id": "customer-segment",
     "cron_services": [
-      "carelink-customer-segment"
+      "carelink-daily-summary"
     ],
-    "runner": "cron:carelink-customer-segment",
+    "runner": "cron:carelink-daily-summary",
     "source": "render_cron",
     "cron_utc": "0 7 * * 0"
   },
@@ -37,9 +37,9 @@
     "desc": "レビュー依頼",
     "job_id": "review-request",
     "cron_services": [
-      "carelink-review-request"
+      "carelink-daily-summary"
     ],
-    "runner": "cron:carelink-review-request",
+    "runner": "cron:carelink-daily-summary",
     "source": "render_cron",
     "cron_utc": "0 18 * * *"
   },
@@ -48,9 +48,9 @@
     "desc": "Googleレーティング同期",
     "job_id": "sync-google-ratings",
     "cron_services": [
-      "carelink-sync-google-ratings"
+      "carelink-daily-summary"
     ],
-    "runner": "cron:carelink-sync-google-ratings",
+    "runner": "cron:carelink-daily-summary",
     "source": "render_cron",
     "cron_utc": "0 9 * * 0"
   },
@@ -59,9 +59,9 @@
     "desc": "オンボーディングフォロー",
     "job_id": "onboarding-followup",
     "cron_services": [
-      "carelink-onboarding-followup"
+      "carelink-daily-summary"
     ],
-    "runner": "cron:carelink-onboarding-followup",
+    "runner": "cron:carelink-daily-summary",
     "source": "render_cron",
     "cron_utc": "0 16 * * *"
   },
@@ -70,9 +70,9 @@
     "desc": "誕生日クーポン",
     "job_id": "birthday-coupon",
     "cron_services": [
-      "carelink-birthday-coupon"
+      "carelink-daily-summary"
     ],
-    "runner": "cron:carelink-birthday-coupon",
+    "runner": "cron:carelink-daily-summary",
     "source": "render_cron",
     "cron_utc": "0 14 * * *"
   },
@@ -81,9 +81,9 @@
     "desc": "レビューフラグ",
     "job_id": "flag-reviews",
     "cron_services": [
-      "carelink-flag-reviews"
+      "carelink-webhook-retry"
     ],
-    "runner": "cron:carelink-flag-reviews",
+    "runner": "cron:carelink-webhook-retry",
     "source": "render_cron",
     "cron_utc": "0 * * * *"
   },
@@ -92,9 +92,9 @@
     "desc": "お気に入りダイジェスト",
     "job_id": "favorites-digest",
     "cron_services": [
-      "carelink-favorites-digest"
+      "carelink-daily-summary"
     ],
-    "runner": "cron:carelink-favorites-digest",
+    "runner": "cron:carelink-daily-summary",
     "source": "render_cron",
     "cron_utc": "0 15 * * 1"
   },
@@ -103,9 +103,9 @@
     "desc": "週次レポート",
     "job_id": "weekly-report",
     "cron_services": [
-      "carelink-weekly-report"
+      "carelink-daily-summary"
     ],
-    "runner": "cron:carelink-weekly-report",
+    "runner": "cron:carelink-daily-summary",
     "source": "render_cron",
     "cron_utc": "10 22 * * 0"
   },
@@ -114,9 +114,9 @@
     "desc": "キャンセル待ち通知",
     "job_id": "waitlist-notify",
     "cron_services": [
-      "carelink-waitlist-notify"
+      "carelink-webhook-retry"
     ],
-    "runner": "cron:carelink-waitlist-notify",
+    "runner": "cron:carelink-webhook-retry",
     "source": "render_cron",
     "cron_utc": "30 * * * *"
   },
@@ -136,9 +136,9 @@
     "desc": "HPBメニュー取得",
     "job_id": "hpb-menu-scrape",
     "cron_services": [
-      "carelink-hpb-menu-scrape"
+      "carelink-daily-summary"
     ],
-    "runner": "cron:carelink-hpb-menu-scrape",
+    "runner": "cron:carelink-daily-summary",
     "source": "render_cron",
     "cron_utc": "20 17 * * *"
   },
@@ -147,9 +147,9 @@
     "desc": "スキーマドリフト監視",
     "job_id": "schema-drift-check",
     "cron_services": [
-      "carelink-schema-drift-check"
+      "carelink-daily-summary"
     ],
-    "runner": "cron:carelink-schema-drift-check",
+    "runner": "cron:carelink-daily-summary",
     "source": "render_cron",
     "cron_utc": "40 17 * * *"
   },
@@ -169,9 +169,9 @@
     "desc": "Threads投稿バックフィル",
     "job_id": "threads-backfill",
     "cron_services": [
-      "carelink-threads-backfill"
+      "carelink-booking-reminder"
     ],
-    "runner": "cron:carelink-threads-backfill",
+    "runner": "cron:carelink-booking-reminder",
     "source": "render_cron",
     "cron_utc": "50 * * * *"
   },
@@ -180,9 +180,9 @@
     "desc": "Threadsトークン更新",
     "job_id": "threads-token-refresh",
     "cron_services": [
-      "carelink-threads-token-refresh"
+      "carelink-daily-summary"
     ],
-    "runner": "cron:carelink-threads-token-refresh",
+    "runner": "cron:carelink-daily-summary",
     "source": "render_cron",
     "cron_utc": "25 5 * * 3"
   },
