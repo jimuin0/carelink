@@ -1,3 +1,5 @@
+import { writePlatformEditor } from '@/lib/platform-editor-write';
+import { platformControlResponse } from '@/lib/platform-control-write';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
@@ -7,7 +9,6 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
 import type { Json } from '@/types/database.types';
-import { serverError } from '@/lib/with-route';
 import { runAfterResponse } from '@/lib/after-response';
 import { publishArticleToThreads } from '@/lib/platform-blog-threads';
 
@@ -48,7 +49,7 @@ const platformBlogSchema = z.object({
   is_published: z.boolean().optional(),
 });
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest) {
 
   const isPublished = parsed.data.is_published ?? false;
   const admin = createServiceRoleClient();
-  const { data, error } = await admin.from('platform_blog_posts').insert({
+  const data=await writePlatformEditor(userId,null,'post','create',{
     slug: parsed.data.slug,
     title: parsed.data.title,
     // description/category は migration(20260417000025)上 NOT NULL DEFAULT ''。
@@ -81,10 +82,8 @@ export async function POST(request: NextRequest) {
     reading_time: parsed.data.reading_time ?? 5,
     content: parsed.data.content ?? [],
     is_published: isPublished,
-    published_at: isPublished ? new Date().toISOString() : null,
-  }).select().single();
-
-  if (error) return serverError('admin-platform-blog-create', error, '/api/admin/platform-blog');
+  },'/api/admin/platform-blog');
+  if(data instanceof NextResponse)return data;
 
   void writeAuditLog({
     userId,
@@ -104,3 +103,5 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ post: data }, { status: 201 });
 }
+
+export async function POST(request:NextRequest){return platformControlResponse(()=>handlePOST(request),'/api/admin/platform-blog');}

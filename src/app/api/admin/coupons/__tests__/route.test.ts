@@ -63,3 +63,7 @@ test('recovery database failure is visible',async()=>{mockRpc.mockResolvedValue(
 test.each([['23505',409],['P0002',410]])('create operation refusal %s is %s',async(code,status)=>{mockRpc.mockResolvedValue({data:null,error:{code}});expect((await POST(request())).status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();});
 test('supplied create operation ID is reused and replay has no duplicate audit',async()=>{mockRpc.mockResolvedValue({data:{was_replay:true,outcome:'saved',coupon:{id:OP,facility_id:facilityId}},error:null});const r=request();r.headers.set('Idempotency-Key',OP);expect((await POST(r)).status).toBe(201);expect(mockRpc).toHaveBeenCalledWith('manage_admin_coupon_with_receipt_atomic',expect.objectContaining({p_operation_id:OP}));expect(writeAuditLog).not.toHaveBeenCalled();});
 test('invalid create operation header never mutates',async()=>{const r=request();r.headers.set('Idempotency-Key','bad');expect((await POST(r)).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();});
+
+test.each([{valid_from:'0000-01-01'},{valid_until:'2026-02-30'},{valid_from:'2026-12-31',valid_until:'2026-01-01'}])('invalid coupon calendar date %p cannot save',async fields=>{
+ expect((await POST(request('POST',{name:'Coupon',discount_type:'fixed',discount_value:500,...fields}))).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();
+});

@@ -1,3 +1,5 @@
+import { writePlatformEditor } from '@/lib/platform-editor-write';
+import { platformControlResponse } from '@/lib/platform-control-write';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
@@ -15,7 +17,7 @@ import { inspectNewsletterOperation, publishNewsletterOperation, NewsletterSendE
 // 従来のハードコード値と同じ既定値にフォールバックし後方互換を維持）。
 // 送信元は email-from.ts が SSOT（未検証ドメインは検証済み既定値へ倒れる）。
 
-export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+async function handlePATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
@@ -56,16 +58,8 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     // （phantom success ではないが誤ったステータスコード）。status='scheduled' を
     // update 自体の WHERE 条件にも入れて楽観的並行制御にし、.select() で行数を検証、
     // 0件は「状態変化による競合」として 409 を返す（send の claim と同型）。
-    const { data: updated, error: cancelErr } = await admin
-      .from('newsletter_campaigns')
-      .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-      .eq('id', params.id)
-      .eq('status', 'scheduled')
-      .select();
-    if (cancelErr) return serverError('admin-newsletter-cancel', cancelErr, '/api/admin/newsletter/[id]');
-    if (!updated || updated.length === 0) {
-      return NextResponse.json({ error: 'キャンペーンの状態が変更されているため取り消せません' }, { status: 409 });
-    }
+    const cancelled=await writePlatformEditor(user.id,params.id,'newsletter','cancel',{},'/api/admin/newsletter/[id]');
+    if(cancelled instanceof NextResponse)return cancelled;
 
     {
       const { ip: auditIp, ua } = getRequestContext(req);
@@ -81,7 +75,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
       });
     }
 
-    return NextResponse.json({ campaign: updated[0] });
+    return NextResponse.json({ campaign: cancelled });
   }
 
   if (action === 'send' || action === 'inspect') {
@@ -102,3 +96,5 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
   }
   return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
 }
+
+export async function PATCH(request:NextRequest,props:{params:Promise<{id:string}>}){return platformControlResponse(()=>handlePATCH(request,props),'/api/admin/newsletter/[id]');}

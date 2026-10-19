@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { validateCouponDiscountFields, normalizeCouponDiscountFields } from '../coupon-validation';
+import { validateCouponDiscountFields, normalizeCouponDiscountFields, validateCouponDates, normalizeCouponDateFields } from '../coupon-validation';
 
 // admin coupons API（POST/PATCH）と同じ形で zod に組み込んで検証する。
 const schema = z.object({
@@ -112,4 +112,16 @@ describe('normalizeCouponDiscountFields（型に対応しない側の列を null
     expect(r.discount_value).toBeNull();
     expect(r.special_price).toBeNull();
   });
+});
+
+const dateSchema=z.object({valid_from:z.unknown().optional(),valid_until:z.unknown().optional()}).superRefine(validateCouponDates);
+test.each([
+ [{},true],[{valid_from:null,valid_until:''},true],[{valid_from:'2026-01-01'},true],[{valid_until:'2026-01-01'},true],
+ [{valid_from:'2026-01-01',valid_until:'2026-01-01'},true],[{valid_from:'2026-01-02',valid_until:'2026-01-01'},false],
+ [{valid_from:42},false],[{valid_until:{}},false],[{valid_from:'not-a-date'},false],[{valid_from:'0000-01-01'},false],
+ [{valid_from:'2026-02-30'},false],[{valid_from:'2026-01-01T99:00Z'},false],
+ [{valid_from:'2026-01-01T23:00:00-05:00',valid_until:'2026-01-02'},true],
+])('coupon calendar dates %p are valid=%s', (fields,valid)=>expect(dateSchema.safeParse(fields).success).toBe(valid));
+test.each([{}, {valid_from:undefined,valid_until:undefined},{valid_from:null,valid_until:null},{valid_from:'',valid_until:''},{valid_from:'2026-01-01',valid_until:'2026-12-31'}])('coupon empty date clears normalize without adding omitted fields %p',fields=>{
+ const source=fields as {valid_from?:string|null;valid_until?:string|null};const result=normalizeCouponDateFields(source);for(const key of ['valid_from','valid_until'] as const){if(source[key]===undefined)expect(result[key]).toBeUndefined();else expect(result[key]).toBe(source[key] || null);}
 });

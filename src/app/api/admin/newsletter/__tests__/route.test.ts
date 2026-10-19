@@ -9,6 +9,8 @@
  *   - html_content > 100KB → 400
  *   - DB failure → 500
  */
+import { legacyEditorRpc, type EditorArgs } from '@/test-utils/platform-editor-rpc';
+
 
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
@@ -23,12 +25,13 @@ const USER_ID = '33333333-3333-3333-3333-333333333333';
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockRpc=jest.fn((_name:string,args:EditorArgs)=>legacyEditorRpc(mockAdminFrom,args));
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -223,7 +226,7 @@ test('POST: レスポンスが { campaign: ... } 形式', async () => {
   const res = await POST(makePostRequest(validPostBody()));
   const json = await res.json();
   expect(json.campaign).toBeDefined();
-  expect(json.campaign.id).toBe('camp-1');
+  expect(json.campaign.id).toBe('11111111-1111-1111-1111-111111111111');
 });
 
 test('GET: DB エラー → 500', async () => {
@@ -264,4 +267,14 @@ test('予約日時を含む作成は保存せず、手動配信の方針を返�
   const response = await POST(makePostRequest(validPostBody({ scheduled_at: '2030-01-01T00:00:00Z' })));
   expect(response.status).toBe(400); expect((await response.json()).code).toBe('NEWSLETTER_MANUAL_ONLY');
   expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+
+test('null newsletter request rejects before any draft is written',async()=>{
+ mockAnonFrom.mockReturnValue(profileSingle(true));
+ const res=await POST(new NextRequest('http://localhost/api/admin/newsletter',{method:'POST',body:'null'}));expect(res.status).toBe(400);expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+
+test('unconfirmed newsletter list refuses false empty success',async()=>{
+ mockAnonFrom.mockReturnValue(profileSingle(true));mockAdminFrom.mockReturnValue(campaignListChain(null as unknown as unknown[]));
+ const res=await GET(makeGetRequest());expect(res.status).toBe(500);expect(res.headers.get('cache-control')).toBe('no-store');
 });

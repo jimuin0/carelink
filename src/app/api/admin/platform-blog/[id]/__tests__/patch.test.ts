@@ -12,6 +12,8 @@
  *   - 配列値                … その値をそのまま設定
  * の2通り。route.ts が組み立てる updatePayload が、この分岐どおりに動くことを検証する。
  */
+import { legacyEditorRpc, type EditorArgs } from '@/test-utils/platform-editor-rpc';
+
 
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
@@ -23,12 +25,13 @@ const USER_ID   = '33333333-3333-3333-3333-333333333333';
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockRpc=jest.fn((_name:string,args:EditorArgs)=>legacyEditorRpc(mockAdminFrom,args));
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
 import { NextRequest } from 'next/server';

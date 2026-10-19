@@ -10,6 +10,8 @@
  *   - DB failure → 500
  * Note: All operations use the SSR (anon) Supabase client, not service role.
  */
+jest.mock('@/lib/audit-logger',()=>({writeAuditLog:jest.fn()}));
+
 
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
@@ -50,7 +52,7 @@ function postFacilitySingle(facilityId: string | null) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data: facilityId ? { facility_id: facilityId } : null, error: null })),
+    single: jest.fn(() => Promise.resolve({ data: facilityId ? { facility_id: facilityId } : null, error: facilityId?null:{code:'PGRST116'} })),
   };
 }
 
@@ -105,6 +107,7 @@ const MEMBER_DATA = { facility_id: FACILITY_UUID };
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAnonFrom.mockReset();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
@@ -219,7 +222,7 @@ test('POST: 正常作成 → 200 with post', async () => {
   mockAnonFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
-    return insertSingle({ id: POST_UUID, body: 'テスト投稿' });
+    return insertSingle({ facility_id:FACILITY_UUID, id: POST_UUID, body: 'テスト投稿' });
   });
   const res = await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -274,7 +277,7 @@ test('PATCH: 正常更新 → 200', async () => {
     callNum++;
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
-    return updateChain([{ id: POST_UUID }]);
+    return updateChain([{ facility_id:FACILITY_UUID, id: POST_UUID }]);
   });
   const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -299,7 +302,7 @@ test('PATCH: 存在チェック後に削除され更新0行（TOCTOU） → 404'
   expect(res.status).toBe(404);
 });
 
-test('PATCH: 更新結果 data が null → 404', async () => {
+test('PATCH: 更新結果 data が null → 500', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {
     callNum++;
@@ -311,7 +314,7 @@ test('PATCH: 更新結果 data が null → 404', async () => {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: POST_UUID, title: '更新' }),
   }));
-  expect(res.status).toBe(404);
+  expect(res.status).toBe(500);
 });
 
 test('PATCH: 投稿が見つからない → 404', async () => {
@@ -362,7 +365,7 @@ test('DELETE: 正常削除 → 200', async () => {
     callNum++;
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
-    return deleteChain([{ id: POST_UUID }]);
+    return deleteChain([{ facility_id:FACILITY_UUID, id: POST_UUID }]);
   });
   const res = await DELETE(new NextRequest(`http://localhost/api/admin/gbp/posts?id=${POST_UUID}`, { method: 'DELETE' }));
   expect(res.status).toBe(200);
@@ -381,7 +384,7 @@ test('DELETE: 存在チェック後に削除され削除0行（TOCTOU） → 404
   expect(res.status).toBe(404);
 });
 
-test('DELETE: 削除結果 data が null → 404', async () => {
+test('DELETE: 削除結果 data が null → 500', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {
     callNum++;
@@ -390,7 +393,7 @@ test('DELETE: 削除結果 data が null → 404', async () => {
     return deleteChain(null);
   });
   const res = await DELETE(new NextRequest(`http://localhost/api/admin/gbp/posts?id=${POST_UUID}`, { method: 'DELETE' }));
-  expect(res.status).toBe(404);
+  expect(res.status).toBe(500);
 });
 
 test('DELETE: 投稿が見つからない → 404', async () => {
@@ -447,7 +450,7 @@ test('POST: title あり・photo_url有効・cta_type有効・scheduled_at あ�
   mockAnonFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
-    return insertSingle({ id: POST_UUID, body: '詳細', status: 'scheduled' });
+    return insertSingle({ facility_id:FACILITY_UUID, id: POST_UUID, body: '詳細', status: 'scheduled' });
   });
   const res = await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -475,7 +478,7 @@ test('POST: 無効なphoto_url → nullに変換', async () => {
     return {
       insert: (data: unknown) => {
         capturedInsert(data);
-        return { select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: { id: POST_UUID }, error: null })) }) };
+        return { select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: { id: POST_UUID, facility_id: FACILITY_UUID }, error: null })) }) };
       },
     };
   });
@@ -496,7 +499,7 @@ test('POST: 無効なpost_type → STANDARDにフォールバック', async () =
     return {
       insert: (data: unknown) => {
         capturedInsert(data);
-        return { select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: { id: POST_UUID }, error: null })) }) };
+        return { select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: { id: POST_UUID, facility_id: FACILITY_UUID }, error: null })) }) };
       },
     };
   });
@@ -514,7 +517,7 @@ test('PATCH: body, post_type, photo_url, cta_type, cta_url, status, scheduled_at
     callNum++;
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
-    return updateChain([{ id: POST_UUID }]);
+    return updateChain([{ facility_id:FACILITY_UUID, id: POST_UUID }]);
   });
   const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -544,7 +547,7 @@ test('PATCH: 無効なpost_type → 更新されない（条件false）', async 
     return {
       update: (data: unknown) => {
         capturedUpdate(data);
-        return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: POST_UUID }], error: null })) }) }) };
+        return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: POST_UUID, facility_id: FACILITY_UUID }], error: null })) }) }) };
       },
     };
   });
@@ -567,7 +570,7 @@ test('PATCH: photo_url 無効 → null に変換', async () => {
     return {
       update: (data: unknown) => {
         capturedUpdate(data);
-        return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: POST_UUID }], error: null })) }) }) };
+        return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: POST_UUID, facility_id: FACILITY_UUID }], error: null })) }) }) };
       },
     };
   });
@@ -590,7 +593,7 @@ test('PATCH: title=null → null に変換', async () => {
     return {
       update: (data: unknown) => {
         capturedUpdate(data);
-        return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: POST_UUID }], error: null })) }) }) };
+        return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: POST_UUID, facility_id: FACILITY_UUID }], error: null })) }) }) };
       },
     };
   });
@@ -660,7 +663,7 @@ test('PATCH: 無効な cta_type → null に変換（false分岐）', async () =
     return {
       update: (data: unknown) => {
         capturedUpdate(data);
-        return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: POST_UUID }], error: null })) }) }) };
+        return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: POST_UUID, facility_id: FACILITY_UUID }], error: null })) }) }) };
       },
     };
   });
@@ -734,7 +737,7 @@ test('POST: scheduled_at なし → status=draft, invalid cta_type → null', as
     callNum++;
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     return {
-      insert: (d: unknown) => { capturedInsert(d); return { select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: { id: POST_UUID }, error: null })) }) }; },
+      insert: (d: unknown) => { capturedInsert(d); return { select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: { id: POST_UUID, facility_id: FACILITY_UUID }, error: null })) }) }; },
     };
   });
   await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
@@ -756,7 +759,7 @@ test('PATCH: scheduled_at と published_at が falsy → null に変換', async 
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
     return {
-      update: (d: unknown) => { capturedUpdate(d); return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: POST_UUID }], error: null })) }) }) }; },
+      update: (d: unknown) => { capturedUpdate(d); return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: POST_UUID, facility_id: FACILITY_UUID }], error: null })) }) }) }; },
     };
   });
   await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
@@ -776,7 +779,7 @@ test('PATCH: 不正な JSON body → id なしで 400', async () => {
   expect(res.status).toBe(400);
 });
 
-test('GET: data が null のとき [] を返す', async () => {
+test('GET: data が null のとき未確認500を返す', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {
     callNum++;
@@ -797,6 +800,63 @@ test('GET: data が null のとき [] を返す', async () => {
   callNum = 0;
   const res = await GET(new NextRequest('http://localhost/api/admin/gbp/posts', { method: 'GET' }));
   const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.posts).toEqual([]);
+  expect(res.status).toBe(500);
+  expect(json.posts).toBeUndefined();
+});
+
+test.each([null,[],42])('POST malformed outer JSON %p must be400',async body=>{
+ mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));
+ const res=await POST(new NextRequest('http://localhost/api/admin/gbp/posts',{method:'POST',body:JSON.stringify(body)}));expect(res.status).toBe(400);
+});
+test.each([true,42,{},[]])('POST body field %p must be a string',async body=>{
+ mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));
+ const res=await POST(new NextRequest('http://localhost/api/admin/gbp/posts',{method:'POST',body:JSON.stringify({body})}));expect(res.status).toBe(400);
+});
+
+function ownedMutationContext(result:unknown){
+ mockAnonFrom.mockReturnValueOnce(membershipSingle([MEMBER_DATA])).mockReturnValueOnce(postFacilitySingle(FACILITY_UUID)).mockReturnValueOnce(result);
+}
+test.each([null,{id:'bad',facility_id:FACILITY_UUID},{id:42,facility_id:FACILITY_UUID},{id:POST_UUID,facility_id:USER_ID}])('POST rejects unconfirmed receipt %p',async data=>{
+ mockAnonFrom.mockReturnValueOnce(membershipSingle([MEMBER_DATA])).mockReturnValueOnce(insertSingle(data));
+ expect((await POST(new NextRequest('http://localhost/api/admin/gbp/posts',{method:'POST',body:JSON.stringify({body:'Synthetic'})}))).status).toBe(500);
+});
+test.each(['22007','22008'])('POST date error %s is invalid input',async code=>{
+ mockAnonFrom.mockReturnValueOnce(membershipSingle([MEMBER_DATA])).mockReturnValueOnce(insertSingle(null,{code}));expect((await POST(new NextRequest('http://localhost/api/admin/gbp/posts',{method:'POST',body:JSON.stringify({body:'Synthetic'})}))).status).toBe(400);
+});
+test.each(['22007','22008'])('PATCH date error %s is invalid input',async code=>{
+ ownedMutationContext(updateChain(null,{code}));expect((await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts',{method:'PATCH',body:JSON.stringify({id:POST_UUID,title:'Synthetic'})}))).status).toBe(400);
+});
+test.each([PATCH,DELETE])('scope read errors never become absence or writes',async route=>{
+ for(const result of [{data:{facility_id:FACILITY_UUID},error:{code:'08006'}},{data:null,error:null},{data:{},error:null},{data:{facility_id:FACILITY_UUID},error:{code:'PGRST116'}}]){
+  mockAnonFrom.mockReset();mockAnonFrom.mockReturnValueOnce(membershipSingle([MEMBER_DATA])).mockReturnValueOnce({select:()=>({eq:()=>({single:()=>Promise.resolve(result)})})});
+  const req=new NextRequest(`http://localhost/api/admin/gbp/posts?id=${POST_UUID}`,{method:route===PATCH?'PATCH':'DELETE',...(route===PATCH?{body:JSON.stringify({id:POST_UUID,title:'Synthetic'})}:{})});
+  expect((await route(req)).status).toBe(500);expect(mockAnonFrom).toHaveBeenCalledTimes(2);
+ }
+});
+test.each([PATCH,DELETE])('multiple or cross-scope saved rows are never acknowledged',async route=>{
+ for(const data of [[{id:USER_ID,facility_id:FACILITY_UUID}],[{id:POST_UUID,facility_id:USER_ID}],[{id:POST_UUID,facility_id:FACILITY_UUID},{id:USER_ID,facility_id:FACILITY_UUID}]]){
+  mockAnonFrom.mockReset();ownedMutationContext(route===PATCH?updateChain(data):deleteChain(data));
+  const req=new NextRequest(`http://localhost/api/admin/gbp/posts?id=${POST_UUID}`,{method:route===PATCH?'PATCH':'DELETE',...(route===PATCH?{body:JSON.stringify({id:POST_UUID,title:'Synthetic'})}:{})});expect((await route(req)).status).toBe(500);
+ }
+});
+test.each([{title:{}},{photo_url:{}},{scheduled_at:{}},{body:'   '},{body:'x\ud800'}])('POST rejects malformed scalar text or fields %p',async fields=>{
+ mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));expect((await POST(new NextRequest('http://localhost/api/admin/gbp/posts',{method:'POST',body:JSON.stringify({body:'Synthetic',...fields})}))).status).toBe(400);
+});
+test.each([{title:{}},{scheduled_at:{}},{published_at:[]},{body:42},{body:'x\ud800'}])('PATCH rejects malformed scalar fields %p',async fields=>{
+ ownedMutationContext(updateChain([{id:POST_UUID,facility_id:FACILITY_UUID}]));expect((await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts',{method:'PATCH',body:JSON.stringify({id:POST_UUID,...fields})}))).status).toBe(400);
+});
+test.each([null,[],42])('PATCH malformed outer JSON %p is invalid',async body=>{
+ mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));expect((await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts',{method:'PATCH',body:JSON.stringify(body)}))).status).toBe(400);
+});
+test('Unicode truncation preserves the existing UTF16 limit without emitting a lone surrogate',async()=>{
+ const chain=insertSingle({id:POST_UUID,facility_id:FACILITY_UUID});mockAnonFrom.mockReturnValueOnce(membershipSingle([MEMBER_DATA])).mockReturnValueOnce(chain);
+ const body='a'+'😀'.repeat(900);const res=await POST(new NextRequest('http://localhost/api/admin/gbp/posts',{method:'POST',body:JSON.stringify({body})}));expect(res.status).toBe(200);
+ const saved=chain.insert.mock.calls[0][0] as {body:string};expect(saved.body).toBe('a'+'😀'.repeat(749));expect(saved.body.length).toBeLessThanOrEqual(1500);
+});
+
+test.each([PATCH,DELETE])('canonical UUID receipt accepts uppercase request IDs',async route=>{
+ const id='abcdefff-abcd-4abc-8abc-abcdefabcdef';
+ ownedMutationContext(route===PATCH?updateChain([{id,facility_id:FACILITY_UUID}]):deleteChain([{id,facility_id:FACILITY_UUID}]));
+ const req=new NextRequest(`http://localhost/api/admin/gbp/posts?id=${id.toUpperCase()}`,{method:route===PATCH?'PATCH':'DELETE',...(route===PATCH?{body:JSON.stringify({id:id.toUpperCase(),title:'Synthetic'})}:{})});
+ expect((await route(req)).status).toBe(200);
 });

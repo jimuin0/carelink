@@ -8,6 +8,8 @@
  *   - reading_time 1-999
  *   - DB failure → 500
  */
+import { legacyEditorRpc, type EditorArgs } from '@/test-utils/platform-editor-rpc';
+
 
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
@@ -18,12 +20,13 @@ const USER_ID = '33333333-3333-3333-3333-333333333333';
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockRpc=jest.fn((_name:string,args:EditorArgs)=>legacyEditorRpc(mockAdminFrom,args));
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -206,5 +209,5 @@ test('POST: レスポンスが { post: ... } 形式', async () => {
   const res = await POST(makeRequest(validBody()));
   const json = await res.json();
   expect(json.post).toBeDefined();
-  expect(json.post.id).toBe('p1');
+  expect(json.post.id).toBe('11111111-1111-1111-1111-111111111111');
 });

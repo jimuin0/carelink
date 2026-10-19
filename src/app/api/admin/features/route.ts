@@ -1,5 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { serverError } from '@/lib/with-route';
+import { writePlatformEditor } from '@/lib/platform-editor-write';
+import { platformControlResponse } from '@/lib/platform-control-write';
+import { NextRequest, NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
@@ -7,7 +10,6 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { isStockImageUrl, STOCK_IMAGE_ERROR } from '@/lib/stock-image-guard';
-import { serverError } from '@/lib/with-route';
 
 // 【2026年7月29日・恒久根治】zod の .url() は WHATWG URL としてパース可能かのみを検証し、
 // スキームを制限しない。"javascript:alert(1)" や "data:text/html,<script>..." は
@@ -28,7 +30,7 @@ const featureArticleSchema = z.object({
   sort_order: z.number().int().min(0).max(9999).optional(),
 });
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
@@ -53,7 +55,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: STOCK_IMAGE_ERROR }, { status: 400 });
   }
 
-  const admin = createServiceRoleClient();
   // 【型検査で判明した実バグ】feature_articles.href は migration
   // （supabase/migrations/20260417000024_phase7_hpb_extensions.sql）では `TEXT`（NOT NULL 制約なし＝
   // nullable）と宣言されているが、本番から生成された Database 型（src/types/database.types.ts）は
@@ -62,7 +63,7 @@ export async function POST(request: NextRequest) {
   // Database 型は本番 introspection が正なので、null を渡すと本番の NOT NULL 制約に違反し
   // insert が常に失敗する（＝リンクURLを未入力のまま特集記事を作成すると必ず500になっていた
   // 実バグ）。「リンクなし」の意図は空文字列で表現し、NOT NULL を満たしつつ意味を保つ。
-  const { data, error } = await admin.from('feature_articles').insert({
+  const data=await writePlatformEditor(userId,null,'feature','create',{
     title: parsed.data.title,
     subtitle: parsed.data.subtitle ?? null,
     image_url: parsed.data.image_url || null,
@@ -70,9 +71,8 @@ export async function POST(request: NextRequest) {
     is_active: parsed.data.is_active ?? true,
     sort_order: parsed.data.sort_order ?? 0,
     // feature_articles に updated_at 列は存在しない（created_at のみ）→ 書き込むと 400 になるため付けない
-  }).select().single();
-
-  if (error) return serverError('admin-features-create', error, '/api/admin/features');
+  },'/api/admin/features');
+  if(data instanceof NextResponse)return data;
 
   void writeAuditLog({
     userId,
@@ -84,4 +84,17 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json({ feature: data }, { status: 201 });
+}
+
+export async function POST(request:NextRequest){return platformControlResponse(()=>handlePOST(request),'/api/admin/features');}
+
+export async function GET() {
+ return platformControlResponse(async()=>{
+  const user=await requirePlatformAdmin();
+  if(user instanceof NextResponse)return user;
+  if(!user)return NextResponse.json({error:'Unauthorized'},{status:401});
+  const {data,error}=await createServiceRoleClient().from('feature_articles').select('*').order('sort_order',{ascending:true});
+  if(error||!Array.isArray(data))return serverError('admin-features-list',error||new Error('FEATURE_LIST_UNCONFIRMED'),'/api/admin/features');
+  return NextResponse.json({features:data});
+ },'/api/admin/features');
 }

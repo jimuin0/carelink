@@ -1,8 +1,7 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Image from 'next/image';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Modal from '@/components/Modal';
@@ -46,38 +45,33 @@ export default function AdminFeaturesPage() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
+  const loadGeneration = useRef(0);
+  const writing = useRef(false);
   const loadFeatures = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    setLoadError(false);
-    const { data, error } = await supabase
-      .from('feature_articles')
-      .select('*')
-      .order('sort_order', { ascending: true });
-    if (error) { setLoadError(true); return; }
-    setFeatures((data ?? []) as FeatureArticle[]);
+    const generation=++loadGeneration.current;
+    setLoading(true);setLoadError(false);
+    try {
+      const res=await fetch('/api/admin/features',{cache:'no-store'});
+      if(!res.ok)throw new Error();
+      const result=await res.json();
+      if(!Array.isArray(result.features)||!result.features.every((f:FeatureArticle)=>f&&typeof f.id==='string'&&typeof f.title==='string'&&typeof f.is_active==='boolean'&&Number.isInteger(f.sort_order)))throw new Error();
+      if(generation===loadGeneration.current)setFeatures(result.features);
+    } catch { if(generation===loadGeneration.current)setLoadError(true); }
+    finally { if(generation===loadGeneration.current)setLoading(false); }
   }, []);
-
-  useEffect(() => {
-    const init = async () => {
-      const supabase = createBrowserSupabaseClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-      const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-      .in('role', ['owner', 'admin']).limit(1).single();
-      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-      if (!membership) { setLoading(false); return; }
-      await loadFeatures();
-      setLoading(false);
-    };
-    init().catch(() => { setLoadError(true); setLoading(false); });
-  }, [loadFeatures]);
+  useEffect(()=>{
+    let cancelled=false;const generation=loadGeneration;
+    queueMicrotask(()=>{if(!cancelled)void loadFeatures();});
+    return()=>{cancelled=true;generation.current++;};
+  },[loadFeatures]);
 
   const handleSave = async () => {
-    if (!editForm || saving) return;
+    if (!editForm || writing.current) return;
     if (!editForm.title.trim()) {
       setToast({ type: 'error', message: 'タイトルを入力してください' });
       return;
     }
+    writing.current=true;
     setSaving(true);
     try {
       const payload = {
@@ -104,39 +98,45 @@ export default function AdminFeaturesPage() {
         });
       }
       if (!res.ok) throw new Error();
+      const receipt=(await res.json()).feature;
+      if(!receipt||typeof receipt.id!=='string'||(editForm.id&&receipt.id!==editForm.id)||!Object.entries(payload).every(([key,value])=>receipt[key]===value||(key==='href'&&value===null&&receipt[key]==='')))throw new Error();
       setToast({ type: 'success', message: editForm.id ? '更新しました' : '追加しました' });
       setEditForm(null);
       await loadFeatures();
     } catch {
       setToast({ type: 'error', message: '保存に失敗しました' });
     } finally {
+      writing.current=false;
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (deleting) return;
+    if (writing.current) return;
     setConfirmDeleteId(id);
   };
 
   const executeDelete = async () => {
     const id = confirmDeleteId;
-    if (!id) return;
+    if (!id||writing.current) return;
+    writing.current=true;
     setConfirmDeleteId(null);
     setDeleting(id);
     try {
       const res = await fetch(`/api/admin/features/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error();
+      if (!res.ok||(await res.json()).ok!==true) throw new Error();
       setToast({ type: 'success', message: '削除しました' });
       await loadFeatures();
     } catch {
       setToast({ type: 'error', message: '削除に失敗しました' });
     } finally {
+      writing.current=false;
       setDeleting(null);
     }
   };
 
   const toggleActive = async (feature: FeatureArticle) => {
+    if(writing.current)return;writing.current=true;
     try {
       const res = await fetch(`/api/admin/features/${feature.id}`, {
         method: 'PATCH',
@@ -144,14 +144,16 @@ export default function AdminFeaturesPage() {
         body: JSON.stringify({ is_active: !feature.is_active }),
       });
       if (!res.ok) throw new Error();
+      const receipt=(await res.json()).feature;if(receipt?.id!==feature.id||receipt.is_active!==!feature.is_active)throw new Error();
       setToast({ type: 'success', message: feature.is_active ? '非公開にしました' : '公開にしました' });
       await loadFeatures();
     } catch {
       setToast({ type: 'error', message: '更新に失敗しました' });
-    }
+    } finally {writing.current=false;}
   };
 
   const startEdit = (feature: FeatureArticle) => {
+    if(writing.current)return;
     setEditForm({
       id: feature.id,
       title: feature.title,
@@ -170,7 +172,7 @@ export default function AdminFeaturesPage() {
       <SbPageHeader
         title="特集管理"
         actions={
-          <button type="button" onClick={() => setEditForm({ ...emptyForm, sort_order: features.length.toString() })} className="btn-primary px-5 py-2.5!">
+          <button type="button" onClick={() => { if(!writing.current)setEditForm({ ...emptyForm, sort_order: features.length.toString() }); }} className="btn-primary px-5 py-2.5!">
             特集を追加
           </button>
         }
@@ -180,16 +182,16 @@ export default function AdminFeaturesPage() {
       {editForm && (
         <Modal
           open
-          onClose={() => setEditForm(null)}
+          onClose={() => { if(!writing.current)setEditForm(null); }}
           title={editForm.id ? '特集を編集' : '特集を追加'}
           footer={
             <div className="flex gap-3">
-              <button type="button" onClick={() => setEditForm(null)} className="flex-1 py-2.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
+              <button type="button" onClick={() => { if(!writing.current)setEditForm(null); }} className="flex-1 py-2.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
               <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 py-2.5!">{saving ? '保存中...' : '保存'}</button>
             </div>
           }
         >
-            <div className="space-y-4">
+            <fieldset disabled={saving} className="space-y-4">
               <div>
                 <label htmlFor="feat-title" className="form-label">タイトル <span className="text-red-500">*</span></label>
                 <SbInput id="feat-title" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} maxLength={100} placeholder="例: 春のヘアスタイル特集" />
@@ -223,7 +225,7 @@ export default function AdminFeaturesPage() {
                   </label>
                 </div>
               </div>
-            </div>
+            </fieldset>
         </Modal>
       )}
 

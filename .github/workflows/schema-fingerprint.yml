@@ -316,6 +316,12 @@ jobs:
       - name: Coupon retirement preserves usage and booking history (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/coupon-retirement-fixtures.sql
 
+      - name: Chain coupon atomicity and revocation (disposable DB)
+        run: python3 scripts/check-chain-coupon-concurrency.py
+
+      - name: Platform editor authority, image preconditions and draft cancellation (disposable DB)
+        run: python3 scripts/check-platform-editor-concurrency.py
+
       - name: Platform control revocation and concurrent writes (disposable DB)
         run: python3 scripts/check-platform-control-concurrency.py
 

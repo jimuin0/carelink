@@ -31,6 +31,11 @@ describe.each(routes)('%s',(_name,method,handler)=>{
   const response=await handler(request(method));expect(response.status).toBe(503);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.json()).toMatchObject({code:'AUTH_UNAVAILABLE'});expect(mockFrom).not.toHaveBeenCalled();expect(mockServiceClient).not.toHaveBeenCalled();expect(mockRpc).not.toHaveBeenCalled();
  });
  test.each(['data-error','null-error','throw'])('membership failure %s cannot issue coupons, publish or export data',async fault=>{
+  if(_name==='coupon'){
+   if(fault==='throw')mockRpc.mockRejectedValue(new Error('private-db-diagnostic'));
+   else mockRpc.mockResolvedValue({data:fault==='data-error'?[{id:facilityId,facility_id:facilityId}]:null,error:{code:'08006',message:'private-db-diagnostic'}});
+   const response=await handler(request(method));expect(response.status).toBe(500);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.text()).not.toContain('private-db-diagnostic');expect(mockFrom).not.toHaveBeenCalled();expect(mockRpc).toHaveBeenCalledWith('create_chain_coupons_atomic',expect.objectContaining({p_facility_ids:[facilityId]}));return;
+  }
   if(fault==='throw')mockMembership.mockRejectedValue(new Error('private-db-diagnostic'));
   else mockMembership.mockResolvedValue({data:fault==='data-error'?[{facility_id:facilityId,role:'owner'}]:null,error:{code:'08006',message:'private-db-diagnostic'}});
   const response=await handler(request(method));expect(response.status).toBe(500);expect(response.headers.get('cache-control')).toBe('no-store');expect(await response.text()).not.toContain('private-db-diagnostic');expect(mockFrom).toHaveBeenCalledTimes(1);expect(mockFrom).toHaveBeenCalledWith('facility_members');expect(mockRpc).not.toHaveBeenCalled();

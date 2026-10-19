@@ -9,6 +9,8 @@
  *   - sort_order max 9999
  *   - DELETE: 404 not possible (no pre-check), DB fail → 500
  */
+import { legacyEditorRpc, type EditorArgs } from '@/test-utils/platform-editor-rpc';
+
 
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
@@ -18,6 +20,7 @@ const FEATURE_UUID = '11111111-1111-1111-1111-111111111111';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 
 const mockAdminFrom = jest.fn();
+const mockRpc=jest.fn((_name:string,args:EditorArgs)=>legacyEditorRpc(mockAdminFrom,args));
 const mockAnonFrom = jest.fn();
 const mockGetUser = jest.fn();
 
@@ -25,7 +28,7 @@ jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
 import { PATCH, DELETE } from '../route';
@@ -388,4 +391,15 @@ test('PATCH: レスポンスが { feature.id } 形式', async () => {
   const res = await PATCH(makeRequest('PATCH', { title: 'test' }), makeProps());
   const json = await res.json();
   expect(json.feature.id).toBe(FEATURE_UUID);
+});
+
+test.each([{}, {unknown:true}])('empty recognized feature update %p must reject before write',async body=>{
+ mockAnonFrom.mockReturnValue(profileChain(true));mockAdminFrom.mockReturnValue(updateChain({id:FEATURE_UUID}));
+ const res=await PATCH(makeRequest('PATCH',body),makeProps());expect(res.status).toBe(400);expect(mockAdminFrom).not.toHaveBeenCalled();
+});
+
+test('stock exemption read outage refuses even data plus error',async()=>{
+ mockAnonFrom.mockReturnValue(profileChain(true));const image='https://images.unsplash.com/photo-fixture';
+ mockAdminFrom.mockReturnValueOnce({select:()=>({eq:()=>({maybeSingle:async()=>({data:{image_url:image},error:{message:'synthetic read outage'}})})})}).mockReturnValueOnce(updateChain({id:FEATURE_UUID,image_url:image}));
+ const res=await PATCH(makeRequest('PATCH',{image_url:image}),makeProps());expect(res.status).toBe(500);expect(mockAdminFrom).toHaveBeenCalledTimes(1);
 });

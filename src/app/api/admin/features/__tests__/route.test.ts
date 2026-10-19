@@ -8,6 +8,8 @@
  *   - sort_order 0-9999
  *   - DB failure → 500
  */
+import { legacyEditorRpc, type EditorArgs } from '@/test-utils/platform-editor-rpc';
+
 
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
@@ -18,16 +20,17 @@ const USER_ID = '33333333-3333-3333-3333-333333333333';
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockRpc=jest.fn((_name:string,args:EditorArgs)=>legacyEditorRpc(mockAdminFrom,args));
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
 import { NextRequest } from 'next/server';
-import { POST } from '../route';
+import { GET, POST } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 
 function makeRequest(body: object) {
@@ -231,3 +234,20 @@ test('POST: subtitle が 301 文字 → 400', async () => {
   const res = await POST(makeRequest(validBody({ subtitle: 'あ'.repeat(301) })));
   expect(res.status).toBe(400);
 });
+
+describe('private complete feature listing',()=>{
+ test.each([null,{},undefined])('unconfirmed list %p is not empty success',async data=>{
+  mockAdminFrom.mockReturnValue({select:()=>({order:async()=>({data,error:null})})});
+  const res=await GET();expect(res.status).toBe(500);expect(res.headers.get('cache-control')).toBe('no-store');
+ });
+ test('confirmed complete list including inactive entries',async()=>{
+  const data=[{id:USER_ID,is_active:false}];mockAdminFrom.mockReturnValue({select:()=>({order:async()=>({data,error:null})})});
+  const res=await GET();expect(res.status).toBe(200);expect(await res.json()).toEqual({features:data});
+ });
+ test('database error with data fails closed',async()=>{
+  mockAdminFrom.mockReturnValue({select:()=>({order:async()=>({data:[],error:{message:'Synthetic'}})})});expect((await GET()).status).toBe(500);
+ });
+ test('non platform editor denied before service read',async()=>{mockGetUser.mockResolvedValue({data:{user:null},error:null});expect((await GET()).status).toBe(401);expect(mockAdminFrom).not.toHaveBeenCalled();});
+});
+
+test('GET uncertain auth propagates unavailable without service read',async()=>{mockGetUser.mockResolvedValue({data:{user:null},error:{message:'private-auth'}});const res=await GET();expect(res.status).toBe(503);expect(mockAdminFrom).not.toHaveBeenCalled();});

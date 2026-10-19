@@ -1,4 +1,6 @@
 /** @jest-environment node */
+import { legacyEditorRpc, type EditorArgs } from '@/test-utils/platform-editor-rpc';
+
 jest.mock('@/lib/rate-limit',()=>({checkRateLimit:jest.fn(()=>false)}));
 jest.mock('@/lib/csrf',()=>({checkCsrf:jest.fn(()=>null)}));
 jest.mock('@/lib/platform-admin',()=>({requirePlatformAdmin:async()=>({id:'admin'})}));
@@ -6,7 +8,8 @@ jest.mock('@/lib/audit-logger',()=>({writeAuditLog:jest.fn()}));
 jest.mock('@/lib/platform-blog-threads',()=>({publishArticleToThreads:jest.fn(async()=> 'published')}));
 jest.mock('@/lib/after-response',()=>({runAfterResponse:jest.fn((action:()=>Promise<unknown>)=>action())}));
 const mockFrom=jest.fn();
-jest.mock('@/lib/supabase-server',()=>({createServiceRoleClient:()=>({from:mockFrom})}));
+const mockRpc=jest.fn((_name:string,args:EditorArgs)=>legacyEditorRpc(mockFrom,args));
+jest.mock('@/lib/supabase-server',()=>({createServiceRoleClient:()=>({from:mockFrom,rpc:mockRpc})}));
 import { NextRequest } from 'next/server';
 import { runAfterResponse } from '@/lib/after-response';
 import { publishArticleToThreads } from '@/lib/platform-blog-threads';
