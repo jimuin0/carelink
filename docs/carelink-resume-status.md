@@ -410,3 +410,13 @@ UIは送信中の二重切替、別施設へ移った後の旧切替応答/初�
 現行コードの入力回帰14件が修正前に失敗。隔離PG17で、権限取消後の旧service更新、並行採用によるhired_at上書き、NULL求人IDの同時二重応募を実測した。入力schemaと保存receipt照合を追加し、一般応募も含むDB一意制約、service-only/SECURITY INVOKERの更新gatewayに集約。account生存→施設KEY SHARE→現在のowner/admin SHARE→対象応募UPDATEの順で、権限と更新を同一transaction内に固定する。通常ロールの直接DMLを取り消し、SELECT/RLSを維持。既存feeの値とnull契約を維持し、請求・決済処理や保留の仕様には触れない。
 
 37件の実DB検証と16件の実ロック待ち、295 migration replay/3193 fingerprint、全566 suites/12,057 tests・分岐11,167/11,167（100%）、型/Lint（既存warning4）が成功。E2Eにlocalhost限定の同時応募1件を各browserで追加し370件/61files。試験用施設・応募は隔離DBのみで作成/削除する。本番応募は事前集計0件/重複0件であり、業務行の試験変更なし。通常DDLを本番へ先行適用し実version20261018153016に履歴を一致、関数MD5 053f9fcd0a8a5a2f46c1830bf67729be・RLS/権限・Advisor68件不変を確認。head/main CIと配信証拠は既存台帳へ保存する。原票149・本人操作・所有者権限・保留・過去原因の証拠不足は完了に置き換えない。
+
+## 2026-10-19 プラットフォーム管理操作の追加敵対検証
+
+現行main552e5acを再点検し、施設認証の非boolean入力6件と、フラグ/問い合わせの空・未知キーのみ更新4件が修正前に失敗した。隔離PG17では管理者判定後に権限を取り消しても旧service更新が通ることを実測。機能フラグ作成/更新、問い合わせ状態更新、施設認証を固定操作のservice-only/SECURITY INVOKER gatewayへ移し、account生存と現在のprofiles.is_platform_adminをロックした同一transaction内で更新する。通常ロールのフラグ直接DMLは禁止、既存SELECT/RLSを維持。入力・対象ID/保存値receipt・非キャッシュ応答・例外JSONを確認する。解決済みの再送では最初のresolved_atを維持し、再オープンでのみ消す。
+
+隔離PG46ケース/実ロック待ち25件、296 migration replay/3195 fingerprint、全567 suites/12,099 tests・11,161/11,161 branches100%、型/Lint（既存warning4）が成功。新テストの環境指定規約違反はmixin環境へ修正し全件を再検証した。アカウント削除先行の既存BOOKING_ACCOUNT_UNAVAILABLEは、このgatewayで権限拒否42501へ正規化して一般500にしない。E2Eは本人ではない合成アカウントで実ログイン/API/DB照合を追加し372件/62files。実利用者・店舗・問い合わせや外部配信の本番試験はしない。
+
+本番通常DDL20261019005510を先行適用し、関数本文MD5 67c66cbefdb1642d28f81134105811bb・非DEFINER/空search_path/サービスのみEXECUTE・通常SELECT維持/DML禁止を照合。既存フラグ10件は不変、Advisor7分類68件の差分0。head/main CI、実E2E、配信版・保護API・Render版は既存台帳へ保存する。他チャット・委任・ChatGPTスケジュールなし。原票/本人同意/所有者専用対応/保留/過去原因の証拠不足を完了扱いにはしない。
+
+異なる2人の合成管理者でも、対象行の解決日時保持、フラグの別項目更新、同じキーの同時作成とrollbackを検証した。同一actorのaccount advisory lockだけで競合検証が通る盲点を避け、対象行/unique制約での実ロック待ちを観測。製品コード・DB本文は同一、検証スクリプトの強化として最終headをCIへ再投入する。旧headの進行中CIは最終成功証拠に使わない。

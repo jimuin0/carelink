@@ -22,12 +22,13 @@ const USER_ID = '33333333-3333-3333-3333-333333333333';
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockRpc = jest.fn();
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -75,13 +76,8 @@ function buildListChain(data: unknown[], error: unknown = null) {
 }
 
 function insertFlagSingle(data: unknown, error: unknown = null) {
-  return {
-    insert: jest.fn().mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        single: jest.fn(() => Promise.resolve({ data, error })),
-      }),
-    }),
-  };
+ mockRpc.mockImplementation((_name,args)=>Promise.resolve({data:error?null:{id:'11111111-1111-1111-1111-111111111111',...args.p_values},error}));
+ return {};
 }
 
 beforeEach(() => {
@@ -241,7 +237,7 @@ test('POST: レスポンスが { flag: ... } 形式', async () => {
   const res = await POST(makePostRequest({ key: 'test_flag' }));
   const json = await res.json();
   expect(json.flag).toBeDefined();
-  expect(json.flag.id).toBe('f4');
+  expect(json.flag.id).toBe('11111111-1111-1111-1111-111111111111');
 });
 
 // ─── Branch coverage gaps ─────────────────────────────────────────────────────
@@ -256,13 +252,13 @@ test('GET: profile が null → 403', async () => {
   expect(res.status).toBe(403);
 });
 
-test('GET: data が null → 200 with []', async () => {
+test('GET: data が null is unavailable', async () => {
   mockAnonFrom.mockReturnValue(profileSingle(true));
   mockAdminFrom.mockReturnValue(buildListChain(null as unknown as unknown[]));
   const res = await GET(makeGetRequest());
   const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.flags).toEqual([]);
+  expect(res.status).toBe(500);
+  expect(json.flags).toBeUndefined();
 });
 
 test('POST: レートリミット → 429', async () => {

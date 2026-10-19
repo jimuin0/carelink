@@ -20,6 +20,7 @@ const FLAG_UUID = '11111111-1111-1111-1111-111111111111';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 
 const mockAdminFrom = jest.fn();
+const mockRpc = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockGetUser = jest.fn();
 
@@ -27,7 +28,7 @@ jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
 import { PATCH } from '../route';
@@ -54,16 +55,9 @@ function singleChain(data: unknown, error: unknown = null) {
   };
 }
 
-function updateChain(error: unknown = null, data: unknown = { id: FLAG_UUID }) {
-  return {
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          single: jest.fn(() => Promise.resolve({ data: error ? null : data, error })),
-        }),
-      }),
-    }),
-  };
+function updateChain(error: unknown = null) {
+ const failure=error && (error as {code?:string}).code==='PGRST116'?{code:'P0002'}:error;
+ mockRpc.mockImplementation((_name,args)=>Promise.resolve({data:failure?null:{id:FLAG_UUID,key:'test',enabled:true,rollout_pct:0,...args.p_values},error:failure}));return {};
 }
 
 beforeEach(() => {
@@ -204,4 +198,9 @@ test('レートリミット params (20/60s)', async () => {
   const call = (checkRateLimit as jest.Mock).mock.calls[0];
   expect(call[2]).toBe(20);
   expect(call[3]).toBe(60_000);
+});
+
+test.each([{}, {unexpected:true}])('reject empty recognized flag patch %p', async body => {
+ mockAnonFrom.mockReturnValue(singleChain({is_platform_admin:true})); mockAdminFrom.mockReturnValue(updateChain());
+ const res=await PATCH(makeRequest(body) as Parameters<typeof PATCH>[0],makeProps());expect(res.status).toBe(400);expect(mockAdminFrom).not.toHaveBeenCalled();
 });

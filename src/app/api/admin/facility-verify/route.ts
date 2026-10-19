@@ -1,3 +1,4 @@
+import { writePlatformControl, platformControlResponse } from '@/lib/platform-control-write';
 /**
  * 施設認証バッジ管理 API（v8.32）
  * PATCH /api/admin/facility-verify
@@ -6,24 +7,18 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
-import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import type { Database } from '@/types/database.types';
-import { serverError } from '@/lib/with-route';
+import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 
-// facility_profiles の update() に渡すオブジェクトの型。
-// Record<string, unknown> は Database 型配線後の update() が要求する
-// 「宣言外キー拒否」の型と両立しない（インデックスシグネチャ型は余剰プロパティ無しを保証できない）。
-// テーブルの Update 型そのものを使い、意味を変えずに型検査を通す。
-type FacilityProfileUpdate = Database['public']['Tables']['facility_profiles']['Update'];
+const verificationSchema=z.object({facility_id:z.string().regex(UUID_REGEX),is_verified:z.boolean(),verified_type:z.enum(['phone','identity','site_visit']).optional()});
 
-export async function PATCH(request: NextRequest) {
+async function handlePATCH(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
   const ip = getClientIp(request);
@@ -36,46 +31,12 @@ export async function PATCH(request: NextRequest) {
   if (!user) return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
 
   const userId = user.id;
-  const body = await request.json().catch(() => ({}));
-  const { facility_id, is_verified, verified_type } = body;
-
-  if (!facility_id || !UUID_REGEX.test(facility_id)) {
-    return NextResponse.json({ error: 'facility_id が不正です' }, { status: 400 });
-  }
-
-  const validTypes = ['phone', 'identity', 'site_visit'];
-  if (is_verified && verified_type && !validTypes.includes(verified_type)) {
-    return NextResponse.json({ error: '無効な verified_type です' }, { status: 400 });
-  }
-
-  const updateData: FacilityProfileUpdate = {
-    is_verified: Boolean(is_verified),
-  };
-
-  if (is_verified) {
-    updateData.verified_type = verified_type || 'phone';
-    updateData.verified_at = new Date().toISOString();
-  } else {
-    updateData.verified_type = null;
-    updateData.verified_at = null;
-  }
-
-  const admin = createServiceRoleClient();
-  // 更新件数(affected rows)を検証せず常に success:true を返していたため、実在しない/既削除の
-  // facility_id を指定しても「成功」と偽装していた（phantom success・実在確認そのものが無かった）。
-  // .select() で更新行を受け取り、0件なら404を返す（customers/[id] 等と同型）。
-  const { data, error } = await admin
-    .from('facility_profiles')
-    .update(updateData)
-    .eq('id', facility_id)
-    .select();
-
-  if (error) {
-    return serverError('admin-facility-verify-patch', error, '/api/admin/facility-verify', '更新に失敗しました');
-  }
-  if (!data || data.length === 0) {
-    return NextResponse.json({ error: '施設が見つかりません' }, { status: 404 });
-  }
+  const parsed=verificationSchema.safeParse(await request.json().catch(()=>null));
+  if(!parsed.success) return NextResponse.json({error:'Invalid verification'},{status:400});
+  const {facility_id,is_verified,verified_type}=parsed.data;
+  const values={is_verified,...(is_verified?{verified_type:verified_type ?? 'phone'}:{})};
+  const data=await writePlatformControl(userId,facility_id,'facility:verify',values,'/api/admin/facility-verify');
+  if(data instanceof NextResponse) return data;
 
   const { ua } = getRequestContext(request);
   void writeAuditLog({
@@ -84,7 +45,7 @@ export async function PATCH(request: NextRequest) {
     action: is_verified ? 'verify' : 'update',
     tableName: 'facility_profiles',
     recordId: facility_id,
-    newValues: { is_verified: Boolean(is_verified), verified_type: updateData.verified_type ?? null },
+    newValues: { is_verified: Boolean(is_verified), verified_type: data.verified_type },
     ipAddress: ip,
     userAgent: ua,
   });
@@ -93,6 +54,8 @@ export async function PATCH(request: NextRequest) {
     success: true,
     facility_id,
     is_verified: Boolean(is_verified),
-    verified_type: is_verified ? (verified_type || 'phone') : null,
+    verified_type: data.verified_type,
   });
 }
+
+export async function PATCH(request:NextRequest) {return platformControlResponse(()=>handlePATCH(request),'/api/admin/facility-verify');}

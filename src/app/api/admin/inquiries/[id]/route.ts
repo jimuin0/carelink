@@ -1,20 +1,13 @@
+import { writePlatformControl, platformControlResponse } from '@/lib/platform-control-write';
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyPlatformSupportUser } from '@/lib/platform-support-auth';
-import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
-import type { Database } from '@/types/database.types';
-import { authUnavailable, serverError } from '@/lib/with-route';
-
-// contacts の update() に渡すオブジェクトの型。
-// Record<string, unknown> は Database 型配線後の update() が要求する
-// 「宣言外キー拒否」の型と両立しない（インデックスシグネチャ型は余剰プロパティ無しを保証できない）。
-// テーブルの Update 型そのものを使い、意味を変えずに型検査を通す。
-type ContactUpdate = Database['public']['Tables']['contacts']['Update'];
+import { authUnavailable } from '@/lib/with-route';
 
 const VALID_STATUSES = ['open', 'in_progress', 'waiting', 'resolved', 'closed'] as const;
 const VALID_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
@@ -23,14 +16,14 @@ const ticketUpdateSchema = z.object({
   ticket_status: z.enum(VALID_STATUSES).optional(),
   priority: z.enum(VALID_PRIORITIES).optional(),
   ticket_notes: z.string().max(2000).optional().nullable(),
-});
+}).refine(value=>Object.keys(value).length>0);
 
 // contacts はプラットフォーム宛の問い合わせで facility_id 列を持たない（一覧も施設横断で表示）。
 // 旧実装は facility_members による施設スコープ認可＋contacts.facility_id 絞りだったが、
 // (1) contacts に facility_id 列が無く UPDATE が常に失敗、(2) 呼び出し側が facility_id を
 // 送らないため常に 401、と二重に壊れていた。プラットフォーム管理者認可（registrations 等と
 // 同方式）に統一し、id のみで更新する。
-export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+async function handlePATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
@@ -51,28 +44,9 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const parsed = ticketUpdateSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
-  const payload: ContactUpdate = { ...parsed.data };
-  if (parsed.data.ticket_status === 'resolved') {
-    payload.resolved_at = new Date().toISOString();
-  } else if (parsed.data.ticket_status !== undefined) {
-    // resolved から別状態へ戻す(再オープン)ときは resolved_at を消し、古い解決日時が残らないようにする。
-    payload.resolved_at = null;
-  }
-
-  const admin = createServiceRoleClient();
-  // contacts は施設横断のプラットフォーム問い合わせ。プラットフォーム管理者のみ到達できるため id で更新。
-  // .select('id') で更新行を取得し、0 行なら存在しない ID として 404 を返す
-  // （旧実装は 0 行でも ok:true を返し「幻の成功」になっていた = ADM-INQ-1）。
-  const { data: updated, error } = await admin
-    .from('contacts')
-    .update(payload)
-    .eq('id', params.id)
-    .select('id');
-
-  if (error) return serverError('admin-inquiries-patch', error, '/api/admin/inquiries/[id]');
-  if (!updated || updated.length === 0) {
-    return NextResponse.json({ error: 'チケットが見つかりません' }, { status: 404 });
-  }
+  const payload=parsed.data;
+  const data=await writePlatformControl(adminUserId,params.id,'ticket:update',payload,'/api/admin/inquiries/[id]');
+  if(data instanceof NextResponse) return data;
 
   void writeAuditLog({
     userId: adminUserId,
@@ -85,3 +59,5 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   return NextResponse.json({ ok: true });
 }
+
+export async function PATCH(request:NextRequest,props:{params:Promise<{id:string}>}) {return platformControlResponse(()=>handlePATCH(request,props),'/api/admin/inquiries/[id]');}
