@@ -97,6 +97,7 @@ export default function ApiKeysPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ facility_id: facilityId, name: newKeyName.trim(), scopes: selectedScopes }),
       });
+      if(res.status>=500)throw new Error('UNCONFIRMED_ISSUANCE');
       const data = await res.json();
       if (res.ok) {
         if(typeof data.raw_key!=='string'||!data.raw_key||!isApiKey(data.key)||data.key.name!==newKeyName.trim()||data.key.is_active!==true)throw new Error('UNCONFIRMED_API_KEY');
@@ -127,6 +128,7 @@ export default function ApiKeysPage() {
     const id=confirmRevokeId;setConfirmRevokeId(null);
     try {
       const res=await fetch(`/api/admin/api-keys/${id}`,{method:'DELETE'});
+      if(res.status>=500)throw new Error('UNCONFIRMED_REVOCATION');
       if(res.ok){
         const data=await res.json();if(data.success!==true)throw new Error('UNCONFIRMED_REVOCATION');
         setKeys(prev=>prev.map(key=>key.id===id?{...key,is_active:false}:key));
