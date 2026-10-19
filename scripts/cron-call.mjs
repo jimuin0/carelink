@@ -12,14 +12,13 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { resolveCronEndpoint } from '../src/lib/render-cron.mjs';
+import { cutoverTime, retiredLegacyJob } from '../src/lib/cron-dispatch.mjs';
+import { callCron } from './cron-request.mjs';
 
 const CRON_JOBS = JSON.parse(
   readFileSync(new URL('../src/lib/cron-jobs.data.json', import.meta.url), 'utf8'),
 );
 const VALID_NAMES = CRON_JOBS.map((j) => j.name);
-
-const JOB_TIMEOUT_MS = 300_000; // cron ジョブ側 maxDuration 60s + 余裕
 
 async function main() {
   const name = process.argv[2];
@@ -27,25 +26,12 @@ async function main() {
     console.error('[cron-call] ジョブ名の引数が必要です（例: node scripts/cron-call.mjs booking-reminder）');
     process.exit(1);
   }
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
-    console.error('[cron-call] CRON_SECRET 未設定');
-    process.exit(1);
+  if (process.env.RENDER_SERVICE_ID && retiredLegacyJob(name,
+    cutoverTime(process.env.CARELINK_CRON_DISPATCH_FROM), new Date())) {
+    console.log(`[cron-call] ${name} owned by consolidated runner; legacy invocation skipped`);
+    return;
   }
-  // resolveCronEndpoint が未知ジョブ名・BASE_URL 未設定を throw（下の catch で exit 1）。
-  const url = resolveCronEndpoint(name, VALID_NAMES, process.env.CARELINK_BASE_URL);
-
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${secret}` },
-    signal: AbortSignal.timeout(JOB_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    // cron応答は依存サービス由来の本文を含み得るため、Renderログへ出さない。
-    // HTTP状態だけで運用側の切り分けは可能で、詳細はアクセス制御されたVercelログで確認する。
-    console.error(`[cron-call] ${name} 失敗: HTTP ${res.status}（応答本文は記録しません）`);
-    process.exit(1);
-  }
-  console.log(`[cron-call] ${name} 成功: HTTP ${res.status}`);
+  await callCron(name, VALID_NAMES);
 }
 
 main().catch((e) => {
