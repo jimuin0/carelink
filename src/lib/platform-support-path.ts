@@ -2,7 +2,7 @@
  * allowlist only selects routes on which the verified DB platform role may
  * replace facility membership; page/API authorization remains mandatory. */
 export function isPlatformSupportPath(pathname: string): boolean {
-  return ['/admin/features', '/admin/inquiries', '/admin/registrations', '/admin/moderation', '/admin/newsletters'].some(
+  return ['/admin/feature-flags', '/admin/ab-tests', '/admin/platform-blog', '/admin/features', '/admin/inquiries', '/admin/registrations', '/admin/moderation', '/admin/newsletters'].some(
     root => pathname === root || pathname.startsWith(`${root}/`),
   );
 }

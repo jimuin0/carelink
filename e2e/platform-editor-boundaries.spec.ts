@@ -26,6 +26,7 @@ test('platform drafts persist exact values, never enqueue delivery, and reject a
   const savedDraft=await db.from('newsletter_campaigns').select('status,created_by,scheduled_at').eq('id',campaign.id).single();expect(savedDraft.error).toBeNull();expect(savedDraft.data).toEqual({status:'draft',created_by:actor,scheduled_at:null});
   const queue=await db.from('webhook_retry_queue').select('id').eq('target_id',campaign.id);expect(queue.error).toBeNull();expect(queue.data).toEqual([]);
   const refusedCancel=await page.request.patch(`/api/admin/newsletter/${campaign.id}`,{headers,data:{action:'cancel'}});expect(refusedCancel.status()).toBe(400);
+  await page.goto('/admin/platform-blog');await expect(page.getByText(featureTitle,{exact:true})).toBeVisible();
   await page.goto('/admin/features');await expect(page.getByText(changedTitle,{exact:true})).toBeVisible();
   expect((await db.from('facility_profiles').insert(facilities.map((id,i)=>({id,name:`Synthetic editor facility ${i}`,slug:`synthetic-editor-${token}-${i}`,business_type:'その他',prefecture:'Synthetic',city:'Synthetic',address:'Synthetic',status:'draft'})))).error).toBeNull();
   expect((await db.from('facility_members').insert(facilities.map((facility_id,i)=>({facility_id,user_id:actor,role:i===0?'owner':'admin'})))).error).toBeNull();
