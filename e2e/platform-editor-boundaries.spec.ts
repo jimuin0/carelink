@@ -35,8 +35,12 @@ test('platform drafts persist exact values, never enqueue delivery, and reject a
   expect((await db.from('facility_members').delete().eq('user_id',actor).eq('facility_id',facilities[1])).error).toBeNull();
   const refusedBulk=await page.request.post('/api/admin/chain/bulk-coupon',{headers,data:{facility_ids:facilities,name:'Synthetic refused bulk',discount_type:'percentage',discount_value:10}});expect(refusedBulk.status()).toBe(403);
   const absent=await db.from('coupons').select('id').in('facility_id',facilities).eq('name','Synthetic refused bulk');expect(absent.error).toBeNull();expect(absent.data).toEqual([]);
-  const gbp=await page.request.post('/api/admin/gbp/posts',{headers,data:{facility_id:facilities[0],body:'a'+'😀'.repeat(900)}});expect(gbp.status()).toBe(201);
+  const gbp=await page.request.post('/api/admin/gbp/posts',{headers,data:{facility_id:facilities[0],body:'a'+'😀'.repeat(900)}});expect(gbp.status()).toBe(200);
   const savedGbp=await db.from('gbp_posts').select('body,status').eq('facility_id',facilities[0]).single();expect(savedGbp.error).toBeNull();expect(savedGbp.data).toEqual({body:'a'+'😀'.repeat(749),status:'draft'});
+  const gbpId=(await gbp.json()).post.id.toUpperCase();
+  const gbpPatch=await page.request.patch('/api/admin/gbp/posts',{headers,data:{id:gbpId,title:'Synthetic uppercase UUID'}});expect(gbpPatch.status()).toBe(200);
+  const gbpDelete=await page.request.delete(`/api/admin/gbp/posts?id=${gbpId}`,{headers});expect(gbpDelete.status()).toBe(200);
+  const removedGbp=await db.from('gbp_posts').select('id').eq('id',gbpId);expect(removedGbp.error).toBeNull();expect(removedGbp.data).toEqual([]);
   const featureList=await page.request.get('/api/admin/features');expect(featureList.status()).toBe(200);expect((await featureList.json()).features.some((f:{id:string})=>f.id===feature.id)).toBe(true);
   expect((await db.from('profiles').update({is_platform_admin:false}).eq('id',actor)).error).toBeNull();
   const denied=await page.request.patch(`/api/admin/features/${feature.id}`,{headers,data:{is_active:true}});expect(denied.status()).toBe(401);

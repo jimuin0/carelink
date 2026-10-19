@@ -184,7 +184,7 @@ async function handlePATCH(req: NextRequest) {
   if(error?.code==='22007'||error?.code==='22008')return NextResponse.json({error:'Invalid dates'},{status:400});
   if (error) return serverError('admin-gbp-posts-patch', error, '/api/admin/gbp/posts');
   if(!Array.isArray(updatedRows))return serverError('admin-gbp-posts-patch-receipt',new Error('GBP_UPDATE_UNCONFIRMED'),'/api/admin/gbp/posts');
-  if(updatedRows.length===1&&(updatedRows[0].id!==id||updatedRows[0].facility_id!==facilityId)||updatedRows.length>1)return serverError('admin-gbp-posts-patch-receipt',new Error('GBP_UPDATE_MISMATCH'),'/api/admin/gbp/posts');
+  if(updatedRows.length===1&&(updatedRows[0].id!==id.toLowerCase()||updatedRows[0].facility_id!==facilityId)||updatedRows.length>1)return serverError('admin-gbp-posts-patch-receipt',new Error('GBP_UPDATE_MISMATCH'),'/api/admin/gbp/posts');
   if (updatedRows.length === 0) return NextResponse.json({ error: '投稿が見つかりません' }, { status: 404 });
 
   void writeAuditLog({
@@ -239,7 +239,7 @@ async function handleDELETE(req: NextRequest) {
 
   if (error) return serverError('admin-gbp-posts-delete', error, '/api/admin/gbp/posts');
   if(!Array.isArray(deletedRows))return serverError('admin-gbp-posts-delete-receipt',new Error('GBP_DELETE_UNCONFIRMED'),'/api/admin/gbp/posts');
-  if(deletedRows.length===1&&(deletedRows[0].id!==id||deletedRows[0].facility_id!==facilityId)||deletedRows.length>1)return serverError('admin-gbp-posts-delete-receipt',new Error('GBP_DELETE_MISMATCH'),'/api/admin/gbp/posts');
+  if(deletedRows.length===1&&(deletedRows[0].id!==id.toLowerCase()||deletedRows[0].facility_id!==facilityId)||deletedRows.length>1)return serverError('admin-gbp-posts-delete-receipt',new Error('GBP_DELETE_MISMATCH'),'/api/admin/gbp/posts');
   if (deletedRows.length === 0) return NextResponse.json({ error: '投稿が見つかりません' }, { status: 404 });
 
   void writeAuditLog({

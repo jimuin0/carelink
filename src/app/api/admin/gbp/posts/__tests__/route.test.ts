@@ -853,3 +853,10 @@ test('Unicode truncation preserves the existing UTF16 limit without emitting a l
  const body='a'+'😀'.repeat(900);const res=await POST(new NextRequest('http://localhost/api/admin/gbp/posts',{method:'POST',body:JSON.stringify({body})}));expect(res.status).toBe(200);
  const saved=chain.insert.mock.calls[0][0] as {body:string};expect(saved.body).toBe('a'+'😀'.repeat(749));expect(saved.body.length).toBeLessThanOrEqual(1500);
 });
+
+test.each([PATCH,DELETE])('canonical UUID receipt accepts uppercase request IDs',async route=>{
+ const id='abcdefff-abcd-4abc-8abc-abcdefabcdef';
+ ownedMutationContext(route===PATCH?updateChain([{id,facility_id:FACILITY_UUID}]):deleteChain([{id,facility_id:FACILITY_UUID}]));
+ const req=new NextRequest(`http://localhost/api/admin/gbp/posts?id=${id.toUpperCase()}`,{method:route===PATCH?'PATCH':'DELETE',...(route===PATCH?{body:JSON.stringify({id:id.toUpperCase(),title:'Synthetic'})}:{})});
+ expect((await route(req)).status).toBe(200);
+});
