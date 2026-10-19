@@ -5,6 +5,8 @@
  * contacts はプラットフォーム宛の問い合わせ（facility_id 列なし）。
  * 認可はプラットフォーム管理者（profiles.is_platform_admin）。更新は id のみ。
  */
+jest.mock('@/lib/audit-logger',()=>({writeAuditLog:jest.fn()}));
+
 
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
@@ -14,6 +16,7 @@ const INQUIRY_UUID = '11111111-1111-1111-1111-111111111111';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 
 const mockAdminFrom = jest.fn();
+const mockRpc = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockGetUser = jest.fn();
 
@@ -21,7 +24,7 @@ jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -51,14 +54,9 @@ function profileChain(data: unknown) {
 }
 
 // update().eq('id').select('id') — 更新行を取得し 0 行なら 404（ADM-INQ-1）。
-function updateChain(error: unknown = null, rows: unknown[] = [{ id: 'contact-1' }]) {
-  return {
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        select: jest.fn(() => Promise.resolve({ data: error ? null : rows, error })),
-      }),
-    }),
-  };
+function updateChain(error: unknown = null, rows: unknown[] = [{id:INQUIRY_UUID}]) {
+ const failure=error ?? (rows.length===0?{code:'P0002'}:null);
+ mockRpc.mockImplementation((_name,args)=>Promise.resolve({data:failure?null:{id:INQUIRY_UUID,ticket_status:'open',priority:'normal',ticket_notes:null,resolved_at:null,...args.p_values},error:failure}));return {};
 }
 
 beforeEach(() => {
@@ -117,15 +115,10 @@ test('PATCH: 不正なpriority → 400', async () => {
   expect(res.status).toBe(400);
 });
 
-test('PATCH: UPDATEのWHEREが id のみ（facility_id 絞りは廃止）', async () => {
-  mockAnonFrom.mockReturnValue(profileChain({ is_platform_admin: true }));
-  const eqMock = jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'contact-1' }], error: null })) });
-  const updateMock = jest.fn().mockReturnValue({ eq: eqMock });
-  mockAdminFrom.mockReturnValue({ update: updateMock });
-
-  await PATCH(makeRequest({ ticket_status: 'resolved' }), makeProps());
-  expect(eqMock).toHaveBeenCalledWith('id', INQUIRY_UUID);
-  expect(eqMock).toHaveBeenCalledTimes(1);
+test('PATCH: verified actor and exact ticket scope go to atomic gateway',async()=>{
+ mockAnonFrom.mockReturnValue(profileChain({is_platform_admin:true}));updateChain();
+ const res=await PATCH(makeRequest({ticket_status:'resolved',resolved_at:'forged',actor_id:'forged'}),makeProps());expect(res.status).toBe(200);
+ expect(mockRpc).toHaveBeenCalledWith('manage_platform_control_atomic',{p_actor_id:USER_ID,p_record_id:INQUIRY_UUID,p_kind:'ticket:update',p_values:{ticket_status:'resolved'}});
 });
 
 test('PATCH: 存在しないチケットID(0行更新) → 404（ADM-INQ-1）', async () => {
@@ -180,4 +173,9 @@ test('PATCH: レートリミット params (20/60s)', async () => {
   await PATCH(makeRequest(), makeProps());
   const call = (checkRateLimit as jest.Mock).mock.calls[0];
   expect(call[2]).toBe(20);
+});
+
+test.each([{}, {unexpected:true}])('reject empty recognized ticket patch %p', async body => {
+ mockAnonFrom.mockReturnValue(profileChain({is_platform_admin:true}));mockAdminFrom.mockReturnValue(updateChain());
+ const res=await PATCH(makeRequest(body),makeProps());expect(res.status).toBe(400);expect(mockAdminFrom).not.toHaveBeenCalled();
 });

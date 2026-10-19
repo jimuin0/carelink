@@ -1,3 +1,4 @@
+import { writePlatformControl, platformControlResponse } from '@/lib/platform-control-write';
 /**
  * Feature Flags 一覧 API
  * GET /api/admin/feature-flags
@@ -16,7 +17,7 @@ import { serverError } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   const ip = getClientIp(request);
   if (await checkRateLimit(null, ip, 30, 60_000, 'admin-feature-flags-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
@@ -44,7 +45,8 @@ export async function GET(request: NextRequest) {
     return serverError('admin-feature-flags-list', error, '/api/admin/feature-flags', '取得に失敗しました');
   }
 
-  return NextResponse.json({ flags: data ?? [] });
+  if(!Array.isArray(data)) return serverError('admin-feature-flags-list',new Error('FLAG_LIST_UNCONFIRMED'),'/api/admin/feature-flags');
+  return NextResponse.json({ flags: data });
 }
 
 const flagCreateSchema = z.object({
@@ -54,7 +56,7 @@ const flagCreateSchema = z.object({
   description: z.string().max(500).optional().nullable(),
 });
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
@@ -73,24 +75,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
   }
 
-  const admin = createServiceRoleClient();
-  const { data, error } = await admin
-    .from('feature_flags')
-    .insert({
-      key: parsed.data.key,
-      enabled: parsed.data.enabled ?? false,
-      rollout_pct: parsed.data.rollout_pct ?? 0,
-      description: parsed.data.description ?? null,
-    })
-    .select()
-    .single();
-
-  if (error) {
-    if (error.code === '23505') {
-      return NextResponse.json({ error: 'そのキーはすでに存在します' }, { status: 409 });
-    }
-    return serverError('admin-feature-flags-create', error, '/api/admin/feature-flags', '作成に失敗しました');
-  }
+  const data=await writePlatformControl(adminUser.id,null,'flag:create',{key:parsed.data.key,enabled:parsed.data.enabled ?? false,rollout_pct:parsed.data.rollout_pct ?? 0,description:parsed.data.description ?? null},'/api/admin/feature-flags');
+  if(data instanceof NextResponse) return data;
 
   const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({
@@ -105,3 +91,6 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ flag: data }, { status: 201 });
 }
+
+export async function GET(request:NextRequest) {return platformControlResponse(()=>handleGET(request),'/api/admin/feature-flags');}
+export async function POST(request:NextRequest) {return platformControlResponse(()=>handlePOST(request),'/api/admin/feature-flags');}

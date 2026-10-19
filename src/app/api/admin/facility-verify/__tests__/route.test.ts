@@ -23,12 +23,13 @@ const USER_ID       = '33333333-3333-3333-3333-333333333333';
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockRpc = jest.fn();
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -51,14 +52,9 @@ function profileSingle(isAdmin: boolean) {
   };
 }
 
-function updateEq(error: unknown = null, data: unknown = [{ id: FACILITY_UUID }]) {
-  return {
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        select: jest.fn(() => Promise.resolve({ data: error ? null : data, error })),
-      }),
-    }),
-  };
+function updateEq(error: unknown = null, data: unknown = [{id:FACILITY_UUID}]) {
+ const failure=error ?? (Array.isArray(data)&&data.length===0?{code:'P0002'}:null);
+ mockRpc.mockImplementation((_name,args)=>Promise.resolve({data:failure?null:{id:FACILITY_UUID,...args.p_values,verified_type:args.p_values.is_verified?(args.p_values.verified_type ?? 'phone'):null},error:failure}));return {};
 }
 
 beforeEach(() => {
@@ -200,4 +196,10 @@ test('PATCH: レスポンスに facility_id と is_verified が含まれる', as
   const json = await res.json();
   expect(json.facility_id).toBe(FACILITY_UUID);
   expect(json.is_verified).toBe(true);
+});
+
+test.each(['false', 0, 1, null, {}, []])('reject nonboolean verification %p before writes', async value => {
+ mockAnonFrom.mockReturnValue(profileSingle(true)); mockAdminFrom.mockReturnValue(updateEq());
+ const res=await PATCH(makeRequest({facility_id:FACILITY_UUID,is_verified:value}));
+ expect(res.status).toBe(400);expect(mockAdminFrom).not.toHaveBeenCalled();
 });

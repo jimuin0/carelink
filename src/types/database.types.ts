@@ -8293,6 +8293,10 @@ export type Database = {
         Args: { p_actor_id: string; p_facility_id: string; p_desired?: boolean }
         Returns: boolean
       }
+      manage_platform_control_atomic: {
+        Args: { p_actor_id: string; p_record_id: string | null; p_kind: string; p_values: Json }
+        Returns: Json
+      }
       update_job_application_atomic: {
         Args: { p_actor_id: string; p_facility_id: string; p_application_id: string; p_patch: Json }
         Returns: Json
