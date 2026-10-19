@@ -67,6 +67,7 @@ def race(label, first, second, expected, finish="COMMIT;"):
 
 
 ACTOR='fe190000-0000-4000-8000-000000000081'
+OTHER='fe190000-0000-4000-8000-000000000082'
 FLAG='fe190001-0000-4000-8000-000000000081'
 TICKET='fe190002-0000-4000-8000-000000000081'
 FACILITY='fe190003-0000-4000-8000-000000000081'
@@ -78,7 +79,7 @@ def save(kind='flag:update',values=None,record=FLAG,actor=ACTOR):
 def attempt(statement,role='service_role'):
  return "CREATE FUNCTION pg_temp.control_try(statement text) RETURNS text LANGUAGE plpgsql AS $try$ BEGIN EXECUTE statement; RETURN 'OK'; EXCEPTION WHEN OTHERS THEN RETURN SQLSTATE; END $try$; SET ROLE "+role+"; SELECT pg_temp.control_try($stmt$"+statement+"$stmt$)"
 def reset():
- sql(f"INSERT INTO auth.users(id,email) VALUES('{ACTOR}','platform-control@example.invalid') ON CONFLICT(id) DO NOTHING; UPDATE public.profiles SET is_platform_admin=true WHERE id='{ACTOR}'; DELETE FROM public.feature_flags WHERE key IN ('isolated-platform-control','isolated-platform-create'); INSERT INTO public.feature_flags(id,key,enabled,rollout_pct) VALUES('{FLAG}','isolated-platform-control',false,0); DELETE FROM public.contacts WHERE id='{TICKET}'; INSERT INTO public.contacts(id,name,email,inquiry_type,message) VALUES('{TICKET}','Synthetic','platform@example.invalid','other','Synthetic'); INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES('{FACILITY}','Synthetic control','isolated-platform-control','{BUSINESS_TYPE}','Synthetic','Synthetic','Synthetic','draft') ON CONFLICT(id) DO NOTHING;")
+ sql(f"INSERT INTO auth.users(id,email) VALUES('{ACTOR}','platform-control@example.invalid'),('{OTHER}','platform-control-other@example.invalid') ON CONFLICT(id) DO NOTHING; UPDATE public.profiles SET is_platform_admin=true WHERE id IN ('{ACTOR}','{OTHER}'); DELETE FROM public.feature_flags WHERE key IN ('isolated-platform-control','isolated-platform-create'); INSERT INTO public.feature_flags(id,key,enabled,rollout_pct) VALUES('{FLAG}','isolated-platform-control',false,0); DELETE FROM public.contacts WHERE id='{TICKET}'; INSERT INTO public.contacts(id,name,email,inquiry_type,message) VALUES('{TICKET}','Synthetic','platform@example.invalid','other','Synthetic'); INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES('{FACILITY}','Synthetic control','isolated-platform-control','{BUSINESS_TYPE}','Synthetic','Synthetic','Synthetic','draft') ON CONFLICT(id) DO NOTHING;")
 def snapshot():
  return sql(f"SELECT jsonb_build_object('flag',(select to_jsonb(f) from public.feature_flags f where id='{FLAG}'),'ticket',(select to_jsonb(t) from public.contacts t where id='{TICKET}'),'facility',(select to_jsonb(p) from public.facility_profiles p where id='{FACILITY}'))")
 try:
@@ -90,14 +91,16 @@ try:
   reset();race(kind+' write before revocation','SET LOCAL ROLE service_role; '+save(kind,values,record),f"UPDATE public.profiles SET is_platform_admin=false WHERE id='{ACTOR}'; SELECT 'revoked'",'revoked')
   reset();race(kind+' account deletion first',f"DELETE FROM auth.users WHERE id='{ACTOR}'",attempt(save(kind,values,record)),'42501')
   reset();race(kind+' write before account deletion','SET LOCAL ROLE service_role; '+save(kind,values,record),f"DELETE FROM auth.users WHERE id='{ACTOR}'; SELECT 'deleted'",'deleted')
- reset();race('ticket resolve replay preserves first timestamp',"SET LOCAL ROLE service_role; "+save('ticket:update',{'ticket_status':'resolved'},TICKET)+f"; SELECT resolved_at::text FROM public.contacts WHERE id='{TICKET}'",save('ticket:update',{'ticket_status':'resolved'},TICKET),TICKET)
+ reset();race('ticket resolve replay preserves first timestamp',"SET LOCAL ROLE service_role; "+save('ticket:update',{'ticket_status':'resolved'},TICKET)+f"; SELECT resolved_at::text FROM public.contacts WHERE id='{TICKET}'",save('ticket:update',{'ticket_status':'resolved'},TICKET,actor=OTHER),TICKET)
  first=RESULTS[-1]['first_result'];assert first[0]==TICKET and len(first)==2;assert sql(f"SELECT resolved_at::text FROM public.contacts WHERE id='{TICKET}'")==first[1]
  timestamp=sql(f"SELECT resolved_at FROM public.contacts WHERE id='{TICKET}'");sql(save('ticket:update',{'ticket_status':'resolved'},TICKET));assert sql(f"SELECT resolved_at FROM public.contacts WHERE id='{TICKET}'")==timestamp
  RESULTS.append({'case':'resolved timestamp unchanged across retries'})
  sql(save('ticket:update',{'ticket_status':'open'},TICKET));assert sql(f"SELECT resolved_at IS NULL FROM public.contacts WHERE id='{TICKET}'")=='t';RESULTS.append({'case':'reopen clears resolved timestamp'})
  reset();before=snapshot();race('rollback leaves no flag write','SET LOCAL ROLE service_role; '+save(),"SELECT enabled::text FROM public.feature_flags WHERE id='"+FLAG+"' FOR SHARE",'false',finish='ROLLBACK;');assert snapshot()==before
+ reset();race('different admins preserve independent flag fields','SET LOCAL ROLE service_role; '+save(values={'enabled':True}),save(values={'rollout_pct':100},actor=OTHER),FLAG)
+ assert sql(f"SELECT jsonb_build_array(enabled,rollout_pct) FROM public.feature_flags WHERE id='{FLAG}'")=='[true, 100]'
  for finish,expected in [('COMMIT;','23505'),('ROLLBACK;','OK')]:
-  reset();race('simultaneous flag creation '+finish,'SET LOCAL ROLE service_role; '+save('flag:create',{'key':'isolated-platform-create'},None),attempt(save('flag:create',{'key':'isolated-platform-create'},None)),expected,finish=finish)
+  reset();race('simultaneous flag creation '+finish,'SET LOCAL ROLE service_role; '+save('flag:create',{'key':'isolated-platform-create'},None),attempt(save('flag:create',{'key':'isolated-platform-create'},None,actor=OTHER)),expected,finish=finish)
  for kind,values,record,table in [('facility:verify',{'is_verified':True},FACILITY,'facility_profiles'),('ticket:update',{'priority':'high'},TICKET,'contacts')]:
   reset();race(kind+' deletion first',f"DELETE FROM public.{table} WHERE id='{record}'",attempt(save(kind,values,record)),'P0002')
   reset();race(kind+' write before deletion','SET LOCAL ROLE service_role; '+save(kind,values,record),f"DELETE FROM public.{table} WHERE id='{record}'; SELECT 'deleted'",'deleted')
@@ -123,4 +126,4 @@ try:
   reset();before=snapshot();actual=sql(attempt(statement,role));assert actual==code,(label,actual);assert snapshot()==before;RESULTS.append({'case':label,'sqlstate':actual})
  print(json.dumps({'cases':RESULTS,'actual_lock_waiters':sum(r.get('actual_lock_waiters',0) for r in RESULTS)},indent=2))
 finally:
- sql(f"DELETE FROM public.feature_flags WHERE key IN ('isolated-platform-control','isolated-platform-create'); DELETE FROM public.contacts WHERE id='{TICKET}';DELETE FROM public.facility_profiles WHERE id='{FACILITY}';DELETE FROM auth.users WHERE id='{ACTOR}';")
+ sql(f"DELETE FROM public.feature_flags WHERE key IN ('isolated-platform-control','isolated-platform-create'); DELETE FROM public.contacts WHERE id='{TICKET}';DELETE FROM public.facility_profiles WHERE id='{FACILITY}';DELETE FROM auth.users WHERE id IN ('{ACTOR}','{OTHER}');")
