@@ -10,7 +10,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { validateCouponDiscountFields, normalizeCouponDiscountFields } from '@/lib/coupon-validation';
+import { validateCouponDiscountFields, normalizeCouponDiscountFields, validateCouponDates, normalizeCouponDateFields } from '@/lib/coupon-validation';
 import { serverError } from '@/lib/with-route';
 
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
@@ -34,7 +34,7 @@ const couponSchema = z.object({
   valid_until: z.string().nullable().optional(),
   is_active: z.boolean().optional(),
   target_menu_ids: z.array(z.string().uuid()).max(100).optional(),
-}).superRefine(validateCouponDiscountFields).transform(normalizeCouponDiscountFields);
+}).superRefine(validateCouponDiscountFields).superRefine(validateCouponDates).transform(data=>normalizeCouponDateFields(normalizeCouponDiscountFields(data)));
 
 export async function GET(request: NextRequest) {
   const ip = getClientIp(request);

@@ -1,9 +1,12 @@
 /** @jest-environment node */
+import { legacyEditorRpc, type EditorArgs } from '@/test-utils/platform-editor-rpc';
+
 jest.mock('@/lib/csrf',()=>({checkCsrf:jest.fn(()=>null)}));
 jest.mock('@/lib/rate-limit',()=>({checkRateLimit:jest.fn(()=>false)}));
 jest.mock('@/lib/platform-admin',()=>({requirePlatformAdmin:jest.fn(()=>({id:'e1000000-0000-4000-8000-000000000002'}))}));
 jest.mock('@/lib/audit-logger',()=>({writeAuditLog:jest.fn(),getRequestContext:()=>({})}));
-const mockFrom=jest.fn();jest.mock('@/lib/supabase-server',()=>({createServiceRoleClient:()=>({from:mockFrom})}));
+const mockFrom=jest.fn();
+const mockRpc=jest.fn((_name:string,args:EditorArgs)=>legacyEditorRpc(mockFrom,args));jest.mock('@/lib/supabase-server',()=>({createServiceRoleClient:()=>({from:mockFrom,rpc:mockRpc})}));
 jest.mock('@/lib/newsletter-send',()=>{const actual=jest.requireActual('@/lib/newsletter-send');return {...actual,inspectNewsletterOperation:jest.fn(),publishNewsletterOperation:jest.fn()};});
 import {PATCH} from '../route';import {NextRequest} from 'next/server';import {checkCsrf} from '@/lib/csrf';import {checkRateLimit} from '@/lib/rate-limit';import {requirePlatformAdmin} from '@/lib/platform-admin';import {inspectNewsletterOperation,publishNewsletterOperation,NewsletterSendError} from '@/lib/newsletter-send';
 const id='e1000000-0000-4000-8000-000000000001';const revision='2026-10-09T00:00:00Z';const campaign={id,status:'draft',campaign_type:'user_digest',updated_at:revision};
@@ -19,7 +22,7 @@ test.each([{data:null,error:null},{data:null,error:{code:'PGRST116'}}])('definit
 test('campaign data plus error never continues',async()=>{mockFrom.mockReturnValue(chain(campaign,{code:'08006'}));expect((await PATCH(req({action:'send'}),props)).status).toBe(500);expect(inspectNewsletterOperation).not.toHaveBeenCalled();});
 test.each(['cancel'])('%s CAS empty returns conflict',async action=>{mockFrom.mockReturnValueOnce(chain({...campaign,status:action==='cancel'?'scheduled':'draft'})).mockReturnValueOnce(chain([]));expect((await PATCH(req({action}),props)).status).toBe(409);});
 test.each(['cancel'])('%s guard',async action=>{mockFrom.mockReturnValue(chain({...campaign,status:'sent'}));expect((await PATCH(req({action}),props)).status).toBe(400);});
-test.each(['cancel'])('%s success exactly one campaign',async action=>{const next={...campaign,status:action==='cancel'?'cancelled':'scheduled'};mockFrom.mockReturnValueOnce(chain({...campaign,status:action==='cancel'?'scheduled':'draft'})).mockReturnValueOnce(chain([next]));expect((await (await PATCH(req({action}),props)).json()).campaign).toEqual(next);});
+test.each(['cancel'])('%s success exactly one campaign',async action=>{const next={...campaign,status:action==='cancel'?'cancelled':'scheduled'};mockFrom.mockReturnValueOnce(chain({...campaign,status:action==='cancel'?'scheduled':'draft'})).mockReturnValueOnce(chain([next]));expect((await (await PATCH(req({action}),props)).json()).campaign).toEqual(expect.objectContaining(next));});
 test('unknown action',async()=>{expect((await PATCH(req({action:'bad'}),props)).status).toBe(400);});
 test('new send passes original observed revision and returns queue receipt',async()=>{const res=await PATCH(req({action:'send',expected_updated_at:revision}),props);expect(res.status).toBe(200);expect(publishNewsletterOperation).toHaveBeenCalledWith(expect.anything(),id,campaign,revision);expect((await res.json()).message).toContain('送信キュー');});
 test('response loss retry retains same operation even campaign now sending',async()=>{mockFrom.mockReturnValue(chain({...campaign,status:'sending'}));(inspectNewsletterOperation as jest.Mock).mockResolvedValue({operation_id:id});expect((await PATCH(req({action:'send',expected_updated_at:'old'}),props)).status).toBe(200);expect(publishNewsletterOperation).not.toHaveBeenCalled();});

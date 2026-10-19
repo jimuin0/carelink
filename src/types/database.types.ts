@@ -8293,6 +8293,14 @@ export type Database = {
         Args: { p_actor_id: string; p_facility_id: string; p_desired?: boolean }
         Returns: boolean
       }
+      create_chain_coupons_atomic: {
+        Args: { p_actor_id: string; p_facility_ids: string[]; p_values: Json }
+        Returns: { id: string; facility_id: string }[]
+      }
+      manage_platform_editor_atomic: {
+        Args: { p_actor_id: string; p_record_id: string | null; p_kind: string; p_values: Json; p_expected_image_url?: string | null }
+        Returns: Json
+      }
       manage_platform_control_atomic: {
         Args: { p_actor_id: string; p_record_id: string | null; p_kind: string; p_values: Json }
         Returns: Json

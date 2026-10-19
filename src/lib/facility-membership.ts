@@ -27,7 +27,8 @@ export async function getAdminFacilityIds(
       .eq('user_id', userId)
       .in('role', ['owner', 'admin']));
     if (error) return membershipReadFailure(error, route);
-    return (data ?? []).map((m) => m.facility_id as string);
+    if(!Array.isArray(data))return membershipReadFailure(new Error('MEMBERSHIP_LIST_UNCONFIRMED'),route);
+    return data.map((m) => m.facility_id as string);
   } catch (error) {
     return membershipReadFailure(error, route);
   }

@@ -420,3 +420,14 @@ UIは送信中の二重切替、別施設へ移った後の旧切替応答/初�
 本番通常DDL20261019005510を先行適用し、関数本文MD5 67c66cbefdb1642d28f81134105811bb・非DEFINER/空search_path/サービスのみEXECUTE・通常SELECT維持/DML禁止を照合。既存フラグ10件は不変、Advisor7分類68件の差分0。head/main CI、実E2E、配信版・保護API・Render版は既存台帳へ保存する。他チャット・委任・ChatGPTスケジュールなし。原票/本人同意/所有者専用対応/保留/過去原因の証拠不足を完了扱いにはしない。
 
 異なる2人の合成管理者でも、対象行の解決日時保持、フラグの別項目更新、同じキーの同時作成とrollbackを検証した。同一actorのaccount advisory lockだけで競合検証が通る盲点を避け、対象行/unique制約での実ロック待ちを観測。製品コード・DB本文は同一、検証スクリプトの強化として最終headをCIへ再投入する。旧headの進行中CIは最終成功証拠に使わない。
+
+
+### 2026-10-19 platform editor and bulk coupon adversarial follow-up
+
+Confirmed a preflight/service-write authority gap in sitewide feature/blog/newsletter draft writes and chain coupon creation. Reproduced post-revocation writes in disposable PG17. Added fixed-operation service-only gateways that lock account lifetime, current authority and target rows; bulk creation checks all target memberships before saving and rolls back the whole batch on any failure. No pricing/payment policy changes.
+
+Reject invalid coupon calendar dates/reversed ranges while allowing historical bad-range coupons to be deactivated. Preserve paired Unicode when truncating GBP drafts; validate target reads and mutation receipts, never treat uncertain lists as empty success. Feature management now checks platform authority without requiring a dummy facility; newsletter load failures remain visible with retry and malformed write receipts preserve the draft.
+
+Local validation:569 suites/12,237 tests;11,309/11,309 branches100%; TypeScript and React debt gate passed, debt3 unchanged; npm audit0 vulnerabilities. Real PG17 editor67cases/46actual lock waiters and bulk21cases/8waiters. Fresh298migrations/3199fingerprint records. Browser suite enumerates374tests; actual head/main CI and release verification recorded in local handoff ledger after completion.
+
+Ordinary production migrations20261019023252 and20261019023259 applied; all three function bodies match generated fingerprint, SECURITY INVOKER/emptysearchpath/service-only execution. Normal SELECT/RLS preserved; ordinary direct editor DML revoked. Existing counts0features/5posts/2newsletters unchanged; advisor categories/counts68 unchanged. No production business-row trials, provider publishing or customer notification. No other chats, agents or ChatGPT schedules. Source149, personal consent, Supabase-owner spatial_ref_sys, policy/holds and missing historical diagnostics remain open; no universal zero-defect assertion.

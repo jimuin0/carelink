@@ -21,12 +21,22 @@ const FACILITY_B = '22222222-2222-2222-2222-222222222222';
 
 const mockGetUser = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockRpc=jest.fn(async(_name:string,args:{p_actor_id:string;p_facility_ids:string[];p_values:Record<string,unknown>})=>{
+ const membership=await mockAdminFrom('facility_members').select('facility_id').eq('user_id',args.p_actor_id).in('role',['owner','admin']).in('facility_id',args.p_facility_ids);
+ if(membership.error)return {data:null,error:membership.error};
+ const allowed=(membership.data ?? []).map((m:{facility_id:string})=>m.facility_id);
+ if(!args.p_facility_ids.every(id=>allowed.includes(id)))return {data:null,error:{code:'42501'}};
+ const rows=args.p_facility_ids.map(facility_id=>({facility_id,...args.p_values}));
+ const result=await mockAdminFrom('coupons').insert(rows).select();
+ if(result.error||!Array.isArray(result.data))return result;
+ return {data:result.data.map((row:{id:string},i:number)=>({...row,id:/^[0-9a-f-]{36}$/i.test(row.id)?row.id:`99999999-9999-4999-8999-${String(i+1).padStart(12,'0')}`,facility_id:args.p_facility_ids[i]})),error:null};
+});
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -324,7 +334,7 @@ test('POST: memberships が null → 403', async () => {
   expect(res.status).toBe(403);
 });
 
-test('POST: insert結果が null → 201 (created=0)', async () => {
+test('POST: insert結果が null → 500 (unconfirmed)', async () => {
   mockAdminFrom.mockImplementation((table: string) => {
     if (table === 'facility_members') {
       return membershipChain([{ facility_id: FACILITY_A }, { facility_id: FACILITY_B }]);
@@ -333,8 +343,8 @@ test('POST: insert結果が null → 201 (created=0)', async () => {
   });
   const res = await POST(makeRequest(validBody()));
   const json = await res.json();
-  expect(res.status).toBe(201);
-  expect(json.created).toBe(0);
+  expect(res.status).toBe(500);
+  expect(json.created).toBeUndefined();
 });
 
 // Branch coverage: line 68 — discount_value が undefined のとき ?? null で null になる（true 分岐）
@@ -383,4 +393,31 @@ test('POST: x-forwarded-for ヘッダあり → IP抽出', async () => {
 
 test.each([null,[],1])('non-object JSON %p is rejected as input, not a server failure',async body=>{
  expect((await POST(makeRequest(body as any))).status).toBe(400);
+});
+
+test.each([{valid_from:'0000-01-01'},{valid_until:'2026-02-30'},{valid_from:'2026-12-31',valid_until:'2026-01-01'}])('invalid date batch %p is rejected before save',async fields=>{
+ setupSuccess();const res=await POST(makeRequest(validBody(fields)));expect(res.status).toBe(400);expect(mockAdminFrom).not.toHaveBeenCalled();expect(mockRpc).not.toHaveBeenCalled();
+});
+test('duplicate facility identities are rejected before batch',async()=>{
+ setupSuccess();expect((await POST(makeRequest(validBody({facility_ids:[FACILITY_A,FACILITY_A]})))).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();
+});
+const RESULT_A='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',RESULT_B='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+test.each([null,{},[],[{id:RESULT_A,facility_id:FACILITY_A}],
+ [{id:RESULT_A,facility_id:FACILITY_A},{id:RESULT_A,facility_id:FACILITY_B}],
+ [{id:'bad',facility_id:FACILITY_A},{id:RESULT_B,facility_id:FACILITY_B}],
+ [{id:RESULT_A,facility_id:USER_ID},{id:RESULT_B,facility_id:FACILITY_B}],
+ [{id:RESULT_A,facility_id:FACILITY_A},{id:RESULT_B,facility_id:FACILITY_A}],
+])('bulk receipt %p cannot claim full creation',async data=>{
+ mockRpc.mockResolvedValueOnce({data,error:null});const res=await POST(makeRequest(validBody()));expect(res.status).toBe(500);expect(res.headers.get('cache-control')).toBe('no-store');
+});
+test('bulk invalid fields from DB are400',async()=>{
+ mockRpc.mockResolvedValueOnce({data:null,error:{code:'22023'}});expect((await POST(makeRequest(validBody()))).status).toBe(400);
+});
+test('bulk rejected dependency is private and cannot report creation',async()=>{
+ mockRpc.mockRejectedValueOnce(new Error('synthetic private'));const res=await POST(makeRequest(validBody()));expect(res.status).toBe(500);expect(await res.text()).not.toContain('synthetic private');
+});
+test('bulk canonicalizes UUID case before the gateway and receipt comparison',async()=>{
+ const facility='cccccccc-cccc-4ccc-8ccc-cccccccccccc';mockRpc.mockResolvedValueOnce({data:[{id:RESULT_A,facility_id:facility}],error:null});
+ expect((await POST(makeRequest(validBody({facility_ids:[facility.toUpperCase()]})))).status).toBe(201);
+ expect(mockRpc).toHaveBeenCalledWith('create_chain_coupons_atomic',expect.objectContaining({p_actor_id:USER_ID,p_facility_ids:[facility]}));
 });

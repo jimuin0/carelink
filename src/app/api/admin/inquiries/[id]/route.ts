@@ -53,7 +53,7 @@ async function handlePATCH(request: NextRequest, props: { params: Promise<{ id: 
     action: 'update',
     tableName: 'contacts',
     recordId: params.id,
-    newValues: payload,
+    newValues: { ...payload, ...(payload.ticket_status!==undefined?{resolved_at:data.resolved_at}:{}) },
     ipAddress: ip,
   });
 

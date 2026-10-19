@@ -7,7 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
-import { validateCouponDiscountFields, normalizeCouponDiscountFields } from '@/lib/coupon-validation';
+import { validateCouponDiscountFields, normalizeCouponDiscountFields, validateCouponDates, normalizeCouponDateFields } from '@/lib/coupon-validation';
 import { serverError } from '@/lib/with-route';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { verifyAuthUser, AUTH_UNAVAILABLE_BODY } from '@/lib/auth-verification';
@@ -36,7 +36,7 @@ const updateSchema = z.object({
   valid_until: z.string().nullable().optional(),
   is_active: z.boolean().optional(),
   target_menu_ids: z.array(z.string().uuid()).max(100).optional(),
-}).superRefine(validateCouponDiscountFields).transform(normalizeCouponDiscountFields);
+}).superRefine(validateCouponDiscountFields).superRefine(validateCouponDates).transform(data=>normalizeCouponDateFields(normalizeCouponDiscountFields(data)));
 
 async function verifyCouponAdmin(couponId: string, userId: string): Promise<string | null> {
   const admin = createServiceRoleClient();

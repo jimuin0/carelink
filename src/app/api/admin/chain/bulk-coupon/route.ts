@@ -1,3 +1,4 @@
+import { platformControlResponse } from '@/lib/platform-control-write';
 /**
  * POST /api/admin/chain/bulk-coupon
  * チェーン全施設に同一クーポンを一括発行
@@ -11,7 +12,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX } from '@/lib/constants';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { validateCouponDiscountFields, normalizeCouponDiscountFields } from '@/lib/coupon-validation';
+import { validateCouponDiscountFields, normalizeCouponDiscountFields, validateCouponDates } from '@/lib/coupon-validation';
 import { serverError, authUnavailable } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
@@ -31,7 +32,7 @@ const bulkCouponDiscountSchema = z.object({
   special_price: z.number().int().min(0).max(9999999).optional().nullable(),
 }).superRefine(validateCouponDiscountFields).transform(normalizeCouponDiscountFields);
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   try {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
@@ -61,6 +62,10 @@ export async function POST(req: NextRequest) {
   if (!facility_ids.every((id: unknown) => typeof id === 'string' && UUID_REGEX.test(id))) {
     return NextResponse.json({ error: 'Invalid facility_ids' }, { status: 400 });
   }
+  const targets=facility_ids.map((id:string)=>id.toLowerCase());
+  if(new Set(targets).size!==targets.length)return NextResponse.json({error:'Duplicate facility IDs'},{status:400});
+  const dates=z.object({valid_from:z.string().nullish(),valid_until:z.string().nullish()}).superRefine(validateCouponDates).safeParse({valid_from,valid_until});
+  if(!dates.success)return NextResponse.json({error:'Invalid coupon dates'},{status:400});
   // 【正準値・相互必須】単体発行(admin/coupons)と同一の zod スキーマ(SSOT)で検証する。
   // discount_type の正準値チェック（DB CHECK 制約と一致）に加え、discount_type ごとの
   // discount_value/special_price 必須チェック・型に対応しない側の列の null 正規化まで行う。
@@ -78,57 +83,29 @@ export async function POST(req: NextRequest) {
   const normDiscountValue = discountParsed.data.discount_value;
   const normSpecialPrice = discountParsed.data.special_price;
 
-  // 権限確認: 全施設に対してowner/adminであること
-  const admin = createServiceRoleClient();
-  const { data: memberships, error: membershipError } = await admin
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-    .in('role', ['owner', 'admin'])
-    .in('facility_id', facility_ids);
-
-  if (membershipError) {
-    const response = serverError('admin-chain-bulk-coupon-membership', databaseDiagnostic(membershipError), '/api/admin/chain/bulk-coupon');
-    response.headers.set('Cache-Control', 'no-store');
-    return response;
-  }
-  const allowedIds = (memberships ?? []).map((m) => m.facility_id);
-  if (allowedIds.length !== facility_ids.length) {
-    return NextResponse.json({ error: 'Forbidden: some facilities not authorized' }, { status: 403 });
-  }
-
-  const rows = facility_ids.map((fid: string) => ({
-    facility_id: fid,
-    name: name.trim(),
-    // 正準値（DB CHECK: coupon_type IN ('new_customer','repeat','limited_time','all')）に合わせる。
-    // 旧値 'first_visit'/'birthday' は CHECK 違反、逆に有効値 'new_customer' 等は旧 includes に
-    // 無く黙って 'all' に落ちていた。非該当は 'all' フォールバック（従来同様）。
-    coupon_type: ['all', 'new_customer', 'repeat', 'limited_time'].includes(coupon_type) ? coupon_type : 'all',
-    discount_type: normDiscountType,
-    discount_value: normDiscountValue,
-    special_price: normSpecialPrice,
-    valid_from: valid_from || null,
-    valid_until: valid_until || null,
-    is_active: true,
-  }));
-
-  const { data, error } = await admin.from('coupons').insert(rows).select('id');
-  if (error) return serverError('admin-chain-bulk-coupon', error, '/api/admin/chain/bulk-coupon', 'クーポン作成に失敗しました');
+  const fields={name:name.trim(),coupon_type:['all','new_customer','repeat','limited_time'].includes(coupon_type)?coupon_type:'all',discount_type:normDiscountType,discount_value:normDiscountValue,special_price:normSpecialPrice,valid_from:dates.data.valid_from || null,valid_until:dates.data.valid_until || null,is_active:true};
+  const {data,error}=await createServiceRoleClient().rpc('create_chain_coupons_atomic',{p_actor_id:user.id,p_facility_ids:targets,p_values:fields});
+  if(error?.code==='42501')return NextResponse.json({error:'Forbidden: some facilities not authorized'},{status:403});
+  if(error?.code==='22023')return NextResponse.json({error:'Invalid coupon fields'},{status:400});
+  if(error)return serverError('admin-chain-bulk-coupon',databaseDiagnostic(error),'/api/admin/chain/bulk-coupon');
+  if(!Array.isArray(data)||data.length!==targets.length||new Set(data.map(row=>row.id)).size!==targets.length||!data.every(row=>UUID_REGEX.test(row.id)&&targets.includes(row.facility_id))||new Set(data.map(row=>row.facility_id)).size!==targets.length)return serverError('admin-chain-bulk-coupon-receipt',new Error('CHAIN_COUPON_UNCONFIRMED'),'/api/admin/chain/bulk-coupon');
 
   const { ip: auditIp, ua } = getRequestContext(req);
   void writeAuditLog({
     userId: user.id,
     action: 'create',
     tableName: 'coupons',
-    newValues: { name: name.trim(), discount_type, facility_ids, count: data?.length ?? 0 },
+    newValues: { name: name.trim(), discount_type, facility_ids, count: data.length },
     ipAddress: auditIp,
     userAgent: ua,
   });
 
-  return NextResponse.json({ ok: true, created: data?.length ?? 0 }, { status: 201 });
+  return NextResponse.json({ ok: true, created: data.length }, { status: 201 });
   } catch (error) {
     const response = serverError('admin-chain-bulk-coupon-dependency', databaseDiagnostic(error), '/api/admin/chain/bulk-coupon');
     response.headers.set('Cache-Control', 'no-store');
     return response;
   }
 }
+
+export async function POST(req:NextRequest){return platformControlResponse(()=>handlePOST(req),'/api/admin/chain/bulk-coupon');}

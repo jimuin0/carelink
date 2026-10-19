@@ -1,3 +1,5 @@
+import { writePlatformEditor } from '@/lib/platform-editor-write';
+import { platformControlResponse } from '@/lib/platform-control-write';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
@@ -8,7 +10,6 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
 import type { Database, Json } from '@/types/database.types';
-import { serverError } from '@/lib/with-route';
 import { runAfterResponse } from '@/lib/after-response';
 import { publishArticleToThreads } from '@/lib/platform-blog-threads';
 
@@ -42,14 +43,14 @@ const platformBlogUpdateSchema = z.object({
   // 受け入れ範囲は変えていない（route.ts の POST と同じ理由）。
   content: z.array(z.record(z.string(), z.custom<Json>())).optional(),
   is_published: z.boolean().optional(),
-});
+}).refine(value=>Object.keys(value).length>0);
 
 // Record<string, unknown> だと Supabase の update() が要求する platform_blog_posts.Update 型
 // （余剰プロパティ拒否・列ごとの型）と合わず tsc エラーになるため、Database 由来の Update 型で
 // 宣言する（gbp_posts の PATCH と同じ理由・実行時の組み立て方は変更なし）。
 type PlatformBlogUpdate = Database['public']['Tables']['platform_blog_posts']['Update'];
 
-export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+async function handlePATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
@@ -82,29 +83,17 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (description !== undefined) updatePayload.description = description ?? '';
   if (category !== undefined) updatePayload.category = category ?? '';
   if (content !== undefined) updatePayload.content = content;
-  if (parsed.data.is_published !== undefined) {
-    updatePayload.published_at = parsed.data.is_published ? new Date().toISOString() : null;
-  }
 
   const admin = createServiceRoleClient();
-  const { data, error } = await admin
-    .from('platform_blog_posts')
-    .update(updatePayload)
-    .eq('id', params.id)
-    .select()
-    // .maybeSingle(): 該当0行（存在しないid）を not found として扱う。.single() だと0行→PGRST116で
-    // 下の if(error)→500 が先に発火し if(!data)→404 が到達不能になる（404がデッドコード・500に化ける）。
-    .maybeSingle();
-
-  if (error) return serverError('admin-platform-blog-patch', error, '/api/admin/platform-blog/[id]');
-  if (!data) return NextResponse.json({ error: '記事が見つかりません' }, { status: 404 });
+  const data=await writePlatformEditor(userId,params.id,'post','update',updatePayload,'/api/admin/platform-blog/[id]');
+  if(data instanceof NextResponse)return data;
 
   void writeAuditLog({
     userId,
     action: 'update',
     tableName: 'platform_blog_posts',
     recordId: params.id,
-    newValues: updatePayload,
+    newValues: { ...updatePayload, ...(parsed.data.is_published!==undefined?{published_at:data.published_at}:{}) },
     ipAddress: ip,
   });
 
@@ -120,7 +109,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   return NextResponse.json({ post: data });
 }
 
-export async function DELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+async function handleDELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
@@ -137,18 +126,11 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const userId = adminUser.id;
 
-  const admin = createServiceRoleClient();
   // 【2026年7月10日 恒久根治】削除件数を検証せず常に成功を返していたため、存在しないIDの
   // 削除試行（0件削除）も「成功」と偽装していた（phantom success）。.select() で削除された
   // 行を受け取り、0件なら404を返す。
-  const { data, error } = await admin
-    .from('platform_blog_posts')
-    .delete()
-    .eq('id', params.id)
-    .select();
-
-  if (error) return serverError('admin-platform-blog-delete', error, '/api/admin/platform-blog/[id]');
-  if (!data || data.length === 0) return NextResponse.json({ error: '記事が見つかりません' }, { status: 404 });
+  const data=await writePlatformEditor(userId,params.id,'post','delete',{},'/api/admin/platform-blog/[id]');
+  if(data instanceof NextResponse)return data;
 
   void writeAuditLog({
     userId,
@@ -160,3 +142,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   return NextResponse.json({ ok: true });
 }
+
+export async function PATCH(request:NextRequest,props:{params:Promise<{id:string}>}){return platformControlResponse(()=>handlePATCH(request,props),'/api/admin/platform-blog/[id]');}
+
+export async function DELETE(request:NextRequest,props:{params:Promise<{id:string}>}){return platformControlResponse(()=>handleDELETE(request,props),'/api/admin/platform-blog/[id]');}

@@ -1,3 +1,6 @@
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
+import { writePlatformEditor } from '@/lib/platform-editor-write';
+import { platformControlResponse } from '@/lib/platform-control-write';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
@@ -29,9 +32,9 @@ const featureUpdateSchema = z.object({
     .refine((v) => !v || SAFE_HREF_PATTERN.test(v), '不正なリンク先です'),
   is_active: z.boolean().optional(),
   sort_order: z.number().int().min(0).max(9999).optional(),
-});
+}).refine(value=>Object.keys(value).length>0);
 
-export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+async function handlePATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
@@ -59,15 +62,18 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   // ストック画像が残っている記事のタイトル修正等を壊さないため（管理画面はフォーム全体を
   // 送るので、画像を変えない更新でも image_url は必ず載ってくる）。
   // 差し替えが必要なときだけ 1 回追加でクエリするので、通常経路のコストは増えない。
+  let expectedImage:string|null=null;
   if (isStockImageUrl(parsed.data.image_url)) {
-    const { data: current } = await admin
+    const { data: current, error: currentError } = await admin
       .from('feature_articles')
       .select('image_url')
       .eq('id', params.id)
       .maybeSingle();
+    if(currentError)return serverError('admin-feature-image-read',databaseDiagnostic(currentError),'/api/admin/features/[id]');
     if (isNewStockImage(parsed.data.image_url, current?.image_url ?? null)) {
       return NextResponse.json({ error: STOCK_IMAGE_ERROR }, { status: 400 });
     }
+    expectedImage=parsed.data.image_url!;
   }
 
   // 【2026年8月11日 恒久根治】空文字は「画像を外す」意思表示なので null に倒す。ただし
@@ -93,18 +99,8 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     updatePayload.href = parsed.data.href || '';
   }
 
-  const { data, error } = await admin
-    .from('feature_articles')
-    // feature_articles に updated_at 列は無い（created_at のみ）→ 書き込むと 400 になるため付けない
-    .update(updatePayload)
-    .eq('id', params.id)
-    .select()
-    // .maybeSingle(): 該当0行（存在しないid）を not found として扱う。.single() だと0行→PGRST116で
-    // 下の if(error)→500 が先に発火し if(!data)→404 が到達不能になる（404がデッドコード・500に化ける）。
-    .maybeSingle();
-
-  if (error) return serverError('admin-features-patch', error, '/api/admin/features/[id]');
-  if (!data) return NextResponse.json({ error: '記事が見つかりません' }, { status: 404 });
+  const data=await writePlatformEditor(userId,params.id,'feature','update',updatePayload,'/api/admin/features/[id]',expectedImage);
+  if(data instanceof NextResponse)return data;
 
   const { ua } = getRequestContext(request);
   void writeAuditLog({
@@ -121,7 +117,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   return NextResponse.json({ feature: data });
 }
 
-export async function DELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+async function handleDELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
@@ -138,14 +134,11 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const userId = user.id;
 
-  const admin = createServiceRoleClient();
   // 【2026年7月10日 恒久根治】削除件数を検証せず常に成功を返していたため、存在しないIDの
   // 削除試行（0件削除）も「成功」と偽装していた（phantom success）。.select() で削除された
   // 行を受け取り、0件なら404を返す。
-  const { data, error } = await admin.from('feature_articles').delete().eq('id', params.id).select();
-
-  if (error) return serverError('admin-features-delete', error, '/api/admin/features/[id]');
-  if (!data || data.length === 0) return NextResponse.json({ error: '記事が見つかりません' }, { status: 404 });
+  const data=await writePlatformEditor(userId,params.id,'feature','delete',{},'/api/admin/features/[id]');
+  if(data instanceof NextResponse)return data;
 
   const { ua } = getRequestContext(request);
   void writeAuditLog({
@@ -160,3 +153,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   return NextResponse.json({ ok: true });
 }
+
+export async function PATCH(request:NextRequest,props:{params:Promise<{id:string}>}){return platformControlResponse(()=>handlePATCH(request,props),'/api/admin/features/[id]');}
+
+export async function DELETE(request:NextRequest,props:{params:Promise<{id:string}>}){return platformControlResponse(()=>handleDELETE(request,props),'/api/admin/features/[id]');}

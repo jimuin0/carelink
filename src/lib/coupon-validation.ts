@@ -1,3 +1,4 @@
+import { isValidIsoDate } from './date-utils';
 import type { z } from 'zod';
 
 /**
@@ -76,4 +77,20 @@ export function normalizeCouponDiscountFields<T extends CouponDiscountFields>(da
     discount_value: data.discount_type === 'special_price' ? null : (data.discount_value ?? null),
     special_price: data.discount_type === 'special_price' ? (data.special_price ?? null) : null,
   };
+}
+
+/** Validate calendar dates before Postgres parsing; preserve nullable clears. */
+export function validateCouponDates(data:{valid_from?:unknown;valid_until?:unknown},ctx:z.RefinementCtx):void {
+ const times:Partial<Record<'valid_from'|'valid_until',string>>={};
+ for(const key of ['valid_from','valid_until'] as const){
+  const value=data[key];if(value==null||value==='')continue;
+  const date=typeof value==='string'?/^(\d{4}-\d{2}-\d{2})(?:$|[T ])/.exec(value):null;
+  if(!date||!isValidIsoDate(date[1])||!Number.isFinite(Date.parse(value as string))){ctx.addIssue({code:'custom',path:[key],message:'有効な日付を入力してください'});continue;}
+  times[key]=date[1];
+ }
+ if(times.valid_from!==undefined&&times.valid_until!==undefined&&times.valid_from>times.valid_until)ctx.addIssue({code:'custom',path:['valid_until'],message:'終了日は開始日以降にしてください'});
+}
+
+export function normalizeCouponDateFields<T extends {valid_from?:string|null;valid_until?:string|null}>(data:T):T {
+ return {...data,...(data.valid_from!==undefined?{valid_from:data.valid_from || null}:{}),...(data.valid_until!==undefined?{valid_until:data.valid_until || null}:{})};
 }

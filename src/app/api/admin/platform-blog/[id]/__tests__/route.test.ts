@@ -8,6 +8,8 @@
  *   - PATCH data null → 404
  *   - DB failure → 500
  */
+import { legacyEditorRpc, type EditorArgs } from '@/test-utils/platform-editor-rpc';
+
 
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
@@ -19,12 +21,13 @@ const USER_ID   = '33333333-3333-3333-3333-333333333333';
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockRpc=jest.fn((_name:string,args:EditorArgs)=>legacyEditorRpc(mockAdminFrom,args));
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockRpc }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -240,8 +243,8 @@ test('PATCH: is_published=true → published_at が設定される', async () =>
     };}),
   });
   await PATCH(makePatchRequest({ is_published: true }), makeProps());
-  expect(captured?.published_at).toBeDefined();
-  expect(captured?.published_at).not.toBeNull();
+  expect(captured?.is_published).toBe(true);
+  expect(captured).not.toHaveProperty('published_at');
 });
 
 test('PATCH: is_published=false → published_at が null', async () => {
@@ -257,7 +260,8 @@ test('PATCH: is_published=false → published_at が null', async () => {
     };}),
   });
   await PATCH(makePatchRequest({ is_published: false }), makeProps());
-  expect(captured?.published_at).toBeNull();
+  expect(captured?.is_published).toBe(false);
+  expect(captured).not.toHaveProperty('published_at');
 });
 
 test('PATCH: is_published 未指定 → published_at 設定なし', async () => {
@@ -307,4 +311,9 @@ test('PATCH: x-forwarded-for ヘッダから IP 取得', async () => {
   });
   const res = await PATCH(req, makeProps());
   expect(res.status).toBe(200);
+});
+
+test.each([{}, {unknown:true}])('empty recognized platform post update %p must reject before write',async body=>{
+ mockAnonFrom.mockReturnValue(profileSingle(true));mockAdminFrom.mockReturnValue(updateSingle({id:POST_UUID}));
+ const res=await PATCH(makePatchRequest(body),makeProps());expect(res.status).toBe(400);expect(mockAdminFrom).not.toHaveBeenCalled();
 });

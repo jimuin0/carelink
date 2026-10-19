@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { SbBadge, SbPageHeader, SbStatCard, type SbBadgeTone } from '@/components/admin/SbUi';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import LoadError from '@/components/admin/LoadError';
 import Toast from '@/components/Toast';
 
 type Campaign = {
@@ -32,6 +33,8 @@ const STATUS_LABELS: Record<string, { label: string; tone: SbBadgeTone }> = {
   cancelled: { label: 'キャンセル', tone: 'danger' },
 };
 
+const validCampaign=(c:Campaign)=>c&&typeof c.id==='string'&&typeof c.subject==='string'&&typeof c.updated_at==='string'&&typeof c.created_at==='string'&&Object.hasOwn(STATUS_LABELS,c.status)&&Object.hasOwn(TYPE_LABELS,c.campaign_type)&&c.stats&&typeof c.stats==='object'&&!Array.isArray(c.stats);
+
 export default function NewslettersPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,15 +52,31 @@ export default function NewslettersPage() {
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
 
-  useEffect(() => {
-    fetch('/api/admin/newsletter')
-      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
-      .then((d) => { setCampaigns(d.campaigns || []); setLoading(false); })
-      .catch(() => { setLoading(false); setResult({ ok: false, message: '一覧を取得できませんでした。受付状況は未確認です。' }); });
-  }, []);
+  const [loadError,setLoadError]=useState(false);
+  const loadGeneration=useRef(0);
+  const creatingRef=useRef(false);
+  const loadCampaigns=useCallback(async()=>{
+    const generation=++loadGeneration.current;
+    setLoading(true);setLoadError(false);
+    try {
+      const res=await fetch('/api/admin/newsletter',{cache:'no-store'});
+      if(!res.ok)throw new Error();
+      const data=await res.json();
+      if(!Array.isArray(data.campaigns)||!data.campaigns.every(validCampaign))throw new Error();
+      if(generation===loadGeneration.current)setCampaigns(data.campaigns);
+    } catch {
+      if(generation===loadGeneration.current){setLoadError(true);setResult({ok:false,message:'一覧を取得できませんでした。受付状況は未確認です。'});}
+    } finally {if(generation===loadGeneration.current)setLoading(false);}
+  },[]);
+  useEffect(()=>{
+    let cancelled=false;const generation=loadGeneration;
+    queueMicrotask(()=>{if(!cancelled)void loadCampaigns();});
+    return()=>{cancelled=true;generation.current++;};
+  },[loadCampaigns]);
 
   const handleCreate = async () => {
-    if (!form.subject || !form.html_content) return;
+    if (!form.subject || !form.html_content || creatingRef.current) return;
+    creatingRef.current=true;
     setCreating(true);
     try {
       const res = await fetch('/api/admin/newsletter', {
@@ -67,6 +86,7 @@ export default function NewslettersPage() {
       });
       const data = await res.json();
       if (res.ok) {
+        if(!validCampaign(data.campaign)||data.campaign.status!=='draft'||data.campaign.subject!==form.subject)throw new Error();
         setCampaigns((prev) => [data.campaign, ...prev]);
         setShowCreate(false);
         setForm({ campaign_type: 'owner_monthly', subject: '', html_content: '', text_content: '' });
@@ -77,6 +97,7 @@ export default function NewslettersPage() {
     } catch {
       setResult({ ok: false, message: '作成結果を確認できません。一覧を確認してから操作してください。' });
     } finally {
+      creatingRef.current=false;
       setCreating(false);
     }
   };
@@ -90,6 +111,7 @@ export default function NewslettersPage() {
       });
       const data = await res.json();
       if (res.ok) {
+        if(!validCampaign(data.campaign)||data.campaign.id!==id)throw new Error();
         setCampaigns(prev => prev.map(c => c.id === id ? data.campaign : c));
         if (data.message) setResult({ ok: true, message: data.message });
       } else {
@@ -123,7 +145,7 @@ export default function NewslettersPage() {
         actions={
           <button
             type="button"
-            onClick={() => setShowCreate(true)}
+            onClick={() => {if(!creatingRef.current)setShowCreate(true);}}
             className="btn-primary px-4! py-2! text-sm"
           >
             新規キャンペーン作成
@@ -140,16 +162,18 @@ export default function NewslettersPage() {
       )}
 
       {/* Quick stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      {!loading&&!loadError&&<div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <SbStatCard label="総キャンペーン" value={campaigns.length} unit="件" accent="sky" />
         <SbStatCard label="処理完了" value={campaigns.filter((c) => c.status === 'sent').length} unit="件" accent="emerald" />
         <SbStatCard label="旧予約" value={campaigns.filter((c) => c.status === 'scheduled').length} unit="件" accent="amber" />
         <SbStatCard label="下書き" value={campaigns.filter((c) => c.status === 'draft').length} unit="件" accent="gray" />
       </div>
 
+      }
+
       {/* Create form */}
       {showCreate && (
-        <div className="bg-white rounded-xl border p-6 space-y-4">
+        <fieldset disabled={creating} className="bg-white rounded-xl border p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">新規キャンペーン</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -214,13 +238,13 @@ export default function NewslettersPage() {
             </button>
             <button
               type="button"
-              onClick={() => setShowCreate(false)}
+              onClick={() => {if(!creatingRef.current)setShowCreate(false);}}
               className="px-4 py-2 rounded-lg text-sm border hover:bg-gray-50 transition-colors"
             >
               キャンセル
             </button>
           </div>
-        </div>
+        </fieldset>
       )}
 
       {/* Campaign list */}
@@ -230,7 +254,7 @@ export default function NewslettersPage() {
         </div>
         {loading ? (
           <div className="p-8 text-center text-gray-400">読み込み中...</div>
-        ) : campaigns.length === 0 ? (
+        ) : loadError ? (<LoadError onRetry={loadCampaigns} message="一覧を取得できませんでした。受付状況は未確認です。" />) : campaigns.length === 0 ? (
           <div className="p-8 text-center text-gray-400">まだキャンペーンがありません</div>
         ) : (
           <div className="divide-y">

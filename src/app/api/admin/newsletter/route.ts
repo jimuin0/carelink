@@ -1,3 +1,5 @@
+import { writePlatformEditor } from '@/lib/platform-editor-write';
+import { platformControlResponse } from '@/lib/platform-control-write';
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
@@ -7,7 +9,7 @@ import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
 import { serverError } from '@/lib/with-route';
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   const ip = getClientIp(request);
   if (await checkRateLimit(null, ip, 20, 60_000, 'newsletter-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
@@ -24,10 +26,11 @@ export async function GET(request: NextRequest) {
     .limit(100);
 
   if (error) return serverError('admin-newsletter-list', error, '/api/admin/newsletter');
+  if(!Array.isArray(campaigns))return serverError('admin-newsletter-list',new Error('NEWSLETTER_LIST_UNCONFIRMED'),'/api/admin/newsletter');
   return NextResponse.json({ campaigns });
 }
 
-export async function POST(req: NextRequest) {
+async function handlePOST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const ip = getClientIp(req);
@@ -39,6 +42,7 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
+  if(body===null||typeof body!=='object'||Array.isArray(body))return NextResponse.json({error:'Invalid request'},{status:400});
   const { campaign_type, subject, html_content, text_content, scheduled_at } = body;
   if (scheduled_at != null && scheduled_at !== '') {
     return NextResponse.json({ code: 'NEWSLETTER_MANUAL_ONLY', error: 'ニュースレターは手動配信のみです。予約日時を指定せず下書きを作成してください。' }, { status: 400 });
@@ -61,22 +65,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid campaign_type' }, { status: 400 });
   }
 
-  const admin = createServiceRoleClient();
-  const { data: campaign, error } = await admin
-    .from('newsletter_campaigns')
-    .insert({
-      campaign_type,
-      subject,
-      html_content,
-      text_content: text_content || null,
-      scheduled_at: null,
-      status: 'draft',
-      created_by: user.id,
-    })
-    .select()
-    .single();
-
-  if (error) return serverError('admin-newsletter-create', error, '/api/admin/newsletter');
+  const campaign=await writePlatformEditor(user.id,null,'newsletter','create',{campaign_type,subject,html_content,text_content:text_content || null},'/api/admin/newsletter');
+  if(campaign instanceof NextResponse)return campaign;
 
   const { ua } = getRequestContext(req);
   void writeAuditLog({
@@ -91,3 +81,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ campaign }, { status: 201 });
 }
+
+export async function GET(request:NextRequest){return platformControlResponse(()=>handleGET(request),'/api/admin/newsletter');}
+
+export async function POST(request:NextRequest){return platformControlResponse(()=>handlePOST(request),'/api/admin/newsletter');}

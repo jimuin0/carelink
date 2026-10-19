@@ -1,6 +1,7 @@
 /**
  * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  */
+import { NextResponse } from 'next/server';
 import { getAdminFacilityIds, resolveTargetFacilityId } from '../facility-membership';
 
 function makeSupabase(rows: unknown[] | null) {
@@ -18,10 +19,10 @@ describe('getAdminFacilityIds', () => {
     expect(result).toEqual(['fac-1', 'fac-2']);
   });
 
-  test('data が null なら空配列を返す', async () => {
+  test('data が null なら権限不明500を返す', async () => {
     const supabase = makeSupabase(null);
     const result = await getAdminFacilityIds(supabase, 'user-1');
-    expect(result).toEqual([]);
+    expect(result).toBeInstanceOf(NextResponse);expect((result as NextResponse).status).toBe(500);expect((result as NextResponse).headers.get('cache-control')).toBe('no-store');
   });
 });
 
