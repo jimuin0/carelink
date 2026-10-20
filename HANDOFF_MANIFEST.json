@@ -287,8 +287,8 @@
     },
     {
       "path": "docs/handoff/RESTORE_VERIFICATION.md",
-      "sha256": "adf57ccbedd11cad4d57b5a8a7cf7237113109a0f45a94e079e6cc8d17b8cd01",
-      "bytes": 1804
+      "sha256": "c56c4c74e914899ed712d6507a8e5752418ead0afcfdf68103144374783bc055",
+      "bytes": 2748
     },
     {
       "path": "docs/handoff/environment-names.json",
@@ -337,8 +337,8 @@
     },
     {
       "path": "docs/handoff/restore-results.json",
-      "sha256": "892adc1bc0498344c0deb0aea3fac1c988045a5977af87f8ab23c16ed46e301f",
-      "bytes": 3037
+      "sha256": "6aae425e8265b64a41ea8729f04aa65220f2e1748622363ad4c63680c00ff1c7",
+      "bytes": 3976
     },
     {
       "path": "docs/handoff/verifier-safety-results.json",

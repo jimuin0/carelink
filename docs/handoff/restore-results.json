@@ -54,5 +54,28 @@
   "private_nested_preservation": "both nested Git histories bundled/verified locally; pending doc diff saved privately; still not transferred",
   "earlier_payload_commit": "676cbb3658d771324fb6381f0ea114ab2e3d1921",
   "earlier_manifest_readback": "Remote GitHub pull at final_payload_commit: 1940 files matched; archive restored and all 4 member hashes matched",
-  "final_integrity_policy": "All tracked payload including this results file is hashed. Only manifest itself excluded; exact final commit is independently read back from GitHub."
+  "final_integrity_policy": "All tracked payload including this results file is hashed. Only manifest itself excluded; exact final commit is independently read back from GitHub.",
+  "ci_functional_verification": {
+    "commit": "6b30b8e575e8aad5b62b5588f0ff8f729d4faa25",
+    "url": "https://github.com/jimuin0/carelink/actions/runs/39366685067",
+    "status": "success",
+    "unit_tests": 12330,
+    "unit_suites": 575,
+    "e2e_passed": 374,
+    "local_api_contract_tests": 17,
+    "static_migration_contract_tests": 17,
+    "later_changes": "Handoff metadata and environment-name index/archive/manifest only; runtime source unchanged."
+  },
+  "private_archive_local_validation": {
+    "archives": 16,
+    "files_restored_and_hash_matched": 12683,
+    "transfer": "not transferred",
+    "evidence_sha256": "cc8c8738f90f5d0a94213687bb81633c02b8241a4738fc2f9c3d2d665c51f408"
+  },
+  "unreachable_history_local_validation": {
+    "objects_preserved": 3566,
+    "isolated_restore": "passed",
+    "transfer": "not transferred",
+    "evidence_sha256": "089bdd3408c8ae918b50535f22590a3a80a55e608e14d92b67f5a704732f888a"
+  }
 }
