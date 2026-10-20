@@ -333,8 +333,8 @@
     },
     {
       "path": "docs/handoff/restart-evidence.tar.gz",
-      "sha256": "ad0ffe1118107cf49d0a75f2078371be5ddc958a4f0b935b5f9a6efdbc49d0a8",
-      "bytes": 13984
+      "sha256": "61697fcd0bde1396b750851bc1cfb70faa011c0418b04a25c21405a7681c01c9",
+      "bytes": 14093
     },
     {
       "path": "docs/handoff/verifier-safety-results.json",
@@ -9710,7 +9710,7 @@
   "archive_members": {
     "environment-names.json": "5cc447c164696a0b81b014f636c7344efb638aced33b789a366a428d2730c50e",
     "git-inventory.json": "f3913613a1a6f2573a0937d99169f77a87fd28ad71fdf85afdfe571f3c70faef",
-    "local-inventory-summary.json": "8f0c177f83b31e353d20e0952d701d09ef67c40553a0f6c99967eaa9a1df1682",
+    "local-inventory-summary.json": "32a382cd373b033a7d14ae7e67e1da4920a52e79c81141e9be74b302a12b2ab6",
     "original-source-index.json": "0cf3f6928160499e9a70ea6e2ec862c2aae88fd7b66161f9f3f3c83ae786db8c"
   }
 }
