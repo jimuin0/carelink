@@ -2,7 +2,7 @@
 
 ## 範囲と分類
 
-A: GitHub現行mainのソース、lockfile、migration、tests、assets、docs。remote mainはc33a53ac。古いこのMac main abd8e80を正本にしない。
+A: GitHub現行mainのソース、lockfile、migration、tests、assets、docs。資料作成前の機能基準はc33a53ac、最初の引継ぎ保存mainはd9e56ce6。古いこのMac main abd8e80を正本にしない。
 B: 今回の再開入口、規則、原票名/hash索引、Git棚卸し、環境変数名、分類集計、非機密検証記録、復元検査ツール。Gitへ保存する。
 C: `.env`、`.vercel`、ブラウザ認証、未レビューのrawログ/SQL応答/証跡、過去保存tar16本、ローカル固有Git履歴、入れ子workの未push差分。**未処理を不要扱いしない**。公開repoへの一括追加は禁止。元Mac内に保持。安全な受取先/暗号鍵の合意がないので未移行。必要時は管理者承認済み秘密管理庫/暗号化保管へ別送し、受信側でSHA256を照合する。未push履歴は公開前に全差分の秘密/個人情報レビューが必要。原稿・原応答・費用・試行回数を含む可能性のあるraw資料は削除しない。
 D: Supabase DB/Auth/Storage/backup、Vercel環境変数/配信、Render既存env/ジョブ、GitHub Secrets、Google/LINE/Stripe/Resend/Slack等。既存サービスに保持し、アカウント権限と再認証は別途必要。バックアップ可用性/保持期限/復元は未検証。勝手にコピー/新規権限付与を行わない。
@@ -36,3 +36,8 @@ Git LFS pointerは追跡ファイルに0。submodule/追跡symlinkの件数はGi
 ## 新Macへ引き継ぐ無視規則
 
 元Macの.git/info/excludeだけにあったwork/と.local-consolidation系の無視規則を共有.gitignoreへ移した。新しいcloneで生証跡や入れ子作業コピーを誤って一括公開しないための予防であり、元ファイルは削除しない。AGENTS.mdは共有の再開規則なので追跡する。
+
+## 今回の再開範囲と差分検証
+
+現在コードの再開が目的であり、全過去履歴の別送は完了条件にしない。Cの原資料は元の場所へ保持し、必要時だけ承認済み安全経路で移す。外部Dの認証は本番操作時の依存で、公開コード取得の依存ではない。元資料の削除・他者worktreeの変更はしていない。
+2026-10-20再確認: main/remote main d9e56ce6一致、主checkout差分なし、stashなし、登録worktree3件を読取。関連Jest/Playwright/build実行はプロセス検索で検出なし（外部ジョブ不存在の証明ではない）。既存7,403件の分類・16アーカイブの保存/復元証拠を再利用し、同じ探索・全体テストを再実行しない。今回差分は再開指示・検証メタデータのみ。最終版は別の空フォルダへGitHubからcloneしてmanifest全件と4アーカイブmemberを実照合する。別実機・別アカウントのログイン、本番DB復元、最新本番動作は未検証。

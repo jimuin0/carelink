@@ -2,14 +2,19 @@
 
 正式repo: https://github.com/jimuin0/carelink （公開）。新Macでは任意の空ディレクトリへcloneする。旧Macの絶対パス・このチャット・ログイン済みブラウザは不要。最新の機能基準は c33a53ac8c96422e4271e4a47d3403e226cecd91 / PR734。依存バージョンは package-lock.json が正（Next16.3.8 / React19.2 / Node>=22.22.2）。過去AGENTS・docsのNext15等の記載は履歴。
 
-## 最初にすること
+## 再開直後の実作業（優先順）
 
-1. `git clone https://github.com/jimuin0/carelink.git`。この文書がmainにない期間は `git checkout codex/carelink-portable-handoff-20261020`。
-2. `python3 scripts/verify-handoff.py`。manifestの対象全件を照合する。
-3. Node22.22.2以上、Python3、Gitを用意し `npm ci`。ローカルfile依存2件はrepo内にあり、旧Macのnode_modulesへリンクしない。
-4. `npm run test:coverage:ci -- --runInBand`、`npm run lint`、`npx tsc --noEmit`。本番.envをコピーしてテストしない。
-5. 起動/DB/E2Eは [.github/workflows/ci.yml](.github/workflows/ci.yml) の使い捨てローカルSupabase手順を使用。`.env.example`のURLは本番なので、そのままseedしない。ローカルSupabaseと合成データ以外へのseed・負荷試験は禁止。
-6. [復元検証](docs/handoff/RESTORE_VERIFICATION.md) と [分類監査](HANDOFF_AUDIT.md) の制約を読み、下記残件から進める。
+1. **対象**: 上記公開repoのCareLinkのみ。任意の空フォルダへ `git clone https://github.com/jimuin0/carelink.git`。現行コードの開発再開に過去アーカイブの全移送は不要。
+2. **未完了の最優先**: PR734のRender集約について、workspace jimuinのサービス版・切替値・suspend状態・実行ログを読取確認し、[切替手順](docs/render-cron-consolidation.md) と照合する。既に実施済みなら再切替しない。未実施なら既存安全条件と権限を確認して指定の順序で進める。文書更新を外部切替完了としない。
+3. **最初の確認は限定する**: `git status --short`、`git rev-parse HEAD`、`python3 scripts/verify-handoff.py`、進行中の関連テスト/デプロイ/cron操作の有無を確認。別作業を停止・上書きしない。manifest対象コミットは `git log -1 --format=%H -- HANDOFF_MANIFEST.json` で特定する。そのコミットが完成した引継ぎ一式であり、資料作成前のコミットではない。
+4. **確認済みを再実行しない**: 対象が一致すれば下記および[検証記録](docs/handoff/RESTORE_VERIFICATION.md)の保存結果を使う。同じ全体テストを重複起動しない。関連コード変更・環境差・失敗がある場合だけ必要な再検査を選ぶ。資料だけの変更で全体テストを繰り返さない。通常のブランチ名は `codex/` と既存規則で判断し、不要な確認を挟まない。
+5. **認証待ちと独立作業**: Supabase所有者のACL是正は依頼送信済みで完了未確認。重複送信せず対応後に権限を検証する。実Google同意は本人操作で任意機能のため優先を下げる。認証待ちでも現行コードの独立した調査・実装・合成データ検証を続ける。原票149件は過去指摘の照合制約で、現在の開発再開の前提ではない。画像保持・公開・店舗所有は技術不足と分けて本人の事業判断として扱う。着手不能なら具体的阻害要因と、その間に進めた作業を報告する。
+6. **予算・禁止・公開条件**: 新規予算なし。秘密・個人情報の公開、無断課金/送信/削除/権限拡大、他案件/他チャットへの越境、ChatGPT内蔵スケジュールは禁止。既存検査基準と下記保留を維持。ブラウザ操作はCodexサイドバー内で行う。
+
+## 新しい環境の準備（必要時のみ）
+
+Node22.22.2以上、Python3、Gitを用意し `npm ci`。file依存2件はrepo内にあり、旧Macのnode_modulesへリンクしない。実際に環境を変えた場合のテストは `npm run test:coverage:ci -- --runInBand`、`npm run lint`、`npx tsc --noEmit`。本番.envをコピーしてテストしない。
+起動/DB/E2Eは [.github/workflows/ci.yml](.github/workflows/ci.yml) の使い捨てローカルSupabase手順を使用。`.env.example`のURLは本番なので、そのままseedしない。ローカルSupabaseと合成データ以外へのseed・負荷試験は禁止。
 
 ## 最新状況と優先順位
 
@@ -34,7 +39,7 @@ DB業務データ・Auth・Storageは既存クラウド側に残る。新Mac開�
 
 ## 競合と履歴
 
-別worktreeのcronブランチ de26a2e7 はPR734でマージ済み。ジョブが完了したか・外部操作が確定したかは本番の読取で確認してから作業する。他プロセスを停止しない。古いopen PR640/641/632/646/647/651や依存PRを一括mergeしない。ローカル固有branch/stash一覧は [Git棚卸し](docs/handoff/git-inventory.json)。未push履歴は現行へcherry-pickせず、秘密レビュー未完了のローカル資料として保持している。完全な履歴移送はまだ未完了。
+別worktreeのcronブランチ de26a2e7 はPR734でマージ済み。ジョブが完了したか・外部操作が確定したかは本番の読取で確認してから作業する。他プロセスを停止しない。古いopen PR640/641/632/646/647/651や依存PRを一括mergeしない。ローカル固有branch/stash一覧は [Git棚卸し](docs/handoff/git-inventory.json)。未push履歴は現行へcherry-pickせず、秘密レビュー未完了のローカル資料として保持している。完全な履歴移送は未実施だが、現行コードの開発再開に必須ではない。元の資料は保持する。
 
 ## 配信・復旧
 

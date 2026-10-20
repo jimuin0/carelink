@@ -10,3 +10,5 @@
 - schema-snapshot.jsonで列/表を確認し、service-roleはサーバ信頼文脈限定。公開読取anonを書込に使わない。
 - CI課金制限だけで停止せず、ローカルで同等検証を行う。未実行CIを成功扱いしない。coverage branch100%を緩和しない。
 - worktreeのnode_modulesを他checkoutへsymlinkしない。コミット前にsecret検査、配信後は実commit/healthを確認。
+
+- 再開の初回確認は対象・差分・manifest一致・進行中ジョブに限定する。一致時は保存済み検証を使い、資料整理を反復せずRESUMEの未完了へ進む。全体再検査は関連コード/環境の変更や失敗など理由がある場合のみ。認証待ちでも独立作業を続ける。

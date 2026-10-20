@@ -1,7 +1,5 @@
 {
   "acquisition": "remote GitHub clone into new empty checkout",
-  "tested_commit": "2ba890cc",
-  "baseline": "c33a53ac8c96422e4271e4a47d3403e226cecd91",
   "original_checkout_dependencies": false,
   "node": "22.23.3",
   "npm": "10.9.9",
@@ -77,5 +75,9 @@
     "isolated_restore": "passed",
     "transfer": "not transferred",
     "evidence_sha256": "089bdd3408c8ae918b50535f22590a3a80a55e608e14d92b67f5a704732f888a"
-  }
+  },
+  "code_baseline_commit": "c33a53ac8c96422e4271e4a47d3403e226cecd91",
+  "local_validation_checkout_commit": "2ba890cc",
+  "documentation_revision_source_commit": "d9e56ce6465105687c01763c41cea0bd7f799771",
+  "completed_handoff_commit_resolution": "git log -1 --format=%H -- HANDOFF_MANIFEST.json"
 }
