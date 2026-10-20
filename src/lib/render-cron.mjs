@@ -43,5 +43,11 @@ export function isHealthy(httpStatus, body) {
  */
 export function formatHealthSummary(httpStatus, body) {
   const status = body && body.status ? body.status : 'unknown';
-  return `HTTP ${httpStatus} / status ${status}`;
+  // Name only the failing dependencies so a degraded alert says which one.
+  // Names are filtered to plain identifiers; error texts are never echoed.
+  const deps = body && typeof body.deps === 'object' && body.deps !== null ? body.deps : {};
+  const failing = Object.keys(deps)
+    .filter((name) => /^[a-z_]{1,32}$/.test(name) && deps[name] && deps[name].ok === false)
+    .sort();
+  return `HTTP ${httpStatus} / status ${status}${failing.length ? ` / failing ${failing.join(',')}` : ''}`;
 }
