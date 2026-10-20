@@ -2,8 +2,7 @@
   "algorithm": "SHA256",
   "baseline": "c33a53ac8c96422e4271e4a47d3403e226cecd91",
   "exclusions": [
-    "HANDOFF_MANIFEST.json",
-    "docs/handoff/restore-results.json"
+    "HANDOFF_MANIFEST.json"
   ],
   "files": [
     {
@@ -288,8 +287,8 @@
     },
     {
       "path": "docs/handoff/RESTORE_VERIFICATION.md",
-      "sha256": "ebf2552642d509e49bca086d8ab4d7af6de56158ea260b80f62a42927a61f811",
-      "bytes": 1792
+      "sha256": "adf57ccbedd11cad4d57b5a8a7cf7237113109a0f45a94e079e6cc8d17b8cd01",
+      "bytes": 1804
     },
     {
       "path": "docs/handoff/environment-names.json",
@@ -335,6 +334,11 @@
       "path": "docs/handoff/restart-evidence.tar.gz",
       "sha256": "61697fcd0bde1396b750851bc1cfb70faa011c0418b04a25c21405a7681c01c9",
       "bytes": 14093
+    },
+    {
+      "path": "docs/handoff/restore-results.json",
+      "sha256": "892adc1bc0498344c0deb0aea3fac1c988045a5977af87f8ab23c16ed46e301f",
+      "bytes": 3037
     },
     {
       "path": "docs/handoff/verifier-safety-results.json",
