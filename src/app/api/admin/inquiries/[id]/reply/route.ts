@@ -11,12 +11,18 @@ import { inquiryReplyEnvelopeSchema, type InquiryReplyEnvelope } from '@/lib/inq
 import { authUnavailable, serverError, withRoute } from '@/lib/with-route';
 
 const IDEMPOTENCY_RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
+// The provider keeps an idempotency key for 24 hours. Closing an unknown
+// reservation is only offered after that, and the database enforces the same bound.
+const ABANDON_AFTER_MS = 24 * 60 * 60 * 1000;
 const sendSchema = z.object({
   body: z.string().trim().min(1).max(5000),
   operationId: z.string().regex(UUID_REGEX),
 }).strict();
 const reconcileSchema = z.object({ action: z.literal('reconcile'),
   operationId: z.string().regex(UUID_REGEX), providerMessageId: z.string().regex(UUID_REGEX),
+}).strict();
+const abandonSchema = z.object({ action: z.literal('abandon'),
+  operationId: z.string().regex(UUID_REGEX), confirmNotDelivered: z.literal(true),
 }).strict();
 
 type ReplyRow = {
@@ -30,12 +36,18 @@ type ReplyRow = {
   created_at: string;
   delivery_envelope?: InquiryReplyEnvelope | null;
   provider_message_id?: string | null;
+  delivery_abandoned_at?: string | null;
 };
 
 function canRetryPendingReply(createdAt: string, now = Date.now()): boolean {
   const createdAtMs = Date.parse(createdAt);
   const age = now - createdAtMs;
   return Number.isFinite(createdAtMs) && age >= 0 && age < IDEMPOTENCY_RETRY_WINDOW_MS;
+}
+
+function canAbandonPendingReply(createdAt: string, now = Date.now()): boolean {
+  const createdAtMs = Date.parse(createdAt);
+  return Number.isFinite(createdAtMs) && now - createdAtMs >= ABANDON_AFTER_MS;
 }
 
 function noStoreJson(body: Record<string, unknown>, status = 200): NextResponse {
@@ -102,6 +114,7 @@ async function handleGet(request: NextRequest, props: { params: Promise<{ id: st
     .eq('contact_id', id)
     .eq('is_internal', false)
     .is('sent_at', null)
+    .is('delivery_abandoned_at', null)
     .order('created_at', { ascending: false })
     .order('id', { ascending: false })
     .limit(1)
@@ -134,6 +147,7 @@ async function handleGet(request: NextRequest, props: { params: Promise<{ id: st
       createdAt: reply.created_at,
       sentAt: reply.sent_at,
       retryable: reply.sent_at === null && Boolean(reply.delivery_envelope) && canRetryPendingReply(reply.created_at),
+      abandonable: reply.sent_at === null && canAbandonPendingReply(reply.created_at),
       recoveryAvailable: inquiryReplyEnvelopeSchema.safeParse(reply.delivery_envelope).success,
       providerMessageId: reply.provider_message_id ?? null,
     } : null,
@@ -164,16 +178,20 @@ async function handlePost(request: NextRequest, props: { params: Promise<{ id: s
   const admin = { id: verification.user.id, name: verification.name };
 
   const json = await request.json().catch(() => null);
-  const parsed = z.union([sendSchema, reconcileSchema]).safeParse(json);
+  const parsed = z.union([sendSchema, reconcileSchema, abandonSchema]).safeParse(json);
   if (!parsed.success) return noStoreJson({ error: 'リクエストが不正です' }, 400);
 
   const service = createServiceRoleClient();
+  if ('action' in parsed.data && parsed.data.action === 'abandon') {
+    return abandonReply(service, params.id, parsed.data.operationId, admin.id, ip);
+  }
   if ('action' in parsed.data) {
     const { operationId, providerMessageId } = parsed.data;
     const found = await findReplyById(service, operationId);
     if (found.error) return noStoreServerError('admin-inquiries-reply-reconcile-read', new Error('reply_operation_read_failed'));
     const reply = found.data as ReplyRow | null;
     if (!reply || reply.contact_id !== params.id || reply.is_internal) return noStoreJson({ error: 'この問い合わせの返信操作を確認できません' }, 409);
+    if (reply.delivery_abandoned_at) return noStoreJson({ error: 'この返信は未送信として確定済みです。照合できません' }, 409);
     if (reply.sent_at) {
       if (reply.provider_message_id !== providerMessageId) return noStoreJson({ error: '確認済みの送信記録と一致しません' }, 409);
       const ticketUpdated = await updateTicketAfterReply(service, params.id);
@@ -203,6 +221,9 @@ async function handlePost(request: NextRequest, props: { params: Promise<{ id: s
   if (existing && (existing.contact_id !== contact.id || existing.is_internal || existing.body !== body)) {
     return noStoreJson({ error: 'この返信操作IDは別の内容に使用済みです。送信状況を再読み込みしてください' }, 409);
   }
+  if (existing?.delivery_abandoned_at) {
+    return noStoreJson({ error: 'この返信は未送信として確定済みです。送信状況を再読み込みし、新しい返信として送ってください' }, 409);
+  }
 
   if (!existing) {
     const { data: pendingData, error: pendingError } = await service.from('contact_replies')
@@ -210,6 +231,7 @@ async function handlePost(request: NextRequest, props: { params: Promise<{ id: s
       .eq('contact_id', contact.id)
       .eq('is_internal', false)
       .is('sent_at', null)
+      .is('delivery_abandoned_at', null)
       .limit(1)
       .maybeSingle();
     if (pendingError) return noStoreServerError('admin-inquiries-reply-pending-read', new Error('pending_reply_read_failed'));
@@ -236,7 +258,8 @@ async function handlePost(request: NextRequest, props: { params: Promise<{ id: s
       const reread = await findReplyById(service, operationId);
       if (reread.error) return noStoreServerError('admin-inquiries-reply-insert', new Error('reply_reservation_failed'));
       existing = reread.data as ReplyRow | null;
-      if (!existing || existing.contact_id !== contact.id || existing.is_internal || existing.body !== body) {
+      if (!existing || existing.contact_id !== contact.id || existing.is_internal || existing.body !== body
+        || existing.delivery_abandoned_at) {
         return noStoreJson({ error: '返信を安全に開始できませんでした。送信状況を再読み込みしてください' }, 409);
       }
     } else {
@@ -279,6 +302,7 @@ async function recordAcceptance(service: ReturnType<typeof createServiceRoleClie
     .eq('contact_id', reply.contact_id)
     .eq('is_internal', false)
     .is('sent_at', null)
+    .is('delivery_abandoned_at', null)
     .select('id');
   if (markError || markedRows?.length !== 1) {
     // Provider accepted the idempotent operation. Never report a clean failure that
@@ -308,6 +332,47 @@ async function recordAcceptance(service: ReturnType<typeof createServiceRoleClie
   });
 
   return noStoreJson({ ok: true, alreadySent: false, warning: ticketUpdated ? null : 'ticket_status_update_failed' });
+}
+
+async function abandonReply(
+  service: ReturnType<typeof createServiceRoleClient>, contactId: string, operationId: string, adminId: string, ip: string,
+) {
+  const found = await findReplyById(service, operationId);
+  if (found.error) return noStoreServerError('admin-inquiries-reply-abandon-read', new Error('reply_operation_read_failed'));
+  const reply = found.data as ReplyRow | null;
+  if (!reply || reply.contact_id !== contactId || reply.is_internal) return noStoreJson({ error: 'この問い合わせの返信操作を確認できません' }, 409);
+  if (reply.delivery_abandoned_at) return noStoreJson({ ok: true, alreadyAbandoned: true });
+  if (reply.sent_at) return noStoreJson({ error: 'この返信は送信済みとして確定しています' }, 409);
+  if (!canAbandonPendingReply(reply.created_at)) {
+    return noStoreJson({ error: '送信サービスの冪等保持期間（24時間）が過ぎるまで未送信として確定できません' }, 409);
+  }
+
+  // The database stamps its own clock and re-checks the 24-hour bound and the
+  // unsent state, so a concurrent acceptance or a skewed server clock cannot win.
+  const { data: rows, error } = await service.from('contact_replies')
+    .update({ delivery_abandoned_at: new Date().toISOString(), delivery_abandoned_by: adminId })
+    .eq('id', operationId)
+    .eq('contact_id', contactId)
+    .eq('is_internal', false)
+    .is('sent_at', null)
+    .is('provider_message_id', null)
+    .is('delivery_abandoned_at', null)
+    .select('id');
+  if (error) {
+    if (error.code === '23514') return noStoreJson({ error: '未送信として確定できる状態ではありません。送信状況を再読み込みしてください' }, 409);
+    return noStoreServerError('admin-inquiries-reply-abandon', new Error('reply_abandon_failed'));
+  }
+  if (rows?.length !== 1) return noStoreJson({ error: '返信の状態が変わりました。送信状況を再読み込みしてください' }, 409);
+
+  void writeAuditLog({
+    userId: adminId,
+    action: 'cancel',
+    tableName: 'contact_replies',
+    recordId: operationId,
+    newValues: { contact_id: contactId, delivery_abandoned: true, reason: 'provider_outcome_unknown_confirmed_not_delivered' },
+    ipAddress: ip,
+  });
+  return noStoreJson({ ok: true, alreadyAbandoned: false });
 }
 
 export async function POST(request: NextRequest, props: { params: Promise<{ id: string }> }) {

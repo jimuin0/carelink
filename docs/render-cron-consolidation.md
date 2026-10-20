@@ -77,3 +77,21 @@ is verified. Coordinate the change outside due ticks and verify the next slots.
 - Preparation mode, activation boundary, retired-service no-op and manual invocation.
 - Admin schedule export retains job IDs, business UTC/JST times and runner mappings.
 - Current Render Blueprint JSON Schema validation, lint/typecheck and full coverage gate.
+
+## Production cutover record (read-only check, 2026-10-20 JST)
+
+Read from the Render dashboard of workspace `jimuin` by the owner; no setting was changed.
+
+- Active CareLink crons: exactly the five retained services, each with a successful latest run.
+- Suspended by owner about one day earlier: exactly the 13 retired services (not deleted, rollback possible).
+- `carelink-cron-env` has `CARELINK_CRON_DISPATCH_FROM=2026-10-19T05:57:00Z`.
+- `carelink-daily-summary`: Blueprint managed, command `node scripts/cron-dispatch.mjs calendar`,
+  schedule `0,10,20,25,40 * * * *`, deployed main `d9e56ce` (after PR734 `c33a53a`).
+- Its 2026-10-20T06:00Z run logged `jobs=daily-summary` and `daily-summary 成功: HTTP 200`;
+  06:40, 08:20 and 08:25 logged `jobs=none` as expected.
+
+Steps 1-4 and 6 are confirmed. Step 5 is only partly confirmed: no run of a job that moved
+from a retired service (for example `waitlist-notify` or `flag-reviews` on
+`carelink-webhook-retry`) has been read yet. The agent's in-app browser blocks every
+dashboard.render.com subresource (`ERR_BLOCKED_BY_CLIENT`) and no Render API key or Chrome
+extension was available, so this remains unverified rather than assumed.

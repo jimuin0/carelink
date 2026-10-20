@@ -352,6 +352,9 @@ jobs:
       - name: Verify API-key issuance and revocation authority races
         run: python3 scripts/check-api-key-write-concurrency.py
 
+      - name: Inquiry reply abandonment guard and acceptance races (disposable DB)
+        run: python3 scripts/check-inquiry-reply-abandon.py
+
       - name: Facility integration authority, provider fences and rollback
         run: python3 scripts/check-facility-integration-concurrency.py
 

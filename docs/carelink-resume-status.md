@@ -1,3 +1,12 @@
+## 2026-10-20 問い合わせ返信の結果不明（24時間超）を未送信として確定する操作
+
+- 欠陥: 送信結果が不明のまま23時間を過ぎた返信は、二重送信防止のため再送を止める一方、未確定の行を閉じる正規の手段が無かった。部分一意索引 `idx_contact_replies_one_pending_external` により、その問い合わせには新しい返信を永久に作れず、返信フォームも無効のままになる（`docs/carelink-resumption-readiness-20260926.md` の未完了P2）。受理記録がある場合の照合（reconcile）は既存。
+- 修正: migration `20261020080000_inquiry_reply_abandon` で `delivery_abandoned_at` / `delivery_abandoned_by` を追加し、未確定1件の索引を `idx_contact_replies_one_open_external`（放棄済みを除外）へ置換。トリガーが「外部向け・未送信・未受理・作成から24時間以上（Resendの冪等キー保持期間）」の場合だけ1回の放棄を許し、時刻はDBの `now()` で確定、放棄後の送信確定・受理・取消を拒否する。API `action: 'abandon'`（`confirmNotDelivered: true` 必須）は同条件を再確認してから条件付きUPDATEし、監査ログ `cancel` を残す。管理画面は24時間後だけ、操作IDとResendログでの確認手順・確認チェック付きの確定ボタンを出す。メールは送らない。確定後は新しい操作IDの別返信として送る。
+- 残る前提: 「Resendに該当メールが無い」ことの確認は運営者の目視であり、サーバーは機械照合しない（操作IDだけからResendのメールを検索するAPIが無いため）。誤って確定すると同じ内容が二重に届き得るので、確認チェックと操作IDの表示で手順を固定した。
+- 検証（ローカル）: 返信API 68件・分岐152/152、管理画面19件、関連ガード13スイート168件、tsc、lint 0 errors（既存warning4）。fingerprint期待値は関数本文md5を既存と同じ規則で算出して更新（旧関数で既存値と一致を確認）。実PG17のトリガー・索引・競合2順序の検証 `scripts/check-inquiry-reply-abandon.py` はCIで実行する（このMacにはDocker/psqlが無くローカル未実行）。
+- 追補（同日・レビュー指摘）: 放棄者の `auth.users` 削除時の `ON DELETE SET NULL` までトリガーが拒否し、アカウント削除が23514でロールバックする欠陥があった。`20261020150000_inquiry_reply_abandon_actor_deletion` で「放棄者をNULLへ戻す変更だけ」を許可した（別人への付け替え・放棄時刻の変更は引き続き拒否）。本番の放棄済み行は適用時点で0件のため実害なし。
+- 配信順序: **本番migration適用 → その後にアプリをmerge**。逆順だと新しい列が無く返信状況の取得が500になる。migrationは追加列・索引置換・トリガー更新のみで、旧アプリと互換（旧アプリは放棄済み行を作らない）。本番DDL適用はSupabase権限が必要で、このセッションでは未実施。
+
 ## 2026-10-18 APIキー発行・無効化の権限検証（PR #723へ同梱）
 
 - 再現: 旧 `api_keys` ALLポリシーは任命adminの直接INSERTを許し、owner限定の発行APIを迂回できた。旧APIの事前認可後に権限を失ってもservice-role書き込みが実行される経路と、JSON nullの例外も再現した。
