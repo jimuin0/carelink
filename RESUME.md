@@ -14,7 +14,7 @@
 ## 最新状況と優先順位
 
 - PR733 / abd8e800: 実装・ローカル検証・本番配信照合の記録あり。573 suites/12,305 tests、branches11,309/11,309、E2E head/main各374。これは過去証拠であり今回の再実行ではない。
-- PR734 / c33a53ac: mainへマージ済み。cron集約の575 suites/12,330 tests、100%分岐とCI成功がPRに記録。**本番切替完了は今回未確認**。18→5サービスへの切替値・suspend状態・実行ログを最優先で読み取り確認する。手順・rollbackは [cron正本](docs/render-cron-consolidation.md)。推測で切替/再送しない。
+- PR734 / c33a53ac: mainへマージ済み。cron集約の575 suites/12,330 tests、100%分岐とCI成功がPRに記録。本番healthは今回healthy/version c33a53aを読取確認。**Renderの切替値・suspend・実ジョブ確認は今回未確認**。18→5サービスへの切替値・suspend状態・実行ログを最優先で読み取り確認する。手順・rollbackは [cron正本](docs/render-cron-consolidation.md)。推測で切替/再送しない。
 - Supabase `public.spatial_ref_sys` 公開書込権限: 10/19確認時未修正、所有者supabase_admin。サポート依頼は本人が送信完了と報告。受付番号・対応完了は未確認。再依頼を重複送信せず、所有者対応後ACLを検証する。
 - 原票151全文のうち149未回収。名前/hashは [原票索引](docs/handoff/original-source-index.json)。旧Mac原保存先 `/private/tmp/carelink-audit-20260924.8xy8L8` と旧CareLink docsが候補。2件のみ取得済みという過去判定。Git全blob/関連アーカイブ/Drive既知候補で149件は見つからず。旧Mac名の解決、SSH/SMB Bonjourは結果なし。現在Macはpersonal hotspot「kam」だった。旧MacIP/共有可否は未確認。原票回収完了・全指摘解消を認定しない。
 - 過去menu500、Safari/nav timeout、health遅延、Render trigger欠落の根因は証拠不足。現行テスト成功で過去原因確定に置換しない。
@@ -43,3 +43,5 @@ DB業務データ・Auth・Storageは既存クラウド側に残る。新Mac開�
 ## 別アカウントへ貼る依頼文
 
 「このrepoのRESUME.md、HANDOFF_AUDIT.md、HANDOFF_MANIFEST.json、docs/handoff/RESTORE_VERIFICATION.mdを読み、manifestを検証して再開してください。元Mac/旧チャット/ブラウザ状態に依存せず、残件と未移行の機密履歴を区別してください。まずPR734の本番cron切替状態を読み取りで確認し、原票149件回収とSupabase所有者対応を未完了のまま追跡してください。他チャットへの連絡・委任・ChatGPTスケジュールは禁止。保留条件と秘密保護、検査基準を維持し、実施できる実装/検証をこの会話内で進めてください。」
+
+過去DB競合スクリプトの旧Mac専用`--local-docker`系モードはポータブルではない。通常psql/CIモードを使い、ハードコードの専用socket安全ガードは削除しない。未push履歴のbundleと入れ子docs差分の未移行はprivate-history-preservation.jsonに記録。

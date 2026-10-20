@@ -22,3 +22,9 @@ F: 他案件は探索対象外。旧版を自動で不要にはしない。旧Ca
 ## 完了境界
 
 公開できる再開入口と索引のGitHub復元を実証する作業であり、C/Dの完全移行や別実機/別アカウントでの検証完了を意味しない。秘密移行先が未指定のため**元Mac非依存の完全な履歴・証拠移転は未達**。この制約を引継ぎ文書で隠さない。
+
+## 追加確認
+
+Git LFS pointerは追跡ファイルに0。submodule/追跡symlinkの件数はGit棚卸しに記録。4本の過去競合検証スクリプトに旧Mac専用Docker/psqlモードが存在する。安全ガードを外さず、通常の`psql`/CIローカルDBモードを使用する。現行アプリ・npm ciの必須依存ではない。path-dependencies.jsonに対象を記録。
+
+入れ子worktree2件も確認し、一方のdocs/carelink-resume-status.mdに未保存差分1件がある。元checkoutを変更せず保持し、公開レビュー前なのでC。全refのGit bundleをローカル作成・git bundle verify成功。hashをprivate-history-preservation.jsonに保存。これは別Macへの移転完了ではない。

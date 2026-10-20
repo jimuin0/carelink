@@ -158,8 +158,8 @@
     },
     {
       "path": "HANDOFF_AUDIT.md",
-      "sha256": "5e4e1299c5f5ebedd3a3e62af4884dcf54e841f8e562593a6fc0ce60edc19c57",
-      "bytes": 3306
+      "sha256": "1818392132478db97139c4833df98402163a18ec4bbf5e4e989a76cb55e83d36",
+      "bytes": 4058
     },
     {
       "path": "README.md",
@@ -168,8 +168,8 @@
     },
     {
       "path": "RESUME.md",
-      "sha256": "0d0c457deab42e42f8cb76a37a10674165a0351b95f20d0f90ad7928d415ef39",
-      "bytes": 7279
+      "sha256": "eb19ec5cf180294e9251caa3a35149f27f6c26628f3725b024d1f6fb23f06369",
+      "bytes": 7686
     },
     {
       "path": "__mocks__/@vercel/functions.js",
@@ -288,8 +288,8 @@
     },
     {
       "path": "docs/handoff/RESTORE_VERIFICATION.md",
-      "sha256": "c8678670d4012b1f3b5de9d157f747e46b02b1e92df9147341895b0674838f95",
-      "bytes": 901
+      "sha256": "ebf2552642d509e49bca086d8ab4d7af6de56158ea260b80f62a42927a61f811",
+      "bytes": 1792
     },
     {
       "path": "docs/handoff/environment-names.json",
@@ -312,9 +312,34 @@
       "bytes": 33516
     },
     {
+      "path": "docs/handoff/path-dependencies.json",
+      "sha256": "8e201f627664669e2b3a6ae4cc892fddb4bcd4fa7b19539fba839def2bc95f3f",
+      "bytes": 390
+    },
+    {
+      "path": "docs/handoff/private-history-preservation.json",
+      "sha256": "7a838f5fc987cdc43af90b91f630ff5acb362d615c3afcac1eaf299c2d17920f",
+      "bytes": 494
+    },
+    {
+      "path": "docs/handoff/public-health.json",
+      "sha256": "49fb70bd6b0895975208068f61924ff2f6737e096d72c485e98a23d915adaa9f",
+      "bytes": 93
+    },
+    {
+      "path": "docs/handoff/release-evidence-summary.json",
+      "sha256": "4549899b5a3c551985412252aa8b42e00c66f3c4f8845e9601ede7af06ceea3a",
+      "bytes": 398
+    },
+    {
       "path": "docs/handoff/restart-evidence.tar.gz",
       "sha256": "ad0ffe1118107cf49d0a75f2078371be5ddc958a4f0b935b5f9a6efdbc49d0a8",
       "bytes": 13984
+    },
+    {
+      "path": "docs/handoff/verifier-safety-results.json",
+      "sha256": "c03d2a890a383024aa002fa0588e957bf453899a5e941cea3d4dde116ea146fc",
+      "bytes": 234
     },
     {
       "path": "docs/launch-audit-apply-20260722.sql",

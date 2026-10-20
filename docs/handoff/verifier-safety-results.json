@@ -1,0 +1,12 @@
+{
+  "fixture": "synthetic isolated directories",
+  "cases": {
+    "normal": "pass",
+    "traversal": "pass",
+    "absolute": "pass",
+    "symlink": "pass",
+    "duplicate": "pass",
+    "tampered": "pass",
+    "existing": "pass"
+  }
+}
