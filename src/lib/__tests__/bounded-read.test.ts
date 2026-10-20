@@ -48,3 +48,15 @@ test.each([true, false])('a stalled SELECT fails into the error boundary at the 
   expect(consoleError).toHaveBeenCalledWith('[page-read] timeout', { label: 'bookings-today', ms: PAGE_READ_TIMEOUT_MS });
   expect(jest.getTimerCount()).toBe(0);
 });
+
+test('a result that settles after the deadline (blocked event loop) is not presented', async () => {
+  const clock = jest.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValueOnce(PAGE_READ_TIMEOUT_MS);
+  const abortSignal = jest.fn((signal: AbortSignal) => { captured = signal; return Promise.resolve({ count: 1, error: null }); });
+  let captured!: AbortSignal;
+  const error = await readWithinDeadline('dashboard-menus', Object.assign(Promise.resolve(null), { abortSignal })).catch((e: unknown) => e);
+  clock.mockRestore();
+  expect(error).toBeInstanceOf(PageReadTimeoutError);
+  expect(captured.aborted).toBe(true);
+  expect(consoleError).toHaveBeenCalledWith('[page-read] timeout', { label: 'dashboard-menus', ms: PAGE_READ_TIMEOUT_MS });
+  expect(jest.getTimerCount()).toBe(0);
+});

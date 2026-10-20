@@ -14,10 +14,11 @@ export class PageReadTimeoutError extends Error {
 export async function readWithinDeadline<Q extends PromiseLike<unknown>>(label: string, query: Q): Promise<Awaited<Q>> {
   const abortable = query as Q & { abortSignal?: (signal: AbortSignal) => PromiseLike<Awaited<Q>> };
   const controller = new AbortController();
+  const deadline = Date.now() + PAGE_READ_TIMEOUT_MS;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const operation = typeof abortable.abortSignal === 'function' ? abortable.abortSignal(controller.signal) : query;
-    return await Promise.race([
+    const result = await Promise.race([
       Promise.resolve(operation),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
@@ -27,6 +28,14 @@ export async function readWithinDeadline<Q extends PromiseLike<unknown>>(label: 
           controller.abort();
         }, PAGE_READ_TIMEOUT_MS);
       }),
-    ]) as Awaited<Q>;
+    ]);
+    // A blocked event loop can let the transport settle before the overdue
+    // timer runs. Never present a result observed after the deadline.
+    if (Date.now() >= deadline) {
+      console.error('[page-read] timeout', { label, ms: PAGE_READ_TIMEOUT_MS });
+      controller.abort();
+      throw new PageReadTimeoutError(label);
+    }
+    return result as Awaited<Q>;
   } finally { clearTimeout(timer); }
 }
