@@ -23,7 +23,6 @@
     "real_auth": "not attempted"
   },
   "archive_restore": "passed 4 members + full hash verification",
-  "secret_scan": "gitleaks8.30.1 zero findings on new Git commit and restored JSON archive",
   "logs_sha256": {
     "npm_ci": "5fc7f0e481911da77547f28a7882cbab48f7486a358c5490c89ed6ea0013fb74",
     "unit_coverage": "e9fd4640c9a40998fd754d70e62c8417f465f65981fca3ac20e7cb3f70c4866b",
@@ -31,8 +30,8 @@
     "typecheck": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "build_no_env_failed": "95d596b5b54fd8c46e9dac8da94c7e18f73e653ec28b609acabb16452635241a",
     "build_synthetic_succeeded": "6a30b8dc1f630ade9a83bafa0224d312dd1d20838bf807398bf0ac3420e2b1bf",
-    "secret_scan": "c7ad07bdbe28efe4937821fc4ee1a746203874a41aa657b7e6469f34d31535e1",
-    "archive_scan": "2b9c0bbd22264c1dfc1934652fd7ddf2005e663428e21fa2f97544db8d6de894"
+    "archive_scan": "2b9c0bbd22264c1dfc1934652fd7ddf2005e663428e21fa2f97544db8d6de894",
+    "scanner_result": "c7ad07bdbe28efe4937821fc4ee1a746203874a41aa657b7e6469f34d31535e1"
   },
   "not_verified": [
     "different physical Mac",
@@ -43,5 +42,12 @@
     "149 originals recovery",
     "Render cutover live state"
   ],
-  "manifest_readback": "final follow-up required"
+  "manifest_readback": "c7cdd56c remote pull: 1940 files and 4 archive members verified; final revision must be rechecked",
+  "scanner_result": "gitleaks8.30.1 zero findings on new Git commit and restored JSON archive",
+  "scanner_false_positives": {
+    "count": 2,
+    "rule": "generic-api-key",
+    "cause": "ordinary scanner-result prose and SHA256 log digest under a scanner-named field; not credentials",
+    "history": "retained; no security rule disabled"
+  }
 }
