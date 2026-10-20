@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { readWithinDeadline, PageReadTimeoutError, PAGE_READ_TIMEOUT_MS } from '../bounded-read';
 
 let consoleError: jest.SpyInstance;
