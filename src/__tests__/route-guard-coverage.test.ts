@@ -69,6 +69,9 @@ const ALLOW: Record<string, Exemption> = {
   'contact/route.ts': {
     auth: '未ログインで送れることが要件の問い合わせフォーム。CSRF＋レート制限＋reCAPTCHA で守る',
   },
+  'facilities/[id]/view/route.ts': {
+    auth: '未ログインの閲覧者も数える施設ページの閲覧記録。CSRF＋IP 全体と施設ごとのレート制限＋公開施設のみで守る',
+  },
   'inquiry/route.ts': {
     auth: '未ログインで送れることが要件の施設への問い合わせ。CSRF＋レート制限で守る',
   },
