@@ -788,6 +788,8 @@ export type Database = {
           body: string
           contact_id: string
           created_at: string
+          delivery_abandoned_at: string | null
+          delivery_abandoned_by: string | null
           delivery_envelope: Json | null
           id: string
           is_internal: boolean
@@ -800,6 +802,8 @@ export type Database = {
           body: string
           contact_id: string
           created_at?: string
+          delivery_abandoned_at?: string | null
+          delivery_abandoned_by?: string | null
           delivery_envelope?: Json | null
           id?: string
           is_internal?: boolean
@@ -812,6 +816,8 @@ export type Database = {
           body?: string
           contact_id?: string
           created_at?: string
+          delivery_abandoned_at?: string | null
+          delivery_abandoned_by?: string | null
           delivery_envelope?: Json | null
           id?: string
           is_internal?: boolean

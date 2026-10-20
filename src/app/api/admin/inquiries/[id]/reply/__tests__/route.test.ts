@@ -32,7 +32,9 @@ let sentUpdateReturnsNoRows = false;
 let failTicketUpdate = false;
 let ticketUpdateReturnsNoRows = false;
 let replyReadFailure: 'contact' | 'operation' | 'operation-after-insert' | 'pending' | 'sent' | null = null;
-let insertConflict: null | 'missing' | 'contact' | 'internal' | 'body' = null;
+let insertConflict: null | 'missing' | 'contact' | 'internal' | 'body' | 'abandoned' = null;
+let abandonUpdateError: string | null = null;
+let abandonUpdateReturnsNoRows = false;
 let insertAttempted = false;
 let mockConsoleError: jest.SpyInstance;
 
@@ -69,6 +71,8 @@ function profileChain(data: unknown) {
 function matches(row: Record<string, unknown>, filters: Record<string, unknown>) {
   return Object.entries(filters).every(([key, value]) => {
     if (value === '__not_null__') return row[key] !== null && row[key] !== undefined;
+    // Rows seeded before a column existed omit it; PostgREST reads that as NULL.
+    if (value === null) return row[key] === null || row[key] === undefined;
     return row[key] === value;
   });
 }
@@ -117,12 +121,14 @@ function tableQuery(table: 'contacts' | 'contact_replies') {
             ...(conflict === 'contact' ? { contact_id: '77777777-7777-4777-8777-777777777777' } : {}),
             ...(conflict === 'internal' ? { is_internal: true } : {}),
             ...(conflict === 'body' ? { body: '別の合成本文' } : {}),
+            ...(conflict === 'abandoned' ? { delivery_abandoned_at: '2026-01-02T00:00:00Z' } : {}),
           });
         }
         return { error: { code: '23505' } };
       }
       if (replies.some((row) => row.id === values.id)) return { error: { code: '23505' } };
-      if (replies.some((row) => row.contact_id === values.contact_id && row.is_internal === false && row.sent_at === null)) {
+      if (replies.some((row) => row.contact_id === values.contact_id && row.is_internal === false && row.sent_at === null
+        && !row.delivery_abandoned_at)) {
         return { error: { code: '23505' } };
       }
       replies.push({ author_name: '担当者', sent_at: null, created_at: new Date().toISOString(), ...values });
@@ -141,6 +147,15 @@ function tableQuery(table: 'contacts' | 'contact_replies') {
       }
       if (table === 'contact_replies' && updateValues?.sent_at && sentUpdateReturnsNoRows) {
         sentUpdateReturnsNoRows = false;
+        return { data: [], error: null };
+      }
+      if (table === 'contact_replies' && updateValues?.delivery_abandoned_at && abandonUpdateError) {
+        const code = abandonUpdateError;
+        abandonUpdateError = null;
+        return { data: null, error: { code } };
+      }
+      if (table === 'contact_replies' && updateValues?.delivery_abandoned_at && abandonUpdateReturnsNoRows) {
+        abandonUpdateReturnsNoRows = false;
         return { data: [], error: null };
       }
       if (table === 'contacts' && updateValues?.ticket_status && failTicketUpdate) {
@@ -191,6 +206,8 @@ beforeEach(() => {
   ticketUpdateReturnsNoRows = false;
   replyReadFailure = null;
   insertConflict = null;
+  abandonUpdateError = null;
+  abandonUpdateReturnsNoRows = false;
   insertAttempted = false;
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   mockAnonFrom.mockReturnValue(profileChain({ is_platform_admin: true, display_name: '運営担当' }));
@@ -356,7 +373,7 @@ describe('POST /api/admin/inquiries/[id]/reply', () => {
     expect(mockSendInquiryReply).not.toHaveBeenCalled();
   });
 
-  test.each(['missing', 'contact', 'internal', 'body'] as const)(
+  test.each(['missing', 'contact', 'internal', 'body', 'abandoned'] as const)(
     'insert競合後の再読込が操作ID／ticket／種別／本文の異なる行を拒否する（%s）',
     async (conflict) => {
       insertConflict = conflict;
@@ -547,6 +564,119 @@ describe('POST /api/admin/inquiries/[id]/reply', () => {
     (checkRateLimit as jest.Mock).mockResolvedValueOnce(true);
     expect((await POST(makeRequest(), makeProps())).status).toBe(429);
     expect(mockSendInquiryReply).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST abandon: 24時間を過ぎた結果不明の返信を未送信として確定する', () => {
+  const OLD = () => new Date(Date.now() - 25 * 3600000).toISOString();
+  const abandon = (overrides: Record<string, unknown> = {}) =>
+    POST(makeRequest({ action: 'abandon', operationId: OPERATION_ID, confirmNotDelivered: true, ...overrides }), makeProps());
+  const getStatus = () => GET(new NextRequest('http://localhost/api/admin/inquiries/' + INQUIRY_UUID + '/reply'), makeProps());
+  const { writeAuditLog } = jest.requireMock('@/lib/audit-logger') as { writeAuditLog: jest.Mock };
+
+  test('確定後はメールを送らず、未確定表示が消え、新しい操作IDで別の返信を送れる', async () => {
+    seedPending({ created_at: OLD() });
+    const response = await abandon();
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ ok: true, alreadyAbandoned: false });
+    expect(replies[0]).toMatchObject({ delivery_abandoned_at: expect.any(String), delivery_abandoned_by: USER_ID, sent_at: null });
+    expect(mockSendInquiryReply).not.toHaveBeenCalled();
+    expect(mockReconcileInquiryReply).not.toHaveBeenCalled();
+    expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'cancel', tableName: 'contact_replies', recordId: OPERATION_ID, userId: USER_ID,
+    }));
+    expect((await (await getStatus()).json()).reply).toBeNull();
+
+    const NEXT_OPERATION = '66666666-6666-4666-8666-666666666666';
+    const resent = await POST(makeRequest({ body: '合成本文です', operationId: NEXT_OPERATION }), makeProps());
+    expect(resent.status).toBe(200);
+    expect(mockSendInquiryReply).toHaveBeenCalledTimes(1);
+    expect(mockSendInquiryReply).toHaveBeenCalledWith(expect.objectContaining({ idempotencyKey: NEXT_OPERATION }));
+  });
+
+  test('同じ確定の再POSTは冪等に成功し、監査を重ねない', async () => {
+    seedPending({ created_at: OLD(), delivery_abandoned_at: '2026-01-02T00:00:00Z' });
+    expect(await (await abandon()).json()).toEqual({ ok: true, alreadyAbandoned: true });
+    expect(writeAuditLog).not.toHaveBeenCalled();
+  });
+
+  test('24時間以内は確定できない（冪等キーがまだ有効）', async () => {
+    seedPending({ created_at: new Date(Date.now() - 23.5 * 3600000).toISOString() });
+    expect((await abandon()).status).toBe(409);
+    expect(replies[0].delivery_abandoned_at).toBeUndefined();
+  });
+
+  test('作成時刻が壊れている行は確定しない', async () => {
+    seedPending({ created_at: 'not-a-date' });
+    expect((await abandon()).status).toBe(409);
+    expect(replies[0].delivery_abandoned_at).toBeUndefined();
+  });
+
+  test('送信済みの返信は確定できない', async () => {
+    seedPending({ created_at: OLD(), sent_at: '2026-01-02T00:00:00Z', provider_message_id: PROVIDER_ID });
+    expect((await abandon()).status).toBe(409);
+    expect(replies[0].delivery_abandoned_at).toBeUndefined();
+  });
+
+  test.each([
+    ['存在しない操作', null],
+    ['別の問い合わせの操作', { contact_id: '77777777-7777-4777-8777-777777777777' }],
+    ['内部メモ', { is_internal: true }],
+  ] as const)('%sは409で拒否する', async (_label, overrides) => {
+    if (overrides) seedPending({ created_at: OLD(), ...overrides });
+    expect((await abandon()).status).toBe(409);
+    expect(replies.every((row) => row.delivery_abandoned_at === undefined)).toBe(true);
+  });
+
+  test.each([{ confirmNotDelivered: false }, { confirmNotDelivered: undefined }, { operationId: 'x' }, { extra: 1 }])(
+    '確認なし・不正な入力は400にする: %p', async (overrides) => {
+      seedPending({ created_at: OLD() });
+      expect((await abandon(overrides)).status).toBe(400);
+      expect(replies[0].delivery_abandoned_at).toBeUndefined();
+    });
+
+  test('操作の読取失敗は500にし、更新しない', async () => {
+    seedPending({ created_at: OLD() });
+    replyReadFailure = 'operation';
+    expect((await abandon()).status).toBe(500);
+    expect(replies[0].delivery_abandoned_at).toBeUndefined();
+  });
+
+  test('DB の検査制約（同時受理・時刻境界）で拒否されたら409、その他の失敗は500', async () => {
+    seedPending({ created_at: OLD() });
+    abandonUpdateError = '23514';
+    expect((await abandon()).status).toBe(409);
+    abandonUpdateError = '08006';
+    expect((await abandon()).status).toBe(500);
+    expect(writeAuditLog).not.toHaveBeenCalled();
+  });
+
+  test('並行して状態が変わり0行更新なら409', async () => {
+    seedPending({ created_at: OLD() });
+    abandonUpdateReturnsNoRows = true;
+    expect((await abandon()).status).toBe(409);
+    expect(writeAuditLog).not.toHaveBeenCalled();
+  });
+
+  test('確定済みの操作IDでは送信も照合もしない', async () => {
+    seedPending({ created_at: OLD(), delivery_abandoned_at: '2026-01-02T00:00:00Z' });
+    expect((await POST(makeRequest(), makeProps())).status).toBe(409);
+    expect((await POST(makeRequest({ action: 'reconcile', operationId: OPERATION_ID, providerMessageId: PROVIDER_ID }), makeProps())).status).toBe(409);
+    expect(mockSendInquiryReply).not.toHaveBeenCalled();
+    expect(mockReconcileInquiryReply).not.toHaveBeenCalled();
+  });
+
+  test('GET は24時間を過ぎた未確定返信だけ abandonable にする', async () => {
+    seedPending({ created_at: OLD() });
+    expect((await (await getStatus()).json()).reply).toMatchObject({ retryable: false, abandonable: true });
+    replies[0].created_at = new Date(Date.now() - 3600000).toISOString();
+    expect((await (await getStatus()).json()).reply).toMatchObject({ retryable: true, abandonable: false });
+    replies[0].created_at = 'not-a-date';
+    expect((await (await getStatus()).json()).reply).toMatchObject({ abandonable: false });
+    replies[0].created_at = OLD();
+    replies[0].sent_at = '2026-01-02T00:00:00Z';
+    expect((await (await getStatus()).json()).reply).toMatchObject({ abandonable: false });
   });
 });
 

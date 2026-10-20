@@ -185,6 +185,8 @@
     "body",
     "contact_id",
     "created_at",
+    "delivery_abandoned_at",
+    "delivery_abandoned_by",
     "delivery_envelope",
     "id",
     "is_internal",
