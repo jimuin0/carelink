@@ -76,4 +76,16 @@ BEGIN
     ELSIF NOT has_function_privilege('service_role',signature,'EXECUTE') THEN RAISE EXCEPTION 'Service mutation permission missing'; END IF;
   END LOOP;
 END $$;
+DO $$ DECLARE role_name text; signature text;
+BEGIN
+  -- Availability reads run only through the rate-limited API routes (service_role).
+  FOREACH signature IN ARRAY ARRAY[
+    'public.get_available_slots(uuid,uuid,date,integer)',
+    'public.get_month_availability(uuid,uuid[],integer,integer,integer)'] LOOP
+    FOREACH role_name IN ARRAY ARRAY['anon','authenticated'] LOOP
+      IF has_function_privilege(role_name,signature,'EXECUTE') THEN RAISE EXCEPTION 'Public availability RPC bypasses API rate limits'; END IF;
+    END LOOP;
+    IF NOT has_function_privilege('service_role',signature,'EXECUTE') THEN RAISE EXCEPTION 'Service availability permission missing'; END IF;
+  END LOOP;
+END $$;
 ROLLBACK;
