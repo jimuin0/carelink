@@ -1,0 +1,10 @@
+{
+  "source_record_sha256": "5d9c80c18f07d7adb4eef4aafe2c15afdcb57a390cd9cd320ead6d9e42d97912",
+  "release": "PR733",
+  "sha": "abd8e800797914ec63a4a5e023c949214b014d15",
+  "deployment_state": "success",
+  "health_version": "abd8e80",
+  "scope": "Historical retained evidence, not revalidated production during handoff",
+  "original_missing": 149,
+  "raw_evidence_transfer": "not transferred; C"
+}

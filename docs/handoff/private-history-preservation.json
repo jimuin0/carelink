@@ -1,0 +1,9 @@
+{
+  "artifact": "carelink-history-20261020.bundle",
+  "sha256": "5ae588afa2e87babc5e9a7bbaf4213918b96d09510c371eefb418af7e8aab354",
+  "bytes": 18228516,
+  "git_bundle_verify": "passed",
+  "transfer": "not transferred; contains unpublished history requiring secret review and approved encrypted destination",
+  "nested_changed_file": "work/carelink-storage-cutover-20261011/docs/carelink-resume-status.md",
+  "nested_change_policy": "preserved in source checkout; not mixed into current code"
+}

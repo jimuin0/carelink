@@ -1,0 +1,10 @@
+{
+  "lfs_pointers": [],
+  "mac_path_candidates": [
+    "scripts/check-booking-create-concurrency.mjs",
+    "scripts/check-manual-booking-concurrency.mjs",
+    "scripts/check-newsletter-delivery-concurrency.mjs",
+    "scripts/check-salon-intent-concurrency.mjs"
+  ],
+  "interpretation": "Candidates require review; historical/operator examples are not automatically runtime dependencies."
+}

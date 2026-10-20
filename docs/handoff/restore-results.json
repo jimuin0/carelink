@@ -1,0 +1,81 @@
+{
+  "acquisition": "remote GitHub clone into new empty checkout",
+  "tested_commit": "2ba890cc",
+  "baseline": "c33a53ac8c96422e4271e4a47d3403e226cecd91",
+  "original_checkout_dependencies": false,
+  "node": "22.23.3",
+  "npm": "10.9.9",
+  "npm_ci": "passed 939 independent packages",
+  "tests": {
+    "suites": 575,
+    "tests": 12330,
+    "branches": "11347/11347 100%",
+    "status": "passed"
+  },
+  "lint": "passed, four pre-existing warnings",
+  "typecheck": "passed",
+  "build_no_env": "failed missing Supabase URL/anon key (expected dependency; not success)",
+  "build_synthetic": "passed, synthetic URL 127.0.0.1:9 and fake anon key, DB timeout fallbacks logged",
+  "startup": {
+    "bind": "127.0.0.1:4108",
+    "login_http": 200,
+    "password_form": true,
+    "real_auth": "not attempted"
+  },
+  "archive_restore": "passed 4 members + full hash verification",
+  "logs_sha256": {
+    "npm_ci": "5fc7f0e481911da77547f28a7882cbab48f7486a358c5490c89ed6ea0013fb74",
+    "unit_coverage": "e9fd4640c9a40998fd754d70e62c8417f465f65981fca3ac20e7cb3f70c4866b",
+    "lint": "4193a05917223978cdf8696519d91021952c47da9966e85e2eb4e766e5edaa69",
+    "typecheck": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "build_no_env_failed": "95d596b5b54fd8c46e9dac8da94c7e18f73e653ec28b609acabb16452635241a",
+    "build_synthetic_succeeded": "6a30b8dc1f630ade9a83bafa0224d312dd1d20838bf807398bf0ac3420e2b1bf",
+    "archive_scan": "2b9c0bbd22264c1dfc1934652fd7ddf2005e663428e21fa2f97544db8d6de894",
+    "scanner_result": "c7ad07bdbe28efe4937821fc4ee1a746203874a41aa657b7e6469f34d31535e1"
+  },
+  "not_verified": [
+    "different physical Mac",
+    "different account credentials",
+    "production DB/Auth/Storage restore",
+    "real Google provider acceptance",
+    "private evidence/history transfer",
+    "149 originals recovery",
+    "Render cutover live state"
+  ],
+  "scanner_result": "gitleaks8.30.1 zero findings on new Git commit and restored JSON archive",
+  "scanner_false_positives": {
+    "count": 2,
+    "rule": "generic-api-key",
+    "cause": "ordinary scanner-result prose and SHA256 log digest under a scanner-named field; not credentials",
+    "history": "retained; no security rule disabled"
+  },
+  "final_payload_scanner": "gitleaks8.30.1 scanned full added/changed tree plus extracted archive: zero findings",
+  "historical_scanner_findings": "two false positives in earlier commit: plain prose and log SHA256 under scanner-related key; neither is a credential",
+  "private_nested_preservation": "both nested Git histories bundled/verified locally; pending doc diff saved privately; still not transferred",
+  "earlier_payload_commit": "676cbb3658d771324fb6381f0ea114ab2e3d1921",
+  "earlier_manifest_readback": "Remote GitHub pull at final_payload_commit: 1940 files matched; archive restored and all 4 member hashes matched",
+  "final_integrity_policy": "All tracked payload including this results file is hashed. Only manifest itself excluded; exact final commit is independently read back from GitHub.",
+  "ci_functional_verification": {
+    "commit": "6b30b8e575e8aad5b62b5588f0ff8f729d4faa25",
+    "url": "https://github.com/jimuin0/carelink/actions/runs/39366685067",
+    "status": "success",
+    "unit_tests": 12330,
+    "unit_suites": 575,
+    "e2e_passed": 374,
+    "local_api_contract_tests": 17,
+    "static_migration_contract_tests": 17,
+    "later_changes": "Handoff metadata and environment-name index/archive/manifest only; runtime source unchanged."
+  },
+  "private_archive_local_validation": {
+    "archives": 16,
+    "files_restored_and_hash_matched": 12683,
+    "transfer": "not transferred",
+    "evidence_sha256": "cc8c8738f90f5d0a94213687bb81633c02b8241a4738fc2f9c3d2d665c51f408"
+  },
+  "unreachable_history_local_validation": {
+    "objects_preserved": 3566,
+    "isolated_restore": "passed",
+    "transfer": "not transferred",
+    "evidence_sha256": "089bdd3408c8ae918b50535f22590a3a80a55e608e14d92b67f5a704732f888a"
+  }
+}

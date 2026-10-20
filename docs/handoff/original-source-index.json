@@ -1,0 +1,913 @@
+{
+  "sources": [
+    {
+      "source_id": 1,
+      "name": "README.md",
+      "sha256": "920a670fb5d3023898063781d49d33a2efc630a33ce0b1909973eb92792e91a3",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 2,
+      "name": "account-deletion-hostile-review-20260925.md",
+      "sha256": "7093d74834ea41b2c22d22ff18cec79ca5b0a9817b8ad9209dc7a3ad5183344b",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 3,
+      "name": "accounting-export-menu-lookup-error-hostile-review-20260925.md",
+      "sha256": "60d9f0d4755cd3d9b55ee30aa9e4c23ef1e4bc9a3b517650cd95e142670f9a84",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 4,
+      "name": "accounting-export-status-and-pagination-hostile-review-20260926.md",
+      "sha256": "acaa1981ff8dc2e136d7ab691c371316fd15c5495aa532e353228d73edb59f4d",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 5,
+      "name": "admin-blog-e2e-target-isolation-hostile-review-20260926.md",
+      "sha256": "219040c04d3fe6053ec2fbeb2f33beb00ea9a8779b1be79defbb6376733762ce",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 6,
+      "name": "admin-dashboard-read-failure-hostile-review-20260925.md",
+      "sha256": "654559121bbcfc9a9d1fb81f85eb24a5cba7ff92c593014587bf9beb97470c68",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 7,
+      "name": "admin-job-create-retry-hostile-review-20260925.md",
+      "sha256": "6138082fa2e7456b18d92db9f81d013f1567efb1b68d5187626d55e49438cfd1",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 8,
+      "name": "admin-menu-create-route-hostile-crosscheck-20260925.md",
+      "sha256": "73e3061d65cdb7f88eb7d23951e98c3088e10b2ab35ecd709396459cff7312b5",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 9,
+      "name": "admin-moderation-network-rejection-hostile-review-20260925.md",
+      "sha256": "bcceda7c800fac45ba684c8e12e6e4c86ef92e3b69e2fe146579c2cc64570dd7",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 10,
+      "name": "admin-report-date-boundary-crosscheck-20260925.md",
+      "sha256": "b5b21c154da3f7d9e3d4887f809e2637794f4045bf598ce556cb8c2a58a6daca",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 11,
+      "name": "area-seo-xss-writer-boundary-hostile-review-20260925.md",
+      "sha256": "152a4a9ede818ab3719c95a1b4fcef1b47ff628c8ed9378d92dddf2e60521122",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 12,
+      "name": "auth-accessibility-e2e-hostile-review-20260925.md",
+      "sha256": "08c27eca9a01752ed8770f62b1cba9bb79abda5ae1db7ea250a239cf98ae298b",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 13,
+      "name": "auth-and-proxy-boundary-20260925.md",
+      "sha256": "2a58baab23a3003c00bad9ad741f122bf411271743e965c96e41213728573dd4",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 14,
+      "name": "auth-onboarding-luna-parent-crosscheck-20260925.md",
+      "sha256": "023a4e40b56681154730b9a990b7fbfd13ef90f6e76d777bfea6462452b80e65",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 15,
+      "name": "auth-onboarding-static-20260925.md",
+      "sha256": "3d49ca1584095e343f4664d7ddb368f28e77b73998f3ccf5f358d1e98d9a5bca",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 16,
+      "name": "auth-signup-trigger-drift-coverage-hostile-review-20260925.md",
+      "sha256": "049a478c701cce2534e64b279916bd4acaaf9bb340bbaf4496b3fbcde44883b1",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 17,
+      "name": "booking-change-duration-hostile-review-20260925.md",
+      "sha256": "8a63b67e28d5b77c458cae1c1eb6505ccced09c5f5c17c9a16adae913ca19140",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 18,
+      "name": "booking-create-duration-hostile-review-20260925.md",
+      "sha256": "a7c0cb825c855a66ff504eae9bd79e306565d8577619f35899d2c5063b406512",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 19,
+      "name": "booking-draft-shared-tab-pii-20260925.md",
+      "sha256": "651771b59f756a465229e48fc7539fb9cf40f44581ff906f0a3aabdb5c04a6a1",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 20,
+      "name": "booking-menu-array-hostile-review-20260925.md",
+      "sha256": "7e8dee8aa0aa96c11274ea6acd2bc856b9aa42f03397d1f35125119efee774cc",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 21,
+      "name": "booking-reminder-review-20260925.md",
+      "sha256": "e5c1d8021e072b7c2fd15bb157133dfd494b3064b6fad07c6d783bd274b0c9e4",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 22,
+      "name": "contact-ticket-fetch-rejection-crosscheck-20260925.md",
+      "sha256": "5c7eb2da44f22b474f5bee458c406edaa85b0f8c41d6e0efe84ba77bc8f4f43b",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 23,
+      "name": "contract-negative-insert-probe-hostile-review-20260925.md",
+      "sha256": "05e358f31934074d7bc3561d79f92f5c38c0ccd2ed141fed2febccb9e5f3629a",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 24,
+      "name": "cron-batch-failure-surface-hostile-review-20260925.md",
+      "sha256": "ea0bf07e13b9fc32cd6163af7b5e14b21508970eb475dbee3d44c8bfc8c5ea68",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 25,
+      "name": "csv-export-control-prefix-hostile-review-20260925.md",
+      "sha256": "5844b6fa4b97db33406d7ba59cd7e305668e4ac88d0a52b3de23860e3b2284d1",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 26,
+      "name": "delete-searchfacilities-script-hostile-review-20260925.md",
+      "sha256": "e24559839b79f0d455d072c386f9d3e267ff4a999412de0e67b4531864fffb99",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 27,
+      "name": "diagnostic-pii-output-20260925.md",
+      "sha256": "dbbf2f4d32e64f7eed1317f517e4fad8fc39e95c23edb44b62ad769812da5e83",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 28,
+      "name": "diagnostic-signal-and-secret-redaction-20260925.md",
+      "sha256": "c04f2bca9c5b58951736034edf00d20731e775ffd1f3deb94568e8d3aa328fea",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 29,
+      "name": "e2e-supabase-target-isolation-hostile-review-20260925.md",
+      "sha256": "acda69317d340f6d322ab3e0a769ef996c90a6230ca365e0df029a41d268d4a3",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 30,
+      "name": "facility-admin-rls-reverse-pass-20260925.md",
+      "sha256": "de4db16c89039dea2e910f69031ddeb79695ae8d44c7fe067d021511f3ac9798",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 31,
+      "name": "facility-verification-boolean-contract-hostile-review-20260926.md",
+      "sha256": "05a345968e530be7ea111a6dac2ee0c4b4ad69a41322395b4e3345519713aa16",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 32,
+      "name": "funnel-output-reverse-trace-hostile-review-20260925.md",
+      "sha256": "b8bfa9e06f210b069b16548b0786b7ee2de8d20b14badd79f3ae3519ea311805",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 33,
+      "name": "gbp-place-malformed-json-unlinks-integration-hostile-review-20260925.md",
+      "sha256": "5a50dee904e95305dd8a7a7d887f29c1ab2f2ec3c0cdd0b836547c1f2a6db23f",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 34,
+      "name": "google-calendar-jst-contract-crosscheck-20260925.md",
+      "sha256": "56c4a74394a08439792c8bed1b69b1fd6c76d73687cead341807289697a140e3",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 35,
+      "name": "health-slack-dependency-probe-hostile-review-20260925.md",
+      "sha256": "6574ff75ff19b5aa4df931542df502d6427e5c9d72bb57106f779691213ea73e",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 36,
+      "name": "hpb-admin-api-apply-and-result-hostile-review-20260925.md",
+      "sha256": "82400c5b395f7bc6be5e30ba5ec9c8c616bd80daf9a8fafd4237bb420ea18c63",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 37,
+      "name": "inactive-staff-public-booking-bypass-hostile-review-20260925.md",
+      "sha256": "291fb0b3f2eb350ee34f6ab54f4b7e922735a23d36483a89fcabcb2d5eb9e429",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 38,
+      "name": "job-application-referral-fee-fraction-truncation-hostile-review-20260925.md",
+      "sha256": "62eda3409ebe4ad09eda1256f3aca6be006672387c668efabb2c57bffad14dbd",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 39,
+      "name": "liff-access-token-expiry-recovery-hostile-review-20260925.md",
+      "sha256": "8efc9d7006b851254696fa5ddca1daff5cc747e4df3f9b42cdd47d2fe92d2502",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 40,
+      "name": "load-tests-static-hostile-review-20260925.md",
+      "sha256": "aa0032077259a6f67f90ac113829f76a04e706197794fcf26862284bb75dbb97",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 41,
+      "name": "luna-admin-manual-booking-crosswalk-20260926.md",
+      "sha256": "a24fe2e8324dff328aa9c6614c174ef16d5081c84a4840485599b8a31fbde816",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 42,
+      "name": "luna-contact-inquiry-e2e-crosscheck-20260926.md",
+      "sha256": "d4f5438d3367807c7db9cd3a713e9c3433540739f693097a9a3d76bf68e8b7b4",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 43,
+      "name": "luna-r1-birthday-sender-fallback-test-crosswalk-20260926.md",
+      "sha256": "f8f797986b31cf5f5ee4e7671f29889fe9b81dc6639ea064e9530773c8b91b60",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 44,
+      "name": "luna-r1-email-from-parser-hostile-20260926.md",
+      "sha256": "7141069c8de7052c1ba8373d42c089e256aa19940af7522aeccbafafdd13d125",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 45,
+      "name": "luna-r1-launch-ops-doc-crosscheck-20260926.md",
+      "sha256": "31e17a59af3c254dd46fa87938f20795363aaa8344ed7054c584b57d78e993d5",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 46,
+      "name": "luna-r1-manual-sql-bundle-crosscheck-20260926.md",
+      "sha256": "69e5158e25c60d0d8839d2f30e024b143e4882e133909c607a6ed0c2b591777a",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 47,
+      "name": "luna-r1-ops-ownership-saas-adr-crosscheck-20260926.md",
+      "sha256": "f5c79a7c3925024f79ea1b6062d8c5556eea4e31d0159140b41735c69de3a26d",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 48,
+      "name": "luna-r1-package-lifecycle-hooks-20260926.md",
+      "sha256": "5e1d85dc564882c739b213fb38afd3a1b6aa7aa8d05aea0c06cf459171335627",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 49,
+      "name": "luna-r1-runbook-recovery-slice-20260926.md",
+      "sha256": "767f91400f245de397a2be0441e63ffa7c4774ae0fa777392c348d17dc9881ce",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 50,
+      "name": "luna-r1-subscription-plan-public-notes-20260926.md",
+      "sha256": "73e3f1c444f40758f0eb0ef9f6977c1a33004f260edcf50ede6f908f44ed225d",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 51,
+      "name": "luna-r1-threads-design-vs-implementation-20260926.md",
+      "sha256": "2098d9475652a70853ad6f5a156838b6661c0a69ef5a0f48b1d30cff8757f470",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 52,
+      "name": "luna-round1-notification-flows-20260926.md",
+      "sha256": "cfc95a9874b6c354a0a74f49ce5ef234b2035e4030f3bcbe40e4c7b955e6098f",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 53,
+      "name": "luna-round1-public-booking-e2e-20260926.md",
+      "sha256": "c914fc1f48aee47c888cbfe8ddd793f9ba779bf804956578627e05c68375ee8a",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 54,
+      "name": "luna-round1-regression-guards-hostile-20260926.md",
+      "sha256": "612511d18cc857a9ce19de186f176114c29c976e30371b1d194f385613712220",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 55,
+      "name": "luna-round1-resume-20260926.md",
+      "sha256": "ca57dee984209e84727b94366f7c5afc3da4fe93d327089b1624cb786abb4e46",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 56,
+      "name": "luna-sensitive-lifecycle-hostile-crosscheck-20260925.md",
+      "sha256": "11ec9de563122989d00a10855c3bf102a743ec74d15a8f9d3f10d11c89dc53ac",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 57,
+      "name": "luna-threads-credential-read-error-crosscheck-20260926.md",
+      "sha256": "17f65f2bfde45dc955885fedbdd4aefc45fa8551b1a83be6e222f3cf50b6c1c0",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 58,
+      "name": "moderation-approval-hostile-review-20260925.md",
+      "sha256": "eb9e40ee203db7b66c75dce6a87534aed24fe835e542427b55ea9792a91f38c5",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 59,
+      "name": "newsletter-partial-batch-terminal-status-hostile-review-20260925.md",
+      "sha256": "d78f03b7d208e7358d6a2186df39870354a999dad0917e93bb91e73f03b23875",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 60,
+      "name": "newsletter-schedule-dead-end-hostile-review-20260925.md",
+      "sha256": "82191d9a3a37fb57fa996197d1f5407fdedd220a36c3bea64788c0eabaccefa0",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 61,
+      "name": "options-catalog-rls-and-ui-hostile-review-20260925.md",
+      "sha256": "2e47f159465be6b62ae9754e39141430c980564834fe97b23bb7c95560d6c76c",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 62,
+      "name": "package-consumption-booking-link-hostile-review-20260925.md",
+      "sha256": "21ce0e26384268affff7c2e7522e6aadd0a311cfe77ea7a8c3927b1f7a21305b",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 63,
+      "name": "package-usage-rpc-rls-hostile-review-20260925.md",
+      "sha256": "f9abc71a4d619cf9fe24b68e29822e05eb64a732e5ccff26e0f3d527476401af",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 64,
+      "name": "parent-ab-test-hostile-recheck-20260926.md",
+      "sha256": "c7ebc75a62170334768a7df4f591069606f1a63bc27fafc818d92f0285cf1c48",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 65,
+      "name": "parent-admin-ai-support-hostile-review-20260926.md",
+      "sha256": "f23886c661f9c7fbd112d9ba578156378d8a7dd49bfd678f74124a2896bf9ff8",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 66,
+      "name": "parent-admin-manual-booking-crosscheck-20260926.md",
+      "sha256": "500ae376d6036c30ca838c739bbc8165a48664c1c2924c22e5ddb8cc93fae982",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 67,
+      "name": "parent-api-key-revoke-error-crosscheck-20260926.md",
+      "sha256": "2b8cfd7ac0ff1b0cacecced011f515a42118b122a9449f0335b700a3d4dbda31",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 68,
+      "name": "parent-api-key-wildcard-hostile-recheck-20260926.md",
+      "sha256": "20ceb712d7a5d6ec1dc31e0d1f5c1aaa099ace3c11630bcc075688290d8b2d32",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 69,
+      "name": "parent-availability-staff-cap-hostile-review-20260926.md",
+      "sha256": "be38c84f3b0b160a903fd49a6fcaeabf9b9366a15a0afd01148c06a80ae05f6b",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 70,
+      "name": "parent-booking-reminder-hostile-recheck-20260926.md",
+      "sha256": "b8222ad57dfc5374e13b6f84be27e964b756b0e23fc1cc9a042cfb91bf442edf",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 71,
+      "name": "parent-cancel-fee-disabled-and-checkout-reachability-hostile-review-20260926.md",
+      "sha256": "45dd0e1dc40cc418d090f0040d1e1335cb3928151b1f068bdaab0321420f3e5c",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 72,
+      "name": "parent-cl-aud-363-hostile-recheck-20260926.md",
+      "sha256": "cf641779dcba861770b2e4d8d57ad3f32579fcecde41f9cba310ec27bbaa4381",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 73,
+      "name": "parent-clipboard-result-hostile-review-20260926.md",
+      "sha256": "85604f8ce2e8c616d13bb9bdae2a269713f37dda28e47892c43d409ec8a109e8",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 74,
+      "name": "parent-customer-create-idempotency-hostile-review-20260926.md",
+      "sha256": "c752976271eeae4d78bee2f1a892849551f4f30421c24dd1b9ae32851c2cc9fc",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 75,
+      "name": "parent-customer-visit-and-segment-hostile-review-20260926.md",
+      "sha256": "1e77f1ff718cadff6d53ebe119395a15fba530b69503118bb28d8d3569a382c9",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 76,
+      "name": "parent-email-sender-parser-hostile-review-20260926.md",
+      "sha256": "75e4e70a7dccb6cba71412e3cfa4df9e84cb0ec713f90f8fee851bbc70c538ea",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 77,
+      "name": "parent-eslint-safety-guards-hostile-review-20260926.md",
+      "sha256": "06ffd955fa1e8f53f35641c8cef5950fd6854f75593db727c0a489418d1dfbf9",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 78,
+      "name": "parent-facility-blog-list-error-hostile-review-20260926.md",
+      "sha256": "a22a2d23307b9c3e27c890a3bd69bab7ccc64d61ecdae16042499f737e6d8ccf",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 79,
+      "name": "parent-facility-suggest-hostile-review-20260926.md",
+      "sha256": "a7ab1ffe67f40931861b7be03076d867d91975d5feceb9524826925387159fbd",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 80,
+      "name": "parent-facility-verify-type-contract-hostile-review-20260926.md",
+      "sha256": "8fb2da3392d6baed66873b3580c65a290feba5b706cf5f51f400257cedab0cd0",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 81,
+      "name": "parent-feature-cta-filter-hostile-review-20260926.md",
+      "sha256": "5721d06dbce936dcc6b8c39afb2000966823614347faf85ea906fa83224b55d7",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 82,
+      "name": "parent-feature-flag-admin-load-error-hostile-review-20260926.md",
+      "sha256": "c442b8e2255009948a22817cf7ed8d8fe1f715baad3c37b42157635389e5fc48",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 83,
+      "name": "parent-google-calendar-jst-hostile-recheck-20260926.md",
+      "sha256": "6ce9f308ca0bfed91bcb1043f6ccab5f21238172f01773f4480307d929da8cc8",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 84,
+      "name": "parent-hostile-notes-01.md",
+      "sha256": "a49c496e7ec9a97fb508a0e68e80dfbe889c0cc1627c0ef4beeeaa28cc1e0212",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 85,
+      "name": "parent-hostile-regression-guards-20260926.md",
+      "sha256": "002377b99d968c4eea43a8af4621ee639c093c64c34ec8f2ad560bba3b3a2d1b",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 86,
+      "name": "parent-hostile-review-calendar-favorites-packages-20260925.md",
+      "sha256": "edb1d6602f6158c13f4a95a0e519f0a890479a308fead3ca6168223a68784433",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 87,
+      "name": "parent-hostile-review-waitlist-guest-lifecycle-20260925.md",
+      "sha256": "495e62ca187747716652c0ca73b5dd3946c8dddf3daffa8908507579e246401a",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 88,
+      "name": "parent-inquiry-reply-hostile-review-20260926.md",
+      "sha256": "9500506ce13703555ecc9e1b61111ec8cb97fef932753d1b827f34f91b4bff03",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 89,
+      "name": "parent-job-salary-open-bound-display-hostile-review-20260926.md",
+      "sha256": "8b27360ea2ec4740445aafe29477d3c7fd0449f29324b4aaf8e206ae097273d6",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 90,
+      "name": "parent-liff-auth-timeout-error-hostile-review-20260926.md",
+      "sha256": "887493d823c3ae36ae068c3650684c6a633762f852dee151fbd63527eb3a488e",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 91,
+      "name": "parent-liff-points-hostile-review-20260926.md",
+      "sha256": "4652f1731f332b1561743b843fc3ddc0242e8fd84f13b099b86d4cf8353698ed",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 92,
+      "name": "parent-offline-retry-csp-hostile-review-20260926.md",
+      "sha256": "077faf5b1caf6be1383dd042f117d7b7703b4444cfd566a07aca1b7e2cb7a752",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 93,
+      "name": "parent-ops-rota-ownership-hostile-review-20260926.md",
+      "sha256": "4a3879266e439fce6214528578605566bb10f4935bf1d8a489f774d1b6c3a765",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 94,
+      "name": "parent-package-management-hostile-review-20260926.md",
+      "sha256": "e8de4f8b924b23f1104fc336f8d2f3efd9122a7c0b0b6d7cd0d704681f860948",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 95,
+      "name": "parent-platform-blog-edit-crosscheck-20260926.md",
+      "sha256": "28313fb55a49a88be1b54f663d14bda6790b62ab72366310416ab02f4c7cb997",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 96,
+      "name": "parent-pr-template-cron-guidance-crosscheck-20260926.md",
+      "sha256": "7150366768c5885e98a092253b8c45fbbdd85a8242310cf4277d6111198da5c7",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 97,
+      "name": "parent-profile-api-and-rls-hostile-review-20260926.md",
+      "sha256": "bfd700535af0e208231b38d127e337b91a206be8140fc445a439bd590db386c3",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 98,
+      "name": "parent-recaptcha-production-alert-callsite-hostile-review-20260926.md",
+      "sha256": "1b06ec7552312f6131446543103256e8391774e6eb18415d1b27a574ab50f3d5",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 99,
+      "name": "parent-recommendations-api-hostile-review-20260926.md",
+      "sha256": "c0391902069cfc718b12a7f520d37c575aea8f5e07b26c6cbafd181ee3c6ccb6",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 100,
+      "name": "parent-referral-code-generation-race-hostile-review-20260926.md",
+      "sha256": "41611402d6bc3ca97209b9c90985d09fd1c681a526da48af76504b5e4ffd90c3",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 101,
+      "name": "parent-referral-code-write-policy-hostile-review-20260926.md",
+      "sha256": "5a3fce5533f36a7d958a4c6515a5513a45d29886fdc1ace371792e64fb991cdb",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 102,
+      "name": "parent-referral-count-and-reward-hostile-review-20260926.md",
+      "sha256": "6e569edddd026c124fe1d988b2bf117bbd6e4129d37484c21d24893859278f95",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 103,
+      "name": "parent-referral-program-hostile-review-20260926.md",
+      "sha256": "507d119070c6c27161365113dda652bd1f4efd16a859abb1e54aa7ad82b587e2",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 104,
+      "name": "parent-register-e2e-and-required-photo-hostile-review-20260926.md",
+      "sha256": "696cafbbd9d02d5ee375c92bdca364f9755257aee8e274b2f0e6941157d99bc8",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 105,
+      "name": "parent-registration-location-contract-hostile-review-20260926.md",
+      "sha256": "b3f1f649f76b1089af4a026ce0f7115caae4b724c7125886dc3f4208ef29b803",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 106,
+      "name": "parent-registration-receipt-retry-hostile-recheck-20260926.md",
+      "sha256": "0e5fbea18ab98ef1e0a6e74b1ee67e90484c9f534a39ce2b05a1aa617527b723",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 107,
+      "name": "parent-resume-candidate-recheck-20260926.md",
+      "sha256": "09b45f529a585fde6d5416bdd4c0be6a137cac5307776e292f2e50642df01ae2",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 108,
+      "name": "parent-review-edit-delete-hostile-review-20260926.md",
+      "sha256": "abb5609135d8ee6b7a074ba90d6bdd43a0bb2f7807f4f1ff2b3ce7d48782822c",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 109,
+      "name": "parent-runbook-probe-hostile-review-20260926.md",
+      "sha256": "459f58c261934e12115815f45ab306aa4e62277f71170eebed5b4aec38e9a570",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 110,
+      "name": "parent-salon-handoff-error-hostile-review-20260926.md",
+      "sha256": "1007b111ba99c24ad6cd3ed0b18c27db7baa9b81932bb3e7e93baba615350fc8",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 111,
+      "name": "parent-search-availability-hostile-recheck-20260926.md",
+      "sha256": "30cda3373d6f5ec0647be7a25f8e0564a3e2a73f5011a97bfd5951a5445f084e",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 112,
+      "name": "parent-secret-runbook-hostile-crosscheck-20260926.md",
+      "sha256": "90f0851a4eff5f0a426afc38113133599a39eee0ba54fe20b52c475e101c5112",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 113,
+      "name": "parent-service-worker-and-push-hostile-crosscheck-20260926.md",
+      "sha256": "238a8d8c833c216b3b7baa3579296fea0e3861eb96dfc9bf5643fb9b6c387a50",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 114,
+      "name": "parent-service-worker-cache-lifetime-hostile-review-20260926.md",
+      "sha256": "2a261daec90931d8168ab426a3d040c97b26c10cb9a33e0a45081ef41e9f47aa",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 115,
+      "name": "parent-service-worker-csp-and-cache-review-20260926.md",
+      "sha256": "22b5d43b1ee4a7ee68a47d39d84eeeb8156f905cf02c5d7c9110c533efe7df07",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 116,
+      "name": "parent-silent-500-computed-key-crosscheck-20260926.md",
+      "sha256": "05eb871a6b83f80e6b3ac009624054521efe72f2beafc0130cde64c7c3f81b7c",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 117,
+      "name": "parent-slack-interactions-hostile-review-20260926.md",
+      "sha256": "152fe1fc3df548117f638dabb73d6a601c217c424a932589570cd88761616b1f",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 118,
+      "name": "parent-staff-create-consistency-hostile-review-20260926.md",
+      "sha256": "466bab92a7d46b4555afba447a23799d37d8ceabc3f9e79a539e28c2bda2a8db",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 119,
+      "name": "parent-subscription-plan-notes-hostile-review-20260926.md",
+      "sha256": "7300fd5164f6ac4deb0c63d109cffb9748ede943d7039257a13c0e112326d532",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 120,
+      "name": "parent-supabase-client-boundary-and-chain-recheck-20260926.md",
+      "sha256": "f6fed64d32ccd0adeb63e73bb2f6fa1808a07e9184e241248e5525f024ea31f2",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 121,
+      "name": "parent-symptom-checker-count-hostile-review-20260926.md",
+      "sha256": "22ff724bc2a7d47ed89d35f784cd9cd3f3e6fc09614df1866ad9947106c81952",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 122,
+      "name": "parent-threads-credential-candidate-hostile-review-20260926.md",
+      "sha256": "5e719eb73522174fdef6ac3c8fc57287fa4a7094c423cc762a0a5c4c2cf13df7",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 123,
+      "name": "parent-threads-credential-cardinality-hostile-review-20260926.md",
+      "sha256": "48a48ac65fd17c24a9836e0b5408e35c1767df428da6aeb8484113d67dd5fa10",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 124,
+      "name": "parent-workflow-ci-hostile-crosscheck-20260926.md",
+      "sha256": "434da3d97218a2fa78bbe3d6aed7d869af121e911a44fe4c2a2d89ec48050039",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 125,
+      "name": "payment-settings-save-network-rejection-hostile-review-20260925.md",
+      "sha256": "297a53e6704a3de8c256fce110f330d7d81762b336615db244a853ffa6c85950",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 126,
+      "name": "photo-moderation-hostile-review-20260925.md",
+      "sha256": "510e657925ee63cee7f613dd75bdebbd15c5cf15d8b92337e7e5acca14ca00bb",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 127,
+      "name": "platform-blog-threads-finalize-crosscheck-20260925.md",
+      "sha256": "e84c4507e77556dc32b4f3d165567ebda4d44e84c5088516367f5c192c7e6f51",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 128,
+      "name": "pr-secret-bearing-tests-hostile-review-20260925.md",
+      "sha256": "3332c728937f196fb908dbe3d6d9ccda550dfb46adf6cd9a2b5bc6e04ff2e89f",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 129,
+      "name": "probe-business-hours-truncation-20260925.md",
+      "sha256": "1dd5cbcb9bb7ea5b1b0b02cf19ba7ae44498da699e12dc498b8cce64aa8bf6fb",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 130,
+      "name": "probe-schedule-gate-write-path-hostile-review-20260925.md",
+      "sha256": "cdfe2e4d2a64d2fa5f596a0a8f939389fc34df7044b28da1d7d9721848124c42",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 131,
+      "name": "project-instruction-version-inventory-drift-20260925.md",
+      "sha256": "6ecec90916c8106151d7756279e7757af251ddb8a28cad62a5f654ff6e5e1ec3",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 132,
+      "name": "public-symptom-discovery-hostile-review-20260925.md",
+      "sha256": "37e63b53a8977f294665d0d375741d2e467bbd9523996f2b76739517b158abc9",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 133,
+      "name": "r1-coverage-matrix-luna-20260926.md",
+      "sha256": "29deecc82f2eedccc428ee52696a75064be99e210a1f16a538d070ef6563b7a3",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 134,
+      "name": "r1-luna-coverage-20260925.md",
+      "sha256": "830820824ad71bd3ca32c48482c46044bab4e65cbbf981ad03c555c535a64aca",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 135,
+      "name": "registration-inquiry-crosscheck-20260926.md",
+      "sha256": "14f1ddb9dc6d629118abb79765ab8965b47e21d529284781a0013601383702ff",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 136,
+      "name": "render-cron-inventory-count-drift-hostile-review-20260925.md",
+      "sha256": "06ba98a6ab230bf67e7f079680381a42feaf0fc762c641adfe58cabf2be45521",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 137,
+      "name": "review-points-success-toast-crosscheck-20260925.md",
+      "sha256": "fdbdf807d15f853c275c9181005c42694487a05d86e83c68f9a2d19e1a856314",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 138,
+      "name": "search-filter-hostile-review-20260925.md",
+      "sha256": "b28935a4075d0c9ea43f43d1eeeb44b7f7b7b8dc1c6ef68ce9b76ab7cb2d0b8c",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 139,
+      "name": "security-e2e-auth-headers-hostile-review-20260925.md",
+      "sha256": "62271319225ac4df3592cf7a2888dd786e0e2557644d7bf6cd28bda597b10b45",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 140,
+      "name": "seed-cleanup-migration-hostile-review-20260925.md",
+      "sha256": "61f48bfa95421642f1c56995f862978dc98861a9c98292fbf91e1143b4cda7f3",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 141,
+      "name": "seed-facilities-public-exposure-crosscheck-20260925.md",
+      "sha256": "5be4c58f97b3697058b318b5edda7f6894c11aa6795eaf44795b90670b99694a",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 142,
+      "name": "seed-script-partial-success-20260925.md",
+      "sha256": "8c01d329ed704a8abe048d659fa49b8a7837be90d715a4b6ba6b8aeb88b3d10b",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 143,
+      "name": "staff-schedule-orphaning-hostile-review-20260925.md",
+      "sha256": "8ef53ba4994a4bfde76df394411c2a90627f315d41fe8c51333369b666e830c1",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 144,
+      "name": "stripe-webhook-processed-marker-error-hostile-review-20260925.md",
+      "sha256": "7d34e8e6989b5724eb5856994e12189e15e7b3de63813f908535e9cf51bac836",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 145,
+      "name": "symptoms-privacy-input-length-crosscheck-20260925.md",
+      "sha256": "21bc6e218bbdff4d6cccd17baba9ae56c593b65174677d4bc34dc324ebe442db",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 146,
+      "name": "v1-bookings-customers-parent-hostile-review-20260925.md",
+      "sha256": "02c5b78b69401cae884819bc0480f937ccdd2b3f5410f1f8d90ff6710db76c42",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 147,
+      "name": "workflow-ops-security-boundary-20260925.md",
+      "sha256": "0c5beff2cdda75d35c893b5f77c9a2c4f3c487d38ff8b1e369917e1b5e52478b",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 148,
+      "name": "xff-import-rewrite-script-idempotency-hostile-review-20260925.md",
+      "sha256": "827ac36a6deb1847ccf101d6e59698c8086794691eab3c58fa4061835136729c",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 149,
+      "name": "xss-e2e-mismatch-20260925.md",
+      "sha256": "b1ff7035abc88150d5445be68d9ac6aed238850434c51124ac57c359f1a4ee10",
+      "state": "not_recovered"
+    },
+    {
+      "source_id": 150,
+      "name": "carelink-full-audit-remediation-design.md",
+      "sha256": "240519486143bc7af88af1ba69ddb3fa18544503c009e56b6ff865a299d05355",
+      "state": "previously_recovered"
+    },
+    {
+      "source_id": 151,
+      "name": "carelink-session-error-remediation-design.md",
+      "sha256": "75611ba99e2d7536ba8e9c4e6157b726efd5efdb00173f1ac07c271b659d7b49",
+      "state": "previously_recovered"
+    }
+  ],
+  "missing": 149,
+  "total": 151,
+  "verification": "exact SHA256 required"
+}

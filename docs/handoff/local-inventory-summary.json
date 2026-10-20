@@ -1,0 +1,15 @@
+{
+  "scope": "primary CareLink checkout including nested work and archives, generated trees summarized; no symlink traversal",
+  "counts": {
+    "E": 22,
+    "C": 3523,
+    "A": 3858
+  },
+  "generated_trees": 44,
+  "private_inventory_sha256": "d2aa9daad3d5037c2b37ce6ca153c37ae5f694a378d0543e3f2c35c08b44a16e",
+  "private_inventory_transfer": "not transferred: approved encrypted destination not specified",
+  "unreviewed_is_not_unnecessary": true,
+  "remote_content_matches": 3858,
+  "remaining_private_bytes": 1298656613,
+  "content_match_method": "Git blob SHA1 of exact file bytes matched object IDs reachable from remote refs; no duplicate source upload required"
+}
