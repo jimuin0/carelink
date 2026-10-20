@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -73,7 +73,7 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
     return () => window.removeEventListener('storage', check);
   }, [facilityId]);
 
-  const { register, handleSubmit, setValue, watch, formState: { errors, isSubmitting, isDirty }, reset } = useForm<ReviewFormData>({
+  const { register, handleSubmit, setValue, control, formState: { errors, isSubmitting, isDirty }, reset } = useForm<ReviewFormData>({
     resolver: zodResolver(reviewSchema),
     defaultValues: {
       reviewer_name: '',
@@ -85,6 +85,16 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
       comment: '',
     },
   });
+  // watch() は React Compiler の最適化対象から外れる（incompatible-library）。購読は useWatch で行う。
+  const ratings = useWatch({ control, name: AXES.map(({ key }) => key) });
+  // Cleanup blob URLs on unmount to prevent memory leaks
+  const photoPreviewsRef = useRef(photoPreviews);
+  // 描画中に ref を書き換えない（React Compiler の前提）。最新の一覧は commit 後に反映する。
+  useEffect(() => { photoPreviewsRef.current = photoPreviews; }, [photoPreviews]);
+  useEffect(() => {
+    return () => { photoPreviewsRef.current.forEach((url) => URL.revokeObjectURL(url)); };
+  }, []);
+
   useEffect(() => {
     const eraseInput = () => {
       photoPreviewsRef.current.forEach(url => URL.revokeObjectURL(url));
@@ -101,13 +111,6 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [isDirty, photos.length, submitted]);
-
-  // Cleanup blob URLs on unmount to prevent memory leaks
-  const photoPreviewsRef = useRef(photoPreviews);
-  photoPreviewsRef.current = photoPreviews;
-  useEffect(() => {
-    return () => { photoPreviewsRef.current.forEach((url) => URL.revokeObjectURL(url)); };
-  }, []);
 
   const [compressing, setCompressing] = useState(false);
 
@@ -306,7 +309,7 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
             {AXES.map(({ key, label }) => (
               <div key={key} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
                 <span className="text-sm font-medium text-gray-700 min-w-[5em]">{label}</span>
-                <StarRating value={watch(key)} onChange={(v) => setValue(key, v, { shouldValidate: true })} size="sm" />
+                <StarRating value={ratings[AXES.findIndex(axis => axis.key === key)]} onChange={(v) => setValue(key, v, { shouldValidate: true })} size="sm" />
               </div>
             ))}
           </div>

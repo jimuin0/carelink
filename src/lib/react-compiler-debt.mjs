@@ -30,7 +30,8 @@ export const RATCHET_RULES = [
   'react-hooks/immutability',
   'react-hooks/refs',
   // React Compiler が「互換性のないライブラリ」としてコンパイルを諦めた箇所。
-  // 現在は ReviewForm。原因は react-hook-form の useForm() が返す watch() で、
+  // 2026年10月20日時点で 0 件（ReviewForm を useWatch へ移行して解消）。かつての原因は
+  // react-hook-form の useForm() が返す watch() で、
   // 「安全にメモ化できない関数を返す」ため。ライブラリ側の都合なので、こちらのコードを
   // 歪めて回避すべきではない（上流が対応したら自然に消える）。
   //
@@ -89,8 +90,11 @@ export const RATCHET_RULES = [
  *        ルール無効化や検査対象の縮小は行わず、CI実測にbaselineを厳格化する。
  *   3  … BookingFlowの復元は削除世代と非同期SHA照合を伴う処理へ移行。
  *        同期state更新の指摘がなくなった実CI結果に合わせる（2026年10月9日）。
+ *   2  … ReviewForm の watch() を useWatch へ移行して incompatible-library を解消し、
+ *        解析可能になって見えた描画中の ref 書換えも effect へ移して 1 件減（2026年10月20日）。
+ *        残る 2 件は退会後の全リロード（no-location-assign）で、意図した挙動のため数え続ける。
  */
-export const BASELINE = 3;
+export const BASELINE = 2;
 
 /**
  * eslint の JSON 出力から、ラチェット対象ルールの指摘件数を数える。
