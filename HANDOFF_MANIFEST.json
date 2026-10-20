@@ -158,8 +158,8 @@
     },
     {
       "path": "HANDOFF_AUDIT.md",
-      "sha256": "1818392132478db97139c4833df98402163a18ec4bbf5e4e989a76cb55e83d36",
-      "bytes": 4058
+      "sha256": "f9c64de102d57024a37acb1966ef2e98117cdb6e8b615b855fc06519b7b7a217",
+      "bytes": 4657
     },
     {
       "path": "README.md",
@@ -303,8 +303,8 @@
     },
     {
       "path": "docs/handoff/local-inventory-summary.json",
-      "sha256": "8f0c177f83b31e353d20e0952d701d09ef67c40553a0f6c99967eaa9a1df1682",
-      "bytes": 483
+      "sha256": "32a382cd373b033a7d14ae7e67e1da4920a52e79c81141e9be74b302a12b2ab6",
+      "bytes": 671
     },
     {
       "path": "docs/handoff/original-source-index.json",

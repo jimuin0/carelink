@@ -28,3 +28,7 @@ F: 他案件は探索対象外。旧版を自動で不要にはしない。旧Ca
 Git LFS pointerは追跡ファイルに0。submodule/追跡symlinkの件数はGit棚卸しに記録。4本の過去競合検証スクリプトに旧Mac専用Docker/psqlモードが存在する。安全ガードを外さず、通常の`psql`/CIローカルDBモードを使用する。現行アプリ・npm ciの必須依存ではない。path-dependencies.jsonに対象を記録。
 
 入れ子worktree2件も確認し、一方のdocs/carelink-resume-status.mdに未保存差分1件がある。元checkoutを変更せず保持し、公開レビュー前なのでC。全refのGit bundleをローカル作成・git bundle verify成功。hashをprivate-history-preservation.jsonに保存。これは別Macへの移転完了ではない。
+
+## ローカル限定内容と既存GitHub内容の実照合
+
+初期7,403ファイルのうち3,858件は、ファイル全内容からGit blob IDを計算してremote refsから到達可能なobjectと一致したためAへ変更した。単に同名という判定ではない。Eは22件、Cは3,523件（約1.30GB）。Cを「不要」とはしていない。詳細な秘密候補を含むprivate inventoryとbundleは元Macに保持し、その最新hashと分類集計を公開した。生成ディレクトリをまとめて除外した範囲はこのファイル件数とは別に記録。
