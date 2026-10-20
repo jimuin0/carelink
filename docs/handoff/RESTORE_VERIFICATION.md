@@ -16,3 +16,8 @@ manifestはGit追跡対象をSHA256で照合する。manifest自身のみ循環�
 Commit 6b30b8e575e8aad5b62b5588f0ff8f729d4faa25: [CI39366685067](https://github.com/jimuin0/carelink/actions/runs/39366685067) succeeded. Unit: 575 suites / 12,330 tests; HTTPS browser E2E: 374 passed; local Supabase API contracts: 17 passed with zero skips; static migration contracts: 17 passed. This includes a fresh disposable database, schema generation and production build. Later changes affect only handoff metadata/index/archive/manifest, not runtime source. Always inspect PR735 live checks separately; the earlier successful CI is not a claim that every later head completed CI.
 
 Sixteen private archives were restored into isolated temporary directories: all 12,683 file hashes matched their original manifests. All 3,566 unreachable Git objects were separately packed and verified in an empty bare repository. These are local preservation checks, not a completed private transfer.
+
+## 再開ルール更新版の照合対象
+
+資料更新前の元コミット: d9e56ce6465105687c01763c41cea0bd7f799771。コードの機能検証コミット: 6b30b8e575e8aad5b62b5588f0ff8f729d4faa25（上記CI）。完成した引継ぎ一式: `git log -1 --format=%H -- HANDOFF_MANIFEST.json` が返すコミット。これらを同じ意味で扱わない。manifest自身のみ除外、他1,941ファイルを照合する。
+今回変更は資料5件とこの記録のみで、src/package/lockfile/CI/復元ツール/アーカイブの内容は変えない。そのため既存の全体テスト・build・起動証拠を再利用する。最終保存後は別の空フォルダへ `git clone --branch codex/carelink-resume-rules-20261020 https://github.com/jimuin0/carelink.git`、`python3 scripts/verify-handoff.py --restore-to ../evidence-restored` を実行し、GitHub取得コミットと結果を最終報告する。本文へ自己コミットhashを書き込む循環を避け、Gitがmanifest導入コミットを識別する。別実機・別アカウントや本番の再検証を意味しない。

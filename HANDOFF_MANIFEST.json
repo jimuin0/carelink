@@ -1,6 +1,5 @@
 {
   "algorithm": "SHA256",
-  "baseline": "c33a53ac8c96422e4271e4a47d3403e226cecd91",
   "exclusions": [
     "HANDOFF_MANIFEST.json"
   ],
@@ -147,8 +146,8 @@
     },
     {
       "path": "AGENTS.md",
-      "sha256": "f7f8063ab9e1a590f824ff262b1eeb319e6c4d5be28b66f31a0583cf3de7cb73",
-      "bytes": 1341
+      "sha256": "a9d540a5cd8ad40244e4b9d1e5f75633fe2c3f6ecf1d01bbbacf27bf00db1632",
+      "bytes": 1678
     },
     {
       "path": "CLAUDE.md",
@@ -157,8 +156,8 @@
     },
     {
       "path": "HANDOFF_AUDIT.md",
-      "sha256": "463ba8a49bcb03aa7330bb373ffbb2672df850121d16a849f7bae8d9adcf916d",
-      "bytes": 5027
+      "sha256": "f5d575be263798fc6107af00a01fa548a78c950bdc3ce87361ff600586a4d754",
+      "bytes": 6146
     },
     {
       "path": "README.md",
@@ -167,8 +166,8 @@
     },
     {
       "path": "RESUME.md",
-      "sha256": "f63de663871c47d263100a2e5263d0c7f7123d010780a01343deaa98043742a3",
-      "bytes": 7737
+      "sha256": "0c318c40c3eb59a1b66e39ab976b3956ce425bcdd1b667439cc034169873d0ca",
+      "bytes": 10009
     },
     {
       "path": "__mocks__/@vercel/functions.js",
@@ -287,8 +286,8 @@
     },
     {
       "path": "docs/handoff/RESTORE_VERIFICATION.md",
-      "sha256": "c56c4c74e914899ed712d6507a8e5752418ead0afcfdf68103144374783bc055",
-      "bytes": 2748
+      "sha256": "cc5c7be4f6e5021e685fc9b6b2dd4274b6fe1ca54b033f045f4a2b03d14078f7",
+      "bytes": 3865
     },
     {
       "path": "docs/handoff/environment-names.json",
@@ -337,8 +336,8 @@
     },
     {
       "path": "docs/handoff/restore-results.json",
-      "sha256": "6aae425e8265b64a41ea8729f04aa65220f2e1748622363ad4c63680c00ff1c7",
-      "bytes": 3976
+      "sha256": "7da3e87cd22c1372fc8727147d45c9c16d9e43da23b9719d4e0c3461e9c14308",
+      "bytes": 4185
     },
     {
       "path": "docs/handoff/verifier-safety-results.json",
@@ -9716,5 +9715,9 @@
     "git-inventory.json": "f3913613a1a6f2573a0937d99169f77a87fd28ad71fdf85afdfe571f3c70faef",
     "local-inventory-summary.json": "32a382cd373b033a7d14ae7e67e1da4920a52e79c81141e9be74b302a12b2ab6",
     "original-source-index.json": "0cf3f6928160499e9a70ea6e2ec862c2aae88fd7b66161f9f3f3c83ae786db8c"
-  }
+  },
+  "code_verification_reference_commit": "c33a53ac8c96422e4271e4a47d3403e226cecd91",
+  "documentation_revision_source_commit": "d9e56ce6465105687c01763c41cea0bd7f799771",
+  "completed_handoff_commit_resolution": "git log -1 --format=%H -- HANDOFF_MANIFEST.json",
+  "commit_semantics": "Manifest hashes apply to the commit introducing/updating this manifest, not the pre-documentation source commit. Manifest itself is excluded to avoid self-reference."
 }
