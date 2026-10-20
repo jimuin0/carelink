@@ -64,4 +64,16 @@ describe('formatHealthSummary', () => {
   it('body に status が無ければ unknown', () => {
     expect(formatHealthSummary(200, {})).toBe('HTTP 200 / status unknown');
   });
+
+  it('ok=false の依存だけを名前順で示し、エラー本文は出さない', () => {
+    expect(formatHealthSummary(200, { status: 'degraded', deps: {
+      stripe: { ok: false, error: 'secret-ish detail' }, cron: { ok: true }, resend: { ok: false },
+    } })).toBe('HTTP 200 / status degraded / failing resend,stripe');
+  });
+
+  it('識別子でない依存名・壊れた deps は無視する', () => {
+    expect(formatHealthSummary(503, { status: 'unhealthy', deps: { 'x\ny': { ok: false }, supabase: null, ok: { ok: 'no' } } }))
+      .toBe('HTTP 503 / status unhealthy');
+    expect(formatHealthSummary(200, { status: 'healthy', deps: null })).toBe('HTTP 200 / status healthy');
+  });
 });
