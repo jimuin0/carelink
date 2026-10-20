@@ -14,6 +14,7 @@ ARGS = ['psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose'
 RESULTS = []
 
 ACTOR = 'fe201020-0000-4000-8000-000000000001'
+OTHER = 'fe201020-0000-4000-8000-000000000002'
 CONTACT = 'fe201020-0000-4000-8000-000000000011'
 REPLY = 'fe201020-0000-4000-8000-000000000021'
 NEXT = 'fe201020-0000-4000-8000-000000000022'
@@ -87,7 +88,7 @@ def race(label, first, second, expected):
 
 def reset(age='25 hours'):
     sql(f"DELETE FROM public.contacts WHERE id='{CONTACT}'; "
-        f"INSERT INTO auth.users(id,email) VALUES('{ACTOR}','reply-abandon@example.invalid') ON CONFLICT(id) DO NOTHING; "
+        f"INSERT INTO auth.users(id,email) VALUES('{ACTOR}','reply-abandon@example.invalid'),('{OTHER}','reply-abandon-other@example.invalid') ON CONFLICT(id) DO NOTHING; "
         f"INSERT INTO public.contacts(id,name,email,inquiry_type,message) VALUES('{CONTACT}','Synthetic','reply@example.invalid','その他','Synthetic'); "
         f"INSERT INTO public.contact_replies(id,contact_id,author_id,body,is_internal,created_at,delivery_envelope) "
         f"VALUES('{REPLY}','{CONTACT}','{ACTOR}','Synthetic body',false,now()-interval '{age}','{ENVELOPE}'::jsonb);")
@@ -117,10 +118,16 @@ try:
         ('mark sent after abandon', f"UPDATE public.contact_replies SET sent_at=now() WHERE id='{REPLY}'"),
         ('rewrite abandonment time', f"UPDATE public.contact_replies SET delivery_abandoned_at=now()+interval '1 day' WHERE id='{REPLY}'"),
         ('clear abandonment', f"UPDATE public.contact_replies SET delivery_abandoned_at=NULL, delivery_abandoned_by=NULL WHERE id='{REPLY}'"),
-        ('change abandonment actor', f"UPDATE public.contact_replies SET delivery_abandoned_by=NULL WHERE id='{REPLY}'"),
+        ('reassign abandonment actor', f"UPDATE public.contact_replies SET delivery_abandoned_by='{OTHER}' WHERE id='{REPLY}'"),
     ]:
         assert attempt(stmt) == '23514', label; assert state() == 'true,false', label
         RESULTS.append({'case': label, 'sqlstate': '23514'})
+
+    abandoned_at = sql(f"SELECT delivery_abandoned_at FROM public.contact_replies WHERE id='{REPLY}'")
+    sql(f"DELETE FROM auth.users WHERE id='{ACTOR}'")
+    assert sql(f"SELECT delivery_abandoned_by IS NULL AND delivery_abandoned_at='{abandoned_at}' AND sent_at IS NULL FROM public.contact_replies WHERE id='{REPLY}'") == 't'
+    RESULTS.append({'case': 'deleting the abandoning operator clears only the actor (ON DELETE SET NULL is not blocked)'})
+    sql(f"INSERT INTO auth.users(id,email) VALUES('{ACTOR}','reply-abandon@example.invalid')")
 
     assert attempt(f"INSERT INTO public.contact_replies(id,contact_id,body,is_internal,delivery_envelope) VALUES('{NEXT}','{CONTACT}','Next',false,'{ENVELOPE}'::jsonb)") == 'OK'
     assert attempt(f"INSERT INTO public.contact_replies(contact_id,body,is_internal,delivery_envelope) VALUES('{CONTACT}','Third',false,'{ENVELOPE}'::jsonb)") == '23505'
@@ -145,4 +152,4 @@ try:
 
     print(json.dumps({'cases': RESULTS, 'actual_lock_waiters': sum(x.get('actual_lock_waiters', 0) for x in RESULTS), 'production_mutations': False}, indent=2))
 finally:
-    sql(f"DELETE FROM public.contacts WHERE id='{CONTACT}'; DELETE FROM auth.users WHERE id='{ACTOR}';")
+    sql(f"DELETE FROM public.contacts WHERE id='{CONTACT}'; DELETE FROM auth.users WHERE id IN ('{ACTOR}','{OTHER}');")
