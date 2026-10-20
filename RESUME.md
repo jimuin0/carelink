@@ -45,8 +45,26 @@ DB業務データ・Auth・Storageは既存クラウド側に残る。新Mac開�
 
 コード変更時は現行CIのcoverage100%・型・lint・E2E/DB契約を維持し、対象commitを固定する。main更新だけで配信完了としない。Vercel READY/health/version、Render実行版と本番DBmigrationを個別に照合。以前の配信をpromote/rollbackする際は現行DBとの互換性を検証し、適用済みmigrationを安易に逆実行しない。cron rollbackは専用文書の所有権切替順を守る。今回の引継ぎ文書追加はアプリ挙動を変更しない。
 
+## 本人が行う操作（別アカウント・別Mac、順番）
+
+1. **GitHub権限**: 変更を元repoへ保存する場合、所有者jimuin0で [Settings → Collaborators](https://github.com/jimuin0/carelink/settings/access) を開き、Add peopleから移行先の正確なGitHubユーザー名を招待。移行先アカウントで招待を承諾する。公開repoの閲覧/cloneだけなら招待不要。所有権移転・公開範囲変更・管理権限拡大は不要。未指定相手の招待をエージェントが勝手に行わない。[公式手順](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/repository-access-and-collaboration/inviting-collaborators-to-a-personal-repository)。
+2. **新Macで認証**: Codexを使うアカウントでログインし、GitHubは上記の移行先アカウントで本人認証する。ChatGPT/Codexの契約・認証とGitHub権限は別。旧MacのCookie・SSH秘密鍵・パスワードをチャットへ貼らない。
+3. **取得と依頼**: 新MacのCodexでこのrepoの取得を依頼し、下の再開用依頼文を貼る。clone・manifest照合・必要な依存準備はエージェントが行う。現在コードの再開には過去アーカイブの全移送も復号鍵も不要。
+4. **外部サービス認証（作業に必要になった時だけ）**: まずRender workspace jimuinの本人ログイン/必要最小限のアクセスを用意する。VercelのCareLink、Supabase project xzafxiupbflvgbarriheは必要な操作時に個別に認証・アクセス許可する。GitHubへの招待でこれらの権限やGitHub Secretsが移るわけではない。新規有料席など課金が必要なら、その前に判断する。サービスの秘密値をチャットへ渡さず、承認済み秘密管理庫か対象サービスのSecret入力で設定する。
+5. **復号鍵（機密履歴を別途移す場合だけ）**: 今回の引継ぎには暗号化済み移送パッケージ/復号鍵を作成しておらず、渡す鍵はない。GitHub保存のrestart-evidence.tar.gzは非機密のgzipで、暗号化ではない。元の私的アーカイブは未移行のまま保持。後日それらが必要になった場合は、宛先と暗号方式を決めて暗号化し、暗号化ファイルとSHA256は承認済み転送経路、復号鍵/パスフレーズは本人間のパスワード管理庫の個別共有など別経路で渡す。同じメール/共有フォルダへ同梱しない。鍵はGit・Issue・PR・このチャットへ記載しない。受信側の照合・実復号成功まで移行済みとしない。現在の再開はこの任意移送を待たない。
+
 ## 別アカウントへ貼る依頼文
 
-「このrepoのRESUME.md、HANDOFF_AUDIT.md、HANDOFF_MANIFEST.json、docs/handoff/RESTORE_VERIFICATION.mdを読み、manifestを検証して再開してください。元Mac/旧チャット/ブラウザ状態に依存せず、残件と未移行の機密履歴を区別してください。まずPR734の本番cron切替状態を読み取りで確認し、原票149件回収とSupabase所有者対応を未完了のまま追跡してください。他チャットへの連絡・委任・ChatGPTスケジュールは禁止。保留条件と秘密保護、検査基準を維持し、実施できる実装/検証をこの会話内で進めてください。」
+jimuin0/carelink の最新mainを取得し、RESUME.md・HANDOFF_AUDIT.md・AGENTS.mdを読んでください。
+
+まず現在の差分と進行中ジョブを確認し、引き継ぎ対象との一致を一度だけ確認してください。一致すれば保存済みの検証結果を使い、理由のない全体再検査や同じ調査の繰り返しは行わないでください。
+
+RESUME.mdの「再開直後の実作業」に従い、最初にRenderのworkspace「jimuin」で、PR #734のcron集約についてサービスの配信版・切替値・停止状態・実行ログを読み取り確認してください。実施済みの切替や送信を重複実行しないでください。
+
+資料の要約・再整理だけで終了せず、認証待ちとは独立して進められる実装と検証を続けてください。過去アーカイブの全移送や原票149件の回収を、現行コードの開発再開条件にしないでください。Supabase所有者対応、本人認証、原票待ち、事業判断、保留事項は区別し、未確認を完了扱いにしないでください。
+
+通常の作業上の選択は既存規則に従って判断し、本人認証・新しい権限・事業判断が本当に必要な箇所だけ知らせてください。判断が必要なら、確認済みの制約と推奨案をまとめて提示してください。
+
+CareLinkのみ、このセッション内で進めてください。他チャットへの連絡・委任・ChatGPT内蔵スケジュールは禁止です。ブラウザ操作はCodexのサイドバー内で行い、既存の予算・検査基準・保留・公開条件を維持してください。秘密情報の公開、元データの削除、無断の課金・実顧客通知・本番予約や店舗の試験変更・権限拡大は行わないでください。
 
 過去DB競合スクリプトの旧Mac専用`--local-docker`系モードはポータブルではない。通常psql/CIモードを使い、ハードコードの専用socket安全ガードは削除しない。未push履歴のbundleと入れ子docs差分の未移行はprivate-history-preservation.jsonに記録。

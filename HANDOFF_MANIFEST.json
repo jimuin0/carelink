@@ -166,8 +166,8 @@
     },
     {
       "path": "RESUME.md",
-      "sha256": "0c318c40c3eb59a1b66e39ab976b3956ce425bcdd1b667439cc034169873d0ca",
-      "bytes": 10009
+      "sha256": "6b25af4aa5e6a083ad6ae9651fc776ea48c1e6350c49411ba8a6e5728f40730f",
+      "bytes": 13947
     },
     {
       "path": "__mocks__/@vercel/functions.js",
@@ -9717,7 +9717,7 @@
     "original-source-index.json": "0cf3f6928160499e9a70ea6e2ec862c2aae88fd7b66161f9f3f3c83ae786db8c"
   },
   "code_verification_reference_commit": "c33a53ac8c96422e4271e4a47d3403e226cecd91",
-  "documentation_revision_source_commit": "d9e56ce6465105687c01763c41cea0bd7f799771",
+  "documentation_revision_source_commit": "54040468ad8239b76fa2ea93b37c106c4e5d7121",
   "completed_handoff_commit_resolution": "git log -1 --format=%H -- HANDOFF_MANIFEST.json",
   "commit_semantics": "Manifest hashes apply to the commit introducing/updating this manifest, not the pre-documentation source commit. Manifest itself is excluded to avoid self-reference."
 }
