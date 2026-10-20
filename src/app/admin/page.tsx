@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { SbPageHeader, SbCard, SbStatusChip, SbButtonLink, SbStatCard } from '@/components/admin/SbUi';
 import { todayJst, addDays, dayOfWeekUtc, jstMonthInfo } from '@/lib/admin-date';
 import { hasConfirmedBookingHours } from '@/lib/booking-preparation';
+import { readWithinDeadline } from '@/lib/bounded-read';
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -35,12 +36,12 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
     { count: photoCount, error: photoErr },
     { data: facilityData, error: facilityErr },
   ] = await Promise.all([
-    supabase.from('facility_menus').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).or('is_published.is.null,is_published.eq.true'),
-    supabase.from('staff_profiles').select('id').eq('facility_id', facilityId).eq('is_active', true),
-    supabase.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId),
+    readWithinDeadline('dashboard-menus', supabase.from('facility_menus').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).or('is_published.is.null,is_published.eq.true')),
+    readWithinDeadline('dashboard-staff', supabase.from('staff_profiles').select('id').eq('facility_id', facilityId).eq('is_active', true)),
+    readWithinDeadline('dashboard-photos', supabase.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId)),
     // status に加えて prefecture/city も同じ1行取得に相乗り（往復を増やさない）。
     // 「基本情報（住所）」オンボーディング項目の done 判定に使う。
-    supabase.from('facility_profiles').select('status, name, prefecture, city, address, business_hours').eq('id', facilityId).single(),
+    readWithinDeadline('dashboard-facility', supabase.from('facility_profiles').select('status, name, prefecture, city, address, business_hours').eq('id', facilityId).single()),
   ]);
   // 取得失敗を 0/未完了 に偽装しない（error.tsx に委ねる）
   if (menuErr || staffErr || photoErr || facilityErr) {
@@ -51,7 +52,7 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
   const staffCount = staffIds.length;
 
   const scheduleResult = staffIds.length > 0
-    ? await supabase.from('staff_schedules').select('id', { count: 'exact', head: true }).in('staff_id', staffIds)
+    ? await readWithinDeadline('dashboard-schedules', supabase.from('staff_schedules').select('id', { count: 'exact', head: true }).in('staff_id', staffIds))
     : { count: 0, error: null };
   if (scheduleResult.error) throw new Error('勤務スケジュールの取得に失敗しました');
   const scheduleCount = scheduleResult.count ?? 0;
@@ -98,18 +99,18 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
     { data: monthCompletedRows, error: monthRevErr },
     { count: monthNoShowCount, error: noShowErr },
   ] = await Promise.all([
-    supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('booking_date', today),
-    supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('status', 'pending'),
-    supabase.from('bookings').select('booking_date').eq('facility_id', facilityId).neq('status', 'cancelled')
-      .gte('booking_date', weekDates[0]).lte('booking_date', weekDates[13]),
+    readWithinDeadline('dashboard-bookings-today', supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('booking_date', today)),
+    readWithinDeadline('dashboard-bookings-pending', supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('status', 'pending')),
+    readWithinDeadline('dashboard-bookings-week', supabase.from('bookings').select('booking_date').eq('facility_id', facilityId).neq('status', 'cancelled')
+      .gte('booking_date', weekDates[0]).lte('booking_date', weekDates[13])),
     // 本日の売上（完了予約の total_price 合計）
-    supabase.from('bookings').select('total_price').eq('facility_id', facilityId).eq('status', 'completed').eq('booking_date', today),
+    readWithinDeadline('dashboard-revenue-today', supabase.from('bookings').select('total_price').eq('facility_id', facilityId).eq('status', 'completed').eq('booking_date', today)),
     // 当月の完了予約（売上合計・件数・客単価の母数）
-    supabase.from('bookings').select('total_price').eq('facility_id', facilityId).eq('status', 'completed')
-      .gte('booking_date', monthStart).lte('booking_date', monthEnd),
+    readWithinDeadline('dashboard-revenue-month', supabase.from('bookings').select('total_price').eq('facility_id', facilityId).eq('status', 'completed')
+      .gte('booking_date', monthStart).lte('booking_date', monthEnd)),
     // 当月の無断キャンセル件数（無断キャンセル率の分子）
-    supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('status', 'no_show')
-      .gte('booking_date', monthStart).lte('booking_date', monthEnd),
+    readWithinDeadline('dashboard-no-show-month', supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('status', 'no_show')
+      .gte('booking_date', monthStart).lte('booking_date', monthEnd)),
   ]);
   // 取得失敗を 0 に偽装しない（error.tsx に委ねる）。売上・率を過少表示で実績誤認させない。
   if (todayErr || pendingErr || weekErr || todayRevErr || monthRevErr || noShowErr) {
@@ -338,12 +339,13 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
 
 async function RecentBookings({ facilityId }: { facilityId: string }) {
   const supabase = await createServerSupabaseAuthClient();
-  const { data, error } = await supabase
+  // 副次カードのため、時間切れもページ全体を落とさずカード内のエラー表示に寄せる。
+  const { data, error } = await readWithinDeadline('dashboard-recent-bookings', supabase
     .from('bookings')
     .select('id, customer_name, booking_date, start_time, status')
     .eq('facility_id', facilityId)
     .order('created_at', { ascending: false })
-    .limit(5);
+    .limit(5)).catch(() => ({ data: null, error: true }));
 
   // 取得失敗を「まだ予約がありません」に偽装しない（通信/権限エラーを予約ゼロと誤認させる）。
   // 副次カードのためページ全体は落とさず、空とは区別してカード内でエラーを明示する。
