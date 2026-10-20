@@ -18,6 +18,7 @@ type ReplyStatus = {
     sentAt: string | null;
     retryable: boolean;
     recoveryAvailable?: boolean;
+    abandonable?: boolean;
   };
 };
 
@@ -53,6 +54,7 @@ export default function AdminInquiriesPage() {
   const [replyStates, setReplyStates] = useState<Record<string, ReplyStatus>>({});
   const [replyDraftLocked, setReplyDraftLocked] = useState<Record<string, boolean>>({});
   const [providerMessageIds, setProviderMessageIds] = useState<Record<string, string>>({});
+  const [abandonConfirmed, setAbandonConfirmed] = useState<Record<string, boolean>>({});
   const replyOperationIds = useRef<Record<string, string>>({});
   const replyStatusSequences = useRef<Record<string, number>>({});
   const listRequestSequence = useRef(0);
@@ -202,6 +204,7 @@ export default function AdminInquiriesPage() {
         sentAt: reply.sentAt,
         retryable: reply.retryable,
         recoveryAvailable: reply.recoveryAvailable === true,
+        abandonable: reply.abandonable === true,
       } : null;
       if (state && !state.sentAt) {
         replyOperationIds.current[id] = state.operationId;
@@ -305,6 +308,32 @@ export default function AdminInquiriesPage() {
       await load();
     } catch {
       if (pageMounted.current) setToast({ type: 'error', message: '照合結果を確認できません。再送せず送信状態を再読み込みしてください' });
+    } finally {
+      if (pageMounted.current) setReplyingId(null);
+    }
+  };
+
+  // 24時間を過ぎても送信結果が確定しない返信を「未送信」として閉じる。
+  // メールは送らない。閉じた後の返信は新しい操作IDで別の返信として送る。
+  const abandonReply = async (id: string) => {
+    const reply = replyStates[id]?.reply;
+    if (!reply || reply.sentAt || !reply.abandonable || !abandonConfirmed[id] || replyingId) return;
+    setReplyingId(id);
+    try {
+      const response = await fetch(`/api/admin/inquiries/${id}/reply`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'abandon', operationId: reply.operationId, confirmNotDelivered: true }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!pageMounted.current) return;
+      setToast({ type: response.ok && data?.ok === true ? 'success' : 'error',
+        message: response.ok && data?.ok === true
+          ? '未送信として確定しました。メールは送っていません。必要なら新しい返信として送信してください'
+          : data?.error || '未送信として確定できませんでした。送信状況を再読み込みしてください' });
+      setAbandonConfirmed((current) => ({ ...current, [id]: false }));
+      await loadReplyStatus(id);
+    } catch {
+      if (pageMounted.current) setToast({ type: 'error', message: '確定結果を確認できません。送信状況を再読み込みしてください' });
     } finally {
       if (pageMounted.current) setReplyingId(null);
     }
@@ -526,6 +555,19 @@ export default function AdminInquiriesPage() {
                                 disabled={replyingId !== null || replyStates[c.id].loading || replyStates[c.id].failed || !UUID_REGEX.test((providerMessageIds[c.id] ?? '').trim())}
                                 className="underline disabled:opacity-50">受理記録を照合（メールは再送しません）</button>
                               <p>操作ID・宛先・差出人・件名・本文が一致した記録のみ確定します。IDだけでは確定しません。</p>
+                            </div>
+                          )}
+                          {replyStates[c.id].reply?.abandonable && (
+                            <div className="mt-3 space-y-2 border-t border-amber-200 pt-3">
+                              <p>送信サービスのログでタグ <code>carelink_reply_operation</code> = <code>{replyStates[c.id].reply?.operationId}</code> のメールが存在しないことを確認できた場合だけ、未送信として確定できます。確定してもメールは送りません。</p>
+                              <label className="flex items-start gap-2">
+                                <input type="checkbox" checked={Boolean(abandonConfirmed[c.id])}
+                                  onChange={(event) => setAbandonConfirmed((current) => ({ ...current, [c.id]: event.target.checked }))} />
+                                <span>送信サービスのログに該当メールが無いことを確認しました</span>
+                              </label>
+                              <button type="button" onClick={() => void abandonReply(c.id)}
+                                disabled={replyingId !== null || replyStates[c.id].loading || replyStates[c.id].failed || !abandonConfirmed[c.id]}
+                                className="underline disabled:opacity-50">未送信として確定（メールは送りません）</button>
                             </div>
                           )}
                         </div>

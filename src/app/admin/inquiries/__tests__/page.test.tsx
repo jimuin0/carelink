@@ -275,3 +275,65 @@ test('予約前の失敗後に空の状態を再確認したら下書き編集�
   await waitFor(() => expect(textarea).toBeEnabled());
   expect(textarea).toHaveValue('送信前の下書き');
 });
+
+test.each([
+  ['成功', true, null],
+  ['拒否', false, '送信サービスの冪等保持期間（24時間）が過ぎるまで未送信として確定できません'],
+  ['拒否（本文なし）', false, undefined],
+] as const)('未送信の確定は確認チェック後だけ abandon を送り、本文を送らない（%s）', async (_label, accepted, error) => {
+  const operationId = '44444444-4444-4444-8444-444444444444';
+  let abandoned = false;
+  mockFetch.mockImplementation((input: RequestInfo | URL, options?: RequestInit) => {
+    if (!String(input).endsWith('/reply')) return response();
+    if (options?.method === 'POST') {
+      expect(JSON.parse(String(options.body))).toEqual({ action: 'abandon', operationId, confirmNotDelivered: true });
+      if (accepted) abandoned = true;
+      return response(accepted ? { ok: true, alreadyAbandoned: false } : (error === undefined ? null : { error }), accepted);
+    }
+    return response({ reply: abandoned ? null : {
+      operationId, body: '合成予約本文', sentAt: null, retryable: false, recoveryAvailable: true, abandonable: true,
+    } });
+  });
+  render(<Page />);
+  fireEvent.click(await screen.findByText('合成問い合わせ'));
+  const button = await screen.findByRole('button', { name: '未送信として確定（メールは送りません）' });
+  expect(screen.getByText(operationId)).toBeVisible();
+  expect(button).toBeDisabled();
+  fireEvent.click(screen.getByLabelText('送信サービスのログに該当メールが無いことを確認しました'));
+  fireEvent.click(button);
+  expect(await screen.findByText(accepted
+    ? '未送信として確定しました。メールは送っていません。必要なら新しい返信として送信してください'
+    : error ?? '未送信として確定できませんでした。送信状況を再読み込みしてください')).toBeVisible();
+  expect(mockFetch.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(1);
+  if (accepted) {
+    await waitFor(() => expect(screen.queryByText('送信結果が未確定の返信があります')).not.toBeInTheDocument());
+    expect(screen.getByLabelText('合成問い合わせ 様に返信')).toBeEnabled();
+  } else {
+    expect(screen.getByLabelText('送信サービスのログに該当メールが無いことを確認しました')).not.toBeChecked();
+  }
+});
+
+test('24時間前の未確定返信には確定操作を出さない', async () => {
+  mockFetch.mockImplementation((input: RequestInfo | URL) => String(input).endsWith('/reply')
+    ? response({ reply: { operationId: '44444444-4444-4444-8444-444444444444', body: '合成予約本文', sentAt: null,
+      retryable: true, recoveryAvailable: true, abandonable: false } })
+    : response());
+  render(<Page />);
+  fireEvent.click(await screen.findByText('合成問い合わせ'));
+  expect(await screen.findByText('送信結果が未確定の返信があります')).toBeVisible();
+  expect(screen.queryByRole('button', { name: '未送信として確定（メールは送りません）' })).not.toBeInTheDocument();
+});
+
+test('確定要求の通信例外は結果不明として扱い、送信もしない', async () => {
+  const operationId = '44444444-4444-4444-8444-444444444444';
+  mockFetch.mockImplementation((input: RequestInfo | URL, options?: RequestInit) => {
+    if (!String(input).endsWith('/reply')) return response();
+    if (options?.method === 'POST') return Promise.reject(new Error('network'));
+    return response({ reply: { operationId, body: '合成予約本文', sentAt: null, retryable: false, abandonable: true } });
+  });
+  render(<Page />);
+  fireEvent.click(await screen.findByText('合成問い合わせ'));
+  fireEvent.click(await screen.findByLabelText('送信サービスのログに該当メールが無いことを確認しました'));
+  fireEvent.click(screen.getByRole('button', { name: '未送信として確定（メールは送りません）' }));
+  expect(await screen.findByText('確定結果を確認できません。送信状況を再読み込みしてください')).toBeVisible();
+});
