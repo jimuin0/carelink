@@ -42,12 +42,16 @@
     "149 originals recovery",
     "Render cutover live state"
   ],
-  "manifest_readback": "c7cdd56c remote pull: 1940 files and 4 archive members verified; final revision must be rechecked",
+  "manifest_readback": "Remote GitHub pull at final_payload_commit: 1940 files matched; archive restored and all 4 member hashes matched",
   "scanner_result": "gitleaks8.30.1 zero findings on new Git commit and restored JSON archive",
   "scanner_false_positives": {
     "count": 2,
     "rule": "generic-api-key",
     "cause": "ordinary scanner-result prose and SHA256 log digest under a scanner-named field; not credentials",
     "history": "retained; no security rule disabled"
-  }
+  },
+  "final_payload_commit": "676cbb3658d771324fb6381f0ea114ab2e3d1921",
+  "final_payload_scanner": "gitleaks8.30.1 scanned full added/changed tree plus extracted archive: zero findings",
+  "historical_scanner_findings": "two false positives in earlier commit: plain prose and log SHA256 under scanner-related key; neither is a credential",
+  "private_nested_preservation": "both nested Git histories bundled/verified locally; pending doc diff saved privately; still not transferred"
 }
