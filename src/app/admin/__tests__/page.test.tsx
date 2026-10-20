@@ -42,7 +42,7 @@ function chain(result: { data?: unknown; count?: number | null; error?: unknown 
  * facility_profiles の prefecture/city を差し替えられる最小限の supabase モック。
  * bookings 系は KPI 表示に使うだけで本検査の対象外のため、常に空/0 を返す。
  */
-function mockSupabase(opts: { prefecture: string | null; city: string | null; status?: string; scheduleError?: unknown; address?: string }) {
+function mockSupabase(opts: { prefecture: string | null; city: string | null; status?: string; scheduleError?: unknown; address?: string; stall?: 'kpi' | 'recent' }) {
   const from = jest.fn((table: string) => {
     if (table === 'facility_members') return chain({ data: [{ facility_id: FACILITY_ID, facility_profiles: { name: 'テスト店舗' } }] });
     if (table === 'facility_menus') return chain({ count: 1 });
@@ -52,7 +52,15 @@ function mockSupabase(opts: { prefecture: string | null; city: string | null; st
       return chain({ data: { status: opts.status ?? 'draft', name: 'テスト店舗', address: opts.address ?? 'テスト住所', prefecture: opts.prefecture, city: opts.city } });
     }
     if (table === 'staff_schedules') return chain({ count: 1, error: opts.scheduleError });
-    if (table === 'bookings') return chain({ data: [], count: 0 });
+    if (table === 'bookings') {
+      const bookings = chain({ data: [], count: 0 });
+      // Chainable but never settles, like a transport that accepted the request and went silent.
+      const stalled: Record<string, unknown> = { then: () => undefined };
+      for (const m of ['eq', 'neq', 'gte', 'lte']) stalled[m] = () => stalled;
+      if (opts.stall === 'kpi') bookings.eq = jest.fn(() => stalled);
+      if (opts.stall === 'recent') bookings.limit = jest.fn(() => stalled);
+      return bookings;
+    }
     throw new Error('unexpected table: ' + table);
   });
 
@@ -141,4 +149,34 @@ test('掲載済みでも未確認営業時間はネット予約準備中とし�
 test('勤務スケジュールの読取失敗は未設定0件へ置換しない', async () => {
   mockSupabase({ prefecture: '東京都', city: '渋谷区', scheduleError: { message: 'failed' } });
   await expect(AdminDashboard({ searchParams: Promise.resolve({}) })).rejects.toThrow('勤務スケジュールの取得に失敗しました');
+});
+
+describe('止まった読取を「読み込み中」のまま放置しない', () => {
+  beforeEach(() => { jest.useFakeTimers(); jest.spyOn(console, 'error').mockImplementation(() => undefined); });
+  afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); });
+
+  test('KPI の読取が止まれば期限で例外にし、error.tsx の再読み込みへ渡す', async () => {
+    mockSupabase({ prefecture: '東京都', city: '渋谷区', stall: 'kpi' });
+    const result = AdminDashboard({ searchParams: Promise.resolve({}) }).catch((error: unknown) => error);
+    await jest.advanceTimersByTimeAsync(8000);
+    expect(await result).toMatchObject({ name: 'PageReadTimeoutError', label: 'dashboard-bookings-today' });
+    expect(console.error).toHaveBeenCalledWith('[page-read] timeout', { label: 'dashboard-bookings-today', ms: 8000 });
+  });
+
+  test('最近の予約カードだけが止まってもページは落とさず、カード内でエラーを示す', async () => {
+    mockSupabase({ prefecture: '東京都', city: '渋谷区', stall: 'recent' });
+    const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
+    const recent: { type: (props: unknown) => Promise<unknown>; props: unknown }[] = [];
+    (function walk(node: AnyNode) {
+      if (node === null || typeof node !== 'object') return;
+      if (Array.isArray(node)) { node.forEach(walk); return; }
+      const el = node as { type?: { name?: string }; props?: { children?: AnyNode } };
+      if (el.type?.name === 'RecentBookings') recent.push(el as never);
+      if (el.props) flattenChildren(el.props.children).forEach(walk);
+    })(root);
+    expect(recent).toHaveLength(1);
+    const card = recent[0].type(recent[0].props);
+    await jest.advanceTimersByTimeAsync(8000);
+    expect(findElementsWithDirectText(await card, '予約の取得に失敗しました。ページを再読み込みしてください。')).toHaveLength(1);
+  });
 });
