@@ -167,8 +167,8 @@
     },
     {
       "path": "RESUME.md",
-      "sha256": "eb19ec5cf180294e9251caa3a35149f27f6c26628f3725b024d1f6fb23f06369",
-      "bytes": 7686
+      "sha256": "f63de663871c47d263100a2e5263d0c7f7123d010780a01343deaa98043742a3",
+      "bytes": 7737
     },
     {
       "path": "__mocks__/@vercel/functions.js",
@@ -292,8 +292,8 @@
     },
     {
       "path": "docs/handoff/environment-names.json",
-      "sha256": "5cc447c164696a0b81b014f636c7344efb638aced33b789a366a428d2730c50e",
-      "bytes": 1658
+      "sha256": "8e5e99708916900326d3bde715d7ee3b54e7ae8e82f88196a99cf9f47a4b3118",
+      "bytes": 2876
     },
     {
       "path": "docs/handoff/git-inventory.json",
@@ -332,8 +332,8 @@
     },
     {
       "path": "docs/handoff/restart-evidence.tar.gz",
-      "sha256": "61697fcd0bde1396b750851bc1cfb70faa011c0418b04a25c21405a7681c01c9",
-      "bytes": 14093
+      "sha256": "5a3f9a9d92dea313cc591cdf9d2b889671760c5cdceb5f2e74f6cb05ab5aa2ed",
+      "bytes": 14531
     },
     {
       "path": "docs/handoff/restore-results.json",
@@ -9712,7 +9712,7 @@
     }
   ],
   "archive_members": {
-    "environment-names.json": "5cc447c164696a0b81b014f636c7344efb638aced33b789a366a428d2730c50e",
+    "environment-names.json": "8e5e99708916900326d3bde715d7ee3b54e7ae8e82f88196a99cf9f47a4b3118",
     "git-inventory.json": "f3913613a1a6f2573a0937d99169f77a87fd28ad71fdf85afdfe571f3c70faef",
     "local-inventory-summary.json": "32a382cd373b033a7d14ae7e67e1da4920a52e79c81141e9be74b302a12b2ab6",
     "original-source-index.json": "0cf3f6928160499e9a70ea6e2ec862c2aae88fd7b66161f9f3f3c83ae786db8c"

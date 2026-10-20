@@ -28,7 +28,7 @@ Stripe/決済、キャンセル待ち、Google時差、LINE解除、実顧客返
 
 ## 外部環境・認証
 
-本番 https://carelink-jp.com はVercel、DB/Auth/StorageはSupabase project `xzafxiupbflvgbarrihe`。Renderはworkspace jimuin、既存carelink-cron-envと業務cron。GitHub Secretsはcloneされない。全変数名は [env索引](docs/handoff/environment-names.json)、テンプレートは.env.example。値は保存しない。
+本番 https://carelink-jp.com はVercel、DB/Auth/StorageはSupabase project `xzafxiupbflvgbarrihe`。Renderはworkspace jimuin、既存carelink-cron-envと業務cron。GitHub Secretsはcloneされない。実行コード・デプロイ設定から抽出した変数名は [env索引](docs/handoff/environment-names.json)、テンプレートは.env.example。値は保存しない。
 Vercel projectのdeploy/env管理権限、Supabase project SQL/backup/Storage権限、Render workspace読取/必要時deploy権限、GitHub push権限を別アカウントに本人が許可する必要がある。公開repoのcloneは認証不要、push権限は未確認。本人OAuth同意は移転不可。Stripe/LINE/Google/Resend/Slack/Anthropic等は各サービス管理者が必要時に最小権限で再接続する。期限・プラン・各Secret設定有無は今回未確認であり既設定と推測しない。NEWSLETTER_UNSUBSCRIBE_SECRET/VAPIDの無計画な再発行は既存リンク/購読を壊すため避ける。
 DB業務データ・Auth・Storageは既存クラウド側に残る。新Mac開発のための本番DB複製は不要。災害復旧にはSupabase管理者によるbackup/PITRの可用性・Storage別バックアップと秘密管理庫を別途確認する。今回は取得・移行・復元実証していない。
 
