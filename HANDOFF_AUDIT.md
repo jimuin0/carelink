@@ -32,3 +32,7 @@ Git LFS pointerは追跡ファイルに0。submodule/追跡symlinkの件数はGi
 ## ローカル限定内容と既存GitHub内容の実照合
 
 初期7,403ファイルのうち3,858件は、ファイル全内容からGit blob IDを計算してremote refsから到達可能なobjectと一致したためAへ変更した。単に同名という判定ではない。Eは22件、Cは3,523件（約1.30GB）。Cを「不要」とはしていない。詳細な秘密候補を含むprivate inventoryとbundleは元Macに保持し、その最新hashと分類集計を公開した。生成ディレクトリをまとめて除外した範囲はこのファイル件数とは別に記録。
+
+## 新Macへ引き継ぐ無視規則
+
+元Macの.git/info/excludeだけにあったwork/と.local-consolidation系の無視規則を共有.gitignoreへ移した。新しいcloneで生証跡や入れ子作業コピーを誤って一括公開しないための予防であり、元ファイルは削除しない。AGENTS.mdは共有の再開規則なので追跡する。

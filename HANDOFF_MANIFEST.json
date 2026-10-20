@@ -127,8 +127,8 @@
     },
     {
       "path": ".gitignore",
-      "sha256": "fe58d518dadad774515c306665218bd33702b26a962055ea73a00782d52e5a6d",
-      "bytes": 1102
+      "sha256": "e27b697559902f9286c0871d7c1b95f0abcd6c851aedd15e2f910b5e9f8a0891",
+      "bytes": 1216
     },
     {
       "path": ".gitleaks.toml",
@@ -157,8 +157,8 @@
     },
     {
       "path": "HANDOFF_AUDIT.md",
-      "sha256": "f9c64de102d57024a37acb1966ef2e98117cdb6e8b615b855fc06519b7b7a217",
-      "bytes": 4657
+      "sha256": "463ba8a49bcb03aa7330bb373ffbb2672df850121d16a849f7bae8d9adcf916d",
+      "bytes": 5027
     },
     {
       "path": "README.md",

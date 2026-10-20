@@ -54,3 +54,7 @@ reports/mutation/
 
 # Playwright admin E2E auth storageState (session token・コミット禁止)
 e2e/.auth/
+
+# CareLink private recovery evidence / nested working copies (never bulk-publish)
+/work/
+/.local-consolidation*/
