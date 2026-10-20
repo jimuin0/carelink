@@ -11,7 +11,8 @@
  * 環境変数（render.yaml の envVarGroup 経由）:
  *   - CARELINK_BASE_URL      例: https://carelink-jp.com（必須）
  *   - SLACK_BOT_TOKEN        通報用（任意・未設定ならログのみ）
- *   - SLACK_DEFAULT_CHANNEL  同上
+ *   - SLACK_DEFAULT_CHANNEL  同上（未設定なら SLACK_ADMIN_CHANNEL_ID を使う）
+ *   - SLACK_ADMIN_CHANNEL_ID 共有グループ slack-gyomu-bot の通報先（render.yaml で health-check にだけ紐づけ）
  *   - ADMIN_HEARTBEAT_URL    admin-dashboard heartbeat 送信先（任意・未設定なら no-op）
  *   - ADMIN_HEARTBEAT_TOKEN  同上
  */
@@ -42,7 +43,7 @@ async function pushAdminHeartbeat(status) {
 
 async function postSlack(text) {
   const token = process.env.SLACK_BOT_TOKEN;
-  const channel = process.env.SLACK_DEFAULT_CHANNEL;
+  const channel = process.env.SLACK_DEFAULT_CHANNEL || process.env.SLACK_ADMIN_CHANNEL_ID;
   if (!token || !channel) {
     console.error('[health-check] Slack 未設定のため通報スキップ:', text);
     return;

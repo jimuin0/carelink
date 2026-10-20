@@ -97,3 +97,6 @@ services:
         - package-lock.json
     envVars:
       - fromGroup: carelink-cron-env
+      # Slack 通報の資格情報は既存の共有グループから受け取る（値をリポジトリにも
+      # carelink-cron-env にも複製しない）。Slack を使うのはこの監視だけなので他の cron には付けない。
+      - fromGroup: slack-gyomu-bot
