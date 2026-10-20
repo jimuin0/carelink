@@ -1,5 +1,5 @@
 import { serverError } from '@/lib/with-route';
-import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import type { AvailableSlot } from '@/types';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
@@ -38,7 +38,8 @@ export async function GET(request: Request) {
   const preparation = await checkBookingReadiness(supabase, facilityId);
   if (preparation.error) return serverError('slots:preparation', preparation.error, '/api/slots', '予約設定を確認できません', { slots: [] });
   if (!preparation.readiness.ready) return NextResponse.json({ slots: [], bookingAvailable: false });
-  const { data, error } = await supabase.rpc('get_available_slots', {
+  // The slot RPC is SECURITY DEFINER and not executable by anon: only this rate-limited route may run it.
+  const { data, error } = await createServiceRoleClient().rpc('get_available_slots', {
     p_facility_id: facilityId,
     p_staff_id: staffId,
     p_date: date,

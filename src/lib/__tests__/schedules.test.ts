@@ -11,8 +11,9 @@ const mockRpc = jest.fn();
 jest.mock('../supabase-server', () => ({
   createServerSupabaseClient: jest.fn(() => ({
     from: mockFrom,
-    rpc: mockRpc,
+    rpc: jest.fn(() => { throw new Error('availability RPC must not use the anon client'); }),
   })),
+  createServiceRoleClient: jest.fn(() => ({ rpc: mockRpc })),
 }));
 
 import { getStaffSchedules, getAvailableSlots } from '../schedules';

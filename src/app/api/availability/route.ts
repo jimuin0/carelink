@@ -1,4 +1,4 @@
-import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -46,6 +46,8 @@ export async function GET(request: Request) {
     }
 
     const supabase = createServerSupabaseClient();
+    // Availability RPCs are SECURITY DEFINER and not executable by anon; run them only from this rate-limited route.
+    const rpcClient = createServiceRoleClient();
     const preparation = await checkBookingReadiness(supabase, facilityId);
     if (preparation.error) return serverError('availability-preparation', preparation.error, '/api/availability');
     if (!preparation.readiness.ready) return NextResponse.json({ dates: {}, bookingAvailable: false });
@@ -116,7 +118,7 @@ export async function GET(request: Request) {
     // 集約 RPC で「月 × 全スタッフ」のスロット数を 1 ラウンドトリップで取得（N+1 解消）。
     // get_month_availability 未デプロイ時（PostgREST schema cache 未反映含む = PGRST202）のみ
     // 従来の日次ループにフォールバックし、DB マイグレーション適用とコードデプロイの順序に依存せず無停止とする。
-    const { data: monthRows, error: monthErr } = await supabase.rpc('get_month_availability', {
+    const { data: monthRows, error: monthErr } = await rpcClient.rpc('get_month_availability', {
       p_facility_id: facilityId,
       p_staff_ids: staffIds,
       p_year: year,
@@ -159,7 +161,7 @@ export async function GET(request: Request) {
       await Promise.all(batch.map(async (dateStr) => {
         let totalSlots = 0;
         for (const sid of staffIds) {
-          const { data, error: slotsError } = await supabase.rpc('get_available_slots', {
+          const { data, error: slotsError } = await rpcClient.rpc('get_available_slots', {
             p_facility_id: facilityId,
             p_staff_id: sid,
             p_date: dateStr,

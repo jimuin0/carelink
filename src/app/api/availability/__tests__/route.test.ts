@@ -103,6 +103,9 @@ function setupDefaultMocks(opts: MockOpts = {}) {
 }
 
 beforeEach(() => {
+  // The route runs availability RPCs through service_role; delegate to the per-test client stub.
+  const supabaseServer = require('@/lib/supabase-server');
+  supabaseServer.createServiceRoleClient.mockImplementation(() => supabaseServer.createServerSupabaseClient());
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   setupDefaultMocks();
@@ -573,4 +576,11 @@ test('AV-2: staff_profiles 取得エラー → 500', async () => {
   });
   const res = await GET(makeRequest()); // staffId 未指定 → staff_profiles クエリが走る
   expect(res.status).toBe(500);
+});
+
+test('availability RPCs run through the service-role client, never anon PostgREST directly', async () => {
+  const { createServiceRoleClient } = require('@/lib/supabase-server');
+  expect(jest.isMockFunction(createServiceRoleClient)).toBe(true);
+  const source = require('fs').readFileSync(require('path').join(process.cwd(), 'src/app/api/availability/route.ts'), 'utf8');
+  expect(source).not.toMatch(/supabase\.rpc\('get_(available_slots|month_availability)'/);
 });
