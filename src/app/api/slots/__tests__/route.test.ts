@@ -41,6 +41,9 @@ function setupDefaultMocks(hasSlots: boolean = true) {
 }
 
 beforeEach(() => {
+  // The route runs availability RPCs through service_role; delegate to the per-test client stub.
+  const supabaseServer = require('@/lib/supabase-server');
+  supabaseServer.createServiceRoleClient.mockImplementation(() => supabaseServer.createServerSupabaseClient());
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   setupDefaultMocks();
@@ -342,4 +345,11 @@ test('AV-3: 当日は現在JST時刻より前の枠を除外', async () => {
   } finally {
     jest.useRealTimers();
   }
+});
+
+test('availability RPCs run through the service-role client, never anon PostgREST directly', async () => {
+  const { createServiceRoleClient } = require('@/lib/supabase-server');
+  expect(jest.isMockFunction(createServiceRoleClient)).toBe(true);
+  const source = require('fs').readFileSync(require('path').join(process.cwd(), 'src/app/api/slots/route.ts'), 'utf8');
+  expect(source).not.toMatch(/supabase\.rpc\('get_(available_slots|month_availability)'/);
 });

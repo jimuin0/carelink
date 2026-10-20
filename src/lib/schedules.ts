@@ -1,4 +1,4 @@
-import { createServerSupabaseClient } from './supabase-server';
+import { createServerSupabaseClient, createServiceRoleClient } from './supabase-server';
 import type { AvailableSlot, StaffSchedule } from '@/types';
 
 export async function getStaffSchedules(staffId: string): Promise<StaffSchedule[]> {
@@ -17,8 +17,7 @@ export async function getAvailableSlots(
   date: string,
   durationMinutes: number
 ): Promise<AvailableSlot[]> {
-  const supabase = createServerSupabaseClient();
-  const { data } = await supabase.rpc('get_available_slots', {
+  const { data } = await createServiceRoleClient().rpc('get_available_slots', {
     p_facility_id: facilityId,
     p_staff_id: staffId,
     p_date: date,
