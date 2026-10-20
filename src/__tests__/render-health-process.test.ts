@@ -5,11 +5,11 @@ import { join } from 'node:path';
 
 // Exercise the real executable with all HTTP calls intercepted in the child.
 // No inherited provider credentials or network requests enter this fixture.
-function runHealth(mode: string, slack = false) {
+function runHealth(mode: string, slack: boolean | 'shared-group' = false) {
   const script = pathToFileURL(join(process.cwd(), 'scripts/health-check.mjs')).href;
   const program = `
     const fixtureMode = ${JSON.stringify(mode)};
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = async function (url) {
       if (url.endsWith('/api/health')) {
         if (fixtureMode === 'network') throw new Error('fixture connection failed');
         if (fixtureMode === 'invalid') return new Response('invalid JSON');
@@ -17,7 +17,7 @@ function runHealth(mode: string, slack = false) {
         return new Response(JSON.stringify({status}), {status: fixtureMode === 'http500' ? 500 : 200});
       }
       if (url === 'https://slack.com/api/chat.postMessage') {
-        console.log('fixture alert attempted');
+        console.log('fixture alert attempted to ' + JSON.parse(arguments[1].body).channel);
         return new Response(JSON.stringify({ok: true}));
       }
       throw new Error('unexpected fixture request');
@@ -29,7 +29,9 @@ function runHealth(mode: string, slack = false) {
     env: {
       CARELINK_BASE_URL: mode === 'missing' ? '' : 'https://carelink.example.invalid',
       SLACK_BOT_TOKEN: slack ? 'synthetic-fixture-token' : '',
-      SLACK_DEFAULT_CHANNEL: slack ? 'synthetic-fixture-channel' : '',
+      SLACK_DEFAULT_CHANNEL: slack === true ? 'synthetic-fixture-channel' : '',
+      // render.yaml links the shared slack-gyomu-bot group, which names its channel this way.
+      SLACK_ADMIN_CHANNEL_ID: slack === 'shared-group' ? 'synthetic-admin-channel' : '',
     },
   });
 }
@@ -53,4 +55,15 @@ test.each(['degraded', 'network'])('sending an alert does not turn %s into succe
   expect(result.error).toBeUndefined();
   expect(result.stdout).toContain('fixture alert attempted');
   expect(result.status).toBe(1);
+});
+test('the shared Slack group channel is used when SLACK_DEFAULT_CHANNEL is unset', () => {
+  const result = runHealth('degraded', 'shared-group');
+  expect(result.error).toBeUndefined();
+  expect(result.stdout).toContain('fixture alert attempted to synthetic-admin-channel');
+  expect(result.stderr).not.toContain('Slack 未設定');
+  expect(result.status).toBe(1);
+});
+test('an explicit SLACK_DEFAULT_CHANNEL still wins', () => {
+  const result = runHealth('degraded', true);
+  expect(result.stdout).toContain('fixture alert attempted to synthetic-fixture-channel');
 });
