@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect } from 'react';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 
 interface ViewedFacility {
   id: string;
@@ -49,10 +48,10 @@ export default function ViewCount({ facilityId, facilityName, facilitySlug, main
     } catch {
       // sessionStorage unavailable (e.g. Safari private browsing)
     }
-    const supabase = createBrowserSupabaseClient();
     // 累積 view_count の加算＋時系列行(facility_page_views)の記録を一括で行う。
     // 後者は admin/funnel の期間窓ファネル「ページ閲覧」集計に使う。
-    void supabase.rpc('record_facility_page_view', { facility_uuid: facilityId });
+    // サーバー側で公開状態の確認と回数制限をしてから記録する（ブラウザから RPC を直接呼ばない）。
+    void fetch(`/api/facilities/${encodeURIComponent(facilityId)}/view`, { method: 'POST', keepalive: true }).catch(() => undefined);
 
     // Save to viewed history
     if (facilityName && facilitySlug) {

@@ -28,7 +28,6 @@ import {verifyAuthUser} from '@/lib/auth-verification';
 import {checkCsrf} from '@/lib/csrf';
 import {checkRateLimit} from '@/lib/rate-limit';
 import {writeAuditLog} from '@/lib/audit-logger';
-import {serverError} from '@/lib/with-route';
 const ID='123e4567-e89b-12d3-a456-426614174000';
 const USER='123e4567-e89b-12d3-a456-426614174001';
 const FACILITY='123e4567-e89b-12d3-a456-426614174002';
