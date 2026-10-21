@@ -6705,10 +6705,6 @@ export type Database = {
         }
         Returns: Json
       }
-      deduct_points_atomic: {
-        Args: { p_points: number; p_reason: string; p_user_id: string }
-        Returns: Json
-      }
       delete_admin_menu_atomic: {
         Args: { p_actor_id: string; p_facility_id: string; p_menu_id: string }
         Returns: {
