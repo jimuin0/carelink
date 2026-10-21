@@ -1,3 +1,4 @@
+import { hasSupabasePublicEnv } from '@/lib/supabase-build-env';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
@@ -8,6 +9,8 @@ import { safeJsonLd } from '@/lib/json-ld';
 export const revalidate = 3600;
 
 export async function generateStaticParams() {
+  // Preview builds carry no Supabase credentials; render these on demand instead.
+  if (!hasSupabasePublicEnv()) return [];
   const { createServerSupabaseClient } = await import('@/lib/supabase-server');
   const supabase = createServerSupabaseClient();
   const { data } = await supabase

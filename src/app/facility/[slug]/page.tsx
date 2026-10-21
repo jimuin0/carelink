@@ -1,3 +1,4 @@
+import { hasSupabasePublicEnv } from '@/lib/supabase-build-env';
 import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -40,6 +41,8 @@ import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 export const revalidate = 3600;
 
 export async function generateStaticParams() {
+  // Preview builds carry no Supabase credentials; render these on demand instead.
+  if (!hasSupabasePublicEnv()) return [];
   const supabase = createServerSupabaseClient();
   const { data } = await supabase
     .from('facility_profiles')

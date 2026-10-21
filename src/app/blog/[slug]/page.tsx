@@ -1,3 +1,4 @@
+import { hasSupabasePublicEnv } from '@/lib/supabase-build-env';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -141,6 +142,8 @@ async function getRelated(slug: string, category: string): Promise<{ slug: strin
 }
 
 export async function generateStaticParams() {
+  // Preview builds carry no Supabase credentials; render these on demand instead.
+  if (!hasSupabasePublicEnv()) return [];
   try {
     const supabase = createServerSupabaseClient();
     const { data } = await supabase
