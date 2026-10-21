@@ -5,6 +5,7 @@ import { getStaffByFacility, getMenuStaffByMenuIds } from '@/lib/staff';
 import { getActiveCouponsByFacility, getCouponMenus } from '@/lib/coupons';
 import { buildMenuStaffMap } from '@/lib/menu-staff';
 import BookingFlow from '@/components/booking/BookingFlow';
+import { isHomeVisitOnly } from '@/lib/home-visit';
 import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
@@ -76,7 +77,7 @@ export default async function BookingPage(props: Props) {
         <p className="text-sm text-gray-500 mb-6">オンライン予約</p>
 
         <BookingFlow
-          facility={{ id: facility.id, slug: params.slug, name: facility.name }}
+          facility={{ id: facility.id, slug: params.slug, name: facility.name, homeVisitOnly: isHomeVisitOnly(facility.features) }}
           staff={staff}
           menus={menus}
           coupons={coupons}

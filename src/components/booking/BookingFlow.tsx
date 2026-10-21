@@ -13,6 +13,7 @@ import { consumeBookingDraft, saveBookingDraftForLogin, BOOKING_DRAFT_STORAGE_FA
 import { BookingCreateClient, type BookingCreateClientResult, BOOKING_CREATE_UNKNOWN } from '@/lib/booking-create-client';
 import type { BookingFormData } from '@/lib/validations-booking';
 import { WAITLIST_NOTICE } from '@/lib/coming-soon';
+import { HOME_VISIT_ADDRESS_REQUIRED_MESSAGE } from '@/lib/home-visit';
 
 type Step = 'menu' | 'datetime' | 'confirm';
 
@@ -97,7 +98,7 @@ export function isCouponMenuCompatible(
 }
 
 interface Props {
-  facility: { id: string; slug: string; name: string };
+  facility: { id: string; slug: string; name: string; homeVisitOnly?: boolean };
   staff: StaffProfile[];
   menus: FacilityMenu[];
   coupons: Coupon[];
@@ -570,6 +571,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     }
     if (!customerName || !email) { setToast({ type: 'error', message: 'お名前とメールアドレスは必須です' }); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setToast({ type: 'error', message: '正しいメールアドレスを入力してください' }); return; }
+    if (facility.homeVisitOnly && !note.trim()) { setToast({ type: 'error', message: HOME_VISIT_ADDRESS_REQUIRED_MESSAGE }); return; }
     setSubmitting(true); setBookingPending(true);
     try {
       acceptCreateResult(await bookingCreate.current.submit({ facility_id: facility.id, staff_id: selectedStaff?.id ?? null,
@@ -1264,7 +1266,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
               />
             </div>
             <div>
-              <label htmlFor="booking-note" className="form-label">ご要望・備考</label>
+              <label htmlFor="booking-note" className="form-label">
+                {facility.homeVisitOnly ? <>訪問先のご住所・ご要望 <span className="text-red-500">*</span></> : 'ご要望・備考'}
+              </label>
               <textarea
                 id="booking-note"
                 value={note}
@@ -1272,8 +1276,12 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                 className="form-input"
                 rows={3}
                 maxLength={500}
+                required={facility.homeVisitOnly}
+                placeholder={facility.homeVisitOnly ? '例：大阪府豊中市〇〇町1-2-3 〇〇マンション101' : undefined}
               />
-              <p className="text-xs text-gray-400 mt-1">ご要望があればご記入ください</p>
+              <p className="text-xs text-gray-400 mt-1">
+                {facility.homeVisitOnly ? 'こちらの店舗はご自宅へ伺う訪問専門です。訪問先のご住所（建物名・部屋番号まで）をご記入ください' : 'ご要望があればご記入ください'}
+              </p>
             </div>
           </div>
 

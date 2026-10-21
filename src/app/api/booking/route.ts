@@ -15,6 +15,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { BOOKING_CREATE_COOKIE, newBookingGuestScope, bookingGuestScopeHash, bookingPayloadHash, acceptedBookingResponse } from '@/lib/booking-create-receipt';
 import { dispatchBookingCreationNotifications } from '@/lib/booking-create-dispatch';
 import { buildBookingCreateNotifications, BookingNotificationPlanError } from '@/lib/booking-create-notifications';
+import { HOME_VISIT_ADDRESS_REQUIRED_MESSAGE, isHomeVisitOnly } from '@/lib/home-visit';
 
 export const dynamic = 'force-dynamic';
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -256,10 +257,12 @@ export async function POST(request: Request) {
   // 施設の即時確定モード取得
   const { data: facilitySettings, error:settingsLookupError } = await supabase
     .from('facility_profiles')
-    .select('booking_auto_confirm')
+    .select('booking_auto_confirm, features')
     .eq('id', parsed.data.facility_id)
     .single();
   if (settingsLookupError) return serverError('booking-settings-lookup',settingsLookupError,'/api/booking');
+  // 訪問専門の店舗は備考欄が訪問先の住所欄を兼ねる。住所なしの予約は施術に伺えないため受け付けない。
+  if (isHomeVisitOnly(facilitySettings?.features) && !parsed.data.note?.trim()) return reject(HOME_VISIT_ADDRESS_REQUIRED_MESSAGE, 400);
   const bookingStatus = facilitySettings?.booking_auto_confirm ? 'confirmed' : 'pending';
 
 
