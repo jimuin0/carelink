@@ -1283,7 +1283,7 @@ $$;
 
 | バケット名 | 公開設定 | 用途 |
 |-----------|---------|------|
-| `carelink-uploads` | Public read（匿名アップロード+公開読取） | 施設写真・プロフィール写真等 |
+| `carelink-uploads` | 公開バケット（公開 URL で表示。アップロードはサーバー発行の署名付き URL のみ・匿名の一覧取得は不可） | 施設写真・プロフィール写真等 |
 
 #### ファイルパス形式
 
@@ -1293,10 +1293,12 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 
 #### RLSポリシー（storage.objects）
 
-```sql
-CREATE POLICY "Allow anonymous upload" ON storage.objects FOR INSERT TO anon WITH CHECK (bucket_id = 'carelink-uploads');
-CREATE POLICY "Allow public read" ON storage.objects FOR SELECT TO anon USING (bucket_id = 'carelink-uploads');
-```
+`carelink-uploads` に掛かる storage.objects のポリシーは無い（2026年10月21日時点）。
+
+- 当初の `Allow anonymous upload`（匿名 INSERT）は受付 v2 の署名付きアップロードへの移行で撤去済み
+- 当初の `Allow public read`（匿名 SELECT）は `20261021090000_carelink_uploads_no_anon_listing.sql` で撤去。
+  公開バケットの画像表示には不要で、申込者全員のファイル名を Storage API で列挙できるだけだったため。
+  `src/__tests__/carelink-uploads-no-anon-listing.test.ts` が再追加を CI で止める
 
 ### 6.7 登録データの確認方法
 
