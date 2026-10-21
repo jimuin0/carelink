@@ -1,3 +1,4 @@
+import { hasSupabasePublicEnv } from '@/lib/supabase-build-env';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -11,6 +12,8 @@ import FacilityCard from '@/components/search/FacilityCard';
 export const revalidate = 3600;
 
 export async function generateStaticParams() {
+  // Preview builds carry no Supabase credentials; render these on demand instead.
+  if (!hasSupabasePublicEnv()) return [];
   const { getPublishedFeatures } = await import('@/lib/features');
   const features = await getPublishedFeatures(100);
   return features.map((f) => ({ slug: f.slug }));

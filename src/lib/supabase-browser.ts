@@ -5,10 +5,6 @@ import type { Database } from '@/types/database-overrides';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are required');
-}
-
 // ブラウザ用クライアントはモジュールスコープでシングルトン化する。呼び出し都度
 // createBrowserClient() すると、同一ページに複数コンポーネントがマウントされた
 // 場合（例: admin レイアウトのモバイル/デスクトップ両ヘッダーに同じメニューを
@@ -21,8 +17,15 @@ if (!supabaseUrl || !supabaseAnonKey) {
 let browserClient: SupabaseClient<Database> | undefined;
 
 export function createBrowserSupabaseClient(): SupabaseClient<Database> {
+  // Check on use, not on import: the root layout imports this module on every
+  // page, and Vercel Preview builds carry no Supabase credentials. A module-scope
+  // throw would break hydration of every route instead of only the feature
+  // that actually needs the database.
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are required');
+  }
   if (!browserClient) {
-    browserClient = createBrowserClient<Database>(supabaseUrl!, supabaseAnonKey!);
+    browserClient = createBrowserClient<Database>(supabaseUrl, supabaseAnonKey);
   }
   return browserClient;
 }
