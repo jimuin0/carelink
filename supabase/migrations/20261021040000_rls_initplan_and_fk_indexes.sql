@@ -15,6 +15,17 @@ BEGIN
 END
 $guard$;
 
+-- Plain CREATE INDEX holds a SHARE lock on each table until the transaction
+-- commits, and apply_migration runs this file in one transaction, so
+-- CONCURRENTLY is not available here. Production public data was 24 MB in
+-- total on 2026-10-21 (largest table cron_logs, ~24k rows; most referencing
+-- tables near-empty), so the batch completes in milliseconds. Never queue
+-- behind an existing lock: fail fast instead of stalling writes.
+-- Future index additions on large tables must use CREATE INDEX CONCURRENTLY
+-- outside a transaction.
+SET LOCAL lock_timeout = '3s';
+SET LOCAL statement_timeout = '60s';
+
 DO $rls$
 DECLARE
   p record;
