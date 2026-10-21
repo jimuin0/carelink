@@ -6,10 +6,14 @@ Claude Code（2026-10-20〜21）から Codex へ戻すための指示書。Codex
 
 ## 1. 現在地（2026-10-21 実測）
 
+本指示書のマージ後は main の HEAD と本番 version が `9ae6af7` から進む（docs だけでも production はビルドされるため）。
+再開時は `git log --oneline 9ae6af79..origin/main` が docs/handoff 変更だけであることと、本番 version が
+その HEAD と一致し `healthy` であることを確認する。食い違いがあればそれ自体を調べる。
+
 | 項目 | 値 |
 |---|---|
-| main | `9ae6af79`（PR #756 まで） |
-| 本番 `/api/health` | `healthy`・version `9ae6af7`・supabase/rate_limit/stripe/resend/cron すべて ok |
+| 引継ぎ前のアプリ基準 | `9ae6af79`（PR #756 まで。これ以降の main は本指示書などの docs 変更だけ） |
+| 本番 `/api/health`（引継ぎ前に測定） | `healthy`・version `9ae6af7`・supabase/rate_limit/stripe/resend/cron すべて ok |
 | 本番 DB migration | 下表の 8 本すべて適用済み（`supabase_migrations.schema_migrations` を name で照合） |
 | Render cron | PR #734 の 5 サービス集約は切替完了（10/19 05:57 UTC 頃）。旧サービスは suspend 済み |
 | 未マージ PR | #627（Stripe 依存更新。決済は保留のため触らない） |
@@ -22,7 +26,7 @@ main では `missing or modified` になる）。照合は `git worktree add --d
 ## 2. 引継ぎ以降にマージ・本番反映したもの
 
 すべて main へマージ済み・本番配信済み（Vercel production の配信成功を確認）。DB 変更は
-Supabase MCP の `apply_migration` で本番へ適用してからアプリをマージした。
+Supabase MCP の `apply_migration` で本番へ適用した（今後の順序は 4 章の規則に従う）。
 
 | PR | 内容 | 本番 DB |
 |---|---|---|
@@ -75,7 +79,12 @@ Stripe/決済（PR #627 含む）・キャンセル待ち・Google カレンダ�
 - **本番 DB の変更は Supabase MCP の `apply_migration` だけ**で行う（SQL Editor の手打ち・履歴修復はしない）。
   migration 冒頭に `to_regclass('public.facility_profiles')` の接続先ガードを入れ、適用前後に `is_carelink` 付きの読み取りで確認する。
   本番の version 番号はファイル名と一致しない（適用時刻になる）。name で照合する。
-- 順序は「追加・権限縮小の migration を本番適用 → アプリを main へマージ」。
+- 順序は変更の種類で決める。
+  - **追加（列・表・ビューの列追加・関数の追加）**：migration を本番適用 → アプリをマージ・配信。旧アプリはそのまま動く。
+  - **権限縮小・削除（REVOKE・DROP・列の削除）**：先に、それを使わなくなったアプリ（置き換え先の呼び出し）を配信して本番 version を確認 →
+    その後に migration を適用する。逆にすると、新しいアプリが配信されるまでの間、旧アプリが失敗する
+    （例：`20261020150500` の anon 実行権の取り消しは、#745 の service role 呼び出しが配信される前だと空き枠 API が失敗し得る）。
+  - 一度に両方が要る変更は、追加の migration → アプリ → 縮小の migration の段階に分ける。
 - **ブランチ保護**：必須チェックは Lint & Type Check / Unit Tests + Coverage / Security Audit。ブランチが最新であることが必要、
   レビュー会話の解決が必須。E2E は必須ではないが結果は必ず確認する。auto-merge は使わない。
 - **Codex レビューボット**（`chatgpt-codex-connector`）が P1/P2 を付ける。指摘は直してから返信し、GraphQL で解決済みにしないとマージできない。
