@@ -674,12 +674,16 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     setSelectedCoupon(coupon);
     setAutoSelectedCouponId(null);
     const isMenuRestricted = !!allowedMenuIds && allowedMenuIds.length > 0;
-    if (!isMenuRestricted) return;
-
-    const targetMenus = allowedMenuIds!
-      .map((id) => menus.find((m) => m.id === id))
-      .filter((m): m is FacilityMenu => !!m);
-    if (targetMenus.length === 0) return;
+    const targetMenus = isMenuRestricted
+      ? allowedMenuIds!.map((id) => menus.find((m) => m.id === id)).filter((m): m is FacilityMenu => !!m)
+      : [];
+    if (targetMenus.length === 0) {
+      // No target menu to pick automatically. Booking still needs a treatment, so
+      // take a visitor who started from the coupon straight to the menu list
+      // instead of leaving 「次へ」 disabled with no visible way forward.
+      if (selectedMenus.length === 0) setMenuTab('menu');
+      return;
+    }
 
     // クリック時点の選択状態から「実際に追加されるメニュー」を判定する（追加0件なら自動選択の
     // 表示・通知は一切出さない）。state 更新自体は prev ベースのマージで安全に行う。
@@ -844,6 +848,11 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
           {/* メニューパネル */}
           {menuTab === 'menu' && (
             <div className="space-y-2">
+              {selectedCoupon && selectedMenus.length === 0 && (
+                <p role="status" className="text-sm font-bold text-primary bg-sky-50 rounded-lg px-3 py-2">
+                  「{selectedCoupon.name}」で受けるメニューを選んでください
+                </p>
+              )}
               <p className="text-xs text-gray-400">施術メニューを選択（複数選択可）</p>
               {menus.length === 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
@@ -912,7 +921,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                   <span>{selectedMenus.reduce((s, m) => s + (m.duration_minutes || 60), 0)}分</span>
                 </>
               ) : (
-                <span className="text-gray-400">メニューを1つ以上選択してください</span>
+                <span className="text-gray-400">
+                  {selectedCoupon ? 'クーポンで受けるメニューを「メニューから選ぶ」で選んでください' : 'メニューを1つ以上選択してください'}
+                </span>
               )}
             </div>
             <button
