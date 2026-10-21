@@ -6148,6 +6148,8 @@ export type Database = {
       facility_card_view: {
         Row: {
           access_info: string | null
+          active_staff_count: number | null
+          booking_menu_count: number | null
           business_hours: Json | null
           business_type: string | null
           catch_copy: string | null
@@ -6156,6 +6158,7 @@ export type Database = {
           created_at: string | null
           description: string | null
           features: string[] | null
+          has_address: boolean | null
           google_rating: number | null
           google_review_count: number | null
           id: string | null

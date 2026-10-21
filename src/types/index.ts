@@ -139,6 +139,10 @@ export interface FacilityCardData {
   photo_count: number;
   business_hours: Record<string, { open: string; close: string } | null> | null;
   seat_count: number | null;
+  /** Online-booking readiness inputs from facility_card_view (see isCardBookingReady). */
+  booking_menu_count?: number | null;
+  active_staff_count?: number | null;
+  has_address?: boolean | null;
   latitude?: number | null;
   longitude?: number | null;
   distance?: number;

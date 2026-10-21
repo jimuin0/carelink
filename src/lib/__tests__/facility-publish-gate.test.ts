@@ -229,3 +229,38 @@ test('掲載済みでも営業時間未確認ならネット予約は準備中',
   const result = await checkPublishReadiness(client as never, 'f1');
   expect(result.readiness.missing).toEqual(['全曜日の営業時間・定休日を確認して保存してください']);
 });
+
+describe('isCardBookingReady (search card 「予約OK」 badge)', () => {
+  const { isCardBookingReady, bookingReadinessMissing } = jest.requireActual('../facility-publish-gate');
+  const hours = { sun: null, mon: { open: '09:00', close: '18:00' }, tue: { open: '09:00', close: '18:00' },
+    wed: { open: '09:00', close: '18:00' }, thu: null, fri: { open: '09:00', close: '18:00' }, sat: { open: '09:00', close: '18:00' } };
+  const ready = { name: '合成院', prefecture: '大阪府', city: '豊中市', business_hours: hours, photo_count: 1,
+    booking_menu_count: 2, active_staff_count: 1, has_address: true };
+
+  test('a card that satisfies the booking rule is advertised', () => {
+    expect(isCardBookingReady(ready)).toBe(true);
+  });
+
+  test.each([
+    ['no photo (the production case that showed 予約OK but refused booking)', { photo_count: 0 }],
+    ['no published menu', { booking_menu_count: 0 }],
+    ['no active staff', { active_staff_count: 0 }],
+    ['no address', { has_address: false }],
+    ['unconfirmed hours', { business_hours: { mon: { open: '09:00', close: '18:00' } } }],
+    ['blank name', { name: ' ' }],
+  ])('%s is not advertised', (_label, override) => {
+    expect(isCardBookingReady({ ...ready, ...override })).toBe(false);
+  });
+
+  test.each(['booking_menu_count', 'active_staff_count', 'has_address'])(
+    'a card source without %s fails closed instead of advertising booking', (key) => {
+      expect(isCardBookingReady({ ...ready, [key]: undefined })).toBe(false);
+      expect(isCardBookingReady({ ...ready, [key]: null })).toBe(false);
+    });
+
+  test('the badge and the booking page share one rule', () => {
+    expect(bookingReadinessMissing({ name: '合成院', prefecture: '大阪府', city: '豊中市', hasAddress: true,
+      status: 'published', businessHours: hours, menuCount: 2, photoCount: 0, staffCount: 1 }))
+      .toEqual(['写真を1枚以上登録してください']);
+  });
+});

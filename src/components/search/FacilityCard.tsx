@@ -1,3 +1,4 @@
+import { isCardBookingReady } from '@/lib/facility-publish-gate';
 import Image from 'next/image';
 import Link from 'next/link';
 import type { FacilityCardData } from '@/types';
@@ -33,6 +34,7 @@ interface Props {
 export default function FacilityCard({ facility, showBadges = true, monthlyBookings, isAvailable, priority = false }: Props) {
   const todayHours = getTodayHours(facility.business_hours);
   const hasCoupons = (facility.coupon_count ?? 0) > 0;
+  const bookingReady = isCardBookingReady(facility);
 
   return (
     <Link href={`/facility/${facility.slug}`} className="facility-card block">
@@ -60,7 +62,7 @@ export default function FacilityCard({ facility, showBadges = true, monthlyBooki
           <span className="badge badge-primary">{facility.business_type}</span>
           {showBadges && (
             <>
-              <span className="badge badge-instant">予約OK</span>
+              {bookingReady && <span className="badge badge-instant">予約OK</span>}
               {hasCoupons && <span className="badge badge-coupon">クーポンあり</span>}
               {monthlyBookings != null && monthlyBookings > 0 && (
                 <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-bold rounded-full">
