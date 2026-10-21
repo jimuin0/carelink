@@ -1,5 +1,10 @@
 # CareLink 再開入口（2026-10-20）
 
+> **2026-10-21 更新（最新の入口）**：まず [docs/handoff/CODEX_INSTRUCTIONS_20261021.md](docs/handoff/CODEX_INSTRUCTIONS_20261021.md) を読む。
+> 下の「再開直後の実作業」2 の Render cron 集約（PR #734）は切替完了・旧サービス suspend 済みで、再実施しない。
+> PR #739〜#756 はマージ・本番反映済み。残課題と作業手順は同指示書の 3〜4 章が正。
+> `scripts/verify-handoff.py` は main では失敗する（マニフェストは `447f71cb` 時点の hash）。照合は同コミットを別ディレクトリに取り出して行う。以下は 2026-10-20 時点の記録。
+
 正式repo: https://github.com/jimuin0/carelink （公開）。新Macでは任意の空ディレクトリへcloneする。旧Macの絶対パス・このチャット・ログイン済みブラウザは不要。最新の機能基準は c33a53ac8c96422e4271e4a47d3403e226cecd91 / PR734。依存バージョンは package-lock.json が正（Next16.3.8 / React19.2 / Node>=22.22.2）。過去AGENTS・docsのNext15等の記載は履歴。
 
 ## 再開直後の実作業（優先順）
