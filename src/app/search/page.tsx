@@ -169,10 +169,10 @@ export default async function SearchPage(props: Props) {
           <div className="flex-1 min-w-0">
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
-              <p className="text-gray-600 text-sm">
+              <h2 className="text-gray-600 text-sm font-normal">
                 <span className="font-bold text-gray-900 text-lg">{total}</span> 件見つかりました
                 {filterCount > 0 && <span className="ml-2 text-xs text-sky-700">(フィルター{filterCount}件適用中)</span>}
-              </p>
+              </h2>
               <div className="flex items-center gap-2">
                 <SortLink current={sort} value="newest" label="新着順" searchParams={searchParams} />
                 <SortLink current={sort} value="rating" label="評価順" searchParams={searchParams} />

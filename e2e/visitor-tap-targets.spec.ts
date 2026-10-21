@@ -22,3 +22,17 @@ for (const path of PAGES) {
     expect(found).toEqual([]);
   });
 }
+
+/**
+ * 構造面（2026年10月22日）: Cookie通知がランドマーク外、モバイルメニューと
+ * トップの右メニューが名前の無い <nav> で区別できない、フッター・検索結果で見出しが飛ぶ、が本番にあった。
+ */
+for (const path of PAGES) {
+  test(`ランドマーク・見出し順: ${path}`, async ({ page }) => {
+    await page.goto(path, { waitUntil: 'networkidle' });
+    if (path === '/') await expect(page.getByRole('heading', { name: '都道府県から探す' })).toBeAttached();
+    const results = await new AxeBuilder({ page }).withRules(['region', 'landmark-unique', 'heading-order']).analyze();
+    const found = results.violations.flatMap(v => v.nodes.map(n => `${v.id}: ${n.target.join(' ')}`));
+    expect(found).toEqual([]);
+  });
+}

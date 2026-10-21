@@ -84,7 +84,7 @@ export default function SearchHeader() {
             isOpen ? 'max-h-[calc(100dvh-7.5rem)] overflow-y-auto opacity-100' : 'max-h-0 overflow-hidden opacity-0'
           }`}
         >
-          <nav className="pb-4 border-t border-gray-100 pt-3 flex flex-col gap-1">
+          <nav aria-label="モバイルメニュー" className="pb-4 border-t border-gray-100 pt-3 flex flex-col gap-1">
             {businessTypes.map((type) => (
               <Link
                 key={type}

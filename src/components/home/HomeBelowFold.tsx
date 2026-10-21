@@ -225,7 +225,7 @@ export default function HomeBelowFold() {
             {/* Right: User panel */}
             <div className="hidden lg:block w-[200px] shrink-0 space-y-6">
               <HomeUserPanel />
-              <nav>
+              <nav aria-label="マイページのメニュー">
                 {[
                   { href: '/mypage/favorites', label: 'お気に入り一覧' },
                   { href: '/contact', label: 'お問い合わせ' },
