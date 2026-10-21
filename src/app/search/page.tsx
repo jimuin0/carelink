@@ -171,7 +171,7 @@ export default async function SearchPage(props: Props) {
             <div className="flex items-center justify-between mb-6">
               <p className="text-gray-600 text-sm">
                 <span className="font-bold text-gray-900 text-lg">{total}</span> 件見つかりました
-                {filterCount > 0 && <span className="ml-2 text-xs text-sky-600">(フィルター{filterCount}件適用中)</span>}
+                {filterCount > 0 && <span className="ml-2 text-xs text-sky-700">(フィルター{filterCount}件適用中)</span>}
               </p>
               <div className="flex items-center gap-2">
                 <SortLink current={sort} value="newest" label="新着順" searchParams={searchParams} />
@@ -184,7 +184,7 @@ export default async function SearchPage(props: Props) {
             {featuredFacilities.length > 0 && (
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">スポンサー</span>
+                  <span className="text-xs text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">スポンサー</span>
                 </div>
                 <ViewToggle
                   facilities={featuredFacilities}
@@ -236,7 +236,7 @@ export default async function SearchPage(props: Props) {
                 {(availableAreas.length > 0 || availableTypes.length > 0) && (
                   <div className="bg-white rounded-xl p-6">
                     <h3 className="text-sm font-bold text-gray-700 mb-1">掲載のあるエリア・業種から探す</h3>
-                    <p className="text-xs text-gray-400 mb-4">現在ご紹介できる施設があるのは以下です。</p>
+                    <p className="text-xs text-gray-500 mb-4">現在ご紹介できる施設があるのは以下です。</p>
                     <div className="flex flex-wrap gap-2">
                       {availableAreas.map((area) => (
                         <Link

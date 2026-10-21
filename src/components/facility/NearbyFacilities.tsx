@@ -26,7 +26,7 @@ export default async function NearbyFacilities({ facilityId, prefecture, city }:
       <div className="text-center mt-4">
         <Link
           href={`/search?area=${encodeURIComponent(prefecture)}`}
-          className="text-sm text-sky-600 hover:underline"
+          className="text-sm text-sky-700 hover:underline"
         >
           {prefecture}のサロンをもっと見る &rsaquo;
         </Link>

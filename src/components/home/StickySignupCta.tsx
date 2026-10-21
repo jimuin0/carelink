@@ -24,7 +24,7 @@ export default function StickySignupCta() {
           <p className="text-[11px] text-gray-500 mb-1.5">予約のたびにポイント還元。利用は完全無料。</p>
           <Link
             href="/auth/signup"
-            className="flex items-center justify-center w-full py-2.5 bg-sky-600 active:bg-sky-700 text-white text-sm font-bold rounded-lg"
+            className="flex items-center justify-center w-full py-2.5 bg-sky-700 active:bg-sky-700 text-white text-sm font-bold rounded-lg"
           >
             無料で会員登録する
           </Link>
@@ -35,7 +35,7 @@ export default function StickySignupCta() {
             sessionStorage.setItem('sticky-cta-dismissed', '1');
             setShow(false);
           }}
-          className="shrink-0 w-11 h-11 flex items-center justify-center text-gray-400 hover:text-gray-600 text-lg"
+          className="shrink-0 w-11 h-11 flex items-center justify-center text-gray-500 hover:text-gray-600 text-lg"
           aria-label="閉じる"
         >
           ✕

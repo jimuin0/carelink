@@ -74,7 +74,7 @@ export default function ReviewSummary({ reviews, facilityId }: Props) {
           <div className="flex items-center gap-2 mb-1">
             <p className="text-xs font-bold text-sky-800">口コミサマリー</p>
             {aiSummary && (
-              <span className="text-micro bg-sky-100 text-sky-600 px-1.5 py-0.5 rounded-full font-bold">AI要約</span>
+              <span className="text-micro bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded-full font-bold">AI要約</span>
             )}
           </div>
           {loading && !displaySummary ? (

@@ -242,7 +242,7 @@ function SignupContent() {
           <form onSubmit={(event) => { void handleSubmit(onSubmit)(event); }} noValidate className="space-y-4">
             <fieldset disabled={!clientReady} className="space-y-4">
             <div>
-              <label htmlFor="signup-name" className="form-label">お名前 <span className="text-red-500">*</span></label>
+              <label htmlFor="signup-name" className="form-label">お名前 <span className="text-red-600">*</span></label>
               <p id="signup-name-help" className="mt-1 text-xs text-gray-500">1〜50文字で入力してください。</p>
               <input
                 {...register('display_name')}
@@ -259,7 +259,7 @@ function SignupContent() {
             </div>
 
             <div>
-              <label htmlFor="signup-email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
+              <label htmlFor="signup-email" className="form-label">メールアドレス <span className="text-red-600">*</span></label>
               <input
                 {...register('email')}
                 id="signup-email"
@@ -274,7 +274,7 @@ function SignupContent() {
             </div>
 
             <div>
-              <label htmlFor="signup-phone" className="form-label">電話番号 <span className="text-red-500">*</span></label>
+              <label htmlFor="signup-phone" className="form-label">電話番号 <span className="text-red-600">*</span></label>
               <p id="signup-phone-help" className="mt-1 text-xs text-gray-500">国内の電話番号を入力してください。ハイフンの有無と全角数字は自動で整えます。</p>
               <input
                 {...register('phone')}
@@ -292,7 +292,7 @@ function SignupContent() {
             </div>
 
             <div>
-              <label htmlFor="signup-prefecture" className="form-label">都道府県 <span className="text-red-500">*</span></label>
+              <label htmlFor="signup-prefecture" className="form-label">都道府県 <span className="text-red-600">*</span></label>
               <select
                 {...register('prefecture')}
                 id="signup-prefecture"
@@ -310,7 +310,7 @@ function SignupContent() {
             </div>
 
             <div>
-              <label htmlFor="signup-password" className="form-label">パスワード <span className="text-red-500">*</span></label>
+              <label htmlFor="signup-password" className="form-label">パスワード <span className="text-red-600">*</span></label>
               <p id="signup-password-help" className="mt-1 text-xs text-gray-500">8〜128文字で入力してください。英字・数字・記号を組み合わせる必要はありません。</p>
               <div className="relative">
                 <input
@@ -330,7 +330,7 @@ function SignupContent() {
                   onClick={() => setShowPassword((v) => !v)}
                   aria-label={showPassword ? 'パスワードを隠す' : 'パスワードを表示'}
                   aria-pressed={showPassword}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-600"
                 >
                   {showPassword ? (
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -351,7 +351,7 @@ function SignupContent() {
             </div>
 
             <div>
-              <label htmlFor="signup-password-confirm" className="form-label">パスワード（確認） <span className="text-red-500">*</span></label>
+              <label htmlFor="signup-password-confirm" className="form-label">パスワード（確認） <span className="text-red-600">*</span></label>
               <input
                 {...register('password_confirm')}
                 id="signup-password-confirm"
@@ -388,7 +388,7 @@ function SignupContent() {
                 <div className="w-full border-t border-gray-200" />
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="bg-white px-4 text-gray-400">または</span>
+                <span className="bg-white px-4 text-gray-500">または</span>
               </div>
             </div>
           </div>
@@ -424,14 +424,14 @@ function SignupContent() {
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-500">
               アカウントをお持ちの方は
-              <Link href={`/auth/login?redirect=${encodeURIComponent(redirect)}`} className="text-sky-600 hover:underline ml-1">
+              <Link href={`/auth/login?redirect=${encodeURIComponent(redirect)}`} className="text-sky-700 underline hover:no-underline ml-1">
                 ログイン
               </Link>
             </p>
           </div>
 
           <div className="mt-4 text-center">
-            <Link href="/search" className="text-sm text-gray-400 hover:underline">
+            <Link href="/search" className="text-sm text-gray-500 hover:underline">
               施設を探す
             </Link>
           </div>

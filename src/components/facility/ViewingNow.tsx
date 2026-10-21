@@ -50,7 +50,7 @@ export default function ViewingNow({ viewCount }: { viewCount: number }) {
   if (viewers === null || viewers <= 0) return null;
 
   return (
-    <span className="inline-flex items-center gap-1 text-xs text-orange-600 font-medium">
+    <span className="inline-flex items-center gap-1 text-xs text-orange-700 font-medium">
       <span className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
       {viewers}人が閲覧中
     </span>

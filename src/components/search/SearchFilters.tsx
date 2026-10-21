@@ -96,7 +96,7 @@ export default function SearchFilters({ className }: { className?: string }) {
       {/* 最寄駅 */}
       <div className="mb-5">
         <label className="block text-xs font-medium text-gray-600 mb-1.5">最寄駅</label>
-        <StationSearch />
+        <StationSearch variant="panel" />
       </div>
 
       {/* 業種 */}
@@ -154,7 +154,7 @@ export default function SearchFilters({ className }: { className?: string }) {
             min={0}
             step={1000}
           />
-          <span className="text-gray-400 text-xs">〜</span>
+          <span className="text-gray-500 text-xs">〜</span>
           <input
             type="number"
             placeholder="¥ 上限"
@@ -261,7 +261,7 @@ export default function SearchFilters({ className }: { className?: string }) {
             type="checkbox"
             checked={insuranceOnly}
             onChange={(e) => setInsuranceOnly(e.target.checked)}
-            className="w-4 h-4 rounded-sm border-gray-300 text-sky-500 focus:ring-sky-500"
+            className="w-4 h-4 rounded-sm border-gray-300 text-sky-700 focus:ring-sky-500"
           />
           <span className="text-xs text-gray-600">保険適用メニューあり</span>
         </label>

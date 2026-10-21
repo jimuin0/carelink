@@ -94,7 +94,7 @@ export default function QASection({ facilityId }: { facilityId: string }) {
       {userId && (
         <div className="bg-sky-50 rounded-xl p-4">
           <h4 className="text-sm font-bold mb-2 flex items-center gap-2">
-            <svg className="w-4 h-4 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 text-sky-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             質問を投稿する
@@ -109,12 +109,12 @@ export default function QASection({ facilityId }: { facilityId: string }) {
             maxLength={500}
           />
           <div className="flex items-center justify-between mt-2">
-            <span className="text-xs text-gray-400">{question.length}/500</span>
+            <span className="text-xs text-gray-500">{question.length}/500</span>
             <button
               type="button"
               onClick={handleSubmit}
               disabled={submitting || !question.trim()}
-              className="bg-sky-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-sky-700 transition-colors disabled:opacity-50"
+              className="bg-sky-700 text-white text-sm px-4 py-2 rounded-lg hover:bg-sky-700 transition-colors disabled:opacity-50"
             >
               {submitting ? '送信中...' : '質問する'}
             </button>
@@ -129,10 +129,10 @@ export default function QASection({ facilityId }: { facilityId: string }) {
       {loadError ? (
         <div className="text-center py-8" role="alert">
           <p className="text-sm text-rose-600 font-bold">Q&Aの読み込みに失敗しました</p>
-          <button type="button" onClick={() => loadQA()} className="text-xs text-sky-600 underline mt-1">再試行</button>
+          <button type="button" onClick={() => loadQA()} className="text-xs text-sky-700 underline mt-1">再試行</button>
         </div>
       ) : qaList.length === 0 ? (
-        <p className="text-gray-400 text-center py-8">Q&Aはまだありません。</p>
+        <p className="text-gray-500 text-center py-8">Q&Aはまだありません。</p>
       ) : (
         <div className="space-y-3">
           {qaList.map((qa) => (
@@ -146,10 +146,10 @@ export default function QASection({ facilityId }: { facilityId: string }) {
                 <span className="shrink-0 w-6 h-6 bg-sky-500 text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">Q</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium">{qa.question}</p>
-                  <p className="text-xs text-gray-400 mt-1">{formatDate(qa.created_at)}</p>
+                  <p className="text-xs text-gray-500 mt-1">{formatDate(qa.created_at)}</p>
                 </div>
                 <svg
-                  className={`w-4 h-4 text-gray-400 shrink-0 mt-1 transition-transform ${expandedId === qa.id ? 'rotate-180' : ''}`}
+                  className={`w-4 h-4 text-gray-500 shrink-0 mt-1 transition-transform ${expandedId === qa.id ? 'rotate-180' : ''}`}
                   fill="none" stroke="currentColor" viewBox="0 0 24 24"
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -160,7 +160,7 @@ export default function QASection({ facilityId }: { facilityId: string }) {
                   <span className="shrink-0 w-6 h-6 bg-amber-500 text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">A</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-gray-700 whitespace-pre-line">{qa.answer}</p>
-                    <p className="text-xs text-gray-400 mt-1">回答日: {formatDate(qa.answered_at)}</p>
+                    <p className="text-xs text-gray-500 mt-1">回答日: {formatDate(qa.answered_at)}</p>
                   </div>
                 </div>
               )}

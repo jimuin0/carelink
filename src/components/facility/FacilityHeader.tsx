@@ -27,7 +27,7 @@ export default function FacilityHeader({ facility }: { facility: Facility }) {
           <div className="flex items-center gap-1">
             <span className="text-amber-400" aria-hidden="true">★</span>
             <span className="text-sm font-bold" aria-label={`評価${Number(facility.rating_avg).toFixed(1)}点`}>{Number(facility.rating_avg).toFixed(1)}</span>
-            <span className="text-xs text-gray-400">({facility.rating_count}件)</span>
+            <span className="text-xs text-gray-500">({facility.rating_count}件)</span>
           </div>
         )}
         {(facility.google_review_count ?? 0) > 0 && facility.google_rating != null && (
@@ -39,11 +39,11 @@ export default function FacilityHeader({ facility }: { facility: Facility }) {
               <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
             </svg>
             <span className="text-xs font-bold text-gray-700">{Number(facility.google_rating).toFixed(1)}</span>
-            <span className="text-xs text-gray-400">({facility.google_review_count}件)</span>
+            <span className="text-xs text-gray-500">({facility.google_review_count}件)</span>
           </div>
         )}
         {facility.view_count > 0 && (
-          <span className="text-xs text-gray-400">閲覧 {facility.view_count.toLocaleString()}回</span>
+          <span className="text-xs text-gray-500">閲覧 {facility.view_count.toLocaleString()}回</span>
         )}
         <ViewingNow viewCount={facility.view_count} />
       </div>

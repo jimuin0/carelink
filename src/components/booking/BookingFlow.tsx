@@ -726,11 +726,11 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
         {steps.map((s, i) => (
           <div key={s.key} className="flex items-center gap-1">
             <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-              i <= currentIndex ? 'bg-primary text-white' : 'bg-gray-200 text-gray-400'
+              i <= currentIndex ? 'bg-primary text-white' : 'bg-gray-200 text-gray-600'
             }`}>
               {i + 1}
             </div>
-            <span className={`text-xs whitespace-nowrap ${i <= currentIndex ? 'text-primary font-bold' : 'text-gray-400'}`}>
+            <span className={`text-xs whitespace-nowrap ${i <= currentIndex ? 'text-primary font-bold' : 'text-gray-500'}`}>
               {s.label}
             </span>
             {i < steps.length - 1 && <div className="w-6 h-px bg-gray-200" />}
@@ -747,7 +747,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
               type="button"
               onClick={() => setMenuTab('coupon')}
               className={`flex-1 py-2 rounded-lg transition-colors ${
-                menuTab === 'coupon' ? 'bg-white text-primary shadow-xs' : 'text-gray-500'
+                menuTab === 'coupon' ? 'bg-white text-primary shadow-xs' : 'text-gray-600'
               }`}
             >
               クーポン{coupons.length > 0 && <span className="ml-1 text-xs">({coupons.length})</span>}
@@ -756,7 +756,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
               type="button"
               onClick={() => setMenuTab('menu')}
               className={`flex-1 py-2 rounded-lg transition-colors ${
-                menuTab === 'menu' ? 'bg-white text-primary shadow-xs' : 'text-gray-500'
+                menuTab === 'menu' ? 'bg-white text-primary shadow-xs' : 'text-gray-600'
               }`}
             >
               メニューから選ぶ
@@ -768,7 +768,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
             <div className="space-y-2">
               {coupons.length === 0 ? (
                 <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-                  <p className="text-gray-400 text-sm">現在利用できるクーポンはありません</p>
+                  <p className="text-gray-500 text-sm">現在利用できるクーポンはありません</p>
                   <button type="button" onClick={() => setMenuTab('menu')} className="text-primary text-sm font-bold mt-2 hover:underline">
                     メニューから選ぶ →
                   </button>
@@ -816,14 +816,14 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                             <div className="flex items-start justify-between gap-2">
                               <p className="font-bold text-sm">{coupon.name}</p>
                               {label && (
-                                <span className="shrink-0 text-xs font-bold text-red-500 bg-red-50 rounded-full px-2 py-0.5">
+                                <span className="shrink-0 text-xs font-bold text-red-600 bg-red-50 rounded-full px-2 py-0.5">
                                   {label}
                                 </span>
                               )}
                             </div>
                             {coupon.description && <p className="text-xs text-gray-500 mt-1">{coupon.description}</p>}
                             {isMenuRestricted && targetMenuNames.length > 0 && (
-                              <p className={`text-xs mt-1 ${isIncompatible ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
+                              <p className={`text-xs mt-1 ${isIncompatible ? 'text-red-600 font-bold' : 'text-gray-500'}`}>
                                 対象メニュー：{targetMenuNames.join('、')}
                                 {isIncompatible && '（選択中のメニューでは利用できません）'}
                                 {/* HPB準拠UX：クーポン選択で対象メニューの自動追加が【実際に発生した】
@@ -839,7 +839,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                       </button>
                     );
                   })}
-                  <p className="text-xs text-gray-400 pt-1">
+                  <p className="text-xs text-gray-500 pt-1">
                     ※ クーポンには対象メニューが限定されているものがあります。対象外のメニューでは選択できません。「メニューから選ぶ」で施術内容をお選びください。
                   </p>
                 </>
@@ -855,11 +855,11 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                   「{selectedCoupon.name}」で受けるメニューを選んでください
                 </p>
               )}
-              <p className="text-xs text-gray-400">施術メニューを選択（複数選択可）</p>
+              <p className="text-xs text-gray-500">施術メニューを選択（複数選択可）</p>
               {menus.length === 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-                  <p className="text-gray-400">メニューが登録されていません</p>
-                  <p className="text-xs text-gray-400 mt-2">施設にお問い合わせください</p>
+                  <p className="text-gray-500">メニューが登録されていません</p>
+                  <p className="text-xs text-gray-500 mt-2">施設にお問い合わせください</p>
                 </div>
               )}
               {menus.map((menu) => {
@@ -894,9 +894,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                             </span>
                           )}
                         </div>
-                        {menu.description && <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{menu.description}</p>}
+                        {menu.description && <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{menu.description}</p>}
                         <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                          {menu.price !== null && <span className="text-red-500 font-bold">¥{menu.price.toLocaleString()}</span>}
+                          {menu.price !== null && <span className="text-red-600 font-bold">¥{menu.price.toLocaleString()}</span>}
                           {menu.duration_minutes && <span>{menu.duration_minutes}分</span>}
                         </div>
                       </div>
@@ -912,7 +912,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
             {selectedCoupon && (
               <div className="text-sm flex items-center justify-between">
                 <span className="text-gray-500">クーポン</span>
-                <span className="font-bold text-red-500">{selectedCoupon.name}</span>
+                <span className="font-bold text-red-600">{selectedCoupon.name}</span>
               </div>
             )}
             <div className="text-sm text-gray-600 flex flex-wrap items-center gap-x-3">
@@ -923,7 +923,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                   <span>{selectedMenus.reduce((s, m) => s + (m.duration_minutes || 60), 0)}分</span>
                 </>
               ) : (
-                <span className="text-gray-400">
+                <span className="text-gray-500">
                   {selectedCoupon ? 'クーポンで受けるメニューを「メニューから選ぶ」で選んでください' : 'メニューを1つ以上選択してください'}
                 </span>
               )}
@@ -946,7 +946,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h2 className="font-bold">日時を選択</h2>
             {/* 空き記号の凡例 */}
-            <div className="flex items-center gap-2 text-micro text-gray-400">
+            <div className="flex items-center gap-2 text-micro text-gray-500">
               <span>◎ 空き十分</span><span>○ 空きあり</span><span>△ 残少</span><span>× 満</span>
             </div>
           </div>
@@ -956,7 +956,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
           <div className="bg-gray-50 rounded-xl border border-gray-200 p-3 text-xs text-gray-600">
             <p className="font-bold text-gray-700 mb-1">選択中の内容</p>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              {selectedCoupon && <span className="text-red-500 font-bold">{selectedCoupon.name}</span>}
+              {selectedCoupon && <span className="text-red-600 font-bold">{selectedCoupon.name}</span>}
               {selectedMenus.map((m) => (
                 <span key={m.id}>{m.name}</span>
               ))}
@@ -1058,8 +1058,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                     return (
                       <th key={date} className="py-1 px-0.5 min-w-[44px]">
                         {isToday && <div className="text-micro font-bold text-primary">本日</div>}
-                        <div className="text-micro text-gray-400">{month}/{day}</div>
-                        <div className={`text-xs font-bold ${isSun ? 'text-red-500' : isSat ? 'text-sky-500' : 'text-gray-600'}`}>
+                        <div className="text-micro text-gray-500">{month}/{day}</div>
+                        <div className={`text-xs font-bold ${isSun ? 'text-red-600' : isSat ? 'text-sky-700' : 'text-gray-600'}`}>
                           {DAY_NAMES[dayOfWeek]}
                         </div>
                       </th>
@@ -1076,7 +1076,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                   </tr>
                 ) : rowTimes.length === 0 ? (
                   <tr>
-                    <td colSpan={visibleDates.length + 1} className="py-10 text-sm text-gray-400">
+                    <td colSpan={visibleDates.length + 1} className="py-10 text-sm text-gray-500">
                       {/* matrixError 時は「満席」ではなく「取得不可（不明）」であることを明示する
                           （上のエラーバナーで再試行を促すため、ここでは満席と誤読させない文言に限定）。 */}
                       {matrixError ? (
@@ -1180,7 +1180,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                 {selectedStaff ? (
                   <>
                     {selectedStaff.name}
-                    {selectedStaff.nomination_fee > 0 && <span className="text-xs text-gray-400 ml-1">(+¥{selectedStaff.nomination_fee.toLocaleString()})</span>}
+                    {selectedStaff.nomination_fee > 0 && <span className="text-xs text-gray-500 ml-1">(+¥{selectedStaff.nomination_fee.toLocaleString()})</span>}
                   </>
                 ) : '指名なし（おまかせ）'}
               </span>
@@ -1188,7 +1188,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
             {selectedCoupon && (
               <div className="flex justify-between">
                 <span className="text-gray-500">クーポン</span>
-                <span className="font-medium text-red-500">{selectedCoupon.name}</span>
+                <span className="font-medium text-red-600">{selectedCoupon.name}</span>
               </div>
             )}
             <div className="flex justify-between">
@@ -1206,13 +1206,13 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                 <div className="border-t border-sky-200 pt-2 mt-2 space-y-1">
                   {hasCouponDiscount && (
                     <div className="flex justify-between">
-                      <span className="text-gray-400">通常合計</span>
-                      <span className="text-gray-400 line-through">¥{menuTotal.toLocaleString()}</span>
+                      <span className="text-gray-500">通常合計</span>
+                      <span className="text-gray-500 line-through">¥{menuTotal.toLocaleString()}</span>
                     </div>
                   )}
                   <div className="flex justify-between">
                     <span className="font-bold">{hasCouponDiscount ? 'クーポン適用後' : '合計金額'}</span>
-                    <span className="font-bold text-lg text-red-500">¥{finalPrice.toLocaleString()}</span>
+                    <span className="font-bold text-lg text-red-600">¥{finalPrice.toLocaleString()}</span>
                   </div>
                 </div>
               );
@@ -1224,8 +1224,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
             <h3 className="font-bold text-sm">お客様情報</h3>
             <div>
               <label htmlFor="booking-name" className="form-label">
-                お名前 <span className="text-red-500">*</span>
-                <span className="text-gray-400 font-normal text-xs ml-2">例：山田 太郎</span>
+                お名前 <span className="text-red-600">*</span>
+                <span className="text-gray-500 font-normal text-xs ml-2">例：山田 太郎</span>
               </label>
               <input
                 id="booking-name"
@@ -1238,8 +1238,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
             </div>
             <div>
               <label htmlFor="booking-email" className="form-label">
-                メールアドレス <span className="text-red-500">*</span>
-                <span className="text-gray-400 font-normal text-xs ml-2">例：example@email.com</span>
+                メールアドレス <span className="text-red-600">*</span>
+                <span className="text-gray-500 font-normal text-xs ml-2">例：example@email.com</span>
               </label>
               <input
                 id="booking-email"
@@ -1254,7 +1254,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
             <div>
               <label htmlFor="booking-phone" className="form-label">
                 電話番号
-                <span className="text-gray-400 font-normal text-xs ml-2">例：090-1234-5678</span>
+                <span className="text-gray-500 font-normal text-xs ml-2">例：090-1234-5678</span>
               </label>
               <input
                 id="booking-phone"
@@ -1267,7 +1267,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
             </div>
             <div>
               <label htmlFor="booking-note" className="form-label">
-                {facility.homeVisitOnly ? <>訪問先のご住所・ご要望 <span className="text-red-500">*</span></> : 'ご要望・備考'}
+                {facility.homeVisitOnly ? <>訪問先のご住所・ご要望 <span className="text-red-600">*</span></> : 'ご要望・備考'}
               </label>
               <textarea
                 id="booking-note"
@@ -1279,7 +1279,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                 required={facility.homeVisitOnly}
                 placeholder={facility.homeVisitOnly ? '例：大阪府豊中市〇〇町1-2-3 〇〇マンション101' : undefined}
               />
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-gray-500 mt-1">
                 {facility.homeVisitOnly ? 'こちらの店舗はご自宅へ伺う訪問専門です。訪問先のご住所（建物名・部屋番号まで）をご記入ください' : 'ご要望があればご記入ください'}
               </p>
             </div>

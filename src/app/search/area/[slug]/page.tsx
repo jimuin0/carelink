@@ -64,7 +64,7 @@ export default async function AreaResultPage(props: Props) {
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Breadcrumb */}
         <nav className="mb-4" aria-label="パンくずリスト">
-          <ol className="flex items-center gap-1.5 text-xs text-gray-400 flex-wrap">
+          <ol className="flex items-center gap-1.5 text-xs text-gray-500 flex-wrap">
             <li>
               <Link href="/search/area" className="hover:text-sky-600">エリア検索</Link>
             </li>
@@ -115,7 +115,7 @@ export default async function AreaResultPage(props: Props) {
           </>
         ) : (
           <div className="bg-white rounded-2xl shadow-xs p-8 text-center">
-            <p className="text-gray-400">{searchParam.kind === 'region' && searchParam.prefectures.length === 0
+            <p className="text-gray-500">{searchParam.kind === 'region' && searchParam.prefectures.length === 0
               ? '下位エリアの登録準備中です。キーワード検索をご利用ください。'
               : total > 0 ? 'このページに該当する施設はありません。前のページをご確認ください。'
                 : 'このエリアにはまだサロン・クリニックが登録されていません'}</p>

@@ -57,7 +57,7 @@ export default function ShareButtons({ url, title }: Props) {
       <button
         type="button"
         onClick={handleCopy} disabled={clipboard.copying}
-        className="min-w-[44px] min-h-[44px] rounded-full bg-gray-100 text-gray-500 flex items-center justify-center hover:bg-gray-200 transition-colors relative"
+        className="min-w-[44px] min-h-[44px] rounded-full bg-gray-100 text-gray-600 flex items-center justify-center hover:bg-gray-200 transition-colors relative"
         aria-label="URLをコピー"
       >
         {copied ? (

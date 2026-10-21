@@ -21,7 +21,7 @@ export default function CatalogList({ catalogs, staff, menus }: Props) {
   if (catalogs.length === 0) {
     return (
       <div className="text-center py-12">
-        <p className="text-gray-400 text-sm">まだカタログが登録されていません</p>
+        <p className="text-gray-500 text-sm">まだカタログが登録されていません</p>
       </div>
     );
   }
@@ -72,7 +72,7 @@ export default function CatalogList({ catalogs, staff, menus }: Props) {
             <div key={catalog.id} className="bg-gray-50 rounded-xl overflow-hidden">
               {/* 医療広告ガイドライン注意書き */}
               {hasBoth && (
-                <p className="text-micro text-gray-400 px-3 pt-2">※ 施術効果には個人差があります。詳しくは店舗にお問い合わせください。</p>
+                <p className="text-micro text-gray-500 px-3 pt-2">※ 施術効果には個人差があります。詳しくは店舗にお問い合わせください。</p>
               )}
               {hasBoth ? (
                 <BeforeAfterSlider
@@ -99,7 +99,7 @@ export default function CatalogList({ catalogs, staff, menus }: Props) {
               <div className="p-3">
                 <h4 className="font-bold text-sm mb-1">{catalog.title}</h4>
                 {(staffName || menuName) && (
-                  <p className="text-xs text-gray-400 mb-1">
+                  <p className="text-xs text-gray-500 mb-1">
                     {staffName && <>担当: {staffName}</>}
                     {staffName && menuName && ' | '}
                     {menuName && <>メニュー: {menuName}</>}

@@ -20,7 +20,7 @@ export default function CouponCard({ coupon, menuPrice }: { coupon: Coupon; menu
           <div className="flex items-center gap-2 mb-1">
             <CouponBadge type={coupon.coupon_type} />
             {coupon.valid_until && (
-              <span className="text-micro text-gray-400">
+              <span className="text-micro text-gray-500">
                 ~{new Date(coupon.valid_until).toLocaleDateString('ja-JP')}
               </span>
             )}
@@ -34,11 +34,11 @@ export default function CouponCard({ coupon, menuPrice }: { coupon: Coupon; menu
           <div className="text-right shrink-0">
             {menuPrice != null && discountedPrice !== null ? (
               <>
-                <p className="text-xs text-gray-400 line-through">通常 ¥{menuPrice.toLocaleString()}</p>
-                <p className="font-bold text-lg text-red-500">¥{discountedPrice.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 line-through">通常 ¥{menuPrice.toLocaleString()}</p>
+                <p className="font-bold text-lg text-red-600">¥{discountedPrice.toLocaleString()}</p>
               </>
             ) : (
-              <p className="font-bold text-lg text-red-500">{discount}</p>
+              <p className="font-bold text-lg text-red-600">{discount}</p>
             )}
           </div>
         )}

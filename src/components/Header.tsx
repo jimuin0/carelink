@@ -75,7 +75,7 @@ export default function Header() {
             <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
               <Link
                 href="/auth/login?redirect=/admin"
-                className="text-sm text-gray-500 hover:text-primary font-medium transition-colors whitespace-nowrap"
+                className="text-sm text-gray-600 hover:text-primary font-medium transition-colors whitespace-nowrap"
               >
                 店舗ログイン
               </Link>

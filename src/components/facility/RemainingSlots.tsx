@@ -47,7 +47,7 @@ export default function RemainingSlots({ facilityId }: { facilityId: string }) {
 
   // 残りわずか。具体的な枠数は出さない（丸めた内部値しか持っていないため）。
   if (status === 'few') {
-    return <span className="text-xs text-orange-600 font-bold">本日残りわずか</span>;
+    return <span className="text-xs text-orange-700 font-bold">本日残りわずか</span>;
   }
 
   // 営業日で空きゼロ。「満枠」より「空きなし」の方が、予約導線の事実として正確。
@@ -56,7 +56,7 @@ export default function RemainingSlots({ facilityId }: { facilityId: string }) {
       本日空きなし
       {/* 監査F13: キャンセル待ち登録は未実装（登録UIがフロントに存在しない）。
           今回は実装せず「近日公開」表示のみに留める（2026年7月5日・神原さん決定）。 */}
-      <span className="ml-1 text-gray-400 font-normal">（キャンセル待ち登録：近日公開）</span>
+      <span className="ml-1 text-gray-500 font-normal">（キャンセル待ち登録：近日公開）</span>
     </span>
   );
 }

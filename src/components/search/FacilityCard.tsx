@@ -75,7 +75,7 @@ export default function FacilityCard({ facility, showBadges = true, monthlyBooki
                 </span>
               )}
               {isAvailable === false && (
-                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full">
+                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full">
                   空きなし
                 </span>
               )}
@@ -109,10 +109,10 @@ export default function FacilityCard({ facility, showBadges = true, monthlyBooki
           <p className="text-sm mb-1">
             {hasCoupons ? (
               <>
-                <span className="text-gray-400 line-through text-xs mr-1">
+                <span className="text-gray-500 line-through text-xs mr-1">
                   ¥{facility.min_price.toLocaleString()}〜
                 </span>
-                <span className="font-bold text-red-500">クーポン価格あり</span>
+                <span className="font-bold text-red-600">クーポン価格あり</span>
               </>
             ) : (
               <span className="font-bold text-sky-700">

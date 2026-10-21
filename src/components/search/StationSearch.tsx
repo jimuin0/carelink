@@ -3,7 +3,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
-export default function StationSearch() {
+/**
+ * hero: トップの写真・色付き背景の上（白文字＋影）。
+ * panel: 検索ページの白い絞り込み欄（濃い青文字）。白い面で白文字だとほぼ見えないため分ける。
+ */
+const TRIGGER_CLASS = {
+  hero: 'text-white hover:text-sky-100 [text-shadow:0_1px_3px_rgba(0,0,0,0.3)]',
+  panel: 'text-sky-700 hover:text-sky-800 hover:underline',
+} as const;
+
+export default function StationSearch({ variant = 'hero' }: { variant?: keyof typeof TRIGGER_CLASS } = {}) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [stations, setStations] = useState<string[]>([]);
@@ -86,7 +95,7 @@ export default function StationSearch() {
       <button
         type="button"
         onClick={handleOpen}
-        className="flex items-center gap-1.5 min-h-[24px] text-xs text-white font-medium hover:text-sky-100 transition-colors [text-shadow:0_1px_3px_rgba(0,0,0,0.3)]"
+        className={`flex items-center gap-1.5 min-h-[24px] text-xs font-medium transition-colors ${TRIGGER_CLASS[variant]}`}
       >
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
@@ -106,7 +115,7 @@ export default function StationSearch() {
             <div className="p-4 border-b border-gray-100">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold">駅から探す</h3>
-                <button type="button" onClick={() => setOpen(false)} className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center -mr-2 text-gray-400 hover:text-gray-600 text-xl" aria-label="閉じる">&times;</button>
+                <button type="button" onClick={() => setOpen(false)} className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center -mr-2 text-gray-500 hover:text-gray-600 text-xl" aria-label="閉じる">&times;</button>
               </div>
               <input
                 type="text"
@@ -127,11 +136,11 @@ export default function StationSearch() {
             </div>
             <div id="station-listbox" role="listbox" aria-label="駅候補" className="overflow-y-auto flex-1 p-2">
               {loading ? (
-                <p className="text-center text-gray-400 text-sm py-8">読み込み中...</p>
+                <p className="text-center text-gray-500 text-sm py-8">読み込み中...</p>
               ) : fetchError ? (
-                <p className="text-center text-gray-400 text-sm py-8">駅情報の読み込みに失敗しました</p>
+                <p className="text-center text-gray-500 text-sm py-8">駅情報の読み込みに失敗しました</p>
               ) : filtered.length === 0 ? (
-                <p className="text-center text-gray-400 text-sm py-8">該当する駅がありません</p>
+                <p className="text-center text-gray-500 text-sm py-8">該当する駅がありません</p>
               ) : (
                 filtered.map((station, i) => (
                   <button

@@ -58,7 +58,7 @@ export default function InquiryForm({ facilityId }: Props) {
       <div className="text-center py-8">
         <p className="text-lg font-bold mb-2">お問い合わせを送信しました</p>
         <p className="text-gray-500 text-sm mb-4">担当者より折り返しご連絡いたします。</p>
-        <button type="button" onClick={() => setSubmitted(false)} className="text-sky-600 text-sm hover:underline">
+        <button type="button" onClick={() => setSubmitted(false)} className="text-sky-700 text-sm hover:underline">
           別のお問い合わせをする
         </button>
       </div>
@@ -69,13 +69,13 @@ export default function InquiryForm({ facilityId }: Props) {
     <>
       <form onSubmit={handleSubmit(() => setShowConfirm(true))} noValidate className="space-y-4">
         <div>
-          <label htmlFor="inquiry_name" className="form-label">お名前 <span className="text-red-500">*</span></label>
+          <label htmlFor="inquiry_name" className="form-label">お名前 <span className="text-red-600">*</span></label>
           <input {...register('name')} id="inquiry_name" className="form-input" placeholder="山田 太郎" autoComplete="name" aria-required="true" />
           {errors.name && <p className="form-error" role="alert">{errors.name.message}</p>}
         </div>
 
         <div>
-          <label htmlFor="inquiry_email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
+          <label htmlFor="inquiry_email" className="form-label">メールアドレス <span className="text-red-600">*</span></label>
           <input {...register('email')} id="inquiry_email" type="email" className="form-input" placeholder="example@email.com" autoComplete="email" aria-required="true" />
           {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
         </div>
@@ -87,7 +87,7 @@ export default function InquiryForm({ facilityId }: Props) {
         </div>
 
         <div>
-          <label htmlFor="inquiry_message" className="form-label">お問い合わせ内容 <span className="text-red-500">*</span></label>
+          <label htmlFor="inquiry_message" className="form-label">お問い合わせ内容 <span className="text-red-600">*</span></label>
           <textarea {...register('message')} id="inquiry_message" className="form-input" rows={4} maxLength={1000} placeholder="ご予約・ご質問などお気軽にお書きください（1000文字以内）" aria-required="true" />
           {errors.message && <p className="form-error" role="alert">{errors.message.message}</p>}
         </div>
