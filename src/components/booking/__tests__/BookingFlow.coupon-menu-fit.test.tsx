@@ -231,7 +231,7 @@ describe('クーポン選択で対象メニューが自動選択される（HPB�
     expect(screen.queryByText(/自動選択しました/)).not.toBeInTheDocument();
   });
 
-  test('対象未設定クーポン（couponMenuMapにキーなし）を選んでもメニューは自動選択されない（従来どおり手動選択）', async () => {
+  test('対象未設定クーポンを先に選ぶと、メニューは推測で選ばずメニュー一覧へ案内し、選べば次へ進める', async () => {
     render(
       <BookingFlow
         facility={FACILITY}
@@ -243,10 +243,16 @@ describe('クーポン選択で対象メニューが自動選択される（HPB�
     );
     const couponButton = (await screen.findByText('全メニュークーポン')).closest('button')!;
     fireEvent.click(couponButton);
-    expect(screen.getByText('✓ 選択中')).toBeInTheDocument();
-    // 自動選択は発生しない
+    // 自動選択は発生しない（どの施術かを推測しない）
     expect(screen.queryByText(/自動選択しました/)).not.toBeInTheDocument();
-    expect(screen.getByText('メニューを1つ以上選択してください')).toBeInTheDocument();
+    // 本番で「次へ」が押せないまま止まっていた導線: メニュー一覧へ切り替えて何をすべきか示す
+    expect(screen.getByRole('status')).toHaveTextContent('「全メニュークーポン」で受けるメニューを選んでください');
+    expect(screen.getByText('クーポンで受けるメニューを「メニューから選ぶ」で選んでください')).toBeInTheDocument();
+    const next = screen.getByRole('button', { name: '次へ（日時を選ぶ）' });
+    expect(next).toBeDisabled();
+    fireEvent.click(screen.getByText('カラー'));
+    expect(next).not.toBeDisabled();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   test('対象メニューIDが menus に存在しない（削除済み等）場合は自動選択せずクラッシュもしない', async () => {
@@ -261,9 +267,27 @@ describe('クーポン選択で対象メニューが自動選択される（HPB�
     );
     const couponButton = (await screen.findByText('カット限定クーポン')).closest('button')!;
     fireEvent.click(couponButton);
-    expect(screen.getByText('✓ 選択中')).toBeInTheDocument();
     expect(screen.queryByText(/自動選択しました/)).not.toBeInTheDocument();
-    expect(screen.getByText('メニューを1つ以上選択してください')).toBeInTheDocument();
+    // 対象メニューが見つからない場合も行き止まりにせず、メニュー一覧へ案内する
+    expect(screen.getByRole('status')).toHaveTextContent('「カット限定クーポン」で受けるメニューを選んでください');
+  });
+
+  test('メニューを先に選んでいれば、対象未設定クーポンを選んでもクーポン一覧に留まる', async () => {
+    render(
+      <BookingFlow
+        facility={FACILITY}
+        staff={[]}
+        menus={[MENU_A, MENU_B]}
+        coupons={[UNRESTRICTED_COUPON]}
+        couponMenuMap={{}}
+      />
+    );
+    fireEvent.click(await screen.findByText('メニューから選ぶ'));
+    fireEvent.click(await screen.findByText('カラー'));
+    fireEvent.click(screen.getByText('クーポン'));
+    fireEvent.click((await screen.findByText('全メニュークーポン')).closest('button')!);
+    expect(screen.getByText('✓ 選択中')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   test('選択済みクーポンをもう一度クリックすると選択解除される（自動選択済みメニューは残す）', async () => {
