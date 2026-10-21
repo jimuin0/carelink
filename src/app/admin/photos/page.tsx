@@ -21,6 +21,20 @@ const photoTypes: { value: FacilityPhoto['photo_type']; label: string }[] = [
   { value: 'other', label: 'その他' },
 ];
 
+/** Server-confirmed main photo designation; false unless the server reports ok. */
+async function requestMainPhoto(facilityId: string, photoId: string): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/admin/settings?facility_id=${facilityId}&action=main-photo`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ photoId }),
+    });
+    const result = await response.json().catch(() => null);
+    return response.ok && result?.ok === true;
+  } catch {
+    return false;
+  }
+}
+
 function AdminPhotosContent() {
   const requestedFacility = useSearchParams().get('facility_id');
   const [facilityChoices, setFacilityChoices] = useState<AdminFacilityChoice[]>([]);
@@ -107,6 +121,9 @@ function AdminPhotosContent() {
       // Storageのpathはミリ秒+連番でユニーク化（同一ミリ秒内での複数枚アップロードによる
       // ファイル名衝突を防ぐ）。1枚失敗しても残りの続行を止めない(best-effort)。
       let nextSortOrder = photos.length;
+      // 種類「メイン」で上げた写真は、検索カードの画像（facility_profiles.main_photo_url）にも使う。
+      // 以前は別途「メインに設定」を押すまでカードが「写真未登録」のままだった。
+      let newMainPhotoId: string | null = null;
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         try {
@@ -118,7 +135,7 @@ function AdminPhotosContent() {
           if (uploadError) throw uploadError;
 
           const { data: urlData } = supabase.storage.from('photos').getPublicUrl(path);
-          const { error: insertError } = await supabase
+          const { data: inserted, error: insertError } = await supabase
             .from('facility_photos')
             .insert({
               facility_id: facilityId,
@@ -126,8 +143,11 @@ function AdminPhotosContent() {
               photo_type: selectedType,
               caption: caption.trim() || null,
               sort_order: nextSortOrder,
-            });
-          if (insertError) throw insertError;
+            })
+            .select('id')
+            .single();
+          if (insertError || !inserted) throw insertError ?? new Error('Photo insert not confirmed');
+          if (selectedType === 'main' && !newMainPhotoId) newMainPhotoId = inserted.id;
           nextSortOrder++;
           succeeded++;
         } catch {
@@ -137,8 +157,12 @@ function AdminPhotosContent() {
         }
       }
 
-      if (failed === 0) {
-        setToast({ type: 'success', message: `${succeeded}枚アップロードしました` });
+      const mainSet = newMainPhotoId ? await requestMainPhoto(facilityId, newMainPhotoId) : null;
+      if (mainSet === false) {
+        const uploaded = failed === 0 ? `${succeeded}枚アップロードしましたが、` : `${succeeded}枚成功・${failed}枚失敗しました。また、`;
+        setToast({ type: 'error', message: `${uploaded}メイン写真に設定できませんでした。「メインに設定」を押してください` });
+      } else if (failed === 0) {
+        setToast({ type: 'success', message: mainSet ? `${succeeded}枚アップロードし、メイン写真に設定しました` : `${succeeded}枚アップロードしました` });
       } else if (succeeded > 0) {
         setToast({ type: 'error', message: `${succeeded}枚成功・${failed}枚失敗しました` });
       } else {
@@ -180,15 +204,8 @@ function AdminPhotosContent() {
     if (!facilityId || settingMain) return;
     setSettingMain(photo.id);
     try {
-      const response = await fetch(`/api/admin/settings?facility_id=${facilityId}&action=main-photo`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ photoId: photo.id }),
-      });
-      const result = await response.json().catch(() => null);
-      if (!response.ok || result?.ok !== true) throw new Error('Main photo update not confirmed');
-      setToast({ type: 'success', message: 'メイン写真を設定しました' });
-    } catch {
-      setToast({ type: 'error', message: '設定を確認できませんでした。再読み込みして確認してください' });
+      if (await requestMainPhoto(facilityId, photo.id)) setToast({ type: 'success', message: 'メイン写真を設定しました' });
+      else setToast({ type: 'error', message: '設定を確認できませんでした。再読み込みして確認してください' });
     } finally {
       setSettingMain(null);
     }

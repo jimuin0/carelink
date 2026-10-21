@@ -4,6 +4,8 @@ import AdminPhotosPage from '../page';
 const first = '71000000-0000-4000-8000-000000000001';
 const second = '71000000-0000-4000-8000-000000000002';
 const photoId = '71000000-0000-4000-8000-000000000003';
+const uploadedId = '71000000-0000-4000-8000-000000000004';
+const mockInsert = jest.fn();
 let mockRequested: string | null = second;
 let mockProfileRead = jest.fn();
 const mockPhotoFilters = jest.fn();
@@ -21,7 +23,10 @@ beforeEach(() => {
   mockProfileRead = jest.fn();
   mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true, photoId }) });
   global.fetch = mockFetch;
+  mockInsert.mockReturnValue({ select: () => ({ single: async () => ({ data: { id: uploadedId }, error: null }) }) });
   mockDb.mockReturnValue({
+    storage: { from: () => ({ upload: async () => ({ error: null }),
+      getPublicUrl: () => ({ data: { publicUrl: 'https://example.invalid/uploaded.png' } }) }) },
     auth: { getUser: async () => ({ data: { user: { id: 'synthetic-user' } } }) },
     from: (table: string) => {
       if (table === 'facility_members') {
@@ -34,6 +39,7 @@ beforeEach(() => {
       const chain = { select: () => chain, eq: (key: string, value: string) => { mockPhotoFilters(key, value); return chain; },
         order: () => chain, limit: async () => ({ error: null, data: [{ id: photoId, facility_id: second,
           photo_type: 'main', photo_url: 'https://example.invalid/synthetic.png', caption: '合成写真', sort_order: 0 }] }),
+        insert: (row: unknown) => mockInsert(row),
         delete: () => { throw new Error('Direct browser photo deletion forbidden'); } };
       return chain;
     },
@@ -78,4 +84,58 @@ test.each(['success', 'business-failure', 'wrong-id', 'http-failure', 'invalid-j
   expect(mockFetch).toHaveBeenCalledWith(`/api/admin/photos/${photoId}?facility_id=${second}`, { method: 'DELETE' });
   expect(mockPhotoFilters).not.toHaveBeenCalledWith('id', photoId);
   expect(mockPhotoFilters).toHaveBeenCalledWith('facility_id', second);
+});
+
+function uploadAs(type: string) {
+  fireEvent.change(screen.getByLabelText('種類'), { target: { value: type } });
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [new File(['x'], 'synthetic.jpg', { type: 'image/jpeg' })] } });
+}
+
+test.each([
+  ['success', '1枚アップロードし、メイン写真に設定しました'],
+  ['business-failure', '1枚アップロードしましたが、メイン写真に設定できませんでした。「メインに設定」を押してください'],
+  ['reject', '1枚アップロードしましたが、メイン写真に設定できませんでした。「メインに設定」を押してください'],
+])('種類「メイン」で上げた写真は検索カードの画像にも設定する：%s', async (mode, message) => {
+  if (mode === 'reject') mockFetch.mockRejectedValue(new Error('synthetic failure'));
+  else mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: mode === 'success' }) });
+  render(<AdminPhotosPage />);
+  await screen.findByRole('button', { name: 'メインに設定' });
+  uploadAs('main');
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe(message));
+  expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({ facility_id: second, photo_type: 'main' }));
+  expect(mockFetch).toHaveBeenCalledWith(`/api/admin/settings?facility_id=${second}&action=main-photo`, expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ photoId: uploadedId }) }));
+  expect(mockProfileRead).not.toHaveBeenCalled();
+});
+
+test('メイン以外の種類では検索カードの画像を変えない', async () => {
+  render(<AdminPhotosPage />);
+  await screen.findByRole('button', { name: 'メインに設定' });
+  uploadAs('interior');
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe('1枚アップロードしました'));
+  expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({ photo_type: 'interior' }));
+  expect(mockFetch).not.toHaveBeenCalled();
+});
+
+test('登録結果を確認できない写真はメインに設定しない', async () => {
+  mockInsert.mockReturnValue({ select: () => ({ single: async () => ({ data: null, error: null }) }) });
+  render(<AdminPhotosPage />);
+  await screen.findByRole('button', { name: 'メインに設定' });
+  uploadAs('main');
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe('アップロードに失敗しました'));
+  expect(mockFetch).not.toHaveBeenCalled();
+});
+
+test('一部の失敗とメイン設定の失敗を両方伝える', async () => {
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: false }) });
+  mockInsert
+    .mockReturnValueOnce({ select: () => ({ single: async () => ({ data: { id: uploadedId }, error: null }) }) })
+    .mockReturnValueOnce({ select: () => ({ single: async () => ({ data: null, error: new Error('synthetic insert failure') }) }) });
+  render(<AdminPhotosPage />);
+  await screen.findByRole('button', { name: 'メインに設定' });
+  fireEvent.change(screen.getByLabelText('種類'), { target: { value: 'main' } });
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [new File(['x'], 'a.jpg', { type: 'image/jpeg' }), new File(['y'], 'b.jpg', { type: 'image/jpeg' })] } });
+  await waitFor(() => expect(screen.getByRole('status').textContent)
+    .toBe('1枚成功・1枚失敗しました。また、メイン写真に設定できませんでした。「メインに設定」を押してください'));
 });
