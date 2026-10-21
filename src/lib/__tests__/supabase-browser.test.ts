@@ -48,18 +48,24 @@ describe('createBrowserSupabaseClient', () => {
   it('throws when NEXT_PUBLIC_SUPABASE_URL is missing', () => {
     delete process.env.NEXT_PUBLIC_SUPABASE_URL;
     jest.isolateModules(() => {
-      expect(() => require('../supabase-browser')).toThrow(
+      // Importing must not throw: the root layout loads this module on every page.
+      const { createBrowserSupabaseClient } = require('../supabase-browser');
+      expect(() => createBrowserSupabaseClient()).toThrow(
         'NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are required'
       );
+      expect(mockCreateBrowserClient).not.toHaveBeenCalled();
     });
   });
 
   it('throws when NEXT_PUBLIC_SUPABASE_ANON_KEY is missing', () => {
     delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     jest.isolateModules(() => {
-      expect(() => require('../supabase-browser')).toThrow(
+      // Importing must not throw: the root layout loads this module on every page.
+      const { createBrowserSupabaseClient } = require('../supabase-browser');
+      expect(() => createBrowserSupabaseClient()).toThrow(
         'NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are required'
       );
+      expect(mockCreateBrowserClient).not.toHaveBeenCalled();
     });
   });
 });
