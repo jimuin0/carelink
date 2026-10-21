@@ -385,6 +385,8 @@
   ],
   "facility_card_view": [
     "access_info",
+    "active_staff_count",
+    "booking_menu_count",
     "business_hours",
     "business_type",
     "catch_copy",
@@ -395,6 +397,7 @@
     "features",
     "google_rating",
     "google_review_count",
+    "has_address",
     "id",
     "latitude",
     "longitude",
