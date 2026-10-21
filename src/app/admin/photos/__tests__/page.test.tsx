@@ -125,3 +125,17 @@ test('登録結果を確認できない写真はメインに設定しない', as
   await waitFor(() => expect(screen.getByRole('status').textContent).toBe('アップロードに失敗しました'));
   expect(mockFetch).not.toHaveBeenCalled();
 });
+
+test('一部の失敗とメイン設定の失敗を両方伝える', async () => {
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: false }) });
+  mockInsert
+    .mockReturnValueOnce({ select: () => ({ single: async () => ({ data: { id: uploadedId }, error: null }) }) })
+    .mockReturnValueOnce({ select: () => ({ single: async () => ({ data: null, error: new Error('synthetic insert failure') }) }) });
+  render(<AdminPhotosPage />);
+  await screen.findByRole('button', { name: 'メインに設定' });
+  fireEvent.change(screen.getByLabelText('種類'), { target: { value: 'main' } });
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [new File(['x'], 'a.jpg', { type: 'image/jpeg' }), new File(['y'], 'b.jpg', { type: 'image/jpeg' })] } });
+  await waitFor(() => expect(screen.getByRole('status').textContent)
+    .toBe('1枚成功・1枚失敗しました。また、メイン写真に設定できませんでした。「メインに設定」を押してください'));
+});

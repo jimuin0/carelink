@@ -159,7 +159,8 @@ function AdminPhotosContent() {
 
       const mainSet = newMainPhotoId ? await requestMainPhoto(facilityId, newMainPhotoId) : null;
       if (mainSet === false) {
-        setToast({ type: 'error', message: `${succeeded}枚アップロードしましたが、メイン写真に設定できませんでした。「メインに設定」を押してください` });
+        const uploaded = failed === 0 ? `${succeeded}枚アップロードしましたが、` : `${succeeded}枚成功・${failed}枚失敗しました。また、`;
+        setToast({ type: 'error', message: `${uploaded}メイン写真に設定できませんでした。「メインに設定」を押してください` });
       } else if (failed === 0) {
         setToast({ type: 'success', message: mainSet ? `${succeeded}枚アップロードし、メイン写真に設定しました` : `${succeeded}枚アップロードしました` });
       } else if (succeeded > 0) {
