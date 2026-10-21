@@ -82,7 +82,7 @@ export default function ReferralPage() {
   if (loadError) {
     return (
       <div className="text-center py-12">
-        <p role="alert" className="text-red-500 text-sm">
+        <p role="alert" className="text-red-600 text-sm">
           招待情報の取得に失敗しました。時間をおいて再度お試しください。
         </p>
       </div>
@@ -106,12 +106,12 @@ export default function ReferralPage() {
           <h2 className="text-base font-bold text-gray-800 mb-4">あなたの紹介コード</h2>
           <div className="flex items-center gap-3 mb-4">
             <div className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-5 py-3 text-center">
-              <p className="text-2xl font-mono font-bold tracking-widest text-sky-600">{referralCode}</p>
+              <p className="text-2xl font-mono font-bold tracking-widest text-sky-700">{referralCode}</p>
             </div>
             <button
               type="button"
               onClick={copyCode} disabled={clipboard.copying}
-              className="px-4 py-3 rounded-xl bg-sky-600 text-white text-sm font-bold hover:bg-sky-700 transition-colors shrink-0"
+              className="px-4 py-3 rounded-xl bg-sky-700 text-white text-sm font-bold hover:bg-sky-700 transition-colors shrink-0"
             >
               {clipboard.copying?'コピー中...':copied ? 'コピー済み' : 'コピー'}
             </button>
@@ -158,7 +158,7 @@ export default function ReferralPage() {
               type="button"
               onClick={applyCode}
               disabled={!inputCode.trim() || applying}
-              className="px-5 py-2.5 rounded-xl bg-sky-600 text-white text-sm font-bold hover:bg-sky-700 disabled:opacity-50 transition-colors shrink-0"
+              className="px-5 py-2.5 rounded-xl bg-sky-700 text-white text-sm font-bold hover:bg-sky-700 disabled:opacity-50 transition-colors shrink-0"
             >
               {applying ? '適用中...' : '適用'}
             </button>
@@ -180,12 +180,12 @@ export default function ReferralPage() {
             '友達に300pt・あなたに500ptを自動でプレゼント',
           ].map((step, i) => (
             <li key={i} className="flex items-start gap-3 text-sm text-gray-600">
-              <span className="w-5 h-5 rounded-full bg-sky-100 text-sky-600 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
+              <span className="w-5 h-5 rounded-full bg-sky-100 text-sky-700 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
               {step}
             </li>
           ))}
         </ol>
-        <p className="text-xs text-gray-400 mt-4">※ポイントは招待1人につき1回のみ付与されます。</p>
+        <p className="text-xs text-gray-500 mt-4">※ポイントは招待1人につき1回のみ付与されます。</p>
       </div>
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}

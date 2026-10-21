@@ -89,7 +89,7 @@ export default function MyReviewsPage() {
 
       {reviews.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-xs p-8 text-center">
-          <p className="text-gray-400">投稿した口コミがありません</p>
+          <p className="text-gray-500">投稿した口コミがありません</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -100,7 +100,7 @@ export default function MyReviewsPage() {
                   <Link href={`/facility/${review.facility_slug}`} className="font-bold text-primary hover:underline">
                     {review.facility_name}
                   </Link>
-                  <p className="text-sm text-gray-400 mt-1">
+                  <p className="text-sm text-gray-500 mt-1">
                     {new Date(review.created_at).toLocaleDateString('ja-JP')}
                     {review.status === 'hidden' && <span className="ml-2 text-amber-600">(非表示中)</span>}
                   </p>

@@ -64,7 +64,7 @@ export default async function CouponNotebookPage() {
 
       {coupons.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-xs p-12 text-center">
-          <p className="text-gray-400 mb-4">クーポンがありません</p>
+          <p className="text-gray-500 mb-4">クーポンがありません</p>
           <p className="text-sm text-gray-500 mb-6">施設をお気に入りに追加すると、クーポンがここに表示されます。</p>
           <Link href="/search" className="btn-primary text-sm">施設を探す</Link>
         </div>
@@ -74,17 +74,17 @@ export default async function CouponNotebookPage() {
             <div key={coupon.id} className="bg-white rounded-xl shadow-xs border border-dashed border-sky-200 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                  <Link href={`/facility/${coupon.facility_slug}`} className="text-xs text-sky-600 hover:underline">
+                  <Link href={`/facility/${coupon.facility_slug}`} className="text-xs text-sky-700 hover:underline">
                     {coupon.facility_name}
                   </Link>
                   <p className="font-bold text-sm mt-0.5">{coupon.name}</p>
                   {coupon.valid_until && (
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-gray-500 mt-1">
                       有効期限: {new Date(coupon.valid_until).toLocaleDateString('ja-JP')}
                     </p>
                   )}
                 </div>
-                <span className="text-lg font-bold text-red-500 shrink-0">{discountText(coupon)}</span>
+                <span className="text-lg font-bold text-red-600 shrink-0">{discountText(coupon)}</span>
               </div>
             </div>
           ))}

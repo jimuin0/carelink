@@ -245,7 +245,7 @@ export default function BookingChangePage() {
               <button type="button" key={date} onClick={() => { setSelectedSlot(null); setSelectedDate(date); }}
                 className={`p-2 rounded-xl border text-center transition-colors ${selectedDate === date ? 'border-sky-500 bg-sky-50' : 'border-gray-200 hover:border-sky-300'}`}>
                 <p className="text-xs text-gray-500">{d.getMonth() + 1}/{d.getDate()}</p>
-                <p className={`text-sm font-bold ${isWeekend ? 'text-red-500' : ''}`}>{dayNames[d.getDay()]}</p>
+                <p className={`text-sm font-bold ${isWeekend ? 'text-red-600' : ''}`}>{dayNames[d.getDay()]}</p>
               </button>
             );
           })}
@@ -260,7 +260,7 @@ export default function BookingChangePage() {
           {slotsPending ? (
             <div className="text-center py-8"><div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto" /></div>
           ) : slots.length === 0 ? (
-            <p className="text-gray-400 text-sm text-center py-4">この日は予約可能な時間帯がありません</p>
+            <p className="text-gray-500 text-sm text-center py-4">この日は予約可能な時間帯がありません</p>
           ) : (
             <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
               {slots.map((slot) => (

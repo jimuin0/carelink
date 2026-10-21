@@ -816,7 +816,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                             <div className="flex items-start justify-between gap-2">
                               <p className="font-bold text-sm">{coupon.name}</p>
                               {label && (
-                                <span className="shrink-0 text-xs font-bold text-red-600 bg-red-50 rounded-full px-2 py-0.5">
+                                <span className="shrink-0 text-xs font-bold text-red-700 bg-red-50 rounded-full px-2 py-0.5">
                                   {label}
                                 </span>
                               )}
@@ -1003,12 +1003,12 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
           {/* 【2026年7月15日 defect1】/api/slots の取得失敗（満席とは別の障害）を明確に区別して通知する。
               満席表示（× のみ・「予約可能な時間帯がありません」）に埋もれさせない。 */}
           {matrixError && !matrixPending && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600 flex items-center justify-between gap-2 flex-wrap" role="alert">
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700 flex items-center justify-between gap-2 flex-wrap" role="alert">
               <span>空き状況を取得できませんでした。通信状況をご確認のうえ再度お試しください。</span>
               <button
                 type="button"
                 onClick={() => setMatrixRetryTick((t) => t + 1)}
-                className="text-red-600 font-bold underline shrink-0"
+                className="text-red-700 font-bold underline shrink-0"
               >
                 再試行
               </button>

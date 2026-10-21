@@ -117,7 +117,7 @@ function SettingsContent() {
           予約をGoogleカレンダーに自動で追加・同期できます。
         </p>
         {gcalError ? (
-          <p role="alert" className="text-red-500 text-sm">連携状態を取得できませんでした。時間をおいて再度お試しください。</p>
+          <p role="alert" className="text-red-600 text-sm">連携状態を取得できませんでした。時間をおいて再度お試しください。</p>
         ) : gcal === null ? (
           <div className="h-10 bg-gray-100 rounded-lg animate-pulse" />
         ) : gcal.connected ? (
@@ -169,7 +169,7 @@ function SettingsContent() {
           LINEアプリからの予約確認・ポイント確認・クーポン閲覧ができるようになります。
         </p>
         {lineError ? (
-          <p role="alert" className="text-red-500 text-sm">連携状態を取得できませんでした。時間をおいて再度お試しください。</p>
+          <p role="alert" className="text-red-600 text-sm">連携状態を取得できませんでした。時間をおいて再度お試しください。</p>
         ) : lineLinked === null ? (
           <div className="h-10 bg-gray-100 rounded-lg animate-pulse" />
         ) : lineLinked ? (
@@ -203,7 +203,7 @@ function SettingsContent() {
         <p className="text-sm text-gray-500 mb-4">
           メール通知の配信設定はプロフィールページから変更できます。
         </p>
-        <Link href="/mypage/profile" className="text-sm text-sky-600 hover:underline">
+        <Link href="/mypage/profile" className="text-sm text-sky-700 hover:underline">
           プロフィールを編集 →
         </Link>
       </div>
@@ -246,7 +246,7 @@ function SettingsContent() {
 
 export default function SettingsPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-gray-400">読み込み中...</div>}>
+    <Suspense fallback={<div className="p-8 text-center text-gray-500">読み込み中...</div>}>
       <SettingsContent />
     </Suspense>
   );

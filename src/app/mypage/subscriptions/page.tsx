@@ -34,7 +34,7 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   active:    { label: '有効',      cls: 'bg-green-100 text-green-700' },
   cancelled: { label: 'キャンセル済み', cls: 'bg-red-100 text-red-700' },
   paused:    { label: '一時停止中', cls: 'bg-yellow-100 text-yellow-700' },
-  expired:   { label: '期限切れ',  cls: 'bg-gray-100 text-gray-500' },
+  expired:   { label: '期限切れ',  cls: 'bg-gray-100 text-gray-600' },
 };
 
 export default async function MySubscriptionsPage() {
@@ -72,7 +72,7 @@ export default async function MySubscriptionsPage() {
             </svg>
           </div>
           <p className="text-gray-500 text-sm mb-4">月額プランに加入していません</p>
-          <Link href="/search" className="text-sm text-sky-600 hover:underline">施設を探して月額プランに申し込む</Link>
+          <Link href="/search" className="text-sm text-sky-700 hover:underline">施設を探して月額プランに申し込む</Link>
         </div>
       ) : (
         <>
@@ -81,7 +81,7 @@ export default async function MySubscriptionsPage() {
               <h2 className="text-sm font-bold text-gray-700">加入中のプラン</h2>
               {active.map((sub) => {
                 const plan = sub.subscription_plans;
-                const st = STATUS_LABEL[sub.status] ?? { label: sub.status, cls: 'bg-gray-100 text-gray-500' };
+                const st = STATUS_LABEL[sub.status] ?? { label: sub.status, cls: 'bg-gray-100 text-gray-600' };
                 const used = sub.sessions_used_this_month;
                 const total = plan?.sessions_per_month ?? 1;
                 const pct = Math.min(100, Math.round((used / total) * 100));
@@ -96,14 +96,14 @@ export default async function MySubscriptionsPage() {
                           <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${st.cls}`}>{st.label}</span>
                         </div>
                         {sub.facility_profiles && (
-                          <Link href={`/facility/${sub.facility_profiles.slug}`} className="text-xs text-sky-600 hover:underline">
+                          <Link href={`/facility/${sub.facility_profiles.slug}`} className="text-xs text-sky-700 hover:underline">
                             {sub.facility_profiles.name}
                           </Link>
                         )}
-                        {plan?.description && <p className="text-xs text-gray-400 mt-0.5">{plan.description}</p>}
+                        {plan?.description && <p className="text-xs text-gray-500 mt-0.5">{plan.description}</p>}
                       </div>
                       <div className="text-right shrink-0">
-                        <p className="text-lg font-bold text-gray-800">¥{plan?.price.toLocaleString()}<span className="text-xs font-normal text-gray-400">/月</span></p>
+                        <p className="text-lg font-bold text-gray-800">¥{plan?.price.toLocaleString()}<span className="text-xs font-normal text-gray-500">/月</span></p>
                       </div>
                     </div>
 
@@ -116,11 +116,11 @@ export default async function MySubscriptionsPage() {
                       <div className="w-full bg-gray-100 rounded-full h-2">
                         <div className={`h-2 rounded-full transition-all ${pct >= 100 ? 'bg-red-400' : 'bg-sky-500'}`} style={{ width: `${pct}%` }} />
                       </div>
-                      {pct >= 100 && <p className="text-xs text-red-500 mt-1">今月の利用上限に達しました</p>}
+                      {pct >= 100 && <p className="text-xs text-red-600 mt-1">今月の利用上限に達しました</p>}
                     </div>
 
                     {sub.ends_at && (
-                      <p className="text-xs text-gray-400 mt-2">
+                      <p className="text-xs text-gray-500 mt-2">
                         契約終了: {new Date(sub.ends_at).toLocaleDateString('ja-JP')}
                       </p>
                     )}
@@ -132,15 +132,15 @@ export default async function MySubscriptionsPage() {
 
           {inactive.length > 0 && (
             <div className="space-y-2">
-              <h2 className="text-sm font-bold text-gray-400">過去のプラン</h2>
+              <h2 className="text-sm font-bold text-gray-500">過去のプラン</h2>
               {inactive.map((sub) => {
-                const st = STATUS_LABEL[sub.status] ?? { label: sub.status, cls: 'bg-gray-100 text-gray-500' };
+                const st = STATUS_LABEL[sub.status] ?? { label: sub.status, cls: 'bg-gray-100 text-gray-600' };
                 return (
                   <div key={sub.id} className="bg-gray-50 rounded-xl px-4 py-3 opacity-60">
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-sm font-medium text-gray-600">{sub.subscription_plans?.name}</p>
-                        <p className="text-xs text-gray-400">{sub.facility_profiles?.name}</p>
+                        <p className="text-xs text-gray-500">{sub.facility_profiles?.name}</p>
                       </div>
                       <span className={`text-xs px-2 py-0.5 rounded-full ${st.cls}`}>{st.label}</span>
                     </div>

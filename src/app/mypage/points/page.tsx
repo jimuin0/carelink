@@ -47,8 +47,8 @@ export default async function PointsPage() {
 
       {points.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-xs p-8 text-center">
-          <p className="text-gray-400">ポイント履歴がありません</p>
-          <p className="text-sm text-gray-400 mt-1">予約完了でポイントが貯まります</p>
+          <p className="text-gray-500">ポイント履歴がありません</p>
+          <p className="text-sm text-gray-500 mt-1">予約完了でポイントが貯まります</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -56,7 +56,7 @@ export default async function PointsPage() {
             <div key={p.id} className="bg-white rounded-xl shadow-xs p-4 flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">{p.reason}</p>
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-gray-500">
                   {new Date(p.created_at).toLocaleDateString('ja-JP')}
                 </p>
               </div>
