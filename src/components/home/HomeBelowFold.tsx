@@ -146,14 +146,14 @@ export default function HomeBelowFold() {
                       >
                         {cat.type}を探す
                       </Link>
-                      <div className="flex items-center mt-1.5 whitespace-nowrap">
+                      <div className="flex flex-wrap items-center gap-y-1 mt-1.5">
                         {regionGroups.map((region, i) => {
                           const pSlug = getPrefectureSlug(region.prefectures[0]);
                           const href = pSlug && tSlug
                             ? `/${pSlug}/${tSlug}`
                             : `/search?type=${encodeURIComponent(cat.type)}&area=${encodeURIComponent(region.prefectures[0])}`;
                           return (
-                            <span key={region.name} className="text-xs">
+                            <span key={region.name} className="text-xs whitespace-nowrap">
                               {i > 0 && <span className="text-gray-200 mx-2">|</span>}
                               <Link href={href} className="text-gray-500 hover:text-sky-700 transition-colors">
                                 {region.name}
@@ -205,11 +205,11 @@ export default function HomeBelowFold() {
                   {regionGroups.map((region) => (
                     <div key={region.name}>
                       <h3 className="text-tiny font-bold text-gray-600 mb-1">{region.name}</h3>
-                      <div className="flex items-center whitespace-nowrap">
+                      <div className="flex flex-wrap items-center gap-y-1">
                         {region.prefectures.map((pref, i) => {
                           const pSlug = getPrefectureSlug(pref);
                           return (
-                            <span key={pref} className="text-xs">
+                            <span key={pref} className="text-xs whitespace-nowrap">
                               {i > 0 && <span className="text-gray-200 mx-2">|</span>}
                               <Link href={pSlug ? `/${pSlug}` : `/search?area=${encodeURIComponent(pref)}`} className="text-gray-600 hover:text-sky-700 transition-colors">{pref}</Link>
                             </span>
