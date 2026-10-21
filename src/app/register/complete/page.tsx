@@ -91,11 +91,11 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
               <span className="text-sm font-medium text-gray-800">アカウント作成・ログイン</span>
             </div>
             <div className="flex items-center gap-3">
-              <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center text-xs font-bold shrink-0">3</div>
+              <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-xs font-bold shrink-0">3</div>
               <span className="text-sm text-gray-500">店舗名・所在地を確認して掲載公開</span>
             </div>
             <div className="flex items-center gap-3">
-              <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center text-xs font-bold shrink-0">4</div>
+              <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-600 flex items-center justify-center text-xs font-bold shrink-0">4</div>
               <span className="text-sm text-gray-500">公開して集客スタート！</span>
             </div>
           </div>

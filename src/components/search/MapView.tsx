@@ -109,12 +109,12 @@ export default function MapView({ facilities }: Props) {
       <div ref={mapRef} style={{ height: '500px', width: '100%', display: mapReady ? 'block' : 'none' }} />
       {!mapReady && !loadError && (
         <div className="flex items-center justify-center h-[500px] bg-gray-100">
-          <p className="text-gray-500 text-sm">地図を読み込み中...</p>
+          <p className="text-gray-600 text-sm">地図を読み込み中...</p>
         </div>
       )}
       {loadError && (
         <div className="flex flex-col items-center justify-center h-[500px] bg-gray-100 gap-3">
-          <p className="text-gray-500 text-sm">地図を読み込めませんでした</p>
+          <p className="text-gray-600 text-sm">地図を読み込めませんでした</p>
           <button
             type="button"
             onClick={retry}

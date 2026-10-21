@@ -726,7 +726,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
         {steps.map((s, i) => (
           <div key={s.key} className="flex items-center gap-1">
             <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
-              i <= currentIndex ? 'bg-primary text-white' : 'bg-gray-200 text-gray-500'
+              i <= currentIndex ? 'bg-primary text-white' : 'bg-gray-200 text-gray-600'
             }`}>
               {i + 1}
             </div>

@@ -184,7 +184,7 @@ export default async function SearchPage(props: Props) {
             {featuredFacilities.length > 0 && (
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">スポンサー</span>
+                  <span className="text-xs text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">スポンサー</span>
                 </div>
                 <ViewToggle
                   facilities={featuredFacilities}
