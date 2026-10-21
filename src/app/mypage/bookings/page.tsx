@@ -42,7 +42,7 @@ export default async function BookingsPage() {
 
       {bookings.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-xs p-8 text-center">
-          <p className="text-gray-400 mb-2">予約履歴がありません</p>
+          <p className="text-gray-500 mb-2">予約履歴がありません</p>
           <Link href="/search" className="text-sm text-primary hover:underline">
             施設を探す
           </Link>
@@ -75,7 +75,7 @@ export default async function BookingsPage() {
                   <div className="mt-3 pt-3 border-t border-gray-100">
                     <Link
                       href={rebookUrl}
-                      className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-600 hover:text-sky-800 hover:underline"
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-700 hover:text-sky-800 hover:underline"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />

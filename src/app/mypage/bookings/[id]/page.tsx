@@ -127,7 +127,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
   if (!booking) {
     return (
       <div className="bg-white rounded-2xl shadow-xs p-8 text-center">
-        <p className="text-gray-400">予約が見つかりません</p>
+        <p className="text-gray-500">予約が見つかりません</p>
       </div>
     );
   }
@@ -182,7 +182,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
                 決済導線そのものは見せず、支払い方法の現状だけを伝える。
                 🔴 これから支払いが発生する予約に限る。canCancel が偽＝キャンセル済み・来店済み・
                 無断キャンセルのいずれかで、そこへ「店舗でお支払いください」と出すのは誤案内。 */}
-            {canCancel && <p className="text-xs text-gray-400">{ONLINE_PREPAYMENT_NOTICE}</p>}
+            {canCancel && <p className="text-xs text-gray-500">{ONLINE_PREPAYMENT_NOTICE}</p>}
           </>
         )}
         {booking.note && (
@@ -196,7 +196,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
       {booking && booking.booking_date && booking.start_time && (
         <div className="mt-4">
           {gcalError && (
-            <p role="alert" className="text-red-500 text-xs mb-2">カレンダー連携状態を取得できませんでした。時間をおいて再度お試しください。</p>
+            <p role="alert" className="text-red-600 text-xs mb-2">カレンダー連携状態を取得できませんでした。時間をおいて再度お試しください。</p>
           )}
           <div className="flex gap-2">
           {gcalConnected ? (
@@ -264,7 +264,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
       {canCancel && booking && booking.total_price !== null && (
         <div
           aria-disabled="true"
-          className="w-full mt-4 py-3 rounded-xl border border-gray-200 text-gray-400 font-bold text-center cursor-not-allowed select-none"
+          className="w-full mt-4 py-3 rounded-xl border border-gray-200 text-gray-500 font-bold text-center cursor-not-allowed select-none"
         >
           オンライン事前決済（近日公開）
         </div>
@@ -273,7 +273,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         <button
           type="button"
           onClick={() => router.push(`/mypage/bookings/${booking.id}/change`)}
-          className="w-full mt-4 py-3 rounded-xl border border-sky-300 text-sky-600 font-bold hover:bg-sky-50 transition-colors"
+          className="w-full mt-4 py-3 rounded-xl border border-sky-300 text-sky-700 font-bold hover:bg-sky-50 transition-colors"
         >
           日時を変更する
         </button>
@@ -300,7 +300,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
             const qs = q.toString();
             router.push(`/facility/${facility.slug}/booking${qs ? `?${qs}` : ''}`);
           }}
-          className="w-full mt-3 py-3 rounded-xl bg-sky-600 text-white font-bold hover:bg-sky-700 transition-colors"
+          className="w-full mt-3 py-3 rounded-xl bg-sky-700 text-white font-bold hover:bg-sky-700 transition-colors"
         >
           この店舗をもう一度予約する
         </button>

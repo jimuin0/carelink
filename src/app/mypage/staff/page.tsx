@@ -107,7 +107,7 @@ export default function PreferredStaffPage() {
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="指名スタッフの読み込みに失敗しました" />
       ) : staff.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-xs p-12 text-center">
-          <p className="text-gray-400 mb-4">指名スタッフが登録されていません</p>
+          <p className="text-gray-500 mb-4">指名スタッフが登録されていません</p>
           <p className="text-sm text-gray-500 mb-6">施設のスタッフページから「指名登録」できます。</p>
           <Link href="/search" className="btn-primary text-sm">施設を探す</Link>
         </div>
@@ -119,20 +119,20 @@ export default function PreferredStaffPage() {
                 {s.staff_photo ? (
                   <Image src={s.staff_photo} alt={s.staff_name} fill className="object-cover" sizes="48px" />
                 ) : (
-                  <span className="text-sky-500 font-bold">{s.staff_name.charAt(0)}</span>
+                  <span className="text-sky-700 font-bold">{s.staff_name.charAt(0)}</span>
                 )}
               </div>
               <div className="flex-1 min-w-0">
                 <p className="font-bold text-sm">{s.staff_name}</p>
-                {s.position && <p className="text-xs text-gray-400">{s.position}</p>}
+                {s.position && <p className="text-xs text-gray-500">{s.position}</p>}
                 {s.facility_slug && (
-                  <Link href={`/facility/${s.facility_slug}`} className="text-xs text-sky-600 hover:underline">{s.facility_name}</Link>
+                  <Link href={`/facility/${s.facility_slug}`} className="text-xs text-sky-700 hover:underline">{s.facility_name}</Link>
                 )}
               </div>
               <button
                 type="button"
                 onClick={() => handleRemove(s.id)}
-                className="text-xs text-red-500 hover:text-red-600 px-3 py-1.5 border border-red-200 rounded-full hover:bg-red-50 transition-colors"
+                className="text-xs text-red-600 hover:text-red-600 px-3 py-1.5 border border-red-200 rounded-full hover:bg-red-50 transition-colors"
               >
                 解除
               </button>

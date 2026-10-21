@@ -159,7 +159,7 @@ export default function ProfileEditPage() {
             )}
           </div>
           <div>
-            <label className="text-sm text-sky-600 font-medium cursor-pointer hover:underline">
+            <label className="text-sm text-sky-700 font-medium cursor-pointer hover:underline">
               {uploading ? 'アップロード中...' : '写真を変更'}
               <input
                 type="file"
@@ -190,7 +190,7 @@ export default function ProfileEditPage() {
                 }}
               />
             </label>
-            <p className="text-xs text-gray-400 mt-0.5">JPEG/PNG/WebP, 5MB以下</p>
+            <p className="text-xs text-gray-500 mt-0.5">JPEG/PNG/WebP, 5MB以下</p>
           </div>
         </div>
 
@@ -198,7 +198,7 @@ export default function ProfileEditPage() {
           <fieldset disabled={isSubmitting} className="space-y-4">
           <legend className="sr-only">プロフィール情報</legend>
           <div>
-            <label htmlFor="profile-name" className="form-label">お名前 <span className="text-red-500">*</span></label>
+            <label htmlFor="profile-name" className="form-label">お名前 <span className="text-red-600">*</span></label>
             <input
               {...register('display_name', { required: 'お名前は必須です' })}
               id="profile-name"
@@ -209,7 +209,7 @@ export default function ProfileEditPage() {
           </div>
 
           <div>
-            <label htmlFor="profile-phone" className="form-label">電話番号 <span className="text-red-500">*</span></label>
+            <label htmlFor="profile-phone" className="form-label">電話番号 <span className="text-red-600">*</span></label>
             <input
               {...register('phone', {
                 required: '電話番号は必須です',
@@ -225,7 +225,7 @@ export default function ProfileEditPage() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="profile-prefecture" className="form-label">都道府県 <span className="text-red-500">*</span></label>
+              <label htmlFor="profile-prefecture" className="form-label">都道府県 <span className="text-red-600">*</span></label>
               <select
                 {...register('prefecture', { required: '都道府県を選択してください' })}
                 id="profile-prefecture"
@@ -293,7 +293,7 @@ export default function ProfileEditPage() {
               type="button"
               onClick={() => setShowLineUnlinkConfirm(true)}
               disabled={lineUnlinking}
-              className="text-xs text-red-500 hover:text-red-700 transition-colors"
+              className="text-xs text-red-600 hover:text-red-700 transition-colors"
             >
               {lineUnlinking ? '解除中...' : '連携を解除する'}
             </button>
@@ -327,7 +327,7 @@ export default function ProfileEditPage() {
         <h2 className="text-lg font-bold text-gray-800 mb-4">メール配信設定</h2>
 
         <div className="flex items-start gap-3 mb-4 pb-4 border-b border-gray-100">
-          <svg className="w-5 h-5 text-sky-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <svg className="w-5 h-5 text-sky-700 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <div>
@@ -358,7 +358,7 @@ export default function ProfileEditPage() {
                 setUnsubscribeToggling(false);
               }
             }}
-            className="mt-0.5 rounded-sm border-gray-300 text-sky-500 focus:ring-sky-500"
+            className="mt-0.5 rounded-sm border-gray-300 text-sky-700 focus:ring-sky-500"
           />
           <div>
             <p className="text-sm font-medium text-gray-800">お知らせメール（クーポン・キャンペーン情報など）を受け取る</p>
@@ -380,7 +380,7 @@ export default function ProfileEditPage() {
           type="button"
           onClick={() => setShowDeleteModal(true)}
           disabled={deletionConfirmed}
-          className="text-xs text-red-500 hover:text-red-700 font-bold transition-colors"
+          className="text-xs text-red-600 hover:text-red-700 font-bold transition-colors"
         >
           アカウントを削除する
         </button>
