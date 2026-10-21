@@ -18,7 +18,7 @@ jest.mock('@/lib/admin-facility-selection', () => ({ loadAdminFacilitySelection:
 jest.mock('@/components/admin/AdminMobileNav', () => ({ __esModule: true, default: () => null }));
 jest.mock('@/components/admin/AdminTopNav', () => ({ __esModule: true, default: () => null }));
 jest.mock('@/components/admin/AdminUserMenu', () => ({ __esModule: true, default: () => null }));
-jest.mock('@/components/admin/DynamicAdminWidgets', () => ({ RealtimeBookingListener: () => null, AiSupportWidget: () => null }));
+jest.mock('@/components/admin/DynamicAdminWidgets', () => ({ NewBookingListener: () => null, AiSupportWidget: () => null }));
 jest.mock('@/components/admin/FacilitySelector', () => ({ __esModule: true, default: () => null }));
 jest.mock('@/components/mypage/MyPageNav', () => ({ __esModule: true, default: () => <nav>synthetic mypage nav</nav> }));
 jest.mock('@/components/facility/RecentlyViewed', () => ({ __esModule: true, default: () => null }));

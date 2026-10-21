@@ -22,7 +22,7 @@ jest.mock('@/components/admin/AdminMobileNav', () => ({ __esModule: true, defaul
 jest.mock('@/components/admin/AdminTopNav', () => ({ __esModule: true, default: () => <div>facility-nav</div> }));
 jest.mock('@/components/admin/AdminUserMenu', () => ({ __esModule: true, default: () => <div>user-menu</div> }));
 jest.mock('@/components/admin/DynamicAdminWidgets', () => ({
-  RealtimeBookingListener: () => <div>booking-listener</div>, AiSupportWidget: () => <div>ai-widget</div>,
+  NewBookingListener: () => <div>booking-listener</div>, AiSupportWidget: () => <div>ai-widget</div>,
 }));
 
 async function renderShell() {

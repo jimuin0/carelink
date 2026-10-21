@@ -4,7 +4,7 @@ import AdminMobileNav from '../AdminMobileNav';
 import AdminFacilityLink from '../AdminFacilityLink';
 import AdminSelectedFacilityName from '../AdminSelectedFacilityName';
 import AdminSelectedFacilityNotifications from '../AdminSelectedFacilityNotifications';
-jest.mock('@/components/admin/DynamicAdminWidgets', () => ({ RealtimeBookingListener: ({ facilityId }: { facilityId: string }) => <div data-testid="listener">{facilityId}</div> }));
+jest.mock('@/components/admin/DynamicAdminWidgets', () => ({ NewBookingListener: ({ facilityId }: { facilityId: string }) => <div data-testid="listener">{facilityId}</div> }));
 const id = '00000000-0000-4000-8000-000000000002';
 jest.mock('next/navigation', () => ({ usePathname: () => '/admin/menus', useSearchParams: () => new URLSearchParams(`facility_id=${id}`) }));
 const groups = [{ key: 'listing', label: '掲載管理', items: [{ href: '/admin/menus', label: 'メニュー' }, { href: '/admin/staff', label: 'スタッフ' }] }, { key: 'home', label: 'ホーム', items: [{ href: '/admin', label: 'ダッシュボード' }] }];
