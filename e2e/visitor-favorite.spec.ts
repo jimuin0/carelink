@@ -5,6 +5,10 @@ import fs from 'fs';
 import { createClient } from '@supabase/supabase-js';
 import { VISITOR_FAVORITE_FACILITY_FILE } from './visitor-favorite.fixtures';
 
+// 両テストとも同じ seed 施設を開き、閲覧記録テストはその施設の facility_page_views の件数を数える。
+// fullyParallel だと兄弟テストの閲覧が混ざって件数が +2 になり得るため、このファイルは直列で実行する。
+test.describe.configure({ mode: 'serial' });
+
 test('来院者が施設をお気に入り登録できる', async ({ page, baseURL }) => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
