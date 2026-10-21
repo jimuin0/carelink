@@ -29,11 +29,13 @@ async function recent(request: Request, ctx: RouteContext) {
     .eq('facility_id', facilityId)
     .gte('created_at', since)
     .order('created_at', { ascending: true })
-    .limit(NEW_BOOKING_MAX_ROWS);
+    .limit(NEW_BOOKING_MAX_ROWS + 1);
   if (error || !Array.isArray(data)) {
     return serverError('admin-bookings-recent', error ?? new Error('RECENT_BOOKINGS_UNCONFIRMED'), ROUTE, '新規予約を確認できませんでした');
   }
-  return NextResponse.json({ now: now.toISOString(), bookings: data as NewBookingNotice[] }, { headers });
+  // 1 件多く読んで、上限で切れたか（more）を返す。画面側は more のとき続きをすぐ読む。
+  const more = data.length > NEW_BOOKING_MAX_ROWS;
+  return NextResponse.json({ now: now.toISOString(), bookings: data.slice(0, NEW_BOOKING_MAX_ROWS) as NewBookingNotice[], more }, { headers });
 }
 
 export const GET = withRoute(recent, {

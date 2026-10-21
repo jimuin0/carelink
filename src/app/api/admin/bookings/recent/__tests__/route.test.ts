@@ -81,13 +81,14 @@ test('returns only notification columns for the selected facility since the give
   expect(response.headers.get('Cache-Control')).toBe('no-store');
   const body = await response.json();
   expect(body.bookings).toEqual([row]);
+  expect(body.more).toBe(false);
   expect(Date.parse(body.now)).not.toBeNaN();
   expect(bookingCalls).toEqual([
     ['select', 'id, customer_name, booking_date, start_time, created_at'],
     ['eq', 'facility_id', own],
     ['gte', 'created_at', since],
     ['order', 'created_at', { ascending: true }],
-    ['limit', 20],
+    ['limit', 21],
   ]);
 });
 
@@ -105,4 +106,12 @@ test.each([
 ])('%s is a 500, never "no new bookings"', async (_label, arrange) => {
   arrange();
   expect((await GET(request(`facility_id=${own}`))).status).toBe(500);
+});
+
+test('reports more when the window holds more than the page size, returning only the page', async () => {
+  bookings = { data: Array.from({ length: 21 }, (_, i) => ({ ...row, id: `id-${i}` })), error: null };
+  const body = await (await GET(request(`facility_id=${own}`))).json();
+  expect(body.more).toBe(true);
+  expect(body.bookings).toHaveLength(20);
+  expect(body.bookings[19].id).toBe('id-19');
 });

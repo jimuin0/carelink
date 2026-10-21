@@ -48,6 +48,30 @@ export function nextSince(serverNow: string): string {
   return new Date(Date.parse(serverNow) - NEW_BOOKING_OVERLAP_MS).toISOString();
 }
 
+/** 画面を開いた時刻から重ね幅ぶん戻した、最初の問い合わせの since。 */
+export function initialSince(mountedAtMs: number): string {
+  return new Date(mountedAtMs - NEW_BOOKING_OVERLAP_MS).toISOString();
+}
+
+/**
+ * 画面を開いた時刻をサーバー（DB）の時計に直す。端末とサーバーの時計のずれを、
+ * 応答の now と受信時刻の差で推定して打ち消す（誤差は通信時間ぶん）。
+ */
+export function serverMountTime(mountedAtMs: number, serverNow: string, receivedAtMs: number): number {
+  return mountedAtMs + (Date.parse(serverNow) - receivedAtMs);
+}
+
+/**
+ * 応答を読んだ後の since。件数上限で切れていたら（more）、最後に受け取った予約の
+ * created_at から続きを読む（読んでいない予約を飛び越さないため）。
+ * 同じ時刻の予約が上限を超えて並ぶと進めなくなるので、その場合だけ通常どおり進める。
+ */
+export function sinceAfter(response: { now: string; bookings: NewBookingNotice[]; more: boolean }, previousSince: string | null): string {
+  const last = response.bookings[response.bookings.length - 1];
+  if (response.more && last && last.created_at !== previousSince) return last.created_at;
+  return nextSince(response.now);
+}
+
 /**
  * 応答のうち、まだ見ていない予約だけを返し、見た ID を記録する。
  * seen は呼び出し側が保持する（店舗を切り替えたら作り直す）。

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { NEW_BOOKING_POLL_INTERVAL_MS, nextSince, takeUnseen, type NewBookingNotice } from '@/lib/new-booking-poll';
+import { NEW_BOOKING_POLL_INTERVAL_MS, initialSince, serverMountTime, sinceAfter, takeUnseen, type NewBookingNotice } from '@/lib/new-booking-poll';
 
 type Problem = 'signed-out' | 'forbidden' | 'failed' | null;
 
@@ -23,15 +23,17 @@ export default function NewBookingListener({ facilityId }: { facilityId: string 
 
   useEffect(() => {
     const seen = new Set<string>();
-    let since: string | null = null;
-    let primed = false;
+    const mountedAt = Date.now();
+    // 画面を開いた時刻（サーバーの時計）。これより前に作られた予約は「開く前からあった」ものとして通知しない。
+    let mountedAtServer: number | null = null;
+    let since: string = initialSince(mountedAt);
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let inFlight: AbortController | null = null;
 
-    const schedule = () => {
+    const schedule = (delay = NEW_BOOKING_POLL_INTERVAL_MS) => {
       clearTimeout(timer);
-      if (!stopped) timer = setTimeout(() => void check(), NEW_BOOKING_POLL_INTERVAL_MS);
+      if (!stopped) timer = setTimeout(() => void check(), delay);
     };
 
     const check = async () => {
@@ -39,9 +41,9 @@ export default function NewBookingListener({ facilityId }: { facilityId: string 
       if (document.visibilityState !== 'visible') { schedule(); return; }
       const controller = new AbortController();
       inFlight = controller;
+      let more = false;
       try {
-        const query = new URLSearchParams({ facility_id: facilityId });
-        if (since) query.set('since', since);
+        const query = new URLSearchParams({ facility_id: facilityId, since });
         const res = await fetch(`/api/admin/bookings/recent?${query}`, { cache: 'no-store', signal: controller.signal });
         if (stopped) return;
         if (res.status === 401 || res.status === 403) {
@@ -51,18 +53,21 @@ export default function NewBookingListener({ facilityId }: { facilityId: string 
         }
         const body = res.ok ? await res.json().catch(() => null) : null;
         if (stopped) return;
-        if (!body || typeof body.now !== 'string' || !Array.isArray(body.bookings)) { setProblem('failed'); return; }
-        const fresh = takeUnseen(body.bookings as NewBookingNotice[], seen);
-        // 最初の確認は基準づくり。開く前からある予約は通知しない。
-        if (primed && fresh.length > 0) setNotices(prev => [...fresh.reverse(), ...prev].slice(0, 5));
-        primed = true;
-        since = nextSince(body.now);
+        if (!body || typeof body.now !== 'string' || !Array.isArray(body.bookings) || typeof body.more !== 'boolean') { setProblem('failed'); return; }
+        mountedAtServer ??= serverMountTime(mountedAt, body.now, Date.now());
+        const after = mountedAtServer;
+        const fresh = takeUnseen(body.bookings as NewBookingNotice[], seen)
+          .filter(row => Date.parse(row.created_at) >= after);
+        if (fresh.length > 0) setNotices(prev => [...fresh.reverse(), ...prev].slice(0, 5));
+        since = sinceAfter(body, since);
+        more = body.more;
         setProblem(null);
       } catch {
         if (!stopped) setProblem('failed');
       } finally {
         if (inFlight === controller) inFlight = null;
-        schedule();
+        // 上限で切れていたら、読んでいない予約が窓から外れる前に続きをすぐ読む。
+        schedule(more ? 0 : NEW_BOOKING_POLL_INTERVAL_MS);
       }
     };
 
