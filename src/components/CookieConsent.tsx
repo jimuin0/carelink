@@ -90,6 +90,8 @@ export default function CookieConsent() {
 
   return (
     <div
+      role="region"
+      aria-label="Cookieの設定"
       // 監査対応(実機Playwright確認・第2件): Modal.tsx(z-50)のフッターボタンともz-50同値の
       // 重なりで衝突しクリックできなくなっていた(admin/customersの保存ボタン等)。Modal表示中は
       // 背景オーバーレイの下に隠れるのが自然な挙動のため、z-40に下げてModalより確実に低くする。

@@ -126,7 +126,7 @@ export default function SearchFooter() {
           </div>
 
           <div>
-            <h3 className="text-white font-bold text-sm mb-3">業種から探す</h3>
+            <h2 className="text-white font-bold text-sm mb-3">業種から探す</h2>
             <nav className="flex flex-col gap-1.5 text-sm">
               {businessTypes.map((type) => (
                 <Link

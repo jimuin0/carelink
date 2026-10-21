@@ -155,7 +155,7 @@ export default function HomeBelowFold() {
                           return (
                             <span key={region.name} className="text-xs whitespace-nowrap">
                               {i > 0 && <span className="text-gray-200 mx-2">|</span>}
-                              <Link href={href} className="text-gray-500 hover:text-sky-700 transition-colors">
+                              <Link href={href} className="inline-flex items-center min-h-[24px] text-gray-500 hover:text-sky-700 transition-colors">
                                 {region.name}
                               </Link>
                             </span>
@@ -211,7 +211,7 @@ export default function HomeBelowFold() {
                           return (
                             <span key={pref} className="text-xs whitespace-nowrap">
                               {i > 0 && <span className="text-gray-200 mx-2">|</span>}
-                              <Link href={pSlug ? `/${pSlug}` : `/search?area=${encodeURIComponent(pref)}`} className="text-gray-600 hover:text-sky-700 transition-colors">{pref}</Link>
+                              <Link href={pSlug ? `/${pSlug}` : `/search?area=${encodeURIComponent(pref)}`} className="inline-flex items-center min-h-[24px] text-gray-600 hover:text-sky-700 transition-colors">{pref}</Link>
                             </span>
                           );
                         })}
@@ -225,7 +225,7 @@ export default function HomeBelowFold() {
             {/* Right: User panel */}
             <div className="hidden lg:block w-[200px] shrink-0 space-y-6">
               <HomeUserPanel />
-              <nav>
+              <nav aria-label="マイページのメニュー">
                 {[
                   { href: '/mypage/favorites', label: 'お気に入り一覧' },
                   { href: '/contact', label: 'お問い合わせ' },
