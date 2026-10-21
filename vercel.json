@@ -1,6 +1,9 @@
 {
   "buildCommand": "npm run build",
   "ignoreCommand": "bash scripts/vercel-should-build.sh",
+  "regions": [
+    "hnd1"
+  ],
   "rewrites": [
     {
       "source": "/google7163d69fca9aea21.html",
@@ -10,7 +13,12 @@
   "redirects": [
     {
       "source": "/(.*)",
-      "has": [{ "type": "host", "value": "www.carelink-jp.com" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "www.carelink-jp.com"
+        }
+      ],
       "destination": "https://carelink-jp.com/$1",
       "permanent": true
     }
