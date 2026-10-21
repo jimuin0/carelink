@@ -287,7 +287,7 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
             </div>
           </div>
         )}
-        <button type="button" onClick={() => router.refresh()} className="text-sky-600 text-sm hover:underline">
+        <button type="button" onClick={() => router.refresh()} className="text-sky-700 text-sm hover:underline">
           ページを更新する
         </button>
       </div>
@@ -298,13 +298,13 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
     <>
       <form onSubmit={handleSubmit(() => setShowConfirm(true))} noValidate className="space-y-4">
         <div>
-          <label htmlFor="reviewer_name" className="form-label">お名前 <span className="text-red-500">*</span></label>
+          <label htmlFor="reviewer_name" className="form-label">お名前 <span className="text-red-600">*</span></label>
           <input {...register('reviewer_name')} id="reviewer_name" className="form-input" placeholder="ニックネーム可" autoComplete="name" aria-required="true" />
           {errors.reviewer_name && <p className="form-error" role="alert">{errors.reviewer_name.message}</p>}
         </div>
 
         <div>
-          <p className="form-label">評価 <span className="text-red-500">*</span></p>
+          <p className="form-label">評価 <span className="text-red-600">*</span></p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {AXES.map(({ key, label }) => (
               <div key={key} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
@@ -339,14 +339,14 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
             {photos.length < MAX_PHOTOS && (
               <label className={`w-20 h-20 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center transition-colors ${compressing ? 'opacity-50 cursor-wait' : 'cursor-pointer hover:border-sky-400'}`} aria-label="写真を追加">
                 {compressing
-                  ? <svg className="w-5 h-5 text-gray-400 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                  : <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                  ? <svg className="w-5 h-5 text-gray-500 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                  : <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                 }
                 <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoChange} disabled={compressing} className="hidden" aria-label="口コミ写真を選択" />
               </label>
             )}
           </div>
-          <p className="text-xs text-gray-400 mt-1">JPEG/PNG/WebP・最大10MB（自動圧縮されます）</p>
+          <p className="text-xs text-gray-500 mt-1">JPEG/PNG/WebP・最大10MB（自動圧縮されます）</p>
         </div>
 
         {resultUnknown && <p role="alert" className="text-sm text-red-700">前の口コミの受付状況が未確認です。投稿は再送せず、口コミ一覧または運営へ確認してください。</p>}

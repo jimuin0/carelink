@@ -125,7 +125,7 @@ export default function SearchBar() {
       </button>
       {history.length > 0 && !keyword && (
         <div className="flex flex-wrap gap-2 mt-3">
-          <span className="text-xs text-gray-400">最近の検索:</span>
+          <span className="text-xs text-gray-500">最近の検索:</span>
           {history.map((h) => (
             <button key={h} type="button" onClick={() => { setKeyword(h); }} className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full hover:bg-gray-200">
               {h}

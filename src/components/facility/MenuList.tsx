@@ -26,7 +26,7 @@ export default function MenuList({ menus }: { menus: FacilityMenu[] }) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
         </svg>
         <p className="text-gray-500 text-sm font-medium">メニュー情報はまだ登録されていません</p>
-        <p className="text-gray-400 text-xs mt-1">詳しくは施設に直接お問い合わせください</p>
+        <p className="text-gray-500 text-xs mt-1">詳しくは施設に直接お問い合わせください</p>
       </div>
     );
   }
@@ -84,7 +84,7 @@ export default function MenuList({ menus }: { menus: FacilityMenu[] }) {
                     </p>
                   )}
                 </div>
-                <p className="text-right font-bold text-sm whitespace-nowrap text-sky-500">
+                <p className="text-right font-bold text-sm whitespace-nowrap text-sky-700">
                   {formatPrice(menu.price, menu.price_note)}
                 </p>
               </div>

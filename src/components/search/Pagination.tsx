@@ -33,7 +33,7 @@ export default function Pagination({ currentPage, totalPages, baseUrl }: Props) 
       )}
       {pages.map((p, i) =>
         p === '...' ? (
-          <span key={`dot-${i}`} className="px-2 text-gray-400" aria-hidden="true">...</span>
+          <span key={`dot-${i}`} className="px-2 text-gray-500" aria-hidden="true">...</span>
         ) : (
           <Link
             key={p}

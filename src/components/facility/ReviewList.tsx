@@ -178,7 +178,7 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
 
   if (reviews.length === 0) {
     return (
-      <p className="text-gray-400 text-center py-8">
+      <p className="text-gray-500 text-center py-8">
         まだ口コミはありません。最初の口コミを投稿してみませんか？
       </p>
     );
@@ -195,7 +195,7 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
           <div key={review.id} className="bg-gray-50 rounded-xl p-4">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-sky-100 text-sky-600 rounded-full flex items-center justify-center text-sm font-bold">
+                <div className="w-8 h-8 bg-sky-100 text-sky-700 rounded-full flex items-center justify-center text-sm font-bold">
                   {(review.reviewer_name?.trim() || 'ユ').charAt(0)}
                 </div>
                 <div>
@@ -205,12 +205,12 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
                       <span className="text-micro bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold">来店確認済み</span>
                     )}
                   </div>
-                  <p className="text-gray-400 text-xs">{formatDate(review.created_at)}</p>
+                  <p className="text-gray-500 text-xs">{formatDate(review.created_at)}</p>
                 </div>
               </div>
               <div className="text-right">
                 <StarRating value={review.rating} readonly size="sm" />
-                <p className="text-xs text-gray-400 mt-0.5">総合 {review.rating.toFixed(1)}</p>
+                <p className="text-xs text-gray-500 mt-0.5">総合 {review.rating.toFixed(1)}</p>
               </div>
             </div>
             {hasAxis && (
@@ -245,7 +245,7 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
                 onClick={() => toggleHelpful(review.id)}
                 disabled={helpfulLoading === review.id}
                 className={`inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full transition-colors ${
-                  isMyHelpful ? 'bg-sky-100 text-sky-600 font-bold' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  isMyHelpful ? 'bg-sky-100 text-sky-700 font-bold' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
                 <svg className="w-3.5 h-3.5" fill={isMyHelpful ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
@@ -257,7 +257,7 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
                 type="button"
                 onClick={() => handleReport(review.id)}
                 disabled={reportingId === review.id || reportedSet.has(review.id)}
-                className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 transition-colors ml-auto"
+                className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-red-500 transition-colors ml-auto"
                 aria-label="この口コミを通報する"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -271,11 +271,11 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
             {replies.map((reply) => (
               <div key={reply.id} className="mt-3 ml-4 bg-white border border-gray-200 rounded-lg p-3">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-micro font-bold text-sky-600 bg-sky-50 px-2 py-0.5 rounded-full">サロンより</span>
+                  <span className="text-micro font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-full">サロンより</span>
                   {/* created_at が null の行（現状は理論上のみ）は new Date(null) が
                       1970-01-01 に化ける誤表示を避けるため日付を出さない */}
                   {reply.created_at && (
-                    <span className="text-xs text-gray-400">{formatDate(reply.created_at)}</span>
+                    <span className="text-xs text-gray-500">{formatDate(reply.created_at)}</span>
                   )}
                 </div>
                 <p className="text-sm text-gray-600">{reply.content}</p>

@@ -50,7 +50,7 @@ export default function ForgotPasswordPage() {
               パスワードリセット用のリンクをメールアドレスに送信しました。
               メール内のリンクから新しいパスワードを設定してください。
             </p>
-            <Link href="/auth/login" className="text-sky-600 hover:underline text-sm">
+            <Link href="/auth/login" className="text-sky-700 hover:underline text-sm">
               ログインページに戻る
             </Link>
           </div>
@@ -89,7 +89,7 @@ export default function ForgotPasswordPage() {
           </form>
 
           <div className="mt-6 text-center">
-            <Link href="/auth/login" className="text-sm text-gray-400 hover:underline">
+            <Link href="/auth/login" className="text-sm text-gray-500 hover:underline">
               ログインページに戻る
             </Link>
           </div>

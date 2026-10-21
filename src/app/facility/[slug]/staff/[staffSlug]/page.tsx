@@ -62,7 +62,7 @@ export default async function StaffDetailPage(props: Props) {
     <div className="bg-gray-50 min-h-screen">
       <div className="max-w-4xl mx-auto bg-white shadow-xs">
         <nav className="px-4 sm:px-6 pt-3 pb-1" aria-label="パンくずリスト">
-          <ol className="flex items-center gap-1.5 text-xs text-gray-400">
+          <ol className="flex items-center gap-1.5 text-xs text-gray-500">
             <li><Link href="/search" className="hover:text-sky-600">トップ</Link></li>
             <li><span className="mx-1">/</span></li>
             <li><Link href={`/facility/${params.slug}`} className="hover:text-sky-600">{facility.name}</Link></li>

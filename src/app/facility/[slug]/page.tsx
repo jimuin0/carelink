@@ -200,7 +200,7 @@ export default async function FacilityPage(props: Props) {
           const typeSlug = getBusinessTypeSlug(facility.business_type);
           return (
             <nav className="px-4 sm:px-6 pt-3 pb-1" aria-label="パンくずリスト">
-              <ol className="flex items-center gap-1.5 text-xs text-gray-400 overflow-x-auto">
+              <ol className="flex items-center gap-1.5 text-xs text-gray-500 overflow-x-auto">
                 <li><Link href="/" className="hover:text-sky-600 transition-colors">トップ</Link></li>
                 <li><span className="mx-1">/</span></li>
                 {prefSlug && (
@@ -238,13 +238,13 @@ export default async function FacilityPage(props: Props) {
                 const min = Math.min(...prices);
                 const max = Math.max(...prices);
                 return (
-                  <span className="text-sm font-bold text-sky-600">
+                  <span className="text-sm font-bold text-sky-700">
                     {min === max ? `¥${min.toLocaleString()}` : `¥${min.toLocaleString()}〜¥${max.toLocaleString()}`}
                   </span>
                 );
               })()}
               {facility.seat_count != null && facility.seat_count > 0 && (
-                <span className="text-xs text-gray-400">席数{facility.seat_count}</span>
+                <span className="text-xs text-gray-500">席数{facility.seat_count}</span>
               )}
             </div>
           </div>
@@ -258,7 +258,7 @@ export default async function FacilityPage(props: Props) {
         {coupons.length > 0 && (
           <div className="px-4 sm:px-6 pb-3">
             <div className="bg-linear-to-r from-red-50 to-orange-50 rounded-xl p-3 border border-red-100">
-              <p className="text-xs font-bold text-red-500 mb-2 flex items-center gap-1">
+              <p className="text-xs font-bold text-red-600 mb-2 flex items-center gap-1">
                 <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 2a2 2 0 00-2 2v14l3.5-2 3.5 2 3.5-2 3.5 2V4a2 2 0 00-2-2H5zm2.5 3a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm6.207.293a1 1 0 00-1.414 0l-6 6a1 1 0 101.414 1.414l6-6a1 1 0 000-1.414zM12.5 10a1.5 1.5 0 100 3 1.5 1.5 0 000-3z" clipRule="evenodd" /></svg>
                 クーポンあり
               </p>
@@ -268,14 +268,14 @@ export default async function FacilityPage(props: Props) {
                     <div className="flex-1 min-w-0 mr-2">
                       <p className="text-xs font-bold truncate">{coupon.name}</p>
                     </div>
-                    <span className="text-sm font-bold text-red-500 shrink-0">
+                    <span className="text-sm font-bold text-red-600 shrink-0">
                       {discountText(coupon)}
                     </span>
                   </div>
                 ))}
               </div>
               {coupons.length > 3 && (
-                <p className="text-xs text-center text-sky-600 font-medium mt-2">
+                <p className="text-xs text-center text-sky-700 font-medium mt-2">
                   他{coupons.length - 3}件のクーポン
                 </p>
               )}
@@ -314,7 +314,7 @@ export default async function FacilityPage(props: Props) {
           {facility.phone && /^[0-9+\-()# ]{7,20}$/.test(facility.phone) && (
             <a
               href={`tel:${facility.phone}`}
-              className="inline-flex items-center gap-2 text-sky-600 font-bold text-lg hover:underline mb-6"
+              className="inline-flex items-center gap-2 text-sky-700 font-bold text-lg hover:underline mb-6"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
@@ -565,11 +565,11 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
                   {menu.description && <p className="text-gray-500 text-xs mt-1">{menu.description}</p>}
                 </div>
                 <div className="text-right">
-                  <p className="font-bold text-sm text-sky-500">
+                  <p className="font-bold text-sm text-sky-700">
                     {menu.price_note || (menu.price !== null ? `¥${menu.price.toLocaleString()}` : '-')}
                   </p>
                   {menu.duration_minutes && (
-                    <p className="text-gray-400 text-xs mt-0.5">{menu.duration_minutes}分</p>
+                    <p className="text-gray-500 text-xs mt-0.5">{menu.duration_minutes}分</p>
                   )}
                 </div>
               </div>
@@ -612,7 +612,7 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
                   : `https://www.google.com/maps/search/${encodeURIComponent(`${facility.prefecture ?? ''}${facility.city ?? ''}${facility.address ?? ''}`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-sky-600 hover:underline shrink-0"
+                className="inline-flex items-center gap-1 text-xs text-sky-700 hover:underline shrink-0"
               >
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -624,7 +624,7 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
           {facility.phone && /^[0-9+\-()# ]{7,20}$/.test(facility.phone) && (
             <div className="flex">
               <span className="text-gray-500 w-20 shrink-0">電話</span>
-              <a href={`tel:${facility.phone}`} className="text-sky-600 hover:underline">{facility.phone}</a>
+              <a href={`tel:${facility.phone}`} className="text-sky-700 hover:underline">{facility.phone}</a>
             </div>
           )}
           {facility.access_info && (

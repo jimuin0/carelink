@@ -66,8 +66,8 @@ export default function BusinessStatusBadge({ businessHours }: Props) {
 
   const config = {
     open: { text: '営業中', className: 'bg-emerald-100 text-emerald-700' },
-    closed: { text: '営業時間外', className: 'bg-gray-100 text-gray-500' },
-    holiday: { text: '定休日', className: 'bg-red-50 text-red-500' },
+    closed: { text: '営業時間外', className: 'bg-gray-100 text-gray-600' },
+    holiday: { text: '定休日', className: 'bg-red-50 text-red-600' },
   };
 
   const { text, className } = config[status];

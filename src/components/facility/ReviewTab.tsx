@@ -60,7 +60,7 @@ export default function ReviewTab({ facilityId, facilitySlug, facilityName, init
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
           </svg>
           <p className="text-gray-500 text-sm font-medium">まだ口コミがありません</p>
-          <p className="text-gray-400 text-xs mt-1">この施設を利用された方の最初の口コミをお待ちしています</p>
+          <p className="text-gray-500 text-xs mt-1">この施設を利用された方の最初の口コミをお待ちしています</p>
         </div>
       )}
 
@@ -69,7 +69,7 @@ export default function ReviewTab({ facilityId, facilitySlug, facilityName, init
         <div className="bg-sky-50 rounded-xl p-4 space-y-4">
           <div className="flex items-center gap-4">
             <div className="text-center">
-              <p className="text-3xl font-bold text-sky-500">{avg}</p>
+              <p className="text-3xl font-bold text-sky-700">{avg}</p>
               <StarRating value={Math.round(Number(avg))} readonly size="sm" />
               <p className="text-gray-500 text-xs mt-1">{reviews.length}件の口コミ</p>
             </div>
@@ -83,7 +83,7 @@ export default function ReviewTab({ facilityId, facilitySlug, facilityName, init
                     <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
                       <div className="h-full bg-amber-400 rounded-full" style={{ width: `${pct}%` }} />
                     </div>
-                    <span className="w-6 text-right text-gray-400">{count}</span>
+                    <span className="w-6 text-right text-gray-500">{count}</span>
                   </div>
                 );
               })}
@@ -102,7 +102,7 @@ export default function ReviewTab({ facilityId, facilitySlug, facilityName, init
                       <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
                         <div className="h-full bg-sky-400 rounded-full transition-all" style={{ width: `${(val / 5) * 100}%` }} />
                       </div>
-                      <span className="w-8 text-right font-bold text-sky-600">{val > 0 ? val.toFixed(1) : '-'}</span>
+                      <span className="w-8 text-right font-bold text-sky-700">{val > 0 ? val.toFixed(1) : '-'}</span>
                     </div>
                   );
                 })}

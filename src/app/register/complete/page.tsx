@@ -110,7 +110,7 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
           </Link>
           <Link
             href={buildOnboardingAuthPath('login', { facilityName: name, businessType: type })}
-            className="text-sm text-sky-600 hover:underline"
+            className="text-sm text-sky-700 hover:underline"
           >
             既にアカウントをお持ちの方はログイン
           </Link>

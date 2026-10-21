@@ -28,12 +28,12 @@ export default function SearchFooter() {
           <details>
             <summary className="text-white font-bold text-sm cursor-pointer list-none flex items-center gap-2">
               エリアから探す
-              <svg className="w-4 h-4 text-gray-400 transition-transform [[open]>&]:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+              <svg className="w-4 h-4 text-gray-500 transition-transform [[open]>&]:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
             </summary>
             <div className="mt-5 space-y-3">
               {regionGroups.map((region) => (
                 <div key={region.name}>
-                  <h3 className="text-gray-400 text-tiny font-bold mb-1">{region.name}</h3>
+                  <h3 className="text-gray-500 text-tiny font-bold mb-1">{region.name}</h3>
                   <div className="flex flex-wrap gap-x-3 gap-y-0.5">
                     {region.prefectures.map((pref) => {
                       const slug = getPrefectureSlug(pref);
@@ -41,7 +41,7 @@ export default function SearchFooter() {
                         <Link
                           key={pref}
                           href={slug ? `/${slug}` : `/search?area=${encodeURIComponent(pref)}`}
-                          className="text-xs text-gray-400 hover:text-white transition-colors py-1 inline-block"
+                          className="text-xs text-gray-500 hover:text-white transition-colors py-1 inline-block"
                         >
                           {pref}
                         </Link>
@@ -60,7 +60,7 @@ export default function SearchFooter() {
                     <Link
                       key={`${pref}-${c.slug}`}
                       href={`/${pref}/${c.slug}`}
-                      className="text-xs text-gray-400 hover:text-white transition-colors py-1 inline-block"
+                      className="text-xs text-gray-500 hover:text-white transition-colors py-1 inline-block"
                     >
                       {c.name}
                     </Link>
@@ -73,7 +73,7 @@ export default function SearchFooter() {
           <details className="mt-8">
             <summary className="text-white font-bold text-sm cursor-pointer list-none flex items-center gap-2">
               業種×エリアから探す
-              <svg className="w-4 h-4 text-gray-400 transition-transform [[open]>&]:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+              <svg className="w-4 h-4 text-gray-500 transition-transform [[open]>&]:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
             </summary>
             <div className="space-y-4">
               {businessTypes.map((type) => (
@@ -98,7 +98,7 @@ export default function SearchFooter() {
                           <Link
                             key={`${type}-${pref}`}
                             href={href}
-                            className="text-tiny text-gray-400 hover:text-gray-300 transition-colors py-1 inline-block"
+                            className="text-tiny text-gray-500 hover:text-gray-300 transition-colors py-1 inline-block"
                           >
                             {pref}
                           </Link>
@@ -120,7 +120,7 @@ export default function SearchFooter() {
             <Link href="/" className="text-lg font-bold text-white">
               CareLink
             </Link>
-            <p className="text-gray-400 text-sm mt-2">
+            <p className="text-gray-500 text-sm mt-2">
               美容サロン・クリニックの検索・予約
             </p>
           </div>
@@ -142,12 +142,12 @@ export default function SearchFooter() {
         </div>
 
         <div className="mt-8 pt-6 border-t border-gray-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <p className="text-xs text-gray-400">&copy; {new Date().getFullYear()} CareLink All rights reserved.</p>
+          <p className="text-xs text-gray-500">&copy; {new Date().getFullYear()} CareLink All rights reserved.</p>
           <div className="flex flex-col items-end gap-2">
             <Link href="/salon" className="text-xs text-gray-300 hover:text-white transition-colors">
               施設掲載をご希望のオーナー様はこちら →
             </Link>
-            <div className="flex gap-4 text-[11px] text-gray-400">
+            <div className="flex gap-4 text-[11px] text-gray-500">
               <Link href="/privacy" className="hover:text-white transition-colors">プライバシーポリシー</Link>
               <Link href="/terms" className="hover:text-white transition-colors">利用規約</Link>
               <Link href="/legal" className="hover:text-white transition-colors">特定商取引法に基づく表記</Link>

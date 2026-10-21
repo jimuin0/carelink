@@ -114,7 +114,7 @@ function FacilityFavoriteButton({ facilityId }: { facilityId: string }) {
       aria-label={isFavorited ? 'お気に入りから削除' : 'お気に入りに追加'}
     >
       <svg
-        className={`w-6 h-6 transition-colors ${isFavorited ? 'text-pink-500 fill-pink-500' : 'text-gray-400'}`}
+        className={`w-6 h-6 transition-colors ${isFavorited ? 'text-pink-500 fill-pink-500' : 'text-gray-500'}`}
         fill={isFavorited ? 'currentColor' : 'none'}
         stroke="currentColor"
         strokeWidth={2}

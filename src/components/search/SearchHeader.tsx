@@ -45,7 +45,7 @@ export default function SearchHeader() {
             <div className="ml-2 pl-2 border-l border-gray-200 shrink-0 flex items-center gap-2">
               <Link
                 href="/auth/login?redirect=/admin"
-                className="text-gray-400 hover:text-primary text-[12px] whitespace-nowrap transition-colors"
+                className="text-gray-500 hover:text-primary text-[12px] whitespace-nowrap transition-colors"
               >
                 店舗ログイン
               </Link>
@@ -105,7 +105,7 @@ export default function SearchHeader() {
             {/* デスクトップと同じく店舗オーナー向けの管理画面入口（区切って弱いトーンで置く）。 */}
             <Link
               href="/auth/login?redirect=/admin"
-              className="text-gray-400 hover:text-primary text-xs px-3 py-2 mt-1 border-t border-gray-100 transition-colors"
+              className="text-gray-500 hover:text-primary text-xs px-3 py-2 mt-1 border-t border-gray-100 transition-colors"
               onClick={() => setIsOpen(false)}
             >
               店舗ログイン

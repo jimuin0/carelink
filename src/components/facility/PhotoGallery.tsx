@@ -47,7 +47,7 @@ export default function PhotoGallery({ photos, facilityName }: { photos: Facilit
         <div className="w-20 h-20 rounded-full bg-sky-200/50 flex items-center justify-center mb-3">
           <span className="text-3xl font-bold text-sky-400">{facilityName.charAt(0)}</span>
         </div>
-        <p className="text-sky-500 text-sm font-medium">{facilityName}</p>
+        <p className="text-sky-700 text-sm font-medium">{facilityName}</p>
         <p className="text-sky-300 text-xs mt-1">写真は登録されていません</p>
       </div>
     );

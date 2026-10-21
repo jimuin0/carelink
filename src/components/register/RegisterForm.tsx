@@ -626,12 +626,12 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
           {step === 1 && (
             <div className="space-y-4">
               <div>
-                <label htmlFor="reg-facility-name" className="form-label">施設名 <span className="text-red-500">*</span></label>
+                <label htmlFor="reg-facility-name" className="form-label">施設名 <span className="text-red-600">*</span></label>
                 <input {...register('facility_name')} id="reg-facility-name" className="form-input" placeholder="リラクゼーションサロン ABC" aria-required="true" maxLength={200} />
                 {errors.facility_name && <p className="form-error" role="alert">{errors.facility_name.message}</p>}
               </div>
               <div>
-                <label htmlFor="reg-business-type" className="form-label">業種 <span className="text-red-500">*</span></label>
+                <label htmlFor="reg-business-type" className="form-label">業種 <span className="text-red-600">*</span></label>
                 <select {...register('business_type')} id="reg-business-type" className="form-input" aria-required="true">
                   <option value="">選択してください</option>
                   {businessTypes.map(t => <option key={t} value={t}>{t}</option>)}
@@ -642,24 +642,24 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                   間延びして、入力の終わりが見えない（実機の 1440px / 834px で確認）。 */}
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label htmlFor="reg-rep-name" className="form-label">代表者名 <span className="text-red-500">*</span></label>
+                  <label htmlFor="reg-rep-name" className="form-label">代表者名 <span className="text-red-600">*</span></label>
                   <input {...register('representative_name')} id="reg-rep-name" className="form-input" placeholder="山田 太郎" aria-required="true" />
                   {errors.representative_name && <p className="form-error" role="alert">{errors.representative_name.message}</p>}
                 </div>
                 <div>
-                  <label htmlFor="reg-contact-name" className="form-label">担当者名 <span className="text-red-500">*</span></label>
+                  <label htmlFor="reg-contact-name" className="form-label">担当者名 <span className="text-red-600">*</span></label>
                   <input {...register('contact_name')} id="reg-contact-name" className="form-input" placeholder="山田 花子" aria-required="true" />
                   {errors.contact_name && <p className="form-error" role="alert">{errors.contact_name.message}</p>}
                 </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label htmlFor="reg-email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
+                  <label htmlFor="reg-email" className="form-label">メールアドレス <span className="text-red-600">*</span></label>
                   <input {...register('email')} id="reg-email" type="email" autoComplete="email" className="form-input" placeholder="example@email.com" aria-required="true" />
                   {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
                 </div>
                 <div>
-                  <label htmlFor="reg-phone" className="form-label">電話番号 <span className="text-red-500">*</span></label>
+                  <label htmlFor="reg-phone" className="form-label">電話番号 <span className="text-red-600">*</span></label>
                   <input {...register('phone')} id="reg-phone" onChange={handlePhoneChange('phone')} autoComplete="tel" className="form-input" placeholder="090-1234-5678" aria-required="true" maxLength={20} />
                   {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
                 </div>
@@ -695,7 +695,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
           {step === 2 && (
             <div className="space-y-4">
               <div>
-                <label htmlFor="reg-postal-code" className="form-label">郵便番号 <span className="text-gray-400 text-xs font-normal">7桁入力で住所を自動補完</span></label>
+                <label htmlFor="reg-postal-code" className="form-label">郵便番号 <span className="text-gray-500 text-xs font-normal">7桁入力で住所を自動補完</span></label>
                 <input {...register('postal_code')} id="reg-postal-code" autoComplete="postal-code" className="form-input" placeholder="5600001" maxLength={8} inputMode="numeric" />
                 {errors.postal_code && <p className="form-error" role="alert">{errors.postal_code.message}</p>}
               </div>
@@ -753,13 +753,13 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
               </div>
               <div>
                 <label className="form-label flex items-center gap-2 cursor-pointer">
-                  <input {...register('has_parking')} type="checkbox" className="w-4 h-4 rounded-sm border-gray-300 text-sky-600 focus:ring-sky-500" />
+                  <input {...register('has_parking')} type="checkbox" className="w-4 h-4 rounded-sm border-gray-300 text-sky-700 focus:ring-sky-500" />
                   駐車場あり
                 </label>
                 {errors.has_parking && <p className="form-error" role="alert">{SALON_FIELD_MESSAGES.has_parking}</p>}
               </div>
               <div>
-                <label className="form-label">こだわり・特徴 <span className="text-gray-400 text-xs font-normal">複数選択可</span></label>
+                <label className="form-label">こだわり・特徴 <span className="text-gray-500 text-xs font-normal">複数選択可</span></label>
                 <div className="flex flex-wrap gap-2" role="group" aria-label="こだわり・特徴" tabIndex={-1} data-field="features">
                   {facilityFeatures.map(f => (
                     <button
@@ -790,15 +790,15 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
           {/* Step 3: PR情報 */}
             <div className="space-y-4" hidden={step !== 3}>
               <div>
-                <label htmlFor="reg-pr-text" className="form-label">PR文 <span className="text-gray-400 text-xs font-normal">1000文字以内</span></label>
+                <label htmlFor="reg-pr-text" className="form-label">PR文 <span className="text-gray-500 text-xs font-normal">1000文字以内</span></label>
                 <textarea {...register('pr_text')} id="reg-pr-text" className="form-input min-h-[150px]" placeholder="お店の魅力を自由にご記入ください" maxLength={1000} />
                 <div className="flex justify-between mt-1">
                   {errors.pr_text && <p className="form-error" role="alert">{errors.pr_text.message}</p>}
-                  <p className="text-sm text-gray-400 ml-auto">{prText.length}/1000</p>
+                  <p className="text-sm text-gray-500 ml-auto">{prText.length}/1000</p>
                 </div>
               </div>
               <div>
-                <label className="form-label">施設写真 <span className="text-gray-400 text-xs font-normal">受付時は任意・最大7枚。公開時には写真の設定が必要です</span></label>
+                <label className="form-label">施設写真 <span className="text-gray-500 text-xs font-normal">受付時は任意・最大7枚。公開時には写真の設定が必要です</span></label>
                 <MultiPhotoUpload key={restoreGeneration} slots={photoSlots} initialFiles={photoFiles} onChange={files => { setPhotoFiles(files); setIsDirty(true); }} />
                 {photoError && <p className="form-error" role="alert">{photoError}</p>}
               </div>

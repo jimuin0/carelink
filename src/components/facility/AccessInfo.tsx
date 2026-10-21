@@ -31,7 +31,7 @@ export default function AccessInfo({ facility }: { facility: Facility }) {
               <InfoRow
                 label="Webサイト"
                 value={
-                  <a href={facility.website_url} target="_blank" rel="noopener noreferrer" className="text-sky-600 hover:underline break-all">
+                  <a href={facility.website_url} target="_blank" rel="noopener noreferrer" className="text-sky-700 hover:underline break-all">
                     {facility.website_url}
                   </a>
                 }
@@ -56,7 +56,7 @@ export default function AccessInfo({ facility }: { facility: Facility }) {
                   <tr key={day} className="border-b border-gray-100">
                     <td className="py-2.5 pr-4 text-gray-500 w-16 font-medium">{dayLabels[day]}</td>
                     <td className="py-2.5">
-                      {hours ? `${hours.open} 〜 ${hours.close}` : <span className="text-gray-400">休み</span>}
+                      {hours ? `${hours.open} 〜 ${hours.close}` : <span className="text-gray-500">休み</span>}
                     </td>
                   </tr>
                 );
@@ -112,7 +112,7 @@ export default function AccessInfo({ facility }: { facility: Facility }) {
                 href={directionsUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-sm text-sky-600 font-medium hover:underline"
+                className="inline-flex items-center gap-1.5 text-sm text-sky-700 font-medium hover:underline"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
@@ -144,7 +144,7 @@ function InfoRow({ label, value, isPhone }: { label: string; value: React.ReactN
       <td className="py-2.5 pr-4 text-gray-500 w-28 align-top font-medium">{label}</td>
       <td className="py-2.5">
         {isPhone && typeof value === 'string' && /^[0-9+\-()# ]{7,20}$/.test(value) ? (
-          <a href={`tel:${value}`} className="text-sky-600 hover:underline">
+          <a href={`tel:${value}`} className="text-sky-700 hover:underline">
             {value}
           </a>
         ) : isPhone ? (

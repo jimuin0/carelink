@@ -18,7 +18,7 @@ export default async function AreaSearchPage() {
 
         {regions.length === 0 ? (
           <div className="bg-white rounded-2xl shadow-xs p-8 text-center">
-            <p className="text-gray-400">エリアデータが登録されていません</p>
+            <p className="text-gray-500">エリアデータが登録されていません</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">

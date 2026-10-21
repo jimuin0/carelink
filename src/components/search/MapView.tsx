@@ -109,7 +109,7 @@ export default function MapView({ facilities }: Props) {
       <div ref={mapRef} style={{ height: '500px', width: '100%', display: mapReady ? 'block' : 'none' }} />
       {!mapReady && !loadError && (
         <div className="flex items-center justify-center h-[500px] bg-gray-100">
-          <p className="text-gray-400 text-sm">地図を読み込み中...</p>
+          <p className="text-gray-500 text-sm">地図を読み込み中...</p>
         </div>
       )}
       {loadError && (
@@ -125,7 +125,7 @@ export default function MapView({ facilities }: Props) {
         </div>
       )}
       {mapReady && validCount === 0 && (
-        <div className="p-4 text-center text-gray-400 text-sm">
+        <div className="p-4 text-center text-gray-500 text-sm">
           位置情報のある施設がありません
         </div>
       )}

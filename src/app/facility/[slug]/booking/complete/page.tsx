@@ -149,7 +149,7 @@ export default async function BookingCompletePage(props: Props) {
           </div>
           <h1 className="text-xl font-bold mb-2">{current?.title ?? '予約の受付状況を確認しています'}</h1>
           {bookingId && (
-            <p className="text-xs text-gray-400 mb-1 font-mono">予約番号: {bookingId.slice(0, 8).toUpperCase()}</p>
+            <p className="text-xs text-gray-500 mb-1 font-mono">予約番号: {bookingId.slice(0, 8).toUpperCase()}</p>
           )}
           <p className="text-sm text-gray-500 mb-6">
             メール通知は予約の受付とは別に処理されます。ご登録のメールアドレスへの到着もご確認ください。
@@ -172,7 +172,7 @@ export default async function BookingCompletePage(props: Props) {
               <a
                 href={icsDataUri}
                 download="carelink-booking.ics"
-                className="block w-full text-center text-sm py-2.5 border border-sky-200 rounded-lg text-sky-600 hover:bg-sky-50 transition-colors"
+                className="block w-full text-center text-sm py-2.5 border border-sky-200 rounded-lg text-sky-700 hover:bg-sky-50 transition-colors"
               >
                 カレンダーに追加（.ics）
               </a>
