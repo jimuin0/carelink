@@ -301,18 +301,30 @@ function prodTablesFromTypes(): Set<string> {
  * 判定: CREATE [OR REPLACE] FUNCTION <name> ... RETURNS <type> の最初の RETURNS を見て
  *   TRIGGER 以外を RPC 関数とみなす（非貪欲マッチで引数内の括弧付き型にも頑健）。
  */
-function migrationDefinedRpcFunctions(): Set<string> {
+/**
+ * 🔴 why(2026-10-22): テーブル抽出と同じくコメントを除去してから読む。
+ *   `20261021140000_drop_orphan_deduct_points_atomic.sql` は削除を戻せるよう元の定義を
+ *   コメントに残しており、それが「migration が定義する RPC」と誤読されて
+ *   「本番へ未適用」と鳴っていた。DROP FUNCTION はここでは扱わない（同名の別オーバーロードを
+ *   消す migration があり、名前単位で消すと現存関数まで検知対象から外れてしまうため）。
+ */
+function rpcFunctionsFromMigrationSql(sqls: readonly string[]): Set<string> {
   const rpc = new Set<string>();
-  const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'));
   const re = /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?([a-z_][a-z0-9_]*)\b[\s\S]*?\bRETURNS\s+(\w+)/gi;
-  for (const file of files) {
-    const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
+  for (const raw of sqls) {
+    const sql = stripSqlComments(raw);
     let m: RegExpExecArray | null;
+    re.lastIndex = 0;
     while ((m = re.exec(sql)) !== null) {
       if (!/^trigger$/i.test(m[2])) rpc.add(m[1]);
     }
   }
   return rpc;
+}
+
+function migrationDefinedRpcFunctions(): Set<string> {
+  const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
+  return rpcFunctionsFromMigrationSql(files.map((f) => readFileSync(join(MIGRATIONS_DIR, f), 'utf8')));
 }
 
 /**
@@ -452,6 +464,26 @@ describe('migration ↔ prod スキーマ ドリフト台帳', () => {
     // 正規表現破綻による空集合での誤 PASS を防ぐサニティチェック。
     expect(migrationTables.size).toBeGreaterThan(50);
     expect(prodTables.size).toBeGreaterThan(40);
+  });
+
+  describe('🔴 RPC 関数抽出もコメントを読まない（2026-10-22）', () => {
+    test('コメントに残した元定義を「migration が定義する RPC」として拾わない', () => {
+      const f = rpcFunctionsFromMigrationSql([
+        '--   CREATE OR REPLACE FUNCTION public.deduct_points_atomic(p_user_id uuid)\n' +
+          '--    RETURNS jsonb LANGUAGE plpgsql AS $function$ BEGIN END; $function$;\n' +
+          '/* CREATE FUNCTION public.ghost_block() RETURNS integer AS $$ SELECT 1 $$; */\n' +
+          'DROP FUNCTION IF EXISTS public.deduct_points_atomic(uuid, integer, text);',
+      ]);
+      expect([...f]).toEqual([]);
+    });
+
+    test('負の対照: コメントでない本物の定義は今までどおり拾い、トリガ関数は除く', () => {
+      const f = rpcFunctionsFromMigrationSql([
+        'CREATE OR REPLACE FUNCTION public.real_rpc(p uuid) RETURNS jsonb LANGUAGE sql AS $$ SELECT 1 $$;\n' +
+          'CREATE FUNCTION public.touch_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;',
+      ]);
+      expect([...f]).toEqual(['real_rpc']);
+    });
   });
 
   describe('🔴 テーブル抽出はコメントを読まない（2026-08-13）', () => {
