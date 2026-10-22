@@ -1,6 +1,7 @@
 import { createBrowserClient } from '@supabase/ssr';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/database-overrides';
+import { watchPasswordRecovery } from './password-recovery-session';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -26,6 +27,9 @@ export function createBrowserSupabaseClient(): SupabaseClient<Database> {
   }
   if (!browserClient) {
     browserClient = createBrowserClient<Database>(supabaseUrl, supabaseAnonKey);
+    // 生成直後（URL の認証コード交換が終わる前）に購読しないと、パスワード再設定リンクの
+    // PASSWORD_RECOVERY 通知を取りこぼす。理由は password-recovery-session.ts を参照。
+    watchPasswordRecovery(browserClient.auth);
   }
   return browserClient;
 }
