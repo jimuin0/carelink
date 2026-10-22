@@ -43,6 +43,16 @@ export const CANCEL_POLICY_NULL_READING = { free_cancel_hours: 24, late_cancel_r
 export const ONLINE_CANCEL_DISABLED_MESSAGE =
   'この店舗ではネットからのキャンセルをお受けしていません。キャンセルをご希望の場合は、店舗へ直接ご連絡ください。';
 
+/**
+ * 開始時刻を過ぎた予約で、お客様に出す案内（マイページ・LIFF）。キャンセル API・日時変更 API とも
+ * 開始後は受け付けない（BOOKING_ALREADY_STARTED）ので、押しても失敗するボタンの代わりにこれを出す。
+ */
+export const BOOKING_STARTED_CONTACT_MESSAGE =
+  '開始時刻を過ぎた予約は、オンラインで日時の変更やキャンセルができません。店舗へ直接ご連絡ください。';
+
+/** キャンセルポリシーを読めず、キャンセル料の見込みを出せないときの案内（金額を推測しない）。 */
+export const CANCEL_FEE_UNKNOWN_MESSAGE = 'キャンセルポリシーによりキャンセル料が発生する場合があります。';
+
 export type CancelPolicy = {
   free_cancel_hours: number | null;
   late_cancel_rate: number | null;
@@ -123,6 +133,41 @@ export function computeCancelFee(
     return { fee: 0, rate, isLate: false };
   }
   return { fee: Math.round((totalPrice * rate) / 100), rate, isLate: true };
+}
+
+/**
+ * キャンセルの確認（マイページ・LIFF）で、いまキャンセルした場合のキャンセル料をお知らせする文。
+ * 金額はキャンセル API と同じ computeCancelFee で出す（API の応答・お客様／店舗宛メールと同じ計算）。
+ * - policy が undefined: ポリシーを読めなかった。金額を推測せず、従来の一般的な案内にする。
+ * - policy が null: ポリシー未設定の店舗。computeCancelFee と同じく無料。
+ * 呼び出し側は、確認を出した時刻（hoursUntilStart）と確定の直前で文が変わっていないかを確かめる。
+ */
+export function describeCancelFeeEstimate(
+  policy: CancelPolicy | null | undefined,
+  totalPrice: number | null | undefined,
+  hoursUntilStart: number,
+): string {
+  if (policy === undefined) return CANCEL_FEE_UNKNOWN_MESSAGE;
+  const resolved = policy ? resolveCancelPolicy(policy) : null;
+  if (resolved?.rule === 'no_online') return ONLINE_CANCEL_DISABLED_MESSAGE;
+  const { fee, rate } = computeCancelFee(policy, totalPrice, hoursUntilStart);
+  if (fee > 0) {
+    return `いまキャンセルすると、キャンセル料 ¥${fee.toLocaleString()}（施術料金の${rate}%）がかかります。お支払い方法は店舗からご案内します。`;
+  }
+  if (resolved?.rule === 'free_window' && resolved.rate > 0 && hoursUntilStart >= resolved.freeHours) {
+    return `いまキャンセルする場合、キャンセル料はかかりません（予約日時の${resolved.freeHours}時間前まで無料）。`;
+  }
+  return 'キャンセル料はかかりません。';
+}
+
+/**
+ * キャンセル API の応答（cancelFee＝キャンセルを受け付けたトランザクションで確定した額）から、
+ * お客様に出すお知らせ。数値でなければ null（金額を推測して出さない）。
+ */
+export function describeConfirmedCancelFee(cancelFee: unknown): string | null {
+  if (typeof cancelFee !== 'number' || !Number.isFinite(cancelFee) || cancelFee < 0) return null;
+  if (cancelFee === 0) return 'キャンセル料はかかりません。';
+  return `キャンセル料 ¥${cancelFee.toLocaleString()} が発生します。お支払い方法は店舗からご案内します。`;
 }
 
 /**

@@ -161,7 +161,7 @@ function mockBooking(booking: Record<string, unknown>) {
     from: (t: string) => chain(dataFor[t] ?? null),
   });
 }
-const STARTED_NOTICE = '開始時刻を過ぎた予約は、オンラインで日時を変更できません。施設へ直接ご連絡ください。';
+const STARTED_NOTICE = '開始時刻を過ぎた予約は、オンラインで日時の変更やキャンセルができません。店舗へ直接ご連絡ください。';
 
 test.each(['pending', 'confirmed'])('開始前の %s 予約 → 日時を変更するボタンを表示', async (status) => {
   mockBooking({ ...BOOKING, status, booking_date: '2099-06-20' });
@@ -270,4 +270,136 @@ test.each([
   renderPage();
   expect(await screen.findByRole('button', { name: 'この予約をキャンセル' })).toBeInTheDocument();
   expect(screen.queryByText(ONLINE_CANCEL_DISABLED)).not.toBeInTheDocument();
+});
+
+// ---------------------------------------------------------------------------
+// 「店舗へ直接ご連絡ください」には連絡手段を添える／開始後はキャンセルボタンを出さない（2026年10月23日）。
+// 以前は案内の文言だけで電話番号も店舗ページへのリンクも無く、開始後も押すと必ず失敗するキャンセルボタンが出ていた。
+// ---------------------------------------------------------------------------
+type Fixture = { booking: Record<string, unknown>; facility?: unknown; policy?: unknown; policyError?: unknown };
+function mockDetail({ booking, facility = { slug: 'test-salon', name: 'テスト施設', phone: '03-1234-5678' }, policy = null, policyError = null }: Fixture) {
+  const chain = (table: string): Record<string, unknown> => {
+    const data = table === 'bookings' ? booking
+      : table === 'facility_profiles' ? facility
+      : table === 'facility_cancel_policies' ? policy : null;
+    const error = table === 'facility_cancel_policies' ? policyError : null;
+    const obj: Record<string, unknown> = {
+      select: () => obj, eq: () => obj,
+      single: () => Promise.resolve({ data, error }), maybeSingle: () => Promise.resolve({ data, error }),
+    };
+    return obj;
+  };
+  (createBrowserSupabaseClient as jest.Mock).mockReturnValue({
+    auth: { getUser: () => Promise.resolve({ data: { user: { id: 'u1' } } }) },
+    from: (t: string) => chain(t),
+  });
+}
+const CANCEL_BUTTON = { name: 'この予約をキャンセル' };
+
+test.each(['confirmed', 'pending', 'arrived'])('開始時刻を過ぎた %s 予約 → キャンセルボタンを出さず、電話と店舗ページを添えて連絡を案内する', async (status) => {
+  mockDetail({ booking: { ...BOOKING, status, booking_date: '2020-06-20' }, policy: { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'free_window' } });
+  mockGcalFetch(true, { connected: false });
+  renderPage();
+  expect(await screen.findByText(STARTED_NOTICE)).toBeInTheDocument();
+  expect(screen.queryByRole('button', CANCEL_BUTTON)).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: '店舗に電話する（03-1234-5678）' })).toHaveAttribute('href', 'tel:03-1234-5678');
+  expect(screen.getByRole('link', { name: '店舗ページを見る' })).toHaveAttribute('href', '/facility/test-salon');
+});
+
+test('ネットでのキャンセル不可の店舗 → 案内に電話と店舗ページを添える', async () => {
+  mockDetail({ booking: { ...BOOKING, booking_date: '2099-06-20' }, policy: { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'no_online' } });
+  mockGcalFetch(true, { connected: false });
+  renderPage();
+  expect(await screen.findByText(ONLINE_CANCEL_DISABLED)).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: '店舗に電話する（03-1234-5678）' })).toHaveAttribute('href', 'tel:03-1234-5678');
+  expect(screen.getByRole('link', { name: '店舗ページを見る' })).toHaveAttribute('href', '/facility/test-salon');
+});
+
+test('電話番号が電話リンクにできない形なら tel: を出さず、店舗ページへのリンクだけ出す（店舗ページと同じ判定）', async () => {
+  mockDetail({
+    booking: { ...BOOKING, booking_date: '2099-06-20' },
+    facility: { slug: 'test-salon', name: 'テスト施設', phone: 'javascript:alert(1)' },
+    policy: { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'no_online' },
+  });
+  mockGcalFetch(true, { connected: false });
+  renderPage();
+  expect(await screen.findByText(ONLINE_CANCEL_DISABLED)).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: /店舗に電話する/ })).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: '店舗ページを見る' })).toBeInTheDocument();
+});
+
+test('開始前でネットからキャンセルできる店舗 → 連絡の案内は出さず、キャンセルボタンを出す', async () => {
+  mockDetail({ booking: { ...BOOKING, booking_date: '2099-06-20' } });
+  mockGcalFetch(true, { connected: false });
+  renderPage();
+  expect(await screen.findByRole('button', CANCEL_BUTTON)).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: '店舗ページを見る' })).not.toBeInTheDocument();
+});
+
+// ---------------------------------------------------------------------------
+// キャンセル確認にキャンセル料の見込みを出し、キャンセル後は API が返した確定額を出す（2026年10月23日）。
+// 以前は「キャンセル料が発生する場合があります」の固定文言で、API の cancelFee は捨てていた。
+// ---------------------------------------------------------------------------
+const START_MS = Date.UTC(2099, 5, 20, 1, 0, 0); // 2099-06-20 10:00 JST
+function cancelFetch(cancelBody: unknown, ok = true) {
+  global.fetch = jest.fn(async (url: string) => {
+    if (url === '/api/google-calendar') return { ok: true, status: 200, json: async () => ({ connected: false }) };
+    return { ok, status: ok ? 200 : 400, json: async () => cancelBody };
+  }) as unknown as typeof fetch;
+}
+const cancelCalls = () => (global.fetch as jest.Mock).mock.calls.filter(([url]) => String(url).includes('/cancel'));
+
+test('常にキャンセル料の店舗 → 確認に金額と料率を出し、キャンセル後は API の確定額を出す', async () => {
+  const { fireEvent } = await import('@testing-library/react');
+  mockDetail({ booking: { ...BOOKING, booking_date: '2099-06-20' }, policy: { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'always_fee' } });
+  cancelFetch({ success: true, cancelFee: 2500 });
+  renderPage();
+  fireEvent.click(await screen.findByRole('button', CANCEL_BUTTON));
+  const dialog = await screen.findByRole('dialog');
+  expect(dialog).toHaveTextContent('この予約をキャンセルしますか？いまキャンセルすると、キャンセル料 ¥2,500（施術料金の50%）がかかります。');
+  expect(dialog).not.toHaveTextContent('発生する場合があります');
+  fireEvent.click(screen.getByRole('button', { name: 'キャンセルする' }));
+  expect(await screen.findByText('予約をキャンセルしました。キャンセル料 ¥2,500 が発生します。お支払い方法は店舗からご案内します。')).toBeInTheDocument();
+  expect(cancelCalls()).toHaveLength(1);
+});
+
+test('無料期限内 → 確認ではっきり無料と期限を出し、キャンセル後も無料と出す', async () => {
+  const { fireEvent } = await import('@testing-library/react');
+  mockDetail({ booking: { ...BOOKING, booking_date: '2099-06-20' }, policy: { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'free_window' } });
+  cancelFetch({ success: true, cancelFee: 0 });
+  renderPage();
+  fireEvent.click(await screen.findByRole('button', CANCEL_BUTTON));
+  expect(await screen.findByRole('dialog')).toHaveTextContent('いまキャンセルする場合、キャンセル料はかかりません（予約日時の24時間前まで無料）。');
+  fireEvent.click(screen.getByRole('button', { name: 'キャンセルする' }));
+  expect(await screen.findByText('予約をキャンセルしました。キャンセル料はかかりません。')).toBeInTheDocument();
+});
+
+test('ポリシーを読めなかった → 金額を推測せず従来の案内のまま。応答に金額が無ければ確定額も出さない', async () => {
+  const { fireEvent } = await import('@testing-library/react');
+  mockDetail({ booking: { ...BOOKING, booking_date: '2099-06-20' }, policy: null, policyError: { message: 'synthetic' } });
+  cancelFetch({ success: true });
+  renderPage();
+  fireEvent.click(await screen.findByRole('button', CANCEL_BUTTON));
+  expect(await screen.findByRole('dialog')).toHaveTextContent('この予約をキャンセルしますか？キャンセルポリシーによりキャンセル料が発生する場合があります。');
+  fireEvent.click(screen.getByRole('button', { name: 'キャンセルする' }));
+  expect(await screen.findByText('予約をキャンセルしました')).toBeInTheDocument();
+  expect(screen.queryByText(/予約をキャンセルしました。/)).not.toBeInTheDocument();
+});
+
+test('確認を開いたあとで無料期限を過ぎた → 取り消さずに新しい金額を見せ直し、もう一度押して初めて取り消す', async () => {
+  const { fireEvent } = await import('@testing-library/react');
+  const now = jest.spyOn(Date, 'now').mockReturnValue(START_MS - 25 * 3_600_000);
+  mockDetail({ booking: { ...BOOKING, booking_date: '2099-06-20' }, policy: { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'free_window' } });
+  cancelFetch({ success: true, cancelFee: 2500 });
+  renderPage();
+  fireEvent.click(await screen.findByRole('button', CANCEL_BUTTON));
+  expect(await screen.findByRole('dialog')).toHaveTextContent('キャンセル料はかかりません（予約日時の24時間前まで無料）');
+  now.mockReturnValue(START_MS - 23 * 3_600_000);
+  fireEvent.click(screen.getByRole('button', { name: 'キャンセルする' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(dialog).toHaveTextContent('キャンセル料の条件が変わりました。内容をご確認ください。この予約をキャンセルしますか？いまキャンセルすると、キャンセル料 ¥2,500（施術料金の50%）がかかります。');
+  expect(cancelCalls()).toHaveLength(0);
+  fireEvent.click(screen.getByRole('button', { name: 'キャンセルする' }));
+  expect(await screen.findByText('予約をキャンセルしました。キャンセル料 ¥2,500 が発生します。お支払い方法は店舗からご案内します。')).toBeInTheDocument();
+  expect(cancelCalls()).toHaveLength(1);
 });

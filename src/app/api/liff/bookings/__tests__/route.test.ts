@@ -50,6 +50,9 @@ function createChainableMock(resolveValue: any) {
 
 let policyResult: { data: unknown; error: unknown } = { data: null, error: null };
 let policyChain: any;
+let bookingChain: any;
+// 単体取得で返す施設の埋め込み（slug・電話・掲載状態つき）。
+let singleFacility: unknown = { name: 'Test Salon' };
 
 function setupDefaultMocks(
   lineValid: boolean = true,
@@ -101,7 +104,7 @@ function setupDefaultMocks(
           menu: null, // menu 未設定（非配列・null）→ menu_name=null パスを検証
           status: 'confirmed',
           total_price: 5000,
-          facility_profiles: { name: 'Test Salon' },
+          facility_profiles: singleFacility,
         },
         error: null,
       }
@@ -114,7 +117,8 @@ function setupDefaultMocks(
       if (table === 'profiles') {
         return createChainableMock(profileData);
       } else if (table === 'bookings') {
-        return createChainableMock(bookingData);
+        bookingChain = createChainableMock(bookingData);
+        return bookingChain;
       } else if (table === 'facility_cancel_policies') {
         policyChain = createChainableMock(policyResult);
         return policyChain;
@@ -127,6 +131,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   policyResult = { data: null, error: null };
   policyChain = undefined;
+  bookingChain = undefined;
+  singleFacility = { name: 'Test Salon' };
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   (global.fetch as jest.Mock).mockClear();
   setupDefaultMocks();
@@ -308,6 +314,61 @@ describe('GET /api/liff/bookings', () => {
     // 省く（=キャンセル画面はボタンを出す。ネットでのキャンセル不可の店舗はキャンセル RPC が必ず断る）。
     expect(json.booking).not.toHaveProperty('online_cancel_allowed');
     expect(alertCaughtError).toHaveBeenCalledWith('liff-bookings-cancel-policy', new Error('DATABASE_FAILURE:42703'), '/api/liff/bookings');
+  });
+
+  // キャンセル画面は「店舗へ直接ご連絡ください」と案内するときに、電話番号と店舗ページも出す（2026年10月23日）。
+  // 以前は店名しか返しておらず、お客様は店名で検索し直すしかなかった。
+  test('single booking: 公開中の店舗は連絡先（slug・電話）を返し、facility_profiles は従来どおり店名だけ', async () => {
+    singleFacility = { name: 'Test Salon', slug: 'test-salon', phone: '03-1234-5678', status: 'published' };
+    setupDefaultMocks();
+    const json = await (await GET(makeRequest(BOOKING_UUID) as any)).json();
+    expect(bookingChain.select).toHaveBeenCalledWith(expect.stringContaining('facility_profiles(name, slug, phone, status)'));
+    expect(json.booking.facility_contact).toEqual({ slug: 'test-salon', phone: '03-1234-5678' });
+    expect(json.booking.facility_profiles).toEqual({ name: 'Test Salon' });
+  });
+
+  test.each(['draft', 'suspended'])('single booking: 掲載が %s の店舗は連絡先を返さない（店舗ページは 404 になる）', async (status) => {
+    singleFacility = { name: 'Test Salon', slug: 'test-salon', phone: '03-1234-5678', status };
+    setupDefaultMocks();
+    const json = await (await GET(makeRequest(BOOKING_UUID) as any)).json();
+    expect(json.booking.facility_contact).toBeNull();
+    expect(json.booking.facility_profiles).toEqual({ name: 'Test Salon' });
+  });
+
+  test('single booking: 施設を読めない予約は店名も連絡先も null', async () => {
+    singleFacility = null;
+    setupDefaultMocks();
+    const json = await (await GET(makeRequest(BOOKING_UUID) as any)).json();
+    expect(json.booking.facility_profiles).toBeNull();
+    expect(json.booking.facility_contact).toBeNull();
+  });
+
+  test('一覧には連絡先を載せない（一覧の select は店名だけ）', async () => {
+    setupDefaultMocks(true, true, true, true);
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(bookingChain.select).toHaveBeenCalledWith(expect.stringContaining('facility_profiles(name)'));
+    expect(json.bookings[0]).not.toHaveProperty('facility_contact');
+  });
+
+  // キャンセル画面がキャンセル API と同じ computeCancelFee でキャンセル料の見込みを出すためのポリシー。
+  test('single booking: 店舗のポリシーをそのまま返す（未設定は null）', async () => {
+    const none = await (await GET(makeRequest(BOOKING_UUID) as any)).json();
+    expect(none.booking.cancel_policy).toBeNull();
+    expect(none.booking.total_price).toBe(5000);
+
+    policyResult = { data: { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'always_fee' }, error: null };
+    setupDefaultMocks();
+    const json = await (await GET(makeRequest(BOOKING_UUID) as any)).json();
+    expect(json.booking.cancel_policy).toEqual({ free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'always_fee' });
+  });
+
+  test('single booking: ポリシーを読めないときは cancel_policy を省く（画面は金額を推測しない）が、連絡先は返す', async () => {
+    policyResult = { data: null, error: { message: 'synthetic', code: '57014' } };
+    singleFacility = { name: 'Test Salon', slug: 'test-salon', phone: null, status: 'published' };
+    setupDefaultMocks();
+    const json = await (await GET(makeRequest(BOOKING_UUID) as any)).json();
+    expect(json.booking).not.toHaveProperty('cancel_policy');
+    expect(json.booking.facility_contact).toEqual({ slug: 'test-salon', phone: null });
   });
 
   test('booking_id not found → returns booking=null', async () => {

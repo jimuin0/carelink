@@ -1,7 +1,8 @@
 import {
   computeCancelFee, hoursUntilBookingStart, hasBookingStarted, isBeforeBookingStart, describeCancelPolicy,
   resolveCancelPolicy, isOnlineCancelAllowed, ONLINE_CANCEL_DISABLED_MESSAGE, CANCEL_POLICY_DEFAULTS, CANCEL_POLICY_NULL_READING,
-  CANCEL_RULES,
+  CANCEL_RULES, describeCancelFeeEstimate, describeConfirmedCancelFee, CANCEL_FEE_UNKNOWN_MESSAGE,
+  BOOKING_STARTED_CONTACT_MESSAGE,
   type CancelPolicy,
 } from '@/lib/cancel-fee';
 
@@ -233,4 +234,76 @@ describe('予約画面の案内とキャンセル料の計算は同じ定義を�
       }
     }
   }
+});
+
+// マイページ・LIFF のキャンセル確認は以前、どの店舗でも「キャンセル料が発生する場合があります」の固定文言で、
+// 常にキャンセル料がかかる店舗でも、無料期限内でも同じだった。金額はキャンセル後のメールで初めて分かった。
+describe('describeCancelFeeEstimate（キャンセル確認で出すキャンセル料の見込み）', () => {
+  const always: CancelPolicy = { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'always_fee' };
+  const window24: CancelPolicy = { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'free_window' };
+
+  it('常にキャンセル料の店舗は、金額と料率を出す（キャンセル API と同じ computeCancelFee の額）', () => {
+    const text = describeCancelFeeEstimate(always, 8000, 100);
+    expect(text).toBe('いまキャンセルすると、キャンセル料 ¥4,000（施術料金の50%）がかかります。お支払い方法は店舗からご案内します。');
+    expect(text).toContain(`¥${computeCancelFee(always, 8000, 100).fee.toLocaleString()}`);
+  });
+
+  it('無料期限を過ぎていれば金額を、期限内なら無料と期限を出す', () => {
+    expect(describeCancelFeeEstimate(window24, 8000, 23.9)).toContain('キャンセル料 ¥4,000（施術料金の50%）がかかります');
+    expect(describeCancelFeeEstimate(window24, 8000, 24))
+      .toBe('いまキャンセルする場合、キャンセル料はかかりません（予約日時の24時間前まで無料）。');
+  });
+
+  it('料率 0・金額 0・ポリシー未設定は、はっきり無料と出す（期限の案内は付けない）', () => {
+    expect(describeCancelFeeEstimate({ ...window24, late_cancel_rate: 0 }, 8000, 100)).toBe('キャンセル料はかかりません。');
+    expect(describeCancelFeeEstimate(window24, 0, 1)).toBe('キャンセル料はかかりません。');
+    expect(describeCancelFeeEstimate(always, 0, 100)).toBe('キャンセル料はかかりません。');
+    expect(describeCancelFeeEstimate(null, 8000, 1)).toBe('キャンセル料はかかりません。');
+    // 端数で 0 円になる場合もキャンセル API の額（0）に合わせる。
+    expect(describeCancelFeeEstimate({ ...always, late_cancel_rate: 10 }, 4, 100)).toBe('キャンセル料はかかりません。');
+  });
+
+  it('ポリシーを読めなかったときは金額を推測しない（従来の一般的な案内）', () => {
+    expect(describeCancelFeeEstimate(undefined, 8000, 1)).toBe(CANCEL_FEE_UNKNOWN_MESSAGE);
+  });
+
+  it('ネットでのキャンセル不可の店舗は、無料とは言わずに店舗への連絡を案内する', () => {
+    expect(describeCancelFeeEstimate({ ...always, cancel_rule: 'no_online' }, 8000, 100)).toBe(ONLINE_CANCEL_DISABLED_MESSAGE);
+  });
+
+  // 見込みの金額は、同じ材料で計算したキャンセル API の額と必ず一致する（どちらか片方だけ直すとここが落ちる）。
+  it('見込みの金額はあらゆる設定で computeCancelFee と一致する', () => {
+    for (const cancel_rule of [null, 'free_window', 'always_fee'] as const) {
+      for (const free_cancel_hours of [null, 0, 24, 72]) {
+        for (const late_cancel_rate of [null, 0, 30, 100]) {
+          for (const hours of [-1, 0, 23.9, 24, 71.9, 72, 500]) {
+            const policy: CancelPolicy = { free_cancel_hours, late_cancel_rate, cancel_rule };
+            const { fee } = computeCancelFee(policy, 9000, hours);
+            const text = describeCancelFeeEstimate(policy, 9000, hours);
+            if (fee > 0) expect(text).toContain(`キャンセル料 ¥${fee.toLocaleString()}`);
+            else expect(text).toMatch(/キャンセル料はかかりません/);
+          }
+        }
+      }
+    }
+  });
+});
+
+describe('describeConfirmedCancelFee（キャンセル後に、API が返した確定額を出す）', () => {
+  it('確定額があれば金額を出す', () => {
+    expect(describeConfirmedCancelFee(4000)).toBe('キャンセル料 ¥4,000 が発生します。お支払い方法は店舗からご案内します。');
+  });
+  it('0 円ははっきり無料と出す', () => {
+    expect(describeConfirmedCancelFee(0)).toBe('キャンセル料はかかりません。');
+  });
+  it.each([undefined, null, '4000', Number.NaN, Number.POSITIVE_INFINITY, -1])('数値として読めない値 %p は出さない（金額を推測しない）', (value) => {
+    expect(describeConfirmedCancelFee(value)).toBeNull();
+  });
+});
+
+describe('BOOKING_STARTED_CONTACT_MESSAGE', () => {
+  it('開始後は変更もキャンセルもできず、店舗への連絡を促す', () => {
+    expect(BOOKING_STARTED_CONTACT_MESSAGE).toContain('日時の変更やキャンセルができません');
+    expect(BOOKING_STARTED_CONTACT_MESSAGE).toContain('店舗へ直接ご連絡ください');
+  });
 });

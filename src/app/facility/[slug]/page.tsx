@@ -41,6 +41,7 @@ import type { Facility, FacilityMenu, FacilityPhoto, FacilityReview, StaffProfil
 import { safeJsonLd } from '@/lib/json-ld';
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 import { formatFacilityAddress, formatFacilityLocality } from '@/lib/facility-location';
+import { isDialablePhone } from '@/lib/facility-contact';
 
 export const revalidate = 3600;
 
@@ -348,7 +349,7 @@ export default async function FacilityPage(props: Props) {
           <p className="text-gray-500 text-sm mb-4">
             ご予約・ご質問は、お電話またはフォームからお気軽にどうぞ。
           </p>
-          {facility.phone && /^[0-9+\-()# ]{7,20}$/.test(facility.phone) && (
+          {isDialablePhone(facility.phone) && (
             <a
               href={`tel:${facility.phone}`}
               className="inline-flex items-center gap-2 text-sky-700 font-bold text-lg hover:underline mb-6"
@@ -672,7 +673,7 @@ function TopTab({ facility, featuredMenus, blog }: {
               </a>
             </div>
           </div>
-          {facility.phone && /^[0-9+\-()# ]{7,20}$/.test(facility.phone) && (
+          {isDialablePhone(facility.phone) && (
             <div className="flex">
               <span className="text-gray-500 w-20 shrink-0">電話</span>
               <a href={`tel:${facility.phone}`} className="text-sky-700 hover:underline">{facility.phone}</a>

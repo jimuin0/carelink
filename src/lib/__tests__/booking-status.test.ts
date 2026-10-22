@@ -14,6 +14,7 @@ import {
   SLOT_RELEASING_STATUSES,
   CUSTOMER_NON_CANCELLABLE_STATUSES,
   canCustomerCancelBooking,
+  canCustomerCancelBookingAt,
   CUSTOMER_CHANGEABLE_STATUSES,
   canCustomerChangeBooking,
   isCustomerChangeableStatus,
@@ -270,5 +271,31 @@ describe('来店の結果（完了・無断キャンセル）は開始時刻（J
 
   it('未知のステータスは空', () => {
     expect(getAvailableStatusTransitions('unknown', '2026-10-30', '15:00:00', START)).toEqual([]);
+  });
+});
+
+// 開始時刻を過ぎた予約は、キャンセル API・RPC とも BOOKING_ALREADY_STARTED で拒否する。マイページは以前、
+// ステータスしか見ておらず、開始後も押すと必ず失敗する「この予約をキャンセル」を出していた（回帰防止）。
+describe('canCustomerCancelBookingAt（開始時刻を過ぎた予約にはキャンセルボタンを出さない）', () => {
+  const start = Date.UTC(2030, 0, 7, 1, 0, 0); // 2030-01-07 10:00 JST
+
+  it('開始前の pending / confirmed / arrived はキャンセルできる', () => {
+    for (const status of ['pending', 'confirmed', 'arrived']) {
+      expect(canCustomerCancelBookingAt(status, '2030-01-07', '10:00:00', start - 60_000)).toBe(true);
+    }
+  });
+
+  it('開始時刻を過ぎた予約は、キャンセルできるステータスでもキャンセルできない', () => {
+    for (const status of ['pending', 'confirmed', 'arrived']) {
+      expect(canCustomerCancelBookingAt(status, '2030-01-07', '10:00:00', start + 60_000)).toBe(false);
+      // ステータスだけの判定は従来どおり（支払いの案内などに使う）。
+      expect(canCustomerCancelBooking(status)).toBe(true);
+    }
+  });
+
+  it('キャンセルできないステータスは開始前でもキャンセルできない', () => {
+    for (const status of [...CUSTOMER_NON_CANCELLABLE_STATUSES, 'unknown']) {
+      expect(canCustomerCancelBookingAt(status, '2030-01-07', '10:00:00', start - 60_000)).toBe(false);
+    }
   });
 });

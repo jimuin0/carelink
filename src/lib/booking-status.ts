@@ -233,6 +233,15 @@ export function canCustomerCancelBooking(status: string): boolean {
 }
 
 /**
+ * マイページ・LIFF で「この予約をキャンセル」を出してよいか。キャンセルできるステータスで、開始時刻（JST）を
+ * まだ過ぎていない予約だけ。開始後はキャンセル API・RPC とも BOOKING_ALREADY_STARTED で拒否するため、
+ * 押しても必ず失敗するボタンを出さない（canCustomerChangeBooking と対）。nowMs は呼び出し側が渡す。
+ */
+export function canCustomerCancelBookingAt(status: string, bookingDate: string, startTime: string, nowMs: number): boolean {
+  return canCustomerCancelBooking(status) && !hasBookingStarted(bookingDate, startTime, nowMs);
+}
+
+/**
  * 客が日時を変更できるステータス。/api/booking/[id]/change と change_booking_atomic の
  * 「pending / confirmed のみ」と同じ真実（来店中・完了・キャンセル済みは変更できない）。
  */
