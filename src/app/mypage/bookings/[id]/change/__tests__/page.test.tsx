@@ -38,6 +38,9 @@ type Tables = {
   staffError?: unknown;
   menuStaff?: { menu_id: string; staff_id: string }[];
   menuStaffError?: unknown;
+  facility?: unknown;
+  policy?: unknown;
+  policyError?: unknown;
 };
 
 const menuStaffIn = jest.fn();
@@ -46,7 +49,7 @@ const menuStaffIn = jest.fn();
 function mockSupabase(t: Tables = {}) {
   const single: Record<string, unknown> = {
     bookings: { ...BOOKING, ...t.booking },
-    facility_profiles: { name: 'テスト施設' },
+    facility_profiles: t.facility ?? { name: 'テスト施設' },
     facility_menus: { name: 'メニュー' },
     staff_profiles: { name: 'スタッフ' },
   };
@@ -57,6 +60,8 @@ function mockSupabase(t: Tables = {}) {
       chain.select = () => chain;
       chain.eq = () => chain;
       chain.single = () => Promise.resolve({ data: single[table], error: null });
+      // 店舗のキャンセルポリシー（無料キャンセルの期限を過ぎたかの判定）
+      chain.maybeSingle = () => Promise.resolve({ data: t.policy ?? null, error: t.policyError ?? null });
       // スタッフ一覧（おまかせの集計対象）
       chain.order = () => Promise.resolve({ data: t.staffError ? null : (t.staff ?? []), error: t.staffError ?? null });
       // menu_staff（担当スタッフ制）
@@ -416,5 +421,66 @@ describe('変更の送信が断られたとき', () => {
     expect(await screen.findByText('この時間帯は既に予約が入っています')).toBeInTheDocument();
     expect(slotFetches()).toBe(1);
     expect(screen.getByRole('button', { name: /15:00に変更する/ })).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 無料キャンセルの期限を過ぎた予約は、オンラインで日時を変更できない（神原さん決定・2026年10月23日・案A）。
+// 予約詳細はボタンを出さないが、この画面を直接開いても（ブックマーク・戻る）枠を選ばせず同じ案内を出す。
+// ---------------------------------------------------------------------------
+describe('無料キャンセルの期限', () => {
+  const CHANGE_WINDOW_CLOSED = '無料でキャンセルできる期限を過ぎた予約は、オンラインで日時を変更できません。日時の変更をご希望の場合は、店舗へ直接ご連絡ください。';
+  const FREE_WINDOW_24H = { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'free_window' };
+  const START_MS = Date.UTC(2099, 5, 1, 1, 0, 0); // 2099-06-01 10:00 JST（BOOKING の開始）
+  const FACILITY = { name: 'テスト施設', slug: 'test-salon', phone: '03-1234-5678' };
+  // Date.now のスパイを次の検査へ持ち越さない（clearAllMocks は実装を戻さない）。
+  afterEach(() => jest.restoreAllMocks());
+
+  test('期限を過ぎた予約を直接開いた → 日付・枠を出さず、理由と電話・店舗ページを案内する', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(START_MS - 23 * 3_600_000);
+    mockSupabase({ facility: FACILITY, policy: FREE_WINDOW_24H });
+    mockFetch(slotsFor([]));
+    render(<BookingChangePage />);
+    expect(await screen.findByText(CHANGE_WINDOW_CLOSED)).toBeInTheDocument();
+    expect(screen.queryByText('新しい日付を選択')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '店舗に電話する（03-1234-5678）' })).toHaveAttribute('href', 'tel:03-1234-5678');
+    expect(screen.getByRole('link', { name: '店舗ページを見る' })).toHaveAttribute('href', '/facility/test-salon');
+    fireEvent.click(screen.getByRole('button', { name: '予約詳細に戻る' }));
+    expect(mockPush).toHaveBeenCalledWith('/mypage/bookings/b1');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['無料期限より前', FREE_WINDOW_24H, null, 25],
+    ['期限なし（常にキャンセル料）', { ...FREE_WINDOW_24H, cancel_rule: 'always_fee' }, null, 23],
+    ['ポリシーを読めなかった（最終判定は API）', null, { message: 'synthetic' }, 23],
+  ])('%s → これまでどおり日付を選べる', async (_label, policy, policyError, hoursBefore) => {
+    jest.spyOn(Date, 'now').mockReturnValue(START_MS - hoursBefore * 3_600_000);
+    mockSupabase({ facility: FACILITY, policy, policyError });
+    mockFetch(slotsFor([]));
+    render(<BookingChangePage />);
+    expect(await screen.findByText('新しい日付を選択')).toBeInTheDocument();
+    expect(screen.queryByText(CHANGE_WINDOW_CLOSED)).not.toBeInTheDocument();
+  });
+
+  test('画面を開いている間に期限を過ぎた（API が CHANGE_WINDOW_CLOSED で断った）→ 枠の選択をやめて同じ案内に切り替える', async () => {
+    mockSupabase({ facility: FACILITY, policy: FREE_WINDOW_24H });
+    const slotsResponder = slotsFor([{ slot_start: '15:00:00', slot_end: '16:00:00' }]);
+    fetchMock = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/change')) {
+        return Promise.resolve({ ok: false, status: 409, json: () => Promise.resolve({ error: CHANGE_WINDOW_CLOSED, code: 'CHANGE_WINDOW_CLOSED' }) } as Response);
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(slotsResponder(url)) } as Response);
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+    render(<BookingChangePage />);
+    await pickTomorrow();
+    fireEvent.click(await within(slotPicker()).findByText('15:00'));
+    fireEvent.click(screen.getByRole('button', { name: /15:00に変更する/ }));
+    expect(await screen.findByText(CHANGE_WINDOW_CLOSED)).toBeInTheDocument();
+    expect(screen.queryByText('新しい日付を選択')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /に変更する/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '店舗に電話する（03-1234-5678）' })).toBeInTheDocument();
   });
 });

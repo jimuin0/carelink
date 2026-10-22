@@ -2,7 +2,7 @@ import {
   computeCancelFee, hoursUntilBookingStart, hasBookingStarted, isBeforeBookingStart, describeCancelPolicy,
   resolveCancelPolicy, isOnlineCancelAllowed, ONLINE_CANCEL_DISABLED_MESSAGE, CANCEL_POLICY_DEFAULTS, CANCEL_POLICY_NULL_READING,
   CANCEL_RULES, describeCancelFeeEstimate, describeConfirmedCancelFee, CANCEL_FEE_UNKNOWN_MESSAGE,
-  BOOKING_STARTED_CONTACT_MESSAGE,
+  BOOKING_STARTED_CONTACT_MESSAGE, isPastFreeCancelWindow, CHANGE_WINDOW_CLOSED_MESSAGE,
   type CancelPolicy,
 } from '@/lib/cancel-fee';
 
@@ -305,5 +305,55 @@ describe('BOOKING_STARTED_CONTACT_MESSAGE', () => {
   it('開始後は変更もキャンセルもできず、店舗への連絡を促す', () => {
     expect(BOOKING_STARTED_CONTACT_MESSAGE).toContain('日時の変更やキャンセルができません');
     expect(BOOKING_STARTED_CONTACT_MESSAGE).toContain('店舗へ直接ご連絡ください');
+  });
+});
+
+// 神原さん決定（2026年10月23日・案A）: 無料キャンセルの期限を過ぎた予約は、オンラインで日時を変更できない。
+// 以前は期限後に数日先へ動かしてからキャンセルすると、新しい日時でキャンセル料を計算して 0 円になった。
+describe('isPastFreeCancelWindow（無料キャンセルの期限を過ぎたか＝オンラインの日時変更を止めるか）', () => {
+  const FREE_WINDOW = { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'free_window' } as const;
+
+  it('N時間前まで無料: 期限内（残り 24 時間未満）は過ぎた扱い、ちょうど 24 時間前はまだ無料', () => {
+    expect(isPastFreeCancelWindow(FREE_WINDOW, 23.99)).toBe(true);
+    expect(isPastFreeCancelWindow(FREE_WINDOW, 0)).toBe(true);
+    expect(isPastFreeCancelWindow(FREE_WINDOW, 24)).toBe(false);
+    expect(isPastFreeCancelWindow(FREE_WINDOW, 72)).toBe(false);
+  });
+
+  it('キャンセル料の計算（computeCancelFee）がキャンセル料をかける時刻と同じ境界', () => {
+    for (const hours of [0, 1, 23.99, 24, 24.01, 100]) {
+      expect(isPastFreeCancelWindow(FREE_WINDOW, hours)).toBe(computeCancelFee(FREE_WINDOW, 10000, hours).isLate);
+    }
+  });
+
+  it('cancel_rule が無い旧い行は free_cancel_hours から読む（NULL の時間は 24 時間）', () => {
+    expect(isPastFreeCancelWindow({ free_cancel_hours: 48, late_cancel_rate: 50, cancel_rule: null }, 30)).toBe(true);
+    expect(isPastFreeCancelWindow({ free_cancel_hours: 48, late_cancel_rate: 50 }, 30)).toBe(true);
+    expect(isPastFreeCancelWindow({ free_cancel_hours: null, late_cancel_rate: 50 }, 23)).toBe(true);
+    expect(isPastFreeCancelWindow({ free_cancel_hours: null, late_cancel_rate: 50 }, 25)).toBe(false);
+  });
+
+  it.each([
+    ['期限なし（変更してもキャンセル料は逃れられない）', { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'always_fee' }],
+    ['旧い 0 時間の行（期限なしと読む）', { free_cancel_hours: 0, late_cancel_rate: 50, cancel_rule: null }],
+    ['ネットでのキャンセル不可（日時変更はこれまでどおり）', { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'no_online' }],
+    ['料率 0%（キャンセル料がかからない）', { free_cancel_hours: 24, late_cancel_rate: 0, cancel_rule: 'free_window' }],
+    ['料率 NULL（0% と読む）', { free_cancel_hours: 24, late_cancel_rate: null, cancel_rule: 'free_window' }],
+  ] as [string, CancelPolicy][])('%s → 止めない', (_label, policy) => {
+    expect(isPastFreeCancelWindow(policy, 1)).toBe(false);
+  });
+
+  it('ポリシー未設定・読めなかった → 止めない（キャンセル料がかからない／最終判定は API）', () => {
+    expect(isPastFreeCancelWindow(null, 1)).toBe(false);
+    expect(isPastFreeCancelWindow(undefined, 1)).toBe(false);
+  });
+
+  it('日時を解釈できない（Infinity）→ 止めない（最終判定は DB）', () => {
+    expect(isPastFreeCancelWindow(FREE_WINDOW, Infinity)).toBe(false);
+  });
+
+  it('案内は店舗への連絡を促す', () => {
+    expect(CHANGE_WINDOW_CLOSED_MESSAGE).toContain('オンラインで日時を変更できません');
+    expect(CHANGE_WINDOW_CLOSED_MESSAGE).toContain('店舗へ直接ご連絡ください');
   });
 });

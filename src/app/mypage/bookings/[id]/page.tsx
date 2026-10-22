@@ -13,8 +13,9 @@ import { beginStaffOperation, finishStaffOperation } from '@/lib/staff-operation
 import { UUID_REGEX } from '@/lib/constants';
 import { bookingStaffLabel, rebookSearchParams } from '@/lib/booking-nomination';
 import {
-  isOnlineCancelAllowed, hasBookingStarted, hoursUntilBookingStart, describeCancelFeeEstimate, describeConfirmedCancelFee,
-  ONLINE_CANCEL_DISABLED_MESSAGE, BOOKING_STARTED_CONTACT_MESSAGE, type CancelPolicy,
+  isOnlineCancelAllowed, isPastFreeCancelWindow, hasBookingStarted, hoursUntilBookingStart, describeCancelFeeEstimate,
+  describeConfirmedCancelFee, ONLINE_CANCEL_DISABLED_MESSAGE, BOOKING_STARTED_CONTACT_MESSAGE, CHANGE_WINDOW_CLOSED_MESSAGE,
+  type CancelPolicy,
 } from '@/lib/cancel-fee';
 import ShopContactNotice from '@/components/booking/ShopContactNotice';
 
@@ -199,12 +200,19 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
   const isOpenBooking = canCustomerCancelBooking(booking.status);
   // 開始時刻を過ぎた予約は API・DB ともキャンセル・日時変更を拒否するため、押しても失敗するボタンは出さない。
   const canCancel = canCustomerCancelBookingAt(booking.status, booking.booking_date, booking.start_time, loadedAt);
-  const canChange = canCustomerChangeBooking(booking.status, booking.booking_date, booking.start_time, loadedAt);
+  // 無料キャンセルの期限を過ぎた予約は、オンラインで日時を変更できない（神原さん決定・2026年10月23日・案A。
+  // 変更 API・DB とも BOOKING_CHANGE_WINDOW_CLOSED で拒否する）。判定はキャンセル料と同じ isPastFreeCancelWindow。
+  // ポリシーを読めなかったとき（undefined）はボタンを出す（最終判定は変更 API）。
+  const changeWindowClosed = cancelPolicy !== undefined
+    && isPastFreeCancelWindow(cancelPolicy, hoursUntilBookingStart(booking.booking_date, booking.start_time, loadedAt));
+  const changeOpen = canCustomerChangeBooking(booking.status, booking.booking_date, booking.start_time, loadedAt);
+  const canChange = changeOpen && !changeWindowClosed;
   const closedByStart = isOpenBooking && hasBookingStarted(booking.booking_date, booking.start_time, loadedAt);
   // 「店舗へ直接ご連絡ください」を出すときは、電話番号と店舗ページも一緒に出す。
   const contactMessage = closedByStart
     ? BOOKING_STARTED_CONTACT_MESSAGE
-    : canCancel && !onlineCancelAllowed ? ONLINE_CANCEL_DISABLED_MESSAGE : null;
+    : canCancel && !onlineCancelAllowed ? ONLINE_CANCEL_DISABLED_MESSAGE
+    : changeOpen && changeWindowClosed ? CHANGE_WINDOW_CLOSED_MESSAGE : null;
 
   return (
     <div>

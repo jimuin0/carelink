@@ -9,7 +9,10 @@ import type { AvailableSlot } from '@/types';
 import { fetchSlotsWeek, mergeSlotsInStaffOrder } from '@/lib/slots-week';
 import { buildMenuStaffMap, filterEligibleStaff, type MenuStaffRow } from '@/lib/menu-staff';
 import { isCustomerChangeableStatus } from '@/lib/booking-status';
-import { hasBookingStarted } from '@/lib/cancel-fee';
+import {
+  CHANGE_WINDOW_CLOSED_MESSAGE, hasBookingStarted, hoursUntilBookingStart, isPastFreeCancelWindow, type CancelPolicy,
+} from '@/lib/cancel-fee';
+import ShopContactNotice from '@/components/booking/ShopContactNotice';
 import { bookingStaffLabel, isNominatedBooking } from '@/lib/booking-nomination';
 import { needsSlotReselection, rescheduleDurationMinutes } from '@/lib/booking-slot-rules';
 
@@ -34,6 +37,8 @@ type ChangeableBooking = {
   menu_id: string | null; menu_ids: string[] | null;
   booking_date: string; start_time: string; end_time: string; total_price: number | null;
   facility_name: string; menu_name: string; staff_name: string; duration: number;
+  /** 店舗への連絡手段（無料キャンセルの期限を過ぎた予約で「店舗へ直接ご連絡ください」と一緒に出す）。 */
+  facility_slug: string | null; facility_phone: string | null;
 };
 
 /** 今の予約と同じ日・同じ開始時刻の枠か（長さは予約と同じなので、同じ枠＝変更にならない）。 */
@@ -93,6 +98,9 @@ export default function BookingChangePage() {
   const [slotsRetry, setSlotsRetry] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // 無料キャンセルの期限を過ぎた予約は、オンラインで日時を変更できない（神原さん決定・2026年10月23日・案A）。
+  // 予約詳細はボタンを出さないが、この画面を直接開いた・開いている間に期限を過ぎた場合も同じ案内を出す。
+  const [changeWindowClosed, setChangeWindowClosed] = useState(false);
   // 日付の候補はマウント時の時刻から作る（描画のたびに時刻を読まない）。
   const [mountedAtMs] = useState(() => Date.now());
 
@@ -124,9 +132,15 @@ export default function BookingChangePage() {
         if (hasBookingStarted(b.booking_date, b.start_time, Date.now())) { router.push(`/mypage/bookings/${bookingId}`); return; }
         if (cancelled) return;
 
-        // 施設名は補助表示。取得失敗時は空表示で本体は継続。
+        // 施設名・連絡先は補助表示。取得失敗時は空表示で本体は継続。
         // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-        const { data: facility } = await supabase.from('facility_profiles').select('name').eq('id', b.facility_id).single();
+        const { data: facility } = await supabase.from('facility_profiles').select('name, slug, phone').eq('id', b.facility_id).single();
+        // 店舗のキャンセルポリシー（変更 API・キャンセル API と同じ行）。読めなかったときは画面を出す（最終判定は変更 API）。
+        const { data: policy, error: policyErr } = await supabase
+          .from('facility_cancel_policies')
+          .select('free_cancel_hours, late_cancel_rate, cancel_rule')
+          .eq('facility_id', b.facility_id)
+          .maybeSingle();
         const { data: menu } = b.menu_id
           ? await supabase.from('facility_menus').select('name').eq('id', b.menu_id).single()
           : { data: null };
@@ -138,10 +152,14 @@ export default function BookingChangePage() {
         setBooking({
           ...b,
           facility_name: facility?.name || '',
+          facility_slug: facility?.slug || null,
+          facility_phone: facility?.phone || null,
           menu_name: menu?.name || '',
           staff_name: staff?.name || '',
           duration: rescheduleDurationMinutes(b.start_time, b.end_time),
         });
+        setChangeWindowClosed(!policyErr
+          && isPastFreeCancelWindow(policy as CancelPolicy | null, hoursUntilBookingStart(b.booking_date, b.start_time, Date.now())));
         setLoading(false);
       } catch {
         if (!cancelled) { setLoadError(true); setLoading(false); }
@@ -232,6 +250,8 @@ export default function BookingChangePage() {
       });
       const data = await res.json();
       if (!res.ok) {
+        // 画面を開いている間に無料キャンセルの期限を過ぎた: 枠の選択をやめ、店舗への連絡を案内する。
+        if (data.code === 'CHANGE_WINDOW_CLOSED') { setChangeWindowClosed(true); setSubmitting(false); return; }
         setToast({ type: 'error', message: data.error || '変更に失敗しました' });
         // 開始時刻を過ぎた・長さが合わない時間だった場合は、選択を外して空き枠を取り直す。
         if (needsSlotReselection(data.error)) { setSelectedSlot(null); setSlotsRetry((n) => n + 1); }
@@ -263,6 +283,19 @@ export default function BookingChangePage() {
         </div>
       </div>
 
+      {changeWindowClosed ? (
+        <>
+          <ShopContactNotice message={CHANGE_WINDOW_CLOSED_MESSAGE} phone={booking.facility_phone} slug={booking.facility_slug} />
+          <button
+            type="button"
+            onClick={() => router.push(`/mypage/bookings/${bookingId}`)}
+            className="w-full text-sm text-gray-500 hover:underline text-center py-2"
+          >
+            予約詳細に戻る
+          </button>
+        </>
+      ) : (
+      <>
       <div className="bg-white rounded-2xl shadow-xs p-6">
         <h2 className="font-bold mb-3">新しい日付を選択</h2>
         <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
@@ -332,6 +365,8 @@ export default function BookingChangePage() {
             {submitting ? '変更中...' : `${selectedDate} ${selectedSlot.slot_start.slice(0, 5)}に変更する`}
           </button>
         </div>
+      )}
+      </>
       )}
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}

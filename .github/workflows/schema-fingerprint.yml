@@ -146,6 +146,9 @@ jobs:
       - name: Started slots refused for online create/change, reschedule availability leaves the moved reservation out (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-slot-start-and-reschedule-fixtures.sql
 
+      - name: Customer date change refused once past the free-cancellation deadline, shop changes and other rules unchanged (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/change-free-cancel-window-fixtures.sql
+
       - name: Coupon target new/repeat at booking - login required, own-account history only, visits, cancellations, per facility (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/coupon-target-eligibility-fixtures.sql
 

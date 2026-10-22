@@ -421,3 +421,51 @@ test('確認を開いたあとで無料期限を過ぎた → 取り消さずに
   expect(await screen.findByText('予約をキャンセルしました。キャンセル料 ¥2,500 が発生します。お支払い方法は店舗からご案内します。')).toBeInTheDocument();
   expect(cancelCalls()).toHaveLength(1);
 });
+
+// ---------------------------------------------------------------------------
+// 無料キャンセルの期限を過ぎた予約は、オンラインで日時を変更できない（神原さん決定・2026年10月23日・案A）。
+// 以前は期限後も「日時を変更する」が出ており、数日先へ動かしてからキャンセルするとキャンセル料が 0 円になった。
+// ---------------------------------------------------------------------------
+const CHANGE_WINDOW_CLOSED = '無料でキャンセルできる期限を過ぎた予約は、オンラインで日時を変更できません。日時の変更をご希望の場合は、店舗へ直接ご連絡ください。';
+const CHANGE_BUTTON = { name: '日時を変更する' };
+const FREE_WINDOW_24H = { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'free_window' };
+
+test.each([
+  ['N時間前まで無料（free_window）', FREE_WINDOW_24H],
+  ['cancel_rule が無い旧い行（free_cancel_hours から読む）', { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: null }],
+])('%s で無料期限を過ぎた → 「日時を変更する」を出さず、理由と電話・店舗ページを案内する（キャンセルは出す）', async (_label, policy) => {
+  jest.spyOn(Date, 'now').mockReturnValue(START_MS - 23 * 3_600_000);
+  mockDetail({ booking: { ...BOOKING, booking_date: '2099-06-20' }, policy });
+  mockGcalFetch(true, { connected: false });
+  renderPage();
+  expect(await screen.findByText(CHANGE_WINDOW_CLOSED)).toBeInTheDocument();
+  expect(screen.queryByRole('button', CHANGE_BUTTON)).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: '店舗に電話する（03-1234-5678）' })).toHaveAttribute('href', 'tel:03-1234-5678');
+  expect(screen.getByRole('link', { name: '店舗ページを見る' })).toHaveAttribute('href', '/facility/test-salon');
+  // キャンセル料がかかるキャンセルはこれまでどおり受け付ける。
+  expect(screen.getByRole('button', CANCEL_BUTTON)).toBeInTheDocument();
+});
+
+test.each([
+  ['無料期限より前', FREE_WINDOW_24H, null, 25],
+  ['期限なし（常にキャンセル料）', { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'always_fee' }, null, 23],
+  ['ネットでのキャンセル不可', { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'no_online' }, null, 23],
+  ['キャンセル料 0%', { free_cancel_hours: 24, late_cancel_rate: 0, cancel_rule: 'free_window' }, null, 23],
+  ['ポリシー未設定', null, null, 23],
+  ['ポリシーを読めなかった（最終判定は API）', null, { message: 'synthetic' }, 23],
+])('%s → 「日時を変更する」をこれまでどおり出す', async (_label, policy, policyError, hoursBefore) => {
+  jest.spyOn(Date, 'now').mockReturnValue(START_MS - hoursBefore * 3_600_000);
+  mockDetail({ booking: { ...BOOKING, booking_date: '2099-06-20' }, policy, policyError });
+  mockGcalFetch(true, { connected: false });
+  renderPage();
+  expect(await screen.findByRole('button', CHANGE_BUTTON)).toBeInTheDocument();
+  expect(screen.queryByText(CHANGE_WINDOW_CLOSED)).not.toBeInTheDocument();
+});
+
+test('開始時刻を過ぎた予約は、無料期限の案内ではなく開始後の案内を出す', async () => {
+  mockDetail({ booking: { ...BOOKING, booking_date: '2020-06-20' }, policy: FREE_WINDOW_24H });
+  mockGcalFetch(true, { connected: false });
+  renderPage();
+  expect(await screen.findByText(STARTED_NOTICE)).toBeInTheDocument();
+  expect(screen.queryByText(CHANGE_WINDOW_CLOSED)).not.toBeInTheDocument();
+});

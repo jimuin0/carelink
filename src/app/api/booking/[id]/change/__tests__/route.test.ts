@@ -48,13 +48,13 @@ beforeEach(()=>{
  jest.clearAllMocks();mockRotateCookies=false;mockSetCookie.mockReset();
  (checkCsrf as jest.Mock).mockReturnValue(null);(checkRateLimit as jest.Mock).mockResolvedValue(false);
  (verifyAuthUser as jest.Mock).mockResolvedValue({state:'verified',user:{id:USER}});
- mockFrom.mockReturnValue(chain(booking));mockRpc.mockResolvedValue({data:[{id:ID,replayed:false}],error:null});
+ mockFrom.mockReturnValue(chain(booking));mockAdminFrom.mockReturnValue(chain(null));mockRpc.mockResolvedValue({data:[{id:ID,replayed:false}],error:null});
 });
 afterEach(()=>jest.useRealTimers());
 test('change commits complete notifications with explicit owned actor and schedule gate',async()=>{
  const res=await POST(request(),props());expect(res.status).toBe(200);expect(await res.json()).toEqual({success:true});
  expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_channels_atomic',{p_booking_id:ID,p_user_id:USER,p_booking_date:body.booking_date,p_start_time:body.start_time,p_end_time:body.end_time,p_enforce_schedule:true});
- expect(mockFrom).toHaveBeenCalledTimes(1);expect(mockAdminFrom).not.toHaveBeenCalled();expectNoInlineSend();
+ expect(mockFrom).toHaveBeenCalledTimes(1);expect(mockAdminFrom).toHaveBeenCalledTimes(1);expect(mockAdminFrom).toHaveBeenCalledWith('facility_cancel_policies');expectNoInlineSend();
  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({userId:USER,recordId:ID}));
 });
 test('replay never duplicates audit or provider attempt',async()=>{mockRpc.mockResolvedValue({data:[{id:ID,replayed:true}],error:null});expect((await POST(request(),props())).status).toBe(200);expect(writeAuditLog).not.toHaveBeenCalled();expectNoInlineSend();});
@@ -94,7 +94,7 @@ test('the database refusal for a started booking keeps the same 409 message',asy
  expect((await res.json()).error).toBe('予約開始時刻を過ぎているため、オンラインでの日時変更はできません。施設へ直接ご連絡ください。');
 });
 test('pending booking can change',async()=>{mockFrom.mockReturnValue(chain({...booking,status:'pending'}));expect((await POST(request(),props())).status).toBe(200);});
-test.each([['BOOKING_NOT_READY',409],['BOOKING_CONFLICT',409],['BOOKING_CONFLICT: この時間帯は既に予約が入っています',409],['BOOKING_NOT_FOUND',404],['BOOKING_FORBIDDEN',403],['BOOKING_NOT_CHANGEABLE',400],['BOOKING_ALREADY_STARTED',409],['BOOKING_SLOT_PASSED: 選択した時間は過ぎています',409],['BOOKING_CLOSED_DAY',409],['BOOKING_OUTSIDE_HOURS',409],['STAFF_NOT_WORKING',409],['SYNTHETIC_PLAN_FAILURE',500],[undefined,500]])('transaction error %s',async(message,status)=>{mockRpc.mockResolvedValue({data:null,error:{message}});expect((await POST(request(),props())).status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expectNoInlineSend();});
+test.each([['BOOKING_NOT_READY',409],['BOOKING_CONFLICT',409],['BOOKING_CONFLICT: この時間帯は既に予約が入っています',409],['BOOKING_NOT_FOUND',404],['BOOKING_FORBIDDEN',403],['BOOKING_NOT_CHANGEABLE',400],['BOOKING_ALREADY_STARTED',409],['BOOKING_SLOT_PASSED: 選択した時間は過ぎています',409],['BOOKING_CHANGE_WINDOW_CLOSED: 無料キャンセルの期限を過ぎた予約は日時を変更できません',409],['BOOKING_CLOSED_DAY',409],['BOOKING_OUTSIDE_HOURS',409],['STAFF_NOT_WORKING',409],['SYNTHETIC_PLAN_FAILURE',500],[undefined,500]])('transaction error %s',async(message,status)=>{mockRpc.mockResolvedValue({data:null,error:{message}});expect((await POST(request(),props())).status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expectNoInlineSend();});
 test.each([null,[],[{id:ID,replayed:false},{id:ID,replayed:false}],[{id:'other',replayed:false}],[{id:ID,replayed:null}]])('invalid committed receipt %#',async data=>{mockRpc.mockResolvedValue({data,error:null});expect((await POST(request(),props())).status).toBe(500);expect(writeAuditLog).not.toHaveBeenCalled();});
 test.each([
  {...body,booking_date:'bad'},{...body,booking_date:'2026-02-30'},{...body,booking_date:'2026-13-01'},{...body,booking_date:'2020-01-01'},{...body,booking_date:'2040-01-01'},
@@ -146,5 +146,49 @@ describe('the new time (2026-10-23)',()=>{
   const read=chain(booking);mockFrom.mockReturnValue(read);
   await POST(request(),props());
   expect(read.select).toHaveBeenCalledWith('id, user_id, status, facility_id, staff_id, booking_date, start_time, end_time');
+ });
+});
+
+// Regression (2026-10-23, 神原さん option A): past the shop's free-cancellation deadline a customer could move the
+// reservation days ahead and then cancel it for 0円 (the fee is computed from the new date/time), freeing the
+// original slot at the last minute. The change is now refused with the same rule as the fee (isPastFreeCancelWindow).
+const CHANGE_WINDOW_CLOSED='無料でキャンセルできる期限を過ぎた予約は、オンラインで日時を変更できません。日時の変更をご希望の場合は、店舗へ直接ご連絡ください。';
+describe('the free-cancellation window (2026-10-23)',()=>{
+ // Now 2026-10-14 09:00 JST; the reservation starts 2026-10-15 10:00 JST = 25 hours ahead.
+ test.each([
+  ['free_window, 26 hours',{cancel_rule:'free_window',free_cancel_hours:26,late_cancel_rate:50}],
+  ['a row saved before cancel_rule existed',{cancel_rule:null,free_cancel_hours:26,late_cancel_rate:50}],
+ ])('inside the window (%s) the change is refused before the transaction',async(_label,policy)=>{
+  const policyChain=chain(policy);mockAdminFrom.mockReturnValue(policyChain);
+  const res=await POST(request(),props());
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({error:CHANGE_WINDOW_CLOSED,code:'CHANGE_WINDOW_CLOSED'});
+  expect(mockAdminFrom).toHaveBeenCalledWith('facility_cancel_policies');
+  expect(policyChain.select).toHaveBeenCalledWith('free_cancel_hours, late_cancel_rate, cancel_rule');
+  expect(policyChain.eq).toHaveBeenCalledWith('facility_id',FACILITY);
+  expect(mockRpc).not.toHaveBeenCalled();expect(writeAuditLog).not.toHaveBeenCalled();expectNoInlineSend();
+ });
+ test.each([
+  ['before the deadline',{cancel_rule:'free_window',free_cancel_hours:24,late_cancel_rate:50}],
+  ['期限なし (a fee applies anyway)',{cancel_rule:'always_fee',free_cancel_hours:26,late_cancel_rate:50}],
+  ['ネットでのキャンセル不可',{cancel_rule:'no_online',free_cancel_hours:26,late_cancel_rate:50}],
+  ['a 0% rate',{cancel_rule:'free_window',free_cancel_hours:26,late_cancel_rate:0}],
+  ['no policy',null],
+ ])('%s: the change goes ahead',async(_label,policy)=>{
+  mockAdminFrom.mockReturnValue(chain(policy));
+  expect((await POST(request(),props())).status).toBe(200);
+  expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_channels_atomic',expect.objectContaining({p_booking_id:ID,p_enforce_schedule:true}));
+ });
+ test('a policy read error is not read as "no policy"',async()=>{
+  mockAdminFrom.mockReturnValue(chain(null,{code:'08006'}));
+  expect((await POST(request(),props())).status).toBe(500);
+  expect(mockRpc).not.toHaveBeenCalled();expect(writeAuditLog).not.toHaveBeenCalled();
+ });
+ test('the database refusal maps to the same message and code',async()=>{
+  mockRpc.mockResolvedValue({data:null,error:{message:'BOOKING_CHANGE_WINDOW_CLOSED: 無料キャンセルの期限を過ぎた予約は日時を変更できません'}});
+  const res=await POST(request(),props());
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({error:CHANGE_WINDOW_CLOSED,code:'CHANGE_WINDOW_CLOSED'});
+  expect(writeAuditLog).not.toHaveBeenCalled();
  });
 });

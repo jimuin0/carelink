@@ -50,6 +50,13 @@ export const ONLINE_CANCEL_DISABLED_MESSAGE =
 export const BOOKING_STARTED_CONTACT_MESSAGE =
   '開始時刻を過ぎた予約は、オンラインで日時の変更やキャンセルができません。店舗へ直接ご連絡ください。';
 
+/**
+ * 無料キャンセルの期限を過ぎた予約で、お客様に出す案内（マイページの予約詳細・日時変更画面・日時変更 API の応答）。
+ * 神原さん決定（2026年10月23日・案A）: 期限を過ぎたら、オンラインでの日時変更は受け付けない。
+ */
+export const CHANGE_WINDOW_CLOSED_MESSAGE =
+  '無料でキャンセルできる期限を過ぎた予約は、オンラインで日時を変更できません。日時の変更をご希望の場合は、店舗へ直接ご連絡ください。';
+
 /** キャンセルポリシーを読めず、キャンセル料の見込みを出せないときの案内（金額を推測しない）。 */
 export const CANCEL_FEE_UNKNOWN_MESSAGE = 'キャンセルポリシーによりキャンセル料が発生する場合があります。';
 
@@ -133,6 +140,28 @@ export function computeCancelFee(
     return { fee: 0, rate, isLate: false };
   }
   return { fee: Math.round((totalPrice * rate) / 100), rate, isLate: true };
+}
+
+/**
+ * 「N時間前まで無料」の店舗で、無料キャンセルの期限を過ぎた予約か。期限を過ぎた予約は、お客様が
+ * オンラインで日時を変更できない（神原さん決定・2026年10月23日・案A。店舗へ直接連絡してもらう）。
+ *
+ * 🔴 なぜ必要か: 以前は期限を過ぎても日時を数日先へ動かせ、動かした後のキャンセルは新しい日時で
+ *   キャンセル料を計算するため 0 円になった（当日 15:00 の予約を 13:00 に 3 日後へ動かしてから
+ *   キャンセルすると、キャンセル料がかからないまま元の枠が直前に空く）。
+ *
+ * 判定は computeCancelFee がキャンセル料をかける条件（free_window・料率 > 0・残り時間 < freeHours）と同じ。
+ * - 期限なし（always_fee）: いつキャンセルしてもキャンセル料がかかる＝変更しても逃れられないので対象外。
+ * - ネットでのキャンセル不可（no_online）: 日時変更はこれまでどおり（キャンセル自体がネットでできない）。
+ * - 料率 0（NULL を含む）: そもそもキャンセル料がかからない店舗なので対象外。
+ * - ポリシー未設定の店舗: キャンセル料がかからないので対象外。
+ * 予約の料金は見ない（店舗のルールとして判定する）。同じ判定を DB の change_booking_atomic（公開経路）も
+ * BOOKING_CHANGE_WINDOW_CLOSED として持つ（20261023164100）。
+ */
+export function isPastFreeCancelWindow(policy: CancelPolicy | null | undefined, hoursUntilStart: number): boolean {
+  if (!policy) return false;
+  const resolved = resolveCancelPolicy(policy);
+  return resolved.rule === 'free_window' && resolved.rate > 0 && hoursUntilStart < resolved.freeHours;
 }
 
 /**
