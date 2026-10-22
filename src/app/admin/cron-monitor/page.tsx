@@ -245,7 +245,7 @@ export default function CronMonitorPage() {
         <SbStatCard label="エラー数（30日）" value={summary.errors} accent={summary.errors > 0 ? 'rose' : 'gray'} />
         <SbStatCard label="ジョブ種類" value={latestByJob.length} />
       </div>
-      <p className="text-xs text-gray-500 -mt-3">
+      <p className="text-xs text-gray-600 -mt-3">
         成功率は「成功」と「スキップ（処理対象が0件の正常終了）」を正常として数えています（スキップ {summary.skipped}件）。
       </p>
 

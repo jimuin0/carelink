@@ -6,6 +6,8 @@
  * - 切り替えは profiles の旗と配信停止の抑止行を 1 トランザクションで扱う RPC だけを通す
  *   （ブラウザ／service_role から profiles を直接書き換えない）
  * - 宛先は本人のアカウント（ctx.user.id）だけ。リクエストから宛先・ユーザーを指定させない
+ * GET /api/profile/newsletter（トグルの初期表示）
+ * - profiles の旗だけでなく抑止行も見た状態（get_newsletter_preference）を本人の id で返す
  */
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/rate-limit', () => ({
@@ -22,7 +24,7 @@ jest.mock('next/headers');
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { PUT } from '../route';
+import { GET, PUT } from '../route';
 
 const mockRpc = jest.fn();
 const mockFrom = jest.fn();
@@ -120,5 +122,75 @@ test.each([
 ])('%s → 500（結果を確認できないものを成功にしない）', async (_label, data) => {
   mockRpc.mockResolvedValue({ data, error: null });
   const res = await PUT(request({ receive: true }) as any);
+  expect(res.status).toBe(500);
+});
+
+// ==========================================================================
+// GET（トグルの初期表示）
+// アカウント作成前に配信停止リンクで止めた宛先は profiles の旗が立たず抑止行だけが残る。
+// 旗だけで表示すると「受け取る」に見えたまま届かないので、DB が旗と抑止行の両方から決めた値を返す。
+// ==========================================================================
+function getRequest() {
+  return new Request('http://localhost/api/profile/newsletter', {
+    method: 'GET',
+    headers: { 'x-forwarded-for': '192.168.1.1' },
+  });
+}
+
+test.each([
+  ['抑止行が残っている', { receive: false, unsubscribed: false, suppressed: true }, false],
+  ['届く', { receive: true, unsubscribed: false, suppressed: false }, true],
+])('%s → 本人の id で状態 RPC を 1 回だけ呼び、receive だけを返す', async (_label, data, receive) => {
+  mockRpc.mockResolvedValue({ data, error: null });
+  const res = await GET(getRequest() as any);
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ receive });
+  expect(mockRpc).toHaveBeenCalledTimes(1);
+  expect(mockRpc).toHaveBeenCalledWith('get_newsletter_preference', { p_user_id: 'user-123' });
+  expect(mockFrom).not.toHaveBeenCalled();
+});
+
+test('GET は CSRF 検証を掛けない（読み取りのみ）', async () => {
+  (checkCsrf as jest.Mock).mockReturnValue(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  mockRpc.mockResolvedValue({ data: { receive: true }, error: null });
+  const res = await GET(getRequest() as any);
+  expect(res.status).toBe(200);
+  expect(checkCsrf).not.toHaveBeenCalled();
+});
+
+test('GET のレート制限 → 429', async () => {
+  (checkRateLimit as jest.Mock).mockResolvedValue(true);
+  const res = await GET(getRequest() as any);
+  expect(res.status).toBe(429);
+  expect(mockRpc).not.toHaveBeenCalled();
+});
+
+test('GET 未ログイン → 401', async () => {
+  setup(false);
+  const res = await GET(getRequest() as any);
+  expect(res.status).toBe(401);
+  expect(mockRpc).not.toHaveBeenCalled();
+});
+
+test('GET プロフィールが無い → 409', async () => {
+  mockRpc.mockResolvedValue({ data: null, error: { code: 'P0002', message: 'NEWSLETTER_PREFERENCE_PROFILE_MISSING' } });
+  const res = await GET(getRequest() as any);
+  expect(res.status).toBe(409);
+  expect((await res.json()).error).toContain('プロフィールを確認できません');
+});
+
+test('GET の RPC 失敗 → 500', async () => {
+  mockRpc.mockResolvedValue({ data: null, error: { code: '42883', message: 'function does not exist' } });
+  const res = await GET(getRequest() as any);
+  expect(res.status).toBe(500);
+  expect((await res.json()).error).toBe('設定を取得できませんでした');
+});
+
+test.each([
+  ['形の違う応答', { receive: 'false' }],
+  ['null', null],
+])('GET の %s → 500（推測で「届く」と返さない）', async (_label, data) => {
+  mockRpc.mockResolvedValue({ data, error: null });
+  const res = await GET(getRequest() as any);
   expect(res.status).toBe(500);
 });

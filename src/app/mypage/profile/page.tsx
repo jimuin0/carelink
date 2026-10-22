@@ -88,6 +88,15 @@ export default function ProfileEditPage() {
         setAvatarUrl(data.avatar_url || null);
         setEmailUnsubscribed(data.email_unsubscribed ?? false);
 
+        // 🔴 profiles の旗だけでは実際に届くかが分からない（アカウント作成前に配信停止リンクで止めた宛先は
+        // 旗が立たず、抑止行だけが残る）。サーバーが旗と抑止行の両方から決めた状態で表示する。
+        // 取得できないときは旗の値のまま表示する（従来どおり）。
+        try {
+          const res = await fetch('/api/profile/newsletter', { cache: 'no-store' });
+          const state = await res.json().catch(() => null);
+          if (!cancelled && res.ok && typeof state?.receive === 'boolean') setEmailUnsubscribed(!state.receive);
+        } catch { /* 旗の値のまま表示する */ }
+
         // Supplemental badge uses the same server-verified ownership as senders.
         try {
           const lineId = await resolveLineUserIdForUser(supabase, user.id);

@@ -7,6 +7,10 @@ import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 const mockGetUser = jest.fn();
 const mockMaybeSingle = jest.fn();
 const mockFetch = jest.fn();
+// トグルの初期表示（GET /api/profile/newsletter）は保存・切り替えの fetch と分けて数える。
+const mockStateFetch = jest.fn();
+const routedFetch = (url: string, init?: RequestInit) =>
+  url === '/api/profile/newsletter' && (init?.method ?? 'GET') === 'GET' ? mockStateFetch(url, init) : mockFetch(url, init);
 jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: () => ({
   auth: { getUser: mockGetUser },
   from: () => ({ select: () => ({ eq: () => ({ maybeSingle: mockMaybeSingle }) }) }),
@@ -22,7 +26,9 @@ beforeEach(() => {
   require('@/lib/line-availability').isLineLoginEnabled.mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: 'synthetic-user' } }, error: null });
   mockMaybeSingle.mockResolvedValue({ data: profile, error: null });
-  global.fetch = mockFetch;
+  // 既定は「状態 API が使えない」＝profiles の旗のまま表示する（従来どおり）
+  mockStateFetch.mockRejectedValue(new TypeError('Failed to fetch'));
+  global.fetch = routedFetch as unknown as typeof fetch;
 });
 
 test('欠損プロフィールは新規入力や保存成功にせず再試行・問い合わせを表示する', async () => {
@@ -168,4 +174,42 @@ test('通信失敗も再開済みに見せない（英語の内部エラーは�
   expect(await screen.findByText('設定の変更に失敗しました')).toBeInTheDocument();
   expect(screen.queryByText('Failed to fetch')).not.toBeInTheDocument();
   expect(toggle).not.toBeChecked();
+});
+
+// ==========================================================================
+// トグルの初期表示（2026年10月22日・レビュー指摘）
+// アカウント作成【前】に配信停止リンクで止めた宛先は profiles の旗が立たず、抑止行だけが残る。
+// 旗だけで表示すると「受け取る」に見えたまま届かない。サーバーが旗と抑止行から決めた状態で表示する。
+// ==========================================================================
+test('旗は「受け取る」でも、サーバーが「届かない」と返したら OFF で表示し、ON 1 回で再開できる', async () => {
+  mockStateFetch.mockResolvedValue({ ok: true, json: async () => ({ receive: false }) });
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ success: true, receive: true }) });
+  render(<ProfileEditPage />);
+  const toggle = await screen.findByRole('checkbox', { name: NEWSLETTER_LABEL });
+  expect(toggle).not.toBeChecked();
+  expect(mockStateFetch).toHaveBeenCalledTimes(1);
+  expect(mockStateFetch.mock.calls[0][0]).toBe('/api/profile/newsletter');
+  expect(mockStateFetch.mock.calls[0][1]?.method).toBeUndefined();
+  fireEvent.click(toggle);
+  expect(await screen.findByText('お知らせメールの配信を再開しました')).toBeInTheDocument();
+  expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ receive: true });
+  await waitFor(() => expect(toggle).toBeChecked());
+});
+
+test('サーバーが「届く」と返したら ON で表示する', async () => {
+  mockStateFetch.mockResolvedValue({ ok: true, json: async () => ({ receive: true }) });
+  render(<ProfileEditPage />);
+  expect(await screen.findByRole('checkbox', { name: NEWSLETTER_LABEL })).toBeChecked();
+});
+
+test.each([
+  ['HTTP エラー', { ok: false, json: async () => ({ receive: true }) }],
+  ['壊れた JSON', { ok: true, json: () => Promise.reject(new Error('bad JSON')) }],
+  ['形の違う応答', { ok: true, json: async () => ({ receive: 'yes' }) }],
+])('状態を取れない（%s）ときは profiles の旗のまま表示し、画面は開く', async (_label, response) => {
+  mockMaybeSingle.mockResolvedValue({ data: { ...profile, email_unsubscribed: true }, error: null });
+  mockStateFetch.mockResolvedValue(response);
+  render(<ProfileEditPage />);
+  expect(await screen.findByRole('checkbox', { name: NEWSLETTER_LABEL })).not.toBeChecked();
+  expect(screen.getByRole('button', { name: 'プロフィールを更新' })).toBeInTheDocument();
 });

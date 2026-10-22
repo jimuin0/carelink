@@ -8425,6 +8425,10 @@ export type Database = {
         Args: { p_user_id: string; p_receive: boolean }
         Returns: Json
       }
+      get_newsletter_preference: {
+        Args: { p_user_id: string }
+        Returns: Json
+      }
       update_facility_settings_atomic: {
         Args: { p_actor_id: string; p_facility_id: string; p_patch: Json }
         Returns: {

@@ -40,7 +40,10 @@ test('skipped（処理対象0件＝正常）を成功側に数え、健全なら
   const rate = await screen.findByText('100%');
   expect(rate.closest('div')).toHaveClass('border-t-emerald-500');
   expect(screen.queryByText('41%')).not.toBeInTheDocument();
-  expect(screen.getByText(/スキップ 4300件/)).toBeInTheDocument();
+  // 注記は管理画面の bg-gray-100 に直接載る。gray-500 は 4.39:1 で AA（4.5:1）に届かないので gray-600。
+  const note = screen.getByText(/スキップ 4300件/);
+  expect(note).toHaveClass('text-gray-600');
+  expect(note).not.toHaveClass('text-gray-500');
 });
 
 test('エラーが混じると成功率が下がる', async () => {

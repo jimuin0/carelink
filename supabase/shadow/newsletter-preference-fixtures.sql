@@ -6,6 +6,8 @@
 --   3. 他人の宛先の抑止は外せない（profiles.email を書き換えても、確認済みログインメールしか見ない）
 --   4. ブラウザ（anon / authenticated）からは呼べない
 --   5. メールアドレス未確認のアカウントは旗だけ戻し、抑止行には触れない
+--   6. アカウント作成前に配信停止リンクで止めた宛先は、旗が立たなくても表示（get_newsletter_preference）が
+--      「受け取らない」になり、ON を 1 回押せば届くようになる
 BEGIN;
 SET LOCAL statement_timeout='15s';
 DO $$ BEGIN
@@ -20,6 +22,9 @@ CREATE FUNCTION pg_temp.recipient(p_kind text,p_email text) RETURNS boolean LANG
 SELECT pg_temp.assert_pref(NOT has_function_privilege('anon','public.set_newsletter_preference_atomic(uuid,boolean)','EXECUTE')
  AND NOT has_function_privilege('authenticated','public.set_newsletter_preference_atomic(uuid,boolean)','EXECUTE')
  AND has_function_privilege('service_role','public.set_newsletter_preference_atomic(uuid,boolean)','EXECUTE'),'service-only preference writer');
+SELECT pg_temp.assert_pref(NOT has_function_privilege('anon','public.get_newsletter_preference(uuid)','EXECUTE')
+ AND NOT has_function_privilege('authenticated','public.get_newsletter_preference(uuid)','EXECUTE')
+ AND has_function_privilege('service_role','public.get_newsletter_preference(uuid)','EXECUTE'),'service-only preference reader');
 
 INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
  ('ed210000-0000-4000-8000-000000000001','pref-owner@example.invalid',now()),
@@ -88,6 +93,32 @@ SELECT pg_temp.assert_pref(public.set_newsletter_preference_atomic('ed210000-000
  = jsonb_build_object('success',true,'receive',false,'cleared',0,'reactivated',0),'owner stop receipt');
 RESET ROLE;
 SELECT pg_temp.assert_pref(NOT pg_temp.recipient('owner_monthly','pref-owner@example.invalid'),'stop removes owner from recipients');
+SET LOCAL ROLE service_role;
+SELECT pg_temp.assert_pref(public.get_newsletter_preference('ed210000-0000-4000-8000-000000000001')
+ = jsonb_build_object('receive',false,'unsubscribed',true,'suppressed',false),'state after stop');
+RESET ROLE;
+
+-- 6. アカウント作成【前】に配信停止リンクで止めた宛先。profiles の行がまだ無いので旗は立たず、抑止行だけが残る。
+--    旗だけを見るとトグルは「受け取る」に見えるのに届かない。表示は抑止行も見て「受け取らない」を返し、
+--    ON を 1 回押せば抑止行が外れて表示も宛先も戻る。
+SELECT public.unsubscribe_newsletter_atomic('pref-late@example.invalid',NULL);
+INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
+ ('ed210000-0000-4000-8000-000000000006','Pref-Late@example.invalid',now());
+INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES
+ ('ed210001-0000-4000-8000-000000000002','Preference B','synthetic-newsletter-preference-b','その他','検証県','検証市','検証住所','draft');
+INSERT INTO public.facility_members(user_id,facility_id,role) VALUES
+ ('ed210000-0000-4000-8000-000000000006','ed210001-0000-4000-8000-000000000002','owner');
+SELECT pg_temp.assert_pref((SELECT NOT email_unsubscribed FROM public.profiles WHERE id='ed210000-0000-4000-8000-000000000006'),'late account flag is not set by the earlier link');
+SELECT pg_temp.assert_pref(NOT pg_temp.recipient('owner_monthly','pref-late@example.invalid'),'late account suppressed by the earlier link');
+SET LOCAL ROLE service_role;
+SELECT pg_temp.assert_pref(public.get_newsletter_preference('ed210000-0000-4000-8000-000000000006')
+ = jsonb_build_object('receive',false,'unsubscribed',false,'suppressed',true),'state reports the suppression the flag misses');
+SELECT pg_temp.assert_pref(public.set_newsletter_preference_atomic('ed210000-0000-4000-8000-000000000006',true)
+ = jsonb_build_object('success',true,'receive',true,'cleared',1,'reactivated',0),'one resume clears the earlier suppression');
+SELECT pg_temp.assert_pref(public.get_newsletter_preference('ed210000-0000-4000-8000-000000000006')
+ = jsonb_build_object('receive',true,'unsubscribed',false,'suppressed',false),'state follows the resume');
+RESET ROLE;
+SELECT pg_temp.assert_pref(pg_temp.recipient('owner_monthly','pref-late@example.invalid'),'late account receives owner newsletter after one resume');
 
 -- 入力とアカウントの検証
 DELETE FROM public.profiles WHERE id='ed210000-0000-4000-8000-000000000004';
@@ -101,8 +132,12 @@ DO $$ BEGIN
  EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'BOOKING_ACCOUNT_UNAVAILABLE' THEN RAISE; END IF; END;
  BEGIN PERFORM public.set_newsletter_preference_atomic('ed210000-0000-4000-8000-000000000004',true); RAISE EXCEPTION 'missing profile accepted';
  EXCEPTION WHEN no_data_found THEN IF SQLERRM<>'NEWSLETTER_PREFERENCE_PROFILE_MISSING' THEN RAISE; END IF; END;
+ BEGIN PERFORM public.get_newsletter_preference(NULL); RAISE EXCEPTION 'null user read';
+ EXCEPTION WHEN check_violation THEN IF SQLERRM<>'NEWSLETTER_PREFERENCE_INVALID' THEN RAISE; END IF; END;
+ BEGIN PERFORM public.get_newsletter_preference('ed210000-0000-4000-8000-000000000004'); RAISE EXCEPTION 'missing profile read';
+ EXCEPTION WHEN no_data_found THEN IF SQLERRM<>'NEWSLETTER_PREFERENCE_PROFILE_MISSING' THEN RAISE; END IF; END;
 END $$;
 RESET ROLE;
 
-SELECT 'newsletter preference resume/stop/isolation/unconfirmed/privilege checks passed';
+SELECT 'newsletter preference resume/stop/isolation/unconfirmed/pre-signup-suppression/privilege checks passed';
 ROLLBACK;

@@ -16,7 +16,13 @@
  *      書き換えられるので、そこを宛先にすると他人が配信停止した宛先を再購読させられる
  *   3. アプリのコードが profiles.email_unsubscribed をブラウザから直接書き換えていない
  *   4. 実 DB での検証（shadow fixture）が CI に配線されている
+ *   5. トグルの初期表示は get_newsletter_preference（旗と抑止行の両方）から決める。アカウント作成前に
+ *      配信停止リンクで止めた宛先は旗が立たず抑止行だけが残るので、旗だけでは「受け取る」に見えて届かない
+ *   6. 2 関数と EXECUTE 権限が期待スキーマ（schema-fingerprint.expected.json）に入っている。
+ *      入っていないと schema-fingerprint.yml の --check が落ちて後続の shadow fixture が一度も走らず、
+ *      アプリより先に本番へ当てた時点から schema-drift-check が毎日「期待値に無い関数」を警報する
  */
+import { createHash } from 'crypto';
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, relative } from 'path';
 
@@ -25,14 +31,16 @@ const MIGRATIONS = join(ROOT, 'supabase/migrations');
 const MIGRATION = '20261022180000_newsletter_preference_atomic.sql';
 const FIXTURE = 'supabase/shadow/newsletter-preference-fixtures.sql';
 const SIGNATURE = 'set_newsletter_preference_atomic(uuid,boolean)';
+const READER_SIGNATURE = 'get_newsletter_preference(uuid)';
 /** コメントを除いた SQL（説明文の中の語に反応しない）。 */
 const code = (text: string) => text.replace(/--[^\n]*/g, '').replace(/\s+/g, ' ');
 const body = code(readFileSync(join(MIGRATIONS, MIGRATION), 'utf8'));
 const GUARD_FIRST = /^DO \$guard\$ BEGIN IF to_regclass\('public\.facility_profiles'\) IS NULL THEN RAISE EXCEPTION/;
 
 /** 関数本体（$$ … $$）だけを取り出す。 */
-function functionBody(sql: string): string {
-  const start = sql.indexOf('CREATE OR REPLACE FUNCTION public.set_newsletter_preference_atomic');
+function functionBody(sql: string, name = 'set_newsletter_preference_atomic'): string {
+  const start = sql.indexOf(`CREATE OR REPLACE FUNCTION public.${name}(`);
+  expect(start).toBeGreaterThan(-1);
   const open = sql.indexOf('$$', start);
   const close = sql.indexOf('$$', open + 2);
   return sql.slice(open + 2, close);
@@ -71,12 +79,47 @@ describe('migration', () => {
     expect(subs).toBeGreaterThan(profile);
   });
 
+  test('表示用の get_newsletter_preference も SECURITY DEFINER・search_path 固定・service_role 専用', () => {
+    expect(body).toMatch(/CREATE OR REPLACE FUNCTION public\.get_newsletter_preference\(p_user_id uuid\) RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=''/);
+    expect(body).toContain(`REVOKE ALL ON FUNCTION public.${READER_SIGNATURE} FROM PUBLIC,anon,authenticated;`);
+    expect(body).toContain(`GRANT EXECUTE ON FUNCTION public.${READER_SIGNATURE} TO service_role;`);
+    expect(body).not.toMatch(/GRANT [^;]*get_newsletter_preference[^;]*\bTO [^;]*\b(anon|authenticated|PUBLIC)\b/i);
+  });
+
+  test('表示は旗と抑止行の両方から決め、抑止行は書き込み側が外せる宛先（確認済みログインメール）と同じものを見る', () => {
+    const raw = readFileSync(join(MIGRATIONS, MIGRATION), 'utf8');
+    const reader = code(functionBody(raw, 'get_newsletter_preference'));
+    const writer = code(functionBody(raw));
+    const address = 'SELECT lower(btrim(u.email)) INTO address FROM auth.users u WHERE u.id=p_user_id AND u.email_confirmed_at IS NOT NULL;';
+    expect(reader).toContain(address);
+    expect(writer).toContain(address);
+    expect(reader).toContain('EXISTS(SELECT 1 FROM public.newsletter_subscriptions s WHERE lower(btrim(s.email))=address AND NOT s.is_active)');
+    expect(reader).toContain("'receive',NOT unsubscribed AND NOT suppressed");
+    // 読むだけ: 書き込み・ロックをしない
+    expect(reader).not.toMatch(/\b(UPDATE|DELETE|INSERT)\b|FOR UPDATE|lock_booking_account/);
+  });
+
+  test('2 関数と EXECUTE 権限が期待スキーマに入っている（本体の md5 も migration と一致）', () => {
+    const raw = readFileSync(join(MIGRATIONS, MIGRATION), 'utf8');
+    const expected: string[] = JSON.parse(readFileSync(join(ROOT, 'src/lib/schema-fingerprint.expected.json'), 'utf8'));
+    // フィンガープリントの body_md5 は md5(prosrc)＝$$ と $$ の間の文字列そのもの
+    const md5 = (name: string) => createHash('md5').update(functionBody(raw, name), 'utf8').digest('hex');
+    expect(expected).toEqual(expect.arrayContaining([
+      `function|set_newsletter_preference_atomic(p_user_id uuid, p_receive boolean)|returns=jsonb|volatile=v|secdef=t|body_md5=${md5('set_newsletter_preference_atomic')}`,
+      `functiongrant|public.${SIGNATURE}|service_role|EXECUTE`,
+      `function|get_newsletter_preference(p_user_id uuid)|returns=jsonb|volatile=s|secdef=t|body_md5=${md5('get_newsletter_preference')}`,
+      `functiongrant|public.${READER_SIGNATURE}|service_role|EXECUTE`,
+    ]));
+    // ブラウザのロールへの EXECUTE は期待値にも無い
+    expect(expected.filter((line) => /^functiongrant\|public\.(set|get)_newsletter_preference/.test(line) && !line.includes('|service_role|'))).toEqual([]);
+  });
+
   test('後続の migration が関数を置き換えたり、ブラウザのロールへ権限を戻したりしていない', () => {
     const later = readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql') && f !== MIGRATION
       && (f > MIGRATION || !/^\d/.test(f)));
     for (const file of later) {
       const sql = code(readFileSync(join(MIGRATIONS, file), 'utf8'));
-      expect({ file, redefines: /FUNCTION (public\.)?set_newsletter_preference_atomic/i.test(sql) }).toEqual({ file, redefines: false });
+      expect({ file, redefines: /FUNCTION (public\.)?(set_newsletter_preference_atomic|get_newsletter_preference)\b/i.test(sql) }).toEqual({ file, redefines: false });
     }
   });
 });
@@ -106,6 +149,13 @@ describe('アプリの経路', () => {
   test('API は本人の id で RPC を呼ぶ', () => {
     const route = readFileSync(join(ROOT, 'src/app/api/profile/newsletter/route.ts'), 'utf8');
     expect(route).toMatch(/rpc\('set_newsletter_preference_atomic', \{\s*p_user_id: ctx\.user!\.id,/);
+    expect(route).toMatch(/rpc\('get_newsletter_preference', \{\s*p_user_id: ctx\.user!\.id,\s*\}\)/);
+  });
+
+  test('マイページのトグルは初期表示もサーバーの状態（旗と抑止行）から決める', () => {
+    const page = readFileSync(join(ROOT, 'src/app/mypage/profile/page.tsx'), 'utf8');
+    expect(page).toContain("fetch('/api/profile/newsletter', { cache: 'no-store' })");
+    expect(page).toMatch(/setEmailUnsubscribed\(!state\.receive\)/);
   });
 
   test('実 DB の検証（shadow fixture）が CI に配線されている', () => {
@@ -113,6 +163,7 @@ describe('アプリの経路', () => {
     expect(workflow).toContain(`-f ${FIXTURE}`);
     const fixture = readFileSync(join(ROOT, FIXTURE), 'utf8');
     expect(fixture).toContain('set_newsletter_preference_atomic');
+    expect(fixture).toContain('get_newsletter_preference');
     expect(fixture.trim().endsWith('ROLLBACK;')).toBe(true);
   });
 });

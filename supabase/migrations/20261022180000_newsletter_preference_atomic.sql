@@ -30,8 +30,17 @@
 -- 【ロック順】unsubscribe_newsletter_atomic と同じ「アカウントの advisory ロック → profiles 行 →
 --   newsletter_subscriptions 行（id 順）」に揃え、同時に配信停止リンクが押されてもデッドロックしない。
 --
+-- 【表示用の get_newsletter_preference】トグルの初期表示を profiles.email_unsubscribed だけで決めると、
+--   アカウント作成【前】に配信停止リンクで止めた宛先（profiles の行がまだ無いので旗は立たず、抑止行だけが残る）が
+--   「受け取る」に見えたまま届かない。宛先の除外は旗と抑止行の両方で決まるので、表示も両方から決める。
+--   見る宛先は set_newsletter_preference_atomic が外せるもの（確認済みログインメール）と同じにしてあり、
+--   「OFF に見える → ON にする → 抑止行が外れて ON に見える」が 1 回の操作で必ず成立する。
+--
 -- 【適用順】関数を足すだけで既存の権限・関数には触れない。旧アプリ（ブラウザ直書き）はそのまま動くので、
 --   アプリのデプロイより【先に】適用する（新アプリはこの関数が無いとトグルが 500 になる）。
+--   2 関数と EXECUTE 権限の行は src/lib/schema-fingerprint.expected.json にも入れてある。schema-drift-check は
+--   デプロイ済みアプリの期待値と比べるので、適用からデプロイまでの間に JST 02:40 を跨ぐと、その回だけ
+--   「期待値に無い関数」と報告される。適用とデプロイは同じ日のうちに続けて行う。
 
 DO $guard$ BEGIN IF to_regclass('public.facility_profiles') IS NULL THEN RAISE EXCEPTION 'not the CareLink database'; END IF; END $guard$;
 
@@ -66,3 +75,24 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.set_newsletter_preference_atomic(uuid,boolean) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.set_newsletter_preference_atomic(uuid,boolean) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.get_newsletter_preference(p_user_id uuid) RETURNS jsonb
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
+DECLARE address text; unsubscribed boolean; suppressed boolean := false;
+BEGIN
+ IF p_user_id IS NULL THEN
+  RAISE EXCEPTION 'NEWSLETTER_PREFERENCE_INVALID' USING ERRCODE='23514';
+ END IF;
+ SELECT coalesce(p.email_unsubscribed,false) INTO unsubscribed FROM public.profiles p WHERE p.id=p_user_id;
+ IF NOT FOUND THEN
+  RAISE EXCEPTION 'NEWSLETTER_PREFERENCE_PROFILE_MISSING' USING ERRCODE='P0002';
+ END IF;
+ -- set_newsletter_preference_atomic が外せる宛先（確認済みログインメール）と同じものだけを見る。
+ SELECT lower(btrim(u.email)) INTO address FROM auth.users u WHERE u.id=p_user_id AND u.email_confirmed_at IS NOT NULL;
+ IF address IS NOT NULL AND address<>'' THEN
+  suppressed := EXISTS(SELECT 1 FROM public.newsletter_subscriptions s WHERE lower(btrim(s.email))=address AND NOT s.is_active);
+ END IF;
+ RETURN jsonb_build_object('receive',NOT unsubscribed AND NOT suppressed,'unsubscribed',unsubscribed,'suppressed',suppressed);
+END $$;
+REVOKE ALL ON FUNCTION public.get_newsletter_preference(uuid) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.get_newsletter_preference(uuid) TO service_role;
