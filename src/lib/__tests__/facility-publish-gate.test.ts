@@ -293,3 +293,31 @@ describe('isCardBookingReady (search card 「予約OK」 badge)', () => {
       .toEqual(['写真を1枚以上登録してください']);
   });
 });
+
+describe('画面の入力にも同じ公開規則を使う（listingPublishMissing）', () => {
+  const { listingPublishMissing, listingLocationMissing, bookingReadinessChecks } = jest.requireActual('../facility-publish-gate');
+
+  test('保存前の入力値で、サーバーの公開ゲートと同じ項目・同じ文言を返す', async () => {
+    const values = { name: '合成店舗', prefecture: '', city: ' ', address: null, catch_copy: '日本一', description: null };
+    const server = await checkListingReadiness({ from: () => profileChain(values) } as never, 'f1');
+    expect(listingPublishMissing(values)).toEqual(server.readiness.missing);
+    expect(listingPublishMissing(values)).toEqual([
+      '都道府県を設定してください', '市区町村を設定してください', '住所を設定してください',
+      expect.stringMatching(/^キャッチコピー：/),
+    ]);
+  });
+
+  test('所在地だけの判定は PR 文言を見ない', () => {
+    expect(listingLocationMissing({ name: '合成店舗', prefecture: '東京都', city: '渋谷区', address: '1-1', catch_copy: '日本一' })).toEqual([]);
+    expect(listingLocationMissing({})).toEqual(['施設名を設定してください', '都道府県を設定してください', '市区町村を設定してください', '住所を設定してください']);
+  });
+
+  test('ネット予約の判定は条件ごとのキーを持ち、不足の一覧はその文言から作られる', () => {
+    const checks = bookingReadinessChecks({ name: '合成院', prefecture: '大阪府', city: '豊中市', hasAddress: false,
+      status: 'draft', businessHours: null, menuCount: 0, photoCount: 1, staffCount: 1 });
+    expect(checks.map((c: { key: string; ok: boolean }) => [c.key, c.ok])).toEqual([
+      ['name', true], ['menu', false], ['photo', true], ['staff', true], ['prefecture', true], ['city', true],
+      ['address', false], ['published', false], ['hours', false],
+    ]);
+  });
+});

@@ -14,6 +14,8 @@ import LoadError from '@/components/admin/LoadError';
 import { SbInput } from '@/components/admin/SbUi';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import Link from 'next/link';
+import { suggestStaffWeekFromBusinessHours } from '@/lib/staff-schedule-suggestion';
 
 const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -52,6 +54,10 @@ function StaffSchedulePageForm() {
     DAY_LABELS.map((_, i) => ({ day_of_week: i, start_time: '09:00', end_time: '19:00' }))
   );
   const [enabledDays, setEnabledDays] = useState<boolean[]>(Array(7).fill(true));
+  // 勤務日が1日も保存されていないとき、表示中の内容が何か（店舗の営業時間からの下書き／空）。
+  // null＝保存済みの勤務を表示している。
+  const [draft, setDraft] = useState<'suggested' | 'empty' | null>(null);
+  const justAdded = useSearchParams().get('added') === '1';
   const [overrides, setOverrides] = useState<Override[]>([]);
   const [newOverrideDate, setNewOverrideDate] = useState('');
   const [newOverrideHoliday, setNewOverrideHoliday] = useState(true);
@@ -115,7 +121,22 @@ function StaffSchedulePageForm() {
 
       if (!active) return;
       if (schErr || !Array.isArray(schData)) { setLoadError(true); setLoading(false); return; }
-      {
+      if (schData.length === 0) {
+        // 勤務日が1日も無い＝このスタッフには予約枠が出ない。追加しただけのスタッフはこの状態から始まる
+        // （DB は既定の勤務を作らない）。店舗の確定済み営業時間を下書きとして見せ、保存したときだけ登録する。
+        const { data: facilityRow, error: facilityErr } = await supabase
+          .from('facility_profiles').select('business_hours').eq('id', selectedFacilityId).single();
+        if (!active) return;
+        if (facilityErr) { setLoadError(true); setLoading(false); return; }
+        const suggestion = suggestStaffWeekFromBusinessHours(facilityRow?.business_hours);
+        setDraft(suggestion ? 'suggested' : 'empty');
+        if (suggestion) {
+          setSchedules(suggestion.map(({ day_of_week, start_time, end_time }) => ({ day_of_week, start_time, end_time })));
+          setEnabledDays(suggestion.map((day) => day.enabled));
+        } else {
+          setEnabledDays(Array(7).fill(false));
+        }
+      } else {
         const newSchedules = DAY_LABELS.map((_, i) => {
           const existing = schData.find((s) => s.day_of_week === i);
           // staff_schedules.start_time/end_time は TIME 列で "HH:MM:SS" で返る。API/入力は "HH:MM"
@@ -125,6 +146,7 @@ function StaffSchedulePageForm() {
             ? { day_of_week: i, start_time: existing.start_time.slice(0, 5), end_time: existing.end_time.slice(0, 5) }
             : { day_of_week: i, start_time: '09:00', end_time: '19:00' };
         });
+        setDraft(null);
         setSchedules(newSchedules);
         setEnabledDays(DAY_LABELS.map((_, i) => schData.some((s) => s.day_of_week === i)));
       }
@@ -289,6 +311,21 @@ function StaffSchedulePageForm() {
         <h1 className="text-2xl font-bold">{staffName}のスケジュール</h1>
       </div>
 
+      {draft && (
+        <div role="status" className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 space-y-1">
+          {justAdded && <p>スタッフを追加しました。</p>}
+          <p className="font-bold">このスタッフは勤務時間が未登録のため、まだネット予約を受けられません。</p>
+          {draft === 'suggested' ? (
+            <p>下の時間は店舗の営業時間をもとにした下書きで、まだ保存されていません。実際の勤務日・時間に合わせて直してから「この勤務時間で保存する」を押してください。</p>
+          ) : (
+            <p>
+              店舗の営業時間がまだ保存されていないため、下書きを用意できませんでした。勤務する曜日にチェックを入れ、時間を入力して保存してください。
+              <Link href={`/admin/settings?facility_id=${encodeURIComponent(facilityId)}`} className="ml-1 font-bold text-amber-900 underline">施設設定で営業時間を保存する</Link>
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Weekly Schedule */}
       <div className="bg-white rounded-xl shadow-xs p-6 mb-6">
         <h2 className="font-bold mb-4">週間スケジュール</h2>
@@ -339,7 +376,7 @@ function StaffSchedulePageForm() {
         </fieldset>
         {pendingSave && <p role="status">前回の保存結果を確認するため、同じ内容で再試行してください。</p>}
         <button type="button" onClick={() => handleSaveSchedules()} disabled={saving} className="btn-primary mt-4 py-2!">
-          {saving ? '保存中...' : 'スケジュールを保存'}
+          {saving ? '保存中...' : draft ? 'この勤務時間で保存する' : 'スケジュールを保存'}
         </button>
       </div>
 

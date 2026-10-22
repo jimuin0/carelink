@@ -63,6 +63,41 @@ test('staff list scopes reads and new/edit/schedule links to B', async () => {
   expect(links).toContain(`/admin/staff/staff-b/edit?facility_id=${facility}`);
   expect(links).toContain(`/admin/staff/staff-b/schedule?facility_id=${facility}`);
 });
+// E8: 追加しただけのスタッフには勤務が無い（予約枠が出ない）。一覧で示し、勤務の画面へ導く。
+test('staff list marks active staff without a saved schedule as unable to take bookings', async () => {
+  const staff = [
+    { id: 'staff-saved', name: '保存済み', is_active: true }, { id: 'staff-new', name: '追加直後', is_active: true },
+    { id: 'staff-paused', name: '休止中', is_active: false },
+  ];
+  mockFrom.mockImplementation((table: string) => {
+    const result = { data: table === 'staff_profiles' ? staff : table === 'staff_schedules' ? [{ staff_id: 'staff-saved' }] : [], error: null };
+    const c: Record<string, unknown> = {}; const inFilter = jest.fn(() => c); queries.push({ table, eq: inFilter }); c.in = inFilter;
+    for (const method of ['select', 'eq', 'order']) c[method] = () => c;
+    c.then = (resolve: (r: unknown) => unknown) => resolve(result); return c;
+  });
+  const tree = await Staff({ searchParams: Promise.resolve({ facility_id: facility }) });
+  // 勤務を読むのは在籍スタッフだけ
+  expect(queries.find(q => q.table === 'staff_schedules')?.eq).toHaveBeenCalledWith('staff_id', ['staff-saved', 'staff-new']);
+  const card = (id: string) => nodes(tree).find(n => n.key === id) as ReactElement<Record<string, unknown>>;
+  const text = (el: unknown): string => nodes(el).flatMap(n => [n.props.children].flat()).filter((c): c is string => typeof c === 'string').join('');
+  expect(text(card('staff-new'))).toContain('勤務時間が未登録です。');
+  expect(text(card('staff-new'))).toContain('保存するまで、このスタッフはネット予約を受けられません。');
+  expect(nodes(card('staff-new')).find(n => n.props.children === '勤務時間を登録する')?.props.href).toBe(`/admin/staff/staff-new/schedule?facility_id=${facility}`);
+  expect(text(card('staff-saved'))).not.toContain('勤務時間が未登録です。');
+  expect(text(card('staff-paused'))).not.toContain('勤務時間が未登録です。');
+});
+
+test('staff list schedule read failure is not shown as "未登録"', async () => {
+  mockFrom.mockImplementation((table: string) => {
+    const result = table === 'staff_schedules' ? { data: null, error: { message: 'synthetic outage' } }
+      : { data: [{ id: 'staff-b', name: '合成スタッフ', is_active: true }], error: null };
+    const c: Record<string, unknown> = {};
+    for (const method of ['select', 'eq', 'order', 'in']) c[method] = () => c;
+    c.then = (resolve: (r: unknown) => unknown) => resolve(result); return c;
+  });
+  await expect(Staff({ searchParams: Promise.resolve({ facility_id: facility }) })).rejects.toThrow('勤務スケジュールの取得に失敗しました');
+});
+
 test('analytics all six months query selected B', async () => {
   await Analytics({ searchParams: Promise.resolve({ facility_id: facility }) });
   expect(queries).toHaveLength(6); for (const q of queries) expect(q.eq).toHaveBeenCalledWith('facility_id', facility);

@@ -70,7 +70,8 @@ async function main() {
   const rows=created.map(value=>JSON.parse(value)); const staff=rows[0].staff.id;
   assert.equal(rows[1].staff.id,staff); assert.equal(rows.filter(row=>row.replayed===true).length,1);
   assert.equal(query(`SELECT count(*) FROM public.staff_profiles WHERE facility_id='${facility}'`),'1');
-  assert.equal(query(`SELECT count(*) FROM public.staff_schedules WHERE staff_id='${staff}'`),'7');
+  // Adding a staff member creates no schedule (shops differ in hours and shifts); the owner saves one.
+  assert.equal(query(`SELECT count(*) FROM public.staff_schedules WHERE staff_id='${staff}'`),'0');
   await contend('two-replacements',lock,[weekly(actor,staff,2,[{day_of_week:1,start_time:'09:00',end_time:'18:00'}]),weekly(admin,staff,3,[{day_of_week:2,start_time:'10:00',end_time:'17:00'}])]);
   const final=JSON.parse(query(`SELECT jsonb_agg(jsonb_build_object('day',day_of_week,'start',start_time,'end',end_time)) FROM public.staff_schedules WHERE staff_id='${staff}'`));
   assert.equal(final.length,1); assert.ok(final[0].day===1||final[0].day===2);

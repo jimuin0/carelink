@@ -15,6 +15,7 @@ import dynamic from 'next/dynamic';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import { FACILITY_INPUT_LIMITS } from '@/lib/facility-input-limits';
 import { hasConfirmedBookingHours } from '@/lib/booking-preparation';
+import { listingPublishMissing } from '@/lib/facility-publish-gate';
 import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
 import { BOOKING_CSV_MAX_ROWS, buildBookingCsv, readBookingCsvRows } from '@/lib/booking-csv-export';
 
@@ -81,6 +82,8 @@ function AdminSettingsContent() {
   // サロンボードの時間軸の区切り幅（分）。既定 60。
   const [boardSlotMinutes, setBoardSlotMinutes] = useState(60);
   const [publishToggling, setPublishToggling] = useState(false);
+  // 「公開する」を押したときに足りなかった項目。トーストは数秒で消えるので画面に残す。
+  const [publishMissing, setPublishMissing] = useState<string[]>([]);
   const [showUnpublishConfirm, setShowUnpublishConfirm] = useState(false);
 
   // Business hours
@@ -107,6 +110,7 @@ function AdminSettingsContent() {
       setFacilityId(null);
       setFacilityChoices([]);
       setLoadError(false);
+      setPublishMissing([]);
       const verification = await verifyAuthUser(supabase.auth);
       if (!active) return;
       if (verification.state === 'unavailable') { setLoadError(true); setLoading(false); return; }
@@ -185,8 +189,9 @@ function AdminSettingsContent() {
     }));
   };
 
-  const handleSave = async () => {
-    if (saving || !facilityId || !name) return;
+  /** 画面の入力を保存する。保存できたときだけ true（公開はこの結果を見てから行う）。 */
+  const saveSettings = async (): Promise<boolean> => {
+    if (saving || !facilityId || !name) return false;
 
     // 営業時間の整合性チェック
     for (const d of dayOrder) {
@@ -195,7 +200,7 @@ function AdminSettingsContent() {
       const h = hours[d] || { open: '09:00', close: '19:00' };
       if (h.close <= h.open) {
         setToast({ type: 'error', message: `${dayLabels[d]}の閉店時間は開店時間より後にしてください` });
-        return;
+        return false;
       }
     }
 
@@ -239,20 +244,64 @@ function AdminSettingsContent() {
       const result = await res.json().catch(() => null);
       if (!res.ok || result?.ok !== true) {
         setToast({ type: 'error', message: result?.error || '保存結果を確認できませんでした。入力内容を保持しています' });
-      } else {
-        // サーバーは市区町村をエリアの単位へ揃える（例: 横浜市中区 → 横浜市＋番地「中区…」）。
-        // 入力欄を保存された値に合わせ、次の保存で古い表記を送り直さないようにする。
-        if (typeof result.location?.city === 'string' && typeof result.location?.address === 'string') {
-          setCity(result.location.city);
-          setAddress(result.location.address);
-        }
-        setDirty(false);
-        setToast({ type: 'success', message: '施設情報を保存しました' });
+        return false;
       }
+      // サーバーは市区町村をエリアの単位へ揃える（例: 横浜市中区 → 横浜市＋番地「中区…」）。
+      // 入力欄を保存された値に合わせ、次の保存で古い表記を送り直さないようにする。
+      if (typeof result.location?.city === 'string' && typeof result.location?.address === 'string') {
+        setCity(result.location.city);
+        setAddress(result.location.address);
+      }
+      setDirty(false);
+      // 保存で中身が変わったので、前回の「足りない項目」は古い。次に公開を押したときに改めて確かめる。
+      setPublishMissing([]);
+      setToast({ type: 'success', message: '施設情報を保存しました' });
+      return true;
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました' });
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+  const handleSave = () => { void saveSettings(); };
+
+  /**
+   * 「公開する」。公開ゲートは保存済みの内容を読むため、以前は画面に入力したばかりの住所を
+   * 「未設定」として拒否していた（保存を押してから公開すれば通るので、壊れて見えた）。
+   * まず画面に見えている内容をサーバーと同じ規則（listingPublishMissing）で確かめ、
+   * 足りない項目をその場で一覧にする。未保存の入力があれば先に保存し、保存できたときだけ公開する。
+   */
+  const handlePublish = async () => {
+    if (!facilityId || publishToggling || saving) return;
+    const visibleMissing = listingPublishMissing({ name, prefecture, city, address, catch_copy: catchCopy, description });
+    if (visibleMissing.length > 0) { setPublishMissing(visibleMissing); return; }
+    setPublishMissing([]);
+    setPublishToggling(true);
+    // 通信エラーで fetch が throw してもボタンが「処理中...」のまま固着しないよう
+    // try/finally で必ずトグル状態を解除し、失敗はトーストで明示する。
+    try {
+      if (dirty && !(await saveSettings())) return;
+      const res = await fetch(`/api/admin/settings?facility_id=${facilityId}&action=status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'published' }),
+      });
+      const body = await res.json().catch(() => null);
+      if (res.ok && body?.ok === true) {
+        setFacilityStatus('published');
+        setToast({ type: 'success', message: '施設を公開しました！' });
+        return;
+      }
+      // サーバは不足項目を missing 配列で返す。これを捨てて「失敗しました」だけ出すと、
+      // 何を揃えれば公開できるか分からないため、画面に一覧で残す（トーストは数秒で消える）。
+      const missing = Array.isArray(body?.missing) ? (body.missing as unknown[]).filter((m): m is string => typeof m === 'string') : [];
+      setPublishMissing(missing);
+      setToast({ type: 'error', message: missing.length > 0 ? '公開できませんでした。足りない項目を確認してください' : (body?.error || '公開に失敗しました') });
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
     } finally {
-      setSaving(false);
+      setPublishToggling(false);
     }
   };
 
@@ -283,42 +332,14 @@ function AdminSettingsContent() {
             </SbBadge>
             <button
               type="button"
-              onClick={async () => {
-                const newStatus = facilityStatus === 'published' ? 'draft' : 'published';
-                if (newStatus === 'draft') { setShowUnpublishConfirm(true); return; }
-                setPublishToggling(true);
-                // 通信エラーで fetch が throw してもボタンが「処理中...」のまま固着しないよう
-                // try/finally で必ずトグル状態を解除し、失敗はトーストで明示する。
-                try {
-                  const res = await fetch(`/api/admin/settings?facility_id=${facilityId}&action=status`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status: newStatus }),
-                  });
-                  const body = await res.json().catch(() => null);
-                  if (res.ok && body?.ok === true) {
-                    setFacilityStatus(newStatus);
-                    setToast({ type: 'success', message: '施設を公開しました！' });
-                  } else {
-                    // サーバは不足項目を missing 配列で返す（例：スタッフを1人以上登録してください）。
-                    // これを捨てて「失敗しました」だけ出すと、何を揃えれば公開できるか分からず設定画面を
-                    // 行き来する。不足項目をそのまま列挙して「今何が足りないか」を一目で示す。
-                    const missing = Array.isArray(body?.missing) ? body.missing as string[] : [];
-                    const message = missing.length > 0
-                      ? `公開できません。${missing.join(' / ')}`
-                      : (body?.error || '公開に失敗しました');
-                    setToast({ type: 'error', message });
-                  }
-                } catch {
-                  setToast({ type: 'error', message: '通信エラーが発生しました' });
-                } finally {
-                  setPublishToggling(false);
-                }
+              onClick={() => {
+                if (facilityStatus === 'published') { setShowUnpublishConfirm(true); return; }
+                void handlePublish();
               }}
-              disabled={publishToggling || !facilityId}
-              className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors ${facilityStatus === 'published' ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' : 'bg-green-500 text-white hover:bg-green-600'}`}
+              disabled={publishToggling || saving || !facilityId}
+              className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors ${facilityStatus === 'published' ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' : 'bg-green-700 text-white hover:bg-green-800'}`}
             >
-              {publishToggling ? '処理中...' : facilityStatus === 'published' ? '非公開にする' : '公開する'}
+              {publishToggling ? '処理中...' : facilityStatus === 'published' ? '非公開にする' : dirty ? '保存して公開する' : '公開する'}
             </button>
             <button type="button" onClick={handleSave} disabled={saving} className="btn-primary px-6 py-2.5!">
               {saving ? '保存中...' : '保存する'}
@@ -326,6 +347,15 @@ function AdminSettingsContent() {
           </>
         }
       />
+
+      {publishMissing.length > 0 && facilityStatus !== 'published' && (
+        <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4">
+          <p className="text-sm font-bold text-red-800">公開するには、次の項目を入力してください。</p>
+          <ul className="mt-2 list-disc pl-5 text-sm text-red-700">
+            {publishMissing.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </div>
+      )}
 
       {/* 基本情報 */}
       <section className="bg-white rounded-xl shadow-xs p-6 mb-6">

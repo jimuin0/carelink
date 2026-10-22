@@ -15,10 +15,15 @@ INSERT INTO public.facility_members(user_id,facility_id,role) VALUES
 ('dc010000-0000-4000-8000-000000000001','dc020000-0000-4000-8000-000000000001','owner'),
 ('dc010000-0000-4000-8000-000000000002','dc020000-0000-4000-8000-000000000002','owner');
 CREATE FUNCTION pg_temp.fail_staff_schedule() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
-  IF EXISTS(SELECT 1 FROM public.staff_profiles WHERE id=NEW.staff_id AND slug='staff-dc050000-0000-4000-8000-000000000099')
-    OR NEW.start_time='13:37'::time THEN RAISE EXCEPTION 'INJECTED_SCHEDULE_FAILURE'; END IF; RETURN NEW;
+  IF NEW.start_time='13:37'::time THEN RAISE EXCEPTION 'INJECTED_SCHEDULE_FAILURE'; END IF; RETURN NEW;
 END $$;
 CREATE TRIGGER fixture_staff_insert_failure BEFORE INSERT ON public.staff_schedules FOR EACH ROW EXECUTE FUNCTION pg_temp.fail_staff_schedule();
+-- Creation writes the staff row and its replay receipt in one transaction. A failing
+-- receipt must leave no staff behind (the create no longer writes schedules to fail on).
+CREATE FUNCTION pg_temp.fail_staff_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+  IF NEW.operation_id='dc050000-0000-4000-8000-000000000099' THEN RAISE EXCEPTION 'INJECTED_RECEIPT_FAILURE'; END IF; RETURN NEW;
+END $$;
+CREATE TRIGGER fixture_staff_receipt_failure BEFORE INSERT ON public.staff_mutation_operations FOR EACH ROW EXECUTE FUNCTION pg_temp.fail_staff_receipt();
 SET LOCAL ROLE service_role;
 DO $$
 DECLARE a uuid:='dc010000-0000-4000-8000-000000000001'; f uuid:='dc020000-0000-4000-8000-000000000001';
@@ -31,8 +36,10 @@ BEGIN
     staff:=(r->'staff'->>'id')::uuid;
     IF r->>'replayed'<>'false' OR r->'staff'->>'name'<>'Test staff' THEN RAISE EXCEPTION 'CREATE_RESULT'; END IF;
   END LOOP;
-  SELECT count(*) INTO n FROM public.staff_schedules WHERE staff_id=staff AND start_time='09:00' AND end_time='19:00';
-  IF n<>7 THEN RAISE EXCEPTION 'SEVEN_DEFAULT_DAYS_REQUIRED'; END IF;
+  -- 2026-10-22 owner decision: shops differ in hours and shifts, so adding a staff member
+  -- creates no schedule. Nothing is bookable until the owner saves the weekly schedule.
+  SELECT count(*) INTO n FROM public.staff_schedules WHERE staff_id=staff;
+  IF n<>0 THEN RAISE EXCEPTION 'CREATE_MUST_NOT_ADD_SCHEDULE'; END IF;
   r:=public.create_staff_with_schedules_atomic(a,f,op,'{"name":"  Test staff  "}');
   IF r->>'replayed'<>'true' OR (r->'staff'->>'id')::uuid<>staff THEN RAISE EXCEPTION 'CREATE_REPLAY'; END IF;
   IF (SELECT count(*) FROM public.staff_profiles WHERE facility_id=f)<>1 THEN RAISE EXCEPTION 'DUPLICATE_CREATE'; END IF;
@@ -40,10 +47,14 @@ BEGIN
     EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'STAFF_OPERATION_CONFLICT' THEN RAISE; END IF; END;
   BEGIN PERFORM public.create_staff_with_schedules_atomic(other,f,'dc050000-0000-4000-8000-000000000002','{"name":"Unauthorized"}'); RAISE EXCEPTION 'EXPECTED_DENIED';
     EXCEPTION WHEN insufficient_privilege THEN NULL; END;
-  BEGIN PERFORM public.create_staff_with_schedules_atomic(a,f,'dc050000-0000-4000-8000-000000000099','{"name":"Seed must rollback"}'); RAISE EXCEPTION 'EXPECTED_SEED_FAILURE';
-    EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'INJECTED_SCHEDULE_FAILURE' THEN RAISE; END IF; END;
+  BEGIN PERFORM public.create_staff_with_schedules_atomic(a,f,'dc050000-0000-4000-8000-000000000099','{"name":"Receipt must rollback"}'); RAISE EXCEPTION 'EXPECTED_RECEIPT_FAILURE';
+    EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'INJECTED_RECEIPT_FAILURE' THEN RAISE; END IF; END;
   IF EXISTS (SELECT 1 FROM public.staff_profiles WHERE slug='staff-dc050000-0000-4000-8000-000000000099')
     OR EXISTS (SELECT 1 FROM public.staff_mutation_operations WHERE operation_id='dc050000-0000-4000-8000-000000000099') THEN RAISE EXCEPTION 'PARTIAL_STAFF_CREATION'; END IF;
+  -- The owner confirms a full week; the guards below run against that saved schedule.
+  r:=public.replace_staff_schedules_atomic(a,f,staff,'dc050000-0000-4000-8000-000000000010',
+    (SELECT jsonb_agg(jsonb_build_object('day_of_week',d,'start_time','09:00','end_time','19:00') ORDER BY d) FROM generate_series(0,6) d),false);
+  IF r->>'ok'<>'true' OR (SELECT count(*) FROM public.staff_schedules WHERE staff_id=staff)<>7 THEN RAISE EXCEPTION 'OWNER_SAVED_WEEK'; END IF;
   SELECT jsonb_agg(to_jsonb(s) ORDER BY day_of_week) INTO old_rows FROM public.staff_schedules s WHERE staff_id=staff;
   BEGIN PERFORM public.replace_staff_schedules_atomic(a,f,staff,'dc050000-0000-4000-8000-000000000003','[{"day_of_week":1,"start_time":"13:37","end_time":"18:00"}]',false); RAISE EXCEPTION 'EXPECTED_REPLACE_FAILURE';
     EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'INJECTED_SCHEDULE_FAILURE' THEN RAISE; END IF; END;

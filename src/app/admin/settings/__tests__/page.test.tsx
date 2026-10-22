@@ -171,6 +171,81 @@ test.each(['business-failure', 'invalid-json', 'http-failure'])('公開の成功
   expect(screen.queryByText('施設を公開しました！')).toBeNull();
 });
 
+// ─── E9: 「公開する」は画面に見えている内容で判定する ─────────────────────────────
+// 以前は保存済みの（空の）所在地で判定し、入力したばかりの住所を「未設定」として拒否していた。
+describe('公開は画面の入力どおりに行う', () => {
+  const fillLocation = async () => {
+    fireEvent.change(await screen.findByLabelText(/都道府県/), { target: { value: '東京都' } });
+    fireEvent.change(screen.getByRole('textbox', { name: /市区町村/ }), { target: { value: '渋谷区' } });
+    fireEvent.change(screen.getByRole('textbox', { name: /番地/ }), { target: { value: '神南1-1' } });
+  };
+  beforeEach(() => { mockProfile = { ...mockProfile, prefecture: '', city: '', address: '' }; });
+
+  test('未保存の住所を入力して公開すると、先に保存してから公開する', async () => {
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    await fillLocation();
+    fireEvent.click(screen.getByRole('button', { name: '保存して公開する' }));
+    await screen.findByText('施設を公開しました！');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const [saveUrl, save] = mockFetch.mock.calls[0];
+    expect(saveUrl).toBe(`/api/admin/settings?facility_id=${second}`);
+    expect(JSON.parse(save.body)).toMatchObject({ prefecture: '東京都', city: '渋谷区', address: '神南1-1' });
+    const [publishUrl, publish] = mockFetch.mock.calls[1];
+    expect(publishUrl).toBe(`/api/admin/settings?facility_id=${second}&action=status`);
+    expect(JSON.parse(publish.body)).toEqual({ status: 'published' });
+    expect(screen.getByText('公開中')).toBeTruthy();
+  });
+
+  test('画面で空の項目があれば、送信せずに足りない項目をそのまま一覧にする', async () => {
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    fireEvent.click(screen.getByRole('button', { name: '公開する' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('公開するには、次の項目を入力してください。');
+    expect([...alert.querySelectorAll('li')].map(li => li.textContent)).toEqual(['都道府県を設定してください', '市区町村を設定してください', '住所を設定してください']);
+    expect(mockFetch).not.toHaveBeenCalled();
+    // 入力して保存すると、古い一覧は消える
+    await fillLocation();
+    fireEvent.click(screen.getAllByRole('button', { name: '保存する' })[0]);
+    await screen.findByText('施設情報を保存しました');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  test('保存に失敗したら公開しない', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'キャッチコピーを見直してください' }) });
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    await fillLocation();
+    fireEvent.click(screen.getByRole('button', { name: '保存して公開する' }));
+    await screen.findByText('キャッチコピーを見直してください');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('非公開')).toBeTruthy();
+  });
+
+  test('サーバーが返した不足項目は、消えるトーストではなく画面に残す', async () => {
+    mockProfile = { ...mockProfile, prefecture: '愛知県', city: '合成市', address: '合成番地' };
+    mockFetch.mockResolvedValueOnce({ ok: false, json: async () => ({ error: '公開するには次の項目が必要です', missing: ['施設紹介：表現を見直してください', 42] }) });
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    fireEvent.click(screen.getByRole('button', { name: '公開する' }));
+    const alert = await screen.findByRole('alert');
+    expect([...alert.querySelectorAll('li')].map(li => li.textContent)).toEqual(['施設紹介：表現を見直してください']);
+    expect(screen.getByText('公開できませんでした。足りない項目を確認してください')).toBeTruthy();
+    expect(screen.getByText('非公開')).toBeTruthy();
+  });
+
+  test('通信エラーでもボタンを固着させない', async () => {
+    mockProfile = { ...mockProfile, prefecture: '愛知県', city: '合成市', address: '合成番地' };
+    mockFetch.mockRejectedValueOnce(new Error('synthetic network'));
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    fireEvent.click(screen.getByRole('button', { name: '公開する' }));
+    await screen.findByText('通信エラーが発生しました');
+    expect((screen.getByRole('button', { name: '公開する' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
 test('both GBP entry links preserve the explicitly selected second facility',async()=>{
  render(<AdminSettingsPage/>);await screen.findByDisplayValue('合成店舗B');
  expect(screen.getByRole('link',{name:'GBP管理画面へ →',exact:true}).getAttribute('href')).toBe('/admin/gbp?facility_id='+second);

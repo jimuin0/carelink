@@ -127,16 +127,78 @@ test('a rate-limited retry resolves an earlier committed creation before clearin
   expect(mockFetch.mock.calls[2][0]).toContain('kind=create'); expect(mockFetch.mock.calls[2][1]).toEqual({ cache: 'no-store' });
 });
 
-test('empty stored weekly schedule displays all days off and saves empty rather than UI defaults', async () => {
+/** 週間スケジュール画面の読み取り。テーブルごとの結果を差し替えられる。 */
+function scheduleTables(results: { schedules?: unknown[]; businessHours?: unknown; facilityError?: unknown } = {}) {
   mockFrom.mockImplementation((table: string) => {
-    const result = { data: table === 'staff_profiles' ? { name: '合成スタッフ' } : [], error: null };
+    const result = table === 'staff_profiles' ? { data: { name: '合成スタッフ' }, error: null }
+      : table === 'staff_schedules' ? { data: results.schedules ?? [], error: null }
+      : table === 'facility_profiles' ? { data: results.facilityError ? null : { business_hours: results.businessHours ?? null }, error: results.facilityError ?? null }
+      : { data: [], error: null };
     const chain: Record<string, unknown> = {};
     for (const method of ['select','eq','gte','order']) chain[method] = () => chain;
     chain.single = async () => result; chain.then = (resolve: (value: unknown) => unknown) => resolve(result); return chain;
   });
+}
+const SHOP_HOURS = {
+  mon: null, tue: { open: '10:00', close: '20:00' }, wed: { open: '10:00', close: '20:00' }, thu: { open: '10:00', close: '20:00' },
+  fri: { open: '10:00', close: '21:00' }, sat: { open: '09:30', close: '18:00' }, sun: null,
+};
+const dayBox = (day: string) => screen.getByRole('checkbox', { name: day, exact: true }) as HTMLInputElement;
+
+test('empty stored weekly schedule without confirmed shop hours displays all days off and saves empty rather than UI defaults', async () => {
+  scheduleTables();
   mockFetch.mockResolvedValue({ ok: true }); render(<Schedule />);
-  await screen.findByText('スケジュールを保存');
-  for (const day of ['日','月','火','水','木','金','土']) expect((screen.getByRole('checkbox', { name: day, exact: true }) as HTMLInputElement).checked).toBe(false);
-  fireEvent.click(screen.getByText('スケジュールを保存'));
+  await screen.findByText('この勤務時間で保存する');
+  expect(screen.getByText('このスタッフは勤務時間が未登録のため、まだネット予約を受けられません。')).toBeTruthy();
+  expect(screen.getByRole('link', { name: '施設設定で営業時間を保存する' }).getAttribute('href')).toBe(`/admin/settings?facility_id=${facility}`);
+  for (const day of ['日','月','火','水','木','金','土']) expect(dayBox(day).checked).toBe(false);
+  fireEvent.click(screen.getByText('この勤務時間で保存する'));
   await waitFor(() => expect(mockFetch).toHaveBeenCalled()); expect(JSON.parse(mockFetch.mock.calls[0][1].body).schedules).toEqual([]);
+});
+
+// E8: 追加しただけのスタッフには勤務が無い。店舗の営業時間を下書きとして見せ、保存したときだけ登録する。
+test('a staff member without a schedule gets this shop\'s confirmed hours as an unsaved suggestion, saved only on confirm', async () => {
+  scheduleTables({ businessHours: SHOP_HOURS });
+  mockFetch.mockResolvedValue({ ok: true }); render(<Schedule />);
+  await screen.findByText('この勤務時間で保存する');
+  expect(screen.getByText(/店舗の営業時間をもとにした下書きで、まだ保存されていません/)).toBeTruthy();
+  expect(screen.getByText('このスタッフは勤務時間が未登録のため、まだネット予約を受けられません。')).toBeTruthy();
+  expect(['日','月','火','水','木','金','土'].map(day => dayBox(day).checked)).toEqual([false, false, true, true, true, true, true]);
+  expect(screen.getAllByDisplayValue('09:30')).toHaveLength(1);
+  expect(screen.queryByDisplayValue('19:00')).toBeNull(); // 毎日 09:00〜19:00 を持ち込まない
+  // 表示しただけでは何も保存しない
+  expect(mockFetch).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByText('この勤務時間で保存する'));
+  await waitFor(() => expect(mockFetch).toHaveBeenCalledWith(`/api/admin/staff/synthetic-staff/schedule?facility_id=${facility}`, expect.objectContaining({ method: 'PUT' })));
+  expect(JSON.parse(mockFetch.mock.calls[0][1].body).schedules).toEqual([
+    { day_of_week: 2, start_time: '10:00', end_time: '20:00' }, { day_of_week: 3, start_time: '10:00', end_time: '20:00' },
+    { day_of_week: 4, start_time: '10:00', end_time: '20:00' }, { day_of_week: 5, start_time: '10:00', end_time: '21:00' },
+    { day_of_week: 6, start_time: '09:30', end_time: '18:00' },
+  ]);
+});
+
+test('a saved schedule is shown as saved, without the suggestion notice or the shop-hours read', async () => {
+  scheduleTables({ schedules: [{ day_of_week: 1, start_time: '12:00:00', end_time: '18:00:00' }], businessHours: SHOP_HOURS });
+  render(<Schedule />);
+  await screen.findByText('スケジュールを保存');
+  expect(screen.queryByText('このスタッフは勤務時間が未登録のため、まだネット予約を受けられません。')).toBeNull();
+  expect(mockFrom).not.toHaveBeenCalledWith('facility_profiles');
+  expect(dayBox('月').checked).toBe(true); expect(dayBox('火').checked).toBe(false);
+});
+
+test('when the shop hours cannot be read, the editor is not shown (no guessed defaults)', async () => {
+  scheduleTables({ facilityError: { message: 'synthetic outage' } });
+  render(<Schedule />);
+  await screen.findByText(/読み込みに失敗/);
+  expect(screen.queryByText('この勤務時間で保存する')).toBeNull();
+  expect(mockFetch).not.toHaveBeenCalled();
+});
+
+test('creating a staff member opens that staff member\'s schedule editor instead of returning to the list', async () => {
+  const staffId = '66000000-0000-4000-8000-000000000042';
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ staff: { id: staffId }, replayed: false }) }); render(<NewStaff />);
+  fireEvent.change(await screen.findByLabelText(/名前/), { target: { value: '合成スタッフ' } });
+  fireEvent.click(screen.getByText('スタッフを追加'));
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith(`/admin/staff/${staffId}/schedule?facility_id=${facility}&added=1`));
+  expect(mockPush).toHaveBeenCalledTimes(1);
 });

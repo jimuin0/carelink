@@ -8,15 +8,19 @@ test('オーナーがスタッフを編集できる（作成→編集→一覧�
   const original = `E2Eスタッフ_${ts}`;
   const edited = `E2E編集後_${ts}`;
 
-  // 編集対象を作成（名前のみ必須）。作成後 /admin/staff へリダイレクト。
+  // 編集対象を作成（名前のみ必須）。追加しただけでは勤務は作られないので、作成後はそのスタッフの
+  // 勤務時間の画面へ進み、「まだ予約を受けられない」ことが示される。
   await page.goto('/admin/staff/new');
   await page.fill('#staff-name', original);
   await page.getByRole('button', { name: 'スタッフを追加' }).click();
-  await page.waitForURL((u) => u.pathname === '/admin/staff', { timeout: 20000 });
+  await page.waitForURL((u) => /^\/admin\/staff\/[^/]+\/schedule$/.test(u.pathname), { timeout: 20000 });
+  await expect(page.getByText('このスタッフは勤務時間が未登録のため、まだネット予約を受けられません。')).toBeVisible({ timeout: 15000 });
 
-  // 一覧から該当スタッフの「編集」リンクで編集ページへ（一意名でカードをスコープ）。
+  // 保存しないまま一覧へ戻ると、勤務時間が未登録であることが一覧にも出ている。
+  await page.goto('/admin/staff');
   const card = page.locator('div.shadow-xs').filter({ hasText: original });
   await expect(card).toBeVisible({ timeout: 15000 });
+  await expect(card.getByText('勤務時間が未登録です。')).toBeVisible();
   await card.getByRole('link', { name: '編集', exact: true }).click();
   await page.waitForURL(/\/admin\/staff\/[^/]+\/edit/, { timeout: 20000 });
 

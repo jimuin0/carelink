@@ -851,24 +851,37 @@ export async function sendWelcomeEmail(data: { ownerEmail: string; ownerName?: s
 }
 
 /** 施設オーナー向け3日後フォローメール（未完了項目のリマインド） */
+/**
+ * 登録3日後のフォローメール。項目は /admin の「店舗セットアップ」と同じ単一ソース
+ * （facility-setup-steps.ts）から作られ、文言も画面と同じにする（メールと画面で項目がずれないため）。
+ * missingSteps＝無料掲載の公開に要る項目、bookingSteps＝ネット予約を受けるのに要る項目。
+ */
 export async function sendOnboardingFollowEmail(data: {
   ownerEmail: string;
   facilityName: string;
   missingSteps: string[];
+  bookingSteps?: string[];
 }) {
   const resend = getResend();
   // API キー未設定は送達不可＝false（cron 側で未送信扱い）。
   if (!resend) return false;
   const facility = esc(data.facilityName);
-  const missing = data.missingSteps.map(s => `<li>${esc(s)}</li>`).join('');
+  const list = (steps: string[]) => `<ul style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:16px 16px 16px 32px;margin:8px 0 16px;">${steps.map(s => `<li>${esc(s)}</li>`).join('')}</ul>`;
+  const bookingSteps = data.bookingSteps ?? [];
+  const listing = data.missingSteps.length > 0
+    ? `<p style="margin:16px 0 0;"><strong>無料掲載の公開に必要な項目</strong></p>${list(data.missingSteps)}`
+    : '';
+  const booking = bookingSteps.length > 0
+    ? `<p style="margin:16px 0 0;"><strong>ネット予約の受付に必要な項目</strong>（掲載だけのご利用なら不要です）</p>${list(bookingSteps)}`
+    : '';
   return safeSend(resend, {
     from: FROM,
     to: data.ownerEmail,
     subject: escSubject(`【CareLink】${data.facilityName}の設定があと少しです`),
     html: wrapHtml(`
       <p>${facility}のご登録から数日が経ちました。</p>
-      <p>以下の項目が未設定です。設定を完了するとお客様が予約しやすくなります！</p>
-      <ul style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:16px 16px 16px 32px;margin:16px 0;">${missing}</ul>
+      <p>管理画面の「店舗セットアップ」で、次の項目がまだ完了していません。</p>
+      ${listing}${booking}
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin" style="${EMAIL_BUTTON_STYLE}">管理画面で設定を完了する</a></p>
     `),
   }, 'onboarding_follow');

@@ -12,6 +12,7 @@ import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
 import { canonicalizeEmail } from '@/lib/email-canonical';
+import { facilitySetupSteps, loadFacilitySetupFacts } from '@/lib/facility-setup-steps';
 
 export const dynamic = 'force-dynamic';
 // 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
@@ -166,47 +167,26 @@ export async function GET(request: Request) {
       let delivered = false;
       let noContact = false;
       try {
-        // 未完了ステップを特定
-        // staff_schedules has no facility_id column — query staff IDs first, then schedules
-        const [menusRes, staffRes, photosRes, memberRes] = await Promise.all([
-          supabase.from('facility_menus').select('id', { count: 'exact', head: true }).eq('facility_id', facility.id),
-          supabase.from('staff_profiles').select('id').eq('facility_id', facility.id),
-          supabase.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', facility.id),
+        // 未完了ステップを特定する。項目と完了条件は /admin の「店舗セットアップ」と同じ単一ソース
+        // （facility-setup-steps.ts＝公開ゲート・ネット予約の判定から導出）。以前はここだけ別の条件で
+        // 数えており、住所・営業時間を一度も案内せず、下書きのメニューや休止中のスタッフを
+        // 「登録済み」と数えていた（公開もネット予約もできない店舗に「あとは公開だけ」と送っていた）。
+        //
+        // 判定材料が1つでも読めなければ loadFacilitySetupFacts が例外にする。誤内容の督促メールは
+        // 一度きりで訂正できないため送らず、下の catch で claim を解放して翌 run で再送する。
+        const [setup, memberRes] = await Promise.all([
+          loadFacilitySetupFacts(supabase, facility.id),
           supabase.from('facility_members').select('user_id').eq('facility_id', facility.id).eq('role', 'owner').maybeSingle(),
         ]);
-
-        // count 系クエリが error だと count=null → `(count ?? 0) === 0` が「未登録」と誤判定し、
-        // 実際は登録済みなのに「メニュー未登録」等の誤内容の督促メールを送ってしまう（一度きり送信のため訂正不能）。
-        // いずれかが error なら判定材料が欠けるため送信せず throw → 下の catch で delivered=false のまま claim を解放し、
-        // 翌 run で正しい判定材料が取れてから再送する（誤内容の永続化を防ぐ発症前予防）。
-        const stepQueryErr = menusRes.error || staffRes.error || photosRes.error || memberRes.error;
-        if (stepQueryErr) {
-          throw new Error(`missing-steps query failed: ${stepQueryErr.message}`);
+        if (memberRes.error) {
+          throw new Error(`owner lookup failed: ${memberRes.error.message}`);
         }
 
-        const menuCount = menusRes.count;
-        const photoCount = photosRes.count;
         const member = memberRes.data;
-        const staffIds = (staffRes.data ?? []).map((s: { id: string }) => s.id);
-        let scheduleCount = 0;
-        if (staffIds.length > 0) {
-          const { count, error: scheduleErr } = await supabase
-            .from('staff_schedules')
-            .select('id', { count: 'exact', head: true })
-            .in('staff_id', staffIds);
-          // 同上：error を 0 と誤判定して「スケジュール未設定」の誤内容を送らないよう throw で中止する。
-          if (scheduleErr) {
-            throw new Error(`staff_schedules count failed: ${scheduleErr.message}`);
-          }
-          scheduleCount = count ?? 0;
-        }
-
-        const missingSteps: string[] = [];
-        if ((menuCount ?? 0) === 0) missingSteps.push('メニュー・料金の登録');
-        if (staffIds.length === 0) missingSteps.push('スタッフの登録');
-        if ((photoCount ?? 0) === 0) missingSteps.push('施設写真のアップロード');
-        if (scheduleCount === 0) missingSteps.push('スケジュールの設定');
-        missingSteps.push('施設を「公開」にする');
+        const pendingSteps = facilitySetupSteps(setup).filter(step => !step.done);
+        // 無料掲載の公開に要る項目と、ネット予約を受けるのに要る項目を分けて案内する（掲載だけの利用も正常）。
+        const missingSteps = pendingSteps.filter(step => step.group === 'listing').map(step => step.label);
+        const bookingSteps = pendingSteps.filter(step => step.group === 'booking').map(step => step.label);
 
         if (!member) { noContact = true; }
         else {
@@ -226,6 +206,7 @@ export async function GET(request: Request) {
               ownerEmail: profile.email,
               facilityName: facility.name,
               missingSteps,
+              bookingSteps,
             });
             if (!delivered) deliveryFailures++;
           }

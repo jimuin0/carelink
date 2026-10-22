@@ -10,6 +10,7 @@ import { verifyAuthUser } from '@/lib/auth-verification';
 import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { staffOperationKey, beginStaffOperation, finishStaffOperation, recoverStaffOperation } from '@/lib/staff-operation';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
+import { UUID_REGEX } from '@/lib/constants';
 
 export default function NewStaffPage() {
   const requestedFacility = useSearchParams().get('facility_id');
@@ -111,7 +112,14 @@ function NewStaffPageForm() {
         setToast({ type: 'error', message: e.error || '追加に失敗しました' });
       } else {
         finishStaffOperation(operationKey.current);
-        router.push(backHref);
+        // 追加しただけでは勤務は作られない（店舗ごとに営業時間もシフトも違うため、既定の勤務を
+        // 黙って入れない）。そのまま勤務の画面へ進め、店舗の営業時間から作った下書きを確認・保存してもらう。
+        const created = await Promise.resolve().then(() => res.json()).catch(() => null);
+        if (!mounted.current) return;
+        const staffId: unknown = created?.staff?.id;
+        router.push(typeof staffId === 'string' && UUID_REGEX.test(staffId)
+          ? `/admin/staff/${staffId}/schedule?facility_id=${encodeURIComponent(facilityId)}&added=1`
+          : backHref);
       }
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
@@ -130,7 +138,7 @@ function NewStaffPageForm() {
   return (
     <div>
       {selector}
-      <SbPageHeader title="スタッフ追加" />
+      <SbPageHeader title="スタッフ追加" description="追加したあと、勤務時間の画面に進みます。勤務時間を保存するまで、このスタッフはネット予約を受けられません。" />
 
       <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
         {pendingSave && <p role="status">前回の保存結果を確認するため、同じ内容で再試行してください。</p>}

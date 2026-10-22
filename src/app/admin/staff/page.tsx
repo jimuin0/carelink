@@ -6,6 +6,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { SbPageHeader } from '@/components/admin/SbUi';
+import { loadScheduledStaffIds } from '@/lib/facility-setup-steps';
 
 type StaffRow = { id: string; name: string; position: string | null; specialties: string[] | null; is_active: boolean };
 
@@ -32,6 +33,9 @@ export default async function AdminStaffPage(props: { searchParams: Promise<{ fa
     .order('sort_order');
   if (error) throw new Error(`スタッフ一覧の取得に失敗しました: ${error.message}`);
   const staff = (data ?? []) as StaffRow[];
+  // スタッフを追加しただけでは勤務は作られない（勤務時間を保存するまで予約枠が出ない）。
+  // 勤務日が1日も無い在籍スタッフを一覧で示し、そのまま勤務の画面へ導く。読めなければ例外（未登録と偽装しない）。
+  const scheduled = await loadScheduledStaffIds(supabase, staff.filter(s => s.is_active).map(s => s.id));
 
   return (
     <div>
@@ -45,7 +49,7 @@ export default async function AdminStaffPage(props: { searchParams: Promise<{ fa
         <div className="bg-white rounded-xl p-10 text-center">
           <p className="text-3xl mb-3">👤</p>
           <p className="text-gray-600 font-medium mb-1">まだスタッフが登録されていません</p>
-          <p className="text-sm text-gray-400 mb-5">スタッフを登録すると予約枠が作られ、お客様が指名予約できるようになります。</p>
+          <p className="text-sm text-gray-500 mb-5">スタッフを登録して勤務時間を保存すると予約枠が作られ、お客様が指名予約できるようになります。</p>
           <Link href={facilityHref("/admin/staff/new")} className="btn-primary text-sm py-2.5! px-6!">最初のスタッフを追加</Link>
         </div>
       ) : (
@@ -68,6 +72,11 @@ export default async function AdminStaffPage(props: { searchParams: Promise<{ fa
                     {s.position && <p className="text-xs text-gray-500">{s.position}</p>}
                   </div>
                 </div>
+                {s.is_active && !scheduled.has(s.id) && (
+                  <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    <span className="font-bold">勤務時間が未登録です。</span>保存するまで、このスタッフはネット予約を受けられません。
+                  </p>
+                )}
                 {(s.specialties?.length ?? 0) > 0 && (
                   <div className="flex flex-wrap gap-1 mt-3">
                     {s.specialties?.slice(0, 3).map((sp) => (
@@ -80,7 +89,9 @@ export default async function AdminStaffPage(props: { searchParams: Promise<{ fa
               </Link>
               <div className="flex gap-3 mt-3 pt-3 border-t">
                 <Link href={facilityHref(`/admin/staff/${s.id}/edit`)} className="text-xs text-primary hover:underline">編集</Link>
-                <Link href={facilityHref(`/admin/staff/${s.id}/schedule`)} className="text-xs text-gray-500 hover:underline">スケジュール</Link>
+                {s.is_active && !scheduled.has(s.id)
+                  ? <Link href={facilityHref(`/admin/staff/${s.id}/schedule`)} className="text-xs font-bold text-amber-800 hover:underline">勤務時間を登録する</Link>
+                  : <Link href={facilityHref(`/admin/staff/${s.id}/schedule`)} className="text-xs text-gray-500 hover:underline">スケジュール</Link>}
               </div>
             </div>
           ))}

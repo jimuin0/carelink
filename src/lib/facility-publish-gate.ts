@@ -85,24 +85,57 @@ export interface BookingReadinessInput {
   staffCount: number;
 }
 
+/** 個々の条件の識別子。店舗セットアップ（/admin のチェックリスト・登録3日後のメール）が
+ * どの条件を満たしたかを、文言ではなくキーで引けるようにする。 */
+export type ReadinessKey = 'name' | 'prefecture' | 'city' | 'address' | 'menu' | 'photo' | 'staff' | 'published' | 'hours';
+
+export interface ReadinessCheck {
+  key: ReadinessKey;
+  ok: boolean;
+  /** 満たしていないときにオーナーへ見せる文言。 */
+  message: string;
+}
+
+type LocationKey = 'name' | 'prefecture' | 'city' | 'address';
+
+/** 掲載に要る施設名・所在地。公開ゲートとネット予約の両方がここを通る（判定も文言も1か所）。 */
+function locationChecks(input: { name?: string | null; prefecture?: string | null; city?: string | null; hasAddress: boolean }): Record<LocationKey, ReadinessCheck> {
+  return {
+    name: { key: 'name', ok: Boolean(input.name?.trim()), message: '施設名を設定してください' },
+    prefecture: { key: 'prefecture', ok: Boolean(input.prefecture?.trim()), message: '都道府県を設定してください' },
+    city: { key: 'city', ok: Boolean(input.city?.trim()), message: '市区町村を設定してください' },
+    // 下書きでは所在地未入力を許容するが、来店先が分からない状態で公開しない。
+    address: { key: 'address', ok: input.hasAddress, message: '住所を設定してください' },
+  };
+}
+
+/**
+ * The single online-booking rule, one entry per condition. The booking page,
+ * the slot APIs, the search card's 「予約OK」 badge and the owner's setup
+ * checklist (dashboard and the day-3 follow-up email) all read it.
+ */
+export function bookingReadinessChecks(input: BookingReadinessInput): ReadinessCheck[] {
+  const location = locationChecks(input);
+  return [
+    location.name,
+    { key: 'menu', ok: input.menuCount >= 1, message: 'メニューを1つ以上登録してください' },
+    { key: 'photo', ok: input.photoCount >= 1, message: '写真を1枚以上登録してください' },
+    { key: 'staff', ok: input.staffCount >= 1, message: 'スタッフを1人以上登録してください' },
+    location.prefecture,
+    location.city,
+    location.address,
+    { key: 'published', ok: input.status === 'published', message: '店舗を掲載公開してください' },
+    { key: 'hours', ok: hasConfirmedBookingHours(input.businessHours), message: '全曜日の営業時間・定休日を確認して保存してください' },
+  ];
+}
+
 /**
  * The single online-booking rule. The booking page, the slot APIs and the
  * search card's 「予約OK」 badge all use it, so a card can never advertise
  * booking that the facility page then refuses.
  */
 export function bookingReadinessMissing(input: BookingReadinessInput): string[] {
-  const missing: string[] = [];
-  if (!input.name?.trim()) missing.push('施設名を設定してください');
-  if (input.menuCount < 1) missing.push('メニューを1つ以上登録してください');
-  if (input.photoCount < 1) missing.push('写真を1枚以上登録してください');
-  if (input.staffCount < 1) missing.push('スタッフを1人以上登録してください');
-  if (!input.prefecture?.trim()) missing.push('都道府県を設定してください');
-  if (!input.city?.trim()) missing.push('市区町村を設定してください');
-  // 下書きでは所在地未入力を許容するが、来店先が分からない状態で公開しない。
-  if (!input.hasAddress) missing.push('住所を設定してください');
-  if (input.status !== 'published') missing.push('店舗を掲載公開してください');
-  if (!hasConfirmedBookingHours(input.businessHours)) missing.push('全曜日の営業時間・定休日を確認して保存してください');
-  return missing;
+  return bookingReadinessChecks(input).filter(check => !check.ok).map(check => check.message);
 }
 
 /**
@@ -125,20 +158,42 @@ export function isCardBookingReady(card: {
 /** 公開ゲートで医療広告の表現を見直す PR 文言の列と、オーナーに見せる欄名。 */
 const PR_TEXT_FIELDS = [['catch_copy', 'キャッチコピー'], ['description', '施設紹介']] as const;
 
+export interface ListingValues {
+  name?: string | null;
+  prefecture?: string | null;
+  city?: string | null;
+  address?: string | null;
+  catch_copy?: string | null;
+  description?: string | null;
+}
+
+/** 掲載公開に要る施設名・所在地のうち欠けているもの（ネット予約の判定と同じ規則・同じ文言）。 */
+export function listingLocationMissing(values: ListingValues): string[] {
+  const location = locationChecks({ ...values, hasAddress: Boolean(values.address?.trim()) });
+  return [location.name, location.prefecture, location.city, location.address]
+    .filter(check => !check.ok).map(check => check.message);
+}
+
+/**
+ * The single listing-publish rule. The server gate runs it on the saved row and
+ * the settings page runs it on what the owner sees before saving, so the two can
+ * never name different missing items.
+ */
+export function listingPublishMissing(values: ListingValues): string[] {
+  const missing = listingLocationMissing(values);
+  // 最後の砦。/admin/settings は保存時に弾くが、/register の PR 文（取り込み後は施設紹介）など
+  // 設定画面を経ずに入った文言は検査されないまま公開できた。公開の瞬間にも同じ判定を通す。
+  for (const [field, label] of PR_TEXT_FIELDS) {
+    const check = validateFacilityPrText(values[field]);
+    if (!check.ok) missing.push(`${label}：${check.message}`);
+  }
+  return missing;
+}
+
 /** Listing is independent of online booking. Authorization stays in the caller. */
 export async function checkPublishReadiness(admin: SupabaseClient, facilityId: string): Promise<{ readiness: PublishReadiness; error: unknown }> {
   const profile = await admin.from('facility_profiles').select('name, prefecture, city, address, catch_copy, description').eq('id', facilityId).single();
   if (profile.error) return { readiness: { ready: false, missing: [] }, error: profile.error };
-  const missing: string[] = [];
-  if (!profile.data?.name?.trim()) missing.push('施設名を設定してください');
-  if (!profile.data?.prefecture?.trim()) missing.push('都道府県を設定してください');
-  if (!profile.data?.city?.trim()) missing.push('市区町村を設定してください');
-  if (!profile.data?.address?.trim()) missing.push('住所を設定してください');
-  // 最後の砦。/admin/settings は保存時に弾くが、/register の PR 文（取り込み後は施設紹介）など
-  // 設定画面を経ずに入った文言は検査されないまま公開できた。公開の瞬間にも同じ判定を通す。
-  for (const [field, label] of PR_TEXT_FIELDS) {
-    const check = validateFacilityPrText(profile.data?.[field]);
-    if (!check.ok) missing.push(`${label}：${check.message}`);
-  }
+  const missing = listingPublishMissing(profile.data ?? {});
   return { readiness: { ready: missing.length === 0, missing }, error: null };
 }
