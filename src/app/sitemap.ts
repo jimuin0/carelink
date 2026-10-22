@@ -7,6 +7,7 @@ import { SITE_URL } from '@/lib/constants';
 import { SHOW_JOBS } from '@/lib/feature-toggles';
 import { isIndexableAreaQuality } from '@/lib/area-seo';
 import { generatePrefTypeContent, generateCityTypeContent } from '@/lib/seo-snippets';
+import { getSymptomSlugsWithPublishedFacilities } from '@/lib/symptom-coverage';
 
 // 完全動的: 環境変数変更/施設追加を即時反映、CDN静的化を完全回避
 export const dynamic = 'force-dynamic';
@@ -20,7 +21,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: SITE_URL, lastModified: updated, changeFrequency: 'weekly', priority: 1 },
     { url: `${SITE_URL}/search`, lastModified: updated, changeFrequency: 'daily', priority: 0.9 },
     { url: `${SITE_URL}/salon`, lastModified: updated, changeFrequency: 'weekly', priority: 0.9 },
-    { url: `${SITE_URL}/ranking`, lastModified: updated, changeFrequency: 'daily', priority: 0.7 },
     { url: `${SITE_URL}/blog`, lastModified: updated, changeFrequency: 'weekly', priority: 0.6 },
     { url: `${SITE_URL}/recruit`, lastModified: updated, changeFrequency: 'monthly', priority: 0.6 },
     { url: `${SITE_URL}/privacy`, lastModified: new Date('2026-03-19'), changeFrequency: 'monthly', priority: 0.3 },
@@ -28,7 +28,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${SITE_URL}/legal`, lastModified: new Date('2026-03-19'), changeFrequency: 'monthly', priority: 0.3 },
     { url: `${SITE_URL}/register`, lastModified: updated, changeFrequency: 'monthly', priority: 0.3 },
     { url: `${SITE_URL}/contact`, lastModified: updated, changeFrequency: 'monthly', priority: 0.5 },
-    { url: `${SITE_URL}/symptom-checker`, lastModified: updated, changeFrequency: 'weekly', priority: 0.7 },
   ];
 
   const supabase = createServerSupabaseClient();
@@ -36,7 +35,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Dynamic facility pages（prefecture, business_type も取得して 0件エリアを除外）
   const { data: facilities } = await supabase
     .from('facility_profiles')
-    .select('slug, updated_at, prefecture, business_type, city')
+    .select('slug, updated_at, prefecture, business_type, city, rating_count')
     .eq('status', 'published');
 
   // 施設が存在するエリアの Set を構築（薄いコンテンツページをサイトマップから除外）
@@ -106,14 +105,36 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       }))
   );
 
-  // Symptom pages
-  const { data: symptoms } = await supabase.from('symptoms').select('slug');
-  const symptomPages: MetadataRoute.Sitemap = (symptoms || []).map((s) => ({
-    url: `${SITE_URL}/symptom/${s.slug}`,
+  // Symptom pages — 公開中の施設が1件以上結びついた症状だけ掲載（2026年10月22日 是正）。
+  //
+  // 対応症状（facility_symptoms）を施設が登録する手段が無く本番は0行のため、症状ページ30本は
+  // 全て施設0件の空ページだった。それを症状チェッカーと合わせて31本、無条件で提出していた。
+  // 神原さん決定「施設が載るまで検索に出さない」。ページ側も施設0件なら noindex を出して補完する
+  // （src/app/symptom/[slug]/page.tsx・src/app/symptom-checker/layout.tsx）。
+  // 読み取りに失敗したら、確かめられなかった症状は出さない側へ倒す（sitemap は毎回生成し直される）。
+  let coveredSymptomSlugs = new Set<string>();
+  try {
+    coveredSymptomSlugs = await getSymptomSlugsWithPublishedFacilities();
+  } catch {
+    console.error('[sitemap] symptom coverage lookup failed');
+  }
+  const symptomPages: MetadataRoute.Sitemap = [...coveredSymptomSlugs].sort().map((slug) => ({
+    url: `${SITE_URL}/symptom/${slug}`,
     lastModified: updated,
     changeFrequency: 'weekly' as const,
     priority: 0.7,
   }));
+  // 症状チェッカーは、選べる症状のどれにも公開施設が無い間は「0件」しか返せないので出さない。
+  const symptomCheckerPages: MetadataRoute.Sitemap = symptomPages.length > 0
+    ? [{ url: `${SITE_URL}/symptom-checker`, lastModified: updated, changeFrequency: 'weekly' as const, priority: 0.7 }]
+    : [];
+
+  // ランキング — 口コミのある公開施設（＝ランキングに1件でも載る施設）がある間だけ掲載。
+  // ランキングは rating_count > 0 の施設だけを並べる（src/lib/rankings.ts）ため、口コミが集まるまでは
+  // 必ず空になる。空のページを提出しない（ページ側も空なら noindex を出す・src/app/ranking/page.tsx）。
+  const rankingPages: MetadataRoute.Sitemap = (facilities || []).some((f) => (f.rating_count ?? 0) > 0)
+    ? [{ url: `${SITE_URL}/ranking`, lastModified: updated, changeFrequency: 'daily' as const, priority: 0.7 }]
+    : [];
 
   const facilityPages: MetadataRoute.Sitemap = (facilities || []).map((f) => ({
     url: `${SITE_URL}/facility/${f.slug}`,
@@ -222,6 +243,43 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         priority: 0.6,
       }));
 
+  // 店舗ブログ — 公開施設の公開記事だけを掲載（2026年10月22日 新設）。
+  //
+  // 以前は運営コラム（platform_blog_posts）しか出しておらず、店舗が /admin/blog で公開した記事は
+  // sitemap にも施設ページにも導線が無く、検索エンジンからも来訪者からも辿れなかった。
+  // 記事が1本以上ある施設は、記事一覧 /facility/<slug>/blog も合わせて載せる。
+  // 読み取りに失敗したときは店舗ブログだけを出さない（sitemap 全体は落とさない）。
+  const { data: shopBlogPosts, error: shopBlogPostsError } = await supabase
+    .from('blog_posts')
+    .select('slug, published_at, updated_at, facility_profiles!inner(slug, status)')
+    .eq('is_published', true)
+    .eq('facility_profiles.status', 'published')
+    .order('published_at', { ascending: false, nullsFirst: false });
+  if (shopBlogPostsError) {
+    console.error('[sitemap] blog_posts lookup failed', { code: shopBlogPostsError.code });
+  }
+  const shopBlogFacilitySlugs = new Set<string>();
+  const shopBlogPostPages: MetadataRoute.Sitemap = [];
+  for (const post of shopBlogPostsError ? [] : shopBlogPosts || []) {
+    const facilitySlug = post.facility_profiles.slug;
+    shopBlogFacilitySlugs.add(facilitySlug);
+    shopBlogPostPages.push({
+      url: `${SITE_URL}/facility/${facilitySlug}/blog/${post.slug}`,
+      lastModified: new Date(post.updated_at || post.published_at || updated),
+      changeFrequency: 'monthly' as const,
+      priority: 0.5,
+    });
+  }
+  const shopBlogPages: MetadataRoute.Sitemap = [
+    ...[...shopBlogFacilitySlugs].map((facilitySlug) => ({
+      url: `${SITE_URL}/facility/${facilitySlug}/blog`,
+      lastModified: updated,
+      changeFrequency: 'weekly' as const,
+      priority: 0.5,
+    })),
+    ...shopBlogPostPages,
+  ];
+
   // Jobs (公開施設に紐づくもののみ)。SHOW_JOBS=false の間はローンチ判断により掲載自体をスキップする
   // （src/lib/feature-toggles.ts 参照・true に戻すだけで復活）。
   let jobPages: MetadataRoute.Sitemap = [];
@@ -240,5 +298,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       })),
     ];
   }
-  return [...staticPages, ...businessTypeTopPages, ...prefecturePages, ...crossPages, ...cityPages, ...cityTypePages, ...facilityPages, ...featurePages, ...blogPages, ...symptomPages, ...jobPages];
+  return [...staticPages, ...rankingPages, ...symptomCheckerPages, ...businessTypeTopPages, ...prefecturePages, ...crossPages, ...cityPages, ...cityTypePages, ...facilityPages, ...shopBlogPages, ...featurePages, ...blogPages, ...symptomPages, ...jobPages];
 }

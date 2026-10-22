@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import {
   allBusinessTypeSlugs,
   getPrefectureName,
@@ -19,6 +19,7 @@ import Breadcrumb from '@/components/Breadcrumb';
 import FacilityCard from '@/components/search/FacilityCard';
 import Pagination from '@/components/search/Pagination';
 import SafeHtmlContent from '@/components/seo/SafeHtmlContent';
+import { readPageResult } from '@/lib/page-read-verification';
 
 export const revalidate = 3600;
 export const dynamicParams = true;
@@ -38,13 +39,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = `${cityName}の${typeName}`;
   const description = `${prefName}${cityName}の${typeName}を口コミ・メニュー・写真で比較。ネット予約24時間OK。`;
   const supabase = createServerSupabaseClient();
-  const { count } = await supabase
+  // 数えられなかったときは例外にする（null を「件数不明＝index 可」と扱わない・2026年10月22日 是正）。
+  const { count } = await readPageResult(() => supabase
     .from('facility_profiles')
     .select('id', { count: 'exact', head: true })
     .eq('status', 'published')
     .eq('prefecture', prefName)
     .eq('city', cityName)
-    .eq('business_type', typeName);
+    .eq('business_type', typeName), 'area-metadata:city-type');
   const hasQualityContent = isIndexableAreaQuality(count, generateCityTypeContent(prefectureSlug, cityName, typeSlug));
   return {
     title,
@@ -69,11 +71,15 @@ export default async function CityTypePage({ params, searchParams }: Props) {
   const { page: pageStr } = await searchParams;
   const page = Math.max(1, parseInt(pageStr || '1', 10) || 1);
 
-  const [{ facilities, total, perPage }, seoContent] = await Promise.all([
+  const [{ facilities, total, perPage, error }, seoContent] = await Promise.all([
     searchFacilities({ prefecture: prefName, city: cityName, type: typeName, sort: 'rating', page }),
     getAreaSeoContent(prefectureSlug, secondSlug, typeSlug),
   ]);
+  // 読めなかった検索を「0件・掲載なし」として 200 で返さない（error.tsx の一時障害表示にする）。
+  if (error) throw new Error('AREA_RESULTS_UNAVAILABLE');
   const totalPages = Math.ceil(total / perPage);
+  // 結果より後ろのページは 1 ページ目へ戻す（「0件の施設が見つかりました」を 200 で見せない）。
+  if (page > 1 && page > totalPages) redirect(`/${prefectureSlug}/${secondSlug}/${typeSlug}`);
   const siblingCities = getCitiesForPrefecture(prefectureSlug).filter((c) => c.slug !== secondSlug).slice(0, 12);
 
   const itemListJsonLd = {

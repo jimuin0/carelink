@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
@@ -16,10 +17,38 @@ interface Props {
   searchParams: Promise<{ page?: string | string[] }>;
 }
 
+/**
+ * エリアとその検索範囲（下位エリア・祖先・絞り込み条件）。metadata と本文の両方が使い、
+ * 同じリクエスト内では cache で 1 回にまとまる。見つからなければ null。
+ */
+const loadAreaScope = cache(async (slug: string) => {
+  const area = await getAreaBySlug(slug);
+  if (!area) return null;
+  const [children, breadcrumb] = await Promise.all([
+    getAreasByParent(area.id),
+    getAreaBreadcrumb(area),
+  ]);
+  // Search facilities by prefecture or city（フィルタ組み立ては buildAreaSearchParam 参照）
+  return { area, children, breadcrumb, searchParam: buildAreaSearchParam(area, breadcrumb, children) };
+});
+
+/**
+ * 検索結果。metadata の件数判定（1 ページ目）とページ番号なしの本文で共有する。
+ * 引数の検索範囲は loadAreaScope が同じリクエスト内で同じオブジェクトを返すので、
+ * cache の照合（引数の同一性）がそのまま効く。
+ */
+const loadAreaResults = cache(searchAreaFacilities);
+
 export async function generateMetadata(props: Props): Promise<Metadata> {
   const params = await props.params;
-  const area = await getAreaBySlug(params.slug);
-  if (!area) return {};
+  const scope = await loadAreaScope(params.slug);
+  if (!scope) return {};
+  const { area } = scope;
+  // 【2026年10月22日 是正】掲載0件のページを noindex にする規則が、/[都道府県] 系にはあるのに
+  // このエリア検索だけ抜けていた（本番で /tokyo は noindex なのに /search/area/tokyo は
+  // 「まだ登録されていません」のまま index 可だった）。下位エリアの登録が無い地方（region）も 0 件。
+  // 件数の取得に失敗したら searchAreaFacilities が例外にするので、障害を「0件」と取り違えない。
+  const { total } = await loadAreaResults(scope.searchParam, 1);
   // ルート layout の title.template '%s | CareLink' が自動付与するため、
   // metadata.title には「| CareLink」を付けない（付けると二重化する）。openGraph.title はテンプレ非適用のため付与する。
   const title = `${area.name}のサロン・クリニック`;
@@ -29,22 +58,17 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
     description,
     alternates: { canonical: `/search/area/${params.slug}` },
     openGraph: { title: `${title} | CareLink`, description, type: 'website' },
+    // follow は残す（下位エリア・パンくずの回遊リンクは辿らせる）。掲載が増えれば自動で index に戻る。
+    ...(total === 0 ? { robots: { index: false, follow: true } } : {}),
   };
 }
 
 export default async function AreaResultPage(props: Props) {
   const params = await props.params;
   const searchParams = await props.searchParams;
-  const area = await getAreaBySlug(params.slug);
-  if (!area) notFound();
-
-  const [children, breadcrumb] = await Promise.all([
-    getAreasByParent(area.id),
-    getAreaBreadcrumb(area),
-  ]);
-
-  // Search facilities by prefecture or city（フィルタ組み立ては buildAreaSearchParam 参照）
-  const searchParam = buildAreaSearchParam(area, breadcrumb, children);
+  const scope = await loadAreaScope(params.slug);
+  if (!scope) notFound();
+  const { area, children, breadcrumb, searchParam } = scope;
 
   let currentPage = 1;
   if (searchParams.page !== undefined) {
@@ -55,7 +79,7 @@ export default async function AreaResultPage(props: Props) {
   // 【2026年7月8日 恒久根治】従来はページネーションが一切なく、PER_PAGE(20件)超のエリアで
   // 21件目以降が無言で切り捨てられ、ユーザーが残りの施設を確認する手段が無かった。
   // /search と同じ Pagination コンポーネントを使い、total 件数に基づくページ送りを提供する。
-  const { facilities, total, perPage } = await searchAreaFacilities(searchParam, currentPage);
+  const { facilities, total, perPage } = await loadAreaResults(searchParam, currentPage);
   const totalPages = Math.ceil(total / perPage);
   const baseUrl = `/search/area/${params.slug}`;
 

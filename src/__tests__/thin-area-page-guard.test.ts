@@ -61,10 +61,13 @@ describe('sitemap は施設0件のエリアページを載せない', () => {
 
 describe('エリアページは掲載0件なら noindex にする', () => {
   // 階層が増えたらここに足す。どれか一つでも規則を外すと落ちる。
+  // 【2026年10月22日】業種トップ（/type/[typeSlug]）だけ規則が抜けていた（本番の /type/hair-salon が
+  // 「0件の施設を掲載中」のまま index 可）。sitemap 側は occupiedType で除外済みでも、内部リンクから辿られる。
   const AREA_PAGES = [
     ['src/app/[prefectureSlug]/page.tsx', '都道府県'],
     ['src/app/[prefectureSlug]/[secondSlug]/page.tsx', '都道府県×業種／市区町村'],
     ['src/app/[prefectureSlug]/[secondSlug]/[typeSlug]/page.tsx', '市区町村×業種'],
+    ['src/app/type/[typeSlug]/page.tsx', '業種トップ'],
   ] as const;
 
   it.each(AREA_PAGES)('%s（%s）が count===0 で noindex にする', (path) => {
@@ -89,5 +92,51 @@ describe('エリアページは掲載0件なら noindex にする', () => {
     const src = codeOnly(read(path));
     expect(src).toContain("count: 'exact'");
     expect(src).toContain("eq('status', 'published')");
+  });
+
+  /**
+   * 【2026年10月22日】件数の読み取り失敗を「件数不明＝index 可」と扱っていた（count が null のまま
+   * `count === 0` に当たらない）。数える問い合わせは readPageResult で包み、失敗は例外にする。
+   */
+  it.each(AREA_PAGES)('%s は件数の読み取り失敗を例外にする', (path) => {
+    const src = codeOnly(read(path));
+    expect(src).toMatch(/readPageResult\(\(\) =>[^;]*count: 'exact'/);
+  });
+});
+
+/**
+ * エリア以外の一覧ページにも同じ規則を効かせる（2026年10月22日）。
+ * 件数の出し方がページごとに違う（検索結果の total・ランキングの件数・症状に結びついた施設数）ため、
+ * 正規表現の形ではなく「掲載 0 件のときに noindex, follow を返す分岐があること」を見る。
+ * 挙動そのものは各ページのテスト（__tests__）が固定している。
+ */
+describe('一覧ページは掲載0件なら noindex にする（エリア以外）', () => {
+  const LISTING_PAGES = [
+    ['src/app/search/area/[slug]/page.tsx', /total === 0\s*\?\s*\{\s*robots:\s*\{\s*index:\s*false,\s*follow:\s*true/],
+    ['src/app/ranking/page.tsx', /facilities\.length === 0\s*\?\s*\{\s*robots:\s*\{\s*index:\s*false,\s*follow:\s*true/],
+    ['src/app/ranking/[area]/page.tsx', /facilities\.length === 0\s*\?\s*\{\s*robots:\s*\{\s*index:\s*false,\s*follow:\s*true/],
+    ['src/app/symptom/[slug]/page.tsx', /facilities\.length === 0\s*\?\s*\{\s*robots:\s*\{\s*index:\s*false,\s*follow:\s*true/],
+    ['src/app/symptom-checker/layout.tsx', /covered\.size === 0\s*\?\s*\{\s*robots:\s*\{\s*index:\s*false,\s*follow:\s*true/],
+  ] as const;
+
+  it.each(LISTING_PAGES)('%s', (path, pattern) => {
+    expect(codeOnly(read(path))).toMatch(pattern);
+  });
+});
+
+describe('sitemap は施設の載らない症状ページ・空のランキングを載せない', () => {
+  const src = codeOnly(read('src/app/sitemap.ts'));
+
+  /** 症状マスタを丸ごと列挙すると、対応施設 0 件の 30 本がそのまま提出される（2026年10月22日まで）。 */
+  it('症状ページは公開施設が結びついた症状だけから作る', () => {
+    expect(src).toContain('getSymptomSlugsWithPublishedFacilities()');
+    expect(src).not.toMatch(/from\('symptoms'\)\.select\('slug'\)/);
+  });
+
+  it('/symptom-checker と /ranking を無条件の静的ページに戻していない', () => {
+    const start = src.indexOf('const staticPages');
+    const block = src.slice(start, src.indexOf('];', start));
+    expect(block).not.toContain('/symptom-checker');
+    expect(block).not.toContain('/ranking');
   });
 });

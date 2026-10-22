@@ -43,7 +43,45 @@ test.each(['empty-error', 'data-error', 'reject'])('metadata %s is unavailable r
   await expect(generateMetadata(props())).rejects.toThrow('PAGE_DATA_UNAVAILABLE');
   expect(notFound).not.toHaveBeenCalled();
   expect(mockFrom).toHaveBeenCalledTimes(1);
-  expect(safeCaptureException).toHaveBeenCalledWith(expect.objectContaining({ message: 'DATABASE_FAILURE:08006' }), 'symptom-metadata');
+  expect(safeCaptureException).toHaveBeenCalledWith(expect.objectContaining({ message: 'DATABASE_FAILURE:08006' }), 'symptom-page');
+});
+
+/**
+ * 施設 0 件の症状ページは検索結果に出さない（2026年10月22日・神原さん決定「施設が載るまで検索に出さない」）。
+ * 対応症状を登録する手段が無く、本番は 30 症状とも 0 件の空ページのまま index されていた。
+ */
+describe('metadata は公開施設の有無で index を切り替える', () => {
+  test.each([
+    ['対応表に行が無い', [symptom, []]],
+    ['対応表はあるが公開中の施設が無い（下書き・非公開のみ）', [symptom, [{ facility_id: 'draft-id', description: '' }], []]],
+  ])('%s → noindex, follow', async (_label, rows) => {
+    results(rows as unknown[]);
+    await expect(generateMetadata(props())).resolves.toMatchObject({ robots: { index: false, follow: true } });
+  });
+
+  test('公開中の施設が1件でもあれば robots を出さない（index に戻る）', async () => {
+    const metadata = await generateMetadata(props());
+    expect(metadata).not.toHaveProperty('robots');
+    expect(mockEq).toHaveBeenCalledWith('status', 'published');
+  });
+
+  test('施設の読み取りに失敗したら noindex にも index にも倒さず、取得失敗にする', async () => {
+    results(baseline, 2);
+    await expect(generateMetadata(props())).rejects.toThrow('PAGE_DATA_UNAVAILABLE');
+  });
+});
+
+test('施設 0 件の本文は行き止まりにせず、症状を扱う業種の一覧へ案内する', async () => {
+  results([symptom, [], []]);
+  const html = renderToStaticMarkup(await Page(props()));
+  expect(html).toContain('href="/type/acupuncture"');
+  expect(html).toContain('鍼灸院・整骨院を探す');
+  expect(html).toContain('href="/search"');
+});
+
+test('施設があるときは業種一覧への案内を出さない', async () => {
+  const html = renderToStaticMarkup(await Page(props()));
+  expect(html).not.toContain('href="/type/acupuncture"');
 });
 
 describe.each([['symptom', 0], ['facility-links', 1], ['facilities', 2], ['related', 3]] as const)('%s read', (_stage, index) => {

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import {
   allBusinessTypeSlugs,
   getPrefectureName,
@@ -24,6 +24,7 @@ import FacilityCard from '@/components/search/FacilityCard';
 import Pagination from '@/components/search/Pagination';
 import RelatedLinks from '@/components/seo/RelatedLinks';
 import SafeHtmlContent from '@/components/seo/SafeHtmlContent';
+import { readPageResult } from '@/lib/page-read-verification';
 
 export const revalidate = 3600;
 export const dynamic = 'force-dynamic';
@@ -50,12 +51,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     const typeName = getBusinessTypeName(secondSlug)!;
     const title = `${prefName}の${typeName}`;
     const description = `${prefName}の${typeName}を口コミ・メニュー・写真で比較。ネット予約24時間OK。CareLink で${prefName}の${typeName}を探そう。`;
-    const { count } = await supabase
+    // 数えられなかったときは例外にする（null を「件数不明＝index 可」と扱わない・2026年10月22日 是正）。
+    const { count } = await readPageResult(() => supabase
       .from('facility_profiles')
       .select('id', { count: 'exact', head: true })
       .eq('status', 'published')
       .eq('prefecture', prefName)
-      .eq('business_type', typeName);
+      .eq('business_type', typeName), 'area-metadata:prefecture-type');
     const hasQualityContent = isIndexableAreaQuality(count, generatePrefTypeContent(prefectureSlug, secondSlug));
     return {
       title,
@@ -71,12 +73,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (cityName) {
     const title = `${prefName}${cityName}のサロン・クリニック一覧`;
     const description = `${prefName}${cityName}の美容サロン・鍼灸院・整骨院を口コミ・メニュー・写真で比較。ネット予約24時間OK。`;
-    const { count } = await supabase
+    const { count } = await readPageResult(() => supabase
       .from('facility_profiles')
       .select('id', { count: 'exact', head: true })
       .eq('status', 'published')
       .eq('prefecture', prefName)
-      .eq('city', cityName);
+      .eq('city', cityName), 'area-metadata:city');
     return {
       title,
       description,
@@ -119,11 +121,16 @@ async function TypePage({ prefectureSlug, prefName, typeSlug, searchParams }: {
   const { page: pageStr } = searchParams;
   const page = Math.max(1, parseInt(pageStr || '1', 10) || 1);
 
-  const [{ facilities, total, perPage }, seoContent] = await Promise.all([
+  const [{ facilities, total, perPage, error }, seoContent] = await Promise.all([
     searchFacilities({ prefecture: prefName, type: typeName, sort: 'rating', page }),
     getAreaSeoContent(prefectureSlug, null, typeSlug),
   ]);
+  // 読めなかった検索を「0件・掲載なし」として 200 で返さない（error.tsx の一時障害表示にする）。
+  if (error) throw new Error('AREA_RESULTS_UNAVAILABLE');
   const totalPages = Math.ceil(total / perPage);
+  // 結果より後ろのページ（古いリンク・手入力の ?page=2 など）は 1 ページ目へ戻す。
+  // 「0件の施設が見つかりました」を 200 で見せない（/search と同じ扱い）。
+  if (page > 1 && page > totalPages) redirect(`/${prefectureSlug}/${typeSlug}`);
   const regionGroup = regionGroups.find((r) => r.prefectures.includes(prefName));
 
   const itemListJsonLd = {
@@ -184,11 +191,15 @@ async function CityPage({ prefectureSlug, prefName, citySlug, cityName, searchPa
   const { page: pageStr } = searchParams;
   const page = Math.max(1, parseInt(pageStr || '1', 10) || 1);
 
-  const [{ facilities, total, perPage }, seoContent] = await Promise.all([
+  const [{ facilities, total, perPage, error }, seoContent] = await Promise.all([
     searchFacilities({ prefecture: prefName, city: cityName, sort: 'rating', page }),
     getAreaSeoContent(prefectureSlug, citySlug),
   ]);
+  // 読めなかった検索を「0件・掲載なし」として 200 で返さない（error.tsx の一時障害表示にする）。
+  if (error) throw new Error('AREA_RESULTS_UNAVAILABLE');
   const totalPages = Math.ceil(total / perPage);
+  // 結果より後ろのページは 1 ページ目へ戻す（本番で /osaka/toyonaka?page=2 が「0件」を 200 で返していた）。
+  if (page > 1 && page > totalPages) redirect(`/${prefectureSlug}/${citySlug}`);
   const regionGroup = regionGroups.find((r) => r.prefectures.includes(prefName));
   const siblingCities = getCitiesForPrefecture(prefectureSlug).filter((c) => c.slug !== citySlug);
 

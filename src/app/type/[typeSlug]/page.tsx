@@ -14,6 +14,8 @@ import { searchFacilities } from '@/lib/facilities';
 import { getBusinessTypeContext } from '@/lib/seo-snippets';
 import Breadcrumb from '@/components/Breadcrumb';
 import FacilityCard from '@/components/search/FacilityCard';
+import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { readPageResult } from '@/lib/page-read-verification';
 
 export const revalidate = 3600;
 
@@ -33,11 +35,22 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const description = ctx
     ? `${typeName}（${ctx.keyword}）を全国から検索。${ctx.description}を口コミ・料金・写真で比較し、24時間ネット予約できます。`
     : `${typeName}を全国から検索・比較・予約。CareLinkで自分にぴったりの${typeName}を見つけましょう。`;
+  // 【2026年10月22日 是正】掲載0件のページを noindex にする規則が、子（/[都道府県]/[業種] など）には
+  // あったのに、親であるこの業種トップだけ抜けていた（本番の /type/hair-salon は「0件の施設を掲載中」が
+  // index 可のままだった）。sitemap 側は施設のある業種だけに絞っているが、内部リンクからは辿られる。
+  // follow は残す（都道府県別・他業種への回遊リンクは辿らせる）。掲載が増えれば自動で index に戻る。
+  // 数えられなかったときは例外にする（null を「件数不明＝index 可」と扱わない）。
+  const { count } = await readPageResult(() => createServerSupabaseClient()
+    .from('facility_profiles')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'published')
+    .eq('business_type', typeName), 'area-metadata:type');
   return {
     // ルート layout の title.template '%s | CareLink' が自動付与するため「| CareLink」は付けない（二重化防止）。
     title: `${typeName}を全国から探す｜口コミ・料金で比較`,
     description,
     alternates: { canonical: `/type/${typeSlug}` },
+    ...(count === 0 ? { robots: { index: false, follow: true } } : {}),
   };
 }
 
@@ -47,7 +60,9 @@ export default async function BusinessTypePage({ params }: Props) {
   const typeName = getBusinessTypeName(typeSlug)!;
   const ctx = getBusinessTypeContext(typeSlug);
 
-  const { facilities, total } = await searchFacilities({ type: typeName, sort: 'rating' });
+  const { facilities, total, error } = await searchFacilities({ type: typeName, sort: 'rating' });
+  // 読めなかった検索を「0件の施設を掲載中」として 200 で返さない（error.tsx の一時障害表示にする）。
+  if (error) throw new Error('AREA_RESULTS_UNAVAILABLE');
 
   // ItemList JSON-LD
   const itemListJsonLd = {

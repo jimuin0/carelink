@@ -662,6 +662,44 @@ describe('getFacilityBySlug', () => {
     const result = await getFacilityBySlug('nonexistent');
     expect(result.facility).toBeNull();
   });
+
+  /**
+   * 【2026年10月22日 是正】DB の一時障害で、公開中の施設ページが 404＋noindex
+   * （「存在しないか、公開が終了した可能性があります」）を返していた。
+   * 0 件は error にならない maybeSingle で引き、error は「読めなかった」として例外にする
+   * （呼び出し側の notFound() に流さず、error.tsx の一時障害表示＝5xx にする）。
+   */
+  test('0件は maybeSingle で引く（0件を error として扱わない）', async () => {
+    const chain = fluent({ data: null, error: null });
+    mockFrom.mockReturnValue(chain);
+    await getFacilityBySlug('nonexistent');
+    expect(chain.maybeSingle).toHaveBeenCalledTimes(1);
+    expect(chain.single).not.toHaveBeenCalled();
+    expect(chain.eq).toHaveBeenCalledWith('status', 'published');
+  });
+
+  test.each([
+    ['接続プール枯渇（504）', { code: 'PGRST003', message: 'Timed out acquiring connection from connection pool.' }],
+    ['statement timeout', { code: '57014', message: 'canceling statement due to statement timeout' }],
+    ['キー失効（401）', { code: 'PGRST301', message: 'JWT expired' }],
+  ])('読み取り失敗（%s）は「施設なし」にせず例外にする', async (_label, error) => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockFrom.mockReturnValue(fluent({ data: null, error }));
+    await expect(getFacilityBySlug('test-salon')).rejects.toThrow('PAGE_DATA_UNAVAILABLE');
+    // 記録には SQLSTATE／PostgREST のコードだけを残し、DB のメッセージは出さない
+    expect(consoleSpy).toHaveBeenCalledWith('[safeCaptureException:facility-detail]', `DATABASE_FAILURE:${error.code}`, expect.anything());
+    expect(JSON.stringify(consoleSpy.mock.calls)).not.toContain(error.message);
+    consoleSpy.mockRestore();
+  });
+
+  test('通信そのものが失敗（reject）しても例外にする', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const chain = fluent(null);
+    chain.maybeSingle = jest.fn(() => Promise.reject(new TypeError('fetch failed')));
+    mockFrom.mockReturnValue(chain);
+    await expect(getFacilityBySlug('test-salon')).rejects.toThrow('PAGE_DATA_UNAVAILABLE');
+    consoleSpy.mockRestore();
+  });
 });
 
 describe('getFacilityMenus', () => {

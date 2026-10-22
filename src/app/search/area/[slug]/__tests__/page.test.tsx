@@ -1,6 +1,6 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { renderToStaticMarkup } from 'react-dom/server';
-import Page, { dynamic } from '../page';
+import Page, { dynamic, generateMetadata } from '../page';
 import { notFound } from 'next/navigation';
 import { getAreaBySlug, getAreaBreadcrumb, getAreasByParent, buildAreaSearchParam } from '@/lib/areas';
 import { searchAreaFacilities } from '@/lib/area-facilities';
@@ -71,4 +71,42 @@ test('only a missing slug is a 404; area lookup failure propagates', async () =>
 test('facility query failure propagates instead of rendering an empty area', async () => {
   (searchAreaFacilities as jest.Mock).mockRejectedValue(new Error('Area facilities unavailable'));
   await expect(Page({ params: Promise.resolve({ slug: 'toy' }), searchParams: Promise.resolve({}) })).rejects.toThrow('Area facilities unavailable');
+});
+
+/**
+ * 掲載 0 件のエリア検索は noindex（2026年10月22日 是正）。/[都道府県] 系には規則があるのに
+ * ここだけ抜けていた（本番で /tokyo は noindex、/search/area/tokyo は空のまま index 可）。
+ */
+describe('generateMetadata', () => {
+  const meta = (slug = 'toy') => generateMetadata({ params: Promise.resolve({ slug }), searchParams: Promise.resolve({}) });
+
+  test('掲載 0 件なら noindex, follow（下位エリアへの回遊は辿らせる）', async () => {
+    await expect(meta()).resolves.toMatchObject({ robots: { index: false, follow: true }, alternates: { canonical: '/search/area/toy' } });
+    expect(searchAreaFacilities).toHaveBeenCalledWith({ kind: 'city', prefecture: '大阪府', city: '豊中市' }, 1);
+  });
+
+  test('下位エリアの登録が無い地方も 0 件として noindex', async () => {
+    (getAreaBySlug as jest.Mock).mockResolvedValue(region);
+    (getAreaBreadcrumb as jest.Mock).mockResolvedValue([region]);
+    (buildAreaSearchParam as jest.Mock).mockReturnValue({ kind: 'region', prefectures: [] });
+    await expect(meta('kinki')).resolves.toMatchObject({ robots: { index: false, follow: true } });
+  });
+
+  test('掲載があれば robots を出さない（index に戻る）', async () => {
+    (searchAreaFacilities as jest.Mock).mockResolvedValue({ facilities: [{ id: 'f', name: '施設' }], total: 1, perPage: 20 });
+    const metadata = await meta();
+    expect(metadata).not.toHaveProperty('robots');
+    expect(metadata.title).toBe('豊中市のサロン・クリニック');
+  });
+
+  test('件数の取得に失敗したら noindex にも index にも倒さず例外にする', async () => {
+    (searchAreaFacilities as jest.Mock).mockRejectedValue(new Error('Area facilities unavailable'));
+    await expect(meta()).rejects.toThrow('Area facilities unavailable');
+  });
+
+  test('存在しないエリアは件数を数えない', async () => {
+    (getAreaBySlug as jest.Mock).mockResolvedValue(null);
+    await expect(meta('missing')).resolves.toEqual({});
+    expect(searchAreaFacilities).not.toHaveBeenCalled();
+  });
 });

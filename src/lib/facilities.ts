@@ -7,6 +7,7 @@ import { SLOT_OCCUPYING_STATUSES } from './booking-status';
 import type { CancelPolicy } from './cancel-fee';
 import { isCardBookingReady } from './facility-publish-gate';
 import { OSAKA_CITY, OSAKA_CITY_WARDS } from './facility-location';
+import { readPageResult } from './page-read-verification';
 
 const PER_PAGE = 20;
 
@@ -379,15 +380,25 @@ export async function getFeaturedFacilities(businessType?: string, area?: string
     .filter(Boolean) as FacilityCardData[];
 }
 
+/**
+ * 公開中の施設を slug で 1 件引く。見つからなければ facility は null。
+ *
+ * 【2026年10月22日 是正】以前は `.single()` の error を呼び出し側が捨てており、DB の一時障害
+ * （接続プール枯渇の 504・statement timeout・キー失効の 401 など）でも facility が null になって
+ * 公開中の施設ページが「存在しないか、公開が終了した」404＋noindex を返していた
+ * （来訪者は閉店と誤解し、クローラは 404 を受け取る）。
+ * 0 件は maybeSingle で error にならないので、error は全て「読めなかった」として例外にする
+ * （施設ページ・スタッフ・ブログ・カタログ・予約の各ページは error.tsx の一時障害表示になる）。
+ */
 export const getFacilityBySlug = cache(async (slug: string) => {
   const supabase = createServerSupabaseClient();
-  const { data, error } = await supabase
+  const { data } = await readPageResult(() => supabase
     .from('facility_profiles')
     .select('*')
     .eq('slug', slug)
     .eq('status', 'published')
-    .single();
-  return { facility: data as Facility | null, error };
+    .maybeSingle(), 'facility-detail');
+  return { facility: data as Facility | null };
 });
 
 export async function getFacilityMenus(facilityId: string) {

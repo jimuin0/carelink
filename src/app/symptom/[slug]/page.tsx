@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -7,6 +8,7 @@ import { getSymptomSeo } from '@/data/symptom-seo';
 import { SITE_URL } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/json-ld';
 import { readPageResult } from '@/lib/page-read-verification';
+import { SYMPTOM_FALLBACK_HREF, SYMPTOM_FALLBACK_TYPE_NAME } from '@/lib/symptom-fallback';
 
 // 遅延初期化: モジュールスコープで createClient を呼ぶとビルド時の
 // page data 収集フェーズで env 未設定環境（Vercel preview 等）が
@@ -29,41 +31,22 @@ interface Props {
   params: Promise<{ slug: string }>;
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const { slug } = await params;
-  const supabase = getSupabase();
-  const { data: symptom } = await readPageResult(() => supabase
-    .from('symptoms')
-    .select('name, category')
-    .eq('slug', slug)
-    .maybeSingle(), 'symptom-metadata');
-
-  if (!symptom) return { title: '症状が見つかりません' };
-
-  const seo = getSymptomSeo(slug);
-  const description = seo
-    ? `${symptom.name}の原因・治療法・対応施設を解説。${seo.intro.slice(0, 80)}`
-    : `${symptom.name}でお悩みの方へ。${symptom.name}に対応できる鍼灸院・整骨院・クリニックを検索・予約。`;
-
-  return {
-    title: `${symptom.name}に対応できるサロン・クリニック｜原因・治療法ガイド`,
-    description,
-    alternates: { canonical: `/symptom/${slug}` },
-  };
-}
-
-export default async function SymptomPage({ params }: Props) {
-  const { slug } = await params;
+/**
+ * 症状と、それに対応する公開中の施設。metadata と本文の両方が同じ結果を使う
+ * （同じリクエスト内では cache で 1 回にまとまる）。
+ *
+ * metadata が施設の件数を知る必要があるのは、施設 0 件のページを noindex にするため
+ * （2026年10月22日・神原さん決定「施設が載るまで検索に出さない」）。対応症状を登録する手段が
+ * まだ無く本番は全症状 0 件で、30 本とも空のまま検索エンジンに出ていた。
+ */
+const loadSymptomListing = cache(async (slug: string) => {
   const supabase = getSupabase();
   const { data: symptom } = await readPageResult(() => supabase
     .from('symptoms')
     .select('id, name, slug, category')
     .eq('slug', slug)
     .maybeSingle(), 'symptom-page');
-
-  if (!symptom) notFound();
-
-  const seo = getSymptomSeo(slug);
+  if (!symptom) return null;
 
   // この症状に対応する施設を取得
   const { data: facilitySymptoms } = await readPageResult(() => supabase
@@ -83,6 +66,40 @@ export default async function SymptomPage({ params }: Props) {
       .in('id', facilityIds), 'symptom-facilities');
     facilities = data || [];
   }
+  return { symptom, facilities };
+});
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { slug } = await params;
+  const listing = await loadSymptomListing(slug);
+
+  if (!listing) return { title: '症状が見つかりません' };
+  const { symptom, facilities } = listing;
+
+  const seo = getSymptomSeo(slug);
+  const description = seo
+    ? `${symptom.name}の原因・治療法・対応施設を解説。${seo.intro.slice(0, 80)}`
+    : `${symptom.name}でお悩みの方へ。${symptom.name}に対応できる鍼灸院・整骨院・クリニックを検索・予約。`;
+
+  return {
+    title: `${symptom.name}に対応できるサロン・クリニック｜原因・治療法ガイド`,
+    description,
+    alternates: { canonical: `/symptom/${slug}` },
+    // 公開施設が 0 件のあいだは検索結果に出さない。follow は残す（関連症状・業種ページへの
+    // リンクは辿らせ、施設が載れば自動で index に戻る）。sitemap も同じ条件で外している。
+    ...(facilities.length === 0 ? { robots: { index: false, follow: true } } : {}),
+  };
+}
+
+export default async function SymptomPage({ params }: Props) {
+  const { slug } = await params;
+  const listing = await loadSymptomListing(slug);
+
+  if (!listing) notFound();
+  const { symptom, facilities } = listing;
+
+  const seo = getSymptomSeo(slug);
+  const supabase = getSupabase();
 
   // 同カテゴリの他の症状
   const { data: relatedSymptoms } = await readPageResult(() => supabase
@@ -172,11 +189,26 @@ export default async function SymptomPage({ params }: Props) {
             ))}
           </div>
         ) : (
-          <div className="text-center py-12 bg-gray-50 rounded-xl mb-10">
-            <p className="text-gray-500 text-sm">現在、{symptom.name}に対応可能な施設は登録されていません。</p>
-            <Link href="/search" className="text-sky-700 text-sm mt-2 inline-block hover:underline">
-              すべての施設を検索する →
-            </Link>
+          /* 空のまま終わらせず、この症状を扱う業種の一覧へ案内する（行き止まりにしない）。 */
+          <div className="text-center py-12 px-4 bg-gray-50 rounded-xl mb-10">
+            <p className="text-gray-600 text-sm">現在、{symptom.name}に対応可能な施設は登録されていません。</p>
+            <p className="text-gray-600 text-sm mt-1">
+              {symptom.name}のご相談は、{SYMPTOM_FALLBACK_TYPE_NAME}の一覧からお探しいただけます。
+            </p>
+            <div className="mt-4 flex flex-col sm:flex-row gap-3 justify-center">
+              <Link
+                href={SYMPTOM_FALLBACK_HREF}
+                className="px-5 py-2.5 bg-sky-700 text-white rounded-lg text-sm font-bold hover:bg-sky-800 transition-colors"
+              >
+                {SYMPTOM_FALLBACK_TYPE_NAME}を探す
+              </Link>
+              <Link
+                href="/search"
+                className="px-5 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+              >
+                すべての施設を検索する
+              </Link>
+            </div>
           </div>
         )}
 
