@@ -12,6 +12,15 @@
  */
 export const GOOGLE_MAPS_EMBED_ORIGIN = 'https://www.google.com';
 
+/**
+ * 地図 iframe の Referer は送り元のオリジン（https://carelink-jp.com）までに絞る。
+ * 2026年10月22日まで地図は CSP で常に拒否されていたので、Google へは何も送られていなかった。
+ * 表示されるようになると閲覧者の IP・Cookie と一緒に Referer も Google へ渡るため、旧設定の
+ * no-referrer-when-downgrade（ページの完全な URL を送る）にはしない。外部送信の事実は
+ * プライバシーポリシー第8条（src/app/privacy/page.tsx）に記載している。
+ */
+export const GOOGLE_MAPS_EMBED_REFERRER_POLICY = 'strict-origin-when-cross-origin' as const;
+
 /** `query` は「緯度,経度」またはエンコード済みの住所。 */
 export function googleMapsEmbedUrl(query: string): string {
   return `${GOOGLE_MAPS_EMBED_ORIGIN}/maps?q=${query}&z=16&output=embed`;

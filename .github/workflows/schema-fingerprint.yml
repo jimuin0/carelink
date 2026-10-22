@@ -143,7 +143,7 @@ jobs:
       - name: Staff assignment for unnamed reservations and legacy unassigned capacity (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-staff-assignment-fixtures.sql
 
-      - name: Coupon target new/repeat customer at booking, aliases, cancellations and per-facility history (disposable DB)
+      - name: Coupon target new/repeat at booking - login required, own-account history only, visits, cancellations, per facility (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/coupon-target-eligibility-fixtures.sql
 
       - name: Manual reservation atomicity, replay, authorization and failure rollback (disposable DB)

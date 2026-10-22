@@ -6,20 +6,39 @@
 -- does not apply) could use a 新規 coupon on every visit. A first-time customer
 -- could use a リピーター coupon.
 --
--- After: create_booking_for_menus_atomic raises COUPON_NEW_CUSTOMER_ONLY or
--- COUPON_REPEAT_ONLY (mapped to a Japanese message by /api/booking) when the
--- customer's booking history at this facility does not match the coupon.
--- Only this function body changes: same signature, owner, SECURITY DEFINER,
--- search_path and grants (re-stated below). The rest of the body is copied
--- verbatim from 20261022100000_booking_staff_assignment.sql, the latest
--- definition (no later migration patches it).
+-- After: create_booking_for_menus_atomic checks the customer's own history at
+-- this facility before the booking row is written:
+--   * 新規 / リピーター coupons need a signed-in customer
+--     (COUPON_TARGET_LOGIN_REQUIRED). The history is looked up only for the
+--     account itself: bookings of p_user_id, and bookings made under the
+--     account's own confirmed e-mail (auth.users.email, canonicalised like
+--     bookings.email_canonical). The e-mail typed into the booking form
+--     (p_email) is never used for the lookup. Matching a typed address would let
+--     anyone learn, without the person noticing, whether that address has booked
+--     at this facility: a refused booking is rolled back and sends nothing, so
+--     COUPON_NEW_CUSTOMER_ONLY would answer "this person is a patient here".
+--   * 新規 (COUPON_NEW_CUSTOMER_ONLY): no booking at this facility that was not
+--     cancelled (cancelled / cancel_fee_paid do not count; a pending or future
+--     booking does, so a second booking made before the first visit cannot use
+--     the first-visit price again).
+--   * リピーター (COUPON_REPEAT_ONLY): at least one visit at this facility, i.e.
+--     a booking with status arrived (受付) or completed (完了). This follows
+--     aggregate_daily_revenue (20260627000001: repeat = a completed visit, not
+--     merely a booking); arrived is included because the customer is already in
+--     the shop and the 完了 step comes later at checkout.
+-- /api/booking maps the codes to Japanese messages and refuses guests before
+-- calling the RPC. Only this function body changes: same signature, owner,
+-- SECURITY DEFINER, search_path and grants (re-stated below). The rest of the
+-- body is copied verbatim from 20261022100000_booking_staff_assignment.sql, the
+-- latest definition (no later migration patches it).
 --
 -- Order: safe to apply before or after the application deploy. Bookings without
--- a coupon, with an 全員 / 期間限定 coupon, or with an eligible coupon behave as
--- before. Recommended: deploy the application first. An application without the
--- new message mapping answers an ineligible coupon booking with the generic
--- "受付結果を確認できません" 500 instead of the specific message (the booking is
--- still refused either way).
+-- a coupon, with an 全員 / 期間限定 coupon, or by a signed-in customer the coupon
+-- is meant for behave as before. Recommended: deploy the application first. The
+-- current application still lets a guest pick a 新規 / リピーター coupon and has
+-- no message for the new codes, so until it is deployed such a booking is
+-- answered with the generic "受付結果を確認できません" 500 instead of the
+-- specific message (the booking is refused either way, nothing is written).
 --
 -- No data rewrite.
 DO $guard$
@@ -62,8 +81,7 @@ DECLARE
   v_redemption_count INT;
   -- Coupon target (新規／リピーター) check, see below.
   v_coupon_type TEXT;
-  v_email_canonical TEXT;
-  v_has_history BOOLEAN;
+  v_account_email TEXT;
   v_buffer_minutes INT;
   -- The staff member stored on the reservation: the named one, or the one assigned below.
   v_staff_id UUID := p_staff_id;
@@ -220,6 +238,47 @@ BEGIN
     END IF;
   END IF;
 
+  -- Coupon target (2026-10-22). Only the signed-in account's own history is
+  -- consulted, never the e-mail typed into the form (see the header). The
+  -- account's e-mail counts only once confirmed, and is canonicalised with the
+  -- expression of the generated column bookings.email_canonical
+  -- (20260607_email_canonical_column.sql), so earlier guest bookings under the
+  -- same address, or a Gmail alias of it, are part of the account's history.
+  -- The staff-schedule lock taken at the top serialises every booking of this
+  -- facility, so two concurrent first bookings cannot both pass as 新規.
+  -- Manual (phone) bookings never pass a coupon and are not affected.
+  IF v_coupon_type IN ('new_customer', 'repeat') THEN
+    IF p_user_id IS NULL THEN
+      RAISE EXCEPTION 'COUPON_TARGET_LOGIN_REQUIRED: このクーポンはログインしてご利用ください';
+    END IF;
+    SELECT CASE
+        WHEN u.email IS NULL THEN NULL
+        WHEN lower(split_part(u.email, '@', 2)) IN ('gmail.com', 'googlemail.com')
+         AND length(regexp_replace(split_part(split_part(lower(btrim(u.email)), '@', 1), '+', 1), '\.', '', 'g')) > 0
+        THEN regexp_replace(split_part(split_part(lower(btrim(u.email)), '@', 1), '+', 1), '\.', '', 'g') || '@gmail.com'
+        ELSE lower(btrim(u.email))
+      END
+    INTO v_account_email
+    FROM auth.users u
+    WHERE u.id = p_user_id AND u.email_confirmed_at IS NOT NULL;
+    IF v_coupon_type = 'new_customer' AND EXISTS (
+      SELECT 1 FROM bookings b
+      WHERE b.facility_id = p_facility_id
+        AND b.status NOT IN ('cancelled', 'cancel_fee_paid')
+        AND (b.user_id = p_user_id OR b.email_canonical = v_account_email)
+    ) THEN
+      RAISE EXCEPTION 'COUPON_NEW_CUSTOMER_ONLY: このクーポンは初めてご予約の方限定です';
+    END IF;
+    IF v_coupon_type = 'repeat' AND NOT EXISTS (
+      SELECT 1 FROM bookings b
+      WHERE b.facility_id = p_facility_id
+        AND b.status IN ('arrived', 'completed')
+        AND (b.user_id = p_user_id OR b.email_canonical = v_account_email)
+    ) THEN
+      RAISE EXCEPTION 'COUPON_REPEAT_ONLY: このクーポンはご来店いただいたことがある方限定です';
+    END IF;
+  END IF;
+
   INSERT INTO bookings (
     facility_id, staff_id, staff_auto_assigned, user_id, menu_id, coupon_id,
     booking_date, start_time, end_time,
@@ -231,35 +290,7 @@ BEGIN
     p_customer_name, p_email, p_phone, p_note,
     p_total_price, p_points_used, p_status
   )
-  RETURNING id, email_canonical INTO v_booking_id, v_email_canonical;
-
-  -- Coupon target (2026-10-22). 新規 (new_customer) is for customers with no
-  -- booking at this facility yet; リピーター (repeat) for customers with one.
-  -- A booking counts unless it was cancelled (cancelled / cancel_fee_paid).
-  -- The customer is matched by the signed-in user or by the canonical e-mail
-  -- (bookings.email_canonical: Gmail dots and +tags fold together), so a guest
-  -- cannot reuse a 新規 coupon by booking again without signing in.
-  -- The check runs after the INSERT so that the e-mail is canonicalised by the
-  -- same generated column the history rows use; a rejection rolls the row back.
-  -- The staff-schedule lock taken at the top serialises every booking of this
-  -- facility, so two concurrent first bookings cannot both pass as 新規.
-  -- Manual (phone) bookings never pass a coupon and are not affected.
-  IF v_coupon_type IN ('new_customer', 'repeat') THEN
-    v_has_history := EXISTS (
-      SELECT 1 FROM bookings b
-      WHERE b.facility_id = p_facility_id
-        AND b.id <> v_booking_id
-        AND b.status NOT IN ('cancelled', 'cancel_fee_paid')
-        AND ((p_user_id IS NOT NULL AND b.user_id = p_user_id)
-          OR (v_email_canonical IS NOT NULL AND b.email_canonical = v_email_canonical))
-    );
-    IF v_coupon_type = 'new_customer' AND v_has_history THEN
-      RAISE EXCEPTION 'COUPON_NEW_CUSTOMER_ONLY: このクーポンは初めてご予約の方限定です';
-    END IF;
-    IF v_coupon_type = 'repeat' AND NOT v_has_history THEN
-      RAISE EXCEPTION 'COUPON_REPEAT_ONLY: このクーポンは2回目以降のご予約の方限定です';
-    END IF;
-  END IF;
+  RETURNING id INTO v_booking_id;
 
   IF p_coupon_id IS NOT NULL THEN
     BEGIN

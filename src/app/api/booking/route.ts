@@ -17,7 +17,7 @@ import { dispatchBookingCreationNotifications } from '@/lib/booking-create-dispa
 import { buildBookingCreateNotifications, BookingNotificationPlanError } from '@/lib/booking-create-notifications';
 import { HOME_VISIT_ADDRESS_REQUIRED_MESSAGE, isHomeVisitOnly } from '@/lib/home-visit';
 import { knownBookingRpcMessage } from '@/lib/booking-rpc-error';
-import { COUPON_TARGET_REJECTIONS } from '@/lib/coupon-eligibility';
+import { COUPON_TARGET_REJECTIONS, isTargetedCoupon } from '@/lib/coupon-eligibility';
 
 export const dynamic = 'force-dynamic';
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -156,7 +156,7 @@ export async function POST(request: Request) {
     const businessDate = todayJst();
     const { data: coupon, error:couponLookupError } = await supabase
       .from('coupons')
-      .select('discount_type, discount_value, special_price, is_active, valid_from, valid_until')
+      .select('discount_type, discount_value, special_price, is_active, valid_from, valid_until, coupon_type')
       .eq('id', parsed.data.coupon_id)
       .eq('facility_id', parsed.data.facility_id)
       .maybeSingle();
@@ -167,6 +167,13 @@ export async function POST(request: Request) {
       (coupon.valid_from == null || coupon.valid_from <= businessDate) &&
       (coupon.valid_until == null || coupon.valid_until >= businessDate);
     if (couponValid) {
+      // 新規・リピーター限定のクーポンはログインしたお客様だけが使える（2026年10月22日）。
+      // 判定はアカウント自身の予約履歴だけで行う（予約 RPC・src/lib/coupon-eligibility.ts）。
+      // ゲストの入力したメールアドレスで照合すると、他人の来店歴を本人に知られずに調べられて
+      // しまうため、ゲストは履歴を見る前にここで断る（RPC も同じコードで断る＝二重の防御）。
+      if (!user && isTargetedCoupon(coupon.coupon_type)) {
+        return reject(COUPON_TARGET_REJECTIONS.COUPON_TARGET_LOGIN_REQUIRED, 401);
+      }
       // クーポン×メニュー適合チェック（金銭経路の穴の恒久予防・2026年7月15日追加）。
       // coupon_menus に行が無いクーポンは全メニュー適用（本番は現在全クーポン0行のため、
       // ここでの挙動変化はゼロ＝発症前予防）。行がある場合はそのクーポンは対象メニュー限定で、

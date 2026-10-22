@@ -16,7 +16,9 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import AccessInfo from '@/components/facility/AccessInfo';
 import type { Facility } from '@/types';
-import { GOOGLE_MAPS_EMBED_ORIGIN, googleMapsEmbedUrl } from '../map-embed';
+import { GOOGLE_MAPS_EMBED_ORIGIN, GOOGLE_MAPS_EMBED_REFERRER_POLICY, googleMapsEmbedUrl } from '../map-embed';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 jest.mock('next/server', () => ({
   NextResponse: {
@@ -101,6 +103,17 @@ test('地図以外のディレクティブは変えていない（自サイト�
     "'self'", 'https://test.supabase.co', 'wss://test.supabase.co', 'https://*.google-analytics.com', 'https://www.clarity.ms',
     'https://va.vercel-scripts.com', 'https://vitals.vercel-insights.com', 'https://access.line.me', 'https://api.line.me', 'https://zipcloud.ibsnet.co.jp',
   ]);
+});
+
+// 地図が表示されるようになると、閲覧者の情報が Google へ送られる。Referer はオリジンまでに絞り
+// （旧設定 no-referrer-when-downgrade はページの完全な URL を送っていた）、プライバシーポリシーに明記する。
+test('地図 iframe は Referer をオリジンまでに絞り、外部送信をプライバシーポリシーに書いている', () => {
+  const markup = renderToStaticMarkup(<AccessInfo facility={FACILITY} />);
+  const policies = [...markup.matchAll(/<iframe[^>]*\sreferrerPolicy="([^"]+)"/gi)].map((m) => m[1]);
+  expect(GOOGLE_MAPS_EMBED_REFERRER_POLICY).toBe('strict-origin-when-cross-origin');
+  expect(policies).toEqual(['strict-origin-when-cross-origin']);
+  const privacy = readFileSync(join(process.cwd(), 'src/app/privacy/page.tsx'), 'utf8');
+  expect(privacy).toContain('<li>Google マップ（Google LLC）：施設ページの地図表示');
 });
 
 // 負の対照（判定ロジック自体の確認）: 修正前の iframe URL は修正後の frame-src でも許可されない

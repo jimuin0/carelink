@@ -36,7 +36,7 @@ export default function CouponCard({ coupon, price = null, targetMenuNames = [] 
             <p className="text-xs text-gray-600 mt-1">対象メニュー：{targetMenuNames.join('、')}</p>
           )}
           {condition && (
-            <p className="text-xs text-gray-600 mt-1">ご利用条件：{condition}</p>
+            <p className="text-xs text-gray-600 mt-1">ご利用条件：{condition}（ログインが必要です）</p>
           )}
         </div>
         {(price || discount) && (

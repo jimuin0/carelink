@@ -90,10 +90,10 @@ test('menus 未指定 → 割引表記のみ・∞なし', () => {
   expect(screen.getByText('10%OFF')).toBeInTheDocument();
 });
 
-test('新規・リピーター限定のクーポンには利用条件を出す', () => {
+test('新規・リピーター限定のクーポンには利用条件とログインが必要なことを出す', () => {
   render(<CouponList coupons={[{ ...coupon, id: 'n', coupon_type: 'new_customer' }, { ...coupon, id: 'r', coupon_type: 'repeat' }, coupon]} />);
-  expect(screen.getByText('ご利用条件：この店舗を初めてご予約の方限定')).toBeInTheDocument();
-  expect(screen.getByText('ご利用条件：この店舗で2回目以降のご予約の方限定')).toBeInTheDocument();
+  expect(screen.getByText('ご利用条件：この店舗を初めてご予約の方限定（ログインが必要です）')).toBeInTheDocument();
+  expect(screen.getByText('ご利用条件：この店舗にご来店いただいたことがある方限定（ログインが必要です）')).toBeInTheDocument();
   expect(screen.getAllByText(/ご利用条件：/)).toHaveLength(2);
 });
 

@@ -3,7 +3,7 @@ import type { Facility } from '@/types';
 import { dayOrder, dayLabels } from '@/lib/constants';
 import { featureSearchHref } from '@/lib/search-href';
 import { formatFacilityAddress } from '@/lib/facility-location';
-import { googleMapsEmbedUrl } from '@/lib/map-embed';
+import { GOOGLE_MAPS_EMBED_REFERRER_POLICY, googleMapsEmbedUrl } from '@/lib/map-embed';
 
 export default function AccessInfo({ facility }: { facility: Facility }) {
   // 監査T1: prefecture/city/address は手書き Facility 型では non-null 宣言だが、DB(facility_profiles)は
@@ -107,7 +107,7 @@ export default function AccessInfo({ facility }: { facility: Facility }) {
                 className="border-0"
                 allowFullScreen
                 loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
+                referrerPolicy={GOOGLE_MAPS_EMBED_REFERRER_POLICY}
                 title={`${facility.name}の地図`}
               />
             </div>

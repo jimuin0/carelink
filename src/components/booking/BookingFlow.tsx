@@ -8,7 +8,7 @@ import Toast from '@/components/Toast';
 import type { StaffProfile, FacilityMenu, Coupon, AvailableSlot } from '@/types';
 import { describeCancelPolicy, type CancelPolicy } from '@/lib/cancel-fee';
 import { calculateCouponDiscountedTotal } from '@/lib/coupon-pricing';
-import { COUPON_HISTORY_IGNORED_STATUSES, couponTargetCondition, isCouponBlockedByHistory } from '@/lib/coupon-eligibility';
+import { COUPON_HISTORY_IGNORED_STATUSES, couponTargetBlock, couponTargetCondition, isTargetedCoupon } from '@/lib/coupon-eligibility';
 import { isStaffCompatibleWithMenus, filterEligibleStaff } from '@/lib/menu-staff';
 import { consumeBookingDraft, saveBookingDraftForLogin, BOOKING_DRAFT_STORAGE_FAILED, BookingDraftStorageError } from '@/lib/booking-draft-storage';
 import { BookingCreateClient, type BookingCreateClientResult, BOOKING_CREATE_UNKNOWN } from '@/lib/booking-create-client';
@@ -233,8 +233,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   const [pointsToUse, setPointsToUse] = useState(0);
   // この店舗での予約履歴（クーポンの対象＝新規／リピーターの事前表示用・2026年10月22日）。
   // true＝ログイン中の本人にキャンセル以外の予約がある（確定）。null＝不明（未ログイン、または
-  // ログイン前のゲスト予約がメールアドレスで残っている可能性がある）。不明のときはクーポンを
-  // 止めず、確定時に予約 RPC がログイン情報とメールアドレスで判定する（src/lib/coupon-eligibility.ts）。
+  // アカウントのメールアドレスで受けたゲスト予約が残っている可能性がある）。不明のときは履歴では
+  // 止めず、確定時に予約 RPC がアカウントの予約履歴で判定する（src/lib/coupon-eligibility.ts）。
+  // 新規・リピーター限定のクーポンはゲストには使えない（isAuthenticated === false で選べなくする）。
   const [hasBookingHistory, setHasBookingHistory] = useState<boolean | null>(null);
 
   // 【2026年7月10日 恒久根治】確認ステップの「ログインする」リンクは <a href> によるフルページ
@@ -649,12 +650,22 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
       setSelectedCoupon(null);
       setAutoSelectedCouponId(null);
       setToast({ type: 'error', message: '選択したメニューはこのクーポンの対象外のため、クーポンの選択を解除しました' });
-    } else if (isCouponBlockedByHistory(selectedCoupon.coupon_type, hasBookingHistory)) {
-      // クーポンの対象（新規／リピーター）。予約履歴が後から分かった（ログイン復帰の下書き復元など）
-      // 時点で使えないクーポンが選ばれていれば、同じくレンダー中に解除して知らせる（2026年10月22日）。
-      setSelectedCoupon(null);
-      setAutoSelectedCouponId(null);
-      setToast({ type: 'error', message: `「${selectedCoupon.name}」は${couponTargetCondition(selectedCoupon.coupon_type)}のクーポンのため、選択を解除しました` });
+    } else {
+      // クーポンの対象（新規／リピーター）。ログイン状態や予約履歴が後から分かった（ログイン確認・
+      // 下書き復元など）時点で使えないクーポンが選ばれていれば、同じくレンダー中に解除して知らせる
+      // （2026年10月22日）。ゲストは新規・リピーター限定を使えない（他人の来店歴を調べられないよう、
+      // 判定はログインしたアカウントの予約履歴だけで行うため）。
+      const targetBlock = couponTargetBlock(selectedCoupon.coupon_type, { signedIn: isAuthenticated, hasBooking: hasBookingHistory });
+      if (targetBlock) {
+        setSelectedCoupon(null);
+        setAutoSelectedCouponId(null);
+        setToast({
+          type: 'error',
+          message: targetBlock === 'login'
+            ? `「${selectedCoupon.name}」はログインしてご利用いただくクーポンのため、選択を解除しました`
+            : `「${selectedCoupon.name}」は${couponTargetCondition(selectedCoupon.coupon_type)}のクーポンのため、選択を解除しました`,
+        });
+      }
     }
   }
 
@@ -841,10 +852,12 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                     const allowedMenuIds = couponMenuMap[coupon.id];
                     const isMenuRestricted = !!allowedMenuIds && allowedMenuIds.length > 0;
                     const isIncompatible = isMenuRestricted && !isCouponMenuCompatible(allowedMenuIds, selectedMenus.map((m) => m.id));
-                    // クーポンの対象（新規／リピーター・2026年10月22日）。ログイン中で予約履歴が
-                    // 分かっているときだけ、使えないクーポンを選べなくする（不明なら確定時に判定）。
+                    // クーポンの対象（新規／リピーター・2026年10月22日）。ゲストには選べなくし、
+                    // ログイン中で予約履歴が分かっているときは使えない新規限定を選べなくする
+                    // （履歴が不明なら止めず、確定時に予約 RPC が判定する）。
                     const condition = couponTargetCondition(coupon.coupon_type);
-                    const isTargetBlocked = isCouponBlockedByHistory(coupon.coupon_type, hasBookingHistory);
+                    const targetBlock = couponTargetBlock(coupon.coupon_type, { signedIn: isAuthenticated, hasBooking: hasBookingHistory });
+                    const isTargetBlocked = targetBlock !== null;
                     const isUnavailable = isIncompatible || isTargetBlocked;
                     const targetMenuNames = isMenuRestricted
                       ? allowedMenuIds!
@@ -888,7 +901,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                             {condition && (
                               <p className={`text-xs mt-1 ${isTargetBlocked ? 'text-red-600 font-bold' : 'text-gray-600'}`}>
                                 ご利用条件：{condition}
-                                {isTargetBlocked && '（この店舗のご予約履歴により、ご利用いただけません）'}
+                                {targetBlock === 'login' && '（ログインするとご利用いただけます）'}
+                                {targetBlock === 'history' && '（この店舗のご予約履歴により、ご利用いただけません）'}
                               </p>
                             )}
                             {isSelected && !isUnavailable && (
@@ -899,6 +913,19 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                       </button>
                     );
                   })}
+                  {isAuthenticated === false && coupons.some((c) => isTargetedCoupon(c.coupon_type)) && (
+                    <p className="text-xs text-gray-600 pt-1">
+                      新規・リピーター限定のクーポンは、ログインしてご利用ください。
+                      <a
+                        href={`/auth/login?redirect=/facility/${facility.slug}/booking`}
+                        onClick={event => { event.preventDefault(); void saveBookingDraftBeforeLogin(); }}
+                        aria-disabled={savingLoginDraft}
+                        className="text-primary font-bold hover:underline ml-1"
+                      >
+                        ログインする
+                      </a>
+                    </p>
+                  )}
                   <p className="text-xs text-gray-500 pt-1">
                     ※ クーポンには対象メニューが限定されているものがあります。対象外のメニューでは選択できません。「メニューから選ぶ」で施術内容をお選びください。
                   </p>
