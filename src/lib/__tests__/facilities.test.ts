@@ -244,6 +244,28 @@ describe('searchFacilities', () => {
     expect(chain.range).toHaveBeenCalledWith(20, 39);
   });
 
+  // 結果より後ろのページは PostgREST が 416（PGRST103）を返す。読み取り失敗ではないので error にせず、
+  // 空のページとして返す（/search がページ範囲外として 1 ページ目へ戻す）。以前は 500 になっていた。
+  test('結果より後ろのページ（PGRST103）は error にせず空で返す', async () => {
+    const chain = fluent({
+      data: null,
+      count: null,
+      error: { code: 'PGRST103', message: 'Requested range not satisfiable' },
+    });
+    mockFrom.mockReturnValue(chain);
+
+    const result = await searchFacilities({ page: 2 });
+    expect(result).toEqual({ facilities: [], total: 0, perPage: 20, error: null });
+  });
+
+  test('PGRST103 以外の読み取り失敗は error のまま返す', async () => {
+    const failure = { code: 'PGRST100', message: 'boom' };
+    mockFrom.mockReturnValue(fluent({ data: null, count: null, error: failure }));
+
+    const result = await searchFacilities({ page: 2 });
+    expect(result.error).toBe(failure);
+  });
+
   test('geo検索でRPC search_facilities_nearbyを呼ぶ', async () => {
     const nearbyFacilities = [
       { id: 'f-1', distance_km: 0.5 },

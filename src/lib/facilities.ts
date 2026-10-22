@@ -287,6 +287,13 @@ export async function searchFacilities(params: SearchParams) {
   query = query.range(from, from + PER_PAGE - 1);
 
   const { data, count, error } = await query;
+  // 結果より後ろのページ（?page=2 で 3 件しか無い等）を求めると PostgREST は 416
+  // （PGRST103 Requested range not satisfiable）を返す。読み取りの失敗ではないので error にしない。
+  // 本番では掲載 3 件で /search?page=2 が 500 になっていた（2026年10月22日）。総件数は 416 の応答から
+  // 取れないため 0 で返し、呼び出し側（/search）がページ範囲外として 1 ページ目へ戻す。
+  if (error?.code === 'PGRST103') {
+    return { facilities: [] as FacilityCardData[], total: 0, perPage: PER_PAGE, error: null };
+  }
   // 【2026年7月22日 監査C1】検索クエリの error は返り値の error で呼び出し側へ渡す（従来どおり）。
   // 注意：ここで alertCaughtError を per-request に発火させると、公開検索は高トラフィックかつ
   // preview 等の環境要因（anon キー不正 401 等）で全リクエストが失敗し得るため Slack が

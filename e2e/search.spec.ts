@@ -50,6 +50,16 @@ test.describe('検索フロー', () => {
     });
   }
 
+  // 結果より後ろのページは PostgREST が 416 を返す。以前は検索失敗として 500 になっていた
+  // （本番で掲載 3 件の /search?page=2 が 500・2026年10月22日）。1 ページ目へ戻すことを固定する。
+  test('結果より後ろのページは 1 ページ目へ戻る', async ({ page }) => {
+    await page.goto(`/search?type=${encodeURIComponent('鍼灸院・整骨院')}&page=999`);
+    await expect(page).not.toHaveURL(/page=/);
+    await expect(page).toHaveURL(/type=/);
+    await expect(page.getByText(/件見つかりました/)).toBeVisible();
+    await expect(page.getByRole('heading', { name: '検索結果を表示できません' })).toBeHidden();
+  });
+
   test('エリア検索ページが表示される', async ({ page }) => {
     await page.goto('/search/area');
     // ページ固有の見出しを限定（`h1, h2` は共通フッター見出しにも一致して曖昧なため）。

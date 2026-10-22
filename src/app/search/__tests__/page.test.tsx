@@ -85,3 +85,47 @@ describe('症状・保険適用の絞り込み', () => {
     expect(html.replace(/<[^>]*>/g, '')).toContain('(フィルター3件適用中)');
   });
 });
+
+// 【2026年10月22日 是正】結果より後ろのページ（本番の /search?page=2 で掲載 3 件）は 500 になっていた。
+// 1 ページ目（page を外した同じ条件）へ戻す。
+describe('結果より後ろのページ', () => {
+  const redirected = async (searchParams: Record<string, string>) => {
+    const err = await SearchPage({ searchParams: Promise.resolve(searchParams) }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    const digest = String((err as { digest?: string }).digest);
+    expect(digest).toMatch(/^NEXT_REDIRECT;/);
+    return digest.split(';')[2];
+  };
+
+  test('件数を超えたページは page を外した同じ条件へ戻す', async () => {
+    (searchFacilities as jest.Mock).mockResolvedValue({ facilities: [], total: 3, perPage: 20, error: null });
+    const to = await redirected({ type: '鍼灸院・整骨院', page: '2' });
+    const query = new URLSearchParams(to.slice(to.indexOf('?') + 1));
+    expect(query.get('type')).toBe('鍼灸院・整骨院');
+    expect(query.has('page')).toBe(false);
+    expect(getFeaturedFacilities).not.toHaveBeenCalled();
+  });
+
+  test('0 件で 2 ページ目を求めても 1 ページ目へ戻す（エラー画面にしない）', async () => {
+    (searchFacilities as jest.Mock).mockResolvedValue({ facilities: [], total: 0, perPage: 20, error: null });
+    expect(await redirected({ page: '2' })).toBe('/search?');
+  });
+
+  test('範囲内のページは戻さない', async () => {
+    (searchFacilities as jest.Mock).mockResolvedValue({ facilities: [{ id: 'a', name: 'A' }], total: 21, perPage: 20, error: null });
+    (getMonthlyBookingCounts as jest.Mock).mockResolvedValue({});
+    const html = renderToStaticMarkup(await SearchPage({ searchParams: Promise.resolve({ page: '2' }) }));
+    expect(html.replace(/<[^>]*>/g, '')).toMatch(/21\s*件見つかりました/);
+  });
+});
+
+// 現在地検索のページ送りは位置を引き継ぐ（以前は lat/lng を落として 2 ページ目が全国の結果になった）。
+test('現在地検索のページ送りに lat / lng を引き継ぐ', async () => {
+  (searchFacilities as jest.Mock).mockResolvedValue({ facilities: [{ id: 'a', name: 'A' }], total: 30, perPage: 20, error: null });
+  (getMonthlyBookingCounts as jest.Mock).mockResolvedValue({});
+  const html = renderToStaticMarkup(await SearchPage({ searchParams: Promise.resolve({ lat: '34.78', lng: '135.47' }) }));
+  const base = /data-pagination-base="([^"]*)"/.exec(html.replace(/&amp;/g, '&'));
+  const query = new URLSearchParams(base![1].slice(base![1].indexOf('?') + 1));
+  expect(query.get('lat')).toBe('34.78');
+  expect(query.get('lng')).toBe('135.47');
+});

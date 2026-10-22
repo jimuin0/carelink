@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { redirect } from 'next/navigation';
 import { searchFacilities, getMonthlyBookingCounts, getAvailableFacilityIds, getFeaturedFacilities, getAvailableAreasAndTypes } from '@/lib/facilities';
 import SearchBar from '@/components/search/SearchBar';
 import Pagination from '@/components/search/Pagination';
@@ -83,6 +84,31 @@ export default async function SearchPage(props: Props) {
   if (error) throw new Error('SEARCH_RESULTS_UNAVAILABLE');
   const totalPages = Math.ceil(total / perPage);
 
+  // Build base URL for pagination
+  const baseParams = new URLSearchParams();
+  if (searchParams.keyword) baseParams.set('keyword', searchParams.keyword);
+  if (searchParams.type) baseParams.set('type', searchParams.type);
+  if (searchParams.area) baseParams.set('area', searchParams.area);
+  if (searchParams.sort) baseParams.set('sort', searchParams.sort);
+  if (searchParams.rating_min) baseParams.set('rating_min', searchParams.rating_min);
+  if (searchParams.price_min) baseParams.set('price_min', searchParams.price_min);
+  if (searchParams.price_max) baseParams.set('price_max', searchParams.price_max);
+  if (searchParams.features) baseParams.set('features', searchParams.features);
+  if (searchParams.symptom) baseParams.set('symptom', searchParams.symptom);
+  if (searchParams.insurance === '1') baseParams.set('insurance', '1');
+  if (searchParams.available_date) baseParams.set('available_date', searchParams.available_date);
+  if (searchParams.available_time) baseParams.set('available_time', searchParams.available_time);
+  // 現在地検索の 2 ページ目以降も同じ位置で探す（以前は落としていて、2 ページ目が全国の結果になった）。
+  if (searchParams.lat && searchParams.lng) {
+    baseParams.set('lat', searchParams.lat);
+    baseParams.set('lng', searchParams.lng);
+  }
+  const baseUrl = `/search?${baseParams.toString()}`;
+
+  // 結果より後ろのページ（古いリンク・絞り込みで件数が減った後など）は 1 ページ目へ戻す。
+  // 空のページやエラー画面を見せない。baseUrl は page を持たないので戻った先で再び飛ばない。
+  if (params.page > 1 && params.page > totalPages) redirect(baseUrl);
+
   // 広告枠: 1ページ目のみ上位表示施設を取得
   const featuredFacilities = (params.page || 1) === 1
     ? await getFeaturedFacilities(searchParams.type, searchParams.area)
@@ -102,21 +128,6 @@ export default async function SearchPage(props: Props) {
       : Promise.resolve(null),
   ]);
 
-  // Build base URL for pagination
-  const baseParams = new URLSearchParams();
-  if (searchParams.keyword) baseParams.set('keyword', searchParams.keyword);
-  if (searchParams.type) baseParams.set('type', searchParams.type);
-  if (searchParams.area) baseParams.set('area', searchParams.area);
-  if (searchParams.sort) baseParams.set('sort', searchParams.sort);
-  if (searchParams.rating_min) baseParams.set('rating_min', searchParams.rating_min);
-  if (searchParams.price_min) baseParams.set('price_min', searchParams.price_min);
-  if (searchParams.price_max) baseParams.set('price_max', searchParams.price_max);
-  if (searchParams.features) baseParams.set('features', searchParams.features);
-  if (searchParams.symptom) baseParams.set('symptom', searchParams.symptom);
-  if (searchParams.insurance === '1') baseParams.set('insurance', '1');
-  if (searchParams.available_date) baseParams.set('available_date', searchParams.available_date);
-  if (searchParams.available_time) baseParams.set('available_time', searchParams.available_time);
-  const baseUrl = `/search?${baseParams.toString()}`;
 
   // Breadcrumb
   const breadcrumbs: { label: string; href?: string }[] = [{ label: 'トップ', href: '/' }];
