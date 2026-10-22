@@ -7093,6 +7093,26 @@ export type Database = {
       }
       get_user_points_balance: { Args: { p_user_id: string }; Returns: number }
       gettransactionid: { Args: never; Returns: unknown }
+      grant_user_package_atomic: {
+        Args: {
+          p_actor_id: string
+          p_facility_id: string
+          p_notes?: string
+          p_package_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      grant_user_subscription_atomic: {
+        Args: {
+          p_actor_id: string
+          p_facility_id: string
+          p_notes?: string
+          p_plan_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       increment_view_count: {
         Args: { facility_uuid: string }
         Returns: undefined
@@ -7137,6 +7157,18 @@ export type Database = {
           p_same_site: boolean
         }
         Returns: Json
+      }
+      list_facility_customer_profiles: {
+        Args: {
+          p_actor_id: string
+          p_facility_id: string
+          p_user_ids: string[]
+        }
+        Returns: {
+          display_name: string
+          email: string
+          id: string
+        }[]
       }
       list_recoverable_salon_receipts: {
         Args: { p_after_id?: string; p_user_id: string }

@@ -13,6 +13,7 @@ import {
   type SubscriptionStatus,
 } from '@/lib/subscription-status';
 import { serverError } from '@/lib/with-route';
+import { grantToFacilityCustomer, loadFacilityCustomerProfiles } from '@/lib/facility-customer-grant';
 
 const grantSchema = z.object({
   facility_id: z.string().uuid(),
@@ -77,16 +78,12 @@ export async function GET(request: NextRequest) {
   const { data: rows, error } = await query.limit(200);
   if (error || !rows) return serverError('admin-user-subscriptions-list', error ?? new Error('user_subscriptions query returned no rows'), '/api/admin/user-subscriptions');
 
+  // 表示名・メールは、その店舗の予約者に限って付ける（2026年10月22日）。以前は一覧に出た
+  // user_id の profiles をそのまま返しており、任意の UUID に付与するだけで他人のメールが読めた。
   const userIds = [...new Set(rows.map((r) => r.user_id as string))];
-  const profilesById: Record<string, { display_name: string | null; email: string | null }> = {};
-  if (userIds.length > 0) {
-    const { data: profs, error: profErr } = await admin
-      .from('profiles')
-      .select('id, display_name, email')
-      .in('id', userIds);
-    if (profErr || !profs) return serverError('admin-user-subscriptions-list-profiles', profErr ?? new Error('profiles query returned no rows'), '/api/admin/user-subscriptions');
-    for (const p of profs) profilesById[p.id as string] = { display_name: p.display_name, email: p.email };
-  }
+  const loaded = await loadFacilityCustomerProfiles({ actorId: user.id, facilityId, userIds });
+  if ('error' in loaded) return serverError('admin-user-subscriptions-list-profiles', loaded.error, '/api/admin/user-subscriptions');
+  const profilesById = loaded.profiles;
   const subscriptions = rows.map((r) => ({ ...r, profiles: profilesById[r.user_id as string] ?? null }));
   return NextResponse.json({ subscriptions });
 }
@@ -110,27 +107,17 @@ export async function POST(request: NextRequest) {
   const isAdmin = await checkAdminMembership(supabase, user.id, parsed.data.facility_id);
   if (!isAdmin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const admin = createServiceRoleClient();
-
-  const { data: plan } = await admin.from('subscription_plans')
-    .select('valid_months')
-    .eq('id', parsed.data.plan_id)
-    .eq('facility_id', parsed.data.facility_id)
-    .single();
-  if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 });
-
-  const endsAt = new Date();
-  endsAt.setMonth(endsAt.getMonth() + plan.valid_months);
-
-  const { data, error } = await admin.from('user_subscriptions').insert({
-    user_id: parsed.data.user_id,
-    facility_id: parsed.data.facility_id,
-    plan_id: parsed.data.plan_id,
-    ends_at: endsAt.toISOString(),
+  // 付与先がこの店舗の予約者か・プランがこの店舗のものか・今も owner / admin かを、
+  // RPC が INSERT と同じトランザクションで確かめる（src/lib/facility-customer-grant.ts）。
+  const data = await grantToFacilityCustomer({
+    kind: 'subscription',
+    actorId: user.id,
+    facilityId: parsed.data.facility_id,
+    userId: parsed.data.user_id,
+    itemId: parsed.data.plan_id,
     notes: parsed.data.notes,
-  }).select().single();
-
-  if (error) return serverError('admin-user-subscriptions-grant', error, '/api/admin/user-subscriptions');
+  });
+  if (data instanceof NextResponse) return data;
 
   const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({

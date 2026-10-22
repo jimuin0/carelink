@@ -134,6 +134,12 @@ function rpcOk() {
   return { data: { ok: true, subscription: { id: SUB_UUID, sessions_used_this_month: 1 } }, error: null };
 }
 
+// 一覧の表示名・メールは list_facility_customer_profiles（その店舗の予約者だけを返す RPC）から取る。
+function profilesRpc(rows: unknown, error: unknown = null) {
+  mockAdminRpc.mockImplementation((name: string) =>
+    Promise.resolve(name === 'list_facility_customer_profiles' ? { data: rows, error } : rpcOk()));
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
@@ -170,61 +176,80 @@ test('GET: 非管理者 → 401 (IDOR防止)', async () => {
 
 test('GET: 管理者 → 200 with subscriptions', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockReturnValue(singleChain([{ id: SUB_UUID }]));
+  mockAdminFrom.mockReturnValue(singleChain([{ id: SUB_UUID, user_id: TARGET_USER }]));
+  profilesRpc([]);
   const res = await GET(makeGetRequest());
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.subscriptions).toBeDefined();
 });
 
-test('GET: 正常 → 200（profiles を別取得してマージ＝embed不使用の回帰）', async () => {
+test('GET: 正常 → 200（予約者の表示名・メールを RPC で別取得してマージ＝embed不使用の回帰）', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation((table: string) =>
-    table === 'profiles'
-      ? profilesChain([{ id: USER_ID, display_name: '花子', email: 'h@example.com' }])
-      : usChain([buildActiveSub()]));
+  mockAdminFrom.mockImplementation(() => usChain([buildActiveSub()]));
+  profilesRpc([{ id: USER_ID, display_name: '花子', email: 'h@example.com' }]);
   const res = await GET(makeGetRequest());
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.subscriptions[0].profiles).toEqual({ display_name: '花子', email: 'h@example.com' });
+  expect(mockAdminRpc).toHaveBeenCalledWith('list_facility_customer_profiles', {
+    p_actor_id: USER_ID, p_facility_id: FACILITY_UUID, p_user_ids: [USER_ID],
+  });
+});
+
+test('GET: 予約者でない契約者（以前の不具合で付与された行）の表示名・メールは返さない', async () => {
+  // 回帰: 以前は profiles を service_role で直接読み、一覧に出た user_id の分を全て返していた。
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation((table: string) =>
+    table === 'profiles'
+      ? profilesChain([{ id: TARGET_USER, display_name: '他人', email: 'victim@example.invalid' }])
+      : usChain([buildActiveSub({ user_id: TARGET_USER })]));
+  profilesRpc([]);
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.subscriptions[0].profiles).toBeNull();
+  expect(JSON.stringify(json)).not.toContain('victim@example.invalid');
+  expect(mockAdminFrom).not.toHaveBeenCalledWith('profiles');
 });
 
 test('GET: 0件 → 200（profiles 取得をスキップ）', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation((table: string) => (table === 'profiles' ? profilesChain([]) : usChain([])));
+  mockAdminFrom.mockImplementation(() => usChain([]));
   const res = await GET(makeGetRequest());
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.subscriptions).toEqual([]);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
 });
 
 test('GET: user_subscriptions が null(エラー無し) → 500', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation((table: string) => (table === 'profiles' ? profilesChain([]) : usChain(null as unknown as unknown[])));
+  mockAdminFrom.mockImplementation(() => usChain(null as unknown as unknown[]));
   const res = await GET(makeGetRequest());
   expect(res.status).toBe(500);
 });
 
 test('GET: profiles 取得失敗 → 500', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation((table: string) =>
-    table === 'profiles' ? profilesChain(null as unknown as unknown[], { message: 'db' }) : usChain([buildActiveSub()]));
+  mockAdminFrom.mockImplementation(() => usChain([buildActiveSub()]));
+  profilesRpc(null, { code: '08006', message: 'db' });
   const res = await GET(makeGetRequest());
   expect(res.status).toBe(500);
 });
 
 test('GET: profiles が null(エラー無し) → 500', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation((table: string) =>
-    table === 'profiles' ? profilesChain(null as unknown as unknown[], null) : usChain([buildActiveSub()]));
+  mockAdminFrom.mockImplementation(() => usChain([buildActiveSub()]));
+  profilesRpc(null);
   const res = await GET(makeGetRequest());
   expect(res.status).toBe(500);
 });
 
 test('GET: 該当 profiles 無しの行は profiles=null になる', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation((table: string) =>
-    table === 'profiles' ? profilesChain([]) : usChain([buildActiveSub()]));
+  mockAdminFrom.mockImplementation(() => usChain([buildActiveSub()]));
+  profilesRpc([]);
   const res = await GET(makeGetRequest());
   const json = await res.json();
   expect(json.subscriptions[0].profiles).toBeNull();
@@ -251,47 +276,44 @@ test('POST: 非管理者 → 401', async () => {
 
 test('POST: プランが見つからない → 404', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockReturnValue(singleChain(null));
+  mockAdminRpc.mockResolvedValue({ data: { ok: false, code: 'plan_not_found' }, error: null });
   const res = await POST(makePostRequest());
   expect(res.status).toBe(404);
+  expect(await res.json()).toEqual({ error: 'プランが見つかりません' });
+});
+
+test('POST: その店舗を予約したことのない人には付与できない → 404（何も作らない）', async () => {
+  // 回帰: 以前は user_id が UUID なら誰にでも付与でき、続く GET でその人のメールが読めた。
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminRpc.mockResolvedValue({ data: { ok: false, code: 'not_customer' }, error: null });
+  const res = await POST(makePostRequest());
+  expect(res.status).toBe(404);
+  expect(await res.json()).toEqual({ error: 'この店舗をご予約いただいたことのあるお客様にのみ付与できます' });
+  expect(mockAdminFrom).not.toHaveBeenCalled();
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  expect(writeAuditLog).not.toHaveBeenCalled();
 });
 
 test('POST: DB挿入失敗 → 500', async () => {
-  let callNum = 0;
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return singleChain({ valid_months: 3 }); // plan found
-    return {
-      insert: jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
-        }),
-      }),
-    };
-  });
+  mockAdminRpc.mockResolvedValue({ data: null, error: { code: '23503', message: 'DB error' } });
   const res = await POST(makePostRequest());
   expect(res.status).toBe(500);
 });
 
-test('POST: 正常付与 → 201 with subscription', async () => {
-  let callNum = 0;
+test('POST: 正常付与 → 201 with subscription（判定と INSERT は RPC が同じトランザクションで行う）', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return singleChain({ valid_months: 3 });
-    return {
-      insert: jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          single: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID }, error: null })),
-        }),
-      }),
-    };
-  });
+  mockAdminRpc.mockResolvedValue({ data: { ok: true, subscription: { id: SUB_UUID, user_id: TARGET_USER } }, error: null });
   const res = await POST(makePostRequest());
   const json = await res.json();
   expect(res.status).toBe(201);
-  expect(json.subscription).toBeDefined();
+  expect(json.subscription).toEqual({ id: SUB_UUID, user_id: TARGET_USER });
+  expect(mockAdminRpc).toHaveBeenCalledWith('grant_user_subscription_atomic', {
+    p_actor_id: USER_ID, p_facility_id: FACILITY_UUID, p_user_id: TARGET_USER, p_plan_id: PLAN_UUID, p_notes: undefined,
+  });
+  expect(mockAdminFrom).not.toHaveBeenCalled();
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'create', tableName: 'user_subscriptions', recordId: SUB_UUID }));
 });
 
 // ─── PATCH: status update path ───────────────────────────────────────────────
@@ -580,7 +602,8 @@ test('GET: 不正な user_id UUID → 400', async () => {
 
 test('GET: user_id フィルタ付きで管理者 → 200', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'admin' }));
-  mockAdminFrom.mockReturnValue(singleChain([{ id: SUB_UUID }]));
+  mockAdminFrom.mockReturnValue(singleChain([{ id: SUB_UUID, user_id: TARGET_USER }]));
+  profilesRpc([]);
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, user_id: TARGET_USER }));
   expect(res.status).toBe(200);
 });
@@ -619,19 +642,8 @@ test('POST: JSON パース失敗 → 400', async () => {
 });
 
 test('POST: notes 付きで正常付与 → 201', async () => {
-  let callNum = 0;
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return singleChain({ valid_months: 6 });
-    return {
-      insert: jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          single: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID }, error: null })),
-        }),
-      }),
-    };
-  });
+  mockAdminRpc.mockResolvedValue({ data: { ok: true, subscription: { id: SUB_UUID } }, error: null });
   const res = await POST(makePostRequest({
     facility_id: FACILITY_UUID,
     user_id: TARGET_USER,
@@ -639,6 +651,7 @@ test('POST: notes 付きで正常付与 → 201', async () => {
     notes: 'テスト用メモ',
   }));
   expect(res.status).toBe(201);
+  expect(mockAdminRpc).toHaveBeenCalledWith('grant_user_subscription_atomic', expect.objectContaining({ p_notes: 'テスト用メモ' }));
 });
 
 // ─── PATCH: status path additional branches ───────────────────────────────────
