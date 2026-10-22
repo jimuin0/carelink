@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { safeCaptureException } from '@/lib/safe';
 import { logCronRun, cronError } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
-import { alertDeliveryFailures } from '@/lib/alert';
+import { alertWarning } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
 import { getEntitlementsByFacility, type EntitlementsClient } from '@/lib/entitlements';
 import { retryTransientSupabaseRead, summarizeDependencyError } from '@/lib/err';
@@ -16,8 +16,9 @@ import { isReminderSendHour, REMINDER_SEND_HOUR_JST } from '@/lib/reminder-sched
 // run（JST 0:05）で送られ、深夜にリマインドが届いていた。
 // 9 時台以外の run は送信前 claim の回収と送達結果不明の監視だけを行い、'skipped' を記録する
 // （cron_logs の鮮度監視は毎時の記録を前提にしているため、run 自体は止めない）。
-// ⚠️ この決定により、9 時の run で時間予算超過（deferred）や一時的な送信失敗（claim 解放）に
-// なったリマインドは、同じ日のうちには再送されない（翌日の 9 時には対象日がずれるため）。
+// ⚠️ この決定により、9 時の run で時間予算超過（deferred）や送信失敗になったリマインドは
+// 【自動では二度と送られない】（翌日の 9 時には対象日＝1/3/7日後がずれるため）。
+// そのため deferred も送信失敗も「届かなかった件数」として error 記録＋警報する（末尾）。
 export const dynamic = 'force-dynamic';
 // 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
 // 既定の低い値を上書きし、下の SEND_BUDGET_MS による予算ガードが確実に発火する既知の上限を与える。
@@ -26,7 +27,7 @@ export const maxDuration = 60;
 // 1 回の run で「考慮」する最大予約数（メモリ上限）。到達したら警告ログを出す（silent 根絶）。
 const CONSIDER_LIMIT = 5000;
 // 送信ループの実時間予算。maxDuration(60s) 未満に設定し、超えたら残りは送らずに打ち切る
-// （送信は 9 時台の run だけなので、打ち切った分は同じ日のうちには送られない＝deferred として記録する）。
+// （送信は 9 時台の run だけなので、打ち切った分は自動では送られない＝deferred として error 記録＋警報する）。
 const SEND_BUDGET_MS = 40 * 1000;
 // .in() を chunk するサイズ（PostgREST の URL 長制限回避）。
 const IN_CHUNK = 500;
@@ -293,10 +294,12 @@ export async function GET(request: Request) {
         continue;
       }
 
-      // 送信が失敗した場合、claim（sent_reminders 行）を握ったままにすると、翌 run の
-      // upsert(ignoreDuplicates) は既存行と衝突して INSERT 0 件（=負け判定）になり、
-      // 当該リマインダーは恒久 miss になる。送信失敗時は claim を解放（削除）して
-      // 同種 run での再送を可能にする（favorites-digest / review-request 等の恒久 miss 防止と同方針）。
+      // 送信しなかった・送れなかった場合は claim（sent_reminders 行）を解放（削除）する。
+      // 握ったままにすると、以後の upsert(ignoreDuplicates) が既存行と衝突して INSERT 0 件
+      // （=負け判定）になり、その枠は二度と送れなくなる。
+      // ⚠️ 解放しても【自動の再送は起きない】。送信は 9 時台の run だけで、翌日には対象日がずれる。
+      // 解放が効くのは、同じ 9 時台に運用者が手動で再実行した場合だけ。届かなかった分は
+      // deliveryFailures として error 記録＋警報する（「翌 run で再送される」とは扱わない）。
       const releaseClaim = async () => {
         const { error: releaseErr } = await supabase
           .from('sent_reminders')
@@ -305,7 +308,7 @@ export async function GET(request: Request) {
           .eq('reminder_date', booking.booking_date)
           .eq('kind', kind);
         if (releaseErr) {
-          // 解放失敗はログのみ（本体は継続）。次回 run で再送されないリスクは残るが握り潰さず可視化。
+          // 解放失敗はログのみ（本体は継続）。手動の再実行でも送れなくなるが、握り潰さず可視化する。
           console.error('[booking-reminder] claim release failed', { bookingId: booking.id, kind, err: releaseErr });
           dependencyFailures++;
         }
@@ -361,8 +364,9 @@ export async function GET(request: Request) {
             await markDelivery('uncertain');
             skipped++;
           } else {
-            // メール送信が送達不可（safeSend が false）→ claim 解放して翌 run で再送可能にする。
-            // 従来は戻り値を無視し無条件 sent++ していたため、送信失敗が無音＋claim 保持で恒久 miss だった。
+            // メール送信が送達不可（provider が拒否）→ claim を解放し、届かなかった件数に数える
+            // （自動の再送は無い。冒頭のコメント参照）。従来は戻り値を無視し無条件 sent++ していたため、
+            // 送信失敗が無音のまま消えていた。
             await releaseClaim();
             deliveryFailures++;
             skipped++;
@@ -380,7 +384,8 @@ export async function GET(request: Request) {
             await markDelivery('delivered');
             sent++;
           } else if (outcome === 'transient') {
-            // 一時的な失敗（429・5xx・ネットワーク）→ claim 解放して翌 run で再送する。
+            // 一時的な失敗（429・5xx・ネットワーク）→ claim を解放し、届かなかった件数に数える
+            // （一時的な失敗でも、送信は 9 時台の run だけなので自動では再送されない）。
             await releaseClaim();
             deliveryFailures++;
             skipped++;
@@ -419,7 +424,7 @@ export async function GET(request: Request) {
                 deliveryUncertain++;
                 skipped++;
               } else {
-                // 退避先も送れなかった。claim を解放し翌 run で（LINE 1 回を無駄打ちしてから）再試行する。
+                // 退避先も送れなかった。claim を解放し、届かなかった件数に数える（自動の再送は無い）。
                 await releaseClaim();
                 deliveryFailures++;
                 skipped++;
@@ -441,12 +446,24 @@ export async function GET(request: Request) {
       }
     }
 
-    alertDeliveryFailures('booking-reminder', deliveryFailures, { sent, skipped });
-    if (dependencyFailures > 0 || deliveryFailures > 0 || deliveryUncertain > 0) {
+    // 送信失敗と時間切れ（deferred）は、どちらも今日のうちに自動で送られることは無い（翌日には対象日が
+    // ずれる）。共通の alertDeliveryFailures は「翌runで再送」と書くため使わず、届かなかった件数として
+    // 警報し、run も error として記録する。以前は deferred を見ておらず、時間切れで送れなかった分が
+    // success・HTTP 200 のまま誰にも気づかれずに消えていた。
+    const notDelivered = deliveryFailures + deferred;
+    if (notDelivered > 0) {
+      alertWarning(
+        `[booking-reminder] リマインド ${notDelivered}件が届いていません（送信失敗 ${deliveryFailures}件・時間切れで未送信 ${deferred}件）。自動では再送されません`,
+        { route: '/api/cron/booking-reminder', extra: { sent, skipped, deliveryFailures, deferred } },
+      );
+    }
+    if (dependencyFailures > 0 || notDelivered > 0 || deliveryUncertain > 0) {
       await logCronRun('booking-reminder', 'error', startedAt, {
         processed: sent,
         skipped,
-        error_msg: '予約リマインドで未完了の依存障害または送信障害が発生しました',
+        error_msg: deferred > 0
+          ? `予約リマインドのうち${deferred}件を時間切れで送れませんでした（自動では再送されません）`
+          : '予約リマインドで未完了の依存障害または送信障害が発生しました',
         meta: {
           total_bookings: bookings.length,
           planned: plan.length,

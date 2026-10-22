@@ -25,7 +25,7 @@ beforeEach(()=>{
 });
 async function form(files:File[]=[new File(['original'],'original.png',{type:'image/png'})]){
  const mounted=render(<ReviewForm facilityId={facility} onReviewSubmitted={jest.fn()}/>);
- fireEvent.change(screen.getByLabelText('お名前',{exact:false}),{target:{value:'Original name'}});
+ fireEvent.change(screen.getByLabelText('ニックネーム',{exact:false}),{target:{value:'Original name'}});
  fireEvent.change(screen.getByLabelText('コメント'),{target:{value:'Original comment'}});
  screen.getAllByRole('button',{name:'5点'}).forEach(button=>fireEvent.click(button));
  fireEvent.change(screen.getByLabelText('口コミ写真を選択'),{target:{files}});

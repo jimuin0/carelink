@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { adminFacilityHref } from '@/lib/admin-facility-url';
+import { UUID_REGEX } from '@/lib/constants';
 import {
   postToSlack,
   sectionBlock,
@@ -215,7 +216,11 @@ export const notifyPayloadSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('facility_inquiry'),
     data: z.object({
-      facility_id: z.string().uuid().optional(),
+      // リンクに店舗を付けるためだけの欄なので、不正な値でも通知全体を落とさない（値だけ捨てて
+      // 店舗指定なしのリンクにする）。判定は adminFacilityHref と同じ UUID_REGEX。z.string().uuid() は
+      // zod 4 で RFC のバージョン桁まで見るため、Postgres が受け付ける id でも弾き、問い合わせの
+      // Slack 通知そのものを invalid_payload で失っていた。
+      facility_id: z.string().regex(UUID_REGEX).optional().catch(undefined),
       facility_name: z.string().max(200),
       name: z.string().max(100),
       email: z.string().max(254),

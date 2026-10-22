@@ -297,7 +297,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 ## cron スケジュール（SSOT＝`src/lib/cron-jobs.data.json`／`render.yaml` と `.github/workflows/cron.yml` に展開・UTC 指定／JST 併記）
 | path | cron(UTC) | JST |
 |------|-----------|-----|
-| booking-reminder | `5 * * * *` | 毎時05分（JST）。**送信するのは 9時台の run（09:05）だけ**（神原さん決定 2026年10月22日「朝9時に1回だけ」・`src/lib/reminder-schedule.ts`）。他の run は送信前 claim の回収と送達結果不明の監視だけ行い `skipped` を記録する。9時の run で送れなかった分は同じ日のうちには再送されない |
+| booking-reminder | `5 * * * *` | 毎時05分（JST）。**送信するのは 9時台の run（09:05）だけ**（神原さん決定 2026年10月22日「朝9時に1回だけ」・`src/lib/reminder-schedule.ts`）。他の run は送信前 claim の回収と送達結果不明の監視だけ行い `skipped` を記録する。9時の run で送れなかった分（送信失敗・時間切れ＝deferred）は自動では再送されないため、run を `error`・503 で記録し Slack に件数を警報する |
 | daily-summary | `0 6 * * *` | 毎日 15:00 |
 | customer-segment | `0 7 * * 0` | 日曜 16:00 |
 | review-request | `0 18 * * *` | 毎日 03:00 |

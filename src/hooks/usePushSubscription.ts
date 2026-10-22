@@ -40,6 +40,27 @@ export async function readThisDeviceEndpoint(): Promise<string | null> {
   return subscription?.endpoint ?? null;
 }
 
+/**
+ * Service Worker の準備を待つ上限。`navigator.serviceWorker.ready` は登録が無いと永久に解決しない
+ * （public/sw-register.js は登録失敗を握り潰す）。待ち続けると登録ボタンが「登録中...」のまま
+ * 押せなくなり、エラーも再試行の手段も出ないため、上限を過ぎたら失敗として扱う。
+ * 登録自体は layout の lazyOnload で少し遅れて始まるので、その分の余裕は持たせる。
+ */
+export const SERVICE_WORKER_READY_TIMEOUT_MS = 10_000;
+
+/** Service Worker の準備ができた登録を返す。上限までに準備できなければ null。 */
+async function waitForServiceWorker(): Promise<ServiceWorkerRegistration | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), SERVICE_WORKER_READY_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([navigator.serviceWorker.ready, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export type SubscribeOutcome = 'subscribed' | 'denied' | 'failed';
 export type UnsubscribeOutcome = 'unsubscribed' | 'failed';
 
@@ -50,7 +71,8 @@ export async function subscribeThisDevice(): Promise<SubscribeOutcome> {
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') return 'denied';
 
-  const registration = await navigator.serviceWorker.ready;
+  const registration = await waitForServiceWorker();
+  if (!registration) return 'failed';
   const subscription = await registration.pushManager.subscribe({
     userVisibleOnly: true,
     applicationServerKey: urlBase64ToUint8Array(vapidKey).buffer as ArrayBuffer,

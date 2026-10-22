@@ -377,9 +377,23 @@ describe('adminUrlFor — type ごとの管理画面 URL', () => {
     expect(getBlocksJson()).toContain(`/admin/facility-inquiries?facility_id=${facilityId}`);
   });
 
-  test('facility_id が UUID でなければ通知自体を受け付けない（URL へ任意文字列を入れない）', async () => {
+  // リンクの付加情報が不正なだけで、問い合わせの通知そのものを落とさない（回帰防止）。
+  test('facility_id が UUID でなければ値だけ捨て、店舗指定なしのリンクで通知は送る（URL へ任意文字列を入れない）', async () => {
     const result = await sendNotify({ ...facilityInquiryPayload, data: { ...facilityInquiryPayload.data, facility_id: 'x&y=1' } });
-    expect(result.ok).toBe(false);
-    expect(mockPostToSlack).not.toHaveBeenCalled();
+    expect(result.ok).toBe(true);
+    expect(mockPostToSlack).toHaveBeenCalledTimes(1);
+    const blocks = getBlocksJson();
+    expect(blocks).toContain('/admin/facility-inquiries"');
+    expect(blocks).not.toContain('facility_id=');
+    expect(blocks).not.toContain('x&y=1');
+  });
+
+  // zod 4 の z.string().uuid() は RFC のバージョン桁まで見るため、手で入れた id のような
+  // 形（Postgres は受け付ける）を弾き、通知全体を invalid_payload で失っていた。
+  test('バージョン桁が RFC 形式でない UUID でも通知を送り、リンクに店舗を付ける', async () => {
+    const facilityId = '00000000-0000-0000-0000-000000000001';
+    const result = await sendNotify({ ...facilityInquiryPayload, data: { ...facilityInquiryPayload.data, facility_id: facilityId } });
+    expect(result.ok).toBe(true);
+    expect(getBlocksJson()).toContain(`/admin/facility-inquiries?facility_id=${facilityId}`);
   });
 });

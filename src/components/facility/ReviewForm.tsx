@@ -26,7 +26,7 @@ const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const ratingAxis = z.number().int('評価を選択してください').min(1, '評価を選択してください').max(5);
 
 const reviewSchema = z.object({
-  reviewer_name: z.string().min(1, 'お名前を入力してください').max(50, 'お名前は50文字以内で入力してください'),
+  reviewer_name: z.string().min(1, 'ニックネームを入力してください').max(50, 'ニックネームは50文字以内で入力してください'),
   rating_skill: ratingAxis,
   rating_service: ratingAxis,
   rating_atmosphere: ratingAxis,
@@ -298,8 +298,11 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
     <>
       <form onSubmit={handleSubmit(() => setShowConfirm(true))} noValidate className="space-y-4">
         <div>
-          <label htmlFor="reviewer_name" className="form-label">お名前 <span className="text-red-600">*</span></label>
-          <input {...register('reviewer_name')} id="reviewer_name" className="form-input" placeholder="ニックネーム可" autoComplete="name" aria-required="true" />
+          {/* 入力した名前はそのまま口コミと一緒に公開する（2026年10月22日 神原さん決定）。
+              autoComplete="name" だとブラウザが本名を1タップで入れてしまい、本名が公開されるので nickname にする。 */}
+          <label htmlFor="reviewer_name" className="form-label">ニックネーム <span className="text-red-600">*</span></label>
+          <input {...register('reviewer_name')} id="reviewer_name" className="form-input" autoComplete="nickname" aria-required="true" aria-describedby="reviewer_name_hint" />
+          <p id="reviewer_name_hint" className="text-xs text-gray-600 mt-1">口コミと一緒に公開されます。本名でなくてもかまいません。</p>
           {errors.reviewer_name && <p className="form-error" role="alert">{errors.reviewer_name.message}</p>}
         </div>
 

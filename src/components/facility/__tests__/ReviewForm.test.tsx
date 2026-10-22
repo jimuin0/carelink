@@ -55,3 +55,12 @@ test('写真を追加するたびに既存プレビューの blob URL を revoke
     expect(URL.revokeObjectURL).toHaveBeenCalledWith(firstUrl);
   });
 });
+
+// 入力した名前はそのまま公開される（2026年10月22日 神原さん決定）。autoComplete="name" のままだと
+// ブラウザの自動入力で本名が1タップで入り、そのまま公開されていた（回帰防止）。
+test('投稿者名の欄は公開用のニックネームとして扱い、本名の自動入力を促さない', () => {
+  render(<ReviewForm facilityId="f1" onReviewSubmitted={jest.fn()} />);
+  const input = screen.getByLabelText(/ニックネーム/);
+  expect(input).toHaveAttribute('autocomplete', 'nickname');
+  expect(input).toHaveAccessibleDescription('口コミと一緒に公開されます。本名でなくてもかまいません。');
+});

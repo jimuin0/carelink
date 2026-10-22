@@ -37,12 +37,15 @@ jest.mock('@/lib/cron-logger', () => {
 });
 jest.mock('@/lib/email');
 jest.mock('@/lib/line');
+// 届かなかったリマインドの警報文言を検証するため、alertWarning だけ差し替える。
+jest.mock('@/lib/alert', () => ({ ...jest.requireActual('@/lib/alert'), alertWarning: jest.fn() }));
 jest.mock('@sentry/nextjs', () => ({
   captureException: jest.fn(),
 }), { virtual: true });
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
+import { alertWarning } from '@/lib/alert';
 import { GET } from '../route';
 
 // システム時刻 2026-05-15T00:00:00Z = JST 2026-05-15 09:00 → 対象日:
@@ -278,14 +281,26 @@ test('結果不明件数nullで対象予約なしの場合は送信せず正常�
   expect(mockEmailReminder).not.toHaveBeenCalled();
 });
 
-test('送信開始前にrun予算を消費した場合はclaimを取得せず次runへ残す', async () => {
+// 送信は 9 時台の run だけなので、時間切れで送れなかった分は自動では二度と送られない。
+// 旧実装は deferred を見ずに success・200 を記録し、警報も出さなかった（回帰防止）。
+test('送信開始前にrun予算を消費した場合はclaimを取得せず、届かなかった件数として error・503・警報にする', async () => {
   const now = jest.spyOn(Date, 'now').mockImplementation(() => new Date('2026-05-15T00:00:41Z').getTime());
   try {
     const res = await GET(makeRequest());
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ deferred: 2, processed: 0 });
     expect(mockUpsert).not.toHaveBeenCalled();
     expect(mockEmailReminder).not.toHaveBeenCalled();
+    expect(logCronRun).toHaveBeenCalledWith('booking-reminder', 'error', expect.any(Date), expect.objectContaining({
+      error_msg: expect.stringContaining('2件を時間切れで送れませんでした'),
+      meta: expect.objectContaining({ deferred: 2 }),
+    }));
+    expect(logCronRun).not.toHaveBeenCalledWith('booking-reminder', 'success', expect.anything(), expect.anything());
+    expect(alertWarning).toHaveBeenCalledTimes(1);
+    expect(alertWarning).toHaveBeenCalledWith(
+      expect.stringContaining('時間切れで未送信 2件'),
+      expect.objectContaining({ route: '/api/cron/booking-reminder', extra: expect.objectContaining({ deferred: 2 }) }),
+    );
   } finally { now.mockRestore(); }
 });
 
@@ -544,6 +559,14 @@ describe('GET /api/cron/booking-reminder', () => {
     expect(json.processed).toBe(0);
     // 送信失敗時に claim(sent_reminders)を delete で解放する（LINE 側と対称）。
     expect(mockDelete).toHaveBeenCalled();
+    // 送信は 9 時台の run だけなので、翌 run で再送されるとは書かない（届かなかった件数として警報）。
+    expect(alertWarning).toHaveBeenCalledWith(
+      expect.stringContaining('送信失敗 1件'),
+      expect.objectContaining({ route: '/api/cron/booking-reminder' }),
+    );
+    const message = (alertWarning as jest.Mock).mock.calls[0][0] as string;
+    expect(message).toContain('自動では再送されません');
+    expect(message).not.toMatch(/翌\s*run/);
   });
 
   test('メール送信結果が不明 → claimを保持し503で照合へ上げる', async () => {
@@ -858,9 +881,16 @@ describe('GET /api/cron/booking-reminder', () => {
         return Promise.resolve({ data: [{ sent_at: new Date().toISOString() }], error: null });
       }),
     }));
-    const json = await (await GET(makeRequest() as any)).json();
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
     expect(json.deferred).toBe(3);
     expect(json.processed).toBe(0);
+    // 打ち切った分は今日のうちに自動で送られることは無いので、success にしない。
+    expect(res.status).toBe(503);
+    expect(logCronRun).toHaveBeenCalledWith('booking-reminder', 'error', expect.any(Date), expect.objectContaining({
+      meta: expect.objectContaining({ deferred: 3 }),
+    }));
+    expect(alertWarning).toHaveBeenCalledWith(expect.stringContaining('時間切れで未送信 3件'), expect.any(Object));
     warnSpy.mockRestore();
   });
 
@@ -1009,8 +1039,9 @@ describe('GET /api/cron/booking-reminder', () => {
     expect(mockLineReminder).toHaveBeenCalledWith('LINE-1', expect.objectContaining({ facilityName: '' }));
   });
 
-  test('成功時 logCronRun に planned/deferred メタを記録', async () => {
+  test('成功時 logCronRun に planned/deferred メタを記録（届かなかった分が無ければ警報しない）', async () => {
     await GET(makeRequest() as any);
+    expect(alertWarning).not.toHaveBeenCalled();
     expect(logCronRun).toHaveBeenCalledWith('booking-reminder', 'success', expect.any(Date), expect.objectContaining({
       processed: 2,
       meta: expect.objectContaining({ total_bookings: 2, planned: 2, deferred: 0 }),
