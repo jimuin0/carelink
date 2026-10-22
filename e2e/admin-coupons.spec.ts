@@ -45,6 +45,13 @@ test('オーナーがクーポンを作成→編集→削除できる（書き�
   await page.waitForURL(url => /^\/admin\/coupons\/[^/]+\/edit$/.test(url.pathname) && url.searchParams.get('facility_id') === facilityId, { timeout: 15000 });
 
   await page.locator('#coupon-name').fill(editedName);
+  // 「有効」を外して保存しても一覧から消えず、「無効」として残ること（2026年10月22日）。
+  // 以前は一覧から消え、編集画面へ戻る導線が無いため二度と有効に戻せなかった。
+  const activeBox = page.getByRole('checkbox', { name: '有効', exact: true });
+  await activeBox.scrollIntoViewIfNeeded();
+  await activeBox.focus();
+  await page.keyboard.press('Space');
+  await expect(activeBox).not.toBeChecked();
   const saveBtn = page.getByRole('button', { name: '保存', exact: true });
   await saveBtn.scrollIntoViewIfNeeded();
 
@@ -62,6 +69,7 @@ test('オーナーがクーポンを作成→編集→削除できる（書き�
 
   // --- 削除：編集ページの「このクーポンを削除」→ 確認ダイアログ「削除する」→ 一覧へ遷移。
   const editedCard = page.locator('div.bg-white.rounded-xl.p-4.shadow-xs').filter({ hasText: editedName });
+  await expect(editedCard.getByText('無効', { exact: true })).toBeVisible();
   const reEditLink = editedCard.getByRole('link', { name: '編集', exact: true });
   await reEditLink.scrollIntoViewIfNeeded();
   await reEditLink.press('Enter');

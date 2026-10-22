@@ -4,17 +4,19 @@ import { todayJst } from './admin-date';
 import { createServerSupabaseAuthClient } from './supabase-server-auth';
 import { databaseDiagnostic } from './database-diagnostic';
 
-// オーナー管理画面(admin/coupons/page.tsx)向け＝is_active な全クーポンを返す（期間フィルタ
-// なし）。この画面は期間外（未来開始／期限切れ）のクーポンも一覧・編集リンク・利用実績の
+// オーナー管理画面(admin/coupons/page.tsx)向け＝施設の全クーポンを返す（有効／無効・期間を
+// 問わない）。この画面は期間外（未来開始／期限切れ）のクーポンも一覧・編集リンク・利用実績の
 // 到達導線を出す必要があるため、valid_from/valid_until での絞り込みをしてはならない。
-// 顧客向けの表示は getActiveCouponsByFacility を使うこと（下記）。
+// 【2026年10月22日】is_active でも絞らない。以前は .eq('is_active', true) で絞っていたため、
+// 編集画面で「有効」を外して保存したクーポンが一覧から消え、編集画面へ戻る導線が無くなって
+// 二度と有効に戻せなかった（利用実績も見えなくなった）。一覧では「無効」バッジ付きで出す。
+// 顧客向けの表示は getActiveCouponsByFacility を使うこと（下記・無効なクーポンは出さない）。
 export async function getCouponsByFacility(facilityId: string): Promise<Coupon[]> {
   const supabase = await createServerSupabaseAuthClient();
   const { data, error } = await supabase
     .from('coupons')
     .select('*')
     .eq('facility_id', facilityId)
-    .eq('is_active', true)
     .order('sort_order');
   if (error) throw databaseDiagnostic(error);
   return (data ?? []) as Coupon[];
@@ -50,4 +52,26 @@ export async function getCouponMenus(couponId: string): Promise<CouponMenu[]> {
     .eq('coupon_id', couponId);
   if (error) throw databaseDiagnostic(error);
   return (data ?? []) as CouponMenu[];
+}
+
+/**
+ * クーポンID → 対象メニューID配列（coupon_menus に行があるクーポンだけキーを持つ）。
+ * 施設ページのクーポン一覧が「通常価格」を対象メニューから出すために使う（1 クエリ）。
+ * 予約画面（booking/page.tsx）が getCouponMenus で組み立てるマップと同じ形。
+ * coupon_menus は公開クーポンの行だけ anon に読める（coupon_menus_public_read）。
+ * 取得失敗は空マップ（＝全クーポンが対象メニュー無し）に偽装せず throw する。
+ */
+export async function getCouponMenuMap(couponIds: string[]): Promise<Record<string, string[]>> {
+  const map: Record<string, string[]> = {};
+  if (couponIds.length === 0) return map;
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from('coupon_menus')
+    .select('coupon_id, menu_id')
+    .in('coupon_id', couponIds);
+  if (error) throw databaseDiagnostic(error);
+  for (const row of (data ?? []) as Pick<CouponMenu, 'coupon_id' | 'menu_id'>[]) {
+    (map[row.coupon_id] ??= []).push(row.menu_id);
+  }
+  return map;
 }

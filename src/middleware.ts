@@ -6,6 +6,7 @@ import { isStoreManagementRedirect } from '@/lib/store-login';
 import { isPlatformSupportPath } from '@/lib/platform-support-path';
 import { getMembershipCacheKey } from '@/lib/admin-membership-cache-key';
 import { AUTH_UNAVAILABLE_BODY, AUTH_VERIFICATION_TIMEOUT_MS, verifyAuthUser } from '@/lib/auth-verification';
+import { GOOGLE_MAPS_EMBED_ORIGIN } from '@/lib/map-embed';
 
 const PROTECTED_PATHS = ['/mypage', '/admin'];
 
@@ -103,7 +104,9 @@ function buildCspHeader(nonce: string): string {
     `connect-src 'self' ${getSupabaseConnectSrc()} https://*.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com https://vitals.vercel-insights.com https://access.line.me https://api.line.me https://zipcloud.ibsnet.co.jp`,
     "worker-src 'self'",
     "manifest-src 'self'",
-    "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",
+    // GOOGLE_MAPS_EMBED_ORIGIN は施設ページ「アクセス」タブの地図埋め込み用（src/lib/map-embed.ts）。
+    // これが無いと地図の iframe が CSP で拒否され、本番では常に空白だった（2026年10月22日）。
+    `frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com ${GOOGLE_MAPS_EMBED_ORIGIN}`,
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",

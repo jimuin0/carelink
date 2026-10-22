@@ -14,6 +14,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import { formatApiErrorMessage } from '@/lib/api-error-message';
+import { COUPON_TARGET_ADMIN_HELP } from '@/lib/coupon-eligibility';
 
 type MenuOption = { id: string; name: string; price: number | null };
 
@@ -159,12 +160,13 @@ function NewCouponEditor({requested}:{requested:string|null}) {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label htmlFor="coupon-type" className="form-label">対象</label>
-            <select id="coupon-type" value={couponType} onChange={(e) => setCouponType(e.target.value)} className="form-input">
+            <select id="coupon-type" value={couponType} onChange={(e) => setCouponType(e.target.value)} className="form-input" aria-describedby="coupon-type-help">
               <option value="all">全員</option>
               <option value="new_customer">新規</option>
               <option value="repeat">リピーター</option>
               <option value="limited_time">期間限定</option>
             </select>
+            <p id="coupon-type-help" className="text-xs text-gray-500 mt-1">{COUPON_TARGET_ADMIN_HELP}</p>
           </div>
           <div>
             <label htmlFor="coupon-discount-type" className="form-label">割引タイプ</label>

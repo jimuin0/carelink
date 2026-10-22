@@ -8,7 +8,7 @@ import { getFacilityBySlug, getFacilityMenus, getFacilityPhotos, getFacilityRevi
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 import { featureSearchHref } from '@/lib/search-href';
 import { getStaffByFacility } from '@/lib/staff';
-import { getActiveCouponsByFacility } from '@/lib/coupons';
+import { getActiveCouponsByFacility, getCouponMenuMap } from '@/lib/coupons';
 import { getCatalogsByFacility } from '@/lib/catalogs';
 import PhotoGallery from '@/components/facility/PhotoGallery';
 import FacilityHeader from '@/components/facility/FacilityHeader';
@@ -123,6 +123,18 @@ export default async function FacilityPage(props: Props) {
   const coupons: Coupon[] = results[4].status === 'fulfilled' ? results[4].value : [];
   const catalogs: TreatmentCatalog[] = results[5].status === 'fulfilled' ? results[5].value : [];
 
+  // クーポンごとの対象メニュー（coupon_menus）。クーポン一覧の「通常 ¥X → ¥Y」を対象メニューの
+  // 定価から出すために使う。取れなければ undefined のまま渡し、一覧は割引表記だけを出す
+  // （施設全体の最安値などで通常価格を作らない）。
+  let couponMenuMap: Record<string, string[]> | undefined;
+  if (coupons.length > 0) {
+    try {
+      couponMenuMap = await getCouponMenuMap(coupons.map((c) => c.id));
+    } catch (error) {
+      safeCaptureException(error, 'facility-detail:coupon-menus');
+    }
+  }
+
   // 鍼灸院向けデータ取得（症状・資格）
   const isAcupuncture = ['鍼灸院・整骨院', '整骨院・接骨院', '整体院'].some(t => facility.business_type?.includes(t));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -165,7 +177,7 @@ export default async function FacilityPage(props: Props) {
     ...(coupons.length > 0 ? [{
       key: 'coupon',
       label: `クーポン(${coupons.length})`,
-      content: <CouponList coupons={coupons} menus={menus} />,
+      content: <CouponList coupons={coupons} menus={menus} couponMenuMap={couponMenuMap} />,
     }] : []),
     {
       key: 'qa',

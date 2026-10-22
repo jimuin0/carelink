@@ -10,6 +10,7 @@ import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import { formatApiErrorMessage } from '@/lib/api-error-message';
+import { COUPON_TARGET_ADMIN_HELP } from '@/lib/coupon-eligibility';
 import FacilitySelector from '@/components/admin/FacilitySelector';
 import { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/lib/admin-facility-selection';
 import { verifyAuthUser } from '@/lib/auth-verification';
@@ -245,12 +246,13 @@ function CouponEditor({couponId,requested}:{couponId:string;requested:string|nul
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label htmlFor="coupon-type" className="form-label">対象</label>
-            <select id="coupon-type" value={couponType} onChange={(e) => setCouponType(e.target.value)} className="form-input">
+            <select id="coupon-type" value={couponType} onChange={(e) => setCouponType(e.target.value)} className="form-input" aria-describedby="coupon-type-help">
               <option value="all">全員</option>
               <option value="new_customer">新規</option>
               <option value="repeat">リピーター</option>
               <option value="limited_time">期間限定</option>
             </select>
+            <p id="coupon-type-help" className="text-xs text-gray-500 mt-1">{COUPON_TARGET_ADMIN_HELP}</p>
           </div>
           <div>
             <label htmlFor="discount-type" className="form-label">割引タイプ</label>
@@ -322,9 +324,12 @@ function CouponEditor({couponId,requested}:{couponId:string;requested:string|nul
         </div>
         <div>
           <label className="flex items-center gap-2">
-            <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+            <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} aria-describedby="coupon-active-help" />
             <span className="text-sm">有効</span>
           </label>
+          <p id="coupon-active-help" className="text-xs text-gray-500 mt-1">
+            チェックを外すと、店舗ページと予約画面に表示されなくなります。クーポン一覧には「無効」として残り、いつでも再開できます。
+          </p>
         </div>
 
         <div className="flex gap-3 pt-4">
@@ -345,7 +350,7 @@ function CouponEditor({couponId,requested}:{couponId:string;requested:string|nul
       <ConfirmDialog
         open={confirmDelete}
         title="クーポンを削除"
-        message="このクーポンを削除しますか？"
+        message="このクーポンを削除しますか？利用記録や予約があるクーポンは削除できないため、「無効」にして一覧に残します。"
         confirmLabel="削除する"
         variant="danger"
         confirmDisabled={saving || deleting}
