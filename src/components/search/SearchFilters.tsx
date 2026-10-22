@@ -19,8 +19,6 @@ export default function SearchFilters({ className }: { className?: string }) {
   );
   const [availableDate, setAvailableDate] = useState(searchParams.get('available_date') || '');
   const [availableTime, setAvailableTime] = useState(searchParams.get('available_time') || '');
-  const [symptom, setSymptom] = useState(searchParams.get('symptom') || '');
-  const [insuranceOnly, setInsuranceOnly] = useState(searchParams.get('insurance') === '1');
 
   const toggleFeature = useCallback((feature: string) => {
     setSelectedFeatures((prev) =>
@@ -40,12 +38,10 @@ export default function SearchFilters({ className }: { className?: string }) {
     if (selectedFeatures.length > 0) params.set('features', selectedFeatures.join(','));
     if (availableDate) params.set('available_date', availableDate);
     if (availableTime) params.set('available_time', availableTime);
-    if (symptom) params.set('symptom', symptom);
-    if (insuranceOnly) params.set('insurance', '1');
     const sort = searchParams.get('sort');
     if (sort) params.set('sort', sort);
     router.push(`/search?${params.toString()}`);
-  }, [router, searchParams, area, type, ratingMin, priceMin, priceMax, selectedFeatures, availableDate, availableTime, symptom, insuranceOnly]);
+  }, [router, searchParams, area, type, ratingMin, priceMin, priceMax, selectedFeatures, availableDate, availableTime]);
 
   const clearFilters = useCallback(() => {
     const keyword = searchParams.get('keyword');
@@ -59,8 +55,6 @@ export default function SearchFilters({ className }: { className?: string }) {
     setSelectedFeatures([]);
     setAvailableDate('');
     setAvailableTime('');
-    setSymptom('');
-    setInsuranceOnly(false);
     router.push(`/search?${params.toString()}`);
   }, [router, searchParams]);
 
@@ -220,52 +214,14 @@ export default function SearchFilters({ className }: { className?: string }) {
         </div>
       </div>
 
-      {/* 症状から探す（鍼灸院向け） */}
-      <div className="mb-5">
-        <label htmlFor="filter-symptom" className="block text-xs font-medium text-gray-600 mb-1.5">症状から探す</label>
-        <select
-          id="filter-symptom"
-          value={symptom}
-          onChange={(e) => setSymptom(e.target.value)}
-          className="form-input text-sm"
-        >
-          <option value="">すべて</option>
-          <optgroup label="筋骨格系">
-            <option value="腰痛">腰痛</option>
-            <option value="肩こり">肩こり</option>
-            <option value="膝痛">膝痛</option>
-            <option value="五十肩">五十肩</option>
-          </optgroup>
-          <optgroup label="神経系">
-            <option value="頭痛">頭痛</option>
-            <option value="坐骨神経痛">坐骨神経痛</option>
-            <option value="自律神経失調症">自律神経失調症</option>
-          </optgroup>
-          <optgroup label="婦人科系">
-            <option value="生理痛">生理痛</option>
-            <option value="冷え性">冷え性</option>
-            <option value="産後の骨盤矯正">産後の骨盤矯正</option>
-          </optgroup>
-          <optgroup label="その他">
-            <option value="スポーツ障害">スポーツ障害</option>
-            <option value="交通事故">交通事故</option>
-            <option value="疲労回復">疲労回復</option>
-          </optgroup>
-        </select>
-      </div>
-
-      {/* 保険適用メニューあり */}
-      <div className="mb-5">
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={insuranceOnly}
-            onChange={(e) => setInsuranceOnly(e.target.checked)}
-            className="w-4 h-4 rounded-sm border-gray-300 text-sky-700 focus:ring-sky-500"
-          />
-          <span className="text-xs text-gray-600">保険適用メニューあり</span>
-        </label>
-      </div>
+      {/*
+        症状・保険適用の絞り込みは出さない（2026年10月22日）。
+        検索側（src/lib/facilities.ts の detailFilter）は対応済みだが、施設が対応症状（facility_symptoms）や
+        保険適用（facility_menus.insurance_covered）を保存できる管理画面・API がまだ無く、本番の該当データは 0 件。
+        出すと、どの症状を選んでもチェックを入れても必ず「見つかりませんでした」になる。
+        src/__tests__/search-filter-write-paths.test.ts が、保存できる経路が管理レイヤに出来たときだけ
+        戻せるよう CI で固定している（戻すときは同テストの説明に従う）。
+      */}
 
       {/* 適用ボタン */}
       <button

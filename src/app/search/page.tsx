@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { redirect } from 'next/navigation';
 import { searchFacilities, getMonthlyBookingCounts, getAvailableFacilityIds, getFeaturedFacilities, getAvailableAreasAndTypes } from '@/lib/facilities';
 import SearchBar from '@/components/search/SearchBar';
 import Pagination from '@/components/search/Pagination';
@@ -17,6 +18,7 @@ interface Props {
   searchParams: Promise<{
     keyword?: string; type?: string; area?: string; sort?: string; page?: string;
     rating_min?: string; price_min?: string; price_max?: string; features?: string;
+    symptom?: string; insurance?: string;
     lat?: string; lng?: string; available_date?: string; available_time?: string;
   }>;
 }
@@ -66,6 +68,10 @@ export default async function SearchPage(props: Props) {
     price_min: searchParams.price_min ? parseInt(searchParams.price_min) : undefined,
     price_max: searchParams.price_max ? parseInt(searchParams.price_max) : undefined,
     features: searchParams.features?.split(',').filter(Boolean),
+    // 症状・保険適用（以前は読まれず無視されていた）。検索側は対応済みだが、施設が値を保存できる
+    // 管理画面が無いため絞り込みパネルには出していない（src/__tests__/search-filter-write-paths.test.ts）。
+    symptom: searchParams.symptom,
+    insurance: searchParams.insurance === '1',
     lat: searchParams.lat ? parseFloat(searchParams.lat) : undefined,
     lng: searchParams.lng ? parseFloat(searchParams.lng) : undefined,
     available_date: searchParams.available_date,
@@ -77,6 +83,31 @@ export default async function SearchPage(props: Props) {
   // existing search error boundary, without exposing database response details.
   if (error) throw new Error('SEARCH_RESULTS_UNAVAILABLE');
   const totalPages = Math.ceil(total / perPage);
+
+  // Build base URL for pagination
+  const baseParams = new URLSearchParams();
+  if (searchParams.keyword) baseParams.set('keyword', searchParams.keyword);
+  if (searchParams.type) baseParams.set('type', searchParams.type);
+  if (searchParams.area) baseParams.set('area', searchParams.area);
+  if (searchParams.sort) baseParams.set('sort', searchParams.sort);
+  if (searchParams.rating_min) baseParams.set('rating_min', searchParams.rating_min);
+  if (searchParams.price_min) baseParams.set('price_min', searchParams.price_min);
+  if (searchParams.price_max) baseParams.set('price_max', searchParams.price_max);
+  if (searchParams.features) baseParams.set('features', searchParams.features);
+  if (searchParams.symptom) baseParams.set('symptom', searchParams.symptom);
+  if (searchParams.insurance === '1') baseParams.set('insurance', '1');
+  if (searchParams.available_date) baseParams.set('available_date', searchParams.available_date);
+  if (searchParams.available_time) baseParams.set('available_time', searchParams.available_time);
+  // 現在地検索の 2 ページ目以降も同じ位置で探す（以前は落としていて、2 ページ目が全国の結果になった）。
+  if (searchParams.lat && searchParams.lng) {
+    baseParams.set('lat', searchParams.lat);
+    baseParams.set('lng', searchParams.lng);
+  }
+  const baseUrl = `/search?${baseParams.toString()}`;
+
+  // 結果より後ろのページ（古いリンク・絞り込みで件数が減った後など）は 1 ページ目へ戻す。
+  // 空のページやエラー画面を見せない。baseUrl は page を持たないので戻った先で再び飛ばない。
+  if (params.page > 1 && params.page > totalPages) redirect(baseUrl);
 
   // 広告枠: 1ページ目のみ上位表示施設を取得
   const featuredFacilities = (params.page || 1) === 1
@@ -97,19 +128,6 @@ export default async function SearchPage(props: Props) {
       : Promise.resolve(null),
   ]);
 
-  // Build base URL for pagination
-  const baseParams = new URLSearchParams();
-  if (searchParams.keyword) baseParams.set('keyword', searchParams.keyword);
-  if (searchParams.type) baseParams.set('type', searchParams.type);
-  if (searchParams.area) baseParams.set('area', searchParams.area);
-  if (searchParams.sort) baseParams.set('sort', searchParams.sort);
-  if (searchParams.rating_min) baseParams.set('rating_min', searchParams.rating_min);
-  if (searchParams.price_min) baseParams.set('price_min', searchParams.price_min);
-  if (searchParams.price_max) baseParams.set('price_max', searchParams.price_max);
-  if (searchParams.features) baseParams.set('features', searchParams.features);
-  if (searchParams.available_date) baseParams.set('available_date', searchParams.available_date);
-  if (searchParams.available_time) baseParams.set('available_time', searchParams.available_time);
-  const baseUrl = `/search?${baseParams.toString()}`;
 
   // Breadcrumb
   const breadcrumbs: { label: string; href?: string }[] = [{ label: 'トップ', href: '/' }];
@@ -127,7 +145,10 @@ export default async function SearchPage(props: Props) {
   };
 
   // Active filter count
-  const filterCount = [searchParams.rating_min, searchParams.price_min, searchParams.price_max, searchParams.features].filter(Boolean).length;
+  const filterCount = [
+    searchParams.rating_min, searchParams.price_min, searchParams.price_max, searchParams.features,
+    searchParams.symptom, searchParams.insurance === '1',
+  ].filter(Boolean).length;
 
   return (
     <div className="bg-gray-50 min-h-screen">
@@ -295,6 +316,8 @@ function SortLink({ current, value, label, searchParams }: {
   if (searchParams.price_min) params.set('price_min', searchParams.price_min);
   if (searchParams.price_max) params.set('price_max', searchParams.price_max);
   if (searchParams.features) params.set('features', searchParams.features);
+  if (searchParams.symptom) params.set('symptom', searchParams.symptom);
+  if (searchParams.insurance === '1') params.set('insurance', '1');
   if (searchParams.available_date) params.set('available_date', searchParams.available_date);
   if (searchParams.available_time) params.set('available_time', searchParams.available_time);
   params.set('sort', value);

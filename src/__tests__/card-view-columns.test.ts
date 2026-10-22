@@ -14,7 +14,7 @@
  * schema-snapshot.json と突き合わせるしか事前に検出する方法が無い。
  *
  * 【検査の射程】facilities.ts が view に対して使う
- *   ・select する列（CARD_COLS ＋ GPS 検索時の追加列）
+ *   ・select する列（CARD_COLS ＋ GPS 検索時の追加列 ＋ 空き判定の BOOKING_READINESS_COLS）
  *   ・キーワード検索の `.ilike` 対象列
  *   ・searchFacilities 内の並び替え列
  * を対象にする。`.eq()/.gte()` 等は同ファイルが他テーブルにも投げており、
@@ -43,6 +43,13 @@ function geoExtraCols(): string[] {
   return m[1].split(',').map((c) => c.trim()).filter(Boolean);
 }
 
+/** 空き判定（getAvailableFacilityIds）が view から読む列。 */
+function readinessCols(): string[] {
+  const m = /export const BOOKING_READINESS_COLS\s*=\s*'([^']+)'/.exec(SRC);
+  if (!m) throw new Error('BOOKING_READINESS_COLS を抽出できなかった（定義の書き方が変わった可能性）');
+  return m[1].split(',').map((c) => c.trim()).filter(Boolean);
+}
+
 /** キーワード検索の `.or()` が ilike する列。 */
 function ilikeCols(): string[] {
   return [...SRC.matchAll(/(\w+)\.ilike\./g)].map((m) => m[1]);
@@ -65,6 +72,7 @@ describe('facility_card_view の列参照', () => {
   it('抽出そのものが機能している（空振り防止）', () => {
     expect(cardCols().length).toBeGreaterThanOrEqual(20);
     expect(geoExtraCols()).toEqual(['latitude', 'longitude']);
+    expect(readinessCols()).toContain('business_hours');
     // 事故の当事者である nearest_station を含む 6 列
     expect(ilikeCols().length).toBeGreaterThanOrEqual(6);
     expect(ilikeCols()).toContain('nearest_station');
@@ -72,7 +80,7 @@ describe('facility_card_view の列参照', () => {
   });
 
   it('select する列がすべて view に実在する', () => {
-    const missing = [...cardCols(), ...geoExtraCols()].filter((c) => !VIEW_COLUMNS.includes(c));
+    const missing = [...cardCols(), ...geoExtraCols(), ...readinessCols()].filter((c) => !VIEW_COLUMNS.includes(c));
     expect(missing).toEqual([]);
   });
 

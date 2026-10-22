@@ -7,6 +7,7 @@ import Link from '@/components/BrowseLink';
 import Image from 'next/image';
 import { regionGroups, facilityFeatures } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
+import { featureSearchHref } from '@/lib/search-href';
 import dynamic from 'next/dynamic';
 
 const HomeUserPanel = dynamic(() => import('@/components/search/HomeUserPanel'), { ssr: false });
@@ -173,7 +174,7 @@ export default function HomeBelowFold() {
                   {facilityFeatures.map((feature) => (
                     <Link
                       key={feature}
-                      href={`/search?keyword=${encodeURIComponent(feature)}`}
+                      href={featureSearchHref(feature)}
                       className="px-3.5 py-1.5 bg-white border border-gray-200 rounded-full text-xs text-gray-600 hover:bg-sky-50 hover:border-sky-200 hover:text-sky-700 transition-colors"
                     >
                       {feature}

@@ -186,6 +186,10 @@ export interface SearchParams {
   price_min?: number;
   price_max?: number;
   features?: string[];
+  /** 対応症状の名前（symptoms.name）。facility_symptoms で対応を登録した施設に絞る。 */
+  symptom?: string;
+  /** true なら保険適用（insurance_covered）の公開メニューを持つ施設に絞る。 */
+  insurance?: boolean;
   sort?: 'rating' | 'newest' | 'popular';
   page?: number;
   lat?: number;
