@@ -125,6 +125,25 @@ describe('ポイント利用', () => {
     expect(sent.points_used).toBe(2000);
     expect(await screen.findByRole('status')).toHaveTextContent('¥8,000');
   });
+
+  // 回帰（旧コードは明細 1,500・ポイント 2,000 でも合計 0 円で確定でき、差額の 500pt が黙って消えた）
+  test('明細の合計がポイント利用額を下回ると警告し、確定ボタンを止める', async () => {
+    setBooking({ total_price: 6000, points_used: 2000, status: 'confirmed' });
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: '会計する' }));
+    const amount = screen.getByRole('spinbutton', { name: '金額' });
+    expect(screen.queryByTestId('checkout-points-exceed')).not.toBeInTheDocument();
+    fireEvent.change(amount, { target: { value: '1500' } });
+    expect(screen.getByTestId('checkout-points-exceed')).toHaveTextContent('明細の合計（¥1,500）が、お客様が予約時に使ったポイント（¥2,000）を下回っています');
+    const confirm = screen.getByRole('button', { name: '会計を確定して完了' });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(confirm);
+    expect(fetchMock).not.toHaveBeenCalled();
+    // ちょうどポイント分なら 0 円で確定できる
+    fireEvent.change(amount, { target: { value: '2000' } });
+    expect(screen.queryByTestId('checkout-points-exceed')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '会計を確定して完了' })).toBeEnabled();
+  });
 });
 
 test('checkout accepts a business-confirmed legitimate zero, not just HTTP 200', async () => {

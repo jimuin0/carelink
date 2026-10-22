@@ -6,6 +6,8 @@
 --     (bookings.points_base_price = menus + nomination fee - coupon, before points);
 --   * bookings without that amount (legacy rows) keep the completed total;
 --   * the shop's own owner / admin booking their own shop earn nothing;
+--   * a menu without a price (要相談 / unset) stores 0 as the booking amount and so
+--     earns nothing, whatever the checkout total (deliberate: no cap would be uncapped);
 --   * a completed -> no_show reversal returns exactly what was awarded;
 --   * the completion replay check and the ledger audit agree with the new rule.
 \set ON_ERROR_STOP on
@@ -44,6 +46,8 @@ INSERT INTO public.facility_members(user_id, facility_id, role) VALUES
  ('fd100000-0000-4000-8000-000000000003', 'fd110000-0000-4000-8000-000000000001', 'admin');
 INSERT INTO public.facility_menus(id, facility_id, category, name, price, duration_minutes, is_published) VALUES
  ('fd120000-0000-4000-8000-000000000001', 'fd110000-0000-4000-8000-000000000001', 'synthetic', 'Menu', 5000, 30, true);
+INSERT INTO public.facility_menus(id, facility_id, category, name, price, price_ask, duration_minutes, is_published) VALUES
+ ('fd120000-0000-4000-8000-000000000002', 'fd110000-0000-4000-8000-000000000001', 'synthetic', 'Price on request', NULL, true, 30, true);
 INSERT INTO public.staff_profiles(id, facility_id, name, slug, is_active, sort_order) VALUES
  ('fd130000-0000-4000-8000-000000000001', 'fd110000-0000-4000-8000-000000000001', 'Staff', 'points-cap-staff', true, 1);
 INSERT INTO public.user_points(user_id, points, reason) VALUES ('fd100000-0000-4000-8000-000000000002', 3000, 'Synthetic seed');
@@ -74,7 +78,7 @@ DECLARE
   admin_id constant uuid := 'fd100000-0000-4000-8000-000000000003';
   facility constant uuid := 'fd110000-0000-4000-8000-000000000001';
   inflated uuid; reduced uuid; plain uuid; legacy uuid := 'fd140000-0000-4000-8000-000000000001';
-  own_booking uuid; admin_booking uuid; guest uuid;
+  own_booking uuid; admin_booking uuid; guest uuid; unpriced uuid;
   earned int; again boolean;
 BEGIN
   -- 1. The booking stores the amount before points (5,000 = 4,000 paid + 1,000 points).
@@ -129,11 +133,25 @@ BEGIN
   guest := pg_temp.book(NULL, '12:00', 5000, 0);
   PERFORM pg_temp.assert_cap((SELECT points_base_price IS NULL FROM public.bookings WHERE id = guest), 'guest booking stores no amount');
 
-  -- 9. The ledger audit agrees with the new rule (no capped, legacy or self-booking row is reported).
+  -- 9. A menu without a price: /api/booking sums a NULL price as 0, so the booking amount is 0
+  --    and a 10,000 checkout earns nothing (the cap is the booking amount, not "no cap").
+  unpriced := public.create_booking_for_menus_atomic(facility, 'fd130000-0000-4000-8000-000000000001',
+    customer, 'fd120000-0000-4000-8000-000000000002', NULL, '2030-01-07', '12:30', '13:00',
+    'Synthetic', NULL, NULL, NULL, 0, 0, 'confirmed', false, ARRAY['fd120000-0000-4000-8000-000000000002'::uuid]);
+  PERFORM pg_temp.assert_cap((SELECT points_base_price = 0 FROM public.bookings WHERE id = unpriced), 'unpriced menu stores a zero booking amount');
+  PERFORM pg_temp.checkout(unpriced, '[{"type":"menu","name":"Synthetic","amount":10000}]');
+  PERFORM pg_temp.assert_cap((SELECT total_price = 10000 AND status = 'completed' FROM public.bookings WHERE id = unpriced)
+    AND NOT EXISTS (SELECT 1 FROM public.user_points WHERE booking_id = unpriced)
+    AND EXISTS (SELECT 1 FROM public.customer_visits WHERE booking_id = unpriced AND amount = 10000),
+    'unpriced menu earns no visit points whatever the checkout total');
+  SELECT c.points_earned, c.replayed INTO earned, again FROM public.complete_booking_with_points_atomic(owner_id, unpriced, 'confirmed') c;
+  PERFORM pg_temp.assert_cap(earned = 0 AND again = true, 'unpriced menu replays with zero points');
+
+  -- 10. The ledger audit agrees with the new rule (no capped, legacy, self-booking or unpriced row is reported).
   PERFORM pg_temp.assert_cap(NOT EXISTS (SELECT 1 FROM public.booking_point_legacy_issues() i
     JOIN public.bookings b ON b.id = i.booking_id WHERE b.facility_id = facility), 'audit reports nothing for the new rule');
 
-  -- 10. completed -> no_show returns exactly what was awarded (-50, not -2,000,000).
+  -- 11. completed -> no_show returns exactly what was awarded (-50, not -2,000,000).
   PERFORM public.save_booking_email_event_atomic(owner_id, inflated, 'completed',
     (SELECT updated_at FROM public.bookings WHERE id = inflated), 'no_show', NULL);
   PERFORM pg_temp.assert_cap((SELECT points = -50 FROM public.user_points WHERE booking_id = inflated AND booking_operation = 'reversal'),
@@ -150,7 +168,7 @@ BEGIN
 END $$;
 RESET ROLE;
 
--- 11. Ledger privacy under RLS: the owner of the shop the customer booked cannot read the ledger.
+-- 12. Ledger privacy under RLS: the owner of the shop the customer booked cannot read the ledger.
 CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$
   SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid
 $$;
@@ -165,5 +183,5 @@ SELECT set_config('request.jwt.claim.sub', 'fd100000-0000-4000-8000-000000000002
 SET LOCAL ROLE authenticated;
 SELECT pg_temp.assert_cap((SELECT sum(points) = 108 FROM public.user_points), 'the customer reads exactly their own ledger');
 RESET ROLE;
-SELECT 'points ledger privacy, visit points cap, legacy, self-booking, reversal and audit checks passed';
+SELECT 'points ledger privacy, visit points cap, legacy, self-booking, unpriced menu, reversal and audit checks passed';
 ROLLBACK;

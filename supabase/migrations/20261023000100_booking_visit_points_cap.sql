@@ -41,6 +41,14 @@
 --
 -- ⚠️ この migration の範囲外: 上限は「予約時の金額」なので、店舗がメニューの価格そのものを高く
 -- 設定すれば、その金額の 1% までは付与される（メニュー価格は店舗ページに公開される表示価格）。
+--
+-- ⚠️ 価格の無いメニューには来店ポイントが付かない（意図した結果）: /api/booking はメニュー価格（price）が
+-- NULL のもの（要相談・価格未設定・保険診療で price が空のメニューなど）を 0 円として合計するので、
+-- その予約の points_base_price は 0（指名料があれば指名料だけ）になり、会計でいくら払っても来店ポイントは
+-- 0 になる。この変更より前は会計額の 1% が付いていた。「〜」付き（price_show_tilde）のメニューは表示価格
+-- （下限）が上限になる。上限を外す（NULL にして会計額で計算する）と、店舗が会計額を打てば上限なしで
+-- 発行できる元の穴に戻るため、そうはしていない。価格の無いメニューにも付けるなら、固定の上限額を設けるなど
+-- 別の製品判断が要る。fixture（booking-points-cap-fixtures.sql のケース 9）と /admin/manual に明記してある。
 
 DO $guard$ BEGIN IF to_regclass('public.facility_profiles') IS NULL THEN RAISE EXCEPTION 'not the CareLink database'; END IF; END $guard$;
 

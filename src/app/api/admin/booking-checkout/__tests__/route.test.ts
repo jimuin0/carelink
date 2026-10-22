@@ -284,9 +284,35 @@ describe('ポイント利用の明細行', () => {
     expect(rpcCharges()).toContainEqual(pointsLine);
   });
 
-  test('ポイントで全額払った予約は 0 円（負にしない）', async () => {
+  test('明細の合計とポイント利用額が同じなら 0 円で確定できる', async () => {
     setupSuccess('confirmed', undefined, { points_used: 2000 });
-    const res = await POST(makeRequest(validBody({ items: [{ type: 'menu', name: 'カット', amount: 1500 }], points_used: 2000 })));
+    const res = await POST(makeRequest(validBody({ items: [{ type: 'menu', name: 'カット', amount: 2000 }], points_used: 2000, complete: true })));
+    expect(res.status).toBe(200);
+    expect((await res.json()).total_price).toBe(0);
+    expect(rpcCharges()).toEqual([{ type: 'menu', name: 'カット', amount: 2000 }, pointsLine]);
+  });
+
+  // 回帰（旧コードでは 1,500 円の会計が 0 円で確定し、差額の 500pt がお客様に戻らないまま消えた）
+  test.each([
+    ['メニューがポイントより安い', [{ type: 'menu', name: 'カット', amount: 1500 }], '¥1,500'],
+    ['割引でポイントを下回る', [{ type: 'menu', name: 'カット', amount: 3000 }, { type: 'discount', name: '割引', amount: -1500 }], '¥1,500'],
+    ['割引だけで合計が負', [{ type: 'menu', name: 'カット', amount: 1000 }, { type: 'discount', name: '割引', amount: -3000 }], '¥0'],
+  ])('%s → 400・保存も完了もしない（差額のポイントを黙って失わせない）', async (_label, items, shownTotal) => {
+    setupSuccess('confirmed', undefined, { points_used: 2000 });
+    const res = await POST(makeRequest(validBody({ items, points_used: 2000, complete: true })));
+    expect(res.status).toBe(400);
+    const { error } = await res.json();
+    expect(error).toContain('¥2,000');
+    expect(error).toContain(shownTotal);
+    expect(error).toContain('差額のポイントがお客様に戻らない');
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(mockApply).not.toHaveBeenCalled();
+  });
+
+  test('ポイントの無い予約は従来どおり割引で負になっても 0 円で確定できる', async () => {
+    setupSuccess('confirmed');
+    const res = await POST(makeRequest(validBody({ items: [{ type: 'menu', name: 'カット', amount: 1000 }, { type: 'discount', name: '割引', amount: -3000 }] })));
+    expect(res.status).toBe(200);
     expect((await res.json()).total_price).toBe(0);
   });
 

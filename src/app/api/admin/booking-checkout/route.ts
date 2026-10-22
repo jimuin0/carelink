@@ -13,7 +13,8 @@
  * 「ポイント利用」の行として出し、保存時はサーバーが明細の最後に付け足す（2026年10月23日）。
  * 以前は初期明細が「ポイント利用後の金額」1 行だけで、当日メニューを打ち直すとポイント分の値引きが
  * 消えた（お客様は全額払ったうえにポイントも戻らない）。画面が知っているポイント（points_used）と
- * 予約のポイントが食い違う古い画面からの会計は 409 で止める。
+ * 予約のポイントが食い違う古い画面からの会計は 409 で止める。明細の合計がポイント利用額を下回る会計は
+ * 400 で止める（合計は 0 円に丸まるが、差額のポイントはお客様に戻らないため）。
  */
 import { NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
@@ -129,12 +130,21 @@ export async function POST(request: Request) {
     if (bookingPoints > 0 && charges.length >= MAX_ITEMS) {
       return NextResponse.json({ error: '会計明細が多すぎます（ポイント利用の行を含めて50件までです）' }, { status: 400 });
     }
+    // 明細の合計がお客様の使ったポイントを下回る会計は確定しない。合計は 0 円に丸まるが、ポイントは
+    // キャンセル時にしか戻らないので、差額のポイントが黙って失われる（例: 8,000pt で予約→当日 5,000 円の
+    // メニューで会計すると 3,000pt が消える）。差額だけを戻す仕組みは無いので、店舗に明細を見直してもらう。
+    const chargesTotal = charges.reduce((sum, c) => sum + c.amount, 0);
+    if (bookingPoints > 0 && chargesTotal < bookingPoints) {
+      return NextResponse.json({
+        error: `お客様が予約時に使ったポイント（¥${bookingPoints.toLocaleString()}）が明細の合計（¥${Math.max(0, chargesTotal).toLocaleString()}）を上回っています。このまま確定すると差額のポイントがお客様に戻らないため、確定できません。明細を確認してください。`,
+      }, { status: 400 });
+    }
     const savedCharges: Charge[] = bookingPoints > 0
       ? [...charges, { type: 'discount', name: POINTS_LINE_NAME, amount: -bookingPoints }]
       : charges;
 
-    // 合計 = Σ amount（割引・ポイント利用は負）。負にはしない。
-    const total = Math.max(0, savedCharges.reduce((sum, c) => sum + c.amount, 0));
+    // 合計 = Σ amount（割引・ポイント利用は負）。負にはしない（ポイントのある予約は上で 0 以上が保証済み）。
+    const total = Math.max(0, chargesTotal - bookingPoints);
     const nextStatus = wantComplete ? 'completed' : booking.status;
 
     const { data: updated, error: updateError } = await supabase.rpc('checkout_booking_with_points_atomic', {

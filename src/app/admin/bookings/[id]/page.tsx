@@ -174,10 +174,11 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
   const removeItem = (i: number) =>
     setCheckoutItems((prev) => prev.filter((_, idx) => idx !== i));
 
-  const checkoutTotal = Math.max(
-    0,
-    checkoutItems.reduce((s, c) => s + (Number.isFinite(c.amount) ? c.amount : 0), 0) - pointsUsed,
-  );
+  const checkoutSubtotal = checkoutItems.reduce((s, c) => s + (Number.isFinite(c.amount) ? c.amount : 0), 0);
+  // 明細の合計がポイント利用額を下回ると、差額のポイントがお客様に戻らないまま消える。
+  // サーバーも 400 で止めるが、確定前に気づけるよう画面でも警告して確定ボタンを止める。
+  const pointsExceedCharges = pointsUsed > 0 && checkoutSubtotal < pointsUsed;
+  const checkoutTotal = Math.max(0, checkoutSubtotal - pointsUsed);
   const paidNum = paid.trim() === '' || !Number.isFinite(Number(paid)) ? null : Math.floor(Number(paid));
   const change = paidNum !== null ? paidNum - checkoutTotal : null;
 
@@ -187,6 +188,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
       setToast({ type: 'error', message: '明細を1件以上入力してください' });
       return;
     }
+    if (pointsExceedCharges) return;
     setUpdating(true);
     try {
       const res = await fetch('/api/admin/booking-checkout', {
@@ -360,6 +362,11 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
                   <span className="font-bold text-emerald-900">合計</span>
                   <span className="font-bold text-lg text-emerald-700">¥{checkoutTotal.toLocaleString()}</span>
                 </div>
+                {pointsExceedCharges && (
+                  <p role="alert" data-testid="checkout-points-exceed" className="text-xs font-medium text-red-700">
+                    明細の合計（¥{Math.max(0, checkoutSubtotal).toLocaleString()}）が、お客様が予約時に使ったポイント（¥{pointsUsed.toLocaleString()}）を下回っています。差額のポイントはお客様に戻らないため、このままでは確定できません。明細を確認してください。
+                  </p>
+                )}
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">お預かり</span>
                   <input
@@ -383,7 +390,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
                 <button
                   type="button"
                   onClick={handleCheckout}
-                  disabled={updating}
+                  disabled={updating || pointsExceedCharges}
                   className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
                 >
                   {updating ? '処理中...' : '会計を確定して完了'}

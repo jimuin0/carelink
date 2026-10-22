@@ -11,11 +11,16 @@
  *   - 予約者がその店舗の owner / admin なら 0、
  * とした。式は booking_visit_points_due() の 1 か所にあり、トリガ・完了 RPC の再実行チェック・台帳監査が使う。
  *
- * この環境から SQL は実行できないため、実 DB での挙動（上限・既存予約・本人予約・取消・監査・権限）は
- * supabase/shadow/booking-points-cap-fixtures.sql が CI の使い捨て PG17 で確かめる。ここでは
+ * 価格の無いメニュー（要相談など）は予約時の金額が 0 円になるので来店ポイントは付かない（上限を外すと元の穴に
+ * 戻るため、意図してそうしている）。migration の冒頭・fixture・/admin/manual に明記する。
+ *
+ * jest から SQL は実行できないため、実 DB での挙動（上限・既存予約・本人予約・価格の無いメニュー・取消・監査・
+ * 権限）は supabase/shadow/booking-points-cap-fixtures.sql が CI の使い捨て PG17 で確かめる。ここでは
  *   - migration が「最新定義の写し＋意図した変更だけ」であること（コピーの取りこぼしで他の挙動を壊さない）
  *   - 権限・接続先ガード・データを書き換えないこと
  *   - shadow fixture が CI に配線されていること
+ *   - 期待フィンガープリントが migration に追従していること（追従していないと CI の
+ *     schema-fingerprint job が --check で落ち、以降の fixture が 1 本も走らない）
  * を固定する。
  */
 import { readFileSync, readdirSync } from 'node:fs';
@@ -152,7 +157,27 @@ test('実 DB での検証（上限・既存予約・本人予約・取消・監�
     'capped checkout replays without a reconciliation error', 'legacy row earns on the completed total, never above it',
     'owner self-booking earns nothing', 'admin self-booking earns nothing', 'reversal returns the capped award',
     'audit reports nothing for the new rule', "the shop owner cannot read the customer''s ledger",
-    'user_points keeps only the own-read policy']) {
+    'user_points keeps only the own-read policy', 'unpriced menu stores a zero booking amount',
+    'unpriced menu earns no visit points whatever the checkout total']) {
     expect(fixture).toContain(label);
   }
+});
+
+test('価格の無いメニューに来店ポイントが付かないことを、migration と /admin/manual に明記している', () => {
+  expect(sql).toContain('価格の無いメニューには来店ポイントが付かない（意図した結果）');
+  const manual = readFileSync(join(ROOT, 'src/app/admin/manual/page.tsx'), 'utf8');
+  expect(manual).toContain('価格を設定していないメニュー（要相談など）の予約と、施設のオーナー・管理者ご本人の予約には来店ポイントは付きません');
+  expect(manual).toContain('予約時の金額（メニュー料金＋指名料−クーポン、ポイント利用前）が上限');
+  // お客様のポイントは本人しか読めない（20261023000000）。店舗が残高を見られるとは書かない。
+  expect(manual).not.toContain('ポイント残高も確認できます');
+});
+
+test('期待フィンガープリントが 2 本の migration に追従している', () => {
+  const expected: string[] = JSON.parse(readFileSync(join(ROOT, 'src/lib/schema-fingerprint.expected.json'), 'utf8'));
+  expect(expected).toContain('column|bookings.points_base_price|integer|notnull=f|default=|generated=');
+  expect(expected).toContain('constraint|bookings|c|bookings_points_base_price_check|CHECK ((points_base_price >= 0))');
+  expect(expected).toContain('functiongrant|public.booking_visit_points_due(uuid,uuid,integer,integer)|service_role|EXECUTE');
+  expect(expected.filter((l) => l.startsWith('functiongrant|public.booking_visit_points_due('))).toHaveLength(1);
+  expect(expected.some((l) => l.startsWith('function|booking_visit_points_due(p_user_id uuid, p_facility_id uuid, p_total_price integer, p_points_base_price integer)|returns=integer|volatile=s|secdef=f|'))).toBe(true);
+  expect(expected.filter((l) => l.startsWith('policy|user_points|')).map((l) => l.split('|')[2])).toEqual(['user_points_own_read']);
 });
