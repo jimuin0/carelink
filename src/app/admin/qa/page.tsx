@@ -10,6 +10,7 @@ import { SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import FacilitySelector from '@/components/admin/FacilitySelector';
 import AdminFacilityScope, { type AdminFacilityScopeValue } from '@/components/admin/AdminFacilityScope';
+import { FACILITY_QA_ANSWER_MAX_LENGTH } from '@/lib/facility-qa-limits';
 
 interface QAItem {
   id: string;
@@ -194,10 +195,10 @@ function QAManager({ facilityId, choices }: AdminFacilityScopeValue) {
                 onChange={(e) => setAnswerText(e.target.value)}
                 className="form-input"
                 rows={5}
-                maxLength={2000}
+                maxLength={FACILITY_QA_ANSWER_MAX_LENGTH}
                 placeholder="お客様への回答を入力してください"
               />
-              <p className="text-xs text-gray-400 mt-1 text-right">{answerText.length}/2000</p>
+              <p className="text-xs text-gray-500 mt-1 text-right">{answerText.length}/{FACILITY_QA_ANSWER_MAX_LENGTH}</p>
             </div>
         </Modal>
       )}

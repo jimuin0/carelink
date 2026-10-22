@@ -6,10 +6,11 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { FACILITY_QA_ANSWER_MAX_LENGTH } from '@/lib/facility-qa-limits';
 
 const answerSchema = z.object({
   qa_id: z.string().uuid(),
-  answer: z.string().min(1).max(2000),
+  answer: z.string().min(1).max(FACILITY_QA_ANSWER_MAX_LENGTH),
 });
 
 const publicToggleSchema = z.object({

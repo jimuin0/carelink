@@ -789,7 +789,7 @@ vercel env add NEXT_PUBLIC_CLARITY_ID
 |-------------|------|--------|
 | `review_helpful` | 口コミ「役に立った」（review_id + user_id UNIQUE） | 検索 |
 | `feature_articles` | 特集記事（タイトル/画像/リンク/sort_order） | 検索・管理 |
-| `facility_qa` | 施設Q&A（質問/回答/ステータス/公開フラグ） | 検索・管理 |
+| `facility_qa` | 施設Q&A（質問/回答/ステータス/公開フラグ）。質問の保存は `/api/facility/qa`（service_role・回答待ち固定）、回答・公開切替・削除は `/api/admin/qa` の RPC のみ。ブラウザは読み取りだけ（2026-10-22） | 検索・管理 |
 | `chat_rooms` | チャットルーム（facility_id + user_id UNIQUE） | マイページ・管理 |
 | `chat_messages` | チャットメッセージ（Supabase Realtime） | マイページ・管理 |
 | `user_preferred_staff` | 指名スタッフ（user_id + staff_id） | マイページ |
@@ -841,7 +841,7 @@ vercel env add NEXT_PUBLIC_CLARITY_ID
 | テーブル/変更 | 用途 | サイト |
 |-------------|------|--------|
 | `cron_logs` | Cronジョブ実行ログ（job_name/status/duration_ms/error_message、v8.32） | 管理 |
-| `audit_logs` | 監査ログ（actor_id/action/table_name/record_id/old_data/new_data、90日TTL自動削除、v8.33） | 管理 |
+| `audit_logs` | 監査ログ（actor_id/action/table_name/record_id/old_data/new_data、v8.33）。90日より前を消す `cleanup_old_audit_logs()` は定義だけで、定期実行する仕組みが無い（自動削除は動いていない）。読み書きとも service_role のみ（来院者の IP・UA を店舗に見せないため、2026-10-22 にブラウザの権限とポリシーを撤回） | 管理 |
 | `booking_waitlist` | キャンセル待ち（facility_id/staff_id/menu_id/desired_date/notify_before_hours、v8.34） | 検索・管理 |
 | `intake_form_templates` | 施術前デジタル問診票（template_name/fields JSONB/is_active、v8.36） | 管理 |
 | `intake_submissions` | 問診票回答（booking_id/template_id/responses JSONB、v8.36） | 管理 |
@@ -870,9 +870,9 @@ vercel env add NEXT_PUBLIC_CLARITY_ID
 | テーブル | 用途 | サイト |
 |---------|------|--------|
 | `subscription_plans` | サブスク料金プラン（plan_name/price/interval/features JSONB） | 管理 |
-| `user_subscriptions` | ユーザーサブスク購読状態（user_id/facility_id/plan_id/status/stripe_sub_id） | マイページ・管理 |
+| `user_subscriptions` | ユーザーサブスク購読状態（user_id/facility_id/plan_id/status/stripe_sub_id）。付与はその店舗の予約者だけ（`grant_user_subscription_atomic`・service_role 専用）、ブラウザは読み取りだけ | マイページ・管理 |
 | `service_packages` | サービスパッケージ（名前/回数/有効期限/price） | 管理 |
-| `user_packages` | ユーザーパッケージ購入（user_id/package_id/remaining_count） | マイページ・管理 |
+| `user_packages` | ユーザーパッケージ購入（user_id/package_id/remaining_count）。付与はその店舗の予約者だけ（`grant_user_package_atomic`・service_role 専用）、ブラウザは読み取りだけ | マイページ・管理 |
 | `group_bookings` | グループ予約（organizer_id/facility_id/max_participants/join_code） | 検索・管理 |
 | `group_booking_participants` | グループ予約参加者（group_booking_id/user_id） | 検索 |
 | `telehealth_sessions` | 遠隔診療セッション（booking_id/provider/room_url/status） | マイページ・管理 |
@@ -1412,7 +1412,7 @@ carelink-uploads/salons/{uuid}/photo.{ext}
   ├─ カタログ管理: ヘアカタログ追加/編集
   ├─ 口コミ管理: 公開/非公開切替・サロン返信（公開前に確認・投稿後の編集/削除）
   ├─ 写真管理: アップロード・メイン設定
-  ├─ Q&A管理: 質問回答・公開/非公開
+  ├─ Q&A管理: 質問回答・公開/非公開（複数店舗は店舗を選択。新着質問は owner/admin へメール通知）
   ├─ 特集管理: 特集記事CRUD
   ├─ チャット: ユーザーとのリアルタイムメッセージ
   ├─ 分析: 売上レポート + スタッフ別売上
@@ -1556,7 +1556,7 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | `/admin/settings` | `admin/settings/page.tsx` | Dynamic | 施設設定（基本情報・営業時間・特徴） |
 | `/admin/bookings/calendar` | `admin/bookings/calendar/page.tsx` | Dynamic | 予約台帳ガントチャート（スタッフ×時間軸） |
 | `/admin/chat` | `admin/chat/page.tsx` | Dynamic | チャット管理（Supabase Realtime） |
-| `/admin/qa` | `admin/qa/page.tsx` | Dynamic | Q&A管理（質問回答・公開/非公開） |
+| `/admin/qa` | `admin/qa/page.tsx` | Dynamic | Q&A管理（質問回答・公開/非公開。`?facility_id=` で店舗を選択・複数店舗は選択が必須） |
 | `/admin/features` | `admin/features/page.tsx` | Dynamic | 特集記事CRUD管理 |
 | `/admin/inquiries` | `admin/inquiries/page.tsx` | Dynamic | 施設宛お問い合わせ一覧 |
 | `/admin/registrations` | `admin/registrations/page.tsx` | Dynamic | 施設掲載申請一覧 |
@@ -1719,7 +1719,7 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | Topタブ | - | 紹介文・おすすめメニュー3件・特徴タグ・基本情報 |
 | メニュータブ | `MenuList` | カテゴリ別メニュー一覧（価格・時間） |
 | 口コミタブ | `ReviewTab` | 評価サマリー+棒グラフ+口コミ一覧(写真・返信・「役に立った」・来店確認バッジ)+投稿フォーム(写真添付可) |
-| Q&Aタブ | `QASection` | 質問一覧+投稿フォーム（サロン回答付き） |
+| Q&Aタブ | `QASection` | 質問一覧+投稿フォーム（サロン回答付き）。質問は `/api/facility/qa` に送り、店舗へメールで通知される |
 | アクセスタブ | `AccessInfo` | 住所・営業時間・特徴・Google Map |
 | お問い合わせ | `InquiryForm` | 名前・メール・電話・メッセージ |
 | 固定バー | `StickyBookingBar` | 電話ボタン + **今すぐ予約する**ボタン(→/booking) + 問合せボタン(→#contact-section) |
@@ -1803,7 +1803,7 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 
 ## 10. API Route
 
-### 10.0 全APIルート一覧（88エンドポイント）
+### 10.0 全APIルート一覧（89エンドポイント）
 
 **v8.41〜v8.43 で新規追加（v8.13以降）**:
 - `GET/POST /api/admin/backup` — DBバックアップ確認・CSVエクスポート（重要テーブル行数チェック、v8.39）
@@ -1888,8 +1888,8 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | 57 | `/api/admin/review-summary` | GET | 必須 | 5回/60秒 | AIレビュー分析サマリー（Anthropic、Claude Haiku） |
 | 58 | `/api/admin/subscription-plans` | GET/POST | 必須 | 5回/60秒 | サブスクプラン管理 |
 | 59 | `/api/admin/subscription-plans/[id]` | GET/PUT/DELETE | 必須 | 5回/60秒 | プラン詳細 |
-| 60 | `/api/admin/user-packages` | GET/POST | 必須 | 10回/60秒 | ユーザーパッケージ購入管理 |
-| 61 | `/api/admin/user-subscriptions` | GET/POST | 必須 | 10回/60秒 | ユーザーサブスク管理 |
+| 60 | `/api/admin/user-packages` | GET/POST | 必須 | 10回/60秒 | ユーザーパッケージ購入管理（付与はその店舗の予約者だけ・一覧の表示名/メールも予約者の分だけ） |
+| 61 | `/api/admin/user-subscriptions` | GET/POST | 必須 | 10回/60秒 | ユーザーサブスク管理（付与はその店舗の予約者だけ・一覧の表示名/メールも予約者の分だけ） |
 | 62 | `/api/booking/[id]/cancel-fee` | GET | 必須 | 10回/60秒 | キャンセル料金計算（facility_cancel_policies適用） |
 | 63 | `/api/booking/[id]/ical` | GET | 必須 | 10回/60秒 | 予約iCal形式エクスポート（.icsダウンロード） |
 | 64 | `/api/chat` | POST | 任意 | 5回/60秒 | AIチャットボット（Anthropic Claude Haiku、ユーザーサポート自動化） |
@@ -1917,8 +1917,9 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | 86 | `/api/waitlist` | GET/POST | 任意 | 10回/60秒 | キャンセル待ちリスト登録/確認（booking_waitlist） |
 | 87 | `/api/admin/review-replies` | POST | 必須 | 30回/60秒（返信の公開・編集・削除で共通） | 口コミへの返信を公開（`?facility_id=`・owner/admin のみ・1口コミ1件・1〜500文字。RPC `create_review_reply_atomic` が権限と口コミの所属を書き込みと同時に確認・監査ログ） |
 | 88 | `/api/admin/review-replies/[id]` | PATCH/DELETE | 必須 | 30回/60秒（同上） | 返信の編集（本文のみ）・削除（`update/delete_review_reply_atomic`・他店の返信は404・監査ログに変更前の本文） |
+| 89 | `/api/facility/qa` | POST | 必須 | 5回/60秒（IP）＋10回/時（アカウント） | 施設Q&Aへの質問（公開中の施設のみ・1〜500文字・回答待ちで保存し、応答後に owner/admin へメール通知） |
 
-> **補足**: 上記88エンドポイント中、`/api/og` はroute.tsx（`@vercel/og`使用）。CronエンドポイントはCRON_SECRET Bearer認証必須。`/api/v1/*`はAPIキー（Bearerヘッダー）認証。
+> **補足**: 上記89エンドポイント中、`/api/og` はroute.tsx（`@vercel/og`使用）。CronエンドポイントはCRON_SECRET Bearer認証必須。`/api/v1/*`はAPIキー（Bearerヘッダー）認証。
 
 ### 10.1 POST /api/notify
 
