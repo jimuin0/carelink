@@ -382,6 +382,9 @@ jobs:
       - name: Favorite toggle serialization, publication and account deletion fences (disposable DB)
         run: python3 scripts/check-favorite-toggle-concurrency.py
 
+      - name: Favorites of draft or suspended facilities can still be removed, never added (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/favorite-removal-unpublished-fixtures.sql
+
       - name: Menu atomic deletion, ordering rollback and complete snapshot (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/menu-atomic-fixtures.sql
 
