@@ -447,6 +447,13 @@ function BoardBookingModal({
           operationRef.current = null;
           setUncertain(false);
           onRefresh();
+        } else if (res.status === 409 && data?.code === 'BOOKING_NO_WORKING_STAFF') {
+          // 指名なしで、この時間に勤務しているスタッフがいない。保存はされていない（重複でもない）ので、
+          // ボードは更新せず、入力を残したまま担当を選び直せるようにする。
+          setError('この時間に勤務予定のスタッフがいないため、指名なしでは登録できません。担当を選ぶか、スタッフの勤務時間を登録してください。');
+          sessionStorage.removeItem(`carelink-manual-booking:${facilityId}`);
+          operationRef.current = null;
+          setUncertain(false);
         } else if (res.status === 409 && data?.code === 'MANUAL_OPERATION_RECOVERY') {
           // A late original request may have committed after the reload's
           // absent check. Switch to read-only recovery, never another create.

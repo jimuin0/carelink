@@ -164,6 +164,8 @@ test('a staff member without a schedule gets this shop\'s confirmed hours as an 
   await screen.findByText('この勤務時間で保存する');
   expect(screen.getByText(/店舗の営業時間をもとにした下書きで、まだ保存されていません/)).toBeTruthy();
   expect(screen.getByText('このスタッフは勤務時間が未登録のため、まだネット予約を受けられません。')).toBeTruthy();
+  // サロンボードの「指名なし」の電話予約も勤務時間のある人にしか割り当てない（20261023130100）
+  expect(screen.getByText('サロンボードの「指名なし」の予約も、勤務時間を保存したスタッフにだけ割り当てられます。')).toBeTruthy();
   expect(['日','月','火','水','木','金','土'].map(day => dayBox(day).checked)).toEqual([false, false, true, true, true, true, true]);
   expect(screen.getAllByDisplayValue('09:30')).toHaveLength(1);
   expect(screen.queryByDisplayValue('19:00')).toBeNull(); // 毎日 09:00〜19:00 を持ち込まない

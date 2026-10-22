@@ -155,6 +155,9 @@ jobs:
       - name: Manual reservation observed concurrency and role revocation (disposable DB)
         run: node scripts/check-manual-booking-concurrency.mjs
 
+      - name: Manual 指名なし reservation without working staff is refused accurately, named and online paths unchanged (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/manual-unassigned-no-working-staff-fixtures.sql
+
       - name: Booking completion versus visit history atomicity and authorization (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-visit-fixtures.sql
 
@@ -171,6 +174,9 @@ jobs:
 
       - name: Points ledger owner privacy, visit points cap, legacy, self-booking and reversal (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-points-cap-fixtures.sql
+
+      - name: Withdrawn member's points booking - status changes and checkout succeed without ledger writes (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-points-withdrawn-member-fixtures.sql
 
       - name: Staff schedules transactional failure and immutable replay (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f scripts/check-staff-schedule-transactions.sql

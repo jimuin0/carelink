@@ -327,6 +327,7 @@ function StaffSchedulePageForm() {
         <div role="status" className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 space-y-1">
           {justAdded && <p>スタッフを追加しました。</p>}
           <p className="font-bold">このスタッフは勤務時間が未登録のため、まだネット予約を受けられません。</p>
+          <p>サロンボードの「指名なし」の予約も、勤務時間を保存したスタッフにだけ割り当てられます。</p>
           {draft === 'suggested' ? (
             <p>下の時間は店舗の営業時間をもとにした下書きで、まだ保存されていません。実際の勤務日・時間に合わせて直してから「この勤務時間で保存する」を押してください。</p>
           ) : (

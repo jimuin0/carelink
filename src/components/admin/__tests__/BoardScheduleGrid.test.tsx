@@ -11,7 +11,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import BoardScheduleGrid, { type BoardRow, type BoardMenu } from '@/components/admin/BoardScheduleGrid';
 
-jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh: jest.fn() }) }));
+const mockRefresh = jest.fn();
+jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mockRefresh }) }));
 
 const rows: BoardRow[] = [{ key: 's1', name: '佐藤', position: null, nominationFee: 0, chips: [] }];
 const menuShort: BoardMenu[] = [{ id: 'm1', name: 'カット', price: 5000, duration_minutes: 30 }];
@@ -325,6 +326,52 @@ test('操作IDのsetItem失敗は送信前に止まり、入力を結果不明�
   await user.click(screen.getByRole('button',{ name:'予約を確定' }));
   await screen.findByText(/安全に保存できないため送信しません/);
   expect(fetchMock).not.toHaveBeenCalled(); expect(screen.getByLabelText(/お客様名/)).not.toBeDisabled();
+});
+
+// 「指名なし」の電話予約で、その時間に勤務しているスタッフがいない（20261023130100）。以前は重複扱いで
+// 「既に予約が入っています。ボードを更新したので…」と出て、空のボードを更新し、どの時間でも同じだった。
+const unassignedRows: BoardRow[] = [
+  { key: '__unassigned__', name: '指名なし', position: null, nominationFee: 0, chips: [] },
+  { key: 's1', name: '佐藤', position: null, nominationFee: 0, chips: [] },
+];
+test('勤務中のスタッフがいない指名なしは理由を案内し、ボードを更新せず、担当を選んで送り直せる', async () => {
+  const user = userEvent.setup();
+  mockRefresh.mockClear();
+  const fetchMock = jest.fn()
+    .mockResolvedValueOnce({ ok: false, status: 409, json: async () => ({ code: 'BOOKING_NO_WORKING_STAFF', error: 'server text' }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, id: '77777777-7777-4777-8777-777777777777' }) });
+  global.fetch = fetchMock as unknown as typeof fetch;
+  setupRows(unassignedRows);
+  fireEvent.click(screen.getAllByRole('button', { name: /新規予約を追加/ })[0], { clientX: 0 });
+  await screen.findByText('新規予約（指名なし）');
+  await user.type(screen.getByLabelText(/お客様名/), '合成テスト');
+  await user.click(screen.getByRole('checkbox'));
+  await user.click(screen.getByRole('button', { name: '予約を確定' }));
+  expect(await screen.findByText('この時間に勤務予定のスタッフがいないため、指名なしでは登録できません。担当を選ぶか、スタッフの勤務時間を登録してください。')).toBeInTheDocument();
+  expect(screen.queryByText(/既に予約が入っています/)).toBeNull();
+  expect(mockRefresh).not.toHaveBeenCalled();
+  // 保存されていないので、入力を残したまま編集できる（結果不明として凍結しない）
+  expect(screen.getByLabelText(/お客様名/)).not.toBeDisabled();
+  expect(screen.queryByRole('button', { name: '同じ操作で再確認' })).toBeNull();
+  expect(sessionStorage.getItem('carelink-manual-booking:f1')).toBeNull();
+  await user.selectOptions(screen.getByLabelText('担当'), 's1');
+  await user.click(screen.getByRole('button', { name: '予約を確定' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body).staff_id).toBeNull();
+  expect(JSON.parse((fetchMock.mock.calls[1][1] as { body: string }).body)).toEqual(expect.objectContaining({ staff_id: 's1', customer_name: '合成テスト' }));
+});
+
+test('重複（BOOKING_CONFLICT）は従来どおりボードを更新して別の時間帯を案内する', async () => {
+  const user = userEvent.setup();
+  mockRefresh.mockClear();
+  global.fetch = jest.fn().mockResolvedValueOnce({ ok: false, status: 409, json: async () => ({ code: 'BOOKING_CONFLICT' }) }) as unknown as typeof fetch;
+  setupRows(unassignedRows);
+  fireEvent.click(screen.getAllByRole('button', { name: /新規予約を追加/ })[0], { clientX: 0 });
+  await user.type(screen.getByLabelText(/お客様名/), '合成テスト');
+  await user.click(screen.getByRole('checkbox'));
+  await user.click(screen.getByRole('button', { name: '予約を確定' }));
+  expect(await screen.findByText('この時間帯は既に予約が入っています。ボードを更新したので別の時間帯を選んでください。')).toBeInTheDocument();
+  expect(mockRefresh).toHaveBeenCalledTimes(1);
 });
 
 // おまかせ予約は割り当てた担当者の行に出る。指名と見分けられるよう「指名なし」を添える（回帰防止）。

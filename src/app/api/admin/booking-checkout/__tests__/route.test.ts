@@ -252,6 +252,19 @@ test.each([['BOOKING_PERMISSION_DENIED',404],['BOOKING_REVISION_CONFLICT',409],[
  expect((await POST(makeRequest(validBody({complete:true})))).status).toBe(status);
  expect(mockApply).not.toHaveBeenCalled();
 });
+// ポイントの台帳と照合できない予約（2026年10月23日）。退会した会員のポイント利用予約は DB のトリガが
+// POINTS_AUTH_REQUIRED で取り消していた（20261023130000 で解消）。残る照合エラーも 500 ではなく 409 と理由で返す。
+test.each([[false,'POINTS_AUTH_REQUIRED'],[true,'POINTS_AUTH_REQUIRED'],[true,'POINTS_LEGACY_RECONCILIATION_REQUIRED']])('会計（完了=%s）で %s → 409・理由つき・完了の副作用なし', async (complete, code) => {
+  setupSuccess('confirmed', { data: null, error: { code: 'P0001', message: code } }, { points_used: 300 });
+  const res = await POST(makeRequest(validBody({ complete, points_used: 300 })));
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({
+    error: 'お客様のポイントの記録と照合できないため、会計を保存できませんでした。お手数ですが運営までお問い合わせください。',
+    code: 'BOOKING_POINTS_RECONCILIATION_REQUIRED',
+  });
+  expect(mockApply).not.toHaveBeenCalled();
+  expect(jest.requireMock('@/lib/audit-logger').writeAuditLog).not.toHaveBeenCalled();
+});
 test.each([null,[],[{id:'wrong',total_price:3300}],[{id:validBookingId,total_price:999}]])('会計結果未確認 %j は成功にしない',async(data)=>{
  setupSuccess('confirmed',{data,error:null}); expect((await POST(makeRequest(validBody()))).status).toBe(500);
 });
