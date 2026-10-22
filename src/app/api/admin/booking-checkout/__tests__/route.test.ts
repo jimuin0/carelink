@@ -39,7 +39,7 @@ const userId = 'user-admin-1';
 
 const bookingBase = {
   id: validBookingId, facility_id: facilityId, user_id: 'customer-1',
-  customer_name: 'テスト', email: 'c@example.com', booking_date: '2026-05-01',
+  customer_name: 'テスト', email: 'c@example.com', booking_date: '2026-05-01', start_time: '10:00:00',
   menu_id: null, staff_id: null,
 };
 
@@ -247,7 +247,7 @@ test('予期せぬ例外 → 500（catch）', async () => {
 });
 
 
-test.each([['BOOKING_PERMISSION_DENIED',404],['BOOKING_REVISION_CONFLICT',409],['SYNTHETIC_POINT_FAILURE',500]])('原子会計 %s は副作用なし',async(message,status)=>{
+test.each([['BOOKING_PERMISSION_DENIED',404],['BOOKING_REVISION_CONFLICT',409],['BOOKING_NOT_STARTED',400],['SYNTHETIC_POINT_FAILURE',500]])('原子会計 %s は副作用なし',async(message,status)=>{
  setupSuccess('confirmed',{data:null,error:{message}});
  expect((await POST(makeRequest(validBody({complete:true})))).status).toBe(status);
  expect(mockApply).not.toHaveBeenCalled();
@@ -356,4 +356,46 @@ test('旧DBで原子会計RPCが未適用でも直接UPDATE/ポイント副作�
  expect(mockFrom).not.toHaveBeenCalledWith('user_points');expect(mockFrom).not.toHaveBeenCalledWith('customer_visits');
  expect(mockApply).not.toHaveBeenCalled();
  expect(jest.requireMock('@/lib/audit-logger').writeAuditLog).not.toHaveBeenCalled();
+});
+
+// ─── 開始時刻前の会計確定（2026年10月23日） ─────────────────────
+describe('会計を確定して完了にするのは予約の開始時刻（JST）を過ぎてから', () => {
+  const NOW = Date.UTC(2026, 9, 23, 1, 0, 0); // 2026-10-23 10:00 JST
+  beforeEach(() => { jest.spyOn(Date, 'now').mockReturnValue(NOW); });
+  afterEach(() => { jest.restoreAllMocks(); });
+  function setupFuture(fromStatus: string) {
+    setupSuccess(fromStatus);
+    const success = mockFrom.getMockImplementation()!;
+    let first = true;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings' && first) {
+        first = false;
+        return fluentBooking({ ...bookingBase, status: fromStatus, booking_date: '2026-10-23', start_time: '10:30:00' });
+      }
+      return success(table);
+    });
+  }
+
+  test.each(['confirmed', 'arrived'])('開始前の %s 予約で complete=true → 400・RPC も副作用も無し', async (status) => {
+    setupFuture(status);
+    const res = await POST(makeRequest(validBody({ complete: true })));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: '予約の開始時刻より前は、会計を確定して完了にできません。開始時刻を過ぎてから操作してください。', code: 'BOOKING_NOT_STARTED' });
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(mockApply).not.toHaveBeenCalled();
+  });
+
+  test('開始前でも明細の保存だけ（complete=false）は従来どおり 200', async () => {
+    setupFuture('confirmed');
+    const res = await POST(makeRequest(validBody()));
+    expect(res.status).toBe(200);
+    expect(mockRpc).toHaveBeenCalledWith('checkout_booking_with_points_atomic', expect.objectContaining({ p_complete: false }));
+  });
+
+  test('予約の開始時刻を select する（判定に使う列を取りこぼさない）', async () => {
+    setupFuture('confirmed');
+    await POST(makeRequest(validBody({ complete: true })));
+    const bookingSelect = mockFrom.mock.results[0].value.select as jest.Mock;
+    expect(bookingSelect.mock.calls[0][0]).toContain('start_time');
+  });
 });

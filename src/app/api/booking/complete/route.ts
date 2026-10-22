@@ -9,8 +9,11 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { withRoute, serverError, authUnavailable } from '@/lib/with-route';
 import { applyCompletionSideEffects } from '@/lib/booking-completion';
+import { isBeforeBookingStart } from '@/lib/cancel-fee';
 
 export const dynamic = 'force-dynamic';
+
+const COMPLETE_BEFORE_START_MESSAGE = '予約の開始時刻より前は来店完了にできません。開始時刻を過ぎてから操作してください。';
 
 export const POST = withRoute(async (request) => {
     const ip = getClientIp(request);
@@ -71,11 +74,18 @@ export const POST = withRoute(async (request) => {
       return NextResponse.json({ error: 'この予約は来店完了にできません（確定済みの予約のみ対応）' }, { status: 400 });
     }
 
+    // 来店完了は予約の開始時刻（JST）を過ぎてから。保存済みの完了の再確認（completed）はそのまま通す。
+    // DB（complete_booking_with_points_atomic）も同じ規則で BOOKING_NOT_STARTED を返す。
+    if (booking.status === 'confirmed' && isBeforeBookingStart(booking.booking_date, booking.start_time, Date.now())) {
+      return NextResponse.json({ error: COMPLETE_BEFORE_START_MESSAGE, code: 'BOOKING_NOT_STARTED' }, { status: 400 });
+    }
+
     const { data: completed, error: updateError } = await supabase.rpc('complete_booking_with_points_atomic', {
       p_actor_id: user.id, p_booking_id: bookingId, p_expected_status: 'confirmed',
     });
     if (updateError?.message.includes('BOOKING_PERMISSION_DENIED')) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
     if (updateError?.message.includes('BOOKING_REVISION_CONFLICT')) return NextResponse.json({ error: 'この予約は来店完了にできません（既に処理済みの可能性があります）' }, { status: 409 });
+    if (updateError?.message.includes('BOOKING_NOT_STARTED')) return NextResponse.json({ error: COMPLETE_BEFORE_START_MESSAGE, code: 'BOOKING_NOT_STARTED' }, { status: 400 });
     if (updateError) return serverError('booking-complete-update', updateError, '/api/booking/complete', 'ステータスの更新に失敗しました');
     if (!completed || completed.length !== 1 || completed[0].id !== bookingId || !Number.isInteger(completed[0].points_earned) || completed[0].points_earned < 0 || typeof completed[0].replayed !== 'boolean') {
       return serverError('booking-complete-result', new Error('completion transaction not confirmed'), '/api/booking/complete');

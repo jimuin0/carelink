@@ -4,7 +4,8 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { getBearerToken, resolveLiffUserId } from '@/lib/liff-auth';
-import { computeCancelFee, hoursUntilBookingStart } from '@/lib/cancel-fee';
+import { hoursUntilBookingStart, ONLINE_CANCEL_DISABLED_MESSAGE } from '@/lib/cancel-fee';
+import { cancelFeeContextSchema, cancelFeeFromContext } from '@/lib/cancel-fee-receipt';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { serverError, authUnavailable } from '@/lib/with-route';
@@ -15,18 +16,8 @@ import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { canCustomerCancelBooking } from '@/lib/booking-status';
 
-import { z } from 'zod';
-import { isValidIsoDate } from '@/lib/date-utils';
 
 export const dynamic = 'force-dynamic';
-
-const feeContextSchema = z.object({
-  policy: z.object({ free_cancel_hours: z.number().finite().nullable(), late_cancel_rate: z.number().finite().nullable() }).nullable(),
-  totalPrice: z.number().finite().nullable(),
-  bookingDate: z.string().refine(isValidIsoDate),
-  startTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/),
-  capturedAt: z.string().datetime({ offset: true }),
-});
 
 export async function POST(_request: Request, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -113,11 +104,13 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   if (error?.message.includes('BOOKING_PERMISSION_DENIED')) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
   if (error?.message.includes('BOOKING_REVISION_CONFLICT')) return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
   if (error?.message.includes('BOOKING_ALREADY_STARTED')) return NextResponse.json({ error: '予約開始時刻を過ぎているため、オンラインでのキャンセルはできません。施設へ直接ご連絡ください。' }, { status: 400 });
+  // 店舗が「ネットでのキャンセル不可（店舗へ直接ご連絡）」を選んでいる（RPC がポリシー行を見て拒否する）。
+  if (error?.message.includes('BOOKING_ONLINE_CANCEL_DISABLED')) return NextResponse.json({ error: ONLINE_CANCEL_DISABLED_MESSAGE, code: 'ONLINE_CANCEL_DISABLED' }, { status: 400 });
   if (error) return serverError('booking-cancel-update', databaseDiagnostic(error), '/api/booking/[id]/cancel', 'キャンセルに失敗しました');
   if (!cancelled || cancelled.length !== 1) return NextResponse.json({ error: 'キャンセル結果を確認できません。ページを更新してください。' }, { status: 409 });
   if (cancelled[0].id !== params.id) return serverError('booking-cancel-result', new Error('cancel transaction target not confirmed'), '/api/booking/[id]/cancel');
 
-  const feeContext = feeContextSchema.safeParse(cancelled[0].fee_context);
+  const feeContext = cancelFeeContextSchema.safeParse(cancelled[0].fee_context);
   if (!feeContext.success) return serverError('booking-cancel-receipt', new Error('cancel fee context not confirmed'), '/api/booking/[id]/cancel');
 
   // 監査ログ（非ブロッキング）
@@ -132,9 +125,9 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
     ipAddress: getClientIp(_request),
   });
 
-  // The receipt includes fee inputs captured by the committed transaction.
-  const cancelFee = computeCancelFee(feeContext.data.policy, feeContext.data.totalPrice,
-    hoursUntilBookingStart(feeContext.data.bookingDate, feeContext.data.startTime, Date.parse(feeContext.data.capturedAt))).fee;
+  // The receipt includes fee inputs captured by the committed transaction
+  // (the same inputs as the customer/owner emails and the admin booking detail).
+  const cancelFee = cancelFeeFromContext(feeContext.data).fee;
 
   return NextResponse.json({ success: true, cancelFee });
   } catch (e) {

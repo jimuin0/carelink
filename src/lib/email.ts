@@ -11,6 +11,7 @@ import crypto from 'crypto';
 import { sendInquiryReplyEnvelope, verifyInquiryReplyAcceptance, type InquiryReplyEnvelope } from './inquiry-reply-delivery';
 import { REMINDER_EMAIL_TIMING_NOTE } from './reminder-schedule';
 import { adminFacilityHref } from './admin-facility-url';
+import { formatJstDateTime, isCustomerEmailRecipient } from './cancel-fee-receipt';
 
 let _resend: Resend | null = null;
 function getResend(): Resend | null {
@@ -80,6 +81,10 @@ export interface BookingEmailData {
   pointsUsed?: number;
   // キャンセル料（無料期限超過時のみ正の値・客への通知用。実徴収は店舗と客で直接）。
   cancelFee?: number;
+  /** キャンセル料の料率（施術料金の%）。店舗向けのキャンセル通知だけが使う。 */
+  cancelFeeRate?: number;
+  /** お客様のキャンセルを受け付けた時刻（ISO）。店舗が無料期限の内か外かを確かめられるように載せる。 */
+  cancelledAt?: string;
 }
 
 function formatDate(dateStr: string): string {
@@ -677,6 +682,26 @@ export async function sendBookingCancellationToFacility(data: BookingEmailData &
 export function buildBookingCancellationToFacilityEnvelope(data: BookingEmailData & { facilityEmail: string }) {
   const name = esc(data.customerName);
   const email = esc(data.customerEmail);
+  const rowStyle = 'padding:8px 12px;border:1px solid #e2e8f0;';
+  const headStyle = `${rowStyle}background:#f8fafc;font-weight:600;`;
+  const fee = data.cancelFee && data.cancelFee > 0 ? data.cancelFee : 0;
+  // お客様向けのキャンセル通知（buildBookingCancelledEnvelope）は、キャンセル料が発生することと、お支払い方法は
+  // 施設から直接案内することを伝えている。以前は店舗にその事実も金額も届かず、お客様は案内を待ったままになっていた
+  // （同じ snapshot から算出した同じ金額を載せる）。
+  const rateText = data.cancelFeeRate && data.cancelFeeRate > 0 ? `（施術料金の${data.cancelFeeRate}%）` : '';
+  const receiptRows = [
+    data.cancelledAt ? `<tr><td style="${headStyle}">キャンセル受付</td><td style="${rowStyle}">${formatJstDateTime(data.cancelledAt)}</td></tr>` : '',
+    fee > 0 ? `<tr><td style="${headStyle}">キャンセル料</td><td style="${rowStyle}">&yen;${fee.toLocaleString()}${rateText}</td></tr>` : '',
+  ].join('');
+  const feeAmount = `<strong>&yen;${fee.toLocaleString()}</strong>`;
+  // メールアドレスの無いお客様には、お客様宛のキャンセル通知そのものが積まれない（店舗宛だけが届く）。
+  // その場合に「お知らせしています」と書くと、店舗は連絡を待ち、お客様は料金を知らないままになる。
+  const feeMessage = isCustomerEmailRecipient(data.customerEmail)
+    ? `キャンセルポリシーにより、お客様へキャンセル料 ${feeAmount} の発生と、お支払い方法は施設から直接ご案内することをメールでお知らせしています。お支払い方法をお客様へ直接ご連絡ください。`
+    : `お客様のメールアドレスの登録が無いため、キャンセル料はお客様へメールでお知らせしていません。キャンセル料 ${feeAmount} とお支払い方法を、お客様へ直接ご案内ください。`;
+  const feeNotice = fee > 0
+    ? `<div style="margin:16px 0;padding:12px 16px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:14px;">${feeMessage}</div>`
+    : '';
   return {
     from: FROM,
     to: data.facilityEmail,
@@ -686,7 +711,9 @@ export function buildBookingCancellationToFacilityEnvelope(data: BookingEmailDat
       <table style="width:100%;border-collapse:collapse;margin:16px 0;">
         <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;width:120px;">お客様名</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${name}</td></tr>
         <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">メール</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${email}</td></tr>
+        ${receiptRows}
       </table>
+      ${feeNotice}
       ${bookingDetailHtml(data)}
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/bookings" style="${EMAIL_BUTTON_STYLE}">管理画面で確認する</a></p>
     `),

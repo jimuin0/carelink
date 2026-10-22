@@ -46,7 +46,7 @@ function mockSupabase() {
     const obj: Record<string, unknown> = {
       select: () => obj,
       eq: () => obj,
-      single: () => Promise.resolve({ data, error: null }),
+      single: () => Promise.resolve({ data, error: null }), maybeSingle: () => Promise.resolve({ data, error: null }),
     };
     return obj;
   };
@@ -103,7 +103,7 @@ test('completed予約（キャンセル不可）→ オンライン事前決済�
     staff_profiles: null,
   };
   const chain = (data: unknown): Record<string, unknown> => {
-    const obj: Record<string, unknown> = { select: () => obj, eq: () => obj, single: () => Promise.resolve({ data, error: null }) };
+    const obj: Record<string, unknown> = { select: () => obj, eq: () => obj, single: () => Promise.resolve({ data, error: null }), maybeSingle: () => Promise.resolve({ data, error: null }) };
     return obj;
   };
   (createBrowserSupabaseClient as jest.Mock).mockReturnValue({
@@ -153,7 +153,7 @@ function mockBooking(booking: Record<string, unknown>) {
     staff_profiles: null,
   };
   const chain = (data: unknown): Record<string, unknown> => {
-    const obj: Record<string, unknown> = { select: () => obj, eq: () => obj, single: () => Promise.resolve({ data, error: null }) };
+    const obj: Record<string, unknown> = { select: () => obj, eq: () => obj, single: () => Promise.resolve({ data, error: null }), maybeSingle: () => Promise.resolve({ data, error: null }) };
     return obj;
   };
   (createBrowserSupabaseClient as jest.Mock).mockReturnValue({
@@ -198,7 +198,7 @@ function mockBookingWithStaff(booking: Record<string, unknown>) {
     staff_profiles: { name: '担当A' },
   };
   const chain = (data: unknown): Record<string, unknown> => {
-    const obj: Record<string, unknown> = { select: () => obj, eq: () => obj, single: () => Promise.resolve({ data, error: null }) };
+    const obj: Record<string, unknown> = { select: () => obj, eq: () => obj, single: () => Promise.resolve({ data, error: null }), maybeSingle: () => Promise.resolve({ data, error: null }) };
     return obj;
   };
   (createBrowserSupabaseClient as jest.Mock).mockReturnValue({
@@ -225,4 +225,49 @@ test('指名した予約の再予約 → 同じスタッフを引き継ぐ（従
   fireEvent.click(await screen.findByRole('button', { name: 'この店舗をもう一度予約する' }));
   expect(mockPush).toHaveBeenCalledWith('/facility/test-salon/booking?menu_id=m1&staff_id=s1');
   expect(screen.getByText('担当A')).toBeInTheDocument();
+});
+
+// 店舗が「ネットでのキャンセル不可（店舗へ直接ご連絡）」を選んでいる予約では、押しても API が必ず断る
+// キャンセルボタンの代わりに、店舗への連絡を案内する（2026年10月23日）。
+const ONLINE_CANCEL_DISABLED = 'この店舗ではネットからのキャンセルをお受けしていません。キャンセルをご希望の場合は、店舗へ直接ご連絡ください。';
+function mockBookingWithPolicy(policy: unknown, policyError: unknown = null) {
+  const dataFor: Record<string, unknown> = {
+    bookings: { ...BOOKING, booking_date: '2099-06-20' },
+    facility_profiles: { slug: 'test-salon', name: 'テスト施設' },
+  };
+  const chain = (table: string): Record<string, unknown> => {
+    const data = table === 'facility_cancel_policies' ? policy : dataFor[table] ?? null;
+    const error = table === 'facility_cancel_policies' ? policyError : null;
+    const obj: Record<string, unknown> = {
+      select: () => obj, eq: () => obj,
+      single: () => Promise.resolve({ data, error }), maybeSingle: () => Promise.resolve({ data, error }),
+    };
+    return obj;
+  };
+  (createBrowserSupabaseClient as jest.Mock).mockReturnValue({
+    auth: { getUser: () => Promise.resolve({ data: { user: { id: 'u1' } } }) },
+    from: (t: string) => chain(t),
+  });
+}
+
+test('ネットでのキャンセル不可の店舗 → キャンセルボタンを出さず、店舗への連絡を案内する', async () => {
+  mockBookingWithPolicy({ free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'no_online' });
+  mockGcalFetch(true, { connected: false });
+  renderPage();
+  expect(await screen.findByText(ONLINE_CANCEL_DISABLED)).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'この予約をキャンセル' })).not.toBeInTheDocument();
+  // 日時の変更はキャンセルではないので、これまでどおり出す。
+  expect(screen.getByRole('button', { name: '日時を変更する' })).toBeInTheDocument();
+});
+
+test.each([
+  ['ポリシー未設定', null, null],
+  ['期限なし（常にキャンセル料）', { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'always_fee' }, null],
+  ['ポリシーを読めなかった（最終判定は API）', null, { message: 'synthetic' }],
+])('%s → キャンセルボタンを表示', async (_label, policy, policyError) => {
+  mockBookingWithPolicy(policy, policyError);
+  mockGcalFetch(true, { connected: false });
+  renderPage();
+  expect(await screen.findByRole('button', { name: 'この予約をキャンセル' })).toBeInTheDocument();
+  expect(screen.queryByText(ONLINE_CANCEL_DISABLED)).not.toBeInTheDocument();
 });

@@ -14,7 +14,7 @@
  * ./src/lib/** を追加済み）がここを走査して purge から守るため。
  */
 
-import { hasBookingStarted } from './cancel-fee';
+import { hasBookingStarted, isBeforeBookingStart } from './cancel-fee';
 
 export type BookingStatus =
   | 'pending'
@@ -186,6 +186,28 @@ export const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> 
 /** 現在のステータスから手動で遷移可能なステータス一覧（未知値は空配列）。 */
 export function getAllowedStatusTransitions(status: string): BookingStatus[] {
   return ALLOWED_STATUS_TRANSITIONS[status as BookingStatus] ?? [];
+}
+
+/**
+ * 来店の結果を記録するステータス（完了・無断キャンセル）。予約の開始時刻（JST）を過ぎるまで設定できない
+ * （/api/admin/booking-status・会計・/api/booking/complete と DB の BOOKING_NOT_STARTED が同じ規則で拒否する）。
+ * 以前は翌週の予約でも1タップで「完了」にでき、来店ポイントの付与・お客様への完了メール・来店前の
+ * 口コミ依頼まで進み、誤りを直す手段はお客様に無断キャンセルを通知する遷移しか無かった。
+ */
+export const VISIT_OUTCOME_STATUSES: BookingStatus[] = ['completed', 'no_show'];
+
+/** 来店の結果を記録するステータスか（開始時刻を過ぎるまで設定できない）。 */
+export function isVisitOutcomeStatus(status: string): boolean {
+  return VISIT_OUTCOME_STATUSES.includes(status as BookingStatus);
+}
+
+/**
+ * 管理画面に出してよい遷移先。遷移表（ALLOWED_STATUS_TRANSITIONS）のうち、開始時刻前は来店の結果
+ * （完了・無断キャンセル）を除く。nowMs は呼び出し側が渡す（描画中に時刻を読まないため）。
+ */
+export function getAvailableStatusTransitions(status: string, bookingDate: string, startTime: string, nowMs: number): BookingStatus[] {
+  const beforeStart = isBeforeBookingStart(bookingDate, startTime, nowMs);
+  return getAllowedStatusTransitions(status).filter((next) => !(beforeStart && isVisitOutcomeStatus(next)));
 }
 
 /**

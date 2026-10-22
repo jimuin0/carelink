@@ -62,3 +62,41 @@ test('completed(施術済)の予約はキャンセルボタンを表示しない
   expect(await screen.findByText(/この予約はキャンセルできません/)).toBeInTheDocument();
   expect(screen.queryByText('この予約をキャンセルする')).not.toBeInTheDocument();
 });
+
+// 店舗が「ネットでのキャンセル不可（店舗へ直接ご連絡）」を選んでいる（/api/liff/bookings の online_cancel_allowed=false）。
+// 押しても API が必ず断るボタンを出さず、店舗への連絡を案内する（2026年10月23日）。
+test('ネットでのキャンセル不可の店舗 → キャンセルボタンの代わりに店舗への連絡を案内する', async () => {
+  mockFetch(true, {
+    booking: {
+      id: 'booking-1', booking_date: '2026-07-20', start_time: '10:00:00', menu_name: 'テスト施術',
+      status: 'confirmed', facility_profiles: { name: 'テスト施設' }, online_cancel_allowed: false,
+    },
+  });
+  render(<LiffCancelPage />);
+  expect(await screen.findByText('この店舗ではネットからのキャンセルをお受けしていません。キャンセルをご希望の場合は、店舗へ直接ご連絡ください。')).toBeInTheDocument();
+  expect(screen.queryByText('この予約をキャンセルする')).not.toBeInTheDocument();
+  expect(screen.getByText('戻る')).toBeInTheDocument();
+});
+
+test('ネットからキャンセルできる店舗（online_cancel_allowed=true）→ 従来どおりボタンを表示', async () => {
+  mockFetch(true, {
+    booking: {
+      id: 'booking-1', booking_date: '2026-07-20', start_time: '10:00:00', menu_name: 'テスト施術',
+      status: 'confirmed', facility_profiles: { name: 'テスト施設' }, online_cancel_allowed: true,
+    },
+  });
+  render(<LiffCancelPage />);
+  expect(await screen.findByText('この予約をキャンセルする')).toBeInTheDocument();
+});
+
+test('キャンセル済みの予約は、店舗の設定に関わらず「キャンセルできません」のまま', async () => {
+  mockFetch(true, {
+    booking: {
+      id: 'booking-1', booking_date: '2026-07-20', start_time: '10:00:00', menu_name: 'テスト施術',
+      status: 'cancelled', facility_profiles: { name: 'テスト施設' }, online_cancel_allowed: false,
+    },
+  });
+  render(<LiffCancelPage />);
+  expect(await screen.findByText(/この予約はキャンセルできません/)).toBeInTheDocument();
+  expect(screen.queryByText(/ネットからのキャンセルをお受けしていません/)).not.toBeInTheDocument();
+});

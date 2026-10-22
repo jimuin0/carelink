@@ -31,6 +31,52 @@ test.each(['customer','owner','rescheduled'])('captures %s content once, under w
   expect(chain.is).toHaveBeenCalledWith('delivery_started_at',null);
   expect(chain.is).toHaveBeenCalledWith('email_envelope',null);
 });
+// Regression (D4): the shop's cancellation email carried no fee although the customer
+// was told a fee applies and that the shop would explain how to pay.
+test('shop cancellation email shows the same fee, rate and cancellation time as the customer email',async()=>{
+  const owner=await prepareCustomerBookingTransitionEnvelope(db,{...job,target_id:'owner@example.invalid',payload:{...job.payload,role:'owner'}});
+  const customer=await prepareCustomerBookingTransitionEnvelope(db,job);
+  expect(customer.html).toContain('2,500');
+  expect(owner.html).toContain('&yen;2,500（施術料金の50%）');
+  expect(owner.html).toContain('お支払い方法をお客様へ直接ご連絡ください');
+  // capturedAt 2030-01-06T21:00Z = 2030-01-07 06:00 JST (6 hours before the 12:00 start).
+  expect(owner.html).toContain('2030年1月7日 06:00');
+});
+// Regression (D3/D13): the old 「キャンセル不可」 (free_cancel_hours=0) promised a fee on the booking
+// screen but every cancellation email said nothing about it.
+test.each([
+  [{free_cancel_hours:0,late_cancel_rate:50}, '2,500'],
+  [{free_cancel_hours:0,late_cancel_rate:50,cancel_rule:null}, '2,500'],
+  [{free_cancel_hours:24,late_cancel_rate:30,cancel_rule:'always_fee'}, '1,500'],
+])('a fee that always applies is emailed even long before the start %#',async(cancelPolicy,fee)=>{
+  const early={...snapshot,capturedAt:'2029-12-01T00:00:00+00:00',cancelPolicy};
+  for (const role of ['customer','owner']) {
+    const envelope=await prepareCustomerBookingTransitionEnvelope(db,{...job,target_id:role==='owner'?'owner@example.invalid':job.target_id,
+      payload:{...job.payload,role,snapshot:early}});
+    expect(envelope.html).toContain(fee);
+  }
+});
+// Regression (review): a customer without an email address gets no customer email at all
+// (publish_customer_booking_transition_email skips the recipient), yet the shop was told
+// the customer had been informed of the fee.
+test('shop email says the customer was not emailed when the snapshot has no customer address',async()=>{
+  const owner=await prepareCustomerBookingTransitionEnvelope(db,{...job,target_id:'owner@example.invalid',
+    payload:{...job.payload,role:'owner',snapshot:{...snapshot,customerEmail:''}}});
+  expect(owner.html).toContain('お客様のメールアドレスの登録が無いため、キャンセル料はお客様へメールでお知らせしていません。');
+  expect(owner.html).toContain('<strong>&yen;2,500</strong> とお支払い方法を、お客様へ直接ご案内ください。');
+  expect(owner.html).not.toContain('お知らせしています');
+});
+test('a free cancellation tells the shop the time but no fee',async()=>{
+  const envelope=await prepareCustomerBookingTransitionEnvelope(db,{...job,target_id:'owner@example.invalid',
+    payload:{...job.payload,role:'owner',snapshot:{...snapshot,capturedAt:'2029-12-01T00:00:00+00:00'}}});
+  expect(envelope.html).not.toContain('キャンセル料');
+  expect(envelope.html).toContain('2029年12月1日 09:00');
+});
+test('an unknown cancellation rule in a snapshot is rejected rather than guessed',async()=>{
+  await expect(prepareCustomerBookingTransitionEnvelope(db,{...job,payload:{...job.payload,
+    snapshot:{...snapshot,cancelPolicy:{free_cancel_hours:24,late_cancel_rate:50,cancel_rule:'never'}}}})).rejects.toThrow();
+  expect(from).not.toHaveBeenCalled();
+});
 const previous = { bookingDate:'2030-01-06', startTime:'10:00:00', endTime:'11:00:00' };
 // Regression: a customer change emailed only the customer; the shop kept waiting at the old time.
 test('shop change email shows the previous and the new date/time to the owner address',async()=>{

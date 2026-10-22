@@ -77,8 +77,9 @@ END $$;
 RESET ROLE;
 DROP TRIGGER synthetic_menu_save_failure ON public.bookings;
 SET LOCAL ROLE service_role;
+-- A past booking: completion and no_show are recorded only after the start (20261023020100).
 INSERT INTO public.bookings(id,facility_id,user_id,booking_date,start_time,end_time,customer_name,email,status,total_price,points_used)
- VALUES('fc130000-0000-4000-8000-000000000001','fc120000-0000-4000-8000-000000000001','fc110000-0000-4000-8000-000000000002','2030-01-07','10:00','11:00','Synthetic',NULL,'confirmed',700,300);
+ VALUES('fc130000-0000-4000-8000-000000000001','fc120000-0000-4000-8000-000000000001','fc110000-0000-4000-8000-000000000002','2020-01-06','10:00','11:00','Synthetic',NULL,'confirmed',700,300);
 SELECT pg_temp.assert_points((SELECT sum(points)=700 FROM public.user_points WHERE user_id='fc110000-0000-4000-8000-000000000002'),'booking and debit commit together');
 -- Old application performs its now-obsolete second write. Return a receipt,
 -- retain exact typed debit and balance, and never turn a failed debit into zero.
@@ -161,15 +162,20 @@ CREATE FUNCTION pg_temp.fail_points() RETURNS trigger LANGUAGE plpgsql AS $$ BEG
  IF NEW.booking_operation IN ('award','refund','reversal') THEN RAISE EXCEPTION 'SYNTHETIC_POINT_FAILURE'; END IF; RETURN NEW; END $$;
 CREATE TRIGGER synthetic_points_failure BEFORE INSERT ON public.user_points FOR EACH ROW EXECUTE FUNCTION pg_temp.fail_points();
 SET LOCAL ROLE service_role;
+-- The customer cancels before the start (the booking is still in the future).
+DO $$ BEGIN
+ BEGIN PERFORM public.cancel_booking_with_points_atomic('fc110000-0000-4000-8000-000000000002','fc130000-0000-4000-8000-000000000003','confirmed'); RAISE EXCEPTION 'failed refund accepted';
+ EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'SYNTHETIC_POINT_FAILURE' THEN RAISE; END IF; END;
+ PERFORM pg_temp.assert_points((SELECT status='confirmed' FROM public.bookings WHERE id='fc130000-0000-4000-8000-000000000003')
+  AND (SELECT sum(points)=800 FROM public.user_points WHERE user_id='fc110000-0000-4000-8000-000000000002'),'refund failure rolls back cancellation');
+END $$;
+-- The visit took place: completion is recorded only after the start (20261023020100).
+UPDATE public.bookings SET booking_date='2020-01-06' WHERE id='fc130000-0000-4000-8000-000000000003';
 DO $$ BEGIN
  BEGIN PERFORM public.complete_booking_with_points_atomic('fc110000-0000-4000-8000-000000000001','fc130000-0000-4000-8000-000000000003','confirmed'); RAISE EXCEPTION 'failed award accepted';
  EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'SYNTHETIC_POINT_FAILURE' THEN RAISE; END IF; END;
  PERFORM pg_temp.assert_points((SELECT status='confirmed' FROM public.bookings WHERE id='fc130000-0000-4000-8000-000000000003')
   AND NOT EXISTS(SELECT 1 FROM public.customer_visits WHERE booking_id='fc130000-0000-4000-8000-000000000003'),'award failure rolls back status/visit');
- BEGIN PERFORM public.cancel_booking_with_points_atomic('fc110000-0000-4000-8000-000000000002','fc130000-0000-4000-8000-000000000003','confirmed'); RAISE EXCEPTION 'failed refund accepted';
- EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'SYNTHETIC_POINT_FAILURE' THEN RAISE; END IF; END;
- PERFORM pg_temp.assert_points((SELECT status='confirmed' FROM public.bookings WHERE id='fc130000-0000-4000-8000-000000000003')
-  AND (SELECT sum(points)=800 FROM public.user_points WHERE user_id='fc110000-0000-4000-8000-000000000002'),'refund failure rolls back cancellation');
 END $$;
 RESET ROLE;
 DROP TRIGGER synthetic_points_failure ON public.user_points;
