@@ -72,6 +72,23 @@ describe('Clarity のマスク', () => {
   });
 });
 
+// 店舗向けページ（くすみ系）は来院者向けの濃いフッターではなく、同じテーマの簡素なフッターにする（2026年10月23日）。
+describe('店舗向けページのフッター', () => {
+  test.each(['/register', '/register/complete'])('%s は表記と問い合わせだけの簡素なフッター', (path) => {
+    const { footer } = renderAt(path);
+    expect(screen.queryByTestId('plain-footer')).toBeNull();
+    expect(footer.className).toContain('theme-ecru');
+    const hrefs = Array.from(footer.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+    expect(hrefs).toEqual(['/legal', '/terms', '/privacy', '/contact']);
+    expect(footer).toHaveTextContent('運営：神原良祐（HALグループ）');
+  });
+
+  test('来院者向けページは従来のフッター（負の対照）', () => {
+    renderAt('/contact');
+    expect(screen.getByTestId('plain-footer')).toBeInTheDocument();
+  });
+});
+
 describe('MobileBottomNav', () => {
   test('下部ナビは固定の高さで、同意バナーが避ける目印を持つ', () => {
     mockPathname = '/search';

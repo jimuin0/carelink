@@ -56,7 +56,7 @@ const NOT_FOUND_DIRS = walk('', (n) => n === 'page.tsx')
 describe('ソフト404の再発防止', () => {
   /**
    * 禁止するのは「404 しうるルートを覆う loading.tsx」だけ。
-   * 404 しないページ（/symptom-checker・/salon/demo など）のスケルトンは残してよい。
+   * 404 しないページ（/symptom-checker など）のスケルトンは残してよい。
    * 将来ルートが増えても、notFound() の有無から自動で判定される。
    */
   test('404しうる公開ルートを覆う loading.tsx が無い', () => {

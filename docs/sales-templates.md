@@ -31,7 +31,7 @@ CareLink は、同等の機能を【完全無料】でご利用いただける�
 詳細は下記サイトをご覧ください。
 
 ▼ サービス詳細
-https://www.carelink-jp.com/salon
+https://carelink-jp.com/register
 
 ▼ 無料で掲載登録
 https://www.carelink-jp.com/register
@@ -60,7 +60,7 @@ CareLinkなら同じ機能が完全無料です💡
 ✅ 月額0円・初期費用0円・解約金0円
 
 詳細はこちら👇
-https://www.carelink-jp.com/salon
+https://carelink-jp.com/register
 
 3分で登録できます！
 ご質問あればお気軽にどうぞ🙏
@@ -121,7 +121,7 @@ CareLink なら
 HPBと同じ機能が完全無料で使えます。
 
 ▼ 詳細を見る
-https://www.carelink-jp.com/salon
+https://carelink-jp.com/register
 
 ▼ 3分で無料登録
 https://www.carelink-jp.com/register

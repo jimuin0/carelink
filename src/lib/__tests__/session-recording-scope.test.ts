@@ -34,7 +34,7 @@ describe('録画してよい公開ページ', () => {
     '/feature/spring',
     '/symptom-checker',
     '/type/hair-salon',
-    '/salon/demo',
+    '/salon/premium',
     '/privacy',
     '/tokyo',
     '/osaka/toyonaka/hair-salon',

@@ -198,7 +198,7 @@ test.describe('施設詳細: 予約バー', () => {
 
   async function expectFooterReachableAboveBookingBar(page: Page) {
     await expectFooterLegalLinksReachable(page, bookingBar(page));
-    await expectHittable(page.getByRole('contentinfo').locator('a[href="/salon"]'), { stickToBottom: true });
+    await expectHittable(page.getByRole('contentinfo').locator('a[href="/register"]'), { stickToBottom: true });
   }
 
   test('予約できる施設: 一番下までスクロールすれば、フッターの掲載案内と規約リンクが予約バーに覆われず押せる', async ({ page }) => {

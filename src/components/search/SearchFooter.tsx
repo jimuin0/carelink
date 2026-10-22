@@ -149,7 +149,7 @@ export default function SearchFooter({ className = '' }: { className?: string })
         <div className="mt-8 pt-6 border-t border-gray-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <p className="text-xs text-gray-400">&copy; {new Date().getFullYear()} CareLink All rights reserved.</p>
           <div className="flex flex-col items-end gap-2">
-            <Link href="/salon" className="text-xs text-gray-300 hover:text-white transition-colors">
+            <Link href="/register" className="text-xs text-gray-300 hover:text-white transition-colors">
               施設掲載をご希望のオーナー様はこちら →
             </Link>
             <div className="flex gap-4 text-[11px] text-gray-400">

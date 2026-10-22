@@ -59,7 +59,7 @@
 
 | サイト | パス | 用途 | ヘッダー/フッター |
 |--------|------|------|-------------------|
-| LP（ランディングページ） | `/`, `/salon`, `/register`, `/recruit`, `/contact`, `/privacy`, `/terms`, `/legal`, `/jobs`, `/jobs/[id]` | 施設登録・求人掲載・求人詳細・お問い合わせ | Header + Footer |
+| LP（ランディングページ） | `/`, `/register`（`/salon` は転送）, `/recruit`, `/contact`, `/privacy`, `/terms`, `/legal`, `/jobs`, `/jobs/[id]` | 施設登録・求人掲載・求人詳細・お問い合わせ | Header + Footer |
 | 検索サイト | `/search`, `/search/area`, `/facility/[slug]`, `/ranking` | 施設検索・詳細・口コミ・エリア検索・ランキング | SearchHeader + SearchFooter |
 | 認証 | `/auth/login`, `/auth/signup`, `/auth/callback` | ユーザー認証（メール+LINE） | なし（専用レイアウト） |
 | マイページ | `/mypage`, `/mypage/profile`, `/mypage/favorites`, `/mypage/bookings`, `/mypage/points`, `/mypage/coupons`, `/mypage/chat`, `/mypage/staff` | ユーザーダッシュボード | 認証ガード付きレイアウト |
@@ -1453,8 +1453,8 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | パス | ファイル | レンダリング | 説明 |
 |------|---------|:----------:|------|
 | `/` | `page.tsx` | ISR(1h) | トップページ |
-| `/salon` | `salon/page.tsx` | Static | 施設掲載LP（CTA→/register） |
-| `/salon/demo` | `salon/demo/page.tsx` | Static | 管理画面デモページ（全機能紹介、CTA→/register） |
+| `/salon` | `next.config.mjs` redirects | — | 308 で `/register` へ転送（2026年10月23日 店舗向け入口を一本化・ページ実体は削除） |
+| `/salon/demo` | `next.config.mjs` redirects | — | 308 で `/register` へ転送（ページ実体は削除） |
 | `/register` | `register/page.tsx` | Client | 施設掲載登録フォーム（'use client'） |
 | `/register/complete` | `register/complete/page.tsx` | Client | 施設掲載登録完了（'use client'、useSearchParams+Suspense、ステップ表示→/auth/signup誘導） |
 | `/jobs` | `jobs/page.tsx` | Dynamic | 求人一覧ページ（公開施設の求人を集約、JobPosting JSON-LD） |
@@ -1615,8 +1615,8 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 
 | パス | ファイル | レンダリング | 説明 |
 |------|---------|:----------:|------|
-| `/salon/cases` | `salon/cases/page.tsx` | Static | 導入事例ページ |
-| `/salon/premium` | `salon/premium/page.tsx` | Static | プレミアム掲載プラン紹介 |
+| `/salon/cases` | `next.config.mjs` redirects | — | 308 で `/register` へ転送（ページ実体は削除） |
+| `/salon/premium` | `salon/premium/page.tsx` | Static | プレミアム掲載プラン紹介（LAUNCH_HIDDEN で notFound） |
 | `/symptoms` | `symptoms/page.tsx` | Static | 症状一覧ページ（/symptom/[slug]へのナビ） |
 | `/unsubscribe` | `unsubscribe/page.tsx` | Dynamic | メールニュースレター購読解除 |
 | `/group-booking/join/[code]` | `group-booking/join/[code]/page.tsx` | Dynamic | グループ予約参加（join_code入力） |

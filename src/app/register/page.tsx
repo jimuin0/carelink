@@ -1,301 +1,53 @@
 import type { Metadata } from 'next';
-import type { CSSProperties } from 'react';
 import '@fontsource-variable/noto-serif-jp/index.css';
-import Image from 'next/image';
-import Link from 'next/link';
-import RegisterForm from '@/components/register/RegisterForm';
-import { SHOW_JOBS } from '@/lib/feature-toggles';
-import { REGISTER_PHOTO_REQUIREMENT } from '@/lib/register-photo-policy';
+import RegisterLanding from '@/components/register/RegisterLanding';
+import { getAvailableAreasAndTypes } from '@/lib/facilities';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * 見出しだけ明朝体にする。
- *
- * 🔴 なぜ書体を足すか（スマホ実機の見え方で判断）
- * 全面ゴシック（Noto Sans JP）＋濃い青＋影付きの白カード、という組み合わせは、
- * どう配置し直しても【業務システムの画面】に見える。日本の美容・サロン系で
- * 「上品」と受け取られる版面は、見出しが明朝、地色がアイボリー、文字がチャコール、
- * 区切りが影ではなく細い罫線、という構成になっている。好みの問題ではなく様式の問題なので、
- * 余白や配置を微調整するより先に、この 3 つ（書体・配色・罫線）を変える。
- *
- * 本文はゴシックのまま残す（明朝は小さい字だと読みにくく、フォームの可読性を落とすため）。
- * 同梱した明朝体とOS標準のfallbackを使い、ビルド時の外部フォント応答には依存しない。
- *
- * 【配色】globals.css の `.theme-ecru` が単一ソース。実際の色コードと実測コントラストは
- * そちらに書いてある。ここで直書きしないのは、同じ色をヘッダーも使うため
- * （別々に持つと必ず片方だけ古くなる。実際にロゴだけ青が残る事故を起こした）。
- * src/__tests__/ecru-theme-single-source.test.ts が直書きへの逆戻りを CI で止める。
- */
-const serifStyle = {
-  '--font-serif-jp':
-    '"Noto Serif JP Variable", "Yu Mincho", "Hiragino Mincho ProN", "Hiragino Mincho Pro", serif',
-} as CSSProperties;
+const TITLE = '店舗・施設の掲載登録';
+const DESCRIPTION =
+  '店舗・施設の掲載料と予約手数料は無料。掲載条件と準備内容を確認して、CareLinkへの登録を始められます。';
 
+/**
+ * /register の metadata はここが単一ソース（以前は layout.tsx と page.tsx が別々の title・description を
+ * 持ち、どちらが出るかを読まないと分からなかった）。
+ *
+ * - title: ルート layout の title.template '%s | CareLink' が付くので「| CareLink」は書かない
+ *   （書くと「… | CareLink | CareLink」と二重になる。src/__tests__/metadata-title-template.test.ts）。
+ * - 共有画像: 同じフォルダの opengraph-image.png / twitter-image.png（Next.js のファイル規約）。
+ *   くすみ系の地色に「掲載料・予約手数料0円」。scripts/gen-register-og-image.mjs で生成する。
+ *   ここで images を指定しない（ファイル規約が優先され、二重に書くと食い違うため）。
+ * - openGraph.title / twitter.title はテンプレートが効かないのでフルタイトルを書く。
+ */
 export const metadata: Metadata = {
-  // ルート layout の title.template '%s | CareLink' が付くので「| CareLink」は書かない
-  // （書くと <title> が「… | CareLink | CareLink」と二重になっていた。2026年10月22日）。
-  // src/__tests__/metadata-title-template.test.ts が再発を止める。
+  // 静的に読める文字列で書く（metadata-title-template.test.ts が TypeScript の構文木から読む）。
   title: '店舗・施設の掲載登録',
-  description: '店舗・施設の掲載料と予約手数料は無料。掲載条件と準備内容を確認して、CareLinkへの登録を始められます。',
+  description: DESCRIPTION,
+  alternates: { canonical: '/register' },
+  openGraph: {
+    type: 'website',
+    title: `${TITLE} | CareLink`,
+    description: DESCRIPTION,
+    url: '/register',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: `${TITLE} | CareLink`,
+    description: DESCRIPTION,
+  },
 };
 
 /**
- * 施設向けの掲載登録ページ。
+ * 施設向けの掲載登録ページ。描画は RegisterLanding（訴求＋フォーム）。
+ * ここでは「現在の主な掲載エリア」を DB の実在値から取るだけ。
  *
- * 🔴 なぜサーバーコンポーネントに分けたか
- * 旧実装はページ全体が 'use client' の巨大なフォーム 1 本で、見出しと 1 行の説明の下が
- * いきなり 20 項目超の入力欄だった。スマホでは【文字だけが延々と続く画面】になり、
- * 「なぜ登録するのか」が一切伝わらないまま離脱する構造だった。
- * 訴求部分は静的なので、サーバー側で描いてクライアント JS を増やさない。
- * フォームだけが 'use client'（src/components/register/RegisterForm.tsx）。
- *
- * ⚠️ 数字と機能名は【実装にあるものだけ】を書く。盛った数字は景表法上の問題になるうえ、
- * 実態と違う約束は登録後の解約に直結する。競合との価格比較を載せるなら根拠資料が要る。
+ * 取得に失敗しても（Supabase の公開キーを持たない Vercel Preview を含む）ページは出す。
+ * エリア表示が消えるだけで、申し込みフォームは使える状態を保つ。
  */
-
-/** 現状（電話と紙の台帳）と CareLink の違い。競合サービスとの比較ではない。 */
-const COMPARISON: { label: string; before: string; after: string }[] = [
-  { label: '予約の受付', before: '営業時間だけ', after: '24時間' },
-  { label: '重複予約', before: '起こる', after: '防ぐ' },
-  { label: '前日リマインド', before: '手作業', after: '自動' },
-  { label: '口コミ', before: '集めて管理', after: '施設ページで対応' },
-  { label: '掲載料・予約手数料', before: '—', after: '無料' },
-];
-
-/**
- * できること。
- *
- * ⚠️ ここに施術写真を敷かないこと。一度そうしたが、「顧客カルテ」にポートレート、
- * 「求人掲載」にオイルマッサージ、という【機能と中身が噛み合わない絵】になり、
- * かえって作りの粗さが目立った（実機のスクリーンショットで確認）。
- * 実画面のスクリーンショットが用意できるまでは、線画アイコンで揃えるほうが上質に見える。
- */
-const CAPABILITIES: { title: string; body: string; icon: 'calendar' | 'card' | 'people' | 'list' }[] = [
-  { title: 'ネット予約', body: '深夜でも予約が入る', icon: 'calendar' },
-  { title: '顧客カルテ', body: '来店履歴と好みを記録', icon: 'card' },
-  // 求人は「今はなし」（2026年10月23日 神原さん判断・src/lib/feature-toggles.ts）。
-  // 提供していない機能を「できること」として約束しないよう、その間は実在するメニュー掲載を出す。
-  SHOW_JOBS
-    ? { title: '求人掲載', body: 'スタッフ募集も同じ画面から', icon: 'people' }
-    : { title: 'メニュー掲載', body: 'メニューと料金を施設ページに', icon: 'list' },
-];
-
-const ICON_PATHS: Record<'calendar' | 'card' | 'people' | 'list', string> = {
-  calendar: 'M8 2v3M16 2v3M3.5 9h17M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z',
-  card: 'M3 6h18v12H3zM7 10h4M7 14h7',
-  people: 'M16 20v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM21 20v-1a4 4 0 0 0-3-3.9M16.5 4.6a3 3 0 0 1 0 5.8',
-  list: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
-};
-
-/** 番号は算用数字にする。ローマ数字（Ⅰ Ⅱ Ⅲ）も試したが、小サイズだと細い棒が並んで
- *  見え、何番か判読できなかった（実機のスクリーンショットで確認）。 */
-const STEPS = [
-  { n: '01', title: '基本情報を入力', body: '施設名・業種・連絡先などを入力' },
-  { n: '02', title: 'アカウントを作成', body: '登録内容を確認して管理画面へ進む' },
-  { n: '03', title: '掲載を準備', body: '店舗名・所在地を確認して無料掲載を公開。ネット予約の設定は別に行います' },
-];
-
-export default function RegisterPage() {
-  return (
-    <div
-      className="theme-ecru bg-(--ecru-bg) text-(--ecru-text)"
-      style={serifStyle}
-    >
-      {/* ===== ヒーロー =====
-          写真の上に文字を重ねる編集誌的な組み。写真の下に文字を置く形も試したが、
-          画像が「切り抜かれた飾り」に見えて安っぽかった（実機で確認）。 */}
-      <section className="relative">
-        <div className="relative h-[68vh] min-h-[420px] sm:h-[72vh] sm:min-h-[520px]">
-          <Image
-            src="/images/hero.webp"
-            alt=""
-            fill
-            priority
-            sizes="100vw"
-            className="object-cover"
-          />
-          {/* 文字を置く下半分だけを沈める。全面に暗幕をかけると写真が死ぬ。 */}
-          <div className="absolute inset-0 bg-linear-to-t from-(--ecru-scrim)/75 via-(--ecru-scrim)/25 to-transparent" />
-
-          <div className="absolute inset-x-0 bottom-0 px-7 pb-12 sm:px-12 sm:pb-16">
-            <div className="mx-auto max-w-5xl">
-              <p className="text-[10px] tracking-[0.35em] text-white/70">SALON &amp; CLINIC</p>
-              <h1 className="mt-4 font-(family-name:--font-serif-jp) text-[30px] font-normal leading-[1.6] tracking-[0.08em] text-white sm:text-5xl sm:leading-normal">
-                予約も、集客も、
-                <br />
-                ひとつに。
-              </h1>
-              <p className="mt-5 text-xs tracking-widest text-white/80 sm:text-sm">
-                掲載料・予約手数料 0円
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="px-7 sm:px-12">
-          <div className="mx-auto max-w-5xl">
-              <a
-              href="#register-form"
-              className="mt-8 inline-flex h-14 w-full items-center justify-center border border-(--ecru-accent) bg-(--ecru-accent) text-xs font-medium tracking-[0.2em] text-white transition-colors hover:bg-transparent hover:text-(--ecru-accent) sm:w-[280px]"
-            >
-              掲載条件を確認して登録を始める
-            </a>
-          </div>
-        </div>
-      </section>
-
-      {/* ===== 数字 ===== */}
-      <section className="mt-14 px-7 sm:mt-20 sm:px-12">
-        <dl className="mx-auto flex max-w-5xl border-y border-(--ecru-line)">
-          {[
-            { value: '0', unit: '円', label: '掲載料' },
-            { value: '0', unit: '円', label: '予約手数料' },
-            { value: '24', unit: 'h', label: '予約受付' },
-          ].map((stat, i) => (
-            <div
-              key={stat.label}
-              className={`flex-1 py-7 text-center ${i > 0 ? 'border-l border-(--ecru-line)' : ''}`}
-            >
-              <dd className="font-(family-name:--font-serif-jp) text-[32px] leading-none sm:text-[40px]">
-                {stat.value}
-                <span className="ml-1 text-xs text-(--ecru-muted)">{stat.unit}</span>
-              </dd>
-              <dt className="mt-3 text-[10px] tracking-[0.2em] text-(--ecru-muted)">{stat.label}</dt>
-            </div>
-          ))}
-        </dl>
-      </section>
-
-      {/* ===== できること ===== */}
-      <section className="mt-16 px-7 sm:mt-24 sm:px-12">
-        <div className="mx-auto max-w-5xl">
-          <div className="divide-y divide-(--ecru-line) border-y border-(--ecru-line) sm:grid sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-            {CAPABILITIES.map((c) => (
-              <article
-                key={c.title}
-                className="flex items-center gap-5 py-6 sm:flex-col sm:items-start sm:gap-4 sm:px-7"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                  className="h-6 w-6 shrink-0 text-(--ecru-accent)"
-                >
-                  <path d={ICON_PATHS[c.icon]} />
-                </svg>
-                <div>
-                  <h2 className="text-[13px] tracking-widest">{c.title}</h2>
-                  <p className="mt-1.5 text-xs leading-relaxed text-(--ecru-muted)">{c.body}</p>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ===== 比較 ===== */}
-      <section className="mt-16 px-7 sm:mt-24 sm:px-12">
-        <div className="mx-auto max-w-3xl">
-          <h2 className="text-center font-(family-name:--font-serif-jp) text-lg tracking-[0.12em] sm:text-2xl">
-            いまのやり方と、くらべると
-          </h2>
-
-          {/* div の格子ではなく table にする。比較表は行と列の対応そのものが情報なので、
-              読み上げで「予約の受付／CareLink／24時間」と辿れる形にしておく必要がある。 */}
-          <table className="mt-8 w-full table-fixed border-collapse text-left">
-            <thead>
-              <tr className="border-b border-(--ecru-text)">
-                <th scope="col" className="w-[36%] py-3">
-                  <span className="sr-only">項目</span>
-                </th>
-                <th
-                  scope="col"
-                  className="py-3 text-center text-[10px] font-normal tracking-widest text-(--ecru-muted)"
-                >
-                  電話・紙
-                </th>
-                <th scope="col" className="py-3 text-center text-[10px] font-medium tracking-widest">
-                  CareLink
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {COMPARISON.map((row) => (
-                <tr key={row.label} className="border-b border-(--ecru-line)">
-                  <th scope="row" className="py-4 text-xs font-normal tracking-wide">
-                    {row.label}
-                  </th>
-                  <td className="py-4 text-center text-[11px] text-(--ecru-muted)">{row.before}</td>
-                  <td className="py-4 text-center text-[11px] tracking-wide">{row.after}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* ===== 流れ ===== */}
-      <section className="mt-16 px-7 sm:mt-24 sm:px-12">
-        <div className="mx-auto max-w-5xl">
-          <h2 className="text-center font-(family-name:--font-serif-jp) text-lg tracking-[0.12em] sm:text-2xl">
-            掲載までの流れ
-          </h2>
-          <ol className="mt-8 divide-y divide-(--ecru-line) border-y border-(--ecru-line) sm:grid sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-            {STEPS.map((s) => (
-              <li key={s.n} className="flex items-baseline gap-5 py-6 sm:flex-col sm:gap-3 sm:px-7">
-                <span className="font-(family-name:--font-serif-jp) text-base text-(--ecru-muted)">
-                  {s.n}
-                </span>
-                <div>
-                  <p className="text-[13px] tracking-widest">{s.title}</p>
-                  <p className="mt-1.5 text-xs text-(--ecru-muted)">{s.body}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </div>
-      </section>
-
-      <section aria-labelledby="registration-help" className="mt-16 px-7 sm:mt-24 sm:px-12">
-        <div className="mx-auto max-w-3xl">
-          <h2 id="registration-help" className="text-center font-(family-name:--font-serif-jp) text-lg sm:text-2xl">
-            お申し込み前のご確認
-          </h2>
-          <dl className="mt-8 divide-y divide-(--ecru-line) border-y border-(--ecru-line) text-sm">
-            <div className="py-5">
-              <dt className="font-medium">この申し込みで料金は発生しますか？</dt>
-              <dd className="mt-2 leading-relaxed">掲載料・予約手数料は無料です。この掲載申し込みで有料プランや決済契約を申し込むことはありません。</dd>
-            </div>
-            <div className="py-5">
-              <dt className="font-medium">受付が完了したら、すぐに公開されますか？</dt>
-              <dd className="mt-2 leading-relaxed">受付完了と一般公開は別の手続きです。アカウントを作成し、管理画面で店舗名・所在地を確認して掲載公開してください。無料掲載にメニュー・スタッフの登録は必須ではありません。{REGISTER_PHOTO_REQUIREMENT}ネット予約は曜日別営業時間を含む設定完了まで利用できません。</dd>
-            </div>
-            <div className="py-5">
-              <dt className="font-medium">複数店舗はどのように登録しますか？</dt>
-              <dd className="mt-2 leading-relaxed">店舗ごとに掲載申し込みが必要です。現在、自己登録できる店舗オーナーアカウントは1アカウントにつき1店舗です。複数店舗の管理権限や既存掲載の統合は、登録前に運営へお問い合わせください。</dd>
-            </div>
-            <div className="py-5">
-              <dt className="font-medium">送信後にエラーが出た場合、再送してよいですか？</dt>
-              <dd className="mt-2 leading-relaxed">受付完了を確認できない場合は、重複を避けるため連続送信せず、画面に表示された確認方法に従ってください。解決しない場合は、施設名と送信した日時を添えて運営へお問い合わせください。</dd>
-            </div>
-          </dl>
-          <Link href="/contact" className="mt-5 inline-block underline underline-offset-4">施設掲載について運営に問い合わせる</Link>
-        </div>
-      </section>
-
-      {/* ===== フォーム ===== */}
-      {/* 固定ヘッダー（h-16＝4rem）の下に見出しが隠れないよう、ヘッダーの高さ＋余白ぶん止める。 */}
-      <section id="register-form" className="mt-20 scroll-mt-20 pb-24 sm:mt-28">
-        <h2 className="mb-10 text-center font-(family-name:--font-serif-jp) text-lg tracking-[0.12em] sm:text-2xl">
-          掲載のお申し込み
-        </h2>
-        <RegisterForm v2Enabled={true} />
-      </section>
-    </div>
-  );
+export default async function RegisterPage() {
+  const listingAreas = await getAvailableAreasAndTypes()
+    .then((r) => r.areas)
+    .catch(() => [] as string[]);
+  return <RegisterLanding listingAreas={listingAreas} />;
 }

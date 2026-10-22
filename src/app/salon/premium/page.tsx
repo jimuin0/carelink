@@ -11,13 +11,15 @@ import { WHITE_LABEL_COMPARISON_LABEL, WHITE_LABEL_COMPARISON_VALUE, WHITE_LABEL
  * 販売できない商品を販売表示し続けることは景品表示法上のリスクであり、
  * 有料掲載枠（featured-ads・PR#523）と全く同じ理由・同じ可逆方式で非公開にする。
  *
- * 決済を導入する際は LAUNCH_HIDDEN を false に戻し、/salon の導線リンクを復活させるだけでよい
+ * 決済を導入する際は LAUNCH_HIDDEN を false に戻し、店舗向けページ（/register。旧 /salon は
+ * 2026年10月23日に /register へ統合）から導線を張るだけでよい
  * （プラン定義・比較表・FAQ は下にそのまま温存してある＝作り直し不要）。
  */
 const LAUNCH_HIDDEN = true;
 
 export const metadata: Metadata = {
-  title: 'プレミアムプラン | CareLink',
+  // ルート layout の title.template が「| CareLink」を付ける（旧 salon/layout.tsx は 2026年10月23日に撤去）。
+  title: 'プレミアムプラン',
   description: 'CareLink プレミアムプランで集客力を最大化。優先表示・高度分析・無制限スタッフ登録など上位機能をご利用いただけます。',
   alternates: { canonical: '/salon/premium' },
   // 非公開中は検索エンジンにインデックスさせない（notFound と併せた二重防御）。

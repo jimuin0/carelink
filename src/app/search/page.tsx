@@ -288,7 +288,7 @@ export default async function SearchPage(props: Props) {
                     <p className="text-sm text-gray-500 mt-0.5">CareLink は施設の無料掲載を受け付けています。オーナー様はぜひご登録を。</p>
                   </div>
                   <Link
-                    href="/salon"
+                    href="/register"
                     className="shrink-0 px-5 py-2.5 bg-sky-700 text-white text-sm font-bold rounded-lg hover:bg-sky-800 transition-colors"
                   >
                     無料で施設を掲載する

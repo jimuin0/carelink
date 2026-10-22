@@ -12,7 +12,7 @@
  */
 import '@testing-library/jest-dom';
 import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react';
-import RegisterPage from '@/app/register/page';
+import RegisterPage from '@/components/register/RegisterLanding';
 import { submissionResponse } from '../test-support/submission-response';
 
 const pushMock = jest.fn();
