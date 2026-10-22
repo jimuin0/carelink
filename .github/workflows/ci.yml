@@ -139,6 +139,16 @@ jobs:
         run: |
           mkdir -p supabase/.temp
           printf '%s' 'v14.15' > supabase/.temp/rest-version
+      - name: Authenticate image pulls to ghcr.io
+        # supabase start pulls its images from ghcr.io. Anonymous pulls share a
+        # per-IP rate limit with every other GitHub-hosted runner; on 2026-10-23
+        # E2E failed for 90+ minutes with "toomanyrequests" before any test ran.
+        # An authenticated pull (the workflow's own token, read-only) has its own
+        # allowance. No secret is printed; the token expires with the job.
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
       - name: Start Supabase (fresh-apply gate)
         # 恒久・発症前予防の中核ゲート。`supabase start` は supabase/migrations/*.sql を
         # 「新規環境へ全 replay（fresh-apply）」する。version 衝突・42P16（View 列改名）・
