@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { adminFacilityHref } from '@/lib/admin-facility-url';
 import {
   postToSlack,
   sectionBlock,
@@ -43,6 +44,8 @@ export type NotifyPayload =
   | {
       type: 'facility_inquiry';
       data: {
+        /** 問い合わせ先の店舗。管理画面のリンクに付ける（複数店舗のオーナーが別の店舗を開かないため）。 */
+        facility_id?: string;
         facility_name: string;
         name: string;
         email: string;
@@ -62,10 +65,10 @@ export type NotifyPayload =
     };
 
 // Phase 7b: 通知種別に応じた管理画面 URL を返す（リンクボタン用）
-function adminUrlFor(type: NotifyPayload['type']): string {
+function adminUrlFor(payload: NotifyPayload): string {
   const base = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-jp.com';
 
-  switch (type) {
+  switch (payload.type) {
     case 'contact':
       return `${base}/admin/inquiries`;
 
@@ -78,12 +81,14 @@ function adminUrlFor(type: NotifyPayload['type']): string {
       // 問い合わせ・platformAdmin専用）を表示するページで、facility_inquiries とは別物。
       // 従来この「管理画面で開く」ボタンは常に facility_inquiries を一切表示しない誤った
       // リンク先を指しており、クリックしても該当の問い合わせに到達できなかった。
-      return `${base}/admin/facility-inquiries`;
+      // 店舗を URL で指定する（2026年10月22日）。指定しないと複数店舗のメンバーは
+      // 店舗選択から始まり、どの店舗宛の問い合わせかを自分で探すことになる。
+      return `${base}${adminFacilityHref('/admin/facility-inquiries', payload.data.facility_id ?? null)}`;
   }
 }
 
 function buildSlackBlocks(payload: NotifyPayload, text: string): unknown[] {
-  const adminUrl = adminUrlFor(payload.type);
+  const adminUrl = adminUrlFor(payload);
 
   return [
     sectionBlock(text),
@@ -210,6 +215,7 @@ export const notifyPayloadSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('facility_inquiry'),
     data: z.object({
+      facility_id: z.string().uuid().optional(),
       facility_name: z.string().max(200),
       name: z.string().max(100),
       email: z.string().max(254),

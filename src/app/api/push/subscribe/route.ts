@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { serverError, authUnavailable } from '@/lib/with-route';
+import { serverError, authUnavailable, withRoute } from '@/lib/with-route';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
@@ -99,3 +99,32 @@ export async function POST(request: NextRequest) {
     return serverError('push-subscribe', e, '/api/push/subscribe');
   }
 }
+
+/**
+ * この端末のプッシュ通知を解除する（2026年10月22日 新設・管理画面の通知設定から呼ぶ）。
+ *
+ * 消すのは【呼び出した本人の行のうち、送られてきた endpoint と一致するもの】だけ。
+ * push_subscriptions は UNIQUE(user_id) で 1 人 1 端末なので、endpoint まで照合しないと、
+ * 画面を開いたまま別の端末で登録し直した後にこの端末で「解除」を押したとき、
+ * 新しく登録した方の端末の購読を消してしまう。一致しなければ何も消さず removed=0 を返す。
+ */
+export const DELETE = withRoute(async (request, ctx) => {
+  const body: unknown = await request.json().catch(() => null);
+  const endpoint = body !== null && typeof body === 'object' ? (body as Record<string, unknown>).endpoint : undefined;
+  if (typeof endpoint !== 'string' || !endpoint.startsWith('https://') || endpoint.length > 2048) {
+    return NextResponse.json({ error: '解除する端末を確認できませんでした' }, { status: 400 });
+  }
+  const { data, error } = await createServiceRoleClient()
+    .from('push_subscriptions')
+    .delete()
+    .eq('user_id', ctx.user!.id)
+    .eq('endpoint', endpoint)
+    .select('id');
+  if (error) return serverError('push-unsubscribe-delete', error, '/api/push/subscribe', '通知の解除に失敗しました');
+  return NextResponse.json({ ok: true, removed: data?.length ?? 0 });
+}, {
+  csrf: true,
+  requireAuth: true,
+  rateLimit: { limiter: mutationRateLimit, limit: 10, windowMs: 60_000, prefix: 'rl:push-unsub' },
+  sentryTag: 'push-unsubscribe',
+});

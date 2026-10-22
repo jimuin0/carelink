@@ -120,6 +120,12 @@ describe('sendBookingReminder', () => {
     const args = mockSend.mock.calls[0][0];
     expect(args.subject).toContain('7日後');
   });
+
+  // 2026年10月22日 神原さん決定：リマインドは朝9時に1回だけ送り、その基準をメールに明記する。
+  test.each([1, 3, 7])('daysBefore=%i のメールにも送信基準（当日朝9時時点の予約）を明記する', async (days) => {
+    await sendBookingReminder(baseData, days);
+    expect(mockSend.mock.calls[0][0].html).toContain('本メールは、当日朝9時の時点でご予約いただいているお客様にお送りしています。');
+  });
 });
 
 describe('sendTimeAdjustRequest', () => {
@@ -208,6 +214,18 @@ describe('sendNewReviewNotification', () => {
     await sendNewReviewNotification({ ...reviewData, comment: null });
     const args = mockSend.mock.calls[0][0];
     expect(args.html).not.toContain('コメント</td>');
+  });
+
+  // 2026年10月22日：複数店舗のオーナーが別の店舗の口コミ画面を開かないよう、店舗を URL で指定する。
+  test('facilityId があれば管理画面リンクに ?facility_id= を付ける', async () => {
+    const facilityId = '71000000-0000-4000-8000-000000000002';
+    await sendNewReviewNotification({ ...reviewData, facilityId });
+    expect(mockSend.mock.calls[0][0].html).toContain(`/admin/reviews?facility_id=${facilityId}"`);
+  });
+
+  test('facilityId が無ければ従来どおり店舗指定なしのリンク', async () => {
+    await sendNewReviewNotification(reviewData);
+    expect(mockSend.mock.calls[0][0].html).toContain('/admin/reviews"');
   });
 });
 
@@ -333,6 +351,12 @@ describe('sendNewInquiryNotification', () => {
     await sendNewInquiryNotification({ ...inquiryData, inquirerPhone: null });
     const args = mockSend.mock.calls[0][0];
     expect(args.html).not.toContain('電話</td>');
+  });
+
+  test('facilityId があれば管理画面リンクに ?facility_id= を付ける（複数店舗で別店舗を開かない）', async () => {
+    const facilityId = '71000000-0000-4000-8000-000000000002';
+    await sendNewInquiryNotification({ ...inquiryData, facilityId });
+    expect(mockSend.mock.calls[0][0].html).toContain(`/admin/facility-inquiries?facility_id=${facilityId}"`);
   });
 
   test('本文はHTMLエスケープされる（XSS対策）', async () => {

@@ -8,9 +8,16 @@ import { fetchAllPaged } from '@/lib/paginate';
 import { getEntitlementsByFacility, type EntitlementsClient } from '@/lib/entitlements';
 import { retryTransientSupabaseRead, summarizeDependencyError } from '@/lib/err';
 import { resolveLineUserIdsForUsers } from '@/lib/line-link';
+import { isReminderSendHour, REMINDER_SEND_HOUR_JST } from '@/lib/reminder-schedule';
 
-// Render Cron: runs hourly. 同じ日の未claim slotを再走査するため、時間予算超過や一時障害でも
-// 予約日基準の対象期間を抜ける前に回復できる。
+// Render Cron: runs hourly（JST 毎時05分）。ただし送信の計画を立てるのは JST 9 時台の run
+// （09:05）だけ（2026年10月22日 神原さん決定「リマインドは朝9時に1回だけ」）。
+// 以前は毎時の run が対象日を計算して未送信分を送っていたため、実際には日付が変わった直後の
+// run（JST 0:05）で送られ、深夜にリマインドが届いていた。
+// 9 時台以外の run は送信前 claim の回収と送達結果不明の監視だけを行い、'skipped' を記録する
+// （cron_logs の鮮度監視は毎時の記録を前提にしているため、run 自体は止めない）。
+// ⚠️ この決定により、9 時の run で時間予算超過（deferred）や一時的な送信失敗（claim 解放）に
+// なったリマインドは、同じ日のうちには再送されない（翌日の 9 時には対象日がずれるため）。
 export const dynamic = 'force-dynamic';
 // 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
 // 既定の低い値を上書きし、下の SEND_BUDGET_MS による予算ガードが確実に発火する既知の上限を与える。
@@ -18,7 +25,8 @@ export const maxDuration = 60;
 
 // 1 回の run で「考慮」する最大予約数（メモリ上限）。到達したら警告ログを出す（silent 根絶）。
 const CONSIDER_LIMIT = 5000;
-// 送信ループの実時間予算。maxDuration(60s) 未満に設定し、超えたら残りを次の時間runへ回す。
+// 送信ループの実時間予算。maxDuration(60s) 未満に設定し、超えたら残りは送らずに打ち切る
+// （送信は 9 時台の run だけなので、打ち切った分は同じ日のうちには送られない＝deferred として記録する）。
 const SEND_BUDGET_MS = 40 * 1000;
 // .in() を chunk するサイズ（PostgREST の URL 長制限回避）。
 const IN_CHUNK = 500;
@@ -62,6 +70,25 @@ export async function GET(request: Request) {
     if (observationError) throw observationError;
     let deliveryUncertain = unresolvedCount ?? 0;
 
+    // 送信の計画を立てない run（対象予約が無い・送信時刻外）の締め。前 run の送達結果不明が
+    // 残っていれば、送信の有無に関係なく error として毎 run 上げ続ける（照合されるまで消さない）。
+    const finishWithoutSending = async (meta: Record<string, unknown> = {}) => {
+      if (deliveryUncertain > 0) {
+        await logCronRun('booking-reminder', 'error', startedAt, {
+          error_msg: '予約リマインドの送達結果不明が残っています。自動再送せず照合してください。',
+          meta: { delivery_uncertain: deliveryUncertain, ...meta },
+        });
+        return NextResponse.json({ processed: 0, skipped: 0, delivery_uncertain: deliveryUncertain }, { status: 503 });
+      }
+      await logCronRun('booking-reminder', 'skipped', startedAt, { processed: 0, skipped: 0, meta });
+      return NextResponse.json({ processed: 0, skipped: 0, sent: 0, ...meta });
+    };
+
+    // 送信は JST 9 時台の run だけ。それ以外の run は回収と監視（上）だけで終える。
+    if (!isReminderSendHour(startedAt)) {
+      return finishWithoutSending({ reason: 'outside_send_hour', send_hour_jst: REMINDER_SEND_HOUR_JST });
+    }
+
     // JST（UTC+9）基準で対象日を算出（1日後/3日後/7日後）
     const now = new Date();
     const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
@@ -96,17 +123,7 @@ export async function GET(request: Request) {
         extraLog: { error_msg: `bookings query failed: ${summarizeDependencyError(bookingsErr)}` },
       });
     }
-    if (bookings.length === 0) {
-      if (deliveryUncertain > 0) {
-        await logCronRun('booking-reminder', 'error', startedAt, {
-          error_msg: '予約リマインドの送達結果不明が残っています。自動再送せず照合してください。',
-          meta: { delivery_uncertain: deliveryUncertain },
-        });
-        return NextResponse.json({ processed: 0, skipped: 0, delivery_uncertain: deliveryUncertain }, { status: 503 });
-      }
-      await logCronRun('booking-reminder', 'skipped', startedAt, { processed: 0, skipped: 0 });
-      return NextResponse.json({ processed: 0, skipped: 0, sent: 0 });
-    }
+    if (bookings.length === 0) return finishWithoutSending();
     if (bookings.length === CONSIDER_LIMIT) {
       console.warn('[booking-reminder] consider limit reached', { limit: CONSIDER_LIMIT });
     }
@@ -237,10 +254,10 @@ export async function GET(request: Request) {
     );
     for (let pi = 0; pi < plan.length; pi++) {
       const { booking, kind, days } = plan[pi];
-      // 実時間予算ガード: 残りは未処理（sent_reminders 未 claim）のまま次の時間runへ。
+      // 実時間予算ガード: 残りは未処理（sent_reminders 未 claim）のまま打ち切る（deferred として記録）。
       if (Date.now() - startedAt.getTime() > SEND_BUDGET_MS) {
         deferred = plan.length - pi;
-        console.warn('[booking-reminder] time budget exceeded, deferring rest to next run', { deferred });
+        console.warn('[booking-reminder] time budget exceeded; the remaining reminders are not sent today', { deferred });
         break;
       }
 

@@ -3,7 +3,7 @@ const id = '00000000-0000-4000-8000-000000000002';
 test.each([null, '', 'bad'])('missing/invalid selection leaves link intact %s', value => {
   expect(adminFacilityHref('/admin/menus', value)).toBe('/admin/menus');
 });
-test.each(['/admin', '/admin/menus', '/admin/staff/new', '/admin/staff/synthetic/edit', '/admin/analytics', '/admin/settings', '/admin/photos', '/admin/schedule', '/admin/bookings'])('carry selected store %s', path => {
+test.each(['/admin', '/admin/menus', '/admin/staff/new', '/admin/staff/synthetic/edit', '/admin/analytics', '/admin/settings', '/admin/photos', '/admin/schedule', '/admin/bookings', '/admin/reviews', '/admin/facility-inquiries'])('carry selected store %s', path => {
   expect(adminFacilityHref(path, id)).toBe(`${path}?facility_id=${id}`);
 });
 test('date and status filters survive store context', () => {

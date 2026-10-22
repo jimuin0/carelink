@@ -23,6 +23,7 @@ import { serverError } from '@/lib/with-route';
 import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { verifyReviewPhotos } from '@/lib/review-photo-verification';
+import { adminFacilityHref } from '@/lib/admin-facility-url';
 
 export const dynamic = 'force-dynamic';
 
@@ -105,23 +106,14 @@ async function submitReview(request: Request, markCommitStarted: () => void) {
   if (photoState !== 'ready') return NextResponse.json({ error: '写真の保存・所有権を確認できません。入力と元写真を保持して再確認してください。' },
     { status: photoState === 'unavailable' ? 503 : 400 });
 
-  // 【2026年7月29日・恒久根治】reviewer_name は body の自由入力文字列をそのまま保存しており、
-  // ログイン済みユーザーでも実在の他人の氏名を名乗って投稿できた（他人名義投稿・なりすまし）。
-  // 未ログイン投稿は仕様上の匿名口コミのため自由入力のまま維持しつつ、ログイン済みユーザーは
-  // 本人の profiles.display_name（設定済みの場合）を優先し、クライアント送信値を無視する。
-  // display_name 未設定ユーザーは元々名乗る本名を持たない状態のため、従来通り自由入力を許容する。
-  let effectiveReviewerName = parsed.data.reviewer_name;
-  if (user) {
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('display_name')
-      .eq('id', user.id)
-      .maybeSingle();
-    if (profileError) return serverError('review-profile-read', profileError, '/api/review', '投稿者情報を確認できません');
-    if (profile?.display_name) {
-      effectiveReviewerName = profile.display_name;
-    }
-  }
+  // 【2026年10月22日 神原さん決定】公開する投稿者名は、投稿フォームに本人が入力した名前
+  // （ニックネーム可）をそのまま使う。
+  // 以前（2026年7月29日〜）はログイン済みユーザーの入力を profiles.display_name で黙って
+  // 置き換えていた。フォームには「ニックネーム可」と書いてあるのに、公開ページには登録名
+  // （多くは本名）が出てしまい、本人の意図しない実名公開になっていた。
+  // なりすまし対策は名前の置き換えではなく表示側で行う：アカウントに紐づく投稿（user_id あり）は
+  // public_reviews.is_member を通じて口コミ一覧に「会員」バッジが付く（user_id 自体は公開しない）。
+  const effectiveReviewerName = parsed.data.reviewer_name;
 
   // 24h内に同一施設への投稿チェック。
   // facility_reviews に user_id 列は存在しない（設計上一度も追加されていない）ため、
@@ -211,7 +203,8 @@ async function submitReview(request: Request, markCommitStarted: () => void) {
         sendPushToFacilityOwners(parsed.data.facility_id, {
           title: '新しい口コミが投稿されました',
           body: `${effectiveReviewerName}様より★${avg}の口コミが届きました`,
-          url: '/admin/reviews',
+          // 複数店舗を持つオーナーが別の店舗の口コミ画面を開かないよう、店舗を URL で指定する。
+          url: adminFacilityHref('/admin/reviews', parsed.data.facility_id),
           tag: `review-${review.id}`,
         }).catch((e) => {
           console.error('[review] push failed', e);
@@ -247,6 +240,7 @@ async function submitReview(request: Request, markCommitStarted: () => void) {
               reviewerName: effectiveReviewerName,
               rating: avg,
               comment: parsed.data.comment,
+              facilityId: parsed.data.facility_id,
             }).then((ok) => {
               if (!ok) {
                 const err = new Error('new review notification email send failed');

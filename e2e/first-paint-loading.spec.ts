@@ -259,13 +259,14 @@ test.describe('開いた最初のフレームに、試す前の結果を出し�
     // fixed delay. A no-op click or a fetch that never starts must fail.
     let releaseSlots!: () => void;
     const slotsGate = new Promise<void>((resolve) => { releaseSlots = resolve; });
-    await page.route('**/api/slots*', async (route) => {
+    // 変更画面も 1 日分を /api/slots/week で取得する（2026年10月22日〜。'**/api/slots*' は /week に一致しない）。
+    await page.route(/\/api\/slots\/week(\?|$)/, async (route) => {
       await slotsGate;
       await route.continue();
     });
     try {
       await Promise.all([
-        page.waitForRequest((request) => new URL(request.url()).pathname === '/api/slots'),
+        page.waitForRequest((request) => new URL(request.url()).pathname === '/api/slots/week'),
         dateButtons.first().click(),
       ]);
       await expect(page.getByTestId('slot-picker').locator('.animate-spin')).toBeVisible();

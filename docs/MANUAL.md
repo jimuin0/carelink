@@ -1843,8 +1843,8 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | 11 | `/api/salons` | GET | - | 20回/60秒 | 施設検索（is_public=true・最大50件） |
 | 12 | `/api/facilities/suggest` | GET | - | 30回/60秒 | オートコンプリート（施設名+エリア、各5件） |
 | 13 | `/api/stations` | GET | - | 30回/60秒 | 駅名検索（1時間キャッシュ） |
-| 14 | `/api/push/subscribe` | POST | 必須 | 10回/60秒 | Web Pushサブスクリプション登録（upsert） |
-| 15 | `/api/cron/booking-reminder` | GET | CRON | - | 予約リマインドメール（毎日9:00 JST・CRON_SECRET Bearer認証） |
+| 14 | `/api/push/subscribe` | POST / DELETE | 必須 | 10回/60秒 | Web Pushサブスクリプション登録（upsert・1人1端末）／この端末の解除（本人かつ同じ endpoint の行だけ削除） |
+| 15 | `/api/cron/booking-reminder` | GET | CRON | - | 予約リマインドメール（毎時起動・送信は 9:00 JST の回だけ・CRON_SECRET Bearer認証） |
 | 16 | `/api/auth/line` | GET | - | - | LINE OAuthリダイレクト（CSRFステートCookie設定） |
 | 17 | `/api/auth/line/callback` | GET | - | - | LINE OAuthコールバック（セッション確立） |
 | 18 | `/api/line/webhook` | POST | - | - | LINE Messaging Webhook（署名検証・フォロー応答・メッセージ応答） |

@@ -1017,3 +1017,62 @@ describe('GET /api/cron/booking-reminder', () => {
     }));
   });
 });
+
+// ─── 送信は JST 9 時台の run だけ（2026年10月22日 神原さん決定） ─────────────────────
+// 旧実装は毎時の run が対象日を計算して送っていたため、実際の送信は日付が変わった直後の
+// run（JST 0:05）になり、深夜にリマインドが届いていた。9 時台以外の run は claim 回収と
+// 送達結果不明の監視だけを行い、cron の鮮度監視のために 'skipped' を記録する。
+describe('送信時刻（JST 9 時台の run だけが送信を計画する）', () => {
+  test.each([
+    ['2026-05-14T15:05:00Z', 'JST 0:05（日付が変わった直後＝旧実装が送っていた run）'],
+    ['2026-05-14T23:05:00Z', 'JST 8:05（9 時の直前）'],
+    ['2026-05-15T01:05:00Z', 'JST 10:05（9 時の直後）'],
+  ])('%s（%s）は予約を検索せず送らない・skipped を記録する', async (iso) => {
+    jest.setSystemTime(new Date(iso));
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ processed: 0, sent: 0, reason: 'outside_send_hour', send_hour_jst: 9 });
+    expect(bookingsInMock).not.toHaveBeenCalled();
+    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockEmailReminder).not.toHaveBeenCalled();
+    expect(mockLineReminder).not.toHaveBeenCalled();
+    expect(logCronRun).toHaveBeenCalledWith('booking-reminder', 'skipped', expect.any(Date), expect.objectContaining({
+      meta: expect.objectContaining({ reason: 'outside_send_hour' }),
+    }));
+  });
+
+  test('JST 9:05（00:05Z）の run は対象日の予約を検索して送る', async () => {
+    jest.setSystemTime(new Date('2026-05-15T00:05:00Z'));
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect(bookingsInMock).toHaveBeenCalledWith('pending_booking_reminders', { p_today: '2026-05-15' });
+    expect(mockEmailReminder).toHaveBeenCalledTimes(2);
+  });
+
+  test('JST 9:59 の run も 9 時台として送る（起動遅延で数分ずれても落とさない）', async () => {
+    jest.setSystemTime(new Date('2026-05-15T00:59:00Z'));
+    await GET(makeRequest());
+    expect(mockEmailReminder).toHaveBeenCalledTimes(2);
+  });
+
+  test('時刻外の run でも結果不明の監視は続ける（503 と error 記録）', async () => {
+    jest.setSystemTime(new Date('2026-05-15T05:05:00Z'));
+    setup({ unresolved: 1 });
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ delivery_uncertain: 1 });
+    expect(bookingsInMock).not.toHaveBeenCalled();
+    expect(mockEmailReminder).not.toHaveBeenCalled();
+    expect(logCronRun).toHaveBeenCalledWith('booking-reminder', 'error', expect.any(Date), expect.objectContaining({
+      meta: expect.objectContaining({ delivery_uncertain: 1, reason: 'outside_send_hour' }),
+    }));
+  });
+
+  test('時刻外の run でも claim 回収は走り、失敗したら 500（監視を止めない）', async () => {
+    jest.setSystemTime(new Date('2026-05-15T05:05:00Z'));
+    setup({ reclaimError: { message: 'reclaim unavailable' } });
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(500);
+    expect(bookingsInMock).not.toHaveBeenCalled();
+  });
+});

@@ -144,7 +144,10 @@ export default function ReviewTab({ facilityId, facilitySlug, facilityName, init
           </div>
         )}
 
-        <div>
+        {/* id は口コミ依頼メールのリンク先（/facility/<slug>#review-form）。TabNavigation が
+            この id を見て口コミタブを開き、ここまでスクロールする。scroll-mt は固定ヘッダーと
+            タブバーの下に隠れないための余白。 */}
+        <div id="review-form" className="scroll-mt-32">
           <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
             <span className="w-1 h-5 bg-sky-500 rounded-full" />
             口コミを投稿する

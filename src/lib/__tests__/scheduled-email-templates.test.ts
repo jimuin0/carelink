@@ -4,7 +4,7 @@ test.each(['<script>customer</script>',null,''])('review template escapes input,
   const e=buildReviewRequestEnvelope({email:'synthetic@example.invalid',customerName,facilityName:'A <clinic>',facilitySlug:'a/"?'});
   expect(e.to).toBe('synthetic@example.invalid');expect(e.subject).toContain('ご来店ありがとうございました');
   expect(e.html).toContain('A &lt;clinic&gt;');expect(e.html).toContain(customerName?'&lt;script&gt;customer&lt;/script&gt;':'お客様');
-  expect(e.html).toContain('a%2F%22%3F#review');
+  expect(e.html).toContain('a%2F%22%3F#review-form"'); // 口コミタブの投稿欄へ直接案内する（#review-form は TabNavigation が口コミタブを開く）
 });
 test('digest keeps its original template, escaped source and persistent unsubscribe link',()=>{
  const e=buildFavoritesDigestEnvelope({userEmail:'synthetic@example.invalid',userName:'<person>',unsubscribeToken:'synthetic-token',

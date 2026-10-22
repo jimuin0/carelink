@@ -369,4 +369,17 @@ describe('adminUrlFor — type ごとの管理画面 URL', () => {
     expect(blocks).toContain('/admin/facility-inquiries');
     expect(blocks).not.toContain('/admin/inquiries"'); // 末尾"で完全一致を除外（facility-inquiriesの部分一致を誤検知しないため）
   });
+
+  // 2026年10月22日：複数店舗のメンバーが別の店舗の問い合わせ画面を開かないよう、店舗を URL で指定する。
+  test('facility_inquiry に facility_id があれば管理画面リンクに ?facility_id= を付ける', async () => {
+    const facilityId = '71000000-0000-4000-8000-000000000002';
+    await sendNotify({ ...facilityInquiryPayload, data: { ...facilityInquiryPayload.data, facility_id: facilityId } });
+    expect(getBlocksJson()).toContain(`/admin/facility-inquiries?facility_id=${facilityId}`);
+  });
+
+  test('facility_id が UUID でなければ通知自体を受け付けない（URL へ任意文字列を入れない）', async () => {
+    const result = await sendNotify({ ...facilityInquiryPayload, data: { ...facilityInquiryPayload.data, facility_id: 'x&y=1' } });
+    expect(result.ok).toBe(false);
+    expect(mockPostToSlack).not.toHaveBeenCalled();
+  });
 });

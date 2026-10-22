@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import { enqueueWebhook } from '@/lib/webhook-queue';
 import { runAfterResponse } from '@/lib/after-response';
 import { channelDeliveryResult, type ChannelDeliveryResult } from '@/lib/channel-delivery-result';
+import { REMINDER_LINE_TIMING_NOTE } from '@/lib/reminder-schedule';
 
 const LINE_API_URL = 'https://api.line.me/v2/bot/message/push';
 const LINE_REPLY_URL = 'https://api.line.me/v2/bot/message/reply';
@@ -286,7 +287,8 @@ export async function sendBookingReminder(
   const staffLine = booking.staffName ? `\n担当: ${booking.staffName}` : '';
   const days = booking.daysBefore ?? 1;
   const when = days === 1 ? '明日' : `${days}日後`;
-  const text = `🔔 ${when}のご予約リマインド\n\n📍 ${booking.facilityName}\n📋 ${booking.menuName}\n📅 ${booking.date} ${booking.time}${staffLine}\n\nお気をつけてお越しください。`;
+  // 末尾の注記はメールと同じ送信基準（朝9時に1回だけ送る・2026年10月22日 神原さん決定）を伝える。
+  const text = `🔔 ${when}のご予約リマインド\n\n📍 ${booking.facilityName}\n📋 ${booking.menuName}\n📅 ${booking.date} ${booking.time}${staffLine}\n\nお気をつけてお越しください。\n\n${REMINDER_LINE_TIMING_NOTE}`;
   return sendLinePushWithOutcome(lineUserId, [{ type: 'text', text }]);
 }
 

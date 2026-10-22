@@ -14,6 +14,8 @@ import { BookingCreateClient, type BookingCreateClientResult, BOOKING_CREATE_UNK
 import type { BookingFormData } from '@/lib/validations-booking';
 import { WAITLIST_NOTICE } from '@/lib/coming-soon';
 import { HOME_VISIT_ADDRESS_REQUIRED_MESSAGE } from '@/lib/home-visit';
+// /api/slots/week が 1 リクエストで受け付けるスタッフ数の上限（サーバー側と同じ定義を使う）。
+import { SLOTS_WEEK_MAX_STAFF } from '@/lib/slots-week';
 
 type Step = 'menu' | 'datetime' | 'confirm';
 
@@ -123,8 +125,6 @@ interface Props {
 }
 
 const WEEK_SIZE = 7;
-/** /api/slots/week が 1 リクエストで受け付けるスタッフ数の上限（サーバー側と一致させる）。 */
-const SLOTS_WEEK_MAX_STAFF = 10;
 /** 時間帯セル1件分の空き情報（count=空きスタッフ数、slot=予約に使う代表スロット）。 */
 type Cell = { count: number; slot: AvailableSlot };
 /** date -> ("HH:MM" -> Cell) の週マトリクス。 */

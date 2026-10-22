@@ -6228,6 +6228,7 @@ export type Database = {
           created_at: string | null
           facility_id: string | null
           id: string | null
+          is_member: boolean | null
           is_verified_visit: boolean | null
           photo_urls: string[] | null
           rating: number | null

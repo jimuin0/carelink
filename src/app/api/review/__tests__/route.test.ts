@@ -454,7 +454,7 @@ describe('POST /api/review', () => {
       const { cookies } = require('next/headers');
       cookies.mockResolvedValue({ getAll: jest.fn(() => []) });
 
-      return { mockMembersRoleFilter };
+      return { mockMembersRoleFilter, mockProfilesSelect };
     }
 
     test('authenticated user → 200 with review id', async () => {
@@ -468,35 +468,40 @@ describe('POST /api/review', () => {
       expect(json.id).toBeDefined();
     });
 
-    // ─── reviewer_name なりすまし防止（2026年7月29日 追加） ───────────────────────
-    // ログイン済みユーザーが body の reviewer_name に他人の氏名を送っても、実際に保存される
-    // のは本人の profiles.display_name（設定済みの場合）。未ログイン・display_name未設定は
-    // 従来通り自由入力のまま（匿名口コミの仕様を維持）。
-    test('ログイン済み・display_name設定済み → bodyのreviewer_nameを無視しdisplay_nameを保存する', async () => {
-      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false, displayName: '本人太郎' });
+    // ─── 公開する投稿者名（2026年10月22日 神原さん決定：入力されたニックネームを公開） ─────
+    // 旧実装（2026年7月29日〜）はログイン済みユーザーの入力を profiles.display_name で黙って
+    // 置き換えており、「ニックネーム可」の欄に入れた名前ではなく登録名（多くは本名）が公開されていた。
+    // なりすまし対策は public_reviews.is_member（「会員」バッジ）で行い、名前は入力どおりに保存する。
+    test('ログイン済み・display_name設定済みでも、入力したニックネームをそのまま保存する（回帰防止）', async () => {
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false, displayName: '本名太郎' });
 
-      const res = await POST(makeRequest({ ...bizReview, reviewer_name: '他人花子' }));
-
-      expect(res.status).toBe(200);
-      expect(mockInsert.mock.calls[0][0].reviewer_name).toBe('本人太郎');
-    });
-
-    test('ログイン済み・display_name未設定 → bodyのreviewer_nameをそのまま保存する（フォールバック）', async () => {
-      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false, displayName: null });
-
-      const res = await POST(makeRequest({ ...bizReview, reviewer_name: '自称山田' }));
+      const res = await POST(makeRequest({ ...bizReview, reviewer_name: 'たろー' }));
 
       expect(res.status).toBe(200);
-      expect(mockInsert.mock.calls[0][0].reviewer_name).toBe('自称山田');
+      expect(mockInsert.mock.calls[0][0].reviewer_name).toBe('たろー');
+      // 会員の投稿であることは user_id で残る（公開側は is_member として見せる）。
+      expect(mockInsert.mock.calls[0][0].user_id).toBe('user-123');
     });
 
-    test('未ログイン → profilesを参照せずbodyのreviewer_nameをそのまま保存する（匿名投稿の仕様維持）', async () => {
+    test('ログイン済みでも登録名（profiles.display_name）を読みに行かない', async () => {
+      const { mockProfilesSelect } = setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false, displayName: '本名太郎' });
+
+      const res = await POST(makeRequest({ ...bizReview, reviewer_name: 'たろー' }));
+
+      expect(res.status).toBe(200);
+      // profiles は口コミ通知の宛先メール（オーナーの email）にだけ使う。投稿者本人の名前は読まない。
+      expect(mockProfilesSelect).toHaveBeenCalledWith('email');
+      expect(mockProfilesSelect).not.toHaveBeenCalledWith('display_name');
+    });
+
+    test('未ログイン → bodyのreviewer_nameをそのまま保存し、user_id は付けない', async () => {
       setupBizMocks({ hasUser: false, hasRecentReview: false, hasCompletedBooking: false });
 
       const res = await POST(makeRequest({ ...bizReview, reviewer_name: '匿名希望' }));
 
       expect(res.status).toBe(200);
       expect(mockInsert.mock.calls[0][0].reviewer_name).toBe('匿名希望');
+      expect(mockInsert.mock.calls[0][0]).not.toHaveProperty('user_id');
     });
 
     // ─── 医療広告ガイドライン（2026年7月28日 追加） ───────────────────────────
@@ -537,6 +542,10 @@ describe('POST /api/review', () => {
       expect(res.status).toBe(200);
       await new Promise(r => setTimeout(r, 10));
       expect(sendPushToFacilityOwners).toHaveBeenCalledWith(VALID_FACILITY_UUID, expect.objectContaining({ title: expect.stringContaining('口コミ') }));
+      // 複数店舗のオーナーが別の店舗の口コミ画面を開かないよう、通知の遷移先で店舗を指定する。
+      expect(sendPushToFacilityOwners).toHaveBeenCalledWith(VALID_FACILITY_UUID, expect.objectContaining({
+        url: `/admin/reviews?facility_id=${VALID_FACILITY_UUID}`,
+      }));
     });
 
     test('push_on_review=false → 施設オーナーへ Push を送らない', async () => {
@@ -571,7 +580,7 @@ describe('POST /api/review', () => {
       const res = await POST(makeRequest(bizReview));
       expect(res.status).toBe(200);
       await new Promise((r) => setTimeout(r, 10));
-      expect(sendNewReviewNotification).toHaveBeenCalledWith(expect.objectContaining({ facilityEmail: 'owner@example.invalid' }));
+      expect(sendNewReviewNotification).toHaveBeenCalledWith(expect.objectContaining({ facilityEmail: 'owner@example.invalid', facilityId: VALID_FACILITY_UUID }));
     });
 
     test('施設にオーナーがいない場合はメールを送らない', async () => {

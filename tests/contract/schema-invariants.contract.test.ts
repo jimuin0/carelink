@@ -69,6 +69,13 @@ describe('schema invariants (configured Supabase)', () => {
       // reviewer_ip は View に存在しないため、選択するとエラーになるべき。
       expect(ipError?.code).toBe('42703');
 
+      // 投稿者のアカウント ID も公開しない（会員かどうかは is_member の真偽値だけで示す）。
+      const { error: userIdError } = await anon
+        .from('public_reviews')
+        .select('user_id')
+        .limit(1);
+      expect(userIdError?.code).toBe('42703');
+
       // 公開列のみなら読める（行数は問わない）。
       const { error: okError } = await anon
         .from('public_reviews')

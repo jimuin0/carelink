@@ -8,11 +8,9 @@ import { getClientIp } from '@/lib/client-ip';
 import { isValidIsoDate } from '@/lib/date-utils';
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 import { clampDuration, readSlots } from '@/lib/available-slots';
+import { SLOTS_WEEK_MAX_STAFF as MAX_STAFF, SLOTS_WEEK_MAX_DATES as MAX_DATES } from '@/lib/slots-week';
 
 export const dynamic = 'force-dynamic';
-
-const MAX_STAFF = 10;
-const MAX_DATES = 7;
 
 /**
  * 予約画面の日時マトリクス（スタッフ×最大7日）を 1 リクエストで返す（2026年10月22日）。
