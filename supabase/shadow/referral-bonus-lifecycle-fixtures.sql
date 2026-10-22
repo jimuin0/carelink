@@ -5,8 +5,12 @@
 --       customer's 300pt (the referrer's 500pt is skipped) and the settled bonus
 --       is not retried;
 --     - a completed visit corrected to no_show compensates both bonuses when no
---       completed visit is left, reopens the claim, and a later genuine first
---       visit grants them again; another completed visit keeps the bonus;
+--       completed visit is left (separate trigger booking_referral_bonus_reversal,
+--       next to the unchanged visit points reversal), reopens the claim, and a
+--       later genuine first visit grants them again; another completed visit
+--       keeps the bonus;
+--     - lock_booking_point_actors takes the customer's referrer only while the
+--       bonus is granted (the only state in which the referrer can be written);
 --   * 20261023010100_referral_code_before_first_visit.sql
 --     - a customer with a completed visit cannot apply a code
 --       (REFERRAL_NOT_ELIGIBLE, nothing written); an existing application still
@@ -24,6 +28,13 @@ CREATE FUNCTION pg_temp.balance(p_user uuid) RETURNS bigint LANGUAGE sql AS $$
   SELECT coalesce(sum(points), 0) FROM public.user_points WHERE user_id = p_user $$;
 CREATE FUNCTION pg_temp.reason_total(p_user uuid, p_reason text) RETURNS bigint LANGUAGE sql AS $$
   SELECT coalesce(sum(points), 0) FROM public.user_points WHERE user_id = p_user AND reason = p_reason $$;
+-- Whether this transaction holds the points lock of an account (lock_booking_account's key).
+-- A bigint advisory key is shown as classid = high half, objid = low half, objsubid = 1.
+CREATE FUNCTION pg_temp.holds_points_lock(p_user uuid) RETURNS boolean LANGUAGE sql AS $$
+  WITH k AS (SELECT hashtextextended('carelink-points:' || p_user::text, 0) AS v)
+  SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks l, k
+    WHERE l.locktype = 'advisory' AND l.pid = pg_backend_pid() AND l.granted AND l.objsubid = 1
+      AND l.classid = ((k.v >> 32) & 4294967295)::oid AND l.objid = (k.v & 4294967295)::oid) $$;
 
 SELECT pg_temp.assert_referral(
   NOT has_function_privilege('anon', 'public.lock_booking_account_if_present(uuid)', 'EXECUTE')
@@ -31,32 +42,70 @@ SELECT pg_temp.assert_referral(
   AND has_function_privilege('service_role', 'public.lock_booking_account_if_present(uuid)', 'EXECUTE'),
   'presence lock is server-only');
 SELECT pg_temp.assert_referral(
-  NOT has_function_privilege('anon', 'public.reverse_referral_points_without_visit(uuid)', 'EXECUTE')
-  AND NOT has_function_privilege('authenticated', 'public.reverse_referral_points_without_visit(uuid)', 'EXECUTE')
-  AND NOT has_function_privilege('service_role', 'public.reverse_referral_points_without_visit(uuid)', 'EXECUTE'),
-  'bonus reversal is reachable only from the booking points trigger');
+  NOT has_function_privilege('anon', 'public.reverse_referral_bonus_without_visit()', 'EXECUTE')
+  AND NOT has_function_privilege('authenticated', 'public.reverse_referral_bonus_without_visit()', 'EXECUTE')
+  AND NOT has_function_privilege('service_role', 'public.reverse_referral_bonus_without_visit()', 'EXECUTE'),
+  'bonus reversal is reachable only from its trigger');
+SELECT pg_temp.assert_referral(
+  EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgrelid = 'public.bookings'::regclass
+    AND t.tgname = 'booking_referral_bonus_reversal' AND t.tgenabled = 'O'
+    AND t.tgfoid = 'public.reverse_referral_bonus_without_visit()'::regprocedure)
+  AND EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgrelid = 'public.bookings'::regclass
+    AND t.tgname = 'booking_points_atomic' AND t.tgfoid = 'public.sync_booking_points()'::regprocedure),
+  'the bonus reversal trigger sits next to the visit points trigger');
 
 -- 001 owner, 002 referrer, 003 referred, 004 already visited,
--- 005 referrer who deletes the account, 006 referred by 005.
+-- 005 referrer who deletes the account, 006 referred by 005,
+-- 007 referred (bonus not granted) by 008, 009 referred (bonus granted) by 010.
 INSERT INTO auth.users(id, email, email_confirmed_at) VALUES
  ('fd210000-0000-4000-8000-000000000001', 'lifecycle-owner@example.invalid', now()),
  ('fd210000-0000-4000-8000-000000000002', 'lifecycle-referrer@example.invalid', now()),
  ('fd210000-0000-4000-8000-000000000003', 'lifecycle-referred@example.invalid', now()),
  ('fd210000-0000-4000-8000-000000000004', 'lifecycle-visited@example.invalid', now()),
  ('fd210000-0000-4000-8000-000000000005', 'lifecycle-leaving@example.invalid', now()),
- ('fd210000-0000-4000-8000-000000000006', 'lifecycle-orphaned@example.invalid', now());
+ ('fd210000-0000-4000-8000-000000000006', 'lifecycle-orphaned@example.invalid', now()),
+ ('fd210000-0000-4000-8000-000000000007', 'lifecycle-pending@example.invalid', now()),
+ ('fd210000-0000-4000-8000-000000000008', 'lifecycle-pending-referrer@example.invalid', now()),
+ ('fd210000-0000-4000-8000-000000000009', 'lifecycle-granted@example.invalid', now()),
+ ('fd210000-0000-4000-8000-000000000010', 'lifecycle-granted-referrer@example.invalid', now());
 INSERT INTO public.facility_profiles(id, name, slug, business_type, prefecture, city, address, status)
  VALUES ('fd220000-0000-4000-8000-000000000001', 'Referral lifecycle synthetic', 'referral-lifecycle-synthetic', 'その他', '検証県', '検証市', '検証住所', 'draft');
 INSERT INTO public.facility_members(user_id, facility_id, role)
  VALUES ('fd210000-0000-4000-8000-000000000001', 'fd220000-0000-4000-8000-000000000001', 'owner');
 INSERT INTO public.referral_codes(user_id, code, used_count) VALUES
  ('fd210000-0000-4000-8000-000000000002', 'LCYCLAAA', 0),
- ('fd210000-0000-4000-8000-000000000005', 'LCYCLDDD', 0);
+ ('fd210000-0000-4000-8000-000000000005', 'LCYCLDDD', 0),
+ ('fd210000-0000-4000-8000-000000000008', 'LCYCLEEE', 0),
+ ('fd210000-0000-4000-8000-000000000010', 'LCYCLFFF', 0);
 
+-- Lock scope. These referral rows are written with the insert guard off, because
+-- the guard itself locks both accounts and would hide what is measured here.
+ALTER TABLE public.referral_uses DISABLE TRIGGER guard_referral_use_actor;
+INSERT INTO public.referral_uses(code, referred_user_id, referrer_user_id, points_awarded) VALUES
+ ('LCYCLEEE', 'fd210000-0000-4000-8000-000000000007', 'fd210000-0000-4000-8000-000000000008', false),
+ ('LCYCLFFF', 'fd210000-0000-4000-8000-000000000009', 'fd210000-0000-4000-8000-000000000010', true);
+ALTER TABLE public.referral_uses ENABLE TRIGGER guard_referral_use_actor;
+SELECT pg_temp.assert_referral(
+  NOT pg_temp.holds_points_lock('fd210000-0000-4000-8000-000000000008')
+  AND NOT pg_temp.holds_points_lock('fd210000-0000-4000-8000-000000000010'),
+  'lock probe starts with neither referrer locked');
 SET LOCAL ROLE service_role;
+SELECT public.lock_booking_point_actors('fd210000-0000-4000-8000-000000000001', 'fd210000-0000-4000-8000-000000000007');
+SELECT pg_temp.assert_referral(
+  pg_temp.holds_points_lock('fd210000-0000-4000-8000-000000000001')
+  AND pg_temp.holds_points_lock('fd210000-0000-4000-8000-000000000007')
+  AND NOT pg_temp.holds_points_lock('fd210000-0000-4000-8000-000000000008'),
+  'a referrer whose bonus is not granted is not locked by the customer''s booking operations');
+SELECT public.lock_booking_point_actors('fd210000-0000-4000-8000-000000000001', 'fd210000-0000-4000-8000-000000000009');
+SELECT pg_temp.assert_referral(
+  pg_temp.holds_points_lock('fd210000-0000-4000-8000-000000000009')
+  AND pg_temp.holds_points_lock('fd210000-0000-4000-8000-000000000010'),
+  'a granted bonus locks its referrer in the same sorted pass');
+
 -- 001-003 referred customer, 004 already visited customer, 005 customer of the leaving referrer.
+-- 001 earns visit points (1% of 1000) so one status change reverses both kinds of points.
 INSERT INTO public.bookings(id, facility_id, user_id, booking_date, start_time, end_time, customer_name, email, status, total_price, points_used) VALUES
- ('fd230000-0000-4000-8000-000000000001', 'fd220000-0000-4000-8000-000000000001', 'fd210000-0000-4000-8000-000000000003', '2030-01-07', '10:00', '11:00', 'Synthetic', NULL, 'confirmed', 0, 0),
+ ('fd230000-0000-4000-8000-000000000001', 'fd220000-0000-4000-8000-000000000001', 'fd210000-0000-4000-8000-000000000003', '2030-01-07', '10:00', '11:00', 'Synthetic', NULL, 'confirmed', 1000, 0),
  ('fd230000-0000-4000-8000-000000000002', 'fd220000-0000-4000-8000-000000000001', 'fd210000-0000-4000-8000-000000000003', '2030-01-07', '11:00', '12:00', 'Synthetic', NULL, 'confirmed', 0, 0),
  ('fd230000-0000-4000-8000-000000000003', 'fd220000-0000-4000-8000-000000000001', 'fd210000-0000-4000-8000-000000000003', '2030-01-07', '12:00', '13:00', 'Synthetic', NULL, 'confirmed', 0, 0),
  ('fd230000-0000-4000-8000-000000000004', 'fd220000-0000-4000-8000-000000000001', 'fd210000-0000-4000-8000-000000000004', '2030-01-07', '13:00', '14:00', 'Synthetic', NULL, 'confirmed', 0, 0),
@@ -82,24 +131,27 @@ SELECT * FROM public.complete_booking_with_points_atomic('fd210000-0000-4000-800
 SELECT pg_temp.assert_referral(public.award_referral_points_atomic('fd210000-0000-4000-8000-000000000003'), 'first completed visit grants the bonus');
 SELECT pg_temp.assert_referral(
   pg_temp.balance('fd210000-0000-4000-8000-000000000002') = 500
-  AND pg_temp.balance('fd210000-0000-4000-8000-000000000003') = 300
+  AND pg_temp.balance('fd210000-0000-4000-8000-000000000003') = 310
+  AND pg_temp.reason_total('fd210000-0000-4000-8000-000000000003', '来店ポイント') = 10
   AND (SELECT points_awarded FROM public.referral_uses WHERE referred_user_id = 'fd210000-0000-4000-8000-000000000003'),
-  'referrer 500 and customer 300 granted once');
+  'referrer 500 and customer 300 (+10 visit points) granted once');
 SELECT pg_temp.assert_referral((SELECT replayed FROM public.apply_referral_code_atomic('fd210000-0000-4000-8000-000000000003', 'LCYCLAAA')),
   'the existing application still replays after the visit');
 
--- The only completed visit is corrected to no_show: both bonuses are compensated, history kept.
+-- The only completed visit is corrected to no_show: the visit points and both
+-- bonuses are compensated in the same status change, history kept.
 SELECT * FROM public.save_booking_email_event_atomic('fd210000-0000-4000-8000-000000000001', 'fd230000-0000-4000-8000-000000000001', 'completed',
   (SELECT updated_at FROM public.bookings WHERE id = 'fd230000-0000-4000-8000-000000000001'), 'no_show', NULL);
 SELECT pg_temp.assert_referral(
   pg_temp.balance('fd210000-0000-4000-8000-000000000002') = 0
   AND pg_temp.balance('fd210000-0000-4000-8000-000000000003') = 0
+  AND pg_temp.reason_total('fd210000-0000-4000-8000-000000000003', '来店ポイント取消') = -10
   AND pg_temp.reason_total('fd210000-0000-4000-8000-000000000002', '紹介ボーナス') = 500
   AND pg_temp.reason_total('fd210000-0000-4000-8000-000000000002', '紹介ボーナス取消') = -500
   AND pg_temp.reason_total('fd210000-0000-4000-8000-000000000003', '紹介コード利用ボーナス') = 300
   AND pg_temp.reason_total('fd210000-0000-4000-8000-000000000003', '紹介コード利用ボーナス取消') = -300
   AND (SELECT points_awarded = false FROM public.referral_uses WHERE referred_user_id = 'fd210000-0000-4000-8000-000000000003'),
-  'reversing the only completed visit reverses both bonuses and reopens the claim');
+  'reversing the only completed visit reverses the visit points and both bonuses and reopens the claim');
 SELECT pg_temp.assert_referral(NOT public.award_referral_points_atomic('fd210000-0000-4000-8000-000000000003'), 'no completed visit, no bonus');
 
 -- A later genuine first visit grants again; a second visit does not grant twice.

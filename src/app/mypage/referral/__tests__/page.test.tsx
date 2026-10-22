@@ -7,6 +7,7 @@
 import '@testing-library/jest-dom';
 import { render, screen, fireEvent } from '@testing-library/react';
 import ReferralPage from '@/app/mypage/referral/page';
+import { referralShareText } from '@/lib/referral-code';
 
 function mockFetch(ok: boolean, body: object) {
   global.fetch = jest.fn(() =>
@@ -106,4 +107,43 @@ test('入力は初回のご予約の前に、と完了取り消し時の扱い�
   expect(await screen.findByText('友達から紹介コードをもらったら、初回のご予約の前に入力してください。初回のご予約完了で300ポイントをプレゼントします。')).toBeInTheDocument();
   expect(screen.getByText('※紹介コードは初回のご来店前の方のみご利用いただけます。')).toBeInTheDocument();
   expect(screen.getByText('※ご予約の完了が取り消された場合（無断キャンセルへの訂正など）は、紹介のポイントも取り消されます。')).toBeInTheDocument();
+});
+
+describe('X・LINE の共有文に利用条件を書く（友達が最初に読む文）', () => {
+  const CONDITION = '初回のご予約の前に紹介コード「ABCD2345」を入力すると、初回のご予約完了で300ポイントもらえます';
+  let open: jest.SpyInstance;
+  beforeEach(() => { open = jest.spyOn(window, 'open').mockImplementation(() => null); });
+  afterEach(() => open.mockRestore());
+
+  test('X の共有文', async () => {
+    mockFetch(true, { code: 'ABCD2345', used_count: 0, already_referred: false });
+    render(<ReferralPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'X(Twitter)でシェア' }));
+    const url = new URL(open.mock.calls[0][0] as string);
+    expect(url.searchParams.get('text')).toBe(referralShareText('ABCD2345'));
+    expect(url.searchParams.get('text')).toContain(CONDITION);
+  });
+
+  test('LINE の共有文', async () => {
+    mockFetch(true, { code: 'ABCD2345', used_count: 0, already_referred: false });
+    render(<ReferralPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'LINEでシェア' }));
+    const url = new URL(open.mock.calls[0][0] as string);
+    expect(url.searchParams.get('text')).toContain(CONDITION);
+    expect(url.searchParams.get('text')).toContain('?ref=ABCD2345');
+  });
+});
+
+test('ポイント説明のカードは白文字が AA を満たす濃さ（半透明にしない）', async () => {
+  mockFetch(true, { code: 'ABCD2345', used_count: 0, already_referred: false });
+  render(<ReferralPage />);
+  const card = (await screen.findByText('あなたに500pt・友達に300pt')).parentElement!;
+  // 白文字は sky-500 の上で約 2.3:1、sky-600 でも約 3.2:1 しかない。sky-700 なら 5.9:1。
+  expect(card.className).toContain('from-sky-700');
+  expect(card.className).toContain('to-sky-800');
+  expect(card.className).not.toMatch(/sky-[56]00/);
+  for (const el of [card, ...Array.from(card.querySelectorAll('*'))]) {
+    expect(el.className).not.toMatch(/opacity-/);
+  }
+  expect(screen.getByText('友達の初回のご予約完了で、招待した方・された方の両方にポイントをプレゼント')).toBeInTheDocument();
 });

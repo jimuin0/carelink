@@ -7597,10 +7597,6 @@ export type Database = {
           outcome: string
         }[]
       }
-      reverse_referral_points_without_visit: {
-        Args: { p_user_id: string }
-        Returns: boolean
-      }
       review_content_hash: {
         Args: { r: Database["public"]["Tables"]["facility_reviews"]["Row"] }
         Returns: string

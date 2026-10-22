@@ -3,9 +3,11 @@ import {
   REFERRAL_CODE_ALPHABET,
   REFERRAL_CODE_LENGTH,
   REFERRAL_NOT_ELIGIBLE_MESSAGE,
+  REFERRAL_REFERRED_POINTS,
   referralCodeFromParam,
   referralEntryPath,
   referralLoginHref,
+  referralShareText,
   referralSignupHref,
 } from '../referral-code';
 import { safeRedirect } from '../safe-redirect';
@@ -62,4 +64,11 @@ describe('共有リンクから入力画面までコードを運ぶ', () => {
 
 test('来店済みの方への案内は理由が分かる文言にする', () => {
   expect(REFERRAL_NOT_ELIGIBLE_MESSAGE).toBe('紹介コードは初回のご来店前の方のみご利用いただけます。');
+});
+
+test('共有文はコードと利用条件（初回のご予約の前に入力・初回のご予約完了で付与）を書く', () => {
+  expect(REFERRAL_REFERRED_POINTS).toBe(300);
+  expect(referralShareText('ABCD2345')).toBe(
+    'CareLinkで健康・美容施設を予約しよう！初回のご予約の前に紹介コード「ABCD2345」を入力すると、初回のご予約完了で300ポイントもらえます🎁',
+  );
 });

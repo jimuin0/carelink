@@ -15,7 +15,7 @@
 --    points_awarded becomes true, so the bonus is settled and the alert stops.
 --    A missing referred customer still raises, as before.
 --
--- 2. Reversed first visit (sync_booking_points).
+-- 2. Reversed first visit (new trigger booking_referral_bonus_reversal).
 --    Before: correcting a completed visit to 無断キャンセル reversed the visit
 --    points (来店ポイント取消) but kept 紹介ボーナス 500pt + 紹介コード利用ボーナス
 --    300pt, which award_referral_points_atomic grants on the referred
@@ -28,20 +28,31 @@
 --    visit remains, the bonus stays: it is still backed by a real visit.
 --    As for 来店ポイント取消, the balance is not checked: a bonus already spent
 --    leaves a negative balance, which blocks further point use.
---    The compensation writes to the referrer's ledger. lock_booking_point_actors
---    therefore also takes the customer's referrer, in the same sorted pass as
---    the actor and the customer, so the trigger never takes a points lock out
---    of order. A deleted referrer is skipped there too.
+--    This is a separate AFTER trigger on purpose. sync_booking_points (the visit
+--    points) is NOT replaced here, so this migration cannot overwrite another
+--    change to it (20261023000100_booking_visit_points_cap.sql caps the visit
+--    points in that function; whichever of the two is applied first, both
+--    behaviours survive).
+--    Locks: the compensation writes to the referrer's ledger.
+--    lock_booking_point_actors takes the customer's referrer in the same sorted
+--    pass as the actor and the customer, but only while the bonus is granted
+--    (points_awarded) — the only state in which the referrer can be written.
+--    Other referrals add no lock, so the operations of all the customers one
+--    person referred are not serialised behind that person. If the bonus is
+--    granted between that read and the trigger (award_referral_points_atomic
+--    committing in between), the trigger takes the referrer's lock after the
+--    others; the worst case is a deadlock PostgreSQL detects, and the retried
+--    request succeeds. A deleted referrer is skipped everywhere.
 --
 -- Order: safe to apply before the application deploy. Same signatures, owners,
 -- security modes, search_path and grants (re-stated below). The application
 -- calls award_referral_points_atomic exactly as before, and
 -- save_booking_email_event_atomic (completed -> no_show) reaches the reversal
--- through the existing booking_points_atomic trigger. No data rewrite
--- (production has no referral_uses rows).
+-- through the new trigger. No data rewrite (production has no referral_uses rows).
 -- Latest definitions replaced here (no later migration or DO-block patch):
--- lock_booking_point_actors, sync_booking_points and award_referral_points_atomic
--- from 20261008080209_atomic_booking_points.sql.
+-- lock_booking_point_actors and award_referral_points_atomic from
+-- 20261008080209_atomic_booking_points.sql.
+-- Real-DB verification: supabase/shadow/referral-bonus-lifecycle-fixtures.sql.
 DO $guard$ BEGIN IF to_regclass('public.facility_profiles') IS NULL THEN RAISE EXCEPTION 'not the CareLink database'; END IF; END $guard$;
 
 -- Same lock as lock_booking_account, but an account that no longer exists is
@@ -60,11 +71,13 @@ REVOKE ALL ON FUNCTION public.lock_booking_account_if_present(uuid) FROM PUBLIC,
 GRANT EXECUTE ON FUNCTION public.lock_booking_account_if_present(uuid) TO service_role;
 
 -- Lock cross-user actors deterministically before any facility/membership rows.
--- The customer's referrer is included: a booking leaving 'completed' may write
--- the referral bonus compensation to that account (sync_booking_points).
+-- The customer's referrer is included while the bonus is granted: a booking
+-- leaving 'completed' may then write the compensation to that account
+-- (booking_referral_bonus_reversal).
 CREATE OR REPLACE FUNCTION public.lock_booking_point_actors(p_actor_id uuid,p_customer_id uuid) RETURNS void
 LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS $$ DECLARE uid uuid; ref uuid; BEGIN
- SELECT u.referrer_user_id INTO ref FROM public.referral_uses u WHERE u.referred_user_id=p_customer_id;
+ SELECT u.referrer_user_id INTO ref FROM public.referral_uses u
+  WHERE u.referred_user_id=p_customer_id AND u.points_awarded IS TRUE;
  FOR uid IN SELECT DISTINCT x FROM unnest(ARRAY[p_actor_id,p_customer_id,ref]) x WHERE x IS NOT NULL ORDER BY x LOOP
   IF uid IS NOT DISTINCT FROM p_actor_id OR uid IS NOT DISTINCT FROM p_customer_id THEN
    PERFORM public.lock_booking_account(uid);
@@ -105,73 +118,27 @@ GRANT EXECUTE ON FUNCTION public.award_referral_points_atomic(uuid) TO service_r
 
 -- The bonus is earned by the referred customer's first completed visit. Once no
 -- completed visit is left, compensate both credits and reopen the claim.
--- Only sync_booking_points calls this, after it locked p_user_id; the caller's
--- lock_booking_point_actors already took the referrer in sorted order.
-CREATE OR REPLACE FUNCTION public.reverse_referral_points_without_visit(p_user_id uuid) RETURNS boolean
+-- AFTER trigger: the booking's new status is already visible to the EXISTS check.
+-- The customer is locked again (re-entrant; the status-change RPC and
+-- sync_booking_points already hold it) and the referrer was taken in sorted
+-- order by lock_booking_point_actors while the bonus was granted.
+CREATE OR REPLACE FUNCTION public.reverse_referral_bonus_without_visit() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
 DECLARE r public.referral_uses%ROWTYPE;
 BEGIN
-  SELECT * INTO r FROM public.referral_uses WHERE referred_user_id=p_user_id FOR UPDATE;
-  IF NOT FOUND OR r.points_awarded IS NOT TRUE THEN RETURN false; END IF;
-  IF EXISTS(SELECT 1 FROM public.bookings WHERE user_id=p_user_id AND status='completed') THEN RETURN false; END IF;
+  IF NEW.user_id IS NULL OR OLD.status IS DISTINCT FROM 'completed' OR NEW.status='completed' THEN RETURN NULL; END IF;
+  PERFORM public.lock_booking_account(NEW.user_id);
+  SELECT * INTO r FROM public.referral_uses WHERE referred_user_id=NEW.user_id FOR UPDATE;
+  IF NOT FOUND OR r.points_awarded IS NOT TRUE THEN RETURN NULL; END IF;
+  IF EXISTS(SELECT 1 FROM public.bookings WHERE user_id=NEW.user_id AND status='completed') THEN RETURN NULL; END IF;
   IF public.lock_booking_account_if_present(r.referrer_user_id) THEN
     INSERT INTO public.user_points(user_id,points,reason) VALUES(r.referrer_user_id,-500,'紹介ボーナス取消');
   END IF;
-  INSERT INTO public.user_points(user_id,points,reason) VALUES(p_user_id,-300,'紹介コード利用ボーナス取消');
+  INSERT INTO public.user_points(user_id,points,reason) VALUES(NEW.user_id,-300,'紹介コード利用ボーナス取消');
   UPDATE public.referral_uses SET points_awarded=false WHERE id=r.id;
-  RETURN true;
+  RETURN NULL;
 END $$;
-REVOKE ALL ON FUNCTION public.reverse_referral_points_without_visit(uuid) FROM PUBLIC,anon,authenticated,service_role;
-
-CREATE OR REPLACE FUNCTION public.sync_booking_points() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE balance bigint; earned int; awarded int; debit int;
-BEGIN
-  IF coalesce(NEW.points_used,0)<0 THEN RAISE EXCEPTION 'INVALID_BOOKING_POINTS'; END IF;
-  IF NEW.user_id IS NULL THEN
-    IF coalesce(NEW.points_used,0)>0 THEN RAISE EXCEPTION 'POINTS_AUTH_REQUIRED'; END IF;
-    RETURN NEW;
-  END IF;
-  PERFORM public.lock_booking_account(NEW.user_id);
-  IF TG_OP='INSERT' AND coalesce(NEW.points_used,0)>0 THEN
-    SELECT coalesce(sum(points),0) INTO balance FROM public.user_points WHERE user_id=NEW.user_id;
-    IF balance<NEW.points_used THEN RAISE EXCEPTION 'POINTS_INSUFFICIENT'; END IF;
-    INSERT INTO public.user_points(user_id,points,reason,booking_id,booking_operation)
-      VALUES(NEW.user_id,-NEW.points_used,'予約利用 ('||left(NEW.id::text,8)||')',NEW.id,'debit');
-  END IF;
-  IF NEW.status='completed' AND (TG_OP='INSERT' OR OLD.status IS DISTINCT FROM 'completed') THEN
-    earned:=floor(greatest(coalesce(NEW.total_price,0),0)/100.0)::int;
-    IF earned>0 THEN
-      -- Unclassified legacy booking rows require reconciliation, not guesswork.
-      IF EXISTS(SELECT 1 FROM public.user_points WHERE booking_id=NEW.id AND booking_operation IS NULL)
-        THEN RAISE EXCEPTION 'POINTS_LEGACY_RECONCILIATION_REQUIRED'; END IF;
-      INSERT INTO public.user_points(user_id,points,reason,booking_id,booking_operation)
-        VALUES(NEW.user_id,earned,'来店ポイント',NEW.id,'award');
-    END IF;
-  ELSIF TG_OP='UPDATE' AND OLD.status='completed' AND NEW.status IS DISTINCT FROM 'completed' THEN
-    SELECT points INTO awarded FROM public.user_points
-      WHERE booking_id=NEW.id AND user_id=NEW.user_id AND booking_operation='award';
-    IF EXISTS(SELECT 1 FROM public.user_points WHERE booking_id=NEW.id AND booking_operation IS NULL)
-      THEN RAISE EXCEPTION 'POINTS_LEGACY_RECONCILIATION_REQUIRED'; END IF;
-    IF coalesce(awarded,0)>0 THEN
-      INSERT INTO public.user_points(user_id,points,reason,booking_id,booking_operation)
-        VALUES(NEW.user_id,-awarded,'来店ポイント取消',NEW.id,'reversal');
-    END IF;
-    -- The referral bonus follows the first completed visit it was granted for.
-    PERFORM public.reverse_referral_points_without_visit(NEW.user_id);
-  END IF;
-  IF NEW.status='cancelled' AND (TG_OP='INSERT' OR OLD.status IS DISTINCT FROM 'cancelled')
-    AND coalesce(NEW.points_used,0)>0 THEN
-    SELECT -points INTO debit FROM public.user_points
-      WHERE booking_id=NEW.id AND user_id=NEW.user_id AND booking_operation='debit';
-    IF debit IS DISTINCT FROM NEW.points_used
-      THEN RAISE EXCEPTION 'POINTS_LEGACY_RECONCILIATION_REQUIRED'; END IF;
-    -- An exact historical refund is already fulfilled; never credit it twice.
-    IF NOT EXISTS(SELECT 1 FROM public.user_points WHERE booking_id=NEW.id AND booking_operation='refund') THEN
-      INSERT INTO public.user_points(user_id,points,reason,booking_id,booking_operation)
-        VALUES(NEW.user_id,NEW.points_used,'キャンセル返還',NEW.id,'refund');
-    END IF;
-  END IF;
-  RETURN NEW;
-END $$;
-REVOKE ALL ON FUNCTION public.sync_booking_points() FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.reverse_referral_bonus_without_visit() FROM PUBLIC,anon,authenticated,service_role;
+CREATE TRIGGER booking_referral_bonus_reversal AFTER UPDATE OF status ON public.bookings
+  FOR EACH ROW WHEN (OLD.status='completed' AND NEW.status IS DISTINCT FROM 'completed' AND NEW.user_id IS NOT NULL)
+  EXECUTE FUNCTION public.reverse_referral_bonus_without_visit();

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useConfirmedClipboard } from '@/hooks/useConfirmedClipboard';
 import Toast from '@/components/Toast';
-import { referralCodeFromParam } from '@/lib/referral-code';
+import { referralCodeFromParam, referralShareText } from '@/lib/referral-code';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://carelink-jp.com';
 
@@ -45,14 +45,17 @@ export default function ReferralPage() {
 
   const shareUrl = `${SITE_URL}?ref=${referralCode ?? ''}`;
 
+  // 共有文は利用条件（初回のご予約の前に入力）まで書く（src/lib/referral-code.ts）。
+  const shareText = referralShareText(referralCode ?? '');
+
   const shareOnX = () => {
-    const text = encodeURIComponent(`CareLinkで健康・美容施設を予約しよう！紹介コード「${referralCode}」で${300}ポイントもらえます🎁`);
+    const text = encodeURIComponent(shareText);
     const url = encodeURIComponent(shareUrl);
     window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, '_blank', 'noopener');
   };
 
   const shareOnLine = () => {
-    const text = encodeURIComponent(`CareLinkで健康・美容施設を予約しよう！紹介コード「${referralCode}」で${300}ポイントもらえます🎁 ${shareUrl}`);
+    const text = encodeURIComponent(`${shareText} ${shareUrl}`);
     window.open(`https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(shareUrl)}&text=${text}`, '_blank', 'noopener');
   };
 
@@ -105,10 +108,11 @@ export default function ReferralPage() {
       <h1 className="text-xl font-bold">友達招待プログラム</h1>
 
       {/* ポイント説明 */}
-      <div className="bg-linear-to-br from-sky-500 to-sky-600 text-white rounded-2xl p-6">
-        <p className="text-sm opacity-90 mb-2">友達を招待すると</p>
+      {/* 白文字は sky-700 の上で 5.93:1（AA の 4.5:1 以上）。半透明にすると下回るので不透明のまま使う */}
+      <div className="bg-linear-to-br from-sky-700 to-sky-800 text-white rounded-2xl p-6">
+        <p className="text-sm mb-2">友達を招待すると</p>
         <p className="text-3xl font-bold">あなたに500pt・友達に300pt</p>
-        <p className="text-sm opacity-80 mt-1">友達の初回のご予約完了で、招待した方・された方の両方にポイントをプレゼント</p>
+        <p className="text-sm mt-1">友達の初回のご予約完了で、招待した方・された方の両方にポイントをプレゼント</p>
       </div>
 
       {/* 自分の紹介コード */}

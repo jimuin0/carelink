@@ -39,3 +39,15 @@ export function referralLoginHref(code: string): string {
 
 /** 来店済み（完了した予約がある）方がコードを入力したときの案内（REFERRAL_NOT_ELIGIBLE）。 */
 export const REFERRAL_NOT_ELIGIBLE_MESSAGE = '紹介コードは初回のご来店前の方のみご利用いただけます。';
+
+/** 紹介された方（友達）へのポイント（award_referral_points_atomic の 紹介コード利用ボーナス）。 */
+export const REFERRAL_REFERRED_POINTS = 300;
+
+/**
+ * X・LINE で友達へ送る共有文。友達が最初に読む文なので、利用条件（初回のご予約の前に入力）と
+ * 付与の時点（初回のご予約完了）を必ず書く。条件を書かないと、来店済みの友達は入力してから
+ * REFERRAL_NOT_ELIGIBLE で断られるまで条件を知る機会が無い。
+ */
+export function referralShareText(code: string): string {
+  return `CareLinkで健康・美容施設を予約しよう！初回のご予約の前に紹介コード「${code}」を入力すると、初回のご予約完了で${REFERRAL_REFERRED_POINTS}ポイントもらえます🎁`;
+}
