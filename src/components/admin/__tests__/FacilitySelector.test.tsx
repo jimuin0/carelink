@@ -88,3 +88,21 @@ test('schedule selection preserves the date and does not pretend to be a setting
     .toBe(`/admin/schedule?facility_id=${second}&date=2026-10-01`);
   expect(screen.queryByRole('link', { name: 'この店舗の基本情報を編集' })).toBeNull();
 });
+
+// 店舗が1つだけのオーナーに「編集する店舗」の枠を出しても選ぶものが無い（画面の上部を占めるだけ）。
+test('店舗が1つだけなら「編集する店舗」の枠を出さず、画面間の移動リンクだけを残す', () => {
+  const { container, rerender } = render(<FacilitySelector choices={[{ id: first, name: '合成店舗A' }]} selectedId={first} path="/admin/menus" />);
+  expect(container.textContent).toBe('');
+  rerender(<FacilitySelector choices={[{ id: first, name: '合成店舗A' }]} selectedId={first} path="/admin/settings" />);
+  expect(screen.queryByText('編集する店舗')).toBeNull();
+  expect(screen.queryByRole('link', { name: '合成店舗A（選択中）' })).toBeNull();
+  expect(screen.getByRole('link', { name: 'この店舗の写真を管理' }).getAttribute('href')).toBe(`/admin/photos?facility_id=${first}`);
+});
+
+test('店舗が1つだけでも、未保存の変更があれば移動の前に確認する', () => {
+  render(<FacilitySelector choices={[{ id: first, name: '合成店舗A' }]} selectedId={first} path="/admin/settings" dirty />);
+  fireEvent.click(screen.getByRole('link', { name: 'この店舗の写真を管理' }));
+  expect(mockPush).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '破棄して移動' }));
+  expect(mockPush).toHaveBeenCalledWith(`/admin/photos?facility_id=${first}`);
+});

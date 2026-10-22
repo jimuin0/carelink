@@ -249,5 +249,7 @@ test('a single store is selected automatically without a query', async () => {
   render(<QaPage />);
   await screen.findByText(`質問-${A}`);
   expect(reads.find(read => read.table === 'facility_qa')?.eq).toEqual([['facility_id', A]]);
-  expect(screen.getByRole('link', { name: '合成店舗A（選択中）' })).toBeTruthy();
+  // 選ぶものが無いので「編集する店舗」の枠は出さない
+  expect(screen.queryByRole('region', { name: '編集する店舗' })).toBeNull();
+  expect(screen.queryByRole('link', { name: '合成店舗A（選択中）' })).toBeNull();
 });
