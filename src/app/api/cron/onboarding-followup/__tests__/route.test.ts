@@ -489,7 +489,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     setupDefaultMocks(1, false, true, true, true);
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ missingSteps: ['無料掲載を公開'], bookingSteps: ['ネット予約：公開メニュー登録'] })
+      expect.objectContaining({ missingSteps: ['無料掲載を公開'], bookingSteps: ['公開メニュー登録'] })
     );
   });
 
@@ -497,7 +497,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     setupDefaultMocks(1, true, false, true, true);
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ bookingSteps: ['ネット予約：スタッフ登録と勤務時間の保存', '予約枠：勤務スケジュール設定'] })
+      expect.objectContaining({ bookingSteps: ['スタッフ登録と勤務時間の保存'] })
     );
   });
 
@@ -505,7 +505,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     setupDefaultMocks(1, true, true, false, true);
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ bookingSteps: ['ネット予約：写真アップロード'] })
+      expect.objectContaining({ bookingSteps: ['写真アップロード'] })
     );
   });
 
@@ -514,7 +514,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     setupDefaultMocks(1, true, true, true, false);
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ bookingSteps: ['ネット予約：スタッフ登録と勤務時間の保存', '予約枠：勤務スケジュール設定'] })
+      expect.objectContaining({ bookingSteps: ['スタッフ登録と勤務時間の保存'] })
     );
   });
 
@@ -541,7 +541,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     }));
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
-      bookingSteps: ['ネット予約：スタッフ登録と勤務時間の保存', '予約枠：勤務スケジュール設定'],
+      bookingSteps: ['スタッフ登録と勤務時間の保存'],
     }));
   });
 
@@ -583,8 +583,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
       missingSteps: ['基本情報（住所）', '無料掲載を公開'],
       bookingSteps: [
-        'ネット予約：公開メニュー登録', 'ネット予約：スタッフ登録と勤務時間の保存', 'ネット予約：写真アップロード',
-        'ネット予約：営業時間の確認・保存', '予約枠：勤務スケジュール設定',
+        '営業時間の入力・保存', '公開メニュー登録', '写真アップロード', 'スタッフ登録と勤務時間の保存',
       ],
     }));
   });
@@ -599,7 +598,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
       missingSteps: ['無料掲載を公開'],
-      bookingSteps: ['ネット予約：公開メニュー登録', 'ネット予約：スタッフ登録と勤務時間の保存', '予約枠：勤務スケジュール設定'],
+      bookingSteps: ['公開メニュー登録', 'スタッフ登録と勤務時間の保存'],
     }));
   });
 
@@ -611,7 +610,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     }));
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
-      missingSteps: ['無料掲載を公開'], bookingSteps: ['予約枠：勤務スケジュール設定'],
+      missingSteps: ['無料掲載を公開'], bookingSteps: [],
     }));
   });
 
@@ -747,8 +746,7 @@ describe('GET /api/cron/onboarding-followup', () => {
       expect.objectContaining({
         missingSteps: ['無料掲載を公開'],
         bookingSteps: [
-          'ネット予約：公開メニュー登録', 'ネット予約：スタッフ登録と勤務時間の保存', 'ネット予約：写真アップロード',
-          '予約枠：勤務スケジュール設定',
+          '公開メニュー登録', '写真アップロード', 'スタッフ登録と勤務時間の保存',
         ],
       })
     );
@@ -773,7 +771,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     expect(res.status).toBe(200);
     expect(mockFromDelegate).not.toHaveBeenCalledWith('staff_schedules');
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ bookingSteps: ['ネット予約：スタッフ登録と勤務時間の保存', '予約枠：勤務スケジュール設定'] })
+      expect.objectContaining({ bookingSteps: ['スタッフ登録と勤務時間の保存'] })
     );
   });
 
@@ -858,7 +856,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ bookingSteps: ['ネット予約：公開メニュー登録', 'ネット予約：写真アップロード'] })
+      expect.objectContaining({ bookingSteps: ['公開メニュー登録', '写真アップロード'] })
     );
   });
 

@@ -13,10 +13,12 @@ import {
  * 所在地・PR 文言）とネット予約の判定（bookingReadinessChecks）から引き、ここで二重に持たない。
  */
 
-export type SetupStepKey = 'address' | 'pr_text' | 'publish' | 'menu' | 'staff' | 'photo' | 'hours' | 'schedule';
+export type SetupStepKey = 'address' | 'pr_text' | 'publish' | 'hours' | 'menu' | 'photo' | 'staff';
 
 export interface FacilitySetupFacts {
   name: string | null;
+  /** 公開ページ（/facility/[slug]）の行き先。公開後に「掲載ページを見る」を出すために使う。 */
+  slug: string | null;
   prefecture: string | null;
   city: string | null;
   address: string | null;
@@ -37,15 +39,39 @@ export interface FacilitySetupFacts {
   unscheduledStaffIds: string[];
 }
 
+export type SetupStepGroup = 'listing' | 'booking';
+
 export interface FacilitySetupStep {
   key: SetupStepKey;
   label: string;
   done: boolean;
   href: string;
   /** listing＝無料掲載の公開に要る項目。booking＝ネット予約を受けるのに要る項目（掲載だけなら不要）。 */
-  group: 'listing' | 'booking';
+  group: SetupStepGroup;
+  /**
+   * 完了の判定には影響しない補足（例：勤務時間が未登録のスタッフの人数）。
+   * 任意項目が未入力のときは optional を立てる（「完了」と見せず「任意・未入力」と見せる）。
+   */
+  note?: string;
+  optional?: boolean;
 }
 
+/** ダッシュボードの見出し。区分ごとに進み具合を分けて出す（掲載だけの利用も正常な運用）。 */
+export const SETUP_GROUP_LABELS: Record<SetupStepGroup, string> = {
+  listing: '無料掲載に必要',
+  booking: 'ネット予約に必要（任意）',
+};
+
+/**
+ * 並びは依存の順（先に済ませないと次が進められないものを前に置く）。
+ * 掲載：店舗情報 → 公開。ネット予約：営業時間 → メニュー → 写真 → スタッフと勤務時間
+ * （スタッフの勤務時間の下書きは店舗の営業時間から作るため、営業時間を先に置く。以前はスタッフの後にあり、
+ * スタッフを追加すると「店舗の営業時間がまだ保存されていない」と差し戻されていた）。
+ *
+ * 「スタッフ登録と勤務時間の保存」と「勤務スケジュール設定」は同じ作業の二重掲載だったので 1 項目にした。
+ * 完了は予約の判定と同じく「勤務時間のあるスタッフが1人以上」。勤務時間が未登録のスタッフは補足で知らせる
+ * （予約を受けないスタッフがいても、そのスタッフのせいで永久に未完了にはしない）。
+ */
 export function facilitySetupSteps(facts: FacilitySetupFacts): FacilitySetupStep[] {
   const checks = bookingReadinessChecks({
     name: facts.name,
@@ -62,20 +88,23 @@ export function facilitySetupSteps(facts: FacilitySetupFacts): FacilitySetupStep
   // 公開ゲートは所在地に加えて PR 文言の表現も見る（/register から取り込んだ文言は設定画面を経ていない）。
   // ここを見ないと「あとは公開するだけ」と案内した直後に公開を拒否される。
   const prTextOk = listingPrTextMissing({ catch_copy: facts.catchCopy, description: facts.description }).length === 0;
+  // 空の PR 文言は公開を止めないが、「完了」と見せると入力済みと誤解させる。任意・未入力として見せる。
+  const prTextEmpty = !facts.catchCopy?.trim() && !facts.description?.trim();
+  const unscheduled = facts.unscheduledStaffIds.length;
   return [
     { key: 'address', label: '基本情報（住所）', done: ok('name', 'prefecture', 'city', 'address'), href: '/admin/settings', group: 'listing' },
-    { key: 'pr_text', label: '基本情報（キャッチコピー・施設紹介の表現）', done: prTextOk, href: '/admin/settings', group: 'listing' },
-    { key: 'publish', label: '無料掲載を公開', done: ok('published'), href: '/admin/settings', group: 'listing' },
-    { key: 'menu', label: 'ネット予約：公開メニュー登録', done: ok('menu'), href: '/admin/menus', group: 'booking' },
-    // 予約を受けられるのは勤務時間を保存したスタッフだけ（追加しただけでは勤務は作られない）。
-    { key: 'staff', label: 'ネット予約：スタッフ登録と勤務時間の保存', done: ok('staff'), href: '/admin/staff', group: 'booking' },
-    { key: 'photo', label: 'ネット予約：写真アップロード', done: ok('photo'), href: '/admin/photos', group: 'booking' },
-    { key: 'hours', label: 'ネット予約：営業時間の確認・保存', done: ok('hours'), href: '/admin/settings', group: 'booking' },
-    // 有効スタッフ全員に勤務時間があって初めて完了にする（1人でも未登録ならその人には予約が入らない）。
     {
-      key: 'schedule', label: '予約枠：勤務スケジュール設定',
-      done: facts.activeStaffIds.length > 0 && facts.unscheduledStaffIds.length === 0,
-      href: '/admin/staff', group: 'booking',
+      key: 'pr_text', label: '基本情報（キャッチコピー・施設紹介の表現）', done: prTextOk, href: '/admin/settings', group: 'listing',
+      ...(prTextOk && prTextEmpty ? { optional: true, note: '任意・未入力' } : {}),
+    },
+    { key: 'publish', label: '無料掲載を公開', done: ok('published'), href: '/admin/settings', group: 'listing' },
+    { key: 'hours', label: '営業時間の入力・保存', done: ok('hours'), href: '/admin/settings', group: 'booking' },
+    { key: 'menu', label: '公開メニュー登録', done: ok('menu'), href: '/admin/menus', group: 'booking' },
+    { key: 'photo', label: '写真アップロード', done: ok('photo'), href: '/admin/photos', group: 'booking' },
+    // 予約を受けられるのは勤務時間を保存したスタッフだけ（追加しただけでは勤務は作られない）。
+    {
+      key: 'staff', label: 'スタッフ登録と勤務時間の保存', done: ok('staff'), href: '/admin/staff', group: 'booking',
+      ...(unscheduled > 0 ? { note: `勤務時間が未登録で予約を受けられないスタッフ：${unscheduled}人` } : {}),
     },
   ];
 }
@@ -92,18 +121,19 @@ export async function loadFacilitySetupFacts(client: SupabaseClient, facilityId:
     read('staff', workingStaffQuery(client, facilityId)),
     read('photos', client.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId)),
     read('facility', client.from('facility_profiles')
-      .select('name, prefecture, city, address, catch_copy, description, business_hours, status').eq('id', facilityId).single()),
+      .select('name, slug, prefecture, city, address, catch_copy, description, business_hours, status').eq('id', facilityId).single()),
   ]);
   const failure = menus.error ?? staff.error ?? photos.error ?? profile.error;
   if (failure) throw new Error(`店舗セットアップの状況を取得できませんでした: ${failure.message}`);
 
   const { activeIds, workingIds } = summarizeWorkingStaff(staff.data);
   const row = (profile.data ?? {}) as {
-    name?: string | null; prefecture?: string | null; city?: string | null; address?: string | null;
+    name?: string | null; slug?: string | null; prefecture?: string | null; city?: string | null; address?: string | null;
     catch_copy?: string | null; description?: string | null; business_hours?: unknown; status?: string | null;
   };
   return {
     name: row.name ?? null,
+    slug: row.slug ?? null,
     prefecture: row.prefecture ?? null,
     city: row.city ?? null,
     address: row.address ?? null,
