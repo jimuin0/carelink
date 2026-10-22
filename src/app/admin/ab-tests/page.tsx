@@ -61,22 +61,22 @@ export default function AbTestsPage() {
 
   return (
     <div className="space-y-5 max-w-4xl">
-      <SbPageHeader title="A/Bテスト管理" description="Feature Flagのロールアウト設定でA/Bテストを実行" />
+      <SbPageHeader title="A/Bテスト管理" description="記録済みのA/Bテスト計測結果を表示します" />
 
-      <div className="bg-sky-50 border border-sky-100 rounded-xl p-4 text-sm text-sky-800">
-        <strong>使い方:</strong>{' '}
-        <Link href="/admin/feature-flags" className="underline">Feature Flags</Link>
-        でフラグのロールアウト率を1〜99%に設定するとA/Bテストが開始されます。
-        コード側で <code className="bg-sky-100 px-1 rounded-sm">trackAbEvent()</code> を呼び出してインプレッション・コンバージョンを計測します。
+      {/* 2026年10月22日: 以前は「ロールアウト率を1〜99%に設定するとA/Bテストが開始されます」と案内していたが、
+          フラグを読む処理も計測を記録する処理（trackAbEvent）もどこにも組み込まれておらず、テストは始まらなかった。 */}
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900 space-y-1">
+        <p className="font-bold">A/Bテストは、まだ実行できません。</p>
+        <p>
+          <Link href="/admin/feature-flags" className="underline">Feature Flags</Link>
+          でロールアウト率を設定しても、利用者の振り分けも計測も行われません。振り分けと計測の処理がまだサイトに組み込まれていないためです。
+          下の一覧は、ロールアウト率が1〜99%のフラグと、記録済みの計測結果を表示するだけです。
+        </p>
       </div>
 
       {flags.length === 0 ? (
-        <div className="bg-white rounded-xl p-8 text-center text-gray-400 text-sm">
-          実行中のA/Bテストがありません。
-          <br />
-          <Link href="/admin/feature-flags" className="text-sky-600 hover:underline mt-1 inline-block">
-            Feature Flagsでロールアウト設定 →
-          </Link>
+        <div className="bg-white rounded-xl p-8 text-center text-gray-500 text-sm">
+          ロールアウト率が1〜99%のフラグはありません。
         </div>
       ) : (
         <div className="space-y-4">
@@ -89,15 +89,15 @@ export default function AbTestsPage() {
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <div>
                     <code className="font-mono font-bold text-gray-800">{flag.key}</code>
-                    {flag.description && <p className="text-xs text-gray-400 mt-0.5">{flag.description}</p>}
+                    {flag.description && <p className="text-xs text-gray-500 mt-0.5">{flag.description}</p>}
                   </div>
-                  <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium shrink-0">
-                    treatment {flag.rollout_pct}%
+                  <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-medium shrink-0">
+                    設定値 treatment {flag.rollout_pct}%
                   </span>
                 </div>
 
                 {!hasData ? (
-                  <p className="text-xs text-gray-400">まだデータがありません</p>
+                  <p className="text-xs text-gray-500">計測データはありません</p>
                 ) : (
                   <div className="grid sm:grid-cols-2 gap-4">
                     {(['control', 'treatment'] as const).map((variant) => {

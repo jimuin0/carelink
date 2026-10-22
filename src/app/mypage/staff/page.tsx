@@ -15,6 +15,8 @@ interface PreferredStaff {
   facility_name: string;
   facility_slug: string;
   position: string | null;
+  /** 公開中のスタッフ詳細ページ。非表示になったスタッフや非公開施設では null（リンク先が 404 になるため出さない） */
+  profile_href: string | null;
 }
 
 export default function PreferredStaffPage() {
@@ -22,6 +24,7 @@ export default function PreferredStaffPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
 
   // load 相当の処理は「マウント時の初回読み込み」と「読み込み失敗後の再試行」の2箇所からしか
   // 呼ばれず、どちらも同じ処理を求める呼び出しなので、reloadKey を effect の依存に置いて
@@ -50,7 +53,7 @@ export default function PreferredStaffPage() {
         // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
         const { data: staffData } = await supabase
           .from('staff_profiles')
-          .select('id, name, photo_url, position, facility_id')
+          .select('id, name, slug, photo_url, position, facility_id, is_active')
           .in('id', staffIds);
 
         const facilityIds = Array.from(new Set((staffData || []).map((s) => s.facility_id)));
@@ -74,6 +77,7 @@ export default function PreferredStaffPage() {
             facility_name: f?.name || '',
             facility_slug: f?.slug || '',
             position: s?.position || null,
+            profile_href: s && f && s.is_active === true ? `/facility/${f.slug}/staff/${s.slug}` : null,
           };
         }));
         setLoading(false);
@@ -84,12 +88,29 @@ export default function PreferredStaffPage() {
     return () => { cancelled = true; };
   }, [reloadKey]);
 
-  const handleRemove = async (id: string) => {
-    const supabase = createBrowserSupabaseClient();
-    const { error } = await supabase.from('user_preferred_staff').delete().eq('id', id);
-    if (error) { setToast({ type: 'error', message: '解除に失敗しました' }); return; }
-    setStaff((prev) => prev.filter((s) => s.id !== id));
-    setToast({ type: 'success', message: '解除しました' });
+  // 解除は登録と同じ /api/preferred-staff を通す（書き込み経路を 1 本にそろえる）。
+  const handleRemove = async (target: PreferredStaff) => {
+    if (removing) return;
+    setRemoving(target.id);
+    try {
+      const res = await fetch('/api/preferred-staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staffId: target.staff_id, nominated: false }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const body: unknown = await res.json().catch(() => null);
+      if (!res.ok || (body as { nominated?: unknown } | null)?.nominated !== false) {
+        setToast({ type: 'error', message: '解除に失敗しました。時間をおいて再度お試しください。' });
+        return;
+      }
+      setStaff((prev) => prev.filter((s) => s.id !== target.id));
+      setToast({ type: 'success', message: '指名を解除しました' });
+    } catch {
+      setToast({ type: 'error', message: '解除に失敗しました。通信状況を確認して再度お試しください。' });
+    } finally {
+      setRemoving(null);
+    }
   };
 
   if (loading) {
@@ -100,7 +121,7 @@ export default function PreferredStaffPage() {
     <div className="space-y-4">
       <div className="bg-white rounded-2xl shadow-xs p-6">
         <h1 className="text-xl font-bold">指名スタッフ</h1>
-        <p className="text-sm text-gray-500 mt-1">お気に入りのスタッフを管理できます。</p>
+        <p className="text-sm text-gray-500 mt-1">指名登録したスタッフを確認・解除できます。</p>
       </div>
 
       {loadError ? (
@@ -108,7 +129,7 @@ export default function PreferredStaffPage() {
       ) : staff.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-xs p-12 text-center">
           <p className="text-gray-500 mb-4">指名スタッフが登録されていません</p>
-          <p className="text-sm text-gray-500 mb-6">施設のスタッフページから「指名登録」できます。</p>
+          <p className="text-sm text-gray-500 mb-6">施設ページの「スタッフ」で、スタッフごとの「指名登録」ボタンから登録できます。</p>
           <Link href="/search" className="btn-primary text-sm">施設を探す</Link>
         </div>
       ) : (
@@ -123,18 +144,27 @@ export default function PreferredStaffPage() {
                 )}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-bold text-sm">{s.staff_name}</p>
+                {s.profile_href ? (
+                  <Link href={s.profile_href} className="font-bold text-sm text-gray-900 hover:underline inline-flex min-h-[24px] items-center">{s.staff_name}</Link>
+                ) : (
+                  <p className="font-bold text-sm">{s.staff_name}</p>
+                )}
                 {s.position && <p className="text-xs text-gray-500">{s.position}</p>}
-                {s.facility_slug && (
-                  <Link href={`/facility/${s.facility_slug}`} className="text-xs text-sky-700 hover:underline">{s.facility_name}</Link>
+                {s.facility_slug ? (
+                  <Link href={`/facility/${s.facility_slug}`} className="text-xs text-sky-700 hover:underline inline-flex min-h-[24px] items-center">{s.facility_name}</Link>
+                ) : (
+                  <p className="text-xs text-gray-500">現在公開されていない施設のスタッフです</p>
                 )}
               </div>
               <button
                 type="button"
-                onClick={() => handleRemove(s.id)}
-                className="text-xs text-red-600 hover:text-red-600 px-3 py-1.5 border border-red-200 rounded-full hover:bg-red-50 transition-colors"
+                onClick={() => handleRemove(s)}
+                disabled={removing !== null}
+                aria-busy={removing === s.id}
+                aria-label={`指名を解除（${s.staff_name}さん）`}
+                className="text-xs text-red-700 px-3 py-1.5 min-h-[32px] border border-red-200 rounded-full hover:bg-red-50 transition-colors disabled:opacity-60"
               >
-                解除
+                指名を解除
               </button>
             </div>
           ))}
