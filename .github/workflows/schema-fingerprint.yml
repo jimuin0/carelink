@@ -181,6 +181,9 @@ jobs:
       - name: Atomic automatic flags and approved detection evidence (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/review-flags-atomic-fixtures.sql
 
+      - name: Review reply publish, edit and delete authority and browser write closure (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/review-reply-fixtures.sql
+
       - name: Registration application intent and declaration boundaries (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/salon-application-guard-fixtures.sql
 

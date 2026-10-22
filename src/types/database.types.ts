@@ -6761,6 +6761,20 @@ export type Database = {
         }
         Returns: string
       }
+      create_review_reply_atomic: {
+        Args: {
+          p_actor_id: string
+          p_content: string
+          p_facility_id: string
+          p_review_id: string
+        }
+        Returns: {
+          content: string
+          created_at: string
+          id: string
+          review_id: string
+        }[]
+      }
       create_staff_with_schedules_atomic: {
         Args: {
           p_actor_id: string
@@ -6782,6 +6796,14 @@ export type Database = {
         Args: { p_actor_id: string; p_facility_id: string; p_photo_id: string }
         Returns: {
           id: string
+        }[]
+      }
+      delete_review_reply_atomic: {
+        Args: { p_actor_id: string; p_facility_id: string; p_reply_id: string }
+        Returns: {
+          content: string
+          id: string
+          review_id: string
         }[]
       }
       delete_staff_override_atomic: {
@@ -8403,6 +8425,21 @@ export type Database = {
         Args: { p_actor_id: string; p_facility_id: string; p_patch: Json }
         Returns: {
           id: string
+        }[]
+      }
+      update_review_reply_atomic: {
+        Args: {
+          p_actor_id: string
+          p_content: string
+          p_facility_id: string
+          p_reply_id: string
+        }
+        Returns: {
+          content: string
+          created_at: string
+          id: string
+          previous_content: string
+          review_id: string
         }[]
       }
       updategeometrysrid: {

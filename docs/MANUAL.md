@@ -780,7 +780,7 @@ vercel env add NEXT_PUBLIC_CLARITY_ID
 |---------|------|--------|
 | `treatment_catalogs` | ヘアカタログ（ビフォーアフター・タグ） | 検索・管理 |
 | `blog_posts` | ブログ（タイトル/slug/内容/公開状態） | 検索・管理 |
-| `review_replies` | オーナー口コミ返信（1レビュー1返信） | 検索・管理 |
+| `review_replies` | オーナー口コミ返信（1レビュー1返信・最大500文字。書き込みは service_role の `create/update/delete_review_reply_atomic` のみ、ブラウザは読み取りだけ） | 検索・管理 |
 | `user_points` | ポイント履歴（理由/予約ID/ポイント数） | マイページ |
 
 **Phase 7: HPB超え拡張（6テーブル + カラム追加）**（`booking_menus`は構想のみで未実装）
@@ -1410,7 +1410,7 @@ carelink-uploads/salons/{uuid}/photo.{ext}
   ├─ クーポン管理: 作成/編集（新規/リピート/期間限定/全員）
   ├─ ブログ管理: 記事作成/編集/公開
   ├─ カタログ管理: ヘアカタログ追加/編集
-  ├─ 口コミ管理: 公開/非公開切替・サロン返信
+  ├─ 口コミ管理: 公開/非公開切替・サロン返信（公開前に確認・投稿後の編集/削除）
   ├─ 写真管理: アップロード・メイン設定
   ├─ Q&A管理: 質問回答・公開/非公開
   ├─ 特集管理: 特集記事CRUD
@@ -1550,7 +1550,7 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | `/admin/catalog` | `admin/catalog/page.tsx` | Dynamic | カタログ管理 |
 | `/admin/catalog/new` | `admin/catalog/new/page.tsx` | Dynamic | カタログ追加 |
 | `/admin/menus` | `admin/menus/page.tsx` | Dynamic | メニュー管理（CRUD・15カテゴリ・メニュー写真） |
-| `/admin/reviews` | `admin/reviews/page.tsx` | Dynamic | 口コミ管理（公開/非公開切替・サロン返信） |
+| `/admin/reviews` | `admin/reviews/page.tsx` | Dynamic | 口コミ管理（公開/非公開切替・サロン返信の公開/編集/削除。書き込みは `/api/admin/review-replies` 経由） |
 | `/admin/photos` | `admin/photos/page.tsx` | Dynamic | 写真管理（アップロード・メイン設定） |
 | `/admin/analytics` | `admin/analytics/page.tsx` | Dynamic | 売上レポート + スタッフ別売上（StaffSalesTab） |
 | `/admin/settings` | `admin/settings/page.tsx` | Dynamic | 施設設定（基本情報・営業時間・特徴） |
@@ -1803,7 +1803,7 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 
 ## 10. API Route
 
-### 10.0 全APIルート一覧（86エンドポイント）
+### 10.0 全APIルート一覧（88エンドポイント）
 
 **v8.41〜v8.43 で新規追加（v8.13以降）**:
 - `GET/POST /api/admin/backup` — DBバックアップ確認・CSVエクスポート（重要テーブル行数チェック、v8.39）
@@ -1915,8 +1915,10 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | 84 | `/api/v1/bookings` | GET/POST | APIキー認証 | 20回/60秒 | 予約API v1（外部POS/会計ソフト連携） |
 | 85 | `/api/v1/customers` | GET/POST | APIキー認証 | 20回/60秒 | 顧客API v1（外部連携） |
 | 86 | `/api/waitlist` | GET/POST | 任意 | 10回/60秒 | キャンセル待ちリスト登録/確認（booking_waitlist） |
+| 87 | `/api/admin/review-replies` | POST | 必須 | 30回/60秒（返信の公開・編集・削除で共通） | 口コミへの返信を公開（`?facility_id=`・owner/admin のみ・1口コミ1件・1〜500文字。RPC `create_review_reply_atomic` が権限と口コミの所属を書き込みと同時に確認・監査ログ） |
+| 88 | `/api/admin/review-replies/[id]` | PATCH/DELETE | 必須 | 30回/60秒（同上） | 返信の編集（本文のみ）・削除（`update/delete_review_reply_atomic`・他店の返信は404・監査ログに変更前の本文） |
 
-> **補足**: 上記86エンドポイント中、`/api/og` はroute.tsx（`@vercel/og`使用）。CronエンドポイントはCRON_SECRET Bearer認証必須。`/api/v1/*`はAPIキー（Bearerヘッダー）認証。
+> **補足**: 上記88エンドポイント中、`/api/og` はroute.tsx（`@vercel/og`使用）。CronエンドポイントはCRON_SECRET Bearer認証必須。`/api/v1/*`はAPIキー（Bearerヘッダー）認証。
 
 ### 10.1 POST /api/notify
 

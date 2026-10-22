@@ -288,7 +288,8 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
                     <span className="text-xs text-gray-500">{formatDate(reply.created_at)}</span>
                   )}
                 </div>
-                <p className="text-sm text-gray-600">{reply.content}</p>
+                {/* 管理画面の返信欄は複数行（textarea）なので改行を保つ */}
+                <p className="text-sm text-gray-600 whitespace-pre-wrap break-words">{reply.content}</p>
               </div>
             ))}
           </div>

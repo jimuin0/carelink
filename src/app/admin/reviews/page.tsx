@@ -4,11 +4,48 @@ import { Suspense, useEffect, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { SbPageHeader } from '@/components/admin/SbUi';
 import type { FacilityReview } from '@/types';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
+import { REVIEW_REPLY_MAX_LENGTH } from '@/lib/review-reply-limits';
+
+// review_replies.created_at は DB 定義上 NOT NULL ではない（DEFAULT now() のみ、
+// supabase/migrations/20260323000005_phase6_advanced.sql）ため string | null として扱う。
+type ReviewReply = { id: string; content: string; created_at: string | null };
+
+type ReplyApiResult = { ok: true; body: unknown } | { ok: false; status: number; message: string };
+
+// 編集中の返信。replyId は編集を始めたときの返信（読み直しで別の返信に置き換わったら編集をやめる）。
+type EditingReply = { reviewId: string; replyId: string; text: string };
+
+/**
+ * 返信の書き込みはすべて /api/admin/review-replies を通す（2026年10月22日）。
+ * 以前はブラウザから review_replies へ直接 INSERT しており、投稿後は編集も削除もできなかった。
+ * 権限・口コミの所属・文字数は API と DB（RPC）が書き込みと同時に確かめる。
+ */
+async function callReplyApi(url: string, init: RequestInit, fallback: string): Promise<ReplyApiResult> {
+  try {
+    const res = await fetch(url, init);
+    const body: unknown = await res.json().catch(() => null);
+    if (res.ok) return { ok: true, body };
+    const error = body !== null && typeof body === 'object' ? (body as { error?: unknown }).error : undefined;
+    return { ok: false, status: res.status, message: typeof error === 'string' && error ? error : fallback };
+  } catch {
+    return { ok: false, status: 0, message: fallback };
+  }
+}
+
+/** API 応答の reply を画面用の形に。形が違えば null（呼び出し側で再読み込みする）。 */
+function replyFromBody(body: unknown): ReviewReply | null {
+  const reply = body !== null && typeof body === 'object' ? (body as { reply?: unknown }).reply : undefined;
+  if (reply === null || typeof reply !== 'object') return null;
+  const { id, content, created_at: createdAt } = reply as Record<string, unknown>;
+  if (typeof id !== 'string' || typeof content !== 'string') return null;
+  return { id, content, created_at: typeof createdAt === 'string' ? createdAt : null };
+}
 
 function AdminReviewsContent() {
   // 複数店舗のオーナーは ?facility_id= で店舗を選ぶ（2026年10月22日）。以前は facility_members を
@@ -24,11 +61,13 @@ function AdminReviewsContent() {
   const [filter, setFilter] = useState<'all' | 'published' | 'hidden'>('all');
   const [updating, setUpdating] = useState<string | null>(null);
   const [replyText, setReplyText] = useState<Record<string, string>>({});
-  const [replyingTo, setReplyingTo] = useState<string | null>(null);
-  // review_replies.created_at は DB 定義上 NOT NULL ではない（DEFAULT now() のみ、
-  // supabase/migrations/20260323000005_phase6_advanced.sql）ため、Database 型配線後は
-  // string | null として扱う必要がある（配線前は無警告だったが、これが本来の型）
-  const [repliesMap, setRepliesMap] = useState<Record<string, { id: string; content: string; created_at: string | null }[]>>({});
+  // 返信の公開・編集・削除の実行中の口コミ ID（二重送信を防ぐ）
+  const [replyBusy, setReplyBusy] = useState<string | null>(null);
+  // review_replies は UNIQUE(review_id)＝1 口コミにつき返信は 1 件。口コミ ID → 返信。
+  const [replies, setReplies] = useState<Record<string, ReviewReply>>({});
+  const [editing, setEditing] = useState<EditingReply | null>(null);
+  const [confirmPublish, setConfirmPublish] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const loadReviews = useCallback(async (fId: string) => {
     const supabase = createBrowserSupabaseClient();
@@ -73,20 +112,34 @@ function AdminReviewsContent() {
       // ここでの失敗は致命的でなく、取得できた分のみ表示する。
       // review_replies に facility_id 列は無いため、当施設の口コミ ID 群で review_id を絞る。
       const reviewIds = loaded.map((r) => r.id);
-      const { data: replies } = reviewIds.length
+      const { data: rows } = reviewIds.length
         ? await supabase
             .from('review_replies')
             .select('id, review_id, content, created_at')
             .in('review_id', reviewIds)
             .order('created_at')
         : { data: [] as { id: string; review_id: string; content: string; created_at: string | null }[] };
-      if (replies) {
-        const map: Record<string, typeof replies> = {};
-        for (const r of replies) {
-          if (!map[r.review_id]) map[r.review_id] = [];
-          map[r.review_id].push(r);
+      if (rows) {
+        const map: Record<string, ReviewReply> = {};
+        for (const r of rows) {
+          if (!map[r.review_id]) map[r.review_id] = { id: r.id, content: r.content, created_at: r.created_at };
         }
-        setRepliesMap(map);
+        const shown = new Set(reviewIds);
+        setReplies(map);
+        // 読み直した結果、編集中の返信が消えていた・別の返信に置き換わっていた（他の管理者が先に
+        // 削除した・削除して投稿し直した）ときは編集をやめる。残すと編集欄は出ないのに他の「編集」が
+        // 押せないままになり、新しい返信を古い本文で上書きできてしまう。
+        // 絞り込みで今は表示していない口コミの編集は、状態が分からないので残す。
+        setEditing((prev) => (prev && shown.has(prev.reviewId) && map[prev.reviewId]?.id !== prev.replyId ? null : prev));
+        // 返信が付いた口コミの書きかけ（他の管理者が先に返信した 409 など）は入力欄ごと消えるので捨てる。
+        // 残すと見えない「未保存の変更」になり、その返信が後で消えたときに古い下書きが戻ってくる。
+        setReplyText((prev) => {
+          const answered = Object.keys(prev).filter((id) => map[id]);
+          if (answered.length === 0) return prev;
+          const next = { ...prev };
+          for (const id of answered) delete next[id];
+          return next;
+        });
       }
       setLoading(false);
     })().catch(() => { setLoadError(true); setLoading(false); });
@@ -134,41 +187,92 @@ function AdminReviewsContent() {
     );
   }
 
-  const submitReply = async (reviewId: string) => {
+  const replyUrl = (suffix = '') => `/api/admin/review-replies${suffix}?facility_id=${encodeURIComponent(facilityId)}`;
+
+  // 失敗したら理由を出す。他の管理者が先に返信した（409）・既に消えていた（404）ときは、
+  // 画面を今の状態に合わせるために読み直す（消えた返信の編集・返信済みの書きかけは読み直しで片付く）。
+  const reportFailure = (result: { status: number; message: string }) => {
+    setToast({ type: 'error', message: result.message });
+    if (result.status === 404 || result.status === 409) setReloadKey((k) => k + 1);
+  };
+
+  const publishReply = async (reviewId: string) => {
     const text = replyText[reviewId]?.trim();
-    if (!text || !facilityId) return;
-    setReplyingTo(reviewId);
-    try {
-      const supabase = createBrowserSupabaseClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data, error } = await supabase
-        .from('review_replies')
-        // review_replies に facility_id 列は無い（review_id 経由で施設に紐づく）→ 付けると 400 になるため除外
-        .insert({ review_id: reviewId, user_id: user.id, content: text })
-        .select('id, content, created_at')
-        .single();
-      if (error) throw error;
-      if (data) {
-        setRepliesMap((prev) => ({
-          ...prev,
-          [reviewId]: [...(prev[reviewId] || []), { ...data, review_id: reviewId }],
-        }));
-        setReplyText((prev) => ({ ...prev, [reviewId]: '' }));
-        setToast({ type: 'success', message: '返信しました' });
-      }
-    } catch {
-      setToast({ type: 'error', message: '返信に失敗しました' });
+    setConfirmPublish(null);
+    if (!text || replyBusy) return;
+    setReplyBusy(reviewId);
+    const result = await callReplyApi(replyUrl(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ review_id: reviewId, content: text }),
+    }, '返信を公開できませんでした');
+    if (result.ok) {
+      const reply = replyFromBody(result.body);
+      if (reply) setReplies((prev) => ({ ...prev, [reviewId]: reply }));
+      else setReloadKey((k) => k + 1);
+      setReplyText((prev) => ({ ...prev, [reviewId]: '' }));
+      setToast({ type: 'success', message: '返信を公開しました' });
+    } else {
+      reportFailure(result);
     }
-    setReplyingTo(null);
+    setReplyBusy(null);
+  };
+
+  const saveEdit = async () => {
+    if (!editing || replyBusy) return;
+    const current = replies[editing.reviewId];
+    const text = editing.text.trim();
+    if (!current || current.id !== editing.replyId || !text || text === current.content) return;
+    const { reviewId } = editing;
+    setReplyBusy(reviewId);
+    const result = await callReplyApi(replyUrl(`/${encodeURIComponent(current.id)}`), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: text }),
+    }, '返信を更新できませんでした');
+    if (result.ok) {
+      const reply = replyFromBody(result.body);
+      if (reply) setReplies((prev) => ({ ...prev, [reviewId]: reply }));
+      else setReloadKey((k) => k + 1);
+      setEditing(null);
+      setToast({ type: 'success', message: '返信を更新しました' });
+    } else {
+      reportFailure(result);
+    }
+    setReplyBusy(null);
+  };
+
+  const deleteReply = async () => {
+    const reviewId = confirmDelete;
+    // 確定した時点で確認を閉じる。送信中に開いたままだと「キャンセル」が押せるのに削除は止まらず、
+    // ボタンの意味と結果が食い違う（公開の確認と同じ扱い）。
+    setConfirmDelete(null);
+    const current = reviewId ? replies[reviewId] : undefined;
+    if (!reviewId || !current || replyBusy) return;
+    setReplyBusy(reviewId);
+    const result = await callReplyApi(replyUrl(`/${encodeURIComponent(current.id)}`), { method: 'DELETE' },
+      '返信を削除できませんでした');
+    if (result.ok) {
+      setReplies((prev) => {
+        const next = { ...prev };
+        delete next[reviewId];
+        return next;
+      });
+      if (editing?.reviewId === reviewId) setEditing(null);
+      setToast({ type: 'success', message: '返信を削除しました' });
+    } else {
+      reportFailure(result);
+    }
+    setReplyBusy(null);
   };
 
   const stars = (n: number) => '★'.repeat(n) + '☆'.repeat(5 - n);
+  const editingDirty = editing !== null && editing.text.trim() !== (replies[editing.reviewId]?.content ?? '');
 
   return (
     <div>
-      <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/reviews" busy={updating !== null || replyingTo !== null}
-        dirty={Object.values(replyText).some((t) => t.trim() !== '')} />
+      <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/reviews" busy={updating !== null || replyBusy !== null}
+        dirty={editingDirty || Object.values(replyText).some((t) => t.trim() !== '')} />
       <SbPageHeader title="口コミ管理" />
 
       {/* フィルタ */}
@@ -191,78 +295,164 @@ function AdminReviewsContent() {
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="口コミの読み込みに失敗しました" />
       ) : reviews.length === 0 ? (
         <div className="bg-white rounded-xl shadow-xs p-12 text-center">
-          <p className="text-gray-400">口コミがありません</p>
+          <p className="text-gray-500">口コミがありません</p>
         </div>
       ) : (
         <div className="space-y-4">
-          {reviews.map((review) => (
-            <div key={review.id} className={`bg-white rounded-xl shadow-xs p-5 ${review.status === 'hidden' ? 'opacity-60' : ''}`}>
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3 mb-1">
-                    <span className="text-amber-400 text-sm">{stars(review.rating)}</span>
-                    <span className="text-sm font-bold text-gray-700">{review.rating.toFixed(1)}</span>
-                    <span className={`text-micro px-2 py-0.5 rounded-full font-bold ${
-                      review.status === 'published' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                    }`}>
-                      {review.status === 'published' ? '公開中' : '非表示'}
-                    </span>
+          {reviews.map((review) => {
+            const reply = replies[review.id];
+            const isEditing = editing?.reviewId === review.id;
+            const busy = replyBusy === review.id;
+            return (
+              // 非表示の口コミは不透明度ではなく地色と破線で示す。opacity は中の文字・ボタン
+              // （返信の編集・削除・保存など）のコントラストまで落とし、AA を割るため使わない。
+              <article key={review.id} aria-label={`${review.reviewer_name}さんの口コミ`}
+                className={`rounded-xl shadow-xs p-5 ${review.status === 'hidden' ? 'bg-gray-50 border border-dashed border-gray-300' : 'bg-white'}`}>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3 mb-1">
+                      <span className="text-amber-400 text-sm">{stars(review.rating)}</span>
+                      <span className="text-sm font-bold text-gray-700">{review.rating.toFixed(1)}</span>
+                      <span className={`text-micro px-2 py-0.5 rounded-full font-bold ${
+                        review.status === 'published' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                      }`}>
+                        {review.status === 'published' ? '公開中' : '非表示'}
+                      </span>
+                    </div>
+                    <p className="text-sm font-medium text-gray-800">{review.reviewer_name}</p>
+                    {review.comment && (
+                      <p className="text-sm text-gray-600 mt-1 line-clamp-3">{review.comment}</p>
+                    )}
+                    <p className="text-xs text-gray-500 mt-2">{new Date(review.created_at).toLocaleDateString('ja-JP')}</p>
                   </div>
-                  <p className="text-sm font-medium text-gray-800">{review.reviewer_name}</p>
-                  {review.comment && (
-                    <p className="text-sm text-gray-600 mt-1 line-clamp-3">{review.comment}</p>
-                  )}
-                  <p className="text-xs text-gray-400 mt-2">{new Date(review.created_at).toLocaleDateString('ja-JP')}</p>
+                  <button
+                    type="button"
+                    onClick={() => toggleStatus(review)}
+                    disabled={updating === review.id}
+                    className={`shrink-0 text-xs px-4 py-2 rounded-lg font-bold transition-colors ${
+                      review.status === 'published'
+                        ? 'bg-gray-100 text-gray-600 hover:bg-red-50 hover:text-red-600'
+                        : 'bg-green-50 text-green-700 hover:bg-green-100'
+                    }`}
+                  >
+                    {review.status === 'published' ? '非表示にする' : '公開する'}
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => toggleStatus(review)}
-                  disabled={updating === review.id}
-                  className={`shrink-0 text-xs px-4 py-2 rounded-lg font-bold transition-colors ${
-                    review.status === 'published'
-                      ? 'bg-gray-100 text-gray-600 hover:bg-red-50 hover:text-red-600'
-                      : 'bg-green-50 text-green-600 hover:bg-green-100'
-                  }`}
-                >
-                  {review.status === 'published' ? '非表示にする' : '公開する'}
-                </button>
-              </div>
 
-              {/* 既存の返信 */}
-              {(repliesMap[review.id] || []).map((reply) => (
-                <div key={reply.id} className="mt-3 ml-4 bg-sky-50 border border-sky-100 rounded-lg p-3">
-                  <span className="text-micro font-bold text-sky-600">サロンより</span>
-                  <p className="text-sm text-gray-700 mt-1">{reply.content}</p>
-                  {/* created_at は DB 上 NOT NULL 制約が無く null になり得る（上記コメント参照）。
-                      null を new Date(null) に渡すと 1970/1/1 という誤った日付が表示されてしまうため、
-                      値が無い場合は空表示に倒す（既存の通常経路＝DEFAULT now() が効く限りは表示挙動は変わらない） */}
-                  <p className="text-xs text-gray-400 mt-1">{reply.created_at ? new Date(reply.created_at).toLocaleDateString('ja-JP') : ''}</p>
-                </div>
-              ))}
+                {reply && !isEditing && (
+                  <div className="mt-3 ml-4 bg-sky-50 border border-sky-100 rounded-lg p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-micro font-bold text-sky-700">サロンより</span>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditing({ reviewId: review.id, replyId: reply.id, text: reply.content })}
+                          disabled={replyBusy !== null || editing !== null}
+                          className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 bg-white font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          編集
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDelete(review.id)}
+                          disabled={replyBusy !== null}
+                          className="text-xs px-3 py-1.5 rounded-lg border border-red-200 bg-white font-bold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          削除
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-sm text-gray-700 mt-1 whitespace-pre-wrap break-words">{reply.content}</p>
+                    {/* created_at が null の行は new Date(null)＝1970/1/1 の誤表示を避けて日付を出さない */}
+                    <p className="text-xs text-gray-500 mt-1">{reply.created_at ? new Date(reply.created_at).toLocaleDateString('ja-JP') : ''}</p>
+                  </div>
+                )}
 
-              {/* 返信入力 */}
-              <div className="mt-3 flex gap-2">
-                <input
-                  type="text"
-                  placeholder="口コミに返信する..."
-                  value={replyText[review.id] || ''}
-                  onChange={(e) => setReplyText((prev) => ({ ...prev, [review.id]: e.target.value }))}
-                  className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-sky-300"
-                  maxLength={500}
-                />
-                <button
-                  type="button"
-                  onClick={() => submitReply(review.id)}
-                  disabled={replyingTo === review.id || !(replyText[review.id]?.trim())}
-                  className="btn-primary shrink-0 text-xs px-4! py-2!"
-                >
-                  返信
-                </button>
-              </div>
-            </div>
-          ))}
+                {reply && isEditing && (
+                  <div className="mt-3 ml-4">
+                    <label htmlFor={`reply-edit-${review.id}`} className="text-xs font-bold text-gray-700">返信を編集</label>
+                    <textarea
+                      id={`reply-edit-${review.id}`}
+                      value={editing.text}
+                      onChange={(e) => setEditing({ reviewId: review.id, replyId: reply.id, text: e.target.value })}
+                      maxLength={REVIEW_REPLY_MAX_LENGTH}
+                      rows={3}
+                      className="mt-1 w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-sky-300"
+                    />
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <span className="text-xs text-gray-500">{editing.text.length}/{REVIEW_REPLY_MAX_LENGTH}</span>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditing(null)}
+                          disabled={busy}
+                          className="text-xs px-4 py-2 rounded-lg border border-gray-300 bg-white font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          キャンセル
+                        </button>
+                        <button
+                          type="button"
+                          onClick={saveEdit}
+                          disabled={busy || !editing.text.trim() || editing.text.trim() === reply.content}
+                          className="btn-primary shrink-0 text-xs px-4! py-2!"
+                        >
+                          保存
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {!reply && (
+                  <div className="mt-3">
+                    <label htmlFor={`reply-new-${review.id}`} className="sr-only">口コミへの返信</label>
+                    <textarea
+                      id={`reply-new-${review.id}`}
+                      placeholder="口コミに返信する..."
+                      value={replyText[review.id] || ''}
+                      onChange={(e) => setReplyText((prev) => ({ ...prev, [review.id]: e.target.value }))}
+                      maxLength={REVIEW_REPLY_MAX_LENGTH}
+                      rows={2}
+                      className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-sky-300"
+                    />
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <span className="text-xs text-gray-500">{(replyText[review.id] || '').length}/{REVIEW_REPLY_MAX_LENGTH}</span>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmPublish(review.id)}
+                        disabled={busy || !(replyText[review.id]?.trim())}
+                        className="btn-primary shrink-0 text-xs px-4! py-2!"
+                      >
+                        返信
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </article>
+            );
+          })}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmPublish !== null}
+        title="返信を公開"
+        message="返信は店舗ページに公開されます。"
+        confirmLabel="公開する"
+        confirmDisabled={replyBusy !== null}
+        onConfirm={() => { if (confirmPublish) void publishReply(confirmPublish); }}
+        onCancel={() => setConfirmPublish(null)}
+      />
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title="返信を削除"
+        message="この返信を削除しますか？店舗ページからも消えます。"
+        confirmLabel="削除する"
+        variant="danger"
+        confirmDisabled={replyBusy !== null}
+        onConfirm={() => { void deleteReply(); }}
+        onCancel={() => setConfirmDelete(null)}
+      />
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
     </div>
