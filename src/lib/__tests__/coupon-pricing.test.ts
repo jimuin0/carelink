@@ -1,4 +1,4 @@
-import { calculateCouponDiscountedTotal, type CouponPricingMenu, type CouponPricingCoupon } from '../coupon-pricing';
+import { calculateCouponDiscountedTotal, couponListPrice, type CouponPricingMenu, type CouponPricingCoupon } from '../coupon-pricing';
 
 const menuA: CouponPricingMenu = { id: 'menu-a', price: 10000 }; // 対象
 const menuB: CouponPricingMenu = { id: 'menu-b', price: 3000 };  // 対象
@@ -142,5 +142,42 @@ describe('calculateCouponDiscountedTotal（HPB準拠・クーポン割引計算S
       // 対象=menuA(10000)→9000、対象外=0円 → 合計9000
       expect(calculateCouponDiscountedTotal([menuA, freeOtherMenu], coupon, ['menu-a'])).toBe(9000);
     });
+  });
+});
+
+describe('couponListPrice（施設ページのクーポン一覧の「通常 ¥X → ¥Y」）', () => {
+  // 本番の実例（2026年10月22日）: オプション ¥500 があり、クーポンの対象メニューは ¥6,900。
+  const option: CouponPricingMenu = { id: 'option', price: 500 };
+  const target: CouponPricingMenu = { id: 'target', price: 6900 };
+  const special: CouponPricingCoupon = { discount_type: 'special_price', discount_value: null, special_price: 5800 };
+
+  test('通常価格は対象メニューの定価（施設の最安値 ¥500 ではない）', () => {
+    expect(couponListPrice(special, [option, target], ['target'])).toEqual({ regular: 6900, discounted: 5800 });
+  });
+
+  test('対象メニューが複数なら合計（予約画面で全部選ばれる）。予約 API と同じ式で割り引く', () => {
+    const fixed: CouponPricingCoupon = { discount_type: 'fixed', discount_value: 1000, special_price: null };
+    const pct: CouponPricingCoupon = { discount_type: 'percentage', discount_value: 10, special_price: null };
+    expect(couponListPrice(fixed, [option, menuA, menuB], ['menu-a', 'menu-b'])).toEqual({ regular: 13000, discounted: 12000 });
+    expect(couponListPrice(pct, [option, menuA, menuB], ['menu-a', 'menu-b', 'menu-a'])).toEqual({ regular: 13000, discounted: 11700 });
+    expect(couponListPrice(pct, [menuA, menuB], ['menu-a', 'menu-b'])!.discounted)
+      .toBe(calculateCouponDiscountedTotal([menuA, menuB], pct, ['menu-a', 'menu-b']));
+  });
+
+  test.each([
+    ['対象メニュー限定なし（undefined）', undefined],
+    ['対象メニュー限定なし（空）', []],
+    ['対象メニューが公開メニューに無い', ['missing']],
+  ])('%s → 通常価格を出さない', (_label, ids) => {
+    expect(couponListPrice(special, [option, target], ids as string[] | undefined)).toBeNull();
+  });
+
+  test('価格未設定の対象メニューを含む → 通常価格を出さない', () => {
+    expect(couponListPrice(special, [target, { id: 'ask', price: null }], ['target', 'ask'])).toBeNull();
+  });
+
+  test('割引後が通常価格以上（特別価格の方が高い・同額）→ 取り消し線を出さない', () => {
+    expect(couponListPrice({ ...special, special_price: 7000 }, [target], ['target'])).toBeNull();
+    expect(couponListPrice({ ...special, special_price: 6900 }, [target], ['target'])).toBeNull();
   });
 });

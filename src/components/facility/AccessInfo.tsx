@@ -3,6 +3,7 @@ import type { Facility } from '@/types';
 import { dayOrder, dayLabels } from '@/lib/constants';
 import { featureSearchHref } from '@/lib/search-href';
 import { formatFacilityAddress } from '@/lib/facility-location';
+import { googleMapsEmbedUrl } from '@/lib/map-embed';
 
 export default function AccessInfo({ facility }: { facility: Facility }) {
   // 監査T1: prefecture/city/address は手書き Facility 型では non-null 宣言だが、DB(facility_profiles)は
@@ -100,7 +101,7 @@ export default function AccessInfo({ facility }: { facility: Facility }) {
             </h3>
             <div className="rounded-xl overflow-hidden border border-gray-200">
               <iframe
-                src={`https://maps.google.com/maps?q=${mapQuery}&z=16&output=embed`}
+                src={googleMapsEmbedUrl(mapQuery)}
                 width="100%"
                 height="300"
                 className="border-0"

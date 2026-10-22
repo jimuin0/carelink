@@ -17,6 +17,7 @@ import { dispatchBookingCreationNotifications } from '@/lib/booking-create-dispa
 import { buildBookingCreateNotifications, BookingNotificationPlanError } from '@/lib/booking-create-notifications';
 import { HOME_VISIT_ADDRESS_REQUIRED_MESSAGE, isHomeVisitOnly } from '@/lib/home-visit';
 import { knownBookingRpcMessage } from '@/lib/booking-rpc-error';
+import { COUPON_TARGET_REJECTIONS } from '@/lib/coupon-eligibility';
 
 export const dynamic = 'force-dynamic';
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -26,6 +27,8 @@ const KNOWN_CREATE_REJECTIONS: Readonly<Record<string, string>> = {
   STAFF_NOT_IN_FACILITY: '指定されたスタッフはこの施設で予約できません', BOOKING_CLOSED_DAY: 'この日は定休日のため予約できません',
   BOOKING_OUTSIDE_HOURS: '営業時間外のため予約できません', STAFF_NOT_WORKING: '指名されたスタッフはこの日時には勤務していません',
   COUPON_LIMIT: 'このクーポンは利用上限に達しています', COUPON_ALREADY_USED: 'このクーポンは既に利用済みです',
+  // クーポンの対象（新規／リピーター）。判定は RPC が予約履歴で行う（src/lib/coupon-eligibility.ts）。
+  ...COUPON_TARGET_REJECTIONS,
 };
 
 export async function POST(request: Request) {

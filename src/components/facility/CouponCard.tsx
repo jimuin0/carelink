@@ -1,17 +1,20 @@
 import type { Coupon } from '@/types';
 import CouponBadge from './CouponBadge';
 import { discountText } from '@/lib/coupon-display';
+import { couponTargetCondition } from '@/lib/coupon-eligibility';
+import type { CouponListPrice } from '@/lib/coupon-pricing';
 
-function computeDiscountedPrice(coupon: Coupon, menuPrice: number): number | null {
-  if (coupon.discount_type === 'special_price' && coupon.special_price !== null) return coupon.special_price;
-  if (coupon.discount_type === 'fixed' && coupon.discount_value !== null) return Math.max(0, menuPrice - coupon.discount_value);
-  if (coupon.discount_type === 'percentage' && coupon.discount_value !== null) return Math.round(menuPrice * (1 - coupon.discount_value / 100));
-  return null;
-}
-
-export default function CouponCard({ coupon, menuPrice }: { coupon: Coupon; menuPrice?: number | null }) {
+/**
+ * price は対象メニューから求めた「通常 ¥X → ¥Y」（src/lib/coupon-pricing.ts の couponListPrice）。
+ * null のときは取り消し線の通常価格を出さず、割引表記だけを出す（正直に出せない値を作らない）。
+ */
+export default function CouponCard({ coupon, price = null, targetMenuNames = [] }: {
+  coupon: Coupon;
+  price?: CouponListPrice | null;
+  targetMenuNames?: string[];
+}) {
   const discount = discountText(coupon);
-  const discountedPrice = menuPrice ? computeDiscountedPrice(coupon, menuPrice) : null;
+  const condition = couponTargetCondition(coupon.coupon_type);
 
   return (
     <div className="border border-dashed border-sky-300 rounded-xl p-4 bg-sky-50/30">
@@ -29,13 +32,19 @@ export default function CouponCard({ coupon, menuPrice }: { coupon: Coupon; menu
           {coupon.description && (
             <p className="text-xs text-gray-500 mt-1">{coupon.description}</p>
           )}
+          {targetMenuNames.length > 0 && (
+            <p className="text-xs text-gray-600 mt-1">対象メニュー：{targetMenuNames.join('、')}</p>
+          )}
+          {condition && (
+            <p className="text-xs text-gray-600 mt-1">ご利用条件：{condition}</p>
+          )}
         </div>
-        {discount && (
+        {(price || discount) && (
           <div className="text-right shrink-0">
-            {menuPrice != null && discountedPrice !== null ? (
+            {price ? (
               <>
-                <p className="text-xs text-gray-500 line-through">通常 ¥{menuPrice.toLocaleString()}</p>
-                <p className="font-bold text-lg text-red-600">¥{discountedPrice.toLocaleString()}</p>
+                <p className="text-xs text-gray-500 line-through">通常 ¥{price.regular.toLocaleString()}</p>
+                <p className="font-bold text-lg text-red-600">¥{price.discounted.toLocaleString()}</p>
               </>
             ) : (
               <p className="font-bold text-lg text-red-600">{discount}</p>

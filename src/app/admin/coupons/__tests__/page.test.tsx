@@ -32,3 +32,35 @@ test('unverified identity is denied',async()=>{mockGetUser.mockResolvedValue({da
 test('usage query failure never becomes zero',async()=>{mockRpc.mockResolvedValue({data:[],error:{code:'08006',message:'private'}});await expect(Page({searchParams:Promise.resolve({facility_id:B})})).rejects.toThrow('DATABASE_FAILURE:08006');});
 test.each([null,[],[{coupon_id:'coupon',usage_count:-1}],[{coupon_id:'coupon',usage_count:0},{coupon_id:'coupon',usage_count:0}],[{coupon_id:'coupon',usage_count:Number.MAX_SAFE_INTEGER+1}]])('missing/invalid usage result is not zero: %j',async data=>{mockRpc.mockResolvedValue({data,error:null});await expect(Page({searchParams:Promise.resolve({facility_id:B})})).rejects.toThrow('COUPON_USAGE_UNAVAILABLE');});
 test('confirmed no coupons has no private aggregation',async()=>{(getCouponsByFacility as jest.Mock).mockResolvedValue([]);await Page({searchParams:Promise.resolve({facility_id:B})});expect(mockRpc).not.toHaveBeenCalled();});
+function texts(value:unknown):string[]{
+ if(typeof value==='string'||typeof value==='number')return [String(value)];
+ if(Array.isArray(value))return value.flatMap(texts);
+ if(!React.isValidElement<Record<string,unknown>>(value))return [];
+ return [...texts(value.props.children),...texts(value.props.actions)];
+}
+// 【回帰防止・2026年10月22日】「有効」を外したクーポンも一覧に残し、無効バッジと編集リンクを出す。
+// 以前は一覧から消えて編集画面へ戻る導線が無く、二度と有効に戻せなかった。
+test('inactive coupons stay listed with a 無効 badge, edit link and usage, after active ones',async()=>{
+ (getCouponsByFacility as jest.Mock).mockResolvedValue([
+  {id:'paused',name:'停止中のクーポン',coupon_type:'all',discount_type:'fixed',discount_value:100,is_active:false},
+  {id:'live',name:'公開中のクーポン',coupon_type:'all',discount_type:'fixed',discount_value:100,is_active:true},
+ ]);
+ mockRpc.mockResolvedValue({data:[{coupon_id:'paused',usage_count:3},{coupon_id:'live',usage_count:0}],error:null});
+ const out=await Page({searchParams:Promise.resolve({facility_id:B})});
+ const list=elements(out);
+ expect(list.map(x=>x.props.href)).toEqual(expect.arrayContaining([`/admin/coupons/paused/edit?facility_id=${B}`,`/admin/coupons/live/edit?facility_id=${B}`]));
+ const all=texts(out);
+ expect(all.filter(t=>t==='無効')).toHaveLength(1);
+ expect(all.indexOf('公開中のクーポン')).toBeLessThan(all.indexOf('停止中のクーポン'));
+ expect(all.indexOf('無効')).toBeGreaterThan(all.indexOf('公開中のクーポン'));
+ expect(all.indexOf('無効')).toBeLessThan(all.indexOf('停止中のクーポン'));
+ expect(all.some(t=>t.includes('お客様には表示されません'))).toBe(true);
+ expect(list.some(x=>x.props.children===3)).toBe(true);
+});
+test('active coupons carry no 無効 badge',async()=>{
+ (getCouponsByFacility as jest.Mock).mockResolvedValue([{id:'coupon',name:'Selected',coupon_type:'all',discount_type:'fixed',discount_value:100,is_active:true}]);
+ mockRpc.mockResolvedValue({data:[{coupon_id:'coupon',usage_count:0}],error:null});
+ const all=texts(await Page({searchParams:Promise.resolve({facility_id:B})}));
+ expect(all).not.toContain('無効');
+ expect(all.some(t=>t.includes('お客様には表示されません'))).toBe(false);
+});

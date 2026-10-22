@@ -8,6 +8,7 @@ import Toast from '@/components/Toast';
 import type { StaffProfile, FacilityMenu, Coupon, AvailableSlot } from '@/types';
 import { describeCancelPolicy, type CancelPolicy } from '@/lib/cancel-fee';
 import { calculateCouponDiscountedTotal } from '@/lib/coupon-pricing';
+import { COUPON_HISTORY_IGNORED_STATUSES, couponTargetCondition, isCouponBlockedByHistory } from '@/lib/coupon-eligibility';
 import { isStaffCompatibleWithMenus, filterEligibleStaff } from '@/lib/menu-staff';
 import { consumeBookingDraft, saveBookingDraftForLogin, BOOKING_DRAFT_STORAGE_FAILED, BookingDraftStorageError } from '@/lib/booking-draft-storage';
 import { BookingCreateClient, type BookingCreateClientResult, BOOKING_CREATE_UNKNOWN } from '@/lib/booking-create-client';
@@ -230,6 +231,11 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   const [pointsRetryTick, setPointsRetryTick] = useState(0);
   const [usePoints, setUsePoints] = useState(false);
   const [pointsToUse, setPointsToUse] = useState(0);
+  // この店舗での予約履歴（クーポンの対象＝新規／リピーターの事前表示用・2026年10月22日）。
+  // true＝ログイン中の本人にキャンセル以外の予約がある（確定）。null＝不明（未ログイン、または
+  // ログイン前のゲスト予約がメールアドレスで残っている可能性がある）。不明のときはクーポンを
+  // 止めず、確定時に予約 RPC がログイン情報とメールアドレスで判定する（src/lib/coupon-eligibility.ts）。
+  const [hasBookingHistory, setHasBookingHistory] = useState<boolean | null>(null);
 
   // 【2026年7月10日 恒久根治】確認ステップの「ログインする」リンクは <a href> によるフルページ
   // 遷移で、選択内容は useState のみで保持されるため React ツリーのアンマウントで全消失していた
@@ -556,6 +562,30 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     return () => { active = false; };
   }, [pointsRetryTick]);
 
+  // ログイン中なら、この店舗の予約履歴（本人の予約・キャンセル以外）を 1 件だけ確認する。
+  // RLS（bookings_owner_read）で本人の予約しか読めない。取得失敗は「不明」のまま（止めない）。
+  useEffect(() => {
+    let active = true;
+    const supabase = createBrowserSupabaseClient();
+    (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data, error } = await supabase
+          .from('bookings')
+          .select('id')
+          .eq('facility_id', facility.id)
+          .eq('user_id', user.id)
+          .not('status', 'in', `(${COUPON_HISTORY_IGNORED_STATUSES.join(',')})`)
+          .limit(1);
+        if (active && !error && Array.isArray(data) && data.length > 0) setHasBookingHistory(true);
+      } catch {
+        // 不明のまま。確定時に予約 RPC が判定する。
+      }
+    })();
+    return () => { active = false; };
+  }, [facility.id]);
+
   // Warn on unsaved changes
   useEffect(() => {
     if (step === 'menu') return;
@@ -619,6 +649,12 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
       setSelectedCoupon(null);
       setAutoSelectedCouponId(null);
       setToast({ type: 'error', message: '選択したメニューはこのクーポンの対象外のため、クーポンの選択を解除しました' });
+    } else if (isCouponBlockedByHistory(selectedCoupon.coupon_type, hasBookingHistory)) {
+      // クーポンの対象（新規／リピーター）。予約履歴が後から分かった（ログイン復帰の下書き復元など）
+      // 時点で使えないクーポンが選ばれていれば、同じくレンダー中に解除して知らせる（2026年10月22日）。
+      setSelectedCoupon(null);
+      setAutoSelectedCouponId(null);
+      setToast({ type: 'error', message: `「${selectedCoupon.name}」は${couponTargetCondition(selectedCoupon.coupon_type)}のクーポンのため、選択を解除しました` });
     }
   }
 
@@ -805,6 +841,11 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                     const allowedMenuIds = couponMenuMap[coupon.id];
                     const isMenuRestricted = !!allowedMenuIds && allowedMenuIds.length > 0;
                     const isIncompatible = isMenuRestricted && !isCouponMenuCompatible(allowedMenuIds, selectedMenus.map((m) => m.id));
+                    // クーポンの対象（新規／リピーター・2026年10月22日）。ログイン中で予約履歴が
+                    // 分かっているときだけ、使えないクーポンを選べなくする（不明なら確定時に判定）。
+                    const condition = couponTargetCondition(coupon.coupon_type);
+                    const isTargetBlocked = isCouponBlockedByHistory(coupon.coupon_type, hasBookingHistory);
+                    const isUnavailable = isIncompatible || isTargetBlocked;
                     const targetMenuNames = isMenuRestricted
                       ? allowedMenuIds!
                           .map((id) => menus.find((m) => m.id === id)?.name)
@@ -814,17 +855,17 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                       <button
                         type="button"
                         key={coupon.id}
-                        disabled={isIncompatible}
-                        aria-disabled={isIncompatible}
-                        onClick={() => { if (isIncompatible) return; handleCouponSelect(coupon, allowedMenuIds, isSelected); }}
+                        disabled={isUnavailable}
+                        aria-disabled={isUnavailable}
+                        onClick={() => { if (isUnavailable) return; handleCouponSelect(coupon, allowedMenuIds, isSelected); }}
                         className={`w-full text-left rounded-xl border transition-colors overflow-hidden ${
-                          isIncompatible
+                          isUnavailable
                             ? 'border-gray-200 opacity-50 cursor-not-allowed'
                             : isSelected ? 'border-primary ring-2 ring-sky-200' : 'border-gray-200 hover:border-sky-300'
                         }`}
                       >
                         <div className="flex">
-                          <div className={`w-1.5 shrink-0 ${isSelected && !isIncompatible ? 'bg-primary' : 'bg-red-400'}`} />
+                          <div className={`w-1.5 shrink-0 ${isSelected && !isUnavailable ? 'bg-primary' : 'bg-red-400'}`} />
                           <div className="p-4 flex-1">
                             <div className="flex items-start justify-between gap-2">
                               <p className="font-bold text-sm">{coupon.name}</p>
@@ -844,7 +885,13 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                                 {isSelected && !isIncompatible && autoSelectedCouponId === coupon.id && '（自動選択済み）'}
                               </p>
                             )}
-                            {isSelected && !isIncompatible && (
+                            {condition && (
+                              <p className={`text-xs mt-1 ${isTargetBlocked ? 'text-red-600 font-bold' : 'text-gray-600'}`}>
+                                ご利用条件：{condition}
+                                {isTargetBlocked && '（この店舗のご予約履歴により、ご利用いただけません）'}
+                              </p>
+                            )}
+                            {isSelected && !isUnavailable && (
                               <p className="text-xs text-primary font-bold mt-2">✓ 選択中</p>
                             )}
                           </div>
@@ -1203,6 +1250,11 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                 <span className="text-gray-500">クーポン</span>
                 <span className="font-medium text-red-600">{selectedCoupon.name}</span>
               </div>
+            )}
+            {selectedCoupon && couponTargetCondition(selectedCoupon.coupon_type) && (
+              <p className="text-xs text-gray-600 text-right">
+                ご利用条件：{couponTargetCondition(selectedCoupon.coupon_type)}（ご予約の確定時に確認します）
+              </p>
             )}
             <div className="flex justify-between">
               <span className="text-gray-500">日時</span>
