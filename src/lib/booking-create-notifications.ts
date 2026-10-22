@@ -48,6 +48,8 @@ export async function buildBookingCreateNotifications(db: SupabaseClient, input:
   const data = { customerName: input.customer_name, customerEmail: input.email, facilityName: facility.data.name,
     menuName: menu.data.name, staffName: staff.data?.name, bookingDate: input.booking_date, startTime: input.start_time,
     endTime: input.end_time, totalPrice, bookingId: '', bookingStatus:status };
+  // 電話番号・備考は店舗向けだけに渡す（お客様向けの控えには載せない）。
+  const ownerData = { ...data, customerPhone: input.phone ?? null, note: input.note ?? null };
   const plan: BookingCreateNotification[] = [{ kind: 'email', role: 'customer', target: input.email,
     envelope: status === 'confirmed' ? buildBookingConfirmedEnvelope(data) : buildBookingConfirmationEnvelope(data) }];
   const ownerEmails = new Set<string>();
@@ -55,7 +57,7 @@ export async function buildBookingCreateNotifications(db: SupabaseClient, input:
     if (profile.email && !ownerEmails.has(profile.email)) {
       ownerEmails.add(profile.email);
       plan.push({ kind: 'email', role: 'owner', user_id: profile.id, target: profile.email,
-        envelope: buildNewBookingNotificationEnvelope({ ...data, facilityEmail: profile.email }) });
+        envelope: buildNewBookingNotificationEnvelope({ ...ownerData, facilityEmail: profile.email }) });
     }
     if (flags.data?.push_on_new_booking !== false) plan.push({ kind: 'push', role: 'owner', user_id: profile.id, target: profile.id,
       payload: { title: '新規予約', body: `${input.customer_name}様から${input.booking_date} ${input.start_time}〜の予約が入りました`, url: '/admin/bookings' } });
