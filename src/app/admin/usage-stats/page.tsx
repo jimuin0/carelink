@@ -11,26 +11,27 @@ import { jstMonthStartIso } from '@/lib/admin-date';
 import { fetchAllPaged } from '@/lib/paginate';
 import { computeUsageStats, type UsageBooking } from '@/lib/usage-stats';
 import { SbPageHeader, SbStatCard } from '@/components/admin/SbUi';
+import { loadAdminFacilitySelection } from '@/lib/admin-facility-selection';
+import FacilitySelector from '@/components/admin/FacilitySelector';
 
 export const metadata: Metadata = { title: '利用状況分析' };
 export const dynamic = 'force-dynamic';
 
-export default async function UsageStatsPage() {
+export default async function UsageStatsPage(props: { searchParams: Promise<{ facility_id?: string }> }) {
   const supabase = await createServerSupabaseAuthClient();
   const identity = await verifyAuthUser(supabase.auth);
   if (identity.state === 'unavailable') return <AccessVerificationUnavailable />;
   if (identity.state !== 'verified') notFound();
   const user = identity.user;
 
-  const { data: mem } = await readPageResult(() => supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-      .in('role', ['owner', 'admin'])
-    .limit(1).maybeSingle(), '/admin/usage-stats');
-  if (!mem) notFound();
-
-  const facilityId = mem.facility_id;
+  // 複数店舗のオーナーは ?facility_id= で店舗を選ぶ（2026年10月22日）。以前は facility_members を
+  // .limit(1) で 1 行だけ読み、ヘッダーは「店舗未選択」なのに任意の 1 店舗の数値を出していた。
+  // 所属（owner/admin）を確かめた店舗の ID だけを service role の集計に渡す。
+  const { facility_id: requested } = await props.searchParams;
+  const { choices, selectedId: facilityId } = await loadAdminFacilitySelection(supabase, user.id, requested ?? null);
+  if (choices.length === 0) notFound();
+  const selector = <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/usage-stats" />;
+  if (!facilityId) return <div><SbPageHeader title="利用状況分析" />{selector}</div>;
   const admin = createServiceRoleClient();
 
   // 直近 12 か月（JST）の予約。集計（今月・前月同期・月別・リピート率）は computeUsageStats が
@@ -69,6 +70,7 @@ export default async function UsageStatsPage() {
 
   return (
     <div className="space-y-6 max-w-4xl">
+      {selector}
       <SbPageHeader title="利用状況分析" description="ユーザーの利用頻度・継続率を可視化" />
 
       {/* KPIカード */}
@@ -154,7 +156,7 @@ export default async function UsageStatsPage() {
         ※ MAU/DAU は「予約を行ったユニークユーザー数」で計算しています。
         MAU は今月1日からの人数で、前月同期比は前月の同じ日数分と比べた増減です。
         より詳細なページビュー分析は
-        <Link href="/admin/analytics" className="text-sky-700 hover:underline mx-1">分析ダッシュボード</Link>
+        <Link href={`/admin/analytics?facility_id=${facilityId}`} className="text-sky-700 hover:underline mx-1">分析ダッシュボード</Link>
         をご利用ください。
       </div>
     </div>

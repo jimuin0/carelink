@@ -7,6 +7,8 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { SbTable, SbThead, SbTh, SbTbody, SbTd, SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import AdminFacilityScope, { type AdminFacilityScopeValue } from '@/components/admin/AdminFacilityScope';
 
 interface ServicePackage {
   id: string;
@@ -33,7 +35,12 @@ interface UserPackage {
 }
 
 export default function PackagesPage() {
-  const [facilityId, setFacilityId] = useState<string | null>(null);
+  return <AdminFacilityScope title="回数券・パッケージ管理" path="/admin/packages">{(scope) => <PackagesManager {...scope} />}</AdminFacilityScope>;
+}
+
+// 店舗は AdminFacilityScope が ?facility_id= と所属から決める（2026年10月22日）。以前は facility_members を
+// .limit(1).single() で 1 行だけ読み、複数店舗のオーナーは 2 店舗目の回数券を一覧も作成もできなかった。
+function PackagesManager({ facilityId, choices }: AdminFacilityScopeValue) {
   const [packages, setPackages] = useState<ServicePackage[]>([]);
   const [userPackages, setUserPackages] = useState<UserPackage[]>([]);
   const [menus, setMenus] = useState<{ id: string; name: string }[]>([]);
@@ -58,35 +65,6 @@ export default function PackagesPage() {
     notes: '',
   });
 
-  // loadFacility はマウント時の1箇所からしか呼ばれないため、useCallback を介さず
-  // effect 本体へ直接 inline する（呼び出し元が useEffect 経由の1箇所のみなら
-  // reloadKey 等の再構成は不要）。
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const supabase = createBrowserSupabaseClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { if (!cancelled) setLoading(false); return; }
-        const { data, error } = await supabase
-          .from('facility_members')
-          .select('facility_id')
-          .eq('user_id', user.id)
-          .in('role', ['owner', 'admin'])
-          .limit(1).single();
-        // facility 解決失敗を握り潰すと facilityId 未設定のまま loadPackages が走らず無限スピナーになる。
-        // DB エラーは LoadError で明示、no-row（施設未所属）はスピナーを止めて空状態に委ねる。
-        if (error && error.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
-        if (cancelled) return;
-        if (data?.facility_id) setFacilityId(data.facility_id);
-        else setLoading(false);
-      } catch {
-        if (!cancelled) { setLoadError(true); setLoading(false); }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
   // loadPackages 相当の処理は「facilityId 判明時の自動読み込み」「作成/削除後の再取得」「読み込み
   // 失敗後の再試行」の4箇所から呼ばれ、いずれも同一処理（facilityId のパッケージ一式を取り直す）を
   // 求めるだけなので、reloadKey を effect の依存に加え、各呼び出し元はキーをインクリメントするだけに
@@ -94,7 +72,6 @@ export default function PackagesPage() {
   const [packagesReloadKey, setPackagesReloadKey] = useState(0);
 
   useEffect(() => {
-    if (!facilityId) return;
     let cancelled = false;
     (async () => {
       setLoadError(false);
@@ -126,7 +103,7 @@ export default function PackagesPage() {
   }, [facilityId, packagesReloadKey]);
 
   const handleCreate = async () => {
-    if (!facilityId || saving) return;
+    if (saving) return;
     setSaving(true);
     const res = await fetch(`/api/admin/packages?facility_id=${facilityId}`, {
       method: 'POST',
@@ -153,7 +130,7 @@ export default function PackagesPage() {
   };
 
   const handleToggleActive = async (pkg: ServicePackage) => {
-    if (!facilityId || togglingId) return;
+    if (togglingId) return;
     setTogglingId(pkg.id);
     try {
       const res = await fetch(`/api/admin/packages/${pkg.id}?facility_id=${facilityId}`, {
@@ -180,7 +157,7 @@ export default function PackagesPage() {
   };
 
   const doDelete = async () => {
-    if (!confirmDeletePkg || !facilityId) return;
+    if (!confirmDeletePkg) return;
     setConfirmDelete(false);
     const pkg = confirmDeletePkg;
     setConfirmDeletePkg(null);
@@ -200,6 +177,8 @@ export default function PackagesPage() {
     <div className="space-y-5 max-w-4xl">
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
+      <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/packages" busy={saving || togglingId !== null}
+        dirty={showForm && (form.name.trim() !== '' || form.description.trim() !== '')} />
       <SbPageHeader
         title="回数券・パッケージ管理"
         actions={

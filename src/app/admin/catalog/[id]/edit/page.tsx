@@ -1,66 +1,107 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { Suspense, useState, useEffect } from 'react';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/lib/admin-facility-selection';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import LoadError from '@/components/admin/LoadError';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import FacilitySelector from '@/components/admin/FacilitySelector';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 
 const TAGS_EXAMPLE = ['ショートヘア', 'ボブ', 'カラー'].join('、');
 
 export default function EditCatalogPage() {
+  return <Suspense fallback={<AdminPageLoading />}><EditCatalogRoute /></Suspense>;
+}
+
+function EditCatalogRoute() {
+  const requested = useSearchParams().get('facility_id');
+  return <EditCatalogForm key={requested ?? 'unselected'} requested={requested} />;
+}
+
+function EditCatalogForm({ requested }: { requested: string | null }) {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState('');
+  // 編集先はカタログ自身の店舗（2026年10月22日）。一覧へ戻るときもその店舗のまま戻す。
+  const [facilityId, setFacilityId] = useState<string | null>(null);
+  const [choices, setChoices] = useState<AdminFacilityChoice[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       const supabase = createBrowserSupabaseClient();
+      const identity = await verifyAuthUser(supabase.auth);
+      if (identity.state !== 'verified') throw new Error('CATALOG_ACCESS_UNAVAILABLE');
       const { data, error } = await supabase
         .from('treatment_catalogs')
-        .select('title, description, tags')
+        .select('facility_id, title, description, tags')
         .eq('id', params.id)
-        .single();
-      if (error || !data) {
-        setToast({ type: 'error', message: 'カタログの取得に失敗しました' });
-      } else {
-        setTitle(data.title ?? '');
-        setDescription(data.description ?? '');
-        setTags((data.tags ?? []).join(', '));
+        .maybeSingle();
+      if (error || !data) throw new Error('CATALOG_READ_UNAVAILABLE');
+      // カタログは公開読み取りできるため、自分の店舗（owner/admin）のものかをここで確かめる。
+      // URL の店舗とカタログの店舗が食い違うときも扱わない（別の店舗の名前を出したまま保存させない）。
+      const selection = await loadAdminFacilitySelection(supabase, identity.user.id, requested ?? data.facility_id);
+      if (selection.selectedId !== data.facility_id) throw new Error('CATALOG_SCOPE_MISMATCH');
+      if (cancelled) return;
+      // 複数店舗で URL に店舗が無いとき（ブックマーク等）はカタログの店舗を URL に載せ、ヘッダーの店舗名と揃える。
+      if (requested === null && selection.choices.length > 1) {
+        router.replace(`/admin/catalog/${params.id}/edit?facility_id=${data.facility_id}`);
+        return;
       }
+      setChoices(selection.choices);
+      setFacilityId(data.facility_id);
+      setTitle(data.title ?? '');
+      setDescription(data.description ?? '');
+      setTags((data.tags ?? []).join(', '));
       setLoading(false);
-    })();
-  }, [params.id]);
+    })().catch(() => { if (!cancelled) { setLoadError(true); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [params.id, requested, reloadKey, router]);
+
+  const listHref = `/admin/catalog?facility_id=${facilityId}`;
 
   const handleUpdate = async () => {
     if (saving || !title) return;
     setSaving(true);
 
-    const res = await fetch(`/api/admin/catalog/${params.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: title,
-        description: description || null,
-        tags: tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : null,
-      }),
-    });
+    try {
+      const res = await fetch(`/api/admin/catalog/${params.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: title,
+          description: description || null,
+          tags: tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : null,
+        }),
+      });
 
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({}));
-      setToast({ type: 'error', message: e.error || '更新に失敗しました' });
-    } else {
-      router.push('/admin/catalog');
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: e.error || '更新に失敗しました' });
+      } else {
+        setDirty(false);
+        router.push(listHref);
+      }
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました' });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   const handleDelete = async () => {
@@ -68,23 +109,36 @@ export default function EditCatalogPage() {
     setDeleting(true);
     setConfirmOpen(false);
 
-    const res = await fetch(`/api/admin/catalog/${params.id}`, { method: 'DELETE' });
-
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({}));
-      setToast({ type: 'error', message: e.error || '削除に失敗しました' });
+    try {
+      const res = await fetch(`/api/admin/catalog/${params.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: e.error || '削除に失敗しました' });
+        setDeleting(false);
+      } else {
+        router.push(listHref);
+      }
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました' });
       setDeleting(false);
-    } else {
-      router.push('/admin/catalog');
     }
   };
 
-  if (loading) {
-    return <div className="p-8 text-center text-gray-400">読み込み中...</div>;
+  if (loading) return <AdminPageLoading />;
+
+  // 取得・所属の確認に失敗したらフォームを出さない（空のフォームや別の店舗のまま保存させない）
+  if (loadError || !facilityId) {
+    return (
+      <div>
+        <SbPageHeader title="カタログ編集" />
+        <LoadError onRetry={() => { setLoadError(false); setLoading(true); setReloadKey((k) => k + 1); }} message="カタログの読み込みに失敗しました" />
+      </div>
+    );
   }
 
   return (
-    <div>
+    <div onChange={() => setDirty(true)}>
+      <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/catalog" dirty={dirty} busy={saving || deleting} />
       <SbPageHeader title="カタログ編集" />
 
       <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
@@ -110,7 +164,7 @@ export default function EditCatalogPage() {
         </div>
 
         <div className="flex gap-3 pt-4">
-          <button type="button" onClick={() => router.push('/admin/catalog')} className="text-sm text-gray-500 hover:underline">
+          <button type="button" onClick={() => router.push(listHref)} className="text-sm text-gray-500 hover:underline">
             戻る
           </button>
           <button type="button" onClick={handleUpdate} disabled={saving} className="btn-primary flex-1 py-3!">
