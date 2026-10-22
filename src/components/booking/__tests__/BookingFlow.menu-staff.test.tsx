@@ -11,6 +11,7 @@ import '@testing-library/jest-dom';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import BookingFlow from '../BookingFlow';
 import type { FacilityMenu, StaffProfile } from '@/types';
+import { slotsWeekFetch, requestedStaffIds } from '@/test-utils/slots-week-mock';
 
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn(), refresh: jest.fn() }) }));
 jest.mock('@/lib/supabase-browser', () => ({
@@ -41,9 +42,7 @@ const STAFF_2 = staffProfile('staff-2', '佐藤'); // menu-a の担当外
 beforeEach(() => {
   jest.clearAllMocks();
   // 空き状況 effect が走っても落ちないよう空スロットを返す（本テストは指名セレクトの検証が主）。
-  global.fetch = jest.fn(() =>
-    Promise.resolve({ ok: true, json: () => Promise.resolve({ slots: [] }) })
-  ) as unknown as typeof fetch;
+  global.fetch = jest.fn(slotsWeekFetch([])) as unknown as typeof fetch;
 });
 
 async function goToDatetime(menuName: string) {
@@ -165,10 +164,8 @@ describe('指名中スタッフの自動解除(menu_staff)', () => {
 });
 
 describe('おまかせ集計の担当スタッフ絞込(menu_staff)', () => {
-  test('おまかせ時、担当制メニューの担当スタッフのみ /api/slots を叩く（担当外スタッフの空きを集計しない）', async () => {
-    const fetchMock = jest.fn(() =>
-      Promise.resolve({ ok: true, json: () => Promise.resolve({ slots: [] }) })
-    );
+  test('おまかせ時、担当制メニューの担当スタッフのみ /api/slots/week に含める（担当外スタッフの空きを集計しない）', async () => {
+    const fetchMock = jest.fn(slotsWeekFetch([]));
     global.fetch = fetchMock as unknown as typeof fetch;
 
     render(
@@ -184,15 +181,13 @@ describe('おまかせ集計の担当スタッフ絞込(menu_staff)', () => {
 
     // 表示中の7日 × 担当スタッフ(staff-1 のみ)＝ staff-1 の URL のみ叩かれ、staff-2 は叩かれない。
     await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(0));
-    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
-    expect(urls.some((u) => u.includes('staffId=staff-1'))).toBe(true);
-    expect(urls.some((u) => u.includes('staffId=staff-2'))).toBe(false);
+    const staffIds = requestedStaffIds(fetchMock.mock.calls as unknown[][]);
+    expect(staffIds).toContain('staff-1');
+    expect(staffIds).not.toContain('staff-2');
   });
 
-  test('無制限メニューのおまかせ時は全スタッフの /api/slots を叩く（後方互換）', async () => {
-    const fetchMock = jest.fn(() =>
-      Promise.resolve({ ok: true, json: () => Promise.resolve({ slots: [] }) })
-    );
+  test('無制限メニューのおまかせ時は全スタッフを /api/slots/week に含める（後方互換）', async () => {
+    const fetchMock = jest.fn(slotsWeekFetch([]));
     global.fetch = fetchMock as unknown as typeof fetch;
 
     render(
@@ -207,8 +202,38 @@ describe('おまかせ集計の担当スタッフ絞込(menu_staff)', () => {
     await goToDatetime('カラー'); // menu-b は無制限
 
     await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(0));
+    const staffIds = requestedStaffIds(fetchMock.mock.calls as unknown[][]);
+    expect(staffIds).toContain('staff-1');
+    expect(staffIds).toContain('staff-2');
+  });
+});
+
+describe('日時の表は 1 週を 1 回の問い合わせで取得する（2026年10月22日）', () => {
+  // why: 以前はスタッフ×7日ぶん /api/slots を叩いており（2人で14回/週）、IP あたり毎分30回の
+  // 上限に「次の7日」を2回押すだけで達し、「空き状況を確認できませんでした」になっていた。
+  test('1 週の表示は /api/slots/week 1 回で、日付ごと・スタッフごとの /api/slots は呼ばない', async () => {
+    const fetchMock = jest.fn(slotsWeekFetch([]));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    render(<BookingFlow facility={FACILITY} staff={[STAFF_1, STAFF_2]} menus={[MENU_A, MENU_B]} coupons={[]} />);
+    await goToDatetime('カラー');
+    await waitFor(() => expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('/api/slots/week'))).toBe(true));
     const urls = fetchMock.mock.calls.map((c) => String(c[0]));
-    expect(urls.some((u) => u.includes('staffId=staff-1'))).toBe(true);
-    expect(urls.some((u) => u.includes('staffId=staff-2'))).toBe(true);
+    expect(urls.filter((u) => u.includes('/api/slots/week'))).toHaveLength(1);
+    expect(urls.filter((u) => u.startsWith('/api/slots?'))).toHaveLength(0);
+    const week = new URL(urls.find((u) => u.includes('/api/slots/week'))!, 'http://localhost').searchParams;
+    expect(week.get('dates')!.split(',')).toHaveLength(7);
+  });
+
+  test('11 人以上の店舗は 10 人ずつに分けて問い合わせる（サーバー側の上限）', async () => {
+    const many = Array.from({ length: 12 }, (_, i) => staffProfile(`staff-${i + 1}`, `スタッフ${i + 1}`));
+    const fetchMock = jest.fn(slotsWeekFetch([]));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    render(<BookingFlow facility={FACILITY} staff={many} menus={[MENU_A, MENU_B]} coupons={[]} />);
+    await goToDatetime('カラー');
+    await waitFor(() => expect(fetchMock.mock.calls.filter((c) => String(c[0]).includes('/api/slots/week')).length).toBe(2));
+    const groups = fetchMock.mock.calls.map((c) => String(c[0])).filter((u) => u.includes('/api/slots/week'))
+      .map((u) => new URL(u, 'http://localhost').searchParams.get('staffIds')!.split(',').length);
+    expect(groups.sort()).toEqual([10, 2]);
+    expect(requestedStaffIds(fetchMock.mock.calls as unknown[][])).toHaveLength(12);
   });
 });

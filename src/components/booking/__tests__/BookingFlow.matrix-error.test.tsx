@@ -11,6 +11,7 @@ import '@testing-library/jest-dom';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import BookingFlow, { mergeStaffSlotsForDate } from '../BookingFlow';
 import type { FacilityMenu, StaffProfile, Coupon } from '@/types';
+import { slotsWeekFetch } from '@/test-utils/slots-week-mock';
 
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn(), refresh: jest.fn() }) }));
 
@@ -94,9 +95,7 @@ describe('defect1: /api/slots 取得失敗の顕在化', () => {
   });
 
   test('取得成功時はエラーUIを表示しない', async () => {
-    global.fetch = jest.fn(() =>
-      Promise.resolve({ ok: true, json: () => Promise.resolve({ slots: [{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: 'staff-1' }] }) })
-    ) as unknown as typeof fetch;
+    global.fetch = jest.fn(slotsWeekFetch([{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: 'staff-1' }])) as unknown as typeof fetch;
 
     render(<BookingFlow facility={FACILITY} staff={STAFF} menus={MENUS} coupons={COUPONS} />);
     await goToDatetimeStep();

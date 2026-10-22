@@ -16,6 +16,7 @@ jest.mock('@/lib/points-balance');
 import { saveBookingDraftForLogin, BOOKING_DRAFT_OBSOLETE, BOOKING_DRAFT_STORAGE_FAILED } from '@/lib/booking-draft-storage';
 import { CLIENT_CLEANUP_GENERATION_KEY, completeClientCleanupMarker } from '@/lib/client-cleanup-marker';
 import type { FacilityMenu, StaffProfile, Coupon } from '@/types';
+import { slotsWeekFetch } from '@/test-utils/slots-week-mock';
 
 const mockPush = jest.fn();
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush, refresh: jest.fn() }) }));
@@ -53,9 +54,7 @@ beforeEach(() => {
   Object.defineProperty(globalThis, 'TextEncoder', { configurable: true, value: TextEncoder });
   mockGetUser.mockResolvedValue({ data: { user: null } }); // 未認証固定（ログインバナー表示のため）
   (readPointsBalance as jest.Mock).mockResolvedValue(0);
-  global.fetch = jest.fn(() =>
-    Promise.resolve({ ok: true, json: () => Promise.resolve({ slots: [] }) })
-  ) as unknown as typeof fetch;
+  global.fetch = jest.fn(slotsWeekFetch([])) as unknown as typeof fetch;
 });
 afterEach(() => {
   jest.restoreAllMocks(); if (originalCrypto) Object.defineProperty(globalThis, 'crypto', originalCrypto);
@@ -67,9 +66,7 @@ function draftKey() {
 }
 
 async function openPointConfirmation() {
-  (global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: true,
-    json: () => Promise.resolve({ slots: [{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: 'staff-1' }] }),
-  }));
+  (global.fetch as jest.Mock).mockImplementation(slotsWeekFetch([{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: 'staff-1' }]));
   render(<BookingFlow facility={FACILITY} staff={STAFF} menus={MENUS} coupons={COUPONS} />);
   fireEvent.click(await screen.findByText('カット'));
   fireEvent.click(screen.getByText('次へ（日時を選ぶ）'));
@@ -99,12 +96,7 @@ test('an unavailable points balance stays distinct from zero and recovers throug
 });
 
 test('確認ステップで「ログインする」を押すと選択内容がsessionStorageに保存され、フルページ遷移前に消えない', async () => {
-  (global.fetch as jest.Mock).mockImplementation(() =>
-    Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve({ slots: [{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: 'staff-1' }] }),
-    })
-  );
+  (global.fetch as jest.Mock).mockImplementation(slotsWeekFetch([{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: 'staff-1' }]));
 
   render(<BookingFlow facility={FACILITY} staff={STAFF} menus={MENUS} coupons={COUPONS} />);
 
@@ -171,9 +163,7 @@ test('共有世代を読めない場合は既存入力を復元せず、通常�
   expect(screen.getByText('次へ（日時を選ぶ）')).toBeEnabled(); expect(mockPush).not.toHaveBeenCalled();
 });
 test('保存確認に失敗したlogin遷移は止め、現在の氏名・メール入力を維持する', async () => {
-  (global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: true, json: () => Promise.resolve({
-    slots: [{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: 'staff-1' }],
-  }) }));
+  (global.fetch as jest.Mock).mockImplementation(slotsWeekFetch([{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: 'staff-1' }]));
   render(<BookingFlow facility={FACILITY} staff={STAFF} menus={MENUS} coupons={COUPONS} />);
   fireEvent.click(await screen.findByText('カット')); fireEvent.click(screen.getByText('次へ（日時を選ぶ）'));
   fireEvent.click((await screen.findAllByText('△'))[0]); fireEvent.click(screen.getByText('次へ（確認・予約）'));

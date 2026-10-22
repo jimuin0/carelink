@@ -1,13 +1,12 @@
 import { serverError } from '@/lib/with-route';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
-import type { AvailableSlot } from '@/types';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { isValidIsoDate } from '@/lib/date-utils';
-import { todayJst } from '@/lib/admin-date';
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
+import { clampDuration, readSlots } from '@/lib/available-slots';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,8 +21,7 @@ export async function GET(request: Request) {
   const facilityId = searchParams.get('facilityId');
   const staffId = searchParams.get('staffId');
   const date = searchParams.get('date');
-  const rawDuration = parseInt(searchParams.get('duration') || '60');
-  const duration = Number.isNaN(rawDuration) ? 60 : Math.min(Math.max(rawDuration, 15), 480);
+  const duration = clampDuration(searchParams.get('duration'));
 
   if (!facilityId || !staffId || !date) {
     return NextResponse.json({ slots: [] });
@@ -38,31 +36,18 @@ export async function GET(request: Request) {
   const preparation = await checkBookingReadiness(supabase, facilityId);
   if (preparation.error) return serverError('slots:preparation', preparation.error, '/api/slots', '予約設定を確認できません', { slots: [] });
   if (!preparation.readiness.ready) return NextResponse.json({ slots: [], bookingAvailable: false });
-  // The slot RPC is SECURITY DEFINER and not executable by anon: only this rate-limited route may run it.
-  const { data, error } = await createServiceRoleClient().rpc('get_available_slots', {
-    p_facility_id: facilityId,
-    p_staff_id: staffId,
-    p_date: date,
-    p_duration_minutes: duration,
-  });
+  // The slot RPC is SECURITY DEFINER and not executable by anon: only these rate-limited routes may run it.
+  const read = await readSlots(createServiceRoleClient(), facilityId, staffId, date, duration);
 
   // 取得失敗を「空き枠なし」に偽装しない。RPC エラーを握り潰すと、過去の booking_buffer_minutes
   // スキーマドリフトのように予約導線が無監視で壊れる（空配列＝予約不可がサイレントに発生）。
   // Sentry に記録し 500 を返して失敗を顕在化させる。
-  if (error) {
+  if (read.error) {
     // slots: [] を落とすと呼び出し側の画面が undefined を舐めて壊れるため body 形は維持する。
     // Sentry 送信は serverError() の内部で行う（ここで呼ぶと同じ例外が二重計上される）。
-    return serverError('slots:get_available_slots', error, '/api/slots', 'サーバーエラーが発生しました', { slots: [] });
+    return serverError('slots:get_available_slots', read.error, '/api/slots', 'サーバーエラーが発生しました', { slots: [] });
   }
-
-  let slots = (data ?? []) as AvailableSlot[];
-  // 当日は「既に過ぎた時刻」の枠を除外する（過去時刻を予約可能に見せない = AV-3）。
-  // slot_start は TIME を "HH:MM:SS" で受け取るため、現在 JST 時刻(同形式)より後の枠のみ残す。
-  // どれだけ先まで受け付けるか(リードタイム)は業務判断のため、ここでは開始済みを除くのみ。
-  if (date === todayJst()) {
-    const nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(11, 19);
-    slots = slots.filter((s) => s.slot_start > nowJst);
-  }
+  const slots = read.slots;
 
   return NextResponse.json({ slots });
   } catch (e) {
