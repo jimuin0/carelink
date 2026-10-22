@@ -4,7 +4,9 @@ import {buildFavoritesDigestEnvelope,buildReviewRequestEnvelope} from './email';
 import {eventEmailEnvelopeSchema} from './event-email-delivery';
 
 export type ScheduledEmailResult='queued'|'existing'|'accepted'|'skipped'|'legacy_uncertain'|'uncertain'|'failed';
-const reviewSnapshot=z.object({email:z.email(),customerName:z.string().nullable(),facilityName:z.string(),facilitySlug:z.string()});
+// userId: the booking's user_id captured by reserve_scheduled_email_atomic (null = guest booking).
+// Review points are only for members, so the template promises them only when it is a member's booking.
+const reviewSnapshot=z.object({email:z.email(),customerName:z.string().nullable(),facilityName:z.string(),facilitySlug:z.string(),userId:z.string().nullable().optional()});
 const digestSnapshot=z.object({email:z.email(),userName:z.string().nullable(),unsubscribeToken:z.string().min(32),
  facilities:z.array(z.object({name:z.string(),slug:z.string(),newCoupons:z.number().int().nonnegative(),hasNewMenus:z.boolean()})).min(1).max(200)});
 

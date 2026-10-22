@@ -61,3 +61,10 @@ test('digest complete-source safety cap fails BEFORE dispatch',async()=>{
  const page=Array.from({length:1000},()=>({user_id:uid}));rpc.mockReset().mockResolvedValue({data:page,error:null});
  await expect(digestEmailCandidates(db)).rejects.toThrow('safety limit');expect(rpc).toHaveBeenCalledTimes(100);
 });
+// 口コミポイントは会員の予約にだけ付く。予約確保の snapshot が持つ userId（null＝ゲスト予約）でポイント案内を出し分ける。
+test.each([[uid,true],[null,false]] as const)('review points are promised only for a member booking (userId=%s)',async(userId,promised)=>{
+ rpc.mockReset().mockResolvedValueOnce({data:[{state:'reserved',operation_id:id,snapshot:{...review,userId,facilityId:uid,bookingRevision:'2026-10-11T00:00:00Z'}}],error:null})
+  .mockResolvedValueOnce({data:[{id,status:'pending',created:true}],error:null});
+ expect(await queueScheduledEmail(db,'review_request',uid)).toBe('queued');
+ expect(rpc.mock.calls[1][1].p_envelope.html.includes('50ポイント')).toBe(promised);
+});

@@ -12,6 +12,7 @@ import { sendInquiryReplyEnvelope, verifyInquiryReplyAcceptance, type InquiryRep
 import { REMINDER_EMAIL_TIMING_NOTE } from './reminder-schedule';
 import { adminFacilityHref } from './admin-facility-url';
 import { formatJstDateTime, isCustomerEmailRecipient } from './cancel-fee-receipt';
+import { isDialablePhone } from './facility-contact';
 
 let _resend: Resend | null = null;
 function getResend(): Resend | null {
@@ -85,6 +86,18 @@ export interface BookingEmailData {
   cancelFeeRate?: number;
   /** お客様のキャンセルを受け付けた時刻（ISO）。店舗が無料期限の内か外かを確かめられるように載せる。 */
   cancelledAt?: string;
+  /**
+   * 会員として予約したか（bookings.user_id の有無）。お客様向けメールの「予約の確かめ方」を出し分ける。
+   * - true: 会員の予約。マイページで確認・変更できる。
+   * - false: ログインせずに予約した（ゲスト予約）。マイページには出ない（マイページは user_id で絞る）ので、
+   *   マイページへは案内せず、店舗の連絡先を出す。
+   * - 未指定: 分からない（この項目を持たない古い送信待ちのデータ等）。どちらのお客様にも通じる文面にする。
+   */
+  hasAccount?: boolean;
+  /** 店舗の電話番号（isDialablePhone を通ったものだけ）。マイページを使えないお客様への連絡先として出す。 */
+  facilityPhone?: string | null;
+  /** 公開中の店舗の slug（非公開の店舗ページは 404 になるので渡さない）。 */
+  facilitySlug?: string | null;
 }
 
 function formatDate(dateStr: string): string {
@@ -124,6 +137,34 @@ export function generateUnsubscribeToken(): string {
  * 以前の #0ea5e9 は約 2.8:1 で、太字でも本文サイズのため AA に届かなかった。
  */
 export const EMAIL_BUTTON_STYLE = 'display:inline-block;background:#0369A1;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;';
+
+/**
+ * 店舗への連絡手段（電話番号・店舗ページ）。マイページで予約を見られないお客様に出す。
+ * 電話番号は店舗ページと同じ判定（isDialablePhone）を通ったときだけ載せる（tel: に任意の文字列を入れない）。
+ */
+function shopContactHtml(data: BookingEmailData): string {
+  const phone = isDialablePhone(data.facilityPhone) ? data.facilityPhone : null;
+  const slug = data.facilitySlug ? data.facilitySlug : null;
+  return [
+    phone ? `<p style="text-align:center;margin:8px 0;">電話：<a href="tel:${phone.replace(/[^0-9+]/g, '')}" style="color:#0369a1;">${esc(phone)}</a></p>` : '',
+    slug ? `<p style="text-align:center;margin-top:16px;"><a href="${SITE_URL}/facility/${encodeURIComponent(slug)}" style="${EMAIL_BUTTON_STYLE}">店舗ページを見る</a></p>` : '',
+  ].join('');
+}
+
+/**
+ * お客様向け予約メールの末尾（予約の確かめ方）。
+ * 以前はゲスト予約（ログインせずに予約）にも「予約を確認する」→ /mypage を出していたが、
+ * マイページは user_id で絞るためゲストの予約は表示されず、押しても予約が見つからなかった。
+ */
+function bookingAccessHtml(data: BookingEmailData, memberLabel: string): string {
+  const mypageButton = `<p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="${EMAIL_BUTTON_STYLE}">${memberLabel}</a></p>`;
+  if (data.hasAccount === true) return mypageButton;
+  const facility = esc(data.facilityName);
+  if (data.hasAccount === false) {
+    return `<p style="margin-top:24px;">ご予約の確認・変更・キャンセルは、${facility}へ直接ご連絡ください。</p>${shopContactHtml(data)}`;
+  }
+  return `<p style="margin-top:24px;font-size:13px;color:#475569;">ログインしてご予約された方は、マイページでご予約を確認できます。ログインせずにご予約された方は、${facility}へ直接ご連絡ください。</p>${mypageButton}${shopContactHtml(data)}`;
+}
 
 function wrapHtml(body: string, unsubscribeToken?: string): string {
   const unsubLink = unsubscribeToken
@@ -279,7 +320,7 @@ export function buildBookingConfirmationEnvelope(data: BookingEmailData) {
       <p>${name} 様</p>
       <p>${facility}へのご予約を受け付けました。<br>施設からの確認後、確定メールをお送りいたします。</p>
       ${bookingDetailHtml(data)}
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="${EMAIL_BUTTON_STYLE}">予約を確認する</a></p>
+      ${bookingAccessHtml(data, '予約を確認する')}
     `),
   };
 }
@@ -302,7 +343,7 @@ export function buildBookingRescheduledEnvelope(data: BookingEmailData) {
       <p>${name} 様</p>
       <p>${facility}のご予約日時を下記のとおり変更しました。</p>
       ${bookingDetailHtml(data)}
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="${EMAIL_BUTTON_STYLE}">予約を確認する</a></p>
+      ${bookingAccessHtml(data, '予約を確認する')}
     `),
   };
 }
@@ -344,7 +385,7 @@ export function buildBookingReminderContent(data: BookingEmailData, daysBefore: 
       <p>${when}、${facility}のご予約がございます。</p>
       ${bookingDetailHtml(data)}
       <p>お忘れなく、お時間に余裕を持ってご来店ください。</p>
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="${EMAIL_BUTTON_STYLE}">予約詳細を見る</a></p>
+      ${bookingAccessHtml(data, '予約詳細を見る')}
       <p style="font-size:12px;color:#64748b;margin-top:24px;">${REMINDER_EMAIL_TIMING_NOTE}</p>
     `),
   };
@@ -383,6 +424,22 @@ export async function sendTimeAdjustRequest(data: BookingEmailData): Promise<boo
   return safeSend(resend, buildTimeAdjustRequestEnvelope(data), 'time_adjust_request');
 }
 
+/**
+ * 時間調整のお願いで、お客様にお願いする手段。ゲスト予約はマイページで変更できないので、店舗への連絡だけをお願いする
+ * （以前はゲストにも「マイページの予約変更」と「予約を変更する」ボタンを出していた）。
+ */
+function timeAdjustActionHtml(data: BookingEmailData): string {
+  const facility = esc(data.facilityName);
+  if (data.hasAccount === true) {
+    return `<p>恐れ入りますが、マイページの予約変更または施設へのご連絡にて、ご都合の良いお時間をお知らせください。</p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="${EMAIL_BUTTON_STYLE}">予約を変更する</a></p>`;
+  }
+  if (data.hasAccount === false) {
+    return `<p>恐れ入りますが、${facility}へ直接ご連絡のうえ、ご都合の良いお時間をお知らせください。</p>${shopContactHtml(data)}`;
+  }
+  return `<p>恐れ入りますが、${facility}へのご連絡にて、ご都合の良いお時間をお知らせください（ログインしてご予約された方は、マイページから予約を変更することもできます）。</p>${shopContactHtml(data)}`;
+}
+
 export function buildTimeAdjustRequestEnvelope(data: BookingEmailData) {
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
@@ -394,8 +451,7 @@ export function buildTimeAdjustRequestEnvelope(data: BookingEmailData) {
       <p>${name} 様</p>
       <p>${facility}より、ご予約のお時間について調整のお願いがございます。</p>
       ${bookingDetailHtml(data)}
-      <p>恐れ入りますが、マイページの予約変更または施設へのご連絡にて、ご都合の良いお時間をお知らせください。</p>
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="${EMAIL_BUTTON_STYLE}">予約を変更する</a></p>
+      ${timeAdjustActionHtml(data)}
     `),
   };
 }
@@ -420,7 +476,7 @@ export function buildBookingConfirmedEnvelope(data: BookingEmailData) {
       <p>${facility}のご予約が<strong style="color:#16a34a;">確定</strong>しました。</p>
       ${bookingDetailHtml(data)}
       <p>当日のご来店をお待ちしております。</p>
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="${EMAIL_BUTTON_STYLE}">予約詳細を見る</a></p>
+      ${bookingAccessHtml(data, '予約詳細を見る')}
     `),
   };
 }
@@ -844,7 +900,7 @@ export async function sendWelcomeEmail(data: { ownerEmail: string; ownerName?: s
     subject: escSubject(`【CareLink】${data.facilityName}の登録ありがとうございます`),
     html: wrapHtml(`
       <p>${name} 様</p>
-      <p>この度はCareLinksに施設を登録いただき、ありがとうございます！</p>
+      <p>この度はCareLinkに施設を登録いただき、ありがとうございます！</p>
       <p>以下の3ステップを完了すると、お客様があなたの施設を見つけやすくなります。</p>
       <table style="width:100%;border-collapse:collapse;margin:20px 0;">
         <tr><td style="padding:12px;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600;width:40px;text-align:center;">1</td><td style="padding:12px;border:1px solid #e2e8f0;">メニュー・料金を登録する</td></tr>
@@ -914,7 +970,7 @@ export function buildBookingStatusUpdateEnvelope(data: BookingEmailData & { newS
       <p>${facility}のご予約のステータスが<strong>「${statusLabel}」</strong>に変更されました。</p>
       ${data.reason ? `<p style="background:#fef3c7;padding:12px;border-radius:8px;font-size:14px;">理由: ${esc(data.reason)}</p>` : ''}
       ${bookingDetailHtml(data)}
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="${EMAIL_BUTTON_STYLE}">予約を確認する</a></p>
+      ${bookingAccessHtml(data, '予約を確認する')}
     `),
   };
 }
@@ -982,14 +1038,25 @@ export function buildFavoritesDigestEnvelope(data: {
 /** Pure template for the booking-owned durable review invitation. */
 export function buildReviewRequestEnvelope(data: {
   email: string; customerName: string | null; facilityName: string; facilitySlug: string;
+  /**
+   * 予約の user_id（予約確保時の snapshot の userId）。null はゲスト予約、未指定は分からない。
+   * 口コミポイント（50pt）は、ログインした会員がその店舗で来店済みの予約を持つときに、店舗ごとに初回の 1 回だけ付く
+   * （commit_review_effects トリガ）。ゲストや不明の相手にはポイントを約束しない。
+   */
+  userId?: string | null;
 }) {
   // 以前は #review を指していたが、施設ページにその id は無く、口コミタブも開かれなかった
   // （押してもトップタブのまま）。#review-form は ReviewTab の投稿欄の id で、TabNavigation が
   // それを含む口コミタブを開いてスクロールする（#review も口コミタブを開く）。
   const reviewUrl = `${SITE_URL}/facility/${encodeURIComponent(data.facilitySlug)}#review-form`;
+  // 以前は全員に「口コミを投稿すると50ポイントがもらえます！」と書いていたが、ゲスト予約の方や、
+  // その店舗に既に口コミを書いた会員には付かない。会員の予約にだけ、条件を添えて案内する。
+  const pointsNote = data.userId
+    ? '<p style="color:#64748b;font-size:12px;">ご予約の会員アカウントでログインして投稿すると、この店舗への初めての口コミに50ポイントを差し上げます。</p>'
+    : '';
   return { from: FROM, to: data.email,
     subject: escSubject(`【${data.facilityName}】ご来店ありがとうございました`),
-    html: `<p>${esc(data.customerName || 'お客')}様</p><p>先日は<strong>${esc(data.facilityName)}</strong>にご来店いただきありがとうございました。</p><p>よろしければ、口コミを投稿していただけると嬉しいです。</p><p><a href="${reviewUrl}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">口コミを書く</a></p><p style="color:#999;font-size:12px;">口コミを投稿すると50ポイントがもらえます！</p>`,
+    html: `<p>${esc(data.customerName || 'お客')}様</p><p>先日は<strong>${esc(data.facilityName)}</strong>にご来店いただきありがとうございました。</p><p>よろしければ、口コミを投稿していただけると嬉しいです。</p><p><a href="${reviewUrl}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">口コミを書く</a></p>${pointsNote}`,
   };
 }
 

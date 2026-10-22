@@ -1,4 +1,4 @@
-import { isDialablePhone } from '@/lib/facility-contact';
+import { isDialablePhone, bookingEmailShopContact } from '@/lib/facility-contact';
 
 // 店舗ページ・マイページの予約詳細・LIFF のキャンセル画面が同じ判定で tel: リンクを出す。
 describe('isDialablePhone', () => {
@@ -19,5 +19,23 @@ describe('isDialablePhone', () => {
 
   it.each([null, undefined, 312345678])('文字列でない値 %p はリンクにしない', (phone) => {
     expect(isDialablePhone(phone)).toBe(false);
+  });
+});
+
+// お客様向け予約メール（ゲスト予約の連絡先）に載せる値。
+describe('bookingEmailShopContact', () => {
+  it('公開中の店舗は電話番号と slug を返す', () => {
+    expect(bookingEmailShopContact({ slug: 'synthetic-shop', phone: '03-1234-5678', status: 'published' }))
+      .toEqual({ facilityPhone: '03-1234-5678', facilitySlug: 'synthetic-shop' });
+  });
+  it('非公開の店舗は slug を返さない（店舗ページが 404 になる）・電話にならない番号も返さない', () => {
+    expect(bookingEmailShopContact({ slug: 'synthetic-shop', phone: 'javascript:alert(1)', status: 'draft' }))
+      .toEqual({ facilityPhone: null, facilitySlug: null });
+  });
+  it('slug が空なら返さない', () => {
+    expect(bookingEmailShopContact({ slug: '', phone: null, status: 'published' })).toEqual({ facilityPhone: null, facilitySlug: null });
+  });
+  it.each([null, undefined])('店舗の行が無い %p は両方 null', (row) => {
+    expect(bookingEmailShopContact(row)).toEqual({ facilityPhone: null, facilitySlug: null });
   });
 });

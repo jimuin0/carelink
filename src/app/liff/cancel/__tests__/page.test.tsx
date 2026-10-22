@@ -5,13 +5,16 @@
  * 旧実装は .catch で setLoading(false) のみで、取得失敗を「予約が見つかりません」と区別できなかった。
  */
 import '@testing-library/jest-dom';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import LiffCancelPage from '@/app/liff/cancel/page';
 import { useLiff } from '@/hooks/useLiff';
 
 jest.mock('@/hooks/useLiff', () => ({ useLiff: jest.fn() }));
+let mockBookingParam: string | null = 'booking-1';
+const mockReplace = jest.fn();
 jest.mock('next/navigation', () => ({
-  useSearchParams: () => ({ get: () => 'booking-1' }),
+  useSearchParams: () => ({ get: () => mockBookingParam }),
+  useRouter: () => ({ replace: mockReplace }),
 }));
 
 function mockFetch(ok: boolean, body: object) {
@@ -23,7 +26,7 @@ function mockFetch(ok: boolean, body: object) {
 beforeEach(() =>
   (useLiff as jest.Mock).mockReturnValue({ status: 'ready', accessToken: 'tok', data: {} }),
 );
-afterEach(() => jest.clearAllMocks());
+afterEach(() => { jest.clearAllMocks(); mockBookingParam = 'booking-1'; });
 
 test('取得失敗(500) → 「見つかりません」でなくエラーを明示する（握り潰し回帰防止）', async () => {
   mockFetch(false, {});
@@ -192,4 +195,22 @@ test('表示してから無料期限を過ぎた → 押しても取り消さず
   } finally {
     now.mockRestore();
   }
+});
+
+// リッチメニューの「キャンセル」は予約を指定せずに開く。以前は「予約IDが指定されていません」で行き止まりだった。
+test('予約の指定が無ければ、予約を選べる一覧へ移す（予約を読みに行かない）', async () => {
+  mockBookingParam = null;
+  mockFetch(true, {});
+  render(<LiffCancelPage />);
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/liff/bookings'));
+  expect(screen.getByRole('link', { name: '予約一覧へ' })).toHaveAttribute('href', '/liff/bookings');
+  expect(screen.queryByText('予約IDが指定されていません')).not.toBeInTheDocument();
+  expect(global.fetch).not.toHaveBeenCalled();
+});
+
+test('予約の指定があれば一覧へは移さない', async () => {
+  mockFetch(true, { booking: null });
+  render(<LiffCancelPage />);
+  expect(await screen.findByText('予約が見つかりません')).toBeInTheDocument();
+  expect(mockReplace).not.toHaveBeenCalled();
 });

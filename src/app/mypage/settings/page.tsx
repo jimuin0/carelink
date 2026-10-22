@@ -162,7 +162,7 @@ function SettingsContent() {
       {(isLineEnabled() || lineLinked) && (
       <div className="bg-white rounded-2xl shadow-xs p-6">
         <h2 className="font-semibold text-gray-900 mb-1">LINE連携</h2>
-          {isLineLoginEnabled() && <form action="/api/auth/line" method="get" className="mb-3">
+          {isLineLoginEnabled() && lineLinked && <form action="/api/auth/line" method="get" className="mb-3">
             <input type="hidden" name="mode" value="link" /><input type="hidden" name="redirect" value="/mypage/settings" />
             <button type="submit" className="text-sm font-medium text-green-700 underline">LINE連携を再確認</button>
           </form>}
@@ -190,10 +190,15 @@ function SettingsContent() {
               {lineUnlinking ? '解除中...' : '連携を解除する'}
             </button>
           </div>
+        ) : isLineLoginEnabled() ? (
+          // 未連携の人の入口はここ。以前は「LINEアプリのリッチメニューから行えます」と案内していたが、
+          // リッチメニューの各画面は未連携だとこの設定ページへ案内するため、行き来するだけで連携できなかった。
+          <form action="/api/auth/line" method="get">
+            <input type="hidden" name="mode" value="link" /><input type="hidden" name="redirect" value="/mypage/settings" />
+            <button type="submit" className="bg-green-700 text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-green-800">LINEと連携する</button>
+          </form>
         ) : (
-          <p className="text-sm text-gray-500">
-            LINE連携はLINEアプリのリッチメニューから行えます。施設からQRコードをご案内します。
-          </p>
+          <p className="text-sm text-gray-500">現在、LINE連携の受付を停止しています。</p>
         )}
       </div>
       )}

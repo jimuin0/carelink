@@ -762,6 +762,13 @@ describe('sendWelcomeEmail', () => {
     const html = mockSend.mock.calls[0][0].html;
     expect(html).toContain('オーナー');
   });
+
+  test('サービス名は「CareLink」（以前は「CareLinks」と誤記していた）', async () => {
+    await sendWelcomeEmail({ ownerEmail: 'owner@example.com', facilityName: 'サロン' });
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).toContain('この度はCareLinkに施設を登録');
+    expect(html).not.toContain('CareLinks');
+  });
 });
 
 describe('sendOnboardingFollowEmail', () => {

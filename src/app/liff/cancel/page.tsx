@@ -2,9 +2,10 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import { useLiff } from '@/hooks/useLiff';
+import LiffNotLinked from '@/components/liff/LiffNotLinked';
 import { canCustomerCancelBooking } from '@/lib/booking-status';
 import {
   hasBookingStarted, hoursUntilBookingStart, describeCancelFeeEstimate, describeConfirmedCancelFee,
@@ -43,22 +44,18 @@ function LiffLoading() {
 function LiffError({ message }: { message: string }) {
   return <div className="flex items-center justify-center min-h-screen p-4"><p role="alert" className="text-red-600 text-sm">{message}</p></div>;
 }
-function LiffNotLinked() {
-  return (
-    <div className="flex items-center justify-center min-h-screen p-4">
-      <div className="text-center space-y-4">
-        <p className="text-2xl">🔗</p>
-        <p className="font-bold text-gray-900">LINE連携が必要です</p>
-        <Link href="/mypage/settings" className="inline-block bg-[#06C755] text-white px-6 py-2.5 rounded-full text-sm font-bold">設定ページへ</Link>
-      </div>
-    </div>
-  );
-}
 
 function CancelContent() {
   const liff = useLiff();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const bookingId = searchParams.get('booking_id');
+
+  // リッチメニューの「キャンセル」は予約を指定せずにこの画面を開く。予約を選べる一覧へ移す
+  // （以前は「予約IDが指定されていません」で行き止まりになり、一覧の予約も選べなかった）。
+  useEffect(() => {
+    if (!bookingId) router.replace('/liff/bookings');
+  }, [bookingId, router]);
 
   const [booking, setBooking] = useState<Booking | null>(null);
   // liff.status は 'loading' から 'ready' へ一度だけ遷移し、bookingId は外部（LINE
@@ -169,8 +166,8 @@ function CancelContent() {
 
       {!bookingId ? (
         <div className="text-center py-12">
-          <p className="text-gray-500 text-sm">予約IDが指定されていません</p>
-          <Link href="/liff/bookings" className="mt-4 inline-block text-sky-700 text-sm">予約一覧から選択する</Link>
+          <p className="text-gray-500 text-sm">キャンセルする予約を、予約一覧から選んでください。</p>
+          <Link href="/liff/bookings" className="mt-4 inline-block text-sky-700 text-sm">予約一覧へ</Link>
         </div>
       ) : loading ? (
         <div className="text-center py-12 text-gray-500 text-sm">読み込み中...</div>

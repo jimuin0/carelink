@@ -8,3 +8,18 @@ const DIALABLE_PHONE = /^[0-9+\-()# ]{7,20}$/;
 export function isDialablePhone(phone: unknown): phone is string {
   return typeof phone === 'string' && DIALABLE_PHONE.test(phone);
 }
+
+/**
+ * お客様向け予約メールに載せる店舗の連絡先（電話番号・店舗ページの slug）。
+ * 電話番号は isDialablePhone を通ったものだけ、slug は公開中の店舗のときだけ返す（非公開の店舗ページは 404 になる）。
+ * 店舗の行を読めなかったときは両方 null（連絡先が無くても、メールは店名で「直接ご連絡ください」と案内できる）。
+ */
+export function bookingEmailShopContact(facility: { slug?: string | null; phone?: string | null; status?: string | null } | null | undefined): {
+  facilityPhone: string | null; facilitySlug: string | null;
+} {
+  const phone = facility?.phone;
+  return {
+    facilityPhone: isDialablePhone(phone) ? phone : null,
+    facilitySlug: facility?.status === 'published' && facility.slug ? facility.slug : null,
+  };
+}

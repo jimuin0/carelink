@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useLiff } from '@/hooks/useLiff';
-import { statusChipClass, bookingStatusLabel } from '@/lib/booking-status';
+import LiffNotLinked from '@/components/liff/LiffNotLinked';
+import { statusChipClass, bookingStatusLabel, canCustomerCancelBooking } from '@/lib/booking-status';
 
 type Booking = {
   id: string;
@@ -93,6 +94,17 @@ export default function LiffBookingsPage() {
                     <span className="text-sm font-bold text-sky-700">¥{b.total_price.toLocaleString()}</span>
                   )}
                 </div>
+                {/* リッチメニューの「キャンセル」は予約を指定せずに /liff/cancel を開き、そこから一覧へ戻る。
+                    以前は一覧の予約が選べず（リンクが無く）、キャンセルにたどり着けなかった。
+                    開始後・ネットでのキャンセル不可の予約は、キャンセル画面が店舗の連絡先を案内する。 */}
+                {canCustomerCancelBooking(b.status) && (
+                  <Link
+                    href={`/liff/cancel?booking_id=${encodeURIComponent(b.id)}`}
+                    className="mt-3 block rounded-lg border border-gray-200 py-2 text-center text-sm font-bold text-red-700 hover:bg-red-50"
+                  >
+                    キャンセル手続きへ
+                  </Link>
+                )}
               </div>
             );
           })}
@@ -118,24 +130,6 @@ function LiffError({ message }: { message: string }) {
     <div className="flex items-center justify-center min-h-screen p-4">
       <div className="text-center">
         <p role="alert" className="text-red-600 text-sm">{message}</p>
-      </div>
-    </div>
-  );
-}
-
-function LiffNotLinked() {
-  return (
-    <div className="flex items-center justify-center min-h-screen p-4">
-      <div className="text-center space-y-4">
-        <p className="text-2xl">🔗</p>
-        <p className="font-bold text-gray-900">LINE連携が必要です</p>
-        <p className="text-sm text-gray-500">CareLinkアカウントとLINEを連携するには、マイページの設定から行ってください。</p>
-        <Link
-          href="/mypage/settings"
-          className="inline-block bg-[#06C755] text-white px-6 py-2.5 rounded-full text-sm font-bold"
-        >
-          設定ページへ
-        </Link>
       </div>
     </div>
   );

@@ -96,6 +96,8 @@ test('shop change email shows the previous and the new date/time to the owner ad
 test('customer change email accepts the previous date/time captured with the change',async()=>{
   const envelope=await prepareCustomerBookingTransitionEnvelope(db,{...job,payload:{...job.payload,kind:'rescheduled',snapshot:{...snapshot,previous}}});
   expect(envelope.to).toBe(snapshot.customerEmail);expect(envelope.subject).toContain('日時を変更');
+  // 変更はその予約の会員本人だけができる（change_booking_atomic が user_id を照合）＝マイページで確認できる。
+  expect(envelope.html).toContain('/mypage');expect(envelope.html).not.toContain('ログインせずにご予約された方');
 });
 test('missing optional snapshot values use the original empty values, never current booking data',async()=>{
   const envelope=await prepareCustomerBookingTransitionEnvelope(db,{...job,payload:{...job.payload,

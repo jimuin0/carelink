@@ -45,7 +45,11 @@ export async function prepareCustomerBookingTransitionEnvelope(db: SupabaseClien
   const fee = cancelFeeFromContext({ policy: s.cancelPolicy, totalPrice: s.totalPrice,
     bookingDate: s.bookingDate, startTime: s.startTime, capturedAt: s.capturedAt });
   const data = { ...s, menuName: s.menuName ?? undefined, totalPrice: s.totalPrice ?? undefined,
-    cancelFee: fee.fee, cancelFeeRate: fee.rate, cancelledAt: s.capturedAt };
+    cancelFee: fee.fee, cancelFeeRate: fee.rate, cancelledAt: s.capturedAt,
+    // The customer side of these jobs is only queued by the member's own cancel/change
+    // (cancel_booking_with_points_atomic and change_booking_atomic require bookings.user_id = actor),
+    // so the booking is always visible in /mypage.
+    hasAccount: true };
   const envelope = eventEmailEnvelopeSchema.parse(job.payload.kind === 'rescheduled'
     ? job.payload.role === 'customer' ? buildBookingRescheduledEnvelope(data)
       // The schema guarantees `previous` for the shop's change email.

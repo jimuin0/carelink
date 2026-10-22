@@ -49,7 +49,7 @@ function bookingRow(over: Partial<Booking> = {}): Booking {
 let cfg: {
   booking: Booking | null;
   membership: { facility_id: string; role: string } | null;
-  facility: { name: string } | null;
+  facility: { name: string; slug?: string; phone?: string | null; status?: string } | null;
   entitlements: { facility_id: string; option_key: string }[];
   lineLink: { line_user_id: string } | null;
 };
@@ -310,6 +310,22 @@ test('email 正常系: 無料で送信・監査ログ記録', async () => {
     action: 'booking_adjust_request',
     newValues: { channel: 'email', notification:'queued' },
   }));
+});
+
+// ゲスト予約（user_id なし）はマイページで予約を変更できない。マイページへ誘導せず、店舗への連絡だけをお願いする。
+test.each([
+  [null, false],
+  ['cust-1', true],
+])('email: user_id=%j の予約には会員向けの文面を出し分ける', async (userId, member) => {
+  cfg.booking = bookingRow({ user_id: userId });
+  cfg.facility = { name: 'テストサロン', slug: 'test-salon', phone: '03-1234-5678', status: 'published' };
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(200);
+  const envelope = mockQueue.mock.calls[0][1].p_envelope as { html: string };
+  expect(envelope.html.includes('/mypage')).toBe(member);
+  expect(envelope.html.includes('予約を変更する')).toBe(member);
+  expect(envelope.html.includes('/facility/test-salon')).toBe(!member);
+  expect(envelope.html.includes('tel:0312345678')).toBe(!member);
 });
 
 test('email: 施設名が引けない場合は通知を予約せず500', async () => {
