@@ -6,6 +6,7 @@ const second = '71000000-0000-4000-8000-000000000002';
 let mockRequested: string | null = second;
 let mockProfile: Record<string, unknown>;
 let mockReads: string[];
+let mockSetup: Record<string, { data?: unknown; count?: number | null; error: unknown }>;
 const mockFetch = jest.fn();
 const mockDb = jest.fn();
 const mockGetUser = jest.fn();
@@ -17,6 +18,11 @@ jest.mock('@/components/Toast', () => ({ __esModule: true, default: ({ message }
 
 beforeEach(() => {
   jest.clearAllMocks(); mockRequested = second; mockReads = [];
+  mockSetup = {
+    facility_menus: { count: 0, error: null },
+    facility_photos: { count: 1, error: null },
+    staff_profiles: { data: [], error: null },
+  };
   mockProfile = { name: '合成店舗B', business_type: 'ヘアサロン', prefecture: '愛知県', city: '合成市', address: '合成番地',
     business_hours: null, business_hours_text: '平日10時から18時、火曜休み', status: 'draft' };
   global.fetch = mockFetch;
@@ -31,8 +37,19 @@ beforeEach(() => {
             { facility_id: second, facility_profiles: { name: '合成店舗B' } }], error: null }) };
         return chain;
       }
-      const chain = { select: () => chain, eq: (_key: string, value: string) => { mockReads.push(value); return chain; },
-        single: async () => ({ data: mockProfile, error: null }) };
+      if (table === 'facility_profiles') {
+        // 編集フォームの読み込み（select('*')）だけを数える。準備状況の読み込みも同じ表を読む。
+        let columns = '';
+        const chain = { select: (c: string) => { columns = c; return chain; },
+          eq: (_key: string, value: string) => { if (columns === '*') mockReads.push(value); return chain; },
+          single: async () => ({ data: mockProfile, error: null }) };
+        return chain;
+      }
+      // ネット予約の準備状況（保存済みのメニュー・写真・勤務するスタッフ）
+      const result = mockSetup[table];
+      const chain: Record<string, unknown> = {};
+      for (const m of ['select', 'eq', 'or', 'gte', 'not', 'limit']) chain[m] = () => chain;
+      chain.then = (resolve: (value: unknown) => unknown) => resolve(result);
       return chain;
     },
   });
@@ -88,9 +105,10 @@ test('未確認の営業時間を既定09時19時で上書きせず、入力情�
   await screen.findByDisplayValue('合成店舗B');
   expect(screen.getByText(/申込時の営業時間：平日10時/)).toBeTruthy();
   expect(screen.getByRole('textbox', { name: /施設名/ }).getAttribute('maxlength')).toBe('200');
-  expect(screen.getByRole('textbox', { name: /番地/ }).getAttribute('maxlength')).toBe('500');
+  expect(screen.getByRole('textbox', { name: /町名・番地/ }).getAttribute('maxlength')).toBe('500');
   fireEvent.click(screen.getAllByRole('button', { name: '保存する' })[0]);
-  await screen.findByText('施設情報を保存しました');
+  // 営業時間を送らなかったことを、成功の表示の中で伝える（黙って「保存しました」だけにしない）
+  await screen.findByText('施設情報を保存しました。営業時間はまだ入力されていないため、ネット予約は始まりません');
   expect(mockReads).toEqual([second]);
   const [url, options] = mockFetch.mock.calls[0];
   expect(url).toBe(`/api/admin/settings?facility_id=${second}`);
@@ -107,7 +125,7 @@ test.each([
   const name = await screen.findByDisplayValue('合成店舗B');
   fireEvent.change(name, { target: { value: '名称のみ更新' } });
   fireEvent.click(screen.getAllByRole('button', { name: '保存する' })[0]);
-  await screen.findByText('施設情報を保存しました');
+  await screen.findByText(/^施設情報を保存しました。営業時間はまだ入力されていない/);
   expect(JSON.parse(mockFetch.mock.calls[0][1].body)).not.toHaveProperty('business_hours');
 });
 
@@ -177,7 +195,7 @@ describe('公開は画面の入力どおりに行う', () => {
   const fillLocation = async () => {
     fireEvent.change(await screen.findByLabelText(/都道府県/), { target: { value: '東京都' } });
     fireEvent.change(screen.getByRole('textbox', { name: /市区町村/ }), { target: { value: '渋谷区' } });
-    fireEvent.change(screen.getByRole('textbox', { name: /番地/ }), { target: { value: '神南1-1' } });
+    fireEvent.change(screen.getByRole('textbox', { name: /町名・番地/ }), { target: { value: '神南1-1' } });
   };
   beforeEach(() => { mockProfile = { ...mockProfile, prefecture: '', city: '', address: '' }; });
 
@@ -210,7 +228,7 @@ describe('公開は画面の入力どおりに行う', () => {
     // 入力して保存すると、古い一覧は消える
     await fillLocation();
     fireEvent.click(screen.getAllByRole('button', { name: '保存する' })[0]);
-    await screen.findByText('施設情報を保存しました');
+    await screen.findByText(/^施設情報を保存しました/);
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
@@ -275,4 +293,136 @@ test('both GBP entry links preserve the explicitly selected second facility',asy
  render(<AdminSettingsPage/>);await screen.findByDisplayValue('合成店舗B');
  expect(screen.getByRole('link',{name:'GBP管理画面へ →',exact:true}).getAttribute('href')).toBe('/admin/gbp?facility_id='+second);
  expect(screen.getByRole('link',{name:'GBP設定・診断を開く',exact:true}).getAttribute('href')).toBe('/admin/gbp?facility_id='+second);
+});
+
+// ─── 初回ログインから公開までの導線（2026年10月23日） ───────────────────────────
+const DAY_NAMES = ['月', '火', '水', '木', '金', '土', '日'];
+const openInput = (day: string) => screen.getByLabelText(`${day}曜日の開店時間`) as HTMLInputElement;
+const closeInput = (day: string) => screen.getByLabelText(`${day}曜日の閉店時間`) as HTMLInputElement;
+const save = () => fireEvent.click(screen.getAllByRole('button', { name: '保存する' })[0]);
+
+describe('営業時間', () => {
+  test('未保存の店舗は空欄から始める（09:00〜19:00 を黙って入れない）', async () => {
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    for (const day of DAY_NAMES) {
+      expect(openInput(day).value).toBe('');
+      expect(closeInput(day).value).toBe('');
+    }
+    expect(screen.queryByDisplayValue('09:00')).toBeNull();
+    // 確認用のチェックボックスは無い（入力したら、それを確認とみなす）
+    expect(screen.queryByLabelText(/予約用設定として保存する/)).toBeNull();
+  });
+
+  // 以前は確認のチェックを入れない限り、入力した営業時間は保存内容から外され、それでも「保存しました」と出た。
+  test('営業時間を入力したら確認とみなして保存する（チェックボックス不要）', async () => {
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    fireEvent.change(openInput('月'), { target: { value: '10:00' } });
+    fireEvent.change(closeInput('月'), { target: { value: '19:00' } });
+    fireEvent.click(screen.getByRole('button', { name: '最初に入力した曜日の時間を、ほかの営業日にも入れる' }));
+    fireEvent.click(screen.getByLabelText('日曜日に営業する'));
+    save();
+    await screen.findByText('施設情報を保存しました');
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.business_hours).toEqual({
+      mon: { open: '10:00', close: '19:00' }, tue: { open: '10:00', close: '19:00' }, wed: { open: '10:00', close: '19:00' },
+      thu: { open: '10:00', close: '19:00' }, fri: { open: '10:00', close: '19:00' }, sat: { open: '10:00', close: '19:00' }, sun: null,
+    });
+  });
+
+  test('入力しかけの営業時間があれば、保存全体を止めてどの曜日かを示す（成功と表示しない）', async () => {
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    fireEvent.change(openInput('月'), { target: { value: '10:00' } });
+    save();
+    const message = '月曜日の開店・閉店時間を入力してください（休みの曜日は「営業」のチェックを外してください）';
+    await screen.findByText(message, { selector: '[role="status"]' });
+    expect(screen.getByText(message, { selector: 'p.text-red-700' })).toBeTruthy();
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(screen.queryByText(/^施設情報を保存しました/)).toBeNull();
+  });
+
+  test('時間を写す元が無ければ、先に入力するよう伝える', async () => {
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    fireEvent.click(screen.getByRole('button', { name: '最初に入力した曜日の時間を、ほかの営業日にも入れる' }));
+    await screen.findByText('先にいずれかの曜日の開店・閉店時間を入力してください');
+  });
+});
+
+describe('保存の入力確認', () => {
+  test('施設名が空なら理由を示し、施設名の欄へ移る', async () => {
+    render(<AdminSettingsPage />);
+    const name = await screen.findByDisplayValue('合成店舗B');
+    fireEvent.change(name, { target: { value: '  ' } });
+    save();
+    await screen.findByText('施設名を入力してください', { selector: '[role="status"]' });
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: /施設名/ }));
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  test('スキームの無い Web サイトは https:// を補って送り、入力欄も合わせる', async () => {
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Webサイト' }), { target: { value: 'www.example.com' } });
+    save();
+    await screen.findByText(/^施設情報を保存しました/);
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body).website_url).toBe('https://www.example.com');
+    expect(screen.getByDisplayValue('https://www.example.com')).toBeTruthy();
+  });
+
+  test('サーバーが断った欄の理由を、その欄の下に出す', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, json: async () => ({
+      error: '入力内容を確認してください：Webサイト',
+      fields: { website_url: 'WebサイトのURLを確認してください（例: https://example.com）' },
+    }) });
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    save();
+    await screen.findByText('入力内容を確認してください：Webサイト');
+    const web = screen.getByRole('textbox', { name: 'Webサイト' });
+    expect(web.getAttribute('aria-invalid')).toBe('true');
+    expect(document.getElementById(web.getAttribute('aria-describedby') as string)?.textContent)
+      .toBe('WebサイトのURLを確認してください（例: https://example.com）');
+  });
+});
+
+describe('ネット予約の準備状況', () => {
+  test('足りない項目を、それぞれの画面へのリンクつきで並べる', async () => {
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    const section = await screen.findByRole('region', { name: 'ネット予約の準備状況' });
+    await waitFor(() => expect(section.textContent).toContain('あと4項目'));
+    const link = (name: string) => screen.getByRole('link', { name }).getAttribute('href');
+    expect(link('無料掲載を公開')).toBe(`/admin/settings?facility_id=${second}`);
+    expect(link('営業時間の入力・保存')).toBe(`/admin/settings?facility_id=${second}`);
+    expect(link('公開メニュー登録')).toBe(`/admin/menus?facility_id=${second}`);
+    expect(link('スタッフ登録と勤務時間の保存')).toBe(`/admin/staff?facility_id=${second}`);
+    // 写真は登録済み
+    expect(screen.queryByRole('link', { name: '写真アップロード' })).toBeNull();
+    expect(section.textContent).toContain('済み：写真アップロード');
+    expect(section.id).toBe('booking-readiness');
+  });
+
+  test('読み込めなければ、未完了と偽らずに読み込めなかったと伝える', async () => {
+    mockSetup.staff_profiles = { data: null, error: { message: 'synthetic' } };
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    await screen.findByText('準備状況を読み込めませんでした。');
+  });
+});
+
+test('LINE WORKS の秘密情報をメールで送らせる案内を出さない', async () => {
+  render(<AdminSettingsPage />);
+  await screen.findByDisplayValue('合成店舗B');
+  expect(screen.queryByText(/Client Secret/)).toBeNull();
+  expect(screen.queryByText(/LINE Works連携/)).toBeNull();
+});
+
+test('公開中の店舗には「掲載ページを見る」を出す', async () => {
+  mockProfile = { ...mockProfile, status: 'published', slug: 'synthetic-shop' };
+  render(<AdminSettingsPage />);
+  await screen.findByDisplayValue('合成店舗B');
+  expect(screen.getByRole('link', { name: '掲載ページを見る' }).getAttribute('href')).toBe('/facility/synthetic-shop');
 });

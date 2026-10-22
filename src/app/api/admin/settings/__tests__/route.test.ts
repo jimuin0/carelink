@@ -672,3 +672,52 @@ describe('保存した行の確認と依存障害', () => {
     expect(writeAuditLog).not.toHaveBeenCalled();
   });
 });
+
+// ─── 欄ごとのエラー（2026年10月23日）──────────────────────────────────────────
+// 以前は Web サイト欄に www.example.com と書くだけで保存全体が「リクエストが不正です」で失敗し、
+// 住所・営業時間も保存されず、どの欄が悪いのかも分からなかった。
+test('PATCH: スキームの無い Web サイトは https:// を補って保存する', async () => {
+  const update = captureSettingsUpdate();
+  const res = await PATCH(makePatchRequest({ name: '施設', website_url: ' www.example.com ' }));
+  expect(res.status).toBe(200);
+  expect(update.mock.calls[0][0]).toMatchObject({ website_url: 'https://www.example.com' });
+});
+
+test.each(['javascript://example.com/%0aalert(1)', 'ftp://example.com', 'https://'])('PATCH: http(s) でない・壊れた Web サイト %s は欄名つきで断る', async (url) => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makePatchRequest({ name: '施設', website_url: url }));
+  expect(res.status).toBe(400);
+  expect(await res.json()).toEqual({
+    error: '入力内容を確認してください：Webサイト',
+    fields: { website_url: 'WebサイトのURLを確認してください（例: https://example.com）' },
+  });
+});
+
+test('PATCH: 複数の欄が不正なら、それぞれの欄名を返す', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makePatchRequest({ name: '', seat_count: -1 }));
+  expect(res.status).toBe(400);
+  expect(await res.json()).toEqual({
+    error: '入力内容を確認してください：施設名、席数',
+    fields: { name: '施設名の入力内容を確認してください', seat_count: '席数の入力内容を確認してください' },
+  });
+});
+
+test.each([
+  ['catch_copy', 'キャッチコピー：'],
+  ['description', '施設紹介：'],
+])('PATCH: 医療広告の表現で断るときは、どの欄か（%s）を先頭に示す', async (field, prefix) => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makePatchRequest({ name: 'test', [field]: '必ず治る施術です' }));
+  expect(res.status).toBe(400);
+  const json = await res.json();
+  expect(json.error.startsWith(prefix)).toBe(true);
+  expect(json.fields).toEqual({ [field]: json.error });
+});
+
+test('PATCH: 閉店が開店より前の営業時間は営業時間の欄として返す', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makePatchRequest({ name: 'test', business_hours: { mon: { open: '18:00', close: '10:00' } } }));
+  expect(res.status).toBe(400);
+  expect((await res.json()).fields).toEqual({ business_hours: '月曜日の閉店時間は開店時間より後にしてください' });
+});

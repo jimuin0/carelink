@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
-import { UUID_REGEX, businessTypes } from '@/lib/constants';
+import { UUID_REGEX, businessTypes, dayLabels } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -16,6 +16,7 @@ import { verifyAuthUser } from '@/lib/auth-verification';
 import { FACILITY_INPUT_LIMITS } from '@/lib/facility-input-limits';
 import { toJsonValue } from '@/lib/json-value';
 import { normalizeFacilityLocation } from '@/lib/facility-location';
+import { isHttpUrl, normalizeWebsiteUrl, settingsErrorSummary, settingsFieldErrors, SETTINGS_FIELD_LABELS } from '@/lib/facility-settings-input';
 
 // facility_profiles の update() に渡すオブジェクトの型。
 // 以前は Record<string, unknown> にしていたが、Database 型配線後は
@@ -58,7 +59,12 @@ const settingsSchema = z.object({
   access_info: z.string().max(200).optional().nullable(),
   nearest_station: z.string().max(FACILITY_INPUT_LIMITS.nearestStation).optional().nullable(),
   phone: z.string().max(20).optional().nullable(),
-  website_url: z.string().url().max(FACILITY_INPUT_LIMITS.website).optional().nullable().or(z.literal('')),
+  // `www.example.com` のようにスキームの無い入力は https:// を補う（以前は保存全体が 400 になっていた）。
+  // 掲載ページにリンクとして出すので http(s) だけを受け付ける。
+  website_url: z.preprocess(
+    normalizeWebsiteUrl,
+    z.union([z.literal(''), z.string().url().max(FACILITY_INPUT_LIMITS.website).refine(isHttpUrl)]).optional().nullable(),
+  ),
   seat_count: z.number().int().min(0).max(9999).optional().nullable(),
   staff_count: z.number().int().min(0).max(9999).optional().nullable(),
   parking: z.boolean().optional(),
@@ -198,13 +204,19 @@ async function patchSettings(request: NextRequest) {
   }
 
   const parsed = settingsSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
+  if (!parsed.success) {
+    // どの欄が悪いのかを返す（画面は欄の下に出す）。以前は「リクエストが不正です」だけで、
+    // Web サイト欄ひとつの形式違いで住所・営業時間を含む保存全体が理由不明のまま失敗していた。
+    const fields = settingsFieldErrors(parsed.error.issues);
+    return NextResponse.json({ error: settingsErrorSummary(fields), fields }, { status: 400 });
+  }
 
   // Validate business hours consistency
   if (parsed.data.business_hours) {
     for (const [day, hours] of Object.entries(parsed.data.business_hours)) {
       if (hours && hours.close <= hours.open) {
-        return NextResponse.json({ error: `${day}の閉店時間は開店時間より後にしてください` }, { status: 400 });
+        const message = `${dayLabels[day]}曜日の閉店時間は開店時間より後にしてください`;
+        return NextResponse.json({ error: message, fields: { business_hours: message } }, { status: 400 });
       }
     }
   }
@@ -216,7 +228,9 @@ async function patchSettings(request: NextRequest) {
   for (const field of ['catch_copy', 'description'] as const) {
     const check = validateFacilityPrText(parsed.data[field]);
     if (!check.ok) {
-      return NextResponse.json({ error: check.message }, { status: 400 });
+      // どちらの欄の表現かを先頭に出す（キャッチコピーと施設紹介のどちらを直すのか分からなかった）。
+      const message = `${SETTINGS_FIELD_LABELS[field]}：${check.message}`;
+      return NextResponse.json({ error: message, fields: { [field]: message } }, { status: 400 });
     }
   }
 
