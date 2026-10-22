@@ -559,3 +559,84 @@ test('GET: menu_ids が1件のみ → 名前解決クエリは走らず embed �
   const csv = await res.text();
   expect(csv).toContain('カット');
 });
+
+// ─── 顧客名・メールは予約そのものの値を使う（2026年10月22日）─────────────────────
+// 電話・店頭で店舗が手入力した予約と、未ログインのゲスト予約は user_id が NULL。以前は profiles
+// だけを見ていたため、会計CSVの顧客名・メール（freee の取引先・MF の摘要の氏名）が空欄になっていた。
+describe('顧客名・メールは予約に保存された値を使う', () => {
+  function walkInRows() {
+    return [{
+      id: 'aaaaaaaa-0000-4000-8000-000000000001',
+      booking_date: '2026-10-05',
+      user_id: null,
+      customer_name: '山田花子',
+      email: 'hanako@example.com',
+      menu: { name: 'カット' },
+      menu_ids: null,
+      total_amount: 5500,
+      status: 'completed',
+    }];
+  }
+
+  async function exportCsv(format: string, rows: unknown[], profiles: unknown[] = []) {
+    const bookingChain = bookingQueryChain(rows);
+    mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'profiles') return profilesLookupChain(profiles);
+      if (table === 'facility_menus') return menuLookupChain([]);
+      return bookingChain;
+    });
+    const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format }));
+    expect(res.status).toBe(200);
+    // 行末の空白も検査したいので trim しない（最終行の改行だけ除く）
+    return { lines: (await res.text()).replace(/^﻿/, '').split('\n').filter((line) => line !== ''), bookingChain };
+  }
+
+  test('予約から顧客名・メールの列を読み、完了（来店済み）だけを出力する', async () => {
+    const { bookingChain } = await exportCsv('generic', walkInRows());
+    const columns = String(bookingChain.select.mock.calls[0][0]).split(',').map((c) => c.trim());
+    expect(columns).toEqual(expect.arrayContaining(['customer_name', 'email']));
+    expect(bookingChain.eq).toHaveBeenCalledWith('status', 'completed');
+    expect(bookingChain.eq).not.toHaveBeenCalledWith('status', 'confirmed');
+  });
+
+  test('電話・店頭予約（user_id なし）: 汎用CSVに顧客名とメールが入る', async () => {
+    const { lines } = await exportCsv('generic', walkInRows());
+    expect(lines[1]).toBe('aaaaaaaa-0000-4000-8000-000000000001,2026-10-05,山田花子,hanako@example.com,カット,5500,completed');
+  });
+
+  test('電話・店頭予約（user_id なし）: freee の取引先に顧客名が入る', async () => {
+    const { lines } = await exportCsv('freee', walkInRows());
+    expect(lines[1]).toBe('2026-10-05,収入,aaaaaaaa,山田花子,売上高,課税売上10%,5000,内税,500,カット');
+  });
+
+  test('電話・店頭予約（user_id なし）: MF の摘要に「メニュー 顧客名」が入る', async () => {
+    const { lines } = await exportCsv('mf', walkInRows());
+    expect(lines[1]).toBe('2026-10-05,現金,,対象外,5500,売上高,,課税売上10%,5500,カット 山田花子');
+  });
+
+  test('会員の予約: 予約時の名前・メールを優先し、空のときだけプロフィールで補う', async () => {
+    const rows = [
+      { id: 'b-own', booking_date: '2026-10-06', user_id: 'u1', customer_name: '予約時の名前', email: 'booking@example.com', menu: null, menu_ids: null, total_amount: 1000, status: 'completed' },
+      { id: 'b-blank', booking_date: '2026-10-07', user_id: 'u1', customer_name: '  ', email: null, menu: null, menu_ids: null, total_amount: 1000, status: 'completed' },
+      { id: 'b-none', booking_date: '2026-10-08', user_id: 'u2', customer_name: '', email: '', menu: null, menu_ids: null, total_amount: 1000, status: 'completed' },
+    ];
+    const { lines } = await exportCsv('generic', rows, [
+      { id: 'u1', display_name: 'プロフィール名', email: 'profile@example.com' },
+      { id: 'u2', display_name: null, email: null },
+    ]);
+    expect(lines[1]).toBe('b-own,2026-10-06,予約時の名前,booking@example.com,,1000,completed');
+    expect(lines[2]).toBe('b-blank,2026-10-07,プロフィール名,profile@example.com,,1000,completed');
+    expect(lines[3]).toBe('b-none,2026-10-08,,,,1000,completed');
+  });
+
+  test('顧客名が空でも MF の摘要の末尾に空白を残さない', async () => {
+    const { lines } = await exportCsv('mf', [{ ...walkInRows()[0], customer_name: '', email: null }]);
+    expect(lines[1].endsWith(',カット')).toBe(true);
+  });
+
+  test('予約の顧客名も数式インジェクション対策を通る', async () => {
+    const { lines } = await exportCsv('generic', [{ ...walkInRows()[0], customer_name: '=HYPERLINK("x")', email: '+cmd@example.com' }]);
+    expect(lines[1]).toContain(`"'=HYPERLINK(""x"")",'+cmd@example.com`);
+  });
+});

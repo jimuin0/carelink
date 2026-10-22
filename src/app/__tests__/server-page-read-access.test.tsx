@@ -48,7 +48,7 @@ function dataFor(table:string){
 function query(table:string){
  const finish=(single=false)=>{if(table===mockFaultTable&&mockFault==='throw')return Promise.reject(new Error('private-db-diagnostic'));const data=dataFor(table);return Promise.resolve({data:table===mockFaultTable&&mockFault==='null-error'?null:single?data[0]??null:data,count:mockCount,error:table===mockFaultTable?{code:'08006',message:'private-db-diagnostic'}:null});};
  const q:Record<string,unknown>={then:(resolve:unknown,reject:unknown)=>finish().then(resolve as never,reject as never),single:()=>finish(true),maybeSingle:()=>finish(true)};
- for(const method of ['select','eq','in','order','limit','gte'])q[method]=jest.fn(()=>q);return q;
+ for(const method of ['select','eq','in','order','limit','gte','range'])q[method]=jest.fn(()=>q);return q;
 }
 beforeEach(()=>{jest.clearAllMocks();mockFaultTable='';mockFault='';mockCount=1;mockNoMembership=false;mockPlatformDenied=false;mockAuth.mockResolvedValue({data:{user},error:null});mockFrom.mockImplementation(query);mockService.mockReturnValue({from:mockFrom});mockCatalog.mockResolvedValue([]);});
 describe.each(cases)('$name page',testCase=>{

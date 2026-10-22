@@ -55,7 +55,7 @@ export default function AccountingPage() {
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <SbPageHeader title="会計ソフト連携" description="確定・完了した予約データを会計ソフト用CSVでエクスポート" />
+      <SbPageHeader title="会計ソフト連携" description="完了（来店済み）の予約を会計ソフト用CSVでエクスポート" />
 
       <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-5">
         {/* フォーマット選択 */}
@@ -104,7 +104,10 @@ export default function AccountingPage() {
       {/* 注意事項 */}
       <div className="bg-amber-50 rounded-xl p-4 text-xs text-amber-800 space-y-1">
         <p><strong>注意事項：</strong></p>
-        <p>• 出力対象は「確定」「完了」ステータスの予約のみです</p>
+        {/* 売上は来店済みの分だけ計上する（API は status=completed・来店日 booking_date で絞る＝8体監査 A3）。
+            「確定」のままの予約は出ないので、来店後に「完了」へ変える必要があることをここで伝える。 */}
+        <p>• 出力対象は「完了」（来店済み）の予約のみです。「確定」のままの予約は含まれません</p>
+        <p>• 期間は来店日で絞り込みます</p>
         <p>• 消費税率は一律10%で計算しています</p>
         <p>• 実際の申告前に税理士・会計士にご確認ください</p>
         <p>• freee / MFの仕様変更により形式が異なる場合があります</p>

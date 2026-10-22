@@ -113,6 +113,14 @@ try:
  reset();race('distinct admins preserve separate post fields','SET LOCAL ROLE service_role; '+save('post:update',{'title':'Synthetic other title'},POST),save('post:update',{'category':'Synthetic category'},POST,actor=OTHER),POST)
  assert sql(f"SELECT title||'/'||category FROM public.platform_blog_posts WHERE id='{POST}'")=='Synthetic other title/Synthetic category'
  reset();before=snapshot();race('rollback restores exact post','SET LOCAL ROLE service_role; '+save('post:update',{'description':'uncommitted'},POST),f"SELECT description FROM public.platform_blog_posts WHERE id='{POST}' FOR SHARE",'',finish='ROLLBACK;');assert snapshot()==before
+ # The edit screen always resends is_published=true; re-saving a published post must keep its original date.
+ published_at=lambda:sql(f"SELECT coalesce(published_at::text,'NULL') FROM public.platform_blog_posts WHERE id='{POST}'")
+ reset();assert sql(save('post:update',{'is_published':True},POST))==POST;stamp=published_at();assert stamp!='NULL'
+ assert sql(save('post:update',{'title':'Synthetic typo fixed','is_published':True},POST))==POST;assert published_at()==stamp;RESULTS.append({'case':'re-saving a published post keeps its original date'})
+ assert sql(save('post:update',{'is_published':False},POST))==POST;assert published_at()=='NULL';RESULTS.append({'case':'unpublishing clears the date'})
+ assert sql(save('post:update',{'is_published':True},POST))==POST;restamp=published_at();assert restamp not in ('NULL',stamp);RESULTS.append({'case':'republishing after unpublish assigns a new date'})
+ reset();sql(f"UPDATE public.platform_blog_posts SET is_published=true,published_at=NULL WHERE id='{POST}'")
+ assert sql(save('post:update',{'title':'Synthetic legacy','is_published':True},POST))==POST;assert published_at()!='NULL';RESULTS.append({'case':'legacy published post without a date gets one on save'})
  reset();race('distinct admins cancel once','SET LOCAL ROLE service_role; '+save('newsletter:cancel',{},CAMPAIGN),attempt(save('newsletter:cancel',{},CAMPAIGN,actor=OTHER)),'40001')
  for kind,values,record in operations:
   reset();before=snapshot();assert sql(attempt(save(kind,values,record),'authenticated'))=='42501';assert snapshot()==before;RESULTS.append({'case':kind+' authenticated gateway denied'})

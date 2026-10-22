@@ -7,7 +7,9 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { bookingStatusLabel } from '@/lib/booking-status';
-import { jstDayStartIso, jstMonthStartIso, jstMonthInfo } from '@/lib/admin-date';
+import { jstMonthStartIso } from '@/lib/admin-date';
+import { fetchAllPaged } from '@/lib/paginate';
+import { computeUsageStats, type UsageBooking } from '@/lib/usage-stats';
 import { SbPageHeader, SbStatCard } from '@/components/admin/SbUi';
 
 export const metadata: Metadata = { title: '利用状況分析' };
@@ -31,75 +33,26 @@ export default async function UsageStatsPage() {
   const facilityId = mem.facility_id;
   const admin = createServiceRoleClient();
 
-  // JST 暦の境界（created_at は UTC 保存のため UTC ISO に変換した JST 境界で比較）
-  const today = jstDayStartIso(0);
-  const weekAgo = jstDayStartIso(-7);
-  const monthAgo = jstMonthStartIso(-1);
-  const prevMonthAgo = jstMonthStartIso(-2);
+  // 直近 12 か月（JST）の予約。集計（今月・前月同期・月別・リピート率）は computeUsageStats が
+  // JST の暦月境界で行う（src/lib/usage-stats.ts）。1 施設で 1000 件を超えると PostgREST の
+  // max_rows で黙って打ち切られるので、created_at・id 順にページングして全件読む
+  // （読み切れないときは部分的な数字を出さず、読み取り失敗として扱う）。
+  const { rows: bookings } = await readPageResult(() => fetchAllPaged<UsageBooking>(async (offset, limit) => {
+    const { data, error } = await admin
+      .from('bookings')
+      .select('user_id, created_at, status')
+      .eq('facility_id', facilityId)
+      .gte('created_at', jstMonthStartIso(-12))
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(offset, offset + limit - 1);
+    return { data, error };
+  }, { failOnTruncation: true }), '/admin/usage-stats');
 
-  // 予約データ
-  const { data: allBookings } = await readPageResult(() => admin
-    .from('bookings')
-    .select('user_id, created_at, status')
-    .eq('facility_id', facilityId)
-    .gte('created_at', jstMonthStartIso(-12)), '/admin/usage-stats');
-
-  const bookings = allBookings ?? [];
-
-  // 🔴 bookings.user_id / created_at はどちらも nullable。
-  //
-  // user_id: migration が `user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL` なので、
-  // 【退会したユーザーの予約は user_id が null になる】（/api/account/delete が auth.users を
-  // 削除した時点で発生する）。ゲスト予約も null。これを素通しすると Set／オブジェクトキーで
-  // 全部が1個の「null ユーザー」に集約され、DAU/WAU/MAU が実際より最大1人分多く出て、
-  // リピート率は「退会者とゲストの予約を全部1人が繰り返した」と誤って数える。
-  //
-  // created_at: null の行はどの期間にも帰属させられない。JS の比較では null >= '2026-..' が
-  // 常に false になるため従来も結果的に除外されていたが、意図として明示する。
-  const identifiedBookings = bookings.filter(
-    (b): b is typeof b & { user_id: string; created_at: string } =>
-      b.user_id !== null && b.created_at !== null,
-  );
-  const datedBookings = bookings.filter(
-    (b): b is typeof b & { created_at: string } => b.created_at !== null,
-  );
-
-  // DAU (今日の予約ユニークユーザー)
-  const dauUsers = new Set(identifiedBookings.filter((b) => b.created_at >= today).map((b) => b.user_id));
-  const wauUsers = new Set(identifiedBookings.filter((b) => b.created_at >= weekAgo).map((b) => b.user_id));
-  const mauUsers = new Set(identifiedBookings.filter((b) => b.created_at >= monthAgo).map((b) => b.user_id));
-  const prevMauUsers = new Set(identifiedBookings.filter((b) => b.created_at >= prevMonthAgo && b.created_at < monthAgo).map((b) => b.user_id));
-
-  const mauGrowth = prevMauUsers.size > 0 ? Math.round(((mauUsers.size - prevMauUsers.size) / prevMauUsers.size) * 100) : null;
-
-  // リピート率（識別できる利用者のみ。退会者・ゲストは「同一人物かどうか」を判定できない）
-  const userBookingCount: Record<string, number> = {};
-  for (const b of identifiedBookings) {
-    userBookingCount[b.user_id] = (userBookingCount[b.user_id] ?? 0) + 1;
-  }
-  const totalUsers = Object.keys(userBookingCount).length;
-  const repeatUsers = Object.values(userBookingCount).filter((c) => c > 1).length;
-  const repeatRate = totalUsers > 0 ? Math.round((repeatUsers / totalUsers) * 100) : 0;
-
-  // 月別 MAU（直近6ヶ月）
-  const monthlyData: { month: string; mau: number; bookings: number }[] = [];
-  for (let i = 5; i >= 0; i--) {
-    const start = jstMonthStartIso(-i);
-    const end = jstMonthStartIso(-i + 1);
-    const label = `${jstMonthInfo(-i).month}月`;
-    const monthBookings = datedBookings.filter((b) => b.created_at >= start && b.created_at < end);
-    // MAU は識別できる利用者数なので user_id が null の予約は数えない（件数側は全件で数える）。
-    const uniqueUsers = new Set(
-      monthBookings.map((b) => b.user_id).filter((id): id is string => id !== null),
-    );
-    monthlyData.push({ month: label, mau: uniqueUsers.size, bookings: monthBookings.length });
-  }
-
-  // 予約ステータス分布
-  const statusCount: Record<string, number> = {};
-  for (const b of datedBookings.filter((b) => b.created_at >= monthAgo)) {
-    statusCount[b.status] = (statusCount[b.status] ?? 0) + 1;
-  }
+  const {
+    dau, wau, mau, mauGrowth, repeatUsers, totalUsers, repeatRate,
+    monthly: monthlyData, statusCount,
+  } = computeUsageStats(bookings);
 
   // NPS
   const { data: npsData } = await readPageResult(() => admin
@@ -120,14 +73,15 @@ export default async function UsageStatsPage() {
 
       {/* KPIカード */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <SbStatCard label="DAU（今日）" value={dauUsers.size} unit="人" accent="sky" sub="今日予約したユーザー" />
-        <SbStatCard label="WAU（週間）" value={wauUsers.size} unit="人" accent="sky" sub="過去7日間" />
+        <SbStatCard label="DAU（今日）" value={dau} unit="人" accent="sky" sub="今日予約したユーザー" />
+        <SbStatCard label="WAU（週間）" value={wau} unit="人" accent="sky" sub="過去7日間" />
+        {/* 今月 1 日からの人数。比較は前月の同じ日数分（月の途中で前月 1 か月分と比べない） */}
         <SbStatCard
           label="MAU（月間）"
-          value={mauUsers.size}
+          value={mau}
           unit="人"
           accent="emerald"
-          sub={mauGrowth !== null ? `前月比 ${mauGrowth > 0 ? '+' : ''}${mauGrowth}%` : '今月'}
+          sub={mauGrowth !== null ? `前月同期比 ${mauGrowth > 0 ? '+' : ''}${mauGrowth}%` : '今月'}
         />
         <SbStatCard label="リピート率" value={`${repeatRate}%`} accent="amber" sub={`${repeatUsers}/${totalUsers}人`} />
       </div>
@@ -196,8 +150,9 @@ export default async function UsageStatsPage() {
         </div>
       </div>
 
-      <div className="text-xs text-gray-400 text-center">
+      <div className="text-xs text-gray-500 text-center">
         ※ MAU/DAU は「予約を行ったユニークユーザー数」で計算しています。
+        MAU は今月1日からの人数で、前月同期比は前月の同じ日数分と比べた増減です。
         より詳細なページビュー分析は
         <Link href="/admin/analytics" className="text-sky-600 hover:underline mx-1">分析ダッシュボード</Link>
         をご利用ください。
