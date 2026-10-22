@@ -18,8 +18,9 @@ import { GBP_IDENTITY_CHANGE_NOTICE } from '@/lib/gbp-ownership';
 import { hasConfirmedBookingHours } from '@/lib/booking-preparation';
 import { copyFirstHoursToOpenDays, initialHoursForm, validateHoursForm, type HoursDraft } from '@/lib/business-hours-form';
 import { normalizeWebsiteUrl } from '@/lib/facility-settings-input';
-import { facilitySetupSteps, loadFacilitySetupFacts, type FacilitySetupStep } from '@/lib/facility-setup-steps';
+import { facilitySetupSteps, loadFacilitySetupFacts, type FacilitySetupStep, type SetupStepKey } from '@/lib/facility-setup-steps';
 import { listingPublishMissing } from '@/lib/facility-publish-gate';
+import { LISTING_PUBLISH_REQUIREMENT } from '@/lib/register-photo-policy';
 import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
 import { BOOKING_CSV_MAX_ROWS, buildBookingCsv, readBookingCsvRows } from '@/lib/booking-csv-export';
 import { businessTypeLabel } from '@/lib/business-type-label';
@@ -316,7 +317,12 @@ function AdminSettingsContent() {
    */
   const handlePublish = async () => {
     if (!facilityId || publishToggling || saving) return;
-    const visibleMissing = listingPublishMissing({ name, prefecture, city, address, catch_copy: catchCopy, description });
+    // 営業時間も無料掲載の公開条件（2026年10月23日）。保存済み、または画面で入力した営業時間を、保存時と同じ検査で確かめる。
+    const visibleHours = hoursConfirmed || hoursEdited ? validateHoursForm(hours, closedDays) : null;
+    const visibleMissing = listingPublishMissing({
+      name, prefecture, city, address, catch_copy: catchCopy, description,
+      business_hours: visibleHours?.ok ? visibleHours.value : null,
+    });
     if (visibleMissing.length > 0) { setPublishMissing({ source: 'visible', items: visibleMissing }); return; }
     setPublishMissing(null);
     setPublishToggling(true);
@@ -365,7 +371,7 @@ function AdminSettingsContent() {
   return (
     <div onChange={() => setDirty(true)}>
       <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/settings" dirty={dirty} busy={saving || publishToggling} />
-      <p className="mb-4 text-sm text-gray-600">無料掲載とネット予約は別です。所在地などの店舗情報を確認して掲載公開できます。ネット予約は、公開メニュー・写真・勤務時間を保存したスタッフ・全曜日の営業時間設定がそろうまで利用できません。予約管理表は引き続き利用できます。</p>
+      <p className="mb-4 text-sm text-gray-600">無料掲載とネット予約は別です。{LISTING_PUBLISH_REQUIREMENT}ネット予約は、さらに公開メニュー・写真・勤務時間を保存したスタッフがそろうまで利用できません。予約管理表は引き続き利用できます。</p>
       <SbPageHeader
         title="施設設定"
         actions={
@@ -514,7 +520,7 @@ function AdminSettingsContent() {
         {submittedHoursText && <p className="text-sm whitespace-pre-wrap mb-3">申込時の営業時間：{submittedHoursText}</p>}
         {!hoursConfirmed && (
           <p className="text-sm text-amber-800 mb-3">
-            曜日別の営業時間はまだ保存されていません。営業する曜日の開店・閉店時間を入力し、休みの曜日は「営業」のチェックを外して保存してください。保存するとネット予約の空き枠とスタッフの勤務時間の下書きに使われます。
+            曜日別の営業時間はまだ保存されていません。営業する曜日の開店・閉店時間を入力し、休みの曜日は「営業」のチェックを外して保存してください。営業時間は無料掲載の公開に必要です。保存するとネット予約の空き枠とスタッフの勤務時間の下書きにも使われます。
           </p>
         )}
         <FieldError id="fac-hours-error" message={fieldErrors.business_hours} />
@@ -811,14 +817,20 @@ function FieldError({ id, message }: { id: string; message?: string }) {
  * ネット予約の準備状況。ダッシュボードの「ネット予約の準備内容を確認する」はここへ来るが、
  * 以前は何が足りないのかの一覧が無かった。判定は予約ページ・検索カードと同じ単一ソース（保存済みの内容）。
  */
+/** ネット予約の準備状況に一緒に並べる、無料掲載の項目（営業時間と公開）。 */
+const BOOKING_PREREQUISITE_LISTING_STEPS: readonly SetupStepKey[] = ['hours', 'publish'];
+
 function BookingReadinessSection({ readiness, facilityId, onRetry }: {
   readiness: { state: 'loading' | 'error' } | { state: 'ready'; steps: FacilitySetupStep[] };
   facilityId: string; onRetry: () => void;
 }) {
+  // 営業時間と公開は無料掲載の項目だが、ネット予約の前提でもあるので一緒に見せる（並びはチェックリストと同じ）。
   const steps = readiness.state === 'ready'
-    ? readiness.steps.filter((step) => step.group === 'booking' || step.key === 'publish')
+    ? readiness.steps.filter((step) => step.group === 'booking' || BOOKING_PREREQUISITE_LISTING_STEPS.includes(step.key))
     : [];
   const pending = steps.filter((step) => !step.done);
+  // 足りないのがネット予約だけの項目なら「掲載だけなら不要」。無料掲載の項目が残っていれば、そうは書かない。
+  const onlyBookingPending = pending.every((step) => step.group === 'booking');
   return (
     <section id="booking-readiness" aria-labelledby="booking-readiness-title" className="bg-white rounded-xl shadow-xs p-6 mb-6">
       <h2 id="booking-readiness-title" className="text-lg font-bold mb-1">ネット予約の準備状況</h2>
@@ -834,7 +846,7 @@ function BookingReadinessSection({ readiness, facilityId, onRetry }: {
           <p className="text-sm text-gray-600 mb-3">
             {pending.length === 0
               ? 'ネット予約を受け付けられる状態です。'
-              : `保存済みの内容では、あと${pending.length}項目でネット予約を始められます（掲載だけの利用なら不要です）。`}
+              : `保存済みの内容では、あと${pending.length}項目でネット予約を始められます${onlyBookingPending ? '（掲載だけの利用なら不要です）' : ''}。`}
           </p>
           <ul className="space-y-2">
             {steps.map((step) => (
@@ -847,6 +859,7 @@ function BookingReadinessSection({ readiness, facilityId, onRetry }: {
                   <Link href={`${step.href}?facility_id=${encodeURIComponent(facilityId)}`} className="font-medium text-sky-700 underline">{step.label}</Link>
                 )}
                 {step.note && <span className="text-xs text-gray-600">（{step.note}）</span>}
+                {step.group === 'listing' && <span className="text-xs text-gray-600">（無料掲載にも必要）</span>}
               </li>
             ))}
           </ul>

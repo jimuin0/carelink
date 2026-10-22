@@ -8,7 +8,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { checkPublishReadiness, isPublishedLocationConflict } from '@/lib/facility-publish-gate';
+import { checkPublishReadiness, isPublishedHoursConflict, isPublishedLocationConflict, LISTING_HOURS_MESSAGE } from '@/lib/facility-publish-gate';
 import { validateFacilityPrText } from '@/lib/medical-ad-guard';
 import type { Database } from '@/types/database.types';
 import { authUnavailable, serverError } from '@/lib/with-route';
@@ -186,6 +186,8 @@ async function patchSettings(request: NextRequest) {
     if (error?.message.includes('FACILITY_OWNER_REQUIRED')) return NextResponse.json({ error:'店舗所有者の確認が必要です。公開変更は保存されていません' },{ status:409 });
 
     if (isPublishedLocationConflict(error)) return NextResponse.json({ error: '所在地が変更されています。都道府県・市区町村・住所を確認して、再度公開してください。' }, { status: 409 });
+    // 公開ゲートを通った後に営業時間が変わった（別タブでの保存など）。DB が同じ規則で最終確認している。
+    if (isPublishedHoursConflict(error)) return NextResponse.json({ error: '営業時間が変更されています。営業時間を確認して保存してから、再度公開してください。', missing: [LISTING_HOURS_MESSAGE] }, { status: 409 });
     if (error) return serverError('admin-settings-status-update', new Error('Facility status update failed'), '/api/admin/settings');
     if (updated?.length !== 1 || updated[0].id !== auth.facilityId) return NextResponse.json({ error: '施設の状態を確認できません。再読み込みしてください。' }, { status: 409 });
 
@@ -274,6 +276,12 @@ async function patchSettings(request: NextRequest) {
       return NextResponse.json({ error: '住所欄が都道府県・市区町村だけになっています。番地（町名以降）まで入力して保存してください。' }, { status: 400 });
     }
     return NextResponse.json({ error: '公開中の施設では都道府県・市区町村・住所を空にできません。先に非公開へ変更してください。' }, { status: 409 });
+  }
+  // 営業時間は無料掲載の公開条件（2026年10月23日）。公開中の店舗が、7曜日そろっていない・営業日が1日も無い
+  // 営業時間を保存しようとすると DB が断る（営業時間を変えない保存は再検査しない）。
+  if (isPublishedHoursConflict(error)) {
+    const message = '公開中の施設では、7曜日すべての営業時間・定休日（営業日は1日以上）が必要です。休業する場合は先に非公開へ変更してください。';
+    return NextResponse.json({ error: message, fields: { business_hours: message } }, { status: 409 });
   }
   if (error) return serverError('admin-settings-patch', new Error('Facility settings update failed'), '/api/admin/settings');
   if (updated?.length !== 1 || updated[0].id !== auth.facilityId) return NextResponse.json({ error: '施設の状態を確認できません。再読み込みしてください。' }, { status: 409 });

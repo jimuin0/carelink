@@ -167,7 +167,11 @@ test('選択店舗が変わったとき前店舗の編集内容を引き継が�
   expect(mockReads).toEqual([second, first]);
 });
 
-test('予約用の設定がなくても所在地のある店舗を掲載公開できる', async () => {
+const CONFIRMED_HOURS = { mon: { open: '10:00', close: '18:00' }, tue: null, wed: { open: '10:00', close: '18:00' },
+  thu: { open: '10:00', close: '18:00' }, fri: { open: '10:00', close: '18:00' }, sat: { open: '10:00', close: '17:00' }, sun: null };
+
+test('予約用の設定がなくても所在地と営業時間のある店舗を掲載公開できる', async () => {
+  mockProfile.business_hours = CONFIRMED_HOURS;
   render(<AdminSettingsPage />);
   await screen.findByDisplayValue('合成店舗B');
   fireEvent.click(screen.getByRole('button', { name: '公開する' }));
@@ -177,6 +181,7 @@ test('予約用の設定がなくても所在地のある店舗を掲載公開�
 });
 
 test.each(['business-failure', 'invalid-json', 'http-failure'])('公開の成功を確認できなければ非公開表示を維持：%s', async mode => {
+  mockProfile.business_hours = CONFIRMED_HOURS;
   mockFetch.mockResolvedValue({ ok: mode !== 'http-failure', json: async () => {
     if (mode === 'invalid-json') throw new Error('synthetic invalid JSON');
     return { ok: false };
@@ -197,7 +202,7 @@ describe('公開は画面の入力どおりに行う', () => {
     fireEvent.change(screen.getByRole('textbox', { name: /市区町村/ }), { target: { value: '渋谷区' } });
     fireEvent.change(screen.getByRole('textbox', { name: /町名・番地/ }), { target: { value: '神南1-1' } });
   };
-  beforeEach(() => { mockProfile = { ...mockProfile, prefecture: '', city: '', address: '' }; });
+  beforeEach(() => { mockProfile = { ...mockProfile, prefecture: '', city: '', address: '', business_hours: CONFIRMED_HOURS }; });
 
   test('未保存の住所を入力して公開すると、先に保存してから公開する', async () => {
     render(<AdminSettingsPage />);
@@ -286,6 +291,49 @@ describe('公開は画面の入力どおりに行う', () => {
     fireEvent.click(screen.getByRole('button', { name: '公開する' }));
     await screen.findByText('通信エラーが発生しました');
     expect((screen.getByRole('button', { name: '公開する' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+// 2026年10月23日 神原さん決定：曜日別の営業時間は無料掲載の公開条件（公開ゲートと同じ規則・同じ文言）。
+describe('公開には営業時間が要る', () => {
+  test('営業時間が未保存なら、送信せずに足りない項目として営業時間を示す', async () => {
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    fireEvent.click(screen.getByRole('button', { name: '公開する' }));
+    const alert = await screen.findByRole('alert');
+    expect([...alert.querySelectorAll('li')].map(li => li.textContent)).toEqual(['全曜日の営業時間・定休日を確認して保存してください']);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(screen.getByText('非公開')).toBeTruthy();
+  });
+
+  test('画面で営業時間を入力すれば、保存してから公開する', async () => {
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    fireEvent.change(screen.getByLabelText('月曜日の開店時間'), { target: { value: '10:00' } });
+    fireEvent.change(screen.getByLabelText('月曜日の閉店時間'), { target: { value: '19:00' } });
+    fireEvent.click(screen.getByRole('button', { name: '最初に入力した曜日の時間を、ほかの営業日にも入れる' }));
+    fireEvent.click(screen.getByRole('button', { name: '保存して公開する' }));
+    await screen.findByText('施設を公開しました！');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body).business_hours.mon).toEqual({ open: '10:00', close: '19:00' });
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({ status: 'published' });
+  });
+
+  test('入力しかけの営業時間では公開を押しても送信しない', async () => {
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    fireEvent.change(screen.getByLabelText('月曜日の開店時間'), { target: { value: '10:00' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存して公開する' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('全曜日の営業時間・定休日を確認して保存してください');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  test('画面の説明文は公開条件の単一ソースを使う', async () => {
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    expect(screen.getByText(/無料掲載の公開には、店舗名・所在地・曜日別の営業時間（定休日を含む）の設定が必要です。/)).toBeTruthy();
+    expect(screen.getByText(/営業時間は無料掲載の公開に必要です。/)).toBeTruthy();
   });
 });
 
@@ -403,6 +451,19 @@ describe('ネット予約の準備状況', () => {
     expect(screen.queryByRole('link', { name: '写真アップロード' })).toBeNull();
     expect(section.textContent).toContain('済み：写真アップロード');
     expect(section.id).toBe('booking-readiness');
+    // 営業時間と公開は無料掲載の項目。「掲載だけなら不要」とは書かない。
+    expect(section.textContent).not.toContain('掲載だけの利用なら不要です');
+    expect([...section.querySelectorAll('li')].map(li => li.textContent?.replace(/^✓?(済み|未完了)：/, ''))).toEqual([
+      '営業時間の入力・保存（無料掲載にも必要）', '無料掲載を公開（無料掲載にも必要）', '公開メニュー登録', '写真アップロード', 'スタッフ登録と勤務時間の保存',
+    ]);
+  });
+
+  test('足りないのがネット予約だけの項目なら「掲載だけの利用なら不要」と添える', async () => {
+    mockProfile = { ...mockProfile, business_hours: CONFIRMED_HOURS, status: 'published' };
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    const section = await screen.findByRole('region', { name: 'ネット予約の準備状況' });
+    await waitFor(() => expect(section.textContent).toContain('あと2項目でネット予約を始められます（掲載だけの利用なら不要です）。'));
   });
 
   test('読み込めなければ、未完了と偽らずに読み込めなかったと伝える', async () => {

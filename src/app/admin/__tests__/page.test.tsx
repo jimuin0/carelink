@@ -327,9 +327,12 @@ describe('公開前の店舗のダッシュボード', () => {
     const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
     expect(findElementsWithDirectText(root, '無料掲載に必要')).toHaveLength(1);
     expect(findElementsWithDirectText(root, 'ネット予約に必要（任意）')).toHaveLength(1);
-    // 掲載：住所・表現は済み、公開がまだ（2/3）。ネット予約：営業時間だけまだ（3/4）。
-    expect(textOf(root)).toContain('2/3 完了');
-    expect(textOf(root)).toContain('3/4 完了');
+    // 掲載：住所・表現は済み、営業時間と公開がまだ（2/4）。ネット予約：メニュー・写真・スタッフは済み（3/3）。
+    // 営業時間は 2026年10月23日の神原さん決定で「無料掲載に必要」へ移った。
+    expect(textOf(root)).toContain('2/4 完了');
+    expect(textOf(root)).toContain('3/3 完了');
+    const [listing] = findElements(root, props => props['aria-label'] === '無料掲載に必要');
+    expect(findElementsWithDirectText(listing, '営業時間の入力・保存')).toHaveLength(1);
   });
 
   test('キャッチコピー・施設紹介が空なら完了（取り消し線）ではなく任意・未入力として見せる', async () => {

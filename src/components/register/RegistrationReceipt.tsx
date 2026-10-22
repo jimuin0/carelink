@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { readSalonBrowserContext, saveSalonBrowserContext,
   salonHandoffAuthPath } from '@/lib/salon-browser-context';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import { LISTING_PUBLISH_REQUIREMENT } from '@/lib/register-photo-policy';
 
 const receiptSchema = z.object({ state: z.literal('confirmed'), receiptId: z.uuid(),
   name: z.string().min(1).max(200), type: z.string().min(1).max(100), area: z.string().max(500) });
@@ -62,7 +63,7 @@ export default function RegistrationReceipt() {
         <div className="flex gap-4 py-3"><dt className="w-20 shrink-0 text-(--ecru-muted)">業種</dt><dd>{businessTypeLabel(receipt.type)}</dd></div>
         <div className="flex gap-4 py-3"><dt className="w-20 shrink-0 text-(--ecru-muted)">所在地</dt><dd>{receipt.area || '未入力（公開前に設定してください）'}</dd></div>
       </dl>
-      <p className="text-sm leading-relaxed">この時点では一般公開は完了していません。店舗アカウントを作成し、管理画面で店舗名・所在地などを確認して無料掲載を公開してください。ネット予約はメニュー・スタッフ・写真・曜日別営業時間の設定完了まで利用できません。</p>
+      <p className="text-sm leading-relaxed">この時点では一般公開は完了していません。店舗アカウントを作成し、管理画面で設定して無料掲載を公開してください。{LISTING_PUBLISH_REQUIREMENT}ネット予約はさらにメニュー・スタッフ・写真の設定完了まで利用できません。</p>
       <p className="mt-3 text-sm leading-relaxed">掲載料・予約手数料は無料です。申込や店舗アカウント作成で有料プランの契約は行いません。</p>
       <div className="flex flex-col gap-4 mt-6">
         <Link href={salonHandoffAuthPath('signup')} className="btn-primary">店舗アカウントを作成する</Link>

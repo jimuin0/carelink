@@ -5,6 +5,7 @@ import { resolveRegisteredSalon } from '@/lib/register-complete';
 import { buildOnboardingAuthPath } from '@/lib/onboarding-link';
 import RegistrationReceipt from '@/components/register/RegistrationReceipt';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import { LISTING_PUBLISH_ITEMS, LISTING_PUBLISH_REQUIREMENT } from '@/lib/register-photo-policy';
 
 /** /register と同じくすみ配色。色の値は globals.css の .theme-ecru だけが持つ。 */
 const SHELL = 'theme-ecru min-h-[60vh] bg-(--ecru-bg) text-(--ecru-text)';
@@ -56,7 +57,7 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
           あと少しで掲載開始できます。
         </p>
         <p className="text-sm text-(--ecru-muted) mb-8">
-          アカウントを作成して店舗名・所在地を確認し、無料掲載を公開しましょう。ネット予約の設定は別に行います。
+          アカウントを作成して、無料掲載を公開しましょう。{LISTING_PUBLISH_REQUIREMENT}ネット予約の設定は別に行います。
         </p>
 
         {(name || type || area) && (
@@ -99,7 +100,7 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
             </li>
             <li className="flex items-center gap-3">
               <span className="w-7 h-7 rounded-full border border-(--ecru-line) bg-(--ecru-bg) text-(--ecru-muted) flex items-center justify-center text-xs font-bold shrink-0" aria-hidden="true">3</span>
-              <span className="text-sm text-(--ecru-muted)">店舗名・所在地を確認して掲載公開</span>
+              <span className="text-sm text-(--ecru-muted)">{LISTING_PUBLISH_ITEMS}を設定して掲載公開</span>
             </li>
             <li className="flex items-center gap-3">
               <span className="w-7 h-7 rounded-full border border-(--ecru-line) bg-(--ecru-bg) text-(--ecru-muted) flex items-center justify-center text-xs font-bold shrink-0" aria-hidden="true">4</span>

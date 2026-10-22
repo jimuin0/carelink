@@ -325,6 +325,9 @@ jobs:
       - name: Published location write invariant (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/published-location-fixtures.sql
 
+      - name: Free listing publish requires confirmed business hours, existing published rows untouched (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/publish-hours-fixtures.sql
+
       - name: Atomic facility setup roles, claims and rollback (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/facility-setup-fixtures.sql
 

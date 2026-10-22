@@ -8,9 +8,11 @@ CREATE FUNCTION pg_temp.assert_event(ok boolean,label text) RETURNS void LANGUAG
 BEGIN IF ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'booking event fixture: %',label; END IF; END $$;
 INSERT INTO auth.users(id,email,email_confirmed_at) VALUES
 ('e1000000-0000-4000-8000-000000000001','event-owner@example.invalid',now());
-INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES
-('e2000000-0000-4000-8000-000000000001','Event synthetic','event-synthetic','その他','検証県','検証市','検証住所','draft'),
-('e2000000-0000-4000-8000-000000000002','Other synthetic','event-other','その他','検証県','検証市','検証住所','draft');
+-- Free listing needs confirmed business hours (20261023170000); no booking catalog.
+INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status,business_hours) VALUES
+('e2000000-0000-4000-8000-000000000001','Event synthetic','event-synthetic','その他','検証県','検証市','検証住所','draft',
+ '{"mon":{"open":"10:00","close":"19:00"},"tue":null,"wed":{"open":"10:00","close":"19:00"},"thu":{"open":"10:00","close":"19:00"},"fri":{"open":"10:00","close":"19:00"},"sat":{"open":"10:00","close":"17:00"},"sun":null}'),
+('e2000000-0000-4000-8000-000000000002','Other synthetic','event-other','その他','検証県','検証市','検証住所','draft',NULL);
 INSERT INTO public.facility_members(user_id,facility_id,role) VALUES
 ('e1000000-0000-4000-8000-000000000001','e2000000-0000-4000-8000-000000000001','owner');
 INSERT INTO public.bookings(id,facility_id,booking_date,start_time,end_time,customer_name,email,status,updated_at) VALUES

@@ -24,13 +24,13 @@ function facts(overrides: Partial<FacilitySetupFacts> = {}): FacilitySetupFacts 
 const pending = (f: FacilitySetupFacts) => facilitySetupSteps(f).filter(step => !step.done).map(step => step.key);
 
 describe('facilitySetupSteps', () => {
-  test('すべて揃えば全項目完了。並びは依存の順（掲載：店舗情報→公開／ネット予約：営業時間→メニュー→写真→スタッフ）', () => {
+  test('すべて揃えば全項目完了。並びは依存の順（掲載：店舗情報→営業時間→公開／ネット予約：メニュー→写真→スタッフ）', () => {
     const steps = facilitySetupSteps(facts());
     expect(steps.map(s => [s.key, s.label, s.href, s.group, s.done])).toEqual([
       ['address', '基本情報（住所）', '/admin/settings', 'listing', true],
       ['pr_text', '基本情報（キャッチコピー・施設紹介の表現）', '/admin/settings', 'listing', true],
+      ['hours', '営業時間の入力・保存', '/admin/settings', 'listing', true],
       ['publish', '無料掲載を公開', '/admin/settings', 'listing', true],
-      ['hours', '営業時間の入力・保存', '/admin/settings', 'booking', true],
       ['menu', '公開メニュー登録', '/admin/menus', 'booking', true],
       ['photo', '写真アップロード', '/admin/photos', 'booking', true],
       ['staff', 'スタッフ登録と勤務時間の保存', '/admin/staff', 'booking', true],
@@ -43,6 +43,14 @@ describe('facilitySetupSteps', () => {
   test('営業時間はスタッフより前に並ぶ', () => {
     const keys = facilitySetupSteps(facts()).map(s => s.key);
     expect(keys.indexOf('hours')).toBeLessThan(keys.indexOf('staff'));
+  });
+
+  // 2026年10月23日 神原さん決定：営業時間は「無料掲載に必要」。公開ゲート（listingPublishMissing）と
+  // DB の公開 RPC が営業時間の無い公開を断るので、チェックリストも同じ区分・同じ順で見せる。
+  test('営業時間は「無料掲載に必要」の区分で、店舗情報の後・公開の前に並ぶ', () => {
+    const listing = facilitySetupSteps(facts()).filter(s => s.group === 'listing').map(s => s.key);
+    expect(listing).toEqual(['address', 'pr_text', 'hours', 'publish']);
+    expect(facilitySetupSteps(facts()).filter(s => s.group === 'booking').map(s => s.key)).toEqual(['menu', 'photo', 'staff']);
   });
 
   test('「勤務スケジュール設定」の重複項目は無い（スタッフの項目に一本化）', () => {
@@ -63,7 +71,7 @@ describe('facilitySetupSteps', () => {
     expect(pending(facts({
       prefecture: '', city: null, address: null, status: 'draft', businessHours: null, catchCopy: null,
       publishedMenuCount: 0, photoCount: 0, activeStaffIds: [], unscheduledStaffIds: [],
-    }))).toEqual(['address', 'publish', 'hours', 'menu', 'photo', 'staff']);
+    }))).toEqual(['address', 'hours', 'publish', 'menu', 'photo', 'staff']);
   });
 
   test.each([

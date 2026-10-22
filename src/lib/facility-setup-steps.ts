@@ -46,7 +46,10 @@ export interface FacilitySetupStep {
   label: string;
   done: boolean;
   href: string;
-  /** listing＝無料掲載の公開に要る項目。booking＝ネット予約を受けるのに要る項目（掲載だけなら不要）。 */
+  /**
+   * listing＝無料掲載の公開に要る項目（店舗情報・営業時間・公開）。
+   * booking＝ネット予約を受けるのに要る項目（掲載だけなら不要）。
+   */
   group: SetupStepGroup;
   /**
    * 完了の判定には影響しない補足（例：勤務時間が未登録のスタッフの人数）。
@@ -64,8 +67,11 @@ export const SETUP_GROUP_LABELS: Record<SetupStepGroup, string> = {
 
 /**
  * 並びは依存の順（先に済ませないと次が進められないものを前に置く）。
- * 掲載：店舗情報 → 公開。ネット予約：営業時間 → メニュー → 写真 → スタッフと勤務時間
- * （スタッフの勤務時間の下書きは店舗の営業時間から作るため、営業時間を先に置く。以前はスタッフの後にあり、
+ * 掲載：店舗情報 → 営業時間 → 公開。ネット予約：メニュー → 写真 → スタッフと勤務時間。
+ * 営業時間は 2026年10月23日の神原さん決定で無料掲載の公開条件になった（公開ゲート listingPublishMissing と
+ * DB の公開 RPC が同じ規則で断る）。それまではネット予約の区分にあり、営業時間が無いまま公開できていた。
+ * 営業時間はネット予約の条件でもあり、スタッフの勤務時間の下書きも店舗の営業時間から作るため、
+ * 掲載の区分に置くことでネット予約の各項目より必ず前に来る（以前はスタッフの後にあり、
  * スタッフを追加すると「店舗の営業時間がまだ保存されていない」と差し戻されていた）。
  *
  * 「スタッフ登録と勤務時間の保存」と「勤務スケジュール設定」は同じ作業の二重掲載だったので 1 項目にした。
@@ -97,8 +103,8 @@ export function facilitySetupSteps(facts: FacilitySetupFacts): FacilitySetupStep
       key: 'pr_text', label: '基本情報（キャッチコピー・施設紹介の表現）', done: prTextOk, href: '/admin/settings', group: 'listing',
       ...(prTextOk && prTextEmpty ? { optional: true, note: '任意・未入力' } : {}),
     },
+    { key: 'hours', label: '営業時間の入力・保存', done: ok('hours'), href: '/admin/settings', group: 'listing' },
     { key: 'publish', label: '無料掲載を公開', done: ok('published'), href: '/admin/settings', group: 'listing' },
-    { key: 'hours', label: '営業時間の入力・保存', done: ok('hours'), href: '/admin/settings', group: 'booking' },
     { key: 'menu', label: '公開メニュー登録', done: ok('menu'), href: '/admin/menus', group: 'booking' },
     { key: 'photo', label: '写真アップロード', done: ok('photo'), href: '/admin/photos', group: 'booking' },
     // 予約を受けられるのは勤務時間を保存したスタッフだけ（追加しただけでは勤務は作られない）。

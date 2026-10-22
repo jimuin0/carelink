@@ -1,7 +1,8 @@
 import { normalizePostalCodeInput, normalizeWebsiteInput } from '../register-input-normalize';
 import { salonStep1Schema, salonStep2Schema } from '../validations';
 import { formatMegabytes } from '../format-megabytes';
-import { REGISTER_PHOTO_FIELD_NOTE, REGISTER_PHOTO_REQUIREMENT, BOOKING_MIN_PHOTOS } from '../register-photo-policy';
+import { REGISTER_PHOTO_FIELD_NOTE, REGISTER_PHOTO_REQUIREMENT, BOOKING_MIN_PHOTOS, LISTING_PUBLISH_ITEMS, LISTING_PUBLISH_REQUIREMENT } from '../register-photo-policy';
+import { listingPublishMissing } from '../facility-publish-gate';
 
 describe('normalizePostalCodeInput', () => {
   test.each([
@@ -62,5 +63,18 @@ describe('写真の要否の文言（単一ソース）', () => {
     expect(REGISTER_PHOTO_FIELD_NOTE).toContain(REGISTER_PHOTO_REQUIREMENT);
     // 旧文言「公開時には写真の設定が必要です」は FAQ・公開ゲートと矛盾していた。
     expect(REGISTER_PHOTO_FIELD_NOTE).not.toMatch(/公開時には写真/);
+  });
+});
+
+// 2026年10月23日 神原さん決定：曜日別の営業時間（定休日を含む）は無料掲載の公開条件。
+// 説明文（/register の FAQ・受付画面・管理画面）と実際の公開ゲートがずれないことを固定する。
+describe('無料掲載の公開条件の文言（単一ソース）', () => {
+  test('公開ゲートが求める項目（施設名・所在地・営業時間）をすべて挙げ、写真・メニュー・スタッフは挙げない', () => {
+    const missing = listingPublishMissing({ name: null, prefecture: null, city: null, address: null, business_hours: null });
+    expect(missing).toEqual(expect.arrayContaining(['施設名を設定してください', '住所を設定してください', '全曜日の営業時間・定休日を確認して保存してください']));
+    expect(missing.some(item => /写真|メニュー|スタッフ/.test(item))).toBe(false);
+    expect(LISTING_PUBLISH_ITEMS).toBe('店舗名・所在地・曜日別の営業時間（定休日を含む）');
+    expect(LISTING_PUBLISH_REQUIREMENT).toContain(LISTING_PUBLISH_ITEMS);
+    expect(LISTING_PUBLISH_REQUIREMENT).not.toMatch(/写真|メニュー|スタッフ/);
   });
 });

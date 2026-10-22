@@ -575,16 +575,15 @@ describe('GET /api/cron/onboarding-followup', () => {
   // ─── E10: 実際の公開条件・ネット予約条件と同じ単一ソースから作る ─────────────────
   // 以前は住所・営業時間を一度も案内せず、下書きのメニューや休止中のスタッフを「登録済み」と
   // 数えていたため、公開もネット予約もできない店舗に「あとは公開だけ」と送っていた。
-  test('セルフサーブ直後の店舗（住所・営業時間なし）には住所と営業時間も案内する', async () => {
+  // 2026年10月23日 神原さん決定：営業時間は「無料掲載の公開に必要な項目」として案内する（店舗情報→営業時間→公開）。
+  test('セルフサーブ直後の店舗（住所・営業時間なし）には住所と営業時間も、無料掲載の項目として案内する', async () => {
     mockFromDelegate.mockImplementation(buildFrom({
       setupProfile: { name: 'New Salon', prefecture: '', city: '', address: '', status: 'draft', business_hours: null },
     }));
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
-      missingSteps: ['基本情報（住所）', '無料掲載を公開'],
-      bookingSteps: [
-        '営業時間の入力・保存', '公開メニュー登録', '写真アップロード', 'スタッフ登録と勤務時間の保存',
-      ],
+      missingSteps: ['基本情報（住所）', '営業時間の入力・保存', '無料掲載を公開'],
+      bookingSteps: ['公開メニュー登録', '写真アップロード', 'スタッフ登録と勤務時間の保存'],
     }));
   });
 

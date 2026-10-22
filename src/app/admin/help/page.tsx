@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import { SbPageHeader } from '@/components/admin/SbUi';
 import { ACCOUNT_DELETION_NOTICE, FACILITY_RETIREMENT_NOTICE, ACCOUNT_DELETION_BOOKING_GUARD_NOTICE } from '@/lib/account-deletion-policy';
+import { LISTING_PUBLISH_REQUIREMENT } from '@/lib/register-photo-policy';
 
 const faqItems = [
   {
     category: 'はじめに',
     items: [
-      { q: '店舗情報を公開するには？', a: '「設定」で店舗名・所在地を確認して「公開する」を選びます。無料掲載にメニュー・写真・スタッフは必須ではありません。ネット予約の受付は曜日別営業時間・メニュー・写真・スタッフ等の準備後に利用できます。' },
+      { q: '店舗情報を公開するには？', a: `${LISTING_PUBLISH_REQUIREMENT}「設定」で入力・保存してから「公開する」を選びます。無料掲載にメニュー・写真・スタッフは必須ではありません。ネット予約の受付は、さらにメニュー・写真・スタッフ等の準備後に利用できます。` },
       { q: 'スタッフのスケジュールを設定するには？', a: '「スタッフ」→ スタッフ名の「スケジュール」リンク → 曜日別に勤務時間を設定 →「保存」。' },
       { q: 'メニューを追加するには？', a: '「メニュー」→ カテゴリ・名前・価格・施術時間を入力 → 保存。写真もアップロード可能。' },
     ],

@@ -26,7 +26,7 @@ import { readSalonBrowserContext, SALON_COMPLETE_PATH } from '@/lib/salon-browse
 import { SalonLocalDraftControls, DRAFT_BUTTON, type SalonLocalDraftHandle } from '@/components/register/SalonLocalDraftControls';
 import { readLocalSalonDraft } from '@/lib/salon-local-draft';
 import { normalizePostalCodeInput, normalizeWebsiteInput } from '@/lib/register-input-normalize';
-import { REGISTER_PHOTO_FIELD_NOTE } from '@/lib/register-photo-policy';
+import { LISTING_PUBLISH_ITEMS, REGISTER_PHOTO_FIELD_NOTE } from '@/lib/register-photo-policy';
 import { businessTypeLabel } from '@/lib/business-type-label';
 import { LICENSE_WARRANTY_TEXT } from '@/lib/registration-consent';
 
@@ -1047,7 +1047,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
         title="登録内容を送信しますか？"
         // 受付と一般公開は別の手続き（/register の FAQ・受付メールと同じ事実を書く）。以前は
         // 「すぐに掲載を開始できます」と書いており、送信すれば公開されると誤解させていた。
-        message="送信後、続けて店舗アカウントを作成すると、入力内容（営業時間・写真・特徴・PRなど）が管理画面に引き継がれます。一般公開は、管理画面で店舗名・所在地などを確認して公開の操作をした後に始まります（送信しただけでは公開されません）。"
+        message={`送信後、続けて店舗アカウントを作成すると、入力内容（営業時間・写真・特徴・PRなど）が管理画面に引き継がれます。一般公開は、管理画面で${LISTING_PUBLISH_ITEMS}を設定して公開の操作をした後に始まります（送信しただけでは公開されません）。`}
         confirmLabel="送信する"
         cancelLabel="戻る"
         confirmDisabled={submitting || submissionUnknown || submissionConfirmed || draftBusy || (restoredNeedsReview && !restoredUnsentAcknowledged)}

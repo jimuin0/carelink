@@ -71,7 +71,7 @@ try {
  assert.equal(query("SELECT current_setting('server_version_num')::int/10000"),'17');
  assert.equal(query(`SELECT count(*) FROM auth.users WHERE id='${actor}'`),'0');
  query(`BEGIN; INSERT INTO auth.users(id,email,email_confirmed_at) VALUES('${actor}','menu-race@example.invalid',now());
- INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status) VALUES('${facility}','Synthetic menu race','synthetic-menu-race','その他','検証県','検証市','検証住所','published');
+ INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status,business_hours) VALUES('${facility}','Synthetic menu race','synthetic-menu-race','その他','検証県','検証市','検証住所','published',(SELECT jsonb_object_agg(n,jsonb_build_object('open','09:00','close','20:00')) FROM unnest(ARRAY['sun','mon','tue','wed','thu','fri','sat']) n));
  INSERT INTO public.facility_members(user_id,facility_id,role) VALUES('${actor}','${facility}','owner');
  INSERT INTO public.facility_menus(id,facility_id,category,name,sort_order) VALUES('${a}','${facility}','その他','A',0),('${b}','${facility}','その他','B',1); COMMIT;`); seeded=true;
  const deleted=await contend('two-deletes',`SELECT id FROM public.facility_profiles WHERE id='${facility}' FOR UPDATE`,[drop(a),drop(b)]);

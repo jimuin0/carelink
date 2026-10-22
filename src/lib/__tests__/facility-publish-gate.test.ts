@@ -6,7 +6,7 @@
 
 import {
   checkBookingReadiness as checkPublishReadiness, checkPublishReadiness as checkListingReadiness, isPublishedLocationConflict,
-  readWorkingStaff, summarizeWorkingStaff, workingStaffQuery,
+  isPublishedHoursConflict, readWorkingStaff, summarizeWorkingStaff, workingStaffQuery,
 } from '../facility-publish-gate';
 
 test.each([null, undefined, false, '23514', {}, { code: '23514' },
@@ -17,6 +17,17 @@ test.each([null, undefined, false, '23514', {}, { code: '23514' },
 });
 test('identifies only the named location CHECK violation', () => {
   expect(isPublishedLocationConflict({ code: '23514', message: 'new row violates check constraint "published_facility_location_present"' })).toBe(true);
+});
+
+test.each([null, {}, { code: '23514', message: '"published_facility_location_present"' },
+  { code: '23505', message: '"published_facility_hours_confirmed"' }, { code: '23514', message: null }])(
+  'only the hours invariant is an hours conflict: %p', (value) => {
+    expect(isPublishedHoursConflict(value)).toBe(false);
+  });
+test('the DB publish RPCs report unconfirmed hours as an actionable conflict', () => {
+  const error = { code: '23514', message: '"published_facility_hours_confirmed"' };
+  expect(isPublishedHoursConflict(error)).toBe(true);
+  expect(isPublishedLocationConflict(error)).toBe(false);
 });
 
 // facility_menus は .select().eq().or()、facility_photos は .select().eq() で count を解決する thenable。
@@ -232,9 +243,12 @@ test('profile.data が null（行が見つからない）→ prefecture/city 不
   expect(readiness.missing).toContain('市区町村を設定してください');
 });
 
+const LISTING_HOURS = { mon: { open: '10:00', close: '19:00' }, tue: null, wed: { open: '10:00', close: '19:00' },
+  thu: { open: '10:00', close: '19:00' }, fri: { open: '10:00', close: '19:00' }, sat: { open: '10:00', close: '17:00' }, sun: null };
+
 describe('掲載だけの公開条件', () => {
-  test('メニュー・写真・スタッフなしでも所在地があれば掲載できる', async () => {
-    const from = jest.fn(() => profileChain({ name: '合成店舗', prefecture: '東京都', city: '検証区', address: '検証町1-1' }));
+  test('メニュー・写真・スタッフなしでも所在地と営業時間があれば掲載できる', async () => {
+    const from = jest.fn(() => profileChain({ name: '合成店舗', prefecture: '東京都', city: '検証区', address: '検証町1-1', business_hours: LISTING_HOURS }));
     const result = await checkListingReadiness({ from } as never, 'f1');
     expect(result).toEqual({ readiness: { ready: true, missing: [] }, error: null });
     expect(from).toHaveBeenCalledTimes(1);
@@ -248,16 +262,32 @@ describe('掲載だけの公開条件', () => {
   test.each([null, { name: ' ', prefecture: null, city: '', address: '\u3000' }])('欠損はすべて不足として返す：%p', async (data) => {
     const result = await checkListingReadiness({ from: () => profileChain(data) } as never, 'f1');
     expect(result.error).toBeNull();
-    expect(result.readiness.missing).toEqual(['施設名を設定してください', '都道府県を設定してください', '市区町村を設定してください', '住所を設定してください']);
+    expect(result.readiness.missing).toEqual(['施設名を設定してください', '都道府県を設定してください', '市区町村を設定してください', '住所を設定してください',
+      '全曜日の営業時間・定休日を確認して保存してください']);
+  });
+
+  // 2026年10月23日 神原さん決定：曜日別の営業時間（定休日を含む）の保存は無料掲載の公開条件。
+  // 判定はネット予約と同じ public.confirmed_booking_hours の規則（7曜日すべて・営業日1日以上・開店<閉店）。
+  test.each([
+    ['未保存', null],
+    ['曜日が欠けている', { mon: { open: '10:00', close: '19:00' } }],
+    ['全曜日が定休日', { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }],
+    ['閉店が開店より前', { ...LISTING_HOURS, mon: { open: '19:00', close: '10:00' } }],
+  ])('営業時間が%sなら公開できない', async (_label, business_hours) => {
+    const located = { name: '合成店舗', prefecture: '東京都', city: '検証区', address: '検証町1-1' };
+    const chain = profileChain({ ...located, business_hours });
+    const result = await checkListingReadiness({ from: () => chain } as never, 'f1');
+    expect(chain.select).toHaveBeenCalledWith('name, prefecture, city, address, catch_copy, description, business_hours');
+    expect(result).toEqual({ readiness: { ready: false, missing: ['全曜日の営業時間・定休日を確認して保存してください'] }, error: null });
   });
 
   // 最後の砦: /admin/settings は保存時に弾くが、/register の PR 文（取り込み後は施設紹介）は
   // 設定画面を経ずに入るため、検査されないまま公開できた。
-  const located = { name: '合成店舗', prefecture: '東京都', city: '検証区', address: '検証町1-1' };
+  const located = { name: '合成店舗', prefecture: '東京都', city: '検証区', address: '検証町1-1', business_hours: LISTING_HOURS };
   test('公開時にキャッチコピーと施設紹介も医療広告の表現を検査する', async () => {
     const chain = profileChain({ ...located, catch_copy: '技術力No.1', description: '施術で必ず治る' });
     const result = await checkListingReadiness({ from: () => chain } as never, 'f1');
-    expect(chain.select).toHaveBeenCalledWith('name, prefecture, city, address, catch_copy, description');
+    expect(chain.select).toHaveBeenCalledWith('name, prefecture, city, address, catch_copy, description, business_hours');
     expect(result.error).toBeNull();
     expect(result.readiness).toEqual({ ready: false, missing: [
       'キャッチコピー：「No.1」 は使用できません。他との比較優良を示す表現は医療広告ガイドラインで禁止されています（客観的根拠があっても広告では使えません）',
@@ -329,13 +359,24 @@ describe('画面の入力にも同じ公開規則を使う（listingPublishMissi
   const { listingPublishMissing, listingLocationMissing, bookingReadinessChecks } = jest.requireActual('../facility-publish-gate');
 
   test('保存前の入力値で、サーバーの公開ゲートと同じ項目・同じ文言を返す', async () => {
-    const values = { name: '合成店舗', prefecture: '', city: ' ', address: null, catch_copy: '日本一', description: null };
+    const values = { name: '合成店舗', prefecture: '', city: ' ', address: null, catch_copy: '日本一', description: null, business_hours: null };
     const server = await checkListingReadiness({ from: () => profileChain(values) } as never, 'f1');
     expect(listingPublishMissing(values)).toEqual(server.readiness.missing);
+    // 並びはチェックリストと同じ：店舗情報（所在地・PR 文言）→ 営業時間
     expect(listingPublishMissing(values)).toEqual([
       '都道府県を設定してください', '市区町村を設定してください', '住所を設定してください',
       expect.stringMatching(/^キャッチコピー：/),
+      '全曜日の営業時間・定休日を確認して保存してください',
     ]);
+  });
+
+  test('営業時間の文言はネット予約の判定と同じ（判定も 1 か所）', () => {
+    const { listingHoursMissing, LISTING_HOURS_MESSAGE } = jest.requireActual('../facility-publish-gate');
+    expect(listingHoursMissing(LISTING_HOURS)).toEqual([]);
+    expect(listingHoursMissing(undefined)).toEqual([LISTING_HOURS_MESSAGE]);
+    const hours = bookingReadinessChecks({ name: 'x', prefecture: 'x', city: 'x', hasAddress: true, status: 'published',
+      businessHours: null, menuCount: 1, photoCount: 1, workingStaffCount: 1 }).find((c: { key: string }) => c.key === 'hours');
+    expect(hours.message).toBe(LISTING_HOURS_MESSAGE);
   });
 
   test('所在地だけの判定は PR 文言を見ない', () => {

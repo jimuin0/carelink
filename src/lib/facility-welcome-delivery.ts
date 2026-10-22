@@ -3,6 +3,7 @@ import type { Resend } from 'resend';
 import type { createServiceRoleClient } from './supabase-server';
 import { UUID_REGEX, SITE_URL } from './constants';
 import { fromEnv } from './email-from';
+import { LISTING_PUBLISH_REQUIREMENT } from './register-photo-policy';
 import { sendResendForReconciliation, type ResendDeliveryOutcome } from './resend-result';
 
 const reference = z.object({
@@ -43,7 +44,7 @@ export async function prepareFacilityWelcomeDelivery(
     }
     const email = {
       from: fromEnv(), to: user.data.email, subject: '【CareLink】店舗アカウントを作成しました',
-      text: `施設名：${profile.data.name}\n\n店舗アカウントの作成が完了しました。\nこの時点では一般公開の完了を意味しません。無料掲載とオンライン予約は別の設定です。管理画面で都道府県・市区町村・住所と掲載許可を確認し、公開操作を行ってください。オンライン予約はメニュー・スタッフ・写真などの準備を完了し、有効化するまで受付しません。\n${SITE_URL}/admin\n\n掲載申込は店舗ごとに必要です。別店舗の申込を重複として統合しないでください。現行の新規オーナー登録は1アカウント1店舗です。既に複数店舗の管理権限がある場合は管理画面で店舗を選択してください。`,
+      text: `施設名：${profile.data.name}\n\n店舗アカウントの作成が完了しました。\nこの時点では一般公開の完了を意味しません。無料掲載とオンライン予約は別の設定です。${LISTING_PUBLISH_REQUIREMENT}管理画面で都道府県・市区町村・住所、曜日別の営業時間（定休日を含む）と掲載許可を確認し、公開操作を行ってください。オンライン予約はさらにメニュー・スタッフ・写真などの準備を完了し、有効化するまで受付しません。\n${SITE_URL}/admin\n\n掲載申込は店舗ごとに必要です。別店舗の申込を重複として統合しないでください。現行の新規オーナー登録は1アカウント1店舗です。既に複数店舗の管理権限がある場合は管理画面で店舗を選択してください。`,
     };
     return () => sendResendForReconciliation(resend.emails.send(email, {
       idempotencyKey: `facility-welcome-v1-${job.target_id}`,
