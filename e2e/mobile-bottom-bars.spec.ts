@@ -34,12 +34,17 @@ async function withStoredConsent(page: Page) {
   }, CONSENT);
 }
 
-/** 要素の中心が画面内にあり、その点でいちばん手前にあるのが当の要素（か、その子孫）であること。 */
-async function expectHittable(locator: Locator) {
+/**
+ * 要素の中心が画面内にあり、その点でいちばん手前にあるのが当の要素（か、その子孫）であること。
+ * stickToBottom: 判定のたびに末尾までスクロールし直す。遅延描画でページが伸びると、
+ * 一度末尾へ着いた後でもフッターが画面外へ押し出される（CI の Mobile Safari で実測）。
+ */
+async function expectHittable(locator: Locator, { stickToBottom = false }: { stickToBottom?: boolean } = {}) {
   await expect
     .poll(
       () =>
-        locator.evaluate((el) => {
+        locator.evaluate((el, toBottom) => {
+          if (toBottom) window.scrollTo(0, document.documentElement.scrollHeight);
           const r = el.getBoundingClientRect();
           const x = r.left + r.width / 2;
           const y = r.top + r.height / 2;
@@ -50,7 +55,7 @@ async function expectHittable(locator: Locator) {
           if (hit && (hit === el || el.contains(hit))) return 'ok';
           const name = hit ? `${hit.tagName.toLowerCase()} "${(hit.textContent ?? '').trim().slice(0, 20)}"` : 'なし';
           return `覆われている: ${name}`;
-        }),
+        }, stickToBottom),
       { message: '要素がいちばん手前で押せること' },
     )
     .toBe('ok');
@@ -79,7 +84,7 @@ async function expectFooterLegalLinksReachable(page: Page, fixedBar?: Locator) {
   await expect(bar).toBeVisible();
   await scrollToVeryBottom(page);
   for (const name of ['プライバシーポリシー', '利用規約', '特定商取引法に基づく表記']) {
-    await expectHittable(footer.getByRole('link', { name, exact: true }));
+    await expectHittable(footer.getByRole('link', { name, exact: true }), { stickToBottom: true });
   }
 }
 
@@ -193,7 +198,7 @@ test.describe('施設詳細: 予約バー', () => {
 
   async function expectFooterReachableAboveBookingBar(page: Page) {
     await expectFooterLegalLinksReachable(page, bookingBar(page));
-    await expectHittable(page.getByRole('contentinfo').locator('a[href="/salon"]'));
+    await expectHittable(page.getByRole('contentinfo').locator('a[href="/salon"]'), { stickToBottom: true });
   }
 
   test('予約できる施設: 一番下までスクロールすれば、フッターの掲載案内と規約リンクが予約バーに覆われず押せる', async ({ page }) => {
