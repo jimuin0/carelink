@@ -498,6 +498,29 @@ export type Database = {
           },
         ]
       }
+      booking_member_withdrawals: {
+        Row: {
+          booking_id: string
+          withdrawn_at: string
+        }
+        Insert: {
+          booking_id: string
+          withdrawn_at?: string
+        }
+        Update: {
+          booking_id?: string
+          withdrawn_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_member_withdrawals_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: true
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       booking_waitlist: {
         Row: {
           created_at: string
@@ -585,7 +608,6 @@ export type Database = {
       }
       bookings: {
         Row: {
-          account_deleted_at: string | null
           booking_date: string
           charges: Json | null
           coupon_id: string | null
@@ -617,7 +639,6 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
-          account_deleted_at?: string | null
           booking_date: string
           charges?: Json | null
           coupon_id?: string | null
@@ -649,7 +670,6 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
-          account_deleted_at?: string | null
           booking_date?: string
           charges?: Json | null
           coupon_id?: string | null

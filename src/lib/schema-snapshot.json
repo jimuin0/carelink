@@ -112,6 +112,10 @@
     "response_payload",
     "state"
   ],
+  "booking_member_withdrawals": [
+    "booking_id",
+    "withdrawn_at"
+  ],
   "booking_waitlist": [
     "created_at",
     "customer_name",
@@ -133,7 +137,6 @@
     "user_id"
   ],
   "bookings": [
-    "account_deleted_at",
     "booking_date",
     "charges",
     "coupon_id",

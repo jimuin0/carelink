@@ -9,13 +9,23 @@
 --   退会前に「お知らせメールを受け取らない」にしていた人にも届く（本人の配信停止が退会で無効になる）。
 --
 -- 【直し方】
---   1. bookings.account_deleted_at を足し、退会と同じトランザクション（auth.users の BEFORE DELETE
---      トリガ cleanup_deleting_account_personal_data）でその会員の予約に退会時刻を記録する。
---      ゲスト予約（作成時から user_id が NULL）と退会者の予約を区別できる唯一の印になる。
---   2. 宛先アドレス単位の配信停止（email_address_opted_out）も見る。newsletter-send.ts と同じ抑止元の
---      うち、profiles.email_unsubscribed と newsletter_subscriptions の全メール停止行（subscription_type='all'
---      かつ is_active=false。unsubscribe_newsletter_atomic がゲストにも作る）を宛先で照合する
---      （特定のニュースレターだけを止めた行は口コミ依頼の停止とみなさない）。
+--   1. 退会と同じトランザクション（auth.users の BEFORE DELETE トリガ cleanup_deleting_account_personal_data）で、
+--      その会員の予約を booking_member_withdrawals に記録する。ゲスト予約（作成時から user_id が NULL）と
+--      退会者の予約を区別できる唯一の印になる。
+--      印を bookings の列にしないのは、bookings は施設メンバーが PostgREST で全列を読めるため。
+--      列にすると、店舗が「氏名つきの客が CareLink を退会したこと・その時刻」を知れてしまう
+--      （予約の提供に要らない、新たに店舗へ開示される個人に関する情報）。この表は RLS 有効・ポリシー無し・
+--      service_role の SELECT だけ（書くのは SECURITY DEFINER の退会トリガだけ）にして、店舗からは読めない。
+--   2. 宛先アドレス単位の配信停止（email_address_opted_out）も見る。見るのは持ち主が確かめられる抑止だけ:
+--      (a) newsletter_subscriptions の停止行（is_active=false）。書けるのは署名付きの配信停止リンク
+--          （unsubscribe_newsletter_atomic）だけで、種別は問わない。リンクは既存行を種別そのまま停止にし、
+--          'all' 行の INSERT も ON CONFLICT(email) で既存行の種別を残すため、'all' に限ると
+--          購読行があった宛先の配信停止を見落とす（newsletter-send.ts・newsletter_current_recipients と同じ判定）。
+--      (b) Supabase Auth が持ち主を確認済みのログインメール（auth.users.email・email_confirmed_at あり）の
+--          アカウントが email_unsubscribed=true にしていること。profiles.email は本人が自由に書き換えられるので
+--          照合に使わない（使うと、誰でも自分の profiles.email を他人のアドレスにして配信停止にするだけで、
+--          そのアドレスで予約したゲストへの口コミ依頼を止められる。20261022220000 と同じ理由）。
+--          auth.users を読むので SECURITY DEFINER（service_role だけが実行できる）。
 --   3. 上の 2 つを 3 か所すべての判定に入れる。候補一覧だけだと、既に積まれたジョブや
 --      競合中のジョブが送信直前のフェンスを素通りする。
 --
@@ -23,8 +33,11 @@
 --   判定できる情報が残っていないため、推測によるデータ書き換え（バックフィル）はしない。
 --   アドレス単位の配信停止（2.）は既存データにもそのまま効く。
 --
--- 【デプロイ順】アプリより先に適用してよい。列は NULL 許容の追加だけで、関数は引数・戻り値を変えずに
---   判定を厳しくするだけなので、旧アプリはそのまま動く。
+-- 【デプロイ順】アプリより先に適用してよい。表と関数の追加、既存関数の判定を厳しくするだけ
+--   （引数・戻り値・権限は変えない）なので、旧アプリはそのまま動く。
+--   表・関数・権限の行は src/lib/schema-fingerprint.expected.json にも入れてある。schema-drift-check は
+--   デプロイ済みアプリの期待値と比べるので、適用からデプロイまでの間に JST 02:40 を跨ぐと、その回だけ
+--   差分として報告される。適用とデプロイは同じ日のうちに続けて行う。
 --
 -- 各関数の本体は直前の最新定義（cleanup: 20261008093027 / list・reserve: 20261013111506 /
 -- start: 20261013123844）をそのまま写し、上記の判定だけを足した。属性（SECURITY DEFINER/INVOKER・
@@ -32,24 +45,29 @@
 
 DO $guard$ BEGIN IF to_regclass('public.facility_profiles') IS NULL THEN RAISE EXCEPTION 'not the CareLink database'; END IF; END $guard$;
 
-ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS account_deleted_at timestamptz;
-COMMENT ON COLUMN public.bookings.account_deleted_at IS
- 'Set when the member account that made this booking was deleted (user_id is then NULL). Distinguishes a retired member from a guest booking. Not personal data.';
+CREATE TABLE IF NOT EXISTS public.booking_member_withdrawals (
+  booking_id uuid PRIMARY KEY REFERENCES public.bookings(id) ON DELETE CASCADE,
+  withdrawn_at timestamptz NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE public.booking_member_withdrawals IS
+ 'Bookings whose member account was deleted (bookings.user_id is then NULL). Tells a withdrawn member apart from a guest so scheduled mail is not sent. Written only by the account deletion trigger; service_role reads it; shops cannot.';
+ALTER TABLE public.booking_member_withdrawals ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.booking_member_withdrawals FROM PUBLIC,anon,authenticated,service_role;
+GRANT SELECT ON public.booking_member_withdrawals TO service_role;
 
--- 宛先アドレス単位の配信停止。newsletter-send.ts の抑止（profiles.email_unsubscribed と
--- newsletter_subscriptions の停止行）のうち、全メールを止める行だけを見る。
--- 照合は既存の式インデックス newsletter_profiles_mailbox / newsletter_subscriptions_mailbox と同じ lower(btrim(email))。
+-- 宛先アドレス単位の配信停止（上の 2.）。照合は lower(btrim(email))（newsletter_subscriptions_mailbox と同じ式）。
 CREATE OR REPLACE FUNCTION public.email_address_opted_out(p_email text) RETURNS boolean
-LANGUAGE sql STABLE SECURITY INVOKER SET search_path='' AS $$
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
  SELECT nullif(btrim(p_email),'') IS NOT NULL AND (
-  EXISTS(SELECT 1 FROM public.profiles p WHERE lower(btrim(p.email))=lower(btrim(p_email)) AND p.email_unsubscribed IS TRUE)
-  OR EXISTS(SELECT 1 FROM public.newsletter_subscriptions n WHERE lower(btrim(n.email))=lower(btrim(p_email))
-   AND n.subscription_type='all' AND n.is_active IS FALSE));
+  EXISTS(SELECT 1 FROM public.newsletter_subscriptions n WHERE lower(btrim(n.email))=lower(btrim(p_email)) AND n.is_active IS FALSE)
+  OR EXISTS(SELECT 1 FROM public.profiles p JOIN auth.users u ON u.id=p.id
+   WHERE p.email_unsubscribed IS TRUE AND u.email_confirmed_at IS NOT NULL AND lower(btrim(u.email))=lower(btrim(p_email))));
 $$;
 REVOKE ALL ON FUNCTION public.email_address_opted_out(text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.email_address_opted_out(text) TO service_role;
 
--- 1. 退会と同じトランザクションで、その会員の予約に退会時刻を記録する（本体は 20261008093027 と同一＋1 文）。
+-- 1. 退会と同じトランザクションで、その会員の予約を記録する（本体は 20261008093027 と同一＋1 文）。
+--    BEFORE DELETE なので、この時点では bookings.user_id はまだ OLD.id（直後に FK の SET NULL で外れる）。
 CREATE OR REPLACE FUNCTION public.cleanup_deleting_account_personal_data() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
 BEGIN
@@ -77,8 +95,10 @@ BEGIN
   UPDATE public.api_keys SET created_by=NULL WHERE created_by=OLD.id;
   -- 2026-10-23: the booking keeps its contact details and loses user_id via
   -- ON DELETE SET NULL, which made a retired member indistinguishable from a
-  -- guest. Record the retirement so scheduled mail is not sent to it.
-  UPDATE public.bookings SET account_deleted_at=clock_timestamp() WHERE user_id=OLD.id AND account_deleted_at IS NULL;
+  -- guest. Record the retirement (outside bookings, which shops can read) so
+  -- scheduled mail is not sent to it.
+  INSERT INTO public.booking_member_withdrawals(booking_id)
+   SELECT b.id FROM public.bookings b WHERE b.user_id=OLD.id ON CONFLICT (booking_id) DO NOTHING;
   RETURN OLD;
 END;
 $$;
@@ -99,7 +119,7 @@ BEGIN
   AND nullif(btrim(b.email),'') IS NOT NULL
   AND EXISTS(SELECT 1 FROM public.facility_profiles f WHERE f.id=b.facility_id AND f.status='published')
   AND (b.user_id IS NULL OR EXISTS(SELECT 1 FROM public.profiles p WHERE p.id=b.user_id AND p.email_unsubscribed IS NOT TRUE))
-  AND b.account_deleted_at IS NULL AND NOT public.email_address_opted_out(b.email)
+  AND NOT EXISTS(SELECT 1 FROM public.booking_member_withdrawals w WHERE w.booking_id=b.id) AND NOT public.email_address_opted_out(b.email)
   AND (p_after_id IS NULL OR (b.updated_at,b.id)>(p_after_updated_at,p_after_id))
   AND NOT EXISTS(SELECT 1 FROM public.scheduled_email_operations o WHERE o.kind='review_request' AND o.source_id=b.id AND o.period='once' AND o.published_at IS NOT NULL)
   ORDER BY b.updated_at,b.id LIMIT p_limit;
@@ -134,7 +154,7 @@ BEGIN
   IF b.user_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.profiles pr WHERE pr.id=b.user_id AND pr.email_unsubscribed IS NOT TRUE) THEN
    RETURN QUERY SELECT 'not_eligible'::text,NULL::uuid,NULL::jsonb; RETURN;
   END IF;
-  IF b.account_deleted_at IS NOT NULL OR public.email_address_opted_out(b.email) THEN
+  IF EXISTS(SELECT 1 FROM public.booking_member_withdrawals w WHERE w.booking_id=b.id) OR public.email_address_opted_out(b.email) THEN
    RETURN QUERY SELECT 'not_eligible'::text,NULL::uuid,NULL::jsonb; RETURN;
   END IF;
   snap:=jsonb_build_object('email',b.email,'customerName',b.customer_name,'facilityName',f.name,'facilitySlug',f.slug,
@@ -177,7 +197,7 @@ BEGIN
     AND b.email IS NOT DISTINCT FROM o.snapshot->>'email' AND b.user_id IS NOT DISTINCT FROM (o.snapshot->>'userId')::uuid
     AND EXISTS(SELECT 1 FROM public.facility_profiles f WHERE f.id=b.facility_id AND f.status='published')
     AND (b.user_id IS NULL OR EXISTS(SELECT 1 FROM public.profiles pr WHERE pr.id=b.user_id AND pr.email_unsubscribed IS NOT TRUE))
-    AND b.account_deleted_at IS NULL AND NOT public.email_address_opted_out(b.email);
+    AND NOT EXISTS(SELECT 1 FROM public.booking_member_withdrawals w WHERE w.booking_id=b.id) AND NOT public.email_address_opted_out(b.email);
  ELSE
   SELECT * INTO p FROM public.profiles WHERE profiles.id=o.source_id FOR SHARE;
   valid:=p.id IS NOT NULL AND p.email_unsubscribed IS NOT DISTINCT FROM false AND p_recipient_current IS TRUE
