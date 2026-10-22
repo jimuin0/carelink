@@ -138,19 +138,28 @@ describe('開始時刻前は「完了」「無断キャンセル」と会計の�
 });
 
 // ── お客様によるキャンセルで通知したキャンセル料（2026年10月23日） ──
-// お客様には「キャンセル料 ¥X が発生し、お支払い方法は施設より直接ご案内」と届くのに、店舗の画面には何も無かった。
+// お客様にはキャンセル料の発生と、お支払い方法は施設から直接案内することがメールで届くのに、店舗の画面には何も無かった。
 describe('お客様がキャンセルした予約にキャンセル料と受付時刻を出す', () => {
   const context = { policy: { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'free_window' }, totalPrice: 5000,
     bookingDate: '2026-10-30', startTime: '15:00:00', capturedAt: '2026-10-30T03:00:00Z' };
-  function cancelled(feeContext: unknown) {
+  function cancelled(feeContext: unknown, email: string | null = 'customer@example.invalid') {
     const data = (mockResults.bookings[1] as { data: Record<string, unknown> }).data;
-    Object.assign(data, { status: 'cancelled', cancel_fee_context: feeContext });
+    Object.assign(data, { status: 'cancelled', cancel_fee_context: feeContext, email });
   }
 
   test('期限後のキャンセル: 金額・料率と、お客様へ支払い方法を連絡する案内', async () => {
     cancelled(context); show();
     expect(await screen.findByText('お客様によるキャンセル（受付 2026年10月30日 12:00）')).toBeInTheDocument();
-    expect(screen.getByText(/キャンセル料/).textContent).toBe('キャンセル料 ¥2,500（施術料金の50%）をお客様にお知らせしています。お支払い方法をお客様へ直接ご連絡ください。');
+    expect(screen.getByText(/キャンセル料/).textContent).toBe('お客様へ、キャンセル料 ¥2,500（施術料金の50%）の発生と、お支払い方法は施設から直接ご案内することをメールでお知らせしています。お支払い方法をお客様へ直接ご連絡ください。');
+  });
+
+  // 回帰（レビュー指摘）: メールアドレスの無いお客様にはお客様宛のキャンセル通知が積まれないのに、
+  // 「お客様にお知らせしています」と表示し、店舗は連絡を待ち、お客様は料金を知らないままになっていた。
+  test.each([null, '', '  '])('メールアドレスの無いお客様 %j: お知らせしていないことと、店舗から直接案内することを示す', async (email) => {
+    cancelled(context, email); show();
+    await screen.findByText('お客様によるキャンセル（受付 2026年10月30日 12:00）');
+    expect(screen.getByText(/キャンセル料/).textContent).toBe('お客様のメールアドレスの登録が無いため、キャンセル料はメールでお知らせしていません。キャンセル料 ¥2,500（施術料金の50%）とお支払い方法を、お客様へ直接ご案内ください。');
+    expect(screen.queryByText(/お知らせしています/)).not.toBeInTheDocument();
   });
 
   test('無料期限内のキャンセル: キャンセル料がかからないことを示す', async () => {

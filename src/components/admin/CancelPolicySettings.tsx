@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import LoadError from '@/components/admin/LoadError';
-import { CANCEL_POLICY_DEFAULTS, CANCEL_RULES, resolveCancelPolicy, type CancelRule } from '@/lib/cancel-fee';
+import { CANCEL_POLICY_DEFAULTS, CANCEL_POLICY_NULL_READING, CANCEL_RULES, resolveCancelPolicy, type CancelRule } from '@/lib/cancel-fee';
 
 interface Policy {
   free_cancel_hours: number;
@@ -78,11 +78,13 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
         // free_cancel_hours INT DEFAULT 24 / late_cancel_rate INT DEFAULT 50 /
         // no_show_rate INT DEFAULT 100）。明示的に NULL が入った行では null が返る。
         // そのまま number として扱うと入力欄が空になり、保存すると「無料キャンセル期限なし」
-        // として書き戻されてしまうため、DB 側の DEFAULT と同値である DEFAULT 定数へ倒す
-        // （キャンセル料の計算・予約画面の案内も同じ既定値で解釈する＝CANCEL_POLICY_DEFAULTS）。
+        // として書き戻されてしまうため、予約画面の案内・キャンセル料の計算と同じ読み方
+        // （CANCEL_POLICY_NULL_READING＝24時間前まで無料・キャンセル料 0%）で表示する。
+        // 料率を DB の DEFAULT（50%）で表示すると、お客様には「キャンセル料はかかりません」と
+        // 案内している店舗に 50% と見せることになり、保存した時点で黙って料金が発生する。
         setPolicy({
-          free_cancel_hours: data.free_cancel_hours ?? DEFAULT.free_cancel_hours,
-          late_cancel_rate: data.late_cancel_rate ?? DEFAULT.late_cancel_rate,
+          free_cancel_hours: data.free_cancel_hours ?? CANCEL_POLICY_NULL_READING.free_cancel_hours,
+          late_cancel_rate: data.late_cancel_rate ?? CANCEL_POLICY_NULL_READING.late_cancel_rate,
           no_show_rate: data.no_show_rate ?? DEFAULT.no_show_rate,
           policy_text: data.policy_text || '',
           cancel_rule: isCancelRule(data.cancel_rule) ? data.cancel_rule : null,

@@ -1,6 +1,7 @@
 import {
   computeCancelFee, hoursUntilBookingStart, hasBookingStarted, isBeforeBookingStart, describeCancelPolicy,
-  resolveCancelPolicy, isOnlineCancelAllowed, ONLINE_CANCEL_DISABLED_MESSAGE, CANCEL_POLICY_DEFAULTS, CANCEL_RULES,
+  resolveCancelPolicy, isOnlineCancelAllowed, ONLINE_CANCEL_DISABLED_MESSAGE, CANCEL_POLICY_DEFAULTS, CANCEL_POLICY_NULL_READING,
+  CANCEL_RULES,
   type CancelPolicy,
 } from '@/lib/cancel-fee';
 
@@ -79,9 +80,17 @@ describe('resolveCancelPolicy（キャンセルポリシーの唯一の解釈）
     expect(resolveCancelPolicy({ free_cancel_hours: -1, late_cancel_rate: 50, cancel_rule: 'free_window' })).toEqual({ rule: 'always_fee', rate: 50 });
   });
 
-  it('列が NULL の行は設定画面と同じ既定値（DB の DEFAULT: 24時間前まで無料・50%）で読む', () => {
+  // 回帰（レビュー指摘）: 料率 NULL を DB の DEFAULT（50%）で読むと、それまで予約画面で「キャンセル料はかかりません」と
+  // 案内して予約を受けたお客様に、デプロイ後のキャンセルで 50% のキャンセル料が通知されてしまう。
+  it('列が NULL の行は 24時間前まで無料・キャンセル料 0%（料率は DB の DEFAULT ではなく、お客様に案内してきた意味）で読む', () => {
     expect(resolveCancelPolicy({ free_cancel_hours: null, late_cancel_rate: null }))
-      .toEqual({ rule: 'free_window', freeHours: CANCEL_POLICY_DEFAULTS.free_cancel_hours, rate: CANCEL_POLICY_DEFAULTS.late_cancel_rate });
+      .toEqual({ rule: 'free_window', freeHours: 24, rate: 0 });
+    expect(resolveCancelPolicy({ free_cancel_hours: 24, late_cancel_rate: null, cancel_rule: 'always_fee' }))
+      .toEqual({ rule: 'always_fee', rate: 0 });
+    expect(CANCEL_POLICY_NULL_READING).toEqual({ free_cancel_hours: 24, late_cancel_rate: 0 });
+  });
+
+  it('ポリシー未保存の店舗の設定画面の初期値は DB の DEFAULT（24時間・50%・100%）', () => {
     expect(CANCEL_POLICY_DEFAULTS).toEqual({ free_cancel_hours: 24, late_cancel_rate: 50, no_show_rate: 100 });
   });
 
@@ -130,9 +139,15 @@ describe('computeCancelFee', () => {
     expect(computeCancelFee({ free_cancel_hours: 24, late_cancel_rate: 0 }, 5000, 1)).toEqual({ fee: 0, rate: 0, isLate: false });
   });
 
-  it('列が NULL → 設定画面と同じ既定値（24時間前まで無料・50%）で計算する', () => {
-    expect(computeCancelFee({ free_cancel_hours: null, late_cancel_rate: null }, 5000, 30)).toEqual({ fee: 0, rate: 50, isLate: false });
-    expect(computeCancelFee({ free_cancel_hours: null, late_cancel_rate: null }, 5000, 1)).toEqual({ fee: 2500, rate: 50, isLate: true });
+  it('料率が NULL → キャンセル料はかからない（予約画面の「キャンセル料はかかりません」と同じ）', () => {
+    expect(computeCancelFee({ free_cancel_hours: null, late_cancel_rate: null }, 5000, 30)).toEqual({ fee: 0, rate: 0, isLate: false });
+    expect(computeCancelFee({ free_cancel_hours: null, late_cancel_rate: null }, 5000, 1)).toEqual({ fee: 0, rate: 0, isLate: false });
+    expect(computeCancelFee({ free_cancel_hours: 0, late_cancel_rate: null }, 5000, 1)).toEqual({ fee: 0, rate: 0, isLate: false });
+  });
+
+  it('無料期限だけ NULL → 24時間前まで無料として計算する', () => {
+    expect(computeCancelFee({ free_cancel_hours: null, late_cancel_rate: 50 }, 5000, 30)).toEqual({ fee: 0, rate: 50, isLate: false });
+    expect(computeCancelFee({ free_cancel_hours: null, late_cancel_rate: 50 }, 5000, 1)).toEqual({ fee: 2500, rate: 50, isLate: true });
   });
 
   // 回帰（D3/D13）: 旧「キャンセル不可」（free_cancel_hours=0）は予約画面で「キャンセルの場合は50%」と案内していたのに、
@@ -176,8 +191,13 @@ describe('describeCancelPolicy（2026年7月15日 追加・予約確認画面の
     expect(ONLINE_CANCEL_DISABLED_MESSAGE).toBe('この店舗ではネットからのキャンセルをお受けしていません。キャンセルをご希望の場合は、店舗へ直接ご連絡ください。');
   });
 
-  it('列が NULL → 設定画面と同じ既定値（24時間前まで無料・50%）の文言', () => {
-    expect(describeCancelPolicy({ free_cancel_hours: null, late_cancel_rate: null })).toBe(
+  it('料率が NULL → キャンセル料なしの文言（2026年10月23日より前から予約画面が出していた案内のまま）', () => {
+    expect(describeCancelPolicy({ free_cancel_hours: null, late_cancel_rate: null })).toBe('予約後のキャンセル料はかかりません。');
+    expect(describeCancelPolicy({ free_cancel_hours: 0, late_cancel_rate: null })).toBe('予約後のキャンセル料はかかりません。');
+  });
+
+  it('無料期限だけ NULL → 24時間前まで無料の文言', () => {
+    expect(describeCancelPolicy({ free_cancel_hours: null, late_cancel_rate: 50 })).toBe(
       '予約日時の24時間前まで無料でキャンセルできます。それ以降のキャンセルは施術料金の50%をキャンセル料として承ります。'
     );
   });

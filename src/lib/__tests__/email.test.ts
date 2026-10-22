@@ -379,7 +379,7 @@ describe('sendBookingCancellationToFacility', () => {
     expect(args.html).toContain('/admin/bookings');
   });
 
-  // 回帰（D4）: お客様には「キャンセル料 ¥X が発生し、お支払い方法は施設より直接ご案内」と届くのに、
+  // 回帰（D4）: お客様にはキャンセル料の発生と、お支払い方法は施設から直接案内することが届くのに、
   // 店舗宛のキャンセル通知には金額もその事実も無く、お客様は案内を待ったままになっていた。
   test('キャンセル料が発生したときは金額・料率と、お客様へ支払い方法を連絡する案内を載せる', () => {
     const { buildBookingCancellationToFacilityEnvelope } = require('../email');
@@ -388,10 +388,29 @@ describe('sendBookingCancellationToFacility', () => {
     });
     expect(envelope.html).toContain('キャンセル料');
     expect(envelope.html).toContain('&yen;4,000（施術料金の50%）');
-    expect(envelope.html).toContain('お支払い方法をお客様へ直接ご連絡ください');
+    expect(envelope.html).toContain('キャンセルポリシーにより、お客様へキャンセル料 <strong>&yen;4,000</strong> の発生と、お支払い方法は施設から直接ご案内することをメールでお知らせしています。お支払い方法をお客様へ直接ご連絡ください。');
     // 無料期限の内か外かを店舗が確かめられるよう、受け付けた時刻（JST）を載せる。
     expect(envelope.html).toContain('キャンセル受付');
     expect(envelope.html).toContain('2026年4月1日 12:05');
+  });
+
+  // 回帰（レビュー指摘）: お客様宛の文面を「」で引用していたが、実際の文面（お客様宛メール）と一致していなかった。
+  // 店舗がお客様からの問い合わせに答えるとき、存在しない文言を前提にしないよう、引用せず地の文で伝える。
+  test('お客様宛の文面を引用の形で書かない（実際の文面と食い違わない）', () => {
+    const { buildBookingCancellationToFacilityEnvelope } = require('../email');
+    const envelope = buildBookingCancellationToFacilityEnvelope({ ...baseData, facilityEmail: 'salon@example.com', cancelFee: 4000 });
+    expect(envelope.html).not.toMatch(/「[^」]*キャンセル料[^」]*」/);
+  });
+
+  // 回帰（レビュー指摘）: メールアドレスの無いお客様にはお客様宛のキャンセル通知が積まれないのに、
+  // 店舗宛には「お客様にお知らせしています」と書いていたため、店舗は連絡を待ち、お客様は料金を知らないままになった。
+  test.each(['', '   '])('メールアドレスの無いお客様 %j: お知らせしていないことと、店舗から直接案内することを伝える', (customerEmail) => {
+    const { buildBookingCancellationToFacilityEnvelope } = require('../email');
+    const envelope = buildBookingCancellationToFacilityEnvelope({
+      ...baseData, customerEmail, facilityEmail: 'salon@example.com', cancelFee: 4000, cancelFeeRate: 50,
+    });
+    expect(envelope.html).toContain('お客様のメールアドレスの登録が無いため、キャンセル料はお客様へメールでお知らせしていません。キャンセル料 <strong>&yen;4,000</strong> とお支払い方法を、お客様へ直接ご案内ください。');
+    expect(envelope.html).not.toContain('お知らせしています');
   });
 
   test('キャンセル料が無いときは金額も支払いの案内も載せない（受付時刻は載せる）', () => {

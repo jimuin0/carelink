@@ -101,9 +101,20 @@ test('cancel_rule の無い旧「キャンセル不可」の行は「期限な�
   expect(await savedRow(upsert)).toMatchObject({ cancel_rule: 'always_fee', free_cancel_hours: 0 });
 });
 
-test('列が NULL の行・未知のルールは、計算と同じ既定値（24時間前まで無料）で表示・保存する', async () => {
+// 回帰（レビュー指摘）: 料率 NULL の行を DB の DEFAULT（50%）で表示していたため、お客様には「キャンセル料は
+// かかりません」と案内している店舗に 50% と見え、そのまま保存すると黙って料金が発生していた。
+test('列が NULL の行・未知のルールは、予約画面・計算と同じ読み方（24時間前まで無料・キャンセル料 0%）で表示・保存する', async () => {
   const { upsert } = mockClient(null, { free_cancel_hours: null, late_cancel_rate: null, no_show_rate: null, policy_text: null, cancel_rule: 'unknown' });
   render(<CancelPolicySettings facilityId="f1" />);
   expect(await screen.findByLabelText('キャンセルの受け付けと無料期限')).toHaveValue('24');
+  expect(screen.getByLabelText('キャンセル料（施術料金の%）')).toHaveValue('0');
+  expect(await savedRow(upsert)).toMatchObject({ cancel_rule: 'free_window', free_cancel_hours: 24, late_cancel_rate: 0, no_show_rate: 100 });
+});
+
+test('ポリシーをまだ保存していない店舗は DB の既定値（24時間前まで無料・50%）を初期表示する', async () => {
+  const { upsert } = mockClient(null, null);
+  render(<CancelPolicySettings facilityId="f1" />);
+  expect(await screen.findByLabelText('キャンセルの受け付けと無料期限')).toHaveValue('24');
+  expect(screen.getByLabelText('キャンセル料（施術料金の%）')).toHaveValue('50');
   expect(await savedRow(upsert)).toMatchObject({ cancel_rule: 'free_window', free_cancel_hours: 24, late_cancel_rate: 50, no_show_rate: 100 });
 });

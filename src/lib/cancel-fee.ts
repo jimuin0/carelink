@@ -25,9 +25,19 @@ export type CancelRule = (typeof CANCEL_RULES)[number];
 
 /**
  * facility_cancel_policies の列の既定値（migration 20260405000003 の DEFAULT と同じ値）。
- * 列に NULL が入っている行は、設定画面が表示するのと同じこの値として扱う。
+ * ポリシーをまだ保存していない店舗の設定画面の初期値に使う。
  */
 export const CANCEL_POLICY_DEFAULTS = { free_cancel_hours: 24, late_cancel_rate: 50, no_show_rate: 100 } as const;
+
+/**
+ * 保存済みの行で列が NULL のときの読み方。設定画面の表示・予約画面の案内（describeCancelPolicy）・
+ * キャンセル料の計算（computeCancelFee）がすべてこの値を使う。設定画面からは NULL を保存できない。
+ * - free_cancel_hours: DB の DEFAULT と同じ 24 時間。
+ * - late_cancel_rate: 0（キャンセル料なし）。DB の DEFAULT（50）ではない。2026年10月23日より前から、
+ *   予約画面は NULL を「予約後のキャンセル料はかかりません。」と案内し、計算も 0 円だった。その案内を見て
+ *   予約したお客様に、あとから 50% のキャンセル料を通知しないよう、お客様に見えていた意味を保つ。
+ */
+export const CANCEL_POLICY_NULL_READING = { free_cancel_hours: 24, late_cancel_rate: 0 } as const;
 
 /** ネットからのキャンセルを受け付けない店舗で、お客様に出す案内（予約画面・マイページ・LIFF・API の応答）。 */
 export const ONLINE_CANCEL_DISABLED_MESSAGE =
@@ -53,9 +63,9 @@ export type ResolvedCancelPolicy =
  * 「キャンセルの場合は〜%をキャンセル料として承ります」と案内していた設定なので「期限なし（常にキャンセル料）」。
  */
 export function resolveCancelPolicy(policy: CancelPolicy): ResolvedCancelPolicy {
-  const rate = policy.late_cancel_rate ?? CANCEL_POLICY_DEFAULTS.late_cancel_rate;
+  const rate = policy.late_cancel_rate ?? CANCEL_POLICY_NULL_READING.late_cancel_rate;
   if (policy.cancel_rule === 'no_online') return { rule: 'no_online', rate };
-  const freeHours = policy.free_cancel_hours ?? CANCEL_POLICY_DEFAULTS.free_cancel_hours;
+  const freeHours = policy.free_cancel_hours ?? CANCEL_POLICY_NULL_READING.free_cancel_hours;
   if (policy.cancel_rule === 'always_fee' || freeHours <= 0) return { rule: 'always_fee', rate };
   return { rule: 'free_window', freeHours, rate };
 }

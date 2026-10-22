@@ -1,5 +1,8 @@
+import { readFileSync, readdirSync } from 'fs';
+import { join } from 'path';
 import {
   cancelFeeContextSchema, cancelFeeFromContext, cancelPolicySnapshotSchema, readCancelFeeReceipt, formatJstDateTime, isoToMs,
+  isCustomerEmailRecipient,
 } from '@/lib/cancel-fee-receipt';
 
 // 2030-01-07 10:00 JST に始まる 5,000 円の予約を、開始 3 時間前（07:00 JST = 2030-01-06T22:00Z）に取り消した材料。
@@ -53,6 +56,26 @@ describe('readCancelFeeReceipt（管理画面の予約詳細）', () => {
 
   it.each([null, undefined, {}, 'text', { ...context, policy: { free_cancel_hours: 'x' } }])('材料が無い・崩れている %j → null', (raw) => {
     expect(readCancelFeeReceipt(raw)).toBeNull();
+  });
+});
+
+describe('isCustomerEmailRecipient（お客様へキャンセル料をメールでお知らせしたか）', () => {
+  it.each([
+    ['customer@example.invalid', true], [' customer@example.invalid ', true],
+    [null, false], [undefined, false], ['', false], ['   ', false],
+  ])('%j → %s', (email, expected) => {
+    expect(isCustomerEmailRecipient(email)).toBe(expected);
+  });
+
+  // 店舗宛メール・管理画面の文言は、お客様宛のキャンセル通知が積まれたかをこの関数で言い分ける。
+  // 積む側（SQL）の条件だけが変わると「お知らせしています」が事実と食い違うので、条件の一致を固定する。
+  it('お客様を宛先に加える SQL の条件（最新の publish_customer_booking_transition_email）と同じ', () => {
+    const dir = join(process.cwd(), 'supabase/migrations');
+    const definitions = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()
+      .filter((f) => readFileSync(join(dir, f), 'utf8').includes('CREATE OR REPLACE FUNCTION public.publish_customer_booking_transition_email('));
+    expect(definitions.length).toBeGreaterThan(0);
+    const sql = readFileSync(join(dir, definitions[definitions.length - 1]), 'utf8').replace(/\s+/g, ' ');
+    expect(sql).toContain("SELECT 'customer'::text AS role,b.email AS email WHERE nullif(btrim(b.email),'') IS NOT NULL");
   });
 });
 

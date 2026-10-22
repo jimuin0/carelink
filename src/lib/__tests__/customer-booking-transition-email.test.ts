@@ -56,6 +56,16 @@ test.each([
     expect(envelope.html).toContain(fee);
   }
 });
+// Regression (review): a customer without an email address gets no customer email at all
+// (publish_customer_booking_transition_email skips the recipient), yet the shop was told
+// the customer had been informed of the fee.
+test('shop email says the customer was not emailed when the snapshot has no customer address',async()=>{
+  const owner=await prepareCustomerBookingTransitionEnvelope(db,{...job,target_id:'owner@example.invalid',
+    payload:{...job.payload,role:'owner',snapshot:{...snapshot,customerEmail:''}}});
+  expect(owner.html).toContain('お客様のメールアドレスの登録が無いため、キャンセル料はお客様へメールでお知らせしていません。');
+  expect(owner.html).toContain('<strong>&yen;2,500</strong> とお支払い方法を、お客様へ直接ご案内ください。');
+  expect(owner.html).not.toContain('お知らせしています');
+});
 test('a free cancellation tells the shop the time but no fee',async()=>{
   const envelope=await prepareCustomerBookingTransitionEnvelope(db,{...job,target_id:'owner@example.invalid',
     payload:{...job.payload,role:'owner',snapshot:{...snapshot,capturedAt:'2029-12-01T00:00:00+00:00'}}});

@@ -10,6 +10,9 @@ import { getClientIp } from '@/lib/client-ip';
 import { fetchVerifiedLiffProfile } from '@/lib/liff-profile';
 import { resolveVerifiedLineOwner } from '@/lib/verified-line-owner';
 import { serverError } from '@/lib/with-route';
+import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
+import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { isOnlineCancelAllowed, type CancelPolicy } from '@/lib/cancel-fee';
 
 export async function GET(req: NextRequest) {
@@ -71,7 +74,13 @@ export async function GET(req: NextRequest) {
       .eq('facility_id', (booking as { facility_id: string }).facility_id)
       .maybeSingle();
     if (policyError) {
-      return serverError('liff-bookings-cancel-policy', policyError, '/api/liff/bookings', 'Internal Server Error');
+      // 案内の出し分けに使う補助情報なので、読めなくても予約そのものは返す（マイページと同じ扱い）。
+      // online_cancel_allowed を省くとキャンセル画面はボタンを出すが、「ネットでのキャンセル不可」の店舗なら
+      // キャンセル RPC が必ず断るので安全側のまま。読めなかった事実は通知して気づけるようにする。
+      const diagnostic = databaseDiagnostic(policyError);
+      safeCaptureException(diagnostic, 'liff-bookings-cancel-policy');
+      alertCaughtError('liff-bookings-cancel-policy', diagnostic, '/api/liff/bookings');
+      return NextResponse.json({ booking: flatten(booking as RawBooking) });
     }
     return NextResponse.json({ booking: {
       ...flatten(booking as RawBooking),

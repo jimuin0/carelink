@@ -10,7 +10,7 @@ import AdjustRequestButtons from '@/components/admin/AdjustRequestButtons';
 import type { Booking } from '@/types';
 import { statusBannerClass, bookingStatusLabel, getAllowedStatusTransitions, getAvailableStatusTransitions, isVisitOutcomeStatus } from '@/lib/booking-status';
 import { isBeforeBookingStart } from '@/lib/cancel-fee';
-import { readCancelFeeReceipt, formatJstDateTime } from '@/lib/cancel-fee-receipt';
+import { readCancelFeeReceipt, formatJstDateTime, isCustomerEmailRecipient } from '@/lib/cancel-fee-receipt';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import { UUID_REGEX } from '@/lib/constants';
 import { bookingStaffLabel } from '@/lib/booking-nomination';
@@ -459,14 +459,20 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
           </div>
         )}
 
-        {/* お客様によるキャンセルの記録。お客様には「キャンセル料が発生し、お支払い方法は施設より直接ご案内」と
-            届いているので、店舗が金額とキャンセルを受け付けた時刻（無料期限の内か外か）を確かめられるようにする。 */}
+        {/* お客様によるキャンセルの記録。メールアドレスのあるお客様には、キャンセル料の発生とお支払い方法は施設から
+            直接案内することがメールで届いているので、店舗が金額とキャンセルを受け付けた時刻（無料期限の内か外か）を
+            確かめられるようにする。メールアドレスの無いお客様にはお客様宛のメール自体が積まれないので、店舗から
+            直接案内するよう言い分ける（店舗宛メールと同じ判定＝isCustomerEmailRecipient）。 */}
         {cancelReceipt && (
           <div className="border-t pt-4 space-y-2">
             <p className="text-sm text-gray-500">お客様によるキャンセル（受付 {formatJstDateTime(cancelReceipt.cancelledAt)}）</p>
-            {cancelReceipt.fee > 0 ? (
+            {cancelReceipt.fee > 0 && isCustomerEmailRecipient(booking.email) ? (
               <p className="text-sm bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg">
-                キャンセル料 <strong>¥{cancelReceipt.fee.toLocaleString()}</strong>（施術料金の{cancelReceipt.rate}%）をお客様にお知らせしています。お支払い方法をお客様へ直接ご連絡ください。
+                お客様へ、キャンセル料 <strong>¥{cancelReceipt.fee.toLocaleString()}</strong>（施術料金の{cancelReceipt.rate}%）の発生と、お支払い方法は施設から直接ご案内することをメールでお知らせしています。お支払い方法をお客様へ直接ご連絡ください。
+              </p>
+            ) : cancelReceipt.fee > 0 ? (
+              <p className="text-sm bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg">
+                お客様のメールアドレスの登録が無いため、キャンセル料はメールでお知らせしていません。キャンセル料 <strong>¥{cancelReceipt.fee.toLocaleString()}</strong>（施術料金の{cancelReceipt.rate}%）とお支払い方法を、お客様へ直接ご案内ください。
               </p>
             ) : (
               <p className="text-sm text-gray-600">キャンセル料はかかりません（お客様へのキャンセル料のお知らせはありません）。</p>

@@ -52,6 +52,17 @@ export function readCancelFeeReceipt(raw: unknown): { fee: number; rate: number;
   return { fee, rate, cancelledAt: parsed.data.capturedAt };
 }
 
+/**
+ * お客様宛のキャンセル通知メールが積まれる宛先か（＝お客様へキャンセル料をメールでお知らせしたか）。
+ * publish_customer_booking_transition_email がお客様を宛先に加える条件
+ * `nullif(btrim(b.email),'') IS NOT NULL` と同じ（btrim は半角スペースだけを落とす）。
+ * 店舗宛のキャンセル通知メールと管理画面の予約詳細が、案内の文言を言い分けるのに使う。
+ * SQL 側の条件が変わったら src/lib/__tests__/cancel-fee-receipt.test.ts が落ちる。
+ */
+export function isCustomerEmailRecipient(email: string | null | undefined): boolean {
+  return /[^ ]/.test(email ?? '');
+}
+
 /** ISO 日時を JST の「2026年10月22日 20:30」に整形する（日本は夏時間が無いので +9 時間で正確）。 */
 export function formatJstDateTime(iso: string): string {
   const d = new Date(isoToMs(iso) + 9 * 3_600_000);

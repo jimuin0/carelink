@@ -11,7 +11,7 @@ import crypto from 'crypto';
 import { sendInquiryReplyEnvelope, verifyInquiryReplyAcceptance, type InquiryReplyEnvelope } from './inquiry-reply-delivery';
 import { REMINDER_EMAIL_TIMING_NOTE } from './reminder-schedule';
 import { adminFacilityHref } from './admin-facility-url';
-import { formatJstDateTime } from './cancel-fee-receipt';
+import { formatJstDateTime, isCustomerEmailRecipient } from './cancel-fee-receipt';
 
 let _resend: Resend | null = null;
 function getResend(): Resend | null {
@@ -646,15 +646,22 @@ export function buildBookingCancellationToFacilityEnvelope(data: BookingEmailDat
   const rowStyle = 'padding:8px 12px;border:1px solid #e2e8f0;';
   const headStyle = `${rowStyle}background:#f8fafc;font-weight:600;`;
   const fee = data.cancelFee && data.cancelFee > 0 ? data.cancelFee : 0;
-  // お客様向けのキャンセル通知は「キャンセル料 ¥X が発生し、お支払い方法は施設より直接ご案内」と伝えている。
-  // 以前は店舗にその事実も金額も届かず、お客様は案内を待ったままになっていた（同じ snapshot から算出した同じ金額を載せる）。
+  // お客様向けのキャンセル通知（buildBookingCancelledEnvelope）は、キャンセル料が発生することと、お支払い方法は
+  // 施設から直接案内することを伝えている。以前は店舗にその事実も金額も届かず、お客様は案内を待ったままになっていた
+  // （同じ snapshot から算出した同じ金額を載せる）。
   const rateText = data.cancelFeeRate && data.cancelFeeRate > 0 ? `（施術料金の${data.cancelFeeRate}%）` : '';
   const receiptRows = [
     data.cancelledAt ? `<tr><td style="${headStyle}">キャンセル受付</td><td style="${rowStyle}">${formatJstDateTime(data.cancelledAt)}</td></tr>` : '',
     fee > 0 ? `<tr><td style="${headStyle}">キャンセル料</td><td style="${rowStyle}">&yen;${fee.toLocaleString()}${rateText}</td></tr>` : '',
   ].join('');
+  const feeAmount = `<strong>&yen;${fee.toLocaleString()}</strong>`;
+  // メールアドレスの無いお客様には、お客様宛のキャンセル通知そのものが積まれない（店舗宛だけが届く）。
+  // その場合に「お知らせしています」と書くと、店舗は連絡を待ち、お客様は料金を知らないままになる。
+  const feeMessage = isCustomerEmailRecipient(data.customerEmail)
+    ? `キャンセルポリシーにより、お客様へキャンセル料 ${feeAmount} の発生と、お支払い方法は施設から直接ご案内することをメールでお知らせしています。お支払い方法をお客様へ直接ご連絡ください。`
+    : `お客様のメールアドレスの登録が無いため、キャンセル料はお客様へメールでお知らせしていません。キャンセル料 ${feeAmount} とお支払い方法を、お客様へ直接ご案内ください。`;
   const feeNotice = fee > 0
-    ? `<div style="margin:16px 0;padding:12px 16px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:14px;">キャンセルポリシーにより、お客様には「キャンセル料として <strong>&yen;${fee.toLocaleString()}</strong> が発生し、お支払い方法は施設より直接ご案内します」とお知らせしています。お支払い方法をお客様へ直接ご連絡ください。</div>`
+    ? `<div style="margin:16px 0;padding:12px 16px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:14px;">${feeMessage}</div>`
     : '';
   return {
     from: FROM,
