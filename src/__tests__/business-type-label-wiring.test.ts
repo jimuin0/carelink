@@ -21,7 +21,6 @@ const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
 const DISPLAY_SURFACES = [
   // フォーム（店舗が選ぶ）
   'src/components/register/RegisterForm.tsx',
-  'src/app/recruit/page.tsx',
   'src/app/admin/settings/page.tsx',
   'src/app/admin/onboarding/page.tsx',
   // 検索・絞り込み・回遊
@@ -59,7 +58,6 @@ const DISPLAY_SURFACES = [
 
 const FORMS = [
   'src/components/register/RegisterForm.tsx',
-  'src/app/recruit/page.tsx',
   'src/app/admin/settings/page.tsx',
   'src/app/admin/onboarding/page.tsx',
   'src/components/search/SearchBar.tsx',

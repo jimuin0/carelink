@@ -115,7 +115,8 @@ test('確認ダイアログの確定ボタンを連打しても /api/salons/comm
 
 // 【2026年7月16日 恒久根治】/api/notify（認証なし公開POST）廃止に伴い、Slack通知は
 // /api/salons が保存成功後にサーバー側から直接送るよう移行した。/register 由来か
-// /recruit 由来かをサーバーが区別できるよう source フィールドを送る回帰テスト。
+// 旧 /recruit 由来（2026年10月23日に撤去・/register へ転送。過去の申込には残る）かを
+// サーバーが区別できるよう source フィールドを送る回帰テスト。
 test('/api/salons/commit への送信ボディに source: "register" が含まれる（サーバー側Slack通知の振り分け用）', async () => {
   const fetchMock = jest.fn((url: string) => {
     return submissionResponse(url);

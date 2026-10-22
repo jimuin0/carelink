@@ -2,7 +2,9 @@
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import RegisterForm from '@/components/register/RegisterForm';
-import { SALON_BROWSER_CONTEXT_KEY, SALON_RECRUIT_BROWSER_CONTEXT_KEY } from '@/lib/salon-browser-context';
+import { SALON_BROWSER_CONTEXT_KEY } from '@/lib/salon-browser-context';
+// 廃止した /recruit フォームがタブに残し得るキー（/recruit は /register へ転送・2026年10月23日）。
+const SALON_RECRUIT_BROWSER_CONTEXT_KEY = 'carelink.recruit-submission.v1';
 import { salonPhotoPath } from '@/lib/salon-photo-contract';
 const mockRouter = { push: jest.fn() };
 jest.mock('next/navigation', () => ({ useRouter: () => mockRouter }));

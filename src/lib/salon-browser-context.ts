@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 export const SALON_BROWSER_CONTEXT_KEY = 'carelink.salon-submission.v1';
-export const SALON_RECRUIT_BROWSER_CONTEXT_KEY = 'carelink.recruit-submission.v1';
 const contextSchema = z.object({ version: z.literal(1), intentId: z.uuid(),
   phase: z.enum(['prepared', 'attempted', 'confirmed']),
 }).strict();

@@ -27,7 +27,7 @@ test('license declaration matches Terms art. 12 and is shown from one source on 
   const terms = readFileSync(join(process.cwd(), 'src/app/terms/page.tsx'), 'utf8');
   expect(terms).toContain('法令上必要な国家資格等を有する者が当該施術・サービスを提供すること');
   expect(LICENSE_WARRANTY_TEXT).toContain('国家資格が必要な施術');
-  for (const path of ['src/components/register/RegisterForm.tsx', 'src/app/admin/onboarding/page.tsx', 'src/app/recruit/page.tsx']) {
+  for (const path of ['src/components/register/RegisterForm.tsx', 'src/app/admin/onboarding/page.tsx']) {
     const source = readFileSync(join(process.cwd(), path), 'utf8');
     expect(source).toContain('{LICENSE_WARRANTY_TEXT}');
     expect(source).not.toContain('施術は必要な資格を有する者が提供');

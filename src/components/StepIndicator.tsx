@@ -13,7 +13,7 @@ interface StepIndicatorProps {
 
 /*
  * 配色は --primary（到達済み）と、.theme-ecru の中なら --ecru-*（未到達）を見る。
- * テーマ外（/recruit）では --ecru-* が未定義なので、Tailwind の灰色へ倒す。
+ * テーマ外で使われたときは --ecru-* が未定義なので、Tailwind の灰色へ倒す。
  * 色コードはここに書かない（globals.css が単一ソース）。
  */
 const TODO_CIRCLE = 'border border-[var(--ecru-line,var(--color-gray-300))] bg-[var(--ecru-surface,var(--color-gray-100))] text-[var(--ecru-muted,var(--color-gray-600))]';

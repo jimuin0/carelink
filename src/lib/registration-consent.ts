@@ -13,7 +13,8 @@ export type RegistrationConsent = z.infer<typeof registrationConsentSchema>;
 
 /**
  * 許認可・資格の表明（`license_warranted`）としてチェックしてもらう文言。
- * 掲載申し込み（/register）・店舗作成（/admin/onboarding）・/recruit の 3 画面がこれを表示する。
+ * 掲載申し込み（/register）・店舗作成（/admin/onboarding）の 2 画面がこれを表示する
+ * （/recruit の別フォームは 2026年10月23日に撤去し /register へ転送）。
  *
  * 🔴 2026年10月23日 改訂（神原さん決定：業種「鍼灸院・整骨院」に整体を含める）。
  * 旧文言「施術は必要な資格を有する者が提供する」は、国家資格の無い整体（民間資格・無資格でも

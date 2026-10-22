@@ -59,7 +59,7 @@
 
 | サイト | パス | 用途 | ヘッダー/フッター |
 |--------|------|------|-------------------|
-| LP（ランディングページ） | `/`, `/register`（`/salon` は転送）, `/recruit`, `/contact`, `/privacy`, `/terms`, `/legal`, `/jobs`, `/jobs/[id]` | 施設登録・求人掲載・求人詳細・お問い合わせ | Header + Footer |
+| LP（ランディングページ） | `/`, `/register`（`/salon`・`/recruit` は転送）, `/contact`, `/privacy`, `/terms`, `/legal`, `/jobs`, `/jobs/[id]` | 施設登録・求人掲載・求人詳細・お問い合わせ | Header + Footer |
 | 検索サイト | `/search`, `/search/area`, `/facility/[slug]`, `/ranking` | 施設検索・詳細・口コミ・エリア検索・ランキング | SearchHeader + SearchFooter |
 | 認証 | `/auth/login`, `/auth/signup`, `/auth/callback` | ユーザー認証（メール+LINE） | なし（専用レイアウト） |
 | マイページ | `/mypage`, `/mypage/profile`, `/mypage/favorites`, `/mypage/bookings`, `/mypage/points`, `/mypage/coupons`, `/mypage/chat`, `/mypage/staff` | ユーザーダッシュボード | 認証ガード付きレイアウト |
@@ -177,7 +177,6 @@ Vercel (Next.js App Router)
     |-- [LP側]
     |   |-- src/app/page.tsx              … トップページ（LP）
     |   |-- src/app/salon/page.tsx        … 施設掲載登録（3ステップフォーム）
-    |   |-- src/app/recruit/page.tsx      … 求人掲載登録（3ステップフォーム）
     |   |-- src/app/contact/page.tsx      … お問い合わせフォーム
     |   |-- src/app/api/notify/route.ts   … Slack通知 API Route
     |
@@ -320,7 +319,6 @@ Supabase (PostgreSQL + Storage)
 │   │   ├── register/                    … 【LP】施設登録フォーム
 │   │   │   ├── page.tsx / layout.tsx
 │   │   │   └── complete/page.tsx
-│   │   ├── recruit/                     … 【LP】求人掲載登録
 │   │   │   ├── page.tsx / layout.tsx
 │   │   ├── contact/                     … 【LP】お問い合わせ
 │   │   │   ├── page.tsx / layout.tsx
@@ -1333,20 +1331,12 @@ carelink-uploads/salons/{uuid}/photo.{ext}
   └─ admin/settings「公開」ボタン → status=published → 検索結果に表示
 ```
 
-### 7.2 求人掲載登録フロー（LP: /recruit）
+### 7.2 旧 /recruit（2026年10月23日 撤去）
 
-```
-【施設担当者】/recruit にアクセス
-  ├─ Step 1: 基本情報（施設名・業種・代表者・担当者・メール・電話）
-  ├─ Step 2: 詳細情報（郵便番号・住所・営業時間・定休日・席数・スタッフ数）
-  ├─ Step 3: PR情報（PR文・写真・希望開始日）
-  ├─ 同意チェック → 確認ダイアログ
-  ├─ Supabase INSERT + Slack通知
-  └─ 完了画面: 「担当者より2営業日以内にご連絡いたします。」
-
-【管理者】
-  └─ Supabase Dashboard / admin/registrationsで確認・対応
-```
+店舗の登録入口は `/register` の 1 本（神原さん決定 2026年10月23日）。`/recruit` にあった
+「施設登録（無料）」の別フォームは撤去し、`next.config.mjs` の redirects で `/register` へ
+恒久転送（308）する。過去の申込（`salons.source='recruit'`）と、転送前に開かれていたタブからの
+送信を受けるため、`/api/salons` と DB 側の `source='recruit'` は残している。
 
 ### 7.3 施設検索フロー（検索: /search）
 
@@ -1459,7 +1449,6 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | `/register/complete` | `register/complete/page.tsx` | Client | 施設掲載登録完了（'use client'、useSearchParams+Suspense、ステップ表示→/auth/signup誘導） |
 | `/jobs` | `jobs/page.tsx` | Dynamic | 求人一覧ページ（公開施設の求人を集約、JobPosting JSON-LD） |
 | `/jobs/[id]` | `jobs/[id]/page.tsx` | Dynamic | 求人詳細（JobPosting+BreadcrumbList JSON-LD、Google for Jobs対応） |
-| `/recruit` | `recruit/page.tsx` | Client | 求人掲載登録（'use client'） |
 | `/contact` | `contact/page.tsx` | Client | お問い合わせ（'use client'） |
 | `/blog` | `blog/page.tsx` | Static | コラム一覧 |
 | `/blog/[slug]` | `blog/[slug]/page.tsx` | Static | コラム記事（revalidate=false + generateStaticParams） |
@@ -2108,7 +2097,6 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 |--------|-------|-------------|
 | `/` | CareLink &#124; ネットでかんたんサロン予約 - ヘア・ネイル・エステ・リラク・美容クリニック | ヘアサロン・ネイル・まつげ・リラク・エステ・美容クリニック・鍼灸院・整骨院を検索・予約 |
 | `/salon` | 【無料掲載】医療・福祉・美容の集客サイト | 掲載無料・登録3分で集客開始 |
-| `/recruit` | 求人掲載登録 | 掲載無料・登録3分で集客開始 |
 | `/search` | 施設・サロンを探す | 施設検索ページ |
 | `/facility/[slug]` | {施設名} - {業種} | {キャッチコピー} or {紹介文先頭160文字} |
 
@@ -2120,7 +2108,6 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 | 全ページ（layout.tsx） | `Organization` | 運営組織名・URL・ロゴ・説明・founder(Person: 神原良祐)・address(大阪府堺市) |
 | 全ページ（layout.tsx） | `FAQPage` | よくある質問4問（mainEntity配列） |
 | `/salon`（layout.tsx） | `BreadcrumbList` | トップ → 施設・サロンの方 |
-| `/recruit`（layout.tsx） | `BreadcrumbList` | トップ → 求人掲載 |
 | `/facility/[slug]` | `LocalBusiness` | 施設名・住所・電話・評価・営業時間・dateModified |
 | `/facility/[slug]` | `BreadcrumbList` | トップ → 施設名 |
 | `/facility/[slug]/blog/[postSlug]` | `BlogPosting` | 記事タイトル・著者・公開日・画像・本文（JSON-LD） |
@@ -2155,7 +2142,6 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 | `/salon` | weekly | 0.9 |
 | `/ranking` | daily | 0.7 |
 | `/blog` | weekly | 0.6 |
-| `/recruit` | monthly | 0.6 |
 | `/salon/demo` | monthly | 0.6 |
 | `/symptom-checker` | weekly | 0.7 |
 | `/contact` | monthly | 0.5 |
@@ -2977,7 +2963,7 @@ HPBが弱い鍼灸院・整骨院向け機能。CareLink独自の差別化。
 - **admin権限チェック**: `/admin/*`（`/admin/onboarding`除く）→ `facility_members`で`role IN ('owner', 'admin')`を検証。未権限は`/mypage`にリダイレクト
 - **認証済みリダイレクト**: `/auth/login`, `/auth/signup` → 認証済みユーザーは`/mypage`にリダイレクト
 - **Matcher除外**: 静的アセット(`_next/static`, `_next/image`, `favicon`, `images`, `icons`, `sw.js`, `manifest.json`)はスキップ
-- **最適化**: 公開ページ（`/`, `/search`, `/facility/*`, `/salon`, `/recruit` 等）は認証チェックをスキップ（パフォーマンス向上）
+- **最適化**: 公開ページ（`/`, `/search`, `/facility/*`, `/register` 等）は認証チェックをスキップ（パフォーマンス向上）
 
 ---
 
