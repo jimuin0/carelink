@@ -5,7 +5,6 @@ import { cachedFetch } from './redis';
 import { jstMonthInfo, dayOfWeekUtc } from './admin-date';
 import { SLOT_OCCUPYING_STATUSES } from './booking-status';
 import type { CancelPolicy } from './cancel-fee';
-import { fetchAllPaged } from './paginate';
 import { isCardBookingReady } from './facility-publish-gate';
 
 const PER_PAGE = 20;
@@ -55,77 +54,103 @@ const PUBLISHED_MENU_FILTER = 'is_published.is.null,is_published.eq.true';
 const SYMPTOM_MAX_LENGTH = 50;
 
 /**
- * 施設 id の先行抽出で読む行数の上限。超えたら打ち切らずにエラーとして返す
- * （一部だけで絞り込むと、該当する施設を黙って落とすため）。
+ * GPS 検索で詳細条件を確かめるとき、1 回の問い合わせに載せる施設 id の数。
+ * id は GET の URL に載るので、1 本あたりの長さを数 KB に抑える（RPC の上限 500 件でも 5 本）。
  */
-const DETAIL_FILTER_MAX_ROWS = 20_000;
+export const GEO_DETAIL_ID_CHUNK = 100;
 
 type SupabaseAnon = ReturnType<typeof createServerSupabaseClient>;
-type FacilityIdPage = { data: { facility_id: string }[] | null; error: unknown };
-type FacilityIdLookup = { ids: Set<string>; error: unknown };
 
-async function collectFacilityIds(
-  fetchPage: (offset: number, limit: number) => PromiseLike<FacilityIdPage>,
-): Promise<FacilityIdLookup> {
-  const { rows, error } = await fetchAllPaged((offset, limit) => Promise.resolve(fetchPage(offset, limit)), {
-    maxRows: DETAIL_FILTER_MAX_ROWS,
-    failOnTruncation: true,
-  });
-  return { ids: new Set(rows.map((r) => r.facility_id)), error };
+/** 埋め込み先への条件。列条件（`.filter`）か、埋め込み先に掛ける OR 条件（`.or(…, { referencedTable })`）。 */
+type EmbedCondition =
+  | { column: string; operator: 'eq' | 'gt' | 'gte' | 'lte'; value: string | number | boolean }
+  | { referencedTable: string; or: string };
+
+/** applyDetailFilter が使う PostgREST クエリビルダのメソッド（型引数の異なるビルダを同じ関数で扱う）。 */
+interface EmbedFilterable<Q> {
+  filter(column: string, operator: string, value: unknown): Q;
+  or(filters: string, options?: { referencedTable?: string }): Q;
 }
 
-async function symptomFacilityIds(supabase: SupabaseAnon, name: string): Promise<FacilityIdLookup> {
-  const { data, error } = await supabase.from('symptoms').select('id').eq('name', name).maybeSingle();
-  if (error || !data) return { ids: new Set(), error };
-  return collectFacilityIds((offset, limit) =>
-    supabase.from('facility_symptoms').select('facility_id').eq('symptom_id', data.id).range(offset, offset + limit - 1),
-  );
+export interface DetailFilter {
+  /** select に足す埋め込み（先頭のカンマから。列は返さない空の埋め込み） */
+  select: string;
+  conditions: EmbedCondition[];
 }
 
 /**
- * facility_card_view の 1 行では判定できない条件（メニュー単位・症状）に合う施設 id を集める。
- * ids=null は「この種の条件が指定されていない（絞り込まない）」、空集合は「該当 0 件」。
+ * facility_card_view の 1 行では判定できない条件（メニュー単位・症状）を、facility_card_view からの
+ * `!inner` 埋め込みとして組み立てる。条件が無ければ null。
+ *
+ * 埋め込みは列を返さない（空の埋め込み）ので、結果は施設 1 件につき 1 行のまま、件数（count）も
+ * 施設単位になる。DB の中で「条件に合う行を 1 つ以上持つ施設」に絞るので、該当が無ければ 0 件になる
+ * （絞り込みなしの全件には戻らない）。複数の条件は施設単位の AND（埋め込みを別々に持つため、
+ * 価格帯に入るメニューと保険適用のメニューは別のメニューでよい）。
  *
  * 【2026年10月22日 是正】
  * - 価格帯: 従来は view の min_price >= 下限 かつ max_price <= 上限、つまり【全メニューが範囲内】の
- *   施設しか当たらなかった。メニューが 1 つでも範囲外にあると、範囲内のメニューを持っていても
- *   消えていた。公開かつ価格のあるメニュー（view の min/max と同じ対象）が 1 つでも
- *   [下限, 上限] に入る施設を当てる。gte/lte は price が NULL の行を落とすので「価格あり」も満たす。
+ *   施設しか当たらなかった。公開かつ有料のメニューが 1 つでも [下限, 上限] に入る施設を当てる。
+ *   0 円のメニュー（無料カウンセリング等）は数えない。数えると、施術がすべて上限より高い施設まで
+ *   あらゆる「〜N円」の検索に出てしまう。
  * - 症状・保険適用: 絞り込みパネルが URL に書いていたのに、検索側が読んでいなかった（無視されていた）。
- * 複数の条件は施設単位の AND（それぞれを満たす施設の共通部分）。
+ * - 🔴 条件に合う施設 id を facility_menus から先に集めて `.in('id', [...])` で渡す作りにはしないこと。
+ *   メニュー 1 行ごとに読むので行数上限を超えると検索全体がエラーになり、id の一覧が GET の URL に
+ *   載るので数百施設で URL 長の上限（414）に当たる。施設が増えると価格帯検索が必ずエラーになるため、
+ *   判定は DB の中で行う（この是正の途中でその形を作り、レビューで差し戻した）。
  */
-async function detailFilterFacilityIds(
-  supabase: SupabaseAnon,
-  params: SearchParams,
-): Promise<{ ids: Set<string> | null; error: unknown }> {
-  const lookups: Promise<FacilityIdLookup>[] = [];
+export function detailFilter(params: SearchParams): DetailFilter | null {
+  const embeds: string[] = [];
+  const conditions: EmbedCondition[] = [];
   if (params.price_min || params.price_max) {
-    lookups.push(collectFacilityIds((offset, limit) => {
-      let q = supabase.from('facility_menus').select('facility_id').or(PUBLISHED_MENU_FILTER);
-      if (params.price_min) q = q.gte('price', params.price_min);
-      if (params.price_max) q = q.lte('price', params.price_max);
-      return q.range(offset, offset + limit - 1);
-    }));
+    embeds.push('price_menu:facility_menus!inner()');
+    conditions.push({ column: 'price_menu.price', operator: 'gt', value: 0 });
+    if (params.price_min) conditions.push({ column: 'price_menu.price', operator: 'gte', value: params.price_min });
+    if (params.price_max) conditions.push({ column: 'price_menu.price', operator: 'lte', value: params.price_max });
+    conditions.push({ referencedTable: 'price_menu', or: PUBLISHED_MENU_FILTER });
   }
   if (params.insurance) {
-    lookups.push(collectFacilityIds((offset, limit) =>
-      supabase
-        .from('facility_menus')
-        .select('facility_id')
-        .eq('insurance_covered', true)
-        .or(PUBLISHED_MENU_FILTER)
-        .range(offset, offset + limit - 1),
-    ));
+    embeds.push('insurance_menu:facility_menus!inner()');
+    conditions.push({ column: 'insurance_menu.insurance_covered', operator: 'eq', value: true });
+    conditions.push({ referencedTable: 'insurance_menu', or: PUBLISHED_MENU_FILTER });
   }
   const symptom = params.symptom?.trim().slice(0, SYMPTOM_MAX_LENGTH);
-  if (symptom) lookups.push(symptomFacilityIds(supabase, symptom));
-  if (lookups.length === 0) return { ids: null, error: null };
+  if (symptom) {
+    embeds.push('facility_symptoms!inner(symptoms!inner())');
+    conditions.push({ column: 'facility_symptoms.symptoms.name', operator: 'eq', value: symptom });
+  }
+  if (embeds.length === 0) return null;
+  return { select: embeds.map((e) => `, ${e}`).join(''), conditions };
+}
 
-  const results = await Promise.all(lookups);
-  const failed = results.find((r) => r.error);
-  if (failed) return { ids: null, error: failed.error };
-  const [first, ...rest] = results;
-  const ids = new Set([...first.ids].filter((id) => rest.every((r) => r.ids.has(id))));
+function applyDetailFilter<Q extends EmbedFilterable<Q>>(query: Q, detail: DetailFilter): Q {
+  let q = query;
+  for (const c of detail.conditions) {
+    q = 'or' in c ? q.or(c.or, { referencedTable: c.referencedTable }) : q.filter(c.column, c.operator, c.value);
+  }
+  return q;
+}
+
+/**
+ * GPS 検索（RPC が詳細条件を受けない）の結果のうち、詳細条件を満たす施設 id。
+ * 確かめる id は RPC の結果（上限 500 件）だけなので、URL に載る数は有限で、分割して問い合わせる。
+ */
+async function facilityIdsMatchingDetail(
+  supabase: SupabaseAnon,
+  facilityIds: string[],
+  detail: DetailFilter,
+): Promise<{ ids: Set<string>; error: unknown }> {
+  const chunks: string[][] = [];
+  for (let i = 0; i < facilityIds.length; i += GEO_DETAIL_ID_CHUNK) {
+    chunks.push(facilityIds.slice(i, i + GEO_DETAIL_ID_CHUNK));
+  }
+  const results = await Promise.all(chunks.map((chunk) =>
+    applyDetailFilter(supabase.from(CARD_VIEW).select(`id${detail.select}`).in('id', chunk), detail),
+  ));
+  const ids = new Set<string>();
+  for (const { data, error } of results) {
+    if (error) return { ids: new Set(), error };
+    for (const row of (data || []) as unknown as { id: string }[]) ids.add(row.id);
+  }
   return { ids, error: null };
 }
 
@@ -133,17 +158,15 @@ export async function searchFacilities(params: SearchParams) {
   const supabase = createServerSupabaseClient();
   const isGeoSearch = params.lat != null && params.lng != null;
 
-  // 価格帯・保険適用・症状は先に施設 id を絞る。読めなかったときは「絞り込みなし」に倒さず
-  // エラーとして返し、該当が無いときは 0 件を返す（どちらも全件を見せない）。
-  const detail = await detailFilterFacilityIds(supabase, params);
-  if (detail.error || (detail.ids && detail.ids.size === 0)) {
-    return { facilities: [] as FacilityCardData[], total: 0, perPage: PER_PAGE, error: detail.error };
-  }
-  const restrictIds = detail.ids;
+  // 価格帯・保険適用・症状（メニュー・症状の単位で判定する条件）。detailFilter を参照。
+  const detail = detailFilter(params);
 
   let query = supabase
     .from(CARD_VIEW)
-    .select(isGeoSearch ? `${CARD_COLS}, latitude, longitude` : CARD_COLS, { count: isGeoSearch ? undefined : 'exact' })
+    .select(
+      isGeoSearch ? `${CARD_COLS}, latitude, longitude` : `${CARD_COLS}${detail ? detail.select : ''}`,
+      { count: isGeoSearch ? undefined : 'exact' },
+    )
     .eq('status', 'published');
 
   if (params.type) query = query.eq('business_type', params.type);
@@ -173,7 +196,6 @@ export async function searchFacilities(params: SearchParams) {
   }
 
   if (params.rating_min) query = query.gte('rating_avg', params.rating_min);
-  if (restrictIds) query = query.in('id', [...restrictIds]);
   if (params.features && params.features.length > 0) {
     for (const f of params.features) {
       query = query.contains('features', [f]);
@@ -222,18 +244,27 @@ export async function searchFacilities(params: SearchParams) {
     // 非 GPS 検索で query に付与していた prefecture/city/rating_min が黙って無視されていた
     // （フィルタ指定が効かない）。RPC の返却列に含まれる項目は取得後に同じ意味で絞り込む
     // （非 GPS の .eq/.gte と一致：非 GPS 側は null 値を gte が除外するため、ここでも null は
-    // 除外して挙動を揃える）。価格帯・保険適用・症状は非 GPS と同じ先行抽出した id 集合で絞る。
-    const filtered = all.filter((f) => {
+    // 除外して挙動を揃える）。価格帯・保険適用・症状は非 GPS と同じ埋め込み条件で、
+    // RPC の結果に含まれる施設だけを確かめる（facilityIdsMatchingDetail）。
+    const nearby = all.filter((f) => {
       if (params.prefecture && f.prefecture !== params.prefecture) return false;
       if (params.city && f.city !== params.city) return false;
       if (params.rating_min && !(f.rating_avg != null && Number(f.rating_avg) >= params.rating_min)) return false;
-      if (restrictIds && !restrictIds.has(f.id)) return false;
       return true;
     });
+    let filtered = nearby;
+    if (detail && nearby.length > 0) {
+      const matched = await facilityIdsMatchingDetail(supabase, nearby.map((f) => f.id), detail);
+      // 読めなかったときは絞り込みなしの結果を見せず、エラーとして返す（検索ページがエラー表示にする）。
+      if (matched.error) return { facilities: [] as FacilityCardData[], total: 0, perPage: PER_PAGE, error: matched.error };
+      filtered = nearby.filter((f) => matched.ids.has(f.id));
+    }
     const page = Math.max(1, params.page || 1); // 負値(?page=-1 等)で range が負になり PostgREST エラー/末尾slice化するのを防ぐ
     const from = (page - 1) * PER_PAGE;
     return { facilities: filtered.slice(from, from + PER_PAGE) as FacilityCardData[], total: filtered.length, perPage: PER_PAGE, error };
   }
+
+  if (detail) query = applyDetailFilter(query, detail);
 
   // 【2026年7月8日 恒久根治】主キー(id)を二次キーとして全ソート分岐に追加する。PostgreSQLは
   // 単一列ORDER BYで同値行の順序を保証しないため、この関数のようにpage/rangeでページングする
@@ -536,15 +567,20 @@ export function facilityOpenWindow(businessHours: unknown, dayOfWeek: number): {
   return { start: timeToMinutes(open), end: timeToMinutes(close) };
 }
 
-// Check which facilities have availability on a given date/time
+/**
+ * 指定日（・時間帯）に空きのある施設 id。
+ *
+ * null は「判定できなかった」（URL の日付が読めない・どれかの読み取りに失敗した）。呼び出し側は
+ * 空きの表示を出さないこと。空集合を返すと全施設に「空きなし」と出て、満席だと誤って伝えてしまう。
+ */
 export async function getAvailableFacilityIds(
   facilityIds: string[],
   dateStr: string,
   timeSlot?: string
-): Promise<Set<string>> {
+): Promise<Set<string> | null> {
   if (facilityIds.length === 0) return new Set();
   const dayOfWeek = dayOfWeekUtc(dateStr); // 0=Sun（TZ非依存・admin-date 単一ソース）
-  if (Number.isNaN(dayOfWeek)) return new Set(); // 日付として読めない URL 値
+  if (Number.isNaN(dayOfWeek)) return null; // 日付として読めない URL 値
   const supabase = createServerSupabaseClient();
 
   // 0. ネット予約を受け付けられる施設と、その日の営業時間。
@@ -553,10 +589,11 @@ export async function getAvailableFacilityIds(
   // 数えていた。予約準備が整っていない施設（施設ページでネット予約を断る施設）にも出ていた。
   // 予約枠 RPC get_available_slots は facility_booking_ready と営業時間で枠を出さないので、
   // 同じ条件（isCardBookingReady＝施設ページ・「予約OK」バッジと同じ規則）で揃える。
-  const { data: cards } = await supabase
+  const { data: cards, error: cardsError } = await supabase
     .from(CARD_VIEW)
     .select(BOOKING_READINESS_COLS)
     .in('id', facilityIds);
+  if (cardsError) return null;
   const openWindows = new Map<string, { start: number; end: number }>();
   for (const card of (cards || []) as unknown as ReadinessCard[]) {
     if (!isCardBookingReady(card)) continue;
@@ -567,17 +604,19 @@ export async function getAvailableFacilityIds(
   const bookableIds = [...openWindows.keys()];
 
   // 1. Get staff schedules for this day of week
-  const { data: staffSchedules } = await supabase
+  const { data: staffSchedules, error: schedulesError } = await supabase
     .from('staff_schedules')
     .select('staff_id, start_time, end_time')
     .eq('day_of_week', dayOfWeek);
+  if (schedulesError) return null;
 
   // 2. Get staff → facility mapping
-  const { data: staffProfiles } = await supabase
+  const { data: staffProfiles, error: staffError } = await supabase
     .from('staff_profiles')
     .select('id, facility_id')
     .eq('is_active', true)
     .in('facility_id', bookableIds);
+  if (staffError) return null;
 
   if (!staffProfiles || staffProfiles.length === 0) return new Set();
 
@@ -588,11 +627,13 @@ export async function getAvailableFacilityIds(
   const staffIds = staffProfiles.map((s) => s.id);
 
   // 3. Check schedule overrides (holidays)
-  const { data: overrides } = await supabase
+  const { data: overrides, error: overridesError } = await supabase
     .from('schedule_overrides')
     .select('staff_id, is_holiday, start_time, end_time')
     .eq('date', dateStr)
     .in('staff_id', staffIds);
+  // 休みの上書きを読めないと、休みのスタッフを空きに数えてしまう。
+  if (overridesError) return null;
 
   const holidayStaff = new Set<string>();
   const overrideMap = new Map<string, ScheduleOverride>();
@@ -611,7 +652,7 @@ export async function getAvailableFacilityIds(
   // service role で行う（他クエリ（staff_schedules/staff_profiles/schedule_overrides）は
   // 公開データのため anon のまま変更しない）。取得列は既存どおり（PII非含有）。
   const serviceRoleSupabase = createServiceRoleClient();
-  const { data: bookings } = await serviceRoleSupabase
+  const { data: bookings, error: bookingsError } = await serviceRoleSupabase
     .from('bookings')
     .select('staff_id, start_time, end_time')
     .eq('booking_date', dateStr)
@@ -619,6 +660,8 @@ export async function getAvailableFacilityIds(
     // （同日施術済）を取りこぼすと、その枠を「空きあり」と過大表示し RPC の実占有と乖離する。
     .in('status', SLOT_OCCUPYING_STATUSES)
     .in('facility_id', bookableIds);
+  // 予約を読めないと、満席の枠を空きありと出してしまう。
+  if (bookingsError) return null;
 
   const staffBookings = new Map<string, { start: string; end: string }[]>();
   for (const b of bookings || []) {

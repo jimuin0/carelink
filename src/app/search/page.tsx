@@ -67,7 +67,8 @@ export default async function SearchPage(props: Props) {
     price_min: searchParams.price_min ? parseInt(searchParams.price_min) : undefined,
     price_max: searchParams.price_max ? parseInt(searchParams.price_max) : undefined,
     features: searchParams.features?.split(',').filter(Boolean),
-    // 絞り込みパネルが URL に書く「症状から探す」「保険適用メニューあり」。以前は読まれず無視されていた。
+    // 症状・保険適用（以前は読まれず無視されていた）。検索側は対応済みだが、施設が値を保存できる
+    // 管理画面が無いため絞り込みパネルには出していない（src/__tests__/search-filter-write-paths.test.ts）。
     symptom: searchParams.symptom,
     insurance: searchParams.insurance === '1',
     lat: searchParams.lat ? parseFloat(searchParams.lat) : undefined,

@@ -31,6 +31,25 @@ test.describe('検索フロー', () => {
     await expect(page.locator('body')).not.toContainText('エラー');
   });
 
+  // 価格帯・保険適用・症状は facility_card_view からの !inner 埋め込み（facility_menus /
+  // facility_symptoms → symptoms）として検索本体のクエリに入れ、DB が絞り込む。埋め込みや条件の
+  // 書き方を PostgREST が受け付けないと、検索全体がエラー表示になる。単体テストは supabase を
+  // モックしているので検出できず、実際の PostgREST を通すのはここだけ。
+  for (const query of [
+    'price_min=1000&price_max=20000',
+    'price_max=3000&sort=rating',
+    'insurance=1',
+    `symptom=${encodeURIComponent('腰痛')}`,
+    `price_min=1000&insurance=1&symptom=${encodeURIComponent('腰痛')}&type=${encodeURIComponent('鍼灸院・整骨院')}&page=2`,
+    'lat=34.7816&lng=135.4699&price_max=20000&insurance=1',
+  ]) {
+    test(`メニュー単位・症状の絞り込みが DB で通る: ${query}`, async ({ page }) => {
+      await page.goto(`/search?${query}`);
+      await expect(page.getByText(/件見つかりました/)).toBeVisible();
+      await expect(page.getByRole('heading', { name: '検索結果を表示できません' })).toBeHidden();
+    });
+  }
+
   test('エリア検索ページが表示される', async ({ page }) => {
     await page.goto('/search/area');
     // ページ固有の見出しを限定（`h1, h2` は共通フッター見出しにも一致して曖昧なため）。
