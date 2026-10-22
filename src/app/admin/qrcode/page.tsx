@@ -7,8 +7,16 @@ import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
 import { SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import AdminFacilityScope, { type AdminFacilityScopeValue } from '@/components/admin/AdminFacilityScope';
 
 export default function AdminQrCodePage() {
+  return <AdminFacilityScope title="QRコード" path="/admin/qrcode">{(scope) => <QrCodeGenerator {...scope} />}</AdminFacilityScope>;
+}
+
+// QR にする店舗は AdminFacilityScope が ?facility_id= と所属から決める（2026年10月22日）。以前は
+// facility_members を .limit(1).single() で 1 行だけ読み、2 店舗目のポスターに 1 店舗目の QR が載り得た。
+function QrCodeGenerator({ facilityId, choices }: AdminFacilityScopeValue) {
   const [facilitySlug, setFacilitySlug] = useState<string | null>(null);
   const [facilityName, setFacilityName] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
@@ -27,21 +35,10 @@ export default function AdminQrCodePage() {
     (async () => {
       const supabase = createBrowserSupabaseClient();
       setLoadError(false);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-      const { data: member, error: memErr } = await supabase
-        .from('facility_members')
-        .select('facility_id')
-        .eq('user_id', user.id)
-        .in('role', ['owner', 'admin'])
-        .limit(1)
-        .single();
-      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-      if (!member) { setLoading(false); return; }
       const { data: facility, error: facErr } = await supabase
         .from('facility_profiles')
         .select('slug, name')
-        .eq('id', member.facility_id)
+        .eq('id', facilityId)
         .single();
       if (facErr && facErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
       if (!facility) { setLoading(false); return; }
@@ -57,7 +54,7 @@ export default function AdminQrCodePage() {
       setQrDataUrl(dataUrl);
       setLoading(false);
     })().catch(() => { setLoadError(true); setLoading(false); });
-  }, [reloadKey]);
+  }, [facilityId, reloadKey]);
 
   const handleDownload = () => {
     if (!qrDataUrl || !facilitySlug) return;
@@ -77,6 +74,7 @@ export default function AdminQrCodePage() {
   if (loadError) {
     return (
       <div>
+        <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/qrcode" />
         <SbPageHeader title="QRコード" />
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="施設情報の読み込みに失敗しました" />
       </div>
@@ -84,13 +82,19 @@ export default function AdminQrCodePage() {
   }
 
   if (!facilitySlug) {
-    return <p className="text-gray-500">施設情報が見つかりませんでした。</p>;
+    return (
+      <div>
+        <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/qrcode" />
+        <p className="text-gray-500">施設情報が見つかりませんでした。</p>
+      </div>
+    );
   }
 
   const facilityUrl = `https://carelink-jp.com/facility/${facilitySlug}`;
 
   return (
     <div>
+      <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/qrcode" />
       <SbPageHeader title="QRコード" />
 
       <div className="grid sm:grid-cols-2 gap-6">
