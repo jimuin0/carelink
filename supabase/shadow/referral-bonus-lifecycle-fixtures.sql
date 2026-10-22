@@ -104,12 +104,14 @@ SELECT pg_temp.assert_referral(
 
 -- 001-003 referred customer, 004 already visited customer, 005 customer of the leaving referrer.
 -- 001 earns visit points (1% of 1000) so one status change reverses both kinds of points.
+-- Every one of them is completed (and 001-003 corrected to no_show), which is recorded only
+-- once the booking has started (20261023020100), so they are past bookings (2020-01-06).
 INSERT INTO public.bookings(id, facility_id, user_id, booking_date, start_time, end_time, customer_name, email, status, total_price, points_used) VALUES
- ('fd230000-0000-4000-8000-000000000001', 'fd220000-0000-4000-8000-000000000001', 'fd210000-0000-4000-8000-000000000003', '2030-01-07', '10:00', '11:00', 'Synthetic', NULL, 'confirmed', 1000, 0),
- ('fd230000-0000-4000-8000-000000000002', 'fd220000-0000-4000-8000-000000000001', 'fd210000-0000-4000-8000-000000000003', '2030-01-07', '11:00', '12:00', 'Synthetic', NULL, 'confirmed', 0, 0),
- ('fd230000-0000-4000-8000-000000000003', 'fd220000-0000-4000-8000-000000000001', 'fd210000-0000-4000-8000-000000000003', '2030-01-07', '12:00', '13:00', 'Synthetic', NULL, 'confirmed', 0, 0),
- ('fd230000-0000-4000-8000-000000000004', 'fd220000-0000-4000-8000-000000000001', 'fd210000-0000-4000-8000-000000000004', '2030-01-07', '13:00', '14:00', 'Synthetic', NULL, 'confirmed', 0, 0),
- ('fd230000-0000-4000-8000-000000000005', 'fd220000-0000-4000-8000-000000000001', 'fd210000-0000-4000-8000-000000000006', '2030-01-07', '14:00', '15:00', 'Synthetic', NULL, 'confirmed', 0, 0);
+ ('fd230000-0000-4000-8000-000000000001', 'fd220000-0000-4000-8000-000000000001', 'fd210000-0000-4000-8000-000000000003', '2020-01-06', '10:00', '11:00', 'Synthetic', NULL, 'confirmed', 1000, 0),
+ ('fd230000-0000-4000-8000-000000000002', 'fd220000-0000-4000-8000-000000000001', 'fd210000-0000-4000-8000-000000000003', '2020-01-06', '11:00', '12:00', 'Synthetic', NULL, 'confirmed', 0, 0),
+ ('fd230000-0000-4000-8000-000000000003', 'fd220000-0000-4000-8000-000000000001', 'fd210000-0000-4000-8000-000000000003', '2020-01-06', '12:00', '13:00', 'Synthetic', NULL, 'confirmed', 0, 0),
+ ('fd230000-0000-4000-8000-000000000004', 'fd220000-0000-4000-8000-000000000001', 'fd210000-0000-4000-8000-000000000004', '2020-01-06', '13:00', '14:00', 'Synthetic', NULL, 'confirmed', 0, 0),
+ ('fd230000-0000-4000-8000-000000000005', 'fd220000-0000-4000-8000-000000000001', 'fd210000-0000-4000-8000-000000000006', '2020-01-06', '14:00', '15:00', 'Synthetic', NULL, 'confirmed', 0, 0);
 
 -- Code before the first visit: accepted. After a completed visit: refused, nothing written.
 SELECT pg_temp.assert_referral((SELECT NOT replayed FROM public.apply_referral_code_atomic('fd210000-0000-4000-8000-000000000003', 'lcyclaaa')),

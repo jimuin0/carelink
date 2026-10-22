@@ -60,9 +60,17 @@ CREATE FUNCTION pg_temp.book(p_user uuid, p_start time, p_total int, p_points in
     p_user, 'fd120000-0000-4000-8000-000000000001', NULL, '2030-01-07', p_start, p_start + interval '30 minutes',
     'Synthetic', NULL, NULL, NULL, p_total, p_points, 'confirmed', false, ARRAY['fd120000-0000-4000-8000-000000000001'::uuid]);
 $$;
+-- 完了 (and a checkout that completes) is recorded only once the booking has started
+-- (20261023020100). Bookings are made on a future Monday (2030-01-07, which the booking
+-- RPC accepts) and moved to a past Monday (2020-01-06, same weekday and times) right
+-- before they are completed.
+CREATE FUNCTION pg_temp.started(p_booking uuid) RETURNS void LANGUAGE sql AS $$
+  UPDATE public.bookings SET booking_date = '2020-01-06' WHERE id = p_booking;
+$$;
 -- The owner checks out and completes in one step, as the 退店レジ会計 screen does.
 CREATE FUNCTION pg_temp.checkout(p_booking uuid, p_charges text) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
+  PERFORM pg_temp.started(p_booking);
   PERFORM 1 FROM public.checkout_booking_with_points_atomic('fd100000-0000-4000-8000-000000000001', p_booking, 'confirmed',
     (SELECT b.updated_at FROM public.bookings b WHERE b.id = p_booking), p_charges::jsonb, NULL, true);
 END $$;
@@ -100,6 +108,7 @@ BEGIN
 
   -- 4. Completion without checkout: the amount after points (3,000) is below the cap (5,000).
   plain := pg_temp.book(customer, '10:00', 3000, 2000);
+  PERFORM pg_temp.started(plain);
   SELECT c.points_earned, c.replayed INTO earned, again FROM public.complete_booking_with_points_atomic(owner_id, plain, 'confirmed') c;
   PERFORM pg_temp.assert_cap(earned = 30 AND again = false AND pg_temp.award(plain) = 30, 'plain completion earns on the paid amount');
 
@@ -125,6 +134,7 @@ BEGIN
   SELECT c.points_earned, c.replayed INTO earned, again FROM public.complete_booking_with_points_atomic(owner_id, own_booking, 'confirmed') c;
   PERFORM pg_temp.assert_cap(earned = 0 AND again = true, 'owner self-booking replays with zero points');
   admin_booking := pg_temp.book(admin_id, '11:30', 5000, 0);
+  PERFORM pg_temp.started(admin_booking);
   SELECT c.points_earned INTO earned FROM public.complete_booking_with_points_atomic(owner_id, admin_booking, 'confirmed') c;
   PERFORM pg_temp.assert_cap(earned = 0 AND NOT EXISTS (SELECT 1 FROM public.user_points WHERE booking_id = admin_booking),
     'admin self-booking earns nothing');
