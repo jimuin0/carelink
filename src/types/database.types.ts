@@ -6831,6 +6831,7 @@ export type Database = {
         }
         Returns: Json
       }
+      customer_phone_digits: { Args: { p_phone: string }; Returns: string }
       delete_admin_menu_atomic: {
         Args: { p_actor_id: string; p_facility_id: string; p_menu_id: string }
         Returns: {
@@ -7074,6 +7075,39 @@ export type Database = {
           p_month_start: string
         }
         Returns: Json
+      }
+      get_customer_phone_visits: {
+        Args: { p_facility_id: string; p_phone: string }
+        Returns: {
+          amount: number | null
+          booking_id: string | null
+          created_at: string | null
+          customer_email: string | null
+          customer_name: string
+          email_canonical: string | null
+          facility_id: string
+          id: string
+          menu_name: string | null
+          note: string | null
+          staff_name: string | null
+          visit_date: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "customer_visits"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      get_customer_visit_summary: {
+        Args: { p_facility_id: string }
+        Returns: {
+          email: string
+          last_visit: string
+          name: string
+          phone: string
+          visit_count: number
+        }[]
       }
       get_facility_customers_v1: {
         Args: {

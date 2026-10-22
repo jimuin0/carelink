@@ -17,7 +17,7 @@ jest.mock('@/lib/supabase-server-auth',()=>({createServerSupabaseAuthClient:asyn
 jest.mock('@/lib/supabase-server',()=>({createServiceRoleClient:()=>mockService()}));
 jest.mock('@/lib/catalogs',()=>({getCatalogsByFacility:()=>mockCatalog()}));
 jest.mock('@/lib/points-balance',()=>({readPointsBalance:async()=>0}));
-jest.mock('@/lib/admin',()=>({getUniqueCustomers:async()=>[],getCustomerVisits:async()=>[]}));
+jest.mock('@/lib/admin',()=>({getUniqueCustomers:async()=>[],getCustomerVisits:async()=>[],getCustomerPhoneVisits:async()=>[]}));
 jest.mock('@/components/admin/CustomersManager',()=>({__esModule:true,default:()=> <div>private-customer-controls</div>}));
 jest.mock('next/navigation',()=>({notFound:()=>{throw new Error('NEXT_NOT_FOUND');},redirect:()=>{throw new Error('NEXT_REDIRECT');},useRouter:()=>({push:jest.fn()})}));
 jest.mock('@/lib/alert',()=>({alertCaughtError:jest.fn()}));

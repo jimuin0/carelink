@@ -1,11 +1,11 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 const mockFrom = jest.fn(), mockRpc = jest.fn();
 jest.mock('../supabase-server-auth', () => ({ createServerSupabaseAuthClient: () => ({ from: mockFrom, rpc: mockRpc }) }));
-import { getCustomerVisits, getUniqueCustomers } from '../admin';
+import { getCustomerPhoneVisits, getCustomerVisits, getUniqueCustomers } from '../admin';
 let chain: Record<string, jest.Mock>, pages: { data: unknown; error?: unknown }[];
 beforeEach(() => {
   jest.clearAllMocks(); chain = {}; pages = [{ data: [] }];
-  for (const key of ['select','eq','order']) chain[key] = jest.fn(() => chain);
+  for (const key of ['select','eq','order','not']) chain[key] = jest.fn(() => chain);
   chain.range = jest.fn(async () => pages.shift() ?? { data: [] });
   mockFrom.mockReturnValue(chain); mockRpc.mockReturnValue(chain);
 });
@@ -44,28 +44,55 @@ test('later page failure never returns partial measured history', async () => {
   pages = [{ data: Array(1000).fill(visits[0]) },{ data: null,error: {} }];
   await expect(getCustomerVisits('f1')).rejects.toThrow();
 });
+
+// ── 顧客一覧の集計（メール、メールが無ければ電話番号で 1 人にまとめる） ──
+const summary = (over: Record<string, unknown> = {}) => ({ email:'a@test.com',phone:null,name:'A',visit_count:3,last_visit:'2026-05-01',...over });
+// 予備の経路で読む来店行（電話番号は予約から引く）
+const withBooking = [
+  { customer_email: 'f.o.o@gmail.com', customer_name: 'First', visit_date: '2026-04-10', booking: { phone: '090-9999-0000' } },
+  { customer_email: 'foo+shop@gmail.com', customer_name: 'Old', visit_date: '2026-04-01', booking: null },
+  { customer_email: null, customer_name: '電話 花子', visit_date: '2026-03-20', booking: { phone: '０９０－１１１１－２２２２' } },
+  { customer_email: ' ', customer_name: '電話 花子(旧)', visit_date: '2026-03-10', booking: { phone: '090-1111-2222' } },
+  { customer_email: null, customer_name: 'Short', visit_date: '2026-03-05', booking: { phone: '1234' } },
+  { customer_email: null, customer_name: 'Nobody', visit_date: '2026-03-02', booking: null },
+  { customer_email: 'other@example.invalid', customer_name: 'Other', visit_date: '2026-03-01', booking: null },
+];
+const fallbackResult = [
+  { email:'f.o.o@gmail.com',phone:'090-9999-0000',name:'First',visit_count:2,last_visit:'2026-04-10' },
+  { email:null,phone:'０９０－１１１１－２２２２',name:'電話 花子',visit_count:2,last_visit:'2026-03-20' },
+  { email:'other@example.invalid',phone:null,name:'Other',visit_count:1,last_visit:'2026-03-01' },
+];
 test('customer RPC is paginated and bigint count converted without fetching visits', async () => {
-  pages = [{ data: [{ email: 'a@test.com',name: 'A',visit_count: '3',last_visit: '2026-05-01' }] }];
-  expect(await getUniqueCustomers('f1')).toEqual([{ email:'a@test.com',name:'A',visit_count:3,last_visit:'2026-05-01' }]);
-  expect(mockRpc).toHaveBeenCalledWith('get_unique_customers',{ p_facility_id:'f1' }); expect(mockFrom).not.toHaveBeenCalled();
+  pages = [{ data: [summary({ visit_count: '3' })] }];
+  expect(await getUniqueCustomers('f1')).toEqual([summary()]);
+  expect(mockRpc).toHaveBeenCalledWith('get_customer_visit_summary',{ p_facility_id:'f1' }); expect(mockFrom).not.toHaveBeenCalled();
+});
+test('customer RPC returns email-less phone customers (電話・来店受付の予約)', async () => {
+  const phoneRow = summary({ email: null, phone: '090-1111-2222', name: '電話 花子', visit_count: 5 });
+  pages = [{ data: [summary(), phoneRow] }];
+  expect(await getUniqueCustomers('f1')).toEqual([summary(), phoneRow]);
+});
+test('a summary row with neither email nor usable phone is not shown as a customer', async () => {
+  pages = [{ data: [summary(), summary({ email: null, phone: null }), summary({ email: ' ', phone: '1234' })] }];
+  expect(await getUniqueCustomers('f1')).toEqual([summary()]); expect(mockFrom).not.toHaveBeenCalled();
 });
 test('customer RPC beyond 1000 is not silently truncated', async () => {
-  const row = { email:'a@test.com',name:'A',visit_count:1,last_visit:'2026-05-01' };
-  pages = [{ data:Array(1000).fill(row) },{ data:[row] }];
+  pages = [{ data:Array(1000).fill(summary({ visit_count: 1 })) },{ data:[summary({ visit_count: 1 })] }];
   expect(await getUniqueCustomers('f1')).toHaveLength(1001); expect(chain.range).toHaveBeenCalledWith(1000,1999);
 });
-test.each([{ data:null,error:{ code:'PGRST202' } },{ data:null },{ data:{ broken:true } }])('unavailable or malformed RPC %j uses complete fallback', async response => {
-  pages = [response,{ data:visits }];
-  expect(await getUniqueCustomers('f1')).toEqual([{ email:'f.o.o@gmail.com',name:'First',visit_count:2,last_visit:'2026-04-10' },
-    { email:'other@example.invalid',name:'Other',visit_count:1,last_visit:'2026-03-01' }]);
+test.each([{ data:null,error:{ code:'PGRST202' } },{ data:null },{ data:{ broken:true } }])('unavailable or malformed RPC %j uses complete fallback with phones', async response => {
+  pages = [response,{ data:withBooking }];
+  expect(await getUniqueCustomers('f1')).toEqual(fallbackResult);
+  expect(mockFrom).toHaveBeenCalledWith('customer_visits');
+  expect(chain.select).toHaveBeenCalledWith('customer_email, customer_name, visit_date, booking:bookings(phone)');
+  expect(chain.eq).toHaveBeenCalledWith('facility_id','f1');
 });
-test('missing canonical field falls back to JS canonicalization; null and blank emails do not merge by name', async () => {
-  pages = [{ data:null,error:{} },{ data:null,error:missing },{ data:[{ ...visits[0],email_canonical:undefined },
-    { ...visits[1],email_canonical:undefined },{ ...visits[0],customer_email:null },{ ...visits[0],customer_email:' ' }] }];
-  expect(await getUniqueCustomers('f1')).toEqual([{ email:'f.o.o@gmail.com',name:'First',visit_count:2,last_visit:'2026-04-10' }]);
+test('fallback: contactless and short-phone visits never merge by name', async () => {
+  pages = [{ data:null,error:{} },{ data:withBooking.slice(4,6) }];
+  expect(await getUniqueCustomers('f1')).toEqual([]);
 });
-test.each(['canonical','fallback'])('customer %s fallback failure cannot become zero', async kind => {
-  pages = [{ data:null,error:{} },...(kind === 'fallback' ? [{ data:null,error:missing }] : []),{ data:null,error:{} }];
+test('customer fallback failure cannot become zero', async () => {
+  pages = [{ data:null,error:{} },{ data:null,error:{} }];
   await expect(getUniqueCustomers('f1')).rejects.toThrow('顧客集計');
 });
 test('RPC empty and fallback empty are genuine empty lists', async () => {
@@ -73,9 +100,44 @@ test('RPC empty and fallback empty are genuine empty lists', async () => {
   pages = [{ data:null,error:{} },{ data:[] }]; expect(await getUniqueCustomers('f1')).toEqual([]);
 });
 test.each([NaN, -1, 'broken', '9007199254740992'])('invalid RPC count %s falls back rather than rendering a false count', async visit_count => {
-  pages = [{ data:[{ email:'a@test.com',name:'A',visit_count,last_visit:'2026-05-01' }] },{ data:visits }];
+  pages = [{ data:[summary({ visit_count })] },{ data:withBooking }];
   expect((await getUniqueCustomers('f1'))[0].visit_count).toBe(2);
 });
-test('missing fallback provider data cannot become measured empty customers', async () => {
-  pages = [{ data:null,error:{} },{ data:null }]; await expect(getUniqueCustomers('f1')).rejects.toThrow('顧客集計');
+test.each([null, [{ customer_email: 'x@test.com', visit_date: '2026-01-01', booking: null }]])('missing or malformed fallback data %j cannot become measured empty customers', async data => {
+  pages = [{ data:null,error:{} },{ data }]; await expect(getUniqueCustomers('f1')).rejects.toThrow('顧客集計');
+});
+
+// ── 電話番号で登録したお客様（メール無し）の来店履歴 ──
+const phoneVisit = (id: string, over: Record<string, unknown> = {}) => ({ id, facility_id:'f1', booking_id:`b-${id}`, customer_email:null,
+  customer_name:'電話 花子', visit_date:'2026-04-01', menu_name:null, staff_name:null, amount:1000, note:null, created_at:null, ...over });
+test.each([null, undefined, '', '1234', '電話なし'])('unusable phone %p never queries (never returns the whole facility history)', async phone => {
+  expect(await getCustomerPhoneVisits('f1', phone)).toEqual([]);
+  expect(mockRpc).not.toHaveBeenCalled(); expect(mockFrom).not.toHaveBeenCalled();
+});
+test('phone history comes from the facility-scoped RPC with normalised digits', async () => {
+  pages = [{ data: [phoneVisit('v1'), phoneVisit('v2')] }];
+  expect(await getCustomerPhoneVisits('f1', '０９０-1111 2222')).toEqual([phoneVisit('v1'), phoneVisit('v2')]);
+  expect(mockRpc).toHaveBeenCalledWith('get_customer_phone_visits',{ p_facility_id:'f1', p_phone:'09011112222' });
+  expect(mockFrom).not.toHaveBeenCalled();
+});
+test('phone history RPC beyond 1000 is not truncated', async () => {
+  pages = [{ data: Array(1000).fill(phoneVisit('v')) },{ data: [phoneVisit('last')] }];
+  expect(await getCustomerPhoneVisits('f1', '090-1111-2222')).toHaveLength(1001);
+});
+test.each([{ data:null,error:{ code:'PGRST202' } },{ data:{ broken:true } }])('unavailable phone RPC %j falls back to the same rule over booking visits', async response => {
+  pages = [response,{ data: [
+    { ...phoneVisit('match'), booking: { phone: '090-1111-2222' } },
+    { ...phoneVisit('blank-email'), customer_email: ' ', booking: { phone: '09011112222' } },
+    { ...phoneVisit('has-email'), customer_email: 'mail@example.com', booking: { phone: '090-1111-2222' } },
+    { ...phoneVisit('other-phone'), booking: { phone: '090-1111-9999' } },
+    { ...phoneVisit('no-booking'), booking: null },
+  ] }];
+  expect(await getCustomerPhoneVisits('f1', '090-1111-2222')).toEqual([phoneVisit('match'), { ...phoneVisit('blank-email'), customer_email: ' ' }]);
+  expect(chain.select).toHaveBeenCalledWith('*, booking:bookings(phone)');
+  expect(chain.eq).toHaveBeenCalledWith('facility_id','f1');
+  expect(chain.not).toHaveBeenCalledWith('booking_id','is',null);
+});
+test.each([{ data:null,error:{} },{ data:null }])('phone fallback failure %j cannot become empty history', async fallback => {
+  pages = [{ data:null,error:{} },fallback];
+  await expect(getCustomerPhoneVisits('f1','090-1111-2222')).rejects.toThrow('来店履歴');
 });

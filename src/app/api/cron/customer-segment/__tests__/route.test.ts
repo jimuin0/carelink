@@ -53,6 +53,19 @@ let mockFacilitiesSelect: jest.Mock;
 let mockBookingsSelect: jest.Mock;
 let mockBookingsIn: jest.Mock;
 let mockUpsert: jest.Mock;
+// 今回の集計に現れなかった行の削除（delete().eq('facility_id').lt('updated_at', 実行時刻)）。
+let mockStaleDelete: jest.Mock;
+
+function segmentsTable(upsert: (...args: any[]) => any) {
+  return {
+    upsert: (...args: any[]) => upsert(...args),
+    delete: () => ({
+      eq: (eqColumn: string, facilityId: string) => ({
+        lt: (ltColumn: string, stamp: string) => mockStaleDelete({ eqColumn, facilityId, ltColumn, stamp }),
+      }),
+    }),
+  };
+}
 
 function setupDefaultMocks(
   facilitiesCount: number = 2,
@@ -104,6 +117,7 @@ function setupDefaultMocks(
     data: [],
     error: null,
   });
+  mockStaleDelete = jest.fn().mockResolvedValue({ data: null, error: null });
 
   mockFromDelegate.mockImplementation((table: string) => {
     if (table === 'facility_profiles') {
@@ -111,7 +125,7 @@ function setupDefaultMocks(
     } else if (table === 'bookings') {
       return mockBookingsSelect();
     } else if (table === 'customer_segments') {
-      return { upsert: (...args: any[]) => mockUpsert(...args) };
+      return segmentsTable(mockUpsert);
     }
   });
 
@@ -413,7 +427,7 @@ describe('GET /api/cron/customer-segment', () => {
       } else if (table === 'bookings') {
         return mockBookingsSelect();
       } else if (table === 'customer_segments') {
-        return { upsert: (...args: any[]) => mockUpsert(...args) };
+        return segmentsTable(mockUpsert);
       }
     });
 
@@ -449,7 +463,7 @@ describe('GET /api/cron/customer-segment', () => {
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
       if (table === 'bookings') return mockBookingsSelect();
-      if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
+      if (table === 'customer_segments') return segmentsTable(mockUpsert);
     });
 
     const res = await GET(makeRequest() as any);
@@ -523,7 +537,7 @@ describe('GET /api/cron/customer-segment', () => {
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
       if (table === 'bookings') return mockBookingsSelect();
-      if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
+      if (table === 'customer_segments') return segmentsTable(mockUpsert);
     });
 
     const res = await GET(makeRequest() as any);
@@ -563,7 +577,7 @@ describe('GET /api/cron/customer-segment', () => {
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
       if (table === 'bookings') return mockBookingsSelect();
-      if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
+      if (table === 'customer_segments') return segmentsTable(mockUpsert);
     });
 
     const res = await GET(makeRequest() as any);
@@ -598,7 +612,7 @@ describe('GET /api/cron/customer-segment', () => {
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
       if (table === 'bookings') return mockBookingsSelect();
-      if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
+      if (table === 'customer_segments') return segmentsTable(mockUpsert);
     });
 
     const res = await GET(makeRequest() as any);
@@ -633,7 +647,7 @@ describe('GET /api/cron/customer-segment', () => {
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
       if (table === 'bookings') return mockBookingsSelect();
-      if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
+      if (table === 'customer_segments') return segmentsTable(mockUpsert);
     });
 
     const res = await GET(makeRequest() as any);
@@ -668,7 +682,7 @@ describe('GET /api/cron/customer-segment', () => {
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
       if (table === 'bookings') return mockBookingsSelect();
-      if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
+      if (table === 'customer_segments') return segmentsTable(mockUpsert);
     });
 
     const res = await GET(makeRequest() as any);
@@ -710,7 +724,7 @@ describe('GET /api/cron/customer-segment', () => {
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
       if (table === 'bookings') return mockBookingsSelect();
-      if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
+      if (table === 'customer_segments') return segmentsTable(mockUpsert);
     });
 
     const res = await GET(makeRequest() as any);
@@ -743,7 +757,7 @@ describe('GET /api/cron/customer-segment', () => {
       if (table === 'bookings') {
         return { select: () => ({ eq: () => ({ in: () => ({ gte: () => ({ range: rangeMock }) }) }) }) };
       }
-      if (table === 'customer_segments') return { upsert: (...a: any[]) => upsertMock(...a) };
+      if (table === 'customer_segments') return segmentsTable(upsertMock);
       return {};
     });
 
@@ -811,4 +825,145 @@ test('実時間予算超過 → 残り施設を deferred して打ち切り', as
   const json = await res.json();
   expect(json.deferred).toBe(1);
   warnSpy.mockRestore();
+});
+
+// ---------------------------------------------------------------------------
+// 電話・来店受付の予約（メール無し）も電話番号でお客様として数える（2026年10月23日）
+// ---------------------------------------------------------------------------
+describe('メールの無い予約は電話番号で識別する', () => {
+  function completedBookings(rows: Array<Record<string, unknown>>) {
+    setupDefaultMocks(1, 0);
+    mockBookingsIn.mockReturnValue({ gte: () => ({ range: async () => ({ data: rows, error: null }) }) });
+  }
+
+  test('表記の違う同じ電話番号は 1 人・メールのある予約はメールで・短い番号や連絡先なしは数えない', async () => {
+    completedBookings([
+      { email_canonical: null, phone: '090-1111-2222', customer_name: '電話 花子', booking_date: '2026-05-01', total_price: 1000, status: 'completed' },
+      { email_canonical: null, phone: '０９０１１１１２２２２', customer_name: '電話 花子', booking_date: '2026-05-10', total_price: 2000, status: 'completed' },
+      { email_canonical: 'mail@example.com', phone: '090-1111-2222', customer_name: 'メール 太郎', booking_date: '2026-05-02', total_price: 3000, status: 'completed' },
+      { email_canonical: null, phone: '1234', customer_name: '仮番号', booking_date: '2026-05-03', total_price: 500, status: 'completed' },
+      { email_canonical: null, phone: null, customer_name: '連絡先なし', booking_date: '2026-05-04', total_price: 500, status: 'completed' },
+    ]);
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    // 予約の電話番号を読んでいる
+    expect(mockBookingsSelect().select).toHaveBeenCalledWith(expect.stringContaining('phone'));
+    const rows = mockUpsert.mock.calls[0][0];
+    expect(rows.map((r: any) => [r.customer_email, r.total_visits, r.total_spent]).sort()).toEqual([
+      ['mail@example.com', 1, 3000],
+      ['tel:09011112222', 2, 3000],
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// もう該当しないお客様の行を消す（2026年10月23日）
+//   以前は upsert だけだったため、「完了」を「無断キャンセル」に訂正して来店 0 回になったお客様に
+//   「新規」と累計利用額が残り続けた。施設ごとに、今回の集計に現れなかった行を消す。
+// ---------------------------------------------------------------------------
+describe('今回の集計に現れなかったお客様の行は消す', () => {
+  type SegmentRow = { facility_id: string; customer_email: string; updated_at: string; segment?: string; total_spent?: number };
+  let store: SegmentRow[];
+  const OLD = '2026-05-08T07:00:00.000Z';
+
+  function completedBookings(rows: Array<Record<string, unknown>> | null, error: unknown = null) {
+    setupDefaultMocks(1, 0);
+    mockBookingsIn.mockReturnValue({ gte: () => ({ range: async () => ({ data: rows, error }) }) });
+  }
+  // customer_segments を (facility_id, customer_email) 一意の表として再現する。
+  function useStore(initial: SegmentRow[]) {
+    store = initial.map((r) => ({ ...r }));
+    mockUpsert.mockImplementation(async (rows: SegmentRow[]) => {
+      for (const row of rows) {
+        const i = store.findIndex((r) => r.facility_id === row.facility_id && r.customer_email === row.customer_email);
+        if (i >= 0) store[i] = { ...store[i], ...row }; else store.push({ ...row });
+      }
+      return { data: [], error: null };
+    });
+    mockStaleDelete.mockImplementation(async ({ eqColumn, facilityId, ltColumn, stamp }: any) => {
+      expect([eqColumn, ltColumn]).toEqual(['facility_id', 'updated_at']);
+      store = store.filter((r) => !(r.facility_id === facilityId && r.updated_at < stamp));
+      return { data: null, error: null };
+    });
+  }
+  const initialRows = (): SegmentRow[] => [
+    // 誤って「完了」にされ、後で「無断キャンセル」に訂正されたお客様（来店 0 回になった）
+    { facility_id: 'fac-0', customer_email: 'a@example.com', updated_at: OLD, segment: 'new', total_spent: 8000 },
+    { facility_id: 'fac-0', customer_email: 'b@example.com', updated_at: OLD, segment: 'new', total_spent: 1000 },
+    // 別の施設の行には触れない
+    { facility_id: 'fac-9', customer_email: 'a@example.com', updated_at: OLD, segment: 'new', total_spent: 5000 },
+  ];
+  const bOnly = [{ email_canonical: 'b@example.com', phone: null, customer_name: 'B', booking_date: '2026-05-10', total_price: 2000, status: 'completed' }];
+
+  test('訂正で来店が無くなったお客様の行は次の集計で消え、残るお客様は更新される（回帰）', async () => {
+    completedBookings(bOnly);
+    useStore(initialRows());
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(store.filter((r) => r.facility_id === 'fac-0').map((r) => [r.customer_email, r.total_spent, r.updated_at])).toEqual([
+      ['b@example.com', 2000, '2026-05-15T00:00:00.000Z'],
+    ]);
+    expect(store.filter((r) => r.facility_id === 'fac-9')).toEqual([initialRows()[2]]);
+    expect(mockStaleDelete).toHaveBeenCalledTimes(1);
+  });
+
+  test('完了予約が 1 件も無くなった施設は、残っていた行をすべて消す', async () => {
+    completedBookings([]);
+    useStore(initialRows());
+    const res = await GET(makeRequest() as any);
+    expect(await res.json()).toEqual({ processed: 0, skipped: 1, deferred: 0 });
+    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(store.map((r) => r.facility_id)).toEqual(['fac-9']);
+  });
+
+  test('予約の取得に失敗した施設では消さない（失敗を 0 件と取り違えない）', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    completedBookings(null, { message: 'DB unavailable' });
+    useStore(initialRows());
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect(mockStaleDelete).not.toHaveBeenCalled();
+    expect(store).toEqual(initialRows());
+    errorSpy.mockRestore();
+  });
+
+  test('書き込みに失敗した施設では消さない（書けなかった行まで消さない）', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    completedBookings(bOnly);
+    useStore(initialRows());
+    mockUpsert.mockResolvedValue({ data: null, error: { message: 'upsert failed' } });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect(mockStaleDelete).not.toHaveBeenCalled();
+    expect(store).toEqual(initialRows());
+    errorSpy.mockRestore();
+  });
+
+  test('予約を件数上限で打ち切った回は消さない（読めなかったお客様の行を消さない）', async () => {
+    setupDefaultMocks(1, 0);
+    const fullPage = Array(1000).fill(bOnly[0]);
+    mockBookingsIn.mockReturnValue({ gte: () => ({ range: async () => ({ data: fullPage, error: null }) }) });
+    useStore(initialRows());
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(mockUpsert).toHaveBeenCalled();
+    expect(mockStaleDelete).not.toHaveBeenCalled();
+    expect(store.some((r) => r.facility_id === 'fac-0' && r.customer_email === 'a@example.com')).toBe(true);
+  });
+
+  test.each([
+    ['集計した施設', bOnly, { processed: 1, skipped: 0 }],
+    ['完了予約の無い施設', [], { processed: 0, skipped: 1 }],
+  ])('%s で古い行の削除に失敗したら、成功扱いにしない', async (_label, rows, counts) => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    completedBookings(rows);
+    useStore(initialRows());
+    mockStaleDelete.mockResolvedValue({ data: null, error: { message: 'delete failed' } });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ ...counts, processingFailures: 1 });
+    expect(errorSpy).toHaveBeenCalledWith('[customer-segment] stale segment cleanup failed', expect.objectContaining({ facilityId: 'fac-0' }));
+    expect(logCronRun).toHaveBeenCalledWith('customer-segment', 'error', expect.any(Date), expect.anything());
+    errorSpy.mockRestore();
+  });
 });

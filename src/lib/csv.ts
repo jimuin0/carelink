@@ -7,7 +7,7 @@
  *   トリガ文字として同様に無害化する（OWASP CSV Injection 準拠）。
  * - RFC4180 クォート: `,` / `"` / 改行(\n,\r) を含む値はダブルクォートで囲み、内部の `"` は `""` に。
  *
- * 顧客名簿エクスポート（CustomersManager）と会計CSV（accounting-export）で共用し、
+ * 顧客名簿エクスポート（customer-directory の buildCustomersCsv）と会計CSV（accounting-export）で共用し、
  * 片方だけエスケープ漏れになる事故を構造的に防ぐ。
  */
 export function csvEscape(val: string | number | null | undefined): string {
