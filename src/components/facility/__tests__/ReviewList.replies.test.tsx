@@ -21,6 +21,7 @@ jest.mock('next/navigation', () => ({
 jest.mock('@/lib/supabase-browser', () => ({
   createBrowserSupabaseClient: () => ({
     auth: { getUser: () => Promise.resolve({ data: { user: null } }) },
+    rpc: () => Promise.resolve({ data: [], error: null }),
     from: (table: string) => ({
       select: () => ({
         in: (_column: string, ids: string[]) => {

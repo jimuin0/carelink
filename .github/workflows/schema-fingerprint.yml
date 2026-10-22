@@ -202,6 +202,9 @@ jobs:
       - name: HPB menu import rows are service-role writes only and owner/admin reads (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/hpb-menu-durations-privilege-fixtures.sql
 
+      - name: Paid sponsor slots are service-role writes; Q&A and helpful-vote account IDs stay private (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/featured-slots-account-ids-fixtures.sql
+
       - name: Registration application intent and declaration boundaries (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/salon-application-guard-fixtures.sql
 

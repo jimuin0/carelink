@@ -15,15 +15,18 @@ import { FACILITY_QA_ANSWER_MAX_LENGTH } from '@/lib/facility-qa-limits';
 interface QAItem {
   id: string;
   facility_id: string;
-  user_id: string;
   question: string;
   answer: string | null;
-  answered_by: string | null;
   answered_at: string | null;
   status: 'pending' | 'answered';
   is_public: boolean;
   created_at: string;
 }
+
+// 読む列は明示する（2026年10月23日）。facility_qa の SELECT は列単位の権限で、質問者・回答者の
+// アカウント ID（user_id / answered_by）はブラウザのロールに渡していない（20261023110200）。
+// select('*') は権限の無い列まで要求して permission denied になる。この画面は ID を表示しない。
+const QA_COLUMNS = 'id, facility_id, question, answer, answered_at, status, is_public, created_at';
 
 export default function AdminQAPage() {
   return <AdminFacilityScope title="Q&A管理" path="/admin/qa">{(scope) => <QAManager {...scope} />}</AdminFacilityScope>;
@@ -47,7 +50,7 @@ function QAManager({ facilityId, choices }: AdminFacilityScopeValue) {
     setLoadError(false);
     const { data, error } = await supabase
       .from('facility_qa')
-      .select('*')
+      .select(QA_COLUMNS)
       .eq('facility_id', fId)
       .order('created_at', { ascending: false })
       .limit(100);

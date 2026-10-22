@@ -20,6 +20,7 @@ const mockGetUser = jest.fn();
 jest.mock('@/lib/supabase-browser', () => ({
   createBrowserSupabaseClient: () => ({
     auth: { getUser: () => mockGetUser() },
+    rpc: () => Promise.resolve({ data: [], error: null }),
     from: () => ({
       select: () => ({
         in: () => Promise.resolve({ data: [] }),

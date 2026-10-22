@@ -7170,6 +7170,13 @@ export type Database = {
       }
       get_public_columns: { Args: never; Returns: Json }
       get_public_constraints: { Args: never; Returns: Json }
+      get_review_helpful_counts: {
+        Args: { p_review_ids: string[] }
+        Returns: {
+          helpful_count: number
+          review_id: string
+        }[]
+      }
       get_schema_fingerprint: { Args: never; Returns: Json }
       get_staff_mutation_operation: {
         Args: {
