@@ -11,7 +11,8 @@ jest.mock('next/navigation', () => ({ useRouter: () => mockRouter, useParams: ()
 jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: () => ({ auth: { getUser: mockGetUser }, from: mockFrom }) }));
 jest.mock('@/lib/admin-facility-selection', () => ({ loadAdminFacilitySelection: (...args: unknown[]) => mockSelection(...args) }));
 jest.mock('@/components/admin/FacilitySelector', () => ({ __esModule: true, default: () => <p>店舗選択</p> }));
-jest.mock('@/hooks/useUnsavedGuard', () => ({ useUnsavedGuard: () => undefined }));
+const mockGuard = jest.fn();
+jest.mock('@/hooks/useUnsavedGuard', () => ({ useUnsavedGuard: (dirty: boolean) => mockGuard(dirty) }));
 beforeEach(() => {
   jest.clearAllMocks(); mockFetch.mockReset(); sessionStorage.clear(); mockRequested = facility; global.fetch = mockFetch;
   mockGetUser.mockResolvedValue({ data: { user: { id: 'synthetic-owner' } }, error: null });
@@ -146,15 +147,31 @@ const SHOP_HOURS = {
 };
 const dayBox = (day: string) => screen.getByRole('checkbox', { name: day, exact: true }) as HTMLInputElement;
 
-test('empty stored weekly schedule without confirmed shop hours displays all days off and saves empty rather than UI defaults', async () => {
+const ZERO_DAYS_MESSAGE = '勤務する曜日を1日以上選んでください。勤務日が無いと、このスタッフにはネット予約が入りません（特別な日だけ勤務する場合は、下の「特別日設定」で勤務日を追加してください）';
+
+test('empty stored weekly schedule without confirmed shop hours displays all days off and refuses to save zero working days', async () => {
   scheduleTables();
   mockFetch.mockResolvedValue({ ok: true }); render(<Schedule />);
   await screen.findByText('この勤務時間で保存する');
   expect(screen.getByText('このスタッフは勤務時間が未登録のため、まだネット予約を受けられません。')).toBeTruthy();
   expect(screen.getByRole('link', { name: '施設設定で営業時間を保存する' }).getAttribute('href')).toBe(`/admin/settings?facility_id=${facility}`);
   for (const day of ['日','月','火','水','木','金','土']) expect(dayBox(day).checked).toBe(false);
+  // 何も入っていない下書きは失うものが無いので、離れる確認は出さない
+  expect(mockGuard).toHaveBeenLastCalledWith(false);
+  // 勤務日0日の保存は「成功」に見えて、このスタッフに予約が1件も入らない。理由を示して止める。
   fireEvent.click(screen.getByText('この勤務時間で保存する'));
-  await waitFor(() => expect(mockFetch).toHaveBeenCalled()); expect(JSON.parse(mockFetch.mock.calls[0][1].body).schedules).toEqual([]);
+  await screen.findByText(ZERO_DAYS_MESSAGE);
+  expect(mockFetch).not.toHaveBeenCalled();
+});
+
+test('勤務日を外して0日にした保存も止める', async () => {
+  scheduleTables({ schedules: [{ day_of_week: 1, start_time: '12:00:00', end_time: '18:00:00' }] });
+  render(<Schedule />);
+  await screen.findByText('スケジュールを保存');
+  fireEvent.click(dayBox('月'));
+  fireEvent.click(screen.getByText('スケジュールを保存'));
+  await screen.findByText(ZERO_DAYS_MESSAGE);
+  expect(mockFetch).not.toHaveBeenCalled();
 });
 
 // E8: 追加しただけのスタッフには勤務が無い。店舗の営業時間を下書きとして見せ、保存したときだけ登録する。
@@ -171,6 +188,8 @@ test('a staff member without a schedule gets this shop\'s confirmed hours as an 
   expect(screen.queryByDisplayValue('19:00')).toBeNull(); // 毎日 09:00〜19:00 を持ち込まない
   // 表示しただけでは何も保存しない
   expect(mockFetch).not.toHaveBeenCalled();
+  // 下書きは未保存。そのまま離れると勤務時間が登録されないので、離れる前に確認させる
+  expect(mockGuard).toHaveBeenLastCalledWith(true);
   fireEvent.click(screen.getByText('この勤務時間で保存する'));
   await waitFor(() => expect(mockFetch).toHaveBeenCalledWith(`/api/admin/staff/synthetic-staff/schedule?facility_id=${facility}`, expect.objectContaining({ method: 'PUT' })));
   expect(JSON.parse(mockFetch.mock.calls[0][1].body).schedules).toEqual([
@@ -198,10 +217,23 @@ describe('特別日だけ勤務するスタッフ', () => {
     expect(screen.queryByText('このスタッフは勤務時間が未登録のため、まだネット予約を受けられません。')).toBeNull();
     expect(screen.getByText(/週間の勤務日は登録されていません。下の「特別日設定」で勤務時間を入れた日だけ、ネット予約を受けられます。/)).toBeTruthy();
     for (const day of ['日','月','火','水','木','金','土']) expect(dayBox(day).checked).toBe(false);
+    // 特別日の日付は日本時間の今日から選べる（UTC の日付ではまだ前日）
+    expect(document.querySelector('input[type="date"]')?.getAttribute('min')).toBe('2026-10-23');
     // 曜日にチェックを入れたときの初期時刻は店舗の営業時間（09:00〜19:00 を持ち込まない）
     fireEvent.click(dayBox('土'));
     expect(screen.getByDisplayValue('09:30')).toBeTruthy();
     expect(screen.queryByDisplayValue('19:00')).toBeNull();
+  });
+
+  test('特別日に勤務するなら、週間の勤務日が0日でも保存は止めない', async () => {
+    scheduleTables({ businessHours: SHOP_HOURS, overrides: [
+      { id: 'ov-work', date: '2026-10-23', is_holiday: false, start_time: '10:00:00', end_time: '15:00:00' },
+    ] });
+    mockFetch.mockResolvedValue({ ok: true });
+    render(<Schedule />);
+    fireEvent.click(await screen.findByText('スケジュールを保存'));
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('/schedule?'), expect.objectContaining({ method: 'PUT' })));
+    expect(screen.queryByText(ZERO_DAYS_MESSAGE)).toBeNull();
   });
 
   test.each([
@@ -225,6 +257,7 @@ test('a saved schedule is shown as saved, without the suggestion notice or the s
   expect(screen.queryByText('このスタッフは勤務時間が未登録のため、まだネット予約を受けられません。')).toBeNull();
   expect(mockFrom).not.toHaveBeenCalledWith('facility_profiles');
   expect(dayBox('月').checked).toBe(true); expect(dayBox('火').checked).toBe(false);
+  expect(mockGuard).toHaveBeenLastCalledWith(false);
 });
 
 // スマホ（幅 320〜390px）で終了時刻がカードの外へはみ出し、ページが横にスクロールしていた。
@@ -260,4 +293,37 @@ test('creating a staff member opens that staff member\'s schedule editor instead
   fireEvent.click(screen.getByText('スタッフを追加'));
   await waitFor(() => expect(mockPush).toHaveBeenCalledWith(`/admin/staff/${staffId}/schedule?facility_id=${facility}&added=1`));
   expect(mockPush).toHaveBeenCalledTimes(1);
+});
+
+// ─── LINE WORKS（2026年10月23日） ────────────────────────────────────────────────
+// 連携の設定案内は Client Secret・Private Key をメールで運営へ送らせていた。安全な受け渡し方法ができるまで、
+// 新しく設定させない（設定済みのスタッフのデータは残し、編集画面では引き続き編集できる）。
+test('スタッフ追加では LINE Works の設定欄を出さず、送りもしない', async () => {
+  mockFetch.mockResolvedValue({ ok: true }); render(<NewStaff />);
+  fireEvent.change(await screen.findByLabelText(/名前/), { target: { value: '合成スタッフ' } });
+  expect(screen.queryByText('LINE Works 通知設定')).toBeNull();
+  expect(screen.queryByLabelText('LINE Works チャンネルID')).toBeNull();
+  fireEvent.click(screen.getByText('スタッフを追加'));
+  await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+  expect(Object.keys(JSON.parse(mockFetch.mock.calls[0][1].body))).not.toContain('line_works_channel_id');
+});
+
+function editTables(staff: Record<string, unknown>) {
+  mockFrom.mockImplementation((table: string) => {
+    const result = table === 'staff_profiles' ? { data: { id: 'synthetic-staff', name: '合成スタッフ', ...staff }, error: null } : { data: [], error: null };
+    const chain: Record<string, unknown> = {};
+    for (const method of ['select', 'eq', 'order']) chain[method] = () => chain;
+    chain.single = async () => result; chain.then = (resolve: (value: unknown) => unknown) => resolve(result); return chain;
+  });
+}
+
+test.each([
+  [{ line_works_channel_id: null }, false],
+  [{ line_works_channel_id: '12345678901234567', line_works_notify_all: true }, true],
+])('スタッフ編集では、設定済みのときだけ LINE Works の欄を出す %#', async (staff, shown) => {
+  editTables(staff);
+  const params = Promise.resolve({ id: 'synthetic-staff' });
+  await act(async () => { render(<React.Suspense fallback={<p>準備中</p>}><EditStaff params={params} /></React.Suspense>); });
+  await screen.findByDisplayValue('合成スタッフ');
+  expect(Boolean(screen.queryByText('LINE Works 通知設定'))).toBe(shown);
 });

@@ -36,6 +36,8 @@ function EditStaffForm(props: { params: Promise<{ id: string }> }) {
   const [nominationFee, setNominationFee] = useState('');
   const [lineWorksChannelId, setLineWorksChannelId] = useState('');
   const [lineWorksNotifyAll, setLineWorksNotifyAll] = useState(false);
+  // LINE Works の設定欄は、既に運営が設定済みのスタッフにだけ出す（新規の設定は受け付けていない）。
+  const [hasLineWorks, setHasLineWorks] = useState(false);
   const [isActive, setIsActive] = useState(true);
   // 【2026年7月15日 HPB準拠仕様】担当メニュー(menu_staff)。未選択＝全メニュー対応（担当制なし）。
   const [menuOptions, setMenuOptions] = useState<MenuOption[]>([]);
@@ -89,6 +91,7 @@ function EditStaffForm(props: { params: Promise<{ id: string }> }) {
         setInstagramUrl(data.instagram_url || '');
         setNominationFee(data.nomination_fee != null ? data.nomination_fee.toString() : '');
         setLineWorksChannelId(data.line_works_channel_id || '');
+        setHasLineWorks(Boolean(data.line_works_channel_id));
         setLineWorksNotifyAll(data.line_works_notify_all || false);
         setIsActive(data.is_active ?? true);
       }
@@ -226,6 +229,8 @@ function EditStaffForm(props: { params: Promise<{ id: string }> }) {
           )}
         </div>
 
+        {/* 連携に要る秘密情報を安全に受け渡す方法がまだ無いため、新しく設定させない。設定済みの人のデータは残し、編集できる。 */}
+        {hasLineWorks && (
         <div className="border-t pt-4">
           <h3 className="font-semibold text-sm text-gray-700 mb-3">LINE Works 通知設定</h3>
           <div className="space-y-3">
@@ -250,6 +255,7 @@ function EditStaffForm(props: { params: Promise<{ id: string }> }) {
             </label>
           </div>
         </div>
+        )}
 
         <div className="border-t pt-4">
           <h3 className="font-semibold text-sm text-gray-700 mb-1">在籍状況</h3>

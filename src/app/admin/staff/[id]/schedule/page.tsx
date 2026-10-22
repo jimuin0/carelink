@@ -129,7 +129,8 @@ function StaffSchedulePageForm() {
         .from('schedule_overrides')
         .select('id, date, is_holiday, start_time, end_time')
         .eq('staff_id', staffId)
-        .gte('date', new Date().toISOString().split('T')[0])
+        // 今日は日本時間で切る（UTC だと 0〜9 時に前日の特別日まで読んでいた）。
+        .gte('date', todayJst())
         .order('date');
       if (!active) return;
       if (ovErr) { setLoadError(true); setLoading(false); return; }
@@ -155,6 +156,8 @@ function StaffSchedulePageForm() {
           // 勤務時間が無い＝このスタッフには予約枠が出ない。店舗の営業時間を下書きとして見せ、保存したときだけ登録する。
           setDraft(suggestion ? 'suggested' : 'empty');
           setEnabledDays(suggestion ? suggestion.map((day) => day.enabled) : Array(7).fill(false));
+          // 下書きは未保存。そのまま離れると勤務時間は登録されないので、離れる前に確認する。
+          setDirty(Boolean(suggestion));
         }
       } else {
         const newSchedules = DAY_LABELS.map((_, i) => {
@@ -191,11 +194,18 @@ function StaffSchedulePageForm() {
 
   const handleSaveSchedules = async (force = false) => {
     if (!facilityId || !operationKey.current || saving) return;
+    const rows = schedules
+      .filter((_, i) => enabledDays[i])
+      .map((s) => ({ day_of_week: s.day_of_week, start_time: s.start_time, end_time: s.end_time }));
+    // 勤務日が0日のまま保存すると、このスタッフには予約が1件も入らない（保存は成功に見える）。
+    // 特別日にだけ勤務する人は、その日があれば予約を受けられるので止めない。
+    const worksOnSpecialDay = overrides.some((o) => !o.is_holiday && o.start_time && o.end_time);
+    if (rows.length === 0 && !worksOnSpecialDay) {
+      setToast({ type: 'error', message: '勤務する曜日を1日以上選んでください。勤務日が無いと、このスタッフにはネット予約が入りません（特別な日だけ勤務する場合は、下の「特別日設定」で勤務日を追加してください）' });
+      return;
+    }
     setSaving(true);
     try {
-      const rows = schedules
-        .filter((_, i) => enabledDays[i])
-        .map((s) => ({ day_of_week: s.day_of_week, start_time: s.start_time, end_time: s.end_time }));
 
       if (pendingSchedules.current === null) {
         pendingSchedules.current = { operation_id: beginStaffOperation(operationKey.current), schedules: rows, ...(force ? { force: true } : {}) };
@@ -411,7 +421,7 @@ function StaffSchedulePageForm() {
               type="date"
               value={newOverrideDate}
               onChange={(e) => setNewOverrideDate(e.target.value)}
-              min={new Date().toISOString().split('T')[0]}
+              min={todayJst()}
               className="text-sm w-40!"
             />
           </div>

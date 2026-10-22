@@ -1,10 +1,14 @@
 const mockFrom = jest.fn();
 
+const mockReadWorkingStaff = jest.fn();
 jest.mock('../supabase-server', () => ({
   createServerSupabaseClient: () => ({ from: mockFrom }),
 }));
+jest.mock('../facility-publish-gate', () => ({
+  readWorkingStaff: (...args: unknown[]) => mockReadWorkingStaff(...args),
+}));
 
-import { getStaffByFacility, getStaffBySlug, getStaffPhotos, getMenuStaffByMenuIds } from '../staff';
+import { getBookableStaffByFacility, getStaffByFacility, getStaffBySlug, getStaffPhotos, getMenuStaffByMenuIds } from '../staff';
 
 beforeEach(() => {
   mockFrom.mockReset();
@@ -47,6 +51,23 @@ describe('getStaffByFacility', () => {
 
     const result = await getStaffByFacility('fac-1');
     expect(result).toEqual([]);
+  });
+});
+
+// 勤務時間の無いスタッフを指名候補に出すと、選んだ途端に毎日「満枠」になっていた。
+describe('getBookableStaffByFacility', () => {
+  test('在籍スタッフのうち、勤務時間のある人だけを並び順のまま返す', async () => {
+    const staff = [{ id: 's-1', name: '勤務あり' }, { id: 's-2', name: '勤務なし' }, { id: 's-3', name: '特別日だけ' }];
+    mockFrom.mockReturnValue(fluent({ data: staff }));
+    mockReadWorkingStaff.mockResolvedValue({ activeIds: ['s-1', 's-2', 's-3'], workingIds: new Set(['s-3', 's-1']) });
+    expect(await getBookableStaffByFacility('fac-1')).toEqual([staff[0], staff[2]]);
+    expect(mockReadWorkingStaff).toHaveBeenCalledWith(expect.objectContaining({ from: mockFrom }), 'fac-1');
+  });
+
+  test('勤務状況を読めなければ例外（指名候補を空や全員に偽装しない）', async () => {
+    mockFrom.mockReturnValue(fluent({ data: [{ id: 's-1' }] }));
+    mockReadWorkingStaff.mockRejectedValue(new Error('スタッフの勤務状況を取得できませんでした: down'));
+    await expect(getBookableStaffByFacility('fac-1')).rejects.toThrow('スタッフの勤務状況を取得できませんでした: down');
   });
 });
 

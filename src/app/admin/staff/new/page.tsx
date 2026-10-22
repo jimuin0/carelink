@@ -35,8 +35,6 @@ function NewStaffPageForm() {
   const [yearsExperience, setYearsExperience] = useState('');
   const [instagramUrl, setInstagramUrl] = useState('');
   const [nominationFee, setNominationFee] = useState('');
-  const [lineWorksChannelId, setLineWorksChannelId] = useState('');
-  const [lineWorksNotifyAll, setLineWorksNotifyAll] = useState(false);
   const operationKey = useRef<string | null>(null);
   const pendingInput = useRef<Record<string, unknown> | null>(null);
   const [pendingSave, setPendingSave] = useState(false);
@@ -89,8 +87,6 @@ function NewStaffPageForm() {
           years_experience: yearsExperience ? parseInt(yearsExperience) : null,
           instagram_url: instagramUrl.trim() || null,
           nomination_fee: nominationFee ? parseInt(nominationFee) : 0,
-          line_works_channel_id: lineWorksChannelId.trim() || null,
-          line_works_notify_all: lineWorksNotifyAll,
         };
         setPendingSave(true);
       }
@@ -132,7 +128,7 @@ function NewStaffPageForm() {
   if (authState === 'unavailable') return <AccessVerificationUnavailable />;
   if (authState === 'unauthenticated') return <p role="alert">セッションが切れました。再ログインしてください。</p>;
   if (loadError) return <p role="alert">店舗情報の取得に失敗しました。再読み込みしてください。</p>;
-  const selector = <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/staff/new" dirty={Boolean(name || position || bio || specialties || yearsExperience || instagramUrl || nominationFee || lineWorksChannelId || lineWorksNotifyAll)} busy={saving || pendingSave} />;
+  const selector = <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/staff/new" dirty={Boolean(name || position || bio || specialties || yearsExperience || instagramUrl || nominationFee)} busy={saving || pendingSave} />;
   if (!facilityId) return selector;
 
   return (
@@ -174,29 +170,8 @@ function NewStaffPageForm() {
           <SbInput id="staff-instagram" value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} maxLength={200} />
         </div>
 
-        <div className="border-t pt-4">
-          <h3 className="font-semibold text-sm text-gray-700 mb-3">LINE Works 通知設定</h3>
-          <div className="space-y-3">
-            <div>
-              <label htmlFor="staff-lw-channel" className="form-label">LINE Works チャンネルID</label>
-              <SbInput
-                id="staff-lw-channel"
-                value={lineWorksChannelId}
-                onChange={(e) => setLineWorksChannelId(e.target.value)}
-                placeholder="例: 12345678901234567"
-              />
-            </div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={lineWorksNotifyAll}
-                onChange={(e) => setLineWorksNotifyAll(e.target.checked)}
-                className="rounded-sm border-gray-300"
-              />
-              <span className="text-sm text-gray-700">担当外の予約（全件）も通知を受け取る</span>
-            </label>
-          </div>
-        </div>
+        {/* LINE Works 通知の設定欄は出さない。連携に要る秘密情報（Client Secret・Private Key）を安全に受け渡す
+            方法がまだ無いため（src/app/admin/settings/page.tsx と同じ判断）。既に設定済みのスタッフは編集画面に出る。 */}
 
         </fieldset>
         <div className="flex gap-3 pt-4">
