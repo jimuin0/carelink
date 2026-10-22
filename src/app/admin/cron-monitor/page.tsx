@@ -6,6 +6,7 @@ import type { Json } from '@/types/database.types';
 import LoadError from '@/components/admin/LoadError';
 import { SbTable, SbThead, SbTh, SbTbody, SbTd, SbPageHeader, SbStatCard } from '@/components/admin/SbUi';
 import { CRON_JOB_NAMES, CRON_JOB_LABELS } from '@/lib/cron-jobs';
+import { cronHealthyRate, cronHealthyRateAccent } from '@/lib/cron-success-rate';
 
 interface CronLog {
   id: string;
@@ -89,12 +90,14 @@ interface Summary {
   total: number;
   errors: number;
   successes: number;
+  /** status='skipped'（処理対象 0 件＝正常終了）の件数。成功率の分子に入れる */
+  skipped: number;
 }
 
 export default function CronMonitorPage() {
   const [logs, setLogs] = useState<CronLog[]>([]);
   const [jobsLatest, setJobsLatest] = useState<CronLog[]>([]);
-  const [summary, setSummary] = useState<Summary>({ total: 0, errors: 0, successes: 0 });
+  const [summary, setSummary] = useState<Summary>({ total: 0, errors: 0, successes: 0, skipped: 0 });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [selectedJob, setSelectedJob] = useState<string>('');
@@ -119,13 +122,21 @@ export default function CronMonitorPage() {
     // サマリーは実データの「直近30日」件数を count(exact, head) で正確に取得する
     // （旧実装は最新200件の長さを「総実行数（30日）」と称していたが、高頻度ジョブが
     // 200件を占有するため実際は直近1〜2日分に過ぎず、ラベルが事実と乖離していた）。
-    const [totalRes, errorRes, successRes] = await Promise.all([
+    // skipped（処理対象 0 件＝正常終了）も数える。成功率の分子に入れないと、健全でも常に赤になる
+    // （src/lib/cron-success-rate.ts 参照）。
+    const [totalRes, errorRes, successRes, skippedRes] = await Promise.all([
       supabase.from('cron_logs').select('id', { count: 'exact', head: true }).gte('started_at', since),
       supabase.from('cron_logs').select('id', { count: 'exact', head: true }).gte('started_at', since).eq('status', 'error'),
       supabase.from('cron_logs').select('id', { count: 'exact', head: true }).gte('started_at', since).eq('status', 'success'),
+      supabase.from('cron_logs').select('id', { count: 'exact', head: true }).gte('started_at', since).eq('status', 'skipped'),
     ]);
-    if (gen === sideGenRef.current && !totalRes.error && !errorRes.error && !successRes.error) {
-      setSummary({ total: totalRes.count ?? 0, errors: errorRes.count ?? 0, successes: successRes.count ?? 0 });
+    if (gen === sideGenRef.current && !totalRes.error && !errorRes.error && !successRes.error && !skippedRes.error) {
+      setSummary({
+        total: totalRes.count ?? 0,
+        errors: errorRes.count ?? 0,
+        successes: successRes.count ?? 0,
+        skipped: skippedRes.count ?? 0,
+      });
     }
 
     // 各ジョブの最新実行を「ジョブごとに1件」確実に取得する。最新200件の寄せ集めだと、
@@ -210,7 +221,7 @@ export default function CronMonitorPage() {
 
   const latestByJob: [string, CronLog][] = jobsLatest.map((log) => [log.job_name, log]);
 
-  const successRate = summary.total > 0 ? Math.round((summary.successes / summary.total) * 100) : 0;
+  const successRate = cronHealthyRate(summary);
 
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
@@ -230,10 +241,13 @@ export default function CronMonitorPage() {
       {/* サマリーカード（常に全体・selectedJob の絞り込みに関わらず一定） */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <SbStatCard label="総実行数（30日）" value={summary.total} />
-        <SbStatCard label="成功率（30日）" value={`${successRate}%`} accent={successRate >= 95 ? 'emerald' : successRate >= 80 ? 'amber' : 'rose'} />
+        <SbStatCard label="成功率（30日）" value={successRate === null ? '—' : `${successRate}%`} accent={cronHealthyRateAccent(successRate)} />
         <SbStatCard label="エラー数（30日）" value={summary.errors} accent={summary.errors > 0 ? 'rose' : 'gray'} />
         <SbStatCard label="ジョブ種類" value={latestByJob.length} />
       </div>
+      <p className="text-xs text-gray-500 -mt-3">
+        成功率は「成功」と「スキップ（処理対象が0件の正常終了）」を正常として数えています（スキップ {summary.skipped}件）。
+      </p>
 
       {/* 最新実行ステータス */}
       {latestByJob.length > 0 && (
