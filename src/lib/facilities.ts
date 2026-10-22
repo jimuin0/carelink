@@ -6,6 +6,7 @@ import { jstMonthInfo, dayOfWeekUtc } from './admin-date';
 import { SLOT_OCCUPYING_STATUSES } from './booking-status';
 import type { CancelPolicy } from './cancel-fee';
 import { isCardBookingReady } from './facility-publish-gate';
+import { OSAKA_CITY, OSAKA_CITY_WARDS } from './facility-location';
 
 const PER_PAGE = 20;
 
@@ -154,6 +155,16 @@ async function facilityIdsMatchingDetail(
   return { ids, error: null };
 }
 
+/**
+ * 大阪市の区の施設は city に区だけ（北区）を持つ（エリアマスタの単位・src/lib/facility-location.ts）。
+ * 表示は「大阪市北区」なので、「大阪市」「大阪市北区」のように表示上の名前で探した人にも見つかるよう、
+ * 表示名には含まれるが区の名前そのものには含まれない語を、該当する区の一覧に広げる。
+ * 区の名前に含まれる語（北区・北）は従来どおり city.ilike で当たるので広げない（空配列）。
+ */
+export function osakaWardsForKeyword(term: string): string[] {
+  return OSAKA_CITY_WARDS.filter((ward) => !ward.includes(term) && `${OSAKA_CITY}${ward}`.includes(term));
+}
+
 export async function searchFacilities(params: SearchParams) {
   const supabase = createServerSupabaseClient();
   const isGeoSearch = params.lat != null && params.lng != null;
@@ -189,8 +200,11 @@ export async function searchFacilities(params: SearchParams) {
     for (const term of keywordTerms(params.keyword)) {
       const escaped = term.replace(/[%_\\]/g, '\\$&').replace(/"/g, '\\"');
       const pat = `"%${escaped}%"`;
+      // 区名は固定の一覧（OSAKA_CITY_WARDS）から来るので、利用者の入力は .or() の構文に入らない。
+      const wards = osakaWardsForKeyword(term);
+      const osakaCity = wards.length > 0 ? `,and(prefecture.eq."大阪府",city.in.(${wards.map((ward) => `"${ward}"`).join(',')}))` : '';
       query = query.or(
-        `name.ilike.${pat},catch_copy.ilike.${pat},description.ilike.${pat},city.ilike.${pat},access_info.ilike.${pat},nearest_station.ilike.${pat}`
+        `name.ilike.${pat},catch_copy.ilike.${pat},description.ilike.${pat},city.ilike.${pat},access_info.ilike.${pat},nearest_station.ilike.${pat}${osakaCity}`
       );
     }
   }

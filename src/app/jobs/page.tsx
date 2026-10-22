@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { SITE_URL } from '@/lib/constants';
 import { SHOW_JOBS } from '@/lib/feature-toggles';
+import { formatFacilityLocality } from '@/lib/facility-location';
 
 export const revalidate = 1800;
 
@@ -153,7 +154,7 @@ export default async function JobsListPage(props: { searchParams: Promise<Search
                       <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-sm font-medium">{j.employment_type}</span>
                     </div>
                     <h2 className="text-sm font-bold mb-1 line-clamp-2">{j.title}</h2>
-                    <p className="text-xs text-gray-500 mb-1">{f.name} ／ {f.prefecture}{f.city}</p>
+                    <p className="text-xs text-gray-500 mb-1">{f.name} ／ {f.prefecture}{formatFacilityLocality(f.prefecture, f.city)}</p>
                     <p className="text-sm font-bold text-sky-700">{salary}</p>
                   </div>
                 </div>

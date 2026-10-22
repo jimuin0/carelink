@@ -7349,6 +7349,10 @@ export type Database = {
           status: string
         }[]
       }
+      publish_admin_menus_atomic: {
+        Args: { p_actor_id: string; p_facility_id: string }
+        Returns: Json
+      }
       publish_customer_booking_channels: {
         Args: { p_booking_id: string; p_kind: string }
         Returns: number

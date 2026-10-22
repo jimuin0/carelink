@@ -4,8 +4,7 @@ import { mutationRateLimit } from '@/lib/rate-limit';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { commitSalonSubmission, salonCommitInput } from '@/lib/salon-submission-commit';
 import { isSalonIntentProof, salonIntentCookieName } from '@/lib/salon-submission-proof';
-import { salonFieldErrors, SALON_PR_TEXT_PROHIBITED_MESSAGE } from '@/lib/salon-field-errors';
-import { validateFacilityPrText } from '@/lib/medical-ad-guard';
+import { salonFieldErrors } from '@/lib/salon-field-errors';
 import { registrationConsentSchema, REGISTRATION_CONSENT_REQUIRED } from '@/lib/registration-consent';
 import { z } from 'zod';
 import { readSalonIntentStatus } from '@/lib/salon-submission-intent';
@@ -42,14 +41,11 @@ export const POST = withRoute(async request => {
       .filter(issue => issue.path[0] === 'registration').map(issue => ({ path: issue.path.slice(1) })));
     return NextResponse.json({ state: 'invalid', fieldErrors }, { status: 400, headers });
   }
-  // /admin/settings と同じ医療広告ガイドライン・あはき法の検査。PR文は取り込み後に施設紹介として
-  // 公開候補になるため、入力画面の検査を経ない送信もここで止める（受付の正規化・HMAC は変えない）。
-  if (!validateFacilityPrText(parsed.data.registration.pr_text).ok) {
-    return NextResponse.json({ state: 'invalid', fieldErrors: { pr_text: SALON_PR_TEXT_PROHIBITED_MESSAGE } }, { status: 400, headers });
-  }
   const name = salonIntentCookieName(parsed.data.intentId)!;
   const proof = new NextRequest(request.url, { headers: request.headers }).cookies.get(name)?.value;
   if (!isSalonIntentProof(proof)) return NextResponse.json({ state: 'unverified' }, { status: 403, headers });
+  // PR文の医療広告の検査は commitSalonSubmission の中で、まだ受け付けていない申込にだけ行う
+  // （受付済み申込の再送の照合を、後から増えた禁止語で 400 にしないため）。拒否は fieldErrors.pr_text で返る。
   const result = await commitSalonSubmission(createServiceRoleClient(), parsed.data, proof);
   const status = { invalid: 400, unverified: 403, expired: 410, conflict: 409,
     unavailable: 503, photo_unverified: 409, unknown: 202, consent_required: 400, committed: 201, replay: 200 }[result.state];

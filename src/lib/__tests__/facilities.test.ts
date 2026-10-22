@@ -44,6 +44,7 @@ import {
   detailFilter,
   CARD_COLS,
   GEO_DETAIL_ID_CHUNK,
+  osakaWardsForKeyword,
 } from '../facilities';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -1732,6 +1733,41 @@ describe('null data fallbacks', () => {
     expect(ilikeCalls[0][0]).toContain('豊中');
     expect(ilikeCalls[0][0]).not.toContain('まつげ');
     expect(ilikeCalls[1][0]).toContain('まつげ');
+  });
+
+  // ─── 大阪市の区（city は「北区」だけを持つ・2026年10月22日）───────────────
+  // 表示は「大阪市北区」なので、「大阪市」で探しても区の施設が見つかること。
+  test('osakaWardsForKeyword: 表示名にだけ含まれる語を大阪市の区へ広げる', () => {
+    expect(osakaWardsForKeyword('大阪市')).toHaveLength(24);
+    expect(osakaWardsForKeyword('大阪市北区')).toEqual(['北区']);
+    expect(osakaWardsForKeyword('市北')).toEqual(['北区']);
+    // 区の名前そのものに含まれる語は city.ilike で当たるので広げない。
+    expect(osakaWardsForKeyword('北区')).toEqual([]);
+    expect(osakaWardsForKeyword('中央')).toEqual([]);
+    expect(osakaWardsForKeyword('まつげ')).toEqual([]);
+    expect(osakaWardsForKeyword('大阪府')).toEqual([]);
+  });
+
+  test('searchFacilities: 「大阪市北区」は大阪府の北区の施設にも当たる', async () => {
+    const chain = fluent({ data: [], count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+    await searchFacilities({ keyword: '大阪市北区' });
+    const ilikeCalls = ((chain.or as jest.Mock).mock.calls as unknown[][]).filter(
+      (c) => typeof c[0] === 'string' && (c[0] as string).includes('ilike')
+    );
+    expect(ilikeCalls).toHaveLength(1);
+    expect(ilikeCalls[0][0]).toContain('city.ilike."%大阪市北区%"');
+    expect(ilikeCalls[0][0]).toMatch(/,and\(prefecture\.eq\."大阪府",city\.in\.\("北区"\)\)$/);
+  });
+
+  test('searchFacilities: 大阪市と関係ない語では区の条件を足さない', async () => {
+    const chain = fluent({ data: [], count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+    await searchFacilities({ keyword: 'まつげ' });
+    const call = ((chain.or as jest.Mock).mock.calls as unknown[][]).find(
+      (c) => typeof c[0] === 'string' && (c[0] as string).includes('ilike')
+    );
+    expect(call![0]).not.toContain('prefecture.eq');
   });
 
   test('searchFacilities: 単語1つなら .or() は1回だけ（従来挙動を変えない）', async () => {

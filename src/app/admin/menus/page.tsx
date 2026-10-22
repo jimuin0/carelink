@@ -42,6 +42,9 @@ async function fetchMenuSnapshot(facilityId: string) {
   return snapshot;
 }
 
+/** 一括公開中を表す publishing の値（メニュー ID とは重ならない）。 */
+const PUBLISH_ALL = 'all';
+
 export default function AdminMenusPage() {
   const requested = useSearchParams().get('facility_id');
   return <AdminMenusEditor key={requested ?? 'unselected'} requested={requested} />;
@@ -240,6 +243,28 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
     }
   };
 
+  // HPB 一括反映の下書き（数十件）を 1 回でまとめて公開する。1 件ずつだとレート制限に当たって途中で止まる。
+  const handlePublishAll = async () => {
+    if (!facilityId || publishing) return;
+    setPublishing(PUBLISH_ALL);
+    try {
+      const res = await fetch(`/api/admin/menus/publish?facility_id=${facilityId}`, { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setToast({ type: 'error', message: body.error || '公開できませんでした' });
+        return;
+      }
+      setToast({ type: 'success', message: typeof body.published === 'number' ? `${body.published}件のメニューを公開しました` : '公開しました' });
+      await loadMenus(facilityId);
+    } catch {
+      // 応答だけ失われた可能性があるため、一覧を読み直して実際の状態を表示する。
+      setToast({ type: 'error', message: '公開できませんでした' });
+      await loadMenus(facilityId);
+    } finally {
+      setPublishing(null);
+    }
+  };
+
   const startEdit = (menu: FacilityMenu) => {
     setEditForm({
       id: menu.id,
@@ -341,7 +366,15 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
 
       {unpublishedCount > 0 && (
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800" role="status">
-          非公開のメニューが{unpublishedCount}件あります。非公開のメニューはお客様に表示されず、ネット予約もできません。各メニューの「公開する」を押すと公開されます。
+          <p>非公開のメニューが{unpublishedCount}件あります。非公開のメニューはお客様に表示されず、ネット予約もできません。各メニューの「公開する」か、下のボタンで公開できます。</p>
+          <button
+            type="button"
+            onClick={handlePublishAll}
+            disabled={publishing !== null}
+            className="mt-3 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+          >
+            {publishing === PUBLISH_ALL ? '公開しています…' : '非公開のメニューをすべて公開する'}
+          </button>
         </div>
       )}
 

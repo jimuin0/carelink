@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import type { FacilityCardData } from '@/types';
+import { formatFacilityLocality } from '@/lib/facility-location';
 
 interface Props {
   facilities: FacilityCardData[];
@@ -70,7 +71,7 @@ export default function MapView({ facilities }: Props) {
         marker.bindPopup(
           `<div style="min-width:180px">` +
           `<a href="/facility/${encodeURIComponent(f.slug)}" style="font-weight:bold;color:#0ea5e9;text-decoration:none">${escapeHtml(f.name)}</a>` +
-          `<div style="font-size:12px;color:#666;margin-top:4px">${escapeHtml(f.prefecture || '')}${escapeHtml(f.city || '')}</div>` +
+          `<div style="font-size:12px;color:#666;margin-top:4px">${escapeHtml(f.prefecture || '')}${escapeHtml(formatFacilityLocality(f.prefecture, f.city))}</div>` +
           `<div style="font-size:12px;margin-top:2px">${escapeHtml(rating)} ${escapeHtml(price)}</div>` +
           `</div>`
         );

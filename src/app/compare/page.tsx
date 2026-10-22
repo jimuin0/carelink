@@ -4,6 +4,7 @@ import Image from 'next/image';
 import type { Metadata } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import type { Facility } from '@/types';
+import { formatFacilityLocality } from '@/lib/facility-location';
 
 // 【2026年7月8日 恒久根治】比較対象(searchParams.ids)はリクエスト毎に変わるため、他の
 // DB駆動ページ(revalidate=3600で統一)とは異なりキャッシュしてはいけない。明示指定が無いのは
@@ -75,7 +76,7 @@ export default async function ComparePage(props: Props) {
       if (!p?.min) return '-';
       return p.min === p.max ? `¥${p.min.toLocaleString()}` : `¥${p.min.toLocaleString()}〜¥${p.max!.toLocaleString()}`;
     }},
-    { label: '所在地', render: (f) => `${f.prefecture}${f.city}` },
+    { label: '所在地', render: (f) => `${f.prefecture}${formatFacilityLocality(f.prefecture, f.city)}` },
     { label: '最寄り駅', render: (f) => f.nearest_station || '-' },
     { label: '席数', render: (f) => f.seat_count ? `${f.seat_count}席` : '-' },
     { label: '駐車場', render: (f) => f.parking ? 'あり' : '-' },

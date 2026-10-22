@@ -27,8 +27,9 @@ export const DESIGNATED_CITIES = [
   '名古屋市', '京都市', '大阪市', '堺市', '神戸市', '岡山市', '広島市', '北九州市', '福岡市', '熊本市',
 ] as const;
 
-/** マスタが区の単位で持つ唯一の政令指定都市。 */
+/** マスタが区の単位で持つ唯一の政令指定都市と、その都道府県。 */
 export const OSAKA_CITY = '大阪市';
+const OSAKA_PREFECTURE = '大阪府';
 
 /** 大阪市の区。マスタ（大阪府の「〜区」）から導出し、手で二重に持たない。 */
 export const OSAKA_CITY_WARDS: readonly string[] = Object.values(citySlugs.osaka).filter((name) => name.endsWith('区'));
@@ -53,7 +54,10 @@ function stripLeading(value: string, prefix: string): string {
  * 1. address の先頭から都道府県を、続けて市区町村（入力された city）を取り除く。一致しなければ触らない。
  * 2. city をマスタの単位へ揃える：
  *    - 大阪市：区を残す（大阪市北区 → 北区）。「大阪市」だけなら番地の先頭の区を city へ移す。
+ *      表示では formatFacilityLocality が「大阪市」を補う（住所から大阪市が消えないように）。
  *    - 他の政令指定都市：最初の「市」まで（横浜市中区 → 横浜市）。区は番地の先頭へ移し、所在地を欠かさない。
+ *      ただし番地が空のときは揃えない（区だけの番地「中区」を作ると、番地が無いのに住所が
+ *      入っているように見えるため）。番地が入った時点で揃う。
  *    - 区の形でない値（例: 大阪市の存在しない区）は推測せず、そのまま残す。
  */
 export function normalizeFacilityLocation(input: FacilityLocationInput): { city: string; address: string } {
@@ -72,10 +76,29 @@ export function normalizeFacilityLocation(input: FacilityLocationInput): { city:
         address = stripLeading(address, osakaWard);
       }
     } else if (ward.length > 1 && ward.endsWith('区') && !/\s/.test(ward)) {
-      city = designated;
       address = stripLeading(address, designated);
-      if (!address.startsWith(ward)) address = ward + address;
+      if (address !== '') {
+        city = designated;
+        if (!address.startsWith(ward)) address = ward + address;
+      }
     }
   }
   return { city, address };
+}
+
+/**
+ * 公開表示に使う市区町村。エリアマスタの都合で大阪市だけは city に区（北区）を持つため、
+ * 表示・地図検索・構造化データでは「大阪市」を補って正しい住所に戻す（大阪府北区…は実在しない住所で、
+ * 同じ大阪府の堺市北区とも区別がつかない）。エリアページの照合は city の生の値を使い続ける。
+ */
+export function formatFacilityLocality(prefecture: string | null | undefined, city: string | null | undefined): string {
+  const value = city ?? '';
+  return prefecture === OSAKA_PREFECTURE && OSAKA_CITY_WARDS.includes(value) ? OSAKA_CITY + value : value;
+}
+
+/** 都道府県＋市区町村（表示用）＋番地。null は空文字として扱う（「null」という文字を出さない）。 */
+export function formatFacilityAddress(location: {
+  prefecture?: string | null; city?: string | null; address?: string | null;
+}): string {
+  return `${location.prefecture ?? ''}${formatFacilityLocality(location.prefecture, location.city)}${location.address ?? ''}`;
 }

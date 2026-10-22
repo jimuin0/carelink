@@ -109,3 +109,66 @@ test('応答が失われたら一覧を読み直して実際の状態を表示�
   await waitFor(() => expect(reads()).toHaveLength(2));
   expect(mutations()).toHaveLength(1);
 });
+
+// HPB 一括反映の下書き（数十件）を 1 件ずつ公開するとレート制限に当たる。まとめて公開する導線を固定する。
+test('非公開のメニューがあれば「すべて公開する」で 1 回だけ一括公開し、件数を知らせて一覧を読み直す', async () => {
+  render(<Page />);
+  await screen.findByText('HPBカット');
+  mutation = async () => {
+    menus = menus.map((menu) => (menu.is_published === false ? { ...menu, is_published: true } : menu));
+    return { ok: true, json: async () => ({ published: 1 }) };
+  };
+  fireEvent.click(screen.getByRole('button', { name: '非公開のメニューをすべて公開する' }));
+  await screen.findByText('1件のメニューを公開しました');
+  expect(mutations()).toHaveLength(1);
+  expect(mutations()[0][0]).toBe(`/api/admin/menus/publish?facility_id=${facility}`);
+  expect(mutations()[0][1].method).toBe('POST');
+  await waitFor(() => expect(screen.queryByText(/非公開のメニューが/)).toBeNull());
+  expect(screen.queryByRole('button', { name: '非公開のメニューをすべて公開する' })).toBeNull();
+  expect(reads()).toHaveLength(2);
+});
+
+test('非公開のメニューが無ければ一括公開のボタンを出さない', async () => {
+  menus = menus.filter((menu) => menu.is_published !== false);
+  render(<Page />);
+  await screen.findByText('公開カラー');
+  expect(screen.queryByRole('button', { name: '非公開のメニューをすべて公開する' })).toBeNull();
+});
+
+test('一括公開が拒否されたらサーバーの理由を表示し、一覧は読み直さない', async () => {
+  render(<Page />);
+  await screen.findByText('HPBカット');
+  mutation = async () => ({ ok: false, json: async () => ({ error: 'リクエストが多すぎます' }) });
+  fireEvent.click(screen.getByRole('button', { name: '非公開のメニューをすべて公開する' }));
+  await screen.findByText('リクエストが多すぎます');
+  expect(reads()).toHaveLength(1);
+});
+
+test('一括公開の理由の無い拒否・件数の無い応答は既定の文言を出す', async () => {
+  render(<Page />);
+  await screen.findByText('HPBカット');
+  mutation = async () => ({ ok: false, json: async () => { throw new Error('not json'); } });
+  fireEvent.click(screen.getByRole('button', { name: '非公開のメニューをすべて公開する' }));
+  await screen.findByText('公開できませんでした');
+  mutation = async () => ({ ok: true, json: async () => ({}) });
+  fireEvent.click(screen.getByRole('button', { name: '非公開のメニューをすべて公開する' }));
+  await screen.findByText('公開しました');
+});
+
+test('一括公開の応答が失われたら一覧を読み直して実際の状態を表示する', async () => {
+  render(<Page />);
+  await screen.findByText('HPBカット');
+  mutation = () => Promise.reject(new Error('network'));
+  fireEvent.click(screen.getByRole('button', { name: '非公開のメニューをすべて公開する' }));
+  await screen.findByText('公開できませんでした');
+  await waitFor(() => expect(reads()).toHaveLength(2));
+});
+
+test('公開中の最後のメニューを非公開にできないときは、その理由を表示する', async () => {
+  render(<Page />);
+  await screen.findByText('公開カラー');
+  mutation = async () => ({ ok: false, json: async () => ({ error: '公開中は最後の公開メニューを非公開にできません。先に別のメニューを公開するか、施設を非公開にしてください。' }) });
+  fireEvent.click(screen.getByRole('button', { name: '公開カラーを非公開にする' }));
+  await screen.findByText(/最後の公開メニューを非公開にできません/);
+  expect(screen.queryByText('非公開にしました')).toBeNull();
+});

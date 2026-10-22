@@ -2,12 +2,14 @@ import Link from 'next/link';
 import type { Facility } from '@/types';
 import { dayOrder, dayLabels } from '@/lib/constants';
 import { featureSearchHref } from '@/lib/search-href';
+import { formatFacilityAddress } from '@/lib/facility-location';
 
 export default function AccessInfo({ facility }: { facility: Facility }) {
   // 監査T1: prefecture/city/address は手書き Facility 型では non-null 宣言だが、DB(facility_profiles)は
   // 実際には nullable。null 行を素で埋め込むと「null」という文字列が公開ページの住所欄・地図URLに
-  // 出るため ?? '' でガードする（DB側 NOT NULL 化は別途 SQL を神原さんへ提示）。
-  const fullAddress = `${facility.prefecture ?? ''}${facility.city ?? ''}${facility.address ?? ''}${facility.building ? ` ${facility.building}` : ''}`;
+  // 出るため formatFacilityAddress が空文字にする（DB側 NOT NULL 化は別途 SQL を神原さんへ提示）。
+  // 大阪市の区は city に区だけを持つため、同関数が「大阪市」を補う（大阪府北区…にしない）。
+  const fullAddress = `${formatFacilityAddress(facility)}${facility.building ? ` ${facility.building}` : ''}`;
 
   return (
     <div className="space-y-8">

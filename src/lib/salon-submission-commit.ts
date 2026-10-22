@@ -6,6 +6,8 @@ import { canonicalSalonSubmission, SALON_CANONICAL_VERSION } from './salon-submi
 import { isSalonIntentProof, salonIntentProofHash, salonPayloadHmac, SALON_HMAC_SCHEME } from './salon-submission-proof';
 import { readSalonIntentStatus } from './salon-submission-intent';
 import { isMissingSalonPhoto, matchesSalonPhoto, salonPhotoInput, salonPhotoPath, SALON_PHOTO_BUCKET } from './salon-photo-contract';
+import { validateFacilityPrText } from './medical-ad-guard';
+import { SALON_PR_TEXT_PROHIBITED_MESSAGE } from './salon-field-errors';
 
 export const salonCommitInput = z.object({
   intentId: z.uuid(),
@@ -24,7 +26,8 @@ const receipt = z.discriminatedUnion('outcome', [
   z.object({ outcome: rejection, receipt_id: z.null() }).strict(),
 ]);
 export type SalonCommitResult =
-  | { state: 'invalid' | 'unverified' | 'expired' | 'conflict' | 'unavailable' | 'photo_unverified' | 'unknown' | 'consent_required' }
+  | { state: 'invalid'; fieldErrors?: { pr_text: string } }
+  | { state: 'unverified' | 'expired' | 'conflict' | 'unavailable' | 'photo_unverified' | 'unknown' | 'consent_required' }
   | { state: 'committed' | 'replay'; receiptId: string };
 type Database = ReturnType<typeof createServiceRoleClient>;
 
@@ -46,6 +49,13 @@ export async function commitSalonSubmission(db: Database, value: unknown, proof:
     // A historical committed receipt can still be replayed exactly. New
     // registrations always require the current explicit declaration.
     if (status.state === 'uncommitted' && input.consent === undefined) return { state: 'consent_required' };
+    // /admin/settings と同じ医療広告ガイドライン・あはき法の検査。PR文は取り込み後に施設紹介として公開候補になる。
+    // 新しい申込にだけ適用する：この規則（や禁止語の一覧）より前に受け付けた申込の応答が失われた場合も、
+    // 同じ内容の再送は従来どおり受付済みとして照合できなければならない（照合と HMAC は変えない）。
+    // 書き込みより前に、送信内容だけで決まる拒否なので、同じ申込を直して送り直してよい。
+    if (status.state === 'uncommitted' && !validateFacilityPrText(input.registration.pr_text).ok) {
+      return { state: 'invalid', fieldErrors: { pr_text: SALON_PR_TEXT_PROHIBITED_MESSAGE } };
+    }
     const urls: string[] = [];
     if (input.photoIds.length > 0) {
       const ids = input.photoIds.map(id => id.toLowerCase());

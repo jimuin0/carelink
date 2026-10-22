@@ -43,8 +43,12 @@ test('新規メニューを反映したら、非公開であることと公開�
   await screen.findByText('合成カット');
   fireEvent.click(screen.getByRole('button', { name: 'お客様メニューへ一括反映' }));
   const toast = await screen.findByText(/メニューへ反映: 新規3件/);
-  expect(toast.textContent).toContain('メニュー管理で「公開する」を押すと、お客様に表示されネット予約できるようになります');
+  expect(toast.textContent).toContain('公開したメニューが、お客様向けメニューとネット予約の対象になります（店舗ページの公開と予約受付の準備も必要です）');
+  // 「公開すればネット予約できる」とは約束しない（店舗ページが非公開・予約受付の準備前は表示も予約もされない）。
+  expect(toast.textContent).not.toContain('ネット予約できるようになります');
   const next = screen.getByText(/新しく反映したメニュー3件は非公開です/);
+  expect(next.textContent).toContain('非公開のメニューをすべて公開する');
+  expect(next.textContent).toContain('店舗ページの公開と予約受付の準備も必要です');
   expect(within(next).getByRole('link', { name: 'メニュー管理' }).getAttribute('href')).toBe(`/admin/menus?facility_id=${facility}`);
 });
 

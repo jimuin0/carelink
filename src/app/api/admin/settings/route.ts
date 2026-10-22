@@ -236,12 +236,15 @@ async function patchSettings(request: NextRequest) {
   // 大阪市北区 → 北区）。揃えないと政令指定都市の店舗はどのエリアページにも出なかった。
   // 区を番地へ移すことがあるため、市区町村と番地が両方送られたときだけ行う（片方だけの保存で他方を推測しない）。
   let location: { city: string; address: string } | null = null;
+  // 住所欄が都道府県・市区町村だけだった（取り込み時の旧データなど）ため、揃えた結果の番地が空になったか。
+  let addressHadOnlyLocality = false;
   if (parsed.data.city !== undefined && parsed.data.address !== undefined) {
     location = normalizeFacilityLocation({
       prefecture: parsed.data.prefecture, city: parsed.data.city, address: parsed.data.address,
     });
     updatePayload.city = location.city;
     updatePayload.address = location.address;
+    addressHadOnlyLocality = parsed.data.address.trim() !== '' && location.address === '';
   }
 
   const admin = createServiceRoleClient();
@@ -250,7 +253,14 @@ async function patchSettings(request: NextRequest) {
   });
   if (error?.message.includes('FACILITY_PERMISSION_REVOKED')) return NextResponse.json({ error:'店舗の管理権限がありません' },{ status:403 });
 
-  if (isPublishedLocationConflict(error)) return NextResponse.json({ error: '公開中の施設では都道府県・市区町村・住所を空にできません。先に非公開へ変更してください。' }, { status: 409 });
+  if (isPublishedLocationConflict(error)) {
+    // 店舗は住所を消していない。「非公開へ」と案内すると、営業時間など無関係な保存のたびに
+    // 公開をやめるよう求めることになるため、直し方（番地の入力）を示す。
+    if (addressHadOnlyLocality) {
+      return NextResponse.json({ error: '住所欄が都道府県・市区町村だけになっています。番地（町名以降）まで入力して保存してください。' }, { status: 400 });
+    }
+    return NextResponse.json({ error: '公開中の施設では都道府県・市区町村・住所を空にできません。先に非公開へ変更してください。' }, { status: 409 });
+  }
   if (error) return serverError('admin-settings-patch', new Error('Facility settings update failed'), '/api/admin/settings');
   if (updated?.length !== 1 || updated[0].id !== auth.facilityId) return NextResponse.json({ error: '施設の状態を確認できません。再読み込みしてください。' }, { status: 409 });
 

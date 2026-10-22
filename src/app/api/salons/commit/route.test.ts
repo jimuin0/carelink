@@ -63,16 +63,32 @@ test('field errors are fixed messages, not submitted PII/provider text', async (
   expect(JSON.stringify(body)).not.toContain('PRIVATE');
 });
 // /admin/settings と同じ医療広告ガイドライン・あはき法の検査。以前の /register は PR 文を一度も
-// 検査せず、取り込み後は施設紹介としてそのまま公開候補になっていた。
-test.each(['当院の施術で必ず治る', '技術力No.1のサロン'])('prohibited advertising in PR text is rejected under pr_text: %s', async prText => {
+// 検査せず、取り込み後は施設紹介としてそのまま公開候補になっていた。検査は commitSalonSubmission の中で、
+// まだ受け付けていない申込にだけ行う（実装を通して確かめる）。
+const actualCommit = jest.requireActual('@/lib/salon-submission-commit').commitSalonSubmission;
+test.each(['当院の施術で必ず治る', '技術力No.1のサロン'])('prohibited advertising in a new application is rejected under pr_text: %s', async prText => {
+  const rpc = jest.fn();
+  (createServiceRoleClient as jest.Mock).mockReturnValueOnce({ rpc, from: jest.fn() });
+  (commitSalonSubmission as jest.Mock).mockImplementationOnce(actualCommit);
   const res = await POST(request({ ...input, registration: { ...input.registration, pr_text: prText } }));
   expect(res.status).toBe(400);
   const body = await res.json();
   expect(body).toEqual({ state: 'invalid', fieldErrors: { pr_text: SALON_PR_TEXT_PROHIBITED_MESSAGE } });
-  // 送信値は返さない（固定文言のみ）。
+  // 送信値は返さない（固定文言のみ）。受付の RPC は呼ばない。
   expect(JSON.stringify(body)).not.toContain(prText);
-  expect(commitSalonSubmission).not.toHaveBeenCalled();
-  expect(createServiceRoleClient).not.toHaveBeenCalled();
+  expect(rpc).not.toHaveBeenCalled();
+});
+// 回帰：この検査（や禁止語の追加）より前に受け付けた申込の応答が失われた場合、同じ内容の再送は
+// 従来どおり 200 replay で照合できる（検査を受付済みの判定より前に置くと 400 に変わっていた）。
+test('an application committed before the rule still replays with 200 even if its PR text is now prohibited', async () => {
+  (readSalonIntentStatus as jest.Mock).mockResolvedValue({ state: 'committed', receiptId: other });
+  const rpc = jest.fn().mockResolvedValue({ data: [{ outcome: 'replay', receipt_id: other }], error: null });
+  (createServiceRoleClient as jest.Mock).mockReturnValueOnce({ rpc, from: jest.fn() });
+  (commitSalonSubmission as jest.Mock).mockImplementationOnce(actualCommit);
+  const res = await POST(request({ ...input, registration: { ...input.registration, pr_text: '当院の施術で必ず治る' } }));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ state: 'replay', receiptId: other });
+  expect(rpc).toHaveBeenCalledTimes(1);
 });
 test.each([null, '駅から徒歩3分。丁寧なカウンセリングを心がけています'])('acceptable PR text proceeds to commit: %p', async prText => {
   (commitSalonSubmission as jest.Mock).mockResolvedValue({ state: 'committed', receiptId: other });

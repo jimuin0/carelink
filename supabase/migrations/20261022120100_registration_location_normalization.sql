@@ -9,9 +9,11 @@
 --    checks the SQL results against the same cases.
 --      * address: strip a leading prefecture, then a leading city, when they
 --        match (nothing is stripped otherwise);
---      * city: Osaka city keeps the ward (大阪市北区 -> 北区; 大阪市 + 北区… -> 北区),
---        other designated cities cut at the city (横浜市中区 -> 横浜市) and the
---        ward moves to the front of the address so the full address is kept.
+--      * city: Osaka city keeps the ward (大阪市北区 -> 北区; 大阪市 + 北区… -> 北区;
+--        public pages add 大阪市 back via formatFacilityLocality), other
+--        designated cities cut at the city (横浜市中区 -> 横浜市) and the ward
+--        moves to the front of the address so the full address is kept. With no
+--        street part the ward stays in the city (no bare 「中区」 address).
 -- 2. setup_facility_from_registration (latest: 20261002012128): identical except
 --    that facility_profiles.city/address are normalized before the insert.
 --    The salon receipt and its canonical HMAC are not touched.
@@ -70,11 +72,15 @@ BEGIN
       END IF;
     END IF;
   ELSIF char_length(ward)>1 AND right(ward,1)='区' AND translate(ward,whitespace,'')=ward THEN
-    city:=designated;
     IF starts_with(address,designated) THEN
       address:=ltrim(substr(address,char_length(designated)+1),whitespace);
     END IF;
-    IF NOT starts_with(address,ward) THEN address:=ward||address; END IF;
+    -- With no street part, keep the ward in the city: a bare 「中区」 address
+    -- would look like a street address that is not there.
+    IF address<>'' THEN
+      city:=designated;
+      IF NOT starts_with(address,ward) THEN address:=ward||address; END IF;
+    END IF;
   END IF;
 END;
 $$;

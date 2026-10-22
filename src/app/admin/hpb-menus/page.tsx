@@ -39,6 +39,13 @@ interface EditForm {
 const yen = (n: number | null): string => (n == null ? '—' : `¥${n.toLocaleString()}`);
 const minutes = (n: number | null): string => (n == null ? '—' : `${n}分`);
 
+/**
+ * 公開後に何が起きるかの案内。メニューを公開しただけでは、店舗ページが非公開のままだったり予約受付の準備
+ * （写真・スタッフ・営業時間など）が済んでいなかったりすると、お客様に表示されずネット予約もできない。
+ * 一括反映を使うのは掲載準備中が多いため、条件を省いた約束をしない。
+ */
+const PUBLISH_NEXT_STEP = '公開したメニューが、お客様向けメニューとネット予約の対象になります（店舗ページの公開と予約受付の準備も必要です）';
+
 export default function AdminHpbMenusPage() {
   const [menus, setMenus] = useState<HpbMenu[]>([]);
   const [loading, setLoading] = useState(true);
@@ -173,7 +180,7 @@ export default function AdminHpbMenusPage() {
       setToast({
         type: 'success',
         message: `メニューへ反映: 新規${json.inserted}件（非公開で作成）/ 更新${json.updated}件 / 非表示化${json.hidden}件 / スキップ${json.skipped}件`
-          + (json.inserted > 0 ? '。メニュー管理で「公開する」を押すと、お客様に表示されネット予約できるようになります' : ''),
+          + (json.inserted > 0 ? `。${PUBLISH_NEXT_STEP}` : ''),
       });
     } catch {
       setToast({ type: 'error', message: '反映に失敗しました' });
@@ -300,7 +307,7 @@ export default function AdminHpbMenusPage() {
             <p className="mt-3 rounded-lg bg-sky-50 p-3 text-sm text-sky-800" role="status">
               新しく反映したメニュー{appliedDrafts}件は非公開です。
               <Link href={`/admin/menus?facility_id=${facilityId}`} className="font-bold text-sky-700 underline">メニュー管理</Link>
-              で各メニューの「公開する」を押すと、お客様に表示されネット予約できるようになります。
+              で「公開する」（まとめて公開するときは「非公開のメニューをすべて公開する」）を押してください。{PUBLISH_NEXT_STEP}。
             </p>
           )}
         </div>

@@ -10,7 +10,9 @@
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { citySlugs } from '@/data/city-slugs';
-import { DESIGNATED_CITIES, OSAKA_CITY, OSAKA_CITY_WARDS, normalizeFacilityLocation } from '../facility-location';
+import {
+  DESIGNATED_CITIES, OSAKA_CITY, OSAKA_CITY_WARDS, formatFacilityAddress, formatFacilityLocality, normalizeFacilityLocation,
+} from '../facility-location';
 
 const ROOT = join(__dirname, '..', '..', '..');
 const FIXTURE = join(ROOT, 'supabase/shadow/facility-setup-fixtures.sql');
@@ -35,14 +37,32 @@ function sharedCases(): Case[] {
     .map((line) => parseRow(line) as Case);
 }
 
-/** 指定した関数を定義している最新の migration の本文（後の migration が前の定義を上書きする）。 */
-function latestDefinition(fn: string): { name: string; sql: string } {
+/** `CREATE [OR REPLACE] FUNCTION public.<fn>(` だけを定義とみなす（REVOKE / GRANT だけの migration は数えない）。 */
+function definitionPattern(fn: string): RegExp {
+  return new RegExp(`CREATE(?:\\s+OR\\s+REPLACE)?\\s+FUNCTION\\s+public\\.${fn}\\(`);
+}
+
+/** sql の中の fn の本文（定義の先頭から次の `$$;` まで）。同じファイルの後続関数を含めない。 */
+function functionBody(sql: string, fn: string): string {
+  const start = sql.search(definitionPattern(fn));
+  expect(start).toBeGreaterThan(-1);
+  const end = sql.indexOf('$$;', start);
+  expect(end).toBeGreaterThan(start);
+  return sql.slice(start, end);
+}
+
+/** 指定した関数を定義している最新の migration と、その関数の本文（後の migration が前の定義を上書きする）。 */
+function latestDefinition(fn: string): { name: string; sql: string; body: string } {
+  const pattern = definitionPattern(fn);
   const names = readdirSync(MIGRATIONS).filter((f) => /^\d+_.*\.sql$/.test(f)).sort();
-  const hits = names.filter((f) => new RegExp(`FUNCTION public\\.${fn}\\(`).test(readFileSync(join(MIGRATIONS, f), 'utf8')));
+  const hits = names.filter((f) => pattern.test(readFileSync(join(MIGRATIONS, f), 'utf8')));
   expect(hits.length).toBeGreaterThan(0);
   const name = hits[hits.length - 1];
-  return { name, sql: readFileSync(join(MIGRATIONS, name), 'utf8') };
+  const sql = readFileSync(join(MIGRATIONS, name), 'utf8');
+  return { name, sql, body: functionBody(sql, fn) };
 }
+
+const NORMALIZER_CALL = /SELECT \* INTO normalized_location FROM public\.normalize_facility_location\(/;
 
 /** `name constant text[]:=ARRAY[...]` の要素。 */
 function sqlArray(sql: string, name: string): string[] {
@@ -101,6 +121,16 @@ describe('政令指定都市の市区町村をエリアマスタの単位へ揃�
       .toEqual({ city: '堺市', address: '堺区南瓦町3-1' });
   });
 
+  it('番地が空なら区を番地へ移さない（区だけの番地「中区」を作らない）', () => {
+    expect(normalizeFacilityLocation({ prefecture: '神奈川県', city: '横浜市中区', address: '' }))
+      .toEqual({ city: '横浜市中区', address: '' });
+    expect(normalizeFacilityLocation({ prefecture: '神奈川県', city: '横浜市中区', address: '神奈川県横浜市中区' }))
+      .toEqual({ city: '横浜市中区', address: '' });
+    // 番地が入った時点でマスタの単位へ揃う。
+    expect(normalizeFacilityLocation({ prefecture: '神奈川県', city: '横浜市中区', address: '山下町1' }))
+      .toEqual({ city: '横浜市', address: '中区山下町1' });
+  });
+
   it('結果は再び正規化しても変わらない（設定画面で保存し直しても揺れない）', () => {
     for (const [prefecture, city, address] of sharedCases()) {
       const once = normalizeFacilityLocation({ prefecture, city, address });
@@ -118,6 +148,39 @@ describe('政令指定都市の市区町村をエリアマスタの単位へ揃�
   });
 });
 
+describe('公開表示の住所（formatFacilityLocality / formatFacilityAddress）', () => {
+  it('大阪市の区は「大阪市」を補って正しい住所に戻す', () => {
+    expect(formatFacilityLocality('大阪府', '北区')).toBe('大阪市北区');
+    expect(formatFacilityAddress({ prefecture: '大阪府', city: '北区', address: '梅田1' })).toBe('大阪府大阪市北区梅田1');
+  });
+
+  it('正規化してから表示すると、元の住所と同じになる（大阪市北区 → 北区 → 大阪市北区）', () => {
+    const stored = normalizeFacilityLocation({ prefecture: '大阪府', city: '大阪市北区', address: '大阪府大阪市北区梅田1-1' });
+    expect(formatFacilityAddress({ prefecture: '大阪府', ...stored })).toBe('大阪府大阪市北区梅田1-1');
+  });
+
+  it('大阪府以外の同名の区・大阪府の他の市・区でない値はそのまま', () => {
+    expect(formatFacilityLocality('東京都', '北区')).toBe('北区');
+    expect(formatFacilityLocality('大阪府', '堺市')).toBe('堺市');
+    expect(formatFacilityLocality('大阪府', '豊中市')).toBe('豊中市');
+    expect(formatFacilityLocality(null, '北区')).toBe('北区');
+    expect(formatFacilityAddress({ prefecture: '神奈川県', city: '横浜市', address: '中区山下町1' })).toBe('神奈川県横浜市中区山下町1');
+  });
+
+  it('旧データ（大阪市北区のまま保存された施設）も二重にしない', () => {
+    expect(formatFacilityAddress({ prefecture: '大阪府', city: '大阪市中央区', address: '難波1-2-3' })).toBe('大阪府大阪市中央区難波1-2-3');
+  });
+
+  it('null は空文字として扱い「null」を出さない', () => {
+    expect(formatFacilityLocality('大阪府', null)).toBe('');
+    expect(formatFacilityAddress({ prefecture: null, city: undefined, address: null })).toBe('');
+  });
+
+  it('大阪市の全区で「大阪市」を補う', () => {
+    for (const ward of OSAKA_CITY_WARDS) expect(formatFacilityLocality('大阪府', ward)).toBe(`${OSAKA_CITY}${ward}`);
+  });
+});
+
 describe('SQL 版（public.normalize_facility_location）との一致と配線', () => {
   const normalizer = latestDefinition('normalize_facility_location');
 
@@ -127,17 +190,31 @@ describe('SQL 版（public.normalize_facility_location）との一致と配線',
   });
 
   it.each(['setup_facility_from_registration', 'link_duplicate_registration'])(
-    '最新の %s が正規化を通している',
+    '最新の %s が正規化を通している（その関数の本文の中で）',
     (fn) => {
-      const { sql } = latestDefinition(fn);
-      const body = sql.slice(sql.indexOf(`FUNCTION public.${fn}(`));
-      expect(body).toMatch(/SELECT \* INTO normalized_location FROM public\.normalize_facility_location\(/);
+      expect(latestDefinition(fn).body).toMatch(NORMALIZER_CALL);
     },
   );
 
+  it('負の対照：link の本文から呼び出しを消すと検査が落ちる（後続の setup の呼び出しで通らない）', () => {
+    const { sql, body } = latestDefinition('link_duplicate_registration');
+    const removed = sql.replace(body, body.replace(new RegExp(NORMALIZER_CALL.source, 'g'), '-- removed '));
+    expect(removed).not.toBe(sql);
+    // 定義の先頭からファイル末尾までを見る旧来の検査は、同じ migration の後続関数の呼び出しで通ってしまう。
+    expect(removed.slice(removed.search(definitionPattern('link_duplicate_registration')))).toMatch(NORMALIZER_CALL);
+    // 本文に限った検査は落ちる。
+    expect(functionBody(removed, 'link_duplicate_registration')).not.toMatch(NORMALIZER_CALL);
+  });
+
+  it('REVOKE / GRANT だけの記述は定義として数えない', () => {
+    expect(definitionPattern('save_admin_menu_atomic').test('REVOKE ALL ON FUNCTION public.save_admin_menu_atomic(uuid) FROM PUBLIC;')).toBe(false);
+    expect(definitionPattern('save_admin_menu_atomic').test('CREATE OR REPLACE FUNCTION public.save_admin_menu_atomic(')).toBe(true);
+    expect(definitionPattern('save_admin_menu_atomic').test('CREATE FUNCTION public.save_admin_menu_atomic(')).toBe(true);
+  });
+
   it('施設作成は正規化した city / address を facility_profiles へ書く', () => {
-    const { sql } = latestDefinition('setup_facility_from_registration');
-    expect(sql).toContain('new_prefecture,normalized_location.city,normalized_location.address,');
-    expect(sql).not.toMatch(/coalesce\(nullif\(p_profile->>'address',''\),receipt\.address,''\),\s*receipt\.postal_code/);
+    const { body } = latestDefinition('setup_facility_from_registration');
+    expect(body).toContain('new_prefecture,normalized_location.city,normalized_location.address,');
+    expect(body).not.toMatch(/coalesce\(nullif\(p_profile->>'address',''\),receipt\.address,''\),\s*receipt\.postal_code/);
   });
 });
