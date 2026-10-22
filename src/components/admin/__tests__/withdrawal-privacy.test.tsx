@@ -15,7 +15,11 @@ jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: () => 
  auth: { getUser: async () => ({ data: { user: { id: 'synthetic' } }, error: null }) },
  from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { display_name: 'Synthetic profile', phone: '09000000000', prefecture: '東京都', city: '', birth_date: '', gender: '', avatar_url: null, email_unsubscribed: false }, error: null }) }) }) }),
 }) }));
-beforeEach(() => { jest.clearAllMocks(); mockClear.mockReset().mockResolvedValue(undefined); mockComplete.mockReset(); mockPrepare.mockReset(); mockFetch.mockReset(); global.fetch = mockFetch; });
+beforeEach(() => { jest.clearAllMocks(); mockClear.mockReset().mockResolvedValue(undefined); mockComplete.mockReset(); mockPrepare.mockReset(); mockFetch.mockReset();
+ // マイページは表示時に配信設定（GET /api/profile/newsletter）を読む。退会の HTTP（mockFetch）とは分けて数える。
+ global.fetch = ((url: string, init?: RequestInit) => url === '/api/profile/newsletter'
+  ? Promise.resolve({ ok: true, json: async () => ({ receive: true }) })
+  : mockFetch(url, init)) as unknown as typeof fetch; });
 async function open(kind: 'owner' | 'profile') {
  render(kind === 'owner' ? <WithdrawalSettings /> : <ProfileEditPage />);
  fireEvent.click(await screen.findByRole('button', { name: kind === 'owner' ? '退会する' : 'アカウントを削除する', exact: true }));
