@@ -147,7 +147,7 @@ export default function AiChatbot() {
               <div className="space-y-3">
                 <div className="flex justify-start">
                   <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-[85%]">
-                    <p className="text-sm text-gray-800">こんにちは！CareLinKのAIアシスタントです。施設の検索や予約についてご質問はありますか？</p>
+                    <p className="text-sm text-gray-800">こんにちは！CareLinkのAIアシスタントです。施設の検索や予約についてご質問はありますか？</p>
                   </div>
                 </div>
                 <div className="space-y-1.5">

@@ -14,7 +14,7 @@ import { verifyRecaptcha } from '@/lib/recaptcha';
 export const maxDuration = 30;
 
 const SYSTEM_PROMPT = `あなたはCareLink（ケアリンク）の公式AIアシスタントです。
-CareLinKは鍼灸・整体・マッサージなどの施術施設を検索・予約できる日本のプラットフォームです。
+CareLinkは鍼灸・整体・マッサージなどの施術施設を検索・予約できる日本のプラットフォームです。
 
 【対応範囲】
 - 施設の検索方法・条件絞り込み（地域、症状、業種など）
