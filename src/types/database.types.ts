@@ -3114,6 +3114,7 @@ export type Database = {
       }
       hpb_menu_durations: {
         Row: {
+          applied_at: string | null
           created_at: string
           description: string | null
           description_override: string | null
@@ -3122,6 +3123,7 @@ export type Database = {
           facility_id: string
           is_hidden: boolean
           kind: string
+          missing_since: string | null
           name: string
           name_override: string | null
           price: number | null
@@ -3132,6 +3134,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          applied_at?: string | null
           created_at?: string
           description?: string | null
           description_override?: string | null
@@ -3140,6 +3143,7 @@ export type Database = {
           facility_id: string
           is_hidden?: boolean
           kind?: string
+          missing_since?: string | null
           name: string
           name_override?: string | null
           price?: number | null
@@ -3150,6 +3154,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          applied_at?: string | null
           created_at?: string
           description?: string | null
           description_override?: string | null
@@ -3158,6 +3163,7 @@ export type Database = {
           facility_id?: string
           is_hidden?: boolean
           kind?: string
+          missing_since?: string | null
           name?: string
           name_override?: string | null
           price?: number | null

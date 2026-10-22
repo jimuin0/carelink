@@ -13,9 +13,11 @@ export const dynamic = 'force-dynamic';
 /** 認可: ログインユーザーが facility_id の owner/admin か検証。可なら userId/facilityId を返す。 */
 
 /**
- * POST: hpb_menu_durations を facility_menus へ一括反映。
+ * POST: hpb_menu_durations から facility_menus に【まだ無いメニューだけ】を作る（2026年10月23日）。
  * 新規メニューは is_published=false(非公開)で作成されるため、反映直後は客に出ない。
  * /admin/menus の「公開する」（PATCH /api/admin/menus/[id] の is_published）で公開したものだけ客向けに表示される。
+ * 既にあるメニューは変更しない（メニュー管理での手直しを戻さない）。HPB のクーポン・HPB で掲載終了の行・
+ * 別の店舗IDで取得した行は作らない（判定は applyHpbMenusToFacilityMenus）。
  */
 export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
