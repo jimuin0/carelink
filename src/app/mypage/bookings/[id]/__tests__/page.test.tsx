@@ -5,7 +5,7 @@
  * 旧実装は .catch(() => {}) で握り潰し、連携済みでも非連携扱いになっていた。
  */
 import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import BookingDetailPage from '@/app/mypage/bookings/[id]/page';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 
@@ -354,12 +354,20 @@ test('常にキャンセル料の店舗 → 確認に金額と料率を出し、
   mockDetail({ booking: { ...BOOKING, booking_date: '2099-06-20' }, policy: { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'always_fee' } });
   cancelFetch({ success: true, cancelFee: 2500 });
   renderPage();
-  fireEvent.click(await screen.findByRole('button', CANCEL_BUTTON));
+  const cancelButton = await screen.findByRole('button', CANCEL_BUTTON);
+  // 確定額のお知らせ先は、キャンセル前から空で置いてあるライブリージョン（後から文字を入れて読み上げさせる）。
+  const receiptRegion = screen.getByRole('status');
+  expect(receiptRegion).toBeEmptyDOMElement();
+  fireEvent.click(cancelButton);
   const dialog = await screen.findByRole('dialog');
   expect(dialog).toHaveTextContent('この予約をキャンセルしますか？いまキャンセルすると、キャンセル料 ¥2,500（施術料金の50%）がかかります。');
   expect(dialog).not.toHaveTextContent('発生する場合があります');
+  // 開いたときにフォーカスはボタンへ移るので、金額はダイアログの説明として読み上げられる必要がある。
+  expect(dialog).toHaveAccessibleDescription('この予約をキャンセルしますか？いまキャンセルすると、キャンセル料 ¥2,500（施術料金の50%）がかかります。お支払い方法は店舗からご案内します。');
   fireEvent.click(screen.getByRole('button', { name: 'キャンセルする' }));
   expect(await screen.findByText('予約をキャンセルしました。キャンセル料 ¥2,500 が発生します。お支払い方法は店舗からご案内します。')).toBeInTheDocument();
+  expect(receiptRegion).toBeInTheDocument();
+  expect(receiptRegion).toHaveTextContent('予約をキャンセルしました。キャンセル料 ¥2,500 が発生します。');
   expect(cancelCalls()).toHaveLength(1);
 });
 
@@ -393,11 +401,21 @@ test('確認を開いたあとで無料期限を過ぎた → 取り消さずに
   cancelFetch({ success: true, cancelFee: 2500 });
   renderPage();
   fireEvent.click(await screen.findByRole('button', CANCEL_BUTTON));
-  expect(await screen.findByRole('dialog')).toHaveTextContent('キャンセル料はかかりません（予約日時の24時間前まで無料）');
+  const openedDialog = await screen.findByRole('dialog');
+  expect(openedDialog).toHaveTextContent('キャンセル料はかかりません（予約日時の24時間前まで無料）');
+  const noticeBefore = within(openedDialog).getByRole('status');
+  expect(noticeBefore).toBeEmptyDOMElement();
   now.mockReturnValue(START_MS - 23 * 3_600_000);
   fireEvent.click(screen.getByRole('button', { name: 'キャンセルする' }));
   const dialog = await screen.findByRole('dialog');
-  expect(dialog).toHaveTextContent('キャンセル料の条件が変わりました。内容をご確認ください。この予約をキャンセルしますか？いまキャンセルすると、キャンセル料 ¥2,500（施術料金の50%）がかかります。');
+  // 見込みが変わったことは、開いた時点から在るライブリージョンに書き込んで読み上げさせる
+  // （本文の書き換えだけでは読み上げられず、押しても何も起きないように聞こえる）。
+  const notice = within(dialog).getByRole('status');
+  expect(noticeBefore).toBe(notice);
+  expect(notice).toHaveTextContent('キャンセル料の条件が変わりました。いまキャンセルすると、キャンセル料 ¥2,500（施術料金の50%）がかかります。お支払い方法は店舗からご案内します。内容をご確認のうえ、もう一度「キャンセルする」を押してください。');
+  expect(dialog).toHaveTextContent('この予約をキャンセルしますか？');
+  expect(dialog).not.toHaveTextContent('24時間前まで無料');
+  expect(dialog).toHaveAccessibleDescription(/キャンセル料の条件が変わりました。.*¥2,500/);
   expect(cancelCalls()).toHaveLength(0);
   fireEvent.click(screen.getByRole('button', { name: 'キャンセルする' }));
   expect(await screen.findByText('予約をキャンセルしました。キャンセル料 ¥2,500 が発生します。お支払い方法は店舗からご案内します。')).toBeInTheDocument();

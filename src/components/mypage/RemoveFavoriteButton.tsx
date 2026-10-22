@@ -2,15 +2,20 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAnnounceFavoriteRemoved, FAVORITE_REMOVED_MESSAGE } from '@/components/mypage/FavoriteRemovalStatus';
 
 /**
  * マイページのお気に入りで、いま表示できない施設（掲載が下書き・停止に戻った施設）を外すボタン。
  * 施設ページは公開中しか開けずハートも押せないため、以前はこのお気に入りを外す手段が無かった。
  * 外す操作は /api/favorites（isFavorited:false）で、施設の掲載状態に関係なく受け付ける
  * （toggle_user_favorite_atomic・20261023140000）。成功したら一覧を読み直す。
+ *
+ * 成功のお知らせとフォーカスの移動は FavoriteRemovalStatusProvider（カードの外の常設ライブリージョン）に任せる。
+ * 読み直すとこのカードごと消えるので、ここにお知らせを出しても残らず、フォーカスも行き場を失う。
  */
 export default function RemoveFavoriteButton({ facilityId }: { facilityId: string }) {
   const router = useRouter();
+  const announceRemoved = useAnnounceFavoriteRemoved();
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
   const [removed, setRemoved] = useState(false);
@@ -29,6 +34,8 @@ export default function RemoveFavoriteButton({ facilityId }: { facilityId: strin
       const body = res.ok ? await res.json().catch(() => null) : null;
       // 応答が「外れた」ことを確かめられたときだけ成功とする（確かめられない結果を成功と見せない）。
       if (body?.isFavorited !== false) throw new Error('Unconfirmed favorite removal');
+      // ボタンが消える前に、フォーカスをカードの外（見出し）へ移してお知らせを出す。
+      announceRemoved?.();
       setRemoved(true);
       router.refresh();
     } catch {
@@ -38,7 +45,8 @@ export default function RemoveFavoriteButton({ facilityId }: { facilityId: strin
   };
 
   if (removed) {
-    return <p role="status" className="mt-4 text-sm text-gray-700">お気に入りから外しました。</p>;
+    // ページ側の器があれば、お知らせはそちら（カードの外）に出ている。
+    return announceRemoved ? null : <p role="status" className="mt-4 text-sm text-gray-700">{FAVORITE_REMOVED_MESSAGE}</p>;
   }
 
   return (

@@ -47,3 +47,15 @@ test('an unavailable facility card offers removal of that favorite; available ca
  const html=renderToStaticMarkup(await Page());
  expect(html.match(/お気に入りから外す/g)).toHaveLength(1);expect(html).toContain('掲載が再開されると、ここに表示されます');expect(html).toContain('favorite-facility');
 });
+
+// 外すとカードごと一覧から消えるので、完了のお知らせとフォーカスの移動先はカードの外に要る。
+// 見出しはフォーカスを受けられ、空のライブリージョンはカードより前（一覧の外）に最初から置いてある。
+test('the heading can take focus and an empty live region sits outside the cards, also in the empty state',async()=>{
+ for(const favorites of [[{id:'synthetic-unavailable',facility_id:'fa7f0001-0000-4000-8000-000000000002',facility:null}],[]]){
+  mockFavorites.mockResolvedValue(favorites);
+  const html=renderToStaticMarkup(await Page());
+  expect(html).toContain('<h1 id="favorites-heading" tabindex="-1"');
+  expect(html).toContain('<p role="status" class="sr-only"></p>');
+  expect(html.indexOf('<p role="status" class="sr-only"></p>')).toBeLessThan(html.search(/施設情報を現在表示できません|お気に入りがありません/));
+ }
+});

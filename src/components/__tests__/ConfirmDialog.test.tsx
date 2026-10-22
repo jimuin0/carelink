@@ -71,4 +71,26 @@ describe('ConfirmDialog', () => {
     setup();
     expect(screen.getByRole('button', { name: '削除する' })).toBeEnabled();
   });
+
+  // 本文（取り消せない操作の前に伝える内容。例: キャンセル料）がダイアログの説明として結ばれていないと、
+  // 開いたときにフォーカスがボタンへ移るだけで本文が読み上げられない。
+  test('本文は aria-describedby でダイアログの説明として読み上げられる', () => {
+    setup();
+    expect(screen.getByRole('dialog')).toHaveAccessibleDescription('この操作は取り消せません');
+  });
+
+  // 開いたあとで内容が変わったことは、開いた時点から置いてあるライブリージョンに書き込む。
+  // 中身ごと差し込んだライブリージョンや本文の書き換えは読み上げられないことが多い。
+  test('notice は開いた時点から在る role=status に入り、後から書き込める', () => {
+    const props = { open: true, title: 't', message: 'm', onConfirm: () => {}, onCancel: () => {} };
+    const { rerender } = render(<ConfirmDialog {...props} />);
+    const region = screen.getByRole('status');
+    expect(region).toBeEmptyDOMElement();
+    expect(region).toHaveClass('sr-only');
+    rerender(<ConfirmDialog {...props} notice="キャンセル料の条件が変わりました。" />);
+    expect(screen.getByRole('status')).toBe(region);
+    expect(region).toHaveTextContent('キャンセル料の条件が変わりました。');
+    expect(region).not.toHaveClass('sr-only');
+    expect(screen.getByRole('dialog')).toHaveAccessibleDescription('m キャンセル料の条件が変わりました。');
+  });
 });

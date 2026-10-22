@@ -365,10 +365,14 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
           {cancelling ? 'キャンセル中...' : 'この予約をキャンセル'}
         </button>
       )}
-      {/* キャンセル API が返した確定額（お客様宛メールと同じ額）。キャンセル直後に画面に残す。 */}
-      {booking.status === 'cancelled' && cancelReceipt && (
-        <p role="status" className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">予約をキャンセルしました。{cancelReceipt}</p>
-      )}
+      {/* キャンセル API が返した確定額（お客様宛メールと同じ額）。キャンセル直後に画面に残す。
+          ライブリージョンは予約を表示した時点から空のまま置いておき、後から文字を入れる
+          （中身ごと差し込むと多くのスクリーンリーダーで金額が読み上げられない）。 */}
+      <div role="status">
+        {booking.status === 'cancelled' && cancelReceipt && (
+          <p className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">予約をキャンセルしました。{cancelReceipt}</p>
+        )}
+      </div>
       {/* リピート予約（v8.6）。正しい施設 slug が取れている時のみ表示（UUID を slug にして 404 を防ぐ）。
           param 名は一覧・BookingFlow と揃えて menu_id/staff_id（#389 A-4/A-5 と統一）。
           指名なし（おまかせ）で割り当てられた担当者は引き継がない（指名料がかかる指名にしない）。 */}
@@ -392,10 +396,17 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         予約一覧に戻る
       </button>
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+      {/* 見込みが変わったときは、新しい見込みを本文ではなく notice（開いた時点から在るライブリージョン）に出す。
+          本文の書き換えは読み上げられず、「キャンセルする」を押しても何も起きないように聞こえるため。 */}
       <ConfirmDialog
         open={showCancelConfirm}
         title="予約をキャンセル"
-        message={`${cancelEstimateChanged ? 'キャンセル料の条件が変わりました。内容をご確認ください。' : ''}この予約をキャンセルしますか？${cancelFeeEstimate(booking, cancelEstimateAt)}`}
+        message={cancelEstimateChanged
+          ? 'この予約をキャンセルしますか？'
+          : `この予約をキャンセルしますか？${cancelFeeEstimate(booking, cancelEstimateAt)}`}
+        notice={cancelEstimateChanged
+          ? `キャンセル料の条件が変わりました。${cancelFeeEstimate(booking, cancelEstimateAt)}内容をご確認のうえ、もう一度「キャンセルする」を押してください。`
+          : ''}
         confirmLabel="キャンセルする"
         cancelLabel="戻る"
         variant="danger"

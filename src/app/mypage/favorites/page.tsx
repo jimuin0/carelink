@@ -1,14 +1,19 @@
 import { getUserFavorites } from '@/lib/user';
 import FacilityCard from '@/components/search/FacilityCard';
 import RemoveFavoriteButton from '@/components/mypage/RemoveFavoriteButton';
+import { FavoriteRemovalStatusProvider } from '@/components/mypage/FavoriteRemovalStatus';
+
+// 「お気に入りから外す」のあとでフォーカスを移す先（カードは一覧から消えるため、カードの外に置く）。
+const HEADING_ID = 'favorites-heading';
 
 export default async function FavoritesPage() {
   const favorites = await getUserFavorites();
 
   return (
     <div>
-      <h1 className="text-xl font-bold mb-4">お気に入り施設</h1>
+      <h1 id={HEADING_ID} tabIndex={-1} className="text-xl font-bold mb-4">お気に入り施設</h1>
 
+      <FavoriteRemovalStatusProvider headingId={HEADING_ID}>
       {favorites.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-xs p-8 text-center">
           <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="currentColor" viewBox="0 0 24 24">
@@ -34,6 +39,7 @@ export default async function FavoritesPage() {
           ))}
         </div>
       )}
+      </FavoriteRemovalStatusProvider>
     </div>
   );
 }

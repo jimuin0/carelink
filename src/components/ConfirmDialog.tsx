@@ -12,6 +12,12 @@ interface ConfirmDialogProps {
   confirmDisabled?: boolean;
   /** 破壊的操作（キャンセル/削除など取り消せない操作）は 'danger' で確定ボタンを赤くし、誤操作を抑止する。 */
   variant?: 'default' | 'danger';
+  /**
+   * 開いたあとで内容が変わったことを知らせる一文（例: 確認中に無料キャンセルの期限を過ぎた）。
+   * 開いた時点から置いてあるライブリージョンに入れるので、書き換えたときにスクリーンリーダーが読み上げる
+   * （本文の書き換えだけでは読み上げられず、押しても何も起きないように聞こえる）。
+   */
+  notice?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -24,12 +30,15 @@ export default function ConfirmDialog({
   cancelLabel = 'キャンセル',
   confirmDisabled = false,
   variant = 'default',
+  notice = '',
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const titleId = useId();
+  const messageId = useId();
+  const noticeId = useId();
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -83,11 +92,20 @@ export default function ConfirmDialog({
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
+      aria-describedby={notice ? `${messageId} ${noticeId}` : messageId}
     >
       <div className="fixed inset-0 bg-black/50" onClick={onCancel} aria-hidden="true" />
       <div ref={dialogRef} className="relative bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
         <h3 id={titleId} className="text-lg font-bold mb-2">{title}</h3>
-        <p className="text-gray-600 text-sm mb-6">{message}</p>
+        <p id={messageId} className="text-gray-600 text-sm mb-6">{message}</p>
+        {/* 開いた時点から空のまま置いておく（後から文字を入れたときに読み上げられるように）。 */}
+        <p
+          id={noticeId}
+          role="status"
+          className={notice ? 'mb-6 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-bold text-amber-900' : 'sr-only'}
+        >
+          {notice}
+        </p>
         <div className="flex gap-3">
           <button
             type="button"

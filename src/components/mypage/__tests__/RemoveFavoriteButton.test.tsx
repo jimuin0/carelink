@@ -5,8 +5,9 @@
  * 以前はこのカードに操作が無く、施設ページも 404 でハートも押せないため、外す手段が無かった。
  */
 import '@testing-library/jest-dom';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import RemoveFavoriteButton from '@/components/mypage/RemoveFavoriteButton';
+import { FavoriteRemovalStatusProvider } from '@/components/mypage/FavoriteRemovalStatus';
 
 const mockRefresh = jest.fn();
 jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh: mockRefresh }) }));
@@ -45,4 +46,50 @@ test.each([
   expect(await screen.findByRole('alert')).toHaveTextContent('お気に入りから外せませんでした。');
   expect(screen.getByRole('button', { name: 'お気に入りから外す' })).toBeEnabled();
   expect(mockRefresh).not.toHaveBeenCalled();
+});
+
+// 外すとボタンが消え、router.refresh() でカードごと一覧から消える。カードの中にお知らせを出すと
+// フォーカスが body に戻り、お知らせもカードと一緒に消える（支援技術の利用者に成功が伝わらない）。
+// ページ側の器があれば、お知らせはカードの外の常設ライブリージョンへ、フォーカスは見出しへ移す。
+describe('ページ側の器（FavoriteRemovalStatusProvider）の中', () => {
+  function Page({ showCard }: { showCard: boolean }) {
+    return (
+      <div>
+        <h1 id="favorites-heading" tabIndex={-1}>お気に入り施設</h1>
+        <FavoriteRemovalStatusProvider headingId="favorites-heading">
+          {showCard ? <RemoveFavoriteButton facilityId={FACILITY_ID} /> : <p>お気に入りがありません</p>}
+        </FavoriteRemovalStatusProvider>
+      </div>
+    );
+  }
+
+  test('お知らせは最初から在るカード外のライブリージョンに入り、フォーカスは見出しへ移り、カードが消えても残る', async () => {
+    mockFetch({ ok: true, status: 200, body: { isFavorited: false } });
+    const { rerender } = render(<Page showCard />);
+    const region = screen.getByRole('status');
+    expect(region).toBeEmptyDOMElement();
+    const button = screen.getByRole('button', { name: 'お気に入りから外す' });
+    button.focus();
+    fireEvent.click(button);
+    await waitFor(() => expect(region).toHaveTextContent('お気に入りから外しました。'));
+    expect(screen.getByRole('heading', { name: 'お気に入り施設' })).toHaveFocus();
+    expect(screen.queryByRole('button', { name: 'お気に入りから外す' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
+    // refresh で一覧が読み直され、カードが消えた（最後の 1 件なら空の状態に置き換わった）あとも残る。
+    rerender(<Page showCard={false} />);
+    expect(screen.getByRole('status')).toBe(region);
+    expect(region).toHaveTextContent('お気に入りから外しました。');
+  });
+
+  test('失敗したときはお知らせを出さず、フォーカスも動かさない', async () => {
+    mockFetch({ ok: false, status: 404, body: null });
+    render(<Page showCard />);
+    const button = screen.getByRole('button', { name: 'お気に入りから外す' });
+    button.focus();
+    fireEvent.click(button);
+    expect(await screen.findByRole('alert')).toHaveTextContent('お気に入りから外せませんでした。');
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+    expect(button).toHaveFocus();
+  });
 });
