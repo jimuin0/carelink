@@ -342,18 +342,27 @@ export default function ProfileEditPage() {
             checked={!emailUnsubscribed}
             disabled={unsubscribeToggling}
             onChange={async (e) => {
-              const newValue = !e.target.checked; // unsubscribed = !受け取る
+              const receive = e.target.checked;
+              let failureMessage = '設定の変更に失敗しました';
               setUnsubscribeToggling(true);
               try {
-                const supabase = createBrowserSupabaseClient();
-                const { data: { user } } = await supabase.auth.getUser();
-                if (!user) return;
-                const { error: updateError } = await supabase.from('profiles').update({ email_unsubscribed: newValue }).eq('id', user.id);
-                if (updateError) throw updateError;
-                setEmailUnsubscribed(newValue);
-                setToast({ type: 'success', message: newValue ? 'お知らせメールの配信を停止しました' : 'お知らせメールの配信を再開しました' });
+                // 🔴 profiles.email_unsubscribed をブラウザから直接書き換えない。メールの配信停止リンクが
+                // 作った抑止行（newsletter_subscriptions）が残り、「再開しました」と出るのに二度と
+                // 届かなかった。サーバーの API が旗と抑止行を 1 トランザクションで切り替える。
+                const res = await fetch('/api/profile/newsletter', {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ receive }),
+                });
+                const body = await res.json().catch(() => null);
+                if (!res.ok || body?.success !== true || body?.receive !== receive) {
+                  if (typeof body?.error === 'string') failureMessage = body.error;
+                  throw new Error('Newsletter preference not confirmed');
+                }
+                setEmailUnsubscribed(!receive);
+                setToast({ type: 'success', message: receive ? 'お知らせメールの配信を再開しました' : 'お知らせメールの配信を停止しました' });
               } catch {
-                setToast({ type: 'error', message: '設定の変更に失敗しました' });
+                setToast({ type: 'error', message: failureMessage });
               } finally {
                 setUnsubscribeToggling(false);
               }
@@ -362,7 +371,7 @@ export default function ProfileEditPage() {
           />
           <div>
             <p className="text-sm font-medium text-gray-800">お知らせメール（クーポン・キャンペーン情報など）を受け取る</p>
-            <p className="text-xs text-gray-500 mt-0.5">OFFにするとお知らせメールの配信が停止されます。</p>
+            <p className="text-xs text-gray-500 mt-0.5">OFFにするとお知らせメールの配信が停止されます。メール内の配信停止リンクで止めた場合も、ここでONにすると再開できます。</p>
           </div>
         </label>
       </div>
