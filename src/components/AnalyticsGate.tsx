@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
 import Script from 'next/script';
 import { GoogleAnalytics } from '@next/third-parties/google';
 import {
@@ -42,10 +42,24 @@ export default function AnalyticsGate({
     getServerConsentSnapshot,
   );
 
+  // 反映した最後の状態。同じ状態を二度反映しない（Clarity のキューに同意を重ねて積まない）。
+  const applied = useRef<string | null>(null);
+
   // 子の <Script strategy="lazyOnload"> はページの load 後のアイドル時に挿入されるので、
   // ここで定義する Clarity のスタブは必ずタグ本体より先に存在する。
+  //
+  // 🔴 反映には描画値の consented ではなく、保存値を読み直した結果を使う。
+  // ハイドレーションのコミットでは consented がサーバー側の値（false）のままで、実値（true）への
+  // 再描画はこの effect の後に来る。描画値で判定すると、同意済みの来訪者でもページを読み込むたびに
+  // 撤回側（GA の送信停止・_ga/_ga_<ID>/_clck/_clsk の削除）が走り、GA では毎回新しいユーザー、
+  // Clarity では録画が細切れになっていた（2026年10月22日 レビューで判明）。
+  // consented は「保存値が変わったので読み直す」きっかけとして依存配列に残す。
   useEffect(() => {
-    applyAnalyticsConsent(consented, { gaId, clarityId });
+    const live = hasAnalyticsConsent();
+    const key = `${live}|${gaId ?? ''}|${clarityId ?? ''}`;
+    if (applied.current === key) return;
+    applied.current = key;
+    applyAnalyticsConsent(live, { gaId, clarityId });
   }, [consented, gaId, clarityId]);
 
   if (!consented) return null;

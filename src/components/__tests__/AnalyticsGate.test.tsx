@@ -49,9 +49,13 @@ function loaded() {
   };
 }
 
+function cookieNames(): string[] {
+  return document.cookie.split(';').map((p) => p.split('=')[0]!.trim()).filter(Boolean).sort();
+}
+
 beforeEach(() => {
   localStorage.clear();
-  document.cookie = '_ga=; Max-Age=0; path=/';
+  for (const name of cookieNames()) document.cookie = `${name}=; Max-Age=0; path=/`;
   delete w.clarity;
   delete w['ga-disable-G-TEST1'];
 });
@@ -105,6 +109,71 @@ test('サーバー描画は同意済みの端末でも何も出さない（HTML 
   store(true);
   const html = renderToString(<AnalyticsGate {...IDS} />);
   expect(html).toBe('');
+});
+
+// 本番のページ読み込みは render()（クライアントだけのマウント）ではなくハイドレーションを通る。
+// ハイドレーションのコミットでは useSyncExternalStore がサーバー側の値（未同意）を返し、
+// 実値（同意済み）への再描画はその後になる。修正前は、この一瞬の「未同意」で撤回側の処理が走り、
+// 同意済みの来訪者の _ga・_ga_<ID>・_clck・_clsk を読み込みのたびに消していた
+// （GA ではページを開くたびに新しいユーザー、Clarity では録画が細切れになる）。
+describe('ハイドレーション（本番のページ読み込みと同じ経路）', () => {
+  function recordGaDisableWrites(): boolean[] {
+    const writes: boolean[] = [];
+    Object.defineProperty(window, 'ga-disable-G-TEST1', {
+      configurable: true,
+      get: () => writes[writes.length - 1],
+      set: (value: boolean) => {
+        writes.push(value);
+      },
+    });
+    return writes;
+  }
+
+  async function hydrate() {
+    const container = document.createElement('div');
+    container.innerHTML = renderToString(<AnalyticsGate {...IDS} />);
+    document.body.appendChild(container);
+    await act(async () => {
+      render(<AnalyticsGate {...IDS} />, { container, hydrate: true });
+    });
+  }
+
+  afterEach(() => {
+    delete w['ga-disable-G-TEST1'];
+  });
+
+  test('同意済みなら、既存の GA・Clarity の Cookie を消さず、GA の送信停止も一度も立てない', async () => {
+    store(true);
+    document.cookie = '_ga=GA1.1.1.2; path=/';
+    document.cookie = '_ga_TEST1=GS1.1.1; path=/';
+    document.cookie = '_clck=abc; path=/';
+    document.cookie = '_clsk=def; path=/';
+    const writes = recordGaDisableWrites();
+
+    await hydrate();
+
+    expect(cookieNames()).toEqual(['_clck', '_clsk', '_ga', '_ga_TEST1']);
+    expect(writes).not.toContain(true);
+    expect(writes[writes.length - 1]).toBe(false);
+    expect(loaded()).toEqual({ ga: 1, clarity: 1 });
+    // 同意の通知は 1 回だけ（ハイドレーション後の再描画で重ねて積まない）
+    const queue = (w.clarity as unknown as { q: ArrayLike<unknown>[] }).q;
+    expect(queue.map((a) => Array.from(a))).toEqual([['consent']]);
+  });
+
+  test('未同意（「必須のみ」）なら、ハイドレーション経路でも Cookie を消して GA を止める', async () => {
+    store(false);
+    document.cookie = '_ga=GA1.1.1.2; path=/';
+    document.cookie = '_clck=abc; path=/';
+    const writes = recordGaDisableWrites();
+
+    await hydrate();
+
+    expect(cookieNames()).toEqual([]);
+    expect(writes).toEqual([true]);
+    expect(loaded()).toEqual({ ga: 0, clarity: 0 });
+    expect(w.clarity).toBeUndefined();
+  });
 });
 
 test('バナーで「すべて同意」を押すと、再読み込みなしでその場で読み込む', () => {
