@@ -24,6 +24,9 @@ jest.mock('next/script', () => ({
     <span data-testid="next-script" data-id={props.id} data-src={props.src} data-strategy={props.strategy} data-nonce={props.nonce} />
   ),
 }));
+// 録画してよい画面の判定（src/lib/session-recording-scope.ts）はパスで決まる。既定は公開のトップ。
+let mockPathname: string | null = '/';
+jest.mock('next/navigation', () => ({ usePathname: () => mockPathname }));
 jest.mock('@next/third-parties/google', () => ({
   GoogleAnalytics: (props: { gaId: string; nonce?: string }) => (
     <span data-testid="google-analytics" data-ga-id={props.gaId} data-nonce={props.nonce} />
@@ -54,6 +57,7 @@ function cookieNames(): string[] {
 }
 
 beforeEach(() => {
+  mockPathname = '/';
   localStorage.clear();
   for (const name of cookieNames()) document.cookie = `${name}=; Max-Age=0; path=/`;
   delete w.clarity;
@@ -194,7 +198,7 @@ test('バナーで「必須のみ」を押しても読み込まない', () => {
 test('詳細設定で分析を ON にして保存したときだけ読み込む（マーケティングだけでは読み込まない）', () => {
   const { unmount } = render(<><CookieConsent /><AnalyticsGate {...IDS} /></>);
   fireEvent.click(screen.getByRole('button', { name: '設定を変更' }));
-  fireEvent.click(screen.getByRole('button', { name: 'マーケティングCookieを切り替え' }));
+  fireEvent.click(screen.getByRole('switch', { name: 'マーケティングCookie' }));
   fireEvent.click(screen.getByRole('button', { name: '選択を保存' }));
   expect(loaded()).toEqual({ ga: 0, clarity: 0 });
   unmount();
@@ -202,7 +206,7 @@ test('詳細設定で分析を ON にして保存したときだけ読み込む�
 
   render(<><CookieConsent /><AnalyticsGate {...IDS} /></>);
   fireEvent.click(screen.getByRole('button', { name: '設定を変更' }));
-  fireEvent.click(screen.getByRole('button', { name: '分析Cookieを切り替え' }));
+  fireEvent.click(screen.getByRole('switch', { name: '分析Cookie' }));
   fireEvent.click(screen.getByRole('button', { name: '選択を保存' }));
   expect(loaded()).toEqual({ ga: 1, clarity: 1 });
 });
@@ -224,6 +228,69 @@ test('他タブで同意を取り消すと、このタブでも GA を止め・C
   expect(w['ga-disable-G-TEST1']).toBe(true);
   expect(clarity).toHaveBeenCalledWith('consent', false);
   expect(document.cookie).not.toContain('_ga=');
+});
+
+// 🔴 Clarity は録画を送る。管理画面・マイページ・予約などで動くと、表示されている氏名・電話番号・
+// メールアドレス（店舗の管理画面では同意していないお客様のもの）が録画に載る（2026年10月22日）。
+// 修正前は画面を問わずタグを出しており、下の「直接開いた」テストでタグが 1 本出て落ちる。
+describe('セッション録画（Clarity）は公開の閲覧ページだけ', () => {
+  function queued(): unknown[][] {
+    const clarity = w.clarity as unknown as { q?: ArrayLike<unknown>[] } | undefined;
+    return (clarity?.q ?? []).map((a) => Array.from(a));
+  }
+
+  test.each(['/admin/customers', '/mypage/bookings', '/facility/some-salon/booking', '/intake/some-salon', '/auth/login'])(
+    '同意済みでも %s を直接開いたら Clarity のタグを出さない（GA は読み込む）',
+    (path) => {
+      store(true);
+      mockPathname = path;
+      render(<AnalyticsGate {...IDS} />);
+      expect(loaded()).toEqual({ ga: 1, clarity: 0 });
+      // タグを出していないので止める対象も無い（同意を伝えるだけで、止める・再開するは積まない）
+      expect(queued()).toEqual([['consent']]);
+    },
+  );
+
+  test('パスが分からないときも Clarity は出さない（安全側）', () => {
+    store(true);
+    mockPathname = null;
+    render(<AnalyticsGate {...IDS} />);
+    expect(loaded()).toEqual({ ga: 1, clarity: 0 });
+  });
+
+  test('公開ページから管理画面へ遷移したら録画を止め、公開ページへ戻ったら再開する', () => {
+    store(true);
+    mockPathname = '/search';
+    const { rerender } = render(<AnalyticsGate {...IDS} />);
+    expect(loaded()).toEqual({ ga: 1, clarity: 1 });
+    const clarity = jest.fn();
+    w.clarity = clarity; // clarity.js が読み込み済みの状態
+
+    mockPathname = '/admin/customers';
+    rerender(<AnalyticsGate {...IDS} />);
+    expect(clarity.mock.calls).toEqual([['stop']]);
+    expect(loaded()).toEqual({ ga: 1, clarity: 0 });
+
+    mockPathname = '/admin/bookings'; // 録画しない画面どうしの遷移では重ねて止めない
+    rerender(<AnalyticsGate {...IDS} />);
+    expect(clarity.mock.calls).toEqual([['stop']]);
+
+    mockPathname = '/facility/some-salon';
+    rerender(<AnalyticsGate {...IDS} />);
+    expect(clarity.mock.calls).toEqual([['stop'], ['start']]);
+    expect(loaded()).toEqual({ ga: 1, clarity: 1 });
+  });
+
+  test('管理画面を直接開いてから公開ページへ移ったときは、タグを出すだけで止める・再開するは積まない', () => {
+    store(true);
+    mockPathname = '/admin';
+    const { rerender } = render(<AnalyticsGate {...IDS} />);
+    expect(loaded()).toEqual({ ga: 1, clarity: 0 });
+    mockPathname = '/search';
+    rerender(<AnalyticsGate {...IDS} />);
+    expect(loaded()).toEqual({ ga: 1, clarity: 1 });
+    expect(queued()).toEqual([['consent']]);
+  });
 });
 
 // 配線の検査: root layout が計測タグを直接出していないこと（同意を迂回する経路を作らない）。

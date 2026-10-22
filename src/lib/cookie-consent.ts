@@ -164,6 +164,25 @@ export function ensureClarityStub(): ClarityFunction {
 }
 
 /**
+ * 録画してはいけない画面（src/lib/session-recording-scope.ts）へ画面遷移したら Clarity の録画を
+ * 止め、録画してよい画面へ戻ったら再開する。返り値は「止めている状態か」（次回の stopped に渡す）。
+ *
+ * 直接開いた画面ではタグ自体を出さないので、これが要るのは公開ページで読み込んだ後に
+ * クライアント遷移で管理画面・マイページ・予約へ移った場合だけ。読み込み前のスタブに積んだ
+ * 呼び出しも clarity.js が読み込み時に順に処理する。
+ */
+export function applySessionRecordingScope(allowed: boolean, stopped: boolean): boolean {
+  const clarity = currentClarity();
+  if (!clarity) return false;
+  if (!allowed) {
+    if (!stopped) clarity('stop');
+    return true;
+  }
+  if (stopped) clarity('start');
+  return false;
+}
+
+/**
  * 同意状態を計測タグへ反映する（AnalyticsGate が同意の変化ごとに呼ぶ）。
  *
  * - 同意あり: GA の送信停止フラグを外し、Clarity にスタブを用意して同意を伝える。

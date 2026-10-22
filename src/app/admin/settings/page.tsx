@@ -323,7 +323,7 @@ function AdminSettingsContent() {
   return (
     <div onChange={() => setDirty(true)}>
       <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/settings" dirty={dirty} busy={saving || publishToggling} />
-      <p className="mb-4 text-sm text-gray-600">無料掲載とネット予約は別です。所在地などの店舗情報を確認して掲載公開できます。ネット予約は、公開メニュー・写真・有効スタッフ・全曜日の営業時間設定がそろうまで利用できません。予約管理表は引き続き利用できます。</p>
+      <p className="mb-4 text-sm text-gray-600">無料掲載とネット予約は別です。所在地などの店舗情報を確認して掲載公開できます。ネット予約は、公開メニュー・写真・勤務時間を保存したスタッフ・全曜日の営業時間設定がそろうまで利用できません。予約管理表は引き続き利用できます。</p>
       <SbPageHeader
         title="施設設定"
         actions={

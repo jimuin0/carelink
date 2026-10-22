@@ -137,13 +137,18 @@ export default function CookieConsent() {
               <div className="flex items-start justify-between gap-4 p-3 bg-white/5 rounded-lg">
                 <div>
                   <p className="text-sm font-medium">分析Cookie</p>
-                  <p className="text-xs text-gray-400 mt-0.5">ページビューや利用状況の把握に使用します。個人を特定するデータは収集しません。</p>
+                  {/* 実際の読み込み範囲（Clarity は公開ページだけ）は src/lib/session-recording-scope.ts。
+                      ここを変えるときはプライバシーポリシー第8条も合わせる。 */}
+                  <p className="text-xs text-gray-400 mt-0.5">ページビューや利用状況の把握（Google Analytics）と、画面操作の分析（Microsoft Clarity のヒートマップ・セッション録画）に使用します。ログイン・マイページ・予約・問診・管理画面など、お客様の情報を表示する画面では録画しません。</p>
                 </div>
+                {/* 状態は色とつまみの位置だけでなく role="switch"＋aria-checked で読み上げる（名前に状態を含めない） */}
                 <button
                   type="button"
+                  role="switch"
+                  aria-checked={prefs.analytics}
                   onClick={() => setPrefs((p) => ({ ...p, analytics: !p.analytics }))}
                   className={`relative shrink-0 w-10 h-6 rounded-full transition-colors mt-0.5 before:absolute before:-inset-y-2.5 before:inset-x-0 before:content-[''] ${prefs.analytics ? 'bg-sky-500' : 'bg-gray-600'}`}
-                  aria-label="分析Cookieを切り替え"
+                  aria-label="分析Cookie"
                 >
                   <span className={`block w-4 h-4 bg-white rounded-full transition-transform mx-1 ${prefs.analytics ? 'translate-x-4' : ''}`} />
                 </button>
@@ -157,9 +162,11 @@ export default function CookieConsent() {
                 </div>
                 <button
                   type="button"
+                  role="switch"
+                  aria-checked={prefs.marketing}
                   onClick={() => setPrefs((p) => ({ ...p, marketing: !p.marketing }))}
                   className={`relative shrink-0 w-10 h-6 rounded-full transition-colors mt-0.5 before:absolute before:-inset-y-2.5 before:inset-x-0 before:content-[''] ${prefs.marketing ? 'bg-sky-500' : 'bg-gray-600'}`}
-                  aria-label="マーケティングCookieを切り替え"
+                  aria-label="マーケティングCookie"
                 >
                   <span className={`block w-4 h-4 bg-white rounded-full transition-transform mx-1 ${prefs.marketing ? 'translate-x-4' : ''}`} />
                 </button>

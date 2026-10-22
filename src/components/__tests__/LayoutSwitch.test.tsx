@@ -49,6 +49,28 @@ test('固定バーの無いページでは逃げを付けない', () => {
   expect(footer.className).not.toMatch(/pb-\[/);
 });
 
+// 録画しない画面（src/lib/session-recording-scope.ts）の本文は Clarity のマスク対象にする。
+// 公開ページで読み込んだ Clarity がクライアント遷移の直後に描画を拾っても、文字を残さないための守り。
+describe('Clarity のマスク', () => {
+  // 管理画面はフッターを持たないので、<main> だけを取り出す。
+  function mainAt(pathname: string) {
+    mockPathname = pathname;
+    render(<LayoutSwitch aiEnabled={false}><p>本文</p></LayoutSwitch>);
+    return screen.getByRole('main');
+  }
+
+  test.each(['/admin/customers', '/mypage/bookings', '/auth/login', '/facility/some-salon/booking', '/register', '/intake/some-salon'])(
+    '%s の本文はマスクする',
+    (path) => {
+      expect(mainAt(path)).toHaveAttribute('data-clarity-mask', 'true');
+    },
+  );
+
+  test.each(['/', '/search', '/facility/some-salon', '/blog', '/tokyo'])('%s の本文はマスクしない（録画してよい公開ページ）', (path) => {
+    expect(mainAt(path)).not.toHaveAttribute('data-clarity-mask');
+  });
+});
+
 describe('MobileBottomNav', () => {
   test('下部ナビは固定の高さで、同意バナーが避ける目印を持つ', () => {
     mockPathname = '/search';

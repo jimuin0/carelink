@@ -112,6 +112,14 @@ describe('最後に適用される定義が「勤務時間のある在籍スタ�
     // 今日は日本時間（SQL 側の Asia/Tokyo と揃える）
     expect(source).toMatch(/today: string = todayJst\(\)/);
   });
+
+  // 施設設定の注意書きだけが「有効スタッフ」のまま残っていた。スタッフを追加しただけで条件がそろったと
+  // 読めてしまい、施設ページは「ネット予約は準備中です」のまま（ダッシュボード・3日目メールとも食い違う）。
+  test('施設設定の注意書きも「勤務時間を保存したスタッフ」を条件として案内する', () => {
+    const settings = readFileSync(join(ROOT, 'src/app/admin/settings/page.tsx'), 'utf8');
+    expect(settings).toContain('ネット予約は、公開メニュー・写真・勤務時間を保存したスタッフ・全曜日の営業時間設定がそろうまで利用できません。');
+    expect(settings).not.toContain('有効スタッフ');
+  });
 });
 
 describe('migration の形', () => {

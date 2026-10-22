@@ -134,3 +134,30 @@ describe('保存と通知（src/lib/cookie-consent.ts）', () => {
     expect(screen.queryByRole('region', { name: 'Cookieの設定' })).not.toBeInTheDocument();
   });
 });
+
+// 切り替えの状態は色とつまみの位置でしか表しておらず、スクリーンリーダーでは
+// 「分析Cookieを切り替え ボタン」としか読まれなかった（ON か OFF か分からないまま保存することになる）。
+test('分析・マーケティングの切り替えは、状態を読み上げられるスイッチ（名前に状態を含めない）', () => {
+  render(<CookieConsent />);
+  fireEvent.click(screen.getByRole('button', { name: '設定を変更' }));
+  const analytics = screen.getByRole('switch', { name: '分析Cookie' });
+  const marketing = screen.getByRole('switch', { name: 'マーケティングCookie' });
+  expect(analytics).toHaveAttribute('aria-checked', 'false');
+  expect(marketing).toHaveAttribute('aria-checked', 'false');
+  fireEvent.click(analytics);
+  expect(analytics).toHaveAttribute('aria-checked', 'true');
+  expect(marketing).toHaveAttribute('aria-checked', 'false');
+  fireEvent.click(marketing);
+  expect(marketing).toHaveAttribute('aria-checked', 'true');
+  fireEvent.click(analytics);
+  expect(analytics).toHaveAttribute('aria-checked', 'false');
+});
+
+// Clarity は録画を送る。説明が「個人を特定するデータは収集しません」のままだと実態と合わない。
+test('分析Cookieの説明は、セッション録画とそれを行わない画面を伝える', () => {
+  render(<CookieConsent />);
+  fireEvent.click(screen.getByRole('button', { name: '設定を変更' }));
+  expect(screen.getByText(/Microsoft Clarity のヒートマップ・セッション録画/)).toBeInTheDocument();
+  expect(screen.getByText(/マイページ・予約・問診・管理画面など、お客様の情報を表示する画面では録画しません/)).toBeInTheDocument();
+  expect(screen.queryByText(/個人を特定するデータは収集しません/)).toBeNull();
+});

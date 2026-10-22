@@ -2,13 +2,16 @@
 
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import Script from 'next/script';
+import { usePathname } from 'next/navigation';
 import { GoogleAnalytics } from '@next/third-parties/google';
 import {
   applyAnalyticsConsent,
+  applySessionRecordingScope,
   clarityTagUrl,
   hasAnalyticsConsent,
   subscribeToCookieConsent,
 } from '@/lib/cookie-consent';
+import { isSessionRecordingAllowedPath } from '@/lib/session-recording-scope';
 
 /**
  * GA4 と Microsoft Clarity を、Cookie バナーで分析 Cookie に同意した来訪者にだけ読み込む。
@@ -22,6 +25,11 @@ import {
  * - CSP は nonce＋'strict-dynamic'。GA の初期化（gtag('config')）はインラインスクリプトなので、
  *   Next.js の CSP ガイドどおり nonce を渡す（後から挿入するインラインの扱いがブラウザごとに
  *   違っても、nonce が一致していれば必ず実行される）。
+ * - 🔴 Clarity（セッション録画）は公開の閲覧ページだけで動かす（判定は
+ *   src/lib/session-recording-scope.ts）。管理画面・マイページ・予約・問診などを直接開いたときは
+ *   タグを出さず、公開ページから遷移してきたときは録画を止める。表示されている文字は
+ *   Clarity の既定のマスクでは隠れず、お客様の氏名・連絡先が録画されていた（2026年10月22日）。
+ *   GA4 は画面の内容を送らないので全ページで読み込む。
  */
 function getServerConsentSnapshot(): boolean {
   return false;
@@ -42,8 +50,13 @@ export default function AnalyticsGate({
     getServerConsentSnapshot,
   );
 
+  const recordingAllowed = isSessionRecordingAllowedPath(usePathname());
+
   // 反映した最後の状態。同じ状態を二度反映しない（Clarity のキューに同意を重ねて積まない）。
   const applied = useRef<string | null>(null);
+  // Clarity のタグを一度でも出したか／録画を止めているか。タグを出す前は止める対象が無い。
+  const clarityInserted = useRef(false);
+  const recordingStopped = useRef(false);
 
   // 子の <Script strategy="lazyOnload"> はページの load 後のアイドル時に挿入されるので、
   // ここで定義する Clarity のスタブは必ずタグ本体より先に存在する。
@@ -62,12 +75,19 @@ export default function AnalyticsGate({
     applyAnalyticsConsent(live, { gaId, clarityId });
   }, [consented, gaId, clarityId]);
 
+  // 録画してはいけない画面へのクライアント遷移で止め、公開ページへ戻ったら再開する。
+  useEffect(() => {
+    if (consented && recordingAllowed && clarityId) clarityInserted.current = true;
+    if (!clarityInserted.current) return;
+    recordingStopped.current = applySessionRecordingScope(recordingAllowed, recordingStopped.current);
+  }, [consented, recordingAllowed, clarityId]);
+
   if (!consented) return null;
 
   return (
     <>
       {gaId && <GoogleAnalytics gaId={gaId} nonce={nonce} />}
-      {clarityId && (
+      {clarityId && recordingAllowed && (
         <Script id="ms-clarity-tag" src={clarityTagUrl(clarityId)} strategy="lazyOnload" nonce={nonce} />
       )}
     </>

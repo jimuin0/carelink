@@ -345,11 +345,13 @@ function StaffSchedulePageForm() {
       )}
 
       {/* Weekly Schedule */}
-      <div className="bg-white rounded-xl shadow-xs p-6 mb-6">
+      <div className="bg-white rounded-xl shadow-xs p-4 sm:p-6 mb-6">
         <h2 className="font-bold mb-4">週間スケジュール</h2>
         <fieldset disabled={saving || pendingSave} className="space-y-3">
           {DAY_LABELS.map((label, i) => (
-            <div key={i} className="flex items-center gap-3">
+            // スマホ（幅 320〜390px）では時刻の入力を曜日の下の行へ折り返す。1 行に並べると終了時刻が
+            // カードの外へはみ出し、ページが横にスクロールしていた（スタッフ追加後に必ず通る画面）。
+            <div key={i} className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <label className="flex items-center gap-2 w-16">
                 <input
                   type="checkbox"
@@ -363,7 +365,7 @@ function StaffSchedulePageForm() {
                 <span className="text-sm font-medium">{label}</span>
               </label>
               {enabledDays[i] ? (
-                <div className="flex items-center gap-2">
+                <div className="flex w-full items-center gap-2 sm:w-auto">
                   <SbInput
                     type="time"
                     value={schedules[i].start_time}
@@ -372,7 +374,7 @@ function StaffSchedulePageForm() {
                       next[i] = { ...next[i], start_time: e.target.value };
                       setSchedules(next);
                     }}
-                    className="w-32! text-sm"
+                    className="min-w-0 flex-1 text-sm sm:w-32! sm:flex-none"
                   />
                   <span className="text-gray-400">〜</span>
                   <SbInput
@@ -383,7 +385,7 @@ function StaffSchedulePageForm() {
                       next[i] = { ...next[i], end_time: e.target.value };
                       setSchedules(next);
                     }}
-                    className="w-32! text-sm"
+                    className="min-w-0 flex-1 text-sm sm:w-32! sm:flex-none"
                   />
                 </div>
               ) : (

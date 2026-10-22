@@ -17,6 +17,9 @@
 import '@testing-library/jest-dom';
 import { render, waitFor } from '@testing-library/react';
 import AnalyticsGate from '@/components/AnalyticsGate';
+
+// Clarity を出すのは公開の閲覧ページだけ（src/lib/session-recording-scope.ts）。ここではトップを開いた状態。
+jest.mock('next/navigation', () => ({ usePathname: () => '/' }));
 import { COOKIE_CONSENT_STORAGE_KEY } from '@/lib/cookie-consent';
 
 type W = Window & Record<string, unknown>;

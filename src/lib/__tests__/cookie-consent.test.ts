@@ -21,6 +21,7 @@ import {
   LEGACY_COOKIE_CONSENT_STORAGE_KEY,
   analyticsCookieDomains,
   applyAnalyticsConsent,
+  applySessionRecordingScope,
   clarityTagUrl,
   ensureClarityStub,
   expireAnalyticsCookies,
@@ -245,5 +246,34 @@ describe('applyAnalyticsConsent', () => {
     applyAnalyticsConsent(false, { clarityId: 'abc123' });
     expect(w.clarity).toBeUndefined();
     expect(cookieNames()).toEqual([]);
+  });
+});
+
+// 録画してはいけない画面（管理画面・マイページ・予約など）へのクライアント遷移で止め、戻ったら再開する。
+describe('applySessionRecordingScope', () => {
+  test('Clarity が無ければ何もせず、止めていない扱いにする（スタブも作らない）', () => {
+    expect(applySessionRecordingScope(false, false)).toBe(false);
+    expect(applySessionRecordingScope(true, true)).toBe(false);
+    expect(w.clarity).toBeUndefined();
+  });
+
+  test('録画しない画面へ移ったら一度だけ止め、録画してよい画面へ戻ったら再開する', () => {
+    const clarity = jest.fn();
+    w.clarity = clarity;
+    expect(applySessionRecordingScope(true, false)).toBe(false);
+    expect(clarity).not.toHaveBeenCalled();
+    expect(applySessionRecordingScope(false, false)).toBe(true);
+    expect(clarity).toHaveBeenLastCalledWith('stop');
+    expect(applySessionRecordingScope(false, true)).toBe(true); // 止めたまま重ねて止めない
+    expect(clarity).toHaveBeenCalledTimes(1);
+    expect(applySessionRecordingScope(true, true)).toBe(false);
+    expect(clarity).toHaveBeenLastCalledWith('start');
+    expect(clarity).toHaveBeenCalledTimes(2);
+  });
+
+  test('読み込み前のスタブには順に積む（clarity.js が読み込み時に処理する）', () => {
+    const stub = ensureClarityStub();
+    expect(applySessionRecordingScope(false, false)).toBe(true);
+    expect(stub.q!.map((a) => Array.from(a as ArrayLike<unknown>))).toEqual([['stop']]);
   });
 });

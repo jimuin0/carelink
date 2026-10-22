@@ -105,3 +105,13 @@ test('another-tab cleanup aborts a started request and prevents late response fr
   expect(screen.queryByText('late private answer')).not.toBeInTheDocument();
   expect(screen.getByPlaceholderText('メッセージを入力...')).toHaveValue('');
 });
+
+// 相談内容は入力欄から吹き出しとしてそのまま表示される。Clarity の既定のマスクは表示された文字を隠さないので、
+// 公開ページで同意した来訪者の相談内容（体の悩みなど）が録画に載らないよう、窓ごとマスクする。
+test('the open chat window, including the user\'s own question shown as a bubble, is masked from session recording', async () => {
+  mockFetch(true,200,{reply:'Confirmed reply'}); render(<AiChatbot />); openAndSendQuickQuestion();
+  await screen.findByText('Confirmed reply');
+  const question = screen.getAllByText('近くの鍼灸院を探したい').find(el => el.closest('[data-clarity-mask="true"]'));
+  expect(question).toBeDefined();
+  expect(screen.getByText('Confirmed reply').closest('[data-clarity-mask="true"]')).not.toBeNull();
+});

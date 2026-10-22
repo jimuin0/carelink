@@ -147,8 +147,13 @@ export default function PrivacyPage() {
             <li>Microsoft Clarity：ユーザー行動分析（ヒートマップ・セッション録画）</li>
             <li>Google マップ（Google LLC）：施設ページの地図表示（地図を読み込む際に、閲覧者のIPアドレス・ブラウザーの情報・本サービスのドメイン名がGoogleへ送信されます）</li>
           </ul>
+          {/* 読み込み条件の実装は src/lib/cookie-consent.ts と src/lib/session-recording-scope.ts。
+              ここを変えるときは Cookie バナー（components/CookieConsent.tsx）の説明も合わせる。 */}
           <p className="text-gray-600 mt-2">
-            これらのツールはCookieを使用しますが、個人を特定する情報は含まれません。ブラウザの設定によりCookieの受け取りを拒否することができます。
+            GA4 と Microsoft Clarity は、画面下部の Cookie の設定で分析 Cookie に同意した場合にのみ読み込みます。Microsoft Clarity は、ログイン・マイページ・予約・問診・管理画面など、お客様の情報を表示・入力する画面では録画しません。
+          </p>
+          <p className="text-gray-600 mt-2">
+            これらのツールはCookieを使用しますが、Cookieに氏名・連絡先など個人を特定する情報は含まれません。ブラウザの設定によりCookieの受け取りを拒否することができます。
           </p>
         </section>
 

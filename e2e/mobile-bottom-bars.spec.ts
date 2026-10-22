@@ -173,8 +173,12 @@ test.describe('施設詳細: 予約バー', () => {
     const menu = await db.from('facility_menus').insert({ facility_id: ready.data.id, name: '合成カット',
       category: 'カット', price: 5000, duration_minutes: 60, is_published: true });
     const staff = await db.from('staff_profiles').insert({ facility_id: ready.data.id, name: '合成スタッフ',
-      slug: `${readySlug}-staff`, is_active: true });
-    if (menu.error || staff.error) throw new Error('synthetic bottom bar catalog setup failed');
+      slug: `${readySlug}-staff`, is_active: true }).select('id').single();
+    if (menu.error || staff.error || !staff.data) throw new Error('synthetic bottom bar catalog setup failed');
+    // 勤務時間の無いスタッフは予約を受けられない（facility_booking_ready・20261023080000）。勤務は明示して作る。
+    const week = await db.from('staff_schedules').insert(Array.from({ length: 7 }, (_, day) => ({
+      staff_id: staff.data.id, day_of_week: day, start_time: '09:00', end_time: '20:00' })));
+    if (week.error) throw new Error('synthetic bottom bar schedule setup failed');
     await confirmSyntheticBookingPreparation(db, ready.data.id);
 
     // 掲載のみの施設（ネット予約の準備中。案内文が折り返して予約バーが高くなる）

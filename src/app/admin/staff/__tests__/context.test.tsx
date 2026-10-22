@@ -225,6 +225,24 @@ test('a saved schedule is shown as saved, without the suggestion notice or the s
   expect(dayBox('月').checked).toBe(true); expect(dayBox('火').checked).toBe(false);
 });
 
+// スマホ（幅 320〜390px）で終了時刻がカードの外へはみ出し、ページが横にスクロールしていた。
+// 曜日の行は折り返し、時刻の入力は狭い画面では行の幅を分け合う（固定幅は sm 以上だけ）。
+test('weekday rows wrap the time inputs below the day on narrow screens instead of overflowing', async () => {
+  scheduleTables({ schedules: [{ day_of_week: 1, start_time: '12:00:00', end_time: '18:00:00' }], businessHours: SHOP_HOURS });
+  render(<Schedule />);
+  await screen.findByText('スケジュールを保存');
+  const row = dayBox('月').closest('label')!.parentElement!;
+  expect(row.className.split(/\s+/)).toContain('flex-wrap');
+  const times = Array.from(row.querySelectorAll('input[type="time"]'));
+  expect(times).toHaveLength(2);
+  for (const input of times) {
+    const classes = input.className.split(/\s+/);
+    expect(classes).not.toContain('w-32!'); // 幅を固定するのは sm 以上だけ
+    expect(classes).toEqual(expect.arrayContaining(['min-w-0', 'flex-1', 'sm:w-32!']));
+  }
+  expect(times[0].parentElement!.className.split(/\s+/)).toEqual(expect.arrayContaining(['w-full', 'sm:w-auto']));
+});
+
 test('when the shop hours cannot be read, the editor is not shown (no guessed defaults)', async () => {
   scheduleTables({ facilityError: { message: 'synthetic outage' } });
   render(<Schedule />);
