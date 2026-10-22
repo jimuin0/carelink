@@ -22,6 +22,7 @@ const R1 = '71000000-0000-4000-8000-000000000011';
 const R2 = '71000000-0000-4000-8000-000000000012';
 const R3 = '71000000-0000-4000-8000-000000000013';
 const R4 = '71000000-0000-4000-8000-000000000014';
+const R5 = '71000000-0000-4000-8000-000000000015';
 let mockParams = new URLSearchParams();
 const mockSelection = jest.fn();
 const mockFrom = jest.fn();
@@ -122,6 +123,7 @@ describe('運営の審査状態', () => {
       review(R2, '確認中のお客様', 'published', 'pending'),
       review(R3, '却下のお客様', 'hidden', 'rejected'),
       review(R4, '非表示で確認中のお客様', 'hidden', 'pending'),
+      review(R5, '手続き停止のお客様', 'hidden', 'stalled'),
     ];
   });
   const card = async (name: string) => within(await screen.findByRole('article', { name: `${name}さんの口コミ` }));
@@ -154,6 +156,19 @@ describe('運営の審査状態', () => {
     expect(both.getByText('運営の確認中')).toBeInTheDocument();
     expect(both.getByText('非表示')).toBeInTheDocument();
     expect(both.getByRole('button', { name: '公開する' })).toBeDisabled();
+  });
+
+  // 2026年10月23日レビュー指摘: 承認済みなのに旗が戻ったまま（審査待ちの行が無い）口コミを『運営の確認中』と
+  // 案内していたが、運営の審査画面にも出ず確認は終わらない。事実どおり問い合わせを案内する。
+  test('公開手続きが止まった口コミは『確認中』と言わず問い合わせを案内し、『公開する』を押させない', async () => {
+    render(<AdminReviewsPage />);
+    const stalled = await card('手続き停止のお客様');
+    expect(stalled.getByText('公開手続きの停止')).toBeInTheDocument();
+    expect(stalled.queryByText('運営の確認中')).not.toBeInTheDocument();
+    expect(stalled.getByText('非表示')).toBeInTheDocument();
+    const publish = stalled.getByRole('button', { name: '公開する' });
+    expect(publish).toBeDisabled();
+    expect(publish).toHaveAccessibleDescription('運営の確認は済んでいますが、公開の手続きが止まっています。お手数ですが、運営までお問い合わせください。');
   });
 
   test('『運営の確認』の絞り込みがあり、選ぶと API に moderation を渡す', async () => {

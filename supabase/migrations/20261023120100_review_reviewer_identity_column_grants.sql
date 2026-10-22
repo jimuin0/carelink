@@ -12,7 +12,12 @@
 -- （20261022130000）。店舗にだけ生の ID を渡す理由は無い。
 --
 -- 【対処】列レベルの GRANT にする。テーブル単位の SELECT を外し、本人確認に使える 4 列
--- （reviewer_ip・user_id・booking_id・client_operation_id）を除いた列だけを付け直す。
+-- （reviewer_ip・user_id・booking_id・client_operation_id）と flag_reason を除いた列だけを付け直す。
+-- flag_reason も外すのは、flag-reviews cron が書く「duplicate_facility: … same IP …」「bulk_submission: … same IP」
+-- が【どの口コミとどの口コミが同じ IP から投稿されたか】の手がかりになり（IP 自体を隠しても
+-- 投稿者どうしの結び付けが店舗に渡る）、運営が却下時に書く内部メモ（moderate_review_content_atomic の
+-- p_review_note）も入るため。ブラウザから flag_reason を読む画面は無い（店舗画面は審査状態だけを
+-- /api/admin/reviews から受け取り、運営の審査画面は service_role で読む）。
 -- REVOKE SELECT はテーブルの全列の SELECT も一緒に外す（PostgreSQL の仕様）ので、残る列権限は
 -- 下の GRANT だけになる。anon は RLS に読み取りポリシーが無く 1 行も読めない状態のまま、列も同じ一覧に揃える。
 -- 店舗の「公開する／非表示にする」に要る UPDATE(status) と、WHERE に使う id・facility_id の SELECT は残る。
@@ -31,15 +36,17 @@
 -- が migration を適用順に読み、最後の付与が本人確認用の列を含まないことを CI で固定する。
 -- 実 DB での確認は supabase/shadow/review-identity-columns-fixtures.sql。
 --
--- 適用順: アプリのデプロイ【後】に適用する。デプロイ前のアプリ（origin/fix/fourth-sweep-integration）の
--- マイページは select('*') と .eq('user_id', …) で読むため、先に適用するとデプロイまで
--- 「投稿した口コミ」と口コミの編集画面が読み込みエラーになる。新しいアプリはこの GRANT の有無に
--- かかわらず動く。20261023120000 はデプロイの【前】。
+-- 適用順: アプリのデプロイ【後】に適用する。デプロイ前のアプリ（origin/fix/fourth-sweep-integration）は
+-- 次の 2 か所でブラウザから facility_reviews を select('*') で読むため、先に適用するとデプロイまで
+-- どちらも 42501（permission denied）で読み込みエラーになる。
+--   * 店舗の口コミ管理（/admin/reviews）… 全店舗の口コミ管理画面が「読み込みに失敗しました」になる
+--   * マイページの「投稿した口コミ」と口コミの編集画面（.eq('user_id', …) も使う）
+-- 新しいアプリはこの GRANT の有無にかかわらず動く。20261023120000 はデプロイの【前】。
 
 DO $guard$ BEGIN IF to_regclass('public.facility_profiles') IS NULL THEN RAISE EXCEPTION 'not the CareLink database'; END IF; END $guard$;
 
 REVOKE SELECT ON public.facility_reviews FROM anon, authenticated;
 GRANT SELECT (id, facility_id, reviewer_name, rating, rating_skill, rating_service, rating_atmosphere,
-  rating_cleanliness, rating_explanation, comment, photo_urls, status, is_flagged, flag_reason,
+  rating_cleanliness, rating_explanation, comment, photo_urls, status, is_flagged,
   is_verified_visit, is_pickup, visit_date, staff_id, reply, replied_at, created_at)
   ON public.facility_reviews TO anon, authenticated;

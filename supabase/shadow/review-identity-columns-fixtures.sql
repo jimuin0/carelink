@@ -1,7 +1,8 @@
 -- Disposable, synthetic namespace only. Every write is rolled back.
 -- Proves migration 20261023120100 on a real PG17 schema: a shop owner/admin
--- can no longer read the reviewer's IP address, account id, booking id or
--- submission operation id (before: table-level SELECT returned every column of
+-- can no longer read the reviewer's IP address, account id, booking id,
+-- submission operation id or the moderation flag reason (same-IP grouping
+-- evidence and operator notes) (before: table-level SELECT returned every column of
 -- every review of the shop), while the owner's list columns and the
 -- publish/hide UPDATE(status) keep working and RLS still scopes the rows.
 \set ON_ERROR_STOP on
@@ -21,7 +22,7 @@ $$;
 DO $$ DECLARE role_name text; col text; BEGIN
   FOREACH role_name IN ARRAY ARRAY['anon','authenticated'] LOOP
     PERFORM pg_temp.assert_identity(NOT has_table_privilege(role_name,'public.facility_reviews','SELECT'),'no table-wide SELECT for '||role_name);
-    FOREACH col IN ARRAY ARRAY['reviewer_ip','user_id','booking_id','client_operation_id'] LOOP
+    FOREACH col IN ARRAY ARRAY['reviewer_ip','user_id','booking_id','client_operation_id','flag_reason'] LOOP
       PERFORM pg_temp.assert_identity(NOT has_column_privilege(role_name,'public.facility_reviews',col,'SELECT'),role_name||' cannot read '||col);
     END LOOP;
     FOREACH col IN ARRAY ARRAY['id','facility_id','reviewer_name','rating','comment','status','is_flagged','created_at'] LOOP
@@ -41,9 +42,12 @@ INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,
 INSERT INTO public.facility_members(user_id,facility_id,role) VALUES
  ('fa920000-0000-4000-8000-000000000001','fa920001-0000-4000-8000-000000000001','owner');
 SET LOCAL ROLE service_role;
-INSERT INTO public.facility_reviews(id,facility_id,user_id,reviewer_name,rating,comment,reviewer_ip,client_operation_id) VALUES
+-- flag_reason is written directly (not through the cron) only to have a value
+-- to probe; the assertion is about the column privilege, not about flagging.
+INSERT INTO public.facility_reviews(id,facility_id,user_id,reviewer_name,rating,comment,reviewer_ip,client_operation_id,flag_reason) VALUES
  ('fa920002-0000-4000-8000-000000000001','fa920001-0000-4000-8000-000000000001','fa920000-0000-4000-8000-000000000002',
-  'Nickname',2,'Synthetic critical review','192.0.2.230','fa920009-0000-4000-8000-000000000001');
+  'Nickname',2,'Synthetic critical review','192.0.2.230','fa920009-0000-4000-8000-000000000001',
+  'duplicate_facility: 2 unflagged reviews from same IP for same facility');
 RESET ROLE;
 
 -- Shop owner (PostgREST runs as authenticated with the owner's JWT).
@@ -58,6 +62,7 @@ DO $$ DECLARE probe text; BEGIN
     'SELECT user_id FROM public.facility_reviews',
     'SELECT booking_id FROM public.facility_reviews',
     'SELECT client_operation_id FROM public.facility_reviews',
+    'SELECT flag_reason FROM public.facility_reviews',
     'SELECT * FROM public.facility_reviews',
     'SELECT id FROM public.facility_reviews WHERE user_id=''fa920000-0000-4000-8000-000000000002''',
     'SELECT id FROM public.facility_reviews WHERE reviewer_ip=''192.0.2.230''',

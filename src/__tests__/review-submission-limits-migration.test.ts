@@ -4,6 +4,7 @@
  * 口コミの投稿・編集の DB 側（2026年10月23日・migration 20261023120000）を機械で固定する。
  *  1. lock_review_submission … 24 時間の重複を IP に加えてアカウント（user_id）でも数える。
  *     以前は IP だけで、回線を切り替えるだけで同じアカウントから「来店確認済み」の口コミを重ねられた。
+ *     抑えるのは「同じアカウント・同じ施設で 24 時間あたり 1 件」まで（1 予約 1 件のバッジは扱わない）。
  *  2. edit_review_atomic … 本文が変わっていない編集は保存済みの審査結果（is_flagged / flag_reason）を残す。
  *     以前は星だけの編集で承認済みの口コミが審査待ちにも載らないまま非公開・集計外になった。
  *  3. client_operation_id … 送り直しを 1 件の口コミにまとめる一意の操作 ID。
@@ -32,6 +33,9 @@ const sql = readFileSync(join(DIR, MIGRATION), 'utf8');
 test('接続先ガードで始まり、デプロイ前に適用すると明記し、列権限の migration（デプロイ後）より前に並ぶ', () => {
   expect(code(sql)).toMatch(/^DO \$guard\$ BEGIN IF to_regclass\('public\.facility_profiles'\) IS NULL THEN RAISE EXCEPTION 'not the CareLink database'; END IF; END \$guard\$;/);
   expect(sql).toContain('適用順: アプリのデプロイ【前】');
+  // 先に適用した間の旧フォームの挙動（429 に not-started が付かず投稿欄が止まる）を隠さない
+  expect(sql).toContain('X-CareLink-Review-Commit: not-started が付かず');
+  expect(sql).toContain('24 時間あたり 1 件');
   expect(MIGRATION < GRANTS).toBe(true);
 });
 

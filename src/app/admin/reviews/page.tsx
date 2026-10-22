@@ -69,6 +69,8 @@ async function fetchReviews(facilityId: string, filter: AdminReviewFilter): Prom
 const MODERATION_NOTICE = {
   pending: { badge: '運営の確認中', text: '運営が内容を確認しています。確認が終わるまで店舗ページと評価には反映されません。' },
   rejected: { badge: '運営判断で非公開', text: '運営の判断で非公開になっています。店舗から公開することはできません。' },
+  // 承認済みなのに旗が戻ったまま止まっている（運営の審査画面にも出ない）。『確認中』とは案内しない。
+  stalled: { badge: '公開手続きの停止', text: '運営の確認は済んでいますが、公開の手続きが止まっています。お手数ですが、運営までお問い合わせください。' },
 } as const;
 
 function AdminReviewsContent() {
@@ -356,7 +358,7 @@ function AdminReviewsContent() {
                           {visible ? '公開中' : '非表示'}
                         </span>
                       )}
-                      {notice && review.status === 'hidden' && review.moderation === 'pending' && (
+                      {notice && review.status === 'hidden' && review.moderation !== 'rejected' && (
                         <span className="text-micro px-2 py-0.5 rounded-full font-bold bg-gray-100 text-gray-600">非表示</span>
                       )}
                     </div>

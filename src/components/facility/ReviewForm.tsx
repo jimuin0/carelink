@@ -190,9 +190,9 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
       if (hasClientCleanupNeeded() || generation !== getClientCleanupGeneration()) throw new Error('ログイン状態が変わりました。本文は送信していません。入力を確認してください。');
 
       // レビュー投稿はサーバーサイドAPIを経由（IP記録のため）。
-      // 前回の結果が分からない送信があれば、その操作 ID で送り直す（resumed）。
+      // 前回の結果が分からない送信があれば、その操作 ID で送り直す（mode が resume / legacy）。
       let earlierAccepted = false;
-      await withReviewTransportFence(facilityId, crypto.randomUUID(), async (operationId, resumed) => {
+      await withReviewTransportFence(facilityId, crypto.randomUUID(), async (operationId, mode) => {
       commitAttempted = true;
       const res = await fetch('/api/review', {
         signal: AbortSignal.timeout(20_000),
@@ -209,16 +209,18 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
           comment: data.comment || null,
           photo_urls: photo_urls.length > 0 ? photo_urls : null,
           operation_id: operationId,
+          // 2026年10月23日より前のフォームの印: サーバーはこの ID を知らないので、投稿者で前回の口コミを探させる。
+          ...(mode === 'legacy' ? { legacy_operation: true } : {}),
           ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
         }),
       });
       const body = await res.json().catch(() => null);
       if (!res.ok && res.headers.get('X-CareLink-Review-Commit') === 'not-started') {
         const message = typeof body?.error === 'string' ? body.error : '本文は送信されていません。入力を確認してください。';
-        // 新しい送信が保存前に断られた、または 24 時間以内の投稿がある（どちらもこの操作では保存されていない／
-        // 新しい投稿を受け付けない）ときだけ印を消す。送り直し（resumed）が断られただけでは、前回の送信が
+        // 新しい送信が保存前に断られた、24 時間以内の投稿がある、または印が別の投稿者のもの（前回の口コミは
+        // 保存済みと確定）だったときだけ印を消す。送り直しが断られただけでは、前回の送信が
         // 保存されたかは分からないので、印を残して同じ操作 ID での再送を続けられるようにする。
-        if (!resumed || body?.code === 'REVIEW_RECENT_DUPLICATE') {
+        if (mode === 'new' || body?.code === 'REVIEW_RECENT_DUPLICATE' || body?.code === 'REVIEW_OPERATION_OTHER_ACCOUNT') {
           finishReviewFence(facilityId, operationId);
           setResultUnknown(false);
         }

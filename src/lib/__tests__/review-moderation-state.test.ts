@@ -23,8 +23,14 @@ describe('reviewModeration', () => {
     expect(reviewModeration(true, [row('approved', '2026-09-01T00:00:00Z'), row('rejected', '2026-10-01T00:00:00Z')])).toBe('rejected');
   });
 
-  test('最新の審査が承認なのに旗が立っている（審査の行が無い再フラグ）は確認中として扱い、公開させない', () => {
-    expect(reviewModeration(true, [row('rejected', '2026-09-01T00:00:00Z'), row('approved', '2026-10-01T00:00:00Z')])).toBe('pending');
+  // 2026年10月23日レビュー指摘: 星だけの編集で承認済みの口コミに旗が戻った行（審査待ちの行は作られない）を
+  // 『確認中』と案内していたが、運営の審査画面にも出ず承認のやり直しも拒まれるため、事実と異なっていた。
+  test('最新の審査が承認なのに旗が立っている（審査待ちの行が無い）は公開手続きの停止として扱い、公開させない', () => {
+    expect(reviewModeration(true, [row('rejected', '2026-09-01T00:00:00Z'), row('approved', '2026-10-01T00:00:00Z')])).toBe('stalled');
+  });
+
+  test('承認の後に審査待ちの行があれば確認中', () => {
+    expect(reviewModeration(true, [row('approved', '2026-09-01T00:00:00Z'), row('pending', '2026-10-01T00:00:00Z')])).toBe('pending');
   });
 
   test('審査の行が 1 つも無い旗も確認中（公開されていない理由が運営側にある）', () => {

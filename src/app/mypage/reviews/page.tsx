@@ -13,6 +13,7 @@ import type { MyReview } from '@/lib/my-reviews';
 const MODERATION_LABEL = {
   pending: '運営の確認中のため、まだ公開されていません',
   rejected: '運営の判断で非公開になっています',
+  stalled: '公開の手続きが止まっています。お手数ですが、運営までお問い合わせください',
 } as const;
 
 export default function MyReviewsPage() {

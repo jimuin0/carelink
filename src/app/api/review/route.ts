@@ -55,6 +55,10 @@ const reviewSchema = z.object({
   // 送り直すと、前回の口コミが保存済みならそれを返し、新しい口コミは作らない（二重投稿なしのやり直し）。
   // 旧フォームは送らないので任意。
   operation_id: z.string().uuid().optional(),
+  // 2026年10月23日より前のフォームが端末に残した印（操作 ID をサーバーへ送っていなかった頃のもの）を
+  // 送り直すときだけ true。サーバーはその ID を一度も保存していないので、操作 ID では前回の口コミを
+  // 見つけられない。代わりに同じ投稿者の旧フォームの口コミを探す（findLegacyReview）。
+  legacy_operation: z.literal(true).optional(),
 });
 
 const DUPLICATE_ERROR = '同じ施設への口コミは24時間に1回までです';
@@ -62,10 +66,45 @@ const OPERATION_INDEX = 'uq_facility_reviews_client_operation';
 
 type ServiceClient = ReturnType<typeof createServiceRoleClient>;
 
-/** この操作 ID で保存済みの口コミ（無ければ null）。 */
+/**
+ * 端末に印を残す旧フォームが本番に出た日（PR #666・2026年10月11日）。旧フォームの印に当たる口コミは
+ * これより後にしか存在しない。
+ */
+const LEGACY_FENCE_SINCE = '2026-10-11T00:00:00+09:00';
+
+const OTHER_ACCOUNT_ERROR = '今回の内容はまだ投稿していません。この端末に残っていた、別のログイン状態での送信記録を整理しました。もう一度「口コミを投稿する」を押してください。';
+
+/** この操作 ID で保存済みの口コミ（無ければ null）。user_id は投稿者の照合にだけ使い、応答には含めない。 */
 async function findOperationReview(supabase: ServiceClient, operationId: string) {
-  return supabase.from('facility_reviews').select('id, facility_id')
+  return supabase.from('facility_reviews').select('id, facility_id, user_id')
     .eq('client_operation_id', operationId).maybeSingle();
+}
+
+/**
+ * 旧フォームの印で送り直されたとき、前回の送信が保存されていたかを投稿者で探す。
+ * 旧サーバーは操作 ID を保存しなかったので、同じ施設・同じ投稿者（ログイン中はアカウント、
+ * 未ログインは IP）の、操作 ID を持たない（＝旧フォームの）口コミを前回の送信とみなす。
+ * これが無いまま新しい口コミを作ると、24 時間を過ぎた・IP が変わった送り直しで同じ口コミが 2 件になる。
+ */
+async function findLegacyReview(supabase: ServiceClient, facilityId: string, userId: string | null, ip: string) {
+  let query = supabase.from('facility_reviews').select('id').eq('facility_id', facilityId);
+  query = userId ? query.eq('user_id', userId) : query.eq('reviewer_ip', ip).is('user_id', null);
+  return query.is('client_operation_id', null).gte('created_at', LEGACY_FENCE_SINCE)
+    .order('created_at', { ascending: false }).limit(1);
+}
+
+/**
+ * 操作 ID の口コミが今回の投稿者のものか。ログアウト・退会の後も端末の印は残すので（共有端末）、
+ * 別のアカウントの印で送り直されることがある。そのときに前回の口コミ（の ID）を返すと、
+ * 今回の投稿者の内容が捨てられ、他人の投稿の存在まで伝わってしまう。
+ */
+function sameReviewer(earlier: { user_id: string | null }, userId: string | null) {
+  return earlier.user_id === userId;
+}
+
+/** 別の投稿者の印だった（保存前の拒否・印を消して新しい操作で送り直してよい）。 */
+function otherReviewer() {
+  return NextResponse.json({ code: 'REVIEW_OPERATION_OTHER_ACCOUNT', error: OTHER_ACCOUNT_ERROR }, { status: 409 });
 }
 
 /** 前回の送信で保存済みだった口コミを返す（新しい口コミは作らない・店舗への通知も送り直さない）。 */
@@ -134,7 +173,13 @@ async function submitReview(request: Request, commit: { unknown: boolean }) {
       if (earlier.facility_id !== parsed.data.facility_id) {
         return NextResponse.json({ code: 'REVIEW_OPERATION_CONFLICT', error: '前回の投稿と施設が一致しません。画面を開き直してください。' }, { status: 409 });
       }
+      if (!sameReviewer(earlier, user?.id ?? null)) return otherReviewer();
       return replayed(earlier.id);
+    }
+    if (parsed.data.legacy_operation) {
+      const { data: legacy, error: legacyError } = await findLegacyReview(supabase, parsed.data.facility_id, user?.id ?? null, ip);
+      if (legacyError) return serverError('review-legacy-operation-read', legacyError, '/api/review', '前回の投稿の受付状況を確認できません');
+      if (legacy && legacy.length > 0) return replayed(legacy[0].id);
     }
   }
   const photoState = await verifyReviewPhotos(supabase, user?.id ?? null, parsed.data.facility_id, parsed.data.photo_urls);
@@ -226,7 +271,12 @@ async function submitReview(request: Request, commit: { unknown: boolean }) {
     const operationTaken = error.code === '23505' && String(error.message).includes(OPERATION_INDEX);
     if (operationId && (duplicate || operationTaken)) {
       const { data: earlier } = await findOperationReview(supabase, operationId);
-      if (earlier && earlier.facility_id === parsed.data.facility_id) return replayed(earlier.id);
+      if (earlier && earlier.facility_id === parsed.data.facility_id) {
+        if (sameReviewer(earlier, user?.id ?? null)) return replayed(earlier.id);
+        // 一意制約違反・トリガの拒否はどちらもこの INSERT を巻き戻している（保存していないことが確定）。
+        commit.unknown = false;
+        return otherReviewer();
+      }
     }
     if (duplicate) {
       // トリガが投稿を拒んだ＝このトランザクションは巻き戻っている（保存されていないことが確定）。

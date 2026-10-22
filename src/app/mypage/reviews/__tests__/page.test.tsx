@@ -38,6 +38,8 @@ describe('投稿した口コミ', () => {
   test.each([
     ['pending', '運営の確認中のため、まだ公開されていません'],
     ['rejected', '運営の判断で非公開になっています'],
+    // 承認済みなのに旗が戻ったまま（審査待ちの行が無い）は『確認中』ではなく問い合わせを案内する
+    ['stalled', '公開の手続きが止まっています。お手数ですが、運営までお問い合わせください'],
   ])('審査で止められた口コミ（%s）には理由を出す', async (moderation, label) => {
     mockFetch.mockReturnValue(json(200, { reviews: [mine({ moderation })] }));
     render(<MyReviewsPage />);

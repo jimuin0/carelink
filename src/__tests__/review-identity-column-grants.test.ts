@@ -18,6 +18,9 @@ const ROOT = process.cwd();
 const DIR = join(ROOT, 'supabase/migrations');
 const MIGRATION = '20261023120100_review_reviewer_identity_column_grants.sql';
 const IDENTITY_COLUMNS = ['reviewer_ip', 'user_id', 'booking_id', 'client_operation_id'];
+// 2026年10月23日レビュー指摘: flag_reason には flag-reviews cron の「同じ IP から投稿された」判定
+// （投稿者どうしの結び付けの手がかり）と運営の内部メモが入る。IP を隠しても結び付けが店舗に渡るので外す。
+const WITHHELD_COLUMNS = [...IDENTITY_COLUMNS, 'flag_reason'];
 const ROLES = ['anon', 'authenticated'] as const;
 /** コメントを除き空白を 1 つに潰した SQL（説明文の中の語に反応しない）。 */
 const code = (text: string) => text.replace(/--[^\n]*/g, '').replace(/\s+/g, ' ');
@@ -70,7 +73,7 @@ test('走査は空振りしていない（移行前は authenticated にテー�
 test.each(ROLES)('最終状態で %s は本人確認に使える列を読めない（テーブル単位の SELECT も無い）', (role) => {
   const access = selectAccess(files)[role];
   expect(access.table).toBe(false);
-  for (const column of IDENTITY_COLUMNS) expect(access.columns.has(column)).toBe(false);
+  for (const column of WITHHELD_COLUMNS) expect(access.columns.has(column)).toBe(false);
 });
 
 test('付け直した列は実在し、店舗の一覧と公開・非表示の切り替えに要る列を含む', () => {
@@ -81,13 +84,15 @@ test('付け直した列は実在し、店舗の一覧と公開・非表示の�
     expect(columns).toContain(needed);
   }
   // 本人確認の列以外はすべて付け直している（読めなくなる列を増やして画面を壊さない）
-  expect(snapshot.filter((c) => !columns.includes(c)).sort()).toEqual([...IDENTITY_COLUMNS].sort());
+  expect(snapshot.filter((c) => !columns.includes(c)).sort()).toEqual([...WITHHELD_COLUMNS].sort());
 });
 
 test('migration は接続先ガードで始まり、デプロイ後に適用すると明記している', () => {
   const raw = readFileSync(join(DIR, MIGRATION), 'utf8');
   expect(code(raw).trim()).toMatch(/^DO \$guard\$ BEGIN IF to_regclass\('public\.facility_profiles'\) IS NULL THEN RAISE EXCEPTION 'not the CareLink database'; END IF; END \$guard\$;/);
   expect(raw).toContain('適用順: アプリのデプロイ【後】');
+  // 先に適用したときに壊れるのはマイページだけではない（旧 /admin/reviews も select('*')）
+  expect(raw).toContain('/admin/reviews');
 });
 
 test('ブラウザで動く画面は facility_reviews を読まない（status の更新だけ）', () => {
@@ -112,5 +117,5 @@ test('実 DB での確認（shadow fixture）が CI に配線されている', (
   const workflow = readFileSync(join(ROOT, '.github/workflows/schema-fingerprint.yml'), 'utf8');
   expect(workflow).toContain('-f supabase/shadow/review-identity-columns-fixtures.sql');
   const fixture = readFileSync(join(ROOT, 'supabase/shadow/review-identity-columns-fixtures.sql'), 'utf8');
-  for (const column of IDENTITY_COLUMNS) expect(fixture).toContain(`'SELECT ${column} FROM public.facility_reviews'`);
+  for (const column of WITHHELD_COLUMNS) expect(fixture).toContain(`'SELECT ${column} FROM public.facility_reviews'`);
 });

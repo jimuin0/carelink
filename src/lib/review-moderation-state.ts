@@ -7,6 +7,11 @@ import type { createServiceRoleClient } from './supabase-server';
  * - 'none'     … 審査で止められていない（status だけで公開・非表示が決まる）
  * - 'pending'  … 運営の確認中。確認が終わるまで店舗ページにも評価にも出ない
  * - 'rejected' … 運営の判断で非公開。店舗が「公開する」を押しても公開されない
+ * - 'stalled'  … 最新の審査は承認なのに旗が立ったまま（審査待ちの行も無い）。運営の審査画面にも出ず、
+ *                承認をやり直す操作も拒まれる（moderate_review_content_atomic の REVISION_CONFLICT）ので、
+ *                『確認中』と案内すると事実と異なる。運営への問い合わせを案内する。
+ *                星だけの編集で承認済みの口コミに旗が戻っていた不具合（migration 20261023120000 で修正）で
+ *                できた行がこれに当たる。件数は scripts/diagnose-review-approved-but-flagged.sql で数える。
  *
  * 【なぜ要るか】公開ページ（public_reviews）と評価の集計（update_facility_rating）は
  * is_flagged=false の口コミだけを数える。以前の店舗画面は status だけを見ていたので、
@@ -15,7 +20,7 @@ import type { createServiceRoleClient } from './supabase-server';
  * 審査待ちか却下済みかは moderation_queue にしか無く、店舗・投稿者のロールはその表を読めない
  * （運営だけが読める）ので、サーバー（service_role）がここで判定して状態だけを返す。
  */
-export type ReviewModeration = 'none' | 'pending' | 'rejected';
+export type ReviewModeration = 'none' | 'pending' | 'rejected' | 'stalled';
 
 export type ModerationQueueRow = { content_id: string; status: string; created_at: string };
 
@@ -24,14 +29,16 @@ export type ModerationQueueRow = { content_id: string; status: string; created_a
  * （is_flagged = false）に合わせ、NULL も審査で止められている側に倒す。
  * - 未決（pending / escalated）の審査がある → 'pending'
  * - 最新の審査が却下（rejected）→ 'rejected'
- * - それ以外（審査の行が無い・最新が承認なのに旗が立っている）→ 'pending'
- *   （公開されていない理由が運営側にあるので、店舗に「公開する」を押させない）
+ * - 最新の審査が承認（approved）なのに旗が立っている → 'stalled'
+ * - 審査の行が無い → 'pending'
+ *   （どれも公開されていない理由が運営側にあるので、店舗に「公開する」を押させない）
  */
 export function reviewModeration(isFlagged: boolean | null, rows: readonly ModerationQueueRow[]): ReviewModeration {
   if (isFlagged === false) return 'none';
   if (rows.some((row) => row.status === 'pending' || row.status === 'escalated')) return 'pending';
   const latest = [...rows].sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
-  return latest?.status === 'rejected' ? 'rejected' : 'pending';
+  if (latest?.status === 'rejected') return 'rejected';
+  return latest?.status === 'approved' ? 'stalled' : 'pending';
 }
 
 type ServiceClient = ReturnType<typeof createServiceRoleClient>;
