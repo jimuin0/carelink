@@ -114,6 +114,16 @@ test('GBP save failure without a reason keeps the generic message',async()=>{
  fireEvent.click(screen.getByRole('button',{name:'保存',exact:true}));
  await screen.findByText('保存に失敗しました');
 });
+// 回帰（2026年10月23日・レビュー指摘）: 照合が外れたら API が Place ID ごと外す。設定欄に古い ID を残すと登録中に見える。
+test('GBP setup field is emptied when the API reports that the mismatched Place ID was released',async()=>{
+ const base=(global.fetch as jest.Mock).getMockImplementation()!;
+ (global.fetch as jest.Mock).mockImplementation((url,init)=>String(url).startsWith('/api/admin/gbp/place?')?Promise.resolve({ok:true,json:async()=>({placeData:null,audit:{score:0,maxScore:100,percentage:0,items:[],fetchedAt:'2026-10-23T00:00:00Z'},facilityId:second,ownershipMismatch:true,released:true,notice:GBP_PLACE_MISMATCH_NOTICE})}):base(url,init));
+ mockQuery='facility_id='+second;render(<Gbp/>);await screen.findByDisplayValue('SecondPlace');
+ fireEvent.click(screen.getByRole('button',{name:'診断スコア',exact:true}));
+ await screen.findByText(GBP_PLACE_MISMATCH_NOTICE);
+ fireEvent.click(screen.getByRole('button',{name:'GBP設定',exact:true}));
+ await waitFor(()=>expect(screen.queryByDisplayValue('SecondPlace')).toBeNull());
+});
 test('GBP audit and review tabs explain a stored Place ID that is not this store instead of blaming the API key',async()=>{
  const base=(global.fetch as jest.Mock).getMockImplementation()!;
  (global.fetch as jest.Mock).mockImplementation((url,init)=>String(url).startsWith('/api/admin/gbp/place?')?Promise.resolve({ok:true,json:async()=>({placeData:null,audit:{score:0,maxScore:100,percentage:0,items:[],fetchedAt:'2026-10-23T00:00:00Z'},facilityId:second,ownershipMismatch:true,notice:GBP_PLACE_MISMATCH_NOTICE})}):base(url,init));

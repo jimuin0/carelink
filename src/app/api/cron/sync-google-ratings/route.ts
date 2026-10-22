@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { fetchPlaceDetails } from '@/lib/gbp';
 import { FACILITY_IDENTITY_COLUMNS, placeMatchesFacility } from '@/lib/gbp-ownership';
+import { releaseMismatchedGbpPlace } from '@/lib/gbp-place-release';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertWarning } from '@/lib/alert';
 
@@ -46,7 +47,7 @@ export async function GET(request: Request) {
   // 監査X2: fetchFailed は「Places API 呼び出しが null を返した(例外/401/429/5xx/status≠OK)」件数。
   // 従来はこれを skipped に混ぜていたため、API キー失効・課金停止の全滅時も errors=0 のまま
   // allFailed アラートが構造的に発火しなかった。attempted は place_id 有りで実際に fetch した件数。
-  // mismatched は「保存済みの Place が施設の電話番号・店舗名＋住所と合わず、評価を消した」件数（API は稼働している）。
+  // mismatched は「保存済みの Place が施設の電話番号・店舗名＋住所と合わず、Place ID ごと外した」件数（API は稼働している）。
   const results = { updated: 0, skipped: 0, errors: 0, fetchFailed: 0, deferred: 0, mismatched: 0 };
   let attempted = 0;
   const loopStart = Date.now();
@@ -77,11 +78,12 @@ export async function GET(request: Request) {
         // これらは API 障害であり「レビュー無し施設」ではないため fetch 失敗として集計する。
         outcome = 'fetch_failed';
       } else if (!placeMatchesFacility(placeData, facility)) {
-        // 他店の Place ID（保存時の照合の後で施設情報だけ戻した・照合の導入前に保存された等）。
-        // その店舗の評価を自店の掲載に出さないよう、評価を消す（src/lib/gbp-ownership.ts）。
-        payload.google_rating = null;
-        payload.google_review_count = 0;
-        outcome = 'mismatch';
+        // 他店の Place ID（照合の導入前に保存された・Google 側の店舗情報が変わった等）。
+        // 評価だけでなく Place ID ごと外す。評価だけ消すと、店舗ページの地図・口コミのリンクが他店を指し続け、
+        // 一意索引がその ID を占有して本物の店舗が登録できなくなるため（src/lib/gbp-place-release.ts）。
+        // 外す処理が評価も消すので、下の更新は同期日時だけにする（照合中に保存された新しい ID の評価を消さない）。
+        const released = await releaseMismatchedGbpPlace(supabase, facility.id, facility.gbp_place_id);
+        outcome = released === 'failed' ? 'error' : 'mismatch';
       } else if (placeData.rating == null && placeData.user_ratings_total == null) {
         // 取得は成功したがレビューが無い施設（正常なスキップ＝API は稼働）。
         outcome = 'skipped';

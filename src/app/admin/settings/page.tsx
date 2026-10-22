@@ -14,6 +14,7 @@ import { SbPageHeader, SbBadge, SbInput } from '@/components/admin/SbUi';
 import dynamic from 'next/dynamic';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import { FACILITY_INPUT_LIMITS } from '@/lib/facility-input-limits';
+import { GBP_IDENTITY_CHANGE_NOTICE } from '@/lib/gbp-ownership';
 import { hasConfirmedBookingHours } from '@/lib/booking-preparation';
 import { listingPublishMissing } from '@/lib/facility-publish-gate';
 import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
@@ -677,6 +678,8 @@ function AdminSettingsContent() {
         <p className="text-sm text-gray-500 mb-4">
           Google Place ID を登録すると、Googleマップの診断スコア・クチコミ・投稿管理が使えます。
         </p>
+        {/* 照合に使う項目を変えると DB のトリガが Place ID を外す（20261023150200）。保存してから驚かせない。 */}
+        <p className="text-sm text-gray-600 mb-4">{GBP_IDENTITY_CHANGE_NOTICE}</p>
         <div className="bg-sky-50 rounded-lg p-3 text-xs text-sky-700 mb-4">
           Place ID は{' '}
           <a href="https://developers.google.com/maps/documentation/javascript/examples/places-placeid-finder"

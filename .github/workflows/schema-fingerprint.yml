@@ -283,6 +283,9 @@ jobs:
       - name: One Google Place ID per facility, release and blank values (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/gbp-place-id-unique-fixtures.sql
 
+      - name: Changing the facility identity detaches the Google Place ID and its rating (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/gbp-identity-change-fixtures.sql
+
       - name: Verified LINE ownership and client write restrictions (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/verified-line-ownership-fixtures.sql
 

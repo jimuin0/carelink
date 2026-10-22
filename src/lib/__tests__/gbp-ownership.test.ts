@@ -1,7 +1,7 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import {
   addressesMatch, namesMatch, normalizeAddress, normalizeJapanesePhone, placeMatchesFacility,
-  FACILITY_IDENTITY_COLUMNS, GBP_PLACE_LOOKUP_FAILED_MESSAGE, GBP_PLACE_MISMATCH_MESSAGE, GBP_PLACE_MISMATCH_NOTICE,
+  FACILITY_IDENTITY_COLUMNS, GBP_PLACE_LOOKUP_FAILED_MESSAGE, GBP_PLACE_MISMATCH_MESSAGE, GBP_PLACE_MISMATCH_NOTICE, GBP_IDENTITY_CHANGE_NOTICE,
   GBP_PLACE_TAKEN_MESSAGE,
 } from '../gbp-ownership';
 
@@ -128,4 +128,14 @@ test('every refusal tells the owner what to check and to contact CareLink', () =
   expect(GBP_PLACE_MISMATCH_MESSAGE).toContain('保存できません');
   expect(GBP_PLACE_TAKEN_MESSAGE).toContain('別の店舗に登録されています');
   expect(GBP_PLACE_MISMATCH_NOTICE).toContain('表示していません');
+  // 照合が外れたら Place ID ごと外すので、登録し直す先まで案内する（gbp-place-release.ts）
+  expect(GBP_PLACE_MISMATCH_NOTICE).toContain('登録を解除');
+  expect(GBP_PLACE_MISMATCH_NOTICE).toContain('登録し直してください');
+});
+
+test('the settings screen warns that changing the checked details detaches the Place ID', () => {
+  for (const item of ['店舗名', '電話番号', '郵便番号', '住所']) expect(GBP_IDENTITY_CHANGE_NOTICE).toContain(item);
+  expect(GBP_IDENTITY_CHANGE_NOTICE).toContain('解除されます');
+  const settings = require('node:fs').readFileSync(require('node:path').join(process.cwd(), 'src/app/admin/settings/page.tsx'), 'utf8');
+  expect(settings).toContain('{GBP_IDENTITY_CHANGE_NOTICE}');
 });

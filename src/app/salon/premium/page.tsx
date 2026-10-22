@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { WHITE_LABEL_COMPARISON_LABEL, WHITE_LABEL_COMPARISON_VALUE, WHITE_LABEL_PLAN_FEATURE } from '@/lib/white-label-status';
 
 /**
  * 【2026年7月28日・ローンチ時非公開】
@@ -17,7 +18,7 @@ const LAUNCH_HIDDEN = true;
 
 export const metadata: Metadata = {
   title: 'プレミアムプラン | CareLink',
-  description: 'CareLink プレミアムプランで集客力を最大化。優先表示・高度分析・カスタムドメイン・無制限スタッフ登録など上位機能をご利用いただけます。',
+  description: 'CareLink プレミアムプランで集客力を最大化。優先表示・高度分析・無制限スタッフ登録など上位機能をご利用いただけます。',
   alternates: { canonical: '/salon/premium' },
   // 非公開中は検索エンジンにインデックスさせない（notFound と併せた二重防御）。
   robots: { index: false, follow: false },
@@ -40,7 +41,6 @@ const PREMIUM_FEATURES = [
   'クーポン発行無制限',
   '顧客管理無制限',
   '高度分析ダッシュボード（RFM・ファネル）',
-  'カスタムドメイン対応',
   'AIレビュー要約（月100件）',
   'チェーン店一括管理（複数施設）',
   'A/Bテスト機能',
@@ -48,7 +48,8 @@ const PREMIUM_FEATURES = [
   'Stripe決済統合（デポジット・事前決済）',
   '専任サポート（ビデオ通話対応）',
   'APIアクセス（POS・会計ソフト連携）',
-  'ホワイトラベル（施設独自ドメイン）',
+  // 独自ドメインで予約ページを出す処理はまだ無い。提供済みの機能として載せない（white-label-status.ts）。
+  WHITE_LABEL_PLAN_FEATURE,
 ];
 
 const PLANS = [
@@ -120,9 +121,8 @@ const COMPARISON_ITEMS = [
   { label: '高度分析', free: false, standard: true, enterprise: true },
   { label: 'AIレビュー要約', free: false, standard: true, enterprise: true },
   { label: 'チェーン一括管理', free: false, standard: '5施設', enterprise: '無制限' },
-  { label: 'カスタムドメイン', free: false, standard: false, enterprise: true },
   { label: 'APIアクセス', free: false, standard: false, enterprise: true },
-  { label: 'ホワイトラベル', free: false, standard: false, enterprise: true },
+  { label: WHITE_LABEL_COMPARISON_LABEL, free: false, standard: false, enterprise: WHITE_LABEL_COMPARISON_VALUE },
   { label: '専任サポート', free: false, standard: false, enterprise: true },
 ];
 

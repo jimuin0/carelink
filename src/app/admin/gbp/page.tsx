@@ -149,6 +149,13 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
       if (!res.ok) throw new Error();
       const data = await res.json();
       setAuditData(data);
+      // 照合が外れて Place ID の登録が解除された（API が外した）。設定欄に古い ID を残すと、
+      // 「登録中」に見えたまま、未変更として保存もできなくなるため空に戻す。
+      if (data?.released === true) {
+        setSavedSetup({ placeId: '', gbpCid: '' });
+        setPlaceId('');
+        setGbpCid('');
+      }
     } catch {
       setToast({ type: 'error', message: '診断データの取得に失敗しました' });
     } finally {
@@ -311,6 +318,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
             <p className="text-sm text-gray-500 mb-4">
               Place ID を登録すると、Googleマップのデータを取得して診断スコアとクチコミが表示されます。
               保存時に、Google の店舗情報とこの店舗の登録内容（電話番号、または店舗名と住所）を照合します。一致しない場合は保存できません。
+              保存した後で店舗名・電話番号・郵便番号・住所を変更すると、登録は解除されます。
             </p>
 
             <div className="space-y-4 mb-5">

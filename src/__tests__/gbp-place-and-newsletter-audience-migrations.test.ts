@@ -15,12 +15,14 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { FACILITY_IDENTITY_COLUMNS } from '@/lib/gbp-ownership';
 
 const ROOT = process.cwd();
 const MIGRATIONS = join(ROOT, 'supabase/migrations');
 const files = readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql')).sort();
 const GBP = '20261023150000_gbp_place_id_unique.sql';
 const AUDIENCE = '20261023150100_newsletter_confirmed_login_email.sql';
+const IDENTITY = '20261023150200_gbp_release_on_identity_change.sql';
 const GUARD = "DO $guard$ BEGIN IF to_regclass('public.facility_profiles') IS NULL THEN RAISE EXCEPTION 'not the CareLink database'; END IF; END $guard$;";
 const code = (sql: string) => sql.split('\n').filter((line) => !line.trimStart().startsWith('--')).join('\n');
 const read = (file: string) => readFileSync(join(MIGRATIONS, file), 'utf8');
@@ -61,6 +63,44 @@ describe('20261023150000: one Google Place ID per facility', () => {
   });
   test('the deploy order is stated', () => {
     expect(read(GBP)).toContain('【デプロイ順】');
+  });
+});
+
+// 回帰（2026年10月23日・レビュー指摘）: 照合は保存の瞬間しか見ておらず、「電話番号を他店に合わせて保存 →
+// 診断で他店の評価を書き込む → 電話番号を戻す」で、他店の評価・地図リンク・Place ID の占有が残った。
+describe('20261023150200: changing the facility identity detaches the Google Place ID', () => {
+  const sql = code(read(IDENTITY));
+  const { file, body } = latestDefinition('release_gbp_place_on_identity_change');
+  test('the connection guard is the first statement, and no data is rewritten when it is applied', () => {
+    expect(sql.trim().startsWith(GUARD)).toBe(true);
+    const topLevel = sql.replace(/\$\$[\s\S]*?\$\$/g, '$$ $$');
+    expect(topLevel).not.toMatch(/^\s*(DELETE|UPDATE|INSERT|ALTER\s+TABLE)\s/im);
+  });
+  test('the latest definition is this one, runs with a fixed search_path, and nobody can call it directly', () => {
+    expect(file).toBe(IDENTITY);
+    expect(body).toMatch(/RETURNS trigger\s+LANGUAGE plpgsql SECURITY DEFINER SET search_path = ''/);
+    expect(sql).toContain('REVOKE ALL ON FUNCTION public.release_gbp_place_on_identity_change() FROM PUBLIC,anon,authenticated,service_role;');
+    expect(sql).not.toMatch(/GRANT [^;]*release_gbp_place_on_identity_change/i);
+  });
+  test('every column the ownership check reads fires the trigger and is compared', () => {
+    const watched = sql.match(/BEFORE UPDATE OF ([a-z_, ]+) ON public\.facility_profiles/);
+    expect(watched).not.toBeNull();
+    const columns = watched![1].split(',').map((c) => c.trim());
+    for (const column of FACILITY_IDENTITY_COLUMNS.split(',').map((c) => c.trim())) {
+      expect(columns).toContain(column);
+      expect(body).toContain(`NEW.${column}`);
+      expect(body).toContain(`OLD.${column}`);
+    }
+    expect(columns).toContain('gbp_place_id');
+  });
+  test('the Place ID, CID, connection time, rating and audit cache are all released', () => {
+    for (const statement of ['NEW.gbp_place_id := NULL;', 'NEW.gbp_cid := NULL;', 'NEW.gbp_connected_at := NULL;',
+      'NEW.google_rating := NULL;', 'NEW.google_review_count := 0;', 'DELETE FROM public.gbp_audit_cache WHERE facility_id = NEW.id;']) {
+      expect(body).toContain(statement);
+    }
+  });
+  test('the deploy order is stated', () => {
+    expect(read(IDENTITY)).toContain('【デプロイ順】');
   });
 });
 
@@ -131,6 +171,7 @@ describe('shadow fixtures are wired into CI', () => {
   test.each([
     ['supabase/shadow/gbp-place-id-unique-fixtures.sql', 'save_admin_facility_integration_atomic'],
     ['supabase/shadow/newsletter-confirmed-audience-fixtures.sql', 'start_newsletter_delivery'],
+    ['supabase/shadow/gbp-identity-change-fixtures.sql', 'update_facility_settings_atomic'],
   ])('%s', (fixture, exercised) => {
     const workflow = readFileSync(join(ROOT, '.github/workflows/schema-fingerprint.yml'), 'utf8');
     expect(workflow).toContain(`-f ${fixture}`);

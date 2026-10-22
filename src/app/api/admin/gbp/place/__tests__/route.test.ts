@@ -3,15 +3,16 @@ jest.mock('@/lib/supabase-server-auth');jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/rate-limit',()=>({checkRateLimit:jest.fn(()=>false)}));jest.mock('@/lib/csrf',()=>({checkCsrf:jest.fn(()=>null)}));
 jest.mock('@/lib/safe',()=>({safeCaptureException:jest.fn()}));jest.mock('@/lib/alert',()=>({alertCaughtError:jest.fn()}));
 jest.mock('@/lib/gbp',()=>({fetchPlaceDetails:jest.fn(),calculateGbpScore:jest.fn(()=>({score:80,items:[]}))}));
+jest.mock('@/lib/gbp-place-release',()=>({releaseMismatchedGbpPlace:jest.fn()}));
 import {NextRequest} from 'next/server';import {GET,POST} from '../route';
 import {createServerSupabaseAuthClient} from '@/lib/supabase-server-auth';import {createServiceRoleClient} from '@/lib/supabase-server';
-import {checkRateLimit} from '@/lib/rate-limit';import {checkCsrf} from '@/lib/csrf';import {fetchPlaceDetails,calculateGbpScore} from '@/lib/gbp';
+import {releaseMismatchedGbpPlace} from '@/lib/gbp-place-release';import {checkRateLimit} from '@/lib/rate-limit';import {checkCsrf} from '@/lib/csrf';import {fetchPlaceDetails,calculateGbpScore} from '@/lib/gbp';
 const id='22222222-2222-4222-8222-222222222222',other='44444444-4444-4444-8444-444444444444',user='33333333-3333-4333-8333-333333333333';
 const rpc=jest.fn(),getUser=jest.fn(),read=jest.fn(),members=jest.fn();
 function get(query=''){return GET(new NextRequest('http://localhost/api/admin/gbp/place'+query));}
 function post(body:unknown={gbp_place_id:'NewPlace'}){return POST(new NextRequest('http://localhost/api/admin/gbp/place',{method:'POST',body:JSON.stringify(body)}));}
 beforeEach(()=>{jest.clearAllMocks();(checkRateLimit as jest.Mock).mockReturnValue(false);(checkCsrf as jest.Mock).mockReturnValue(null);getUser.mockResolvedValue({data:{user:{id:user}},error:null});members.mockResolvedValue({data:[{facility_id:id}],error:null});read.mockResolvedValue({data:{gbp_place_id:'OldPlace',name:'Synthetic',phone:'03-1234-5678',business_hours:null},error:null});rpc.mockResolvedValue({data:{id,facility_id:id},error:null});(fetchPlaceDetails as jest.Mock).mockResolvedValue({rating:4,user_ratings_total:8,formatted_phone_number:'03-1234-5678'});
-(createServerSupabaseAuthClient as jest.Mock).mockResolvedValue({auth:{getUser},from:(table:string)=>table==='facility_members'?{select:()=>({eq:()=>({in:members})})}:{select:()=>({eq:()=>({maybeSingle:read})})}});(createServiceRoleClient as jest.Mock).mockReturnValue({rpc});});
+(createServerSupabaseAuthClient as jest.Mock).mockResolvedValue({auth:{getUser},from:(table:string)=>table==='facility_members'?{select:()=>({eq:()=>({in:members})})}:{select:()=>({eq:()=>({maybeSingle:read})})}});(createServiceRoleClient as jest.Mock).mockReturnValue({rpc});(releaseMismatchedGbpPlace as jest.Mock).mockResolvedValue('released');});
 describe.each(['GET','POST'])('%s guards',method=>{const run=()=>method==='GET'?get():post();
  test('CSRF before all access',async()=>{(checkCsrf as jest.Mock).mockReturnValueOnce(new Response('{}',{status:403}));expect((await run()).status).toBe(403);expect(getUser).not.toHaveBeenCalled();});
  test('rate limit',async()=>{(checkRateLimit as jest.Mock).mockReturnValueOnce(true);expect((await run()).status).toBe(429);expect(getUser).not.toHaveBeenCalled();});
@@ -75,16 +76,29 @@ describe('saving a Place ID checks that the Google listing is this facility',()=
   const r=await post();expect(r.status).toBe(409);expect((await r.json()).code).toBe('GBP_PLACE_TAKEN');
  });
 });
-describe('refreshing a stored Place ID that is not this facility clears the rating instead of copying it',()=>{
- test('rating, count and stored details are cleared and the screen is told why',async()=>{
+// 回帰（2026年10月23日・レビュー指摘）: 照合が外れても評価を消すだけで Place ID を残していたため、店舗ページの地図・
+// 口コミのリンクは他店を指し続け、一意索引がその ID を占有して本物の店舗が登録できなかった。Place ID ごと外す。
+describe('refreshing a stored Place ID that is not this facility detaches it instead of copying the rating',()=>{
+ test('the Place ID is released (with rating and audit), nothing from the other business is written, and the screen is told why',async()=>{
   (fetchPlaceDetails as jest.Mock).mockResolvedValue(OTHER_SHOP);
   const r=await get();expect(r.status).toBe(200);
-  const body=await r.json();expect(body).toEqual(expect.objectContaining({placeData:null,ownershipMismatch:true}));expect(body.notice).toContain('表示していません');
+  const body=await r.json();expect(body).toEqual(expect.objectContaining({placeData:null,ownershipMismatch:true,released:true}));
+  expect(body.notice).toContain('登録を解除');expect(JSON.stringify(body)).not.toContain('2000');
   expect(calculateGbpScore).toHaveBeenCalledWith(null,expect.anything());
-  const values=rpc.mock.calls[0][1].p_values;expect(values).toEqual(expect.objectContaining({rating:null,review_count:0}));
-  expect(JSON.stringify(values.details)).not.toContain('2000');
+  expect(releaseMismatchedGbpPlace).toHaveBeenCalledWith(expect.objectContaining({rpc}),id,'OldPlace');
+  // 他店の評価を gbp:refresh で書き込まない
+  expect(rpc).not.toHaveBeenCalled();
  });
- test('a matching listing is written as before and carries no notice',async()=>{
-  const body=await (await get()).json();expect(body.ownershipMismatch).toBeUndefined();expect(rpc.mock.calls[0][1].p_values).toEqual(expect.objectContaining({rating:4,review_count:8}));
+ test('a Place ID the owner replaced meanwhile is left alone and reported as not released',async()=>{
+  (fetchPlaceDetails as jest.Mock).mockResolvedValue(OTHER_SHOP);(releaseMismatchedGbpPlace as jest.Mock).mockResolvedValue('changed');
+  const body=await (await get()).json();expect(body).toEqual(expect.objectContaining({ownershipMismatch:true,released:false}));expect(rpc).not.toHaveBeenCalled();
+ });
+ test('a release that cannot be written is a visible 500, not a silent success',async()=>{
+  (fetchPlaceDetails as jest.Mock).mockResolvedValue(OTHER_SHOP);(releaseMismatchedGbpPlace as jest.Mock).mockResolvedValue('failed');
+  expect((await get()).status).toBe(500);expect(rpc).not.toHaveBeenCalled();
+ });
+ test('a matching listing is written as before, nothing is released and no notice is shown',async()=>{
+  const body=await (await get()).json();expect(body.ownershipMismatch).toBeUndefined();expect(body.released).toBeUndefined();
+  expect(releaseMismatchedGbpPlace).not.toHaveBeenCalled();expect(rpc.mock.calls[0][1].p_values).toEqual(expect.objectContaining({rating:4,review_count:8}));
  });
 });

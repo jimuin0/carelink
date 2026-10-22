@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { createServiceRoleClient } from '@/lib/supabase-server';
+import { releaseMismatchedGbpPlace } from '@/lib/gbp-place-release';
 import { saveAdminFacilityIntegration } from '@/lib/admin-facility-integration-write';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { fetchPlaceDetails, calculateGbpScore } from '@/lib/gbp';
@@ -61,9 +63,9 @@ export async function GET(req: NextRequest) {
 
     const fetched = placeId ? await fetchPlaceDetails(placeId) : null;
     // 保存済みの Place が施設の登録内容（電話番号、または店舗名＋住所）と合わなければ、その店舗の評価は
-    // 書き込まず、既に入っている評価も消す（保存時の照合の後で施設情報だけ戻した場合や、照合の導入前に
-    // 保存された ID でも、他店の評価を自店の掲載に出さない）。
-    const ownershipMismatch = fetched !== null && !placeMatchesFacility(fetched, facility);
+    // 書き込まず、Place ID ごと外す（照合の導入前に保存された ID・Google 側の店舗情報が変わった場合でも、
+    // 他店の評価・地図・口コミのリンクを自店の掲載に出さず、一意索引でその ID を占有し続けない）。
+    const ownershipMismatch = placeId !== null && fetched !== null && !placeMatchesFacility(fetched, facility);
     const placeData = ownershipMismatch ? null : fetched;
     // facility.business_hours は DB 上 jsonb で Json 型（string|number|boolean|null|object|配列の合併）
     // だが、calculateGbpScore は object 形状（Record<string, unknown> | null）だけを想定している。
@@ -78,12 +80,18 @@ export async function GET(req: NextRequest) {
         : null;
     const audit = calculateGbpScore(placeData, { ...facility, business_hours: businessHours });
 
+    if (ownershipMismatch) {
+      // 所属（owner/admin）は上で確認済み。照合した Place ID のままのときだけ外す（gbp-place-release.ts）。
+      const released = await releaseMismatchedGbpPlace(createServiceRoleClient(), facilityId, placeId);
+      if (released === 'failed') return serverError('admin-gbp-place-release', new Error('GBP_PLACE_RELEASE_FAILED'), '/api/admin/gbp/place');
+      return NextResponse.json({ placeData, audit, facilityId, ownershipMismatch: true, released: released === 'released', notice: GBP_PLACE_MISMATCH_NOTICE });
+    }
+
     if (fetched) {
       const saved = await saveAdminFacilityIntegration({actorId:user.id,facilityId,kind:'gbp:refresh',expected:{place_id:placeId},values:{rating:placeData?.rating ?? null,review_count:placeData?.user_ratings_total ?? 0,score:audit.score,details:toJsonValue({audit,placeData})}});
       if(saved instanceof NextResponse)return saved;
     }
 
-    if (ownershipMismatch) return NextResponse.json({ placeData, audit, facilityId, ownershipMismatch: true, notice: GBP_PLACE_MISMATCH_NOTICE });
     return NextResponse.json({ placeData, audit, facilityId });
   } catch (e) {
     return serverError('admin-gbp-place-get', e, '/api/admin/gbp/place', 'Internal Server Error');

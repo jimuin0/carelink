@@ -20,6 +20,7 @@ jest.mock('@/lib/gbp-ownership', () => ({
   ...jest.requireActual('@/lib/gbp-ownership'),
   placeMatchesFacility: jest.fn(() => true),
 }));
+jest.mock('@/lib/gbp-place-release', () => ({ releaseMismatchedGbpPlace: jest.fn() }));
 jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/cron-logger', () => {
   const logCronRun = jest.fn().mockResolvedValue(undefined);
@@ -47,6 +48,7 @@ jest.mock('@/lib/alert', () => ({ alertWarning: jest.fn() }));
 import { checkCronAuth } from '@/lib/cron-auth';
 import { fetchPlaceDetails } from '@/lib/gbp';
 import { placeMatchesFacility } from '@/lib/gbp-ownership';
+import { releaseMismatchedGbpPlace } from '@/lib/gbp-place-release';
 import { logCronRun } from '@/lib/cron-logger';
 import { alertWarning } from '@/lib/alert';
 import { GET } from '../route';
@@ -112,6 +114,7 @@ function setupDefaultMocks(
   );
 
   (logCronRun as jest.Mock).mockResolvedValue(undefined);
+  (releaseMismatchedGbpPlace as jest.Mock).mockResolvedValue('released');
 }
 
 beforeEach(() => {
@@ -468,18 +471,39 @@ describe('a stored Place ID that is not this facility', () => {
     expect(mockSelect).toHaveBeenCalledWith('id, gbp_place_id, name, phone, postal_code, prefecture, city, address');
   });
 
-  test('clears the rating instead of copying the other business, and counts it apart from failures', async () => {
+  // 回帰（2026年10月23日・レビュー指摘）: 評価を消すだけで Place ID を残していたため、地図・口コミのリンクが
+  // 他店を指し続け、一意索引がその ID を占有した。Place ID ごと外す（gbp-place-release.ts）。
+  test('detaches the Place ID instead of copying the other business, and counts it apart from failures', async () => {
     setupDefaultMocks(1);
     (placeMatchesFacility as jest.Mock).mockReturnValueOnce(false);
 
     const res = await GET(makeRequest() as any);
     const json = await res.json();
 
-    expect(mockUpdate.mock.calls[0][0]).toEqual(expect.objectContaining({ google_rating: null, google_review_count: 0, gbp_synced_at: expect.any(String) }));
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    expect(releaseMismatchedGbpPlace).toHaveBeenCalledWith(createServiceRoleClient.mock.results[0].value, 'fac-0', 'place-id-0');
+    // 同期日時だけを進める（他店の評価を書かず、照合中に保存された別の ID の評価も消さない）
+    expect(mockUpdate.mock.calls[0][0]).toEqual({ gbp_synced_at: expect.any(String) });
     expect(json).toEqual(expect.objectContaining({ processed: 0, mismatched: 1, fetchFailed: 0, errors: 0 }));
     expect(alertWarning).not.toHaveBeenCalled();
     expect(logCronRun).toHaveBeenCalledWith('sync-google-ratings', 'success', expect.any(Date),
       expect.objectContaining({ meta: expect.objectContaining({ mismatched: 1, allFailed: false }) }));
+  });
+
+  test('a release that cannot be written counts as an error', async () => {
+    setupDefaultMocks(1);
+    (placeMatchesFacility as jest.Mock).mockReturnValueOnce(false);
+    (releaseMismatchedGbpPlace as jest.Mock).mockResolvedValueOnce('failed');
+
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json).toEqual(expect.objectContaining({ mismatched: 0, errors: 1 }));
+    expect(mockUpdate.mock.calls[0][0]).toEqual({ gbp_synced_at: expect.any(String) });
+  });
+
+  test('a matching listing never releases the Place ID', async () => {
+    setupDefaultMocks(1);
+    await GET(makeRequest() as any);
+    expect(releaseMismatchedGbpPlace).not.toHaveBeenCalled();
   });
 
   test('passes the loaded facility row to the check', async () => {

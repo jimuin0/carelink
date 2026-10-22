@@ -9,6 +9,7 @@ import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import LoadError from '@/components/admin/LoadError';
 import Toast from '@/components/Toast';
 import { SbPageHeader } from '@/components/admin/SbUi';
+import { WHITE_LABEL_SETUP_REQUIRED_NOTE } from '@/lib/white-label-status';
 
 type WhiteLabelDomain = {
   id: string;
@@ -118,7 +119,7 @@ function WhiteLabelContent({ requestedFacility }: { requestedFacility: string | 
     <div className="max-w-3xl space-y-6">
       <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/white-label"
         dirty={JSON.stringify(form) !== savedForm} busy={saving || verifying} />
-      <SbPageHeader title="ホワイトラベル設定" description="独自ドメインを登録し、所有を確認します（エンタープライズプラン）。独自ドメインでの予約ページの表示には、運営による設定が必要です。" />
+      <SbPageHeader title="ホワイトラベル設定" description={`独自ドメインを登録し、所有を確認します（エンタープライズプラン）。${WHITE_LABEL_SETUP_REQUIRED_NOTE}`} />
 
       {message && (
         <Toast

@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
 
   const { data: config, error: configError } = await admin
     .from('white_label_domains')
-    .select('domain, txt_record')
+    .select('domain, txt_record, is_verified')
     .eq('facility_id', facilityId)
     .maybeSingle();
 
@@ -74,8 +74,10 @@ export async function POST(req: NextRequest) {
       // 認証が済んでも、独自ドメインで予約ページを出す処理は CareLink にまだ無い（画面は「運営による設定待ち」と
       // 案内する）。以前は監査ログに残るだけで運営には何も届かず、オーナーは待ち続けるしかなかった。
       // 運営へ設定依頼を送る（応答後に実行・失敗しても認証結果は変えない）。
+      // 未認証から認証済みに変わったときだけ送る。認証済みのドメインを何度 verify しても（ボタンは未認証の
+      // ときしか出ないが、API は直接叩ける）同じ依頼を運営の受信箱へ積まない。
       const domain = config.domain;
-      runAfterResponse(() =>
+      if (config.is_verified !== true) runAfterResponse(() =>
         sendOperatorNotification({
           subject: '【CareLink】ホワイトラベルのドメイン認証が完了しました（設定依頼）',
           lines: [

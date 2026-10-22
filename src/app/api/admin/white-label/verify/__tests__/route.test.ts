@@ -363,6 +363,35 @@ describe('operator is asked to set the verified domain up', () => {
     expect(sendOperatorNotification).not.toHaveBeenCalled();
   });
 
+  // 回帰（2026年10月23日・レビュー指摘）: 認証済みのドメインでも verify のたびに同じ設定依頼を運営へ送っていた。
+  test('verifying an already verified domain again sends no second request', async () => {
+    let callNum = 0;
+    mockAdminFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return facilityIdsChain([FACILITY_UUID]);
+      if (callNum === 2) return singleChain({ ...DOMAIN_CONFIG, is_verified: true });
+      return updateChain(null);
+    });
+    (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]);
+    expect(await (await POST(makeRequest())).json()).toEqual({ verified: true });
+    await flush();
+    expect(sendOperatorNotification).not.toHaveBeenCalled();
+  });
+
+  test('a domain that was not verified yet (is_verified false) sends the request', async () => {
+    let callNum = 0;
+    mockAdminFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return facilityIdsChain([FACILITY_UUID]);
+      if (callNum === 2) return singleChain({ ...DOMAIN_CONFIG, is_verified: false });
+      return updateChain(null);
+    });
+    (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]);
+    await POST(makeRequest());
+    await flush();
+    expect(sendOperatorNotification).toHaveBeenCalledTimes(1);
+  });
+
   test('an unsent notification (mail not configured) is logged and the verification still succeeds', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     (sendOperatorNotification as jest.Mock).mockResolvedValueOnce(false);
