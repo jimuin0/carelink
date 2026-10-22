@@ -648,3 +648,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+### Vercelの固定Node.jsランタイム
+
+`Dockerfile.vercel` はビルド・配信とも公式Node.js 24.22.1のdigestに固定し、standaloneを非root・PORT3000で実行する。CIと同じ `npm run build`（Webpack）を維持する。Vercel Container Runtimeのbuild ARG引き渡し不具合を回避するため、ビルド段だけ同一プロジェクトの `node24-public-config` イメージをdigest固定で使う。このベースにはNode本体と既存のブラウザ向け公開設定だけが入り、アプリコード・service-role・メール・決済・通知等の秘密値は入れない。アプリのソースは毎回COPYして再ビルドするため、Gitのコード更新が古いイメージで配信される構成ではない。
+
+公開設定を変更するときは、対象を `vercel project inspect carelink --scope jimuin --non-interactive` で確認し、Dockerを同プロジェクトのVCRへログインさせたうえで、`vercel env run -e production --project carelink --scope jimuin -- node scripts/build-runtime-config-base.mjs vcr.vercel.com/jimuin/carelink/node24-public-config:<新しい版>` を実行する。出力されたimmutable digestをDockerfileのビルド段へ反映し、再検証・再デプロイする。ヘルパーは公開設定の許可リストとanon/publishable鍵の検査を行い、値をログへ出さない。`node --test scripts/build-runtime-config-base.test.mjs` で秘密値の除外・権限の強い鍵の拒否・送信先制限を確認する。Dockerのローカル検証では `BUILD_SUPABASE_URL` / `BUILD_SUPABASE_ANON_KEY` に使い捨てDBの公開設定だけを渡せる。サーバー秘密値は既存のVercel実行時設定を使う。
