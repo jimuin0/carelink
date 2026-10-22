@@ -7,6 +7,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import type { User } from '@supabase/supabase-js';
 import { clearAccountLocalData, LOCAL_DATA_CLEAR_FAILED } from '@/lib/client-storage';
 import { markClientCleanupNeeded, completeClientCleanupMarker } from '@/lib/client-cleanup-marker';
+import { releaseThisDevicePush } from '@/hooks/usePushSubscription';
 
 export default function AuthButton() {
   const router = useRouter();
@@ -80,6 +81,9 @@ export default function AuthButton() {
     setLoggingOut(true);
     let cleared = true;
     try { await clearAccountLocalData(); } catch { cleared = false; }
+    // この端末の通知を外す（共用端末でログアウト後も予約の通知が出続けないように）。
+    // サーバーの行の削除は本人確認が要るので signOut より前。失敗してもログアウトは止めない。
+    await releaseThisDevicePush({ serverRow: true });
     try {
       const result = await createBrowserSupabaseClient().auth.signOut();
       if (result?.error !== null) throw new Error('Logout not confirmed');

@@ -233,3 +233,22 @@ test('通知設定画面に端末登録の入口がある（トグルだけで�
   expect(await screen.findByRole('button', { name: 'この端末で通知を受け取る' })).toBeInTheDocument();
   expect(screen.getByText('この端末のプッシュ通知')).toBeInTheDocument();
 });
+
+test('見出しの階層はページに合わせる（管理画面は h4・マイページは h3）', async () => {
+  install({});
+  const { unmount } = render(<PushDeviceRegistration />);
+  expect(await screen.findByRole('heading', { level: 4, name: 'この端末のプッシュ通知' })).toBeInTheDocument();
+  unmount();
+  render(<PushDeviceRegistration headingLevel="h3" />);
+  expect(await screen.findByRole('heading', { level: 3, name: 'この端末のプッシュ通知' })).toBeInTheDocument();
+});
+
+test('登録時にログインが切れていた（401）ら、時間をおくのではなくログインし直すよう案内する', async () => {
+  install({});
+  fetchMock.mockImplementation(() => Promise.resolve({ ok: false, status: 401 }));
+  render(<PushDeviceRegistration />);
+  expect(await status()).toHaveTextContent('未登録');
+  fireEvent.click(screen.getByRole('button', { name: 'この端末で通知を受け取る' }));
+  expect(await screen.findByText('ログインを確認できませんでした。ログインし直してから、もう一度お試しください。')).toBeInTheDocument();
+  expect(screen.queryByText('通知の登録に失敗しました。時間をおいて再度お試しください。')).not.toBeInTheDocument();
+});

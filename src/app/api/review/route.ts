@@ -193,8 +193,10 @@ async function submitReview(request: Request, markCommitStarted: () => void) {
   // 外部通知は保存後に待ち合わせる（DBの確定とは区別する）。
   const reviewSideEffects: Promise<unknown>[] = [];
 
-  // 施設オーナーへの口コミ投稿 Push + メール（non-blocking）。施設の通知設定 push_on_review で
-  // 両方を共通制御する（設定画面のトグルが一つで足り、後から個別設定を増やす場合は容易に分離できる）。
+  // 施設オーナーへの口コミ投稿 Push + メール（non-blocking）。Push は push_on_review、メールは
+  // email_on_review で【別々に】制御する。以前は push_on_review が両方を囲っていたため、
+  // 『口コミ投稿（Push通知）』を OFF にすると表記に無いメールまで黙って止まった（2026年10月23日 分離）。
+  // 同じ画面の『新規予約（Push通知）』『キャンセル（Push通知）』も Push だけを止める。
   // 旧実装は口コミ投稿時に店への通知が一切無く、設定トグルが効かない飾りだった。
   try {
     const notif = await getFacilityNotificationSettings(parsed.data.facility_id);
@@ -212,7 +214,8 @@ async function submitReview(request: Request, markCommitStarted: () => void) {
           alertCaughtError('review-push', e, '/api/review');
         })
       );
-
+    }
+    if (notif.emailOnReview) {
       // role は push.ts(sendPushToFacilityOwners) と揃え owner に加え admin も対象にする
       // （2026年7月17日 恒久根治：admin ロールは Push は受け取るがメール通知は owner 限定のため
       // 受け取れない非対称があった）。

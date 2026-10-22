@@ -113,10 +113,10 @@ beforeEach(() => {
   (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
   (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: true });
-  // 既定は口コミPush ON（既存挙動＋新機能）
+  // 既定は口コミの Push・メールとも ON（DB の既定値と同じ）
   const { getFacilityNotificationSettings } = require('@/lib/notification-settings');
   (getFacilityNotificationSettings as jest.Mock).mockResolvedValue({
-    pushOnNewBooking: true, pushOnCancel: true, pushOnReview: true,
+    pushOnNewBooking: true, pushOnCancel: true, pushOnReview: true, emailOnReview: true,
     emailDailySummary: false, emailWeeklyReport: true,
   });
 
@@ -548,17 +548,52 @@ describe('POST /api/review', () => {
       }));
     });
 
-    test('push_on_review=false → 施設オーナーへ Push を送らない', async () => {
+    // E22: 『口コミ投稿（Push通知）』を OFF にしても、表記に無いメールまでは止めない
+    // （以前は push_on_review が Push とメールの両方を囲っており、メールが黙って止まった）。
+    test('push_on_review=false → Push だけを止め、新着口コミのメールは届ける', async () => {
       const { sendPushToFacilityOwners } = require('@/lib/push');
+      const { sendNewReviewNotification } = require('@/lib/email');
       const { getFacilityNotificationSettings } = require('@/lib/notification-settings');
       (getFacilityNotificationSettings as jest.Mock).mockResolvedValue({
-        pushOnNewBooking: true, pushOnCancel: true, pushOnReview: false,
+        pushOnNewBooking: true, pushOnCancel: true, pushOnReview: false, emailOnReview: true,
+        emailDailySummary: false, emailWeeklyReport: true,
+      });
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false, ownerEmails: ['owner@example.invalid'] });
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      expect(sendPushToFacilityOwners).not.toHaveBeenCalled();
+      expect(sendNewReviewNotification).toHaveBeenCalledTimes(1);
+      expect(sendNewReviewNotification).toHaveBeenCalledWith(expect.objectContaining({ facilityEmail: 'owner@example.invalid' }));
+    });
+
+    test('email_on_review=false → メールだけを止め、Push は届ける', async () => {
+      const { sendPushToFacilityOwners } = require('@/lib/push');
+      const { sendNewReviewNotification } = require('@/lib/email');
+      const { getFacilityNotificationSettings } = require('@/lib/notification-settings');
+      (getFacilityNotificationSettings as jest.Mock).mockResolvedValue({
+        pushOnNewBooking: true, pushOnCancel: true, pushOnReview: true, emailOnReview: false,
+        emailDailySummary: false, emailWeeklyReport: true,
+      });
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false, ownerEmails: ['owner@example.invalid'] });
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      expect(sendPushToFacilityOwners).toHaveBeenCalledTimes(1);
+      expect(sendNewReviewNotification).not.toHaveBeenCalled();
+    });
+
+    test('Push・メールとも OFF → どちらも送らない', async () => {
+      const { sendPushToFacilityOwners } = require('@/lib/push');
+      const { sendNewReviewNotification } = require('@/lib/email');
+      const { getFacilityNotificationSettings } = require('@/lib/notification-settings');
+      (getFacilityNotificationSettings as jest.Mock).mockResolvedValue({
+        pushOnNewBooking: true, pushOnCancel: true, pushOnReview: false, emailOnReview: false,
         emailDailySummary: false, emailWeeklyReport: true,
       });
       setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
       const res = await POST(makeRequest(bizReview));
       expect(res.status).toBe(200);
       expect(sendPushToFacilityOwners).not.toHaveBeenCalled();
+      expect(sendNewReviewNotification).not.toHaveBeenCalled();
     });
 
     test('Push 設定取得が例外でも投稿成功を返す（防御 catch）', async () => {
@@ -574,7 +609,7 @@ describe('POST /api/review', () => {
       expect(sendNewReviewNotification).not.toHaveBeenCalled();
     });
 
-    test('口コミ投稿成功時 push_on_review=true → 施設オーナーへメールを送る', async () => {
+    test('口コミ投稿成功時 email_on_review=true → 施設オーナーへメールを送る', async () => {
       const { sendNewReviewNotification } = require('@/lib/email');
       setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false, ownerEmails: ['owner@example.invalid'] });
       const res = await POST(makeRequest(bizReview));

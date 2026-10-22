@@ -2145,6 +2145,7 @@ export type Database = {
         Row: {
           created_at: string | null
           email_daily_summary: boolean | null
+          email_on_review: boolean
           email_weekly_report: boolean | null
           facility_id: string
           id: string
@@ -2155,6 +2156,7 @@ export type Database = {
         Insert: {
           created_at?: string | null
           email_daily_summary?: boolean | null
+          email_on_review?: boolean
           email_weekly_report?: boolean | null
           facility_id: string
           id?: string
@@ -2165,6 +2167,7 @@ export type Database = {
         Update: {
           created_at?: string | null
           email_daily_summary?: boolean | null
+          email_on_review?: boolean
           email_weekly_report?: boolean | null
           facility_id?: string
           id?: string

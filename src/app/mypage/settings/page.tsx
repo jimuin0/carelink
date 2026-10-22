@@ -6,6 +6,7 @@ import Link from 'next/link';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { isLineEnabled, isLineLoginEnabled } from '@/lib/line-availability';
+import PushDeviceRegistration from '@/components/admin/PushDeviceRegistration';
 
 function SettingsContent() {
   const searchParams = useSearchParams();
@@ -206,6 +207,9 @@ function SettingsContent() {
         <Link href="/mypage/profile" className="text-sm text-sky-700 hover:underline">
           プロフィールを編集 →
         </Link>
+        {/* 予約の確定・キャンセル等の Push を受け取る端末の登録・解除。予約完了画面のバナーを閉じた・
+            登録が消えた場合に登録し直せる入口がここしか無い。Push を送れない環境（VAPID 未設定）では出さない。 */}
+        {process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY && <PushDeviceRegistration headingLevel="h3" />}
       </div>
 
       {/* Account */}

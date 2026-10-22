@@ -54,3 +54,33 @@ test('upsert 失敗 → トグルを元に戻しエラー表示（成功偽装�
   expect(await screen.findByRole('alert')).toHaveTextContent('設定の保存に失敗しました');
   await waitFor(() => expect(switches[0]).toHaveAttribute('aria-checked', 'true'));
 });
+
+// E22: 『口コミ投稿（Push通知）』とは別に、口コミのメールのトグルを置く（Push を切ってもメールは止まらない）。
+test('口コミの Push とメールは別々のトグルで、Push を OFF にしてもメールの設定は保存値のまま', async () => {
+  const upsert = jest.fn((_row: Record<string, unknown>) => Promise.resolve({ error: null }));
+  (createBrowserSupabaseClient as jest.Mock).mockReturnValue({
+    from: jest.fn(() => ({
+      select: jest.fn(() => ({ eq: jest.fn(() => ({ maybeSingle: () => Promise.resolve({ data: { ...LOAD_DATA, email_on_review: true }, error: null }) })) })),
+      upsert,
+    })),
+  });
+  render(<NotificationSettings facilityId="f1" />);
+  const pushToggle = await screen.findByRole('switch', { name: '口コミ投稿（Push通知）' });
+  const emailToggle = screen.getByRole('switch', { name: '口コミ投稿（メール）' });
+  expect(emailToggle).toHaveAttribute('aria-checked', 'true');
+  fireEvent.click(pushToggle);
+  await waitFor(() => expect(upsert).toHaveBeenCalledTimes(1));
+  expect(upsert.mock.calls[0][0]).toEqual(expect.objectContaining({ push_on_review: false, email_on_review: true }));
+  expect(emailToggle).toHaveAttribute('aria-checked', 'true');
+});
+
+test('保存済みのメール OFF を読み込んで表示する', async () => {
+  (createBrowserSupabaseClient as jest.Mock).mockReturnValue({
+    from: jest.fn(() => ({
+      select: jest.fn(() => ({ eq: jest.fn(() => ({ maybeSingle: () => Promise.resolve({ data: { ...LOAD_DATA, email_on_review: false }, error: null }) })) })),
+      upsert: jest.fn(),
+    })),
+  });
+  render(<NotificationSettings facilityId="f1" />);
+  expect(await screen.findByRole('switch', { name: '口コミ投稿（メール）' })).toHaveAttribute('aria-checked', 'false');
+});

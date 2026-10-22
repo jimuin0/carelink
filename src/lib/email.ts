@@ -450,7 +450,7 @@ export function buildBookingCancelledEnvelope(data: BookingEmailData) {
   };
 }
 
-/** 新着口コミ通知（施設向け・push_on_review設定と共通制御） */
+/** 新着口コミ通知（施設向け・email_on_review 設定で制御。push_on_review は Push だけを止める） */
 export async function sendNewReviewNotification(data: {
   facilityEmail: string;
   facilityName: string;

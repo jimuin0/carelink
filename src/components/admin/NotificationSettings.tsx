@@ -10,6 +10,7 @@ interface Settings {
   push_on_new_booking: boolean;
   push_on_cancel: boolean;
   push_on_review: boolean;
+  email_on_review: boolean;
   email_daily_summary: boolean;
   email_weekly_report: boolean;
 }
@@ -18,14 +19,18 @@ const DEFAULT: Settings = {
   push_on_new_booking: true,
   push_on_cancel: true,
   push_on_review: true,
+  email_on_review: true,
   email_daily_summary: false,
   email_weekly_report: true,
 };
 
+// 1 つのトグルは表記どおりの 1 経路だけを止める（Push のトグルでメールは止まらない）。
+// 口コミのメールは以前 push_on_review に相乗りしていた（20261023100000 で email_on_review に分離）。
 const LABELS: Record<keyof Settings, string> = {
   push_on_new_booking: '新規予約（Push通知）',
   push_on_cancel: 'キャンセル（Push通知）',
   push_on_review: '口コミ投稿（Push通知）',
+  email_on_review: '口コミ投稿（メール）',
   email_daily_summary: '日次売上サマリー（メール）',
   email_weekly_report: '週次レポート（メール）',
 };
@@ -69,6 +74,7 @@ export default function NotificationSettings({ facilityId }: { facilityId: strin
           push_on_new_booking: data.push_on_new_booking ?? DEFAULT.push_on_new_booking,
           push_on_cancel: data.push_on_cancel ?? DEFAULT.push_on_cancel,
           push_on_review: data.push_on_review ?? DEFAULT.push_on_review,
+          email_on_review: data.email_on_review ?? DEFAULT.email_on_review,
           email_daily_summary: data.email_daily_summary ?? DEFAULT.email_daily_summary,
           email_weekly_report: data.email_weekly_report ?? DEFAULT.email_weekly_report,
         });

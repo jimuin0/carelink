@@ -34,6 +34,7 @@ describe('getFacilityNotificationSettings', () => {
       push_on_new_booking: false,
       push_on_cancel: false,
       push_on_review: true,
+      email_on_review: false,
       email_daily_summary: true,
       email_weekly_report: false,
     }));
@@ -41,6 +42,7 @@ describe('getFacilityNotificationSettings', () => {
       pushOnNewBooking: false,
       pushOnCancel: false,
       pushOnReview: true,
+      emailOnReview: false,
       emailDailySummary: true,
       emailWeeklyReport: false,
     });
@@ -51,10 +53,29 @@ describe('getFacilityNotificationSettings', () => {
       push_on_new_booking: null,
       push_on_cancel: null,
       push_on_review: null,
+      email_on_review: true,
       email_daily_summary: null,
       email_weekly_report: null,
     }));
     expect(await getFacilityNotificationSettings('f1')).toEqual(DEFAULT_NOTIFICATION_FLAGS);
+  });
+
+  // E22: 口コミのメールは push_on_review に相乗りしない（Push を切ってもメールは届く）。
+  it('口コミの Push とメールは別々の設定として返す', async () => {
+    mockCreate.mockReturnValue(clientReturning({
+      push_on_new_booking: true, push_on_cancel: true, push_on_review: false, email_on_review: true,
+      email_daily_summary: false, email_weekly_report: true,
+    }));
+    expect(await getFacilityNotificationSettings('f1')).toEqual(expect.objectContaining({ pushOnReview: false, emailOnReview: true }));
+    expect(DEFAULT_NOTIFICATION_FLAGS.emailOnReview).toBe(true);
+  });
+
+  it('email_on_review が欠けた応答（列未適用など）は「メール ON」と取り違えない', async () => {
+    mockCreate.mockReturnValue(clientReturning({
+      push_on_new_booking: true, push_on_cancel: true, push_on_review: true,
+      email_daily_summary: false, email_weekly_report: true,
+    }));
+    await expect(getFacilityNotificationSettings('f1')).rejects.toThrow('settings response invalid');
   });
 
   it('取得失敗（例外）は送信許可へ変換しない', async () => {
@@ -74,7 +95,7 @@ describe('getFacilityNotificationSettings', () => {
 
   it('a string boolean cannot permit a disabled notification', async () => {
     mockCreate.mockReturnValue(clientReturning({
-      push_on_new_booking: false, push_on_cancel: false, push_on_review: 'false',
+      push_on_new_booking: false, push_on_cancel: false, push_on_review: 'false', email_on_review: false,
       email_daily_summary: false, email_weekly_report: false,
     }));
     await expect(getFacilityNotificationSettings('f1')).rejects.toThrow('settings response invalid');

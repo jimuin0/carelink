@@ -6,6 +6,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Link from 'next/link';
 import { clearAccountLocalData, LOCAL_DATA_CLEAR_FAILED } from '@/lib/client-storage';
 import { markClientCleanupNeeded, completeClientCleanupMarker } from '@/lib/client-cleanup-marker';
+import { releaseThisDevicePush } from '@/hooks/usePushSubscription';
 
 /**
  * 管理画面ヘッダーのアカウントメニュー（ログアウト導線）。
@@ -46,6 +47,9 @@ export default function AdminUserMenu() {
     setLoggingOut(true);
     let cleared = true;
     try { await clearAccountLocalData(); } catch { cleared = false; }
+    // この端末の通知を外す（ログアウト後に予約者の名前入りの通知が出続けないように）。
+    // サーバーの行の削除は本人確認が要るので signOut より前。失敗してもログアウトは止めない。
+    await releaseThisDevicePush({ serverRow: true });
     try {
       const supabase = createBrowserSupabaseClient();
       const result = await supabase.auth.signOut();

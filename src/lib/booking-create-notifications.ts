@@ -3,7 +3,8 @@ import type { BookingFormData } from './validations-booking';
 import { buildBookingConfirmationEnvelope, buildBookingConfirmedEnvelope, buildNewBookingNotificationEnvelope } from './email';
 import { isLineWorksConfigured, prepareNewBookingLineWorksDelivery } from './integrations/line-works';
 import { sendLinePushWithOutcome } from './line';
-import { sendPushToUser } from './push';
+import { prepareCapturedPushDelivery, readUserPushSubscription, removeExpiredPushSubscription } from './push';
+import type { ChannelDeliveryResult } from './channel-delivery-result';
 import { fetchAllPaged } from './paginate';
 import { z } from 'zod';
 
@@ -87,17 +88,54 @@ export async function buildBookingCreateNotifications(db: SupabaseClient, input:
 
 const pushSchema = z.object({ title: z.string().min(1), body: z.string().min(1), url: z.string().optional(), tag: z.string().optional() });
 const worksSchema = z.object({ customerName: z.string(), menuName: z.string(), bookingDate: z.string(), startTime: z.string(), staffName: z.string().optional() });
-/** Preparation runs before the persistent send fence. False/unknown provider outcomes cannot be retried automatically. */
-export async function prepareBookingCreationChannel(job: { webhook_type: string; target_id: string; payload: unknown }): Promise<() => Promise<void>> {
+
+/**
+ * One booking-creation Push / LINE WORKS attempt, classified for the durable queue.
+ * - delivered: the provider accepted it.
+ * - closed: the destination itself is gone (expired device subscription 404/410, LINE WORKS
+ *   channel not found). Sending the same frozen message again can never deliver it, so the job
+ *   is finished as failed instead of being held as 「結果不明」 (which alerted every run forever).
+ * - retryable: the provider definitively refused this attempt (auth, rate limit, bad request).
+ *   Nothing was accepted, so the bounded retry schedule is safe.
+ * - uncertain: the provider may have accepted it (timeout, 5xx, no status). Never resent automatically.
+ */
+export type BookingCreationChannelOutcome =
+  | { outcome: 'delivered' }
+  | { outcome: 'closed' | 'retryable'; reason: string; status: number | null }
+  | { outcome: 'uncertain' };
+
+function classifyBookingCreationResult(result: ChannelDeliveryResult, channel: 'push' | 'lineworks'): BookingCreationChannelOutcome {
+  if (result.outcome === 'delivered') return { outcome: 'delivered' };
+  if (result.outcome === 'uncertain') return { outcome: 'uncertain' };
+  // 404/410: the push subscription or the LINE WORKS channel no longer exists.
+  if (result.status === 404 || result.status === 410) {
+    return { outcome: 'closed', status: result.status,
+      reason: channel === 'push' ? 'booking_push_subscription_expired' : 'booking_lineworks_channel_not_found' };
+  }
+  return { outcome: 'retryable', status: result.status, reason: `booking_${channel}_provider_rejected` };
+}
+
+/** Preparation runs before the persistent send fence. Unknown provider outcomes cannot be retried automatically. */
+export async function prepareBookingCreationChannel(job: { webhook_type: string; target_id: string; payload: unknown }): Promise<() => Promise<BookingCreationChannelOutcome>> {
   if (job.webhook_type === 'booking_creation_push') {
     if (!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) throw new Error('booking push not configured');
     const payload = pushSchema.parse(job.payload);
-    return async () => { if (!await sendPushToUser(job.target_id, payload)) throw new Error('booking push acceptance not confirmed'); };
+    // The device is read and frozen BEFORE the fence (a read failure is still safely retryable).
+    const subscription = await readUserPushSubscription(job.target_id);
+    // No device now: the fence normally closes the job as superseded. If a device was registered
+    // in the instant between this read and the fence, nothing was sent; close it rather than hold it.
+    if (!subscription) return async () => ({ outcome: 'closed', status: null, reason: 'booking_push_subscription_changed' });
+    const send = prepareCapturedPushDelivery(subscription, payload);
+    return async () => {
+      const outcome = classifyBookingCreationResult(await send(), 'push');
+      if (outcome.outcome === 'closed') await removeExpiredPushSubscription(job.target_id, subscription);
+      return outcome;
+    };
   }
   if (job.webhook_type !== 'booking_creation_lineworks' || !isLineWorksConfigured()) throw new Error('booking LINE Works not configured');
   const payload = worksSchema.parse(job.payload);
   const send = await prepareNewBookingLineWorksDelivery(job.target_id, payload);
-  return async () => { if (!await send()) throw new Error('booking LINE Works acceptance not confirmed'); };
+  return async () => classifyBookingCreationResult(await send(), 'lineworks');
 }
 
 export async function sendBookingCreationLine(target: string, message: string): Promise<boolean> {

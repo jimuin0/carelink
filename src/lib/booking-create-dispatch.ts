@@ -6,6 +6,8 @@ import { prepareBookingCreationChannel, sendBookingCreationLine } from './bookin
 import { scheduleRetry } from './webhook-queue';
 import { UUID_REGEX } from './constants';
 import { safeCaptureException } from './safe';
+import { alertWarning } from './alert';
+import { closeUndeliverableBookingCreation, describeUndeliverableBookingCreation, type UndeliverableBookingCreation } from './booking-create-delivery-close';
 
 export type BookingCreationDelivery = { accepted: number; pending: number; uncertain: number; skipped: number };
 /** Fast path for the SAME committed jobs consumed by cron. Claim/start CAS fence precedes every provider effect. */
@@ -19,6 +21,8 @@ export async function dispatchBookingCreationNotifications(operationId: string):
     if (error || !jobs) throw new Error('booking notification lookup unconfirmed');
     await Promise.all(jobs.map(async job => {
       const epoch = new Date().toISOString(); let attempted = false; let rejected = false;
+      // Set only when the provider proved the destination no longer exists (see closeUndeliverableBookingCreation).
+      const undeliverable: { outcome: UndeliverableBookingCreation | null; startedAt: string | null } = { outcome: null, startedAt: null };
       try {
         const { data: claimed, error: claimError } = await db.rpc('claim_webhook_retry_queue_v2', { p_job_ids:[job.id],p_claimed_at:epoch });
         if (claimError) throw new Error('booking notification claim unconfirmed');
@@ -46,13 +50,24 @@ export async function dispatchBookingCreationNotifications(operationId: string):
             || typeof payload.message !== 'string') throw new Error('booking LINE preparation unconfirmed');
           const message = payload.message;
           send = async () => { if (!await sendBookingCreationLine(job.target_id,message)) throw new Error('booking LINE acceptance unconfirmed'); };
-        } else send = await prepareBookingCreationChannel(job);
+        } else {
+          const sendChannel = await prepareBookingCreationChannel(job);
+          send = async () => {
+            const outcome = await sendChannel();
+            if (outcome.outcome === 'delivered') return;
+            if (outcome.outcome === 'closed') undeliverable.outcome = outcome;
+            // closed / retryable = the provider definitively did not accept it (never 「結果不明」).
+            rejected = outcome.outcome !== 'uncertain';
+            throw new Error('booking channel acceptance unconfirmed');
+          };
+        }
         const { data: rows, error: startError } = await db.rpc('start_booking_create_notification',{p_queue_id:job.id,p_claimed_at:epoch});
         if (startError) throw new Error('booking notification start unconfirmed');
         const fence = rows?.length === 1 ? rows[0] : null;
         if (fence?.outcome === 'not_owned') { result.pending++; return; }
         if (fence?.outcome === 'superseded') { result.skipped++; return; }
         if (fence?.outcome !== 'ready' || !fence.started_at || !Number.isFinite(Date.parse(fence.started_at))) throw new Error('booking notification start invalid');
+        undeliverable.startedAt = fence.started_at;
         attempted = true; await send();
         const { data: marked, error: markError } = await db.from('webhook_retry_queue').update({ status:'success',delivered_at:new Date().toISOString(),
           processed_at:new Date().toISOString(),attempt_count:job.attempt_count+1,...(providerId?{provider_message_id:providerId}:{}) })
@@ -60,7 +75,17 @@ export async function dispatchBookingCreationNotifications(operationId: string):
         if (markError || marked?.length !== 1 || marked[0].id !== job.id) throw new Error('booking notification success record unconfirmed');
         result.accepted++;
       } catch {
-        if (attempted && !rejected) result.uncertain++;
+        if (attempted && undeliverable.outcome) {
+          // Finish it once and report it once; it is never resent and never counted as held again.
+          // startedAt is always recorded before the provider call that can produce `outcome`.
+          if (await closeUndeliverableBookingCreation(db, job, epoch, undeliverable.startedAt!, undeliverable.outcome)) {
+            result.skipped++;
+            alertWarning(describeUndeliverableBookingCreation(job.webhook_type, undeliverable.outcome), {
+              route: '/api/booking',
+              extra: { queueId: job.id, webhookType: job.webhook_type, providerStatus: undeliverable.outcome.status },
+            });
+          } else result.uncertain++;
+        } else if (attempted && !rejected) result.uncertain++;
         else {
           const outcome = await scheduleRetry(job.id,job.attempt_count+1,'booking_create_delivery_unconfirmed',epoch);
           if (outcome === 'uncertain') result.uncertain++; else result.pending++;

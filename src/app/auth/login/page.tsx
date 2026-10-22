@@ -16,6 +16,7 @@ import { useClientReady } from '@/lib/use-client-ready';
 import { isStoreManagementRedirect } from '@/lib/store-login';
 import { clearAccountLocalData, LOCAL_DATA_CLEAR_FAILED } from '@/lib/client-storage';
 import { markClientCleanupNeeded, completeClientCleanupMarker } from '@/lib/client-cleanup-marker';
+import { releaseThisDevicePush } from '@/hooks/usePushSubscription';
 
 export default function LoginPage() {
   // 見出し・カード外枠は Suspense の外（=SSR）で描画する。
@@ -140,6 +141,8 @@ function LoginContent() {
       markClientCleanupNeeded();
       if (!switchSignedOut) {
         await clearAccountLocalData();
+        // 前のアカウント宛ての通知がこの端末に出続けないよう、signOut の前に端末の通知を外す。
+        await releaseThisDevicePush({ serverRow: true });
         const result = await createBrowserSupabaseClient().auth.signOut({ scope: 'local' });
         if (result.error !== null) throw new Error('account logout not confirmed');
         setSwitchSignedOut(true);

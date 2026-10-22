@@ -349,7 +349,19 @@ it('booking preparer finishes token acquisition before returned message closure'
   setEnv({LINE_WORKS_PRIVATE_KEY:'-----BEGIN PRIVATE KEY-----\nYWJj\n-----END PRIVATE KEY-----'});
   jest.spyOn(crypto.subtle,'importKey').mockResolvedValue({} as CryptoKey);
   jest.spyOn(crypto.subtle,'sign').mockResolvedValue(new Uint8Array([1,2,3]).buffer);
-  global.fetch=jest.fn().mockResolvedValueOnce({ok:true,json:async()=>({access_token:'synthetic',expires_in:3600})}).mockResolvedValueOnce({ok:true});
+  global.fetch=jest.fn().mockResolvedValueOnce({ok:true,json:async()=>({access_token:'synthetic',expires_in:3600})}).mockResolvedValueOnce({ok:true,status:201});
+  const send=await prepareNewBookingLineWorksDelivery('synthetic',{customerName:'N',menuName:'M',bookingDate:'D',startTime:'T',staffName:'S'});
+  expect(global.fetch).toHaveBeenCalledTimes(1); expect(await send()).toEqual({outcome:'delivered',status:201}); expect(global.fetch).toHaveBeenCalledTimes(2);
+  const body=JSON.parse((global.fetch as jest.Mock).mock.calls[1][1].body);
+  expect(body.content.text).toBe(['📅 新規予約が入りました','','お客様: N','メニュー: M','日時: D T','担当: S','','管理画面で詳細を確認してください'].join('\n'));
+});
+it.each([[404,'rejected'],[401,'rejected'],[503,'uncertain']])('booking closure reports provider status %s as %s with exactly one request (E19)',async(status,outcome)=>{
+  setEnv({LINE_WORKS_PRIVATE_KEY:'-----BEGIN PRIVATE KEY-----\nYWJj\n-----END PRIVATE KEY-----'});
+  jest.spyOn(crypto.subtle,'importKey').mockResolvedValue({} as CryptoKey);
+  jest.spyOn(crypto.subtle,'sign').mockResolvedValue(new Uint8Array([1,2,3]).buffer);
+  global.fetch=jest.fn().mockResolvedValueOnce({ok:true,json:async()=>({access_token:'synthetic',expires_in:3600})}).mockResolvedValue({ok:false,status});
   const send=await prepareNewBookingLineWorksDelivery('synthetic',{customerName:'N',menuName:'M',bookingDate:'D',startTime:'T'});
-  expect(global.fetch).toHaveBeenCalledTimes(1); expect(await send()).toBe(true); expect(global.fetch).toHaveBeenCalledTimes(2);
+  expect(await send()).toEqual({outcome,status});
+  // 401 でもその場で二度目は送らない（届いた可能性のある送信を重ねない）。
+  expect(global.fetch).toHaveBeenCalledTimes(2);
 });

@@ -24,6 +24,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkScheduledEmailRecipient } from '@/lib/scheduled-email-recipient';
 import { prepareCustomerBookingChannel } from '@/lib/customer-booking-channel';
 import { channelDeliveryResult } from '@/lib/channel-delivery-result';
+import { closeUndeliverableBookingCreation, type UndeliverableBookingCreation } from '@/lib/booking-create-delivery-close';
 
 export const dynamic = 'force-dynamic';
 
@@ -183,6 +184,8 @@ export async function GET(request: Request) {
       let bookingChannelJob = false;
       let bookingChannelStartedAt: string | null = null;
       let bookingChannelRejectedStatus: number | null = null;
+      // 新規予約の Push / LINE WORKS で「宛先がもう無い」と確定したとき（closeUndeliverableBookingCreation）。
+      const bookingCreationUndeliverable: { outcome: UndeliverableBookingCreation | null; startedAt: string | null } = { outcome: null, startedAt: null };
       try {
         const payload = job.payload;
         bookingChannelJob = job.webhook_type.startsWith('customer_booking_') ||
@@ -250,7 +253,15 @@ export async function GET(request: Request) {
             if (outcome !== 'delivered') throw new Error('registration notification delivery not confirmed');
           };
         } else if (job.webhook_type === 'booking_creation_push' || job.webhook_type === 'booking_creation_lineworks') {
-          deliver = await prepareBookingCreationChannel(job);
+          const sendCreation = await prepareBookingCreationChannel(job);
+          deliver = async () => {
+            const outcome = await sendCreation();
+            if (outcome.outcome === 'delivered') return;
+            if (outcome.outcome === 'closed') bookingCreationUndeliverable.outcome = outcome;
+            // closed（宛先消滅）/ retryable（認証・流量等の明確な拒否）は「届いていない」ことが確定している。
+            definitelyRejected = outcome.outcome !== 'uncertain';
+            throw new Error('booking creation delivery not confirmed');
+          };
         } else if (job.webhook_type === 'line_push') {
           const payload = job.payload;
           if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
@@ -317,6 +328,7 @@ export async function GET(request: Request) {
           if (fence.outcome === 'not_owned') { deliveryUncertain++; continue; }
           if (!fence.started_at || !Number.isFinite(Date.parse(fence.started_at))) throw new Error('invalid booking creation fence time');
           deliveryStartedAt = fence.started_at;
+          bookingCreationUndeliverable.startedAt = fence.started_at;
         } else if (newsletterJob) {
           const { data: fenceRows, error: fenceError } = await supabase.rpc('start_newsletter_delivery', { p_queue_id: job.id, p_claimed_at: claimEpoch });
           if (fenceError) throw fenceError;
@@ -412,6 +424,17 @@ export async function GET(request: Request) {
             err: errorMsg,
           });
           deliveryUncertain++;
+          continue;
+        }
+        if (deliveryAttempted && bookingCreationUndeliverable.outcome) {
+          // 宛先が消えている送信は再送しても届かない。保留（毎 run の通報）にも再送にも回さず、
+          // 失敗として閉じる。dead-letter として数え、この run の集約通知で 1 回だけ知らせる。
+          // startedAt は送信（＝outcome が決まる呼び出し）より前に必ず記録されている。
+          const closed = await closeUndeliverableBookingCreation(supabase, job, claimEpoch,
+            bookingCreationUndeliverable.startedAt!, bookingCreationUndeliverable.outcome);
+          if (!closed) { deliveryUncertain++; continue; }
+          failed++;
+          deadLettered++;
           continue;
         }
         if (bookingChannelJob && deliveryAttempted && definitelyRejected) {

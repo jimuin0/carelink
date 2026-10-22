@@ -87,3 +87,22 @@ test('configured account reconfirmation uses explicit local OAuth linking mode',
  const button=await screen.findByRole('button',{name:'LINE連携を再確認'});const form=button.closest('form')!;
  expect(form).toHaveAttribute('action','/api/auth/line');expect(form).toHaveAttribute('method','get');expect(form.querySelector('input[name="mode"]')).toHaveAttribute('value','link');expect(form.querySelector('input[name="redirect"]')).toHaveAttribute('value','/mypage/settings');
 });
+
+// E21: 予約完了画面のバナーを閉じた・登録が消えた・別の端末から切り替えたいお客様が、登録し直せる入口。
+describe('この端末のプッシュ通知（お客様の登録・解除の入口）', () => {
+ const originalVapid = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+ afterEach(() => { if (originalVapid === undefined) delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY; else process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = originalVapid; });
+ test('Push を送れる環境では、通知設定の中に端末の登録欄を出す（見出しはページの階層に合わせて h3）', async () => {
+  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = 'synthetic-vapid';
+  routeFetch(() => ({ ok: true, status: 200, body: { linked: false, connected: false } }));
+  render(<SettingsPage />);
+  expect(await screen.findByRole('heading', { level: 3, name: 'この端末のプッシュ通知' })).toBeInTheDocument();
+ });
+ test('Push を送れない環境（VAPID 未設定）では出さない', async () => {
+  delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  routeFetch(() => ({ ok: true, status: 200, body: { linked: false, connected: false } }));
+  render(<SettingsPage />);
+  await screen.findByText('通知設定');
+  expect(screen.queryByText('この端末のプッシュ通知')).not.toBeInTheDocument();
+ });
+});

@@ -62,6 +62,30 @@ test.each(['owner','profile'] as const)('%s shared-fence write/readback failure 
  expect(await screen.findByRole('alert')).toHaveTextContent('アカウントの削除は行っていません');
  expect(mockClear).not.toHaveBeenCalled(); expect(mockFetch).not.toHaveBeenCalled();
 });
+// E20: 退会しても端末（ブラウザ）の Push 購読が残っていた。サーバーの行は auth.users の削除で
+// CASCADE されるので、ブラウザ側だけを外す（退会後は DELETE /api/push/subscribe を呼べない）。
+describe('account deletion releases this device push subscription', () => {
+ let mockUnsubscribe: jest.Mock;
+ beforeEach(() => {
+  mockUnsubscribe = jest.fn().mockResolvedValue(true);
+  Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: {
+   getRegistration: () => Promise.resolve({ pushManager: { getSubscription: () => Promise.resolve({ endpoint: 'https://fcm.googleapis.com/fcm/send/x', unsubscribe: mockUnsubscribe }) } }),
+  } });
+ });
+ afterEach(() => { delete (navigator as unknown as Record<string, unknown>).serviceWorker; });
+ test.each(['owner','profile'] as const)('%s: confirmed deletion unsubscribes the browser without calling the authenticated push API', async kind => {
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ success: true }) });
+  const ui = await open(kind); ui.submit();
+  await waitFor(() => expect(mockUnsubscribe).toHaveBeenCalledTimes(1));
+  expect(mockFetch.mock.calls.map(([url]) => url)).toEqual(['/api/account/delete']);
+ });
+ test.each(['owner','profile'] as const)('%s: a refused deletion keeps the device registered', async kind => {
+  mockFetch.mockResolvedValue({ ok: false, json: async () => ({ error: '本日以降の対象予約が残っています' }) });
+  const ui = await open(kind); ui.submit();
+  expect(await screen.findByRole('alert')).toHaveTextContent('本日以降の対象予約が残っています');
+  expect(mockUnsubscribe).not.toHaveBeenCalled();
+ });
+});
 test('owner retirement display uses the same scoped account, remaining-owner and date/status rules as the platform policy', () => {
  render(<WithdrawalSettings />);
  expect(screen.getByText(ACCOUNT_DELETION_NOTICE)).toBeInTheDocument();
