@@ -2,7 +2,8 @@
  * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  */
 
-const mockCreateBrowserClient = jest.fn().mockReturnValue({ from: jest.fn() });
+const mockOnAuthStateChange = jest.fn();
+const mockCreateBrowserClient = jest.fn(() => ({ from: jest.fn(), auth: { onAuthStateChange: mockOnAuthStateChange } }));
 
 jest.mock('@supabase/ssr', () => ({
   createBrowserClient: (...args: unknown[]) => mockCreateBrowserClient(...args),
@@ -12,6 +13,7 @@ const origEnv = process.env;
 
 beforeEach(() => {
   mockCreateBrowserClient.mockClear();
+  mockOnAuthStateChange.mockClear();
   process.env = {
     ...origEnv,
     NEXT_PUBLIC_SUPABASE_URL: 'https://test.supabase.co',
@@ -42,6 +44,20 @@ describe('createBrowserSupabaseClient', () => {
       const second = createBrowserSupabaseClient();
       expect(second).toBe(first);
       expect(mockCreateBrowserClient).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('starts recording password recovery as soon as the singleton is created, exactly once', () => {
+    jest.isolateModules(() => {
+      const { createBrowserSupabaseClient } = require('../supabase-browser');
+      const { getPasswordRecoveryUser } = require('../password-recovery-session');
+      createBrowserSupabaseClient();
+      createBrowserSupabaseClient();
+      // 生成と同じ同期区間で購読している（URL の認証コード交換が終わる前）
+      expect(mockOnAuthStateChange).toHaveBeenCalledTimes(1);
+      const notify = mockOnAuthStateChange.mock.calls[0][0];
+      notify('PASSWORD_RECOVERY', { user: { id: 'user-1', email: 'owner@example.invalid' } });
+      expect(getPasswordRecoveryUser()).toEqual({ id: 'user-1', email: 'owner@example.invalid' });
     });
   });
 

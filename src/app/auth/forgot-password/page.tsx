@@ -46,10 +46,21 @@ export default function ForgotPasswordPage() {
               </svg>
             </div>
             <h1 className="text-xl font-bold mb-3">メールを送信しました</h1>
-            <p className="text-gray-600 text-sm mb-6">
+            <p className="text-gray-600 text-sm mb-4">
               パスワードリセット用のリンクをメールアドレスに送信しました。
               メール内のリンクから新しいパスワードを設定してください。
             </p>
+            {/* 再設定リンクは申請したブラウザでしか使えない（PKCE の確認情報がこのブラウザにだけ保存される）。
+                しかもメールのリンクは一度開いた時点で使用済みになるため、別のブラウザで開いてしまった後に
+                同じリンクを貼り直しても通らない。開く前にコピーしてもらうよう案内する。 */}
+            <div className="rounded-lg bg-gray-100 px-4 py-3 text-sm text-gray-700 text-left mb-6">
+              <p className="font-bold text-gray-900">リンクは、このページを開いているのと同じブラウザで開いてください。</p>
+              <p className="mt-1">
+                別のブラウザやメールアプリ内のブラウザで開くと、パスワードを再設定できません。
+                メールアプリ内のブラウザで開かれてしまう場合は、リンクをタップせずに長押しでコピーし、このブラウザのアドレス欄に貼り付けてください。
+              </p>
+              <p className="mt-1">メールのリンクは一度開くと使えなくなります。</p>
+            </div>
             <Link href="/auth/login" className="text-sky-700 hover:underline text-sm">
               ログインページに戻る
             </Link>
