@@ -602,6 +602,7 @@ export type Database = {
           payjp_charge_id: string | null
           payment_status: string | null
           phone: string | null
+          points_base_price: number | null
           points_used: number | null
           review_request_legacy_claimed_at: string | null
           review_request_provider_accepted_at: string | null
@@ -633,6 +634,7 @@ export type Database = {
           payjp_charge_id?: string | null
           payment_status?: string | null
           phone?: string | null
+          points_base_price?: number | null
           points_used?: number | null
           review_request_legacy_claimed_at?: string | null
           review_request_provider_accepted_at?: string | null
@@ -664,6 +666,7 @@ export type Database = {
           payjp_charge_id?: string | null
           payment_status?: string | null
           phone?: string | null
+          points_base_price?: number | null
           points_used?: number | null
           review_request_legacy_claimed_at?: string | null
           review_request_provider_accepted_at?: string | null
@@ -6466,6 +6469,15 @@ export type Database = {
         }
         Returns: boolean
       }
+      booking_visit_points_due: {
+        Args: {
+          p_facility_id: string
+          p_points_base_price: number
+          p_total_price: number
+          p_user_id: string
+        }
+        Returns: number
+      }
       cancel_booking_with_points_atomic: {
         Args: {
           p_actor_id: string
@@ -7343,6 +7355,7 @@ export type Database = {
           payjp_charge_id: string | null
           payment_status: string | null
           phone: string | null
+          points_base_price: number | null
           points_used: number | null
           review_request_legacy_claimed_at: string | null
           review_request_provider_accepted_at: string | null

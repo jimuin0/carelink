@@ -88,13 +88,13 @@ function updateChain(result: { data: unknown; error: unknown }) {
 }
 
 /** 標準成功モック: status=fromStatus の予約・owner・CAS 成功。 */
-function setupSuccess(fromStatus: string, updateResult?: { data: unknown; error: unknown }) {
+function setupSuccess(fromStatus: string, updateResult?: { data: unknown; error: unknown }, bookingOver: Record<string, unknown> = {}) {
   mockRpc.mockImplementation((_name, args) => Promise.resolve(updateResult ?? { data: [{ id: validBookingId, total_price: Math.max(0,args.p_charges.reduce((sum: number,c: {amount:number})=>sum+c.amount,0)), points_earned: 33 }], error: null }));
   let bookingCall = 0;
   mockFrom.mockImplementation((table: string) => {
     if (table === 'bookings') {
       bookingCall++;
-      if (bookingCall === 1) return fluentBooking({ ...bookingBase, status: fromStatus });
+      if (bookingCall === 1) return fluentBooking({ ...bookingBase, status: fromStatus, ...bookingOver });
       return updateChain(updateResult ?? { data: [{ id: validBookingId }], error: null });
     }
     if (table === 'facility_members') return membershipChain({ facility_id: facilityId, role: 'owner' });
@@ -254,6 +254,71 @@ test.each([['BOOKING_PERMISSION_DENIED',404],['BOOKING_REVISION_CONFLICT',409],[
 });
 test.each([null,[],[{id:'wrong',total_price:3300}],[{id:validBookingId,total_price:999}]])('会計結果未確認 %j は成功にしない',async(data)=>{
  setupSuccess('confirmed',{data,error:null}); expect((await POST(makeRequest(validBody()))).status).toBe(500);
+});
+
+// ─── 予約時に使ったポイント（2026年10月23日）────────────────
+// 以前は初期明細が「ポイント利用後の金額」1 行だけで、当日メニューを打ち直すとポイント分の値引きが消えた
+// （お客様は全額払い、差し引かれたポイントも戻らない）。ポイントはサーバーが固定の明細行として付け足す。
+describe('ポイント利用の明細行', () => {
+  const pointsLine = { type: 'discount', name: 'ポイント利用', amount: -2000 };
+  const rpcCharges = () => mockRpc.mock.calls.find(([name]) => name === 'checkout_booking_with_points_atomic')![1].p_charges;
+
+  test('サーバーがポイント利用の行を最後に付け足し、合計から差し引く', async () => {
+    setupSuccess('confirmed', undefined, { points_used: 2000 });
+    const res = await POST(makeRequest(validBody({ items: [{ type: 'menu', name: 'カラー', amount: 8000 }], points_used: 2000, complete: true })));
+    expect(res.status).toBe(200);
+    expect((await res.json()).total_price).toBe(6000);
+    expect(rpcCharges()).toEqual([{ type: 'menu', name: 'カラー', amount: 8000 }, pointsLine]);
+    expect(mockApply).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ total_price: 6000 }));
+    expect(jest.requireMock('@/lib/audit-logger').writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+      newValues: expect.objectContaining({ total_price: 6000, item_count: 2, points_used: 2000 }),
+    }));
+  });
+
+  // 回帰（旧コードでは total=10000・ポイント行なしで保存され、2,000pt が失われた）
+  test('当日メニューを打ち直してもポイント分の値引きは残る', async () => {
+    setupSuccess('arrived', undefined, { points_used: 2000 });
+    const res = await POST(makeRequest(validBody({ items: [{ type: 'menu', name: '別メニュー', amount: 10000 }], points_used: 2000, complete: true })));
+    expect(res.status).toBe(200);
+    expect((await res.json()).total_price).toBe(8000);
+    expect(rpcCharges()).toContainEqual(pointsLine);
+  });
+
+  test('ポイントで全額払った予約は 0 円（負にしない）', async () => {
+    setupSuccess('confirmed', undefined, { points_used: 2000 });
+    const res = await POST(makeRequest(validBody({ items: [{ type: 'menu', name: 'カット', amount: 1500 }], points_used: 2000 })));
+    expect((await res.json()).total_price).toBe(0);
+  });
+
+  test.each([
+    ['ポイント行を知らない古い画面（points_used なし）', { points_used: 2000 }, {}],
+    ['画面の表示と予約のポイントが違う', { points_used: 2000 }, { points_used: 1000 }],
+    ['ポイントの無い予約にポイントを申告', { points_used: 0 }, { points_used: 500 }],
+  ])('%s → 409・保存しない', async (_label, booking, request) => {
+    setupSuccess('confirmed', undefined, booking);
+    const res = await POST(makeRequest(validBody({ ...request, complete: true })));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain('ページを更新');
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(mockApply).not.toHaveBeenCalled();
+  });
+
+  test.each([[null], [undefined]])('ポイントの無い予約（points_used=%p）は従来どおり・行を足さない', async (points) => {
+    setupSuccess('confirmed', undefined, { points_used: points });
+    const res = await POST(makeRequest(validBody()));
+    expect(res.status).toBe(200);
+    expect(rpcCharges()).toEqual([{ type: 'menu', name: 'カット', amount: 3300 }]);
+  });
+
+  test('ポイント行を含めて 50 件まで（49 件は通り、50 件は 400）', async () => {
+    const lines = (n: number) => Array.from({ length: n }, () => ({ type: 'retail', name: '物販', amount: 100 }));
+    setupSuccess('confirmed', undefined, { points_used: 2000 });
+    expect((await POST(makeRequest(validBody({ items: lines(50), points_used: 2000 })))).status).toBe(400);
+    expect(mockRpc).not.toHaveBeenCalled();
+    setupSuccess('confirmed', undefined, { points_used: 2000 });
+    expect((await POST(makeRequest(validBody({ items: lines(49), points_used: 2000 })))).status).toBe(200);
+    expect(rpcCharges()).toHaveLength(50);
+  });
 });
 
 test('旧DBで原子会計RPCが未適用でも直接UPDATE/ポイント副作用へ戻らない',async()=>{

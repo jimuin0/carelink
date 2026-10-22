@@ -267,7 +267,9 @@ export async function POST(request: Request) {
   const bookingStatus = facilitySettings?.booking_auto_confirm ? 'confirmed' : 'pending';
 
 
-    const notifications = await buildBookingCreateNotifications(rpcClient, parsed.data, user?.id ?? null, primaryMenuId, finalPrice, bookingStatus);
+    // 店舗向けの新規予約メールに「ポイント利用 -¥N」を出す（料金はポイント利用後の金額なので、差額の理由が店舗に分かるように）。
+    // p_total_price + p_points_used ＝ ポイント利用前の金額で、予約 RPC はこれを来店ポイントの上限として保存する（20261023000100）。
+    const notifications = await buildBookingCreateNotifications(rpcClient, parsed.data, user?.id ?? null, primaryMenuId, finalPrice, bookingStatus, pointsUsed);
     const { data: result, error } = await rpcClient.rpc('create_booking_with_receipt_atomic', {
       ...scope, p_payload_hash: payloadHash, p_facility_id: parsed.data.facility_id, p_staff_id: parsed.data.staff_id ?? null,
       p_menu_id: primaryMenuId, p_coupon_id: parsed.data.coupon_id ?? null, p_booking_date: parsed.data.booking_date,

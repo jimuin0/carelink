@@ -157,9 +157,13 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
   };
 
   // ── 退店レジ会計 ──
+  // 予約時にお客様が使ったポイント。total_price は利用後の金額なので、明細のメニュー行は利用前の金額で始め、
+  // ポイントは編集できない別の行として合計から差し引く（保存時はサーバーが同じ行を付け足す）。
+  // 以前はポイント利用後の金額 1 行だけで始まり、メニューを打ち直すとポイント分の値引きが消えていた。
+  const pointsUsed = booking?.points_used ?? 0;
   const openCheckout = () => {
     if (!booking) return;
-    setCheckoutItems([{ type: 'menu', name: menuName || '施術', amount: booking.total_price ?? 0 }]);
+    setCheckoutItems([{ type: 'menu', name: menuName || '施術', amount: (booking.total_price ?? 0) + pointsUsed }]);
     setPaid('');
     setCheckoutOpen(true);
   };
@@ -172,7 +176,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
 
   const checkoutTotal = Math.max(
     0,
-    checkoutItems.reduce((s, c) => s + (Number.isFinite(c.amount) ? c.amount : 0), 0),
+    checkoutItems.reduce((s, c) => s + (Number.isFinite(c.amount) ? c.amount : 0), 0) - pointsUsed,
   );
   const paidNum = paid.trim() === '' || !Number.isFinite(Number(paid)) ? null : Math.floor(Number(paid));
   const change = paidNum !== null ? paidNum - checkoutTotal : null;
@@ -196,6 +200,8 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
             amount: Math.floor(c.amount) || 0,
           })),
           paid_amount: paidNum,
+          // 画面が差し引いたポイント。予約のポイントと食い違えばサーバーが 409 で止める。
+          points_used: pointsUsed,
           complete: true,
         }),
       });
@@ -335,6 +341,15 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
                     </button>
                   </div>
                 ))}
+                {pointsUsed > 0 && (
+                  <div data-testid="checkout-points-line" className="rounded-lg border border-emerald-200 bg-white px-3 py-2">
+                    <div className="flex items-center justify-between text-sm text-gray-800">
+                      <span className="font-medium">ポイント利用</span>
+                      <span className="font-medium">-¥{pointsUsed.toLocaleString()}</span>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-0.5">お客様が予約時に使ったポイントです。変更・削除はできません。</p>
+                  </div>
+                )}
               </div>
               <div className="flex gap-2">
                 <button type="button" onClick={() => addItem('retail')} className="text-xs px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-100">＋物販</button>
@@ -425,6 +440,11 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
             <div>
               <p className="text-gray-500">金額</p>
               <p className="font-bold text-lg text-sky-600">¥{booking.total_price.toLocaleString()}</p>
+              {pointsUsed > 0 && (
+                <p data-testid="booking-points-used" className="text-xs text-gray-600 mt-0.5">
+                  ポイント利用 -¥{pointsUsed.toLocaleString()}（金額はポイント利用後）
+                </p>
+              )}
             </div>
           )}
         </div>

@@ -46,6 +46,15 @@ it('phone and note (visit address) go only to the owner notification, never the 
  const customerData=buildBookingConfirmationEnvelope.mock.calls[0][0];
  expect(customerData).not.toHaveProperty('customerPhone');expect(customerData).not.toHaveProperty('note');
 });
+it('points used reach only the owner notification; none defaults to 0',async()=>{
+ const {buildBookingConfirmationEnvelope,buildNewBookingNotificationEnvelope}=jest.requireMock('../email') as Record<string,jest.Mock>;
+ await buildBookingCreateNotifications(db,input,'actor','menu',300,'pending',200);
+ expect(buildNewBookingNotificationEnvelope).toHaveBeenCalledWith(expect.objectContaining({totalPrice:300,pointsUsed:200}));
+ expect(buildBookingConfirmationEnvelope.mock.calls[0][0]).not.toHaveProperty('pointsUsed');
+ jest.clearAllMocks();
+ await buildBookingCreateNotifications(db,input,null,'menu',500,'pending');
+ expect(buildNewBookingNotificationEnvelope).toHaveBeenCalledWith(expect.objectContaining({totalPrice:500,pointsUsed:0}));
+});
 it('missing phone and note reach the owner notification as null',async()=>{
  const {buildNewBookingNotificationEnvelope}=jest.requireMock('../email') as Record<string,jest.Mock>;
  await buildBookingCreateNotifications(db,input,null,'menu',500,'pending');

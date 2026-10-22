@@ -314,7 +314,10 @@ export interface Booking {
   phone: string | null;
   note: string | null;
   status: BookingStatus;
+  /** ポイント利用後の金額（お客様がお店で払う額）。 */
   total_price: number | null;
+  /** 予約時にお客様が使った CareLink ポイント（1pt＝1円）。total_price からは差し引き済み。 */
+  points_used?: number | null;
   created_at: string;
   updated_at: string;
 }

@@ -73,6 +73,11 @@ export interface BookingEmailData {
   customerPhone?: string | null;
   /** お客様の備考。訪問専門の店舗では訪問先の住所を兼ねる（PR #755）。店舗向けの新規予約通知だけが使う。 */
   note?: string | null;
+  /**
+   * 予約時にお客様が使った CareLink ポイント（1pt＝1円）。totalPrice はポイント利用後の金額。
+   * 店舗向けの新規予約通知だけが渡す（2026年10月23日）。0 や未指定なら行を出さない。
+   */
+  pointsUsed?: number;
   // キャンセル料（無料期限超過時のみ正の値・客への通知用。実徴収は店舗と客で直接）。
   cancelFee?: number;
 }
@@ -91,12 +96,14 @@ function formatTime(time: string): string {
 function bookingDetailHtml(data: BookingEmailData): string {
   const td = 'padding:8px 12px;border:1px solid #e2e8f0;';
   const th = `${td}background:#f8fafc;font-weight:600;width:120px;`;
+  const pointsUsed = data.pointsUsed ?? 0;
   return `
     <table style="width:100%;border-collapse:collapse;margin:16px 0;">
       <tr><td style="${th}">日時</td><td style="${td}">${formatDate(data.bookingDate)} ${formatTime(data.startTime)}〜${formatTime(data.endTime)}</td></tr>
       ${data.menuName ? `<tr><td style="${th}">メニュー</td><td style="${td}">${esc(data.menuName)}</td></tr>` : ''}
       ${data.staffName ? `<tr><td style="${th}">担当</td><td style="${td}">${esc(data.staffName)}</td></tr>` : ''}
-      ${data.totalPrice != null ? `<tr><td style="${th}">料金</td><td style="${td}">&yen;${data.totalPrice.toLocaleString()}</td></tr>` : ''}
+      ${data.totalPrice != null ? `<tr><td style="${th}">料金</td><td style="${td}">&yen;${data.totalPrice.toLocaleString()}${pointsUsed > 0 ? '（ポイント利用後）' : ''}</td></tr>` : ''}
+      ${pointsUsed > 0 ? `<tr><td style="${th}">ポイント利用</td><td style="${td}">-&yen;${pointsUsed.toLocaleString()}</td></tr>` : ''}
     </table>
   `;
 }

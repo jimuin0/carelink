@@ -50,8 +50,10 @@ UPDATE public.profiles SET line_user_id='Ued000000000000000000000000000003' WHER
 UPDATE public.profiles SET line_user_id='Ued000000000000000000000000000005' WHERE id='ed010000-0000-4000-8000-000000000005';
 INSERT INTO public.favorites(user_id,facility_id) VALUES('ed010000-0000-4000-8000-000000000001','ed020000-0000-4000-8000-000000000001');
 INSERT INTO public.user_points(user_id,points,reason) VALUES('ed010000-0000-4000-8000-000000000001',500,'Synthetic account balance');
+-- The completed visit is at the other clinic: its visit points are the typed ledger
+-- row checked below, and an owner earns none at their own clinic (20261023000100).
 INSERT INTO public.bookings(id,facility_id,user_id,booking_date,start_time,end_time,customer_name,email,status,total_price,note) VALUES
-('ed030000-0000-4000-8000-000000000001','ed020000-0000-4000-8000-000000000001','ed010000-0000-4000-8000-000000000001',current_date-5,'10:00','11:00','Synthetic retained customer','retirement-owner@example.invalid','completed',1000,'Retained booking content'),
+('ed030000-0000-4000-8000-000000000001','ed020000-0000-4000-8000-000000000002','ed010000-0000-4000-8000-000000000001',current_date-5,'10:00','11:00','Synthetic retained customer','retirement-owner@example.invalid','completed',1000,'Retained booking content'),
 ('ed030000-0000-4000-8000-000000000002','ed020000-0000-4000-8000-000000000001','ed010000-0000-4000-8000-000000000001',current_date+5,'10:00','11:00','Synthetic guarded customer','retirement-owner@example.invalid','pending',1000,'Retained future content');
 INSERT INTO public.treatment_records(id,facility_id,user_id,notes) VALUES('ed040000-0000-4000-8000-000000000001','ed020000-0000-4000-8000-000000000001','ed010000-0000-4000-8000-000000000001','Retained clinical record');
 INSERT INTO public.treatment_plans(id,facility_id,user_id,title,notes) VALUES('ed040000-0000-4000-8000-000000000002','ed020000-0000-4000-8000-000000000001','ed010000-0000-4000-8000-000000000001','Synthetic plan','Retained clinical plan');

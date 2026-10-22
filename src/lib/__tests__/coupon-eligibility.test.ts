@@ -161,10 +161,19 @@ describe('migration（予約 RPC 側の判定）', () => {
     expect(next).not.toBe(previous);
   });
 
-  test('この migration より後に create_booking_for_menus_atomic を定義・改変する migration は無い', () => {
+  // 後の migration が関数を定義し直す場合（20261023000100 の来店ポイント上限）も、
+  // 判定の部分を一字一句そのまま引き継いでいること＝定義し直しで判定が消えないこと。
+  test('この migration より後に create_booking_for_menus_atomic を定義し直す migration も、判定をそのまま引き継ぐ', () => {
+    const couponBlock = (text: string) => {
+      const block = functionBlock(text);
+      return block.slice(block.indexOf('  -- Coupon target (2026-10-22)'), block.indexOf('  INSERT INTO bookings ('));
+    };
+    const expected = couponBlock(sql);
+    expect(expected).toContain("IF v_coupon_type IN ('new_customer', 'repeat') THEN");
     const later = readdirSync(MIGRATIONS)
       .filter((f) => f.endsWith('.sql') && f > NEW_MIGRATION && /^\d/.test(f))
       .filter((f) => read(f).includes('create_booking_for_menus_atomic'));
-    expect(later).toEqual([]);
+    expect(later).toEqual(['20261023000100_booking_visit_points_cap.sql']);
+    for (const file of later) expect([file, couponBlock(read(file))]).toEqual([file, expected]);
   });
 });

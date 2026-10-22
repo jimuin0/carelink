@@ -8,6 +8,12 @@
  * applyCompletionSideEffects（来店記録・来店ポイント）を付与する。
  *
  * 権限: 対象施設の owner/admin のみ。会計の権威的金額は total_price（accounting-export/売上集計が参照）。
+ *
+ * 予約時にお客様が使った CareLink ポイント（bookings.points_used）は、画面では編集できない
+ * 「ポイント利用」の行として出し、保存時はサーバーが明細の最後に付け足す（2026年10月23日）。
+ * 以前は初期明細が「ポイント利用後の金額」1 行だけで、当日メニューを打ち直すとポイント分の値引きが
+ * 消えた（お客様は全額払ったうえにポイントも戻らない）。画面が知っているポイント（points_used）と
+ * 予約のポイントが食い違う古い画面からの会計は 409 で止める。
  */
 import { NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
@@ -28,6 +34,8 @@ type Charge = { type: ChargeType; name: string; amount: number };
 
 const MAX_ITEMS = 50;
 const MAX_AMOUNT = 100_000_000; // 1件あたりの絶対値上限（暴走・オーバーフロー防止）
+/** サーバーが付け足すポイント利用の明細名（会計画面の固定行と同じ表示名）。 */
+const POINTS_LINE_NAME = 'ポイント利用';
 
 /** items 入力を検証して正規化。不正なら null を返す。 */
 function parseItems(raw: unknown): Charge[] | null {
@@ -56,7 +64,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const { bookingId, items, paid_amount, complete } = body;
+    const { bookingId, items, paid_amount, complete, points_used: declaredPoints } = body;
 
     if (!bookingId || !uuidRegex.test(bookingId)) {
       return NextResponse.json({ error: '不正なリクエストです' }, { status: 400 });
@@ -75,9 +83,6 @@ export async function POST(request: Request) {
     }
     const wantComplete = complete === true;
 
-    // 合計 = Σ amount（割引は負）。負にはしない。
-    const total = Math.max(0, charges.reduce((sum, c) => sum + c.amount, 0));
-
     // Auth
     const authClient = await createServerSupabaseAuthClient();
     const { data: { user } } = await authClient.auth.getUser();
@@ -90,7 +95,7 @@ export async function POST(request: Request) {
     // 予約取得（権限スコープ確定のため先に取る）
     const { data: booking } = await supabase
       .from('bookings')
-      .select('id, facility_id, user_id, customer_name, email, booking_date, menu_id, staff_id, status, updated_at')
+      .select('id, facility_id, user_id, customer_name, email, booking_date, menu_id, staff_id, status, updated_at, points_used')
       .eq('id', bookingId)
       .single();
 
@@ -115,11 +120,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'この予約は会計できません（確定または受付の予約のみ）' }, { status: 400 });
     }
 
+    // 予約時にお客様が使ったポイント。画面の表示と一致しない（ポイント行を知らない古い画面など）まま
+    // 保存すると、ポイント分の値引きが黙って消えるので止める。
+    const bookingPoints = booking.points_used ?? 0;
+    if ((declaredPoints ?? 0) !== bookingPoints) {
+      return NextResponse.json({ error: 'お客様のポイント利用が画面の表示と一致しません。ページを更新してから会計してください。' }, { status: 409 });
+    }
+    if (bookingPoints > 0 && charges.length >= MAX_ITEMS) {
+      return NextResponse.json({ error: '会計明細が多すぎます（ポイント利用の行を含めて50件までです）' }, { status: 400 });
+    }
+    const savedCharges: Charge[] = bookingPoints > 0
+      ? [...charges, { type: 'discount', name: POINTS_LINE_NAME, amount: -bookingPoints }]
+      : charges;
+
+    // 合計 = Σ amount（割引・ポイント利用は負）。負にはしない。
+    const total = Math.max(0, savedCharges.reduce((sum, c) => sum + c.amount, 0));
     const nextStatus = wantComplete ? 'completed' : booking.status;
 
     const { data: updated, error: updateError } = await supabase.rpc('checkout_booking_with_points_atomic', {
       p_actor_id: user.id, p_booking_id: bookingId, p_expected_status: booking.status,
-      p_expected_updated_at: booking.updated_at, p_charges: charges, p_paid_amount: paidAmount, p_complete: wantComplete,
+      p_expected_updated_at: booking.updated_at, p_charges: savedCharges, p_paid_amount: paidAmount, p_complete: wantComplete,
     });
     if (updateError?.message.includes('BOOKING_PERMISSION_DENIED')) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
     if (updateError?.message.includes('BOOKING_REVISION_CONFLICT')) return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
@@ -151,7 +171,7 @@ export async function POST(request: Request) {
       tableName: 'bookings',
       recordId: bookingId,
       oldValues: { status: booking.status },
-      newValues: { status: nextStatus, total_price: total, item_count: charges.length, kind: 'checkout' },
+      newValues: { status: nextStatus, total_price: total, item_count: savedCharges.length, points_used: bookingPoints, kind: 'checkout' },
       ipAddress: ip,
       userAgent: request.headers.get('user-agent') ?? null,
     });
