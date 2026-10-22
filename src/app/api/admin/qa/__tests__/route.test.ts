@@ -12,7 +12,7 @@ import {checkRateLimit} from '@/lib/rate-limit';
 import {writeAuditLog} from '@/lib/audit-logger';
 import {POST} from '../route';
 const cases=[['qa:answer','POST',{qa_id:id,answer:'Answer'},POST,'','ok'],['qa:toggle','POST',{qa_id:id,is_public:true},POST,'&action=toggle-public','ok'],['qa:delete','POST',{qa_id:id},POST,'&action=delete','ok']] as const;
-function invalidBodies(kind:string):unknown[]{return kind==='qa:answer'?[null,{qa_id:'bad',answer:'A'},{qa_id:id,answer:''},{qa_id:id,answer:'x'.repeat(2001)}]:kind==='qa:toggle'?[null,{qa_id:'bad',is_public:true},{qa_id:id}]:[null,{qa_id:'bad'}];}
+function invalidBodies(kind:string):unknown[]{return kind==='qa:answer'?[null,{qa_id:'bad',answer:'A'},{qa_id:id,answer:''},{qa_id:id,answer:'x'.repeat(1001)}]:kind==='qa:toggle'?[null,{qa_id:'bad',is_public:true},{qa_id:id}]:[null,{qa_id:'bad'}];}
 
 beforeEach(()=>{jest.clearAllMocks();mockContext.mockResolvedValue({userId:actor,facilityId:facility});mockRpc.mockResolvedValue({data:{id,facility_id:facility},error:null});});
 function req(method:string,body:unknown,suffix=''){return new NextRequest('http://localhost/api/admin/example?facility_id='+facility+suffix,{method,body:JSON.stringify(body),headers:{'Content-Type':'application/json'}});}
@@ -31,4 +31,7 @@ for(const [kind,method,body,handler,suffix,wrapper] of cases){
  }
  });
 }
-test('answer at maximum length is saved without forged responder identity',async()=>{expect((await POST(req('POST',{qa_id:id,answer:'x'.repeat(2000),answered_by:facility}))).status).toBe(200);expect(mockRpc.mock.calls[0][1].p_values).toEqual({answer:'x'.repeat(2000)});});
+// 回答の上限は DB の facility_qa_answer_check（length(answer) <= 1000）と同じ。以前は 2000 文字まで受け付け、
+// 1001〜2000 文字の回答は DB の CHECK で弾かれて 500 になっていた（質問が未回答のまま残る）。
+test('answer at maximum length is saved without forged responder identity',async()=>{expect((await POST(req('POST',{qa_id:id,answer:'x'.repeat(1000),answered_by:facility}))).status).toBe(200);expect(mockRpc.mock.calls[0][1].p_values).toEqual({answer:'x'.repeat(1000)});});
+test('answer longer than the DB limit is rejected before the RPC',async()=>{expect((await POST(req('POST',{qa_id:id,answer:'x'.repeat(1001)}))).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();expect(writeAuditLog).not.toHaveBeenCalled();});

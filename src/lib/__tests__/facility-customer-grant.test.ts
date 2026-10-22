@@ -2,7 +2,7 @@
  * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * 回数券・月額プランの付与先を「その店舗の予約者」に限る経路（2026年10月22日）。
- * 判定そのものは RPC（migration 20261022150000）が行い、実 DB での検証は
+ * 判定そのものは RPC（migration 20261022210000）が行い、実 DB での検証は
  * supabase/shadow/customer-grant-qa-audit-fixtures.sql。ここでは RPC の結果を HTTP へ
  * 正しく対応させているか（特に「予約者でない」を成功扱いにしないか）を固定する。
  */

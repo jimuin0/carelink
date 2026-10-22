@@ -25,7 +25,13 @@ DROP POLICY IF EXISTS audit_logs_facility_member_read ON public.audit_logs;
 DROP POLICY IF EXISTS audit_logs_admin_read ON public.audit_logs;
 REVOKE ALL ON public.audit_logs FROM anon, authenticated;
 
+-- 以前のコメントの「90日で自動削除」は実態と違うので書き直す。cleanup_old_audit_logs()
+-- （90 日より前の行を消す関数）は定義だけで、呼び出す cron・スケジュールはどこにも無い
+-- （src・scripts・render.yaml・migration の cron.schedule を全走査。pg_cron も撤去済み）。
+-- 保持期間を守るには、service_role だけが実行できる削除処理を既存の Render cron から呼ぶ形で
+-- 別途実装する（この migration の範囲外）。なお cleanup_old_audit_logs() は SECURITY INVOKER
+-- なので、上の REVOKE の後は anon / authenticated が実行しても権限エラーで何も消せない。
 COMMENT ON TABLE public.audit_logs IS
-  '重要操作の監査ログ。90日で自動削除。'
-  'INSERT / SELECT とも service_role のみ（2026-10-22: 来院者の IP・UA を店舗へ見せないため、'
-  'anon / authenticated の権限とポリシーを撤回）。';
+  '重要操作の監査ログ。INSERT / SELECT とも service_role のみ（2026-10-22: 来院者の IP・UA を'
+  '店舗へ見せないため、anon / authenticated の権限とポリシーを撤回）。'
+  '自動削除は動いていない（cleanup_old_audit_logs() は定義のみで、定期実行する仕組みが無い）。';

@@ -12,22 +12,22 @@
  *   4. 店舗メンバーが audit_logs から来院者の IP・UA を読めた → service_role 専用。
  *
  * migration は 4 本:
- *   20261022150000_customer_grant_scope.sql            … 付与・一覧 RPC、2 表のブラウザ書き込み撤回
- *   20261022150100_facility_qa_question_only.sql       … 質問の INSERT を「回答待ち・回答なし」に限る（旧コードは動く）
- *   20261022150200_audit_logs_service_role_only.sql    … audit_logs の読み取りポリシーと権限を撤回
- *   20261022150300_facility_qa_close_browser_insert.sql … コードのデプロイ後に、ブラウザの INSERT 自体を撤回
+ *   20261022210000_customer_grant_scope.sql            … 付与・一覧 RPC、2 表のブラウザ書き込み撤回
+ *   20261022210100_facility_qa_question_only.sql       … 質問の INSERT を「回答待ち・回答なし」に限る（旧コードは動く）
+ *   20261022210200_audit_logs_service_role_only.sql    … audit_logs の読み取りポリシーと権限を撤回
+ *   20261022210300_facility_qa_close_browser_insert.sql … コードのデプロイ後に、ブラウザの INSERT 自体を撤回
  * 実 DB での検証は supabase/shadow/customer-grant-qa-audit-fixtures.sql（CI の schema-fingerprint で実行）。
  */
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, relative } from 'path';
-import { FACILITY_QA_QUESTION_MAX_LENGTH } from '@/lib/facility-qa-limits';
+import { FACILITY_QA_ANSWER_MAX_LENGTH, FACILITY_QA_QUESTION_MAX_LENGTH } from '@/lib/facility-qa-limits';
 
 const ROOT = process.cwd();
 const MIGRATIONS = join(ROOT, 'supabase/migrations');
-const GRANT = '20261022150000_customer_grant_scope.sql';
-const QA_FIRST = '20261022150100_facility_qa_question_only.sql';
-const AUDIT = '20261022150200_audit_logs_service_role_only.sql';
-const QA_CLOSE = '20261022150300_facility_qa_close_browser_insert.sql';
+const GRANT = '20261022210000_customer_grant_scope.sql';
+const QA_FIRST = '20261022210100_facility_qa_question_only.sql';
+const AUDIT = '20261022210200_audit_logs_service_role_only.sql';
+const QA_CLOSE = '20261022210300_facility_qa_close_browser_insert.sql';
 /** コメントを除いた SQL（説明文の中の語に反応しない）。 */
 const code = (text: string) => text.replace(/--[^\n]*/g, '').replace(/\s+/g, ' ').trim();
 const sql = (file: string) => code(readFileSync(join(MIGRATIONS, file), 'utf8'));
@@ -116,6 +116,10 @@ describe('migration', () => {
     expect(body).toContain('REVOKE ALL ON public.audit_logs FROM anon, authenticated;');
     expect(body).not.toMatch(/CREATE POLICY/i);
     expect(body).not.toMatch(/\bGRANT\b/i);
+    // 「90日で自動削除」は実態と違う（cleanup_old_audit_logs() を定期実行する仕組みが無い）ので書かない。
+    expect(body).toContain('COMMENT ON TABLE public.audit_logs IS');
+    expect(body).not.toContain('90日で自動削除');
+    expect(body).toContain('自動削除は動いていない');
   });
 
   test('後に適用される migration が書き込み権・書き込みポリシー・監査ログの読み取りを戻していない', () => {
@@ -244,6 +248,18 @@ test('質問の上限は画面・API・DB で同じ値', () => {
   const section = readFileSync(join(ROOT, 'src/components/facility/QASection.tsx'), 'utf8');
   expect(section).toContain('maxLength={FACILITY_QA_QUESTION_MAX_LENGTH}');
   expect(section).not.toMatch(/maxLength=\{\d+\}/);
+});
+
+test('回答の上限は画面・API・DB で同じ値（以前は 2000 文字まで受け付け、1001 文字以上は DB で弾かれて 500 になった）', () => {
+  const fingerprint = JSON.parse(readFileSync(join(ROOT, 'src/lib/schema-fingerprint.expected.json'), 'utf8')) as string[];
+  const check = fingerprint.find((l) => l.startsWith('constraint|facility_qa|c|facility_qa_answer_check|'));
+  expect(check).toBe(`constraint|facility_qa|c|facility_qa_answer_check|CHECK ((length(answer) <= ${FACILITY_QA_ANSWER_MAX_LENGTH}))`);
+  const page = readFileSync(join(ROOT, 'src/app/admin/qa/page.tsx'), 'utf8');
+  expect(page).toContain('maxLength={FACILITY_QA_ANSWER_MAX_LENGTH}');
+  expect(page).toContain('{answerText.length}/{FACILITY_QA_ANSWER_MAX_LENGTH}');
+  expect(page).not.toMatch(/maxLength=\{\d+\}/);
+  const route = readFileSync(join(ROOT, 'src/app/api/admin/qa/route.ts'), 'utf8');
+  expect(route).toContain('answer: z.string().min(1).max(FACILITY_QA_ANSWER_MAX_LENGTH)');
 });
 
 test('実 DB での検証（付与先・Q&A の書き込み・監査ログの読み取り）が CI で実行される', () => {

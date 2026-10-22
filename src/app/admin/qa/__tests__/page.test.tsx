@@ -79,7 +79,12 @@ test('?facility_id= で指定した店舗の Q&A を読み、回答もその店�
   expect(screen.getByText('未回答 1件')).toBeInTheDocument();
 
   await user.click(screen.getByRole('button', { name: '回答する' }));
-  fireEvent.change(screen.getByRole('textbox', { name: /^回答/ }), { target: { value: 'ございます。' } });
+  // 回答の上限は DB の facility_qa_answer_check（1000 文字）と同じ。以前は 2000 文字まで入力でき、
+  // 1001 文字以上は保存時に DB で弾かれて「回答の送信に失敗しました」になっていた。
+  const answerBox = screen.getByRole('textbox', { name: /^回答/ });
+  expect(answerBox).toHaveAttribute('maxlength', '1000');
+  fireEvent.change(answerBox, { target: { value: 'ございます。' } });
+  expect(screen.getByText('6/1000')).toBeInTheDocument();
   await user.click(screen.getByRole('button', { name: '回答を送信' }));
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(`/api/admin/qa?facility_id=${B}`, expect.objectContaining({ method: 'POST' })));
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ qa_id: QA, answer: 'ございます。' });

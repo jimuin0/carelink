@@ -1,5 +1,5 @@
 -- 施設 Q&A: 来院者が作れるのは「回答待ちの質問」だけにする（2026年10月22日）。
--- 2 本組の 1 本目。2 本目＝20261022150300_facility_qa_close_browser_insert.sql。
+-- 2 本組の 1 本目。2 本目＝20261022210300_facility_qa_close_browser_insert.sql。
 --
 -- 【それまでの状態】facility_qa_user_insert の WITH CHECK は「自分の user_id であること」しか
 -- 見ておらず、authenticated は表単位で全列の INSERT 権を持っていた。そのため、ログインした
@@ -28,6 +28,8 @@
 -- （質問は /api/facility/qa からサーバーで保存し、店舗へメールで知らせる）。
 --
 -- 【本番の適用順序】① この migration → ② コードをデプロイ → ③ 2 本目。
+--   `supabase db push` は保留分を一括で適用するので、① は 2 本目を含めない状態で push する
+--   （手順の詳細は 2 本目の冒頭）。
 
 DO $guard$ BEGIN IF to_regclass('public.facility_profiles') IS NULL THEN RAISE EXCEPTION 'not the CareLink database'; END IF; END $guard$;
 

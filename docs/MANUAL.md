@@ -841,7 +841,7 @@ vercel env add NEXT_PUBLIC_CLARITY_ID
 | テーブル/変更 | 用途 | サイト |
 |-------------|------|--------|
 | `cron_logs` | Cronジョブ実行ログ（job_name/status/duration_ms/error_message、v8.32） | 管理 |
-| `audit_logs` | 監査ログ（actor_id/action/table_name/record_id/old_data/new_data、90日TTL自動削除、v8.33）。読み書きとも service_role のみ（来院者の IP・UA を店舗に見せないため、2026-10-22 にブラウザの権限とポリシーを撤回） | 管理 |
+| `audit_logs` | 監査ログ（actor_id/action/table_name/record_id/old_data/new_data、v8.33）。90日より前を消す `cleanup_old_audit_logs()` は定義だけで、定期実行する仕組みが無い（自動削除は動いていない）。読み書きとも service_role のみ（来院者の IP・UA を店舗に見せないため、2026-10-22 にブラウザの権限とポリシーを撤回） | 管理 |
 | `booking_waitlist` | キャンセル待ち（facility_id/staff_id/menu_id/desired_date/notify_before_hours、v8.34） | 検索・管理 |
 | `intake_form_templates` | 施術前デジタル問診票（template_name/fields JSONB/is_active、v8.36） | 管理 |
 | `intake_submissions` | 問診票回答（booking_id/template_id/responses JSONB、v8.36） | 管理 |

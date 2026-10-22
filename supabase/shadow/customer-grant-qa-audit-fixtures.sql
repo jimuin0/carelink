@@ -1,5 +1,5 @@
 -- Disposable shadow database only. Synthetic identities; every write rolls back.
--- Asserts the state after 20261022150000..20261022150300:
+-- Asserts the state after 20261022210000..20261022210300:
 --   * 回数券・月額プランの付与は service_role の RPC だけ。付与先はその店舗の予約者
 --     （bookings.user_id）に限り、一覧の表示名・メールも予約者の分しか返さない。
 --     ブラウザのロールは user_subscriptions / user_packages を読めるが書けない。
