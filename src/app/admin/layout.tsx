@@ -45,7 +45,10 @@ const navItems: { href: string; label: string; icon: string; platformAdmin?: boo
   { href: '/admin/platform-blog', label: 'コラム', icon: 'M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z', platformAdmin: true },
   { href: '/admin/catalog', label: 'カタログ', icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10' },
   { href: '/admin/qa', label: 'Q&A', icon: 'M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
-  { href: '/admin/features', label: '特集', icon: 'M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z' },
+  // 特集（feature_articles）はトップページに出す全施設共通の記事で、ページ側の layout が
+  // requirePlatformAdmin で運営以外を 404 にしている。施設オーナーのナビに出すと押下で
+  // 404 になる死に導線だったため、コラムと同じく運営専用にする。
+  { href: '/admin/features', label: '特集', icon: 'M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z', platformAdmin: true },
   // facility_inquiries（施設ページの問い合わせフォーム）は施設ごとにスコープされたデータで、
   // /admin/inquiries（platformAdmin専用・contacts テーブル＝運営宛の全社横断問い合わせ）とは
   // 別物。従来は facility_inquiries を参照するUIが存在せず、施設への問い合わせが実質誰にも
@@ -107,7 +110,6 @@ const navGroups: NavGroup[] = [
       { href: '/admin/packages', label: '回数券' },
       { href: '/admin/subscription-plans', label: '月額プラン' },
       { href: '/admin/reviews', label: '口コミ' },
-      { href: '/admin/features', label: '特集' },
       { href: '/admin/catalog', label: 'カタログ' },
       { href: '/admin/blog', label: 'ブログ' },
       { href: '/admin/qa', label: 'Q&A' },
@@ -170,6 +172,8 @@ const navGroups: NavGroup[] = [
       { href: '/admin/feature-flags', label: 'Feature Flags' },
       { href: '/admin/ab-tests', label: 'A/Bテスト' },
       { href: '/admin/platform-blog', label: 'コラム' },
+      // 特集はトップページの全施設共通コンテンツ（運営専用・layout が運営以外を 404）。
+      { href: '/admin/features', label: '特集' },
       { href: '/admin/uptime', label: 'Uptime監視' },
       { href: '/admin/cron-monitor', label: 'Cron監視' },
     ],
