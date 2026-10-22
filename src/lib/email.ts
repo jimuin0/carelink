@@ -67,6 +67,10 @@ export interface BookingEmailData {
   totalPrice?: number;
   bookingId: string;
   bookingStatus?: string;
+  /** 店舗向けの新規予約通知だけが使う（お客様向けメールには載せない）。 */
+  customerPhone?: string | null;
+  /** お客様の備考。訪問専門の店舗では訪問先の住所を兼ねる（PR #755）。店舗向けの新規予約通知だけが使う。 */
+  note?: string | null;
   // キャンセル料（無料期限超過時のみ正の値・客への通知用。実徴収は店舗と客で直接）。
   cancelFee?: number;
 }
@@ -578,6 +582,16 @@ export function buildNewBookingNotificationEnvelope(data: BookingEmailData & { f
   const introduction = data.bookingStatus === 'confirmed'
     ? '新しい予約が確定しました。管理画面から内容をご確認ください。'
     : '新しい予約が入りました。管理画面から確認・承認してください。';
+  // 電話番号と備考（訪問専門の店舗では訪問先の住所）は店舗が動くのに要る情報なので、
+  // 管理画面を開かなくてもメールで分かるようにする（2026年10月22日・神原さん判断）。
+  const rowStyle = 'padding:8px 12px;border:1px solid #e2e8f0;';
+  const headStyle = `${rowStyle}background:#f8fafc;font-weight:600;`;
+  const phone = data.customerPhone?.trim();
+  const note = data.note?.trim();
+  const contactRows = [
+    phone ? `<tr><td style="${headStyle}">電話番号</td><td style="${rowStyle}">${esc(phone)}</td></tr>` : '',
+    note ? `<tr><td style="${headStyle}">ご要望・備考<br><span style="font-weight:400;font-size:12px;">（訪問先のご住所を含む）</span></td><td style="${rowStyle}white-space:pre-wrap;">${esc(note)}</td></tr>` : '',
+  ].join('');
   return {
     from: FROM,
     to: data.facilityEmail,
@@ -587,6 +601,7 @@ export function buildNewBookingNotificationEnvelope(data: BookingEmailData & { f
       <table style="width:100%;border-collapse:collapse;margin:16px 0;">
         <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;width:120px;">お客様名</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${name}</td></tr>
         <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">メール</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${email}</td></tr>
+        ${contactRows}
       </table>
       ${bookingDetailHtml(data)}
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/bookings" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で確認する</a></p>

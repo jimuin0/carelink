@@ -957,3 +957,16 @@ it('auto-confirmed booking owner mail never requests an unnecessary approval',()
  const mail=buildNewBookingNotificationEnvelope({...baseData,facilityEmail:'synthetic@example.invalid',bookingStatus:'confirmed'});
  expect(mail.html).toContain('新しい予約が確定しました');expect(mail.html).not.toContain('確認・承認してください');
 });
+it('owner mail shows the phone and the note (visit address), escaped and with line breaks kept',()=>{
+ const {buildNewBookingNotificationEnvelope}=require('../email');
+ const mail=buildNewBookingNotificationEnvelope({...baseData,facilityEmail:'synthetic@example.invalid',customerPhone:' 090-0000-0000 ',note:'大阪府豊中市合成町1-2-3\n<script>x</script>'});
+ expect(mail.html).toContain('電話番号');expect(mail.html).toContain('090-0000-0000');
+ expect(mail.html).toContain('訪問先のご住所を含む');expect(mail.html).toContain('大阪府豊中市合成町1-2-3');
+ expect(mail.html).toContain('white-space:pre-wrap');
+ expect(mail.html).not.toContain('<script>x</script>');expect(mail.html).toContain('&lt;script&gt;');
+});
+it('owner mail omits the phone and note rows when they are blank',()=>{
+ const {buildNewBookingNotificationEnvelope}=require('../email');
+ const mail=buildNewBookingNotificationEnvelope({...baseData,facilityEmail:'synthetic@example.invalid',customerPhone:'  ',note:null});
+ expect(mail.html).not.toContain('電話番号');expect(mail.html).not.toContain('ご要望・備考');
+});

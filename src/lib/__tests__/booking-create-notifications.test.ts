@@ -39,3 +39,15 @@ it('null successful collection is unknown, never empty recipient set',async()=>{
 it('max-row truncation rejects before partial publication',async()=>{rows.facility_members.data=Array.from({length:100},(_,i)=>({user_id:`synthetic-${i}`}));await expect(buildBookingCreateNotifications(db,input,null,'menu',500,'pending')).rejects.toThrow();});
 it('full paged owner roster above supported cap cannot silently drop later owners',async()=>{const members=Array.from({length:251},(_,i)=>({user_id:`synthetic-${i}`}));from.mockImplementation(t=>t==='facility_members'?pageChain(members):chain(rows[t]));await expect(buildBookingCreateNotifications(db,input,null,'menu',500,'pending')).rejects.toThrow();});
 it('too many complete recipients rejects, never just queues first250',async()=>{const members=Array.from({length:128},(_,i)=>({user_id:`synthetic-${i}`}));const profiles=members.map((m,i)=>({id:m.user_id,email:`synthetic-${i}@example.invalid`}));from.mockImplementation(t=>t==='facility_members'?pageChain(members):t==='profiles'?pageChain(profiles):chain(rows[t]));await expect(buildBookingCreateNotifications(db,input,null,'menu',500,'pending')).rejects.toThrow();});
+it('phone and note (visit address) go only to the owner notification, never the customer copy',async()=>{
+ const {buildBookingConfirmationEnvelope,buildNewBookingNotificationEnvelope}=jest.requireMock('../email') as Record<string,jest.Mock>;
+ await buildBookingCreateNotifications(db,{...input,phone:'090-0000-0000',note:'大阪府豊中市合成町1-2-3'} as typeof input,null,'menu',500,'pending');
+ expect(buildNewBookingNotificationEnvelope).toHaveBeenCalledWith(expect.objectContaining({customerPhone:'090-0000-0000',note:'大阪府豊中市合成町1-2-3'}));
+ const customerData=buildBookingConfirmationEnvelope.mock.calls[0][0];
+ expect(customerData).not.toHaveProperty('customerPhone');expect(customerData).not.toHaveProperty('note');
+});
+it('missing phone and note reach the owner notification as null',async()=>{
+ const {buildNewBookingNotificationEnvelope}=jest.requireMock('../email') as Record<string,jest.Mock>;
+ await buildBookingCreateNotifications(db,input,null,'menu',500,'pending');
+ expect(buildNewBookingNotificationEnvelope).toHaveBeenCalledWith(expect.objectContaining({customerPhone:null,note:null}));
+});
