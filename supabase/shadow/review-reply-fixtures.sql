@@ -1,7 +1,8 @@
 -- Disposable shadow database only. Synthetic identities; every write rolls back.
--- Owner replies to reviews (20261022140000): only a current owner/admin of the
--- review's facility can publish, edit or delete a reply, and only through the
--- service_role RPCs. Browser roles can read replies but cannot write them,
+-- Owner replies to reviews (20261022140000 adds the RPCs, 20261022140100 closes
+-- browser writes; this asserts the state after both): only a current owner/admin
+-- of the review's facility can publish, edit or delete a reply, and only through
+-- the service_role RPCs. Browser roles can read replies but cannot write them,
 -- even when their JWT identity belongs to a member of that facility.
 \set ON_ERROR_STOP on
 BEGIN;

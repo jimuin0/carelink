@@ -6,11 +6,17 @@
  * 【神原さん決定】SALON BOARD と同じく、店舗の owner / admin は投稿した返信を後から編集・削除できる。
  * 書き込み（公開・編集・削除）は /api/admin/review-replies → service_role 専用の RPC だけで行い、
  * RPC の中で「今もその店舗の owner / admin か」を行ロックつきで確かめる。ブラウザから
- * review_replies へ直接書く権限は無い（supabase/migrations/20261022140000_review_reply_edit_delete.sql）。
+ * review_replies へ直接書く権限は無い。migration は 2 本組:
+ *   20261022140000_review_reply_edit_delete.sql        … RPC を足すだけ（旧コードを壊さない）
+ *   20261022140100_review_reply_close_browser_writes.sql … ブラウザの書き込み権と INSERT ポリシーを撤回
+ * 本番はコードの自動デプロイと migration の手動適用のタイミングが揃わないため、1 本目 → デプロイ →
+ * 2 本目 の順に適用できるよう分けてある（1 本にすると、どちらを先にしても投稿が壊れる窓ができる）。
  *
  * 守るもの:
- *   1. migration が接続先ガードを最初に持ち、RPC を service_role 専用にし、ブラウザの書き込み権と
- *      INSERT ポリシーを外している（後の migration が書き込み権を戻していない）
+ *   1. どちらの migration も接続先ガードを最初に持つ。1 本目は追加だけ（既存の権限・ポリシーに
+ *      触れない）で RPC を service_role 専用にし、2 本目がブラウザの書き込み権と INSERT ポリシーを
+ *      外している。後に適用される migration（辞書順で最後に走る combined_phase2_to_6.sql を含む）が
+ *      書き込み権・書き込みポリシーを戻していない
  *   2. 文字数の上限が画面・API・DB で同じ値
  *   3. アプリのコードが review_replies へ直接書いていない（読み取りは可）
  *   4. 実 DB での検証（shadow fixture）が CI に配線されている
@@ -22,10 +28,20 @@ import { REVIEW_REPLY_MAX_LENGTH } from '@/lib/review-reply-limits';
 const ROOT = process.cwd();
 const MIGRATIONS = join(ROOT, 'supabase/migrations');
 const MIGRATION = '20261022140000_review_reply_edit_delete.sql';
-const sql = readFileSync(join(MIGRATIONS, MIGRATION), 'utf8');
+const CLOSE_MIGRATION = '20261022140100_review_reply_close_browser_writes.sql';
 /** コメントを除いた SQL（説明文の中の語に反応しない）。 */
 const code = (text: string) => text.replace(/--[^\n]*/g, '').replace(/\s+/g, ' ');
-const body = code(sql);
+const body = code(readFileSync(join(MIGRATIONS, MIGRATION), 'utf8'));
+const closeBody = code(readFileSync(join(MIGRATIONS, CLOSE_MIGRATION), 'utf8'));
+const GUARD_FIRST = /^DO \$guard\$ BEGIN IF to_regclass\('public\.facility_profiles'\) IS NULL THEN RAISE EXCEPTION/;
+
+/** review_replies への書き込み権をブラウザのロールへ（戻して）渡す GRANT。全テーブル一括も含む。 */
+const REOPEN_GRANT = /GRANT [^;]*\b(INSERT|UPDATE|DELETE|ALL)\b[^;]*\bON (TABLE )?((public\.)?"?review_replies"?(?!\w)|ALL TABLES IN SCHEMA public\b)[^;]*\bTO [^;]*\b(anon|authenticated|PUBLIC)\b/i;
+/**
+ * review_replies への読み取り以外のポリシー。FOR 句を省いた CREATE POLICY は FOR ALL
+ * （書き込みも含む）になるので、「FOR SELECT と明記したもの」以外はすべて書き込みポリシーとみなす。
+ */
+const WRITE_POLICY = /CREATE POLICY [^;]*?\bON (public\.)?"?review_replies"?(?!\w)(?![^;]*\bFOR SELECT\b)/i;
 const RPCS = [
   'create_review_reply_atomic(uuid, uuid, uuid, text)',
   'update_review_reply_atomic(uuid, uuid, uuid, text)',
@@ -33,8 +49,11 @@ const RPCS = [
 ];
 
 describe('migration', () => {
-  test('接続先ガードが最初の文', () => {
-    expect(body.trim()).toMatch(/^DO \$guard\$ BEGIN IF to_regclass\('public\.facility_profiles'\) IS NULL THEN RAISE EXCEPTION/);
+  test('どちらも接続先ガードが最初の文で、2 本目は 1 本目の後に適用される', () => {
+    expect(body.trim()).toMatch(GUARD_FIRST);
+    expect(closeBody.trim()).toMatch(GUARD_FIRST);
+    expect(CLOSE_MIGRATION > MIGRATION).toBe(true);
+    expect(readdirSync(MIGRATIONS).filter((f) => f > MIGRATION && f < CLOSE_MIGRATION)).toEqual([]);
   });
 
   test.each(RPCS)('%s は SECURITY INVOKER・search_path 固定・service_role 専用', (signature) => {
@@ -50,22 +69,51 @@ describe('migration', () => {
     expect(checks).toHaveLength(3);
   });
 
-  test('ブラウザの書き込み権と INSERT ポリシーを外し、新しい書き込みポリシーを作らない', () => {
-    expect(body).toContain('REVOKE INSERT, UPDATE, DELETE ON public.review_replies FROM anon, authenticated;');
-    expect(body).toContain('DROP POLICY IF EXISTS review_replies_facility_member_insert ON public.review_replies;');
-    expect(body).not.toMatch(/CREATE POLICY [^;]*review_replies/i);
-    expect(body).not.toMatch(/GRANT [^;]*ON (TABLE )?public\.review_replies/i);
+  test('1 本目は追加だけ（旧コードのブラウザ INSERT が動く権限・ポリシーに触れない）', () => {
+    expect(body).not.toMatch(/(REVOKE|GRANT) [^;]*ON (TABLE )?public\.review_replies\b/i);
+    expect(body).not.toMatch(/(DROP|CREATE|ALTER) POLICY [^;]*review_replies/i);
   });
 
-  test('後の migration が review_replies への書き込み権・書き込みポリシーを戻していない', () => {
-    const later = readdirSync(MIGRATIONS).filter((f) => /^\d{14}_.*\.sql$/.test(f) && f > MIGRATION);
+  test('2 本目がブラウザの書き込み権と INSERT ポリシーを外し、新しい書き込みポリシーを作らない', () => {
+    expect(closeBody).toContain('REVOKE INSERT, UPDATE, DELETE ON public.review_replies FROM anon, authenticated;');
+    expect(closeBody).toContain('DROP POLICY IF EXISTS review_replies_facility_member_insert ON public.review_replies;');
+    expect(closeBody).not.toMatch(/CREATE POLICY/i);
+    expect(closeBody).not.toMatch(/\bGRANT\b/i);
+  });
+
+  test('後に適用される migration が review_replies への書き込み権・書き込みポリシーを戻していない', () => {
+    // 辞書順で後に走るもの＋タイムスタンプ接頭辞の無いもの（combined_phase2_to_6.sql は必ず最後に走る）
+    const later = readdirSync(MIGRATIONS)
+      .filter((f) => f.endsWith('.sql') && (f > CLOSE_MIGRATION || !/^\d{14}_/.test(f)));
+    expect(later).toContain('combined_phase2_to_6.sql'); // 空振りしていない
     for (const file of later) {
       const text = code(readFileSync(join(MIGRATIONS, file), 'utf8'));
-      expect([file, /GRANT [^;]*(INSERT|UPDATE|DELETE|ALL)[^;]*ON (TABLE )?(public\.)?review_replies[^;]*TO [^;]*(anon|authenticated|PUBLIC)/i.test(text)])
-        .toEqual([file, false]);
-      expect([file, /CREATE POLICY [^;]*ON (public\.)?review_replies [^;]*FOR (INSERT|UPDATE|DELETE|ALL)/i.test(text)])
-        .toEqual([file, false]);
+      expect([file, REOPEN_GRANT.test(text)]).toEqual([file, false]);
+      expect([file, WRITE_POLICY.test(text)]).toEqual([file, false]);
     }
+  });
+
+  test.each([
+    ['GRANT INSERT ON public.review_replies TO authenticated', true],
+    ['GRANT UPDATE (content) ON review_replies TO authenticated', true],
+    ['GRANT ALL ON TABLE public."review_replies" TO anon', true],
+    ['GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO authenticated', true],
+    ['GRANT SELECT ON public.review_replies TO anon, authenticated', false],
+    ['GRANT INSERT ON public.review_replies TO service_role', false],
+    ['GRANT INSERT ON public.review_replies_archive TO authenticated', false],
+  ])('書き込み権の検出（負の対照つき）: %s', (statement, reopened) => {
+    expect(REOPEN_GRANT.test(`${statement};`)).toBe(reopened);
+  });
+
+  test.each([
+    ['CREATE POLICY p ON public.review_replies USING (true)', true],
+    ['CREATE POLICY p ON review_replies FOR INSERT TO authenticated WITH CHECK (true)', true],
+    ['CREATE POLICY p ON public.review_replies FOR ALL USING (true)', true],
+    ['CREATE POLICY "p" ON "review_replies" AS PERMISSIVE FOR DELETE USING (true)', true],
+    ['CREATE POLICY "review_replies_public_read" ON review_replies FOR SELECT USING (true)', false],
+    ['CREATE POLICY p ON public.review_replies_archive USING (true)', false],
+  ])('書き込みポリシーの検出（FOR 句なし＝ALL も拾う・負の対照つき）: %s', (statement, found) => {
+    expect(WRITE_POLICY.test(`${statement};`)).toBe(found);
   });
 });
 

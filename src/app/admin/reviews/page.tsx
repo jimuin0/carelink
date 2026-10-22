@@ -18,6 +18,9 @@ type ReviewReply = { id: string; content: string; created_at: string | null };
 
 type ReplyApiResult = { ok: true; body: unknown } | { ok: false; status: number; message: string };
 
+// 編集中の返信。replyId は編集を始めたときの返信（読み直しで別の返信に置き換わったら編集をやめる）。
+type EditingReply = { reviewId: string; replyId: string; text: string };
+
 /**
  * 返信の書き込みはすべて /api/admin/review-replies を通す（2026年10月22日）。
  * 以前はブラウザから review_replies へ直接 INSERT しており、投稿後は編集も削除もできなかった。
@@ -62,7 +65,7 @@ function AdminReviewsContent() {
   const [replyBusy, setReplyBusy] = useState<string | null>(null);
   // review_replies は UNIQUE(review_id)＝1 口コミにつき返信は 1 件。口コミ ID → 返信。
   const [replies, setReplies] = useState<Record<string, ReviewReply>>({});
-  const [editing, setEditing] = useState<{ reviewId: string; text: string } | null>(null);
+  const [editing, setEditing] = useState<EditingReply | null>(null);
   const [confirmPublish, setConfirmPublish] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
@@ -121,7 +124,22 @@ function AdminReviewsContent() {
         for (const r of rows) {
           if (!map[r.review_id]) map[r.review_id] = { id: r.id, content: r.content, created_at: r.created_at };
         }
+        const shown = new Set(reviewIds);
         setReplies(map);
+        // 読み直した結果、編集中の返信が消えていた・別の返信に置き換わっていた（他の管理者が先に
+        // 削除した・削除して投稿し直した）ときは編集をやめる。残すと編集欄は出ないのに他の「編集」が
+        // 押せないままになり、新しい返信を古い本文で上書きできてしまう。
+        // 絞り込みで今は表示していない口コミの編集は、状態が分からないので残す。
+        setEditing((prev) => (prev && shown.has(prev.reviewId) && map[prev.reviewId]?.id !== prev.replyId ? null : prev));
+        // 返信が付いた口コミの書きかけ（他の管理者が先に返信した 409 など）は入力欄ごと消えるので捨てる。
+        // 残すと見えない「未保存の変更」になり、その返信が後で消えたときに古い下書きが戻ってくる。
+        setReplyText((prev) => {
+          const answered = Object.keys(prev).filter((id) => map[id]);
+          if (answered.length === 0) return prev;
+          const next = { ...prev };
+          for (const id of answered) delete next[id];
+          return next;
+        });
       }
       setLoading(false);
     })().catch(() => { setLoadError(true); setLoading(false); });
@@ -172,7 +190,7 @@ function AdminReviewsContent() {
   const replyUrl = (suffix = '') => `/api/admin/review-replies${suffix}?facility_id=${encodeURIComponent(facilityId)}`;
 
   // 失敗したら理由を出す。他の管理者が先に返信した（409）・既に消えていた（404）ときは、
-  // 画面を今の状態に合わせるために読み直す。
+  // 画面を今の状態に合わせるために読み直す（消えた返信の編集・返信済みの書きかけは読み直しで片付く）。
   const reportFailure = (result: { status: number; message: string }) => {
     setToast({ type: 'error', message: result.message });
     if (result.status === 404 || result.status === 409) setReloadKey((k) => k + 1);
@@ -204,7 +222,7 @@ function AdminReviewsContent() {
     if (!editing || replyBusy) return;
     const current = replies[editing.reviewId];
     const text = editing.text.trim();
-    if (!current || !text || text === current.content) return;
+    if (!current || current.id !== editing.replyId || !text || text === current.content) return;
     const { reviewId } = editing;
     setReplyBusy(reviewId);
     const result = await callReplyApi(replyUrl(`/${encodeURIComponent(current.id)}`), {
@@ -226,12 +244,14 @@ function AdminReviewsContent() {
 
   const deleteReply = async () => {
     const reviewId = confirmDelete;
+    // 確定した時点で確認を閉じる。送信中に開いたままだと「キャンセル」が押せるのに削除は止まらず、
+    // ボタンの意味と結果が食い違う（公開の確認と同じ扱い）。
+    setConfirmDelete(null);
     const current = reviewId ? replies[reviewId] : undefined;
     if (!reviewId || !current || replyBusy) return;
     setReplyBusy(reviewId);
     const result = await callReplyApi(replyUrl(`/${encodeURIComponent(current.id)}`), { method: 'DELETE' },
       '返信を削除できませんでした');
-    setConfirmDelete(null);
     if (result.ok) {
       setReplies((prev) => {
         const next = { ...prev };
@@ -284,8 +304,10 @@ function AdminReviewsContent() {
             const isEditing = editing?.reviewId === review.id;
             const busy = replyBusy === review.id;
             return (
+              // 非表示の口コミは不透明度ではなく地色と破線で示す。opacity は中の文字・ボタン
+              // （返信の編集・削除・保存など）のコントラストまで落とし、AA を割るため使わない。
               <article key={review.id} aria-label={`${review.reviewer_name}さんの口コミ`}
-                className={`bg-white rounded-xl shadow-xs p-5 ${review.status === 'hidden' ? 'opacity-60' : ''}`}>
+                className={`rounded-xl shadow-xs p-5 ${review.status === 'hidden' ? 'bg-gray-50 border border-dashed border-gray-300' : 'bg-white'}`}>
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 mb-1">
@@ -324,7 +346,7 @@ function AdminReviewsContent() {
                       <div className="flex gap-2">
                         <button
                           type="button"
-                          onClick={() => setEditing({ reviewId: review.id, text: reply.content })}
+                          onClick={() => setEditing({ reviewId: review.id, replyId: reply.id, text: reply.content })}
                           disabled={replyBusy !== null || editing !== null}
                           className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 bg-white font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                         >
@@ -352,7 +374,7 @@ function AdminReviewsContent() {
                     <textarea
                       id={`reply-edit-${review.id}`}
                       value={editing.text}
-                      onChange={(e) => setEditing({ reviewId: review.id, text: e.target.value })}
+                      onChange={(e) => setEditing({ reviewId: review.id, replyId: reply.id, text: e.target.value })}
                       maxLength={REVIEW_REPLY_MAX_LENGTH}
                       rows={3}
                       className="mt-1 w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-sky-300"

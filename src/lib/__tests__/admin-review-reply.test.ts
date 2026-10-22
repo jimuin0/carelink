@@ -1,8 +1,11 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
+import { readFileSync } from 'fs';
+import { join } from 'path';
 const mockAlert = jest.fn();
 jest.mock('@/lib/alert', () => ({ alertCaughtError: (...args: unknown[]) => mockAlert(...args) }));
 jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
 import {
+  REVIEW_REPLY_FORBIDDEN, REVIEW_REPLY_INVALID,
   createReplyBody, createdReplyRow, deletedReplyRow, invalidReplyRequest, publicReply, replyFacilityId,
   replyRpcFailure, reviewReplyContent, sameId, singleReplyRow, updateReplyBody, updatedReplyRow,
 } from '../admin-review-reply';
@@ -52,21 +55,41 @@ describe('入力の検証', () => {
 
 describe('RPC のエラーの扱い', () => {
   test.each([
-    ['42501', 403, '店舗の管理権限を確認してください'],
-    ['23505', 409, 'この口コミには既に返信があります。画面を再読み込みしてください'],
-    ['22023', 400, REVIEW_REPLY_LENGTH_MESSAGE],
-  ])('%s は %i（通知しない）', async (code, status, message) => {
-    const res = replyRpcFailure({ code }, 'tag', '/route', '保存できませんでした');
+    ['42501', REVIEW_REPLY_FORBIDDEN, 403, '店舗の管理権限を確認してください'],
+    ['23505', 'duplicate key value violates unique constraint "review_replies_review_id_key"', 409,
+      'この口コミには既に返信があります。画面を再読み込みしてください'],
+    ['22023', REVIEW_REPLY_INVALID, 400, REVIEW_REPLY_LENGTH_MESSAGE],
+  ])('%s（RPC が意図して投げたもの）は %i（通知しない）', async (code, message, status, userMessage) => {
+    expect(message).not.toBe('');
+    const res = replyRpcFailure({ code, message }, 'tag', '/route', '保存できませんでした');
     expect(res.status).toBe(status);
-    expect(await res.json()).toEqual({ error: message });
+    expect(await res.json()).toEqual({ error: userMessage });
     expect(mockAlert).not.toHaveBeenCalled();
   });
 
-  test.each([{ code: '57014' }, {}])('想定外のエラー %p は通知つきの 500 で、DB の詳細を返さない', async (error) => {
-    const res = replyRpcFailure({ ...error, message: 'private detail' } as { code?: string }, 'tag', '/route', '保存できませんでした');
+  test('照合する文言と SQLSTATE は migration の RPC が投げるものと同じ（片方だけ変えると 403/400 が 500 になる）', () => {
+    const sql = readFileSync(join(process.cwd(), 'supabase/migrations/20261022140000_review_reply_edit_delete.sql'), 'utf8');
+    expect(sql.split(`RAISE EXCEPTION '${REVIEW_REPLY_FORBIDDEN}' USING ERRCODE = '42501'`).length - 1).toBe(6);
+    expect(sql.split(`RAISE EXCEPTION '${REVIEW_REPLY_INVALID}' USING ERRCODE = '22023'`).length - 1).toBe(2);
+    // 接続先ガード（'not the CareLink database'）以外に、照合していない文言の例外が無い
+    expect(sql.replace(/^DO \$guard\$.*$/m, '')).not.toMatch(/RAISE EXCEPTION '(?!REVIEW_REPLY_FORBIDDEN'|REVIEW_REPLY_INVALID')/);
+  });
+
+  test.each([
+    // service_role の EXECUTE 権・表の権限が欠けた（設定ミス）。利用者の権限不足ではない。
+    ['42501', 'permission denied for function create_review_reply_atomic'],
+    ['42501', 'permission denied for table review_replies'],
+    ['42501', undefined],
+    // RPC 以外が出した 22023 は本文の不備ではない
+    ['22023', 'invalid parameter'],
+    ['57014', 'canceling statement due to statement timeout'],
+    [undefined, 'private detail'],
+  ])('想定外のエラー（%s: %s）は通知つきの 500 で、DB の詳細を返さない', async (code, message) => {
+    const res = replyRpcFailure({ code, message }, 'tag', '/route', '保存できませんでした');
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: '保存できませんでした' });
     expect(mockAlert).toHaveBeenCalledWith('tag', expect.any(Error), '/route');
+    expect(String(mockAlert.mock.calls[0][1].message)).not.toContain('permission denied');
     expect(String(mockAlert.mock.calls[0][1].message)).not.toContain('private detail');
   });
 });

@@ -64,16 +64,25 @@ test('本文の大文字 UUID 指定でも、小文字で返る結果を同じ�
 });
 
 test.each([
-  ['42501', 403, '店舗の管理権限を確認してください'],
-  ['23505', 409, 'この口コミには既に返信があります。画面を再読み込みしてください'],
-  ['22023', 400, '返信は1〜500文字で入力してください'],
-])('RPC の %s は %i で、公開の監査ログを残さない', async (code, status, message) => {
-  mockRpc.mockResolvedValue({ data: null, error: { code, message: 'private detail' } });
+  ['42501', 'REVIEW_REPLY_FORBIDDEN', 403, '店舗の管理権限を確認してください'],
+  ['23505', 'duplicate key value violates unique constraint', 409, 'この口コミには既に返信があります。画面を再読み込みしてください'],
+  ['22023', 'REVIEW_REPLY_INVALID', 400, '返信は1〜500文字で入力してください'],
+])('RPC の %s（%s）は %i で、公開の監査ログを残さない', async (code, rpcMessage, status, message) => {
+  mockRpc.mockResolvedValue({ data: null, error: { code, message: rpcMessage } });
   const res = await POST(request());
   expect(res.status).toBe(status);
   expect(await res.json()).toEqual({ error: message });
   expect(writeAuditLog).not.toHaveBeenCalled();
   expect(mockAlert).not.toHaveBeenCalled();
+});
+
+test('RPC の実行権が欠けた 42501（設定ミス）は権限不足と言わず、通知つきの 500', async () => {
+  mockRpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'permission denied for function create_review_reply_atomic' } });
+  const res = await POST(request());
+  expect(res.status).toBe(500);
+  expect(await res.json()).toEqual({ error: '返信を公開できませんでした' });
+  expect(mockAlert).toHaveBeenCalledTimes(1);
+  expect(writeAuditLog).not.toHaveBeenCalled();
 });
 
 test('想定外の DB エラーは通知つきの 500', async () => {

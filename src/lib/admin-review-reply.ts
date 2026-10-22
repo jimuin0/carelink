@@ -2,10 +2,11 @@
  * 口コミへの店舗返信（公開・編集・削除）の API 共通部品（2026年10月22日 新設）。
  *
  * 書き込みは /api/admin/review-replies（POST）と /api/admin/review-replies/[id]（PATCH・DELETE）
- * から、service_role 専用の RPC（create / update / delete_review_reply_atomic）だけで行う。
+ * から、service_role 専用の RPC（create / update / delete_review_reply_atomic＝
+ * supabase/migrations/20261022140000_review_reply_edit_delete.sql）だけで行う。
  * RPC の中で「今もその店舗の owner / admin か」を行ロックつきで確かめ直し、口コミ・返信が
  * その店舗のものでなければ 0 行を返す。ブラウザから review_replies へ直接書く権限は無い
- * （supabase/migrations/20261022140000_review_reply_edit_delete.sql）。
+ * （20261022140100_review_reply_close_browser_writes.sql で撤回）。
  *
  * route.ts はメソッド以外を export できないため、2 本のルートで共有する部品はここに置く。
  */
@@ -48,15 +49,24 @@ export function invalidReplyRequest(error: z.ZodError): NextResponse {
   );
 }
 
+/** RPC が意図して投げる例外の文言（supabase/migrations/20261022140000_review_reply_edit_delete.sql）。 */
+export const REVIEW_REPLY_FORBIDDEN = 'REVIEW_REPLY_FORBIDDEN';
+export const REVIEW_REPLY_INVALID = 'REVIEW_REPLY_INVALID';
+
 /**
  * RPC のエラーを応答に変える。
- * 42501＝今はその店舗の owner / admin ではない、23505＝その口コミには既に返信がある
- * （UNIQUE(review_id)）、22023＝本文が空・上限超え。それ以外は通知つきの 500。
+ * 42501＋REVIEW_REPLY_FORBIDDEN＝今はその店舗の owner / admin ではない、23505＝その口コミには
+ * 既に返信がある（UNIQUE(review_id)）、22023＋REVIEW_REPLY_INVALID＝本文が空・上限超え。
+ * それ以外は通知つきの 500。
+ *
+ * 🔴 SQLSTATE だけで 403 にしない。42501 は service_role の EXECUTE 権や表の権限が欠けたとき
+ * （`permission denied for function ...`）にも出る。それを「店舗の管理権限を確認してください」に
+ * 読み替えると、設定ミスが利用者には自分の権限不足に見え、Slack にも届かない。
  */
 export function replyRpcFailure(
-  error: { code?: string }, tag: string, route: string, userMessage: string,
+  error: { code?: string; message?: string }, tag: string, route: string, userMessage: string,
 ): NextResponse {
-  if (error.code === '42501') {
+  if (error.code === '42501' && error.message === REVIEW_REPLY_FORBIDDEN) {
     return NextResponse.json({ error: '店舗の管理権限を確認してください' }, { status: 403 });
   }
   if (error.code === '23505') {
@@ -64,7 +74,7 @@ export function replyRpcFailure(
       { error: 'この口コミには既に返信があります。画面を再読み込みしてください' }, { status: 409 },
     );
   }
-  if (error.code === '22023') {
+  if (error.code === '22023' && error.message === REVIEW_REPLY_INVALID) {
     return NextResponse.json({ error: REVIEW_REPLY_LENGTH_MESSAGE }, { status: 400 });
   }
   return serverError(tag, databaseDiagnostic(error), route, userMessage);

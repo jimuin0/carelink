@@ -1803,7 +1803,7 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 
 ## 10. API Route
 
-### 10.0 全APIルート一覧（86エンドポイント）
+### 10.0 全APIルート一覧（88エンドポイント）
 
 **v8.41〜v8.43 で新規追加（v8.13以降）**:
 - `GET/POST /api/admin/backup` — DBバックアップ確認・CSVエクスポート（重要テーブル行数チェック、v8.39）
@@ -1918,7 +1918,7 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | 87 | `/api/admin/review-replies` | POST | 必須 | 30回/60秒（返信の公開・編集・削除で共通） | 口コミへの返信を公開（`?facility_id=`・owner/admin のみ・1口コミ1件・1〜500文字。RPC `create_review_reply_atomic` が権限と口コミの所属を書き込みと同時に確認・監査ログ） |
 | 88 | `/api/admin/review-replies/[id]` | PATCH/DELETE | 必須 | 30回/60秒（同上） | 返信の編集（本文のみ）・削除（`update/delete_review_reply_atomic`・他店の返信は404・監査ログに変更前の本文） |
 
-> **補足**: 上記86エンドポイント中、`/api/og` はroute.tsx（`@vercel/og`使用）。CronエンドポイントはCRON_SECRET Bearer認証必須。`/api/v1/*`はAPIキー（Bearerヘッダー）認証。
+> **補足**: 上記88エンドポイント中、`/api/og` はroute.tsx（`@vercel/og`使用）。CronエンドポイントはCRON_SECRET Bearer認証必須。`/api/v1/*`はAPIキー（Bearerヘッダー）認証。
 
 ### 10.1 POST /api/notify
 

@@ -1,4 +1,5 @@
 -- 口コミへの返信を、投稿後に編集・削除できるようにする（2026年10月22日）。
+-- 2 本組の 1 本目（追加だけ）。2 本目＝20261022140100_review_reply_close_browser_writes.sql。
 --
 -- 【神原さん決定（2026年10月22日）】ホットペッパービューティーの SALON BOARD と同じく、
 -- 店舗の owner / admin は自店の口コミに付けた返信を、投稿した後でも編集・削除できる。
@@ -20,13 +21,18 @@
 --     2. 監査ログ（誰がいつ、何を何に書き換えた／消したかが残らない）
 --     3. 書き込みと同時の権限確認（権限を外された直後の書き込みを、同じトランザクションで止める）
 --   返信は店舗ページに公開される文章なので、公開・書き換え・削除の 3 つを同じ経路
---   （/api/admin/review-replies）に揃え、ブラウザからの直接 INSERT は撤回する。
+--   （/api/admin/review-replies）に揃える。
 --   ＝新規投稿も「今日の投稿と同じ経路」で編集・削除と一貫させる。
 --
--- 【切り替え時の挙動】この migration を先に適用すると、古い画面を開いたままのタブからの
---   返信投稿は「返信に失敗しました」になる（データは壊れない。再読み込みで新しい画面になる）。
---   コードを先にデプロイすると、適用までの間 RPC が無いため 500＋Slack 通知になる。
---   どちらも可視の失敗で、無音でデータが食い違うことは無い。
+-- 【なぜ 2 本に分けたか（本番の切り替えで投稿が壊れる窓を作らない）】
+--   本番はコードが Vercel へ自動デプロイされ、migration は手で適用する＝両者のタイミングは揃わない。
+--   「RPC の追加」と「ブラウザの書き込み権の撤回」を 1 本にすると、どちらを先にしても返信の投稿が
+--   壊れる時間ができる（migration が先なら旧画面のブラウザ INSERT が失敗し、コードが先なら RPC が
+--   無くて 500）。そこで:
+--     1 本目（この migration）… RPC を足すだけ。既存の権限・ポリシーには一切触れないので、
+--                               旧コード（ブラウザ INSERT）はそのまま動く。
+--     2 本目（20261022140100）… ブラウザの書き込み権と INSERT ポリシーを撤回する。
+--   本番の順序: ① この migration を適用 → ② コードをデプロイ（マージ）→ ③ 2 本目を適用。
 
 DO $guard$ BEGIN IF to_regclass('public.facility_profiles') IS NULL THEN RAISE EXCEPTION 'not the CareLink database'; END IF; END $guard$;
 
@@ -136,12 +142,3 @@ REVOKE ALL ON FUNCTION public.delete_review_reply_atomic(uuid, uuid, uuid) FROM 
 GRANT EXECUTE ON FUNCTION public.create_review_reply_atomic(uuid, uuid, uuid, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.update_review_reply_atomic(uuid, uuid, uuid, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.delete_review_reply_atomic(uuid, uuid, uuid) TO service_role;
-
--- ----------------------------------------------------------------------------
--- 4. ブラウザからの直接書き込みを閉じる（書き込みは上の RPC だけ）
---    公開読み取り（review_replies_public_read）はそのまま。店舗ページと管理画面は
---    引き続きブラウザから返信を読む。
---    INSERT 権を撤回したうえでポリシーも消す（どちらか片方が戻っても開かない＝二重に閉じる）。
--- ----------------------------------------------------------------------------
-REVOKE INSERT, UPDATE, DELETE ON public.review_replies FROM anon, authenticated;
-DROP POLICY IF EXISTS review_replies_facility_member_insert ON public.review_replies;

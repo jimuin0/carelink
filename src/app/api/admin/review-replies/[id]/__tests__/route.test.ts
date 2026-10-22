@@ -74,13 +74,23 @@ describe('PATCH（編集）', () => {
   });
 
   test.each([
-    ['42501', 403, '店舗の管理権限を確認してください'],
-    ['22023', 400, '返信は1〜500文字で入力してください'],
-  ])('RPC の %s は %i で、監査ログを残さない', async (code, status, message) => {
-    mockRpc.mockResolvedValue({ data: null, error: { code, message: 'private detail' } });
+    ['42501', 'REVIEW_REPLY_FORBIDDEN', 403, '店舗の管理権限を確認してください'],
+    ['22023', 'REVIEW_REPLY_INVALID', 400, '返信は1〜500文字で入力してください'],
+  ])('RPC の %s（%s）は %i で、監査ログを残さない', async (code, rpcMessage, status, message) => {
+    mockRpc.mockResolvedValue({ data: null, error: { code, message: rpcMessage } });
     const res = await patch();
     expect(res.status).toBe(status);
     expect(await res.json()).toEqual({ error: message });
+    expect(writeAuditLog).not.toHaveBeenCalled();
+    expect(mockAlert).not.toHaveBeenCalled();
+  });
+
+  test('RPC の実行権が欠けた 42501（設定ミス）は通知つきの 500', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'permission denied for function update_review_reply_atomic' } });
+    const res = await patch();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: '返信を更新できませんでした' });
+    expect(mockAlert).toHaveBeenCalledTimes(1);
     expect(writeAuditLog).not.toHaveBeenCalled();
   });
 
@@ -150,9 +160,19 @@ describe('DELETE（削除）', () => {
   });
 
   test('権限を外された人は 403', async () => {
-    mockRpc.mockResolvedValue({ data: null, error: { code: '42501' } });
+    mockRpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'REVIEW_REPLY_FORBIDDEN' } });
     const res = await remove();
     expect(res.status).toBe(403);
+    expect(writeAuditLog).not.toHaveBeenCalled();
+    expect(mockAlert).not.toHaveBeenCalled();
+  });
+
+  test('表の権限が欠けた 42501（設定ミス）は通知つきの 500', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { code: '42501', message: 'permission denied for table review_replies' } });
+    const res = await remove();
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: '返信を削除できませんでした' });
+    expect(mockAlert).toHaveBeenCalledTimes(1);
     expect(writeAuditLog).not.toHaveBeenCalled();
   });
 
