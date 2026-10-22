@@ -5,6 +5,7 @@ import Image from 'next/image';
 import type { Metadata } from 'next';
 import { getFacilityBySlug } from '@/lib/facilities';
 import { getStaffBySlug, getStaffPhotos } from '@/lib/staff';
+import PreferredStaffButton, { PreferredStaffProvider } from '@/components/facility/PreferredStaffButton';
 
 export const revalidate = 3600;
 
@@ -103,6 +104,12 @@ export default async function StaffDetailPage(props: Props) {
                   Instagram
                 </a>
               )}
+              {/* 指名登録（マイページの「指名スタッフ」に載る）。ログイン状態はブラウザ側で確かめる */}
+              <div className="mt-3">
+                <PreferredStaffProvider staffIds={[staff.id]}>
+                  <PreferredStaffButton staffId={staff.id} staffName={staff.name} />
+                </PreferredStaffProvider>
+              </div>
             </div>
           </div>
 

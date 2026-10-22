@@ -1,7 +1,13 @@
 import StaffCard from './StaffCard';
+import { PreferredStaffProvider } from './PreferredStaffButton';
 import type { StaffProfile } from '@/types';
 
-export default function StaffList({ staff, facilitySlug }: { staff: StaffProfile[]; facilitySlug: string }) {
+export default function StaffList({ staff, facilitySlug, returnHash }: {
+  staff: StaffProfile[];
+  facilitySlug: string;
+  /** 施設ページのタブの中で使うときは '#staff'（ログイン後にスタッフタブへ戻すため） */
+  returnHash?: `#${string}`;
+}) {
   if (staff.length === 0) {
     return (
       <div className="text-center py-10 bg-gray-50 rounded-xl">
@@ -15,10 +21,13 @@ export default function StaffList({ staff, facilitySlug }: { staff: StaffProfile
   }
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-      {staff.map((s) => (
-        <StaffCard key={s.id} staff={s} facilitySlug={facilitySlug} />
-      ))}
-    </div>
+    // 指名状態の読み取りは一覧で 1 回だけ（カードごとに問い合わせない）
+    <PreferredStaffProvider staffIds={staff.map((s) => s.id)} returnHash={returnHash}>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        {staff.map((s) => (
+          <StaffCard key={s.id} staff={s} facilitySlug={facilitySlug} />
+        ))}
+      </div>
+    </PreferredStaffProvider>
   );
 }

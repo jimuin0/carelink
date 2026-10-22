@@ -1,5 +1,16 @@
 'use client';
 
+/**
+ * Feature Flags（プラットフォーム管理）
+ *
+ * 🔴 ここで保存した値は、現在どの機能も読んでいない（2026年10月22日 確認）。
+ * `isFeatureEnabled()`（src/lib/feature-flags.ts）を呼ぶ箇所がアプリに 1 つも無いため、
+ * OFF にしても機能は止まらず、ON やロールアウト率の変更でも何も始まらない。
+ * 以前この画面は「緊急停止スイッチ」「反映まで5分程度」と書いており、障害時に止めたつもりで
+ * 動き続ける状態だった。神原さん決定（同日）で配線はせず、画面を実態に合わせた。
+ * どれかのフラグを実際に読むようにしたら、src/__tests__/feature-flags-unwired-notice.test.ts が
+ * 落ちるので、この画面の「未接続」表示も合わせて直すこと。
+ */
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Toast from '@/components/Toast';
 import { SbPageHeader } from '@/components/admin/SbUi';
@@ -73,7 +84,7 @@ export default function FeatureFlagsPage() {
         body: JSON.stringify(updates),
       });
       if (!res.ok) throw new Error('feature flag update failed');
-      setToast({ type: 'success', message: '更新しました' });
+      setToast({ type: 'success', message: '保存しました（未接続のため動作は変わりません）' });
       await load();
     } catch {
       setToast({ type: 'error', message: '更新に失敗しました' });
@@ -93,9 +104,10 @@ export default function FeatureFlagsPage() {
         actions={<button type="button" onClick={load} disabled={loading || saving !== null} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>}
       />
 
-      <p className="text-sm text-gray-500">
-        機能の段階的リリース・緊急停止スイッチを管理します。変更後は反映まで5分程度かかります（サーバーキャッシュ）。
-      </p>
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900 space-y-1">
+        <p className="font-bold">どのフラグも、まだ機能に接続されていません。</p>
+        <p>ここで ON/OFF やロールアウト率を変えても値が保存されるだけで、サイトの動作は変わりません。機能を止める手段としては使えません。</p>
+      </div>
 
       {loadError && <p role="alert" className="text-sm text-red-600">機能フラグの読み込みに失敗しました。更新ボタンで再試行してください。</p>}
 
@@ -112,18 +124,22 @@ export default function FeatureFlagsPage() {
                 <div className="flex items-center gap-2">
                   <code className="text-sm font-mono font-bold text-gray-800">{flag.key}</code>
                   {flag.enabled && flag.rollout_pct > 0 && flag.rollout_pct < 100 && (
-                    <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">
+                    <span className="text-xs bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full font-medium">
                       {flag.rollout_pct}% ロールアウト
                     </span>
                   )}
                 </div>
                 {flag.description && (
-                  <p className="text-xs text-gray-400 mt-0.5">{flag.description}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{flag.description}</p>
                 )}
+                <p className="text-xs text-gray-700 mt-1">
+                  <span className="inline-block bg-gray-100 px-1.5 py-0.5 rounded-sm">未接続（切り替えても動作は変わりません）</span>
+                </p>
               </div>
 
               {/* ロールアウト割合 */}
               <select
+                aria-label={`ロールアウト率（${flag.key}）`}
                 value={flag.rollout_pct}
                 onChange={(e) => updateFlag(flag.id, { rollout_pct: parseInt(e.target.value, 10) })}
                 disabled={saving !== null || !flag.enabled}

@@ -8,6 +8,7 @@
  *   - Booking aggregation by email
  *   - Batch upsert to customer_segments table
  *   - 2-year historical window
+ *   - 顧客へは何も送らない（離脱リスク客への自動クーポンメールは 2026年10月22日に停止）
  */
 
 jest.mock('@/lib/cron-auth');
@@ -32,21 +33,21 @@ jest.mock('@/lib/cron-logger', () => {
   });
   return { logCronRun, cronError };
 });
-jest.mock('@/lib/customer-coupon-email');
-jest.mock('@/lib/email', () => ({ escSubject: jest.fn((s: string) => s) }));
 
 // Module-level supabase = createClient(...) — use wrapper for lazy delegation
 const mockFromDelegate = jest.fn();
+// RPC は一切呼ばれないはず（旧実装はここからクーポン発行・メール予約の RPC を呼んでいた）。
+const mockRpcDelegate = jest.fn();
 jest.mock('@supabase/supabase-js', () => ({
   createClient: jest.fn(() => ({
     from: (...args: any[]) => mockFromDelegate(...args),
+    rpc: (...args: any[]) => mockRpcDelegate(...args),
   })),
 }));
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
 import { GET } from '../route';
-import { queueCustomerCouponEmail } from '@/lib/customer-coupon-email';
 
 let mockFacilitiesSelect: jest.Mock;
 let mockBookingsSelect: jest.Mock;
@@ -121,7 +122,7 @@ function setupDefaultMocks(
 beforeEach(() => {
   jest.clearAllMocks();
   delete process.env.RESEND_API_KEY;
-  (queueCustomerCouponEmail as jest.Mock).mockResolvedValue('queued');
+  mockRpcDelegate.mockResolvedValue({ data: null, error: { message: 'no RPC is expected from this cron' } });
   // 時刻を固定する（発症前予防）。route の daysSinceLastVisit は実 now と fixture 日付の差で
   // 算出されるため、固定しないと実日付の経過で classifySegment の分岐カバレッジが変動し
   // （30/60/120日境界を跨ぐ）、ある日突然 global branch=100% ゲートが落ちる時限フレークになる。
@@ -173,7 +174,7 @@ describe('GET /api/cron/customer-segment', () => {
   test('fetches published facilities (max 200)', async () => {
     await GET(makeRequest() as any);
 
-    expect(mockFacilitiesSelect).toHaveBeenCalledWith('id, name, slug');
+    expect(mockFacilitiesSelect).toHaveBeenCalledWith('id');
   });
 
   test('queries bookings from 2 years ago', async () => {
@@ -757,48 +758,45 @@ describe('GET /api/cron/customer-segment', () => {
   });
 });
 
-describe('durable coupon dispatch', () => {
-  function atRisk(days=62) {
-    setupDefaultMocks(1,0);
-    process.env.RESEND_API_KEY='configured-for-worker';
-    const now=new Date('2026-05-15T00:00:00Z');
-    const rows=[days,days+30].map(n=>({email_canonical:'person@example.com',customer_name:'Patient',
-      booking_date:new Date(now.getTime()-n*86400000).toISOString().split('T')[0],total_price:5000,status:'completed'}));
-    mockBookingsIn.mockReturnValue({gte:()=>({range:async()=>({data:rows,error:null})})});
-  }
-  test('reserves delivery once and reports queued separately from sent',async()=>{
-    atRisk(); const response=await GET(makeRequest());
-    expect(response.status).toBe(200);expect((await response.json()).queued).toBe(1);
-    expect(queueCustomerCouponEmail).toHaveBeenCalledTimes(1);
-    expect(queueCustomerCouponEmail).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({
-      facilityId:'fac-0',email:'person@example.com',daysSince:62,
+describe('離脱リスク客へのクーポンメールは送らない（2026年10月22日 停止）', () => {
+  // 旧実装は at_risk かつ最終来店から 60〜66 日の客に、使えない「500円引きコード」を店舗名義で送っていた。
+  // 分類（customer_segments の更新）は続け、発行・送信の経路には一切触れないことを結果で固定する。
+  function atRisk(days: number) {
+    setupDefaultMocks(1, 0);
+    process.env.RESEND_API_KEY = 'configured-for-other-mail';
+    const now = new Date('2026-05-15T00:00:00Z');
+    const rows = [days, days + 30].map(n => ({
+      email_canonical: 'person@example.com', customer_name: 'Patient',
+      booking_date: new Date(now.getTime() - n * 86400000).toISOString().split('T')[0], total_price: 5000, status: 'completed',
     }));
+    mockBookingsIn.mockReturnValue({ gte: () => ({ range: async () => ({ data: rows, error: null }) }) });
+  }
+
+  test.each([61, 62, 66, 67])('最終来店から %s 日の離脱リスク客でも、クーポン発行もメール予約もしない', async days => {
+    atRisk(days);
+    const response = await GET(makeRequest());
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({ processed: 1, skipped: 0, deferred: 0 });
+    // 分類は従来どおり更新される
+    expect(mockUpsert).toHaveBeenCalledTimes(1);
+    expect(mockUpsert.mock.calls[0][0][0]).toMatchObject({ customer_email: 'person@example.com', segment: 'at_risk' });
+    // 発行・送信の経路（RPC・送信キュー・クーポン表）には一切触れない
+    expect(mockRpcDelegate).not.toHaveBeenCalled();
+    const tables = mockFromDelegate.mock.calls.map(c => c[0]);
+    expect(Array.from(new Set(tables)).sort()).toEqual(['bookings', 'customer_segments', 'facility_profiles']);
+    expect(logCronRun).toHaveBeenCalledWith('customer-segment', 'success', expect.any(Date), expect.objectContaining({ processed: 1 }));
   });
-  test('known provider acceptance does not reserve a new message',async()=>{
-    atRisk();(queueCustomerCouponEmail as jest.Mock).mockResolvedValue('already_notified');
-    const response=await GET(makeRequest());expect(response.status).toBe(200);expect((await response.json()).queued).toBe(0);
-  });
-  test('historical null marker is unresolved, not a successful skip or resend',async()=>{
-    atRisk();(queueCustomerCouponEmail as jest.Mock).mockResolvedValue('uncertain');
-    const response=await GET(makeRequest());expect(response.status).toBe(500);
-    expect((await response.json()).deliveryUncertain).toBe(1);
-    expect(logCronRun).toHaveBeenCalledWith('customer-segment','error',expect.any(Date),expect.anything());
-  });
-  test('publication failure reports error while preserving segment computation',async()=>{
-    atRisk();(queueCustomerCouponEmail as jest.Mock).mockRejectedValue(new Error('lost response'));
-    const response=await GET(makeRequest());expect(response.status).toBe(500);
-    expect((await response.json()).deliveryFailures).toBe(1);expect(mockUpsert).toHaveBeenCalled();
-  });
-  test.each([59,60,70,121])('does not enqueue outside the original eligible window at %s days',async days=>{
-    atRisk(days);expect((await GET(makeRequest())).status).toBe(200);expect(queueCustomerCouponEmail).not.toHaveBeenCalled();
-  });
-  test('missing email provider configuration does not publish a delivery',async()=>{
-    atRisk();delete process.env.RESEND_API_KEY;expect((await GET(makeRequest())).status).toBe(200);
-    expect(queueCustomerCouponEmail).not.toHaveBeenCalled();
-  });
-  test('booking lookup failure is not a successful empty run',async()=>{
-    atRisk();mockBookingsIn.mockReturnValue({gte:()=>({range:async()=>({data:null,error:{message:'DB unavailable'}})})});
-    const response=await GET(makeRequest());expect(response.status).toBe(500);expect(queueCustomerCouponEmail).not.toHaveBeenCalled();
+
+  test('予約の取得に失敗した回は成功扱いにしない', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    atRisk(62);
+    mockBookingsIn.mockReturnValue({ gte: () => ({ range: async () => ({ data: null, error: { message: 'DB unavailable' } }) }) });
+    const response = await GET(makeRequest());
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ processingFailures: 1 });
+    expect(mockRpcDelegate).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 });
 
