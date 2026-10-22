@@ -14,6 +14,9 @@ import {
   SLOT_RELEASING_STATUSES,
   CUSTOMER_NON_CANCELLABLE_STATUSES,
   canCustomerCancelBooking,
+  CUSTOMER_CHANGEABLE_STATUSES,
+  canCustomerChangeBooking,
+  isCustomerChangeableStatus,
   type BookingStatus,
 } from '@/lib/booking-status';
 
@@ -211,5 +214,32 @@ describe('booking-status: 客側キャンセル可否のSSOT', () => {
     for (const s of ALL_STATUSES) {
       expect(canCustomerCancelBooking(s)).toBe(!CUSTOMER_NON_CANCELLABLE_STATUSES.includes(s));
     }
+  });
+});
+
+describe('booking-status: 客側の日時変更可否（開始後は変更不可）', () => {
+  // 2030-01-07 10:00 JST = 2030-01-07 01:00 UTC
+  const start = Date.UTC(2030, 0, 7, 1, 0, 0);
+
+  it('変更できるのは pending / confirmed だけ（API・change_booking_atomic と同じ）', () => {
+    expect(CUSTOMER_CHANGEABLE_STATUSES).toEqual(['pending', 'confirmed']);
+    for (const s of ALL_STATUSES) {
+      expect(isCustomerChangeableStatus(s)).toBe(s === 'pending' || s === 'confirmed');
+    }
+    expect(isCustomerChangeableStatus('unknown')).toBe(false);
+  });
+
+  it('開始前の pending / confirmed は変更できる', () => {
+    expect(canCustomerChangeBooking('pending', '2030-01-07', '10:00:00', start - 60_000)).toBe(true);
+    expect(canCustomerChangeBooking('confirmed', '2030-01-07', '10:00:00', start - 60_000)).toBe(true);
+  });
+
+  it('開始時刻を過ぎた予約は、ステータスが変更可能でも変更できない（回帰防止）', () => {
+    expect(canCustomerChangeBooking('confirmed', '2030-01-07', '10:00:00', start + 60_000)).toBe(false);
+  });
+
+  it('来店中（arrived）など変更不可のステータスは開始前でも変更できない', () => {
+    expect(canCustomerChangeBooking('arrived', '2030-01-07', '10:00:00', start - 60_000)).toBe(false);
+    expect(canCustomerChangeBooking('cancelled', '2030-01-07', '10:00:00', start - 60_000)).toBe(false);
   });
 });

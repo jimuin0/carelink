@@ -31,6 +31,26 @@ test.each(['customer','owner','rescheduled'])('captures %s content once, under w
   expect(chain.is).toHaveBeenCalledWith('delivery_started_at',null);
   expect(chain.is).toHaveBeenCalledWith('email_envelope',null);
 });
+const previous = { bookingDate:'2030-01-06', startTime:'10:00:00', endTime:'11:00:00' };
+// Regression: a customer change emailed only the customer; the shop kept waiting at the old time.
+test('shop change email shows the previous and the new date/time to the owner address',async()=>{
+  const input={...job,target_id:'owner@example.invalid',payload:{...job.payload,kind:'rescheduled',role:'owner',snapshot:{...snapshot,previous}}};
+  const envelope=await prepareCustomerBookingTransitionEnvelope(db,input);
+  expect(envelope.to).toBe('owner@example.invalid');
+  expect(envelope.subject).toBe('【CareLink】予約日時が変更されました - <script>customer</script>様');
+  expect(envelope.html).toContain('変更前の日時');
+  expect(envelope.html).toContain('2030年1月6日（日） 10:00〜11:00');
+  expect(envelope.html).toContain('2030年1月7日（月） 12:00〜13:00');
+  expect(envelope.html).toContain('&lt;script&gt;customer&lt;/script&gt;');
+  expect(envelope.html).toContain('customer@example.invalid');
+  expect(envelope.html).toContain('/admin/bookings');
+  expect(envelope.html).not.toContain('キャンセル料');
+  expect(chain.is).toHaveBeenCalledWith('email_envelope',null);
+});
+test('customer change email accepts the previous date/time captured with the change',async()=>{
+  const envelope=await prepareCustomerBookingTransitionEnvelope(db,{...job,payload:{...job.payload,kind:'rescheduled',snapshot:{...snapshot,previous}}});
+  expect(envelope.to).toBe(snapshot.customerEmail);expect(envelope.subject).toContain('日時を変更');
+});
 test('missing optional snapshot values use the original empty values, never current booking data',async()=>{
   const envelope=await prepareCustomerBookingTransitionEnvelope(db,{...job,payload:{...job.payload,
     snapshot:{...snapshot,menuName:null,totalPrice:null,cancelPolicy:null}}});
@@ -54,6 +74,9 @@ test.each([
   {...job,target_id:'other@example.invalid'},
   {...job,payload:{...job.payload,idempotency_key:'other'}},
   {...job,payload:{...job.payload,kind:'rescheduled',role:'owner'}},
+  {...job,target_id:'owner@example.invalid',payload:{...job.payload,kind:'rescheduled',role:'owner'}},
+  {...job,payload:{...job.payload,snapshot:{...snapshot,previous:{bookingDate:'2030-01-06',startTime:'10:00:00',endTime:'11:00:00'}}}},
+  {...job,target_id:'owner@example.invalid',payload:{...job.payload,kind:'rescheduled',role:'owner',snapshot:{...snapshot,previous:{bookingDate:'2030-01-06',startTime:'10:00'}}}},
   {...job,payload:{...job.payload,snapshot:{...snapshot,bookingId:'invalid'}}},
   {...job,payload:{...job.payload,customer_booking_transition_version:2}},
   {...job,payload:{...job.payload,extra:'unexpected'}},

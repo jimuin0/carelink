@@ -11,6 +11,7 @@ import type { Booking } from '@/types';
 import { statusBannerClass, bookingStatusLabel, getAllowedStatusTransitions } from '@/lib/booking-status';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import { UUID_REGEX } from '@/lib/constants';
+import { bookingStaffLabel } from '@/lib/booking-nomination';
 
 // 退店レジ会計の明細行（/api/admin/booking-checkout と整合）
 type ChargeType = 'menu' | 'retail' | 'discount';
@@ -417,7 +418,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
           {staffName && (
             <div>
               <p className="text-gray-500">担当スタッフ</p>
-              <p className="font-medium">{staffName}</p>
+              <p className="font-medium">{bookingStaffLabel(staffName, booking.staff_auto_assigned)}</p>
             </div>
           )}
           {booking.total_price !== null && (

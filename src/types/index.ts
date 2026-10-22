@@ -302,6 +302,8 @@ export interface Booking {
   facility_id: string;
   user_id: string | null;
   staff_id: string | null;
+  /** true: 指名なし（おまかせ）。staff_id は予約 RPC が割り当てた担当で、指名ではない。 */
+  staff_auto_assigned?: boolean;
   menu_id: string | null;
   coupon_id: string | null;
   booking_date: string;

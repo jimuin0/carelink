@@ -106,6 +106,13 @@ export function generateUnsubscribeToken(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
+/**
+ * メール内ボタン（「管理画面で確認する」「予約を確認する」等）の共通スタイル。
+ * 背景はサイトの primary（#0369A1）。白文字とのコントラストは約 5.9:1 で WCAG AA（4.5:1）を満たす。
+ * 以前の #0ea5e9 は約 2.8:1 で、太字でも本文サイズのため AA に届かなかった。
+ */
+export const EMAIL_BUTTON_STYLE = 'display:inline-block;background:#0369A1;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;';
+
 function wrapHtml(body: string, unsubscribeToken?: string): string {
   const unsubLink = unsubscribeToken
     ? `<p style="font-size:11px;color:#94a3b8;text-align:center;margin-top:8px;"><a href="${SITE_URL}/unsubscribe?token=${encodeURIComponent(unsubscribeToken)}" style="color:#94a3b8;">メールの受信を停止する</a></p>`
@@ -258,7 +265,7 @@ export function buildBookingConfirmationEnvelope(data: BookingEmailData) {
       <p>${name} 様</p>
       <p>${facility}へのご予約を受け付けました。<br>施設からの確認後、確定メールをお送りいたします。</p>
       ${bookingDetailHtml(data)}
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約を確認する</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="${EMAIL_BUTTON_STYLE}">予約を確認する</a></p>
     `),
   };
 }
@@ -281,7 +288,7 @@ export function buildBookingRescheduledEnvelope(data: BookingEmailData) {
       <p>${name} 様</p>
       <p>${facility}のご予約日時を下記のとおり変更しました。</p>
       ${bookingDetailHtml(data)}
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約を確認する</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="${EMAIL_BUTTON_STYLE}">予約を確認する</a></p>
     `),
   };
 }
@@ -323,7 +330,7 @@ export function buildBookingReminderContent(data: BookingEmailData, daysBefore: 
       <p>${when}、${facility}のご予約がございます。</p>
       ${bookingDetailHtml(data)}
       <p>お忘れなく、お時間に余裕を持ってご来店ください。</p>
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約詳細を見る</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="${EMAIL_BUTTON_STYLE}">予約詳細を見る</a></p>
       <p style="font-size:12px;color:#64748b;margin-top:24px;">${REMINDER_EMAIL_TIMING_NOTE}</p>
     `),
   };
@@ -374,7 +381,7 @@ export function buildTimeAdjustRequestEnvelope(data: BookingEmailData) {
       <p>${facility}より、ご予約のお時間について調整のお願いがございます。</p>
       ${bookingDetailHtml(data)}
       <p>恐れ入りますが、マイページの予約変更または施設へのご連絡にて、ご都合の良いお時間をお知らせください。</p>
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約を変更する</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="${EMAIL_BUTTON_STYLE}">予約を変更する</a></p>
     `),
   };
 }
@@ -399,7 +406,7 @@ export function buildBookingConfirmedEnvelope(data: BookingEmailData) {
       <p>${facility}のご予約が<strong style="color:#16a34a;">確定</strong>しました。</p>
       ${bookingDetailHtml(data)}
       <p>当日のご来店をお待ちしております。</p>
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約詳細を見る</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="${EMAIL_BUTTON_STYLE}">予約詳細を見る</a></p>
     `),
   };
 }
@@ -424,7 +431,7 @@ export function buildBookingCancelledEnvelope(data: BookingEmailData) {
       ${bookingDetailHtml(data)}
       ${data.cancelFee && data.cancelFee > 0 ? `<div style="margin:16px 0;padding:12px 16px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:14px;">キャンセルポリシーにより、キャンセル料として <strong>¥${data.cancelFee.toLocaleString()}</strong> が発生します。お支払い方法は施設より直接ご案内いたします。</div>` : ''}
       <p>またのご利用をお待ちしております。</p>
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/search" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">他のサロンを探す</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/search" style="${EMAIL_BUTTON_STYLE}">他のサロンを探す</a></p>
     `),
   };
 }
@@ -454,7 +461,7 @@ export async function sendNewReviewNotification(data: {
         <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">評価</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">★${data.rating}</td></tr>
         ${comment ? `<tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">コメント</td><td style="padding:8px 12px;border:1px solid #e2e8f0;white-space:pre-wrap;">${comment}</td></tr>` : ''}
       </table>
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}${adminFacilityHref('/admin/reviews', data.facilityId ?? null)}" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で確認する</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}${adminFacilityHref('/admin/reviews', data.facilityId ?? null)}" style="${EMAIL_BUTTON_STYLE}">管理画面で確認する</a></p>
     `),
   }, 'new_review_notification');
 }
@@ -556,7 +563,7 @@ export async function sendNewInquiryNotification(data: {
         ${phone ? `<tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">電話</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${phone}</td></tr>` : ''}
         <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">お問い合わせ内容</td><td style="padding:8px 12px;border:1px solid #e2e8f0;white-space:pre-wrap;">${message}</td></tr>
       </table>
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}${adminFacilityHref('/admin/facility-inquiries', data.facilityId ?? null)}" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で確認する</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}${adminFacilityHref('/admin/facility-inquiries', data.facilityId ?? null)}" style="${EMAIL_BUTTON_STYLE}">管理画面で確認する</a></p>
     `),
   }, 'new_inquiry_notification');
 }
@@ -616,7 +623,7 @@ export function buildNewBookingNotificationEnvelope(data: BookingEmailData & { f
         ${contactRows}
       </table>
       ${bookingDetailHtml(data)}
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/bookings" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で確認する</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/bookings" style="${EMAIL_BUTTON_STYLE}">管理画面で確認する</a></p>
     `),
   };
 }
@@ -642,7 +649,36 @@ export function buildBookingCancellationToFacilityEnvelope(data: BookingEmailDat
         <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">メール</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${email}</td></tr>
       </table>
       ${bookingDetailHtml(data)}
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/bookings" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で確認する</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/bookings" style="${EMAIL_BUTTON_STYLE}">管理画面で確認する</a></p>
+    `),
+  };
+}
+
+/**
+ * 予約日時の変更通知（施設向け）。お客様がマイページで日時を変更したときに、キャンセル通知と
+ * 同じ店舗の宛先へ送る。以前は店舗に何も届かず、変更前の時間に来店を待ってしまう状態だった。
+ * 送信は webhook-retry の worker だけが行う（変更と同じトランザクションで積まれた snapshot から組み立てる）。
+ */
+export function buildBookingRescheduleToFacilityEnvelope(
+  data: BookingEmailData & { facilityEmail: string; previous: { bookingDate: string; startTime: string; endTime: string } },
+) {
+  const name = esc(data.customerName);
+  const email = esc(data.customerEmail);
+  const before = `${formatDate(data.previous.bookingDate)} ${formatTime(data.previous.startTime)}〜${formatTime(data.previous.endTime)}`;
+  return {
+    from: FROM,
+    to: data.facilityEmail,
+    subject: escSubject(`【CareLink】予約日時が変更されました - ${data.customerName}様`),
+    html: wrapHtml(`
+      <p>お客様がご予約の日時を変更しました。管理画面で予約状況をご確認ください。</p>
+      <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;width:120px;">お客様名</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${name}</td></tr>
+        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">メール</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${email}</td></tr>
+        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">変更前の日時</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${before}</td></tr>
+      </table>
+      <p style="font-weight:600;margin-bottom:0;">変更後のご予約内容</p>
+      ${bookingDetailHtml(data)}
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/bookings" style="${EMAIL_BUTTON_STYLE}">管理画面で確認する</a></p>
     `),
   };
 }
@@ -680,7 +716,7 @@ export async function sendDailySummaryEmail(data: {
         ${row('新規顧客', `${data.newCustomerCount}名`)}
         ${row('リピート顧客', `${data.repeatCustomerCount}名`)}
       </table>
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/analytics" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">分析を見る</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/analytics" style="${EMAIL_BUTTON_STYLE}">分析を見る</a></p>
     `),
   }, 'daily_summary');
 }
@@ -719,7 +755,7 @@ export async function sendWeeklyReportEmail(data: {
         ${row('新規顧客', `${data.newCustomerCount}名`)}
         ${row('リピート顧客', `${data.repeatCustomerCount}名`)}
       </table>
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/analytics" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">分析を見る</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/analytics" style="${EMAIL_BUTTON_STYLE}">分析を見る</a></p>
     `),
   }, 'weekly_report');
 }
@@ -743,7 +779,7 @@ export async function sendWelcomeEmail(data: { ownerEmail: string; ownerName?: s
         <tr><td style="padding:12px;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600;text-align:center;">2</td><td style="padding:12px;border:1px solid #e2e8f0;">スタッフを登録してスケジュールを設定する</td></tr>
         <tr><td style="padding:12px;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600;text-align:center;">3</td><td style="padding:12px;border:1px solid #e2e8f0;">施設写真をアップロードして「公開」にする</td></tr>
       </table>
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">${facility}の管理画面へ</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin" style="${EMAIL_BUTTON_STYLE}">${facility}の管理画面へ</a></p>
     `),
   }, 'welcome');
 }
@@ -767,7 +803,7 @@ export async function sendOnboardingFollowEmail(data: {
       <p>${facility}のご登録から数日が経ちました。</p>
       <p>以下の項目が未設定です。設定を完了するとお客様が予約しやすくなります！</p>
       <ul style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:16px 16px 16px 32px;margin:16px 0;">${missing}</ul>
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で設定を完了する</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin" style="${EMAIL_BUTTON_STYLE}">管理画面で設定を完了する</a></p>
     `),
   }, 'onboarding_follow');
 }
@@ -793,7 +829,7 @@ export function buildBookingStatusUpdateEnvelope(data: BookingEmailData & { newS
       <p>${facility}のご予約のステータスが<strong>「${statusLabel}」</strong>に変更されました。</p>
       ${data.reason ? `<p style="background:#fef3c7;padding:12px;border-radius:8px;font-size:14px;">理由: ${esc(data.reason)}</p>` : ''}
       ${bookingDetailHtml(data)}
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約を確認する</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="${EMAIL_BUTTON_STYLE}">予約を確認する</a></p>
     `),
   };
 }
@@ -850,7 +886,7 @@ export function buildFavoritesDigestEnvelope(data: {
         <tbody>${facilityRows}</tbody>
       </table>
       <p style="text-align:center;margin-top:24px;">
-        <a href="${SITE_URL}/mypage/favorites" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">
+        <a href="${SITE_URL}/mypage/favorites" style="${EMAIL_BUTTON_STYLE}">
           お気に入りを見る
         </a>
       </p>
@@ -939,7 +975,7 @@ export async function sendRegistrationReceiptEmail(data: {
         <p style="margin:8px 0 0;font-size:13px;color:#713f12;">
           別のアドレスで作成すると、入力いただいた内容が引き継がれず、管理画面で入力し直しになります。</p>
       </div>
-      <p style="text-align:center;margin-top:24px;"><a href="${esc(signupUrl)}" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">アカウントを作成して始める</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${esc(signupUrl)}" style="${EMAIL_BUTTON_STYLE}">アカウントを作成して始める</a></p>
       <p style="font-size:13px;color:#64748b;">このメールに心当たりがない場合は、お手数ですが破棄してください。</p>
     `),
   }, 'registration_receipt');
@@ -977,7 +1013,7 @@ export async function sendRegistrationLeadFollowEmail(data: {
         <p style="margin:0;"><strong>このメールを受け取ったアドレスで作成してください。</strong></p>
         <p style="margin:8px 0 0;">${addr}</p>
       </div>
-      <p style="text-align:center;margin-top:24px;"><a href="${esc(signupUrl)}" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">アカウントを作成して再開する</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${esc(signupUrl)}" style="${EMAIL_BUTTON_STYLE}">アカウントを作成して再開する</a></p>
     `),
   }, 'registration_lead_follow');
 }

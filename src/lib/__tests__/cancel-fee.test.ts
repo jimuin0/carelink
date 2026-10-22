@@ -1,4 +1,4 @@
-import { computeCancelFee, hoursUntilBookingStart, describeCancelPolicy } from '@/lib/cancel-fee';
+import { computeCancelFee, hoursUntilBookingStart, hasBookingStarted, describeCancelPolicy } from '@/lib/cancel-fee';
 
 describe('hoursUntilBookingStart', () => {
   it('JST の予約開始と now の差を時間で返す', () => {
@@ -15,6 +15,26 @@ describe('hoursUntilBookingStart', () => {
 
   it('解釈不能な日付 → Infinity（無料扱い）', () => {
     expect(hoursUntilBookingStart('not-a-date', '10:00', Date.UTC(2026, 3, 1))).toBe(Infinity);
+  });
+});
+
+describe('hasBookingStarted', () => {
+  // 2026-04-01 10:00 JST = 2026-04-01 01:00 UTC
+  const startUtcMs = Date.UTC(2026, 3, 1, 1, 0, 0);
+
+  it('開始1分前は未開始・開始ちょうどは未開始・開始1分後は開始済み（JST 基準）', () => {
+    expect(hasBookingStarted('2026-04-01', '10:00:00', startUtcMs - 60_000)).toBe(false);
+    expect(hasBookingStarted('2026-04-01', '10:00:00', startUtcMs)).toBe(false);
+    expect(hasBookingStarted('2026-04-01', '10:00:00', startUtcMs + 60_000)).toBe(true);
+  });
+
+  it('UTC では前日でも JST で当日の開始を過ぎていれば開始済み', () => {
+    // 2026-04-01 08:00 JST = 2026-03-31 23:00 UTC。UTC の日付だけ見ると「まだ前日」に見える。
+    expect(hasBookingStarted('2026-04-01', '08:00', Date.UTC(2026, 2, 31, 23, 30))).toBe(true);
+  });
+
+  it('解釈不能な日時は開始前として扱う（最終判定は DB）', () => {
+    expect(hasBookingStarted('not-a-date', '10:00', startUtcMs)).toBe(false);
   });
 });
 

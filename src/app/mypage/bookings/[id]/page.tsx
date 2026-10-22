@@ -7,10 +7,11 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import type { Booking } from '@/types';
-import { statusChipClass, bookingStatusLabel, canCustomerCancelBooking } from '@/lib/booking-status';
+import { statusChipClass, bookingStatusLabel, canCustomerCancelBooking, canCustomerChangeBooking, isCustomerChangeableStatus } from '@/lib/booking-status';
 import { ONLINE_PREPAYMENT_NOTICE } from '@/lib/coming-soon';
 import { beginStaffOperation, finishStaffOperation } from '@/lib/staff-operation';
 import { UUID_REGEX } from '@/lib/constants';
+import { bookingStaffLabel, rebookSearchParams } from '@/lib/booking-nomination';
 
 export default function BookingDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
@@ -32,6 +33,8 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
   const [facility, setFacility] = useState<{ slug: string; name: string } | null>(null);
   const [menuName, setMenuName] = useState('');
   const [staffName, setStaffName] = useState('');
+  // 予約を読み込んだ時刻。開始時刻を過ぎたかの判定に使う（描画中に Date.now() を読まない）。
+  const [loadedAt, setLoadedAt] = useState(0);
 
   // load 相当の処理は「マウント時の初回読み込み」と「読み込み失敗後の再試行」の2箇所からしか
   // 呼ばれず、どちらも同じ処理を求める呼び出しなので、reloadKey を effect の依存に置いて
@@ -59,6 +62,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         if (error && error.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
         if (cancelled) return;
         setBooking(data as Booking | null);
+        setLoadedAt(Date.now());
         // 施設 slug/名前・メニュー名・スタッフ名を併取（表示＋再予約の遷移先 slug に使う・A-5）。
         // 名前類は補助表示のため best-effort（失敗しても本体は継続）。
         if (data) {
@@ -133,6 +137,9 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
   }
 
   const canCancel = canCustomerCancelBooking(booking.status);
+  // 開始時刻を過ぎた予約は API・DB とも日時変更を拒否するため、押しても失敗するボタンは出さない。
+  const canChange = canCustomerChangeBooking(booking.status, booking.booking_date, booking.start_time, loadedAt);
+  const changeClosedByStart = !canChange && isCustomerChangeableStatus(booking.status);
 
   return (
     <div>
@@ -158,7 +165,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         )}
         <div className="flex justify-between text-sm">
           <span className="text-gray-500">担当</span>
-          <span className="font-medium">{staffName || '指名なし'}</span>
+          <span className="font-medium">{bookingStaffLabel(staffName, booking.staff_auto_assigned)}</span>
         </div>
         <div className="flex justify-between text-sm">
           <span className="text-gray-500">日付</span>
@@ -269,7 +276,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
           オンライン事前決済（近日公開）
         </div>
       )}
-      {canCancel && booking && (
+      {canChange && (
         <button
           type="button"
           onClick={() => router.push(`/mypage/bookings/${booking.id}/change`)}
@@ -277,6 +284,11 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         >
           日時を変更する
         </button>
+      )}
+      {changeClosedByStart && (
+        <p className="mt-4 text-sm text-gray-600 text-center">
+          開始時刻を過ぎた予約は、オンラインで日時を変更できません。施設へ直接ご連絡ください。
+        </p>
       )}
       {canCancel && (
         <button
@@ -289,15 +301,13 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         </button>
       )}
       {/* リピート予約（v8.6）。正しい施設 slug が取れている時のみ表示（UUID を slug にして 404 を防ぐ）。
-          param 名は一覧・BookingFlow と揃えて menu_id/staff_id（#389 A-4/A-5 と統一）。 */}
+          param 名は一覧・BookingFlow と揃えて menu_id/staff_id（#389 A-4/A-5 と統一）。
+          指名なし（おまかせ）で割り当てられた担当者は引き継がない（指名料がかかる指名にしない）。 */}
       {booking && ['completed', 'cancelled'].includes(booking.status) && facility?.slug && (
         <button
           type="button"
           onClick={() => {
-            const q = new URLSearchParams();
-            if (booking.menu_id) q.set('menu_id', booking.menu_id);
-            if (booking.staff_id) q.set('staff_id', booking.staff_id);
-            const qs = q.toString();
+            const qs = rebookSearchParams(booking).toString();
             router.push(`/facility/${facility.slug}/booking${qs ? `?${qs}` : ''}`);
           }}
           className="w-full mt-3 py-3 rounded-xl bg-sky-700 text-white font-bold hover:bg-sky-800 transition-colors"

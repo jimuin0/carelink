@@ -15,6 +15,8 @@ export type BoardChip = {
   end_time: string;
   status: string;
   menuName: string | null;
+  /** 指名なし（おまかせ）で、この行の担当者に割り当てられた予約。指名と見分けるため表示に添える。 */
+  autoAssigned?: boolean;
 };
 export type BoardRow = {
   key: string; // staff_id または '__unassigned__'
@@ -183,9 +185,9 @@ export default function BoardScheduleGrid({
                     href={`/admin/bookings/${b.id}?facility_id=${facilityId}`}
                     className={`absolute rounded-sm border-l-4 px-1.5 overflow-hidden shadow-xs hover:shadow-sm transition-shadow flex flex-col justify-center ${statusGanttClass(b.status)}`}
                     style={{ left: `${left}%`, width: `${width}%`, top: lane * laneH + 2, height: laneH - 4 }}
-                    title={`${b.customer_name} 様 ${b.start_time.slice(0, 5)}〜${b.end_time.slice(0, 5)}${b.menuName ? ` / ${b.menuName}` : ''}${clipL ? '（早朝に続く）' : ''}${clipR ? '（営業時間外に続く）' : ''}`}
+                    title={`${b.customer_name} 様 ${b.start_time.slice(0, 5)}〜${b.end_time.slice(0, 5)}${b.menuName ? ` / ${b.menuName}` : ''}${b.autoAssigned ? ' / 指名なし' : ''}${clipL ? '（早朝に続く）' : ''}${clipR ? '（営業時間外に続く）' : ''}`}
                   >
-                    <p className="text-[11px] font-bold truncate leading-tight">{clipL ? '◀ ' : ''}{b.customer_name} 様</p>
+                    <p className="text-[11px] font-bold truncate leading-tight">{clipL ? '◀ ' : ''}{b.customer_name} 様{b.autoAssigned ? '（指名なし）' : ''}</p>
                     {laneH >= 40 && (
                       <p className="text-[10px] truncate leading-tight">
                         {b.start_time.slice(0, 5)}〜{b.end_time.slice(0, 5)}{clipR ? ' ▶' : ''}{b.menuName ? ` ${b.menuName}` : ''}

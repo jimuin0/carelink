@@ -326,3 +326,15 @@ test('操作IDのsetItem失敗は送信前に止まり、入力を結果不明�
   await screen.findByText(/安全に保存できないため送信しません/);
   expect(fetchMock).not.toHaveBeenCalled(); expect(screen.getByLabelText(/お客様名/)).not.toBeDisabled();
 });
+
+// おまかせ予約は割り当てた担当者の行に出る。指名と見分けられるよう「指名なし」を添える（回帰防止）。
+test('指名なしで割り当てられた予約のチップに「指名なし」を添え、指名予約には添えない', () => {
+  setupRows([{ key: 's1', name: '佐藤', position: null, nominationFee: 0, chips: [
+    { id: 'b-auto', customer_name: '合成おまかせ', start_time: '10:00', end_time: '11:00', status: 'confirmed', menuName: 'カット', autoAssigned: true },
+    { id: 'b-named', customer_name: '合成指名', start_time: '13:00', end_time: '14:00', status: 'confirmed', menuName: 'カット' },
+  ] }]);
+  const auto = screen.getByText('合成おまかせ 様（指名なし）').closest('a');
+  expect(auto?.getAttribute('title')).toContain(' / 指名なし');
+  const named = screen.getByText('合成指名 様').closest('a');
+  expect(named?.getAttribute('title')).not.toContain('指名なし');
+});

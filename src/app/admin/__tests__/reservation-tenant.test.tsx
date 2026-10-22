@@ -84,6 +84,41 @@ test('一覧・詳細リンク・メニュー名の取得を同じ店舗へ固�
     .toBe(`/admin/bookings/synthetic-booking?facility_id=${second}`);
   expect(mockQueries.find(q => q.table === 'facility_menus')?.filters).toContainEqual(['eq', 'facility_id', second]);
 });
+// おまかせ予約も予約 RPC が担当者を割り当てて staff_id に保存する。指名と見分けられるよう、
+// 一覧は「指名なし（担当: X）」、予約表のチップは autoAssigned を渡す（回帰防止）。
+test('指名なしで割り当てられた予約は一覧で「指名なし（担当: X）」と表示し、指名予約は名前だけ', async () => {
+  mockResults.staff_profiles = [{ data: [] }];
+  mockResults.bookings = [{ count: 2 }, { data: [
+    { id: 'synthetic-auto', booking_date: '2026-10-01', start_time: '10:00', end_time: '11:00', customer_name: '合成おまかせ',
+      email: null, status: 'confirmed', total_price: 200, staff: { name: '担当A' }, staff_auto_assigned: true, menu_id: null, menu_ids: null },
+    { id: 'synthetic-named', booking_date: '2026-10-01', start_time: '12:00', end_time: '13:00', customer_name: '合成指名',
+      email: null, status: 'confirmed', total_price: 200, staff: [{ name: '担当B' }], staff_auto_assigned: false, menu_id: null, menu_ids: null },
+  ] }];
+  render(await Bookings({ searchParams: Promise.resolve({ facility_id: second }) }));
+  expect(screen.getByText('指名なし（担当: 担当A）')).toBeTruthy();
+  expect(screen.getByText('担当B')).toBeTruthy();
+  const dataQuery = mockQueries.filter(q => q.table === 'bookings')[1];
+  expect(String(dataQuery.filters.find(f => f[0] === 'select')?.[1])).toContain('staff_auto_assigned');
+});
+test('予約表は指名なしで割り当てられた予約をチップで区別できるよう渡す', async () => {
+  const staffA = '73000000-0000-4000-8000-000000000001';
+  mockResults.facility_profiles = [{ data: null }];
+  mockResults.staff_profiles = [{ data: [{ id: staffA, name: '担当A', position: null, nomination_fee: 500 }] }];
+  mockResults.bookings = [{ data: [
+    { id: 'synthetic-auto', customer_name: '合成おまかせ', start_time: '10:00', end_time: '11:00', status: 'confirmed',
+      staff_id: staffA, staff_auto_assigned: true, menu_id: null, menu_ids: null },
+    { id: 'synthetic-named', customer_name: '合成指名', start_time: '12:00', end_time: '13:00', status: 'confirmed',
+      staff_id: staffA, staff_auto_assigned: false, menu_id: null, menu_ids: null },
+  ] }];
+  mockResults.facility_menus = [{ data: [] }];
+  render(await Schedule({ searchParams: Promise.resolve({ facility_id: second, date: '2026-10-01' }) }));
+  expect(mockGrid).toHaveBeenCalledWith(expect.objectContaining({ rows: expect.arrayContaining([
+    expect.objectContaining({ key: staffA, chips: [
+      expect.objectContaining({ id: 'synthetic-auto', autoAssigned: true }),
+      expect.objectContaining({ id: 'synthetic-named', autoAssigned: false }),
+    ] }),
+  ]) }));
+});
 test.each(['facility_members', 'facility_profiles'])('集計の依存失敗を0件にしない %s', async table => {
   mockResults[table] = [{ data: null, error: { code: '08006' } }];
   await expect(Chain()).rejects.toThrow();

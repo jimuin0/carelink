@@ -11,6 +11,7 @@ import FacilitySelector from '@/components/admin/FacilitySelector';
 import { loadAdminFacilitySelection } from '@/lib/admin-facility-selection';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
+import { bookingStaffLabel } from '@/lib/booking-nomination';
 
 const PER_PAGE = 20;
 // 絞り込みに使える status は正準集合（全7値）を SSOT から参照（cancel_fee_paid 等の欠落を防ぐ）。
@@ -25,6 +26,7 @@ type BookingRow = {
   id: string; booking_date: string; start_time: string; end_time: string;
   customer_name: string; email: string | null; status: string; total_price: number | null;
   menu_id: string | null; menu_ids: string[] | null;
+  staff_auto_assigned?: boolean | null;
   staff: { name: string } | { name: string }[] | null;
 };
 
@@ -85,7 +87,7 @@ export default async function AdminBookingsPage(props: Props) {
   // 2) データ取得（メニュー名・スタッフ名を埋め込み）
   let dataQuery = supabase
     .from('bookings')
-    .select('id, booking_date, start_time, end_time, customer_name, email, status, total_price, menu_id, menu_ids, staff:staff_profiles(name)')
+    .select('id, booking_date, start_time, end_time, customer_name, email, status, total_price, menu_id, menu_ids, staff_auto_assigned, staff:staff_profiles(name)')
     .eq('facility_id', facilityId);
   if (from) dataQuery = dataQuery.gte('booking_date', from);
   if (to) dataQuery = dataQuery.lte('booking_date', to);
@@ -153,7 +155,8 @@ export default async function AdminBookingsPage(props: Props) {
                     <p>{b.customer_name}</p>
                     <p className="text-xs text-gray-400">{b.email}</p>
                   </SbTd>
-                  <SbTd className="text-gray-600 text-sm">{embedName(b.staff) ?? '指名なし'}</SbTd>
+                  {/* 指名なし（おまかせ）は割り当てた担当者を「指名なし（担当: X）」で出し、指名と見分ける。 */}
+                  <SbTd className="text-gray-600 text-sm">{bookingStaffLabel(embedName(b.staff), b.staff_auto_assigned)}</SbTd>
                   <SbTd className="text-gray-600 text-sm">{menuIdsOf(b).map(id => menuNames.get(id) ?? 'メニュー削除済み').join('、') || '-'}</SbTd>
                   <SbTd><SbStatusChip status={b.status} /></SbTd>
                   <SbTd align="right">{b.total_price !== null ? `¥${b.total_price.toLocaleString()}` : '-'}</SbTd>

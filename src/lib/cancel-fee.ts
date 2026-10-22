@@ -25,6 +25,14 @@ export function hoursUntilBookingStart(bookingDate: string, startTime: string, n
 }
 
 /**
+ * 予約の開始時刻（JST）を過ぎたか。キャンセル・日時変更の「開始後はオンラインで受け付けない」判定に使う
+ * （SQL 側の BOOKING_ALREADY_STARTED と同じ規則）。解釈不能な日時は開始前として扱う＝最終判定は DB に任せる。
+ */
+export function hasBookingStarted(bookingDate: string, startTime: string, nowMs: number): boolean {
+  return hoursUntilBookingStart(bookingDate, startTime, nowMs) < 0;
+}
+
+/**
  * キャンセル料を算出する。無料期限（free_cancel_hours）以内のキャンセルは無料、期限を過ぎたら
  * total_price × late_cancel_rate%。policy 不在・金額不明/0以下・料率0以下・期限内はいずれも 0（無料）。
  */

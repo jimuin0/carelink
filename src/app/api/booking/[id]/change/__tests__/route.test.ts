@@ -68,8 +68,33 @@ test.each([['unauthenticated',401],['unavailable',503]])('auth %s stops mutation
 });
 test('DB read error is not a missing reservation',async()=>{mockFrom.mockReturnValue(chain(null,{code:'08006'}));expect((await POST(request(),props())).status).toBe(500);expect(mockRpc).not.toHaveBeenCalled();});
 test.each([[null,404],[{...booking,user_id:'other'},403],[{...booking,status:'cancelled'},400],[{...booking,status:'completed'},400],[{...booking,status:'no_show'},400]])('source guard %#',async(data,status)=>{mockFrom.mockReturnValue(chain(data));expect((await POST(request(),props())).status).toBe(status);expect(mockRpc).not.toHaveBeenCalled();});
+// Regression: the cancel route already refused a started booking, but a change was accepted and moved
+// a reservation the customer never attended to another day.
+test.each([
+ ['one minute after the start (JST)', '2026-10-14T01:01:00Z'],
+ ['later the same JST day, before UTC midnight', '2026-10-14T14:00:00Z'],
+])('a booking whose start time has passed cannot be changed: %s',async(_label,now)=>{
+ jest.setSystemTime(new Date(now));
+ mockFrom.mockReturnValue(chain({...booking,booking_date:'2026-10-14',start_time:'10:00:00'}));
+ const res=await POST(request({...body,booking_date:'2026-10-20'}),props());
+ expect(res.status).toBe(409);
+ expect((await res.json()).error).toBe('予約開始時刻を過ぎているため、オンラインでの日時変更はできません。施設へ直接ご連絡ください。');
+ expect(mockRpc).not.toHaveBeenCalled();expect(writeAuditLog).not.toHaveBeenCalled();expectNoInlineSend();
+});
+test('a booking that starts later today can still be changed',async()=>{
+ jest.setSystemTime(new Date('2026-10-14T00:59:00Z'));
+ mockFrom.mockReturnValue(chain({...booking,booking_date:'2026-10-14',start_time:'10:00:00'}));
+ expect((await POST(request({...body,booking_date:'2026-10-20'}),props())).status).toBe(200);
+ expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_channels_atomic',expect.objectContaining({p_booking_id:ID}));
+});
+test('the database refusal for a started booking keeps the same 409 message',async()=>{
+ mockRpc.mockResolvedValue({data:null,error:{message:'BOOKING_ALREADY_STARTED'}});
+ const res=await POST(request(),props());
+ expect(res.status).toBe(409);
+ expect((await res.json()).error).toBe('予約開始時刻を過ぎているため、オンラインでの日時変更はできません。施設へ直接ご連絡ください。');
+});
 test('pending booking can change',async()=>{mockFrom.mockReturnValue(chain({...booking,status:'pending'}));expect((await POST(request(),props())).status).toBe(200);});
-test.each([['BOOKING_NOT_READY',409],['BOOKING_CONFLICT',409],['BOOKING_NOT_FOUND',404],['BOOKING_FORBIDDEN',403],['BOOKING_NOT_CHANGEABLE',400],['BOOKING_CLOSED_DAY',409],['BOOKING_OUTSIDE_HOURS',409],['STAFF_NOT_WORKING',409],['SYNTHETIC_PLAN_FAILURE',500],[undefined,500]])('transaction error %s',async(message,status)=>{mockRpc.mockResolvedValue({data:null,error:{message}});expect((await POST(request(),props())).status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expectNoInlineSend();});
+test.each([['BOOKING_NOT_READY',409],['BOOKING_CONFLICT',409],['BOOKING_CONFLICT: この時間帯は既に予約が入っています',409],['BOOKING_NOT_FOUND',404],['BOOKING_FORBIDDEN',403],['BOOKING_NOT_CHANGEABLE',400],['BOOKING_ALREADY_STARTED',409],['BOOKING_CLOSED_DAY',409],['BOOKING_OUTSIDE_HOURS',409],['STAFF_NOT_WORKING',409],['SYNTHETIC_PLAN_FAILURE',500],[undefined,500]])('transaction error %s',async(message,status)=>{mockRpc.mockResolvedValue({data:null,error:{message}});expect((await POST(request(),props())).status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expectNoInlineSend();});
 test.each([null,[],[{id:ID,replayed:false},{id:ID,replayed:false}],[{id:'other',replayed:false}],[{id:ID,replayed:null}]])('invalid committed receipt %#',async data=>{mockRpc.mockResolvedValue({data,error:null});expect((await POST(request(),props())).status).toBe(500);expect(writeAuditLog).not.toHaveBeenCalled();});
 test.each([
  {...body,booking_date:'bad'},{...body,booking_date:'2026-02-30'},{...body,booking_date:'2026-13-01'},{...body,booking_date:'2020-01-01'},{...body,booking_date:'2040-01-01'},

@@ -17,6 +17,7 @@ import { requestedStaffIds, slotsWeekBody } from '@/test-utils/slots-week-mock';
 // 実際の useRouter は同じオブジェクトを返し続ける。毎回新しいオブジェクトを返すと、読み込みの
 // effect（依存に router を含む）が描画のたびに走り直し、予約を読み直して空き枠も取り直してしまう。
 const mockRouter = { push: jest.fn(), back: jest.fn() };
+const mockPush = mockRouter.push;
 jest.mock('next/navigation', () => ({
   useRouter: () => mockRouter,
   useParams: () => ({ id: 'b1' }),
@@ -24,8 +25,10 @@ jest.mock('next/navigation', () => ({
 jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: jest.fn() }));
 
 const BOOKING = {
-  id: 'b1', facility_id: 'f1', staff_id: 's1', menu_id: 'm1', menu_ids: null as string[] | null,
-  booking_date: '2026-06-01', start_time: '10:00:00', end_time: '11:00:00',
+  id: 'b1', facility_id: 'f1', staff_id: 's1' as string | null, staff_auto_assigned: false,
+  menu_id: 'm1' as string | null, menu_ids: null as string[] | null,
+  // 開始前の予約（開始後は予約詳細へ戻すため、固定の過去日だと日時が進むほど検査が成立しなくなる）。
+  booking_date: '2099-06-01', start_time: '10:00:00', end_time: '11:00:00',
   total_price: 5000, status: 'confirmed',
 };
 
@@ -239,5 +242,66 @@ describe('おまかせ予約（staff_id=NULL）', () => {
     await pickFirstDate();
     expect(await within(slotPicker()).findByRole('alert')).toHaveTextContent('空き枠を取得できませんでした');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// 開始時刻を過ぎた予約は API・DB とも変更を拒否する。URL を直接開いても枠を選ばせず、
+// 施設への連絡を案内する予約詳細へ戻す（回帰防止: 以前は枠選択まで進めた）。
+test('開始時刻を過ぎた予約 → 日付選択を出さず予約詳細へ戻す', async () => {
+  mockSupabase({ booking: { booking_date: '2020-06-01' } });
+  mockFetch(slotsFor([]));
+  render(<BookingChangePage />);
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/mypage/bookings/b1'));
+  expect(screen.queryByText('新しい日付を選択')).not.toBeInTheDocument();
+  expect(fetchMock).not.toHaveBeenCalled();
+});
+
+test('変更できない状態（arrived）の予約 → 予約一覧へ戻す（従来どおり）', async () => {
+  mockSupabase({ booking: { status: 'arrived' } });
+  render(<BookingChangePage />);
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/mypage/bookings'));
+  expect(screen.queryByText('新しい日付を選択')).not.toBeInTheDocument();
+});
+
+// おまかせ（指名なし）の予約も予約 RPC が担当者を割り当てて staff_id に保存する。staff_auto_assigned の
+// 予約を指名予約として扱うと、その担当者の空きしか出さず、他のスタッフが空いていても変更できなかった
+// （回帰防止）。変更時は RPC が新しい時間で担当者を割り当て直すので、メニューを担当できる人の枠を出す。
+describe('指名なしで割り当てられた予約（staff_auto_assigned）', () => {
+  const STAFF = [{ id: 's1' }, { id: 's2' }, { id: 's3' }];
+  // m1 は s1・s2 だけが担当（s3 には割り当てられない）。
+  const MENU_STAFF = [{ menu_id: 'm1', staff_id: 's1' }, { menu_id: 'm1', staff_id: 's2' }];
+
+  test('担当者に限らず、メニューを担当できるスタッフの枠を出す', async () => {
+    mockSupabase({ booking: { staff_id: 's1', staff_auto_assigned: true }, staff: STAFF, menuStaff: MENU_STAFF });
+    mockFetch(slotsFor((staffId) => (staffId === 's2' ? [{ slot_start: '13:00:00', slot_end: '14:00:00' }] : [])));
+    render(<BookingChangePage />);
+    expect(await screen.findByText('指名なし（担当: スタッフ）')).toBeInTheDocument();
+    await pickFirstDate();
+    expect(await within(slotPicker()).findByText('13:00')).toBeInTheDocument();
+    expect(requestedStaffIds(fetchMock.mock.calls)).toEqual(['s1', 's2']);
+  });
+
+  test('担当制メニューの取得に失敗 → 「空き枠なし」にせず取得失敗を出し、空き枠を取りに行かない', async () => {
+    mockSupabase({
+      booking: { staff_id: 's1', staff_auto_assigned: true, menu_ids: ['m1', 'm2'] },
+      staff: STAFF, menuStaffError: { code: '08006' },
+    });
+    mockFetch(slotsFor([]));
+    render(<BookingChangePage />);
+    await pickFirstDate();
+    expect(await within(slotPicker()).findByRole('alert')).toHaveTextContent('空き枠を取得できませんでした');
+    expect(within(slotPicker()).queryByText('この日は予約可能な時間帯がありません')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('指名予約（staff_auto_assigned=false）は従来どおり当該スタッフの枠だけ', async () => {
+    mockSupabase({ booking: { staff_id: 's1', staff_auto_assigned: false }, staff: STAFF, menuStaff: MENU_STAFF });
+    mockFetch(slotsFor([{ slot_start: '13:00:00', slot_end: '14:00:00' }]));
+    render(<BookingChangePage />);
+    expect(await screen.findByText('スタッフ')).toBeInTheDocument();
+    await pickFirstDate();
+    expect(await within(slotPicker()).findByText('13:00')).toBeInTheDocument();
+    expect(requestedStaffIds(fetchMock.mock.calls)).toEqual(['s1']);
+    expect(menuStaffIn).not.toHaveBeenCalled();
   });
 });

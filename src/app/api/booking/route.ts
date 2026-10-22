@@ -16,9 +16,17 @@ import { BOOKING_CREATE_COOKIE, newBookingGuestScope, bookingGuestScopeHash, boo
 import { dispatchBookingCreationNotifications } from '@/lib/booking-create-dispatch';
 import { buildBookingCreateNotifications, BookingNotificationPlanError } from '@/lib/booking-create-notifications';
 import { HOME_VISIT_ADDRESS_REQUIRED_MESSAGE, isHomeVisitOnly } from '@/lib/home-visit';
+import { knownBookingRpcMessage } from '@/lib/booking-rpc-error';
 
 export const dynamic = 'force-dynamic';
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
+const KNOWN_CREATE_REJECTIONS: Readonly<Record<string, string>> = {
+  POINTS_INSUFFICIENT: 'ポイント残高が不足しています', BOOKING_NOT_READY: 'この店舗のネット予約は準備中です。店舗へ直接お問い合わせください',
+  BOOKING_MENU_UNAVAILABLE: '選択したメニューは現在受付していません', BOOKING_CONFLICT: 'この時間帯は既に予約が入っています',
+  STAFF_NOT_IN_FACILITY: '指定されたスタッフはこの施設で予約できません', BOOKING_CLOSED_DAY: 'この日は定休日のため予約できません',
+  BOOKING_OUTSIDE_HOURS: '営業時間外のため予約できません', STAFF_NOT_WORKING: '指名されたスタッフはこの日時には勤務していません',
+  COUPON_LIMIT: 'このクーポンは利用上限に達しています', COUPON_ALREADY_USED: 'このクーポンは既に利用済みです',
+};
 
 export async function POST(request: Request) {
   try {
@@ -91,28 +99,11 @@ export async function POST(request: Request) {
     const parsed = bookingSchema.safeParse(body);
     if (!parsed.success) return reject(parsed.error.issues[0]!.message, 400);
     if (parsed.data.start_time >= parsed.data.end_time) return reject('開始時間は終了時間より前にしてください', 400);
-  // 競合チェック（早期 fast-fail）は【指名あり（staff_id 指定）】のときだけ実行する（監査M1・恒久根治）。
-  // 指名なし（おまかせ=staff_id null）で施設全体の単純重複を 409 にすると容量を 1 とみなすことになり、
-  // 権威側 RPC(create_booking_atomic) の G2 容量モデル（勤務中 is_active スタッフ数まで同時予約を許可）
-  // と非対称になる（複数スタッフ在籍施設で正当な2件目のおまかせ予約を誤って 409 拒否していた）。
-  // おまかせの容量判定は RPC の権威的判定（advisory lock 下で原子的に競合検知）へ一元化するため、
-  // ここでは結果を使わない＝おまかせでは SELECT 自体を発行しない（無駄クエリを完全に排除）。
-  // 指名ありは当該スタッフの二重予約を早期に弾く正当な fast-fail のため実行・維持する。
-  if (parsed.data.staff_id) {
-    const { data: conflicts } = await supabase
-      .from('bookings')
-      .select('id')
-      .eq('facility_id', parsed.data.facility_id)
-      .eq('booking_date', parsed.data.booking_date)
-      // cancel_fee_paid（キャンセル料決済済・席は空く）も終了扱いで除外し RPC 側と揃える。
-      .not('status', 'in', '("cancelled","no_show","cancel_fee_paid")')
-      .lt('start_time', parsed.data.end_time)
-      .gt('end_time', parsed.data.start_time)
-      .eq('staff_id', parsed.data.staff_id);
-    if (conflicts && conflicts.length > 0) {
-      return reject('この時間帯は既に予約が入っています', 409);
-    }
-  }
+  // 空き枠の判定（指名・おまかせとも）はここでは行わず、RPC（create_booking_for_menus_atomic）の
+  // advisory lock 下の判定だけを正とする（2026年10月22日）。おまかせ予約は RPC が空いている担当者を
+  // 割り当てて保存し、担当者未割当の旧予約も勤務人数に対する容量として数える。ここに残していた
+  // 「同じスタッフの重なりだけを見る」事前チェックは、バッファも未割当の旧予約も見ず、RLS で他の
+  // お客様の予約も見えない不完全な複製だった。RPC の満席は下で 409 と同じ文言に変換される。
 
   // Server-side price calculation (do not trust client total_price)
   // Use menu_ids for multi-menu total; fall back to menu_id for single-menu.
@@ -276,14 +267,10 @@ export async function POST(request: Request) {
     });
     if (error) {
       if(error.code==='P0001' && error.message==='WEBHOOK_DISPATCH_V2_UNAVAILABLE')return json({error:'現在この予約を安全に処理できません。時間をおいて同じ受付番号で再確認してください。',code:'BOOKING_DISPATCH_UNAVAILABLE'},503);
-      const known: Record<string, string> = {
-        POINTS_INSUFFICIENT: 'ポイント残高が不足しています', BOOKING_NOT_READY: 'この店舗のネット予約は準備中です。店舗へ直接お問い合わせください',
-        BOOKING_MENU_UNAVAILABLE: '選択したメニューは現在受付していません', BOOKING_CONFLICT: 'この時間帯は既に予約が入っています',
-        STAFF_NOT_IN_FACILITY: '指定されたスタッフはこの施設で予約できません', BOOKING_CLOSED_DAY: 'この日は定休日のため予約できません',
-        BOOKING_OUTSIDE_HOURS: '営業時間外のため予約できません', STAFF_NOT_WORKING: '指名されたスタッフはこの日時には勤務していません',
-        COUPON_LIMIT: 'このクーポンは利用上限に達しています', COUPON_ALREADY_USED: 'このクーポンは既に利用済みです',
-      };
-      if (error.code === 'P0001' && known[error.message]) return reject(known[error.message], 409);
+      // RPC は 'BOOKING_CONFLICT: この時間帯は…' のように「コード: 説明」で投げるため、文言全体ではなく
+      // 先頭のコードで突き合わせる（全体一致だと満席・定休日などが 500 になっていた）。
+      const knownMessage = error.code === 'P0001' ? knownBookingRpcMessage(error.message, KNOWN_CREATE_REJECTIONS) : undefined;
+      if (knownMessage) return reject(knownMessage, 409);
       throw error;
     }
     const row = result?.length === 1 ? result[0] : null;

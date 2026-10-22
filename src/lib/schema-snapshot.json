@@ -154,6 +154,7 @@
     "review_request_legacy_claimed_at",
     "review_request_provider_accepted_at",
     "source",
+    "staff_auto_assigned",
     "staff_id",
     "start_time",
     "status",

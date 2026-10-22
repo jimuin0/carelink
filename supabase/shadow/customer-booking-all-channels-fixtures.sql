@@ -87,7 +87,7 @@ BEGIN
  PERFORM pg_temp.assert_channel(receipt.id='be130000-0000-4000-8000-000000000001' AND NOT receipt.replayed,'change confirmed');
  SELECT updated_at INTO revision FROM public.bookings WHERE id=receipt.id;
  SELECT count(*) INTO intents FROM public.webhook_retry_queue WHERE facility_id='be120000-0000-4000-8000-000000000001';
- PERFORM pg_temp.assert_channel(intents=4,'one email plus three complete channel targets');
+ PERFORM pg_temp.assert_channel(intents=5,'customer and shared owner emails plus three complete channel targets');
  SELECT * INTO receipt FROM public.change_customer_booking_with_channels_atomic('be130000-0000-4000-8000-000000000001','be110000-0000-4000-8000-000000000001','2030-01-07','12:00','13:00',true);
  PERFORM pg_temp.assert_channel(receipt.replayed AND (SELECT updated_at=revision FROM public.bookings WHERE id=receipt.id)
   AND (SELECT count(*)=intents FROM public.webhook_retry_queue WHERE facility_id='be120000-0000-4000-8000-000000000001'),'same change never replans, supersedes or creates another provider operation');

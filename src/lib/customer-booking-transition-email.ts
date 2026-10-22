@@ -1,16 +1,20 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
-import { buildBookingCancelledEnvelope, buildBookingCancellationToFacilityEnvelope, buildBookingRescheduledEnvelope } from './email';
+import { buildBookingCancelledEnvelope, buildBookingCancellationToFacilityEnvelope, buildBookingRescheduledEnvelope, buildBookingRescheduleToFacilityEnvelope } from './email';
 import { computeCancelFee, hoursUntilBookingStart } from './cancel-fee';
 import { eventEmailEnvelopeSchema, type EventEmailEnvelope } from './event-email-delivery';
 
+const timeSchema = z.string().regex(/^\d{2}:\d{2}:\d{2}$/);
 const snapshotSchema = z.object({
   bookingId: z.uuid(), bookingRevision: z.iso.datetime({ offset: true }),
   customerName: z.string(), customerEmail: z.string(), facilityName: z.string(),
-  bookingDate: z.iso.date(), startTime: z.string().regex(/^\d{2}:\d{2}:\d{2}$/),
-  endTime: z.string().regex(/^\d{2}:\d{2}:\d{2}$/), menuName: z.string().nullable(),
+  bookingDate: z.iso.date(), startTime: timeSchema,
+  endTime: timeSchema, menuName: z.string().nullable(),
   totalPrice: z.number().int().nonnegative().nullable(), capturedAt: z.iso.datetime({ offset: true }),
   cancelPolicy: z.object({ free_cancel_hours: z.number().nullable(), late_cancel_rate: z.number().nullable() }).nullable(),
+  // The date/time before a customer change (20261022100100). Absent on cancellations
+  // and on change jobs queued before that migration.
+  previous: z.object({ bookingDate: z.iso.date(), startTime: timeSchema, endTime: timeSchema }).strict().optional(),
 }).strict();
 const jobSchema = z.object({
   id: z.uuid(), webhook_type: z.literal('email'), target_id: z.email(), facility_id: z.uuid(),
@@ -22,7 +26,9 @@ const jobSchema = z.object({
   }).strict(),
 }).refine(j => j.payload.idempotency_key === `carelink-event-email/${j.id}`
   && (j.payload.role !== 'customer' || j.target_id === j.payload.snapshot.customerEmail)
-  && (j.payload.kind !== 'rescheduled' || j.payload.role === 'customer'));
+  // Only a change carries the previous date/time, and the shop's change email needs it.
+  && (j.payload.kind === 'rescheduled' || j.payload.snapshot.previous === undefined)
+  && (j.payload.kind !== 'rescheduled' || j.payload.role === 'customer' || j.payload.snapshot.previous !== undefined));
 
 /** Dispatch only the snapshot captured in the booking transaction. Never fetch
  * today's booking/menu/owner data to reconstruct an earlier change or cancellation. */
@@ -38,7 +44,9 @@ export async function prepareCustomerBookingTransitionEnvelope(db: SupabaseClien
     cancelFee: computeCancelFee(s.cancelPolicy, s.totalPrice,
       hoursUntilBookingStart(s.bookingDate, s.startTime, Date.parse(s.capturedAt))).fee };
   const envelope = eventEmailEnvelopeSchema.parse(job.payload.kind === 'rescheduled'
-    ? buildBookingRescheduledEnvelope(data)
+    ? job.payload.role === 'customer' ? buildBookingRescheduledEnvelope(data)
+      // The schema guarantees `previous` for the shop's change email.
+      : buildBookingRescheduleToFacilityEnvelope({ ...data, facilityEmail: job.target_id, previous: s.previous! })
     : job.payload.role === 'customer' ? buildBookingCancelledEnvelope(data)
       : buildBookingCancellationToFacilityEnvelope({ ...data, facilityEmail: job.target_id }));
   const frozen = await db.from('webhook_retry_queue').update({ email_envelope: envelope })
