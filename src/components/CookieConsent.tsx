@@ -64,6 +64,8 @@ export default function CookieConsent() {
 
   const save = (p: CookiePreferences) => {
     // 保存と同時に計測タグへ通知する（拒否なら読み込まない・同意ならその場で読み込む）。
+    // ストレージが使えない環境（Safari で全 Cookie をブロック等）でも例外を出さず、
+    // 選択はこのページ表示の間だけ dismissed で守って閉じる（次の読み込みでは再び尋ねる）。
     saveCookiePreferences(p);
     setDismissed(true);
   };

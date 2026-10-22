@@ -4,9 +4,11 @@
  * 「この条件で検索」「クリア」を押しても、検索パラメータだけが変わる遷移ではページが作り直されず、
  * ドロワーが開いたまま結果が裏で切り替わっていた（押しても反応が無いように見える・本番で再現）。
  * 適用・クリアしたらドロワーを閉じる。デスクトップのサイドバー（onApplied 無し）は従来どおり。
+ * ドロワーの中の「駅から探す」で駅を選んだときも同じく結果が切り替わるので閉じる
+ * （駅選択のモーダルは本物を描き、/api/stations だけを差し替える）。
  */
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import MobileFilterDrawer from '../MobileFilterDrawer';
 import SearchFilters from '../SearchFilters';
 
@@ -16,7 +18,6 @@ jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
   useSearchParams: () => mockParams,
 }));
-jest.mock('../StationSearch', () => ({ __esModule: true, default: () => null }));
 
 // jsdom は <dialog> の showModal / close を実装していない
 beforeAll(() => {
@@ -28,9 +29,17 @@ beforeAll(() => {
   };
 });
 
+const originalFetch = global.fetch;
+const originalTimeout = Object.getOwnPropertyDescriptor(AbortSignal, 'timeout');
+
 beforeEach(() => {
   mockPush.mockReset();
   mockParams = new URLSearchParams();
+});
+
+afterEach(() => {
+  global.fetch = originalFetch;
+  if (originalTimeout) Object.defineProperty(AbortSignal, 'timeout', originalTimeout);
 });
 
 function openDrawer() {
@@ -55,6 +64,20 @@ test('「クリア」でも（条件が無く同じ URL への遷移でも）ド
   fireEvent.click(screen.getByRole('button', { name: 'フィルターをクリア' }));
   expect(mockPush).toHaveBeenCalledWith(`/search?keyword=${encodeURIComponent('整体')}`);
   expect(dialog).not.toHaveAttribute('open');
+});
+
+test('ドロワーの「駅から探す」で駅を選んだら、その駅で検索してドロワーを閉じる', async () => {
+  // jsdom は AbortSignal.timeout を持たない
+  Object.defineProperty(AbortSignal, 'timeout', { configurable: true, value: () => new AbortController().signal });
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ stations: ['渋谷'] }) }) as unknown as typeof fetch;
+  const dialog = openDrawer();
+  fireEvent.click(within(dialog).getByRole('button', { name: '駅から探す' }));
+  const station = await screen.findByRole('option', { name: '渋谷' });
+  expect(global.fetch).toHaveBeenCalledWith('/api/stations', expect.anything());
+  fireEvent.click(station);
+  expect(mockPush).toHaveBeenCalledWith(`/search?keyword=${encodeURIComponent('渋谷')}`);
+  expect(dialog).not.toHaveAttribute('open');
+  expect(screen.queryByRole('dialog', { name: '駅から探す' })).toBeNull();
 });
 
 test('ドロワーは見出しで名前付けされる', () => {

@@ -72,6 +72,20 @@ test('下部ナビがバナーより後に現れても、現れた時点でナ�
   expect(bannerOf(container).style.bottom).toBe('56px');
 });
 
+test('ストレージに保存できない環境でも、「必須のみ」でバナーを閉じる（下部ナビやフッターを覆い続けない）', () => {
+  const setItem = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new DOMException('blocked', 'SecurityError');
+  });
+  try {
+    render(<CookieConsent />);
+    fireEvent.click(screen.getByRole('button', { name: '必須のみ' }));
+    expect(setItem).toHaveBeenCalled();
+    expect(screen.queryByText(/当サイトではサービス向上のため/)).toBeNull();
+  } finally {
+    setItem.mockRestore();
+  }
+});
+
 test('選択を保存したら通知を出す（トップの登録 CTA はこれを受けて表示する）', () => {
   const onChange = jest.fn();
   const unsubscribe = subscribeToCookieConsent(onChange);

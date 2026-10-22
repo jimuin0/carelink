@@ -6,7 +6,7 @@ import { businessTypes, facilityFeatures, regionGroups } from '@/lib/constants';
 import StationSearch from './StationSearch';
 
 /**
- * @param onApplied 「この条件で検索」「クリア」で検索結果を切り替えた直後に呼ぶ。スマホの絞り込み
+ * @param onApplied 「この条件で検索」「クリア」「駅から探す」で検索結果を切り替えた直後に呼ぶ。スマホの絞り込み
  *   ドロワー（MobileFilterDrawer）がここで自分を閉じる。検索パラメータだけが変わる遷移では
  *   ページが作り直されずドロワーが開いたまま残り、押しても反応が無いように見えていた
  *   （2026年10月22日・本番で再現）。URL の変化を見て閉じる方式にしないのは、条件が無いまま
@@ -99,7 +99,8 @@ export default function SearchFilters({ className, onApplied }: { className?: st
       {/* 最寄駅 */}
       <div className="mb-5">
         <label className="block text-xs font-medium text-gray-600 mb-1.5">最寄駅</label>
-        <StationSearch variant="panel" />
+        {/* 駅を選んだときも結果を切り替えるので、ドロワーは同じく閉じる */}
+        <StationSearch variant="panel" onSelected={onApplied} />
       </div>
 
       {/* 業種 */}
