@@ -17,6 +17,7 @@ import { requestedStaffIds, slotsWeekBody } from '@/test-utils/slots-week-mock';
 // 実際の useRouter は同じオブジェクトを返し続ける。毎回新しいオブジェクトを返すと、読み込みの
 // effect（依存に router を含む）が描画のたびに走り直し、予約を読み直して空き枠も取り直してしまう。
 const mockRouter = { push: jest.fn(), back: jest.fn() };
+const mockPush = mockRouter.push;
 jest.mock('next/navigation', () => ({
   useRouter: () => mockRouter,
   useParams: () => ({ id: 'b1' }),
@@ -25,7 +26,8 @@ jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: jest.f
 
 const BOOKING = {
   id: 'b1', facility_id: 'f1', staff_id: 's1', menu_id: 'm1', menu_ids: null as string[] | null,
-  booking_date: '2026-06-01', start_time: '10:00:00', end_time: '11:00:00',
+  // 開始前の予約（開始後は予約詳細へ戻すため、固定の過去日だと日時が進むほど検査が成立しなくなる）。
+  booking_date: '2099-06-01', start_time: '10:00:00', end_time: '11:00:00',
   total_price: 5000, status: 'confirmed',
 };
 
@@ -240,4 +242,40 @@ describe('おまかせ予約（staff_id=NULL）', () => {
     expect(await within(slotPicker()).findByRole('alert')).toHaveTextContent('空き枠を取得できませんでした');
     expect(fetchMock).not.toHaveBeenCalled();
   });
+});
+
+// 開始時刻を過ぎた予約は API・DB とも変更を拒否する。URL を直接開いても枠を選ばせず、
+// 施設への連絡を案内する予約詳細へ戻す（回帰防止: 以前は枠選択まで進めた）。
+test('開始時刻を過ぎた予約 → 日付選択を出さず予約詳細へ戻す', async () => {
+  const byTable: Record<string, unknown> = {
+    bookings: { ...BOOKING, booking_date: '2020-06-01' },
+    facility_profiles: { name: 'テスト施設' },
+    facility_menus: { name: 'メニュー' },
+    staff_profiles: { name: 'スタッフ' },
+  };
+  (createBrowserSupabaseClient as jest.Mock).mockReturnValue({
+    auth: { getUser: () => Promise.resolve({ data: { user: { id: 'u1' } } }) },
+    from: (table: string) => chain(byTable[table]),
+  });
+  global.fetch = jest.fn() as unknown as typeof fetch;
+
+  render(<BookingChangePage />);
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/mypage/bookings/b1'));
+  expect(screen.queryByText('新しい日付を選択')).not.toBeInTheDocument();
+  expect(global.fetch).not.toHaveBeenCalled();
+});
+
+test('変更できない状態（arrived）の予約 → 予約一覧へ戻す（従来どおり）', async () => {
+  const byTable: Record<string, unknown> = {
+    bookings: { ...BOOKING, status: 'arrived' },
+    facility_profiles: { name: 'テスト施設' },
+  };
+  (createBrowserSupabaseClient as jest.Mock).mockReturnValue({
+    auth: { getUser: () => Promise.resolve({ data: { user: { id: 'u1' } } }) },
+    from: (table: string) => chain(byTable[table]),
+  });
+
+  render(<BookingChangePage />);
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/mypage/bookings'));
+  expect(screen.queryByText('新しい日付を選択')).not.toBeInTheDocument();
 });

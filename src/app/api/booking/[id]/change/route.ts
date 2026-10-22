@@ -13,8 +13,13 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { getTodayString, getMaxDateString } from '@/lib/validations-booking';
 import { isValidIsoDate } from '@/lib/date-utils';
+import { hasBookingStarted } from '@/lib/cancel-fee';
+import { isCustomerChangeableStatus } from '@/lib/booking-status';
 
 export const dynamic = 'force-dynamic';
+
+// キャンセル（/api/booking/[id]/cancel）と同じく、開始時刻を過ぎた予約はオンラインで動かせない。
+const ALREADY_STARTED_MESSAGE = '予約開始時刻を過ぎているため、オンラインでの日時変更はできません。施設へ直接ご連絡ください。';
 
 // 予約変更の入力検証。作成(bookingSchema)と同等の厳密さに揃える：
 // 実在日・過去日/1年超の禁止・時刻の妥当性(00-23:00-59)・start<end。
@@ -91,15 +96,20 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     // Fetch existing booking
     const { data: booking, error: bookingReadError } = await supabase
       .from('bookings')
-      .select('id, user_id, status, facility_id, staff_id')
+      .select('id, user_id, status, facility_id, staff_id, booking_date, start_time')
       .eq('id', params.id)
       .maybeSingle();
 
     if (bookingReadError) return serverError('booking-change-read', databaseDiagnostic(bookingReadError), '/api/booking/[id]/change', '予約を確認できません。時間をおいて再確認してください。');
     if (!booking) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
     if (booking.user_id !== user.id) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
-    if (!['pending', 'confirmed'].includes(booking.status)) {
+    if (!isCustomerChangeableStatus(booking.status)) {
       return NextResponse.json({ error: 'この予約は変更できません' }, { status: 400 });
+    }
+    // 開始時刻（JST）を過ぎた予約の変更は受け付けない。来店しなかった予約を別の日へ動かせると、
+    // 無断キャンセルの記録や当日の枠の扱いを店舗が判断できなくなる。最終判定は RPC でも行う。
+    if (hasBookingStarted(booking.booking_date, booking.start_time, Date.now())) {
+      return NextResponse.json({ error: ALREADY_STARTED_MESSAGE }, { status: 409 });
     }
 
     // 競合チェック＋UPDATE を change_booking_atomic で同一トランザクション・同一 advisory lock
@@ -138,6 +148,9 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       }
       if (msg.includes('BOOKING_NOT_CHANGEABLE')) {
         return NextResponse.json({ error: 'この予約は変更できません' }, { status: 400 });
+      }
+      if (msg.includes('BOOKING_ALREADY_STARTED')) {
+        return NextResponse.json({ error: ALREADY_STARTED_MESSAGE }, { status: 409 });
       }
       // スケジュールゲート（p_enforce_schedule=true で RPC が RAISE・2026年7月16日）。
       // UI(get_available_slots) が出さない枠への変更を、時間帯利用不可＝BOOKING_CONFLICT と

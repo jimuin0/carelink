@@ -58,14 +58,24 @@ BEGIN
  PERFORM pg_temp.assert_transition(receipt.id='be130000-0000-4000-8000-000000000001' AND receipt.replayed=false,'first change has an authoritative changed receipt');
  SELECT updated_at INTO revision FROM public.bookings WHERE id='be130000-0000-4000-8000-000000000001';
  PERFORM pg_temp.assert_transition((SELECT count(*)=1 FROM public.webhook_retry_queue WHERE payload->>'customer_booking_transition_version'='1'
-  AND payload->>'kind'='rescheduled'),'one customer change email committed');
+  AND payload->>'kind'='rescheduled' AND payload->>'role'='customer'),'one customer change email committed');
+ -- Regression: the shop was not told about a customer change. The shared owner/admin address gets one email
+ -- with the previous and the new date/time captured in the same transaction.
+ PERFORM pg_temp.assert_transition((SELECT count(*)=1 FROM public.webhook_retry_queue WHERE payload->>'customer_booking_transition_version'='1'
+  AND payload->>'kind'='rescheduled' AND payload->>'role'='owner' AND target_id='transition-owner@example.invalid'
+  AND payload->'snapshot'->'previous'='{"bookingDate":"2030-01-07","startTime":"10:00:00","endTime":"11:00:00"}'::jsonb
+  AND payload->'snapshot'->>'startTime'='12:00:00' AND payload->'snapshot'->>'endTime'='13:00:00'),
+  'one owner change email with the previous and new date/time committed');
  SELECT * INTO receipt FROM public.change_customer_booking_with_outbox_receipt_atomic('be130000-0000-4000-8000-000000000001','be110000-0000-4000-8000-000000000001','2030-01-07','12:00','13:00',true);
  PERFORM pg_temp.assert_transition(receipt.replayed=true,'repeated time has an authoritative replay receipt');
  PERFORM pg_temp.assert_transition((SELECT updated_at=revision FROM public.bookings WHERE id='be130000-0000-4000-8000-000000000001')
-  AND (SELECT count(*)=1 FROM public.webhook_retry_queue WHERE payload->>'customer_booking_transition_version'='1'),'same-request replay neither resends nor changes revision');
+  AND (SELECT count(*)=2 FROM public.webhook_retry_queue WHERE payload->>'customer_booking_transition_version'='1'),'same-request replay neither resends nor changes revision');
  PERFORM public.change_customer_booking_with_outbox_atomic('be130000-0000-4000-8000-000000000001','be110000-0000-4000-8000-000000000001','2030-01-07','14:00','15:00',true);
- PERFORM pg_temp.assert_transition((SELECT count(*)=2 FROM public.webhook_retry_queue WHERE payload->>'customer_booking_transition_version'='1'),
-  'two actual transitions in one transaction have distinct identities');
+ PERFORM pg_temp.assert_transition((SELECT count(*)=4 FROM public.webhook_retry_queue WHERE payload->>'customer_booking_transition_version'='1'),
+  'two actual transitions in one transaction have distinct identities (customer and owner each)');
+ PERFORM pg_temp.assert_transition((SELECT count(*)=1 FROM public.webhook_retry_queue WHERE payload->>'kind'='rescheduled' AND payload->>'role'='owner'
+  AND payload->'snapshot'->'previous'->>'startTime'='12:00:00' AND payload->'snapshot'->>'startTime'='14:00:00'),
+  'the second change reports the first change as its previous time');
  PERFORM public.cancel_customer_booking_with_outbox_atomic('be110000-0000-4000-8000-000000000001','be130000-0000-4000-8000-000000000001','confirmed');
  PERFORM pg_temp.assert_transition((SELECT count(*)=2 FROM public.webhook_retry_queue WHERE payload->>'kind'='cancelled'
   AND payload->>'customer_booking_transition_version'='1'),'customer and shared owner/admin address each get one cancellation operation');
@@ -97,6 +107,51 @@ BEGIN
  PERFORM pg_temp.assert_transition(fence.outcome='superseded','revoked owners cannot receive captured private customer details');
 END $$;
 RESET ROLE;
+-- The owner change email starts under the same owner fence as a cancellation email.
+-- Removing the last owner above suspended the listing; restore an owner and the listing.
+INSERT INTO public.facility_members(user_id,facility_id,role) VALUES
+ ('be110000-0000-4000-8000-000000000002','be120000-0000-4000-8000-000000000001','owner');
+UPDATE public.facility_profiles SET status='published' WHERE id='be120000-0000-4000-8000-000000000001';
+SET LOCAL ROLE service_role;
+INSERT INTO public.bookings(id,facility_id,user_id,staff_id,menu_id,booking_date,start_time,end_time,customer_name,email,status,total_price,points_used)
+ VALUES('be130000-0000-4000-8000-000000000002','be120000-0000-4000-8000-000000000001','be110000-0000-4000-8000-000000000001',
+ 'be160000-0000-4000-8000-000000000001','be150000-0000-4000-8000-000000000001','2030-01-07','15:00','16:00','Synthetic customer',
+ 'transition-customer@example.invalid','confirmed',5000,0),
+ ('be130000-0000-4000-8000-000000000003','be120000-0000-4000-8000-000000000001','be110000-0000-4000-8000-000000000001',
+ 'be160000-0000-4000-8000-000000000001','be150000-0000-4000-8000-000000000001','2020-01-06','10:00','11:00','Synthetic customer',
+ 'transition-customer@example.invalid','confirmed',5000,0);
+DO $$ DECLARE q public.webhook_retry_queue%ROWTYPE; fence record; queued integer;
+BEGIN
+ PERFORM public.change_customer_booking_with_outbox_receipt_atomic('be130000-0000-4000-8000-000000000002','be110000-0000-4000-8000-000000000001','2030-01-07','16:00','17:00',true);
+ SELECT * INTO q FROM public.webhook_retry_queue WHERE payload->>'kind'='rescheduled' AND payload->>'role'='owner'
+  AND payload->'snapshot'->>'bookingId'='be130000-0000-4000-8000-000000000002';
+ PERFORM pg_temp.assert_transition(q.target_id='transition-owner@example.invalid'
+  AND q.payload->'snapshot'->'previous'='{"bookingDate":"2030-01-07","startTime":"15:00:00","endTime":"16:00:00"}'::jsonb,
+  'owner change email carries the previous time');
+ PERFORM public.claim_webhook_retry_queue_v2(ARRAY[q.id],now());
+ UPDATE public.webhook_retry_queue SET email_envelope=jsonb_build_object('from','a@example.invalid','to',q.target_id,'subject','Synthetic','html','Synthetic') WHERE id=q.id;
+ SELECT * INTO fence FROM public.start_customer_booking_transition_email(q.id,now());
+ PERFORM pg_temp.assert_transition(fence.outcome='ready' AND fence.started_at IS NOT NULL,'a current owner change email starts');
+ -- Regression: a reservation whose start time has passed was moved by the customer.
+ SELECT count(*) INTO queued FROM public.webhook_retry_queue;
+ BEGIN
+  PERFORM public.change_customer_booking_with_outbox_receipt_atomic('be130000-0000-4000-8000-000000000003','be110000-0000-4000-8000-000000000001','2030-01-07','09:00','10:00',true);
+  RAISE EXCEPTION 'started reservation changed';
+ EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'BOOKING_ALREADY_STARTED' THEN RAISE; END IF; END;
+ PERFORM pg_temp.assert_transition((SELECT booking_date='2020-01-06' AND start_time='10:00' FROM public.bookings WHERE id='be130000-0000-4000-8000-000000000003')
+  AND (SELECT count(*)=queued FROM public.webhook_retry_queue),'a started reservation is neither moved nor notified');
+END $$;
+RESET ROLE;
+DO $$ BEGIN
+ PERFORM pg_temp.assert_transition(NOT has_function_privilege('anon','public.publish_customer_booking_transition_email(uuid,text,date,time,time)','EXECUTE')
+  AND NOT has_function_privilege('authenticated','public.publish_customer_booking_transition_email(uuid,text,date,time,time)','EXECUTE')
+  AND has_function_privilege('service_role','public.publish_customer_booking_transition_email(uuid,text,date,time,time)','EXECUTE'),
+  'the change publisher stays service-only');
+ BEGIN
+  PERFORM public.publish_customer_booking_transition_email('be130000-0000-4000-8000-000000000002','cancelled','2030-01-07','15:00','16:00');
+  RAISE EXCEPTION 'cancellation with a previous time accepted';
+ EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'BOOKING_NOTIFICATION_INVALID' THEN RAISE; END IF; END;
+END $$;
 DO $$ BEGIN
  PERFORM pg_temp.assert_transition(NOT has_function_privilege('anon','public.cancel_customer_booking_with_outbox_atomic(uuid,uuid,text)','EXECUTE')
   AND NOT has_function_privilege('authenticated','public.change_customer_booking_with_outbox_atomic(uuid,uuid,date,time,time,boolean)','EXECUTE')

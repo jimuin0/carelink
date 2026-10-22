@@ -8,6 +8,8 @@ import LoadError from '@/components/admin/LoadError';
 import type { AvailableSlot } from '@/types';
 import { fetchSlotsWeek, mergeSlotsInStaffOrder } from '@/lib/slots-week';
 import { buildMenuStaffMap, filterEligibleStaff, type MenuStaffRow } from '@/lib/menu-staff';
+import { isCustomerChangeableStatus } from '@/lib/booking-status';
+import { hasBookingStarted } from '@/lib/cancel-fee';
 
 // 予約の実所要時間（分）を start_time/end_time（"HH:MM[:SS]"）の差から求める。
 // 単一 menu_id の duration_minutes では複数メニュー予約（例: カット+カラー120分）の実長を表せず、
@@ -103,7 +105,10 @@ export default function BookingChangePage() {
           .single();
         // 通信/権限エラーは一覧へ戻さず失敗として明示（PGRST116=行なし・無効ステータスは従来どおり一覧へ）
         if (bErr && bErr.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
-        if (!b || !['pending', 'confirmed'].includes(b.status)) { router.push('/mypage/bookings'); return; }
+        if (!b || !isCustomerChangeableStatus(b.status)) { router.push('/mypage/bookings'); return; }
+        // 開始時刻を過ぎた予約は API・DB とも変更を拒否する。枠を選ばせてから失敗させず、
+        // 「施設へ直接ご連絡ください」の案内がある予約詳細へ戻す。
+        if (hasBookingStarted(b.booking_date, b.start_time, Date.now())) { router.push(`/mypage/bookings/${bookingId}`); return; }
         if (cancelled) return;
 
         // 施設名は補助表示。取得失敗時は空表示で本体は継続。

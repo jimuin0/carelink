@@ -141,3 +141,48 @@ test.each([{ok:true,operationId:CALENDAR_OTHER_ID},{ok:false,operationId:CALENDA
 test('unavailable browser storage prevents an unrecoverable request',async()=>{
  mockSupabase();calendarResponses(async()=>{throw new Error('must not dispatch')});jest.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw new Error('storage unavailable')});renderPage();const{fireEvent}=await import('@testing-library/react');fireEvent.click(await screen.findByText(/カレンダーに同期/));await screen.findByText(/同じボタンで結果を再確認/);expect((global.fetch as jest.Mock).mock.calls.every(([url])=>url==='/api/google-calendar')).toBe(true);
 });
+
+// 開始時刻を過ぎた予約は API・DB とも日時変更を拒否する。押すと必ず失敗する「日時を変更する」を出さず、
+// 施設へ連絡する案内に置き換える（回帰防止: 以前は開始後も変更ボタンが出ていた）。
+function mockBooking(booking: Record<string, unknown>) {
+  const dataFor: Record<string, unknown> = {
+    bookings: booking,
+    facility_profiles: { slug: 'test-salon', name: 'テスト施設' },
+    facility_menus: null,
+    staff_profiles: null,
+  };
+  const chain = (data: unknown): Record<string, unknown> => {
+    const obj: Record<string, unknown> = { select: () => obj, eq: () => obj, single: () => Promise.resolve({ data, error: null }) };
+    return obj;
+  };
+  (createBrowserSupabaseClient as jest.Mock).mockReturnValue({
+    auth: { getUser: () => Promise.resolve({ data: { user: { id: 'u1' } } }) },
+    from: (t: string) => chain(dataFor[t] ?? null),
+  });
+}
+const STARTED_NOTICE = '開始時刻を過ぎた予約は、オンラインで日時を変更できません。施設へ直接ご連絡ください。';
+
+test.each(['pending', 'confirmed'])('開始前の %s 予約 → 日時を変更するボタンを表示', async (status) => {
+  mockBooking({ ...BOOKING, status, booking_date: '2099-06-20' });
+  mockGcalFetch(true, { connected: false });
+  renderPage();
+  expect(await screen.findByRole('button', { name: '日時を変更する' })).toBeInTheDocument();
+  expect(screen.queryByText(STARTED_NOTICE)).not.toBeInTheDocument();
+});
+
+test('開始時刻を過ぎた confirmed 予約 → 変更ボタンを出さず、施設への連絡を案内する', async () => {
+  mockBooking({ ...BOOKING, booking_date: '2020-06-20' });
+  mockGcalFetch(true, { connected: false });
+  renderPage();
+  expect(await screen.findByText(STARTED_NOTICE)).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '日時を変更する' })).not.toBeInTheDocument();
+});
+
+test('来店中（arrived）の予約 → 変更ボタンも開始後の案内も出さない（API が変更を受け付けない状態）', async () => {
+  mockBooking({ ...BOOKING, status: 'arrived', booking_date: '2099-06-20' });
+  mockGcalFetch(true, { connected: false });
+  renderPage();
+  await screen.findByText('テスト施設');
+  expect(screen.queryByRole('button', { name: '日時を変更する' })).not.toBeInTheDocument();
+  expect(screen.queryByText(STARTED_NOTICE)).not.toBeInTheDocument();
+});

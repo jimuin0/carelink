@@ -14,6 +14,8 @@
  * ./src/lib/** を追加済み）がここを走査して purge から守るため。
  */
 
+import { hasBookingStarted } from './cancel-fee';
+
 export type BookingStatus =
   | 'pending'
   | 'confirmed'
@@ -206,4 +208,24 @@ export const CUSTOMER_NON_CANCELLABLE_STATUSES: BookingStatus[] = [
 export function canCustomerCancelBooking(status: string): boolean {
   return BOOKING_STATUSES.includes(status as BookingStatus)
     && !CUSTOMER_NON_CANCELLABLE_STATUSES.includes(status as BookingStatus);
+}
+
+/**
+ * 客が日時を変更できるステータス。/api/booking/[id]/change と change_booking_atomic の
+ * 「pending / confirmed のみ」と同じ真実（来店中・完了・キャンセル済みは変更できない）。
+ */
+export const CUSTOMER_CHANGEABLE_STATUSES: BookingStatus[] = ['pending', 'confirmed'];
+
+/**
+ * マイページで「日時を変更する」を出してよいか。変更できるステータスで、開始時刻（JST）を
+ * まだ過ぎていない予約だけ。開始後は API・DB とも BOOKING_ALREADY_STARTED で拒否するため、
+ * 押しても必ず失敗するボタンを出さない。nowMs は呼び出し側が渡す（描画中に時刻を読まないため）。
+ */
+export function canCustomerChangeBooking(status: string, bookingDate: string, startTime: string, nowMs: number): boolean {
+  return isCustomerChangeableStatus(status) && !hasBookingStarted(bookingDate, startTime, nowMs);
+}
+
+/** 客が日時を変更できるステータスか（開始時刻は見ない。未知値は false）。 */
+export function isCustomerChangeableStatus(status: string): boolean {
+  return CUSTOMER_CHANGEABLE_STATUSES.includes(status as BookingStatus);
 }

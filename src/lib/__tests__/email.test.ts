@@ -380,6 +380,26 @@ describe('sendBookingCancellationToFacility', () => {
   });
 });
 
+describe('buildBookingRescheduleToFacilityEnvelope', () => {
+  test('店舗の宛先へ、変更前の日時と変更後の予約内容を店向け文面で組み立てる（送信は worker のみ）', () => {
+    const { buildBookingRescheduleToFacilityEnvelope } = require('../email');
+    const envelope = buildBookingRescheduleToFacilityEnvelope({
+      ...baseData, customerName: '<b>テスト太郎</b>', facilityEmail: 'salon@example.com',
+      previous: { bookingDate: '2026-03-31', startTime: '15:00:00', endTime: '16:00:00' },
+    });
+    expect(envelope.to).toBe('salon@example.com');
+    expect(envelope.subject).toBe('【CareLink】予約日時が変更されました - <b>テスト太郎</b>様');
+    expect(envelope.html).toContain('&lt;b&gt;テスト太郎&lt;/b&gt;');
+    expect(envelope.html).toContain('test@example.com');
+    expect(envelope.html).toContain('変更前の日時');
+    expect(envelope.html).toContain('2026年3月31日（火） 15:00〜16:00');
+    expect(envelope.html).toContain('変更後のご予約内容');
+    expect(envelope.html).toContain('2026年4月1日（水） 10:00〜11:00');
+    expect(envelope.html).toContain('/admin/bookings');
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+});
+
 describe('sendBookingStatusUpdate', () => {
   test('ステータスラベルが日本語に変換される', async () => {
     await sendBookingStatusUpdate({ ...baseData, newStatus: 'confirmed' });

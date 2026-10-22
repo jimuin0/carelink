@@ -6424,6 +6424,21 @@ export type Database = {
         Args: { p_auth: string; p_endpoint: string; p_p256dh: string }
         Returns: string
       }
+      booking_staff_works_slot: {
+        Args: { p_date: string; p_end: string; p_staff_id: string; p_start: string }
+        Returns: boolean
+      }
+      booking_unassigned_capacity_full: {
+        Args: {
+          p_buffer_minutes: number
+          p_date: string
+          p_end: string
+          p_exclude_booking_id: string
+          p_facility_id: string
+          p_start: string
+        }
+        Returns: boolean
+      }
       cancel_booking_with_points_atomic: {
         Args: {
           p_actor_id: string
@@ -6639,6 +6654,28 @@ export type Database = {
           p_staff_id: string
           p_start_time: string
           p_status?: string
+          p_total_price: number
+          p_user_id: string
+        }
+        Returns: string
+      }
+      create_booking_for_menus_atomic: {
+        Args: {
+          p_booking_date: string
+          p_coupon_id: string
+          p_customer_name: string
+          p_email: string
+          p_end_time: string
+          p_enforce_schedule: boolean
+          p_facility_id: string
+          p_menu_id: string
+          p_menu_ids: string[]
+          p_note: string
+          p_phone: string
+          p_points_used: number
+          p_staff_id: string
+          p_start_time: string
+          p_status: string
           p_total_price: number
           p_user_id: string
         }
@@ -7361,10 +7398,18 @@ export type Database = {
         Args: { p_booking_id: string; p_kind: string }
         Returns: number
       }
-      publish_customer_booking_transition_email: {
-        Args: { p_booking_id: string; p_kind: string }
-        Returns: number
-      }
+      publish_customer_booking_transition_email:
+        | { Args: { p_booking_id: string; p_kind: string }; Returns: number }
+        | {
+            Args: {
+              p_booking_id: string
+              p_kind: string
+              p_previous_date: string
+              p_previous_end: string
+              p_previous_start: string
+            }
+            Returns: number
+          }
       publish_newsletter_send_operation: {
         Args: {
           p_actor_id: string

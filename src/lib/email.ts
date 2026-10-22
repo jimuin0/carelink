@@ -647,6 +647,35 @@ export function buildBookingCancellationToFacilityEnvelope(data: BookingEmailDat
   };
 }
 
+/**
+ * 予約日時の変更通知（施設向け）。お客様がマイページで日時を変更したときに、キャンセル通知と
+ * 同じ店舗の宛先へ送る。以前は店舗に何も届かず、変更前の時間に来店を待ってしまう状態だった。
+ * 送信は webhook-retry の worker だけが行う（変更と同じトランザクションで積まれた snapshot から組み立てる）。
+ */
+export function buildBookingRescheduleToFacilityEnvelope(
+  data: BookingEmailData & { facilityEmail: string; previous: { bookingDate: string; startTime: string; endTime: string } },
+) {
+  const name = esc(data.customerName);
+  const email = esc(data.customerEmail);
+  const before = `${formatDate(data.previous.bookingDate)} ${formatTime(data.previous.startTime)}〜${formatTime(data.previous.endTime)}`;
+  return {
+    from: FROM,
+    to: data.facilityEmail,
+    subject: escSubject(`【CareLink】予約日時が変更されました - ${data.customerName}様`),
+    html: wrapHtml(`
+      <p>お客様がご予約の日時を変更しました。管理画面で予約状況をご確認ください。</p>
+      <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;width:120px;">お客様名</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${name}</td></tr>
+        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">メール</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${email}</td></tr>
+        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">変更前の日時</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${before}</td></tr>
+      </table>
+      <p style="font-weight:600;margin-bottom:0;">変更後のご予約内容</p>
+      ${bookingDetailHtml(data)}
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/bookings" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で確認する</a></p>
+    `),
+  };
+}
+
 /** 日次売上サマリー（施設オーナー向け・email_daily_summary 有効時のみ daily-summary cron から送信） */
 export async function sendDailySummaryEmail(data: {
   facilityEmail: string;
