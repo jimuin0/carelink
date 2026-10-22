@@ -85,22 +85,40 @@ describe('エリアページは掲載0件なら noindex にする', () => {
   });
 
   /**
-   * 件数は必ず問い合わせて数える。ハードコードや「常に noindex」に倒すと、
-   * 掲載が増えてもインデックスされない逆の事故になる。
+   * 【2026年10月22日】metadata の件数は、本文と共有する読み取り（src/lib/area-listing.ts）から取る。
+   *
+   * Next 16 の metadata は本文と別に（Suspense の中で）描画される。metadata だけが別の問い合わせで
+   * 件数を数えていると、その問い合わせだけが一時障害で落ちたとき、本文は 200 で返り title・canonical・
+   * robots が 1 つも出ない（＝障害中のページが index 可になる）。本文も同じ読み取りを待てば、失敗は
+   * 本文からも例外になり error.tsx（5xx）になる。ページ側に自前の件数問い合わせを書かせない。
    */
-  it.each(AREA_PAGES)('%s は件数を実データで数える', (path) => {
+  it.each(AREA_PAGES)('%s は metadata の件数を本文と共有の読み取りから取る', (path) => {
     const src = codeOnly(read(path));
-    expect(src).toContain("count: 'exact'");
-    expect(src).toContain("eq('status', 'published')");
+    const metaStart = src.indexOf('export async function generateMetadata');
+    const bodyStart = src.indexOf('export default', metaStart);
+    expect(metaStart).toBeGreaterThan(-1);
+    expect(bodyStart).toBeGreaterThan(metaStart);
+    expect(src.slice(metaStart, bodyStart)).toContain('countAreaListing(');
+    expect(src.slice(bodyStart)).toContain('loadAreaListingPage(');
+    // 別の問い合わせで数えない（件数の問い合わせ・検索の直呼びをページに置かない）
+    expect(src).not.toContain("count: 'exact'");
+    expect(src).not.toContain('searchFacilities(');
   });
 
   /**
-   * 【2026年10月22日】件数の読み取り失敗を「件数不明＝index 可」と扱っていた（count が null のまま
-   * `count === 0` に当たらない）。数える問い合わせは readPageResult で包み、失敗は例外にする。
+   * 共有の読み取りは、公開施設の実データを数え（ハードコードや「常に noindex」に倒すと、掲載が増えても
+   * インデックスされない逆の事故になる）、読めなければ例外にし（null を「件数不明＝index 可」と扱わない）、
+   * metadata と本文の両方が同じ cache 済みの読み取り（1 ページ目）を通る。
    */
-  it.each(AREA_PAGES)('%s は件数の読み取り失敗を例外にする', (path) => {
-    const src = codeOnly(read(path));
-    expect(src).toMatch(/readPageResult\(\(\) =>[^;]*count: 'exact'/);
+  it('共有の読み取り（area-listing.ts）は cache 済みの検索 1 本で、失敗を例外にする', () => {
+    const src = codeOnly(read('src/lib/area-listing.ts'));
+    expect(src).toMatch(/const loadAreaListing = cache\(/);
+    expect(src).toContain('searchFacilities(');
+    expect(src).toMatch(/if \(result\.error\) throw/);
+    const count = src.slice(src.indexOf('export async function countAreaListing'));
+    expect(count.slice(0, count.indexOf('\n}'))).toMatch(/loadAreaListing\([^)]*, 1\)/);
+    const page = src.slice(src.indexOf('export async function loadAreaListingPage'));
+    expect(page).toMatch(/loadAreaListing\([^)]*, 1\)/);
   });
 });
 

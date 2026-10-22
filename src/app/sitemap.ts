@@ -13,6 +13,38 @@ import { getSymptomSlugsWithPublishedFacilities } from '@/lib/symptom-coverage';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+/** 店舗ブログを 1 回の問い合わせで読む行数（API の行数上限 max-rows 以下で取り切れなくても、続きから読む）。 */
+const SHOP_BLOG_PAGE_SIZE = 1000;
+
+/**
+ * 公開施設の公開記事（店舗ブログ）を全件読む。読めなかったら null（呼び出し側は店舗ブログだけ出さない）。
+ *
+ * 一度に全件を求めると、API の行数上限（max-rows・Supabase の既定 1000）を超えた分が古い記事から
+ * 無言で切れ、切れた記事しか持たない施設は記事一覧 /facility/<slug>/blog ごと sitemap から消える。
+ * 総数（count）を取り、返ってきた行数ぶん先へ進めて総数に届くまで読む（1 回の上限が想定より小さくても
+ * 読み飛ばさない）。並び順は id まで含めて固定し、ページの境目で重複・欠落を作らない。
+ */
+async function readPublishedShopBlogPosts(supabase: ReturnType<typeof createServerSupabaseClient>) {
+  const posts: Array<{ slug: string; published_at: string | null; updated_at: string | null; facility_profiles: { slug: string; status: string | null } }> = [];
+  for (;;) {
+    const { data, error, count } = await supabase
+      .from('blog_posts')
+      .select('slug, published_at, updated_at, facility_profiles!inner(slug, status)', { count: 'exact' })
+      .eq('is_published', true)
+      .eq('facility_profiles.status', 'published')
+      .order('published_at', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: true })
+      .range(posts.length, posts.length + SHOP_BLOG_PAGE_SIZE - 1);
+    if (error || !Array.isArray(data) || typeof count !== 'number') {
+      console.error('[sitemap] blog_posts lookup failed', { code: error?.code ?? 'NO_COUNT' });
+      return null;
+    }
+    posts.push(...data);
+    // 総数に届いた、または（読む間に記事が非公開になる等で）続きが無ければ終わり。
+    if (posts.length >= count || data.length === 0) return posts;
+  }
+}
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const updated = new Date();
 
@@ -249,18 +281,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // sitemap にも施設ページにも導線が無く、検索エンジンからも来訪者からも辿れなかった。
   // 記事が1本以上ある施設は、記事一覧 /facility/<slug>/blog も合わせて載せる。
   // 読み取りに失敗したときは店舗ブログだけを出さない（sitemap 全体は落とさない）。
-  const { data: shopBlogPosts, error: shopBlogPostsError } = await supabase
-    .from('blog_posts')
-    .select('slug, published_at, updated_at, facility_profiles!inner(slug, status)')
-    .eq('is_published', true)
-    .eq('facility_profiles.status', 'published')
-    .order('published_at', { ascending: false, nullsFirst: false });
-  if (shopBlogPostsError) {
-    console.error('[sitemap] blog_posts lookup failed', { code: shopBlogPostsError.code });
-  }
+  const shopBlogPosts = await readPublishedShopBlogPosts(supabase);
   const shopBlogFacilitySlugs = new Set<string>();
   const shopBlogPostPages: MetadataRoute.Sitemap = [];
-  for (const post of shopBlogPostsError ? [] : shopBlogPosts || []) {
+  for (const post of shopBlogPosts ?? []) {
     const facilitySlug = post.facility_profiles.slug;
     shopBlogFacilitySlugs.add(facilitySlug);
     shopBlogPostPages.push({

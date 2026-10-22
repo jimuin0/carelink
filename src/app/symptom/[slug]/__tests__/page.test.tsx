@@ -71,12 +71,30 @@ describe('metadata は公開施設の有無で index を切り替える', () => 
   });
 });
 
-test('施設 0 件の本文は行き止まりにせず、症状を扱う業種の一覧へ案内する', async () => {
+test('施設 0 件の本文は行き止まりにせず、業種の一覧へ案内する', async () => {
   results([symptom, [], []]);
   const html = renderToStaticMarkup(await Page(props()));
   expect(html).toContain('href="/type/acupuncture"');
-  expect(html).toContain('鍼灸院・整骨院を探す');
+  expect(html).toContain('鍼灸院・整骨院の一覧を見る');
+  expect(html).toContain('鍼灸院・整骨院の一覧から探すこともできます。');
   expect(html).toContain('href="/search"');
+  // 症状を特定の業種の扱うものとは言わない（アレルギー・不妊などは整骨院の対象外）。
+  expect(html).not.toContain('のご相談は');
+});
+
+/**
+ * 症状ページは疾患名（椎間板ヘルニア・顔面神経麻痺・不妊など）に原因・治療の選択肢と施設を並べる。
+ * 症状チェッカーと同じく、診断ではないこと・受診勧奨を必ず出す（施設の有無にかかわらず）。
+ */
+test.each([
+  ['施設 0 件', [symptom, [], []]],
+  ['施設あり', baseline],
+])('%s でも医療上の免責（診断ではない・受診勧奨）を出す', async (_label, rows) => {
+  results(rows as unknown[]);
+  const html = renderToStaticMarkup(await Page(props()));
+  expect(html).toContain('role="note"');
+  expect(html).toContain('医学的な診断ではありません。');
+  expect(html).toContain('自己判断せず医療機関を受診してください。');
 });
 
 test('施設があるときは業種一覧への案内を出さない', async () => {

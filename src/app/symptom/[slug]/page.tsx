@@ -151,9 +151,20 @@ export default async function SymptomPage({ params }: Props) {
         <h1 className="text-xl sm:text-2xl font-bold text-gray-800 mb-2">
           {symptom.name}に対応できるサロン・クリニック
         </h1>
-        <p className="text-sm text-gray-500 mb-8">
+        <p className="text-sm text-gray-500 mb-4">
           {symptom.name}でお悩みの方に。原因・治療法・対応施設を口コミ・料金で比較できます。
         </p>
+
+        {/* 【医療上の免責・必須】症状チェッカーと同じ扱い。疾患名（椎間板ヘルニア・顔面神経麻痺・不妊など）の
+            ページで原因・治療の選択肢と施設を並べるため、診断ではないこと・受診勧奨を本文より前に明示する
+            （医師法・医療広告ガイドライン・あはき法）。施設が 0 件のページも関連症状のリンクから辿られる。 */}
+        <div className="mb-8 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3" role="note">
+          <p className="text-xs text-amber-900 leading-relaxed">
+            このページは、施設を探すための参考情報であり、医学的な診断ではありません。
+            症状が続く場合、強い痛みや発熱をともなう場合、急に悪化した場合は、自己判断せず医療機関を受診してください。
+            治療の効果や結果を保証するものではありません。
+          </p>
+        </div>
 
         {/* SEO本文 */}
         {seo && (
@@ -189,18 +200,20 @@ export default async function SymptomPage({ params }: Props) {
             ))}
           </div>
         ) : (
-          /* 空のまま終わらせず、この症状を扱う業種の一覧へ案内する（行き止まりにしない）。 */
+          /* 空のまま終わらせず、施設の一覧へ案内する（行き止まりにしない）。
+             「この症状は鍼灸院・整骨院で扱うもの」とは書かない。症状にはアレルギー・不妊・胃腸の不調など
+             整骨院（柔道整復）の対象外のものも含まれるため、一覧から「探すこともできる」とだけ案内する。 */
           <div className="text-center py-12 px-4 bg-gray-50 rounded-xl mb-10">
             <p className="text-gray-600 text-sm">現在、{symptom.name}に対応可能な施設は登録されていません。</p>
             <p className="text-gray-600 text-sm mt-1">
-              {symptom.name}のご相談は、{SYMPTOM_FALLBACK_TYPE_NAME}の一覧からお探しいただけます。
+              {SYMPTOM_FALLBACK_TYPE_NAME}の一覧から探すこともできます。
             </p>
             <div className="mt-4 flex flex-col sm:flex-row gap-3 justify-center">
               <Link
                 href={SYMPTOM_FALLBACK_HREF}
                 className="px-5 py-2.5 bg-sky-700 text-white rounded-lg text-sm font-bold hover:bg-sky-800 transition-colors"
               >
-                {SYMPTOM_FALLBACK_TYPE_NAME}を探す
+                {SYMPTOM_FALLBACK_TYPE_NAME}の一覧を見る
               </Link>
               <Link
                 href="/search"

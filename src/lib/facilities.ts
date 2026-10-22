@@ -380,6 +380,14 @@ export async function getFeaturedFacilities(businessType?: string, area?: string
     .filter(Boolean) as FacilityCardData[];
 }
 
+/** 施設の slug（`facility-<uuid>` 等）より十分長い上限。これを超える入力は slug になり得ない。 */
+const MAX_SLUG_LENGTH = 200;
+
+/** URL から来た slug を、DB へ問い合わせてよい形か（空・長すぎる・制御文字を含むものは除く）。 */
+function isQueryableSlug(slug: string): boolean {
+  return slug.length > 0 && slug.length <= MAX_SLUG_LENGTH && !/[\u0000-\u001f\u007f]/.test(slug);
+}
+
 /**
  * 公開中の施設を slug で 1 件引く。見つからなければ facility は null。
  *
@@ -389,8 +397,13 @@ export async function getFeaturedFacilities(businessType?: string, area?: string
  * （来訪者は閉店と誤解し、クローラは 404 を受け取る）。
  * 0 件は maybeSingle で error にならないので、error は全て「読めなかった」として例外にする
  * （施設ページ・スタッフ・ブログ・カタログ・予約の各ページは error.tsx の一時障害表示になる）。
+ *
+ * slug になり得ない入力（制御文字を含む・極端に長い）は問い合わせずに「見つからない」にする。
+ * そのまま渡すと DB／API 側が入力の誤りとして弾き（/facility/%00 は 22021・長大な URL は 414）、
+ * 上の「読めなかった」に入って誰でも 5xx と障害通知を出せてしまう（以前どおり 404 にする）。
  */
 export const getFacilityBySlug = cache(async (slug: string) => {
+  if (!isQueryableSlug(slug)) return { facility: null };
   const supabase = createServerSupabaseClient();
   const { data } = await readPageResult(() => supabase
     .from('facility_profiles')

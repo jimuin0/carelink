@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { createServerSupabaseClient } from './supabase-server';
 
 /**
@@ -22,12 +23,13 @@ import { createServerSupabaseClient } from './supabase-server';
  * 埋め込みは列を返さない空の埋め込みにし、絞り込みだけに使う（検索の症状条件 detailFilter と同じ形）。
  * 読み取りに失敗したら例外にする（「0 件」と取り違えて全ページを外す／出すことを防ぐ。
  * どちらに倒すかは呼び出し側が決める）。
+ * 症状チェッカーは metadata と layout 本体の両方がこれを待つので、同じリクエスト内では cache で 1 回にまとめる。
  */
-export async function getSymptomSlugsWithPublishedFacilities(): Promise<Set<string>> {
+export const getSymptomSlugsWithPublishedFacilities = cache(async (): Promise<Set<string>> => {
   const { data, error } = await createServerSupabaseClient()
     .from('symptoms')
     .select('slug, facility_symptoms!inner(facility_profiles!inner())')
     .eq('facility_symptoms.facility_profiles.status', 'published');
   if (error || !Array.isArray(data)) throw new Error('Symptom coverage unavailable');
   return new Set(data.map((row) => row.slug));
-}
+});

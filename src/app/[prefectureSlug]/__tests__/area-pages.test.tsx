@@ -8,6 +8,8 @@
  *   /search と同じく、読めなかったときは例外にして error.tsx の一時障害表示にする。
  * - 結果より後ろのページ（本番の /osaka/toyonaka?page=2）が「0件」を 200 で返していた → 1 ページ目へ戻す。
  * - 業種トップ /type/<業種> だけ、掲載 0 件でも noindex が付いていなかった。
+ * - metadata の件数は本文と同じ検索の読み取りから取る。Next 16 の metadata は本文と別に描画されるため、
+ *   metadata だけ別の問い合わせにすると、それだけが落ちたとき本文が 200 で返り title・robots が欠ける。
  */
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -28,19 +30,9 @@ jest.mock('@/lib/area-seo', () => ({
   ...jest.requireActual('@/lib/area-seo'),
   getAreaSeoContent: jest.fn(async () => null),
 }));
-const mockCount = jest.fn();
-jest.mock('@/lib/supabase-server', () => ({
-  createServerSupabaseClient: () => ({
-    from: () => {
-      const chain = {
-        select: () => chain,
-        eq: () => chain,
-        then: (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) => Promise.resolve(mockCount()).then(resolve, reject),
-      };
-      return chain;
-    },
-  }),
-}));
+// metadata が DB を別に数えに行かないこと（本文と同じ検索だけを使うこと）を確かめるため、直接の問い合わせは失敗させる。
+const mockFrom = jest.fn(() => { throw new Error('metadata must not run its own count query'); });
+jest.mock('@/lib/supabase-server', () => ({ createServerSupabaseClient: () => ({ from: mockFrom }) }));
 function mockStub(name: string) { return { __esModule: true, default: () => <i data-stub={name} /> }; }
 jest.mock('@/components/Breadcrumb', () => mockStub('Breadcrumb'));
 jest.mock('@/components/search/FacilityCard', () => ({ __esModule: true, default: ({ facility }: { facility: { name: string } }) => <p>{facility.name}</p> }));
@@ -80,7 +72,6 @@ const metadata = {
 beforeEach(() => {
   jest.clearAllMocks();
   (searchFacilities as jest.Mock).mockResolvedValue(ok(3));
-  mockCount.mockReturnValue({ count: 3, error: null });
 });
 
 describe.each(Object.keys(pages) as (keyof typeof pages)[])('%s', (key) => {
@@ -103,13 +94,24 @@ describe.each(Object.keys(pages) as (keyof typeof pages)[])('%s', (key) => {
   });
 
   test('件数を数えられなかったら index の可否を決めず例外にする（null を index 可と扱わない）', async () => {
-    mockCount.mockReturnValue({ count: null, error: failure });
-    await expect(metadata[key]()).rejects.toThrow('PAGE_DATA_UNAVAILABLE');
+    (searchFacilities as jest.Mock).mockResolvedValue({ facilities: [], total: 0, perPage: 20, error: failure });
+    await expect(metadata[key]()).rejects.toThrow('AREA_RESULTS_UNAVAILABLE');
   });
 
   test('掲載 0 件なら noindex, follow', async () => {
-    mockCount.mockReturnValue({ count: 0, error: null });
+    (searchFacilities as jest.Mock).mockResolvedValue(ok(0));
     await expect(metadata[key]()).resolves.toMatchObject({ robots: { index: false, follow: true } });
+  });
+
+  test('metadata の件数は本文（1 ページ目）と同じ検索から取り、別の問い合わせで数えない', async () => {
+    await metadata[key]();
+    const metadataCalls = (searchFacilities as jest.Mock).mock.calls;
+    expect(metadataCalls).toHaveLength(1);
+    (searchFacilities as jest.Mock).mockClear();
+    await pages[key].render();
+    // 本文も同じ引数で読む＝同じリクエスト内では cache で 1 回の読み取りになる
+    expect((searchFacilities as jest.Mock).mock.calls).toContainEqual(metadataCalls[0]);
+    expect(mockFrom).not.toHaveBeenCalled();
   });
 });
 
@@ -129,6 +131,18 @@ describe.each(['prefType', 'city', 'cityType'] as const)('%s のページ送り'
   test('範囲内のページはそのまま出す', async () => {
     (searchFacilities as jest.Mock).mockResolvedValue(ok(21));
     await expect(pages[key].render('2')).resolves.toBeTruthy();
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  /**
+   * metadata は 1 ページ目の件数で noindex を判定する。2 ページ目の本文がその読み取りを待たないと、
+   * 1 ページ目の読み取りだけが落ちたとき、本文は 200 で返り title・robots が欠ける。
+   */
+  test('2 ページ目でも、metadata が使う 1 ページ目の読み取りに失敗したら本文も例外にする', async () => {
+    (searchFacilities as jest.Mock).mockImplementation(async ({ page }: { page: number }) => (
+      page === 1 ? { facilities: [], total: 0, perPage: 20, error: failure } : ok(21)
+    ));
+    await expect(pages[key].render('2')).rejects.toThrow('AREA_RESULTS_UNAVAILABLE');
     expect(redirect).not.toHaveBeenCalled();
   });
 });

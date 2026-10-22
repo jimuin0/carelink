@@ -10,12 +10,10 @@ import {
 } from '@/lib/seo-constants';
 import { SITE_URL } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/json-ld';
-import { searchFacilities } from '@/lib/facilities';
+import { countAreaListing, loadAreaListingPage } from '@/lib/area-listing';
 import { getBusinessTypeContext } from '@/lib/seo-snippets';
 import Breadcrumb from '@/components/Breadcrumb';
 import FacilityCard from '@/components/search/FacilityCard';
-import { createServerSupabaseClient } from '@/lib/supabase-server';
-import { readPageResult } from '@/lib/page-read-verification';
 
 export const revalidate = 3600;
 
@@ -39,12 +37,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   // あったのに、親であるこの業種トップだけ抜けていた（本番の /type/hair-salon は「0件の施設を掲載中」が
   // index 可のままだった）。sitemap 側は施設のある業種だけに絞っているが、内部リンクからは辿られる。
   // follow は残す（都道府県別・他業種への回遊リンクは辿らせる）。掲載が増えれば自動で index に戻る。
-  // 数えられなかったときは例外にする（null を「件数不明＝index 可」と扱わない）。
-  const { count } = await readPageResult(() => createServerSupabaseClient()
-    .from('facility_profiles')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'published')
-    .eq('business_type', typeName), 'area-metadata:type');
+  // 件数は本文と同じ検索の読み取りから取る（src/lib/area-listing.ts）。数えられなかったときは例外にし、
+  // null を「件数不明＝index 可」とも扱わない。metadata だけ別の問い合わせにすると、それだけが落ちたとき
+  // 本文が 200 で返り title・robots が欠ける。
+  const count = await countAreaListing(undefined, undefined, typeName);
   return {
     // ルート layout の title.template '%s | CareLink' が自動付与するため「| CareLink」は付けない（二重化防止）。
     title: `${typeName}を全国から探す｜口コミ・料金で比較`,
@@ -60,9 +56,8 @@ export default async function BusinessTypePage({ params }: Props) {
   const typeName = getBusinessTypeName(typeSlug)!;
   const ctx = getBusinessTypeContext(typeSlug);
 
-  const { facilities, total, error } = await searchFacilities({ type: typeName, sort: 'rating' });
-  // 読めなかった検索を「0件の施設を掲載中」として 200 で返さない（error.tsx の一時障害表示にする）。
-  if (error) throw new Error('AREA_RESULTS_UNAVAILABLE');
+  // 読めなかった検索は「0件の施設を掲載中」として 200 で返さず、例外にして error.tsx の一時障害表示にする。
+  const { facilities, total } = await loadAreaListingPage(undefined, undefined, typeName, 1);
 
   // ItemList JSON-LD
   const itemListJsonLd = {

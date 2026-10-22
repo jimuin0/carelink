@@ -33,7 +33,7 @@ const loadAreaScope = cache(async (slug: string) => {
 });
 
 /**
- * 検索結果。metadata の件数判定（1 ページ目）とページ番号なしの本文で共有する。
+ * 検索結果。metadata の件数判定（1 ページ目）と本文で共有する。
  * 引数の検索範囲は loadAreaScope が同じリクエスト内で同じオブジェクトを返すので、
  * cache の照合（引数の同一性）がそのまま効く。
  */
@@ -79,7 +79,13 @@ export default async function AreaResultPage(props: Props) {
   // 【2026年7月8日 恒久根治】従来はページネーションが一切なく、PER_PAGE(20件)超のエリアで
   // 21件目以降が無言で切り捨てられ、ユーザーが残りの施設を確認する手段が無かった。
   // /search と同じ Pagination コンポーネントを使い、total 件数に基づくページ送りを提供する。
-  const { facilities, total, perPage } = await loadAreaResults(searchParam, currentPage);
+  // metadata は 1 ページ目の件数で noindex を判定する。2 ページ目以降でも同じ読み取りを本文から待ち、
+  // metadata の読み取りだけが失敗して「200・title／robots 欠落」になる経路を残さない
+  // （Next 16 の metadata は本文と別に描画される。1 ページ目なら cache で同じ読み取りになる）。
+  const [{ facilities, total, perPage }] = await Promise.all([
+    loadAreaResults(searchParam, currentPage),
+    loadAreaResults(searchParam, 1),
+  ]);
   const totalPages = Math.ceil(total / perPage);
   const baseUrl = `/search/area/${params.slug}`;
 

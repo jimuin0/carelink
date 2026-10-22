@@ -30,6 +30,15 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default function SymptomCheckerLayout({ children }: { children: React.ReactNode }) {
+/**
+ * metadata と同じ読み取りを layout 本体でも待つ（同じリクエスト内では cache で 1 回にまとまる）。
+ *
+ * Next 16 の metadata は本文とは別に（Suspense の中で）描画される。page は 'use client' で
+ * サーバー側の読み取りはこの 1 本だけなので、metadata だけで読むと、失敗したとき本文が 200 で返り
+ * title・canonical・robots が 1 つも出ない（＝障害中のページが index 可になる）。
+ * 本体でも待てば、失敗は描画ツリーから例外になり error.tsx（5xx）になる。
+ */
+export default async function SymptomCheckerLayout({ children }: { children: React.ReactNode }) {
+  await getSymptomSlugsWithPublishedFacilities();
   return <>{children}</>;
 }

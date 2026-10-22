@@ -54,9 +54,23 @@ test('page values are strictly validated and out-of-range result pages keep a pa
   for (const page of ['0', '-1', '1.5', 'abc', '100001', ['1', '2']]) {
     await expect(Page({ params: Promise.resolve({ slug: 'toy' }), searchParams: Promise.resolve({ page }) })).rejects.toThrow('NOT_FOUND');
   }
-  expect(searchAreaFacilities).toHaveBeenCalledTimes(1);
+  // 2 ページ目の本文は、metadata が件数判定に使う 1 ページ目の読み取りも待つ（不正なページ番号では読まない）。
+  expect((searchAreaFacilities as jest.Mock).mock.calls.map(([, page]) => page)).toEqual([2, 1]);
   await expect(Page({ params: Promise.resolve({ slug: 'toy' }), searchParams: Promise.resolve({ page: '100000' }) })).resolves.toBeTruthy();
-  expect(searchAreaFacilities).toHaveBeenLastCalledWith(expect.anything(), 100000);
+  expect(searchAreaFacilities).toHaveBeenCalledWith(expect.anything(), 100000);
+});
+
+/**
+ * Next 16 の metadata は本文と別に描画される。metadata は 1 ページ目の件数で noindex を判定するので、
+ * 2 ページ目の本文がその読み取りを待たないと、1 ページ目の読み取りだけが落ちたとき本文が 200 で返り、
+ * title・canonical・robots が欠ける（2026年10月22日）。
+ */
+test('2 ページ目でも、metadata が使う 1 ページ目の読み取りに失敗したら本文も例外にする', async () => {
+  (searchAreaFacilities as jest.Mock).mockImplementation(async (_scope: unknown, page: number) => {
+    if (page === 1) throw new Error('Area facilities unavailable');
+    return { facilities: [], total: 21, perPage: 20 };
+  });
+  await expect(Page({ params: Promise.resolve({ slug: 'toy' }), searchParams: Promise.resolve({ page: '2' }) })).rejects.toThrow('Area facilities unavailable');
 });
 
 test('only a missing slug is a 404; area lookup failure propagates', async () => {

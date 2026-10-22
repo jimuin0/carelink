@@ -678,6 +678,29 @@ describe('getFacilityBySlug', () => {
     expect(chain.eq).toHaveBeenCalledWith('status', 'published');
   });
 
+  /**
+   * slug になり得ない入力は問い合わせずに「見つからない」（＝404）にする。DB に渡すと入力の誤りで
+   * 弾かれ（/facility/%00 は 22021・長大な URL は 414）、上の「読めなかった」に入って誰でも 5xx と
+   * 障害通知を出せてしまう。
+   */
+  test.each([
+    ['NUL 文字（/facility/%00）', '\u0000'],
+    ['制御文字を含む', 'test-salon\n'],
+    ['DEL を含む', 'test\u007fsalon'],
+    ['空文字', ''],
+    ['上限（200 文字）を超える', 'a'.repeat(201)],
+  ])('%s は問い合わせずに null を返す', async (_label, slug) => {
+    await expect(getFacilityBySlug(slug)).resolves.toEqual({ facility: null });
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  test('上限ちょうど（200 文字）の slug は問い合わせる', async () => {
+    const chain = fluent({ data: null, error: null });
+    mockFrom.mockReturnValue(chain);
+    await getFacilityBySlug('a'.repeat(200));
+    expect(chain.eq).toHaveBeenCalledWith('slug', 'a'.repeat(200));
+  });
+
   test.each([
     ['接続プール枯渇（504）', { code: 'PGRST003', message: 'Timed out acquiring connection from connection pool.' }],
     ['statement timeout', { code: '57014', message: 'canceling statement due to statement timeout' }],
