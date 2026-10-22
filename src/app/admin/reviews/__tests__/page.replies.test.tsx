@@ -60,7 +60,10 @@ beforeEach(() => {
       resolve({ data: table === 'facility_reviews' ? reviews : replyRows, error: null });
     return chain;
   });
-  global.fetch = mockFetch as unknown as typeof fetch;
+  // 口コミの一覧は /api/admin/reviews から読む（2026年10月23日）。返信の API 呼び出しだけを mockFetch で検査する。
+  global.fetch = ((url: string, init?: RequestInit) => (String(url).startsWith('/api/admin/reviews?')
+    ? json(200, { reviews: reviews.map((r) => ({ moderation: 'none', ...r })) })
+    : mockFetch(url, init))) as unknown as typeof fetch;
 });
 
 async function card(name: string) {

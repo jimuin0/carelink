@@ -59,15 +59,18 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
   const [submitted, setSubmitted] = useState(false);
   const [photos, setPhotos] = useState<File[]>([]);
   const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
+  // 前回の送信結果が分からない（端末に操作 ID が残っている）。投稿は止めない：次の送信は同じ操作 ID で
+  // 送り直し、前回が保存済みならそれを返す（二重投稿にならない）。2026年10月23日までは投稿ボタンを
+  // 止めたまま解除する手段が無く、その施設の口コミ欄が端末で永久に使えなくなっていた。
   const [resultUnknown, setResultUnknown] = useState(false);
+  const [replayedEarlier, setReplayedEarlier] = useState(false);
   const uploads = useRef<ReviewPhotoUploads>(new Map());
   const submitting = useRef(false);
-  const unknown = useRef(false);
   const photoActor = useRef<string | null>(null);
   useEffect(() => {
     const check = () => {
-      try { if (readReviewFence(facilityId) !== null) { unknown.current = true; setResultUnknown(true); } }
-      catch { unknown.current = true; setResultUnknown(true); }
+      try { setResultUnknown(readReviewFence(facilityId) !== null); }
+      catch { setResultUnknown(true); }
     };
     check(); window.addEventListener('storage', check);
     return () => window.removeEventListener('storage', check);
@@ -115,7 +118,7 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
   const [compressing, setCompressing] = useState(false);
 
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (unknown.current || submitting.current) return;
+    if (submitting.current) return;
     const files = Array.from(e.target.files || []);
     e.target.value = '';
 
@@ -148,20 +151,20 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
   };
 
   const removePhoto = (index: number) => {
-    if (unknown.current || submitting.current) return;
+    if (submitting.current) return;
     URL.revokeObjectURL(photoPreviews[index]);
     setPhotos((prev) => prev.filter((_, i) => i !== index));
     setPhotoPreviews((prev) => prev.filter((_, i) => i !== index));
   };
 
   const onSubmit = async (data: ReviewFormData) => {
-    if (unknown.current || submitting.current) return;
+    if (submitting.current) return;
     submitting.current = true;
     let commitAttempted = false;
     let confirmed = false;
     try {
       const generation = getClientCleanupGeneration();
-      if (hasClientCleanupNeeded() || readReviewFence(facilityId) !== null) throw new Error('前の投稿結果を確認できません。再送せず口コミ一覧をご確認ください。');
+      if (hasClientCleanupNeeded()) throw new Error('ログイン状態が変わりました。本文は送信していません。入力を確認してください。');
       const sb = createBrowserSupabaseClient();
       // ログイン状態取得
       const identity = await verifyAuthUser(sb.auth);
@@ -186,9 +189,10 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
       const recaptchaToken = await getRecaptchaToken('review');
       if (hasClientCleanupNeeded() || generation !== getClientCleanupGeneration()) throw new Error('ログイン状態が変わりました。本文は送信していません。入力を確認してください。');
 
-      // レビュー投稿はサーバーサイドAPIを経由（IP記録のため）
-      const operationId = crypto.randomUUID();
-      await withReviewTransportFence(facilityId, operationId, async () => {
+      // レビュー投稿はサーバーサイドAPIを経由（IP記録のため）。
+      // 前回の結果が分からない送信があれば、その操作 ID で送り直す（resumed）。
+      let earlierAccepted = false;
+      await withReviewTransportFence(facilityId, crypto.randomUUID(), async (operationId, resumed) => {
       commitAttempted = true;
       const res = await fetch('/api/review', {
         signal: AbortSignal.timeout(20_000),
@@ -204,34 +208,48 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
           rating_explanation: data.rating_explanation,
           comment: data.comment || null,
           photo_urls: photo_urls.length > 0 ? photo_urls : null,
+          operation_id: operationId,
           ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
         }),
       });
       const body = await res.json().catch(() => null);
       if (!res.ok && res.headers.get('X-CareLink-Review-Commit') === 'not-started') {
-        finishReviewFence(facilityId, operationId);
+        const message = typeof body?.error === 'string' ? body.error : '本文は送信されていません。入力を確認してください。';
+        // 新しい送信が保存前に断られた、または 24 時間以内の投稿がある（どちらもこの操作では保存されていない／
+        // 新しい投稿を受け付けない）ときだけ印を消す。送り直し（resumed）が断られただけでは、前回の送信が
+        // 保存されたかは分からないので、印を残して同じ操作 ID での再送を続けられるようにする。
+        if (!resumed || body?.code === 'REVIEW_RECENT_DUPLICATE') {
+          finishReviewFence(facilityId, operationId);
+          setResultUnknown(false);
+        }
         commitAttempted = false;
-        throw new Error(typeof body?.error === 'string' ? body.error : '本文は送信されていません。入力を確認してください。');
+        throw new Error(message);
       }
       if (!res.ok || body?.success !== true || typeof body.id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.id)) {
         throw new Error('REVIEW_RESULT_UNCONFIRMED');
       }
       confirmed = true;
-      try { finishReviewFence(facilityId, operationId); }
+      earlierAccepted = body.replayed === true;
+      try { finishReviewFence(facilityId, operationId); setResultUnknown(false); }
       catch { setToast({ type: 'error', message: '口コミの受付は確認済みですが、端末の確認記録を消せませんでした。投稿要求は再送しないでください。' }); }
       });
+      setReplayedEarlier(earlierAccepted);
       setSubmitted(true);
       setPhotos([]);
       photoPreviews.forEach((url) => URL.revokeObjectURL(url));
       setPhotoPreviews([]);
       reset();
       onReviewSubmitted();
-      setToast({ type: 'success', message: '口コミの受付を確認しました' });
+      setToast({ type: 'success', message: earlierAccepted ? '前回の口コミの受付を確認しました' : '口コミの受付を確認しました' });
     } catch (error) {
       if (commitAttempted && !confirmed) {
-        unknown.current = true; setResultUnknown(true);
-        setToast({ type: 'error', message: '投稿結果を確認できません。入力と元写真を保持しています。再送せず、口コミ一覧または運営に受付状況をご確認ください。' });
-      } else if (!confirmed) setToast({ type: 'error', message: error instanceof Error ? error.message : '本文は送信していません。入力と元写真を保持しています。' });
+        setResultUnknown(true);
+        setToast({ type: 'error', message: '投稿結果を確認できません。入力と元写真を保持しています。もう一度「口コミを投稿する」を押すと、二重に投稿せずに受付状況を確認できます。' });
+      } else if (!confirmed) {
+        const message = error instanceof Error && error.message !== 'REVIEW_RESULT_UNCONFIRMED' ? error.message
+          : 'この端末で投稿結果の記録を確認できません。本文は送信していません。入力と元写真を保持しています。';
+        setToast({ type: 'error', message });
+      }
     } finally {
       submitting.current = false;
     }
@@ -256,8 +274,8 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <p className="text-lg font-bold mb-1">口コミを投稿しました</p>
-        <p className="text-gray-500 text-sm mb-5">ご投稿ありがとうございます。</p>
+        <p className="text-lg font-bold mb-1">{replayedEarlier ? '前回の口コミは受け付けられていました' : '口コミを投稿しました'}</p>
+        <p className="text-gray-500 text-sm mb-5">{replayedEarlier ? '今回入力した内容は投稿していません。ご投稿ありがとうございます。' : 'ご投稿ありがとうございます。'}</p>
         {(twitterUrl || lineUrl) && (
           <div className="mb-5">
             <p className="text-xs text-gray-500 mb-2">SNSでシェアする</p>
@@ -352,8 +370,12 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
           <p className="text-xs text-gray-500 mt-1">JPEG/PNG/WebP・最大10MB（自動圧縮されます）</p>
         </div>
 
-        {resultUnknown && <p role="alert" className="text-sm text-red-700">前の口コミの受付状況が未確認です。投稿は再送せず、口コミ一覧または運営へ確認してください。</p>}
-        <button type="submit" disabled={isSubmitting || compressing || resultUnknown} className="btn-primary w-full py-3! text-sm">
+        {resultUnknown && (
+          <p role="status" className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            前回の口コミの受付状況を確認できていません。「口コミを投稿する」を押すと、前回の口コミが受け付けられていればそのことをお知らせし、受け付けられていなければ今回の内容を投稿します（二重に投稿されることはありません）。
+          </p>
+        )}
+        <button type="submit" disabled={isSubmitting || compressing} className="btn-primary w-full py-3! text-sm">
           {isSubmitting ? '送信中...' : '口コミを投稿する'}
         </button>
       </form>
@@ -364,7 +386,7 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
         message="投稿後の編集・削除はできません。"
         confirmLabel="投稿する"
         cancelLabel="戻る"
-        onConfirm={() => { if (isSubmitting || unknown.current || submitting.current) return; setShowConfirm(false); handleSubmit(onSubmit)(); }}
+        onConfirm={() => { if (isSubmitting || submitting.current) return; setShowConfirm(false); handleSubmit(onSubmit)(); }}
         onCancel={() => setShowConfirm(false)}
       />
 

@@ -459,6 +459,11 @@ export async function sendNewReviewNotification(data: {
   comment?: string | null;
   /** 口コミが投稿された店舗。管理画面へのリンクに付け、複数店舗のオーナーが別の店舗を開かないようにする。 */
   facilityId?: string | null;
+  /**
+   * 運営の確認が終わるまで公開されない口コミか（医療広告ガイドラインの禁止表現を含む等）。
+   * 以前は書き添えておらず、店舗は届いた口コミが店舗ページに出ない理由を知る手段が無かった（2026年10月23日）。
+   */
+  pendingModeration?: boolean;
 }): Promise<boolean> {
   const resend = getResend();
   if (!resend) return false;
@@ -470,6 +475,7 @@ export async function sendNewReviewNotification(data: {
     subject: escSubject(`【CareLink】新しい口コミが投稿されました - ★${data.rating}`),
     html: wrapHtml(`
       <p>新しい口コミが投稿されました。管理画面から確認・返信してください。</p>
+      ${data.pendingModeration ? '<p>この口コミは運営の確認が終わるまで、店舗ページと評価には反映されません。</p>' : ''}
       <table style="width:100%;border-collapse:collapse;margin:16px 0;">
         <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;width:120px;">投稿者</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${name}</td></tr>
         <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">評価</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">★${data.rating}</td></tr>

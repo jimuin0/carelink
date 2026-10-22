@@ -2,11 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import StarRating from '@/components/facility/StarRating';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import LoadError from '@/components/admin/LoadError';
+import type { MyReview } from '@/lib/my-reviews';
 
 const AXES = [
   { key: 'rating_skill', label: '技術' },
@@ -36,18 +36,13 @@ export default function EditReviewPage() {
 
   useEffect(() => {
     (async () => {
-      const supabase = createBrowserSupabaseClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoadError(true); setLoading(false); return; }
-
-      const { data, error } = await supabase
-        .from('facility_reviews')
-        .select('*')
-        .eq('id', params.id)
-        .eq('user_id', user.id)
-        .single();
-
-      if (error || !data) { setLoadError(true); setLoading(false); return; }
+      // 本人の口コミだけをサーバーから読む（2026年10月23日）。ブラウザから user_id 列で絞り込む読み方は、
+      // 投稿者のアカウント ID を店舗に見せないためにできなくした（migration 20261023120100）。
+      const res = await fetch(`/api/review/mine?id=${encodeURIComponent(params.id)}`, { cache: 'no-store' }).catch(() => null);
+      const body: unknown = res?.ok ? await res.json().catch(() => null) : null;
+      const list = body !== null && typeof body === 'object' ? (body as { reviews?: unknown }).reviews : undefined;
+      const data = Array.isArray(list) ? (list[0] as MyReview | undefined) : undefined;
+      if (!data) { setLoadError(true); setLoading(false); return; }
 
       setRatings({
         rating_skill: data.rating_skill ?? data.rating,

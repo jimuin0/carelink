@@ -2,20 +2,21 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
-import type { FacilityReview } from '@/types';
+import type { MyReview } from '@/lib/my-reviews';
 
-interface ReviewWithFacility extends FacilityReview {
-  facility_name: string;
-  facility_slug: string;
-}
+// 運営の審査で止められている口コミは、本人が「公開中」と思い込まないよう理由を添えて示す（2026年10月23日）。
+// 以前は status だけを見ており、審査中・運営判断で非公開の口コミにも何も出なかった。
+const MODERATION_LABEL = {
+  pending: '運営の確認中のため、まだ公開されていません',
+  rejected: '運営の判断で非公開になっています',
+} as const;
 
 export default function MyReviewsPage() {
-  const [reviews, setReviews] = useState<ReviewWithFacility[]>([]);
+  const [reviews, setReviews] = useState<MyReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -32,28 +33,14 @@ export default function MyReviewsPage() {
     (async () => {
       try {
         setLoadError(false);
-        const supabase = createBrowserSupabaseClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { if (!cancelled) setLoading(false); return; }
-
-        const { data, error } = await supabase
-          .from('facility_reviews')
-          .select('*, facility_profiles(name, slug)')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
-
-        if (error) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+        // 本人の口コミはサーバーが本人の行だけを読んで返す（2026年10月23日）。投稿者のアカウント ID を
+        // 店舗に見せないよう、ブラウザから user_id 列で絞り込む読み方はできなくした（migration 20261023120100）。
+        const res = await fetch('/api/review/mine', { cache: 'no-store' });
+        const body: unknown = await res.json().catch(() => null);
+        const list = res.ok && body !== null && typeof body === 'object' ? (body as { reviews?: unknown }).reviews : undefined;
         if (cancelled) return;
-
-        const list = (data ?? []).map((r) => {
-          const facility = (r as unknown as { facility_profiles: { name: string; slug: string } | null }).facility_profiles;
-          return {
-            ...(r as unknown as FacilityReview),
-            facility_name: facility?.name ?? '不明な施設',
-            facility_slug: facility?.slug ?? '',
-          };
-        });
-        setReviews(list);
+        if (!Array.isArray(list)) { setLoadError(true); setLoading(false); return; }
+        setReviews(list as MyReview[]);
         setLoading(false);
       } catch {
         if (!cancelled) { setLoadError(true); setLoading(false); }
@@ -101,9 +88,12 @@ export default function MyReviewsPage() {
                     {review.facility_name}
                   </Link>
                   <p className="text-sm text-gray-500 mt-1">
-                    {new Date(review.created_at).toLocaleDateString('ja-JP')}
-                    {review.status === 'hidden' && <span className="ml-2 text-amber-600">(非表示中)</span>}
+                    {review.created_at ? new Date(review.created_at).toLocaleDateString('ja-JP') : ''}
+                    {review.moderation === 'none' && review.status === 'hidden' && <span className="ml-2 text-amber-700">(非表示中)</span>}
                   </p>
+                  {review.moderation !== 'none' && (
+                    <p className="text-sm text-amber-800 mt-1">{MODERATION_LABEL[review.moderation]}</p>
+                  )}
                 </div>
                 <div className="text-lg font-bold text-amber-500">★{review.rating}</div>
               </div>

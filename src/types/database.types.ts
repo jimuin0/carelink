@@ -2619,6 +2619,7 @@ export type Database = {
       facility_reviews: {
         Row: {
           booking_id: string | null
+          client_operation_id: string | null
           comment: string | null
           created_at: string | null
           facility_id: string
@@ -2645,6 +2646,7 @@ export type Database = {
         }
         Insert: {
           booking_id?: string | null
+          client_operation_id?: string | null
           comment?: string | null
           created_at?: string | null
           facility_id: string
@@ -2671,6 +2673,7 @@ export type Database = {
         }
         Update: {
           booking_id?: string | null
+          client_operation_id?: string | null
           comment?: string | null
           created_at?: string | null
           facility_id?: string

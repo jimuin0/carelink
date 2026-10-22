@@ -25,9 +25,13 @@ test.each(['facility_reviews','bookings'])('failed %s observation never grants d
   const response = await POST(request()); expect(response.status).toBe(500);
   expect(response.headers.get('X-CareLink-Review-Commit')).toBe('not-started'); expect(mockInsert).not.toHaveBeenCalled();
 });
-test('transaction rejects an observed concurrent duplicate', async () => {
+test('transaction rejects an observed concurrent duplicate and settles it as not saved', async () => {
   mockInsertError = { code: 'P0001', message: 'REVIEW_RECENT_DUPLICATE' };
-  expect((await POST(request())).status).toBe(429);
+  const response = await POST(request());
+  expect(response.status).toBe(429);
+  // The trigger raised inside the INSERT transaction: it is rolled back. Before
+  // 2026-10-23 this reply carried no header and fenced the device forever.
+  expect(response.headers.get('X-CareLink-Review-Commit')).toBe('not-started');
 });
 test('a failed insert reply never grants permission to retry an unknown commit', async () => {
   mockInsertError = { code: '522', message: 'lost commit reply' };
