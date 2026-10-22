@@ -151,6 +151,24 @@ LINE ログインは LIFF とは別チャネルで動くため、どちらか片
 - 台帳に無い cron が LINE を触ると CI で落ちる。**逆に台帳に載せたのに使っていない場合も落とす**
   （記載が実態から腐るのを防ぐため）。
 
+### 離脱リスク客への自動クーポンメール＝停止（2026年10月22日・神原さん決定）
+
+`customer-segment` cron は以前、最終来店から 60〜66 日の離脱リスク（at_risk）客へ
+「500円引きクーポンコード（`BACK…`）」を**店舗名義で**自動送信していた。しかしそのコードは
+予約フロー・`/api/booking` のどこにも入力欄が無く、店舗の管理画面でも確認・照合できず、
+店舗は送信に同意してもいなかった（＝守れない約束を店舗の名前でしていた）。
+マイページの「お知らせメール」OFF も効かず、配信停止リンクも無かった。
+
+- **送信経路ごと撤去**した（`src/lib/customer-coupon-email.ts` を削除・cron から呼び出しを除去）。
+  フラグで止めなかったのは、うっかり戻せるスイッチを残さないため。
+- RFM 分類（`customer_segments` の upsert）は続けている。管理画面の顧客一覧・セグメント表示はこれを読む。
+- DB 側の `reserve_/prepare_customer_coupon_email_atomic`・`user_coupon_codes`・
+  `customer_coupon_email_operations` は残置（migration と shadow 検査が参照しているため。アプリからは呼ばない）。
+  既に積まれたジョブがあれば `webhook-retry` が通常の email ジョブとして処理する（本番は 0 件で撤去）。
+- `src/__tests__/at-risk-coupon-email-stopped.test.ts` が、src から発行・送信の入口を呼ぶ箇所が
+  1 つでも戻ったら CI で落とす。**再開するなら先に**「コードを予約・店頭で使える仕組み」
+  「店舗ごとの同意（既定 OFF）」「配信停止の確認と停止リンク」を揃えること。
+
 ### LINE 送信の結果は boolean ではない＝`LineDeliveryOutcome`（2026年8月18日・Issue #417）
 
 `sendLinePush` は以前から恒久エラー（4xx＝宛先が無効・ブロック済み）と一時エラー（429・5xx）を
@@ -232,6 +250,15 @@ LINE ログインは LIFF とは別チャネルで動くため、どちらか片
 `isAiEnabled()` / `isPaymentsEnabled()` / `isGoogleCalendarEnabled()`。
 未設定の連携を「使えるように見せない」ための単一判定。
 
+### Feature Flags（`feature_flags`）は未接続（2026年10月22日・神原さん決定）
+
+`/admin/feature-flags` で保存する値を読んで動作を変える箇所はアプリに 1 つも無い
+（`isFeatureEnabled()` / `getVariant()` / `trackAbEvent()` の呼び出し元が 0）。OFF にしても機能は止まらない。
+以前の画面は「緊急停止スイッチ」「反映まで5分程度」と書いていたため、**配線はせず画面を実態に合わせた**
+（各フラグに「未接続（切り替えても動作は変わりません）」、`/admin/ab-tests` は「まだ実行できません」）。
+機能を止めたいときは env（`isAiEnabled()` 等）か `src/lib/feature-toggles.ts` を使う。
+`src/__tests__/feature-flags-unwired-notice.test.ts` が、画面の約束の復活と「フラグを読み始めたのに表示が未接続のまま」の両方を CI で止める。
+
 ### `/api/health` の Resend プローブ（PR#556/#558）
 
 API キーの疎通だけでなく、**Resend の `/domains` を実際に引いて送信元ドメインが verified か**を照合し、
@@ -286,7 +313,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 - `createBrowserSupabaseClient`（`supabase-browser.ts`）＝ブラウザ用。
 
 ## API ルート一覧（`src/app/api/`）
-- 公開・来院者系：`facilities` `facility` `salons` `availability` `slots` `booking` `waitlist` `options` `symptoms` `stations` `recommendations` `ab-test` `referral` `review` `nps` `report` `favorites` `profile` `account` `chat` `intake` `contact` `inquiry` `unsubscribe` `health` `og` `v1` `push` `[...notfound]`（未定義 API パスの catch-all）
+- 公開・来院者系：`facilities` `facility` `salons` `availability` `slots` `booking` `waitlist` `options` `symptoms` `stations` `recommendations` `ab-test` `referral` `review` `nps` `report` `favorites` `preferred-staff`（指名スタッフの登録・解除）`profile` `account` `chat` `intake` `contact` `inquiry` `unsubscribe` `health` `og` `v1` `push` `[...notfound]`（未定義 API パスの catch-all）
 - 認証・LINE：`auth` `liff` `line`
 - 決済：`payment` `stripe`
 - 管理（`api/admin/`・施設オーナー／プラットフォーム）：`bookings` `booking-status` `booking-checkout` `booking-adjust-request` `customers` `staff` `menus` `catalog` `coupons` `packages` `user-packages` `subscription-plans` `user-subscriptions` `payments-settings` `accounting-export` `settings` `facility-verify` `registrations` `jobs` `job-applications` `featured-ads` `features` `feature-flags` `blog` `platform-blog` `qa` `review-summary` `review-replies` `moderation` `newsletter` `inquiries` `report` `gbp` `hpb-menus` `ai-support` `api-keys` `backup` `chain` `white-label` `photos` `notification-reconciliation`（実ディレクトリ 41 本と一致）
@@ -299,7 +326,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 |------|-----------|-----|
 | booking-reminder | `5 * * * *` | 毎時05分（JST）。**送信するのは 9時台の run（09:05）だけ**（神原さん決定 2026年10月22日「朝9時に1回だけ」・`src/lib/reminder-schedule.ts`）。他の run は送信前 claim の回収と送達結果不明の監視だけ行い `skipped` を記録する。9時の run で送れなかった分（送信失敗・時間切れ＝deferred）は自動では再送されないため、run を `error`・503 で記録し Slack に件数を警報する |
 | daily-summary | `0 6 * * *` | 毎日 15:00 |
-| customer-segment | `0 7 * * 0` | 日曜 16:00 |
+| customer-segment | `0 7 * * 0` | 日曜 16:00（RFM 分類のみ・顧客へのメールは送らない） |
 | review-request | `0 18 * * *` | 毎日 03:00 |
 | sync-google-ratings | `0 9 * * 0` | 日曜 18:00 |
 | onboarding-followup | `0 16 * * *` | 毎日 01:00 |

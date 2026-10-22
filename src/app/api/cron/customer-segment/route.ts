@@ -1,9 +1,16 @@
 import { logCronRun, cronError } from '@/lib/cron-logger';
-import { alertDeliveryFailures } from '@/lib/alert';
 /**
  * 顧客セグメント分析 Cron（v8.2）
  * GET /api/cron/customer-segment
  * 週次でRFM分析を実行しcustomer_segmentsを更新
+ *
+ * 🔴 この cron は【顧客へメールを送らない】（2026年10月22日 神原さん決定）。
+ * 以前は離脱リスク（at_risk）の客へ「500円引きクーポンコード（BACK…）」を店舗名義で自動送信していたが、
+ * そのコードは予約でも店頭でも使えず、店舗側も確認できなかった（使えない約束を店舗の名前でしていた）。
+ * さらに配信停止（マイページの「お知らせメール」OFF）も効かなかった。送信経路ごと撤去し、
+ * 分類（customer_segments の更新）だけを続けている。
+ * 再び送る場合は、コードを使える仕組み・店舗の同意・配信停止の確認を揃えてから。
+ * src/__tests__/at-risk-coupon-email-stopped.test.ts が再配線を CI で止める。
  */
 
 import { NextResponse } from 'next/server';
@@ -12,7 +19,6 @@ import { checkCronAuth } from '@/lib/cron-auth';
 import { fetchAllPaged } from '@/lib/paginate';
 import { isMissingColumnError, type DbError } from '@/lib/db-fallback';
 import { canonicalizeEmail } from '@/lib/email-canonical';
-import { queueCustomerCouponEmail } from '@/lib/customer-coupon-email';
 
 export const dynamic = 'force-dynamic';
 // 既定の低い上限を上書きし、下の時間予算ガードが確実に発火する既知の上限を与える。
@@ -43,14 +49,15 @@ export async function GET(request: Request) {
   const startedAt = new Date();
   try {
     // 全公開施設を全件ページング取得（旧 .limit(200) は201施設目以降がRFM分析対象外だった・scale監査）
-    const { rows: facilities, error: facilitiesError } = await fetchAllPaged<{ id: string; name: string; slug: string }>(
+    // RFM 分類に要るのは施設 ID だけ（施設名・slug はメール本文用だった＝送信撤去で不要）。
+    const { rows: facilities, error: facilitiesError } = await fetchAllPaged<{ id: string }>(
       async (offset, limit) => {
         const { data, error } = await supabase
           .from('facility_profiles')
-          .select('id, name, slug')
+          .select('id')
           .eq('status', 'published')
           .range(offset, offset + limit - 1);
-        return { data: data as { id: string; name: string; slug: string }[] | null, error };
+        return { data: data as { id: string }[] | null, error };
       },
     );
 
@@ -70,10 +77,7 @@ export async function GET(request: Request) {
     let count = 0;
     let skipped = 0;
     let deferred = 0;
-    let deliveryFailures = 0;
-    let queued = 0;
     let processingFailures = 0;
-    let legacyUncertain = 0;
 
     const loopStart = Date.now();
     for (const facility of facilities) {
@@ -188,40 +192,18 @@ export async function GET(request: Request) {
         }
       }
 
-      // Coupon creation and immutable delivery identity are one transaction.
-      // Dispatch is owned by webhook-retry, including acceptance reconciliation.
-      if (process.env.RESEND_API_KEY) {
-        for (const [email, data] of entries) {
-          const daysSince = Math.floor((now.getTime() - new Date(data.lastVisit).getTime()) / (1000 * 60 * 60 * 24));
-          if (classifySegment(data.visits, daysSince) !== 'at_risk' || daysSince < 60 || daysSince > 66) continue;
-          try {
-            const outcome = await queueCustomerCouponEmail(supabase, {
-              facilityId: facility.id, facilityName: facility.name, facilitySlug: facility.slug,
-              email, customerName: data.name, daysSince,
-              validUntil: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-            });
-            if (outcome === 'queued') queued++;
-            else if (outcome === 'uncertain') legacyUncertain++;
-          } catch (cause) {
-            deliveryFailures++;
-            console.error('[customer-segment] coupon delivery reservation failed', { facilityId: facility.id, cause });
-          }
-        }
-      }
-
       count++;
     }
 
-    alertDeliveryFailures('customer-segment', deliveryFailures, { processed: count, skipped });
-    const meta = { deferred, queued, processingFailures, deliveryFailures, deliveryUncertain: legacyUncertain };
-    if (processingFailures || deliveryFailures || legacyUncertain) return cronError(
-      'customer-segment', startedAt, 'Customer segment processing or delivery confirmation failed', {
+    const meta = { deferred, processingFailures };
+    if (processingFailures) return cronError(
+      'customer-segment', startedAt, 'Customer segment processing failed', {
         extraLog: { processed: count, skipped, meta },
         extraBody: { processed: count, skipped, ...meta },
       },
     );
     await logCronRun('customer-segment', 'success', startedAt, { processed: count, skipped, meta });
-    return NextResponse.json({ processed: count, skipped, deferred, queued });
+    return NextResponse.json({ processed: count, skipped, deferred });
   } catch (e) {
     console.error('[customer-segment] Error:', e);
     return cronError('customer-segment', startedAt, e);
