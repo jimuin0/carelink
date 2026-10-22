@@ -1,4 +1,4 @@
-FROM vcr.vercel.com/jimuin/carelink/node24-public-config@sha256:f0eb0479c06c8a137c674f9169d877838401f282a318a2612f6d4bc0b32fc460 AS build
+FROM vcr.vercel.com/jimuin/carelink/node24-public-config@sha256:7e512fdd48f227be58157edf2b34276b3342dc7eeec3a47595f920e6ffab53aa AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY tools ./tools

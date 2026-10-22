@@ -241,6 +241,9 @@ jobs:
       - name: Newsletter delivery observed contention (disposable DB)
         run: node scripts/check-newsletter-delivery-concurrency.mjs
 
+      - name: Newsletter resume from My Page clears link suppression (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/newsletter-preference-fixtures.sql
+
       - name: Verified LINE ownership and client write restrictions (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/verified-line-ownership-fixtures.sql
 

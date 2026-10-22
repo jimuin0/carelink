@@ -15,7 +15,13 @@ const PUBLIC_KEYS = [
 export function publicSettings(env) {
   const selected = Object.fromEntries(PUBLIC_KEYS
     .filter((key) => typeof env[key] === 'string' && env[key].length > 0)
-    .map((key) => [key, env[key]]));
+    .map((key) => [key, env[key].trim()])
+    .filter(([, value]) => value.length > 0));
+  // Pasted values may carry an outer newline. Normalize it before Dockerfile
+  // quoting, which would otherwise turn the escape into literal token bytes.
+  if (Object.values(selected).some((value) => /[\r\n\0]/.test(value))) {
+    throw new Error('Public settings must be single-line values');
+  }
   const url = new URL(selected.NEXT_PUBLIC_SUPABASE_URL);
   if (url.protocol !== 'https:' || url.username || url.password) {
     throw new Error('A public HTTPS Supabase origin is required');

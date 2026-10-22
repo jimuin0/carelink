@@ -32,6 +32,16 @@ test('only a versioned tag in this project can receive the image', () => {
     assert.throws(() => validateTag(value));
   }
 });
+test('pasted token whitespace is normalized and embedded newlines are rejected', () => {
+  const settings = publicSettings({ ...env,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: ` ${jwt('anon')}\n`,
+    NEXT_PUBLIC_SUPABASE_URL: ` ${env.NEXT_PUBLIC_SUPABASE_URL}\r\n` });
+  assert.equal(settings.NEXT_PUBLIC_SUPABASE_ANON_KEY, jwt('anon'));
+  assert.equal(settings.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_URL);
+  assert.ok(!configDockerfile(settings).includes('\\n'));
+  assert.throws(() => publicSettings({ ...env, NEXT_PUBLIC_GA_ID: 'first\nsecond' }),
+    /single-line/);
+});
 test('Dockerfile contains no app code, RUN, or private values and escapes interpolation', () => {
   const text = configDockerfile({ ...publicSettings(env), NEXT_PUBLIC_SITE_URL: 'https://example.test/$value' });
   assert.ok(text.startsWith('FROM node:24.22.1-bookworm-slim@sha256:'));

@@ -40,6 +40,8 @@ import { alertDeliveryFailures } from '@/lib/alert';
 import { GET } from '../route';
 
 const mockFrom = jest.fn();
+// aggregate_daily_revenue（集計し直し）の RPC。既定は成功。
+const mockRpc = jest.fn();
 
 function makeRequest() {
   return new Request('http://localhost/api/cron/weekly-report');
@@ -95,9 +97,14 @@ beforeEach(() => {
   jest.clearAllMocks();
   (checkCronAuth as jest.Mock).mockReturnValue(null);
   (logCronRun as jest.Mock).mockResolvedValue(undefined);
-  (createServiceRoleClient as jest.Mock).mockReturnValue({ from: mockFrom });
+  (createServiceRoleClient as jest.Mock).mockReturnValue({ from: mockFrom, rpc: mockRpc });
+  mockRpc.mockResolvedValue({ data: 1, error: null });
   (sendWeeklyReportEmail as jest.Mock).mockResolvedValue(true);
   setupFrom();
+});
+
+afterEach(() => {
+  jest.useRealTimers();
 });
 
 test('CRON_SECRET 不正 → 401', async () => {
@@ -411,3 +418,111 @@ test.each(['daily_revenue_summary', 'facility_members', 'profiles', 'facility_pr
     expect(mockFrom.mock.calls.some(([name]) => name === 'cron_report_sends')).toBe(false);
   },
 );
+
+// ==========================================================================
+// 日曜分の欠落（2026年10月22日）
+// daily_revenue_summary の日曜の行は daily-summary（JST 月曜 15:00）が作るので、週次（JST 月曜 07:10）
+// の時点ではまだ無い。週次は合算の前に期間内の 7 日を集計し直す。
+// ==========================================================================
+describe('週次の集計期間と集計し直し', () => {
+  // UTC 2026-10-25 22:10 ＝ JST 2026-10-26（月）07:10。本番の実行時刻。
+  const MONDAY_RUN = new Date('2026-10-25T22:10:00Z');
+  const WEEK = ['2026-10-19', '2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23', '2026-10-24', '2026-10-25'];
+
+  /**
+   * 本番の状態を再現する小さな DB。月〜土の行は daily-summary が書き込み済みで、日曜（10-25）の行は
+   * まだ無い。aggregate_daily_revenue を呼ぶと、その日の予約から行が作られる（上書き）。
+   */
+  function fakeSummaryTable(bookingsByDate: Record<string, { revenue: number; count: number }> = {
+    '2026-10-20': { revenue: 10000, count: 1 },
+    '2026-10-25': { revenue: 40000, count: 5 }, // 日曜
+  }) {
+    const table = new Map<string, Record<string, number | string>>();
+    const put = (date: string) => {
+      const b = bookingsByDate[date];
+      if (!b) return;
+      table.set(date, { facility_id: 'f-1', date, total_revenue: b.revenue, booking_count: b.count,
+        completed_count: b.count, cancelled_count: 0, new_customer_count: 0, repeat_customer_count: 0 });
+    };
+    // daily-summary が月曜 15:00 までに書き込み済みの日（日曜はまだ）
+    for (const date of WEEK.slice(0, 6)) put(date);
+    mockRpc.mockImplementation(async (name: string, args: { p_date: string }) => {
+      if (name !== 'aggregate_daily_revenue') return { data: null, error: { message: `unexpected rpc ${name}` } };
+      put(args.p_date);
+      return { data: 1, error: null };
+    });
+    const delegate = mockFrom.getMockImplementation()!;
+    mockFrom.mockImplementation((name: string) => {
+      if (name !== 'daily_revenue_summary') return delegate(name);
+      let gte = '';
+      let lte = '';
+      const q: Record<string, unknown> = {
+        select: () => q, order: () => q,
+        gte: (_c: string, v: string) => { gte = v; return q; },
+        lte: (_c: string, v: string) => { lte = v; return q; },
+        range: () => Promise.resolve({
+          data: [...table.values()].filter((r) => (r.date as string) >= gte && (r.date as string) <= lte),
+          error: null,
+        }),
+      };
+      return q;
+    });
+  }
+
+  test('回帰: 日曜の行が週次の実行時点に無くても、日曜の売上・予約を含めて送る', async () => {
+    jest.useFakeTimers({ now: MONDAY_RUN });
+    setupFrom();
+    fakeSummaryTable();
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(200);
+    expect(sendWeeklyReportEmail).toHaveBeenCalledWith(expect.objectContaining({
+      periodStart: '2026-10-19', periodEnd: '2026-10-25',
+      totalRevenue: 50000, bookingCount: 6, completedCount: 6,
+    }));
+  });
+
+  test('回帰: その週に日曜しか予約が無い施設にも週次が届く', async () => {
+    jest.useFakeTimers({ now: MONDAY_RUN });
+    setupFrom();
+    fakeSummaryTable({ '2026-10-25': { revenue: 40000, count: 5 } });
+    await GET(makeRequest());
+    expect(sendWeeklyReportEmail).toHaveBeenCalledTimes(1);
+    expect(sendWeeklyReportEmail).toHaveBeenCalledWith(expect.objectContaining({ totalRevenue: 40000, bookingCount: 5 }));
+  });
+
+  test('合算の前に、月曜〜日曜の 7 日すべてを集計し直す（JST の日付で）', async () => {
+    jest.useFakeTimers({ now: MONDAY_RUN });
+    const order: string[] = [];
+    mockRpc.mockImplementation(async (_name: string, args: { p_date: string }) => { order.push(`rpc:${args.p_date}`); return { data: 1, error: null }; });
+    const delegate = mockFrom.getMockImplementation()!;
+    mockFrom.mockImplementation((name: string) => { order.push(`from:${name}`); return delegate(name); });
+    await GET(makeRequest());
+    expect(mockRpc.mock.calls).toEqual(WEEK.map((d) => ['aggregate_daily_revenue', { p_date: d }]));
+    expect(order.indexOf('from:daily_revenue_summary')).toBeGreaterThan(order.indexOf('rpc:2026-10-25'));
+  });
+
+  test('実行が水曜に遅れても、期間は同じ月曜〜日曜（二重送信の判定キーも同じ週）', async () => {
+    jest.useFakeTimers({ now: new Date('2026-10-28T03:00:00Z') }); // JST 10-28（水）12:00
+    const json = await (await GET(makeRequest())).json();
+    expect(json.start).toBe('2026-10-19');
+    expect(json.end).toBe('2026-10-25');
+    expect(mockRpc).toHaveBeenCalledTimes(7);
+  });
+
+  test('集計し直しが失敗したら、その週のレポートを送らず 500（古い・欠けた数字を送らない）', async () => {
+    jest.useFakeTimers({ now: MONDAY_RUN });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockRpc.mockImplementation(async (_name: string, args: { p_date: string }) =>
+      args.p_date === '2026-10-25' ? { data: null, error: { message: 'aggregate boom' } } : { data: 1, error: null });
+    setupFrom({ rows: { data: [{ facility_id: 'f-1', total_revenue: 100, booking_count: 1 }], error: null } });
+    const res = await GET(makeRequest());
+    expect(res.status).toBe(500);
+    expect(sendWeeklyReportEmail).not.toHaveBeenCalled();
+    expect(mockFrom.mock.calls.some(([name]) => name === 'daily_revenue_summary')).toBe(false);
+    expect(mockFrom.mock.calls.some(([name]) => name === 'cron_report_sends')).toBe(false);
+    expect(logCronRun).toHaveBeenCalledWith('weekly-report', 'error', expect.anything(), expect.objectContaining({
+      error_msg: 'aggregate boom', meta: { start: '2026-10-19', end: '2026-10-25', failedDate: '2026-10-25' },
+    }));
+    errSpy.mockRestore();
+  });
+});

@@ -100,6 +100,7 @@ describe('verified recovery handoff', () => {
   test('summary never creates; original fields are immutable and explicit license/button create',async()=>{
     context();mockMaybeSingle.mockResolvedValue({data:{facility_id:'already-owned'},error:null});render(<OnboardingPage/>);
     expect(await screen.findByLabelText(/施設名/)).toHaveValue(summary.name);
+    expect(screen.queryByText(/ここで作成すると、申込の写真/)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/施設名/)).toBeDisabled();expect(screen.getByLabelText(/業態/)).toBeDisabled();
     expect(mockFetch).toHaveBeenCalledTimes(1);expect(mockReplace).not.toHaveBeenCalled();
     expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
@@ -442,6 +443,17 @@ describe('/admin/onboarding', () => {
     // 非正規値はフォームへ流し込まず、未選択のまま選び直させる。
     expect(select.value).toBe('');
 
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('(iv) 引き継ぎ無しの作成フォームでも、送信済みの申込がある人を作成前に復旧画面へ案内する（古い案内メールのリンク対策）', async () => {
+    // 2026年10月22日: 申込者へのフォローメールは以前この画面へ直接リンクしていた。ここで作ると
+    // 申込内容を取り込まない空の店舗になり、後から復旧しても ALREADY_MEMBER で取り込めない。
+    mockSearchParams = new URLSearchParams({ facility_name: 'テストサロン', business_type: 'ヘアサロン' });
+    render(<OnboardingPage />);
+    const link = await screen.findByRole('link', { name: '送信済みの掲載申込を復旧' });
+    expect(link).toHaveAttribute('href', '/register/recover');
+    expect(screen.getByText(/ここで作成すると、申込の写真・営業時間・PR文などは引き継がれません/)).toBeInTheDocument();
     expect(mockFetch).not.toHaveBeenCalled();
   });
 

@@ -72,6 +72,7 @@ jest.mock('@supabase/ssr', () => ({
 
 import { middleware } from '../../middleware';
 import { buildOnboardingAuthPath } from '../onboarding-link';
+import { salonRecoveryAuthPath } from '../salon-browser-context';
 
 function makeNextUrl(pathWithQuery: string): URL & { clone: () => URL } {
   const u = new URL('https://carelink-jp.com' + pathWithQuery) as URL & { clone: () => URL };
@@ -196,4 +197,17 @@ test('(vii) 🔴 負の対照（現状記録）: 旧・兄弟クエリ形は今�
   expect(dest.pathname).toBe('/admin/onboarding');
   expect(dest.search).toBe(''); // 兄弟クエリは丸ごと落ちる
   expect(dest.searchParams.get('facility_name')).toBeNull();
+});
+
+/**
+ * (viii) 掲載申込者へのフォローメール（onboarding-followup）が実際に出すリンク。
+ * 既にログイン済みの人が踏んでも、申込を選び直す /register/recover へ届くこと
+ * （空の店舗を作る /admin/onboarding や既定の /mypage に落ちないこと）を固定する。
+ */
+test.each(['signup', 'login'] as const)('(viii) 認証済み + salonRecoveryAuthPath(%s) → /register/recover へ', async (page) => {
+  const res: Record<string, unknown> = await middleware(makeRequest(salonRecoveryAuthPath(page)));
+  expect(res._isRedirect).toBe(true);
+  const dest = res._redirectedTo as URL;
+  expect(dest.pathname).toBe('/register/recover');
+  expect(dest.search).toBe('');
 });

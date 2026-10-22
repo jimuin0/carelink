@@ -6,7 +6,7 @@ import { bookingStatusLabel } from '@/lib/booking-status';
 import { SITE_URL } from '@/lib/constants';
 import { sendDurableEventEmail } from './event-email-delivery';
 import { resolvedFromEnv, DEFAULT_FROM, RESEND_VERIFIED_DOMAINS } from '@/lib/email-from';
-import { buildOnboardingAuthPath } from '@/lib/onboarding-link';
+import { salonRecoveryAuthPath } from '@/lib/salon-browser-context';
 import crypto from 'crypto';
 import { sendInquiryReplyEnvelope, verifyInquiryReplyAcceptance, type InquiryReplyEnvelope } from './inquiry-reply-delivery';
 import { REMINDER_EMAIL_TIMING_NOTE } from './reminder-schedule';
@@ -909,111 +909,67 @@ export function buildReviewRequestEnvelope(data: {
 }
 
 // ---------------------------------------------------------------------------
-// 掲載登録（/register）の申込者向けメール 2 本
+// 掲載登録（/register）の申込者向けフォローメール
 //
 // 🔴 なぜ足したか（2026年8月20日・実データで確定）
 // 本番の salons は 8 件あるのに facility_profiles は 3 件しかなかった。差の 5 件は
 // 「登録フォームは送ったが、アカウント作成まで到達しなかった」申込者で、
-// /api/salons はメールを 1 通も送らず（送信処理そのものが無かった）、
 // onboarding-followup cron は facility_profiles だけを対象にしていたため、
 // この 5 件は【どこからも接触されないまま放置】されていた。
-// 申込者の手元に残る唯一の痕跡が /register/complete の一度きりの画面表示で、
-// そこを離れると戻る手がかりが無い（URL も id もどこにも永続化されない）。
 //
-// 🔴 メールに「登録に使ったメールアドレス」を必ず書く理由
-// /register の入力内容（営業時間・写真・特徴・PR）を管理画面へ引き継ぐキーは
-// 【salons.email と Supabase Auth のメールアドレスの完全一致】だけである
-// （src/app/api/facility/setup/route.ts）。違うアドレスでアカウントを作ると
-// salonData が null のまま素通りし、引き継ぎが【無音で全滅】する。エラーも警告も出ない。
-// この事実を申込者が知る手段が画面上に一切無かったため、受付メール自体を
-// 「どのアドレスでアカウントを作ればよいか」の通知手段として使う。
+// 🔴 2026年10月22日: リンク先を /register/recover（送信済みの掲載申込を復旧）へ変更した。
+// それまでのリンクは /admin/onboarding?facility_name=…&business_type=… で、受付を特定する
+// 情報を何も運ばなかった。受付 V2 の引き継ぎ（同じタブの intent）は 72 時間で失効し、
+// このメールは申込から 3 日以上後に届くので、リンクから進むと申込内容（写真・営業時間・
+// PR 文・所在地）を一切取り込まない空の店舗が作られた。しかも一度店舗を作ると、
+// 後から /register/recover で申込を選んでも ALREADY_MEMBER で取り込めなくなる。
+// 本文の「入力し直す必要はありません」も、その時点では事実ではなかった。
+// /register/recover は申込時の【確認済みメールアドレス】で受付を一覧し、選んだ申込を
+// そのまま引き継ぐ（メールに選択子や証明を載せずに済む唯一の安全な経路）。
+//
+// 受付直後のメールは salon-outbox-delivery.ts が送る。呼び出し元の無くなった旧受付メール
+// （sendRegistrationReceiptEmail）は同じ誤ったリンクと約束を持っていたため削除した。
 // ---------------------------------------------------------------------------
 
 /**
- * 掲載登録の受付メール（申込者向け・送信直後）。
- *
- * 目的は 3 つ。(1) 申込が届いたことの証跡を申込者の手元に残す、
- * (2) 次の一歩（アカウント作成）へのリンクを永続的な形で渡す、
- * (3) 引き継ぎに使われるメールアドレスを明示する。
- */
-export async function sendRegistrationReceiptEmail(data: {
-  email: string;
-  facilityName: string;
-  businessType: string;
-  contactName?: string;
-}): Promise<boolean> {
-  const resend = getResend();
-  if (!resend) return false;
-  // /register/complete が出しているのと同じ導線を、メール本文にも置く。
-  // 画面は一度きりだがメールは残るので、離脱しても後から再開できる。
-  // 🔴 facility_name/business_type は redirect の「兄弟」クエリではなく、redirect の中に
-  // ネストする（src/lib/onboarding-link.ts 参照）。middleware.ts は redirect の値しか
-  // 転送しないため、兄弟クエリのままだとログイン済みユーザーがこのリンクを踏んだ時に
-  // 消えてしまう。
-  const signupUrl =
-    SITE_URL + buildOnboardingAuthPath('signup', { facilityName: data.facilityName, businessType: data.businessType });
-  const facility = esc(data.facilityName);
-  const name = esc(data.contactName || 'ご担当者');
-  const addr = esc(data.email);
-  return safeSend(resend, {
-    from: FROM,
-    to: data.email,
-    subject: escSubject(`【CareLink】${data.facilityName}の掲載申し込みを受け付けました`),
-    html: wrapHtml(`
-      <p>${name} 様</p>
-      <p>この度は CareLink への掲載申し込みをいただき、ありがとうございます。<br>
-         下記の内容で受け付けました。</p>
-      <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-        <tr><td style="padding:12px;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600;width:120px;">施設名</td><td style="padding:12px;border:1px solid #e2e8f0;">${facility}</td></tr>
-        <tr><td style="padding:12px;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600;">業種</td><td style="padding:12px;border:1px solid #e2e8f0;">${esc(data.businessType)}</td></tr>
-      </table>
-      <p>続けてアカウントを作成すると、いま入力いただいた内容（営業時間・写真・こだわり・PR文）が
-         そのまま管理画面に引き継がれ、掲載の準備を始められます。</p>
-      <div style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:16px;margin:16px 0;">
-        <p style="margin:0;"><strong>アカウントは、このメールを受け取ったアドレスで作成してください。</strong></p>
-        <p style="margin:8px 0 0;">${addr}</p>
-        <p style="margin:8px 0 0;font-size:13px;color:#713f12;">
-          別のアドレスで作成すると、入力いただいた内容が引き継がれず、管理画面で入力し直しになります。</p>
-      </div>
-      <p style="text-align:center;margin-top:24px;"><a href="${esc(signupUrl)}" style="${EMAIL_BUTTON_STYLE}">アカウントを作成して始める</a></p>
-      <p style="font-size:13px;color:#64748b;">このメールに心当たりがない場合は、お手数ですが破棄してください。</p>
-    `),
-  }, 'registration_receipt');
-}
-
-/**
- * 掲載登録の申込者向けフォローメール（数日後・まだアカウントを作っていない人だけ）。
+ * 掲載申込者向けのフォローメール（数日後・まだアカウントを作っていない人だけ）。
  *
  * 送信対象の判定は cron 側（onboarding-followup）が行う。ここは文面だけを持つ。
  * 施設はまだ存在しない（facility_profiles が無い）ので、管理画面ではなく
- * アカウント作成へ導く点が sendOnboardingFollowEmail と異なる。
+ * 「アカウント作成 → 送信済みの掲載申込を復旧」へ導く点が sendOnboardingFollowEmail と異なる。
  */
 export async function sendRegistrationLeadFollowEmail(data: {
   email: string;
   facilityName: string;
-  businessType: string;
+  receiptId: string;
 }): Promise<boolean> {
   const resend = getResend();
   // API キー未設定は送達不可＝false（cron 側で未送信扱いに戻す）。
   if (!resend) return false;
-  // 🔴 sendRegistrationReceiptEmail と同じ理由でネスト形を使う（onboarding-link.ts 参照）。
-  const signupUrl =
-    SITE_URL + buildOnboardingAuthPath('signup', { facilityName: data.facilityName, businessType: data.businessType });
+  const signupUrl = SITE_URL + salonRecoveryAuthPath('signup');
+  const loginUrl = SITE_URL + salonRecoveryAuthPath('login');
   const facility = esc(data.facilityName);
   const addr = esc(data.email);
+  const receipt = esc(data.receiptId);
   return safeSend(resend, {
     from: FROM,
     to: data.email,
     subject: escSubject(`【CareLink】${data.facilityName}の掲載準備が途中のままです`),
     html: wrapHtml(`
-      <p>${facility} のお申し込みをいただきましたが、アカウントの作成がまだのようです。</p>
-      <p>アカウントを作成すると、お申し込み時に入力いただいた内容がそのまま管理画面に引き継がれます。
-         入力し直す必要はありません。</p>
+      <p>${facility} の掲載申込をいただきましたが、店舗アカウントの作成がまだのようです。</p>
+      <p style="font-size:13px;color:#475569;">受付番号：${receipt}</p>
+      <p>申込時と同じメールアドレスでアカウントを作成し、メールアドレスの確認を済ませると、
+         「送信済みの掲載申込を復旧」の画面にこの申込が表示されます。申込を選ぶと、入力いただいた
+         写真・営業時間・PR文などを引き継いで店舗を作成できます。</p>
       <div style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:16px;margin:16px 0;">
         <p style="margin:0;"><strong>このメールを受け取ったアドレスで作成してください。</strong></p>
         <p style="margin:8px 0 0;">${addr}</p>
+        <p style="margin:8px 0 0;font-size:13px;color:#713f12;">
+          別のアドレスで作成すると申込が表示されず、内容を引き継げません。</p>
       </div>
-      <p style="text-align:center;margin-top:24px;"><a href="${esc(signupUrl)}" style="${EMAIL_BUTTON_STYLE}">アカウントを作成して再開する</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${esc(signupUrl)}" style="${EMAIL_BUTTON_STYLE}">アカウントを作成して申込を再開する</a></p>
+      <p style="font-size:13px;color:#475569;">すでにアカウントをお持ちの場合は、<a href="${esc(loginUrl)}" style="color:#0369a1;">ログインして申込を再開</a>してください。</p>
+      <p style="font-size:13px;color:#475569;">申込が表示されない場合は、新しく店舗を作成したり申し込み直したりせず、受付番号を添えて<a href="${SITE_URL}/contact" style="color:#0369a1;">お問い合わせ</a>ください。</p>
     `),
   }, 'registration_lead_follow');
 }

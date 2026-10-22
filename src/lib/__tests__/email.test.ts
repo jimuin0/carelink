@@ -29,27 +29,19 @@ jest.mock('@/lib/webhook-queue', () => ({
 process.env.RESEND_API_KEY = 'test-resend-key';
 process.env.EMAIL_FROM = 'Test <test@example.com>';
 
-const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendNewInquiryNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail, sendTimeAdjustRequest, sendInquiryReply, sendRegistrationReceiptEmail, sendRegistrationLeadFollowEmail, sendOperatorNotification } = require('../email');
-const { buildOnboardingAuthPath } = require('../onboarding-link');
+const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendNewInquiryNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail, sendTimeAdjustRequest, sendInquiryReply, sendRegistrationLeadFollowEmail, sendOperatorNotification } = require('../email');
+const { safeRedirect } = require('../safe-redirect');
 
 /**
- * メール本文内のアカウント作成リンク（href="https://.../auth/signup?redirect=..."）を取り出し、
- * middleware.ts が実際に行う手順（redirect クエリの値を取り出し → safeRedirect と同じ手順で
- * URL 解決）を再現して、facility_name/business_type が本当に引き継がれる形かどうかを検証する。
+ * メール本文内の /auth/{signup|login}?redirect=... リンクを取り出し、ログイン後の戻り先を
+ * middleware.ts・/auth/callback と同じ手順（redirect の値を safeRedirect で解決）で求める。
  * 文字列に "redirect=" が含まれているかだけの検査にしない（CLAUDE.md の指示どおり）。
  */
-function extractOnboardingLinkParams(html: string): { pathname: string; facilityName: string | null; businessType: string | null } {
-  const match = html.match(/href="(https:\/\/carelink-jp\.com\/auth\/signup\?redirect=[^"]+)"/);
+function authLinkDestination(html: string, page: 'signup' | 'login'): string {
+  const match = html.match(new RegExp(`href="(https://carelink-jp\\.com/auth/${page}\\?redirect=[^"]+)"`));
   expect(match).not.toBeNull();
   const outer = new URL(match![1]);
-  const redirectRaw = outer.searchParams.get('redirect');
-  expect(redirectRaw).not.toBeNull();
-  const inner = new URL(redirectRaw as string, 'https://carelink-jp.com');
-  return {
-    pathname: inner.pathname,
-    facilityName: inner.searchParams.get('facility_name'),
-    businessType: inner.searchParams.get('business_type'),
-  };
+  return safeRedirect(outer.searchParams.get('redirect'), 'https://carelink-jp.com');
 }
 
 const baseData = {
@@ -865,103 +857,27 @@ describe('RESEND_API_KEY未設定時 — 全send関数', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 掲載登録（/register）の申込者向けメール
+// 掲載申込者向けのフォローメール
 //
 // 🔴 なぜ実装そのものを検査するか
-// これらを呼ぶ側（/api/salons と onboarding-followup cron）のテストは
-// jest.mock('@/lib/email') でモジュールごと差し替えるため、実装は一度も実行されない。
-// 配線のテストだけがあって実装の検査が無い状態は、文面の事故（宛先の取り違え・
-// リンクの壊れ・引き継ぎアドレスの記載漏れ）を丸ごと見逃す。
-// とくに「登録に使ったアドレスを本文に書く」ことは、この2本の存在理由そのもの
-// （違うアドレスで作ると引き継ぎが無音で全滅する）なので、機械で固定する。
+// 呼び出す側（onboarding-followup cron）のテストは jest.mock('@/lib/email') でモジュールごと
+// 差し替えるため、実装は一度も実行されない。配線のテストだけがあって実装の検査が無い状態は、
+// 文面の事故（宛先の取り違え・リンクの壊れ・引き継ぎアドレスの記載漏れ）を丸ごと見逃す。
+//
+// 🔴 2026年10月22日: リンクの行き先を /register/recover（送信済みの掲載申込を復旧）に固定した。
+// 以前のリンク（/admin/onboarding?facility_name=…）は受付を特定できず、申込内容を引き継がない
+// 空の店舗を作らせていた（作った後は復旧でも取り込めない）。
 // ---------------------------------------------------------------------------
-// 上の失敗系 describe 内の failResend と同じ形（スコープが別なのでここで持つ）。
 const failRegistrationSend = () => mockSend.mockResolvedValueOnce({
   data: null,
   error: { statusCode: 500, name: 'server_error', message: 'boom' },
-});
-
-describe('sendRegistrationReceiptEmail', () => {
-  const base = {
-    email: 'owner@example.com',
-    facilityName: 'テストサロン',
-    businessType: '美容室',
-    contactName: '山田 花子',
-  };
-
-  test('申込者のアドレス宛に送る', async () => {
-    const ok = await sendRegistrationReceiptEmail(base);
-    expect(ok).toBe(true);
-    expect(mockSend).toHaveBeenCalledTimes(1);
-    expect(mockSend.mock.calls[0][0].to).toBe('owner@example.com');
-  });
-
-  test('件名に施設名が入る', async () => {
-    await sendRegistrationReceiptEmail(base);
-    expect(mockSend.mock.calls[0][0].subject).toContain('テストサロン');
-  });
-
-  test('🔴 本文に「登録に使ったメールアドレス」が入る（引き継ぎのキーなので必須）', async () => {
-    await sendRegistrationReceiptEmail(base);
-    expect(mockSend.mock.calls[0][0].html).toContain('owner@example.com');
-  });
-
-  test('本文にアカウント作成リンクが入り、middleware が実際に転送する形で施設名と業種が引き継がれる', async () => {
-    // 🔴 facility_name/business_type は redirect の「兄弟」クエリではなく「中」に
-    // ネストされていること（src/lib/onboarding-link.ts）。middleware.ts は redirect の
-    // 値しか転送しないため、兄弟クエリのままだと消える（詳細は onboarding-link.ts 冒頭コメント）。
-    await sendRegistrationReceiptEmail(base);
-    const html = mockSend.mock.calls[0][0].html;
-
-    // このライブラリが組み立てるパスと完全一致すること（生成箇所が1本に揃っている確認）。
-    const expectedPath = buildOnboardingAuthPath('signup', { facilityName: base.facilityName, businessType: base.businessType });
-    expect(html).toContain(`href="https://carelink-jp.com${expectedPath}"`);
-
-    // 実際に middleware と同じ手順（redirect の値を取り出して解決）で復元できることまで主張する。
-    const { pathname, facilityName, businessType } = extractOnboardingLinkParams(html);
-    expect(pathname).toBe('/admin/onboarding');
-    expect(facilityName).toBe('テストサロン');
-    expect(businessType).toBe('美容室');
-  });
-
-  test('contactName 未指定なら既定の呼びかけになる', async () => {
-    await sendRegistrationReceiptEmail({ ...base, contactName: undefined });
-    expect(mockSend.mock.calls[0][0].html).toContain('ご担当者');
-  });
-
-  test('HTML特殊文字を含む施設名がエスケープされる（生のタグを本文に出さない）', async () => {
-    await sendRegistrationReceiptEmail({ ...base, facilityName: '<script>x</script>' });
-    const html = mockSend.mock.calls[0][0].html;
-    expect(html).not.toContain('<script>x</script>');
-    expect(html).toContain('&lt;script&gt;');
-  });
-
-  test('送信に失敗したら false を返す（呼び出し側が失敗を検知できる）', async () => {
-    failRegistrationSend();
-    const ok = await sendRegistrationReceiptEmail(base);
-    expect(ok).toBe(false);
-  });
-
-  test('RESEND_API_KEY 未設定なら送信を試みず false', async () => {
-    const origKey = process.env.RESEND_API_KEY;
-    delete process.env.RESEND_API_KEY;
-    jest.resetModules();
-    jest.mock('resend', () => ({ Resend: jest.fn() }));
-    jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
-    jest.mock('@/lib/webhook-queue', () => ({ enqueueWebhook: (...args: unknown[]) => mockEnqueueWebhook(...args) }));
-    const fresh = require('../email');
-    const ok = await fresh.sendRegistrationReceiptEmail(base);
-    expect(ok).toBe(false);
-    expect(mockSend).not.toHaveBeenCalled();
-    process.env.RESEND_API_KEY = origKey;
-  });
 });
 
 describe('sendRegistrationLeadFollowEmail', () => {
   const base = {
     email: 'lead@example.com',
     facilityName: 'テストサロン',
-    businessType: '美容室',
+    receiptId: '74000000-0000-4000-8000-000000000001',
   };
 
   test('申込者のアドレス宛に送る', async () => {
@@ -970,22 +886,38 @@ describe('sendRegistrationLeadFollowEmail', () => {
     expect(mockSend.mock.calls[0][0].to).toBe('lead@example.com');
   });
 
-  test('🔴 本文に「登録に使ったメールアドレス」が入る', async () => {
-    await sendRegistrationLeadFollowEmail(base);
-    expect(mockSend.mock.calls[0][0].html).toContain('lead@example.com');
-  });
-
-  test('管理画面ではなくアカウント作成へ導き、middleware が実際に転送する形で施設名と業種が引き継がれる', async () => {
+  test('🔴 本文に「登録に使ったメールアドレス」と受付番号が入る', async () => {
     await sendRegistrationLeadFollowEmail(base);
     const html = mockSend.mock.calls[0][0].html;
+    expect(html).toContain('lead@example.com');
+    expect(html).toContain('受付番号：74000000-0000-4000-8000-000000000001');
+  });
 
-    const expectedPath = buildOnboardingAuthPath('signup', { facilityName: base.facilityName, businessType: base.businessType });
-    expect(html).toContain(`href="https://carelink-jp.com${expectedPath}"`);
+  test('🔴 回帰: アカウント作成・ログインのどちらのリンクも、同じ申込を引き継ぐ復旧画面（/register/recover）へ戻る', async () => {
+    await sendRegistrationLeadFollowEmail(base);
+    const html = mockSend.mock.calls[0][0].html;
+    expect(authLinkDestination(html, 'signup')).toBe('/register/recover');
+    expect(authLinkDestination(html, 'login')).toBe('/register/recover');
+    // 申込内容を引き継がない新規作成フォーム（/admin/onboarding）へは一切導かない。
+    expect(html).not.toContain('onboarding');
+  });
 
-    const { pathname, facilityName, businessType } = extractOnboardingLinkParams(html);
-    expect(pathname).toBe('/admin/onboarding');
-    expect(facilityName).toBe('テストサロン');
-    expect(businessType).toBe('美容室');
+  test('🔴 回帰: 無条件に「そのまま引き継がれます」「入力し直す必要はありません」と約束しない', async () => {
+    await sendRegistrationLeadFollowEmail(base);
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).not.toContain('入力し直す必要はありません');
+    expect(html).not.toContain('そのまま管理画面に引き継がれます');
+    expect(html).toContain('送信済みの掲載申込を復旧');
+    // 表示されないときに空の店舗を作らせない案内
+    expect(html).toContain('新しく店舗を作成したり申し込み直したりせず');
+    expect(html).toContain('href="https://carelink-jp.com/contact"');
+  });
+
+  test('HTML特殊文字を含む施設名がエスケープされる（生のタグを本文に出さない）', async () => {
+    await sendRegistrationLeadFollowEmail({ ...base, facilityName: '<script>x</script>' });
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).not.toContain('<script>x</script>');
+    expect(html).toContain('&lt;script&gt;');
   });
 
   test('送信に失敗したら false を返す（cron が claim を解放して再試行できる）', async () => {

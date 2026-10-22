@@ -100,3 +100,17 @@ export function jstMonthInfo(offsetMonths: number): { year: number; month: numbe
 export function dayOfWeekUtc(ymd: string): number {
   return new Date(`${ymd}T00:00:00Z`).getUTCDay();
 }
+
+/**
+ * todayYmd（JST の今日）から見て【直近に終わった】月曜〜日曜の週を返す（週次レポートの集計期間）。
+ *
+ * 週次レポートは JST 月曜の朝に走るので、通常は「昨日（日曜）までの 7 日間」と同じ値になる。
+ * ただし実行が遅れて火曜以降に走った場合でも、集計期間が「火〜月」のようにずれず、
+ * 同じ月〜日の週を指す（送信済みの判定 period_key も同じ週になるので二重送信しない）。
+ * 今日が日曜なら、その週はまだ終わっていないので 1 つ前の週を返す。
+ */
+export function previousJstWeek(todayYmd: string): { start: string; end: string } {
+  const dow = dayOfWeekUtc(todayYmd); // 0=日〜6=土
+  const end = addDays(todayYmd, dow === 0 ? -7 : -dow);
+  return { start: addDays(end, -6), end };
+}
