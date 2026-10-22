@@ -351,6 +351,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 ## 環境変数（コード内 `process.env` 参照から抽出）
 | 変数名 | 用途 |
 |--------|------|
+| NEXT_RUNTIME | Next.jsが設定する実行環境。nodejsの場合のみ、起動時にNode.jsの実行バージョンを管理者用ログへ記録する。手動設定は不要 |
 | NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY | Supabase（本番必須）。**Vercel の Preview には意図的に設定しない**（2026年10月21日）。以前は無効なキーが残り、プレビューのたびに本番 Supabase へ 401 を 20 件送っていた。プレビューは本番 DB に触れない。ビルドは `hasSupabasePublicEnv()`（`src/lib/supabase-build-env.ts`）で事前生成を省いて通り、ブラウザ用クライアントは使用時にだけ未設定を検知する |
 | SUPABASE_SERVICE_ROLE_KEY | service role（cron／管理 API のサーバ側 DB 操作・RLS バイパス・**本番必須**）。**Vercel の Preview には設定しない**（上の行と同じ理由。本番の secret をプレビューへ再登録しない） |
 | NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_BASE_URL / NEXT_PUBLIC_SITE_URL | 本番ベース URL（リダイレクト・OGP・sitemap 等） |
