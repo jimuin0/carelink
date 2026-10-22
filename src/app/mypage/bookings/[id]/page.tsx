@@ -12,6 +12,7 @@ import { ONLINE_PREPAYMENT_NOTICE } from '@/lib/coming-soon';
 import { beginStaffOperation, finishStaffOperation } from '@/lib/staff-operation';
 import { UUID_REGEX } from '@/lib/constants';
 import { bookingStaffLabel, rebookSearchParams } from '@/lib/booking-nomination';
+import { isOnlineCancelAllowed, ONLINE_CANCEL_DISABLED_MESSAGE, type CancelPolicy } from '@/lib/cancel-fee';
 
 export default function BookingDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
@@ -35,6 +36,9 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
   const [staffName, setStaffName] = useState('');
   // 予約を読み込んだ時刻。開始時刻を過ぎたかの判定に使う（描画中に Date.now() を読まない）。
   const [loadedAt, setLoadedAt] = useState(0);
+  // 店舗が「ネットでのキャンセル不可（店舗へ直接ご連絡）」を選んでいれば false。押しても API が必ず断る
+  // ボタンの代わりに店舗への連絡を案内する。読めなかったときはボタンを出す（最終判定はキャンセル API）。
+  const [onlineCancelAllowed, setOnlineCancelAllowed] = useState(true);
 
   // load 相当の処理は「マウント時の初回読み込み」と「読み込み失敗後の再試行」の2箇所からしか
   // 呼ばれず、どちらも同じ処理を求める呼び出しなので、reloadKey を effect の依存に置いて
@@ -67,12 +71,15 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         // 名前類は補助表示のため best-effort（失敗しても本体は継続）。
         if (data) {
           const b = data as Booking;
-          const [facRes, menuRes, staffRes] = await Promise.all([
+          const [facRes, menuRes, staffRes, policyRes] = await Promise.all([
             supabase.from('facility_profiles').select('slug, name').eq('id', b.facility_id).single(),
             b.menu_id ? supabase.from('facility_menus').select('name').eq('id', b.menu_id).single() : Promise.resolve({ data: null }),
             b.staff_id ? supabase.from('staff_profiles').select('name').eq('id', b.staff_id).single() : Promise.resolve({ data: null }),
+            supabase.from('facility_cancel_policies').select('free_cancel_hours, late_cancel_rate, cancel_rule')
+              .eq('facility_id', b.facility_id).maybeSingle(),
           ]);
           if (cancelled) return;
+          if (!policyRes.error) setOnlineCancelAllowed(isOnlineCancelAllowed(policyRes.data as CancelPolicy | null));
           if (facRes.data) setFacility(facRes.data as { slug: string; name: string });
           setMenuName((menuRes.data as { name?: string } | null)?.name ?? '');
           setStaffName((staffRes.data as { name?: string } | null)?.name ?? '');
@@ -290,7 +297,10 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
           開始時刻を過ぎた予約は、オンラインで日時を変更できません。施設へ直接ご連絡ください。
         </p>
       )}
-      {canCancel && (
+      {canCancel && !onlineCancelAllowed && (
+        <p className="mt-3 text-sm text-gray-600 text-center">{ONLINE_CANCEL_DISABLED_MESSAGE}</p>
+      )}
+      {canCancel && onlineCancelAllowed && (
         <button
           type="button"
           onClick={() => setShowCancelConfirm(true)}

@@ -17,6 +17,9 @@ import {
   CUSTOMER_CHANGEABLE_STATUSES,
   canCustomerChangeBooking,
   isCustomerChangeableStatus,
+  VISIT_OUTCOME_STATUSES,
+  isVisitOutcomeStatus,
+  getAvailableStatusTransitions,
   type BookingStatus,
 } from '@/lib/booking-status';
 
@@ -241,5 +244,31 @@ describe('booking-status: 客側の日時変更可否（開始後は変更不可
   it('来店中（arrived）など変更不可のステータスは開始前でも変更できない', () => {
     expect(canCustomerChangeBooking('arrived', '2030-01-07', '10:00:00', start - 60_000)).toBe(false);
     expect(canCustomerChangeBooking('cancelled', '2030-01-07', '10:00:00', start - 60_000)).toBe(false);
+  });
+});
+
+describe('来店の結果（完了・無断キャンセル）は開始時刻（JST）を過ぎてから（2026年10月23日）', () => {
+  const START = Date.UTC(2026, 9, 30, 6, 0, 0); // 2026-10-30 15:00 JST
+
+  it('来店の結果を記録するステータスは completed と no_show だけ', () => {
+    expect(VISIT_OUTCOME_STATUSES).toEqual(['completed', 'no_show']);
+    expect(BOOKING_STATUSES.filter(isVisitOutcomeStatus)).toEqual(['completed', 'no_show']);
+    expect(isVisitOutcomeStatus('unknown')).toBe(false);
+  });
+
+  it('開始前は遷移表から完了・無断キャンセルだけを除く（受付・キャンセルは残す）', () => {
+    expect(getAvailableStatusTransitions('confirmed', '2026-10-30', '15:00:00', START - 60_000)).toEqual(['arrived', 'cancelled']);
+    expect(getAvailableStatusTransitions('arrived', '2026-10-30', '15:00:00', START - 60_000)).toEqual(['cancelled']);
+    expect(getAvailableStatusTransitions('pending', '2026-10-30', '15:00:00', START - 60_000)).toEqual(['confirmed', 'cancelled']);
+  });
+
+  it('開始時刻ちょうどからは遷移表そのまま', () => {
+    for (const status of BOOKING_STATUSES) {
+      expect(getAvailableStatusTransitions(status, '2026-10-30', '15:00:00', START)).toEqual(getAllowedStatusTransitions(status));
+    }
+  });
+
+  it('未知のステータスは空', () => {
+    expect(getAvailableStatusTransitions('unknown', '2026-10-30', '15:00:00', START)).toEqual([]);
   });
 });

@@ -307,6 +307,9 @@ jobs:
       - name: Atomic customer booking and all notification plans (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/customer-booking-all-channels-fixtures.sql
 
+      - name: Shop cancellation rule, emailed fee context and visit outcomes only after the start (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/cancel-rule-and-outcome-start-fixtures.sql
+
       - name: Registration review revision and ABA fixtures (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/registration-review-fixtures.sql
 

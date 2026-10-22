@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import { useLiff } from '@/hooks/useLiff';
 import { canCustomerCancelBooking } from '@/lib/booking-status';
+import { ONLINE_CANCEL_DISABLED_MESSAGE } from '@/lib/cancel-fee';
 
 type Booking = {
   id: string;
@@ -14,6 +15,8 @@ type Booking = {
   menu_name: string | null;
   status: string;
   facility_profiles?: { name: string } | null;
+  /** false: 店舗が「ネットでのキャンセル不可（店舗へ直接ご連絡）」を選んでいる（/api/liff/bookings が返す）。 */
+  online_cancel_allowed?: boolean;
 };
 
 function LiffLoading() {
@@ -149,7 +152,13 @@ function CancelContent() {
             </div>
           </div>
 
-          {canCustomerCancelBooking(booking.status) ? (
+          {canCustomerCancelBooking(booking.status) && booking.online_cancel_allowed === false ? (
+            // ボタンを出しても API が必ず断るので、押す前に店舗への連絡をご案内する。
+            <div className="space-y-3">
+              <p className="bg-gray-100 rounded-xl p-4 text-sm text-gray-700">{ONLINE_CANCEL_DISABLED_MESSAGE}</p>
+              <Link href="/liff/bookings" className="block text-center text-sm text-gray-500 py-2">戻る</Link>
+            </div>
+          ) : canCustomerCancelBooking(booking.status) ? (
             <div className="space-y-3">
               <div className="bg-red-50 rounded-xl p-4 text-sm text-red-700">
                 キャンセルすると元に戻せません。キャンセルポリシーによってはキャンセル料が発生する場合があります。

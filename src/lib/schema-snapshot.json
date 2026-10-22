@@ -134,6 +134,7 @@
   ],
   "bookings": [
     "booking_date",
+    "cancel_fee_context",
     "charges",
     "coupon_id",
     "created_at",
@@ -376,6 +377,7 @@
     "suspend_date"
   ],
   "facility_cancel_policies": [
+    "cancel_rule",
     "created_at",
     "facility_id",
     "free_cancel_hours",

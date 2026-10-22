@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 jest.mock('react', () => ({ ...jest.requireActual('react'), use: (value: unknown) => value }));
 const bookingId = '73000000-0000-4000-8000-000000000001';
 const facilityId = '74000000-0000-4000-8000-000000000001';
@@ -91,4 +91,76 @@ test('checkout accepts a business-confirmed legitimate zero, not just HTTP 200',
   fireEvent.click(screen.getByRole('button',{ name:'会計を確定して完了' }));
   expect(await screen.findByRole('status')).toHaveTextContent('¥0');
   expect(screen.getByRole('status')).toHaveAttribute('data-kind','success');
+});
+
+// ── 来店の結果は予約の開始時刻（JST）を過ぎてから（2026年10月23日） ──
+// 以前は翌週の予約でも「完了」を1タップで押せ、会計も確定でき、直す手段は無断キャンセル通知しか無かった。
+describe('開始時刻前は「完了」「無断キャンセル」と会計の確定を出さない', () => {
+  const START = Date.UTC(2026, 9, 30, 6, 0, 0); // 2026-10-30 15:00 JST
+  function booking(status: string) {
+    const data = (mockResults.bookings[1] as { data: Record<string, unknown> }).data;
+    Object.assign(data, { status, booking_date: '2026-10-30', start_time: '15:00:00', end_time: '16:00:00' });
+  }
+  afterEach(() => { jest.useRealTimers(); });
+
+  test('開始前の確定予約: 受付・キャンセルだけを出し、完了・無断キャンセル・会計は開始時刻の案内に置き換える', async () => {
+    jest.useFakeTimers({ now: START - 60_000 });
+    booking('confirmed'); show();
+    expect(await screen.findByRole('button', { name: '受付' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'キャンセル' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '完了' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '無断キャンセル' })).not.toBeInTheDocument();
+    expect(screen.getByText('「完了」「無断キャンセル」は、予約の開始時刻（2026年10月30日（金） 15:00）を過ぎると選べます。')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '会計する' })).not.toBeInTheDocument();
+    expect(screen.getByText('会計は予約の開始時刻（2026年10月30日（金） 15:00）を過ぎると確定できます。')).toBeInTheDocument();
+  });
+
+  test('画面を開いたまま開始時刻を迎えると、完了・無断キャンセル・会計が出る', async () => {
+    jest.useFakeTimers({ now: START - 10_000 });
+    booking('arrived'); show();
+    await screen.findByRole('button', { name: 'キャンセル' });
+    expect(screen.queryByRole('button', { name: '完了' })).not.toBeInTheDocument();
+    await act(async () => { jest.advanceTimersByTime(30_000); });
+    expect(screen.getByRole('button', { name: '完了' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '無断キャンセル' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '会計する' })).toBeInTheDocument();
+    expect(screen.queryByText(/を過ぎると選べます/)).not.toBeInTheDocument();
+  });
+
+  test('開始後の確定予約は従来どおり全ての遷移と会計を出す', async () => {
+    jest.useFakeTimers({ now: START });
+    booking('confirmed'); show();
+    expect(await screen.findByRole('button', { name: '完了' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '無断キャンセル' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '会計する' })).toBeInTheDocument();
+    expect(screen.queryByText(/を過ぎると/)).not.toBeInTheDocument();
+  });
+});
+
+// ── お客様によるキャンセルで通知したキャンセル料（2026年10月23日） ──
+// お客様には「キャンセル料 ¥X が発生し、お支払い方法は施設より直接ご案内」と届くのに、店舗の画面には何も無かった。
+describe('お客様がキャンセルした予約にキャンセル料と受付時刻を出す', () => {
+  const context = { policy: { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule: 'free_window' }, totalPrice: 5000,
+    bookingDate: '2026-10-30', startTime: '15:00:00', capturedAt: '2026-10-30T03:00:00Z' };
+  function cancelled(feeContext: unknown) {
+    const data = (mockResults.bookings[1] as { data: Record<string, unknown> }).data;
+    Object.assign(data, { status: 'cancelled', cancel_fee_context: feeContext });
+  }
+
+  test('期限後のキャンセル: 金額・料率と、お客様へ支払い方法を連絡する案内', async () => {
+    cancelled(context); show();
+    expect(await screen.findByText('お客様によるキャンセル（受付 2026年10月30日 12:00）')).toBeInTheDocument();
+    expect(screen.getByText(/キャンセル料/).textContent).toBe('キャンセル料 ¥2,500（施術料金の50%）をお客様にお知らせしています。お支払い方法をお客様へ直接ご連絡ください。');
+  });
+
+  test('無料期限内のキャンセル: キャンセル料がかからないことを示す', async () => {
+    cancelled({ ...context, capturedAt: '2026-10-20T00:00:00Z' }); show();
+    expect(await screen.findByText('キャンセル料はかかりません（お客様へのキャンセル料のお知らせはありません）。')).toBeInTheDocument();
+  });
+
+  test.each([null, { policy: 'broken' }])('材料の無い・崩れたキャンセル（店舗側の操作など）では何も出さない %j', async (feeContext) => {
+    cancelled(feeContext); show();
+    await screen.findByText('施術B、施術A');
+    expect(screen.queryByText(/お客様によるキャンセル/)).not.toBeInTheDocument();
+  });
 });

@@ -586,6 +586,7 @@ export type Database = {
       bookings: {
         Row: {
           booking_date: string
+          cancel_fee_context: Json | null
           charges: Json | null
           coupon_id: string | null
           created_at: string | null
@@ -617,6 +618,7 @@ export type Database = {
         }
         Insert: {
           booking_date: string
+          cancel_fee_context?: Json | null
           charges?: Json | null
           coupon_id?: string | null
           created_at?: string | null
@@ -648,6 +650,7 @@ export type Database = {
         }
         Update: {
           booking_date?: string
+          cancel_fee_context?: Json | null
           charges?: Json | null
           coupon_id?: string | null
           created_at?: string | null
@@ -1639,6 +1642,7 @@ export type Database = {
       }
       facility_cancel_policies: {
         Row: {
+          cancel_rule: string | null
           created_at: string | null
           facility_id: string
           free_cancel_hours: number | null
@@ -1648,6 +1652,7 @@ export type Database = {
           policy_text: string | null
         }
         Insert: {
+          cancel_rule?: string | null
           created_at?: string | null
           facility_id: string
           free_cancel_hours?: number | null
@@ -1657,6 +1662,7 @@ export type Database = {
           policy_text?: string | null
         }
         Update: {
+          cancel_rule?: string | null
           created_at?: string | null
           facility_id?: string
           free_cancel_hours?: number | null

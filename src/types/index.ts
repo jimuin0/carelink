@@ -315,6 +315,8 @@ export interface Booking {
   note: string | null;
   status: BookingStatus;
   total_price: number | null;
+  /** お客様によるキャンセルのキャンセル料の算出材料（cancel RPC が保存・src/lib/cancel-fee-receipt.ts で読む）。 */
+  cancel_fee_context?: unknown;
   created_at: string;
   updated_at: string;
 }

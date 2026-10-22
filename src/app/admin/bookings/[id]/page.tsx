@@ -8,7 +8,9 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import AdjustRequestButtons from '@/components/admin/AdjustRequestButtons';
 import type { Booking } from '@/types';
-import { statusBannerClass, bookingStatusLabel, getAllowedStatusTransitions } from '@/lib/booking-status';
+import { statusBannerClass, bookingStatusLabel, getAllowedStatusTransitions, getAvailableStatusTransitions, isVisitOutcomeStatus } from '@/lib/booking-status';
+import { isBeforeBookingStart } from '@/lib/cancel-fee';
+import { readCancelFeeReceipt, formatJstDateTime } from '@/lib/cancel-fee-receipt';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import { UUID_REGEX } from '@/lib/constants';
 import { bookingStaffLabel } from '@/lib/booking-nomination';
@@ -47,6 +49,13 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
   // retry は再取得を state 経由で駆動する（load をイベントハンドラからも effect からも
   // 呼べる形にすると Compiler の検出対象になるため、キーの変化で effect 側だけに寄せる）
   const [reloadKey, setReloadKey] = useState(0);
+  // 開始時刻を過ぎたかの判定に使う現在時刻（描画中に Date.now() を読まない）。読み込み時に入れ、
+  // 画面を開いたまま開始時刻を迎えても「完了」や会計が出るよう 30 秒ごとに進める。
+  const [nowMs, setNowMs] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   // アンマウント後の setState を防ぐため cancelled フラグで守りつつ、非同期処理を effect 内へ inline する
   useEffect(() => {
@@ -109,6 +118,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
             if (cancelled) return;
             if (staff) setStaffName(staff.name);
           }
+          setNowMs(Date.now());
           setBooking(data as Booking);
         }
         setLoading(false);
@@ -237,6 +247,13 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
   const banner = statusBannerClass(booking.status);
   // 現在状態から手動で遷移可能なステータスのみをボタン化（UI/API 共有の SSOT を参照）。
   const allowedNextStatuses = getAllowedStatusTransitions(booking.status);
+  // 開始時刻（JST）前は来店の結果（完了・無断キャンセル）と会計の確定を出さない（API・DB も同じ規則で拒否する）。
+  const beforeStart = isBeforeBookingStart(booking.booking_date, booking.start_time, nowMs);
+  const availableNextStatuses = getAvailableStatusTransitions(booking.status, booking.booking_date, booking.start_time, nowMs);
+  const outcomeWaitsForStart = beforeStart && allowedNextStatuses.some(isVisitOutcomeStatus);
+  const startLabel = `${formatDate(booking.booking_date)} ${booking.start_time?.slice(0, 5)}`;
+  // お客様がキャンセルした予約で、お客様へお知らせしたキャンセル料（メールと同じ材料から算出）。
+  const cancelReceipt = booking.status === 'cancelled' ? readCancelFeeReceipt(booking.cancel_fee_context) : null;
 
   return (
     <div>
@@ -281,16 +298,22 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-bold text-emerald-800">退店・お会計</p>
-                <p className="text-xs text-emerald-600 mt-0.5">当日のメニュー・物販・割引を確定し、会計を締めて完了にします</p>
+                <p className="text-xs text-emerald-700 mt-0.5">
+                  {beforeStart
+                    ? `会計は予約の開始時刻（${startLabel}）を過ぎると確定できます。`
+                    : '当日のメニュー・物販・割引を確定し、会計を締めて完了にします'}
+                </p>
               </div>
-              <button
-                type="button"
-                onClick={openCheckout}
-                disabled={updating}
-                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
-              >
-                会計する
-              </button>
+              {!beforeStart && (
+                <button
+                  type="button"
+                  onClick={openCheckout}
+                  disabled={updating}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
+                >
+                  会計する
+                </button>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
@@ -436,6 +459,21 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
           </div>
         )}
 
+        {/* お客様によるキャンセルの記録。お客様には「キャンセル料が発生し、お支払い方法は施設より直接ご案内」と
+            届いているので、店舗が金額とキャンセルを受け付けた時刻（無料期限の内か外か）を確かめられるようにする。 */}
+        {cancelReceipt && (
+          <div className="border-t pt-4 space-y-2">
+            <p className="text-sm text-gray-500">お客様によるキャンセル（受付 {formatJstDateTime(cancelReceipt.cancelledAt)}）</p>
+            {cancelReceipt.fee > 0 ? (
+              <p className="text-sm bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg">
+                キャンセル料 <strong>¥{cancelReceipt.fee.toLocaleString()}</strong>（施術料金の{cancelReceipt.rate}%）をお客様にお知らせしています。お支払い方法をお客様へ直接ご連絡ください。
+              </p>
+            ) : (
+              <p className="text-sm text-gray-600">キャンセル料はかかりません（お客様へのキャンセル料のお知らせはありません）。</p>
+            )}
+          </div>
+        )}
+
         {/* ステータス変更（承認後）。現在状態から実際に遷移可能なステータスだけをボタン化する
             （遷移ルールは API と共有の SSOT＝booking-status.ts の ALLOWED_STATUS_TRANSITIONS）。
             到達不可なステータス（pending・cancel_fee_paid 等）は出さず、押すと必ず 400 になる
@@ -445,7 +483,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
           <div className="border-t pt-4">
             <p className="text-sm text-gray-500 mb-2">ステータス変更</p>
             <div className="flex flex-wrap gap-2">
-              {allowedNextStatuses.map((value) => (
+              {availableNextStatuses.map((value) => (
                 <button
                   type="button"
                   key={value}
@@ -457,6 +495,9 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
                 </button>
               ))}
             </div>
+            {outcomeWaitsForStart && (
+              <p className="text-xs text-gray-600 mt-2">「完了」「無断キャンセル」は、予約の開始時刻（{startLabel}）を過ぎると選べます。</p>
+            )}
             <p className="text-xs text-gray-400 mt-2">※受付では通知しません。その他の変更はメール登録済みのお客様への通知を試みます。</p>
           </div>
         )}

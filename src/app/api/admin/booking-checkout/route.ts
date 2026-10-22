@@ -19,6 +19,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { applyCompletionSideEffects } from '@/lib/booking-completion';
+import { isBeforeBookingStart } from '@/lib/cancel-fee';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,6 +29,7 @@ type Charge = { type: ChargeType; name: string; amount: number };
 
 const MAX_ITEMS = 50;
 const MAX_AMOUNT = 100_000_000; // 1件あたりの絶対値上限（暴走・オーバーフロー防止）
+const CHECKOUT_BEFORE_START_MESSAGE = '予約の開始時刻より前は、会計を確定して完了にできません。開始時刻を過ぎてから操作してください。';
 
 /** items 入力を検証して正規化。不正なら null を返す。 */
 function parseItems(raw: unknown): Charge[] | null {
@@ -90,7 +92,7 @@ export async function POST(request: Request) {
     // 予約取得（権限スコープ確定のため先に取る）
     const { data: booking } = await supabase
       .from('bookings')
-      .select('id, facility_id, user_id, customer_name, email, booking_date, menu_id, staff_id, status, updated_at')
+      .select('id, facility_id, user_id, customer_name, email, booking_date, start_time, menu_id, staff_id, status, updated_at')
       .eq('id', bookingId)
       .single();
 
@@ -115,6 +117,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'この予約は会計できません（確定または受付の予約のみ）' }, { status: 400 });
     }
 
+    // 会計を確定して「完了」にするのは予約の開始時刻（JST）を過ぎてから（明細の保存だけなら開始前でもよい）。
+    // DB（checkout_booking_with_points_atomic）も同じ規則で BOOKING_NOT_STARTED を返す。
+    if (wantComplete && isBeforeBookingStart(booking.booking_date, booking.start_time, Date.now())) {
+      return NextResponse.json({ error: CHECKOUT_BEFORE_START_MESSAGE, code: 'BOOKING_NOT_STARTED' }, { status: 400 });
+    }
+
     const nextStatus = wantComplete ? 'completed' : booking.status;
 
     const { data: updated, error: updateError } = await supabase.rpc('checkout_booking_with_points_atomic', {
@@ -123,6 +131,7 @@ export async function POST(request: Request) {
     });
     if (updateError?.message.includes('BOOKING_PERMISSION_DENIED')) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
     if (updateError?.message.includes('BOOKING_REVISION_CONFLICT')) return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
+    if (updateError?.message.includes('BOOKING_NOT_STARTED')) return NextResponse.json({ error: CHECKOUT_BEFORE_START_MESSAGE, code: 'BOOKING_NOT_STARTED' }, { status: 400 });
     if (updateError) return serverError('admin-booking-checkout-update', updateError, '/api/admin/booking-checkout', '会計の保存に失敗しました');
     if (!updated || updated.length !== 1 || updated[0].id !== bookingId || updated[0].total_price !== total) {
       return serverError('admin-booking-checkout-result', new Error('checkout transaction not confirmed'), '/api/admin/booking-checkout');

@@ -46,6 +46,9 @@ function createChainableMock(resolveValue: any) {
   return chainable;
 }
 
+let policyResult: { data: unknown; error: unknown } = { data: null, error: null };
+let policyChain: any;
+
 function setupDefaultMocks(
   lineValid: boolean = true,
   profileFound: boolean = true,
@@ -89,6 +92,7 @@ function setupDefaultMocks(
     ? {
         data: {
           id: 'booking-123',
+          facility_id: 'facility-123',
           booking_date: '2026-05-05',
           start_time: '10:00',
           end_time: '11:00',
@@ -109,6 +113,9 @@ function setupDefaultMocks(
         return createChainableMock(profileData);
       } else if (table === 'bookings') {
         return createChainableMock(bookingData);
+      } else if (table === 'facility_cancel_policies') {
+        policyChain = createChainableMock(policyResult);
+        return policyChain;
       }
     }),
   });
@@ -116,6 +123,8 @@ function setupDefaultMocks(
 
 beforeEach(() => {
   jest.clearAllMocks();
+  policyResult = { data: null, error: null };
+  policyChain = undefined;
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   (global.fetch as jest.Mock).mockClear();
   setupDefaultMocks();
@@ -266,6 +275,29 @@ describe('GET /api/liff/bookings', () => {
     const json = await res.json();
     expect(json.booking).toBeDefined();
     expect(json.booking.id).toBe('booking-123');
+  });
+
+  // キャンセル画面がボタンの代わりに店舗への連絡を案内するための、店舗のキャンセルの受け付け方。
+  test('single booking: ポリシー未設定の店舗はネットからキャンセルできる（online_cancel_allowed=true）', async () => {
+    const json = await (await GET(makeRequest(BOOKING_UUID) as any)).json();
+    expect(json.booking.online_cancel_allowed).toBe(true);
+    expect(policyChain.eq).toHaveBeenCalledWith('facility_id', 'facility-123');
+    expect(policyChain.select).toHaveBeenCalledWith('free_cancel_hours, late_cancel_rate, cancel_rule');
+  });
+
+  test.each([
+    ['no_online', false], ['always_fee', true], ['free_window', true], [null, true],
+  ])('single booking: cancel_rule=%s → online_cancel_allowed=%s', async (cancel_rule, allowed) => {
+    policyResult = { data: { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule }, error: null };
+    setupDefaultMocks();
+    const json = await (await GET(makeRequest(BOOKING_UUID) as any)).json();
+    expect(json.booking.online_cancel_allowed).toBe(allowed);
+  });
+
+  test('single booking: ポリシーの読み取り障害は 500（キャンセルできるように偽装しない）', async () => {
+    policyResult = { data: null, error: { message: 'DB error' } };
+    setupDefaultMocks();
+    expect((await GET(makeRequest(BOOKING_UUID) as any)).status).toBe(500);
   });
 
   test('booking_id not found → returns booking=null', async () => {

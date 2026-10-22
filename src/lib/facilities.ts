@@ -436,7 +436,7 @@ export async function getFacilityCancelPolicy(facilityId: string): Promise<Cance
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase
     .from('facility_cancel_policies')
-    .select('free_cancel_hours, late_cancel_rate, no_show_rate, policy_text')
+    .select('free_cancel_hours, late_cancel_rate, no_show_rate, policy_text, cancel_rule')
     .eq('facility_id', facilityId)
     .maybeSingle();
   if (error || !data) return null;

@@ -98,10 +98,12 @@ BEGIN
  SELECT sum(points) INTO balance FROM public.user_points WHERE user_id='be110000-0000-4000-8000-000000000001';
  SELECT * INTO receipt FROM public.cancel_customer_booking_with_channels_atomic('be110000-0000-4000-8000-000000000001','be130000-0000-4000-8000-000000000001','confirmed');
  PERFORM pg_temp.assert_channel(receipt.id='be130000-0000-4000-8000-000000000001'
-  AND receipt.fee_context->'policy'='{"free_cancel_hours":24,"late_cancel_rate":50}'::jsonb
+  AND receipt.fee_context->'policy'='{"free_cancel_hours":24,"late_cancel_rate":50,"cancel_rule":null}'::jsonb
   AND receipt.fee_context->>'totalPrice'='5000' AND receipt.fee_context->>'bookingDate'='2030-01-07'
   AND receipt.fee_context->>'startTime'='12:00:00' AND (receipt.fee_context->>'capturedAt')::timestamptz>=revision,
   'cancel returns fee inputs from the committed transaction');
+ PERFORM pg_temp.assert_channel((SELECT cancel_fee_context=receipt.fee_context AND updated_at>=revision
+  FROM public.bookings WHERE id=receipt.id),'the booking keeps the same fee context for the shop');
  PERFORM pg_temp.assert_channel(NOT EXISTS(SELECT 1 FROM public.webhook_retry_queue q
   WHERE q.facility_id='be120000-0000-4000-8000-000000000001'
     AND q.payload->>'kind'='cancelled' AND q.payload ? 'customer_booking_transition_version'
@@ -140,6 +142,8 @@ BEGIN
   AND receipt.fee_context->>'startTime'='15:00:00' AND (receipt.fee_context->>'capturedAt')::timestamptz IS NOT NULL
   AND NOT EXISTS(SELECT 1 FROM public.webhook_retry_queue WHERE payload ? 'customer_booking_transition_version'
     AND payload->'snapshot'->>'bookingId'=receipt.id::text),'no-email cancellation remains valid without fabricating a policy');
+ PERFORM pg_temp.assert_channel((SELECT cancel_fee_context=receipt.fee_context FROM public.bookings WHERE id=receipt.id),
+  'the no-email fee context is kept on the booking too');
 END $$;
 RESET ROLE;
 ROLLBACK;

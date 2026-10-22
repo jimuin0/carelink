@@ -146,6 +146,18 @@ describe('defect4: キャンセルポリシー表示（確認ステップ）', (
       no_show_rate: 100,
       policy_text: null,
     });
-    expect(screen.getByText('キャンセルの場合、施術料金の100%をキャンセル料として承ります。')).toBeInTheDocument();
+    // 旧「キャンセル不可」（free_cancel_hours=0）の行は「期限なし（常にキャンセル料）」として案内する（計算と同じ解釈）。
+    expect(screen.getByText('キャンセルの場合は時期にかかわらず、施術料金の100%をキャンセル料として承ります。')).toBeInTheDocument();
+  });
+
+  test('ネットでのキャンセル不可の店舗では、予約前に店舗へ直接連絡する旨を案内する', async () => {
+    await goToConfirmStep({
+      free_cancel_hours: 24,
+      late_cancel_rate: 50,
+      no_show_rate: 100,
+      policy_text: null,
+      cancel_rule: 'no_online',
+    });
+    expect(screen.getByText('この店舗ではネットからのキャンセルをお受けしていません。キャンセルをご希望の場合は、店舗へ直接ご連絡ください。')).toBeInTheDocument();
   });
 });

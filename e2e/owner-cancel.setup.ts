@@ -67,8 +67,10 @@ setup('provision owner and cancelable bookings', async ({ page }) => {
   //    facility_id/booking_date/start_time/end_time/customer_name/email（admin.setup と同根の本番 drift）。
   const { data: seeded, error: be } = await sb.from('bookings').insert([
     { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '10:00', end_time: '11:00', customer_name: OWNER_SEED.pendingCustomer, email: customerEmail, status: 'pending', total_price: 6000 },
-    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '12:00', end_time: '13:00', customer_name: OWNER_SEED.confirmedCustomer, email: customerEmail, status: 'confirmed', total_price: 6000 },
-    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '14:00', end_time: '15:00', customer_name: OWNER_SEED.noShowCustomer, email: customerEmail, status: 'confirmed', total_price: 6000 },
+    // 確定×2 は「無断キャンセル」の表示と実行に使う。来店の結果（完了・無断キャンセル）は予約の開始時刻（JST）を
+    // 過ぎてからしか選べない（20261023020100）ため、実行時刻に関わらず開始済みになる本日 00:00 開始にする。
+    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '00:00', end_time: '01:00', customer_name: OWNER_SEED.confirmedCustomer, email: customerEmail, status: 'confirmed', total_price: 6000 },
+    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '00:00', end_time: '01:00', customer_name: OWNER_SEED.noShowCustomer, email: customerEmail, status: 'confirmed', total_price: 6000 },
   ]).select('id, customer_name');
   if (be) throw new Error('seed bookings: ' + be.message);
   const pendingId = (seeded ?? []).find((b) => b.customer_name === OWNER_SEED.pendingCustomer)?.id;

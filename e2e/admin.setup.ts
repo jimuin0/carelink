@@ -101,7 +101,9 @@ setup('provision test owner and authenticate', async ({ page }) => {
   const { data: seededBookings, error: be } = await sb.from('bookings').insert([
     { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '10:00', end_time: '11:00', customer_name: SEED.completedCustomer, email: customerEmail, status: 'completed', total_price: SEED.completedPriceYen },
     { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '12:00', end_time: '13:00', customer_name: SEED.noShowCustomer, email: customerEmail, status: 'no_show', total_price: SEED.noShowPriceYen },
-    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '14:00', end_time: '15:00', customer_name: SEED.confirmedCustomer, email: customerEmail, status: 'confirmed', total_price: SEED.confirmedPriceYen },
+    // 確定予約は退店レジ会計で「完了」にする。会計の確定は予約の開始時刻（JST）を過ぎてから（20261023020100）なので、
+    // 実行時刻に関わらず開始済みになる本日 00:00 開始にする。
+    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '00:00', end_time: '01:00', customer_name: SEED.confirmedCustomer, email: customerEmail, status: 'confirmed', total_price: SEED.confirmedPriceYen },
   ]).select('id, status');
   if (be) throw new Error('seed bookings: ' + be.message);
   const confirmedId = (seededBookings ?? []).find((b) => b.status === 'confirmed')?.id;
