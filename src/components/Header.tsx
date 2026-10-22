@@ -25,7 +25,10 @@ export default function Header() {
   //
   // ⚠️ 透明度（bg-[...]/95）は付けない。Tailwind は CSS 変数の色に alpha を合成できず、
   // 無効な色になって【ヘッダーが透明になる】（実機の computed style で rgba(0,0,0,0) を確認）。
-  const usesEcruTheme = pathname === '/register';
+  //
+  // 受付完了（/register/complete）も同じテーマで描くので、ここで揃える。
+  // /register/recover は本文がまだ既定の配色なので含めない（ヘッダーだけ色を変えると逆に浮く）。
+  const usesEcruTheme = pathname === '/register' || pathname === '/register/complete';
 
   return (
     <header

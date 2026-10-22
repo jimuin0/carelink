@@ -23,6 +23,11 @@ const CONSUMERS = [
   'src/app/register/page.tsx',
   'src/components/register/RegisterForm.tsx',
   'src/components/Header.tsx',
+  // 受付完了（/register/complete）も同じテーマで描く（以前はヘッダーだけ青に戻っていた）。
+  'src/app/register/complete/page.tsx',
+  'src/components/register/RegistrationReceipt.tsx',
+  'src/components/register/SalonLocalDraftControls.tsx',
+  'src/components/StepIndicator.tsx',
 ];
 
 /** テーマが持つトークン。増やしたらここへ足す（定義漏れを検知するため）。 */
@@ -68,5 +73,22 @@ describe('くすみカラーのテーマ', () => {
     const header = read('src/components/Header.tsx');
     expect(header).toContain("pathname === '/register'");
     expect(header).toContain('theme-ecru');
+  });
+
+  it('受付完了ページもヘッダーと本文の両方がテーマを使う', () => {
+    expect(read('src/components/Header.tsx')).toContain("pathname === '/register/complete'");
+    for (const file of ['src/app/register/complete/page.tsx', 'src/components/register/RegistrationReceipt.tsx']) {
+      const source = read(file);
+      expect(source).toContain('theme-ecru');
+      // 旧配色（sky / green の直指定）へ戻っていないこと。
+      expect(source).not.toMatch(/\b(bg|text|border)-(sky|green)-\d{2,3}\b/);
+    }
+  });
+
+  it('エラー文の色は AA（4.5:1）を満たす濃さ（red-500 は白地 3.76:1 で不足）', () => {
+    const block = css.slice(css.indexOf('@utility form-error'));
+    const body = block.slice(0, block.indexOf('}'));
+    expect(body).toContain('text-red-700');
+    expect(body).not.toContain('text-red-500');
   });
 });
