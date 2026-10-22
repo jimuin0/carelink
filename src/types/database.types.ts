@@ -7197,6 +7197,10 @@ export type Database = {
         }[]
       }
       lock_booking_account: { Args: { p_user_id: string }; Returns: undefined }
+      lock_booking_account_if_present: {
+        Args: { p_user_id: string }
+        Returns: boolean
+      }
       lock_booking_create_scope: {
         Args: { p_actor_id: string; p_guest_hash: string; p_id: string }
         Returns: undefined
@@ -7592,6 +7596,10 @@ export type Database = {
           facility_id: string
           outcome: string
         }[]
+      }
+      reverse_referral_points_without_visit: {
+        Args: { p_user_id: string }
+        Returns: boolean
       }
       review_content_hash: {
         Args: { r: Database["public"]["Tables"]["facility_reviews"]["Row"] }
