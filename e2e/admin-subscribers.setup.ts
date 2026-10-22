@@ -1,14 +1,17 @@
 // オーナーのサブスク契約者ステータス変更 E2E のセットアップ。
 // 1) CI の隔離 Supabase に service role でオーナー＋施設＋owner権限＋プラン＋契約者
-//    （customer user + アクティブな user_subscription）を seed。
+//    （customer user + その店舗での予約 + アクティブな user_subscription）を seed。
 // 2) 実 UI（/auth/login）でオーナーとしてログインし、認証済み storageState を保存する。
 // admin-subscribers.spec.ts はこの storageState で /admin/subscription-plans の契約者一覧から
-// 「一時停止」操作を検証する（user-subscriptions GET の profiles 別取得マージも実 UI で通る）。
+// 「一時停止」操作を検証する。契約者の表示名は user-subscriptions GET が RPC
+// list_facility_customer_profiles（その店舗の予約者に限って表示名・メールを返す）で取るので、
+// 契約者にはその店舗の予約を 1 件持たせ、実 DB の RPC 経由で名前が出ることまで確かめる。
 import { test as setup, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
 import path from 'path';
 import { SUBSCRIBERS_AUTH_FILE, SUBSCRIBERS_SEED } from './admin-subscribers.fixtures';
+import { jstToday } from './admin.fixtures';
 
 // supabase-js v2 は Node 20 で createClient 時に WebSocket を要求し throw する。realtime 非接続のためダミー。
 if (!globalThis.WebSocket) {
@@ -42,10 +45,19 @@ setup('provision owner with an active subscriber', async ({ page }) => {
   if (me) throw new Error('seed member: ' + me.message);
 
   // 契約者になる来院者ユーザー
+  const subscriberEmail = `e2e-subscriber-${ts}@example.invalid`;
   const { data: cust, error: ce } = await sb.auth.admin.createUser({
-    email: `e2e-subscriber-${ts}@example.invalid`, password, email_confirm: true, user_metadata: { display_name: 'E2E契約者' },
+    email: subscriberEmail, password, email_confirm: true, user_metadata: { display_name: SUBSCRIBERS_SEED.subscriberName },
   });
   if (ce) throw new Error('seed subscriber user: ' + ce.message);
+
+  // 契約者はこの店舗の予約者（来院済み）。付与先・一覧の表示名はその店舗の予約者に限られる
+  // （migration 20261022230000）ので、予約が無いと一覧の名前が「不明」になる。
+  const { error: be } = await sb.from('bookings').insert({
+    facility_id: facilityId, user_id: cust.user.id, booking_date: jstToday(), start_time: '10:00', end_time: '11:00',
+    customer_name: SUBSCRIBERS_SEED.subscriberName, email: subscriberEmail, status: 'completed', total_price: 8000,
+  });
+  if (be) throw new Error('seed subscriber booking: ' + be.message);
 
   // サブスクプラン（NOT NULL＝facility_id/name/price。sessions_per_month/valid_months は DEFAULT）
   const { data: plan, error: pe } = await sb.from('subscription_plans').insert({
