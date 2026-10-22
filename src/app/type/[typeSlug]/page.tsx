@@ -10,7 +10,7 @@ import {
 } from '@/lib/seo-constants';
 import { SITE_URL } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/json-ld';
-import { searchFacilities } from '@/lib/facilities';
+import { countAreaListing, loadAreaListingPage } from '@/lib/area-listing';
 import { getBusinessTypeContext } from '@/lib/seo-snippets';
 import Breadcrumb from '@/components/Breadcrumb';
 import FacilityCard from '@/components/search/FacilityCard';
@@ -33,11 +33,20 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const description = ctx
     ? `${typeName}（${ctx.keyword}）を全国から検索。${ctx.description}を口コミ・料金・写真で比較し、24時間ネット予約できます。`
     : `${typeName}を全国から検索・比較・予約。CareLinkで自分にぴったりの${typeName}を見つけましょう。`;
+  // 【2026年10月22日 是正】掲載0件のページを noindex にする規則が、子（/[都道府県]/[業種] など）には
+  // あったのに、親であるこの業種トップだけ抜けていた（本番の /type/hair-salon は「0件の施設を掲載中」が
+  // index 可のままだった）。sitemap 側は施設のある業種だけに絞っているが、内部リンクからは辿られる。
+  // follow は残す（都道府県別・他業種への回遊リンクは辿らせる）。掲載が増えれば自動で index に戻る。
+  // 件数は本文と同じ検索の読み取りから取る（src/lib/area-listing.ts）。数えられなかったときは例外にし、
+  // null を「件数不明＝index 可」とも扱わない。metadata だけ別の問い合わせにすると、それだけが落ちたとき
+  // 本文が 200 で返り title・robots が欠ける。
+  const count = await countAreaListing(undefined, undefined, typeName);
   return {
     // ルート layout の title.template '%s | CareLink' が自動付与するため「| CareLink」は付けない（二重化防止）。
     title: `${typeName}を全国から探す｜口コミ・料金で比較`,
     description,
     alternates: { canonical: `/type/${typeSlug}` },
+    ...(count === 0 ? { robots: { index: false, follow: true } } : {}),
   };
 }
 
@@ -47,7 +56,8 @@ export default async function BusinessTypePage({ params }: Props) {
   const typeName = getBusinessTypeName(typeSlug)!;
   const ctx = getBusinessTypeContext(typeSlug);
 
-  const { facilities, total } = await searchFacilities({ type: typeName, sort: 'rating' });
+  // 読めなかった検索は「0件の施設を掲載中」として 200 で返さず、例外にして error.tsx の一時障害表示にする。
+  const { facilities, total } = await loadAreaListingPage(undefined, undefined, typeName, 1);
 
   // ItemList JSON-LD
   const itemListJsonLd = {

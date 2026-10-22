@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import {
   allBusinessTypeSlugs,
   getPrefectureName,
@@ -9,9 +9,8 @@ import {
 } from '@/lib/seo-constants';
 import { regionGroups, facilityFeatures, SITE_URL } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/json-ld';
-import { searchFacilities } from '@/lib/facilities';
+import { countAreaListing, loadAreaListingPage } from '@/lib/area-listing';
 import { featureSearchHref } from '@/lib/search-href';
-import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { getAreaSeoContent, isIndexableAreaQuality } from '@/lib/area-seo';
 import { generatePrefTypeContent, generateCityContent, type GeneratedSeoContent } from '@/lib/seo-snippets';
 import {
@@ -43,19 +42,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const prefName = getPrefectureName(prefectureSlug);
   if (!prefName) return {};
 
-  const supabase = createServerSupabaseClient();
-
   // 業種ページ
   if (isValidBusinessTypeSlug(secondSlug)) {
     const typeName = getBusinessTypeName(secondSlug)!;
     const title = `${prefName}の${typeName}`;
     const description = `${prefName}の${typeName}を口コミ・メニュー・写真で比較。ネット予約24時間OK。CareLink で${prefName}の${typeName}を探そう。`;
-    const { count } = await supabase
-      .from('facility_profiles')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'published')
-      .eq('prefecture', prefName)
-      .eq('business_type', typeName);
+    // 件数は本文と同じ検索の読み取りから取る（src/lib/area-listing.ts）。数えられなかったときは例外にし、
+    // null を「件数不明＝index 可」とも扱わない。metadata だけ別の問い合わせにすると、それだけが落ちたとき
+    // 本文が 200 で返り title・robots が欠ける（2026年10月22日 是正）。
+    const count = await countAreaListing(prefName, undefined, typeName);
     const hasQualityContent = isIndexableAreaQuality(count, generatePrefTypeContent(prefectureSlug, secondSlug));
     return {
       title,
@@ -71,12 +66,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (cityName) {
     const title = `${prefName}${cityName}のサロン・クリニック一覧`;
     const description = `${prefName}${cityName}の美容サロン・鍼灸院・整骨院を口コミ・メニュー・写真で比較。ネット予約24時間OK。`;
-    const { count } = await supabase
-      .from('facility_profiles')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'published')
-      .eq('prefecture', prefName)
-      .eq('city', cityName);
+    const count = await countAreaListing(prefName, cityName, undefined);
     return {
       title,
       description,
@@ -119,11 +109,15 @@ async function TypePage({ prefectureSlug, prefName, typeSlug, searchParams }: {
   const { page: pageStr } = searchParams;
   const page = Math.max(1, parseInt(pageStr || '1', 10) || 1);
 
+  // 読めなかった検索は「0件・掲載なし」として 200 で返さず、例外にして error.tsx の一時障害表示にする。
   const [{ facilities, total, perPage }, seoContent] = await Promise.all([
-    searchFacilities({ prefecture: prefName, type: typeName, sort: 'rating', page }),
+    loadAreaListingPage(prefName, undefined, typeName, page),
     getAreaSeoContent(prefectureSlug, null, typeSlug),
   ]);
   const totalPages = Math.ceil(total / perPage);
+  // 結果より後ろのページ（古いリンク・手入力の ?page=2 など）は 1 ページ目へ戻す。
+  // 「0件の施設が見つかりました」を 200 で見せない（/search と同じ扱い）。
+  if (page > 1 && page > totalPages) redirect(`/${prefectureSlug}/${typeSlug}`);
   const regionGroup = regionGroups.find((r) => r.prefectures.includes(prefName));
 
   const itemListJsonLd = {
@@ -184,11 +178,14 @@ async function CityPage({ prefectureSlug, prefName, citySlug, cityName, searchPa
   const { page: pageStr } = searchParams;
   const page = Math.max(1, parseInt(pageStr || '1', 10) || 1);
 
+  // 読めなかった検索は「0件・掲載なし」として 200 で返さず、例外にして error.tsx の一時障害表示にする。
   const [{ facilities, total, perPage }, seoContent] = await Promise.all([
-    searchFacilities({ prefecture: prefName, city: cityName, sort: 'rating', page }),
+    loadAreaListingPage(prefName, cityName, undefined, page),
     getAreaSeoContent(prefectureSlug, citySlug),
   ]);
   const totalPages = Math.ceil(total / perPage);
+  // 結果より後ろのページは 1 ページ目へ戻す（本番で /osaka/toyonaka?page=2 が「0件」を 200 で返していた）。
+  if (page > 1 && page > totalPages) redirect(`/${prefectureSlug}/${citySlug}`);
   const regionGroup = regionGroups.find((r) => r.prefectures.includes(prefName));
   const siblingCities = getCitiesForPrefecture(prefectureSlug).filter((c) => c.slug !== citySlug);
 

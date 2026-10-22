@@ -28,11 +28,16 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   // metadata.title には「| CareLink」を付けない（付けると二重化する）。openGraph.title はテンプレ非適用のため付与する。
   const title = `${area}の人気ランキング`;
   const description = `${area}エリアで口コミ評価の高い美容・医療・福祉施設のランキング。`;
+  // 【2026年10月22日 是正】空のランキング（口コミのある施設が0件）は検索結果に出さない。
+  // 本番の /ranking/東京都 は「まだ口コミが集まっていません」のまま index 可だった。
+  // follow は残す（施設一覧・全国ランキングへの導線は辿らせる）。取得失敗は例外になる（noindex にしない）。
+  const facilities = await getRankedFacilities(area);
   return {
     title,
     description,
     alternates: { canonical: `/ranking/${params.area}` },
     openGraph: { title: `${title} | CareLink`, description, type: 'website' },
+    ...(facilities.length === 0 ? { robots: { index: false, follow: true } } : {}),
   };
 }
 
