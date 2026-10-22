@@ -1,0 +1,28 @@
+FROM vcr.vercel.com/jimuin/carelink/node24-public-config@sha256:7e512fdd48f227be58157edf2b34276b3342dc7eeec3a47595f920e6ffab53aa AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY tools ./tools
+COPY eslint-plugin-carelink-safety ./eslint-plugin-carelink-safety
+COPY scripts/ensure-eslint-plugin-link.mjs ./scripts/ensure-eslint-plugin-link.mjs
+RUN npm ci
+COPY . .
+# The base contains only the pinned Node binary and existing public browser config.
+# Application source is copied and rebuilt on every deployment. Server secrets
+# remain runtime-only. Local CI can override the two public DB settings.
+ARG BUILD_SUPABASE_URL
+ARG BUILD_SUPABASE_ANON_KEY
+RUN export NEXT_PUBLIC_SUPABASE_URL="${BUILD_SUPABASE_URL:-$NEXT_PUBLIC_SUPABASE_URL}" \
+    NEXT_PUBLIC_SUPABASE_ANON_KEY="${BUILD_SUPABASE_ANON_KEY:-$NEXT_PUBLIC_SUPABASE_ANON_KEY}" \
+    && test -n "$NEXT_PUBLIC_SUPABASE_URL" \
+    && test -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+    && npm run build
+
+FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS runtime
+WORKDIR /app
+ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000
+COPY --from=build --chown=node:node /app/.next/standalone ./
+COPY --from=build --chown=node:node /app/.next/static ./.next/static
+COPY --from=build --chown=node:node /app/public ./public
+USER node
+EXPOSE 3000
+CMD ["sh", "-c", "node --version && exec node server.js"]

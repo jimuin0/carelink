@@ -1,0 +1,15 @@
+.git
+.vercel
+.env*
+node_modules
+.next
+coverage
+playwright-report
+test-results
+supabase/.temp
+supabase/.branches
+.ci-local-artifacts
+work
+outputs
+*.log
+.DS_Store

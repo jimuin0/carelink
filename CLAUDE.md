@@ -379,6 +379,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 ## 環境変数（コード内 `process.env` 参照から抽出）
 | 変数名 | 用途 |
 |--------|------|
+| NEXT_RUNTIME | Next.jsが設定する実行環境。nodejsの場合のみ、起動時にNode.jsの実行バージョンを管理者用ログへ記録する。手動設定は不要 |
 | NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY | Supabase（本番必須）。**Vercel の Preview には意図的に設定しない**（2026年10月21日）。以前は無効なキーが残り、プレビューのたびに本番 Supabase へ 401 を 20 件送っていた。プレビューは本番 DB に触れない。ビルドは `hasSupabasePublicEnv()`（`src/lib/supabase-build-env.ts`）で事前生成を省いて通り、ブラウザ用クライアントは使用時にだけ未設定を検知する |
 | SUPABASE_SERVICE_ROLE_KEY | service role（cron／管理 API のサーバ側 DB 操作・RLS バイパス・**本番必須**）。**Vercel の Preview には設定しない**（上の行と同じ理由。本番の secret をプレビューへ再登録しない） |
 | NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_BASE_URL / NEXT_PUBLIC_SITE_URL | 本番ベース URL（リダイレクト・OGP・sitemap 等） |
@@ -675,3 +676,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+### Vercelの固定Node.jsランタイム
+
+`Dockerfile.vercel` はビルド・配信とも公式Node.js 24.22.1のdigestに固定し、standaloneを非root・PORT3000で実行する。CIと同じ `npm run build`（Webpack）を維持する。Vercel Container Runtimeのbuild ARG引き渡し不具合を回避するため、ビルド段だけ同一プロジェクトの `node24-public-config` イメージをdigest固定で使う。このベースにはNode本体と既存のブラウザ向け公開設定だけが入り、アプリコード・service-role・メール・決済・通知等の秘密値は入れない。アプリのソースは毎回COPYして再ビルドするため、Gitのコード更新が古いイメージで配信される構成ではない。
+
+公開設定を変更するときは、対象を `vercel project inspect carelink --scope jimuin --non-interactive` で確認し、Dockerを同プロジェクトのVCRへログインさせたうえで、`vercel env run -e production --project carelink --scope jimuin -- node scripts/build-runtime-config-base.mjs vcr.vercel.com/jimuin/carelink/node24-public-config:<新しい版>` を実行する。出力されたimmutable digestをDockerfileのビルド段へ反映し、再検証・再デプロイする。ヘルパーは公開設定の許可リストとanon/publishable鍵の検査を行い、値をログへ出さない。`node --test scripts/build-runtime-config-base.test.mjs` で秘密値の除外・権限の強い鍵の拒否・送信先制限を確認する。Dockerのローカル検証では `BUILD_SUPABASE_URL` / `BUILD_SUPABASE_ANON_KEY` に使い捨てDBの公開設定だけを渡せる。サーバー秘密値は既存のVercel実行時設定を使う。

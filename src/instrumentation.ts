@@ -10,9 +10,11 @@
  */
 
 export async function register() {
-  // Sentry の初期化は @sentry/nextjs が sentry.server.config.ts /
-  // sentry.edge.config.ts を自動 require するため、ここでは何もしない。
-  // 将来追加の OTel / pino 等もここで初期化する。
+  // 起動したサーバー自身のバージョンを管理者用ログに残す。
+  // 公開レスポンスや環境変数の値は変更・出力しない。
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    console.info('[runtime-security] node=' + process.version);
+  }
 }
 
 interface OnRequestErrorRequest {

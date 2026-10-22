@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
   outputFileTracingIncludes: {
     '/api/og': [
       './node_modules/@resvg/resvg-wasm/index_bg.wasm',
