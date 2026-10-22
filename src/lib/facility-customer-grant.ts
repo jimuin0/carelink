@@ -13,7 +13,7 @@ import { databaseDiagnostic } from './database-diagnostic';
  * その人のメールアドレスが読め、その人の /mypage に見覚えのない回数券・プランを出せた。
  *
  * 付与先は「その店舗を予約したことのあるお客様（bookings.user_id）」に限る。判定は
- * service_role 専用の RPC（migration 20261022210000）が、今もその店舗の owner / admin かを
+ * service_role 専用の RPC（migration 20261022230000）が、今もその店舗の owner / admin かを
  * 行ロックつきで確かめ直したうえで、INSERT と同じトランザクションで行う。
  */
 

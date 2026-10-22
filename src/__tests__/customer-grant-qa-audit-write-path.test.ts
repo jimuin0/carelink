@@ -12,10 +12,10 @@
  *   4. 店舗メンバーが audit_logs から来院者の IP・UA を読めた → service_role 専用。
  *
  * migration は 4 本:
- *   20261022210000_customer_grant_scope.sql            … 付与・一覧 RPC、2 表のブラウザ書き込み撤回
- *   20261022210100_facility_qa_question_only.sql       … 質問の INSERT を「回答待ち・回答なし」に限る（旧コードは動く）
- *   20261022210200_audit_logs_service_role_only.sql    … audit_logs の読み取りポリシーと権限を撤回
- *   20261022210300_facility_qa_close_browser_insert.sql … コードのデプロイ後に、ブラウザの INSERT 自体を撤回
+ *   20261022230000_customer_grant_scope.sql            … 付与・一覧 RPC、2 表のブラウザ書き込み撤回
+ *   20261022230100_facility_qa_question_only.sql       … 質問の INSERT を「回答待ち・回答なし」に限る（旧コードは動く）
+ *   20261022230200_audit_logs_service_role_only.sql    … audit_logs の読み取りポリシーと権限を撤回
+ *   20261022230300_facility_qa_close_browser_insert.sql … コードのデプロイ後に、ブラウザの INSERT 自体を撤回
  * 実 DB での検証は supabase/shadow/customer-grant-qa-audit-fixtures.sql（CI の schema-fingerprint で実行）。
  */
 import { readFileSync, readdirSync, statSync } from 'fs';
@@ -24,10 +24,10 @@ import { FACILITY_QA_ANSWER_MAX_LENGTH, FACILITY_QA_QUESTION_MAX_LENGTH } from '
 
 const ROOT = process.cwd();
 const MIGRATIONS = join(ROOT, 'supabase/migrations');
-const GRANT = '20261022210000_customer_grant_scope.sql';
-const QA_FIRST = '20261022210100_facility_qa_question_only.sql';
-const AUDIT = '20261022210200_audit_logs_service_role_only.sql';
-const QA_CLOSE = '20261022210300_facility_qa_close_browser_insert.sql';
+const GRANT = '20261022230000_customer_grant_scope.sql';
+const QA_FIRST = '20261022230100_facility_qa_question_only.sql';
+const AUDIT = '20261022230200_audit_logs_service_role_only.sql';
+const QA_CLOSE = '20261022230300_facility_qa_close_browser_insert.sql';
 /** コメントを除いた SQL（説明文の中の語に反応しない）。 */
 const code = (text: string) => text.replace(/--[^\n]*/g, '').replace(/\s+/g, ' ').trim();
 const sql = (file: string) => code(readFileSync(join(MIGRATIONS, file), 'utf8'));

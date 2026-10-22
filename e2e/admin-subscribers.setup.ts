@@ -52,7 +52,7 @@ setup('provision owner with an active subscriber', async ({ page }) => {
   if (ce) throw new Error('seed subscriber user: ' + ce.message);
 
   // 契約者はこの店舗の予約者（来院済み）。付与先・一覧の表示名はその店舗の予約者に限られる
-  // （migration 20261022210000）ので、予約が無いと一覧の名前が「不明」になる。
+  // （migration 20261022230000）ので、予約が無いと一覧の名前が「不明」になる。
   const { error: be } = await sb.from('bookings').insert({
     facility_id: facilityId, user_id: cust.user.id, booking_date: jstToday(), start_time: '10:00', end_time: '11:00',
     customer_name: SUBSCRIBERS_SEED.subscriberName, email: subscriberEmail, status: 'completed', total_price: 8000,

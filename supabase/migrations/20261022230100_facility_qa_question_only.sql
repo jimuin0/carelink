@@ -1,5 +1,5 @@
 -- 施設 Q&A: 来院者が作れるのは「回答待ちの質問」だけにする（2026年10月22日）。
--- 2 本組の 1 本目。2 本目＝20261022210300_facility_qa_close_browser_insert.sql。
+-- 2 本組の 1 本目。2 本目＝20261022230300_facility_qa_close_browser_insert.sql。
 --
 -- 【それまでの状態】facility_qa_user_insert の WITH CHECK は「自分の user_id であること」しか
 -- 見ておらず、authenticated は表単位で全列の INSERT 権を持っていた。そのため、ログインした
