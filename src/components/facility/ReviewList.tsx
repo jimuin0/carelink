@@ -177,13 +177,8 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
     setReportingId(null);
   };
 
-  if (reviews.length === 0) {
-    return (
-      <p className="text-gray-500 text-center py-8">
-        まだ口コミはありません。最初の口コミを投稿してみませんか？
-      </p>
-    );
-  }
+  // 0 件の案内は ReviewTab が 1 つだけ出す（ここでも出すと同じ案内が 2 段重なる・2026年10月23日）。
+  if (reviews.length === 0) return null;
 
   return (
     <div className="space-y-4">

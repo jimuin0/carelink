@@ -11,6 +11,7 @@ import { notFound } from 'next/navigation';
 import { safeCaptureException } from '@/lib/safe';
 import { getFacilityBySlug } from '@/lib/facilities';
 import { getBlogSummariesByFacility } from '@/lib/blog';
+import { hasPublicQa } from '@/lib/facility-qa-visibility';
 
 jest.mock('next/navigation', () => ({ notFound: jest.fn(() => { throw new Error('TEST_NOT_FOUND'); }) }));
 jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
@@ -24,6 +25,7 @@ jest.mock('@/lib/staff', () => ({ getStaffByFacility: jest.fn(async () => []) })
 jest.mock('@/lib/coupons', () => ({ getActiveCouponsByFacility: jest.fn(async () => []), getCouponMenuMap: jest.fn(async () => ({})) }));
 jest.mock('@/lib/catalogs', () => ({ getCatalogsByFacility: jest.fn(async () => []) }));
 jest.mock('@/lib/blog', () => ({ getBlogSummariesByFacility: jest.fn() }));
+jest.mock('@/lib/facility-qa-visibility', () => ({ hasPublicQa: jest.fn() }));
 jest.mock('@/lib/supabase-server', () => ({ createServerSupabaseClient: () => ({}), createServiceRoleClient: () => ({}) }));
 jest.mock('@/lib/facility-publish-gate', () => ({ checkBookingReadiness: jest.fn(async () => ({ readiness: { ready: false }, error: null })) }));
 
@@ -50,7 +52,13 @@ jest.mock('@/components/facility/ViewCount', () => mockStub('ViewCount'));
 jest.mock('@/components/facility/StaffList', () => mockStub('StaffList'));
 jest.mock('@/components/facility/CouponList', () => mockStub('CouponList'));
 jest.mock('@/components/facility/CatalogList', () => mockStub('CatalogList'));
-jest.mock('@/components/facility/QASection', () => mockStub('QASection'));
+jest.mock('@/components/facility/QASection', () => ({
+  __esModule: true,
+  QA_ASK_ANCHOR: 'qa-ask',
+  default: ({ askOnly, loginHref }: { askOnly?: boolean; loginHref?: string }) => (
+    <i data-stub="QASection" data-ask-only={askOnly ? 'true' : 'false'} data-login-href={loginHref} />
+  ),
+}));
 jest.mock('@/components/facility/BusinessStatusBadge', () => mockStub('BusinessStatusBadge'));
 jest.mock('@/components/facility/SimilarFacilities', () => mockStub('SimilarFacilities'));
 jest.mock('@/components/facility/NearbyFacilities', () => mockStub('NearbyFacilities'));
@@ -72,6 +80,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   (getFacilityBySlug as jest.Mock).mockResolvedValue({ facility });
   (getBlogSummariesByFacility as jest.Mock).mockResolvedValue({ posts, total: 2 });
+  (hasPublicQa as jest.Mock).mockResolvedValue(true);
 });
 
 describe('店舗ブログへの導線', () => {
@@ -121,5 +130,69 @@ describe('施設の読み取り失敗は 404 にしない', () => {
     (getFacilityBySlug as jest.Mock).mockResolvedValue({ facility: null });
     await expect(Page(props())).rejects.toThrow('TEST_NOT_FOUND');
     await expect(generateMetadata(props())).resolves.toEqual({ title: 'ページが見つかりません' });
+  });
+});
+
+// 2026年10月23日（神原さん判断）: 公開中の Q&A が 0 件の施設では Q&A タブを出さない。
+// 質問を送る機能は残す（タブの中にあった投稿欄を、お問い合わせ欄の下に小さく置く）。
+describe('Q&A タブ', () => {
+  const contact = (html: string) => html.slice(html.indexOf('id="contact-section"'));
+
+  test('公開中の Q&A が 0 件ならタブを出さず、お問い合わせ欄に質問の入口だけを置く', async () => {
+    (hasPublicQa as jest.Mock).mockResolvedValue(false);
+    const html = renderToStaticMarkup(await Page(props()));
+    expect(hasPublicQa).toHaveBeenCalledWith('facility-id');
+    expect(html).not.toContain('data-tab="qa"');
+    expect(html).not.toContain('>Q&amp;A</h3>');
+    expect(html.match(/data-stub="QASection"/g)).toHaveLength(1);
+    expect(contact(html)).toContain('data-ask-only="true"');
+    // 未ログインの人はログインして質問欄（#qa-ask）へ戻る
+    expect(contact(html)).toContain(`data-login-href="/auth/login?redirect=${encodeURIComponent('/facility/hal#qa-ask')}"`);
+  });
+
+  test('公開中の Q&A が 1 件以上ならタブを出し、お問い合わせ欄に入口は重ねない', async () => {
+    (hasPublicQa as jest.Mock).mockResolvedValue(true);
+    const html = renderToStaticMarkup(await Page(props()));
+    expect(html).toContain('data-tab="qa"');
+    expect(html.match(/data-stub="QASection"/g)).toHaveLength(1);
+    expect(html).toContain('data-ask-only="false"');
+    expect(contact(html)).not.toContain('data-stub="QASection"');
+  });
+
+  test('有無を読めなかったら通知したうえでタブを出す（あるかもしれない内容を隠さない）', async () => {
+    const failure = new Error('QA lookup unavailable');
+    (hasPublicQa as jest.Mock).mockRejectedValue(failure);
+    const html = renderToStaticMarkup(await Page(props()));
+    expect(html).toContain('data-tab="qa"');
+    expect(contact(html)).not.toContain('data-stub="QASection"');
+    expect(safeCaptureException).toHaveBeenCalledWith(failure, 'facility-detail:qa');
+  });
+});
+
+// 2026年10月23日: スマホで共有ボタン 4 つとお気に入りを見出しの横に並べると、店名などが 2〜3 行に折れていた。
+describe('見出しまわりの並び', () => {
+  const classOf = (html: string, testId: string) => html.match(new RegExp(`class="([^"]*)" data-testid="${testId}"`))?.[1].split(' ') ?? [];
+
+  test('スマホ: 見出しの横はお気に入りだけ（右上）、共有は見出しの下に 1 行で並ぶ', async () => {
+    const html = renderToStaticMarkup(await Page(props()));
+    const area = classOf(html, 'facility-title-area');
+    const share = classOf(html, 'facility-share-slot');
+    const favorite = classOf(html, 'facility-favorite-slot');
+    expect(area).toEqual(expect.arrayContaining(['grid', 'grid-cols-[minmax(0,1fr)_auto]']));
+    expect(share).toEqual(expect.arrayContaining(['col-span-2', 'row-start-2']));
+    expect(favorite).toEqual(expect.arrayContaining(['col-start-2', 'row-start-1']));
+  });
+
+  test('PC: 共有とお気に入りは従来どおり見出しの横に並ぶ', async () => {
+    const html = renderToStaticMarkup(await Page(props()));
+    expect(classOf(html, 'facility-title-area')).toContain('sm:grid-cols-[minmax(0,1fr)_auto_auto]');
+    expect(classOf(html, 'facility-share-slot')).toEqual(expect.arrayContaining(['sm:col-start-2', 'sm:row-start-1', 'sm:col-span-1']));
+    expect(classOf(html, 'facility-favorite-slot')).toContain('sm:col-start-3');
+  });
+
+  test('共有ボタンは 1 組だけ描画する（スマホ用と PC 用を 2 組置いてラベルを重複させない）', async () => {
+    const html = renderToStaticMarkup(await Page(props()));
+    expect(html.match(/data-stub="ShareButtons"/g)).toHaveLength(1);
+    expect(html.match(/data-stub="FavoriteButton"/g)).toHaveLength(1);
   });
 });

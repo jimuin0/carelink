@@ -8,7 +8,7 @@
  */
 import '@testing-library/jest-dom';
 import { act, render, screen } from '@testing-library/react';
-import FacilityHeader from '@/components/facility/FacilityHeader';
+import FacilityHeader, { VIEW_COUNT_DISPLAY_MIN } from '@/components/facility/FacilityHeader';
 import type { Facility } from '@/types';
 
 const baseFacility = {
@@ -36,8 +36,8 @@ test('google_review_count>0 かつ google_rating=null → 「0.0」を表示せ�
 // 修正前（ViewingNow を描画）ではハイドレーション後に「人が閲覧中」が出るのでここが落ちる。
 describe('閲覧数の表示', () => {
   test('累計の「閲覧 N回」は出し、「N人が閲覧中」は出さない', async () => {
-    render(<FacilityHeader facility={{ ...baseFacility, view_count: 8 }} />);
-    expect(screen.getByText('閲覧 8回')).toBeInTheDocument();
+    render(<FacilityHeader facility={{ ...baseFacility, view_count: 1234 }} />);
+    expect(screen.getByText(`閲覧 ${(1234).toLocaleString()}回`)).toBeInTheDocument();
     // マウント後に出る形だったので、描画の確定を待ってから確かめる。
     await act(async () => {});
     expect(screen.queryByText(/閲覧中/)).not.toBeInTheDocument();
@@ -47,6 +47,21 @@ describe('閲覧数の表示', () => {
     const { container } = render(<FacilityHeader facility={{ ...baseFacility, view_count: 0 }} />);
     await act(async () => {});
     expect(container.textContent).not.toMatch(/閲覧/);
+  });
+
+  // 2026年10月23日（神原さん判断）: 100 回に届くまでは小さな閲覧数を出さない。
+  test('しきい値は 100 回', () => {
+    expect(VIEW_COUNT_DISPLAY_MIN).toBe(100);
+  });
+
+  test('閲覧 99 回では出さない', () => {
+    const { container } = render(<FacilityHeader facility={{ ...baseFacility, view_count: 99 }} />);
+    expect(container.textContent).not.toMatch(/閲覧/);
+  });
+
+  test('閲覧 100 回からは従来どおり出す', () => {
+    render(<FacilityHeader facility={{ ...baseFacility, view_count: 100 }} />);
+    expect(screen.getByText('閲覧 100回')).toBeInTheDocument();
   });
 });
 

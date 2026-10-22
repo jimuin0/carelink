@@ -294,6 +294,8 @@ describe('アプリのコード', () => {
     expect(browserReads.map((s) => s.file).sort()).toEqual([
       'src/app/admin/qa/page.tsx',
       'src/components/facility/QASection.tsx',
+      // 施設ページの Q&A タブを出すかどうか（公開中の Q&A が 1 件でもあるか）。anon で id だけを読む。
+      'src/lib/facility-qa-visibility.ts',
     ]);
     for (const { file, text, statement } of browserReads) {
       const arg = statement.match(/\.select\(\s*(?:'([^']*)'|([A-Z_]+))\s*\)/);

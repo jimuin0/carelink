@@ -93,3 +93,48 @@ test('ログインしていなければ投稿欄を出さない', async () => {
   expect(await screen.findByText('Q&Aはまだありません。')).toBeInTheDocument();
   expect(screen.queryByLabelText('質問を入力')).not.toBeInTheDocument();
 });
+
+// 2026年10月23日（神原さん判断）: 公開中の Q&A が 0 件の施設では Q&A タブを出さない。
+// そのとき質問を送る機能が消えないよう、お問い合わせ欄の下に投稿欄だけの入口（askOnly）を置く。
+describe('質問だけの入口（askOnly）', () => {
+  const LOGIN = '/auth/login?redirect=%2Ffacility%2Fhal%23qa-ask';
+
+  afterEach(() => { window.location.hash = ''; });
+
+  test('ログイン中: 投稿欄を出し、一覧は読まない。送信は同じ API を通る', async () => {
+    respond(201, { success: true, id: 'qa-1' });
+    const user = userEvent.setup();
+    render(<QASection facilityId="f1" askOnly loginHref={LOGIN} />);
+    await user.click(screen.getByText('この施設に質問する'));
+    await user.type(await screen.findByLabelText('質問を入力'), '駐車場はありますか？');
+    await user.click(screen.getByRole('button', { name: '質問する' }));
+    expect(await screen.findByText('質問を送信しました。施設からの回答をお待ちください。')).toBeInTheDocument();
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ facility_id: 'f1', question: '駐車場はありますか？' });
+    // 一覧（facility_qa の読み取り）はしない＝空の「Q&Aはまだありません。」も出ない
+    const clients = (createBrowserSupabaseClient as jest.Mock).mock.results.map((r) => r.value);
+    expect(clients.length).toBeGreaterThan(0);
+    expect(clients.every((c) => (c.from as jest.Mock).mock.calls.length === 0)).toBe(true);
+    expect(screen.queryByText('Q&Aはまだありません。')).not.toBeInTheDocument();
+  });
+
+  test('未ログイン: 投稿欄は出さず、#qa-ask に戻るログイン導線を出す', async () => {
+    mockSupabase({ userId: null });
+    render(<QASection facilityId="f1" askOnly loginHref={LOGIN} />);
+    const link = await screen.findByRole('link', { name: 'ログインして質問する' });
+    expect(link).toHaveAttribute('href', LOGIN);
+    expect(screen.queryByLabelText('質問を入力')).not.toBeInTheDocument();
+  });
+
+  test('ふだんは閉じた小さな入口で、ログインから #qa-ask で戻ったときは開いて出す', async () => {
+    const closed = render(<QASection facilityId="f1" askOnly loginHref={LOGIN} />);
+    const details = closed.container.querySelector('details#qa-ask') as HTMLDetailsElement;
+    expect(details).not.toBeNull();
+    expect(details.open).toBe(false);
+    closed.unmount();
+
+    window.location.hash = '#qa-ask';
+    const opened = render(<QASection facilityId="f1" askOnly loginHref={LOGIN} />);
+    expect((opened.container.querySelector('details#qa-ask') as HTMLDetailsElement).open).toBe(true);
+    await screen.findByLabelText('質問を入力');
+  });
+});

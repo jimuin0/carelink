@@ -1,4 +1,4 @@
-import { getSimilarFacilities } from '@/lib/facilities';
+import { getSimilarForFacilityPage } from '@/lib/related-facilities';
 import FacilityCard from '@/components/search/FacilityCard';
 
 interface Props {
@@ -8,7 +8,7 @@ interface Props {
 }
 
 export default async function SimilarFacilities({ facilityId, businessType, prefecture }: Props) {
-  const facilities = await getSimilarFacilities(facilityId, businessType, prefecture);
+  const facilities = await getSimilarForFacilityPage(facilityId, businessType, prefecture);
   if (facilities.length === 0) return null;
 
   return (

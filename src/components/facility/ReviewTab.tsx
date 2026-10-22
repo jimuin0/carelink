@@ -53,14 +53,23 @@ export default function ReviewTab({ facilityId, facilitySlug, facilityName, init
 
   return (
     <div className="space-y-8">
-      {/* Empty state */}
+      {/* 口コミ 0 件の案内はここだけで出す（2026年10月23日 神原さん判断）。以前は ReviewList も
+          「まだ口コミはありません」を出しており、同じ意味の案内が 2 段重なっていた。
+          ボタンは投稿欄（#review-form）へ移るだけで、投稿できるかどうかの判定は ReviewForm と
+          /api/review が従来どおり行う（ここで条件を緩めない）。 */}
       {reviews.length === 0 && (
-        <div className="text-center py-10 bg-gray-50 rounded-xl">
-          <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="text-center py-10 bg-gray-50 rounded-xl" data-testid="review-empty-state">
+          <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
           </svg>
-          <p className="text-gray-500 text-sm font-medium">まだ口コミがありません</p>
-          <p className="text-gray-500 text-xs mt-1">この施設を利用された方の最初の口コミをお待ちしています</p>
+          <p className="text-gray-600 text-sm font-medium">まだ口コミがありません</p>
+          <p className="text-gray-500 text-xs mt-1">この施設を利用された方の口コミをお待ちしています</p>
+          <a
+            href="#review-form"
+            className="inline-flex items-center justify-center mt-4 min-h-[44px] px-5 rounded-lg bg-sky-700 text-white text-sm font-bold hover:bg-sky-800 transition-colors"
+          >
+            最初の口コミを書く
+          </a>
         </div>
       )}
 
