@@ -167,9 +167,6 @@ export default function ManualPage() {
           <Link href="/contact" className="text-sm text-sky-600 hover:underline">
             問い合わせフォーム →
           </Link>
-          <Link href="/admin/tutorials" className="text-sm text-sky-600 hover:underline">
-            ビデオチュートリアル →
-          </Link>
         </div>
       </div>
     </div>

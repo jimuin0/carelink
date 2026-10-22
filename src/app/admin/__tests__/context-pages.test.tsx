@@ -20,12 +20,13 @@ function nodes(node: unknown): ReactElement<Record<string, unknown>>[] {
   const el = node as ReactElement<Record<string, unknown>>;
   return [el, ...nodes(el.props.children), ...nodes(el.props.actions), ...nodes(el.props.action)];
 }
+let profileRow: Record<string, unknown> = { status: 'draft' };
 beforeEach(() => {
-  queries.length = 0; jest.clearAllMocks();
+  queries.length = 0; jest.clearAllMocks(); profileRow = { status: 'draft' };
   mockGetUser.mockResolvedValue({ data: { user: { id: 'synthetic-owner' } }, error: null });
   mockSelection.mockResolvedValue({ choices: [{ id: facility, name: '店舗B' }], selectedId: facility });
   mockFrom.mockImplementation((table: string) => {
-    const result = { data: table === 'facility_profiles' ? { status: 'draft' } : table === 'staff_profiles' ? [{ id: 'staff-b', name: '合成スタッフ', is_active: true }] : [], count: 0, error: null };
+    const result = { data: table === 'facility_profiles' ? profileRow : table === 'staff_profiles' ? [{ id: 'staff-b', name: '合成スタッフ', is_active: true }] : [], count: 0, error: null };
     const c: Record<string, unknown> = {}; const eq = jest.fn(() => c); queries.push({ table, eq }); c.eq = eq;
     for (const method of ['select', 'or', 'in', 'order', 'limit', 'gte', 'lte', 'neq', 'not']) c[method] = () => c;
     c.single = () => Promise.resolve(result); c.then = (resolve: (result: unknown) => unknown) => resolve(result); return c;
@@ -47,6 +48,8 @@ test.each(pages)('%p rejects unauthorized tenant/selection outage before queries
   expect(mockFrom).not.toHaveBeenCalled();
 });
 test('dashboard links retain selected store and today uses from/to', async () => {
+  // 公開中の店舗（公開前で予約の無い店舗は、空の売上・2週間表を出さずセットアップを先に見せる）
+  profileRow = { status: 'published' };
   const tree = await Dashboard({ searchParams: Promise.resolve({ facility_id: facility }) });
   const links = nodes(tree).map(n => n.props.href).filter((href): href is string => typeof href === 'string');
   expect(links.length).toBeGreaterThan(20);

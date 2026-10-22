@@ -20,3 +20,9 @@ export const ONLINE_PREPAYMENT_NOTICE =
 
 /** キャンセル待ち登録（Issue #409）。登録 UI は出さず、予定だけを伝える。 */
 export const WAITLIST_NOTICE = 'キャンセル待ちのご登録は近日公開予定です。';
+
+/**
+ * 店舗の管理画面（決済管理）向け。#408 と同じ決定の店舗側の表示。決済の設定を求めず、予定だけを伝える。
+ * Stripe 連携も保留中のため、アカウント作成や秘密鍵の用意を案内しない。
+ */
+export const OWNER_ONLINE_PREPAYMENT_NOTICE = 'オンライン前払い（事前決済）は近日公開予定です。';

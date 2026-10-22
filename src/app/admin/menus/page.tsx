@@ -6,6 +6,7 @@ import FacilitySelector from '@/components/admin/FacilitySelector';
 import { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/lib/admin-facility-selection';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import Image from 'next/image';
+import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -42,6 +43,17 @@ async function fetchMenuSnapshot(facilityId: string) {
   return snapshot;
 }
 
+/**
+ * 所要時間の範囲（分）。空欄や 0 のまま保存すると、予約枠では既定の長さとして扱われ、
+ * オーナーの知らない長さで枠が切られていた。保存の前に範囲を確かめる。
+ */
+const MENU_DURATION_MIN = 15;
+const MENU_DURATION_MAX = 480;
+
+/** メニュー写真として受け付ける形式と大きさ（写真管理と同じ）。 */
+const MENU_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MENU_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+
 /** 一括公開中を表す publishing の値（メニュー ID とは重ならない）。 */
 const PUBLISH_ALL = 'all';
 
@@ -68,6 +80,7 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
   // 公開／非公開の切替中のメニュー。HPB 一括反映のメニューは非公開で作られるため、
   // ここから公開しない限りお客様に表示されず、ネット予約も始められない。
   const [publishing, setPublishing] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const loadMenus = useCallback(async (fId: string) => {
     setLoadError(false);
@@ -120,6 +133,11 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
       setToast({ type: 'error', message: 'メニュー名を入力してください' });
       return;
     }
+    const duration = Number(editForm.duration_minutes);
+    if (!editForm.duration_minutes.trim() || !Number.isInteger(duration) || duration < MENU_DURATION_MIN || duration > MENU_DURATION_MAX) {
+      setToast({ type: 'error', message: `所要時間は${MENU_DURATION_MIN}〜${MENU_DURATION_MAX}分の整数で入力してください` });
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
@@ -128,7 +146,7 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
         description: editForm.description.trim() || null,
         price: editForm.price ? parseInt(editForm.price) : null,
         price_note: editForm.price_note.trim() || null,
-        duration_minutes: editForm.duration_minutes ? parseInt(editForm.duration_minutes) : null,
+        duration_minutes: duration,
         photo_url: editForm.photo_url.trim() || null,
         is_featured: editForm.is_featured,
       };
@@ -265,6 +283,30 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
     }
   };
 
+  // メニュー写真は写真管理と同じ保存先（photos バケットの facilities/{店舗ID}/ 配下）へ上げる。
+  // 以前は Supabase Storage の URL を貼り付ける欄しか無く、ヘルプの「写真もアップロード可能」と食い違っていた。
+  const handleMenuPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !facilityId || !editForm || uploadingPhoto) return;
+    if (!MENU_PHOTO_TYPES.includes(file.type)) { setToast({ type: 'error', message: 'JPG, PNG, WebPのみ対応しています' }); return; }
+    if (file.size > MENU_PHOTO_MAX_BYTES) { setToast({ type: 'error', message: 'ファイルサイズは5MB以下にしてください' }); return; }
+    setUploadingPhoto(true);
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const ext = file.name.split('.').pop() || 'jpg';
+      const path = `facilities/${facilityId}/menus/${Date.now()}.${ext}`;
+      const { error } = await supabase.storage.from('photos').upload(path, file, { contentType: file.type });
+      if (error) throw error;
+      const { data } = supabase.storage.from('photos').getPublicUrl(path);
+      setEditForm((form) => form && { ...form, photo_url: data.publicUrl });
+    } catch {
+      setToast({ type: 'error', message: '写真をアップロードできませんでした' });
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
   const startEdit = (menu: FacilityMenu) => {
     setEditForm({
       id: menu.id,
@@ -333,14 +375,15 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
                 <label htmlFor="menu-desc" className="form-label">説明</label>
                 <textarea id="menu-desc" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} className="form-input" rows={3} maxLength={500} />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="menu-price" className="form-label">料金（税込）</label>
                   <SbInput id="menu-price" type="number" min={0} value={editForm.price} onChange={(e) => setEditForm({ ...editForm, price: e.target.value })} placeholder="5000" />
                 </div>
                 <div>
-                  <label htmlFor="menu-dur" className="form-label">所要時間（分）</label>
-                  <SbInput id="menu-dur" type="number" min={0} value={editForm.duration_minutes} onChange={(e) => setEditForm({ ...editForm, duration_minutes: e.target.value })} placeholder="60" />
+                  <label htmlFor="menu-dur" className="form-label">所要時間（分） <span className="text-red-500">*</span></label>
+                  <SbInput id="menu-dur" type="number" min={MENU_DURATION_MIN} max={MENU_DURATION_MAX} required value={editForm.duration_minutes} onChange={(e) => setEditForm({ ...editForm, duration_minutes: e.target.value })} placeholder="60" aria-describedby="menu-dur-hint" />
+                  <p id="menu-dur-hint" className="mt-1 text-xs text-gray-600">{MENU_DURATION_MIN}〜{MENU_DURATION_MAX}分。予約枠はこの長さで押さえます。</p>
                 </div>
               </div>
               <div>
@@ -348,13 +391,22 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
                 <SbInput id="menu-note" value={editForm.price_note} onChange={(e) => setEditForm({ ...editForm, price_note: e.target.value })} placeholder="例: 初回限定" maxLength={100} />
               </div>
               <div>
-                <label htmlFor="menu-photo" className="form-label">画像URL</label>
-                <SbInput id="menu-photo" value={editForm.photo_url} onChange={(e) => setEditForm({ ...editForm, photo_url: e.target.value })} placeholder="https://xxx.supabase.co/storage/v1/..." maxLength={500} />
-                {editForm.photo_url && (
-                  <div className="mt-2 w-20 h-20 relative rounded-lg overflow-hidden bg-gray-100">
-                    <Image src={editForm.photo_url} alt="プレビュー" fill className="object-cover" sizes="80px" unoptimized />
-                  </div>
-                )}
+                <p className="form-label">写真（任意）</p>
+                <div className="flex flex-wrap items-center gap-3">
+                  {editForm.photo_url && (
+                    <div className="w-20 h-20 relative rounded-lg overflow-hidden bg-gray-100">
+                      <Image src={editForm.photo_url} alt="プレビュー" fill className="object-cover" sizes="80px" unoptimized />
+                    </div>
+                  )}
+                  <label className={`rounded-md border border-gray-300 px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50 ${uploadingPhoto ? 'opacity-50 pointer-events-none' : ''}`}>
+                    {uploadingPhoto ? 'アップロード中...' : editForm.photo_url ? '写真を変更' : '写真を選ぶ'}
+                    <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleMenuPhoto} className="sr-only" aria-label="メニューの写真を選ぶ" />
+                  </label>
+                  {editForm.photo_url && (
+                    <button type="button" onClick={() => setEditForm({ ...editForm, photo_url: '' })} className="text-sm text-gray-600 underline">写真を外す</button>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-gray-600">JPG, PNG, WebP / 最大5MB</p>
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={editForm.is_featured} onChange={(e) => setEditForm({ ...editForm, is_featured: e.target.checked })} className="rounded-sm border-gray-300 text-sky-500 focus:ring-sky-500" />
@@ -381,8 +433,12 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
       {/* Menu List */}
       {menus.length === 0 ? (
         <div className="bg-white rounded-xl shadow-xs p-12 text-center">
-          <p className="text-gray-400 mb-2">メニューがまだ登録されていません</p>
-          <button type="button" onClick={() => setEditForm({ ...emptyForm })} className="text-sm text-sky-600 font-medium hover:underline">最初のメニューを追加する</button>
+          <p className="text-gray-600 mb-2">メニューがまだ登録されていません</p>
+          <button type="button" onClick={() => setEditForm({ ...emptyForm })} className="text-sm text-sky-700 font-medium hover:underline">最初のメニューを追加する</button>
+          <p className="mt-3 text-sm text-gray-600">
+            ホットペッパービューティーに掲載中なら、
+            <Link href={`/admin/hpb-menus?facility_id=${encodeURIComponent(facilityId)}`} className="text-sky-700 underline">掲載中のメニューを取り込めます</Link>
+          </p>
         </div>
       ) : (
         <div className="space-y-6">
@@ -391,7 +447,8 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
               <h2 className="text-sm font-bold text-gray-800 mb-3 pl-3 border-l-[3px] border-sky-500">{cat}</h2>
               <div className="bg-white rounded-xl shadow-xs divide-y">
                 {items.map((menu, index) => (
-                  <div key={menu.id} className="flex items-center gap-4 p-4">
+                  // スマホでは操作ボタンを2行目へ折り返す（1行に並べるとメニュー名が幅0まで潰れていた）。
+                  <div key={menu.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 p-4">
                     <div className="flex flex-col shrink-0">
                       <button
                         type="button"
@@ -417,9 +474,9 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
                         <Image src={menu.photo_url} alt={menu.name} fill className="object-cover" sizes="48px" unoptimized />
                       </div>
                     )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium text-sm truncate">{menu.name}</p>
+                    <div className="flex-1 min-w-[8rem]">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium text-sm break-words">{menu.name}</p>
                         {menu.is_published === false && <SbBadge tone="neutral">非公開</SbBadge>}
                         {menu.is_featured && <SbBadge tone="warning">おすすめ</SbBadge>}
                       </div>
@@ -429,7 +486,7 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
                       {menu.price != null && <p className="font-bold text-sky-600 text-sm">¥{menu.price.toLocaleString()}</p>}
                       {menu.duration_minutes != null && <p className="text-xs text-gray-400">{menu.duration_minutes}分</p>}
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
+                    <div className="flex w-full items-center justify-end gap-1 sm:w-auto sm:shrink-0">
                       <button
                         type="button"
                         onClick={() => handleTogglePublish(menu)}

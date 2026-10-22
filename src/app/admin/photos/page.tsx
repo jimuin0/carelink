@@ -50,6 +50,8 @@ function AdminPhotosContent() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [settingMain, setSettingMain] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // 検索カードに出るメイン写真（facility_profiles.main_photo_url）。undefined＝読めなかった（推測で上書きしない）。
+  const [mainPhotoUrl, setMainPhotoUrl] = useState<string | null | undefined>(undefined);
 
   // Upload form
   const [selectedType, setSelectedType] = useState<FacilityPhoto['photo_type']>('interior');
@@ -66,6 +68,8 @@ function AdminPhotosContent() {
       .limit(100);
     if (error) { setLoadError(true); return; }
     setPhotos((data ?? []) as FacilityPhoto[]);
+    const main = await supabase.from('facility_profiles').select('main_photo_url').eq('id', fId).maybeSingle();
+    setMainPhotoUrl(main.error || !main.data ? undefined : main.data.main_photo_url ?? null);
   }, []);
 
   // React Compiler の set-state-in-effect 対策：user→membership→facilityId→一覧取得の全工程を
@@ -123,6 +127,9 @@ function AdminPhotosContent() {
       let nextSortOrder = photos.length;
       // 種類「メイン」で上げた写真は、検索カードの画像（facility_profiles.main_photo_url）にも使う。
       // 以前は別途「メインに設定」を押すまでカードが「写真未登録」のままだった。
+      // メイン写真がまだ無い店舗では、種類に関係なく最初の1枚をメインにする（内観だけを上げた店舗の
+      // 検索カードが「予約OK」なのに「写真未登録」と出ていた）。
+      const promoteFirst = selectedType !== 'main' && mainPhotoUrl === null;
       let newMainPhotoId: string | null = null;
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -147,7 +154,7 @@ function AdminPhotosContent() {
             .select('id')
             .single();
           if (insertError || !inserted) throw insertError ?? new Error('Photo insert not confirmed');
-          if (selectedType === 'main' && !newMainPhotoId) newMainPhotoId = inserted.id;
+          if ((selectedType === 'main' || promoteFirst) && !newMainPhotoId) newMainPhotoId = inserted.id;
           nextSortOrder++;
           succeeded++;
         } catch {
@@ -162,7 +169,10 @@ function AdminPhotosContent() {
         const uploaded = failed === 0 ? `${succeeded}枚アップロードしましたが、` : `${succeeded}枚成功・${failed}枚失敗しました。また、`;
         setToast({ type: 'error', message: `${uploaded}メイン写真に設定できませんでした。「メインに設定」を押してください` });
       } else if (failed === 0) {
-        setToast({ type: 'success', message: mainSet ? `${succeeded}枚アップロードし、メイン写真に設定しました` : `${succeeded}枚アップロードしました` });
+        const message = !mainSet ? `${succeeded}枚アップロードしました`
+          : promoteFirst ? `${succeeded}枚アップロードし、1枚目をメイン写真に設定しました`
+          : `${succeeded}枚アップロードし、メイン写真に設定しました`;
+        setToast({ type: 'success', message });
       } else if (succeeded > 0) {
         setToast({ type: 'error', message: `${succeeded}枚成功・${failed}枚失敗しました` });
       } else {
@@ -204,7 +214,10 @@ function AdminPhotosContent() {
     if (!facilityId || settingMain) return;
     setSettingMain(photo.id);
     try {
-      if (await requestMainPhoto(facilityId, photo.id)) setToast({ type: 'success', message: 'メイン写真を設定しました' });
+      if (await requestMainPhoto(facilityId, photo.id)) {
+        setMainPhotoUrl(photo.photo_url);
+        setToast({ type: 'success', message: 'メイン写真を設定しました' });
+      }
       else setToast({ type: 'error', message: '設定を確認できませんでした。再読み込みして確認してください' });
     } finally {
       setSettingMain(null);
@@ -271,14 +284,17 @@ function AdminPhotosContent() {
                     <div className="relative aspect-square">
                       <Image src={photo.photo_url} alt={photo.caption || label} fill className="object-cover" sizes="(max-width: 640px) 50vw, 25vw" />
                     </div>
+                    {photo.photo_url === mainPhotoUrl && (
+                      <span className="absolute top-2 left-2 z-10 rounded-full bg-sky-700 px-2 py-0.5 text-xs font-bold text-white">現在のメイン</span>
+                    )}
                     {photo.caption && (
-                      <p className="text-xs text-gray-500 p-2 truncate">{photo.caption}</p>
+                      <p className="text-xs text-gray-600 p-2 truncate">{photo.caption}</p>
                     )}
                     <div className="absolute inset-0 bg-black/30 sm:bg-black/0 sm:group-hover:bg-black/40 transition-colors flex items-center justify-center gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
                       <button
                         type="button"
                         onClick={() => setAsMain(photo)}
-                        disabled={settingMain === photo.id}
+                        disabled={settingMain === photo.id || photo.photo_url === mainPhotoUrl}
                         className="px-3 py-1.5 bg-white text-gray-800 text-xs font-bold rounded-lg hover:bg-sky-50 disabled:opacity-50"
                       >
                         メインに設定

@@ -8,6 +8,9 @@ const uploadedId = '71000000-0000-4000-8000-000000000004';
 const mockInsert = jest.fn();
 let mockRequested: string | null = second;
 let mockProfileRead = jest.fn();
+// 店舗の現在のメイン写真。既定は一覧に無い別の写真（＝メインは設定済み）。
+let mockMainPhoto: string | null = 'https://example.invalid/other-main.png';
+let mockMainError: unknown = null;
 const mockPhotoFilters = jest.fn();
 const mockFetch = jest.fn();
 const mockDb = jest.fn();
@@ -21,6 +24,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockRequested = second;
   mockProfileRead = jest.fn();
+  mockMainPhoto = 'https://example.invalid/other-main.png';
+  mockMainError = null;
   mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true, photoId }) });
   global.fetch = mockFetch;
   mockInsert.mockReturnValue({ select: () => ({ single: async () => ({ data: { id: uploadedId }, error: null }) }) });
@@ -35,7 +40,14 @@ beforeEach(() => {
             { facility_id: second, facility_profiles: { name: '合成店舗B' } }], error: null }) };
         return chain;
       }
-      if (table === 'facility_profiles') { mockProfileRead(); throw new Error('browser profile writes forbidden'); }
+      if (table === 'facility_profiles') {
+        // 読むのはメイン写真の URL だけ。書き込みはサーバー経由（ブラウザから facility_profiles を書かない）。
+        const forbid = () => { mockProfileRead(); throw new Error('browser profile writes forbidden'); };
+        const profile = { select: (columns: string) => { if (columns !== 'main_photo_url') forbid(); return profile; },
+          eq: () => profile, maybeSingle: async () => ({ data: mockMainError ? null : { main_photo_url: mockMainPhoto }, error: mockMainError }),
+          update: forbid, insert: forbid, upsert: forbid };
+        return profile;
+      }
       const chain = { select: () => chain, eq: (key: string, value: string) => { mockPhotoFilters(key, value); return chain; },
         order: () => chain, limit: async () => ({ error: null, data: [{ id: photoId, facility_id: second,
           photo_type: 'main', photo_url: 'https://example.invalid/synthetic.png', caption: '合成写真', sort_order: 0 }] }),
@@ -138,4 +150,38 @@ test('一部の失敗とメイン設定の失敗を両方伝える', async () =>
   fireEvent.change(input, { target: { files: [new File(['x'], 'a.jpg', { type: 'image/jpeg' }), new File(['y'], 'b.jpg', { type: 'image/jpeg' })] } });
   await waitFor(() => expect(screen.getByRole('status').textContent)
     .toBe('1枚成功・1枚失敗しました。また、メイン写真に設定できませんでした。「メインに設定」を押してください'));
+});
+
+// ─── メイン写真が無い店舗（2026年10月23日） ─────────────────────────────────────
+// 種類「メイン」を選ばずに上げると main_photo_url が設定されず、検索カードは「予約OK」なのに「写真未登録」だった。
+test('メイン写真が無い店舗では、種類に関係なく最初の1枚をメインにする', async () => {
+  mockMainPhoto = null;
+  render(<AdminPhotosPage />);
+  await screen.findByRole('button', { name: 'メインに設定' });
+  uploadAs('interior');
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe('1枚アップロードし、1枚目をメイン写真に設定しました'));
+  expect(mockFetch).toHaveBeenCalledWith(`/api/admin/settings?facility_id=${second}&action=main-photo`, expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ photoId: uploadedId }) }));
+  expect(mockProfileRead).not.toHaveBeenCalled();
+});
+
+test('メイン写真の有無を読めなければ、推測でメインを差し替えない', async () => {
+  mockMainError = { message: 'synthetic' };
+  render(<AdminPhotosPage />);
+  await screen.findByRole('button', { name: 'メインに設定' });
+  uploadAs('interior');
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe('1枚アップロードしました'));
+  expect(mockFetch).not.toHaveBeenCalled();
+});
+
+test('現在のメイン写真に「現在のメイン」と表示し、その写真の「メインに設定」は押せない', async () => {
+  mockMainPhoto = 'https://example.invalid/synthetic.png';
+  render(<AdminPhotosPage />);
+  expect(await screen.findByText('現在のメイン')).toBeTruthy();
+  expect((screen.getByRole('button', { name: 'メインに設定' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+test('「メインに設定」が成功したら、その写真に「現在のメイン」を出す', async () => {
+  render(<AdminPhotosPage />);
+  fireEvent.click(await screen.findByRole('button', { name: 'メインに設定' }));
+  expect(await screen.findByText('現在のメイン')).toBeTruthy();
 });
