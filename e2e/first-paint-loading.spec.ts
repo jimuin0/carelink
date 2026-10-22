@@ -110,7 +110,7 @@ async function seedVisitorWithBooking() {
 }
 
 /** 応答を遅らせ、ローディング状態が観測可能な時間だけ持続するようにする。 */
-async function delayRoute(page: Page, urlPattern: string, ms: number) {
+async function delayRoute(page: Page, urlPattern: string | RegExp, ms: number) {
   await page.route(urlPattern, async (route) => {
     await new Promise((r) => setTimeout(r, ms));
     await route.continue();
@@ -174,7 +174,8 @@ test.describe('開いた最初のフレームに、試す前の結果を出し�
 
   test('予約フロー：日時ステップの最初のフレームが「予約可能な時間帯がありません」ではない', async ({ page }) => {
     // 空き状況の取得を遅らせ、ローディングが観測できる長さにする。
-    await delayRoute(page, '**/api/slots*', 3000);
+    // 予約画面は 1 週ぶんを /api/slots/week で取得する（'**/api/slots*' は /week に一致しない）。
+    await delayRoute(page, /\/api\/slots\/week(\?|$)/, 3000);
 
     // 公開施設（メニューとスタッフがある店）を service role で用意する。
     const { facilitySlug } = await seedBookableFacility();

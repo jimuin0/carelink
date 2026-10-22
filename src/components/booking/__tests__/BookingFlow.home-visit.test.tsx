@@ -13,6 +13,7 @@ import { readPointsBalance } from '@/lib/points-balance';
 jest.mock('@/lib/points-balance');
 import { completeClientCleanupMarker } from '@/lib/client-cleanup-marker';
 import type { FacilityMenu, StaffProfile, Coupon } from '@/types';
+import { slotsWeekFetch } from '@/test-utils/slots-week-mock';
 
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn(), refresh: jest.fn() }) }));
 const originalCrypto = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
@@ -49,9 +50,7 @@ beforeEach(() => {
   Object.defineProperty(globalThis, 'TextEncoder', { configurable: true, value: TextEncoder });
   mockGetUser.mockResolvedValue({ data: { user: null } }); // 未認証固定（ログインバナー表示のため）
   (readPointsBalance as jest.Mock).mockResolvedValue(0);
-  global.fetch = jest.fn(() =>
-    Promise.resolve({ ok: true, json: () => Promise.resolve({ slots: [] }) })
-  ) as unknown as typeof fetch;
+  global.fetch = jest.fn(slotsWeekFetch([])) as unknown as typeof fetch;
 });
 afterEach(() => {
   jest.restoreAllMocks(); if (originalCrypto) Object.defineProperty(globalThis, 'crypto', originalCrypto);
@@ -59,9 +58,7 @@ afterEach(() => {
 });
 
 async function openConfirmation(facility: typeof FACILITY & { homeVisitOnly?: boolean }) {
-  (global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: true,
-    json: () => Promise.resolve({ slots: [{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: 'staff-1' }] }),
-  }));
+  (global.fetch as jest.Mock).mockImplementation(slotsWeekFetch([{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: 'staff-1' }]));
   render(<BookingFlow facility={facility} staff={STAFF} menus={MENUS} coupons={COUPONS} />);
   fireEvent.click(await screen.findByText('カット'));
   fireEvent.click(screen.getByText('次へ（日時を選ぶ）'));

@@ -14,6 +14,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import BookingFlow from '../BookingFlow';
 import type { FacilityMenu, StaffProfile, Coupon } from '@/types';
 import type { CancelPolicy } from '@/lib/cancel-fee';
+import { slotsWeekFetch } from '@/test-utils/slots-week-mock';
 
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn(), refresh: jest.fn() }) }));
 jest.mock('@/lib/supabase-browser', () => ({
@@ -81,9 +82,7 @@ describe('defect5: Step2上部の選択中サマリ', () => {
 
 describe('defect7: マトリクスセルのタップターゲットが44px以上', () => {
   test('空き状況セルのボタンに min-h-[44px] クラスが付与される', async () => {
-    global.fetch = jest.fn(() =>
-      Promise.resolve({ ok: true, json: () => Promise.resolve({ slots: [{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: 'staff-1' }] }) })
-    ) as unknown as typeof fetch;
+    global.fetch = jest.fn(slotsWeekFetch([{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: 'staff-1' }])) as unknown as typeof fetch;
     const STAFF: StaffProfile[] = [
       { id: 'staff-1', facility_id: 'fac-1', name: '山田', position: null, nomination_fee: 0 } as StaffProfile,
     ];
@@ -102,9 +101,7 @@ describe('defect4: キャンセルポリシー表示（確認ステップ）', (
   ];
 
   beforeEach(() => {
-    global.fetch = jest.fn(() =>
-      Promise.resolve({ ok: true, json: () => Promise.resolve({ slots: [{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: 'staff-1' }] }) })
-    ) as unknown as typeof fetch;
+    global.fetch = jest.fn(slotsWeekFetch([{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: 'staff-1' }])) as unknown as typeof fetch;
   });
 
   async function goToConfirmStep(cancelPolicy?: CancelPolicy | null) {

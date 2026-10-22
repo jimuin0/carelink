@@ -56,6 +56,13 @@ async function isolated(context: BrowserContext) {
     const url = new URL(route.request().url());
     if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) return route.abort();
     if (url.pathname === '/api/slots') return route.fulfill({ status: 200, json: { slots: [{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: staffId }] } });
+    // 予約画面は 1 週ぶんを /api/slots/week でまとめて取得する（全スタッフ×全日付に同じ空き枠を返す）。
+    if (url.pathname === '/api/slots/week') {
+      const staffIds = (url.searchParams.get('staffIds') ?? '').split(',').filter(Boolean);
+      const days = Object.fromEntries((url.searchParams.get('dates') ?? '').split(',').filter(Boolean).map(date => [date,
+        Object.fromEntries(staffIds.map(id => [id, [{ slot_start: '10:00:00', slot_end: '11:00:00', staff_id: id }]]))]));
+      return route.fulfill({ status: 200, json: { days } });
+    }
     if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/storage/')) return route.abort();
     return route.continue();
   });

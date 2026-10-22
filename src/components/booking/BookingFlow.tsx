@@ -123,11 +123,13 @@ interface Props {
 }
 
 const WEEK_SIZE = 7;
+/** /api/slots/week が 1 リクエストで受け付けるスタッフ数の上限（サーバー側と一致させる）。 */
+const SLOTS_WEEK_MAX_STAFF = 10;
 /** 時間帯セル1件分の空き情報（count=空きスタッフ数、slot=予約に使う代表スロット）。 */
 type Cell = { count: number; slot: AvailableSlot };
 /** date -> ("HH:MM" -> Cell) の週マトリクス。 */
 type WeekMatrix = Record<string, Record<string, Cell>>;
-/** 1スタッフ分の /api/slots 取得結果。取得失敗（非ok・例外）時は null。 */
+/** 1スタッフ×1日分の空き枠（/api/slots/week の応答から作る）。取得できなかった時は null。 */
 export type StaffSlotsResult = { staffId: string; slots: AvailableSlot[] } | null;
 
 /**
@@ -471,29 +473,40 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
       let hadFailure = false;
 
       try {
-        const entries = await Promise.all(visibleDates.map(async (date) => {
-          const results = await Promise.all(targetStaff.map(async (s) => {
-            try {
-              const r = await fetch(
-                `/api/slots?facilityId=${facility.id}&staffId=${s.id}&date=${date}&duration=${totalDuration}`,
-                { signal: controller.signal },
-              );
-              if (!r.ok) {
-                hadFailure = true;
-                return null;
-              }
-              const data = await r.json();
-              return { staffId: s.id, slots: (data.slots ?? []) as AvailableSlot[] };
-            } catch (err) {
-              if ((err as { name?: string })?.name !== 'AbortError') hadFailure = true;
-              return null;
+        // 1 週（スタッフ×最大7日）を 1 リクエストで受け取る。以前はスタッフ×日数ぶん /api/slots を
+        // 叩いており、表を数週めくるだけで IP あたりの上限（毎分30回）を超えて表示できなくなっていた。
+        // 1 リクエストあたりのスタッフ数はサーバー側で 10 人まで。それを超える店舗は 10 人ずつに分ける。
+        const days: Record<string, Record<string, AvailableSlot[]>> = {};
+        const groups: StaffProfile[][] = [];
+        for (let i = 0; i < targetStaff.length; i += SLOTS_WEEK_MAX_STAFF) groups.push(targetStaff.slice(i, i + SLOTS_WEEK_MAX_STAFF));
+        await Promise.all(groups.map(async (group) => {
+          const query = new URLSearchParams({
+            facilityId: facility.id,
+            staffIds: group.map((s) => s.id).join(','),
+            dates: visibleDates.join(','),
+            duration: String(totalDuration),
+          });
+          try {
+            const r = await fetch(`/api/slots/week?${query}`, { signal: controller.signal });
+            const body = r.ok ? await r.json().catch(() => null) : null;
+            if (!body || typeof body.days !== 'object' || body.days === null) { hadFailure = true; return; }
+            for (const [date, perStaff] of Object.entries(body.days as Record<string, Record<string, AvailableSlot[]>>)) {
+              days[date] = { ...days[date], ...perStaff };
             }
-          }));
-
-          // targetStaff と同じ順序（= staff 配列順）でマージする。これにより代表スロットの選出は
-          // fetch の完了タイミングに依存せず、常に同じスタッフが優先される。
-          return [date, mergeStaffSlotsForDate(results)] as [string, Record<string, Cell>];
+          } catch (err) {
+            if ((err as { name?: string })?.name !== 'AbortError') hadFailure = true;
+          }
         }));
+
+        const entries = visibleDates.map((date) => {
+          // targetStaff と同じ順序（= staff 配列順）でマージする。これにより代表スロットの選出は
+          // 応答の並びに依存せず、常に同じスタッフが優先される。
+          const results: StaffSlotsResult[] = targetStaff.map((s) => {
+            const slots = days[date]?.[s.id];
+            return Array.isArray(slots) ? { staffId: s.id, slots } : null;
+          });
+          return [date, mergeStaffSlotsForDate(results)] as [string, Record<string, Cell>];
+        });
 
         if (controller.signal.aborted) return;
         setMatrix(Object.fromEntries(entries));
