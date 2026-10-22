@@ -133,6 +133,7 @@
     "user_id"
   ],
   "bookings": [
+    "account_deleted_at",
     "booking_date",
     "charges",
     "coupon_id",

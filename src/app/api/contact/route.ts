@@ -56,19 +56,19 @@ export const POST = withRoute(async (request) => {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
-  const { error } = await supabase.from('contacts').insert({
+  const { data: saved, error } = await supabase.from('contacts').insert({
     name: parsed.data.name,
     email: parsed.data.email,
     phone: parsed.data.phone || null,
     inquiry_type: parsed.data.inquiry_type,
     message: parsed.data.message,
     traffic_source: parsed.data.traffic_source ?? null,
-  });
+  }).select('id').single();
 
-  if (error) {
+  if (error || !saved) {
     return serverError(
       'contact-insert',
-      error,
+      error ?? new Error('contacts insert returned no row'),
       '/api/contact',
       '送信に失敗しました。時間をおいて再度お試しください。'
     );
@@ -80,16 +80,14 @@ export const POST = withRoute(async (request) => {
   // /api/notify の CSRF で 403 になり通知が無音欠落していたため、
   // 共有ロジック sendNotify を直接呼ぶ（HTTP 往復を排除）。
   //
+  // 🔴 Slack に載せるのは受付番号（contacts.id）と管理画面へのリンクだけ（2026年10月22日）。
+  // Slack はプライバシーポリシーの委託先に無いため、お名前・メール・本文・流入元は載せない
+  // （内容は管理画面 /admin/inquiries で見る。src/lib/notify.ts 冒頭）。
+  //
   // 通知失敗はお問い合わせ受付自体を失敗扱いにしない。
   runAfterResponse(() => sendNotify({
   type: 'contact',
-  data: {
-    name: parsed.data.name,
-    inquiry_type: parsed.data.inquiry_type,
-    email: parsed.data.email,
-    message: parsed.data.message,
-    traffic_source: parsed.data.traffic_source ?? null,
-  },
+  data: { contact_id: saved.id },
 })
   .then((r) => {
     if (!r.ok) {

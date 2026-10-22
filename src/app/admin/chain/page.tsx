@@ -7,6 +7,7 @@ import BulkActions from './BulkActions';
 import { jstMonthStartIso } from '@/lib/admin-date';
 import { SbTable, SbThead, SbTh, SbTbody, SbTd, SbPageHeader } from '@/components/admin/SbUi';
 import { formatFacilityLocality } from '@/lib/facility-location';
+import { formatReviewAverage, readFacilitiesReviewRatings, type ReviewRatingSummary } from '@/lib/review-rating-summary';
 import { z } from 'zod';
 
 export const metadata: Metadata = { title: 'チェーン一括管理' };
@@ -20,10 +21,9 @@ interface FacilityStat {
   city: string;
   is_published: boolean;
   booking_count: number;
-  review_count: number;
-  rating_avg: number;
   monthly_bookings: number;
-  nps_score: number | null;
+  /** 公開中の口コミの総合・項目別評価（旧 NPS 列の置き換え・2026年10月22日） */
+  ratings: ReviewRatingSummary;
 }
 
 export default async function ChainManagementPage() {
@@ -71,14 +71,19 @@ export default async function ChainManagementPage() {
   const { data: measured, error: statisticsError } = await admin.rpc('get_chain_statistics', {
     p_actor_id: user.id, p_facility_ids: facilityIds, p_month_start: monthStart,
   });
+  // RPC は review_count / rating_avg / nps_score も返すが使わない。口コミの数と評価は下の
+  // readFacilitiesReviewRatings（公開中の口コミの総合＋項目別）を単一ソースにする。NPS は回答の
+  // 経路がどこにも無く常に空だった（2026年10月22日に口コミ評価へ置き換え）。
   const statistics = z.array(z.object({ id: z.uuid(), booking_count: z.number().int().nonnegative(),
-    monthly_bookings: z.number().int().nonnegative(), review_count: z.number().int().nonnegative(),
-    rating_avg: z.number().min(0).max(5), nps_score: z.number().min(-100).max(100).nullable(),
+    monthly_bookings: z.number().int().nonnegative(),
   })).safeParse(measured);
+
+  // 所属（owner/admin）を確かめた店舗 ID だけを service role で読む（上の facility_members と同じ集合）。
+  const { summaries: ratings, error: ratingsError } = await readFacilitiesReviewRatings(admin, facilityIds);
 
   // An unavailable source is not a measured zero. Do not publish partially
   // fabricated statistics when any of the required reads failed.
-  if (facilityError || statisticsError || !Array.isArray(facilities) || !statistics.success
+  if (facilityError || statisticsError || ratingsError || !Array.isArray(facilities) || !statistics.success
     || facilities.length !== facilityIds.length || statistics.data.length !== facilityIds.length
     || new Set(statistics.data.map(s => s.id)).size !== facilityIds.length
     || statistics.data.some(s => !facilityIds.includes(s.id))) {
@@ -88,7 +93,8 @@ export default async function ChainManagementPage() {
   // 集計
   const stats: FacilityStat[] = (facilities ?? []).map((f) => {
     const measured = statistics.data.find(s => s.id === f.id);
-    if (!measured) throw new Error('店舗別集計の対応関係を確認できません');
+    const rating = ratings.get(f.id);
+    if (!measured || !rating) throw new Error('店舗別集計の対応関係を確認できません');
 
     return {
       id: f.id,
@@ -98,16 +104,14 @@ export default async function ChainManagementPage() {
       city: f.city ?? '',
       is_published: f.status === 'published',
       booking_count: measured.booking_count,
-      review_count: measured.review_count,
-      rating_avg: measured.rating_avg,
       monthly_bookings: measured.monthly_bookings,
-      nps_score: measured.nps_score,
+      ratings: rating,
     };
   });
 
   const totalBookings = stats.reduce((s, f) => s + f.booking_count, 0);
   const totalMonthly = stats.reduce((s, f) => s + f.monthly_bookings, 0);
-  const totalReviews = stats.reduce((s, f) => s + f.review_count, 0);
+  const totalReviews = stats.reduce((s, f) => s + f.ratings.count, 0);
   const publishedCount = stats.filter((f) => f.is_published).length;
 
   return (
@@ -119,7 +123,7 @@ export default async function ChainManagementPage() {
         {[
           { label: '管理施設数', value: stats.length, sub: `公開中 ${publishedCount}施設`, color: 'text-sky-600' },
           { label: '総予約数', value: totalBookings.toLocaleString(), sub: `今月 ${totalMonthly}件`, color: 'text-green-600' },
-          { label: '総口コミ数', value: totalReviews.toLocaleString(), sub: '承認済み', color: 'text-amber-600' },
+          { label: '総口コミ数', value: totalReviews.toLocaleString(), sub: '公開中', color: 'text-amber-600' },
           { label: '今月の予約', value: totalMonthly, sub: '全施設合計', color: 'text-purple-600' },
         ].map((card) => (
           <div key={card.label} className="bg-white rounded-xl border border-gray-100 p-4">
@@ -143,8 +147,8 @@ export default async function ChainManagementPage() {
             <SbTh align="right">今月予約</SbTh>
             <SbTh align="right">累計予約</SbTh>
             <SbTh align="right">口コミ</SbTh>
-            <SbTh align="right">評価</SbTh>
-            <SbTh align="right">NPS</SbTh>
+            <SbTh align="right">総合評価</SbTh>
+            <SbTh>項目別評価</SbTh>
             <SbTh />
           </SbThead>
           <SbTbody>
@@ -161,23 +165,28 @@ export default async function ChainManagementPage() {
                 </SbTd>
                 <SbTd align="right" className="font-medium text-gray-800">{f.monthly_bookings}</SbTd>
                 <SbTd align="right" className="text-gray-500">{f.booking_count.toLocaleString()}</SbTd>
-                <SbTd align="right" className="text-gray-500">{f.review_count}</SbTd>
+                <SbTd align="right" className="text-gray-500">{f.ratings.count}</SbTd>
                 <SbTd align="right">
-                  {f.review_count > 0 ? (
-                    <span className="text-amber-500 font-medium">
-                      ★{f.rating_avg.toFixed(1)}
+                  {f.ratings.count > 0 ? (
+                    <span className="font-medium text-gray-800 whitespace-nowrap">
+                      <span className="text-amber-500" aria-hidden="true">★</span>{formatReviewAverage(f.ratings.overall)}
                     </span>
                   ) : (
-                    <span className="text-gray-300">—</span>
+                    <span className="text-gray-500">—</span>
                   )}
                 </SbTd>
-                <SbTd align="right">
-                  {f.nps_score !== null ? (
-                    <span className={`font-medium ${f.nps_score >= 50 ? 'text-green-600' : f.nps_score >= 0 ? 'text-yellow-600' : 'text-red-500'}`}>
-                      {f.nps_score > 0 ? '+' : ''}{f.nps_score}
-                    </span>
+                <SbTd className="text-xs">
+                  {f.ratings.count > 0 ? (
+                    <dl className="grid grid-cols-[auto_auto] gap-x-2 gap-y-0.5 whitespace-nowrap">
+                      {f.ratings.items.map((item) => (
+                        <div key={item.key} className="contents">
+                          <dt className="text-gray-600">{item.label}</dt>
+                          <dd className="text-right font-medium text-gray-800">{formatReviewAverage(item.average)}</dd>
+                        </div>
+                      ))}
+                    </dl>
                   ) : (
-                    <span className="text-gray-300">—</span>
+                    <span className="text-gray-500 whitespace-nowrap">まだ口コミがありません</span>
                   )}
                 </SbTd>
                 <SbTd>

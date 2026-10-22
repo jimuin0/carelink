@@ -585,6 +585,7 @@ export type Database = {
       }
       bookings: {
         Row: {
+          account_deleted_at: string | null
           booking_date: string
           charges: Json | null
           coupon_id: string | null
@@ -616,6 +617,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          account_deleted_at?: string | null
           booking_date: string
           charges?: Json | null
           coupon_id?: string | null
@@ -647,6 +649,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          account_deleted_at?: string | null
           booking_date?: string
           charges?: Json | null
           coupon_id?: string | null
@@ -6856,6 +6859,7 @@ export type Database = {
           id: string
         }[]
       }
+      email_address_opted_out: { Args: { p_email: string }; Returns: boolean }
       enablelongtransactions: { Args: never; Returns: string }
       enqueue_moderation: { Args: { p_items: Json }; Returns: number }
       equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
