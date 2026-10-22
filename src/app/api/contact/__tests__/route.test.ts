@@ -8,7 +8,7 @@
  *   - Schema validation (name, email, inquiry_type, message)
  *   - Email format validation
  *   - Inserts to contacts table
- *   - Fire-and-forget Slack notification via /api/notify
+ *   - Slack notification (after response) carries only the contacts.id and the admin link — no PII
      - Fire-and-forget operator email notification via sendOperatorNotification
 */
 
@@ -36,13 +36,17 @@ import { verifyRecaptcha } from '@/lib/recaptcha';
 import { POST } from '../route';
 
 let mockInsert: jest.Mock;
+let mockSingle: jest.Mock;
+const CONTACT_ID = '71000000-0000-4000-8000-0000000000c1';
 
 function setupDefaultMocks(insertSucceeds: boolean = true) {
   (checkCsrf as jest.Mock).mockReturnValue(null);
 
-  mockInsert = jest.fn().mockResolvedValue({
-    error: insertSucceeds ? null : { message: 'Insert failed' },
-  });
+  // insert(...).select('id').single() — Slack には受付番号（contacts.id）だけを載せるため id を受け取る
+  mockSingle = jest.fn().mockResolvedValue(insertSucceeds
+    ? { data: { id: CONTACT_ID }, error: null }
+    : { data: null, error: { message: 'Insert failed' } });
+  mockInsert = jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ single: mockSingle }) });
 
   const { createClient } = require('@supabase/supabase-js');
   createClient.mockReturnValue({
@@ -329,6 +333,46 @@ describe('POST /api/contact', () => {
     );
 
     expect(res.status).toBe(500);
+  });
+
+  test('insert が行を返さない → 500（受付番号の無い通知を出さない）', async () => {
+    mockSingle.mockResolvedValue({ data: null, error: null });
+
+    const res = await POST(
+      makeRequest({
+        name: 'Test',
+        email: 'test@example.com',
+        inquiry_type: 'support',
+        message: 'Help',
+        recaptcha_token: 'valid-token',
+      }) as any
+    );
+
+    expect(res.status).toBe(500);
+    expect(sendNotify).not.toHaveBeenCalled();
+  });
+
+  // 🔴 回帰（2026年10月22日）: 以前は氏名・メール・本文・流入元をそのまま Slack へ送っていた。
+  // Slack はプライバシーポリシーの委託先に無いので、受付番号だけを渡す。
+  test('Slack 通知には受付番号だけを渡し、入力された個人情報を渡さない', async () => {
+    await POST(
+      makeRequest({
+        name: '山田花子',
+        email: 'hanako.yamada@example.com',
+        inquiry_type: '個人的なご相談',
+        message: '先週から腰痛がひどく相談したいです',
+        phone: '09012345678',
+        recaptcha_token: 'valid-token',
+        traffic_source: { source: 'threads', medium: 'social', referrerHost: 'www.threads.net', landingPath: '/lp', capturedAt: '2026-10-22T00:00:00.000Z' },
+      }) as any
+    );
+
+    expect(sendNotify).toHaveBeenCalledTimes(1);
+    expect(sendNotify).toHaveBeenCalledWith({ type: 'contact', data: { contact_id: CONTACT_ID } });
+    const sent = JSON.stringify((sendNotify as jest.Mock).mock.calls);
+    for (const value of ['山田花子', 'hanako.yamada@example.com', '09012345678', '腰痛', '個人的なご相談', 'threads']) {
+      expect(sent).not.toContain(value);
+    }
   });
 
   test('sends Slack notification (fire-and-forget)', async () => {

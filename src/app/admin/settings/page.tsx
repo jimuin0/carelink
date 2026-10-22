@@ -16,6 +16,7 @@ import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import { FACILITY_INPUT_LIMITS } from '@/lib/facility-input-limits';
 import { hasConfirmedBookingHours } from '@/lib/booking-preparation';
 import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
+import { BOOKING_CSV_MAX_ROWS, buildBookingCsv, readBookingCsvRows } from '@/lib/booking-csv-export';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
 const CancelPolicySettings = dynamic(() => import('@/components/admin/CancelPolicySettings'), { ssr: false });
@@ -44,6 +45,9 @@ function AdminSettingsContent() {
   const [saving, setSaving] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [csvExporting, setCsvExporting] = useState(false);
+  // 予約 CSV を上限で切り捨てたときの注記。トーストは 4 秒で消えるので、見落とさないよう画面に残す。
+  const [csvTruncated, setCsvTruncated] = useState(false);
 
   // Basic info
   const [name, setName] = useState('');
@@ -560,53 +564,55 @@ function AdminSettingsContent() {
       {/* データエクスポート */}
       <section className="bg-white rounded-xl shadow-xs p-6 mb-6">
         <h2 className="text-lg font-bold mb-4">データエクスポート</h2>
-        <p className="text-sm text-gray-500 mb-4">予約データをCSV形式でダウンロードできます。</p>
+        <p className="text-sm text-gray-500 mb-4">
+          予約データをCSV形式でダウンロードできます（予約日の新しい順に最大{BOOKING_CSV_MAX_ROWS.toLocaleString()}件）。
+        </p>
         <button
           type="button"
+          disabled={csvExporting}
           onClick={async () => {
             if (!facilityId) return;
-            const supabase = createBrowserSupabaseClient();
-            const { data, error } = await supabase
-              .from('bookings')
-              .select('id, booking_date, start_time, end_time, customer_name, email, phone, status, total_price, note, created_at')
-              .eq('facility_id', facilityId)
-              .order('booking_date', { ascending: false })
-              .limit(5000);
-            if (error) {
-              setToast({ type: 'error', message: '予約データの取得に失敗しました。再度お試しください' });
-              return;
+            setCsvExporting(true);
+            setCsvTruncated(false);
+            try {
+              // 1000 件ずつページングして読む（以前は 1 回読みで、PostgREST の max_rows により
+              // 1000 件で黙って打ち切られていた）。src/lib/booking-csv-export.ts
+              const { rows, truncated, error } = await readBookingCsvRows(createBrowserSupabaseClient(), facilityId);
+              if (error) {
+                setToast({ type: 'error', message: '予約データの取得に失敗しました。再度お試しください' });
+                return;
+              }
+              if (rows.length === 0) {
+                setToast({ type: 'error', message: 'エクスポートする予約データがありません' });
+                return;
+              }
+              const blob = new Blob([buildBookingCsv(rows)], { type: 'text/csv;charset=utf-8;' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `carelink-bookings-${new Date().toISOString().slice(0, 10)}.csv`;
+              a.click();
+              setTimeout(() => URL.revokeObjectURL(url), 200);
+              setCsvTruncated(truncated);
+              setToast({
+                type: 'success',
+                message: truncated
+                  ? `CSVをダウンロードしました（新しい順に${BOOKING_CSV_MAX_ROWS.toLocaleString()}件まで）`
+                  : `CSVをダウンロードしました（${rows.length.toLocaleString()}件）`,
+              });
+            } finally {
+              setCsvExporting(false);
             }
-            if (!data || data.length === 0) {
-              setToast({ type: 'error', message: 'エクスポートする予約データがありません' });
-              return;
-            }
-            const csvSafe = (v: string | number | null | undefined): string => {
-              const s = String(v ?? '');
-              const escaped = s.replace(/"/g, '""');
-              const needsPrefix = /^[=+\-@\t\r]/.test(s);
-              return `"${needsPrefix ? "'" : ''}${escaped}"`;
-            };
-            const headers = ['予約ID', '予約日', '開始時間', '終了時間', '顧客名', 'メール', '電話', 'ステータス', '金額', '備考', '作成日'];
-            const csvRows = [
-              headers.map((h) => `"${h}"`).join(','),
-              ...data.map((r) =>
-                [r.id, r.booking_date, r.start_time, r.end_time, r.customer_name, r.email, r.phone, r.status, r.total_price, r.note, r.created_at].map(csvSafe).join(',')
-              ),
-            ];
-            const bom = '\uFEFF';
-            const blob = new Blob([bom + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `carelink-bookings-${new Date().toISOString().slice(0, 10)}.csv`;
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(url), 200);
-            setToast({ type: 'success', message: data.length >= 5000 ? 'CSVをダウンロードしました（5000件で切り捨て）' : 'CSVをダウンロードしました' });
           }}
-          className="text-sm px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+          className="text-sm px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-60"
         >
-          予約データCSVダウンロード
+          {csvExporting ? 'CSVを作成中...' : '予約データCSVダウンロード'}
         </button>
+        {csvTruncated && (
+          <p role="status" className="mt-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            予約が{BOOKING_CSV_MAX_ROWS.toLocaleString()}件を超えているため、予約日の新しい順に{BOOKING_CSV_MAX_ROWS.toLocaleString()}件までを出力しました。それより古い予約はCSVに含まれていません。
+          </p>
+        )}
       </section>
 
       {/* 保存ボタン(下部) */}

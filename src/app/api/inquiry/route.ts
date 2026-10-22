@@ -130,15 +130,15 @@ export const POST = withRoute(async (request) => {
   // 共有ロジック sendNotify をこのサーバー側から直接呼ぶ（contact.ts/salons.ts と同型）。
   // facility_name はクライアント値ではなく上で確定したサーバー権威の facility.name を使う
   // （なりすまし防止は上の facility_profiles 確認で既に担保済みだが、Slack表示も一貫させる）。
+  // 🔴 Slack に載せるのは施設名・受付番号（facility_inquiries.id）・管理画面へのリンクだけ
+  // （2026年10月22日）。Slack はプライバシーポリシーの委託先に無いため、来院者のお名前・メール・
+  // 電話・本文は載せない（店舗オーナーへは上のメールで届き、内容は管理画面で見る）。
   runAfterResponse(() => sendNotify({
     type: 'facility_inquiry',
     data: {
+      inquiry_id: data.id,
       facility_id: facility.id,
       facility_name: facility.name,
-      name: d.name,
-      email: d.email,
-      phone: d.phone || '未入力',
-      message: d.message,
     },
   }).then((r) => {
     if (!r.ok) console.error('[inquiry] Slack notification failed', { error: r.error });

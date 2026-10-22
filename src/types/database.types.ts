@@ -498,6 +498,29 @@ export type Database = {
           },
         ]
       }
+      booking_member_withdrawals: {
+        Row: {
+          booking_id: string
+          withdrawn_at: string
+        }
+        Insert: {
+          booking_id: string
+          withdrawn_at?: string
+        }
+        Update: {
+          booking_id?: string
+          withdrawn_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_member_withdrawals_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: true
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       booking_waitlist: {
         Row: {
           created_at: string
@@ -6868,6 +6891,7 @@ export type Database = {
           id: string
         }[]
       }
+      email_address_opted_out: { Args: { p_email: string }; Returns: boolean }
       enablelongtransactions: { Args: never; Returns: string }
       enqueue_moderation: { Args: { p_items: Json }; Returns: number }
       equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }

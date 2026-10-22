@@ -112,6 +112,10 @@
     "response_payload",
     "state"
   ],
+  "booking_member_withdrawals": [
+    "booking_id",
+    "withdrawn_at"
+  ],
   "booking_waitlist": [
     "created_at",
     "customer_name",

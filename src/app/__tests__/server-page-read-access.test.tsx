@@ -35,7 +35,7 @@ const cases=[
  {name:'platform-blog',run:()=>PlatformBlog(),tables:['profiles','platform_blog_posts']},
  {name:'catalog',run:()=>Catalog(noSelection),tables:['facility_members','treatment_catalogs']},
  {name:'funnel',run:()=>Funnel(noSelection),tables:['facility_members','facility_page_views','bookings','facility_reviews']},
- {name:'usage',run:()=>Usage(noSelection),tables:['facility_members','bookings']},
+ {name:'usage',run:()=>Usage(noSelection),tables:['facility_members','bookings','facility_reviews']},
  {name:'customers',run:()=>Customers(),tables:['facility_members','facility_profiles']},
  {name:'customer',run:()=>Customer({params:Promise.resolve({id})}),tables:['facility_members','customers']},
 ];
