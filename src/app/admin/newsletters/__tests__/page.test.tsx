@@ -22,3 +22,19 @@ test('malformed create receipt preserves draft and never confirms save',async()=
 test('wrong campaign action receipt does not replace observed draft',async()=>{
  render(<NewslettersPage/>);await screen.findByText('今すぐ配信');mockFetch.mockResolvedValue(response({campaign:{...draft,id:'other'},message:'Should not confirm'}));fireEvent.click(screen.getByText('受付状況を確認'));await screen.findByText(/受付結果を確認できません/);expect(screen.queryByText('Should not confirm')).toBeNull();expect(screen.getByText('Synthetic campaign')).toBeTruthy();
 });
+
+// 回帰（2026年10月23日）: 作成画面が『ユーザーダイジェスト／クーポン配信／プロモーション』を選ばせていたが、
+// どれも宛先を作る経路が無く、配信を押すと必ず「配信対象がありません」で終わっていた。
+test('the create form only offers the owner newsletter and sends that type',async()=>{
+ render(<NewslettersPage/>);await screen.findByText('今すぐ配信');fireEvent.click(screen.getByText('新規キャンペーン作成'));
+ expect(screen.queryByRole('combobox')).toBeNull();
+ for(const legacy of [/ユーザーダイジェスト/,/クーポン配信/,/プロモーション/])expect(screen.queryByRole('option',{name:legacy})).toBeNull();
+ expect(screen.getByText(/店舗オーナーのログイン用メールアドレス宛て/)).toBeTruthy();
+ fireEvent.change(screen.getByLabelText(/件名/),{target:{value:'Owner notice'}});fireEvent.change(screen.getByLabelText(/HTML/),{target:{value:'<p>Synthetic</p>'}});
+ mockFetch.mockResolvedValue(response({campaign:{...draft,id:'e1000000-0000-4000-8000-000000000009',campaign_type:'owner_monthly',subject:'Owner notice'}}));
+ fireEvent.click(screen.getByText('作成する'));await screen.findByText('キャンペーンを作成しました');
+ expect(JSON.parse(mockFetch.mock.calls[1][1].body).campaign_type).toBe('owner_monthly');
+});
+test('an earlier campaign of a retired type still lists with its label',async()=>{
+ render(<NewslettersPage/>);expect(await screen.findByText('ユーザーダイジェスト（旧種別）')).toBeTruthy();expect(screen.getByText('Synthetic campaign')).toBeTruthy();
+});

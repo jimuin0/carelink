@@ -277,6 +277,12 @@ jobs:
       - name: Newsletter resume from My Page clears link suppression (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/newsletter-preference-fixtures.sql
 
+      - name: Newsletter audience and unsubscribe follow the confirmed login email, not profiles.email (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/newsletter-confirmed-audience-fixtures.sql
+
+      - name: One Google Place ID per facility, release and blank values (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/gbp-place-id-unique-fixtures.sql
+
       - name: Verified LINE ownership and client write restrictions (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/verified-line-ownership-fixtures.sql
 

@@ -2,6 +2,7 @@ import { logCronRun, cronError } from '@/lib/cron-logger';
 import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { fetchPlaceDetails } from '@/lib/gbp';
+import { FACILITY_IDENTITY_COLUMNS, placeMatchesFacility } from '@/lib/gbp-ownership';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertWarning } from '@/lib/alert';
 
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
   // gbp_synced_at 昇順 + 予算ガード + 処理ごとに gbp_synced_at 更新で、全施設を週次で順繰りに同期する。
   const { data: facilities, error } = await supabase
     .from('facility_profiles')
-    .select('id, gbp_place_id')
+    .select(`id, gbp_place_id, ${FACILITY_IDENTITY_COLUMNS}`)
     .eq('status', 'published')
     .not('gbp_place_id', 'is', null)
     .order('gbp_synced_at', { ascending: true, nullsFirst: true })
@@ -45,7 +46,8 @@ export async function GET(request: Request) {
   // 監査X2: fetchFailed は「Places API 呼び出しが null を返した(例外/401/429/5xx/status≠OK)」件数。
   // 従来はこれを skipped に混ぜていたため、API キー失効・課金停止の全滅時も errors=0 のまま
   // allFailed アラートが構造的に発火しなかった。attempted は place_id 有りで実際に fetch した件数。
-  const results = { updated: 0, skipped: 0, errors: 0, fetchFailed: 0, deferred: 0 };
+  // mismatched は「保存済みの Place が施設の電話番号・店舗名＋住所と合わず、評価を消した」件数（API は稼働している）。
+  const results = { updated: 0, skipped: 0, errors: 0, fetchFailed: 0, deferred: 0, mismatched: 0 };
   let attempted = 0;
   const loopStart = Date.now();
 
@@ -65,7 +67,7 @@ export async function GET(request: Request) {
     // これにより、取得失敗が続く施設が先頭に居座って他施設の同期を阻害しない。
     const nowIso = new Date().toISOString();
     const payload: { gbp_synced_at: string; google_rating?: number | null; google_review_count?: number } = { gbp_synced_at: nowIso };
-    let outcome: 'updated' | 'skipped' | 'error' | 'fetch_failed' = 'skipped';
+    let outcome: 'updated' | 'skipped' | 'error' | 'fetch_failed' | 'mismatch' = 'skipped';
 
     attempted++;
     try {
@@ -74,6 +76,12 @@ export async function GET(request: Request) {
         // fetchPlaceDetails は例外/401/429/5xx/status≠OK を全て null に畳む。
         // これらは API 障害であり「レビュー無し施設」ではないため fetch 失敗として集計する。
         outcome = 'fetch_failed';
+      } else if (!placeMatchesFacility(placeData, facility)) {
+        // 他店の Place ID（保存時の照合の後で施設情報だけ戻した・照合の導入前に保存された等）。
+        // その店舗の評価を自店の掲載に出さないよう、評価を消す（src/lib/gbp-ownership.ts）。
+        payload.google_rating = null;
+        payload.google_review_count = 0;
+        outcome = 'mismatch';
       } else if (placeData.rating == null && placeData.user_ratings_total == null) {
         // 取得は成功したがレビューが無い施設（正常なスキップ＝API は稼働）。
         outcome = 'skipped';
@@ -100,6 +108,8 @@ export async function GET(request: Request) {
       results.errors++;
     } else if (outcome === 'fetch_failed') {
       results.fetchFailed++;
+    } else if (outcome === 'mismatch') {
+      results.mismatched++;
     } else {
       results.skipped++;
     }
@@ -126,7 +136,7 @@ export async function GET(request: Request) {
   await logCronRun('sync-google-ratings', 'success', startedAt, {
     processed: results.updated,
     skipped: results.skipped,
-    meta: { errors: results.errors, fetchFailed: results.fetchFailed, deferred: results.deferred, allFailed },
+    meta: { errors: results.errors, fetchFailed: results.fetchFailed, deferred: results.deferred, mismatched: results.mismatched, allFailed },
   });
-  return NextResponse.json({ processed: results.updated, skipped: results.skipped, errors: results.errors, fetchFailed: results.fetchFailed, deferred: results.deferred });
+  return NextResponse.json({ processed: results.updated, skipped: results.skipped, errors: results.errors, fetchFailed: results.fetchFailed, deferred: results.deferred, mismatched: results.mismatched });
 }

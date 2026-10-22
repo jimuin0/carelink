@@ -14,6 +14,12 @@
 
 jest.mock('@/lib/cron-auth');
 jest.mock('@/lib/gbp');
+// 照合そのものは src/lib/__tests__/gbp-ownership.test.ts が確かめる。ここでは既定で「自店の Place」とし、
+// 他店のときの書き込みだけを下のテストで切り替えて確かめる。
+jest.mock('@/lib/gbp-ownership', () => ({
+  ...jest.requireActual('@/lib/gbp-ownership'),
+  placeMatchesFacility: jest.fn(() => true),
+}));
 jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/cron-logger', () => {
   const logCronRun = jest.fn().mockResolvedValue(undefined);
@@ -40,6 +46,7 @@ jest.mock('@/lib/alert', () => ({ alertWarning: jest.fn() }));
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { fetchPlaceDetails } from '@/lib/gbp';
+import { placeMatchesFacility } from '@/lib/gbp-ownership';
 import { logCronRun } from '@/lib/cron-logger';
 import { alertWarning } from '@/lib/alert';
 import { GET } from '../route';
@@ -451,5 +458,33 @@ describe('GET /api/cron/sync-google-ratings', () => {
 
     await GET(makeRequest() as any);
     expect(alertWarning).not.toHaveBeenCalled();
+  });
+});
+
+// 回帰（2026年10月23日）: 他店の Place ID が保存されていると、その店舗の評価・件数を毎週そのまま書き写していた。
+describe('a stored Place ID that is not this facility', () => {
+  test('selects the facility details the check needs', async () => {
+    await GET(makeRequest() as any);
+    expect(mockSelect).toHaveBeenCalledWith('id, gbp_place_id, name, phone, postal_code, prefecture, city, address');
+  });
+
+  test('clears the rating instead of copying the other business, and counts it apart from failures', async () => {
+    setupDefaultMocks(1);
+    (placeMatchesFacility as jest.Mock).mockReturnValueOnce(false);
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    expect(mockUpdate.mock.calls[0][0]).toEqual(expect.objectContaining({ google_rating: null, google_review_count: 0, gbp_synced_at: expect.any(String) }));
+    expect(json).toEqual(expect.objectContaining({ processed: 0, mismatched: 1, fetchFailed: 0, errors: 0 }));
+    expect(alertWarning).not.toHaveBeenCalled();
+    expect(logCronRun).toHaveBeenCalledWith('sync-google-ratings', 'success', expect.any(Date),
+      expect.objectContaining({ meta: expect.objectContaining({ mismatched: 1, allFailed: false }) }));
+  });
+
+  test('passes the loaded facility row to the check', async () => {
+    setupDefaultMocks(1);
+    await GET(makeRequest() as any);
+    expect(placeMatchesFacility).toHaveBeenCalledWith(expect.objectContaining({ rating: 4.8 }), expect.objectContaining({ id: 'fac-0', gbp_place_id: 'place-id-0' }));
   });
 });

@@ -6,61 +6,102 @@ import { newsletterUnsubUrl } from '../newsletter-unsub';
 const id = 'e1000000-0000-4000-8000-000000000001';
 const actor = 'e1000000-0000-4000-8000-000000000002';
 const receipt = { operation_id: 'e1000000-0000-4000-8000-000000000003', campaign_id: id, total: 1, queued: 1, unconfirmed: 0, accepted: 0, suppressed: 0, failed: 0 };
-function client(results: {data: unknown;error: unknown}[] = [], rpcResult: unknown = receipt) {
-  const from = jest.fn(() => {
-    const result = results.shift() ?? {data: [],error: null};
-    const chain: Record<string, unknown> = {};
-    for (const method of ['select','or','eq','order','range','in']) chain[method] = jest.fn(() => chain);
-    chain.then = (resolve: (v: unknown) => void, reject: (e: unknown) => void) => Promise.resolve(result).then(resolve,reject);
-    return chain;
-  });
-  const rpc = jest.fn().mockResolvedValue({data:rpcResult,error:null});
-  return { from, rpc };
+type Reply = { data: unknown; error: unknown };
+/**
+ * pages: newsletter_current_recipients の各ページの応答（range ごとに 1 つずつ消費）。
+ * operation: inspect / publish の RPC 応答。
+ */
+function client(pages: Reply[] = [], operation: unknown = receipt) {
+  const from = jest.fn();
+  const audience = jest.fn((_offset: number, _end: number) => Promise.resolve(pages.shift() ?? { data: [], error: null }));
+  const operationRpc = jest.fn().mockResolvedValue({ data: operation, error: null });
+  const rpc = jest.fn((name: string, args: Record<string, unknown>) => name === 'newsletter_current_recipients'
+    ? { range: (offset: number, end: number) => audience(offset, end) }
+    : operationRpc(name, args));
+  return { from, rpc, audience, operationRpc };
 }
-const ok = (data: unknown) => ({data,error:null});
+const ok = (data: unknown) => ({ data, error: null });
+const publish = (c: ReturnType<typeof client>, type = 'owner_monthly') =>
+  publishNewsletterOperation(c as never, actor, { id, campaign_type: type, updated_at: '2026-10-09T00:00:00Z' }, '2026-10-09T00:00:00Z');
 beforeEach(() => jest.clearAllMocks());
-test('subscription/owner merge, canonical case/whitespace, both suppression sources', async () => {
-  const c = client([ok([{email:' A@Example.com '},{email:'x@gmail.com'},{email:'x+tag@gmail.com'},{email:'stop@example.com'}]),ok([{user_id:actor}]),ok([{email:'a@example.com'},{email:'owner@example.com'}]),ok([{email:'STOP@example.com'}]),ok([{email:'OWNER@example.com'}])]);
-  expect(await collectNewsletterRecipients(c as never,'owner_monthly')).toEqual(['a@example.com','x+tag@gmail.com','x@gmail.com']);
+
+// 回帰（2026年10月23日）: アプリが profiles.email から宛先と配信停止を組み立てていた（本人が自由に書き換えられる値）。
+// 宛先は DB の newsletter_current_recipients（確認済みのログインメール・email_address_opted_out）だけで決める。
+test('the audience comes from the database definition only, never from profiles or subscriptions read by the app', async () => {
+  const c = client([ok(['a@example.com', 'owner@example.com'])]);
+  expect(await collectNewsletterRecipients(c as never, 'owner_monthly')).toEqual(['a@example.com', 'owner@example.com']);
+  expect(c.rpc).toHaveBeenCalledWith('newsletter_current_recipients', { p_kind: 'owner_monthly' });
+  expect(c.audience).toHaveBeenCalledWith(0, 999);
+  expect(c.from).not.toHaveBeenCalled();
 });
-test.each([0,1,2,3,4])('error with partial data at stage %s stops publication', async stage => {
-  const c=client([ok([{email:'a@example.com'}]),ok([{user_id:actor}]),ok([{email:'owner@example.com'}]),ok([]),ok([])].map((r,i)=>i===stage?{...r,error:{message:'dependency'}}:r));
-  await expect(publishNewsletterOperation(c as never,actor,{id,campaign_type:'owner_monthly',updated_at:'2026-10-09T00:00:00Z'},'2026-10-09T00:00:00Z')).rejects.toMatchObject({status:503});
-  expect(c.rpc).not.toHaveBeenCalled(); expect(newsletterUnsubUrl).not.toHaveBeenCalled();
+test('the campaign type is passed through unchanged', async () => {
+  const c = client([ok(['a@example.com'])]);
+  await collectNewsletterRecipients(c as never, 'user_digest');
+  expect(c.rpc).toHaveBeenCalledWith('newsletter_current_recipients', { p_kind: 'user_digest' });
 });
-test.each([null,{},[{email:42}],[{email:'bad-mail'}]])('missing/malformed input never produces envelope: %p', async data => {
- const c=client([ok(data),ok([]),ok([])]);
- await expect(publishNewsletterOperation(c as never,actor,{id,campaign_type:'user_digest',updated_at:'2026-10-09T00:00:00Z'},'2026-10-09T00:00:00Z')).rejects.toMatchObject({status:503});
- expect(c.rpc).not.toHaveBeenCalled();
+test('duplicates across pages collapse and the result is sorted', async () => {
+  const c = client([ok(['b@example.com', 'a@example.com', 'b@example.com'])]);
+  expect(await collectNewsletterRecipients(c as never, 'owner_monthly')).toEqual(['a@example.com', 'b@example.com']);
 });
-test('second owners profile chunk failure cannot publish first 500 only', async () => {
- const owners=Array.from({length:501},(_,i)=>({user_id:`e1000000-0000-4000-8000-${String(i+10).padStart(12,'0')}`}));
- const c=client([ok([]),ok(owners),ok([{email:'first@example.com'}]),{data:[{email:'last@example.com'}],error:{message:'failed'}}]);
- await expect(collectNewsletterRecipients(c as never,'owner_monthly')).rejects.toMatchObject({status:503});
+test.each([0, 1])('error with partial data on page %s stops publication', async stage => {
+  const full = ok(Array.from({ length: 1000 }, (_, i) => `u${i}@example.com`));
+  const pages = [full, ok(['last@example.com'])].map((r, i) => i === stage ? { ...r, error: { message: 'dependency' } } : r);
+  const c = client(pages);
+  await expect(publish(c)).rejects.toMatchObject({ status: 503 });
+  expect(c.operationRpc).not.toHaveBeenCalled(); expect(newsletterUnsubUrl).not.toHaveBeenCalled();
 });
-test('1000 subscriber boundary is paged and suppression mandatory when no candidates', async () => {
- const c=client([ok(Array.from({length:1000},(_,i)=>({email:`u${i}@example.com`}))),ok([{email:'last@example.com'}]),ok([]),ok([])]);
- expect(await collectNewsletterRecipients(c as never,'user_digest')).toHaveLength(1001); expect(c.from).toHaveBeenCalledTimes(4);
- const empty=client([ok([]),{data:[],error:{message:'suppression unavailable'}}]);
- await expect(collectNewsletterRecipients(empty as never,'user_digest')).rejects.toMatchObject({status:503});
+test.each([null, {}, [42], [null], ['bad-mail'], [`${'a'.repeat(250)}@example.com`]])('missing/malformed audience never produces an envelope: %p', async data => {
+  const c = client([ok(data)]);
+  await expect(publish(c)).rejects.toMatchObject({ status: 503 });
+  expect(c.operationRpc).not.toHaveBeenCalled();
 });
-test('publication snapshots links once and RPC uses observed revision, never claims directly', async () => {
- const c=client([ok([{email:'a@example.com'}]),ok([]),ok([])]);
- await expect(publishNewsletterOperation(c as never,actor,{id,campaign_type:'user_digest',updated_at:'2026-10-09T00:00:00Z'},'2026-10-09T00:00:00Z')).resolves.toEqual(receipt);
- expect(c.rpc).toHaveBeenCalledWith('publish_newsletter_send_operation',expect.objectContaining({p_expected_revision:'2026-10-09T00:00:00Z',p_expected_emails:['a@example.com']}));
- expect(newsletterUnsubUrl).toHaveBeenCalledTimes(1);
+test('1000 recipient boundary is paged', async () => {
+  const c = client([ok(Array.from({ length: 1000 }, (_, i) => `u${i}@example.com`)), ok(['last@example.com'])]);
+  expect(await collectNewsletterRecipients(c as never, 'owner_monthly')).toHaveLength(1001);
+  expect(c.audience.mock.calls).toEqual([[0, 999], [1000, 1999]]);
 });
-test.each([undefined,'bad','2026-10-08T00:00:00Z'])('old/stale consumer revision %p stops before reads', async revision => {
- const c=client(); await expect(publishNewsletterOperation(c as never,actor,{id,campaign_type:'user_digest',updated_at:'2026-10-09T00:00:00Z'},revision)).rejects.toMatchObject({status:409}); expect(c.from).not.toHaveBeenCalled();
+test('maxRows full pages cannot silently truncate audience', async () => {
+  const full = ok(Array.from({ length: 1000 }, (_, i) => `u${i}@example.com`));
+  const c = client(Array.from({ length: 100 }, () => full));
+  await expect(collectNewsletterRecipients(c as never, 'owner_monthly')).rejects.toMatchObject({ status: 503 });
+  expect(c.audience).toHaveBeenCalledTimes(100);
+});
+test('publication snapshots links once and RPC uses observed revision and the database audience, never claims directly', async () => {
+  const c = client([ok(['a@example.com'])]);
+  await expect(publish(c)).resolves.toEqual(receipt);
+  expect(c.operationRpc).toHaveBeenCalledWith('publish_newsletter_send_operation', expect.objectContaining({ p_expected_revision: '2026-10-09T00:00:00Z', p_expected_emails: ['a@example.com'] }));
+  expect(newsletterUnsubUrl).toHaveBeenCalledTimes(1);
+});
+test.each([undefined, 'bad', '2026-10-08T00:00:00Z'])('old/stale consumer revision %p stops before reads', async revision => {
+  const c = client();
+  await expect(publishNewsletterOperation(c as never, actor, { id, campaign_type: 'owner_monthly', updated_at: '2026-10-09T00:00:00Z' }, revision)).rejects.toMatchObject({ status: 409 });
+  expect(c.rpc).not.toHaveBeenCalled();
 });
 test('no recipients is a visible pre-publication rejection', async () => {
- const c=client([ok([]),ok([]),ok([])]);await expect(publishNewsletterOperation(c as never,actor,{id,campaign_type:'user_digest',updated_at:'2026-10-09T00:00:00Z'},'2026-10-09T00:00:00Z')).rejects.toMatchObject({status:409});expect(c.rpc).not.toHaveBeenCalled();
+  const c = client([ok([])]);
+  await expect(publish(c)).rejects.toMatchObject({ status: 409 });
+  expect(c.operationRpc).not.toHaveBeenCalled();
 });
-test.each([['42501',403],['40001',409],['23514',409],['PGRST202',503]])('RPC %s refuses phantom receipt',async(code,status)=>{const c=client();c.rpc.mockResolvedValue({data:receipt,error:{code}});await expect(inspectNewsletterOperation(c as never,actor,id)).rejects.toMatchObject({status});});
-test.each([undefined,[],{...receipt,total:2},{...receipt,campaign_id:actor}])('malformed/replayed other-campaign receipt fails: %p',async data=>{const c=client([],data); if(data===undefined)c.rpc.mockResolvedValue({data,error:null}); await expect(inspectNewsletterOperation(c as never,actor,id)).rejects.toMatchObject({status:503});});
-test('inspect replay reads no recipients or link secrets; null is definite no-operation',async()=>{const c=client();expect(await inspectNewsletterOperation(c as never,actor,id)).toEqual(receipt);expect(c.from).not.toHaveBeenCalled();expect(newsletterUnsubUrl).not.toHaveBeenCalled();c.rpc.mockResolvedValue({data:null,error:null});expect(await inspectNewsletterOperation(c as never,actor,id)).toBeNull();});
-
-test('nullable/blank addresses are skipped, and owner audience may be empty', async()=>{const c=client([ok([{email:null},{email:' '}]),ok([]),ok([{email:null}]),ok([{email:null}])]);expect(await collectNewsletterRecipients(c as never,'owner_monthly')).toEqual([]);});
-test.each([undefined,'network',{}])('unstructured/missing RPC error fails safely: %p',async error=>{const c=client();c.rpc.mockResolvedValue({data:receipt,error});await expect(inspectNewsletterOperation(c as never,actor,id)).rejects.toMatchObject({status:503});});
-test('maxRows full pages cannot silently truncate audience',async()=>{const full=ok(Array.from({length:1000},(_,i)=>({email:`u${i}@example.com`})));const c=client(Array.from({length:100},()=>full));await expect(collectNewsletterRecipients(c as never,'user_digest')).rejects.toMatchObject({status:503});expect(c.from).toHaveBeenCalledTimes(100);});
-test('publication RPC data plus concurrent audience error cannot return success',async()=>{const c=client([ok([{email:'a@example.com'}]),ok([]),ok([])]);c.rpc.mockResolvedValue({data:receipt,error:{code:'40001'}});await expect(publishNewsletterOperation(c as never,actor,{id,campaign_type:'user_digest',updated_at:'2026-10-09T00:00:00Z'},'2026-10-09T00:00:00Z')).rejects.toMatchObject({status:409});});
+test.each([['42501', 403], ['40001', 409], ['23514', 409], ['PGRST202', 503]])('RPC %s refuses phantom receipt', async (code, status) => {
+  const c = client(); c.operationRpc.mockResolvedValue({ data: receipt, error: { code } });
+  await expect(inspectNewsletterOperation(c as never, actor, id)).rejects.toMatchObject({ status });
+});
+test.each([undefined, [], { ...receipt, total: 2 }, { ...receipt, campaign_id: actor }])('malformed/replayed other-campaign receipt fails: %p', async data => {
+  const c = client(); c.operationRpc.mockResolvedValue({ data, error: null });
+  await expect(inspectNewsletterOperation(c as never, actor, id)).rejects.toMatchObject({ status: 503 });
+});
+test('inspect replay reads no recipients or link secrets; null is definite no-operation', async () => {
+  const c = client();
+  expect(await inspectNewsletterOperation(c as never, actor, id)).toEqual(receipt);
+  expect(c.audience).not.toHaveBeenCalled(); expect(newsletterUnsubUrl).not.toHaveBeenCalled();
+  c.operationRpc.mockResolvedValue({ data: null, error: null });
+  expect(await inspectNewsletterOperation(c as never, actor, id)).toBeNull();
+});
+test.each([undefined, 'network', {}])('unstructured/missing RPC error fails safely: %p', async error => {
+  const c = client(); c.operationRpc.mockResolvedValue({ data: receipt, error });
+  await expect(inspectNewsletterOperation(c as never, actor, id)).rejects.toMatchObject({ status: 503 });
+});
+test('publication RPC data plus concurrent audience error cannot return success', async () => {
+  const c = client([ok(['a@example.com'])]); c.operationRpc.mockResolvedValue({ data: receipt, error: { code: '40001' } });
+  await expect(publish(c)).rejects.toMatchObject({ status: 409 });
+});

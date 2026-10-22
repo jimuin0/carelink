@@ -104,7 +104,7 @@ function WhiteLabelContent({ requestedFacility }: { requestedFacility: string | 
       const data = await res.json();
       if (data.verified === true) {
         setConfig(prev => prev ? { ...prev, is_verified: true, verified_at: new Date().toISOString() } : null);
-        setMessage({ ok: true, text: 'ドメインを認証しました！' });
+        setMessage({ ok: true, text: 'ドメインの所有を確認しました。予約ページの表示は運営による設定後になります。' });
       } else setMessage({ ok: false, text: 'DNS TXTレコードが確認できませんでした。設定を確認してください。' });
     } catch { setMessage({ ok: false, text: 'サーバーエラーが発生しました' }); }
     finally { setVerifying(false); }
@@ -118,7 +118,7 @@ function WhiteLabelContent({ requestedFacility }: { requestedFacility: string | 
     <div className="max-w-3xl space-y-6">
       <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/white-label"
         dirty={JSON.stringify(form) !== savedForm} busy={saving || verifying} />
-      <SbPageHeader title="ホワイトラベル設定" description="施設独自のドメインでCareLink予約ページを提供できます（エンタープライズプラン）" />
+      <SbPageHeader title="ホワイトラベル設定" description="独自ドメインを登録し、所有を確認します（エンタープライズプラン）。独自ドメインでの予約ページの表示には、運営による設定が必要です。" />
 
       {message && (
         <Toast
@@ -250,26 +250,24 @@ function WhiteLabelContent({ requestedFacility }: { requestedFacility: string | 
         </div>
       )}
 
-      {/* Verified status */}
+      {/* Verified status
+          🔴 DNS 認証で確かめているのは「ドメインの持ち主であること」だけ。独自ドメインで店舗の予約ページを
+          出す処理（Host を見て店舗ページへ振り分ける等）は CareLink にまだ無いので、「利用可能です」や
+          「開く」リンクを出すと、押した先がエラー（または CareLink のトップ）になる。運営の設定待ちとして伝える。 */}
       {config?.is_verified && (
         <div className="bg-green-50 rounded-xl p-6">
-          <div className="flex items-center gap-2 text-green-700">
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+          <div className="flex items-center gap-2 text-green-800">
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
             </svg>
-            <span className="font-semibold">ドメイン認証済み</span>
+            <span className="font-semibold">ドメイン認証済み（運営による設定待ち）</span>
           </div>
-          <p className="text-sm text-green-700 mt-2">
-            <strong>{config.domain}</strong> で予約ページが利用可能です
+          <p className="text-sm text-green-800 mt-2">
+            <strong>{config.domain}</strong> の所有を確認しました。独自ドメインで予約ページを表示するには CareLink 側の設定が必要で、現在は設定待ちです。
           </p>
-          <a
-            href={`https://${config.domain}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-block mt-3 text-sm text-green-700 underline"
-          >
-            {config.domain} を開く →
-          </a>
+          <p className="text-sm text-green-800 mt-1">
+            設定が済むまでは、このドメインを開いても予約ページは表示されません。お急ぎの場合は CareLink までお問い合わせください。
+          </p>
         </div>
       )}
 
@@ -282,8 +280,8 @@ function WhiteLabelContent({ requestedFacility }: { requestedFacility: string | 
             <code className="bg-gray-100 px-2 py-0.5 rounded-sm text-xs">{form.domain || 'booking.yoursite.com'} → cname.vercel-dns.com</code>
           </li>
           <li>TXTレコードを追加してドメインを認証</li>
-          <li>Vercel管理画面でカスタムドメインを設定（サポートが代行します）</li>
-          <li>認証完了後、即座に独自ドメインで予約ページが利用可能になります</li>
+          <li>認証が済んだら、独自ドメインで予約ページを表示するための設定を CareLink 運営が行います</li>
+          <li>運営の設定が済むまでは、独自ドメインで予約ページは表示されません</li>
         </ol>
       </div>
     </div>

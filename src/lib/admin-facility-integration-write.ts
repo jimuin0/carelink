@@ -4,6 +4,7 @@ import { createServiceRoleClient } from './supabase-server';
 import { databaseDiagnostic } from './database-diagnostic';
 import { serverError } from './with-route';
 import { UUID_REGEX } from './constants';
+import { GBP_PLACE_TAKEN_MESSAGE } from './gbp-ownership';
 import type { Json } from '@/types/database.types';
 const receipt=z.object({id:z.string().regex(UUID_REGEX),facility_id:z.string().regex(UUID_REGEX)}).passthrough();
 export async function saveAdminFacilityIntegration(input:{actorId:string;facilityId:string;kind:'gbp:connect'|'gbp:refresh'|'domain:configure'|'domain:verify';expected:Json;values:Json}) {
@@ -13,6 +14,8 @@ export async function saveAdminFacilityIntegration(input:{actorId:string;facilit
  if(result.error){
   if(result.error.code==='42501')return NextResponse.json({error:'Forbidden'},{status:403});
   if(result.error.code==='P0002')return NextResponse.json({error:'Not found'},{status:404});
+  // gbp:connect の 23505 は「同じ Place ID が別の施設に登録済み」（部分ユニーク索引 uq_facility_profiles_gbp_place_id）。
+  if(result.error.code==='23505'&&input.kind==='gbp:connect')return NextResponse.json({code:'GBP_PLACE_TAKEN',error:GBP_PLACE_TAKEN_MESSAGE},{status:409});
   if(result.error.code==='40001'||result.error.code==='23505')return NextResponse.json({error:'設定が変更されました。再読み込みしてください'},{status:409});
   if(result.error.code==='22023')return NextResponse.json({error:'Invalid request'},{status:400});
   return serverError(tag,databaseDiagnostic(result.error),'/api/admin');

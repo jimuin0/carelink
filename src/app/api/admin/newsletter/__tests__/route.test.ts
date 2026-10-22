@@ -52,7 +52,7 @@ function makePostRequest(body: object) {
 
 function validPostBody(overrides: object = {}) {
   return {
-    campaign_type: 'user_digest',
+    campaign_type: 'owner_monthly',
     subject: 'テストメール',
     html_content: '<p>Hello</p>',
     ...overrides,
@@ -190,11 +190,17 @@ test('POST: CSRF エラー → 403', async () => {
   expect(res.status).toBe(403);
 });
 
-test('POST: campaign_type=promo → 201', async () => {
+// 回帰（2026年10月23日）: ユーザー向けの 3 種別は宛先を作る経路が無く、作っても必ず「配信対象がありません」で終わっていた。
+test.each(['user_digest', 'user_coupon', 'promo'])('POST: campaign_type=%s has no recipients and is not created', async (type) => {
   mockAnonFrom.mockReturnValue(profileSingle(true));
   mockAdminFrom.mockReturnValue(insertCampaignSingle({ id: 'camp-2', status: 'draft' }));
-  const res = await POST(makePostRequest(validPostBody({ campaign_type: 'promo' })));
-  expect(res.status).toBe(201);
+  const res = await POST(makePostRequest(validPostBody({ campaign_type: type })));
+  expect(res.status).toBe(400);
+  const json = await res.json();
+  expect(json.code).toBe('NEWSLETTER_TYPE_UNAVAILABLE');
+  expect(json.error).toContain('施設オーナー向けのみ');
+  expect(mockAdminFrom).not.toHaveBeenCalled();
+  expect(mockRpc).not.toHaveBeenCalled();
 });
 
 test('POST: campaign_type=owner_monthly → 201', async () => {

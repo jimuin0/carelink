@@ -6,6 +6,7 @@ import { verifyAuthUser } from '@/lib/auth-verification';
 import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import type { PlaceDetails, GbpAuditResult } from '@/lib/gbp';
+import { GBP_PLACE_MISMATCH_NOTICE } from '@/lib/gbp-ownership';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
@@ -66,7 +67,8 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
   const [savingSetup, setSavingSetup] = useState(false);
 
   // Audit
-  const [auditData, setAuditData] = useState<{ placeData: PlaceDetails | null; audit: GbpAuditResult } | null>(null);
+  // ownershipMismatch: 保存済みの Place ID が施設の登録内容と合わず、Google の評価を表示していない（API が判定）。
+  const [auditData, setAuditData] = useState<{ placeData: PlaceDetails | null; audit: GbpAuditResult; ownershipMismatch?: boolean } | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
 
   // Posts
@@ -122,8 +124,15 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gbp_place_id: placeId, gbp_cid: gbpCid, facility_id: facilityId }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        // 照合で断った理由（他店の Place ID・Google で確認できない・別の店舗に登録済み）をそのまま見せる。
+        const e = await res.json().catch(() => null);
+        setToast({ type: 'error', message: typeof e?.error === 'string' && e.error ? e.error : '保存に失敗しました' });
+        return;
+      }
       setSavedSetup({ placeId, gbpCid });
+      // Place を変えたら前の診断結果は別の店舗のもの。次に診断・クチコミを開いたときに取り直す。
+      setAuditData(null);
       setToast({ type: 'success', message: '保存しました' });
     } catch {
       setToast({ type: 'error', message: '保存に失敗しました' });
@@ -301,6 +310,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
             <h2 className="text-lg font-bold mb-1">Google Place ID 連携</h2>
             <p className="text-sm text-gray-500 mb-4">
               Place ID を登録すると、Googleマップのデータを取得して診断スコアとクチコミが表示されます。
+              保存時に、Google の店舗情報とこの店舗の登録内容（電話番号、または店舗名と住所）を照合します。一致しない場合は保存できません。
             </p>
 
             <div className="space-y-4 mb-5">
@@ -396,6 +406,11 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
           {!placeId && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-sm text-yellow-700">
               Place ID が未設定です。「GBP設定」タブで登録するとより詳細な診断が可能になります。
+            </div>
+          )}
+          {auditData?.ownershipMismatch && !auditLoading && (
+            <div role="alert" className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-sm text-yellow-800">
+              {GBP_PLACE_MISMATCH_NOTICE}
             </div>
           )}
 
@@ -583,6 +598,10 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                       <li>• 星1〜2の低評価には特に丁寧に返信（見ている他のユーザーへの訴求）</li>
                     </ul>
                   </div>
+                </div>
+              ) : auditData?.ownershipMismatch ? (
+                <div role="alert" className="bg-yellow-50 border border-yellow-200 rounded-xl p-5 text-sm text-yellow-800">
+                  {GBP_PLACE_MISMATCH_NOTICE}
                 </div>
               ) : (
                 <div className="bg-white rounded-xl shadow-xs p-8 text-center text-gray-400">

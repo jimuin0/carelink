@@ -18,11 +18,13 @@ type Campaign = {
   created_at: string;
 };
 
+// 一覧の表示用。ユーザー向けの 3 種別は宛先を作る経路が無く、新しくは作れない（src/lib/newsletter-types.ts）。
+// 以前に作られたキャンペーンを表示するためにラベルだけ残す。
 const TYPE_LABELS: Record<string, string> = {
-  owner_monthly: '施設オーナー月次',
-  user_digest: 'ユーザーダイジェスト',
-  user_coupon: 'クーポン配信',
-  promo: 'プロモーション',
+  owner_monthly: '施設オーナー向け',
+  user_digest: 'ユーザーダイジェスト（旧種別）',
+  user_coupon: 'クーポン配信（旧種別）',
+  promo: 'プロモーション（旧種別）',
 };
 
 const STATUS_LABELS: Record<string, { label: string; tone: SbBadgeTone }> = {
@@ -141,7 +143,7 @@ export default function NewslettersPage() {
     <div className="max-w-5xl space-y-6">
       <SbPageHeader
         title="ニュースレター管理"
-        description="施設オーナー向け月次メール・ユーザー向けメルマガを管理"
+        description="施設オーナー向けのお知らせメールを作成・配信します"
         actions={
           <button
             type="button"
@@ -177,17 +179,9 @@ export default function NewslettersPage() {
           <h2 className="font-semibold text-gray-900">新規キャンペーン</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="nl-type" className="block text-xs font-medium text-gray-700 mb-1">タイプ</label>
-              <select
-                id="nl-type"
-                value={form.campaign_type}
-                onChange={(e) => setForm((f) => ({ ...f, campaign_type: e.target.value as Campaign['campaign_type'] }))}
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-              >
-                {Object.entries(TYPE_LABELS).map(([v, l]) => (
-                  <option key={v} value={v}>{l}</option>
-                ))}
-              </select>
+              <p className="text-xs font-medium text-gray-700 mb-1">配信先</p>
+              <p className="text-sm text-gray-900">{TYPE_LABELS.owner_monthly}（店舗オーナーのログイン用メールアドレス宛て）</p>
+              <p className="text-xs text-gray-600 mt-1">ユーザー向けのメール配信は、配信先の登録の仕組みがないため作成できません。</p>
             </div>
 
           </div>
