@@ -25,7 +25,9 @@ DO $guard$ BEGIN IF to_regclass('public.facility_profiles') IS NULL THEN RAISE E
 --
 -- 【適用順序】アプリのデプロイの前後どちらに適用してもよい。RPC の呼び方は変わらず、
 -- 旧アプリのまま適用しても「公開日が変わらなくなる」だけ。
--- 適用後は schema-fingerprint の期待値（関数の body_md5）が変わるので、CI の成果物から再生成する。
+-- schema-fingerprint の期待値は 2 つの関数の body_md5（$$ 〜 $$ の本文の md5＝prosrc の md5）だけが変わる。
+-- src/lib/schema-fingerprint.expected.json はその 2 行を書き換え済み（旧定義の本文から同じ方法で
+-- 計算した値が旧期待値と一致することを確認している）。権限・シグネチャの行は変わらない。
 
 -- ----------------------------------------------------------------------------
 -- 1. 店舗ブログ（blog:update）。最終定義＝20261017143936_admin_content_write_authority_atomic.sql

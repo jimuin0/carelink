@@ -90,3 +90,12 @@ test('直近 12 か月の予約を並び順つきでページングして全件�
   expect(q.order).toHaveBeenCalledWith('id', { ascending: true });
   expect(q.range).toHaveBeenCalledWith(0, 999);
 });
+
+test('注記は管理画面の地色（gray-100）の上でも AA（4.5:1）を満たす色で出す', async () => {
+  const html = renderToStaticMarkup(await UsageStatsPage());
+  // 注記は白いカードの外＝レイアウトの bg-gray-100 の上にある。gray-500 は 4.39:1、sky-600 は 3.72:1 で届かない。
+  const note = html.match(/<div class="([^"]*)">※ MAU\/DAU/)?.[1];
+  expect(note?.split(' ')).toContain('text-gray-600');
+  const link = html.match(/<a class="([^"]*)" href="\/admin\/analytics">/)?.[1];
+  expect(link?.split(' ')).toContain('text-sky-700');
+});

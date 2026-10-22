@@ -7,6 +7,8 @@
  * ままで、「確定」のまま来店処理をしていない店舗には見出しだけのCSVが返り、理由が分からなかった。
  * API 側の絞り込みは src/app/api/admin/accounting-export/__tests__/route.test.ts が固定している。
  */
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { render, screen } from '@testing-library/react';
 import AccountingPage from '../accounting/page';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
@@ -40,4 +42,16 @@ test('出力対象は「完了」（来店済み）だけだと案内し、「�
   // 回帰: 実際には出力しない「確定」を出力対象として案内しない
   expect(document.body.textContent).not.toMatch(/確定・完了/);
   expect(document.body.textContent).not.toMatch(/「確定」「完了」ステータス/);
+});
+
+test('汎用CSVの説明は実際の列（メールを含む）をすべて挙げ、顧客の連絡先が含まれることを伝える', async () => {
+  // 電話・店頭・ゲストの予約も予約自体の顧客名・メールを出すようになったため、
+  // 説明に無い列（メール）が黙って入っている状態にしない。列の正は API の見出し行。
+  const route = readFileSync(join(process.cwd(), 'src/app/api/admin/accounting-export/route.ts'), 'utf8');
+  const header = /const header = \[('予約ID'[^\]]*)\]/.exec(route)?.[1].split(',').map((c) => c.trim().replace(/^'|'$/g, ''));
+  expect(header).toEqual(['予約ID', '日付', '顧客名', 'メール', 'メニュー', '金額', 'ステータス']);
+  render(<AccountingPage />);
+  const desc = await screen.findByText(/の一覧$/);
+  expect(desc.textContent).toBe(`${header!.join('・')}の一覧`);
+  expect(screen.getByText('• CSVには顧客名が、汎用CSVにはメールアドレスも含まれます。取り扱いにご注意ください')).toBeTruthy();
 });

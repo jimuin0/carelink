@@ -150,11 +150,11 @@ export default async function UsageStatsPage() {
         </div>
       </div>
 
-      <div className="text-xs text-gray-500 text-center">
+      <div className="text-xs text-gray-600 text-center">
         ※ MAU/DAU は「予約を行ったユニークユーザー数」で計算しています。
         MAU は今月1日からの人数で、前月同期比は前月の同じ日数分と比べた増減です。
         より詳細なページビュー分析は
-        <Link href="/admin/analytics" className="text-sky-600 hover:underline mx-1">分析ダッシュボード</Link>
+        <Link href="/admin/analytics" className="text-sky-700 hover:underline mx-1">分析ダッシュボード</Link>
         をご利用ください。
       </div>
     </div>
