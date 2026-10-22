@@ -43,9 +43,10 @@ describe('isolated local mutation contracts', () => {
       const admin = createClient(URL!, SRK!);
       const { error } = await admin.rpc('create_booking_atomic', args);
       // 存在しない施設には勤務スタッフがいないため、現行関数はFKより前に拒否する。
-      // この経路の実到達だけを検証。予約成功/別分岐はbooking E2Eが補完する。
+      // 20261023130100 以降、勤務スタッフが1人もいない「指名なし」は満枠（BOOKING_CONFLICT）ではなく
+      // BOOKING_NO_WORKING_STAFF で断る。この経路の実到達だけを検証。予約成功/別分岐はbooking E2Eが補完する。
       expect(error?.code).toBe('P0001');
-      expect(error?.message).toMatch(/^BOOKING_CONFLICT:/);
+      expect(error?.message).toMatch(/^BOOKING_NO_WORKING_STAFF:/);
     });
 
   describe('RLS 不変条件（隔離localでanonの直接INSERT拒否）', () => {
