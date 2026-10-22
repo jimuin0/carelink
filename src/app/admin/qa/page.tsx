@@ -8,6 +8,8 @@ import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
 import { SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import AdminFacilityScope, { type AdminFacilityScopeValue } from '@/components/admin/AdminFacilityScope';
 
 interface QAItem {
   id: string;
@@ -23,11 +25,15 @@ interface QAItem {
 }
 
 export default function AdminQAPage() {
+  return <AdminFacilityScope title="Q&A管理" path="/admin/qa">{(scope) => <QAManager {...scope} />}</AdminFacilityScope>;
+}
+
+// 店舗は AdminFacilityScope が ?facility_id= と所属から決める（2026年10月22日）。以前は facility_members を
+// .limit(1).single() で 1 行だけ読み、複数店舗のオーナーには 2 店舗目の質問が一度も出なかった。
+function QAManager({ facilityId, choices }: AdminFacilityScopeValue) {
   const [qaList, setQaList] = useState<QAItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [facilityId, setFacilityId] = useState<string | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [filter, setFilter] = useState<'all' | 'pending' | 'answered'>('all');
   const [answeringId, setAnsweringId] = useState<string | null>(null);
@@ -48,32 +54,19 @@ export default function AdminQAPage() {
     setQaList((data ?? []) as QAItem[]);
   }, []);
 
-  // React Compiler の set-state-in-effect 対策：user→membership→facilityId→一覧取得の全工程を
-  // useCallback 関数として effect の依存に置き外部から直接呼ぶのではなく、effect 内に inline
-  // した非同期IIFEとして定義する（React 公式が推奨する形）。リトライ時も facilityId を再導出
-  // する必要があるため引き続き全工程をここに集約し、リトライは reloadKey のインクリメントで
-  // effect を再発火させる形に統一する（取得ロジックの二重定義を避ける）。
+  // React Compiler の set-state-in-effect 対策：一覧取得は effect 内に inline した非同期IIFEとして
+  // 定義する（React 公式が推奨する形）。リトライは reloadKey のインクリメントで effect を再発火させる。
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     (async () => {
-      const supabase = createBrowserSupabaseClient();
-      setLoadError(false);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-      setUserId(user.id);
-      const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-        .in('role', ['owner', 'admin']).limit(1).single();
-      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-      if (!membership) { setLoading(false); return; }
-      setFacilityId(membership.facility_id);
-      await loadQA(membership.facility_id);
+      await loadQA(facilityId);
       setLoading(false);
     })().catch(() => { setLoadError(true); setLoading(false); });
-  }, [loadQA, reloadKey]);
+  }, [facilityId, loadQA, reloadKey]);
 
   const handleAnswer = async () => {
-    if (!answeringId || !answerText.trim() || !facilityId || !userId || saving) return;
+    if (!answeringId || !answerText.trim() || saving) return;
     setSaving(true);
     try {
       const res = await fetch(`/api/admin/qa?facility_id=${facilityId}`, {
@@ -94,7 +87,6 @@ export default function AdminQAPage() {
   };
 
   const togglePublic = async (qa: QAItem) => {
-    if (!facilityId) return;
     try {
       const res = await fetch(`/api/admin/qa?facility_id=${facilityId}&action=toggle-public`, {
         method: 'POST',
@@ -110,13 +102,12 @@ export default function AdminQAPage() {
   };
 
   const handleDelete = (id: string) => {
-    if (!facilityId) return;
     setConfirmDeleteId(id);
   };
 
   const executeDelete = async () => {
     const id = confirmDeleteId;
-    if (!id || !facilityId) return;
+    if (!id) return;
     setConfirmDeleteId(null);
     try {
       const res = await fetch(`/api/admin/qa?facility_id=${facilityId}&action=delete`, {
@@ -150,6 +141,7 @@ export default function AdminQAPage() {
 
   return (
     <div>
+      <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/qa" busy={saving} dirty={answeringId !== null && answerText.trim() !== ''} />
       <SbPageHeader
         title="Q&A管理"
         actions={pendingCount > 0 && (

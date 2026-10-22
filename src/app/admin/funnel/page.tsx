@@ -7,26 +7,27 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { notFound } from 'next/navigation';
 import { jstMonthStartIso, jstMonthInfo } from '@/lib/admin-date';
 import { SbPageHeader } from '@/components/admin/SbUi';
+import { loadAdminFacilitySelection } from '@/lib/admin-facility-selection';
+import FacilitySelector from '@/components/admin/FacilitySelector';
 
 export const metadata: Metadata = { title: 'コンバージョンファネル' };
 export const dynamic = 'force-dynamic';
 
-export default async function FunnelPage() {
+export default async function FunnelPage(props: { searchParams: Promise<{ facility_id?: string }> }) {
   const supabase = await createServerSupabaseAuthClient();
   const identity = await verifyAuthUser(supabase.auth);
   if (identity.state === 'unavailable') return <AccessVerificationUnavailable />;
   if (identity.state !== 'verified') notFound();
   const user = identity.user;
 
-  const { data: mem } = await readPageResult(() => supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-      .in('role', ['owner', 'admin'])
-    .limit(1).maybeSingle(), '/admin/funnel');
-  if (!mem) notFound();
-
-  const facilityId = mem.facility_id;
+  // 複数店舗のオーナーは ?facility_id= で店舗を選ぶ（2026年10月22日）。以前は facility_members を
+  // .limit(1) で 1 行だけ読み、ヘッダーは「店舗未選択」なのに任意の 1 店舗の数値を出していた。
+  // 所属（owner/admin）を確かめた店舗の ID だけを service role の集計に渡す。
+  const { facility_id: requested } = await props.searchParams;
+  const { choices, selectedId: facilityId } = await loadAdminFacilitySelection(supabase, user.id, requested ?? null);
+  if (choices.length === 0) notFound();
+  const selector = <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/funnel" />;
+  if (!facilityId) return <div><SbPageHeader title="コンバージョンファネル" />{selector}</div>;
   const admin = createServiceRoleClient();
 
   const since = jstMonthStartIso(-1);
@@ -125,6 +126,7 @@ export default async function FunnelPage() {
 
   return (
     <div className="space-y-6 max-w-4xl">
+      {selector}
       <SbPageHeader title="コンバージョンファネル" description="ページ閲覧から予約開始・確定・レビューまでの転換率" />
 
       {/* ファネルチャート */}

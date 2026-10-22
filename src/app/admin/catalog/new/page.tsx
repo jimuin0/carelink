@@ -2,12 +2,21 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import AdminFacilityScope, { type AdminFacilityScopeValue } from '@/components/admin/AdminFacilityScope';
 
 export default function NewCatalogPage() {
+  return <AdminFacilityScope title="カタログ新規追加" path="/admin/catalog/new">{(scope) => <NewCatalogForm {...scope} />}</AdminFacilityScope>;
+}
+
+// 作成先の店舗は AdminFacilityScope が ?facility_id= と所属から決める（2026年10月22日）。以前は押下時に
+// facility_members を role も絞らず .limit(1).single() で 1 行だけ読み、一覧と別の店舗へ作ったり、
+// staff として所属する店舗を拾って 403 になったりしていた。
+function NewCatalogForm({ facilityId, choices }: AdminFacilityScopeValue) {
   const router = useRouter();
+  const listHref = `/admin/catalog?facility_id=${facilityId}`;
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState('');
@@ -18,41 +27,35 @@ export default function NewCatalogPage() {
     if (saving || !title) return;
     setSaving(true);
 
-    const supabase = createBrowserSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setToast({ type: 'error', message: 'セッションが切れました。再ログインしてください' }); setSaving(false); return; }
+    try {
+      const res = await fetch(`/api/admin/catalog?facility_id=${facilityId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: title,
+          description: description || null,
+          // タグはカンマ区切り入力 → 配列に変換して treatment_catalogs.tags(text[]) へ保存
+          tags: tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : null,
+        }),
+      });
 
-    const { data: membership, error: memErr } = await supabase
-      .from('facility_members')
-      .select('facility_id')
-      .eq('user_id', user.id)
-      .limit(1)
-      .single();
-
-    if (memErr || !membership) { setToast({ type: 'error', message: '施設情報の取得に失敗しました。再読み込みしてください' }); setSaving(false); return; }
-
-    const res = await fetch(`/api/admin/catalog?facility_id=${membership.facility_id}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: title,
-        description: description || null,
-        // タグはカンマ区切り入力 → 配列に変換して treatment_catalogs.tags(text[]) へ保存
-        tags: tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : null,
-      }),
-    });
-
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({}));
-      setToast({ type: 'error', message: e.error || '作成に失敗しました' });
-    } else {
-      router.push('/admin/catalog');
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: e.error || '作成に失敗しました' });
+      } else {
+        router.push(listHref);
+      }
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました' });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   return (
     <div>
+      <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/catalog/new" busy={saving}
+        dirty={title.trim() !== '' || description.trim() !== '' || tags.trim() !== ''} />
       <SbPageHeader title="カタログ新規追加" />
 
       <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
@@ -79,7 +82,7 @@ export default function NewCatalogPage() {
         </div>
 
         <div className="flex gap-3 pt-4">
-          <button type="button" onClick={() => router.push('/admin/catalog')} className="text-sm text-gray-500 hover:underline">
+          <button type="button" onClick={() => router.push(listHref)} className="text-sm text-gray-500 hover:underline">
             戻る
           </button>
           <button type="button" onClick={handleCreate} disabled={saving} className="btn-primary flex-1 py-3!">

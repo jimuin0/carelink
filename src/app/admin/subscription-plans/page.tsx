@@ -5,8 +5,9 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { SbBadge, SbPageHeader } from '@/components/admin/SbUi';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import AdminFacilityScope, { type AdminFacilityScopeValue } from '@/components/admin/AdminFacilityScope';
 
 interface Plan {
   id: string;
@@ -38,8 +39,22 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   expired:   { label: '期限切れ', cls: 'bg-gray-100 text-gray-500' },
 };
 
+// 一覧（プラン・契約者）を取る。選んだ店舗の ID を必ず付ける（API 側でも所属を確かめる）。
+async function fetchPlanData(facilityId: string): Promise<{ plans: Plan[]; subs: Subscription[] }> {
+  const [p, s] = await Promise.all([
+    fetch(`/api/admin/subscription-plans?facility_id=${facilityId}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
+    fetch(`/api/admin/user-subscriptions?facility_id=${facilityId}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
+  ]);
+  return { plans: p.plans ?? [], subs: (s.subscriptions ?? []) as Subscription[] };
+}
+
 export default function SubscriptionPlansPage() {
-  const [facilityId, setFacilityId] = useState<string | null>(null);
+  return <AdminFacilityScope title="月額プラン" path="/admin/subscription-plans">{(scope) => <SubscriptionPlansManager {...scope} />}</AdminFacilityScope>;
+}
+
+// 店舗は AdminFacilityScope が ?facility_id= と所属から決める（2026年10月22日）。以前は facility_members を
+// .limit(1).single() で 1 行だけ読み、複数店舗のオーナーは 2 店舗目の月額プランを一覧も作成もできなかった。
+function SubscriptionPlansManager({ facilityId, choices }: AdminFacilityScopeValue) {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [tab, setTab] = useState<'plans' | 'subscribers'>('plans');
@@ -52,64 +67,40 @@ export default function SubscriptionPlansPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmDeletePlan, setConfirmDeletePlan] = useState<Plan | null>(null);
 
+  // load は toggleActive / doDelete / updateSubStatus から await されて完了を待たれる
+  // （updateSubStatus の二重送信ガードは load 完了後に解除する必要がある）。
   const load = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
     setLoadError(false);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
-    const { data: mem, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-      .in('role', ['owner', 'admin']).limit(1).single();
-    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-    if (!mem?.facility_id) { setLoading(false); return; }
-    setFacilityId(mem.facility_id);
-
     try {
-      const [p, s] = await Promise.all([
-        fetch(`/api/admin/subscription-plans?facility_id=${mem.facility_id}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
-        fetch(`/api/admin/user-subscriptions?facility_id=${mem.facility_id}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
-      ]);
-      setPlans(p.plans ?? []);
-      setSubs((s.subscriptions ?? []) as Subscription[]);
+      const data = await fetchPlanData(facilityId);
+      setPlans(data.plans);
+      setSubs(data.subs);
     } catch {
-      setLoadError(true); setLoading(false); return;
+      setLoadError(true);
     }
     setLoading(false);
-  }, []);
+  }, [facilityId]);
 
-  // React Compiler の set-state-in-effect 対策：load は toggleActive / doDelete / updateSubStatus
-  // から await されて完了を待たれる（updateSubStatus の二重送信ガードは load 完了後に解除する
-  // 必要があるため、reloadKey 化して待てなくすると挙動が変わってしまう）。そのため load 自体は
-  // そのまま残し、マウント時 effect だけは load を呼ばず同等の処理を effect 内に inline した
-  // 非同期IIFEとして持つ（React 公式が推奨する形）。load の依存が [] で同一内容のため、
-  // 二重定義にはなるが挙動は完全に一致する。
+  // React Compiler の set-state-in-effect 対策：マウント時の取得は load を呼ばず、effect 内に inline した
+  // 非同期IIFEとして持つ（setState は await の後だけ）。取得本体は fetchPlanData を共有する。
   useEffect(() => {
+    let cancelled = false;
     (async () => {
-      const supabase = createBrowserSupabaseClient();
-      setLoadError(false);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-      const { data: mem, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-        .in('role', ['owner', 'admin']).limit(1).single();
-      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-      if (!mem?.facility_id) { setLoading(false); return; }
-      setFacilityId(mem.facility_id);
-
       try {
-        const [p, s] = await Promise.all([
-          fetch(`/api/admin/subscription-plans?facility_id=${mem.facility_id}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
-          fetch(`/api/admin/user-subscriptions?facility_id=${mem.facility_id}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
-        ]);
-        setPlans(p.plans ?? []);
-        setSubs((s.subscriptions ?? []) as Subscription[]);
+        const data = await fetchPlanData(facilityId);
+        if (cancelled) return;
+        setPlans(data.plans);
+        setSubs(data.subs);
       } catch {
-        setLoadError(true); setLoading(false); return;
+        if (!cancelled) setLoadError(true);
       }
-      setLoading(false);
-    })().catch(() => { setLoadError(true); setLoading(false); });
-  }, []);
+      if (!cancelled) setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [facilityId]);
 
   const handleCreate = async () => {
-    if (!facilityId || saving) return;
+    if (saving) return;
     setSaving(true);
     const res = await fetch(`/api/admin/subscription-plans?facility_id=${facilityId}`, {
       method: 'POST',
@@ -188,6 +179,8 @@ export default function SubscriptionPlansPage() {
     <div className="space-y-5 max-w-4xl">
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
+      <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/subscription-plans" busy={saving}
+        dirty={showForm && (form.name.trim() !== '' || form.description.trim() !== '')} />
       <SbPageHeader
         title="月額プラン"
         description="サブスクリプション定義と契約者管理"

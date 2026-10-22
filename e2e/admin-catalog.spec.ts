@@ -17,6 +17,7 @@ test('オーナーがカタログを作成できる（書き込み→一覧反�
   await createBtn.press('Enter');
 
   // POST /api/admin/catalog 成功で一覧へ router.push → 作成したカタログ（title）が表示される（永続化）。
-  await expect(page).toHaveURL(/\/admin\/catalog$/, { timeout: 15000 });
+  // 一覧は作成した店舗のまま開く（2026年10月22日〜 ?facility_id= 付き）。
+  await expect(page).toHaveURL(/\/admin\/catalog(\?facility_id=[0-9a-f-]{36})?$/, { timeout: 15000 });
   await expect(page.getByText(catalogTitle, { exact: true })).toBeVisible({ timeout: 15000 });
 });
