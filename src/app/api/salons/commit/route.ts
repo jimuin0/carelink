@@ -4,7 +4,8 @@ import { mutationRateLimit } from '@/lib/rate-limit';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { commitSalonSubmission, salonCommitInput } from '@/lib/salon-submission-commit';
 import { isSalonIntentProof, salonIntentCookieName } from '@/lib/salon-submission-proof';
-import { salonFieldErrors } from '@/lib/salon-field-errors';
+import { salonFieldErrors, SALON_PR_TEXT_PROHIBITED_MESSAGE } from '@/lib/salon-field-errors';
+import { validateFacilityPrText } from '@/lib/medical-ad-guard';
 import { registrationConsentSchema, REGISTRATION_CONSENT_REQUIRED } from '@/lib/registration-consent';
 import { z } from 'zod';
 import { readSalonIntentStatus } from '@/lib/salon-submission-intent';
@@ -40,6 +41,11 @@ export const POST = withRoute(async request => {
     const fieldErrors = salonFieldErrors(parsed.error.issues
       .filter(issue => issue.path[0] === 'registration').map(issue => ({ path: issue.path.slice(1) })));
     return NextResponse.json({ state: 'invalid', fieldErrors }, { status: 400, headers });
+  }
+  // /admin/settings と同じ医療広告ガイドライン・あはき法の検査。PR文は取り込み後に施設紹介として
+  // 公開候補になるため、入力画面の検査を経ない送信もここで止める（受付の正規化・HMAC は変えない）。
+  if (!validateFacilityPrText(parsed.data.registration.pr_text).ok) {
+    return NextResponse.json({ state: 'invalid', fieldErrors: { pr_text: SALON_PR_TEXT_PROHIBITED_MESSAGE } }, { status: 400, headers });
   }
   const name = salonIntentCookieName(parsed.data.intentId)!;
   const proof = new NextRequest(request.url, { headers: request.headers }).cookies.get(name)?.value;

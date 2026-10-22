@@ -218,7 +218,7 @@ export interface ApplyHpbResult {
 /**
  * hpb_menu_durations を facility_menus へ反映(同期)。再反映で二重作成しない(hpb_ref_id 紐付け)。
  * - is_hidden=false: override 適用後の値で facility_menus を更新(既存) or 新規作成。
- *   新規は category='メニュー'・is_published=false(非公開=下書き)で作成→管理画面で公開ON。
+ *   新規は category='メニュー'・is_published=false(非公開=下書き)で作成→/admin/menus の「公開する」で公開。
  *   既存行は値列(name/price/duration_minutes/description)のみ更新し、
  *   is_published(神原の公開判断)・category・sort_order は温存(上書きしない)。
  * - is_hidden=true: 紐付く facility_menus 行があれば is_published=false(客から隠す)。

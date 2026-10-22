@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import Modal from '@/components/Modal';
@@ -48,6 +49,8 @@ export default function AdminHpbMenusPage() {
   const [savingSln, setSavingSln] = useState(false);
   const [scraping, setScraping] = useState(false);
   const [applying, setApplying] = useState(false);
+  // 直近の一括反映で非公開のまま作られたメニュー数。トーストは消えるため、次の手順を画面に残す。
+  const [appliedDrafts, setAppliedDrafts] = useState(0);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [saving, setSaving] = useState(false);
@@ -166,9 +169,11 @@ export default function AdminHpbMenusPage() {
         setToast({ type: 'error', message: json?.error || '反映に失敗しました' });
         return;
       }
+      setAppliedDrafts(json.inserted);
       setToast({
         type: 'success',
-        message: `メニューへ反映: 新規${json.inserted}件（非公開で作成）/ 更新${json.updated}件 / 非表示化${json.hidden}件 / スキップ${json.skipped}件`,
+        message: `メニューへ反映: 新規${json.inserted}件（非公開で作成）/ 更新${json.updated}件 / 非表示化${json.hidden}件 / スキップ${json.skipped}件`
+          + (json.inserted > 0 ? '。メニュー管理で「公開する」を押すと、お客様に表示されネット予約できるようになります' : ''),
       });
     } catch {
       setToast({ type: 'error', message: '反映に失敗しました' });
@@ -288,9 +293,16 @@ export default function AdminHpbMenusPage() {
             </button>
             <span className="text-xs text-gray-500">
               非表示を除く全件をお客様メニューへ反映します。反映したメニューは<b>非公開（下書き）</b>で作られ、
-              メニュー編集で公開ONにするまでお客様には表示されません。
+              <Link href={`/admin/menus?facility_id=${facilityId}`} className="text-sky-700 underline">メニュー管理</Link>で「公開する」を押すまでお客様には表示されません。
             </span>
           </div>
+          {appliedDrafts > 0 && (
+            <p className="mt-3 rounded-lg bg-sky-50 p-3 text-sm text-sky-800" role="status">
+              新しく反映したメニュー{appliedDrafts}件は非公開です。
+              <Link href={`/admin/menus?facility_id=${facilityId}`} className="font-bold text-sky-700 underline">メニュー管理</Link>
+              で各メニューの「公開する」を押すと、お客様に表示されネット予約できるようになります。
+            </p>
+          )}
         </div>
         <div className="bg-white rounded-xl shadow-xs divide-y">
           {menus.map((m) => {

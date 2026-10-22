@@ -305,7 +305,10 @@ test.describe('/register 送信', () => {
         const { data: profile, error: profileError } = await db.from('facility_profiles')
           .select('status,address,prefecture,city').eq('id', setupBody.facilityId).single();
         expect(profileError).toBeNull();
-        expect(profile).toMatchObject({ status: 'draft', address: '愛知県西尾市合成町', prefecture: '愛知県', city: '西尾市' });
+        // The receipt keeps the full address (asserted above); the facility keeps only the
+        // street part, because the public page prints prefecture + city + address and
+        // previously showed 「愛知県西尾市愛知県西尾市合成町」.
+        expect(profile).toMatchObject({ status: 'draft', address: '合成町', prefecture: '愛知県', city: '西尾市' });
       }
     });
   }

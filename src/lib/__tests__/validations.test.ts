@@ -1,4 +1,4 @@
-import { salonStep1Schema, salonStep2Schema, salonStep3Schema, formatPhone, customerSchema } from '../validations';
+import { salonStep1Schema, salonStep2Schema, salonStep3Schema, salonFullSchema, salonInsertSchema, formatPhone, customerSchema } from '../validations';
 
 describe('salonStep1Schema', () => {
   const validData = {
@@ -129,6 +129,34 @@ describe('salonStep3Schema', () => {
   test('PR文が1000文字は通過する', () => {
     const result = salonStep3Schema.safeParse({ pr_text: 'あ'.repeat(1000) });
     expect(result.success).toBe(true);
+  });
+
+  // /admin/settings と同じ医療広告ガイドライン・あはき法の検査を、登録フォームの PR 文欄でも送信前に行う。
+  test('禁止表現を含むPR文は pr_text 欄に、当たった語と理由を示して拒否する', () => {
+    const result = salonStep3Schema.safeParse({ pr_text: '地域で日本一の技術' });
+    expect(result.success).toBe(false);
+    expect(result.error!.issues).toHaveLength(1);
+    expect(result.error!.issues[0].path).toEqual(['pr_text']);
+    expect(result.error!.issues[0].message).toBe(
+      '「日本一」 は使用できません。他との比較優良を示す表現は医療広告ガイドラインで禁止されています（客観的根拠があっても広告では使えません）',
+    );
+  });
+
+  test.each([undefined, '', '駅から徒歩3分。丁寧なカウンセリングを心がけています'])('禁止表現の無いPR文は通過する: %p', (prText) => {
+    expect(salonStep3Schema.safeParse({ pr_text: prText }).success).toBe(true);
+  });
+
+  test('フォーム全体の検証（登録画面の resolver）でも pr_text 欄の誤りになる', () => {
+    const result = salonFullSchema.safeParse({ pr_text: '必ず治る' });
+    expect(result.success).toBe(false);
+    expect(result.error!.issues.some((issue) => issue.path[0] === 'pr_text' && issue.message.includes('「必ず治る」'))).toBe(true);
+  });
+
+  test('受付の正規化（HMAC の元）は表現を検査しない＝受付済み申込の照合・再送の判定を変えない', () => {
+    const shape = { facility_name: '合成', business_type: salonInsertSchema.shape.business_type.options[0], representative_name: '合成',
+      contact_name: '合成', email: 'synthetic@example.invalid', phone: '09012345678', source: 'register' as const };
+    expect(salonInsertSchema.safeParse({ ...shape, pr_text: '日本一' }).success).toBe(true);
+    expect(salonInsertSchema.safeParse({ ...shape, pr_text: 'あ'.repeat(1001) }).success).toBe(false);
   });
 });
 

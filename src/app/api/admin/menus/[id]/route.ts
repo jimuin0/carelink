@@ -28,6 +28,10 @@ const menuUpdateSchema = z.object({
   duration_minutes: z.number().int().min(0).max(1440).optional().nullable(),
   photo_url: z.string().url().max(500).optional().nullable().or(z.literal('')),
   is_featured: z.boolean().optional(),
+  // 公開／非公開の切替。HPB 一括反映のメニューは非公開（下書き）で作られるため、
+  // これが無いと管理画面から公開できずネット予約が始められなかった。
+  // 送られなかったときは spread に現れない＝DB 側で現在値が保たれる（部分更新の規約）。
+  is_published: z.boolean().optional(),
   // 旧画面のsort_order入力を検知して409を返す。並び替えは専用の原子APIを使う。
   sort_order: z.number().int().min(0).max(999999).optional(),
 });

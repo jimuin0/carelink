@@ -26,6 +26,14 @@ export const SALON_FIELD_MESSAGES = {
   photo_urls: '施設写真を確認してください（最大7枚）',
 } as const;
 
+/**
+ * PR文に医療広告ガイドライン・あはき法で使えない表現が含まれていたときの固定文言
+ * （判定は /admin/settings と同じ validateFacilityPrText）。長さの文言（SALON_FIELD_MESSAGES.pr_text）とは
+ * 直し方が違うため分ける。送信値は返さない（どの語が当たったかは入力画面が手元で示す）。
+ */
+export const SALON_PR_TEXT_PROHIBITED_MESSAGE =
+  'PR文に掲載できない表現が含まれています。効果の保証・安全性の断定・他との比較・誇大な表現などは、医療広告ガイドライン等により使用できません';
+
 export type SalonField = keyof typeof SALON_FIELD_MESSAGES;
 export type SalonFieldErrors = Partial<Record<SalonField, string>>;
 

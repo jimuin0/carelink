@@ -42,4 +42,26 @@ INSERT INTO public.facility_menus(id,facility_id,category,name,sort_order) SELEC
 SET LOCAL ROLE service_role;
 SELECT pg_temp.assert_menu(jsonb_array_length(public.read_admin_menu_snapshot('fa780000-0000-4000-8000-000000000001','fa780001-0000-4000-8000-000000000001')->'menus')=1003,'snapshot exceeds PostgREST row cap');
 RESET ROLE;
+-- Publication control (20261022120000): an HPB-style draft can be published
+-- from the admin write path, an edit that omits the key keeps the current
+-- value, and a hand-added menu stays published by default.
+UPDATE public.facility_menus SET is_published=false WHERE id='fa780002-0000-4000-8000-000000000001';
+SET LOCAL ROLE service_role;
+DO $$ DECLARE result jsonb; BEGIN
+ result:=public.save_admin_menu_atomic('fa780000-0000-4000-8000-000000000001','fa780001-0000-4000-8000-000000000001','fa780002-0000-4000-8000-000000000001','{"price":1500}'::jsonb,false,NULL);
+ PERFORM pg_temp.assert_menu((result->>'is_published')::boolean=false AND (result->>'price')::integer=1500,'edit without the key keeps a draft unpublished');
+ result:=public.save_admin_menu_atomic('fa780000-0000-4000-8000-000000000001','fa780001-0000-4000-8000-000000000001','fa780002-0000-4000-8000-000000000001','{"is_published":true}'::jsonb,false,NULL);
+ PERFORM pg_temp.assert_menu((result->>'is_published')::boolean AND (result->>'price')::integer=1500 AND result->>'name'='A' AND result->>'category'='その他','publish keeps every other column');
+ result:=public.save_admin_menu_atomic('fa780000-0000-4000-8000-000000000001','fa780001-0000-4000-8000-000000000001','fa780002-0000-4000-8000-000000000001','{"is_published":false}'::jsonb,false,NULL);
+ PERFORM pg_temp.assert_menu(NOT (result->>'is_published')::boolean,'unpublish');
+ BEGIN PERFORM public.save_admin_menu_atomic('fa780000-0000-4000-8000-000000000001','fa780001-0000-4000-8000-000000000001','fa780002-0000-4000-8000-000000000001','{"is_published":null}'::jsonb,false,NULL); RAISE EXCEPTION 'null publication accepted'; EXCEPTION WHEN invalid_parameter_value THEN NULL; END;
+ BEGIN PERFORM public.save_admin_menu_atomic('fa780000-0000-4000-8000-000000000001','fa780001-0000-4000-8000-000000000001','fa780002-0000-4000-8000-000000000001','{"is_published":"true"}'::jsonb,false,NULL); RAISE EXCEPTION 'string publication accepted'; EXCEPTION WHEN invalid_parameter_value THEN NULL; END;
+ BEGIN PERFORM public.save_admin_menu_atomic('fa780000-0000-4000-8000-000000000002','fa780001-0000-4000-8000-000000000001','fa780002-0000-4000-8000-000000000001','{"is_published":true}'::jsonb,false,NULL); RAISE EXCEPTION 'non-member published a menu'; EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+ PERFORM pg_temp.assert_menu((SELECT is_published=false FROM public.facility_menus WHERE id='fa780002-0000-4000-8000-000000000001'),'rejected writes leave publication unchanged');
+ result:=public.save_admin_menu_atomic('fa780000-0000-4000-8000-000000000001','fa780001-0000-4000-8000-000000000001',NULL,'{"category":"その他","name":"Hand added"}'::jsonb,false,NULL);
+ PERFORM pg_temp.assert_menu((result->>'is_published')::boolean,'hand-added menu is published by default');
+ result:=public.save_admin_menu_atomic('fa780000-0000-4000-8000-000000000001','fa780001-0000-4000-8000-000000000001',NULL,'{"category":"その他","name":"Hand draft","is_published":false}'::jsonb,false,NULL);
+ PERFORM pg_temp.assert_menu(NOT (result->>'is_published')::boolean,'explicit draft creation');
+END $$;
+RESET ROLE;
 ROLLBACK;

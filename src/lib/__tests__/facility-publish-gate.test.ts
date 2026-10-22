@@ -29,7 +29,7 @@ function countChain(count: number | null, error: unknown = null) {
 }
 
 // facility_profiles は .select('prefecture, city').eq('id', facilityId).single() で解決する。
-function profileChain(data: { prefecture: string | null; city: string | null; address: string | null; name?: string; status?: string; business_hours?: unknown } | null, error: unknown = null) {
+function profileChain(data: { prefecture: string | null; city: string | null; address: string | null; name?: string; status?: string; business_hours?: unknown; catch_copy?: string | null; description?: string | null } | null, error: unknown = null) {
   const obj: Record<string, unknown> = {};
   obj.select = jest.fn(() => obj);
   obj.eq = jest.fn(() => obj);
@@ -218,6 +218,35 @@ describe('掲載だけの公開条件', () => {
     const result = await checkListingReadiness({ from: () => profileChain(data) } as never, 'f1');
     expect(result.error).toBeNull();
     expect(result.readiness.missing).toEqual(['施設名を設定してください', '都道府県を設定してください', '市区町村を設定してください', '住所を設定してください']);
+  });
+
+  // 最後の砦: /admin/settings は保存時に弾くが、/register の PR 文（取り込み後は施設紹介）は
+  // 設定画面を経ずに入るため、検査されないまま公開できた。
+  const located = { name: '合成店舗', prefecture: '東京都', city: '検証区', address: '検証町1-1' };
+  test('公開時にキャッチコピーと施設紹介も医療広告の表現を検査する', async () => {
+    const chain = profileChain({ ...located, catch_copy: '技術力No.1', description: '施術で必ず治る' });
+    const result = await checkListingReadiness({ from: () => chain } as never, 'f1');
+    expect(chain.select).toHaveBeenCalledWith('name, prefecture, city, address, catch_copy, description');
+    expect(result.error).toBeNull();
+    expect(result.readiness).toEqual({ ready: false, missing: [
+      'キャッチコピー：「No.1」 は使用できません。他との比較優良を示す表現は医療広告ガイドラインで禁止されています（客観的根拠があっても広告では使えません）',
+      '施設紹介：「必ず治る」 は使用できません。治療効果を保証する表現は医療広告ガイドラインで禁止されています',
+    ] });
+  });
+  test.each([
+    [{ catch_copy: '日本一' }, 'キャッチコピー：'],
+    [{ description: '副作用なしの施術' }, '施設紹介：'],
+  ])('どちらか一方だけでも公開を止める：%p', async (texts, label) => {
+    const result = await checkListingReadiness({ from: () => profileChain({ ...located, ...texts }) } as never, 'f1');
+    expect(result.readiness.ready).toBe(false);
+    expect(result.readiness.missing).toHaveLength(1);
+    expect(result.readiness.missing[0].startsWith(label)).toBe(true);
+  });
+  test('問題の無い PR 文言・未入力は公開を止めない', async () => {
+    for (const texts of [{ catch_copy: '駅チカ3分', description: '丁寧なカウンセリング' }, { catch_copy: null, description: null }]) {
+      const result = await checkListingReadiness({ from: () => profileChain({ ...located, ...texts }) } as never, 'f1');
+      expect(result.readiness).toEqual({ ready: true, missing: [] });
+    }
   });
 });
 

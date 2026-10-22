@@ -3,6 +3,7 @@ import { phoneField } from './phone';
 import { isValidIsoDate } from './date-utils';
 import { businessTypes, DESIRED_START_DATES } from './constants';
 import { FACILITY_INPUT_LIMITS } from './facility-input-limits';
+import { validateFacilityPrText } from './medical-ad-guard';
 
 // 顧客マスターの入力スキーマ。name のみ必須、他は任意。
 // email / birthday は「空文字」も許容し、保存時に null へ正規化する（フォーム未入力の素通し）。
@@ -56,8 +57,18 @@ export const salonStep2Schema = z.object({
   features: z.array(z.string().max(50)).max(20).optional(),
 });
 
+// PR文の長さだけを見る素の定義。受付の正規化（canonicalSalonSubmission の salonInsertSchema・HMAC）は
+// これを使い、受付済み申込の照合・再送の判定を変えない。表現の検査は入力画面と送信口で行う。
+const salonPrTextField = z.string().max(1000, '1000文字以内で入力してください').optional();
+
 export const salonStep3Schema = z.object({
-  pr_text: z.string().max(1000, '1000文字以内で入力してください').optional(),
+  // 【2026年10月22日】/admin/settings が保存時に弾いている医療広告ガイドライン・あはき法の
+  // 禁止表現を、/register では一度も検査していなかった（PR文は施設紹介としてそのまま公開候補になる）。
+  // 送信後の拒否では入力をやり直せないため、入力画面の該当欄で送信前に知らせる。
+  pr_text: salonPrTextField.superRefine((text, ctx) => {
+    const check = validateFacilityPrText(text);
+    if (!check.ok) ctx.addIssue({ code: 'custom', message: check.message });
+  }),
   desired_start_date: z.enum(DESIRED_START_DATES).or(z.literal('')).optional(),
 });
 
@@ -76,7 +87,7 @@ export const salonInsertSchema = salonFullSchema.extend({
   regular_holiday: salonStep2Schema.shape.regular_holiday.nullable(),
   seat_count: z.number().int().min(0).max(9999).optional().nullable(),
   staff_count: z.number().int().min(0).max(9999).optional().nullable(),
-  pr_text: salonStep3Schema.shape.pr_text.nullable(),
+  pr_text: salonPrTextField.nullable(),
   desired_start_date: salonStep3Schema.shape.desired_start_date.nullable(),
   photo_url: z.string().max(2000).optional().nullable(),
   photo_urls: z.array(z.string().max(2000)).max(7).optional(),

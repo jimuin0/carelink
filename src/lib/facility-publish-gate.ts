@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hasConfirmedBookingHours } from './booking-preparation';
+import { validateFacilityPrText } from './medical-ad-guard';
 
 export interface PublishReadiness {
   ready: boolean;
@@ -121,14 +122,23 @@ export function isCardBookingReady(card: {
   }).length === 0;
 }
 
+/** 公開ゲートで医療広告の表現を見直す PR 文言の列と、オーナーに見せる欄名。 */
+const PR_TEXT_FIELDS = [['catch_copy', 'キャッチコピー'], ['description', '施設紹介']] as const;
+
 /** Listing is independent of online booking. Authorization stays in the caller. */
 export async function checkPublishReadiness(admin: SupabaseClient, facilityId: string): Promise<{ readiness: PublishReadiness; error: unknown }> {
-  const profile = await admin.from('facility_profiles').select('name, prefecture, city, address').eq('id', facilityId).single();
+  const profile = await admin.from('facility_profiles').select('name, prefecture, city, address, catch_copy, description').eq('id', facilityId).single();
   if (profile.error) return { readiness: { ready: false, missing: [] }, error: profile.error };
   const missing: string[] = [];
   if (!profile.data?.name?.trim()) missing.push('施設名を設定してください');
   if (!profile.data?.prefecture?.trim()) missing.push('都道府県を設定してください');
   if (!profile.data?.city?.trim()) missing.push('市区町村を設定してください');
   if (!profile.data?.address?.trim()) missing.push('住所を設定してください');
+  // 最後の砦。/admin/settings は保存時に弾くが、/register の PR 文（取り込み後は施設紹介）など
+  // 設定画面を経ずに入った文言は検査されないまま公開できた。公開の瞬間にも同じ判定を通す。
+  for (const [field, label] of PR_TEXT_FIELDS) {
+    const check = validateFacilityPrText(profile.data?.[field]);
+    if (!check.ok) missing.push(`${label}：${check.message}`);
+  }
   return { readiness: { ready: missing.length === 0, missing }, error: null };
 }

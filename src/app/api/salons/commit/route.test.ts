@@ -17,6 +17,7 @@ import { commitSalonSubmission } from '@/lib/salon-submission-commit';
 import { readSalonIntentStatus } from '@/lib/salon-submission-intent';
 import { salonIntentCookieName } from '@/lib/salon-submission-proof';
 import { businessTypes } from '@/lib/constants';
+import { SALON_PR_TEXT_PROHIBITED_MESSAGE } from '@/lib/salon-field-errors';
 
 const intentId = '64000000-0000-4000-8000-000000000001';
 const other = '64000000-0000-4000-8000-000000000002';
@@ -60,6 +61,24 @@ test('field errors are fixed messages, not submitted PII/provider text', async (
   const body = await res.json(); expect(res.status).toBe(400);
   expect(body.fieldErrors).toEqual({ email: 'メールアドレスを確認してください（254文字以内）', phone: '電話番号を確認してください' });
   expect(JSON.stringify(body)).not.toContain('PRIVATE');
+});
+// /admin/settings と同じ医療広告ガイドライン・あはき法の検査。以前の /register は PR 文を一度も
+// 検査せず、取り込み後は施設紹介としてそのまま公開候補になっていた。
+test.each(['当院の施術で必ず治る', '技術力No.1のサロン'])('prohibited advertising in PR text is rejected under pr_text: %s', async prText => {
+  const res = await POST(request({ ...input, registration: { ...input.registration, pr_text: prText } }));
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body).toEqual({ state: 'invalid', fieldErrors: { pr_text: SALON_PR_TEXT_PROHIBITED_MESSAGE } });
+  // 送信値は返さない（固定文言のみ）。
+  expect(JSON.stringify(body)).not.toContain(prText);
+  expect(commitSalonSubmission).not.toHaveBeenCalled();
+  expect(createServiceRoleClient).not.toHaveBeenCalled();
+});
+test.each([null, '駅から徒歩3分。丁寧なカウンセリングを心がけています'])('acceptable PR text proceeds to commit: %p', async prText => {
+  (commitSalonSubmission as jest.Mock).mockResolvedValue({ state: 'committed', receiptId: other });
+  const body = { ...input, registration: { ...input.registration, pr_text: prText } };
+  expect((await POST(request(body))).status).toBe(201);
+  expect(commitSalonSubmission).toHaveBeenCalledWith({}, body, proof);
 });
 test('broken JSON blocks persistence', async () => {
   expect((await POST(request(input, cookie, '{'))).status).toBe(400); expect(commitSalonSubmission).not.toHaveBeenCalled();
