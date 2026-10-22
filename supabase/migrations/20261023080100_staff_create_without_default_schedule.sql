@@ -16,9 +16,22 @@
 --
 -- Body is the 20261008080210 definition (the latest; no later migration replaces or
 -- patches it) minus the staff_schedules INSERT. Signature, SECURITY INVOKER,
--- search_path, the lock order and the receipt are unchanged, so the current app keeps
--- working unmodified when this is applied before the new app is deployed (it simply
--- stops getting the silent default).
+-- search_path, the lock order and the receipt are unchanged.
+--
+-- 【適用順序】Deploy the app FIRST, then apply this migration (after 20261023080000).
+-- Applied before the app, the old admin UI would keep sending the owner back to the
+-- staff list after adding staff, with no warning; the old schedule page shows an
+-- unsaved 09:00〜19:00 week as if it were saved, and the old dashboard marks
+-- 「勤務スケジュール設定」 done when ANY staff member has a schedule. A second staff
+-- member added in that window would silently get no shift and no bookings — the very
+-- silence E8 removes. The reverse order is harmless: the new app with the old RPC just
+-- shows the default 7 rows as a saved schedule (as before). Staff added between an
+-- early apply and the deploy can be found with scripts/diagnose-default-staff-schedules.sql
+-- (rows whose 勤務日数 is 0).
+--
+-- 20261023080000 must already be applied: it makes facility_booking_ready and the search
+-- card count only staff with working time, so a shop whose new staff member has not
+-- saved a schedule shows 「ネット予約準備中」 instead of 「予約OK」 with every day 満枠.
 --
 -- Existing staff_schedules rows are not touched (no data migration).
 DO $guard$ BEGIN IF to_regclass('public.facility_profiles') IS NULL THEN RAISE EXCEPTION 'not the CareLink database'; END IF; END $guard$;

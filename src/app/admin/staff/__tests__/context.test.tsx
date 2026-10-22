@@ -128,11 +128,12 @@ test('a rate-limited retry resolves an earlier committed creation before clearin
 });
 
 /** 週間スケジュール画面の読み取り。テーブルごとの結果を差し替えられる。 */
-function scheduleTables(results: { schedules?: unknown[]; businessHours?: unknown; facilityError?: unknown } = {}) {
+function scheduleTables(results: { schedules?: unknown[]; businessHours?: unknown; facilityError?: unknown; overrides?: unknown[] } = {}) {
   mockFrom.mockImplementation((table: string) => {
     const result = table === 'staff_profiles' ? { data: { name: '合成スタッフ' }, error: null }
       : table === 'staff_schedules' ? { data: results.schedules ?? [], error: null }
       : table === 'facility_profiles' ? { data: results.facilityError ? null : { business_hours: results.businessHours ?? null }, error: results.facilityError ?? null }
+      : table === 'schedule_overrides' ? { data: results.overrides ?? [], error: null }
       : { data: [], error: null };
     const chain: Record<string, unknown> = {};
     for (const method of ['select','eq','gte','order']) chain[method] = () => chain;
@@ -175,6 +176,44 @@ test('a staff member without a schedule gets this shop\'s confirmed hours as an 
     { day_of_week: 4, start_time: '10:00', end_time: '20:00' }, { day_of_week: 5, start_time: '10:00', end_time: '21:00' },
     { day_of_week: 6, start_time: '09:30', end_time: '18:00' },
   ]);
+});
+
+// 特別日（時間変更）だけで勤務するスタッフは、その日に予約を受けられる（予約枠・検索カードと同じ規則）。
+// 「未登録」と言ったり、店舗の営業日に下書きのチェックを入れたりしない。
+describe('特別日だけ勤務するスタッフ', () => {
+  beforeEach(() => {
+    // 2026-10-22T15:30Z は日本時間で 10月23日 00:30（UTC の日付ではまだ 22日）。
+    jest.useFakeTimers({ now: new Date('2026-10-22T15:30:00Z'), doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval', 'clearImmediate'] });
+  });
+  afterEach(() => jest.useRealTimers());
+
+  test('今後の勤務する特別日があれば、未登録の警告も下書きも出さず、保存済みのとおり週間は休みで見せる', async () => {
+    scheduleTables({ businessHours: SHOP_HOURS, overrides: [
+      { id: 'ov-work', date: '2026-10-23', is_holiday: false, start_time: '10:00:00', end_time: '15:00:00' },
+    ] });
+    render(<Schedule />);
+    await screen.findByText('スケジュールを保存');
+    expect(screen.queryByText('このスタッフは勤務時間が未登録のため、まだネット予約を受けられません。')).toBeNull();
+    expect(screen.getByText(/週間の勤務日は登録されていません。下の「特別日設定」で勤務時間を入れた日だけ、ネット予約を受けられます。/)).toBeTruthy();
+    for (const day of ['日','月','火','水','木','金','土']) expect(dayBox(day).checked).toBe(false);
+    // 曜日にチェックを入れたときの初期時刻は店舗の営業時間（09:00〜19:00 を持ち込まない）
+    fireEvent.click(dayBox('土'));
+    expect(screen.getByDisplayValue('09:30')).toBeTruthy();
+    expect(screen.queryByDisplayValue('19:00')).toBeNull();
+  });
+
+  test.each([
+    ['休みの特別日', { id: 'ov-off', date: '2026-10-30', is_holiday: true, start_time: null, end_time: null }],
+    ['時刻の無い特別日', { id: 'ov-blank', date: '2026-10-30', is_holiday: null, start_time: null, end_time: null }],
+    ['日本時間では昨日の特別日', { id: 'ov-past', date: '2026-10-22', is_holiday: false, start_time: '10:00:00', end_time: '15:00:00' }],
+  ])('%sしか無ければ勤務時間は無いものとして、下書きと未登録の警告を出す', async (_label, override) => {
+    scheduleTables({ businessHours: SHOP_HOURS, overrides: [override] });
+    render(<Schedule />);
+    await screen.findByText('この勤務時間で保存する');
+    expect(screen.getByText('このスタッフは勤務時間が未登録のため、まだネット予約を受けられません。')).toBeTruthy();
+    expect(screen.queryByText(/週間の勤務日は登録されていません/)).toBeNull();
+    expect(dayBox('火').checked).toBe(true);
+  });
 });
 
 test('a saved schedule is shown as saved, without the suggestion notice or the shop-hours read', async () => {

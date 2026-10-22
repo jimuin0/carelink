@@ -79,10 +79,13 @@ async function main() {
     UPDATE public.facility_profiles SET status='published' WHERE id='${facility}';`);
   const booking=`SET ROLE service_role; CREATE FUNCTION pg_temp.attempt() RETURNS text LANGUAGE plpgsql AS $$ BEGIN
     RETURN public.create_booking_atomic('${facility}','${staff}','${customer}','${menu}',NULL,'2035-01-08','10:00','11:00','Synthetic','staff-race-booking@example.invalid',NULL,NULL,1000,0,'pending',true)::text;
-    EXCEPTION WHEN raise_exception THEN IF SQLERRM LIKE 'STAFF_NOT_WORKING%' THEN RETURN 'staff-not-working'; END IF; RAISE; END $$; SELECT pg_temp.attempt();`;
+    EXCEPTION WHEN raise_exception THEN IF SQLERRM LIKE 'STAFF_NOT_WORKING%' THEN RETURN 'staff-not-working'; END IF;
+      IF SQLERRM LIKE 'BOOKING_NOT_READY%' THEN RETURN 'not-ready'; END IF; RAISE; END $$; SELECT pg_temp.attempt();`;
   const competing=await contend('booking-versus-replacement',lock,[weekly(admin,staff,5,[]),booking]);
   const replaced=JSON.parse(competing[0]); const count=Number(query(`SELECT count(*) FROM public.bookings WHERE facility_id='${facility}'`));
-  if(replaced.ok===true){ assert.equal(competing[1],'staff-not-working'); assert.equal(count,0); assert.equal(query(`SELECT count(*) FROM public.staff_schedules WHERE staff_id='${staff}'`),'0'); }
+  // Emptying the only staff member's week leaves the shop without working staff, so the
+  // readiness gate (facility_booking_ready, 20261023080000) or the slot gate refuses it.
+  if(replaced.ok===true){ assert.ok(['staff-not-working','not-ready'].includes(competing[1]),competing[1]); assert.equal(count,0); assert.equal(query(`SELECT count(*) FROM public.staff_schedules WHERE staff_id='${staff}'`),'0'); }
   else { assert.equal(replaced.code,'BOOKINGS_AFFECTED'); assert.equal(replaced.affectedBookings,1); assert.equal(count,1); assert.equal(query(`SELECT count(*) FROM public.staff_schedules WHERE staff_id='${staff}'`),'7'); }
   console.log('staff concurrency passed: one creation, complete replacement, final booking-impact recheck');
 }

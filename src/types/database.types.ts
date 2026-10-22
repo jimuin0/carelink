@@ -8472,6 +8472,7 @@ export type Database = {
         Args: { geom: unknown; move: number; wrap: number }
         Returns: unknown
       }
+      staff_has_working_time: { Args: { p_staff_id: string }; Returns: boolean }
       start_booking_create_notification: {
         Args: { p_claimed_at: string; p_queue_id: string }
         Returns: {

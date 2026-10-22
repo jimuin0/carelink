@@ -69,10 +69,15 @@ async function seedBookableFacility() {
   });
   if (me) throw new Error('seed menu: ' + me.message);
 
-  const { error: se } = await sb.from('staff_profiles').insert({
+  const { data: staff, error: se } = await sb.from('staff_profiles').insert({
     facility_id: fac.id, name: '検証スタッフ', slug: `first-paint-staff-${ts}`, is_active: true,
-  });
-  if (se) throw new Error('seed staff: ' + se.message);
+  }).select('id').single();
+  if (se || !staff) throw new Error('seed staff: ' + se?.message);
+  // 勤務時間の無いスタッフは予約を受けられない（facility_booking_ready）。勤務は明示して作る。
+  const { error: we } = await sb.from('staff_schedules').insert(Array.from({ length: 7 }, (_, day) => ({
+    staff_id: staff.id, day_of_week: day, start_time: '09:00', end_time: '20:00',
+  })));
+  if (we) throw new Error('seed schedules: ' + we.message);
   await confirmSyntheticBookingPreparation(sb, fac.id);
 
   return { facilityId: fac.id as string, facilitySlug: fac.slug as string };

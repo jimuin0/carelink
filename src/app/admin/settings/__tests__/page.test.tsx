@@ -202,7 +202,9 @@ describe('公開は画面の入力どおりに行う', () => {
     await screen.findByDisplayValue('合成店舗B');
     fireEvent.click(screen.getByRole('button', { name: '公開する' }));
     const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toContain('公開するには、次の項目を入力してください。');
+    // 一覧には未入力だけでなく直す表現も並ぶので、見出しは「直してください」
+    expect(alert.textContent).toContain('公開するには、次の点を直してください。');
+    expect(alert.textContent).not.toContain('保存済みの内容では');
     expect([...alert.querySelectorAll('li')].map(li => li.textContent)).toEqual(['都道府県を設定してください', '市区町村を設定してください', '住所を設定してください']);
     expect(mockFetch).not.toHaveBeenCalled();
     // 入力して保存すると、古い一覧は消える
@@ -231,8 +233,31 @@ describe('公開は画面の入力どおりに行う', () => {
     fireEvent.click(screen.getByRole('button', { name: '公開する' }));
     const alert = await screen.findByRole('alert');
     expect([...alert.querySelectorAll('li')].map(li => li.textContent)).toEqual(['施設紹介：表現を見直してください']);
+    // 画面では入力済みに見えても、サーバーは保存済みの内容で判断したことを先に伝える
+    expect(alert.textContent).toContain('保存済みの内容では次の点が足りないため、公開できませんでした。');
     expect(screen.getByText('公開できませんでした。足りない項目を確認してください')).toBeTruthy();
     expect(screen.getByText('非公開')).toBeTruthy();
+  });
+
+  test('画面の PR 文言が公開ゲートに止められる表現なら、送信せずに表現の見直しを一覧にする', async () => {
+    mockProfile = { ...mockProfile, prefecture: '愛知県', city: '合成市', address: '合成番地', catch_copy: '地域No.1' };
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    fireEvent.click(screen.getByRole('button', { name: '公開する' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('公開するには、次の点を直してください。');
+    expect([...alert.querySelectorAll('li')].map(li => li.textContent?.slice(0, 7))).toEqual(['キャッチコピー']);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  test('サーバーが不足項目なしで断ったら、一覧は出さずにエラーを伝える', async () => {
+    mockProfile = { ...mockProfile, prefecture: '愛知県', city: '合成市', address: '合成番地' };
+    mockFetch.mockResolvedValueOnce({ ok: false, json: async () => ({ error: '権限がありません' }) });
+    render(<AdminSettingsPage />);
+    await screen.findByDisplayValue('合成店舗B');
+    fireEvent.click(screen.getByRole('button', { name: '公開する' }));
+    await screen.findByText('権限がありません');
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   test('通信エラーでもボタンを固着させない', async () => {

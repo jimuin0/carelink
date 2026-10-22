@@ -83,7 +83,8 @@ function AdminSettingsContent() {
   const [boardSlotMinutes, setBoardSlotMinutes] = useState(60);
   const [publishToggling, setPublishToggling] = useState(false);
   // 「公開する」を押したときに足りなかった項目。トーストは数秒で消えるので画面に残す。
-  const [publishMissing, setPublishMissing] = useState<string[]>([]);
+  // source＝画面の入力で確かめた結果（visible）か、保存済みの内容でサーバーが断った結果（saved）か。
+  const [publishMissing, setPublishMissing] = useState<{ source: 'visible' | 'saved'; items: string[] } | null>(null);
   const [showUnpublishConfirm, setShowUnpublishConfirm] = useState(false);
 
   // Business hours
@@ -110,7 +111,7 @@ function AdminSettingsContent() {
       setFacilityId(null);
       setFacilityChoices([]);
       setLoadError(false);
-      setPublishMissing([]);
+      setPublishMissing(null);
       const verification = await verifyAuthUser(supabase.auth);
       if (!active) return;
       if (verification.state === 'unavailable') { setLoadError(true); setLoading(false); return; }
@@ -254,7 +255,7 @@ function AdminSettingsContent() {
       }
       setDirty(false);
       // 保存で中身が変わったので、前回の「足りない項目」は古い。次に公開を押したときに改めて確かめる。
-      setPublishMissing([]);
+      setPublishMissing(null);
       setToast({ type: 'success', message: '施設情報を保存しました' });
       return true;
     } catch {
@@ -275,8 +276,8 @@ function AdminSettingsContent() {
   const handlePublish = async () => {
     if (!facilityId || publishToggling || saving) return;
     const visibleMissing = listingPublishMissing({ name, prefecture, city, address, catch_copy: catchCopy, description });
-    if (visibleMissing.length > 0) { setPublishMissing(visibleMissing); return; }
-    setPublishMissing([]);
+    if (visibleMissing.length > 0) { setPublishMissing({ source: 'visible', items: visibleMissing }); return; }
+    setPublishMissing(null);
     setPublishToggling(true);
     // 通信エラーで fetch が throw してもボタンが「処理中...」のまま固着しないよう
     // try/finally で必ずトグル状態を解除し、失敗はトーストで明示する。
@@ -296,7 +297,7 @@ function AdminSettingsContent() {
       // サーバは不足項目を missing 配列で返す。これを捨てて「失敗しました」だけ出すと、
       // 何を揃えれば公開できるか分からないため、画面に一覧で残す（トーストは数秒で消える）。
       const missing = Array.isArray(body?.missing) ? (body.missing as unknown[]).filter((m): m is string => typeof m === 'string') : [];
-      setPublishMissing(missing);
+      setPublishMissing(missing.length > 0 ? { source: 'saved', items: missing } : null);
       setToast({ type: 'error', message: missing.length > 0 ? '公開できませんでした。足りない項目を確認してください' : (body?.error || '公開に失敗しました') });
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
@@ -348,11 +349,17 @@ function AdminSettingsContent() {
         }
       />
 
-      {publishMissing.length > 0 && facilityStatus !== 'published' && (
+      {publishMissing && facilityStatus !== 'published' && (
         <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4">
-          <p className="text-sm font-bold text-red-800">公開するには、次の項目を入力してください。</p>
+          {/* 一覧には未入力だけでなく、直す必要のある PR 文言の表現も並ぶ。サーバーが保存済みの内容で
+              断ったときは、画面では入力済みに見える欄が並び得るので、そのことを先に伝える。 */}
+          <p className="text-sm font-bold text-red-800">
+            {publishMissing.source === 'saved'
+              ? '保存済みの内容では次の点が足りないため、公開できませんでした。'
+              : '公開するには、次の点を直してください。'}
+          </p>
           <ul className="mt-2 list-disc pl-5 text-sm text-red-700">
-            {publishMissing.map((item) => <li key={item}>{item}</li>)}
+            {publishMissing.items.map((item) => <li key={item}>{item}</li>)}
           </ul>
         </div>
       )}

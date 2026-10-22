@@ -16,6 +16,7 @@ import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import Link from 'next/link';
 import { suggestStaffWeekFromBusinessHours } from '@/lib/staff-schedule-suggestion';
+import { todayJst } from '@/lib/admin-date';
 
 const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -54,9 +55,11 @@ function StaffSchedulePageForm() {
     DAY_LABELS.map((_, i) => ({ day_of_week: i, start_time: '09:00', end_time: '19:00' }))
   );
   const [enabledDays, setEnabledDays] = useState<boolean[]>(Array(7).fill(true));
-  // 勤務日が1日も保存されていないとき、表示中の内容が何か（店舗の営業時間からの下書き／空）。
-  // null＝保存済みの勤務を表示している。
+  // 勤務時間が1つも無い（週間の勤務日も、今日以降に勤務する特別日も無い）とき、表示中の内容が何か
+  // （店舗の営業時間からの下書き／空）。null＝保存済みの勤務を表示している。
   const [draft, setDraft] = useState<'suggested' | 'empty' | null>(null);
+  // 週間の勤務日は無いが、勤務する特別日がある（その日だけ予約を受けられる）。
+  const [overridesOnly, setOverridesOnly] = useState(false);
   const justAdded = useSearchParams().get('added') === '1';
   const [overrides, setOverrides] = useState<Override[]>([]);
   const [newOverrideDate, setNewOverrideDate] = useState('');
@@ -121,20 +124,37 @@ function StaffSchedulePageForm() {
 
       if (!active) return;
       if (schErr || !Array.isArray(schData)) { setLoadError(true); setLoading(false); return; }
+
+      const { data: ovData, error: ovErr } = await supabase
+        .from('schedule_overrides')
+        .select('id, date, is_holiday, start_time, end_time')
+        .eq('staff_id', staffId)
+        .gte('date', new Date().toISOString().split('T')[0])
+        .order('date');
+      if (!active) return;
+      if (ovErr) { setLoadError(true); setLoading(false); return; }
+
       if (schData.length === 0) {
-        // 勤務日が1日も無い＝このスタッフには予約枠が出ない。追加しただけのスタッフはこの状態から始まる
-        // （DB は既定の勤務を作らない）。店舗の確定済み営業時間を下書きとして見せ、保存したときだけ登録する。
+        // 週間の勤務日が1日も無い。追加しただけのスタッフはこの状態から始まる（DB は既定の勤務を作らない）。
+        // 時間を入れる曜日の初期値には、店舗の確定済み営業時間を使う（09:00〜19:00 を持ち込まない）。
         const { data: facilityRow, error: facilityErr } = await supabase
           .from('facility_profiles').select('business_hours').eq('id', selectedFacilityId).single();
         if (!active) return;
         if (facilityErr) { setLoadError(true); setLoading(false); return; }
         const suggestion = suggestStaffWeekFromBusinessHours(facilityRow?.business_hours);
-        setDraft(suggestion ? 'suggested' : 'empty');
-        if (suggestion) {
-          setSchedules(suggestion.map(({ day_of_week, start_time, end_time }) => ({ day_of_week, start_time, end_time })));
-          setEnabledDays(suggestion.map((day) => day.enabled));
-        } else {
+        if (suggestion) setSchedules(suggestion.map(({ day_of_week, start_time, end_time }) => ({ day_of_week, start_time, end_time })));
+        // 特別日だけ勤務するスタッフは、その日に予約を受けられる（予約枠・公開カードと同じ規則）。
+        // 未登録とは言わず、保存済みのとおり週間は全曜日休みで見せ、下書きのチェックも入れない。
+        const today = todayJst();
+        const worksOnSpecialDay = (ovData ?? []).some((o) => o.date >= today && o.is_holiday !== true && o.start_time && o.end_time);
+        setOverridesOnly(worksOnSpecialDay);
+        if (worksOnSpecialDay) {
+          setDraft(null);
           setEnabledDays(Array(7).fill(false));
+        } else {
+          // 勤務時間が無い＝このスタッフには予約枠が出ない。店舗の営業時間を下書きとして見せ、保存したときだけ登録する。
+          setDraft(suggestion ? 'suggested' : 'empty');
+          setEnabledDays(suggestion ? suggestion.map((day) => day.enabled) : Array(7).fill(false));
         }
       } else {
         const newSchedules = DAY_LABELS.map((_, i) => {
@@ -147,18 +167,10 @@ function StaffSchedulePageForm() {
             : { day_of_week: i, start_time: '09:00', end_time: '19:00' };
         });
         setDraft(null);
+        setOverridesOnly(false);
         setSchedules(newSchedules);
         setEnabledDays(DAY_LABELS.map((_, i) => schData.some((s) => s.day_of_week === i)));
       }
-
-      const { data: ovData, error: ovErr } = await supabase
-        .from('schedule_overrides')
-        .select('id, date, is_holiday, start_time, end_time')
-        .eq('staff_id', staffId)
-        .gte('date', new Date().toISOString().split('T')[0])
-        .order('date');
-      if (!active) return;
-      if (ovErr) { setLoadError(true); setLoading(false); return; }
       // schedule_overrides の start_time/end_time も TIME 列で "HH:MM:SS" で返る。表示と再保存の
       // 一貫性のため "HH:MM" に正規化する（null=休日はそのまま）。
       // is_holiday は `BOOLEAN DEFAULT false` のみで NOT NULL 制約が無く DB 上 null もあり得る
@@ -324,6 +336,12 @@ function StaffSchedulePageForm() {
             </p>
           )}
         </div>
+      )}
+
+      {overridesOnly && !draft && (
+        <p role="status" className="mb-6 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+          週間の勤務日は登録されていません。下の「特別日設定」で勤務時間を入れた日だけ、ネット予約を受けられます。
+        </p>
       )}
 
       {/* Weekly Schedule */}

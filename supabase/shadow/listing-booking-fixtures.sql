@@ -88,4 +88,36 @@ BEGIN
     IF NOT has_function_privilege('service_role',signature,'EXECUTE') THEN RAISE EXCEPTION 'Service availability permission missing'; END IF;
   END LOOP;
 END $$;
+-- Working time decides online readiness (20261023080000). get_available_slots opens slots
+-- only inside a weekly working day or an upcoming working special day, so an active staff
+-- member without either cannot be booked and must not make the shop look bookable.
+DO $$ DECLARE jst_today date := (now() AT TIME ZONE 'Asia/Tokyo')::date;
+BEGIN
+  IF NOT public.staff_has_working_time('72000000-0000-4000-8000-000000000003') THEN RAISE EXCEPTION 'Weekly working day ignored'; END IF;
+  IF (SELECT active_staff_count FROM public.facility_card_view WHERE id='72000000-0000-4000-8000-000000000001')<>1 THEN RAISE EXCEPTION 'Card miscounts working staff'; END IF;
+  DELETE FROM public.staff_schedules WHERE staff_id='72000000-0000-4000-8000-000000000003';
+  IF public.staff_has_working_time('72000000-0000-4000-8000-000000000003') THEN RAISE EXCEPTION 'No working time accepted'; END IF;
+  -- The inactive member still has a weekly day; inactive staff never count.
+  IF public.facility_booking_ready('72000000-0000-4000-8000-000000000001') THEN RAISE EXCEPTION 'Shop without working staff offered for booking'; END IF;
+  IF (SELECT active_staff_count FROM public.facility_card_view WHERE id='72000000-0000-4000-8000-000000000001')<>0 THEN RAISE EXCEPTION 'Card advertises staff without working time'; END IF;
+  -- A past working special day, a holiday and a special day without times open nothing.
+  INSERT INTO public.schedule_overrides(staff_id,date,is_holiday,start_time,end_time) VALUES
+    ('72000000-0000-4000-8000-000000000003',jst_today-1,false,'10:00','12:00'),
+    ('72000000-0000-4000-8000-000000000003',jst_today+2,true,NULL,NULL),
+    ('72000000-0000-4000-8000-000000000003',jst_today+3,NULL,NULL,NULL);
+  IF public.facility_booking_ready('72000000-0000-4000-8000-000000000001') THEN RAISE EXCEPTION 'Past, holiday or timeless special day accepted'; END IF;
+  -- An upcoming working special day is working time, and slots open on it.
+  INSERT INTO public.schedule_overrides(staff_id,date,is_holiday,start_time,end_time)
+    VALUES('72000000-0000-4000-8000-000000000003','2030-01-14',false,'22:00','23:30');
+  IF NOT public.facility_booking_ready('72000000-0000-4000-8000-000000000001') THEN RAISE EXCEPTION 'Upcoming special day ignored'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM public.get_available_slots('72000000-0000-4000-8000-000000000001','72000000-0000-4000-8000-000000000003','2030-01-14',30)) THEN RAISE EXCEPTION 'Ready shop has no special-day slot'; END IF;
+END $$;
+-- Search cards are read by visitors: the view is security_invoker, so anon must be able to
+-- evaluate the working-time rule (function grant, public reads of schedules).
+SET LOCAL ROLE anon;
+DO $$ BEGIN
+  IF (SELECT active_staff_count FROM public.facility_card_view WHERE id='72000000-0000-4000-8000-000000000001') IS DISTINCT FROM 1 THEN RAISE EXCEPTION 'Anonymous card cannot see working staff'; END IF;
+  IF NOT public.facility_booking_ready('72000000-0000-4000-8000-000000000001') THEN RAISE EXCEPTION 'Anonymous readiness differs'; END IF;
+END $$;
+RESET ROLE;
 ROLLBACK;

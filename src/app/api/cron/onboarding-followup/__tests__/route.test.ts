@@ -7,7 +7,7 @@
  *   - Finds facilities 3～7 days old (not published, email not sent), oldest-first
  *   - CAS guard (is null check) prevents double-send
  *   - Detects incomplete steps (menus, staff, photos, schedules)
- *   - Fetches staff IDs then schedules (2-stage query)
+ *   - Reads active staff with their working time (weekly days / upcoming special days) in one query
  *   - Sends onboarding email with missing steps
  *   - Time budget guard defers remaining work to next run (timeout-proof)
  *   - Releases claim (sent_at→null) on transient failure; keeps claim when no contact
@@ -189,21 +189,46 @@ function buildFrom(opts: any = {}) {
     facility_photos: Array.from({ length: photoCount ?? 0 }, () => ({})),
     staff_schedules: (opts.scheduleRows as SalonRow[] | undefined)
       ?? ((scheduleCount ?? 0) > 0 ? staffRows.map((s) => ({ staff_id: s.id, day_of_week: 1 })) : []),
+    schedule_overrides: (opts.overrideRows as SalonRow[] | undefined) ?? [],
   };
   const tableErrors: Record<string, unknown> = {
     facility_menus: menuError, staff_profiles: staffError, facility_photos: photoError, staff_schedules: scheduleError,
+    schedule_overrides: opts.overrideError ?? null,
   };
+  // select の埋め込み `child(col)` は child.staff_id = 親の id で結ぶ。`child.col` の絞り込みと
+  // limit(n, { referencedTable }) は子の行だけに効く（親は減らない）。埋め込み先の失敗はクエリ全体の失敗。
   const setupRead = (table: string) => ({
-    select: jest.fn((_columns: string, options?: { count?: string; head?: boolean }) => {
+    select: jest.fn((columns: string, options?: { count?: string; head?: boolean }) => {
       const filters: SalonFilter[] = [];
+      const childFilters: Record<string, SalonFilter[]> = {};
+      const childLimits: Record<string, number> = {};
+      const embeds = [...columns.matchAll(/(\w+)\(\w+\)/g)].map((match) => match[1]);
+      const add = (column: string, make: (col: string) => SalonFilter) => {
+        const [child, col] = column.includes('.') ? column.split('.') : [null, column];
+        if (child) (childFilters[child] ??= []).push(make(col)); else filters.push(make(col));
+      };
       const query: Record<string, unknown> = {
-        eq: (column: string, value: unknown) => { filters.push((row) => !(column in row) || row[column] === value); return query; },
+        eq: (column: string, value: unknown) => { add(column, (col) => (row) => !(col in row) || row[col] === value); return query; },
+        gte: (column: string, value: string) => { add(column, (col) => (row) => row[col] != null && String(row[col]) >= value); return query; },
+        not: (column: string, _op: 'is', value: unknown) => {
+          add(column, (col) => (row) => !(value === null ? row[col] == null : row[col] === value));
+          return query;
+        },
+        limit: (count: number, limitOptions: { referencedTable: string }) => { childLimits[limitOptions.referencedTable] = count; return query; },
         in: (column: string, values: unknown[]) => { filters.push((row) => values.includes(row[column])); return query; },
         or: (expr: string) => { filters.push(salonOrFilter(expr)); return query; },
         then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => {
-          const rows = tables[table].filter((row) => filters.every((f) => f(row)));
-          const result = tableErrors[table]
-            ? { data: null, count: null, error: tableErrors[table] }
+          const failed = [table, ...embeds].find((name) => tableErrors[name]);
+          const rows = tables[table].filter((row) => filters.every((f) => f(row))).map((row) => {
+            const out: SalonRow = { ...row };
+            for (const child of embeds) {
+              const kids = tables[child].filter((kid) => kid.staff_id === row.id && (childFilters[child] ?? []).every((f) => f(kid)));
+              out[child] = kids.slice(0, childLimits[child] ?? kids.length);
+            }
+            return out;
+          });
+          const result = failed
+            ? { data: null, count: null, error: tableErrors[failed] }
             : { data: options?.head ? null : rows, count: options?.count ? rows.length : null, error: null };
           return Promise.resolve(result).then(resolve, reject);
         },
@@ -472,7 +497,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     setupDefaultMocks(1, true, false, true, true);
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ bookingSteps: ['ネット予約：有効スタッフ登録', '予約枠：勤務スケジュール設定'] })
+      expect.objectContaining({ bookingSteps: ['ネット予約：スタッフ登録と勤務時間の保存', '予約枠：勤務スケジュール設定'] })
     );
   });
 
@@ -484,12 +509,59 @@ describe('GET /api/cron/onboarding-followup', () => {
     );
   });
 
+  // 勤務時間の無いスタッフしかいなければ、予約を受けられる人がいない（スタッフ項目も未完了）。
   test('detects missing schedules (via staff_schedules)', async () => {
     setupDefaultMocks(1, true, true, true, false);
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ bookingSteps: ['予約枠：勤務スケジュール設定'] })
+      expect.objectContaining({ bookingSteps: ['ネット予約：スタッフ登録と勤務時間の保存', '予約枠：勤務スケジュール設定'] })
     );
+  });
+
+  test('特別日だけ勤務するスタッフは、予約を受けられるスタッフとして数える', async () => {
+    mockFromDelegate.mockImplementation(buildFrom({
+      menuCount: 1, photoCount: 1,
+      staffRows: [{ id: 's-special', is_active: true }],
+      overrideRows: [
+        { staff_id: 's-special', date: '2999-01-04', is_holiday: false, start_time: '10:00:00', end_time: '15:00:00' },
+      ],
+    }));
+    await GET(makeRequest() as any);
+    expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(expect.objectContaining({ missingSteps: ['無料掲載を公開'], bookingSteps: [] }));
+  });
+
+  test('過ぎた特別日・休みの特別日しか無いスタッフは、勤務時間が無いものとして案内する', async () => {
+    mockFromDelegate.mockImplementation(buildFrom({
+      menuCount: 1, photoCount: 1,
+      staffRows: [{ id: 's-off', is_active: true }],
+      overrideRows: [
+        { staff_id: 's-off', date: '2000-01-04', is_holiday: false, start_time: '10:00:00', end_time: '15:00:00' },
+        { staff_id: 's-off', date: '2999-01-04', is_holiday: true, start_time: null, end_time: null },
+      ],
+    }));
+    await GET(makeRequest() as any);
+    expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
+      bookingSteps: ['ネット予約：スタッフ登録と勤務時間の保存', '予約枠：勤務スケジュール設定'],
+    }));
+  });
+
+  // 公開ゲートは PR 文言の医療広告表現も止める。/register から取り込んだ施設紹介に禁止表現があれば、
+  // 「無料掲載を公開」だけを案内すると、公開を押した瞬間に拒否される。
+  test('公開ゲートに止められる施設紹介があれば、その見直しも公開に必要な項目として案内する', async () => {
+    mockFromDelegate.mockImplementation(buildFrom({
+      menuCount: 1, photoCount: 1, staffData: [{ id: 's1' }], scheduleCount: 1,
+      setupProfile: {
+        name: 'New Salon', prefecture: '東京都', city: '渋谷区', address: '合成1-1', status: 'draft',
+        catch_copy: null, description: '施術で必ず治る',
+        business_hours: {
+          mon: { open: '10:00', close: '20:00' }, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null,
+        },
+      },
+    }));
+    await GET(makeRequest() as any);
+    expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
+      missingSteps: ['基本情報（キャッチコピー・施設紹介の表現）', '無料掲載を公開'], bookingSteps: [],
+    }));
   });
 
   test('always includes publish step', async () => {
@@ -511,7 +583,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
       missingSteps: ['基本情報（住所）', '無料掲載を公開'],
       bookingSteps: [
-        'ネット予約：公開メニュー登録', 'ネット予約：有効スタッフ登録', 'ネット予約：写真アップロード',
+        'ネット予約：公開メニュー登録', 'ネット予約：スタッフ登録と勤務時間の保存', 'ネット予約：写真アップロード',
         'ネット予約：営業時間の確認・保存', '予約枠：勤務スケジュール設定',
       ],
     }));
@@ -527,7 +599,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
       missingSteps: ['無料掲載を公開'],
-      bookingSteps: ['ネット予約：公開メニュー登録', 'ネット予約：有効スタッフ登録', '予約枠：勤務スケジュール設定'],
+      bookingSteps: ['ネット予約：公開メニュー登録', 'ネット予約：スタッフ登録と勤務時間の保存', '予約枠：勤務スケジュール設定'],
     }));
   });
 
@@ -545,6 +617,8 @@ describe('GET /api/cron/onboarding-followup', () => {
 
   test.each([
     ['店舗行の読み取り', { setupProfileError: { message: 'profile down' } }],
+    ['勤務日の読み取り', { scheduleError: { message: 'schedules down' } }],
+    ['特別日の読み取り', { overrideError: { message: 'overrides down' } }],
     ['オーナーの読み取り', { memberError: { message: 'member down' } }],
   ])('%sに失敗したら誤内容メールを送らず claim を解放する', async (_label, override) => {
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -556,11 +630,12 @@ describe('GET /api/cron/onboarding-followup', () => {
     errSpy.mockRestore();
   });
 
-  test('fetches staff IDs then queries staff_schedules', async () => {
+  test('reads staff with their working time in one query (weekly days and special days embedded)', async () => {
     setupDefaultMocks(1, true, true, true, false);
     await GET(makeRequest() as any);
     expect(mockFromDelegate).toHaveBeenCalledWith('staff_profiles');
-    expect(mockFromDelegate).toHaveBeenCalledWith('staff_schedules');
+    expect(mockFromDelegate).not.toHaveBeenCalledWith('staff_schedules');
+    expect(mockFromDelegate).not.toHaveBeenCalledWith('schedule_overrides');
   });
 
   test('gets owner user_id from facility_members', async () => {
@@ -672,7 +747,7 @@ describe('GET /api/cron/onboarding-followup', () => {
       expect.objectContaining({
         missingSteps: ['無料掲載を公開'],
         bookingSteps: [
-          'ネット予約：公開メニュー登録', 'ネット予約：有効スタッフ登録', 'ネット予約：写真アップロード',
+          'ネット予約：公開メニュー登録', 'ネット予約：スタッフ登録と勤務時間の保存', 'ネット予約：写真アップロード',
           '予約枠：勤務スケジュール設定',
         ],
       })
@@ -698,7 +773,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     expect(res.status).toBe(200);
     expect(mockFromDelegate).not.toHaveBeenCalledWith('staff_schedules');
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ bookingSteps: ['ネット予約：有効スタッフ登録', '予約枠：勤務スケジュール設定'] })
+      expect.objectContaining({ bookingSteps: ['ネット予約：スタッフ登録と勤務時間の保存', '予約枠：勤務スケジュール設定'] })
     );
   });
 

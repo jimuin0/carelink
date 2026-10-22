@@ -34,7 +34,6 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
   const onboardingSteps = facilitySetupSteps(setup);
   const stepDone = (key: SetupStepKey) => onboardingSteps.some(step => step.key === key && step.done);
   const unscheduledStaffCount = setup.unscheduledStaffIds.length;
-  const scheduledStaffCount = setup.activeStaffIds.length - unscheduledStaffCount;
   const completedSteps = onboardingSteps.filter(s => s.done).length;
   const showOnboarding = completedSteps < onboardingSteps.length;
   const isPublished = stepDone('publish');
@@ -99,12 +98,16 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
   }));
 
   // 掲載のみも正常な運用。ネット予約の準備は掲載公開の障害と表示しない。
-  const bookingReady = (['address', 'hours', 'staff', 'menu', 'photo'] as const).every(stepDone);
-  const publishBlocker = isPublished && !bookingReady
-    ? { message: '無料掲載は公開中です。ネット予約は準備中で、電話・店舗への問い合わせをご案内します。', cta: 'ネット予約の準備内容を確認する', href: '/admin/settings' }
-    : isPublished && scheduledStaffCount === 0
+  // 「スタッフ」は勤務時間を保存したスタッフが1人以上いること（ネット予約・検索カードと同じ規則）。
+  const otherBookingStepsDone = (['address', 'hours', 'menu', 'photo'] as const).every(stepDone);
+  const bookingReady = otherBookingStepsDone && stepDone('staff');
+  // 足りないのが「在籍スタッフの勤務時間」だけなら、行き先をスタッフの画面にして具体的に示す。
+  const onlyWorkingStaffMissing = otherBookingStepsDone && !stepDone('staff') && setup.activeStaffIds.length > 0;
+  const publishBlocker = !isPublished || bookingReady
+    ? null
+    : onlyWorkingStaffMissing
     ? { message: '無料掲載は公開中です。予約枠を表示するにはスタッフの勤務スケジュールを設定してください。', cta: 'スケジュールを設定する', href: '/admin/staff' }
-    : null;
+    : { message: '無料掲載は公開中です。ネット予約は準備中で、電話・店舗への問い合わせをご案内します。', cta: 'ネット予約の準備内容を確認する', href: '/admin/settings' };
 
   return (
     <div>

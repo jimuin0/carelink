@@ -30,7 +30,7 @@ const FACILITY_ID = '71000000-0000-4000-8000-000000000001';
 /** 任意のメソッドチェーンを許容し、最後に .single() または直接 await で解決する thenable モック。 */
 function chain(result: { data?: unknown; count?: number | null; error?: unknown } = {}) {
   const obj: Record<string, unknown> = {};
-  const passthrough = ['select', 'eq', 'neq', 'gte', 'lte', 'in', 'or', 'order', 'limit'];
+  const passthrough = ['select', 'eq', 'neq', 'gte', 'lte', 'in', 'or', 'not', 'order', 'limit'];
   for (const m of passthrough) obj[m] = jest.fn(() => obj);
   obj.single = jest.fn(() => Promise.resolve({ data: result.data ?? null, error: result.error ?? null }));
   obj.then = (resolve: (v: { data: unknown; count: number | null; error: unknown }) => unknown) =>
@@ -44,20 +44,24 @@ function chain(result: { data?: unknown; count?: number | null; error?: unknown 
  */
 function mockSupabase(opts: {
   prefecture: string | null; city: string | null; status?: string; scheduleError?: unknown; address?: string; stall?: 'kpi' | 'recent';
-  businessHours?: unknown; staffIds?: string[]; scheduledStaffIds?: string[];
+  businessHours?: unknown; staffIds?: string[]; scheduledStaffIds?: string[]; catchCopy?: string;
 }) {
   const staffIds = opts.staffIds ?? ['staff-1'];
   const scheduledStaffIds = opts.scheduledStaffIds ?? staffIds;
   const from = jest.fn((table: string) => {
     if (table === 'facility_members') return chain({ data: [{ facility_id: FACILITY_ID, facility_profiles: { name: 'テスト店舗' } }] });
     if (table === 'facility_menus') return chain({ count: 1 });
-    if (table === 'staff_profiles') return chain({ data: staffIds.map(id => ({ id })) });
+    // 在籍スタッフを勤務の有無つきで読む（workingStaffQuery）。勤務日を保存した人だけ staff_schedules に行がある。
+    if (table === 'staff_profiles') {
+      return chain({
+        data: staffIds.map(id => ({ id, staff_schedules: scheduledStaffIds.includes(id) ? [{ staff_id: id }] : [], schedule_overrides: [] })),
+        error: opts.scheduleError,
+      });
+    }
     if (table === 'facility_photos') return chain({ count: 1 });
     if (table === 'facility_profiles') {
-      return chain({ data: { status: opts.status ?? 'draft', name: 'テスト店舗', address: opts.address ?? 'テスト住所', prefecture: opts.prefecture, city: opts.city, business_hours: opts.businessHours ?? null } });
+      return chain({ data: { status: opts.status ?? 'draft', name: 'テスト店舗', address: opts.address ?? 'テスト住所', prefecture: opts.prefecture, city: opts.city, business_hours: opts.businessHours ?? null, catch_copy: opts.catchCopy ?? null, description: null } });
     }
-    // 勤務日を保存したスタッフ（1人につき1日分の行）。
-    if (table === 'staff_schedules') return chain({ data: scheduledStaffIds.map(staff_id => ({ staff_id })), error: opts.scheduleError });
     if (table === 'bookings') {
       const bookings = chain({ data: [], count: 0 });
       // Chainable but never settles, like a transport that accepted the request and went silent.
@@ -196,9 +200,40 @@ test('公開中で誰も勤務時間を保存していなければ、予約枠�
   expect(String(scheduleStepLink(root).props.className)).not.toContain('line-through');
 });
 
+test('在籍スタッフ全員に勤務時間が無ければ「スタッフ登録と勤務時間の保存」も未完了（予約を受けられる人がいない）', async () => {
+  mockSupabase({ prefecture: '東京都', city: '渋谷区', status: 'published', businessHours: CONFIRMED_HOURS, scheduledStaffIds: [] });
+  const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
+  const matches = findElementsWithDirectText(root, 'ネット予約：スタッフ登録と勤務時間の保存');
+  expect(matches).toHaveLength(1);
+  expect(String(matches[0].props.className)).not.toContain('line-through');
+  // 足りないのは勤務時間だけなので、一般的な「準備中」ではなくスタッフの画面へ導く
+  expect(findElementsWithDirectText(root, '無料掲載は公開中です。ネット予約は準備中で、電話・店舗への問い合わせをご案内します。')).toHaveLength(0);
+});
+
+test('勤務時間のほかにも足りない項目があれば、一般的な「準備中」の案内にする', async () => {
+  mockSupabase({ prefecture: '東京都', city: '渋谷区', status: 'published', scheduledStaffIds: [] });
+  const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
+  expect(findElementsWithDirectText(root, '無料掲載は公開中です。ネット予約は準備中で、電話・店舗への問い合わせをご案内します。')).toHaveLength(1);
+  expect(findElementsWithDirectText(root, '無料掲載は公開中です。予約枠を表示するにはスタッフの勤務スケジュールを設定してください。')).toHaveLength(0);
+});
+
+test('在籍スタッフがいなければ、勤務時間ではなく一般的な「準備中」の案内にする', async () => {
+  mockSupabase({ prefecture: '東京都', city: '渋谷区', status: 'published', businessHours: CONFIRMED_HOURS, staffIds: [] });
+  const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
+  expect(findElementsWithDirectText(root, '無料掲載は公開中です。ネット予約は準備中で、電話・店舗への問い合わせをご案内します。')).toHaveLength(1);
+});
+
+test('公開ゲートに止められる PR 文言は「表現」の項目として未完了で示す', async () => {
+  mockSupabase({ prefecture: '東京都', city: '渋谷区', catchCopy: '地域No.1' });
+  const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
+  const matches = findElementsWithDirectText(root, '基本情報（キャッチコピー・施設紹介の表現）');
+  expect(matches).toHaveLength(1);
+  expect(String(matches[0].props.className)).not.toContain('line-through');
+});
+
 test('勤務スケジュールの読取失敗は未設定0件へ置換しない', async () => {
   mockSupabase({ prefecture: '東京都', city: '渋谷区', scheduleError: { message: 'failed' } });
-  await expect(AdminDashboard({ searchParams: Promise.resolve({}) })).rejects.toThrow('勤務スケジュールの取得に失敗しました');
+  await expect(AdminDashboard({ searchParams: Promise.resolve({}) })).rejects.toThrow('店舗セットアップの状況を取得できませんでした: failed');
 });
 
 describe('止まった読取を「読み込み中」のまま放置しない', () => {

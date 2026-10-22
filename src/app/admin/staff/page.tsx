@@ -6,7 +6,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { SbPageHeader } from '@/components/admin/SbUi';
-import { loadScheduledStaffIds } from '@/lib/facility-setup-steps';
+import { readWorkingStaff } from '@/lib/facility-publish-gate';
 
 type StaffRow = { id: string; name: string; position: string | null; specialties: string[] | null; is_active: boolean };
 
@@ -25,17 +25,21 @@ export default async function AdminStaffPage(props: { searchParams: Promise<{ fa
   // 管理一覧は休止(is_active=false)スタッフも含めて全件表示する。公開用の getStaffByFacility は
   // active のみ返すため、これを使うと休止スタッフが一覧から消え、再開する術が無くなる。
   // 在籍→休止の順、同区分内は sort_order。取得失敗は 0 件に偽装せず error.tsx へ委ねる。
-  const { data, error } = await supabase
-    .from('staff_profiles')
-    .select('id, name, position, specialties, is_active')
-    .eq('facility_id', facilityId)
-    .order('is_active', { ascending: false })
-    .order('sort_order');
+  // スタッフを追加しただけでは勤務は作られない（勤務時間を保存するまで予約枠が出ない）。
+  // 勤務時間が無い（週間の勤務日も、今日以降に勤務する特別日も無い）在籍スタッフを一覧で示し、
+  // そのまま勤務の画面へ導く。判定は予約枠・検索カードと同じ規則。読めなければ例外（未登録と偽装しない）。
+  const [{ data, error }, working] = await Promise.all([
+    supabase
+      .from('staff_profiles')
+      .select('id, name, position, specialties, is_active')
+      .eq('facility_id', facilityId)
+      .order('is_active', { ascending: false })
+      .order('sort_order'),
+    readWorkingStaff(supabase, facilityId),
+  ]);
   if (error) throw new Error(`スタッフ一覧の取得に失敗しました: ${error.message}`);
   const staff = (data ?? []) as StaffRow[];
-  // スタッフを追加しただけでは勤務は作られない（勤務時間を保存するまで予約枠が出ない）。
-  // 勤務日が1日も無い在籍スタッフを一覧で示し、そのまま勤務の画面へ導く。読めなければ例外（未登録と偽装しない）。
-  const scheduled = await loadScheduledStaffIds(supabase, staff.filter(s => s.is_active).map(s => s.id));
+  const scheduled = working.workingIds;
 
   return (
     <div>

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hasConfirmedBookingHours } from './booking-preparation';
 import { validateFacilityPrText } from './medical-ad-guard';
+import { todayJst } from './admin-date';
 
 export interface PublishReadiness {
   ready: boolean;
@@ -16,11 +17,68 @@ export function isPublishedLocationConflict(error: unknown): boolean {
 }
 
 /**
+ * 在籍（is_active）スタッフを、勤務時間があるかどうかつきで読むクエリ。
+ *
+ * 予約枠（get_available_slots）は、週間の勤務日か、今日以降に勤務する特別日（休みではなく
+ * 開始・終了時刻がある日）の中にしか出ない。スタッフを追加しただけでは勤務は作られないため
+ * （migration 20261023080100）、「有効スタッフがいる」だけで予約できる店舗として扱うと、
+ * 検索カードは「予約OK」なのに予約画面は毎日「満枠」になる。SQL 側の同じ規則は
+ * public.staff_has_working_time（facility_booking_ready と facility_card_view.active_staff_count
+ * が使う・migration 20261023080000）。ここを変えるときは必ず両方を揃える。
+ *
+ * 埋め込みの絞り込みは子の行だけを絞る（スタッフ自体は全員返る）。1行あれば足りるので limit 1。
+ */
+export function workingStaffQuery(client: SupabaseClient, facilityId: string, today: string = todayJst()) {
+  return client
+    .from('staff_profiles')
+    .select('id, staff_schedules(staff_id), schedule_overrides(staff_id)')
+    .eq('facility_id', facilityId)
+    .eq('is_active', true)
+    .gte('schedule_overrides.date', today)
+    .not('schedule_overrides.is_holiday', 'is', true)
+    .not('schedule_overrides.start_time', 'is', null)
+    .not('schedule_overrides.end_time', 'is', null)
+    .limit(1, { referencedTable: 'staff_schedules' })
+    .limit(1, { referencedTable: 'schedule_overrides' });
+}
+
+export interface WorkingStaff {
+  /** 在籍スタッフ全員。 */
+  activeIds: string[];
+  /** そのうち勤務時間がある（予約を受けられる）スタッフ。 */
+  workingIds: Set<string>;
+}
+
+/** workingStaffQuery の結果を、在籍スタッフと予約を受けられるスタッフに分ける。 */
+export function summarizeWorkingStaff(rows: unknown): WorkingStaff {
+  const list = (Array.isArray(rows) ? rows : []) as {
+    id: string; staff_schedules?: unknown[] | null; schedule_overrides?: unknown[] | null;
+  }[];
+  return {
+    activeIds: list.map(row => row.id),
+    workingIds: new Set(list
+      .filter(row => (row.staff_schedules?.length ?? 0) > 0 || (row.schedule_overrides?.length ?? 0) > 0)
+      .map(row => row.id)),
+  };
+}
+
+/**
+ * 在籍スタッフと、そのうち予約を受けられるスタッフ。読めなければ例外にする
+ * （読めないことを「勤務未登録」と取り違えて、誤った案内や警告を出さないため）。
+ */
+export async function readWorkingStaff(client: SupabaseClient, facilityId: string): Promise<WorkingStaff> {
+  const { data, error } = await workingStaffQuery(client, facilityId);
+  if (error) throw new Error(`スタッフの勤務状況を取得できませんでした: ${error.message}`);
+  return summarizeWorkingStaff(data);
+}
+
+/**
  * ネット予約の準備条件。掲載公開の条件とは分離する。
  *
  * メニュー件数は公開側 getFacilityMenus の可視条件(is_published が null または true)と揃える。
  * HPB 反映メニューは is_published=false(下書き)で作られるため、これを数に含めると
  * 「公開メニュー0件なのにネット予約できてしまう」行き止まりを防ぐ。
+ * スタッフは勤務時間がある在籍スタッフだけを数える（workingStaffQuery）。
  *
  * error を握り潰すと DB 障害時に「未充足」と誤判定して予約を不当に拒否/許可しかねないため、
  * 呼び出し側が 500 で顕在化できるよう error を返す。
@@ -39,11 +97,7 @@ export async function checkBookingReadiness(
       .from('facility_photos')
       .select('id', { count: 'exact', head: true })
       .eq('facility_id', facilityId),
-    admin
-      .from('staff_profiles')
-      .select('id', { count: 'exact', head: true })
-      .eq('facility_id', facilityId)
-      .eq('is_active', true),
+    workingStaffQuery(admin, facilityId),
     // 掲載の所在地と公開状態も確認するが、メニュー等はネット予約だけの条件。
     admin
       .from('facility_profiles')
@@ -68,7 +122,7 @@ export async function checkBookingReadiness(
     businessHours: profile.data?.business_hours,
     menuCount: menu.count ?? 0,
     photoCount: photo.count ?? 0,
-    staffCount: staff.count ?? 0,
+    workingStaffCount: summarizeWorkingStaff(staff.data).workingIds.size,
   });
   return { readiness: { ready: missing.length === 0, missing }, error: null };
 }
@@ -82,7 +136,8 @@ export interface BookingReadinessInput {
   businessHours?: unknown;
   menuCount: number;
   photoCount: number;
-  staffCount: number;
+  /** 勤務時間がある在籍スタッフの数（workingStaffQuery / facility_card_view.active_staff_count）。 */
+  workingStaffCount: number;
 }
 
 /** 個々の条件の識別子。店舗セットアップ（/admin のチェックリスト・登録3日後のメール）が
@@ -120,7 +175,7 @@ export function bookingReadinessChecks(input: BookingReadinessInput): ReadinessC
     location.name,
     { key: 'menu', ok: input.menuCount >= 1, message: 'メニューを1つ以上登録してください' },
     { key: 'photo', ok: input.photoCount >= 1, message: '写真を1枚以上登録してください' },
-    { key: 'staff', ok: input.staffCount >= 1, message: 'スタッフを1人以上登録してください' },
+    { key: 'staff', ok: input.workingStaffCount >= 1, message: '勤務時間を保存したスタッフを1人以上登録してください' },
     location.prefecture,
     location.city,
     location.address,
@@ -142,6 +197,8 @@ export function bookingReadinessMissing(input: BookingReadinessInput): string[] 
  * A search card is advertised as bookable only when facility_card_view carries
  * the readiness inputs and they satisfy the same rule. Cards built from sources
  * without those inputs are never advertised (fail closed, no false 「予約OK」).
+ * active_staff_count counts only active staff with working time
+ * (public.staff_has_working_time, migration 20261023080000).
  */
 export function isCardBookingReady(card: {
   name: string; prefecture: string; city: string; business_hours: unknown; photo_count: number;
@@ -151,7 +208,7 @@ export function isCardBookingReady(card: {
   return bookingReadinessMissing({
     name: card.name, prefecture: card.prefecture, city: card.city, hasAddress: card.has_address,
     status: 'published', businessHours: card.business_hours,
-    menuCount: card.booking_menu_count, photoCount: card.photo_count, staffCount: card.active_staff_count,
+    menuCount: card.booking_menu_count, photoCount: card.photo_count, workingStaffCount: card.active_staff_count,
   }).length === 0;
 }
 
@@ -175,19 +232,27 @@ export function listingLocationMissing(values: ListingValues): string[] {
 }
 
 /**
- * The single listing-publish rule. The server gate runs it on the saved row and
- * the settings page runs it on what the owner sees before saving, so the two can
- * never name different missing items.
+ * 公開を止める PR 文言（キャッチコピー・施設紹介）の表現。
+ * 最後の砦。/admin/settings は保存時に弾くが、/register の PR 文（取り込み後は施設紹介）など
+ * 設定画面を経ずに入った文言は検査されないまま公開できた。公開の瞬間にも同じ判定を通す。
  */
-export function listingPublishMissing(values: ListingValues): string[] {
-  const missing = listingLocationMissing(values);
-  // 最後の砦。/admin/settings は保存時に弾くが、/register の PR 文（取り込み後は施設紹介）など
-  // 設定画面を経ずに入った文言は検査されないまま公開できた。公開の瞬間にも同じ判定を通す。
+export function listingPrTextMissing(values: ListingValues): string[] {
+  const missing: string[] = [];
   for (const [field, label] of PR_TEXT_FIELDS) {
     const check = validateFacilityPrText(values[field]);
     if (!check.ok) missing.push(`${label}：${check.message}`);
   }
   return missing;
+}
+
+/**
+ * The single listing-publish rule. The server gate runs it on the saved row,
+ * the settings page runs it on what the owner sees before saving, and the owner's
+ * setup checklist (dashboard and day-3 email) is built from its two parts, so none
+ * of them can name different missing items.
+ */
+export function listingPublishMissing(values: ListingValues): string[] {
+  return [...listingLocationMissing(values), ...listingPrTextMissing(values)];
 }
 
 /** Listing is independent of online booking. Authorization stays in the caller. */
