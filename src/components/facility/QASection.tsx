@@ -3,6 +3,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import { FACILITY_QA_QUESTION_MAX_LENGTH } from '@/lib/facility-qa-limits';
+
+const SUBMIT_FAILED_MESSAGE = '質問の送信に失敗しました。もう一度お試しください。';
 
 interface QAItem {
   id: string;
@@ -50,24 +53,29 @@ export default function QASection({ facilityId }: { facilityId: string }) {
     init().catch(() => { setLoadError(true); setLoading(false); });
   }, [loadQA]);
 
+  // 質問はサーバーの API が保存し、店舗へメールで知らせる（2026年10月22日）。以前はブラウザから
+  // facility_qa へ直接 INSERT しており、店舗には何も届かず、回答欄まで自由に書けた。
   const handleSubmit = async () => {
     if (!question.trim() || !userId || submitting) return;
     setSubmitting(true);
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase.from('facility_qa').insert({
-        facility_id: facilityId,
-        user_id: userId,
-        question: question.trim(),
-        status: 'pending',
-        is_public: true,
+      const res = await fetch('/api/facility/qa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ facility_id: facilityId, question: question.trim() }),
       });
-      if (error) throw error;
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: unknown } | null;
+        // 入力・回数制限・ログイン切れなど、利用者が次の行動を取れる理由はそのまま見せる。
+        const message = res.status < 500 && typeof body?.error === 'string' ? body.error : SUBMIT_FAILED_MESSAGE;
+        setToast({ type: 'error', message });
+        return;
+      }
       setQuestion('');
       setSubmitted(true);
       setTimeout(() => setSubmitted(false), 4000);
     } catch {
-      setToast({ type: 'error', message: '質問の送信に失敗しました。もう一度お試しください。' });
+      setToast({ type: 'error', message: SUBMIT_FAILED_MESSAGE });
     } finally {
       setSubmitting(false);
     }
@@ -106,10 +114,10 @@ export default function QASection({ facilityId }: { facilityId: string }) {
             aria-label="質問を入力"
             className="form-input text-sm"
             rows={3}
-            maxLength={500}
+            maxLength={FACILITY_QA_QUESTION_MAX_LENGTH}
           />
           <div className="flex items-center justify-between mt-2">
-            <span className="text-xs text-gray-500">{question.length}/500</span>
+            <span className="text-xs text-gray-500">{question.length}/{FACILITY_QA_QUESTION_MAX_LENGTH}</span>
             <button
               type="button"
               onClick={handleSubmit}
@@ -120,7 +128,7 @@ export default function QASection({ facilityId }: { facilityId: string }) {
             </button>
           </div>
           {submitted && (
-            <p className="text-sm text-green-600 mt-2">質問を送信しました。施設からの回答をお待ちください。</p>
+            <p className="text-sm text-green-700 mt-2" role="status">質問を送信しました。施設からの回答をお待ちください。</p>
           )}
         </div>
       )}

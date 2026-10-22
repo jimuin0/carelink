@@ -158,6 +158,7 @@ const BULK_AGGREGATED_CONTEXTS = new Set([
  * booking_cancellation_facility / welcome は施設オーナー向けの単発イベント通知で、
  * 従来は失敗時の再送手段が一切無く Slack 警報のみで永久消失していたため、
  * 顧客向けと同様にここへ追加した（2026年7月17日 拡張）。
+ * new_question_notification（施設 Q&A の新着質問・2026年10月22日）も同じ種類の通知なので同様に扱う。
  */
 const QUEUEABLE_EMAIL_CONTEXTS = new Set([
   'booking_confirmation',
@@ -170,6 +171,7 @@ const QUEUEABLE_EMAIL_CONTEXTS = new Set([
   'booking_cancellation_facility',
   'new_review_notification',
   'new_inquiry_notification',
+  'new_question_notification',
   'welcome',
 ]);
 
@@ -566,6 +568,36 @@ export async function sendNewInquiryNotification(data: {
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}${adminFacilityHref('/admin/facility-inquiries', data.facilityId ?? null)}" style="${EMAIL_BUTTON_STYLE}">管理画面で確認する</a></p>
     `),
   }, 'new_inquiry_notification');
+}
+
+/**
+ * 施設 Q&A に質問が投稿されたことを店舗（owner / admin）へ知らせる（2026年10月22日）。
+ * 以前は質問がブラウザから保存されるだけで誰にも通知されず、店舗が自分で /admin/qa を
+ * 開かない限り気づけなかった（来院者には「施設からの回答をお待ちください」と表示したまま）。
+ * 質問者のアカウント情報は載せない（回答に必要なのは質問文だけ）。
+ */
+export async function sendNewQuestionNotification(data: {
+  facilityEmail: string;
+  facilityName: string;
+  question: string;
+  /** 質問が投稿された店舗。管理画面へのリンクに付け、複数店舗のオーナーが別の店舗を開かないようにする。 */
+  facilityId: string;
+}): Promise<boolean> {
+  const resend = getResend();
+  if (!resend) return false;
+  return safeSend(resend, {
+    from: FROM,
+    to: data.facilityEmail,
+    subject: escSubject(`【CareLink】Q&Aに新しい質問が届きました - ${data.facilityName}`),
+    html: wrapHtml(`
+      <p>${esc(data.facilityName)}の店舗ページのQ&amp;Aに、新しい質問が届きました。管理画面から回答してください。</p>
+      <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;width:120px;">質問</td><td style="padding:8px 12px;border:1px solid #e2e8f0;white-space:pre-wrap;">${esc(data.question)}</td></tr>
+      </table>
+      <p style="font-size:13px;color:#475569;">回答すると、質問と回答が店舗ページのQ&amp;Aに公開されます（公開は管理画面でいつでも止められます）。</p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}${adminFacilityHref('/admin/qa', data.facilityId)}" style="${EMAIL_BUTTON_STYLE}">管理画面で回答する</a></p>
+    `),
+  }, 'new_question_notification');
 }
 
 /** 運営向けメール通知。宛先は OPERATOR_NOTIFY_EMAIL（カンマ区切りで複数可）。 */

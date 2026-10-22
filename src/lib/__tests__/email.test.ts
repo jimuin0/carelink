@@ -29,7 +29,7 @@ jest.mock('@/lib/webhook-queue', () => ({
 process.env.RESEND_API_KEY = 'test-resend-key';
 process.env.EMAIL_FROM = 'Test <test@example.com>';
 
-const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendNewInquiryNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail, sendTimeAdjustRequest, sendInquiryReply, sendRegistrationLeadFollowEmail, sendOperatorNotification } = require('../email');
+const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendNewInquiryNotification, sendNewQuestionNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail, sendTimeAdjustRequest, sendInquiryReply, sendRegistrationLeadFollowEmail, sendOperatorNotification } = require('../email');
 const { safeRedirect } = require('../safe-redirect');
 
 /**
@@ -359,6 +359,43 @@ describe('sendNewInquiryNotification', () => {
   });
 });
 
+describe('sendNewQuestionNotification（施設 Q&A の新着質問・2026年10月22日）', () => {
+  const facilityId = '71000000-0000-4000-8000-000000000003';
+  const questionData = {
+    facilityEmail: 'salon@example.com',
+    facilityName: 'テストサロン',
+    question: '駐車場はありますか？\n2台分あると助かります',
+    facilityId,
+  };
+
+  test('店舗のメールへ、質問文と、その店舗を指定した Q&A 管理画面へのリンクを送る', async () => {
+    expect(await sendNewQuestionNotification(questionData)).toBe(true);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const args = mockSend.mock.calls[0][0];
+    expect(args.to).toBe('salon@example.com');
+    expect(args.from).toBe('Test <test@example.com>');
+    expect(args.subject).toBe('【CareLink】Q&Aに新しい質問が届きました - テストサロン');
+    expect(args.html).toContain('駐車場はありますか？');
+    expect(args.html).toContain(`/admin/qa?facility_id=${facilityId}"`);
+    expect(args.html).toContain('管理画面で回答する');
+  });
+
+  test('質問文・店舗名は HTML エスケープし、件名の改行は潰す（XSS・ヘッダ注入対策）', async () => {
+    await sendNewQuestionNotification({ ...questionData, question: '<script>alert(1)</script>', facilityName: '<b>店</b>\r\nBcc: x@example.com' });
+    const args = mockSend.mock.calls[0][0];
+    expect(args.html).not.toContain('<script>alert(1)</script>');
+    expect(args.html).toContain('&lt;script&gt;');
+    expect(args.html).not.toContain('<b>店</b>');
+    expect(args.subject).not.toMatch(/[\r\n]/);
+  });
+
+  test('質問者のアカウント情報は載せない（回答に必要なのは質問文だけ）', async () => {
+    await sendNewQuestionNotification(questionData);
+    const args = mockSend.mock.calls[0][0];
+    expect(args.html).not.toMatch(/user_id|@example\.invalid/);
+  });
+});
+
 describe('sendBookingCancellationToFacility', () => {
   test('施設メールに店向け文面で送信する（顧客名・メールを含む）', async () => {
     await sendBookingCancellationToFacility({ ...baseData, facilityEmail: 'salon@example.com' });
@@ -562,6 +599,7 @@ describe('単発イベントの初回台帳と二重送信防止', () => {
     [sendBookingCancellationToFacility, { ...baseData, facilityEmail: 'owner@example.com' }],
     [sendNewReviewNotification, { facilityEmail: 'owner@example.com', facilityName: 'X', reviewerName: 'Y', rating: 5 }],
     [sendNewInquiryNotification, { facilityEmail: 'owner@example.com', facilityName: 'X', inquirerName: 'Y', inquirerEmail: 'y@example.com', message: 'fixture' }],
+    [sendNewQuestionNotification, { facilityEmail: 'owner@example.com', facilityName: 'X', question: 'fixture', facilityId: '71000000-0000-4000-8000-000000000003' }],
     [sendWelcomeEmail, { ownerEmail: 'owner@example.com', facilityName: 'X' }],
   ])('初回を永続化し、500の結果不明後に別queueを追加しない %p', async (send, data) => {
     mockSend.mockResolvedValueOnce({ data: null, error: { statusCode: 500 } });
@@ -822,6 +860,12 @@ describe('RESEND_API_KEY未設定時 — 全send関数', () => {
       inquirerEmail: 'i@i.com',
       message: 'M',
     });
+    expect(await mod.sendNewQuestionNotification({
+      facilityEmail: 'f@f.com',
+      facilityName: 'F',
+      question: 'Q',
+      facilityId: '71000000-0000-4000-8000-000000000003',
+    })).toBe(false);
     await mod.sendBookingCancellationToFacility({
       ...minData,
       facilityEmail: 'f@f.com',
