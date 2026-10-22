@@ -337,6 +337,8 @@ export async function fetchStoreRows(
     discoveredItems: listing.items.length,
     unresolvedItems,
     failedPages: listing.failedPages,
+    listingComplete: listing.complete,
+    listedRefIds: listing.items.map((it) => it.refId),
   };
 }
 

@@ -36,7 +36,7 @@ let applyResult: { ok: boolean; body: unknown };
 let scrapeResult: { ok: boolean; body: unknown };
 let menus: Menu[];
 const counts = (over: Record<string, number> = {}) => ({
-  inserted: 3, existing: 0, hidden: 0, skipped: 0, coupons: 0, ended: 0, other_store: 0, deleted: 0, ...over,
+  inserted: 3, existing: 0, hidden: 0, skipped: 0, coupons: 0, coupons_in_menus: 0, ended: 0, other_store: 0, deleted: 0, ...over,
 });
 const fetchMock = jest.fn();
 
@@ -126,6 +126,43 @@ test('作らなかったものは理由ごとに件数を伝える（既にあ�
   expect(toast.textContent).toContain('名前が空の1件は反映していません');
   // 反映後は一覧を読み直して「反映済み」を最新にする
   await waitFor(() => expect(fetchMock.mock.calls.filter(([url, options]) => url === `/api/admin/hpb-menus?facility_id=${facility}` && !options)).toHaveLength(2));
+});
+
+test('お客様メニューに残っているHPBクーポンの件数を、確認先とあわせて伝える', async () => {
+  applyResult = { ok: true, body: counts({ inserted: 0, coupons_in_menus: 2 }) };
+  render(<Page />);
+  await screen.findByText('合成カット');
+  fireEvent.click(screen.getByRole('button', { name: 'お客様メニューへ一括反映' }));
+  const toast = await screen.findByText(/メニューへ反映: 新規0件/);
+  expect(toast.textContent).toContain('お客様メニューに残っているHPBクーポンが2件あります（割引価格のままです。メニュー管理で確認してください）');
+});
+
+// この修正より前の反映でクーポンから作られたお客様メニューは、行に「反映対象外」と出て見逃されていた。
+test('お客様メニューに反映済みのクーポンは「反映対象外」と出さず、割引価格のまま残っていることを示す', async () => {
+  menus = [
+    menu(),
+    menu({ ref_id: 'CP-IN', kind: 'coupon', target: '新規', name: '合成反映済みクーポン', applied_at: '2026-10-01T00:00:00Z' }),
+    menu({ ref_id: 'CP-HIDDEN', kind: 'coupon', name: '合成非表示クーポン', applied_at: '2026-10-01T00:00:00Z', is_hidden: true }),
+    menu({ ref_id: 'CP-NEW', kind: 'coupon', name: '合成未反映クーポン' }),
+  ];
+  render(<Page />);
+  await screen.findByText('合成カット');
+  const inRow = screen.getByText('合成反映済みクーポン').closest('div.flex.items-start') as HTMLElement;
+  expect(within(inRow).getByText('反映済み（割引価格のまま）')).toBeTruthy();
+  expect(within(inRow).queryByText('反映対象外')).toBeNull();
+  const newRow = screen.getByText('合成未反映クーポン').closest('div.flex.items-start') as HTMLElement;
+  expect(within(newRow).getByText('反映対象外')).toBeTruthy();
+  // 非表示にしたもの（次の一括反映で非公開にする）は数えない
+  const notice = screen.getByText(/お客様メニューに残っているHPBクーポンが1件あります/);
+  expect(notice.textContent).toContain('公開中だと条件なしにこの価格で予約されるおそれがあります');
+  expect(within(notice).getByRole('link', { name: 'メニュー管理' }).getAttribute('href')).toBe(`/admin/menus?facility_id=${facility}`);
+});
+
+test('お客様メニューに残っているクーポンが無ければ注意を出さない', async () => {
+  menus = [menu(), menu({ ref_id: 'CP-NEW', kind: 'coupon', name: '合成未反映クーポン' })];
+  render(<Page />);
+  await screen.findByText('合成カット');
+  expect(screen.queryByText(/お客様メニューに残っているHPBクーポン/)).toBeNull();
 });
 
 test('反映に失敗したら公開の手順を出さない', async () => {

@@ -16,10 +16,16 @@ DO $guard$ BEGIN IF to_regclass('public.facility_profiles') IS NULL THEN RAISE E
 --   applied_at    … 一括反映でお客様メニュー（facility_menus）を作った時刻。NULL でない行は、
 --                   メニュー管理で削除されていても作り直さない。
 --
--- 【適用順序】新しいアプリのデプロイより【前】に適用すること（新しいアプリはこの 2 列を読み書きする）。
---   列を足すだけなので、旧アプリのまま適用しても動作は変わらない（旧アプリはこの列に触れない）。
--- 【権限】表単位の GRANT と RLS ポリシー（hpb_menu_durations_member_all）が新しい列にもそのまま効く。
---   関数・ポリシー・インデックスは変えていない。
+-- 🔴【適用順序】main へマージする【前】に本番（project ref xzafxiupbflvgbarrihe）へ適用すること。
+--   main へのマージで Vercel が本番へ自動デプロイし、新しいアプリは取得の保存（missing_since）と
+--   一括反映（applied_at）でこの 2 列を書く。未適用のままデプロイされると、適用までの間
+--   POST /api/admin/hpb-menus と夜間 cron の保存が PostgREST の未知列エラーで毎回失敗し、
+--   一括反映は下書きを作った後の記録に失敗して「反映に失敗しました」と表示される。
+--   列を足すだけなので、旧アプリのまま先に適用しても動作は変わらない（旧アプリはこの列に触れない）。
+-- 【権限】書き込みは service_role（API と cron）だけ。ブラウザのロールの書き込み権と FOR ALL ポリシーは
+--   続く 20261023030100_hpb_menu_durations_service_role_writes.sql で撤回する（この 2 列を含め、
+--   一括反映の判断に使う列をメンバーが PostgREST から直接書き換えられないようにするため）。
+--   この migration では関数・ポリシー・インデックスは変えていない。
 ALTER TABLE public.hpb_menu_durations
   ADD COLUMN IF NOT EXISTS missing_since timestamptz,
   ADD COLUMN IF NOT EXISTS applied_at timestamptz;

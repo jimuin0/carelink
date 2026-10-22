@@ -190,6 +190,9 @@ jobs:
       - name: Customer-only plan/package grants, Q&A browser write closure and audit log privacy (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/customer-grant-qa-audit-fixtures.sql
 
+      - name: HPB menu import rows are service-role writes only and owner/admin reads (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/hpb-menu-durations-privilege-fixtures.sql
+
       - name: Registration application intent and declaration boundaries (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/salon-application-guard-fixtures.sql
 

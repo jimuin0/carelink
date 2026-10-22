@@ -218,7 +218,7 @@ describe('scrapeAndSaveFacility', () => {
       .mockReturnValueOnce(mark.chain);
     (fetchStoreRows as jest.Mock).mockResolvedValue({
       rows: [validRow(), validRow({ refId: 'CP2' })], complete: true, stopReason: 'normal_end',
-      discoveredItems: 2, unresolvedItems: 0, failedPages: 0,
+      discoveredItems: 2, unresolvedItems: 0, failedPages: 0, listingComplete: true, listedRefIds: ['CP1', 'CP2'],
     });
     const customFetch = jest.fn();
     const res = await scrapeAndSaveFacility(asAdmin(from), FACILITY, customFetch);
@@ -237,14 +237,55 @@ describe('scrapeAndSaveFacility', () => {
       .mockReturnValueOnce(upsertChain(null));
     (fetchStoreRows as jest.Mock).mockResolvedValue({
       rows: [validRow()], complete: false, stopReason: 'fetch_error',
-      discoveredItems: 2, unresolvedItems: 1, failedPages: 1,
+      discoveredItems: 2, unresolvedItems: 1, failedPages: 1, listingComplete: false, listedRefIds: ['CP1', 'CP2'],
     });
     const result = await scrapeAndSaveFacility(asAdmin(from), FACILITY, jest.fn());
     expect(result).toMatchObject({
       fetched: 1, ok: 1, failed: 1, complete: false, stopReason: 'fetch_error', missing: 0, missingCheckFailed: false,
     });
-    // 一部しか取れなかった取得を根拠に、残りの行を「掲載終了」にしない。
+    // 一覧を最後まで読めなかった取得を根拠に、残りの行を「掲載終了」にしない。
     expect(from).toHaveBeenCalledTimes(2);
+  });
+
+  // 以前は「予約ページを全部読めた」ときだけ印を付けていたため、価格0・所要時間なしなどで毎回読めない
+  // 項目が 1 件でもある店舗では、HPB で終わったメニューに印が永久に付かず一括反映の対象に残り続けた。
+  test('一覧を最後まで読めたなら、予約ページを読めない項目があっても一覧に無い行へ印を付ける', async () => {
+    const present = presentRowsChain([{ ref_id: 'CP1' }, { ref_id: 'CP-UNRESOLVED' }, { ref_id: 'MN-ENDED' }]);
+    const mark = markChain();
+    const from = jest.fn()
+      .mockReturnValueOnce(profileChain({ hpb_sln_id: 'H1' }))
+      .mockReturnValueOnce(upsertChain(null))
+      .mockReturnValueOnce(present.chain)
+      .mockReturnValueOnce(mark.chain);
+    (fetchStoreRows as jest.Mock).mockResolvedValue({
+      rows: [validRow()], complete: false, stopReason: 'invalid_html',
+      discoveredItems: 2, unresolvedItems: 1, failedPages: 0,
+      listingComplete: true, listedRefIds: ['CP1', 'CP-UNRESOLVED'],
+    });
+    const result = await scrapeAndSaveFacility(asAdmin(from), FACILITY, jest.fn());
+    // 一覧にあった項目(読めなかったものも)は HPB にあるので印を付けない。一覧に無い行だけに付ける。
+    expect(mark.in).toHaveBeenCalledWith('ref_id', ['MN-ENDED']);
+    expect(result).toMatchObject({
+      fetched: 1, ok: 1, failed: 1, complete: false, stopReason: 'invalid_html', missing: 1, missingCheckFailed: false,
+    });
+  });
+
+  test('一覧は最後まで読めたが予約ページの途中で時間切れでも、一覧に無い行へは印を付ける', async () => {
+    const present = presentRowsChain([{ ref_id: 'CP1' }, { ref_id: 'CP-LATER' }, { ref_id: 'MN-ENDED' }]);
+    const mark = markChain();
+    const from = jest.fn()
+      .mockReturnValueOnce(profileChain({ hpb_sln_id: 'H1' }))
+      .mockReturnValueOnce(upsertChain(null))
+      .mockReturnValueOnce(present.chain)
+      .mockReturnValueOnce(mark.chain);
+    (fetchStoreRows as jest.Mock).mockResolvedValue({
+      rows: [validRow()], complete: false, stopReason: 'time_budget',
+      discoveredItems: 2, unresolvedItems: 1, failedPages: 0,
+      listingComplete: true, listedRefIds: ['CP1', 'CP-LATER'],
+    });
+    const result = await scrapeAndSaveFacility(asAdmin(from), FACILITY, jest.fn());
+    expect(mark.in).toHaveBeenCalledWith('ref_id', ['MN-ENDED']);
+    expect(result).toMatchObject({ complete: false, stopReason: 'time_budget', missing: 1 });
   });
 
   test('incomplete empty fetch still reports a failure when no item-level error explains it', async () => {
@@ -253,7 +294,7 @@ describe('scrapeAndSaveFacility', () => {
       .mockReturnValueOnce(upsertChain(null));
     (fetchStoreRows as jest.Mock).mockResolvedValue({
       rows: [], complete: false, stopReason: 'time_budget',
-      discoveredItems: 0, unresolvedItems: 0, failedPages: 0,
+      discoveredItems: 0, unresolvedItems: 0, failedPages: 0, listingComplete: false, listedRefIds: [],
     });
     const result = await scrapeAndSaveFacility(asAdmin(from), FACILITY, jest.fn());
     expect(result).toMatchObject({ fetched: 0, failed: 1, complete: false, stopReason: 'time_budget', missing: 0 });
@@ -267,7 +308,7 @@ describe('scrapeAndSaveFacility', () => {
       .mockReturnValueOnce(upsertChain({ message: 'db failure' }));
     (fetchStoreRows as jest.Mock).mockResolvedValue({
       rows: [validRow()], complete: true, stopReason: 'normal_end',
-      discoveredItems: 1, unresolvedItems: 0, failedPages: 0,
+      discoveredItems: 1, unresolvedItems: 0, failedPages: 0, listingComplete: true, listedRefIds: ['CP1'],
     });
     const result = await scrapeAndSaveFacility(asAdmin(from), FACILITY, jest.fn());
     expect(result).toMatchObject({ fetched: 1, ok: 0, failed: 1, saveFailed: 1, complete: false, missing: 0 });
@@ -282,7 +323,7 @@ describe('scrapeAndSaveFacility', () => {
       .mockReturnValueOnce(present.chain);
     (fetchStoreRows as jest.Mock).mockResolvedValue({
       rows: [validRow()], complete: true, stopReason: 'normal_end',
-      discoveredItems: 1, unresolvedItems: 0, failedPages: 0,
+      discoveredItems: 1, unresolvedItems: 0, failedPages: 0, listingComplete: true, listedRefIds: ['CP1'],
     });
     const result = await scrapeAndSaveFacility(asAdmin(from), FACILITY, jest.fn());
     expect(result).toMatchObject({
@@ -375,7 +416,7 @@ function hpbRow(over: Partial<HpbMenuDurationRow> = {}): HpbMenuDurationRow {
 }
 
 const EMPTY_RESULT = {
-  inserted: 0, existing: 0, hidden: 0, skipped: 0, coupons: 0, ended: 0, other_store: 0, deleted: 0,
+  inserted: 0, existing: 0, hidden: 0, skipped: 0, coupons: 0, coupons_in_menus: 0, ended: 0, other_store: 0, deleted: 0,
 };
 
 interface ApplyOpts {
@@ -565,6 +606,57 @@ describe('applyHpbMenusToFacilityMenus', () => {
     expect(fm.update).not.toHaveBeenCalled();
   });
 
+  test('紐付くメニューがあるのに記録が無い行は、作らない行でも反映済みとして記録する', async () => {
+    const { admin, insert, fm, appliedIn } = makeApplyAdmin({
+      hpbRows: [
+        hpbRow({ ref_id: 'MN-ENDED-LINKED', missing_since: '2026-10-20T00:00:00.000Z' }),
+        hpbRow({ ref_id: 'MN-OTHER-LINKED', store_id: 'H999' }),
+        hpbRow({ ref_id: 'MN-HIDDEN-LINKED', is_hidden: true }),
+        hpbRow({ ref_id: 'MN-ENDED-RECORDED', missing_since: '2026-10-20T00:00:00.000Z', applied_at: '2026-10-01T00:00:00.000Z' }),
+      ],
+      existing: [
+        { id: 'm1', hpb_ref_id: 'MN-ENDED-LINKED' },
+        { id: 'm2', hpb_ref_id: 'MN-OTHER-LINKED' },
+        { id: 'm3', hpb_ref_id: 'MN-HIDDEN-LINKED' },
+        { id: 'm4', hpb_ref_id: 'MN-ENDED-RECORDED' },
+      ],
+    });
+    const res = await applyHpbMenusToFacilityMenus(admin, FACILITY);
+    expect(res).toEqual({ ...EMPTY_RESULT, ended: 2, other_store: 1, hidden: 1 });
+    expect(insert).not.toHaveBeenCalled();
+    expect(fm.update).toHaveBeenCalledTimes(1); // 非表示の 1 件を非公開にするだけ
+    expect(appliedIn).toHaveBeenCalledWith('ref_id', ['MN-ENDED-LINKED', 'MN-OTHER-LINKED', 'MN-HIDDEN-LINKED']);
+  });
+
+  // この修正より前の反映でクーポンから作られたお客様メニュー(割引価格・条件なし)を黙って見逃さない。
+  // 以前は「クーポン」として数えるだけで、反映済みの記録も無く、画面には「反映対象外」と出ていた。
+  test('クーポンなのに紐付くお客様メニューがある → 変更せず別に数え、反映済みとして記録する', async () => {
+    const { admin, insert, fm, appliedIn } = makeApplyAdmin({
+      hpbRows: [
+        hpbRow({ ref_id: 'CP-LINKED', kind: 'coupon', target: '新規', price: 3980 }),
+        hpbRow({ ref_id: 'CP-LINKED-ENDED', kind: 'coupon', missing_since: '2026-10-20T00:00:00.000Z', applied_at: '2026-10-01T00:00:00.000Z' }),
+        hpbRow({ ref_id: 'CP-NEW', kind: 'coupon' }),
+      ],
+      existing: [{ id: 'm1', hpb_ref_id: 'CP-LINKED' }, { id: 'm2', hpb_ref_id: 'CP-LINKED-ENDED' }],
+    });
+    const res = await applyHpbMenusToFacilityMenus(admin, FACILITY);
+    expect(res).toEqual({ ...EMPTY_RESULT, coupons_in_menus: 2, coupons: 1 });
+    expect(insert).not.toHaveBeenCalled();
+    expect(fm.update).not.toHaveBeenCalled();
+    expect(appliedIn).toHaveBeenCalledWith('ref_id', ['CP-LINKED']);
+  });
+
+  test('非表示のクーポンに紐付くメニューは非公開にする(クーポンの警告には数えない)', async () => {
+    const { admin, fm, updateEq } = makeApplyAdmin({
+      hpbRows: [hpbRow({ ref_id: 'CP-LINKED', kind: 'coupon', is_hidden: true, applied_at: '2026-10-01T00:00:00.000Z' })],
+      existing: [{ id: 'm1', hpb_ref_id: 'CP-LINKED' }],
+    });
+    const res = await applyHpbMenusToFacilityMenus(admin, FACILITY);
+    expect(res).toEqual({ ...EMPTY_RESULT, hidden: 1 });
+    expect(fm.update).toHaveBeenCalledWith({ is_published: false });
+    expect(updateEq).toHaveBeenCalledWith('id', 'm1');
+  });
+
   test('今の店舗IDとは別の店舗IDで取得した行は作らない', async () => {
     const { admin, insert } = makeApplyAdmin({
       hpbRows: [hpbRow({ ref_id: 'MN-OTHER', store_id: 'H999' }), hpbRow()],
@@ -591,7 +683,7 @@ describe('applyHpbMenusToFacilityMenus', () => {
   });
 
   test('is_hidden=true + 既存あり → is_published=false で非公開化', async () => {
-    const { admin, fm, updateEq } = makeApplyAdmin({
+    const { admin, fm, updateEq, appliedIn } = makeApplyAdmin({
       hpbRows: [hpbRow({ is_hidden: true })],
       existing: [{ id: 'm1', hpb_ref_id: 'MN1' }],
     });
@@ -599,6 +691,7 @@ describe('applyHpbMenusToFacilityMenus', () => {
     expect(res).toEqual({ ...EMPTY_RESULT, hidden: 1 });
     expect(fm.update).toHaveBeenCalledWith({ is_published: false });
     expect(updateEq).toHaveBeenCalledWith('id', 'm1');
+    expect(appliedIn).toHaveBeenCalledWith('ref_id', ['MN1']);
   });
 
   test('is_hidden=true + 非公開化エラー → throw', async () => {
@@ -644,7 +737,9 @@ describe('applyHpbMenusToFacilityMenus', () => {
       existing: [{ id: 'm1', hpb_ref_id: 'MN-EXISTING' }],
     });
     const res = await applyHpbMenusToFacilityMenus(admin, FACILITY);
-    expect(res).toEqual({ inserted: 1, existing: 1, hidden: 0, skipped: 0, coupons: 1, ended: 1, other_store: 1, deleted: 1 });
+    expect(res).toEqual({
+      inserted: 1, existing: 1, hidden: 0, skipped: 0, coupons: 1, coupons_in_menus: 0, ended: 1, other_store: 1, deleted: 1,
+    });
     expect(insert).toHaveBeenCalledWith([expect.objectContaining({ hpb_ref_id: 'MN-NEW' })]);
     expect(appliedIn).toHaveBeenCalledWith('ref_id', ['MN-NEW']);
   });

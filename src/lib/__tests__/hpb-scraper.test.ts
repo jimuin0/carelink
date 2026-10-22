@@ -349,7 +349,8 @@ describe('fetchStoreRows', () => {
     };
     const result = await fetchStoreRows('H1', fetchFn);
     const rows = result.rows;
-    expect(result).toMatchObject({ complete: true, stopReason: 'normal_end', unresolvedItems: 0 });
+    expect(result).toMatchObject({ complete: true, stopReason: 'normal_end', unresolvedItems: 0, listingComplete: true });
+    expect(result.listedRefIds).toEqual(['CP123', 'MN456']);
     expect(rows).toHaveLength(2);
     const cp = rows.find((r) => r.refId === 'CP123')!;
     expect(cp.name).toBe('《クーポンA》');
@@ -375,8 +376,23 @@ describe('fetchStoreRows', () => {
       if (url.includes('add=0')) return { status: 500, text: '' }; // non-200
       throw new Error('boom'); // add=1 throws
     };
+    // 予約ページを読めなくても、一覧は最後まで読めており CP1 は HPB に載っている(掲載終了の判定に使う)。
     expect(await fetchStoreRows('H1', fetchFn)).toMatchObject({
       rows: [], complete: false, stopReason: 'fetch_error', discoveredItems: 1, unresolvedItems: 1,
+      listingComplete: true, listedRefIds: ['CP1'],
+    });
+  });
+
+  test('一覧の巡回が途中で止まったら listingComplete=false(掲載終了の判定に使わない)', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('PN')) return { status: 500, text: '' };
+      if (url.includes('coupon/') && !url.includes('reserve')) {
+        return { status: 200, text: '<a href="?couponId=CP1&add=0">x</a>' };
+      }
+      return { status: 200, text: couponReserve };
+    };
+    expect(await fetchStoreRows('H1', fetchFn)).toMatchObject({
+      complete: false, stopReason: 'fetch_error', unresolvedItems: 0, listingComplete: false, listedRefIds: ['CP1'],
     });
   });
 

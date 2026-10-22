@@ -40,6 +40,7 @@ interface ApplyResult {
   hidden: number;
   skipped: number;
   coupons: number;
+  coupons_in_menus: number;
   ended: number;
   other_store: number;
   deleted: number;
@@ -73,6 +74,7 @@ function applySummary(r: ApplyResult): string {
   if (r.existing > 0) parts.push(`既にあるメニュー${r.existing}件は変更していません`);
   if (r.hidden > 0) parts.push(`非表示にした${r.hidden}件を非公開にしました`);
   if (r.coupons > 0) parts.push(`クーポン${r.coupons}件は反映していません`);
+  if (r.coupons_in_menus > 0) parts.push(`お客様メニューに残っているHPBクーポンが${r.coupons_in_menus}件あります（割引価格のままです。メニュー管理で確認してください）`);
   const gone = r.ended + r.other_store;
   if (gone > 0) parts.push(`HPBに無くなった${gone}件は反映していません`);
   if (r.deleted > 0) parts.push(`メニュー管理で削除した${r.deleted}件は作り直していません`);
@@ -285,6 +287,8 @@ function HpbMenus({ facilityId, choices }: AdminFacilityScopeValue) {
   const isCurrent = (m: HpbMenu) => m.store_id === currentSln && !m.missing_since;
   const currentMenus = menus.filter(isCurrent);
   const goneMenus = menus.filter((m) => !isCurrent(m));
+  // この修正より前の一括反映で、クーポンが通常メニューとして作られていたもの（使わない＝非表示にしたものを除く）。
+  const couponsInMenus = menus.filter((m) => m.kind === 'coupon' && m.applied_at && !m.is_hidden).length;
   const menusHref = `/admin/menus?facility_id=${facilityId}`;
 
   const renderRow = (m: HpbMenu) => {
@@ -304,8 +308,11 @@ function HpbMenus({ facilityId, choices }: AdminFacilityScopeValue) {
             {otherStore
               ? <SbBadge tone="warning">別の店舗ID（{m.store_id}）</SbBadge>
               : m.missing_since && <SbBadge tone="warning">HPBで掲載終了</SbBadge>}
-            {m.kind === 'coupon' && <SbBadge tone="neutral">反映対象外</SbBadge>}
-            {m.applied_at && <SbBadge tone="success">反映済み</SbBadge>}
+            {m.applied_at
+              ? m.kind === 'coupon'
+                ? <SbBadge tone="warning">反映済み（割引価格のまま）</SbBadge>
+                : <SbBadge tone="success">反映済み</SbBadge>
+              : m.kind === 'coupon' && <SbBadge tone="neutral">反映対象外</SbBadge>}
             {m.is_hidden && <SbBadge tone="neutral">非表示</SbBadge>}
             <p className="font-medium text-sm truncate">{name}</p>
           </div>
@@ -390,6 +397,14 @@ function HpbMenus({ facilityId, choices }: AdminFacilityScopeValue) {
               クーポンは、新規・再来などの対象条件や割引価格を引き継げないため反映しません。
             </span>
           </div>
+          {couponsInMenus > 0 && (
+            <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+              お客様メニューに残っているHPBクーポンが{couponsInMenus}件あります（割引価格のままです）。
+              新規・再来などの対象条件は引き継がれていないため、公開中だと条件なしにこの価格で予約されるおそれがあります。
+              <Link href={menusHref} className="font-bold text-sky-700 underline">メニュー管理</Link>
+              で確認してください。
+            </p>
+          )}
           {appliedDrafts > 0 && (
             <p className="mt-3 rounded-lg bg-sky-50 p-3 text-sm text-sky-800" role="status">
               新しく反映したメニュー{appliedDrafts}件は非公開です。
