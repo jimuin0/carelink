@@ -13,7 +13,7 @@ export type FacilitySelectorPath = '/admin' | '/admin/menus' | '/admin/staff' | 
   | '/admin/photos' | '/admin/schedule' | '/admin/bookings' | '/admin/coupons' | '/admin/coupons/new' | '/admin/gbp' | '/admin/white-label'
   | '/admin/reviews' | '/admin/facility-inquiries' | '/admin/qa' | '/admin/packages' | '/admin/subscription-plans' | '/admin/catalog'
   | '/admin/catalog/new' | '/admin/blog' | '/admin/blog/new' | '/admin/jobs/new' | '/admin/accounting' | '/admin/qrcode' | '/admin/api-keys'
-  | '/admin/funnel' | '/admin/usage-stats';
+  | '/admin/funnel' | '/admin/usage-stats' | '/admin/hpb-menus';
 
 export default function FacilitySelector({ choices, selectedId, path, date, dirty = false, busy = false }: {
   choices: AdminFacilityChoice[]; selectedId: string | null;

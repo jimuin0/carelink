@@ -785,6 +785,7 @@
     "user_id"
   ],
   "hpb_menu_durations": [
+    "applied_at",
     "created_at",
     "description",
     "description_override",
@@ -793,6 +794,7 @@
     "facility_id",
     "is_hidden",
     "kind",
+    "missing_since",
     "name",
     "name_override",
     "price",

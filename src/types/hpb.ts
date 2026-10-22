@@ -67,4 +67,11 @@ export interface HpbFetchResult {
   discoveredItems: number;
   unresolvedItems: number;
   failedPages: number;
+  /**
+   * 一覧ページを最後(HPB の「ページが見つかりません」)まで読めたか。予約ページの読み取り結果とは無関係。
+   * true のときの listedRefIds は「いま HPB に載っている項目」の全体で、掲載終了の判定に使える。
+   */
+  listingComplete: boolean;
+  /** 一覧で見つけた全項目の refId(予約ページから値を読めなかった項目も含む)。 */
+  listedRefIds: string[];
 }

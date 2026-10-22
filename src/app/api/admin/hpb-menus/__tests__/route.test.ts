@@ -159,13 +159,16 @@ test('POST: 取得成功 → 200 with counts', async () => {
     discoveredItems: 10,
     unresolvedItems: 0,
     failedPages: 0,
+    missing: 3,
+    missingCheckFailed: false,
   });
   const res = await POST(makeReq('POST'));
   const json = await res.json();
   expect(res.status).toBe(200);
+  // missing＝今回の取得で HPB に無かったため反映の対象から外した件数（画面のトーストで伝える）
   expect(json).toEqual({
     sln_id: 'H1', fetched: 10, saved: 8, skipped: 2, failed: 0, save_failed: 0,
-    complete: true, stop_reason: 'normal_end', unresolved_items: 0, failed_pages: 0,
+    complete: true, stop_reason: 'normal_end', unresolved_items: 0, failed_pages: 0, missing: 3,
   });
   // 監査ログ（2026年7月29日追加）: HPB取得の一括保存は重要操作のため記録する
   expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
@@ -173,7 +176,22 @@ test('POST: 取得成功 → 200 with counts', async () => {
     facilityId: FACILITY_UUID,
     action: 'update',
     tableName: 'hpb_menu_durations',
+    newValues: expect.objectContaining({ missing: 3 }),
 }));
+});
+
+test('POST: 保存できたが HPB に無くなった行の確認に失敗 → 500（古い行が反映対象に残るため成功扱いにしない）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  (scrapeAndSaveFacility as jest.Mock).mockResolvedValue({
+    slnId: 'H1', fetched: 3, ok: 3, skipped: 0, failed: 1, saveFailed: 0,
+    complete: false, stopReason: 'normal_end', discoveredItems: 3, unresolvedItems: 0, failedPages: 0,
+    missing: 0, missingCheckFailed: true,
+  });
+  const res = await POST(makeReq('POST'));
+  const json = await res.json();
+  expect(res.status).toBe(500);
+  expect(json).toMatchObject({ saved: 3, complete: false });
+  expect(json.error).toContain('HPBに無くなったメニューの確認に失敗しました');
 });
 
 test('POST: valid rows saved but upstream scrape incomplete → 502 with safe partial result', async () => {

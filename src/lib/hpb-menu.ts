@@ -5,6 +5,10 @@
  * - 管理画面での手直し(*_override) と is_hidden は upsert payload に含めないため、
  *   既存行では温存される(上書き保護)。新規行は DB デフォルト(override=NULL / is_hidden=false)。
  * - 不完全行(name無 / duration<=0 / price<=0)はスキップ(取得失敗を実データに上書きしない・保全)。
+ * - HPB の一覧を最後まで読めたときだけ、一覧に無かった行へ missing_since を付ける(HPB で掲載終了・
+ *   別の店舗IDで取得した行)。再び取得できた行は upsert で missing_since を NULL に戻す。
+ * - お客様メニュー(facility_menus)への一括反映は「まだ無いメニューを作るだけ」(2026年10月23日)。
+ *   既にあるメニューは変更せず、クーポン・掲載終了・別の店舗IDの行は作らない。
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fetchStoreRows, httpFetch, type FetchFn } from './hpb-scraper';
@@ -22,13 +26,18 @@ export async function getFacilitySlnId(
     .select('hpb_sln_id')
     .eq('id', facilityId)
     .maybeSingle();
-  const sln = data?.hpb_sln_id;
-  return typeof sln === 'string' && sln.trim() ? sln.trim() : null;
+  return normalizeSlnId(data?.hpb_sln_id);
+}
+
+/** hpb_sln_id の値を店舗IDとして読む(空白以外を含む文字列だけ・前後の空白は除く)。 */
+function normalizeSlnId(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 /**
  * 取得行を hpb_menu_durations に upsert(facility_id,ref_id 衝突キー)。
- * 生の取得値のみ書き込み、手直し列(*_override)と is_hidden は含めない(既存行で温存=上書き保護)。
+ * 生の取得値のみ書き込み、手直し列(*_override)・is_hidden・applied_at は含めない(既存行で温存=上書き保護)。
+ * 取得できた行は HPB に在るので missing_since を NULL に戻す(掲載終了の印を外す)。
  * 不完全行はスキップ。Returns: { ok, skipped, failed }。
  */
 export async function saveHpbRows(
@@ -53,6 +62,7 @@ export async function saveHpbRows(
       duration_min: r.durationMin,
       price: r.price,
       description: r.description,
+      missing_since: null,
     });
   }
   if (payload.length === 0) return { ok: 0, skipped, failed: 0 };
@@ -63,7 +73,47 @@ export async function saveHpbRows(
   return { ok: payload.length, skipped, failed: 0 };
 }
 
-/** 1施設をスクレイプして保存。hpb_sln_id 未設定なら何もせず slnId=null を返す。 */
+/**
+ * HPB の一覧を最後まで読めたときだけ呼ぶ: 一覧(seenRefIds)に無かった行へ missing_since を付ける。
+ * 既に印のある行はそのまま(最初に見つからなくなった時刻を保つ)。取得は店舗ID(slnId)で行うため、
+ * 別の店舗IDで取得した古い行も今回の取得には無く、ここで印が付く。
+ * seenRefIds が空なら何もしない(空の取得結果を根拠に全行を「掲載終了」にしない)。
+ * Returns: 新しく印を付けた件数 / DB エラーは null。
+ */
+export async function markMissingHpbRows(
+  admin: SupabaseClient,
+  facilityId: string,
+  seenRefIds: string[],
+): Promise<number | null> {
+  if (seenRefIds.length === 0) return 0;
+  const { data, error } = await admin
+    .from(TABLE)
+    .select('ref_id')
+    .eq('facility_id', facilityId)
+    .is('missing_since', null);
+  if (error) return null;
+  const seen = new Set(seenRefIds);
+  const gone = ((data ?? []) as { ref_id: string }[])
+    .map((r) => r.ref_id)
+    .filter((refId) => !seen.has(refId));
+  if (gone.length === 0) return 0;
+  const { error: markError } = await admin
+    .from(TABLE)
+    .update({ missing_since: new Date().toISOString() })
+    .eq('facility_id', facilityId)
+    .in('ref_id', gone);
+  if (markError) return null;
+  return gone.length;
+}
+
+/**
+ * 1施設をスクレイプして保存。hpb_sln_id 未設定なら何もせず slnId=null を返す。
+ * HPB の一覧を最後まで読め、保存にも失敗しなかったときだけ、一覧に無かった行へ「掲載終了」の印を
+ * 付ける(missing)。一覧に在った項目は、予約ページから値を読めなかったもの(価格0・所要時間なし等)も
+ * HPB に在るものとして扱う(以前は 1 件でも読めない項目がある店舗では印が永久に付かなかった)。
+ * 一覧の巡回が途中で止まった取得(時間切れ・取得失敗・HTML 不正)では印を付けない(一晩の不調で全行を外さない)。
+ * 印付けに失敗したら missingCheckFailed=true・complete=false(古い行が残るため失敗として扱う)。
+ */
 export async function scrapeAndSaveFacility(
   admin: SupabaseClient,
   facilityId: string,
@@ -81,15 +131,25 @@ export async function scrapeAndSaveFacility(
   discoveredItems: number;
   unresolvedItems: number;
   failedPages: number;
+  missing: number;
+  missingCheckFailed: boolean;
 }> {
   const slnId = await getFacilitySlnId(admin, facilityId);
   if (!slnId) return {
     slnId: null, fetched: 0, ok: 0, skipped: 0, failed: 0, saveFailed: 0,
     complete: false, stopReason: null, discoveredItems: 0, unresolvedItems: 0, failedPages: 0,
+    missing: 0, missingCheckFailed: false,
   };
   const fetched = await fetchStoreRows(slnId, fetchFn, 12, deadlineAt);
   const saved = await saveHpbRows(admin, facilityId, fetched.rows);
-  const failed = saved.failed + fetched.unresolvedItems + (
+  let missing = 0;
+  let missingCheckFailed = false;
+  if (fetched.listingComplete && saved.failed === 0) {
+    const marked = await markMissingHpbRows(admin, facilityId, fetched.listedRefIds);
+    if (marked === null) missingCheckFailed = true;
+    else missing = marked;
+  }
+  const failed = saved.failed + fetched.unresolvedItems + (missingCheckFailed ? 1 : 0) + (
     !fetched.complete && saved.failed === 0 && fetched.unresolvedItems === 0 ? 1 : 0
   );
   return {
@@ -98,11 +158,13 @@ export async function scrapeAndSaveFacility(
     ...saved,
     failed,
     saveFailed: saved.failed,
-    complete: fetched.complete && saved.failed === 0,
+    complete: fetched.complete && saved.failed === 0 && !missingCheckFailed,
     stopReason: fetched.stopReason,
     discoveredItems: fetched.discoveredItems,
     unresolvedItems: fetched.unresolvedItems,
     failedPages: fetched.failedPages,
+    missing,
+    missingCheckFailed,
   };
 }
 
@@ -185,6 +247,10 @@ export interface HpbMenuDurationRow {
   price_override: number | null;
   description_override: string | null;
   is_hidden: boolean;
+  /** 最後まで取得できたのに HPB に無かった時刻(掲載終了・別の店舗IDで取得した行)。NULL＝HPB にある。 */
+  missing_since: string | null;
+  /** 一括反映でお客様メニューを作った時刻。NULL＝まだ作っていない。 */
+  applied_at: string | null;
   updated_at: string;
   created_at: string;
 }
@@ -209,26 +275,52 @@ function effectiveValues(row: HpbMenuDurationRow): {
 
 /** facility_menus への一括反映結果。 */
 export interface ApplyHpbResult {
-  inserted: number; // 新規作成(非公開で作成)
-  updated: number; // 既存 HPB 由来メニューの値を更新
+  inserted: number; // 新規作成(非公開＝下書きで作成)
+  existing: number; // 既にお客様メニューにあるため変更しなかった
   hidden: number; // is_hidden により紐付く既存メニューを非公開化
-  skipped: number; // name が空で反映対象外
+  skipped: number; // name(手直し後)が空で作らなかった
+  coupons: number; // クーポン(新規・再来などの対象条件と割引価格を引き継げないため作らない)
+  // クーポンなのに、紐付くお客様メニューが既にある(この修正より前の反映で作られたもの)。変更はしないが、
+  // 割引価格のまま条件なしで予約できるおそれがあるので、件数を伝えてメニュー管理での確認を促す。
+  coupons_in_menus: number;
+  ended: number; // HPB で掲載終了(一覧を最後まで読めた最新の取得で、一覧に無かった)
+  other_store: number; // 今の店舗ID(hpb_sln_id)とは別の店舗IDで取得した行(店舗ID未設定を含む)
+  deleted: number; // 以前作ったメニューがメニュー管理で削除済み(作り直さない)
 }
 
 /**
- * hpb_menu_durations を facility_menus へ反映(同期)。再反映で二重作成しない(hpb_ref_id 紐付け)。
- * - is_hidden=false: override 適用後の値で facility_menus を更新(既存) or 新規作成。
- *   新規は category='メニュー'・is_published=false(非公開=下書き)で作成→/admin/menus の「公開する」で公開。
- *   既存行は値列(name/price/duration_minutes/description)のみ更新し、
- *   is_published(神原の公開判断)・category・sort_order は温存(上書きしない)。
- * - is_hidden=true: 紐付く facility_menus 行があれば is_published=false(客から隠す)。
- * - name(override後)が空の行はスキップ(不完全データを実メニューに流さない)。
- * DB エラー時は Error を throw(呼び出し側で 500)。再実行は冪等(hpb_ref_id で既存判定)。
+ * hpb_menu_durations から、お客様メニュー(facility_menus)に【まだ無いメニューだけ】を作る。
+ * 再反映で二重作成しない(hpb_ref_id 紐付け + applied_at)。DB エラー時は Error を throw(呼び出し側で 500)。
+ *
+ * 紐付く facility_menus 行があるのに applied_at が無い行(記録を始める前の反映で作ったもの)は、
+ * 下のどの扱いでも applied_at を記録する(画面の「反映済み」表示と、削除後に作り直さない判定のため)。
+ *
+ * 行ごとの扱い(上から順に判定):
+ * - is_hidden=true: 紐付く facility_menus 行があれば is_published=false(客から隠す)。管理画面での明示の指示。
+ * - kind=coupon で紐付く facility_menus 行がある: 変更しないが coupons_in_menus に数える(黙って見逃さない)。
+ * - store_id が今の店舗IDと違う: 作らない(誤った店舗IDで取得した別の店舗の行・店舗ID未設定)。
+ * - missing_since あり: 作らない(HPB で掲載終了)。既に作ったメニューは変更しない(扱うかはお店が決める)。
+ * - kind=coupon: 作らない。HPB のクーポンは新規・再来などの対象条件と利用条件付きの割引価格で、
+ *   通常メニューにすると誰でもその価格で予約できてしまう(条件は facility_menus に持てない)。
+ *   下書きで作る案は、メニュー管理の「非公開のメニューをすべて公開する」でまとめて公開され得るため採らない。
+ * - 紐付く facility_menus 行がある: 変更しない(名前・料金・時間・説明はメニュー管理での手直しを優先)。
+ * - applied_at あり(以前作ったのに紐付く行が無い): メニュー管理で削除済みなので作り直さない。
+ * - name(手直し後)が空: スキップ(不完全データを実メニューに流さない)。
+ * - それ以外: category='メニュー'・is_published=false(非公開=下書き)で作成し、applied_at を記録。
  */
 export async function applyHpbMenusToFacilityMenus(
   admin: SupabaseClient,
   facilityId: string,
 ): Promise<ApplyHpbResult> {
+  // 今の店舗IDを確かめられないまま反映しない(読み取り失敗を「未設定」と取り違えない)。
+  const { data: profile, error: profileError } = await admin
+    .from('facility_profiles')
+    .select('hpb_sln_id')
+    .eq('id', facilityId)
+    .maybeSingle();
+  if (profileError) throw new Error('facility_profiles read failed');
+  const currentSlnId = normalizeSlnId(profile?.hpb_sln_id);
+
   const hpbRows = await listHpbMenus(admin, facilityId);
   if (hpbRows === null) throw new Error('listHpbMenus failed');
 
@@ -247,14 +339,16 @@ export async function applyHpbMenusToFacilityMenus(
     }
   }
 
-  let inserted = 0;
-  let updated = 0;
-  let hidden = 0;
-  let skipped = 0;
+  const result: ApplyHpbResult = {
+    inserted: 0, existing: 0, hidden: 0, skipped: 0, coupons: 0, coupons_in_menus: 0, ended: 0, other_store: 0,
+    deleted: 0,
+  };
   const toInsert: Record<string, unknown>[] = [];
+  const appliedRefIds: string[] = [];
 
   for (const row of hpbRows) {
     const existingId = existingByRef.get(row.ref_id);
+    if (existingId && !row.applied_at) appliedRefIds.push(row.ref_id);
     if (row.is_hidden) {
       if (existingId) {
         const { error } = await admin
@@ -262,46 +356,68 @@ export async function applyHpbMenusToFacilityMenus(
           .update({ is_published: false })
           .eq('id', existingId);
         if (error) throw new Error('hide update failed');
-        hidden++;
+        result.hidden++;
       }
+      continue;
+    }
+    if (row.kind !== 'menu' && existingId) {
+      result.coupons_in_menus++;
+      continue;
+    }
+    if (row.store_id !== currentSlnId) {
+      result.other_store++;
+      continue;
+    }
+    if (row.missing_since) {
+      result.ended++;
+      continue;
+    }
+    if (row.kind !== 'menu') {
+      result.coupons++;
+      continue;
+    }
+    if (existingId) {
+      result.existing++;
+      continue;
+    }
+    if (row.applied_at) {
+      result.deleted++;
       continue;
     }
     const e = effectiveValues(row);
     if (!e.name.trim()) {
-      skipped++;
+      result.skipped++;
       continue;
     }
-    if (existingId) {
-      const { error } = await admin
-        .from('facility_menus')
-        .update({
-          name: e.name,
-          price: e.price,
-          duration_minutes: e.duration,
-          description: e.description,
-        })
-        .eq('id', existingId);
-      if (error) throw new Error('value update failed');
-      updated++;
-    } else {
-      toInsert.push({
-        facility_id: facilityId,
-        hpb_ref_id: row.ref_id,
-        category: HPB_APPLIED_CATEGORY,
-        name: e.name,
-        price: e.price,
-        duration_minutes: e.duration,
-        description: e.description,
-        is_published: false,
-      });
-    }
+    toInsert.push({
+      facility_id: facilityId,
+      hpb_ref_id: row.ref_id,
+      category: HPB_APPLIED_CATEGORY,
+      name: e.name,
+      price: e.price,
+      duration_minutes: e.duration,
+      description: e.description,
+      is_published: false,
+    });
+    appliedRefIds.push(row.ref_id);
   }
 
   if (toInsert.length > 0) {
     const { error } = await admin.from('facility_menus').insert(toInsert);
     if (error) throw new Error('insert failed');
-    inserted = toInsert.length;
+    result.inserted = toInsert.length;
   }
 
-  return { inserted, updated, hidden, skipped };
+  // 作ったメニュー(と、紐付くメニューがあるのに記録が無かったもの)に applied_at を記録する。ここで失敗しても、
+  // 作ったメニューは紐付き(hpb_ref_id)で次回「既にある」と判定されるので二重作成にはならない。
+  if (appliedRefIds.length > 0) {
+    const { error } = await admin
+      .from(TABLE)
+      .update({ applied_at: new Date().toISOString() })
+      .eq('facility_id', facilityId)
+      .in('ref_id', appliedRefIds);
+    if (error) throw new Error('applied mark failed');
+  }
+
+  return result;
 }
