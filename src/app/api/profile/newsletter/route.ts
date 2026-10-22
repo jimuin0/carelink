@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
  * ニュースレターが二度と届かなかった（抑止行は本人から見えず、書き込み権も無い）。
  * 切り替えは service_role 専用の set_newsletter_preference_atomic で、profiles の旗と
  * 本人の確認済みログインメールの抑止行を 1 トランザクションでまとめて行う
- * （migration 20261022180000_newsletter_preference_atomic.sql）。
+ * （migration 20261022220000_newsletter_preference_atomic.sql）。
  */
 const bodySchema = z.object({ receive: z.boolean() }).strict();
 const receiptSchema = z.object({ success: z.literal(true), receive: z.boolean() });

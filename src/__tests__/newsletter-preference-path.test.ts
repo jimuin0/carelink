@@ -28,7 +28,7 @@ import { join, relative } from 'path';
 
 const ROOT = process.cwd();
 const MIGRATIONS = join(ROOT, 'supabase/migrations');
-const MIGRATION = '20261022180000_newsletter_preference_atomic.sql';
+const MIGRATION = '20261022220000_newsletter_preference_atomic.sql';
 const FIXTURE = 'supabase/shadow/newsletter-preference-fixtures.sql';
 const SIGNATURE = 'set_newsletter_preference_atomic(uuid,boolean)';
 const READER_SIGNATURE = 'get_newsletter_preference(uuid)';

@@ -1,6 +1,6 @@
 \set ON_ERROR_STOP on
 -- Dedicated synthetic shadow DB only; every change rolls back and no provider is called.
--- マイページ「お知らせメールを受け取る」（set_newsletter_preference_atomic・20261022180000）を実 DB で確かめる。
+-- マイページ「お知らせメールを受け取る」（set_newsletter_preference_atomic・20261022220000）を実 DB で確かめる。
 --   1. メールの配信停止リンクで止めた後、profiles の旗だけ戻しても宛先に戻らない（直す前の欠陥の再現）
 --   2. この関数で「受け取る」に戻すと、旗と抑止行がまとめて外れ、宛先に戻る
 --   3. 他人の宛先の抑止は外せない（profiles.email を書き換えても、確認済みログインメールしか見ない）
