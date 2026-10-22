@@ -1,9 +1,10 @@
 /**
  * 週次レポート Cron
  * GET /api/cron/weekly-report
- * 毎週月曜（JST）に直近7日間の売上を施設ごとに集計し、email_weekly_report を OFF にしていない
- * 施設のオーナーへメール送信する。集計は daily-summary cron が日次で書き込む daily_revenue_summary を
- * 期間合算するため、ここでは重い再集計を行わない（timeout 回避）。
+ * 毎週月曜（JST）に、直近に終わった月曜〜日曜（JST）の売上を施設ごとに集計し、email_weekly_report を
+ * OFF にしていない施設のオーナーへメール送信する。合算の元は daily_revenue_summary だが、
+ * 合算の前に期間内の 7 日を aggregate_daily_revenue RPC で集計し直す（理由は GET 内のコメント）。
+ * RPC は全施設を 1 クエリで集計する集合 UPSERT なので、7 回呼んでも施設数に比例して重くならない。
  */
 
 import { NextResponse } from 'next/server';
@@ -11,7 +12,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { logCronRun, cronError } from '@/lib/cron-logger';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { checkCronAuth } from '@/lib/cron-auth';
-import { todayJst, addDays } from '@/lib/admin-date';
+import { todayJst, addDays, previousJstWeek } from '@/lib/admin-date';
 import { sendWeeklyReportEmail } from '@/lib/email';
 import { fetchAllPaged } from '@/lib/paginate';
 
@@ -192,9 +193,28 @@ export async function GET(request: Request) {
   const startedAt = new Date();
   const supabase = createServiceRoleClient();
   try {
-    // 直近7日間（昨日まで・JST）。TZ非依存の純粋関数で算出。
-    const end = addDays(todayJst(), -1);
-    const start = addDays(end, -6);
+    // 集計期間＝直近に終わった月曜〜日曜（JST）。TZ非依存の純粋関数で算出。
+    // 通常の月曜実行では「昨日（日曜）までの 7 日間」と同じ。実行が遅れても週がずれない。
+    const { start, end } = previousJstWeek(todayJst());
+
+    // 🔴 日曜分の欠落を防ぐ（2026年10月22日）。daily_revenue_summary は daily-summary cron
+    // （毎日 JST 15:00）が「前日」1日分ずつ書き込む。週次（JST 月曜 07:10）の時点では日曜分の行が
+    // まだ無いため、合算するだけだと毎週日曜の売上・予約が抜けたまま「月〜日」のレポートとして届き、
+    // 翌週の期間は月曜から始まるので日曜分はどの週次にも入らなかった（日曜にしか予約が無い施設には
+    // レポート自体が届かなかった）。cron の実行順序に依存しないよう、合算の前に期間内の 7 日を
+    // 同じ RPC で集計し直す。RPC は ON CONFLICT で上書きする冪等な UPSERT なので、後から
+    // daily-summary が同じ日を集計しても結果は変わらない。翌日 15:00 の日次集計より後に
+    // 「完了」へ変えた予約も、これで週次（と日別グラフ）に反映される。
+    for (let i = 0; i < 7; i++) {
+      const day = addDays(start, i);
+      const { error: aggErr } = await supabase.rpc('aggregate_daily_revenue', { p_date: day });
+      if (aggErr) {
+        console.error('[weekly-report] aggregate_daily_revenue RPC failed', { err: aggErr, date: day });
+        // 一部の日だけ古い（または欠けた）数字のレポートは送らない。claim 前に止めるので、
+        // 同じ週のうちに再実行すれば（期間は previousJstWeek で同じ週になる）送り直せる。
+        return cronError('weekly-report', startedAt, aggErr, { extraLog: { meta: { start, end, failedDate: day } } });
+      }
+    }
 
     const { rows, error } = await fetchAllPaged<Record<string, number | string | null>>(
       async (offset, limit) => {

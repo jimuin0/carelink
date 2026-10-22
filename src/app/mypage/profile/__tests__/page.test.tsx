@@ -7,6 +7,10 @@ import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 const mockGetUser = jest.fn();
 const mockMaybeSingle = jest.fn();
 const mockFetch = jest.fn();
+// トグルの初期表示（GET /api/profile/newsletter）は保存・切り替えの fetch と分けて数える。
+const mockStateFetch = jest.fn();
+const routedFetch = (url: string, init?: RequestInit) =>
+  url === '/api/profile/newsletter' && (init?.method ?? 'GET') === 'GET' ? mockStateFetch(url, init) : mockFetch(url, init);
 jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: () => ({
   auth: { getUser: mockGetUser },
   from: () => ({ select: () => ({ eq: () => ({ maybeSingle: mockMaybeSingle }) }) }),
@@ -22,7 +26,9 @@ beforeEach(() => {
   require('@/lib/line-availability').isLineLoginEnabled.mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: 'synthetic-user' } }, error: null });
   mockMaybeSingle.mockResolvedValue({ data: profile, error: null });
-  global.fetch = mockFetch;
+  // 既定は「状態 API が使えない」＝profiles の旗のまま表示する（従来どおり）
+  mockStateFetch.mockRejectedValue(new TypeError('Failed to fetch'));
+  global.fetch = routedFetch as unknown as typeof fetch;
 });
 
 test('欠損プロフィールは新規入力や保存成功にせず再試行・問い合わせを表示する', async () => {
@@ -106,4 +112,104 @@ test('legacy profile LINE ID alone shows reconfirmation rather than a verified b
 test('current profile and server-verified owner show the same verified badge',async()=>{
  mockMaybeSingle.mockResolvedValueOnce({data:{...profile,line_user_id:'U_owned'},error:null}).mockResolvedValueOnce({data:{line_user_id:'U_owned'},error:null}).mockResolvedValueOnce({data:{user_id:'synthetic-user',line_user_id:'U_owned',proof_version:1,verified_at:'2026-10-09T00:00:00Z'},error:null});
  render(<ProfileEditPage/>);expect(await screen.findByText('LINE連携済み')).toBeInTheDocument();
+});
+
+// ==========================================================================
+// お知らせメールの再開（2026年10月22日）
+// メールの配信停止リンクは newsletter_subscriptions に抑止行を作る。ブラウザから
+// profiles.email_unsubscribed だけを戻すと抑止行が残り、「再開しました」と出るのに二度と届かなかった。
+// トグルはサーバーの API（旗と抑止行を 1 トランザクションで切り替える）だけを通す。
+// ==========================================================================
+const NEWSLETTER_LABEL = /お知らせメール（クーポン・キャンペーン情報など）を受け取る/;
+
+test('配信停止中に ON にすると、API へ receive=true を送り「再開しました」を出す', async () => {
+  mockMaybeSingle.mockResolvedValue({ data: { ...profile, email_unsubscribed: true }, error: null });
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ success: true, receive: true }) });
+  render(<ProfileEditPage />);
+  const toggle = await screen.findByRole('checkbox', { name: NEWSLETTER_LABEL });
+  expect(toggle).not.toBeChecked();
+  fireEvent.click(toggle);
+  expect(await screen.findByText('お知らせメールの配信を再開しました')).toBeInTheDocument();
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+  const [url, init] = mockFetch.mock.calls[0];
+  expect(url).toBe('/api/profile/newsletter');
+  expect(init.method).toBe('PUT');
+  expect(JSON.parse(init.body)).toEqual({ receive: true });
+  await waitFor(() => expect(toggle).toBeChecked());
+});
+
+test('OFF にすると API へ receive=false を送る', async () => {
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ success: true, receive: false }) });
+  render(<ProfileEditPage />);
+  const toggle = await screen.findByRole('checkbox', { name: NEWSLETTER_LABEL });
+  fireEvent.click(toggle);
+  expect(await screen.findByText('お知らせメールの配信を停止しました')).toBeInTheDocument();
+  expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ receive: false });
+  await waitFor(() => expect(toggle).not.toBeChecked());
+});
+
+test.each([
+  ['HTTP エラー（サーバーの文言を出す）', { ok: false, json: async () => ({ error: 'プロフィールを確認できません。設定は変更されていません。' }) }, 'プロフィールを確認できません。設定は変更されていません。'],
+  ['成功でない応答', { ok: true, json: async () => ({ success: false }) }, '設定の変更に失敗しました'],
+  ['逆向きの結果', { ok: true, json: async () => ({ success: true, receive: false }) }, '設定の変更に失敗しました'],
+  ['壊れた JSON', { ok: true, json: () => Promise.reject(new Error('bad JSON')) }, '設定の変更に失敗しました'],
+])('%s は再開済みに見せない', async (_label, response, message) => {
+  mockMaybeSingle.mockResolvedValue({ data: { ...profile, email_unsubscribed: true }, error: null });
+  mockFetch.mockResolvedValue(response);
+  render(<ProfileEditPage />);
+  const toggle = await screen.findByRole('checkbox', { name: NEWSLETTER_LABEL });
+  fireEvent.click(toggle);
+  expect(await screen.findByText(message)).toBeInTheDocument();
+  expect(screen.queryByText('お知らせメールの配信を再開しました')).not.toBeInTheDocument();
+  await waitFor(() => expect(toggle).toBeEnabled());
+  expect(toggle).not.toBeChecked();
+});
+
+test('通信失敗も再開済みに見せない（英語の内部エラーは出さない）', async () => {
+  mockMaybeSingle.mockResolvedValue({ data: { ...profile, email_unsubscribed: true }, error: null });
+  mockFetch.mockRejectedValue(new TypeError('Failed to fetch'));
+  render(<ProfileEditPage />);
+  const toggle = await screen.findByRole('checkbox', { name: NEWSLETTER_LABEL });
+  fireEvent.click(toggle);
+  expect(await screen.findByText('設定の変更に失敗しました')).toBeInTheDocument();
+  expect(screen.queryByText('Failed to fetch')).not.toBeInTheDocument();
+  expect(toggle).not.toBeChecked();
+});
+
+// ==========================================================================
+// トグルの初期表示（2026年10月22日・レビュー指摘）
+// アカウント作成【前】に配信停止リンクで止めた宛先は profiles の旗が立たず、抑止行だけが残る。
+// 旗だけで表示すると「受け取る」に見えたまま届かない。サーバーが旗と抑止行から決めた状態で表示する。
+// ==========================================================================
+test('旗は「受け取る」でも、サーバーが「届かない」と返したら OFF で表示し、ON 1 回で再開できる', async () => {
+  mockStateFetch.mockResolvedValue({ ok: true, json: async () => ({ receive: false }) });
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ success: true, receive: true }) });
+  render(<ProfileEditPage />);
+  const toggle = await screen.findByRole('checkbox', { name: NEWSLETTER_LABEL });
+  expect(toggle).not.toBeChecked();
+  expect(mockStateFetch).toHaveBeenCalledTimes(1);
+  expect(mockStateFetch.mock.calls[0][0]).toBe('/api/profile/newsletter');
+  expect(mockStateFetch.mock.calls[0][1]?.method).toBeUndefined();
+  fireEvent.click(toggle);
+  expect(await screen.findByText('お知らせメールの配信を再開しました')).toBeInTheDocument();
+  expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ receive: true });
+  await waitFor(() => expect(toggle).toBeChecked());
+});
+
+test('サーバーが「届く」と返したら ON で表示する', async () => {
+  mockStateFetch.mockResolvedValue({ ok: true, json: async () => ({ receive: true }) });
+  render(<ProfileEditPage />);
+  expect(await screen.findByRole('checkbox', { name: NEWSLETTER_LABEL })).toBeChecked();
+});
+
+test.each([
+  ['HTTP エラー', { ok: false, json: async () => ({ receive: true }) }],
+  ['壊れた JSON', { ok: true, json: () => Promise.reject(new Error('bad JSON')) }],
+  ['形の違う応答', { ok: true, json: async () => ({ receive: 'yes' }) }],
+])('状態を取れない（%s）ときは profiles の旗のまま表示し、画面は開く', async (_label, response) => {
+  mockMaybeSingle.mockResolvedValue({ data: { ...profile, email_unsubscribed: true }, error: null });
+  mockStateFetch.mockResolvedValue(response);
+  render(<ProfileEditPage />);
+  expect(await screen.findByRole('checkbox', { name: NEWSLETTER_LABEL })).not.toBeChecked();
+  expect(screen.getByRole('button', { name: 'プロフィールを更新' })).toBeInTheDocument();
 });

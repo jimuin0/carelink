@@ -2,7 +2,7 @@
 import { readSalonBrowserContext, saveSalonBrowserContext, SALON_BROWSER_CONTEXT_KEY,
   SALON_ONBOARDING_PATH, SALON_COMPLETE_PATH, salonHandoffAuthPath,
   readSalonRecoveryContext, saveSalonRecoveryContext, SALON_RECOVERY_CONTEXT_KEY,
-  SALON_RECOVERY_ONBOARDING_PATH } from '../salon-browser-context';
+  SALON_RECOVERY_ONBOARDING_PATH, SALON_RECOVERY_PATH, salonRecoveryAuthPath } from '../salon-browser-context';
 const intentId = '74000000-0000-4000-8000-000000000001';
 const context = { version: 1 as const, intentId, phase: 'attempted' as const };
 function store(value: string | null = null) {
@@ -71,4 +71,11 @@ test('recovery read/write denial and nondurable state refuse use', () => {
   const lost = store(); lost.setItem.mockImplementation(() => {});
   expect(saveSalonRecoveryContext(lost, intentId)).toBe(false);
   expect(saveSalonRecoveryContext(store(), 'bad')).toBe(false);
+});
+test.each(['signup', 'login'] as const)('recovery auth %s returns to the receipt chooser, not the blank onboarding form', page => {
+  const url = new URL(salonRecoveryAuthPath(page), 'https://synthetic.invalid');
+  expect(url.pathname).toBe('/auth/' + page);
+  expect(url.searchParams.get('redirect')).toBe(SALON_RECOVERY_PATH);
+  expect(SALON_RECOVERY_PATH).toBe('/register/recover');
+  expect([...url.searchParams.keys()]).toEqual(['redirect']);
 });

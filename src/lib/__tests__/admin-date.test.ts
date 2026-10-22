@@ -1,4 +1,4 @@
-import { todayJst, isValidIsoDate, clampPage, addDays, diffDays, jstDayStartIso, jstMonthStartIso, jstMonthInfo, dayOfWeekUtc } from '../admin-date';
+import { todayJst, isValidIsoDate, clampPage, addDays, diffDays, jstDayStartIso, jstMonthStartIso, jstMonthInfo, dayOfWeekUtc, previousJstWeek } from '../admin-date';
 
 describe('todayJst', () => {
   it('JST の今日を YYYY-MM-DD 形式で返す', () => {
@@ -209,5 +209,27 @@ describe('dayOfWeekUtc（暦日の曜日・TZ非依存）', () => {
     const { oldGetDay, newUtc } = JSON.parse(out);
     expect(oldGetDay).toBe(4); // 旧実装は負オフセットTZで前日(木)＝バグ
     expect(newUtc).toBe(5);    // dayOfWeekUtc と同手法は常に正しい(金)
+  });
+});
+
+describe('previousJstWeek（直近に終わった月〜日の週）', () => {
+  it('月曜に呼ぶと前日（日曜）までの 7 日間', () => {
+    // 2026-10-26 は月曜
+    expect(previousJstWeek('2026-10-26')).toEqual({ start: '2026-10-19', end: '2026-10-25' });
+  });
+  it('実行が遅れて水曜になっても同じ月〜日の週を指す', () => {
+    expect(previousJstWeek('2026-10-28')).toEqual({ start: '2026-10-19', end: '2026-10-25' });
+  });
+  it('土曜でも直前に終わった週', () => {
+    expect(previousJstWeek('2026-10-31')).toEqual({ start: '2026-10-19', end: '2026-10-25' });
+  });
+  it('日曜はその週がまだ終わっていないので 1 つ前の週', () => {
+    expect(previousJstWeek('2026-10-25')).toEqual({ start: '2026-10-12', end: '2026-10-18' });
+  });
+  it('月・年をまたぐ週', () => {
+    // 2027-01-04 は月曜 → 2026-12-28(月)〜2027-01-03(日)
+    expect(previousJstWeek('2027-01-04')).toEqual({ start: '2026-12-28', end: '2027-01-03' });
+    expect(dayOfWeekUtc(previousJstWeek('2027-01-04').start)).toBe(1);
+    expect(dayOfWeekUtc(previousJstWeek('2027-01-04').end)).toBe(0);
   });
 });
