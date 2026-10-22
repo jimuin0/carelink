@@ -1,7 +1,7 @@
 // オーナーがブログ記事を作成できることを実行証明する（作成→一覧反映）。
 // CI の隔離 Supabase（supabase start）上でのみ動作（本番不可侵）。admin-batch.setup の
 // storageState（owner 認証）を使う。/admin/blog/new は facility_members の owner/admin で到達でき、
-// POST /api/admin/blog は membership.facility_id で投稿先を解決するため owner 単独で完走する。
+// 投稿先は画面で選んだ店舗（1 店舗のオーナーは自動で選ばれる）で、owner 単独で完走する。
 import { test, expect } from '@playwright/test';
 
 test('オーナーがブログ記事を作成できる（書き込み→一覧反映）', async ({ page }) => {
@@ -20,6 +20,7 @@ test('オーナーがブログ記事を作成できる（書き込み→一覧�
   await createBtn.press('Enter');
 
   // 成功で /admin/blog へ遷移（router.push）。一覧に作成記事が出る（書き込み永続化＋再読込反映）。
-  await page.waitForURL('**/admin/blog', { timeout: 15000 });
+  // 一覧は作成した店舗のまま開く（2026年10月22日〜 ?facility_id= 付き）。
+  await page.waitForURL((url) => url.pathname === '/admin/blog', { timeout: 15000 });
   await expect(page.getByText(title)).toBeVisible({ timeout: 15000 });
 });

@@ -9,6 +9,8 @@ import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
 import { SbBadge, SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import AdminFacilityScope, { type AdminFacilityScopeValue } from '@/components/admin/AdminFacilityScope';
 
 interface ApiKey {
   id: string;
@@ -34,7 +36,15 @@ const AVAILABLE_SCOPES = [
 ];
 
 export default function ApiKeysPage() {
-  const [facilityId, setFacilityId] = useState<string | null>(null);
+  return <AdminFacilityScope title="外部API / APIキー管理" path="/admin/api-keys">{(scope) => <ApiKeysManager {...scope} />}</AdminFacilityScope>;
+}
+
+// 店舗は AdminFacilityScope が ?facility_id= と所属から決める（2026年10月22日）。以前は facility_members を
+// .limit(1).single() で 1 行だけ読み、一覧・発行・無効化がすべて任意の 1 店舗に固定されていた。
+// 発行は API がオーナーに限っている（admin は 403）ため、選んだ店舗での役割を読んで、オーナーでなければ
+// 発行欄の代わりに理由を出す（押してから失敗させない）。無効化は API が owner/admin の両方に許している。
+function ApiKeysManager({ facilityId, choices, userId }: AdminFacilityScopeValue) {
+  const [role, setRole] = useState<'owner' | 'admin' | null>(null);
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -62,15 +72,12 @@ export default function ApiKeysPage() {
       try {
         const supabase = createBrowserSupabaseClient();
         setLoadError(false);
-        const { data: { user },error:authError } = await supabase.auth.getUser();
-        if (authError||!user) { if (!cancelled) {setLoadError(true);setLoading(false);} return; }
-        const { data: mem, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-          .in('role', ['owner', 'admin']).limit(1).single();
-        if (memErr) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
-        if (!mem||typeof mem.facility_id!=='string'||!UUID_REGEX.test(mem.facility_id)) { if (!cancelled) {setLoadError(true);setLoading(false);} return; }
+        const { data: mem, error: memErr } = await supabase.from('facility_members').select('role')
+          .eq('user_id', userId).eq('facility_id', facilityId).in('role', ['owner', 'admin']).maybeSingle();
+        if (memErr || !mem || (mem.role !== 'owner' && mem.role !== 'admin')) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
         if (cancelled) return;
-        setFacilityId(mem.facility_id);
-        const { data, error } = await supabase.from('api_keys').select('id, name, key_prefix, scopes, is_active, last_used_at, expires_at, created_at').eq('facility_id', mem.facility_id).order('created_at', { ascending: false });
+        setRole(mem.role);
+        const { data, error } = await supabase.from('api_keys').select('id, name, key_prefix, scopes, is_active, last_used_at, expires_at, created_at').eq('facility_id', facilityId).order('created_at', { ascending: false });
         if (error) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
         if (cancelled) return;
         if(!Array.isArray(data)||!data.every(isApiKey))throw new Error('UNCONFIRMED_KEY_LIST');
@@ -84,10 +91,10 @@ export default function ApiKeysPage() {
     return () => {
       cancelled = true;
     };
-  }, [reloadKey]);
+  }, [facilityId, userId, reloadKey]);
 
   const handleCreate = async () => {
-    if (!facilityId || !newKeyName.trim() || selectedScopes.length === 0 || creatingRef.current) return;
+    if (role !== 'owner' || !newKeyName.trim() || selectedScopes.length === 0 || creatingRef.current) return;
     creatingRef.current=true;
     setCreating(true);
 
@@ -143,6 +150,8 @@ export default function ApiKeysPage() {
 
   return (
     <div className="space-y-6 max-w-3xl">
+      <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/api-keys" busy={creating}
+        dirty={generatedKey !== null || newKeyName.trim() !== ''} />
       <SbPageHeader title="外部API / APIキー管理" description="POS・会計ソフト・カスタムアプリとの連携用APIキーを発行・管理します" />
 
       {/* Generated key banner */}
@@ -165,7 +174,14 @@ export default function ApiKeysPage() {
         </div>
       )}
 
-      {/* Create new key */}
+      {/* Create new key（発行はオーナーのみ。admin には理由を出す） */}
+      {role === 'admin' && (
+        <section aria-labelledby="key-create-heading" className="bg-white rounded-xl border border-gray-100 p-6">
+          <h2 id="key-create-heading" className="font-bold text-gray-800">新しいAPIキーを作成</h2>
+          <p className="text-sm text-gray-600 mt-2">APIキーの発行は、この店舗のオーナーのみ行えます。発行が必要な場合はオーナーにご依頼ください。</p>
+        </section>
+      )}
+      {role === 'owner' && (
       <fieldset disabled={creating} aria-labelledby="key-create-heading" className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">
         <h2 id="key-create-heading" className="font-bold text-gray-800">新しいAPIキーを作成</h2>
 
@@ -211,6 +227,7 @@ export default function ApiKeysPage() {
           {creating ? '作成中...' : 'APIキーを発行する'}
         </button>
       </fieldset>
+      )}
 
       {/* Key list */}
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
