@@ -650,7 +650,7 @@ function AdminSettingsContent() {
           <ol className="list-decimal pl-4 mt-2 space-y-2">
             <li>LINE Works管理コンソールでBotを作成し、各スタッフのDM or グループチャンネルに招待</li>
             <li>
-              CareLinK運営（<a href="mailto:support@carelink-jp.com" className="underline">support@carelink-jp.com</a>）へ、作成したBotの接続情報（Client ID / Client Secret / Service Account / Private Key / Bot ID）をお知らせください。運営側でシステムに設定します
+              CareLink運営（<a href="mailto:support@carelink-jp.com" className="underline">support@carelink-jp.com</a>）へ、作成したBotの接続情報（Client ID / Client Secret / Service Account / Private Key / Bot ID）をお知らせください。運営側でシステムに設定します
             </li>
             <li>
               各スタッフの編集画面（スタッフ管理 → 編集）で

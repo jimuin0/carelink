@@ -155,7 +155,7 @@ export default function AdminPaymentsPage() {
             <ol className="list-decimal list-inside space-y-1">
               <li>Stripeアカウントを作成（<a href="https://dashboard.stripe.com/register" target="_blank" rel="noopener noreferrer" className="underline">stripe.com</a>）</li>
               <li>本番用シークレットキーを取得</li>
-              <li>CareLinK運営（support@carelink-jp.com）にStripe Account IDをお知らせください</li>
+              <li>CareLink運営（support@carelink-jp.com）にStripe Account IDをお知らせください</li>
             </ol>
           </div>
         )}
