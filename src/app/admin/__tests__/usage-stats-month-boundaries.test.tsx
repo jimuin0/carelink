@@ -22,11 +22,11 @@ jest.mock('@/lib/supabase-server-auth', () => ({
   }),
 }));
 jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => ({ from: mockFrom }) }));
-jest.mock('next/navigation', () => ({ notFound: () => { throw new Error('NEXT_NOT_FOUND'); } }));
+jest.mock('next/navigation', () => ({ notFound: () => { throw new Error('NEXT_NOT_FOUND'); }, useRouter: () => ({ push: jest.fn() }) }));
 jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
 
 function query(table: string) {
-  const data = table === 'facility_members' ? [{ facility_id: FACILITY }] : table === 'bookings' ? mockBookings : [];
+  const data = table === 'facility_members' ? [{ facility_id: FACILITY, facility_profiles: { name: '合成店舗' } }] : table === 'bookings' ? mockBookings : [];
   const q: Record<string, jest.Mock> = {};
   for (const method of ['select', 'eq', 'in', 'gte', 'order', 'limit', 'range']) q[method] = jest.fn(() => q);
   q.maybeSingle = jest.fn(() => Promise.resolve({ data: data[0] ?? null, error: null }));
@@ -38,7 +38,7 @@ function query(table: string) {
 
 /** タグとコメントを外した表示テキスト */
 async function renderText() {
-  const html = renderToStaticMarkup(await UsageStatsPage());
+  const html = renderToStaticMarkup(await UsageStatsPage({ searchParams: Promise.resolve({}) }));
   return html.replace(/<!-- -->/g, '').replace(/<[^>]+>/g, '');
 }
 
@@ -70,7 +70,7 @@ test('今月の予約ステータスに先月の予約を混ぜない', async ()
 });
 
 test('カードの MAU と月別グラフの当月（10月）が一致する', async () => {
-  const html = renderToStaticMarkup(await UsageStatsPage()).replace(/<!-- -->/g, '');
+  const html = renderToStaticMarkup(await UsageStatsPage({ searchParams: Promise.resolve({}) })).replace(/<!-- -->/g, '');
   // 月別グラフの 10 月の行だけを切り出す（月ラベル → 棒の中の人数 → 件数）
   const start = html.indexOf('w-8 shrink-0">10月</span>');
   expect(start).toBeGreaterThan(-1);
@@ -92,10 +92,10 @@ test('直近 12 か月の予約を並び順つきでページングして全件�
 });
 
 test('注記は管理画面の地色（gray-100）の上でも AA（4.5:1）を満たす色で出す', async () => {
-  const html = renderToStaticMarkup(await UsageStatsPage());
+  const html = renderToStaticMarkup(await UsageStatsPage({ searchParams: Promise.resolve({}) }));
   // 注記は白いカードの外＝レイアウトの bg-gray-100 の上にある。gray-500 は 4.39:1、sky-600 は 3.72:1 で届かない。
   const note = html.match(/<div class="([^"]*)">※ MAU\/DAU/)?.[1];
   expect(note?.split(' ')).toContain('text-gray-600');
-  const link = html.match(/<a class="([^"]*)" href="\/admin\/analytics">/)?.[1];
+  const link = html.match(/<a class="([^"]*)" href="\/admin\/analytics\?facility_id=[^"]*">/)?.[1];
   expect(link?.split(' ')).toContain('text-sky-700');
 });

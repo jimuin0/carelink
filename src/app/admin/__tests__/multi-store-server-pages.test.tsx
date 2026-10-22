@@ -33,7 +33,7 @@ function client(kind: Read['client']) {
       const chain: Record<string, unknown> = {
         then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) => Promise.resolve({ data: data(), count: 0, error: null }).then(resolve, reject),
       };
-      for (const method of ['select', 'in', 'order', 'limit', 'gte']) chain[method] = () => chain;
+      for (const method of ['select', 'in', 'order', 'limit', 'gte', 'range']) chain[method] = () => chain;
       chain.eq = (key: string, value: unknown) => { read.eq.push([key, value]); return chain; };
       return chain;
     },
