@@ -8,7 +8,7 @@ import AxeBuilder from '@axe-core/playwright';
  * 本番では gray-400 の補足文字（2.5:1）や red-500 の価格（3.8:1）、白い絞り込み欄の上の
  * 白文字「駅から探す」などが基準割れだった。
  */
-const PAGES = ['/', '/search', '/auth/login', '/auth/signup', '/register'];
+const PAGES = ['/', '/search', '/auth/login', '/auth/signup', '/register', '/legal', '/salon/cases', '/symptom/low-back-pain', '/blog'];
 
 for (const path of PAGES) {
   test(`文字コントラスト: ${path}`, async ({ page }) => {

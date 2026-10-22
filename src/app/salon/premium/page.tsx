@@ -74,7 +74,7 @@ const PLANS = [
     badge: 'おすすめ',
     color: 'border-sky-400 ring-2 ring-sky-300',
     headerColor: 'bg-sky-500 text-white',
-    buttonClass: 'bg-sky-600 text-white hover:bg-sky-700',
+    buttonClass: 'bg-sky-700 text-white hover:bg-sky-800',
     buttonLabel: '14日間無料体験',
     buttonHref: '/contact?plan=standard',
     description: '成長中のサロン・チェーン店向け',
@@ -221,7 +221,7 @@ export default function PremiumPage() {
               <tr className="border-b border-gray-100">
                 <th className="text-left px-5 py-3 text-gray-500 font-medium w-1/2">機能</th>
                 <th className="text-center px-3 py-3 text-gray-700 font-bold">フリー</th>
-                <th className="text-center px-3 py-3 text-sky-600 font-bold bg-sky-50">スタンダード</th>
+                <th className="text-center px-3 py-3 text-sky-700 font-bold bg-sky-50">スタンダード</th>
                 <th className="text-center px-3 py-3 text-violet-700 font-bold">エンタープライズ</th>
               </tr>
             </thead>
@@ -252,7 +252,7 @@ export default function PremiumPage() {
             <details key={item.q} className="bg-white rounded-xl border border-gray-100 p-5 group">
               <summary className="font-medium text-gray-800 cursor-pointer list-none flex items-center justify-between">
                 {item.q}
-                <svg className="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 text-gray-500 group-open:rotate-180 transition-transform shrink-0 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
               </summary>
@@ -266,7 +266,7 @@ export default function PremiumPage() {
           <p className="text-gray-600 text-sm mb-6">フリープランで使い心地を確かめてから、プレミアムにアップグレードできます。</p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link href="/register"
-              className="px-6 py-3 bg-sky-600 text-white font-bold rounded-xl hover:bg-sky-700 transition-colors">
+              className="px-6 py-3 bg-sky-700 text-white font-bold rounded-xl hover:bg-sky-800 transition-colors">
               無料で施設を掲載する
             </Link>
             <Link href="/contact?plan=premium"

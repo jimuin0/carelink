@@ -300,7 +300,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
             const qs = q.toString();
             router.push(`/facility/${facility.slug}/booking${qs ? `?${qs}` : ''}`);
           }}
-          className="w-full mt-3 py-3 rounded-xl bg-sky-700 text-white font-bold hover:bg-sky-700 transition-colors"
+          className="w-full mt-3 py-3 rounded-xl bg-sky-700 text-white font-bold hover:bg-sky-800 transition-colors"
         >
           この店舗をもう一度予約する
         </button>

@@ -174,7 +174,7 @@ export default async function SymptomPage({ params }: Props) {
         ) : (
           <div className="text-center py-12 bg-gray-50 rounded-xl mb-10">
             <p className="text-gray-500 text-sm">現在、{symptom.name}に対応可能な施設は登録されていません。</p>
-            <Link href="/search" className="text-sky-600 text-sm mt-2 inline-block hover:underline">
+            <Link href="/search" className="text-sky-700 text-sm mt-2 inline-block hover:underline">
               すべての施設を検索する →
             </Link>
           </div>

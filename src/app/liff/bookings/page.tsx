@@ -58,10 +58,10 @@ export default function LiffBookingsPage() {
       <h1 className="text-lg font-bold text-gray-900 mb-4">予約確認</h1>
 
       {loading ? (
-        <div className="text-center py-12 text-gray-400 text-sm">読み込み中...</div>
+        <div className="text-center py-12 text-gray-500 text-sm">読み込み中...</div>
       ) : bookings.length === 0 ? (
         <div className="text-center py-12">
-          <p className="text-gray-400 text-sm">予約はありません</p>
+          <p className="text-gray-500 text-sm">予約はありません</p>
           <Link
             href="/search"
             className="mt-4 inline-block bg-sky-500 text-white px-6 py-2.5 rounded-full text-sm font-bold"
@@ -79,18 +79,18 @@ export default function LiffBookingsPage() {
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusChipClass(b.status)}`}>
                     {bookingStatusLabel(b.status)}
                   </span>
-                  <span className="text-xs text-gray-400">{b.booking_date}</span>
+                  <span className="text-xs text-gray-500">{b.booking_date}</span>
                 </div>
                 {facilityName && (
                   <p className="text-sm font-bold text-gray-900">{facilityName}</p>
                 )}
                 <p className="text-sm text-gray-600 mt-0.5">{b.menu_name ?? '施術'}</p>
                 <div className="flex items-center justify-between mt-2">
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-gray-500">
                     {b.start_time?.slice(0, 5)}〜{b.end_time?.slice(0, 5)}
                   </span>
                   {b.total_price != null && (
-                    <span className="text-sm font-bold text-sky-600">¥{b.total_price.toLocaleString()}</span>
+                    <span className="text-sm font-bold text-sky-700">¥{b.total_price.toLocaleString()}</span>
                   )}
                 </div>
               </div>
@@ -117,7 +117,7 @@ function LiffError({ message }: { message: string }) {
   return (
     <div className="flex items-center justify-center min-h-screen p-4">
       <div className="text-center">
-        <p role="alert" className="text-red-500 text-sm">{message}</p>
+        <p role="alert" className="text-red-600 text-sm">{message}</p>
       </div>
     </div>
   );

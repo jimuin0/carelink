@@ -94,7 +94,7 @@ export default async function IntakePage({ params, searchParams }: Props) {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
         <div className="text-center">
           <p className="text-gray-500 text-sm">この施設の問診票は現在ご利用いただけません。</p>
-          <Link href={`/facility/${facilitySlug}`} className="text-sky-600 text-sm mt-2 inline-block hover:underline">
+          <Link href={`/facility/${facilitySlug}`} className="text-sky-700 text-sm mt-2 inline-block hover:underline">
             施設ページに戻る
           </Link>
         </div>
@@ -125,7 +125,7 @@ export default async function IntakePage({ params, searchParams }: Props) {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
         <div className="text-center">
           <p className="text-gray-500 text-sm">この施設の問診票は現在ご利用いただけません。</p>
-          <Link href={`/facility/${facilitySlug}`} className="text-sky-600 text-sm mt-2 inline-block hover:underline">
+          <Link href={`/facility/${facilitySlug}`} className="text-sky-700 text-sm mt-2 inline-block hover:underline">
             施設ページに戻る
           </Link>
         </div>
@@ -150,12 +150,12 @@ export default async function IntakePage({ params, searchParams }: Props) {
             </div>
           )}
           <div>
-            <p className="text-xs text-gray-400">問診票</p>
+            <p className="text-xs text-gray-500">問診票</p>
             <p className="text-sm font-bold text-gray-800">{facility.name}</p>
           </div>
           <Link
             href={`/facility/${facilitySlug}`}
-            className="ml-auto text-xs text-sky-600 hover:underline"
+            className="ml-auto text-xs text-sky-700 hover:underline"
           >
             施設ページ →
           </Link>

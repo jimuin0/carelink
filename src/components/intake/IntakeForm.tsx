@@ -90,7 +90,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
     return (
       <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 text-center space-y-3">
         <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center mx-auto">
-          <svg className="w-7 h-7 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-7 h-7 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
         </div>
@@ -109,7 +109,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
         {template.description && (
           <p className="text-sm text-gray-600 mt-1">{template.description}</p>
         )}
-        <p className="text-xs text-gray-400 mt-2">
+        <p className="text-xs text-gray-500 mt-2">
           ご来院前にご記入いただくと、スムーズに施術を開始できます。
         </p>
       </div>
@@ -118,7 +118,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
         {/* お名前 */}
         <div>
           <label htmlFor="intake-customer-name" className="block text-sm font-bold text-gray-700 mb-1.5">
-            お名前 <span className="text-red-500">*</span>
+            お名前 <span className="text-red-600">*</span>
           </label>
           <input
             id="intake-customer-name"
@@ -140,7 +140,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
                 解決不能だった。ラベルに id を付与し aria-labelledby から参照する。 */}
             <label id={`intake-label-${field.id}`} htmlFor={`intake-${field.id}`} className="block text-sm font-bold text-gray-700 mb-1.5">
               {field.label}
-              {field.required && <span className="text-red-500 ml-0.5">*</span>}
+              {field.required && <span className="text-red-600 ml-0.5">*</span>}
             </label>
 
             {field.type === 'text' && (
@@ -200,7 +200,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
                             checked ? selected.filter((v) => v !== opt) : [...selected, opt]
                           )
                         }
-                        className="text-sky-500"
+                        className="text-sky-700"
                       />
                       <span className="text-sm text-gray-700">{opt}</span>
                     </label>
@@ -219,7 +219,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
                       value={opt}
                       checked={responses[field.id] === opt}
                       onChange={() => setValue(field.id, opt)}
-                      className="text-sky-500"
+                      className="text-sky-700"
                     />
                     <span className="text-sm text-gray-700">{opt}</span>
                   </label>
@@ -237,7 +237,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
                       value={opt}
                       checked={responses[field.id] === opt}
                       onChange={() => setValue(field.id, opt)}
-                      className="text-sky-500"
+                      className="text-sky-700"
                     />
                     <span className="text-sm text-gray-700">{opt}</span>
                   </label>
@@ -258,18 +258,18 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
         ))}
 
         {error && (
-          <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>
+          <p className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">{error}</p>
         )}
 
         <button
           type="submit"
           disabled={submitting}
-          className="w-full bg-sky-600 text-white font-bold py-3 rounded-xl text-sm hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="w-full bg-sky-700 text-white font-bold py-3 rounded-xl text-sm hover:bg-sky-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {submitting ? '送信中...' : '問診票を送信する'}
         </button>
 
-        <p className="text-xs text-gray-400 text-center">
+        <p className="text-xs text-gray-500 text-center">
           送信後は施術前に担当スタッフが内容を確認します
         </p>
       </form>

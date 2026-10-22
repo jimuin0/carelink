@@ -51,7 +51,7 @@ export default async function AreaRankingPage(props: Props) {
     <div className="bg-gray-50 min-h-screen">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <nav className="mb-4" aria-label="パンくずリスト">
-          <ol className="flex items-center gap-1.5 text-xs text-gray-400">
+          <ol className="flex items-center gap-1.5 text-xs text-gray-500">
             <li><Link href="/ranking" className="hover:text-sky-600">ランキング</Link></li>
             <li><span className="mx-1">/</span></li>
             <li className="text-gray-600 font-medium">{area}</li>

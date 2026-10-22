@@ -163,7 +163,7 @@ async function TypePage({ prefectureSlug, prefName, typeSlug, searchParams }: {
         ) : (
           <div className="text-center py-16 bg-white rounded-2xl mb-10">
             <p className="text-gray-500 text-sm">{prefName}の{typeName}は現在掲載されていません。</p>
-            <Link href={`/${prefectureSlug}`} className="text-sky-600 text-sm mt-2 inline-block hover:underline">{prefName}の他の施設を見る</Link>
+            <Link href={`/${prefectureSlug}`} className="text-sky-700 text-sm mt-2 inline-block hover:underline">{prefName}の他の施設を見る</Link>
           </div>
         )}
 
@@ -231,7 +231,7 @@ async function CityPage({ prefectureSlug, prefName, citySlug, cityName, searchPa
         ) : (
           <div className="text-center py-16 bg-white rounded-2xl mb-10">
             <p className="text-gray-500 text-sm">{cityName}の施設は現在掲載されていません。</p>
-            <Link href={`/${prefectureSlug}`} className="text-sky-600 text-sm mt-2 inline-block hover:underline">{prefName}の施設を見る</Link>
+            <Link href={`/${prefectureSlug}`} className="text-sky-700 text-sm mt-2 inline-block hover:underline">{prefName}の施設を見る</Link>
           </div>
         )}
 

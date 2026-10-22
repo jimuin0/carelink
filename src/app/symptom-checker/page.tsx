@@ -132,7 +132,7 @@ export default function SymptomCheckerPage() {
               <div className="text-center py-10 bg-gray-50 rounded-xl" role="alert">
                 <p className="text-rose-600 text-sm font-bold">検索に失敗しました</p>
                 <p className="text-xs text-gray-500 mt-1 mb-3">通信状況をご確認のうえ、再試行してください。</p>
-                <button type="button" onClick={handleSearch} className="text-sky-600 text-sm hover:underline">再試行</button>
+                <button type="button" onClick={handleSearch} className="text-sky-700 text-sm hover:underline">再試行</button>
               </div>
             ) : results.length > 0 ? (
               <div className="space-y-3">
@@ -144,11 +144,11 @@ export default function SymptomCheckerPage() {
                   >
                     <div>
                       <p className="font-bold text-sm">{r.name}</p>
-                      <p className="text-xs text-gray-400">{r.category}</p>
+                      <p className="text-xs text-gray-500">{r.category}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-emerald-600 font-bold">{r.facilityCount}件</p>
-                      <p className="text-xs text-gray-400">対応店舗</p>
+                      <p className="text-emerald-700 font-bold">{r.facilityCount}件</p>
+                      <p className="text-xs text-gray-500">対応店舗</p>
                     </div>
                   </Link>
                 ))}
@@ -156,7 +156,7 @@ export default function SymptomCheckerPage() {
             ) : (
               <div className="text-center py-10 bg-gray-50 rounded-xl">
                 <p className="text-gray-500 text-sm">現在、対応可能な店舗が登録されていません</p>
-                <Link href="/search" className="text-sky-600 text-sm mt-2 inline-block hover:underline">全店舗を検索 →</Link>
+                <Link href="/search" className="text-sky-700 text-sm mt-2 inline-block hover:underline">全店舗を検索 →</Link>
               </div>
             )}
           </div>

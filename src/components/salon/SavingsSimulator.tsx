@@ -18,7 +18,7 @@ export default function SavingsSimulator() {
         <div>
           <div className="flex justify-between items-center mb-2">
             <label className="text-sm font-medium text-gray-700">現在の月額費用</label>
-            <span className="text-lg font-bold text-sky-600">¥{monthlyFee.toLocaleString()}</span>
+            <span className="text-lg font-bold text-sky-700">¥{monthlyFee.toLocaleString()}</span>
           </div>
           <input
             type="range"
@@ -38,7 +38,7 @@ export default function SavingsSimulator() {
         <div>
           <div className="flex justify-between items-center mb-2">
             <label className="text-sm font-medium text-gray-700">月間予約件数</label>
-            <span className="text-lg font-bold text-sky-600">{bookingsPerMonth}件</span>
+            <span className="text-lg font-bold text-sky-700">{bookingsPerMonth}件</span>
           </div>
           <input
             type="range"
@@ -58,7 +58,7 @@ export default function SavingsSimulator() {
         <div>
           <div className="flex justify-between items-center mb-2">
             <label className="text-sm font-medium text-gray-700">予約手数料（1件あたり）</label>
-            <span className="text-lg font-bold text-sky-600">¥{feePerBooking}</span>
+            <span className="text-lg font-bold text-sky-700">¥{feePerBooking}</span>
           </div>
           <input
             type="range"
@@ -79,7 +79,7 @@ export default function SavingsSimulator() {
       {/* 結果 */}
       <div className="bg-white rounded-xl p-6 text-center shadow-xs">
         <p className="text-sm text-gray-500 mb-1">CareLink に切り替えると</p>
-        <p className="text-4xl font-extrabold text-sky-600 mb-1">
+        <p className="text-4xl font-extrabold text-sky-700 mb-1">
           月 ¥{monthlySaving.toLocaleString()}
         </p>
         <p className="text-gray-500 text-sm">節約できます</p>

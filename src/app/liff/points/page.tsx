@@ -24,7 +24,7 @@ function LiffLoading() {
 function LiffError({ message }: { message: string }) {
   return (
     <div className="flex items-center justify-center min-h-screen p-4">
-      <p role="alert" className="text-red-500 text-sm">{message}</p>
+      <p role="alert" className="text-red-600 text-sm">{message}</p>
     </div>
   );
 }
@@ -84,20 +84,20 @@ export default function LiffPointsPage() {
       <h2 className="text-sm font-bold text-gray-700 mb-3">履歴</h2>
 
       {loading ? (
-        <div className="text-center py-8 text-gray-400 text-sm">読み込み中...</div>
+        <div className="text-center py-8 text-gray-500 text-sm">読み込み中...</div>
       ) : logs.length === 0 ? (
-        <div className="text-center py-8 text-gray-400 text-sm">ポイント履歴はありません</div>
+        <div className="text-center py-8 text-gray-500 text-sm">ポイント履歴はありません</div>
       ) : (
         <div className="space-y-2">
           {logs.map((log) => (
             <div key={log.id} className="bg-white rounded-xl p-4 flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-800">{log.reason}</p>
-                <p className="text-xs text-gray-400 mt-0.5">
+                <p className="text-xs text-gray-500 mt-0.5">
                   {new Date(log.created_at).toLocaleDateString('ja-JP')}
                 </p>
               </div>
-              <span className={`text-base font-bold ${log.points >= 0 ? 'text-sky-600' : 'text-red-500'}`}>
+              <span className={`text-base font-bold ${log.points >= 0 ? 'text-sky-700' : 'text-red-600'}`}>
                 {log.points >= 0 ? '+' : ''}{log.points}pt
               </span>
             </div>

@@ -24,7 +24,7 @@ function LiffLoading() {
   );
 }
 function LiffError({ message }: { message: string }) {
-  return <div className="flex items-center justify-center min-h-screen p-4"><p role="alert" className="text-red-500 text-sm">{message}</p></div>;
+  return <div className="flex items-center justify-center min-h-screen p-4"><p role="alert" className="text-red-600 text-sm">{message}</p></div>;
 }
 function LiffNotLinked() {
   return (
@@ -131,13 +131,13 @@ function CancelContent() {
 
       {!bookingId ? (
         <div className="text-center py-12">
-          <p className="text-gray-400 text-sm">予約IDが指定されていません</p>
-          <Link href="/liff/bookings" className="mt-4 inline-block text-sky-500 text-sm">予約一覧から選択する</Link>
+          <p className="text-gray-500 text-sm">予約IDが指定されていません</p>
+          <Link href="/liff/bookings" className="mt-4 inline-block text-sky-700 text-sm">予約一覧から選択する</Link>
         </div>
       ) : loading ? (
-        <div className="text-center py-12 text-gray-400 text-sm">読み込み中...</div>
+        <div className="text-center py-12 text-gray-500 text-sm">読み込み中...</div>
       ) : !booking ? (
-        <div className="text-center py-12 text-gray-400 text-sm">予約が見つかりません</div>
+        <div className="text-center py-12 text-gray-500 text-sm">予約が見つかりません</div>
       ) : (
         <>
           <div className="bg-white rounded-2xl shadow-xs p-5 mb-6">
@@ -162,10 +162,10 @@ function CancelContent() {
               >
                 {cancelling ? 'キャンセル中...' : 'この予約をキャンセルする'}
               </button>
-              <Link href="/liff/bookings" className="block text-center text-sm text-gray-400 py-2">戻る</Link>
+              <Link href="/liff/bookings" className="block text-center text-sm text-gray-500 py-2">戻る</Link>
             </div>
           ) : (
-            <div className="text-center py-8 text-gray-400 text-sm">
+            <div className="text-center py-8 text-gray-500 text-sm">
               この予約はキャンセルできません（ステータス: {booking.status}）
             </div>
           )}

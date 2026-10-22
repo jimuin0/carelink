@@ -78,8 +78,8 @@ export default function DemoPage() {
           <svg className="w-14 h-14 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
           </svg>
-          <p className="text-gray-400 text-sm font-medium">デモ動画は準備中です</p>
-          <p className="text-gray-400 text-xs">公開され次第この場所に掲載します</p>
+          <p className="text-gray-500 text-sm font-medium">デモ動画は準備中です</p>
+          <p className="text-gray-500 text-xs">公開され次第この場所に掲載します</p>
         </div>
       </section>
 
@@ -92,7 +92,7 @@ export default function DemoPage() {
               className={`flex flex-col sm:flex-row gap-6 p-6 rounded-2xl ${i % 2 === 0 ? 'bg-gray-50' : 'bg-white border border-gray-100'}`}
             >
               <div className="sm:w-16 shrink-0">
-                <div className="w-12 h-12 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center font-bold text-lg">
+                <div className="w-12 h-12 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-lg">
                   {i + 1}
                 </div>
               </div>
