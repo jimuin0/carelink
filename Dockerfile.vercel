@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY tools ./tools
 COPY eslint-plugin-carelink-safety ./eslint-plugin-carelink-safety
+COPY scripts/ensure-eslint-plugin-link.mjs ./scripts/ensure-eslint-plugin-link.mjs
 RUN npm ci
 COPY . .
 # Only existing public browser settings enter the image build.
