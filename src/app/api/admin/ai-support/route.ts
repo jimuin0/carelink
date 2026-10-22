@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { serverError, authUnavailable } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
+import { offeredPlanLabels, unofferedFeatureNotice } from '@/lib/feature-toggles';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -31,11 +32,11 @@ const SYSTEM_PROMPT = `あなたはCareLink（鍼灸・整体・マッサージ�
 - 管理画面の操作方法（予約管理、スタッフ設定、メニュー追加など）
 - 集客・口コミ改善のアドバイス
 - 施術記録・治療計画の活用方法
-- 回数券・月額プランの設定方法
-- CareLink の各機能の説明
+${offeredPlanLabels().map((label) => `- ${label}の設定方法\n`).join('')}- CareLink の各機能の説明
 
 回答は簡潔に（最大300字程度）。操作手順は番号付きリストで。
-専門的すぎる法律・医療アドバイスは「専門家にご相談ください」と伝えること。`;
+専門的すぎる法律・医療アドバイスは「専門家にご相談ください」と伝えること。
+${unofferedFeatureNotice()}`;
 
 async function checkSupportAccess(): Promise<NextResponse | null> {
   try {

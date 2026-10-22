@@ -2,7 +2,7 @@ import { Resend } from 'resend';
 import { sendResendForReconciliation } from './resend-result';
 import { safeCaptureException } from '@/lib/safe';
 import { postAlert } from '@/lib/alert';
-import { bookingStatusLabel } from '@/lib/booking-status';
+import { bookingStatusLabel, canCustomerCancelBooking } from '@/lib/booking-status';
 import { SITE_URL } from '@/lib/constants';
 import { sendDurableEventEmail } from './event-email-delivery';
 import { resolvedFromEnv, DEFAULT_FROM, RESEND_VERIFIED_DOMAINS } from '@/lib/email-from';
@@ -146,9 +146,22 @@ function shopContactHtml(data: BookingEmailData): string {
   const phone = isDialablePhone(data.facilityPhone) ? data.facilityPhone : null;
   const slug = data.facilitySlug ? data.facilitySlug : null;
   return [
-    phone ? `<p style="text-align:center;margin:8px 0;">電話：<a href="tel:${phone.replace(/[^0-9+]/g, '')}" style="color:#0369a1;">${esc(phone)}</a></p>` : '',
+    phone ? `<p style="text-align:center;margin:8px 0;">電話：${phoneLinkHtml(phone)}</p>` : '',
     slug ? `<p style="text-align:center;margin-top:16px;"><a href="${SITE_URL}/facility/${encodeURIComponent(slug)}" style="${EMAIL_BUTTON_STYLE}">店舗ページを見る</a></p>` : '',
   ].join('');
+}
+
+/**
+ * 電話番号の表示と tel: リンク。isDialablePhone は内線の「#」を許すので、数字以外を消してから
+ * リンクにすると「03-1234-5678 #12」が tel:031234567812（別の番号）になっていた。
+ * 「#」以降（内線）はダイヤルする番号に含めない＝店舗ページ（href に電話番号をそのまま入れる）でブラウザが
+ * 「#」以降をフラグメントとして落とすのと同じ番号に揃える。表示は元の文字列のまま（内線も読める）。
+ * 「#」より前に数字が無いときはリンクにしない（tel: に空の番号を入れない）。
+ */
+function phoneLinkHtml(phone: string): string {
+  const dial = phone.split('#')[0].replace(/[^0-9+]/g, '');
+  if (!dial) return esc(phone);
+  return `<a href="tel:${dial}" style="color:#0369a1;">${esc(phone)}</a>`;
 }
 
 /**
@@ -156,12 +169,16 @@ function shopContactHtml(data: BookingEmailData): string {
  * 以前はゲスト予約（ログインせずに予約）にも「予約を確認する」→ /mypage を出していたが、
  * マイページは user_id で絞るためゲストの予約は表示されず、押しても予約が見つからなかった。
  */
-function bookingAccessHtml(data: BookingEmailData, memberLabel: string): string {
+function bookingAccessHtml(data: BookingEmailData, memberLabel: string, finished = false): string {
   const mypageButton = `<p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="${EMAIL_BUTTON_STYLE}">${memberLabel}</a></p>`;
   if (data.hasAccount === true) return mypageButton;
   const facility = esc(data.facilityName);
   if (data.hasAccount === false) {
-    return `<p style="margin-top:24px;">ご予約の確認・変更・キャンセルは、${facility}へ直接ご連絡ください。</p>${shopContactHtml(data)}`;
+    // 完了・無断キャンセル・キャンセル済みの予約に「確認・変更・キャンセルは」と案内するのは噛み合わない。
+    const sentence = finished
+      ? `ご不明な点は、${facility}へご連絡ください。`
+      : `ご予約の確認・変更・キャンセルは、${facility}へ直接ご連絡ください。`;
+    return `<p style="margin-top:24px;">${sentence}</p>${shopContactHtml(data)}`;
   }
   return `<p style="margin-top:24px;font-size:13px;color:#475569;">ログインしてご予約された方は、マイページでご予約を確認できます。ログインせずにご予約された方は、${facility}へ直接ご連絡ください。</p>${mypageButton}${shopContactHtml(data)}`;
 }
@@ -970,7 +987,7 @@ export function buildBookingStatusUpdateEnvelope(data: BookingEmailData & { newS
       <p>${facility}のご予約のステータスが<strong>「${statusLabel}」</strong>に変更されました。</p>
       ${data.reason ? `<p style="background:#fef3c7;padding:12px;border-radius:8px;font-size:14px;">理由: ${esc(data.reason)}</p>` : ''}
       ${bookingDetailHtml(data)}
-      ${bookingAccessHtml(data, '予約を確認する')}
+      ${bookingAccessHtml(data, '予約を確認する', !canCustomerCancelBooking(data.newStatus))}
     `),
   };
 }

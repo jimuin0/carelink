@@ -16,6 +16,7 @@ import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import { isPlatformSupportPath } from '@/lib/platform-support-path';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
+import { isUnofferedAdminHref } from '@/lib/feature-toggles';
 
 export const metadata: Metadata = {
   title: { default: '管理画面', template: '%s | 管理画面 | CareLink' },
@@ -261,8 +262,11 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
   // 販売導線を全ロールで一時的に隠す。決済導入時に LAUNCH_HIDDEN_HREFS から外すだけで復活する
   // （nav 定義・ページ・API はそのまま温存＝症状ブロックでなく設定1箇所で可逆制御）。
   const LAUNCH_HIDDEN_HREFS = new Set<string>(['/admin/featured-ads']);
+  // 回数券・月額プラン・求人（求人応募）は「今はなし」（2026年10月23日 神原さん判断）。
+  // 出し分けは src/lib/feature-toggles.ts の SHOW_* に従属させ、true に戻すだけで復活する。
+  const isHiddenHref = (href: string) => LAUNCH_HIDDEN_HREFS.has(href) || isUnofferedAdminHref(href);
   const visibleNavItems = navItems.filter(
-    (item) => (!item.platformAdmin || isPlatformAdmin) && !LAUNCH_HIDDEN_HREFS.has(item.href),
+    (item) => (!item.platformAdmin || isPlatformAdmin) && !isHiddenHref(item.href),
   );
   // グループ自体の platformAdmin だけでなく、グループ内の各項目（item.platformAdmin）も
   // 個別にフィルタする。'message' グループのように施設オーナーにも見せるグループの中に
@@ -272,7 +276,7 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
     .map((g) => ({
       ...g,
       items: g.items.filter(
-        (item) => (!item.platformAdmin || isPlatformAdmin) && !LAUNCH_HIDDEN_HREFS.has(item.href),
+        (item) => (!item.platformAdmin || isPlatformAdmin) && !isHiddenHref(item.href),
       ),
     }));
 

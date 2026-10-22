@@ -113,6 +113,10 @@ test('mypage successful verification renders nav/child; true anonymous redirects
   const markup = renderToStaticMarkup(await targets.mypage());
   expect(markup).toContain('synthetic mypage nav');
   expect(markup).toContain('synthetic protected business child');
+  // 確認済みのときだけ、回数券・月額プランを持っているか（ナビに出すか）を本人行で数える
+  // （2026年10月23日・提供していない機能の導線は持っている人にだけ残す）。
+  expect(mockFrom.mock.calls.map(([table]) => table).sort()).toEqual(['user_packages', 'user_subscriptions']);
+  mockFrom.mockClear();
   mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
   await expect(targets.mypage()).rejects.toThrow('synthetic redirect');
   expect(mockRedirect).toHaveBeenCalledWith('/auth/login?redirect=/mypage');

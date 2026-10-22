@@ -344,6 +344,19 @@ describe('POST /api/chat', () => {
     expect(call[0].system).toContain('AI');
   });
 
+  // 回数券・月額プランは「今はなし」（2026年10月23日 神原さん判断・src/lib/feature-toggles.ts）。
+  // お客様に「回数券・月額プランの説明」を対応範囲として約束しない。
+  test('system prompt does not offer packages or monthly plans while they are not offered', async () => {
+    await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'Test' }] }) as any
+    );
+
+    const system = mockMessagesCreate.mock.calls[0][0].system as string;
+    expect(system).toContain('- ポイント・クーポンの説明');
+    expect(system).not.toContain('回数券・月額プランの説明');
+    expect(system).toContain('回数券・月額プラン・求人掲載は現在提供していません');
+  });
+
   test('valid request → 200 with reply', async () => {
     const res = await POST(
       makeRequest({ messages: [{ role: 'user', content: 'こんにちは' }] }) as any

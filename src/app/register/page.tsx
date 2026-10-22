@@ -4,6 +4,7 @@ import '@fontsource-variable/noto-serif-jp/index.css';
 import Image from 'next/image';
 import Link from 'next/link';
 import RegisterForm from '@/components/register/RegisterForm';
+import { SHOW_JOBS } from '@/lib/feature-toggles';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,16 +70,21 @@ const COMPARISON: { label: string; before: string; after: string }[] = [
  * かえって作りの粗さが目立った（実機のスクリーンショットで確認）。
  * 実画面のスクリーンショットが用意できるまでは、線画アイコンで揃えるほうが上質に見える。
  */
-const CAPABILITIES: { title: string; body: string; icon: 'calendar' | 'card' | 'people' }[] = [
+const CAPABILITIES: { title: string; body: string; icon: 'calendar' | 'card' | 'people' | 'list' }[] = [
   { title: 'ネット予約', body: '深夜でも予約が入る', icon: 'calendar' },
   { title: '顧客カルテ', body: '来店履歴と好みを記録', icon: 'card' },
-  { title: '求人掲載', body: 'スタッフ募集も同じ画面から', icon: 'people' },
+  // 求人は「今はなし」（2026年10月23日 神原さん判断・src/lib/feature-toggles.ts）。
+  // 提供していない機能を「できること」として約束しないよう、その間は実在するメニュー掲載を出す。
+  SHOW_JOBS
+    ? { title: '求人掲載', body: 'スタッフ募集も同じ画面から', icon: 'people' }
+    : { title: 'メニュー掲載', body: 'メニューと料金を施設ページに', icon: 'list' },
 ];
 
-const ICON_PATHS: Record<'calendar' | 'card' | 'people', string> = {
+const ICON_PATHS: Record<'calendar' | 'card' | 'people' | 'list', string> = {
   calendar: 'M8 2v3M16 2v3M3.5 9h17M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z',
   card: 'M3 6h18v12H3zM7 10h4M7 14h7',
   people: 'M16 20v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 7.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM21 20v-1a4 4 0 0 0-3-3.9M16.5 4.6a3 3 0 0 1 0 5.8',
+  list: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
 };
 
 /** 番号は算用数字にする。ローマ数字（Ⅰ Ⅱ Ⅲ）も試したが、小サイズだと細い棒が並んで

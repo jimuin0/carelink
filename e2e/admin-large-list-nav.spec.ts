@@ -17,6 +17,14 @@
 //   seed が効かなくなった時に緑のまま素通りしない（空振り防止）。
 import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
+import { SHOW_JOBS } from '../src/lib/feature-toggles';
+
+// 求人は「今はなし」（2026年10月23日 神原さん判断）の間、管理画面は編集画面の代わりに
+// 「現在この機能は提供していません」を出す（src/lib/feature-toggles.ts）。編集操作を前提にした
+// この spec は SHOW_JOBS=true に戻すと自動で再開する。
+// ⚠️ この spec は Next 15.5 の「子→親のクライアント遷移の無音失敗」の挙動ガードを兼ねる。
+//   skip 中も版の下限は src/__tests__/next-version-floor.test.ts が package.json と実インストール版で検査している。
+test.skip(!SHOW_JOBS, '求人は現在提供していない（SHOW_JOBS=false）');
 
 // supabase-js v2 は Node 20 で createClient 時に WebSocket を要求し throw する（他 setup と同型）。
 if (!globalThis.WebSocket) {

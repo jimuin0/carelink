@@ -2,6 +2,12 @@
 // 作成は admin-packages.spec.ts が担当済み＝ここは編集（公開状態の更新）と削除（一覧からの消滅）の穴を埋める。
 // CI の隔離 Supabase 上でのみ動作（本番不可侵）。admin-batch.setup の storageState を使う。
 import { test, expect } from '@playwright/test';
+import { SHOW_PACKAGES } from '../src/lib/feature-toggles';
+
+// 回数券は「今はなし」（2026年10月23日 神原さん判断）の間、管理画面は編集画面の代わりに
+// 「現在この機能は提供していません」を出す（src/lib/feature-toggles.ts）。編集操作を前提にした
+// この spec は SHOW_PACKAGES=true に戻すと自動で再開する。
+test.skip(!SHOW_PACKAGES, '回数券は現在提供していない（SHOW_PACKAGES=false）');
 
 test('オーナーがパッケージを公開トグル→削除できる（PATCH→反映 / DELETE→消滅）', async ({ page }) => {
   const name = `E2E回数券_${Date.now()}`;

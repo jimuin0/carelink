@@ -126,6 +126,19 @@ test('POST: 正常回答 → 200 with reply', async () => {
   expect(json.reply).toBe('AIからの回答です。');
 });
 
+// 回数券・月額プラン・求人は「今はなし」（2026年10月23日 神原さん判断・src/lib/feature-toggles.ts）。
+// 対応範囲に「設定方法」を載せたままだと、AI が存在しない設定手順を案内してしまう。
+test('POST: 提供していない機能の設定方法を対応範囲に載せず、提供していないことを明示する', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ role: 'owner' }));
+  await POST(makeRequest({ message: 'テスト質問' }));
+  const system = getMockCreate().mock.calls[0][0].system as string;
+  expect(system).not.toContain('回数券・月額プランの設定方法');
+  expect(system).not.toContain('- 回数券の設定方法');
+  expect(system).not.toContain('- 月額プランの設定方法');
+  expect(system).toContain('- CareLink の各機能の説明');
+  expect(system).toContain('回数券・月額プラン・求人掲載は現在提供していません');
+});
+
 test('POST: history あり → 200', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ role: 'owner' }));
   const history = [{ role: 'user', content: '前の質問' }, { role: 'assistant', content: '前の回答' }];

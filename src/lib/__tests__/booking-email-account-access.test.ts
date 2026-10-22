@@ -65,6 +65,45 @@ test('電話にならない番号はリンクにも本文にも載せない（te
   expect(out).not.toContain('javascript:');
 });
 
+describe('終わった予約のステータス変更メール（ゲスト）', () => {
+  test.each(['completed', 'no_show', 'cancelled', 'cancel_fee_paid'])('%s には「確認・変更・キャンセル」を案内しない', (newStatus) => {
+    const out = buildBookingStatusUpdateEnvelope({ ...base, ...shop, hasAccount: false, newStatus }).html;
+    expect(out).not.toContain('確認・変更・キャンセル');
+    expect(out).toContain('ご不明な点は、合成&lt;サロン&gt;へご連絡ください。');
+    // 連絡先は引き続き出す
+    expect(out).toContain('href="tel:0312345678"');
+    expect(out).toContain('/facility/synthetic-shop');
+  });
+
+  test.each(['confirmed', 'arrived'])('まだ変更・キャンセルできる %s には従来の案内を出す', (newStatus) => {
+    const out = buildBookingStatusUpdateEnvelope({ ...base, ...shop, hasAccount: false, newStatus }).html;
+    expect(out).toContain('ご予約の確認・変更・キャンセルは、合成&lt;サロン&gt;へ直接ご連絡ください。');
+    expect(out).not.toContain('ご不明な点は');
+  });
+
+  test('会員の完了メールはマイページへの案内のまま（文面の出し分けはゲストだけ）', () => {
+    const out = buildBookingStatusUpdateEnvelope({ ...base, ...shop, hasAccount: true, newStatus: 'completed' }).html;
+    expect(out).toContain('/mypage');
+    expect(out).not.toContain('ご不明な点は');
+  });
+});
+
+describe('内線つきの電話番号', () => {
+  test('「#」以降（内線）はダイヤルする番号に含めない（別の番号に化けさせない）', () => {
+    const out = buildBookingConfirmedEnvelope({ ...base, hasAccount: false, facilityPhone: '03-1234-5678 #12' }).html;
+    expect(out).toContain('href="tel:0312345678"');
+    expect(out).not.toContain('tel:031234567812');
+    // 表示は元の文字列のまま（内線番号も読める）
+    expect(out).toContain('03-1234-5678 #12');
+  });
+
+  test('「#」より前に数字が無ければリンクにせず、番号の表示だけにする', () => {
+    const out = buildBookingConfirmedEnvelope({ ...base, hasAccount: false, facilityPhone: '#1234567' }).html;
+    expect(out).not.toContain('tel:');
+    expect(out).toContain('電話：#1234567');
+  });
+});
+
 test('店舗ページの slug はエンコードする', () => {
   const out = buildBookingConfirmedEnvelope({ ...base, hasAccount: false, facilitySlug: 'a/"b' }).html;
   expect(out).toContain('/facility/a%2F%22b');

@@ -4,6 +4,12 @@
 // CI の隔離 Supabase 上でのみ動作（本番不可侵）。admin-subscribers.setup の storageState を使う。
 import { test, expect } from '@playwright/test';
 import { SUBSCRIBERS_SEED } from './admin-subscribers.fixtures';
+import { SHOW_SUBSCRIPTIONS } from '../src/lib/feature-toggles';
+
+// 月額プランは「今はなし」（2026年10月23日 神原さん判断）の間、管理画面は編集画面の代わりに
+// 「現在この機能は提供していません」を出す（src/lib/feature-toggles.ts）。編集操作を前提にした
+// この spec は SHOW_SUBSCRIPTIONS=true に戻すと自動で再開する。
+test.skip(!SHOW_SUBSCRIPTIONS, '月額プランは現在提供していない（SHOW_SUBSCRIPTIONS=false）');
 
 test('オーナーがサブスク契約者を一時停止できる（active→paused）', async ({ page }) => {
   await page.goto('/admin/subscription-plans');
