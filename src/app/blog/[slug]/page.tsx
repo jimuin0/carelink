@@ -22,6 +22,7 @@ interface DbPost {
   reading_time: number;
   content: ArticleSection[];
   published_at: string | null;
+  updated_at: string | null;
   author_name: string;
 }
 
@@ -80,7 +81,7 @@ async function getPost(slug: string): Promise<DbPost | null> {
     const supabase = createServerSupabaseClient();
     const { data, error } = await supabase
       .from('platform_blog_posts')
-      .select('slug, title, description, category, tags, reading_time, content, published_at, author_name')
+      .select('slug, title, description, category, tags, reading_time, content, published_at, updated_at, author_name')
       .eq('slug', slug)
       .eq('is_published', true)
       .maybeSingle();
@@ -95,6 +96,7 @@ async function getPost(slug: string): Promise<DbPost | null> {
         reading_time: data.reading_time,
         content: toArticleSections(data.content),
         published_at: data.published_at,
+        updated_at: data.updated_at,
         author_name: data.author_name,
       };
     }
@@ -118,6 +120,7 @@ async function getPost(slug: string): Promise<DbPost | null> {
     reading_time: a.readingTime,
     content: a.content,
     published_at: a.publishedAt,
+    updated_at: null,
     author_name: 'CareLink編集部',
   };
 }
@@ -214,6 +217,10 @@ export default async function ArticlePage(props: { params: Promise<{ slug: strin
   const merchantGuide = isMerchantGuide(post.slug);
   const related = await getRelated(params.slug, post.category);
   const publishedAt = post.published_at?.split('T')[0] ?? '';
+  // 公開日は保存し直しても変わらない（migration 20261022190000）。記事を直したことは
+  // updated_at で伝える（店舗ブログの記事ページと同じ考え方）。公開日より前にはしない。
+  const updatedAt = post.updated_at?.split('T')[0] ?? '';
+  const modifiedAt = updatedAt > publishedAt ? updatedAt : publishedAt;
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -221,7 +228,7 @@ export default async function ArticlePage(props: { params: Promise<{ slug: strin
     headline: post.title,
     description: post.description,
     datePublished: publishedAt,
-    dateModified: publishedAt,
+    dateModified: modifiedAt,
     author: { '@type': 'Organization', name: 'CareLink', url: 'https://carelink-jp.com' },
     publisher: { '@type': 'Organization', name: 'CareLink', url: 'https://carelink-jp.com' },
     mainEntityOfPage: { '@type': 'WebPage', '@id': `https://carelink-jp.com/blog/${post.slug}` },
