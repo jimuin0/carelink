@@ -1,13 +1,24 @@
 import CouponCard from './CouponCard';
 import type { Coupon, FacilityMenu } from '@/types';
+import { couponListPrice } from '@/lib/coupon-pricing';
 
 const typeOrder = ['new_customer', 'repeat', 'limited_time', 'all'];
 
-export default function CouponList({ coupons, menus }: { coupons: Coupon[]; menus?: FacilityMenu[] }) {
-  // 価格が設定されたメニューのみ対象。全メニューが price=null だと filter 後が空になり
-  // Math.min() が Infinity を返し、クーポンカードに「¥∞」と表示されてしまうため length で守る。
-  const pricedMenus = (menus ?? []).filter((m) => m.price != null).map((m) => m.price as number);
-  const representativePrice = pricedMenus.length > 0 ? Math.min(...pricedMenus) : null;
+/**
+ * 施設ページのクーポン一覧。
+ *
+ * couponMenuMap はクーポンID → 対象メニューID（coupon_menus に行があるクーポンだけキーを持つ・
+ * src/lib/coupons.ts の getCouponMenuMap）。取得できなかったときは undefined。
+ * 「通常 ¥X → ¥Y」はクーポンごとに対象メニューから求める（couponListPrice）。対象メニューが
+ * 決まっていない・価格が分からないクーポンは、割引表記（例「20%OFF」）だけを出す。
+ * 【2026年10月22日】以前は施設の全メニューの最安値（本番ではオプションの ¥500）を全クーポンの
+ * 「通常価格」にしていて、「通常 ¥500 → ¥5,800」と通常価格の方が安く見えていた。
+ */
+export default function CouponList({ coupons, menus, couponMenuMap }: {
+  coupons: Coupon[];
+  menus?: FacilityMenu[];
+  couponMenuMap?: Record<string, string[]>;
+}) {
   if (coupons.length === 0) {
     return (
       <div className="text-center py-8">
@@ -15,6 +26,12 @@ export default function CouponList({ coupons, menus }: { coupons: Coupon[]; menu
       </div>
     );
   }
+
+  const menuList = menus ?? [];
+  const targetMenuNames = (couponId: string): string[] =>
+    (couponMenuMap?.[couponId] ?? [])
+      .map((id) => menuList.find((m) => m.id === id)?.name)
+      .filter((name): name is string => !!name);
 
   // Group by coupon_type
   const grouped = typeOrder
@@ -38,7 +55,12 @@ export default function CouponList({ coupons, menus }: { coupons: Coupon[]; menu
           )}
           <div className="space-y-3">
             {group.items.map((coupon) => (
-              <CouponCard key={coupon.id} coupon={coupon} menuPrice={representativePrice} />
+              <CouponCard
+                key={coupon.id}
+                coupon={coupon}
+                price={couponListPrice(coupon, menuList, couponMenuMap?.[coupon.id])}
+                targetMenuNames={targetMenuNames(coupon.id)}
+              />
             ))}
           </div>
         </div>
