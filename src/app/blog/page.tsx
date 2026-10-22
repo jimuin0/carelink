@@ -125,7 +125,7 @@ export default async function BlogPage(props: { searchParams: Promise<SearchPara
         {tag && (
           <div className="mt-3 flex items-center gap-2 text-sm">
             <span className="text-gray-600">タグ：{tag} の記事</span>
-            <Link href="/blog" className="text-emerald-600 hover:underline">
+            <Link href="/blog" className="text-emerald-700 hover:underline">
               絞り込みを解除
             </Link>
           </div>
@@ -140,12 +140,12 @@ export default async function BlogPage(props: { searchParams: Promise<SearchPara
           {posts.map((a) => (
             <Link key={a.slug} href={`/blog/${a.slug}`} className="card hover:shadow-lg transition-shadow group">
               <div className="flex items-center gap-2 mb-3">
-                <span className="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-600">{a.category}</span>
-                <span className="text-xs text-gray-400">{a.readingTime}分で読める</span>
+                <span className="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">{a.category}</span>
+                <span className="text-xs text-gray-500">{a.readingTime}分で読める</span>
               </div>
               <h2 className="font-bold text-lg mb-2 group-hover:text-emerald-600 transition-colors leading-snug">{a.title}</h2>
               <p className="text-gray-500 text-sm leading-relaxed line-clamp-3">{a.description}</p>
-              <p className="text-gray-400 text-xs mt-4">{a.publishedAt}</p>
+              <p className="text-gray-500 text-xs mt-4">{a.publishedAt}</p>
             </Link>
           ))}
         </div>

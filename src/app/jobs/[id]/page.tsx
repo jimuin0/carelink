@@ -177,7 +177,7 @@ export default async function JobDetailPage(props: Props) {
       <div className="max-w-4xl mx-auto bg-white shadow-xs">
         {/* パンくず */}
         <nav className="px-4 sm:px-6 pt-4 pb-2" aria-label="パンくずリスト">
-          <ol className="flex items-center gap-1.5 text-xs text-gray-400 overflow-x-auto">
+          <ol className="flex items-center gap-1.5 text-xs text-gray-500 overflow-x-auto">
             <li><Link href="/" className="hover:text-sky-600">トップ</Link></li>
             <li><span className="mx-1">/</span></li>
             <li><Link href="/jobs" className="hover:text-sky-600">求人一覧</Link></li>
@@ -201,7 +201,7 @@ export default async function JobDetailPage(props: Props) {
                 <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-sm font-medium">{job.employment_type}</span>
               </div>
               <h1 className="text-xl sm:text-2xl font-bold mb-2 leading-snug">{job.title}</h1>
-              <Link href={`/facility/${f.slug}`} className="text-sm text-sky-600 hover:underline">
+              <Link href={`/facility/${f.slug}`} className="text-sm text-sky-700 hover:underline">
                 {f.name}
               </Link>
               <p className="text-sm text-gray-500 mt-1">{f.prefecture}{f.city}{f.address || ''}</p>
@@ -265,11 +265,11 @@ export default async function JobDetailPage(props: Props) {
         <div className="px-4 sm:px-6 py-6 border-t border-gray-100">
           <Link
             href={`/facility/${f.slug}#contact-section`}
-            className="block w-full text-center bg-sky-600 hover:bg-sky-700 text-white font-bold py-4 rounded-xl transition-colors"
+            className="block w-full text-center bg-sky-700 hover:bg-sky-800 text-white font-bold py-4 rounded-xl transition-colors"
           >
             この求人に応募する
           </Link>
-          <p className="text-xs text-gray-400 text-center mt-3">
+          <p className="text-xs text-gray-500 text-center mt-3">
             応募フォームは「{f.name}」のお問い合わせ欄から送信されます
           </p>
         </div>

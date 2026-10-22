@@ -25,7 +25,7 @@ function LiffLoading() {
   );
 }
 function LiffError({ message }: { message: string }) {
-  return <div className="flex items-center justify-center min-h-screen p-4"><p role="alert" className="text-red-500 text-sm">{message}</p></div>;
+  return <div className="flex items-center justify-center min-h-screen p-4"><p role="alert" className="text-red-600 text-sm">{message}</p></div>;
 }
 function LiffNotLinked() {
   return (
@@ -74,11 +74,11 @@ export default function LiffCouponsPage() {
       <h1 className="text-lg font-bold text-gray-900 mb-4">クーポン</h1>
 
       {loading ? (
-        <div className="text-center py-12 text-gray-400 text-sm">読み込み中...</div>
+        <div className="text-center py-12 text-gray-500 text-sm">読み込み中...</div>
       ) : coupons.length === 0 ? (
         <div className="text-center py-12">
           <p className="text-3xl mb-3">🎟️</p>
-          <p className="text-gray-400 text-sm">利用可能なクーポンはありません</p>
+          <p className="text-gray-500 text-sm">利用可能なクーポンはありません</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -97,7 +97,7 @@ export default function LiffCouponsPage() {
                   <p className="text-xs text-gray-500 mt-1">{c.description}</p>
                 )}
                 {c.valid_until && (
-                  <p className="text-xs text-gray-400 mt-2">
+                  <p className="text-xs text-gray-500 mt-2">
                     有効期限: {new Date(c.valid_until).toLocaleDateString('ja-JP')}まで
                   </p>
                 )}

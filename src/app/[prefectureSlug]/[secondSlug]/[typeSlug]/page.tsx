@@ -121,7 +121,7 @@ export default async function CityTypePage({ params, searchParams }: Props) {
         ) : (
           <div className="text-center py-16 bg-white rounded-2xl mb-10">
             <p className="text-gray-500 text-sm">{cityName}の{typeName}は現在掲載されていません。</p>
-            <Link href={`/${prefectureSlug}/${secondSlug}`} className="text-sky-600 text-sm mt-2 inline-block hover:underline">{cityName}の他の施設を見る</Link>
+            <Link href={`/${prefectureSlug}/${secondSlug}`} className="text-sky-700 text-sm mt-2 inline-block hover:underline">{cityName}の他の施設を見る</Link>
           </div>
         )}
 

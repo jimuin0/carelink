@@ -236,13 +236,13 @@ export default async function ArticlePage(props: { params: Promise<{ slug: strin
       <article className="max-w-3xl mx-auto">
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-3 flex-wrap">
-            <span className="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-600">{post.category}</span>
-            <span className="text-sm text-gray-400">{publishedAt}</span>
-            <span className="text-sm text-gray-400">{merchantGuide ? `読む目安：約${post.reading_time}分` : `${post.reading_time}分で読める`}</span>
+            <span className="text-xs font-medium px-2 py-1 rounded-full bg-emerald-50 text-emerald-700">{post.category}</span>
+            <span className="text-sm text-gray-500">{publishedAt}</span>
+            <span className="text-sm text-gray-500">{merchantGuide ? `読む目安：約${post.reading_time}分` : `${post.reading_time}分で読める`}</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold leading-tight">{post.title}</h1>
           {post.author_name && (
-            <p className="text-xs text-gray-400 mt-2">著者: {post.author_name}</p>
+            <p className="text-xs text-gray-500 mt-2">著者: {post.author_name}</p>
           )}
         </div>
 
@@ -270,7 +270,7 @@ export default async function ArticlePage(props: { params: Promise<{ slug: strin
         {/* CTA */}
         <div className="mt-12 p-6 sm:p-8 rounded-2xl text-center text-white" style={{ backgroundColor: 'var(--primary)' }}>
           <p className="text-lg font-bold mb-2">{merchantGuide ? 'お店の掲載・予約受付を検討している方へ' : 'あなたに合った施設を見つけませんか？'}</p>
-          <p className="text-white/80 text-sm mb-4">{merchantGuide ? '掲載料・予約手数料の現在条件を確認し、自店に合うか判断できます。' : 'CareLinkで施設を検索・予約できます。'}</p>
+          <p className="text-white text-sm mb-4">{merchantGuide ? '掲載料・予約手数料の現在条件を確認し、自店に合うか判断できます。' : 'CareLinkで施設を検索・予約できます。'}</p>
           <Link href="/register" className="inline-block px-8 py-3 bg-white font-bold rounded-lg transition-all hover:bg-gray-100" style={{ color: 'var(--primary)' }}>
             {merchantGuide ? '店舗の掲載条件を確認する' : '施設掲載の条件を確認する'}
           </Link>
@@ -283,7 +283,7 @@ export default async function ArticlePage(props: { params: Promise<{ slug: strin
             <div className="grid sm:grid-cols-2 gap-4">
               {related.map((r) => (
                 <Link key={r.slug} href={`/blog/${r.slug}`} className="card hover:shadow-md transition-shadow text-sm">
-                  <span className="text-xs text-emerald-600 font-medium">{r.category}</span>
+                  <span className="text-xs text-emerald-700 font-medium">{r.category}</span>
                   <p className="font-bold mt-1">{r.title}</p>
                 </Link>
               ))}

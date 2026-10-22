@@ -80,14 +80,14 @@ function UnsubscribeContent() {
           <button
             type="button"
             onClick={handleUnsubscribe}
-            className="mt-6 inline-block bg-sky-600 hover:bg-sky-700 text-white font-bold px-6 py-2.5 rounded-lg text-sm"
+            className="mt-6 inline-block bg-sky-700 hover:bg-sky-800 text-white font-bold px-6 py-2.5 rounded-lg text-sm"
           >
             配信を停止する
           </button>
         )}
         <Link
           href="/"
-          className="mt-6 block text-sky-500 hover:underline text-sm"
+          className="mt-6 block text-sky-700 hover:underline text-sm"
         >
           トップページへ
         </Link>

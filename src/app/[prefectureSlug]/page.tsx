@@ -171,7 +171,7 @@ export default async function PrefecturePage({ params }: Props) {
               <div className="text-center mt-6">
                 <Link
                   href={`/search?area=${encodeURIComponent(prefName)}`}
-                  className="inline-flex items-center gap-2 text-sm text-sky-600 hover:text-sky-700 font-medium"
+                  className="inline-flex items-center gap-2 text-sm text-sky-700 hover:text-sky-700 font-medium"
                 >
                   {prefName}の施設をすべて見る ({total}件)
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>

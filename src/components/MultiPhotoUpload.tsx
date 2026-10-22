@@ -109,7 +109,7 @@ export default function MultiPhotoUpload({ slots, onChange, initialFiles }: Mult
         <div key={slot.label}>
           <p className="text-xs text-gray-500 mb-1">
             {slot.label}
-            {slot.required && <span className="text-red-500 ml-0.5">*</span>}
+            {slot.required && <span className="text-red-600 ml-0.5">*</span>}
           </p>
           {previews[i] ? (
             <div className="relative">
@@ -132,10 +132,10 @@ export default function MultiPhotoUpload({ slots, onChange, initialFiles }: Mult
             </div>
           ) : (
             <label className="flex flex-col items-center justify-center w-full aspect-4/3 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-sky-400 transition-colors bg-gray-50">
-              <svg className="w-6 h-6 text-gray-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-6 h-6 text-gray-500 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
-              <span className="text-xs text-gray-400">写真を選択</span>
+              <span className="text-xs text-gray-500">写真を選択</span>
               <input
                 ref={(el) => { inputRefs.current[i] = el; }}
                 type="file"

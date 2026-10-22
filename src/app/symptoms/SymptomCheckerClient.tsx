@@ -92,7 +92,7 @@ export default function SymptomCheckerClient() {
               className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-400 resize-none"
               placeholder="例: 1週間前から右肩が重く、首を回すと痛みがある。デスクワークが多い。"
             />
-            <p className="text-xs text-gray-400 mt-1">{symptoms.length}/1000文字</p>
+            <p className="text-xs text-gray-500 mt-1">{symptoms.length}/1000文字</p>
           </div>
 
           <div>
@@ -127,7 +127,7 @@ export default function SymptomCheckerClient() {
             type="button"
             onClick={handleSubmit}
             disabled={!symptoms.trim() || loading}
-            className="w-full py-3 bg-sky-600 text-white rounded-xl font-medium hover:bg-sky-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3 bg-sky-700 text-white rounded-xl font-medium hover:bg-sky-800 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
           >
             {loading ? (
               <>
@@ -197,7 +197,7 @@ export default function SymptomCheckerClient() {
                     // 存在しないパラメータ名を使っており絞り込みが無視され全件表示になっていた
                     // （実データ確認: /search?q=...&pref=... は無指定と同じ件数を返していた）。
                     href={`/search?keyword=${encodeURIComponent(kw)}${prefecture ? `&area=${encodeURIComponent(prefecture)}` : ''}`}
-                    className="inline-flex items-center gap-1 px-4 py-2 bg-sky-600 text-white text-sm rounded-full hover:bg-sky-700 transition-colors"
+                    className="inline-flex items-center gap-1 px-4 py-2 bg-sky-700 text-white text-sm rounded-full hover:bg-sky-800 transition-colors"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -223,7 +223,7 @@ export default function SymptomCheckerClient() {
               </div>
             )}
 
-            <p className="text-xs text-gray-400 text-center">
+            <p className="text-xs text-gray-500 text-center">
               ※ AIによる一般的な情報提供であり、医療診断ではありません。症状が重い場合は医療機関を受診してください。
             </p>
           </div>

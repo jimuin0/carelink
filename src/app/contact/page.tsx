@@ -174,7 +174,7 @@ function ContactPageContent() {
           >
             <div>
               <label htmlFor="contact-name" className="form-label">
-                お名前 <span className="text-red-500">*</span>
+                お名前 <span className="text-red-600">*</span>
               </label>
 
               <input
@@ -194,7 +194,7 @@ function ContactPageContent() {
 
             <div>
               <label htmlFor="contact-email" className="form-label">
-                メールアドレス <span className="text-red-500">*</span>
+                メールアドレス <span className="text-red-600">*</span>
               </label>
 
               <input
@@ -233,7 +233,7 @@ function ContactPageContent() {
                 className="form-label"
               >
                 お問い合わせ種別{' '}
-                <span className="text-red-500">*</span>
+                <span className="text-red-600">*</span>
               </label>
 
               <select
@@ -264,7 +264,7 @@ function ContactPageContent() {
 
             <div>
               <label htmlFor="contact-message" className="form-label">
-                内容 <span className="text-red-500">*</span>
+                内容 <span className="text-red-600">*</span>
               </label>
 
               <textarea

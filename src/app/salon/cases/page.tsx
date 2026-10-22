@@ -82,7 +82,7 @@ export default async function CasesPage() {
       <div className="max-w-4xl mx-auto">
         {/* ヒーロー */}
         <div className="text-center mb-12">
-          <p className="text-sky-600 font-bold text-sm mb-2">CURRENT STATUS</p>
+          <p className="text-sky-700 font-bold text-sm mb-2">CURRENT STATUS</p>
           <h1 className="text-3xl font-bold text-gray-900 mb-4">CareLink の現在地</h1>
           <p className="text-gray-600 text-base leading-relaxed">
             CareLink は 2026年3月に公開したばかりのサービスです。
@@ -99,12 +99,12 @@ export default async function CasesPage() {
             { value: `${menuCount}件`, label: '登録メニュー' },
           ].map((stat) => (
             <div key={stat.label} className="bg-sky-50 rounded-2xl p-5 text-center">
-              <p className="text-2xl font-bold text-sky-600">{stat.value}</p>
+              <p className="text-2xl font-bold text-sky-700">{stat.value}</p>
               <p className="text-xs text-gray-500 mt-1">{stat.label}</p>
             </div>
           ))}
         </div>
-        <p className="text-xs text-gray-400 text-center mb-12">
+        <p className="text-xs text-gray-500 text-center mb-12">
           ※上記はデータベースから自動取得している実数です（1時間ごとに更新）。
         </p>
 
@@ -146,7 +146,7 @@ export default async function CasesPage() {
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link
               href="/salon/demo"
-              className="bg-white text-sky-600 font-bold px-8 py-3 rounded-full hover:bg-gray-50 transition-colors"
+              className="bg-white text-sky-700 font-bold px-8 py-3 rounded-full hover:bg-gray-50 transition-colors"
             >
               管理画面を見てみる
             </Link>
