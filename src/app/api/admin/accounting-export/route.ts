@@ -78,6 +78,8 @@ export async function GET(request: NextRequest) {
   type BookingRow = {
     id: string; booking_date: string;
     user_id: string | null;
+    customer_name: string | null;
+    email: string | null;
     menu: { name: string } | { name: string }[] | null;
     menu_ids: string[] | null;
     total_amount: number | null;
@@ -92,7 +94,7 @@ export async function GET(request: NextRequest) {
       // なっていた（8体監査 A3）。
       let q = admin
         .from('bookings')
-        .select('id, booking_date, user_id, menu:facility_menus(name), menu_ids, total_amount:total_price, status')
+        .select('id, booking_date, user_id, customer_name, email, menu:facility_menus(name), menu_ids, total_amount:total_price, status')
         .eq('facility_id', facilityId)
         .eq('status', 'completed')
         .order('booking_date');
@@ -140,6 +142,11 @@ export async function GET(request: NextRequest) {
 
   // embed した menu を従来の menu_name フラット形へ平坦化。複数メニュー時は menu_ids 順に全名を
   // 「、」連結（解決できた名前が1件も無ければ embed フォールバック＝表示が空になるのを防ぐ）。
+  //
+  // 顧客名・メールは【予約そのものに保存された値】を先に使う（2026年10月22日）。電話・店頭で
+  // 店舗が手入力した予約と、未ログインのゲスト予約は user_id が NULL で profiles が引けないため、
+  // 以前は profiles だけを見ていて顧客名・メールが空欄になっていた（freee の取引先・MF の摘要も）。
+  // 予約の値が空のとき（会員で予約時に名前を入れなかった旧データ等）だけプロフィールで補う。
   const rows = bookings.map((b) => {
     const embedded = (Array.isArray(b.menu) ? b.menu[0] : b.menu)?.name ?? null;
     let menu_name = embedded;
@@ -149,7 +156,10 @@ export async function GET(request: NextRequest) {
         .filter((n): n is string => Boolean(n));
       if (names.length > 0) menu_name = names.join('、');
     }
-    return { ...b, menu_name };
+    const profile = Array.isArray(b.profiles) ? b.profiles[0] : b.profiles;
+    const customer_name = b.customer_name?.trim() || profile?.display_name?.trim() || '';
+    const customer_email = b.email?.trim() || profile?.email?.trim() || '';
+    return { ...b, menu_name, customer_name, customer_email };
   });
 
   let csv = '';
@@ -161,14 +171,13 @@ export async function GET(request: NextRequest) {
     const header = ['取引日', '収支区分', '管理番号', '取引先', '勘定科目', '税区分', '金額', '税計算区分', '消費税額', '備考'];
     csv = '\uFEFF' + header.join(',') + '\n';
     for (const b of rows) {
-      const customer = (Array.isArray(b.profiles) ? b.profiles[0] : b.profiles) as { display_name?: string } | null;
       const amount = b.total_amount ?? 0;
       const tax = Math.round(amount * 10 / 110);
       csv += toCsvRow([
         b.booking_date,
         '収入',
         b.id.slice(0, 8),
-        customer?.display_name ?? '',
+        b.customer_name,
         '売上高',
         '課税売上10%',
         amount - tax,
@@ -183,7 +192,6 @@ export async function GET(request: NextRequest) {
     const header = ['日付', '借方勘定科目', '借方補助科目', '借方税区分', '借方金額', '貸方勘定科目', '貸方補助科目', '貸方税区分', '貸方金額', '摘要'];
     csv = '\uFEFF' + header.join(',') + '\n';
     for (const b of rows) {
-      const customer = (Array.isArray(b.profiles) ? b.profiles[0] : b.profiles) as { display_name?: string } | null;
       const amount = b.total_amount ?? 0;
       csv += toCsvRow([
         b.booking_date,
@@ -195,7 +203,7 @@ export async function GET(request: NextRequest) {
         '',
         '課税売上10%',
         amount,
-        `${b.menu_name ?? '施術'} ${customer?.display_name ?? ''}`,
+        [b.menu_name ?? '施術', b.customer_name].filter(Boolean).join(' '),
       ]) + '\n';
     }
   } else {
@@ -204,12 +212,11 @@ export async function GET(request: NextRequest) {
     const header = ['予約ID', '日付', '顧客名', 'メール', 'メニュー', '金額', 'ステータス'];
     csv = '\uFEFF' + header.join(',') + '\n';
     for (const b of rows) {
-      const customer = (Array.isArray(b.profiles) ? b.profiles[0] : b.profiles) as { display_name?: string; email?: string } | null;
       csv += toCsvRow([
         b.id,
         b.booking_date,
-        customer?.display_name ?? '',
-        customer?.email ?? '',
+        b.customer_name,
+        b.customer_email,
         b.menu_name ?? '',
         b.total_amount ?? 0,
         b.status,
