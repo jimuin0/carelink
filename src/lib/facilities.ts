@@ -8,6 +8,7 @@ import type { CancelPolicy } from './cancel-fee';
 import { isCardBookingReady } from './facility-publish-gate';
 import { OSAKA_CITY, OSAKA_CITY_WARDS } from './facility-location';
 import { readPageResult } from './page-read-verification';
+import { bookingDurationForMenus, MENU_DURATION_FALLBACK_MINUTES } from './booking-slot-rules';
 
 const PER_PAGE = 20;
 
@@ -612,20 +613,71 @@ export function facilityOpenWindow(businessHours: unknown, dayOfWeek: number): {
   return { start: timeToMinutes(open), end: timeToMinutes(close) };
 }
 
+/** 予約枠 RPC（get_available_slots）が枠の開始時刻を並べる間隔（分）。 */
+export const SLOT_STEP_MINUTES = 30;
+
+/**
+ * 1 人のスタッフに、予約画面で選べる枠が 1 つでもあるか（分単位の純粋関数）。
+ * 予約枠 RPC get_available_slots と同じ並べ方をする：勤務の開始（営業時間で切り詰めた後）から
+ * 30 分おきに、所要時間ぶん勤務内に収まる枠を並べ、予約（前後のバッファ込み）と重なる枠を除く。
+ * 当日は空き枠 API（dropStartedSlotsToday）と同じく、開始時刻が今より後の枠だけを数える。
+ * 時間帯の指定があれば、その時間帯に始まる枠だけを数える。
+ */
+export function hasBookableSlot(p: {
+  workStart: number;
+  workEnd: number;
+  /** 枠の長さ（分）。施設の予約できるメニューのうち最短の所要時間。 */
+  duration: number;
+  /** 予約の前後に空ける時間（分・facility_profiles.booking_buffer_minutes）。 */
+  buffer: number;
+  bookings: { start: number; end: number }[];
+  /** 当日のとき、この秒（0 時から）以前に始まる枠は数えない。当日以外は null。 */
+  notAfterSeconds: number | null;
+  /** 時間帯（午前など）の指定。この範囲 [start, end) に始まる枠だけを数える。 */
+  startWindow: { start: number; end: number } | null;
+}): boolean {
+  for (let start = p.workStart; p.workEnd - start >= p.duration; start += SLOT_STEP_MINUTES) {
+    if (p.notAfterSeconds !== null && start * 60 <= p.notAfterSeconds) continue;
+    if (p.startWindow && (start < p.startWindow.start || start >= p.startWindow.end)) continue;
+    const end = start + p.duration;
+    if (!p.bookings.some((b) => b.start < end + p.buffer && b.end + p.buffer > start)) return true;
+  }
+  return false;
+}
+
 /**
  * 指定日（・時間帯）に空きのある施設 id。
  *
  * null は「判定できなかった」（URL の日付が読めない・どれかの読み取りに失敗した）。呼び出し側は
  * 空きの表示を出さないこと。空集合を返すと全施設に「空きなし」と出て、満席だと誤って伝えてしまう。
+ *
+ * 【2026年10月23日 是正】「空きあり」は予約画面で実際に選べる枠があるときだけ出す。以前は勤務時間と
+ * 予約の合計分数だけを比べていたため、次の 2 つを空きとして数えていた。
+ *  - 当日の過ぎた時間（夜 21 時台でも、その日の 9〜19 時営業の店に「空きあり」が出た。予約画面は
+ *    開始済みの枠を出さないので、当日は全部 × だった）
+ *  - 予約の間の細切れの隙間（30 分しか空いていなくても、最短 60 分のメニューしかない店や、
+ *    予約の前後に空ける時間を設定している店では予約画面に枠が出ない）
+ * 枠の並べ方は hasBookableSlot（予約枠 RPC と同じ）、枠の長さは施設の予約できるメニューのうち最短の
+ * 所要時間（予約画面と同じ式＝booking-slot-rules）。過ぎた日付には空きを出さない。
+ * ⚠️ 担当者の決まっていない旧い予約による容量の判定と、メニュー担当スタッフ制（menu_staff）は見ない
+ * （どちらも本番では行が無い）。
  */
 export async function getAvailableFacilityIds(
   facilityIds: string[],
   dateStr: string,
-  timeSlot?: string
+  timeSlot?: string,
+  nowMs: number = Date.now(),
 ): Promise<Set<string> | null> {
   if (facilityIds.length === 0) return new Set();
   const dayOfWeek = dayOfWeekUtc(dateStr); // 0=Sun（TZ非依存・admin-date 単一ソース）
   if (Number.isNaN(dayOfWeek)) return null; // 日付として読めない URL 値
+  // JST の今日と、今日の 0 時からの経過秒（当日の過ぎた枠を数えないため）。
+  const jstNow = new Date(nowMs + 9 * 3_600_000);
+  const todayStr = jstNow.toISOString().slice(0, 10);
+  if (dateStr < todayStr) return new Set(); // 過ぎた日は予約できない
+  const notAfterSeconds = dateStr === todayStr
+    ? jstNow.getUTCHours() * 3600 + jstNow.getUTCMinutes() * 60 + jstNow.getUTCSeconds()
+    : null;
   const supabase = createServerSupabaseClient();
 
   // 0. ネット予約を受け付けられる施設と、その日の営業時間。
@@ -647,6 +699,29 @@ export async function getAvailableFacilityIds(
   }
   if (openWindows.size === 0) return new Set();
   const bookableIds = [...openWindows.keys()];
+
+  // 0b. 枠の長さ（予約できるメニューのうち最短の所要時間）と、予約の前後に空ける時間。
+  // メニューは予約画面・予約準備の判定と同じく、非公開（is_published=false）以外を数える。
+  const [menusRead, buffersRead] = await Promise.all([
+    supabase
+      .from('facility_menus')
+      .select('facility_id, duration_minutes')
+      .in('facility_id', bookableIds)
+      .or('is_published.is.null,is_published.eq.true'),
+    supabase
+      .from('facility_profiles')
+      .select('id, booking_buffer_minutes')
+      .in('id', bookableIds),
+  ]);
+  if (menusRead.error || buffersRead.error) return null;
+  const shortestMenu = new Map<string, number>();
+  for (const menu of menusRead.data || []) {
+    const minutes = bookingDurationForMenus([menu]);
+    const current = shortestMenu.get(menu.facility_id);
+    if (current === undefined || minutes < current) shortestMenu.set(menu.facility_id, minutes);
+  }
+  const bufferMinutes = new Map<string, number>();
+  for (const profile of buffersRead.data || []) bufferMinutes.set(profile.id, profile.booking_buffer_minutes ?? 0);
 
   // 1. Get staff schedules for this day of week
   const { data: staffSchedules, error: schedulesError } = await supabase
@@ -716,12 +791,11 @@ export async function getAvailableFacilityIds(
     staffBookings.set(b.staff_id, list);
   }
 
-  // 5. Determine time range filter
-  let filterStart: string | null = null;
-  let filterEnd: string | null = null;
-  if (timeSlot === 'morning') { filterStart = '09:00'; filterEnd = '12:00'; }
-  else if (timeSlot === 'afternoon') { filterStart = '12:00'; filterEnd = '17:00'; }
-  else if (timeSlot === 'evening') { filterStart = '17:00'; filterEnd = '23:00'; }
+  // 5. Determine time range filter（その時間帯に始まる枠を数える）
+  let startWindow: { start: number; end: number } | null = null;
+  if (timeSlot === 'morning') startWindow = { start: 9 * 60, end: 12 * 60 };
+  else if (timeSlot === 'afternoon') startWindow = { start: 12 * 60, end: 17 * 60 };
+  else if (timeSlot === 'evening') startWindow = { start: 17 * 60, end: 23 * 60 };
 
   // 6. Check each staff for availability
   const scheduleMap = new Map<string, { start: string; end: string }>();
@@ -747,35 +821,20 @@ export async function getAvailableFacilityIds(
     const workEnd = override?.end_time || schedule?.end;
     if (!workStart || !workEnd) continue;
 
-    // Determine the effective availability window.
     // 勤務時間は施設の営業時間に切り詰める（get_available_slots と同じ。勤務が営業時間の外に
     // はみ出していても、その部分は予約枠にならない）。
-    // 時間帯フィルタ指定時は「勤務時間 ∩ 要求ウィンドウ」の交差区間で判定する。
-    // 【2026年7月9日 恒久根治】旧実装は勤務と要求時間帯が重なるスタッフを除外はするが、
-    // 空き判定を1日全体（workMinutes=全勤務・bookedMinutes=全予約）で行っていたため、
-    // 「09:00-18:00 勤務で午前(09-12)が満枠・午後は空き」のスタッフが morning 検索でも
-    // 「空きあり」と誤表示された（要求時間帯外の空きを数えていた）。勤務・予約の双方を
-    // 要求ウィンドウにクリップして、その時間帯内に空きがあるかだけを見る。
-    let winStart = Math.max(timeToMinutes(workStart), open.start);
-    let winEnd = Math.min(timeToMinutes(workEnd), open.end);
-    if (filterStart && filterEnd) {
-      winStart = Math.max(winStart, timeToMinutes(filterStart));
-      winEnd = Math.min(winEnd, timeToMinutes(filterEnd));
-    }
-    const workMinutes = winEnd - winStart;
-    // 勤務が要求時間帯と重ならない（交差が0以下）スタッフはこの時間帯では対象外。
-    if (workMinutes <= 0) continue;
-
-    // Check if at least one slot is free within the window（各予約もウィンドウにクリップ）。
-    const existingBookings = staffBookings.get(staffId) || [];
-    const bookedMinutes = existingBookings.reduce((sum, b) => {
-      const bStart = Math.max(timeToMinutes(b.start), winStart);
-      const bEnd = Math.min(timeToMinutes(b.end), winEnd);
-      return sum + Math.max(0, bEnd - bStart);
-    }, 0);
-    if (bookedMinutes < workMinutes) {
-      availableFacilities.add(facilityId);
-    }
+    // 【2026年7月9日 恒久根治】時間帯の指定は、その時間帯の空きだけを見る（午前が満枠・午後が空きの
+    // スタッフを午前の検索で「空きあり」にしない）。今は「その時間帯に始まる枠」で判定する。
+    const bookable = hasBookableSlot({
+      workStart: Math.max(timeToMinutes(workStart), open.start),
+      workEnd: Math.min(timeToMinutes(workEnd), open.end),
+      duration: shortestMenu.get(facilityId) ?? MENU_DURATION_FALLBACK_MINUTES,
+      buffer: bufferMinutes.get(facilityId) ?? 0,
+      bookings: (staffBookings.get(staffId) || []).map((b) => ({ start: timeToMinutes(b.start), end: timeToMinutes(b.end) })),
+      notAfterSeconds,
+      startWindow,
+    });
+    if (bookable) availableFacilities.add(facilityId);
   }
 
   return availableFacilities;

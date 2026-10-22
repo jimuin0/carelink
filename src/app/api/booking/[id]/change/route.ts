@@ -15,6 +15,9 @@ import { getTodayString, getMaxDateString } from '@/lib/validations-booking';
 import { isValidIsoDate } from '@/lib/date-utils';
 import { hasBookingStarted } from '@/lib/cancel-fee';
 import { isCustomerChangeableStatus } from '@/lib/booking-status';
+import {
+  BOOKING_SLOT_PASSED_MESSAGE, RESCHEDULE_DURATION_MISMATCH_MESSAGE, hasSlotStarted, rescheduleDurationMinutes, slotLengthMinutes,
+} from '@/lib/booking-slot-rules';
 
 export const dynamic = 'force-dynamic';
 
@@ -96,7 +99,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     // Fetch existing booking
     const { data: booking, error: bookingReadError } = await supabase
       .from('bookings')
-      .select('id, user_id, status, facility_id, staff_id, booking_date, start_time')
+      .select('id, user_id, status, facility_id, staff_id, booking_date, start_time, end_time')
       .eq('id', params.id)
       .maybeSingle();
 
@@ -110,6 +113,17 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     // 無断キャンセルの記録や当日の枠の扱いを店舗が判断できなくなる。最終判定は RPC でも行う。
     if (hasBookingStarted(booking.booking_date, booking.start_time, Date.now())) {
       return NextResponse.json({ error: ALREADY_STARTED_MESSAGE }, { status: 409 });
+    }
+    // 変更先も、開始時刻を過ぎた時間は受け付けない（当日の画面を開いたままにすると過ぎた時刻を
+    // 送れた＝作った直後から変更もキャンセルもできない予約になる）。最終判定は RPC でも行う。
+    if (hasSlotStarted(parsed.data.booking_date, parsed.data.start_time, Date.now())) {
+      return NextResponse.json({ error: BOOKING_SLOT_PASSED_MESSAGE }, { status: 409 });
+    }
+    // 日時の変更で予約の長さは変えない。変更画面は予約の今の長さ（rescheduleDurationMinutes）で
+    // 空き枠を出すので、違う長さは手作りのリクエストだけ。短くして送ると、後半の時間が他の
+    // お客様に再び売られてしまう（2026年10月23日）。
+    if (slotLengthMinutes(parsed.data.start_time, parsed.data.end_time) !== rescheduleDurationMinutes(booking.start_time, booking.end_time)) {
+      return NextResponse.json({ error: RESCHEDULE_DURATION_MISMATCH_MESSAGE }, { status: 400 });
     }
 
     // 競合チェック＋UPDATE を change_booking_atomic で同一トランザクション・同一 advisory lock
@@ -151,6 +165,9 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       }
       if (msg.includes('BOOKING_ALREADY_STARTED')) {
         return NextResponse.json({ error: ALREADY_STARTED_MESSAGE }, { status: 409 });
+      }
+      if (msg.includes('BOOKING_SLOT_PASSED')) {
+        return NextResponse.json({ error: BOOKING_SLOT_PASSED_MESSAGE }, { status: 409 });
       }
       // スケジュールゲート（p_enforce_schedule=true で RPC が RAISE・2026年7月16日）。
       // UI(get_available_slots) が出さない枠への変更を、時間帯利用不可＝BOOKING_CONFLICT と

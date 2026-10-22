@@ -1,7 +1,12 @@
+import { hasSlotStarted } from '@/lib/booking-slot-rules';
+
 /**
  * 予約画面のテスト用：/api/slots/week の応答を組み立てる。
  * 画面は 1 週（スタッフ×最大7日）を 1 回で取得するので、リクエスト URL の staffIds と dates から
  * 「全スタッフ×全日付に同じ空き枠を返す」応答を作る（テストごとに空き枠の中身だけ差し替える）。
+ * 本物の API と同じく、当日（JST）の開始時刻を過ぎた枠は返さない（2026年10月23日）。
+ * 返してしまうと、テストを実行する時刻によっては「過ぎた枠」を選ぶことになり、画面とサーバーが
+ * 断るはずの操作を前提にしたテストになる。
  */
 export type SlotLike = { slot_start: string; slot_end: string; staff_id?: string };
 
@@ -12,7 +17,10 @@ export function slotsWeekBody(url: string, slots: SlotLike[] | ((staffId: string
   const days: Record<string, Record<string, SlotLike[]>> = {};
   for (const date of dates) {
     days[date] = {};
-    for (const staffId of staffIds) days[date][staffId] = typeof slots === 'function' ? slots(staffId, date) : slots;
+    for (const staffId of staffIds) {
+      const list = typeof slots === 'function' ? slots(staffId, date) : slots;
+      days[date][staffId] = list.filter((slot) => !hasSlotStarted(date, slot.slot_start, Date.now()));
+    }
   }
   return { days };
 }

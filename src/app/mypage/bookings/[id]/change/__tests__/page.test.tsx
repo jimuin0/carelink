@@ -87,9 +87,10 @@ function mockFetch(...responses: (((url: string) => unknown) | { status: number 
 const slotsFor = (slots: SlotLike[] | ((staffId: string) => SlotLike[])) => (url: string) =>
   slotsWeekBody(url, typeof slots === 'function' ? (staffId) => slots(staffId) : slots);
 
-async function pickFirstDate() {
+/** 日付の候補は当日から並ぶ（2026年10月23日〜）。当日の枠は時刻しだいで過ぎているので、翌日を選ぶ。 */
+async function pickTomorrow() {
   await screen.findByText('新しい日付を選択');
-  fireEvent.click(screen.getAllByRole('button')[0]);
+  fireEvent.click(screen.getAllByRole('button')[1]);
 }
 
 const slotPicker = () => screen.getByTestId('slot-picker');
@@ -101,7 +102,7 @@ describe('指名予約', () => {
     mockSupabase();
     mockFetch(slotsFor([{ slot_start: '13:00:00', slot_end: '14:00:00' }]));
     render(<BookingChangePage />);
-    await pickFirstDate();
+    await pickTomorrow();
     expect(await within(slotPicker()).findByText('13:00')).toBeInTheDocument();
     const url = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
     expect(url.pathname).toBe('/api/slots/week');
@@ -114,7 +115,7 @@ describe('指名予約', () => {
     mockSupabase();
     mockFetch({ status: 500 }, slotsFor([{ slot_start: '15:00:00', slot_end: '16:00:00' }]));
     render(<BookingChangePage />);
-    await pickFirstDate();
+    await pickTomorrow();
     expect(await within(slotPicker()).findByRole('alert')).toHaveTextContent('空き枠を取得できませんでした');
     expect(within(slotPicker()).queryByText('この日は予約可能な時間帯がありません')).not.toBeInTheDocument();
 
@@ -127,7 +128,7 @@ describe('指名予約', () => {
     mockSupabase({ booking: { start_time: '10:00:00', end_time: '12:00:00' } });
     mockFetch(slotsFor([]));
     render(<BookingChangePage />);
-    await pickFirstDate();
+    await pickTomorrow();
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('duration=120'))).toBe(true);
     });
@@ -137,7 +138,7 @@ describe('指名予約', () => {
     mockSupabase({ booking: { start_time: '10:00:00', end_time: '10:00:00' } });
     mockFetch(slotsFor([]));
     render(<BookingChangePage />);
-    await pickFirstDate();
+    await pickTomorrow();
     await waitFor(() => {
       expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('duration=60'))).toBe(true);
     });
@@ -148,7 +149,7 @@ describe('指名予約', () => {
     mockSupabase();
     mockFetch(() => ({ days: {}, bookingAvailable: false }));
     render(<BookingChangePage />);
-    await pickFirstDate();
+    await pickTomorrow();
     expect(await within(slotPicker()).findByText('この店舗のネット予約は準備中です。日時の変更は店舗へ直接お問い合わせください。')).toBeInTheDocument();
   });
 
@@ -156,7 +157,7 @@ describe('指名予約', () => {
     mockSupabase();
     mockFetch(() => ({ unexpected: true }));
     render(<BookingChangePage />);
-    await pickFirstDate();
+    await pickTomorrow();
     expect(await within(slotPicker()).findByRole('alert')).toHaveTextContent('空き枠を取得できませんでした');
   });
 });
@@ -170,7 +171,7 @@ describe('おまかせ予約（staff_id=NULL）', () => {
       ? [{ slot_start: '10:00:00', slot_end: '11:00:00' }]
       : staffId === 'st12' ? [{ slot_start: '09:00:00', slot_end: '10:00:00' }] : []));
     render(<BookingChangePage />);
-    await pickFirstDate();
+    await pickTomorrow();
     expect(await within(slotPicker()).findByText('09:00')).toBeInTheDocument();
     expect(within(slotPicker()).getByText('10:00')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -182,7 +183,7 @@ describe('おまかせ予約（staff_id=NULL）', () => {
     mockSupabase({ booking: { staff_id: null }, staff: staff12 });
     mockFetch(slotsFor([{ slot_start: '10:00:00', slot_end: '11:00:00' }]), { status: 429 });
     render(<BookingChangePage />);
-    await pickFirstDate();
+    await pickTomorrow();
     expect(await within(slotPicker()).findByRole('alert')).toHaveTextContent('空き枠を取得できませんでした');
     expect(within(slotPicker()).queryByText('10:00')).not.toBeInTheDocument();
   });
@@ -195,7 +196,7 @@ describe('おまかせ予約（staff_id=NULL）', () => {
     });
     mockFetch(slotsFor([{ slot_start: '11:00:00', slot_end: '12:00:00' }]));
     render(<BookingChangePage />);
-    await pickFirstDate();
+    await pickTomorrow();
     const slot = await within(slotPicker()).findByText('11:00');
     expect(menuStaffIn).toHaveBeenCalledWith('menu_staff', 'menu_id', ['m1', 'm2']);
     expect(requestedStaffIds(fetchMock.mock.calls)).toEqual(['c']);
@@ -207,7 +208,7 @@ describe('おまかせ予約（staff_id=NULL）', () => {
     mockSupabase({ booking: { staff_id: null, menu_id: 'm9', menu_ids: [] }, staff: [{ id: 'a' }, { id: 'b' }], menuStaff: [] });
     mockFetch(slotsFor([]));
     render(<BookingChangePage />);
-    await pickFirstDate();
+    await pickTomorrow();
     expect(await within(slotPicker()).findByText('この日は予約可能な時間帯がありません')).toBeInTheDocument();
     expect(menuStaffIn).toHaveBeenCalledWith('menu_staff', 'menu_id', ['m9']);
     expect(requestedStaffIds(fetchMock.mock.calls)).toEqual(['a', 'b']);
@@ -217,7 +218,7 @@ describe('おまかせ予約（staff_id=NULL）', () => {
     mockSupabase({ booking: { staff_id: null, menu_id: null, menu_ids: null }, staff: [{ id: 'a' }] });
     mockFetch(slotsFor([]));
     render(<BookingChangePage />);
-    await pickFirstDate();
+    await pickTomorrow();
     await within(slotPicker()).findByText('この日は予約可能な時間帯がありません');
     expect(menuStaffIn).not.toHaveBeenCalled();
     expect(requestedStaffIds(fetchMock.mock.calls)).toEqual(['a']);
@@ -227,7 +228,7 @@ describe('おまかせ予約（staff_id=NULL）', () => {
     mockSupabase({ booking: { staff_id: null }, staff: [] });
     mockFetch(slotsFor([]));
     render(<BookingChangePage />);
-    await pickFirstDate();
+    await pickTomorrow();
     expect(await within(slotPicker()).findByText('この日は予約可能な時間帯がありません')).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -239,7 +240,7 @@ describe('おまかせ予約（staff_id=NULL）', () => {
     mockSupabase({ booking: { staff_id: null }, ...t });
     mockFetch(slotsFor([]));
     render(<BookingChangePage />);
-    await pickFirstDate();
+    await pickTomorrow();
     expect(await within(slotPicker()).findByRole('alert')).toHaveTextContent('空き枠を取得できませんでした');
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -276,7 +277,7 @@ describe('指名なしで割り当てられた予約（staff_auto_assigned）', 
     mockFetch(slotsFor((staffId) => (staffId === 's2' ? [{ slot_start: '13:00:00', slot_end: '14:00:00' }] : [])));
     render(<BookingChangePage />);
     expect(await screen.findByText('指名なし（担当: スタッフ）')).toBeInTheDocument();
-    await pickFirstDate();
+    await pickTomorrow();
     expect(await within(slotPicker()).findByText('13:00')).toBeInTheDocument();
     expect(requestedStaffIds(fetchMock.mock.calls)).toEqual(['s1', 's2']);
   });
@@ -288,7 +289,7 @@ describe('指名なしで割り当てられた予約（staff_auto_assigned）', 
     });
     mockFetch(slotsFor([]));
     render(<BookingChangePage />);
-    await pickFirstDate();
+    await pickTomorrow();
     expect(await within(slotPicker()).findByRole('alert')).toHaveTextContent('空き枠を取得できませんでした');
     expect(within(slotPicker()).queryByText('この日は予約可能な時間帯がありません')).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -299,9 +300,85 @@ describe('指名なしで割り当てられた予約（staff_auto_assigned）', 
     mockFetch(slotsFor([{ slot_start: '13:00:00', slot_end: '14:00:00' }]));
     render(<BookingChangePage />);
     expect(await screen.findByText('スタッフ')).toBeInTheDocument();
-    await pickFirstDate();
+    await pickTomorrow();
     expect(await within(slotPicker()).findByText('13:00')).toBeInTheDocument();
     expect(requestedStaffIds(fetchMock.mock.calls)).toEqual(['s1']);
     expect(menuStaffIn).not.toHaveBeenCalled();
+  });
+});
+
+// ─── 2026年10月23日 ──────────────────────────────────────────────────────────
+// 回帰: 変更する予約そのものが「埋まっている枠」に数えられ、今の時間と重なる時刻（30分〜1時間ずらす変更）が
+// 「空きなし」に見えて選べなかった。日付の候補も翌日始まりで、当日中の変更が画面から選べなかった。
+describe('変更する予約を外した空き・当日からの日付', () => {
+  test('空き枠の取得に、変更する予約の ID を渡す（本人確認はサーバー）', async () => {
+    mockSupabase();
+    mockFetch(slotsFor([{ slot_start: '10:30:00', slot_end: '11:30:00' }]));
+    render(<BookingChangePage />);
+    await pickTomorrow();
+    expect(await within(slotPicker()).findByText('10:30')).toBeInTheDocument();
+    const url = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    expect(url.searchParams.get('excludeBookingId')).toBe('b1');
+  });
+
+  test('おまかせ予約でも、変更する予約の ID を渡す', async () => {
+    mockSupabase({ booking: { staff_id: null }, staff: [{ id: 'a' }] });
+    mockFetch(slotsFor([]));
+    render(<BookingChangePage />);
+    await pickTomorrow();
+    await within(slotPicker()).findByText('この日は予約可能な時間帯がありません');
+    expect(new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost').searchParams.get('excludeBookingId')).toBe('b1');
+  });
+
+  test('日付の候補は JST の今日から 30 日分', async () => {
+    mockSupabase();
+    mockFetch(slotsFor([]));
+    render(<BookingChangePage />);
+    await screen.findByText('新しい日付を選択');
+    const today = new Date(Date.now() + 9 * 3_600_000);
+    const buttons = screen.getAllByRole('button');
+    expect(buttons[0]).toHaveTextContent(`${today.getUTCMonth() + 1}/${today.getUTCDate()}`);
+    fireEvent.click(buttons[0]);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const todayYmd = today.toISOString().slice(0, 10);
+    expect(new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost').searchParams.get('dates')).toBe(todayYmd);
+    expect(buttons.filter((b) => /^\d+\/\d+/.test(b.textContent ?? ''))).toHaveLength(30);
+  });
+});
+
+describe('変更の送信が断られたとき', () => {
+  function submitWith(status: number, body: unknown) {
+    const slotsResponder = slotsFor([{ slot_start: '15:00:00', slot_end: '16:00:00' }]);
+    fetchMock = jest.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/change')) return Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) } as Response);
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(slotsResponder(url)) } as Response);
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+  }
+  const slotFetches = () => fetchMock.mock.calls.filter((c) => String(c[0]).includes('/api/slots/week')).length;
+
+  test('開始時刻を過ぎた時間だった → 選択を外して空き枠を取り直す', async () => {
+    mockSupabase();
+    submitWith(409, { error: '選択した時間はすでに過ぎています。日時を選び直してください。' });
+    render(<BookingChangePage />);
+    await pickTomorrow();
+    fireEvent.click(await within(slotPicker()).findByText('15:00'));
+    fireEvent.click(screen.getByRole('button', { name: /15:00に変更する/ }));
+    expect(await screen.findByText('選択した時間はすでに過ぎています。日時を選び直してください。')).toBeInTheDocument();
+    await waitFor(() => expect(slotFetches()).toBe(2));
+    expect(screen.queryByRole('button', { name: /に変更する/ })).not.toBeInTheDocument();
+  });
+
+  test('それ以外（満席など）は選択を残す', async () => {
+    mockSupabase();
+    submitWith(409, { error: 'この時間帯は既に予約が入っています' });
+    render(<BookingChangePage />);
+    await pickTomorrow();
+    fireEvent.click(await within(slotPicker()).findByText('15:00'));
+    fireEvent.click(screen.getByRole('button', { name: /15:00に変更する/ }));
+    expect(await screen.findByText('この時間帯は既に予約が入っています')).toBeInTheDocument();
+    expect(slotFetches()).toBe(1);
+    expect(screen.getByRole('button', { name: /15:00に変更する/ })).toBeInTheDocument();
   });
 });

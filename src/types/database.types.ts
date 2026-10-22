@@ -7059,18 +7059,32 @@ export type Database = {
           usage_count: number
         }[]
       }
-      get_available_slots: {
-        Args: {
-          p_date: string
-          p_duration_minutes: number
-          p_facility_id: string
-          p_staff_id: string
-        }
-        Returns: {
-          slot_end: string
-          slot_start: string
-        }[]
-      }
+      get_available_slots:
+        | {
+            Args: {
+              p_date: string
+              p_duration_minutes: number
+              p_facility_id: string
+              p_staff_id: string
+            }
+            Returns: {
+              slot_end: string
+              slot_start: string
+            }[]
+          }
+        | {
+            Args: {
+              p_date: string
+              p_duration_minutes: number
+              p_exclude_booking_id: string
+              p_facility_id: string
+              p_staff_id: string
+            }
+            Returns: {
+              slot_end: string
+              slot_start: string
+            }[]
+          }
       get_chain_statistics: {
         Args: {
           p_actor_id: string

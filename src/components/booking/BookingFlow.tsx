@@ -15,6 +15,7 @@ import { BookingCreateClient, type BookingCreateClientResult, BOOKING_CREATE_UNK
 import type { BookingFormData } from '@/lib/validations-booking';
 import { WAITLIST_NOTICE } from '@/lib/coming-soon';
 import { HOME_VISIT_ADDRESS_REQUIRED_MESSAGE } from '@/lib/home-visit';
+import { BOOKING_SLOT_PASSED_MESSAGE, clampBookingDuration, hasSlotStarted, needsSlotReselection, slotLengthMinutes } from '@/lib/booking-slot-rules';
 // /api/slots/week が 1 リクエストで受け付けるスタッフ数の上限（サーバー側と同じ定義を使う）。
 import { SLOTS_WEEK_MAX_STAFF } from '@/lib/slots-week';
 
@@ -606,8 +607,18 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     } else if (result.state === 'closed') {
       setBookingRecoveryError(null); setBookingAccepted(false);
       if (result.error) setToast({ type: 'error', message: result.error });
+      // 開始時刻を過ぎた・所要時間と合わない枠だったと断られたら、同じ枠を送り直させない。
+      // 選択を外して日時の画面へ戻し、空き状況を取り直す（2026年10月23日）。
+      if (needsSlotReselection(result.error)) clearSlotForReselection();
     } else setBookingRecoveryError(result.error);
   };
+  // 選択中の枠を外して日時の画面へ戻り、空き状況を取り直す。
+  function clearSlotForReselection() {
+    setSelectedSlot(null);
+    setSelectedDate('');
+    setStep('datetime');
+    setMatrixRetryTick((t) => t + 1);
+  }
   const handleSubmit = async () => {
     if (submitting || !bookingCreate.current) return;
     if (usePoints && pointsLoadFailed && !bookingCreate.current.pending) {
@@ -616,6 +627,14 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     if (!customerName || !email) { setToast({ type: 'error', message: 'お名前とメールアドレスは必須です' }); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setToast({ type: 'error', message: '正しいメールアドレスを入力してください' }); return; }
     if (facility.homeVisitOnly && !note.trim()) { setToast({ type: 'error', message: HOME_VISIT_ADDRESS_REQUIRED_MESSAGE }); return; }
+    // 確認画面に長く留まると、選んだ枠の開始時刻を過ぎることがある。送る前に確かめ、過ぎていれば
+    // 日時を選び直してもらう（サーバーも同じ判定で断る）。受付確認中（pending）の再確認は元の受付番号の
+    // 照合なので止めない。
+    if (!bookingCreate.current.pending && selectedSlot && hasSlotStarted(selectedDate, selectedSlot.slot_start, Date.now())) {
+      setToast({ type: 'error', message: BOOKING_SLOT_PASSED_MESSAGE });
+      clearSlotForReselection();
+      return;
+    }
     setSubmitting(true); setBookingPending(true);
     try {
       acceptCreateResult(await bookingCreate.current.submit({ facility_id: facility.id, staff_id: selectedStaff?.id ?? null,
@@ -681,6 +700,18 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     setSelectedDate('');
     setSelectedSlot(null);
     setToast({ type: 'error', message: '選択したメニューは指名中のスタッフの対象外のため、指名を解除しました' });
+  }
+
+  // 【2026年10月23日】選択中の枠の長さが、今のメニューの所要時間と合わなくなったら枠を外す。
+  // 枠を選んでから「戻る」でメニューを足す（クーポンの対象メニューが自動で足される場合も）と、
+  // 旧い終了時刻の枠が残ったまま確認・予約まで進めてしまい、120分の内容が 60分の枠で保存されていた
+  // （後半の時間は他のお客様に再び売られる）。メニューを変える操作は複数あるので、発火元ごとに
+  // 外すのではなく「枠の長さ＝所要時間」をレンダー中に確かめる（上の2件と同じ形）。
+  // 空き枠 API は所要時間を 15〜480 分に丸めて枠を返すので、比べる値も同じ丸めを通す。
+  if (selectedSlot && slotLengthMinutes(selectedSlot.slot_start, selectedSlot.slot_end) !== clampBookingDuration(totalDuration)) {
+    setSelectedSlot(null);
+    setSelectedDate('');
+    setToast({ type: 'error', message: 'メニューの変更で所要時間が変わったため、日時の選択を解除しました。日時を選び直してください' });
   }
 
   // メニュー/クーポン変更で価格が下がった場合に、設定済み pointsToUse を価格・残高でクランプし直す。
@@ -1236,7 +1267,19 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
               戻る
             </button>
             {selectedSlot && (
-              <button type="button" onClick={() => setStep('confirm')} className="btn-primary flex-1 py-3!">
+              <button
+                type="button"
+                onClick={() => {
+                  // 表は開いた時点の空き状況。開始時刻を過ぎた枠のまま確認画面へ進ませない。
+                  if (hasSlotStarted(selectedDate, selectedSlot.slot_start, Date.now())) {
+                    setToast({ type: 'error', message: BOOKING_SLOT_PASSED_MESSAGE });
+                    clearSlotForReselection();
+                    return;
+                  }
+                  setStep('confirm');
+                }}
+                className="btn-primary flex-1 py-3!"
+              >
                 次へ（確認・予約）
               </button>
             )}

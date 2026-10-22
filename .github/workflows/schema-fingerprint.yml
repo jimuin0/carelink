@@ -143,6 +143,9 @@ jobs:
       - name: Staff assignment for unnamed reservations and legacy unassigned capacity (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-staff-assignment-fixtures.sql
 
+      - name: Started slots refused for online create/change, reschedule availability leaves the moved reservation out (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-slot-start-and-reschedule-fixtures.sql
+
       - name: Coupon target new/repeat at booking - login required, own-account history only, visits, cancellations, per facility (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/coupon-target-eligibility-fixtures.sql
 

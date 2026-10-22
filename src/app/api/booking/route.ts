@@ -18,6 +18,7 @@ import { buildBookingCreateNotifications, BookingNotificationPlanError } from '@
 import { HOME_VISIT_ADDRESS_REQUIRED_MESSAGE, isHomeVisitOnly } from '@/lib/home-visit';
 import { knownBookingRpcMessage } from '@/lib/booking-rpc-error';
 import { COUPON_TARGET_REJECTIONS, isTargetedCoupon } from '@/lib/coupon-eligibility';
+import { BOOKING_DURATION_MISMATCH_MESSAGE, BOOKING_SLOT_PASSED_MESSAGE, bookingDurationForMenus, hasSlotStarted, slotLengthMinutes } from '@/lib/booking-slot-rules';
 
 export const dynamic = 'force-dynamic';
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -27,6 +28,8 @@ const KNOWN_CREATE_REJECTIONS: Readonly<Record<string, string>> = {
   STAFF_NOT_IN_FACILITY: '指定されたスタッフはこの施設で予約できません', BOOKING_CLOSED_DAY: 'この日は定休日のため予約できません',
   BOOKING_OUTSIDE_HOURS: '営業時間外のため予約できません', STAFF_NOT_WORKING: '指名されたスタッフはこの日時には勤務していません',
   COUPON_LIMIT: 'このクーポンは利用上限に達しています', COUPON_ALREADY_USED: 'このクーポンは既に利用済みです',
+  // 開始時刻を過ぎた枠（下の事前確認と同じ。RPC が同じ判定を最終防御として持つ・20261023070000）。
+  BOOKING_SLOT_PASSED: BOOKING_SLOT_PASSED_MESSAGE,
   // クーポンの対象（新規／リピーター）。判定は RPC が予約履歴で行う（src/lib/coupon-eligibility.ts）。
   ...COUPON_TARGET_REJECTIONS,
 };
@@ -102,6 +105,10 @@ export async function POST(request: Request) {
     const parsed = bookingSchema.safeParse(body);
     if (!parsed.success) return reject(parsed.error.issues[0]!.message, 400);
     if (parsed.data.start_time >= parsed.data.end_time) return reject('開始時間は終了時間より前にしてください', 400);
+    // 開始時刻（JST）を過ぎた枠は受け付けない（2026年10月23日）。予約画面の空き状況は開いた時点の
+    // ものなので、開いたままにすると過ぎた枠を送れた。作られた予約は開始済みのため、直後から
+    // オンラインでのキャンセルも変更もできなかった。受付済みの再送（上の committed）はここに来ない。
+    if (hasSlotStarted(parsed.data.booking_date, parsed.data.start_time, Date.now())) return reject(BOOKING_SLOT_PASSED_MESSAGE, 409);
   // 空き枠の判定（指名・おまかせとも）はここでは行わず、RPC（create_booking_for_menus_atomic）の
   // advisory lock 下の判定だけを正とする（2026年10月22日）。おまかせ予約は RPC が空いている担当者を
   // 割り当てて保存し、担当者未割当の旧予約も勤務人数に対する容量として数える。ここに残していた
@@ -121,7 +128,7 @@ export async function POST(request: Request) {
 
   const { data: menuRows, error:menuLookupError } = await supabase
     .from('facility_menus')
-    .select('id, price')
+    .select('id, price, duration_minutes')
     .in('id', menuIdsToPrice)
     .eq('facility_id', parsed.data.facility_id)
     // 非公開(is_published=false)メニューは予約不可。見つからない扱いになり下の allValid で 400。
@@ -134,6 +141,14 @@ export async function POST(request: Request) {
   const allValid = menuIdsToPrice.every((id) => validIds.has(id));
   if (!allValid) {
     return reject('メニューが見つかりません', 400);
+  }
+
+  // 枠の長さ（end_time - start_time）は、選んだメニューの所要時間（サーバーが DB から読んだ値）と
+  // 一致しなければならない（2026年10月23日）。以前は start < end しか見ておらず、予約画面で枠を
+  // 選んだ後にメニューを足すと、旧い終了時刻のまま（例: 120分の内容を 60分の枠で）保存され、
+  // 後半の時間が空きとして他のお客様に売られていた。式は空き枠 API と同じ（booking-slot-rules）。
+  if (slotLengthMinutes(parsed.data.start_time, parsed.data.end_time) !== bookingDurationForMenus(menuRows!)) {
+    return reject(BOOKING_DURATION_MISMATCH_MESSAGE, 400);
   }
 
   // 【監査L1】RPC(create_booking_atomic)へ渡す primary menu_id は必ず施設所属検証済みの値にする。

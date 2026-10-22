@@ -11,19 +11,22 @@ import { buildMenuStaffMap, filterEligibleStaff, type MenuStaffRow } from '@/lib
 import { isCustomerChangeableStatus } from '@/lib/booking-status';
 import { hasBookingStarted } from '@/lib/cancel-fee';
 import { bookingStaffLabel, isNominatedBooking } from '@/lib/booking-nomination';
+import { needsSlotReselection, rescheduleDurationMinutes } from '@/lib/booking-slot-rules';
 
-// 予約の実所要時間（分）を start_time/end_time（"HH:MM[:SS]"）の差から求める。
+// 予約の実所要時間（分）は start_time/end_time の差から求める（rescheduleDurationMinutes）。
 // 単一 menu_id の duration_minutes では複数メニュー予約（例: カット+カラー120分）の実長を表せず、
-// 先頭メニュー分（例60分）に縮んでしまう。その duration で /api/slots を引くと本来120分ぶんの空きが
+// 先頭メニュー分（例60分）に縮んでしまう。その duration で空き枠を引くと本来120分ぶんの空きが
 // 必要な枠を60分基準で提示し、確定すると120分予約が60分に縮む／後半がダブルブッキングされ得る。
 // 予約行の start/end（確定済みの実枠）が唯一の真実なので、そこから所要時間を導出する。
-function durationMinutes(start: string, end: string): number {
-  const toMin = (t: string) => {
-    const [h, m] = t.split(':').map(Number);
-    return h * 60 + m;
-  };
-  const diff = toMin(end) - toMin(start);
-  return diff > 0 ? diff : 60;
+// 変更 API も同じ関数で長さを照合する（長さの違う時間は受け付けない）。
+
+/** JST の今日から days 日分の日付（YYYY-MM-DD）。予約画面（BookingFlow）と同じく当日から並べる。 */
+function jstDateOptions(nowMs: number, days: number): string[] {
+  return Array.from({ length: days }, (_, i) => {
+    const d = new Date(nowMs + 9 * 60 * 60 * 1000);
+    d.setUTCDate(d.getUTCDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
 }
 
 type ChangeableBooking = {
@@ -85,6 +88,8 @@ export default function BookingChangePage() {
   const [slotsRetry, setSlotsRetry] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // 日付の候補はマウント時の時刻から作る（描画のたびに時刻を読まない）。
+  const [mountedAtMs] = useState(() => Date.now());
 
   // load 相当の処理は「マウント時の初回読み込み」と「読み込み失敗後の再試行」の2箇所からしか
   // 呼ばれず、どちらも同じ処理を求める呼び出しなので、reloadKey を effect の依存に置いて
@@ -130,7 +135,7 @@ export default function BookingChangePage() {
           facility_name: facility?.name || '',
           menu_name: menu?.name || '',
           staff_name: staff?.name || '',
-          duration: durationMinutes(b.start_time, b.end_time),
+          duration: rescheduleDurationMinutes(b.start_time, b.end_time),
         });
         setLoading(false);
       } catch {
@@ -180,6 +185,9 @@ export default function BookingChangePage() {
             staffIds,
             dates: [selectedDate],
             duration: booking.duration,
+            // 変更する予約そのものは「埋まっている枠」に数えない。数えると、今の時間と重なる
+            // 時刻（30分〜1時間ずらす変更）が「空きなし」に見えて選べなかった（2026年10月23日）。
+            excludeBookingId: booking.id,
             signal: controller.signal,
           });
           if (!week.ok) next = { slots: [], status: 'error' };
@@ -220,6 +228,8 @@ export default function BookingChangePage() {
       const data = await res.json();
       if (!res.ok) {
         setToast({ type: 'error', message: data.error || '変更に失敗しました' });
+        // 開始時刻を過ぎた・長さが合わない時間だった場合は、選択を外して空き枠を取り直す。
+        if (needsSlotReselection(data.error)) { setSelectedSlot(null); setSlotsRetry((n) => n + 1); }
       } else {
         setToast({ type: 'success', message: '日時を変更しました' });
         setTimeout(() => router.push('/mypage/bookings'), 1500);
@@ -228,10 +238,9 @@ export default function BookingChangePage() {
     setSubmitting(false);
   };
 
-  const dateOptions = Array.from({ length: 30 }, (_, i) => {
-    const d = new Date(); d.setDate(d.getDate() + i + 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  });
+  // 当日から 30 日分（以前は翌日始まりで、当日中の時刻変更が画面から選べなかった。API は当日を
+  // 受け付け、当日の開始済みの時刻は空き枠 API が出さない）。
+  const dateOptions = jstDateOptions(mountedAtMs, 30);
 
   if (loading) return <div className="animate-pulse space-y-4"><div className="h-8 bg-gray-200 rounded-sm w-1/3" /><div className="h-64 bg-gray-200 rounded-xl" /></div>;
   if (loadError) return <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="予約情報の読み込みに失敗しました" />;
@@ -253,14 +262,15 @@ export default function BookingChangePage() {
         <h2 className="font-bold mb-3">新しい日付を選択</h2>
         <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
           {dateOptions.map((date) => {
-            const d = new Date(date);
+            // 日付文字列は JST の暦日。端末のタイムゾーンに左右されないよう UTC として読む。
+            const d = new Date(`${date}T00:00:00Z`);
             const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
-            const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+            const isWeekend = d.getUTCDay() === 0 || d.getUTCDay() === 6;
             return (
               <button type="button" key={date} onClick={() => { setSelectedSlot(null); setSelectedDate(date); }}
                 className={`p-2 rounded-xl border text-center transition-colors ${selectedDate === date ? 'border-sky-500 bg-sky-50' : 'border-gray-200 hover:border-sky-300'}`}>
-                <p className="text-xs text-gray-500">{d.getMonth() + 1}/{d.getDate()}</p>
-                <p className={`text-sm font-bold ${isWeekend ? 'text-red-600' : ''}`}>{dayNames[d.getDay()]}</p>
+                <p className="text-xs text-gray-500">{d.getUTCMonth() + 1}/{d.getUTCDate()}</p>
+                <p className={`text-sm font-bold ${isWeekend ? 'text-red-600' : ''}`}>{dayNames[d.getUTCDay()]}</p>
               </button>
             );
           })}

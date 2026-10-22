@@ -40,6 +40,8 @@ export async function fetchSlotsWeek(params: {
   staffIds: string[];
   dates: string[];
   duration: number;
+  /** 日時変更画面だけが渡す。変更する予約そのものを「埋まっている枠」に数えない（本人確認はサーバー）。 */
+  excludeBookingId?: string;
   signal?: AbortSignal;
 }): Promise<SlotsWeekResult> {
   const days: SlotsByDateAndStaff = {};
@@ -52,6 +54,7 @@ export async function fetchSlotsWeek(params: {
       dates: params.dates.join(','),
       duration: String(params.duration),
     });
+    if (params.excludeBookingId) query.set('excludeBookingId', params.excludeBookingId);
     const res = await fetch(`/api/slots/week?${query}`, { signal: params.signal });
     const body = res.ok ? await res.json().catch(() => null) : null;
     if (!body || typeof body.days !== 'object' || body.days === null) { failed = true; return; }
