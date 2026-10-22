@@ -606,6 +606,7 @@ export type Database = {
           review_request_legacy_claimed_at: string | null
           review_request_provider_accepted_at: string | null
           source: string
+          staff_auto_assigned: boolean
           staff_id: string | null
           start_time: string
           status: string
@@ -636,6 +637,7 @@ export type Database = {
           review_request_legacy_claimed_at?: string | null
           review_request_provider_accepted_at?: string | null
           source?: string
+          staff_auto_assigned?: boolean
           staff_id?: string | null
           start_time: string
           status?: string
@@ -666,6 +668,7 @@ export type Database = {
           review_request_legacy_claimed_at?: string | null
           review_request_provider_accepted_at?: string | null
           source?: string
+          staff_auto_assigned?: boolean
           staff_id?: string | null
           start_time?: string
           status?: string
@@ -6410,6 +6413,30 @@ export type Database = {
       }
       bind_verified_liff_account_atomic: {
         Args: { p_actor_id: string; p_line_user_id: string }
+        Returns: string
+      }
+      booking_needs_any_staff: {
+        Args: {
+          p_auto_assigned: boolean
+          p_date: string
+          p_end: string
+          p_facility_id: string
+          p_staff_id: string
+          p_start: string
+        }
+        Returns: boolean
+      }
+      booking_pick_free_staff: {
+        Args: {
+          p_buffer_minutes: number
+          p_date: string
+          p_end: string
+          p_exclude_booking_id: string
+          p_facility_id: string
+          p_menu_ids: string[]
+          p_prefer_staff_id: string
+          p_start: string
+        }
         Returns: string
       }
       booking_point_legacy_issues: {

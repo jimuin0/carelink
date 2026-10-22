@@ -10,6 +10,7 @@ import { fetchSlotsWeek, mergeSlotsInStaffOrder } from '@/lib/slots-week';
 import { buildMenuStaffMap, filterEligibleStaff, type MenuStaffRow } from '@/lib/menu-staff';
 import { isCustomerChangeableStatus } from '@/lib/booking-status';
 import { hasBookingStarted } from '@/lib/cancel-fee';
+import { bookingStaffLabel, isNominatedBooking } from '@/lib/booking-nomination';
 
 // 予約の実所要時間（分）を start_time/end_time（"HH:MM[:SS]"）の差から求める。
 // 単一 menu_id の duration_minutes では複数メニュー予約（例: カット+カラー120分）の実長を表せず、
@@ -26,13 +27,15 @@ function durationMinutes(start: string, end: string): number {
 }
 
 type ChangeableBooking = {
-  id: string; facility_id: string; staff_id: string | null; menu_id: string | null; menu_ids: string[] | null;
+  id: string; facility_id: string; staff_id: string | null; staff_auto_assigned: boolean;
+  menu_id: string | null; menu_ids: string[] | null;
   booking_date: string; start_time: string; end_time: string; total_price: number | null;
   facility_name: string; menu_name: string; staff_name: string; duration: number;
 };
 
 /**
- * おまかせ予約（staff_id=NULL）で空き枠を集計するスタッフ。施設の受付中スタッフのうち、
+ * 指名なし（おまかせ）予約で空き枠を集計するスタッフ。予約 RPC が割り当てた担当者
+ * （staff_auto_assigned）は指名ではないので、その人の空きに限らない（変更時に RPC が割り当て直す）。施設の受付中スタッフのうち、
  * 予約したメニューを担当できる人だけ（menu_staff・予約画面 BookingFlow と同じ判定）。
  * 担当外のスタッフの空きを数えると、実際には施術できない時間が「空き」に見える。
  * 取得に失敗したら例外にする（空リスト＝「空きなし」に見せない）。
@@ -99,7 +102,7 @@ export default function BookingChangePage() {
 
         const { data: b, error: bErr } = await supabase
           .from('bookings')
-          .select('id, facility_id, staff_id, menu_id, menu_ids, booking_date, start_time, end_time, total_price, status')
+          .select('id, facility_id, staff_id, staff_auto_assigned, menu_id, menu_ids, booking_date, start_time, end_time, total_price, status')
           .eq('id', bookingId)
           .eq('user_id', user.id)
           .single();
@@ -164,7 +167,10 @@ export default function BookingChangePage() {
     (async () => {
       let next: Omit<SlotsResult, 'key'>;
       try {
-        const staffIds = booking.staff_id ? [booking.staff_id] : await eligibleStaffIds(booking);
+        // 指名予約は当該スタッフの空きだけ。指名なし（割り当て済みを含む）は担当できるスタッフ全員分。
+        const staffIds = isNominatedBooking(booking) && booking.staff_id
+          ? [booking.staff_id]
+          : await eligibleStaffIds(booking);
         if (staffIds.length === 0) {
           // 担当できるスタッフがいない＝この予約内容で選べる時間は本当に無い。
           next = { slots: [], status: 'ok' };
@@ -238,7 +244,7 @@ export default function BookingChangePage() {
         <div className="text-sm space-y-1 text-gray-600">
           <p>施設: <span className="font-medium text-gray-900">{booking.facility_name}</span></p>
           <p>メニュー: <span className="font-medium">{booking.menu_name || '-'}</span></p>
-          <p>スタッフ: <span className="font-medium">{booking.staff_name || '指名なし'}</span></p>
+          <p>スタッフ: <span className="font-medium">{bookingStaffLabel(booking.staff_name, booking.staff_auto_assigned)}</span></p>
           <p>現在の日時: <span className="font-medium">{booking.booking_date} {booking.start_time.slice(0, 5)}</span></p>
         </div>
       </div>

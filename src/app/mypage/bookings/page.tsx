@@ -5,6 +5,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { statusChipClass, bookingStatusLabel } from '@/lib/booking-status';
+import { rebookSearchParams } from '@/lib/booking-nomination';
 
 export default async function BookingsPage() {
   const supabase = await createServerSupabaseAuthClient();
@@ -15,7 +16,7 @@ export default async function BookingsPage() {
 
   const { data } = await readPageResult(() => supabase
     .from('bookings')
-    .select('id, booking_date, start_time, end_time, status, total_price, facility_id, menu_id, staff_id')
+    .select('id, booking_date, start_time, end_time, status, total_price, facility_id, menu_id, staff_id, staff_auto_assigned')
     .eq('user_id', user.id)
     .order('booking_date', { ascending: false }), '/mypage/bookings');
 
@@ -51,8 +52,10 @@ export default async function BookingsPage() {
         <div className="space-y-3">
           {bookings.map((booking) => {
             const facilitySlug = slugMap.get(booking.facility_id);
+            // 指名なし（おまかせ）で割り当てられた担当者は引き継がない（指名料がかかる指名にしない）。
+            const rebookQuery = rebookSearchParams(booking).toString();
             const rebookUrl = facilitySlug
-              ? `/facility/${facilitySlug}/booking?${booking.menu_id ? `menu_id=${booking.menu_id}&` : ''}${booking.staff_id ? `staff_id=${booking.staff_id}` : ''}`
+              ? `/facility/${facilitySlug}/booking${rebookQuery ? `?${rebookQuery}` : ''}`
               : null;
 
             return (

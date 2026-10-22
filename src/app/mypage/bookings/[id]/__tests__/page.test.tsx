@@ -15,7 +15,8 @@ jest.mock('react', () => {
   const actual = jest.requireActual('react');
   return { ...actual, use: (v: unknown) => v };
 });
-jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn(), refresh: jest.fn() }) }));
+const mockPush = jest.fn();
+jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush, refresh: jest.fn() }) }));
 jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: jest.fn() }));
 
 const BOOKING = {
@@ -185,4 +186,43 @@ test('来店中（arrived）の予約 → 変更ボタンも開始後の案内�
   await screen.findByText('テスト施設');
   expect(screen.queryByRole('button', { name: '日時を変更する' })).not.toBeInTheDocument();
   expect(screen.queryByText(STARTED_NOTICE)).not.toBeInTheDocument();
+});
+
+// おまかせ（指名なし）の予約も予約 RPC が担当者を割り当てて staff_id に保存する。staff_auto_assigned で
+// 指名と区別しないと、再予約がその担当者の「指名」になり指名料がかかる（回帰防止）。
+function mockBookingWithStaff(booking: Record<string, unknown>) {
+  const dataFor: Record<string, unknown> = {
+    bookings: booking,
+    facility_profiles: { slug: 'test-salon', name: 'テスト施設' },
+    facility_menus: { name: 'カット' },
+    staff_profiles: { name: '担当A' },
+  };
+  const chain = (data: unknown): Record<string, unknown> => {
+    const obj: Record<string, unknown> = { select: () => obj, eq: () => obj, single: () => Promise.resolve({ data, error: null }) };
+    return obj;
+  };
+  (createBrowserSupabaseClient as jest.Mock).mockReturnValue({
+    auth: { getUser: () => Promise.resolve({ data: { user: { id: 'u1' } } }) },
+    from: (t: string) => chain(dataFor[t] ?? null),
+  });
+}
+
+test('指名なしで割り当てられた予約の再予約 → 担当者を指名として引き継がない', async () => {
+  mockBookingWithStaff({ ...BOOKING, status: 'completed', menu_id: 'm1', staff_id: 's1', staff_auto_assigned: true });
+  mockGcalFetch(true, { connected: false });
+  renderPage();
+  const { fireEvent } = await import('@testing-library/react');
+  fireEvent.click(await screen.findByRole('button', { name: 'この店舗をもう一度予約する' }));
+  expect(mockPush).toHaveBeenCalledWith('/facility/test-salon/booking?menu_id=m1');
+  expect(screen.getByText('指名なし（担当: 担当A）')).toBeInTheDocument();
+});
+
+test('指名した予約の再予約 → 同じスタッフを引き継ぐ（従来どおり）', async () => {
+  mockBookingWithStaff({ ...BOOKING, status: 'completed', menu_id: 'm1', staff_id: 's1', staff_auto_assigned: false });
+  mockGcalFetch(true, { connected: false });
+  renderPage();
+  const { fireEvent } = await import('@testing-library/react');
+  fireEvent.click(await screen.findByRole('button', { name: 'この店舗をもう一度予約する' }));
+  expect(mockPush).toHaveBeenCalledWith('/facility/test-salon/booking?menu_id=m1&staff_id=s1');
+  expect(screen.getByText('担当A')).toBeInTheDocument();
 });

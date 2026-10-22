@@ -13,7 +13,8 @@ import { loadAdminFacilitySelection } from '@/lib/admin-facility-selection';
 /**
  * サロンボード（HPB サロンボード型・スタッフ×時間軸ガントビュー / CareLink 色）
  *
- * - 行: スタッフ（is_active・sort_order 順）＋「指名なし」（staff_id null の予約）
+ * - 行: スタッフ（is_active・sort_order 順）＋「指名なし」（staff_id null の予約）。
+ *   おまかせ予約は予約 RPC が割り当てた担当者の行に出し、チップに「指名なし」を添える（staff_auto_assigned）
  * - 列: 時間軸。表示帯は店舗の営業時間（business_hours の当該曜日）から算出し、未設定時は
  *   既定 8〜22 時にフォールバック。枠外予約があれば前後へ自動拡張（computeBoardHourRange）
  * - 予約チップ: ステータス色（確認待ち=琥珀 / 確定=sky / 受付=emerald / 完了=グレー、@/lib/booking-status に集約）で帯表示、クリックで予約詳細へ
@@ -89,7 +90,7 @@ export default async function AdminSchedulePage(props: Props) {
       .order('sort_order', { ascending: true }),
     supabase
       .from('bookings')
-      .select('id, customer_name, start_time, end_time, status, staff_id, menu_id, menu_ids')
+      .select('id, customer_name, start_time, end_time, status, staff_id, staff_auto_assigned, menu_id, menu_ids')
       .eq('facility_id', facilityId)
       .eq('booking_date', date)
       .neq('status', 'cancelled')
@@ -114,7 +115,8 @@ export default async function AdminSchedulePage(props: Props) {
   const staff = staffRows ?? [];
   type BookingChip = {
     id: string; customer_name: string; start_time: string; end_time: string;
-    status: string; staff_id: string | null; menu_id: string | null; menu_ids: string[] | null;
+    status: string; staff_id: string | null; staff_auto_assigned?: boolean | null;
+    menu_id: string | null; menu_ids: string[] | null;
   };
   const bookings = (bookingRows ?? []) as BookingChip[];
   const boardMenus: BoardMenu[] = (menuRows ?? []) as BoardMenu[];
@@ -132,6 +134,7 @@ export default async function AdminSchedulePage(props: Props) {
       .map((b) => ({
         id: b.id, customer_name: b.customer_name, start_time: b.start_time,
         end_time: b.end_time, status: b.status, menuName: menuNameOf(b),
+        autoAssigned: b.staff_auto_assigned === true,
       }));
   const boardRows: BoardRow[] = [
     ...staff.map((s) => ({

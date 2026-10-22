@@ -11,6 +11,7 @@ import { statusChipClass, bookingStatusLabel, canCustomerCancelBooking, canCusto
 import { ONLINE_PREPAYMENT_NOTICE } from '@/lib/coming-soon';
 import { beginStaffOperation, finishStaffOperation } from '@/lib/staff-operation';
 import { UUID_REGEX } from '@/lib/constants';
+import { bookingStaffLabel, rebookSearchParams } from '@/lib/booking-nomination';
 
 export default function BookingDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
@@ -164,7 +165,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         )}
         <div className="flex justify-between text-sm">
           <span className="text-gray-500">担当</span>
-          <span className="font-medium">{staffName || '指名なし'}</span>
+          <span className="font-medium">{bookingStaffLabel(staffName, booking.staff_auto_assigned)}</span>
         </div>
         <div className="flex justify-between text-sm">
           <span className="text-gray-500">日付</span>
@@ -300,15 +301,13 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         </button>
       )}
       {/* リピート予約（v8.6）。正しい施設 slug が取れている時のみ表示（UUID を slug にして 404 を防ぐ）。
-          param 名は一覧・BookingFlow と揃えて menu_id/staff_id（#389 A-4/A-5 と統一）。 */}
+          param 名は一覧・BookingFlow と揃えて menu_id/staff_id（#389 A-4/A-5 と統一）。
+          指名なし（おまかせ）で割り当てられた担当者は引き継がない（指名料がかかる指名にしない）。 */}
       {booking && ['completed', 'cancelled'].includes(booking.status) && facility?.slug && (
         <button
           type="button"
           onClick={() => {
-            const q = new URLSearchParams();
-            if (booking.menu_id) q.set('menu_id', booking.menu_id);
-            if (booking.staff_id) q.set('staff_id', booking.staff_id);
-            const qs = q.toString();
+            const qs = rebookSearchParams(booking).toString();
             router.push(`/facility/${facility.slug}/booking${qs ? `?${qs}` : ''}`);
           }}
           className="w-full mt-3 py-3 rounded-xl bg-sky-700 text-white font-bold hover:bg-sky-800 transition-colors"

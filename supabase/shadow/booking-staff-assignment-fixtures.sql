@@ -1,6 +1,9 @@
 -- Disposable PG17 shadow only. Synthetic rows, rolled back; never call a provider.
 -- おまかせ staff assignment, legacy unassigned capacity, and the named/change paths
--- that previously double-booked (20261022100000 / 20261022100100).
+-- that previously double-booked (20261022100000 / 20261022100100), the
+-- おまかせ/nominated distinction (staff_auto_assigned) and its change path,
+-- assigned reservations whose member was later given time off, and the LINE
+-- WORKS notice to the assigned member.
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL statement_timeout = '15s';
@@ -62,7 +65,7 @@ CREATE FUNCTION pg_temp.has_slot(p_staff uuid, p_date date, p_start time) RETURN
 $$;
 
 -- 1. おまかせ is stored with a concrete free staff member (2030-01-07, Monday).
-DO $$ DECLARE first_id uuid; second_id uuid;
+DO $$ DECLARE first_id uuid; second_id uuid; named_id uuid;
 BEGIN
   PERFORM pg_temp.assert_assign(public.facility_booking_ready('ba510000-0000-4000-8000-000000000001'), 'synthetic facility accepts online bookings');
   first_id := pg_temp.book('2030-01-07', NULL, '10:00', '11:00');
@@ -70,6 +73,11 @@ BEGIN
     'first おまかせ goes to the first active staff working the slot by sort order (not inactive C, not off-duty D)');
   second_id := pg_temp.book('2030-01-07', NULL, '10:00', '11:00');
   PERFORM pg_temp.assert_assign(pg_temp.staff_of(second_id) = 'ba530000-0000-4000-8000-000000000002', 'second おまかせ takes the next free staff');
+  PERFORM pg_temp.assert_assign((SELECT bool_and(staff_auto_assigned) FROM public.bookings WHERE id IN (first_id, second_id)),
+    'an assigned おまかせ reservation is recorded as not nominated');
+  named_id := pg_temp.book('2030-01-07', 'ba530000-0000-4000-8000-000000000001', '15:00', '16:00');
+  PERFORM pg_temp.assert_assign((SELECT staff_id = 'ba530000-0000-4000-8000-000000000001' AND NOT staff_auto_assigned
+    FROM public.bookings WHERE id = named_id), 'a nominated reservation is not marked as assigned');
   PERFORM pg_temp.assert_assign(pg_temp.book_outcome('2030-01-07', NULL, '10:30', '11:30') = 'BOOKING_CONFLICT', 'no free staff refuses おまかせ');
   -- Regression: named staff A used to be accepted on top of an おまかせ reservation.
   PERFORM pg_temp.assert_assign(pg_temp.book_outcome('2030-01-07', 'ba530000-0000-4000-8000-000000000001', '10:30', '11:30') = 'BOOKING_CONFLICT',
@@ -204,12 +212,156 @@ BEGIN
 END $$;
 RESET ROLE;
 
+-- 7. A reservation without a nomination is assigned again when the customer changes it;
+--    a nominated one keeps its member (Mondays 2030-02-11 .. 2030-03-04).
+DO $$ DECLARE auto_id uuid; b_menu_id uuid; named_id uuid;
+  customer constant uuid := 'ba500000-0000-4000-8000-000000000001';
+  legacy_id constant uuid := 'ba540000-0000-4000-8000-000000000006';
+BEGIN
+  auto_id := public.create_booking_for_menus_atomic('ba510000-0000-4000-8000-000000000001', NULL, customer,
+    'ba520000-0000-4000-8000-000000000001', NULL, '2030-02-11', '10:00', '11:00', 'Customer', 'assignment-customer@example.invalid',
+    NULL, NULL, 0, 0, 'confirmed', true, ARRAY['ba520000-0000-4000-8000-000000000001'::uuid]);
+  PERFORM pg_temp.assert_assign(pg_temp.staff_of(auto_id) = 'ba530000-0000-4000-8000-000000000001'::uuid, 'the customer おまかせ starts with A');
+  PERFORM pg_temp.book('2030-02-11', 'ba530000-0000-4000-8000-000000000001'::uuid, '13:00', '14:00');
+  -- Regression: the assigned member was treated as nominated, so moving to a time when only A
+  -- was busy failed with BOOKING_CONFLICT although B was free.
+  PERFORM public.change_booking_atomic(auto_id, customer, '2030-02-11', '13:00', '14:00', true);
+  PERFORM pg_temp.assert_assign((SELECT staff_id = 'ba530000-0000-4000-8000-000000000002'::uuid AND staff_auto_assigned AND start_time = '13:00'
+    FROM public.bookings WHERE id = auto_id), 'a change to a time when only another member is free moves the おまかせ to that member');
+  PERFORM public.change_booking_atomic(auto_id, customer, '2030-02-11', '15:00', '16:00', true);
+  PERFORM pg_temp.assert_assign(pg_temp.staff_of(auto_id) = 'ba530000-0000-4000-8000-000000000002'::uuid,
+    'while the current member is free the change keeps them instead of moving back by sort order');
+  -- Regression: after the current member got a day off the change failed with STAFF_NOT_WORKING.
+  INSERT INTO public.schedule_overrides(staff_id, date, is_holiday, start_time, end_time) VALUES ('ba530000-0000-4000-8000-000000000002'::uuid, '2030-02-18', true, NULL, NULL);
+  PERFORM public.change_booking_atomic(auto_id, customer, '2030-02-18', '10:00', '11:00', true);
+  PERFORM pg_temp.assert_assign((SELECT staff_id = 'ba530000-0000-4000-8000-000000000001'::uuid AND staff_auto_assigned AND booking_date = '2030-02-18'
+    FROM public.bookings WHERE id = auto_id), 'a change to a day the current member is off goes to a working member');
+  PERFORM pg_temp.book('2030-02-18', 'ba530000-0000-4000-8000-000000000001'::uuid, '12:00', '13:00');
+  BEGIN
+    PERFORM public.change_booking_atomic(auto_id, customer, '2030-02-18', '12:00', '13:00', true);
+    RAISE EXCEPTION 'change accepted without a free member';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM NOT LIKE 'BOOKING_CONFLICT%' THEN RAISE; END IF; END;
+  PERFORM pg_temp.assert_assign((SELECT start_time = '10:00' AND staff_id = 'ba530000-0000-4000-8000-000000000001'::uuid FROM public.bookings WHERE id = auto_id),
+    'a refused change leaves the reservation and its member');
+
+  -- menu_staff is respected on a change: A cannot take the B-only menu even when free.
+  b_menu_id := public.create_booking_for_menus_atomic('ba510000-0000-4000-8000-000000000001', NULL, customer,
+    'ba520000-0000-4000-8000-000000000002', NULL, '2030-02-25', '10:00', '11:00', 'Customer', 'assignment-customer@example.invalid',
+    NULL, NULL, 0, 0, 'confirmed', true, ARRAY['ba520000-0000-4000-8000-000000000002'::uuid]);
+  PERFORM pg_temp.assert_assign(pg_temp.staff_of(b_menu_id) = 'ba530000-0000-4000-8000-000000000002'::uuid, 'the B-only menu is assigned to B');
+  PERFORM pg_temp.book('2030-02-25', 'ba530000-0000-4000-8000-000000000002'::uuid, '13:00', '14:00');
+  BEGIN
+    PERFORM public.change_booking_atomic(b_menu_id, customer, '2030-02-25', '13:00', '14:00', true);
+    RAISE EXCEPTION 'change assigned a member who does not handle the menu';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM NOT LIKE 'BOOKING_CONFLICT%' THEN RAISE; END IF; END;
+
+  -- A nominated reservation keeps its member: no silent move to another member.
+  named_id := public.create_booking_for_menus_atomic('ba510000-0000-4000-8000-000000000001', 'ba530000-0000-4000-8000-000000000001'::uuid, customer,
+    'ba520000-0000-4000-8000-000000000001', NULL, '2030-02-25', '15:00', '16:00', 'Customer', 'assignment-customer@example.invalid',
+    NULL, NULL, 0, 0, 'confirmed', true, ARRAY['ba520000-0000-4000-8000-000000000001'::uuid]);
+  INSERT INTO public.schedule_overrides(staff_id, date, is_holiday, start_time, end_time) VALUES ('ba530000-0000-4000-8000-000000000001'::uuid, '2030-03-04', true, NULL, NULL);
+  BEGIN
+    PERFORM public.change_booking_atomic(named_id, customer, '2030-03-04', '15:00', '16:00', true);
+    RAISE EXCEPTION 'nominated member replaced';
+  EXCEPTION WHEN raise_exception THEN IF SQLERRM NOT LIKE 'STAFF_NOT_WORKING%' THEN RAISE; END IF; END;
+  PERFORM pg_temp.assert_assign((SELECT staff_id = 'ba530000-0000-4000-8000-000000000001'::uuid AND NOT staff_auto_assigned AND booking_date = '2030-02-25'
+    FROM public.bookings WHERE id = named_id), 'the nominated reservation keeps its member and date');
+
+  -- A legacy reservation without staff is assigned when it is changed.
+  INSERT INTO public.bookings(id, facility_id, staff_id, user_id, menu_id, booking_date, start_time, end_time, customer_name, email, status)
+   VALUES (legacy_id, 'ba510000-0000-4000-8000-000000000001', NULL, customer, 'ba520000-0000-4000-8000-000000000001',
+    '2030-02-25', '16:00', '17:00', 'Customer', 'assignment-customer@example.invalid', 'confirmed');
+  PERFORM public.change_booking_atomic(legacy_id, customer, '2030-02-25', '11:00', '12:00', true);
+  PERFORM pg_temp.assert_assign((SELECT staff_id = 'ba530000-0000-4000-8000-000000000001'::uuid AND staff_auto_assigned FROM public.bookings WHERE id = legacy_id),
+    'a changed legacy reservation gets a member and stays not nominated');
+END $$;
+
+-- 8. An assigned reservation whose member is later given the day off still needs one of the
+--    members who work (2030-03-11, Monday). The staff schedule save can be forced over reservations.
+DO $$ DECLARE orphan_id uuid;
+BEGIN
+  orphan_id := pg_temp.book('2030-03-11', NULL, '10:00', '11:00');
+  PERFORM pg_temp.assert_assign(pg_temp.staff_of(orphan_id) = 'ba530000-0000-4000-8000-000000000001'::uuid, 'the おまかせ is assigned to A');
+  PERFORM pg_temp.assert_assign(pg_temp.has_slot('ba530000-0000-4000-8000-000000000002'::uuid, '2030-03-11', '10:00'), 'B is free next to A''s reservation');
+  INSERT INTO public.schedule_overrides(staff_id, date, is_holiday, start_time, end_time) VALUES ('ba530000-0000-4000-8000-000000000001'::uuid, '2030-03-11', true, NULL, NULL);
+  -- Regression: the reservation stayed on the absent A, so B's 10:00 looked free and a second
+  -- reservation was accepted with one member working.
+  PERFORM pg_temp.assert_assign(NOT pg_temp.has_slot('ba530000-0000-4000-8000-000000000002'::uuid, '2030-03-11', '10:00'),
+    'availability counts the reservation of the absent member against the working member');
+  PERFORM pg_temp.assert_assign(pg_temp.book_outcome('2030-03-11', 'ba530000-0000-4000-8000-000000000002'::uuid, '10:00', '11:00') = 'BOOKING_CONFLICT',
+    'named B is refused while the reservation of the absent member needs B');
+  PERFORM pg_temp.assert_assign(pg_temp.book_outcome('2030-03-11', NULL, '10:00', '11:00') = 'BOOKING_CONFLICT',
+    'おまかせ is refused for the same reason');
+  PERFORM pg_temp.assert_assign(pg_temp.has_slot('ba530000-0000-4000-8000-000000000002'::uuid, '2030-03-11', '12:00'), 'other times of the day are unaffected');
+END $$;
+
+-- 9. The assigned member's own LINE WORKS channel is told about an おまかせ reservation
+--    unless a notify_all channel already covers it (2030-03-18, Monday).
+UPDATE public.staff_profiles SET line_works_channel_id = 'assignment-a-works' WHERE id = 'ba530000-0000-4000-8000-000000000001'::uuid;
+UPDATE public.staff_profiles SET line_works_channel_id = 'assignment-shared', line_works_notify_all = true WHERE id = 'ba530000-0000-4000-8000-000000000002'::uuid;
+CREATE FUNCTION pg_temp.receipt_omakase(p_operation uuid) RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE snap jsonb; plan jsonb; response jsonb;
+BEGIN
+  PERFORM public.prepare_booking_create_operation(p_operation, 'ba500000-0000-4000-8000-000000000001', NULL,
+    'ba510000-0000-4000-8000-000000000001', repeat('c', 64));
+  snap := jsonb_build_object('customer_name', 'Synthetic', 'email', 'proxy@example.invalid', 'facility_name', 'Assignment clinic',
+    'menu_name', 'Open menu', 'staff_name', NULL::text, 'booking_date', '2030-03-18', 'start_time', '10:00', 'end_time', '10:30',
+    'total_price', 400, 'status', 'confirmed');
+  plan := jsonb_build_array(
+    jsonb_build_object('kind', 'email', 'role', 'customer', 'target', 'proxy@example.invalid',
+      'envelope', jsonb_build_object('from', 'test@example.invalid', 'to', 'proxy@example.invalid', 'subject', 'Synthetic receipt', 'html', '<p>Synthetic</p>'),
+      'snapshot', snap,
+      'context', jsonb_build_object('owner_ids', jsonb_build_array('ba500000-0000-4000-8000-000000000002'), 'owner_push', false,
+        'works_enabled', true, 'line_enabled', false)),
+    jsonb_build_object('kind', 'push', 'role', 'customer', 'target', 'ba500000-0000-4000-8000-000000000001',
+      'payload', jsonb_build_object('title', 'Synthetic', 'body', 'Synthetic'), 'snapshot', snap),
+    jsonb_build_object('kind', 'line_works', 'role', 'staff', 'target', 'assignment-shared',
+      'payload', jsonb_build_object('customerName', 'Synthetic', 'menuName', 'Open menu', 'bookingDate', '2030-03-18', 'startTime', '10:00'),
+      'snapshot', snap));
+  SELECT r.response_payload INTO response FROM public.create_booking_with_receipt_atomic(p_operation,
+    'ba500000-0000-4000-8000-000000000001', NULL, repeat('c', 64), 'ba510000-0000-4000-8000-000000000001', NULL,
+    'ba520000-0000-4000-8000-000000000001', NULL, '2030-03-18', '10:00', '10:30', 'Synthetic', 'proxy@example.invalid', NULL, NULL,
+    400, 0, 'confirmed', ARRAY['ba520000-0000-4000-8000-000000000001'::uuid], plan) r;
+  RETURN (response->>'bookingId')::uuid;
+END $$;
+SET LOCAL ROLE service_role;
+DO $$ DECLARE first_booking uuid; second_booking uuid; qid uuid; outcome text;
+BEGIN
+  first_booking := pg_temp.receipt_omakase('ba550000-0000-4000-8000-000000000002');
+  PERFORM pg_temp.assert_assign(pg_temp.staff_of(first_booking) = 'ba530000-0000-4000-8000-000000000001'::uuid, 'the first おまかせ is assigned to A');
+  -- Regression: only the client plan's channels (the nominated member and notify_all) were queued,
+  -- so the member who now has the reservation was never told.
+  SELECT q.id INTO qid FROM public.webhook_retry_queue q
+    WHERE q.payload->>'booking_create_operation' = 'ba550000-0000-4000-8000-000000000002'
+      AND q.webhook_type = 'booking_creation_lineworks' AND q.target_id = 'assignment-a-works'
+      AND q.payload->>'booking_role' = 'staff' AND q.payload->>'staffName' = 'Staff A'
+      AND q.payload->>'customerName' = 'Synthetic' AND q.payload->>'menuName' = 'Open menu'
+      AND q.payload->>'bookingDate' = '2030-03-18' AND q.payload->>'startTime' = '10:00'
+      AND q.payload->'booking_snapshot'->'staff_name' = 'null'::jsonb;
+  PERFORM pg_temp.assert_assign(qid IS NOT NULL, 'the assigned member''s own channel is queued with the reservation');
+  PERFORM pg_temp.assert_assign((SELECT count(*) = 2 FROM public.webhook_retry_queue q
+    WHERE q.payload->>'booking_create_operation' = 'ba550000-0000-4000-8000-000000000002' AND q.webhook_type = 'booking_creation_lineworks'),
+    'the notify_all channel from the plan plus the assigned member''s channel');
+  PERFORM * FROM public.claim_webhook_retry_queue_v2(ARRAY[qid], '2030-01-01T00:00Z');
+  SELECT x.outcome INTO outcome FROM public.start_booking_create_notification(qid, '2030-01-01T00:00Z') x;
+  PERFORM pg_temp.assert_assign(outcome = 'ready', 'the assigned member''s notice is current at send time');
+
+  second_booking := pg_temp.receipt_omakase('ba550000-0000-4000-8000-000000000003');
+  PERFORM pg_temp.assert_assign(pg_temp.staff_of(second_booking) = 'ba530000-0000-4000-8000-000000000002'::uuid, 'the second おまかせ is assigned to B');
+  PERFORM pg_temp.assert_assign((SELECT count(*) = 1 FROM public.webhook_retry_queue q
+    WHERE q.payload->>'booking_create_operation' = 'ba550000-0000-4000-8000-000000000003' AND q.webhook_type = 'booking_creation_lineworks'),
+    'a member whose channel is already a notify_all channel is not notified twice');
+END $$;
+RESET ROLE;
+
 DO $$ DECLARE role_name text; signature text;
 BEGIN
   FOREACH signature IN ARRAY ARRAY[
     'public.create_booking_for_menus_atomic(uuid,uuid,uuid,uuid,uuid,date,time,time,text,text,text,text,int,int,text,boolean,uuid[])',
     'public.booking_staff_works_slot(uuid,date,time,time)',
-    'public.booking_unassigned_capacity_full(uuid,date,time,time,integer,uuid)'] LOOP
+    'public.booking_unassigned_capacity_full(uuid,date,time,time,integer,uuid)',
+    'public.booking_needs_any_staff(uuid,boolean,uuid,date,time,time)',
+    'public.booking_pick_free_staff(uuid,date,time,time,integer,uuid[],uuid,uuid)'] LOOP
     FOREACH role_name IN ARRAY ARRAY['anon', 'authenticated'] LOOP
       PERFORM pg_temp.assert_assign(NOT has_function_privilege(role_name, signature, 'EXECUTE'), 'public roles cannot call ' || signature);
     END LOOP;

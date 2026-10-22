@@ -279,3 +279,77 @@ test('変更できない状態（arrived）の予約 → 予約一覧へ戻す�
   await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/mypage/bookings'));
   expect(screen.queryByText('新しい日付を選択')).not.toBeInTheDocument();
 });
+
+// おまかせ（指名なし）の予約も予約 RPC が担当者を割り当てて staff_id に保存する。staff_auto_assigned の
+// 予約を指名予約として扱うと、その担当者の空きしか出さず、他のスタッフが空いていても変更できなかった
+// （回帰防止）。変更時は RPC が新しい時間で担当者を割り当て直すので、メニューを担当できる人の枠を出す。
+function mockUnnominated(booking: Record<string, unknown>, menuStaffError: unknown = null) {
+  const singles: Record<string, unknown> = {
+    bookings: booking,
+    facility_profiles: { name: 'テスト施設' },
+    facility_menus: { name: 'メニュー' },
+    staff_profiles: { name: '担当A' },
+  };
+  const lists: Record<string, { data: unknown; error: unknown }> = {
+    staff_profiles: { data: [{ id: 's1' }, { id: 's2' }, { id: 's3' }], error: null },
+    // m1 は s1・s2 だけが担当（s3 には割り当てられない）。
+    menu_staff: menuStaffError
+      ? { data: null, error: menuStaffError }
+      : { data: [{ menu_id: 'm1', staff_id: 's1' }, { menu_id: 'm1', staff_id: 's2' }], error: null },
+  };
+  const tables: string[] = [];
+  (createBrowserSupabaseClient as jest.Mock).mockReturnValue({
+    auth: { getUser: () => Promise.resolve({ data: { user: { id: 'u1' } } }) },
+    from: (table: string) => {
+      tables.push(table);
+      const obj: Record<string, unknown> = {
+        select: () => obj, eq: () => obj, in: () => obj, order: () => obj,
+        single: () => Promise.resolve({ data: singles[table], error: null }),
+        then: (resolve: (value: unknown) => unknown) => Promise.resolve(lists[table] ?? { data: [], error: null }).then(resolve),
+      };
+      return obj;
+    },
+  });
+  return tables;
+}
+
+test('指名なしで割り当てられた予約 → 担当者に限らず、メニューを担当できるスタッフの枠を出す', async () => {
+  mockUnnominated({ ...BOOKING, staff_id: 's1', staff_auto_assigned: true, menu_ids: null });
+  const fetchMock = jest.fn((url: string) => Promise.resolve({
+    ok: true, status: 200,
+    json: () => Promise.resolve({ slots: url.includes('staffId=s2') ? [{ slot_start: '13:00:00', slot_end: '14:00:00' }] : [] }),
+  }));
+  global.fetch = fetchMock as unknown as typeof fetch;
+
+  render(<BookingChangePage />);
+  expect(await screen.findByText('指名なし（担当: 担当A）')).toBeInTheDocument();
+  fireEvent.click(screen.getAllByRole('button')[0]);
+  expect(await screen.findByRole('button', { name: '13:00' })).toBeInTheDocument();
+  const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+  expect(urls.some((u) => u.includes('staffId=s1'))).toBe(true);
+  expect(urls.some((u) => u.includes('staffId=s2'))).toBe(true);
+  expect(urls.some((u) => u.includes('staffId=s3'))).toBe(false);
+});
+
+test('担当制メニューの取得に失敗 → 「空き枠なし」にせずエラートーストを出す', async () => {
+  mockUnnominated({ ...BOOKING, staff_id: 's1', staff_auto_assigned: true, menu_ids: ['m1', 'm2'] }, { code: '08006' });
+  global.fetch = jest.fn() as unknown as typeof fetch;
+
+  render(<BookingChangePage />);
+  await screen.findByText('新しい日付を選択');
+  fireEvent.click(screen.getAllByRole('button')[0]);
+  expect(await screen.findByText('空き枠の取得に失敗しました')).toBeInTheDocument();
+  expect(global.fetch).not.toHaveBeenCalled();
+});
+
+test('メニューの無い旧い指名なし予約 → 担当制で絞り込まず全スタッフの枠を見る', async () => {
+  const tables = mockUnnominated({ ...BOOKING, staff_id: null, menu_id: null, menu_ids: null });
+  const fetchMock = jest.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ slots: [] }) }));
+  global.fetch = fetchMock as unknown as typeof fetch;
+
+  render(<BookingChangePage />);
+  expect(await screen.findByText('指名なし')).toBeInTheDocument();
+  fireEvent.click(screen.getAllByRole('button')[0]);
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+  expect(tables).not.toContain('menu_staff');
+});

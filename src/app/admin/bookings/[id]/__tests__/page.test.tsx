@@ -44,6 +44,13 @@ test('locates exact tenant before customer fields; ordered all menus and return 
   expect(mockQueries[3].filters).toContainEqual(['eq','facility_id',facilityId]);
   expect(screen.getAllByRole('link').some(link => link.getAttribute('href') === `/admin/bookings?facility_id=${facilityId}`)).toBe(true);
 });
+test.each([[true, '指名なし（担当: 合成担当）'], [false, '合成担当']])('担当スタッフ欄は指名なしの割り当て(%s)を指名と区別する', async (autoAssigned, label) => {
+  const staffId = '76000000-0000-4000-8000-000000000001';
+  (mockResults.bookings[1] as { data: Record<string, unknown> }).data.staff_id = staffId;
+  (mockResults.bookings[1] as { data: Record<string, unknown> }).data.staff_auto_assigned = autoAssigned;
+  mockResults.staff_profiles = [{ data: { name: '合成担当' }, error: null }];
+  show(); expect(await screen.findByText(label)).toBeInTheDocument();
+});
 test('not a member never loads customer fields', async () => {
   mockResults.facility_members = [{ data: null, error: null }]; show(); await screen.findByText('予約が見つかりません');
   expect(mockQueries.filter(q => q.table === 'bookings')).toHaveLength(1);

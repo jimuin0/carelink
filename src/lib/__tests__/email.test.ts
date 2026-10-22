@@ -398,6 +398,18 @@ describe('buildBookingRescheduleToFacilityEnvelope', () => {
     expect(envelope.html).toContain('/admin/bookings');
     expect(mockSend).not.toHaveBeenCalled();
   });
+
+  // 「管理画面で確認する」は白文字の太字・本文サイズ。#0ea5e9（約2.8:1）は WCAG AA（4.5:1）に届かない。
+  test('ボタンは共通スタイル（#0369A1・白文字 約5.9:1）で、AA 未満の #0ea5e9 を使わない', () => {
+    const { buildBookingRescheduleToFacilityEnvelope, EMAIL_BUTTON_STYLE } = require('../email');
+    const envelope = buildBookingRescheduleToFacilityEnvelope({
+      ...baseData, facilityEmail: 'salon@example.com',
+      previous: { bookingDate: '2026-03-31', startTime: '15:00:00', endTime: '16:00:00' },
+    });
+    expect(EMAIL_BUTTON_STYLE).toContain('background:#0369A1;color:#fff;');
+    expect(envelope.html).toContain(`style="${EMAIL_BUTTON_STYLE}">管理画面で確認する</a>`);
+    expect(envelope.html).not.toContain('background:#0ea5e9');
+  });
 });
 
 describe('sendBookingStatusUpdate', () => {

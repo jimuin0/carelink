@@ -14,13 +14,27 @@
 --    have no overlapping reservation including the facility buffer, and handle
 --    every booked menu per menu_staff. Ties are broken by sort_order, then id.
 --    No free member raises BOOKING_CONFLICT.
---  * Reservations already stored without a staff member (legacy) still occupy
---    capacity: when one overlaps, every path (named create, おまかせ create,
---    named change, get_available_slots) refuses once the overlapping
---    reservations of the facility reach the number of staff working the slot.
+--  * The assignment is not a nomination. bookings.staff_auto_assigned records
+--    that nobody was nominated, so the rebook link does not preselect (and
+--    charge the nomination fee of) the assigned member, the shop sees
+--    「指名なし（担当: X）」, and a customer date change re-runs the assignment
+--    instead of pinning the reservation to the first member (20261022100100).
+--  * The assigned member's own LINE WORKS channel is told about the new
+--    reservation, as a nominated member's channel is.
+--  * Reservations that need "any" working staff still occupy capacity: legacy
+--    rows stored without a staff member, and assigned rows whose member no
+--    longer works that time (holiday or schedule saved over them, deactivated).
+--    When one overlaps, every path (named create, おまかせ create, change,
+--    get_available_slots) refuses once the overlapping reservations of the
+--    facility reach the number of staff working the slot.
 --
 -- No data rewrite. Production has no future reservations without staff.
 -- Receipt and manual-booking wrappers keep their signatures and grants.
+--
+-- Order: apply this migration BEFORE deploying the application that selects
+-- bookings.staff_auto_assigned (My Page, admin lists and the schedule board would
+-- otherwise get PostgREST 400 for an unknown column). The current worker already
+-- accepts the LINE WORKS job queued here. 20261022100100 comes after the deploy.
 DO $guard$
 BEGIN
   IF to_regclass('public.facility_profiles') IS NULL THEN
@@ -28,6 +42,12 @@ BEGIN
   END IF;
 END
 $guard$;
+
+-- Metadata-only on PostgreSQL 11+ (constant default): existing rows read false,
+-- which is right for them (nominated, or legacy rows without staff).
+ALTER TABLE public.bookings ADD COLUMN IF NOT EXISTS staff_auto_assigned boolean NOT NULL DEFAULT false;
+COMMENT ON COLUMN public.bookings.staff_auto_assigned IS
+  'true: nobody was nominated (おまかせ / 指名なし); staff_id is the member the booking RPC assigned. Not a nomination: no nomination fee, no rebook preset, reassigned on a customer date change.';
 
 -- Same working-window rule as the existing G2 capacity count and the named gate:
 -- a date override replaces the weekly schedule; a holiday override closes the day.
@@ -47,19 +67,70 @@ $$;
 REVOKE ALL ON FUNCTION public.booking_staff_works_slot(uuid,date,time,time) FROM PUBLIC, anon, authenticated;
 
 -- Internal helpers: only the SECURITY DEFINER booking functions (as owner) call them.
--- True when a reservation without a staff member overlaps the slot and the
--- overlapping reservations of the facility already fill the working staff.
--- p_exclude_booking_id leaves out the reservation being moved.
+-- True for a reservation that needs "any" working staff member rather than its own:
+-- stored without staff (legacy), or assigned automatically to a member who is no
+-- longer active or no longer works that time. A nominated member's absence is the
+-- shop's to resolve with the customer and does not take another member's time.
+CREATE OR REPLACE FUNCTION public.booking_needs_any_staff(
+  p_staff_id uuid, p_auto_assigned boolean, p_facility_id uuid, p_date date, p_start time, p_end time)
+RETURNS boolean LANGUAGE sql STABLE SECURITY INVOKER SET search_path = '' AS $$
+  SELECT p_staff_id IS NULL OR (p_auto_assigned IS TRUE AND NOT (
+    EXISTS (SELECT 1 FROM public.staff_profiles sp
+      WHERE sp.id = p_staff_id AND sp.facility_id = p_facility_id AND sp.is_active = true)
+    AND public.booking_staff_works_slot(p_staff_id, p_date, p_start, p_end)));
+$$;
+REVOKE ALL ON FUNCTION public.booking_needs_any_staff(uuid,boolean,uuid,date,time,time) FROM PUBLIC, anon, authenticated;
+
+-- The free member for a reservation without a nomination: active, working the
+-- whole slot, no overlapping reservation including the buffer (the moved
+-- reservation itself excluded), and able to handle every menu per menu_staff
+-- (a menu with rows is handled only by the listed staff; without rows by all).
+-- The preferred member (the current one on a change) wins while still free so a
+-- change does not move the reservation between staff without need; otherwise
+-- sort_order, then id. NULL when nobody is free.
+CREATE OR REPLACE FUNCTION public.booking_pick_free_staff(
+  p_facility_id uuid, p_date date, p_start time, p_end time, p_buffer_minutes int,
+  p_menu_ids uuid[], p_exclude_booking_id uuid, p_prefer_staff_id uuid)
+RETURNS uuid LANGUAGE sql STABLE SECURITY INVOKER SET search_path = '' AS $$
+  SELECT sp.id
+  FROM public.staff_profiles sp
+  WHERE sp.facility_id = p_facility_id
+    AND sp.is_active = true
+    AND public.booking_staff_works_slot(sp.id, p_date, p_start, p_end)
+    AND NOT EXISTS (
+      SELECT 1 FROM public.bookings b
+      WHERE b.staff_id = sp.id
+        AND b.booking_date = p_date
+        AND b.status NOT IN ('cancelled', 'no_show', 'cancel_fee_paid')
+        AND b.id IS DISTINCT FROM p_exclude_booking_id
+        AND b.start_time < p_end + (COALESCE(p_buffer_minutes, 0) || ' minutes')::interval
+        AND b.end_time + (COALESCE(p_buffer_minutes, 0) || ' minutes')::interval > p_start
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM unnest(COALESCE(p_menu_ids, ARRAY[]::uuid[])) AS chosen(id)
+      WHERE chosen.id IS NOT NULL
+        AND EXISTS (SELECT 1 FROM public.menu_staff ms WHERE ms.menu_id = chosen.id)
+        AND NOT EXISTS (SELECT 1 FROM public.menu_staff ms WHERE ms.menu_id = chosen.id AND ms.staff_id = sp.id)
+    )
+  ORDER BY (sp.id IS NOT DISTINCT FROM p_prefer_staff_id) DESC, sp.sort_order NULLS LAST, sp.id
+  LIMIT 1;
+$$;
+REVOKE ALL ON FUNCTION public.booking_pick_free_staff(uuid,date,time,time,integer,uuid[],uuid,uuid) FROM PUBLIC, anon, authenticated;
+
+-- True when a reservation that needs any working staff (see above) overlaps the
+-- slot and the overlapping reservations of the facility already fill the
+-- working staff. p_exclude_booking_id leaves out the reservation being moved.
 CREATE OR REPLACE FUNCTION public.booking_unassigned_capacity_full(
   p_facility_id uuid, p_date date, p_start time, p_end time, p_buffer_minutes int, p_exclude_booking_id uuid)
 RETURNS boolean LANGUAGE sql STABLE SECURITY INVOKER SET search_path = '' AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.bookings b
-    WHERE b.facility_id = p_facility_id AND b.booking_date = p_date AND b.staff_id IS NULL
+    WHERE b.facility_id = p_facility_id AND b.booking_date = p_date
       AND b.status NOT IN ('cancelled', 'no_show', 'cancel_fee_paid')
       AND b.id IS DISTINCT FROM p_exclude_booking_id
       AND b.start_time < p_end + (COALESCE(p_buffer_minutes, 0) || ' minutes')::interval
       AND b.end_time + (COALESCE(p_buffer_minutes, 0) || ' minutes')::interval > p_start
+      AND public.booking_needs_any_staff(b.staff_id, b.staff_auto_assigned, b.facility_id, b.booking_date, b.start_time, b.end_time)
   ) AND (
     SELECT count(*) FROM public.bookings b
     WHERE b.facility_id = p_facility_id AND b.booking_date = p_date
@@ -245,27 +316,9 @@ BEGIN
 
     -- おまかせ: store a concrete free staff member so that later named reservations,
     -- changes and get_available_slots see the slot as taken by that member.
-    SELECT sp.id INTO v_staff_id
-    FROM staff_profiles sp
-    WHERE sp.facility_id = p_facility_id
-      AND sp.is_active = true
-      AND public.booking_staff_works_slot(sp.id, p_booking_date, p_start_time, p_end_time)
-      AND NOT EXISTS (
-        SELECT 1 FROM bookings b
-        WHERE b.staff_id = sp.id
-          AND b.booking_date = p_booking_date
-          AND b.status NOT IN ('cancelled', 'no_show', 'cancel_fee_paid')
-          AND b.start_time < p_end_time + (v_buffer_minutes || ' minutes')::INTERVAL
-          AND b.end_time + (v_buffer_minutes || ' minutes')::INTERVAL > p_start_time
-      )
-      -- menu_staff: a menu with rows is handled only by the listed staff; a menu without rows by everyone.
-      AND NOT EXISTS (
-        SELECT 1 FROM unnest(v_menu_ids) AS chosen(id)
-        WHERE EXISTS (SELECT 1 FROM menu_staff ms WHERE ms.menu_id = chosen.id)
-          AND NOT EXISTS (SELECT 1 FROM menu_staff ms WHERE ms.menu_id = chosen.id AND ms.staff_id = sp.id)
-      )
-    ORDER BY sp.sort_order NULLS LAST, sp.id
-    LIMIT 1;
+    -- staff_auto_assigned (below) keeps it from reading as a nomination.
+    v_staff_id := public.booking_pick_free_staff(p_facility_id, p_booking_date, p_start_time, p_end_time,
+      v_buffer_minutes, v_menu_ids, NULL, NULL);
 
     IF v_staff_id IS NULL THEN
       RAISE EXCEPTION 'BOOKING_CONFLICT: この時間帯は既に予約が入っています';
@@ -283,12 +336,12 @@ BEGIN
   END IF;
 
   INSERT INTO bookings (
-    facility_id, staff_id, user_id, menu_id, coupon_id,
+    facility_id, staff_id, staff_auto_assigned, user_id, menu_id, coupon_id,
     booking_date, start_time, end_time,
     customer_name, email, phone, note,
     total_price, points_used, status
   ) VALUES (
-    p_facility_id, v_staff_id, p_user_id, p_menu_id, p_coupon_id,
+    p_facility_id, v_staff_id, p_staff_id IS NULL, p_user_id, p_menu_id, p_coupon_id,
     p_booking_date, p_start_time, p_end_time,
     p_customer_name, p_email, p_phone, p_note,
     p_total_price, p_points_used, p_status
@@ -412,15 +465,40 @@ GRANT EXECUTE ON FUNCTION public.create_manual_booking_atomic(uuid, uuid, jsonb)
 -- The notification snapshot names the staff member the customer chose. An
 -- assigned おまかせ member is internal and must not make the client-built
 -- snapshot (staff_name null) look changed (BOOKING_NOTIFICATION_SNAPSHOT_CHANGED).
+--
+-- The client plan only knows the members it can see before the assignment
+-- (the nominated one and notify_all channels). For おまかせ the assigned
+-- member's own channel is queued here, in the same transaction, unless a
+-- notify_all channel already covers it. start_booking_create_notification
+-- accepts it at send time because that member is the reservation's staff_id.
 DO $$
-DECLARE definition text; old text;
+DECLARE definition text; old_snapshot text; old_response text; assigned_works text;
 BEGIN
   definition := pg_catalog.pg_get_functiondef('public.create_booking_with_receipt_atomic(uuid,uuid,text,text,uuid,uuid,uuid,uuid,date,time,time,text,text,text,text,integer,integer,text,uuid[],jsonb)'::regprocedure);
-  old := 'LEFT JOIN public.staff_profiles s ON s.id=b.staff_id WHERE f.id=b.facility_id;';
-  IF strpos(definition, old) = 0 OR (length(definition) - length(replace(definition, old, ''))) / length(old) <> 1 THEN
+  old_snapshot := 'LEFT JOIN public.staff_profiles s ON s.id=b.staff_id WHERE f.id=b.facility_id;';
+  old_response := '  response:=jsonb_build_object(''success'',true,''state'',''accepted'',';
+  IF strpos(definition, old_snapshot) = 0
+    OR (length(definition) - length(replace(definition, old_snapshot, ''))) / length(old_snapshot) <> 1 THEN
     RAISE EXCEPTION 'BOOKING_RECEIPT_STAFF_SNAPSHOT_FORWARD_UPDATE_MISMATCH';
   END IF;
-  EXECUTE replace(definition, old, 'LEFT JOIN public.staff_profiles s ON s.id=p_staff_id WHERE f.id=b.facility_id;');
+  IF strpos(definition, old_response) = 0
+    OR (length(definition) - length(replace(definition, old_response, ''))) / length(old_response) <> 1 THEN
+    RAISE EXCEPTION 'BOOKING_RECEIPT_ASSIGNED_WORKS_FORWARD_UPDATE_MISMATCH';
+  END IF;
+  assigned_works := '  IF p_staff_id IS NULL AND (context->>''works_enabled'')::boolean THEN' || chr(10)
+    || '    INSERT INTO public.webhook_retry_queue(id,webhook_type,target_id,facility_id,payload,status,scheduled_at)' || chr(10)
+    || '      SELECT gen_random_uuid(),''booking_creation_lineworks'',s.line_works_channel_id,p_facility_id,' || chr(10)
+    || '        jsonb_build_object(''customerName'',b.customer_name,''menuName'',snapshot->>''menu_name'',''bookingDate'',b.booking_date::text,' || chr(10)
+    || '          ''startTime'',to_char(b.start_time,''HH24:MI''),''staffName'',s.name,''dispatch_version'',2,' || chr(10)
+    || '          ''booking_snapshot'',snapshot-ARRAY[''email'',''facility_name'',''end_time'',''total_price'',''status''],' || chr(10)
+    || '          ''booking_create_operation'',p_id::text,''booking_id'',booking_new_id::text,''booking_role'',''staff''),' || chr(10)
+    || '        ''pending'',clock_timestamp()' || chr(10)
+    || '      FROM public.staff_profiles s' || chr(10)
+    || '      WHERE s.id=b.staff_id AND s.facility_id=p_facility_id AND nullif(s.line_works_channel_id,'''') IS NOT NULL' || chr(10)
+    || '        AND NOT (s.line_works_channel_id=ANY(expected_works));' || chr(10)
+    || '  END IF;' || chr(10);
+  definition := replace(definition, old_snapshot, 'LEFT JOIN public.staff_profiles s ON s.id=p_staff_id WHERE f.id=b.facility_id;');
+  EXECUTE replace(definition, old_response, assigned_works || old_response);
 END;
 $$;
 REVOKE ALL ON FUNCTION public.create_booking_with_receipt_atomic(uuid,uuid,text,text,uuid,uuid,uuid,uuid,date,time,time,text,text,text,text,int,int,text,uuid[],jsonb) FROM PUBLIC,anon,authenticated;
@@ -444,8 +522,9 @@ $$;
 REVOKE ALL ON FUNCTION public.start_booking_create_notification(uuid,timestamptz) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.start_booking_create_notification(uuid,timestamptz) TO service_role;
 
--- get_available_slots (20261002012045): a named member's slot is also closed
--- when legacy reservations without staff already fill the working staff.
+-- get_available_slots (20261002012045): a member's slot is also closed when
+-- reservations that need any working staff (legacy without staff, or assigned to
+-- a member who no longer works them) already fill the working staff.
 CREATE OR REPLACE FUNCTION public.get_available_slots(
   p_facility_id UUID,
   p_staff_id UUID,
@@ -524,11 +603,13 @@ BEGIN
     END IF;
   END IF;
 
-  -- Only days with a legacy reservation without staff pay for the capacity count per slot.
+  -- Only days with a reservation that needs any working staff (legacy without staff,
+  -- or assigned to a member who no longer works it) pay for the capacity count per slot.
   v_has_unassigned := EXISTS (
     SELECT 1 FROM bookings b
-    WHERE b.facility_id = p_facility_id AND b.booking_date = p_date AND b.staff_id IS NULL
+    WHERE b.facility_id = p_facility_id AND b.booking_date = p_date
       AND b.status NOT IN ('cancelled', 'no_show', 'cancel_fee_paid')
+      AND public.booking_needs_any_staff(b.staff_id, b.staff_auto_assigned, b.facility_id, b.booking_date, b.start_time, b.end_time)
   );
 
   v_current_start := v_work_start;

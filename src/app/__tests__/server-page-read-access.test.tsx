@@ -70,3 +70,22 @@ test.each(cases.filter(c=>c.name.startsWith('customer')||['blog','catalog','funn
 test('platform blog genuine denied privilege stays 404',async()=>{mockPlatformDenied=true;await expect(PlatformBlog()).rejects.toThrow('NEXT_NOT_FOUND');});
 test.each([null,undefined,-1,NaN,Infinity,1.5])('funnel unknown or invalid count %s does not become zero',async count=>{mockPage='funnel';mockCount=count;await expect(Funnel()).rejects.toThrow('PAGE_DATA_UNAVAILABLE');});
 test('genuine zero funnel counts still render the analytics page',async()=>{mockPage='funnel';mockCount=0;const html=renderToStaticMarkup(await Funnel());expect(html).toContain('ページ閲覧');expect(html).not.toContain('role="alert"');});
+
+// おまかせ（指名なし）の予約も予約 RPC が担当者を割り当てて staff_id に保存する。再予約リンクにその担当者を
+// 載せると予約画面が指名として選び、指名料がかかる（回帰防止）。指名した予約だけスタッフを引き継ぐ。
+test('booking history rebook links carry the staff member only for a nominated booking',async()=>{
+ const staff='22222222-2222-4222-8222-222222222222';
+ const rows=[
+  {id:'b-auto',facility_id:id,booking_date:'2026-10-16',start_time:'10:00',end_time:'10:30',status:'completed',total_price:100,menu_id:'m1',staff_id:staff,staff_auto_assigned:true},
+  {id:'b-named',facility_id:id,booking_date:'2026-10-15',start_time:'10:00',end_time:'10:30',status:'cancelled',total_price:100,menu_id:'m1',staff_id:staff,staff_auto_assigned:false},
+ ];
+ mockFrom.mockImplementation((table:string)=>{
+  if(table!=='bookings')return query(table);
+  const q:Record<string,unknown>={then:(resolve:unknown,reject:unknown)=>Promise.resolve({data:rows,error:null}).then(resolve as never,reject as never)};
+  for(const method of ['select','eq','order'])q[method]=jest.fn(()=>q);return q;
+ });
+ const html=renderToStaticMarkup(await Bookings());
+ expect(html).toContain('href="/facility/synthetic/booking?menu_id=m1"');
+ expect(html).toContain(`href="/facility/synthetic/booking?menu_id=m1&amp;staff_id=${staff}"`);
+ expect(html.match(/staff_id=/g)).toHaveLength(1);
+});

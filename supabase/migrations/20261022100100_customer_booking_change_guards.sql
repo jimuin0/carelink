@@ -4,8 +4,14 @@
 --    customer (the cancellation already refuses with BOOKING_ALREADY_STARTED).
 --    Before, change_booking_atomic accepted it, so a customer could move a
 --    reservation they never attended to another day.
--- 2. A named-staff change also counts legacy reservations without a staff
---    member (see 20261022100000_booking_staff_assignment.sql).
+-- 2. A change also counts reservations that need any working staff (see
+--    20261022100000_booking_staff_assignment.sql). A reservation without a
+--    nomination (おまかせ: staff_auto_assigned, or a legacy row without staff)
+--    is assigned again at the new time, preferring its current member while
+--    that member is free. Before, an assigned おまかせ reservation was pinned to
+--    its first member: the change failed with STAFF_NOT_WORKING or
+--    BOOKING_CONFLICT whenever that member was busy or off, even with others free.
+--    Only a nominated reservation keeps its member.
 -- 3. The shop owner/admin addresses that receive the cancellation email now
 --    also receive an email when the customer changes the date/time, with the
 --    previous and the new date/time. Before, only the customer was emailed.
@@ -42,10 +48,13 @@ DECLARE
   v_owner UUID;
   v_old_date DATE;
   v_old_start TIME;
+  v_auto_assigned BOOLEAN;
+  v_menu_id UUID;
+  v_menu_ids UUID[];
+  -- Only a nominated reservation keeps its staff member; otherwise it is assigned again.
+  v_nominated BOOLEAN;
   v_conflict_count INT;
-  v_active_staff INT;
   v_lock_key BIGINT;
-  v_dow INT;
   v_buffer_minutes INT;
   -- スケジュールゲート専用変数（既存ロジックの変数と共有しない＝既存挙動へ波及させない）
   v_business_hours JSONB;
@@ -59,8 +68,8 @@ DECLARE
   v_gate_work_end TIME;
 BEGIN
   PERFORM public.lock_booking_account(p_user_id);
-  SELECT facility_id, staff_id, status, user_id, booking_date, start_time
-    INTO v_facility_id, v_staff_id, v_status, v_owner, v_old_date, v_old_start
+  SELECT facility_id, staff_id, status, user_id, booking_date, start_time, staff_auto_assigned, menu_id, menu_ids
+    INTO v_facility_id, v_staff_id, v_status, v_owner, v_old_date, v_old_start, v_auto_assigned, v_menu_id, v_menu_ids
   FROM bookings
   WHERE id = p_booking_id;
 
@@ -77,6 +86,7 @@ BEGIN
   IF (v_old_date + v_old_start) AT TIME ZONE 'Asia/Tokyo' < clock_timestamp() THEN
     RAISE EXCEPTION 'BOOKING_ALREADY_STARTED';
   END IF;
+  v_nominated := v_staff_id IS NOT NULL AND v_auto_assigned IS NOT TRUE;
 
   PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('carelink-staff-schedule:' || v_facility_id::text,0));
   v_lock_key := ('x' || left(md5(v_facility_id::text || p_booking_date::text), 16))::bit(64)::bigint;
@@ -101,7 +111,7 @@ BEGIN
     IF NOT public.facility_booking_ready(v_facility_id) THEN
       RAISE EXCEPTION 'BOOKING_NOT_READY: ネット予約は準備中です';
     END IF;
-    IF v_staff_id IS NOT NULL AND NOT EXISTS (
+    IF v_nominated AND NOT EXISTS (
       SELECT 1 FROM public.staff_profiles WHERE id=v_staff_id AND facility_id=v_facility_id AND is_active
     ) THEN RAISE EXCEPTION 'STAFF_NOT_WORKING: 担当スタッフは現在受付していません'; END IF;
     v_gate_dow := EXTRACT(DOW FROM p_booking_date)::int;
@@ -127,9 +137,10 @@ BEGIN
       END IF;
     END IF;
 
-    -- b. 指名スタッフ勤務窓ゲート（変更対象予約の担当スタッフに対して。get_available_slots と
+    -- b. 指名スタッフ勤務窓ゲート（指名予約の担当スタッフに対して。get_available_slots と
     --    同じ優先順: schedule_overrides の当日行 → staff_schedules の当曜日行）。
-    IF v_staff_id IS NOT NULL THEN
+    --    指名なし（おまかせ）は下の割り当てが勤務窓を満たすスタッフだけを選ぶ。
+    IF v_nominated THEN
       SELECT so.is_holiday, so.start_time, so.end_time
       INTO v_gate_is_holiday, v_gate_work_start, v_gate_work_end
       FROM schedule_overrides so
@@ -157,7 +168,7 @@ BEGIN
     END IF;
   END IF;
 
-  IF v_staff_id IS NOT NULL THEN
+  IF v_nominated THEN
     SELECT COUNT(*) INTO v_conflict_count
     FROM bookings
     WHERE staff_id = v_staff_id
@@ -171,40 +182,26 @@ BEGIN
       RAISE EXCEPTION 'BOOKING_CONFLICT: この時間帯は既に予約が入っています';
     END IF;
 
-    -- A legacy reservation without a staff member still needs one of the working staff.
+    -- A reservation that needs any working staff still needs one of them.
     IF public.booking_unassigned_capacity_full(v_facility_id, p_booking_date, p_start_time, p_end_time, v_buffer_minutes, p_booking_id) THEN
       RAISE EXCEPTION 'BOOKING_CONFLICT: この時間帯は既に予約が入っています';
     END IF;
   ELSE
-    SELECT COUNT(*) INTO v_conflict_count
-    FROM bookings
-    WHERE facility_id = v_facility_id
-      AND booking_date = p_booking_date
-      AND status NOT IN ('cancelled', 'no_show', 'cancel_fee_paid')
-      AND id <> p_booking_id
-      AND start_time < p_end_time + (v_buffer_minutes || ' minutes')::INTERVAL
-      AND end_time + (v_buffer_minutes || ' minutes')::INTERVAL > p_start_time;
+    IF public.booking_unassigned_capacity_full(v_facility_id, p_booking_date, p_start_time, p_end_time, v_buffer_minutes, p_booking_id) THEN
+      RAISE EXCEPTION 'BOOKING_CONFLICT: この時間帯は既に予約が入っています';
+    END IF;
 
-    -- G2: おまかせ容量は勤務中スタッフ数（get_available_slots ミラー）。
-    v_dow := EXTRACT(DOW FROM p_booking_date)::int;
-    SELECT COUNT(*) INTO v_active_staff
-    FROM staff_profiles sp
-    WHERE sp.facility_id = v_facility_id
-      AND sp.is_active = true
-      AND EXISTS (
-        -- 相関サブクエリ: ダミー1行に対し当該スタッフ(sp.id)の当日 override と週間 schedule を
-        -- LEFT JOIN し、勤務窓が予約時間帯を包含するか判定する（外部 sp.id は ON 句で参照＝相関で正当）。
-        SELECT 1
-        FROM (SELECT 1) dummy
-        LEFT JOIN schedule_overrides so ON so.staff_id = sp.id AND so.date = p_booking_date
-        LEFT JOIN staff_schedules ss ON ss.staff_id = sp.id AND ss.day_of_week = v_dow
-        WHERE NOT (so.is_holiday IS TRUE)
-          AND (CASE WHEN so.start_time IS NOT NULL THEN so.start_time ELSE ss.start_time END) IS NOT NULL
-          AND (CASE WHEN so.start_time IS NOT NULL THEN so.start_time ELSE ss.start_time END) <= p_start_time
-          AND (CASE WHEN so.start_time IS NOT NULL THEN so.end_time   ELSE ss.end_time   END) >= p_end_time
-      );
+    -- 指名なし: the same assignment as a new おまかせ reservation (every booked menu,
+    -- the reservation itself excluded), keeping the current member while free.
+    v_staff_id := public.booking_pick_free_staff(v_facility_id, p_booking_date, p_start_time, p_end_time, v_buffer_minutes,
+      ARRAY(
+        SELECT DISTINCT chosen.id
+        FROM unnest(array_append(COALESCE(v_menu_ids, ARRAY[]::uuid[]), v_menu_id)) AS chosen(id)
+        WHERE chosen.id IS NOT NULL
+      ),
+      p_booking_id, v_staff_id);
 
-    IF v_conflict_count >= v_active_staff THEN
+    IF v_staff_id IS NULL THEN
       RAISE EXCEPTION 'BOOKING_CONFLICT: この時間帯は既に予約が入っています';
     END IF;
   END IF;
@@ -213,6 +210,8 @@ BEGIN
   SET booking_date = p_booking_date,
       start_time = p_start_time,
       end_time = p_end_time,
+      staff_id = v_staff_id,
+      staff_auto_assigned = NOT v_nominated,
       updated_at = NOW()
   WHERE id = p_booking_id;
 END;
