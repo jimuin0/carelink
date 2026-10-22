@@ -80,7 +80,7 @@ export default function PrivacyPage() {
           <ul className="list-disc pl-6 text-gray-600 space-y-1">
             <li>Supabase, Inc.（米国）：データベースおよび認証基盤の提供</li>
             <li>Vercel Inc.（米国）：Webホスティングの提供</li>
-            <li>Google LLC（米国）：アクセス解析（Google Analytics 4）および認証連携</li>
+            <li>Google LLC（米国）：アクセス解析（Google Analytics 4）、施設ページの地図表示（Google マップ）および認証連携</li>
             <li>Microsoft Corporation（米国）：ユーザー行動分析（Microsoft Clarity）</li>
             <li>LINEヤフー株式会社（日本）：認証連携およびメッセージ配信</li>
             <li>Resend, Inc.（米国）：メール配信（予約確認・リマインド・お問い合わせ返信等。宛先メールアドレス・氏名・予約内容を含みます）</li>
@@ -145,6 +145,7 @@ export default function PrivacyPage() {
           <ul className="list-disc pl-6 text-gray-600 space-y-1">
             <li>Google Analytics 4（GA4）：アクセス解析</li>
             <li>Microsoft Clarity：ユーザー行動分析（ヒートマップ・セッション録画）</li>
+            <li>Google マップ（Google LLC）：施設ページの地図表示（地図を読み込む際に、閲覧者のIPアドレス・ブラウザーの情報・本サービスのドメイン名がGoogleへ送信されます）</li>
           </ul>
           <p className="text-gray-600 mt-2">
             これらのツールはCookieを使用しますが、個人を特定する情報は含まれません。ブラウザの設定によりCookieの受け取りを拒否することができます。

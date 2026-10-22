@@ -48,27 +48,36 @@ export default async function AdminCouponsPage(props: { searchParams: Promise<{ 
 
       {coupons.length === 0 ? (
         <div className="bg-white rounded-xl p-8 text-center">
-          <p className="text-gray-400 mb-3">クーポンがありません</p>
+          <p className="text-gray-500 mb-3">クーポンがありません</p>
           <Link href={`/admin/coupons/new?facility_id=${facilityId}`} className="text-sm text-primary hover:underline">
             最初のクーポンを作成
           </Link>
         </div>
       ) : (
         <div className="space-y-3">
-          {coupons.map((coupon) => (
+          {/* 無効（is_active が true でない）クーポンも一覧に残し、編集画面から再開できるようにする。
+              公開ページ・予約画面には出ない（getActiveCouponsByFacility と RLS coupons_public_read）。
+              有効なものを先に、無効なものを後ろに並べる（それぞれの中では並び順を保つ）。 */}
+          {[...coupons.filter((c) => c.is_active === true), ...coupons.filter((c) => c.is_active !== true)].map((coupon) => (
             <div key={coupon.id} className="bg-white rounded-xl p-4 shadow-xs">
               <div className="flex items-start justify-between">
                 <div>
                   <div className="flex items-center gap-2 mb-1">
+                    {coupon.is_active !== true && (
+                      <span className="text-micro font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">無効</span>
+                    )}
                     <CouponBadge type={coupon.coupon_type} />
                     {coupon.valid_until && (
-                      <span className="text-micro text-gray-400">
+                      <span className="text-micro text-gray-500">
                         ~{new Date(coupon.valid_until).toLocaleDateString('ja-JP')}
                       </span>
                     )}
                   </div>
                   <p className="font-bold">{coupon.name}</p>
                   {coupon.description && <p className="text-sm text-gray-500 mt-1">{coupon.description}</p>}
+                  {coupon.is_active !== true && (
+                    <p className="text-xs text-gray-600 mt-1">お客様には表示されません。再開するには「編集」で「有効」にチェックを入れて保存してください。</p>
+                  )}
                 </div>
                 <div className="text-right">
                   {discountText(coupon) && (

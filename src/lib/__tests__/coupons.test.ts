@@ -6,7 +6,7 @@ jest.mock('../supabase-server', () => ({
   createServerSupabaseClient: () => ({ from: mockFrom }),
 }));
 
-import { getCouponsByFacility, getActiveCouponsByFacility, getCouponMenus } from '../coupons';
+import { getCouponsByFacility, getActiveCouponsByFacility, getCouponMenus, getCouponMenuMap } from '../coupons';
 
 beforeEach(() => {
   mockFrom.mockReset();
@@ -36,7 +36,20 @@ describe('getCouponsByFacility', () => {
     expect(result).toEqual(coupons);
     expect(mockFrom).toHaveBeenCalledWith('coupons');
     expect(chain.eq).toHaveBeenCalledWith('facility_id', 'fac-1');
-    expect(chain.eq).toHaveBeenCalledWith('is_active', true);
+  });
+
+  // 【回帰防止・2026年10月22日】管理一覧は無効（is_active=false）のクーポンも返す。
+  // is_active で絞ると、「有効」を外して保存したクーポンが一覧から消え、二度と有効に戻せない。
+  test('無効なクーポンも返す（is_active で絞らない）', async () => {
+    const coupons = [{ id: 'c-1', is_active: true }, { id: 'c-2', is_active: false }];
+    const chain = fluent({ data: coupons });
+    mockFrom.mockReturnValue(chain);
+
+    const result = await getCouponsByFacility('fac-1');
+    expect(result).toEqual(coupons);
+    // select と eq は同じ mock なので、is_active への絞り込みが 1 度も無いことだけを見る。
+    expect(chain.eq).toHaveBeenCalledWith('facility_id', 'fac-1');
+    expect(chain.eq.mock.calls.filter((c: unknown[]) => c[0] === 'is_active')).toEqual([]);
   });
 
   test('データがない場合は空配列', async () => {
@@ -132,3 +145,34 @@ test('owner list uses the authenticated cookie context', async () => { mockFrom.
 test.each([getCouponsByFacility,getActiveCouponsByFacility])('coupon lookup failure is never an empty successful list %#', async read => { mockFrom.mockReturnValue(fluent({data:null,error:{code:'08006',message:'private source'}})); await expect(read('fac-1')).rejects.toThrow('DATABASE_FAILURE:08006'); });
 
 test('coupon-menu lookup failure is never interpreted as applies to all menus', async () => { mockFrom.mockReturnValue({select:()=>({eq:()=>Promise.resolve({data:null,error:{code:'08006'}})})}); await expect(getCouponMenus('c-1')).rejects.toThrow('DATABASE_FAILURE:08006'); });
+
+describe('getCouponMenuMap', () => {
+  test('クーポンIDごとに対象メニューIDをまとめる（1クエリ）', async () => {
+    const inMock = jest.fn(() => Promise.resolve({ data: [
+      { coupon_id: 'c-1', menu_id: 'm-1' }, { coupon_id: 'c-1', menu_id: 'm-2' }, { coupon_id: 'c-2', menu_id: 'm-3' },
+    ], error: null }));
+    const select = jest.fn(() => ({ in: inMock }));
+    mockFrom.mockReturnValue({ select });
+    await expect(getCouponMenuMap(['c-1', 'c-2', 'c-3'])).resolves.toEqual({ 'c-1': ['m-1', 'm-2'], 'c-2': ['m-3'] });
+    expect(mockFrom).toHaveBeenCalledTimes(1);
+    expect(mockFrom).toHaveBeenCalledWith('coupon_menus');
+    expect(select).toHaveBeenCalledWith('coupon_id, menu_id');
+    expect(inMock).toHaveBeenCalledWith('coupon_id', ['c-1', 'c-2', 'c-3']);
+    expect(mockAuthCreator).not.toHaveBeenCalled();
+  });
+
+  test('クーポンが無ければ問い合わせない', async () => {
+    await expect(getCouponMenuMap([])).resolves.toEqual({});
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  test('行が無い（null）は空マップ', async () => {
+    mockFrom.mockReturnValue({ select: () => ({ in: () => Promise.resolve({ data: null, error: null }) }) });
+    await expect(getCouponMenuMap(['c-1'])).resolves.toEqual({});
+  });
+
+  test('取得失敗を「対象メニュー無し」に偽装しない', async () => {
+    mockFrom.mockReturnValue({ select: () => ({ in: () => Promise.resolve({ data: null, error: { code: '08006' } }) }) });
+    await expect(getCouponMenuMap(['c-1'])).rejects.toThrow('DATABASE_FAILURE:08006');
+  });
+});

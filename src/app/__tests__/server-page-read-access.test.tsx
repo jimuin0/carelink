@@ -19,19 +19,23 @@ jest.mock('@/lib/catalogs',()=>({getCatalogsByFacility:()=>mockCatalog()}));
 jest.mock('@/lib/points-balance',()=>({readPointsBalance:async()=>0}));
 jest.mock('@/lib/admin',()=>({getUniqueCustomers:async()=>[],getCustomerVisits:async()=>[]}));
 jest.mock('@/components/admin/CustomersManager',()=>({__esModule:true,default:()=> <div>private-customer-controls</div>}));
-jest.mock('next/navigation',()=>({notFound:()=>{throw new Error('NEXT_NOT_FOUND');},redirect:()=>{throw new Error('NEXT_REDIRECT');}}));
+jest.mock('next/navigation',()=>({notFound:()=>{throw new Error('NEXT_NOT_FOUND');},redirect:()=>{throw new Error('NEXT_REDIRECT');},useRouter:()=>({push:jest.fn()})}));
 jest.mock('@/lib/alert',()=>({alertCaughtError:jest.fn()}));
 jest.mock('@/lib/safe',()=>({safeCaptureException:jest.fn(),safeJsonLd:JSON.stringify}));
 const id='11111111-1111-4111-8111-111111111111',user={id:'synthetic-user'};
+// ブログ・カタログ・ファネル・利用状況は ?facility_id= で店舗を選ぶ（2026年10月22日）。所属の読み取りは
+// loadAdminFacilitySelection が行い、失敗は例外（エラー画面）になる。空の一覧や 0 件に偽装しないことは同じ。
+const noSelection={searchParams:Promise.resolve({})};
+const selectionPages=['blog','catalog','funnel','usage'];
 const cases=[
  {name:'points',run:()=>Points(),tables:['user_points']},
  {name:'coupons',run:()=>Coupons(),tables:['favorites','coupons','facility_profiles']},
  {name:'bookings',run:()=>Bookings(),tables:['bookings','facility_profiles']},
- {name:'blog',run:()=>Blog(),tables:['facility_members','blog_posts']},
+ {name:'blog',run:()=>Blog(noSelection),tables:['facility_members','blog_posts']},
  {name:'platform-blog',run:()=>PlatformBlog(),tables:['profiles','platform_blog_posts']},
- {name:'catalog',run:()=>Catalog(),tables:['facility_members','treatment_catalogs']},
- {name:'funnel',run:()=>Funnel(),tables:['facility_members','facility_page_views','bookings','facility_reviews']},
- {name:'usage',run:()=>Usage(),tables:['facility_members','bookings']},
+ {name:'catalog',run:()=>Catalog(noSelection),tables:['facility_members','treatment_catalogs']},
+ {name:'funnel',run:()=>Funnel(noSelection),tables:['facility_members','facility_page_views','bookings','facility_reviews']},
+ {name:'usage',run:()=>Usage(noSelection),tables:['facility_members','bookings']},
  {name:'customers',run:()=>Customers(),tables:['facility_members','facility_profiles']},
  {name:'customer',run:()=>Customer({params:Promise.resolve({id})}),tables:['facility_members','customers']},
 ];
@@ -48,7 +52,7 @@ function dataFor(table:string){
 function query(table:string){
  const finish=(single=false)=>{if(table===mockFaultTable&&mockFault==='throw')return Promise.reject(new Error('private-db-diagnostic'));const data=dataFor(table);return Promise.resolve({data:table===mockFaultTable&&mockFault==='null-error'?null:single?data[0]??null:data,count:mockCount,error:table===mockFaultTable?{code:'08006',message:'private-db-diagnostic'}:null});};
  const q:Record<string,unknown>={then:(resolve:unknown,reject:unknown)=>finish().then(resolve as never,reject as never),single:()=>finish(true),maybeSingle:()=>finish(true)};
- for(const method of ['select','eq','in','order','limit','gte'])q[method]=jest.fn(()=>q);return q;
+ for(const method of ['select','eq','in','order','limit','gte','range'])q[method]=jest.fn(()=>q);return q;
 }
 beforeEach(()=>{jest.clearAllMocks();mockFaultTable='';mockFault='';mockCount=1;mockNoMembership=false;mockPlatformDenied=false;mockAuth.mockResolvedValue({data:{user},error:null});mockFrom.mockImplementation(query);mockService.mockReturnValue({from:mockFrom});mockCatalog.mockResolvedValue([]);});
 describe.each(cases)('$name page',testCase=>{
@@ -62,14 +66,15 @@ describe.each(cases)('$name page',testCase=>{
  test.each(testCase.tables.flatMap(table=>['data-error','null-error','throw'].map(fault=>[table,fault])))('%s %s is an explicit read failure rather than empty or partial data',async(table,fault)=>{
   mockFaultTable=table;mockFault=fault;
   if(testCase.name==='points'||table==='profiles'){const html=renderToStaticMarkup(await testCase.run());expect(html).toContain('role=\"alert\"');expect(html).not.toContain('private-db-diagnostic');}
+  else if(table==='facility_members'&&selectionPages.includes(testCase.name)){await expect(testCase.run()).rejects.toThrow();expect(mockService).not.toHaveBeenCalled();}
   else await expect(testCase.run()).rejects.toThrow('PAGE_DATA_UNAVAILABLE');
  });
 });
 
 test.each(cases.filter(c=>c.name.startsWith('customer')||['blog','catalog','funnel','usage'].includes(c.name)))('$name genuine missing membership keeps 404',async testCase=>{mockPage=testCase.name;mockNoMembership=true;await expect(testCase.run()).rejects.toThrow('NEXT_NOT_FOUND');expect(mockService).not.toHaveBeenCalled();});
 test('platform blog genuine denied privilege stays 404',async()=>{mockPlatformDenied=true;await expect(PlatformBlog()).rejects.toThrow('NEXT_NOT_FOUND');});
-test.each([null,undefined,-1,NaN,Infinity,1.5])('funnel unknown or invalid count %s does not become zero',async count=>{mockPage='funnel';mockCount=count;await expect(Funnel()).rejects.toThrow('PAGE_DATA_UNAVAILABLE');});
-test('genuine zero funnel counts still render the analytics page',async()=>{mockPage='funnel';mockCount=0;const html=renderToStaticMarkup(await Funnel());expect(html).toContain('ページ閲覧');expect(html).not.toContain('role="alert"');});
+test.each([null,undefined,-1,NaN,Infinity,1.5])('funnel unknown or invalid count %s does not become zero',async count=>{mockPage='funnel';mockCount=count;await expect(Funnel(noSelection)).rejects.toThrow('PAGE_DATA_UNAVAILABLE');});
+test('genuine zero funnel counts still render the analytics page',async()=>{mockPage='funnel';mockCount=0;const html=renderToStaticMarkup(await Funnel(noSelection));expect(html).toContain('ページ閲覧');expect(html).not.toContain('role="alert"');});
 
 // おまかせ（指名なし）の予約も予約 RPC が担当者を割り当てて staff_id に保存する。再予約リンクにその担当者を
 // 載せると予約画面が指名として選び、指名料がかかる（回帰防止）。指名した予約だけスタッフを引き継ぐ。

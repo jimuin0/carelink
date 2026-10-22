@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import AdminFacilityScope, { type AdminFacilityScopeValue } from '@/components/admin/AdminFacilityScope';
 
 function sanitizeUrl(url: string): string {
   const trimmed = url.trim();
@@ -32,7 +33,15 @@ function simpleMarkdown(text: string): string {
 }
 
 export default function NewBlogPage() {
+  return <AdminFacilityScope title="ブログ新規作成" path="/admin/blog/new">{(scope) => <NewBlogForm {...scope} />}</AdminFacilityScope>;
+}
+
+// 投稿先の店舗は AdminFacilityScope が ?facility_id= と所属から決める（2026年10月22日）。以前は押下時に
+// facility_members を role も絞らず .limit(1).single() で 1 行だけ読み、2 店舗目のために書いた記事が
+// 1 店舗目の公開ページに載っていた。
+function NewBlogForm({ facilityId, choices }: AdminFacilityScopeValue) {
   const router = useRouter();
+  const listHref = `/admin/blog?facility_id=${facilityId}`;
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [isPublished, setIsPublished] = useState(false);
@@ -55,36 +64,30 @@ export default function NewBlogPage() {
     if (saving || !title || !content) return;
     setSaving(true);
 
-    const supabase = createBrowserSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setToast({ type: 'error', message: 'セッションが切れました。再ログインしてください' }); setSaving(false); return; }
+    try {
+      const res = await fetch(`/api/admin/blog?facility_id=${facilityId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content, is_published: isPublished }),
+      });
 
-    const { data: membership, error: memErr } = await supabase
-      .from('facility_members')
-      .select('facility_id')
-      .eq('user_id', user.id)
-      .limit(1)
-      .single();
-
-    if (memErr || !membership) { setToast({ type: 'error', message: '施設情報の取得に失敗しました。再読み込みしてください' }); setSaving(false); return; }
-
-    const res = await fetch(`/api/admin/blog?facility_id=${membership.facility_id}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, content, is_published: isPublished }),
-    });
-
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({}));
-      setToast({ type: 'error', message: e.error || '作成に失敗しました' });
-    } else {
-      router.push('/admin/blog');
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: e.error || '作成に失敗しました' });
+      } else {
+        router.push(listHref);
+      }
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました' });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   return (
     <div>
+      <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/blog/new" busy={saving}
+        dirty={title.trim() !== '' || content.trim() !== ''} />
       <SbPageHeader title="ブログ新規作成" />
 
       <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
@@ -129,7 +132,7 @@ export default function NewBlogPage() {
         </div>
 
         <div className="flex gap-3 pt-4">
-          <button type="button" onClick={() => router.push('/admin/blog')} className="text-sm text-gray-500 hover:underline">
+          <button type="button" onClick={() => router.push(listHref)} className="text-sm text-gray-500 hover:underline">
             戻る
           </button>
           <button type="button" onClick={handleCreate} disabled={saving} className="btn-primary flex-1 py-3!">

@@ -8,9 +8,16 @@ import type { AdminFacilityChoice } from '@/lib/admin-facility-selection';
 export { loadAdminFacilitySelection } from '@/lib/admin-facility-selection';
 export type { AdminFacilityChoice } from '@/lib/admin-facility-selection';
 
+/** 店舗の切り替えリンクの行き先。各画面は ?facility_id= を読み、所属を確かめてから使う。 */
+export type FacilitySelectorPath = '/admin' | '/admin/menus' | '/admin/staff' | '/admin/staff/new' | '/admin/analytics' | '/admin/settings'
+  | '/admin/photos' | '/admin/schedule' | '/admin/bookings' | '/admin/coupons' | '/admin/coupons/new' | '/admin/gbp' | '/admin/white-label'
+  | '/admin/reviews' | '/admin/facility-inquiries' | '/admin/qa' | '/admin/packages' | '/admin/subscription-plans' | '/admin/catalog'
+  | '/admin/catalog/new' | '/admin/blog' | '/admin/blog/new' | '/admin/jobs/new' | '/admin/accounting' | '/admin/qrcode' | '/admin/api-keys'
+  | '/admin/funnel' | '/admin/usage-stats';
+
 export default function FacilitySelector({ choices, selectedId, path, date, dirty = false, busy = false }: {
   choices: AdminFacilityChoice[]; selectedId: string | null;
-  path: '/admin' | '/admin/menus' | '/admin/staff' | '/admin/staff/new' | '/admin/analytics' | '/admin/settings' | '/admin/photos' | '/admin/schedule' | '/admin/bookings' | '/admin/coupons' | '/admin/coupons/new' | '/admin/gbp' | '/admin/white-label' | '/admin/reviews' | '/admin/facility-inquiries';
+  path: FacilitySelectorPath;
   date?: string; dirty?: boolean; busy?: boolean;
 }) {
   const router = useRouter();

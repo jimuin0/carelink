@@ -1,8 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { Suspense, useState, useEffect } from 'react';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/lib/admin-facility-selection';
+import FacilitySelector from '@/components/admin/FacilitySelector';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
@@ -37,6 +40,15 @@ function simpleMarkdown(text: string): string {
 }
 
 export default function EditBlogPage() {
+  return <Suspense fallback={<AdminPageLoading />}><EditBlogRoute /></Suspense>;
+}
+
+function EditBlogRoute() {
+  const requested = useSearchParams().get('facility_id');
+  return <EditBlogForm key={requested ?? 'unselected'} requested={requested} />;
+}
+
+function EditBlogForm({ requested }: { requested: string | null }) {
   const router = useRouter();
   const params = useParams();
   const postId = params.id as string;
@@ -50,7 +62,10 @@ export default function EditBlogPage() {
   const [dirty, setDirty] = useState(false);
   useUnsavedGuard(dirty);
   const [showPreview, setShowPreview] = useState(false);
+  // 編集先は記事自身の店舗（2026年10月22日）。以前は facility_members を role も絞らず .limit(1).single() で
+  // 1 行だけ読み、その店舗の記事としてしか開けなかった（2 店舗目の記事は「読み込みに失敗」になっていた）。
   const [facilityId, setFacilityId] = useState<string | null>(null);
+  const [choices, setChoices] = useState<AdminFacilityChoice[]>([]);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   // retry は再取得を state 経由で駆動する（load をイベントハンドラからも effect からも
@@ -76,28 +91,30 @@ export default function EditBlogPage() {
       try {
         const supabase = createBrowserSupabaseClient();
         setLoadError(false);
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) { if (!cancelled) setLoading(false); return; }
-        const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-        if (memErr && memErr.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
-        if (!membership) { if (!cancelled) setLoading(false); return; }
-        if (cancelled) return;
-        setFacilityId(membership.facility_id);
+        const identity = await verifyAuthUser(supabase.auth);
+        if (identity.state !== 'verified') throw new Error('BLOG_ACCESS_UNAVAILABLE');
         const { data, error } = await supabase
           .from('blog_posts')
           .select('*')
           .eq('id', postId)
-          .eq('facility_id', membership.facility_id)
-          .single();
-
-        if (error) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
+          .maybeSingle();
+        if (error || !data) throw new Error('BLOG_READ_UNAVAILABLE');
+        const post = data as BlogPost;
+        // 公開済みの記事は誰でも読めるため、自分の店舗（owner/admin）の記事かをここで確かめる。
+        // URL の店舗と記事の店舗が食い違うときも扱わない（別の店舗の名前を出したまま保存させない）。
+        const selection = await loadAdminFacilitySelection(supabase, identity.user.id, requested ?? post.facility_id);
+        if (selection.selectedId !== post.facility_id) throw new Error('BLOG_SCOPE_MISMATCH');
         if (cancelled) return;
-        if (data) {
-          const post = data as BlogPost;
-          setTitle(post.title);
-          setContent(post.content);
-          setIsPublished(post.is_published);
+        // 複数店舗で URL に店舗が無いとき（ブックマーク等）は記事の店舗を URL に載せ、ヘッダーの店舗名と揃える。
+        if (requested === null && selection.choices.length > 1) {
+          router.replace(`/admin/blog/${postId}/edit?facility_id=${post.facility_id}`);
+          return;
         }
+        setChoices(selection.choices);
+        setFacilityId(post.facility_id);
+        setTitle(post.title);
+        setContent(post.content);
+        setIsPublished(post.is_published);
         setLoading(false);
       } catch {
         if (!cancelled) { setLoadError(true); setLoading(false); }
@@ -107,7 +124,9 @@ export default function EditBlogPage() {
     return () => {
       cancelled = true;
     };
-  }, [postId, reloadKey]);
+  }, [postId, requested, reloadKey, router]);
+
+  const listHref = `/admin/blog?facility_id=${facilityId}`;
 
   const handleSave = async () => {
     if (saving || !title || !content || !facilityId) return;
@@ -125,7 +144,7 @@ export default function EditBlogPage() {
     } else {
       setDirty(false);
       setToast({ type: 'success', message: '保存しました' });
-      setTimeout(() => router.push('/admin/blog'), 1000);
+      setTimeout(() => router.push(listHref), 1000);
     }
     setSaving(false);
   };
@@ -142,13 +161,13 @@ export default function EditBlogPage() {
       setToast({ type: 'error', message: '削除に失敗しました' });
       return;
     }
-    router.push('/admin/blog');
+    router.push(listHref);
   };
 
   if (loading) return <AdminPageLoading />;
 
   // 取得失敗時はフォームを描画しない（空フォームを保存して実データを上書きする事故を防ぐ）
-  if (loadError) {
+  if (loadError || !facilityId) {
     return (
       <div>
         <SbPageHeader title="ブログ編集" />
@@ -159,6 +178,7 @@ export default function EditBlogPage() {
 
   return (
     <div onChange={() => setDirty(true)}>
+      <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/blog" dirty={dirty} busy={saving} />
       <SbPageHeader title="ブログ編集" />
 
       <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
@@ -208,7 +228,7 @@ export default function EditBlogPage() {
           <button type="button" onClick={handleDelete} className="text-sm text-red-500 hover:underline">
             削除
           </button>
-          <button type="button" onClick={() => router.push('/admin/blog')} className="ml-auto text-sm text-gray-500 hover:underline">
+          <button type="button" onClick={() => router.push(listHref)} className="ml-auto text-sm text-gray-500 hover:underline">
             戻る
           </button>
           <button type="button" onClick={handleSave} disabled={saving} className="btn-primary py-3! px-8!">

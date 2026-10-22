@@ -87,3 +87,43 @@ export function calculateCouponDiscountedTotal(
   const discountedTarget = applyDiscountToSubtotal(targetSubtotal, coupon);
   return discountedTarget + otherSubtotal;
 }
+
+export interface CouponListPrice {
+  /** 対象メニューを定価で受けた場合の合計（取り消し線で出す「通常価格」）。 */
+  regular: number;
+  /** 同じ対象メニューにこのクーポンを使った場合の合計（予約 API と同じ式）。 */
+  discounted: number;
+}
+
+/**
+ * 施設ページのクーポン一覧に出す「通常 ¥X → ¥Y」を求める（出せない場合は null）。
+ *
+ * 【2026年10月22日】以前は施設の全メニューの最安値（本番ではオプションの ¥500）を全クーポン
+ * 共通の「通常価格」にしていたため、「通常 ¥500 → ¥5,800」のように通常価格の方が安く見えていた。
+ *
+ * 通常価格は「そのクーポンの対象メニュー（coupon_menus）を全部、定価で受けた場合の合計」とする。
+ * 予約画面でクーポンを選ぶと対象メニューが全部選ばれる（BookingFlow の handleCouponSelect）ので、
+ * 予約時の請求額（calculateCouponDiscountedTotal＝/api/booking と同じ計算）と一致する。
+ *
+ * 次のときは正直な通常価格が出せないので null（呼び出し側は割引表記だけを出す）:
+ * - 対象メニュー限定が無いクーポン（どのメニューで使うか決まっていない）
+ * - 対象メニューが公開メニューに見つからない、または価格未設定のメニューを含む
+ * - 割引後が通常価格以上になる（取り消し線で見せる意味がない・逆転表示を出さない）
+ */
+export function couponListPrice(
+  coupon: CouponPricingCoupon,
+  menus: CouponPricingMenu[],
+  allowedMenuIds: string[] | undefined,
+): CouponListPrice | null {
+  if (!allowedMenuIds || allowedMenuIds.length === 0) return null;
+  const targets: CouponPricingMenu[] = [];
+  for (const id of new Set(allowedMenuIds)) {
+    const menu = menus.find((m) => m.id === id);
+    if (!menu || menu.price == null) return null;
+    targets.push(menu);
+  }
+  const regular = targets.reduce((sum, m) => sum + (m.price as number), 0);
+  const discounted = calculateCouponDiscountedTotal(targets, coupon, allowedMenuIds);
+  if (discounted >= regular) return null;
+  return { regular, discounted };
+}

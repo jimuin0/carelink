@@ -82,6 +82,14 @@ test('authoritative missing identity is denied before membership', async () => {
   await expectStatus(getAdminApiContext(request()), 401);
   expect(mockAuthFrom).not.toHaveBeenCalled();
 });
+// 複数店舗のオーナー（2026年10月22日）。管理画面は ?facility_id= で選んだ店舗を API へ送る。API は
+// 利用者の「最初の所属」ではなく、送られた店舗そのものについて owner/admin の所属を確かめる。
+test('membership is checked for the requested store, not for whichever store the user joined first', async () => {
+  expect(await getAdminApiContext(request())).toEqual({ userId: 'verified-user', facilityId });
+  const chain = mockAuthFrom.mock.results[0].value as ReturnType<typeof query>;
+  expect(chain.eq.mock.calls).toEqual(expect.arrayContaining([['user_id', 'verified-user'], ['facility_id', facilityId]]));
+  expect(chain.in).toHaveBeenCalledWith('role', ['owner', 'admin']);
+});
 test('a missing membership is denied without service access', async () => {
   mockMembership.mockResolvedValue({ data: null, error: null });
   await expectStatus(getAdminApiContext(request()), 401);
@@ -129,6 +137,11 @@ test.each(routes)('%s rejects ambiguous identity and membership before service a
     await expectStatus(handler(request(method), { params: Promise.resolve({ id: staffId }) }), 503);
     expect(mockServiceClient).not.toHaveBeenCalled();
   }
+});
+test.each(routes)('%s refuses a store the user does not manage before any write', async (_name, method, handler) => {
+  mockMembership.mockResolvedValue({ data: null, error: null });
+  await expectStatus(handler(request(method), { params: Promise.resolve({ id: staffId }) }), 401);
+  expect(mockServiceClient).not.toHaveBeenCalled();
 });
 test.each(routes.filter(route => route[3]))('%s refuses ambiguous staff before schedule mutations', async (_name, method, handler) => {
   for (const failure of ['staff-with-data', 'staff-throw', 'service-throw']) {

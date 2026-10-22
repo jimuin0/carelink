@@ -1,11 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { useState } from 'react';
 import { SbPageHeader } from '@/components/admin/SbUi';
+import FacilitySelector from '@/components/admin/FacilitySelector';
+import AdminFacilityScope, { type AdminFacilityScopeValue } from '@/components/admin/AdminFacilityScope';
 
 export default function AccountingPage() {
-  const [facilityId, setFacilityId] = useState<string | null>(null);
+  return <AdminFacilityScope title="会計ソフト連携" path="/admin/accounting">{(scope) => <AccountingExport {...scope} />}</AdminFacilityScope>;
+}
+
+// 出力する店舗は AdminFacilityScope が ?facility_id= と所属から決める（2026年10月22日）。以前は
+// facility_members を .limit(1).single() で 1 行だけ読み、複数店舗のオーナーには任意の 1 店舗の CSV が落ちていた。
+function AccountingExport({ facilityId, choices }: AdminFacilityScopeValue) {
   const [format, setFormat] = useState<'freee' | 'mf' | 'generic'>('freee');
   const [from, setFrom] = useState(() => {
     const d = new Date();
@@ -17,18 +23,7 @@ export default function AccountingPage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   });
 
-  useEffect(() => {
-    const supabase = createBrowserSupabaseClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) return;
-      supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-      .in('role', ['owner', 'admin']).limit(1).single()
-        .then(({ data }) => { if (data) setFacilityId(data.facility_id); });
-    });
-  }, []);
-
   const handleExport = () => {
-    if (!facilityId) return;
     const url = `/api/admin/accounting-export?facility_id=${facilityId}&format=${format}&from=${from}&to=${to}`;
     const a = document.createElement('a');
     a.href = url;
@@ -48,14 +43,15 @@ export default function AccountingPage() {
     },
     generic: {
       label: '汎用CSV（予約一覧）',
-      desc: '予約ID・顧客名・メニュー・金額・ステータスの一覧',
+      desc: '予約ID・日付・顧客名・メール・メニュー・金額・ステータスの一覧',
       icon: '📊',
     },
   };
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <SbPageHeader title="会計ソフト連携" description="確定・完了した予約データを会計ソフト用CSVでエクスポート" />
+      <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/accounting" />
+      <SbPageHeader title="会計ソフト連携" description="完了（来店済み）の予約を会計ソフト用CSVでエクスポート" />
 
       <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-5">
         {/* フォーマット選択 */}
@@ -92,7 +88,7 @@ export default function AccountingPage() {
         </div>
 
         {/* エクスポートボタン */}
-        <button type="button" onClick={handleExport} disabled={!facilityId}
+        <button type="button" onClick={handleExport}
           className="btn-primary w-full py-3! gap-2">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -104,7 +100,11 @@ export default function AccountingPage() {
       {/* 注意事項 */}
       <div className="bg-amber-50 rounded-xl p-4 text-xs text-amber-800 space-y-1">
         <p><strong>注意事項：</strong></p>
-        <p>• 出力対象は「確定」「完了」ステータスの予約のみです</p>
+        {/* 売上は来店済みの分だけ計上する（API は status=completed・来店日 booking_date で絞る＝8体監査 A3）。
+            「確定」のままの予約は出ないので、来店後に「完了」へ変える必要があることをここで伝える。 */}
+        <p>• 出力対象は「完了」（来店済み）の予約のみです。「確定」のままの予約は含まれません</p>
+        <p>• 期間は来店日で絞り込みます</p>
+        <p>• CSVには顧客名が、汎用CSVにはメールアドレスも含まれます。取り扱いにご注意ください</p>
         <p>• 消費税率は一律10%で計算しています</p>
         <p>• 実際の申告前に税理士・会計士にご確認ください</p>
         <p>• freee / MFの仕様変更により形式が異なる場合があります</p>

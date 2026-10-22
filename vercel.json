@@ -1,5 +1,4 @@
 {
-  "buildCommand": "npm run build",
   "ignoreCommand": "bash scripts/vercel-should-build.sh",
   "regions": [
     "hnd1"
@@ -22,5 +21,6 @@
       "destination": "https://carelink-jp.com/$1",
       "permanent": true
     }
-  ]
+  ],
+  "framework": "container"
 }
