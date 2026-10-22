@@ -163,6 +163,9 @@ jobs:
           CARELINK_POINTS_TEST_DB: carelink_shadow
         run: node scripts/verify-booking-points-concurrency.mjs
 
+      - name: Points ledger owner privacy, visit points cap, legacy, self-booking and reversal (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-points-cap-fixtures.sql
+
       - name: Staff schedules transactional failure and immutable replay (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f scripts/check-staff-schedule-transactions.sql
 

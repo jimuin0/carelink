@@ -84,6 +84,68 @@ test.each([null,{}, { success:false,total_price:100 }, { success:true },
     await waitFor(() => expect(screen.getByRole('status')).toHaveAttribute('data-kind','error'));
     expect(screen.getByRole('button',{ name:'会計を確定して完了' })).toBeInTheDocument();
   });
+// 予約時にお客様が使ったポイント（2026年10月23日）。金額欄とレジ会計に出し、会計ではメニュー行を
+// 利用前の金額で始めて、ポイントを編集できない行として差し引く（打ち直しても値引きが消えない）。
+describe('ポイント利用', () => {
+  const setBooking = (patch: Record<string, unknown>) =>
+    Object.assign((mockResults.bookings[1] as { data: Record<string, unknown> }).data, patch);
+
+  test('金額欄にポイント利用を出す', async () => {
+    setBooking({ total_price: 6000, points_used: 2000 });
+    show();
+    expect(await screen.findByTestId('booking-points-used')).toHaveTextContent('ポイント利用 -¥2,000（金額はポイント利用後）');
+  });
+
+  test.each([[0], [null], [undefined]])('ポイントを使っていない予約（%p）は何も出さない', async (points) => {
+    setBooking({ total_price: 6000, points_used: points, status: 'confirmed' });
+    show();
+    await screen.findByText('¥6,000');
+    expect(screen.queryByTestId('booking-points-used')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '会計する' }));
+    expect(screen.queryByTestId('checkout-points-line')).not.toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: '金額' })).toHaveValue(6000);
+  });
+
+  // 回帰（旧コードは初期明細が 6,000 の 1 行だけで、メニューを 10,000 に打ち直すと合計 10,000・ポイント行なしで送っていた）
+  test('会計はメニュー行を利用前の金額で始め、ポイントは固定行として合計から差し引いて送る', async () => {
+    setBooking({ total_price: 6000, points_used: 2000, status: 'confirmed' });
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ success: true, total_price: 8000 }) });
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: '会計する' }));
+    const amount = screen.getByRole('spinbutton', { name: '金額' });
+    expect(amount).toHaveValue(8000);
+    expect(screen.getByTestId('checkout-points-line')).toHaveTextContent('ポイント利用-¥2,000');
+    expect(screen.getByText('¥6,000', { selector: 'span' })).toBeInTheDocument();
+    fireEvent.change(amount, { target: { value: '10000' } });
+    expect(screen.getByText('¥8,000', { selector: 'span' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '会計を確定して完了' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(sent.items).toEqual([{ type: 'menu', name: '施術B、施術A', amount: 10000 }]);
+    expect(sent.points_used).toBe(2000);
+    expect(await screen.findByRole('status')).toHaveTextContent('¥8,000');
+  });
+
+  // 回帰（旧コードは明細 1,500・ポイント 2,000 でも合計 0 円で確定でき、差額の 500pt が黙って消えた）
+  test('明細の合計がポイント利用額を下回ると警告し、確定ボタンを止める', async () => {
+    setBooking({ total_price: 6000, points_used: 2000, status: 'confirmed' });
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: '会計する' }));
+    const amount = screen.getByRole('spinbutton', { name: '金額' });
+    expect(screen.queryByTestId('checkout-points-exceed')).not.toBeInTheDocument();
+    fireEvent.change(amount, { target: { value: '1500' } });
+    expect(screen.getByTestId('checkout-points-exceed')).toHaveTextContent('明細の合計（¥1,500）が、お客様が予約時に使ったポイント（¥2,000）を下回っています');
+    const confirm = screen.getByRole('button', { name: '会計を確定して完了' });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(confirm);
+    expect(fetchMock).not.toHaveBeenCalled();
+    // ちょうどポイント分なら 0 円で確定できる
+    fireEvent.change(amount, { target: { value: '2000' } });
+    expect(screen.queryByTestId('checkout-points-exceed')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '会計を確定して完了' })).toBeEnabled();
+  });
+});
+
 test('checkout accepts a business-confirmed legitimate zero, not just HTTP 200', async () => {
   (mockResults.bookings[1] as { data:{ status:string } }).data.status = 'confirmed';
   fetchMock.mockResolvedValue({ ok:true,json:async () => ({ success:true,total_price:0 }) }); show();

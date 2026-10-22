@@ -1002,3 +1002,40 @@ it('owner mail omits the phone and note rows when they are blank',()=>{
  const mail=buildNewBookingNotificationEnvelope({...baseData,facilityEmail:'synthetic@example.invalid',customerPhone:'  ',note:null});
  expect(mail.html).not.toContain('電話番号');expect(mail.html).not.toContain('ご要望・備考');
 });
+
+// 2026年10月23日: 店舗向けの新規予約メールに、お客様が予約時に使ったポイントを出す。
+// 料金はポイント利用後の金額なので、行が無いとメニュー価格との差の理由が店舗に分からない。
+describe('owner mail shows the points the customer used', () => {
+  const owner = { ...baseData, facilityEmail: 'synthetic@example.invalid' };
+  const build = (data: Record<string, unknown>) => require('../email').buildNewBookingNotificationEnvelope(data) as { html: string };
+
+  it('shows ポイント利用 -¥N and marks the price as the amount after points', () => {
+    const mail = build({ ...owner, totalPrice: 6000, pointsUsed: 2000 });
+    expect(mail.html).toContain('ポイント利用</td>');
+    expect(mail.html).toContain('-&yen;2,000');
+    expect(mail.html).toContain('&yen;6,000（ポイント利用後）');
+  });
+
+  it('shows the points row even when the whole price was paid with points', () => {
+    const mail = build({ ...owner, totalPrice: 0, pointsUsed: 8000 });
+    expect(mail.html).toContain('&yen;0（ポイント利用後）');
+    expect(mail.html).toContain('-&yen;8,000');
+  });
+
+  it.each([[undefined], [0]])('no points (%p) → no points row and the price is shown as before', (pointsUsed) => {
+    const mail = build({ ...owner, totalPrice: 6000, pointsUsed });
+    expect(mail.html).not.toContain('ポイント利用');
+    expect(mail.html).toContain('&yen;6,000</td>');
+  });
+
+  it('points without a price still show the points row', () => {
+    const mail = build({ ...owner, totalPrice: undefined, pointsUsed: 500 });
+    expect(mail.html).not.toContain('料金</td>');
+    expect(mail.html).toContain('-&yen;500');
+  });
+
+  it('customer-facing mails never show the points row (only the owner notification passes it)', () => {
+    const mail = require('../email').buildBookingConfirmationEnvelope({ ...baseData, totalPrice: 6000 }) as { html: string };
+    expect(mail.html).not.toContain('ポイント利用');
+  });
+});

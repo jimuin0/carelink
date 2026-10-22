@@ -150,6 +150,7 @@
     "payjp_charge_id",
     "payment_status",
     "phone",
+    "points_base_price",
     "points_used",
     "review_request_legacy_claimed_at",
     "review_request_provider_accepted_at",
