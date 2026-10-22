@@ -39,6 +39,18 @@ export function salonHandoffAuthPath(page: 'signup' | 'login'): string {
 
 export const SALON_RECOVERY_CONTEXT_KEY = 'carelink.salon-recovery.v1';
 export const SALON_RECOVERY_ONBOARDING_PATH = '/admin/onboarding?handoff=recovered';
+/** 送信済みの掲載申込を、申込時の確認済みメールアドレスで選び直して引き継ぐ画面。 */
+export const SALON_RECOVERY_PATH = '/register/recover';
+/**
+ * 同じタブの受付情報（intent）が使えない人を、申込内容ごと引き継げる唯一の入口へ送る導線。
+ * 掲載申込者へ後日送るメール（onboarding-followup）はこれを使う。intent は 72 時間で失効し、
+ * メールには選択子も証明も載せられないため、受付の特定は /register/recover が
+ * 確認済みのログインメールで行う（/admin/onboarding へ直接送ると、申込を取り込まない空の店舗が作られ、
+ * その後は ALREADY_MEMBER で復旧もできなくなる）。
+ */
+export function salonRecoveryAuthPath(page: 'signup' | 'login'): string {
+  return `/auth/${page}?redirect=${encodeURIComponent(SALON_RECOVERY_PATH)}`;
+}
 const recoveryContext = z.object({ version: z.literal(1), recoveryId: z.uuid() }).strict();
 export function readSalonRecoveryContext(store: Store): string | null {
   try {

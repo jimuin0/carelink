@@ -71,9 +71,52 @@ function facilitiesUpdate(claimed: any[] = [{ id: 'fac-123' }], releaseError: an
   return jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(eqReturn) });
 }
 
-// salons UPDATE（第2パス）は facilitiesUpdate と全く同じ形（claim/release 二役）なので
-// ロジックを共有する。変数名だけ役割に合わせて分けてある。
-const salonsUpdate = facilitiesUpdate;
+// ---------------------------------------------------------------------------
+// salons（第2パス）の小さな偽テーブル。
+// 🔴 2026年10月22日: 送信対象を「/register/recover で復旧できる申込（未取り込み・未却下・
+// source=register）」に絞った。呼び出しの形だけを見るモックでは、条件を書き忘れても
+// 緑のままになる（実際の欠陥は「条件が無かった」こと）ので、ルートが付けた条件を
+// 行に【実際に適用】し、どの申込にメールが届くかという結果で主張する。
+// ---------------------------------------------------------------------------
+type SalonRow = Record<string, unknown>;
+type SalonFilter = (row: SalonRow) => boolean;
+const FOUR_DAYS_AGO = () => new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString();
+/** テストが書いた行に、本番の「普通の未処理の申込」の既定値を補う。 */
+function salonRow(row: SalonRow): SalonRow {
+  return {
+    created_at: FOUR_DAYS_AGO(), registration_followup_sent_at: null, source: 'register', status: 'pending',
+    claimed_facility_id: null, claimed_by_user_id: null, claimed_at: null, ...row,
+  };
+}
+/** PostgREST の or 文字列（`列.演算子.値,…`）のうち is / eq / neq を SQL と同じ NULL の扱いで解釈する。 */
+function salonOrFilter(expr: string): SalonFilter {
+  const parts = expr.split(',').map((part) => {
+    const [column, op, ...rest] = part.split('.');
+    return { column, op, value: rest.join('.') };
+  });
+  return (row) => parts.some(({ column, op, value }) => {
+    const actual = row[column];
+    if (op === 'is' && value === 'null') return actual === null || actual === undefined;
+    if (actual === null || actual === undefined) return false; // SQL: NULL = x / NULL <> x は真にならない
+    if (op === 'eq') return String(actual) === value;
+    if (op === 'neq') return String(actual) !== value;
+    throw new Error(`unsupported or-filter: ${column}.${op}.${value}`);
+  });
+}
+/** eq / is / or / gte / lte を条件として溜める。 */
+function withSalonFilters<T extends Record<string, unknown>>(target: T, filters: SalonFilter[], onIs?: jest.Mock): T {
+  return Object.assign(target, {
+    eq: (column: string, value: unknown) => { filters.push((row) => row[column] === value); return target; },
+    is: (column: string, value: null) => {
+      onIs?.(column, value);
+      filters.push((row) => (row[column] ?? null) === value);
+      return target;
+    },
+    or: (expr: string) => { filters.push(salonOrFilter(expr)); return target; },
+    gte: (column: string, value: string) => { filters.push((row) => String(row[column]) >= value); return target; },
+    lte: (column: string, value: string) => { filters.push((row) => String(row[column]) <= value); return target; },
+  });
+}
 
 function buildFrom(opts: any = {}) {
   const {
@@ -98,7 +141,8 @@ function buildFrom(opts: any = {}) {
     // ---- 第2パス（salons）用オプション。デフォルトは既存テストの挙動を変えない空配列。----
     salons = [] as any[],
     salonsErr = null,
-    salonClaimed = [{ id: 'sal-1' }],
+    // 明示したときだけ claim の結果を差し替える（未指定なら偽テーブルの条件どおりに claim する）。
+    salonClaimed = undefined as any[] | undefined,
     salonReleaseError = null,
     salonClaimError = null,
     salonOrderSpy = null as any,
@@ -108,7 +152,30 @@ function buildFrom(opts: any = {}) {
   } = opts;
 
   facUpdateMock = facilitiesUpdate(claimed, releaseError, claimError);
-  salonUpdateMock = salonsUpdate(salonClaimed, salonReleaseError, salonClaimError);
+  // 偽 salons テーブル。opts.salonRows を渡すと、テスト側が行の状態（却下・取り込み）を後から変えられる。
+  const salonTable: SalonRow[] = (opts.salonRows as SalonRow[] | undefined) ?? salons.map(salonRow);
+  salonUpdateMock = jest.fn((payload: SalonRow) => {
+    const filters: SalonFilter[] = [];
+    const apply = () => {
+      const matched = salonTable.filter((row) => filters.every((f) => f(row)));
+      for (const row of matched) Object.assign(row, payload);
+      return matched;
+    };
+    const builder: Record<string, unknown> = {
+      // claim: .update({sent_at}).eq().is()….select('id')
+      select: jest.fn(async () => {
+        if (salonClaimError) return { data: null, error: salonClaimError };
+        if (salonClaimed !== undefined) return { data: salonClaimed, error: null };
+        return { data: apply().map((row) => ({ id: row.id })), error: null };
+      }),
+      // release: await .update({sent_at:null}).eq('id', …)
+      then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => {
+        if (!salonReleaseError) apply();
+        return Promise.resolve({ error: salonReleaseError }).then(resolve, reject);
+      },
+    };
+    return withSalonFilters(builder, filters);
+  });
 
   return (table: string) => {
     if (table === 'facility_profiles') {
@@ -165,22 +232,19 @@ function buildFrom(opts: any = {}) {
       }),
     };
     if (table === 'salons') {
-      const order = salonOrderSpy || jest.fn().mockReturnValue({
-        range: jest.fn((from: number, to: number) => Promise.resolve({
-          data: salonsErr ? null : salons.slice(from, to + 1),
-          error: salonsErr,
-        })),
-      });
-      const isFn = salonIsSpy
-        ? salonIsSpy.mockReturnValue({ order })
-        : jest.fn().mockReturnValue({ order });
       return {
-        select: jest.fn().mockReturnValue({
-          gte: jest.fn().mockReturnValue({
-            lte: jest.fn().mockReturnValue({
-              is: isFn,
-            }),
-          }),
+        select: jest.fn(() => {
+          const filters: SalonFilter[] = [];
+          const query: Record<string, unknown> = {};
+          const range = jest.fn(async (from: number, to: number) => {
+            if (salonsErr) return { data: null, error: salonsErr };
+            const listed = salonTable.filter((row) => filters.every((f) => f(row))).slice(from, to + 1)
+              .map((row) => ({ ...row }));
+            (opts.afterSalonList as (() => void) | undefined)?.();
+            return { data: listed, error: null };
+          });
+          query.order = salonOrderSpy || jest.fn(() => ({ range }));
+          return withSalonFilters(query, filters, salonIsSpy ?? undefined);
         }),
         update: salonUpdateMock,
       };
@@ -648,7 +712,7 @@ describe('GET /api/cron/onboarding-followup', () => {
       expect(sendRegistrationLeadFollowEmail).toHaveBeenCalledWith({
         email: 'lead@example.com',
         facilityName: 'Lead Salon',
-        businessType: 'clinic',
+        receiptId: 'sal-1',
       });
       expect(json.processed).toBe(1);
       expect(json.sent).toBe(1);
@@ -721,7 +785,7 @@ describe('GET /api/cron/onboarding-followup', () => {
       expect(sendRegistrationLeadFollowEmail).toHaveBeenCalledWith({
         email: 'Really.New+lead@gmail.com',
         facilityName: 'New Lead Salon',
-        businessType: 'clinic',
+        receiptId: 'sal-none',
       });
       const json = await res.json();
       expect(json.sent).toBe(1);
@@ -763,7 +827,7 @@ describe('GET /api/cron/onboarding-followup', () => {
         expect.objectContaining({ facilityName: 'New Salon', ownerEmail: 'owner@example.com' })
       );
       expect(sendRegistrationLeadFollowEmail).toHaveBeenCalledWith({
-        email: 'lead@example.com', facilityName: 'Lead Salon', businessType: 'clinic',
+        email: 'lead@example.com', facilityName: 'Lead Salon', receiptId: 'sal-1',
       });
     });
 
@@ -886,6 +950,63 @@ describe('GET /api/cron/onboarding-followup', () => {
       mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salons: [], salonOrderSpy }));
       await GET(makeRequest() as any);
       expect(salonOrderSpy).toHaveBeenCalledWith('created_at', { ascending: true });
+    });
+
+    // ------------------------------------------------------------------------
+    // 2026年10月22日: 送るのは「/register/recover で復旧できる申込」だけ
+    // 以前は作成日時と未送信しか見ておらず、却下済み・取り込み済みの申込にも
+    // 「掲載準備が途中のままです」を送り、リンク先で空の店舗を作らせていた。
+    // ------------------------------------------------------------------------
+    test('🔴 回帰: 却下済み・取り込み済み・recruit 由来の申込には送らず、未処理の申込（status 未設定・承認済みを含む）にだけ送る', async () => {
+      const rows = [
+        { id: 'sal-pending', email: 'pending@example.com', facility_name: '未処理', status: 'pending' },
+        { id: 'sal-null-status', email: 'nullstatus@example.com', facility_name: '状態未設定', status: null },
+        { id: 'sal-approved', email: 'approved@example.com', facility_name: '承認済み', status: 'approved' },
+        { id: 'sal-rejected', email: 'rejected@example.com', facility_name: '却下済み', status: 'rejected' },
+        { id: 'sal-imported', email: 'imported@example.com', facility_name: '取り込み済み',
+          claimed_facility_id: 'fac-x', claimed_by_user_id: 'user-x', claimed_at: '2026-10-20T00:00:00Z' },
+        { id: 'sal-claimed-only', email: 'claimedonly@example.com', facility_name: '別アカウントで引き継ぎ中', claimed_by_user_id: 'user-y' },
+        { id: 'sal-recruit', email: 'recruit@example.com', facility_name: '求人経由', source: 'recruit' },
+        { id: 'sal-legacy', email: 'legacy@example.com', facility_name: '旧受付', source: null },
+      ].map(salonRow);
+      mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salonRows: rows }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      const sentTo = (sendRegistrationLeadFollowEmail as jest.Mock).mock.calls.map(([arg]) => arg.receiptId).sort();
+      expect(sentTo).toEqual(['sal-approved', 'sal-null-status', 'sal-pending']);
+      // 対象外の申込は claim もしない（将来、状態が戻っても二重送信の判定を汚さない）
+      const claimedIds = rows.filter((row) => row.registration_followup_sent_at !== null).map((row) => row.id).sort();
+      expect(claimedIds).toEqual(['sal-approved', 'sal-null-status', 'sal-pending']);
+      expect((await res.json()).sent).toBe(3);
+    });
+
+    test('🔴 回帰: 一覧の取得後に却下・取り込みされた申込には送らない（claim にも同じ条件を付ける）', async () => {
+      const rejectedLater = salonRow({ id: 'sal-rejected-later', email: 'later@example.com', facility_name: '後から却下' });
+      const importedLater = salonRow({ id: 'sal-imported-later', email: 'later2@example.com', facility_name: '後から取り込み' });
+      mockFromDelegate.mockImplementation(buildFrom({
+        facilities: [],
+        salonRows: [rejectedLater, importedLater],
+        afterSalonList: () => {
+          rejectedLater.status = 'rejected';
+          importedLater.claimed_facility_id = 'fac-new';
+          importedLater.claimed_by_user_id = 'user-new';
+          importedLater.claimed_at = '2026-10-22T00:00:00Z';
+        },
+      }));
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      expect(sendRegistrationLeadFollowEmail).not.toHaveBeenCalled();
+      expect(rejectedLater.registration_followup_sent_at).toBeNull();
+      expect(importedLater.registration_followup_sent_at).toBeNull();
+      expect((await res.json()).skipped).toBe(2);
+    });
+
+    test('メールには受付番号（salons.id）を渡し、業種や施設名から新規作成の導線を組み立てさせない', async () => {
+      mockFromDelegate.mockImplementation(buildFrom({ facilities: [], salons: [{ ...leadSalon, business_type: '美容室' }] }));
+      await GET(makeRequest() as any);
+      expect(sendRegistrationLeadFollowEmail).toHaveBeenCalledWith({
+        email: 'lead@example.com', facilityName: 'Lead Salon', receiptId: 'sal-1',
+      });
     });
   });
 });

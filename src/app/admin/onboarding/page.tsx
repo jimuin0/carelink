@@ -8,7 +8,8 @@ import Link from 'next/link';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import { businessTypes, UUID_REGEX } from '@/lib/constants';
 import { isAuthSessionMissingError } from '@supabase/supabase-js';
-import { readSalonBrowserContext, readSalonRecoveryContext, salonHandoffAuthPath } from '@/lib/salon-browser-context';
+import { readSalonBrowserContext, readSalonRecoveryContext, salonHandoffAuthPath,
+  salonRecoveryAuthPath, SALON_RECOVERY_PATH } from '@/lib/salon-browser-context';
 import { navigateAfterFacilitySetup } from '@/lib/onboarding-navigation';
 
 function OnboardingContent() {
@@ -57,7 +58,7 @@ function OnboardingContent() {
       if (authError && !isAuthSessionMissingError(authError)) throw new Error('Authentication lookup unavailable');
 
       if (!user) {
-        router.push(recoveredHandoff ? '/auth/login?redirect=%2Fregister%2Frecover'
+        router.push(recoveredHandoff ? salonRecoveryAuthPath('login')
           : registrationHandoff ? salonHandoffAuthPath('login') : '/auth/login?redirect=/admin/onboarding');
         return;
       }
@@ -246,6 +247,10 @@ function OnboardingContent() {
     return (
       <div className="section-container max-w-lg mx-auto py-16">
         <SbPageHeader title="施設情報を確認" description="無料掲載と予約設定は別です。まず店舗情報を確認してください" />
+        {/* 🔴 引き継ぎ無しで店舗を作ると、送信済みの掲載申込（写真・営業時間・PR文など）は取り込まれず、
+            後から /register/recover で選んでも ALREADY_MEMBER で取り込めなくなる。古い案内メールの
+            リンクなど、どの入口から来ても作成前に復旧画面を案内する（2026年10月22日）。 */}
+        {!registrationHandoff && !recoveredHandoff && <p className="text-sm text-gray-600 mb-4">掲載申込フォームから申込を送信済みの場合は、ここで作成せず<Link href={SALON_RECOVERY_PATH} className="text-primary underline">送信済みの掲載申込を復旧</Link>してください。ここで作成すると、申込の写真・営業時間・PR文などは引き継がれません。</p>}
         {recoveredHandoff && <p className="text-sm mb-4">送信済みの申込を引き継ぎます。所在地：{receiptAddress || '未入力（管理画面で設定してください）'}。原申込の店舗名・業態・写真は保持します。ここではまだ一覧に公開されません。</p>}
         <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
           <div>
@@ -304,7 +309,7 @@ function OnboardingContent() {
       <div className="section-container max-w-lg mx-auto text-center py-16">
         <p role="alert" className="text-red-600 font-bold mb-4">エラーが発生しました</p>
         <p className="text-sm text-gray-600 mb-6">{error}</p>
-        {(registrationHandoff || recoveredHandoff) && <p className="text-sm text-gray-600 mb-6">同じタブの受付情報が使えない場合は、申込時のメールアドレスでログインし、<Link href="/register/recover" className="text-primary underline">送信済みの掲載申込を復旧</Link>してください。別のメールで申込済みの場合や他の管理者に取り込み済みの場合は、再申込せず、受付番号を添えて<Link href="/contact" className="text-primary underline">お問い合わせ</Link>ください。</p>}
+        {(registrationHandoff || recoveredHandoff) && <p className="text-sm text-gray-600 mb-6">同じタブの受付情報が使えない場合は、申込時のメールアドレスでログインし、<Link href={SALON_RECOVERY_PATH} className="text-primary underline">送信済みの掲載申込を復旧</Link>してください。別のメールで申込済みの場合や他の管理者に取り込み済みの場合は、再申込せず、受付番号を添えて<Link href="/contact" className="text-primary underline">お問い合わせ</Link>ください。</p>}
         <button type="button" onClick={() => window.location.reload()} className="btn-primary px-8 py-3">再読み込みして登録状況を確認</button>
       </div>
     );

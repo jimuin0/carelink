@@ -29,6 +29,9 @@ const STALE_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 const CONSIDER_LIMIT = 2000;
 // 送信ループの実時間予算。maxDuration(60s) 未満に設定し、超えたら残りを翌 run へ回す。
 const SEND_BUDGET_MS = 50 * 1000;
+// 申込者フォロー（第2パス）の対象＝/register/recover で復旧できる申込（list_recoverable_salon_receipts と同じ条件）。
+const RECOVERABLE_SALON_SOURCE = 'register';
+const NOT_REJECTED_SALON = 'status.is.null,status.neq.rejected';
 
 export async function GET(request: Request) {
   const cronAuthError = checkCronAuth(request);
@@ -83,15 +86,28 @@ export async function GET(request: Request) {
     // への波及を避けるため）、既存の onboarding-followup 内の第2パスとして実装する。
     // facilities と同じ理由で fetchAllPaged ページング＋主クエリ error の明示チェックを行う
     // （「0件=skipped(成功)」への偽装を防ぐ）。
-    type SalonLeadRow = { id: string; email: string; facility_name: string; business_type: string };
+    //
+    // 🔴 対象は「まだ店舗に取り込まれていない・却下されていない /register の申込」だけ
+    // （2026年10月22日）。以前は作成日時と未送信しか見ておらず、運営が却下した申込や、
+    // 別アカウントで取り込み済みの申込にも「掲載準備が途中のままです」を送っていた。
+    // 条件は /register/recover の一覧（list_recoverable_salon_receipts）と揃える＝
+    // メールのリンク先で必ず表示される申込にだけ送る。claim の UPDATE にも同じ条件を付け、
+    // 一覧取得から送信までの間に却下・取り込みされた申込にも送らない。
+    // status は NULL もあり得るので、.neq だけ（NULL を落とす）にせず .or で NULL を明示的に残す。
+    type SalonLeadRow = { id: string; email: string; facility_name: string };
     const { rows: salons, error: salonsErr } = await fetchAllPaged<SalonLeadRow>(
       async (offset, limit) => {
         const { data, error } = await supabase
           .from('salons')
-          .select('id, email, facility_name, business_type')
+          .select('id, email, facility_name')
           .gte('created_at', staleAfter)
           .lte('created_at', minAgeBefore)
           .is('registration_followup_sent_at', null) // 未送信のみ
+          .eq('source', RECOVERABLE_SALON_SOURCE)
+          .or(NOT_REJECTED_SALON)
+          .is('claimed_facility_id', null)
+          .is('claimed_by_user_id', null)
+          .is('claimed_at', null)
           .order('created_at', { ascending: true })
           .range(offset, offset + limit - 1);
         return { data: data as SalonLeadRow[] | null, error };
@@ -252,12 +268,18 @@ export async function GET(request: Request) {
         break;
       }
 
-      // Claim before sending (CAS guard via .is('registration_followup_sent_at', null))
+      // Claim before sending (CAS guard via .is('registration_followup_sent_at', null))。
+      // 取得条件と同じ「未取り込み・未却下」も claim の条件に含める（取得後に変わった申込には送らない）。
       const { data: salonClaimed, error: salonClaimError } = await supabase
         .from('salons')
         .update({ registration_followup_sent_at: new Date().toISOString() })
         .eq('id', salon.id)
         .is('registration_followup_sent_at', null)
+        .eq('source', RECOVERABLE_SALON_SOURCE)
+        .or(NOT_REJECTED_SALON)
+        .is('claimed_facility_id', null)
+        .is('claimed_by_user_id', null)
+        .is('claimed_at', null)
         .select('id');
 
       if (salonClaimError) return cronError('onboarding-followup', startedAt, salonClaimError, {
@@ -297,7 +319,7 @@ export async function GET(request: Request) {
           delivered = await sendRegistrationLeadFollowEmail({
             email: salon.email,
             facilityName: salon.facility_name,
-            businessType: salon.business_type,
+            receiptId: salon.id,
           });
           if (!delivered) deliveryFailures++;
         }

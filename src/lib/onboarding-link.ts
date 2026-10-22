@@ -23,9 +23,13 @@
  * これなら middleware は既に正しく転送する（safeRedirect は `new URL(raw, origin)` で
  * raw 自身の query を解決し、pathname+search+hash をそのまま返すため）。
  *
- * 発生源は4箇所（src/app/register/complete/page.tsx のサインアップ・ログイン導線2本、
- * src/lib/email.ts の受付メール・フォローメール2本）。組み立ての重複・二重実装によるズレを
- * 避けるため、全箇所がこの1本を通す。
+ * 発生源は src/app/register/complete/page.tsx のサインアップ・ログイン導線2本。組み立ての
+ * 重複・二重実装によるズレを避けるため、全箇所がこの1本を通す。
+ *
+ * ⚠️ 2026年10月22日: email.ts の受付メール・フォローメールはこの導線を使わなくなった。
+ * /admin/onboarding は受付を特定する情報を運ばないため、申込から日が経った人をここへ送ると
+ * 申込内容を取り込まない空の店舗が作られる。後から申込を再開させる導線は
+ * src/lib/salon-browser-context.ts の salonRecoveryAuthPath（/register/recover）を使う。
  */
 
 export interface OnboardingLinkParams {

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { z } from 'zod';
 import { businessTypes } from '@/lib/constants';
-import { SALON_RECOVERY_ONBOARDING_PATH, saveSalonRecoveryContext } from '@/lib/salon-browser-context';
+import { SALON_RECOVERY_ONBOARDING_PATH, saveSalonRecoveryContext, salonRecoveryAuthPath } from '@/lib/salon-browser-context';
 
 const resultSchema = z.object({ state: z.literal('ready'), receipts: z.array(z.object({
   receipt_id: z.uuid(), facility_name: z.string().min(1).max(200),
@@ -54,7 +54,7 @@ export default function RecoverRegistrationPage() {
       const result = await requestReceipts(AbortSignal.timeout(20000), after);
       if (!live.current) return;
       if (result === null) {
-        router.replace('/auth/login?redirect=%2Fregister%2Frecover'); return;
+        router.replace(salonRecoveryAuthPath('login')); return;
       }
       setReceipts(result.receipts); setNext(result.next); setLoaded(true);
     } catch (failure) {
@@ -73,7 +73,7 @@ export default function RecoverRegistrationPage() {
       try {
         const result = await requestReceipts(controller.signal);
         if (cancelled) return;
-        if (result === null) { router.replace('/auth/login?redirect=%2Fregister%2Frecover'); return; }
+        if (result === null) { router.replace(salonRecoveryAuthPath('login')); return; }
         setReceipts(result.receipts); setNext(result.next); setLoaded(true);
       } catch (failure) {
         if (!cancelled) setError(failure instanceof Error ? failure.message : '受付状況を確認できません。');
