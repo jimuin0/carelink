@@ -57,7 +57,7 @@ describe('録画しない画面（お客様・店舗・申込者の情報を表�
     '/liff/bookings',
     '/register',
     '/register/recover',
-    '/recruit',
+    '/recruit', // 撤去済み（/register へ転送）。分類外なので録画しない側に倒れる
     '/contact',
     '/unsubscribe',
     '/facility/some-salon/booking',
