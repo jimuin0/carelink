@@ -4,45 +4,23 @@ import { useState, useEffect, useSyncExternalStore } from 'react';
 // 同意バナー内のポリシーリンク。全ページで初回表示されるので先読みしない
 // （理由と実測は components/BrowseLink.tsx）。
 import Link from '@/components/BrowseLink';
-
-interface CookiePreferences {
-  necessary: true; // 常にtrue（変更不可）
-  analytics: boolean;
-  marketing: boolean;
-}
-
-const STORAGE_KEY = 'cookie-consent-v2';
+// 保存・読み取り・変更通知は単一ソース（src/lib/cookie-consent.ts）。計測タグ
+// （components/AnalyticsGate.tsx）も同じ判定を使い、ここでの保存にすぐ追従する。
+import {
+  hasAnsweredCookieBanner,
+  saveCookiePreferences,
+  subscribeToCookieConsent,
+  type CookiePreferences,
+} from '@/lib/cookie-consent';
+import { bottomFixedBarsHeight } from '@/lib/mobile-bottom-bar';
 
 function getDefaultPrefs(): CookiePreferences {
   return { necessary: true, analytics: false, marketing: false };
 }
 
-export function getCookiePreferences(): CookiePreferences | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as CookiePreferences;
-  } catch {
-    return null;
-  }
-}
-
-// useSyncExternalStore 用の購読関数。同意状態は他タブのイベントを監視する必要が無く
-// （このタブ内の操作でしか変わらない）、購読先が無いので何もしない unsubscribe を返す。
-function subscribeToConsent(): () => void {
-  return () => {};
-}
-
-// localStorage（ブラウザ専用 API）の同意有無をレンダー中に読む。useSyncExternalStore の
-// getSnapshot はサーバーでは呼ばれないため typeof window ガードは不要。
-function hasStoredConsent(): boolean {
-  return !!(localStorage.getItem(STORAGE_KEY) || localStorage.getItem('cookie-consent'));
-}
-
 // SSR・初回ハイドレーション時は「同意済み」として扱いバナーを出さない
 // （旧実装の初期 state visible=false と同じ見た目）。ハイドレーション後、
-// useSyncExternalStore が実値（hasStoredConsent）へ自動で切り替える。
+// useSyncExternalStore が実値（hasAnsweredCookieBanner）へ自動で切り替える。
 function getServerConsentSnapshot(): boolean {
   return true;
 }
@@ -57,28 +35,38 @@ export default function CookieConsent() {
   // 施設詳細ページのSticky予約バー(.sticky-bar、fixed bottom-0 z-40)と本バナー(fixed bottom-0
   // z-50)が両方画面下部に固定表示されるため、本バナーが「今すぐ予約する」ボタンの前面に重なり
   // クリックできなくなっていた（実機Playwright確認で発見）。sticky-barの高さ分だけ上にオフセットする。
+  // 2026年10月22日: スマホの下部ナビ（MobileBottomNav）も同じく覆っていたため、下部固定バー全般
+  // （lib/mobile-bottom-bar.ts の目印）の高さ分だけ上げる。
   const [bottomOffset, setBottomOffset] = useState(0);
 
   // 「同意情報が保存されているか」を effect + setState ではなく useSyncExternalStore で
   // レンダー中に読む。ブラウザ専用 API を安全に扱いつつハイドレーション不整合も出さない
   // React 標準パターンへの構造変更（symptom を隠すラッパーではなく、setState をそもそも
   // effect の外へ追い出す本質的な修正）。
-  const hasConsent = useSyncExternalStore(subscribeToConsent, hasStoredConsent, getServerConsentSnapshot);
+  // 他タブで回答した場合も storage イベントで拾い、このタブのバナーも閉じる。
+  const hasConsent = useSyncExternalStore(subscribeToCookieConsent, hasAnsweredCookieBanner, getServerConsentSnapshot);
   const visible = !hasConsent && !dismissed;
 
   useEffect(() => {
     if (!visible) return;
-    const measure = () => {
-      const bar = document.querySelector('.sticky-bar');
-      setBottomOffset(bar ? bar.getBoundingClientRect().height : 0);
-    };
+    const measure = () => setBottomOffset(bottomFixedBarsHeight());
     measure();
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    // 下部ナビは遅延読み込み（ssr:false）で後から現れ、予約バーは残席の表示で高さが変わる。
+    // バナーを出している間だけ DOM の変化を見て測り直す（同意前の初回訪問だけなので負担は小さい）。
+    const observer = new MutationObserver(measure);
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    return () => {
+      window.removeEventListener('resize', measure);
+      observer.disconnect();
+    };
   }, [visible]);
 
   const save = (p: CookiePreferences) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+    // 保存と同時に計測タグへ通知する（拒否なら読み込まない・同意ならその場で読み込む）。
+    // ストレージが使えない環境（Safari で全 Cookie をブロック等）でも例外を出さず、
+    // 選択はこのページ表示の間だけ dismissed で守って閉じる（次の読み込みでは再び尋ねる）。
+    saveCookiePreferences(p);
     setDismissed(true);
   };
 
@@ -98,7 +86,8 @@ export default function CookieConsent() {
       className="fixed bottom-0 left-0 right-0 z-40 bg-gray-900 backdrop-blur-sm text-white shadow-xl"
       style={bottomOffset > 0 ? { bottom: bottomOffset } : undefined}
     >
-      <div className="max-w-4xl mx-auto px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+      {/* 下部バーの上に出すときは、端末下端の余白（safe area）はバー側が取っているので足さない */}
+      <div className={`max-w-4xl mx-auto px-4 pt-4 ${bottomOffset > 0 ? 'pb-4' : 'pb-[calc(1rem+env(safe-area-inset-bottom))]'}`}>
         {!showDetails ? (
           /* シンプルバー */
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-6">
@@ -148,13 +137,18 @@ export default function CookieConsent() {
               <div className="flex items-start justify-between gap-4 p-3 bg-white/5 rounded-lg">
                 <div>
                   <p className="text-sm font-medium">分析Cookie</p>
-                  <p className="text-xs text-gray-400 mt-0.5">ページビューや利用状況の把握に使用します。個人を特定するデータは収集しません。</p>
+                  {/* 実際の読み込み範囲（Clarity は公開ページだけ）は src/lib/session-recording-scope.ts。
+                      ここを変えるときはプライバシーポリシー第8条も合わせる。 */}
+                  <p className="text-xs text-gray-400 mt-0.5">ページビューや利用状況の把握（Google Analytics）と、画面操作の分析（Microsoft Clarity のヒートマップ・セッション録画）に使用します。ログイン・マイページ・予約・問診・管理画面など、お客様の情報を表示する画面では録画しません。</p>
                 </div>
+                {/* 状態は色とつまみの位置だけでなく role="switch"＋aria-checked で読み上げる（名前に状態を含めない） */}
                 <button
                   type="button"
+                  role="switch"
+                  aria-checked={prefs.analytics}
                   onClick={() => setPrefs((p) => ({ ...p, analytics: !p.analytics }))}
                   className={`relative shrink-0 w-10 h-6 rounded-full transition-colors mt-0.5 before:absolute before:-inset-y-2.5 before:inset-x-0 before:content-[''] ${prefs.analytics ? 'bg-sky-500' : 'bg-gray-600'}`}
-                  aria-label="分析Cookieを切り替え"
+                  aria-label="分析Cookie"
                 >
                   <span className={`block w-4 h-4 bg-white rounded-full transition-transform mx-1 ${prefs.analytics ? 'translate-x-4' : ''}`} />
                 </button>
@@ -168,9 +162,11 @@ export default function CookieConsent() {
                 </div>
                 <button
                   type="button"
+                  role="switch"
+                  aria-checked={prefs.marketing}
                   onClick={() => setPrefs((p) => ({ ...p, marketing: !p.marketing }))}
                   className={`relative shrink-0 w-10 h-6 rounded-full transition-colors mt-0.5 before:absolute before:-inset-y-2.5 before:inset-x-0 before:content-[''] ${prefs.marketing ? 'bg-sky-500' : 'bg-gray-600'}`}
-                  aria-label="マーケティングCookieを切り替え"
+                  aria-label="マーケティングCookie"
                 >
                   <span className={`block w-4 h-4 bg-white rounded-full transition-transform mx-1 ${prefs.marketing ? 'translate-x-4' : ''}`} />
                 </button>

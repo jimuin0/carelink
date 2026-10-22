@@ -172,7 +172,8 @@ describe('migration（予約 RPC 側の判定）', () => {
     expect(expected).toContain("IF v_coupon_type IN ('new_customer', 'repeat') THEN");
     const later = readdirSync(MIGRATIONS)
       .filter((f) => f.endsWith('.sql') && f > NEW_MIGRATION && /^\d/.test(f))
-      .filter((f) => read(f).includes('create_booking_for_menus_atomic'));
+      // 定義し直す migration だけを見る（呼び出すだけの migration＝20261023070000 の公開ラッパーは対象外）。
+      .filter((f) => /CREATE (?:OR REPLACE )?FUNCTION public\.create_booking_for_menus_atomic\(/.test(read(f)));
     expect(later).toEqual(['20261023000100_booking_visit_points_cap.sql']);
     for (const file of later) expect([file, couponBlock(read(file))]).toEqual([file, expected]);
   });

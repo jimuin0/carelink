@@ -3,10 +3,10 @@ import { verifyAuthUser } from '@/lib/auth-verification';
 import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { getUniqueCustomers } from '@/lib/admin';
-import { canonicalizeEmail } from '@/lib/email-canonical';
+import { buildCustomerDirectory, type LedgerRow, type MasterCustomer, type SegmentRow, type UnregisteredCustomer } from '@/lib/customer-directory';
 import { notFound } from 'next/navigation';
 import { SbPageHeader } from '@/components/admin/SbUi';
-import CustomersManager, { type MasterCustomer, type UnregisteredCustomer } from '@/components/admin/CustomersManager';
+import CustomersManager from '@/components/admin/CustomersManager';
 
 export default async function AdminCustomersPage() {
   const supabase = await createServerSupabaseAuthClient();
@@ -55,27 +55,11 @@ export default async function AdminCustomersPage() {
     if (masterErr && masterErr.code !== 'PGRST205' && masterErr.code !== '42P01') {
       throw new Error(`顧客マスターの取得に失敗しました: ${masterErr.message}`);
     }
-    const master = (masterRows ?? []) as Omit<MasterCustomer, 'visit_count' | 'last_visit' | 'segment' | 'total_spent' | 'facility_id' | 'facility_name'>[];
+    const ledger = (masterRows ?? []) as LedgerRow[];
 
-    // 来店実績（予約完了から自動集計・email 正規化キー）。
-    // 【監査L3】突合キーは canonicalizeEmail に統一する（trim+小文字化だけでは Gmail の
-    // ドット/+タグ エイリアスが別人扱いになり、来店実績・LTV・セグメントが一覧に出なかった）。
-    // 同一人物が複数エイリアスで来店している場合は canonical キーで合算する（来店数を過少にしない）。
+    // 来店実績（予約完了から自動集計）。同じ人かはメール（canonical）で、メールの無い電話・来店受付の
+    // 予約は電話番号で判定する（customerIdentityKey・src/lib/customer-identity.ts）。
     const visits = await getUniqueCustomers(facilityId);
-    const visitByEmail = new Map<string, { visit_count: number; last_visit: string }>();
-    for (const v of visits) {
-      if (!v.email) continue;
-      const key = canonicalizeEmail(v.email);
-      const existing = visitByEmail.get(key);
-      if (existing) {
-        visitByEmail.set(key, {
-          visit_count: existing.visit_count + v.visit_count,
-          last_visit: existing.last_visit >= v.last_visit ? existing.last_visit : v.last_visit,
-        });
-      } else {
-        visitByEmail.set(key, { visit_count: v.visit_count, last_visit: v.last_visit });
-      }
-    }
 
     // RFMセグメント（VIP/レギュラー/離脱リスク/離脱/新規）と累計利用金額(LTV)を一覧の各行に出す。
     const { data: segmentRows, error: segmentErr } = await supabase
@@ -85,36 +69,13 @@ export default async function AdminCustomersPage() {
     if (segmentErr && segmentErr.code !== 'PGRST205' && segmentErr.code !== '42P01') {
       throw new Error(`顧客セグメントの取得に失敗しました: ${segmentErr.message}`);
     }
-    const segmentByEmail = new Map<string, { segment: string | null; total_spent: number | null }>();
-    for (const s of (segmentRows ?? []) as Array<{ customer_email: string; segment: string | null; total_spent: number | null }>) {
-      // 【監査L3】segment 側も canonical キーで突合し、Gmail エイリアス顧客の LTV/セグメントを一覧に出す。
-      if (s.customer_email) segmentByEmail.set(canonicalizeEmail(s.customer_email), { segment: s.segment, total_spent: s.total_spent });
-    }
 
-    // マスター顧客に来店実績・セグメントを突合（email 一致・この施設内）。
-    const matchedEmails = new Set<string>();
-    for (const c of master) {
-      // 【監査L3】master 側も canonical キーで突合する（両側 canonical で Gmail エイリアスも一致）。
-      const key = c.email ? canonicalizeEmail(c.email) : '';
-      const hit = key ? visitByEmail.get(key) : undefined;
-      const seg = key ? segmentByEmail.get(key) : undefined;
-      if (key && hit) matchedEmails.add(key);
-      customers.push({
-        ...c,
-        facility_id: facilityId,
-        facility_name: facilityName,
-        visit_count: hit?.visit_count ?? 0,
-        last_visit: hit?.last_visit ?? null,
-        segment: seg?.segment ?? null,
-        total_spent: seg?.total_spent ?? null,
-      });
-    }
-
-    // 来店履歴はあるがマスター未登録の顧客（「登録」導線を出す・この施設内）。
-    for (const v of visits) {
-      if (v.email && matchedEmails.has(canonicalizeEmail(v.email))) continue;
-      unregistered.push({ name: v.name, email: v.email, visit_count: v.visit_count, last_visit: v.last_visit, facility_id: facilityId, facility_name: facilityName });
-    }
+    // 台帳・来店・セグメントをこの施設の中で突合する（来店の無い台帳顧客には古いセグメントを出さない）。
+    const directory = buildCustomerDirectory({
+      facilityId, facilityName, ledger, visits, segments: (segmentRows ?? []) as SegmentRow[],
+    });
+    customers.push(...directory.customers);
+    unregistered.push(...directory.unregistered);
   }
 
   return (

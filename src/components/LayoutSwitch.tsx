@@ -7,6 +7,8 @@ import Footer from '@/components/Footer';
 import SearchHeader from '@/components/search/SearchHeader';
 import SearchFooter from '@/components/search/SearchFooter';
 import { isValidPrefectureSlug } from '@/lib/seo-constants';
+import { footerClearanceClass } from '@/lib/mobile-bottom-bar';
+import { isSessionRecordingAllowedPath } from '@/lib/session-recording-scope';
 
 const MobileBottomNav = dynamic(() => import('@/components/search/MobileBottomNav'), { ssr: false });
 const AiChatbot = dynamic(() => import('@/components/AiChatbot'), { ssr: false });
@@ -18,10 +20,14 @@ const AiChatbot = dynamic(() => import('@/components/AiChatbot'), { ssr: false }
  */
 export default function LayoutSwitch({ children, aiEnabled }: { children: React.ReactNode; aiEnabled: boolean }) {
   const pathname = usePathname();
+  // 録画しない画面（管理画面・マイページ・予約・問診など）の本文は Clarity のマスク対象にする。
+  // タグを出さない・遷移で止める（components/AnalyticsGate.tsx）の手前で、公開ページから
+  // クライアント遷移した瞬間の描画が録画に載っても文字が残らないようにする二重の守り。
+  const recordingMask = isSessionRecordingAllowedPath(pathname) ? undefined : 'true';
 
   // Admin has its own layout
   if (pathname.startsWith('/admin')) {
-    return <main className="flex-1">{children}</main>;
+    return <main className="flex-1" data-clarity-mask="true">{children}</main>;
   }
 
   // Check if path starts with a prefecture slug (e.g. /tokyo, /osaka/hair-salon)
@@ -35,8 +41,10 @@ export default function LayoutSwitch({ children, aiEnabled }: { children: React.
       <>
         <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-200 focus:bg-white focus:px-4 focus:py-2 focus:rounded-lg focus:shadow-lg focus:text-sky-600 focus:font-bold focus:text-sm">メインコンテンツへスキップ</a>
         <SearchHeader />
-        <main id="main-content" className="flex-1 pb-14 lg:pb-0">{children}</main>
-        <SearchFooter />
+        {/* 下部ナビ・予約バーの逃げは <main> ではなくフッターに付ける。<main> に付けても
+            後ろのフッターは覆われたままで、最終行の利用規約・特商法表記が押せなかった（lib/mobile-bottom-bar.ts）。 */}
+        <main id="main-content" className="flex-1" data-clarity-mask={recordingMask}>{children}</main>
+        <SearchFooter className={footerClearanceClass(pathname)} />
         <MobileBottomNav />
         {aiEnabled && <AiChatbot />}
       </>
@@ -47,7 +55,7 @@ export default function LayoutSwitch({ children, aiEnabled }: { children: React.
     <>
       <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-200 focus:bg-white focus:px-4 focus:py-2 focus:rounded-lg focus:shadow-lg focus:text-sky-600 focus:font-bold focus:text-sm">メインコンテンツへスキップ</a>
       <Header />
-      <main id="main-content" className="flex-1">{children}</main>
+      <main id="main-content" className="flex-1" data-clarity-mask={recordingMask}>{children}</main>
       <Footer />
     </>
   );

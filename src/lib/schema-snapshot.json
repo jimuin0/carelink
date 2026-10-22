@@ -518,6 +518,7 @@
   "facility_notification_settings": [
     "created_at",
     "email_daily_summary",
+    "email_on_review",
     "email_weekly_report",
     "facility_id",
     "id",

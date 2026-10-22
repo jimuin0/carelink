@@ -29,20 +29,36 @@ import { POST } from '../route';
 
 let mockUpsert: jest.Mock;
 let mockGetUser: jest.Mock;
+let mockReleaseResult: { error: unknown };
+let releaseFilters: Array<[string, string, unknown]>;
+let dbCalls: string[];
 
 function setupDefaultMocks(
   hasUser: boolean = true,
   upsertSucceeds: boolean = true
 ) {
+  mockReleaseResult = { error: null };
+  releaseFilters = [];
+  dbCalls = [];
   (checkCsrf as jest.Mock).mockReturnValue(null);
 
   mockGetUser = jest.fn().mockResolvedValue({
     data: { user: hasUser ? { id: 'user-123' } : null },
   });
 
-  mockUpsert = jest.fn().mockResolvedValue({
-    error: upsertSucceeds ? null : { message: 'Upsert failed' },
+  mockUpsert = jest.fn().mockImplementation(() => {
+    dbCalls.push('upsert');
+    return Promise.resolve({ error: upsertSucceeds ? null : { message: 'Upsert failed' } });
   });
+  // 同じ endpoint を別アカウントが持つ行の削除: delete().eq('endpoint', x).neq('user_id', me)
+  const releaseChain = {
+    eq: jest.fn((column: string, value: unknown) => { releaseFilters.push(['eq', column, value]); return releaseChain; }),
+    neq: jest.fn((column: string, value: unknown) => {
+      releaseFilters.push(['neq', column, value]);
+      dbCalls.push('release');
+      return Promise.resolve(mockReleaseResult);
+    }),
+  };
 
   // 認証判定のみ anon SSR クライアント（createServerClient）
   const { createServerClient } = require('@supabase/ssr');
@@ -55,6 +71,7 @@ function setupDefaultMocks(
   (createServiceRoleClient as jest.Mock).mockReturnValue({
     from: jest.fn().mockReturnValue({
       upsert: mockUpsert,
+      delete: jest.fn(() => releaseChain),
     }),
   });
 
@@ -254,6 +271,21 @@ describe('POST /api/push/subscribe', () => {
     );
 
     expect(res.status).toBe(500);
+  });
+
+  test('同じ端末（endpoint）を前に登録していた【別アカウント】の行を、保存の前に外す（E20・共用端末の切り替え）', async () => {
+    const endpoint = 'https://fcm.googleapis.com/fcm/send/shared-browser';
+    const res = await POST(makeRequest({ endpoint, keys: { p256dh: 'abc', auth: 'def' } }) as any);
+    expect(res.status).toBe(200);
+    expect(releaseFilters).toEqual([['eq', 'endpoint', endpoint], ['neq', 'user_id', 'user-123']]);
+    expect(dbCalls).toEqual(['release', 'upsert']);
+  });
+
+  test('別アカウントの行を外せなければ保存しない（1 台に 2 アカウント分の通知が届く状態を作らない）', async () => {
+    mockReleaseResult = { error: { message: 'delete failed' } };
+    const res = await POST(makeRequest({ endpoint: 'https://fcm.googleapis.com/fcm/send/x', keys: { p256dh: 'abc', auth: 'def' } }) as any);
+    expect(res.status).toBe(500);
+    expect(mockUpsert).not.toHaveBeenCalled();
   });
 
   test('includes updated_at timestamp', async () => {

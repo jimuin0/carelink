@@ -120,7 +120,9 @@ export default function AiChatbot() {
     <>
       {/* Chat window */}
       {open && (
+        // 相談内容（入力した文がそのまま吹き出しとして表示される）を Clarity の録画に残さない。
         <div className="fixed bottom-20 right-4 z-50 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col overflow-hidden"
+          data-clarity-mask="true"
           style={{ height: '480px', maxHeight: 'calc(100vh - 6rem)' }}>
           {/* Header */}
           <div className="bg-sky-500 px-4 py-3 flex items-center justify-between shrink-0">

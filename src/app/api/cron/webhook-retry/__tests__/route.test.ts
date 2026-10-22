@@ -44,6 +44,7 @@ jest.mock('@/lib/line');
 jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/alert', () => ({
   alertDeliveryFailures: jest.fn(),
+  alertWarning: jest.fn(),
 }));
 jest.mock('resend');
 jest.mock('@/lib/salon-outbox-delivery');
@@ -52,13 +53,13 @@ jest.mock('@/lib/manual-booking-notification');
 jest.mock('@/lib/customer-booking-transition-email');
 jest.mock('@/lib/customer-booking-channel');
 jest.mock('@/lib/scheduled-email-recipient',()=>({checkScheduledEmailRecipient:jest.fn(async()=>true)}));
-jest.mock('@/lib/booking-create-notifications',()=>({prepareBookingCreationChannel:jest.fn(async()=>async()=>{}),sendBookingCreationLine:jest.fn(async()=>true)}));
+jest.mock('@/lib/booking-create-notifications',()=>({prepareBookingCreationChannel:jest.fn(async()=>async()=>({outcome:'delivered'})),sendBookingCreationLine:jest.fn(async()=>true)}));
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
 import { scheduleRetry } from '@/lib/webhook-queue';
 import { sendLineText } from '@/lib/line';
-import { alertDeliveryFailures } from '@/lib/alert';
+import { alertDeliveryFailures, alertWarning } from '@/lib/alert';
 import { GET } from '../route';
 import { prepareSalonOutboxDelivery } from '@/lib/salon-outbox-delivery';
 import { prepareFacilityWelcomeDelivery } from '@/lib/facility-welcome-delivery';
@@ -1589,5 +1590,78 @@ test.each(['booking_creation_push','booking_creation_lineworks','line_push'])('b
  const channel=jest.requireMock('@/lib/booking-create-notifications');
  if(webhook_type==='line_push'){expect(channel.sendBookingCreationLine).toHaveBeenCalledWith('synthetic','Synthetic');expect(sendLineText).not.toHaveBeenCalled();}
  else expect(channel.prepareBookingCreationChannel).toHaveBeenCalled();
+});
+describe('新規予約の Push / LINE WORKS：宛先が消えた送信は保留せず 1 回で閉じる（E19）',()=>{
+ const id='88888888-8888-4888-8888-888888888882';
+ const channel=()=>jest.requireMock('@/lib/booking-create-notifications').prepareBookingCreationChannel as jest.Mock;
+ function creationJob(webhook_type='booking_creation_push',ids=[id]){
+  mockJobsSelect.mockResolvedValue({data:ids.map(jobId=>({id:jobId,webhook_type,target_id:'b2000000-0000-4000-8000-000000000001',payload:{booking_create_operation:'e4000000-0000-4000-8000-000000000002',title:'T',body:'B'},attempt_count:1,status:'pending'})),error:null});
+ }
+ const started='2030-01-01T00:00:00.000Z';
+ beforeEach(()=>{mockBookingFence.mockResolvedValue({data:[{outcome:'ready',started_at:started}],error:null});channel().mockReset().mockResolvedValue(async()=>({outcome:'delivered'}));});
+ test.each([['booking_creation_push','booking_push_subscription_expired',410,'Push通知','端末の購読が失効'],['booking_creation_lineworks','booking_lineworks_channel_not_found',404,'LINE WORKS通知','チャンネルが見つかりません']])('%s %s → failed で閉じ、再送も保留もしない（毎 run の通報が止まる）',async(type,reason,status,label,detail)=>{
+  creationJob(type);channel().mockResolvedValue(async()=>({outcome:'closed',reason,status}));
+  mockQuarantineUpdate.mockResolvedValue({data:[{id}],error:null});
+  const res=await GET(makeRequest());
+  expect(res.status).toBe(200);
+  expect(mockTableUpdateDispatch).toHaveBeenCalledWith(expect.objectContaining({status:'failed',last_error:reason,attempt_count:2}));
+  expect(mockQuarantineUpdate).toHaveBeenCalledWith(expect.objectContaining({id,status:'processing',delivery_started_at:started,claimed_at:expect.any(String)}));
+  expect(scheduleRetry).not.toHaveBeenCalled();
+  // 理由つきで 1 回だけ知らせる。再送上限に達した配送障害（dead-letter）とは数えない。
+  expect(alertWarning).toHaveBeenCalledTimes(1);
+  const message=(alertWarning as jest.Mock).mock.calls[0][0] as string;
+  expect(message).toContain(label);expect(message).toContain(detail);expect(message).toContain('再送はしません');
+  expect(message).not.toContain('件を終了');
+  expect(alertDeliveryFailures).toHaveBeenCalledWith('webhook-retry',0,{success:0},0);
+  expect(logCronRun).toHaveBeenCalledWith('webhook-retry','success',expect.any(Date),expect.objectContaining({skipped:1,meta:expect.objectContaining({delivery_uncertain:0,undeliverable_closed:1})}));
+  expect((await res.json()).skipped).toBe(1);
+ });
+ test('同じ run に結果不明の保留があっても、閉じた通知は理由つきで知らせる',async()=>{
+  const second='88888888-8888-4888-8888-888888888883';
+  creationJob('booking_creation_push',[id,second]);
+  channel().mockResolvedValueOnce(async()=>({outcome:'closed',reason:'booking_push_subscription_expired',status:410}))
+   .mockResolvedValueOnce(async()=>({outcome:'uncertain'}));
+  mockQuarantineUpdate.mockImplementation((filters:Record<string,unknown>)=>Promise.resolve({data:[{id:filters.id}],error:null}));
+  const res=await GET(makeRequest());
+  expect(res.status).toBe(503);
+  expect(alertWarning).toHaveBeenCalledTimes(1);
+  expect((alertWarning as jest.Mock).mock.calls[0][0]).toContain('端末の購読が失効');
+  expect(alertDeliveryFailures).toHaveBeenCalledWith('webhook-retry',0,{success:0},0);
+  expect(logCronRun).toHaveBeenCalledWith('webhook-retry','error',expect.any(Date),expect.objectContaining({skipped:1,meta:expect.objectContaining({delivery_uncertain:1,undeliverable_closed:1})}));
+  expect((await res.json()).skipped).toBe(1);
+ });
+ test('同じ run で同じ経路を複数件閉じたら、件数をまとめて 1 回だけ知らせる',async()=>{
+  const second='88888888-8888-4888-8888-888888888883';
+  creationJob('booking_creation_push',[id,second]);channel().mockResolvedValue(async()=>({outcome:'closed',reason:'booking_push_subscription_expired',status:410}));
+  mockQuarantineUpdate.mockImplementation((filters:Record<string,unknown>)=>Promise.resolve({data:[{id:filters.id}],error:null}));
+  const res=await GET(makeRequest());
+  expect(res.status).toBe(200);
+  expect(alertWarning).toHaveBeenCalledTimes(1);
+  expect((alertWarning as jest.Mock).mock.calls[0][0]).toContain('Push通知 2件を終了');
+  expect((alertWarning as jest.Mock).mock.calls[0][1]).toEqual(expect.objectContaining({extra:{webhookType:'booking_creation_push',undeliverableClosed:2}}));
+  expect(logCronRun).toHaveBeenCalledWith('webhook-retry','success',expect.any(Date),expect.objectContaining({skipped:2,meta:expect.objectContaining({undeliverable_closed:2})}));
+ });
+ test('閉じたことを確認できなければ従来どおり結果不明として保留する（二重送信も無音の消失も作らない）',async()=>{
+  creationJob();channel().mockResolvedValue(async()=>({outcome:'closed',reason:'booking_push_subscription_expired',status:410}));
+  mockQuarantineUpdate.mockResolvedValue({data:[],error:null});
+  const res=await GET(makeRequest());
+  expect(res.status).toBe(503);expect((await res.json()).delivery_uncertain).toBe(1);expect(scheduleRetry).not.toHaveBeenCalled();
+ });
+ test('認証・流量などの明確な拒否は届いていないので、通常の再試行に回す',async()=>{
+  creationJob();channel().mockResolvedValue(async()=>({outcome:'retryable',reason:'booking_push_provider_rejected',status:429}));
+  const res=await GET(makeRequest());
+  expect(res.status).toBe(200);expect(scheduleRetry).toHaveBeenCalledWith(id,2,expect.any(String),expect.any(String));
+  expect(mockTableUpdateDispatch).not.toHaveBeenCalledWith(expect.objectContaining({status:'failed'}));
+ });
+ test('受理された可能性がある結果（timeout・5xx）は保留のまま（再送しない）',async()=>{
+  creationJob('booking_creation_lineworks');channel().mockResolvedValue(async()=>({outcome:'uncertain'}));
+  const res=await GET(makeRequest());
+  expect(res.status).toBe(503);expect(scheduleRetry).not.toHaveBeenCalled();
+ });
+ test('届いた送信は success として記録する',async()=>{
+  creationJob();
+  const res=await GET(makeRequest());
+  expect(res.status).toBe(200);expect(mockSuccessUpdate).toHaveBeenCalled();expect(scheduleRetry).not.toHaveBeenCalled();
+ });
 });
 test('missing formal claim RPC cannot fall back to raw UPDATE or dispatch',async()=>{mockClaimGateway.mockResolvedValue({data:null,error:{code:'PGRST202'}});const response=await GET(makeRequest());expect(response.status).toBe(500);expect(mockDeliveryStartUpdate).not.toHaveBeenCalled();expect(mockBookingFence).not.toHaveBeenCalled();});

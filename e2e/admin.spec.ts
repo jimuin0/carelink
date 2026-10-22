@@ -149,7 +149,10 @@ test.describe.serial('管理画面（オーナー）', () => {
     await page.goto(`/admin/staff/new?facility_id=${fixture.facilityId}`);
     await page.fill('#staff-name', staffNewName);
     await page.getByRole('button', { name: 'スタッフを追加' }).click();
-    await page.waitForURL(url => url.pathname === '/admin/staff' && url.searchParams.get('facility_id') === fixture.facilityId, { timeout: 15000 });
+    // 追加後はそのスタッフの勤務時間の画面へ進む（勤務は保存するまで作られない）。
+    await page.waitForURL(url => /^\/admin\/staff\/[^/]+\/schedule$/.test(url.pathname) && url.searchParams.get('facility_id') === fixture.facilityId, { timeout: 15000 });
+    await expect(page.getByText(`${staffNewName}のスケジュール`)).toBeVisible();
+    await page.goto(`/admin/staff?facility_id=${fixture.facilityId}`);
     await expect(page.getByText(staffNewName)).toBeVisible();
   });
 

@@ -46,6 +46,9 @@ INSERT INTO public.facility_photos(id,facility_id,photo_url,photo_type) VALUES
 INSERT INTO public.facility_menus(facility_id,category,name,price,duration_minutes) VALUES
  ('f8510000-0000-4000-8000-000000000001','synthetic','synthetic menu',1000,60);
 INSERT INTO public.staff_profiles(facility_id,name,slug,is_active) VALUES ('f8510000-0000-4000-8000-000000000001','Synthetic staff','modphoto-staff',true);
+-- Online readiness needs a staff member with working time (staff_has_working_time).
+INSERT INTO public.staff_schedules(staff_id,day_of_week,start_time,end_time)
+SELECT id,1,'09:00','18:00' FROM public.staff_profiles WHERE slug='modphoto-staff';
 INSERT INTO public.facility_reviews(id,facility_id,reviewer_name,rating,comment,reviewer_ip) VALUES
  ('f8530000-0000-4000-8000-000000000001','f8510000-0000-4000-8000-000000000001','Synthetic reviewer',4,'fixture','127.0.0.1'),
  ('f8530000-0000-4000-8000-000000000002','f8510000-0000-4000-8000-000000000001','Synthetic rollback',4,'fixture','192.0.2.132'),

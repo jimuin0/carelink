@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { prepareCapturedPushDelivery } from './push';
+import { isExpiredPushStatus, prepareCapturedPushDelivery, removeExpiredPushSubscription } from './push';
 import { prepareSingleLineDelivery } from './line';
 import { prepareSingleLineWorksDelivery } from './integrations/line-works';
 import type { ChannelDeliveryResult } from './channel-delivery-result';
@@ -45,7 +45,15 @@ export async function prepareCustomerBookingChannel(input: unknown): Promise<() 
       : p.role==='customer' ? { title:'ご予約日時を変更しました',body:`${s.bookingDate} ${s.startTime.slice(0,5)}〜に変更しました`,
         url:`/mypage/bookings/${s.bookingId}`,tag:`booking-change-${s.bookingId}` }
       : { title:'予約日時変更',body:`${s.customerName}が${s.bookingDate} ${s.startTime.slice(0,5)}〜に変更しました`,url:'/admin/bookings',tag:`booking-change-owner-${s.bookingId}` };
-    return prepareCapturedPushDelivery(subscription,payload);
+    const send=prepareCapturedPushDelivery(subscription,payload);
+    const recipient=p.recipientUserId!;
+    return async () => {
+      const result=await send();
+      // 404/410＝端末の購読が失効している。この行を残すと、以後の予約通知が毎回同じ失効端末へ
+      // 向かって失敗し続ける。消せば次の試行は開始時点で superseded として閉じる。
+      if (result.outcome==='rejected' && isExpiredPushStatus(result.status)) await removeExpiredPushSubscription(recipient,subscription);
+      return result;
+    };
   }
   if (job.webhook_type==='customer_booking_line') {
     return prepareSingleLineDelivery(job.target_id,[ '❌ 予約キャンセル', '', `📍 ${s.facilityName}`,

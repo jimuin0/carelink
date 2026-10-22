@@ -1,5 +1,8 @@
-import { serverError } from '@/lib/with-route';
+import { serverError, authUnavailable } from '@/lib/with-route';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase-server';
+import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import { isCustomerChangeableStatus } from '@/lib/booking-status';
 import { NextResponse } from 'next/server';
 import type { AvailableSlot } from '@/types';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
@@ -22,6 +25,13 @@ export const dynamic = 'force-dynamic';
  *
  * 1 組でも取得に失敗したら全体を 500 にする。部分的な空配列を返すと、失敗が「満席」に
  * 見えてしまうため（/api/slots と同じ方針）。
+ *
+ * excludeBookingId（任意・2026年10月23日）: 予約日時の変更画面が、変更しようとしている予約そのものを
+ * 「埋まっている枠」に数えないために渡す。以前は自分の予約（例 14:00〜15:00）と重なる 13:30・14:00・
+ * 14:30 が「空きなし」になり、30分〜1時間ずらす変更が画面から選べなかった（変更 API 側の RPC は
+ * 自分の予約を除いて判定するので、送れば通る＝画面だけが選ばせていなかった）。
+ * 他人の予約を外した空きを引くと、その予約の時間が分かってしまう。そこで指定があるときだけ
+ * ログインを求め、本人の予約で、同じ施設の、まだ変更できる状態のものに限って外す。
  */
 export async function GET(request: Request) {
   try {
@@ -36,10 +46,30 @@ export async function GET(request: Request) {
     const dates = [...new Set((searchParams.get('dates') ?? '').split(',').filter(Boolean))];
     const duration = clampDuration(searchParams.get('duration'));
 
+    const excludeBookingId = searchParams.get('excludeBookingId');
+
     const valid = uuidRegex.test(facilityId)
       && staffIds.length > 0 && staffIds.length <= MAX_STAFF && staffIds.every((id) => uuidRegex.test(id))
-      && dates.length > 0 && dates.length <= MAX_DATES && dates.every((d) => isValidIsoDate(d));
+      && dates.length > 0 && dates.length <= MAX_DATES && dates.every((d) => isValidIsoDate(d))
+      && (excludeBookingId === null || uuidRegex.test(excludeBookingId));
     if (!valid) return NextResponse.json({ error: 'リクエストが不正です', days: {} }, { status: 400 });
+
+    if (excludeBookingId !== null) {
+      const auth = await createServerSupabaseAuthClient();
+      const verification = await verifyAuthUser(auth.auth);
+      if (verification.state === 'unavailable') return authUnavailable('slots-week-auth', '/api/slots/week');
+      if (verification.state !== 'verified') return NextResponse.json({ error: '認証が必要です', days: {} }, { status: 401 });
+      // RLS（本人の予約だけが読める）に加えて、本人・施設・状態をここで確かめる。
+      const { data: own, error: ownError } = await auth
+        .from('bookings')
+        .select('user_id, facility_id, status')
+        .eq('id', excludeBookingId)
+        .maybeSingle();
+      if (ownError) return serverError('slots-week:exclude-booking', ownError, '/api/slots/week', '予約を確認できません', { days: {} });
+      if (!own || own.user_id !== verification.user.id || own.facility_id !== facilityId || !isCustomerChangeableStatus(own.status)) {
+        return NextResponse.json({ error: '予約が見つかりません', days: {} }, { status: 404 });
+      }
+    }
 
     const preparation = await checkBookingReadiness(createServerSupabaseClient(), facilityId);
     if (preparation.error) return serverError('slots-week:preparation', preparation.error, '/api/slots/week', '予約設定を確認できません', { days: {} });
@@ -47,7 +77,8 @@ export async function GET(request: Request) {
 
     const admin = createServiceRoleClient();
     const pairs = dates.flatMap((date) => staffIds.map((staffId) => ({ date, staffId })));
-    const reads = await Promise.all(pairs.map(({ date, staffId }) => readSlots(admin, facilityId, staffId, date, duration)));
+    const reads = await Promise.all(pairs.map(({ date, staffId }) =>
+      readSlots(admin, facilityId, staffId, date, duration, excludeBookingId ?? undefined)));
     const failed = reads.find((r) => r.error);
     if (failed) return serverError('slots-week:get_available_slots', failed.error, '/api/slots/week', 'サーバーエラーが発生しました', { days: {} });
 

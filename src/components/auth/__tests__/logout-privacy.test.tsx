@@ -48,6 +48,33 @@ test.each(['public','admin'] as const)('%s marker clear failure remains a visibl
  mockComplete.mockImplementation(() => { throw new Error('cookie readback failed'); }); await open(kind);
  expect(await screen.findByRole('alert')).toHaveTextContent('下書きの削除を確認できません'); expect(mockPush).not.toHaveBeenCalled();
 });
+// E20: ログアウト後も、共用端末に予約者の名前入りの Push が出続けていた（購読が端末とサーバーに残るため）。
+describe('logout releases this device push subscription before signOut', () => {
+ const EP = 'https://fcm.googleapis.com/fcm/send/shared-reception-pc';
+ let mockUnsubscribe: jest.Mock; let mockFetch: jest.Mock;
+ beforeEach(() => {
+  mockUnsubscribe = jest.fn().mockResolvedValue(true);
+  mockFetch = jest.fn().mockResolvedValue({ ok: true });
+  global.fetch = mockFetch as unknown as typeof fetch;
+  Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: {
+   getRegistration: () => Promise.resolve({ pushManager: { getSubscription: () => Promise.resolve({ endpoint: EP, unsubscribe: mockUnsubscribe }) } }),
+  } });
+ });
+ afterEach(() => { delete (navigator as unknown as Record<string, unknown>).serviceWorker; });
+ test.each(['public','admin'] as const)('%s: server row (this endpoint) and browser subscription are removed while still signed in', async kind => {
+  await open(kind); await waitFor(() => expect(mockPush).toHaveBeenCalled());
+  expect(mockFetch).toHaveBeenCalledWith('/api/push/subscribe', expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ endpoint: EP }) }));
+  expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
+  // DELETE は本人確認が要るので、signOut より前でないと 401 になる。
+  expect(mockFetch.mock.invocationCallOrder[0]).toBeLessThan(mockSignOut.mock.invocationCallOrder[0]);
+  expect(mockUnsubscribe.mock.invocationCallOrder[0]).toBeLessThan(mockSignOut.mock.invocationCallOrder[0]);
+ });
+ test.each(['public','admin'] as const)('%s: a failed server removal still unsubscribes the browser and never blocks logout', async kind => {
+  mockFetch.mockRejectedValue(new Error('offline'));
+  await open(kind); await waitFor(() => expect(mockPush).toHaveBeenCalledWith(kind === 'public' ? '/search' : '/auth/login'));
+  expect(mockUnsubscribe).toHaveBeenCalledTimes(1); expect(mockSignOut).toHaveBeenCalledTimes(1);
+ });
+});
 test('public malformed SDK success is unconfirmed and does not claim anonymous state', async () => {
  mockSignOut.mockResolvedValue(undefined); await open('public'); expect(await screen.findByRole('alert')).toHaveTextContent('ログアウトを確認できません'); expect(mockPush).not.toHaveBeenCalled();
 });

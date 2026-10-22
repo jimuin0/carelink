@@ -11,7 +11,7 @@ import { scheduleRetry } from '@/lib/webhook-queue';
 import { sendLineText } from '@/lib/line';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
-import { alertDeliveryFailures } from '@/lib/alert';
+import { alertDeliveryFailures, alertWarning } from '@/lib/alert';
 import { retryTransientSupabaseRead, summarizeDependencyError } from '@/lib/err';
 import { sendResendForReconciliation } from '@/lib/resend-result';
 import { prepareSalonOutboxDelivery } from '@/lib/salon-outbox-delivery';
@@ -24,6 +24,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkScheduledEmailRecipient } from '@/lib/scheduled-email-recipient';
 import { prepareCustomerBookingChannel } from '@/lib/customer-booking-channel';
 import { channelDeliveryResult } from '@/lib/channel-delivery-result';
+import { closeUndeliverableBookingCreation, describeUndeliverableBookingCreation, type UndeliverableBookingCreation } from '@/lib/booking-create-delivery-close';
 
 export const dynamic = 'force-dynamic';
 
@@ -168,6 +169,9 @@ export async function GET(request: Request) {
     let failed = 0;
     let deadLettered = 0;
     let superseded = 0;
+    // 宛先がもう無いと確定して閉じた新規予約の通知（経路ごとの件数）。再送上限で止まった dead-letter とは
+    // 原因も対処も違う（再送は一度もしていない）ので failed / deadLettered に混ぜず、別の文言で知らせる。
+    const closedUndeliverable = new Map<string, number>();
     const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
     for (const job of claimedJobs) {
@@ -183,6 +187,8 @@ export async function GET(request: Request) {
       let bookingChannelJob = false;
       let bookingChannelStartedAt: string | null = null;
       let bookingChannelRejectedStatus: number | null = null;
+      // 新規予約の Push / LINE WORKS で「宛先がもう無い」と確定したとき（closeUndeliverableBookingCreation）。
+      const bookingCreationUndeliverable: { outcome: UndeliverableBookingCreation | null; startedAt: string | null } = { outcome: null, startedAt: null };
       try {
         const payload = job.payload;
         bookingChannelJob = job.webhook_type.startsWith('customer_booking_') ||
@@ -250,7 +256,15 @@ export async function GET(request: Request) {
             if (outcome !== 'delivered') throw new Error('registration notification delivery not confirmed');
           };
         } else if (job.webhook_type === 'booking_creation_push' || job.webhook_type === 'booking_creation_lineworks') {
-          deliver = await prepareBookingCreationChannel(job);
+          const sendCreation = await prepareBookingCreationChannel(job);
+          deliver = async () => {
+            const outcome = await sendCreation();
+            if (outcome.outcome === 'delivered') return;
+            if (outcome.outcome === 'closed') bookingCreationUndeliverable.outcome = outcome;
+            // closed（宛先消滅）/ retryable（認証・流量等の明確な拒否）は「届いていない」ことが確定している。
+            definitelyRejected = outcome.outcome !== 'uncertain';
+            throw new Error('booking creation delivery not confirmed');
+          };
         } else if (job.webhook_type === 'line_push') {
           const payload = job.payload;
           if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
@@ -317,6 +331,7 @@ export async function GET(request: Request) {
           if (fence.outcome === 'not_owned') { deliveryUncertain++; continue; }
           if (!fence.started_at || !Number.isFinite(Date.parse(fence.started_at))) throw new Error('invalid booking creation fence time');
           deliveryStartedAt = fence.started_at;
+          bookingCreationUndeliverable.startedAt = fence.started_at;
         } else if (newsletterJob) {
           const { data: fenceRows, error: fenceError } = await supabase.rpc('start_newsletter_delivery', { p_queue_id: job.id, p_claimed_at: claimEpoch });
           if (fenceError) throw fenceError;
@@ -414,6 +429,16 @@ export async function GET(request: Request) {
           deliveryUncertain++;
           continue;
         }
+        if (deliveryAttempted && bookingCreationUndeliverable.outcome) {
+          // 宛先が消えている送信は再送しても届かない。保留（毎 run の通報）にも再送にも回さず、
+          // 失敗として閉じる。この run の最後に、経路ごとに 1 回だけ理由つきで知らせる。
+          // startedAt は送信（＝outcome が決まる呼び出し）より前に必ず記録されている。
+          const closed = await closeUndeliverableBookingCreation(supabase, job, claimEpoch,
+            bookingCreationUndeliverable.startedAt!, bookingCreationUndeliverable.outcome);
+          if (!closed) { deliveryUncertain++; continue; }
+          closedUndeliverable.set(job.webhook_type, (closedUndeliverable.get(job.webhook_type) ?? 0) + 1);
+          continue;
+        }
         if (bookingChannelJob && deliveryAttempted && definitelyRejected) {
           try {
             const recorded = await supabase.rpc('record_customer_booking_channel_rejection', {
@@ -455,18 +480,26 @@ export async function GET(request: Request) {
     // 自動再送されない件数）を渡し、alertDeliveryFailures 側で文言を「dead-letter」向けに
     // 差し替える（0件時は他 cron と同じ既存文言のまま＝挙動不変）。
     alertDeliveryFailures('webhook-retry', failed, { success }, deadLettered);
+    let undeliverableClosed = 0;
+    for (const [webhookType, count] of closedUndeliverable) {
+      undeliverableClosed += count;
+      alertWarning(describeUndeliverableBookingCreation(webhookType, count), {
+        route: '/api/cron/webhook-retry',
+        extra: { webhookType, undeliverableClosed: count },
+      });
+    }
     if (deliveryUncertain > 0) {
       await logCronRun('webhook-retry', 'error', startedAt, {
         processed: success,
-        skipped: failed,
+        skipped: failed + undeliverableClosed,
         error_msg: '外部送信後の結果記録が不明なジョブを再送防止のため保留しました',
-        meta: { total: jobs.length, claimed: claimedJobs.length, delivery_uncertain: deliveryUncertain, superseded },
+        meta: { total: jobs.length, claimed: claimedJobs.length, delivery_uncertain: deliveryUncertain, superseded, undeliverable_closed: undeliverableClosed },
       });
       return NextResponse.json({
         error: 'delivery confirmation pending',
         delivery_uncertain: deliveryUncertain,
         processed: success,
-        skipped: failed + superseded,
+        skipped: failed + superseded + undeliverableClosed,
       }, { status: 503 });
     }
 
@@ -487,11 +520,11 @@ export async function GET(request: Request) {
 
     await logCronRun('webhook-retry', 'success', startedAt, {
       processed: success,
-      skipped: failed + superseded,
-      meta: { total: jobs.length, claimed: claimedJobs.length, queue_pending: queuePending, delivery_uncertain: 0, superseded },
+      skipped: failed + superseded + undeliverableClosed,
+      meta: { total: jobs.length, claimed: claimedJobs.length, queue_pending: queuePending, delivery_uncertain: 0, superseded, undeliverable_closed: undeliverableClosed },
     });
 
-    return NextResponse.json({ processed: success, skipped: failed + superseded, ...(superseded ? { superseded } : {}) });
+    return NextResponse.json({ processed: success, skipped: failed + superseded + undeliverableClosed, ...(superseded ? { superseded } : {}) });
   } catch (e) {
     return cronError('webhook-retry', startedAt, e);
   }

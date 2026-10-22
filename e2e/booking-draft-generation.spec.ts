@@ -40,6 +40,8 @@ test.beforeAll(async ({ request }) => {
       VALUES('${menuId}','${facilityId}','カット','合成カット',5000,60,true);
     INSERT INTO public.staff_profiles(id,facility_id,name,slug,is_active)
       VALUES('${staffId}','${facilityId}','合成担当','${slug}-staff',true);
+    INSERT INTO public.staff_schedules(staff_id,day_of_week,start_time,end_time)
+      SELECT '${staffId}',d,'09:00','20:00' FROM generate_series(0,6) AS d;
     INSERT INTO public.facility_photos(facility_id,photo_url,photo_type)
       VALUES('${facilityId}','${base.origin}/icons/icon-192.png','other');
     UPDATE public.facility_profiles SET status='published',business_hours='{"mon":{"open":"09:00","close":"20:00"},"tue":{"open":"09:00","close":"20:00"},"wed":{"open":"09:00","close":"20:00"},"thu":{"open":"09:00","close":"20:00"},"fri":{"open":"09:00","close":"20:00"},"sat":{"open":"09:00","close":"20:00"},"sun":{"open":"09:00","close":"20:00"}}' WHERE id='${facilityId}';

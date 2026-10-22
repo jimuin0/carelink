@@ -4,6 +4,7 @@
 // 毎回 auth.getUser() が走る。既定で先読みしない（理由と実測は components/BrowseLink.tsx）。
 import Link from '@/components/BrowseLink';
 import { usePathname } from 'next/navigation';
+import { mobileBottomBarFor } from '@/lib/mobile-bottom-bar';
 
 const items = [
   {
@@ -31,13 +32,17 @@ const items = [
 export default function MobileBottomNav() {
   const pathname = usePathname();
 
-  // Don't show on facility detail pages (StickyBookingBar is there)
-  if (pathname.startsWith('/facility/') && !pathname.endsWith('/staff') && !pathname.endsWith('/catalog')) {
+  // 施設詳細（StickyBookingBar を出す）や予約画面などでは出さない。どのパスで出すかは
+  // フッターの逃げ（LayoutSwitch）と同じ判定を使う（lib/mobile-bottom-bar.ts）。
+  if (mobileBottomBarFor(pathname) !== 'nav') {
     return null;
   }
 
+  // 高さは --mobile-nav-height（globals.css）に固定する。フッターの逃げ・登録 CTA の位置・
+  // 絞り込みボタンの位置が同じ値を見ているため、中身で高さが変わると重なりが再発する。
+  // data-bottom-fixed … Cookie 同意バナーがこの上に出るための目印（lib/mobile-bottom-bar.ts）。
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 lg:hidden pb-[env(safe-area-inset-bottom)]" aria-label="メインナビゲーション">
+    <nav data-bottom-fixed="" className="fixed bottom-0 left-0 right-0 z-40 h-[var(--mobile-nav-height)] bg-white border-t border-gray-200 lg:hidden pb-[env(safe-area-inset-bottom)]" aria-label="メインナビゲーション">
       <div className="flex">
         {items.map((item) => {
           const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);

@@ -14,6 +14,9 @@ import LoadError from '@/components/admin/LoadError';
 import { SbInput } from '@/components/admin/SbUi';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import Link from 'next/link';
+import { suggestStaffWeekFromBusinessHours } from '@/lib/staff-schedule-suggestion';
+import { todayJst } from '@/lib/admin-date';
 
 const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -52,6 +55,12 @@ function StaffSchedulePageForm() {
     DAY_LABELS.map((_, i) => ({ day_of_week: i, start_time: '09:00', end_time: '19:00' }))
   );
   const [enabledDays, setEnabledDays] = useState<boolean[]>(Array(7).fill(true));
+  // 勤務時間が1つも無い（週間の勤務日も、今日以降に勤務する特別日も無い）とき、表示中の内容が何か
+  // （店舗の営業時間からの下書き／空）。null＝保存済みの勤務を表示している。
+  const [draft, setDraft] = useState<'suggested' | 'empty' | null>(null);
+  // 週間の勤務日は無いが、勤務する特別日がある（その日だけ予約を受けられる）。
+  const [overridesOnly, setOverridesOnly] = useState(false);
+  const justAdded = useSearchParams().get('added') === '1';
   const [overrides, setOverrides] = useState<Override[]>([]);
   const [newOverrideDate, setNewOverrideDate] = useState('');
   const [newOverrideHoliday, setNewOverrideHoliday] = useState(true);
@@ -115,19 +124,6 @@ function StaffSchedulePageForm() {
 
       if (!active) return;
       if (schErr || !Array.isArray(schData)) { setLoadError(true); setLoading(false); return; }
-      {
-        const newSchedules = DAY_LABELS.map((_, i) => {
-          const existing = schData.find((s) => s.day_of_week === i);
-          // staff_schedules.start_time/end_time は TIME 列で "HH:MM:SS" で返る。API/入力は "HH:MM"
-          // 必須のため、ロード時に正規化する。これを怠ると、既存スタッフのスケジュールを再保存
-          // （各曜日を手で選び直さずに保存）した際に "HH:MM:SS" が再送され一律 400 になる。
-          return existing
-            ? { day_of_week: i, start_time: existing.start_time.slice(0, 5), end_time: existing.end_time.slice(0, 5) }
-            : { day_of_week: i, start_time: '09:00', end_time: '19:00' };
-        });
-        setSchedules(newSchedules);
-        setEnabledDays(DAY_LABELS.map((_, i) => schData.some((s) => s.day_of_week === i)));
-      }
 
       const { data: ovData, error: ovErr } = await supabase
         .from('schedule_overrides')
@@ -137,6 +133,44 @@ function StaffSchedulePageForm() {
         .order('date');
       if (!active) return;
       if (ovErr) { setLoadError(true); setLoading(false); return; }
+
+      if (schData.length === 0) {
+        // 週間の勤務日が1日も無い。追加しただけのスタッフはこの状態から始まる（DB は既定の勤務を作らない）。
+        // 時間を入れる曜日の初期値には、店舗の確定済み営業時間を使う（09:00〜19:00 を持ち込まない）。
+        const { data: facilityRow, error: facilityErr } = await supabase
+          .from('facility_profiles').select('business_hours').eq('id', selectedFacilityId).single();
+        if (!active) return;
+        if (facilityErr) { setLoadError(true); setLoading(false); return; }
+        const suggestion = suggestStaffWeekFromBusinessHours(facilityRow?.business_hours);
+        if (suggestion) setSchedules(suggestion.map(({ day_of_week, start_time, end_time }) => ({ day_of_week, start_time, end_time })));
+        // 特別日だけ勤務するスタッフは、その日に予約を受けられる（予約枠・公開カードと同じ規則）。
+        // 未登録とは言わず、保存済みのとおり週間は全曜日休みで見せ、下書きのチェックも入れない。
+        const today = todayJst();
+        const worksOnSpecialDay = (ovData ?? []).some((o) => o.date >= today && o.is_holiday !== true && o.start_time && o.end_time);
+        setOverridesOnly(worksOnSpecialDay);
+        if (worksOnSpecialDay) {
+          setDraft(null);
+          setEnabledDays(Array(7).fill(false));
+        } else {
+          // 勤務時間が無い＝このスタッフには予約枠が出ない。店舗の営業時間を下書きとして見せ、保存したときだけ登録する。
+          setDraft(suggestion ? 'suggested' : 'empty');
+          setEnabledDays(suggestion ? suggestion.map((day) => day.enabled) : Array(7).fill(false));
+        }
+      } else {
+        const newSchedules = DAY_LABELS.map((_, i) => {
+          const existing = schData.find((s) => s.day_of_week === i);
+          // staff_schedules.start_time/end_time は TIME 列で "HH:MM:SS" で返る。API/入力は "HH:MM"
+          // 必須のため、ロード時に正規化する。これを怠ると、既存スタッフのスケジュールを再保存
+          // （各曜日を手で選び直さずに保存）した際に "HH:MM:SS" が再送され一律 400 になる。
+          return existing
+            ? { day_of_week: i, start_time: existing.start_time.slice(0, 5), end_time: existing.end_time.slice(0, 5) }
+            : { day_of_week: i, start_time: '09:00', end_time: '19:00' };
+        });
+        setDraft(null);
+        setOverridesOnly(false);
+        setSchedules(newSchedules);
+        setEnabledDays(DAY_LABELS.map((_, i) => schData.some((s) => s.day_of_week === i)));
+      }
       // schedule_overrides の start_time/end_time も TIME 列で "HH:MM:SS" で返る。表示と再保存の
       // 一貫性のため "HH:MM" に正規化する（null=休日はそのまま）。
       // is_holiday は `BOOLEAN DEFAULT false` のみで NOT NULL 制約が無く DB 上 null もあり得る
@@ -289,12 +323,35 @@ function StaffSchedulePageForm() {
         <h1 className="text-2xl font-bold">{staffName}のスケジュール</h1>
       </div>
 
+      {draft && (
+        <div role="status" className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 space-y-1">
+          {justAdded && <p>スタッフを追加しました。</p>}
+          <p className="font-bold">このスタッフは勤務時間が未登録のため、まだネット予約を受けられません。</p>
+          {draft === 'suggested' ? (
+            <p>下の時間は店舗の営業時間をもとにした下書きで、まだ保存されていません。実際の勤務日・時間に合わせて直してから「この勤務時間で保存する」を押してください。</p>
+          ) : (
+            <p>
+              店舗の営業時間がまだ保存されていないため、下書きを用意できませんでした。勤務する曜日にチェックを入れ、時間を入力して保存してください。
+              <Link href={`/admin/settings?facility_id=${encodeURIComponent(facilityId)}`} className="ml-1 font-bold text-amber-900 underline">施設設定で営業時間を保存する</Link>
+            </p>
+          )}
+        </div>
+      )}
+
+      {overridesOnly && !draft && (
+        <p role="status" className="mb-6 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+          週間の勤務日は登録されていません。下の「特別日設定」で勤務時間を入れた日だけ、ネット予約を受けられます。
+        </p>
+      )}
+
       {/* Weekly Schedule */}
-      <div className="bg-white rounded-xl shadow-xs p-6 mb-6">
+      <div className="bg-white rounded-xl shadow-xs p-4 sm:p-6 mb-6">
         <h2 className="font-bold mb-4">週間スケジュール</h2>
         <fieldset disabled={saving || pendingSave} className="space-y-3">
           {DAY_LABELS.map((label, i) => (
-            <div key={i} className="flex items-center gap-3">
+            // スマホ（幅 320〜390px）では時刻の入力を曜日の下の行へ折り返す。1 行に並べると終了時刻が
+            // カードの外へはみ出し、ページが横にスクロールしていた（スタッフ追加後に必ず通る画面）。
+            <div key={i} className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <label className="flex items-center gap-2 w-16">
                 <input
                   type="checkbox"
@@ -308,7 +365,7 @@ function StaffSchedulePageForm() {
                 <span className="text-sm font-medium">{label}</span>
               </label>
               {enabledDays[i] ? (
-                <div className="flex items-center gap-2">
+                <div className="flex w-full items-center gap-2 sm:w-auto">
                   <SbInput
                     type="time"
                     value={schedules[i].start_time}
@@ -317,7 +374,7 @@ function StaffSchedulePageForm() {
                       next[i] = { ...next[i], start_time: e.target.value };
                       setSchedules(next);
                     }}
-                    className="w-32! text-sm"
+                    className="min-w-0 flex-1 text-sm sm:w-32! sm:flex-none"
                   />
                   <span className="text-gray-400">〜</span>
                   <SbInput
@@ -328,7 +385,7 @@ function StaffSchedulePageForm() {
                       next[i] = { ...next[i], end_time: e.target.value };
                       setSchedules(next);
                     }}
-                    className="w-32! text-sm"
+                    className="min-w-0 flex-1 text-sm sm:w-32! sm:flex-none"
                   />
                 </div>
               ) : (
@@ -339,7 +396,7 @@ function StaffSchedulePageForm() {
         </fieldset>
         {pendingSave && <p role="status">前回の保存結果を確認するため、同じ内容で再試行してください。</p>}
         <button type="button" onClick={() => handleSaveSchedules()} disabled={saving} className="btn-primary mt-4 py-2!">
-          {saving ? '保存中...' : 'スケジュールを保存'}
+          {saving ? '保存中...' : draft ? 'この勤務時間で保存する' : 'スケジュールを保存'}
         </button>
       </div>
 

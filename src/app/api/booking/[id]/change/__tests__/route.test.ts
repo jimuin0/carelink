@@ -94,7 +94,7 @@ test('the database refusal for a started booking keeps the same 409 message',asy
  expect((await res.json()).error).toBe('予約開始時刻を過ぎているため、オンラインでの日時変更はできません。施設へ直接ご連絡ください。');
 });
 test('pending booking can change',async()=>{mockFrom.mockReturnValue(chain({...booking,status:'pending'}));expect((await POST(request(),props())).status).toBe(200);});
-test.each([['BOOKING_NOT_READY',409],['BOOKING_CONFLICT',409],['BOOKING_CONFLICT: この時間帯は既に予約が入っています',409],['BOOKING_NOT_FOUND',404],['BOOKING_FORBIDDEN',403],['BOOKING_NOT_CHANGEABLE',400],['BOOKING_ALREADY_STARTED',409],['BOOKING_CLOSED_DAY',409],['BOOKING_OUTSIDE_HOURS',409],['STAFF_NOT_WORKING',409],['SYNTHETIC_PLAN_FAILURE',500],[undefined,500]])('transaction error %s',async(message,status)=>{mockRpc.mockResolvedValue({data:null,error:{message}});expect((await POST(request(),props())).status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expectNoInlineSend();});
+test.each([['BOOKING_NOT_READY',409],['BOOKING_CONFLICT',409],['BOOKING_CONFLICT: この時間帯は既に予約が入っています',409],['BOOKING_NOT_FOUND',404],['BOOKING_FORBIDDEN',403],['BOOKING_NOT_CHANGEABLE',400],['BOOKING_ALREADY_STARTED',409],['BOOKING_SLOT_PASSED: 選択した時間は過ぎています',409],['BOOKING_CLOSED_DAY',409],['BOOKING_OUTSIDE_HOURS',409],['STAFF_NOT_WORKING',409],['SYNTHETIC_PLAN_FAILURE',500],[undefined,500]])('transaction error %s',async(message,status)=>{mockRpc.mockResolvedValue({data:null,error:{message}});expect((await POST(request(),props())).status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expectNoInlineSend();});
 test.each([null,[],[{id:ID,replayed:false},{id:ID,replayed:false}],[{id:'other',replayed:false}],[{id:ID,replayed:null}]])('invalid committed receipt %#',async data=>{mockRpc.mockResolvedValue({data,error:null});expect((await POST(request(),props())).status).toBe(500);expect(writeAuditLog).not.toHaveBeenCalled();});
 test.each([
  {...body,booking_date:'bad'},{...body,booking_date:'2026-02-30'},{...body,booking_date:'2026-13-01'},{...body,booking_date:'2020-01-01'},{...body,booking_date:'2040-01-01'},
@@ -108,3 +108,43 @@ test('CSRF stops before rate limit',async()=>{(checkCsrf as jest.Mock).mockRetur
 test('rate limit stops before auth',async()=>{(checkRateLimit as jest.Mock).mockResolvedValue(true);expect((await POST(request(),props())).status).toBe(429);expect(verifyAuthUser).not.toHaveBeenCalled();});
 test.each([false,true])('cookie rotation %s',async fail=>{mockRotateCookies=true;mockSetCookie.mockImplementation(()=>{if(fail)throw new Error('read only');});expect((await POST(request(),props())).status).toBe(200);});
 test('exception stops mutation',async()=>{mockFrom.mockImplementation(()=>{throw new Error('synthetic');});expect((await POST(request(),props())).status).toBe(500);expect(mockRpc).not.toHaveBeenCalled();});
+
+// Regression (2026-10-23): the new time of a change was never compared with the current time, so a customer could move
+// a reservation to a time of today that had already passed (it then could not be changed or cancelled again). Nor was
+// its length checked, so a hand-made request could shorten the reservation and free its second half for someone else.
+const SLOT_PASSED='選択した時間はすでに過ぎています。日時を選び直してください。';
+const LENGTH_MISMATCH='予約の所要時間と合わない時間は指定できません。表示されている時間から選び直してください。';
+describe('the new time (2026-10-23)',()=>{
+ // 2026-10-14 12:00 JST; the reservation itself is on 2026-10-15 10:00-11:00.
+ beforeEach(()=>{jest.setSystemTime(new Date('2026-10-14T03:00:00Z'));});
+ test.each([['11:30','12:30'],['12:00','13:00']])('a new start of %s today (now 12:00 JST) is refused before the transaction',async(start_time,end_time)=>{
+  const res=await POST(request({booking_date:'2026-10-14',start_time,end_time}),props());
+  expect(res.status).toBe(409);
+  expect((await res.json()).error).toBe(SLOT_PASSED);
+  expect(mockRpc).not.toHaveBeenCalled();expect(writeAuditLog).not.toHaveBeenCalled();
+ });
+ test('a later start today is accepted',async()=>{
+  expect((await POST(request({booking_date:'2026-10-14',start_time:'12:30',end_time:'13:30'}),props())).status).toBe(200);
+  expect(mockRpc).toHaveBeenCalledWith('change_customer_booking_with_channels_atomic',expect.objectContaining({p_booking_date:'2026-10-14',p_start_time:'12:30'}));
+ });
+ test.each([['shorter','12:00','12:30'],['longer','12:00','14:00']])('a %s time than the reservation is refused before the transaction',async(_label,start_time,end_time)=>{
+  const res=await POST(request({...body,start_time,end_time}),props());
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toBe(LENGTH_MISMATCH);
+  expect(mockRpc).not.toHaveBeenCalled();
+ });
+ test('the length is compared with the stored reservation (a 120-minute reservation moves as 120 minutes)',async()=>{
+  mockFrom.mockReturnValue(chain({...booking,start_time:'10:00:00',end_time:'12:00:00'}));
+  expect((await POST(request({...body,start_time:'12:00',end_time:'14:00'}),props())).status).toBe(200);
+  expect((await POST(request(body),props())).status).toBe(400);
+ });
+ test('a reservation without a readable length moves as 60 minutes, as the change page offers',async()=>{
+  mockFrom.mockReturnValue(chain({...booking,start_time:'10:00:00',end_time:'10:00:00'}));
+  expect((await POST(request(body),props())).status).toBe(200);
+ });
+ test('the reservation read includes its end time',async()=>{
+  const read=chain(booking);mockFrom.mockReturnValue(read);
+  await POST(request(),props());
+  expect(read.select).toHaveBeenCalledWith('id, user_id, status, facility_id, staff_id, booking_date, start_time, end_time');
+ });
+});

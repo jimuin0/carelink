@@ -10,6 +10,7 @@ interface Settings {
   push_on_new_booking: boolean;
   push_on_cancel: boolean;
   push_on_review: boolean;
+  email_on_review: boolean;
   email_daily_summary: boolean;
   email_weekly_report: boolean;
 }
@@ -18,14 +19,18 @@ const DEFAULT: Settings = {
   push_on_new_booking: true,
   push_on_cancel: true,
   push_on_review: true,
+  email_on_review: true,
   email_daily_summary: false,
   email_weekly_report: true,
 };
 
+// 1 つのトグルは表記どおりの 1 経路だけを止める（Push のトグルでメールは止まらない）。
+// 口コミのメールは以前 push_on_review に相乗りしていた（20261023100000 で email_on_review に分離）。
 const LABELS: Record<keyof Settings, string> = {
   push_on_new_booking: '新規予約（Push通知）',
   push_on_cancel: 'キャンセル（Push通知）',
   push_on_review: '口コミ投稿（Push通知）',
+  email_on_review: '口コミ投稿（メール）',
   email_daily_summary: '日次売上サマリー（メール）',
   email_weekly_report: '週次レポート（メール）',
 };
@@ -36,6 +41,9 @@ export default function NotificationSettings({ facilityId }: { facilityId: strin
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  // 口コミのメールの列（migration 20261023100000）がまだ無い DB では、保存できないトグルを出さない。
+  // 読み込んだ行にその列が無いときだけ false（行がまだ無い施設は判別できないので出す）。
+  const [hasReviewEmailColumn, setHasReviewEmailColumn] = useState(true);
 
   // React Compiler の set-state-in-effect 対策：useCallback + 呼び出し という形は
   // 「effect が外部関数を呼び、その中で setState する」構造として検出されるため、
@@ -58,6 +66,7 @@ export default function NotificationSettings({ facilityId }: { facilityId: strin
       if (cancelled) return;
       if (error) { setLoadError(true); setLoading(false); return; }
       if (data) {
+        setHasReviewEmailColumn('email_on_review' in data);
         // supabase/migrations/20260404000002_dashboard_enhancement.sql の定義上、
         // facility_notification_settings の各 push_on_*/email_* 列は
         // `BOOLEAN DEFAULT true/false` のみで NOT NULL 制約が無いため、
@@ -69,6 +78,7 @@ export default function NotificationSettings({ facilityId }: { facilityId: strin
           push_on_new_booking: data.push_on_new_booking ?? DEFAULT.push_on_new_booking,
           push_on_cancel: data.push_on_cancel ?? DEFAULT.push_on_cancel,
           push_on_review: data.push_on_review ?? DEFAULT.push_on_review,
+          email_on_review: data.email_on_review ?? DEFAULT.email_on_review,
           email_daily_summary: data.email_daily_summary ?? DEFAULT.email_daily_summary,
           email_weekly_report: data.email_weekly_report ?? DEFAULT.email_weekly_report,
         });
@@ -88,13 +98,15 @@ export default function NotificationSettings({ facilityId }: { facilityId: strin
     setSaving(true);
     setSaveError(false);
 
+    // 保存するのは押したトグルの列だけ。他の列を画面の値で上書きしない（別の画面で変えた値を巻き戻さない・
+    // migration 未適用の列を送って関係の無いトグルの保存まで失敗させない）。行がまだ無い施設では
+    // 他の列は DB の既定値で作られ、それは画面の DEFAULT と同じ値。
+    const row: Partial<Settings> & { facility_id: string } = { facility_id: facilityId };
+    row[key] = newSettings[key];
     const supabase = createBrowserSupabaseClient();
     const { error } = await supabase
       .from('facility_notification_settings')
-      .upsert({
-        facility_id: facilityId,
-        ...newSettings,
-      }, { onConflict: 'facility_id' });
+      .upsert(row, { onConflict: 'facility_id' });
 
     setSaving(false);
     // 保存失敗時は楽観更新したトグルを元に戻し、失敗を明示する（DBと表示の不整合を防ぐ）。
@@ -117,7 +129,7 @@ export default function NotificationSettings({ facilityId }: { facilityId: strin
     <div className="bg-white rounded-xl p-6">
       <h3 className="text-sm font-bold text-gray-800 mb-4">通知設定</h3>
       <div className="space-y-3">
-        {(Object.keys(LABELS) as (keyof Settings)[]).map((key) => (
+        {(Object.keys(LABELS) as (keyof Settings)[]).filter((key) => key !== 'email_on_review' || hasReviewEmailColumn).map((key) => (
           <label key={key} className="flex items-center justify-between cursor-pointer">
             <span className="text-sm text-gray-700">{LABELS[key]}</span>
             <Toggle checked={settings[key]} onChange={() => handleToggle(key)} disabled={saving} label={LABELS[key]} />

@@ -31,9 +31,64 @@ interface PushPayload {
   tag?: string;
 }
 
+export type CapturedPushSubscription = { endpoint: string; p256dh: string; auth: string };
+
+/**
+ * Push サービスが「この購読はもう存在しない」と答えた状態（404 Not Found / 410 Gone）。
+ * 端末側で通知を取り消した・サイトデータを消した・ブラウザを入れ直した等で起き、
+ * 同じ宛先へ何度送り直しても届かない（＝再送しても無駄で、結果不明として保留してもいけない）。
+ */
+export function isExpiredPushStatus(status: number | null): boolean {
+  return status === 404 || status === 410;
+}
+
+/**
+ * 送信フェンスより前に、その利用者の端末の購読を読んで固定する。
+ * 読めなかった（DB エラー）ときは例外＝まだ何も送っていないので、呼び出し側は安全に再試行できる。
+ */
+export async function readUserPushSubscription(userId: string): Promise<CapturedPushSubscription | null> {
+  const { data, error } = await createServiceRoleClient()
+    .from('push_subscriptions')
+    .select('endpoint, p256dh, auth')
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) throw new Error('PUSH_SUBSCRIPTION_READ_UNAVAILABLE');
+  return data ?? null;
+}
+
+/**
+ * 失効した購読の行を消す。消すのは【同じ利用者・同じ endpoint・同じ鍵】の行だけで、
+ * 送信中にその利用者が登録し直した新しい端末の行は残す。
+ * 後片付けなので例外は投げない（失敗しても次の送信でもう一度 404/410 になり、また消しに来る）。
+ *
+ * 戻り値は【その行を実際に消せたか】。一致する行が無かった（送信の間に別の端末へ登録し直した・
+ * ログアウトで既に消えた）ときと、消せなかったときは false。新規予約の Push はこれを見て、
+ * 本当に消せたときだけ「購読の登録を削除しました」と閉じる（booking-create-notifications.ts）。
+ */
+export async function removeExpiredPushSubscription(userId: string, subscription: CapturedPushSubscription): Promise<boolean> {
+  try {
+    const { data, error } = await createServiceRoleClient()
+      .from('push_subscriptions')
+      .delete()
+      .eq('user_id', userId)
+      .eq('endpoint', subscription.endpoint)
+      .eq('p256dh', subscription.p256dh)
+      .eq('auth', subscription.auth)
+      .select('id');
+    if (error) {
+      console.error('[push] expired subscription cleanup failed', { userId });
+      return false;
+    }
+    return Array.isArray(data) && data.length > 0;
+  } catch {
+    console.error('[push] expired subscription cleanup failed', { userId });
+    return false;
+  }
+}
+
 /** Capture one endpoint before the DB send fence. No recipient lookup, cleanup,
  * retry, or raw provider error logging occurs in this one-attempt transport. */
-export function prepareCapturedPushDelivery(subscription: { endpoint: string; p256dh: string; auth: string },
+export function prepareCapturedPushDelivery(subscription: CapturedPushSubscription,
   payload: PushPayload): () => Promise<ChannelDeliveryResult> {
   if (!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) throw new Error('PUSH_PREPARATION_UNAVAILABLE');
   const webpush = getWebPush();
@@ -82,13 +137,7 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
     const statusCode = (err as { statusCode?: number })?.statusCode;
     // 410 Gone or 404 = subscription expired, clean up（想定内の失効・アラート不要）
     if (statusCode === 410 || statusCode === 404) {
-      await supabase
-        .from('push_subscriptions')
-        .delete()
-        .eq('user_id', userId)
-        .eq('endpoint', pushSubscription.endpoint)
-        .eq('p256dh', pushSubscription.keys.p256dh)
-        .eq('auth', pushSubscription.keys.auth);
+      await removeExpiredPushSubscription(userId, sub);
       return false;
     }
     // 410/404 以外（VAPID鍵不整合・ネットワーク障害・push サービス側 5xx 等）は想定外の失敗のため

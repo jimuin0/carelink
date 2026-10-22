@@ -11,6 +11,22 @@ import { logCronRun, cronError } from '@/lib/cron-logger';
  * 分類（customer_segments の更新）だけを続けている。
  * 再び送る場合は、コードを使える仕組み・店舗の同意・配信停止の確認を揃えてから。
  * src/__tests__/at-risk-coupon-email-stopped.test.ts が再配線を CI で止める。
+ *
+ * 【お客様の識別】メールがあればメール（canonical）、メールの無い電話・来店受付の予約は電話番号
+ * （'tel:' ＋ 数字・customerIdentityKey）。顧客一覧（/admin/customers）と同じキーなので、
+ * 電話番号だけで登録したお客様にもセグメントが付く。
+ * 台帳にメールと電話番号の両方で登録したお客様の電話予約（メール欄が空）は、そのお客様のメールの
+ * キーで数える（ledgerPhoneLinks・台帳でその電話番号を持つのが本人だけのとき）。一覧と同じ寄せ方なので、
+ * 同じ人が「メールの行」と「電話番号の行」に分かれて 2 人に数えられない。
+ *
+ * 【施設ごとに丸ごと置き換える】今回の集計に現れなかったお客様の行は消す（2026年10月23日）。
+ * 以前は upsert だけで消さなかったため、「完了」を「無断キャンセル」に訂正して来店 0 回になったお客様に
+ * 「新規」と累計利用額が残り続け、分析画面の総顧客数・リピート率の分母にも数えられていた。
+ * 今回の行は updated_at を実行開始時刻にそろえて書くので、それより古い行＝今回現れなかった行を消す。
+ * 消すのは最終来店日が集計期間（直近 2 年）の中の行だけ。期間より前に最後に来たお客様（長く来ていない
+ * 「離脱」の常連）は今回の集計にそもそも現れないので、最後の分類のまま残す（分析画面の離脱客を減らさない）。
+ * 予約の取得や保存に失敗した施設では消さない（失敗を「0 件」と取り違えて全行を消さないため）。
+ * 予約の応答が配列でないときも取得失敗として扱う（空の一覧と取り違えて消さない）。
  */
 
 import { NextResponse } from 'next/server';
@@ -18,7 +34,7 @@ import { createClient } from '@supabase/supabase-js';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { fetchAllPaged } from '@/lib/paginate';
 import { isMissingColumnError, type DbError } from '@/lib/db-fallback';
-import { canonicalizeEmail } from '@/lib/email-canonical';
+import { customerIdentityKey, ledgerPhoneLinks, PHONE_KEY_PREFIX } from '@/lib/customer-identity';
 
 export const dynamic = 'force-dynamic';
 // 既定の低い上限を上書きし、下の時間予算ガードが確実に発火する既知の上限を与える。
@@ -73,11 +89,29 @@ export async function GET(request: Request) {
     }
 
     const now = new Date();
+    // 今回書く行の updated_at。これより古い行は今回の集計に現れなかった＝もう該当しないお客様。
+    const runStamp = now.toISOString();
     const twoYearsAgo = new Date(now.getTime() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     let count = 0;
     let skipped = 0;
     let deferred = 0;
     let processingFailures = 0;
+
+    // 今回の集計に現れなかったお客様の行を消す。失敗は false（呼び出し側で失敗として数える）。
+    // 最終来店日が集計期間より前の行は、今回の集計に現れないのが当然なので消さない（長期離脱客の行を残す）。
+    const removeStaleSegments = async (facilityId: string): Promise<boolean> => {
+      const { error } = await supabase
+        .from('customer_segments')
+        .delete()
+        .eq('facility_id', facilityId)
+        .lt('updated_at', runStamp)
+        .gte('last_visit_date', twoYearsAgo);
+      if (error) {
+        console.error('[customer-segment] stale segment cleanup failed', { facilityId, err: error });
+        return false;
+      }
+      return true;
+    };
 
     const loopStart = Date.now();
     for (const facility of facilities) {
@@ -92,13 +126,14 @@ export async function GET(request: Request) {
       // 旧実装は .limit(2000) で繁忙施設の集計が頭打ち（RFM が途中のデータでしか算出されず不正確）だった。
       // fetchAllPaged で全件ページング取得し切り捨てを解消（同ファイルの施設取得と同じ方式・全ロジックはJS）。
       // RFM の顧客識別は email_canonical（Gmail 別名統合）で行い、同一人物の分裂を防ぐ（round: email_canonical 列方式）。
+      // メールの無い予約は電話番号で識別する（customerIdentityKey）。
       // email_canonical 列が未適用(migration前)なら生 email にフォールバックし JS で canonical 化（無破壊・デプロイ順序非依存）。
-      type BookingRow = { email_canonical?: string | null; email?: string | null; customer_name: string | null; booking_date: string; total_price: number | null; status: string };
+      type BookingRow = { email_canonical?: string | null; email?: string | null; phone?: string | null; customer_name: string | null; booking_date: string; total_price: number | null; status: string };
       const fetchBookings = (col: 'email_canonical' | 'email') => fetchAllPaged<BookingRow>(
         async (offset, limit) => {
           const { data, error } = await supabase
             .from('bookings')
-            .select(`${col}, customer_name, booking_date, total_price, status`)
+            .select(`${col}, phone, customer_name, booking_date, total_price, status`)
             .eq('facility_id', facility.id)
             // RFM（来店回数・利用額・最終来店日）は実来店＝completed のみで算出する。以前は confirmed
             // （未来の予約も含む）を混入させ、未提供サービスを利用額に計上し last_visit が未来日になり
@@ -106,16 +141,23 @@ export async function GET(request: Request) {
             .in('status', ['completed'])
             .gte('booking_date', twoYearsAgo)
             .range(offset, offset + limit - 1);
-          return { data: data as BookingRow[] | null, error };
+          // 配列でない応答は「予約 0 件」ではない。取得失敗として扱い、下の削除まで進ませない。
+          return {
+            data: Array.isArray(data) ? data as BookingRow[] : null,
+            error: error || (!Array.isArray(data) ? new Error('bookings result invalid') : null),
+          };
         },
       );
       const firstFetch = await fetchBookings('email_canonical');
       let bookings = firstFetch.rows;
+      // 件数上限で打ち切った回は「全員を集計した」と言えないので、古い行の削除はしない。
+      let bookingsTruncated = firstFetch.truncated;
       let usingCanonicalColumn = true;
       let bookingsError = firstFetch.error as DbError | null;
       if (isMissingColumnError(bookingsError)) {
         const fallback = await fetchBookings('email');
         bookings = fallback.rows;
+        bookingsTruncated = fallback.truncated;
         usingCanonicalColumn = false;
         bookingsError = fallback.error as DbError | null;
       }
@@ -130,9 +172,44 @@ export async function GET(request: Request) {
         continue;
       }
 
-      if (bookings.length === 0) { skipped++; continue; }
+      // 完了予約が 1 件も無い施設は、残っている行がすべて該当しなくなった行。
+      if (bookings.length === 0) {
+        if (!(await removeStaleSegments(facility.id))) processingFailures++;
+        skipped++;
+        continue;
+      }
 
-      // メール別に集計
+      // お客様の識別キー（メール、メールが無ければ電話番号。どちらも無い予約は null＝数えない）。
+      // canonical 列があればそれを、無ければ生 email を（customerIdentityKey の中で）canonical 化して使う。
+      const identityKeys = bookings.map((b) => customerIdentityKey(usingCanonicalColumn ? b.email_canonical : b.email, b.phone));
+
+      // 電話番号のキーの予約がある施設だけ台帳を読み、メールのあるお客様へ寄せてよい電話番号を得る
+      // （顧客一覧と同じ ledgerPhoneLinks）。読めなければ寄せ方が変わってしまうので、この施設は書かずに失敗とする。
+      let phoneLinks = new Map<string, string>();
+      if (identityKeys.some((k) => k?.startsWith(PHONE_KEY_PREFIX))) {
+        const ledger = await fetchAllPaged<{ email: string | null; phone: string | null }>(async (offset, limit) => {
+          const { data, error } = await supabase
+            .from('customers')
+            .select('email, phone')
+            .eq('facility_id', facility.id)
+            .not('phone', 'is', null)
+            .order('id')
+            .range(offset, offset + limit - 1);
+          return {
+            data: Array.isArray(data) ? data : null,
+            error: error || (!Array.isArray(data) ? new Error('customers result invalid') : null),
+          };
+        }, { failOnTruncation: true });
+        if (ledger.error) {
+          console.error('[customer-segment] customer ledger fetch failed', { facilityId: facility.id, err: ledger.error });
+          processingFailures++;
+          skipped++;
+          continue;
+        }
+        phoneLinks = ledgerPhoneLinks(ledger.rows);
+      }
+
+      // お客様別に集計（メール、メールが無ければ電話番号。どちらも無い予約は数えない）
       const customerMap = new Map<string, {
         name: string;
         firstVisit: string;
@@ -141,10 +218,10 @@ export async function GET(request: Request) {
         spent: number;
       }>();
 
-      for (const b of bookings) {
-        // canonical 列があればそれを、無ければ生 email を JS で canonical 化したものを識別キーにする。
-        const key = usingCanonicalColumn ? (b.email_canonical ?? null) : (b.email ? canonicalizeEmail(b.email) : null);
-        if (!key) continue;
+      for (const [i, b] of bookings.entries()) {
+        const identity = identityKeys[i];
+        if (!identity) continue;
+        const key = phoneLinks.get(identity) ?? identity;
         const existing = customerMap.get(key);
         if (existing) {
           existing.visits++;
@@ -177,20 +254,26 @@ export async function GET(request: Request) {
           total_visits: data.visits,
           total_spent: data.spent,
           segment: classifySegment(data.visits, daysSince),
-          updated_at: now.toISOString(),
+          updated_at: runStamp,
         };
       });
 
       const CHUNK = 500;
+      let upsertFailed = false;
       for (let i = 0; i < upsertRows.length; i += CHUNK) {
         const { error: upsertErr } = await supabase
           .from('customer_segments')
           .upsert(upsertRows.slice(i, i + CHUNK), { onConflict: 'facility_id,customer_email' });
         if (upsertErr) {
           processingFailures++;
+          upsertFailed = true;
           console.error('[customer-segment] upsert chunk failed', { facilityId: facility.id, chunkStart: i, err: upsertErr });
         }
       }
+
+      // 書き込みが 1 つでも失敗した施設・予約を全件読めなかった施設では消さない
+      // （今回書けなかった・読めなかったお客様の行まで「古い行」として消えるため）。
+      if (!upsertFailed && !bookingsTruncated && !(await removeStaleSegments(facility.id))) processingFailures++;
 
       count++;
     }

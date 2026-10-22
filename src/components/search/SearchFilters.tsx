@@ -5,7 +5,14 @@ import { useState, useCallback } from 'react';
 import { businessTypes, facilityFeatures, regionGroups } from '@/lib/constants';
 import StationSearch from './StationSearch';
 
-export default function SearchFilters({ className }: { className?: string }) {
+/**
+ * @param onApplied 「この条件で検索」「クリア」「駅から探す」で検索結果を切り替えた直後に呼ぶ。スマホの絞り込み
+ *   ドロワー（MobileFilterDrawer）がここで自分を閉じる。検索パラメータだけが変わる遷移では
+ *   ページが作り直されずドロワーが開いたまま残り、押しても反応が無いように見えていた
+ *   （2026年10月22日・本番で再現）。URL の変化を見て閉じる方式にしないのは、条件が無いまま
+ *   「クリア」を押すと同じ URL への遷移になり、変化が起きないため。
+ */
+export default function SearchFilters({ className, onApplied }: { className?: string; onApplied?: () => void }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -41,7 +48,8 @@ export default function SearchFilters({ className }: { className?: string }) {
     const sort = searchParams.get('sort');
     if (sort) params.set('sort', sort);
     router.push(`/search?${params.toString()}`);
-  }, [router, searchParams, area, type, ratingMin, priceMin, priceMax, selectedFeatures, availableDate, availableTime]);
+    onApplied?.();
+  }, [router, searchParams, area, type, ratingMin, priceMin, priceMax, selectedFeatures, availableDate, availableTime, onApplied]);
 
   const clearFilters = useCallback(() => {
     const keyword = searchParams.get('keyword');
@@ -56,7 +64,8 @@ export default function SearchFilters({ className }: { className?: string }) {
     setAvailableDate('');
     setAvailableTime('');
     router.push(`/search?${params.toString()}`);
-  }, [router, searchParams]);
+    onApplied?.();
+  }, [router, searchParams, onApplied]);
 
   return (
     <div className={className}>
@@ -90,7 +99,8 @@ export default function SearchFilters({ className }: { className?: string }) {
       {/* 最寄駅 */}
       <div className="mb-5">
         <label className="block text-xs font-medium text-gray-600 mb-1.5">最寄駅</label>
-        <StationSearch variant="panel" />
+        {/* 駅を選んだときも結果を切り替えるので、ドロワーは同じく閉じる */}
+        <StationSearch variant="panel" onSelected={onApplied} />
       </div>
 
       {/* 業種 */}

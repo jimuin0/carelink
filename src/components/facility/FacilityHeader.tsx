@@ -1,5 +1,4 @@
 import type { Facility } from '@/types';
-import ViewingNow from './ViewingNow';
 
 const VERIFIED_LABELS: Record<string, string> = {
   phone:      '電話確認済み',
@@ -45,7 +44,8 @@ export default function FacilityHeader({ facility }: { facility: Facility }) {
         {facility.view_count > 0 && (
           <span className="text-xs text-gray-500">閲覧 {facility.view_count.toLocaleString()}回</span>
         )}
-        <ViewingNow viewCount={facility.view_count} />
+        {/* 「N人が閲覧中」は乱数で作った値で実際の閲覧者数と無関係だったため外した
+            （神原さん判断 2026年10月22日）。実測の同時閲覧数が無い限り出さない。 */}
       </div>
       <h1 className="text-xl sm:text-2xl font-bold mb-2">{facility.name}</h1>
       {facility.catch_copy && (

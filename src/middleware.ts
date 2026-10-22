@@ -101,7 +101,10 @@ function buildCspHeader(nonce: string): string {
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
     "img-src 'self' data: https: blob:",
-    `connect-src 'self' ${getSupabaseConnectSrc()} https://*.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com https://vitals.vercel-insights.com https://access.line.me https://api.line.me https://zipcloud.ibsnet.co.jp`,
+    // https://*.clarity.ms は Clarity の送信先（u.clarity.ms / g.clarity.ms 等の /collect。
+    // Microsoft は負荷分散で [a-z].clarity.ms を使い分けると明記）。www.clarity.ms だけだと
+    // 録画・ヒートマップの送信が CSP で拒否され、本番で 1 件も記録されていなかった（2026年10月22日）。
+    `connect-src 'self' ${getSupabaseConnectSrc()} https://*.google-analytics.com https://www.clarity.ms https://*.clarity.ms https://va.vercel-scripts.com https://vitals.vercel-insights.com https://access.line.me https://api.line.me https://zipcloud.ibsnet.co.jp`,
     "worker-src 'self'",
     "manifest-src 'self'",
     // GOOGLE_MAPS_EMBED_ORIGIN は施設ページ「アクセス」タブの地図埋め込み用（src/lib/map-embed.ts）。

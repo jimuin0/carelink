@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { clearAccountLocalData, LOCAL_DATA_CLEAR_FAILED } from '@/lib/client-storage';
 import { ACCOUNT_DELETION_NOTICE, FACILITY_RETIREMENT_NOTICE, ACCOUNT_DELETION_BOOKING_GUARD_NOTICE } from '@/lib/account-deletion-policy';
 import { completeClientCleanupMarker, prepareClientCleanupMarker } from '@/lib/client-cleanup-marker';
+import { releaseThisDevicePush } from '@/hooks/usePushSubscription';
 
 /**
  * 施設オーナー向け退会（アカウント・データ削除）セクション。
@@ -42,6 +43,8 @@ export default function WithdrawalSettings() {
       const data = await res.json().catch(() => null);
       if (res.ok && data?.success === true) {
         setDeletionConfirmed(true); closeModal();
+        // サーバーの購読行はアカウント削除と一緒に消えている。この端末（ブラウザ）の購読も外す。
+        await releaseThisDevicePush({ serverRow: false });
         try { await clearAccountLocalData(); completeClientCleanupMarker(); }
         catch {
           setToast({ type: 'error', message: `アカウントの削除は確認済みですが、${LOCAL_DATA_CLEAR_FAILED} 削除要求は再送しないでください。` });

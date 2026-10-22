@@ -6,48 +6,26 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Modal from '@/components/Modal';
 import { SbInput, SbTable, SbThead, SbTh, SbTbody, SbTd } from '@/components/admin/SbUi';
-import { csvEscape } from '@/lib/csv';
+import {
+  buildCustomersCsv, CUSTOMER_SEGMENT_TEXT, EMPTY_CUSTOMER_SEARCH, matchesCustomerSearch, matchesUnregisteredSearch,
+  searchUsesLedgerOnlyFields, type CustomerSearch, type MasterCustomer, type UnregisteredCustomer,
+} from '@/lib/customer-directory';
 
-export interface MasterCustomer {
-  id: string;
-  name: string;
-  name_kana: string | null;
-  email: string | null;
-  phone: string | null;
-  birthday: string | null;
-  gender: string | null;
-  notes: string | null;
-  visit_count: number;
-  last_visit: string | null;
-  segment: string | null;
-  total_spent: number | null;
-  // 【監査M3】複数施設オーナー対応：各顧客が属する施設。編集/削除はこの facility_id を使う。
-  facility_id: string;
-  facility_name: string;
-}
+export type { MasterCustomer, UnregisteredCustomer } from '@/lib/customer-directory';
 
 export interface Facility {
   id: string;
   name: string;
 }
 
-const SEGMENT_LABEL: Record<string, { label: string; className: string }> = {
-  vip: { label: 'VIP', className: 'bg-amber-100 text-amber-800' },
-  regular: { label: 'レギュラー', className: 'bg-sky-100 text-sky-700' },
-  at_risk: { label: '離脱リスク', className: 'bg-orange-100 text-orange-700' },
-  lost: { label: '離脱', className: 'bg-gray-100 text-gray-500' },
-  new: { label: '新規', className: 'bg-green-100 text-green-700' },
+// 表示名は CUSTOMER_SEGMENT_TEXT（CSV と共通）。ここは色だけを持つ。
+const SEGMENT_CLASS: Record<string, string> = {
+  vip: 'bg-amber-100 text-amber-800',
+  regular: 'bg-sky-100 text-sky-700',
+  at_risk: 'bg-orange-100 text-orange-700',
+  lost: 'bg-gray-100 text-gray-500',
+  new: 'bg-green-100 text-green-700',
 };
-
-export interface UnregisteredCustomer {
-  name: string;
-  email: string;
-  visit_count: number;
-  last_visit: string;
-  // 【監査M3】未登録顧客も所属施設を持つ（「登録」時にその施設へ追加する）。
-  facility_id: string;
-  facility_name: string;
-}
 
 type FormState = {
   id: string | null;
@@ -65,18 +43,6 @@ type FormState = {
 const EMPTY_FORM: FormState = { id: null, name: '', name_kana: '', email: '', phone: '', birthday: '', gender: '', notes: '', facility_id: '' };
 
 const GENDER_LABEL: Record<string, string> = { male: '男性', female: '女性', other: 'その他' };
-
-// HPB「お客様情報一覧」型の検索条件。CareLink の顧客マスターにある項目のみ（来店区分・年代・
-// ダイレクト会員などデータ非保持の項目は除外）。
-type SearchState = {
-  name: string; kana: string; phone: string; email: string; gender: string;
-  visitMin: string; visitMax: string; lastFrom: string; lastTo: string; birthday: string;
-};
-const EMPTY_SEARCH: SearchState = {
-  name: '', kana: '', phone: '', email: '', gender: '',
-  visitMin: '', visitMax: '', lastFrom: '', lastTo: '', birthday: '',
-};
-const includesCI = (v: string | null, q: string) => !q || (v ?? '').toLowerCase().includes(q.toLowerCase());
 
 export default function CustomersManager({
   facilities,
@@ -102,26 +68,17 @@ export default function CustomersManager({
 
   // HPB お客様情報一覧型の検索（入力=draft、「検索する」で適用=search）。データはクライアントに
   // 全件あるため即時フィルタ（往復なし）。
-  const [draft, setDraft] = useState<SearchState>(EMPTY_SEARCH);
-  const [search, setSearch] = useState<SearchState>(EMPTY_SEARCH);
-  const sd = (k: keyof SearchState) => (e: { target: { value: string } }) => setDraft((d) => ({ ...d, [k]: e.target.value }));
+  const [draft, setDraft] = useState<CustomerSearch>(EMPTY_CUSTOMER_SEARCH);
+  const [search, setSearch] = useState<CustomerSearch>(EMPTY_CUSTOMER_SEARCH);
+  const sd = (k: keyof CustomerSearch) => (e: { target: { value: string } }) => setDraft((d) => ({ ...d, [k]: e.target.value }));
   const applySearch = () => setSearch(draft);
-  const clearSearch = () => { setDraft(EMPTY_SEARCH); setSearch(EMPTY_SEARCH); };
+  const clearSearch = () => { setDraft(EMPTY_CUSTOMER_SEARCH); setSearch(EMPTY_CUSTOMER_SEARCH); };
 
-  const matchCustomer = (c: MasterCustomer) =>
-    includesCI(c.name, search.name) &&
-    includesCI(c.name_kana, search.kana) &&
-    includesCI(c.phone, search.phone) &&
-    includesCI(c.email, search.email) &&
-    (!search.gender || c.gender === search.gender) &&
-    (!search.visitMin || c.visit_count >= Number(search.visitMin)) &&
-    (!search.visitMax || c.visit_count <= Number(search.visitMax)) &&
-    (!search.lastFrom || (!!c.last_visit && c.last_visit >= search.lastFrom)) &&
-    (!search.lastTo || (!!c.last_visit && c.last_visit <= search.lastTo)) &&
-    includesCI(c.birthday, search.birthday);
-  const filtered = customers.filter(matchCustomer);
-  // 未登録（来店履歴のみ）は名前・メールのみで突合（他項目は保持していない）。
-  const filteredUnregistered = unregistered.filter((u) => includesCI(u.name, search.name) && includesCI(u.email, search.email));
+  // 台帳と「来店履歴から未登録のお客様」に同じ条件を当てる（来店回数・最終来店日・電話番号も含む）。
+  // 未登録のお客様はフリガナ・性別・誕生日を持たないので、これらの条件では一致しない。
+  const filtered = customers.filter((c) => matchesCustomerSearch(c, search));
+  const filteredUnregistered = unregistered.filter((u) => matchesUnregisteredSearch(u, search));
+  const unregisteredHiddenByLedgerOnlyFields = unregistered.length > 0 && searchUsesLedgerOnlyFields(search);
 
   // 追加は既定施設（単一施設ならその施設・複数ならセレクタで変更可能）。prefill で施設を上書き可。
   const openCreate = (prefill?: Partial<FormState>) => setForm({ ...EMPTY_FORM, facility_id: defaultFacilityId, ...prefill });
@@ -201,23 +158,18 @@ export default function CustomersManager({
     }
   };
 
+  // CSV は画面に出ている行（絞り込み後の台帳＋未登録のお客様）をそのまま出す。
+  const shownCount = filtered.length + filteredUnregistered.length;
   const csvHref = `data:text/csv;charset=utf-8,${encodeURIComponent(
-    '﻿' + 'お客様名,フリガナ,メール,電話,来店回数,最終来店\n' +
-    customers
-      .map((c) =>
-        [c.name, c.name_kana ?? '', c.email ?? '', c.phone ?? '', c.visit_count, c.last_visit ?? '']
-          .map(csvEscape)
-          .join(','),
-      )
-      .join('\n')
+    buildCustomersCsv(filtered, filteredUnregistered, { multiFacility }),
   )}`;
 
   return (
     <div>
       <div className="mb-4 flex items-center justify-end gap-2">
-        {customers.length > 0 && (
+        {shownCount > 0 && (
           <a href={csvHref} download="customers.csv" className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-            📥 CSV
+            📥 表示中の顧客をCSV
           </a>
         )}
         <button type="button" onClick={() => openCreate()} className="btn-primary py-2! px-4! text-sm">
@@ -321,9 +273,9 @@ export default function CustomersManager({
                   <SbTd align="center">{c.visit_count}回</SbTd>
                   <SbTd className="text-gray-500">{c.last_visit ?? '—'}</SbTd>
                   <SbTd align="center">
-                    {c.segment && SEGMENT_LABEL[c.segment] ? (
-                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold ${SEGMENT_LABEL[c.segment].className}`}>
-                        {SEGMENT_LABEL[c.segment].label}
+                    {c.segment && SEGMENT_CLASS[c.segment] ? (
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold ${SEGMENT_CLASS[c.segment]}`}>
+                        {CUSTOMER_SEGMENT_TEXT[c.segment]}
                       </span>
                     ) : (
                       <span className="text-gray-300">—</span>
@@ -345,7 +297,8 @@ export default function CustomersManager({
         </div>
       )}
 
-      {/* 来店履歴ありだがマスター未登録の顧客＝ワンクリックで登録フォームへ */}
+      {/* 来店履歴ありだがマスター未登録の顧客＝ワンクリックで登録フォームへ。
+          メールの無い電話・来店受付の予約も、電話番号で同じお客様にまとめて出す。 */}
       {filteredUnregistered.length > 0 && (
         <div className="mt-6">
           <h2 className="text-sm font-bold text-gray-700 mb-2">来店履歴から未登録のお客様</h2>
@@ -353,20 +306,30 @@ export default function CustomersManager({
             <SbTable>
               <SbThead>
                 <SbTh>お客様名</SbTh>
-                <SbTh>メール</SbTh>
+                {multiFacility && <SbTh>施設</SbTh>}
+                <SbTh>連絡先</SbTh>
                 <SbTh align="center">来店回数</SbTh>
                 <SbTh>最終来店</SbTh>
                 <SbTh align="center">操作</SbTh>
               </SbThead>
               <SbTbody>
                 {filteredUnregistered.map((u) => (
-                  <tr key={u.email || u.name} className="hover:bg-gray-50">
-                    <SbTd className="font-medium">{u.name}</SbTd>
-                    <SbTd className="text-gray-500">{u.email || '—'}</SbTd>
+                  <tr key={`${u.facility_id}:${u.key}`} className="hover:bg-gray-50">
+                    <SbTd className="font-medium">
+                      {u.name}
+                      {u.phone_in_ledger && (
+                        <span className="block text-xs font-normal text-gray-600">台帳に同じ電話番号のお客様が複数いるため、自動ではまとめていません</span>
+                      )}
+                    </SbTd>
+                    {multiFacility && <SbTd className="text-gray-500 text-xs">{u.facility_name}</SbTd>}
+                    <SbTd className="text-gray-500 text-xs">
+                      {u.email && <span className="block">{u.email}</span>}
+                      {u.phone && <span className="block">{u.phone}</span>}
+                    </SbTd>
                     <SbTd align="center">{u.visit_count}回</SbTd>
                     <SbTd className="text-gray-500">{u.last_visit}</SbTd>
                     <SbTd align="center">
-                      <button type="button" onClick={() => openCreate({ name: u.name, email: u.email, facility_id: u.facility_id })} className="px-3 py-1.5 text-xs rounded-sm border border-sky-200 text-sky-700 hover:bg-sky-50">＋ 登録</button>
+                      <button type="button" onClick={() => openCreate({ name: u.name, email: u.email ?? '', phone: u.phone ?? '', facility_id: u.facility_id })} className="px-3 py-1.5 text-xs rounded-sm border border-sky-200 text-sky-700 hover:bg-sky-50">＋ 登録</button>
                     </SbTd>
                   </tr>
                 ))}
@@ -374,6 +337,11 @@ export default function CustomersManager({
             </SbTable>
           </div>
         </div>
+      )}
+      {unregisteredHiddenByLedgerOnlyFields && (
+        <p className="mt-6 text-xs text-gray-600">
+          フリガナ・性別・誕生日の条件では、来店履歴から未登録のお客様は表示されません（これらの情報がないため）。
+        </p>
       )}
 
       {/* 追加・編集モーダル */}

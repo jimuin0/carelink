@@ -12,7 +12,15 @@ const TRIGGER_CLASS = {
   panel: 'text-sky-700 hover:text-sky-800 hover:underline',
 } as const;
 
-export default function StationSearch({ variant = 'hero' }: { variant?: keyof typeof TRIGGER_CLASS } = {}) {
+/**
+ * @param onSelected 駅を選んで検索結果へ切り替えた直後に呼ぶ。スマホの絞り込みドロワー
+ *   （MobileFilterDrawer → SearchFilters）がここで自分を閉じる。検索パラメータだけが変わる遷移では
+ *   ページが作り直されず、ドロワーが開いたまま結果が裏で切り替わっていた（2026年10月22日）。
+ */
+export default function StationSearch({
+  variant = 'hero',
+  onSelected,
+}: { variant?: keyof typeof TRIGGER_CLASS; onSelected?: () => void } = {}) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [stations, setStations] = useState<string[]>([]);
@@ -73,6 +81,7 @@ export default function StationSearch({ variant = 'hero' }: { variant?: keyof ty
   const handleSelect = (station: string) => {
     setOpen(false);
     router.push(`/search?keyword=${encodeURIComponent(station)}`);
+    onSelected?.();
   };
 
   // combobox キーボード操作（上下で候補移動・Enter で確定）

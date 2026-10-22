@@ -82,6 +82,29 @@ test('switch logs out only this session and waits for privacy cleanup before sho
   expect(mockRefresh).not.toHaveBeenCalled();
 });
 
+// E20: 共用端末でアカウントを切り替えても、前のアカウント宛ての Push がこの端末に届き続けないようにする。
+test('switching account releases this device push subscription before the previous session is signed out', async () => {
+  const endpoint = 'https://fcm.googleapis.com/fcm/send/shared';
+  const unsubscribe = jest.fn().mockResolvedValue(true);
+  const fetchMock = jest.fn().mockResolvedValue({ ok: true });
+  const originalFetch = global.fetch;
+  global.fetch = fetchMock as unknown as typeof fetch;
+  Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: {
+    getRegistration: () => Promise.resolve({ pushManager: { getSubscription: () => Promise.resolve({ endpoint, unsubscribe }) } }),
+  } });
+  try {
+    await signedInStoreLogin();
+    fireEvent.click(screen.getByRole('button', { name: '別のアカウントでログイン' }));
+    await screen.findByLabelText('パスワード');
+    expect(fetchMock).toHaveBeenCalledWith('/api/push/subscribe', expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ endpoint }) }));
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.invocationCallOrder[0]).toBeLessThan(mockSignOut.mock.invocationCallOrder[0]);
+  } finally {
+    global.fetch = originalFetch;
+    delete (navigator as unknown as Record<string, unknown>).serviceWorker;
+  }
+});
+
 test('pre-logout privacy cleanup failure blocks logout and new credentials', async () => {
   await signedInStoreLogin();
   mockClearData.mockRejectedValueOnce(new Error('storage unavailable'));

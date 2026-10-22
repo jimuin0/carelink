@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 const mockSend = jest.fn(async()=>({outcome:'delivered',status:200}));
 const mockPush = jest.fn((..._args:unknown[])=>mockSend),mockLine = jest.fn((..._args:unknown[])=>mockSend),mockWorks = jest.fn(async(..._args:unknown[])=>mockSend);
-jest.mock('../push',()=>({prepareCapturedPushDelivery:(...a:unknown[])=>mockPush(...a)}));
+const mockRemove = jest.fn(async(..._args:unknown[])=>true);
+jest.mock('../push',()=>({prepareCapturedPushDelivery:(...a:unknown[])=>mockPush(...a),removeExpiredPushSubscription:(...a:unknown[])=>mockRemove(...a),
+  isExpiredPushStatus:(s:number|null)=>s===404||s===410}));
 jest.mock('../line',()=>({prepareSingleLineDelivery:(...a:unknown[])=>mockLine(...a)}));
 jest.mock('../integrations/line-works',()=>({prepareSingleLineWorksDelivery:(...a:unknown[])=>mockWorks(...a)}));
 import { prepareCustomerBookingChannel } from '../customer-booking-channel';
@@ -55,4 +57,15 @@ test.each([
 });
 test.each([job('line','rescheduled','customer'),job('line','cancelled','owner'),job('lineworks','rescheduled','owner')])('mismatched channel role is rejected',async j=>{
   await expect(prepareCustomerBookingChannel(j)).rejects.toThrow();expect(mockSend).not.toHaveBeenCalled();
+});
+test.each([410,404])('expired device %s removes exactly the captured subscription so the next attempt is superseded (E19)',async status=>{
+  mockSend.mockResolvedValueOnce({outcome:'rejected',status});
+  const sender=await prepareCustomerBookingChannel(job('push','cancelled','owner'));
+  expect(await sender()).toEqual({outcome:'rejected',status});
+  expect(mockRemove).toHaveBeenCalledWith(ACTOR,subscription);
+});
+test.each([[{outcome:'rejected',status:429}],[{outcome:'uncertain',status:503}],[{outcome:'delivered',status:201}]])('other push results %# keep the device',async result=>{
+  mockSend.mockResolvedValueOnce(result);
+  const sender=await prepareCustomerBookingChannel(job('push','rescheduled','customer'));
+  expect(await sender()).toEqual(result);expect(mockRemove).not.toHaveBeenCalled();
 });

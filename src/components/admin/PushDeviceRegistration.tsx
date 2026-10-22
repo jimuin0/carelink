@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import {
-  isPushSupported, readThisDeviceEndpoint, usePushSubscription,
+  readThisDevicePushStatus, usePushSubscription, type PushDeviceStatus,
 } from '@/hooks/usePushSubscription';
 
 /**
- * この端末でプッシュ通知を受け取るための登録・解除（店舗オーナー向け・2026年10月22日 新設）。
+ * この端末でプッシュ通知を受け取るための登録・解除（2026年10月22日 新設・店舗オーナーの通知設定）。
+ * 2026年10月23日からお客様のマイページ（設定）でも使う：予約完了画面のバナーを閉じた・
+ * 許可済みだが登録が消えた、といった場合に、お客様が登録し直す入口が他に無かったため。
  *
  * 通知設定には「新規予約（Push通知）」等のトグルがあったが、オーナーが端末を登録する手段が
  * 管理画面に 1 つも無く、トグルを ON にしても届け先が存在しなかった。
@@ -16,28 +17,13 @@ import {
  * 置き換わるので、そのことを画面に書いておく。登録は店舗ごとではなくアカウントごと。
  */
 
-type DeviceStatus =
-  | { state: 'unsupported' }
-  | { state: 'blocked' }
-  | { state: 'registered' }
-  | { state: 'unregistered'; otherDevice: boolean };
+type DeviceStatus = Exclude<PushDeviceStatus, { state: 'signed_out' }>;
 
 async function readDeviceStatus(): Promise<DeviceStatus> {
-  if (!isPushSupported()) return { state: 'unsupported' };
-  if (Notification.permission === 'denied') return { state: 'blocked' };
-  const local = await readThisDeviceEndpoint();
-  const supabase = createBrowserSupabaseClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('not signed in');
-  // 本人の行だけが読める（RLS push_subscriptions_owner_all）。
-  const { data, error } = await supabase
-    .from('push_subscriptions')
-    .select('endpoint')
-    .eq('user_id', user.id)
-    .maybeSingle();
-  if (error) throw error;
-  if (local && data?.endpoint === local && Notification.permission === 'granted') return { state: 'registered' };
-  return { state: 'unregistered', otherDevice: Boolean(data) };
+  const status = await readThisDevicePushStatus();
+  // この画面はログイン必須の画面にだけ置く。ログインを確認できないのは確認失敗として扱い、再試行を出す。
+  if (status.state === 'signed_out') throw new Error('not signed in');
+  return status;
 }
 
 const STATUS_LABEL: Record<DeviceStatus['state'], string> = {
@@ -47,7 +33,9 @@ const STATUS_LABEL: Record<DeviceStatus['state'], string> = {
   unregistered: '未登録',
 };
 
-export default function PushDeviceRegistration() {
+/** headingLevel はページの見出しの並びに合わせる（管理画面の通知設定は h3 の下＝h4、マイページは h2 の下＝h3）。 */
+export default function PushDeviceRegistration({ headingLevel = 'h4' }: { headingLevel?: 'h3' | 'h4' } = {}) {
+  const Heading = headingLevel;
   const { subscribe, unsubscribe, busy, error } = usePushSubscription();
   // 状態は「どの読み込み回の結果か」と一緒に持ち、今の回の結果が来るまでは確認中として描く
   // （effect の中で同期的に「確認中」を立てると最初のフレームに間に合わないため）。
@@ -77,9 +65,14 @@ export default function PushDeviceRegistration() {
 
   return (
     <section aria-labelledby="push-device-heading" className="border-t border-gray-100 pt-4 mt-4">
-      <h4 id="push-device-heading" className="text-sm font-bold text-gray-800">この端末のプッシュ通知</h4>
+      <Heading id="push-device-heading" className="text-sm font-bold text-gray-800">この端末のプッシュ通知</Heading>
       <p className="text-xs text-gray-600 mt-1">
         通知を受け取れる端末はアカウントごとに1台です。別の端末で登録すると、前に登録した端末には届かなくなります。
+      </p>
+      {/* ログアウト・アカウント切替・退会のたびにこの端末の登録は外れる（releaseThisDevicePush）。
+          黙って届かなくなると気づく手がかりが無いので、ここに書いておく。 */}
+      <p className="text-xs text-gray-600 mt-1">
+        ログアウトすると、この端末の通知は解除されます。もう一度ログインしたら、改めて登録してください。
       </p>
 
       {checking ? (
@@ -122,6 +115,7 @@ export default function PushDeviceRegistration() {
       )}
 
       {error === 'subscribe' && <p className="text-xs text-red-700 mt-2" role="alert">通知の登録に失敗しました。時間をおいて再度お試しください。</p>}
+      {error === 'signed_out' && <p className="text-xs text-red-700 mt-2" role="alert">ログインを確認できませんでした。ログインし直してから、もう一度お試しください。</p>}
       {error === 'unsubscribe' && <p className="text-xs text-red-700 mt-2" role="alert">通知の解除に失敗しました。時間をおいて再度お試しください。</p>}
     </section>
   );

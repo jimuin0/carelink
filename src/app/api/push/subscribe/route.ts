@@ -77,6 +77,17 @@ export async function POST(request: NextRequest) {
 
     // DB 書き込みは service_role に集約（anon UPSERT ポリシー削除後も継続動作・RLS 依存排除）。
     const serviceClient = createServiceRoleClient();
+    // 同じブラウザ（endpoint）を前に別のアカウントが登録していた行を外す。
+    // 一意制約は UNIQUE(user_id) だけなので、残すと 1 台の端末に 2 つのアカウント宛ての通知
+    // （＝前に使っていた人の予約者名入りの通知）が届き続ける（共用端末でのアカウント切り替え）。
+    const { error: releaseError } = await serviceClient
+      .from('push_subscriptions')
+      .delete()
+      .eq('endpoint', endpoint)
+      .neq('user_id', user.id);
+    if (releaseError) {
+      return serverError('push-subscribe-release', releaseError, '/api/push/subscribe', 'Failed to save subscription');
+    }
     const { error } = await serviceClient
       .from('push_subscriptions')
       .upsert(

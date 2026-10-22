@@ -7,7 +7,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { SbPageHeader, SbCard, SbStatusChip, SbButtonLink, SbStatCard } from '@/components/admin/SbUi';
 import { todayJst, addDays, dayOfWeekUtc, jstMonthInfo } from '@/lib/admin-date';
-import { hasConfirmedBookingHours } from '@/lib/booking-preparation';
+import { facilitySetupSteps, loadFacilitySetupFacts, type SetupStepKey } from '@/lib/facility-setup-steps';
 import { readWithinDeadline } from '@/lib/bounded-read';
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -27,56 +27,16 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
 
   const today = todayJst();
 
-  // オンボーディング進捗チェック
-  // staff_profiles IDs are fetched with data (not head-only) so we can reuse
-  // them for the staff_schedules query without a second sequential round-trip.
-  const [
-    { count: menuCount, error: menuErr },
-    { data: staffData, error: staffErr },
-    { count: photoCount, error: photoErr },
-    { data: facilityData, error: facilityErr },
-  ] = await Promise.all([
-    readWithinDeadline('dashboard-menus', supabase.from('facility_menus').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).or('is_published.is.null,is_published.eq.true')),
-    readWithinDeadline('dashboard-staff', supabase.from('staff_profiles').select('id').eq('facility_id', facilityId).eq('is_active', true)),
-    readWithinDeadline('dashboard-photos', supabase.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId)),
-    // status に加えて prefecture/city も同じ1行取得に相乗り（往復を増やさない）。
-    // 「基本情報（住所）」オンボーディング項目の done 判定に使う。
-    readWithinDeadline('dashboard-facility', supabase.from('facility_profiles').select('status, name, prefecture, city, address, business_hours').eq('id', facilityId).single()),
-  ]);
-  // 取得失敗を 0/未完了 に偽装しない（error.tsx に委ねる）
-  if (menuErr || staffErr || photoErr || facilityErr) {
-    throw new Error(`ダッシュボードの取得に失敗しました: ${(menuErr ?? staffErr ?? photoErr ?? facilityErr)?.message}`);
-  }
-
-  const staffIds = staffData?.map((s: { id: string }) => s.id) ?? [];
-  const staffCount = staffIds.length;
-
-  const scheduleResult = staffIds.length > 0
-    ? await readWithinDeadline('dashboard-schedules', supabase.from('staff_schedules').select('id', { count: 'exact', head: true }).in('staff_id', staffIds))
-    : { count: 0, error: null };
-  if (scheduleResult.error) throw new Error('勤務スケジュールの取得に失敗しました');
-  const scheduleCount = scheduleResult.count ?? 0;
-
-  const isPublished = facilityData?.status === 'published';
-  // 基本情報（住所）の充足判定。/search の地域絞り込み（facilities.ts の .eq('prefecture', …)）と
-  // getSimilarFacilities / getNearbyFacilities の結合キーが facility_profiles.prefecture/city のため、
-  // ここが空だと「公開されているのに地域で探すと出てこない」状態になる（facility-publish-gate.ts と
-  // 同じ理由で公開の必須条件にもなっている）。セルフサーブ経路では構造的に空になり得るため、
-  // メニュー/写真/スタッフと並ぶオンボーディング項目として明示し、/admin/settings へ導く。
-  const hasBasicAddress = [facilityData?.name, facilityData?.prefecture, facilityData?.city, facilityData?.address]
-    .every(value => typeof value === 'string' && value.trim().length > 0);
-  const hasBookingHours = hasConfirmedBookingHours(facilityData?.business_hours);
-  const onboardingSteps = [
-    { label: '基本情報（住所）', done: hasBasicAddress, href: '/admin/settings' },
-    { label: '無料掲載を公開', done: isPublished, href: '/admin/settings' },
-    { label: 'ネット予約：公開メニュー登録', done: (menuCount ?? 0) > 0, href: '/admin/menus' },
-    { label: 'ネット予約：有効スタッフ登録', done: staffCount > 0, href: '/admin/staff' },
-    { label: 'ネット予約：写真アップロード', done: (photoCount ?? 0) > 0, href: '/admin/photos' },
-    { label: 'ネット予約：営業時間の確認・保存', done: hasBookingHours, href: '/admin/settings' },
-    { label: '予約枠：勤務スケジュール設定', done: scheduleCount > 0, href: '/admin/staff' },
-  ];
+  // オンボーディング進捗チェック。完了の判定は公開ゲート・ネット予約の判定と同じ単一ソース
+  // （facility-setup-steps.ts）から引き、登録3日後のフォローメールとも同じ項目・同じ条件にする。
+  // 取得失敗は 0/未完了 に偽装せず例外にする（error.tsx に委ねる）。
+  const setup = await loadFacilitySetupFacts(supabase, facilityId, (label, query) => readWithinDeadline(`dashboard-${label}`, query));
+  const onboardingSteps = facilitySetupSteps(setup);
+  const stepDone = (key: SetupStepKey) => onboardingSteps.some(step => step.key === key && step.done);
+  const unscheduledStaffCount = setup.unscheduledStaffIds.length;
   const completedSteps = onboardingSteps.filter(s => s.done).length;
   const showOnboarding = completedSteps < onboardingSteps.length;
+  const isPublished = stepDone('publish');
 
   // 予約状況（本日から14日間＝2週間）の日付一覧。各日の件数は1クエリ取得→JST日付で JS 集計する
   // （PostgREST は GROUP BY 非対応のため。範囲は14日固定で転送量は小さい）。
@@ -138,12 +98,16 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
   }));
 
   // 掲載のみも正常な運用。ネット予約の準備は掲載公開の障害と表示しない。
-  const bookingReady = hasBasicAddress && hasBookingHours && staffCount > 0 && (menuCount ?? 0) > 0 && (photoCount ?? 0) > 0;
-  const publishBlocker = isPublished && !bookingReady
-    ? { message: '無料掲載は公開中です。ネット予約は準備中で、電話・店舗への問い合わせをご案内します。', cta: 'ネット予約の準備内容を確認する', href: '/admin/settings' }
-    : isPublished && scheduleCount === 0
+  // 「スタッフ」は勤務時間を保存したスタッフが1人以上いること（ネット予約・検索カードと同じ規則）。
+  const otherBookingStepsDone = (['address', 'hours', 'menu', 'photo'] as const).every(stepDone);
+  const bookingReady = otherBookingStepsDone && stepDone('staff');
+  // 足りないのが「在籍スタッフの勤務時間」だけなら、行き先をスタッフの画面にして具体的に示す。
+  const onlyWorkingStaffMissing = otherBookingStepsDone && !stepDone('staff') && setup.activeStaffIds.length > 0;
+  const publishBlocker = !isPublished || bookingReady
+    ? null
+    : onlyWorkingStaffMissing
     ? { message: '無料掲載は公開中です。予約枠を表示するにはスタッフの勤務スケジュールを設定してください。', cta: 'スケジュールを設定する', href: '/admin/staff' }
-    : null;
+    : { message: '無料掲載は公開中です。ネット予約は準備中で、電話・店舗への問い合わせをご案内します。', cta: 'ネット予約の準備内容を確認する', href: '/admin/settings' };
 
   return (
     <div>
@@ -286,6 +250,9 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
                   {step.done ? '✓' : ''}
                 </span>
                 {step.label}
+                {step.key === 'schedule' && unscheduledStaffCount > 0 && (
+                  <span className="text-xs font-normal text-sky-800">（勤務時間が未登録で予約を受けられないスタッフ：{unscheduledStaffCount}人）</span>
+                )}
               </Link>
             ))}
           </div>

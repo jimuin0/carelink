@@ -3,7 +3,7 @@ import { verifyAuthUser } from '@/lib/auth-verification';
 import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { getCustomerVisits } from '@/lib/admin';
+import { getLedgerCustomerVisits } from '@/lib/admin';
 import Breadcrumb from '@/components/Breadcrumb';
 import { UUID_REGEX } from '@/lib/constants';
 import { SbStatCard } from '@/components/admin/SbUi';
@@ -43,17 +43,16 @@ export default async function CustomerDetailPage(props: Props) {
   // 施設スコープで顧客マスターを取得（自分が owner/admin の施設の顧客のみ・他施設は見せない）。
   const { data: customer } = await readPageResult(() => supabase
     .from('customers')
-    .select('name, email, facility_id')
+    .select('name, email, phone, facility_id')
     .eq('id', id)
     .in('facility_id', facilityIds)
     .maybeSingle(), '/admin/customers/[id]');
   if (!customer) notFound();
 
-  // 来店履歴は email キー。email 未登録の顧客で getCustomerVisits を空 email で呼ぶと施設の全来店が
-  // 返ってしまうため、email がある時のみ照会する。施設は顧客が実際に属する facility_id を使う。
-  const visits = customer.email
-    ? await getCustomerVisits(customer.facility_id, customer.email)
-    : [];
+  // 来店履歴は一覧と同じ突合で引く。メールがあればメール（台帳でその電話番号を持つのが本人だけなら、
+  // その電話番号のメール無し来店も合わせる）、無ければ電話番号（電話・来店受付のメール無し予約）。
+  // どちらも無ければ照会しない（空の条件で施設の全来店を返さない）。施設は顧客が実際に属する facility_id。
+  const visits = await getLedgerCustomerVisits(customer.facility_id, customer);
   const totalSpent = visits.reduce((sum, v) => sum + (v.amount ?? 0), 0);
 
   return (
@@ -61,7 +60,10 @@ export default async function CustomerDetailPage(props: Props) {
       <Breadcrumb jsonLd={false} items={[{ label: '顧客管理', href: '/admin/customers' }, { label: '顧客詳細' }]} />
       <h1 className="text-2xl font-bold mb-2">顧客詳細</h1>
       <p className="text-sm font-medium mb-1">{customer.name}</p>
-      {customer.email && <p className="text-sm text-gray-500 mb-6">{customer.email}</p>}
+      <div className="mb-6">
+        {customer.email && <p className="text-sm text-gray-600">{customer.email}</p>}
+        {customer.phone && <p className="text-sm text-gray-600">{customer.phone}</p>}
+      </div>
 
       <div className="grid grid-cols-2 gap-4 mb-6">
         <SbStatCard label="来店回数" value={visits.length} unit="回" accent="sky" />

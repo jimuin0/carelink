@@ -4,7 +4,8 @@ jest.mock('../supabase-server',()=>({createServiceRoleClient:()=>({from:mockFrom
 jest.mock('resend',()=>({Resend:jest.fn(()=>({emails:{}}))}));
 jest.mock('../event-email-delivery',()=>({...jest.requireActual('../event-email-delivery'),dispatchEventEmail:(...args:unknown[])=>mockCall(...args)}));
 jest.mock('../resend-result',()=>({sendResendForReconciliation:jest.fn(async()=> 'delivered')}));
-jest.mock('../booking-create-notifications',()=>({prepareBookingCreationChannel:jest.fn(async()=>async()=>{}),sendBookingCreationLine:jest.fn(async()=>true)}));
+jest.mock('../alert',()=>({alertWarning:jest.fn()}));
+jest.mock('../booking-create-notifications',()=>({prepareBookingCreationChannel:jest.fn(async()=>async()=>({outcome:'delivered'})),sendBookingCreationLine:jest.fn(async()=>true)}));
 jest.mock('../webhook-queue',()=>({scheduleRetry:jest.fn(async()=> 'rescheduled')}));
 jest.mock('../safe',()=>({safeCaptureException:jest.fn()}));
 import { dispatchBookingCreationNotifications } from '../booking-create-dispatch';
@@ -13,9 +14,9 @@ import { prepareBookingCreationChannel, sendBookingCreationLine } from '../booki
 import { scheduleRetry } from '../webhook-queue';
 const operation='bead0000-0000-4000-8000-000000000001',id='bead0000-0000-4000-8000-000000000002',provider='bead0000-0000-4000-8000-000000000003';
 const epoch='2030-01-01T00:00:00Z';
-let job:Record<string,unknown>,lookup:unknown,claim:unknown,mark:unknown;
-function chain(){let mutation:Record<string,unknown>|null=null;const c:Record<string,unknown>={};for(const name of ['select','eq','is','lte'])c[name]=jest.fn(()=>c);c.update=jest.fn(v=>{mutation=v;return c;});c.then=(resolve:unknown,reject:unknown)=>Promise.resolve(mutation?(mutation.status==='processing'?claim:mark):lookup).then(resolve as never,reject as never);return c;}
-beforeEach(()=>{jest.clearAllMocks();process.env.RESEND_API_KEY='synthetic';process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK='synthetic';job={id,webhook_type:'email',target_id:'recipient@example.invalid',attempt_count:0,payload:{event_email_version:1,idempotency_key:`carelink-event-email/${id}`,booking_create_operation:operation},email_envelope:{from:'sender@example.invalid',to:'recipient@example.invalid',subject:'Synthetic',html:'<p>Synthetic</p>'}};lookup={data:[job],error:null};claim={data:[{id}],error:null};mark={data:[{id}],error:null};mockFrom.mockImplementation(()=>chain());mockClaimGateway.mockImplementation(async()=>({...claim as object,data:(claim as {data:unknown[]|null}).data?.map(row=>({...job,...row as object}))??null}));mockRpc.mockResolvedValue({data:[{outcome:'ready',started_at:epoch}],error:null});mockCall.mockResolvedValue({data:{id:provider},error:null});(sendResendForReconciliation as jest.Mock).mockResolvedValue('delivered');(scheduleRetry as jest.Mock).mockResolvedValue('rescheduled');(sendBookingCreationLine as jest.Mock).mockResolvedValue(true);(prepareBookingCreationChannel as jest.Mock).mockResolvedValue(async()=>{});});
+let job:Record<string,unknown>,lookup:unknown,claim:unknown,mark:unknown,close:unknown;const closeWrites:Record<string,unknown>[]=[];
+function chain(){let mutation:Record<string,unknown>|null=null;const c:Record<string,unknown>={};for(const name of ['select','eq','is','lte'])c[name]=jest.fn(()=>c);c.update=jest.fn(v=>{mutation=v;if(v.status==='failed')closeWrites.push(v);return c;});c.then=(resolve:unknown,reject:unknown)=>Promise.resolve(mutation?(mutation.status==='processing'?claim:mutation.status==='failed'?close:mark):lookup).then(resolve as never,reject as never);return c;}
+beforeEach(()=>{jest.clearAllMocks();process.env.RESEND_API_KEY='synthetic';process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK='synthetic';job={id,webhook_type:'email',target_id:'recipient@example.invalid',attempt_count:0,payload:{event_email_version:1,idempotency_key:`carelink-event-email/${id}`,booking_create_operation:operation},email_envelope:{from:'sender@example.invalid',to:'recipient@example.invalid',subject:'Synthetic',html:'<p>Synthetic</p>'}};lookup={data:[job],error:null};claim={data:[{id}],error:null};mark={data:[{id}],error:null};mockFrom.mockImplementation(()=>chain());mockClaimGateway.mockImplementation(async()=>({...claim as object,data:(claim as {data:unknown[]|null}).data?.map(row=>({...job,...row as object}))??null}));mockRpc.mockResolvedValue({data:[{outcome:'ready',started_at:epoch}],error:null});mockCall.mockResolvedValue({data:{id:provider},error:null});(sendResendForReconciliation as jest.Mock).mockResolvedValue('delivered');(scheduleRetry as jest.Mock).mockResolvedValue('rescheduled');(sendBookingCreationLine as jest.Mock).mockResolvedValue(true);(prepareBookingCreationChannel as jest.Mock).mockResolvedValue(async()=>({outcome:'delivered'}));close={data:[{id}],error:null};closeWrites.length=0;});
 it('claims existing ID and persists send start before one provider call, verifies successful record',async()=>{expect(await dispatchBookingCreationNotifications(operation)).toEqual({accepted:1,pending:0,uncertain:0,skipped:0});expect(mockRpc).toHaveBeenCalledWith('start_booking_create_notification',expect.objectContaining({p_queue_id:id}));expect(mockRpc.mock.invocationCallOrder[0]).toBeLessThan(mockCall.mock.invocationCallOrder[0]);expect(mockCall).toHaveBeenCalledTimes(1);expect(scheduleRetry).not.toHaveBeenCalled();});
 it.each([[],null])('another worker wins claim %#: no provider effect',async data=>{claim={data,error:null};expect((await dispatchBookingCreationNotifications(operation)).pending).toBe(1);expect(mockRpc).not.toHaveBeenCalled();expect(mockCall).not.toHaveBeenCalled();});
 it.each([{code:'522'},null])('claim error/wrong ID %# cannot send',async error=>{claim={data:[{id:provider}],error};await dispatchBookingCreationNotifications(operation);expect(mockCall).not.toHaveBeenCalled();});
@@ -37,3 +38,27 @@ it('push/Works preparation failure is retryable before send; channel unknown is 
 it('unstarted retry write uncertainty is visible',async()=>{delete process.env.RESEND_API_KEY;(scheduleRetry as jest.Mock).mockResolvedValue('uncertain');expect((await dispatchBookingCreationNotifications(operation)).uncertain).toBe(1);});
 it.each([{data:null,error:null},{data:[],error:{code:'522'}}])('lookup uncertainty %# cannot authorize sending',async result=>{lookup=result;expect((await dispatchBookingCreationNotifications(operation)).uncertain).toBe(1);expect(mockCall).not.toHaveBeenCalled();});
 it('invalid operation ID never queries',async()=>{expect((await dispatchBookingCreationNotifications('bad')).uncertain).toBe(1);expect(mockFrom).not.toHaveBeenCalled();});
+describe('permanent Push / LINE WORKS refusals are finished once, not held as 「結果不明」 (E19)',()=>{
+  const alertWarning=()=>jest.requireMock('../alert').alertWarning as jest.Mock;
+  it.each([['booking_creation_push','booking_push_subscription_expired',410,'Push通知'],['booking_creation_lineworks','booking_lineworks_channel_not_found',404,'LINE WORKS通知']])('%s destination gone → job closed as failed, alerted once, never retried',async(type,reason,status,label)=>{
+    job.webhook_type=type;(prepareBookingCreationChannel as jest.Mock).mockResolvedValue(async()=>({outcome:'closed',reason,status}));
+    expect(await dispatchBookingCreationNotifications(operation)).toEqual({accepted:0,pending:0,uncertain:0,skipped:1});
+    expect(closeWrites).toEqual([expect.objectContaining({status:'failed',last_error:reason,attempt_count:1})]);
+    expect(scheduleRetry).not.toHaveBeenCalled();
+    expect(alertWarning()).toHaveBeenCalledTimes(1);expect(alertWarning().mock.calls[0][0]).toContain(label);
+    expect(alertWarning().mock.calls[0][1]).toEqual(expect.objectContaining({extra:expect.objectContaining({queueId:id,providerStatus:status})}));
+  });
+  it.each([{data:[],error:null},{data:null,error:{code:'522'}}])('close not confirmed %# stays held (uncertain) and is not reported as closed',async result=>{
+    job.webhook_type='booking_creation_push';close=result;(prepareBookingCreationChannel as jest.Mock).mockResolvedValue(async()=>({outcome:'closed',reason:'booking_push_subscription_expired',status:410}));
+    expect((await dispatchBookingCreationNotifications(operation)).uncertain).toBe(1);expect(alertWarning()).not.toHaveBeenCalled();expect(scheduleRetry).not.toHaveBeenCalled();
+  });
+  it('definitive non-permanent refusal is safely rescheduled (nothing was accepted)',async()=>{
+    job.webhook_type='booking_creation_push';(prepareBookingCreationChannel as jest.Mock).mockResolvedValue(async()=>({outcome:'retryable',reason:'booking_push_provider_rejected',status:429}));
+    expect(await dispatchBookingCreationNotifications(operation)).toEqual({accepted:0,pending:1,uncertain:0,skipped:0});
+    expect(scheduleRetry).toHaveBeenCalledWith(id,1,'booking_create_delivery_unconfirmed',expect.any(String));expect(closeWrites).toEqual([]);
+  });
+  it('possibly accepted outcome is still held, never resent',async()=>{
+    job.webhook_type='booking_creation_lineworks';(prepareBookingCreationChannel as jest.Mock).mockResolvedValue(async()=>({outcome:'uncertain'}));
+    expect((await dispatchBookingCreationNotifications(operation)).uncertain).toBe(1);expect(scheduleRetry).not.toHaveBeenCalled();expect(closeWrites).toEqual([]);
+  });
+});

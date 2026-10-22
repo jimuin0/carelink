@@ -4,7 +4,10 @@
  * checkPublishReadiness の網羅テスト（単一公開/一括公開で共有する公開ゲート）。
  */
 
-import { checkBookingReadiness as checkPublishReadiness, checkPublishReadiness as checkListingReadiness, isPublishedLocationConflict } from '../facility-publish-gate';
+import {
+  checkBookingReadiness as checkPublishReadiness, checkPublishReadiness as checkListingReadiness, isPublishedLocationConflict,
+  readWorkingStaff, summarizeWorkingStaff, workingStaffQuery,
+} from '../facility-publish-gate';
 
 test.each([null, undefined, false, '23514', {}, { code: '23514' },
   { code: '23514', message: null }, { code: '23514', message: 'another_constraint' },
@@ -16,8 +19,7 @@ test('identifies only the named location CHECK violation', () => {
   expect(isPublishedLocationConflict({ code: '23514', message: 'new row violates check constraint "published_facility_location_present"' })).toBe(true);
 });
 
-// facility_menus は .select().eq().or()、facility_photos は .select().eq()、
-// staff_profiles は .select().eq().eq() で count を解決する thenable。
+// facility_menus は .select().eq().or()、facility_photos は .select().eq() で count を解決する thenable。
 function countChain(count: number | null, error: unknown = null) {
   const obj: Record<string, unknown> = {};
   obj.select = jest.fn(() => obj);
@@ -27,6 +29,17 @@ function countChain(count: number | null, error: unknown = null) {
     resolve({ count, error });
   return obj;
 }
+
+// staff_profiles は勤務の有無つき（workingStaffQuery）で行を返す thenable。
+function staffChain(data: unknown, error: unknown = null) {
+  const obj: Record<string, jest.Mock | unknown> = {};
+  for (const method of ['select', 'eq', 'gte', 'not', 'limit']) obj[method] = jest.fn(() => obj);
+  obj.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) => resolve({ data, error });
+  return obj;
+}
+/** 週間の勤務日があるスタッフ n 人（null は data が null の応答）。 */
+const workingRows = (n: number | null) => n === null ? null
+  : Array.from({ length: n }, (_, i) => ({ id: `s${i}`, staff_schedules: [{ staff_id: `s${i}` }], schedule_overrides: [] }));
 
 // facility_profiles は .select('prefecture, city').eq('id', facilityId).single() で解決する。
 function profileChain(data: { prefecture: string | null; city: string | null; address: string | null; name?: string; status?: string; business_hours?: unknown; catch_copy?: string | null; description?: string | null } | null, error: unknown = null) {
@@ -40,7 +53,9 @@ function profileChain(data: { prefecture: string | null; city: string | null; ad
 function admin(opts: {
   menu?: number | null;
   photo?: number | null;
+  /** 勤務時間のある有効スタッフの人数。staffRows を渡せばそちらを優先する。 */
   staff?: number | null;
+  staffRows?: unknown;
   menuErr?: unknown;
   photoErr?: unknown;
   staffErr?: unknown;
@@ -60,7 +75,8 @@ function admin(opts: {
         return countChain('photo' in opts ? (opts.photo as number | null) : 0, opts.photoErr ?? null);
       }
       if (table === 'staff_profiles') {
-        return countChain('staff' in opts ? (opts.staff as number | null) : 0, opts.staffErr ?? null);
+        const rows = 'staffRows' in opts ? opts.staffRows : workingRows('staff' in opts ? (opts.staff as number | null) : 0);
+        return staffChain(rows, opts.staffErr ?? null);
       }
       if (table === 'facility_profiles') {
         // ?? だと明示的な null（不足を検査したいケース）まで既定値へ引き戻ってしまうため、
@@ -99,7 +115,22 @@ test('写真0 → 写真不足', async () => {
 
 test('スタッフ0 → スタッフ不足', async () => {
   const { readiness } = await checkPublishReadiness(admin({ menu: 1, photo: 1, staff: 0 }), 'f1');
-  expect(readiness.missing).toContain('スタッフを1人以上登録してください');
+  expect(readiness.missing).toContain('勤務時間を保存したスタッフを1人以上登録してください');
+});
+
+// 回帰（E8 後続）: スタッフを追加しただけでは勤務は作られない。勤務時間の無い有効スタッフしか
+// いない店舗を予約可能と扱うと、検索カードは「予約OK」なのに予約画面は毎日「満枠」になる。
+test('有効スタッフがいても勤務時間が無ければネット予約は準備中', async () => {
+  const { readiness, error } = await checkPublishReadiness(admin({ menu: 1, photo: 1,
+    staffRows: [{ id: 'new', staff_schedules: [], schedule_overrides: [] }, { id: 'nulls', staff_schedules: null, schedule_overrides: null }] }), 'f1');
+  expect(error).toBeNull();
+  expect(readiness).toEqual({ ready: false, missing: ['勤務時間を保存したスタッフを1人以上登録してください'] });
+});
+
+test('特別日だけ勤務するスタッフでもネット予約を受けられる', async () => {
+  const { readiness } = await checkPublishReadiness(admin({ menu: 1, photo: 1,
+    staffRows: [{ id: 'special', staff_schedules: [], schedule_overrides: [{ staff_id: 'special' }] }] }), 'f1');
+  expect(readiness).toEqual({ ready: true, missing: [] });
 });
 
 // count=null（head:true count クエリが null を返す経路）でも `?? 0` で 0 扱いになり不足と判定される。
@@ -115,9 +146,9 @@ test('photo.count が null → ?? 0 で不足扱い', async () => {
   expect(readiness.missing).toContain('写真を1枚以上登録してください');
 });
 
-test('staff.count が null → ?? 0 で不足扱い', async () => {
+test('staff の data が null → 0人として不足扱い', async () => {
   const { readiness } = await checkPublishReadiness(admin({ menu: 1, photo: 1, staff: null }), 'f1');
-  expect(readiness.missing).toContain('スタッフを1人以上登録してください');
+  expect(readiness.missing).toContain('勤務時間を保存したスタッフを1人以上登録してください');
 });
 
 test('menu.error → error 返却', async () => {
@@ -189,7 +220,7 @@ test('profile.data が null（行が見つからない）→ prefecture/city 不
     from: (table: string) => {
       if (table === 'facility_menus') return countChain(1);
       if (table === 'facility_photos') return countChain(1);
-      if (table === 'staff_profiles') return countChain(1);
+      if (table === 'staff_profiles') return staffChain(workingRows(1));
       if (table === 'facility_profiles') return profileChain(null, null);
       throw new Error('unexpected table ' + table);
     },
@@ -273,7 +304,7 @@ describe('isCardBookingReady (search card 「予約OK」 badge)', () => {
   test.each([
     ['no photo (the production case that showed 予約OK but refused booking)', { photo_count: 0 }],
     ['no published menu', { booking_menu_count: 0 }],
-    ['no active staff', { active_staff_count: 0 }],
+    ['no active staff with working time', { active_staff_count: 0 }],
     ['no address', { has_address: false }],
     ['unconfirmed hours', { business_hours: { mon: { open: '09:00', close: '18:00' } } }],
     ['blank name', { name: ' ' }],
@@ -289,7 +320,84 @@ describe('isCardBookingReady (search card 「予約OK」 badge)', () => {
 
   test('the badge and the booking page share one rule', () => {
     expect(bookingReadinessMissing({ name: '合成院', prefecture: '大阪府', city: '豊中市', hasAddress: true,
-      status: 'published', businessHours: hours, menuCount: 2, photoCount: 0, staffCount: 1 }))
+      status: 'published', businessHours: hours, menuCount: 2, photoCount: 0, workingStaffCount: 1 }))
       .toEqual(['写真を1枚以上登録してください']);
+  });
+});
+
+describe('画面の入力にも同じ公開規則を使う（listingPublishMissing）', () => {
+  const { listingPublishMissing, listingLocationMissing, bookingReadinessChecks } = jest.requireActual('../facility-publish-gate');
+
+  test('保存前の入力値で、サーバーの公開ゲートと同じ項目・同じ文言を返す', async () => {
+    const values = { name: '合成店舗', prefecture: '', city: ' ', address: null, catch_copy: '日本一', description: null };
+    const server = await checkListingReadiness({ from: () => profileChain(values) } as never, 'f1');
+    expect(listingPublishMissing(values)).toEqual(server.readiness.missing);
+    expect(listingPublishMissing(values)).toEqual([
+      '都道府県を設定してください', '市区町村を設定してください', '住所を設定してください',
+      expect.stringMatching(/^キャッチコピー：/),
+    ]);
+  });
+
+  test('所在地だけの判定は PR 文言を見ない', () => {
+    expect(listingLocationMissing({ name: '合成店舗', prefecture: '東京都', city: '渋谷区', address: '1-1', catch_copy: '日本一' })).toEqual([]);
+    expect(listingLocationMissing({})).toEqual(['施設名を設定してください', '都道府県を設定してください', '市区町村を設定してください', '住所を設定してください']);
+  });
+
+  test('ネット予約の判定は条件ごとのキーを持ち、不足の一覧はその文言から作られる', () => {
+    const checks = bookingReadinessChecks({ name: '合成院', prefecture: '大阪府', city: '豊中市', hasAddress: false,
+      status: 'draft', businessHours: null, menuCount: 0, photoCount: 1, workingStaffCount: 1 });
+    expect(checks.map((c: { key: string; ok: boolean }) => [c.key, c.ok])).toEqual([
+      ['name', true], ['menu', false], ['photo', true], ['staff', true], ['prefecture', true], ['city', true],
+      ['address', false], ['published', false], ['hours', false],
+    ]);
+  });
+});
+
+describe('勤務時間のある在籍スタッフ（workingStaffQuery）', () => {
+  // get_available_slots が枠を出す条件と同じ。SQL 側は public.staff_has_working_time。
+  test('在籍スタッフを、週間の勤務日と今日以降に勤務する特別日（休みでなく時刻あり）つきで読む', () => {
+    const chain = staffChain([]);
+    const from = jest.fn(() => chain);
+    workingStaffQuery({ from } as never, 'f1', '2026-10-23');
+    expect(from).toHaveBeenCalledWith('staff_profiles');
+    expect(chain.select).toHaveBeenCalledWith('id, staff_schedules(staff_id), schedule_overrides(staff_id)');
+    expect((chain.eq as jest.Mock).mock.calls).toEqual([['facility_id', 'f1'], ['is_active', true]]);
+    expect(chain.gte).toHaveBeenCalledWith('schedule_overrides.date', '2026-10-23');
+    expect((chain.not as jest.Mock).mock.calls).toEqual([
+      ['schedule_overrides.is_holiday', 'is', true],
+      ['schedule_overrides.start_time', 'is', null],
+      ['schedule_overrides.end_time', 'is', null],
+    ]);
+    expect((chain.limit as jest.Mock).mock.calls).toEqual([
+      [1, { referencedTable: 'staff_schedules' }], [1, { referencedTable: 'schedule_overrides' }],
+    ]);
+  });
+
+  test('今日は日本時間で数える（UTC ではまだ前日の 0:30 JST でも当日）', () => {
+    jest.useFakeTimers({ now: new Date('2026-10-22T15:30:00Z') });
+    try {
+      const chain = staffChain([]);
+      workingStaffQuery({ from: () => chain } as never, 'f1');
+      expect(chain.gte).toHaveBeenCalledWith('schedule_overrides.date', '2026-10-23');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('勤務日か勤務する特別日が1つでもあるスタッフだけを予約を受けられるスタッフにする', () => {
+    expect(summarizeWorkingStaff([
+      { id: 'weekly', staff_schedules: [{}], schedule_overrides: [] },
+      { id: 'special', staff_schedules: [], schedule_overrides: [{}] },
+      { id: 'none', staff_schedules: [], schedule_overrides: [] },
+      { id: 'missing' },
+    ])).toEqual({ activeIds: ['weekly', 'special', 'none', 'missing'], workingIds: new Set(['weekly', 'special']) });
+    expect(summarizeWorkingStaff(null)).toEqual({ activeIds: [], workingIds: new Set() });
+  });
+
+  test('readWorkingStaff は読めなければ例外（未登録と偽装しない）', async () => {
+    await expect(readWorkingStaff({ from: () => staffChain(null, { message: 'down' }) } as never, 'f1'))
+      .rejects.toThrow('スタッフの勤務状況を取得できませんでした: down');
+    await expect(readWorkingStaff({ from: () => staffChain(workingRows(2)) } as never, 'f1'))
+      .resolves.toEqual({ activeIds: ['s0', 's1'], workingIds: new Set(['s0', 's1']) });
   });
 });

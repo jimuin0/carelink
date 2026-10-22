@@ -776,6 +776,35 @@ describe('sendOnboardingFollowEmail', () => {
     expect(html).not.toContain('<script>');
     expect(html).toContain('&lt;script&gt;');
   });
+
+  test('掲載の公開に要る項目と、ネット予約に要る項目を分けて案内する', async () => {
+    await sendOnboardingFollowEmail({
+      ownerEmail: 'owner@example.com',
+      facilityName: 'テストサロン',
+      missingSteps: ['基本情報（住所）', '無料掲載を公開'],
+      bookingSteps: ['ネット予約：営業時間の確認・保存', '<b>予約枠</b>'],
+    });
+    const html: string = mockSend.mock.calls[0][0].html;
+    const listing = html.indexOf('無料掲載の公開に必要な項目');
+    const booking = html.indexOf('ネット予約の受付に必要な項目');
+    expect(listing).toBeGreaterThan(-1);
+    expect(booking).toBeGreaterThan(listing);
+    expect(html.indexOf('<li>基本情報（住所）</li>')).toBeGreaterThan(listing);
+    expect(html.indexOf('<li>基本情報（住所）</li>')).toBeLessThan(booking);
+    expect(html.indexOf('<li>ネット予約：営業時間の確認・保存</li>')).toBeGreaterThan(booking);
+    expect(html).toContain('掲載だけのご利用なら不要です');
+    expect(html).toContain('&lt;b&gt;予約枠&lt;/b&gt;');
+  });
+
+  test('空の区分は見出しごと出さない', async () => {
+    await sendOnboardingFollowEmail({ ownerEmail: 'owner@example.com', facilityName: 'テストサロン', missingSteps: [], bookingSteps: ['写真'] });
+    const html: string = mockSend.mock.calls[0][0].html;
+    expect(html).not.toContain('無料掲載の公開に必要な項目');
+    expect(html).toContain('ネット予約の受付に必要な項目');
+    mockSend.mockClear();
+    await sendOnboardingFollowEmail({ ownerEmail: 'owner@example.com', facilityName: 'テストサロン', missingSteps: ['無料掲載を公開'] });
+    expect(mockSend.mock.calls[0][0].html).not.toContain('ネット予約の受付に必要な項目');
+  });
 });
 
 describe('sendFavoritesDigest', () => {

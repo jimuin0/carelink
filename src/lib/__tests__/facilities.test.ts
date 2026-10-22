@@ -36,6 +36,8 @@ import {
   getFeaturedFacilities,
   getNearbyFacilities,
   getAvailableFacilityIds,
+  hasBookableSlot,
+  SLOT_STEP_MINUTES,
   getAvailableAreasAndTypes,
   getFacilityCancelPolicy,
   keywordTerms,
@@ -1267,6 +1269,12 @@ describe('getNearbyFacilities', () => {
 // ─── getAvailableFacilityIds ─────────────────────────────────────────────────
 
 describe('getAvailableFacilityIds', () => {
+  // 既存のケースは 2026-05-01（金）を「明日」として判定する（当日・過去日の扱いは下の 2026年10月23日 の節）。
+  // 2026-04-30 12:00 JST に固定する。
+  let nowSpy: jest.SpyInstance;
+  beforeEach(() => { nowSpy = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-04-30T03:00:00Z')); });
+  afterEach(() => { nowSpy.mockRestore(); });
+
   /**
    * Build table-specific from() mock。
    * 【2026年7月16日】bookings は service role クライアント（mockServiceFrom）、
@@ -1614,11 +1622,13 @@ describe('getAvailableFacilityIds', () => {
     expect(mockFrom).not.toHaveBeenCalled();
   });
 
-  test.each(['facility_card_view', 'staff_schedules', 'staff_profiles', 'schedule_overrides', 'bookings'])(
+  test.each(['facility_card_view', 'facility_menus', 'facility_profiles', 'staff_schedules', 'staff_profiles', 'schedule_overrides', 'bookings'])(
     '%s を読めなければ判定できない（null。空きなし・空きありのどちらにも倒さない）',
     async (failing) => {
       const rows: Record<string, unknown[]> = {
         facility_card_view: [readyCard('fac-1')],
+        facility_menus: [{ facility_id: 'fac-1', duration_minutes: 60 }],
+        facility_profiles: [{ id: 'fac-1', booking_buffer_minutes: 0 }],
         staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '18:00' }],
         staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
         schedule_overrides: [],
@@ -1637,6 +1647,161 @@ describe('getAvailableFacilityIds', () => {
       expect(await getAvailableFacilityIds(['fac-1'], '2026-05-01')).toBeNull();
     },
   );
+});
+
+// ─── 予約画面で選べる枠だけを「空きあり」に数える（2026年10月23日）────────────────────
+// 回帰: 21:51 に「予約希望日＝今日」で検索すると、9〜19 時営業の店に「空きあり」が出ていた（予約画面は
+// 開始済みの枠を出さないので当日は全部 ×）。予約の間の 30 分の隙間も、最短 60 分のメニューしか無い店で
+// 「空きあり」になっていた。
+describe('getAvailableFacilityIds：予約画面で選べる枠だけを数える', () => {
+  // 2026-05-01（金）の JST 時刻。
+  const jst = (hhmm: string) => Date.parse(`2026-05-01T${hhmm}:00+09:00`);
+  function mockTables(tables: Record<string, unknown[]>) {
+    const rows: Record<string, unknown[]> = {
+      facility_card_view: [readyCard('fac-1')],
+      facility_menus: [{ facility_id: 'fac-1', duration_minutes: 60 }],
+      facility_profiles: [{ id: 'fac-1', booking_buffer_minutes: 0 }],
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '19:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: [],
+      ...tables,
+    };
+    const chains: Record<string, Record<string, jest.Mock>> = {};
+    const chainFor = (table: string) => {
+      const result = { data: rows[table], error: null };
+      const chain = fluent(result);
+      ['in', 'eq', 'or'].forEach((m) => { chain[m] = jest.fn(() => chain); });
+      (chain as unknown as PromiseLike<unknown>).then =
+        (resolve: (v: unknown) => unknown) => Promise.resolve(result).then(resolve);
+      chains[table] = chain;
+      return chain;
+    };
+    mockFrom.mockImplementation(chainFor);
+    mockServiceFrom.mockImplementation(chainFor);
+    return chains;
+  }
+  const available = async (now: number, timeSlot?: string, date = '2026-05-01') =>
+    (await getAvailableFacilityIds(['fac-1'], date, timeSlot, now))!.has('fac-1');
+
+  test('当日、営業が終わった後（21:51）は空きなし（どの時間帯でも）', async () => {
+    mockTables({});
+    expect(await available(jst('21:51'))).toBe(false);
+    expect(await available(jst('21:51'), 'morning')).toBe(false);
+    expect(await available(jst('21:51'), 'evening')).toBe(false);
+  });
+
+  test('当日は、今より後に始まる枠だけを数える（午前の検索で 11:40 なら午前の枠はもう無い）', async () => {
+    mockTables({});
+    expect(await available(jst('10:20'), 'morning')).toBe(true);
+    expect(await available(jst('11:40'), 'morning')).toBe(false);
+    expect(await available(jst('11:40'), 'afternoon')).toBe(true);
+  });
+
+  test('当日、開始時刻ちょうどの枠は数えない（空き枠 API と同じ slot_start > 今）', async () => {
+    // 勤務 18:00〜19:00 の 60 分枠は 18:00 の 1 つだけ。
+    mockTables({ staff_schedules: [{ staff_id: 'staff-1', start_time: '18:00', end_time: '19:00' }] });
+    expect(await available(jst('17:59'))).toBe(true);
+    expect(await available(jst('18:00'))).toBe(false);
+  });
+
+  test('翌日以降は今の時刻に左右されない', async () => {
+    mockTables({});
+    expect(await available(jst('21:51'), 'morning', '2026-05-02')).toBe(true);
+  });
+
+  test('過ぎた日付は空きなし（DB を読まない）', async () => {
+    mockTables({});
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-04-30', undefined, jst('09:00'));
+    expect(result).toEqual(new Set());
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  test('予約の間の隙間が最短のメニューより短ければ空きなし', async () => {
+    // 9:00〜10:30 と 11:00〜12:00 の間は 30 分。
+    const bookings = [
+      { staff_id: 'staff-1', start_time: '09:00:00', end_time: '10:30:00' },
+      { staff_id: 'staff-1', start_time: '11:00:00', end_time: '12:00:00' },
+    ];
+    mockTables({ bookings });
+    expect(await available(jst('08:00'), 'morning')).toBe(false);
+    // 30 分のメニューがある店なら、その隙間を予約できる（並び順に関係なく最短を採る）。
+    mockTables({ bookings, facility_menus: [90, 30, 60].map((duration_minutes) => ({ facility_id: 'fac-1', duration_minutes })) });
+    expect(await available(jst('08:00'), 'morning')).toBe(true);
+  });
+
+  test('予約の前後に空ける時間（booking_buffer_minutes）も枠をふさぐ', async () => {
+    const bookings = [
+      { staff_id: 'staff-1', start_time: '09:00:00', end_time: '10:00:00' },
+      { staff_id: 'staff-1', start_time: '11:00:00', end_time: '12:00:00' },
+    ];
+    mockTables({ bookings });
+    expect(await available(jst('08:00'), 'morning')).toBe(true);
+    mockTables({ bookings, facility_profiles: [{ id: 'fac-1', booking_buffer_minutes: 15 }] });
+    expect(await available(jst('08:00'), 'morning')).toBe(false);
+  });
+
+  test('枠は勤務の開始から 30 分おき（予約画面と同じ）。並びから外れた隙間は数えない', async () => {
+    // 9:45〜10:45 は 60 分空いているが、9:00 / 9:30 / 10:00 / … の枠はどれも予約と重なる。
+    mockTables({
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '12:00' }],
+      bookings: [
+        { staff_id: 'staff-1', start_time: '09:00:00', end_time: '09:45:00' },
+        { staff_id: 'staff-1', start_time: '10:45:00', end_time: '12:00:00' },
+      ],
+    });
+    expect(await available(jst('08:00'))).toBe(false);
+  });
+
+  test('最短のメニューは、予約できる（非公開でない）メニューから所要時間を読む', async () => {
+    const chains = mockTables({});
+    await getAvailableFacilityIds(['fac-1'], '2026-05-01', undefined, jst('08:00'));
+    expect(chains.facility_menus.select).toHaveBeenCalledWith('facility_id, duration_minutes');
+    expect(chains.facility_menus.in).toHaveBeenCalledWith('facility_id', ['fac-1']);
+    expect(chains.facility_menus.or).toHaveBeenCalledWith('is_published.is.null,is_published.eq.true');
+    expect(chains.facility_profiles.select).toHaveBeenCalledWith('id, booking_buffer_minutes');
+    expect(chains.facility_profiles.in).toHaveBeenCalledWith('id', ['fac-1']);
+  });
+
+  test('所要時間の無いメニュー・メニューや設定の行が無い店は 60 分・バッファ 0 として扱う', async () => {
+    // 勤務 60 分ちょうど。60 分の枠が 1 つだけ入る。
+    const schedule = [{ staff_id: 'staff-1', start_time: '10:00', end_time: '11:00' }];
+    mockTables({ staff_schedules: schedule, facility_menus: [{ facility_id: 'fac-1', duration_minutes: null }], facility_profiles: [{ id: 'fac-1', booking_buffer_minutes: null }] });
+    expect(await available(jst('08:00'))).toBe(true);
+    mockTables({ staff_schedules: schedule, facility_menus: [], facility_profiles: [] });
+    expect(await available(jst('08:00'))).toBe(true);
+    // 90 分のメニューしか無ければ、60 分の勤務には入らない。
+    mockTables({ staff_schedules: schedule, facility_menus: [{ facility_id: 'fac-1', duration_minutes: 90 }] });
+    expect(await available(jst('08:00'))).toBe(false);
+  });
+});
+
+describe('hasBookableSlot（予約枠 RPC と同じ並べ方）', () => {
+  const base = { workStart: 9 * 60, workEnd: 12 * 60, duration: 60, buffer: 0, bookings: [], notAfterSeconds: null, startWindow: null };
+  test('勤務に所要時間ぶん収まる枠があれば true', () => {
+    expect(hasBookableSlot(base)).toBe(true);
+    expect(hasBookableSlot({ ...base, workEnd: 9 * 60 + 59 })).toBe(false);
+  });
+  test('勤務の開始が終了より後（営業時間で切り詰めて空になった）なら false', () => {
+    expect(hasBookableSlot({ ...base, workStart: 13 * 60 })).toBe(false);
+  });
+  test('時間帯は [開始, 終了) に始まる枠', () => {
+    expect(hasBookableSlot({ ...base, startWindow: { start: 11 * 60, end: 12 * 60 } })).toBe(true);
+    expect(hasBookableSlot({ ...base, startWindow: { start: 12 * 60, end: 17 * 60 } })).toBe(false);
+    expect(hasBookableSlot({ ...base, startWindow: { start: 6 * 60, end: 9 * 60 } })).toBe(false);
+  });
+  test('当日の経過秒以前に始まる枠は数えない', () => {
+    // 9〜12 時勤務・60 分枠の最後は 11:00。11:00:00 ちょうどならもう数えない。
+    expect(hasBookableSlot({ ...base, notAfterSeconds: 11 * 3600 })).toBe(false);
+    expect(hasBookableSlot({ ...base, notAfterSeconds: 11 * 3600 - 1 })).toBe(true);
+  });
+  test('予約（前後のバッファ込み）と重なる枠は数えない。終わった直後の枠は取れる', () => {
+    expect(hasBookableSlot({ ...base, workEnd: 11 * 60, bookings: [{ start: 9 * 60, end: 10 * 60 }] })).toBe(true);
+    expect(hasBookableSlot({ ...base, workEnd: 11 * 60, buffer: 1, bookings: [{ start: 9 * 60, end: 10 * 60 }] })).toBe(false);
+  });
+  test('枠の間隔は 30 分', () => {
+    expect(SLOT_STEP_MINUTES).toBe(30);
+  });
 });
 
 describe('facilityOpenWindow（get_available_slots と同じ営業時間の解釈）', () => {
@@ -1871,8 +2036,8 @@ describe('null data fallbacks', () => {
     mockFrom.mockImplementation((table: string) => chainFor(anonMap[table] ?? []));
     // bookings は service role クライアント経由
     mockServiceFrom.mockImplementation((table: string) => chainFor(table === 'bookings' ? [] : []));
-    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
-    expect(result.has('fac-1')).toBe(true);
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01', undefined, Date.parse('2026-04-30T12:00:00+09:00'));
+    expect(result!.has('fac-1')).toBe(true);
   });
 
   test('getAvailableFacilityIds: bookings.start/end 時刻が end <= start → bookedMinutes=0', async () => {
@@ -1888,8 +2053,8 @@ describe('null data fallbacks', () => {
     mockServiceFrom.mockImplementation((table: string) =>
       chainFor(table === 'bookings' ? [{ staff_id: 's-1', start_time: '11:00', end_time: '10:00' }] : [])
     );
-    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
-    expect(result.has('fac-1')).toBe(true);
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01', undefined, Date.parse('2026-04-30T12:00:00+09:00'));
+    expect(result!.has('fac-1')).toBe(true);
   });
 
   test('getMonthlyBookingCounts: 12月は翌年1月を計算', async () => {

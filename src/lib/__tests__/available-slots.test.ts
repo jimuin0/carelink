@@ -16,6 +16,9 @@ describe('clampDuration', () => {
     expect(clampDuration('90')).toBe(90);
     expect(clampDuration('999')).toBe(480);
   });
+  it('drops a fraction like parseInt (the booking API compares whole minutes)', () => {
+    expect(clampDuration('90.9')).toBe(90);
+  });
 });
 
 describe('dropStartedSlotsToday', () => {
@@ -35,6 +38,14 @@ describe('readSlots', () => {
     const r = await readSlots({ rpc } as never, 'f', 's', '2026-10-23', 60);
     expect(r).toEqual({ slots: [slot('12:00:00')], error: null });
     expect(rpc).toHaveBeenCalledWith('get_available_slots', { p_facility_id: 'f', p_staff_id: 's', p_date: '2026-10-23', p_duration_minutes: 60 });
+  });
+  // 予約日時の変更画面（2026年10月23日）: 変更する予約を外した空きを 5 引数の RPC で取る。
+  it('passes the reservation to leave out only when one is given', async () => {
+    const rpc = jest.fn().mockResolvedValue({ data: [slot('14:30:00')], error: null });
+    expect(await readSlots({ rpc } as never, 'f', 's', '2026-10-23', 60, 'b1')).toEqual({ slots: [slot('14:30:00')], error: null });
+    expect(rpc).toHaveBeenCalledWith('get_available_slots', {
+      p_facility_id: 'f', p_staff_id: 's', p_date: '2026-10-23', p_duration_minutes: 60, p_exclude_booking_id: 'b1',
+    });
   });
   it('reports an RPC error instead of returning no slots', async () => {
     const rpc = jest.fn().mockResolvedValue({ data: null, error: { message: 'x' } });

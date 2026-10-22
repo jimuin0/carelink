@@ -41,6 +41,16 @@ test('グループごとに取得して日付・スタッフ別にまとめる',
   expect(result.bookingAvailable).toBe(true);
 });
 
+// 予約日時の変更画面だけが、変更する予約を「埋まっている枠」に数えないよう渡す（2026年10月23日）。
+test('excludeBookingId を渡したときだけ、全グループのリクエストに付ける', async () => {
+  fetchMock.mockResolvedValue(ok({ days: {} }));
+  await fetchSlotsWeek({ facilityId: 'f1', staffIds: ids(12), dates: ['2026-11-01'], duration: 60, excludeBookingId: 'b1' });
+  expect(fetchMock.mock.calls.map((c) => new URL(c[0], 'http://x').searchParams.get('excludeBookingId'))).toEqual(['b1', 'b1']);
+  fetchMock.mockClear();
+  await fetchSlotsWeek({ facilityId: 'f1', staffIds: ['a'], dates: ['2026-11-01'], duration: 60 });
+  expect(new URL(fetchMock.mock.calls[0][0], 'http://x').searchParams.has('excludeBookingId')).toBe(false);
+});
+
 test('店舗のネット予約が準備中なら bookingAvailable=false を返す', async () => {
   fetchMock.mockResolvedValue(ok({ days: {}, bookingAvailable: false }));
   await expect(fetchSlotsWeek({ facilityId: 'f1', staffIds: ['a'], dates: ['2026-11-01'], duration: 60 }))

@@ -242,23 +242,21 @@ export async function notifyNewBookingLineWorks(
     staffName?: string;
   }
 ): Promise<boolean> {
-  const message: LineWorksMessage = {
-    content: {
-      type: 'text',
-      text: [
-        '📅 新規予約が入りました',
-        '',
-        `お客様: ${booking.customerName}`,
-        `メニュー: ${booking.menuName}`,
-        `日時: ${booking.bookingDate} ${booking.startTime}`,
-        ...(booking.staffName ? [`担当: ${booking.staffName}`] : []),
-        '',
-        '管理画面で詳細を確認してください',
-      ].join('\n'),
-    },
-  };
+  return sendLineWorksMessage(channelId, { content: { type: 'text', text: newBookingLineWorksText(booking) } });
+}
 
-  return sendLineWorksMessage(channelId, message);
+/** 新規予約通知の本文（即時送信と、送信フェンス後の一回送信で同じ文面にする）。 */
+function newBookingLineWorksText(booking: Parameters<typeof notifyNewBookingLineWorks>[1]): string {
+  return [
+    '📅 新規予約が入りました',
+    '',
+    `お客様: ${booking.customerName}`,
+    `メニュー: ${booking.menuName}`,
+    `日時: ${booking.bookingDate} ${booking.startTime}`,
+    ...(booking.staffName ? [`担当: ${booking.staffName}`] : []),
+    '',
+    '管理画面で詳細を確認してください',
+  ].join('\n');
 }
 
 /**
@@ -300,8 +298,11 @@ export function isLineWorksConfigured(): boolean {
   );
 }
 
-/** Token acquisition cannot send a booking message; complete it before the durable queue's delivery fence. */
-export async function prepareNewBookingLineWorksDelivery(channelId: string, booking: Parameters<typeof notifyNewBookingLineWorks>[1]): Promise<() => Promise<boolean>> {
-  if (!isLineWorksConfigured() || !await getLineWorksToken()) throw new Error('LINE Works delivery preparation unavailable');
-  return () => notifyNewBookingLineWorks(channelId, booking);
+/** Token acquisition cannot send a booking message; complete it before the durable queue's delivery fence.
+ * The returned closure performs exactly one request and reports the provider's answer
+ * (delivered / rejected with its status / uncertain) instead of a boolean, so a channel that
+ * no longer exists (404) is not mistaken for an unknown outcome and held forever. */
+export async function prepareNewBookingLineWorksDelivery(channelId: string, booking: Parameters<typeof notifyNewBookingLineWorks>[1]): Promise<() => Promise<ChannelDeliveryResult>> {
+  if (!isLineWorksConfigured()) throw new Error('LINE Works delivery preparation unavailable');
+  return prepareSingleLineWorksDelivery(channelId, newBookingLineWorksText(booking));
 }

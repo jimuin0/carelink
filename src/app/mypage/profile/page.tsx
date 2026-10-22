@@ -18,6 +18,7 @@ import PageLoading from '@/components/PageLoading';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import { clearAccountLocalData, LOCAL_DATA_CLEAR_FAILED } from '@/lib/client-storage';
 import { completeClientCleanupMarker, prepareClientCleanupMarker } from '@/lib/client-cleanup-marker';
+import { releaseThisDevicePush } from '@/hooks/usePushSubscription';
 
 interface ProfileForm {
   display_name: string;
@@ -484,6 +485,8 @@ export default function ProfileEditPage() {
                     const data = await res.json().catch(() => null);
                     if (res.ok && data?.success === true) {
                       setDeletionConfirmed(true); setShowDeleteModal(false); setDeleteConfirmText('');
+                      // サーバーの購読行はアカウント削除と一緒に消えている。この端末（ブラウザ）の購読も外す。
+                      await releaseThisDevicePush({ serverRow: false });
                       try { await clearAccountLocalData(); completeClientCleanupMarker(); }
                       catch {
                         setToast({ type: 'error', message: `アカウントの削除は確認済みですが、${LOCAL_DATA_CLEAR_FAILED} 削除要求は再送しないでください。` });
