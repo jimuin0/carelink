@@ -5,6 +5,8 @@ import { cachedFetch } from './redis';
 import { jstMonthInfo, dayOfWeekUtc } from './admin-date';
 import { SLOT_OCCUPYING_STATUSES } from './booking-status';
 import type { CancelPolicy } from './cancel-fee';
+import { fetchAllPaged } from './paginate';
+import { isCardBookingReady } from './facility-publish-gate';
 
 const PER_PAGE = 20;
 
@@ -46,9 +48,98 @@ export function keywordTerms(raw: string): string[] {
     .slice(0, KEYWORD_MAX_TERMS);
 }
 
+/** 公開メニューの条件。getFacilityMenus と facility_card_view（coalesce(is_published, true)）に揃える。 */
+const PUBLISHED_MENU_FILTER = 'is_published.is.null,is_published.eq.true';
+
+/** 症状名は URL 由来なので長さを切る（マスタの最長は十数文字）。 */
+const SYMPTOM_MAX_LENGTH = 50;
+
+/**
+ * 施設 id の先行抽出で読む行数の上限。超えたら打ち切らずにエラーとして返す
+ * （一部だけで絞り込むと、該当する施設を黙って落とすため）。
+ */
+const DETAIL_FILTER_MAX_ROWS = 20_000;
+
+type SupabaseAnon = ReturnType<typeof createServerSupabaseClient>;
+type FacilityIdPage = { data: { facility_id: string }[] | null; error: unknown };
+type FacilityIdLookup = { ids: Set<string>; error: unknown };
+
+async function collectFacilityIds(
+  fetchPage: (offset: number, limit: number) => PromiseLike<FacilityIdPage>,
+): Promise<FacilityIdLookup> {
+  const { rows, error } = await fetchAllPaged((offset, limit) => Promise.resolve(fetchPage(offset, limit)), {
+    maxRows: DETAIL_FILTER_MAX_ROWS,
+    failOnTruncation: true,
+  });
+  return { ids: new Set(rows.map((r) => r.facility_id)), error };
+}
+
+async function symptomFacilityIds(supabase: SupabaseAnon, name: string): Promise<FacilityIdLookup> {
+  const { data, error } = await supabase.from('symptoms').select('id').eq('name', name).maybeSingle();
+  if (error || !data) return { ids: new Set(), error };
+  return collectFacilityIds((offset, limit) =>
+    supabase.from('facility_symptoms').select('facility_id').eq('symptom_id', data.id).range(offset, offset + limit - 1),
+  );
+}
+
+/**
+ * facility_card_view の 1 行では判定できない条件（メニュー単位・症状）に合う施設 id を集める。
+ * ids=null は「この種の条件が指定されていない（絞り込まない）」、空集合は「該当 0 件」。
+ *
+ * 【2026年10月22日 是正】
+ * - 価格帯: 従来は view の min_price >= 下限 かつ max_price <= 上限、つまり【全メニューが範囲内】の
+ *   施設しか当たらなかった。メニューが 1 つでも範囲外にあると、範囲内のメニューを持っていても
+ *   消えていた。公開かつ価格のあるメニュー（view の min/max と同じ対象）が 1 つでも
+ *   [下限, 上限] に入る施設を当てる。gte/lte は price が NULL の行を落とすので「価格あり」も満たす。
+ * - 症状・保険適用: 絞り込みパネルが URL に書いていたのに、検索側が読んでいなかった（無視されていた）。
+ * 複数の条件は施設単位の AND（それぞれを満たす施設の共通部分）。
+ */
+async function detailFilterFacilityIds(
+  supabase: SupabaseAnon,
+  params: SearchParams,
+): Promise<{ ids: Set<string> | null; error: unknown }> {
+  const lookups: Promise<FacilityIdLookup>[] = [];
+  if (params.price_min || params.price_max) {
+    lookups.push(collectFacilityIds((offset, limit) => {
+      let q = supabase.from('facility_menus').select('facility_id').or(PUBLISHED_MENU_FILTER);
+      if (params.price_min) q = q.gte('price', params.price_min);
+      if (params.price_max) q = q.lte('price', params.price_max);
+      return q.range(offset, offset + limit - 1);
+    }));
+  }
+  if (params.insurance) {
+    lookups.push(collectFacilityIds((offset, limit) =>
+      supabase
+        .from('facility_menus')
+        .select('facility_id')
+        .eq('insurance_covered', true)
+        .or(PUBLISHED_MENU_FILTER)
+        .range(offset, offset + limit - 1),
+    ));
+  }
+  const symptom = params.symptom?.trim().slice(0, SYMPTOM_MAX_LENGTH);
+  if (symptom) lookups.push(symptomFacilityIds(supabase, symptom));
+  if (lookups.length === 0) return { ids: null, error: null };
+
+  const results = await Promise.all(lookups);
+  const failed = results.find((r) => r.error);
+  if (failed) return { ids: null, error: failed.error };
+  const [first, ...rest] = results;
+  const ids = new Set([...first.ids].filter((id) => rest.every((r) => r.ids.has(id))));
+  return { ids, error: null };
+}
+
 export async function searchFacilities(params: SearchParams) {
   const supabase = createServerSupabaseClient();
   const isGeoSearch = params.lat != null && params.lng != null;
+
+  // 価格帯・保険適用・症状は先に施設 id を絞る。読めなかったときは「絞り込みなし」に倒さず
+  // エラーとして返し、該当が無いときは 0 件を返す（どちらも全件を見せない）。
+  const detail = await detailFilterFacilityIds(supabase, params);
+  if (detail.error || (detail.ids && detail.ids.size === 0)) {
+    return { facilities: [] as FacilityCardData[], total: 0, perPage: PER_PAGE, error: detail.error };
+  }
+  const restrictIds = detail.ids;
 
   let query = supabase
     .from(CARD_VIEW)
@@ -82,8 +173,7 @@ export async function searchFacilities(params: SearchParams) {
   }
 
   if (params.rating_min) query = query.gte('rating_avg', params.rating_min);
-  if (params.price_min) query = query.gte('min_price', params.price_min);
-  if (params.price_max) query = query.lte('max_price', params.price_max);
+  if (restrictIds) query = query.in('id', [...restrictIds]);
   if (params.features && params.features.length > 0) {
     for (const f of params.features) {
       query = query.contains('features', [f]);
@@ -129,16 +219,15 @@ export async function searchFacilities(params: SearchParams) {
     });
     const all = (data || []) as unknown as (FacilityCardData & { distance_km: number })[];
     // GPS 検索は RPC が type_filter/keyword_filter/features_filter 以外を受けないため、
-    // 非 GPS 検索で query に付与していた prefecture/city/rating_min/price_min/price_max が
-    // 黙って無視されていた（フィルタ指定が効かない）。RPC の返却列に含まれる項目は
-    // 取得後に同じ意味で絞り込む（非 GPS の .eq/.gte/.lte と一致：非 GPS 側は null 値を
-    // gte/lte が除外するため、ここでも null は除外して挙動を揃える）。
+    // 非 GPS 検索で query に付与していた prefecture/city/rating_min が黙って無視されていた
+    // （フィルタ指定が効かない）。RPC の返却列に含まれる項目は取得後に同じ意味で絞り込む
+    // （非 GPS の .eq/.gte と一致：非 GPS 側は null 値を gte が除外するため、ここでも null は
+    // 除外して挙動を揃える）。価格帯・保険適用・症状は非 GPS と同じ先行抽出した id 集合で絞る。
     const filtered = all.filter((f) => {
       if (params.prefecture && f.prefecture !== params.prefecture) return false;
       if (params.city && f.city !== params.city) return false;
       if (params.rating_min && !(f.rating_avg != null && Number(f.rating_avg) >= params.rating_min)) return false;
-      if (params.price_min && !(f.min_price != null && f.min_price >= params.price_min)) return false;
-      if (params.price_max && !(f.max_price != null && f.max_price <= params.price_max)) return false;
+      if (restrictIds && !restrictIds.has(f.id)) return false;
       return true;
     });
     const page = Math.max(1, params.page || 1); // 負値(?page=-1 等)で range が負になり PostgREST エラー/末尾slice化するのを防ぐ
@@ -417,6 +506,36 @@ export async function getAvailableAreasAndTypes(): Promise<{ areas: string[]; ty
   }
 }
 
+/** 空き判定で読む facility_card_view の列（isCardBookingReady の入力＋営業時間）。 */
+export const BOOKING_READINESS_COLS = 'id, name, prefecture, city, business_hours, photo_count, booking_menu_count, active_staff_count, has_address';
+
+type ReadinessCard = Parameters<typeof isCardBookingReady>[0] & { id: string };
+
+/** business_hours のキー（0=日曜。dayOfWeekUtc と同じ並び）。 */
+const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+const CLOCK_TIME = /^\d{1,2}:\d{2}(:\d{2})?$/;
+const WHOLE_DAY = { start: 0, end: 24 * 60 };
+
+/**
+ * その曜日の営業窓（0 時からの分）。予約枠 RPC get_available_slots と同じ解釈にする。
+ * - business_hours 未設定・object 以外・曜日キーなし → 制限しない
+ * - 曜日キーが null → 定休日（null を返す）
+ * - { open, close } → 勤務時間をこの範囲に切り詰める（形式が読めない値は制限しない）
+ */
+export function facilityOpenWindow(businessHours: unknown, dayOfWeek: number): { start: number; end: number } | null {
+  if (!businessHours || typeof businessHours !== 'object' || Array.isArray(businessHours)) return WHOLE_DAY;
+  const hours = businessHours as Record<string, unknown>;
+  const key = WEEKDAY_KEYS[dayOfWeek];
+  if (!Object.prototype.hasOwnProperty.call(hours, key)) return WHOLE_DAY;
+  const day = hours[key];
+  if (day === null) return null;
+  const { open, close } = (typeof day === 'object' ? day : {}) as { open?: unknown; close?: unknown };
+  if (typeof open !== 'string' || typeof close !== 'string' || !CLOCK_TIME.test(open) || !CLOCK_TIME.test(close)) {
+    return WHOLE_DAY;
+  }
+  return { start: timeToMinutes(open), end: timeToMinutes(close) };
+}
+
 // Check which facilities have availability on a given date/time
 export async function getAvailableFacilityIds(
   facilityIds: string[],
@@ -424,8 +543,28 @@ export async function getAvailableFacilityIds(
   timeSlot?: string
 ): Promise<Set<string>> {
   if (facilityIds.length === 0) return new Set();
-  const supabase = createServerSupabaseClient();
   const dayOfWeek = dayOfWeekUtc(dateStr); // 0=Sun（TZ非依存・admin-date 単一ソース）
+  if (Number.isNaN(dayOfWeek)) return new Set(); // 日付として読めない URL 値
+  const supabase = createServerSupabaseClient();
+
+  // 0. ネット予約を受け付けられる施設と、その日の営業時間。
+  // 【2026年10月22日 是正】従来はスタッフの勤務と予約だけを見ていたため、定休日（business_hours の
+  // 曜日が null）でもスタッフの週間シフトがあれば「空きあり」と出し、営業時間外の勤務も空きに
+  // 数えていた。予約準備が整っていない施設（施設ページでネット予約を断る施設）にも出ていた。
+  // 予約枠 RPC get_available_slots は facility_booking_ready と営業時間で枠を出さないので、
+  // 同じ条件（isCardBookingReady＝施設ページ・「予約OK」バッジと同じ規則）で揃える。
+  const { data: cards } = await supabase
+    .from(CARD_VIEW)
+    .select(BOOKING_READINESS_COLS)
+    .in('id', facilityIds);
+  const openWindows = new Map<string, { start: number; end: number }>();
+  for (const card of (cards || []) as unknown as ReadinessCard[]) {
+    if (!isCardBookingReady(card)) continue;
+    const openWindow = facilityOpenWindow(card.business_hours, dayOfWeek);
+    if (openWindow) openWindows.set(card.id, openWindow);
+  }
+  if (openWindows.size === 0) return new Set();
+  const bookableIds = [...openWindows.keys()];
 
   // 1. Get staff schedules for this day of week
   const { data: staffSchedules } = await supabase
@@ -438,7 +577,7 @@ export async function getAvailableFacilityIds(
     .from('staff_profiles')
     .select('id, facility_id')
     .eq('is_active', true)
-    .in('facility_id', facilityIds);
+    .in('facility_id', bookableIds);
 
   if (!staffProfiles || staffProfiles.length === 0) return new Set();
 
@@ -479,7 +618,7 @@ export async function getAvailableFacilityIds(
     // 枠を占有する全状態（pending/confirmed/arrived/completed）。arrived（来店中）/ completed
     // （同日施術済）を取りこぼすと、その枠を「空きあり」と過大表示し RPC の実占有と乖離する。
     .in('status', SLOT_OCCUPYING_STATUSES)
-    .in('facility_id', facilityIds);
+    .in('facility_id', bookableIds);
 
   const staffBookings = new Map<string, { start: string; end: string }[]>();
   for (const b of bookings || []) {
@@ -508,6 +647,10 @@ export async function getAvailableFacilityIds(
     if (holidayStaff.has(staffId)) continue;
     const facilityId = staffToFacility.get(staffId);
     if (!facilityId || availableFacilities.has(facilityId)) continue;
+    // staff_profiles は bookableIds で絞ってあるので通常は必ず見つかる。見つからなければ
+    // 予約を受け付けない施設のスタッフとして扱う（空きありを出さない側に倒す）。
+    const open = openWindows.get(facilityId);
+    if (!open) continue;
 
     // Determine working hours
     const override = overrideMap.get(staffId);
@@ -517,19 +660,19 @@ export async function getAvailableFacilityIds(
     if (!workStart || !workEnd) continue;
 
     // Determine the effective availability window.
+    // 勤務時間は施設の営業時間に切り詰める（get_available_slots と同じ。勤務が営業時間の外に
+    // はみ出していても、その部分は予約枠にならない）。
     // 時間帯フィルタ指定時は「勤務時間 ∩ 要求ウィンドウ」の交差区間で判定する。
     // 【2026年7月9日 恒久根治】旧実装は勤務と要求時間帯が重なるスタッフを除外はするが、
     // 空き判定を1日全体（workMinutes=全勤務・bookedMinutes=全予約）で行っていたため、
     // 「09:00-18:00 勤務で午前(09-12)が満枠・午後は空き」のスタッフが morning 検索でも
     // 「空きあり」と誤表示された（要求時間帯外の空きを数えていた）。勤務・予約の双方を
     // 要求ウィンドウにクリップして、その時間帯内に空きがあるかだけを見る。
-    const workStartMin = timeToMinutes(workStart);
-    const workEndMin = timeToMinutes(workEnd);
-    let winStart = workStartMin;
-    let winEnd = workEndMin;
+    let winStart = Math.max(timeToMinutes(workStart), open.start);
+    let winEnd = Math.min(timeToMinutes(workEnd), open.end);
     if (filterStart && filterEnd) {
-      winStart = Math.max(workStartMin, timeToMinutes(filterStart));
-      winEnd = Math.min(workEndMin, timeToMinutes(filterEnd));
+      winStart = Math.max(winStart, timeToMinutes(filterStart));
+      winEnd = Math.min(winEnd, timeToMinutes(filterEnd));
     }
     const workMinutes = winEnd - winStart;
     // 勤務が要求時間帯と重ならない（交差が0以下）スタッフはこの時間帯では対象外。

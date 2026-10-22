@@ -17,6 +17,7 @@ interface Props {
   searchParams: Promise<{
     keyword?: string; type?: string; area?: string; sort?: string; page?: string;
     rating_min?: string; price_min?: string; price_max?: string; features?: string;
+    symptom?: string; insurance?: string;
     lat?: string; lng?: string; available_date?: string; available_time?: string;
   }>;
 }
@@ -66,6 +67,9 @@ export default async function SearchPage(props: Props) {
     price_min: searchParams.price_min ? parseInt(searchParams.price_min) : undefined,
     price_max: searchParams.price_max ? parseInt(searchParams.price_max) : undefined,
     features: searchParams.features?.split(',').filter(Boolean),
+    // 絞り込みパネルが URL に書く「症状から探す」「保険適用メニューあり」。以前は読まれず無視されていた。
+    symptom: searchParams.symptom,
+    insurance: searchParams.insurance === '1',
     lat: searchParams.lat ? parseFloat(searchParams.lat) : undefined,
     lng: searchParams.lng ? parseFloat(searchParams.lng) : undefined,
     available_date: searchParams.available_date,
@@ -107,6 +111,8 @@ export default async function SearchPage(props: Props) {
   if (searchParams.price_min) baseParams.set('price_min', searchParams.price_min);
   if (searchParams.price_max) baseParams.set('price_max', searchParams.price_max);
   if (searchParams.features) baseParams.set('features', searchParams.features);
+  if (searchParams.symptom) baseParams.set('symptom', searchParams.symptom);
+  if (searchParams.insurance === '1') baseParams.set('insurance', '1');
   if (searchParams.available_date) baseParams.set('available_date', searchParams.available_date);
   if (searchParams.available_time) baseParams.set('available_time', searchParams.available_time);
   const baseUrl = `/search?${baseParams.toString()}`;
@@ -127,7 +133,10 @@ export default async function SearchPage(props: Props) {
   };
 
   // Active filter count
-  const filterCount = [searchParams.rating_min, searchParams.price_min, searchParams.price_max, searchParams.features].filter(Boolean).length;
+  const filterCount = [
+    searchParams.rating_min, searchParams.price_min, searchParams.price_max, searchParams.features,
+    searchParams.symptom, searchParams.insurance === '1',
+  ].filter(Boolean).length;
 
   return (
     <div className="bg-gray-50 min-h-screen">
@@ -295,6 +304,8 @@ function SortLink({ current, value, label, searchParams }: {
   if (searchParams.price_min) params.set('price_min', searchParams.price_min);
   if (searchParams.price_max) params.set('price_max', searchParams.price_max);
   if (searchParams.features) params.set('features', searchParams.features);
+  if (searchParams.symptom) params.set('symptom', searchParams.symptom);
+  if (searchParams.insurance === '1') params.set('insurance', '1');
   if (searchParams.available_date) params.set('available_date', searchParams.available_date);
   if (searchParams.available_time) params.set('available_time', searchParams.available_time);
   params.set('sort', value);

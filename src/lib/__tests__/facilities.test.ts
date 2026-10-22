@@ -40,6 +40,7 @@ import {
   getFacilityCancelPolicy,
   keywordTerms,
   KEYWORD_MAX_TERMS,
+  facilityOpenWindow,
 } from '../facilities';
 
 // ─── 複数語キーワード（2026年8月11日 恒久根治）─────────────────────────────
@@ -114,6 +115,49 @@ function fluent(resolvedValue: unknown) {
   return self;
 }
 
+type Calls = Record<string, unknown[][]>;
+
+/**
+ * テーブルごとに別チェーンを返す from() モック。終端（range / maybeSingle / limit）で
+ * resolve(table, calls) を返す。calls には各メソッドの呼び出し引数が積まれるので、
+ * 同じテーブルへの別クエリ（価格帯と保険適用の facility_menus 等）も中身で見分けられる。
+ */
+function routeFrom(resolve: (table: string, calls: Calls) => unknown) {
+  const made: { table: string; calls: Calls }[] = [];
+  mockFrom.mockImplementation((table: string) => {
+    const calls: Calls = {};
+    const self: Record<string, jest.Mock> = {};
+    const record = (name: string, args: unknown[]) => { (calls[name] ||= []).push(args); };
+    for (const m of ['select', 'eq', 'neq', 'or', 'gte', 'lte', 'in', 'contains', 'order']) {
+      self[m] = jest.fn((...args: unknown[]) => { record(m, args); return self; });
+    }
+    for (const m of ['range', 'maybeSingle', 'limit']) {
+      self[m] = jest.fn((...args: unknown[]) => { record(m, args); return Promise.resolve(resolve(table, calls)); });
+    }
+    made.push({ table, calls });
+    return self;
+  });
+  return made;
+}
+
+function callsTo(made: { table: string; calls: Calls }[], table: string): Calls[] {
+  return made.filter((m) => m.table === table).map((m) => m.calls);
+}
+
+const ids = (...list: string[]) => list.map((facility_id) => ({ facility_id }));
+
+const OPEN_ALL_WEEK: Record<string, { open: string; close: string } | null> = Object.fromEntries(
+  ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => [d, { open: '08:00', close: '23:00' }]),
+);
+
+/** ネット予約の準備が整った施設カード（isCardBookingReady が真）。2026-05-01 は金曜。 */
+function readyCard(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id, name: 'テスト鍼灸院', prefecture: '大阪府', city: '大阪市北区', business_hours: OPEN_ALL_WEEK,
+    photo_count: 1, booking_menu_count: 1, active_staff_count: 1, has_address: true, ...overrides,
+  };
+}
+
 describe('searchFacilities', () => {
   test('キーワード検索でorフィルタを使う', async () => {
     const chain = fluent({ data: [], count: 0, error: null });
@@ -150,13 +194,25 @@ describe('searchFacilities', () => {
     expect(chain.eq).toHaveBeenCalledWith('prefecture', '東京都');
   });
 
-  test('価格フィルタ', async () => {
-    const chain = fluent({ data: [], count: 0, error: null });
-    mockFrom.mockReturnValue(chain);
+  // 【2026年10月22日 是正】旧実装は view の min_price >= 下限 かつ max_price <= 上限＝
+  // 「全メニューが範囲内」の施設しか当てなかった。範囲内の公開メニューが 1 つでもあれば当てる。
+  test('価格帯は範囲内の公開メニューを1つでも持つ施設で絞る（全メニューが範囲内である必要はない）', async () => {
+    const made = routeFrom((table) => table === 'facility_menus'
+      ? { data: ids('a', 'a', 'b'), error: null }
+      : { data: [{ id: 'a' }, { id: 'b' }], count: 2, error: null });
 
-    await searchFacilities({ price_min: 3000, price_max: 10000 });
-    expect(chain.gte).toHaveBeenCalledWith('min_price', 3000);
-    expect(chain.lte).toHaveBeenCalledWith('max_price', 10000);
+    const result = await searchFacilities({ price_min: 3000, price_max: 10000 });
+
+    const [menu] = callsTo(made, 'facility_menus');
+    expect(menu.select).toEqual([['facility_id']]);
+    expect(menu.or).toEqual([['is_published.is.null,is_published.eq.true']]);
+    expect(menu.gte).toEqual([['price', 3000]]);
+    expect(menu.lte).toEqual([['price', 10000]]);
+    const [card] = callsTo(made, 'facility_card_view');
+    expect(card.in).toEqual([['id', ['a', 'b']]]);
+    expect(card.gte).toBeUndefined();
+    expect(card.lte).toBeUndefined();
+    expect(result.total).toBe(2);
   });
 
   test('featuresフィルタ', async () => {
@@ -233,28 +289,142 @@ describe('searchFacilities', () => {
     expect(result.facilities[0].id).toBe('a');
   });
 
-  test('SEARCH-2: GPS + price_min（null 価格は除外）', async () => {
-    mockFrom.mockReturnValue(fluent({ data: [], error: null }));
+  test('GPS + 価格帯も範囲内メニューを持つ施設の id で絞る（施設全体の最安・最高では判定しない）', async () => {
+    // a: 1,000円と20,000円のメニュー（5,000円のメニューも持つ）。旧実装は min_price 1000 < 3000 で落としていた。
+    routeFrom((table) => (table === 'facility_menus' ? { data: ids('a'), error: null } : { data: [], error: null }));
     mockRpc.mockResolvedValue({ data: [
-      { id: 'a', min_price: 1500 },
-      { id: 'b', min_price: 500 },
-      { id: 'c', min_price: null },
+      { id: 'a', min_price: 1000, max_price: 20000 },
+      { id: 'b', min_price: 4000, max_price: 6000 },
+      { id: 'c', min_price: null, max_price: null },
     ], error: null });
-    const result = await searchFacilities({ ...geo, price_min: 1000 });
+    const result = await searchFacilities({ ...geo, price_min: 3000, price_max: 8000 });
+    expect(result.facilities.map((f) => f.id)).toEqual(['a']);
     expect(result.total).toBe(1);
-    expect(result.facilities[0].id).toBe('a');
   });
 
-  test('SEARCH-2: GPS + price_max（null 価格は除外）', async () => {
-    mockFrom.mockReturnValue(fluent({ data: [], error: null }));
-    mockRpc.mockResolvedValue({ data: [
-      { id: 'a', max_price: 3000 },
-      { id: 'b', max_price: 8000 },
-      { id: 'c', max_price: null },
-    ], error: null });
-    const result = await searchFacilities({ ...geo, price_max: 5000 });
+  test('GPS + 該当メニューなしは RPC を呼ばずに 0 件', async () => {
+    routeFrom(() => ({ data: [], error: null }));
+    const result = await searchFacilities({ ...geo, price_max: 500 });
+    expect(result).toEqual({ facilities: [], total: 0, perPage: 20, error: null });
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+});
+
+// ─── 価格帯・保険適用・症状（2026年10月22日 是正）──────────────────────────────
+// 症状・保険適用は絞り込みパネルが URL に書いていたのに検索が読まず、無視されていた。
+describe('searchFacilities: メニュー単位・症状の絞り込み', () => {
+  test('下限だけなら gte のみ、上限だけなら lte のみ', async () => {
+    let made = routeFrom((table) => (table === 'facility_menus' ? { data: ids('a'), error: null } : { data: [], count: 0, error: null }));
+    await searchFacilities({ price_min: 3000 });
+    expect(callsTo(made, 'facility_menus')[0].gte).toEqual([['price', 3000]]);
+    expect(callsTo(made, 'facility_menus')[0].lte).toBeUndefined();
+
+    made = routeFrom((table) => (table === 'facility_menus' ? { data: ids('a'), error: null } : { data: [], count: 0, error: null }));
+    await searchFacilities({ price_max: 5000 });
+    expect(callsTo(made, 'facility_menus')[0].gte).toBeUndefined();
+    expect(callsTo(made, 'facility_menus')[0].lte).toEqual([['price', 5000]]);
+  });
+
+  test('該当メニューが無ければ 0 件（絞り込みなしの全件に戻さない）', async () => {
+    const made = routeFrom(() => ({ data: [], count: 99, error: null }));
+    const result = await searchFacilities({ price_min: 999999 });
+    expect(result).toEqual({ facilities: [], total: 0, perPage: 20, error: null });
+    expect(callsTo(made, 'facility_card_view')).toHaveLength(0);
+  });
+
+  test('保険適用は insurance_covered の公開メニューを持つ施設に絞る', async () => {
+    const made = routeFrom((table) => (table === 'facility_menus'
+      ? { data: ids('b'), error: null }
+      : { data: [{ id: 'b' }], count: 1, error: null }));
+    const result = await searchFacilities({ insurance: true });
+    const [menu] = callsTo(made, 'facility_menus');
+    expect(menu.eq).toEqual([['insurance_covered', true]]);
+    expect(menu.or).toEqual([['is_published.is.null,is_published.eq.true']]);
+    expect(callsTo(made, 'facility_card_view')[0].in).toEqual([['id', ['b']]]);
     expect(result.total).toBe(1);
-    expect(result.facilities[0].id).toBe('a');
+  });
+
+  test('insurance=false は条件なし（facility_menus を読まない）', async () => {
+    const made = routeFrom(() => ({ data: [], count: 0, error: null }));
+    await searchFacilities({ insurance: false });
+    expect(callsTo(made, 'facility_menus')).toHaveLength(0);
+    expect(callsTo(made, 'facility_card_view')[0].in).toBeUndefined();
+  });
+
+  test('症状は名前で symptoms を引き、facility_symptoms に登録された施設に絞る（前後の空白は除く）', async () => {
+    const made = routeFrom((table) => {
+      if (table === 'symptoms') return { data: { id: 'sym-1' }, error: null };
+      if (table === 'facility_symptoms') return { data: ids('c'), error: null };
+      return { data: [{ id: 'c' }], count: 1, error: null };
+    });
+    const result = await searchFacilities({ symptom: ' 腰痛 ' });
+    expect(callsTo(made, 'symptoms')[0].eq).toEqual([['name', '腰痛']]);
+    expect(callsTo(made, 'facility_symptoms')[0].eq).toEqual([['symptom_id', 'sym-1']]);
+    expect(callsTo(made, 'facility_card_view')[0].in).toEqual([['id', ['c']]]);
+    expect(result.total).toBe(1);
+  });
+
+  test('症状名は長さを切ってから引く', async () => {
+    const made = routeFrom(() => ({ data: null, error: null }));
+    await searchFacilities({ symptom: 'あ'.repeat(80) });
+    expect(callsTo(made, 'symptoms')[0].eq).toEqual([['name', 'あ'.repeat(50)]]);
+  });
+
+  test('マスタに無い症状名は 0 件（facility_symptoms を読まない）', async () => {
+    const made = routeFrom(() => ({ data: null, error: null }));
+    const result = await searchFacilities({ symptom: '存在しない症状' });
+    expect(result).toEqual({ facilities: [], total: 0, perPage: 20, error: null });
+    expect(callsTo(made, 'facility_symptoms')).toHaveLength(0);
+    expect(callsTo(made, 'facility_card_view')).toHaveLength(0);
+  });
+
+  test('空白だけの症状は条件なし', async () => {
+    const made = routeFrom(() => ({ data: [], count: 0, error: null }));
+    await searchFacilities({ symptom: '   ' });
+    expect(callsTo(made, 'symptoms')).toHaveLength(0);
+    expect(callsTo(made, 'facility_card_view')[0].in).toBeUndefined();
+  });
+
+  test('複数の条件は施設単位の AND（それぞれを満たす施設の共通部分）', async () => {
+    const made = routeFrom((table, calls) => {
+      if (table === 'facility_menus') {
+        const insurance = (calls.eq ?? []).some(([col]) => col === 'insurance_covered');
+        return { data: insurance ? ids('b', 'c') : ids('a', 'b'), error: null };
+      }
+      if (table === 'symptoms') return { data: { id: 'sym-1' }, error: null };
+      if (table === 'facility_symptoms') return { data: ids('b', 'd'), error: null };
+      return { data: [{ id: 'b' }], count: 1, error: null };
+    });
+    await searchFacilities({ price_min: 1000, insurance: true, symptom: '肩こり' });
+    expect(callsTo(made, 'facility_menus')).toHaveLength(2);
+    expect(callsTo(made, 'facility_card_view')[0].in).toEqual([['id', ['b']]]);
+  });
+
+  test.each([
+    ['symptoms', { symptom: '腰痛' }],
+    ['facility_symptoms', { symptom: '腰痛' }],
+    ['facility_menus', { insurance: true }],
+  ] as const)('%s の読み取りエラーは 0 件ではなくエラーとして返す（全件にも倒さない）', async (failing, params) => {
+    const boom = { message: 'boom' };
+    const made = routeFrom((table) => {
+      if (table === failing) return { data: null, error: boom };
+      if (table === 'symptoms') return { data: { id: 'sym-1' }, error: null };
+      return { data: ids('a'), error: null };
+    });
+    const result = await searchFacilities(params);
+    expect(result).toEqual({ facilities: [], total: 0, perPage: 20, error: boom });
+    expect(callsTo(made, 'facility_card_view')).toHaveLength(0);
+  });
+
+  test('PostgREST の上限（1,000行）を跨いで全ページ読む（取りこぼした施設を黙って落とさない）', async () => {
+    const made = routeFrom((table, calls) => {
+      if (table !== 'facility_menus') return { data: [], count: 0, error: null };
+      const [offset] = calls.range[calls.range.length - 1] as [number, number];
+      return { data: offset === 0 ? Array.from({ length: 1000 }, () => ({ facility_id: 'a' })) : ids('z'), error: null };
+    });
+    await searchFacilities({ price_min: 1000 });
+    expect(callsTo(made, 'facility_menus').map((c) => c.range[0])).toEqual([[0, 999], [1000, 1999]]);
+    expect(callsTo(made, 'facility_card_view')[0].in).toEqual([['id', ['a', 'z']]]);
   });
 });
 
@@ -846,6 +1016,9 @@ describe('getAvailableFacilityIds', () => {
    * #483/#484 同型バグへの退行を即座に検知する。
    */
   function buildMultiTableMock(tables: Record<string, unknown[]>) {
+    // facility_card_view を指定しないテストは「fac-1 は予約準備済み・毎日 08:00-23:00 営業」とする。
+    const rows: Record<string, unknown[]> = { facility_card_view: [readyCard('fac-1')], ...tables };
+    const chains: Record<string, Record<string, jest.Mock>> = {};
     function makeChain(data: unknown[]) {
       const chain = fluent({ data });
       // Make all terminal methods resolve immediately
@@ -861,14 +1034,17 @@ describe('getAvailableFacilityIds', () => {
       if (table === 'bookings') {
         throw new Error('anon client(createServerSupabaseClient) must not read bookings — use service role');
       }
-      return makeChain(tables[table] ?? []);
+      chains[table] = makeChain(rows[table] ?? []);
+      return chains[table];
     });
     mockServiceFrom.mockImplementation((table: string) => {
       if (table !== 'bookings') {
         throw new Error(`service role client should only be used for bookings, got: ${table}`);
       }
-      return makeChain(tables[table] ?? []);
+      chains[table] = makeChain(rows[table] ?? []);
+      return chains[table];
     });
+    return chains;
   }
 
   test('空のfacilityIdsは空セットを返す', async () => {
@@ -1042,6 +1218,14 @@ describe('getAvailableFacilityIds', () => {
       return chain;
     }
     mockFrom.mockImplementation((table: string) => {
+      if (table === 'facility_card_view') {
+        const card = [readyCard('fac-1')];
+        const chain = fluent({ data: card });
+        ['in', 'eq'].forEach(m => { chain[m] = jest.fn(() => chain); });
+        (chain as unknown as PromiseLike<unknown>).then =
+          (resolve: (v: unknown) => unknown) => Promise.resolve({ data: card }).then(resolve);
+        return chain;
+      }
       if (table === 'staff_profiles') {
         const chain = fluent({ data: [{ id: 'staff-1', facility_id: 'fac-1' }] });
         ['in', 'eq'].forEach(m => { chain[m] = jest.fn(() => chain); });
@@ -1056,6 +1240,156 @@ describe('getAvailableFacilityIds', () => {
     mockServiceFrom.mockImplementation(() => nullChain());
     const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
     expect(result.size).toBe(0);
+    // 予約準備済みの施設として最後まで判定した（早期 return で 0 件になったのではない）
+    expect(mockServiceFrom).toHaveBeenCalledWith('bookings');
+  });
+
+  // ─── 営業時間・予約準備（2026年10月22日 是正）─────────────────────────────
+  // 旧実装はスタッフの勤務と予約だけを見ており、定休日や予約を受けない施設にも「空きあり」を出していた。
+
+  test('定休日（その曜日の business_hours が null）は勤務スタッフがいても空きなし', async () => {
+    buildMultiTableMock({
+      facility_card_view: [readyCard('fac-1', { business_hours: { ...OPEN_ALL_WEEK, fri: null } })],
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '18:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: [],
+    });
+    expect((await getAvailableFacilityIds(['fac-1'], '2026-05-01')).has('fac-1')).toBe(false);
+    // 定休日でない曜日（2026-05-02 は土曜）は従来どおり空きあり
+    expect((await getAvailableFacilityIds(['fac-1'], '2026-05-02')).has('fac-1')).toBe(true);
+  });
+
+  test('勤務時間は営業時間に切り詰めて判定する（営業時間外の勤務は空きに数えない）', async () => {
+    // 勤務 09:00-18:00、営業 13:00-18:00、13:00-18:00 は予約で埋まっている。
+    buildMultiTableMock({
+      facility_card_view: [readyCard('fac-1', { business_hours: { ...OPEN_ALL_WEEK, fri: { open: '13:00', close: '18:00' } } })],
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '18:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: [{ staff_id: 'staff-1', start_time: '13:00', end_time: '18:00' }],
+    });
+    expect((await getAvailableFacilityIds(['fac-1'], '2026-05-01')).has('fac-1')).toBe(false);
+  });
+
+  test('午後から営業する日は、午前の検索で空きなし', async () => {
+    buildMultiTableMock({
+      facility_card_view: [readyCard('fac-1', { business_hours: { ...OPEN_ALL_WEEK, fri: { open: '13:00', close: '20:00' } } })],
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '18:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: [],
+    });
+    expect((await getAvailableFacilityIds(['fac-1'], '2026-05-01', 'morning')).has('fac-1')).toBe(false);
+    expect((await getAvailableFacilityIds(['fac-1'], '2026-05-01', 'afternoon')).has('fac-1')).toBe(true);
+  });
+
+  test('予約準備が整っていない施設（写真なし等）は空きありにしない', async () => {
+    buildMultiTableMock({
+      facility_card_view: [readyCard('fac-1', { photo_count: 0 })],
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '18:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: [],
+    });
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
+    expect(result.size).toBe(0);
+    // 予約を受けない施設しか無ければ、スタッフ・予約は読まない
+    expect(mockFrom.mock.calls.map((c) => c[0])).toEqual(['facility_card_view']);
+    expect(mockServiceFrom).not.toHaveBeenCalled();
+  });
+
+  test('公開されていない施設（view に行が無い）は空きなし', async () => {
+    buildMultiTableMock({
+      facility_card_view: [],
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '18:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: [],
+    });
+    expect((await getAvailableFacilityIds(['fac-1'], '2026-05-01')).size).toBe(0);
+  });
+
+  test('view の取得結果が null でも例外にせず空きなし', async () => {
+    mockFrom.mockImplementation(() => {
+      const chain = fluent({ data: null });
+      chain.in = jest.fn(() => Promise.resolve({ data: null }));
+      return chain;
+    });
+    expect((await getAvailableFacilityIds(['fac-1'], '2026-05-01')).size).toBe(0);
+  });
+
+  test('施設カードは anon で view から読み、スタッフ・予約は予約準備済みの施設だけで引く', async () => {
+    const chains = buildMultiTableMock({
+      facility_card_view: [readyCard('fac-1'), readyCard('fac-2', { active_staff_count: 0 })],
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '18:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: [],
+    });
+    const result = await getAvailableFacilityIds(['fac-1', 'fac-2'], '2026-05-01');
+    expect([...result]).toEqual(['fac-1']);
+    expect(chains.facility_card_view.select).toHaveBeenCalledWith(
+      'id, name, prefecture, city, business_hours, photo_count, booking_menu_count, active_staff_count, has_address',
+    );
+    expect(chains.facility_card_view.in).toHaveBeenCalledWith('id', ['fac-1', 'fac-2']);
+    expect(chains.staff_profiles.in).toHaveBeenCalledWith('facility_id', ['fac-1']);
+    expect(chains.bookings.in).toHaveBeenCalledWith('facility_id', ['fac-1']);
+  });
+
+  test('予約準備済みでない施設のスタッフが混ざっても数えない', async () => {
+    // staff_profiles の facility_id 絞り込みが効かなかった場合でも、空きありに倒さない
+    buildMultiTableMock({
+      staff_schedules: [{ staff_id: 'staff-x', start_time: '09:00', end_time: '18:00' }],
+      staff_profiles: [{ id: 'staff-x', facility_id: 'fac-x' }],
+      schedule_overrides: [],
+      bookings: [],
+    });
+    expect((await getAvailableFacilityIds(['fac-1'], '2026-05-01')).size).toBe(0);
+  });
+
+  test('日付として読めない値は空集合（DB を読まない）', async () => {
+    const result = await getAvailableFacilityIds(['fac-1'], 'not-a-date');
+    expect(result.size).toBe(0);
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+});
+
+describe('facilityOpenWindow（get_available_slots と同じ営業時間の解釈）', () => {
+  const WHOLE_DAY = { start: 0, end: 1440 };
+
+  test.each([
+    ['未設定(null)', null],
+    ['文字列', '10:00〜19:00'],
+    ['配列', []],
+  ])('business_hours が %s なら制限しない', (_label, hours) => {
+    expect(facilityOpenWindow(hours, 5)).toEqual(WHOLE_DAY);
+  });
+
+  test('曜日キーが無ければ制限しない', () => {
+    expect(facilityOpenWindow({ mon: { open: '10:00', close: '19:00' } }, 5)).toEqual(WHOLE_DAY);
+  });
+
+  test('曜日キーが null なら定休日', () => {
+    expect(facilityOpenWindow({ fri: null }, 5)).toBeNull();
+  });
+
+  test('0 は日曜（sun）を見る', () => {
+    expect(facilityOpenWindow({ sun: null, fri: { open: '10:00', close: '19:00' } }, 0)).toBeNull();
+  });
+
+  test('open/close を分に直す（1桁の時・秒付きも読める）', () => {
+    expect(facilityOpenWindow({ fri: { open: '9:00', close: '18:30:00' } }, 5)).toEqual({ start: 540, end: 1110 });
+  });
+
+  test.each([
+    ['曜日の値が object でない', 'closed'],
+    ['open が文字列でない', { open: 9, close: '18:00' }],
+    ['close が無い', { open: '09:00' }],
+    ['open の形式が読めない', { open: 'nine', close: '18:00' }],
+    ['close の形式が読めない', { open: '09:00', close: 'late' }],
+  ])('%s なら制限しない', (_label, day) => {
+    expect(facilityOpenWindow({ fri: day }, 5)).toEqual(WHOLE_DAY);
   });
 });
 
@@ -1210,6 +1544,7 @@ describe('null data fallbacks', () => {
   test('getAvailableFacilityIds: 時刻フォーマット h のみ (分なし) も処理する', async () => {
     // timeToMinutes が "10" → h*60 + 0 を返す経路を踏む
     const anonMap: Record<string, unknown[]> = {
+      facility_card_view: [readyCard('fac-1')],
       staff_schedules: [{ staff_id: 's-1', start_time: '10', end_time: '11' }],
       staff_profiles: [{ id: 's-1', facility_id: 'fac-1' }],
       schedule_overrides: [],
@@ -1224,6 +1559,7 @@ describe('null data fallbacks', () => {
   test('getAvailableFacilityIds: bookings.start/end 時刻が end <= start → bookedMinutes=0', async () => {
     // Math.max(0, end-start) の Math.max 分岐をテスト
     const anonMap: Record<string, unknown[]> = {
+      facility_card_view: [readyCard('fac-1')],
       staff_schedules: [{ staff_id: 's-1', start_time: '09:00', end_time: '18:00' }],
       staff_profiles: [{ id: 's-1', facility_id: 'fac-1' }],
       schedule_overrides: [],

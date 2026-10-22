@@ -10,6 +10,7 @@ import {
 import { facilityFeatures, SITE_URL } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/json-ld';
 import { searchFacilities } from '@/lib/facilities';
+import { featureSearchHref } from '@/lib/search-href';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { getAreaSeoContent, isIndexableAreaQuality } from '@/lib/area-seo';
 import { generateCityTypeContent } from '@/lib/seo-snippets';
@@ -102,7 +103,7 @@ export default async function CityTypePage({ params, searchParams }: Props) {
           <h2 className="text-sm font-bold text-gray-800 mb-3 pl-3 border-l-[3px] border-sky-500">こだわり条件で絞り込む</h2>
           <div className="flex flex-wrap gap-2">
             {facilityFeatures.map((feature) => (
-              <Link key={feature} href={`/search?type=${encodeURIComponent(typeName)}&area=${encodeURIComponent(prefName)}&keyword=${encodeURIComponent(feature)}`}
+              <Link key={feature} href={featureSearchHref(feature, { type: typeName, area: prefName })}
                 className="px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs text-gray-600 hover:bg-sky-50 hover:border-sky-200 hover:text-sky-700 transition-colors">
                 {feature}
               </Link>
