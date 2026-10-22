@@ -9,6 +9,17 @@ import { z } from 'zod';
  */
 
 /**
+ * パスワードの最低文字数。本番の Supabase Auth の設定（最低 8 文字＋流出パスワードの拒否・
+ * 文字種の指定なし）と揃える。入力欄の案内・送信前の検証・サーバーに拒否されたときの説明の
+ * すべてがこの値を見るので、ここ以外に 8 を書かない（ずれると案内と実際の条件が食い違う）。
+ */
+export const PASSWORD_MIN_LENGTH = 8;
+
+/** 入力欄の下に出す条件の説明。 */
+export const PASSWORD_RULES_HINT =
+  `${PASSWORD_MIN_LENGTH}文字以上、半角72文字以内（全角文字は1文字を3文字分として数えます）`;
+
+/**
  * Supabase Auth（bcrypt）が受け付けるパスワードの上限。文字数ではなく UTF-8 のバイト数で数える。
  * 超えると送信後にサーバーで拒否されるため、送信前に止めて理由を伝える。
  */
@@ -33,7 +44,7 @@ export function utf8ByteLength(value: string): number {
 
 export const resetPasswordSchema = z.object({
   password: z.string()
-    .min(8, 'パスワードは8文字以上で入力してください')
+    .min(PASSWORD_MIN_LENGTH, `パスワードは${PASSWORD_MIN_LENGTH}文字以上で入力してください`)
     .refine(value => utf8ByteLength(value) <= PASSWORD_MAX_BYTES, PASSWORD_TOO_LONG_MESSAGE),
   password_confirm: z.string(),
 }).refine((data) => data.password === data.password_confirm, {
@@ -70,12 +81,16 @@ const RECOVERY_SESSION_GONE_CODES = new Set([
   'refresh_token_not_found', 'refresh_token_already_used',
 ]);
 
+// 案内するのは本番で実際に効いている条件だけにする（最低文字数と流出パスワードの拒否）。
+// 以前は本番が求めていない「英字の大文字・小文字・数字・記号を組み合わせて」を出し、
+// 実際の最低文字数は伝えていなかった。'characters' は文字種の条件を設定したときだけ
+// 返る理由なので、どの種類が必須かを断定しない書き方にしてある。
 function weakPasswordMessage(reasons: readonly string[]): string {
   if (reasons.includes('pwned')) return PASSWORD_PWNED_MESSAGE;
   const parts = ['このパスワードは安全性の条件を満たしていません。'];
-  if (reasons.includes('length')) parts.push('より長いパスワードを入力してください。');
-  if (reasons.includes('characters')) parts.push('英字の大文字・小文字・数字・記号を組み合わせてください。');
-  if (parts.length === 1) parts.push('8文字以上で、英字の大文字・小文字・数字・記号を組み合わせてください。');
+  if (reasons.includes('length')) parts.push(`${PASSWORD_MIN_LENGTH}文字以上で入力してください。`);
+  if (reasons.includes('characters')) parts.push('英字・数字・記号などを組み合わせてください。');
+  if (parts.length === 1) parts.push(`${PASSWORD_MIN_LENGTH}文字以上で、過去に流出していないパスワードを入力してください。`);
   return parts.join('');
 }
 

@@ -83,6 +83,55 @@ test('unsubscribe stops notifications', () => {
   expect(listener).not.toHaveBeenCalled();
 });
 
+describe('recoveryUnavailableReason (why no recovery session was created)', () => {
+  const page = 'https://carelink-jp.com/auth/reset-password';
+  const reason = (href: string, initError: { code?: string } | null) =>
+    load().mod.recoveryUnavailableReason(href, initError);
+
+  test('an expired or already-used link (Supabase redirects with otp_expired) is reported as expired', () => {
+    // 回帰: 以前はこの最も多い失敗でも「同じブラウザで開いてください」を主な原因として出していた
+    expect(reason(
+      `${page}?error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired#error=access_denied&error_code=otp_expired`,
+      { code: undefined },
+    )).toBe('expired');
+  });
+
+  test('the error is also read from the fragment alone', () => {
+    expect(reason(`${page}#error_code=otp_expired`, null)).toBe('expired');
+    expect(reason(`${page}#error=access_denied`, null)).toBe('expired');
+  });
+
+  test.each([
+    `${page}?error=server_error`,
+    `${page}?error_code=unexpected_failure`,
+    `${page}#error_description=Something+went+wrong`,
+  ])('another error in the URL (%s) does not claim expiry', href => {
+    expect(reason(href, null)).toBe('ended');
+  });
+
+  test('a code left in the URL that the SDK did not try to exchange means another browser', () => {
+    // 申請したブラウザでないと PKCE の確認情報が無く、SDK はコードを交換せずエラーも返さない
+    expect(reason(`${page}?code=abc`, null)).toBe('other-browser');
+  });
+
+  test.each(['flow_state_not_found', 'flow_state_expired', 'bad_code_verifier', 'otp_expired'])(
+    'a code this browser failed to exchange (%s) is reported as expired',
+    code => {
+      expect(reason(`${page}?code=abc`, { code })).toBe('expired');
+    },
+  );
+
+  test('a code exchange that failed for another reason (e.g. network) does not claim expiry', () => {
+    expect(reason(`${page}?code=abc`, { code: 'unexpected_failure' })).toBe('ended');
+    expect(reason(`${page}?code=abc`, {})).toBe('ended');
+  });
+
+  test('a page opened without any code or error (direct visit, reload after use) is reported as ended', () => {
+    expect(reason(page, null)).toBe('ended');
+    expect(reason(`${page}#code=abc`, null)).toBe('ended');
+  });
+});
+
 test('clearPasswordRecovery forgets the record silently once the password has been changed', () => {
   const { mod, notify } = load();
   notify('PASSWORD_RECOVERY', session('user-1', 'owner@example.invalid'));

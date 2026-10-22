@@ -1,6 +1,8 @@
 import { AuthApiError, AuthSessionMissingError, AuthWeakPasswordError } from '@supabase/supabase-js';
 import {
   PASSWORD_MAX_BYTES,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_RULES_HINT,
   PASSWORD_PWNED_MESSAGE,
   PASSWORD_SAME_MESSAGE,
   PASSWORD_TOO_LONG_MESSAGE,
@@ -54,7 +56,11 @@ describe('resetPasswordSchema', () => {
   });
 
   test('keeps the minimum length and confirmation rules', () => {
-    expect(messages(parse('short'))).toEqual(['パスワードは8文字以上で入力してください']);
+    // 本番 Auth の最低文字数（8）と揃える。案内文・検証・エラー説明が同じ値を見る
+    expect(PASSWORD_MIN_LENGTH).toBe(8);
+    expect(parse('a'.repeat(8)).success).toBe(true);
+    expect(messages(parse('a'.repeat(7)))).toEqual(['パスワードは8文字以上で入力してください']);
+    expect(PASSWORD_RULES_HINT).toBe('8文字以上、半角72文字以内（全角文字は1文字を3文字分として数えます）');
     const mismatch = parse('long-enough-1', 'long-enough-2');
     expect(mismatch.success).toBe(false);
     expect(mismatch.success ? null : mismatch.error.issues[0]).toMatchObject({
@@ -74,33 +80,35 @@ describe('describePasswordUpdateError', () => {
     expect(describePasswordUpdateError(error).message).toBe(PASSWORD_PWNED_MESSAGE);
   });
 
-  test('a too-short password explains the length rule', () => {
+  test('a too-short password states the actual minimum length', () => {
+    // 回帰: 以前は「より長いパスワードを」とだけ言い、実際の最低文字数を伝えていなかった
     const error = new AuthWeakPasswordError('weak', 422, ['length']);
     expect(describePasswordUpdateError(error)).toEqual({
-      message: 'このパスワードは安全性の条件を満たしていません。より長いパスワードを入力してください。',
+      message: 'このパスワードは安全性の条件を満たしていません。8文字以上で入力してください。',
       requestNewLink: false,
     });
   });
 
-  test('missing character classes explain the character rule', () => {
+  test('missing character classes do not claim that all four classes are required', () => {
     const error = new AuthWeakPasswordError('weak', 422, ['characters']);
     expect(describePasswordUpdateError(error).message)
-      .toBe('このパスワードは安全性の条件を満たしていません。英字の大文字・小文字・数字・記号を組み合わせてください。');
+      .toBe('このパスワードは安全性の条件を満たしていません。英字・数字・記号などを組み合わせてください。');
   });
 
   test('both length and characters are explained together', () => {
     const error = new AuthWeakPasswordError('weak', 422, ['length', 'characters']);
     expect(describePasswordUpdateError(error).message).toBe(
-      'このパスワードは安全性の条件を満たしていません。より長いパスワードを入力してください。英字の大文字・小文字・数字・記号を組み合わせてください。',
+      'このパスワードは安全性の条件を満たしていません。8文字以上で入力してください。英字・数字・記号などを組み合わせてください。',
     );
   });
 
-  test('a weak_password without known reasons still explains the rules', () => {
+  test('a weak_password without known reasons explains the policy production actually enforces', () => {
+    // 本番 Auth は「最低 8 文字＋流出パスワードの拒否」で、文字種の指定は無い
     const error = new AuthApiError('weak', 422, 'weak_password');
-    expect(describePasswordUpdateError(error)).toEqual({
-      message: 'このパスワードは安全性の条件を満たしていません。8文字以上で、英字の大文字・小文字・数字・記号を組み合わせてください。',
-      requestNewLink: false,
-    });
+    const { message, requestNewLink } = describePasswordUpdateError(error);
+    expect(message).toBe('このパスワードは安全性の条件を満たしていません。8文字以上で、過去に流出していないパスワードを入力してください。');
+    expect(message).not.toContain('大文字');
+    expect(requestNewLink).toBe(false);
   });
 
   test('the same password as before asks for a different one', () => {

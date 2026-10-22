@@ -30,6 +30,17 @@ test('the sent screen tells the user to open the link in this same browser', asy
   });
 });
 
+test('the sent screen tells the user to copy the link without opening it (regression)', async () => {
+  // 旧文言「その場合は、リンクをコピーしてこのブラウザに貼り付けてください」は、別のブラウザで
+  // 開いてしまった後の対処として読める。メールのリンクは一度開いた時点で使用済みになるので、
+  // その後に貼り直しても通らない。開く前にコピーしてもらう。
+  await requestReset();
+  await screen.findByRole('heading', { name: 'メールを送信しました' });
+  expect(screen.getByText(/リンクをタップせずに長押しでコピーし、このブラウザのアドレス欄に貼り付けてください。/)).toBeInTheDocument();
+  expect(screen.getByText('メールのリンクは一度開くと使えなくなります。')).toBeInTheDocument();
+  expect(screen.queryByText(/その場合は、リンクをコピーしてこのブラウザに貼り付けてください。/)).not.toBeInTheDocument();
+});
+
 test('a send failure keeps the form and does not show the sent screen', async () => {
   mockReset.mockResolvedValue({ data: null, error: { message: 'rate limited' } });
   await requestReset();

@@ -60,3 +60,38 @@ export function subscribePasswordRecovery(listener: () => void): () => void {
 export function clearPasswordRecovery(): void {
   recoveryUser = null;
 }
+
+/**
+ * 回復用セッションが作られなかった理由。画面の案内文を出し分けるために使う。
+ *
+ * - `expired`       … リンクの有効期限切れ・使用済み（メールのセキュリティ機能が先に開いた場合も含む）。
+ * - `other-browser` … URL に認証コードが残っているのに、このブラウザでは交換されなかった
+ *                     （＝申請したブラウザに保存された PKCE の確認情報が無い）。
+ * - `ended`         … それ以外（直接開いた・使い終えたページの再読み込み・途中でログアウト等）。
+ *
+ * 🔴 以前は理由に関係なく「同じブラウザで開いてください」を主な原因として出していた。
+ * 実際に最も多い失敗は期限切れ・使用済みで、Supabase は /verify で拒否すると
+ * `?error=access_denied&error_code=otp_expired`（PKCE ではクエリとフラグメントの両方）を付けて
+ * 戻すので、それを見て正しい原因を伝える。
+ */
+export type RecoveryUnavailableReason = 'expired' | 'other-browser' | 'ended';
+
+/** SDK の初期化（URL の認証コード交換）が返したエラーの、判定に使う部分だけ。 */
+export type RecoveryInitError = { code?: string } | null;
+
+// 同じブラウザで認証コードを交換しようとして、コードが使用済み・期限切れだったときのコード。
+const LINK_USED_OR_EXPIRED_CODES = new Set([
+  'otp_expired', 'flow_state_expired', 'flow_state_not_found', 'bad_code_verifier',
+]);
+
+export function recoveryUnavailableReason(href: string, initError: RecoveryInitError): RecoveryUnavailableReason {
+  const url = new URL(href);
+  const fragment = new URLSearchParams(url.hash.slice(1));
+  const read = (key: string) => url.searchParams.get(key) ?? fragment.get(key);
+  if (read('error_code') === 'otp_expired' || read('error') === 'access_denied') return 'expired';
+  if (read('error') !== null || read('error_code') !== null || read('error_description') !== null) return 'ended';
+  if (!url.searchParams.has('code')) return 'ended';
+  // 確認情報が無いブラウザでは SDK はコードを交換しようとせず、エラーも返さない。
+  if (initError === null) return 'other-browser';
+  return LINK_USED_OR_EXPIRED_CODES.has(initError.code ?? '') ? 'expired' : 'ended';
+}

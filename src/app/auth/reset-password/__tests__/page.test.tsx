@@ -2,14 +2,20 @@
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
-import { AuthApiError, AuthSessionMissingError, AuthWeakPasswordError } from '@supabase/supabase-js';
+import {
+  AuthApiError,
+  AuthImplicitGrantRedirectError,
+  AuthRetryableFetchError,
+  AuthSessionMissingError,
+  AuthWeakPasswordError,
+} from '@supabase/supabase-js';
 import ResetPasswordPage from '../page';
 import {
   clearPasswordRecovery,
   getPasswordRecoveryUser,
   watchPasswordRecovery,
 } from '@/lib/password-recovery-session';
-import { PASSWORD_TOO_LONG_MESSAGE } from '@/lib/password-reset';
+import { PASSWORD_TOO_LONG_MESSAGE, RECOVERY_LINK_EXPIRED_MESSAGE } from '@/lib/password-reset';
 
 const mockPush = jest.fn();
 const mockCreate = jest.fn();
@@ -25,8 +31,21 @@ let notifyAuth: (event: AuthChangeEvent, session: Session | null) => void;
 const recoverySession = (id = 'owner-id', email = 'owner@example.invalid') =>
   ({ user: { id, email } }) as unknown as Session;
 
+// 案内文。主な原因は太字の 1 文目に出る。
+const SAME_BROWSER = '再設定を申請したのと同じブラウザでリンクを開いてください。';
+const IN_APP_BROWSER =
+  'メールアプリ内のブラウザで開いている場合は、メニューの「ブラウザで開く」を選ぶか、このページのアドレスをコピーして、再設定を申請したブラウザで開いてください。';
+const LINK_EXPIRED = 'このリンクは有効期限が切れているか、すでに使用されています。';
+const COULD_NOT_RESET = 'パスワードを再設定できませんでした。';
+
+/** ページを開いたときの URL（メールのリンクから戻ってきた形）を再現する。 */
+function openedAt(pathAndQuery: string) {
+  window.history.replaceState(null, '', pathAndQuery);
+}
+
 beforeEach(() => {
   jest.resetAllMocks();
+  openedAt('/auth/reset-password');
   clearPasswordRecovery();
   watchPasswordRecovery({ onAuthStateChange: callback => { notifyAuth = callback; } });
   mockCreate.mockImplementation(() => ({
@@ -58,8 +77,10 @@ describe('which session the form is allowed to change', () => {
     mockGetSession.mockResolvedValue({ data: { session: recoverySession('someone-else') }, error: null });
     render(<ResetPasswordPage />);
     expect(screen.getByRole('status')).toHaveTextContent('リンクを確認しています');
-    expect(await screen.findByText('再設定を申請したのと同じブラウザでリンクを開いてください。')).toBeInTheDocument();
-    expect(screen.getByText('パスワードを再設定できませんでした。')).toBeInTheDocument();
+    const notice = await screen.findByRole('alert');
+    expect(notice).toHaveTextContent(COULD_NOT_RESET);
+    expect(notice).toHaveTextContent('再設定のリンクは一度しか使えず、有効期限もあります。お手数ですが、もう一度申請してください。');
+    expect(notice).toHaveTextContent('新しいリンクは、申請したのと同じブラウザで開いてください。');
     expect(screen.getByRole('link', { name: '再設定をもう一度申請する' })).toHaveAttribute('href', '/auth/forgot-password');
     expect(screen.queryByLabelText('新しいパスワード')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'パスワードを更新' })).not.toBeInTheDocument();
@@ -72,7 +93,7 @@ describe('which session the form is allowed to change', () => {
     expect(await screen.findByLabelText('新しいパスワード')).toBeInTheDocument();
     expect(screen.getByText('パスワードを変更するアカウント')).toBeInTheDocument();
     expect(screen.getByTestId('recovery-email')).toHaveTextContent('owner@example.invalid');
-    expect(screen.queryByText('再設定を申請したのと同じブラウザでリンクを開いてください。')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   test('a recovery already completed before the page mounted (header created the client first) is not missed', async () => {
@@ -83,18 +104,19 @@ describe('which session the form is allowed to change', () => {
 
   test('a PASSWORD_RECOVERY arriving after the guidance was shown upgrades to the form', async () => {
     render(<ResetPasswordPage />);
-    await screen.findByText('再設定を申請したのと同じブラウザでリンクを開いてください。');
+    await screen.findByText(COULD_NOT_RESET);
     act(() => { notifyAuth('PASSWORD_RECOVERY', recoverySession()); });
     expect(await screen.findByLabelText('新しいパスワード')).toBeInTheDocument();
   });
 
-  test('signing out in another tab takes the form away', async () => {
+  test('signing out in another tab takes the form away and moves focus to the explanation', async () => {
     recoveryLinkOpened();
     render(<ResetPasswordPage />);
-    await screen.findByLabelText('新しいパスワード');
+    (await screen.findByLabelText('新しいパスワード')).focus();
     act(() => { notifyAuth('SIGNED_OUT', null); });
-    expect(await screen.findByText('再設定を申請したのと同じブラウザでリンクを開いてください。')).toBeInTheDocument();
+    const headline = await screen.findByText(COULD_NOT_RESET);
     expect(screen.queryByLabelText('新しいパスワード')).not.toBeInTheDocument();
+    expect(headline).toHaveFocus();
   });
 
   test('an account without an email still gets the form, without an empty account box', async () => {
@@ -107,7 +129,7 @@ describe('which session the form is allowed to change', () => {
   test('a client that cannot be created falls back to the guidance instead of crashing', async () => {
     mockCreate.mockImplementation(() => { throw new Error('missing env'); });
     render(<ResetPasswordPage />);
-    expect(await screen.findByText('再設定を申請したのと同じブラウザでリンクを開いてください。')).toBeInTheDocument();
+    expect(await screen.findByText(COULD_NOT_RESET)).toBeInTheDocument();
   });
 
   test('if the stored session switched to another account before submit, that account is not changed', async () => {
@@ -115,25 +137,100 @@ describe('which session the form is allowed to change', () => {
     mockGetSession.mockResolvedValue({ data: { session: recoverySession('someone-else', 'other@example.invalid') }, error: null });
     render(<ResetPasswordPage />);
     await fillAndSubmit('new-password-1');
-    expect(await screen.findByText('再設定を申請したのと同じブラウザでリンクを開いてください。')).toBeInTheDocument();
+    const headline = await screen.findByText(COULD_NOT_RESET);
+    // 押したボタンごとフォームが消えるので、フォーカスは案内へ移す
+    expect(headline).toHaveFocus();
+    expect(screen.getByRole('alert')).toContainElement(headline);
     expect(mockUpdateUser).not.toHaveBeenCalled();
     expect(getPasswordRecoveryUser()).toBeNull();
   });
 
-  test('if the stored session is gone before submit, nothing is sent', async () => {
+  test('if the stored session is gone before submit, nothing is sent and a new link is offered', async () => {
     recoveryLinkOpened();
     mockGetSession.mockResolvedValue({ data: { session: null }, error: null });
     render(<ResetPasswordPage />);
     await fillAndSubmit('new-password-1');
-    await screen.findByText('再設定を申請したのと同じブラウザでリンクを開いてください。');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(RECOVERY_LINK_EXPIRED_MESSAGE);
+    const requestAgain = screen.getByRole('link', { name: '再設定をもう一度申請する' });
+    expect(requestAgain).toHaveAttribute('href', '/auth/forgot-password');
+    expect(requestAgain).toHaveFocus();
+    // 同じセッションでは何度送っても通らないので、入力も止める
+    expect(screen.getByLabelText('新しいパスワード')).toBeDisabled();
+    expect(screen.getByLabelText('パスワード（確認）')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'パスワードを更新' })).toBeDisabled();
     expect(mockUpdateUser).not.toHaveBeenCalled();
+    expect(getPasswordRecoveryUser()).toBeNull();
+  });
+
+  test('a temporary failure to read the session keeps the recovery so the user can retry (regression)', async () => {
+    // 旧実装: getSession の error を見ず、通信の一時失敗を「アカウントが切り替わった」と扱って
+    // 回復用の記録を消していた。リンクは使用済みなので、やり直す手段が無くなっていた。
+    recoveryLinkOpened();
+    mockGetSession.mockResolvedValue({ data: { session: null }, error: new AuthRetryableFetchError('Failed to fetch', 0) });
+    render(<ResetPasswordPage />);
+    await fillAndSubmit('new-password-1');
+    expect(await screen.findByRole('alert')).toHaveTextContent('パスワードを更新できませんでした。時間をおいてもう一度お試しください。');
+    expect(screen.queryByText(COULD_NOT_RESET)).not.toBeInTheDocument();
+    expect(getPasswordRecoveryUser()).toEqual({ id: 'owner-id', email: 'owner@example.invalid' });
+    expect(screen.getByRole('button', { name: 'パスワードを更新' })).toBeEnabled();
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+
+    // 通信が戻れば、そのまま同じフォームで更新できる
+    mockGetSession.mockResolvedValue({ data: { session: recoverySession() }, error: null });
+    fireEvent.click(screen.getByRole('button', { name: 'パスワードを更新' }));
+    await waitFor(() => expect(mockUpdateUser).toHaveBeenCalledWith({ password: 'new-password-1' }));
   });
 
   test('unmounting stops following later auth events', async () => {
     const { unmount } = render(<ResetPasswordPage />);
-    await screen.findByText('再設定を申請したのと同じブラウザでリンクを開いてください。');
+    await screen.findByText(COULD_NOT_RESET);
     unmount();
     expect(() => notifyAuth('PASSWORD_RECOVERY', recoverySession())).not.toThrow();
+  });
+});
+
+describe('why the form is not available (regression: every failure used to blame the browser)', () => {
+  test('an expired or already-used link says so instead of blaming the browser', async () => {
+    // Supabase は使用済み・期限切れのリンクを /verify で拒否し、この形で戻してくる
+    openedAt('/auth/reset-password?error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired');
+    mockInitialize.mockResolvedValue({
+      error: new AuthImplicitGrantRedirectError('Email link is invalid or has expired', { error: 'access_denied', code: 'otp_expired' }),
+    });
+    render(<ResetPasswordPage />);
+    const notice = await screen.findByRole('alert');
+    expect(screen.getByText(LINK_EXPIRED)).toHaveClass('font-bold');
+    expect(notice).toHaveTextContent('お手数ですが、もう一度再設定を申請してください。');
+    expect(notice).not.toHaveTextContent(SAME_BROWSER);
+    expect(screen.getByRole('link', { name: '再設定をもう一度申請する' })).toHaveAttribute('href', '/auth/forgot-password');
+    expect(screen.queryByLabelText('新しいパスワード')).not.toBeInTheDocument();
+  });
+
+  test('a code this browser could not exchange because it was already used is reported as expired', async () => {
+    openedAt('/auth/reset-password?code=used-code');
+    mockInitialize.mockResolvedValue({ error: new AuthApiError('invalid flow state, no valid flow state found', 404, 'flow_state_not_found') });
+    render(<ResetPasswordPage />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(LINK_EXPIRED);
+  });
+
+  test('a code left unexchanged (opened in another browser) explains how to move it to the right browser', async () => {
+    // 申請したブラウザでないと SDK はコードを交換せず、URL にコードが残る。
+    // そのアドレスを申請したブラウザで開けば、まだ再設定できる。
+    openedAt('/auth/reset-password?code=unexchanged-code');
+    render(<ResetPasswordPage />);
+    const notice = await screen.findByRole('alert');
+    expect(screen.getByText(SAME_BROWSER)).toHaveClass('font-bold');
+    expect(notice).toHaveTextContent(IN_APP_BROWSER);
+    expect(notice).toHaveTextContent('このページのアドレスは時間がたつと使えなくなります。その場合は、もう一度申請してください。');
+    expect(notice).not.toHaveTextContent(LINK_EXPIRED);
+    expect(screen.getByRole('link', { name: '再設定をもう一度申請する' })).toHaveAttribute('href', '/auth/forgot-password');
+  });
+
+  test('the in-app browser advice is not shown when the link simply expired', async () => {
+    openedAt('/auth/reset-password#error=access_denied&error_code=otp_expired');
+    render(<ResetPasswordPage />);
+    await screen.findByText(LINK_EXPIRED);
+    expect(screen.queryByText(IN_APP_BROWSER)).not.toBeInTheDocument();
   });
 });
 
@@ -149,9 +246,9 @@ describe('client-side checks', () => {
   test('the length rule is announced next to the field', async () => {
     recoveryLinkOpened();
     render(<ResetPasswordPage />);
-    expect(await screen.findByLabelText('新しいパスワード')).toHaveAccessibleDescription(
-      '8文字以上、半角72文字以内（全角文字は1文字を3文字分として数えます）',
-    );
+    const field = await screen.findByLabelText('新しいパスワード');
+    expect(field).toHaveAccessibleDescription('8文字以上、半角72文字以内（全角文字は1文字を3文字分として数えます）');
+    expect(field).toHaveAttribute('placeholder', '8文字以上');
   });
 });
 
@@ -173,9 +270,10 @@ describe('what an update failure says (regression: every error used to say "link
     expect(screen.getByRole('button', { name: 'パスワードを更新' })).toBeEnabled();
   });
 
-  test('other weak passwords explain the rules', async () => {
-    const alert = await failWith(new AuthWeakPasswordError('weak', 422, ['characters']));
-    expect(alert).toHaveTextContent('英字の大文字・小文字・数字・記号を組み合わせてください。');
+  test('other weak passwords explain the rules production actually enforces', async () => {
+    const alert = await failWith(new AuthWeakPasswordError('weak', 422, ['length']));
+    expect(alert).toHaveTextContent('このパスワードは安全性の条件を満たしていません。8文字以上で入力してください。');
+    expect(alert).not.toHaveTextContent('大文字');
   });
 
   test('the same password as before asks for a different one', async () => {
@@ -187,6 +285,7 @@ describe('what an update failure says (regression: every error used to say "link
     const alert = await failWith(new AuthSessionMissingError());
     expect(alert).toHaveTextContent('リンクの有効期限が切れている可能性があります。');
     expect(screen.getByRole('link', { name: '再設定をもう一度申請する' })).toHaveAttribute('href', '/auth/forgot-password');
+    expect(screen.getByRole('button', { name: 'パスワードを更新' })).toBeDisabled();
   });
 
   test('anything else shows a neutral retry message', async () => {
