@@ -7,8 +7,10 @@ jest.mock('web-push', () => ({
 
 let mockSubData: unknown = null;
 const mockDeleteEq = jest.fn();
-const mockDeleteQuery = { eq: mockDeleteEq, then: (done: (value: { error: null }) => unknown) => Promise.resolve({ error: null }).then(done) };
+const mockDeleteSelect = jest.fn();
+const mockDeleteQuery = { eq: mockDeleteEq, select: mockDeleteSelect, then: (done: (value: { data: unknown[]; error: null }) => unknown) => Promise.resolve({ data: [{ id: 'row' }], error: null }).then(done) };
 mockDeleteEq.mockReturnValue(mockDeleteQuery);
+mockDeleteSelect.mockReturnValue(mockDeleteQuery);
 const mockDeleteFn = jest.fn().mockReturnValue({ eq: mockDeleteEq });
 
 jest.mock('../supabase-server', () => ({
@@ -34,6 +36,7 @@ beforeEach(() => {
   mockSendNotification.mockReset();
   mockDeleteFn.mockClear();
   mockDeleteEq.mockClear();
+  mockDeleteSelect.mockClear();
   mockSubData = null;
 });
 
@@ -149,6 +152,8 @@ describe('sendPushToUser — deep tests', () => {
     expect(mockDeleteEq).toHaveBeenCalledWith('endpoint', 'https://push.example.com/del');
     expect(mockDeleteEq).toHaveBeenCalledWith('p256dh', 'k');
     expect(mockDeleteEq).toHaveBeenCalledWith('auth', 'a');
+    // 削除は実際に消えた行を返させる（後始末の結果を「消せた」と取り違えないため）。
+    expect(mockDeleteSelect).toHaveBeenCalledWith('id');
   });
 
   test('古い送信の410は送信中に再登録された通知先を削除しない', async () => {
@@ -158,6 +163,7 @@ describe('sendPushToUser — deep tests', () => {
     const filters: Record<string, string> = {};
     const query = {
       eq: jest.fn((key: string, value: string) => { filters[key] = value; return query; }),
+      select: jest.fn(() => query),
       then: (done: (value: { error: null }) => unknown) => {
         if (filters.user_id === 'user-race' && filters.endpoint === stored.endpoint && filters.p256dh === stored.p256dh && filters.auth === stored.auth) {
           throw new Error('新しい通知先を削除しました');
@@ -174,6 +180,7 @@ describe('sendPushToUser — deep tests', () => {
     expect(await sendPushToUser('user-race', { title: 'T', body: 'B' })).toBe(false);
     expect(stored).toEqual(replacement);
     expect(filters).toEqual({ user_id: 'user-race', ...oldSubscription });
+    expect(query.select).toHaveBeenCalled();
   });
 
   test('500 エラーでは削除されず false が返る', async () => {

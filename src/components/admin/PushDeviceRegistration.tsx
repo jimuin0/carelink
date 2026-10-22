@@ -69,6 +69,11 @@ export default function PushDeviceRegistration({ headingLevel = 'h4' }: { headin
       <p className="text-xs text-gray-600 mt-1">
         通知を受け取れる端末はアカウントごとに1台です。別の端末で登録すると、前に登録した端末には届かなくなります。
       </p>
+      {/* ログアウト・アカウント切替・退会のたびにこの端末の登録は外れる（releaseThisDevicePush）。
+          黙って届かなくなると気づく手がかりが無いので、ここに書いておく。 */}
+      <p className="text-xs text-gray-600 mt-1">
+        ログアウトすると、この端末の通知は解除されます。もう一度ログインしたら、改めて登録してください。
+      </p>
 
       {checking ? (
         <p className="text-sm text-gray-600 mt-3" role="status">登録状況を確認中...</p>

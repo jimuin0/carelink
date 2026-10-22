@@ -95,8 +95,9 @@ const worksSchema = z.object({ customerName: z.string(), menuName: z.string(), b
  * - closed: the destination itself is gone (expired device subscription 404/410, LINE WORKS
  *   channel not found). Sending the same frozen message again can never deliver it, so the job
  *   is finished as failed instead of being held as 「結果不明」 (which alerted every run forever).
- * - retryable: the provider definitively refused this attempt (auth, rate limit, bad request).
- *   Nothing was accepted, so the bounded retry schedule is safe.
+ * - retryable: the provider definitively refused this attempt (auth, rate limit, bad request), or the
+ *   Push device frozen before the fence is no longer the registered one. Nothing was accepted, so the
+ *   bounded retry schedule is safe.
  * - uncertain: the provider may have accepted it (timeout, 5xx, no status). Never resent automatically.
  */
 export type BookingCreationChannelOutcome =
@@ -122,14 +123,21 @@ export async function prepareBookingCreationChannel(job: { webhook_type: string;
     const payload = pushSchema.parse(job.payload);
     // The device is read and frozen BEFORE the fence (a read failure is still safely retryable).
     const subscription = await readUserPushSubscription(job.target_id);
+    // The fence only checks that the user has SOME device, not that it is the one frozen here.
+    // When the device changed in between, nothing was delivered: use the bounded retry, which
+    // reads the device registered by then (or is superseded by the fence when there is none).
+    const deviceChanged: BookingCreationChannelOutcome = { outcome: 'retryable', status: null, reason: 'booking_push_subscription_changed' };
     // No device now: the fence normally closes the job as superseded. If a device was registered
-    // in the instant between this read and the fence, nothing was sent; close it rather than hold it.
-    if (!subscription) return async () => ({ outcome: 'closed', status: null, reason: 'booking_push_subscription_changed' });
+    // in the instant between this read and the fence, retry so that the new device gets it.
+    if (!subscription) return async () => deviceChanged;
     const send = prepareCapturedPushDelivery(subscription, payload);
     return async () => {
       const outcome = classifyBookingCreationResult(await send(), 'push');
-      if (outcome.outcome === 'closed') await removeExpiredPushSubscription(job.target_id, subscription);
-      return outcome;
+      if (outcome.outcome !== 'closed') return outcome;
+      // Finish the job (「購読の登録を削除しました」) only once the expired registration is really gone.
+      // No matching row means the user registered another device (or signed out) after the device
+      // was frozen, or the cleanup failed: retry against whatever is registered now.
+      return await removeExpiredPushSubscription(job.target_id, subscription) ? outcome : deviceChanged;
     };
   }
   if (job.webhook_type !== 'booking_creation_lineworks' || !isLineWorksConfigured()) throw new Error('booking LINE Works not configured');

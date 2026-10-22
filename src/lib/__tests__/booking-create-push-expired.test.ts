@@ -25,6 +25,10 @@ const mockState = {
   queueFilters: [] as Record<string, unknown>[],
   pushDeletes: [] as Record<string, unknown>[],
   closeConfirmed: true,
+  // 送信フェンスの前に読んだ端末（null＝その時点では未登録）。
+  subscription: SUB as typeof SUB | null,
+  // 失効した端末の行がまだ残っているか（false＝送信の間に別の端末へ登録し直した／既に消えた）。
+  expiredRowRemains: true,
 };
 const mockSendNotification = jest.fn();
 
@@ -40,13 +44,17 @@ jest.mock('../supabase-server', () => ({
     from: (table: string) => {
       if (table === 'push_subscriptions') {
         return {
-          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: SUB, error: null }) }) }),
+          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: mockState.subscription, error: null }) }) }),
           delete: () => {
             const filters: Record<string, unknown> = {};
             mockState.pushDeletes.push(filters);
             const chain: Record<string, unknown> = {
               eq: (key: string, value: unknown) => { filters[key] = value; return chain; },
-              then: (done: (v: unknown) => unknown, fail: (e: unknown) => unknown) => Promise.resolve({ error: null }).then(done, fail),
+              select: () => ({
+                then: (done: (v: unknown) => unknown, fail: (e: unknown) => unknown) => Promise.resolve(
+                  { data: mockState.expiredRowRemains ? [{ id: 'expired-row' }] : [], error: null },
+                ).then(done, fail),
+              }),
             };
             return chain;
           },
@@ -82,6 +90,8 @@ beforeEach(() => {
   mockState.queueFilters.length = 0;
   mockState.pushDeletes.length = 0;
   mockState.closeConfirmed = true;
+  mockState.subscription = SUB;
+  mockState.expiredRowRemains = true;
   jest.spyOn(console, 'error').mockImplementation(() => {});
 });
 
@@ -110,4 +120,24 @@ test('応答が分からない（timeout・5xx）ものは従来どおり保留�
   expect(await dispatchBookingCreationNotifications(OPERATION)).toEqual({ accepted: 0, pending: 0, uncertain: 1, skipped: 0 });
   expect(mockState.queueWrites).toEqual([]);
   expect(mockState.pushDeletes).toEqual([]);
+});
+
+// 送信フェンスは「その利用者に何かしらの端末があるか」しか見ず、ここで読んだ端末と同じかまでは確かめない。
+// 読んでからフェンスまでの間に端末が変わったときは何も届いていないので、閉じず（＝dead-letter と Slack 警告を
+// 出さず）通常の再試行に回し、次の試行で今の端末へ届ける（2026年10月23日 レビュー指摘）。
+test('読んだ時点で端末が無かったのにフェンスが通った（直後に登録された）→ 送らずに再試行へ回す（閉じない）', async () => {
+  mockState.subscription = null;
+  expect(await dispatchBookingCreationNotifications(OPERATION)).toEqual({ accepted: 0, pending: 1, uncertain: 0, skipped: 0 });
+  expect(mockSendNotification).not.toHaveBeenCalled();
+  expect(mockState.queueWrites).toEqual([expect.objectContaining({ status: 'pending', delivery_started_at: null })]);
+  expect(alertWarning).not.toHaveBeenCalled();
+});
+
+test('失効した端末の行がもう無い（送信の間に別の端末へ登録し直した）→ 「削除しました」と閉じず、再試行へ回す', async () => {
+  mockSendNotification.mockRejectedValue({ statusCode: 410 });
+  mockState.expiredRowRemains = false;
+  expect(await dispatchBookingCreationNotifications(OPERATION)).toEqual({ accepted: 0, pending: 1, uncertain: 0, skipped: 0 });
+  expect(mockState.queueWrites).toEqual([expect.objectContaining({ status: 'pending', delivery_started_at: null })]);
+  expect(mockState.queueWrites).not.toContainEqual(expect.objectContaining({ status: 'failed' }));
+  expect(alertWarning).not.toHaveBeenCalled();
 });

@@ -105,6 +105,8 @@ test('未登録の端末は「未登録」と表示し、「この端末で通�
   render(<PushDeviceRegistration />);
   expect(await status()).toHaveTextContent('未登録');
   expect(screen.getByText(/通知を受け取れる端末はアカウントごとに1台です/)).toBeInTheDocument();
+  // ログアウトで登録が外れることを書いておく（黙って届かなくなると気づく手がかりが無い）。
+  expect(screen.getByText('ログアウトすると、この端末の通知は解除されます。もう一度ログインしたら、改めて登録してください。')).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole('button', { name: 'この端末で通知を受け取る' }));
 

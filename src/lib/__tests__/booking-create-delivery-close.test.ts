@@ -43,12 +43,17 @@ test('通信の例外も投げずに false（catch 節の中から呼ばれる�
 });
 
 test.each([
-  ['booking_creation_push', 'booking_push_subscription_expired', 'Push通知', '端末の購読が失効'],
-  ['booking_creation_lineworks', 'booking_lineworks_channel_not_found', 'LINE WORKS通知', 'チャンネルが見つかりません'],
-  ['booking_creation_push', 'booking_push_subscription_changed', 'Push通知', '端末の登録が変わった'],
-])('運営向けの説明は経路と理由を伝え、宛先は載せない（%s/%s）', (type, reason, channel, detail) => {
-  const message = describeUndeliverableBookingCreation(type, { reason, status: 404 });
-  expect(message).toContain(channel);
+  ['booking_creation_push', 'Push通知', '端末の購読が失効していたため、購読の登録を削除しました'],
+  ['booking_creation_lineworks', 'LINE WORKS通知', 'チャンネルが見つかりませんでした'],
+])('運営向けの説明は経路と理由を伝え、宛先は載せない（%s）', (type, channel, detail) => {
+  const message = describeUndeliverableBookingCreation(type);
+  expect(message).toBe(message.replace(/\d+件/, ''));
+  expect(message).toContain(`新規予約の${channel}を終了しました`);
   expect(message).toContain(detail);
   expect(message).toContain('再送はしません');
+});
+
+test('cron が 1 run 分をまとめるときは件数を添える（1 件なら付けない）', () => {
+  expect(describeUndeliverableBookingCreation('booking_creation_push', 3)).toContain('新規予約のPush通知 3件を終了しました');
+  expect(describeUndeliverableBookingCreation('booking_creation_lineworks', 1)).toContain('新規予約のLINE WORKS通知を終了しました');
 });

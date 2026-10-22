@@ -41,13 +41,16 @@ export async function closeUndeliverableBookingCreation(
   }
 }
 
-/** 運営向けの説明（Slack）。宛先そのもの（利用者 ID・チャンネル ID）は載せない。 */
-export function describeUndeliverableBookingCreation(webhookType: string, outcome: UndeliverableBookingCreation): string {
-  const channel = webhookType === 'booking_creation_lineworks' ? 'LINE WORKS通知' : 'Push通知';
-  const detail = outcome.reason === 'booking_push_subscription_expired'
-    ? '端末の購読が失効していたため、購読の登録を削除しました'
-    : outcome.reason === 'booking_lineworks_channel_not_found'
-      ? 'LINE WORKS のチャンネルが見つかりません。スタッフのチャンネル設定をご確認ください'
-      : '送信の直前に端末の登録が変わったため、送信しませんでした';
-  return `[booking-notification] 新規予約の${channel}を終了しました（${detail}・再送はしません）`;
+/**
+ * 運営向けの説明（Slack）。宛先そのもの（利用者 ID・チャンネル ID）は載せない。
+ * 閉じる理由は経路ごとに 1 つだけ（Push＝端末の購読の失効・LINE WORKS＝チャンネルが存在しない）。
+ * count は webhook-retry が 1 run 分をまとめて 1 回だけ知らせるときの件数。
+ */
+export function describeUndeliverableBookingCreation(webhookType: string, count = 1): string {
+  const lineWorks = webhookType === 'booking_creation_lineworks';
+  const channel = lineWorks ? 'LINE WORKS通知' : 'Push通知';
+  const detail = lineWorks
+    ? 'LINE WORKS のチャンネルが見つかりませんでした。再送はしません。スタッフのチャンネル設定をご確認ください'
+    : '端末の購読が失効していたため、購読の登録を削除しました。再送はしません';
+  return `[booking-notification] 新規予約の${channel}${count > 1 ? ` ${count}件` : ''}を終了しました（${detail}）`;
 }

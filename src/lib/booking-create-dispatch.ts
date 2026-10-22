@@ -80,7 +80,7 @@ export async function dispatchBookingCreationNotifications(operationId: string):
           // startedAt is always recorded before the provider call that can produce `outcome`.
           if (await closeUndeliverableBookingCreation(db, job, epoch, undeliverable.startedAt!, undeliverable.outcome)) {
             result.skipped++;
-            alertWarning(describeUndeliverableBookingCreation(job.webhook_type, undeliverable.outcome), {
+            alertWarning(describeUndeliverableBookingCreation(job.webhook_type), {
               route: '/api/booking',
               extra: { queueId: job.id, webhookType: job.webhook_type, providerStatus: undeliverable.outcome.status },
             });

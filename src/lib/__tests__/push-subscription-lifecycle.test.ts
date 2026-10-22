@@ -18,7 +18,11 @@ jest.mock('../supabase-server', () => ({
           deleteFilters.push(filters);
           const chain = {
             eq: (key: string, value: unknown) => { filters[key] = value; return chain; },
-            then: (done: (v: unknown) => unknown, fail: (e: unknown) => unknown) => mockDeleteResult().then(done, fail),
+            // 消した行を返させる（一致する行が無かったことを「消せた」と取り違えないため）。
+            select: (columns: string) => {
+              filters.returning = columns;
+              return { then: (done: (v: unknown) => unknown, fail: (e: unknown) => unknown) => mockDeleteResult().then(done, fail) };
+            },
           };
           return chain;
         },
@@ -56,9 +60,17 @@ test('読めなかったときは「端末なし」と取り違えず例外に�
 });
 
 test('失効した購読だけを消す（同じ利用者・endpoint・鍵が一致する行）', async () => {
-  mockDeleteResult.mockResolvedValueOnce({ error: null });
+  mockDeleteResult.mockResolvedValueOnce({ data: [{ id: 'row-1' }], error: null });
   expect(await removeExpiredPushSubscription('user-1', SUB)).toBe(true);
-  expect(deleteFilters).toEqual([{ user_id: 'user-1', endpoint: SUB.endpoint, p256dh: SUB.p256dh, auth: SUB.auth }]);
+  expect(deleteFilters).toEqual([{ user_id: 'user-1', endpoint: SUB.endpoint, p256dh: SUB.p256dh, auth: SUB.auth, returning: 'id' }]);
+});
+
+test.each([
+  ['一致する行が無い（送信の間に別の端末へ登録し直した・既に消えていた）', { data: [], error: null }],
+  ['消した行が返らない', { data: null, error: null }],
+])('%s → 消せたとは扱わない（false）', async (_label, result) => {
+  mockDeleteResult.mockResolvedValueOnce(result);
+  expect(await removeExpiredPushSubscription('user-1', SUB)).toBe(false);
 });
 
 test('後始末の失敗（エラー応答・例外）は投げずに false', async () => {

@@ -60,21 +60,26 @@ export async function readUserPushSubscription(userId: string): Promise<Captured
  * 失効した購読の行を消す。消すのは【同じ利用者・同じ endpoint・同じ鍵】の行だけで、
  * 送信中にその利用者が登録し直した新しい端末の行は残す。
  * 後片付けなので例外は投げない（失敗しても次の送信でもう一度 404/410 になり、また消しに来る）。
+ *
+ * 戻り値は【その行を実際に消せたか】。一致する行が無かった（送信の間に別の端末へ登録し直した・
+ * ログアウトで既に消えた）ときと、消せなかったときは false。新規予約の Push はこれを見て、
+ * 本当に消せたときだけ「購読の登録を削除しました」と閉じる（booking-create-notifications.ts）。
  */
 export async function removeExpiredPushSubscription(userId: string, subscription: CapturedPushSubscription): Promise<boolean> {
   try {
-    const { error } = await createServiceRoleClient()
+    const { data, error } = await createServiceRoleClient()
       .from('push_subscriptions')
       .delete()
       .eq('user_id', userId)
       .eq('endpoint', subscription.endpoint)
       .eq('p256dh', subscription.p256dh)
-      .eq('auth', subscription.auth);
+      .eq('auth', subscription.auth)
+      .select('id');
     if (error) {
       console.error('[push] expired subscription cleanup failed', { userId });
       return false;
     }
-    return true;
+    return Array.isArray(data) && data.length > 0;
   } catch {
     console.error('[push] expired subscription cleanup failed', { userId });
     return false;

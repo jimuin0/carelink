@@ -11,6 +11,7 @@
  * OFF にするとメールまで黙って止まった（2026年10月23日 email_on_review を分離）。
  */
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { isMissingColumnError, warnMissingColumnFallback } from '@/lib/db-fallback';
 import { z } from 'zod';
 
 export type NotificationFlags = {
@@ -41,6 +42,22 @@ const settingsSchema = z.object({
   email_weekly_report: z.boolean().nullable(),
 });
 
+// email_on_review を除いた形（20261023100000 が未適用の DB を読むときだけ使う）。
+const settingsWithoutReviewEmailSchema = settingsSchema.omit({ email_on_review: true });
+
+type SettingsRow = z.infer<typeof settingsWithoutReviewEmailSchema>;
+
+function toFlags(row: SettingsRow, emailOnReview: boolean): NotificationFlags {
+  return {
+    pushOnNewBooking: row.push_on_new_booking ?? DEFAULT_NOTIFICATION_FLAGS.pushOnNewBooking,
+    pushOnCancel: row.push_on_cancel ?? DEFAULT_NOTIFICATION_FLAGS.pushOnCancel,
+    pushOnReview: row.push_on_review ?? DEFAULT_NOTIFICATION_FLAGS.pushOnReview,
+    emailOnReview,
+    emailDailySummary: row.email_daily_summary ?? DEFAULT_NOTIFICATION_FLAGS.emailDailySummary,
+    emailWeeklyReport: row.email_weekly_report ?? DEFAULT_NOTIFICATION_FLAGS.emailWeeklyReport,
+  };
+}
+
 export async function getFacilityNotificationSettings(facilityId: string): Promise<NotificationFlags> {
   const admin = createServiceRoleClient();
   const { data, error } = await admin
@@ -48,16 +65,30 @@ export async function getFacilityNotificationSettings(facilityId: string): Promi
     .select('push_on_new_booking, push_on_cancel, push_on_review, email_on_review, email_daily_summary, email_weekly_report')
     .eq('facility_id', facilityId)
     .maybeSingle();
+  // 🔴 アプリが migration 20261023100000 より先にデプロイされた場合（Vercel は main へのマージで自動デプロイ）、
+  // 列が無いだけで設定の読み取りが失敗し、この変更と無関係の口コミ Push まで止まってしまう。
+  // そのときだけ列を除いて読み直し、口コミのメールは migration の既定値（true）で扱う。
+  if (isMissingColumnError(error)) return readWithoutReviewEmailColumn(admin, facilityId);
   if (error) throw new Error('facility notification settings read failed');
   if (data === null) return { ...DEFAULT_NOTIFICATION_FLAGS };
   const parsed = settingsSchema.safeParse(data);
   if (!parsed.success) throw new Error('facility notification settings response invalid');
-  return {
-    pushOnNewBooking: parsed.data.push_on_new_booking ?? DEFAULT_NOTIFICATION_FLAGS.pushOnNewBooking,
-    pushOnCancel: parsed.data.push_on_cancel ?? DEFAULT_NOTIFICATION_FLAGS.pushOnCancel,
-    pushOnReview: parsed.data.push_on_review ?? DEFAULT_NOTIFICATION_FLAGS.pushOnReview,
-    emailOnReview: parsed.data.email_on_review,
-    emailDailySummary: parsed.data.email_daily_summary ?? DEFAULT_NOTIFICATION_FLAGS.emailDailySummary,
-    emailWeeklyReport: parsed.data.email_weekly_report ?? DEFAULT_NOTIFICATION_FLAGS.emailWeeklyReport,
-  };
+  return toFlags(parsed.data, parsed.data.email_on_review);
+}
+
+async function readWithoutReviewEmailColumn(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  facilityId: string,
+): Promise<NotificationFlags> {
+  warnMissingColumnFallback('facility_notification_settings.email_on_review');
+  const { data, error } = await admin
+    .from('facility_notification_settings')
+    .select('push_on_new_booking, push_on_cancel, push_on_review, email_daily_summary, email_weekly_report')
+    .eq('facility_id', facilityId)
+    .maybeSingle();
+  if (error) throw new Error('facility notification settings read failed');
+  if (data === null) return { ...DEFAULT_NOTIFICATION_FLAGS };
+  const parsed = settingsWithoutReviewEmailSchema.safeParse(data);
+  if (!parsed.success) throw new Error('facility notification settings response invalid');
+  return toFlags(parsed.data, DEFAULT_NOTIFICATION_FLAGS.emailOnReview);
 }
