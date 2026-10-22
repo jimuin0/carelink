@@ -19,7 +19,7 @@ test('real photo picker retains previews/files after a rejected submit and permi
   global.fetch = fetchMock;
   render(<RegisterForm />);
   for (const [label, value] of [
-    [/^施設名/, '合成施設'], [/^業種/, 'ヘアサロン'], [/^代表者名/, '合成代表'], [/^担当者名/, '合成担当'], [/^メールアドレス/, 'fixture@example.invalid'], [/^電話番号/, '09012345678'],
+    [/^施設名/, '合成施設'], [/^業種/, 'ヘアサロン'], [/^代表者名/, '合成代表'], [/^メールアドレス/, 'fixture@example.invalid'], [/^電話番号/, '09012345678'],
   ] as const) fireEvent.change(screen.getByLabelText(label), { target: { value } });
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
   await screen.findByLabelText(/^郵便番号/);

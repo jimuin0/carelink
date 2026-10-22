@@ -333,6 +333,15 @@ test.each(['size', 'mime'])('stricter handshake %s preserves originals and expla
  expect(file.size).toBe(4);
 });
 
+test('the photo size limit is explained in MB, not raw bytes', async () => {
+ const { deps, engine } = harness();
+ deps.request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId, consumerVersion: 2,
+  photoLimits: { maxBytes: 5 * 1024 * 1024, mimeTypes: ['image/png'] } }));
+ const result = await engine.submit(data, [new File(['jpeg'], 'synthetic.jpg', { type: 'image/jpeg' })], consent);
+ expect(result).toEqual(expect.objectContaining({ message: expect.stringContaining('現在の写真の上限は5MB') }));
+ expect(result).toEqual(expect.objectContaining({ message: expect.not.stringContaining('バイト') }));
+});
+
 test('local input may be revised only before this coordinator has ever attempted a commit', async () => {
  const { deps, engine } = harness(); expect(engine.canReviseUnsubmittedInput()).toBe(true);
  deps.request.mockResolvedValueOnce(response(201, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 1, mimeTypes: ['image/jpeg'] } }));

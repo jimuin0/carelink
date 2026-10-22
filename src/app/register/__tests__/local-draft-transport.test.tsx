@@ -28,7 +28,7 @@ beforeEach(() => {
 });
 async function fill(v2Enabled = true) {
  render(<RegisterForm v2Enabled={v2Enabled} />); await waitFor(() => expect(screen.getByLabelText(/^施設名/)).toBeEnabled());
- for (const [label, value] of [[/^施設名/, 'Synthetic local fence'], [/^業種/, 'ヘアサロン'], [/^代表者名/, 'Synthetic'], [/^担当者名/, 'Synthetic'], [/^メールアドレス/, 'synthetic@example.invalid'], [/^電話番号/, '09012345678']] as const)
+ for (const [label, value] of [[/^施設名/, 'Synthetic local fence'], [/^業種/, 'ヘアサロン'], [/^代表者名/, 'Synthetic'], [/^メールアドレス/, 'synthetic@example.invalid'], [/^電話番号/, '09012345678']] as const)
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
  fireEvent.click(screen.getByRole('button', { name: '次へ' })); await screen.findByLabelText(/^郵便番号/);
  fireEvent.click(screen.getByRole('button', { name: '次へ' })); await screen.findByRole('button', { name: '登録する' });
@@ -55,6 +55,8 @@ test('verified receipt survives local delete failure with explicit receipt link 
  expect(mockPush).not.toHaveBeenCalled(); expect(screen.getByRole('button', { name: '登録する' })).toBeDisabled();
  expect(JSON.parse(sessionStorage.getItem(SALON_BROWSER_CONTEXT_KEY)!).phase).toBe('confirmed');
  expect(screen.queryByText(/送信結果を確認できませんでした/)).not.toBeInTheDocument();
+ // 案内文が指す「端末の下書きを削除」は畳んだ操作欄の中にあるので、自動で開いて見せる。
+ expect(document.getElementById('register-draft-tools')).toHaveAttribute('open');
 });
 test('a known prepare failure before any commit may release only the same owned input fence', async () => {
  mockFetch.mockResolvedValueOnce(response(503, {})); await fill(); await submit();

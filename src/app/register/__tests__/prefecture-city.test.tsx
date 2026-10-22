@@ -36,7 +36,6 @@ function fillStep1AndAdvance() {
   fireEvent.change(screen.getByLabelText(/^施設名/), { target: { value: 'テスト施設' } });
   fireEvent.change(screen.getByLabelText(/^業種/), { target: { value: 'ヘアサロン' } });
   fireEvent.change(screen.getByLabelText(/^代表者名/), { target: { value: '山田太郎' } });
-  fireEvent.change(screen.getByLabelText(/^担当者名/), { target: { value: '山田花子' } });
   fireEvent.change(screen.getByLabelText(/^メールアドレス/), { target: { value: 'test@example.com' } });
   fireEvent.change(screen.getByLabelText(/^電話番号/), { target: { value: '090-1234-5678' } });
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));

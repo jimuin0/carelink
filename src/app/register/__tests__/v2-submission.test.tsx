@@ -26,7 +26,7 @@ async function fill(v2Enabled = true) {
   render(<RegisterForm v2Enabled={v2Enabled} />);
   await waitFor(() => expect(screen.getByLabelText(/^施設名/)).toBeEnabled());
   for (const [label, value] of [[/^施設名/, '合成施設'], [/^業種/, 'ヘアサロン'], [/^代表者名/, '合成代表'],
-    [/^担当者名/, '合成担当'], [/^メールアドレス/, 'fixture@example.invalid'], [/^電話番号/, '09012345678']] as const) {
+    [/^メールアドレス/, 'fixture@example.invalid'], [/^電話番号/, '09012345678']] as const) {
     fireEvent.change(screen.getByLabelText(label), { target: { value } });
   }
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));

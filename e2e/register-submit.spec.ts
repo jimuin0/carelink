@@ -62,6 +62,8 @@ async function fillStep1(page: Page, email: string, detailed = false) {
   await page.fill('#reg-facility-name', `E2E登録テスト施設 ${Date.now()}`);
   await page.selectOption('#reg-business-type', { label: 'ヘアサロン' });
   await page.fill('#reg-rep-name', '代表 太郎');
+  // 既定は「担当者も代表者と同じ」。別の担当者を入れる経路をここで通す。
+  await page.getByRole('checkbox', { name: '担当者も代表者と同じ' }).uncheck();
   await page.fill('#reg-contact-name', '担当 花子');
   await page.fill('#reg-email', email);
   await page.fill('#reg-phone', detailed ? '０９０１２３４５６７８' : '09012345678');
@@ -271,7 +273,8 @@ test.describe('/register 送信', () => {
         postal_code: '0000000', address: '愛知県西尾市合成町', prefecture: '愛知県', city: '西尾市',
         building_name: '合成ビル101', nearest_station: '合成駅 徒歩5分', business_hours: '10:00〜18:00',
         regular_holiday: '月曜日', seat_count: 0, staff_count: 9999, has_parking: true,
-        features: ['WiFi完備'], pr_text: '隔離E2Eの合成紹介文',
+        // 駐車場はチェックボックスで選び、検索用に features へも反映する（チップは出さない）。
+        features: ['駐車場あり', 'WiFi完備'], pr_text: '隔離E2Eの合成紹介文',
       });
       if (detailed) {
         // Real UI -> signed Storage -> receipt -> password login -> selected

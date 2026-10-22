@@ -33,7 +33,6 @@ function fillStep1AndAdvance() {
   fireEvent.change(screen.getByLabelText(/^施設名/), { target: { value: 'テスト施設' } });
   fireEvent.change(screen.getByLabelText(/^業種/), { target: { value: 'ヘアサロン' } });
   fireEvent.change(screen.getByLabelText(/^代表者名/), { target: { value: '山田太郎' } });
-  fireEvent.change(screen.getByLabelText(/^担当者名/), { target: { value: '山田花子' } });
   fireEvent.change(screen.getByLabelText(/^メールアドレス/), { target: { value: 'test@example.com' } });
   fireEvent.change(screen.getByLabelText(/^電話番号/), { target: { value: '090-1234-5678' } });
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
@@ -163,25 +162,59 @@ describe('許認可・届出の表明保証チェック', () => {
     expect(screen.getAllByRole('checkbox')).toHaveLength(2);
   });
 
-  test('チェック0個 → 登録ボタンは押せない', async () => {
+  // 【2026年10月23日】以前は未チェックのとき「登録する」を無効化していたが、押せない理由が
+  // どこにも出なかった。ボタンは押せるままにし、押すと送信確認へ進まずに未チェックの項目へ
+  // 理由を出す（送信を止めること自体は従来どおり）。
+  async function pressRegisterAndExpectBlocked(remaining: number) {
+    const fetchMock = jest.fn((url: string) => submissionResponse(url));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const button = screen.getByRole('button', { name: '登録する' });
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    expect(await screen.findByRole('alert')).toHaveTextContent(`必須の同意にチェックしてください（残り${remaining}件）`);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => url === '/api/salons/commit')).toHaveLength(0);
+  }
+
+  test('チェック0個 → 登録を押しても送信確認に進まず、2件とも理由が出る', async () => {
     await advanceToStep3();
-    expect(screen.getByRole('button', { name: '登録する' })).toBeDisabled();
+    await pressRegisterAndExpectBlocked(2);
+    const [licenseCb, termsCb] = screen.getAllByRole('checkbox');
+    expect(licenseCb).toHaveAttribute('aria-required', 'true');
+    expect(termsCb).toHaveAttribute('aria-required', 'true');
+    expect(licenseCb).toHaveAttribute('aria-invalid', 'true');
+    expect(termsCb).toHaveAttribute('aria-invalid', 'true');
+    expect(licenseCb).toHaveAccessibleDescription('許可・届出の表明にチェックしてください');
+    expect(termsCb).toHaveAccessibleDescription('利用規約とプライバシーポリシーへの同意にチェックしてください');
+    // 最初の未チェック項目へフォーカスを移す。
+    await waitFor(() => expect(licenseCb).toHaveFocus());
   });
 
-  test('規約同意のみ（表明保証なし）→ 登録ボタンは押せない', async () => {
+  test('規約同意のみ（表明保証なし）→ 送信確認に進まない', async () => {
     await advanceToStep3();
     const [licenseCb, termsCb] = screen.getAllByRole('checkbox');
     fireEvent.click(termsCb);
     expect(licenseCb).not.toBeChecked();
-    expect(screen.getByRole('button', { name: '登録する' })).toBeDisabled();
+    await pressRegisterAndExpectBlocked(1);
+    expect(licenseCb).toHaveAttribute('aria-invalid', 'true');
+    expect(termsCb).not.toHaveAttribute('aria-invalid');
   });
 
-  test('表明保証のみ（規約同意なし）→ 登録ボタンは押せない', async () => {
+  test('表明保証のみ（規約同意なし）→ 送信確認に進まない', async () => {
     await advanceToStep3();
     const [licenseCb, termsCb] = screen.getAllByRole('checkbox');
     fireEvent.click(licenseCb);
     expect(termsCb).not.toBeChecked();
-    expect(screen.getByRole('button', { name: '登録する' })).toBeDisabled();
+    await pressRegisterAndExpectBlocked(1);
+    expect(termsCb).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  test('理由が出たあとにチェックすると、その項目の理由は消える', async () => {
+    await advanceToStep3();
+    await pressRegisterAndExpectBlocked(2);
+    checkAllConsents();
+    expect(screen.queryByText(/必須の同意にチェックしてください/)).not.toBeInTheDocument();
+    screen.getAllByRole('checkbox').forEach(cb => expect(cb).not.toHaveAttribute('aria-invalid'));
   });
 
   test('両方チェック → 登録ボタンが押せる', async () => {

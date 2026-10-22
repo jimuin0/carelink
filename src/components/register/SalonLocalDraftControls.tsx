@@ -23,12 +23,22 @@ interface Props {
   canSave: () => boolean;
   canRestore: () => boolean;
   onRestore: (blob: Blob) => Promise<void>;
+  /**
+   * 利用者に見てもらう必要がある状態（この端末に下書きがある・保存に失敗した）になったとき。
+   * 呼び出し側は畳んである操作欄を開く。閉じたままだと復元できることにも失敗にも気づけない。
+   */
+  onAttention?: () => void;
 }
 const failureMessage = (error: unknown) => error instanceof SalonLocalDraftError && error.code === 'conflict'
   ? '別のタブで下書きが変更されました。自動保存を停止しました。ページを再読み込みして保存内容と受付状況を確認してください。'
   : error instanceof SalonLocalDraftError && error.code === 'locked'
     ? '送信に使用した下書きは復元できません。受付状況を先に確認してください。'
     : '端末の下書きを保存・確認できませんでした。入力と元の写真はこの画面に保持されています。手動バックアップをご利用ください。';
+
+/** 下書き・バックアップ操作のボタン。押せる大きさ（44px）を確保し、文字リンク風にしない。 */
+export const DRAFT_BUTTON = 'inline-flex min-h-11 items-center justify-center rounded-lg border border-(--ecru-muted) bg-(--ecru-surface) px-4 text-sm text-(--ecru-text) disabled:cursor-not-allowed disabled:opacity-50';
+/** 取り消せない操作（端末の下書きを削除）。赤字＋赤枠で他の操作と区別する。 */
+export const DRAFT_DANGER_BUTTON = 'inline-flex min-h-11 items-center justify-center rounded-lg border border-red-700 bg-(--ecru-surface) px-4 text-sm text-red-700 disabled:cursor-not-allowed disabled:opacity-50';
 
 /** Opt-in is deliberately memory-only. The persisted input has neither consent
  * nor submission authority; the fence survives lost browser/session context. */
@@ -70,7 +80,8 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
     if (timer.current) { clearTimeout(timer.current); timer.current = null; }
     if (mounted.current) setEnabled(false);
   }
-  function failed(error: unknown) { blocked.current = true; stop(); if (mounted.current) setMessage(failureMessage(error)); }
+  function attention() { if (mounted.current) latest.current.onAttention?.(); }
+  function failed(error: unknown) { blocked.current = true; stop(); if (mounted.current) setMessage(failureMessage(error)); attention(); }
   async function save(values: SalonFormValues, photos: readonly (File | null)[]) {
     const result = await saveLocalSalonDraft(values, photos, current.current?.revision ?? null);
     remember(result); takeOwnership(true);
@@ -99,6 +110,7 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
         const value = await readLocalSalonDraft(); remember(value);
         if (mounted.current && value?.state === 'locked') setMessage('送信に使用した下書きです。受付状況を確認するまで復元できません。');
         else if (mounted.current && value?.state === 'saved') setMessage('この端末に未送信の下書きがあります。自動保存を始める前に保存内容をご確認ください。');
+        if (value?.state === 'locked' || value?.state === 'saved') attention();
         if (mounted.current) setReady(true);
       } catch (error) { failed(error); }
     });
@@ -245,14 +257,16 @@ export const SalonLocalDraftControls = forwardRef<SalonLocalDraftHandle, Props>(
     });
   }
 
-  return <section aria-label="この端末の下書き" className="mb-4 rounded-sm border p-4 text-sm">
-    <p>希望する場合だけ、このブラウザーに入力と元の写真を保存できます。自動保存を止めても保存内容は残り、送信前に最新内容を保存して復元をロックします。最後の保存から7日後、次にこの画面を開いた際に削除します。ブラウザーのデータ削除でも失われます。</p>
-    <p className="mt-2">氏名・連絡先・写真が端末に残ります。共有端末では利用しないでください。別端末へ移す場合は手動バックアップを使い、不要なファイルも削除してください。</p>
-    <div className="mt-3 flex flex-wrap gap-3">
-      {enabled ? <button type="button" onClick={stop} disabled={busy} className="underline">自動保存を止める</button>
-        : <button type="button" onClick={enable} disabled={!ready || busy || saved?.state === 'locked' || (saved?.state === 'saved' && !ownsSaved) || !props.canSave()} className="underline">この端末で下書きを自動保存する（7日間）</button>}
-      <button type="button" onClick={restore} disabled={!ready || busy || saved?.state !== 'saved' || !props.canRestore()} className="underline">端末の下書きを復元</button>
-      <button type="button" onClick={clear} disabled={!ready || busy || !saved?.backup} className="underline">端末の下書きを削除</button>
+  return <section aria-label="この端末の下書き" className="text-sm">
+    <h3 className="font-medium">この端末に自動保存する</h3>
+    <p className="mt-1 text-(--ecru-muted)">希望する場合だけ、このブラウザーに入力と元の写真を保存できます。自動保存を止めても保存内容は残り、送信前に最新内容を保存して復元をロックします。最後の保存から7日後、次にこの画面を開いた際に削除します。ブラウザーのデータ削除でも失われます。</p>
+    <p className="mt-1 text-(--ecru-muted)">氏名・連絡先・写真が端末に残ります。共有端末では利用しないでください。別端末へ移す場合は手動バックアップを使い、不要なファイルも削除してください。</p>
+    <div className="mt-3 flex flex-wrap gap-2">
+      {enabled ? <button type="button" onClick={stop} disabled={busy} className={DRAFT_BUTTON}>自動保存を止める</button>
+        : <button type="button" onClick={enable} disabled={!ready || busy || saved?.state === 'locked' || (saved?.state === 'saved' && !ownsSaved) || !props.canSave()} className={DRAFT_BUTTON}>この端末で下書きを自動保存する（7日間）</button>}
+      <button type="button" onClick={restore} disabled={!ready || busy || saved?.state !== 'saved' || !props.canRestore()} className={DRAFT_BUTTON}>端末の下書きを復元</button>
+      {/* 削除は取り消せないので、他の操作と見た目を分ける。 */}
+      <button type="button" onClick={clear} disabled={!ready || busy || !saved?.backup} className={DRAFT_DANGER_BUTTON}>端末の下書きを削除</button>
     </div>
     <p aria-live="polite" className="mt-2">{busy ? '端末の下書きを確認しています。' : message}</p>
     {saved?.backup && <p className="mt-2">保存内容の期限: {new Date(saved.expiresAt).toLocaleString('ja-JP')}</p>}

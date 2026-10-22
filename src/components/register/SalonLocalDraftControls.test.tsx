@@ -192,3 +192,29 @@ test('a locked or unverified local record rejects manual import after losing its
   await act(async () => { await expect(view.ref.current!.adoptManualBackup(backup)).rejects.toMatchObject({ code: 'storage' }); });
   expect(api.saveLocalSalonDraft).not.toHaveBeenCalled();
 });
+
+// 操作欄は畳んで置くので、利用者が知るべき状態になったら開かせる（閉じたままだと気づけない）。
+test.each(['saved', 'locked'] as const)('an existing %s draft asks the caller to reveal the controls', async state => {
+  current = sample(4, state); const onAttention = jest.fn();
+  mount({ onAttention });
+  await waitFor(() => expect(onAttention).toHaveBeenCalledTimes(1));
+});
+test('no saved draft does not open the folded controls', async () => {
+  const onAttention = jest.fn(); mount({ onAttention });
+  await waitFor(() => expect(screen.getByText('自動保存は無効です。')).toBeInTheDocument());
+  expect(onAttention).not.toHaveBeenCalled();
+});
+test('a save failure asks the caller to reveal the controls', async () => {
+  const onAttention = jest.fn(); mount({ onAttention }); api.saveLocalSalonDraft.mockRejectedValue(new SalonLocalDraftError('storage'));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' }));
+  await waitFor(() => expect(onAttention).toHaveBeenCalledTimes(1));
+});
+test('buttons are full-size controls and the destructive one is styled apart', async () => {
+  mount(); await waitFor(() => expect(screen.getByText('自動保存は無効です。')).toBeInTheDocument());
+  const remove = screen.getByRole('button', { name: '端末の下書きを削除' });
+  const restore = screen.getByRole('button', { name: '端末の下書きを復元' });
+  expect(remove.className).toMatch(/min-h-11/); expect(restore.className).toMatch(/min-h-11/);
+  expect(remove.className).not.toBe(restore.className);
+  expect(remove.className).not.toMatch(/\bunderline\b/);
+});

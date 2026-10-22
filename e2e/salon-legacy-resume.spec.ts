@@ -36,7 +36,6 @@ async function populate(page: Page, email: string, name: string, files: Awaited<
   await page.locator('#reg-facility-name').fill(name);
   await page.locator('#reg-business-type').selectOption('ヘアサロン');
   await page.locator('#reg-rep-name').fill('合成代表');
-  await page.locator('#reg-contact-name').fill('合成担当');
   await page.locator('#reg-email').fill(email);
   await page.locator('#reg-phone').fill('09000000000');
   await page.getByRole('button', { name: '次へ', exact: true }).click();
@@ -187,9 +186,18 @@ test('frozen V1 configuration reaches real denied legacy upload, preserves input
   expect(receipts.data![0].photo_urls).toEqual(photos.data!.map(photo => db.storage.from('carelink-uploads').getPublicUrl(photo.object_path).data.publicUrl));
 });
 
+/** 下書き・バックアップの操作欄は既定で畳んである（申込の入力を先に見せるため）。操作前に開く。 */
+async function openTools(page: Page) {
+  const tools = page.locator('#register-draft-tools');
+  await tools.waitFor({ state: 'attached' });
+  if (!(await tools.evaluate(element => (element as HTMLDetailsElement).open))) await tools.locator('summary').click();
+  await expect(tools.getByRole('region', { name: 'この端末の下書き' })).toBeVisible();
+}
+
 type DraftFile = { name: string; type: string; size: number; lastModified: number; base64: string; sha256: string };
 type DraftBackup = { format: string; version: number; payload: { values: Record<string, unknown>; photos: (DraftFile | null)[] }; sha256: string };
 async function downloadBackup(page: Page): Promise<DraftBackup> {
+  await openTools(page);
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: '入力と元の写真をバックアップ', exact: true }).click();
   const download = await pending;
@@ -254,7 +262,10 @@ test('manual original-photo backup survives reload beyond capability lifetime, r
   await expect(page.locator('#reg-pr-text')).toHaveValue('合成入力の復元と写真の順序を検証');
   await expect(page.getByRole('checkbox', { name: /当施設の運営に法令上必要な許可/ })).not.toBeChecked();
   await expect(page.getByRole('checkbox', { name: /利用規約.*プライバシーポリシー/ })).not.toBeChecked();
-  await expect(page.getByRole('button', { name: '登録する', exact: true })).toBeDisabled();
+  // 必須のチェックが揃うまで送信確認へ進まない。押せない理由（残り件数）を画面に出す。
+  await page.getByRole('button', { name: '登録する', exact: true }).click();
+  await expect(page.getByText('必須の同意にチェックしてください（残り3件）')).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   const restored = await downloadBackup(page);
   assertBackup(restored, files);
   expect(restored.payload).toEqual(backup.payload);

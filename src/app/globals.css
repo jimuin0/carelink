@@ -74,12 +74,15 @@
 }
 
 @utility form-input {
-  @apply w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-offset-1 focus:border-transparent transition-colors;
+  /* aria-invalid の欄は枠も赤にする（色の差だけに頼らず、エラー文は aria-describedby で結ぶ）。 */
+  @apply w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-offset-1 focus:border-transparent transition-colors aria-invalid:border-red-700;
   --tw-ring-color: var(--primary);
 }
 
+/* WCAG AA(4.5:1): red-500(#EF4444) は白地で 3.76:1・アイボリー面(#FFFCF9)で 3.68:1 と不足していた。
+   red-700(#B91C1C) は白地 6.47:1 ／ アイボリー面 6.33:1 ／ エクリュ地色(#F7F3EC) 5.85:1。 */
 @utility form-error {
-  @apply text-red-500 text-sm mt-1;
+  @apply text-red-700 text-sm mt-1;
 }
 
 @utility card {

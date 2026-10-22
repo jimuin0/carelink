@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import RegisterForm from '@/components/register/RegisterForm';
 import { SHOW_JOBS } from '@/lib/feature-toggles';
+import { REGISTER_PHOTO_REQUIREMENT } from '@/lib/register-photo-policy';
 
 export const dynamic = 'force-dynamic';
 
@@ -272,7 +273,7 @@ export default function RegisterPage() {
             </div>
             <div className="py-5">
               <dt className="font-medium">受付が完了したら、すぐに公開されますか？</dt>
-              <dd className="mt-2 leading-relaxed">受付完了と一般公開は別の手続きです。アカウントを作成し、管理画面で店舗名・所在地を確認して掲載公開してください。無料掲載にメニュー・写真・スタッフの登録は必須ではありません。ネット予約は曜日別営業時間を含む設定完了まで利用できません。</dd>
+              <dd className="mt-2 leading-relaxed">受付完了と一般公開は別の手続きです。アカウントを作成し、管理画面で店舗名・所在地を確認して掲載公開してください。無料掲載にメニュー・スタッフの登録は必須ではありません。{REGISTER_PHOTO_REQUIREMENT}ネット予約は曜日別営業時間を含む設定完了まで利用できません。</dd>
             </div>
             <div className="py-5">
               <dt className="font-medium">複数店舗はどのように登録しますか？</dt>
@@ -288,7 +289,8 @@ export default function RegisterPage() {
       </section>
 
       {/* ===== フォーム ===== */}
-      <section id="register-form" className="mt-20 scroll-mt-4 pb-24 sm:mt-28">
+      {/* 固定ヘッダー（h-16＝4rem）の下に見出しが隠れないよう、ヘッダーの高さ＋余白ぶん止める。 */}
+      <section id="register-form" className="mt-20 scroll-mt-20 pb-24 sm:mt-28">
         <h2 className="mb-10 text-center font-(family-name:--font-serif-jp) text-lg tracking-[0.12em] sm:text-2xl">
           掲載のお申し込み
         </h2>

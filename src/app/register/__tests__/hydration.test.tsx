@@ -26,7 +26,6 @@ test('SSRでは入力不可と回復リンクを提示し、RHF準備完了後�
     fireEvent.change(view.getByLabelText(/^施設名/), { target: { value: '初回入力施設' } });
     fireEvent.change(view.getByLabelText(/^業種/), { target: { value: 'ヘアサロン' } });
     fireEvent.change(view.getByLabelText(/^代表者名/), { target: { value: '代表 太郎' } });
-    fireEvent.change(view.getByLabelText(/^担当者名/), { target: { value: '担当 花子' } });
     fireEvent.change(view.getByLabelText(/^メールアドレス/), { target: { value: 'fixture@example.invalid' } });
     fireEvent.change(view.getByLabelText(/^電話番号/), { target: { value: '09012345678' } });
     fireEvent.click(view.getByRole('button', { name: '次へ' }));

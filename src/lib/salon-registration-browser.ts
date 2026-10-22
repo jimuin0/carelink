@@ -6,6 +6,7 @@ import type { SalonFormValues } from './validations';
 import { SALON_PR_TEXT_PROHIBITED_MESSAGE, type SalonFieldErrors } from './salon-field-errors';
 import { salonStorageLimitsSchema, type SalonStorageLimits } from './salon-storage-limits';
 import { registrationConsentSchema, REGISTRATION_CONSENT_REQUIRED, type RegistrationConsent } from './registration-consent';
+import { formatMegabytes } from './format-megabytes';
 
 type Store = Parameters<typeof readSalonBrowserContext>[0];
 type Dependencies = {
@@ -214,7 +215,7 @@ export class SalonRegistrationBrowser {
         || verified.body.path !== path) throw new Error('Photo upload unconfirmed');
       return prepared.body.photoId as string;
     }));
-    if (outsideLimits) return { state: 'retryable', message: `現在の写真の上限は${photoLimits.maxBytes.toLocaleString('ja-JP')}バイト、対応形式は${photoLimits.mimeTypes.map(type => type.replace('image/', '')).join('・')}です。元の写真は保持されています。` };
+    if (outsideLimits) return { state: 'retryable', message: `現在の写真の上限は${formatMegabytes(photoLimits.maxBytes)}、対応形式は${photoLimits.mimeTypes.map(type => type.replace('image/', '')).join('・')}です。元の写真は保持されています。` };
     if (results.some(result => result.status === 'rejected')) return retryable;
     const photoIds: string[] = [];
     for (const result of results) if (result.status === 'fulfilled' && result.value) photoIds.push(result.value);
