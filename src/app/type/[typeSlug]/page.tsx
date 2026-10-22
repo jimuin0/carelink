@@ -14,6 +14,7 @@ import { countAreaListing, loadAreaListingPage } from '@/lib/area-listing';
 import { getBusinessTypeContext } from '@/lib/seo-snippets';
 import Breadcrumb from '@/components/Breadcrumb';
 import FacilityCard from '@/components/search/FacilityCard';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 export const revalidate = 3600;
 
@@ -27,8 +28,10 @@ export function generateStaticParams() {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { typeSlug } = await params;
-  const typeName = getBusinessTypeName(typeSlug);
-  if (!typeName) return {};
+  // 保存値（検索の結合キー）と表示名を分ける（src/lib/business-type-label.ts）。
+  const typeValue = getBusinessTypeName(typeSlug);
+  if (!typeValue) return {};
+  const typeName = businessTypeLabel(typeValue);
   const ctx = getBusinessTypeContext(typeSlug);
   const description = ctx
     ? `${typeName}（${ctx.keyword}）を全国から検索。${ctx.description}を口コミ・料金・写真で比較し、24時間ネット予約できます。`
@@ -40,7 +43,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   // 件数は本文と同じ検索の読み取りから取る（src/lib/area-listing.ts）。数えられなかったときは例外にし、
   // null を「件数不明＝index 可」とも扱わない。metadata だけ別の問い合わせにすると、それだけが落ちたとき
   // 本文が 200 で返り title・robots が欠ける。
-  const count = await countAreaListing(undefined, undefined, typeName);
+  const count = await countAreaListing(undefined, undefined, typeValue);
   return {
     // ルート layout の title.template '%s | CareLink' が自動付与するため「| CareLink」は付けない（二重化防止）。
     title: `${typeName}を全国から探す｜口コミ・料金で比較`,
@@ -53,11 +56,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function BusinessTypePage({ params }: Props) {
   const { typeSlug } = await params;
   if (!isValidBusinessTypeSlug(typeSlug)) notFound();
-  const typeName = getBusinessTypeName(typeSlug)!;
+  const typeValue = getBusinessTypeName(typeSlug)!;
+  const typeName = businessTypeLabel(typeValue);
   const ctx = getBusinessTypeContext(typeSlug);
 
   // 読めなかった検索は「0件の施設を掲載中」として 200 で返さず、例外にして error.tsx の一時障害表示にする。
-  const { facilities, total } = await loadAreaListingPage(undefined, undefined, typeName, 1);
+  const { facilities, total } = await loadAreaListingPage(undefined, undefined, typeValue, 1);
 
   // ItemList JSON-LD
   const itemListJsonLd = {
@@ -170,7 +174,7 @@ export default async function BusinessTypePage({ params }: Props) {
                 href={`/type/${s}`}
                 className="px-3.5 py-1.5 bg-sky-50 border border-sky-100 rounded-full text-xs text-sky-700 hover:bg-sky-100 transition-colors"
               >
-                {businessTypeSlugs[s]}
+                {businessTypeLabel(businessTypeSlugs[s])}
               </Link>
             ))}
           </div>

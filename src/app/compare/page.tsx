@@ -5,6 +5,7 @@ import type { Metadata } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import type { Facility } from '@/types';
 import { formatFacilityLocality } from '@/lib/facility-location';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 // 【2026年7月8日 恒久根治】比較対象(searchParams.ids)はリクエスト毎に変わるため、他の
 // DB駆動ページ(revalidate=3600で統一)とは異なりキャッシュしてはいけない。明示指定が無いのは
@@ -69,7 +70,7 @@ export default async function ComparePage(props: Props) {
   );
 
   const rows: { label: string; render: (f: Facility) => React.ReactNode }[] = [
-    { label: '業種', render: (f) => f.business_type },
+    { label: '業種', render: (f) => businessTypeLabel(f.business_type) },
     { label: '評価', render: (f) => f.rating_count > 0 ? `${Number(f.rating_avg).toFixed(1)} (${f.rating_count}件)` : '-' },
     { label: '価格帯', render: (f) => {
       const p = priceMap[f.id];

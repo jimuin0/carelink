@@ -16,6 +16,7 @@ import { getPrefectureSeo } from '@/data/prefecture-seo';
 import Breadcrumb from '@/components/Breadcrumb';
 import FacilityCard from '@/components/search/FacilityCard';
 import RelatedLinks from '@/components/seo/RelatedLinks';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 export const revalidate = 3600;
 export const dynamic = 'force-dynamic';
@@ -118,7 +119,7 @@ export default async function PrefecturePage({ params }: Props) {
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {allBusinessTypeSlugs.map((typeSlug) => {
-              const typeName = businessTypeSlugs[typeSlug];
+              const typeName = businessTypeLabel(businessTypeSlugs[typeSlug]);
               return (
                 <Link
                   key={typeSlug}

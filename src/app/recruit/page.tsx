@@ -14,7 +14,8 @@ import { normalizePhone } from '@/lib/phone';
 import { getRecaptchaToken } from '@/lib/recaptcha-client';
 import { SALON_SUBMISSION_UNKNOWN } from '@/lib/salon-registration-delivery';
 import { SalonRegistrationBrowser } from '@/lib/salon-registration-browser';
-import { registrationConsentSchema, REGISTRATION_CONSENT_REQUIRED } from '@/lib/registration-consent';
+import { LICENSE_WARRANTY_TEXT, registrationConsentSchema, REGISTRATION_CONSENT_REQUIRED } from '@/lib/registration-consent';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 // 【2026年7月16日 恒久根治】従来はこのページ固有の緩い正規表現(/^[\d-]+$/、先頭0任意・
 // 全角未対応)を独自定義しており、サーバー側 /api/salons が使う共通ヘルパー phoneField()
@@ -192,7 +193,7 @@ export default function RecruitPage() {
                 <label htmlFor="recruit-business_type" className="form-label">業種 *</label>
                 <select {...register('business_type')} id="recruit-business_type" className="form-input w-full" aria-required="true">
                   <option value="">選択してください</option>
-                  {businessTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                  {businessTypes.map((t) => <option key={t} value={t}>{businessTypeLabel(t)}</option>)}
                 </select>
                 {errors.business_type && <p className="form-error" role="alert">{errors.business_type.message}</p>}
                 <p className="text-sm text-gray-500">該当する業種がない場合は「その他」を選び、施設紹介に具体的な業種をご記入ください。</p>
@@ -248,7 +249,7 @@ export default function RecruitPage() {
               </div>
               <label className="flex items-start gap-2 text-sm text-gray-600">
                 <input type="checkbox" checked={licenseWarranted} onChange={event => setLicenseWarranted(event.target.checked)} className="mt-0.5 rounded-sm border-gray-300" />
-                <span>当施設の運営に法令上必要な許可・免許・届出を完了し、施術は必要な資格を有する者が提供することを表明します（必須）</span>
+                <span>{LICENSE_WARRANTY_TEXT}</span>
               </label>
               <label className="flex items-start gap-2 text-sm text-gray-600">
                 <input type="checkbox" checked={agreed} onChange={event => setAgreed(event.target.checked)} className="mt-0.5 rounded-sm border-gray-300" />

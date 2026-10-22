@@ -61,7 +61,7 @@ async function step3(page: Page) {
   await page.getByRole('button', { name: '次へ' }).click(); await expect(page.locator('#reg-desired-start-date')).toBeVisible();
 }
 async function submit(page: Page) {
-  await page.locator('label', { hasText: '施術は必要な資格を有する者が提供する' }).locator('input').check();
+  await page.locator('label', { hasText: '国家資格が必要な施術（あん摩マッサージ指圧・鍼・灸・柔道整復など）は、その資格を持つ者が行っている' }).locator('input').check();
   await page.locator('label', { hasText: '利用規約' }).locator('input').check();
   await page.getByRole('button', { name: '登録する', exact: true }).click();
   await page.getByRole('button', { name: '送信する', exact: true }).click();
@@ -84,7 +84,7 @@ test('opt-in retains original photo bytes and partial input across a real Indexe
   await expect(page.locator('#reg-facility-name')).toHaveValue('端末下書きの合成店舗');
   await page.getByRole('button', { name: '次へ' }).click(); await page.getByRole('button', { name: '次へ' }).click();
   await expect(page.getByRole('img', { name: 'メニュー 1', exact: true })).toBeVisible();
-  await expect(page.locator('label', { hasText: '施術は必要な資格を有する者が提供する' }).locator('input')).not.toBeChecked();
+  await expect(page.locator('label', { hasText: '国家資格が必要な施術（あん摩マッサージ指圧・鍼・灸・柔道整復など）は、その資格を持つ者が行っている' }).locator('input')).not.toBeChecked();
   await expect(page.locator('label', { hasText: '利用規約' }).locator('input')).not.toBeChecked();
 });
 test('two actual browser tabs cannot overwrite an already advanced draft revision', async ({ page, context }) => {

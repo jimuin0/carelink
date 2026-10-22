@@ -3,6 +3,7 @@
 import Link from '@/components/BrowseLink';
 import { regionGroups, businessTypes } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 // 神奈川・愛知・福岡・京都は src/data/city-slugs.ts に区レベルのslugが存在せず市レベルのみ
 // （東京・大阪だけが区レベルを持つ）。旧実装は区レベルの名称・slugをハードコードしており、
@@ -88,7 +89,7 @@ export default function SearchFooter({ className = '' }: { className?: string })
                       href={`/search?type=${encodeURIComponent(type)}`}
                       className="text-gray-300 hover:text-white transition-colors"
                     >
-                      {type}
+                      {businessTypeLabel(type)}
                     </Link>
                   </h3>
                   <div className="flex flex-wrap gap-x-2.5 gap-y-0.5">
@@ -139,7 +140,7 @@ export default function SearchFooter({ className = '' }: { className?: string })
                   href={`/search?type=${encodeURIComponent(type)}`}
                   className="hover:text-white transition-colors"
                 >
-                  {type}
+                  {businessTypeLabel(type)}
                 </Link>
               ))}
             </nav>

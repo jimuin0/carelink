@@ -12,6 +12,8 @@ import { readSalonBrowserContext, readSalonRecoveryContext, salonHandoffAuthPath
   salonRecoveryAuthPath, SALON_RECOVERY_PATH, SALON_RECOVERY_SELECT_PATH, SALON_ONBOARDING_PATH,
   SALON_RECOVERY_ONBOARDING_PATH } from '@/lib/salon-browser-context';
 import { navigateAfterFacilitySetup } from '@/lib/onboarding-navigation';
+import { businessTypeLabel } from '@/lib/business-type-label';
+import { LICENSE_WARRANTY_TEXT } from '@/lib/registration-consent';
 
 function OnboardingContent() {
   const router = useRouter();
@@ -296,7 +298,7 @@ function OnboardingContent() {
             >
               <option value="">選択してください</option>
               {businessTypes.map((t) => (
-                <option key={t} value={t}>{t}</option>
+                <option key={t} value={t}>{businessTypeLabel(t)}</option>
               ))}
             </select>
           </div>
@@ -308,8 +310,7 @@ function OnboardingContent() {
               className="mt-0.5 rounded-sm border-gray-300"
             />
             <span>
-              当施設の運営に法令上必要な許可・免許・届出（美容所開設届、施術所開設届、診療所開設届等）を
-              すべて完了しており、施術は必要な資格を有する者が提供することを表明します（必須）
+              {LICENSE_WARRANTY_TEXT}
             </span>
           </label>
           {formError && <p role="alert" className="text-sm text-red-600">{formError}</p>}

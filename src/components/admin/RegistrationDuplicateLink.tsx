@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { duplicateLinkInput, duplicateLinkResponse, type DuplicateLinkPreview } from '@/lib/registration-duplicate-contract';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 export default function RegistrationDuplicateLink() {
   const [duplicateId, setDuplicateId] = useState('');
@@ -56,7 +57,7 @@ export default function RegistrationDuplicateLink() {
       <label className="block">店舗作成済みの受付番号<input aria-label="店舗作成済みの受付番号" value={canonicalId} maxLength={36} onChange={event => { reset(); setCanonicalId(event.target.value); }} className="form-input" /></label>
       <button type="button" onClick={() => void submit(false)} className="btn-secondary">比較・記録を確認する</button>
       {preview && <div className="space-y-2">
-        <p>{preview.name}／{preview.businessType}</p>
+        <p>{preview.name}／{businessTypeLabel(preview.businessType)}</p>
         <p>{preview.prefecture} {preview.city} {preview.address} {preview.building}</p>
         <p className="text-sm">2件の原申込と現在の店舗情報・確認済み所有者の一致を確認しました。同名・同住所でも別店舗ではないか確認してください。</p>
         <label><input type="checkbox" checked={sameSite} onChange={event => setSameSite(event.target.checked)} />同じ実店舗の重複申込であり、別支店ではありません</label>

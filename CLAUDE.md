@@ -257,6 +257,17 @@ LINE ログインは LIFF とは別チャネルで動くため、どちらか片
 ⚠️ サイト全体のブランド色（`:root` の `--primary: #0369A1`）は変えていない。
 トップ・検索など他のページは従来どおり。
 
+### 業種の表示名＝`src/lib/business-type-label.ts`（2026年10月23日 新設）
+
+業種「鍼灸院・整骨院」は画面では **「鍼灸院・整骨院・整体」** と表示する（神原さん決定：整体を含める）。
+🔴 **保存値は変えない。** `business_type` は検索・`/type/acupuncture`・エリア×業種ページの結合キーで、
+既存の行・外部に出回った `?type=` の URL・DB 側の受付関数（migration の業種の列挙）がこの文字列を持つ。
+表示する箇所だけ `businessTypeLabel()` を通し、フォームの `<option>` は value＝保存値・表示＝表示名にする。
+業種ページは `typeValue`（保存値）で検索し `typeName`（表示名）で見せる。
+`src/__tests__/business-type-label-wiring.test.ts` が表示箇所の配線と migration 無変更を固定する。
+許認可の表明（`LICENSE_WARRANTY_TEXT`・`src/lib/registration-consent.ts`）も整体に合わせて
+「国家資格が必要な施術は、その資格を持つ者が行っている」に改めた（規約 第12条と同義・規約本文と版の指紋は不変）。
+
 ### 連携の出し分け＝`src/lib/integration-availability.ts`（PR#553）
 
 `isAiEnabled()` / `isPaymentsEnabled()` / `isGoogleCalendarEnabled()`。

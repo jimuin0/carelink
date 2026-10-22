@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { FacilityCardData } from '@/types';
 import { SHIMMER_BLUR, cardUrl } from '@/lib/image-utils';
 import { formatFacilityLocality } from '@/lib/facility-location';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 function CardStarRating({ rating, count }: { rating: number; count: number }) {
   return (
@@ -43,7 +44,7 @@ export default function FacilityCard({ facility, showBadges = true, monthlyBooki
         {facility.main_photo_url ? (
           <Image
             src={cardUrl(facility.main_photo_url)}
-            alt={`${facility.name} - ${facility.business_type}`}
+            alt={`${facility.name} - ${businessTypeLabel(facility.business_type)}`}
             fill
             sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
             className="object-cover"
@@ -60,7 +61,7 @@ export default function FacilityCard({ facility, showBadges = true, monthlyBooki
           </div>
         )}
         <div className="absolute top-3 left-3 flex flex-wrap gap-1.5">
-          <span className="badge badge-primary">{facility.business_type}</span>
+          <span className="badge badge-primary">{businessTypeLabel(facility.business_type)}</span>
           {showBadges && (
             <>
               {bookingReady && <span className="badge badge-instant">予約OK</span>}

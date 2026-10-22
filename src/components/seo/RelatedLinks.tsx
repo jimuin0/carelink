@@ -6,6 +6,7 @@ import {
   getPrefectureSlug,
 } from '@/lib/seo-constants';
 import { getCitiesForPrefecture } from '@/data/city-slugs';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 interface RegionGroup {
   name: string;
@@ -62,7 +63,7 @@ export default function RelatedLinks({ currentPrefectureSlug, currentTypeSlug, c
                 href={currentCitySlug ? `/${currentPrefectureSlug}/${currentCitySlug}/${ts}` : `/${currentPrefectureSlug}/${ts}`}
                 className="px-3.5 py-1.5 bg-sky-50 border border-sky-100 rounded-full text-xs text-sky-700 hover:bg-sky-100 transition-colors"
               >
-                {prefName}の{businessTypeSlugs[ts]}
+                {prefName}の{businessTypeLabel(businessTypeSlugs[ts])}
               </Link>
             ))}
         </div>
@@ -72,7 +73,7 @@ export default function RelatedLinks({ currentPrefectureSlug, currentTypeSlug, c
       {currentTypeSlug && (
         <div className="mb-6">
           <h2 className="text-sm font-bold text-gray-800 mb-3 pl-3 border-l-[3px] border-sky-500">
-            他のエリアの{businessTypeSlugs[currentTypeSlug]}
+            他のエリアの{businessTypeLabel(businessTypeSlugs[currentTypeSlug])}
           </h2>
           <div className="flex flex-wrap gap-2">
             {(regionGroup?.prefectures || [])

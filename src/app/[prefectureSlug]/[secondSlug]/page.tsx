@@ -23,6 +23,7 @@ import FacilityCard from '@/components/search/FacilityCard';
 import Pagination from '@/components/search/Pagination';
 import RelatedLinks from '@/components/seo/RelatedLinks';
 import SafeHtmlContent from '@/components/seo/SafeHtmlContent';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 export const revalidate = 3600;
 export const dynamic = 'force-dynamic';
@@ -44,13 +45,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   // 業種ページ
   if (isValidBusinessTypeSlug(secondSlug)) {
-    const typeName = getBusinessTypeName(secondSlug)!;
+    const typeValue = getBusinessTypeName(secondSlug)!;
+    const typeName = businessTypeLabel(typeValue);
     const title = `${prefName}の${typeName}`;
     const description = `${prefName}の${typeName}を口コミ・メニュー・写真で比較。ネット予約24時間OK。CareLink で${prefName}の${typeName}を探そう。`;
     // 件数は本文と同じ検索の読み取りから取る（src/lib/area-listing.ts）。数えられなかったときは例外にし、
     // null を「件数不明＝index 可」とも扱わない。metadata だけ別の問い合わせにすると、それだけが落ちたとき
     // 本文が 200 で返り title・robots が欠ける（2026年10月22日 是正）。
-    const count = await countAreaListing(prefName, undefined, typeName);
+    const count = await countAreaListing(prefName, undefined, typeValue);
     const hasQualityContent = isIndexableAreaQuality(count, generatePrefTypeContent(prefectureSlug, secondSlug));
     return {
       title,
@@ -105,13 +107,14 @@ export default async function SecondSlugPage(props: Props) {
 async function TypePage({ prefectureSlug, prefName, typeSlug, searchParams }: {
   prefectureSlug: string; prefName: string; typeSlug: string; searchParams: { page?: string };
 }) {
-  const typeName = getBusinessTypeName(typeSlug)!;
+  const typeValue = getBusinessTypeName(typeSlug)!;
+  const typeName = businessTypeLabel(typeValue);
   const { page: pageStr } = searchParams;
   const page = Math.max(1, parseInt(pageStr || '1', 10) || 1);
 
   // 読めなかった検索は「0件・掲載なし」として 200 で返さず、例外にして error.tsx の一時障害表示にする。
   const [{ facilities, total, perPage }, seoContent] = await Promise.all([
-    loadAreaListingPage(prefName, undefined, typeName, page),
+    loadAreaListingPage(prefName, undefined, typeValue, page),
     getAreaSeoContent(prefectureSlug, null, typeSlug),
   ]);
   const totalPages = Math.ceil(total / perPage);
@@ -140,7 +143,7 @@ async function TypePage({ prefectureSlug, prefName, typeSlug, searchParams }: {
           <h2 className="text-sm font-bold text-gray-800 mb-3 pl-3 border-l-[3px] border-sky-500">こだわり条件で絞り込む</h2>
           <div className="flex flex-wrap gap-2">
             {facilityFeatures.map((feature) => (
-              <Link key={feature} href={featureSearchHref(feature, { type: typeName, area: prefName })}
+              <Link key={feature} href={featureSearchHref(feature, { type: typeValue, area: prefName })}
                 className="px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs text-gray-600 hover:bg-sky-50 hover:border-sky-200 hover:text-sky-700 transition-colors">
                 {feature}
               </Link>
@@ -212,7 +215,7 @@ async function CityPage({ prefectureSlug, prefName, citySlug, cityName, searchPa
             {allBusinessTypeSlugs.map((ts) => (
               <Link key={ts} href={`/${prefectureSlug}/${citySlug}/${ts}`}
                 className="bg-white rounded-xl p-4 text-center hover:shadow-md transition-shadow border border-gray-100">
-                <span className="text-sm font-medium text-gray-700">{getBusinessTypeName(ts)}</span>
+                <span className="text-sm font-medium text-gray-700">{businessTypeLabel(getBusinessTypeName(ts))}</span>
               </Link>
             ))}
           </div>

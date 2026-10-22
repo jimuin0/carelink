@@ -23,6 +23,7 @@ import FavoriteButton from '@/components/facility/FavoriteButton';
 import ShareButtons from '@/components/facility/ShareButtons';
 import SymptomList from '@/components/facility/SymptomList';
 import CertificationList from '@/components/facility/CertificationList';
+import { businessTypeLabel } from '@/lib/business-type-label';
 // InsuranceMenuBadge はMenuListコンポーネント内で使用（menu.insurance_covered時に表示）
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import ViewCount from '@/components/facility/ViewCount';
@@ -72,10 +73,11 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   // ルート layout の title.template '%s | CareLink' が自動付与するため metadata.title には「| CareLink」を付けない（二重化防止）。
   if (!facility) return { title: 'ページが見つかりません' };
 
-  const title = `${facility.name} | ${facility.business_type}`;
+  const typeLabel = businessTypeLabel(facility.business_type);
+  const title = `${facility.name} | ${typeLabel}`;
   const ogTitle = `${title} | CareLink`;
   const locality = `${facility.prefecture ?? ''}${formatFacilityLocality(facility.prefecture, facility.city)}`;
-  const description = facility.catch_copy || `${locality}の${facility.business_type}「${facility.name}」のメニュー・料金・アクセス情報`;
+  const description = facility.catch_copy || `${locality}の${typeLabel}「${facility.name}」のメニュー・料金・アクセス情報`;
 
   const url = `${SITE_URL}/facility/${params.slug}`;
 
@@ -90,7 +92,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
       url,
       siteName: 'CareLink',
       images: [{
-        url: `${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + locality)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`,
+        url: `${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(typeLabel + ' | ' + locality)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`,
         width: 1200,
         height: 630,
       }],
@@ -99,7 +101,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
       card: 'summary_large_image',
       title: ogTitle,
       description,
-      images: [`${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + locality)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`],
+      images: [`${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(typeLabel + ' | ' + locality)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`],
     },
   };
 }
@@ -254,12 +256,12 @@ export default async function FacilityPage(props: Props) {
                 )}
                 {prefSlug && typeSlug ? (
                   <>
-                    <li><Link href={`/${prefSlug}/${typeSlug}`} className="hover:text-sky-600 transition-colors">{facility.business_type}</Link></li>
+                    <li><Link href={`/${prefSlug}/${typeSlug}`} className="hover:text-sky-600 transition-colors">{businessTypeLabel(facility.business_type)}</Link></li>
                     <li><span className="mx-1">/</span></li>
                   </>
                 ) : (
                   <>
-                    <li><Link href={`/search?type=${encodeURIComponent(facility.business_type)}`} className="hover:text-sky-600 transition-colors">{facility.business_type}</Link></li>
+                    <li><Link href={`/search?type=${encodeURIComponent(facility.business_type)}`} className="hover:text-sky-600 transition-colors">{businessTypeLabel(facility.business_type)}</Link></li>
                     <li><span className="mx-1">/</span></li>
                   </>
                 )}
@@ -505,13 +507,13 @@ export default async function FacilityPage(props: Props) {
           if (pSlug) {
             items.push({ '@type': 'ListItem', position: 2, name: facility.prefecture, item: `${SITE_URL}/${pSlug}` });
             if (tSlug) {
-              items.push({ '@type': 'ListItem', position: 3, name: facility.business_type, item: `${SITE_URL}/${pSlug}/${tSlug}` });
+              items.push({ '@type': 'ListItem', position: 3, name: businessTypeLabel(facility.business_type), item: `${SITE_URL}/${pSlug}/${tSlug}` });
               items.push({ '@type': 'ListItem', position: 4, name: facility.name });
             } else {
               items.push({ '@type': 'ListItem', position: 3, name: facility.name });
             }
           } else {
-            items.push({ '@type': 'ListItem', position: 2, name: facility.business_type, item: `${SITE_URL}/search?type=${encodeURIComponent(facility.business_type)}` });
+            items.push({ '@type': 'ListItem', position: 2, name: businessTypeLabel(facility.business_type), item: `${SITE_URL}/search?type=${encodeURIComponent(facility.business_type)}` });
             items.push({ '@type': 'ListItem', position: 3, name: facility.name });
           }
           return (

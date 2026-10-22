@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { businessTypes } from '@/lib/constants';
 import AuthButton from '@/components/auth/AuthButton';
 import dynamic from 'next/dynamic';
+import { businessTypeLabel } from '@/lib/business-type-label';
 const LocaleSwitcher = dynamic(() => import('@/components/LocaleSwitcher'), { ssr: false });
 
 export default function SearchHeader() {
@@ -28,7 +29,7 @@ export default function SearchHeader() {
                 href={`/search?type=${encodeURIComponent(type)}`}
                 className="text-gray-600 hover:text-primary text-[13px] px-2.5 py-1.5 rounded-full hover:bg-sky-50 transition-colors whitespace-nowrap"
               >
-                {type}
+                {businessTypeLabel(type)}
               </Link>
             ))}
             <Link
@@ -92,7 +93,7 @@ export default function SearchHeader() {
                 className="text-gray-600 hover:text-primary text-sm px-3 py-2 rounded-lg hover:bg-sky-50 transition-colors"
                 onClick={() => setIsOpen(false)}
               >
-                {type}
+                {businessTypeLabel(type)}
               </Link>
             ))}
             <Link

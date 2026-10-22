@@ -27,6 +27,8 @@ import { SalonLocalDraftControls, DRAFT_BUTTON, type SalonLocalDraftHandle } fro
 import { readLocalSalonDraft } from '@/lib/salon-local-draft';
 import { normalizePostalCodeInput, normalizeWebsiteInput } from '@/lib/register-input-normalize';
 import { REGISTER_PHOTO_FIELD_NOTE } from '@/lib/register-photo-policy';
+import { businessTypeLabel } from '@/lib/business-type-label';
+import { LICENSE_WARRANTY_TEXT } from '@/lib/registration-consent';
 
 const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
 const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
@@ -792,7 +794,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                 <div className="relative">
                   <select {...register('business_type')} id="reg-business-type" className="form-input appearance-none pr-10" aria-required="true" {...describe('business_type', 'reg-business-type')}>
                     <option value="">選択してください</option>
-                    {businessTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                    {businessTypes.map(t => <option key={t} value={t}>{businessTypeLabel(t)}</option>)}
                   </select>
                   {chevron}
                 </div>
@@ -1001,7 +1003,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                     className={CHECKBOX}
                   />
                   <span>
-                    当施設の運営に法令上必要な許可・免許・届出（美容所開設届、施術所開設届、診療所開設届等）をすべて完了しており、施術は必要な資格を有する者が提供することを表明します（必須）
+                    {LICENSE_WARRANTY_TEXT}
                   </span>
                 </label>
                 {checkError('license') && <p id="reg-license-error" className="form-error">{checkError('license')}</p>}

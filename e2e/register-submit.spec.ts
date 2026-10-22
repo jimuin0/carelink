@@ -211,7 +211,7 @@ test.describe('/register 送信', () => {
       // 許認可の表明と利用規約同意（両方 disabled ガードの対象・チェックしないと送信不可）。
       // ラベルの文言でスコープする（並び順が変わっても踏み違えないため）。
       await page
-        .locator('label', { hasText: '施術は必要な資格を有する者が提供する' })
+        .locator('label', { hasText: '国家資格が必要な施術（あん摩マッサージ指圧・鍼・灸・柔道整復など）は、その資格を持つ者が行っている' })
         .locator('input[type="checkbox"]')
         .check();
       await page

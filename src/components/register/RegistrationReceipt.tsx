@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { z } from 'zod';
 import { readSalonBrowserContext, saveSalonBrowserContext,
   salonHandoffAuthPath } from '@/lib/salon-browser-context';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 const receiptSchema = z.object({ state: z.literal('confirmed'), receiptId: z.uuid(),
   name: z.string().min(1).max(200), type: z.string().min(1).max(100), area: z.string().max(500) });
@@ -58,7 +59,7 @@ export default function RegistrationReceipt() {
       <p className="text-sm">受付番号：<span className="break-all">{receipt.receiptId}</span></p>
       <dl className="my-6 divide-y divide-(--ecru-line) border-y border-(--ecru-line) bg-(--ecru-surface) px-4 text-sm">
         <div className="flex gap-4 py-3"><dt className="w-20 shrink-0 text-(--ecru-muted)">施設名</dt><dd className="font-medium">{receipt.name}</dd></div>
-        <div className="flex gap-4 py-3"><dt className="w-20 shrink-0 text-(--ecru-muted)">業種</dt><dd>{receipt.type}</dd></div>
+        <div className="flex gap-4 py-3"><dt className="w-20 shrink-0 text-(--ecru-muted)">業種</dt><dd>{businessTypeLabel(receipt.type)}</dd></div>
         <div className="flex gap-4 py-3"><dt className="w-20 shrink-0 text-(--ecru-muted)">所在地</dt><dd>{receipt.area || '未入力（公開前に設定してください）'}</dd></div>
       </dl>
       <p className="text-sm leading-relaxed">この時点では一般公開は完了していません。店舗アカウントを作成し、管理画面で店舗名・所在地などを確認して無料掲載を公開してください。ネット予約はメニュー・スタッフ・写真・曜日別営業時間の設定完了まで利用できません。</p>

@@ -22,6 +22,7 @@ import { facilitySetupSteps, loadFacilitySetupFacts, type FacilitySetupStep } fr
 import { listingPublishMissing } from '@/lib/facility-publish-gate';
 import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
 import { BOOKING_CSV_MAX_ROWS, buildBookingCsv, readBookingCsvRows } from '@/lib/booking-csv-export';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
 const CancelPolicySettings = dynamic(() => import('@/components/admin/CancelPolicySettings'), { ssr: false });
@@ -428,7 +429,7 @@ function AdminSettingsContent() {
             <label htmlFor="fac-type" className="form-label">業種 <span className="text-red-500">*</span></label>
             <select id="fac-type" value={businessType} onChange={(e) => setBusinessType(e.target.value)} className="form-input">
               <option value="">選択してください</option>
-              {businessTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+              {businessTypes.map((t) => <option key={t} value={t}>{businessTypeLabel(t)}</option>)}
             </select>
           </div>
           <div>

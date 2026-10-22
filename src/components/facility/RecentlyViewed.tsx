@@ -4,6 +4,7 @@ import { useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { getViewedFacilities } from './ViewCount';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 type ViewedFacilities = ReturnType<typeof getViewedFacilities>;
 
@@ -62,7 +63,7 @@ export default function RecentlyViewed() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{f.name}</p>
-              <p className="text-xs text-gray-500">{f.business_type}</p>
+              <p className="text-xs text-gray-500">{businessTypeLabel(f.business_type)}</p>
             </div>
           </Link>
         ))}

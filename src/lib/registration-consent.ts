@@ -10,6 +10,23 @@ export const registrationConsentSchema = termsConsentSchema.extend({
   license_warranted: z.literal(true),
 }).strict();
 export type RegistrationConsent = z.infer<typeof registrationConsentSchema>;
+
+/**
+ * 許認可・資格の表明（`license_warranted`）としてチェックしてもらう文言。
+ * 掲載申し込み（/register）・店舗作成（/admin/onboarding）・/recruit の 3 画面がこれを表示する。
+ *
+ * 🔴 2026年10月23日 改訂（神原さん決定：業種「鍼灸院・整骨院」に整体を含める）。
+ * 旧文言「施術は必要な資格を有する者が提供する」は、国家資格の無い整体（民間資格・無資格でも
+ * 適法に営業できる）では表明として成り立たない・誤読される。資格が法令上必要な施術
+ * （あん摩マッサージ指圧・はり・きゅう・柔道整復など）は、その資格者が行う、という
+ * 法的な意味は残したまま、整体の店舗も事実どおりにチェックできる文言にする。
+ * 利用規約 第12条（掲載者の表明保証）の「法令上必要な国家資格等を有する者が当該施術・サービスを
+ * 提供すること」と同じ意味であり、規約本文は変わらない（REGISTRATION_TERMS_SHA256 は据え置き）。
+ * DB は真偽値（salons.registration_license_warranted）だけを持ち、文言は保存していない。
+ */
+export const LICENSE_WARRANTY_TEXT =
+  '当施設の運営に法令上必要な許可・免許・届出（美容所開設届、施術所開設届、診療所開設届等）をすべて完了しており、' +
+  '国家資格が必要な施術（あん摩マッサージ指圧・鍼・灸・柔道整復など）は、その資格を持つ者が行っていることを表明します（必須）';
 // Content fingerprint of Terms/Privacy plus their shared retirement notices.
 // This identifies an edition; it does not invent a legal effective date.
 export const REGISTRATION_TERMS_SHA256 = 'eee088e617635720ef002496d5f84c69a3d9900872ba21e751d6534a4a3ebb00';

@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { z } from 'zod';
 import { businessTypes } from '@/lib/constants';
 import { SALON_RECOVERY_ONBOARDING_PATH, saveSalonRecoveryContext, salonRecoveryAuthPath } from '@/lib/salon-browser-context';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 const resultSchema = z.object({ state: z.literal('ready'), receipts: z.array(z.object({
   receipt_id: z.uuid(), facility_name: z.string().min(1).max(200),
@@ -133,7 +134,7 @@ function RecoverRegistrationContent() {
     {error && <p role="alert" className="text-red-600 mb-4">{error}</p>}
     {loaded && !error && receipts.length === 0 && <p className="mb-4">一致する受付を確認できませんでした。別の申込メールや取り込み状況は自動判定できません。再送する前にお問い合わせください。</p>}
     <ul className="space-y-4 mb-4">{receipts.map(receipt => <li key={receipt.receipt_id} className="rounded-sm border p-4">
-      <p className="font-bold">{receipt.facility_name}</p><p>{receipt.business_type}</p>
+      <p className="font-bold">{receipt.facility_name}</p><p>{businessTypeLabel(receipt.business_type)}</p>
       <p className="text-sm">受付番号：{receipt.receipt_id}</p>
       <button type="button" disabled={busy} onClick={() => void handleSelect(receipt.receipt_id)} className="btn-primary mt-3">この申込の店舗情報を確認</button>
     </li>)}</ul>

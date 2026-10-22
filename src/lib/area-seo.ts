@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from './supabase-server';
+import { businessTypeLabel } from './business-type-label';
 
 interface FaqItem {
   question: string;
@@ -127,7 +128,7 @@ export async function enrichSeoContent(
     '{{facility_count}}': String(facilityCount),
     '{{avg_rating}}': avgRating,
     '{{area_name}}': areaName,
-    '{{business_type}}': businessType || 'サロン・クリニック',
+    '{{business_type}}': businessTypeLabel(businessType) || 'サロン・クリニック',
   };
 
   const replace = (text: string) =>

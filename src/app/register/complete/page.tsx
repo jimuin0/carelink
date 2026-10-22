@@ -4,6 +4,7 @@ import { SALON_CLAIM_COOKIE_NAME } from '@/lib/salon-claim';
 import { resolveRegisteredSalon } from '@/lib/register-complete';
 import { buildOnboardingAuthPath } from '@/lib/onboarding-link';
 import RegistrationReceipt from '@/components/register/RegistrationReceipt';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 /** /register と同じくすみ配色。色の値は globals.css の .theme-ecru だけが持つ。 */
 const SHELL = 'theme-ecru min-h-[60vh] bg-(--ecru-bg) text-(--ecru-text)';
@@ -71,7 +72,7 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
               {type && (
                 <div className="flex">
                   <dt className="w-20 text-(--ecru-muted) shrink-0">業種</dt>
-                  <dd>{type}</dd>
+                  <dd>{businessTypeLabel(type)}</dd>
                 </div>
               )}
               {area && (

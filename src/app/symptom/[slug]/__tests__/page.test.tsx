@@ -75,8 +75,8 @@ test('施設 0 件の本文は行き止まりにせず、業種の一覧へ案�
   results([symptom, [], []]);
   const html = renderToStaticMarkup(await Page(props()));
   expect(html).toContain('href="/type/acupuncture"');
-  expect(html).toContain('鍼灸院・整骨院の一覧を見る');
-  expect(html).toContain('鍼灸院・整骨院の一覧から探すこともできます。');
+  expect(html).toContain('鍼灸院・整骨院・整体の一覧を見る');
+  expect(html).toContain('鍼灸院・整骨院・整体の一覧から探すこともできます。');
   expect(html).toContain('href="/search"');
   // 症状を特定の業種の扱うものとは言わない（アレルギー・不妊などは整骨院の対象外）。
   expect(html).not.toContain('のご相談は');

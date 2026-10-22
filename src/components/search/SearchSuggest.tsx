@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import type { FacilitySuggestion } from '@/types';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 interface Props {
   query: string;
@@ -83,7 +84,7 @@ export default function SearchSuggest({ query, onSelect, visible, onClose }: Pro
             >
               <span className="text-sm font-medium truncate flex-1">{f.name}</span>
               <span className="text-micro text-gray-500 shrink-0">{f.city}{f.nearest_station ? ` / ${f.nearest_station}` : ''}</span>
-              <span className="text-micro text-sky-700 shrink-0">{f.business_type}</span>
+              <span className="text-micro text-sky-700 shrink-0">{businessTypeLabel(f.business_type)}</span>
             </button>
           ))}
         </div>

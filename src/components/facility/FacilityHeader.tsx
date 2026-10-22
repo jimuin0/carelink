@@ -1,4 +1,5 @@
 import type { Facility } from '@/types';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 const VERIFIED_LABELS: Record<string, string> = {
   phone:      '電話確認済み',
@@ -17,7 +18,7 @@ export default function FacilityHeader({ facility }: { facility: Facility }) {
   return (
     <div className="px-4 sm:px-6 py-5">
       <div className="flex items-center gap-2 mb-2 flex-wrap">
-        <span className="badge badge-primary">{facility.business_type}</span>
+        <span className="badge badge-primary">{businessTypeLabel(facility.business_type)}</span>
         {facility.is_verified && (
           <span
             className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold px-2 py-0.5 rounded-full"

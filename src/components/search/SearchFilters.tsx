@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useCallback } from 'react';
 import { businessTypes, facilityFeatures, regionGroups } from '@/lib/constants';
 import StationSearch from './StationSearch';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 /**
  * @param onApplied 「この条件で検索」「クリア」「駅から探す」で検索結果を切り替えた直後に呼ぶ。スマホの絞り込み
@@ -114,7 +115,7 @@ export default function SearchFilters({ className, onApplied }: { className?: st
         >
           <option value="">すべて</option>
           {businessTypes.map((t) => (
-            <option key={t} value={t}>{t}</option>
+            <option key={t} value={t}>{businessTypeLabel(t)}</option>
           ))}
         </select>
       </div>

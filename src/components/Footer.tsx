@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { regionGroups, businessTypes } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 const MAIN_PREFS = ['東京都', '大阪府', '愛知県', '福岡県', '北海道', '神奈川県'];
 
@@ -48,7 +49,7 @@ export default function Footer() {
                       href={`/search?type=${encodeURIComponent(type)}`}
                       className="text-gray-300 hover:text-white transition-colors"
                     >
-                      {type}
+                      {businessTypeLabel(type)}
                     </Link>
                   </h3>
                   <div className="flex flex-wrap gap-x-2.5 gap-y-0.5">

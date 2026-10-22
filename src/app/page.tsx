@@ -5,6 +5,7 @@ import { isAiEnabled } from '@/lib/integration-availability';
 import { HomeBelowFold, StickySignupCta } from '@/components/home/DynamicHomeSections';
 import ReferralInviteNotice from '@/components/home/ReferralInviteNotice';
 import { getAvailableAreasAndTypes } from '@/lib/facilities';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 export const metadata: Metadata = {
   title: 'CareLink | ネットでかんたんサロン予約 - ヘア・ネイル・エステ・リラク・美容クリニック',
@@ -23,7 +24,7 @@ const categories = [
   { name: 'リラク', type: 'リラクサロン' },
   { name: 'エステ', type: 'エステサロン' },
   { name: '美容クリニック', type: '美容クリニック' },
-  { name: '鍼灸院・整骨院', type: '鍼灸院・整骨院' },
+  { name: businessTypeLabel('鍼灸院・整骨院'), type: '鍼灸院・整骨院' },
   { name: 'ピラティス', type: 'ピラティス' },
 ];
 

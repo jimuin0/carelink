@@ -6,6 +6,7 @@ import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
 import { SbBadge, SbPageHeader } from '@/components/admin/SbUi';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 type FeaturedSlot = {
   id: string;
@@ -293,7 +294,7 @@ export default function FeaturedAdsPage() {
                     </div>
                     <div className="text-xs text-gray-500 mt-1 space-x-2">
                       {slot.area && <span>エリア: {slot.area}</span>}
-                      {slot.business_type && <span>業種: {slot.business_type}</span>}
+                      {slot.business_type && <span>業種: {businessTypeLabel(slot.business_type)}</span>}
                       <span>{new Date(slot.starts_at).toLocaleDateString('ja-JP')} 〜 {new Date(slot.ends_at).toLocaleDateString('ja-JP')}</span>
                     </div>
                   </div>
