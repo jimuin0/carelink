@@ -269,7 +269,7 @@ Supabase (PostgreSQL + Storage)
 ├── src/
 │   ├── middleware.ts                     … 認証トークンリフレッシュ + 保護ルート
 │   ├── app/
-│   │   ├── layout.tsx                   … ルートレイアウト（メタデータ・構造化データ・GA4・Clarity）
+│   │   ├── layout.tsx                   … ルートレイアウト（メタデータ・構造化データ・AnalyticsGate の配置）
 │   │   ├── page.tsx                     … トップページ（LP）
 │   │   ├── globals.css                  … グローバルCSS（Tailwindコンポーネント定義）
 │   │   ├── loading.tsx / error.tsx / not-found.tsx
@@ -419,6 +419,7 @@ Supabase (PostgreSQL + Storage)
 │   │   ├── Toast.tsx                    … トースト通知（role="alert"）
 │   │   ├── Breadcrumb.tsx               … パンくずナビ
 │   │   ├── CookieConsent.tsx            … Cookie同意バナー
+│   │   ├── AnalyticsGate.tsx            … GA4・Clarity を分析 Cookie の同意後にだけ読み込む（判定は lib/cookie-consent.ts）
 │   │   ├── FadeIn.tsx                   … スクロールフェードイン
 │   │   ├── FAQ.tsx                      … FAQアコーディオン
 │   │   ├── StepIndicator.tsx            … マルチステップ進行表示
@@ -1996,6 +1997,7 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 | `Footer` | `Footer.tsx` | LP用3カラムフッター（運営会社情報付き） |
 | `Breadcrumb` | `Breadcrumb.tsx` | パンくずナビゲーション |
 | `CookieConsent` | `CookieConsent.tsx` | Cookie同意バナー |
+| `AnalyticsGate` | `AnalyticsGate.tsx` | GA4・Clarity を分析 Cookie の同意後にだけ読み込む（拒否・撤回時は停止し計測 Cookie を消す） |
 | `FadeIn` | `FadeIn.tsx` | IntersectionObserverベースのフェードイン |
 | `FAQ` | `FAQ.tsx` | `<details>`アコーディオン |
 | `StepIndicator` | `StepIndicator.tsx` | マルチステップフォーム進行表示 |
@@ -2055,7 +2057,6 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 | `NearbyFacilities` | 近隣施設一覧（同市区町村の施設を表示） |
 | `RemainingSlots` | 本日の残り枠数表示（緊急性シグナル） |
 | `ShareButtons` | SNSシェアボタン（LINE/Twitter/Facebook） |
-| `ViewingNow` | リアルタイム閲覧中人数表示（緊急性シグナル） |
 
 ### 11.4 ConfirmDialog 詳細
 

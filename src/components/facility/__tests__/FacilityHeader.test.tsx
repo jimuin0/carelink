@@ -7,7 +7,7 @@
  * 誤った評価を表示しないことを保証する（回帰防止）。
  */
 import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import FacilityHeader from '@/components/facility/FacilityHeader';
 import type { Facility } from '@/types';
 
@@ -29,6 +29,25 @@ test('google_review_count>0 かつ google_rating=null → 「0.0」を表示せ�
   expect(screen.queryByText('0.0')).not.toBeInTheDocument();
   // 件数バッジ自体も出さない（評価不在のため）
   expect(screen.queryByText('(5件)')).not.toBeInTheDocument();
+});
+
+// 2026年10月22日（神原さん判断で表示を外す）: 「N人が閲覧中」は viewCount/100 に乱数 1〜3 を
+// 足した値で、閲覧が 0 でも 1〜3 人と出ていた。累計の「閲覧 N回」だけを残す。
+// 修正前（ViewingNow を描画）ではハイドレーション後に「人が閲覧中」が出るのでここが落ちる。
+describe('閲覧数の表示', () => {
+  test('累計の「閲覧 N回」は出し、「N人が閲覧中」は出さない', async () => {
+    render(<FacilityHeader facility={{ ...baseFacility, view_count: 8 }} />);
+    expect(screen.getByText('閲覧 8回')).toBeInTheDocument();
+    // マウント後に出る形だったので、描画の確定を待ってから確かめる。
+    await act(async () => {});
+    expect(screen.queryByText(/閲覧中/)).not.toBeInTheDocument();
+  });
+
+  test('閲覧 0 回の施設は閲覧に関する表示を何も出さない', async () => {
+    const { container } = render(<FacilityHeader facility={{ ...baseFacility, view_count: 0 }} />);
+    await act(async () => {});
+    expect(container.textContent).not.toMatch(/閲覧/);
+  });
 });
 
 test('google_rating があるとき → 評価と件数を正しく表示する（正常系の不変確認）', () => {

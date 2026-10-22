@@ -4,45 +4,22 @@ import { useState, useEffect, useSyncExternalStore } from 'react';
 // 同意バナー内のポリシーリンク。全ページで初回表示されるので先読みしない
 // （理由と実測は components/BrowseLink.tsx）。
 import Link from '@/components/BrowseLink';
-
-interface CookiePreferences {
-  necessary: true; // 常にtrue（変更不可）
-  analytics: boolean;
-  marketing: boolean;
-}
-
-const STORAGE_KEY = 'cookie-consent-v2';
+// 保存・読み取り・変更通知は単一ソース（src/lib/cookie-consent.ts）。計測タグ
+// （components/AnalyticsGate.tsx）も同じ判定を使い、ここでの保存にすぐ追従する。
+import {
+  hasAnsweredCookieBanner,
+  saveCookiePreferences,
+  subscribeToCookieConsent,
+  type CookiePreferences,
+} from '@/lib/cookie-consent';
 
 function getDefaultPrefs(): CookiePreferences {
   return { necessary: true, analytics: false, marketing: false };
 }
 
-export function getCookiePreferences(): CookiePreferences | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as CookiePreferences;
-  } catch {
-    return null;
-  }
-}
-
-// useSyncExternalStore 用の購読関数。同意状態は他タブのイベントを監視する必要が無く
-// （このタブ内の操作でしか変わらない）、購読先が無いので何もしない unsubscribe を返す。
-function subscribeToConsent(): () => void {
-  return () => {};
-}
-
-// localStorage（ブラウザ専用 API）の同意有無をレンダー中に読む。useSyncExternalStore の
-// getSnapshot はサーバーでは呼ばれないため typeof window ガードは不要。
-function hasStoredConsent(): boolean {
-  return !!(localStorage.getItem(STORAGE_KEY) || localStorage.getItem('cookie-consent'));
-}
-
 // SSR・初回ハイドレーション時は「同意済み」として扱いバナーを出さない
 // （旧実装の初期 state visible=false と同じ見た目）。ハイドレーション後、
-// useSyncExternalStore が実値（hasStoredConsent）へ自動で切り替える。
+// useSyncExternalStore が実値（hasAnsweredCookieBanner）へ自動で切り替える。
 function getServerConsentSnapshot(): boolean {
   return true;
 }
@@ -63,7 +40,8 @@ export default function CookieConsent() {
   // レンダー中に読む。ブラウザ専用 API を安全に扱いつつハイドレーション不整合も出さない
   // React 標準パターンへの構造変更（symptom を隠すラッパーではなく、setState をそもそも
   // effect の外へ追い出す本質的な修正）。
-  const hasConsent = useSyncExternalStore(subscribeToConsent, hasStoredConsent, getServerConsentSnapshot);
+  // 他タブで回答した場合も storage イベントで拾い、このタブのバナーも閉じる。
+  const hasConsent = useSyncExternalStore(subscribeToCookieConsent, hasAnsweredCookieBanner, getServerConsentSnapshot);
   const visible = !hasConsent && !dismissed;
 
   useEffect(() => {
@@ -78,7 +56,8 @@ export default function CookieConsent() {
   }, [visible]);
 
   const save = (p: CookiePreferences) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+    // 保存と同時に計測タグへ通知する（拒否なら読み込まない・同意ならその場で読み込む）。
+    saveCookiePreferences(p);
     setDismissed(true);
   };
 

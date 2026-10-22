@@ -31,7 +31,10 @@ const serifStyle = {
 } as CSSProperties;
 
 export const metadata: Metadata = {
-  title: '店舗・施設の掲載登録 | CareLink',
+  // ルート layout の title.template '%s | CareLink' が付くので「| CareLink」は書かない
+  // （書くと <title> が「… | CareLink | CareLink」と二重になっていた。2026年10月22日）。
+  // src/__tests__/metadata-title-template.test.ts が再発を止める。
+  title: '店舗・施設の掲載登録',
   description: '店舗・施設の掲載料と予約手数料は無料。掲載条件と準備内容を確認して、CareLinkへの登録を始められます。',
 };
 

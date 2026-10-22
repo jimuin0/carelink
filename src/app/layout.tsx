@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 import "@fontsource-variable/noto-sans-jp/index.css";
-import { GoogleAnalytics } from "@next/third-parties/google";
 import { headers } from "next/headers";
 import { SITE_URL } from "@/lib/constants";
 import LayoutSwitch from "@/components/LayoutSwitch";
@@ -10,6 +9,7 @@ import { isAiEnabled } from "@/lib/integration-availability";
 import { Analytics, SpeedInsights, CookieConsent } from "@/components/DynamicRootComponents";
 import { safeJsonLd } from "@/lib/json-ld";
 import ClientLocalDataCleanup from "@/components/ClientLocalDataCleanup";
+import AnalyticsGate from "@/components/AnalyticsGate";
 
 import "./globals.css";
 
@@ -130,14 +130,10 @@ export default async function RootLayout({
         <Script src="/sw-register.js" strategy="lazyOnload" />
         <Analytics />
         <SpeedInsights />
-        {clarityId && (
-          <Script
-            src={`https://www.clarity.ms/tag/${clarityId}`}
-            strategy="lazyOnload"
-          />
-        )}
+        {/* GA4・Microsoft Clarity は Cookie バナーで分析 Cookie に同意した来訪者にだけ読み込む
+            （判定は src/lib/cookie-consent.ts）。ここで無条件に出力しないこと。 */}
+        {(gaId || clarityId) && <AnalyticsGate gaId={gaId} clarityId={clarityId} nonce={nonce} />}
       </body>
-      {gaId && <GoogleAnalytics gaId={gaId} />}
     </html>
   );
 }
