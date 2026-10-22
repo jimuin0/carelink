@@ -146,6 +146,12 @@
     --care-pink: #ec4899;
     --care-green: #059669;
     --care-indigo: #6366f1;
+    /* 画面下部の固定バーの高さ（lib/mobile-bottom-bar.ts が使い分ける）。
+       スマホの下部ナビ（MobileBottomNav）はこの高さに固定し、フッターの逃げ・登録 CTA・
+       絞り込みボタンの位置が同じ値を見る。施設詳細の予約バー（.sticky-bar）は残席表示や
+       案内文の折り返しで高さが変わるので、上限（約 77〜117px＋safe area）を逃げに取る。 */
+    --mobile-nav-height: calc(3.5rem + env(safe-area-inset-bottom));
+    --booking-bar-clearance: calc(8rem + env(safe-area-inset-bottom));
   }
 
   /* =============================================================================

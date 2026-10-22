@@ -16,3 +16,7 @@ test('準備済みならネット予約と残席を表示する', () => {
   expect(screen.getByRole('link', { name: '今すぐ予約する' }).getAttribute('href')).toBe('/facility/synthetic/booking');
   expect(screen.getByText('synthetic remaining slots')).toBeTruthy();
 });
+test('Cookie 同意バナーが避ける目印（data-bottom-fixed）を持つ', () => {
+  const { container } = render(<StickyBookingBar {...props} />);
+  expect(container.firstElementChild?.hasAttribute('data-bottom-fixed')).toBe(true);
+});

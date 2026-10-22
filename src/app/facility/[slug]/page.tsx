@@ -227,7 +227,9 @@ export default async function FacilityPage(props: Props) {
   ];
 
   return (
-    <div className="bg-gray-50 min-h-screen pb-[calc(8rem+env(safe-area-inset-bottom))]">
+    // 予約バー（StickyBookingBar）の逃げはフッター側で取る（LayoutSwitch → lib/mobile-bottom-bar.ts）。
+    // ここで取っても後ろのフッターは覆われたままだった。
+    <div className="bg-gray-50 min-h-screen pb-8">
       <div className="max-w-4xl mx-auto bg-white shadow-xs">
         {/* パンくずリスト */}
         {(() => {

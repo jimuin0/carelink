@@ -12,6 +12,7 @@ import {
   subscribeToCookieConsent,
   type CookiePreferences,
 } from '@/lib/cookie-consent';
+import { bottomFixedBarsHeight } from '@/lib/mobile-bottom-bar';
 
 function getDefaultPrefs(): CookiePreferences {
   return { necessary: true, analytics: false, marketing: false };
@@ -34,6 +35,8 @@ export default function CookieConsent() {
   // 施設詳細ページのSticky予約バー(.sticky-bar、fixed bottom-0 z-40)と本バナー(fixed bottom-0
   // z-50)が両方画面下部に固定表示されるため、本バナーが「今すぐ予約する」ボタンの前面に重なり
   // クリックできなくなっていた（実機Playwright確認で発見）。sticky-barの高さ分だけ上にオフセットする。
+  // 2026年10月22日: スマホの下部ナビ（MobileBottomNav）も同じく覆っていたため、下部固定バー全般
+  // （lib/mobile-bottom-bar.ts の目印）の高さ分だけ上げる。
   const [bottomOffset, setBottomOffset] = useState(0);
 
   // 「同意情報が保存されているか」を effect + setState ではなく useSyncExternalStore で
@@ -46,13 +49,17 @@ export default function CookieConsent() {
 
   useEffect(() => {
     if (!visible) return;
-    const measure = () => {
-      const bar = document.querySelector('.sticky-bar');
-      setBottomOffset(bar ? bar.getBoundingClientRect().height : 0);
-    };
+    const measure = () => setBottomOffset(bottomFixedBarsHeight());
     measure();
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    // 下部ナビは遅延読み込み（ssr:false）で後から現れ、予約バーは残席の表示で高さが変わる。
+    // バナーを出している間だけ DOM の変化を見て測り直す（同意前の初回訪問だけなので負担は小さい）。
+    const observer = new MutationObserver(measure);
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    return () => {
+      window.removeEventListener('resize', measure);
+      observer.disconnect();
+    };
   }, [visible]);
 
   const save = (p: CookiePreferences) => {
@@ -77,7 +84,8 @@ export default function CookieConsent() {
       className="fixed bottom-0 left-0 right-0 z-40 bg-gray-900 backdrop-blur-sm text-white shadow-xl"
       style={bottomOffset > 0 ? { bottom: bottomOffset } : undefined}
     >
-      <div className="max-w-4xl mx-auto px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+      {/* 下部バーの上に出すときは、端末下端の余白（safe area）はバー側が取っているので足さない */}
+      <div className={`max-w-4xl mx-auto px-4 pt-4 ${bottomOffset > 0 ? 'pb-4' : 'pb-[calc(1rem+env(safe-area-inset-bottom))]'}`}>
         {!showDetails ? (
           /* シンプルバー */
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-6">

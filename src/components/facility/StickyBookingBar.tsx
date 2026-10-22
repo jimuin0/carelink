@@ -6,7 +6,8 @@ import RemainingSlots from './RemainingSlots';
 
 export default function StickyBookingBar({ phone, facilityName, facilitySlug, facilityId, bookingAvailable = true }: { phone: string | null; facilityName: string; facilitySlug: string; facilityId: string; bookingAvailable?: boolean }) {
   return (
-    <div className="sticky-bar">
+    // data-bottom-fixed … Cookie 同意バナーがこの上に出るための目印（lib/mobile-bottom-bar.ts）。
+    <div className="sticky-bar" data-bottom-fixed="">
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center justify-center gap-2 mb-1">
           {bookingAvailable ? <RemainingSlots facilityId={facilityId} /> : <p className="text-sm text-gray-600">ネット予約は準備中です。店舗へ直接お問い合わせください。</p>}

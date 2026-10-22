@@ -19,9 +19,14 @@ export const majorCities: { pref: string; cities: { slug: string; name: string }
   { pref: 'kyoto', cities: [{ slug: 'kyoto-city', name: '京都市' }, { slug: 'uji', name: '宇治市' }] },
 ];
 
-export default function SearchFooter() {
+/**
+ * @param className 画面下部の固定バー（下部ナビ・施設詳細の予約バー）の逃げ。LayoutSwitch が
+ *   パスに応じて渡す（lib/mobile-bottom-bar.ts）。フッターの地色のまま下端を伸ばすため、
+ *   別の空き要素ではなくフッター自身の padding で取る。
+ */
+export default function SearchFooter({ className = '' }: { className?: string }) {
   return (
-    <footer className="bg-gray-900 text-gray-300">
+    <footer className={`bg-gray-900 text-gray-300 ${className}`.trim()}>
       {/* SEO: エリア×業種 内部リンク（details内だがHTML上は存在→Googlebot クロール可能） */}
       <div className="border-b border-gray-800">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">

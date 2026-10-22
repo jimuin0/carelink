@@ -5,6 +5,9 @@
  * z-40)と本バナー(fixed bottom-0 z-50)が両方画面下部に固定表示され、本バナーが
  * 「今すぐ予約する」ボタンの前面に重なりクリックできなくなっていた(初回訪問者のみ影響)。
  * sticky-barの高さ分だけ上にオフセットして重なりを解消する。
+ *
+ * 2026年10月22日: スマホの下部ナビ（MobileBottomNav）も同じく覆っていた。下部ナビは遅延読み込みで
+ * バナーより後に現れるため、現れた時点で測り直すことまで検査する。
  */
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen } from '@testing-library/react';
@@ -13,16 +16,24 @@ import {
   COOKIE_CONSENT_CHANGE_EVENT,
   COOKIE_CONSENT_STORAGE_KEY,
   LEGACY_COOKIE_CONSENT_STORAGE_KEY,
+  subscribeToCookieConsent,
 } from '@/lib/cookie-consent';
 
 beforeEach(() => {
   localStorage.clear();
+  document.body.innerHTML = '';
 });
+
+function bannerOf(container: HTMLElement) {
+  return container.querySelector('div.fixed') as HTMLElement;
+}
 
 test('sticky-barが存在しない場合 → bottom:0のまま(オフセット無し)', () => {
   render(<CookieConsent />);
   const banner = screen.getByText(/当サイトではサービス向上のため/).closest('div.fixed') as HTMLElement;
   expect(banner.style.bottom).toBe('');
+  // 画面下端に接するので、端末下端の余白（safe area）を自分で取る
+  expect(banner.firstElementChild?.className).toContain('pb-[calc(1rem+env(safe-area-inset-bottom))]');
 });
 
 test('sticky-barが存在する場合 → その高さ分だけbottomをオフセットする', () => {
@@ -31,8 +42,45 @@ test('sticky-barが存在する場合 → その高さ分だけbottomをオフ�
   jest.spyOn(stickyBar, 'getBoundingClientRect').mockReturnValue({ height: 76 } as DOMRect);
 
   const { container } = render(<CookieConsent />, { container: document.getElementById('root')! });
-  const banner = container.querySelector('div.fixed') as HTMLElement;
-  expect(banner.style.bottom).toBe('76px');
+  expect(bannerOf(container).style.bottom).toBe('76px');
+});
+
+test('下部ナビ（data-bottom-fixed）がある場合 → ナビの上に出し、safe area は足さない', () => {
+  document.body.innerHTML = '<nav data-bottom-fixed=""></nav><div id="root"></div>';
+  jest.spyOn(document.querySelector('nav') as HTMLElement, 'getBoundingClientRect').mockReturnValue({ height: 56 } as DOMRect);
+
+  const { container } = render(<CookieConsent />, { container: document.getElementById('root')! });
+  const banner = bannerOf(container);
+  expect(banner.style.bottom).toBe('56px');
+  expect(banner.firstElementChild?.className).toContain('pb-4');
+  expect(banner.firstElementChild?.className).not.toContain('safe-area');
+});
+
+test('下部ナビがバナーより後に現れても、現れた時点でナビの上へ移る', async () => {
+  document.body.innerHTML = '<div id="root"></div>';
+  const { container } = render(<CookieConsent />, { container: document.getElementById('root')! });
+  expect(bannerOf(container).style.bottom).toBe('');
+
+  const nav = document.createElement('nav');
+  nav.setAttribute('data-bottom-fixed', '');
+  jest.spyOn(nav, 'getBoundingClientRect').mockReturnValue({ height: 56 } as DOMRect);
+  await act(async () => {
+    document.body.appendChild(nav);
+    // MutationObserver の通知はマイクロタスクで届く
+    await Promise.resolve();
+  });
+  expect(bannerOf(container).style.bottom).toBe('56px');
+});
+
+test('選択を保存したら通知を出す（トップの登録 CTA はこれを受けて表示する）', () => {
+  const onChange = jest.fn();
+  const unsubscribe = subscribeToCookieConsent(onChange);
+  render(<CookieConsent />);
+  fireEvent.click(screen.getByRole('button', { name: '必須のみ' }));
+  expect(onChange).toHaveBeenCalled();
+  expect(localStorage.getItem('cookie-consent-v2')).toContain('"analytics":false');
+  expect(screen.queryByText(/当サイトではサービス向上のため/)).toBeNull();
+  unsubscribe();
 });
 
 // 2026年10月22日: 選択は保存されるだけで計測タグに伝わっていなかった。保存と同時に

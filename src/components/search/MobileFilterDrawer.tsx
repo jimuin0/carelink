@@ -1,10 +1,13 @@
 'use client';
 
-import { Suspense, useEffect, useRef } from 'react';
+import { Suspense, useCallback, useEffect, useRef } from 'react';
 import SearchFilters from './SearchFilters';
 
 export default function MobileFilterDrawer() {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  // 条件を適用・クリアしたら閉じて結果を見せる（閉じないと結果が裏で切り替わるだけで、
+  // 押しても反応が無いように見えていた）。dialog の close() はフォーカスを開いたボタンへ戻す。
+  const close = useCallback(() => dialogRef.current?.close(), []);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -20,14 +23,15 @@ export default function MobileFilterDrawer() {
     <dialog
       id="mobile-filter-dialog"
       ref={dialogRef}
+      aria-labelledby="mobile-filter-dialog-title"
       className="fixed inset-0 z-50 m-0 p-0 w-full h-full max-w-full max-h-full bg-transparent backdrop:bg-black/50"
     >
       <div className="absolute right-0 top-0 h-full w-[85vw] max-w-sm bg-white shadow-xl overflow-y-auto animate-slide-in-right">
         <div className="flex items-center justify-between p-4 border-b border-gray-100">
-          <h2 className="text-sm font-bold text-gray-800">絞り込み</h2>
+          <h2 id="mobile-filter-dialog-title" className="text-sm font-bold text-gray-800">絞り込み</h2>
           <button
             type="button"
-            onClick={() => dialogRef.current?.close()}
+            onClick={close}
             className="min-w-[44px] min-h-[44px] flex items-center justify-center -mr-1.5 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
             aria-label="閉じる"
           >
@@ -37,7 +41,7 @@ export default function MobileFilterDrawer() {
           </button>
         </div>
         <Suspense fallback={<div className="p-5 animate-pulse"><div className="h-8 bg-gray-200 rounded-sm mb-3" /><div className="h-8 bg-gray-200 rounded-sm mb-3" /><div className="h-8 bg-gray-200 rounded-sm" /></div>}>
-          <SearchFilters className="p-5" />
+          <SearchFilters className="p-5" onApplied={close} />
         </Suspense>
       </div>
     </dialog>

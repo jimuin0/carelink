@@ -1,11 +1,28 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { hasAnsweredCookieBanner, subscribeToCookieConsent } from '@/lib/cookie-consent';
 
+// 描画は ssr:false（DynamicHomeSections）だが、念のためサーバー値は「未同意＝出さない」に倒す。
+function getServerConsentSnapshot(): boolean {
+  return false;
+}
+
+/**
+ * トップのスマホ向け会員登録 CTA。
+ *
+ * 2026年10月22日: 以前は fixed bottom-0 z-50 で、下部ナビ・Cookie 同意バナーの
+ * 「必須のみ／すべて同意」・フッターの利用規約／特商法表記をまとめて覆っていた（本番・iPhone 13 で実測）。
+ * - 同意バナーが出ている間は出さない（同意の選択が保存された時点で出す）。
+ * - 下部ナビ（--mobile-nav-height）のすぐ上に出す。
+ * - fixed ではなく sticky にする。ページ末尾では本来の位置（フッターの直前）に収まるので、
+ *   フッターのリンクを覆わない。
+ */
 export default function StickySignupCta() {
   const [show, setShow] = useState(false);
+  const consentStored = useSyncExternalStore(subscribeToCookieConsent, hasAnsweredCookieBanner, getServerConsentSnapshot);
 
   useEffect(() => {
     if (sessionStorage.getItem('sticky-cta-dismissed')) return;
@@ -15,10 +32,13 @@ export default function StickySignupCta() {
     }).catch(() => {});
   }, []);
 
-  if (!show) return null;
+  if (!show || !consentStored) return null;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 sm:hidden bg-white border-t border-gray-200 shadow-[0_-2px_12px_rgba(0,0,0,0.08)] px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+    <div
+      data-sticky-signup-cta=""
+      className="sticky bottom-[var(--mobile-nav-height)] z-30 sm:hidden bg-white border-t border-gray-200 shadow-[0_-2px_12px_rgba(0,0,0,0.08)] px-4 py-3"
+    >
       <div className="flex items-center gap-3">
         <div className="flex-1 min-w-0">
           <p className="text-[11px] text-gray-500 mb-1.5">予約のたびにポイント還元。利用は完全無料。</p>

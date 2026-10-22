@@ -8,7 +8,11 @@ export default function MobileFilterButton({ filterCount }: { filterCount: numbe
   return (
     <>
       <MobileFilterDrawer />
-      <div className="lg:hidden fixed bottom-20 right-4 z-30">
+      {/* 下部ナビ（--mobile-nav-height）の上に 1.5rem 空けて置く。bottom-20 固定だと、
+          画面下端に余白（safe area）がある端末ではナビに重なっていた。
+          このボタンを描くページは、フッターの逃げをボタンの上端まで伸ばす
+          （lib/mobile-bottom-bar.ts の FILTER_BUTTON_PATHS）。位置や大きさを変えたらそちらも合わせる。 */}
+      <div className="lg:hidden fixed bottom-[calc(var(--mobile-nav-height)+1.5rem)] right-4 z-30">
         <button
           type="button"
           className="flex items-center gap-2 px-4 py-3 bg-sky-700 text-white rounded-full shadow-lg hover:bg-sky-800 transition-colors"
