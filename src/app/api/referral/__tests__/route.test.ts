@@ -104,9 +104,20 @@ describe('POST atomic referral use', () => {
     expect(await response.json()).toMatchObject({ success: true, replayed });
     expect(mockRpc).toHaveBeenCalledWith('apply_referral_code_atomic', { p_user_id: 'user-123', p_code: 'ABC12345' }); expect(mockFrom).not.toHaveBeenCalled();
   });
-  test.each([['REFERRAL_CODE_INVALID','無効'],['REFERRAL_SELF_USE','自分'],['REFERRAL_ALREADY_APPLIED','使用済み']])('known transaction rejection %s is actionable', async (message, visible) => {
+  test.each([['REFERRAL_CODE_INVALID','無効'],['REFERRAL_SELF_USE','自分'],['REFERRAL_ALREADY_APPLIED','使用済み'],['REFERRAL_NOT_ELIGIBLE','初回のご来店前']])('known transaction rejection %s is actionable', async (message, visible) => {
     mockRpc.mockResolvedValueOnce({ data: null, error: { code: 'P0001', message } }); const response = await POST(req() as never);
     expect(response.status).toBe(400); expect((await response.json()).error).toContain(visible); expect(mockFrom).not.toHaveBeenCalled();
+  });
+  // 回帰: 来店済みの方のコードを受け付けて「初回のご予約完了で付与」と約束しても、
+  // 付与の機会（初回の完了）は過ぎていて誰にも付与されなかった。DB が断った理由をそのまま伝え、
+  // 「付与されます」の成功応答を返さない。
+  test('a customer who already completed a visit is refused honestly, never promised a bonus', async () => {
+    mockRpc.mockResolvedValueOnce({ data: null, error: { code: 'P0001', message: 'REFERRAL_NOT_ELIGIBLE' } });
+    const response = await POST(req() as never);
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body).toEqual({ error: '紹介コードは初回のご来店前の方のみご利用いただけます。' });
+    expect(JSON.stringify(body)).not.toContain('付与されます');
   });
   test.each([{ code: 'P0001', message: 'REFERRAL_COUNT_NOT_CONFIRMED' }, { code: '42883', message: 'missing RPC' }, { code: '522', message: 'lost response' }])('unknown/missing/count failure never falls back to separate writes (%j)', async error => {
     mockRpc.mockResolvedValueOnce({ data: null, error }); expect((await POST(req() as never)).status).toBe(500); expect(mockFrom).not.toHaveBeenCalled();

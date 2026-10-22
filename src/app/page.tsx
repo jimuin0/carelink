@@ -3,6 +3,7 @@ import Link from 'next/link';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 import { isAiEnabled } from '@/lib/integration-availability';
 import { HomeBelowFold, StickySignupCta } from '@/components/home/DynamicHomeSections';
+import ReferralInviteNotice from '@/components/home/ReferralInviteNotice';
 import { getAvailableAreasAndTypes } from '@/lib/facilities';
 
 export const metadata: Metadata = {
@@ -36,6 +37,8 @@ export default async function Home() {
 
   return (
     <div className="min-h-screen bg-white">
+      {/* 紹介リンク（?ref=）で来た方へのコードの案内。?ref= が無ければ何も描かない */}
+      <ReferralInviteNotice />
       {/* ===== Hero Section ===== */}
       <div className="relative overflow-hidden">
         <div className="absolute inset-0">

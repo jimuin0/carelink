@@ -235,6 +235,9 @@ jobs:
       - name: Referral application count and replay (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/referral-apply-fixtures.sql
 
+      - name: Referral bonus lifecycle - deleted referrer, reversed first visit, code only before the first visit (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/referral-bonus-lifecycle-fixtures.sql
+
       - name: Review photo ownership and Threads delivery fence (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/review-threads-delivery-fixtures.sql
 

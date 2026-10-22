@@ -1,7 +1,7 @@
 /**
  * 紹介プログラム API（v8.6）
  * GET: 自分の紹介コード取得（なければ自動生成）
- * POST: 紹介コード使用（新規ユーザーが初回予約完了時に呼ぶ）
+ * POST: 紹介コード使用（初回のご予約完了より前に入力する。来店済みの方は REFERRAL_NOT_ELIGIBLE で断る）
  */
 
 import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
@@ -14,14 +14,15 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { withRoute, serverError, authUnavailable } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { UUID_REGEX } from '@/lib/constants';
+import { REFERRAL_CODE_ALPHABET, REFERRAL_CODE_LENGTH, REFERRAL_NOT_ELIGIBLE_MESSAGE } from '@/lib/referral-code';
 
 export const dynamic = 'force-dynamic';
 
 function generateCode(): string {
   // 暗号論的乱数(randomInt)を用いる。Math.random は予測可能な疑似乱数のため紹介コードに使わない。
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const chars = REFERRAL_CODE_ALPHABET;
   let code = '';
-  for (let i = 0; i < 8; i++) code += chars[randomInt(chars.length)];
+  for (let i = 0; i < REFERRAL_CODE_LENGTH; i++) code += chars[randomInt(chars.length)];
   return code;
 }
 
@@ -110,6 +111,9 @@ export const POST = withRoute(async (request) => {
       if (applied.error.message === 'REFERRAL_CODE_INVALID') return NextResponse.json({ error: '無効な紹介コードです' }, { status: 400 });
       if (applied.error.message === 'REFERRAL_SELF_USE') return NextResponse.json({ error: '自分のコードは使えません' }, { status: 400 });
       if (applied.error.message === 'REFERRAL_ALREADY_APPLIED') return NextResponse.json({ error: '既に紹介コードを使用済みです' }, { status: 400 });
+      // 紹介ボーナスは初回のご予約完了で付与する。完了済みの予約がある方は付与の機会が過ぎているため、
+      // 「初回のご予約完了で付与」と約束して記録だけ残す（誰にも付与されない）のではなく、ここで断る。
+      if (applied.error.message === 'REFERRAL_NOT_ELIGIBLE') return NextResponse.json({ error: REFERRAL_NOT_ELIGIBLE_MESSAGE }, { status: 400 });
     }
     return serverError('referral-apply', new Error('Referral use transaction not confirmed'), '/api/referral');
   }
