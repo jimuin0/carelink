@@ -29,3 +29,25 @@ test('a card without readiness inputs does not claim 予約OK', () => {
   render(<FacilityCard facility={legacy} />);
   expect(screen.queryByText('予約OK')).not.toBeInTheDocument();
 });
+
+// 掲載だけでネット予約を受け付けない施設に「空きなし」と出すと、満席だと誤って伝えてしまう（レビュー指摘）。
+describe('空きの表示（予約希望日で検索したとき）', () => {
+  test('ネット予約を受け付ける施設は空きあり／空きなしを出す', () => {
+    const { rerender } = render(<FacilityCard facility={card} isAvailable />);
+    expect(screen.getByText('空きあり')).toBeInTheDocument();
+    rerender(<FacilityCard facility={card} isAvailable={false} />);
+    expect(screen.getByText('空きなし')).toBeInTheDocument();
+  });
+
+  test.each([true, false])('ネット予約を受け付けない施設には出さない（isAvailable=%s）', (isAvailable) => {
+    render(<FacilityCard facility={{ ...card, active_staff_count: 0 }} isAvailable={isAvailable} />);
+    expect(screen.queryByText('空きあり')).not.toBeInTheDocument();
+    expect(screen.queryByText('空きなし')).not.toBeInTheDocument();
+  });
+
+  test('判定できなかったとき（isAvailable 未指定）は出さない', () => {
+    render(<FacilityCard facility={card} />);
+    expect(screen.queryByText('空きあり')).not.toBeInTheDocument();
+    expect(screen.queryByText('空きなし')).not.toBeInTheDocument();
+  });
+});

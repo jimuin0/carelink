@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { Facility } from '@/types';
 import { dayOrder, dayLabels } from '@/lib/constants';
+import { featureSearchHref } from '@/lib/search-href';
 
 export default function AccessInfo({ facility }: { facility: Facility }) {
   // 監査T1: prefecture/city/address は手書き Facility 型では non-null 宣言だが、DB(facility_profiles)は
@@ -75,7 +76,7 @@ export default function AccessInfo({ facility }: { facility: Facility }) {
           </h3>
           <div className="flex flex-wrap gap-2">
             {facility.features.map((feature) => (
-              <Link key={feature} href={`/search?keyword=${encodeURIComponent(feature)}`} className="text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full hover:bg-sky-50 hover:text-sky-700 transition-colors">
+              <Link key={feature} href={featureSearchHref(feature)} className="text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full hover:bg-sky-50 hover:text-sky-700 transition-colors">
                 {feature}
               </Link>
             ))}

@@ -6,6 +6,7 @@ import type { Metadata } from 'next';
 import { safeCaptureException } from '@/lib/safe';
 import { getFacilityBySlug, getFacilityMenus, getFacilityPhotos, getFacilityReviews } from '@/lib/facilities';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
+import { featureSearchHref } from '@/lib/search-href';
 import { getStaffByFacility } from '@/lib/staff';
 import { getActiveCouponsByFacility } from '@/lib/coupons';
 import { getCatalogsByFacility } from '@/lib/catalogs';
@@ -588,7 +589,7 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
           </h2>
           <div className="flex flex-wrap gap-2">
             {facility.features.map((feature) => (
-              <Link key={feature} href={`/search?keyword=${encodeURIComponent(feature)}`} className="text-xs bg-sky-50 text-sky-700 px-3 py-1.5 rounded-full font-medium hover:bg-sky-100 transition-colors">
+              <Link key={feature} href={featureSearchHref(feature)} className="text-xs bg-sky-50 text-sky-700 px-3 py-1.5 rounded-full font-medium hover:bg-sky-100 transition-colors">
                 {feature}
               </Link>
             ))}

@@ -69,12 +69,14 @@ export default function FacilityCard({ facility, showBadges = true, monthlyBooki
                   今月{monthlyBookings}件予約
                 </span>
               )}
-              {isAvailable === true && (
+              {/* 空きの表示はネット予約を受け付ける施設だけ。掲載だけの施設に「空きなし」と出すと、
+                  ネット予約をしていないのではなく満席だと伝えてしまう。 */}
+              {bookingReady && isAvailable === true && (
                 <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-bold rounded-full">
                   空きあり
                 </span>
               )}
-              {isAvailable === false && (
+              {bookingReady && isAvailable === false && (
                 <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded-full">
                   空きなし
                 </span>
