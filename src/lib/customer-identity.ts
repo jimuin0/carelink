@@ -16,6 +16,8 @@ import { canonicalizeEmail } from './email-canonical';
  *
  * 【メールがある予約は電話番号では突合しない】家族で 1 つの電話番号を使う場合などに、
  * 別の人の来店を混ぜないため（メールは本人ごとに分かれる）。
+ * 逆向き（メールの無い来店を、メールと電話番号で台帳に登録したお客様へ寄せる）は、
+ * 台帳でその電話番号を持つのが 1 人だけのときに限って行う（下の ledgerPhoneLinks）。
  *
  * 🔴 DB 側の public.customer_phone_digits（supabase/migrations/20261023090000_customer_phone_identity.sql）と
  *   同じ規則にしてある。片方だけ変えると、一覧（DB で集計）と台帳（ここで突合）と詳細（DB で照会）で
@@ -41,4 +43,39 @@ export function customerIdentityKey(email: string | null | undefined, phone: str
   if (email && email.trim()) return canonicalizeEmail(email);
   const digits = phoneDigits(phone);
   return digits ? `${PHONE_KEY_PREFIX}${digits}` : null;
+}
+
+/** 電話番号だけのキー（'tel:数字'）。識別に使えない電話番号は null。 */
+export function phoneIdentityKey(phone: string | null | undefined): string | null {
+  return customerIdentityKey(null, phone);
+}
+
+/**
+ * 台帳にメールと電話番号の両方で登録したお客様へ、その電話番号のメール無し来店（電話・来店受付）を
+ * 寄せるための対応表。'tel:数字' → そのお客様のメールのキー（canonical）。
+ *
+ * 【なぜ要るか】台帳のキーはメール優先なので、メールのあるお客様の電話予約（メール欄が空）は
+ * 'tel:数字' という別の人として集計され、本人の来店回数・最終来店・RFM に入らなかった。
+ * しかも「来店履歴から未登録のお客様」に同じ氏名・同じ電話番号の行が出て、「＋ 登録」で重複登録できた。
+ *
+ * 【寄せるのは 1 施設の台帳でその電話番号を持つお客様が 1 人だけのとき】2 人以上（家族で 1 つの
+ * 電話番号を使う等）なら誰の来店か決められないので寄せない。電話番号だけのお客様がその番号を持つ
+ * 場合も 2 人目として数えるので寄せない（その来店は電話番号だけのお客様のもの）。
+ *
+ * 一覧（customer-directory.ts）・顧客詳細（admin.ts の getLedgerCustomerVisits）・RFM の cron が
+ * すべてこの表を使う。片方だけ寄せると一覧と詳細で来店回数が食い違う。
+ */
+export function ledgerPhoneLinks(ledger: ReadonlyArray<{ email: string | null; phone: string | null }>): Map<string, string> {
+  const owners = new Map<string, Array<string | null>>();
+  for (const c of ledger) {
+    const telKey = phoneIdentityKey(c.phone);
+    if (!telKey) continue;
+    const emailKey = c.email && c.email.trim() ? canonicalizeEmail(c.email) : null;
+    owners.set(telKey, [...(owners.get(telKey) ?? []), emailKey]);
+  }
+  const links = new Map<string, string>();
+  for (const [telKey, emails] of owners) {
+    if (emails.length === 1 && emails[0]) links.set(telKey, emails[0]);
+  }
+  return links;
 }

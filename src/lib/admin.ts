@@ -1,6 +1,6 @@
 import { createServerSupabaseAuthClient } from './supabase-server-auth';
 import { canonicalizeEmail } from './email-canonical';
-import { customerIdentityKey, phoneDigits, PHONE_KEY_PREFIX } from './customer-identity';
+import { customerIdentityKey, ledgerPhoneLinks, phoneDigits, phoneIdentityKey, PHONE_KEY_PREFIX } from './customer-identity';
 import { isMissingColumnError, type DbError } from './db-fallback';
 import type { CustomerVisit } from '@/types';
 import { fetchAllPaged } from './paginate';
@@ -93,6 +93,43 @@ export async function getCustomerPhoneVisits(facilityId: string, phone: string |
   return fallback.rows
     .filter((v) => customerIdentityKey(v.customer_email, v.booking?.phone) === key)
     .map(({ booking: _booking, ...visit }) => visit);
+}
+
+/**
+ * 台帳のお客様 1 人の来店履歴（顧客詳細）。一覧の来店回数と同じ突合にする（src/lib/customer-directory.ts）。
+ * - メールがあればメールの来店。さらに施設の台帳でその電話番号を持つのが本人だけなら、
+ *   その電話番号のメール無し来店（電話・来店受付）も合わせる（ledgerPhoneLinks）。
+ * - メールが無ければ電話番号のメール無し来店（電話番号が識別に使えなければ空）。
+ */
+export async function getLedgerCustomerVisits(
+  facilityId: string,
+  customer: { email: string | null; phone: string | null },
+): Promise<CustomerVisit[]> {
+  if (!customer.email?.trim()) return getCustomerPhoneVisits(facilityId, customer.phone);
+  const byEmail = await getCustomerVisits(facilityId, customer.email);
+  const telKey = phoneIdentityKey(customer.phone);
+  if (!telKey) return byEmail;
+
+  // 同じ電話番号のお客様が台帳に他にいないか（一覧と同じ判定にするため、施設の台帳の電話番号を読む）。
+  const supabase = await createServerSupabaseAuthClient();
+  const ledger = await readAll<{ email: string | null; phone: string | null }>(async (offset, limit) => {
+    const result = await supabase
+      .from('customers')
+      .select('email, phone')
+      .eq('facility_id', facilityId)
+      .not('phone', 'is', null)
+      .order('id')
+      .range(offset, offset + limit - 1);
+    return { data: result.data, error: result.error || (!Array.isArray(result.data) ? new Error('customer ledger invalid') : null) };
+  });
+  if (ledger.error) throw new Error('顧客台帳の取得に失敗しました');
+  if (ledgerPhoneLinks(ledger.rows).get(telKey) !== canonicalizeEmail(customer.email)) return byEmail;
+
+  // メールのある来店と無い来店なので重ならないが、念のため id で 1 件にし、新しい順（同じ日は id 順）に並べる。
+  const byPhone = await getCustomerPhoneVisits(facilityId, customer.phone);
+  const merged = new Map([...byEmail, ...byPhone].map((v) => [v.id, v]));
+  return Array.from(merged.values())
+    .sort((a, b) => b.visit_date.localeCompare(a.visit_date) || a.id.localeCompare(b.id));
 }
 
 export async function getUniqueCustomers(facilityId: string): Promise<CustomerVisitSummary[]> {

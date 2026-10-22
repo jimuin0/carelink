@@ -1,7 +1,7 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 const mockFrom = jest.fn(), mockRpc = jest.fn();
 jest.mock('../supabase-server-auth', () => ({ createServerSupabaseAuthClient: () => ({ from: mockFrom, rpc: mockRpc }) }));
-import { getCustomerPhoneVisits, getCustomerVisits, getUniqueCustomers } from '../admin';
+import { getCustomerPhoneVisits, getCustomerVisits, getLedgerCustomerVisits, getUniqueCustomers } from '../admin';
 let chain: Record<string, jest.Mock>, pages: { data: unknown; error?: unknown }[];
 beforeEach(() => {
   jest.clearAllMocks(); chain = {}; pages = [{ data: [] }];
@@ -140,4 +140,57 @@ test.each([{ data:null,error:{ code:'PGRST202' } },{ data:{ broken:true } }])('u
 test.each([{ data:null,error:{} },{ data:null }])('phone fallback failure %j cannot become empty history', async fallback => {
   pages = [{ data:null,error:{} },fallback];
   await expect(getCustomerPhoneVisits('f1','090-1111-2222')).rejects.toThrow('来店履歴');
+});
+
+// ── 顧客詳細：台帳のお客様 1 人の来店履歴（一覧と同じ突合） ──
+describe('getLedgerCustomerVisits', () => {
+  const emailVisit = (id: string, date: string) => ({ ...phoneVisit(id, { customer_email: 'a@example.com', visit_date: date }) });
+  const yamada = { email: 'A@example.com', phone: '090-1111-2222' };
+
+  test.each([null, ' '])('メールが無い（%p）お客様は電話番号の来店だけ（台帳は読まない）', async email => {
+    pages = [{ data: [phoneVisit('p1')] }];
+    expect(await getLedgerCustomerVisits('f1', { email, phone: '090-1111-2222' })).toEqual([phoneVisit('p1')]);
+    expect(mockRpc).toHaveBeenCalledWith('get_customer_phone_visits', { p_facility_id: 'f1', p_phone: '09011112222' });
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  test('識別に使える電話番号が無いお客様はメールの来店だけ（台帳は読まない）', async () => {
+    pages = [{ data: [emailVisit('e1', '2026-05-01')] }];
+    expect(await getLedgerCustomerVisits('f1', { email: 'a@example.com', phone: '1234' })).toEqual([emailVisit('e1', '2026-05-01')]);
+    expect(mockFrom).toHaveBeenCalledTimes(1);
+    expect(mockFrom).toHaveBeenCalledWith('customer_visits');
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  test('台帳でその電話番号を持つのが本人だけなら、メール無しの電話予約の来店も合わせて新しい順に並べる（回帰）', async () => {
+    pages = [
+      { data: [emailVisit('e2', '2026-05-01'), emailVisit('e1', '2026-03-01')] },
+      { data: [yamada, { email: 'b@example.com', phone: '080-3333-4444' }] },
+      { data: [phoneVisit('p2', { visit_date: '2026-05-10' }), phoneVisit('a0', { visit_date: '2026-05-01' }), phoneVisit('e1', { visit_date: '2026-03-01' })] },
+    ];
+    const result = await getLedgerCustomerVisits('f1', yamada);
+    expect(result.map((v) => [v.id, v.visit_date])).toEqual([
+      ['p2', '2026-05-10'], ['a0', '2026-05-01'], ['e2', '2026-05-01'], ['e1', '2026-03-01'],
+    ]);
+    expect(mockFrom).toHaveBeenCalledWith('customers');
+    expect(chain.select).toHaveBeenCalledWith('email, phone');
+    expect(chain.eq).toHaveBeenCalledWith('facility_id', 'f1');
+    expect(chain.not).toHaveBeenCalledWith('phone', 'is', null);
+    expect(chain.order).toHaveBeenCalledWith('id');
+    expect(mockRpc).toHaveBeenCalledWith('get_customer_phone_visits', { p_facility_id: 'f1', p_phone: '09011112222' });
+  });
+
+  test('同じ電話番号のお客様が台帳に他にもいれば合わせない（一覧と同じ）', async () => {
+    pages = [
+      { data: [emailVisit('e1', '2026-05-01')] },
+      { data: [yamada, { email: 'b@example.com', phone: '09011112222' }] },
+    ];
+    expect(await getLedgerCustomerVisits('f1', yamada)).toEqual([emailVisit('e1', '2026-05-01')]);
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  test.each([{ data: null, error: {} }, { data: null }])('台帳を読めない %j ときは、少ない履歴を正しいものとして出さない', async ledgerPage => {
+    pages = [{ data: [emailVisit('e1', '2026-05-01')] }, ledgerPage];
+    await expect(getLedgerCustomerVisits('f1', yamada)).rejects.toThrow('顧客台帳');
+  });
 });

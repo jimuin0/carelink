@@ -53,17 +53,40 @@ let mockFacilitiesSelect: jest.Mock;
 let mockBookingsSelect: jest.Mock;
 let mockBookingsIn: jest.Mock;
 let mockUpsert: jest.Mock;
-// 今回の集計に現れなかった行の削除（delete().eq('facility_id').lt('updated_at', 実行時刻)）。
+// 今回の集計に現れなかった行の削除
+// （delete().eq('facility_id').lt('updated_at', 実行時刻).gte('last_visit_date', 集計期間の始まり)）。
 let mockStaleDelete: jest.Mock;
+// 台帳（customers）の読み取り（電話番号のキーの予約がある施設だけ）。
+let mockLedgerRange: jest.Mock;
 
 function segmentsTable(upsert: (...args: any[]) => any) {
   return {
     upsert: (...args: any[]) => upsert(...args),
     delete: () => ({
       eq: (eqColumn: string, facilityId: string) => ({
-        lt: (ltColumn: string, stamp: string) => mockStaleDelete({ eqColumn, facilityId, ltColumn, stamp }),
+        lt: (ltColumn: string, stamp: string) => ({
+          gte: (gteColumn: string, since: string) => mockStaleDelete({ eqColumn, facilityId, ltColumn, stamp, gteColumn, since }),
+        }),
       }),
     }),
+  };
+}
+
+const ledgerSelect = jest.fn();
+function customersTable() {
+  return {
+    select: (cols: string) => {
+      ledgerSelect(cols);
+      return {
+        eq: (eqColumn: string, facilityId: string) => ({
+          not: (notColumn: string, op: string, value: unknown) => ({
+            order: (orderColumn: string) => ({
+              range: (from: number, to: number) => mockLedgerRange({ eqColumn, facilityId, notColumn, op, value, orderColumn, from, to }),
+            }),
+          }),
+        }),
+      };
+    },
   };
 }
 
@@ -118,6 +141,7 @@ function setupDefaultMocks(
     error: null,
   });
   mockStaleDelete = jest.fn().mockResolvedValue({ data: null, error: null });
+  mockLedgerRange = jest.fn().mockResolvedValue({ data: [], error: null });
 
   mockFromDelegate.mockImplementation((table: string) => {
     if (table === 'facility_profiles') {
@@ -126,6 +150,8 @@ function setupDefaultMocks(
       return mockBookingsSelect();
     } else if (table === 'customer_segments') {
       return segmentsTable(mockUpsert);
+    } else if (table === 'customers') {
+      return customersTable();
     }
   });
 
@@ -854,6 +880,60 @@ describe('メールの無い予約は電話番号で識別する', () => {
       ['tel:09011112222', 2, 3000],
     ]);
   });
+
+  // 台帳にメールと電話番号の両方で登録したお客様の電話予約（メール欄が空）は、そのお客様のメールで数える。
+  const yamadaBookings = [
+    { email_canonical: 'a@example.com', phone: '090-1111-2222', customer_name: '山田 花子', booking_date: '2026-04-01', total_price: 5000, status: 'completed' },
+    { email_canonical: null, phone: '090-1111-2222', customer_name: '山田 花子', booking_date: '2026-05-01', total_price: 3000, status: 'completed' },
+    { email_canonical: null, phone: '09011112222', customer_name: '山田 花子', booking_date: '2026-05-10', total_price: 2000, status: 'completed' },
+  ];
+  const upserted = () => mockUpsert.mock.calls[0][0].map((r: any) => [r.customer_email, r.total_visits, r.total_spent, r.first_visit_date, r.last_visit_date]).sort();
+
+  test('台帳でその電話番号を持つのがメールのあるお客様 1 人なら、電話予約もそのメールの行に数える（回帰）', async () => {
+    completedBookings(yamadaBookings);
+    mockLedgerRange.mockResolvedValue({ data: [{ email: 'A@example.com', phone: '090-1111-2222' }, { email: 'b@example.com', phone: '080-3333-4444' }], error: null });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(ledgerSelect).toHaveBeenCalledWith('email, phone');
+    expect(mockLedgerRange).toHaveBeenCalledWith({
+      eqColumn: 'facility_id', facilityId: 'fac-0', notColumn: 'phone', op: 'is', value: null, orderColumn: 'id', from: 0, to: 999,
+    });
+    expect(upserted()).toEqual([['a@example.com', 3, 10000, '2026-04-01', '2026-05-10']]);
+  });
+
+  test('同じ電話番号のお客様が台帳に 2 人いれば寄せない（電話番号の行のまま）', async () => {
+    completedBookings(yamadaBookings);
+    mockLedgerRange.mockResolvedValue({ data: [{ email: 'a@example.com', phone: '090-1111-2222' }, { email: 'b@example.com', phone: '09011112222' }], error: null });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(upserted()).toEqual([
+      ['a@example.com', 1, 5000, '2026-04-01', '2026-04-01'],
+      ['tel:09011112222', 2, 5000, '2026-05-01', '2026-05-10'],
+    ]);
+  });
+
+  test('電話番号のキーの予約が無い施設は台帳を読まない', async () => {
+    completedBookings([yamadaBookings[0]]);
+    await GET(makeRequest() as any);
+    expect(mockLedgerRange).not.toHaveBeenCalled();
+    expect(upserted()).toEqual([['a@example.com', 1, 5000, '2026-04-01', '2026-04-01']]);
+  });
+
+  test.each([
+    ['DB エラー', { data: null, error: { message: 'customers down' } }],
+    ['配列でない応答', { data: null, error: null }],
+  ])('台帳を読めない（%s）施設は書かず・消さず、失敗として報告する', async (_label, ledgerResult) => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    completedBookings(yamadaBookings);
+    mockLedgerRange.mockResolvedValue(ledgerResult);
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ processed: 0, skipped: 1, processingFailures: 1 });
+    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(mockStaleDelete).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith('[customer-segment] customer ledger fetch failed', expect.objectContaining({ facilityId: 'fac-0' }));
+    errorSpy.mockRestore();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -862,7 +942,7 @@ describe('メールの無い予約は電話番号で識別する', () => {
 //   「新規」と累計利用額が残り続けた。施設ごとに、今回の集計に現れなかった行を消す。
 // ---------------------------------------------------------------------------
 describe('今回の集計に現れなかったお客様の行は消す', () => {
-  type SegmentRow = { facility_id: string; customer_email: string; updated_at: string; segment?: string; total_spent?: number };
+  type SegmentRow = { facility_id: string; customer_email: string; updated_at: string; last_visit_date: string; segment?: string; total_spent?: number };
   let store: SegmentRow[];
   const OLD = '2026-05-08T07:00:00.000Z';
 
@@ -880,19 +960,23 @@ describe('今回の集計に現れなかったお客様の行は消す', () => {
       }
       return { data: [], error: null };
     });
-    mockStaleDelete.mockImplementation(async ({ eqColumn, facilityId, ltColumn, stamp }: any) => {
-      expect([eqColumn, ltColumn]).toEqual(['facility_id', 'updated_at']);
-      store = store.filter((r) => !(r.facility_id === facilityId && r.updated_at < stamp));
+    mockStaleDelete.mockImplementation(async ({ eqColumn, facilityId, ltColumn, stamp, gteColumn, since }: any) => {
+      expect([eqColumn, ltColumn, gteColumn]).toEqual(['facility_id', 'updated_at', 'last_visit_date']);
+      store = store.filter((r) => !(r.facility_id === facilityId && r.updated_at < stamp && r.last_visit_date >= since));
       return { data: null, error: null };
     });
   }
   const initialRows = (): SegmentRow[] => [
     // 誤って「完了」にされ、後で「無断キャンセル」に訂正されたお客様（来店 0 回になった）
-    { facility_id: 'fac-0', customer_email: 'a@example.com', updated_at: OLD, segment: 'new', total_spent: 8000 },
-    { facility_id: 'fac-0', customer_email: 'b@example.com', updated_at: OLD, segment: 'new', total_spent: 1000 },
+    { facility_id: 'fac-0', customer_email: 'a@example.com', updated_at: OLD, last_visit_date: '2026-05-01', segment: 'new', total_spent: 8000 },
+    { facility_id: 'fac-0', customer_email: 'b@example.com', updated_at: OLD, last_visit_date: '2026-04-01', segment: 'new', total_spent: 1000 },
     // 別の施設の行には触れない
-    { facility_id: 'fac-9', customer_email: 'a@example.com', updated_at: OLD, segment: 'new', total_spent: 5000 },
+    { facility_id: 'fac-9', customer_email: 'a@example.com', updated_at: OLD, last_visit_date: '2026-05-01', segment: 'new', total_spent: 5000 },
   ];
+  // 最後の来店が集計期間（直近 2 年＝2024-05-15 から）より前の常連。今回の集計には現れない。
+  const longLost = (): SegmentRow => ({
+    facility_id: 'fac-0', customer_email: 'old@example.com', updated_at: OLD, last_visit_date: '2024-05-14', segment: 'lost', total_spent: 60000,
+  });
   const bOnly = [{ email_canonical: 'b@example.com', phone: null, customer_name: 'B', booking_date: '2026-05-10', total_price: 2000, status: 'completed' }];
 
   test('訂正で来店が無くなったお客様の行は次の集計で消え、残るお客様は更新される（回帰）', async () => {
@@ -914,6 +998,35 @@ describe('今回の集計に現れなかったお客様の行は消す', () => {
     expect(await res.json()).toEqual({ processed: 0, skipped: 1, deferred: 0 });
     expect(mockUpsert).not.toHaveBeenCalled();
     expect(store.map((r) => r.facility_id)).toEqual(['fac-9']);
+  });
+
+  test.each([
+    ['集計した施設', bOnly],
+    ['完了予約の無い施設', []],
+  ])('%s でも、最終来店が集計期間より前の行（長く来ていない常連）は消さない（回帰）', async (_label, rows) => {
+    completedBookings(rows);
+    useStore([...initialRows(), longLost()]);
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(mockStaleDelete).toHaveBeenCalledWith(expect.objectContaining({ facilityId: 'fac-0', since: '2024-05-15' }));
+    // 訂正で該当しなくなった a@ は消え、期間外の常連は最後の分類のまま残る
+    expect(store.filter((r) => r.facility_id === 'fac-0').map((r) => r.customer_email).sort()).toEqual(
+      rows.length ? ['b@example.com', 'old@example.com'] : ['old@example.com'],
+    );
+    expect(store.find((r) => r.customer_email === 'old@example.com')).toEqual(longLost());
+  });
+
+  test('予約の応答が配列でない（エラーも無い）ときは「0 件」と取り違えて消さない', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    completedBookings(null, null);
+    useStore(initialRows());
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ processed: 0, skipped: 1, processingFailures: 1 });
+    expect(mockStaleDelete).not.toHaveBeenCalled();
+    expect(store).toEqual(initialRows());
+    expect(errorSpy).toHaveBeenCalledWith('[customer-segment] bookings fetch failed', expect.objectContaining({ facilityId: 'fac-0' }));
+    errorSpy.mockRestore();
   });
 
   test('予約の取得に失敗した施設では消さない（失敗を 0 件と取り違えない）', async () => {

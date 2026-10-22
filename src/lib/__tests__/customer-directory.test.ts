@@ -51,8 +51,8 @@ describe('buildCustomerDirectory', () => {
     });
     expect(customers).toEqual([]);
     expect(unregistered).toEqual([
-      { key: 'a@example.com', name: 'A', email: 'a@example.com', phone: '03-1234-5678', visit_count: 2, last_visit: '2026-05-02', facility_id: 'f1', facility_name: '施設A' },
-      { key: 'tel:09011112222', name: '電話 花子', email: null, phone: '090-1111-2222', visit_count: 3, last_visit: '2026-05-01', facility_id: 'f1', facility_name: '施設A' },
+      { key: 'a@example.com', name: 'A', email: 'a@example.com', phone: '03-1234-5678', visit_count: 2, last_visit: '2026-05-02', facility_id: 'f1', facility_name: '施設A', phone_in_ledger: false },
+      { key: 'tel:09011112222', name: '電話 花子', email: null, phone: '090-1111-2222', visit_count: 3, last_visit: '2026-05-01', facility_id: 'f1', facility_name: '施設A', phone_in_ledger: false },
     ]);
   });
 
@@ -76,6 +76,70 @@ describe('buildCustomerDirectory', () => {
     expect(customers[0]).toMatchObject({ visit_count: 1, segment: null, total_spent: null });
   });
 
+  describe('メールと電話番号で登録したお客様の、同じ電話番号のメール無し来店（電話・来店受付）', () => {
+    const yamada = ledger({ email: 'a@example.com', phone: '090-1111-2222' });
+    const phoneVisits = visit({ name: '山田 花子', phone: '09011112222', visit_count: 3, last_visit: '2026-05-10' });
+
+    test('本人の来店回数・最終来店に入り、「未登録」に別の行として出ない（回帰）', () => {
+      const { customers, unregistered } = build({ ledger: [yamada], visits: [phoneVisits] });
+      expect(customers[0]).toMatchObject({ id: 'c1', visit_count: 3, last_visit: '2026-05-10' });
+      expect(unregistered).toEqual([]);
+    });
+
+    test('メールの来店と合算し、最終来店は新しい方', () => {
+      const emailLater = build({ ledger: [yamada], visits: [phoneVisits, visit({ email: 'A@example.com', visit_count: 2, last_visit: '2026-06-01' })] });
+      expect(emailLater.customers[0]).toMatchObject({ visit_count: 5, last_visit: '2026-06-01' });
+      const phoneLater = build({ ledger: [yamada], visits: [visit({ email: 'a@example.com', visit_count: 2, last_visit: '2026-04-01' }), phoneVisits] });
+      expect(phoneLater.customers[0]).toMatchObject({ visit_count: 5, last_visit: '2026-05-10' });
+      expect(phoneLater.unregistered).toEqual([]);
+    });
+
+    test('セグメントはメールのキーの行を優先し、まだ電話番号のキーの行しか無ければそれを出す', () => {
+      const both = build({
+        ledger: [yamada], visits: [phoneVisits],
+        segments: [{ customer_email: 'tel:09011112222', segment: 'new', total_spent: 1000 }, { customer_email: 'a@example.com', segment: 'regular', total_spent: 9000 }],
+      });
+      expect(both.customers[0]).toMatchObject({ segment: 'regular', total_spent: 9000 });
+      const telOnly = build({ ledger: [yamada], visits: [phoneVisits], segments: [{ customer_email: 'tel:09011112222', segment: 'new', total_spent: 1000 }] });
+      expect(telOnly.customers[0]).toMatchObject({ segment: 'new', total_spent: 1000 });
+      // cron が寄せた後（電話予約の来店だけでも、行はメールのキーにある）
+      const remapped = build({ ledger: [yamada], visits: [phoneVisits], segments: [{ customer_email: 'a@example.com', segment: 'regular', total_spent: 6000 }] });
+      expect(remapped.customers[0]).toMatchObject({ segment: 'regular', total_spent: 6000 });
+    });
+
+    test('来店の無くなった電話番号のキーの古い行は、メールの来店があっても出さない', () => {
+      const { customers } = build({
+        ledger: [yamada], visits: [visit({ email: 'a@example.com', visit_count: 2 })],
+        segments: [{ customer_email: 'tel:09011112222', segment: 'vip', total_spent: 99000 }],
+      });
+      expect(customers[0]).toMatchObject({ visit_count: 2, segment: null, total_spent: null });
+    });
+
+    test('台帳で同じ電話番号のお客様が 2 人いれば合算しない。「未登録」に残し、その旨の印を付ける', () => {
+      const { customers, unregistered } = build({
+        ledger: [yamada, ledger({ id: 'c2', name: '山田 一郎', email: 'b@example.com', phone: '090-1111-2222' })],
+        visits: [phoneVisits],
+      });
+      expect(customers.map((c) => [c.id, c.visit_count])).toEqual([['c1', 0], ['c2', 0]]);
+      expect(unregistered).toEqual([expect.objectContaining({ key: 'tel:09011112222', visit_count: 3, phone_in_ledger: true })]);
+    });
+
+    test('同じ電話番号で電話番号だけのお客様がいれば、その来店は電話番号だけのお客様のもの', () => {
+      const { customers, unregistered } = build({
+        ledger: [yamada, ledger({ id: 'c2', name: '電話のみ', phone: '090-1111-2222' })],
+        visits: [phoneVisits],
+      });
+      expect(customers.map((c) => [c.id, c.visit_count])).toEqual([['c1', 0], ['c2', 3]]);
+      expect(unregistered).toEqual([]);
+    });
+
+    test('別の電話番号のメール無し来店は寄せない（未登録の印も付けない）', () => {
+      const { customers, unregistered } = build({ ledger: [yamada], visits: [visit({ phone: '080-3333-4444', visit_count: 2 })] });
+      expect(customers[0].visit_count).toBe(0);
+      expect(unregistered).toEqual([expect.objectContaining({ key: 'tel:08033334444', phone_in_ledger: false })]);
+    });
+  });
+
   test('入力の来店集計を書き換えない', () => {
     const visits = [visit({ email: 'a@example.com', visit_count: 1 }), visit({ email: 'A@example.com', visit_count: 2 })];
     build({ visits });
@@ -88,7 +152,7 @@ const master = (over: Partial<MasterCustomer> = {}): MasterCustomer => ({
 });
 const unreg = (over: Partial<UnregisteredCustomer> = {}): UnregisteredCustomer => ({
   key: 'tel:09011112222', name: '電話 花子', email: null, phone: '090-1111-2222', visit_count: 1, last_visit: '2026-04-10',
-  facility_id: 'f1', facility_name: '施設A', ...over,
+  facility_id: 'f1', facility_name: '施設A', phone_in_ledger: false, ...over,
 });
 const search = (over: Partial<CustomerSearch>): CustomerSearch => ({ ...EMPTY_CUSTOMER_SEARCH, ...over });
 

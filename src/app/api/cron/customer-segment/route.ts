@@ -15,12 +15,18 @@ import { logCronRun, cronError } from '@/lib/cron-logger';
  * 【お客様の識別】メールがあればメール（canonical）、メールの無い電話・来店受付の予約は電話番号
  * （'tel:' ＋ 数字・customerIdentityKey）。顧客一覧（/admin/customers）と同じキーなので、
  * 電話番号だけで登録したお客様にもセグメントが付く。
+ * 台帳にメールと電話番号の両方で登録したお客様の電話予約（メール欄が空）は、そのお客様のメールの
+ * キーで数える（ledgerPhoneLinks・台帳でその電話番号を持つのが本人だけのとき）。一覧と同じ寄せ方なので、
+ * 同じ人が「メールの行」と「電話番号の行」に分かれて 2 人に数えられない。
  *
  * 【施設ごとに丸ごと置き換える】今回の集計に現れなかったお客様の行は消す（2026年10月23日）。
  * 以前は upsert だけで消さなかったため、「完了」を「無断キャンセル」に訂正して来店 0 回になったお客様に
  * 「新規」と累計利用額が残り続け、分析画面の総顧客数・リピート率の分母にも数えられていた。
  * 今回の行は updated_at を実行開始時刻にそろえて書くので、それより古い行＝今回現れなかった行を消す。
+ * 消すのは最終来店日が集計期間（直近 2 年）の中の行だけ。期間より前に最後に来たお客様（長く来ていない
+ * 「離脱」の常連）は今回の集計にそもそも現れないので、最後の分類のまま残す（分析画面の離脱客を減らさない）。
  * 予約の取得や保存に失敗した施設では消さない（失敗を「0 件」と取り違えて全行を消さないため）。
+ * 予約の応答が配列でないときも取得失敗として扱う（空の一覧と取り違えて消さない）。
  */
 
 import { NextResponse } from 'next/server';
@@ -28,7 +34,7 @@ import { createClient } from '@supabase/supabase-js';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { fetchAllPaged } from '@/lib/paginate';
 import { isMissingColumnError, type DbError } from '@/lib/db-fallback';
-import { customerIdentityKey } from '@/lib/customer-identity';
+import { customerIdentityKey, ledgerPhoneLinks, PHONE_KEY_PREFIX } from '@/lib/customer-identity';
 
 export const dynamic = 'force-dynamic';
 // 既定の低い上限を上書きし、下の時間予算ガードが確実に発火する既知の上限を与える。
@@ -92,12 +98,14 @@ export async function GET(request: Request) {
     let processingFailures = 0;
 
     // 今回の集計に現れなかったお客様の行を消す。失敗は false（呼び出し側で失敗として数える）。
+    // 最終来店日が集計期間より前の行は、今回の集計に現れないのが当然なので消さない（長期離脱客の行を残す）。
     const removeStaleSegments = async (facilityId: string): Promise<boolean> => {
       const { error } = await supabase
         .from('customer_segments')
         .delete()
         .eq('facility_id', facilityId)
-        .lt('updated_at', runStamp);
+        .lt('updated_at', runStamp)
+        .gte('last_visit_date', twoYearsAgo);
       if (error) {
         console.error('[customer-segment] stale segment cleanup failed', { facilityId, err: error });
         return false;
@@ -133,7 +141,11 @@ export async function GET(request: Request) {
             .in('status', ['completed'])
             .gte('booking_date', twoYearsAgo)
             .range(offset, offset + limit - 1);
-          return { data: data as BookingRow[] | null, error };
+          // 配列でない応答は「予約 0 件」ではない。取得失敗として扱い、下の削除まで進ませない。
+          return {
+            data: Array.isArray(data) ? data as BookingRow[] : null,
+            error: error || (!Array.isArray(data) ? new Error('bookings result invalid') : null),
+          };
         },
       );
       const firstFetch = await fetchBookings('email_canonical');
@@ -167,6 +179,36 @@ export async function GET(request: Request) {
         continue;
       }
 
+      // お客様の識別キー（メール、メールが無ければ電話番号。どちらも無い予約は null＝数えない）。
+      // canonical 列があればそれを、無ければ生 email を（customerIdentityKey の中で）canonical 化して使う。
+      const identityKeys = bookings.map((b) => customerIdentityKey(usingCanonicalColumn ? b.email_canonical : b.email, b.phone));
+
+      // 電話番号のキーの予約がある施設だけ台帳を読み、メールのあるお客様へ寄せてよい電話番号を得る
+      // （顧客一覧と同じ ledgerPhoneLinks）。読めなければ寄せ方が変わってしまうので、この施設は書かずに失敗とする。
+      let phoneLinks = new Map<string, string>();
+      if (identityKeys.some((k) => k?.startsWith(PHONE_KEY_PREFIX))) {
+        const ledger = await fetchAllPaged<{ email: string | null; phone: string | null }>(async (offset, limit) => {
+          const { data, error } = await supabase
+            .from('customers')
+            .select('email, phone')
+            .eq('facility_id', facility.id)
+            .not('phone', 'is', null)
+            .order('id')
+            .range(offset, offset + limit - 1);
+          return {
+            data: Array.isArray(data) ? data : null,
+            error: error || (!Array.isArray(data) ? new Error('customers result invalid') : null),
+          };
+        }, { failOnTruncation: true });
+        if (ledger.error) {
+          console.error('[customer-segment] customer ledger fetch failed', { facilityId: facility.id, err: ledger.error });
+          processingFailures++;
+          skipped++;
+          continue;
+        }
+        phoneLinks = ledgerPhoneLinks(ledger.rows);
+      }
+
       // お客様別に集計（メール、メールが無ければ電話番号。どちらも無い予約は数えない）
       const customerMap = new Map<string, {
         name: string;
@@ -176,10 +218,10 @@ export async function GET(request: Request) {
         spent: number;
       }>();
 
-      for (const b of bookings) {
-        // canonical 列があればそれを、無ければ生 email を（customerIdentityKey の中で）canonical 化して使う。
-        const key = customerIdentityKey(usingCanonicalColumn ? b.email_canonical : b.email, b.phone);
-        if (!key) continue;
+      for (const [i, b] of bookings.entries()) {
+        const identity = identityKeys[i];
+        if (!identity) continue;
+        const key = phoneLinks.get(identity) ?? identity;
         const existing = customerMap.get(key);
         if (existing) {
           existing.visits++;

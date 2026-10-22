@@ -4,6 +4,9 @@
  *
  * - 突合キーは customerIdentityKey（メール優先、メールが無ければ電話番号）。台帳・来店・セグメントの
  *   3 者が同じキーを使うので、電話番号だけで登録したお客様にも来店回数と履歴が付く。
+ * - メールと電話番号の両方で登録したお客様には、その電話番号のメール無し来店（電話・来店受付）も合わせる。
+ *   ただし施設の台帳でその電話番号を持つのが本人だけのとき（ledgerPhoneLinks）。2 人以上なら誰の来店か
+ *   決められないので「未登録」に残し、その旨を添える（「＋ 登録」で同じ人を重複登録しないように）。
  * - 来店の無い台帳顧客にはセグメント・累計利用額を出さない。customer_segments は週 1 回の集計で、
  *   「完了」を「無断キャンセル」に訂正した直後は古い行が残っている（来店 0 回なのに「新規・¥8,000」になる）。
  * - 検索条件は台帳と「来店履歴から未登録のお客様」の両方に同じ規則で当てる。未登録のお客様は
@@ -12,7 +15,7 @@
  */
 import { canonicalizeEmail } from './email-canonical';
 import { csvEscape } from './csv';
-import { customerIdentityKey } from './customer-identity';
+import { customerIdentityKey, ledgerPhoneLinks, phoneIdentityKey } from './customer-identity';
 
 /**
  * 顧客一覧の来店集計 1 行（＝1 人）。email / phone / name は最も新しい来店のもの。
@@ -55,6 +58,8 @@ export interface UnregisteredCustomer {
   // 【監査M3】未登録顧客も所属施設を持つ（「登録」時にその施設へ追加する）。
   facility_id: string;
   facility_name: string;
+  /** メール無しの来店で、台帳に同じ電話番号のお客様が複数いる（誰の来店か決められずまとめていない）。 */
+  phone_in_ledger: boolean;
 }
 
 export type LedgerRow = Omit<MasterCustomer, 'visit_count' | 'last_visit' | 'segment' | 'total_spent' | 'facility_id' | 'facility_name'>;
@@ -91,19 +96,30 @@ export function buildCustomerDirectory(input: {
     if (s.customer_email) segmentByKey.set(canonicalizeEmail(s.customer_email), s);
   }
 
+  // メールのあるお客様へ寄せてよい電話番号（'tel:数字' → メールのキー）と、台帳に出てくる電話番号。
+  const phoneLinks = ledgerPhoneLinks(input.ledger);
+  const ledgerPhoneKeys = new Set(input.ledger.map((c) => phoneIdentityKey(c.phone)));
+
   const matched = new Set<string>();
   const customers = input.ledger.map((c): MasterCustomer => {
     const key = customerIdentityKey(c.email, c.phone);
-    const hit = key ? visitByKey.get(key) : undefined;
-    if (key && hit) matched.add(key);
+    const telKey = phoneIdentityKey(c.phone);
+    // メールで登録したお客様の電話予約（メール欄が空）。台帳でその電話番号を持つのが本人だけのときに限る。
+    const linkedTelKey = telKey !== null && phoneLinks.get(telKey) === key ? telKey : null;
+    const keys = [key, linkedTelKey].filter((k): k is string => k !== null);
+    const hitKeys = keys.filter((k) => visitByKey.has(k));
+    for (const k of hitKeys) matched.add(k);
+    const hits = hitKeys.map((k) => visitByKey.get(k) as CustomerVisitSummary);
     // 来店が無いのにセグメント行だけ残っている＝訂正前の古い集計。表示しない。
-    const seg = key && hit ? segmentByKey.get(key) : undefined;
+    // セグメントはお客様のキー（メールがあればメール）の行を優先する（cron は寄せた来店もメールのキーで書く）。
+    // 寄せる前の集計しか無いあいだは、来店のある電話番号のキーの行を使う（来店の無いキーの行は古いので見ない）。
+    const seg = hitKeys.length > 0 ? [keys[0], ...hitKeys].map((k) => segmentByKey.get(k)).find(Boolean) : undefined;
     return {
       ...c,
       facility_id: facilityId,
       facility_name: facilityName,
-      visit_count: hit?.visit_count ?? 0,
-      last_visit: hit?.last_visit ?? null,
+      visit_count: hits.reduce((n, h) => n + h.visit_count, 0),
+      last_visit: hits.reduce<string | null>((d, h) => (d !== null && d >= h.last_visit ? d : h.last_visit), null),
       segment: seg?.segment ?? null,
       total_spent: seg?.total_spent ?? null,
     };
@@ -113,7 +129,12 @@ export function buildCustomerDirectory(input: {
   const unregistered: UnregisteredCustomer[] = [];
   for (const [key, v] of visitByKey) {
     if (matched.has(key)) continue;
-    unregistered.push({ key, name: v.name, email: v.email, phone: v.phone, visit_count: v.visit_count, last_visit: v.last_visit, facility_id: facilityId, facility_name: facilityName });
+    unregistered.push({
+      key, name: v.name, email: v.email, phone: v.phone, visit_count: v.visit_count, last_visit: v.last_visit,
+      facility_id: facilityId, facility_name: facilityName,
+      // ここに残る電話番号のキーが台帳にもある＝同じ番号のお客様が台帳に複数いて寄せられなかった。
+      phone_in_ledger: ledgerPhoneKeys.has(key),
+    });
   }
   return { customers, unregistered };
 }

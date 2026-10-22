@@ -315,7 +315,12 @@ export default function CustomersManager({
               <SbTbody>
                 {filteredUnregistered.map((u) => (
                   <tr key={`${u.facility_id}:${u.key}`} className="hover:bg-gray-50">
-                    <SbTd className="font-medium">{u.name}</SbTd>
+                    <SbTd className="font-medium">
+                      {u.name}
+                      {u.phone_in_ledger && (
+                        <span className="block text-xs font-normal text-gray-600">台帳に同じ電話番号のお客様が複数いるため、自動ではまとめていません</span>
+                      )}
+                    </SbTd>
                     {multiFacility && <SbTd className="text-gray-500 text-xs">{u.facility_name}</SbTd>}
                     <SbTd className="text-gray-500 text-xs">
                       {u.email && <span className="block">{u.email}</span>}

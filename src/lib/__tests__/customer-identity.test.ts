@@ -1,5 +1,5 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
-import { customerIdentityKey, MIN_PHONE_DIGITS, phoneDigits, PHONE_KEY_PREFIX } from '../customer-identity';
+import { customerIdentityKey, ledgerPhoneLinks, MIN_PHONE_DIGITS, phoneDigits, phoneIdentityKey, PHONE_KEY_PREFIX } from '../customer-identity';
 
 describe('phoneDigits', () => {
   test.each([
@@ -44,5 +44,36 @@ describe('customerIdentityKey', () => {
   test('canonical 済みのメールを渡しても同じキー（DB の email_canonical を渡す cron と一致）', () => {
     const raw = 'F.o.o+x@googlemail.com';
     expect(customerIdentityKey(customerIdentityKey(raw, null), null)).toBe(customerIdentityKey(raw, null));
+  });
+});
+
+describe('phoneIdentityKey', () => {
+  test('電話番号だけのキー。識別に使えない番号は null', () => {
+    expect(phoneIdentityKey('090-1111-2222')).toBe('tel:09011112222');
+    expect(phoneIdentityKey('1234')).toBeNull();
+    expect(phoneIdentityKey(null)).toBeNull();
+  });
+});
+
+describe('ledgerPhoneLinks（メールのあるお客様へ寄せてよい電話番号）', () => {
+  test('台帳でその電話番号を持つのがメールのあるお客様 1 人だけなら、そのメールのキーへ寄せる', () => {
+    expect(ledgerPhoneLinks([
+      { email: 'F.O.O@gmail.com', phone: '090-1111-2222' },
+      { email: 'b@example.com', phone: null },
+      { email: 'c@example.com', phone: '1234' },
+    ])).toEqual(new Map([['tel:09011112222', 'foo@gmail.com']]));
+  });
+
+  test('同じ電話番号のお客様が 2 人以上（電話番号だけのお客様を含む）なら寄せない', () => {
+    expect(ledgerPhoneLinks([
+      { email: 'a@example.com', phone: '090-1111-2222' },
+      { email: 'b@example.com', phone: '０９０１１１１２２２２' },
+      { email: 'c@example.com', phone: '080-3333-4444' },
+      { email: null, phone: '08033334444' },
+    ]).size).toBe(0);
+  });
+
+  test('メールの無いお客様だけの電話番号は寄せない（そのお客様は電話番号のキーで直接突合される）', () => {
+    expect(ledgerPhoneLinks([{ email: ' ', phone: '090-1111-2222' }, { email: null, phone: '080-3333-4444' }]).size).toBe(0);
   });
 });

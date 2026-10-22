@@ -3,7 +3,7 @@ import { verifyAuthUser } from '@/lib/auth-verification';
 import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { getCustomerPhoneVisits, getCustomerVisits } from '@/lib/admin';
+import { getLedgerCustomerVisits } from '@/lib/admin';
 import Breadcrumb from '@/components/Breadcrumb';
 import { UUID_REGEX } from '@/lib/constants';
 import { SbStatCard } from '@/components/admin/SbUi';
@@ -49,12 +49,10 @@ export default async function CustomerDetailPage(props: Props) {
     .maybeSingle(), '/admin/customers/[id]');
   if (!customer) notFound();
 
-  // 来店履歴は一覧と同じ突合キー（customerIdentityKey）で引く。メールがあればメール、無ければ電話番号
-  // （電話・来店受付のメール無し予約）。どちらも無ければ照会しない（空の条件で施設の全来店を返さない）。
-  // 施設は顧客が実際に属する facility_id を使う。
-  const visits = customer.email?.trim()
-    ? await getCustomerVisits(customer.facility_id, customer.email)
-    : await getCustomerPhoneVisits(customer.facility_id, customer.phone);
+  // 来店履歴は一覧と同じ突合で引く。メールがあればメール（台帳でその電話番号を持つのが本人だけなら、
+  // その電話番号のメール無し来店も合わせる）、無ければ電話番号（電話・来店受付のメール無し予約）。
+  // どちらも無ければ照会しない（空の条件で施設の全来店を返さない）。施設は顧客が実際に属する facility_id。
+  const visits = await getLedgerCustomerVisits(customer.facility_id, customer);
   const totalSpent = visits.reduce((sum, v) => sum + (v.amount ?? 0), 0);
 
   return (

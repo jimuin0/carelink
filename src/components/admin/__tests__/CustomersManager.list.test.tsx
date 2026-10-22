@@ -16,7 +16,7 @@ const FAC = [{ id: 'f1', name: '施設A' }];
 const FAC2 = [{ id: 'f1', name: '施設A' }, { id: 'f2', name: '施設B' }];
 
 function unreg(over: Partial<UnregisteredCustomer>): UnregisteredCustomer {
-  return { key: 'k', name: '来店者', email: null, phone: null, visit_count: 1, last_visit: '2026-04-10', facility_id: 'f1', facility_name: '施設A', ...over };
+  return { key: 'k', name: '来店者', email: null, phone: null, visit_count: 1, last_visit: '2026-04-10', facility_id: 'f1', facility_name: '施設A', phone_in_ledger: false, ...over };
 }
 function master(over: Partial<MasterCustomer> = {}): MasterCustomer {
   return {
@@ -102,6 +102,15 @@ test('電話番号だけのお客様は電話番号を表示し、「＋ 登録�
   expect(screen.getByLabelText(/お名前/)).toHaveValue('Bさん');
   expect(screen.getByLabelText('電話番号', { selector: '#cust-phone' })).toHaveValue('090-1111-2222');
   expect(screen.getByLabelText('メールアドレス', { selector: '#cust-email' })).toHaveValue('');
+});
+
+test('台帳に同じ電話番号のお客様が複数いて寄せられなかった来店には、その旨を添える（重複登録の防止）', () => {
+  const NOTE = '台帳に同じ電話番号のお客様が複数いるため、自動ではまとめていません';
+  const { unmount } = render(<CustomersManager facilities={FAC} customers={[]} unregistered={[{ ...B, phone_in_ledger: true }]} />);
+  expect(within(unregisteredSection()).getByText(NOTE)).toBeInTheDocument();
+  unmount();
+  render(<CustomersManager facilities={FAC} customers={[]} unregistered={[B]} />);
+  expect(screen.queryByText(NOTE)).not.toBeInTheDocument();
 });
 
 test('複数施設なら未登録のお客様にも施設名を出す。同じキーが別施設にあっても別の行', () => {
