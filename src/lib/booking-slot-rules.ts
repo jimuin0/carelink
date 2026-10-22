@@ -65,8 +65,13 @@ export function hasSlotStarted(bookingDate: string, startTime: string, nowMs: nu
 
 /** 開始時刻を過ぎた枠を予約・変更しようとしたとき（予約 RPC の BOOKING_SLOT_PASSED と同じ意味）。 */
 export const BOOKING_SLOT_PASSED_MESSAGE = '選択した時間はすでに過ぎています。日時を選び直してください。';
-/** 枠の長さがメニューの所要時間と合わないとき（メニューを変えた後の古い枠など）。 */
-export const BOOKING_DURATION_MISMATCH_MESSAGE = '選択したメニューの所要時間と予約時間が合いません。日時を選び直してください。';
+/**
+ * 枠の長さが、選んだメニューの所要時間（サーバーが DB から読んだ値）と合わないとき。
+ * 予約画面は選び直したメニューに合わせて枠を外すので、画面から送った予約でこれが返るのは
+ * 「画面を開いている間に店舗がメニューの所要時間を変えた」場合。画面はメニューを読み直してから
+ * 日時を選び直してもらう（古い所要時間のまま取り直すと、どの枠を選んでも断られ続けるため）。
+ */
+export const BOOKING_DURATION_MISMATCH_MESSAGE = 'メニューの内容が更新されたため、選択した時間ではご予約できません。最新の内容で日時を選び直してください。';
 /** 日時変更で、予約の所要時間と違う長さの時間を指定されたとき。 */
 export const RESCHEDULE_DURATION_MISMATCH_MESSAGE = '予約の所要時間と合わない時間は指定できません。表示されている時間から選び直してください。';
 

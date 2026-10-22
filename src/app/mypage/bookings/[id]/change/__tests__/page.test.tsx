@@ -346,6 +346,42 @@ describe('変更する予約を外した空き・当日からの日付', () => {
   });
 });
 
+// 回帰（2026年10月23日）: 変更する予約を空きの計算から外したので、今の予約と同じ日・同じ開始時刻も
+// 候補に出るようになった。送ると同じ内容の再送として成功扱いになり、何も変わらないのに
+// 「日時を変更しました」と表示された。現在の予約として示し、選べないようにする。
+describe('今の予約と同じ日時', () => {
+  const tomorrowYmd = () => new Date(Date.now() + 9 * 3_600_000 + 86_400_000).toISOString().slice(0, 10);
+
+  test('同じ日の同じ開始時刻は「現在の予約」として選べず、ずらした時刻は選べる', async () => {
+    mockSupabase({ booking: { booking_date: tomorrowYmd(), start_time: '10:00:00', end_time: '11:00:00' } });
+    mockFetch(slotsFor([{ slot_start: '10:00:00', slot_end: '11:00:00' }, { slot_start: '10:30:00', slot_end: '11:30:00' }]));
+    render(<BookingChangePage />);
+    await pickTomorrow();
+    const current = (await within(slotPicker()).findByText('10:00')).closest('button')!;
+    expect(current).toBeDisabled();
+    expect(within(current).getByText('現在の予約')).toBeInTheDocument();
+    fireEvent.click(current);
+    expect(screen.queryByRole('button', { name: /に変更する/ })).not.toBeInTheDocument();
+
+    fireEvent.click(within(slotPicker()).getByText('10:30'));
+    expect(screen.getByRole('button', { name: /10:30に変更する/ })).toBeInTheDocument();
+  });
+
+  test('別の日の同じ開始時刻は選べる', async () => {
+    // 予約は翌日。日付の候補は当日から並ぶので、3 番目（翌々日）を選ぶ。
+    mockSupabase({ booking: { booking_date: tomorrowYmd(), start_time: '10:00:00', end_time: '11:00:00' } });
+    mockFetch(slotsFor([{ slot_start: '10:00:00', slot_end: '11:00:00' }]));
+    render(<BookingChangePage />);
+    await screen.findByText('新しい日付を選択');
+    fireEvent.click(screen.getAllByRole('button')[2]);
+    const slot = (await within(slotPicker()).findByText('10:00')).closest('button')!;
+    expect(slot).toBeEnabled();
+    expect(within(slotPicker()).queryByText('現在の予約')).not.toBeInTheDocument();
+    fireEvent.click(slot);
+    expect(screen.getByRole('button', { name: /10:00に変更する/ })).toBeInTheDocument();
+  });
+});
+
 describe('変更の送信が断られたとき', () => {
   function submitWith(status: number, body: unknown) {
     const slotsResponder = slotsFor([{ slot_start: '15:00:00', slot_end: '16:00:00' }]);

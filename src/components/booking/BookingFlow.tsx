@@ -15,7 +15,7 @@ import { BookingCreateClient, type BookingCreateClientResult, BOOKING_CREATE_UNK
 import type { BookingFormData } from '@/lib/validations-booking';
 import { WAITLIST_NOTICE } from '@/lib/coming-soon';
 import { HOME_VISIT_ADDRESS_REQUIRED_MESSAGE } from '@/lib/home-visit';
-import { BOOKING_SLOT_PASSED_MESSAGE, clampBookingDuration, hasSlotStarted, needsSlotReselection, slotLengthMinutes } from '@/lib/booking-slot-rules';
+import { BOOKING_DURATION_MISMATCH_MESSAGE, clampBookingDuration, needsSlotReselection, slotLengthMinutes } from '@/lib/booking-slot-rules';
 // /api/slots/week が 1 リクエストで受け付けるスタッフ数の上限（サーバー側と同じ定義を使う）。
 import { SLOTS_WEEK_MAX_STAFF } from '@/lib/slots-week';
 
@@ -610,6 +610,11 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
       // 開始時刻を過ぎた・所要時間と合わない枠だったと断られたら、同じ枠を送り直させない。
       // 選択を外して日時の画面へ戻し、空き状況を取り直す（2026年10月23日）。
       if (needsSlotReselection(result.error)) clearSlotForReselection();
+      // 所要時間と合わないと断られるのは、画面を開いている間に店舗がメニューの所要時間を変えたとき
+      // （画面側はメニューに合わない枠を外している）。手元のメニューのままでは古い長さで枠を取り直し、
+      // どれを選んでも断られ続けるので、メニューを読み直す（受け取ったら下の照合で選択中のメニューを
+      // 新しい内容に置き換え、空き状況も新しい所要時間で取り直す）。
+      if (result.error === BOOKING_DURATION_MISMATCH_MESSAGE) router.refresh();
     } else setBookingRecoveryError(result.error);
   };
   // 選択中の枠を外して日時の画面へ戻り、空き状況を取り直す。
@@ -627,14 +632,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     if (!customerName || !email) { setToast({ type: 'error', message: 'お名前とメールアドレスは必須です' }); return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setToast({ type: 'error', message: '正しいメールアドレスを入力してください' }); return; }
     if (facility.homeVisitOnly && !note.trim()) { setToast({ type: 'error', message: HOME_VISIT_ADDRESS_REQUIRED_MESSAGE }); return; }
-    // 確認画面に長く留まると、選んだ枠の開始時刻を過ぎることがある。送る前に確かめ、過ぎていれば
-    // 日時を選び直してもらう（サーバーも同じ判定で断る）。受付確認中（pending）の再確認は元の受付番号の
-    // 照合なので止めない。
-    if (!bookingCreate.current.pending && selectedSlot && hasSlotStarted(selectedDate, selectedSlot.slot_start, Date.now())) {
-      setToast({ type: 'error', message: BOOKING_SLOT_PASSED_MESSAGE });
-      clearSlotForReselection();
-      return;
-    }
+    // 開始時刻を過ぎた枠かどうかは、ここ（端末の時計）では判定しない。最終判定はサーバーの時刻で行い、
+    // 断られたら上の acceptCreateResult が日時の選び直しに戻す。端末の時計が進んでいると、サーバーが
+    // 出した当日の有効な枠を「過ぎた」と止め、取り直した表にも同じ枠が出て予約できなくなっていた。
     setSubmitting(true); setBookingPending(true);
     try {
       acceptCreateResult(await bookingCreate.current.submit({ facility_id: facility.id, staff_id: selectedStaff?.id ?? null,
@@ -700,6 +700,22 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     setSelectedDate('');
     setSelectedSlot(null);
     setToast({ type: 'error', message: '選択したメニューは指名中のスタッフの対象外のため、指名を解除しました' });
+  }
+
+  // 【2026年10月23日】メニューを読み直したら（所要時間が合わないと断られたときの router.refresh）、
+  // 選択中のメニューを新しい内容に置き換える。selectedMenus は選んだ時点のメニューの写しを持つので、
+  // 置き換えないと所要時間が古いまま残り、古い長さで枠を取り直しては断られ続ける。
+  // 受付をやめたなどで一覧から消えたメニューは選択から外す（一覧に無いと、選択を外す手段が無いため）。
+  const [syncedMenus, setSyncedMenus] = useState(menus);
+  if (syncedMenus !== menus) {
+    setSyncedMenus(menus);
+    const latest = new Map(menus.map((m) => [m.id, m]));
+    const refreshed = selectedMenus.flatMap((m) => latest.get(m.id) ?? []);
+    setSelectedMenus(refreshed);
+    if (refreshed.length < selectedMenus.length) {
+      setToast({ type: 'error', message: '選択中のメニューの一部がご予約いただけなくなったため、選択を解除しました' });
+      if (refreshed.length === 0) setStep('menu');
+    }
   }
 
   // 【2026年10月23日】選択中の枠の長さが、今のメニューの所要時間と合わなくなったら枠を外す。
@@ -1267,19 +1283,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
               戻る
             </button>
             {selectedSlot && (
-              <button
-                type="button"
-                onClick={() => {
-                  // 表は開いた時点の空き状況。開始時刻を過ぎた枠のまま確認画面へ進ませない。
-                  if (hasSlotStarted(selectedDate, selectedSlot.slot_start, Date.now())) {
-                    setToast({ type: 'error', message: BOOKING_SLOT_PASSED_MESSAGE });
-                    clearSlotForReselection();
-                    return;
-                  }
-                  setStep('confirm');
-                }}
-                className="btn-primary flex-1 py-3!"
-              >
+              // 開始時刻を過ぎた枠かどうかは端末の時計では止めない（handleSubmit のコメント参照）。
+              <button type="button" onClick={() => setStep('confirm')} className="btn-primary flex-1 py-3!">
                 次へ（確認・予約）
               </button>
             )}

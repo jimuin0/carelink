@@ -36,6 +36,11 @@ type ChangeableBooking = {
   facility_name: string; menu_name: string; staff_name: string; duration: number;
 };
 
+/** 今の予約と同じ日・同じ開始時刻の枠か（長さは予約と同じなので、同じ枠＝変更にならない）。 */
+function isCurrentBookingSlot(booking: ChangeableBooking, date: string, slotStart: string): boolean {
+  return date === booking.booking_date && slotStart.slice(0, 5) === booking.start_time.slice(0, 5);
+}
+
 /**
  * 指名なし（おまかせ）予約で空き枠を集計するスタッフ。予約 RPC が割り当てた担当者
  * （staff_auto_assigned）は指名ではないので、その人の空きに限らない（変更時に RPC が割り当て直す）。施設の受付中スタッフのうち、
@@ -302,12 +307,19 @@ export default function BookingChangePage() {
             <p className="text-gray-500 text-sm text-center py-4">この日は予約可能な時間帯がありません</p>
           ) : (
             <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-              {shownSlots.slots.map((slot) => (
-                <button type="button" key={slot.slot_start} onClick={() => setSelectedSlot(slot)}
-                  className={`p-3 rounded-xl border text-center transition-colors ${selectedSlot?.slot_start === slot.slot_start ? 'border-sky-500 bg-sky-50' : 'border-gray-200 hover:border-sky-300'}`}>
-                  <p className="font-bold text-sm">{slot.slot_start.slice(0, 5)}</p>
-                </button>
-              ))}
+              {shownSlots.slots.map((slot) => {
+                // 今の予約と同じ日・同じ開始時刻は「変更」にならない。変更する予約を空きの計算から
+                // 外したので候補に出るが、送ると同じ内容の再送として成功扱いになり、何も変わらないのに
+                // 「日時を変更しました」と表示されてしまう。現在の予約として示し、選べないようにする。
+                const isCurrent = isCurrentBookingSlot(booking, selectedDate, slot.slot_start);
+                return (
+                  <button type="button" key={slot.slot_start} onClick={() => setSelectedSlot(slot)} disabled={isCurrent}
+                    className={`p-3 rounded-xl border text-center transition-colors ${isCurrent ? 'border-gray-200 bg-gray-100 text-gray-600 cursor-not-allowed' : selectedSlot?.slot_start === slot.slot_start ? 'border-sky-500 bg-sky-50' : 'border-gray-200 hover:border-sky-300'}`}>
+                    <p className="font-bold text-sm">{slot.slot_start.slice(0, 5)}</p>
+                    {isCurrent && <p className="text-xs">現在の予約</p>}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

@@ -124,7 +124,7 @@ it('null/truncated notification collections are a visible503 before mutation',as
 // was saved with two menus (120 minutes) and the second hour was sold to someone else. Only start < end was checked.
 // The slot length must now equal the duration of the chosen menus as read from the database (booking-slot-rules).
 const menu2='bea52000-0000-4000-8000-000000000002';
-const DURATION_MISMATCH='選択したメニューの所要時間と予約時間が合いません。日時を選び直してください。';
+const DURATION_MISMATCH='メニューの内容が更新されたため、選択した時間ではご予約できません。最新の内容で日時を選び直してください。';
 it.each([
  ['a slot shorter than the menu',[{id:menu,price:500,duration_minutes:60}],{}],
  ['a single-menu slot kept after a second menu was added',[{id:menu,price:500,duration_minutes:30},{id:menu2,price:500,duration_minutes:30}],{menu_ids:[menu,menu2]}],
