@@ -7188,6 +7188,10 @@ export type Database = {
         Args: { p_campaign_id: string }
         Returns: Json
       }
+      normalize_facility_location: {
+        Args: { p_address: string; p_city: string; p_prefecture: string }
+        Returns: Record<string, unknown>
+      }
       owned_review_photo_metadata: {
         Args: {
           p_actor_id: string
