@@ -3,6 +3,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import type { FacilityCardData } from '@/types';
 import { SHIMMER_BLUR, cardUrl } from '@/lib/image-utils';
+import { formatFacilityLocality } from '@/lib/facility-location';
 
 function CardStarRating({ rating, count }: { rating: number; count: number }) {
   return (
@@ -155,7 +156,7 @@ export default function FacilityCard({ facility, showBadges = true, monthlyBooki
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
             <span className="truncate">
-              {facility.prefecture} {facility.city}
+              {facility.prefecture} {formatFacilityLocality(facility.prefecture, facility.city)}
               {facility.access_info && ` / ${facility.access_info}`}
             </span>
           </p>

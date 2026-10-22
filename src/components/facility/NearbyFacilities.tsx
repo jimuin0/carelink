@@ -1,6 +1,7 @@
 import { getNearbyFacilities } from '@/lib/facilities';
 import FacilityCard from '@/components/search/FacilityCard';
 import Link from 'next/link';
+import { formatFacilityLocality } from '@/lib/facility-location';
 
 interface Props {
   facilityId: string;
@@ -16,7 +17,7 @@ export default async function NearbyFacilities({ facilityId, prefecture, city }:
     <section className="px-4 sm:px-6 py-8 border-t border-gray-100">
       <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
         <span className="w-1 h-5 bg-sky-500 rounded-full" />
-        {city}の他のサロン
+        {formatFacilityLocality(prefecture, city)}の他のサロン
       </h3>
       <div className="grid sm:grid-cols-2 gap-4">
         {facilities.map((f) => (

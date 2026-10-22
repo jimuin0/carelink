@@ -27,3 +27,13 @@ test('different menu ID cannot confirm a patch',async()=>{
 test('SDK rejection does not retry the mutation or expose its body',async()=>{
  mockRpc.mockRejectedValue({code:'57014',message:'private detail'});const res=await saveAdminMenu(input) as NextResponse;expect(res.status).toBe(500);expect(mockRpc).toHaveBeenCalledTimes(1);
 });
+// 公開中の施設で最後の公開メニューを非公開にする操作は、削除の「最後のメニュー」と同じく断る（DB が判定）。
+test('the last visible menu refusal is a 400 with the reason, not a server error',async()=>{
+ mockRpc.mockResolvedValue({data:null,error:{code:'23514',message:'MENU_LAST_PUBLISHED'}});
+ const res=await saveAdminMenu({...input,menuId:id,values:{is_published:false}}) as NextResponse;
+ expect(res.status).toBe(400);expect((await res.json()).error).toContain('最後の公開メニュー');
+});
+test.each([{code:'23514',message:'new row violates check constraint "facility_menus_price_check"'},{code:'23514'}])('other check violations still notify as a server error %#',async error=>{
+ mockRpc.mockResolvedValue({data:null,error});
+ expect((await saveAdminMenu({...input,menuId:id,values:{price:1}}) as NextResponse).status).toBe(500);
+});

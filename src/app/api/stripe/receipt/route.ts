@@ -10,6 +10,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { serverError } from '@/lib/with-route';
+import { formatFacilityAddress } from '@/lib/facility-location';
 
 function esc(s: string | null | undefined): string {
   return (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -124,7 +125,7 @@ export async function GET(request: NextRequest) {
   <div class="section" style="clear:both;margin-top:32px;">
     <div class="label">発行者</div>
     <div class="value">${esc(facility?.name ?? '施設名')}</div>
-    ${facility?.postal_code ? `<div style="font-size:13px;color:#555;margin-top:4px;">〒${esc(facility.postal_code)} ${esc(facility?.prefecture ?? '')}${esc(facility?.city ?? '')}${esc(facility?.address ?? '')}</div>` : ''}
+    ${facility?.postal_code ? `<div style="font-size:13px;color:#555;margin-top:4px;">〒${esc(facility.postal_code)} ${esc(formatFacilityAddress(facility))}</div>` : ''}
     ${facility?.phone ? `<div style="font-size:13px;color:#555;">TEL: ${esc(facility.phone)}</div>` : ''}
   </div>
 

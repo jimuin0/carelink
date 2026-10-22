@@ -6,6 +6,7 @@ import Link from 'next/link';
 import BulkActions from './BulkActions';
 import { jstMonthStartIso } from '@/lib/admin-date';
 import { SbTable, SbThead, SbTh, SbTbody, SbTd, SbPageHeader } from '@/components/admin/SbUi';
+import { formatFacilityLocality } from '@/lib/facility-location';
 import { z } from 'zod';
 
 export const metadata: Metadata = { title: 'チェーン一括管理' };
@@ -154,7 +155,7 @@ export default async function ChainManagementPage() {
                     {f.name}
                   </Link>
                 </SbTd>
-                <SbTd className="text-gray-500 text-xs">{f.prefecture} {f.city}</SbTd>
+                <SbTd className="text-gray-500 text-xs">{f.prefecture} {formatFacilityLocality(f.prefecture, f.city)}</SbTd>
                 <SbTd align="center">
                   <span className={`inline-block w-2 h-2 rounded-full ${f.is_published ? 'bg-green-500' : 'bg-gray-300'}`} />
                 </SbTd>

@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
 /**
  * POST: hpb_menu_durations を facility_menus へ一括反映。
  * 新規メニューは is_published=false(非公開)で作成されるため、反映直後は客に出ない。
- * 管理画面のメニュー編集で公開ON にしたものだけ客向けに表示される。
+ * /admin/menus の「公開する」（PATCH /api/admin/menus/[id] の is_published）で公開したものだけ客向けに表示される。
  */
 export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);

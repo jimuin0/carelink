@@ -236,6 +236,12 @@ function AdminSettingsContent() {
       if (!res.ok || result?.ok !== true) {
         setToast({ type: 'error', message: result?.error || '保存結果を確認できませんでした。入力内容を保持しています' });
       } else {
+        // サーバーは市区町村をエリアの単位へ揃える（例: 横浜市中区 → 横浜市＋番地「中区…」）。
+        // 入力欄を保存された値に合わせ、次の保存で古い表記を送り直さないようにする。
+        if (typeof result.location?.city === 'string' && typeof result.location?.address === 'string') {
+          setCity(result.location.city);
+          setAddress(result.location.address);
+        }
         setDirty(false);
         setToast({ type: 'success', message: '施設情報を保存しました' });
       }
@@ -334,7 +340,7 @@ function AdminSettingsContent() {
           </div>
           <div>
             <label htmlFor="fac-catch" className="form-label">キャッチコピー</label>
-            <SbInput id="fac-catch" value={catchCopy} onChange={(e) => setCatchCopy(e.target.value)} maxLength={200} placeholder="例: 駅チカ3分！技術力No.1" />
+            <SbInput id="fac-catch" value={catchCopy} onChange={(e) => setCatchCopy(e.target.value)} maxLength={200} placeholder="例: 駅チカ3分！丁寧なカウンセリング" />
           </div>
           <div>
             <label htmlFor="fac-desc" className="form-label">施設紹介</label>

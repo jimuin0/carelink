@@ -42,6 +42,9 @@ async function fetchMenuSnapshot(facilityId: string) {
   return snapshot;
 }
 
+/** 一括公開中を表す publishing の値（メニュー ID とは重ならない）。 */
+const PUBLISH_ALL = 'all';
+
 export default function AdminMenusPage() {
   const requested = useSearchParams().get('facility_id');
   return <AdminMenusEditor key={requested ?? 'unselected'} requested={requested} />;
@@ -62,6 +65,9 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
   // 監査対応: 従来は追加時に末尾固定(sort_order: menus.length)のみで並び替え手段が無かった。
   // カテゴリ内の隣接メニューとsort_orderを交換する↑↓ボタンで並び替えを可能にする。
   const [reordering, setReordering] = useState<string | null>(null);
+  // 公開／非公開の切替中のメニュー。HPB 一括反映のメニューは非公開で作られるため、
+  // ここから公開しない限りお客様に表示されず、ネット予約も始められない。
+  const [publishing, setPublishing] = useState<string | null>(null);
 
   const loadMenus = useCallback(async (fId: string) => {
     setLoadError(false);
@@ -210,6 +216,55 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
     }
   };
 
+  // 送るのは is_published だけ（部分更新）。名前・料金・写真などは DB 側で現在値が保たれる。
+  const handleTogglePublish = async (menu: FacilityMenu) => {
+    if (!facilityId || publishing) return;
+    const publish = menu.is_published === false;
+    setPublishing(menu.id);
+    try {
+      const res = await fetch(`/api/admin/menus/${menu.id}?facility_id=${facilityId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_published: publish }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: e.error || '公開設定を変更できませんでした' });
+        return;
+      }
+      setToast({ type: 'success', message: publish ? '公開しました' : '非公開にしました' });
+      await loadMenus(facilityId);
+    } catch {
+      // 応答だけ失われた可能性があるため、一覧を読み直して実際の状態を表示する。
+      setToast({ type: 'error', message: '公開設定を変更できませんでした' });
+      await loadMenus(facilityId);
+    } finally {
+      setPublishing(null);
+    }
+  };
+
+  // HPB 一括反映の下書き（数十件）を 1 回でまとめて公開する。1 件ずつだとレート制限に当たって途中で止まる。
+  const handlePublishAll = async () => {
+    if (!facilityId || publishing) return;
+    setPublishing(PUBLISH_ALL);
+    try {
+      const res = await fetch(`/api/admin/menus/publish?facility_id=${facilityId}`, { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setToast({ type: 'error', message: body.error || '公開できませんでした' });
+        return;
+      }
+      setToast({ type: 'success', message: typeof body.published === 'number' ? `${body.published}件のメニューを公開しました` : '公開しました' });
+      await loadMenus(facilityId);
+    } catch {
+      // 応答だけ失われた可能性があるため、一覧を読み直して実際の状態を表示する。
+      setToast({ type: 'error', message: '公開できませんでした' });
+      await loadMenus(facilityId);
+    } finally {
+      setPublishing(null);
+    }
+  };
+
   const startEdit = (menu: FacilityMenu) => {
     setEditForm({
       id: menu.id,
@@ -227,13 +282,15 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
   if (loading) return <AdminPageLoading />;
   if (loadError) return <LoadError onRetry={reload} />;
   const selector = <FacilitySelector choices={choices} selectedId={facilityId} path="/admin/menus"
-    dirty={editForm !== null} busy={saving || deleting !== null || reordering !== null} />;
+    dirty={editForm !== null} busy={saving || deleting !== null || reordering !== null || publishing !== null} />;
   if (!facilityId) return <div><SbPageHeader title="メニュー管理" />{selector}</div>;
 
   const grouped = menus.reduce<Record<string, FacilityMenu[]>>((acc, m) => {
     (acc[m.category] = acc[m.category] || []).push(m);
     return acc;
   }, {});
+  // is_published が null の旧データは公開扱い（公開側の可視条件 COALESCE(is_published, true) と揃える）。
+  const unpublishedCount = menus.filter((m) => m.is_published === false).length;
 
   return (
     <div>
@@ -307,6 +364,20 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
         </Modal>
       )}
 
+      {unpublishedCount > 0 && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800" role="status">
+          <p>非公開のメニューが{unpublishedCount}件あります。非公開のメニューはお客様に表示されず、ネット予約もできません。各メニューの「公開する」か、下のボタンで公開できます。</p>
+          <button
+            type="button"
+            onClick={handlePublishAll}
+            disabled={publishing !== null}
+            className="mt-3 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+          >
+            {publishing === PUBLISH_ALL ? '公開しています…' : '非公開のメニューをすべて公開する'}
+          </button>
+        </div>
+      )}
+
       {/* Menu List */}
       {menus.length === 0 ? (
         <div className="bg-white rounded-xl shadow-xs p-12 text-center">
@@ -349,6 +420,7 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="font-medium text-sm truncate">{menu.name}</p>
+                        {menu.is_published === false && <SbBadge tone="neutral">非公開</SbBadge>}
                         {menu.is_featured && <SbBadge tone="warning">おすすめ</SbBadge>}
                       </div>
                       {menu.description && <p className="text-xs text-gray-400 mt-0.5 truncate">{menu.description}</p>}
@@ -357,7 +429,18 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
                       {menu.price != null && <p className="font-bold text-sky-600 text-sm">¥{menu.price.toLocaleString()}</p>}
                       {menu.duration_minutes != null && <p className="text-xs text-gray-400">{menu.duration_minutes}分</p>}
                     </div>
-                    <div className="flex gap-1 shrink-0">
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleTogglePublish(menu)}
+                        disabled={publishing !== null}
+                        aria-label={menu.is_published === false ? `${menu.name}を公開する` : `${menu.name}を非公開にする`}
+                        className={`px-2.5 py-1 text-xs font-bold whitespace-nowrap rounded-md border transition-colors disabled:opacity-50 ${menu.is_published === false
+                          ? 'border-sky-300 text-sky-700 hover:bg-sky-50'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+                      >
+                        {menu.is_published === false ? '公開する' : '非公開にする'}
+                      </button>
                       <button type="button" onClick={() => startEdit(menu)} className="p-2 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" aria-label="編集">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                       </button>

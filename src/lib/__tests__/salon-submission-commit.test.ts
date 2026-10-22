@@ -6,6 +6,7 @@ import { businessTypes } from '../constants';
 import { salonPayloadHmac, salonIntentProofHash } from '../salon-submission-proof';
 import { canonicalSalonSubmission } from '../salon-submission-contract';
 import { REGISTRATION_TERMS_SHA256 } from '../registration-consent';
+import { SALON_PR_TEXT_PROHIBITED_MESSAGE } from '../salon-field-errors';
 
 const intentId = '64000000-0000-4000-8000-000000000001';
 const photoId = '64000000-0000-4000-8000-000000000002';
@@ -154,4 +155,24 @@ test.each(['status', 'manifest', 'storage', 'url', 'rpc'])('exception at %s is c
   if (stage === 'url') f.storage.getPublicUrl.mockImplementation(() => { throw error; });
   if (stage === 'rpc') f.rpc.mockRejectedValue(error);
   expect(await commitSalonSubmission(f.db, input, proof)).toEqual({ state: stage === 'rpc' ? 'unknown' : 'unavailable' });
+});
+// /admin/settings と同じ医療広告の検査は、まだ受け付けていない申込にだけ行う。
+test('prohibited PR text in a new application is rejected under pr_text before any manifest read or write', async () => {
+  const f = fixture();
+  const result = await commitSalonSubmission(f.db, { ...input, registration: { ...registration, pr_text: '当院の施術で必ず治る' } }, proof);
+  expect(result).toEqual({ state: 'invalid', fieldErrors: { pr_text: SALON_PR_TEXT_PROHIBITED_MESSAGE } });
+  expect(JSON.stringify(result)).not.toContain('必ず治る');
+  expect(f.from).not.toHaveBeenCalled(); expect(f.storage.info).not.toHaveBeenCalled(); expect(f.rpc).not.toHaveBeenCalled();
+});
+test('an exact replay of an application committed before the rule is not rejected for its PR text', async () => {
+  const f = fixture(); (readSalonIntentStatus as jest.Mock).mockResolvedValue({ state: 'committed', receiptId });
+  f.rpc.mockResolvedValue({ data: [{ outcome: 'replay', receipt_id: receiptId }], error: null });
+  expect(await commitSalonSubmission(f.db, { ...input, registration: { ...registration, pr_text: '当院の施術で必ず治る' } }, proof))
+    .toEqual({ state: 'replay', receiptId });
+  expect(f.rpc).toHaveBeenCalledTimes(1);
+});
+test('acceptable PR text in a new application is committed', async () => {
+  const f = fixture();
+  expect(await commitSalonSubmission(f.db, { ...input, photoIds: [], registration: { ...registration, pr_text: '駅から徒歩3分です' } }, proof))
+    .toEqual({ state: 'committed', receiptId });
 });

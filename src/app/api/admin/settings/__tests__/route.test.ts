@@ -493,6 +493,60 @@ test('PATCH: website_url に空文字を送ったときだけ null で消す', a
   expect(update.mock.calls[0][0]).toMatchObject({ website_url: null });
 });
 
+// ─── 政令指定都市の市区町村（2026年10月22日）─────────────────────────────────
+// エリアページは city の完全一致でマスタ（src/data/city-slugs.ts）と結合する。「横浜市中区」「大阪市北区」の
+// まま保存すると、その店舗はどのエリアページにも出なかった。
+test.each([
+  ['神奈川県', '横浜市中区', '山下町1', '横浜市', '中区山下町1'],
+  ['大阪府', '大阪市北区', '梅田1-1-1', '北区', '梅田1-1-1'],
+  ['大阪府', '大阪市', '北区梅田1-1-1', '北区', '梅田1-1-1'],
+  ['大阪府', '堺市堺区', '南瓦町3-1', '堺市', '堺区南瓦町3-1'],
+  ['東京都', '渋谷区', '東京都渋谷区道玄坂1', '渋谷区', '道玄坂1'],
+])('PATCH: %s %s / %s をマスタ単位で保存する', async (prefecture, city, address, savedCity, savedAddress) => {
+  const update = captureSettingsUpdate();
+  const res = await PATCH(makePatchRequest({ name: '施設', prefecture, city, address }));
+  expect(res.status).toBe(200);
+  expect(update.mock.calls[0][0]).toMatchObject({ prefecture, city: savedCity, address: savedAddress });
+  // 画面が入力欄を実際に保存された値へ合わせられるように返す。
+  expect(await res.json()).toEqual({ ok: true, location: { city: savedCity, address: savedAddress } });
+});
+
+test('PATCH: 番地が空なら区を番地へ移さない（区だけの住所「中区」を作らない）', async () => {
+  const update = captureSettingsUpdate();
+  const res = await PATCH(makePatchRequest({ name: '施設', prefecture: '神奈川県', city: '横浜市中区', address: '' }));
+  expect(res.status).toBe(200);
+  expect(update.mock.calls[0][0]).toMatchObject({ city: '横浜市中区', address: '' });
+});
+
+test('PATCH: 下書きで住所欄が都道府県・市区町村だけなら、番地を空にして保存できる', async () => {
+  const update = captureSettingsUpdate();
+  const res = await PATCH(makePatchRequest({ name: '施設', prefecture: '東京都', city: '渋谷区', address: '東京都渋谷区' }));
+  expect(res.status).toBe(200);
+  expect(update.mock.calls[0][0]).toMatchObject({ city: '渋谷区', address: '' });
+  expect(await res.json()).toEqual({ ok: true, location: { city: '渋谷区', address: '' } });
+});
+
+// 公開中の施設で住所欄が「大阪府大阪市北区」だけだった（取り込み時の旧データ）場合、揃えると番地が空になり
+// DB が拒否する。店舗は住所を消していないので「先に非公開へ」ではなく、番地の入力を案内する。
+test('PATCH: 公開中で住所欄が都道府県・市区町村だけなら、番地の入力を求める 400（非公開を求めない）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain(locationConflict));
+  const res = await PATCH(makePatchRequest({ name: '施設', prefecture: '大阪府', city: '大阪市北区', address: '大阪府大阪市北区' }));
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.error).toContain('番地（町名以降）まで入力');
+  expect(body.error).not.toContain('非公開');
+});
+
+test('PATCH: 市区町村だけの保存は番地を推測せず、所在地を書き換えない', async () => {
+  const update = captureSettingsUpdate();
+  const res = await PATCH(makePatchRequest({ name: '施設', city: '横浜市中区' }));
+  expect(res.status).toBe(200);
+  expect(update.mock.calls[0][0]).toMatchObject({ city: '横浜市中区' });
+  expect(Object.keys(update.mock.calls[0][0])).not.toContain('address');
+  expect(await res.json()).toEqual({ ok: true });
+});
+
 test('PATCH: booking_buffer_minutes が 120 (上限ぴったり) → 200', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(updateChain());

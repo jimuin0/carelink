@@ -38,6 +38,7 @@ import { discountText } from '@/lib/coupon-display';
 import type { Facility, FacilityMenu, FacilityPhoto, FacilityReview, StaffProfile, Coupon, TreatmentCatalog } from '@/types';
 import { safeJsonLd } from '@/lib/json-ld';
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
+import { formatFacilityAddress, formatFacilityLocality } from '@/lib/facility-location';
 
 export const revalidate = 3600;
 
@@ -64,7 +65,8 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
 
   const title = `${facility.name} | ${facility.business_type}`;
   const ogTitle = `${title} | CareLink`;
-  const description = facility.catch_copy || `${facility.prefecture}${facility.city}の${facility.business_type}「${facility.name}」のメニュー・料金・アクセス情報`;
+  const locality = `${facility.prefecture ?? ''}${formatFacilityLocality(facility.prefecture, facility.city)}`;
+  const description = facility.catch_copy || `${locality}の${facility.business_type}「${facility.name}」のメニュー・料金・アクセス情報`;
 
   const url = `${SITE_URL}/facility/${params.slug}`;
 
@@ -79,7 +81,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
       url,
       siteName: 'CareLink',
       images: [{
-        url: `${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + facility.prefecture + facility.city)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`,
+        url: `${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + locality)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`,
         width: 1200,
         height: 630,
       }],
@@ -88,7 +90,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
       card: 'summary_large_image',
       title: ogTitle,
       description,
-      images: [`${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + facility.prefecture + facility.city)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`],
+      images: [`${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + locality)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`],
     },
   };
 }
@@ -351,7 +353,7 @@ export default async function FacilityPage(props: Props) {
               address: {
                 '@type': 'PostalAddress',
                 addressRegion: facility.prefecture,
-                addressLocality: facility.city,
+                addressLocality: formatFacilityLocality(facility.prefecture, facility.city),
                 streetAddress: facility.address,
                 postalCode: facility.postal_code,
               },
@@ -606,13 +608,13 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
           <div className="flex">
             <span className="text-gray-500 w-20 shrink-0">住所</span>
             <div className="flex items-center gap-2 flex-wrap">
-              {/* 監査T1: DBは prefecture/city/address が nullable。テンプレートリテラル(下のURL)は
-                  null を「null」文字列化するため ?? '' でガードする。 */}
-              <span>{facility.prefecture ?? ''}{facility.city ?? ''}{facility.address ?? ''}</span>
+              {/* 監査T1: DBは prefecture/city/address が nullable。formatFacilityAddress は null を空文字にする
+                  （「null」という文字を出さない）。大阪市の区は「大阪市」を補う（city は区だけを持つため）。 */}
+              <span>{formatFacilityAddress(facility)}</span>
               <a
                 href={facility.gbp_place_id
                   ? `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(facility.gbp_place_id)}`
-                  : `https://www.google.com/maps/search/${encodeURIComponent(`${facility.prefecture ?? ''}${facility.city ?? ''}${facility.address ?? ''}`)}`}
+                  : `https://www.google.com/maps/search/${encodeURIComponent(formatFacilityAddress(facility))}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-xs text-sky-700 hover:underline shrink-0"

@@ -111,4 +111,20 @@ test('PATCH missing photo row',async()=>{mockAdminFrom.mockReturnValue(maybeSing
 test.each([null,{photo_url:STOCK}])('PATCH photo query failure stops before mutation: %p',async data=>{
  mockAdminFrom.mockReturnValue(maybeSingleChain(data,{code:'08006',message:'PRIVATE_DETAIL'}));const r=await PATCH(makeRequest('PATCH',{photo_url:STOCK}),makeProps());expect(r.status).toBe(500);expect(mockRpc).not.toHaveBeenCalled();expect(writeAuditLog).not.toHaveBeenCalled();expect(jest.mocked(routeErrors.serverError).mock.calls[0][1].message).toBe('DATABASE_FAILURE:08006');
 });
+// HPB 一括反映のメニューは非公開で作られる。以前は is_published を受け付けず（zod が黙って捨てる）、
+// 管理画面から公開できないためネット予約を始められなかった。
+test.each([true,false])('PATCH publication toggle sends only is_published=%p',async published=>{
+ const r=await PATCH(makeRequest('PATCH',{is_published:published}),makeProps());expect(r.status).toBe(200);
+ expect(mockRpc).toHaveBeenCalledWith('save_admin_menu_atomic',expect.objectContaining({p_menu_id:MENU_UUID,p_facility_id:FACILITY_UUID}));
+ // 送られていない列（写真・名前など）は p_values に載らない＝DB 側で現在値が保たれる。
+ expect(mockRpc.mock.calls[0][1].p_values).toEqual({is_published:published});
+ expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({newValues:{is_published:published}}));
+});
+test('PATCH edit without is_published does not touch publication',async()=>{
+ expect((await PATCH(makeRequest('PATCH',{name:'Rename',price:100}),makeProps())).status).toBe(200);
+ expect(mockRpc.mock.calls[0][1].p_values).not.toHaveProperty('is_published');
+});
+test.each([{is_published:'true'},{is_published:null},{is_published:1}])('PATCH rejects non-boolean publication: %p',async payload=>{
+ expect((await PATCH(makeRequest('PATCH',payload),makeProps())).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();
+});
 test('PATCH malformed JSON',async()=>{expect((await PATCH(new NextRequest('http://localhost/api/admin/menus/'+MENU_UUID+'?facility_id='+FACILITY_UUID,{method:'PATCH',body:'{'}),makeProps())).status).toBe(400);});

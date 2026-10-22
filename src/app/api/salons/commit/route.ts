@@ -44,6 +44,8 @@ export const POST = withRoute(async request => {
   const name = salonIntentCookieName(parsed.data.intentId)!;
   const proof = new NextRequest(request.url, { headers: request.headers }).cookies.get(name)?.value;
   if (!isSalonIntentProof(proof)) return NextResponse.json({ state: 'unverified' }, { status: 403, headers });
+  // PR文の医療広告の検査は commitSalonSubmission の中で、まだ受け付けていない申込にだけ行う
+  // （受付済み申込の再送の照合を、後から増えた禁止語で 400 にしないため）。拒否は fieldErrors.pr_text で返る。
   const result = await commitSalonSubmission(createServiceRoleClient(), parsed.data, proof);
   const status = { invalid: 400, unverified: 403, expired: 410, conflict: 409,
     unavailable: 503, photo_unverified: 409, unknown: 202, consent_required: 400, committed: 201, replay: 200 }[result.state];

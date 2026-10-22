@@ -3,6 +3,7 @@ import { SalonRegistrationBrowser } from '../salon-registration-browser';
 import { SALON_BROWSER_CONTEXT_KEY, readSalonBrowserContext, saveSalonBrowserContext } from '../salon-browser-context';
 import { salonPhotoPath } from '../salon-photo-contract';
 import type { SalonFormValues } from '../validations';
+import { SALON_PR_TEXT_PROHIBITED_MESSAGE } from '../salon-field-errors';
 
 const consent = { terms_agreed: true, license_warranted: true };
 const intentId = '11111111-1111-4111-8111-111111111111';
@@ -375,4 +376,65 @@ test('a live restriction changed after handshake refreshes the same intent and d
  expect(bodies(deps.request, '/api/salons/prepare')).toEqual([{}, { intentId }]);
  expect(bodies(deps.request, '/api/salons/photos')).toHaveLength(1);
  expect(deps.compress).toHaveBeenCalledTimes(1); expect(deps.uuid).toHaveBeenCalledTimes(1); expect(deps.upload).not.toHaveBeenCalled();
+});
+
+// The PR-text content-policy refusal (commitSalonSubmission) is decided from the
+// body alone before any write. A tab opened before the rule (or a newly banned
+// term) must not be stuck resending a body that can only be refused again.
+const prohibited = { state: 'invalid', fieldErrors: { pr_text: SALON_PR_TEXT_PROHIBITED_MESSAGE } };
+test('a verified PR-text policy refusal lets the applicant fix the text for the same intent', async () => {
+  const { deps, engine } = harness();
+  deps.request.mockResolvedValueOnce(prepared()).mockResolvedValueOnce(response(400, prohibited)).mockResolvedValueOnce(uncommitted());
+  const result = await engine.submit({ ...data, pr_text: '当院の施術で必ず治る' }, [], consent);
+  expect(result).toEqual({ state: 'retryable', message: expect.stringContaining('PR文を修正'), fieldErrors: { pr_text: SALON_PR_TEXT_PROHIBITED_MESSAGE } });
+  expect(readSalonBrowserContext(deps.store)).toEqual({ state: 'ready', context: { version: 1, intentId, phase: 'prepared' } });
+  expect(engine.canReviseUnsubmittedInput()).toBe(true);
+  deps.request.mockResolvedValueOnce(uncommitted()).mockResolvedValueOnce(committed());
+  expect(await engine.submit({ ...data, pr_text: '駅から徒歩3分です' }, [], consent)).toEqual({ state: 'confirmed', receiptId });
+  expect(bodies(deps.request, '/api/salons/prepare')).toHaveLength(1);
+  const commits = bodies(deps.request, '/api/salons/commit');
+  expect(commits).toHaveLength(2);
+  expect(commits.map(body => body.intentId)).toEqual([intentId, intentId]);
+  expect(commits[1].registration.pr_text).toBe('駅から徒歩3分です');
+});
+test('the refusal also releases an intent this coordinator did not create (reloaded before sending)', async () => {
+  const { deps, engine } = harness('prepared');
+  deps.request.mockResolvedValueOnce(uncommitted())
+    .mockResolvedValueOnce(response(200, { state: 'prepared', intentId, consumerVersion: 2, photoLimits: { maxBytes: 10485760, mimeTypes: ['image/jpeg'] } }))
+    .mockResolvedValueOnce(response(400, prohibited)).mockResolvedValueOnce(uncommitted());
+  expect(engine.canReviseUnsubmittedInput()).toBe(false);
+  expect((await engine.submit({ ...data, pr_text: '当院の施術で必ず治る' }, [], consent)).state).toBe('retryable');
+  expect(engine.canReviseUnsubmittedInput()).toBe(true);
+});
+test('a PR-text refusal never reopens the fence when the status cannot confirm the intent is uncommitted', async () => {
+  const { deps, engine } = harness();
+  deps.request.mockResolvedValueOnce(prepared()).mockResolvedValueOnce(response(400, prohibited)).mockResolvedValueOnce(response(503, {}));
+  expect((await engine.submit({ ...data, pr_text: '当院の施術で必ず治る' }, [], consent)).state).toBe('unknown');
+  expect(readSalonBrowserContext(deps.store)).toMatchObject({ context: { phase: 'attempted' } });
+  expect(engine.canReviseUnsubmittedInput()).toBe(false);
+});
+test.each([
+  null, 'invalid', { state: 'consent_required', fieldErrors: { pr_text: SALON_PR_TEXT_PROHIBITED_MESSAGE } },
+  { state: 'invalid', fieldErrors: { pr_text: 'PRIVATE raw input' } },
+  { state: 'invalid', fieldErrors: { email: SALON_PR_TEXT_PROHIBITED_MESSAGE } },
+  { state: 'invalid', fieldErrors: { pr_text: SALON_PR_TEXT_PROHIBITED_MESSAGE, email: 'メールアドレスを確認してください（254文字以内）' } },
+])('any other commit400 keeps the attempted fence even when uncommitted %#', async body => {
+  const { deps, engine } = harness();
+  deps.request.mockResolvedValueOnce(prepared()).mockResolvedValueOnce(response(400, body)).mockResolvedValueOnce(uncommitted());
+  const result = await engine.submit(data, [], consent);
+  expect(result.state).toBe('unknown');
+  expect(JSON.stringify(result)).not.toContain('PRIVATE');
+  expect(readSalonBrowserContext(deps.store)).toMatchObject({ context: { phase: 'attempted' } });
+  expect(engine.canReviseUnsubmittedInput()).toBe(false);
+});
+test('a PR-text refusal keeps the fence if the reopened selector cannot be saved', async () => {
+  const { deps, values, engine } = harness();
+  deps.request.mockResolvedValueOnce(prepared()).mockResolvedValueOnce(response(400, prohibited)).mockImplementationOnce(async () => {
+    // From the status read on, the tab storage refuses writes (e.g. quota).
+    deps.store.setItem.mockImplementation(() => { throw new Error('quota'); });
+    return uncommitted();
+  });
+  expect((await engine.submit({ ...data, pr_text: '当院の施術で必ず治る' }, [], consent)).state).toBe('unknown');
+  expect(JSON.parse(values.get(SALON_BROWSER_CONTEXT_KEY)!)).toMatchObject({ phase: 'attempted' });
+  expect(engine.canReviseUnsubmittedInput()).toBe(false);
 });

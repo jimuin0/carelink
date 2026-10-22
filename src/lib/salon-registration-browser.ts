@@ -3,7 +3,7 @@ import { canonicalSalonSubmission } from './salon-submission-contract';
 import { salonPhotoPath, SALON_PHOTO_BUCKET } from './salon-photo-contract';
 import { readSalonBrowserContext, saveSalonBrowserContext, type SalonBrowserContext, SALON_BROWSER_CONTEXT_KEY, SALON_RECRUIT_BROWSER_CONTEXT_KEY } from './salon-browser-context';
 import type { SalonFormValues } from './validations';
-import type { SalonFieldErrors } from './salon-field-errors';
+import { SALON_PR_TEXT_PROHIBITED_MESSAGE, type SalonFieldErrors } from './salon-field-errors';
 import { salonStorageLimitsSchema, type SalonStorageLimits } from './salon-storage-limits';
 import { registrationConsentSchema, REGISTRATION_CONSENT_REQUIRED, type RegistrationConsent } from './registration-consent';
 
@@ -23,6 +23,18 @@ const uuid = z.uuid();
 const uncertain: Result = { state: 'unknown', message: '送信結果を確認できませんでした。同じ申込の受付状況を確認してください。新たな申込として送信しないでください。' };
 const blocked: Result = { state: 'blocked', message: 'この申込の確認情報を利用できません。申込時のブラウザーの同じタブで確認するか、お問い合わせください。' };
 const retryable: Result = { state: 'retryable', message: '送信の準備が完了していません。入力内容と写真を保持したまま、もう一度お試しください。' };
+const prTextRejected: Result = { state: 'retryable', message: 'PR文に掲載できない表現が含まれています。PR文を修正して、もう一度送信してください。',
+  fieldErrors: { pr_text: SALON_PR_TEXT_PROHIBITED_MESSAGE } };
+
+/** The server's fixed content-policy refusal of the PR text, and nothing else
+ * (no echoed input, no other field): see commitSalonSubmission. */
+function isPrTextPolicyRejection(body: unknown): boolean {
+  if (typeof body !== 'object' || body === null) return false;
+  const { state, fieldErrors } = body as { state?: unknown; fieldErrors?: unknown };
+  if (state !== 'invalid' || typeof fieldErrors !== 'object' || fieldErrors === null || Array.isArray(fieldErrors)) return false;
+  const entries = Object.entries(fieldErrors);
+  return entries.length === 1 && entries[0][0] === 'pr_text' && entries[0][1] === SALON_PR_TEXT_PROHIBITED_MESSAGE;
+}
 
 /** One instance per mounted form. Selection UUIDs survive retry in memory;
  * only the intent selector and phase survive navigation in tab storage.
@@ -34,6 +46,7 @@ export class SalonRegistrationBrowser {
   private photoLimits: SalonStorageLimits | null = null;
   private commitAttempted = false;
   private createdIntentId: string | null = null;
+  private policyRejectedIntentId: string | null = null;
   private readonly contextKey: string;
   constructor(private readonly deps: Dependencies) {
     this.contextKey = deps.source === 'recruit' ? SALON_RECRUIT_BROWSER_CONTEXT_KEY : SALON_BROWSER_CONTEXT_KEY;
@@ -83,12 +96,27 @@ export class SalonRegistrationBrowser {
     }
     if (result?.status === 400) {
       // A validation/consent rejection describes this attempt, not an earlier
-      // commit whose reply was lost. Never reopen the attempted-input fence.
+      // commit whose reply was lost. Do not reopen the attempted-input fence,
+      // with the one exception below.
       const latest = readSalonBrowserContext(this.deps.store, this.contextKey);
       if (latest.state !== 'ready' || latest.context.intentId !== input.intentId) return blocked;
       const checked = await this.reconcile();
       if (checked.state === 'confirmed') return checked;
       if (checked.state === 'ready' || checked.state === 'blocked') return blocked;
+      // The PR-text content-policy refusal is decided by the server from this
+      // body alone, before any write, and the status read after it says the
+      // intent is still uncommitted. Resending the same body can only be refused
+      // again (a tab opened before a deploy, or a newly banned term, would
+      // otherwise be stuck for good), so the applicant may fix the PR text for
+      // this same intent. An earlier body committing concurrently stays fenced
+      // by the intent's payload HMAC: a revised body then gets a conflict,
+      // which reconciles to that original receipt.
+      if (this.replayVerified && isPrTextPolicyRejection(result.body)
+        && this.saveCurrent({ version: 1, intentId: input.intentId, phase: 'prepared' })) {
+        this.commitAttempted = false; this.pending = null; this.replayVerified = false;
+        this.policyRejectedIntentId = input.intentId;
+        return prTextRejected;
+      }
       return uncertain;
     }
     return uncertain;
@@ -102,12 +130,13 @@ export class SalonRegistrationBrowser {
   }
   /** This is an in-memory transport fact, not a server receipt or authority.
    * A commit400, lost commit reply or a restored historical selector never
-   * grants permission to replace a fenced input snapshot. */
+   * grants permission to replace a fenced input snapshot, except the verified
+   * PR-text policy refusal handled in commit() for that same intent. */
   canReviseUnsubmittedInput(): boolean {
     if (this.commitAttempted) return false;
     const current = readSalonBrowserContext(this.deps.store, this.contextKey);
     return current.state === 'empty' || (current.state === 'ready' && current.context.phase === 'prepared'
-      && current.context.intentId === this.createdIntentId);
+      && (current.context.intentId === this.createdIntentId || current.context.intentId === this.policyRejectedIntentId));
   }
   async submit(data: SalonFormValues, files: (File | null)[], consent?: unknown): Promise<Result> {
     if (this.commitAttempted) {

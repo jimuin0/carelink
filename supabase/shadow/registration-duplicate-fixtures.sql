@@ -103,5 +103,30 @@ SELECT pg_temp.assert_duplicate((SELECT outcome='conflict' FROM public.setup_fac
 RESET ROLE;
 DELETE FROM auth.users WHERE id='b1000000-0000-4000-8000-000000000002';
 SELECT pg_temp.assert_duplicate((SELECT owner_id IS NULL FROM public.salon_duplicate_links),'deleted owner invalidated tombstone');
+-- 20261022120100: setup stores the street part and the city master unit, so
+-- the facility no longer equals the raw receipt. Identical receipts must still
+-- link; a different street must still be denied.
+INSERT INTO public.salons(id,facility_name,business_type,email,phone,representative_name,contact_name,source,prefecture,city,address,building_name,photo_urls)
+SELECT ('b2000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'Synthetic Yokohama','ヘアサロン','duplicate-4@example.invalid',
+ '090-0000-0000','Synthetic','Synthetic','register','神奈川県','横浜市中区','神奈川県横浜市中区合成町3','合成建物',ARRAY['https://assets.example.invalid/retained.png']
+FROM generate_series(11,13)n;
+UPDATE public.salons SET address='神奈川県横浜市中区合成町4' WHERE id='b2000000-0000-4000-8000-000000000013';
+SET LOCAL ROLE service_role;
+SELECT pg_temp.assert_duplicate((SELECT outcome='created' FROM public.setup_facility_from_registration(
+ 'b1000000-0000-4000-8000-000000000004','legacy','b2000000-0000-4000-8000-000000000011',NULL,NULL,clock_timestamp(),'{}',true)), 'normalized canonical setup');
+SELECT pg_temp.assert_duplicate((SELECT city='横浜市' AND address='中区合成町3' FROM public.facility_profiles
+ WHERE id=(SELECT claimed_facility_id FROM public.salons WHERE id='b2000000-0000-4000-8000-000000000011')),'facility stores the normalized location');
+SELECT pg_temp.assert_duplicate(public.link_duplicate_registration('b1000000-0000-4000-8000-000000000001','b2000000-0000-4000-8000-000000000012',
+ 'b2000000-0000-4000-8000-000000000011',false,0,0,true)->>'outcome'='preview','identical receipts still match a normalized facility');
+SELECT pg_temp.assert_duplicate(public.link_duplicate_registration('b1000000-0000-4000-8000-000000000001','b2000000-0000-4000-8000-000000000013',
+ 'b2000000-0000-4000-8000-000000000011',false,0,0,true)->>'outcome'='conflict','a different street is still denied');
+RESET ROLE;
+-- A facility created before 20261022120100 holds the raw receipt values.
+UPDATE public.facility_profiles SET city='横浜市中区',address='神奈川県横浜市中区合成町3'
+ WHERE id=(SELECT claimed_facility_id FROM public.salons WHERE id='b2000000-0000-4000-8000-000000000011');
+SET LOCAL ROLE service_role;
+SELECT pg_temp.assert_duplicate(public.link_duplicate_registration('b1000000-0000-4000-8000-000000000001','b2000000-0000-4000-8000-000000000012',
+ 'b2000000-0000-4000-8000-000000000011',false,0,0,true)->>'outcome'='preview','facility created before normalization still matches');
+RESET ROLE;
 ROLLBACK;
 \echo 'duplicate linkage ACL, CAS, identity, rollback, all setup modes, replay and owner revocation passed; all records rolled back'

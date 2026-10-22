@@ -5,6 +5,7 @@ import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { SITE_URL } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/json-ld';
 import { SHOW_JOBS } from '@/lib/feature-toggles';
+import { formatFacilityAddress, formatFacilityLocality } from '@/lib/facility-location';
 
 export const revalidate = 3600;
 
@@ -79,9 +80,10 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   // ルート layout の title.template '%s | CareLink' が自動付与するため「| CareLink」は付けない（二重化防止）。
   if (!job || !job.facility_profiles) return { title: '求人が見つかりません' };
   const f = job.facility_profiles;
-  const title = `${job.title} | ${f.name}（${f.prefecture}${f.city}）の求人`;
+  const locality = `${f.prefecture}${formatFacilityLocality(f.prefecture, f.city)}`;
+  const title = `${job.title} | ${f.name}（${locality}）の求人`;
   const description =
-    (job.description || `${f.name}が${job.job_type}（${job.employment_type}）を募集中。${f.prefecture}${f.city}。`).slice(0, 160);
+    (job.description || `${f.name}が${job.job_type}（${job.employment_type}）を募集中。${locality}。`).slice(0, 160);
   const url = `${SITE_URL}/jobs/${job.id}`;
   return {
     title,
@@ -98,7 +100,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
       siteName: 'CareLink',
       images: [
         {
-          url: `${SITE_URL}/api/og?title=${encodeURIComponent(job.title)}&subtitle=${encodeURIComponent(f.name + ' | ' + f.prefecture + f.city)}`,
+          url: `${SITE_URL}/api/og?title=${encodeURIComponent(job.title)}&subtitle=${encodeURIComponent(f.name + ' | ' + locality)}`,
           width: 1200,
           height: 630,
         },
@@ -138,7 +140,7 @@ export default async function JobDetailPage(props: Props) {
       address: {
         '@type': 'PostalAddress',
         streetAddress: f.address || '',
-        addressLocality: f.city,
+        addressLocality: formatFacilityLocality(f.prefecture, f.city),
         addressRegion: f.prefecture,
         postalCode: f.postal_code || '',
         addressCountry: 'JP',
@@ -204,7 +206,7 @@ export default async function JobDetailPage(props: Props) {
               <Link href={`/facility/${f.slug}`} className="text-sm text-sky-700 hover:underline">
                 {f.name}
               </Link>
-              <p className="text-sm text-gray-500 mt-1">{f.prefecture}{f.city}{f.address || ''}</p>
+              <p className="text-sm text-gray-500 mt-1">{formatFacilityAddress(f)}</p>
             </div>
           </div>
           <div className="mt-4 bg-sky-50 rounded-xl p-4">
@@ -254,7 +256,7 @@ export default async function JobDetailPage(props: Props) {
             <div className="bg-gray-50 rounded-xl p-4 text-sm space-y-2">
               <div className="flex"><span className="text-gray-500 w-24 shrink-0">職種</span><span>{job.job_type}</span></div>
               <div className="flex"><span className="text-gray-500 w-24 shrink-0">雇用形態</span><span>{job.employment_type}</span></div>
-              <div className="flex"><span className="text-gray-500 w-24 shrink-0">勤務地</span><span>{f.prefecture}{f.city}{f.address || ''}</span></div>
+              <div className="flex"><span className="text-gray-500 w-24 shrink-0">勤務地</span><span>{formatFacilityAddress(f)}</span></div>
               <div className="flex"><span className="text-gray-500 w-24 shrink-0">給与</span><span>{formatSalary(job.salary_min, job.salary_max, job.salary_note)}</span></div>
               <div className="flex"><span className="text-gray-500 w-24 shrink-0">掲載日</span><span>{new Date(job.created_at).toLocaleDateString('ja-JP')}</span></div>
             </div>

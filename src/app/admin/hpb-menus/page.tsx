@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import Modal from '@/components/Modal';
@@ -38,6 +39,13 @@ interface EditForm {
 const yen = (n: number | null): string => (n == null ? '—' : `¥${n.toLocaleString()}`);
 const minutes = (n: number | null): string => (n == null ? '—' : `${n}分`);
 
+/**
+ * 公開後に何が起きるかの案内。メニューを公開しただけでは、店舗ページが非公開のままだったり予約受付の準備
+ * （写真・スタッフ・営業時間など）が済んでいなかったりすると、お客様に表示されずネット予約もできない。
+ * 一括反映を使うのは掲載準備中が多いため、条件を省いた約束をしない。
+ */
+const PUBLISH_NEXT_STEP = '公開したメニューが、お客様向けメニューとネット予約の対象になります（店舗ページの公開と予約受付の準備も必要です）';
+
 export default function AdminHpbMenusPage() {
   const [menus, setMenus] = useState<HpbMenu[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,6 +56,8 @@ export default function AdminHpbMenusPage() {
   const [savingSln, setSavingSln] = useState(false);
   const [scraping, setScraping] = useState(false);
   const [applying, setApplying] = useState(false);
+  // 直近の一括反映で非公開のまま作られたメニュー数。トーストは消えるため、次の手順を画面に残す。
+  const [appliedDrafts, setAppliedDrafts] = useState(0);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [saving, setSaving] = useState(false);
@@ -166,9 +176,11 @@ export default function AdminHpbMenusPage() {
         setToast({ type: 'error', message: json?.error || '反映に失敗しました' });
         return;
       }
+      setAppliedDrafts(json.inserted);
       setToast({
         type: 'success',
-        message: `メニューへ反映: 新規${json.inserted}件（非公開で作成）/ 更新${json.updated}件 / 非表示化${json.hidden}件 / スキップ${json.skipped}件`,
+        message: `メニューへ反映: 新規${json.inserted}件（非公開で作成）/ 更新${json.updated}件 / 非表示化${json.hidden}件 / スキップ${json.skipped}件`
+          + (json.inserted > 0 ? `。${PUBLISH_NEXT_STEP}` : ''),
       });
     } catch {
       setToast({ type: 'error', message: '反映に失敗しました' });
@@ -288,9 +300,16 @@ export default function AdminHpbMenusPage() {
             </button>
             <span className="text-xs text-gray-500">
               非表示を除く全件をお客様メニューへ反映します。反映したメニューは<b>非公開（下書き）</b>で作られ、
-              メニュー編集で公開ONにするまでお客様には表示されません。
+              <Link href={`/admin/menus?facility_id=${facilityId}`} className="text-sky-700 underline">メニュー管理</Link>で「公開する」を押すまでお客様には表示されません。
             </span>
           </div>
+          {appliedDrafts > 0 && (
+            <p className="mt-3 rounded-lg bg-sky-50 p-3 text-sm text-sky-800" role="status">
+              新しく反映したメニュー{appliedDrafts}件は非公開です。
+              <Link href={`/admin/menus?facility_id=${facilityId}`} className="font-bold text-sky-700 underline">メニュー管理</Link>
+              で「公開する」（まとめて公開するときは「非公開のメニューをすべて公開する」）を押してください。{PUBLISH_NEXT_STEP}。
+            </p>
+          )}
         </div>
         <div className="bg-white rounded-xl shadow-xs divide-y">
           {menus.map((m) => {
