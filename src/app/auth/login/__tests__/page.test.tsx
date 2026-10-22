@@ -55,7 +55,9 @@ test('signed-in store login offers choices without silently routing to admin/myp
   expect(mockSignOut).not.toHaveBeenCalled();
   expect(screen.queryByLabelText('パスワード')).not.toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'このアカウントで管理画面を開く' })).toHaveAttribute('href', '/admin/bookings?date=2026-10-13');
-  expect(screen.getByRole('link', { name: '新しくお店を登録する' })).toHaveAttribute('href', '/admin/onboarding');
+  // 申込（/register）を経ない /admin/onboarding 直行は、掲載申込の内容を取り込まない空の店舗を作るため案内しない。
+  expect(screen.getByRole('link', { name: '新しくお店を登録する' })).toHaveAttribute('href', '/register');
+  expect(screen.getByRole('link', { name: '申込の続きから' })).toHaveAttribute('href', '/register/recover');
 });
 
 test('permission denial explains missing store access and keeps account switching available', async () => {
@@ -167,7 +169,7 @@ test('unknown store identity keeps credentials locked and can retry to a confirm
 test('normal consumer login still automatically continues a verified session', async () => {
   mockGetUser.mockResolvedValue({ data: { user: { id: 'customer' } } });
   render(<LoginPage />);
-  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/mypage'));
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/auth/landing'));
 });
 
 test('store Google login requests explicit account selection', async () => {
@@ -275,7 +277,7 @@ test.each([
   expect(screen.getByLabelText('パスワード')).toHaveValue('password123');
   expect(mockPush).not.toHaveBeenCalled(); expect(mockResend).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'ログイン', exact: true }));
-  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/mypage'));
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/auth/landing'));
   expect(mockSignIn).toHaveBeenLastCalledWith({ email: 'retry@example.invalid', password: 'password123' });
 });
 
@@ -342,7 +344,7 @@ test.each(['client', 'request'])('ログイン例外（%s）後はロックを�
   submit();
   await screen.findByText('ログイン認証に接続できませんでした。時間をおいてもう一度お試しください。');
   submit();
-  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/mypage'));
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/auth/landing'));
 });
 
 test.each(['client', 'request'])('初期セッション確認の例外（%s）後もログイン可能', async (failure) => {
@@ -350,13 +352,13 @@ test.each(['client', 'request'])('初期セッション確認の例外（%s）�
   else mockGetUser.mockRejectedValueOnce(new Error('network'));
   render(<LoginPage />);
   submit();
-  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/mypage'));
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/auth/landing'));
 });
 
 test('マウント後に確認できた既存セッションを安全な遷移先へ送る', async () => {
   mockGetUser.mockResolvedValue({ data: { user: { id: 'fixture' } } });
   render(<LoginPage />);
-  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/mypage'));
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/auth/landing'));
 });
 
 test.each(['returned', 'thrown', 'empty'])('Google開始失敗（%s）で説明し、パスワードログインへ復帰可能', async (failure) => {
@@ -367,7 +369,7 @@ test.each(['returned', 'thrown', 'empty'])('Google開始失敗（%s）で説明�
   fireEvent.click(screen.getByRole('button', { name: 'Googleでログイン' }));
   await screen.findByText('Googleでのログインを開始できませんでした。時間をおいてもう一度お試しください。');
   submit();
-  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/mypage'));
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/auth/landing'));
 });
 
 test('Google遷移中は認証競合を防ぎ、戻る操作でフォームを復帰する', async () => {
@@ -382,19 +384,79 @@ test('Google遷移中は認証競合を防ぎ、戻る操作でフォームを�
   fireEvent(window, new PageTransitionEvent('pageshow', { persisted: true }));
   expect(screen.getByRole('button', { name: 'Googleでログイン' })).toBeEnabled();
   submit();
-  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/mypage'));
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/auth/landing'));
 });
 
-test('callback失敗はログイン画面で説明する', () => {
-  mockParams = new URLSearchParams({ error: 'callback_failed' });
+test('callback失敗は「確認は済んでいる可能性がある・このままログイン」と案内し、戻り先を保つ', async () => {
+  // 確認メールのリンクを別ブラウザ・メールアプリで開くと PKCE だけが失敗する。「時間をおいて」では誰も進めない。
+  mockParams = new URLSearchParams({ error: 'callback_failed', redirect: '/admin/onboarding?handoff=registration' });
   render(<LoginPage />);
-  expect(screen.getByText('ログイン認証を完了できませんでした。時間をおいてもう一度お試しください。')).toBeVisible();
+  expect(screen.getByText(/メールアドレスの確認は完了している可能性があります/)).toBeVisible();
+  expect(screen.getByText(/このままログインしてください/)).toBeVisible();
+  expect(screen.queryByText(/時間をおいてもう一度お試しください/)).not.toBeInTheDocument();
+  submit();
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/admin/onboarding?handoff=registration'));
+});
+
+test('パスワード再設定へも戻り先を引き継ぐ', async () => {
+  mockParams = new URLSearchParams({ redirect: '/admin' });
+  render(<LoginPage />);
+  expect(await screen.findByRole('link', { name: 'パスワードをお忘れの方' })).toHaveAttribute('href', '/auth/forgot-password?redirect=%2Fadmin');
+});
+
+test('戻り先の指定が無い Google ログインは callback 経由で /auth/landing（店舗オーナーは /admin）へ', async () => {
+  mockOAuth.mockResolvedValue({ data: { url: 'https://accounts.google.com/example' }, error: null });
+  render(<LoginPage />);
+  fireEvent.click(screen.getByRole('button', { name: 'Googleでログイン' }));
+  await waitFor(() => expect(mockOAuth).toHaveBeenCalledWith(expect.objectContaining({
+    options: expect.objectContaining({ redirectTo: 'http://localhost/auth/callback?redirect=%2Fauth%2Flanding' }),
+  })));
+});
+
+describe('店舗ログインは管理画面へのリンクを出す前に所属を確かめる', () => {
+  const membership = jest.fn();
+  function withMembership(result: unknown) {
+    membership.mockReset().mockImplementation(() => result);
+    mockCreate.mockImplementation(() => ({
+      auth: { getUser: mockGetUser, signInWithPassword: mockSignIn, signInWithOAuth: mockOAuth, resend: mockResend, signOut: mockSignOut },
+      from: (table: string) => ({ select: (columns: string) => ({ eq: (column: string, value: string) => ({
+        in: (roleColumn: string, roles: string[]) => ({ limit: () => ({ maybeSingle: async () => membership(table, columns, column, value, roleColumn, roles) }) }),
+      }) }) }),
+    }));
+  }
+  test('店舗を持たないアカウントには「このアカウントで管理画面を開く」を出さない', async () => {
+    withMembership({ data: null, error: null });
+    await signedInStoreLogin();
+    expect(screen.getByRole('alert')).toHaveTextContent('このアカウントには、管理できるお店がありません。');
+    expect(screen.queryByRole('link', { name: 'このアカウントで管理画面を開く' })).not.toBeInTheDocument();
+    expect(membership).toHaveBeenCalledWith('facility_members', 'role', 'user_id', 'customer', 'role', ['owner', 'admin']);
+  });
+  test('owner/admin のアカウントにはリンクを出す', async () => {
+    withMembership({ data: { role: 'owner' }, error: null });
+    await signedInStoreLogin();
+    expect(screen.getByRole('link', { name: 'このアカウントで管理画面を開く' })).toHaveAttribute('href', '/admin/bookings?date=2026-10-13');
+    expect(screen.queryByText('このアカウントには、管理できるお店がありません。')).not.toBeInTheDocument();
+  });
+  test('所属を確認できない（通信失敗）ときは否定と断定せずリンクを残す', async () => {
+    withMembership({ data: null, error: { message: 'unavailable' } });
+    await signedInStoreLogin();
+    expect(screen.getByRole('link', { name: 'このアカウントで管理画面を開く' })).toBeInTheDocument();
+  });
+  test('運営サポート画面は所属が無くても運営者が開けるのでリンクを残す', async () => {
+    withMembership({ data: null, error: null });
+    mockParams = new URLSearchParams({ redirect: '/admin/inquiries' });
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'operator', email: 'operator@example.invalid' } } });
+    render(<LoginPage />);
+    await screen.findByRole('button', { name: '別のアカウントでログイン' });
+    expect(screen.getByRole('link', { name: 'このアカウントで管理画面を開く' })).toHaveAttribute('href', '/admin/inquiries');
+    expect(membership).not.toHaveBeenCalled();
+  });
 });
 
 test('password login grants one navigation and does not refresh the outgoing document', async () => {
   render(<LoginPage />);
   submit();
-  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/mypage'));
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/auth/landing'));
   expect(mockPush).toHaveBeenCalledTimes(1);
   expect(mockRefresh).not.toHaveBeenCalled();
   submit();
@@ -407,7 +469,7 @@ test('late initial identity observation cannot replace a successful password nav
   mockGetUser.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
   render(<LoginPage />);
   submit();
-  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/mypage'));
+  await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/auth/landing'));
   await act(async () => { release({ data: { user: { id: 'synthetic-late-identity' } }, error: null }); });
   expect(mockReplace).not.toHaveBeenCalled();
   expect(mockRefresh).not.toHaveBeenCalled();

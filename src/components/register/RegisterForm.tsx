@@ -849,7 +849,9 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
       <ConfirmDialog
         open={showConfirm}
         title="登録内容を送信しますか？"
-        message="送信後、続けてアカウントを作成すると、入力内容（営業時間・写真・特徴・PRなど）がそのまま管理画面に反映され、すぐに掲載を開始できます。"
+        // 受付と一般公開は別の手続き（/register の FAQ・受付メールと同じ事実を書く）。以前は
+        // 「すぐに掲載を開始できます」と書いており、送信すれば公開されると誤解させていた。
+        message="送信後、続けて店舗アカウントを作成すると、入力内容（営業時間・写真・特徴・PRなど）が管理画面に引き継がれます。一般公開は、管理画面で店舗名・所在地などを確認して公開の操作をした後に始まります（送信しただけでは公開されません）。"
         confirmLabel="送信する"
         cancelLabel="戻る"
         confirmDisabled={submitting || submissionUnknown || submissionConfirmed || draftBusy || (restoredNeedsReview && !restoredUnsentAcknowledged)}

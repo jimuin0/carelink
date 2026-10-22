@@ -3,8 +3,10 @@
 // モバイル下部ナビ。/mypage 配下は middleware の保護対象なので、先読みするだけで
 // 毎回 auth.getUser() が走る。既定で先読みしない（理由と実測は components/BrowseLink.tsx）。
 import Link from '@/components/BrowseLink';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { mobileBottomBarFor } from '@/lib/mobile-bottom-bar';
+import { isShopAccountSetupRedirect } from '@/lib/salon-browser-context';
+import { safeRedirect } from '@/lib/safe-redirect';
 
 const items = [
   {
@@ -31,10 +33,16 @@ const items = [
 
 export default function MobileBottomNav() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   // 施設詳細（StickyBookingBar を出す）や予約画面などでは出さない。どのパスで出すかは
   // フッターの逃げ（LayoutSwitch）と同じ判定を使う（lib/mobile-bottom-bar.ts）。
   if (mobileBottomBarFor(pathname) !== 'nav') {
+    return null;
+  }
+  // 掲載申込の続きとして開いた店舗アカウント作成画面では、来院者向けのナビ（お気に入り・マイページ）を出さない。
+  // （ssr:false で読み込まれるので useSearchParams は Suspense 無しでよい・LayoutSwitch 参照）
+  if (pathname === '/auth/signup' && isShopAccountSetupRedirect(safeRedirect(searchParams?.get('redirect'), window.location.origin))) {
     return null;
   }
 

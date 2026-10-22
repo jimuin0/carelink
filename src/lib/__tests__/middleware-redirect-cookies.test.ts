@@ -213,10 +213,32 @@ test('genuine missing session keeps protected login redirect and anonymous login
 test('AUTH-1: /auth/login のログイン済みリダイレクトが更新済みセッション Cookie を継承する', async () => {
   const res: Record<string, unknown> = await middleware(makeRequest('/auth/login'));
   expect(res._isRedirect).toBe(true);
-  expect((res._redirectedTo as URL).pathname).toBe('/mypage');
+  // 戻り先の指定が無いログイン済みアクセスは、店舗オーナーを /admin へ振り分ける /auth/landing へ（post-login-landing.ts）
+  expect((res._redirectedTo as URL).pathname).toBe('/auth/landing');
   const cookies = (res.cookies as ReturnType<typeof cookieStore>).getAll();
   // トークン更新で書かれた sb-refresh-token が redirect 応答にも載っていること（脱落しない）
   expect(cookies.find((c) => c.name === 'sb-refresh-token')?.value).toBe('refreshed');
+});
+
+test.each([
+  ['/admin/onboarding?handoff=registration', '/admin/onboarding?handoff=registration'],
+  ['/admin/onboarding?handoff=recovered', '/admin/onboarding?handoff=recovered'],
+  ['/mypage/bookings?tab=past', '/mypage/bookings?tab=past'],
+  ['/admin', '/admin'],
+])('未ログインの保護ルートはパスとクエリを丸ごと戻り先にする: %s', async (path, destination) => {
+  // 🔴 以前は pathname だけを戻り先にしていたため、handoff=registration が落ちて掲載申込の引き継ぎが外れた。
+  getUserImpl = async () => ({ data: { user: null }, error: new AuthSessionMissingError() });
+  const res: Record<string, unknown> = await middleware(makeRequest(path));
+  const to = res._redirectedTo as URL;
+  expect(to.pathname).toBe('/auth/login');
+  expect(to.searchParams.get('redirect')).toBe(destination);
+  // 元のクエリはログイン画面の URL 自体には残さない（redirect の中にだけ入る）
+  expect([...to.searchParams.keys()]).toEqual(['redirect']);
+});
+
+test('ログイン済みでも明示した戻り先はそのまま尊重する（着地点の振り分けは指定が無いときだけ）', async () => {
+  const res: Record<string, unknown> = await middleware(makeRequest('/auth/login?redirect=%2Fmypage%2Fbookings'));
+  expect((res._redirectedTo as URL).pathname).toBe('/mypage/bookings');
 });
 
 test('AUTH-2: facility_members が DB エラー時は否定結果をキャッシュせず503へ fail-closed', async () => {

@@ -9,7 +9,8 @@ import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import { businessTypes, UUID_REGEX } from '@/lib/constants';
 import { isAuthSessionMissingError } from '@supabase/supabase-js';
 import { readSalonBrowserContext, readSalonRecoveryContext, salonHandoffAuthPath,
-  salonRecoveryAuthPath, SALON_RECOVERY_PATH } from '@/lib/salon-browser-context';
+  salonRecoveryAuthPath, SALON_RECOVERY_PATH, SALON_RECOVERY_SELECT_PATH, SALON_ONBOARDING_PATH,
+  SALON_RECOVERY_ONBOARDING_PATH } from '@/lib/salon-browser-context';
 import { navigateAfterFacilitySetup } from '@/lib/onboarding-navigation';
 
 function OnboardingContent() {
@@ -23,7 +24,9 @@ function OnboardingContent() {
   // 'form' = 施設名・業態の入力（確認）待ち。既存施設が無い認証済みユーザーは
   // クエリの有無に関わらず必ずここを経由する（下記 useEffect の 2026年8月20日コメント参照。
   // 誰でも到達できる /admin/onboarding で確認なしに施設を自動作成していた欠陥の根治）。
-  const [status, setStatus] = useState<'loading' | 'form' | 'creating' | 'error'>('loading');
+  // 'expired' = ログインの有効期限切れ（API が 401）。「認証が必要です」と再読み込みボタンだけを
+  // 出すと、再読み込みしても同じ画面に戻るだけで先へ進めなかった（2026年10月23日）。
+  const [status, setStatus] = useState<'loading' | 'form' | 'creating' | 'error' | 'expired'>('loading');
   const [error, setError] = useState('');
   const [facilityNameInput, setFacilityNameInput] = useState('');
   const [businessTypeInput, setBusinessTypeInput] = useState('');
@@ -92,10 +95,13 @@ function OnboardingContent() {
       let businessType = searchParams.get('business_type') || '';
       if (recoveredHandoff) {
         const recoveryId = readSalonRecoveryContext(window.sessionStorage);
-        if (!recoveryId) throw new Error('Selected recovery unavailable');
+        // 選び直した申込の情報がこのタブに無い（別のタブで開いた等）。汎用エラーではなく選び直しへ送る。
+        if (!recoveryId) { router.replace(SALON_RECOVERY_SELECT_PATH); return; }
         const response = await fetch('/api/salons/recovery', { method: 'POST',
           headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(20000),
           body: JSON.stringify({ action: 'summary', recoveryId }) });
+        if (cancelled) return;
+        if (response.status === 401) { setStatus('expired'); return; }
         const summary = await response.json();
         if (cancelled) return;
         if (!response.ok || summary?.state !== 'confirmed' || typeof summary.name !== 'string'
@@ -107,12 +113,20 @@ function OnboardingContent() {
       }
       if (registrationHandoff) {
         const selected = readSalonBrowserContext(window.sessionStorage);
-        if (selected.state !== 'ready') throw new Error('Selected registration unavailable');
+        // 🔴 確認メールのリンクはメールアプリが新しいタブ・別のブラウザで開くため、申込したタブの
+        // 受付情報（sessionStorage）はここでは必ず失われる。以前はここで例外を投げて
+        // 「通信環境を確認して再読み込み」を出し続け、メール登録の人は永久に先へ進めなかった。
+        // 確認済みのログインメールで申込を一覧できる復旧画面へ自動で送る（重複防止はサーバーが判定する）。
+        if (selected.state !== 'ready') { router.replace(SALON_RECOVERY_SELECT_PATH); return; }
         const response = await fetch('/api/salons/summary', { method: 'POST',
           headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(20000),
           body: JSON.stringify({ intentId: selected.context.intentId }) });
         const summary = await response.json();
         if (cancelled) return;
+        // 受付の証明 Cookie が無い（別のブラウザ）・受付情報の期限切れ（72時間）も、メールで選び直せる。
+        if (summary?.state === 'unverified' || summary?.state === 'expired') {
+          router.replace(SALON_RECOVERY_SELECT_PATH); return;
+        }
         if (!response.ok || summary?.state !== 'confirmed' || typeof summary.name !== 'string'
           || !summary.name.trim() || summary.name.length > 200 || !businessTypes.includes(summary.type)
           || typeof summary.receiptId !== 'string' || !UUID_REGEX.test(summary.receiptId)) {
@@ -208,6 +222,9 @@ function OnboardingContent() {
         }),
       });
 
+      if (!mounted.current) return;
+      // 入力中にログインの有効期限が切れた。施設は作られていない（401 は認証より先で止まる）。
+      if (res.status === 401) { setStatus('expired'); return; }
       const data = await res.json();
       if (!mounted.current) return;
       if (res.ok && data?.success === true && typeof data.facilityId === 'string' && UUID_REGEX.test(data.facilityId)) {
@@ -300,6 +317,18 @@ function OnboardingContent() {
             施設を作成する
           </button>
         </div>
+      </div>
+    );
+  }
+
+  if (status === 'expired') {
+    // ログイン後に同じ引き継ぎ（同じタブの受付情報・選び直した申込）へ戻る。
+    const back = recoveredHandoff ? SALON_RECOVERY_ONBOARDING_PATH : registrationHandoff ? SALON_ONBOARDING_PATH : '/admin/onboarding';
+    return (
+      <div className="section-container max-w-lg mx-auto text-center py-16">
+        <p role="alert" className="font-bold mb-4">ログインの有効期限が切れました</p>
+        <p className="text-sm text-gray-600 mb-6">施設はまだ作成していません。もう一度ログインすると、この画面の続きから進められます。</p>
+        <Link href={`/auth/login?redirect=${encodeURIComponent(back)}`} className="btn-primary px-8 py-3 inline-block">ログインして続ける</Link>
       </div>
     );
   }

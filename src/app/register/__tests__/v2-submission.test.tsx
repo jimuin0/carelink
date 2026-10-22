@@ -162,3 +162,15 @@ test.each(['prepared','attempted','confirmed'])('recruit %s selector never route
   expect(request.mock.calls.map(([path])=>path)).toEqual(['/api/salons/prepare','/api/salons/commit']);
   expect(sessionStorage.getItem(SALON_RECRUIT_BROWSER_CONTEXT_KEY)).toBe(original);
 });
+
+// 受付と一般公開は別の手続き（FAQ・受付メール・完了画面と同じ事実）。以前の確認ダイアログは
+// 「すぐに掲載を開始できます」と書いており、送信すれば公開されると誤解させていた。
+test('confirm dialog does not promise immediate publication', async () => {
+  await fill();
+  fireEvent.click(screen.getByRole('button', { name: '登録する' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(dialog).not.toHaveTextContent('すぐに掲載を開始できます');
+  expect(dialog).toHaveTextContent('送信しただけでは公開されません');
+  expect(dialog).toHaveTextContent('管理画面に引き継がれます');
+  expect(request).not.toHaveBeenCalled();
+});

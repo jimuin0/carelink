@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { z } from 'zod';
 import { businessTypes } from '@/lib/constants';
 import { SALON_RECOVERY_ONBOARDING_PATH, saveSalonRecoveryContext, salonRecoveryAuthPath } from '@/lib/salon-browser-context';
@@ -16,29 +16,51 @@ const preparedSchema = z.object({ state: z.literal('prepared'), recoveryId: z.uu
   expiresAt: z.string().datetime({ offset: true }) }).strict();
 type Receipt = z.infer<typeof resultSchema>['receipts'][number];
 
+/** 利用者に見せてよい案内文だけを運ぶ例外。fetch の TypeError（"Failed to fetch"）等の生の英語を画面に出さない。 */
+class RecoveryNotice extends Error {}
+const NETWORK_NOTICE = '通信できませんでした。電波の良い場所で、少し時間をおいてから「先頭から再確認」を押してください。再申込は不要です。';
+function noticeOf(failure: unknown, fallback: string): string {
+  return failure instanceof RecoveryNotice ? failure.message : fallback;
+}
+async function post(body: object, signal: AbortSignal): Promise<Response> {
+  try {
+    return await fetch('/api/salons/recovery', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body), signal });
+  } catch {
+    throw new RecoveryNotice(NETWORK_NOTICE);
+  }
+}
+
 async function requestReceipts(signal: AbortSignal, after?: string) {
-  const response = await fetch('/api/salons/recovery', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'list', ...(after ? { after } : {}) }), signal });
+  const response = await post({ action: 'list', ...(after ? { after } : {}) }, signal);
   if (response.status === 401) return null;
-  if (response.status === 403) throw new Error('申込時のメールアドレスでログインし、メール確認を完了してください。');
-  const result = resultSchema.safeParse(await response.json());
-  if (!response.ok || !result.success) throw new Error('受付状況を確認できません。再申込せず、時間をおいて確認してください。');
+  if (response.status === 403) throw new RecoveryNotice('申込時のメールアドレスでログインし、メール確認を完了してください。');
+  const result = resultSchema.safeParse(await response.json().catch(() => null));
+  if (!response.ok || !result.success) throw new RecoveryNotice('受付状況を確認できません。再申込せず、時間をおいて確認してください。');
   return result.data;
 }
 
 // Network response validation happens at completion time, not render time.
 async function requestPreparation(receiptId: string, signal: AbortSignal) {
-  const response = await fetch('/api/salons/recovery', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'prepare', receiptId }), signal });
-  const result = preparedSchema.safeParse(await response.json());
+  const response = await post({ action: 'prepare', receiptId }, signal);
+  const result = preparedSchema.safeParse(await response.json().catch(() => null));
   if (!response.ok || !result.success || Date.parse(result.data.expiresAt) <= Date.now()) {
-    throw new Error('この申込を引き継げません。再申込せず、お問い合わせください。');
+    throw new RecoveryNotice('この申込を引き継げません。再申込せず、お問い合わせください。');
   }
   return result.data;
 }
 
 export default function RecoverRegistrationPage() {
+  return <Suspense fallback={<main className="section-container max-w-xl mx-auto py-16">
+    <h1 className="text-2xl font-bold mb-4">送信済みの掲載申込を復旧</h1><p role="status">受付情報を確認しています…</p></main>}>
+    <RecoverRegistrationContent />
+  </Suspense>;
+}
+
+function RecoverRegistrationContent() {
   const router = useRouter();
+  // 引き継ぎ画面（/admin/onboarding）から、申込したタブの受付情報が無いため自動で送られてきた。
+  const fromHandoff = useSearchParams().get('from') === 'handoff';
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [next, setNext] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -58,7 +80,7 @@ export default function RecoverRegistrationPage() {
       }
       setReceipts(result.receipts); setNext(result.next); setLoaded(true);
     } catch (failure) {
-      if (live.current) setError(failure instanceof Error ? failure.message : '受付状況を確認できません。');
+      if (live.current) setError(noticeOf(failure, '受付状況を確認できません。再申込せず、時間をおいて確認してください。'));
     } finally { inFlight.current = false; if (live.current) setBusy(false); }
   };
 
@@ -76,7 +98,7 @@ export default function RecoverRegistrationPage() {
         if (result === null) { router.replace(salonRecoveryAuthPath('login')); return; }
         setReceipts(result.receipts); setNext(result.next); setLoaded(true);
       } catch (failure) {
-        if (!cancelled) setError(failure instanceof Error ? failure.message : '受付状況を確認できません。');
+        if (!cancelled) setError(noticeOf(failure, '受付状況を確認できません。再申込せず、時間をおいて確認してください。'));
       } finally {
         clearTimeout(timer);
         if (!cancelled) { inFlight.current = false; setBusy(false); }
@@ -92,16 +114,20 @@ export default function RecoverRegistrationPage() {
       const result = await requestPreparation(receiptId, AbortSignal.timeout(20000));
       if (!live.current) return;
       if (!saveSalonRecoveryContext(window.sessionStorage, result.recoveryId)) {
-        throw new Error('ブラウザーで引き継ぎ情報を保存できません。施設は作成していません。保存を許可して選び直してください。');
+        throw new RecoveryNotice('ブラウザーで引き継ぎ情報を保存できません。施設は作成していません。保存を許可して選び直してください。');
       }
       router.push(SALON_RECOVERY_ONBOARDING_PATH);
     } catch (failure) {
-      if (live.current) setError(failure instanceof Error ? failure.message : '引き継ぎ情報を確認できません。');
+      if (live.current) setError(noticeOf(failure, '引き継ぎ情報を確認できません。時間をおいて選び直してください。'));
     } finally { inFlight.current = false; if (live.current) setBusy(false); }
   };
 
   return <main className="section-container max-w-xl mx-auto py-16">
     <h1 className="text-2xl font-bold mb-4">送信済みの掲載申込を復旧</h1>
+    {fromHandoff && <div className="mb-4 rounded-lg bg-sky-50 p-4 text-sm text-sky-900" data-testid="handoff-recovery-guide">
+      <p className="font-bold">申込を選んでください</p>
+      <p className="mt-1">確認メールのリンクを別のタブやブラウザで開いたため、申込したときの画面の情報を引き継げませんでした。ログイン中のメールアドレスで確認できた申込を下に表示しています。続ける申込の「この申込の店舗情報を確認」を押してください。再申込は不要です。</p>
+    </div>}
     <p className="mb-4 text-sm">申込に使用した確認済みメールアドレスに一致する受付を表示します。タブを閉じた場合や受付確認の期限が切れた場合も、再申込は不要です。選択だけでは施設を作成・公開しません。</p>
     {busy && <p role="status">受付情報を確認しています…</p>}
     {error && <p role="alert" className="text-red-600 mb-4">{error}</p>}

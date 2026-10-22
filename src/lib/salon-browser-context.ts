@@ -51,6 +51,22 @@ export const SALON_RECOVERY_PATH = '/register/recover';
 export function salonRecoveryAuthPath(page: 'signup' | 'login'): string {
   return `/auth/${page}?redirect=${encodeURIComponent(SALON_RECOVERY_PATH)}`;
 }
+/**
+ * 申込したタブの受付情報（sessionStorage）が無いまま引き継ぎ画面へ来た人を送る先（2026年10月23日）。
+ * 確認メールのリンクはメールアプリが新しいタブ・別のブラウザで開くため、受付情報は必ず失われる。
+ * 汎用の「通信環境を確認して再読み込み」を出し続けると永久に進めないので、確認済みメールで
+ * 申込を一覧できる /register/recover へ自動で送り、「申込を選んでください」と案内する。
+ * 重複防止（1アカウント1店舗・ALREADY_MEMBER・取り込み済み申込）はサーバー側が引き続き判定する。
+ */
+export const SALON_RECOVERY_SELECT_PATH = `${SALON_RECOVERY_PATH}?from=handoff`;
+/**
+ * ログイン・登録後の戻り先が「掲載申込の続き（店舗アカウント作成）」かどうか。
+ * /auth/signup はこれが真のとき、来院者向けではなく店舗アカウント作成として表示する。
+ */
+export function isShopAccountSetupRedirect(redirect: string): boolean {
+  const path = redirect.split(/[?#]/)[0];
+  return path === '/admin/onboarding' || path === SALON_RECOVERY_PATH;
+}
 const recoveryContext = z.object({ version: z.literal(1), recoveryId: z.uuid() }).strict();
 export function readSalonRecoveryContext(store: Store): string | null {
   try {

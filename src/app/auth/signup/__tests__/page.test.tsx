@@ -59,7 +59,8 @@ function fillForm() {
 }
 
 function submit() {
-  fireEvent.click(screen.getByRole('button', { name: '新規登録' }));
+  // 掲載申込の続き（redirect=/admin/onboarding 等）では「店舗アカウントを作成」と表示する。
+  fireEvent.click(screen.getByRole('button', { name: /^(新規登録|店舗アカウントを作成)$/ }));
 }
 
 test('SSR keeps signup controls and Google disabled until client handlers are installed', () => {
@@ -111,8 +112,8 @@ test('既登録の疑似user応答も送達を断定しない確認・ログイ�
   mockSignUp.mockResolvedValue({ data: { session: null, user: { identities: [] } }, error: null });
   render(<SignupPage />);
   fillForm(); submit();
-  await screen.findByText('登録を受け付けました。');
-  expect(screen.getByRole('link', { name: '既に確認を完了した方はログイン' })).toBeVisible();
+  await screen.findByText('確認メールを送信しました');
+  expect(screen.getByRole('link', { name: '確認が済んだら：ログインして続ける' })).toBeVisible();
   expect(mockResend).not.toHaveBeenCalled();
 });
 
@@ -127,7 +128,7 @@ test('初期セッション確認の通信例外でも登録可能', async () =>
   mockSignUp.mockResolvedValue({ data: { session: null, user: { id: 'fixture' } }, error: null });
   render(<SignupPage />);
   fillForm(); submit();
-  await screen.findByText('登録を受け付けました。');
+  await screen.findByText('確認メールを送信しました');
 });
 
 test.each([false, true])('再送は60秒待機し、成功/失敗(%s)後も連打を防ぐ', async (fails) => {
@@ -136,7 +137,7 @@ test.each([false, true])('再送は60秒待機し、成功/失敗(%s)後も連�
   mockResend.mockResolvedValue({ error: fails ? { message: 'private' } : null });
   render(<SignupPage />);
   fillForm(); submit();
-  await screen.findByText('登録を受け付けました。');
+  await screen.findByText('確認メールを送信しました');
   expect(screen.getByRole('button', { name: '確認メールの再送は1分後にできます' })).toBeDisabled();
   await act(async () => { jest.advanceTimersByTime(60_000); });
   const button = screen.getByRole('button', { name: '確認メールを再送する' });
@@ -176,7 +177,7 @@ describe('/auth/signup', () => {
     fillForm();
     submit();
 
-    await screen.findByText('登録を受け付けました。');
+    await screen.findByText('確認メールを送信しました');
     // 偽陽性防止: 呼ばれていないことを明示的に主張する（呼び出し引数ではなく「呼ばれたか」自体）。
     expect(mockReplace).not.toHaveBeenCalled();
     expect(mockRefresh).not.toHaveBeenCalled();
@@ -269,7 +270,7 @@ describe('/auth/signup', () => {
     fillForm();
     submit();
 
-    await screen.findByText('登録を受け付けました。');
+    await screen.findByText('確認メールを送信しました');
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
@@ -306,5 +307,48 @@ describe('/auth/signup', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Googleで登録' }));
 
     await screen.findByText(/Googleでの登録を開始できませんでした/);
+  });
+});
+
+describe('店舗アカウント作成（掲載申込の続き）', () => {
+  test.each([
+    '/admin/onboarding?handoff=registration', '/register/recover', '/admin/onboarding?handoff=recovered',
+  ])('redirect=%s は来院者向けの登録に見せない', async redirect => {
+    mockSearchParams = new URLSearchParams({ redirect });
+    render(<SignupPage />);
+    expect(screen.getByRole('heading', { level: 1, name: '店舗アカウントの作成' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 1, name: '新規登録' })).not.toBeInTheDocument();
+    expect(screen.getByText('申込と同じメールアドレスで作成してください')).toBeVisible();
+    expect(screen.queryByRole('link', { name: '施設を探す' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '店舗アカウントを作成' })).toBeInTheDocument();
+    // バックエンドが使う必須項目（電話番号・都道府県）は残す
+    expect(screen.getByLabelText(/^電話番号/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^都道府県/)).toBeInTheDocument();
+    await waitFor(() => expect(mockGetUser).toHaveBeenCalled());
+  });
+  test('来院者の新規登録は従来どおり（負の対照）', async () => {
+    mockSearchParams = new URLSearchParams({ redirect: '/mypage/bookings' });
+    render(<SignupPage />);
+    expect(screen.getByRole('heading', { level: 1, name: '新規登録' })).toBeInTheDocument();
+    expect(screen.queryByText('申込と同じメールアドレスで作成してください')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '施設を探す' })).toBeInTheDocument();
+    await waitFor(() => expect(mockGetUser).toHaveBeenCalled());
+  });
+  test('SSR でも h1 が出る（見出しの fallback）', () => {
+    mockSearchParams = new URLSearchParams({ redirect: '/register/recover' });
+    expect(renderToString(<SignupPage />)).toMatch(/<h1[^>]*>(新規登録|店舗アカウントの作成)<\/h1>/);
+  });
+  test('確認メール送信後は送信先を示し、同じ戻り先でこのタブからログインして続けられる', async () => {
+    mockSearchParams = new URLSearchParams({ redirect: '/admin/onboarding?handoff=registration' });
+    mockSignUp.mockResolvedValue({ data: { session: null, user: { id: 'u1' } }, error: null });
+    render(<SignupPage />);
+    fillForm(); submit();
+    await screen.findByText('確認メールを送信しました');
+    expect(screen.getByTestId('signup-sent-to')).toHaveTextContent('test@example.com');
+    expect(screen.getByRole('link', { name: '確認が済んだら：ログインして続ける' }))
+      .toHaveAttribute('href', `/auth/login?redirect=${encodeURIComponent('/admin/onboarding?handoff=registration')}`);
+    expect(mockSignUp.mock.calls[0][0].options.emailRedirectTo)
+      .toContain(`/auth/callback?redirect=${encodeURIComponent('/admin/onboarding?handoff=registration')}`);
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 });

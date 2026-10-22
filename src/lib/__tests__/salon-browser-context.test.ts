@@ -2,7 +2,8 @@
 import { readSalonBrowserContext, saveSalonBrowserContext, SALON_BROWSER_CONTEXT_KEY,
   SALON_ONBOARDING_PATH, SALON_COMPLETE_PATH, salonHandoffAuthPath,
   readSalonRecoveryContext, saveSalonRecoveryContext, SALON_RECOVERY_CONTEXT_KEY,
-  SALON_RECOVERY_ONBOARDING_PATH, SALON_RECOVERY_PATH, salonRecoveryAuthPath } from '../salon-browser-context';
+  SALON_RECOVERY_ONBOARDING_PATH, SALON_RECOVERY_PATH, salonRecoveryAuthPath,
+  SALON_RECOVERY_SELECT_PATH, isShopAccountSetupRedirect } from '../salon-browser-context';
 const intentId = '74000000-0000-4000-8000-000000000001';
 const context = { version: 1 as const, intentId, phase: 'attempted' as const };
 function store(value: string | null = null) {
@@ -78,4 +79,17 @@ test.each(['signup', 'login'] as const)('recovery auth %s returns to the receipt
   expect(url.searchParams.get('redirect')).toBe(SALON_RECOVERY_PATH);
   expect(SALON_RECOVERY_PATH).toBe('/register/recover');
   expect([...url.searchParams.keys()]).toEqual(['redirect']);
+});
+
+test('lost handoff goes to the receipt chooser with only a mode marker', () => {
+  const url = new URL(SALON_RECOVERY_SELECT_PATH, 'https://synthetic.invalid');
+  expect(url.pathname).toBe(SALON_RECOVERY_PATH);
+  expect([...url.searchParams.entries()]).toEqual([['from', 'handoff']]);
+});
+test.each([
+  ['/admin/onboarding', true], [SALON_ONBOARDING_PATH, true], [SALON_RECOVERY_ONBOARDING_PATH, true],
+  [SALON_RECOVERY_PATH, true], [SALON_RECOVERY_SELECT_PATH, true], ['/admin/onboarding#top', true],
+  ['/mypage', false], ['/admin', false], ['/admin/onboarding-x', false], ['/register/recover/x', false], ['/register', false],
+])('shop account signup mode for redirect %s is %s', (redirect, expected) => {
+  expect(isShopAccountSetupRedirect(redirect)).toBe(expected);
 });

@@ -5,7 +5,7 @@ import { UUID_REGEX, SITE_URL } from './constants';
 import { fromEnv } from './email-from';
 import { postToSlack } from './slack';
 import { sendResendForReconciliation, type ResendDeliveryOutcome } from './resend-result';
-import { SALON_ONBOARDING_PATH } from './salon-browser-context';
+import { salonRecoveryAuthPath } from './salon-browser-context';
 
 const jobSchema = z.object({
   registration_id: z.string().regex(UUID_REGEX),
@@ -60,7 +60,10 @@ export async function prepareSalonOutboxDelivery(
     subject: '【CareLink】掲載申し込みを受け付けました',
     // Plain text deliberately avoids any interpretation of applicant-controlled
     // content as HTML. No proof, applicant name or address goes into the URL.
-    text: `CareLinkへの掲載申し込みをいただき、ありがとうございます。\n\n施設名：${receipt.data.facility_name}\n受付番号：${job.registration_id}\n\n掲載申込の受付が完了しました。一般公開は、店舗情報の設定と公開操作の後に反映されます。\n申し込みに使用したブラウザーの同じタブで、アカウント作成・店舗情報の設定へお進みください。メールアプリが別のタブを開いた場合は、申込時のタブに戻って次のURLを開いてください。\n${SITE_URL}${SALON_ONBOARDING_PATH}\n\n受付を確認できない場合は、新たに送信せず受付番号を添えてお問い合わせください。\n${SITE_URL}/contact\n\nこのメールに心当たりがない場合は破棄してください。`,
+    // 🔴 以前は「申込時のタブに戻って次のURLを開いてください」と案内していたが、スマホのメールアプリからは
+    // 申込時のタブに戻れない（2026年10月23日）。リンク先は、確認済みのログインメールで申込を選び直せる
+    // /register/recover へ進む登録画面にする（タブ・ブラウザに依存しない唯一の入口）。
+    text: `CareLinkへの掲載申し込みをいただき、ありがとうございます。\n\n施設名：${receipt.data.facility_name}\n受付番号：${job.registration_id}\n\n掲載申込の受付が完了しました。一般公開は、店舗情報の設定と公開操作の後に反映されます。\n\n【次の手順】申込の続き（店舗情報の確認・設定）へ進むには、このメールを受け取ったメールアドレス（${receipt.data.email}）で店舗アカウントを作成してください。別のメールアドレスで作成すると、この申込を引き継げません。スマートフォンや別のブラウザからでも続けられます。\n${SITE_URL}${salonRecoveryAuthPath('signup')}\n\nすでに同じメールアドレスでアカウントをお持ちの場合は、こちらからログインしてください。\n${SITE_URL}${salonRecoveryAuthPath('login')}\n\n受付を確認できない場合は、新たに送信せず受付番号を添えてお問い合わせください。\n${SITE_URL}/contact\n\nこのメールに心当たりがない場合は破棄してください。`,
   };
   return () => sendResendForReconciliation(resend.emails.send(email, {
     idempotencyKey: `salon-receipt-v1-${job.registration_id}`,

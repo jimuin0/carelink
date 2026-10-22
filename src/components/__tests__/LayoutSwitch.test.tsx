@@ -11,7 +11,8 @@ import LayoutSwitch from '../LayoutSwitch';
 import MobileBottomNav from '../search/MobileBottomNav';
 
 let mockPathname = '/search';
-jest.mock('next/navigation', () => ({ usePathname: () => mockPathname }));
+let mockSearch = new URLSearchParams();
+jest.mock('next/navigation', () => ({ usePathname: () => mockPathname, useSearchParams: () => mockSearch }));
 jest.mock('next/dynamic', () => ({ __esModule: true, default: () => () => null }));
 jest.mock('../search/SearchHeader', () => ({ __esModule: true, default: () => null }));
 jest.mock('../Header', () => ({ __esModule: true, default: () => null }));
@@ -84,5 +85,17 @@ describe('MobileBottomNav', () => {
     mockPathname = '/facility/some-salon';
     render(<MobileBottomNav />);
     expect(screen.queryByRole('navigation', { name: 'メインナビゲーション' })).toBeNull();
+  });
+  test('掲載申込の続きとして開いた店舗アカウント作成画面では来院者向けナビを出さない', () => {
+    mockPathname = '/auth/signup';
+    mockSearch = new URLSearchParams({ redirect: '/admin/onboarding?handoff=registration' });
+    const { unmount } = render(<MobileBottomNav />);
+    expect(screen.queryByRole('navigation', { name: 'メインナビゲーション' })).toBeNull();
+    unmount();
+    // 来院者の新規登録では従来どおり出す（負の対照）
+    mockSearch = new URLSearchParams();
+    render(<MobileBottomNav />);
+    expect(screen.getByRole('navigation', { name: 'メインナビゲーション' })).toBeInTheDocument();
+    mockSearch = new URLSearchParams();
   });
 });

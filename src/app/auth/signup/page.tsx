@@ -13,6 +13,7 @@ import { isLineLoginEnabled } from '@/lib/line-availability';
 import { safeRedirect } from '@/lib/safe-redirect';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { useClientReady } from '@/lib/use-client-ready';
+import { isShopAccountSetupRedirect } from '@/lib/salon-browser-context';
 
 const RESEND_COOLDOWN_SECONDS = 60;
 
@@ -34,15 +35,30 @@ function getSignupErrorMessage(error: { code?: string; message?: string }): stri
   }
 }
 
+const HEADING_CLASS = 'text-2xl font-bold text-center mb-8';
+
+/** 掲載申込の続き（店舗アカウント作成）から来たかどうか。来院者向けの登録と見た目・文言を分ける。 */
+function useShopAccountSignup(): boolean {
+  const searchParams = useSearchParams();
+  return isShopAccountSetupRedirect(safeRedirect(searchParams.get('redirect'), SITE_URL));
+}
+
+/** 見出しは店舗アカウント作成かどうかで変わる。SSR では fallback の h1 が出るので、h1 は常に SSR される。 */
+function SignupHeading() {
+  return <h1 className={HEADING_CLASS}>{useShopAccountSignup() ? '店舗アカウントの作成' : '新規登録'}</h1>;
+}
+
 export default function SignupPage() {
   // 見出し・カード外枠は Suspense の外（=SSR）で描画する（login と同様）。
   // useSearchParams を使う内容を Suspense で包むとフォールバックが SSR HTML になり、
-  // h1 が SSR されず a11y/SEO 劣化・E2E のヘッダ可視チェック失敗になるため、見出しを外出しする。
+  // h1 が SSR されず a11y/SEO 劣化・E2E のヘッダ可視チェック失敗になるため、見出しの fallback にも h1 を置く。
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-lg p-8">
-          <h1 className="text-2xl font-bold text-center mb-8">新規登録</h1>
+          <Suspense fallback={<h1 className={HEADING_CLASS}>新規登録</h1>}>
+            <SignupHeading />
+          </Suspense>
           <Suspense fallback={<div className="min-h-[480px]" />}>
             <SignupContent />
           </Suspense>
@@ -76,6 +92,9 @@ function SignupContent() {
     if (businessType) params.set('business_type', businessType);
     redirect = `/admin/onboarding?${params.toString()}`;
   }
+  // 掲載申込の続き（/admin/onboarding・/register/recover へ戻る）として開かれた登録画面。
+  // 来院者向けの「施設を探す」は出さず、申込と同じメールアドレスで作るよう案内する。
+  const shopAccountSignup = useShopAccountSignup();
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
@@ -224,21 +243,32 @@ function SignupContent() {
   if (pendingVerificationEmail) {
     return (
       <div className="space-y-5 text-center" aria-live="polite">
-        <p className="text-gray-700 font-medium">登録を受け付けました。</p>
-        <p className="text-sm text-gray-600 leading-relaxed">確認メールが必要な場合は、届いたメールを開いて登録を完了してください。すでに登録済みの方はログインできます。見当たらない場合は迷惑メールフォルダもご確認ください。</p>
-        <button type="button" onClick={resendVerificationEmail} disabled={resendStatus === 'sending' || isResendCoolingDown} className="btn-primary w-full py-3!">
+        <p className="text-gray-700 font-medium">確認メールを送信しました</p>
+        {/* 送信先を見せないと、入力ミスに気づけないまま「届かない」と待ち続けることになる。 */}
+        <p className="text-sm text-gray-700">送信先：<span className="font-bold break-all" data-testid="signup-sent-to">{pendingVerificationEmail}</span></p>
+        <p className="text-sm text-gray-600 leading-relaxed">メール内のリンクを開いて、メールアドレスの確認を完了してください。見当たらない場合は迷惑メールフォルダもご確認ください。すでに登録済みのメールアドレスの場合、確認メールは届きません。そのままログインしてください。</p>
+        {/* 確認メールのリンクはメールアプリが別のタブ・別のブラウザで開くことが多い。確認さえ済めば、
+            このタブ（掲載申込の受付情報が残っているタブ）でログインして同じ続きへ進める。 */}
+        <Link href={`/auth/login?redirect=${encodeURIComponent(redirect)}`} className="btn-primary block w-full py-3! text-center">確認が済んだら：ログインして続ける</Link>
+        <p className="text-xs text-gray-500">確認メールのリンクを別のブラウザやメールアプリで開いた場合も、確認が済んでいればこの画面からログインして続けられます。</p>
+        <button type="button" onClick={resendVerificationEmail} disabled={resendStatus === 'sending' || isResendCoolingDown} className="btn-secondary w-full py-3!">
           {resendStatus === 'sending' ? '再送を依頼中...' : isResendCoolingDown ? '確認メールの再送は1分後にできます' : '確認メールを再送する'}
         </button>
         {resendStatus === 'sent' && <p className="text-sm text-green-700" role="status">再送を受け付けました。確認が必要なアカウントにはメールが届きます。</p>}
         {resendStatus === 'error' && <p className="text-sm text-red-600" role="alert">再送を受け付けられませんでした。時間をおいてもう一度お試しください。</p>}
-        <Link href={`/auth/login?redirect=${encodeURIComponent(redirect)}`} className="inline-block text-sm text-sky-700 hover:underline">既に確認を完了した方はログイン</Link>
-        <p className="text-xs text-gray-500">再送後は、届いた最新の確認メールを同じブラウザで開いてください。</p>
+        <p className="text-xs text-gray-500">再送後は、届いた最新の確認メールを開いてください。</p>
       </div>
     );
   }
 
   return (
     <>
+          {shopAccountSignup && (
+            <div className="-mt-4 mb-6 rounded-lg bg-sky-50 px-4 py-3 text-sm text-sky-900" data-testid="shop-signup-guide">
+              <p className="font-bold">申込と同じメールアドレスで作成してください</p>
+              <p className="mt-1">掲載申込に使ったメールアドレスで作成すると、申込の内容（店舗名・写真・営業時間など）を引き継いで店舗情報の設定に進めます。</p>
+            </div>
+          )}
           <form onSubmit={(event) => { void handleSubmit(onSubmit)(event); }} noValidate className="space-y-4">
             <fieldset disabled={!clientReady} className="space-y-4">
             <div>
@@ -376,7 +406,7 @@ function SignupContent() {
             </label>
             {errors.terms_agreed && <p id="signup-terms-error" className="form-error" role="alert">{errors.terms_agreed.message}</p>}
             <button type="submit" disabled={isSubmitting || isGoogleSigningIn} className="btn-primary w-full py-3!">
-              {isSubmitting ? '登録中...' : '新規登録'}
+              {isSubmitting ? '登録中...' : shopAccountSignup ? '店舗アカウントを作成' : '新規登録'}
             </button>
             </fieldset>
           </form>
@@ -430,11 +460,13 @@ function SignupContent() {
             </p>
           </div>
 
-          <div className="mt-4 text-center">
-            <Link href="/search" className="text-sm text-gray-500 hover:underline">
-              施設を探す
-            </Link>
-          </div>
+          {!shopAccountSignup && (
+            <div className="mt-4 text-center">
+              <Link href="/search" className="text-sm text-gray-500 hover:underline">
+                施設を探す
+              </Link>
+            </div>
+          )}
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
     </>

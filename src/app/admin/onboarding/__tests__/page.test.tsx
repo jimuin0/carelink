@@ -22,7 +22,8 @@ import '@testing-library/jest-dom';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import OnboardingPage from '../page';
 import { AuthSessionMissingError } from '@supabase/supabase-js';
-import { SALON_BROWSER_CONTEXT_KEY, SALON_RECOVERY_CONTEXT_KEY, salonHandoffAuthPath } from '@/lib/salon-browser-context';
+import { SALON_BROWSER_CONTEXT_KEY, SALON_RECOVERY_CONTEXT_KEY, salonHandoffAuthPath, SALON_RECOVERY_SELECT_PATH,
+  SALON_ONBOARDING_PATH, SALON_RECOVERY_ONBOARDING_PATH } from '@/lib/salon-browser-context';
 import { navigateAfterFacilitySetup } from '@/lib/onboarding-navigation';
 jest.mock('@/lib/onboarding-navigation', () => ({ navigateAfterFacilitySetup: jest.fn() }));
 
@@ -117,9 +118,18 @@ describe('verified recovery handoff', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);expect(mockReplace).not.toHaveBeenCalled();
     expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
   });
-  test('missing recovery selector fails closed',async()=>{
+  test('missing recovery selector fails closed and sends the owner to choose the application again',async()=>{
     context();window.sessionStorage.clear();render(<OnboardingPage/>);
-    await screen.findByText('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');expect(mockFetch).not.toHaveBeenCalled();
+    await waitFor(()=>expect(mockReplace).toHaveBeenCalledWith(SALON_RECOVERY_SELECT_PATH));
+    expect(mockFetch).not.toHaveBeenCalled();expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
+    expect(screen.queryByText(/通信環境を確認して再読み込み/)).not.toBeInTheDocument();
+  });
+  test('expired login while reading the recovered summary offers login back to the same handoff',async()=>{
+    context();mockFetch.mockResolvedValue({ok:false,status:401,json:async()=>({error:'認証が必要です'})});render(<OnboardingPage/>);
+    expect(await screen.findByText('ログインの有効期限が切れました')).toBeVisible();
+    expect(screen.queryByText('認証が必要です')).not.toBeInTheDocument();
+    expect(screen.getByRole('link',{name:'ログインして続ける'})).toHaveAttribute('href',`/auth/login?redirect=${encodeURIComponent(SALON_RECOVERY_ONBOARDING_PATH)}`);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
   test('changed selector cannot submit a different receipt',async()=>{
     context();render(<OnboardingPage/>);await screen.findByLabelText(/施設名/);fillLicenseCheckbox();window.sessionStorage.clear();submit();
@@ -161,13 +171,40 @@ describe('selected registration handoff', () => {
     expect(mockReplace).not.toHaveBeenCalled();
     expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
   });
-  test.each(['missing', 'broken'])('missing/corrupt selector never becomes direct onboarding %s', async value => {
+  // 🔴 確認メールのリンクは新しいタブ・別ブラウザで開くので、申込タブの受付情報はここで必ず失われる。
+  // 以前は「通信環境を確認して再読み込み」を永久に出していた。施設は作らず、申込の選び直しへ自動で送る。
+  test.each(['missing', 'broken'])('missing/corrupt selector never becomes direct onboarding and routes to recovery %s', async value => {
     context();
     if (value === 'missing') window.sessionStorage.clear();
     else window.sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY, '{');
     render(<OnboardingPage />);
-    await screen.findByText('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
-    expect(mockFetch).not.toHaveBeenCalled(); expect(mockReplace).not.toHaveBeenCalled();
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(SALON_RECOVERY_SELECT_PATH));
+    expect(SALON_RECOVERY_SELECT_PATH).toBe('/register/recover?from=handoff');
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
+    expect(screen.queryByText(/通信環境を確認して再読み込み/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '施設を作成する' })).not.toBeInTheDocument();
+  });
+  test.each([
+    [{ state: 'unverified' }, 403], [{ state: 'expired' }, 200],
+  ])('receipt proof missing in this browser or expired intent routes to recovery %#', async (body, status) => {
+    context(); mockFetch.mockResolvedValue({ ok: status === 200, status, json: async () => body });
+    render(<OnboardingPage />);
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(SALON_RECOVERY_SELECT_PATH));
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: '施設を作成する' })).not.toBeInTheDocument();
+  });
+  test('login expiring before the create POST shows a login button back to the same handoff, not 認証が必要です', async () => {
+    context(); render(<OnboardingPage />);
+    await screen.findByLabelText(/施設名/); fillLicenseCheckbox();
+    mockFetch.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: '認証が必要です' }) });
+    submit();
+    expect(await screen.findByText('ログインの有効期限が切れました')).toBeVisible();
+    expect(screen.queryByText('認証が必要です')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '再読み込みして登録状況を確認' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'ログインして続ける' }))
+      .toHaveAttribute('href', `/auth/login?redirect=${encodeURIComponent(SALON_ONBOARDING_PATH)}`);
     expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
   });
   test.each([
@@ -224,6 +261,14 @@ describe('onboarding transport and membership recovery', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
+  test('expired login on a plain onboarding create offers login back to onboarding', async () => {
+    await form();
+    mockFetch.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: '認証が必要です' }) });
+    submit();
+    expect(await screen.findByText('ログインの有効期限が切れました')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'ログインして続ける' })).toHaveAttribute('href', '/auth/login?redirect=%2Fadmin%2Fonboarding');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
   test('broken JSON is an unknown result, not success or automatic resend', async () => {
     mockFetch.mockResolvedValue({ ok: true, json: async () => { throw new Error('invalid json'); } });
     await form(); submit();

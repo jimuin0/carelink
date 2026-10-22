@@ -26,6 +26,7 @@ import {
   type ResetPasswordFormData,
 } from '@/lib/password-reset';
 import Toast from '@/components/Toast';
+import { takePasswordResetRedirect } from '@/lib/password-reset-redirect';
 
 // フォームを出してよいのは、このページ読み込みで再設定リンクから回復用セッションが作られたときだけ。
 // ブラウザに元から在るセッション（別アカウントでログイン中など）へ updateUser を呼ぶと、
@@ -143,9 +144,13 @@ export default function ResetPasswordPage() {
 
     clearPasswordRecovery();
     setCompleted(true);
-    setToast({ type: 'success', message: 'パスワードを更新しました。ログインページに移動します。' });
+    // 再設定の申請時に保存した戻り先（例: /admin）へ進む。無ければログイン後の既定の振り分け
+    // （/auth/landing＝店舗を管理できるアカウントは /admin、それ以外は /mypage）。
+    // 再設定リンクでログイン済みになっているので、ログイン画面を経由させない。
+    const destination = takePasswordResetRedirect(window.localStorage, window.location.origin);
+    setToast({ type: 'success', message: 'パスワードを更新しました。続きの画面に移動します。' });
     setTimeout(() => {
-      router.push('/auth/login');
+      router.push(destination);
     }, 2000);
   };
 

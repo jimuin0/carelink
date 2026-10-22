@@ -10,6 +10,7 @@ import {
   AuthWeakPasswordError,
 } from '@supabase/supabase-js';
 import ResetPasswordPage from '../page';
+import { PASSWORD_RESET_REDIRECT_KEY } from '@/lib/password-reset-redirect';
 import {
   clearPasswordRecovery,
   getPasswordRecoveryUser,
@@ -45,6 +46,7 @@ function openedAt(pathAndQuery: string) {
 
 beforeEach(() => {
   jest.resetAllMocks();
+  window.localStorage.clear();
   openedAt('/auth/reset-password');
   clearPasswordRecovery();
   watchPasswordRecovery({ onAuthStateChange: callback => { notifyAuth = callback; } });
@@ -311,7 +313,7 @@ describe('what an update failure says (regression: every error used to say "link
   });
 });
 
-test('a successful update changes only the recovered account, then goes to login', async () => {
+test('a successful update changes only the recovered account, then goes to the post-login landing', async () => {
   recoveryLinkOpened();
   render(<ResetPasswordPage />);
   await screen.findByLabelText('新しいパスワード');
@@ -319,11 +321,26 @@ test('a successful update changes only the recovered account, then goes to login
   await fillAndSubmit('new-password-1');
   await act(async () => { await jest.advanceTimersByTimeAsync(0); });
   expect(mockUpdateUser).toHaveBeenCalledWith({ password: 'new-password-1' });
-  expect(screen.getByText('パスワードを更新しました。ログインページに移動します。')).toBeInTheDocument();
+  expect(screen.getByText('パスワードを更新しました。続きの画面に移動します。')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'パスワードを更新' })).toBeDisabled();
   // 同じリンクで作られた記録は二度使わない
   expect(getPasswordRecoveryUser()).toBeNull();
   expect(mockPush).not.toHaveBeenCalled();
   await act(async () => { await jest.advanceTimersByTimeAsync(2000); });
-  expect(mockPush).toHaveBeenCalledWith('/auth/login');
+  // 戻り先の保存が無ければ、ログイン後の既定の振り分け（店舗オーナーは /admin・それ以外は /mypage）。
+  // 以前の /auth/login は、再設定でログイン済みになった人をそのまま /mypage に送っていた。
+  expect(mockPush).toHaveBeenCalledWith('/auth/landing');
+});
+
+test('the redirect saved when requesting the reset (e.g. /admin) survives to the end of the reset', async () => {
+  window.localStorage.setItem(PASSWORD_RESET_REDIRECT_KEY, JSON.stringify({ path: '/admin', savedAt: Date.now() }));
+  recoveryLinkOpened();
+  render(<ResetPasswordPage />);
+  await screen.findByLabelText('新しいパスワード');
+  jest.useFakeTimers();
+  await fillAndSubmit('new-password-1');
+  await act(async () => { await jest.advanceTimersByTimeAsync(2000); });
+  expect(mockPush).toHaveBeenCalledWith('/admin');
+  // 一度使った戻り先は残さない
+  expect(window.localStorage.getItem(PASSWORD_RESET_REDIRECT_KEY)).toBeNull();
 });
