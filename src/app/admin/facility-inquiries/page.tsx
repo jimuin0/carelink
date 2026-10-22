@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import LoadError from '@/components/admin/LoadError';
 import { SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
 
 interface FacilityInquiry {
   id: string;
@@ -20,7 +22,13 @@ function formatDate(dateStr: string): string {
   return d.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-export default function AdminFacilityInquiriesPage() {
+function AdminFacilityInquiriesContent() {
+  // 複数店舗のオーナーは ?facility_id= で店舗を選ぶ（2026年10月22日）。以前は facility_members を
+  // .limit(1).single() で 1 行だけ読み、どの店舗の問い合わせが出るかが行の並び次第だった
+  // （通知メールから開いても別の店舗の問い合わせが表示され得た）。
+  const requestedFacility = useSearchParams().get('facility_id');
+  const [facilityChoices, setFacilityChoices] = useState<AdminFacilityChoice[]>([]);
+  const [facilityId, setFacilityId] = useState<string | null>(null);
   const [inquiries, setInquiries] = useState<FacilityInquiry[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -40,17 +48,20 @@ export default function AdminFacilityInquiriesPage() {
         setLoadError(false);
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) { if (!cancelled) setLoading(false); return; }
-        const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-          .in('role', ['owner', 'admin']).limit(1).single();
-        if (memErr && memErr.code !== 'PGRST116') { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
-        if (!membership) { if (!cancelled) setLoading(false); return; }
+        // 店舗が 1 つなら自動で選ばれ、複数なら明示の選択が要る（勝手に 1 店舗を選ばない）。
+        // 自分の店舗でない facility_id は例外になり、下の catch で読み込み失敗として表示する。
+        const selection = await loadAdminFacilitySelection(supabase, user.id, requestedFacility);
+        if (cancelled) return;
+        setFacilityChoices(selection.choices);
+        if (!selection.selectedId) { setLoading(false); return; }
+        setFacilityId(selection.selectedId);
 
         // RLS(facility_inquiries_member_read)が facility_members(owner/admin)にスコープ済みのため
         // 認証済みクライアントからの直接読み取りで安全（他施設の問い合わせは行レベルで遮断される）。
         const { data, error } = await supabase
           .from('facility_inquiries')
           .select('id, created_at, name, email, phone, message')
-          .eq('facility_id', membership.facility_id)
+          .eq('facility_id', selection.selectedId)
           .order('created_at', { ascending: false })
           .limit(100);
         if (error) { if (!cancelled) { setLoadError(true); setLoading(false); } return; }
@@ -65,15 +76,16 @@ export default function AdminFacilityInquiriesPage() {
     return () => {
       cancelled = true;
     };
-  }, [reloadKey]);
+  }, [reloadKey, requestedFacility]);
 
   if (loading) return <AdminPageLoading />;
+  if (loadError && !facilityId) return <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="管理する店舗の確認に失敗しました" />;
 
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
+      <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/facility-inquiries" />
       <SbPageHeader title="問い合わせ" />
-
-      {loadError ? (
+      {!facilityId ? null : loadError ? (
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="問い合わせの読み込みに失敗しました" />
       ) : inquiries.length === 0 ? (
         <div className="bg-white rounded-xl shadow-xs p-12 text-center">
@@ -122,4 +134,14 @@ export default function AdminFacilityInquiriesPage() {
       )}
     </div>
   );
+}
+
+// 店舗を切り替えたら中身を作り直し、前の店舗の問い合わせが残らないようにする。
+function FacilityInquiriesSelectionRoute() {
+  const requested = useSearchParams().get('facility_id');
+  return <AdminFacilityInquiriesContent key={requested ?? 'unselected'} />;
+}
+
+export default function AdminFacilityInquiriesPage() {
+  return <Suspense fallback={<AdminPageLoading />}><FacilityInquiriesSelectionRoute /></Suspense>;
 }

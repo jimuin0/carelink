@@ -173,7 +173,7 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
   return (
     <div className="bg-white rounded-xl p-6">
       <h3 className="text-sm font-bold text-gray-800 mb-1">リマインダー設定</h3>
-      <p className="text-xs text-gray-500 mb-4">前日リマインドメールは全プラン共通で自動送信されます（無料）。</p>
+      <p className="text-xs text-gray-500 mb-4">リマインドは毎朝9時に、その時点のご予約へ送信します。前日リマインドメールは全プラン共通で自動送信されます（無料）。</p>
 
       <div className="space-y-3 mb-6">
         {ROWS.map(({ key, label, requires }) => {

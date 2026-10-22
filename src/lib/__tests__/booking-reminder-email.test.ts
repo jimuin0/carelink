@@ -31,6 +31,13 @@ test('3日前の案内は日数を表示し一度だけ送信する', async () =
   }));
   expect(mockSend).toHaveBeenCalledTimes(1);
 });
+// 2026年10月22日 神原さん決定：cron が実際に使うこちらの経路にも送信基準を必ず載せる
+// （送信経路が2本あり、片方だけに足すと届くメールによって書いてあることが違ってしまう）。
+test.each([1, 3, 7])('cronメール（%i日前）に送信基準（当日朝9時時点の予約）を明記する', async (days) => {
+  mockSend.mockResolvedValue({ data: { id: 'fixture-message' }, error: null });
+  await sendBookingReminderForCron(fixture, days);
+  expect(mockSend.mock.calls[0][0].html).toContain('本メールは、当日朝9時の時点でご予約いただいているお客様にお送りしています。');
+});
 test('SDKの同期例外でも自動再送せず照合待ちにする', async () => {
   const error = new Error('sdk unavailable');
   mockSend.mockImplementationOnce(() => { throw error; });

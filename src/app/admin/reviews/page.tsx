@@ -1,14 +1,21 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { Suspense, useEffect, useState, useCallback, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
 import { SbPageHeader } from '@/components/admin/SbUi';
 import type { FacilityReview } from '@/types';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
 
-export default function AdminReviewsPage() {
+function AdminReviewsContent() {
+  // 複数店舗のオーナーは ?facility_id= で店舗を選ぶ（2026年10月22日）。以前は facility_members を
+  // .limit(1).single() で 1 行だけ読み、どの店舗の口コミが出るかが行の並び次第だった
+  // （通知から開いても別の店舗の口コミが表示され得た）。
+  const requestedFacility = useSearchParams().get('facility_id');
+  const [facilityChoices, setFacilityChoices] = useState<AdminFacilityChoice[]>([]);
   const [reviews, setReviews] = useState<FacilityReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -55,12 +62,13 @@ export default function AdminReviewsPage() {
       setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
-      const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
-        .in('role', ['owner', 'admin']).limit(1).single();
-      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
-      if (!membership) { setLoading(false); return; }
-      setFacilityId(membership.facility_id);
-      const loaded = await loadReviews(membership.facility_id);
+      // 店舗が 1 つなら自動で選ばれ、複数なら明示の選択が要る（勝手に 1 店舗を選ばない）。
+      // 自分の店舗でない facility_id は例外になり、下の catch で読み込み失敗として表示する。
+      const selection = await loadAdminFacilitySelection(supabase, user.id, requestedFacility);
+      setFacilityChoices(selection.choices);
+      if (!selection.selectedId) { setLoading(false); return; }
+      setFacilityId(selection.selectedId);
+      const loaded = await loadReviews(selection.selectedId);
       // 返信は補助情報（無ければ非表示）。主表示の口コミは loadReviews 側で error 処理済みのため
       // ここでの失敗は致命的でなく、取得できた分のみ表示する。
       // review_replies に facility_id 列は無いため、当施設の口コミ ID 群で review_id を絞る。
@@ -82,7 +90,7 @@ export default function AdminReviewsPage() {
       }
       setLoading(false);
     })().catch(() => { setLoadError(true); setLoading(false); });
-  }, [loadReviews, reloadKey]);
+  }, [loadReviews, reloadKey, requestedFacility]);
 
   // 監査P13: この effect は filter 変更時の再取得用。従来は reload() が facilityId を
   // セットした初回にも発火し、reload 内の loadReviews と合わせて初回に2回フェッチしていた。
@@ -116,6 +124,15 @@ export default function AdminReviewsPage() {
   };
 
   if (loading) return <AdminPageLoading />;
+  if (loadError && !facilityId) return <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="管理する店舗の確認に失敗しました" />;
+  if (!facilityId) {
+    return (
+      <div>
+        <SbPageHeader title="口コミ管理" />
+        <FacilitySelector choices={facilityChoices} selectedId={null} path="/admin/reviews" />
+      </div>
+    );
+  }
 
   const submitReply = async (reviewId: string) => {
     const text = replyText[reviewId]?.trim();
@@ -150,6 +167,8 @@ export default function AdminReviewsPage() {
 
   return (
     <div>
+      <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/reviews" busy={updating !== null || replyingTo !== null}
+        dirty={Object.values(replyText).some((t) => t.trim() !== '')} />
       <SbPageHeader title="口コミ管理" />
 
       {/* フィルタ */}
@@ -248,4 +267,14 @@ export default function AdminReviewsPage() {
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
     </div>
   );
+}
+
+// 店舗を切り替えたら中身を作り直し、前の店舗の口コミや入力中の返信が残らないようにする。
+function ReviewsSelectionRoute() {
+  const requested = useSearchParams().get('facility_id');
+  return <AdminReviewsContent key={requested ?? 'unselected'} />;
+}
+
+export default function AdminReviewsPage() {
+  return <Suspense fallback={<AdminPageLoading />}><ReviewsSelectionRoute /></Suspense>;
 }

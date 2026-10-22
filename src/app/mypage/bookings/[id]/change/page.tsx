@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
 import type { AvailableSlot } from '@/types';
+import { fetchSlotsWeek, mergeSlotsInStaffOrder } from '@/lib/slots-week';
+import { buildMenuStaffMap, filterEligibleStaff, type MenuStaffRow } from '@/lib/menu-staff';
 
 // 予約の実所要時間（分）を start_time/end_time（"HH:MM[:SS]"）の差から求める。
 // 単一 menu_id の duration_minutes では複数メニュー予約（例: カット+カラー120分）の実長を表せず、
@@ -21,26 +23,61 @@ function durationMinutes(start: string, end: string): number {
   return diff > 0 ? diff : 60;
 }
 
+type ChangeableBooking = {
+  id: string; facility_id: string; staff_id: string | null; menu_id: string | null; menu_ids: string[] | null;
+  booking_date: string; start_time: string; end_time: string; total_price: number | null;
+  facility_name: string; menu_name: string; staff_name: string; duration: number;
+};
+
+/**
+ * おまかせ予約（staff_id=NULL）で空き枠を集計するスタッフ。施設の受付中スタッフのうち、
+ * 予約したメニューを担当できる人だけ（menu_staff・予約画面 BookingFlow と同じ判定）。
+ * 担当外のスタッフの空きを数えると、実際には施術できない時間が「空き」に見える。
+ * 取得に失敗したら例外にする（空リスト＝「空きなし」に見せない）。
+ */
+async function eligibleStaffIds(booking: ChangeableBooking): Promise<string[]> {
+  const supabase = createBrowserSupabaseClient();
+  const { data: staffList, error: staffErr } = await supabase
+    .from('staff_profiles')
+    .select('id')
+    .eq('facility_id', booking.facility_id)
+    .eq('is_active', true)
+    .order('sort_order');
+  if (staffErr) throw staffErr;
+  const staff = (staffList ?? []) as { id: string }[];
+  // 複数メニューの予約は menu_ids に全メニューが入る（無い旧予約は menu_id だけ）。
+  const menuIds = booking.menu_ids && booking.menu_ids.length > 0
+    ? booking.menu_ids
+    : booking.menu_id ? [booking.menu_id] : [];
+  if (menuIds.length === 0 || staff.length === 0) return staff.map((s) => s.id);
+  const { data: rows, error: menuStaffErr } = await supabase
+    .from('menu_staff')
+    .select('menu_id, staff_id')
+    .in('menu_id', menuIds);
+  if (menuStaffErr) throw menuStaffErr;
+  return filterEligibleStaff(staff, buildMenuStaffMap((rows ?? []) as MenuStaffRow[]), menuIds).map((s) => s.id);
+}
+
+/** 空き枠の取得結果。'error' は取得失敗（429 を含む）、'not_ready' は店舗のネット予約が準備中。 */
+type SlotsResult = { key: string; slots: AvailableSlot[]; status: 'ok' | 'error' | 'not_ready' };
+
 export default function BookingChangePage() {
   const router = useRouter();
   const params = useParams();
   const bookingId = params.id as string;
 
-  const [booking, setBooking] = useState<{
-    id: string; facility_id: string; staff_id: string | null; menu_id: string | null;
-    booking_date: string; start_time: string; end_time: string; total_price: number | null;
-    facility_name: string; menu_name: string; staff_name: string; duration: number;
-  } | null>(null);
+  const [booking, setBooking] = useState<ChangeableBooking | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null);
-  const [slots, setSlots] = useState<AvailableSlot[]>([]);
-  // 空き枠が「今の条件で取得済みか」を表す。取得完了時に条件のキーを記録し、レンダー中に
-  // 現在の条件と突き合わせる（slotsPending）。ローディング用の boolean を effect で立てる形は
-  // ペイント後にしか反映されず、最初のフレームで前日の枠や誤った「空きなし」を見せるためやめた
-  // （2026年8月16日 実測）。
-  const [slotsLoadedKey, setSlotsLoadedKey] = useState<string | null>(null);
+  // 空き枠の取得結果を「どの条件で取ったか（key）」と一緒に持つ。レンダー中に現在の条件と
+  // 突き合わせ（slotsPending）、一致するまでは取得中として描く。ローディング用の boolean を
+  // effect で立てる形はペイント後にしか反映されず、最初のフレームで前日の枠や誤った「空きなし」を
+  // 見せるためやめた（2026年8月16日 実測）。
+  const [slotsResult, setSlotsResult] = useState<SlotsResult | null>(null);
+  // 空き枠の取得に失敗したときの「再試行」。条件のキーに含め、押すと取り直す。
+  const [slotsRetry, setSlotsRetry] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -60,7 +97,7 @@ export default function BookingChangePage() {
 
         const { data: b, error: bErr } = await supabase
           .from('bookings')
-          .select('id, facility_id, staff_id, menu_id, booking_date, start_time, end_time, total_price, status')
+          .select('id, facility_id, staff_id, menu_id, menu_ids, booking_date, start_time, end_time, total_price, status')
           .eq('id', bookingId)
           .eq('user_id', user.id)
           .single();
@@ -95,93 +132,60 @@ export default function BookingChangePage() {
     return () => { cancelled = true; };
   }, [bookingId, router, reloadKey]);
 
-  const slotsAbortRef = useRef<AbortController | null>(null);
-
-  // 空き枠の取得条件を表すキー。下の effect の依存（selectedDate / booking）と一致させる。
+  // 空き枠の取得条件を表すキー。下の effect の依存（selectedDate / booking / 再試行）と一致させる。
   // 条件が揃っていない間は null にして、取得が走らない状態を「取得中」と誤判定しないようにする
   // （さもないとスピナーが永久に回る）。
-  const slotsQueryKey = selectedDate && booking ? `${selectedDate}|${booking.id}|${booking.duration}` : null;
+  const slotsQueryKey = selectedDate && booking ? `${selectedDate}|${booking.id}|${booking.duration}|${slotsRetry}` : null;
 
   // 🔴 取得中かどうかを【レンダー中に導出する】。boolean state を effect で立てる形だと
   // ペイント後にしか反映されず、最初のフレームで前日の枠や誤った「空きなし」を見せてしまう。
-  const slotsPending = slotsQueryKey !== null && slotsLoadedKey !== slotsQueryKey;
+  const slotsPending = slotsQueryKey !== null && slotsResult?.key !== slotsQueryKey;
+  const shownSlots = slotsPending ? null : slotsResult;
 
-  // loadSlots 相当の処理はこの effect からしか呼ばれないため、useCallback を介さず
-  // effect 本体へ直接 inline する。
   useEffect(() => {
-    if (!selectedDate || !booking) return;
-    slotsAbortRef.current?.abort();
+    if (!selectedDate || !booking || slotsQueryKey === null) return;
     const controller = new AbortController();
-    slotsAbortRef.current = controller;
 
-    // 🔴 ここで setSlotsLoading(true) はしない。取得中かどうかは描画時に slotsPending で
-    // 判定する（上の定義を参照）。
-    //
+    // 🔴 ここで「取得中」を立てない。取得中かどうかは描画時に slotsPending で判定する（上の定義）。
     // why（2026年8月16日 実機で確認）: useEffect はブラウザのペイント後に走るため、effect の中で
-    // ローディングを立てても【最初のフレームには間に合わない】。同型の欠陥を StationSearch と
-    // 予約フローで実測している（それぞれ「該当する駅がありません」「この期間は予約可能な時間帯が
-    // ありません」が取得前に 1 フレーム見えていた）。
+    // ローディングを立てても【最初のフレームには間に合わない】。初回は「この日は予約可能な
+    // 時間帯がありません」という誤った断定が、2 回目以降は【前の日付の時間枠がそのまま】
+    // 1 フレーム見える。選択解除は日付ボタンの onClick で行う（イベントハンドラなのでレンダー前に反映される）。
     //
-    // ここは影響がより大きい。初回は「この日は予約可能な時間帯がありません」という誤った断定が、
-    // 2 回目以降は【前の日付の時間枠がそのまま】1 フレーム見える。利用者が別日の枠を選ぼうと
-    // する余地を作るため、表示は必ず slotsPending で塞ぐ。
-    //
-    // 選択解除は日付ボタンの onClick で行う（イベントハンドラなのでレンダー前に反映される）。
-    // ここで setSelectedSlot(null) すると effect＝ペイント後になり、1 フレームだけ別日の枠が
-    // 選択済みに見える。表示側は slotsPending が塞ぐので、ここに同期 setState は要らない。
-
+    // 空き枠は /api/slots/week でまとめて取る（2026年10月22日）。以前のおまかせ予約はスタッフの
+    // 人数ぶん /api/slots を同時に叩き、失敗や 429 を空配列として扱っていたため、上限に当たると
+    // 「この日は予約可能な時間帯がありません」と表示されていた。今は取得に失敗したら
+    // 「空きなし」ではなく失敗として表示し、再試行できるようにする。指名予約も同じ経路で取る。
     (async () => {
+      let next: Omit<SlotsResult, 'key'>;
       try {
-        let merged: AvailableSlot[];
-        if (booking.staff_id) {
-          // 指名予約: 当該スタッフの空き枠のみ（従来挙動）。
-          const res = await fetch(`/api/slots?facilityId=${booking.facility_id}&staffId=${booking.staff_id}&date=${selectedDate}&duration=${booking.duration}`, {
+        const staffIds = booking.staff_id ? [booking.staff_id] : await eligibleStaffIds(booking);
+        if (staffIds.length === 0) {
+          // 担当できるスタッフがいない＝この予約内容で選べる時間は本当に無い。
+          next = { slots: [], status: 'ok' };
+        } else {
+          const week = await fetchSlotsWeek({
+            facilityId: booking.facility_id,
+            staffIds,
+            dates: [selectedDate],
+            duration: booking.duration,
             signal: controller.signal,
           });
-          // res.ok を検証しないと、エラー応答(JSON)でも data.slots=undefined → 空配列となり
-          // 「空き枠なし」と障害が区別不能になる。失敗は catch のエラートーストへ流す。
-          if (!res.ok) throw new Error();
-          const data = await res.json();
-          merged = data.slots ?? [];
-        } else {
-          // おまかせ予約(staff_id=NULL): 施設の全予約可能スタッフ分をマージする（作成側 BookingFlow と同一挙動）。
-          // slots API は staffId 必須で空文字だと必ず空配列を返すため、これをしないと全日「空き枠なし」に
-          // なり、おまかせ予約の顧客は日時変更が一切できなくなる（A-1 の根治）。
-          const supabase = createBrowserSupabaseClient();
-          const { data: staffList, error: staffErr } = await supabase
-            .from('staff_profiles')
-            .select('id')
-            .eq('facility_id', booking.facility_id)
-            .eq('is_active', true)
-            .order('sort_order');
-          // スタッフ取得失敗を空リスト＝「空き枠なし」に偽装すると障害と区別できないため、
-          // 失敗は下の catch のエラートーストへ流す（取得失敗の空状態偽装の予防）。
-          if (staffErr) throw new Error();
-          const ids = ((staffList ?? []) as { id: string }[]).map((s) => s.id);
-          const results = await Promise.all(ids.map((sid) =>
-            fetch(`/api/slots?facilityId=${booking.facility_id}&staffId=${sid}&date=${selectedDate}&duration=${booking.duration}`, { signal: controller.signal })
-              .then((r) => (r.ok ? r.json() : { slots: [] }))
-              .catch(() => ({ slots: [] }))
-          ));
-          const map = new Map<string, AvailableSlot>();
-          results.forEach((data, i) => {
-            for (const slot of ((data.slots ?? []) as AvailableSlot[])) {
-              // 同一開始時刻は最初に見つかったスタッフの枠を採用（作成側と同じ）。
-              if (!map.has(slot.slot_start)) map.set(slot.slot_start, { ...slot, staff_id: ids[i] });
-            }
-          });
-          merged = Array.from(map.values()).sort((a, b) => a.slot_start.localeCompare(b.slot_start));
+          if (!week.ok) next = { slots: [], status: 'error' };
+          else if (!week.bookingAvailable) next = { slots: [], status: 'not_ready' };
+          // 同じ開始時刻に複数のスタッフが空いていれば、表示順で先のスタッフの枠を採る（予約画面と同じ）。
+          else next = { slots: mergeSlotsInStaffOrder(staffIds, week.days[selectedDate]), status: 'ok' };
         }
-        if (!controller.signal.aborted) setSlots(merged);
-      } catch (e) {
-        if (e instanceof DOMException && e.name === 'AbortError') return;
-        setToast({ type: 'error', message: '空き枠の取得に失敗しました' });
+      } catch {
+        // 中断（日付の切り替え・画面を離れた）は失敗ではない。それ以外の例外は取得失敗として見せる。
+        if (controller.signal.aborted) return;
+        next = { slots: [], status: 'error' };
       }
-      if (!controller.signal.aborted) setSlotsLoadedKey(slotsQueryKey);
+      if (!controller.signal.aborted) setSlotsResult({ key: slotsQueryKey, ...next });
     })();
-  }, [selectedDate, booking, slotsQueryKey]);
 
-  useEffect(() => () => { slotsAbortRef.current?.abort(); }, []);
+    return () => controller.abort();
+  }, [selectedDate, booking, slotsQueryKey]);
 
   const handleSubmit = async () => {
     if (!booking || !selectedSlot || submitting) return;
@@ -257,13 +261,27 @@ export default function BookingChangePage() {
       {selectedDate && (
         <div className="bg-white rounded-2xl shadow-xs p-6" data-testid="slot-picker">
           <h2 className="font-bold mb-3">時間を選択</h2>
-          {slotsPending ? (
+          {shownSlots === null ? (
             <div className="text-center py-8"><div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto" /></div>
-          ) : slots.length === 0 ? (
+          ) : shownSlots.status === 'error' ? (
+            // 取得の失敗は「空きなし」と区別する（失敗を満席に見せると、空いている日をあきらめさせてしまう）。
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 flex items-center justify-between gap-2 flex-wrap" role="alert">
+              <span>空き枠を取得できませんでした。通信状況をご確認のうえ、再度お試しください。</span>
+              <button
+                type="button"
+                onClick={() => { setSelectedSlot(null); setSlotsRetry((n) => n + 1); }}
+                className="text-red-700 font-bold underline shrink-0"
+              >
+                再試行
+              </button>
+            </div>
+          ) : shownSlots.status === 'not_ready' ? (
+            <p className="text-gray-600 text-sm text-center py-4">この店舗のネット予約は準備中です。日時の変更は店舗へ直接お問い合わせください。</p>
+          ) : shownSlots.slots.length === 0 ? (
             <p className="text-gray-500 text-sm text-center py-4">この日は予約可能な時間帯がありません</p>
           ) : (
             <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-              {slots.map((slot) => (
+              {shownSlots.slots.map((slot) => (
                 <button type="button" key={slot.slot_start} onClick={() => setSelectedSlot(slot)}
                   className={`p-3 rounded-xl border text-center transition-colors ${selectedSlot?.slot_start === slot.slot_start ? 'border-sky-500 bg-sky-50' : 'border-gray-200 hover:border-sky-300'}`}>
                   <p className="font-bold text-sm">{slot.slot_start.slice(0, 5)}</p>

@@ -6,7 +6,7 @@ import { UUID_REGEX } from '@/lib/constants';
 export function adminFacilityHref(href: string, facilityId: string | null): string {
   if (!facilityId || !UUID_REGEX.test(facilityId)) return href;
   const [path, query] = href.split('?');
-  const scoped = ['/admin', '/admin/menus', '/admin/staff', '/admin/analytics', '/admin/settings', '/admin/photos', '/admin/schedule', '/admin/bookings'];
+  const scoped = ['/admin', '/admin/menus', '/admin/staff', '/admin/analytics', '/admin/settings', '/admin/photos', '/admin/schedule', '/admin/bookings', '/admin/reviews', '/admin/facility-inquiries'];
   if (!scoped.some(base => path === base || (base !== '/admin' && path.startsWith(`${base}/`)))) return href;
   const params = new URLSearchParams(query);
   params.set('facility_id', facilityId);

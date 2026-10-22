@@ -173,6 +173,8 @@ export default async function FacilityPage(props: Props) {
     {
       key: 'review',
       label: `口コミ(${reviews.length})`,
+      // 口コミ依頼メールの「口コミを書く」は #review-form（投稿欄）へ直接案内する。
+      anchors: ['review-form'],
       content: <ReviewTab facilityId={facility.id} facilitySlug={facility.slug} facilityName={facility.name} initialReviews={reviews} googlePlaceId={facility.gbp_place_id} />,
     },
     ...((facilitySymptoms.length > 0 || certifications.length > 0) ? [{

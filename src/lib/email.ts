@@ -9,6 +9,8 @@ import { resolvedFromEnv, DEFAULT_FROM, RESEND_VERIFIED_DOMAINS } from '@/lib/em
 import { buildOnboardingAuthPath } from '@/lib/onboarding-link';
 import crypto from 'crypto';
 import { sendInquiryReplyEnvelope, verifyInquiryReplyAcceptance, type InquiryReplyEnvelope } from './inquiry-reply-delivery';
+import { REMINDER_EMAIL_TIMING_NOTE } from './reminder-schedule';
+import { adminFacilityHref } from './admin-facility-url';
 
 let _resend: Resend | null = null;
 function getResend(): Resend | null {
@@ -294,12 +296,27 @@ export async function sendBookingReminder(data: BookingEmailData, daysBefore: nu
   // 従来は undefined を返しており、cron 側が戻り値を見ず sent++ していたため、送信失敗が
   // 無音化し claim 保持で恒久 miss になっていた（LINE 側は ok 判定済み＝非対称の穴）。
   if (!resend) return false;
-  const name = esc(data.customerName);
-  const facility = esc(data.facilityName);
-  const when = daysBefore === 1 ? '明日' : `${daysBefore}日後`;
   return safeSend(resend, {
     from: FROM,
     to: data.customerEmail,
+    ...buildBookingReminderContent(data, daysBefore),
+  }, 'booking_reminder');
+}
+
+/**
+ * リマインドメールの件名と本文（前日・3日前・7日前で共通）。
+ * 送信経路が 2 本（sendBookingReminder / sendBookingReminderForCron）あるため、文面はここにだけ置く。
+ * 片方にだけ説明文を足すと、届くメールによって書いてあることが違う状態になる。
+ *
+ * 末尾の説明（REMINDER_EMAIL_TIMING_NOTE）は、リマインドを朝9時に1回だけ送る運用
+ * （2026年10月22日 神原さん決定）を受け取った人に伝えるためのもの。前日の9時より後に
+ * 予約した人には前日リマインドが届かないので、その理由をメール側に明記する。
+ */
+export function buildBookingReminderContent(data: BookingEmailData, daysBefore: number) {
+  const name = esc(data.customerName);
+  const facility = esc(data.facilityName);
+  const when = daysBefore === 1 ? '明日' : `${daysBefore}日後`;
+  return {
     subject: escSubject(`【CareLink】${when}のご予約リマインド - ${data.facilityName}`),
     html: wrapHtml(`
       <p>${name} 様</p>
@@ -307,8 +324,9 @@ export async function sendBookingReminder(data: BookingEmailData, daysBefore: nu
       ${bookingDetailHtml(data)}
       <p>お忘れなく、お時間に余裕を持ってご来店ください。</p>
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約詳細を見る</a></p>
+      <p style="font-size:12px;color:#64748b;margin-top:24px;">${REMINDER_EMAIL_TIMING_NOTE}</p>
     `),
-  }, 'booking_reminder');
+  };
 }
 
 /** Cron用は、外部providerの送達結果不明を自動再送に変換しない。 */
@@ -320,23 +338,13 @@ export async function sendBookingReminderForCron(
 ): Promise<BookingReminderDeliveryOutcome> {
   const resend = getResend();
   if (!resend) return 'rejected';
-  const name = esc(data.customerName);
-  const facility = esc(data.facilityName);
-  const when = daysBefore === 1 ? '明日' : `${daysBefore}日後`;
   try {
     // Promise.raceのタイムアウトで未送信と断定すると、provider受理済みメールを次runで再送する。
     // cronはclaimを保持して照合へ上げるため、この専用経路ではSDKの終端応答だけを未受理とする。
     return await sendResendForReconciliation(resend.emails.send({
       from: FROM,
       to: data.customerEmail,
-      subject: escSubject(`【CareLink】${when}のご予約リマインド - ${data.facilityName}`),
-      html: wrapHtml(`
-        <p>${name} 様</p>
-        <p>${when}、${facility}のご予約がございます。</p>
-        ${bookingDetailHtml(data)}
-        <p>お忘れなく、お時間に余裕を持ってご来店ください。</p>
-        <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約詳細を見る</a></p>
-      `),
+      ...buildBookingReminderContent(data, daysBefore),
     }));
   } catch (error) {
     safeCaptureException(error, 'email:booking_reminder_cron_uncertain');
@@ -428,6 +436,8 @@ export async function sendNewReviewNotification(data: {
   reviewerName: string;
   rating: number;
   comment?: string | null;
+  /** 口コミが投稿された店舗。管理画面へのリンクに付け、複数店舗のオーナーが別の店舗を開かないようにする。 */
+  facilityId?: string | null;
 }): Promise<boolean> {
   const resend = getResend();
   if (!resend) return false;
@@ -444,7 +454,7 @@ export async function sendNewReviewNotification(data: {
         <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">評価</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">★${data.rating}</td></tr>
         ${comment ? `<tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">コメント</td><td style="padding:8px 12px;border:1px solid #e2e8f0;white-space:pre-wrap;">${comment}</td></tr>` : ''}
       </table>
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/reviews" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で確認する</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}${adminFacilityHref('/admin/reviews', data.facilityId ?? null)}" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で確認する</a></p>
     `),
   }, 'new_review_notification');
 }
@@ -525,6 +535,8 @@ export async function sendNewInquiryNotification(data: {
   inquirerEmail: string;
   inquirerPhone?: string | null;
   message: string;
+  /** 問い合わせ先の店舗。管理画面へのリンクに付け、複数店舗のオーナーが別の店舗を開かないようにする。 */
+  facilityId?: string | null;
 }): Promise<boolean> {
   const resend = getResend();
   if (!resend) return false;
@@ -544,7 +556,7 @@ export async function sendNewInquiryNotification(data: {
         ${phone ? `<tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">電話</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${phone}</td></tr>` : ''}
         <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">お問い合わせ内容</td><td style="padding:8px 12px;border:1px solid #e2e8f0;white-space:pre-wrap;">${message}</td></tr>
       </table>
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/facility-inquiries" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で確認する</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}${adminFacilityHref('/admin/facility-inquiries', data.facilityId ?? null)}" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で確認する</a></p>
     `),
   }, 'new_inquiry_notification');
 }
@@ -850,7 +862,10 @@ export function buildFavoritesDigestEnvelope(data: {
 export function buildReviewRequestEnvelope(data: {
   email: string; customerName: string | null; facilityName: string; facilitySlug: string;
 }) {
-  const reviewUrl = `${SITE_URL}/facility/${encodeURIComponent(data.facilitySlug)}#review`;
+  // 以前は #review を指していたが、施設ページにその id は無く、口コミタブも開かれなかった
+  // （押してもトップタブのまま）。#review-form は ReviewTab の投稿欄の id で、TabNavigation が
+  // それを含む口コミタブを開いてスクロールする（#review も口コミタブを開く）。
+  const reviewUrl = `${SITE_URL}/facility/${encodeURIComponent(data.facilitySlug)}#review-form`;
   return { from: FROM, to: data.email,
     subject: escSubject(`【${data.facilityName}】ご来店ありがとうございました`),
     html: `<p>${esc(data.customerName || 'お客')}様</p><p>先日は<strong>${esc(data.facilityName)}</strong>にご来店いただきありがとうございました。</p><p>よろしければ、口コミを投稿していただけると嬉しいです。</p><p><a href="${reviewUrl}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">口コミを書く</a></p><p style="color:#999;font-size:12px;">口コミを投稿すると50ポイントがもらえます！</p>`,

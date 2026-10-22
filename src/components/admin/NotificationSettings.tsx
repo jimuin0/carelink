@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import LoadError from '@/components/admin/LoadError';
 import Toggle from '@/components/admin/Toggle';
+import PushDeviceRegistration from '@/components/admin/PushDeviceRegistration';
 
 interface Settings {
   push_on_new_booking: boolean;
@@ -125,6 +126,8 @@ export default function NotificationSettings({ facilityId }: { facilityId: strin
       </div>
       {saving && <p className="text-xs text-gray-400 mt-2">保存中...</p>}
       {saveError && <p className="text-xs text-red-600 mt-2" role="alert">設定の保存に失敗しました。時間をおいて再度お試しください。</p>}
+      {/* Push のトグルだけあっても届け先の端末が無ければ何も届かない。登録の入口をここに置く。 */}
+      <PushDeviceRegistration />
     </div>
   );
 }

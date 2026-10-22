@@ -109,6 +109,7 @@ export const POST = withRoute(async (request) => {
           inquirerEmail: d.email,
           inquirerPhone: d.phone || null,
           message: d.message,
+          facilityId: facility.id,
         }).then((ok) => {
           if (!ok) {
             const err = new Error('inquiry notification email send failed');
@@ -132,6 +133,7 @@ export const POST = withRoute(async (request) => {
   runAfterResponse(() => sendNotify({
     type: 'facility_inquiry',
     data: {
+      facility_id: facility.id,
       facility_name: facility.name,
       name: d.name,
       email: d.email,

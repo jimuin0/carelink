@@ -164,6 +164,13 @@ export interface FacilityReview {
   is_verified_visit: boolean | null;
   status: 'published' | 'hidden';
   created_at: string;
+  /**
+   * アカウントに紐づく投稿か（public_reviews だけが返す・user_id IS NOT NULL）。
+   * 投稿者名は本人が入力したニックネームをそのまま公開するため、なりすまし対策として
+   * 口コミ一覧で「会員」バッジを出すのに使う。user_id 自体は公開ビューに出さない。
+   * migration 20261022130000 適用前は存在しないので省略可能にしてある。
+   */
+  is_member?: boolean | null;
 }
 
 export interface FacilityInquiry {

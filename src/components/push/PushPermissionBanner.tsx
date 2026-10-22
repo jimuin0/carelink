@@ -1,28 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-
-const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-}
+import { isPushSupported, usePushSubscription } from '@/hooks/usePushSubscription';
 
 export default function PushPermissionBanner() {
   const [show, setShow] = useState(false);
-  const [subscribing, setSubscribing] = useState(false);
-  const [error, setError] = useState(false);
+  // 登録処理は管理画面の通知設定と共通（src/hooks/usePushSubscription.ts）。
+  const { subscribe, busy: subscribing, error } = usePushSubscription();
 
   useEffect(() => {
-    if (!VAPID_PUBLIC_KEY) return;
-    if (!('PushManager' in window) || !('serviceWorker' in navigator)) return;
+    if (!isPushSupported()) return;
     if (Notification.permission === 'granted' || Notification.permission === 'denied') return;
 
     // Show banner after a short delay
@@ -31,43 +18,10 @@ export default function PushPermissionBanner() {
   }, []);
 
   const handleSubscribe = async () => {
-    if (!VAPID_PUBLIC_KEY) return;
-    setSubscribing(true);
-    setError(false);
-
-    try {
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') {
-        setShow(false);
-        return;
-      }
-
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY).buffer as ArrayBuffer,
-      });
-
-      const subJson = subscription.toJSON();
-      const res = await fetch('/api/push/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          endpoint: subJson.endpoint,
-          keys: subJson.keys,
-        }),
-      });
-
-      // res.ok を見ずに setShow(false) すると、サーバ保存失敗でも購読済み扱いでバナーが消える。
-      // 失敗時はバナーを残しエラー表示して再試行できるようにする。
-      if (!res.ok) { setError(true); return; }
-
-      setShow(false);
-    } catch {
-      setError(true);
-    } finally {
-      setSubscribing(false);
-    }
+    const outcome = await subscribe();
+    // サーバ保存に失敗したときはバナーを残してエラー表示し、再試行できるようにする
+    // （失敗でも消すと、購読済みに見えて二度と案内されない）。許可されなかった場合は閉じる。
+    if (outcome !== 'failed') setShow(false);
   };
 
   if (!show) return null;
@@ -100,7 +54,7 @@ export default function PushPermissionBanner() {
               後で
             </button>
           </div>
-          {error && <p className="text-xs text-red-600 mt-2" role="alert">通知の登録に失敗しました。時間をおいて再度お試しください。</p>}
+          {error === 'subscribe' && <p className="text-xs text-red-600 mt-2" role="alert">通知の登録に失敗しました。時間をおいて再度お試しください。</p>}
         </div>
       </div>
     </div>

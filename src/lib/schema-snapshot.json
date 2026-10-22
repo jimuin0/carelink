@@ -1054,6 +1054,7 @@
     "created_at",
     "facility_id",
     "id",
+    "is_member",
     "is_verified_visit",
     "photo_urls",
     "rating",

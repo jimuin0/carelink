@@ -274,6 +274,8 @@ describe('オーナー通知（施設への問い合わせがオーナーに届�
     expect(arg.inquirerEmail).toBe(validInquiry.email);
     expect(arg.inquirerPhone).toBe(validInquiry.phone);
     expect(arg.message).toBe(validInquiry.message);
+    // 管理画面リンクで店舗を指定する（複数店舗のオーナーが別の店舗の問い合わせ画面を開かないため）。
+    expect(arg.facilityId).toBe('550e8400-e29b-41d4-a716-446655440000');
   });
 
   test('phone未指定の問い合わせ → 通知の inquirerPhone は null', async () => {
@@ -382,6 +384,8 @@ describe('Slack通知（sendNotify 直接呼び出し・fire-and-forget）', () 
     expect(sendNotify).toHaveBeenCalledWith({
       type: 'facility_inquiry',
       data: {
+        // 管理画面リンクで店舗を指定するための ID（複数店舗のメンバーが別の店舗を開かないため）。
+        facility_id: '550e8400-e29b-41d4-a716-446655440000',
         facility_name: 'リラクサロン ABC', // facility_profiles から取得した値（クライアント値は使わない）
         name: validInquiry.name,
         email: validInquiry.email,

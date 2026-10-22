@@ -201,6 +201,16 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
                 <div>
                   <div className="flex items-center gap-2">
                     <p className="font-bold text-sm">{review.reviewer_name}</p>
+                    {/* 投稿者名は本人が入力したニックネームのまま公開する（2026年10月22日 神原さん決定）。
+                        代わりにアカウントからの投稿であることをバッジで示し、未ログインの投稿と区別する。 */}
+                    {review.is_member === true && (
+                      <span
+                        className="text-micro bg-sky-100 text-sky-800 px-1.5 py-0.5 rounded-full font-bold"
+                        title="CareLinkの会員アカウントから投稿された口コミです"
+                      >
+                        会員
+                      </span>
+                    )}
                     {review.is_verified_visit && (
                       <span className="text-micro bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold">来店確認済み</span>
                     )}

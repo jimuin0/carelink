@@ -332,6 +332,14 @@ describe('sendBookingReminder', () => {
     expect(JSON.parse(opts.body).messages[0].text).toContain('明日のご予約リマインド');
   });
 
+  // 2026年10月22日 神原さん決定：メールと同じ送信基準（朝9時時点の予約）を LINE にも短く載せる。
+  test.each([1, 3, 7])('daysBefore=%i の LINE にも送信基準（当日朝9時時点）を載せる', async (daysBefore) => {
+    mockFetchOk();
+    await sendBookingReminder('user-1', { facilityName: 'Salon', menuName: 'Perm', date: '2024-01-15', time: '11:00', daysBefore });
+    const [, opts] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(JSON.parse(opts.body).messages[0].text).toContain('※当日朝9時の時点のご予約をもとにお送りしています。');
+  });
+
   test('daysBefore=7 は「7日後」文言', async () => {
     mockFetchOk();
     await sendBookingReminder('user-1', {

@@ -873,6 +873,7 @@
 "column|public_reviews.created_at|timestamp with time zone|notnull=f|default=|generated=",
 "column|public_reviews.facility_id|uuid|notnull=f|default=|generated=",
 "column|public_reviews.id|uuid|notnull=f|default=|generated=",
+"column|public_reviews.is_member|boolean|notnull=f|default=|generated=",
 "column|public_reviews.is_verified_visit|boolean|notnull=f|default=|generated=",
 "column|public_reviews.photo_urls|text[]|notnull=f|default=|generated=",
 "column|public_reviews.rating_atmosphere|integer|notnull=f|default=|generated=",
