@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import { SYMPTOM_FALLBACK_HREF, SYMPTOM_FALLBACK_TYPE_NAME } from '@/lib/symptom-fallback';
 
 interface SymptomMatch {
   id: string;
@@ -48,12 +49,17 @@ export default function SymptomCheckerPage() {
       // 取得失敗を「対応店舗なし」に偽装せず、検索失敗として明示する
       if (error) { setSearchError(true); return; }
       if (symptoms) {
+        // 数えるのは公開中の施設だけ（症状ページに実際に並ぶ施設と同じ条件）。
+        // 下書き・非公開の施設と結びついた行まで数えると、「1件」と出たのに開くと0件になる。
+        // 件数の取得に失敗したら「0件」と表示せず、検索失敗として扱う。
         const withCounts = await Promise.all(
           symptoms.map(async (s) => {
-            const { count } = await supabase
+            const { count, error: countError } = await supabase
               .from('facility_symptoms')
-              .select('id', { count: 'exact', head: true })
-              .eq('symptom_id', s.id);
+              .select('id, facility_profiles!inner(status)', { count: 'exact', head: true })
+              .eq('symptom_id', s.id)
+              .eq('facility_profiles.status', 'published');
+            if (countError) throw countError;
             return { ...s, facilityCount: count ?? 0 };
           })
         );
@@ -136,6 +142,15 @@ export default function SymptomCheckerPage() {
               </div>
             ) : results.length > 0 ? (
               <div className="space-y-3">
+                {results.every((r) => r.facilityCount === 0) && (
+                  /* どの症状にも対応店舗が無いときは、0件の行だけで終わらせず業種の一覧へ案内する。 */
+                  <div className="p-4 bg-sky-50 rounded-xl border border-sky-100 text-center">
+                    <p className="text-sm text-gray-700">選んだ症状に対応する店舗は、まだ登録されていません。</p>
+                    <Link href={SYMPTOM_FALLBACK_HREF} className="text-sky-700 text-sm font-bold mt-2 inline-block hover:underline">
+                      {SYMPTOM_FALLBACK_TYPE_NAME}を探す →
+                    </Link>
+                  </div>
+                )}
                 {results.map((r) => (
                   <Link
                     key={r.id}

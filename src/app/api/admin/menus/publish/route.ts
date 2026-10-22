@@ -14,7 +14,7 @@ const receipt = z.object({ outcome: z.literal('published'), facility_id: z.uuid(
 /**
  * POST: 選択中の施設の非公開（下書き）メニューをすべて公開する。
  *
- * HPB 一括反映は HPB のメニュー・クーポンごとに非公開の下書きを作る（30〜100 件になることも多い）。
+ * HPB 一括反映は HPB の（クーポンを除く）メニューのうち未作成のものを非公開の下書きで作る（数十件になることも多い）。
  * 1 件ずつの「公開する」（PATCH /api/admin/menus/[id]）だけでは、メニュー編集と共有の
  * レート制限（20 回/分）に当たって途中で止まるため、1 回のトランザクションでまとめて公開する。
  * 権限確認・ロック順は save_admin_menu_atomic と同じ（DB 側 publish_admin_menus_atomic）。

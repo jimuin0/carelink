@@ -131,7 +131,12 @@ describe('getRankedFacilities', () => {
     expect(prefectureCall).toBeUndefined();
   });
 
-  it('Supabase が error を返した場合 → 空配列を返す', async () => {
+  /**
+   * 【2026年10月22日 是正】読み取り失敗を [] にすると、ページは「まだ口コミが集まっていません」
+   * と区別できず、空のランキングを noindex にする規則が障害中にも発動してしまう。
+   * 失敗は例外にして error.tsx の一時障害表示にする。
+   */
+  it('Supabase が error を返した場合 → 空配列にせず例外にする（記録はコードだけ）', async () => {
     const consoleSpy = jest
       .spyOn(console, 'error')
       .mockImplementation(() => {});
@@ -142,25 +147,47 @@ describe('getRankedFacilities', () => {
       (resolve: (v: unknown) => void) =>
         resolve({
           data: null,
-          error: { message: 'database error' },
+          error: { code: 'PGRST003', message: 'private database details' },
         }),
     );
 
     mockFrom.mockReturnValue(chain);
 
-    const result = await getRankedFacilities();
-
-    expect(result).toEqual([]);
+    await expect(getRankedFacilities()).rejects.toThrow('RANKING_UNAVAILABLE');
 
     expect(consoleSpy).toHaveBeenCalledWith(
       '[rankings] getRankedFacilities failed:',
-      'database error',
+      'DATABASE_FAILURE:PGRST003',
     );
+    expect(JSON.stringify(consoleSpy.mock.calls)).not.toContain('private');
 
     consoleSpy.mockRestore();
   });
 
-  it('Supabase query が Error で reject → 空配列を返す', async () => {
+  it('タイムアウト → 空配列にせず例外にする', async () => {
+    jest.useFakeTimers();
+    const consoleSpy = jest
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    const chain = buildChain(null);
+    chain.then.mockImplementation(() => new Promise(() => {}));
+    mockFrom.mockReturnValue(chain);
+
+    const pending = expect(getRankedFacilities()).rejects.toThrow('RANKING_UNAVAILABLE');
+    await jest.advanceTimersByTimeAsync(5_000);
+    await pending;
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[rankings] getRankedFacilities failed:',
+      'ranking query timeout 5000ms',
+    );
+
+    consoleSpy.mockRestore();
+    jest.useRealTimers();
+  });
+
+  it('Supabase query が Error で reject → 空配列にせず例外にする', async () => {
     const consoleSpy = jest
       .spyOn(console, 'error')
       .mockImplementation(() => {});
@@ -176,9 +203,7 @@ describe('getRankedFacilities', () => {
 
     mockFrom.mockReturnValue(chain);
 
-    const result = await getRankedFacilities();
-
-    expect(result).toEqual([]);
+    await expect(getRankedFacilities()).rejects.toThrow('RANKING_UNAVAILABLE');
 
     expect(consoleSpy).toHaveBeenCalledWith(
       '[rankings] getRankedFacilities failed:',
@@ -188,7 +213,7 @@ describe('getRankedFacilities', () => {
     consoleSpy.mockRestore();
   });
 
-  it('Supabase query が Error 以外で reject → 空配列を返す', async () => {
+  it('Supabase query が Error 以外で reject → 空配列にせず例外にする', async () => {
     const consoleSpy = jest
       .spyOn(console, 'error')
       .mockImplementation(() => {});
@@ -204,9 +229,7 @@ describe('getRankedFacilities', () => {
 
     mockFrom.mockReturnValue(chain);
 
-    const result = await getRankedFacilities();
-
-    expect(result).toEqual([]);
+    await expect(getRankedFacilities()).rejects.toThrow('RANKING_UNAVAILABLE');
 
     expect(consoleSpy).toHaveBeenCalledWith(
       '[rankings] getRankedFacilities failed:',

@@ -498,6 +498,29 @@ export type Database = {
           },
         ]
       }
+      booking_member_withdrawals: {
+        Row: {
+          booking_id: string
+          withdrawn_at: string
+        }
+        Insert: {
+          booking_id: string
+          withdrawn_at?: string
+        }
+        Update: {
+          booking_id?: string
+          withdrawn_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_member_withdrawals_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: true
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       booking_waitlist: {
         Row: {
           created_at: string
@@ -586,6 +609,7 @@ export type Database = {
       bookings: {
         Row: {
           booking_date: string
+          cancel_fee_context: Json | null
           charges: Json | null
           coupon_id: string | null
           created_at: string | null
@@ -602,6 +626,7 @@ export type Database = {
           payjp_charge_id: string | null
           payment_status: string | null
           phone: string | null
+          points_base_price: number | null
           points_used: number | null
           review_request_legacy_claimed_at: string | null
           review_request_provider_accepted_at: string | null
@@ -617,6 +642,7 @@ export type Database = {
         }
         Insert: {
           booking_date: string
+          cancel_fee_context?: Json | null
           charges?: Json | null
           coupon_id?: string | null
           created_at?: string | null
@@ -633,6 +659,7 @@ export type Database = {
           payjp_charge_id?: string | null
           payment_status?: string | null
           phone?: string | null
+          points_base_price?: number | null
           points_used?: number | null
           review_request_legacy_claimed_at?: string | null
           review_request_provider_accepted_at?: string | null
@@ -648,6 +675,7 @@ export type Database = {
         }
         Update: {
           booking_date?: string
+          cancel_fee_context?: Json | null
           charges?: Json | null
           coupon_id?: string | null
           created_at?: string | null
@@ -664,6 +692,7 @@ export type Database = {
           payjp_charge_id?: string | null
           payment_status?: string | null
           phone?: string | null
+          points_base_price?: number | null
           points_used?: number | null
           review_request_legacy_claimed_at?: string | null
           review_request_provider_accepted_at?: string | null
@@ -1639,6 +1668,7 @@ export type Database = {
       }
       facility_cancel_policies: {
         Row: {
+          cancel_rule: string | null
           created_at: string | null
           facility_id: string
           free_cancel_hours: number | null
@@ -1648,6 +1678,7 @@ export type Database = {
           policy_text: string | null
         }
         Insert: {
+          cancel_rule?: string | null
           created_at?: string | null
           facility_id: string
           free_cancel_hours?: number | null
@@ -1657,6 +1688,7 @@ export type Database = {
           policy_text?: string | null
         }
         Update: {
+          cancel_rule?: string | null
           created_at?: string | null
           facility_id?: string
           free_cancel_hours?: number | null
@@ -3114,6 +3146,7 @@ export type Database = {
       }
       hpb_menu_durations: {
         Row: {
+          applied_at: string | null
           created_at: string
           description: string | null
           description_override: string | null
@@ -3122,6 +3155,7 @@ export type Database = {
           facility_id: string
           is_hidden: boolean
           kind: string
+          missing_since: string | null
           name: string
           name_override: string | null
           price: number | null
@@ -3132,6 +3166,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          applied_at?: string | null
           created_at?: string
           description?: string | null
           description_override?: string | null
@@ -3140,6 +3175,7 @@ export type Database = {
           facility_id: string
           is_hidden?: boolean
           kind?: string
+          missing_since?: string | null
           name: string
           name_override?: string | null
           price?: number | null
@@ -3150,6 +3186,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          applied_at?: string | null
           created_at?: string
           description?: string | null
           description_override?: string | null
@@ -3158,6 +3195,7 @@ export type Database = {
           facility_id?: string
           is_hidden?: boolean
           kind?: string
+          missing_since?: string | null
           name?: string
           name_override?: string | null
           price?: number | null
@@ -6466,6 +6504,15 @@ export type Database = {
         }
         Returns: boolean
       }
+      booking_visit_points_due: {
+        Args: {
+          p_facility_id: string
+          p_points_base_price: number
+          p_total_price: number
+          p_user_id: string
+        }
+        Returns: number
+      }
       cancel_booking_with_points_atomic: {
         Args: {
           p_actor_id: string
@@ -6856,6 +6903,7 @@ export type Database = {
           id: string
         }[]
       }
+      email_address_opted_out: { Args: { p_email: string }; Returns: boolean }
       enablelongtransactions: { Args: never; Returns: string }
       enqueue_moderation: { Args: { p_items: Json }; Returns: number }
       equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
@@ -7197,6 +7245,10 @@ export type Database = {
         }[]
       }
       lock_booking_account: { Args: { p_user_id: string }; Returns: undefined }
+      lock_booking_account_if_present: {
+        Args: { p_user_id: string }
+        Returns: boolean
+      }
       lock_booking_create_scope: {
         Args: { p_actor_id: string; p_guest_hash: string; p_id: string }
         Returns: undefined
@@ -7343,6 +7395,7 @@ export type Database = {
           payjp_charge_id: string | null
           payment_status: string | null
           phone: string | null
+          points_base_price: number | null
           points_used: number | null
           review_request_legacy_claimed_at: string | null
           review_request_provider_accepted_at: string | null

@@ -19,10 +19,12 @@ jest.mock('@/lib/line', () => ({
   verifyLineAccessToken: jest.fn(() => Promise.resolve({ ok: true, userId: 'line-user-verified' })),
 }));
 jest.mock('@/lib/supabase-server');
+jest.mock('@/lib/alert', () => ({ ...jest.requireActual('@/lib/alert'), alertCaughtError: jest.fn() }));
 
 global.fetch = jest.fn();
 
 import { checkRateLimit } from '@/lib/rate-limit';
+import { alertCaughtError } from '@/lib/alert';
 import { GET } from '../route';
 
 // Helper to create chainable mock
@@ -45,6 +47,9 @@ function createChainableMock(resolveValue: any) {
 
   return chainable;
 }
+
+let policyResult: { data: unknown; error: unknown } = { data: null, error: null };
+let policyChain: any;
 
 function setupDefaultMocks(
   lineValid: boolean = true,
@@ -89,6 +94,7 @@ function setupDefaultMocks(
     ? {
         data: {
           id: 'booking-123',
+          facility_id: 'facility-123',
           booking_date: '2026-05-05',
           start_time: '10:00',
           end_time: '11:00',
@@ -109,6 +115,9 @@ function setupDefaultMocks(
         return createChainableMock(profileData);
       } else if (table === 'bookings') {
         return createChainableMock(bookingData);
+      } else if (table === 'facility_cancel_policies') {
+        policyChain = createChainableMock(policyResult);
+        return policyChain;
       }
     }),
   });
@@ -116,6 +125,8 @@ function setupDefaultMocks(
 
 beforeEach(() => {
   jest.clearAllMocks();
+  policyResult = { data: null, error: null };
+  policyChain = undefined;
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   (global.fetch as jest.Mock).mockClear();
   setupDefaultMocks();
@@ -266,6 +277,37 @@ describe('GET /api/liff/bookings', () => {
     const json = await res.json();
     expect(json.booking).toBeDefined();
     expect(json.booking.id).toBe('booking-123');
+  });
+
+  // キャンセル画面がボタンの代わりに店舗への連絡を案内するための、店舗のキャンセルの受け付け方。
+  test('single booking: ポリシー未設定の店舗はネットからキャンセルできる（online_cancel_allowed=true）', async () => {
+    const json = await (await GET(makeRequest(BOOKING_UUID) as any)).json();
+    expect(json.booking.online_cancel_allowed).toBe(true);
+    expect(policyChain.eq).toHaveBeenCalledWith('facility_id', 'facility-123');
+    expect(policyChain.select).toHaveBeenCalledWith('free_cancel_hours, late_cancel_rate, cancel_rule');
+  });
+
+  test.each([
+    ['no_online', false], ['always_fee', true], ['free_window', true], [null, true],
+  ])('single booking: cancel_rule=%s → online_cancel_allowed=%s', async (cancel_rule, allowed) => {
+    policyResult = { data: { free_cancel_hours: 24, late_cancel_rate: 50, cancel_rule }, error: null };
+    setupDefaultMocks();
+    const json = await (await GET(makeRequest(BOOKING_UUID) as any)).json();
+    expect(json.booking.online_cancel_allowed).toBe(allowed);
+  });
+
+  // 回帰（レビュー指摘）: ポリシーが読めないだけで予約 1 件の取得全体を 500 にしていたため、
+  // LIFF のキャンセル画面が「予約情報の取得に失敗しました」になっていた（マイページは予約を表示していた）。
+  test('single booking: ポリシーの読み取り障害でも予約は返し、案内の判定は省いて障害を通知する', async () => {
+    policyResult = { data: null, error: { message: 'column facility_cancel_policies.cancel_rule does not exist', code: '42703' } };
+    setupDefaultMocks();
+    const res = await GET(makeRequest(BOOKING_UUID) as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.booking.id).toBe('booking-123');
+    // 省く（=キャンセル画面はボタンを出す。ネットでのキャンセル不可の店舗はキャンセル RPC が必ず断る）。
+    expect(json.booking).not.toHaveProperty('online_cancel_allowed');
+    expect(alertCaughtError).toHaveBeenCalledWith('liff-bookings-cancel-policy', new Error('DATABASE_FAILURE:42703'), '/api/liff/bookings');
   });
 
   test('booking_id not found → returns booking=null', async () => {

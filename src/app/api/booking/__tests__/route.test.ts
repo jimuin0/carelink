@@ -75,6 +75,18 @@ it.each(['PGRST202','522','23505'])('unknown create error %s keeps operation unr
 it.each([null,[],[{response_payload:{...accepted,operationId:actor},replayed:false}],[{response_payload:accepted}]])('wrong/ambiguous creator success remains unknown %#',async data=>{const original=mockRpc.getMockImplementation()!;mockRpc.mockImplementation((name,args)=>name==='create_booking_with_receipt_atomic'?Promise.resolve({data,error:null}):original(name,args));expect((await POST(request())).status).toBe(500);});
 it('notification plan failure never commits booking',async()=>{(buildBookingCreateNotifications as jest.Mock).mockRejectedValue(new Error('synthetic lookup'));expect((await POST(request())).status).toBe(500);expect(mockRpc).not.toHaveBeenCalledWith('create_booking_with_receipt_atomic',expect.anything());});
 it('point deduction is in creator and server clamps spend to price',async()=>{expect((await POST(request({...body,points_used:1000}))).status).toBe(200);expect(mockRpc).toHaveBeenCalledWith('create_booking_with_receipt_atomic',expect.objectContaining({p_points_used:500,p_total_price:0}));});
+// 店舗向けの新規予約メールにポイント利用を出す。RPC へは「利用後の金額」と「利用ポイント」を分けて渡し、
+// 2 つの和（ポイント利用前の金額）を予約 RPC が来店ポイントの上限として保存する（20261023000100）。
+it('points spent reach the owner notification and the creator gets the amount before points split in two',async()=>{
+ expect((await POST(request({...body,points_used:200}))).status).toBe(200);
+ expect(buildBookingCreateNotifications).toHaveBeenCalledWith(expect.anything(),expect.anything(),actor,menu,300,'pending',200);
+ const args=mockRpc.mock.calls.find(([name])=>name==='create_booking_with_receipt_atomic')![1];
+ expect(args.p_total_price+args.p_points_used).toBe(500);
+});
+it('no points spent → the owner notification gets 0',async()=>{
+ expect((await POST(request())).status).toBe(200);
+ expect(buildBookingCreateNotifications).toHaveBeenCalledWith(expect.anything(),expect.anything(),actor,menu,500,'pending',0);
+});
 it('a capped pre-read cannot reject a spend authorized by the atomic creator',async()=>{rows.user_points.data=[];expect((await POST(request({...body,points_used:1}))).status).toBe(200);expect(mockFrom).not.toHaveBeenCalledWith('user_points');expect(mockRpc).toHaveBeenCalledWith('create_booking_with_receipt_atomic',expect.objectContaining({p_points_used:1}));});
 it('guest cannot spend another account points',async()=>{mockAuth.mockResolvedValue({data:{user:null},error:null});expect((await POST(request({...body,points_used:1}))).status).toBe(401);});
 it('unavailable point transaction remains unresolved',async()=>{const original=mockRpc.getMockImplementation()!;mockRpc.mockImplementation((name,args)=>name==='create_booking_with_receipt_atomic'?Promise.resolve({data:null,error:{code:'522',message:'fixture unavailable'}}):original(name,args));expect((await POST(request({...body,points_used:1}))).status).toBe(500);expect(mockRpc).not.toHaveBeenCalledWith('inspect_booking_create_operation',expect.anything());});

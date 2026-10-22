@@ -88,16 +88,15 @@ test('非メンバー → 401', async () => {
 
 test('反映成功 → 200 with counts', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  (applyHpbMenusToFacilityMenus as jest.Mock).mockResolvedValue({
-    inserted: 3,
-    updated: 2,
-    hidden: 1,
-    skipped: 0,
-  });
+  const counts = {
+    inserted: 3, existing: 2, hidden: 1, skipped: 0, coupons: 4, ended: 1, other_store: 0, deleted: 1,
+  };
+  (applyHpbMenusToFacilityMenus as jest.Mock).mockResolvedValue(counts);
   const res = await POST(makeReq());
   const json = await res.json();
   expect(res.status).toBe(200);
-  expect(json).toEqual({ inserted: 3, updated: 2, hidden: 1, skipped: 0 });
+  expect(json).toEqual(counts);
+  expect(applyHpbMenusToFacilityMenus).toHaveBeenCalledWith(expect.anything(), FACILITY_UUID);
 });
 
 test('反映中の例外 → 500', async () => {

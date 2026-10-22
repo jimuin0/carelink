@@ -314,7 +314,12 @@ export interface Booking {
   phone: string | null;
   note: string | null;
   status: BookingStatus;
+  /** ポイント利用後の金額（お客様がお店で払う額）。 */
   total_price: number | null;
+  /** 予約時にお客様が使った CareLink ポイント（1pt＝1円）。total_price からは差し引き済み。 */
+  points_used?: number | null;
+  /** お客様によるキャンセルのキャンセル料の算出材料（cancel RPC が保存・src/lib/cancel-fee-receipt.ts で読む）。 */
+  cancel_fee_context?: unknown;
   created_at: string;
   updated_at: string;
 }

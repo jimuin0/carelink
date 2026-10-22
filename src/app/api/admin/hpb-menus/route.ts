@@ -94,6 +94,7 @@ export async function POST(request: NextRequest) {
       stop_reason: result.stopReason,
       unresolved_items: result.unresolvedItems,
       failed_pages: result.failedPages,
+      missing: result.missing,
     },
     ipAddress: ip,
   });
@@ -109,6 +110,8 @@ export async function POST(request: NextRequest) {
     stop_reason: result.stopReason,
     unresolved_items: result.unresolvedItems,
     failed_pages: result.failedPages,
+    // 今回の取得で HPB に無かったため、お客様メニューへの反映対象から外した件数（掲載終了・別の店舗ID）。
+    missing: result.missing,
   };
   if (result.saveFailed > 0) {
     return serverError(
@@ -116,6 +119,16 @@ export async function POST(request: NextRequest) {
       new Error(`HPB menu upsert failed for ${result.saveFailed} rows`),
       '/api/admin/hpb-menus',
       '取得したメニューの保存に失敗しました。保存状態を再読み込みしてください。',
+      response,
+    );
+  }
+  // 取得と保存はできたが、HPB に無くなった行へ印を付けられなかった。古い行が反映対象に残るので失敗として知らせる。
+  if (result.missingCheckFailed) {
+    return serverError(
+      'admin-hpb-menus-mark-missing',
+      new Error('HPB menu missing-row marking failed'),
+      '/api/admin/hpb-menus',
+      '取得したメニューは保存しましたが、HPBに無くなったメニューの確認に失敗しました。もう一度「HPBから取得」を押してください。',
       response,
     );
   }

@@ -10,6 +10,7 @@ import { featureSearchHref } from '@/lib/search-href';
 import { getStaffByFacility } from '@/lib/staff';
 import { getActiveCouponsByFacility, getCouponMenuMap } from '@/lib/coupons';
 import { getCatalogsByFacility } from '@/lib/catalogs';
+import { getBlogSummariesByFacility, type BlogPostSummary } from '@/lib/blog';
 import PhotoGallery from '@/components/facility/PhotoGallery';
 import FacilityHeader from '@/components/facility/FacilityHeader';
 import TabNavigation from '@/components/facility/TabNavigation';
@@ -28,6 +29,7 @@ import ViewCount from '@/components/facility/ViewCount';
 import StaffList from '@/components/facility/StaffList';
 import CouponList from '@/components/facility/CouponList';
 import CatalogList from '@/components/facility/CatalogList';
+import BlogPostList from '@/components/facility/BlogPostList';
 import QASection from '@/components/facility/QASection';
 import BusinessStatusBadge from '@/components/facility/BusinessStatusBadge';
 import SimilarFacilities from '@/components/facility/SimilarFacilities';
@@ -41,6 +43,11 @@ import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 import { formatFacilityAddress, formatFacilityLocality } from '@/lib/facility-location';
 
 export const revalidate = 3600;
+
+/** ブログタブに並べる新着記事の数（それより前の記事は一覧ページで見る）。 */
+const BLOG_TAB_POSTS = 5;
+/** トップタブの「新着ブログ」に並べる数。 */
+const BLOG_TOP_POSTS = 3;
 
 export async function generateStaticParams() {
   // Preview builds carry no Supabase credentials; render these on demand instead.
@@ -111,8 +118,9 @@ export default async function FacilityPage(props: Props) {
     getStaffByFacility(facility.id),
     getActiveCouponsByFacility(facility.id),
     getCatalogsByFacility(facility.id),
+    getBlogSummariesByFacility(facility.id, BLOG_TAB_POSTS),
   ]);
-  const queryNames = ['menus', 'photos', 'reviews', 'staff', 'coupons', 'catalogs'];
+  const queryNames = ['menus', 'photos', 'reviews', 'staff', 'coupons', 'catalogs', 'blog'];
   results.forEach((r, i) => {
     if (r.status === 'rejected') safeCaptureException(r.reason, `facility-detail:${queryNames[i]}`);
   });
@@ -122,6 +130,9 @@ export default async function FacilityPage(props: Props) {
   const staff: StaffProfile[] = results[3].status === 'fulfilled' ? results[3].value : [];
   const coupons: Coupon[] = results[4].status === 'fulfilled' ? results[4].value : [];
   const catalogs: TreatmentCatalog[] = results[5].status === 'fulfilled' ? results[5].value : [];
+  // 店舗ブログ（2026年10月22日 新設）。公開記事があるときだけ導線を出す。読めなかったときも出さない
+  // （他のタブと同じく、取得失敗は通知したうえで施設ページ自体は表示する）。
+  const blog: { posts: BlogPostSummary[]; total: number } = results[6].status === 'fulfilled' ? results[6].value : { posts: [], total: 0 };
 
   // クーポンごとの対象メニュー（coupon_menus）。クーポン一覧の「通常 ¥X → ¥Y」を対象メニューの
   // 定価から出すために使う。取れなければ undefined のまま渡し、一覧は割引表記だけを出す
@@ -157,7 +168,7 @@ export default async function FacilityPage(props: Props) {
     {
       key: 'top',
       label: 'トップ',
-      content: <TopTab facility={facility} featuredMenus={featuredMenus} />,
+      content: <TopTab facility={facility} featuredMenus={featuredMenus} blog={blog} />,
     },
     {
       key: 'menu',
@@ -193,6 +204,11 @@ export default async function FacilityPage(props: Props) {
       anchors: ['review-form'],
       content: <ReviewTab facilityId={facility.id} facilitySlug={facility.slug} facilityName={facility.name} initialReviews={reviews} googlePlaceId={facility.gbp_place_id} />,
     },
+    ...(blog.total > 0 ? [{
+      key: 'blog',
+      label: `ブログ(${blog.total})`,
+      content: <BlogPostList facilitySlug={params.slug} posts={blog.posts} total={blog.total} />,
+    }] : []),
     ...((facilitySymptoms.length > 0 || certifications.length > 0) ? [{
       key: 'medical',
       label: '施術情報',
@@ -556,7 +572,11 @@ export default async function FacilityPage(props: Props) {
   );
 }
 
-function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus: FacilityMenu[] }) {
+function TopTab({ facility, featuredMenus, blog }: {
+  facility: Facility;
+  featuredMenus: FacilityMenu[];
+  blog: { posts: BlogPostSummary[]; total: number };
+}) {
   return (
     <div className="space-y-8">
       {/* 施設紹介 */}
@@ -610,6 +630,16 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
               </Link>
             ))}
           </div>
+        </div>
+      )}
+      {/* 新着ブログ。最初に開くタブに置き、ページを開いた時点で記事へのリンクが出るようにする。 */}
+      {blog.total > 0 && (
+        <div>
+          <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
+            <span className="w-1 h-5 bg-sky-500 rounded-full" />
+            新着ブログ
+          </h2>
+          <BlogPostList facilitySlug={facility.slug} posts={blog.posts.slice(0, BLOG_TOP_POSTS)} total={blog.total} />
         </div>
       )}
       {/* 基本情報（簡易） */}

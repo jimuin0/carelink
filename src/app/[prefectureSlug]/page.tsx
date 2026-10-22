@@ -10,11 +10,10 @@ import { regionGroups, SITE_URL } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/json-ld';
 import { getCitiesForPrefecture } from '@/data/city-slugs';
 import SafeHtmlContent from '@/components/seo/SafeHtmlContent';
-import { searchFacilities } from '@/lib/facilities';
+import { countAreaListing, loadAreaListingPage } from '@/lib/area-listing';
 import { getAreaSeoContent } from '@/lib/area-seo';
 import { getPrefectureSeo } from '@/data/prefecture-seo';
 import Breadcrumb from '@/components/Breadcrumb';
-import { createServerSupabaseClient } from '@/lib/supabase-server';
 import FacilityCard from '@/components/search/FacilityCard';
 import RelatedLinks from '@/components/seo/RelatedLinks';
 
@@ -41,11 +40,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   // 子（都道府県×業種・市区町村・市区町村×業種）にはあったが、親であるこのページだけ
   // 抜けていた。本番実測では 46 都道府県が 0 件のまま index 可能だった。
   // follow は残す（0件でも回遊先リンクは辿らせる）。掲載が増えれば自動で index に戻る。
-  const { count } = await createServerSupabaseClient()
-    .from('facility_profiles')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'published')
-    .eq('prefecture', name);
+  // 件数は本文と同じ検索の読み取りから取る（src/lib/area-listing.ts）。数えられなかったとき（DB の一時障害）は
+  // 例外にし、「件数不明＝index 可」とも扱わない。metadata だけ別の問い合わせにすると、それだけが落ちたとき
+  // 本文が 200 で返り title・robots が欠ける（2026年10月22日 是正）。
+  const count = await countAreaListing(name, undefined, undefined);
 
   return {
     title,
@@ -65,8 +63,10 @@ export default async function PrefecturePage({ params }: Props) {
   const prefName = getPrefectureName(prefectureSlug);
   if (!prefName) notFound();
 
+  // 読めなかった検索は「0件・掲載なし」として 200 で返さず、例外にして error.tsx の一時障害表示にする
+  // （/search と同じ扱い・loadAreaListingPage が例外にする・2026年10月22日 是正）。
   const [{ facilities, total }, seoContent] = await Promise.all([
-    searchFacilities({ prefecture: prefName, sort: 'rating' }),
+    loadAreaListingPage(prefName, undefined, undefined, 1),
     getAreaSeoContent(prefectureSlug),
   ]);
 

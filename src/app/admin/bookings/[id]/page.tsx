@@ -8,7 +8,9 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import AdjustRequestButtons from '@/components/admin/AdjustRequestButtons';
 import type { Booking } from '@/types';
-import { statusBannerClass, bookingStatusLabel, getAllowedStatusTransitions } from '@/lib/booking-status';
+import { statusBannerClass, bookingStatusLabel, getAllowedStatusTransitions, getAvailableStatusTransitions, isVisitOutcomeStatus } from '@/lib/booking-status';
+import { isBeforeBookingStart } from '@/lib/cancel-fee';
+import { readCancelFeeReceipt, formatJstDateTime, isCustomerEmailRecipient } from '@/lib/cancel-fee-receipt';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import { UUID_REGEX } from '@/lib/constants';
 import { bookingStaffLabel } from '@/lib/booking-nomination';
@@ -47,6 +49,13 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
   // retry は再取得を state 経由で駆動する（load をイベントハンドラからも effect からも
   // 呼べる形にすると Compiler の検出対象になるため、キーの変化で effect 側だけに寄せる）
   const [reloadKey, setReloadKey] = useState(0);
+  // 開始時刻を過ぎたかの判定に使う現在時刻（描画中に Date.now() を読まない）。読み込み時に入れ、
+  // 画面を開いたまま開始時刻を迎えても「完了」や会計が出るよう 30 秒ごとに進める。
+  const [nowMs, setNowMs] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   // アンマウント後の setState を防ぐため cancelled フラグで守りつつ、非同期処理を effect 内へ inline する
   useEffect(() => {
@@ -109,6 +118,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
             if (cancelled) return;
             if (staff) setStaffName(staff.name);
           }
+          setNowMs(Date.now());
           setBooking(data as Booking);
         }
         setLoading(false);
@@ -157,9 +167,13 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
   };
 
   // ── 退店レジ会計 ──
+  // 予約時にお客様が使ったポイント。total_price は利用後の金額なので、明細のメニュー行は利用前の金額で始め、
+  // ポイントは編集できない別の行として合計から差し引く（保存時はサーバーが同じ行を付け足す）。
+  // 以前はポイント利用後の金額 1 行だけで始まり、メニューを打ち直すとポイント分の値引きが消えていた。
+  const pointsUsed = booking?.points_used ?? 0;
   const openCheckout = () => {
     if (!booking) return;
-    setCheckoutItems([{ type: 'menu', name: menuName || '施術', amount: booking.total_price ?? 0 }]);
+    setCheckoutItems([{ type: 'menu', name: menuName || '施術', amount: (booking.total_price ?? 0) + pointsUsed }]);
     setPaid('');
     setCheckoutOpen(true);
   };
@@ -170,10 +184,11 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
   const removeItem = (i: number) =>
     setCheckoutItems((prev) => prev.filter((_, idx) => idx !== i));
 
-  const checkoutTotal = Math.max(
-    0,
-    checkoutItems.reduce((s, c) => s + (Number.isFinite(c.amount) ? c.amount : 0), 0),
-  );
+  const checkoutSubtotal = checkoutItems.reduce((s, c) => s + (Number.isFinite(c.amount) ? c.amount : 0), 0);
+  // 明細の合計がポイント利用額を下回ると、差額のポイントがお客様に戻らないまま消える。
+  // サーバーも 400 で止めるが、確定前に気づけるよう画面でも警告して確定ボタンを止める。
+  const pointsExceedCharges = pointsUsed > 0 && checkoutSubtotal < pointsUsed;
+  const checkoutTotal = Math.max(0, checkoutSubtotal - pointsUsed);
   const paidNum = paid.trim() === '' || !Number.isFinite(Number(paid)) ? null : Math.floor(Number(paid));
   const change = paidNum !== null ? paidNum - checkoutTotal : null;
 
@@ -183,6 +198,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
       setToast({ type: 'error', message: '明細を1件以上入力してください' });
       return;
     }
+    if (pointsExceedCharges) return;
     setUpdating(true);
     try {
       const res = await fetch('/api/admin/booking-checkout', {
@@ -196,6 +212,8 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
             amount: Math.floor(c.amount) || 0,
           })),
           paid_amount: paidNum,
+          // 画面が差し引いたポイント。予約のポイントと食い違えばサーバーが 409 で止める。
+          points_used: pointsUsed,
           complete: true,
         }),
       });
@@ -237,6 +255,13 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
   const banner = statusBannerClass(booking.status);
   // 現在状態から手動で遷移可能なステータスのみをボタン化（UI/API 共有の SSOT を参照）。
   const allowedNextStatuses = getAllowedStatusTransitions(booking.status);
+  // 開始時刻（JST）前は来店の結果（完了・無断キャンセル）と会計の確定を出さない（API・DB も同じ規則で拒否する）。
+  const beforeStart = isBeforeBookingStart(booking.booking_date, booking.start_time, nowMs);
+  const availableNextStatuses = getAvailableStatusTransitions(booking.status, booking.booking_date, booking.start_time, nowMs);
+  const outcomeWaitsForStart = beforeStart && allowedNextStatuses.some(isVisitOutcomeStatus);
+  const startLabel = `${formatDate(booking.booking_date)} ${booking.start_time?.slice(0, 5)}`;
+  // お客様がキャンセルした予約で、お客様へお知らせしたキャンセル料（メールと同じ材料から算出）。
+  const cancelReceipt = booking.status === 'cancelled' ? readCancelFeeReceipt(booking.cancel_fee_context) : null;
 
   return (
     <div>
@@ -281,16 +306,22 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-bold text-emerald-800">退店・お会計</p>
-                <p className="text-xs text-emerald-600 mt-0.5">当日のメニュー・物販・割引を確定し、会計を締めて完了にします</p>
+                <p className="text-xs text-emerald-700 mt-0.5">
+                  {beforeStart
+                    ? `会計は予約の開始時刻（${startLabel}）を過ぎると確定できます。`
+                    : '当日のメニュー・物販・割引を確定し、会計を締めて完了にします'}
+                </p>
               </div>
-              <button
-                type="button"
-                onClick={openCheckout}
-                disabled={updating}
-                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
-              >
-                会計する
-              </button>
+              {!beforeStart && (
+                <button
+                  type="button"
+                  onClick={openCheckout}
+                  disabled={updating}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
+                >
+                  会計する
+                </button>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
@@ -335,6 +366,15 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
                     </button>
                   </div>
                 ))}
+                {pointsUsed > 0 && (
+                  <div data-testid="checkout-points-line" className="rounded-lg border border-emerald-200 bg-white px-3 py-2">
+                    <div className="flex items-center justify-between text-sm text-gray-800">
+                      <span className="font-medium">ポイント利用</span>
+                      <span className="font-medium">-¥{pointsUsed.toLocaleString()}</span>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-0.5">お客様が予約時に使ったポイントです。変更・削除はできません。</p>
+                  </div>
+                )}
               </div>
               <div className="flex gap-2">
                 <button type="button" onClick={() => addItem('retail')} className="text-xs px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-100">＋物販</button>
@@ -345,6 +385,11 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
                   <span className="font-bold text-emerald-900">合計</span>
                   <span className="font-bold text-lg text-emerald-700">¥{checkoutTotal.toLocaleString()}</span>
                 </div>
+                {pointsExceedCharges && (
+                  <p role="alert" data-testid="checkout-points-exceed" className="text-xs font-medium text-red-700">
+                    明細の合計（¥{Math.max(0, checkoutSubtotal).toLocaleString()}）が、お客様が予約時に使ったポイント（¥{pointsUsed.toLocaleString()}）を下回っています。差額のポイントはお客様に戻らないため、このままでは確定できません。明細を確認してください。
+                  </p>
+                )}
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">お預かり</span>
                   <input
@@ -368,7 +413,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
                 <button
                   type="button"
                   onClick={handleCheckout}
-                  disabled={updating}
+                  disabled={updating || pointsExceedCharges}
                   className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
                 >
                   {updating ? '処理中...' : '会計を確定して完了'}
@@ -425,6 +470,11 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
             <div>
               <p className="text-gray-500">金額</p>
               <p className="font-bold text-lg text-sky-600">¥{booking.total_price.toLocaleString()}</p>
+              {pointsUsed > 0 && (
+                <p data-testid="booking-points-used" className="text-xs text-gray-600 mt-0.5">
+                  ポイント利用 -¥{pointsUsed.toLocaleString()}（金額はポイント利用後）
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -433,6 +483,27 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
           <div className="border-t pt-4">
             <p className="text-sm text-gray-500">備考</p>
             <p className="text-sm mt-1 bg-gray-50 p-3 rounded-lg">{booking.note}</p>
+          </div>
+        )}
+
+        {/* お客様によるキャンセルの記録。メールアドレスのあるお客様には、キャンセル料の発生とお支払い方法は施設から
+            直接案内することがメールで届いているので、店舗が金額とキャンセルを受け付けた時刻（無料期限の内か外か）を
+            確かめられるようにする。メールアドレスの無いお客様にはお客様宛のメール自体が積まれないので、店舗から
+            直接案内するよう言い分ける（店舗宛メールと同じ判定＝isCustomerEmailRecipient）。 */}
+        {cancelReceipt && (
+          <div className="border-t pt-4 space-y-2">
+            <p className="text-sm text-gray-500">お客様によるキャンセル（受付 {formatJstDateTime(cancelReceipt.cancelledAt)}）</p>
+            {cancelReceipt.fee > 0 && isCustomerEmailRecipient(booking.email) ? (
+              <p className="text-sm bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg">
+                お客様へ、キャンセル料 <strong>¥{cancelReceipt.fee.toLocaleString()}</strong>（施術料金の{cancelReceipt.rate}%）の発生と、お支払い方法は施設から直接ご案内することをメールでお知らせしています。お支払い方法をお客様へ直接ご連絡ください。
+              </p>
+            ) : cancelReceipt.fee > 0 ? (
+              <p className="text-sm bg-red-50 border border-red-200 text-red-700 p-3 rounded-lg">
+                お客様のメールアドレスの登録が無いため、キャンセル料はメールでお知らせしていません。キャンセル料 <strong>¥{cancelReceipt.fee.toLocaleString()}</strong>（施術料金の{cancelReceipt.rate}%）とお支払い方法を、お客様へ直接ご案内ください。
+              </p>
+            ) : (
+              <p className="text-sm text-gray-600">キャンセル料はかかりません（お客様へのキャンセル料のお知らせはありません）。</p>
+            )}
           </div>
         )}
 
@@ -445,7 +516,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
           <div className="border-t pt-4">
             <p className="text-sm text-gray-500 mb-2">ステータス変更</p>
             <div className="flex flex-wrap gap-2">
-              {allowedNextStatuses.map((value) => (
+              {availableNextStatuses.map((value) => (
                 <button
                   type="button"
                   key={value}
@@ -457,6 +528,9 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
                 </button>
               ))}
             </div>
+            {outcomeWaitsForStart && (
+              <p className="text-xs text-gray-600 mt-2">「完了」「無断キャンセル」は、予約の開始時刻（{startLabel}）を過ぎると選べます。</p>
+            )}
             <p className="text-xs text-gray-400 mt-2">※受付では通知しません。その他の変更はメール登録済みのお客様への通知を試みます。</p>
           </div>
         )}

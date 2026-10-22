@@ -15,7 +15,8 @@ import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { writeAuditLog } from '@/lib/audit-logger';
-import { ALLOWED_STATUS_TRANSITIONS } from '@/lib/booking-status';
+import { ALLOWED_STATUS_TRANSITIONS, isVisitOutcomeStatus } from '@/lib/booking-status';
+import { isBeforeBookingStart } from '@/lib/cancel-fee';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +31,8 @@ const validStatuses: string[] = [...new Set(Object.values(ALLOWED_STATUS_TRANSIT
 // ALLOWED_STATUS_TRANSITIONS）を参照する。UI 側（予約詳細のボタン表示）と本検証が
 // 同一表を見ることで、UI が API で必ず弾かれる「死にボタン」を出す不整合を防ぐ。
 const allowedTransitions: Record<string, string[]> = ALLOWED_STATUS_TRANSITIONS;
+
+const OUTCOME_BEFORE_START_MESSAGE = '予約の開始時刻より前は「完了」「無断キャンセル」にできません。開始時刻を過ぎてから操作してください。';
 
 export async function POST(request: Request) {
   try {
@@ -103,6 +106,13 @@ export async function POST(request: Request) {
       );
     }
 
+    // 来店の結果（完了・無断キャンセル）は予約の開始時刻（JST）を過ぎてから記録する。開始前に「完了」に
+    // すると来店ポイント・完了メール・来店前の口コミ依頼まで進み、直す手段が無断キャンセル通知しか無かった。
+    // DB（save_booking_email_event_atomic）も同じ規則で BOOKING_NOT_STARTED を返す。
+    if (isVisitOutcomeStatus(status) && isBeforeBookingStart(booking.booking_date, booking.start_time, Date.now())) {
+      return NextResponse.json({ error: OUTCOME_BEFORE_START_MESSAGE, code: 'BOOKING_NOT_STARTED' }, { status: 400 });
+    }
+
     // Current membership, booking revision, state transition and immutable
     // email outbox are committed together. A process crash after this RPC
     // cannot leave a saved status without its email reservation.
@@ -114,6 +124,7 @@ export async function POST(request: Request) {
 
     if (error?.message.includes('BOOKING_PERMISSION_DENIED')) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
     if (error?.message.includes('BOOKING_REVISION_CONFLICT')) return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
+    if (error?.message.includes('BOOKING_NOT_STARTED')) return NextResponse.json({ error: OUTCOME_BEFORE_START_MESSAGE, code: 'BOOKING_NOT_STARTED' }, { status: 400 });
     if (error) {
       return serverError('admin-booking-status-update', error, '/api/admin/booking-status', '更新に失敗しました');
     }

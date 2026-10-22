@@ -12,7 +12,8 @@ import {checkCsrf} from '@/lib/csrf';
 import {checkRateLimit} from '@/lib/rate-limit';
 import {writeAuditLog} from '@/lib/audit-logger';
 const id='11111111-1111-4111-8111-111111111111',actor='22222222-2222-4222-8222-222222222222';
-const booking={id,facility_id:'f1',user_id:'customer',customer_name:'Synthetic',email:null,booking_date:'2030-01-07',total_price:5000,menu_id:null,staff_id:null,status:'confirmed'};
+// A booking that has started (2020): 来店完了 is recorded only after the start (JST).
+const booking={id,facility_id:'f1',user_id:'customer',customer_name:'Synthetic',email:null,booking_date:'2020-01-06',start_time:'10:00:00',total_price:5000,menu_id:null,staff_id:null,status:'confirmed'};
 const chain=(data:unknown)=>({select:jest.fn().mockReturnThis(),eq:jest.fn().mockReturnThis(),in:jest.fn().mockReturnThis(),single:async()=>({data}),maybeSingle:async()=>({data})});
 const request=(body:unknown={bookingId:id})=>new Request('http://localhost/api/booking/complete',{method:'POST',body:JSON.stringify(body)});
 beforeEach(()=>{
@@ -35,7 +36,7 @@ test('確定したDBポイント数を返し、別の台帳INSERTは実行しな
  expect(mockRpc).toHaveBeenCalledWith('complete_booking_with_points_atomic',{p_actor_id:actor,p_booking_id:id,p_expected_status:'confirmed'});
  expect(mockFrom).not.toHaveBeenCalledWith('user_points'); expect(mockFrom).not.toHaveBeenCalledWith('customer_visits');
 });
-test.each([['BOOKING_PERMISSION_DENIED',403],['BOOKING_REVISION_CONFLICT',409],['SYNTHETIC_POINT_FAILURE',500],['SYNTHETIC_VISIT_FAILURE',500]])('transaction失敗%sは成功監査にしない',async(message,status)=>{
+test.each([['BOOKING_PERMISSION_DENIED',403],['BOOKING_REVISION_CONFLICT',409],['BOOKING_NOT_STARTED',400],['SYNTHETIC_POINT_FAILURE',500],['SYNTHETIC_VISIT_FAILURE',500]])('transaction失敗%sは成功監査にしない',async(message,status)=>{
  mockRpc.mockResolvedValue({data:null,error:{message}});expect((await POST(request())).status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();
 });
 test.each([null,[],[{id:'wrong',points_earned:50,replayed:false}],[{id,points_earned:null}],[{id,points_earned:-1}],[{id,points_earned:1.5}]])('未確認結果%jは500',async data=>{mockRpc.mockResolvedValue({data,error:null});expect((await POST(request())).status).toBe(500);});
@@ -96,4 +97,32 @@ test.each(['booking-data-error', 'booking-null-error', 'membership-data-error', 
   expect(await response.text()).not.toContain('private-db-diagnostic');
   expect(mockRpc).not.toHaveBeenCalled();
   expect(writeAuditLog).not.toHaveBeenCalled();
+});
+
+describe('来店完了は予約の開始時刻（JST）を過ぎてから（2026年10月23日）', () => {
+  const NOW = Date.UTC(2026, 9, 23, 1, 0, 0); // 2026-10-23 10:00 JST
+  beforeEach(() => { jest.spyOn(Date, 'now').mockReturnValue(NOW); });
+  afterEach(() => { jest.restoreAllMocks(); });
+  const withBooking = (patch: Record<string, unknown>) =>
+    mockFrom.mockImplementation((table) => chain(table === 'bookings' ? { ...booking, ...patch } : { facility_id: 'f1', role: 'owner' }));
+
+  test('開始前の確定予約は 400・RPC も監査も呼ばない', async () => {
+    withBooking({ booking_date: '2026-10-23', start_time: '10:01:00' });
+    const res = await POST(request());
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: '予約の開始時刻より前は来店完了にできません。開始時刻を過ぎてから操作してください。', code: 'BOOKING_NOT_STARTED' });
+    expect(mockRpc).not.toHaveBeenCalled(); expect(writeAuditLog).not.toHaveBeenCalled();
+  });
+
+  test('開始時刻ちょうどからは完了できる（DB の規則と同じ）', async () => {
+    withBooking({ booking_date: '2026-10-23', start_time: '10:00:00' });
+    expect((await POST(request())).status).toBe(200);
+    expect(mockRpc).toHaveBeenCalledWith('complete_booking_with_points_atomic', expect.anything());
+  });
+
+  test('保存済みの完了の再確認は開始前の日付でも RPC の replay へ進む', async () => {
+    withBooking({ booking_date: '2026-10-30', start_time: '10:00:00', status: 'completed' });
+    mockRpc.mockResolvedValue({ data: [{ id, points_earned: 50, replayed: true }], error: null });
+    expect((await POST(request())).status).toBe(200);
+  });
 });

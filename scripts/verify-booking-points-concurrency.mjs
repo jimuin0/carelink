@@ -19,8 +19,10 @@ const run=(input)=>new Promise((resolve,reject)=>{
 const u='fc210000-0000-4000-8000-000000000001',a='fc210000-0000-4000-8000-000000000002';
 const f='fc220000-0000-4000-8000-000000000001';
 const ids=['fc230000-0000-4000-8000-000000000001','fc230000-0000-4000-8000-000000000002'];
-const insert=(id,h,points)=>`INSERT INTO public.bookings(id,facility_id,user_id,booking_date,start_time,end_time,customer_name,email,status,total_price,points_used)
- VALUES('${id}','${f}','${u}','2030-01-07','${h}:00','${h+1}:00','Synthetic',NULL,'confirmed',400,${points});`;
+// Completion needs a started booking (20261023020100); a customer cancellation needs a future one.
+const PAST='2020-01-06',FUTURE='2030-01-07';
+const insert=(id,h,points,day=PAST)=>`INSERT INTO public.bookings(id,facility_id,user_id,booking_date,start_time,end_time,customer_name,email,status,total_price,points_used)
+ VALUES('${id}','${f}','${u}','${day}','${h}:00','${h+1}:00','Synthetic',NULL,'confirmed',400,${points});`;
 let created=false;
 const assert=(ok,label)=>{if(!ok)throw new Error(`point concurrency gate: ${label}`);};
 try {
@@ -42,7 +44,7 @@ try {
  assert(result.awards===1&&result.visits===1,'completion preserves one award and visit');
  sql(`BEGIN;SET LOCAL ROLE service_role;SELECT * FROM public.save_booking_email_event_atomic('${a}','${bid}','completed',(SELECT updated_at FROM public.bookings WHERE id='${bid}'),'no_show',NULL);
  SELECT * FROM public.save_booking_email_event_atomic('${a}','${bid}','no_show',(SELECT updated_at FROM public.bookings WHERE id='${bid}'),'cancelled',NULL);COMMIT;`);
- const cancelId='fc230000-0000-4000-8000-000000000003';sql(`BEGIN;SET LOCAL ROLE service_role;${insert(cancelId,16,500)}COMMIT;`);
+ const cancelId='fc230000-0000-4000-8000-000000000003';sql(`BEGIN;SET LOCAL ROLE service_role;${insert(cancelId,16,500,FUTURE)}COMMIT;`);
  const cancelled=await Promise.all([0,1].map(()=>run(`BEGIN;SET LOCAL ROLE service_role;SELECT * FROM public.cancel_booking_with_points_atomic('${u}','${cancelId}','confirmed');SELECT pg_sleep(0.2);COMMIT;`)));
  assert(cancelled.filter(r=>r.code===0).length===1&&cancelled.filter(r=>r.stderr.includes('BOOKING_REVISION_CONFLICT')).length===1,'two cancellations refund once');
  result=JSON.parse(sql(`SELECT json_build_object('balance',(SELECT sum(points) FROM public.user_points WHERE user_id='${u}'),'refunds',(SELECT count(*) FROM public.user_points WHERE booking_id='${cancelId}' AND booking_operation='refund'));`));

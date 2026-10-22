@@ -13,6 +13,8 @@ import { computeUsageStats, type UsageBooking } from '@/lib/usage-stats';
 import { SbPageHeader, SbStatCard } from '@/components/admin/SbUi';
 import { loadAdminFacilitySelection } from '@/lib/admin-facility-selection';
 import FacilitySelector from '@/components/admin/FacilitySelector';
+import { readFacilityReviewRatings } from '@/lib/review-rating-summary';
+import ReviewRatingCard from '@/components/admin/ReviewRatingCard';
 
 export const metadata: Metadata = { title: '利用状況分析' };
 export const dynamic = 'force-dynamic';
@@ -55,16 +57,11 @@ export default async function UsageStatsPage(props: { searchParams: Promise<{ fa
     monthly: monthlyData, statusCount,
   } = computeUsageStats(bookings);
 
-  // NPS
-  const { data: npsData } = await readPageResult(() => admin
-    .from('nps_surveys')
-    .select('score')
-    .eq('facility_id', facilityId), '/admin/usage-stats');
-
-  const npsScores = (npsData ?? []).map((n) => n.score);
-  const npsPromoters = npsScores.filter((s) => s >= 9).length;
-  const npsDetractors = npsScores.filter((s) => s <= 6).length;
-  const nps = npsScores.length > 0 ? Math.round(((npsPromoters - npsDetractors) / npsScores.length) * 100) : null;
+  // 口コミ評価（総合＋項目別・2026年10月22日）。以前は nps_surveys を集計していたが、NPS に答える
+  // 画面・メールがどこにも無く常に空だったため、公開中の口コミ（facility_reviews）の平均に置き換えた
+  // （神原さん決定「ホットペッパーみたいな評価の付け方にしたら？」）。
+  const { summary: reviewRatings } = await readPageResult(
+    () => readFacilityReviewRatings(admin, facilityId), '/admin/usage-stats');
 
   const maxMau = Math.max(...monthlyData.map((m) => m.mau), 1);
 
@@ -110,28 +107,9 @@ export default async function UsageStatsPage(props: { searchParams: Promise<{ fa
           </div>
         </div>
 
-        {/* NPS + ステータス分布 */}
+        {/* 口コミ評価 + ステータス分布 */}
         <div className="space-y-4">
-          {/* NPS */}
-          <div className="bg-white rounded-xl border border-gray-100 p-5">
-            <h2 className="font-bold text-sm mb-3">NPS スコア</h2>
-            {nps !== null ? (
-              <div className="flex items-center gap-4">
-                <div className={`text-4xl font-bold ${nps >= 50 ? 'text-green-600' : nps >= 0 ? 'text-yellow-600' : 'text-red-500'}`}>
-                  {nps > 0 ? '+' : ''}{nps}
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">{npsScores.length}件の回答</p>
-                  <p className="text-xs text-gray-400">推奨者 {npsPromoters}人 / 批判者 {npsDetractors}人</p>
-                  <p className={`text-xs font-medium mt-1 ${nps >= 50 ? 'text-green-600' : nps >= 0 ? 'text-yellow-600' : 'text-red-500'}`}>
-                    {nps >= 50 ? '優良' : nps >= 0 ? '普通' : '要改善'}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-gray-400">まだデータがありません</p>
-            )}
-          </div>
+          <ReviewRatingCard summary={reviewRatings} />
 
           {/* ステータス分布 */}
           <div className="bg-white rounded-xl border border-gray-100 p-5">

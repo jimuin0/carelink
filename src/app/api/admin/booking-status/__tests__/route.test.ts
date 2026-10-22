@@ -360,6 +360,62 @@ describe('POST /api/admin/booking-status - state machine (invalid transitions)',
 });
 
 // ---------------------------------------------------------------------------
+// 来店の結果（完了・無断キャンセル）は予約の開始時刻（JST）を過ぎてから（2026年10月23日）
+// ---------------------------------------------------------------------------
+describe('POST /api/admin/booking-status - 開始時刻前の来店の結果', () => {
+  const NOW = Date.UTC(2026, 9, 23, 1, 0, 0); // 2026-10-23 10:00 JST
+  const MESSAGE = '予約の開始時刻より前は「完了」「無断キャンセル」にできません。開始時刻を過ぎてから操作してください。';
+  beforeEach(() => { jest.spyOn(Date, 'now').mockReturnValue(NOW); });
+  afterEach(() => { jest.restoreAllMocks(); });
+  function setupBooking(fromStatus: string, bookingDate: string, startTime: string) {
+    setupSuccessMock(fromStatus);
+    const success = mockFrom.getMockImplementation()!;
+    let first = true;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings' && first) {
+        first = false;
+        return fluent({ data: { ...bookingBase, status: fromStatus, booking_date: bookingDate, start_time: startTime } });
+      }
+      return success(table);
+    });
+  }
+
+  test.each([
+    ['confirmed', 'completed'], ['confirmed', 'no_show'], ['arrived', 'completed'], ['arrived', 'no_show'],
+  ])('開始前の %s → %s は 400・保存も通知もしない', async (fromStatus, toStatus) => {
+    setupBooking(fromStatus, '2026-10-30', '15:00');
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: toStatus }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: MESSAGE, code: 'BOOKING_NOT_STARTED' });
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(sendPushToUser).not.toHaveBeenCalled();
+  });
+
+  test('開始の1分前でも拒否し、開始時刻ちょうどからは保存する（DB の規則と同じ）', async () => {
+    setupBooking('confirmed', '2026-10-23', '10:01');
+    expect((await POST(makeRequest({ bookingId: validBookingId, status: 'completed' }))).status).toBe(400);
+    jest.clearAllMocks(); jest.spyOn(Date, 'now').mockReturnValue(NOW);
+    setupBooking('confirmed', '2026-10-23', '10:00');
+    expect((await POST(makeRequest({ bookingId: validBookingId, status: 'completed' }))).status).toBe(200);
+    expect(mockRpc).toHaveBeenCalledWith('save_booking_email_event_atomic', expect.objectContaining({ p_new_status: 'completed' }));
+  });
+
+  test.each(['arrived', 'cancelled'])('開始前でも %s（受付・店舗のキャンセル）は従来どおり保存する', async (toStatus) => {
+    setupBooking('confirmed', '2026-10-30', '15:00');
+    expect((await POST(makeRequest({ bookingId: validBookingId, status: toStatus }))).status).toBe(200);
+  });
+
+  test('DB が BOOKING_NOT_STARTED を返したら 400（画面と同じ文言）', async () => {
+    setupSuccessMock('confirmed');
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'BOOKING_NOT_STARTED' } });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'completed' }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: MESSAGE, code: 'BOOKING_NOT_STARTED' });
+    expect(sendPushToUser).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // CAS and DB errors
 // ---------------------------------------------------------------------------
 describe('POST /api/admin/booking-status - CAS and DB errors', () => {

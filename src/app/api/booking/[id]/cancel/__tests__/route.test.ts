@@ -93,7 +93,7 @@ test.each([[null,404],[{...booking,user_id:'someone-else'},403],[{...booking,sta
  mockFrom.mockReturnValue(chain(data));expect((await POST(request(),props())).status).toBe(status);expect(mockRpc).not.toHaveBeenCalled();
 });
 test('pending source can cancel',async()=>{mockFrom.mockReturnValue(chain({...booking,status:'pending'}));expect((await POST(request(),props())).status).toBe(200);});
-test.each([['BOOKING_PERMISSION_DENIED',404],['BOOKING_REVISION_CONFLICT',409],['BOOKING_ALREADY_STARTED',400],['SYNTHETIC_PLAN_FAILURE',500]])('transaction %s stops successful response',async(message,status)=>{
+test.each([['BOOKING_PERMISSION_DENIED',404],['BOOKING_REVISION_CONFLICT',409],['BOOKING_ALREADY_STARTED',400],['BOOKING_ONLINE_CANCEL_DISABLED',400],['SYNTHETIC_PLAN_FAILURE',500]])('transaction %s stops successful response',async(message,status)=>{
  mockRpc.mockResolvedValue({data:null,error:{message}});expect((await POST(request(),props())).status).toBe(status);expect(writeAuditLog).not.toHaveBeenCalled();expectNoInlineSend();
 });
 test.each([null,[],[{id:ID},{id:ID}],[{id:'different'}]])('invalid cancellation identity %#',async data=>{
@@ -107,3 +107,25 @@ test('CSRF guard stops before rate limit',async()=>{(checkCsrf as jest.Mock).moc
 test('rate limit stops before authentication',async()=>{(checkRateLimit as jest.Mock).mockResolvedValue(true);expect((await POST(request(),props())).status).toBe(429);expect(verifyAuthUser).not.toHaveBeenCalled();});
 test.each([false,true])('cookie rotation can be accepted or rejected by response owner %s',async fail=>{mockRotateCookies=true;mockSetCookie.mockImplementation(()=>{if(fail)throw new Error('read only');});expect((await POST(request(),props())).status).toBe(200);});
 test('unexpected exception never turns into success',async()=>{mockFrom.mockImplementation(()=>{throw new Error('synthetic');});expect((await POST(request(),props())).status).toBe(500);expect(mockRpc).not.toHaveBeenCalled();});
+
+// 店舗が「ネットでのキャンセル不可（店舗へ直接ご連絡）」を選んだときは、RPC がポリシーを見て断る。
+test('online cancellation refused by the shop tells the customer to contact the shop',async()=>{
+ mockRpc.mockResolvedValue({data:null,error:{message:'BOOKING_ONLINE_CANCEL_DISABLED'}});
+ const res=await POST(request(),props());expect(res.status).toBe(400);
+ expect(await res.json()).toEqual({error:'この店舗ではネットからのキャンセルをお受けしていません。キャンセルをご希望の場合は、店舗へ直接ご連絡ください。',code:'ONLINE_CANCEL_DISABLED'});
+ expect(writeAuditLog).not.toHaveBeenCalled();expectNoInlineSend();
+});
+// 回帰（D3/D13）: 旧「キャンセル不可」（free_cancel_hours=0）は予約画面で料金を案内しながら、応答は常に 0 円だった。
+test.each([
+ [{free_cancel_hours:0,late_cancel_rate:50},2500],
+ [{free_cancel_hours:0,late_cancel_rate:50,cancel_rule:null},2500],
+ [{free_cancel_hours:24,late_cancel_rate:30,cancel_rule:'always_fee'},1500],
+ [{free_cancel_hours:24,late_cancel_rate:50,cancel_rule:'free_window'},0],
+])('fee follows the shop rule even days before the start %#',async(policy,cancelFee)=>{
+ mockRpc.mockResolvedValue({data:[{id:ID,fee_context:{...feeContext,policy,capturedAt:'2026-10-10T00:00:00Z'}}],error:null});
+ expect(await (await POST(request(),props())).json()).toEqual({success:true,cancelFee});
+});
+test('an unknown rule in the fee context is not reported as free',async()=>{
+ mockRpc.mockResolvedValue({data:[{id:ID,fee_context:{...feeContext,policy:{...feeContext.policy,cancel_rule:'never'}}}],error:null});
+ expect((await POST(request(),props())).status).toBe(500);expect(writeAuditLog).not.toHaveBeenCalled();
+});

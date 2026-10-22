@@ -6,18 +6,26 @@ import { prefectures } from '@/lib/constants';
 
 export const revalidate = 3600;
 
-export const metadata: Metadata = {
-  // ルート layout の title.template '%s | CareLink' が自動付与するため、ここでは「| CareLink」を付けない
-  // （付けると <title> が「人気ランキング | CareLink | CareLink」と二重化する。openGraph.title はテンプレ非適用のため付与のまま）。
-  title: '人気ランキング',
-  description: '口コミ評価の高い美容・医療・福祉施設をランキング形式でご紹介。エリア別のランキングもご覧いただけます。',
-  alternates: { canonical: '/ranking' },
-  openGraph: {
-    title: '人気ランキング | CareLink',
-    description: '口コミ評価の高い施設をランキング形式でご紹介',
-    type: 'website',
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  // 【2026年10月22日 是正】ランキングは口コミのある施設だけを並べるため、口コミが集まるまでは必ず空になる。
+  // 空のページは検索結果に出さない（掲載0件ページを noindex にする規則をランキングにも適用）。
+  // follow は残す（都道府県別ランキング・施設一覧への導線は辿らせる）。sitemap も同じ条件で外している。
+  // 取得に失敗したら getRankedFacilities が例外にするので、障害中の空ページに noindex を付けない。
+  const facilities = await getRankedFacilities();
+  return {
+    // ルート layout の title.template '%s | CareLink' が自動付与するため、ここでは「| CareLink」を付けない
+    // （付けると <title> が「人気ランキング | CareLink | CareLink」と二重化する。openGraph.title はテンプレ非適用のため付与のまま）。
+    title: '人気ランキング',
+    description: '口コミ評価の高い美容・医療・福祉施設をランキング形式でご紹介。エリア別のランキングもご覧いただけます。',
+    alternates: { canonical: '/ranking' },
+    openGraph: {
+      title: '人気ランキング | CareLink',
+      description: '口コミ評価の高い施設をランキング形式でご紹介',
+      type: 'website',
+    },
+    ...(facilities.length === 0 ? { robots: { index: false, follow: true } } : {}),
+  };
+}
 
 export default async function RankingPage() {
   const facilities = await getRankedFacilities();

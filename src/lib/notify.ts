@@ -13,55 +13,39 @@ function escSlack(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/**
+ * 運営 Slack への受付通知（2026年10月22日 改訂）。
+ *
+ * 🔴 Slack には【個人情報を一切載せない】。載せてよいのは「何の受付か」「施設名」「受付番号（レコードの id）」
+ * 「管理画面へのリンク」だけ。お名前・メール・電話・本文は管理画面（ログイン必須）で見る。
+ *
+ * 【なぜ】以前は施設への問い合わせ（facility_inquiry）と運営へのお問い合わせ（contact）の
+ * 氏名・メール・電話・本文（症状が書かれやすい）を全文そのまま Slack へ転記していたが、
+ * Slack はプライバシーポリシー第5条の委託先に載っていない。転記された写しは退会時の削除や
+ * 開示等の請求の対象からも外れる。施設掲載申込（src/lib/salon-outbox-delivery.ts）は既に
+ * 「受付番号と管理画面 URL だけ」に作り直してあり、同じ方針にそろえた。
+ *
+ * 型から個人情報の欄を消してあるので、呼び出し側が氏名やメールを渡そうとすると tsc が止める。
+ * 実行時も zod が未知の欄を落とすので、型をすり抜けた値も Slack へは届かない
+ * （src/lib/__tests__/notify.test.ts の「個人情報が Slack に載らない」が固定する）。
+ * 個人情報しか載せる中身が無かった 'salon' / 'facility' 種別は呼び出し元が 0 件だったため削除した。
+ */
 export type NotifyPayload =
-  | {
-      type: 'salon';
-      data: {
-        facility_name: string;
-        business_type: string;
-        representative_name: string;
-        phone: string;
-        email: string;
-        address?: string;
-        desired_start_date?: string;
-      };
-    }
   | {
       type: 'contact';
       data: {
-        name: string;
-        inquiry_type: string;
-        email: string;
-        message: string;
-        traffic_source?: {
-          source: string;
-          medium: string | null;
-          referrerHost: string | null;
-          landingPath: string;
-          capturedAt: string;
-        } | null;
+        /** contacts.id（運営宛のお問い合わせの受付番号） */
+        contact_id: string;
       };
     }
   | {
       type: 'facility_inquiry';
       data: {
+        /** facility_inquiries.id（店舗宛の問い合わせの受付番号） */
+        inquiry_id: string;
         /** 問い合わせ先の店舗。管理画面のリンクに付ける（複数店舗のオーナーが別の店舗を開かないため）。 */
         facility_id?: string;
         facility_name: string;
-        name: string;
-        email: string;
-        phone: string;
-        message: string;
-      };
-    }
-  | {
-      type: 'facility';
-      data: {
-        facility_name: string;
-        contact_name: string;
-        email: string;
-        phone: string;
-        business_type: string;
       };
     };
 
@@ -72,10 +56,6 @@ function adminUrlFor(payload: NotifyPayload): string {
   switch (payload.type) {
     case 'contact':
       return `${base}/admin/inquiries`;
-
-    case 'salon':
-    case 'facility':
-      return `${base}/admin/registrations`;
 
     case 'facility_inquiry':
       // 【2026年7月10日 恒久根治】/admin/inquiries は contacts テーブル（運営宛の全社横断
@@ -100,143 +80,41 @@ function buildSlackBlocks(payload: NotifyPayload, text: string): unknown[] {
 
 function buildSlackMessage(payload: NotifyPayload): string {
   switch (payload.type) {
-    case 'salon': {
-      const lines = [
-        ':office: *施設掲載の新規登録*',
-        `> *施設名:* ${escSlack(payload.data.facility_name)}`,
-        `> *業種:* ${escSlack(payload.data.business_type)}`,
-        `> *代表者:* ${escSlack(payload.data.representative_name)}`,
-        `> *電話:* ${escSlack(payload.data.phone)}`,
-        `> *メール:* ${escSlack(payload.data.email)}`,
-      ];
-
-      if (payload.data.address) {
-        lines.push(`> *エリア:* ${escSlack(payload.data.address)}`);
-      }
-
-      if (payload.data.desired_start_date) {
-        lines.push(
-          `> *掲載希望:* ${escSlack(payload.data.desired_start_date)}`
-        );
-      }
-
-      return lines.join('\n');
-    }
-
-    case 'contact': {
-      const lines = [
-        ':envelope: *お問い合わせ*',
-        `> *お名前:* ${escSlack(payload.data.name)}`,
-        `> *種別:* ${escSlack(payload.data.inquiry_type)}`,
-        `> *メール:* ${escSlack(payload.data.email)}`,
-        `> *内容:* ${escSlack(payload.data.message)}`,
-      ];
-
-      if (payload.data.traffic_source) {
-        lines.push(
-          `> *流入元:* ${escSlack(payload.data.traffic_source.source)}`,
-          `> *メディア:* ${escSlack(
-            payload.data.traffic_source.medium ?? '不明'
-          )}`,
-          `> *入口ページ:* ${escSlack(
-            payload.data.traffic_source.landingPath
-          )}`
-        );
-
-        if (payload.data.traffic_source.referrerHost) {
-          lines.push(
-            `> *参照元:* ${escSlack(
-              payload.data.traffic_source.referrerHost
-            )}`
-          );
-        }
-      } else {
-        lines.push(`> *流入元:* 不明`);
-      }
-
-      return lines.join('\n');
-    }
+    case 'contact':
+      return [
+        ':envelope: *お問い合わせ（運営宛）を受け付けました*',
+        `> *受付番号:* ${payload.data.contact_id}`,
+        '> 内容は管理画面で確認してください。',
+      ].join('\n');
 
     case 'facility_inquiry':
       return [
-        ':hospital: *施設へのお問い合わせ*',
+        ':hospital: *施設へのお問い合わせを受け付けました*',
         `> *施設名:* ${escSlack(payload.data.facility_name)}`,
-        `> *お名前:* ${escSlack(payload.data.name)}`,
-        `> *メール:* ${escSlack(payload.data.email)}`,
-        `> *電話:* ${escSlack(payload.data.phone)}`,
-        `> *内容:* ${escSlack(payload.data.message)}`,
-      ].join('\n');
-
-    case 'facility':
-      return [
-        ':clipboard: *施設掲載の申し込み*',
-        `> *施設名:* ${escSlack(payload.data.facility_name)}`,
-        `> *業種:* ${escSlack(payload.data.business_type)}`,
-        `> *担当者:* ${escSlack(payload.data.contact_name)}`,
-        `> *電話:* ${escSlack(payload.data.phone)}`,
-        `> *メール:* ${escSlack(payload.data.email)}`,
+        `> *受付番号:* ${payload.data.inquiry_id}`,
+        '> 内容は管理画面で確認してください。',
       ].join('\n');
   }
 }
 
+const recordId = z.string().regex(UUID_REGEX);
+
 export const notifyPayloadSchema = z.discriminatedUnion('type', [
   z.object({
-    type: z.literal('salon'),
-    data: z.object({
-      facility_name: z.string().max(200),
-      business_type: z.string().max(100),
-      representative_name: z.string().max(100),
-      phone: z.string().max(30),
-      email: z.string().max(254),
-      address: z.string().max(300).optional(),
-      desired_start_date: z.string().max(30).optional(),
-    }),
-  }),
-
-  z.object({
     type: z.literal('contact'),
-    data: z.object({
-      name: z.string().max(100),
-      inquiry_type: z.string().max(100),
-      email: z.string().max(254),
-      message: z.string().max(2000),
-      traffic_source: z
-        .object({
-          source: z.string().max(100),
-          medium: z.string().max(100).nullable(),
-          referrerHost: z.string().max(253).nullable(),
-          landingPath: z.string().max(500),
-          capturedAt: z.string(),
-        })
-        .nullable()
-        .optional(),
-    }),
+    data: z.object({ contact_id: recordId }),
   }),
 
   z.object({
     type: z.literal('facility_inquiry'),
     data: z.object({
+      inquiry_id: recordId,
       // リンクに店舗を付けるためだけの欄なので、不正な値でも通知全体を落とさない（値だけ捨てて
       // 店舗指定なしのリンクにする）。判定は adminFacilityHref と同じ UUID_REGEX。z.string().uuid() は
       // zod 4 で RFC のバージョン桁まで見るため、Postgres が受け付ける id でも弾き、問い合わせの
       // Slack 通知そのものを invalid_payload で失っていた。
       facility_id: z.string().regex(UUID_REGEX).optional().catch(undefined),
       facility_name: z.string().max(200),
-      name: z.string().max(100),
-      email: z.string().max(254),
-      phone: z.string().max(30),
-      message: z.string().max(2000),
-    }),
-  }),
-
-  z.object({
-    type: z.literal('facility'),
-    data: z.object({
-      facility_name: z.string().max(200),
-      contact_name: z.string().max(100),
-      email: z.string().max(254),
-      phone: z.string().max(30),
-      business_type: z.string().max(100),
     }),
   }),
 ]);
@@ -255,7 +133,7 @@ export const notifyPayloadSchema = z.discriminatedUnion('type', [
  * @returns ok=true で送信成功。設定不備・検証失敗・Slack エラーは ok=false と error を返す（throw しない）。
  */
 export async function sendNotify(
-  input: unknown
+  input: NotifyPayload
 ): Promise<{ ok: boolean; ts?: string; error?: string }> {
   if (
     !process.env.SLACK_BOT_TOKEN ||
@@ -267,6 +145,7 @@ export async function sendNotify(
     };
   }
 
+  // 型に無い欄（個人情報を含む）は zod が落とす。Slack へ渡すのは検証後の値だけ。
   const result = notifyPayloadSchema.safeParse(input);
 
   if (!result.success) {
@@ -276,7 +155,7 @@ export async function sendNotify(
     };
   }
 
-  const payload = result.data as NotifyPayload;
+  const payload: NotifyPayload = result.data;
   const text = buildSlackMessage(payload);
   const blocks = buildSlackBlocks(payload, text);
 

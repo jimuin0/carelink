@@ -163,6 +163,9 @@ jobs:
           CARELINK_POINTS_TEST_DB: carelink_shadow
         run: node scripts/verify-booking-points-concurrency.mjs
 
+      - name: Points ledger owner privacy, visit points cap, legacy, self-booking and reversal (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-points-cap-fixtures.sql
+
       - name: Staff schedules transactional failure and immutable replay (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f scripts/check-staff-schedule-transactions.sql
 
@@ -189,6 +192,9 @@ jobs:
 
       - name: Customer-only plan/package grants, Q&A browser write closure and audit log privacy (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/customer-grant-qa-audit-fixtures.sql
+
+      - name: HPB menu import rows are service-role writes only and owner/admin reads (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/hpb-menu-durations-privilege-fixtures.sql
 
       - name: Registration application intent and declaration boundaries (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/salon-application-guard-fixtures.sql
@@ -229,6 +235,9 @@ jobs:
       - name: Referral application count and replay (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/referral-apply-fixtures.sql
 
+      - name: Referral bonus lifecycle - deleted referrer, reversed first visit, code only before the first visit (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/referral-bonus-lifecycle-fixtures.sql
+
       - name: Review photo ownership and Threads delivery fence (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/review-threads-delivery-fixtures.sql
 
@@ -264,6 +273,9 @@ jobs:
 
       - name: Review and digest operation identity, legacy fences, privacy and acceptance (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/scheduled-email-fixtures.sql
+
+      - name: Review requests skip retired members and opted-out addresses at list, reserve and dispatch (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/review-request-withdrawn-account-fixtures.sql
 
       - name: Chain aggregation full counts, JST month boundary and current roles (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/chain-statistics-fixtures.sql
@@ -312,6 +324,9 @@ jobs:
 
       - name: Atomic customer booking and all notification plans (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/customer-booking-all-channels-fixtures.sql
+
+      - name: Shop cancellation rule, emailed fee context and visit outcomes only after the start (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/cancel-rule-and-outcome-start-fixtures.sql
 
       - name: Registration review revision and ABA fixtures (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/registration-review-fixtures.sql

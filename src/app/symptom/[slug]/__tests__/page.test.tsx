@@ -43,7 +43,63 @@ test.each(['empty-error', 'data-error', 'reject'])('metadata %s is unavailable r
   await expect(generateMetadata(props())).rejects.toThrow('PAGE_DATA_UNAVAILABLE');
   expect(notFound).not.toHaveBeenCalled();
   expect(mockFrom).toHaveBeenCalledTimes(1);
-  expect(safeCaptureException).toHaveBeenCalledWith(expect.objectContaining({ message: 'DATABASE_FAILURE:08006' }), 'symptom-metadata');
+  expect(safeCaptureException).toHaveBeenCalledWith(expect.objectContaining({ message: 'DATABASE_FAILURE:08006' }), 'symptom-page');
+});
+
+/**
+ * 施設 0 件の症状ページは検索結果に出さない（2026年10月22日・神原さん決定「施設が載るまで検索に出さない」）。
+ * 対応症状を登録する手段が無く、本番は 30 症状とも 0 件の空ページのまま index されていた。
+ */
+describe('metadata は公開施設の有無で index を切り替える', () => {
+  test.each([
+    ['対応表に行が無い', [symptom, []]],
+    ['対応表はあるが公開中の施設が無い（下書き・非公開のみ）', [symptom, [{ facility_id: 'draft-id', description: '' }], []]],
+  ])('%s → noindex, follow', async (_label, rows) => {
+    results(rows as unknown[]);
+    await expect(generateMetadata(props())).resolves.toMatchObject({ robots: { index: false, follow: true } });
+  });
+
+  test('公開中の施設が1件でもあれば robots を出さない（index に戻る）', async () => {
+    const metadata = await generateMetadata(props());
+    expect(metadata).not.toHaveProperty('robots');
+    expect(mockEq).toHaveBeenCalledWith('status', 'published');
+  });
+
+  test('施設の読み取りに失敗したら noindex にも index にも倒さず、取得失敗にする', async () => {
+    results(baseline, 2);
+    await expect(generateMetadata(props())).rejects.toThrow('PAGE_DATA_UNAVAILABLE');
+  });
+});
+
+test('施設 0 件の本文は行き止まりにせず、業種の一覧へ案内する', async () => {
+  results([symptom, [], []]);
+  const html = renderToStaticMarkup(await Page(props()));
+  expect(html).toContain('href="/type/acupuncture"');
+  expect(html).toContain('鍼灸院・整骨院の一覧を見る');
+  expect(html).toContain('鍼灸院・整骨院の一覧から探すこともできます。');
+  expect(html).toContain('href="/search"');
+  // 症状を特定の業種の扱うものとは言わない（アレルギー・不妊などは整骨院の対象外）。
+  expect(html).not.toContain('のご相談は');
+});
+
+/**
+ * 症状ページは疾患名（椎間板ヘルニア・顔面神経麻痺・不妊など）に原因・治療の選択肢と施設を並べる。
+ * 症状チェッカーと同じく、診断ではないこと・受診勧奨を必ず出す（施設の有無にかかわらず）。
+ */
+test.each([
+  ['施設 0 件', [symptom, [], []]],
+  ['施設あり', baseline],
+])('%s でも医療上の免責（診断ではない・受診勧奨）を出す', async (_label, rows) => {
+  results(rows as unknown[]);
+  const html = renderToStaticMarkup(await Page(props()));
+  expect(html).toContain('role="note"');
+  expect(html).toContain('医学的な診断ではありません。');
+  expect(html).toContain('自己判断せず医療機関を受診してください。');
+});
+
+test('施設があるときは業種一覧への案内を出さない', async () => {
+  const html = renderToStaticMarkup(await Page(props()));
+  expect(html).not.toContain('href="/type/acupuncture"');
 });
 
 describe.each([['symptom', 0], ['facility-links', 1], ['facilities', 2], ['related', 3]] as const)('%s read', (_stage, index) => {

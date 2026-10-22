@@ -384,24 +384,26 @@ describe('Slack通知（sendNotify 直接呼び出し・fire-and-forget）', () 
     expect(sendNotify).toHaveBeenCalledWith({
       type: 'facility_inquiry',
       data: {
+        inquiry_id: 'new-inquiry-id', // facility_inquiries.id（受付番号）
         // 管理画面リンクで店舗を指定するための ID（複数店舗のメンバーが別の店舗を開かないため）。
         facility_id: '550e8400-e29b-41d4-a716-446655440000',
         facility_name: 'リラクサロン ABC', // facility_profiles から取得した値（クライアント値は使わない）
-        name: validInquiry.name,
-        email: validInquiry.email,
-        phone: validInquiry.phone,
-        message: validInquiry.message,
       },
     });
   });
 
-  test('phone未指定 → sendNotify の phone は「未入力」', async () => {
-    const { phone, ...rest } = validInquiry;
-    void phone;
-    await POST(makeRequest(rest) as any);
+  // 🔴 回帰（2026年10月22日）: 以前は来院者の氏名・メール・電話・本文を全文そのまま Slack へ送っていた。
+  // Slack はプライバシーポリシーの委託先に無いので、施設名・受付番号・リンクだけを渡す
+  // （店舗オーナーへは上のメールで届く）。
+  test('Slack 通知には来院者の氏名・メール・電話・本文を渡さない', async () => {
+    await POST(makeRequest({ ...validInquiry, message: '先週から腰痛がひどく相談したいです' }) as any);
 
-    const call = (sendNotify as jest.Mock).mock.calls[0][0];
-    expect(call.data.phone).toBe('未入力');
+    expect(sendNotify).toHaveBeenCalledTimes(1);
+    const sent = JSON.stringify((sendNotify as jest.Mock).mock.calls);
+    for (const value of [validInquiry.name, validInquiry.email, validInquiry.phone, '腰痛']) {
+      expect(sent).not.toContain(value);
+    }
+    expect(Object.keys((sendNotify as jest.Mock).mock.calls[0][0].data).sort()).toEqual(['facility_id', 'facility_name', 'inquiry_id']);
   });
 
   test('DB insert失敗時は sendNotify が呼ばれない（保存に成功した場合のみ通知）', async () => {

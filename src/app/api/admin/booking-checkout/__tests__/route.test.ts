@@ -39,7 +39,7 @@ const userId = 'user-admin-1';
 
 const bookingBase = {
   id: validBookingId, facility_id: facilityId, user_id: 'customer-1',
-  customer_name: 'テスト', email: 'c@example.com', booking_date: '2026-05-01',
+  customer_name: 'テスト', email: 'c@example.com', booking_date: '2026-05-01', start_time: '10:00:00',
   menu_id: null, staff_id: null,
 };
 
@@ -88,13 +88,13 @@ function updateChain(result: { data: unknown; error: unknown }) {
 }
 
 /** 標準成功モック: status=fromStatus の予約・owner・CAS 成功。 */
-function setupSuccess(fromStatus: string, updateResult?: { data: unknown; error: unknown }) {
+function setupSuccess(fromStatus: string, updateResult?: { data: unknown; error: unknown }, bookingOver: Record<string, unknown> = {}) {
   mockRpc.mockImplementation((_name, args) => Promise.resolve(updateResult ?? { data: [{ id: validBookingId, total_price: Math.max(0,args.p_charges.reduce((sum: number,c: {amount:number})=>sum+c.amount,0)), points_earned: 33 }], error: null }));
   let bookingCall = 0;
   mockFrom.mockImplementation((table: string) => {
     if (table === 'bookings') {
       bookingCall++;
-      if (bookingCall === 1) return fluentBooking({ ...bookingBase, status: fromStatus });
+      if (bookingCall === 1) return fluentBooking({ ...bookingBase, status: fromStatus, ...bookingOver });
       return updateChain(updateResult ?? { data: [{ id: validBookingId }], error: null });
     }
     if (table === 'facility_members') return membershipChain({ facility_id: facilityId, role: 'owner' });
@@ -247,13 +247,104 @@ test('予期せぬ例外 → 500（catch）', async () => {
 });
 
 
-test.each([['BOOKING_PERMISSION_DENIED',404],['BOOKING_REVISION_CONFLICT',409],['SYNTHETIC_POINT_FAILURE',500]])('原子会計 %s は副作用なし',async(message,status)=>{
+test.each([['BOOKING_PERMISSION_DENIED',404],['BOOKING_REVISION_CONFLICT',409],['BOOKING_NOT_STARTED',400],['SYNTHETIC_POINT_FAILURE',500]])('原子会計 %s は副作用なし',async(message,status)=>{
  setupSuccess('confirmed',{data:null,error:{message}});
  expect((await POST(makeRequest(validBody({complete:true})))).status).toBe(status);
  expect(mockApply).not.toHaveBeenCalled();
 });
 test.each([null,[],[{id:'wrong',total_price:3300}],[{id:validBookingId,total_price:999}]])('会計結果未確認 %j は成功にしない',async(data)=>{
  setupSuccess('confirmed',{data,error:null}); expect((await POST(makeRequest(validBody()))).status).toBe(500);
+});
+
+// ─── 予約時に使ったポイント（2026年10月23日）────────────────
+// 以前は初期明細が「ポイント利用後の金額」1 行だけで、当日メニューを打ち直すとポイント分の値引きが消えた
+// （お客様は全額払い、差し引かれたポイントも戻らない）。ポイントはサーバーが固定の明細行として付け足す。
+describe('ポイント利用の明細行', () => {
+  const pointsLine = { type: 'discount', name: 'ポイント利用', amount: -2000 };
+  const rpcCharges = () => mockRpc.mock.calls.find(([name]) => name === 'checkout_booking_with_points_atomic')![1].p_charges;
+
+  test('サーバーがポイント利用の行を最後に付け足し、合計から差し引く', async () => {
+    setupSuccess('confirmed', undefined, { points_used: 2000 });
+    const res = await POST(makeRequest(validBody({ items: [{ type: 'menu', name: 'カラー', amount: 8000 }], points_used: 2000, complete: true })));
+    expect(res.status).toBe(200);
+    expect((await res.json()).total_price).toBe(6000);
+    expect(rpcCharges()).toEqual([{ type: 'menu', name: 'カラー', amount: 8000 }, pointsLine]);
+    expect(mockApply).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ total_price: 6000 }));
+    expect(jest.requireMock('@/lib/audit-logger').writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+      newValues: expect.objectContaining({ total_price: 6000, item_count: 2, points_used: 2000 }),
+    }));
+  });
+
+  // 回帰（旧コードでは total=10000・ポイント行なしで保存され、2,000pt が失われた）
+  test('当日メニューを打ち直してもポイント分の値引きは残る', async () => {
+    setupSuccess('arrived', undefined, { points_used: 2000 });
+    const res = await POST(makeRequest(validBody({ items: [{ type: 'menu', name: '別メニュー', amount: 10000 }], points_used: 2000, complete: true })));
+    expect(res.status).toBe(200);
+    expect((await res.json()).total_price).toBe(8000);
+    expect(rpcCharges()).toContainEqual(pointsLine);
+  });
+
+  test('明細の合計とポイント利用額が同じなら 0 円で確定できる', async () => {
+    setupSuccess('confirmed', undefined, { points_used: 2000 });
+    const res = await POST(makeRequest(validBody({ items: [{ type: 'menu', name: 'カット', amount: 2000 }], points_used: 2000, complete: true })));
+    expect(res.status).toBe(200);
+    expect((await res.json()).total_price).toBe(0);
+    expect(rpcCharges()).toEqual([{ type: 'menu', name: 'カット', amount: 2000 }, pointsLine]);
+  });
+
+  // 回帰（旧コードでは 1,500 円の会計が 0 円で確定し、差額の 500pt がお客様に戻らないまま消えた）
+  test.each([
+    ['メニューがポイントより安い', [{ type: 'menu', name: 'カット', amount: 1500 }], '¥1,500'],
+    ['割引でポイントを下回る', [{ type: 'menu', name: 'カット', amount: 3000 }, { type: 'discount', name: '割引', amount: -1500 }], '¥1,500'],
+    ['割引だけで合計が負', [{ type: 'menu', name: 'カット', amount: 1000 }, { type: 'discount', name: '割引', amount: -3000 }], '¥0'],
+  ])('%s → 400・保存も完了もしない（差額のポイントを黙って失わせない）', async (_label, items, shownTotal) => {
+    setupSuccess('confirmed', undefined, { points_used: 2000 });
+    const res = await POST(makeRequest(validBody({ items, points_used: 2000, complete: true })));
+    expect(res.status).toBe(400);
+    const { error } = await res.json();
+    expect(error).toContain('¥2,000');
+    expect(error).toContain(shownTotal);
+    expect(error).toContain('差額のポイントがお客様に戻らない');
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(mockApply).not.toHaveBeenCalled();
+  });
+
+  test('ポイントの無い予約は従来どおり割引で負になっても 0 円で確定できる', async () => {
+    setupSuccess('confirmed');
+    const res = await POST(makeRequest(validBody({ items: [{ type: 'menu', name: 'カット', amount: 1000 }, { type: 'discount', name: '割引', amount: -3000 }] })));
+    expect(res.status).toBe(200);
+    expect((await res.json()).total_price).toBe(0);
+  });
+
+  test.each([
+    ['ポイント行を知らない古い画面（points_used なし）', { points_used: 2000 }, {}],
+    ['画面の表示と予約のポイントが違う', { points_used: 2000 }, { points_used: 1000 }],
+    ['ポイントの無い予約にポイントを申告', { points_used: 0 }, { points_used: 500 }],
+  ])('%s → 409・保存しない', async (_label, booking, request) => {
+    setupSuccess('confirmed', undefined, booking);
+    const res = await POST(makeRequest(validBody({ ...request, complete: true })));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain('ページを更新');
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(mockApply).not.toHaveBeenCalled();
+  });
+
+  test.each([[null], [undefined]])('ポイントの無い予約（points_used=%p）は従来どおり・行を足さない', async (points) => {
+    setupSuccess('confirmed', undefined, { points_used: points });
+    const res = await POST(makeRequest(validBody()));
+    expect(res.status).toBe(200);
+    expect(rpcCharges()).toEqual([{ type: 'menu', name: 'カット', amount: 3300 }]);
+  });
+
+  test('ポイント行を含めて 50 件まで（49 件は通り、50 件は 400）', async () => {
+    const lines = (n: number) => Array.from({ length: n }, () => ({ type: 'retail', name: '物販', amount: 100 }));
+    setupSuccess('confirmed', undefined, { points_used: 2000 });
+    expect((await POST(makeRequest(validBody({ items: lines(50), points_used: 2000 })))).status).toBe(400);
+    expect(mockRpc).not.toHaveBeenCalled();
+    setupSuccess('confirmed', undefined, { points_used: 2000 });
+    expect((await POST(makeRequest(validBody({ items: lines(49), points_used: 2000 })))).status).toBe(200);
+    expect(rpcCharges()).toHaveLength(50);
+  });
 });
 
 test('旧DBで原子会計RPCが未適用でも直接UPDATE/ポイント副作用へ戻らない',async()=>{
@@ -265,4 +356,46 @@ test('旧DBで原子会計RPCが未適用でも直接UPDATE/ポイント副作�
  expect(mockFrom).not.toHaveBeenCalledWith('user_points');expect(mockFrom).not.toHaveBeenCalledWith('customer_visits');
  expect(mockApply).not.toHaveBeenCalled();
  expect(jest.requireMock('@/lib/audit-logger').writeAuditLog).not.toHaveBeenCalled();
+});
+
+// ─── 開始時刻前の会計確定（2026年10月23日） ─────────────────────
+describe('会計を確定して完了にするのは予約の開始時刻（JST）を過ぎてから', () => {
+  const NOW = Date.UTC(2026, 9, 23, 1, 0, 0); // 2026-10-23 10:00 JST
+  beforeEach(() => { jest.spyOn(Date, 'now').mockReturnValue(NOW); });
+  afterEach(() => { jest.restoreAllMocks(); });
+  function setupFuture(fromStatus: string) {
+    setupSuccess(fromStatus);
+    const success = mockFrom.getMockImplementation()!;
+    let first = true;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings' && first) {
+        first = false;
+        return fluentBooking({ ...bookingBase, status: fromStatus, booking_date: '2026-10-23', start_time: '10:30:00' });
+      }
+      return success(table);
+    });
+  }
+
+  test.each(['confirmed', 'arrived'])('開始前の %s 予約で complete=true → 400・RPC も副作用も無し', async (status) => {
+    setupFuture(status);
+    const res = await POST(makeRequest(validBody({ complete: true })));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: '予約の開始時刻より前は、会計を確定して完了にできません。開始時刻を過ぎてから操作してください。', code: 'BOOKING_NOT_STARTED' });
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(mockApply).not.toHaveBeenCalled();
+  });
+
+  test('開始前でも明細の保存だけ（complete=false）は従来どおり 200', async () => {
+    setupFuture('confirmed');
+    const res = await POST(makeRequest(validBody()));
+    expect(res.status).toBe(200);
+    expect(mockRpc).toHaveBeenCalledWith('checkout_booking_with_points_atomic', expect.objectContaining({ p_complete: false }));
+  });
+
+  test('予約の開始時刻を select する（判定に使う列を取りこぼさない）', async () => {
+    setupFuture('confirmed');
+    await POST(makeRequest(validBody({ complete: true })));
+    const bookingSelect = mockFrom.mock.results[0].value.select as jest.Mock;
+    expect(bookingSelect.mock.calls[0][0]).toContain('start_time');
+  });
 });

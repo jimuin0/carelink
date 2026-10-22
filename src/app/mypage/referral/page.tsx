@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useConfirmedClipboard } from '@/hooks/useConfirmedClipboard';
 import Toast from '@/components/Toast';
+import { referralCodeFromParam, referralShareText } from '@/lib/referral-code';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://carelink-jp.com';
 
@@ -15,6 +16,8 @@ export default function ReferralPage() {
   const [loadError, setLoadError] = useState(false);
   const [inputCode, setInputCode] = useState('');
   const [applying, setApplying] = useState(false);
+  // 共有リンク（?ref=）で届いたコードを入力欄へ入れたか。押す前に確かめてもらうための案内に使う。
+  const [prefilledFromLink, setPrefilledFromLink] = useState(false);
   const clipboard=useConfirmedClipboard(referralCode);
   const copied=clipboard.status==='copied';
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -26,6 +29,13 @@ export default function ReferralPage() {
         setReferralCode(d.code ?? null);
         setInvitedCount(d.used_count ?? 0);
         setAlreadyReferred(d.already_referred ?? false);
+        // 共有リンクのコードを入力欄へ入れる。自動では適用しない（来店済みの方は断られるため、
+        // 押す前に内容を確かめてもらう）。適用済みの方・自分のコードのリンクを開いた方には入れない。
+        const linked = referralCodeFromParam(new URLSearchParams(window.location.search).get('ref'));
+        if (linked && !d.already_referred && linked !== d.code) {
+          setInputCode(linked);
+          setPrefilledFromLink(true);
+        }
         setLoading(false);
       })
       .catch(() => { setLoadError(true); setLoading(false); });
@@ -35,14 +45,17 @@ export default function ReferralPage() {
 
   const shareUrl = `${SITE_URL}?ref=${referralCode ?? ''}`;
 
+  // 共有文は利用条件（初回のご予約の前に入力）まで書く（src/lib/referral-code.ts）。
+  const shareText = referralShareText(referralCode ?? '');
+
   const shareOnX = () => {
-    const text = encodeURIComponent(`CareLinkで健康・美容施設を予約しよう！紹介コード「${referralCode}」で${300}ポイントもらえます🎁`);
+    const text = encodeURIComponent(shareText);
     const url = encodeURIComponent(shareUrl);
     window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, '_blank', 'noopener');
   };
 
   const shareOnLine = () => {
-    const text = encodeURIComponent(`CareLinkで健康・美容施設を予約しよう！紹介コード「${referralCode}」で${300}ポイントもらえます🎁 ${shareUrl}`);
+    const text = encodeURIComponent(`${shareText} ${shareUrl}`);
     window.open(`https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(shareUrl)}&text=${text}`, '_blank', 'noopener');
   };
 
@@ -60,6 +73,7 @@ export default function ReferralPage() {
         setToast({ type: 'success', message: body.message || '紹介コードを適用しました。初回のご予約完了で300ポイントが付与されます。' });
         setAlreadyReferred(true);
         setInputCode('');
+        setPrefilledFromLink(false);
       } else {
         setToast({ type: 'error', message: body.error || '適用に失敗しました' });
       }
@@ -94,10 +108,11 @@ export default function ReferralPage() {
       <h1 className="text-xl font-bold">友達招待プログラム</h1>
 
       {/* ポイント説明 */}
-      <div className="bg-linear-to-br from-sky-500 to-sky-600 text-white rounded-2xl p-6">
-        <p className="text-sm opacity-90 mb-2">友達を招待すると</p>
+      {/* 白文字は sky-700 の上で 5.93:1（AA の 4.5:1 以上）。半透明にすると下回るので不透明のまま使う */}
+      <div className="bg-linear-to-br from-sky-700 to-sky-800 text-white rounded-2xl p-6">
+        <p className="text-sm mb-2">友達を招待すると</p>
         <p className="text-3xl font-bold">あなたに500pt・友達に300pt</p>
-        <p className="text-sm opacity-80 mt-1">初回のご予約完了で、招待した方・された方の両方にポイントをプレゼント</p>
+        <p className="text-sm mt-1">友達の初回のご予約完了で、招待した方・された方の両方にポイントをプレゼント</p>
       </div>
 
       {/* 自分の紹介コード */}
@@ -144,13 +159,13 @@ export default function ReferralPage() {
       {!alreadyReferred ? (
         <div className="bg-white rounded-2xl shadow-xs p-6">
           <h2 className="text-base font-bold text-gray-800 mb-2">紹介コードを入力する</h2>
-          <p className="text-xs text-gray-500 mb-4">友達から紹介コードをもらったら入力してください。初回のご予約完了で300ポイントをプレゼントします。</p>
+          <p className="text-xs text-gray-500 mb-4">友達から紹介コードをもらったら、初回のご予約の前に入力してください。初回のご予約完了で300ポイントをプレゼントします。</p>
           <div className="flex gap-3">
             <input
               type="text"
               value={inputCode}
-              onChange={(e) => setInputCode(e.target.value.toUpperCase())}
-              placeholder="例: ABCD12"
+              onChange={(e) => { setInputCode(e.target.value.toUpperCase()); setPrefilledFromLink(false); }}
+              placeholder="例: ABCD2345"
               maxLength={8}
               className="flex-1 form-input font-mono tracking-widest text-center uppercase"
             />
@@ -163,6 +178,9 @@ export default function ReferralPage() {
               {applying ? '適用中...' : '適用'}
             </button>
           </div>
+          {prefilledFromLink && (
+            <p className="text-xs text-sky-700 mt-2">紹介リンクのコードを入力しました。内容をご確認のうえ「適用」を押してください。</p>
+          )}
         </div>
       ) : (
         <div className="bg-green-50 border border-green-200 rounded-2xl p-4 text-center">
@@ -176,8 +194,8 @@ export default function ReferralPage() {
         <ol className="space-y-3">
           {[
             '上記の紹介コードを友達に教える',
-            '友達がCareLinkに登録後、紹介コードを入力',
-            '友達に300pt・あなたに500ptを自動でプレゼント',
+            '友達がCareLinkに登録し、初回のご予約の前に紹介コードを入力',
+            '友達の初回のご予約完了で、友達に300pt・あなたに500ptを自動でプレゼント',
           ].map((step, i) => (
             <li key={i} className="flex items-start gap-3 text-sm text-gray-600">
               <span className="w-5 h-5 rounded-full bg-sky-100 text-sky-700 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
@@ -186,6 +204,8 @@ export default function ReferralPage() {
           ))}
         </ol>
         <p className="text-xs text-gray-500 mt-4">※ポイントは招待1人につき1回のみ付与されます。</p>
+        <p className="text-xs text-gray-500 mt-1">※紹介コードは初回のご来店前の方のみご利用いただけます。</p>
+        <p className="text-xs text-gray-500 mt-1">※ご予約の完了が取り消された場合（無断キャンセルへの訂正など）は、紹介のポイントも取り消されます。</p>
       </div>
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}

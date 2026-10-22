@@ -407,6 +407,58 @@ describe('sendBookingCancellationToFacility', () => {
     expect(args.html).toContain('test@example.com');
     expect(args.html).toContain('/admin/bookings');
   });
+
+  // 回帰（D4）: お客様にはキャンセル料の発生と、お支払い方法は施設から直接案内することが届くのに、
+  // 店舗宛のキャンセル通知には金額もその事実も無く、お客様は案内を待ったままになっていた。
+  test('キャンセル料が発生したときは金額・料率と、お客様へ支払い方法を連絡する案内を載せる', () => {
+    const { buildBookingCancellationToFacilityEnvelope } = require('../email');
+    const envelope = buildBookingCancellationToFacilityEnvelope({
+      ...baseData, facilityEmail: 'salon@example.com', cancelFee: 4000, cancelFeeRate: 50, cancelledAt: '2026-04-01T03:05:00Z',
+    });
+    expect(envelope.html).toContain('キャンセル料');
+    expect(envelope.html).toContain('&yen;4,000（施術料金の50%）');
+    expect(envelope.html).toContain('キャンセルポリシーにより、お客様へキャンセル料 <strong>&yen;4,000</strong> の発生と、お支払い方法は施設から直接ご案内することをメールでお知らせしています。お支払い方法をお客様へ直接ご連絡ください。');
+    // 無料期限の内か外かを店舗が確かめられるよう、受け付けた時刻（JST）を載せる。
+    expect(envelope.html).toContain('キャンセル受付');
+    expect(envelope.html).toContain('2026年4月1日 12:05');
+  });
+
+  // 回帰（レビュー指摘）: お客様宛の文面を「」で引用していたが、実際の文面（お客様宛メール）と一致していなかった。
+  // 店舗がお客様からの問い合わせに答えるとき、存在しない文言を前提にしないよう、引用せず地の文で伝える。
+  test('お客様宛の文面を引用の形で書かない（実際の文面と食い違わない）', () => {
+    const { buildBookingCancellationToFacilityEnvelope } = require('../email');
+    const envelope = buildBookingCancellationToFacilityEnvelope({ ...baseData, facilityEmail: 'salon@example.com', cancelFee: 4000 });
+    expect(envelope.html).not.toMatch(/「[^」]*キャンセル料[^」]*」/);
+  });
+
+  // 回帰（レビュー指摘）: メールアドレスの無いお客様にはお客様宛のキャンセル通知が積まれないのに、
+  // 店舗宛には「お客様にお知らせしています」と書いていたため、店舗は連絡を待ち、お客様は料金を知らないままになった。
+  test.each(['', '   '])('メールアドレスの無いお客様 %j: お知らせしていないことと、店舗から直接案内することを伝える', (customerEmail) => {
+    const { buildBookingCancellationToFacilityEnvelope } = require('../email');
+    const envelope = buildBookingCancellationToFacilityEnvelope({
+      ...baseData, customerEmail, facilityEmail: 'salon@example.com', cancelFee: 4000, cancelFeeRate: 50,
+    });
+    expect(envelope.html).toContain('お客様のメールアドレスの登録が無いため、キャンセル料はお客様へメールでお知らせしていません。キャンセル料 <strong>&yen;4,000</strong> とお支払い方法を、お客様へ直接ご案内ください。');
+    expect(envelope.html).not.toContain('お知らせしています');
+  });
+
+  test('キャンセル料が無いときは金額も支払いの案内も載せない（受付時刻は載せる）', () => {
+    const { buildBookingCancellationToFacilityEnvelope } = require('../email');
+    const envelope = buildBookingCancellationToFacilityEnvelope({
+      ...baseData, facilityEmail: 'salon@example.com', cancelFee: 0, cancelFeeRate: 50, cancelledAt: '2026-04-01T03:05:00Z',
+    });
+    expect(envelope.html).not.toContain('キャンセル料');
+    expect(envelope.html).not.toContain('お支払い方法');
+    expect(envelope.html).toContain('2026年4月1日 12:05');
+  });
+
+  test('料率が分からないときは金額だけを載せる・受付時刻が無いときは行を出さない', () => {
+    const { buildBookingCancellationToFacilityEnvelope } = require('../email');
+    const envelope = buildBookingCancellationToFacilityEnvelope({ ...baseData, facilityEmail: 'salon@example.com', cancelFee: 1200 });
+    expect(envelope.html).toContain('&yen;1,200</td>');
+    expect(envelope.html).not.toContain('施術料金の');
+    expect(envelope.html).not.toContain('キャンセル受付');
+  });
 });
 
 describe('buildBookingRescheduleToFacilityEnvelope', () => {
@@ -1001,4 +1053,41 @@ it('owner mail omits the phone and note rows when they are blank',()=>{
  const {buildNewBookingNotificationEnvelope}=require('../email');
  const mail=buildNewBookingNotificationEnvelope({...baseData,facilityEmail:'synthetic@example.invalid',customerPhone:'  ',note:null});
  expect(mail.html).not.toContain('電話番号');expect(mail.html).not.toContain('ご要望・備考');
+});
+
+// 2026年10月23日: 店舗向けの新規予約メールに、お客様が予約時に使ったポイントを出す。
+// 料金はポイント利用後の金額なので、行が無いとメニュー価格との差の理由が店舗に分からない。
+describe('owner mail shows the points the customer used', () => {
+  const owner = { ...baseData, facilityEmail: 'synthetic@example.invalid' };
+  const build = (data: Record<string, unknown>) => require('../email').buildNewBookingNotificationEnvelope(data) as { html: string };
+
+  it('shows ポイント利用 -¥N and marks the price as the amount after points', () => {
+    const mail = build({ ...owner, totalPrice: 6000, pointsUsed: 2000 });
+    expect(mail.html).toContain('ポイント利用</td>');
+    expect(mail.html).toContain('-&yen;2,000');
+    expect(mail.html).toContain('&yen;6,000（ポイント利用後）');
+  });
+
+  it('shows the points row even when the whole price was paid with points', () => {
+    const mail = build({ ...owner, totalPrice: 0, pointsUsed: 8000 });
+    expect(mail.html).toContain('&yen;0（ポイント利用後）');
+    expect(mail.html).toContain('-&yen;8,000');
+  });
+
+  it.each([[undefined], [0]])('no points (%p) → no points row and the price is shown as before', (pointsUsed) => {
+    const mail = build({ ...owner, totalPrice: 6000, pointsUsed });
+    expect(mail.html).not.toContain('ポイント利用');
+    expect(mail.html).toContain('&yen;6,000</td>');
+  });
+
+  it('points without a price still show the points row', () => {
+    const mail = build({ ...owner, totalPrice: undefined, pointsUsed: 500 });
+    expect(mail.html).not.toContain('料金</td>');
+    expect(mail.html).toContain('-&yen;500');
+  });
+
+  it('customer-facing mails never show the points row (only the owner notification passes it)', () => {
+    const mail = require('../email').buildBookingConfirmationEnvelope({ ...baseData, totalPrice: 6000 }) as { html: string };
+    expect(mail.html).not.toContain('ポイント利用');
+  });
 });

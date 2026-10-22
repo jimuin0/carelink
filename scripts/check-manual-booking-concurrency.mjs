@@ -190,6 +190,8 @@ async function main() {
   assert.equal(query(`SELECT name FROM public.facility_profiles WHERE id='${facility}'`),'Synthetic manual race');
   query(`UPDATE public.facility_members SET role='owner' WHERE user_id='${actor}' AND facility_id='${facility}'`);
   const booking = replay[0];
+  // The visit took place: 完了 is recorded only after the start (20261023020100).
+  query(`UPDATE public.bookings SET booking_date='2020-01-07' WHERE id='${booking}'`);
   const revision = query(`SELECT updated_at FROM public.bookings WHERE id='${booking}'`);
   const envelope = JSON.stringify({ from:'sender@example.invalid',to:'manual-fixture@example.invalid',
     subject:'Synthetic only',html:'<p>concurrency fixture</p>' });
