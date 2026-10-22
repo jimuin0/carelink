@@ -155,7 +155,9 @@ export default async function FacilityPage(props: Props) {
     ...(staff.length > 0 ? [{
       key: 'staff',
       label: `スタッフ(${staff.length})`,
-      content: <StaffList staff={staff} facilitySlug={params.slug} />,
+      // スタッフタブはクリックしても URL の #hash が変わらない。ログインして戻ったときに
+      // このタブを開き直せるよう、戻り先に #staff を付ける（tabKeyForHash が 'staff' を解決する）。
+      content: <StaffList staff={staff} facilitySlug={params.slug} returnHash="#staff" />,
     }] : []),
     ...(catalogs.length > 0 ? [{
       key: 'catalog',

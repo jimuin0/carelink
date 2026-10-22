@@ -9,7 +9,9 @@
  * - 状態の読み取り（自分が指名済みか）は Provider が 1 回だけ行う。一覧のカードごとに
  *   ログイン確認と問い合わせを走らせないため。
  * - 書き込みは必ず /api/preferred-staff を通す（公開施設の在籍スタッフかをサーバーで確かめるため）。
- * - 未ログインならログイン画面へ、戻り先として今のページを渡す。
+ * - 未ログインならログイン画面へ、戻り先として今のページを渡す。施設ページのスタッフタブのように
+ *   URL の #hash が変わらない場所では、Provider の returnHash（例：'#staff'）を足して戻す。
+ *   付けないとログイン後に「トップ」タブへ戻され、押したボタンが画面に無くなる。
  * - ログイン状態や指名状態を確かめられない時は、「未登録」と決めつけず押せない表示にする。
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -21,15 +23,23 @@ import { readAuthorization } from '@/lib/authorization-read';
 
 type Status = 'loading' | 'guest' | 'ready' | 'unavailable';
 
+type ReturnHash = `#${string}`;
+
 interface PreferredStaffStore {
   status: Status;
+  returnHash: ReturnHash | '';
   nominated: ReadonlySet<string>;
   setNominated: (staffId: string, value: boolean) => void;
 }
 
 const PreferredStaffContext = createContext<PreferredStaffStore | null>(null);
 
-export function PreferredStaffProvider({ staffIds, children }: { staffIds: string[]; children: ReactNode }) {
+export function PreferredStaffProvider({ staffIds, returnHash = '', children }: {
+  staffIds: string[];
+  /** ログイン後に戻すときに付ける #hash（施設ページのスタッフタブなら '#staff'） */
+  returnHash?: ReturnHash | '';
+  children: ReactNode;
+}) {
   const idsKey = staffIds.join(',');
   const [status, setStatus] = useState<Status>('loading');
   const [nominated, setNominatedIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -66,7 +76,7 @@ export function PreferredStaffProvider({ staffIds, children }: { staffIds: strin
     });
   }, []);
 
-  const store = useMemo(() => ({ status, nominated, setNominated }), [status, nominated, setNominated]);
+  const store = useMemo(() => ({ status, returnHash, nominated, setNominated }), [status, returnHash, nominated, setNominated]);
   return <PreferredStaffContext.Provider value={store}>{children}</PreferredStaffContext.Provider>;
 }
 
@@ -99,7 +109,7 @@ export default function PreferredStaffButton({ staffId, staffName, variant = 'de
   if (store.status === 'guest') {
     return (
       <Link
-        href={`/auth/login?redirect=${encodeURIComponent(pathname)}`}
+        href={`/auth/login?redirect=${encodeURIComponent(`${pathname}${store.returnHash}`)}`}
         className={`${BUTTON_BASE} ${size} ${OUTLINED}`}
         aria-label={`ログインして指名登録${who}`}
       >
@@ -110,15 +120,18 @@ export default function PreferredStaffButton({ staffId, staffName, variant = 'de
 
   if (store.status !== 'ready') {
     const unavailable = store.status === 'unavailable';
+    // 画面の文字と読み上げ名をそろえる（WCAG 2.5.3 Label in Name）。確認中に「指名登録」と見せると、
+    // 読み上げ名と食い違ううえ、指名済みの人には一瞬だけ逆の状態を見せることになる。
+    const text = unavailable ? '指名の状態を確認できません' : '指名を確認中';
     return (
       <button
         type="button"
         disabled
         className={`${BUTTON_BASE} ${size} ${MUTED}`}
-        aria-label={unavailable ? `指名の状態を確認できません${who}` : `指名の状態を確認しています${who}`}
+        aria-label={`${text}${who}`}
         title={unavailable ? 'ページを再読み込みしてください' : undefined}
       >
-        {unavailable ? '指名の状態を確認できません' : '指名登録'}
+        {text}
       </button>
     );
   }

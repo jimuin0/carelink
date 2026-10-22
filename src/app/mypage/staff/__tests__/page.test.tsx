@@ -11,6 +11,8 @@ import Page from '../page';
 let prefs: { data: unknown; error: unknown };
 let staffRows: unknown[];
 let facilityRows: unknown[];
+let staffError: unknown;
+let facilityError: unknown;
 const mockGetUser = jest.fn();
 jest.mock('next/image', () => ({ __esModule: true, default: (props: { alt: string }) => <span data-alt={props.alt} /> }));
 jest.mock('@/lib/supabase-browser', () => ({
@@ -19,7 +21,9 @@ jest.mock('@/lib/supabase-browser', () => ({
     from: (table: string) => ({
       select: () => ({
         eq: async () => (table === 'user_preferred_staff' ? prefs : { data: null, error: null }),
-        in: async () => ({ data: table === 'staff_profiles' ? staffRows : facilityRows, error: null }),
+        in: async () => (table === 'staff_profiles'
+          ? { data: staffError ? null : staffRows, error: staffError }
+          : { data: facilityError ? null : facilityRows, error: facilityError }),
       }),
     }),
   }),
@@ -34,6 +38,8 @@ beforeEach(() => {
     { id: 'staff-2', name: '太郎', slug: 'taro', photo_url: null, position: null, facility_id: 'fac-1', is_active: false },
   ];
   facilityRows = [{ id: 'fac-1', name: 'サンプル整骨院', slug: 'sample-clinic' }];
+  staffError = null;
+  facilityError = null;
   global.fetch = jest.fn();
   Object.defineProperty(AbortSignal, 'timeout', { configurable: true, value: () => new AbortController().signal });
 });
@@ -44,9 +50,11 @@ test('指名したスタッフを、プロフィールと施設へのリンク�
   expect(profile).toHaveAttribute('href', '/facility/sample-clinic/staff/hanako');
   expect(screen.getAllByRole('link', { name: 'サンプル整骨院' })[0]).toHaveAttribute('href', '/facility/sample-clinic');
   expect(screen.getByText('スタイリスト')).toBeVisible();
-  // 非表示になったスタッフは詳細ページが 404 になるので、名前をリンクにしない
+  // 非表示になったスタッフは詳細ページが 404 になるので、名前をリンクにせず、その理由を添える
   expect(screen.getByText('太郎')).toBeVisible();
   expect(screen.queryByRole('link', { name: '太郎' })).not.toBeInTheDocument();
+  expect(screen.getAllByText('現在このスタッフは掲載されていません')).toHaveLength(1);
+  expect(screen.queryByText('現在公開されていない施設のスタッフです')).not.toBeInTheDocument();
 });
 
 test('施設が非公開になったスタッフは、その旨を出してリンクしない', async () => {
@@ -55,6 +63,19 @@ test('施設が非公開になったスタッフは、その旨を出してリ�
   expect(await screen.findByText('花子')).toBeVisible();
   expect(screen.queryByRole('link', { name: '花子' })).not.toBeInTheDocument();
   expect(screen.getAllByText('現在公開されていない施設のスタッフです')).toHaveLength(2);
+});
+
+test.each([
+  ['スタッフ情報', () => { staffError = { message: 'down' }; }],
+  ['施設情報', () => { facilityError = { message: 'down' }; }],
+])('%sの読み込みに失敗したら「非公開」と決めつけず、読み込めなかったと伝える', async (_label, arrange) => {
+  arrange();
+  render(<Page />);
+  expect(await screen.findAllByText('施設情報を読み込めませんでした')).toHaveLength(2);
+  expect(screen.queryByText('現在公開されていない施設のスタッフです')).not.toBeInTheDocument();
+  expect(screen.queryByText('現在このスタッフは掲載されていません')).not.toBeInTheDocument();
+  // 読み込めなくても解除はできる
+  expect(screen.getAllByRole('button', { name: /^指名を解除（/ })).toHaveLength(2);
 });
 
 test('「指名を解除」は API を通して外し、一覧から消す', async () => {

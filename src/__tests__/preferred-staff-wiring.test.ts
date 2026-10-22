@@ -41,6 +41,12 @@ describe('指名スタッフの登録手段', () => {
     expect(read('src/app/mypage/staff/page.tsx')).toMatch(/「指名登録」ボタン/);
   });
 
+  it('施設ページのスタッフタブは、ログイン後の戻り先に #staff を付ける', () => {
+    // タブは押しても URL の #hash が変わらないため、付けないとログイン後に「トップ」タブへ戻される
+    expect(read('src/app/facility/[slug]/page.tsx')).toMatch(/<StaffList\b[^>]*returnHash="#staff"/);
+    expect(read('src/components/facility/StaffList.tsx')).toMatch(/<PreferredStaffProvider\b[^\n]*returnHash=\{returnHash\}/);
+  });
+
   it('ボタンは書き込みを API に任せ、API は CSRF・レート制限・ログイン必須で包まれている', () => {
     expect(read('src/components/facility/PreferredStaffButton.tsx')).toMatch(/fetch\('\/api\/preferred-staff'/);
     const api = read(API);

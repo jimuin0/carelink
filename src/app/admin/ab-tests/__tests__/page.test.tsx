@@ -22,7 +22,10 @@ test('A/Bテストはまだ実行できないことを伝え、ロールアウ�
   expect(await screen.findByText('A/Bテストは、まだ実行できません。')).toBeVisible();
   expect(screen.getByText(/利用者の振り分けも計測も行われません/)).toBeVisible();
   expect(screen.getByRole('link', { name: 'Feature Flags' })).toHaveAttribute('href', '/admin/feature-flags');
-  expect(screen.getByText('ロールアウト率が1〜99%のフラグはありません。')).toBeVisible();
+  // 一覧は ON（enabled=true）のフラグだけを返す（GET ?ab=1）。OFF のフラグを含むかのように書かない
+  expect(screen.getByText('ONでロールアウト率が1〜99%のフラグはありません。')).toBeVisible();
+  expect(screen.getByText(/下の一覧は、ONでロールアウト率が1〜99%のフラグと/)).toBeVisible();
+  expect(mockFetch).toHaveBeenCalledWith('/api/admin/feature-flags?ab=1');
   const text = document.body.textContent ?? '';
   expect(text).not.toMatch(/A\/Bテストが開始されます|でA\/Bテストを実行|ロールアウト設定 →/);
   expect(text).not.toMatch(/trackAbEvent/);

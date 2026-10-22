@@ -53,6 +53,21 @@ test('未ログインなら、今のページへ戻るログイン導線を出�
   expect(mockRead).not.toHaveBeenCalled();
 });
 
+test('施設ページのスタッフタブでは、ログイン後にそのタブへ戻れるよう #staff を付けて渡す', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
+  render(
+    <PreferredStaffProvider staffIds={[HANAKO]} returnHash="#staff">
+      <PreferredStaffButton staffId={HANAKO} staffName="花子" variant="card" />
+    </PreferredStaffProvider>,
+  );
+  const link = await screen.findByRole('link', { name: 'ログインして指名登録（花子さん）' });
+  expect(link).toHaveAttribute('href', '/auth/login?redirect=%2Ffacility%2Fsynthetic%2Fstaff%2Fhanako%23staff');
+  // ログイン画面の safeRedirect は #hash を保ったまま同一オリジンのパスに戻す
+  const { safeRedirect } = jest.requireActual('@/lib/safe-redirect') as typeof import('@/lib/safe-redirect');
+  const redirect = new URL(link.getAttribute('href')!, 'https://example.invalid').searchParams.get('redirect');
+  expect(safeRedirect(redirect, 'https://example.invalid')).toBe('/facility/synthetic/staff/hanako#staff');
+});
+
 test('未登録のスタッフを指名登録すると、解除ボタンとマイページへの案内に変わる', async () => {
   (fetch as jest.Mock).mockResolvedValue({ ok: true, status: 200, json: async () => ({ nominated: true }) });
   renderDetail();
@@ -90,10 +105,14 @@ test.each([
   expect(screen.queryByRole('button', { name: '指名登録（花子さん）' })).not.toBeInTheDocument();
 });
 
-test('確認中は押せない', async () => {
+test('確認中は押せず、画面の文字と読み上げ名が一致する（「指名登録」と見せない）', async () => {
   mockGetUser.mockReturnValue(new Promise(() => {}));
   renderDetail();
-  expect(screen.getByRole('button', { name: '指名の状態を確認しています（花子さん）' })).toBeDisabled();
+  const button = screen.getByRole('button', { name: '指名を確認中（花子さん）' });
+  expect(button).toBeDisabled();
+  // WCAG 2.5.3：見えている文字が読み上げ名に含まれる。指名済みの人に一瞬「指名登録」を見せない
+  expect(button).toHaveTextContent('指名を確認中');
+  expect(button).not.toHaveTextContent('指名登録');
 });
 
 test.each([

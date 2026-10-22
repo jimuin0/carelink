@@ -17,7 +17,14 @@ interface PreferredStaff {
   position: string | null;
   /** 公開中のスタッフ詳細ページ。非表示になったスタッフや非公開施設では null（リンク先が 404 になるため出さない） */
   profile_href: string | null;
+  /** 施設へのリンクの代わり／横に出す補足（読み込み失敗・非公開施設・掲載終了）。無ければ null */
+  notice: string | null;
 }
+
+/** スタッフ・施設の補助読み込みが失敗したとき。「非公開」などと事実と違う理由を出さない */
+const NOTICE_DETAILS_UNAVAILABLE = '施設情報を読み込めませんでした';
+const NOTICE_FACILITY_UNPUBLISHED = '現在公開されていない施設のスタッフです';
+const NOTICE_STAFF_HIDDEN = '現在このスタッフは掲載されていません';
 
 export default function PreferredStaffPage() {
   const [staff, setStaff] = useState<PreferredStaff[]>([]);
@@ -49,26 +56,29 @@ export default function PreferredStaffPage() {
         if (!prefs || prefs.length === 0) { if (!cancelled) setLoading(false); return; }
 
         const staffIds = prefs.map((p) => p.staff_id);
-        // スタッフ詳細は補助（失敗時は名称「不明」表示で本体は継続）。
-        // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-        const { data: staffData } = await supabase
+        // スタッフ詳細・施設名は補助（失敗しても一覧と「指名を解除」は使えるようにする）。
+        // ただし失敗は記録しておき、行が欠けた理由を「非公開」と取り違えて表示しない。
+        const { data: staffData, error: staffErr } = await supabase
           .from('staff_profiles')
           .select('id, name, slug, photo_url, position, facility_id, is_active')
           .in('id', staffIds);
 
         const facilityIds = Array.from(new Set((staffData || []).map((s) => s.facility_id)));
-        // 施設名は補助（失敗時は空表示で本体は継続）。
-        // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-        const { data: facilities } = await supabase
+        const { data: facilities, error: facilitiesErr } = await supabase
           .from('facility_profiles')
           .select('id, name, slug')
           .in('id', facilityIds);
         const facilityMap = Object.fromEntries((facilities || []).map((f) => [f.id, f]));
+        const detailsUnavailable = Boolean(staffErr || facilitiesErr);
 
         if (cancelled) return;
         setStaff(prefs.map((p) => {
           const s = staffData?.find((st) => st.id === p.staff_id);
           const f = s ? facilityMap[s.facility_id] : null;
+          // 施設行が無い理由は「非公開（RLS で見えない）」とは限らない。読み取りが失敗していれば中立に伝える。
+          let notice: string | null = null;
+          if (!s || !f) notice = detailsUnavailable ? NOTICE_DETAILS_UNAVAILABLE : (s ? NOTICE_FACILITY_UNPUBLISHED : NOTICE_STAFF_HIDDEN);
+          else if (s.is_active !== true) notice = NOTICE_STAFF_HIDDEN;
           return {
             id: p.id,
             staff_id: p.staff_id,
@@ -78,6 +88,7 @@ export default function PreferredStaffPage() {
             facility_slug: f?.slug || '',
             position: s?.position || null,
             profile_href: s && f && s.is_active === true ? `/facility/${f.slug}/staff/${s.slug}` : null,
+            notice,
           };
         }));
         setLoading(false);
@@ -150,11 +161,10 @@ export default function PreferredStaffPage() {
                   <p className="font-bold text-sm">{s.staff_name}</p>
                 )}
                 {s.position && <p className="text-xs text-gray-500">{s.position}</p>}
-                {s.facility_slug ? (
+                {s.facility_slug && (
                   <Link href={`/facility/${s.facility_slug}`} className="text-xs text-sky-700 hover:underline inline-flex min-h-[24px] items-center">{s.facility_name}</Link>
-                ) : (
-                  <p className="text-xs text-gray-500">現在公開されていない施設のスタッフです</p>
                 )}
+                {s.notice && <p className="text-xs text-gray-500">{s.notice}</p>}
               </div>
               <button
                 type="button"

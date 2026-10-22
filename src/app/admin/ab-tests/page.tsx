@@ -70,13 +70,13 @@ export default function AbTestsPage() {
         <p>
           <Link href="/admin/feature-flags" className="underline">Feature Flags</Link>
           でロールアウト率を設定しても、利用者の振り分けも計測も行われません。振り分けと計測の処理がまだサイトに組み込まれていないためです。
-          下の一覧は、ロールアウト率が1〜99%のフラグと、記録済みの計測結果を表示するだけです。
+          下の一覧は、ONでロールアウト率が1〜99%のフラグと、記録済みの計測結果を表示するだけです。
         </p>
       </div>
 
       {flags.length === 0 ? (
         <div className="bg-white rounded-xl p-8 text-center text-gray-500 text-sm">
-          ロールアウト率が1〜99%のフラグはありません。
+          ONでロールアウト率が1〜99%のフラグはありません。
         </div>
       ) : (
         <div className="space-y-4">
