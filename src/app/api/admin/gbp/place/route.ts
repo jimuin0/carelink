@@ -138,6 +138,7 @@ export async function POST(req: NextRequest) {
   // 「地図を見る」も他店を指していた（形式しか見ていなかった）。保存する前に Google の店舗情報を取り、
   // 施設の登録内容（電話番号、または店舗名＋住所）と合うものだけを受け付ける。消す（空で保存）ときは照合しない。
   // 同じ ID を別の施設へ付けることは DB の部分ユニーク索引が止める（409・admin-facility-integration-write）。
+  let verifiedIdentity: { [key: string]: string | null } | null = null;
   if (gbp_place_id) {
     const { data: facility, error: facilityError } = await supabase
       .from('facility_profiles')
@@ -149,9 +150,15 @@ export async function POST(req: NextRequest) {
     const place = await fetchPlaceDetails(gbp_place_id);
     if (!place) return NextResponse.json({ code: 'GBP_PLACE_UNVERIFIED', error: GBP_PLACE_LOOKUP_FAILED_MESSAGE }, { status: 422 });
     if (!placeMatchesFacility(place, facility)) return NextResponse.json({ code: 'GBP_PLACE_MISMATCH', error: GBP_PLACE_MISMATCH_MESSAGE }, { status: 422 });
+    // 照合に使った登録内容を保存へ渡す。照会の間に店名・電話・住所が変わっていれば、DB が行を
+    // ロックしたうえで食い違いを検出して断る（古い照合結果で他店の Place ID を付けさせない）。
+    verifiedIdentity = {
+      name: facility.name ?? null, phone: facility.phone ?? null, postal_code: facility.postal_code ?? null,
+      prefecture: facility.prefecture ?? null, city: facility.city ?? null, address: facility.address ?? null,
+    };
   }
 
-  const saved = await saveAdminFacilityIntegration({actorId:user.id,facilityId,kind:'gbp:connect',expected:{},values:{place_id:gbp_place_id || null,cid:gbp_cid || null}});
+  const saved = await saveAdminFacilityIntegration({actorId:user.id,facilityId,kind:'gbp:connect',expected:verifiedIdentity?{identity:verifiedIdentity}:{},values:{place_id:gbp_place_id || null,cid:gbp_cid || null}});
   if(saved instanceof NextResponse)return saved;
   return NextResponse.json({ok:true});
 }

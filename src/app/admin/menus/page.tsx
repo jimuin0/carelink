@@ -463,7 +463,7 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
               <div className="bg-white rounded-xl shadow-xs divide-y">
                 {items.map((menu, index) => (
                   // スマホでは操作ボタンを2行目へ折り返す（1行に並べるとメニュー名が幅0まで潰れていた）。
-                  <div key={menu.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 p-4">
+                  <div key={menu.id} data-menu-row="" className="flex flex-wrap items-center gap-x-4 gap-y-2 p-4">
                     <div className="flex flex-col shrink-0">
                       <button
                         type="button"

@@ -15,10 +15,6 @@ test('オーナーがクーポンを作成→編集→削除できる（書き�
   // 一覧へは遷移しない＝0円引きクーポン禁止の E2E 担保。
   // 固定オーバーレイ（Cookie 同意バナー/AIサポート）の hit-test 被り対策で focus→Enter で押す。
   await page.goto('/admin/coupons/new');
-  const selectedHref=await page.locator('section[aria-label="編集する店舗"] a[aria-current="page"]').getAttribute('href');
-  expect(selectedHref).toBeTruthy();
-  const facilityId=new URL(selectedHref!,page.url()).searchParams.get('facility_id');
-  expect(facilityId).toMatch(/^[0-9a-f-]{36}$/);
   await page.locator('#coupon-name').fill(couponName);
   const createBtn = page.getByRole('button', { name: 'クーポンを作成', exact: true });
   await createBtn.scrollIntoViewIfNeeded();
@@ -31,7 +27,9 @@ test('オーナーがクーポンを作成→編集→削除できる（書き�
   await createBtn.scrollIntoViewIfNeeded();
   const [created]=await Promise.all([page.waitForResponse(r=>new URL(r.url()).pathname==='/api/admin/coupons' && r.request().method()==='POST'),createBtn.press('Enter')]);
   expect(created.status()).toBe(201);
-  expect((await created.json()).coupon.facility_id).toBe(facilityId);
+  // 店舗が1つのオーナーには「編集する店舗」の枠が出ない（2026-10-23）。対象店舗は作成結果から取る。
+  const facilityId: string = (await created.json()).coupon.facility_id;
+  expect(facilityId).toMatch(/^[0-9a-f-]{36}$/);
 
   // POST /api/admin/coupons 成功で一覧へ router.push → 作成したクーポンが表示される（永続化）。
   await page.waitForURL(url => url.pathname === '/admin/coupons' && url.searchParams.get('facility_id') === facilityId, { timeout: 15000 });
