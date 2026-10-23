@@ -24,6 +24,10 @@
   --text-tiny--line-height: 1rem;
 
   --shadow-sticky: 0 -4px 20px rgba(0, 0, 0, 0.1);
+
+  /* 操作部品（ボタン・セレクト）の角丸の単一ソース（2026年10月23日 デザイン統一フェーズ1）。
+     `rounded-control` として src/components/ui/ の Button / Select が使う。12px。 */
+  --radius-control: 0.75rem;
 }
 
 /*
