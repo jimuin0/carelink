@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * プロフィール写真は推測できない名前で保存し、前の写真（本人のフォルダの中だけ）を消す（2026年10月23日）。
  * 以前は avatars/<アカウントID>/avatar.<拡張子> に上書きしており、アカウント ID から写真の URL が分かった。

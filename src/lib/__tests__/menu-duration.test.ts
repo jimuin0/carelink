@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * メニューの所要時間の規則（15〜480 分の整数・2026年10月23日）。画面の入力欄・API・予約枠の範囲が
  * 同じ数であることを固定する。
