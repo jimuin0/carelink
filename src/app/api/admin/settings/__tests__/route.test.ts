@@ -633,6 +633,50 @@ test('PATCH: business_hours が valid (close > open) → 200', async () => {
   expect(res.status).toBe(200);
 });
 
+// 2026年10月23日: 予約枠は営業時間の中にしか出ない。勤務時間を保存したスタッフがいても、誰の勤務も
+// 保存した営業時間と重ならなければ、保存は成功に見えるのに予約画面は毎日「満枠」になる。注意だけ返す。
+describe('営業時間を保存したとき、勤務が重なるスタッフがいなければ注意を返す（保存は止めない）', () => {
+  const thenable = (data: unknown, error: unknown = null) => {
+    const obj: Record<string, unknown> = {};
+    for (const method of ['select', 'eq', 'gte', 'not', 'limit']) obj[method] = jest.fn(() => obj);
+    obj.then = (resolve: (v: unknown) => unknown) => resolve({ data, error });
+    return obj;
+  };
+  const staffRows = (start: string, end: string) => [{ id: 's1', staff_schedules: [{ day_of_week: 1, start_time: start, end_time: end }], schedule_overrides: [] }];
+  const savedHours = { mon: { open: '10:00', close: '18:00' } };
+  const mockReads = (rows: unknown, staffError: unknown = null) => {
+    mockAdminFrom.mockImplementation((table: string) => table === 'staff_profiles' ? thenable(rows, staffError)
+      : table === 'facility_profiles' ? { ...thenable([{ business_hours: savedHours }]), ...updateChain() } : updateChain());
+  };
+  beforeEach(() => { mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID })); });
+
+  test('勤務がすべて営業時間の外なら注意を返す', async () => {
+    mockReads(staffRows('07:00:00', '10:00:00'));
+    const res = await PATCH(makePatchRequest({ name: 'test', business_hours: savedHours }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, warning: '保存した営業時間と重なる勤務時間のスタッフがいないため、ネット予約の枠が出ません。スタッフの勤務時間を見直してください。' });
+  });
+  test('重なる勤務のスタッフがいれば注意しない', async () => {
+    mockReads(staffRows('09:00:00', '12:00:00'));
+    expect(await (await PATCH(makePatchRequest({ name: 'test', business_hours: savedHours }))).json()).toEqual({ ok: true });
+  });
+  test('勤務時間を保存したスタッフがいなければ（別の案内が出るので）注意しない', async () => {
+    mockReads([{ id: 's1', staff_schedules: [], schedule_overrides: [] }]);
+    expect(await (await PATCH(makePatchRequest({ name: 'test', business_hours: savedHours }))).json()).toEqual({ ok: true });
+  });
+  test('スタッフを読めなければ注意を出さず、保存は成功のまま', async () => {
+    mockReads(null, { message: 'down' });
+    const res = await PATCH(makePatchRequest({ name: 'test', business_hours: savedHours }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+  });
+  test('営業時間を含まない保存ではスタッフを読まない', async () => {
+    mockReads(staffRows('07:00:00', '10:00:00'));
+    expect(await (await PATCH(makePatchRequest({ name: 'test' }))).json()).toEqual({ ok: true });
+    expect(mockAdminFrom.mock.calls.map(([table]) => table)).not.toContain('staff_profiles');
+  });
+});
+
 test('PATCH: business_hours の未知キー（曜日以外）は strip されDB更新に乗らない', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   const updateFn = updateChain().update;

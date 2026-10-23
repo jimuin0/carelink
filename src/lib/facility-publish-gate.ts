@@ -29,60 +29,129 @@ export function isPublishedHoursConflict(error: unknown): boolean {
   return isPublishedInvariantConflict(error, 'published_facility_hours_confirmed');
 }
 
+const WEEKDAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+/** SQL 側（working_time_meets_business_hours）と同じ時刻の形：H:MM / HH:MM、秒は任意。 */
+const CLOCK = /^([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/;
+
+function clockSeconds(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const match = CLOCK.exec(value);
+  return match ? Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3] ?? 0) : null;
+}
+
 /**
- * 在籍（is_active）スタッフを、勤務時間があるかどうかつきで読むクエリ。
+ * 勤務の窓（週間の勤務日、または勤務する特別日）が、その曜日の店舗の営業時間の中に少しでも残るか。
+ *
+ * 予約枠（get_available_slots）は勤務の窓を営業時間で切り詰め、定休日は枠を出さない。営業時間の外に
+ * しか勤務が無いスタッフしかいない店舗は、検索カードは「予約OK」なのに予約画面は毎日「満枠」になっていた
+ * （2026年10月23日）。SQL 側の同じ規則は public.working_time_meets_business_hours（migration
+ * 20261023180000）。ここを変えるときは必ず両方を揃える。
+ *
+ * 営業時間の読み方は get_available_slots と同じ：未設定・オブジェクトでない・その曜日のキーが無い→
+ * 切り詰めない／その曜日が null→定休日（勤務の窓は残らない）／open・close が両方あれば切り詰める。
+ * 読めない時刻（HH:MM[:SS] でない）は、予約枠も出せないので「残らない」とする。
+ */
+export function workingTimeMeetsBusinessHours(hours: unknown, dayOfWeek: number, start: unknown, end: unknown): boolean {
+  let from = clockSeconds(start);
+  let to = clockSeconds(end);
+  const key = WEEKDAY_KEYS[dayOfWeek];
+  if (from === null || to === null || key === undefined) return false;
+  if (hours !== null && typeof hours === 'object' && !Array.isArray(hours) && Object.prototype.hasOwnProperty.call(hours, key)) {
+    const day = (hours as Record<string, unknown>)[key];
+    if (day === null) return false;
+    if (typeof day === 'object' && !Array.isArray(day)) {
+      const { open, close } = day as { open?: unknown; close?: unknown };
+      if (open != null && close != null) {
+        const opens = clockSeconds(open);
+        const closes = clockSeconds(close);
+        if (opens === null || closes === null) return false;
+        from = Math.max(from, opens);
+        to = Math.min(to, closes);
+      }
+    }
+  }
+  return to > from;
+}
+
+/** 'YYYY-MM-DD' の曜日（0=日）。読めない日付は -1（どの曜日の営業時間にも当たらない）。 */
+function weekdayOf(date: unknown): number {
+  const day = typeof date === 'string' ? new Date(`${date}T00:00:00Z`).getUTCDay() : Number.NaN;
+  return Number.isNaN(day) ? -1 : day;
+}
+
+/**
+ * 在籍（is_active）スタッフを、勤務の窓つきで読むクエリ。
  *
  * 予約枠（get_available_slots）は、週間の勤務日か、今日以降に勤務する特別日（休みではなく
- * 開始・終了時刻がある日）の中にしか出ない。スタッフを追加しただけでは勤務は作られないため
- * （migration 20261023080100）、「有効スタッフがいる」だけで予約できる店舗として扱うと、
+ * 開始・終了時刻がある日）の中で、しかも店舗の営業時間の中にしか出ない。スタッフを追加しただけでは
+ * 勤務は作られないため（migration 20261023080100）、「有効スタッフがいる」だけで予約できる店舗として扱うと、
  * 検索カードは「予約OK」なのに予約画面は毎日「満枠」になる。SQL 側の同じ規則は
  * public.staff_has_working_time（facility_booking_ready と facility_card_view.active_staff_count
- * が使う・migration 20261023080000）。ここを変えるときは必ず両方を揃える。
+ * が使う・migration 20261023080000 / 20261023180000）。ここを変えるときは必ず両方を揃える。
  *
- * 埋め込みの絞り込みは子の行だけを絞る（スタッフ自体は全員返る）。1行あれば足りるので limit 1。
+ * 埋め込みの絞り込みは子の行だけを絞る（スタッフ自体は全員返る）。営業時間と重なるかは
+ * summarizeWorkingStaff が窓ごとに確かめるので、窓は全部読む（最初の 1 行が営業時間外でも、
+ * 後の行が重なれば予約を受けられる）。
  */
 export function workingStaffQuery(client: SupabaseClient, facilityId: string, today: string = todayJst()) {
   return client
     .from('staff_profiles')
-    .select('id, staff_schedules(staff_id), schedule_overrides(staff_id)')
+    .select('id, staff_schedules(day_of_week, start_time, end_time), schedule_overrides(date, start_time, end_time)')
     .eq('facility_id', facilityId)
     .eq('is_active', true)
     .gte('schedule_overrides.date', today)
     .not('schedule_overrides.is_holiday', 'is', true)
     .not('schedule_overrides.start_time', 'is', null)
-    .not('schedule_overrides.end_time', 'is', null)
-    .limit(1, { referencedTable: 'staff_schedules' })
-    .limit(1, { referencedTable: 'schedule_overrides' });
+    .not('schedule_overrides.end_time', 'is', null);
 }
 
 export interface WorkingStaff {
   /** 在籍スタッフ全員。 */
   activeIds: string[];
-  /** そのうち勤務時間がある（予約を受けられる）スタッフ。 */
+  /** そのうち営業時間の中に勤務の窓がある（予約を受けられる）スタッフ。 */
   workingIds: Set<string>;
+  /** 勤務の窓は保存してあるが、どれも営業時間（定休日を含む）と重ならないスタッフ。 */
+  outsideHoursIds: Set<string>;
 }
 
-/** workingStaffQuery の結果を、在籍スタッフと予約を受けられるスタッフに分ける。 */
-export function summarizeWorkingStaff(rows: unknown): WorkingStaff {
+type WindowRow = { day_of_week?: unknown; date?: unknown; start_time?: unknown; end_time?: unknown };
+
+/**
+ * workingStaffQuery の結果を、在籍スタッフ・予約を受けられるスタッフ・営業時間の外にしか勤務が無い
+ * スタッフに分ける。businessHours は facility_profiles.business_hours（読めなければ null＝切り詰めない。
+ * SQL 側で施設が見えないときと同じ）。
+ */
+export function summarizeWorkingStaff(rows: unknown, businessHours: unknown): WorkingStaff {
   const list = (Array.isArray(rows) ? rows : []) as {
-    id: string; staff_schedules?: unknown[] | null; schedule_overrides?: unknown[] | null;
+    id: string; staff_schedules?: WindowRow[] | null; schedule_overrides?: WindowRow[] | null;
   }[];
-  return {
-    activeIds: list.map(row => row.id),
-    workingIds: new Set(list
-      .filter(row => (row.staff_schedules?.length ?? 0) > 0 || (row.schedule_overrides?.length ?? 0) > 0)
-      .map(row => row.id)),
-  };
+  const workingIds = new Set<string>();
+  const outsideHoursIds = new Set<string>();
+  for (const row of list) {
+    const weekly = row.staff_schedules ?? [];
+    const special = row.schedule_overrides ?? [];
+    const works = weekly.some(w => workingTimeMeetsBusinessHours(businessHours, Number(w.day_of_week), w.start_time, w.end_time))
+      || special.some(o => workingTimeMeetsBusinessHours(businessHours, weekdayOf(o.date), o.start_time, o.end_time));
+    if (works) workingIds.add(row.id);
+    else if (weekly.length + special.length > 0) outsideHoursIds.add(row.id);
+  }
+  return { activeIds: list.map(row => row.id), workingIds, outsideHoursIds };
 }
 
 /**
  * 在籍スタッフと、そのうち予約を受けられるスタッフ。読めなければ例外にする
  * （読めないことを「勤務未登録」と取り違えて、誤った案内や警告を出さないため）。
+ * 営業時間はこのクライアントで読める施設の行から取る（SQL 側の staff_has_working_time と同じ）。
  */
 export async function readWorkingStaff(client: SupabaseClient, facilityId: string): Promise<WorkingStaff> {
-  const { data, error } = await workingStaffQuery(client, facilityId);
+  const [staff, facility] = await Promise.all([
+    workingStaffQuery(client, facilityId),
+    client.from('facility_profiles').select('business_hours').eq('id', facilityId).limit(1),
+  ]);
+  const error = staff.error ?? facility.error;
   if (error) throw new Error(`スタッフの勤務状況を取得できませんでした: ${error.message}`);
-  return summarizeWorkingStaff(data);
+  const hours = (facility.data as { business_hours?: unknown }[] | null)?.[0]?.business_hours;
+  return summarizeWorkingStaff(staff.data, hours ?? null);
 }
 
 /**
@@ -91,7 +160,7 @@ export async function readWorkingStaff(client: SupabaseClient, facilityId: strin
  * メニュー件数は公開側 getFacilityMenus の可視条件(is_published が null または true)と揃える。
  * HPB 反映メニューは is_published=false(下書き)で作られるため、これを数に含めると
  * 「公開メニュー0件なのにネット予約できてしまう」行き止まりを防ぐ。
- * スタッフは勤務時間がある在籍スタッフだけを数える（workingStaffQuery）。
+ * スタッフは営業時間の中に勤務時間がある在籍スタッフだけを数える（workingStaffQuery・summarizeWorkingStaff）。
  *
  * error を握り潰すと DB 障害時に「未充足」と誤判定して予約を不当に拒否/許可しかねないため、
  * 呼び出し側が 500 で顕在化できるよう error を返す。
@@ -135,7 +204,7 @@ export async function checkBookingReadiness(
     businessHours: profile.data?.business_hours,
     menuCount: menu.count ?? 0,
     photoCount: photo.count ?? 0,
-    workingStaffCount: summarizeWorkingStaff(staff.data).workingIds.size,
+    workingStaffCount: summarizeWorkingStaff(staff.data, profile.data?.business_hours ?? null).workingIds.size,
   });
   return { readiness: { ready: missing.length === 0, missing }, error: null };
 }
@@ -149,7 +218,7 @@ export interface BookingReadinessInput {
   businessHours?: unknown;
   menuCount: number;
   photoCount: number;
-  /** 勤務時間がある在籍スタッフの数（workingStaffQuery / facility_card_view.active_staff_count）。 */
+  /** 営業時間の中に勤務時間がある在籍スタッフの数（summarizeWorkingStaff / facility_card_view.active_staff_count）。 */
   workingStaffCount: number;
 }
 
@@ -200,7 +269,7 @@ export function bookingReadinessChecks(input: BookingReadinessInput): ReadinessC
     location.name,
     { key: 'menu', ok: input.menuCount >= 1, message: 'メニューを1つ以上登録してください' },
     { key: 'photo', ok: input.photoCount >= 1, message: '写真を1枚以上登録してください' },
-    { key: 'staff', ok: input.workingStaffCount >= 1, message: '勤務時間を保存したスタッフを1人以上登録してください' },
+    { key: 'staff', ok: input.workingStaffCount >= 1, message: '営業時間内の勤務時間を保存したスタッフを1人以上登録してください' },
     location.prefecture,
     location.city,
     location.address,
@@ -222,7 +291,7 @@ export function bookingReadinessMissing(input: BookingReadinessInput): string[] 
  * A search card is advertised as bookable only when facility_card_view carries
  * the readiness inputs and they satisfy the same rule. Cards built from sources
  * without those inputs are never advertised (fail closed, no false 「予約OK」).
- * active_staff_count counts only active staff with working time
+ * active_staff_count counts only active staff with working time inside the business hours
  * (public.staff_has_working_time, migration 20261023080000).
  */
 export function isCardBookingReady(card: {

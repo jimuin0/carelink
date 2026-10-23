@@ -23,6 +23,7 @@ const files = readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql')).sort();
 const MIGRATION = '20261023080000_booking_ready_requires_working_staff.sql';
 const STAFF_CREATE = '20261023080100_staff_create_without_default_schedule.sql';
 const PREVIOUS_VIEW = '20261021060000_card_view_booking_readiness.sql';
+const HOURS_OVERLAP = '20261023180000_booking_ready_hours_overlap_and_capable_staff.sql';
 
 const withoutComments = (sql: string) => sql.split('\n').filter((line) => !line.trim().startsWith('--')).join('\n');
 
@@ -61,13 +62,17 @@ function viewColumns(body: string): string[] {
 }
 
 describe('最後に適用される定義が「勤務時間のある在籍スタッフ」で判定する', () => {
+  // 20261023180000 で「勤務の窓が営業時間と重なる」条件を足した（営業時間の外にしか勤務が無いと
+  // 予約枠は出ない）。それ以外の条件は 20261023080000 のまま引き継いでいること。
   test('判定関数は get_available_slots の勤務の窓と同じ条件を見る', () => {
     const { file, body } = fn('staff_has_working_time');
-    expect(file).toBe(MIGRATION);
+    expect(file).toBe(HOURS_OVERLAP);
     expect(body).toContain("LANGUAGE sql STABLE SECURITY INVOKER SET search_path = ''");
-    expect(body).toContain('EXISTS (SELECT 1 FROM public.staff_schedules ss WHERE ss.staff_id = p_staff_id)');
+    expect(body).toContain('LEFT JOIN public.facility_profiles f ON f.id = s.facility_id');
+    expect(body).toMatch(/FROM public\.staff_schedules ss\s+WHERE ss\.staff_id = s\.id\s+AND public\.working_time_meets_business_hours\(f\.business_hours, ss\.day_of_week, ss\.start_time, ss\.end_time\)/);
+    expect(body).toContain('AND public.working_time_meets_business_hours(f.business_hours, EXTRACT(DOW FROM so.date)::integer, so.start_time, so.end_time)');
     for (const condition of [
-      'so.staff_id = p_staff_id',
+      'so.staff_id = s.id',
       "so.date >= (pg_catalog.now() AT TIME ZONE 'Asia/Tokyo')::date",
       'so.is_holiday IS NOT TRUE',
       'so.start_time IS NOT NULL',
@@ -102,7 +107,7 @@ describe('最後に適用される定義が「勤務時間のある在籍スタ�
   test('アプリ側の読み方（workingStaffQuery）は同じ条件', () => {
     const source = readFileSync(join(ROOT, 'src/lib/facility-publish-gate.ts'), 'utf8');
     for (const call of [
-      ".select('id, staff_schedules(staff_id), schedule_overrides(staff_id)')",
+      ".select('id, staff_schedules(day_of_week, start_time, end_time), schedule_overrides(date, start_time, end_time)')",
       ".eq('is_active', true)",
       ".gte('schedule_overrides.date', today)",
       ".not('schedule_overrides.is_holiday', 'is', true)",

@@ -361,6 +361,28 @@ test('勤務中のスタッフがいない指名なしは理由を案内し、�
   expect(JSON.parse((fetchMock.mock.calls[1][1] as { body: string }).body)).toEqual(expect.objectContaining({ staff_id: 's1', customer_name: '合成テスト' }));
 });
 
+// 20261023180000: 勤務しているスタッフはいるが、誰も選んだメニューを担当できない（menu_staff）。
+// 以前は「この時間帯は既に予約が入っています」と出てボードを読み直していた（重複ではない）。
+test('メニューを担当できるスタッフがいない指名なし（BOOKING_NO_CAPABLE_STAFF）は理由を案内し、入力を残す', async () => {
+  const user = userEvent.setup();
+  mockRefresh.mockClear();
+  const fetchMock = jest.fn()
+    .mockResolvedValueOnce({ ok: false, status: 409, json: async () => ({ code: 'BOOKING_NO_CAPABLE_STAFF', error: 'server text' }) });
+  global.fetch = fetchMock as unknown as typeof fetch;
+  setupRows(unassignedRows);
+  fireEvent.click(screen.getAllByRole('button', { name: /新規予約を追加/ })[0], { clientX: 0 });
+  await screen.findByText('新規予約（指名なし）');
+  await user.type(screen.getByLabelText(/お客様名/), '合成テスト');
+  await user.click(screen.getByRole('checkbox'));
+  await user.click(screen.getByRole('button', { name: '予約を確定' }));
+  expect(await screen.findByText('この時間に勤務するスタッフの中に、選択したメニューを担当できる人がいないため、指名なしでは登録できません。担当を選ぶか、メニューの担当スタッフを確認してください。')).toBeInTheDocument();
+  expect(screen.queryByText(/既に予約が入っています/)).toBeNull();
+  expect(mockRefresh).not.toHaveBeenCalled();
+  expect(screen.getByLabelText(/お客様名/)).not.toBeDisabled();
+  expect(screen.queryByRole('button', { name: '同じ操作で再確認' })).toBeNull();
+  expect(sessionStorage.getItem('carelink-manual-booking:f1')).toBeNull();
+});
+
 test('重複（BOOKING_CONFLICT）は従来どおりボードを更新して別の時間帯を案内する', async () => {
   const user = userEvent.setup();
   mockRefresh.mockClear();

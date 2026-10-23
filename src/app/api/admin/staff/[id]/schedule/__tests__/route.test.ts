@@ -68,8 +68,66 @@ test('PUT uses one transaction with trusted actor, facility, target, immutable o
   const res = await PUT(request('PUT', { ...body, force: 'true' }), props());
   expect(res.status).toBe(200);
   expect(mockRpc).toHaveBeenCalledWith('replace_staff_schedules_atomic', { p_actor_id: USER, p_facility_id: FACILITY, p_staff_id: STAFF, p_operation_id: OP, p_schedules: body.schedules, p_force: false });
-  expect(mockAdminFrom.mock.calls).toEqual([['staff_profiles']]);
+  // 書き込みは RPC だけ。保存後に営業時間を読み、重ならない曜日の注意を返す（2026年10月23日）。
+  expect(mockAdminFrom.mock.calls).toEqual([['staff_profiles'], ['facility_profiles']]);
   expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ tableName: 'staff_schedules', facilityId: FACILITY }));
+  expect(await res.json()).toEqual({ ok: true });
+});
+// 2026年10月23日: 予約枠は営業時間の中にしか出ない。営業時間（定休日を含む）と重ならない勤務を保存しても
+// 成功に見えるだけで、予約画面は毎日「満枠」になっていた。保存は止めず、注意を返す。
+describe('営業時間と重ならない勤務の注意（保存は止めない）', () => {
+  const HOURS = { mon: { open: '10:00', close: '18:00' }, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
+  const withHours = (hours: unknown, error: unknown = null) => {
+    mockAdminFrom.mockReset();
+    mockAdminFrom.mockImplementation((table: string) => table === 'facility_profiles' ? chain(hours === undefined ? null : { business_hours: hours }, error) : chain({ id: STAFF }));
+  };
+  test('PUT: 定休日・営業時間外の曜日を知らせる', async () => {
+    withHours(HOURS);
+    const res = await PUT(request('PUT', { operation_id: OP, schedules: [
+      { day_of_week: 1, start_time: '09:00', end_time: '18:00' }, { day_of_week: 0, start_time: '09:00', end_time: '18:00' },
+    ] }), props());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, warning: '日曜の勤務時間は店舗の営業時間（定休日を含む）と重なっていないため、その曜日はネット予約の枠が出ません。' });
+  });
+  test('PUT: どの曜日も重ならなければ、このスタッフが予約を受けられないことまで知らせる', async () => {
+    withHours(HOURS);
+    const res = await PUT(request('PUT', { operation_id: OP, schedules: [
+      { day_of_week: 2, start_time: '09:00', end_time: '18:00' }, { day_of_week: 1, start_time: '07:00', end_time: '10:00' },
+    ] }), props());
+    expect((await res.json()).warning).toBe('月・火曜の勤務時間は店舗の営業時間（定休日を含む）と重なっていないため、その曜日はネット予約の枠が出ません。このままでは、このスタッフは週間の勤務ではネット予約を受けられません。店舗の営業時間か勤務時間を見直してください。');
+  });
+  test.each([[undefined, null], [HOURS, { message: 'down' }]])('PUT: 営業時間を読めなければ注意を出さず、保存は成功のまま', async (hours, error) => {
+    withHours(hours, error);
+    const res = await PUT(request('PUT', { operation_id: OP, schedules: [{ day_of_week: 0, start_time: '09:00', end_time: '18:00' }] }), props());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+  });
+  test('POST: 勤務する特別日が定休日なら知らせる。営業日の中なら知らせない', async () => {
+    withHours(HOURS);
+    mockRpc.mockResolvedValue({ data: { ok: true }, error: null });
+    // 2030-01-08 は火曜（定休日）、2030-01-07 は月曜
+    let res = await POST(request('POST', { date: '2030-01-08', is_holiday: false, start_time: '10:00', end_time: '12:00' }), props());
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ ok: true, warning: 'この特別日の勤務時間は店舗の営業時間（定休日を含む）と重なっていないため、この日はネット予約の枠が出ません。' });
+    res = await POST(request('POST', { date: '2030-01-07', is_holiday: false, start_time: '10:00', end_time: '12:00' }), props());
+    expect(await res.json()).toEqual({ ok: true });
+  });
+  test('POST: 休みの特別日・時刻なしの特別日は営業時間を読まない', async () => {
+    withHours(HOURS);
+    mockRpc.mockResolvedValue({ data: { ok: true }, error: null });
+    for (const payload of [{ date: '2030-01-08', is_holiday: true }, { date: '2030-01-08', is_holiday: false }]) {
+      const res = await POST(request('POST', payload), props());
+      expect(await res.json()).toEqual({ ok: true });
+    }
+    expect(mockAdminFrom.mock.calls.map(([table]) => table)).not.toContain('facility_profiles');
+  });
+  test('POST: 営業時間を読めなければ注意を出さない', async () => {
+    withHours(HOURS, { message: 'down' });
+    mockRpc.mockResolvedValue({ data: { ok: true }, error: null });
+    const res = await POST(request('POST', { date: '2030-01-08', is_holiday: false, start_time: '10:00', end_time: '12:00' }), props());
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ ok: true });
+  });
 });
 test('PUT empty schedule/force/replay accepted, no old receipt overwrites a newer schedule', async () => {
   mockRpc.mockResolvedValue({ data: { ok: true, replayed: true }, error: null });

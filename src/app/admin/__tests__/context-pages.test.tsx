@@ -75,9 +75,9 @@ test('staff list marks active staff without working time as unable to take booki
   ];
   // 在籍スタッフの勤務の有無（workingStaffQuery の応答）。
   const working = [
-    { id: 'staff-saved', staff_schedules: [{ staff_id: 'staff-saved' }], schedule_overrides: [] },
+    { id: 'staff-saved', staff_schedules: [{ day_of_week: 1, start_time: '10:00:00', end_time: '19:00:00' }], schedule_overrides: [] },
     { id: 'staff-new', staff_schedules: [], schedule_overrides: [] },
-    { id: 'staff-special', staff_schedules: [], schedule_overrides: [{ staff_id: 'staff-special' }] },
+    { id: 'staff-special', staff_schedules: [], schedule_overrides: [{ date: '2030-01-07', start_time: '10:00:00', end_time: '12:00:00' }] },
   ];
   const selects: string[] = [];
   mockFrom.mockImplementation((table: string) => {
@@ -90,7 +90,7 @@ test('staff list marks active staff without working time as unable to take booki
   });
   const tree = await Staff({ searchParams: Promise.resolve({ facility_id: facility }) });
   // 勤務を読むのは、この店舗の在籍スタッフだけ（予約枠・検索カードと同じ読み方）
-  expect(selects).toContain('id, staff_schedules(staff_id), schedule_overrides(staff_id)');
+  expect(selects).toContain('id, staff_schedules(day_of_week, start_time, end_time), schedule_overrides(date, start_time, end_time)');
   const workingRead = queries.filter(q => q.table === 'staff_profiles').find(q => q.eq.mock.calls.some(([column]) => column === 'is_active'));
   expect(workingRead?.eq.mock.calls).toEqual([['facility_id', facility], ['is_active', true]]);
   const card = (id: string) => nodes(tree).find(n => n.key === id) as ReactElement<Record<string, unknown>>;

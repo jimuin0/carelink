@@ -72,6 +72,12 @@ export const BOOKING_SLOT_PASSED_MESSAGE = '選択した時間はすでに過ぎ
  * 日時を選び直してもらう（古い所要時間のまま取り直すと、どの枠を選んでも断られ続けるため）。
  */
 export const BOOKING_DURATION_MISMATCH_MESSAGE = 'メニューの内容が更新されたため、選択した時間ではご予約できません。最新の内容で日時を選び直してください。';
+/**
+ * 指名なし（おまかせ）で、その時間に勤務するスタッフはいるが、誰も選んだメニューを担当できないとき
+ * （menu_staff・予約 RPC の BOOKING_NO_CAPABLE_STAFF・migration 20261023180000）。
+ * 以前は「この時間帯は既に予約が入っています」と、空いている時間なのに満席と案内していた。
+ */
+export const NO_CAPABLE_STAFF_MESSAGE = 'この時間に、選択したメニューを担当できるスタッフがいません。別の日時を選ぶか、メニューを選び直してください。';
 /** 日時変更で、予約の所要時間と違う長さの時間を指定されたとき。 */
 export const RESCHEDULE_DURATION_MISMATCH_MESSAGE = '予約の所要時間と合わない時間は指定できません。表示されている時間から選び直してください。';
 

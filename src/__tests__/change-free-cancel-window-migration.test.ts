@@ -62,9 +62,20 @@ describe(`${FILE} の形`, () => {
     expect(WINDOW.indexOf('REVOKE ALL ON FUNCTION public.change_booking_atomic')).toBeGreaterThan(WINDOW.indexOf('\n$$;'));
   });
 
-  test('この migration が change_booking_atomic の最新定義（後続の migration が上書きしない）', () => {
-    const later = readdirSync(MIGRATIONS).filter((f) => /^\d{14}_/.test(f) && f > FILE);
-    for (const f of later) expect(read(f)).not.toMatch(/FUNCTION\s+(public\.)?change_booking_atomic\s*\(/i);
+  // 後続で定義し直す migration（20261023180000＝BOOKING_NO_CAPABLE_STAFF を足した写し）も、
+  // 宣言と判定を一字一句そのまま引き継ぐこと＝定義し直しで期限の判定が消えないこと。
+  test('後続で change_booking_atomic を定義し直す migration も、期限の判定をそのまま引き継ぐ', () => {
+    const later = readdirSync(MIGRATIONS)
+      .filter((f) => /^\d{14}_/.test(f) && f > FILE)
+      .filter((f) => /FUNCTION\s+(public\.)?change_booking_atomic\s*\(/i.test(read(f)));
+    expect(later).toEqual(['20261023180000_booking_ready_hours_overlap_and_capable_staff.sql']);
+    const own = definition(WINDOW, 'change_booking_atomic');
+    const check = own.slice(own.indexOf('  -- 2026-10-23 BOOKING_CHANGE_WINDOW_CLOSED'), own.indexOf('  v_nominated :='));
+    for (const f of later) {
+      const redefined = definition(read(f), 'change_booking_atomic');
+      expect(redefined).toContain(DECLARATIONS);
+      expect(redefined).toContain(check);
+    }
   });
 });
 

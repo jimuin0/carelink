@@ -6,7 +6,7 @@
 
 import {
   checkBookingReadiness as checkPublishReadiness, checkPublishReadiness as checkListingReadiness, isPublishedLocationConflict,
-  isPublishedHoursConflict, readWorkingStaff, summarizeWorkingStaff, workingStaffQuery,
+  isPublishedHoursConflict, readWorkingStaff, summarizeWorkingStaff, workingStaffQuery, workingTimeMeetsBusinessHours,
 } from '../facility-publish-gate';
 
 test.each([null, undefined, false, '23514', {}, { code: '23514' },
@@ -48,9 +48,9 @@ function staffChain(data: unknown, error: unknown = null) {
   obj.then = (resolve: (v: { data: unknown; error: unknown }) => unknown) => resolve({ data, error });
   return obj;
 }
-/** 週間の勤務日があるスタッフ n 人（null は data が null の応答）。 */
+/** 月曜（営業日 10:00-18:00）に勤務するスタッフ n 人（null は data が null の応答）。 */
 const workingRows = (n: number | null) => n === null ? null
-  : Array.from({ length: n }, (_, i) => ({ id: `s${i}`, staff_schedules: [{ staff_id: `s${i}` }], schedule_overrides: [] }));
+  : Array.from({ length: n }, (_, i) => ({ id: `s${i}`, staff_schedules: [{ day_of_week: 1, start_time: '09:00:00', end_time: '18:00:00' }], schedule_overrides: [] }));
 
 // facility_profiles は .select('prefecture, city').eq('id', facilityId).single() で解決する。
 function profileChain(data: { prefecture: string | null; city: string | null; address: string | null; name?: string; status?: string; business_hours?: unknown; catch_copy?: string | null; description?: string | null } | null, error: unknown = null) {
@@ -126,7 +126,7 @@ test('写真0 → 写真不足', async () => {
 
 test('スタッフ0 → スタッフ不足', async () => {
   const { readiness } = await checkPublishReadiness(admin({ menu: 1, photo: 1, staff: 0 }), 'f1');
-  expect(readiness.missing).toContain('勤務時間を保存したスタッフを1人以上登録してください');
+  expect(readiness.missing).toContain('営業時間内の勤務時間を保存したスタッフを1人以上登録してください');
 });
 
 // 回帰（E8 後続）: スタッフを追加しただけでは勤務は作られない。勤務時間の無い有効スタッフしか
@@ -135,13 +135,24 @@ test('有効スタッフがいても勤務時間が無ければネット予約�
   const { readiness, error } = await checkPublishReadiness(admin({ menu: 1, photo: 1,
     staffRows: [{ id: 'new', staff_schedules: [], schedule_overrides: [] }, { id: 'nulls', staff_schedules: null, schedule_overrides: null }] }), 'f1');
   expect(error).toBeNull();
-  expect(readiness).toEqual({ ready: false, missing: ['勤務時間を保存したスタッフを1人以上登録してください'] });
+  expect(readiness).toEqual({ ready: false, missing: ['営業時間内の勤務時間を保存したスタッフを1人以上登録してください'] });
 });
 
 test('特別日だけ勤務するスタッフでもネット予約を受けられる', async () => {
   const { readiness } = await checkPublishReadiness(admin({ menu: 1, photo: 1,
-    staffRows: [{ id: 'special', staff_schedules: [], schedule_overrides: [{ staff_id: 'special' }] }] }), 'f1');
+    staffRows: [{ id: 'special', staff_schedules: [], schedule_overrides: [{ date: '2030-01-07', start_time: '10:00:00', end_time: '12:00:00' }] }] }), 'f1');
   expect(readiness).toEqual({ ready: true, missing: [] });
+});
+
+// 回帰（2026年10月23日）: 勤務時間はあるが、どれも営業時間（月曜 10:00-18:00・他は定休日）と重ならない。
+// 予約枠は営業時間の中にしか出ないので、検索カードは「予約OK」なのに予約画面は毎日「満枠」になっていた。
+test('勤務時間が営業時間と重ならなければネット予約は準備中', async () => {
+  const { readiness } = await checkPublishReadiness(admin({ menu: 1, photo: 1, staffRows: [
+    { id: 'closed-day', staff_schedules: [{ day_of_week: 2, start_time: '09:00:00', end_time: '18:00:00' }], schedule_overrides: [] },
+    { id: 'early', staff_schedules: [{ day_of_week: 1, start_time: '07:00:00', end_time: '10:00:00' }],
+      schedule_overrides: [{ date: '2030-01-08', start_time: '10:00:00', end_time: '12:00:00' }] },
+  ] }), 'f1');
+  expect(readiness).toEqual({ ready: false, missing: ['営業時間内の勤務時間を保存したスタッフを1人以上登録してください'] });
 });
 
 // count=null（head:true count クエリが null を返す経路）でも `?? 0` で 0 扱いになり不足と判定される。
@@ -159,7 +170,7 @@ test('photo.count が null → ?? 0 で不足扱い', async () => {
 
 test('staff の data が null → 0人として不足扱い', async () => {
   const { readiness } = await checkPublishReadiness(admin({ menu: 1, photo: 1, staff: null }), 'f1');
-  expect(readiness.missing).toContain('勤務時間を保存したスタッフを1人以上登録してください');
+  expect(readiness.missing).toContain('営業時間内の勤務時間を保存したスタッフを1人以上登録してください');
 });
 
 test('menu.error → error 返却', async () => {
@@ -401,7 +412,7 @@ describe('勤務時間のある在籍スタッフ（workingStaffQuery）', () =>
     const from = jest.fn(() => chain);
     workingStaffQuery({ from } as never, 'f1', '2026-10-23');
     expect(from).toHaveBeenCalledWith('staff_profiles');
-    expect(chain.select).toHaveBeenCalledWith('id, staff_schedules(staff_id), schedule_overrides(staff_id)');
+    expect(chain.select).toHaveBeenCalledWith('id, staff_schedules(day_of_week, start_time, end_time), schedule_overrides(date, start_time, end_time)');
     expect((chain.eq as jest.Mock).mock.calls).toEqual([['facility_id', 'f1'], ['is_active', true]]);
     expect(chain.gte).toHaveBeenCalledWith('schedule_overrides.date', '2026-10-23');
     expect((chain.not as jest.Mock).mock.calls).toEqual([
@@ -409,9 +420,8 @@ describe('勤務時間のある在籍スタッフ（workingStaffQuery）', () =>
       ['schedule_overrides.start_time', 'is', null],
       ['schedule_overrides.end_time', 'is', null],
     ]);
-    expect((chain.limit as jest.Mock).mock.calls).toEqual([
-      [1, { referencedTable: 'staff_schedules' }], [1, { referencedTable: 'schedule_overrides' }],
-    ]);
+    // 窓は全部読む（最初の 1 行が営業時間外でも、後の行が重なれば予約を受けられる）。
+    expect(chain.limit).not.toHaveBeenCalled();
   });
 
   test('今日は日本時間で数える（UTC ではまだ前日の 0:30 JST でも当日）', () => {
@@ -425,20 +435,78 @@ describe('勤務時間のある在籍スタッフ（workingStaffQuery）', () =>
     }
   });
 
-  test('勤務日か勤務する特別日が1つでもあるスタッフだけを予約を受けられるスタッフにする', () => {
+  test('営業時間の中に勤務日か勤務する特別日が1つでもあるスタッフだけを予約を受けられるスタッフにする', () => {
+    const HOURS = { mon: { open: '10:00', close: '18:00' }, tue: null, wed: { open: '10:00', close: '18:00' } };
     expect(summarizeWorkingStaff([
-      { id: 'weekly', staff_schedules: [{}], schedule_overrides: [] },
-      { id: 'special', staff_schedules: [], schedule_overrides: [{}] },
+      { id: 'weekly', staff_schedules: [{ day_of_week: 1, start_time: '09:00:00', end_time: '11:00:00' }], schedule_overrides: [] },
+      // 2030-01-09 は水曜（営業日）
+      { id: 'special', staff_schedules: [], schedule_overrides: [{ date: '2030-01-09', start_time: '17:00:00', end_time: '20:00:00' }] },
+      // 最初の窓は定休日（火曜）でも、次の窓が営業時間と重なれば予約を受けられる
+      { id: 'second', staff_schedules: [{ day_of_week: 2, start_time: '09:00:00', end_time: '18:00:00' }, { day_of_week: 3, start_time: '12:00:00', end_time: '13:00:00' }] },
+      { id: 'closed', staff_schedules: [{ day_of_week: 2, start_time: '09:00:00', end_time: '18:00:00' }], schedule_overrides: [{ date: '2030-01-08', start_time: '10:00:00', end_time: '12:00:00' }] },
+      { id: 'outside', staff_schedules: [{ day_of_week: 1, start_time: '18:00:00', end_time: '21:00:00' }], schedule_overrides: null },
       { id: 'none', staff_schedules: [], schedule_overrides: [] },
       { id: 'missing' },
-    ])).toEqual({ activeIds: ['weekly', 'special', 'none', 'missing'], workingIds: new Set(['weekly', 'special']) });
-    expect(summarizeWorkingStaff(null)).toEqual({ activeIds: [], workingIds: new Set() });
+    ], HOURS)).toEqual({
+      activeIds: ['weekly', 'special', 'second', 'closed', 'outside', 'none', 'missing'],
+      workingIds: new Set(['weekly', 'special', 'second']),
+      outsideHoursIds: new Set(['closed', 'outside']),
+    });
+    expect(summarizeWorkingStaff(null, HOURS)).toEqual({ activeIds: [], workingIds: new Set(), outsideHoursIds: new Set() });
   });
 
   test('readWorkingStaff は読めなければ例外（未登録と偽装しない）', async () => {
-    await expect(readWorkingStaff({ from: () => staffChain(null, { message: 'down' }) } as never, 'f1'))
+    const client = (staff: unknown, facility: { data: unknown; error: unknown }) => ({
+      from: (table: string) => table === 'staff_profiles' ? staff : {
+        select: () => ({ eq: () => ({ limit: () => Promise.resolve(facility) }) }),
+      },
+    }) as never;
+    const hours = { data: [{ business_hours: { mon: { open: '10:00', close: '18:00' } } }], error: null };
+    await expect(readWorkingStaff(client(staffChain(null, { message: 'down' }), hours), 'f1'))
       .rejects.toThrow('スタッフの勤務状況を取得できませんでした: down');
-    await expect(readWorkingStaff({ from: () => staffChain(workingRows(2)) } as never, 'f1'))
-      .resolves.toEqual({ activeIds: ['s0', 's1'], workingIds: new Set(['s0', 's1']) });
+    await expect(readWorkingStaff(client(staffChain(workingRows(2)), { data: null, error: { message: 'hours down' } }), 'f1'))
+      .rejects.toThrow('スタッフの勤務状況を取得できませんでした: hours down');
+    await expect(readWorkingStaff(client(staffChain(workingRows(2)), hours), 'f1'))
+      .resolves.toEqual({ activeIds: ['s0', 's1'], workingIds: new Set(['s0', 's1']), outsideHoursIds: new Set() });
+    // 営業時間が月曜 18:00 以降だけなら、09:00-18:00 の勤務は予約を受けられない
+    await expect(readWorkingStaff(client(staffChain(workingRows(1)), { data: [{ business_hours: { mon: { open: '18:00', close: '20:00' } } }], error: null }), 'f1'))
+      .resolves.toEqual({ activeIds: ['s0'], workingIds: new Set(), outsideHoursIds: new Set(['s0']) });
+    // 施設の行が見えない（RLS）なら営業時間で切り詰めない（SQL 側と同じ）
+    for (const invisible of [{ data: [], error: null }, { data: null, error: null }, { data: [{}], error: null }]) {
+      await expect(readWorkingStaff(client(staffChain(workingRows(1)), invisible), 'f1'))
+        .resolves.toEqual({ activeIds: ['s0'], workingIds: new Set(['s0']), outsideHoursIds: new Set() });
+    }
+  });
+
+  // SQL 側 public.working_time_meets_business_hours（migration 20261023180000）と同じ読み方。
+  describe('workingTimeMeetsBusinessHours', () => {
+    const MON = 1;
+    test.each([
+      ['営業時間が未設定なら切り詰めない', null, MON, '07:00:00', '08:00:00', true],
+      ['配列も未設定と同じ', [], MON, '07:00', '08:00', true],
+      ['曜日のキーが無ければ切り詰めない', { tue: null }, MON, '07:00', '08:00', true],
+      ['定休日（null）は重ならない', { mon: null }, MON, '10:00', '18:00', false],
+      ['重なる', { mon: { open: '10:00', close: '18:00' } }, MON, '09:00:00', '10:30:00', true],
+      ['営業開始より前に終わる', { mon: { open: '10:00', close: '18:00' } }, MON, '07:00:00', '10:00:00', false],
+      ['営業終了から始まる', { mon: { open: '10:00', close: '18:00' } }, MON, '18:00:00', '21:00:00', false],
+      ['open だけでは切り詰めない', { mon: { open: '10:00' } }, MON, '07:00', '08:00', true],
+      ['open が null なら切り詰めない', { mon: { open: null, close: '09:00' } }, MON, '10:00', '11:00', true],
+      ['曜日の値がオブジェクトでなければ切り詰めない', { mon: 'always' }, MON, '07:00', '08:00', true],
+      ['曜日の値が配列でも切り詰めない', { mon: [] }, MON, '07:00', '08:00', true],
+      ['読めない営業時間は予約枠も出せないので重ならない', { mon: { open: '25:00', close: '18:00' } }, MON, '10:00', '11:00', false],
+      ['読めない閉店時刻も同じ', { mon: { open: '10:00', close: 18 } }, MON, '10:00', '11:00', false],
+      ['勤務の開始が読めなければ重ならない', null, MON, null, '11:00', false],
+      ['勤務の終了が読めなければ重ならない', null, MON, '10:00', 'later', false],
+      ['開始と終了が同じなら重ならない', null, MON, '10:00', '10:00', false],
+      ['曜日が範囲外なら重ならない', null, 7, '10:00', '11:00', false],
+      ['曜日が読めなければ重ならない', null, Number.NaN, '10:00', '11:00', false],
+    ])('%s', (_label, hours, dow, start, end, expected) => {
+      expect(workingTimeMeetsBusinessHours(hours, dow as number, start, end)).toBe(expected);
+    });
+
+    test('読めない日付の特別日は重ならない', () => {
+      expect(summarizeWorkingStaff([{ id: 'x', staff_schedules: [], schedule_overrides: [{ date: 'not-a-date', start_time: '10:00', end_time: '11:00' }, { date: null, start_time: '10:00', end_time: '11:00' }] }], null))
+        .toEqual({ activeIds: ['x'], workingIds: new Set(), outsideHoursIds: new Set(['x']) });
+    });
   });
 });

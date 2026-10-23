@@ -105,7 +105,7 @@ describe('facilitySetupSteps', () => {
   test('勤務時間の無い有効スタッフがいても、勤務するスタッフがいれば完了。人数は補足に出す', () => {
     const steps = facilitySetupSteps(facts({ activeStaffIds: ['s1', 's2'], unscheduledStaffIds: ['s2'] }));
     expect(steps.filter(s => !s.done)).toEqual([]);
-    expect(steps.find(s => s.key === 'staff')?.note).toBe('勤務時間が未登録で予約を受けられないスタッフ：1人');
+    expect(steps.find(s => s.key === 'staff')?.note).toBe('勤務時間が未登録か営業時間外で予約を受けられないスタッフ：1人');
   });
 
   // 予約を受けられるのは勤務時間のあるスタッフだけ。追加しただけのスタッフ1人では予約を受けられない。
@@ -144,7 +144,7 @@ function fakeClient(tables: Record<string, Row[]>, errors: Record<string, unknow
       const filters: Filter[] = [];
       const childFilters: Record<string, Filter[]> = {};
       const childLimits: Record<string, number> = {};
-      const embeds = [...columns.matchAll(/(\w+)\(\w+\)/g)].map(match => match[1]);
+      const embeds = [...columns.matchAll(/(\w+)\([\w, ]+\)/g)].map(match => match[1]);
       const add = (column: string, make: (col: string) => Filter) => {
         const [child, col] = column.includes('.') ? column.split('.') : [null, column];
         if (child) (childFilters[child] ??= []).push(make(col)); else filters.push(make(col));
@@ -211,8 +211,10 @@ function seed(): Record<string, Row[]> {
     ],
     facility_photos: [{ facility_id: F }, { facility_id: 'other' }],
     staff_schedules: [
-      { staff_id: 's-active', day_of_week: 1 }, { staff_id: 's-active', day_of_week: 2 },
-      { staff_id: 's-paused', day_of_week: 1 }, { staff_id: 's-other', day_of_week: 1 },
+      { staff_id: 's-active', day_of_week: 1, start_time: '10:00:00', end_time: '19:00:00' },
+      { staff_id: 's-active', day_of_week: 2, start_time: '10:00:00', end_time: '19:00:00' },
+      { staff_id: 's-paused', day_of_week: 1, start_time: '10:00:00', end_time: '19:00:00' },
+      { staff_id: 's-other', day_of_week: 1, start_time: '10:00:00', end_time: '19:00:00' },
     ],
     schedule_overrides: [
       // 週間の勤務日は無いが、JST の今日に勤務する特別日がある → 予約を受けられる
@@ -257,6 +259,22 @@ describe('loadFacilitySetupFacts', () => {
     const loaded = await loadFacilitySetupFacts(client, F);
     expect(loaded.unscheduledStaffIds).toEqual([]);
     expect(pending(loaded)).toEqual(['pr_text', 'publish']);
+  });
+
+  // 2026年10月23日: 勤務時間はあるが、どれも営業時間（月〜土 10:00-20:00・日曜定休）と重ならない。
+  // 予約枠は営業時間の中にしか出ないので、予約を受けられるスタッフとして数えない。
+  test('営業時間の外・定休日にしか勤務が無いスタッフしかいなければ、スタッフ（ネット予約）は未完了', async () => {
+    const tables = seed();
+    tables.staff_profiles = [{ id: 's-off', facility_id: F, is_active: true }];
+    tables.staff_schedules = [
+      { staff_id: 's-off', day_of_week: 0, start_time: '10:00:00', end_time: '19:00:00' }, // 日曜は定休日
+      { staff_id: 's-off', day_of_week: 1, start_time: '07:00:00', end_time: '10:00:00' }, // 開店前に終わる
+    ];
+    tables.schedule_overrides = [];
+    const { client } = fakeClient(tables);
+    const loaded = await loadFacilitySetupFacts(client, F);
+    expect(loaded.unscheduledStaffIds).toEqual(['s-off']);
+    expect(pending(loaded)).toEqual(['pr_text', 'publish', 'staff']);
   });
 
   test('追加しただけのスタッフしかいなければ、スタッフ（ネット予約）は未完了', async () => {
