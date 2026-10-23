@@ -6,7 +6,7 @@ import { SITE_URL } from "@/lib/constants";
 import LayoutSwitch from "@/components/LayoutSwitch";
 import TrafficSourceTracker from "@/components/TrafficSourceTracker";
 import { isAiEnabled } from "@/lib/integration-availability";
-import { Analytics, SpeedInsights, CookieConsent } from "@/components/DynamicRootComponents";
+import { SpeedInsights, CookieConsent } from "@/components/DynamicRootComponents";
 import { safeJsonLd } from "@/lib/json-ld";
 import ClientLocalDataCleanup from "@/components/ClientLocalDataCleanup";
 import AnalyticsGate from "@/components/AnalyticsGate";
@@ -130,7 +130,9 @@ export default async function RootLayout({
         <CookieConsent />
         {/* External scripts: no inline body → compatible with CSP strict-dynamic */}
         <Script src="/sw-register.js" strategy="lazyOnload" />
-        <Analytics />
+        {/* Vercel Web Analytics is not enabled for this project (its script answered 404 on
+            every page, 2026-10-23); page views come from GA4 after consent. Re-add
+            <Analytics /> only after enabling Web Analytics in the Vercel dashboard. */}
         <SpeedInsights />
         {/* GA4・Microsoft Clarity は Cookie バナーで分析 Cookie に同意した来訪者にだけ読み込む
             （判定は src/lib/cookie-consent.ts）。ここで無条件に出力しないこと。 */}

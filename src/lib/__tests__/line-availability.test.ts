@@ -120,7 +120,12 @@ describe('認証画面の LINE ログインは isLineLoginEnabled に従属す�
   test.each(AUTH_PAGES)('%s に無条件の /api/auth/line 導線が無い', (path) => {
     const src = read(path);
     const guardAt = src.indexOf('isLineLoginEnabled() && (');
-    const guardEnd = src.indexOf('</a>', guardAt);
+    // ガード内の導線はログイン画面がリンク（</a>）、登録画面が同意つきの POST フォーム（</form>・
+    // PR#793 レビュー P2）。ガード直後に最初に閉じる方を範囲の終わりとする。
+    const ends = ['</a>', '</form>'].map((tag) => src.indexOf(tag, guardAt)).filter((i) => i >= 0);
+    expect(ends.length).toBeGreaterThan(0);
+    const guardEnd = Math.min(...ends);
+    expect(src.slice(guardAt, guardEnd)).toContain('/api/auth/line');
     for (const m of src.matchAll(/\/api\/auth\/line/g)) {
       const at = m.index ?? -1;
       expect(at).toBeGreaterThan(guardAt);

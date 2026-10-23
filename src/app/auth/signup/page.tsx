@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useRef, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -11,6 +11,7 @@ import { PASSWORD_MAX_BYTES, PASSWORD_MIN_LENGTH, PASSWORD_RULES_HINT } from '@/
 import { prefectures, SITE_URL } from '@/lib/constants';
 import Toast from '@/components/Toast';
 import { isLineLoginEnabled } from '@/lib/line-availability';
+import { LINE_CONSENT_REQUIRED_ERROR, LINE_SIGNUP_CONSENT_AGREED, LINE_SIGNUP_INTENT } from '@/lib/line-oauth';
 import { safeRedirect } from '@/lib/safe-redirect';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { useClientReady } from '@/lib/use-client-ready';
@@ -96,6 +97,8 @@ function SignupContent() {
   // 掲載申込の続き（/admin/onboarding・/register/recover へ戻る）として開かれた登録画面。
   // 来院者向けの「施設を探す」は出さず、申込と同じメールアドレスで作るよう案内する。
   const shopAccountSignup = useShopAccountSignup();
+  // LINE の callback は、同意の証跡なしに新規アカウントを作らずここへ戻す（src/lib/line-oauth.ts の LINE_CONSENT_REQUIRED_ERROR）。
+  const lineConsentRequired = searchParams.get('error') === LINE_CONSENT_REQUIRED_ERROR;
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
@@ -104,9 +107,12 @@ function SignupContent() {
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
   const authOperationInFlight = useRef(false);
 
-  const { register, handleSubmit, getValues, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
+  const { register, handleSubmit, getValues, control, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
   });
+  // 同意欄にチェックがあるときだけ、LINE 登録フォームの consent に同意値を入れる
+  // （同意は URL ではなく同一オリジンのフォーム送信で渡す。src/lib/line-oauth.ts「同意の受け渡し」）。
+  const termsAgreed = useWatch({ control, name: 'terms_agreed' }) === true;
 
   // ログイン済みユーザーが /auth/signup に来た場合にフォームを表示し続けないよう、
   // loginページと同様にマウント時のセッション確認でredirect先へ即座に送る。
@@ -270,6 +276,11 @@ function SignupContent() {
               <p className="mt-1">掲載申込に使ったメールアドレスで作成すると、申込の内容（店舗名・写真・営業時間など）を引き継いで店舗情報の設定に進めます。</p>
             </div>
           )}
+          {lineConsentRequired && (
+            <p role="alert" className="mb-6 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" data-testid="signup-line-consent-required">
+              LINEで登録するには、利用規約・プライバシーポリシーへの同意が必要です。下の同意欄にチェックしてから、もう一度「LINEで登録」を押してください。
+            </p>
+          )}
           <form onSubmit={(event) => { void handleSubmit(onSubmit)(event); }} noValidate className="space-y-4">
             <fieldset disabled={!clientReady} className="space-y-4">
             <div>
@@ -425,10 +436,14 @@ function SignupContent() {
           </div>
 
           {/* LINE ログインは LINE をローンチ対象に含めた場合のみ出す（line-availability.ts が単一判定）。 */}
+          {/* 同意は URL ではなく、このフォームの POST（サーバー側で CSRF 検証）で渡す。URL に載せると
+              誰でもそのリンクを作って開けるため、同意なしで新規アカウントが作れた（PR#793 レビュー P2）。 */}
           {isLineLoginEnabled() && (
-            <a
-              href={`/api/auth/line?redirect=${encodeURIComponent(redirect)}`}
-              onClick={(event) => {
+            <form
+              method="post"
+              action="/api/auth/line"
+              data-testid="signup-line-form"
+              onSubmit={(event) => {
                 if (isSubmitting || isGoogleSigningIn) { event.preventDefault(); return; }
                 // Google と同じく、LINE で登録する場合も利用規約・プライバシーポリシーへの同意が要る
                 // （以前は LINE だけ同意を見ずにアカウントを作れた）。
@@ -437,15 +452,22 @@ function SignupContent() {
                   setToast({ type: 'error', message: 'LINEで登録する場合も、利用規約とプライバシーポリシーへの同意が必要です。' });
                 }
               }}
-              aria-disabled={isSubmitting || isGoogleSigningIn}
-              className="flex items-center justify-center gap-2 w-full py-3 rounded-lg text-white font-bold hover:opacity-90 transition-opacity"
-              style={{ backgroundColor: '#06C755' }}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M24 10.304C24 4.612 18.624.11 12 .11S0 4.612 0 10.304c0 5.04 4.47 9.262 10.51 10.058.41.088.968.27 1.11.618.126.316.082.81.04 1.129l-.18 1.068c-.054.33-.252 1.286 1.126.701 1.378-.585 7.438-4.382 10.148-7.502C24.648 14.312 24 12.392 24 10.304" />
-              </svg>
-              LINEで登録
-            </a>
+              <input type="hidden" name="redirect" value={redirect} />
+              <input type="hidden" name="intent" value={LINE_SIGNUP_INTENT} />
+              <input type="hidden" name="consent" value={termsAgreed ? LINE_SIGNUP_CONSENT_AGREED : ''} />
+              <button
+                type="submit"
+                disabled={isSubmitting || isGoogleSigningIn}
+                className="flex items-center justify-center gap-2 w-full py-3 rounded-lg text-white font-bold hover:opacity-90 transition-opacity"
+                style={{ backgroundColor: '#06C755' }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path d="M24 10.304C24 4.612 18.624.11 12 .11S0 4.612 0 10.304c0 5.04 4.47 9.262 10.51 10.058.41.088.968.27 1.11.618.126.316.082.81.04 1.129l-.18 1.068c-.054.33-.252 1.286 1.126.701 1.378-.585 7.438-4.382 10.148-7.502C24.648 14.312 24 12.392 24 10.304" />
+                </svg>
+                LINEで登録
+              </button>
+            </form>
           )}
 
           <button

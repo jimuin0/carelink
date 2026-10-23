@@ -18,7 +18,7 @@
 - メール＝Resend / Web Push＝`web-push`（VAPID）
 - 地図＝Leaflet + `@react-map/japan` / グラフ＝Recharts / QR＝`qrcode`
 - AI＝`@anthropic-ai/sdk`（問い合わせサポート等）
-- 解析＝`@vercel/analytics` / `@vercel/speed-insights` / GA4（`@next/third-parties` の `GoogleAnalytics`・`src/app/layout.tsx`）/ Microsoft Clarity
+- 解析＝`@vercel/analytics` / `@vercel/speed-insights` / GA4（`@next/third-parties` の `GoogleAnalytics`）/ Microsoft Clarity。GA4・Clarity は Cookie 同意（分析）後にだけ `src/components/AnalyticsGate.tsx` が読み込む（判定の単一ソース `src/lib/cookie-consent.ts`、Clarity の録画は公開ページだけ＝`src/lib/session-recording-scope.ts`）
 - テスト＝Jest 30（jsdom）・Playwright（E2E）＋`@axe-core/playwright`（a11y・`e2e/a11y-audit.spec.ts`）・Stryker 9（ミューテーション）・fast-check（プロパティ）・k6（負荷）
 - Lint＝ESLint 8 + `eslint-config-next` + 自作 `eslint-plugin-carelink-safety`
 - pre-commit＝husky + lint-staged（`gitleaks protect` でシークレット流出防止）
@@ -35,7 +35,7 @@ src/
 │   ├── admin/               # 施設オーナー／プラットフォーム管理画面（要認証）
 │   ├── auth/                # ログイン・サインアップ
 │   ├── liff/ intake/        # LINE LIFF・問診フォーム
-│   ├── blog/ feature/ recruit/ jobs/ register/  # 集客・採用・記事
+│   ├── blog/ feature/ jobs/ register/  # 集客・採用・記事（/salon・/recruit は /register へ 308 転送・求人は SHOW_JOBS=false で非公開）
 │   ├── robots.ts sitemap.ts # SEO
 │   └── api/                 # Route Handler 群（下記「API ルート一覧」）
 ├── components/              # UI コンポーネント
@@ -448,7 +448,7 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 - 【🔴 Next.js は 16.3.0 以上を維持する。15.5 系には「子→親のクライアント遷移が RSC ペイロード約29KB 超で【無音失敗】する」不具合がある】2026年8月13日に実測で特定。`/admin/jobs/new` や `/admin/jobs/applications` から一覧 `/admin/jobs` へ戻る `<Link>` / `router.push` が、**URL も画面内容も変わらず、JS エラーも出ないまま何も起きない**。ユーザーには「押しても反応しない」としか見えない。`new` と `[id]/edit` を持つ管理画面（求人・ブログ・カタログ・クーポン・スタッフ・プラットフォームブログ）はすべて同じ構造なので、掲載件数が増えた施設で必ず発症する。求人作成では遷移しないためユーザーが再送信し、**POST は毎回成功するので重複した求人が作られる**（ローカル再現で32件積み上がるのを DB で実測）。
   - **A/B/A 対照で確定**：同一コード・同一データで Next のみ入れ替え。15.5.21 🔴 / 15.5.23（15系最新パッチ）🔴 / **16.3.0 ✅**（`/admin/blog` 58,543B・`/admin/jobs` 40,493B とも 200〜250ms で遷移）。閾値は求人を1件ずつ増やす二分探索で **28,687B 成功 / 30,641B 失敗**。16.3.0 では **455,229B（旧閾値の14.9倍）でも 336ms で成功**＝閾値が上がっただけではない。
   - **無実を確認した要素**（すべて対照実験で否定）：middleware・プリフェッチ・`router.refresh()`・POST/フォーム/react-hook-form・サーバ描画（直接ロードは正常）・ネットワーク（素の `fetch` は全バイト読める）。サブツリー外（`/admin/menus → /admin/jobs`）は 37ms で成功する。
-  - **機械強制**：`src/__tests__/next-version-floor.test.ts` が package.json の要求と **実際にインストールされた版**の両方を検査（宣言と実体の乖離を防ぐ）。挙動側は `e2e/admin-large-list-nav.spec.ts` が、閾値を大きく超えるデータを seed したうえで**ペイロードが本当に閾値を超えていることを測ってから**遷移を検証する（seed が効かなくなった時に緑のまま素通りしない）。両方とも負の対照つきで、Next 15 へ戻すと実際に落ちることを実測済み。
+  - **機械強制**：`src/__tests__/next-version-floor.test.ts` が package.json の要求と **実際にインストールされた版**の両方を検査（宣言と実体の乖離を防ぐ）。挙動側は `e2e/admin-large-list-nav.spec.ts`（2026年10月23日に求人非表示に伴い `/admin/blog` へ付け替え）が、閾値を大きく超えるデータを seed したうえで**ペイロードが本当に閾値を超えていることを測ってから**遷移を検証する（seed が効かなくなった時に緑のまま素通りしない）。両方とも負の対照つきで、Next 15 へ戻すと実際に落ちることを実測済み。
   - ⚠️ **`admin-jobs.spec.ts` だけでは検出できない**。求人を1件しか作らずペイロードが閾値の下に収まるため、不具合があっても通る回がある（実際 CI で3回中1回だけ通り原因究明を遅らせた）。
   - ⚠️ **Next 16 で `next lint` は削除された**。`npm run lint` は `eslint --ext .js,.jsx,.ts,.tsx src` を使う（`next lint` に戻すと `next <dir>` と解釈され "Invalid project directory" で CI が落ちる）。移行時に両者の出力が **75 warning・0 error でファイル/行/列/規則まで完全一致**することを機械比較で確認済み。
   - ⚠️ Next 16 のビルドは `tsconfig.json` を自動更新する（`jsx: preserve → react-jsx`、`.next/dev/types` の include 追加）。差分が出ても異常ではない。React の更新は不要（16.3 は React ^18.2 を許容）。
@@ -475,8 +475,9 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 ## 店舗ログインの仕様（繰り返し問われる）
 - `auth.users` に「客／店舗」を区別するフィールドは無い。全員ただの Supabase 認証アカウント。
 - 「店舗」＝`facility_members` に `role=owner`/`admin` の行があるかだけで決まる（`src/app/admin/layout.tsx`）。
-- ログイン（`/auth/login`）後のデフォルトリダイレクトは `/mypage`（客向け）。店舗オーナーでも最初は客画面に見えるため、店舗管理は `/admin` に直行が必要（ブックマークは `/admin`）。
-- 店舗化フロー：`/register` → `/auth/signup?redirect=/admin/onboarding&...` → `/admin/onboarding` が `/api/facility/setup` を呼び `facility_profiles`(draft)＋`facility_members`(owner) を作成。
+- ログイン（`/auth/login`・Google・callback）で戻り先の指定が無いときは `/auth/landing` が判定し、owner/admin の所属があれば `/admin`、無ければ `/mypage` へ送る（`src/lib/post-login-landing.ts`・2026年10月23日）。`/mypage` の先頭にも所属店舗の「管理画面を開く」カードが出る。
+- 店舗化フロー：`/register`（掲載申込）→ `/auth/signup?redirect=/admin/onboarding&...`（店舗アカウント作成・申込と同じメールアドレス）→ `/admin/onboarding` が `/api/facility/setup` を呼び `facility_profiles`(draft)＋`facility_members`(owner) を作成。申込を開いたタブの情報が無いとき（確認メールを別タブで開いた等）は `/register/recover` へ自動で案内し、確認済みメールで申込を選び直す。
+- 公開（無料掲載）の条件：店舗名・所在地・曜日別の営業時間の保存（`confirmed_booking_hours`）。ネット予約はさらに公開メニュー・写真1枚以上・営業時間内に勤務のある在籍スタッフ（`facility_booking_ready`）。単一ソースは `src/lib/facility-publish-gate.ts` と同名の SQL 関数。
 
 ## worktree 運用の罠（重要・PR#397 事故の再発防止）
 
