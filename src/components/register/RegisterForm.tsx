@@ -94,6 +94,32 @@ function isLegacyStoragePolicyRejection(error: unknown): boolean {
     && typeof value.message === 'string' && /row[ -]level security|row[ -]level.*policy/i.test(value.message));
 }
 
+/**
+ * 🔴 低速回線では、SSR の HTML が届いてから JavaScript が動き出す（hydration）まで数十秒かかる
+ * （低速回線の実測で約27秒。2026年10月23日）。以前はその間ずっと入力欄を無効にしていたため、
+ * 画面は見えているのに何も打てなかった。入力欄は最初から使えるようにし、送信だけを準備完了まで止める。
+ *
+ * react-hook-form は欄を登録する瞬間、初期値がある欄は DOM を初期値で【上書き】し、初期値が無い欄は
+ * DOM の値を【読み取る】（だから以前は無効にしていた）。SSR で描かれる 1 ページ目の欄には初期値を渡さず、
+ * 動き出す前に打たれた値（登録の瞬間までに打たれたもの全て）をそのまま引き継ぐ。
+ */
+const PRE_HYDRATION_FIELDS = ['facility_name', 'business_type', 'representative_name', 'email', 'phone', 'contact_phone', 'website'] as const;
+type PreHydrationField = (typeof PRE_HYDRATION_FIELDS)[number];
+const REGISTER_FORM_ID = 'register-salon-form';
+
+/** hydration の最初の描画で、SSR の入力欄に何か打たれているか（値そのものは RHF が登録時に読む）。 */
+function typedBeforeHydration(): boolean {
+  if (typeof document === 'undefined') return false;
+  const form = document.getElementById(REGISTER_FORM_ID);
+  return PRE_HYDRATION_FIELDS.some(field => (form?.querySelector<HTMLInputElement | HTMLSelectElement>(`[name="${field}"]`)?.value ?? '') !== '');
+}
+
+const hydrationSafeDefaults: Omit<SalonFormValues, PreHydrationField> = (() => {
+  const values: Partial<SalonFormValues> = { ...emptySalonValues };
+  for (const field of PRE_HYDRATION_FIELDS) delete values[field];
+  return values as Omit<SalonFormValues, PreHydrationField>;
+})();
+
 function readDraftContext() {
   try { return readSalonBrowserContext(window.sessionStorage); }
   catch { return { state: 'unavailable' } as const; }
@@ -129,7 +155,8 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   const [legacyStorageBlocked, setLegacyStorageBlocked] = useState(false);
   const [photoFiles, setPhotoFiles] = useState<(File | null)[]>(photoSlots.map(() => null));
   const [showConfirm, setShowConfirm] = useState(false);
-  const [isDirty, setIsDirty] = useState(false);
+  // 動き出す前に打たれた値があれば、最初から離脱の確認（beforeunload 等）の対象にする。
+  const [isDirty, setIsDirty] = useState(typedBeforeHydration);
   const [agreed, setAgreed] = useState(false);
   // 【2026年7月29日】許認可・届出の表明保証（利用規約 第12条）。規約への一括同意とは別建てにする。
   // 一括同意に埋めると「読んでいない・気づいていない」の余地が残り、責任分界の証跡として弱い。
@@ -151,7 +178,8 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   const { register, handleSubmit, trigger, setValue, setError, getFieldState, getValues, watch, control, reset, formState: { errors, isReady } } = useForm<SalonFormValues>({
     resolver: zodResolver(salonFullSchema),
     mode: 'onTouched',
-    defaultValues: emptySalonValues,
+    // 1 ページ目の欄は初期値を渡さない（hydrationSafeDefaults）。動き出す前に打たれた値を消さないため。
+    defaultValues: hydrationSafeDefaults,
   });
 
   const prText = useWatch({ control, name: 'pr_text' }) || '';
@@ -364,9 +392,13 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   const handleFieldChange = () => { if (!isDirty) setIsDirty(true); };
 
   // 「代表者と同じ」のあいだは担当者名を代表者名に追従させる（入力欄は出さない）。
+  // 値は getValues から取る。JavaScript が動く前に打たれた代表者名は、欄の登録時に RHF へ入るが
+  // useWatch（representativeName）には届かない（同じ値の setValue は通知されない）ため。
+  // representativeName は「変わったら追従し直す」きっかけとしてだけ使う。
   useEffect(() => {
-    if (!contactSameAsRep || getValues('contact_name') === representativeName) return;
-    setValue('contact_name', representativeName);
+    const current = getValues('representative_name') ?? '';
+    if (!contactSameAsRep || getValues('contact_name') === current) return;
+    setValue('contact_name', current);
   }, [contactSameAsRep, representativeName, getValues, setValue]);
 
   // 駐車場のチェックボックスを、検索が見る features 側にも反映する（チップは出さない）。
@@ -669,6 +701,9 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
     }, revealErrors)().finally(() => { submitLockRef.current = false; setSubmitting(false); });
   };
 
+  // 送信の準備（react-hook-form の初期化と、既存の申込の受付確認）が済んだか。入力そのものは待たせず、
+  // 最後の送信だけをこれで止める。
+  const formReady = isReady && v2Ready;
   const backupDisabled = !isReady || !v2Ready || submitting || draftBusy || submissionUnknown || submissionConfirmed || draftContext === 'locked';
   const restoreDisabled = backupDisabled || draftContext !== 'empty';
 
@@ -683,6 +718,17 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
   const missingChecks = requiredChecks.filter(check => check.needed && !check.checked);
   const checkError = (key: (typeof requiredChecks)[number]['key']) =>
     consentAttempted ? missingChecks.find(check => check.key === key)?.message : undefined;
+
+  /** 送信ボタンの横に出す「準備中」の案内。入力は続けられることと、待っている理由を書く。 */
+  const readyStatus = !formReady && !submissionUnknown
+    ? <p role="status" id="register-ready-status" className="mt-2 text-sm text-(--ecru-muted)">
+      入力はそのまま続けられます。送信の準備をしています（通信状況によって時間がかかります）。しばらく待っても「次へ」や送信を押せない場合は、JavaScriptの設定と通信状況を確認してください。
+    </p>
+    : null;
+  const readyDescription = !formReady && !submissionUnknown ? { 'aria-describedby': 'register-ready-status' } : {};
+  // 「次へ」は入力の検証だけで送信はしないので、受付確認（v2Ready）は待たない。止めるのは、
+  // JavaScript が動き出す前（押しても何も起きない間）だけ。
+  const stepDescription = !isReady ? { 'aria-describedby': 'register-ready-status' } : {};
 
   const requestConfirm = handleSubmit(() => {
     if (missingChecks.length > 0) {
@@ -765,18 +811,14 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
             <Link href="/contact" className="mt-2 inline-block underline">受付状況を問い合わせる</Link>
           </div>
         )}
-        {(!isReady || (!v2Ready && !submissionUnknown)) && (
-          <div role="status" className="mb-3 text-sm text-gray-600">
-            <p>入力フォームを準備しています。表示が変わらない場合はJavaScriptの設定と通信状況を確認してください。</p>
-            <form action="/register" method="get">
-              <button type="submit" className="underline">ページを再読み込み</button>
-            </form>
-          </div>
-        )}
-        <form onSubmit={event => { if (step === 3) setConsentAttempted(true); void requestConfirm(event); }} onChange={handleFieldChange} noValidate
+        <form id={REGISTER_FORM_ID} onSubmit={event => {
+          // 準備が済むまでは送信しない（ボタンも無効。Enter キーでの送信もここで止める）。
+          if (!formReady) { event.preventDefault(); return; }
+          if (step === 3) setConsentAttempted(true); void requestConfirm(event);
+        }} onChange={handleFieldChange} noValidate
           className={`border-y border-(--ecru-line) bg-(--ecru-surface) px-5 py-7 sm:border sm:px-10 sm:py-10 ${FIELD_SCROLL_MARGIN}`}>
-          {/* SSR中の入力をRHFの初期化が消さないよう、購読・refの準備完了まで操作を止める。 */}
-          <fieldset disabled={!isReady || !v2Ready || submissionUnknown || submissionConfirmed || draftBusy || submitting} aria-busy={!isReady || !v2Ready} className="min-w-0">
+          {/* 入力欄は準備完了を待たずに使える（hydrationSafeDefaults）。止めるのは送信と、受付確認の結果待ちの間だけ。 */}
+          <fieldset disabled={submissionUnknown || submissionConfirmed || draftBusy || submitting} className="min-w-0">
 
           {failedStep === step && stepErrorCount > 0 && (
             <p role="alert" className="form-error mb-4 mt-0 font-medium">入力内容を確認してください（{stepErrorCount}件）</p>
@@ -809,7 +851,8 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                   <input {...register('representative_name')} id="reg-rep-name" autoComplete="name" className="form-input" placeholder="山田 太郎" aria-required="true" {...describe('representative_name', 'reg-rep-name')} />
                   {fieldError('representative_name', 'reg-rep-name')}
                   <label className="mt-2 flex min-h-11 cursor-pointer items-center gap-2 text-sm">
-                    <input type="checkbox" checked={contactSameAsRep} className={CHECKBOX}
+                    {/* React が管理するチェックなので、動き出すまでは押させない（押しても状態が戻るため）。 */}
+                    <input type="checkbox" checked={contactSameAsRep} className={CHECKBOX} disabled={!isReady}
                       onChange={event => { setContactSameAsRep(event.target.checked); setIsDirty(true); }} />
                     担当者も代表者と同じ
                   </label>
@@ -857,7 +900,8 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                   </div>
                 </div>
               </details>
-              <button type="button" onClick={nextStep} className={`btn-primary w-full ${STEP_BUTTON}`}>次へ</button>
+              <button type="button" onClick={nextStep} disabled={!isReady} {...stepDescription} className={`btn-primary w-full ${STEP_BUTTON}`}>次へ</button>
+              {readyStatus}
             </div>
           )}
 
@@ -952,7 +996,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
               </fieldset>
               <div className="flex gap-4">
                 <button type="button" onClick={() => goToStep(1)} className={`btn-outline flex-1 ${STEP_BUTTON}`}>戻る</button>
-                <button type="button" onClick={nextStep} className={`btn-primary flex-1 ${STEP_BUTTON}`}>次へ</button>
+                <button type="button" onClick={nextStep} disabled={!isReady} className={`btn-primary flex-1 ${STEP_BUTTON}`}>次へ</button>
               </div>
             </div>
           )}
@@ -1034,10 +1078,12 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
               )}
               <div className="flex gap-4">
                 <button type="button" onClick={() => goToStep(2)} className={`btn-outline flex-1 ${STEP_BUTTON}`}>戻る</button>
-                <button type="submit" disabled={submitting || submissionUnknown || submissionConfirmed || draftBusy || legacyStorageBlocked} className={`btn-primary flex-1 ${STEP_BUTTON}`}>
+                <button type="submit" disabled={!formReady || submitting || submissionUnknown || submissionConfirmed || draftBusy || legacyStorageBlocked} {...readyDescription} className={`btn-primary flex-1 ${STEP_BUTTON}`}>
                   {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />送信中...</span> : '登録する'}
                 </button>
               </div>
+              {/* 3 ページ目は隠したまま常に描かれるので、表示中だけ出す（同じ id を 2 つ作らない）。 */}
+              {step === 3 && readyStatus}
             </div>
           </fieldset>
         </form>
