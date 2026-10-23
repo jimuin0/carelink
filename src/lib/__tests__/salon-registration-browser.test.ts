@@ -3,7 +3,7 @@ import { SalonRegistrationBrowser } from '../salon-registration-browser';
 import { SALON_BROWSER_CONTEXT_KEY, readSalonBrowserContext, saveSalonBrowserContext } from '../salon-browser-context';
 import { salonPhotoPath } from '../salon-photo-contract';
 import type { SalonFormValues } from '../validations';
-import { SALON_PR_TEXT_PROHIBITED_MESSAGE } from '../salon-field-errors';
+import { SALON_FIELD_MESSAGES, SALON_PR_TEXT_PROHIBITED_MESSAGE } from '../salon-field-errors';
 
 const consent = { terms_agreed: true, license_warranted: true };
 const intentId = '11111111-1111-4111-8111-111111111111';
@@ -426,7 +426,8 @@ test.each([
   null, 'invalid', { state: 'consent_required', fieldErrors: { pr_text: SALON_PR_TEXT_PROHIBITED_MESSAGE } },
   { state: 'invalid', fieldErrors: { pr_text: 'PRIVATE raw input' } },
   { state: 'invalid', fieldErrors: { email: SALON_PR_TEXT_PROHIBITED_MESSAGE } },
-  { state: 'invalid', fieldErrors: { pr_text: SALON_PR_TEXT_PROHIBITED_MESSAGE, email: 'メールアドレスを確認してください（254文字以内）' } },
+  { state: 'invalid', fieldErrors: {} }, { state: 'invalid', fieldErrors: { pr_text: SALON_PR_TEXT_PROHIBITED_MESSAGE, unknown: 'x' } },
+  { state: 'invalid', fieldErrors: { pr_text: SALON_PR_TEXT_PROHIBITED_MESSAGE, email: 'PRIVATE raw input' } },
 ])('any other commit400 keeps the attempted fence even when uncommitted %#', async body => {
   const { deps, engine } = harness();
   deps.request.mockResolvedValueOnce(prepared()).mockResolvedValueOnce(response(400, body)).mockResolvedValueOnce(uncommitted());
@@ -435,6 +436,36 @@ test.each([
   expect(JSON.stringify(result)).not.toContain('PRIVATE');
   expect(readSalonBrowserContext(deps.store)).toMatchObject({ context: { phase: 'attempted' } });
   expect(engine.canReviseUnsubmittedInput()).toBe(false);
+});
+// A schema validation refusal (the route's fixed per-field messages) is decided
+// from the body alone, too. Before this, every such 400 became 「送信結果を確認
+// できませんでした」 and the whole form was locked behind お問い合わせ.
+test.each([
+  [{ email: SALON_FIELD_MESSAGES.email }],
+  [{ phone: SALON_FIELD_MESSAGES.phone, postal_code: SALON_FIELD_MESSAGES.postal_code }],
+  [{ pr_text: SALON_PR_TEXT_PROHIBITED_MESSAGE, email: SALON_FIELD_MESSAGES.email }],
+  [{ pr_text: SALON_FIELD_MESSAGES.pr_text }],
+])('a verified field validation refusal returns the field errors and keeps the form editable %#', async fieldErrors => {
+  const { deps, engine } = harness();
+  deps.request.mockResolvedValueOnce(prepared()).mockResolvedValueOnce(response(400, { state: 'invalid', fieldErrors })).mockResolvedValueOnce(uncommitted());
+  const result = await engine.submit(data, [], consent);
+  expect(result).toEqual({ state: 'retryable', message: expect.stringContaining('表示された欄を修正'), fieldErrors });
+  expect(readSalonBrowserContext(deps.store)).toEqual({ state: 'ready', context: { version: 1, intentId, phase: 'prepared' } });
+  expect(engine.canReviseUnsubmittedInput()).toBe(true);
+  deps.request.mockResolvedValueOnce(uncommitted()).mockResolvedValueOnce(committed());
+  expect(await engine.submit({ ...data, email: 'fixed@example.invalid' }, [], consent)).toEqual({ state: 'confirmed', receiptId });
+  expect(bodies(deps.request, '/api/salons/prepare')).toHaveLength(1);
+  expect(bodies(deps.request, '/api/salons/commit').map(body => body.intentId)).toEqual([intentId, intentId]);
+});
+test('a validation refusal never reopens the fence when the status says committed or is unavailable', async () => {
+  const body = { state: 'invalid', fieldErrors: { email: SALON_FIELD_MESSAGES.email } };
+  const first = harness();
+  first.deps.request.mockResolvedValueOnce(prepared()).mockResolvedValueOnce(response(400, body)).mockResolvedValueOnce(response(200, { state: 'committed', receiptId }));
+  expect(await first.engine.submit(data, [], consent)).toEqual({ state: 'confirmed', receiptId });
+  const second = harness();
+  second.deps.request.mockResolvedValueOnce(prepared()).mockResolvedValueOnce(response(400, body)).mockResolvedValueOnce(response(503, {}));
+  expect((await second.engine.submit(data, [], consent)).state).toBe('unknown');
+  expect(second.engine.canReviseUnsubmittedInput()).toBe(false);
 });
 test('a PR-text refusal keeps the fence if the reopened selector cannot be saved', async () => {
   const { deps, values, engine } = harness();

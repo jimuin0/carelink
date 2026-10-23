@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useForm, useWatch, type FieldErrors } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { supabase } from '@/lib/supabase';
+import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { salonStep1Schema, salonStep2Schema, salonStep3Schema, salonFullSchema, type SalonFormValues, businessTypes } from '@/lib/validations';
 import { facilityFeatures, DESIRED_START_DATES, desiredStartDateLabels } from '@/lib/constants';
 import StepIndicator from '@/components/StepIndicator';
@@ -80,7 +80,7 @@ function createRegistrationBrowser() {
   return new SalonRegistrationBrowser({
     store: window.sessionStorage, request: fetch, uuid: () => crypto.randomUUID(),
     captcha: () => getRecaptchaToken('salons'), compress: compressImage,
-    upload: async (bucket, path, token, file) => supabase.storage.from(bucket)
+    upload: async (bucket, path, token, file) => createBrowserSupabaseClient().storage.from(bucket)
       .uploadToSignedUrl(path, token, file, { contentType: file.type }),
   });
 }
@@ -459,13 +459,13 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
           const compressed = await compressImage(file).catch(() => file); // 圧縮失敗時は元ファイル
           const ext = mimeToExt[compressed.type] || 'jpg';
           const path = `salons/${uuid}/${categories[i]}.${ext}`;
-          const { error: uploadError } = await supabase.storage.from('carelink-uploads').upload(path, compressed);
+          const { error: uploadError } = await createBrowserSupabaseClient().storage.from('carelink-uploads').upload(path, compressed);
           if (uploadError) {
             if (isLegacyStoragePolicyRejection(uploadError)) policyRejections.add(uploadError);
             throw uploadError;
           }
           uploadedPaths.push(path);
-          return supabase.storage.from('carelink-uploads').getPublicUrl(path).data.publicUrl;
+          return createBrowserSupabaseClient().storage.from('carelink-uploads').getPublicUrl(path).data.publicUrl;
         })
       );
       const photoUrls = uploadResults.filter((u): u is string => !!u);

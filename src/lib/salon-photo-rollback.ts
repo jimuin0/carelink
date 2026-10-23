@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 
 /**
  * 【2026年7月8日 恒久根治】施設オーナー自己登録(register/page.tsx)で、写真アップロード成功後に
@@ -11,5 +11,5 @@ import { supabase } from '@/lib/supabase';
  */
 export async function rollbackUploadedSalonPhotos(uploadedPaths: string[]): Promise<void> {
   if (uploadedPaths.length === 0) return;
-  await supabase.storage.from('carelink-uploads').remove(uploadedPaths).catch(() => {});
+  await createBrowserSupabaseClient().storage.from('carelink-uploads').remove(uploadedPaths).catch(() => {});
 }

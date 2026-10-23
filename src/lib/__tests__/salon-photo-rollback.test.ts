@@ -9,16 +9,16 @@
  * パスをストレージから確実に削除する。
  */
 const mockRemove = jest.fn();
-jest.mock('@/lib/supabase', () => ({
-  supabase: {
-    storage: {
-      from: jest.fn(() => ({ remove: mockRemove })),
-    },
-  },
-}));
+// 登録フォームと同じ共有シングルトン（supabase-browser）を使う。別のクライアントを作ると
+// 同じページに GoTrueClient が 2 つでき「Multiple GoTrueClient instances」警告が出ていた。
+jest.mock('@/lib/supabase-browser', () => {
+  const client = { storage: { from: jest.fn(() => ({ remove: mockRemove })) } };
+  return { createBrowserSupabaseClient: () => client };
+});
 
 import { rollbackUploadedSalonPhotos } from '../salon-photo-rollback';
-import { supabase } from '@/lib/supabase';
+import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+const supabase = createBrowserSupabaseClient();
 
 describe('rollbackUploadedSalonPhotos', () => {
   beforeEach(() => {

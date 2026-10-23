@@ -13,10 +13,10 @@ const mockPush = jest.fn();
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush }) }));
 jest.mock('@/lib/recaptcha-client', () => ({ getRecaptchaToken: jest.fn().mockResolvedValue(null) }));
 jest.mock('@/lib/image-compress', () => ({ compressImage: jest.fn(async (file: File) => file) }));
-jest.mock('@/lib/supabase', () => ({ supabase: { storage: { from: () => ({
+jest.mock('@/lib/supabase-browser', () => { const client = { storage: { from: () => ({
   upload: jest.fn().mockResolvedValue({ error: null }), remove: jest.fn().mockResolvedValue({ error: null }),
   getPublicUrl: (path: string) => ({ data: { publicUrl: `https://fixture.invalid/${path}` } }),
-}) } } }));
+}) } }; return { createBrowserSupabaseClient: () => client }; });
 
 const id = '11111111-1111-1111-1111-111111111111';
 const jsonResponse = (status: number, body: unknown) => ({ ok: status >= 200 && status < 300, status, json: async () => body }) as Response;

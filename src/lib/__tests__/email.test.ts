@@ -29,7 +29,7 @@ jest.mock('@/lib/webhook-queue', () => ({
 process.env.RESEND_API_KEY = 'test-resend-key';
 process.env.EMAIL_FROM = 'Test <test@example.com>';
 
-const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendNewInquiryNotification, sendNewQuestionNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail, sendTimeAdjustRequest, sendInquiryReply, sendRegistrationLeadFollowEmail, sendOperatorNotification } = require('../email');
+const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendNewInquiryNotification, sendNewQuestionNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail, sendTimeAdjustRequest, sendInquiryReply, sendRegistrationLeadFollowEmail, sendOperatorNotification } = require('../email');
 const { safeRedirect } = require('../safe-redirect');
 
 /**
@@ -663,7 +663,6 @@ describe('単発イベントの初回台帳と二重送信防止', () => {
     [sendNewReviewNotification, { facilityEmail: 'owner@example.com', facilityName: 'X', reviewerName: 'Y', rating: 5 }],
     [sendNewInquiryNotification, { facilityEmail: 'owner@example.com', facilityName: 'X', inquirerName: 'Y', inquirerEmail: 'y@example.com', message: 'fixture' }],
     [sendNewQuestionNotification, { facilityEmail: 'owner@example.com', facilityName: 'X', question: 'fixture', facilityId: '71000000-0000-4000-8000-000000000003' }],
-    [sendWelcomeEmail, { ownerEmail: 'owner@example.com', facilityName: 'X' }],
   ])('初回を永続化し、500の結果不明後に別queueを追加しない %p', async (send, data) => {
     mockSend.mockResolvedValueOnce({ data: null, error: { statusCode: 500 } });
     expect(await send(data)).toBe(false);
@@ -745,29 +744,6 @@ describe('generateUnsubscribeToken', () => {
     const t1 = generateUnsubscribeToken();
     const t2 = generateUnsubscribeToken();
     expect(t1).not.toBe(t2);
-  });
-});
-
-describe('sendWelcomeEmail', () => {
-  test('オーナーメールに送信する', async () => {
-    await sendWelcomeEmail({ ownerEmail: 'owner@example.com', ownerName: 'テストオーナー', facilityName: 'テストサロン' });
-    expect(mockSend).toHaveBeenCalledTimes(1);
-    expect(mockSend.mock.calls[0][0].to).toBe('owner@example.com');
-    expect(mockSend.mock.calls[0][0].subject).toContain('テストサロン');
-  });
-
-  test('ownerNameが省略された場合はデフォルト名を使う', async () => {
-    await sendWelcomeEmail({ ownerEmail: 'owner@example.com', facilityName: 'サロン' });
-    expect(mockSend).toHaveBeenCalledTimes(1);
-    const html = mockSend.mock.calls[0][0].html;
-    expect(html).toContain('オーナー');
-  });
-
-  test('サービス名は「CareLink」（以前は「CareLinks」と誤記していた）', async () => {
-    await sendWelcomeEmail({ ownerEmail: 'owner@example.com', facilityName: 'サロン' });
-    const html = mockSend.mock.calls[0][0].html;
-    expect(html).toContain('この度はCareLinkに施設を登録');
-    expect(html).not.toContain('CareLinks');
   });
 });
 
@@ -968,10 +944,6 @@ describe('RESEND_API_KEY未設定時 — 全send関数', () => {
     await mod.sendBookingCancellationToFacility({
       ...minData,
       facilityEmail: 'f@f.com',
-    });
-    await mod.sendWelcomeEmail({
-      ownerEmail: 'o@o.com',
-      facilityName: 'F',
     });
     await mod.sendOnboardingFollowEmail({
       ownerEmail: 'o@o.com',

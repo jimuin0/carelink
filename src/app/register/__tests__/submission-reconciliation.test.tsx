@@ -9,10 +9,10 @@ const mockRemove = jest.fn();
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush }) }));
 jest.mock('@/lib/recaptcha-client', () => ({ getRecaptchaToken: jest.fn().mockResolvedValue(null) }));
 jest.mock('@/lib/image-compress', () => ({ compressImage: jest.fn(async (file: File) => file) }));
-jest.mock('@/lib/supabase', () => ({ supabase: { storage: { from: () => ({
+jest.mock('@/lib/supabase-browser', () => { const client = { storage: { from: () => ({
   upload: mockUpload, remove: mockRemove,
   getPublicUrl: (path: string) => ({ data: { publicUrl: `https://fixture.invalid/${path}` } }),
-}) } } }));
+}) } }; return { createBrowserSupabaseClient: () => client }; });
 jest.mock('@/components/MultiPhotoUpload', () => ({ __esModule: true, default: ({ onChange }: { onChange: (files: File[]) => void }) => (
   <button type="button" onClick={() => onChange([new File(['fixture'], 'exterior.jpg', { type: 'image/jpeg' }), new File(['fixture'], 'interior.jpg', { type: 'image/jpeg' })])}>合成写真を選択</button>
 ) }));
