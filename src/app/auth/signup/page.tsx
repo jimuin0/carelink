@@ -17,6 +17,7 @@ import { verifyAuthUser } from '@/lib/auth-verification';
 import { useClientReady } from '@/lib/use-client-ready';
 import { isShopAccountSetupRedirect } from '@/lib/salon-browser-context';
 import Button from '@/components/ui/Button';
+import { REGISTRATION_TERMS as T } from '@/lib/registration-glossary';
 
 const RESEND_COOLDOWN_SECONDS = 60;
 
@@ -40,6 +41,17 @@ function getSignupErrorMessage(error: { code?: string; message?: string }): stri
 
 const HEADING_CLASS = 'text-2xl font-bold text-center mb-8';
 
+/**
+ * 外部登録（Google・LINE）で同意が無いときの文言。以前はトーストで出していたが、トーストは画面上部に
+ * 固定表示されるため、スマホでは文句を言っている同意欄そのものを覆って隠していた。
+ * 同意欄の直下（signup-terms-error）に出し、欄へフォーカスを移す。
+ * （page.tsx は default 以外を export できないので、ここに置いて export しない）
+ */
+const EXTERNAL_SIGNUP_CONSENT_MESSAGES = {
+  google: 'Googleで登録する場合も、利用規約とプライバシーポリシーへの同意が必要です。',
+  line: 'LINEで登録する場合も、利用規約とプライバシーポリシーへの同意が必要です。',
+} as const;
+
 /** 掲載申込の続き（店舗アカウント作成）から来たかどうか。来院者向けの登録と見た目・文言を分ける。 */
 function useShopAccountSignup(): boolean {
   const searchParams = useSearchParams();
@@ -55,14 +67,19 @@ export default function SignupPage() {
   // 見出し・カード外枠は Suspense の外（=SSR）で描画する（login と同様）。
   // useSearchParams を使う内容を Suspense で包むとフォールバックが SSR HTML になり、
   // h1 が SSR されず a11y/SEO 劣化・E2E のヘッダ可視チェック失敗になるため、見出しの fallback にも h1 を置く。
+  //
+  // 🔴 カードは上寄せにする（縦中央寄せにしない）。フォームは fallback の後から届くため、
+  // 中央寄せだとカードの高さが変わった瞬間に見出しごとカード全体が上へ跳ねる
+  // （低速回線の実測で CLS 0.115＝しきい値 0.1 超え。2026年10月23日）。上寄せなら伸び縮みするのは
+  // カードの下端だけで、見えている内容は動かない。fallback の高さも最終形（約600px）に合わせてある。
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-gray-50 flex items-start justify-center px-4 py-10 sm:py-16" data-testid="signup-shell">
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-lg p-8">
           <Suspense fallback={<h1 className={HEADING_CLASS}>新規登録</h1>}>
             <SignupHeading />
           </Suspense>
-          <Suspense fallback={<div className="min-h-[480px]" />}>
+          <Suspense fallback={<div className="min-h-[600px]" data-testid="signup-form-placeholder" />}>
             <SignupContent />
           </Suspense>
         </div>
@@ -108,7 +125,7 @@ function SignupContent() {
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
   const authOperationInFlight = useRef(false);
 
-  const { register, handleSubmit, getValues, control, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
+  const { register, handleSubmit, getValues, control, setError, clearErrors, setFocus, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
   });
   // 同意欄にチェックがあるときだけ、LINE 登録フォームの consent に同意値を入れる
@@ -147,6 +164,13 @@ function SignupContent() {
     const timer = window.setTimeout(() => setIsResendCoolingDown(false), RESEND_COOLDOWN_SECONDS * 1000);
     return () => window.clearTimeout(timer);
   }, [pendingVerificationEmail, isResendCoolingDown]);
+
+  /** 同意が無いまま外部登録を押したとき：理由を同意欄の直下に出し、欄へ移る（トーストは使わない）。 */
+  const requireConsentInline = (provider: keyof typeof EXTERNAL_SIGNUP_CONSENT_MESSAGES) => {
+    setError('terms_agreed', { type: 'manual', message: EXTERNAL_SIGNUP_CONSENT_MESSAGES[provider] });
+    setFocus('terms_agreed');
+    document.getElementById('signup-terms')?.scrollIntoView?.({ block: 'center' });
+  };
 
   const showVerificationGuidance = (email: string) => {
     setPendingVerificationEmail(email);
@@ -224,7 +248,7 @@ function SignupContent() {
 
   const startGoogleSignup = async () => {
     if (getValues('terms_agreed') !== true) {
-      setToast({ type: 'error', message: 'Googleで登録する場合も、利用規約とプライバシーポリシーへの同意が必要です。' });
+      requireConsentInline('google');
       return;
     }
     if (authOperationInFlight.current) return;
@@ -411,15 +435,15 @@ function SignupContent() {
             </div>
 
             <label htmlFor="signup-terms" className="flex items-start gap-2 text-sm text-gray-600">
-              <input {...register('terms_agreed')} id="signup-terms" type="checkbox" aria-required="true"
+              <input {...register('terms_agreed', { onChange: event => { if (event.target.checked) clearErrors('terms_agreed'); } })} id="signup-terms" type="checkbox" aria-required="true"
                 aria-invalid={Boolean(errors.terms_agreed)} aria-describedby={errors.terms_agreed ? 'signup-terms-error' : undefined}
-                className="mt-0.5 rounded-sm border-gray-300" />
+                className="mt-0.5 scroll-mt-24 rounded-sm border-gray-300" />
               <span><Link href="/terms" target="_blank" rel="noopener noreferrer" className="text-sky-700 underline">利用規約</Link>
                 および<Link href="/privacy" target="_blank" rel="noopener noreferrer" className="text-sky-700 underline">プライバシーポリシー</Link>に同意する（必須）</span>
             </label>
             {errors.terms_agreed && <p id="signup-terms-error" className="form-error" role="alert">{errors.terms_agreed.message}</p>}
             <Button type="submit" disabled={isSubmitting || isGoogleSigningIn} size="lg" fullWidth>
-              {isSubmitting ? '登録中...' : shopAccountSignup ? '店舗アカウントを作成' : '新規登録'}
+              {isSubmitting ? (shopAccountSignup ? `${T.account}を作成中...` : '登録中...') : shopAccountSignup ? `${T.account}を作成` : '新規登録'}
             </Button>
             </fieldset>
           </form>
@@ -450,7 +474,7 @@ function SignupContent() {
                 // （以前は LINE だけ同意を見ずにアカウントを作れた）。
                 if (getValues('terms_agreed') !== true) {
                   event.preventDefault();
-                  setToast({ type: 'error', message: 'LINEで登録する場合も、利用規約とプライバシーポリシーへの同意が必要です。' });
+                  requireConsentInline('line');
                 }
               }}
             >

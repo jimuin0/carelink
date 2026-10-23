@@ -443,3 +443,64 @@ test('signup shows the same password rule as reset and rejects a password over t
   await screen.findByText(/パスワードが長すぎます/);
   expect(mockSignUp).not.toHaveBeenCalled();
 });
+
+/**
+ * 外部登録（Google・LINE）の同意エラーは、同意欄の直下に出して欄へ移る。
+ * 以前は画面上部に固定のトーストで出しており、スマホでは文句を言っている同意欄そのものを覆っていた。
+ */
+describe('external signup consent errors are shown inline under the checkbox', () => {
+  test.each([
+    ['Google', 'Googleで登録する場合も、利用規約とプライバシーポリシーへの同意が必要です。'],
+    ['LINE', 'LINEで登録する場合も、利用規約とプライバシーポリシーへの同意が必要です。'],
+  ])('%s: inline error, focus on the checkbox, no toast; checking it clears the error', async (provider, message) => {
+    mockLineLoginEnabled = true;
+    const scroll = jest.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scroll;
+    try {
+      render(<SignupPage />);
+      const checkbox = screen.getByRole('checkbox', { name: /利用規約/ });
+      if (provider === 'Google') fireEvent.click(screen.getByRole('button', { name: 'Googleで登録' }));
+      else expect(fireEvent.submit(screen.getByTestId('signup-line-form'))).toBe(false);
+      const error = await screen.findByText(message);
+      expect(error).toHaveAttribute('id', 'signup-terms-error');
+      expect(error).toHaveAttribute('role', 'alert');
+      expect(checkbox).toHaveAttribute('aria-invalid', 'true');
+      expect(checkbox).toHaveAttribute('aria-describedby', 'signup-terms-error');
+      expect(document.activeElement).toBe(checkbox);
+      expect(scroll).toHaveBeenCalledWith({ block: 'center' });
+      // トースト（画面上部に固定表示＝同意欄を覆う）は出さない。
+      expect(screen.getAllByRole('alert')).toEqual([error]);
+      expect(mockSignInWithOAuth).not.toHaveBeenCalled();
+      fireEvent.click(checkbox);
+      await waitFor(() => expect(screen.queryByText(message)).not.toBeInTheDocument());
+      expect(checkbox).not.toHaveAttribute('aria-invalid', 'true');
+    } finally { Element.prototype.scrollIntoView = original; }
+  });
+});
+
+/**
+ * 低速回線ではフォームが fallback の後から届く。カードを縦中央寄せにしていると、その瞬間に見出しごと
+ * カード全体が跳ねていた（実測 CLS 0.115）。上寄せにして、伸びるのはカードの下端だけにする。
+ */
+test('the signup card is top-aligned and the form placeholder reserves the form height', () => {
+  const html = renderToString(<SignupPage />);
+  const shell = html.match(/class="([^"]*)" data-testid="signup-shell"/)?.[1].split(/\s+/) ?? [];
+  expect(shell).toContain('items-start');
+  expect(shell).not.toContain('items-center');
+  const source: string = jest.requireActual<typeof import('fs')>('fs')
+    .readFileSync(jest.requireActual<typeof import('path')>('path').join(process.cwd(), 'src/app/auth/signup/page.tsx'), 'utf8');
+  const placeholder = source.match(/<div className="min-h-\[(\d+)px\]" data-testid="signup-form-placeholder" \/>/);
+  expect(Number(placeholder?.[1])).toBeGreaterThanOrEqual(600);
+});
+
+test('shop-account mode labels the in-flight submit with the glossary term, not 登録中', async () => {
+  mockSearchParams = new URLSearchParams({ redirect: '/admin/onboarding?handoff=registration' });
+  mockSignUp.mockReturnValue(new Promise(() => {}));
+  try {
+    render(<SignupPage />);
+    fillForm(); submit();
+    expect(await screen.findByRole('button', { name: '店舗アカウントを作成中...' })).toBeDisabled();
+    expect(screen.queryByText('登録中...')).not.toBeInTheDocument();
+  } finally { mockSearchParams = new URLSearchParams(); }
+});
