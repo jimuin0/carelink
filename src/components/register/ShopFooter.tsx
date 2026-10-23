@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import CookieSettingsButton from '@/components/CookieSettingsButton';
 
 /**
  * 店舗向けページ（/register・/register/complete）のフッター。
@@ -28,6 +29,10 @@ export default function ShopFooter() {
                 </Link>
               </li>
             ))}
+            <li>
+              {/* 回答後に Cookie の選択を変え直す入口（Footer・SearchFooter と同じ部品） */}
+              <CookieSettingsButton className="inline-block py-1 text-left text-(--ecru-text) underline-offset-4 hover:underline" />
+            </li>
           </ul>
         </nav>
         <p className="mt-6 text-sm">運営：神原良祐（HALグループ）</p>
