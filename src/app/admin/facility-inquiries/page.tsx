@@ -89,7 +89,7 @@ function AdminFacilityInquiriesContent() {
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="問い合わせの読み込みに失敗しました" />
       ) : inquiries.length === 0 ? (
         <div className="bg-white rounded-xl shadow-xs p-12 text-center">
-          <p className="text-gray-400">お問い合わせはまだありません</p>
+          <p className="text-gray-500">お問い合わせはまだありません</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -101,13 +101,13 @@ function AdminFacilityInquiriesContent() {
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <span className="text-xs text-gray-400">{formatDate(inq.created_at)}</span>
+                    <span className="text-xs text-gray-500">{formatDate(inq.created_at)}</span>
                   </div>
                   <p className="text-sm font-bold text-gray-800 truncate">{inq.name}</p>
                   <p className="text-xs text-gray-500">{inq.email}{inq.phone ? ` / ${inq.phone}` : ''}</p>
                 </div>
                 <svg
-                  className={`w-4 h-4 text-gray-400 shrink-0 mt-1 transition-transform ${expandedId === inq.id ? 'rotate-180' : ''}`}
+                  className={`w-4 h-4 text-gray-500 shrink-0 mt-1 transition-transform ${expandedId === inq.id ? 'rotate-180' : ''}`}
                   fill="none" stroke="currentColor" viewBox="0 0 24 24"
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />

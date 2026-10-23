@@ -7,7 +7,7 @@
  * 休止中のスタッフ、勤務時間の無いスタッフを「登録済み」と数えていたのが実際の欠陥なので、
  * 条件を書き忘れれば結果が変わるようにしておく。
  */
-import { facilitySetupSteps, loadFacilitySetupFacts, type FacilitySetupFacts } from '../facility-setup-steps';
+import { facilitySetupSteps, loadFacilitySetupFacts, setupGuideSteps, SETUP_STEP_HOWTO, type FacilitySetupFacts } from '../facility-setup-steps';
 
 const CONFIRMED_HOURS = {
   mon: { open: '10:00', close: '20:00' }, tue: { open: '10:00', close: '20:00' }, wed: { open: '10:00', close: '20:00' },
@@ -16,7 +16,7 @@ const CONFIRMED_HOURS = {
 
 function facts(overrides: Partial<FacilitySetupFacts> = {}): FacilitySetupFacts {
   return {
-    name: '合成店舗', prefecture: '東京都', city: '渋谷区', address: '合成1-1', catchCopy: null, description: null,
+    name: '合成店舗', slug: 'synthetic-shop', prefecture: '東京都', city: '渋谷区', address: '合成1-1', catchCopy: '駅チカ3分', description: null,
     status: 'published', businessHours: CONFIRMED_HOURS, publishedMenuCount: 1, photoCount: 1,
     activeStaffIds: ['s1'], unscheduledStaffIds: [], ...overrides,
   };
@@ -24,25 +24,54 @@ function facts(overrides: Partial<FacilitySetupFacts> = {}): FacilitySetupFacts 
 const pending = (f: FacilitySetupFacts) => facilitySetupSteps(f).filter(step => !step.done).map(step => step.key);
 
 describe('facilitySetupSteps', () => {
-  test('すべて揃えば全項目完了。並びと案内先・区分はダッシュボードの表示順どおり', () => {
+  test('すべて揃えば全項目完了。並びは依存の順（掲載：店舗情報→営業時間→公開／ネット予約：メニュー→写真→スタッフ）', () => {
     const steps = facilitySetupSteps(facts());
     expect(steps.map(s => [s.key, s.label, s.href, s.group, s.done])).toEqual([
       ['address', '基本情報（住所）', '/admin/settings', 'listing', true],
       ['pr_text', '基本情報（キャッチコピー・施設紹介の表現）', '/admin/settings', 'listing', true],
+      ['hours', '営業時間の入力・保存', '/admin/settings', 'listing', true],
       ['publish', '無料掲載を公開', '/admin/settings', 'listing', true],
-      ['menu', 'ネット予約：公開メニュー登録', '/admin/menus', 'booking', true],
-      ['staff', 'ネット予約：スタッフ登録と勤務時間の保存', '/admin/staff', 'booking', true],
-      ['photo', 'ネット予約：写真アップロード', '/admin/photos', 'booking', true],
-      ['hours', 'ネット予約：営業時間の確認・保存', '/admin/settings', 'booking', true],
-      ['schedule', '予約枠：勤務スケジュール設定', '/admin/staff', 'booking', true],
+      ['menu', '公開メニュー登録', '/admin/menus', 'booking', true],
+      ['photo', '写真アップロード', '/admin/photos', 'booking', true],
+      ['staff', 'スタッフ登録と勤務時間の保存', '/admin/staff', 'booking', true],
     ]);
+    expect(steps.every(s => s.note === undefined && s.optional === undefined)).toBe(true);
+  });
+
+  // スタッフの勤務時間の下書きは店舗の営業時間から作る。営業時間がスタッフより後にあると、
+  // スタッフを追加した直後に「店舗の営業時間がまだ保存されていない」と差し戻されていた。
+  test('営業時間はスタッフより前に並ぶ', () => {
+    const keys = facilitySetupSteps(facts()).map(s => s.key);
+    expect(keys.indexOf('hours')).toBeLessThan(keys.indexOf('staff'));
+  });
+
+  // 2026年10月23日 神原さん決定：営業時間は「無料掲載に必要」。公開ゲート（listingPublishMissing）と
+  // DB の公開 RPC が営業時間の無い公開を断るので、チェックリストも同じ区分・同じ順で見せる。
+  test('営業時間は「無料掲載に必要」の区分で、店舗情報の後・公開の前に並ぶ', () => {
+    const listing = facilitySetupSteps(facts()).filter(s => s.group === 'listing').map(s => s.key);
+    expect(listing).toEqual(['address', 'pr_text', 'hours', 'publish']);
+    expect(facilitySetupSteps(facts()).filter(s => s.group === 'booking').map(s => s.key)).toEqual(['menu', 'photo', 'staff']);
+  });
+
+  test('「勤務スケジュール設定」の重複項目は無い（スタッフの項目に一本化）', () => {
+    expect(facilitySetupSteps(facts()).map(s => s.key)).not.toContain('schedule');
+  });
+
+  test('キャッチコピー・施設紹介が両方とも空なら「完了」ではなく任意・未入力として見せる（公開は止めない）', () => {
+    const step = facilitySetupSteps(facts({ catchCopy: ' ', description: null })).find(s => s.key === 'pr_text');
+    expect(step).toMatchObject({ done: true, optional: true, note: '任意・未入力' });
+  });
+
+  test('施設紹介だけ入っていれば任意・未入力にはしない', () => {
+    const step = facilitySetupSteps(facts({ catchCopy: null, description: '丁寧なカウンセリング' })).find(s => s.key === 'pr_text');
+    expect(step?.optional).toBeUndefined();
   });
 
   test('セルフサーブ直後（施設名だけ）は住所・営業時間を含む全項目が未完了（PR 文言は未入力なので問題なし）', () => {
     expect(pending(facts({
-      prefecture: '', city: null, address: null, status: 'draft', businessHours: null,
+      prefecture: '', city: null, address: null, status: 'draft', businessHours: null, catchCopy: null,
       publishedMenuCount: 0, photoCount: 0, activeStaffIds: [], unscheduledStaffIds: [],
-    }))).toEqual(['address', 'publish', 'menu', 'staff', 'photo', 'hours', 'schedule']);
+    }))).toEqual(['address', 'hours', 'publish', 'menu', 'photo', 'staff']);
   });
 
   test.each([
@@ -71,17 +100,21 @@ describe('facilitySetupSteps', () => {
     expect(pending(facts({ businessHours: { mon: { open: '10:00', close: '20:00' } } }))).toEqual(['hours']);
   });
 
-  test('勤務時間の無い有効スタッフが1人でもいれば勤務スケジュールは未完了（他の人が勤務していれば予約は受けられる）', () => {
-    expect(pending(facts({ activeStaffIds: ['s1', 's2'], unscheduledStaffIds: ['s2'] }))).toEqual(['schedule']);
+  // 他の人が勤務していれば予約は受けられる。勤務時間の無い人がいることは補足で知らせ、未完了にはしない
+  // （以前は別項目「勤務スケジュール設定」が、予約を受けないスタッフがいる限り永久に未完了だった）。
+  test('勤務時間の無い有効スタッフがいても、勤務するスタッフがいれば完了。人数は補足に出す', () => {
+    const steps = facilitySetupSteps(facts({ activeStaffIds: ['s1', 's2'], unscheduledStaffIds: ['s2'] }));
+    expect(steps.filter(s => !s.done)).toEqual([]);
+    expect(steps.find(s => s.key === 'staff')?.note).toBe('勤務時間が未登録で予約を受けられないスタッフ：1人');
   });
 
   // 予約を受けられるのは勤務時間のあるスタッフだけ。追加しただけのスタッフ1人では予約を受けられない。
-  test('有効スタッフが全員勤務時間なしなら、スタッフ（ネット予約）も未完了', () => {
-    expect(pending(facts({ activeStaffIds: ['s1'], unscheduledStaffIds: ['s1'] }))).toEqual(['staff', 'schedule']);
+  test('有効スタッフが全員勤務時間なしなら、スタッフ（ネット予約）は未完了', () => {
+    expect(pending(facts({ activeStaffIds: ['s1'], unscheduledStaffIds: ['s1'] }))).toEqual(['staff']);
   });
 
-  test('有効スタッフがいなければ勤務スケジュールも完了にしない', () => {
-    expect(pending(facts({ activeStaffIds: [], unscheduledStaffIds: [] }))).toEqual(['staff', 'schedule']);
+  test('有効スタッフがいなければスタッフは未完了', () => {
+    expect(pending(facts({ activeStaffIds: [], unscheduledStaffIds: [] }))).toEqual(['staff']);
   });
 });
 
@@ -163,7 +196,7 @@ const F = 'f1';
 function seed(): Record<string, Row[]> {
   return {
     facility_profiles: [{
-      id: F, name: '合成店舗', prefecture: '東京都', city: '渋谷区', address: '合成1-1', catch_copy: '駅チカ3分',
+      id: F, name: '合成店舗', slug: 'synthetic-shop', prefecture: '東京都', city: '渋谷区', address: '合成1-1', catch_copy: '駅チカ3分',
       description: '施術で必ず治る', business_hours: CONFIRMED_HOURS, status: 'draft',
     }],
     facility_menus: [
@@ -201,7 +234,7 @@ describe('loadFacilitySetupFacts', () => {
   test('公開メニュー・有効スタッフだけを数え、勤務時間（週間の勤務日か今後の勤務する特別日）の無い有効スタッフを特定する', async () => {
     const { client } = fakeClient(seed());
     expect(await loadFacilitySetupFacts(client, F)).toEqual({
-      name: '合成店舗', prefecture: '東京都', city: '渋谷区', address: '合成1-1',
+      name: '合成店舗', slug: 'synthetic-shop', prefecture: '東京都', city: '渋谷区', address: '合成1-1',
       catchCopy: '駅チカ3分', description: '施術で必ず治る', status: 'draft',
       businessHours: CONFIRMED_HOURS,
       publishedMenuCount: 2, // 下書き（is_published=false）と他店舗は数えない
@@ -214,7 +247,7 @@ describe('loadFacilitySetupFacts', () => {
 
   test('施設紹介の禁止表現は、公開ゲートと同じく「表現」の未完了として出る', async () => {
     const { client } = fakeClient(seed());
-    expect(pending(await loadFacilitySetupFacts(client, F))).toEqual(['pr_text', 'publish', 'schedule']);
+    expect(pending(await loadFacilitySetupFacts(client, F))).toEqual(['pr_text', 'publish']);
   });
 
   test('特別日だけ勤務するスタッフしかいなくても、予約を受けられるスタッフとして数える', async () => {
@@ -226,11 +259,11 @@ describe('loadFacilitySetupFacts', () => {
     expect(pending(loaded)).toEqual(['pr_text', 'publish']);
   });
 
-  test('追加しただけのスタッフしかいなければ、スタッフ（ネット予約）も勤務スケジュールも未完了', async () => {
+  test('追加しただけのスタッフしかいなければ、スタッフ（ネット予約）は未完了', async () => {
     const tables = seed();
     tables.staff_profiles = tables.staff_profiles.filter(row => row.id === 's-new');
     const { client } = fakeClient(tables);
-    expect(pending(await loadFacilitySetupFacts(client, F))).toEqual(['pr_text', 'publish', 'staff', 'schedule']);
+    expect(pending(await loadFacilitySetupFacts(client, F))).toEqual(['pr_text', 'publish', 'staff']);
   });
 
   test('下書きメニューだけ・休止中スタッフだけの店舗は、それぞれ未完了になる', async () => {
@@ -239,7 +272,7 @@ describe('loadFacilitySetupFacts', () => {
     tables.facility_menus = [{ facility_id: F, is_published: false }];
     tables.staff_profiles = [{ id: 's-paused', facility_id: F, is_active: false }];
     const { client } = fakeClient(tables);
-    expect(pending(await loadFacilitySetupFacts(client, F))).toEqual(['publish', 'menu', 'staff', 'schedule']);
+    expect(pending(await loadFacilitySetupFacts(client, F))).toEqual(['publish', 'menu', 'staff']);
   });
 
   test('読み取りはすべて渡された関数を通る（ページの時間制限つき読み取り）', async () => {
@@ -258,8 +291,26 @@ describe('loadFacilitySetupFacts', () => {
   test('件数・行が null でも 0・空として扱う（行の無い店舗）', async () => {
     const { client } = fakeClient(seed(), {}, { nullData: true });
     expect(await loadFacilitySetupFacts(client, F)).toEqual({
-      name: null, prefecture: null, city: null, address: null, catchCopy: null, description: null,
+      name: null, slug: null, prefecture: null, city: null, address: null, catchCopy: null, description: null,
       status: null, businessHours: null, publishedMenuCount: 0, photoCount: 0, activeStaffIds: [], unscheduledStaffIds: [],
     });
+  });
+});
+
+describe('setupGuideSteps（/admin/manual の初期設定）', () => {
+  test('チェックリストと同じ項目・同じ順・同じ見出し・同じ区分で、全項目に手順がある', () => {
+    const guide = setupGuideSteps();
+    expect(guide.map(({ key, label, group }) => ({ key, label, group })))
+      .toEqual(facilitySetupSteps(facts()).map(({ key, label, group }) => ({ key, label, group })));
+    for (const step of guide) {
+      expect(step.howto).toBe(SETUP_STEP_HOWTO[step.key]);
+      expect(step.howto.length).toBeGreaterThan(10);
+    }
+  });
+
+  test('写真は1枚以上（ネット予約の判定と同じ）。以前のマニュアルの「5枚以上」「公開設定」を書かない', () => {
+    const text = setupGuideSteps().map((step) => step.howto).join('\n');
+    expect(SETUP_STEP_HOWTO.photo).toContain('1枚以上');
+    expect(text).not.toMatch(/5枚以上|公開設定|公開中」に変更/);
   });
 });

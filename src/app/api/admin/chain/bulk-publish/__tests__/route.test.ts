@@ -72,11 +72,16 @@ function membershipChain(data: unknown[]) {
 // .update().eq() で status を書く。update だけのスタブに倒すと
 // 「admin.from(...).select is not a function」でガード側が落ちる。
 // 公開ゲートの地域読み取りだけを満たす部分スタブ。update スパイを温存したいテスト用。
+const CONFIRMED_HOURS = {
+  mon: { open: '10:00', close: '19:00' }, tue: null, wed: { open: '10:00', close: '19:00' }, thu: { open: '10:00', close: '19:00' },
+  fri: { open: '10:00', close: '19:00' }, sat: { open: '10:00', close: '17:00' }, sun: null,
+};
+
 function profileSelectOnly(prefecture = '大阪府', city = '堺市', address = '検証町1-1') {
   return {
     select: jest.fn(() => ({
       eq: jest.fn(() => ({
-        single: jest.fn(() => Promise.resolve({ data: { name: '合成店舗', prefecture, city, address }, error: null })),
+        single: jest.fn(() => Promise.resolve({ data: { name: '合成店舗', prefecture, city, address, business_hours: CONFIRMED_HOURS }, error: null })),
       })),
     })),
   };
@@ -87,13 +92,15 @@ function facilityProfileChain(opts: {
   prefecture?: string | null;
   city?: string | null;
   address?: string | null;
+  businessHours?: unknown;
   profileError?: unknown;
 } = {}) {
-  // 既定は「地域が入っている」＝ガードの地域条件は充足。個々のテストが検証したいのは
+  // 既定は「地域と営業時間が入っている」＝ガードの掲載条件は充足。個々のテストが検証したいのは
   // メニュー/写真/スタッフの条件なので、地域で落ちない既定にしておく。
   const prefecture = opts.prefecture === undefined ? '大阪府' : opts.prefecture;
   const city = opts.city === undefined ? '堺市' : opts.city;
   const address = opts.address === undefined ? '検証町1-1' : opts.address;
+  const business_hours = opts.businessHours === undefined ? CONFIRMED_HOURS : opts.businessHours;
   return {
     // 一括公開は .update().in(ids) で複数施設をまとめて書く（単一施設の settings は .eq）。
     update: jest.fn().mockReturnValue({
@@ -103,7 +110,7 @@ function facilityProfileChain(opts: {
       eq: jest.fn(() => ({
         single: jest.fn(() =>
           Promise.resolve({
-            data: opts.profileError ? null : { name: '合成店舗', prefecture, city, address },
+            data: opts.profileError ? null : { name: '合成店舗', prefecture, city, address, business_hours },
             error: opts.profileError ?? null,
           }),
         ),
@@ -133,6 +140,7 @@ function setupReadiness(opts: {
   prefecture?: string | null;
   city?: string | null;
   address?: string | null;
+  businessHours?: unknown;
 } = {}) {
   const memberships = opts.memberships ?? [{ facility_id: FACILITY_A }, { facility_id: FACILITY_B }];
   const m = opts.menu === undefined ? 1 : opts.menu;
@@ -149,6 +157,7 @@ function setupReadiness(opts: {
       prefecture: opts.prefecture,
       city: opts.city,
       address: opts.address,
+      businessHours: opts.businessHours,
       profileError: opts.profileError,
     });
   });
@@ -311,6 +320,26 @@ test.each(['', ' \u3000 '])('POST: 住所 %p の施設は一括公開されな�
   expect(json.skipped).toHaveLength(2);
   for (const item of json.skipped) expect(item.missing).toEqual(['住所を設定してください']);
   expect(mockAdminFrom.mock.results.flatMap((result) => result.value.update?.mock.calls ?? [])).toEqual([]);
+});
+
+// 2026年10月23日 神原さん決定：曜日別の営業時間は無料掲載の公開条件（単一公開と同じゲート）。
+test('POST: 営業時間が未保存の施設は一括公開されず skipped に理由が載る', async () => {
+  setupReadiness({ menu: 1, photo: 1, staff: 1, businessHours: null });
+  const res = await POST(makeRequest(validBody({ is_published: true })));
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.updated).toBe(0);
+  expect(json.skipped).toHaveLength(2);
+  for (const item of json.skipped) expect(item.missing).toEqual(['全曜日の営業時間・定休日を確認して保存してください']);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
+});
+
+test('POST: gate通過後の営業時間競合（DB の公開 RPC が拒否）は全体409で成功件数を返さない', async () => {
+  setupReadiness({ menu: 1, photo: 1, staff: 1, updateError: { code: '23514', message: '"published_facility_hours_confirmed"' } });
+  const res = await POST(makeRequest(validBody({ is_published: true })));
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({ error: expect.stringContaining('営業時間') });
+  expect(writeAuditLog).not.toHaveBeenCalled();
 });
 
 test('POST: 非公開化(draft)は公開ゲートを通さず全件更新', async () => {

@@ -4,6 +4,7 @@ import Page from '../page';
 import FavoritesError from '../error';
 const mockFavorites=jest.fn();
 jest.mock('@/lib/user',()=>({getUserFavorites:()=>mockFavorites()}));
+jest.mock('next/navigation',()=>({useRouter:()=>({refresh:jest.fn()})}));
 jest.mock('@/components/search/FacilityCard',()=>({__esModule:true,default:({facility}: {facility:unknown})=> {if(!facility)throw new Error('Cannot render an unavailable facility');return <div>favorite-facility</div>;}}));
 beforeEach(()=>jest.clearAllMocks());
 
@@ -37,4 +38,24 @@ test('an unavailable joined facility retains the favorite without rendering a br
 test('one unavailable facility cannot hide other available favorite cards',async()=>{
  mockFavorites.mockResolvedValue([{id:'synthetic-unavailable',facility:null},{id:'synthetic-available',facility:{id:'synthetic-facility'}}]);
  const html=renderToStaticMarkup(await Page());expect(html).toContain('施設情報を現在表示できません');expect(html).toContain('favorite-facility');expect(html).not.toContain('お気に入りがありません');
+});
+
+// 掲載が下書き・停止に戻った施設のお気に入りは、施設ページが 404 でハートも押せない。以前はこのカードに
+// 操作が無く外す手段が無かったので、カードに「お気に入りから外す」を出す（2026年10月23日）。
+test('an unavailable facility card offers removal of that favorite; available cards keep their own card',async()=>{
+ mockFavorites.mockResolvedValue([{id:'synthetic-unavailable',facility_id:'fa7f0001-0000-4000-8000-000000000002',facility:null},{id:'synthetic-available',facility_id:'fa7f0001-0000-4000-8000-000000000001',facility:{id:'synthetic-facility'}}]);
+ const html=renderToStaticMarkup(await Page());
+ expect(html.match(/お気に入りから外す/g)).toHaveLength(1);expect(html).toContain('掲載が再開されると、ここに表示されます');expect(html).toContain('favorite-facility');
+});
+
+// 外すとカードごと一覧から消えるので、完了のお知らせとフォーカスの移動先はカードの外に要る。
+// 見出しはフォーカスを受けられ、空のライブリージョンはカードより前（一覧の外）に最初から置いてある。
+test('the heading can take focus and an empty live region sits outside the cards, also in the empty state',async()=>{
+ for(const favorites of [[{id:'synthetic-unavailable',facility_id:'fa7f0001-0000-4000-8000-000000000002',facility:null}],[]]){
+  mockFavorites.mockResolvedValue(favorites);
+  const html=renderToStaticMarkup(await Page());
+  expect(html).toContain('<h1 id="favorites-heading" tabindex="-1"');
+  expect(html).toContain('<p role="status" class="sr-only"></p>');
+  expect(html.indexOf('<p role="status" class="sr-only"></p>')).toBeLessThan(html.search(/施設情報を現在表示できません|お気に入りがありません/));
+ }
 });

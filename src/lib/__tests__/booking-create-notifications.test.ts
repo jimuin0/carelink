@@ -80,3 +80,10 @@ it('missing phone and note reach the owner notification as null',async()=>{
  await buildBookingCreateNotifications(db,input,null,'menu',500,'pending');
  expect(buildNewBookingNotificationEnvelope).toHaveBeenCalledWith(expect.objectContaining({customerPhone:null,note:null}));
 });
+// ゲスト予約（ログインなし＝bookings.user_id が NULL）はマイページで予約を見られない。お客様向けメールにその区別と店舗の連絡先を渡す。
+it.each([[null,false],['actor',true]] as const)('customer email knows whether the booking has an account (actor=%s)',async(actor,hasAccount)=>{
+ const {buildBookingConfirmationEnvelope}=jest.requireMock('../email') as Record<string,jest.Mock>;
+ rows.facility_profiles={data:{name:'Facility',slug:'synthetic-shop',phone:'03-1234-5678',status:'published'},error:null};
+ await buildBookingCreateNotifications(db,input,actor,'menu',500,'pending');
+ expect(buildBookingConfirmationEnvelope.mock.calls[0][0]).toEqual(expect.objectContaining({hasAccount,facilityPhone:'03-1234-5678',facilitySlug:'synthetic-shop'}));
+});

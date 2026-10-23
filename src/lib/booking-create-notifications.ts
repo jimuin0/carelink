@@ -6,6 +6,7 @@ import { sendLinePushWithOutcome } from './line';
 import { prepareCapturedPushDelivery, readUserPushSubscription, removeExpiredPushSubscription } from './push';
 import type { ChannelDeliveryResult } from './channel-delivery-result';
 import { fetchAllPaged } from './paginate';
+import { bookingEmailShopContact } from './facility-contact';
 import { z } from 'zod';
 
 export type BookingCreateNotification = {
@@ -33,7 +34,7 @@ async function collection<T>(page:(offset:number,limit:number)=>PromiseLike<{dat
 export async function buildBookingCreateNotifications(db: SupabaseClient, input: BookingFormData, actor: string | null,
   primaryMenu: string, totalPrice: number, status: string, pointsUsed = 0): Promise<BookingCreateNotification[]> {
   const [facility, menu, staff, members, flags, line, works] = await Promise.all([
-    db.from('facility_profiles').select('name').eq('id', input.facility_id).single(),
+    db.from('facility_profiles').select('name, slug, phone, status').eq('id', input.facility_id).single(),
     db.from('facility_menus').select('name').eq('id', primaryMenu).eq('facility_id', input.facility_id).single(),
     input.staff_id ? db.from('staff_profiles').select('name').eq('id', input.staff_id).eq('facility_id', input.facility_id).single() : Promise.resolve({ data: null, error: null }),
     collection((offset,limit)=>db.from('facility_members').select('user_id').eq('facility_id', input.facility_id).in('role', ['owner', 'admin']).order('user_id').range(offset,offset+limit-1),memberSchema).then(data=>({data,error:null})),
@@ -48,7 +49,10 @@ export async function buildBookingCreateNotifications(db: SupabaseClient, input:
   if (profiles.data.length !== ids.length) throw new BookingNotificationPlanError();
   const data = { customerName: input.customer_name, customerEmail: input.email, facilityName: facility.data.name,
     menuName: menu.data.name, staffName: staff.data?.name, bookingDate: input.booking_date, startTime: input.start_time,
-    endTime: input.end_time, totalPrice, bookingId: '', bookingStatus:status };
+    endTime: input.end_time, totalPrice, bookingId: '', bookingStatus:status,
+    // ログインせずに予約した方（actor なし＝bookings.user_id が NULL）はマイページで予約を見られないので、
+    // お客様向けメールではマイページへ案内せず、店舗の連絡先を出す。
+    hasAccount: actor !== null, ...bookingEmailShopContact(facility.data) };
   // 電話番号・備考は店舗向けだけに渡す（お客様向けの控えには載せない）。
   // ポイント利用も店舗向けに出す。料金（totalPrice）はポイント利用後の金額なので、
   // これが無いとメニュー価格との差の理由（クーポンか、ポイントか）が店舗に分からない。

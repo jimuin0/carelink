@@ -57,7 +57,8 @@ describe('getSymptomSlugsWithPublishedFacilities', () => {
 describe('空の症状ページから案内する業種', () => {
   test('実在する業種ページを指す', () => {
     expect(businessTypeSlugs[SYMPTOM_FALLBACK_TYPE_SLUG]).toBe('鍼灸院・整骨院');
-    expect(SYMPTOM_FALLBACK_TYPE_NAME).toBe('鍼灸院・整骨院');
+    // 表示名は整体を含む（保存値・スラッグは従来どおり。src/lib/business-type-label.ts）。
+    expect(SYMPTOM_FALLBACK_TYPE_NAME).toBe('鍼灸院・整骨院・整体');
     expect(SYMPTOM_FALLBACK_HREF).toBe('/type/acupuncture');
   });
 });

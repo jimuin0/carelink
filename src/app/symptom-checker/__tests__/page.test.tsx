@@ -50,7 +50,7 @@ test('どの症状にも対応店舗が無ければ、業種の一覧へ案内�
   setup({ count: 0, error: null });
   await searchLowBackPain();
   expect(screen.getByText('選んだ症状に対応する店舗は、まだ登録されていません。')).toBeInTheDocument();
-  expect(screen.getByRole('link', { name: '鍼灸院・整骨院を探す →' })).toHaveAttribute('href', '/type/acupuncture');
+  expect(screen.getByRole('link', { name: '鍼灸院・整骨院・整体を探す →' })).toHaveAttribute('href', '/type/acupuncture');
 });
 
 test('件数の取得に失敗したら「0件」と出さず、検索失敗として再試行を促す', async () => {

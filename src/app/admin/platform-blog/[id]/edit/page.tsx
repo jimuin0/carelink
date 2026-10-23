@@ -182,7 +182,7 @@ export default function EditPlatformBlogPage(props: Props) {
             onChange={(e) => setSlug(e.target.value)}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-hidden focus:ring-2 focus:ring-sky-400"
           />
-          <p className="text-xs text-gray-400 mt-1">/blog/{slug}</p>
+          <p className="text-xs text-gray-500 mt-1">/blog/{slug}</p>
         </div>
 
         <div>
@@ -236,11 +236,11 @@ export default function EditPlatformBlogPage(props: Props) {
       <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-3">
         <div className="flex items-center justify-between">
           <label className="text-xs font-medium text-gray-600">本文コンテンツ（JSON配列）</label>
-          <span className="text-xs text-gray-400">sections: {(() => { try { return JSON.parse(contentJson).length; } catch { return '?'; } })()}</span>
+          <span className="text-xs text-gray-500">sections: {(() => { try { return JSON.parse(contentJson).length; } catch { return '?'; } })()}</span>
         </div>
 
         <div className="flex flex-wrap gap-1.5">
-          <span className="text-xs text-gray-400 self-center">追加:</span>
+          <span className="text-xs text-gray-500 self-center">追加:</span>
           {Object.entries(SECTION_TEMPLATES).map(([key, template]) => (
             <button
               key={key}

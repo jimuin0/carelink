@@ -72,15 +72,16 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
       }
 
       // Load helpful counts（補助エンリッチ：失敗時も一覧本体は維持）
+      // 件数は関数から口コミ ID と件数だけを受け取る（2026年10月23日）。以前は review_helpful を
+      // 直接読んでブラウザで数えており、そのために誰でも全員の押下をアカウント ID つきで読めた
+      // （20261023110200 で閉じた。ブラウザから読めるのは自分の押下だけ）。
       // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
       const { data: helpfulCounts } = await supabase
-        .from('review_helpful')
-        .select('review_id')
-        .in('review_id', reviewIds);
+        .rpc('get_review_helpful_counts', { p_review_ids: reviewIds });
       if (helpfulCounts) {
         const counts: Record<string, number> = {};
         for (const h of helpfulCounts) {
-          counts[h.review_id] = (counts[h.review_id] || 0) + 1;
+          counts[h.review_id] = h.helpful_count;
         }
         setHelpfulMap(counts);
       }
@@ -176,13 +177,8 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
     setReportingId(null);
   };
 
-  if (reviews.length === 0) {
-    return (
-      <p className="text-gray-500 text-center py-8">
-        まだ口コミはありません。最初の口コミを投稿してみませんか？
-      </p>
-    );
-  }
+  // 0 件の案内は ReviewTab が 1 つだけ出す（ここでも出すと同じ案内が 2 段重なる・2026年10月23日）。
+  if (reviews.length === 0) return null;
 
   return (
     <div className="space-y-4">

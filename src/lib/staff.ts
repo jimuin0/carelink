@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from './supabase-server';
+import { readWorkingStaff } from './facility-publish-gate';
 import type { StaffProfile, StaffPhoto, MenuStaff } from '@/types';
 
 export async function getStaffByFacility(facilityId: string): Promise<StaffProfile[]> {
@@ -10,6 +11,20 @@ export async function getStaffByFacility(facilityId: string): Promise<StaffProfi
     .eq('is_active', true)
     .order('sort_order');
   return (data ?? []) as StaffProfile[];
+}
+
+/**
+ * 予約画面で指名できるスタッフ＝在籍していて、勤務時間がある人（週間の勤務日か、今日以降に勤務する特別日）。
+ * 勤務時間の無いスタッフを指名候補に出すと、選んだ途端に毎日「満枠」になり、お客様は理由が分からない。
+ * 規則は予約枠・公開カードと同じ workingStaffQuery（SQL 側は public.staff_has_working_time）。
+ * 勤務状況を読めなければ例外（指名候補を空や全員に偽装しない）。
+ */
+export async function getBookableStaffByFacility(facilityId: string): Promise<StaffProfile[]> {
+  const [staff, working] = await Promise.all([
+    getStaffByFacility(facilityId),
+    readWorkingStaff(createServerSupabaseClient(), facilityId),
+  ]);
+  return staff.filter(member => working.workingIds.has(member.id));
 }
 
 export async function getStaffBySlug(facilityId: string, staffSlug: string): Promise<StaffProfile | null> {

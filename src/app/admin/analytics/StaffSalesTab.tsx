@@ -87,7 +87,7 @@ export default function StaffSalesTab({ facilityId }: { facilityId: string }) {
       {loadError ? (
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="スタッフ別売上の読み込みに失敗しました" />
       ) : data.length === 0 ? (
-        <p className="text-gray-400 text-sm text-center py-4">データがありません</p>
+        <p className="text-gray-500 text-sm text-center py-4">データがありません</p>
       ) : (
         <div className="space-y-3">
           {data.map((s) => (
@@ -97,7 +97,7 @@ export default function StaffSalesTab({ facilityId }: { facilityId: string }) {
                 <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${(s.revenue / maxRevenue) * 100}%` }} />
               </div>
               <span className="text-sm font-medium w-24 text-right">¥{s.revenue.toLocaleString()}</span>
-              <span className="text-xs text-gray-400 w-12 text-right">{s.count}件</span>
+              <span className="text-xs text-gray-500 w-12 text-right">{s.count}件</span>
             </div>
           ))}
         </div>

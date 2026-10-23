@@ -11,7 +11,8 @@ import LayoutSwitch from '../LayoutSwitch';
 import MobileBottomNav from '../search/MobileBottomNav';
 
 let mockPathname = '/search';
-jest.mock('next/navigation', () => ({ usePathname: () => mockPathname }));
+let mockSearch = new URLSearchParams();
+jest.mock('next/navigation', () => ({ usePathname: () => mockPathname, useSearchParams: () => mockSearch }));
 jest.mock('next/dynamic', () => ({ __esModule: true, default: () => () => null }));
 jest.mock('../search/SearchHeader', () => ({ __esModule: true, default: () => null }));
 jest.mock('../Header', () => ({ __esModule: true, default: () => null }));
@@ -71,6 +72,23 @@ describe('Clarity のマスク', () => {
   });
 });
 
+// 店舗向けページ（くすみ系）は来院者向けの濃いフッターではなく、同じテーマの簡素なフッターにする（2026年10月23日）。
+describe('店舗向けページのフッター', () => {
+  test.each(['/register', '/register/complete'])('%s は表記と問い合わせだけの簡素なフッター', (path) => {
+    const { footer } = renderAt(path);
+    expect(screen.queryByTestId('plain-footer')).toBeNull();
+    expect(footer.className).toContain('theme-ecru');
+    const hrefs = Array.from(footer.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+    expect(hrefs).toEqual(['/legal', '/terms', '/privacy', '/contact']);
+    expect(footer).toHaveTextContent('運営：神原良祐（HALグループ）');
+  });
+
+  test('来院者向けページは従来のフッター（負の対照）', () => {
+    renderAt('/contact');
+    expect(screen.getByTestId('plain-footer')).toBeInTheDocument();
+  });
+});
+
 describe('MobileBottomNav', () => {
   test('下部ナビは固定の高さで、同意バナーが避ける目印を持つ', () => {
     mockPathname = '/search';
@@ -84,5 +102,17 @@ describe('MobileBottomNav', () => {
     mockPathname = '/facility/some-salon';
     render(<MobileBottomNav />);
     expect(screen.queryByRole('navigation', { name: 'メインナビゲーション' })).toBeNull();
+  });
+  test('掲載申込の続きとして開いた店舗アカウント作成画面では来院者向けナビを出さない', () => {
+    mockPathname = '/auth/signup';
+    mockSearch = new URLSearchParams({ redirect: '/admin/onboarding?handoff=registration' });
+    const { unmount } = render(<MobileBottomNav />);
+    expect(screen.queryByRole('navigation', { name: 'メインナビゲーション' })).toBeNull();
+    unmount();
+    // 来院者の新規登録では従来どおり出す（負の対照）
+    mockSearch = new URLSearchParams();
+    render(<MobileBottomNav />);
+    expect(screen.getByRole('navigation', { name: 'メインナビゲーション' })).toBeInTheDocument();
+    mockSearch = new URLSearchParams();
   });
 });

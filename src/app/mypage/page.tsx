@@ -4,6 +4,7 @@ import Link from 'next/link';
 import RecentlyViewed from '@/components/facility/RecentlyViewed';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
+import { readManagedFacilityName, STORE_ADMIN_PATH } from '@/lib/post-login-landing';
 
 export default async function MyPageDashboard() {
   let supabase;
@@ -24,9 +25,12 @@ export default async function MyPageDashboard() {
     .single();
   if (profileError || !profile) throw new Error('プロフィールを取得できません。時間をおいて再確認してください。');
 
-  const [{ count: favoriteCount, error: favoriteError }, { count: bookingCount, error: bookingError }] = await Promise.all([
+  const [{ count: favoriteCount, error: favoriteError }, { count: bookingCount, error: bookingError }, managedFacilityName] = await Promise.all([
     supabase.from('favorites').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
     supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
+    // 店舗オーナーが来院者向けのマイページに着いても、自分の管理画面へ戻れるようにする（2026年10月23日）。
+    // 取得できないときはカードを出さないだけ（マイページ自体は止めない）。
+    readManagedFacilityName(supabase, user.id),
   ]);
   if (favoriteError || bookingError || favoriteCount == null || bookingCount == null) {
     throw new Error('マイページの件数を取得できません。時間をおいて再確認してください。');
@@ -34,6 +38,15 @@ export default async function MyPageDashboard() {
 
   return (
     <div className="space-y-8">
+      {managedFacilityName !== null && (
+        <div className="bg-sky-50 border border-sky-200 rounded-2xl p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3" data-testid="managed-facility-card">
+          <p className="text-sm text-sky-900">
+            あなたの店舗：<span className="font-bold break-all">{managedFacilityName}</span>
+          </p>
+          <Link href={STORE_ADMIN_PATH} className="btn-primary px-5 py-2 text-center">管理画面を開く</Link>
+        </div>
+      )}
+
       <div className="bg-white rounded-2xl shadow-xs p-6 sm:p-8">
         <h1 className="text-xl font-bold mb-2">
           {(profile?.display_name && profile.display_name.trim()) || 'ユーザー'}さん、こんにちは

@@ -12,7 +12,7 @@
  */
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { ONLINE_PREPAYMENT_NOTICE, WAITLIST_NOTICE } from '@/lib/coming-soon';
+import { ONLINE_PREPAYMENT_NOTICE, OWNER_ONLINE_PREPAYMENT_NOTICE, WAITLIST_NOTICE } from '@/lib/coming-soon';
 
 function read(relative: string): string {
   return readFileSync(join(process.cwd(), relative), 'utf8');
@@ -28,9 +28,11 @@ describe('近日公開の表示（Issue #408 / #409）', () => {
 
   it('Issue #408: これから支払いが発生する予約にだけ出す（済んだ予約へ誤案内しない）', () => {
     const source = read('src/app/mypage/bookings/[id]/page.tsx');
-    // canCancel が偽＝キャンセル済み・来店済み・無断キャンセル。そこへ
+    // isOpenBooking が偽＝キャンセル済み・来店済み・無断キャンセル。そこへ
     // 「店舗でお支払いください」と出すのは誤案内なので、必ず条件付きで描く。
-    expect(source).toContain('{canCancel && <p className="text-xs text-gray-500">{ONLINE_PREPAYMENT_NOTICE}</p>}');
+    // （キャンセルボタンの条件 canCancel は開始時刻も見るようになったので、支払いの案内はステータスだけで決める。）
+    expect(source).toContain('const isOpenBooking = canCustomerCancelBooking(booking.status);');
+    expect(source).toContain('{isOpenBooking && <p className="text-xs text-gray-500">{ONLINE_PREPAYMENT_NOTICE}</p>}');
   });
 
   it('Issue #408: 決済導線そのものは出さない（決定どおり）', () => {
@@ -61,7 +63,16 @@ describe('近日公開の表示（Issue #408 / #409）', () => {
     }
   });
 
+  // 店舗の管理画面は Stripe アカウントの作成と本番用シークレットキーの取得を求めていた（使えない機能のために）。
+  it('Issue #408: 店舗の決済管理は近日公開の案内だけを出し、Stripe の設定を求めない', () => {
+    const source = read('src/app/admin/payments/page.tsx');
+    expect(source).toContain('OWNER_ONLINE_PREPAYMENT_NOTICE');
+    expect(source).not.toContain(OWNER_ONLINE_PREPAYMENT_NOTICE);
+    expect(source).not.toMatch(/シークレットキーを取得|dashboard\.stripe\.com|support@carelink-jp\.com|\.limit\(1\)/);
+  });
+
   it('文言は「近日公開」であることを明示する（実装済みと誤解させない）', () => {
+    expect(OWNER_ONLINE_PREPAYMENT_NOTICE).toContain('近日公開');
     expect(ONLINE_PREPAYMENT_NOTICE).toContain('近日公開');
     expect(WAITLIST_NOTICE).toContain('近日公開');
   });

@@ -11,6 +11,11 @@ import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import type { FacilityPhoto } from '@/types';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
+import SessionExpiredNotice from '@/components/admin/SessionExpiredNotice';
+import { verifyAuthUser } from '@/lib/auth-verification';
+import { businessTypeCopy } from '@/lib/business-type-copy';
+import { ADMIN_PHOTO_MAX_BYTES, ADMIN_PHOTO_TYPES, describePhotoRejections, preparePhotoBatch } from '@/lib/admin-photo-batch';
+import { compressImage } from '@/lib/image-compress';
 
 const photoTypes: { value: FacilityPhoto['photo_type']; label: string }[] = [
   { value: 'main', label: 'メイン' },
@@ -21,19 +26,26 @@ const photoTypes: { value: FacilityPhoto['photo_type']; label: string }[] = [
   { value: 'other', label: 'その他' },
 ];
 
-/** Server-confirmed main photo designation; false unless the server reports ok. */
-async function requestMainPhoto(facilityId: string, photoId: string): Promise<boolean> {
+/**
+ * Server-confirmed main photo designation; false unless the server reports ok.
+ * 'signed-out'＝ログイン切れ（401）。失敗と区別して、ログインし直す案内を出す。
+ */
+async function requestMainPhoto(facilityId: string, photoId: string): Promise<boolean | 'signed-out'> {
   try {
     const response = await fetch(`/api/admin/settings?facility_id=${facilityId}&action=main-photo`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ photoId }),
     });
+    if (response.status === 401) return 'signed-out';
     const result = await response.json().catch(() => null);
     return response.ok && result?.ok === true;
   } catch {
     return false;
   }
 }
+
+/** ログイン後に戻る先（選択中の店舗を保つ）。 */
+const photosPath = (facilityId: string | null) => `/admin/photos${facilityId ? `?facility_id=${encodeURIComponent(facilityId)}` : ''}`;
 
 function AdminPhotosContent() {
   const requestedFacility = useSearchParams().get('facility_id');
@@ -50,6 +62,14 @@ function AdminPhotosContent() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [settingMain, setSettingMain] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // 検索カードに出るメイン写真（facility_profiles.main_photo_url）。undefined＝読めなかった（推測で上書きしない）。
+  const [mainPhotoUrl, setMainPhotoUrl] = useState<string | null | undefined>(undefined);
+  // 業種（医療広告の注意を出すかの判定だけに使う）。null＝未設定・読めなかった（注意は出す側）。
+  const [businessType, setBusinessType] = useState<string | null>(null);
+  // ログインが切れていた（「管理できる店舗がありません」と取り違えない）。
+  const [signedOut, setSignedOut] = useState(false);
+  // 上げなかった写真（ファイル名と理由）。トーストは消えるので、閉じるまで画面に残す。
+  const [rejectedPhotos, setRejectedPhotos] = useState<string[]>([]);
 
   // Upload form
   const [selectedType, setSelectedType] = useState<FacilityPhoto['photo_type']>('interior');
@@ -66,6 +86,9 @@ function AdminPhotosContent() {
       .limit(100);
     if (error) { setLoadError(true); return; }
     setPhotos((data ?? []) as FacilityPhoto[]);
+    const main = await supabase.from('facility_profiles').select('main_photo_url, business_type').eq('id', fId).maybeSingle();
+    setMainPhotoUrl(main.error || !main.data ? undefined : main.data.main_photo_url ?? null);
+    setBusinessType(main.error || !main.data ? null : main.data.business_type ?? null);
   }, []);
 
   // React Compiler の set-state-in-effect 対策：user→membership→facilityId→一覧取得の全工程を
@@ -83,9 +106,11 @@ function AdminPhotosContent() {
       setFacilityChoices([]);
       setPhotos([]);
       setLoadError(false);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-      const selection = await loadAdminFacilitySelection(supabase, user.id, requestedFacility);
+      setSignedOut(false);
+      const auth = await verifyAuthUser(supabase.auth);
+      if (auth.state === 'unauthenticated') { setSignedOut(true); setLoading(false); return; }
+      if (auth.state !== 'verified') throw new Error('auth_unavailable');
+      const selection = await loadAdminFacilitySelection(supabase, auth.user.id, requestedFacility);
       setFacilityChoices(selection.choices);
       if (!selection.selectedId) { setLoading(false); return; }
       setFacilityId(selection.selectedId);
@@ -95,24 +120,20 @@ function AdminPhotosContent() {
   }, [loadPhotos, reloadKey, requestedFacility]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    if (files.length === 0 || !facilityId || uploading) return;
-
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-    const invalid = files.find((f) => !allowedTypes.includes(f.type));
-    if (invalid) {
-      setToast({ type: 'error', message: 'JPG, PNG, WebPのみ対応しています' });
-      e.target.value = '';
-      return;
-    }
-    const tooLarge = files.find((f) => f.size > 5 * 1024 * 1024);
-    if (tooLarge) {
-      setToast({ type: 'error', message: 'ファイルサイズは5MB以下にしてください' });
-      e.target.value = '';
-      return;
-    }
+    const selected = Array.from(e.target.files ?? []);
+    if (selected.length === 0 || !facilityId || uploading) return;
 
     setUploading(true);
+    setRejectedPhotos([]);
+    // 1 枚ずつ判定する（1 枚が大きすぎても残りは上げる）。大きすぎる写真は縮小してから判定する。
+    const batch = await preparePhotoBatch(selected, compressImage);
+    setRejectedPhotos(describePhotoRejections(batch.rejected));
+    const files = batch.accepted;
+    if (files.length === 0) {
+      setUploading(false);
+      e.target.value = '';
+      return;
+    }
     setUploadProgress({ done: 0, total: files.length });
     let succeeded = 0;
     let failed = 0;
@@ -123,6 +144,9 @@ function AdminPhotosContent() {
       let nextSortOrder = photos.length;
       // 種類「メイン」で上げた写真は、検索カードの画像（facility_profiles.main_photo_url）にも使う。
       // 以前は別途「メインに設定」を押すまでカードが「写真未登録」のままだった。
+      // メイン写真がまだ無い店舗では、種類に関係なく最初の1枚をメインにする（内観だけを上げた店舗の
+      // 検索カードが「予約OK」なのに「写真未登録」と出ていた）。
+      const promoteFirst = selectedType !== 'main' && mainPhotoUrl === null;
       let newMainPhotoId: string | null = null;
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -147,7 +171,7 @@ function AdminPhotosContent() {
             .select('id')
             .single();
           if (insertError || !inserted) throw insertError ?? new Error('Photo insert not confirmed');
-          if (selectedType === 'main' && !newMainPhotoId) newMainPhotoId = inserted.id;
+          if ((selectedType === 'main' || promoteFirst) && !newMainPhotoId) newMainPhotoId = inserted.id;
           nextSortOrder++;
           succeeded++;
         } catch {
@@ -157,12 +181,17 @@ function AdminPhotosContent() {
         }
       }
 
-      const mainSet = newMainPhotoId ? await requestMainPhoto(facilityId, newMainPhotoId) : null;
+      const mainResult = newMainPhotoId ? await requestMainPhoto(facilityId, newMainPhotoId) : null;
+      if (mainResult === 'signed-out') setSignedOut(true);
+      const mainSet = mainResult === 'signed-out' ? false : mainResult;
       if (mainSet === false) {
         const uploaded = failed === 0 ? `${succeeded}枚アップロードしましたが、` : `${succeeded}枚成功・${failed}枚失敗しました。また、`;
         setToast({ type: 'error', message: `${uploaded}メイン写真に設定できませんでした。「メインに設定」を押してください` });
       } else if (failed === 0) {
-        setToast({ type: 'success', message: mainSet ? `${succeeded}枚アップロードし、メイン写真に設定しました` : `${succeeded}枚アップロードしました` });
+        const message = !mainSet ? `${succeeded}枚アップロードしました`
+          : promoteFirst ? `${succeeded}枚アップロードし、1枚目をメイン写真に設定しました`
+          : `${succeeded}枚アップロードし、メイン写真に設定しました`;
+        setToast({ type: 'success', message });
       } else if (succeeded > 0) {
         setToast({ type: 'error', message: `${succeeded}枚成功・${failed}枚失敗しました` });
       } else {
@@ -189,6 +218,7 @@ function AdminPhotosContent() {
     setDeleting(id);
     try {
       const response = await fetch(`/api/admin/photos/${id}?facility_id=${facilityId}`, { method: 'DELETE' });
+      if (response.status === 401) { setSignedOut(true); return; }
       const result = await response.json().catch(() => null);
       if (!response.ok || result?.ok !== true || result.photoId !== id) throw new Error('Photo deletion not confirmed');
       setToast({ type: 'success', message: '掲載写真を外しました' });
@@ -204,7 +234,12 @@ function AdminPhotosContent() {
     if (!facilityId || settingMain) return;
     setSettingMain(photo.id);
     try {
-      if (await requestMainPhoto(facilityId, photo.id)) setToast({ type: 'success', message: 'メイン写真を設定しました' });
+      const result = await requestMainPhoto(facilityId, photo.id);
+      if (result === 'signed-out') setSignedOut(true);
+      else if (result) {
+        setMainPhotoUrl(photo.photo_url);
+        setToast({ type: 'success', message: 'メイン写真を設定しました' });
+      }
       else setToast({ type: 'error', message: '設定を確認できませんでした。再読み込みして確認してください' });
     } finally {
       setSettingMain(null);
@@ -212,6 +247,7 @@ function AdminPhotosContent() {
   };
 
   if (loading) return <AdminPageLoading />;
+  if (signedOut) return <SessionExpiredNotice redirectTo={photosPath(facilityId ?? requestedFacility)} />;
   if (loadError && !facilityId) return <LoadError onRetry={() => setReloadKey(k => k + 1)} message="管理する店舗の確認に失敗しました" />;
   if (!facilityId) return <FacilitySelector choices={facilityChoices} selectedId={null} path="/admin/photos" />;
 
@@ -225,11 +261,13 @@ function AdminPhotosContent() {
       <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/photos" busy={uploading || Boolean(deleting) || Boolean(settingMain)} />
       <SbPageHeader title="写真管理" />
 
-      {/* 医療広告ガイドライン注意書き */}
+      {/* 医療広告ガイドライン注意書き。対象の業種（医療機関・鍼灸・整骨等）と、業種が分からない店舗にだけ出す。 */}
+      {businessTypeCopy(businessType).medicalAdNotice && (
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 text-sm text-amber-800">
         <p className="font-bold mb-1">⚠️ 医療広告ガイドラインについて</p>
         <p>施術前後の比較（Before/After）写真は、<strong>医療広告ガイドライン</strong>により表示が制限される場合があります。鍼灸院・整骨院・クリニック等は特定の条件を満たさない限り掲載をお控えください。詳細は<a href="https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/kenkou_iryou/iryou/koukoku/index.html" target="_blank" rel="noopener noreferrer" className="underline">厚生労働省のガイドライン</a>をご確認ください。</p>
       </div>
+      )}
 
       {/* アップロード */}
       <div className="bg-white rounded-xl shadow-xs p-6 mb-6">
@@ -247,10 +285,19 @@ function AdminPhotosContent() {
           </div>
           <label className={`btn-primary py-2.5! px-6 cursor-pointer ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
             {uploadProgress ? `アップロード中... (${uploadProgress.done}/${uploadProgress.total})` : '写真を選択（複数可）'}
-            <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleUpload} className="hidden" />
+            <input type="file" accept={ADMIN_PHOTO_TYPES.join(',')} multiple onChange={handleUpload} className="hidden" />
           </label>
         </div>
-        <p className="text-xs text-gray-400 mt-2">JPG, PNG, WebP / 1枚あたり最大5MB（複数枚を一度に選択できます）</p>
+        <p className="text-xs text-gray-600 mt-2">JPG, PNG, WebP / 1枚あたり最大{ADMIN_PHOTO_MAX_BYTES / 1024 / 1024}MB（大きい写真は自動で縮小します。複数枚を一度に選択できます）</p>
+        {rejectedPhotos.length > 0 && (
+          <div role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            <p className="font-bold">次の写真はアップロードしませんでした</p>
+            <ul className="mt-1 list-disc pl-5">
+              {rejectedPhotos.map((line, i) => <li key={i}>{line}</li>)}
+            </ul>
+            <button type="button" onClick={() => setRejectedPhotos([])} className="mt-2 text-xs font-bold underline">閉じる</button>
+          </div>
+        )}
       </div>
 
       {/* 写真一覧 */}
@@ -258,7 +305,7 @@ function AdminPhotosContent() {
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="写真の読み込みに失敗しました" />
       ) : photos.length === 0 ? (
         <div className="bg-white rounded-xl shadow-xs p-12 text-center">
-          <p className="text-gray-400">写真がまだ登録されていません</p>
+          <p className="text-gray-500">写真がまだ登録されていません</p>
         </div>
       ) : (
         <div className="space-y-6">
@@ -271,14 +318,17 @@ function AdminPhotosContent() {
                     <div className="relative aspect-square">
                       <Image src={photo.photo_url} alt={photo.caption || label} fill className="object-cover" sizes="(max-width: 640px) 50vw, 25vw" />
                     </div>
+                    {photo.photo_url === mainPhotoUrl && (
+                      <span className="absolute top-2 left-2 z-10 rounded-full bg-sky-700 px-2 py-0.5 text-xs font-bold text-white">現在のメイン</span>
+                    )}
                     {photo.caption && (
-                      <p className="text-xs text-gray-500 p-2 truncate">{photo.caption}</p>
+                      <p className="text-xs text-gray-600 p-2 truncate">{photo.caption}</p>
                     )}
                     <div className="absolute inset-0 bg-black/30 sm:bg-black/0 sm:group-hover:bg-black/40 transition-colors flex items-center justify-center gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
                       <button
                         type="button"
                         onClick={() => setAsMain(photo)}
-                        disabled={settingMain === photo.id}
+                        disabled={settingMain === photo.id || photo.photo_url === mainPhotoUrl}
                         className="px-3 py-1.5 bg-white text-gray-800 text-xs font-bold rounded-lg hover:bg-sky-50 disabled:opacity-50"
                       >
                         メインに設定
@@ -304,7 +354,7 @@ function AdminPhotosContent() {
       <ConfirmDialog
         open={confirmDeleteId !== null}
         title="掲載写真を外す"
-        message="この写真を施設ページの表示から外します。保存済み画像そのものを削除したり、公開画像URLを失効させる操作ではありません。"
+        message="この写真を施設ページの表示から外します。写真のファイル自体は削除されないため、すでに写真のアドレスを知っている人は引き続き表示できます。"
         confirmLabel="掲載から外す"
         cancelLabel="キャンセル"
         onConfirm={executeDelete}

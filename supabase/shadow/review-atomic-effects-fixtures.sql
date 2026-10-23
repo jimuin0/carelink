@@ -32,8 +32,11 @@ INSERT INTO public.facility_reviews(id,facility_id,user_id,reviewer_name,rating,
 SELECT pg_temp.assert_review((SELECT is_verified_visit FROM public.facility_reviews WHERE id='fa120002-0000-4000-8000-000000000001'),'DB verifies visit, ignoring false input');
 SELECT pg_temp.assert_review((SELECT count(*)=1 AND sum(points)=50 FROM public.user_points WHERE user_id='fa120000-0000-4000-8000-000000000001' AND reason LIKE '口コミポイント:%'),'first credit exactly 50');
 SELECT pg_temp.assert_review((SELECT count(*)=1 FROM public.moderation_queue WHERE content_id='fa120002-0000-4000-8000-000000000001' AND status='pending'),'flag and queue commit together');
+-- The same account may review the same facility once per 24h (20261023120000),
+-- so the repeat review is dated outside that window.
+INSERT INTO public.facility_reviews(facility_id,user_id,reviewer_name,rating,reviewer_ip,is_verified_visit,created_at) VALUES
+ ('fa120001-0000-4000-8000-000000000001','fa120000-0000-4000-8000-000000000001','Second synthetic',4,'192.0.2.2',true,clock_timestamp()-interval '25 hours');
 INSERT INTO public.facility_reviews(facility_id,user_id,reviewer_name,rating,reviewer_ip,is_verified_visit) VALUES
- ('fa120001-0000-4000-8000-000000000001','fa120000-0000-4000-8000-000000000001','Second synthetic',4,'192.0.2.2',true),
  ('fa120001-0000-4000-8000-000000000001','fa120000-0000-4000-8000-000000000002','No visit',4,'192.0.2.3',true),
  ('fa120001-0000-4000-8000-000000000001',NULL,'Anonymous',4,'192.0.2.4',false);
 SELECT pg_temp.assert_review((SELECT count(*)=1 FROM public.user_points WHERE user_id='fa120000-0000-4000-8000-000000000001' AND reason LIKE '口コミポイント:%'),'repeat review never duplicates points');

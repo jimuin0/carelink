@@ -134,10 +134,10 @@ test('(iii) 🔴 負の対照: 認証済み + /auth/login?redirect=/\\evil.com �
   expect((res._redirectedTo as URL).pathname).toBe('/mypage');
 });
 
-test('(iv) 認証済み + /auth/login（redirect 無し）→ /mypage へ（既存 AUTH-1 との互換）', async () => {
+test('(iv) 認証済み + /auth/login（redirect 無し）→ /auth/landing へ（店舗オーナーは /admin・来院者は /mypage に振り分ける）', async () => {
   const res: Record<string, unknown> = await middleware(makeRequest('/auth/login'));
   expect(res._isRedirect).toBe(true);
-  expect((res._redirectedTo as URL).pathname).toBe('/mypage');
+  expect((res._redirectedTo as URL).pathname).toBe('/auth/landing');
 });
 
 test('(v) 認証済み + /auth/signup?redirect=/admin/onboarding&facility_name=... → クエリごと保持', async () => {

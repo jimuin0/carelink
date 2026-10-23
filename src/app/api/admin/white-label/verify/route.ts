@@ -8,6 +8,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { runAfterResponse } from '@/lib/after-response';
+import { sendOperatorNotification } from '@/lib/email';
 import { getAdminFacilityIds, resolveTargetFacilityId } from '@/lib/facility-membership';
 import { serverError, authUnavailable } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
@@ -40,7 +42,7 @@ export async function POST(req: NextRequest) {
 
   const { data: config, error: configError } = await admin
     .from('white_label_domains')
-    .select('domain, txt_record')
+    .select('domain, txt_record, is_verified')
     .eq('facility_id', facilityId)
     .maybeSingle();
 
@@ -69,6 +71,24 @@ export async function POST(req: NextRequest) {
         newValues: { domain: config.domain, is_verified: true },
         ipAddress: ip,
       });
+      // 認証が済んでも、独自ドメインで予約ページを出す処理は CareLink にまだ無い（画面は「運営による設定待ち」と
+      // 案内する）。以前は監査ログに残るだけで運営には何も届かず、オーナーは待ち続けるしかなかった。
+      // 運営へ設定依頼を送る（応答後に実行・失敗しても認証結果は変えない）。
+      // 未認証から認証済みに変わったときだけ送る。認証済みのドメインを何度 verify しても（ボタンは未認証の
+      // ときしか出ないが、API は直接叩ける）同じ依頼を運営の受信箱へ積まない。
+      const domain = config.domain;
+      if (config.is_verified !== true) runAfterResponse(() =>
+        sendOperatorNotification({
+          subject: '【CareLink】ホワイトラベルのドメイン認証が完了しました（設定依頼）',
+          lines: [
+            { label: '施設ID', value: facilityId },
+            { label: 'ドメイン', value: domain },
+            { label: '状態', value: 'DNS の TXT 認証が完了し、オーナーの画面には「運営による設定待ち」と表示しています。独自ドメインで予約ページを表示する処理は未実装のため、対応方針を決めてオーナーへご連絡ください。' },
+          ],
+        })
+          .then((sent) => { if (!sent) console.warn('[white-label/verify] operator notification not sent', { facilityId }); })
+          .catch((err) => { console.error('[white-label/verify] operator notification failed', { facilityId, err }); }),
+      );
     }
 
     return NextResponse.json({ verified });

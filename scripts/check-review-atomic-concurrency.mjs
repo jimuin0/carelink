@@ -65,8 +65,8 @@ const fid = 'fa130001-0000-4000-8000-000000000001';
 const review = 'fa130002-0000-4000-8000-000000000001';
 const other = 'fa130002-0000-4000-8000-000000000002';
 let created = false;
-const insert = (id, ip) => `INSERT INTO public.facility_reviews(id,facility_id,user_id,reviewer_name,rating,rating_skill,rating_service,rating_atmosphere,rating_cleanliness,rating_explanation,comment,reviewer_ip)
- VALUES('${id}','${fid}','${actor}','Synthetic race',4,4,4,4,4,4,'Initial','${ip}')`;
+const insert = (id, ip, createdAt = 'now()') => `INSERT INTO public.facility_reviews(id,facility_id,user_id,reviewer_name,rating,rating_skill,rating_service,rating_atmosphere,rating_cleanliness,rating_explanation,comment,reviewer_ip,created_at)
+ VALUES('${id}','${fid}','${actor}','Synthetic race',4,4,4,4,4,4,'Initial','${ip}',${createdAt})`;
 async function main() {
  assert.equal(query('SELECT current_database()'), database);
  assert.equal(query("SELECT current_setting('server_version_num')::integer BETWEEN 170000 AND 179999"), 't');
@@ -82,7 +82,12 @@ async function main() {
  assert.notEqual(result.code,0); assert.match(result.errors,/REVIEW_RECENT_DUPLICATE/);
  assert.equal(query(`SELECT count(*)=1 FROM public.facility_reviews WHERE facility_id='${fid}'`),'t');
  assert.equal(query(`SELECT count(*)=1 AND sum(points)=50 FROM public.user_points WHERE user_id='${actor}' AND reason LIKE '口コミポイント:%'`),'t');
- result=await orderedRace('distinct-ip', `SELECT public.lock_booking_account('${actor}')`, insert(other,'192.0.2.141'));
+ // The 24h limit also counts the account (20261023120000): the same member on
+ // another network waits for the account lock, then sees the committed review.
+ result=await orderedRace('same-account-distinct-ip', `SELECT public.lock_booking_account('${actor}')`, insert(other,'192.0.2.141'));
+ assert.notEqual(result.code,0); assert.match(result.errors,/REVIEW_RECENT_DUPLICATE/);
+ assert.equal(query(`SELECT count(*)=1 FROM public.facility_reviews WHERE facility_id='${fid}'`),'t');
+ result=await orderedRace('distinct-ip-outside-window', `SELECT public.lock_booking_account('${actor}')`, insert(other,'192.0.2.141',"clock_timestamp()-interval '25 hours'"));
  assert.equal(result.code,0,result.errors);
  assert.equal(query(`SELECT count(*)=1 AND sum(points)=50 FROM public.user_points WHERE user_id='${actor}' AND reason LIKE '口コミポイント:%'`),'t');
  const edit = comment => `SELECT count(*) FROM public.edit_review_atomic('${actor}','${review}',jsonb_build_object('comment','${comment}','is_flagged',true,'flag_reason','${comment}'))`;
@@ -90,7 +95,7 @@ async function main() {
  assert.equal(result.code,0,result.errors); assert.equal(result.output,'1');
  assert.equal(query(`SELECT comment='Second version' AND is_flagged FROM public.facility_reviews WHERE id='${review}'`),'t');
  assert.equal(query(`SELECT count(*)=1 AND bool_and(report_reason='Second version') FROM public.moderation_queue WHERE content_id='${review}' AND status='pending'`),'t');
- console.log('Observed overlap: duplicate review rejected; distinct review earns no duplicate points; concurrent edits preserve one current pending queue.');
+ console.log('Observed overlap: duplicate review rejected by IP and by account; a later review earns no duplicate points; concurrent edits preserve one current pending queue.');
 }
 try { await main(); } finally {
  for (const child of children) child.kill('SIGTERM');

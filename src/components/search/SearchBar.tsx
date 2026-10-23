@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useSyncExternalStore } from 'react';
 import { businessTypes, prefectures } from '@/lib/constants';
 import SearchSuggest from './SearchSuggest';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 const HISTORY_KEY = 'carelink_search_history';
 const MAX_HISTORY = 5;
@@ -104,7 +105,7 @@ export default function SearchBar() {
         >
           <option value="">すべての業種</option>
           {businessTypes.map((t) => (
-            <option key={t} value={t}>{t}</option>
+            <option key={t} value={t}>{businessTypeLabel(t)}</option>
           ))}
         </select>
         <select

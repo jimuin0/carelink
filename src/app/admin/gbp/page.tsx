@@ -6,6 +6,7 @@ import { verifyAuthUser } from '@/lib/auth-verification';
 import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import type { PlaceDetails, GbpAuditResult } from '@/lib/gbp';
+import { GBP_PLACE_MISMATCH_NOTICE } from '@/lib/gbp-ownership';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
@@ -66,7 +67,8 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
   const [savingSetup, setSavingSetup] = useState(false);
 
   // Audit
-  const [auditData, setAuditData] = useState<{ placeData: PlaceDetails | null; audit: GbpAuditResult } | null>(null);
+  // ownershipMismatch: 保存済みの Place ID が施設の登録内容と合わず、Google の評価を表示していない（API が判定）。
+  const [auditData, setAuditData] = useState<{ placeData: PlaceDetails | null; audit: GbpAuditResult; ownershipMismatch?: boolean } | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
 
   // Posts
@@ -122,8 +124,15 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ gbp_place_id: placeId, gbp_cid: gbpCid, facility_id: facilityId }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        // 照合で断った理由（他店の Place ID・Google で確認できない・別の店舗に登録済み）をそのまま見せる。
+        const e = await res.json().catch(() => null);
+        setToast({ type: 'error', message: typeof e?.error === 'string' && e.error ? e.error : '保存に失敗しました' });
+        return;
+      }
       setSavedSetup({ placeId, gbpCid });
+      // Place を変えたら前の診断結果は別の店舗のもの。次に診断・クチコミを開いたときに取り直す。
+      setAuditData(null);
       setToast({ type: 'success', message: '保存しました' });
     } catch {
       setToast({ type: 'error', message: '保存に失敗しました' });
@@ -140,6 +149,13 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
       if (!res.ok) throw new Error();
       const data = await res.json();
       setAuditData(data);
+      // 照合が外れて Place ID の登録が解除された（API が外した）。設定欄に古い ID を残すと、
+      // 「登録中」に見えたまま、未変更として保存もできなくなるため空に戻す。
+      if (data?.released === true) {
+        setSavedSetup({ placeId: '', gbpCid: '' });
+        setPlaceId('');
+        setGbpCid('');
+      }
     } catch {
       setToast({ type: 'error', message: '診断データの取得に失敗しました' });
     } finally {
@@ -301,12 +317,14 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
             <h2 className="text-lg font-bold mb-1">Google Place ID 連携</h2>
             <p className="text-sm text-gray-500 mb-4">
               Place ID を登録すると、Googleマップのデータを取得して診断スコアとクチコミが表示されます。
+              保存時に、Google の店舗情報とこの店舗の登録内容（電話番号、または店舗名と住所）を照合します。一致しない場合は保存できません。
+              保存した後で店舗名・電話番号・郵便番号・住所を変更すると、登録は解除されます。
             </p>
 
             <div className="space-y-4 mb-5">
               <div>
                 <label htmlFor="gbp-place-id" className="text-sm font-medium text-gray-700">Place ID</label>
-                <p className="text-xs text-gray-400 mb-1">
+                <p className="text-xs text-gray-500 mb-1">
                   <a href="https://developers.google.com/maps/documentation/javascript/examples/places-placeid-finder" target="_blank" rel="noopener noreferrer" className="text-sky-500 underline">Place ID Finder</a>
                   {' '}で自店舗を検索して取得。「ChIJ...」から始まる文字列。
                 </p>
@@ -322,7 +340,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
               </div>
               <div>
                 <label htmlFor="gbp-cid" className="text-sm font-medium text-gray-700">GBP CID（任意）</label>
-                <p className="text-xs text-gray-400 mb-1">
+                <p className="text-xs text-gray-500 mb-1">
                   GBP管理画面のURLに含まれる数字のID（あれば入力）
                 </p>
                 <input
@@ -378,7 +396,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                 ['特別営業時間', '祝日・お盆・年末年始の休業日を登録'],
               ].map(([label, desc]) => (
                 <div key={label} className="flex gap-3 p-3 bg-gray-50 rounded-lg">
-                  <span className="text-gray-400">→</span>
+                  <span className="text-gray-500">→</span>
                   <div>
                     <p className="text-sm font-medium text-gray-700">{label}</p>
                     <p className="text-xs text-gray-500">{desc}</p>
@@ -396,6 +414,11 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
           {!placeId && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-sm text-yellow-700">
               Place ID が未設定です。「GBP設定」タブで登録するとより詳細な診断が可能になります。
+            </div>
+          )}
+          {auditData?.ownershipMismatch && !auditLoading && (
+            <div role="alert" className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 text-sm text-yellow-800">
+              {GBP_PLACE_MISMATCH_NOTICE}
             </div>
           )}
 
@@ -459,7 +482,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                     <div className="text-right shrink-0">
                       <div className="text-2xl font-bold text-amber-500">★ {place.rating?.toFixed(1) ?? '—'}</div>
                       <div className="text-xs text-gray-500">{(place.user_ratings_total ?? 0).toLocaleString()}件の口コミ</div>
-                      <div className="text-xs text-gray-400 mt-0.5">{place.photos?.length ?? 0}枚の写真</div>
+                      <div className="text-xs text-gray-500 mt-0.5">{place.photos?.length ?? 0}枚の写真</div>
                     </div>
                   )}
                 </div>
@@ -493,7 +516,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                                 item.passed === true ? 'text-green-800' :
                                 item.passed === false ? 'text-red-700' : 'text-gray-600'
                               }`}>{item.label}</p>
-                              <span className="text-xs text-gray-400 shrink-0">+{item.points}点</span>
+                              <span className="text-xs text-gray-500 shrink-0">+{item.points}点</span>
                             </div>
                             {item.detail && (
                               <p className="text-xs text-gray-500 mt-0.5">{item.detail}</p>
@@ -564,7 +587,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                               const filled = Math.max(0, Math.min(5, Math.round(review.rating || 0)));
                               return <span className="text-amber-400 text-sm">{'★'.repeat(filled)}{'☆'.repeat(5 - filled)}</span>;
                             })()}
-                            <span className="text-xs text-gray-400">{review.relative_time_description}</span>
+                            <span className="text-xs text-gray-500">{review.relative_time_description}</span>
                           </div>
                         </div>
                         <a href={/^https?:\/\//i.test(place.url || '') ? place.url! : gbpManageUrl} target="_blank" rel="noopener noreferrer"
@@ -584,8 +607,12 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                     </ul>
                   </div>
                 </div>
+              ) : auditData?.ownershipMismatch ? (
+                <div role="alert" className="bg-yellow-50 border border-yellow-200 rounded-xl p-5 text-sm text-yellow-800">
+                  {GBP_PLACE_MISMATCH_NOTICE}
+                </div>
               ) : (
-                <div className="bg-white rounded-xl shadow-xs p-8 text-center text-gray-400">
+                <div className="bg-white rounded-xl shadow-xs p-8 text-center text-gray-500">
                   <p>クチコミデータの取得には <span className="text-sky-500">GOOGLE_MAPS_API_KEY</span> の設定が必要です</p>
                   <p className="text-xs mt-2">Vercelの環境変数に設定してください</p>
                 </div>
@@ -656,7 +683,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                             rows={6} maxLength={1500}
                             placeholder="投稿の内容を入力... (最大1500文字)"
                             className="mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-300" />
-                  <p className="text-xs text-right text-gray-400">{newPost.body.length}/1500</p>
+                  <p className="text-xs text-right text-gray-500">{newPost.body.length}/1500</p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -696,7 +723,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
           {postsLoading ? (
             <div className="animate-pulse space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="h-20 bg-gray-200 rounded-xl" />)}</div>
           ) : posts.length === 0 ? (
-            <div className="bg-white rounded-xl shadow-xs p-8 text-center text-gray-400 text-sm">
+            <div className="bg-white rounded-xl shadow-xs p-8 text-center text-gray-500 text-sm">
               まだ投稿がありません。上の「テンプレートから作成」で始めましょう。
             </div>
           ) : (
@@ -712,8 +739,8 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                         }`}>
                           {post.status === 'published' ? '投稿済み' : post.status === 'scheduled' ? '予定' : '下書き'}
                         </span>
-                        <span className="text-xs text-gray-400">{post.post_type}</span>
-                        <span className="text-xs text-gray-400">{new Date(post.created_at).toLocaleDateString('ja-JP')}</span>
+                        <span className="text-xs text-gray-500">{post.post_type}</span>
+                        <span className="text-xs text-gray-500">{new Date(post.created_at).toLocaleDateString('ja-JP')}</span>
                       </div>
                       {post.title && <p className="text-sm font-medium text-gray-800">{post.title}</p>}
                       <p className="text-sm text-gray-600 line-clamp-2 mt-0.5">{post.body}</p>

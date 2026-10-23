@@ -219,6 +219,17 @@ describe('sendNewReviewNotification', () => {
     await sendNewReviewNotification(reviewData);
     expect(mockSend.mock.calls[0][0].html).toContain('/admin/reviews"');
   });
+
+  // 2026年10月23日：審査待ちの口コミは店舗ページに出ない理由を書き添える。
+  test('pendingModeration なら運営の確認が終わるまで反映されないことを書き添える', async () => {
+    await sendNewReviewNotification({ ...reviewData, pendingModeration: true });
+    expect(mockSend.mock.calls[0][0].html).toContain('運営の確認が終わるまで、店舗ページと評価には反映されません');
+  });
+
+  test('通常の口コミには書き添えない', async () => {
+    await sendNewReviewNotification({ ...reviewData, pendingModeration: false });
+    expect(mockSend.mock.calls[0][0].html).not.toContain('運営の確認');
+  });
 });
 
 // 【2026年7月10日 恒久根治】施設への問い合わせがオーナーに届かない構造的欠陥の修正。
@@ -750,6 +761,13 @@ describe('sendWelcomeEmail', () => {
     expect(mockSend).toHaveBeenCalledTimes(1);
     const html = mockSend.mock.calls[0][0].html;
     expect(html).toContain('オーナー');
+  });
+
+  test('サービス名は「CareLink」（以前は「CareLinks」と誤記していた）', async () => {
+    await sendWelcomeEmail({ ownerEmail: 'owner@example.com', facilityName: 'サロン' });
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).toContain('この度はCareLinkに施設を登録');
+    expect(html).not.toContain('CareLinks');
   });
 });
 

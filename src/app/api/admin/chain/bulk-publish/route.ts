@@ -11,7 +11,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX } from '@/lib/constants';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { checkPublishReadiness, isPublishedLocationConflict } from '@/lib/facility-publish-gate';
+import { checkPublishReadiness, isPublishedHoursConflict, isPublishedLocationConflict } from '@/lib/facility-publish-gate';
 import { serverError, authUnavailable } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
@@ -86,8 +86,9 @@ export async function POST(req: NextRequest) {
   }
 
   if (targetIds.length > 0) {
-    // The earlier reads explain skipped items. Authorization and location are
-    // checked again under row locks at the actual transaction boundary.
+    // The earlier reads explain skipped items. Authorization, location and
+    // confirmed business hours are checked again under row locks at the actual
+    // transaction boundary.
     const { data: updated, error } = await admin.rpc('set_facilities_publication_atomic', {
       p_actor_id: user.id, p_facility_ids: targetIds, p_is_published: is_published,
     });
@@ -95,6 +96,7 @@ export async function POST(req: NextRequest) {
     if (error?.message.includes('FACILITY_PERMISSION_REVOKED')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     if (error?.message.includes('FACILITY_OWNER_REQUIRED')) return NextResponse.json({ error: '店舗所有者の確認が必要です。今回の変更は保存されていません。' }, { status: 409 });
     if (isPublishedLocationConflict(error)) return NextResponse.json({ error: '所在地が変更された施設があります。今回の一括更新は保存されていません。所在地を確認してください。' }, { status: 409 });
+    if (isPublishedHoursConflict(error)) return NextResponse.json({ error: '営業時間が変更された施設があります。今回の一括更新は保存されていません。営業時間を確認してください。' }, { status: 409 });
     if (error) return serverError('admin-chain-bulk-publish-update', error, '/api/admin/chain/bulk-publish');
     if (!Array.isArray(updated) || updated.length !== targetIds.length
       || new Set(updated.map(row => row.id)).size !== targetIds.length || updated.some(row => !targetIds.includes(row.id))) {

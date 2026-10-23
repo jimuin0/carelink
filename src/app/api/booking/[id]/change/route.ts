@@ -13,7 +13,9 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { getTodayString, getMaxDateString } from '@/lib/validations-booking';
 import { isValidIsoDate } from '@/lib/date-utils';
-import { hasBookingStarted } from '@/lib/cancel-fee';
+import {
+  CHANGE_WINDOW_CLOSED_MESSAGE, hasBookingStarted, hoursUntilBookingStart, isPastFreeCancelWindow, type CancelPolicy,
+} from '@/lib/cancel-fee';
 import { isCustomerChangeableStatus } from '@/lib/booking-status';
 import {
   BOOKING_SLOT_PASSED_MESSAGE, RESCHEDULE_DURATION_MISMATCH_MESSAGE, hasSlotStarted, rescheduleDurationMinutes, slotLengthMinutes,
@@ -126,6 +128,22 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       return NextResponse.json({ error: RESCHEDULE_DURATION_MISMATCH_MESSAGE }, { status: 400 });
     }
 
+    // 無料キャンセルの期限を過ぎた予約は、オンラインで日時を変更できない（神原さん決定・2026年10月23日・案A）。
+    // 以前は期限を過ぎてから数日先へ動かし、その後にキャンセルすると、キャンセル料が新しい日時で計算されて
+    // 0 円になり、元の枠が直前に空いた。キャンセル RPC と同じ店舗のポリシー行を読み、キャンセル料と同じ
+    // 規則（isPastFreeCancelWindow）で今の日時を判定する。最終判定は RPC（BOOKING_CHANGE_WINDOW_CLOSED）でも行う。
+    // ポリシーは公開読み取りの表だが、RLS の変更に左右されないよう service role で読む。
+    const serviceClient = createServiceRoleClient();
+    const { data: policy, error: policyReadError } = await serviceClient
+      .from('facility_cancel_policies')
+      .select('free_cancel_hours, late_cancel_rate, cancel_rule')
+      .eq('facility_id', booking.facility_id)
+      .maybeSingle();
+    if (policyReadError) return serverError('booking-change-policy', databaseDiagnostic(policyReadError), '/api/booking/[id]/change', '予約を確認できません。時間をおいて再確認してください。');
+    if (isPastFreeCancelWindow(policy as CancelPolicy | null, hoursUntilBookingStart(booking.booking_date, booking.start_time, Date.now()))) {
+      return NextResponse.json({ error: CHANGE_WINDOW_CLOSED_MESSAGE, code: 'CHANGE_WINDOW_CLOSED' }, { status: 409 });
+    }
+
     // 競合チェック＋UPDATE を change_booking_atomic で同一トランザクション・同一 advisory lock
     // 下に実行（TOCTOU 解消）。指名なし(staff_id NULL)もアクティブ施術者数までの容量判定を行う
     // （旧実装は指名なしの競合チェックを完全スキップしていた）。所有権・状態も RPC 内で再検査。
@@ -133,8 +151,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     // で呼ぶと booking_id と被害者 user_id を渡すだけで他人の予約をリスケできる IDOR だった。RPC は
     // service_role で呼び、migration 側で anon/authenticated の EXECUTE を撤回して直接呼び出しを塞ぐ。
     // 所有権(booking.user_id === user.id)・状態は上の同期ブロックでサーバ側検証済み。
-    const rpcClient = createServiceRoleClient();
-    const { data: changed, error } = await rpcClient.rpc('change_customer_booking_with_channels_atomic', {
+    const { data: changed, error } = await serviceClient.rpc('change_customer_booking_with_channels_atomic', {
       p_booking_id: params.id,
       p_user_id: user.id,
       p_booking_date: parsed.data.booking_date,
@@ -165,6 +182,9 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       }
       if (msg.includes('BOOKING_ALREADY_STARTED')) {
         return NextResponse.json({ error: ALREADY_STARTED_MESSAGE }, { status: 409 });
+      }
+      if (msg.includes('BOOKING_CHANGE_WINDOW_CLOSED')) {
+        return NextResponse.json({ error: CHANGE_WINDOW_CLOSED_MESSAGE, code: 'CHANGE_WINDOW_CLOSED' }, { status: 409 });
       }
       if (msg.includes('BOOKING_SLOT_PASSED')) {
         return NextResponse.json({ error: BOOKING_SLOT_PASSED_MESSAGE }, { status: 409 });

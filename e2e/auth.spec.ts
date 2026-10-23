@@ -202,10 +202,15 @@ test.describe('認証フロー', () => {
     await expect(page.getByRole('heading', { name: '店舗ログイン', exact: true })).toBeVisible();
     await expect(page.getByText(`ログイン中：${uniqueEmail}`, { exact: true })).toBeVisible();
     await page.goto('/auth/login?redirect=/admin/bookings');
-    await page.getByRole('link', { name: 'このアカウントで管理画面を開く', exact: true }).click();
+    // 店舗を持たないアカウントには「このアカウントで管理画面を開く」を出さない（押しても権限エラーに戻るだけ）。
+    await expect(page.getByRole('alert').filter({ hasText: 'このアカウントには、管理できるお店がありません。' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'このアカウントで管理画面を開く', exact: true })).toHaveCount(0);
+    // middleware の実際の拒否も確認する（リンクを隠しただけで権限が緩んでいないこと）。
+    await page.goto('/admin/bookings');
     await expect(page).toHaveURL(/\/auth\/login\?redirect=%2Fadmin%2Fbookings&error=store_access_required$/);
     await expect(page.getByRole('alert').filter({ hasText: 'このアカウントでは、お店を管理できません。' })).toBeVisible();
-    await expect(page.getByRole('link', { name: '新しくお店を登録する' })).toHaveAttribute('href', '/admin/onboarding');
+    // 申込を経ない店舗作成（/admin/onboarding 直行）へは送らない。
+    await expect(page.getByRole('link', { name: '新しくお店を登録する' })).toHaveAttribute('href', '/register');
 
     // This disposable identity has no real drafts. Switching must actually end
     // its local Auth session before another account's credentials are offered.

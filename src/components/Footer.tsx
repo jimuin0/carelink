@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { regionGroups, businessTypes } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 const MAIN_PREFS = ['東京都', '大阪府', '愛知県', '福岡県', '北海道', '神奈川県'];
 
@@ -48,7 +49,7 @@ export default function Footer() {
                       href={`/search?type=${encodeURIComponent(type)}`}
                       className="text-gray-300 hover:text-white transition-colors"
                     >
-                      {type}
+                      {businessTypeLabel(type)}
                     </Link>
                   </h3>
                   <div className="flex flex-wrap gap-x-2.5 gap-y-0.5">
@@ -124,7 +125,7 @@ export default function Footer() {
               <Link href="/search" className="hover:text-white transition-colors">
                 サロンを探す
               </Link>
-              <Link href="/salon" className="hover:text-white transition-colors">
+              <Link href="/register" className="hover:text-white transition-colors">
                 施設掲載（オーナー向け）
               </Link>
               <Link href="/contact" className="hover:text-white transition-colors">
@@ -167,7 +168,7 @@ export default function Footer() {
 
         <div className="mt-10 pt-8 border-t border-gray-700">
           <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 mb-4 text-xs text-gray-400">
-            <Link href="/salon" className="hover:text-white transition-colors">
+            <Link href="/register" className="hover:text-white transition-colors">
               施設掲載をご希望のオーナー様はこちら →
             </Link>
           </div>

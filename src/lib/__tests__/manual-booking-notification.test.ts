@@ -11,11 +11,13 @@ const job = { id: OP, target_id: OP, webhook_type: 'manual_booking_confirmation'
 const original = { facility_id: FAC, booking_id: OP, input: { facility_id: FAC, email: envelope.to,
   customer_name: 'Synthetic', booking_date: '2030-01-01', start_time: '10:00', end_time: '11:00' },
   result: { total_price: 6000, menu_names: 'Second、First', facility_name: 'Synthetic', staff_name: null } };
+const shop = { slug: 'synthetic-shop', phone: '03-1234-5678', status: 'published' };
 let chain: Record<string, jest.Mock>, from: jest.Mock;
 beforeEach(() => {
   jest.clearAllMocks(); chain = {};
   for (const key of ['select','eq','update','is']) chain[key] = jest.fn(() => chain);
-  chain.maybeSingle = jest.fn().mockResolvedValueOnce({ data: original, error: null }).mockResolvedValue({ data: { id: OP }, error: null });
+  chain.maybeSingle = jest.fn().mockResolvedValueOnce({ data: original, error: null }).mockResolvedValueOnce({ data: shop, error: null })
+    .mockResolvedValue({ data: { id: OP }, error: null });
   from = jest.fn(() => chain);
 });
 test('frozen envelope is reused without reading or rewriting current booking/catalog', async () => {
@@ -37,10 +39,23 @@ test.each([null, { ...original, facility_id: OP }, { ...original, input: { ...or
   expect(chain.update).not.toHaveBeenCalled();
 });
 test.each([{ data: null, error: {} }, { data: null }, { data: { id: FAC } }])('unconfirmed freeze never dispatches %j', async result => {
-  chain.maybeSingle.mockReset().mockResolvedValueOnce({ data: original }).mockResolvedValueOnce(result);
+  chain.maybeSingle.mockReset().mockResolvedValueOnce({ data: original }).mockResolvedValueOnce({ data: shop, error: null }).mockResolvedValueOnce(result);
   await expect(prepareManualBookingEnvelope({ from } as never, job)).rejects.toThrow('freeze not confirmed');
 });
 test('wrong operation linkage or malformed frozen payload is rejected', async () => {
   await expect(prepareManualBookingEnvelope({ from } as never, { ...job, target_id: FAC })).rejects.toThrow();
   await expect(prepareManualBookingEnvelope({ from } as never, { ...job, email_envelope: {} })).rejects.toThrow();
+});
+// 店舗の手入力予約は user_id を持たない＝お客様のマイページには出ない。マイページではなく店舗の連絡先へ案内する。
+test('manual booking mail is a guest booking and carries the public shop contact', async () => {
+  await prepareManualBookingEnvelope({ from } as never, job);
+  expect(from).toHaveBeenCalledWith('facility_profiles');
+  expect(buildBookingConfirmedEnvelope).toHaveBeenCalledWith(expect.objectContaining({ hasAccount: false,
+    facilityPhone: '03-1234-5678', facilitySlug: 'synthetic-shop' }));
+});
+test('an unreadable shop contact does not stop the notification', async () => {
+  chain.maybeSingle.mockReset().mockResolvedValueOnce({ data: original, error: null })
+    .mockResolvedValueOnce({ data: shop, error: { message: 'unavailable' } }).mockResolvedValue({ data: { id: OP }, error: null });
+  expect(await prepareManualBookingEnvelope({ from } as never, job)).toEqual(envelope);
+  expect(buildBookingConfirmedEnvelope).toHaveBeenCalledWith(expect.objectContaining({ hasAccount: false, facilityPhone: null, facilitySlug: null }));
 });

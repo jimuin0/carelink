@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import Gbp from '../gbp/page';
 import WhiteLabel from '../white-label/page';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { GBP_PLACE_MISMATCH_MESSAGE, GBP_PLACE_MISMATCH_NOTICE } from '@/lib/gbp-ownership';
 const first='aa810000-0000-4000-8000-000000000001';
 const second='aa810000-0000-4000-8000-000000000002';
 let mockQuery='';
@@ -43,7 +44,7 @@ test('domain read, configure and verify use the same explicitly selected store',
  mockQuery='facility_id='+second;render(<WhiteLabel/>);await screen.findByDisplayValue('second.example.invalid');
  expect(global.fetch).toHaveBeenCalledWith('/api/admin/white-label?facility_id='+second);
  fireEvent.click(screen.getByRole('button',{name:'認証を確認する'}));await waitFor(()=>expect(global.fetch).toHaveBeenCalledWith('/api/admin/white-label/verify',expect.objectContaining({body:JSON.stringify({facility_id:second})})));
- await screen.findByText('ドメインを認証しました！');
+ await screen.findByText('ドメインの所有を確認しました。予約ページの表示は運営による設定後になります。');
  await waitFor(()=>expect((screen.getByRole('button',{name:'設定を保存'}) as HTMLButtonElement).disabled).toBe(false));
  fireEvent.click(screen.getByRole('button',{name:'設定を保存'}));await waitFor(()=>expect((global.fetch as jest.Mock).mock.calls.some(([url,init])=>url==='/api/admin/white-label'&&JSON.parse(init.body).facility_id===second)).toBe(true));
 });
@@ -81,5 +82,55 @@ test('a malformed verification response cannot label the selected domain verifie
  mockQuery='facility_id='+second;render(<WhiteLabel/>);await screen.findByDisplayValue('second.example.invalid');
  fireEvent.click(screen.getByRole('button',{name:'認証を確認する'}));
  await screen.findByText('DNS TXTレコードが確認できませんでした。設定を確認してください。');
- expect(screen.queryByText('ドメイン認証済み')).toBeNull();expect(screen.queryByText('ドメインを認証しました！')).toBeNull();
+ expect(screen.queryByText(/ドメイン認証済み/)).toBeNull();expect(screen.queryByText(/ドメインの所有を確認しました/)).toBeNull();
+});
+
+// 回帰（2026年10月23日）: DNS 認証後に「◯◯で予約ページが利用可能です」と「開く →」を出していたが、
+// 独自ドメインで予約ページを出す処理は無い。認証済みでも「運営による設定待ち」と伝え、開くリンクは出さない。
+test('a verified domain is shown as waiting for CareLink, never as a working booking page',async()=>{
+ const base=(global.fetch as jest.Mock).getMockImplementation()!;
+ (global.fetch as jest.Mock).mockImplementation((url,init)=>String(url).startsWith('/api/admin/white-label?')?Promise.resolve({ok:true,json:async()=>({config:{...domain(second),is_verified:true,verified_at:'2026-10-23T00:00:00Z'}})}):base(url,init));
+ mockQuery='facility_id='+second;render(<WhiteLabel/>);await screen.findByDisplayValue('second.example.invalid');
+ expect(screen.getByText('ドメイン認証済み（運営による設定待ち）')).toBeTruthy();
+ expect(screen.getByText(/設定が済むまでは、このドメインを開いても予約ページは表示されません/)).toBeTruthy();
+ expect(screen.queryByText(/予約ページが利用可能です/)).toBeNull();
+ expect(screen.queryByText(/即座に/)).toBeNull();
+ expect(screen.queryByRole('link',{name:/second\.example\.invalid/})).toBeNull();
+});
+
+// 回帰（2026年10月23日）: 他店の Place ID を断ったときに「保存に失敗しました」としか出ないと、オーナーは理由が分からない。
+test('GBP save refused by the ownership check shows the reason instead of a generic failure',async()=>{
+ const base=(global.fetch as jest.Mock).getMockImplementation()!;
+ (global.fetch as jest.Mock).mockImplementation((url,init)=>url==='/api/admin/gbp/place'&&init?.method==='POST'?Promise.resolve({ok:false,status:422,json:async()=>({code:'GBP_PLACE_MISMATCH',error:GBP_PLACE_MISMATCH_MESSAGE})}):base(url,init));
+ mockQuery='facility_id='+second;render(<Gbp/>);await screen.findByDisplayValue('SecondPlace');
+ fireEvent.click(screen.getByRole('button',{name:'保存',exact:true}));
+ await screen.findByText(GBP_PLACE_MISMATCH_MESSAGE);
+ expect(screen.queryByText('保存しました')).toBeNull();
+});
+test('GBP save failure without a reason keeps the generic message',async()=>{
+ const base=(global.fetch as jest.Mock).getMockImplementation()!;
+ (global.fetch as jest.Mock).mockImplementation((url,init)=>url==='/api/admin/gbp/place'&&init?.method==='POST'?Promise.resolve({ok:false,status:500,json:async()=>{throw new Error('not json');}}):base(url,init));
+ mockQuery='facility_id='+second;render(<Gbp/>);await screen.findByDisplayValue('SecondPlace');
+ fireEvent.click(screen.getByRole('button',{name:'保存',exact:true}));
+ await screen.findByText('保存に失敗しました');
+});
+// 回帰（2026年10月23日・レビュー指摘）: 照合が外れたら API が Place ID ごと外す。設定欄に古い ID を残すと登録中に見える。
+test('GBP setup field is emptied when the API reports that the mismatched Place ID was released',async()=>{
+ const base=(global.fetch as jest.Mock).getMockImplementation()!;
+ (global.fetch as jest.Mock).mockImplementation((url,init)=>String(url).startsWith('/api/admin/gbp/place?')?Promise.resolve({ok:true,json:async()=>({placeData:null,audit:{score:0,maxScore:100,percentage:0,items:[],fetchedAt:'2026-10-23T00:00:00Z'},facilityId:second,ownershipMismatch:true,released:true,notice:GBP_PLACE_MISMATCH_NOTICE})}):base(url,init));
+ mockQuery='facility_id='+second;render(<Gbp/>);await screen.findByDisplayValue('SecondPlace');
+ fireEvent.click(screen.getByRole('button',{name:'診断スコア',exact:true}));
+ await screen.findByText(GBP_PLACE_MISMATCH_NOTICE);
+ fireEvent.click(screen.getByRole('button',{name:'GBP設定',exact:true}));
+ await waitFor(()=>expect(screen.queryByDisplayValue('SecondPlace')).toBeNull());
+});
+test('GBP audit and review tabs explain a stored Place ID that is not this store instead of blaming the API key',async()=>{
+ const base=(global.fetch as jest.Mock).getMockImplementation()!;
+ (global.fetch as jest.Mock).mockImplementation((url,init)=>String(url).startsWith('/api/admin/gbp/place?')?Promise.resolve({ok:true,json:async()=>({placeData:null,audit:{score:0,maxScore:100,percentage:0,items:[],fetchedAt:'2026-10-23T00:00:00Z'},facilityId:second,ownershipMismatch:true,notice:GBP_PLACE_MISMATCH_NOTICE})}):base(url,init));
+ mockQuery='facility_id='+second;render(<Gbp/>);await screen.findByDisplayValue('SecondPlace');
+ fireEvent.click(screen.getByRole('button',{name:'Googleクチコミ',exact:true}));
+ await screen.findByText(GBP_PLACE_MISMATCH_NOTICE);
+ expect(screen.queryByText(/GOOGLE_MAPS_API_KEY/)).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'診断スコア',exact:true}));
+ await screen.findByText(GBP_PLACE_MISMATCH_NOTICE);
 });

@@ -109,7 +109,7 @@ export default async function AdminSchedulePage(props: Props) {
   // 取得失敗を「空状態」に偽装しない（error を握り潰さず error.tsx に委ねる）。
   // 0件（空）と取得失敗を必ず区別する。
   if (staffErr || bookingErr || menuErr) {
-    throw new Error(`サロンボードのデータ取得に失敗しました: ${staffErr?.message ?? bookingErr?.message ?? menuErr?.message}`);
+    throw new Error(`予約表のデータ取得に失敗しました: ${staffErr?.message ?? bookingErr?.message ?? menuErr?.message}`);
   }
 
   const staff = staffRows ?? [];
@@ -226,7 +226,7 @@ export default async function AdminSchedulePage(props: Props) {
           />
 
           {staff.length === 0 && (
-            <div className="px-4 py-6 text-sm text-gray-400">
+            <div className="px-4 py-6 text-sm text-gray-500">
               アクティブなスタッフが登録されていません。<Link href={`/admin/staff/new?facility_id=${facilityId}`} className="text-sky-600 underline">スタッフを登録</Link>すると、スタッフ別のスケジュールが表示されます。
             </div>
           )}

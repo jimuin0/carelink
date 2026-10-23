@@ -1,5 +1,9 @@
 /**
- * /salon の他社比較表が「施設が実際に使える機能」だけを ✅ にしていることを固定する（2026年7月29日 新設）。
+ * 店舗向けページの比較表が「施設が実際に使える機能」だけを載せていることを固定する（2026年7月29日 新設）。
+ *
+ * 【2026年10月23日】店舗向けの入口を /register に一本化した（旧 /salon は /register へ 308 転送）。
+ * 比較表は /register（src/components/register/RegisterLanding.tsx の COMPARISON）に移ったので、
+ * 検査対象もそちらへ移した。守る約束は同じ。
  *
  * 【背景・実際に起きたこと】
  * 比較表は掲載を検討する施設に見せる約束であり、施設は「✅ なら自分の店で使える」と読む。
@@ -27,7 +31,7 @@ import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 const root = process.cwd();
-const salonPage = readFileSync(join(root, 'src/app/salon/page.tsx'), 'utf8');
+const salonPage = readFileSync(join(root, 'src/components/register/RegisterLanding.tsx'), 'utf8');
 
 /** 管理APIレイヤ全体を1つの文字列に連結し、書き込み経路の有無を判定する材料にする。 */
 function readAdminApiSources(): string {
@@ -58,8 +62,8 @@ const adminSources = readAdminApiSources();
  * 実際に初版でこの誤りを作り込み、実行前に気づいて修正した（2026年7月29日）。
  */
 function extractComparisonRows(): string {
-  const start = salonPage.indexOf("['月額費用'");
-  const end = salonPage.indexOf('].map(', start);
+  const start = salonPage.indexOf('const COMPARISON');
+  const end = salonPage.indexOf('];', start);
   if (start === -1 || end === -1) {
     throw new Error('比較表のデータ配列を特定できない。表の構造を変えたならこのテストも更新すること。');
   }
@@ -85,7 +89,7 @@ const CLAIMS = [
   },
 ];
 
-describe('/salon 比較表の ✅ は施設が実際に使える機能だけ', () => {
+describe('店舗向け比較表に載せるのは施設が実際に使える機能だけ', () => {
   test.each(CLAIMS)('$label：書き込み経路の有無と行の有無が一致する', ({ label, writeSignal, why }) => {
     const hasWritePath = adminSources.includes(writeSignal);
     const isClaimed = comparisonRows.includes(label);
@@ -99,7 +103,7 @@ describe('/salon 比較表の ✅ は施設が実際に使える機能だけ', (
     if (!isClaimed && hasWritePath) {
       throw new Error(
         `${writeSignal} の書き込み経路を実装したのに、比較表に「${label}」の行が無い。` +
-          '実装したなら行を戻し、page.tsx 内の経緯コメントも更新すること。',
+          '実装したなら行を戻し、RegisterLanding.tsx 内の経緯コメントも更新すること。',
       );
     }
     expect(isClaimed).toBe(hasWritePath);
@@ -120,13 +124,18 @@ describe('/salon 比較表の ✅ は施設が実際に使える機能だけ', (
     expect(salonPage).toContain('施設が管理画面から自分で設定でき');
   });
 
-  // 残した ✅ が管理画面を伴うことを確認する（表示だけの機能を混ぜない）。
+  // 載せている行が実装を伴うことを確認する（表示だけの機能を混ぜない）。
   test.each([
-    ['クーポン管理', 'src/app/admin/coupons'],
-    ['スタッフ管理', 'src/app/admin/staff'],
-    ['売上分析', 'src/app/admin/analytics'],
-  ])('%s は管理画面が実在する', (label, dir) => {
+    ['前日リマインド', 'src/app/api/cron/booking-reminder'],
+    ['口コミ', 'src/app/admin/reviews'],
+  ])('%s は実装が実在する', (label, dir) => {
     expect(comparisonRows).toContain(label);
     expect(() => readdirSync(join(root, dir))).not.toThrow();
+  });
+
+  // ネット予約は設定（営業時間・メニュー等）が終わるまで使えない。無条件の「24時間」を約束しない。
+  test('予約受付の行は「設定後」の条件つきで書く', () => {
+    expect(comparisonRows).toContain('設定後は24時間');
+    expect(comparisonRows).not.toMatch(/after: '24時間'/);
   });
 });

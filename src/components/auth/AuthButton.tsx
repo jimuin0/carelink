@@ -8,6 +8,7 @@ import type { User } from '@supabase/supabase-js';
 import { clearAccountLocalData, LOCAL_DATA_CLEAR_FAILED } from '@/lib/client-storage';
 import { markClientCleanupNeeded, completeClientCleanupMarker } from '@/lib/client-cleanup-marker';
 import { releaseThisDevicePush } from '@/hooks/usePushSubscription';
+import { readStoreAccess } from '@/lib/post-login-landing';
 
 export default function AuthButton() {
   const router = useRouter();
@@ -23,16 +24,13 @@ export default function AuthButton() {
   // 施設オーナー/スタッフが自分の管理画面(/admin)へ辿り着く導線がヘッダーに一切無く、
   // URLを直接知らないと迷子になっていた(2026年7月6日・神原さん指摘)。facility_members
   // に自分が所属していれば「管理画面」リンクを表示する。
+  // 🔴 2026年10月23日: 役割を見ずに所属行の有無だけで出していたため、staff/viewer にも「管理画面」が
+  // 出ていた（押すと middleware が owner/admin 以外を弾くので権限エラーに戻されるだけ）。
+  // /admin に入れる owner/admin だけに出す（判定は lib/post-login-landing.ts の readStoreAccess に一本化）。
   const checkFacilityMembership = (userId: string) => {
-    const supabase = createBrowserSupabaseClient();
     const generation = authGeneration.current;
-    void Promise.resolve(supabase
-      .from('facility_members')
-      .select('facility_id')
-      .eq('user_id', userId)
-      .limit(1))
-      .then(({ data, error }) => { if (generation === authGeneration.current) setIsFacilityMember(!error && !!data && data.length > 0); })
-      .catch(() => { if (generation === authGeneration.current) setIsFacilityMember(false); });
+    void readStoreAccess(createBrowserSupabaseClient(), userId)
+      .then(access => { if (generation === authGeneration.current) setIsFacilityMember(access === 'store'); });
   };
 
   useEffect(() => {

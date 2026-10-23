@@ -11,6 +11,11 @@ import AccessVerificationUnavailable from '@/components/admin/AccessVerification
 import { staffOperationKey, beginStaffOperation, finishStaffOperation, recoverStaffOperation } from '@/lib/staff-operation';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import { UUID_REGEX } from '@/lib/constants';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import LoadError from '@/components/admin/LoadError';
+import SessionExpiredNotice from '@/components/admin/SessionExpiredNotice';
+import { businessTypeCopy, loadFacilityBusinessType } from '@/lib/business-type-copy';
+import { parseSpecialties } from '@/lib/staff-specialties';
 
 export default function NewStaffPage() {
   const requestedFacility = useSearchParams().get('facility_id');
@@ -35,13 +40,15 @@ function NewStaffPageForm() {
   const [yearsExperience, setYearsExperience] = useState('');
   const [instagramUrl, setInstagramUrl] = useState('');
   const [nominationFee, setNominationFee] = useState('');
-  const [lineWorksChannelId, setLineWorksChannelId] = useState('');
-  const [lineWorksNotifyAll, setLineWorksNotifyAll] = useState(false);
   const operationKey = useRef<string | null>(null);
   const pendingInput = useRef<Record<string, unknown> | null>(null);
   const [pendingSave, setPendingSave] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // 業種（役職・得意分野の入力例に使う）。null＝未設定・読めなかった（汎用の入力例）。
+  const [businessType, setBusinessType] = useState<string | null>(null);
+  // 読み込みのやり直し（失敗時の「再読み込み」）。
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -65,15 +72,22 @@ function NewStaffPageForm() {
         if (recovered === 'saved') { router.push(`/admin/staff?facility_id=${selection.selectedId}`); return; }
         if (recovered === 'retired') setToast({ type: 'error', message: '前回追加したスタッフは削除されています。スタッフ一覧で確認してください。' });
       }
+      const type = selection.selectedId ? await loadFacilityBusinessType(db, selection.selectedId) : null;
+      if (!active) return;
+      setBusinessType(type);
       setFacilityChoices(selection.choices);
       setFacilityId(selection.selectedId);
       setLoading(false);
     })().catch(() => { if (active) { setLoadError(true); setLoading(false); } });
     return () => { active = false; mounted.current = false; };
-  }, [requestedFacility, router]);
+  }, [requestedFacility, router, reloadKey]);
+
+  // 読み込みが終わり、追加先の店舗が決まるまでは押せない（以前は読み込み中に押すと「名前は必須です」と出た）。
+  const ready = !loading && Boolean(facilityId);
 
   const handleCreate = async () => {
-    if (saving || loading || !facilityId || !operationKey.current || !name.trim()) {
+    if (saving || !ready || !facilityId || !operationKey.current) return;
+    if (!name.trim()) {
       setToast({ type: 'error', message: '名前は必須です' });
       return;
     }
@@ -85,12 +99,10 @@ function NewStaffPageForm() {
           name: name.trim(),
           position: position.trim() || null,
           bio: bio.trim() || null,
-          specialties: specialties ? specialties.split(',').map((s: string) => s.trim()) : [],
+          specialties: parseSpecialties(specialties),
           years_experience: yearsExperience ? parseInt(yearsExperience) : null,
           instagram_url: instagramUrl.trim() || null,
           nomination_fee: nominationFee ? parseInt(nominationFee) : 0,
-          line_works_channel_id: lineWorksChannelId.trim() || null,
-          line_works_notify_all: lineWorksNotifyAll,
         };
         setPendingSave(true);
       }
@@ -128,11 +140,12 @@ function NewStaffPageForm() {
     }
   };
 
-  if (loading) return <p role="status">読み込み中...</p>;
+  if (loading) return <AdminPageLoading />;
   if (authState === 'unavailable') return <AccessVerificationUnavailable />;
-  if (authState === 'unauthenticated') return <p role="alert">セッションが切れました。再ログインしてください。</p>;
-  if (loadError) return <p role="alert">店舗情報の取得に失敗しました。再読み込みしてください。</p>;
-  const selector = <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/staff/new" dirty={Boolean(name || position || bio || specialties || yearsExperience || instagramUrl || nominationFee || lineWorksChannelId || lineWorksNotifyAll)} busy={saving || pendingSave} />;
+  if (authState === 'unauthenticated') return <SessionExpiredNotice redirectTo={`/admin/staff/new${requestedFacility ? `?facility_id=${encodeURIComponent(requestedFacility)}` : ''}`} />;
+  if (loadError) return <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="店舗情報の取得に失敗しました" />;
+  const copy = businessTypeCopy(businessType);
+  const selector = <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/staff/new" dirty={Boolean(name || position || bio || specialties || yearsExperience || instagramUrl || nominationFee)} busy={saving || pendingSave} />;
   if (!facilityId) return selector;
 
   return (
@@ -149,15 +162,15 @@ function NewStaffPageForm() {
         </div>
         <div>
           <label htmlFor="staff-position" className="form-label">役職</label>
-          <SbInput id="staff-position" value={position} onChange={(e) => setPosition(e.target.value)} placeholder="店長、スタイリスト等" maxLength={50} />
+          <SbInput id="staff-position" value={position} onChange={(e) => setPosition(e.target.value)} placeholder={copy.positionExample} maxLength={50} />
         </div>
         <div>
           <label htmlFor="staff-bio" className="form-label">自己紹介</label>
           <textarea id="staff-bio" value={bio} onChange={(e) => setBio(e.target.value)} className="form-input" rows={4} maxLength={500} />
         </div>
         <div>
-          <label htmlFor="staff-specialties" className="form-label">得意分野（カンマ区切り）</label>
-          <SbInput id="staff-specialties" value={specialties} onChange={(e) => setSpecialties(e.target.value)} placeholder="カット, カラー, パーマ" maxLength={200} />
+          <label htmlFor="staff-specialties" className="form-label">得意分野（「、」か「,」で区切る）</label>
+          <SbInput id="staff-specialties" value={specialties} onChange={(e) => setSpecialties(e.target.value)} placeholder={copy.specialtiesExample} maxLength={200} />
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -174,34 +187,13 @@ function NewStaffPageForm() {
           <SbInput id="staff-instagram" value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} maxLength={200} />
         </div>
 
-        <div className="border-t pt-4">
-          <h3 className="font-semibold text-sm text-gray-700 mb-3">LINE Works 通知設定</h3>
-          <div className="space-y-3">
-            <div>
-              <label htmlFor="staff-lw-channel" className="form-label">LINE Works チャンネルID</label>
-              <SbInput
-                id="staff-lw-channel"
-                value={lineWorksChannelId}
-                onChange={(e) => setLineWorksChannelId(e.target.value)}
-                placeholder="例: 12345678901234567"
-              />
-            </div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={lineWorksNotifyAll}
-                onChange={(e) => setLineWorksNotifyAll(e.target.checked)}
-                className="rounded-sm border-gray-300"
-              />
-              <span className="text-sm text-gray-700">担当外の予約（全件）も通知を受け取る</span>
-            </label>
-          </div>
-        </div>
+        {/* LINE Works 通知の設定欄は出さない。連携に要る秘密情報（Client Secret・Private Key）を安全に受け渡す
+            方法がまだ無いため（src/app/admin/settings/page.tsx と同じ判断）。既に設定済みのスタッフは編集画面に出る。 */}
 
         </fieldset>
         <div className="flex gap-3 pt-4">
           <button type="button" onClick={() => router.push(backHref)} className="text-sm text-gray-500 hover:underline">戻る</button>
-          <button type="button" onClick={handleCreate} disabled={saving} className="btn-primary flex-1 py-3!">
+          <button type="button" onClick={handleCreate} disabled={saving || !ready} className="btn-primary flex-1 py-3!">
             {saving ? '追加中...' : 'スタッフを追加'}
           </button>
         </div>

@@ -1,6 +1,12 @@
 // オーナーがサブスクリプション（月額）プランを作成できることを実行証明する（作成→一覧反映）。
 // CI の隔離 Supabase 上でのみ動作（本番不可侵）。admin-batch.setup の storageState を共有して使う。
 import { test, expect } from '@playwright/test';
+import { SHOW_SUBSCRIPTIONS } from '../src/lib/feature-toggles';
+
+// 月額プランは「今はなし」（2026年10月23日 神原さん判断）の間、管理画面は編集画面の代わりに
+// 「現在この機能は提供していません」を出す（src/lib/feature-toggles.ts）。編集操作を前提にした
+// この spec は SHOW_SUBSCRIPTIONS=true に戻すと自動で再開する。
+test.skip(!SHOW_SUBSCRIPTIONS, '月額プランは現在提供していない（SHOW_SUBSCRIPTIONS=false）');
 
 test('オーナーがサブスクプランを作成できる（書き込み→一覧反映）', async ({ page }) => {
   const planName = 'E2E月額プラン';

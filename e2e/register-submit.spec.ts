@@ -62,6 +62,8 @@ async function fillStep1(page: Page, email: string, detailed = false) {
   await page.fill('#reg-facility-name', `E2E登録テスト施設 ${Date.now()}`);
   await page.selectOption('#reg-business-type', { label: 'ヘアサロン' });
   await page.fill('#reg-rep-name', '代表 太郎');
+  // 既定は「担当者も代表者と同じ」。別の担当者を入れる経路をここで通す。
+  await page.getByRole('checkbox', { name: '担当者も代表者と同じ' }).uncheck();
   await page.fill('#reg-contact-name', '担当 花子');
   await page.fill('#reg-email', email);
   await page.fill('#reg-phone', detailed ? '０９０１２３４５６７８' : '09012345678');
@@ -209,7 +211,7 @@ test.describe('/register 送信', () => {
       // 許認可の表明と利用規約同意（両方 disabled ガードの対象・チェックしないと送信不可）。
       // ラベルの文言でスコープする（並び順が変わっても踏み違えないため）。
       await page
-        .locator('label', { hasText: '施術は必要な資格を有する者が提供する' })
+        .locator('label', { hasText: '国家資格が必要な施術（あん摩マッサージ指圧・鍼・灸・柔道整復など）は、その資格を持つ者が行っている' })
         .locator('input[type="checkbox"]')
         .check();
       await page
@@ -255,7 +257,7 @@ test.describe('/register 送信', () => {
       // Never include the capability cookie value in assertion output.
       expect({ present: !!claim, secure: claim?.secure, httpOnly: claim?.httpOnly, sameSite: claim?.sameSite })
         .toEqual({ present: true, secure: true, httpOnly: true, sameSite: 'Lax' });
-      await expect(page.getByText('この時点では一般公開は完了していません。店舗アカウントを作成し、管理画面で店舗名・所在地などを確認して無料掲載を公開してください。ネット予約はメニュー・スタッフ・写真・曜日別営業時間の設定完了まで利用できません。')).toBeVisible();
+      await expect(page.getByText('この時点では一般公開は完了していません。店舗アカウントを作成し、管理画面で設定して無料掲載を公開してください。無料掲載の公開には、店舗名・所在地・曜日別の営業時間（定休日を含む）の設定が必要です。ネット予約はさらにメニュー・スタッフ・写真の設定完了まで利用できません。')).toBeVisible();
       await expect(page.getByRole('link', { name: '店舗アカウントを作成する' })).toHaveAttribute('href',
         '/auth/signup?redirect=%2Fadmin%2Fonboarding%3Fhandoff%3Dregistration');
       const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
@@ -271,7 +273,8 @@ test.describe('/register 送信', () => {
         postal_code: '0000000', address: '愛知県西尾市合成町', prefecture: '愛知県', city: '西尾市',
         building_name: '合成ビル101', nearest_station: '合成駅 徒歩5分', business_hours: '10:00〜18:00',
         regular_holiday: '月曜日', seat_count: 0, staff_count: 9999, has_parking: true,
-        features: ['WiFi完備'], pr_text: '隔離E2Eの合成紹介文',
+        // 駐車場はチェックボックスで選び、検索用に features へも反映する（チップは出さない）。
+        features: ['駐車場あり', 'WiFi完備'], pr_text: '隔離E2Eの合成紹介文',
       });
       if (detailed) {
         // Real UI -> signed Storage -> receipt -> password login -> selected

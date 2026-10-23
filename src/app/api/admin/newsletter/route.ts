@@ -8,6 +8,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
 import { serverError } from '@/lib/with-route';
+import { isCreatableNewsletterType, NEWSLETTER_TYPE_UNAVAILABLE_MESSAGE } from '@/lib/newsletter-types';
 
 async function handleGET(request: NextRequest) {
   const ip = getClientIp(request);
@@ -60,9 +61,9 @@ async function handlePOST(req: NextRequest) {
 
   if (text_content != null && (typeof text_content !== 'string' || text_content.length > 100_000)) return NextResponse.json({ error: 'text_content must be under 100KB' }, { status: 400 });
 
-  const VALID_TYPES = ['owner_monthly', 'user_digest', 'user_coupon', 'promo'];
-  if (!VALID_TYPES.includes(campaign_type)) {
-    return NextResponse.json({ error: 'Invalid campaign_type' }, { status: 400 });
+  // 宛先を作る経路があるのは施設オーナー向けだけ（src/lib/newsletter-types.ts）。旧種別は作らせない。
+  if (!isCreatableNewsletterType(campaign_type)) {
+    return NextResponse.json({ code: 'NEWSLETTER_TYPE_UNAVAILABLE', error: NEWSLETTER_TYPE_UNAVAILABLE_MESSAGE }, { status: 400 });
   }
 
   const campaign=await writePlatformEditor(user.id,null,'newsletter','create',{campaign_type,subject,html_content,text_content:text_content || null},'/api/admin/newsletter');

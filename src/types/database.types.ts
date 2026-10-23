@@ -2619,6 +2619,7 @@ export type Database = {
       facility_reviews: {
         Row: {
           booking_id: string | null
+          client_operation_id: string | null
           comment: string | null
           created_at: string | null
           facility_id: string
@@ -2645,6 +2646,7 @@ export type Database = {
         }
         Insert: {
           booking_id?: string | null
+          client_operation_id?: string | null
           comment?: string | null
           created_at?: string | null
           facility_id: string
@@ -2671,6 +2673,7 @@ export type Database = {
         }
         Update: {
           booking_id?: string | null
+          client_operation_id?: string | null
           comment?: string | null
           created_at?: string | null
           facility_id?: string
@@ -7170,6 +7173,13 @@ export type Database = {
       }
       get_public_columns: { Args: never; Returns: Json }
       get_public_constraints: { Args: never; Returns: Json }
+      get_review_helpful_counts: {
+        Args: { p_review_ids: string[] }
+        Returns: {
+          helpful_count: number
+          review_id: string
+        }[]
+      }
       get_schema_fingerprint: { Args: never; Returns: Json }
       get_staff_mutation_operation: {
         Args: {

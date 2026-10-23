@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { createServiceRoleClient } from '@/lib/supabase-server';
+import { releaseMismatchedGbpPlace } from '@/lib/gbp-place-release';
 import { saveAdminFacilityIntegration } from '@/lib/admin-facility-integration-write';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { fetchPlaceDetails, calculateGbpScore } from '@/lib/gbp';
+import {
+  FACILITY_IDENTITY_COLUMNS, GBP_PLACE_LOOKUP_FAILED_MESSAGE, GBP_PLACE_MISMATCH_MESSAGE, GBP_PLACE_MISMATCH_NOTICE,
+  placeMatchesFacility,
+} from '@/lib/gbp-ownership';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -43,7 +49,7 @@ export async function GET(req: NextRequest) {
 
     const { data: facility, error: facilityError } = await supabase
       .from('facility_profiles')
-      .select('gbp_place_id, name, description, phone, website_url, business_hours, main_photo_url')
+      .select(`gbp_place_id, description, website_url, business_hours, main_photo_url, ${FACILITY_IDENTITY_COLUMNS}`)
       .eq('id', facilityId)
       .maybeSingle();
 
@@ -55,7 +61,12 @@ export async function GET(req: NextRequest) {
     // 捏造できた（#2）。正規の管理 UI は placeId クエリを渡さないため機能は不変・攻撃面のみを断つ。
     const placeId = facility.gbp_place_id;
 
-    const placeData = placeId ? await fetchPlaceDetails(placeId) : null;
+    const fetched = placeId ? await fetchPlaceDetails(placeId) : null;
+    // 保存済みの Place が施設の登録内容（電話番号、または店舗名＋住所）と合わなければ、その店舗の評価は
+    // 書き込まず、Place ID ごと外す（照合の導入前に保存された ID・Google 側の店舗情報が変わった場合でも、
+    // 他店の評価・地図・口コミのリンクを自店の掲載に出さず、一意索引でその ID を占有し続けない）。
+    const ownershipMismatch = placeId !== null && fetched !== null && !placeMatchesFacility(fetched, facility);
+    const placeData = ownershipMismatch ? null : fetched;
     // facility.business_hours は DB 上 jsonb で Json 型（string|number|boolean|null|object|配列の合併）
     // だが、calculateGbpScore は object 形状（Record<string, unknown> | null）だけを想定している。
     // supabase/migrations 上 business_hours は「曜日→時間帯」の JSON オブジェクトとして書き込まれる
@@ -69,8 +80,15 @@ export async function GET(req: NextRequest) {
         : null;
     const audit = calculateGbpScore(placeData, { ...facility, business_hours: businessHours });
 
-    if (placeData) {
-      const saved = await saveAdminFacilityIntegration({actorId:user.id,facilityId,kind:'gbp:refresh',expected:{place_id:placeId},values:{rating:placeData.rating ?? null,review_count:placeData.user_ratings_total ?? 0,score:audit.score,details:toJsonValue({audit,placeData})}});
+    if (ownershipMismatch) {
+      // 所属（owner/admin）は上で確認済み。照合した Place ID のままのときだけ外す（gbp-place-release.ts）。
+      const released = await releaseMismatchedGbpPlace(createServiceRoleClient(), facilityId, placeId);
+      if (released === 'failed') return serverError('admin-gbp-place-release', new Error('GBP_PLACE_RELEASE_FAILED'), '/api/admin/gbp/place');
+      return NextResponse.json({ placeData, audit, facilityId, ownershipMismatch: true, released: released === 'released', notice: GBP_PLACE_MISMATCH_NOTICE });
+    }
+
+    if (fetched) {
+      const saved = await saveAdminFacilityIntegration({actorId:user.id,facilityId,kind:'gbp:refresh',expected:{place_id:placeId},values:{rating:placeData?.rating ?? null,review_count:placeData?.user_ratings_total ?? 0,score:audit.score,details:toJsonValue({audit,placeData})}});
       if(saved instanceof NextResponse)return saved;
     }
 
@@ -116,7 +134,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'CID の形式が正しくありません' }, { status: 400 });
   }
 
-  const saved = await saveAdminFacilityIntegration({actorId:user.id,facilityId,kind:'gbp:connect',expected:{},values:{place_id:gbp_place_id || null,cid:gbp_cid || null}});
+  // 他店の Place ID を保存すると、その店舗の Google 評価・件数が自店の掲載に Google ロゴ付きで出て、
+  // 「地図を見る」も他店を指していた（形式しか見ていなかった）。保存する前に Google の店舗情報を取り、
+  // 施設の登録内容（電話番号、または店舗名＋住所）と合うものだけを受け付ける。消す（空で保存）ときは照合しない。
+  // 同じ ID を別の施設へ付けることは DB の部分ユニーク索引が止める（409・admin-facility-integration-write）。
+  let verifiedIdentity: { [key: string]: string | null } | null = null;
+  if (gbp_place_id) {
+    const { data: facility, error: facilityError } = await supabase
+      .from('facility_profiles')
+      .select(FACILITY_IDENTITY_COLUMNS)
+      .eq('id', facilityId)
+      .maybeSingle();
+    if (facilityError) return serverError('admin-gbp-place-identity-read', databaseDiagnostic(facilityError), '/api/admin/gbp/place');
+    if (!facility) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    const place = await fetchPlaceDetails(gbp_place_id);
+    if (!place) return NextResponse.json({ code: 'GBP_PLACE_UNVERIFIED', error: GBP_PLACE_LOOKUP_FAILED_MESSAGE }, { status: 422 });
+    if (!placeMatchesFacility(place, facility)) return NextResponse.json({ code: 'GBP_PLACE_MISMATCH', error: GBP_PLACE_MISMATCH_MESSAGE }, { status: 422 });
+    // 照合に使った登録内容を保存へ渡す。照会の間に店名・電話・住所が変わっていれば、DB が行を
+    // ロックしたうえで食い違いを検出して断る（古い照合結果で他店の Place ID を付けさせない）。
+    const row = facility as Record<string, string | null | undefined>;
+    verifiedIdentity = Object.fromEntries(
+      (['name', 'phone', 'postal_code', 'prefecture', 'city', 'address'] as const).map((key) => [key, row[key] ?? null]),
+    );
+  }
+
+  const saved = await saveAdminFacilityIntegration({actorId:user.id,facilityId,kind:'gbp:connect',expected:verifiedIdentity?{identity:verifiedIdentity}:{},values:{place_id:gbp_place_id || null,cid:gbp_cid || null}});
   if(saved instanceof NextResponse)return saved;
   return NextResponse.json({ok:true});
 }

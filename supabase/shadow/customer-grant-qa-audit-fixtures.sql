@@ -239,8 +239,10 @@ SELECT pg_temp.assert_scope(
   AND NOT has_any_column_privilege('authenticated', 'public.facility_qa', 'UPDATE')
   AND NOT has_table_privilege('anon', 'public.facility_qa', 'DELETE')
   AND NOT has_table_privilege('authenticated', 'public.facility_qa', 'DELETE')
-  AND has_table_privilege('anon', 'public.facility_qa', 'SELECT')
-  AND has_table_privilege('authenticated', 'public.facility_qa', 'SELECT'),
+  -- 20261023110200 narrowed reads to the shown columns (account IDs are service_role only);
+  -- featured-slots-account-ids-fixtures.sql asserts that column split in detail.
+  AND has_column_privilege('anon', 'public.facility_qa', 'question', 'SELECT')
+  AND has_column_privilege('authenticated', 'public.facility_qa', 'question', 'SELECT'),
   'browser roles read Q&A and cannot write it');
 SELECT pg_temp.assert_scope(
   (SELECT array_agg(policyname::text ORDER BY policyname) FROM pg_policies

@@ -57,7 +57,7 @@ test('オーナーがメニューを作成→編集→削除できる（書き�
     const menuId = await createMenu(menuName);
 
     // --- 編集：作成したメニュー行の「編集」ボタン（aria-label="編集"）→ モーダルで名前変更 → 保存。
-    const row = page.locator('div.flex.items-center.gap-4.p-4').filter({ hasText: menuName });
+    const row = page.locator('[data-menu-row]').filter({ hasText: menuName });
     const editBtn = row.getByRole('button', { name: '編集', exact: true });
     await editBtn.scrollIntoViewIfNeeded();
     await editBtn.press('Enter');
@@ -79,7 +79,7 @@ test('オーナーがメニューを作成→編集→削除できる（書き�
     await expect(page.getByText(menuName, { exact: true })).toHaveCount(0);
 
     // --- 削除：編集後メニュー行の「削除」ボタン（aria-label="削除"）→ 確認ダイアログ「削除する」。
-    const editedRow = page.locator('div.flex.items-center.gap-4.p-4').filter({ hasText: editedName });
+    const editedRow = page.locator('[data-menu-row]').filter({ hasText: editedName });
     const delBtn = editedRow.getByRole('button', { name: '削除', exact: true });
     await delBtn.scrollIntoViewIfNeeded();
     await delBtn.press('Enter');

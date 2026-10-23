@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { createServiceRoleClient } from './supabase-server';
 import { buildBookingConfirmedEnvelope } from './email';
 import { eventEmailEnvelopeSchema, type EventEmailEnvelope } from './event-email-delivery';
+import { bookingEmailShopContact } from './facility-contact';
 
 const reference = z.object({ id: z.uuid(), webhook_type: z.literal('manual_booking_confirmation'),
   target_id: z.uuid(), facility_id: z.uuid(), claimed_at: z.string(), email_envelope: z.unknown(),
@@ -27,10 +28,15 @@ export async function prepareManualBookingEnvelope(db: ReturnType<typeof createS
     throw new Error('manual booking notification reference unavailable');
   }
   const source = row.data;
+  // 店舗が手入力した予約は user_id を持たない（create_manual_booking_atomic が create_booking_atomic へ NULL を渡す）。
+  // お客様のマイページには出ないので、メールはマイページではなく店舗の連絡先へ案内する。
+  // 連絡先は補助情報なので、読めなくても通知は止めない（店名で「直接ご連絡ください」と案内できる）。
+  const facility = await db.from('facility_profiles').select('slug,phone,status').eq('id', job.facility_id).maybeSingle();
   const envelope = eventEmailEnvelopeSchema.parse(buildBookingConfirmedEnvelope({ bookingId: source.booking_id,
     customerName: source.input.customer_name, customerEmail: source.input.email, facilityName: source.result.facility_name,
     bookingDate: source.input.booking_date, startTime: source.input.start_time, endTime: source.input.end_time,
-    menuName: source.result.menu_names, staffName: source.result.staff_name ?? undefined, totalPrice: source.result.total_price }));
+    menuName: source.result.menu_names, staffName: source.result.staff_name ?? undefined, totalPrice: source.result.total_price,
+    hasAccount: false, ...bookingEmailShopContact(facility.error ? null : facility.data) }));
   const frozen = await db.from('webhook_retry_queue').update({ email_envelope: envelope }).eq('id', job.id)
     .eq('status', 'processing').eq('claimed_at', job.claimed_at).is('delivery_started_at', null)
     .is('email_envelope', null).select('id').maybeSingle();

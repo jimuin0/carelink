@@ -69,9 +69,9 @@ export function SbStatCard({
       <p className="text-xs font-bold text-gray-500">{label}</p>
       <p className="mt-1 text-2xl font-extrabold text-gray-800">
         {value}
-        {unit && <span className="text-sm font-bold text-gray-400 ml-1">{unit}</span>}
+        {unit && <span className="text-sm font-bold text-gray-500 ml-1">{unit}</span>}
       </p>
-      {sub && <p className="text-[11px] text-gray-400 mt-0.5">{sub}</p>}
+      {sub && <p className="text-[11px] text-gray-500 mt-0.5">{sub}</p>}
     </div>
   );
   return href ? <Link href={href} className="block">{inner}</Link> : inner;

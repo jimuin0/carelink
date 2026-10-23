@@ -44,7 +44,8 @@ function chain(result: { data?: unknown; count?: number | null; error?: unknown 
  */
 function mockSupabase(opts: {
   prefecture: string | null; city: string | null; status?: string; scheduleError?: unknown; address?: string; stall?: 'kpi' | 'recent';
-  businessHours?: unknown; staffIds?: string[]; scheduledStaffIds?: string[]; catchCopy?: string;
+  businessHours?: unknown; staffIds?: string[]; scheduledStaffIds?: string[]; catchCopy?: string; slug?: string | null;
+  bookingRows?: { booking_date: string }[];
 }) {
   const staffIds = opts.staffIds ?? ['staff-1'];
   const scheduledStaffIds = opts.scheduledStaffIds ?? staffIds;
@@ -60,10 +61,10 @@ function mockSupabase(opts: {
     }
     if (table === 'facility_photos') return chain({ count: 1 });
     if (table === 'facility_profiles') {
-      return chain({ data: { status: opts.status ?? 'draft', name: 'テスト店舗', address: opts.address ?? 'テスト住所', prefecture: opts.prefecture, city: opts.city, business_hours: opts.businessHours ?? null, catch_copy: opts.catchCopy ?? null, description: null } });
+      return chain({ data: { status: opts.status ?? 'draft', name: 'テスト店舗', slug: opts.slug === undefined ? 'test-shop' : opts.slug, address: opts.address ?? 'テスト住所', prefecture: opts.prefecture, city: opts.city, business_hours: opts.businessHours ?? null, catch_copy: opts.catchCopy ?? null, description: null } });
     }
     if (table === 'bookings') {
-      const bookings = chain({ data: [], count: 0 });
+      const bookings = chain({ data: opts.bookingRows ?? [], count: 0 });
       // Chainable but never settles, like a transport that accepted the request and went silent.
       const stalled: Record<string, unknown> = { then: () => undefined };
       for (const m of ['eq', 'neq', 'gte', 'lte']) stalled[m] = () => stalled;
@@ -104,6 +105,10 @@ function findElementsWithDirectText(node: AnyNode, text: string, results: { prop
       results.push(el as { props: Record<string, unknown> });
     }
     for (const k of kids) findElementsWithDirectText(k, text, results);
+    // children 以外の props に渡した要素（ページ見出しの actions など）も辿る
+    for (const [key, value] of Object.entries(el.props)) {
+      if (key !== 'children' && value && typeof value === 'object' && 'props' in (value as object)) findElementsWithDirectText(value, text, results);
+    }
   }
   return results;
 }
@@ -153,7 +158,7 @@ test('掲載済みでも未確認営業時間はネット予約準備中とし�
   const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
   expect(findElementsWithDirectText(root, '無料掲載は公開中です。ネット予約は準備中で、電話・店舗への問い合わせをご案内します。')).toHaveLength(1);
   expect(findElementsWithDirectText(root, '無料掲載を公開')).toHaveLength(1);
-  expect(findElementsWithDirectText(root, 'ネット予約：営業時間の確認・保存')).toHaveLength(1);
+  expect(findElementsWithDirectText(root, '営業時間の入力・保存')).toHaveLength(1);
 });
 
 // ─── E8: スタッフを追加しただけでは勤務は作られない ─────────────────────────────
@@ -162,8 +167,8 @@ const CONFIRMED_HOURS = {
   mon: { open: '10:00', close: '20:00' }, tue: { open: '10:00', close: '20:00' }, wed: { open: '10:00', close: '20:00' },
   thu: { open: '10:00', close: '20:00' }, fri: { open: '10:00', close: '20:00' }, sat: { open: '10:00', close: '20:00' }, sun: null,
 };
-function scheduleStepLink(root: AnyNode) {
-  const matches = findElementsWithDirectText(root, '予約枠：勤務スケジュール設定');
+function staffStepLink(root: AnyNode) {
+  const matches = findElementsWithDirectText(root, 'スタッフ登録と勤務時間の保存');
   expect(matches).toHaveLength(1);
   return matches[0];
 }
@@ -175,37 +180,35 @@ function textOf(node: AnyNode): string {
   return '';
 }
 
-test('勤務時間を保存していない有効スタッフがいれば、勤務スケジュールは未完了で人数を示す', async () => {
-  mockSupabase({ prefecture: '東京都', city: '渋谷区', status: 'published', businessHours: CONFIRMED_HOURS,
+// 「勤務スケジュール設定」は「スタッフ登録と勤務時間の保存」と同じ作業の二重掲載だった。1項目にまとめ、
+// 予約を受けないスタッフがいることは補足で知らせる（そのスタッフのせいで永久に未完了にはしない）。
+test('勤務時間を保存していない有効スタッフがいれば、スタッフの項目に人数を補足する（他に勤務する人がいれば完了）', async () => {
+  mockSupabase({ prefecture: '東京都', city: '渋谷区', status: 'draft', businessHours: CONFIRMED_HOURS,
     staffIds: ['staff-1', 'staff-2'], scheduledStaffIds: ['staff-1'] });
   const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
-  const link = scheduleStepLink(root);
-  expect(String(link.props.className)).not.toContain('line-through');
-  expect(textOf(link)).toContain('予約枠：勤務スケジュール設定（勤務時間が未登録で予約を受けられないスタッフ：1人）');
-  // 1人は予約を受けられるので「公開中なのに予約不能」の赤い警告は出さない
-  expect(findElementsWithDirectText(root, '無料掲載は公開中です。予約枠を表示するにはスタッフの勤務スケジュールを設定してください。')).toHaveLength(0);
+  const link = staffStepLink(root);
+  expect(String(link.props.className)).toContain('line-through');
+  expect(textOf(link)).toContain('スタッフ登録と勤務時間の保存（勤務時間が未登録で予約を受けられないスタッフ：1人）');
+  expect(findElementsWithDirectText(root, '予約枠：勤務スケジュール設定')).toHaveLength(0);
 });
 
-test('有効スタッフ全員が勤務時間を保存していれば、すべて完了でチェックリストを閉じる', async () => {
-  mockSupabase({ prefecture: '東京都', city: '渋谷区', status: 'published', businessHours: CONFIRMED_HOURS });
+test('公開中で有効スタッフ全員が勤務時間を保存していれば、すべて完了でチェックリストを閉じる', async () => {
+  mockSupabase({ prefecture: '東京都', city: '渋谷区', status: 'published', businessHours: CONFIRMED_HOURS, catchCopy: '駅チカ3分' });
   const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
-  expect(findElementsWithDirectText(root, '予約枠：勤務スケジュール設定')).toHaveLength(0);
   expect(findElementsWithDirectText(root, '店舗セットアップ')).toHaveLength(0);
 });
 
-test('公開中で誰も勤務時間を保存していなければ、予約枠が出ないことを警告する', async () => {
+test('公開中で誰も勤務時間を保存していなければ、予約枠が出ないことを案内する', async () => {
   mockSupabase({ prefecture: '東京都', city: '渋谷区', status: 'published', businessHours: CONFIRMED_HOURS, scheduledStaffIds: [] });
   const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
   expect(findElementsWithDirectText(root, '無料掲載は公開中です。予約枠を表示するにはスタッフの勤務スケジュールを設定してください。')).toHaveLength(1);
-  expect(String(scheduleStepLink(root).props.className)).not.toContain('line-through');
+  expect(String(staffStepLink(root).props.className)).not.toContain('line-through');
 });
 
 test('在籍スタッフ全員に勤務時間が無ければ「スタッフ登録と勤務時間の保存」も未完了（予約を受けられる人がいない）', async () => {
   mockSupabase({ prefecture: '東京都', city: '渋谷区', status: 'published', businessHours: CONFIRMED_HOURS, scheduledStaffIds: [] });
   const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
-  const matches = findElementsWithDirectText(root, 'ネット予約：スタッフ登録と勤務時間の保存');
-  expect(matches).toHaveLength(1);
-  expect(String(matches[0].props.className)).not.toContain('line-through');
+  expect(String(staffStepLink(root).props.className)).not.toContain('line-through');
   // 足りないのは勤務時間だけなので、一般的な「準備中」ではなくスタッフの画面へ導く
   expect(findElementsWithDirectText(root, '無料掲載は公開中です。ネット予約は準備中で、電話・店舗への問い合わせをご案内します。')).toHaveLength(0);
 });
@@ -263,5 +266,105 @@ describe('止まった読取を「読み込み中」のまま放置しない', (
     const card = recent[0].type(recent[0].props);
     await jest.advanceTimersByTimeAsync(8000);
     expect(findElementsWithDirectText(await card, '予約の取得に失敗しました。ページを再読み込みしてください。')).toHaveLength(1);
+  });
+});
+
+// ─── 初回ログインから公開までの導線（2026年10月23日） ───────────────────────────
+/** props が条件を満たす要素を集める。 */
+function findElements(node: AnyNode, match: (props: Record<string, unknown>) => boolean, results: { props: Record<string, unknown> }[] = []) {
+  if (node === null || typeof node !== 'object') return results;
+  if (Array.isArray(node)) { node.forEach(n => findElements(n, match, results)); return results; }
+  const el = node as { props?: Record<string, unknown> };
+  if (el.props) {
+    if (match(el.props)) results.push(el as { props: Record<string, unknown> });
+    flattenChildren(el.props.children).forEach(k => findElements(k, match, results));
+    for (const [key, value] of Object.entries(el.props)) {
+      if (key !== 'children' && value && typeof value === 'object' && 'props' in (value as object)) findElements(value, match, results);
+    }
+  }
+  return results;
+}
+/** 要素ツリー上で text を直接持つ要素が最初に現れる順番（深さ優先）。 */
+function orderOf(root: AnyNode, texts: string[]): string[] {
+  const seen: string[] = [];
+  (function walk(node: AnyNode) {
+    if (node === null || typeof node !== 'object') return;
+    if (Array.isArray(node)) { node.forEach(walk); return; }
+    const el = node as { props?: Record<string, unknown> };
+    if (!el.props) return;
+    for (const kid of flattenChildren(el.props.children)) {
+      if (typeof kid === 'string' && texts.includes(kid) && !seen.includes(kid)) seen.push(kid);
+      walk(kid);
+    }
+  })(root);
+  return seen;
+}
+
+describe('公開前の店舗のダッシュボード', () => {
+  test('セットアップを空の数字より先に出し、予約の無い非公開店舗には ¥0 の KPI と2週間表を出さない', async () => {
+    mockSupabase({ prefecture: null, city: null });
+    const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
+    expect(orderOf(root, ['店舗セットアップ', '本日のスケジュール'])).toEqual(['店舗セットアップ', '本日のスケジュール']);
+    expect(findElements(root, props => props.label === '本日の売上')).toHaveLength(0);
+    expect(findElements(root, props => props.title === '予約状況（2週間）')).toHaveLength(0);
+  });
+
+  test('非公開でも予約の実績がある店舗では数字を隠さない', async () => {
+    mockSupabase({ prefecture: null, city: null, bookingRows: [{ booking_date: '2026-10-23' }] });
+    const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
+    expect(findElements(root, props => props.label === '本日の売上')).toHaveLength(1);
+    expect(findElements(root, props => props.title === '予約状況（2週間）')).toHaveLength(1);
+  });
+
+  test('公開中の店舗では数字を出す', async () => {
+    mockSupabase({ prefecture: '東京都', city: '渋谷区', status: 'published' });
+    const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
+    expect(findElements(root, props => props.label === '本日の売上')).toHaveLength(1);
+  });
+
+  test('「無料掲載に必要」と「ネット予約に必要（任意）」を別々の進み具合で見せる', async () => {
+    mockSupabase({ prefecture: '東京都', city: '渋谷区' });
+    const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
+    expect(findElementsWithDirectText(root, '無料掲載に必要')).toHaveLength(1);
+    expect(findElementsWithDirectText(root, 'ネット予約に必要（任意）')).toHaveLength(1);
+    // 掲載：住所・表現は済み、営業時間と公開がまだ（2/4）。ネット予約：メニュー・写真・スタッフは済み（3/3）。
+    // 営業時間は 2026年10月23日の神原さん決定で「無料掲載に必要」へ移った。
+    expect(textOf(root)).toContain('2/4 完了');
+    expect(textOf(root)).toContain('3/3 完了');
+    const [listing] = findElements(root, props => props['aria-label'] === '無料掲載に必要');
+    expect(findElementsWithDirectText(listing, '営業時間の入力・保存')).toHaveLength(1);
+  });
+
+  test('キャッチコピー・施設紹介が空なら完了（取り消し線）ではなく任意・未入力として見せる', async () => {
+    mockSupabase({ prefecture: '東京都', city: '渋谷区' });
+    const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
+    const [link] = findElementsWithDirectText(root, '基本情報（キャッチコピー・施設紹介の表現）');
+    expect(String(link.props.className)).not.toContain('line-through');
+    expect(textOf(link)).toContain('任意・未入力');
+  });
+});
+
+describe('公開中の店舗のダッシュボード', () => {
+  test('ネット予約の準備中の案内は赤い警告（role=alert）ではなく案内（role=status）で出す', async () => {
+    mockSupabase({ prefecture: '東京都', city: '渋谷区', status: 'published' });
+    const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
+    expect(findElements(root, props => props.role === 'alert')).toHaveLength(0);
+    const [status] = findElements(root, props => props.role === 'status');
+    expect(textOf(status)).toContain('ネット予約は準備中');
+    expect(String(status.props.className)).not.toContain('red');
+    // 設定画面の「ネット予約の準備状況」へ直接案内する
+    expect(findElements(status, props => props.href === `/admin/settings?facility_id=${FACILITY_ID}#booking-readiness`)).toHaveLength(1);
+  });
+
+  test('「掲載ページを見る」で公開ページへ行ける', async () => {
+    mockSupabase({ prefecture: '東京都', city: '渋谷区', status: 'published' });
+    const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
+    const [link] = findElementsWithDirectText(root, '掲載ページを見る');
+    expect(link.props.href).toBe('/facility/test-shop');
+  });
+
+  test('非公開の店舗には「掲載ページを見る」を出さない', async () => {
+    mockSupabase({ prefecture: '東京都', city: '渋谷区' });
+    expect(findElementsWithDirectText(await AdminDashboard({ searchParams: Promise.resolve({}) }), '掲載ページを見る')).toHaveLength(0);
   });
 });

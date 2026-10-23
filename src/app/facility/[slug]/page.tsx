@@ -23,6 +23,7 @@ import FavoriteButton from '@/components/facility/FavoriteButton';
 import ShareButtons from '@/components/facility/ShareButtons';
 import SymptomList from '@/components/facility/SymptomList';
 import CertificationList from '@/components/facility/CertificationList';
+import { businessTypeLabel } from '@/lib/business-type-label';
 // InsuranceMenuBadge はMenuListコンポーネント内で使用（menu.insurance_covered時に表示）
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import ViewCount from '@/components/facility/ViewCount';
@@ -30,7 +31,8 @@ import StaffList from '@/components/facility/StaffList';
 import CouponList from '@/components/facility/CouponList';
 import CatalogList from '@/components/facility/CatalogList';
 import BlogPostList from '@/components/facility/BlogPostList';
-import QASection from '@/components/facility/QASection';
+import QASection, { QA_ASK_ANCHOR } from '@/components/facility/QASection';
+import { hasPublicQa } from '@/lib/facility-qa-visibility';
 import BusinessStatusBadge from '@/components/facility/BusinessStatusBadge';
 import SimilarFacilities from '@/components/facility/SimilarFacilities';
 import NearbyFacilities from '@/components/facility/NearbyFacilities';
@@ -41,6 +43,7 @@ import type { Facility, FacilityMenu, FacilityPhoto, FacilityReview, StaffProfil
 import { safeJsonLd } from '@/lib/json-ld';
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 import { formatFacilityAddress, formatFacilityLocality } from '@/lib/facility-location';
+import { isDialablePhone } from '@/lib/facility-contact';
 
 export const revalidate = 3600;
 
@@ -70,10 +73,11 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   // ルート layout の title.template '%s | CareLink' が自動付与するため metadata.title には「| CareLink」を付けない（二重化防止）。
   if (!facility) return { title: 'ページが見つかりません' };
 
-  const title = `${facility.name} | ${facility.business_type}`;
+  const typeLabel = businessTypeLabel(facility.business_type);
+  const title = `${facility.name} | ${typeLabel}`;
   const ogTitle = `${title} | CareLink`;
   const locality = `${facility.prefecture ?? ''}${formatFacilityLocality(facility.prefecture, facility.city)}`;
-  const description = facility.catch_copy || `${locality}の${facility.business_type}「${facility.name}」のメニュー・料金・アクセス情報`;
+  const description = facility.catch_copy || `${locality}の${typeLabel}「${facility.name}」のメニュー・料金・アクセス情報`;
 
   const url = `${SITE_URL}/facility/${params.slug}`;
 
@@ -88,7 +92,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
       url,
       siteName: 'CareLink',
       images: [{
-        url: `${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + locality)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`,
+        url: `${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(typeLabel + ' | ' + locality)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`,
         width: 1200,
         height: 630,
       }],
@@ -97,7 +101,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
       card: 'summary_large_image',
       title: ogTitle,
       description,
-      images: [`${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + locality)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`],
+      images: [`${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(typeLabel + ' | ' + locality)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`],
     },
   };
 }
@@ -119,8 +123,9 @@ export default async function FacilityPage(props: Props) {
     getActiveCouponsByFacility(facility.id),
     getCatalogsByFacility(facility.id),
     getBlogSummariesByFacility(facility.id, BLOG_TAB_POSTS),
+    hasPublicQa(facility.id),
   ]);
-  const queryNames = ['menus', 'photos', 'reviews', 'staff', 'coupons', 'catalogs', 'blog'];
+  const queryNames = ['menus', 'photos', 'reviews', 'staff', 'coupons', 'catalogs', 'blog', 'qa'];
   results.forEach((r, i) => {
     if (r.status === 'rejected') safeCaptureException(r.reason, `facility-detail:${queryNames[i]}`);
   });
@@ -133,6 +138,9 @@ export default async function FacilityPage(props: Props) {
   // 店舗ブログ（2026年10月22日 新設）。公開記事があるときだけ導線を出す。読めなかったときも出さない
   // （他のタブと同じく、取得失敗は通知したうえで施設ページ自体は表示する）。
   const blog: { posts: BlogPostSummary[]; total: number } = results[6].status === 'fulfilled' ? results[6].value : { posts: [], total: 0 };
+  // Q&A タブは公開中の Q&A が 1 件以上あるときだけ出す（神原さん判断 2026年10月23日）。
+  // 読めなかったときは、あるかもしれない内容を隠さないようタブを出す（タブ側が読み込み失敗を表示する）。
+  const showQaTab = results[7].status === 'fulfilled' ? results[7].value : true;
 
   // クーポンごとの対象メニュー（coupon_menus）。クーポン一覧の「通常 ¥X → ¥Y」を対象メニューの
   // 定価から出すために使う。取れなければ undefined のまま渡し、一覧は割引表記だけを出す
@@ -192,11 +200,11 @@ export default async function FacilityPage(props: Props) {
       label: `クーポン(${coupons.length})`,
       content: <CouponList coupons={coupons} menus={menus} couponMenuMap={couponMenuMap} />,
     }] : []),
-    {
+    ...(showQaTab ? [{
       key: 'qa',
       label: 'Q&A',
       content: <QASection facilityId={facility.id} />,
-    },
+    }] : []),
     {
       key: 'review',
       label: `口コミ(${reviews.length})`,
@@ -248,12 +256,12 @@ export default async function FacilityPage(props: Props) {
                 )}
                 {prefSlug && typeSlug ? (
                   <>
-                    <li><Link href={`/${prefSlug}/${typeSlug}`} className="hover:text-sky-600 transition-colors">{facility.business_type}</Link></li>
+                    <li><Link href={`/${prefSlug}/${typeSlug}`} className="hover:text-sky-600 transition-colors">{businessTypeLabel(facility.business_type)}</Link></li>
                     <li><span className="mx-1">/</span></li>
                   </>
                 ) : (
                   <>
-                    <li><Link href={`/search?type=${encodeURIComponent(facility.business_type)}`} className="hover:text-sky-600 transition-colors">{facility.business_type}</Link></li>
+                    <li><Link href={`/search?type=${encodeURIComponent(facility.business_type)}`} className="hover:text-sky-600 transition-colors">{businessTypeLabel(facility.business_type)}</Link></li>
                     <li><span className="mx-1">/</span></li>
                   </>
                 )}
@@ -264,8 +272,12 @@ export default async function FacilityPage(props: Props) {
         })()}
 
         <PhotoGallery photos={photos} facilityName={facility.name} />
-        <div className="flex items-start justify-between">
-          <div className="flex-1 min-w-0">
+        {/* 見出しまわりの並び（2026年10月23日）。スマホで共有ボタン 4 つとお気に入りを見出しの横に置くと
+            店名・業種・キャッチコピー・価格帯が 2〜3 行に折れていた。スマホでは見出しの横に
+            お気に入り（右上）だけを残し、共有は見出しの下に 1 行で並べる。PC は従来どおり横に並べる。
+            1 回だけ描画して並び位置を grid で切り替える（同じボタンを 2 組置くとラベルが重複する）。 */}
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:gap-x-2" data-testid="facility-title-area">
+          <div className="min-w-0 col-start-1 row-start-1">
             <FacilityHeader facility={facility} />
             <div className="px-4 sm:px-6 pb-2 flex flex-wrap items-center gap-2">
               <BusinessStatusBadge businessHours={facility.business_hours} regularHoliday={facility.regular_holiday} />
@@ -285,8 +297,10 @@ export default async function FacilityPage(props: Props) {
               )}
             </div>
           </div>
-          <div className="pt-5 pr-4 flex items-center gap-2">
+          <div className="col-span-2 row-start-2 px-4 pb-2 sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:px-0 sm:pb-0 sm:pt-5" data-testid="facility-share-slot">
             <ShareButtons url={`${SITE_URL}/facility/${params.slug}`} title={`${facility.name} | CareLink`} />
+          </div>
+          <div className="col-start-2 row-start-1 pt-4 pr-2 sm:col-start-3 sm:pt-5 sm:pr-4" data-testid="facility-favorite-slot">
             <FavoriteButton facilityId={facility.id} />
           </div>
         </div>
@@ -336,7 +350,7 @@ export default async function FacilityPage(props: Props) {
 
         {/* 近くのサロン */}
         <Suspense fallback={null}>
-          <NearbyFacilities facilityId={facility.id} prefecture={facility.prefecture} city={facility.city} />
+          <NearbyFacilities facilityId={facility.id} businessType={facility.business_type} prefecture={facility.prefecture} city={facility.city} />
         </Suspense>
 
         {/* Contact section */}
@@ -348,7 +362,7 @@ export default async function FacilityPage(props: Props) {
           <p className="text-gray-500 text-sm mb-4">
             ご予約・ご質問は、お電話またはフォームからお気軽にどうぞ。
           </p>
-          {facility.phone && /^[0-9+\-()# ]{7,20}$/.test(facility.phone) && (
+          {isDialablePhone(facility.phone) && (
             <a
               href={`tel:${facility.phone}`}
               className="inline-flex items-center gap-2 text-sky-700 font-bold text-lg hover:underline mb-6"
@@ -360,6 +374,15 @@ export default async function FacilityPage(props: Props) {
             </a>
           )}
           <InquiryForm facilityId={facility.id} />
+          {/* Q&A タブを出さない（公開中の Q&A が 0 件）施設でも、来訪者が質問を送る機能は残す。
+              タブの中にあった投稿欄だけをここに小さく置く。 */}
+          {!showQaTab && (
+            <QASection
+              facilityId={facility.id}
+              askOnly
+              loginHref={`/auth/login?redirect=${encodeURIComponent(`/facility/${params.slug}#${QA_ASK_ANCHOR}`)}`}
+            />
+          )}
         </div>
 
         {/* JSON-LD: LocalBusiness */}
@@ -484,13 +507,13 @@ export default async function FacilityPage(props: Props) {
           if (pSlug) {
             items.push({ '@type': 'ListItem', position: 2, name: facility.prefecture, item: `${SITE_URL}/${pSlug}` });
             if (tSlug) {
-              items.push({ '@type': 'ListItem', position: 3, name: facility.business_type, item: `${SITE_URL}/${pSlug}/${tSlug}` });
+              items.push({ '@type': 'ListItem', position: 3, name: businessTypeLabel(facility.business_type), item: `${SITE_URL}/${pSlug}/${tSlug}` });
               items.push({ '@type': 'ListItem', position: 4, name: facility.name });
             } else {
               items.push({ '@type': 'ListItem', position: 3, name: facility.name });
             }
           } else {
-            items.push({ '@type': 'ListItem', position: 2, name: facility.business_type, item: `${SITE_URL}/search?type=${encodeURIComponent(facility.business_type)}` });
+            items.push({ '@type': 'ListItem', position: 2, name: businessTypeLabel(facility.business_type), item: `${SITE_URL}/search?type=${encodeURIComponent(facility.business_type)}` });
             items.push({ '@type': 'ListItem', position: 3, name: facility.name });
           }
           return (
@@ -672,7 +695,7 @@ function TopTab({ facility, featuredMenus, blog }: {
               </a>
             </div>
           </div>
-          {facility.phone && /^[0-9+\-()# ]{7,20}$/.test(facility.phone) && (
+          {isDialablePhone(facility.phone) && (
             <div className="flex">
               <span className="text-gray-500 w-20 shrink-0">電話</span>
               <a href={`tel:${facility.phone}`} className="text-sky-700 hover:underline">{facility.phone}</a>

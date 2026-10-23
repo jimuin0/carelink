@@ -146,6 +146,9 @@ jobs:
       - name: Started slots refused for online create/change, reschedule availability leaves the moved reservation out (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-slot-start-and-reschedule-fixtures.sql
 
+      - name: Customer date change refused once past the free-cancellation deadline, shop changes and other rules unchanged (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/change-free-cancel-window-fixtures.sql
+
       - name: Coupon target new/repeat at booking - login required, own-account history only, visits, cancellations, per facility (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/coupon-target-eligibility-fixtures.sql
 
@@ -154,6 +157,9 @@ jobs:
 
       - name: Manual reservation observed concurrency and role revocation (disposable DB)
         run: node scripts/check-manual-booking-concurrency.mjs
+
+      - name: Manual 指名なし reservation without working staff is refused accurately, named and online paths unchanged (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/manual-unassigned-no-working-staff-fixtures.sql
 
       - name: Booking completion versus visit history atomicity and authorization (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-visit-fixtures.sql
@@ -171,6 +177,9 @@ jobs:
 
       - name: Points ledger owner privacy, visit points cap, legacy, self-booking and reversal (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-points-cap-fixtures.sql
+
+      - name: Withdrawn member's points booking - status changes and checkout succeed without ledger writes (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/booking-points-withdrawn-member-fixtures.sql
 
       - name: Staff schedules transactional failure and immutable replay (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f scripts/check-staff-schedule-transactions.sql
@@ -193,6 +202,12 @@ jobs:
       - name: Atomic automatic flags and approved detection evidence (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/review-flags-atomic-fixtures.sql
 
+      - name: Review 24h limit per account, star-only edit keeps moderation, one review per operation (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/review-edit-account-limit-fixtures.sql
+
+      - name: Shop members cannot read reviewer IP, account or operation columns (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/review-identity-columns-fixtures.sql
+
       - name: Review reply publish, edit and delete authority and browser write closure (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/review-reply-fixtures.sql
 
@@ -201,6 +216,9 @@ jobs:
 
       - name: HPB menu import rows are service-role writes only and owner/admin reads (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/hpb-menu-durations-privilege-fixtures.sql
+
+      - name: Paid sponsor slots are service-role writes; Q&A and helpful-vote account IDs stay private (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/featured-slots-account-ids-fixtures.sql
 
       - name: Registration application intent and declaration boundaries (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/salon-application-guard-fixtures.sql
@@ -262,6 +280,18 @@ jobs:
       - name: Newsletter resume from My Page clears link suppression (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/newsletter-preference-fixtures.sql
 
+      - name: Newsletter audience and unsubscribe follow the confirmed login email, not profiles.email (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/newsletter-confirmed-audience-fixtures.sql
+
+      - name: One Google Place ID per facility, release and blank values (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/gbp-place-id-unique-fixtures.sql
+
+      - name: Changing the facility identity detaches the Google Place ID and its rating (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/gbp-identity-change-fixtures.sql
+
+      - name: GBP connect binds to the verified facility identity (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/gbp-connect-identity-fixtures.sql
+
       - name: Verified LINE ownership and client write restrictions (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/verified-line-ownership-fixtures.sql
 
@@ -297,6 +327,9 @@ jobs:
 
       - name: Published location write invariant (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/published-location-fixtures.sql
+
+      - name: Free listing publish requires confirmed business hours, existing published rows untouched (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/publish-hours-fixtures.sql
 
       - name: Atomic facility setup roles, claims and rollback (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/facility-setup-fixtures.sql
@@ -366,6 +399,9 @@ jobs:
 
       - name: Favorite toggle serialization, publication and account deletion fences (disposable DB)
         run: python3 scripts/check-favorite-toggle-concurrency.py
+
+      - name: Favorites of draft or suspended facilities can still be removed, never added (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/favorite-removal-unpublished-fixtures.sql
 
       - name: Menu atomic deletion, ordering rollback and complete snapshot (disposable DB)
         run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/menu-atomic-fixtures.sql

@@ -2,6 +2,7 @@ import { readAuthorization } from '@/lib/authorization-read';
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { safeRedirect } from '@/lib/safe-redirect';
+import { loginDestination } from '@/lib/post-login-landing';
 import { isStoreManagementRedirect } from '@/lib/store-login';
 import { isPlatformSupportPath } from '@/lib/platform-support-path';
 import { getMembershipCacheKey } from '@/lib/admin-membership-cache-key';
@@ -203,8 +204,14 @@ export async function middleware(request: NextRequest) {
   // 保護ルートへの未認証アクセスをリダイレクト
   if (isProtected && !user) {
     const url = request.nextUrl.clone();
+    // 🔴 pathname だけを戻り先にすると、クエリ（例: /admin/onboarding?handoff=registration の
+    // handoff）が落ち、ログイン後に掲載申込の引き継ぎモードが外れていた（2026年10月23日）。
+    // パス＋クエリを safeRedirect に通して同一オリジンのパスだけを戻り先にする。
+    // 元のクエリはログイン画面の URL には残さない（redirect の中にだけ入れる）。
+    const destination = safeRedirect(request.nextUrl.pathname + request.nextUrl.search, request.nextUrl.origin);
     url.pathname = '/auth/login';
-    url.searchParams.set('redirect', request.nextUrl.pathname);
+    url.search = '';
+    url.searchParams.set('redirect', destination);
     return withSessionCookies(NextResponse.redirect(url));
   }
 
@@ -292,7 +299,8 @@ export async function middleware(request: NextRequest) {
   // 単にブラウザを飛ばすだけで、飛んだ先の /admin へのアクセスは「次のリクエスト」として
   // このミドルウェアを再度通り、上の「/admin ルートへの権限チェック」ブロックが
   // facility_members の owner/admin を再確認する（fail-closed は維持される）。
-  const authDestination = safeRedirect(request.nextUrl.searchParams.get('redirect'), request.nextUrl.origin);
+  // 戻り先の指定が無いときは /auth/landing（店舗を管理できるアカウントだけ /admin・lib/post-login-landing.ts）。
+  const authDestination = loginDestination(request.nextUrl.searchParams.get('redirect'), request.nextUrl.origin);
   const storeLogin = request.nextUrl.pathname === '/auth/login' && isStoreManagementRedirect(authDestination);
   if (user && !storeLogin && (request.nextUrl.pathname === '/auth/login' || request.nextUrl.pathname === '/auth/signup')) {
     const url = request.nextUrl.clone();

@@ -17,6 +17,7 @@ import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { ALLOWED_STATUS_TRANSITIONS, isVisitOutcomeStatus } from '@/lib/booking-status';
 import { isBeforeBookingStart } from '@/lib/cancel-fee';
+import { bookingPointsConflict, isBookingPointsError } from '@/lib/booking-points-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +34,7 @@ const validStatuses: string[] = [...new Set(Object.values(ALLOWED_STATUS_TRANSIT
 const allowedTransitions: Record<string, string[]> = ALLOWED_STATUS_TRANSITIONS;
 
 const OUTCOME_BEFORE_START_MESSAGE = '予約の開始時刻より前は「完了」「無断キャンセル」にできません。開始時刻を過ぎてから操作してください。';
+const POINTS_CONFLICT_MESSAGE = 'お客様のポイントの記録と照合できないため、この予約のステータスを変更できませんでした。お手数ですが運営までお問い合わせください。';
 
 export async function POST(request: Request) {
   try {
@@ -125,6 +127,10 @@ export async function POST(request: Request) {
     if (error?.message.includes('BOOKING_PERMISSION_DENIED')) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
     if (error?.message.includes('BOOKING_REVISION_CONFLICT')) return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
     if (error?.message.includes('BOOKING_NOT_STARTED')) return NextResponse.json({ error: OUTCOME_BEFORE_START_MESSAGE, code: 'BOOKING_NOT_STARTED' }, { status: 400 });
+    // ポイントの台帳と照合できない予約（DB のトリガが取り消した）。店舗には直せないので 500 ではなく理由を返す。
+    if (error && isBookingPointsError(error.message)) {
+      return bookingPointsConflict('admin-booking-status-points', error, '/api/admin/booking-status', POINTS_CONFLICT_MESSAGE);
+    }
     if (error) {
       return serverError('admin-booking-status-update', error, '/api/admin/booking-status', '更新に失敗しました');
     }

@@ -1,13 +1,19 @@
 import { getUserFavorites } from '@/lib/user';
 import FacilityCard from '@/components/search/FacilityCard';
+import RemoveFavoriteButton from '@/components/mypage/RemoveFavoriteButton';
+import { FavoriteRemovalStatusProvider } from '@/components/mypage/FavoriteRemovalStatus';
+
+// 「お気に入りから外す」のあとでフォーカスを移す先（カードは一覧から消えるため、カードの外に置く）。
+const HEADING_ID = 'favorites-heading';
 
 export default async function FavoritesPage() {
   const favorites = await getUserFavorites();
 
   return (
     <div>
-      <h1 className="text-xl font-bold mb-4">お気に入り施設</h1>
+      <h1 id={HEADING_ID} tabIndex={-1} className="text-xl font-bold mb-4">お気に入り施設</h1>
 
+      <FavoriteRemovalStatusProvider headingId={HEADING_ID}>
       {favorites.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-xs p-8 text-center">
           <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="currentColor" viewBox="0 0 24 24">
@@ -21,13 +27,19 @@ export default async function FavoritesPage() {
           {favorites.map((fav) => fav.facility ? (
             <FacilityCard key={fav.id} facility={fav.facility} />
           ) : (
-            <div key={fav.id} className="bg-white rounded-2xl shadow-xs p-6" role="status">
-              <p className="font-medium text-gray-700">施設情報を現在表示できません</p>
-              <p className="mt-2 text-sm text-gray-500">お気に入りの登録は保持されています。</p>
+            // 施設情報を読めない＝掲載が下書き・停止に戻った施設（RLS は公開中の施設しか読ませない）。
+            // 施設ページも開けずハートを押せないので、ここで外せるようにする（以前は外す手段が無かった）。
+            <div key={fav.id} className="bg-white rounded-2xl shadow-xs p-6">
+              <div role="status">
+                <p className="font-medium text-gray-700">施設情報を現在表示できません</p>
+                <p className="mt-2 text-sm text-gray-500">お気に入りの登録は保持されています。掲載が再開されると、ここに表示されます。</p>
+              </div>
+              <RemoveFavoriteButton facilityId={fav.facility_id} />
             </div>
           ))}
         </div>
       )}
+      </FavoriteRemovalStatusProvider>
     </div>
   );
 }

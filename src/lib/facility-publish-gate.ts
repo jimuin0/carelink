@@ -8,12 +8,25 @@ export interface PublishReadiness {
   missing: string[];
 }
 
-/** Only this known DB invariant is an actionable conflict, not any DB error. */
-export function isPublishedLocationConflict(error: unknown): boolean {
+function isPublishedInvariantConflict(error: unknown, name: string): boolean {
   if (typeof error !== 'object' || error === null) return false;
   const value = error as { code?: unknown; message?: unknown };
   return value.code === '23514' && typeof value.message === 'string'
-    && value.message.includes('"published_facility_location_present"');
+    && value.message.includes(`"${name}"`);
+}
+
+/** Only this known DB invariant is an actionable conflict, not any DB error. */
+export function isPublishedLocationConflict(error: unknown): boolean {
+  return isPublishedInvariantConflict(error, 'published_facility_location_present');
+}
+
+/**
+ * 公開（下書き・休止から公開へ）か、公開中の営業時間の変更で、曜日別の営業時間が確認済みでないと
+ * DB（update_facility_settings_atomic / set_facilities_publication_atomic・migration 20261023170000）が
+ * 返す衝突。アプリの公開ゲートを通った後に営業時間が変わった場合だけ起きる。
+ */
+export function isPublishedHoursConflict(error: unknown): boolean {
+  return isPublishedInvariantConflict(error, 'published_facility_hours_confirmed');
 }
 
 /**
@@ -164,6 +177,18 @@ function locationChecks(input: { name?: string | null; prefecture?: string | nul
   };
 }
 
+/** 営業時間が足りないときにオーナーへ見せる文言（公開ゲート・ネット予約・チェックリストで共通）。 */
+export const LISTING_HOURS_MESSAGE = '全曜日の営業時間・定休日を確認して保存してください';
+
+/**
+ * 曜日別の営業時間・定休日が保存済みか（SQL 側は public.confirmed_booking_hours）。
+ * 無料掲載の公開とネット予約の両方の条件（2026年10月23日 神原さん決定で掲載にも必須化）。
+ * 判定も文言も 1 か所。
+ */
+function hoursCheck(businessHours: unknown): ReadinessCheck {
+  return { key: 'hours', ok: hasConfirmedBookingHours(businessHours), message: LISTING_HOURS_MESSAGE };
+}
+
 /**
  * The single online-booking rule, one entry per condition. The booking page,
  * the slot APIs, the search card's 「予約OK」 badge and the owner's setup
@@ -180,7 +205,7 @@ export function bookingReadinessChecks(input: BookingReadinessInput): ReadinessC
     location.city,
     location.address,
     { key: 'published', ok: input.status === 'published', message: '店舗を掲載公開してください' },
-    { key: 'hours', ok: hasConfirmedBookingHours(input.businessHours), message: '全曜日の営業時間・定休日を確認して保存してください' },
+    hoursCheck(input.businessHours),
   ];
 }
 
@@ -224,6 +249,21 @@ export interface ListingValues {
   description?: string | null;
 }
 
+/** 公開ゲートが読む営業時間（未保存は null／undefined）。 */
+export interface ListingPublishValues extends ListingValues {
+  /**
+   * facility_profiles.business_hours。必須キーにしてあるのは、渡し忘れた呼び出し側が
+   * 「営業時間なし」で黙って通る／黙って断られることを型で防ぐため。
+   */
+  business_hours: unknown;
+}
+
+/** 掲載公開に要る営業時間が欠けていれば、その文言（ネット予約の判定と同じ規則・同じ文言）。 */
+export function listingHoursMissing(businessHours: unknown): string[] {
+  const check = hoursCheck(businessHours);
+  return check.ok ? [] : [check.message];
+}
+
 /** 掲載公開に要る施設名・所在地のうち欠けているもの（ネット予約の判定と同じ規則・同じ文言）。 */
 export function listingLocationMissing(values: ListingValues): string[] {
   const location = locationChecks({ ...values, hasAddress: Boolean(values.address?.trim()) });
@@ -248,17 +288,22 @@ export function listingPrTextMissing(values: ListingValues): string[] {
 /**
  * The single listing-publish rule. The server gate runs it on the saved row,
  * the settings page runs it on what the owner sees before saving, and the owner's
- * setup checklist (dashboard and day-3 email) is built from its two parts, so none
+ * setup checklist (dashboard and day-3 email) is built from its parts, so none
  * of them can name different missing items.
+ *
+ * 店舗情報（施設名・所在地・PR 文言の表現）→ 曜日別の営業時間、の順（チェックリストの並びと同じ）。
+ * 営業時間は 2026年10月23日の神原さん決定で無料掲載にも必須になった（それまではネット予約だけの条件）。
+ * DB 側の最終ゲートは update_facility_settings_atomic / set_facilities_publication_atomic
+ * （migration 20261023170000・public.confirmed_booking_hours）。
  */
-export function listingPublishMissing(values: ListingValues): string[] {
-  return [...listingLocationMissing(values), ...listingPrTextMissing(values)];
+export function listingPublishMissing(values: ListingPublishValues): string[] {
+  return [...listingLocationMissing(values), ...listingPrTextMissing(values), ...listingHoursMissing(values.business_hours)];
 }
 
 /** Listing is independent of online booking. Authorization stays in the caller. */
 export async function checkPublishReadiness(admin: SupabaseClient, facilityId: string): Promise<{ readiness: PublishReadiness; error: unknown }> {
-  const profile = await admin.from('facility_profiles').select('name, prefecture, city, address, catch_copy, description').eq('id', facilityId).single();
+  const profile = await admin.from('facility_profiles').select('name, prefecture, city, address, catch_copy, description, business_hours').eq('id', facilityId).single();
   if (profile.error) return { readiness: { ready: false, missing: [] }, error: profile.error };
-  const missing = listingPublishMissing(profile.data ?? {});
+  const missing = listingPublishMissing({ ...profile.data, business_hours: profile.data?.business_hours ?? null });
   return { readiness: { ready: missing.length === 0, missing }, error: null };
 }

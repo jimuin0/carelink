@@ -11,3 +11,16 @@ test('SDK throw bounded without retries',async()=>{rpc.mockRejectedValue({code:'
 
 test.each([{}, {domain:'wrong.example.invalid'}, {domain:'new.example.invalid'}])('domain receipt cannot certify an unexpected configuration: %p',async values=>{rpc.mockResolvedValue({data:{id:other,facility_id:id,domain:'new.example.invalid',is_verified:true},error:null});expect((await saveAdminFacilityIntegration({...input,kind:'domain:configure',values}) as NextResponse).status).toBe(500);});
 test('verified receipt must match the actual DNS-bound domain',async()=>{rpc.mockResolvedValue({data:{id:other,facility_id:id,domain:'new.example.invalid',is_verified:true},error:null});expect(await saveAdminFacilityIntegration({...input,kind:'domain:verify',expected:{domain:'new.example.invalid'}})).toEqual(expect.objectContaining({is_verified:true}));});
+
+// 回帰（2026年10月23日）: 同じ Place ID を 2 つの施設に付けられた（他店の Google 評価の流用）。
+// 索引違反は「設定が変更されました」ではなく、別の店舗に登録済みであることを伝える。
+test('a Place ID already attached to another facility is refused with its own message',async()=>{
+ rpc.mockResolvedValue({data:null,error:{code:'23505',message:'duplicate key value violates unique constraint "uq_facility_profiles_gbp_place_id"'}});
+ const r=await saveAdminFacilityIntegration(input) as NextResponse;expect(r.status).toBe(409);
+ const body=await r.json();expect(body.code).toBe('GBP_PLACE_TAKEN');expect(body.error).toContain('別の店舗に登録されています');expect(JSON.stringify(body)).not.toContain('uq_facility');
+});
+test('a unique violation on a domain keeps the generic conflict message',async()=>{
+ rpc.mockResolvedValue({data:null,error:{code:'23505'}});
+ const r=await saveAdminFacilityIntegration({...input,kind:'domain:configure',values:{domain:'new.example.invalid'}}) as NextResponse;
+ expect(r.status).toBe(409);expect((await r.json()).error).toBe('設定が変更されました。再読み込みしてください');
+});

@@ -642,6 +642,7 @@
   ],
   "facility_reviews": [
     "booking_id",
+    "client_operation_id",
     "comment",
     "created_at",
     "facility_id",

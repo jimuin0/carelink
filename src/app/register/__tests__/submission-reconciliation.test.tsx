@@ -34,15 +34,19 @@ async function prepareForm(phone = '09012345678', contactPhone?: string) {
   fireEvent.change(screen.getByLabelText(/^施設名/), { target: { value: '合成施設' } });
   fireEvent.change(screen.getByLabelText(/^業種/), { target: { value: 'ヘアサロン' } });
   fireEvent.change(screen.getByLabelText(/^代表者名/), { target: { value: '合成代表' } });
-  fireEvent.change(screen.getByLabelText(/^担当者名/), { target: { value: '合成担当' } });
   fireEvent.change(screen.getByLabelText(/^メールアドレス/), { target: { value: 'fixture@example.invalid' } });
   fireEvent.change(screen.getByLabelText(/^電話番号/), { target: { value: phone } });
   if (contactPhone) {
     const direct = screen.getByLabelText('担当者直通電話');
     direct.closest('details')!.open = true;
     fireEvent.change(direct, { target: { value: contactPhone } });
+    // 入力中は書き換えない（自動ハイフンは 0120 等を誤って区切り、打った区切りも上書きしていた）。
+    expect(direct).toHaveValue(contactPhone);
+    // 欄を離れたら全角→半角・ダッシュの統一だけ行う。利用者の区切り位置はそのまま。
+    fireEvent.blur(direct);
     expect(direct).toHaveValue('03-1234-5678');
-    expect(screen.getByLabelText(/^電話番号/)).toHaveValue('090-1234-5678');
+    fireEvent.blur(screen.getByLabelText(/^電話番号/));
+    expect(screen.getByLabelText(/^電話番号/)).toHaveValue('09012345678');
   }
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
   await screen.findByLabelText(/^郵便番号/);
@@ -62,8 +66,31 @@ test('full-width phone and direct phone survive the real UI and submit normalize
   await submit();
   await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
   const payload = JSON.parse(mockFetch.mock.calls[0][1].body);
-  expect(payload.phone).toBe('090-1234-5678');
+  expect(payload.phone).toBe('09012345678');
   expect(payload.contact_phone).toBe('03-1234-5678');
+});
+
+test.each([
+  ['0120-123-456', '0120-123-456'],
+  ['0466-12-3456', '0466-12-3456'],
+  ['01201234567', '01201234567'],
+])('phone %s is not re-split while typing and is submitted as typed (%s)', async (typed, expected) => {
+  await prepareForm(typed);
+  // 旧実装は 1 文字ごとに 3-3-4 / 2-4-4 へ組み直し、0120・4桁市外局番を誤って区切っていた。
+  await submit();
+  await waitFor(() => expect(mockPush).toHaveBeenCalledTimes(1));
+  expect(JSON.parse(mockFetch.mock.calls[0][1].body).phone).toBe(expected);
+});
+
+test('phone inputs use the telephone keypad and autofill', async () => {
+  render(<RegisterForm />);
+  const phone = screen.getByLabelText(/^電話番号/);
+  expect(phone).toHaveAttribute('type', 'tel');
+  expect(phone).toHaveAttribute('inputmode', 'tel');
+  expect(phone).toHaveAttribute('autocomplete', 'tel');
+  const direct = screen.getByLabelText('担当者直通電話');
+  expect(direct).toHaveAttribute('type', 'tel');
+  expect(direct).toHaveAttribute('inputmode', 'tel');
 });
 
 test('photo-specific rejection is visible without losing the selected files', async () => {

@@ -195,6 +195,7 @@ describe('アプリのコード', () => {
       'src/app/admin/qa/page.tsx',
       'src/app/api/facility/qa/route.ts',
       'src/components/facility/QASection.tsx',
+      'src/lib/facility-qa-visibility.ts',
     ]);
     expect(statements.filter((s) => WRITE.test(s.statement)).map((s) => s.file)).toEqual(['src/app/api/facility/qa/route.ts']);
   });

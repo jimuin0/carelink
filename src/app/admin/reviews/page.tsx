@@ -7,8 +7,8 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { SbPageHeader } from '@/components/admin/SbUi';
-import type { FacilityReview } from '@/types';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import type { AdminReview, AdminReviewFilter } from '@/lib/admin-review-list';
 import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
 import { REVIEW_REPLY_MAX_LENGTH } from '@/lib/review-reply-limits';
 
@@ -47,18 +47,44 @@ function replyFromBody(body: unknown): ReviewReply | null {
   return { id, content, created_at: typeof createdAt === 'string' ? createdAt : null };
 }
 
+/**
+ * 口コミ一覧を /api/admin/reviews から読む（2026年10月23日）。以前はブラウザから select('*') で読んでおり、
+ * 画面に出さない投稿者の IP アドレスとアカウント ID まで店舗のブラウザに届いていた。
+ * API は画面に出す列と運営の審査状態だけを返す。読めない・形が違うときは null。
+ */
+async function fetchReviews(facilityId: string, filter: AdminReviewFilter): Promise<AdminReview[] | null> {
+  try {
+    const res = await fetch(`/api/admin/reviews?facility_id=${encodeURIComponent(facilityId)}&filter=${filter}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const body: unknown = await res.json().catch(() => null);
+    const list = body !== null && typeof body === 'object' ? (body as { reviews?: unknown }).reviews : undefined;
+    return Array.isArray(list) ? (list as AdminReview[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+// 運営の審査で止められている口コミの表示。公開ページと評価には is_flagged=false の口コミしか出ないので、
+// status（公開／非表示）だけで『公開中』と出すと実態と食い違う（2026年10月23日）。
+const MODERATION_NOTICE = {
+  pending: { badge: '運営の確認中', text: '運営が内容を確認しています。確認が終わるまで店舗ページと評価には反映されません。' },
+  rejected: { badge: '運営判断で非公開', text: '運営の判断で非公開になっています。店舗から公開することはできません。' },
+  // 承認済みなのに旗が戻ったまま止まっている（運営の審査画面にも出ない）。『確認中』とは案内しない。
+  stalled: { badge: '公開手続きの停止', text: '運営の確認は済んでいますが、公開の手続きが止まっています。お手数ですが、運営までお問い合わせください。' },
+} as const;
+
 function AdminReviewsContent() {
   // 複数店舗のオーナーは ?facility_id= で店舗を選ぶ（2026年10月22日）。以前は facility_members を
   // .limit(1).single() で 1 行だけ読み、どの店舗の口コミが出るかが行の並び次第だった
   // （通知から開いても別の店舗の口コミが表示され得た）。
   const requestedFacility = useSearchParams().get('facility_id');
   const [facilityChoices, setFacilityChoices] = useState<AdminFacilityChoice[]>([]);
-  const [reviews, setReviews] = useState<FacilityReview[]>([]);
+  const [reviews, setReviews] = useState<AdminReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const [filter, setFilter] = useState<'all' | 'published' | 'hidden'>('all');
+  const [filter, setFilter] = useState<AdminReviewFilter>('all');
   const [updating, setUpdating] = useState<string | null>(null);
   const [replyText, setReplyText] = useState<Record<string, string>>({});
   // 返信の公開・編集・削除の実行中の口コミ ID（二重送信を防ぐ）
@@ -70,18 +96,9 @@ function AdminReviewsContent() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const loadReviews = useCallback(async (fId: string) => {
-    const supabase = createBrowserSupabaseClient();
-    let query = supabase
-      .from('facility_reviews')
-      .select('*')
-      .eq('facility_id', fId)
-      .order('created_at', { ascending: false })
-      .limit(100);
-    if (filter !== 'all') query = query.eq('status', filter);
     setLoadError(false);
-    const { data, error } = await query;
-    if (error) { setLoadError(true); return [] as FacilityReview[]; }
-    const list = (data ?? []) as FacilityReview[];
+    const list = await fetchReviews(fId, filter);
+    if (!list) { setLoadError(true); return [] as AdminReview[]; }
     setReviews(list);
     return list;
   }, [filter]);
@@ -155,10 +172,12 @@ function AdminReviewsContent() {
     loadReviews(facilityId);
   }, [filter, facilityId, loadReviews]);
 
-  const toggleStatus = async (review: FacilityReview) => {
+  const toggleStatus = async (review: AdminReview) => {
     if (!facilityId || updating) return;
-    setUpdating(review.id);
     const newStatus = review.status === 'published' ? 'hidden' : 'published';
+    // 運営の審査で止められている口コミは、店舗が公開に切り替えても公開されない（ボタンも押せない）。
+    if (newStatus === 'published' && review.moderation !== 'none') return;
+    setUpdating(review.id);
     try {
       const supabase = createBrowserSupabaseClient();
       const { error } = await supabase
@@ -167,8 +186,15 @@ function AdminReviewsContent() {
         .eq('id', review.id)
         .eq('facility_id', facilityId);
       if (error) throw error;
-      setReviews((prev) => prev.map((r) => r.id === review.id ? { ...r, status: newStatus } : r));
-      setToast({ type: 'success', message: newStatus === 'published' ? '公開しました' : '非表示にしました' });
+      // 公開に切り替えたときは、その間に運営の審査が始まっていないかを読み直して確かめる
+      // （読み直せないときは切り替えた結果だけを反映し、一覧はそのまま残す）。
+      const reloaded = newStatus === 'published' ? await fetchReviews(facilityId, filter) : null;
+      const current = reloaded?.find((r) => r.id === review.id);
+      if (reloaded) setReviews(reloaded);
+      else setReviews((prev) => prev.map((r) => r.id === review.id ? { ...r, status: newStatus } : r));
+      setToast(current && current.moderation !== 'none'
+        ? { type: 'success', message: '公開に切り替えましたが、運営の確認が終わるまで店舗ページには表示されません' }
+        : { type: 'success', message: newStatus === 'published' ? '公開しました' : '非表示にしました' });
     } catch {
       setToast({ type: 'error', message: '更新に失敗しました' });
     } finally {
@@ -276,8 +302,8 @@ function AdminReviewsContent() {
       <SbPageHeader title="口コミ管理" />
 
       {/* フィルタ */}
-      <div className="flex gap-2 mb-6">
-        {([['all', 'すべて'], ['published', '公開中'], ['hidden', '非表示']] as const).map(([value, label]) => (
+      <div className="flex flex-wrap gap-2 mb-6">
+        {([['all', 'すべて'], ['published', '公開中'], ['hidden', '非表示'], ['moderation', '運営の確認']] as const).map(([value, label]) => (
           <button
             type="button"
             key={value}
@@ -303,36 +329,55 @@ function AdminReviewsContent() {
             const reply = replies[review.id];
             const isEditing = editing?.reviewId === review.id;
             const busy = replyBusy === review.id;
+            const notice = review.moderation === 'none' ? null : MODERATION_NOTICE[review.moderation];
+            // 店舗ページに実際に出ているか（公開設定で、運営の審査で止められていない）。
+            const visible = review.status === 'published' && notice === null;
+            // 運営の審査で止められている口コミは、店舗の操作では公開できない（非表示にはできる）。
+            const publishBlocked = review.status === 'hidden' && notice !== null;
+            const noticeId = `review-moderation-${review.id}`;
             return (
-              // 非表示の口コミは不透明度ではなく地色と破線で示す。opacity は中の文字・ボタン
+              // 店舗ページに出ていない口コミは不透明度ではなく地色と破線で示す。opacity は中の文字・ボタン
               // （返信の編集・削除・保存など）のコントラストまで落とし、AA を割るため使わない。
               <article key={review.id} aria-label={`${review.reviewer_name}さんの口コミ`}
-                className={`rounded-xl shadow-xs p-5 ${review.status === 'hidden' ? 'bg-gray-50 border border-dashed border-gray-300' : 'bg-white'}`}>
+                className={`rounded-xl shadow-xs p-5 ${visible ? 'bg-white' : 'bg-gray-50 border border-dashed border-gray-300'}`}>
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-1">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-1">
                       <span className="text-amber-400 text-sm">{stars(review.rating)}</span>
                       <span className="text-sm font-bold text-gray-700">{review.rating.toFixed(1)}</span>
-                      <span className={`text-micro px-2 py-0.5 rounded-full font-bold ${
-                        review.status === 'published' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-                      }`}>
-                        {review.status === 'published' ? '公開中' : '非表示'}
-                      </span>
+                      {notice ? (
+                        <span className={`text-micro px-2 py-0.5 rounded-full font-bold ${
+                          review.moderation === 'rejected' ? 'bg-red-50 text-red-700' : 'bg-amber-100 text-amber-800'
+                        }`}>
+                          {notice.badge}
+                        </span>
+                      ) : (
+                        <span className={`text-micro px-2 py-0.5 rounded-full font-bold ${
+                          visible ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {visible ? '公開中' : '非表示'}
+                        </span>
+                      )}
+                      {notice && review.status === 'hidden' && review.moderation !== 'rejected' && (
+                        <span className="text-micro px-2 py-0.5 rounded-full font-bold bg-gray-100 text-gray-600">非表示</span>
+                      )}
                     </div>
                     <p className="text-sm font-medium text-gray-800">{review.reviewer_name}</p>
                     {review.comment && (
                       <p className="text-sm text-gray-600 mt-1 line-clamp-3">{review.comment}</p>
                     )}
-                    <p className="text-xs text-gray-500 mt-2">{new Date(review.created_at).toLocaleDateString('ja-JP')}</p>
+                    {notice && <p id={noticeId} className="text-xs text-gray-700 mt-2">{notice.text}</p>}
+                    <p className="text-xs text-gray-500 mt-2">{review.created_at ? new Date(review.created_at).toLocaleDateString('ja-JP') : ''}</p>
                   </div>
                   <button
                     type="button"
                     onClick={() => toggleStatus(review)}
-                    disabled={updating === review.id}
-                    className={`shrink-0 text-xs px-4 py-2 rounded-lg font-bold transition-colors ${
+                    disabled={updating === review.id || publishBlocked}
+                    aria-describedby={publishBlocked ? noticeId : undefined}
+                    className={`shrink-0 text-xs px-4 py-2 rounded-lg font-bold transition-colors disabled:cursor-not-allowed ${
                       review.status === 'published'
                         ? 'bg-gray-100 text-gray-600 hover:bg-red-50 hover:text-red-600'
-                        : 'bg-green-50 text-green-700 hover:bg-green-100'
+                        : publishBlocked ? 'bg-gray-100 text-gray-600' : 'bg-green-50 text-green-700 hover:bg-green-100'
                     }`}
                   >
                     {review.status === 'published' ? '非表示にする' : '公開する'}

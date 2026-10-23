@@ -16,7 +16,7 @@
  * generateMetadata など静的に読めない title が継承の途中にあるページは判定から外す
  * （外した数も主張して、検査が空振りしていないことを確かめる）。
  *
- * 本番で実測した 2 件（/register の二重化・/salon/demo の非二重化）を同じ計算で再現できることを
+ * 本番で実測した /register の二重化を同じ計算で再現できることを
  * 先に確かめてから、全ページへ当てる。
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
@@ -120,13 +120,11 @@ function itemsFor(page: string, override?: { file: string; title: StaticTitle })
 
 const DUPLICATED = /\|\s*CareLink.*\|\s*CareLink/;
 
-test('計算は本番の実測と一致する（/register の旧 title は二重・/salon/demo は二重にならない）', () => {
+test('計算は本番の実測と一致する（/register の旧 title は二重になる）', () => {
   const registerPage = join(APP, 'register/page.tsx');
   expect(resolveChain(itemsFor(registerPage, { file: registerPage, title: '店舗・施設の掲載登録 | CareLink' }))).toBe(
     '店舗・施設の掲載登録 | CareLink | CareLink',
   );
-  // salon/layout が文字列 title でテンプレートを打ち消すため、子の demo では二重にならない。
-  expect(resolveChain(itemsFor(join(APP, 'salon/demo/page.tsx')))).toBe('管理画面デモ | CareLink');
 });
 
 test('/register の <title> は「店舗・施設の掲載登録 | CareLink」', () => {

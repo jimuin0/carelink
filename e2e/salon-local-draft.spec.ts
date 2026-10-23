@@ -32,10 +32,17 @@ async function raw(page: Page) {
     } finally { db.close(); }
   }, { dbName: SALON_LOCAL_DRAFT_DB, storeName: SALON_LOCAL_DRAFT_STORE, key: SALON_LOCAL_DRAFT_ID });
 }
+/** 下書き・バックアップの操作欄は既定で畳んである（申込の入力を先に見せるため）。操作前に開く。 */
+async function openTools(page: Page) {
+  const tools = page.locator('#register-draft-tools');
+  await tools.waitFor({ state: 'attached' });
+  if (!(await tools.evaluate(element => (element as HTMLDetailsElement).open))) await tools.locator('summary').click();
+  await expect(tools.getByRole('region', { name: 'この端末の下書き' })).toBeVisible();
+}
 const section = (page: Page) => page.getByRole('region', { name: 'この端末の下書き' });
 const optIn = (page: Page) => section(page).getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' });
 async function ready(page: Page, hasSavedDraft = false) {
-  await page.goto('/register'); await expect(page.locator('#reg-facility-name')).toBeEnabled();
+  await page.goto('/register'); await expect(page.locator('#reg-facility-name')).toBeEnabled(); await openTools(page);
   if (hasSavedDraft) {
     await expect(section(page).getByRole('button', { name: '端末の下書きを復元' })).toBeEnabled();
     await expect(optIn(page)).toBeDisabled();
@@ -48,13 +55,13 @@ async function save(page: Page) {
 async function step3(page: Page) {
   await page.fill('#reg-facility-name', '端末下書きの合成店舗');
   await page.selectOption('#reg-business-type', { label: 'ヘアサロン' });
-  await page.fill('#reg-rep-name', '合成代表'); await page.fill('#reg-contact-name', '合成担当');
+  await page.fill('#reg-rep-name', '合成代表');
   await page.fill('#reg-email', 'draft-browser@example.invalid'); await page.fill('#reg-phone', '09012345678');
   await page.getByRole('button', { name: '次へ' }).click(); await expect(page.locator('#reg-postal-code')).toBeVisible();
   await page.getByRole('button', { name: '次へ' }).click(); await expect(page.locator('#reg-desired-start-date')).toBeVisible();
 }
 async function submit(page: Page) {
-  await page.locator('label', { hasText: '施術は必要な資格を有する者が提供する' }).locator('input').check();
+  await page.locator('label', { hasText: '国家資格が必要な施術（あん摩マッサージ指圧・鍼・灸・柔道整復など）は、その資格を持つ者が行っている' }).locator('input').check();
   await page.locator('label', { hasText: '利用規約' }).locator('input').check();
   await page.getByRole('button', { name: '登録する', exact: true }).click();
   await page.getByRole('button', { name: '送信する', exact: true }).click();
@@ -70,14 +77,14 @@ test('opt-in retains original photo bytes and partial input across a real Indexe
   expect(saved.backup.payload.photos[4]).toMatchObject({ name: 'original.png', type: 'image/png', size: original.length, base64: original.toString('base64') });
   expect(saved.keys).toEqual(['backup', 'expiresAt', 'id', 'revision', 'sha256', 'state', 'updatedAt']);
   expect(JSON.stringify(saved.backup)).not.toMatch(/intentId|proof|receiptId|recaptcha_token|agreed|licenseWarranted/);
-  page.once('dialog', dialog => dialog.accept()); await page.reload();
+  page.once('dialog', dialog => dialog.accept()); await page.reload(); await openTools(page);
   await expect(section(page).getByRole('button', { name: '端末の下書きを復元' })).toBeEnabled();
   await expect(page.locator('#reg-facility-name')).toHaveValue('');
   await section(page).getByRole('button', { name: '端末の下書きを復元' }).click();
   await expect(page.locator('#reg-facility-name')).toHaveValue('端末下書きの合成店舗');
   await page.getByRole('button', { name: '次へ' }).click(); await page.getByRole('button', { name: '次へ' }).click();
   await expect(page.getByRole('img', { name: 'メニュー 1', exact: true })).toBeVisible();
-  await expect(page.locator('label', { hasText: '施術は必要な資格を有する者が提供する' }).locator('input')).not.toBeChecked();
+  await expect(page.locator('label', { hasText: '国家資格が必要な施術（あん摩マッサージ指圧・鍼・灸・柔道整復など）は、その資格を持つ者が行っている' }).locator('input')).not.toBeChecked();
   await expect(page.locator('label', { hasText: '利用規約' }).locator('input')).not.toBeChecked();
 });
 test('two actual browser tabs cannot overwrite an already advanced draft revision', async ({ page, context }) => {
@@ -108,7 +115,7 @@ test('transport sees a committed fence; lost session context and failed clearing
   });
   await submit(page); await expect.poll(() => attempted).toBe(true);
   await expect(page.getByText(/受付状況|送信結果/).first()).toBeVisible();
-  await page.evaluate(() => sessionStorage.clear()); page.once('dialog', dialog => dialog.accept()); await page.reload();
+  await page.evaluate(() => sessionStorage.clear()); page.once('dialog', dialog => dialog.accept()); await page.reload(); await openTools(page);
   await expect(section(page).getByRole('button', { name: '端末の下書きを復元' })).toBeDisabled();
   await expect(section(page).getByText(/別のタブやブラウザー再起動後も復元できません/)).toBeVisible();
   // Losing sessionStorage must not make the same manual file a fresh intent.
@@ -130,15 +137,16 @@ test('transport sees a committed fence; lost session context and failed clearing
 });
 test('manual import of the same saved original input adopts its revision and fences the next transport without autosave opt-in', async ({ page, context }) => {
   await isolated(context); await ready(page); await step3(page); const saved = await save(page);
-  page.once('dialog', dialog => dialog.accept()); await page.reload();
+  page.once('dialog', dialog => dialog.accept()); await page.reload(); await openTools(page);
   await expect(optIn(page)).toBeDisabled();
   await page.getByLabel('バックアップから入力を復元').setInputFiles({ name: 'synthetic-backup.json', mimeType: 'application/json',
     buffer: Buffer.from(JSON.stringify(saved.backup)) });
   await expect(page.locator('#reg-facility-name')).toHaveValue('端末下書きの合成店舗');
   await expect(optIn(page)).toBeEnabled();
   expect((await raw(page))?.revision).toBe(saved.revision);
-  await page.locator('label', { hasText: 'この下書きはまだ送信していません' }).locator('input').check();
   await page.getByRole('button', { name: '次へ' }).click(); await page.getByRole('button', { name: '次へ' }).click();
+  // 未送信の確認は同意と同じく、送信ボタンの直前（ステップ3）で求める。
+  await page.locator('label', { hasText: 'この下書きはまだ送信していません' }).locator('input').check();
   let attempted = false;
   await page.route('**/api/salons**', async route => {
     if (route.request().method() === 'POST') {
@@ -152,7 +160,7 @@ test('different manual input cannot replace a saved draft; explicit clearing per
   await isolated(context); await ready(page); await page.fill('#reg-facility-name', '手動ファイルの元入力'); const earlier = await save(page);
   await page.fill('#reg-facility-name', '端末に残す別の入力');
   await expect.poll(async () => (await raw(page))?.revision).toBeGreaterThan(earlier.revision);
-  const latest = await raw(page); page.once('dialog', dialog => dialog.accept()); await page.reload();
+  const latest = await raw(page); page.once('dialog', dialog => dialog.accept()); await page.reload(); await openTools(page);
   await expect(optIn(page)).toBeDisabled();
   const file = { name: 'synthetic-earlier.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(earlier.backup)) };
   await page.getByLabel('バックアップから入力を復元').setInputFiles(file);
@@ -170,7 +178,7 @@ test('different manual input cannot replace a saved draft; explicit clearing per
 test('expired personal content is removed on next access, keeping a revision tombstone', async ({ page, context }) => {
   await isolated(context); await ready(page); await page.fill('#reg-email', 'partial@'); const saved = await save(page);
   await page.addInitScript(at => { Date.now = () => at; }, saved.expiresAt);
-  page.once('dialog', dialog => dialog.accept()); await page.reload();
+  page.once('dialog', dialog => dialog.accept()); await page.reload(); await openTools(page);
   await expect(optIn(page)).toBeEnabled();
   expect(await raw(page)).toMatchObject({ state: 'cleared', hasBackup: false, revision: saved.revision + 1 });
   await expect(section(page).getByRole('button', { name: '端末の下書きを復元' })).toBeDisabled();
@@ -194,7 +202,7 @@ test('an old retirement-tab cookie blocks restoration until real boot cleanup an
     (window as unknown as { restoreIDBPut: () => void }).restoreIDBPut = () => { IDBObjectStore.prototype.put = original; };
     IDBObjectStore.prototype.put = () => { throw new DOMException('synthetic quota', 'QuotaExceededError'); };
   });
-  page.once('dialog', dialog => dialog.accept()); await page.reload();
+  page.once('dialog', dialog => dialog.accept()); await page.reload(); await openTools(page);
   const cleanupBanner = page.getByRole('alert', { name: '端末の下書き削除' });
   await expect(cleanupBanner.getByText(/削除を確認できませんでした/)).toBeVisible();
   await expect(section(page).getByRole('button', { name: '端末の下書きを復元' })).toBeDisabled();

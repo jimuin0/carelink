@@ -21,12 +21,15 @@ const NAV_ITEMS = [
 // 押した実感が無い（クリックフィードバック無し）・今どのタブにいるか分からない、という
 // 神原さんの指摘(2026年7月6日)に対応。active:での押下フィードバックと、現在地タブの
 // ハイライト(aria-current)を追加した。usePathname が必要なためクライアントコンポーネント化。
-export default function MyPageNav() {
+//
+// hiddenHrefs: 「今は提供していない機能」（回数券・月額プラン）で、その人が何も持っていないものの
+// 導線（src/lib/feature-toggles.ts の hiddenMypageHrefs が決める・算出は layout）。
+export default function MyPageNav({ hiddenHrefs = [] }: { hiddenHrefs?: readonly string[] }) {
   const pathname = usePathname();
 
   return (
     <nav className="flex gap-2 mb-8 overflow-x-auto pb-2">
-      {NAV_ITEMS.map((item) => {
+      {NAV_ITEMS.filter((item) => !hiddenHrefs.includes(item.href)).map((item) => {
         const isActive = item.href === '/mypage' ? pathname === '/mypage' : pathname.startsWith(item.href);
         return (
           <Link

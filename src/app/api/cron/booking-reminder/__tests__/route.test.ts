@@ -78,7 +78,7 @@ function booking(over: Partial<Booking> = {}): Booking {
 
 type Cfg = {
   bookings?: { data: Booking[]; error?: unknown; errors?: (unknown | null)[] };
-  facilities?: { data: { id: string; name: string | null }[] | null; error?: unknown };
+  facilities?: { data: { id: string; name: string | null; slug?: string; phone?: string | null; status?: string }[] | null; error?: unknown };
   settings?: { data: Record<string, unknown>[] | null; error?: unknown };
   entitlements?: { data: { facility_id: string; option_key: string }[] | null; error?: unknown };
   lineLinks?: { data: { id: string | null; line_user_id: string | null }[] | null; error?: unknown };
@@ -400,6 +400,20 @@ describe('GET /api/cron/booking-reminder', () => {
       expect.objectContaining({ bookingDate: D1, customerEmail: 'customer@example.com' }),
       1,
     );
+  });
+
+  // ゲスト予約（user_id なし）はマイページに出ない。メールはマイページではなく店舗の連絡先へ案内する。
+  test('リマインドメールに会員かどうかと公開中の店舗の連絡先を渡す', async () => {
+    setup({
+      bookings: { data: [booking({ id: 'guest' }), booking({ id: 'member', user_id: 'u1' })] },
+      facilities: { data: [{ id: 'fac-0', name: 'Salon A', slug: 'salon-a', phone: '03-1234-5678', status: 'published' }] },
+    });
+    expect((await GET(makeRequest() as any)).status).toBe(200);
+    const calls = mockEmailReminder.mock.calls.map(([data]) => data);
+    expect(calls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ bookingId: expect.stringContaining('guest'), hasAccount: false, facilityPhone: '03-1234-5678', facilitySlug: 'salon-a' }),
+      expect.objectContaining({ bookingId: expect.stringContaining('member'), hasAccount: true }),
+    ]));
   });
 
   test('bookings クエリエラー → 500', async () => {

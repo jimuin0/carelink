@@ -10,6 +10,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { hasEntitlement, type EntitlementsClient } from '@/lib/entitlements';
+import { bookingEmailShopContact } from '@/lib/facility-contact';
 
 /**
  * 予約時間調整のお願いを顧客へ送信（SB の予約詳細から）
@@ -91,7 +92,7 @@ export async function POST(request: Request) {
     // 施設名（文面用）
     const { data: facility, error: facilityError } = await supabase
       .from('facility_profiles')
-      .select('name')
+      .select('name, slug, phone, status')
       .eq('id', booking.facility_id)
       .maybeSingle();
     const facilityName = facility?.name ?? '';
@@ -108,6 +109,9 @@ export async function POST(request: Request) {
         startTime: booking.start_time,
         endTime: booking.end_time,
         bookingId: booking.id,
+        // ゲスト予約（user_id なし）はマイページで変更できないので、店舗への連絡だけをお願いする。
+        hasAccount: booking.user_id !== null,
+        ...bookingEmailShopContact(facility),
       }) : null;
       const { data: queued, error: queueError } = await supabase.rpc('save_booking_email_event_atomic', {
         p_actor_id: user.id, p_booking_id: booking.id, p_expected_status: booking.status,

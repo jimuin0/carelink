@@ -129,7 +129,7 @@ export default async function AdminBookingsPage(props: Props) {
 
       {bookings.length === 0 ? (
         <div className="bg-white rounded-xl p-8 text-center">
-          <p className="text-gray-400">条件に合う予約がありません</p>
+          <p className="text-gray-500">条件に合う予約がありません</p>
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow-xs overflow-x-auto">
@@ -153,7 +153,7 @@ export default async function AdminBookingsPage(props: Props) {
                   </SbTd>
                   <SbTd>
                     <p>{b.customer_name}</p>
-                    <p className="text-xs text-gray-400">{b.email}</p>
+                    <p className="text-xs text-gray-500">{b.email}</p>
                   </SbTd>
                   {/* 指名なし（おまかせ）は割り当てた担当者を「指名なし（担当: X）」で出し、指名と見分ける。 */}
                   <SbTd className="text-gray-600 text-sm">{bookingStaffLabel(embedName(b.staff), b.staff_auto_assigned)}</SbTd>

@@ -1,4 +1,5 @@
 import { getBusinessTypeName } from './seo-constants';
+import { businessTypeLabel } from './business-type-label';
 
 /**
  * 症状ページ・症状チェッカーで、対応施設が 0 件のときに案内する業種（2026年10月22日 新設）。
@@ -10,5 +11,6 @@ import { getBusinessTypeName } from './seo-constants';
  * ブラウザ側（症状チェッカー）からも読むため、DB に触れるモジュールとは分けて置く。
  */
 export const SYMPTOM_FALLBACK_TYPE_SLUG = 'acupuncture';
-export const SYMPTOM_FALLBACK_TYPE_NAME = getBusinessTypeName(SYMPTOM_FALLBACK_TYPE_SLUG)!;
+/** 表示名（「鍼灸院・整骨院・整体」）。保存値ではない（business-type-label.ts）。 */
+export const SYMPTOM_FALLBACK_TYPE_NAME = businessTypeLabel(getBusinessTypeName(SYMPTOM_FALLBACK_TYPE_SLUG)!);
 export const SYMPTOM_FALLBACK_HREF = `/type/${SYMPTOM_FALLBACK_TYPE_SLUG}`;

@@ -10,6 +10,7 @@ import { checkChatLimit, chatDailyLimit, chatUsageCount, CHAT_DAILY_WINDOW_MS } 
 import { getClientIp } from '@/lib/client-ip';
 import { withRoute } from '@/lib/with-route';
 import { verifyRecaptcha } from '@/lib/recaptcha';
+import { offeredPlanLabels, unofferedFeatureNotice } from '@/lib/feature-toggles';
 
 export const maxDuration = 30;
 
@@ -20,7 +21,7 @@ CareLinkは鍼灸・整体・マッサージなどの施術施設を検索・予
 - 施設の検索方法・条件絞り込み（地域、症状、業種など）
 - 予約の取り方・変更・キャンセル方法
 - 会員登録・ログイン・マイページの使い方
-- ポイント・クーポン・回数券・月額プランの説明
+- ${['ポイント', 'クーポン', ...offeredPlanLabels()].join('・')}の説明
 - 鍼灸・整体・マッサージなどの施術に関する一般的な情報
 - 症状別におすすめの施術タイプの案内
 
@@ -31,7 +32,8 @@ CareLinkは鍼灸・整体・マッサージなどの施術施設を検索・予
 【スタイル】
 - 日本語で丁寧かつ簡潔に答える
 - 緊急性のある症状（胸痛・麻痺など）は必ず医療機関への受診を勧める
-- 3文以内に収める（詳細が必要な場合は箇条書きを使う）`;
+- 3文以内に収める（詳細が必要な場合は箇条書きを使う）
+${unofferedFeatureNotice()}`;
 
 export const POST = withRoute(async (request) => {
   const ip = getClientIp(request);

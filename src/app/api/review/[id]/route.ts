@@ -66,6 +66,11 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   }
 
   const admin = createServiceRoleClient();
+  // 禁止表現があれば旗（is_flagged）を「本文が変わっていたら立てる」候補として渡す。立てるかどうかは
+  // edit_review_atomic が行ロックの中で保存済みの本文と比べて決める（2026年10月23日 migration 20261023120000）。
+  // 本文が同じ（星だけの編集）なら保存済みの審査結果を残すので、運営が承認した口コミが星の編集だけで
+  // 審査待ちにも載らないまま非公開になることはない。ここで保存済みの本文を読んで比べないのは、
+  // 読み取りと書き込みの間に別の編集が入ると、変わった本文の旗を落とし得るため。
   const violations = findMedicalAdViolations(parsed.data.comment);
   const { data, error } = await admin.rpc('edit_review_atomic', {
     p_actor_id: user.id,

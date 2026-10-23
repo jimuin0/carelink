@@ -27,6 +27,7 @@ import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { applyCompletionSideEffects } from '@/lib/booking-completion';
 import { isBeforeBookingStart } from '@/lib/cancel-fee';
+import { bookingPointsConflict, isBookingPointsError } from '@/lib/booking-points-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +40,7 @@ const MAX_AMOUNT = 100_000_000; // 1件あたりの絶対値上限（暴走・�
 /** サーバーが付け足すポイント利用の明細名（会計画面の固定行と同じ表示名）。 */
 const POINTS_LINE_NAME = 'ポイント利用';
 const CHECKOUT_BEFORE_START_MESSAGE = '予約の開始時刻より前は、会計を確定して完了にできません。開始時刻を過ぎてから操作してください。';
+const POINTS_CONFLICT_MESSAGE = 'お客様のポイントの記録と照合できないため、会計を保存できませんでした。お手数ですが運営までお問い合わせください。';
 
 /** items 入力を検証して正規化。不正なら null を返す。 */
 function parseItems(raw: unknown): Charge[] | null {
@@ -162,6 +164,10 @@ export async function POST(request: Request) {
     if (updateError?.message.includes('BOOKING_PERMISSION_DENIED')) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
     if (updateError?.message.includes('BOOKING_REVISION_CONFLICT')) return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
     if (updateError?.message.includes('BOOKING_NOT_STARTED')) return NextResponse.json({ error: CHECKOUT_BEFORE_START_MESSAGE, code: 'BOOKING_NOT_STARTED' }, { status: 400 });
+    // ポイントの台帳と照合できない予約（DB のトリガが取り消した）。店舗には直せないので 500 ではなく理由を返す。
+    if (updateError && isBookingPointsError(updateError.message)) {
+      return bookingPointsConflict('admin-booking-checkout-points', updateError, '/api/admin/booking-checkout', POINTS_CONFLICT_MESSAGE);
+    }
     if (updateError) return serverError('admin-booking-checkout-update', updateError, '/api/admin/booking-checkout', '会計の保存に失敗しました');
     if (!updated || updated.length !== 1 || updated[0].id !== bookingId || updated[0].total_price !== total) {
       return serverError('admin-booking-checkout-result', new Error('checkout transaction not confirmed'), '/api/admin/booking-checkout');

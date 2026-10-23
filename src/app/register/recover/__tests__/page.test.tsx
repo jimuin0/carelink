@@ -5,14 +5,15 @@ import RecoverRegistrationPage from '../page';
 import { SALON_RECOVERY_CONTEXT_KEY, SALON_RECOVERY_ONBOARDING_PATH } from '@/lib/salon-browser-context';
 const mockPush=jest.fn(), mockReplace=jest.fn();
 const mockRouter={push:mockPush,replace:mockReplace};
-jest.mock('next/navigation',()=>({useRouter:()=>mockRouter}));
+let mockSearch=new URLSearchParams();
+jest.mock('next/navigation',()=>({useRouter:()=>mockRouter,useSearchParams:()=>mockSearch}));
 const mockFetch=jest.fn();
 const receiptId='b1000000-0000-4000-8000-000000000001';
 const recoveryId='b2000000-0000-4000-8000-000000000001';
 const receipt={receipt_id:receiptId,facility_name:'Synthetic recovery branch',business_type:'ヘアサロン',created_at:null};
 const ready={state:'ready',receipts:[receipt],next:null};
 const response=(body:unknown,status=200)=>({ok:status===200,status,json:async()=>body});
-beforeEach(()=>{jest.resetAllMocks();window.sessionStorage.clear();global.fetch=mockFetch;
+beforeEach(()=>{jest.resetAllMocks();window.sessionStorage.clear();global.fetch=mockFetch;mockSearch=new URLSearchParams();
   mockFetch.mockResolvedValue(response(ready));});
 test('StrictMode reads only; selection is explicit, proof and customer fields are absent',async()=>{
   render(<StrictMode><RecoverRegistrationPage/></StrictMode>);
@@ -122,4 +123,42 @@ test('unmount aborts the initial list request',async()=>{
   const view=render(<RecoverRegistrationPage/>);
   const signal=mockFetch.mock.calls[0][1].signal as AbortSignal;
   expect(signal.aborted).toBe(false);view.unmount();expect(signal.aborted).toBe(true);
+});
+
+// 🔴 通信断の fetch は TypeError("Failed to fetch") を投げる。以前はその英語の生メッセージを画面に出していた。
+test('list network failure shows a Japanese instruction, never the raw "Failed to fetch"',async()=>{
+  mockFetch.mockRejectedValue(new TypeError('Failed to fetch'));render(<RecoverRegistrationPage/>);
+  const alert=await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('通信できませんでした');expect(alert).not.toHaveTextContent(/Failed to fetch/i);
+  expect(screen.queryByText(/一致する受付を確認できませんでした/)).not.toBeInTheDocument();
+});
+test('prepare network failure and broken JSON keep Japanese copy and the receipt',async()=>{
+  render(<RecoverRegistrationPage/>);await screen.findByText(receipt.facility_name);
+  mockFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+  fireEvent.click(screen.getByRole('button',{name:'この申込の店舗情報を確認'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('通信できませんでした');
+  expect(screen.queryByText(/Failed to fetch/i)).not.toBeInTheDocument();
+  mockFetch.mockResolvedValueOnce({ok:true,status:200,json:async()=>{throw new SyntaxError('Unexpected token < in JSON');}});
+  fireEvent.click(screen.getByRole('button',{name:'この申込の店舗情報を確認'}));
+  await waitFor(()=>expect(screen.getByRole('alert')).toHaveTextContent('この申込を引き継げません'));
+  expect(screen.queryByText(/Unexpected token/)).not.toBeInTheDocument();
+  expect(screen.getByText(receipt.facility_name)).toBeInTheDocument();expect(mockPush).not.toHaveBeenCalled();
+});
+test('list reload network failure also stays Japanese',async()=>{
+  render(<RecoverRegistrationPage/>);await screen.findByText(receipt.facility_name);
+  mockFetch.mockRejectedValueOnce(new TypeError('Load failed'));
+  fireEvent.click(screen.getByRole('button',{name:'先頭から再確認'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('通信できませんでした');
+  expect(screen.queryByText(/Load failed/)).not.toBeInTheDocument();
+});
+test('arriving from a lost registration handoff asks the owner to choose the application',async()=>{
+  mockSearch=new URLSearchParams({from:'handoff'});render(<RecoverRegistrationPage/>);
+  expect(await screen.findByText('申込を選んでください')).toBeVisible();
+  await screen.findByText(receipt.facility_name);
+  expect(screen.getByRole('button',{name:'この申込の店舗情報を確認'})).toBeEnabled();
+  expect(mockPush).not.toHaveBeenCalled();
+});
+test('direct visits do not show the handoff notice',async()=>{
+  render(<RecoverRegistrationPage/>);await screen.findByText(receipt.facility_name);
+  expect(screen.queryByText('申込を選んでください')).not.toBeInTheDocument();
 });

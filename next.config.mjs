@@ -22,6 +22,22 @@ const nextConfig = {
       { protocol: 'https', hostname: 'xzafxiupbflvgbarrihe.supabase.co' },
     ],
   },
+  async redirects() {
+    // 店舗向けの入口は /register の 1 本だけ（2026年10月23日 神原さん決定）。
+    // 旧 LP（/salon）と、その配下で「運営者の紹介」「管理画面の機能一覧」を出していた
+    // /salon/cases・/salon/demo は /register へ恒久転送する（308）。外部に貼られた旧リンク・
+    // 営業資料・検索結果からの流入を落とさないため、ページを消すだけにはしない。
+    // /salon/premium は有料プランの温存ページで、現在は notFound()（LAUNCH_HIDDEN）。転送しない。
+    // /recruit は「施設登録（無料）」の別フォーム（同じ /api/salons へ送る簡易版）だった。店舗の登録入口を
+    // /register に一本化したので、フォームを撤去して /register へ恒久転送する（2026年10月23日 神原さん決定）。
+    // src/__tests__/shop-landing-unification.test.ts が転送と内部リンクの張り替えを固定する。
+    return [
+      { source: '/salon', destination: '/register', permanent: true },
+      { source: '/salon/cases', destination: '/register', permanent: true },
+      { source: '/salon/demo', destination: '/register', permanent: true },
+      { source: '/recruit', destination: '/register', permanent: true },
+    ];
+  },
   async headers() {
     // ページ(HTML)の CSP は src/middleware.ts が per-request nonce ベースで付与する
     // （Next.js が出力する script に nonce を適用し 'unsafe-inline' を script から排除するため）。

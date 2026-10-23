@@ -32,22 +32,24 @@ export default function Toast({ message, type, onClose }: ToastProps) {
     return () => clearTimeout(timer);
   }, [type]);
 
+  // 白文字に対して AA（4.5:1）を満たす 700 番台（500 番台は 2.3〜3.8:1 で読みにくかった）。
   const bgColor = {
-    success: 'bg-green-500',
-    error: 'bg-red-500',
-    info: 'bg-blue-500',
+    success: 'bg-green-700',
+    error: 'bg-red-700',
+    info: 'bg-blue-700',
   }[type];
 
   return (
     <div
       role={type === 'error' ? 'alert' : 'status'}
       aria-live={type === 'error' ? 'assertive' : 'polite'}
-      className={`fixed top-20 right-4 z-100 max-w-sm px-6 py-4 rounded-lg text-white shadow-lg transition-all duration-300 ${bgColor} ${
+      // スマホ（幅375px）では左右に余白を取って画面内に収める（右寄せ固定だと長い文言が画面外へはみ出した）。
+      className={`fixed top-20 left-4 right-4 sm:left-auto sm:right-4 z-100 sm:max-w-sm px-4 sm:px-6 py-4 rounded-lg text-white shadow-lg transition-all duration-300 ${bgColor} ${
         visible ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full'
       }`}
     >
       <div className="flex items-center gap-3">
-        <span className="text-sm font-medium">{message}</span>
+        <span className="min-w-0 break-words text-sm font-medium">{message}</span>
         <button type="button" onClick={onClose} className="ml-auto p-1 text-white/80 hover:text-white min-w-[32px] min-h-[32px] flex items-center justify-center" aria-label="閉じる">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

@@ -12,6 +12,8 @@ jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
 jest.mock('dns', () => ({ promises: { resolveTxt: jest.fn() } }));
+jest.mock('@/lib/email', () => ({ sendOperatorNotification: jest.fn(() => Promise.resolve(true)) }));
+jest.mock('@/lib/after-response', () => ({ runAfterResponse: jest.fn((task: () => Promise<unknown>) => task()) }));
 
 
 const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
@@ -32,6 +34,8 @@ import { POST } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 import { promises as dns } from 'dns';
+import { sendOperatorNotification } from '@/lib/email';
+import { runAfterResponse } from '@/lib/after-response';
 
 const DOMAIN_CONFIG = {
   domain: 'example-salon.com',
@@ -324,4 +328,89 @@ test('existing bodyless UI verification request still verifies the configured fa
  const res=await POST(request as Parameters<typeof POST>[0]);
  expect(res.status).toBe(200);expect(await res.json()).toEqual({verified:true});
  expect(mockRpc).toHaveBeenCalledWith('save_admin_facility_integration_atomic',expect.objectContaining({p_facility_id:FACILITY_UUID,p_kind:'domain:verify'}));
+});
+
+// 回帰（2026年10月23日）: 認証に成功すると画面は「予約ページが利用可能です」と出すのに、独自ドメインで予約ページを
+// 出す処理は無く、運営にも何も届かなかった。成功したときだけ、運営へ設定依頼を応答後に送る。
+describe('operator is asked to set the verified domain up', () => {
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+  test('a successful verification sends one request after the response, naming the facility and domain', async () => {
+    setupOwnershipAndDomain(null);
+    (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]);
+    const res = await POST(makeRequest());
+    expect(await res.json()).toEqual({ verified: true });
+    await flush();
+    // 監査ログ（writeAuditLog）も同じ経路を通るので、件数ではなく「応答後の経路を通ったこと」を見る。
+    expect(runAfterResponse).toHaveBeenCalled();
+    expect(sendOperatorNotification).toHaveBeenCalledTimes(1);
+    const sent = (sendOperatorNotification as jest.Mock).mock.calls[0][0];
+    expect(sent.subject).toContain('設定依頼');
+    expect(sent.lines).toEqual(expect.arrayContaining([
+      { label: '施設ID', value: FACILITY_UUID },
+      { label: 'ドメイン', value: DOMAIN_CONFIG.domain },
+    ]));
+  });
+
+  test.each([
+    ['TXT mismatch', () => { setupOwnershipAndDomain(null); (dns.resolveTxt as jest.Mock).mockResolvedValue([['wrong-record']]); }],
+    ['configuration changed', () => { setupOwnershipAndDomain(null, []); (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]); }],
+    ['save failure', () => { setupOwnershipAndDomain({ message: 'DB update failed' }); (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]); }],
+  ])('%s sends nothing', async (_label, arrange) => {
+    arrange();
+    await POST(makeRequest());
+    await flush();
+    expect(sendOperatorNotification).not.toHaveBeenCalled();
+  });
+
+  // 回帰（2026年10月23日・レビュー指摘）: 認証済みのドメインでも verify のたびに同じ設定依頼を運営へ送っていた。
+  test('verifying an already verified domain again sends no second request', async () => {
+    let callNum = 0;
+    mockAdminFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return facilityIdsChain([FACILITY_UUID]);
+      if (callNum === 2) return singleChain({ ...DOMAIN_CONFIG, is_verified: true });
+      return updateChain(null);
+    });
+    (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]);
+    expect(await (await POST(makeRequest())).json()).toEqual({ verified: true });
+    await flush();
+    expect(sendOperatorNotification).not.toHaveBeenCalled();
+  });
+
+  test('a domain that was not verified yet (is_verified false) sends the request', async () => {
+    let callNum = 0;
+    mockAdminFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return facilityIdsChain([FACILITY_UUID]);
+      if (callNum === 2) return singleChain({ ...DOMAIN_CONFIG, is_verified: false });
+      return updateChain(null);
+    });
+    (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]);
+    await POST(makeRequest());
+    await flush();
+    expect(sendOperatorNotification).toHaveBeenCalledTimes(1);
+  });
+
+  test('an unsent notification (mail not configured) is logged and the verification still succeeds', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    (sendOperatorNotification as jest.Mock).mockResolvedValueOnce(false);
+    setupOwnershipAndDomain(null);
+    (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]);
+    expect(await (await POST(makeRequest())).json()).toEqual({ verified: true });
+    await flush();
+    expect(warn).toHaveBeenCalledWith('[white-label/verify] operator notification not sent', { facilityId: FACILITY_UUID });
+    warn.mockRestore();
+  });
+
+  test('a failing notification is logged and the verification still succeeds', async () => {
+    const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+    (sendOperatorNotification as jest.Mock).mockRejectedValueOnce(new Error('provider down'));
+    setupOwnershipAndDomain(null);
+    (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]);
+    expect(await (await POST(makeRequest())).json()).toEqual({ verified: true });
+    await flush();
+    expect(error).toHaveBeenCalledWith('[white-label/verify] operator notification failed', expect.objectContaining({ facilityId: FACILITY_UUID }));
+    error.mockRestore();
+  });
 });

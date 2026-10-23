@@ -214,7 +214,13 @@ LINE ログインは LIFF とは別チャネルで動くため、どちらか片
 
 ### 配色テーマ＝`.theme-ecru`（`src/app/globals.css` が単一ソース・2026年8月18日 新設）
 
-施設向けの掲載登録ページ（`/register`）で使うくすみカラー（韓国系のトーン）。
+店舗向けのページ（`/register`・`/register/complete`）で使うくすみカラー（韓国系のトーン）。
+**店舗向けの入口は `/register` の 1 本だけ**（2026年10月23日 神原さん決定「店舗向けの見た目は くすみ系に統一し、
+`/salon` を `/register` にまとめる。運営者の紹介・実際の掲載例は載せない」）。旧 `/salon`・`/salon/cases`・
+`/salon/demo` は `next.config.mjs` の `redirects()` で `/register` へ 308 転送し、ページ実体は削除した
+（`/salon/premium` は有料プランの温存ページで `notFound()` のまま・転送しない）。内部リンク・sitemap・
+`llms.txt` が旧 URL を指さないことを `src/__tests__/shop-landing-unification.test.ts` が固定する。
+本体は `src/components/register/RegisterLanding.tsx`（`page.tsx` は掲載エリアを DB から取って渡すだけ）。
 **色コードを持ってよいのは `globals.css` の `.theme-ecru` だけ。**使用側は
 `bg-[var(--ecru-bg)]` のように変数を参照する。
 
@@ -231,20 +237,36 @@ LINE ログインは LIFF とは別チャネルで動くため、どちらか片
 🔴 **色は目で選ばず、コントラスト比を計算してから決めること。** この repo は axe の a11y 検査
 （`e2e/a11y-audit.spec.ts`）を持っており、薄すぎる文字は CI で落ちる。候補に挙がった
 `#7D7268`（4.24:1）と `#9C9086`（2.81:1）は AA（4.5:1）に届かないので**本文には使わない**（罫線のみ）。
-ロゴの `#8E6A61` は地色の上で 4.33:1 だが、24px 太字＝大文字扱いで基準 3:1 を満たす。
+🔴 **ロゴはテーマで塗り替えない。** ロゴは `:root` の `--logo`（ブランド色 `#0369A1`・地色の上で 5.36:1）で描き、
+`.theme-ecru` は `--logo` を上書きしない（2026年10月23日 神原さん決定。以前はロゴが `--primary` に追従し、
+`/register` でだけくすみローズになって同じサービスのロゴに見えなかった）。
+写真の上の白文字は、覆い `--ecru-scrim` を 75% 以上かけた範囲にだけ置く（真っ白な画素の上でも 5.81:1）。
 
 🔴 **`.theme-ecru` は `--primary` / `--primary-dark` も束ねている。** `.btn-primary`・
 `StepIndicator`・focus リングは全て `var(--primary)` を見ているため、テーマを当てるだけで
 フォーム側も同じ色に寄る。個々のボタンへ `!important` を撒くと `disabled` の灰色まで潰れる。
 
-🔴 **ヘッダーはページの器の外（レイアウト側）にある。** ページ内で変数を上書きしても届かず、
-実際に**ロゴだけ濃い青が残ってアイボリーの面から浮いた**。`Header.tsx` が
-`pathname === '/register'` を見て同じクラスを付ける形にしてある。
+🔴 **ヘッダー・フッターはページの器の外（レイアウト側）にある。** ページ内で変数を上書きしても届かない。
+`src/lib/shop-theme.ts` の `isEcruShopPath()` が単一の判定で、`Header.tsx` は店舗向けページで
+**ロゴと「店舗ログイン」だけ**のヘッダー（来院者向けの会員登録・ログイン・施設掲載リンクを出さない）を、
+`LayoutSwitch.tsx` は来院者向けの濃いフッターの代わりに `ShopFooter.tsx`（特商法・規約・プライバシー・
+お問い合わせ・運営者名だけ）を出す。
 `src/__tests__/ecru-theme-single-source.test.ts` が「単一ソースの実在」「使用側に色コードの
-直書きが無いこと」「ヘッダーの配線」を CI で固定する（直書きへ戻すと落ちる）。
+直書きが無いこと」「ヘッダー・フッターの配線」「ロゴが `--logo` のまま」を CI で固定する（直書きへ戻すと落ちる）。
 
 ⚠️ サイト全体のブランド色（`:root` の `--primary: #0369A1`）は変えていない。
 トップ・検索など他のページは従来どおり。
+
+### 業種の表示名＝`src/lib/business-type-label.ts`（2026年10月23日 新設）
+
+業種「鍼灸院・整骨院」は画面では **「鍼灸院・整骨院・整体」** と表示する（神原さん決定：整体を含める）。
+🔴 **保存値は変えない。** `business_type` は検索・`/type/acupuncture`・エリア×業種ページの結合キーで、
+既存の行・外部に出回った `?type=` の URL・DB 側の受付関数（migration の業種の列挙）がこの文字列を持つ。
+表示する箇所だけ `businessTypeLabel()` を通し、フォームの `<option>` は value＝保存値・表示＝表示名にする。
+業種ページは `typeValue`（保存値）で検索し `typeName`（表示名）で見せる。
+`src/__tests__/business-type-label-wiring.test.ts` が表示箇所の配線と migration 無変更を固定する。
+許認可の表明（`LICENSE_WARRANTY_TEXT`・`src/lib/registration-consent.ts`）も整体に合わせて
+「国家資格が必要な施術は、その資格を持つ者が行っている」に改めた（規約 第12条と同義・規約本文と版の指紋は不変）。
 
 ### 連携の出し分け＝`src/lib/integration-availability.ts`（PR#553）
 

@@ -5,6 +5,10 @@
  * 以前は facility_members を .limit(1).single() で 1 行だけ読んでいたため、複数店舗のオーナーには
  * 行の並び次第でどれか 1 店舗の Q&A が出ていた。新着質問の通知メールは ?facility_id= 付きの
  * リンクで開くので、その店舗の Q&A を出し、回答もその店舗に対して送る。
+ *
+ * 読む列（2026年10月23日）: facility_qa の SELECT は列単位の権限になり、質問者・回答者の
+ * アカウント ID（user_id / answered_by）はブラウザのロールに無い。select('*') は permission denied に
+ * なるので、画面が使う列だけを明示して読む。
  */
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -17,7 +21,7 @@ const QA = '76000000-0000-4000-8000-000000000003';
 let mockParams = new URLSearchParams();
 const mockSelection = jest.fn();
 const mockFrom = jest.fn();
-const queries: { table: string; eq: jest.Mock }[] = [];
+const queries: { table: string; eq: jest.Mock; select: jest.Mock }[] = [];
 let mockQaError: unknown = null;
 const fetchMock = jest.fn();
 
@@ -47,12 +51,14 @@ beforeEach(() => {
   mockFrom.mockImplementation((table: string) => {
     const chain: Record<string, unknown> = {};
     const eq = jest.fn(() => chain);
-    queries.push({ table, eq });
+    const select = jest.fn(() => chain);
+    queries.push({ table, eq, select });
     chain.eq = eq;
-    for (const m of ['select', 'order']) chain[m] = () => chain;
+    chain.select = select;
+    chain.order = () => chain;
     chain.limit = () => Promise.resolve(mockQaError
       ? { data: null, error: mockQaError }
-      : { data: [{ id: QA, facility_id: B, user_id: 'u', question: '店舗B宛の質問', answer: null, answered_by: null,
+      : { data: [{ id: QA, facility_id: B, question: '店舗B宛の質問', answer: null,
         answered_at: null, status: 'pending', is_public: true, created_at: '2026-10-01T00:00:00Z' }], error: null });
     return chain;
   });
@@ -106,4 +112,18 @@ test('自分の店舗でない facility_id は失敗として表示し、Q&A を
   render(<AdminQAPage />);
   expect(await screen.findByText('管理する店舗の確認に失敗しました')).toBeInTheDocument();
   await waitFor(() => expect(queries.some((q) => q.table === 'facility_qa')).toBe(false));
+});
+
+test('Q&A は画面が使う列だけを読み、質問者・回答者のアカウント ID を要求しない', async () => {
+  mockParams = new URLSearchParams({ facility_id: B });
+  mockSelection.mockResolvedValue({ choices, selectedId: B });
+  render(<AdminQAPage />);
+  expect(await screen.findByText('店舗B宛の質問')).toBeInTheDocument();
+  const select = queries.find((q) => q.table === 'facility_qa')!.select;
+  expect(select).toHaveBeenCalledTimes(1);
+  const columns = String((select.mock.calls[0] as unknown[])[0]).split(',').map((c) => c.trim());
+  expect(columns.sort()).toEqual(['answer', 'answered_at', 'created_at', 'facility_id', 'id', 'is_public', 'question', 'status']);
+  expect(columns).not.toContain('*');
+  expect(columns).not.toContain('user_id');
+  expect(columns).not.toContain('answered_by');
 });

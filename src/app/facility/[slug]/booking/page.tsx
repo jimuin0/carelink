@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { getFacilityBySlug, getFacilityMenus, getFacilityCancelPolicy } from '@/lib/facilities';
-import { getStaffByFacility, getMenuStaffByMenuIds } from '@/lib/staff';
+import { getBookableStaffByFacility, getMenuStaffByMenuIds } from '@/lib/staff';
 import { getActiveCouponsByFacility, getCouponMenus } from '@/lib/coupons';
 import { buildMenuStaffMap } from '@/lib/menu-staff';
 import BookingFlow from '@/components/booking/BookingFlow';
@@ -47,7 +47,8 @@ export default async function BookingPage(props: Props) {
   </main>;
 
   const [staff, { menus }, coupons, cancelPolicy] = await Promise.all([
-    getStaffByFacility(facility.id),
+    // 指名候補は勤務時間のあるスタッフだけ（勤務の無い人を選ぶと毎日「満枠」になる）。
+    getBookableStaffByFacility(facility.id),
     getFacilityMenus(facility.id),
     getActiveCouponsByFacility(facility.id),
     getFacilityCancelPolicy(facility.id),

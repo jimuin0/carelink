@@ -489,7 +489,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     setupDefaultMocks(1, false, true, true, true);
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ missingSteps: ['無料掲載を公開'], bookingSteps: ['ネット予約：公開メニュー登録'] })
+      expect.objectContaining({ missingSteps: ['無料掲載を公開'], bookingSteps: ['公開メニュー登録'] })
     );
   });
 
@@ -497,7 +497,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     setupDefaultMocks(1, true, false, true, true);
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ bookingSteps: ['ネット予約：スタッフ登録と勤務時間の保存', '予約枠：勤務スケジュール設定'] })
+      expect.objectContaining({ bookingSteps: ['スタッフ登録と勤務時間の保存'] })
     );
   });
 
@@ -505,7 +505,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     setupDefaultMocks(1, true, true, false, true);
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ bookingSteps: ['ネット予約：写真アップロード'] })
+      expect.objectContaining({ bookingSteps: ['写真アップロード'] })
     );
   });
 
@@ -514,7 +514,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     setupDefaultMocks(1, true, true, true, false);
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ bookingSteps: ['ネット予約：スタッフ登録と勤務時間の保存', '予約枠：勤務スケジュール設定'] })
+      expect.objectContaining({ bookingSteps: ['スタッフ登録と勤務時間の保存'] })
     );
   });
 
@@ -541,7 +541,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     }));
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
-      bookingSteps: ['ネット予約：スタッフ登録と勤務時間の保存', '予約枠：勤務スケジュール設定'],
+      bookingSteps: ['スタッフ登録と勤務時間の保存'],
     }));
   });
 
@@ -575,17 +575,15 @@ describe('GET /api/cron/onboarding-followup', () => {
   // ─── E10: 実際の公開条件・ネット予約条件と同じ単一ソースから作る ─────────────────
   // 以前は住所・営業時間を一度も案内せず、下書きのメニューや休止中のスタッフを「登録済み」と
   // 数えていたため、公開もネット予約もできない店舗に「あとは公開だけ」と送っていた。
-  test('セルフサーブ直後の店舗（住所・営業時間なし）には住所と営業時間も案内する', async () => {
+  // 2026年10月23日 神原さん決定：営業時間は「無料掲載の公開に必要な項目」として案内する（店舗情報→営業時間→公開）。
+  test('セルフサーブ直後の店舗（住所・営業時間なし）には住所と営業時間も、無料掲載の項目として案内する', async () => {
     mockFromDelegate.mockImplementation(buildFrom({
       setupProfile: { name: 'New Salon', prefecture: '', city: '', address: '', status: 'draft', business_hours: null },
     }));
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
-      missingSteps: ['基本情報（住所）', '無料掲載を公開'],
-      bookingSteps: [
-        'ネット予約：公開メニュー登録', 'ネット予約：スタッフ登録と勤務時間の保存', 'ネット予約：写真アップロード',
-        'ネット予約：営業時間の確認・保存', '予約枠：勤務スケジュール設定',
-      ],
+      missingSteps: ['基本情報（住所）', '営業時間の入力・保存', '無料掲載を公開'],
+      bookingSteps: ['公開メニュー登録', '写真アップロード', 'スタッフ登録と勤務時間の保存'],
     }));
   });
 
@@ -599,7 +597,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
       missingSteps: ['無料掲載を公開'],
-      bookingSteps: ['ネット予約：公開メニュー登録', 'ネット予約：スタッフ登録と勤務時間の保存', '予約枠：勤務スケジュール設定'],
+      bookingSteps: ['公開メニュー登録', 'スタッフ登録と勤務時間の保存'],
     }));
   });
 
@@ -611,7 +609,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     }));
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
-      missingSteps: ['無料掲載を公開'], bookingSteps: ['予約枠：勤務スケジュール設定'],
+      missingSteps: ['無料掲載を公開'], bookingSteps: [],
     }));
   });
 
@@ -747,8 +745,7 @@ describe('GET /api/cron/onboarding-followup', () => {
       expect.objectContaining({
         missingSteps: ['無料掲載を公開'],
         bookingSteps: [
-          'ネット予約：公開メニュー登録', 'ネット予約：スタッフ登録と勤務時間の保存', 'ネット予約：写真アップロード',
-          '予約枠：勤務スケジュール設定',
+          '公開メニュー登録', '写真アップロード', 'スタッフ登録と勤務時間の保存',
         ],
       })
     );
@@ -773,7 +770,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     expect(res.status).toBe(200);
     expect(mockFromDelegate).not.toHaveBeenCalledWith('staff_schedules');
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ bookingSteps: ['ネット予約：スタッフ登録と勤務時間の保存', '予約枠：勤務スケジュール設定'] })
+      expect.objectContaining({ bookingSteps: ['スタッフ登録と勤務時間の保存'] })
     );
   });
 
@@ -858,7 +855,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ bookingSteps: ['ネット予約：公開メニュー登録', 'ネット予約：写真アップロード'] })
+      expect.objectContaining({ bookingSteps: ['公開メニュー登録', '写真アップロード'] })
     );
   });
 

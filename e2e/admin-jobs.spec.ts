@@ -21,6 +21,12 @@
 //   16.3.0 で解消済み。再発検出は e2e/admin-large-list-nav.spec.ts が決定的に行う
 //   （この spec は求人 1 件しか作らずペイロードが閾値の下に収まるため、単独では検出できない）。
 import { test, expect } from '@playwright/test';
+import { SHOW_JOBS } from '../src/lib/feature-toggles';
+
+// 求人は「今はなし」（2026年10月23日 神原さん判断）の間、管理画面は編集画面の代わりに
+// 「現在この機能は提供していません」を出す（src/lib/feature-toggles.ts）。編集操作を前提にした
+// この spec は SHOW_JOBS=true に戻すと自動で再開する。
+test.skip(!SHOW_JOBS, '求人は現在提供していない（SHOW_JOBS=false）');
 
 // 🔴 このテストの制限時間を明示する（2026年8月8日・CI 実測で発覚）。
 //   下の toPass は 45000ms を再試行予算として要求しているが、Playwright の既定テスト timeout は

@@ -83,9 +83,28 @@ test('取得成功 → 連携状態を正しく表示しエラーは出さない
 
 test('configured account reconfirmation uses explicit local OAuth linking mode',async()=>{
  process.env.NEXT_PUBLIC_LIFF_ID='synthetic-liff';process.env.NEXT_PUBLIC_LINE_CHANNEL_ID='synthetic-channel';
- routeFetch(()=>({ok:true,status:200,body:{linked:false,connected:false}}));render(<SettingsPage/>);
+ routeFetch(()=>({ok:true,status:200,body:{linked:true,connected:false}}));render(<SettingsPage/>);
  const button=await screen.findByRole('button',{name:'LINE連携を再確認'});const form=button.closest('form')!;
  expect(form).toHaveAttribute('action','/api/auth/line');expect(form).toHaveAttribute('method','get');expect(form.querySelector('input[name="mode"]')).toHaveAttribute('value','link');expect(form.querySelector('input[name="redirect"]')).toHaveAttribute('value','/mypage/settings');
+});
+
+// 未連携の人の入口。以前は「LINE連携はLINEアプリのリッチメニューから行えます」と案内していたが、リッチメニューの
+// 各画面は未連携だとこの設定ページへ案内するため、行き来するだけで連携できなかった（2026年10月23日）。
+test('未連携 → 「LINEと連携する」で連携を始められ、リッチメニューへ戻す案内は出さない',async()=>{
+ process.env.NEXT_PUBLIC_LIFF_ID='synthetic-liff';process.env.NEXT_PUBLIC_LINE_CHANNEL_ID='synthetic-channel';
+ routeFetch(()=>({ok:true,status:200,body:{linked:false,connected:false}}));render(<SettingsPage/>);
+ const button=await screen.findByRole('button',{name:'LINEと連携する'});const form=button.closest('form')!;
+ expect(form).toHaveAttribute('action','/api/auth/line');expect(form.querySelector('input[name="mode"]')).toHaveAttribute('value','link');
+ expect(form.querySelector('input[name="redirect"]')).toHaveAttribute('value','/mypage/settings');
+ expect(screen.queryByText(/リッチメニュー/)).not.toBeInTheDocument();
+ expect(screen.queryByRole('button',{name:'LINE連携を再確認'})).not.toBeInTheDocument();
+});
+test('LINE ログイン未設定 → 連携ボタンを出さず、受付停止を伝える（リッチメニューへは戻さない）',async()=>{
+ process.env.NEXT_PUBLIC_LIFF_ID='synthetic-liff';delete process.env.NEXT_PUBLIC_LINE_CHANNEL_ID;
+ routeFetch(()=>({ok:true,status:200,body:{linked:false,connected:false}}));render(<SettingsPage/>);
+ expect(await screen.findByText('現在、LINE連携の受付を停止しています。')).toBeInTheDocument();
+ expect(screen.queryByRole('button',{name:'LINEと連携する'})).not.toBeInTheDocument();
+ expect(screen.queryByText(/リッチメニュー/)).not.toBeInTheDocument();
 });
 
 // E21: 予約完了画面のバナーを閉じた・登録が消えた・別の端末から切り替えたいお客様が、登録し直せる入口。

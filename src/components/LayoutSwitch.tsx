@@ -4,11 +4,13 @@ import { usePathname } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
+import ShopFooter from '@/components/register/ShopFooter';
 import SearchHeader from '@/components/search/SearchHeader';
 import SearchFooter from '@/components/search/SearchFooter';
 import { isValidPrefectureSlug } from '@/lib/seo-constants';
 import { footerClearanceClass } from '@/lib/mobile-bottom-bar';
 import { isSessionRecordingAllowedPath } from '@/lib/session-recording-scope';
+import { isEcruShopPath } from '@/lib/shop-theme';
 
 const MobileBottomNav = dynamic(() => import('@/components/search/MobileBottomNav'), { ssr: false });
 const AiChatbot = dynamic(() => import('@/components/AiChatbot'), { ssr: false });
@@ -56,7 +58,8 @@ export default function LayoutSwitch({ children, aiEnabled }: { children: React.
       <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-200 focus:bg-white focus:px-4 focus:py-2 focus:rounded-lg focus:shadow-lg focus:text-sky-600 focus:font-bold focus:text-sm">メインコンテンツへスキップ</a>
       <Header />
       <main id="main-content" className="flex-1" data-clarity-mask={recordingMask}>{children}</main>
-      <Footer />
+      {/* 店舗向けページ（くすみ系）は来院者向けの濃いフッターではなく、同じテーマの簡素なフッターにする。 */}
+      {isEcruShopPath(pathname) ? <ShopFooter /> : <Footer />}
     </>
   );
 }

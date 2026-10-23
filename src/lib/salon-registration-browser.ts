@@ -1,15 +1,17 @@
 import { z } from 'zod';
 import { canonicalSalonSubmission } from './salon-submission-contract';
 import { salonPhotoPath, SALON_PHOTO_BUCKET } from './salon-photo-contract';
-import { readSalonBrowserContext, saveSalonBrowserContext, type SalonBrowserContext, SALON_BROWSER_CONTEXT_KEY, SALON_RECRUIT_BROWSER_CONTEXT_KEY } from './salon-browser-context';
+import { readSalonBrowserContext, saveSalonBrowserContext, type SalonBrowserContext, SALON_BROWSER_CONTEXT_KEY } from './salon-browser-context';
 import type { SalonFormValues } from './validations';
 import { SALON_PR_TEXT_PROHIBITED_MESSAGE, type SalonFieldErrors } from './salon-field-errors';
 import { salonStorageLimitsSchema, type SalonStorageLimits } from './salon-storage-limits';
 import { registrationConsentSchema, REGISTRATION_CONSENT_REQUIRED, type RegistrationConsent } from './registration-consent';
+import { formatMegabytes } from './format-megabytes';
 
 type Store = Parameters<typeof readSalonBrowserContext>[0];
+// 店舗の申込入口は /register だけ（2026年10月23日 神原さん決定・/recruit は /register へ 308 転送）。
+// 以前は /recruit の別フォームが、別の source 値と別のタブ内キーで同じクラスを使っていた。
 type Dependencies = {
-  source?: 'register' | 'recruit';
   store: Store; request: typeof fetch; uuid: () => string;
   captcha: () => Promise<string | null>;
   compress: (file: File) => Promise<File>;
@@ -47,10 +49,8 @@ export class SalonRegistrationBrowser {
   private commitAttempted = false;
   private createdIntentId: string | null = null;
   private policyRejectedIntentId: string | null = null;
-  private readonly contextKey: string;
-  constructor(private readonly deps: Dependencies) {
-    this.contextKey = deps.source === 'recruit' ? SALON_RECRUIT_BROWSER_CONTEXT_KEY : SALON_BROWSER_CONTEXT_KEY;
-  }
+  private readonly contextKey = SALON_BROWSER_CONTEXT_KEY;
+  constructor(private readonly deps: Dependencies) {}
 
   private async post(path: string, body: unknown) {
     try {
@@ -148,7 +148,7 @@ export class SalonRegistrationBrowser {
     const canonical = canonicalSalonSubmission({ ...data,
       seat_count: Number.isNaN(data.seat_count) ? null : data.seat_count,
       staff_count: Number.isNaN(data.staff_count) ? null : data.staff_count,
-      source: this.deps.source ?? 'register', photo_urls: [] });
+      source: 'register', photo_urls: [] });
     if (!canonical || files.length > 7) return { state: 'retryable', message: '入力内容と写真を確認してください。' };
     const checked = await this.reconcile();
     if (checked.state !== 'ready') return checked;
@@ -214,7 +214,7 @@ export class SalonRegistrationBrowser {
         || verified.body.path !== path) throw new Error('Photo upload unconfirmed');
       return prepared.body.photoId as string;
     }));
-    if (outsideLimits) return { state: 'retryable', message: `現在の写真の上限は${photoLimits.maxBytes.toLocaleString('ja-JP')}バイト、対応形式は${photoLimits.mimeTypes.map(type => type.replace('image/', '')).join('・')}です。元の写真は保持されています。` };
+    if (outsideLimits) return { state: 'retryable', message: `現在の写真の上限は${formatMegabytes(photoLimits.maxBytes)}、対応形式は${photoLimits.mimeTypes.map(type => type.replace('image/', '')).join('・')}です。元の写真は保持されています。` };
     if (results.some(result => result.status === 'rejected')) return retryable;
     const photoIds: string[] = [];
     for (const result of results) if (result.status === 'fulfilled' && result.value) photoIds.push(result.value);

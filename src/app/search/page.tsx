@@ -8,6 +8,7 @@ import Pagination from '@/components/search/Pagination';
 import SearchFilters from '@/components/search/SearchFilters';
 import MobileFilterButton from '@/components/search/MobileFilterButton';
 import ViewToggle from '@/components/search/ViewToggle';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,7 +28,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   const searchParams = await props.searchParams;
   const parts: string[] = [];
   if (searchParams.area) parts.push(searchParams.area);
-  if (searchParams.type) parts.push(searchParams.type);
+  if (searchParams.type) parts.push(businessTypeLabel(searchParams.type));
   if (searchParams.keyword) parts.push(`「${searchParams.keyword}」`);
 
   const titlePrefix = parts.length > 0 ? `${parts.join('の')}` : 'サロン・クリニック';
@@ -131,7 +132,7 @@ export default async function SearchPage(props: Props) {
 
   // Breadcrumb
   const breadcrumbs: { label: string; href?: string }[] = [{ label: 'トップ', href: '/' }];
-  if (searchParams.type) breadcrumbs.push({ label: searchParams.type, href: `/search?type=${encodeURIComponent(searchParams.type)}` });
+  if (searchParams.type) breadcrumbs.push({ label: businessTypeLabel(searchParams.type), href: `/search?type=${encodeURIComponent(searchParams.type)}` });
   if (searchParams.area) breadcrumbs.push({ label: searchParams.area });
   if (searchParams.keyword) breadcrumbs.push({ label: `「${searchParams.keyword}」` });
   if (breadcrumbs.length === 1) breadcrumbs.push({ label: 'サロン・クリニック検索' });
@@ -274,7 +275,7 @@ export default async function SearchPage(props: Props) {
                           href={`/search?type=${encodeURIComponent(type)}`}
                           className="px-3 py-1.5 bg-gray-100 text-gray-600 text-xs font-medium rounded-full hover:bg-gray-200 transition-colors"
                         >
-                          {type}
+                          {businessTypeLabel(type)}
                         </Link>
                       ))}
                     </div>
@@ -288,7 +289,7 @@ export default async function SearchPage(props: Props) {
                     <p className="text-sm text-gray-500 mt-0.5">CareLink は施設の無料掲載を受け付けています。オーナー様はぜひご登録を。</p>
                   </div>
                   <Link
-                    href="/salon"
+                    href="/register"
                     className="shrink-0 px-5 py-2.5 bg-sky-700 text-white text-sm font-bold rounded-lg hover:bg-sky-800 transition-colors"
                   >
                     無料で施設を掲載する

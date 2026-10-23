@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
@@ -14,19 +14,21 @@ import { SbPageHeader, SbBadge, SbInput } from '@/components/admin/SbUi';
 import dynamic from 'next/dynamic';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import { FACILITY_INPUT_LIMITS } from '@/lib/facility-input-limits';
+import { GBP_IDENTITY_CHANGE_NOTICE } from '@/lib/gbp-ownership';
 import { hasConfirmedBookingHours } from '@/lib/booking-preparation';
+import { copyFirstHoursToOpenDays, initialHoursForm, validateHoursForm, type HoursDraft } from '@/lib/business-hours-form';
+import { normalizeWebsiteUrl } from '@/lib/facility-settings-input';
+import { facilitySetupSteps, loadFacilitySetupFacts, type FacilitySetupStep, type SetupStepKey } from '@/lib/facility-setup-steps';
 import { listingPublishMissing } from '@/lib/facility-publish-gate';
+import { LISTING_PUBLISH_REQUIREMENT } from '@/lib/register-photo-policy';
 import FacilitySelector, { loadAdminFacilitySelection, type AdminFacilityChoice } from '@/components/admin/FacilitySelector';
 import { BOOKING_CSV_MAX_ROWS, buildBookingCsv, readBookingCsvRows } from '@/lib/booking-csv-export';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
 const CancelPolicySettings = dynamic(() => import('@/components/admin/CancelPolicySettings'), { ssr: false });
 const WithdrawalSettings = dynamic(() => import('@/components/admin/WithdrawalSettings'), { ssr: false });
 const ReminderUpsellSettings = dynamic(() => import('@/components/admin/ReminderUpsellSettings'), { ssr: false });
-
-interface BusinessHours {
-  [key: string]: { open: string; close: string } | null;
-}
 
 // facility_profiles.status は DEFAULT 'draft' + CHECK (status IN ('draft','published','suspended')) で
 // NOT NULL ではないため null もあり得るし、CHECK 制約は Supabase の型生成に反映されないため
@@ -46,6 +48,9 @@ function AdminSettingsContent() {
   const [saving, setSaving] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // 保存を断られた欄ごとの理由（API のキー → 文言）。欄の下に出す（トーストは数秒で消える）。
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const nameRef = useRef<HTMLInputElement>(null);
   const [csvExporting, setCsvExporting] = useState(false);
   // 予約 CSV を上限で切り捨てたときの注記。トーストは 4 秒で消えるので、見落とさないよう画面に残す。
   const [csvTruncated, setCsvTruncated] = useState(false);
@@ -67,6 +72,7 @@ function AdminSettingsContent() {
 
   // Contact
   const [phone, setPhone] = useState('');
+  const [slug, setSlug] = useState<string | null>(null);
   const [websiteUrl, setWebsiteUrl] = useState('');
 
   // Details
@@ -87,15 +93,18 @@ function AdminSettingsContent() {
   const [publishMissing, setPublishMissing] = useState<{ source: 'visible' | 'saved'; items: string[] } | null>(null);
   const [showUnpublishConfirm, setShowUnpublishConfirm] = useState(false);
 
-  // Business hours
-  const [hours, setHours] = useState<BusinessHours>(() => {
-    const init: BusinessHours = {};
-    dayOrder.forEach((d) => { init[d] = { open: '09:00', close: '19:00' }; });
-    return init;
-  });
+  // Business hours。未保存の店舗は空欄から始める（09:00〜19:00 などの既定値を黙って入れない）。
+  const [hours, setHours] = useState<HoursDraft>(() => initialHoursForm(null).hours);
   const [closedDays, setClosedDays] = useState<string[]>([]);
+  // 保存済みの営業時間が7曜日そろっているか（そろっていれば、保存のたびにそのまま送り直す）。
   const [hoursConfirmed, setHoursConfirmed] = useState(false);
+  // 画面で営業時間を触ったか。触ったら、それを確認とみなして保存する（黙って捨てない）。
+  const [hoursEdited, setHoursEdited] = useState(false);
   const [submittedHoursText, setSubmittedHoursText] = useState('');
+
+  // ネット予約の準備状況（保存済みの内容で判定）。ダッシュボードの「ネット予約の準備内容を確認する」の行き先。
+  const [readiness, setReadiness] = useState<{ state: 'loading' | 'error' } | { state: 'ready'; steps: FacilitySetupStep[] }>({ state: 'loading' });
+  const [readinessKey, setReadinessKey] = useState(0);
 
   // React Compiler の set-state-in-effect 対策：取得処理を useCallback 関数として effect の
   // 依存に置き外部から直接呼ぶのではなく、effect 内に inline した非同期IIFEとして定義する
@@ -140,6 +149,7 @@ function AdminSettingsContent() {
         setAccessInfo(data.access_info || '');
         setNearestStation(data.nearest_station || '');
         setPhone(data.phone || '');
+        setSlug(data.slug || null);
         setWebsiteUrl(data.website_url || '');
         setSeatCount(data.seat_count?.toString() || '');
         setStaffCount(data.staff_count?.toString() || '');
@@ -153,20 +163,26 @@ function AdminSettingsContent() {
         setBoardSlotMinutes(data.board_slot_minutes ?? 60);
         setSubmittedHoursText(data.business_hours_text || '');
         setHoursConfirmed(hasConfirmedBookingHours(data.business_hours));
-        if (data.business_hours) {
-          const bh = data.business_hours as BusinessHours;
-          const closed: string[] = [];
-          dayOrder.forEach((d) => {
-            if (!bh[d]) closed.push(d);
-          });
-          setHours(prev => ({ ...prev, ...bh }));
-          setClosedDays(closed);
-        }
+        setHoursEdited(false);
+        const form = initialHoursForm(data.business_hours);
+        setHours(form.hours);
+        setClosedDays(form.closedDays);
       }
       setLoading(false);
     })().catch(() => { if (active) { setLoadError(true); setLoading(false); } });
     return () => { active = false; };
   }, [reloadKey, requestedFacility]);
+
+  useEffect(() => {
+    if (!facilityId) return;
+    let active = true;
+    (async () => {
+      setReadiness({ state: 'loading' });
+      const facts = await loadFacilitySetupFacts(createBrowserSupabaseClient(), facilityId);
+      if (active) setReadiness({ state: 'ready', steps: facilitySetupSteps(facts) });
+    })().catch(() => { if (active) setReadiness({ state: 'error' }); });
+    return () => { active = false; };
+  }, [facilityId, readinessKey]);
 
   const toggleFeature = (f: string) => {
     setSelectedFeatures((prev) =>
@@ -181,36 +197,53 @@ function AdminSettingsContent() {
     setClosedDays((prev) =>
       prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
     );
+    setHoursEdited(true);
   };
 
   const updateHour = (day: string, field: 'open' | 'close', value: string) => {
     setHours((prev) => ({
       ...prev,
-      [day]: { ...(prev[day] || { open: '09:00', close: '19:00' }), [field]: value },
+      [day]: { ...(prev[day] ?? { open: '', close: '' }), [field]: value },
     }));
+    setHoursEdited(true);
+  };
+
+  const copyHours = () => {
+    const next = copyFirstHoursToOpenDays(hours, closedDays);
+    if (!next) {
+      setToast({ type: 'error', message: '先にいずれかの曜日の開店・閉店時間を入力してください' });
+      return;
+    }
+    setHours(next);
+    setHoursEdited(true);
+    setDirty(true);
   };
 
   /** 画面の入力を保存する。保存できたときだけ true（公開はこの結果を見てから行う）。 */
   const saveSettings = async (): Promise<boolean> => {
-    if (saving || !facilityId || !name) return false;
-
-    // 営業時間の整合性チェック
-    for (const d of dayOrder) {
-      if (!hoursConfirmed) break;
-      if (closedDays.includes(d)) continue;
-      const h = hours[d] || { open: '09:00', close: '19:00' };
-      if (h.close <= h.open) {
-        setToast({ type: 'error', message: `${dayLabels[d]}の閉店時間は開店時間より後にしてください` });
-        return false;
-      }
+    if (saving || !facilityId) return false;
+    // 施設名が空のまま押しても何も起きなかった。理由を示して欄へ移る。
+    if (!name.trim()) {
+      setFieldErrors({ name: '施設名を入力してください' });
+      setToast({ type: 'error', message: '施設名を入力してください' });
+      nameRef.current?.focus();
+      return false;
     }
 
+    // 営業時間：保存済みのもの、または画面で触ったものだけを送る。送るなら7曜日すべてを検査し、
+    // 保存できない入力なら保存全体を止める（営業時間だけ黙って捨てて「保存しました」と出さない）。
+    const sendHours = hoursConfirmed || hoursEdited;
+    const checkedHours = sendHours ? validateHoursForm(hours, closedDays) : null;
+    if (checkedHours && !checkedHours.ok) {
+      setFieldErrors({ business_hours: checkedHours.message });
+      setToast({ type: 'error', message: checkedHours.message });
+      return false;
+    }
+    const website = normalizeWebsiteUrl(websiteUrl) as string;
+
+    setFieldErrors({});
     setSaving(true);
     try {
-      const businessHours: BusinessHours = {};
-      dayOrder.forEach((d) => {
-        businessHours[d] = closedDays.includes(d) ? null : (hours[d] || { open: '09:00', close: '19:00' });
-      });
 
       const res = await fetch(`/api/admin/settings?facility_id=${facilityId}`, {
         method: 'PATCH',
@@ -228,14 +261,14 @@ function AdminSettingsContent() {
           access_info: accessInfo || null,
           nearest_station: nearestStation || null,
           phone: phone || null,
-          website_url: websiteUrl || null,
+          website_url: website || null,
           seat_count: seatCount ? parseInt(seatCount, 10) : null,
           staff_count: staffCount ? parseInt(staffCount, 10) : null,
           parking,
           credit_card: creditCard,
           features: selectedFeatures,
           regular_holiday: regularHoliday || null,
-          ...(hoursConfirmed ? { business_hours: businessHours } : {}),
+          ...(checkedHours?.ok ? { business_hours: checkedHours.value } : {}),
           booking_auto_confirm: autoConfirm,
           booking_buffer_minutes: bufferMinutes,
           board_slot_minutes: boardSlotMinutes,
@@ -244,9 +277,12 @@ function AdminSettingsContent() {
 
       const result = await res.json().catch(() => null);
       if (!res.ok || result?.ok !== true) {
+        if (result?.fields && typeof result.fields === 'object') setFieldErrors(result.fields as Record<string, string>);
         setToast({ type: 'error', message: result?.error || '保存結果を確認できませんでした。入力内容を保持しています' });
         return false;
       }
+      setWebsiteUrl(website);
+      if (checkedHours?.ok) { setHoursConfirmed(true); setHoursEdited(false); }
       // サーバーは市区町村をエリアの単位へ揃える（例: 横浜市中区 → 横浜市＋番地「中区…」）。
       // 入力欄を保存された値に合わせ、次の保存で古い表記を送り直さないようにする。
       if (typeof result.location?.city === 'string' && typeof result.location?.address === 'string') {
@@ -256,7 +292,13 @@ function AdminSettingsContent() {
       setDirty(false);
       // 保存で中身が変わったので、前回の「足りない項目」は古い。次に公開を押したときに改めて確かめる。
       setPublishMissing(null);
-      setToast({ type: 'success', message: '施設情報を保存しました' });
+      setReadinessKey((k) => k + 1);
+      setToast({
+        type: 'success',
+        message: sendHours
+          ? '施設情報を保存しました'
+          : '施設情報を保存しました。営業時間はまだ入力されていないため、ネット予約は始まりません',
+      });
       return true;
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
@@ -275,7 +317,12 @@ function AdminSettingsContent() {
    */
   const handlePublish = async () => {
     if (!facilityId || publishToggling || saving) return;
-    const visibleMissing = listingPublishMissing({ name, prefecture, city, address, catch_copy: catchCopy, description });
+    // 営業時間も無料掲載の公開条件（2026年10月23日）。保存済み、または画面で入力した営業時間を、保存時と同じ検査で確かめる。
+    const visibleHours = hoursConfirmed || hoursEdited ? validateHoursForm(hours, closedDays) : null;
+    const visibleMissing = listingPublishMissing({
+      name, prefecture, city, address, catch_copy: catchCopy, description,
+      business_hours: visibleHours?.ok ? visibleHours.value : null,
+    });
     if (visibleMissing.length > 0) { setPublishMissing({ source: 'visible', items: visibleMissing }); return; }
     setPublishMissing(null);
     setPublishToggling(true);
@@ -291,6 +338,7 @@ function AdminSettingsContent() {
       const body = await res.json().catch(() => null);
       if (res.ok && body?.ok === true) {
         setFacilityStatus('published');
+        setReadinessKey((k) => k + 1);
         setToast({ type: 'success', message: '施設を公開しました！' });
         return;
       }
@@ -323,7 +371,7 @@ function AdminSettingsContent() {
   return (
     <div onChange={() => setDirty(true)}>
       <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/settings" dirty={dirty} busy={saving || publishToggling} />
-      <p className="mb-4 text-sm text-gray-600">無料掲載とネット予約は別です。所在地などの店舗情報を確認して掲載公開できます。ネット予約は、公開メニュー・写真・勤務時間を保存したスタッフ・全曜日の営業時間設定がそろうまで利用できません。予約管理表は引き続き利用できます。</p>
+      <p className="mb-4 text-sm text-gray-600">無料掲載とネット予約は別です。{LISTING_PUBLISH_REQUIREMENT}ネット予約は、さらに公開メニュー・写真・勤務時間を保存したスタッフがそろうまで利用できません。予約管理表は引き続き利用できます。</p>
       <SbPageHeader
         title="施設設定"
         actions={
@@ -331,6 +379,8 @@ function AdminSettingsContent() {
             <SbBadge tone={facilityStatus === 'published' ? 'success' : 'neutral'}>
               {facilityStatus === 'published' ? '公開中' : '非公開'}
             </SbBadge>
+            {/* 公開は主操作なので管理画面共通の主ボタン（btn-primary）。以前はこのボタンだけ緑の独自色だった。
+                未公開の間は「公開する」が主、「保存する」は副（枠線）にして、主ボタンが2つ並ばないようにする。 */}
             <button
               type="button"
               onClick={() => {
@@ -338,16 +388,25 @@ function AdminSettingsContent() {
                 void handlePublish();
               }}
               disabled={publishToggling || saving || !facilityId}
-              className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors ${facilityStatus === 'published' ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' : 'bg-green-700 text-white hover:bg-green-800'}`}
+              className={facilityStatus === 'published' ? 'px-4 py-2 text-sm font-bold rounded-lg transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200' : 'btn-primary px-4! py-2! text-sm'}
             >
               {publishToggling ? '処理中...' : facilityStatus === 'published' ? '非公開にする' : dirty ? '保存して公開する' : '公開する'}
             </button>
-            <button type="button" onClick={handleSave} disabled={saving} className="btn-primary px-6 py-2.5!">
+            <button type="button" onClick={handleSave} disabled={saving} className={facilityStatus === 'published' ? 'btn-primary px-6 py-2.5!' : 'btn-outline px-6! py-2! text-sm'}>
               {saving ? '保存中...' : '保存する'}
             </button>
           </>
         }
       />
+
+      {facilityStatus === 'published' && slug && (
+        <p className="mb-4 text-sm">
+          <Link href={`/facility/${encodeURIComponent(slug)}`} target="_blank" rel="noopener noreferrer" className="font-bold text-sky-700 underline">掲載ページを見る</Link>
+          <span className="ml-2 text-gray-600">（お客様に表示されている内容を確認できます）</span>
+        </p>
+      )}
+
+      <BookingReadinessSection readiness={readiness} facilityId={facilityId} onRetry={() => setReadinessKey((k) => k + 1)} />
 
       {publishMissing && facilityStatus !== 'published' && (
         <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4">
@@ -370,22 +429,28 @@ function AdminSettingsContent() {
         <div className="space-y-4">
           <div>
             <label htmlFor="fac-name" className="form-label">施設名 <span className="text-red-500">*</span></label>
-            <SbInput id="fac-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={FACILITY_INPUT_LIMITS.name} />
+            <SbInput ref={nameRef} id="fac-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={FACILITY_INPUT_LIMITS.name}
+              aria-invalid={fieldErrors.name ? true : undefined} aria-describedby={fieldErrors.name ? 'fac-name-error' : undefined} />
+            <FieldError id="fac-name-error" message={fieldErrors.name} />
           </div>
           <div>
             <label htmlFor="fac-type" className="form-label">業種 <span className="text-red-500">*</span></label>
             <select id="fac-type" value={businessType} onChange={(e) => setBusinessType(e.target.value)} className="form-input">
               <option value="">選択してください</option>
-              {businessTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+              {businessTypes.map((t) => <option key={t} value={t}>{businessTypeLabel(t)}</option>)}
             </select>
           </div>
           <div>
             <label htmlFor="fac-catch" className="form-label">キャッチコピー</label>
-            <SbInput id="fac-catch" value={catchCopy} onChange={(e) => setCatchCopy(e.target.value)} maxLength={200} placeholder="例: 駅チカ3分！丁寧なカウンセリング" />
+            <SbInput id="fac-catch" value={catchCopy} onChange={(e) => setCatchCopy(e.target.value)} maxLength={200} placeholder="例: 駅チカ3分！丁寧なカウンセリング"
+              aria-invalid={fieldErrors.catch_copy ? true : undefined} aria-describedby={fieldErrors.catch_copy ? 'fac-catch-error' : undefined} />
+            <FieldError id="fac-catch-error" message={fieldErrors.catch_copy} />
           </div>
           <div>
             <label htmlFor="fac-desc" className="form-label">施設紹介</label>
-            <textarea id="fac-desc" value={description} onChange={(e) => setDescription(e.target.value)} className="form-input" rows={5} maxLength={2000} />
+            <textarea id="fac-desc" value={description} onChange={(e) => setDescription(e.target.value)} className="form-input" rows={5} maxLength={2000}
+              aria-invalid={fieldErrors.description ? true : undefined} aria-describedby={fieldErrors.description ? 'fac-desc-error' : undefined} />
+            <FieldError id="fac-desc-error" message={fieldErrors.description} />
           </div>
         </div>
       </section>
@@ -394,7 +459,7 @@ function AdminSettingsContent() {
       <section className="bg-white rounded-xl shadow-xs p-6 mb-6">
         <h2 className="text-lg font-bold mb-4">所在地</h2>
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="fac-zip" className="form-label">郵便番号</label>
               <SbInput id="fac-zip" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} placeholder="123-4567" maxLength={8} />
@@ -407,14 +472,15 @@ function AdminSettingsContent() {
               </select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label htmlFor="fac-city" className="form-label">市区町村 <span className="text-red-500">*</span></label>
               <SbInput id="fac-city" value={city} onChange={(e) => setCity(e.target.value)} maxLength={FACILITY_INPUT_LIMITS.city} />
             </div>
             <div>
-              <label htmlFor="fac-addr" className="form-label">番地 <span className="text-red-500">*</span></label>
-              <SbInput id="fac-addr" value={address} onChange={(e) => setAddress(e.target.value)} maxLength={FACILITY_INPUT_LIMITS.address} />
+              {/* 公開には町名から入っている必要がある（番地の数字だけでは来店先が分からない）。 */}
+              <label htmlFor="fac-addr" className="form-label">町名・番地 <span className="text-red-500">*</span></label>
+              <SbInput id="fac-addr" value={address} onChange={(e) => setAddress(e.target.value)} maxLength={FACILITY_INPUT_LIMITS.address} placeholder="例: 神南1-2-3" />
             </div>
           </div>
           <div>
@@ -435,14 +501,17 @@ function AdminSettingsContent() {
       {/* 連絡先 */}
       <section className="bg-white rounded-xl shadow-xs p-6 mb-6">
         <h2 className="text-lg font-bold mb-4">連絡先</h2>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="fac-phone" className="form-label">電話番号</label>
             <SbInput id="fac-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="03-1234-5678" maxLength={20} />
           </div>
           <div>
             <label htmlFor="fac-web" className="form-label">Webサイト</label>
-            <SbInput id="fac-web" type="url" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://" maxLength={FACILITY_INPUT_LIMITS.website} />
+            {/* type="url" はスキームの無い入力をブラウザが弾くため text にする（https:// は保存時に補う）。 */}
+            <SbInput id="fac-web" type="text" inputMode="url" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="例: www.example.com" maxLength={FACILITY_INPUT_LIMITS.website}
+              aria-invalid={fieldErrors.website_url ? true : undefined} aria-describedby={fieldErrors.website_url ? 'fac-web-error' : undefined} />
+            <FieldError id="fac-web-error" message={fieldErrors.website_url} />
           </div>
         </div>
       </section>
@@ -451,46 +520,54 @@ function AdminSettingsContent() {
       <section className="bg-white rounded-xl shadow-xs p-6 mb-6">
         <h2 className="text-lg font-bold mb-4">営業時間</h2>
         {submittedHoursText && <p className="text-sm whitespace-pre-wrap mb-3">申込時の営業時間：{submittedHoursText}</p>}
-        {!hoursConfirmed && <p className="text-sm text-amber-800 mb-3">曜日別の予約営業時間は未設定です。下の表示は入力例です。確認するまでは保存内容に含めず、申込時の情報を保持します。</p>}
-        <label className="flex items-center gap-2 mb-4">
-          <input type="checkbox" checked={hoursConfirmed} onChange={e => setHoursConfirmed(e.target.checked)} />
-          曜日別の営業時間・定休日を確認し、予約用設定として保存する
-        </label>
+        {!hoursConfirmed && (
+          <p className="text-sm text-amber-800 mb-3">
+            曜日別の営業時間はまだ保存されていません。営業する曜日の開店・閉店時間を入力し、休みの曜日は「営業」のチェックを外して保存してください。営業時間は無料掲載の公開に必要です。保存するとネット予約の空き枠とスタッフの勤務時間の下書きにも使われます。
+          </p>
+        )}
+        <FieldError id="fac-hours-error" message={fieldErrors.business_hours} />
         <div className="space-y-3">
           {dayOrder.map((day) => (
-            <div key={day} className="flex items-center gap-3">
-              <label className="w-8 text-sm font-medium text-center">{dayLabels[day]}</label>
+            // スマホ（幅 320〜390px）では時刻の入力を曜日の下の行へ折り返す（1行だと閉店時間がカードの外へはみ出した）。
+            <div key={day} className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span className="w-8 text-sm font-medium text-center">{dayLabels[day]}</span>
               <label className="flex items-center gap-1.5 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={!closedDays.includes(day)}
                   onChange={() => toggleClosed(day)}
+                  aria-label={`${dayLabels[day]}曜日に営業する`}
                   className="rounded-sm border-gray-300 text-sky-500 focus:ring-sky-500"
                 />
-                <span className="text-xs text-gray-500">営業</span>
+                <span className="text-xs text-gray-600">営業</span>
               </label>
               {!closedDays.includes(day) ? (
-                <div className="flex items-center gap-2">
+                <div className="flex w-full items-center gap-2 sm:w-auto">
                   <SbInput
                     type="time"
-                    value={hours[day]?.open || '09:00'}
+                    aria-label={`${dayLabels[day]}曜日の開店時間`}
+                    value={hours[day]?.open ?? ''}
                     onChange={(e) => updateHour(day, 'open', e.target.value)}
-                    className="py-1.5! px-2! text-sm w-32"
+                    className="min-w-0 flex-1 py-1.5! px-2! text-sm sm:w-32! sm:flex-none"
                   />
-                  <span className="text-gray-400">〜</span>
+                  <span className="text-gray-500">〜</span>
                   <SbInput
                     type="time"
-                    value={hours[day]?.close || '19:00'}
+                    aria-label={`${dayLabels[day]}曜日の閉店時間`}
+                    value={hours[day]?.close ?? ''}
                     onChange={(e) => updateHour(day, 'close', e.target.value)}
-                    className="py-1.5! px-2! text-sm w-32"
+                    className="min-w-0 flex-1 py-1.5! px-2! text-sm sm:w-32! sm:flex-none"
                   />
                 </div>
               ) : (
-                <span className="text-sm text-gray-400">定休日</span>
+                <span className="text-sm text-gray-500">定休日</span>
               )}
             </div>
           ))}
         </div>
+        <button type="button" onClick={copyHours} className="mt-3 text-sm text-sky-700 underline">
+          最初に入力した曜日の時間を、ほかの営業日にも入れる
+        </button>
         <div className="mt-4">
           <label htmlFor="fac-holiday" className="form-label">定休日（補足）</label>
           <SbInput id="fac-holiday" value={regularHoliday} onChange={(e) => setRegularHoliday(e.target.value)} placeholder="例: 第2・4月曜、年末年始" maxLength={FACILITY_INPUT_LIMITS.regularHoliday} />
@@ -516,10 +593,10 @@ function AdminSettingsContent() {
         </label>
         <div className="mt-4 border-t pt-4">
           <label htmlFor="buffer-minutes" className="block text-sm font-medium text-gray-800 mb-1">
-            施術後バッファタイム（準備時間）
+            施術後の準備時間（次の予約までの空け時間）
           </label>
           <p className="text-xs text-gray-500 mb-2">
-            施術終了後に確保するスタッフの準備時間です。この時間は予約枠として表示されません。
+            施術が終わってから次の予約を受けるまでに空けておく時間です。片付け・準備に使います。この時間はネット予約の空き枠として表示されません。
           </p>
           <div className="flex items-center gap-3">
             <select
@@ -536,10 +613,10 @@ function AdminSettingsContent() {
         </div>
         <div className="mt-4 border-t pt-4">
           <label htmlFor="board-slot-minutes" className="block text-sm font-medium text-gray-800 mb-1">
-            サロンボードの時間刻み
+            予約表の時間の区切り
           </label>
           <p className="text-xs text-gray-500 mb-2">
-            予約管理のサロンボード（スタッフ×時間軸）の区切り幅です。空き帯クリック時の時刻スナップもこの単位になります。
+            予約表（スタッフごとの時間割）の目盛りの幅です。予約表の空いている時間を押して予約を入れるとき、開始時刻はこの間隔で選ばれます。
           </p>
           <div className="flex items-center gap-3">
             <select
@@ -559,7 +636,7 @@ function AdminSettingsContent() {
       {/* 設備・特徴 */}
       <section className="bg-white rounded-xl shadow-xs p-6 mb-6">
         <h2 className="text-lg font-bold mb-4">設備・特徴</h2>
-        <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
             <label htmlFor="fac-seats" className="form-label">席数</label>
             <SbInput id="fac-seats" type="number" min={0} value={seatCount} onChange={(e) => setSeatCount(e.target.value)} />
@@ -677,6 +754,8 @@ function AdminSettingsContent() {
         <p className="text-sm text-gray-500 mb-4">
           Google Place ID を登録すると、Googleマップの診断スコア・クチコミ・投稿管理が使えます。
         </p>
+        {/* 照合に使う項目を変えると DB のトリガが Place ID を外す（20261023150200）。保存してから驚かせない。 */}
+        <p className="text-sm text-gray-600 mb-4">{GBP_IDENTITY_CHANGE_NOTICE}</p>
         <div className="bg-sky-50 rounded-lg p-3 text-xs text-sky-700 mb-4">
           Place ID は{' '}
           <a href="https://developers.google.com/maps/documentation/javascript/examples/places-placeid-finder"
@@ -688,29 +767,9 @@ function AdminSettingsContent() {
         </Link>
       </section>
 
-      {/* LINE Works連携 */}
-      <section className="bg-white rounded-xl shadow-xs p-6 mt-6">
-        <h2 className="text-lg font-bold mb-1">LINE Works連携</h2>
-        <p className="text-sm text-gray-500 mb-4">
-          新規予約・キャンセルをLINE Worksのスタッフグループに通知できます。
-        </p>
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-          <strong>設定方法</strong>
-          <ol className="list-decimal pl-4 mt-2 space-y-2">
-            <li>LINE Works管理コンソールでBotを作成し、各スタッフのDM or グループチャンネルに招待</li>
-            <li>
-              CareLink運営（<a href="mailto:support@carelink-jp.com" className="underline">support@carelink-jp.com</a>）へ、作成したBotの接続情報（Client ID / Client Secret / Service Account / Private Key / Bot ID）をお知らせください。運営側でシステムに設定します
-            </li>
-            <li>
-              各スタッフの編集画面（スタッフ管理 → 編集）で
-              <strong>「LINE Works チャンネルID」</strong>を設定
-              <br />
-              <span className="text-xs text-amber-700">チャンネルIDはLINE Works Bot設定のChannel IDで確認できます</span>
-            </li>
-            <li>設定後、新規予約・キャンセル・予約変更時に自動通知が送信されます</li>
-          </ol>
-        </div>
-      </section>
+      {/* LINE Works 連携の設定案内は出さない。以前は Client Secret・Private Key をメールで運営へ送るよう
+          案内していた（秘密情報を平文のメールで受け渡す手順）。安全な受け渡し方法ができるまで非公開
+          （スタッフに登録済みのチャンネルID などのデータは残している）。 */}
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
       <ConfirmDialog
@@ -748,6 +807,67 @@ function AdminSettingsContent() {
 
       <WithdrawalSettings />
     </div>
+  );
+}
+
+function FieldError({ id, message }: { id: string; message?: string }) {
+  if (!message) return null;
+  return <p id={id} className="mt-1 text-sm text-red-700">{message}</p>;
+}
+
+/**
+ * ネット予約の準備状況。ダッシュボードの「ネット予約の準備内容を確認する」はここへ来るが、
+ * 以前は何が足りないのかの一覧が無かった。判定は予約ページ・検索カードと同じ単一ソース（保存済みの内容）。
+ */
+/** ネット予約の準備状況に一緒に並べる、無料掲載の項目（営業時間と公開）。 */
+const BOOKING_PREREQUISITE_LISTING_STEPS: readonly SetupStepKey[] = ['hours', 'publish'];
+
+function BookingReadinessSection({ readiness, facilityId, onRetry }: {
+  readiness: { state: 'loading' | 'error' } | { state: 'ready'; steps: FacilitySetupStep[] };
+  facilityId: string; onRetry: () => void;
+}) {
+  // 営業時間と公開は無料掲載の項目だが、ネット予約の前提でもあるので一緒に見せる（並びはチェックリストと同じ）。
+  const steps = readiness.state === 'ready'
+    ? readiness.steps.filter((step) => step.group === 'booking' || BOOKING_PREREQUISITE_LISTING_STEPS.includes(step.key))
+    : [];
+  const pending = steps.filter((step) => !step.done);
+  // 足りないのがネット予約だけの項目なら「掲載だけなら不要」。無料掲載の項目が残っていれば、そうは書かない。
+  const onlyBookingPending = pending.every((step) => step.group === 'booking');
+  return (
+    <section id="booking-readiness" aria-labelledby="booking-readiness-title" className="bg-white rounded-xl shadow-xs p-6 mb-6">
+      <h2 id="booking-readiness-title" className="text-lg font-bold mb-1">ネット予約の準備状況</h2>
+      {readiness.state === 'loading' && <p className="text-sm text-gray-600">準備状況を確認しています…</p>}
+      {readiness.state === 'error' && (
+        <p className="text-sm text-gray-700">
+          準備状況を読み込めませんでした。
+          <button type="button" onClick={onRetry} className="ml-1 text-sky-700 underline">もう一度読み込む</button>
+        </p>
+      )}
+      {readiness.state === 'ready' && (
+        <>
+          <p className="text-sm text-gray-600 mb-3">
+            {pending.length === 0
+              ? 'ネット予約を受け付けられる状態です。'
+              : `保存済みの内容では、あと${pending.length}項目でネット予約を始められます${onlyBookingPending ? '（掲載だけの利用なら不要です）' : ''}。`}
+          </p>
+          <ul className="space-y-2">
+            {steps.map((step) => (
+              <li key={step.key} className="flex flex-wrap items-center gap-x-2 text-sm">
+                <span aria-hidden="true" className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${step.done ? 'bg-green-700 text-white' : 'border-2 border-gray-300'}`}>{step.done ? '✓' : ''}</span>
+                <span className="sr-only">{step.done ? '済み：' : '未完了：'}</span>
+                {step.done ? (
+                  <span className="text-gray-700">{step.label}</span>
+                ) : (
+                  <Link href={`${step.href}?facility_id=${encodeURIComponent(facilityId)}`} className="font-medium text-sky-700 underline">{step.label}</Link>
+                )}
+                {step.note && <span className="text-xs text-gray-600">（{step.note}）</span>}
+                {step.group === 'listing' && <span className="text-xs text-gray-600">（無料掲載にも必要）</span>}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
   );
 }
 

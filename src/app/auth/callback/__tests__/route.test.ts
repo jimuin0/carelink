@@ -27,7 +27,8 @@ beforeEach(() => {
 });
 
 test.each([
-  ['code欠損', '', 'https://carelink.test/auth/login?error=callback_failed&redirect=%2Fmypage'],
+  // 戻り先の指定が無ければログイン画面にも付けない（ログイン後は /auth/landing が店舗オーナーを /admin へ振り分ける）
+  ['code欠損', '', 'https://carelink.test/auth/login?error=callback_failed'],
   ['provider error', '?error=access_denied&redirect=/admin/onboarding', 'https://carelink.test/auth/login?error=callback_failed&redirect=%2Fadmin%2Fonboarding'],
 ])('%sは内部詳細を出さずloginへ案内する', async (_name, query, expectedLocation) => {
   const response = await GET(request(query));
@@ -60,4 +61,18 @@ test('exchange例外とcookie保存失敗は成功遷移せず、同じlogin案�
 test('外部redirectはmypageへ正規化する', async () => {
   const response = await GET(request('?code=abc&redirect=https://attacker.test'));
   expect(response.headers.get('location')).toBe('https://carelink.test/mypage');
+});
+
+test('戻り先の指定が無い成功は /auth/landing へ（店舗オーナーを /mypage に固定しない）', async () => {
+  const response = await GET(request('?code=abc'));
+  expect(response.headers.get('location')).toBe('https://carelink.test/auth/landing');
+});
+
+test('確認メールを別ブラウザで開いた失敗（PKCE verifier 無し）でも、申込の続きの戻り先を引き継ぐ', async () => {
+  exchangeCodeForSession.mockResolvedValueOnce({ error: { code: 'bad_code_verifier' } });
+  const response = await GET(request('?code=abc&redirect=%2Fadmin%2Fonboarding%3Fhandoff%3Dregistration'));
+  const location = new URL(response.headers.get('location')!);
+  expect(location.pathname).toBe('/auth/login');
+  expect(location.searchParams.get('error')).toBe('callback_failed');
+  expect(location.searchParams.get('redirect')).toBe('/admin/onboarding?handoff=registration');
 });

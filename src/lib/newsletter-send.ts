@@ -5,8 +5,6 @@ import { fetchAllPaged } from './paginate';
 import { newsletterUnsubUrl } from './newsletter-unsub';
 import { newsletterFromEnv } from './email-from';
 
-const emailRow = z.object({ email: z.string().nullable() }).passthrough();
-const ownerRow = z.object({ user_id: z.string().uuid() }).passthrough();
 const receiptSchema = z.object({
   operation_id: z.string().uuid(), campaign_id: z.string().uuid(),
   total: z.number().int().positive(), queued: z.number().int().nonnegative(),
@@ -34,28 +32,20 @@ async function paged<T>(page: (offset: number, limit: number) => PromiseLike<{ d
   if (result.error) throw dependency();
   return result.rows;
 }
-const canonical = (email: string | null) => email?.trim().toLowerCase() ?? '';
+/**
+ * 配信先（宛先から配信停止を除いたもの）。
+ *
+ * 🔴 宛先と配信停止の判定は DB の newsletter_current_recipients（service_role 専用）だけが持つ。
+ * 以前はここでも profiles.email から宛先と抑止を組み立てていた（二重実装）。profiles.email は本人が自由に
+ * 書き換えられるので、他人のアドレスを書いて配信停止にするだけで他人への配信を止められ、オーナーになって
+ * 第三者のアドレスを書けばそこへ届いた。DB 側は確認済みのログインメール（auth.users）と
+ * email_address_opted_out で決める（20261023150100）。publish_newsletter_send_operation も同じ関数で
+ * 宛先の一致を確かめるので、ここで別の計算をすると食い違いの元になる。
+ */
 export async function collectNewsletterRecipients(client: Client, kind: string): Promise<string[]> {
-  const subType = kind === 'owner_monthly' ? 'owner_monthly' : 'user_digest';
-  const subscribers = await paged((offset, limit) => client.from('newsletter_subscriptions').select('email')
-    .or(`subscription_type.eq.${subType},subscription_type.eq.all`).eq('is_active', true).order('id').range(offset, offset + limit - 1), emailRow);
-  const candidates = subscribers.map(row => canonical(row.email));
-  if (kind === 'owner_monthly') {
-    const owners = await paged((offset, limit) => client.from('facility_members').select('user_id')
-      .eq('role', 'owner').order('id').range(offset, offset + limit - 1), ownerRow);
-    const ids = [...new Set(owners.map(row => row.user_id))];
-    for (let offset = 0; offset < ids.length; offset += 500) {
-      const rows = checkedRows(await client.from('profiles').select('email').in('id', ids.slice(offset, offset + 500)), emailRow);
-      candidates.push(...rows.map(row => canonical(row.email)));
-    }
-  }
-  // Both suppression sources are mandatory even when the candidate set is empty.
-  const profiles = await paged((offset, limit) => client.from('profiles').select('email')
-    .eq('email_unsubscribed', true).order('id').range(offset, offset + limit - 1), emailRow);
-  const inactive = await paged((offset, limit) => client.from('newsletter_subscriptions').select('email')
-    .eq('is_active', false).order('id').range(offset, offset + limit - 1), emailRow);
-  const suppressed = new Set([...profiles, ...inactive].map(row => canonical(row.email)));
-  const emails = [...new Set(candidates.filter(email => email && !suppressed.has(email)))].sort();
+  const rows = await paged((offset, limit) => client.rpc('newsletter_current_recipients', { p_kind: kind })
+    .range(offset, offset + limit - 1), z.string());
+  const emails = [...new Set(rows)].sort();
   if (emails.some(email => !z.string().email().max(254).safeParse(email).success)) throw dependency();
   return emails;
 }

@@ -82,6 +82,43 @@ test('PATCH: gate通過後の競合によるDB拒否も409', async () => {
   expect(res.status).toBe(409);
 });
 
+// 2026年10月23日 神原さん決定：曜日別の営業時間は無料掲載の公開条件。
+// DB の公開 RPC（migration 20261023170000）も同じ規則で断る。
+const hoursConflict = { code: '23514', message: '"published_facility_hours_confirmed"' };
+
+test.each([
+  ['未保存', null],
+  ['曜日が欠けている', { mon: { open: '10:00', close: '19:00' } }],
+])('PATCH: 営業時間が%sの施設は公開されない（RPC を呼ばない）', async (_label, businessHours) => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  publishMocks({ menu: 1, photo: 1, staff: 1, businessHours });
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  expect(res.status).toBe(400);
+  expect(await res.json()).toEqual({ error: '公開するには次の項目が必要です', missing: ['全曜日の営業時間・定休日を確認して保存してください'] });
+  expect(mockAdminRpc).not.toHaveBeenCalled();
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});
+
+test('PATCH: gate通過後に営業時間が変わり DB が公開を断ったら409（公開を記録しない）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  publishMocks({ menu: 1, photo: 1, staff: 1, updateError: hoursConflict });
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({ error: expect.stringContaining('営業時間'), missing: ['全曜日の営業時間・定休日を確認して保存してください'] });
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});
+
+test('PATCH: 公開中の施設が営業時間を欠けた形で保存しようとして DB が断ったら409（営業時間欄に理由）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain(hoursConflict));
+  const res = await PATCH(makePatchRequest({ ...VALID_BODY, business_hours: { mon: { open: '10:00', close: '19:00' } } }));
+  expect(res.status).toBe(409);
+  const json = await res.json();
+  expect(json.error).toContain('先に非公開');
+  expect(json.fields).toEqual({ business_hours: json.error });
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});
+
 function makePatchRequest(body: object = VALID_BODY, params: Record<string, string> = { facility_id: FACILITY_UUID }) {
   const url = new URL('http://localhost/api/admin/settings');
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
@@ -123,6 +160,11 @@ function countChain(count: number | null, error: unknown = null) {
   return obj;
 }
 
+const CONFIRMED_HOURS = {
+  mon: { open: '10:00', close: '19:00' }, tue: null, wed: { open: '10:00', close: '19:00' }, thu: { open: '10:00', close: '19:00' },
+  fri: { open: '10:00', close: '19:00' }, sat: { open: '10:00', close: '17:00' }, sun: null,
+};
+
 // facility_profiles は【2つの用途で読まれる】ので、update と select の両方を持つ。
 // 公開ガードが地域（prefecture / city）も必須条件に加えたため（facility-publish-gate.ts）、
 // ガードは .select('prefecture, city').eq('id',…).single() を呼び、route 本体はその後
@@ -133,20 +175,22 @@ function facilityProfileChain(opts: {
   prefecture?: string | null;
   city?: string | null;
   address?: string | null;
+  businessHours?: unknown;
   profileError?: unknown;
 } = {}) {
-  // 既定は「地域が入っている」＝ガードの地域条件は充足。個々のテストが検証したいのは
+  // 既定は「地域と営業時間が入っている」＝ガードの掲載条件は充足。個々のテストが検証したいのは
   // メニュー/写真/スタッフの条件なので、地域で落ちない既定にしておく。
   const prefecture = opts.prefecture === undefined ? '大阪府' : opts.prefecture;
   const city = opts.city === undefined ? '堺市' : opts.city;
   const address = opts.address === undefined ? '検証町1-1' : opts.address;
+  const business_hours = opts.businessHours === undefined ? CONFIRMED_HOURS : opts.businessHours;
   return {
     update: updateChain(opts.updateError ?? null).update,
     select: jest.fn(() => ({
       eq: jest.fn(() => ({
         single: jest.fn(() =>
           Promise.resolve({
-            data: opts.profileError ? null : { name: '合成店舗', prefecture, city, address },
+            data: opts.profileError ? null : { name: '合成店舗', prefecture, city, address, business_hours },
             error: opts.profileError ?? null,
           }),
         ),
@@ -169,6 +213,7 @@ function publishMocks(opts: {
   prefecture?: string | null;
   city?: string | null;
   address?: string | null;
+  businessHours?: unknown;
 } = {}) {
   // undefined は既定1(充足)、null は明示的にそのまま渡す（route の `?? 0` 分岐検証用）。
   const m = opts.menu === undefined ? 1 : opts.menu;
@@ -184,6 +229,7 @@ function publishMocks(opts: {
       prefecture: opts.prefecture,
       city: opts.city,
       address: opts.address,
+      businessHours: opts.businessHours,
       profileError: opts.profileError,
     });
   });
@@ -671,4 +717,53 @@ describe('保存した行の確認と依存障害', () => {
     expect(await res.text()).not.toContain('synthetic private detail');
     expect(writeAuditLog).not.toHaveBeenCalled();
   });
+});
+
+// ─── 欄ごとのエラー（2026年10月23日）──────────────────────────────────────────
+// 以前は Web サイト欄に www.example.com と書くだけで保存全体が「リクエストが不正です」で失敗し、
+// 住所・営業時間も保存されず、どの欄が悪いのかも分からなかった。
+test('PATCH: スキームの無い Web サイトは https:// を補って保存する', async () => {
+  const update = captureSettingsUpdate();
+  const res = await PATCH(makePatchRequest({ name: '施設', website_url: ' www.example.com ' }));
+  expect(res.status).toBe(200);
+  expect(update.mock.calls[0][0]).toMatchObject({ website_url: 'https://www.example.com' });
+});
+
+test.each(['javascript://example.com/%0aalert(1)', 'ftp://example.com', 'https://'])('PATCH: http(s) でない・壊れた Web サイト %s は欄名つきで断る', async (url) => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makePatchRequest({ name: '施設', website_url: url }));
+  expect(res.status).toBe(400);
+  expect(await res.json()).toEqual({
+    error: '入力内容を確認してください：Webサイト',
+    fields: { website_url: 'WebサイトのURLを確認してください（例: https://example.com）' },
+  });
+});
+
+test('PATCH: 複数の欄が不正なら、それぞれの欄名を返す', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makePatchRequest({ name: '', seat_count: -1 }));
+  expect(res.status).toBe(400);
+  expect(await res.json()).toEqual({
+    error: '入力内容を確認してください：施設名、席数',
+    fields: { name: '施設名の入力内容を確認してください', seat_count: '席数の入力内容を確認してください' },
+  });
+});
+
+test.each([
+  ['catch_copy', 'キャッチコピー：'],
+  ['description', '施設紹介：'],
+])('PATCH: 医療広告の表現で断るときは、どの欄か（%s）を先頭に示す', async (field, prefix) => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makePatchRequest({ name: 'test', [field]: '必ず治る施術です' }));
+  expect(res.status).toBe(400);
+  const json = await res.json();
+  expect(json.error.startsWith(prefix)).toBe(true);
+  expect(json.fields).toEqual({ [field]: json.error });
+});
+
+test('PATCH: 閉店が開店より前の営業時間は営業時間の欄として返す', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makePatchRequest({ name: 'test', business_hours: { mon: { open: '18:00', close: '10:00' } } }));
+  expect(res.status).toBe(400);
+  expect((await res.json()).fields).toEqual({ business_hours: '月曜日の閉店時間は開店時間より後にしてください' });
 });

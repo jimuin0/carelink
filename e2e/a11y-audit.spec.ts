@@ -20,7 +20,7 @@ import { join } from 'path';
 const PAGES = [
   '/',
   '/search',
-  '/salon',
+  '/register',
   '/jobs',
   '/auth/login',
   '/contact',

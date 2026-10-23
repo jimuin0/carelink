@@ -229,7 +229,7 @@ export default function ModerationPage() {
       ) : loadError ? (
         <LoadError onRetry={load} message="審査キューの読み込みに失敗しました" />
       ) : items.length === 0 ? (
-        <div className="py-12 text-center text-gray-400 text-sm">
+        <div className="py-12 text-center text-gray-500 text-sm">
           {statusFilter === 'pending' ? '未審査のコンテンツはありません' : 'コンテンツがありません'}
         </div>
       ) : (
@@ -251,14 +251,14 @@ export default function ModerationPage() {
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-gray-500">
                     {new Date(item.created_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}
                     {item.facility_name && ` | ${item.facility_name}`}
                   </p>
                   {item.report_reason && (
                     <p className="text-sm text-gray-700">通報理由: {item.report_reason}</p>
                   )}
-                  <p className="text-xs font-mono text-gray-400 break-all">ID: {item.content_id}</p>
+                  <p className="text-xs font-mono text-gray-500 break-all">ID: {item.content_id}</p>
                 </div>
               </div>
 

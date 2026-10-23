@@ -2,7 +2,9 @@
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import RegisterForm from '@/components/register/RegisterForm';
-import { SALON_BROWSER_CONTEXT_KEY, SALON_RECRUIT_BROWSER_CONTEXT_KEY } from '@/lib/salon-browser-context';
+import { SALON_BROWSER_CONTEXT_KEY } from '@/lib/salon-browser-context';
+// 廃止した /recruit フォームがタブに残し得るキー（/recruit は /register へ転送・2026年10月23日）。
+const SALON_RECRUIT_BROWSER_CONTEXT_KEY = 'carelink.recruit-submission.v1';
 import { salonPhotoPath } from '@/lib/salon-photo-contract';
 const mockRouter = { push: jest.fn() };
 jest.mock('next/navigation', () => ({ useRouter: () => mockRouter }));
@@ -26,7 +28,7 @@ async function fill(v2Enabled = true) {
   render(<RegisterForm v2Enabled={v2Enabled} />);
   await waitFor(() => expect(screen.getByLabelText(/^施設名/)).toBeEnabled());
   for (const [label, value] of [[/^施設名/, '合成施設'], [/^業種/, 'ヘアサロン'], [/^代表者名/, '合成代表'],
-    [/^担当者名/, '合成担当'], [/^メールアドレス/, 'fixture@example.invalid'], [/^電話番号/, '09012345678']] as const) {
+    [/^メールアドレス/, 'fixture@example.invalid'], [/^電話番号/, '09012345678']] as const) {
     fireEvent.change(screen.getByLabelText(label), { target: { value } });
   }
   fireEvent.click(screen.getByRole('button', { name: '次へ' }));
@@ -161,4 +163,16 @@ test.each(['prepared','attempted','confirmed'])('recruit %s selector never route
   await waitFor(()=>expect(mockRouter.push).toHaveBeenCalledWith('/register/complete?handoff=registration'));
   expect(request.mock.calls.map(([path])=>path)).toEqual(['/api/salons/prepare','/api/salons/commit']);
   expect(sessionStorage.getItem(SALON_RECRUIT_BROWSER_CONTEXT_KEY)).toBe(original);
+});
+
+// 受付と一般公開は別の手続き（FAQ・受付メール・完了画面と同じ事実）。以前の確認ダイアログは
+// 「すぐに掲載を開始できます」と書いており、送信すれば公開されると誤解させていた。
+test('confirm dialog does not promise immediate publication', async () => {
+  await fill();
+  fireEvent.click(screen.getByRole('button', { name: '登録する' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(dialog).not.toHaveTextContent('すぐに掲載を開始できます');
+  expect(dialog).toHaveTextContent('送信しただけでは公開されません');
+  expect(dialog).toHaveTextContent('管理画面に引き継がれます');
+  expect(request).not.toHaveBeenCalled();
 });

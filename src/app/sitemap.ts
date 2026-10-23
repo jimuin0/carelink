@@ -52,13 +52,12 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticPages: MetadataRoute.Sitemap = [
     { url: SITE_URL, lastModified: updated, changeFrequency: 'weekly', priority: 1 },
     { url: `${SITE_URL}/search`, lastModified: updated, changeFrequency: 'daily', priority: 0.9 },
-    { url: `${SITE_URL}/salon`, lastModified: updated, changeFrequency: 'weekly', priority: 0.9 },
     { url: `${SITE_URL}/blog`, lastModified: updated, changeFrequency: 'weekly', priority: 0.6 },
-    { url: `${SITE_URL}/recruit`, lastModified: updated, changeFrequency: 'monthly', priority: 0.6 },
     { url: `${SITE_URL}/privacy`, lastModified: new Date('2026-03-19'), changeFrequency: 'monthly', priority: 0.3 },
     { url: `${SITE_URL}/terms`, lastModified: new Date('2026-03-19'), changeFrequency: 'monthly', priority: 0.3 },
     { url: `${SITE_URL}/legal`, lastModified: new Date('2026-03-19'), changeFrequency: 'monthly', priority: 0.3 },
-    { url: `${SITE_URL}/register`, lastModified: updated, changeFrequency: 'monthly', priority: 0.3 },
+    // 店舗向けの入口は /register の 1 本（旧 /salon は /register へ 308 転送。next.config.mjs）。
+    { url: `${SITE_URL}/register`, lastModified: updated, changeFrequency: 'weekly', priority: 0.9 },
     { url: `${SITE_URL}/contact`, lastModified: updated, changeFrequency: 'monthly', priority: 0.5 },
   ];
 

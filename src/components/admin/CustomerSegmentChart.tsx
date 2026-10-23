@@ -79,12 +79,12 @@ export default function CustomerSegmentChart({ facilityId }: { facilityId: strin
       <button type="button" onClick={retry} className="text-xs text-sky-600 underline mt-1">再試行</button>
     </div>
   );
-  if (data.length === 0) return <p className="text-sm text-gray-400 text-center py-8">顧客データがありません</p>;
+  if (data.length === 0) return <p className="text-sm text-gray-500 text-center py-8">顧客データがありません</p>;
 
   return (
     <div className="bg-white rounded-xl p-4">
       <h3 className="text-sm font-bold text-gray-800 mb-1">顧客セグメント</h3>
-      <p className="text-xs text-gray-400 mb-4">総顧客数: {total}人</p>
+      <p className="text-xs text-gray-500 mb-4">総顧客数: {total}人</p>
       <ResponsiveContainer width="100%" height={250}>
         <PieChart>
           <Pie

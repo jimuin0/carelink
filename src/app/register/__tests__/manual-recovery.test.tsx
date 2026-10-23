@@ -14,7 +14,7 @@ jest.mock('@/lib/image-compress', () => ({ compressImage: async (file: File) => 
 jest.mock('@/lib/supabase', () => ({ supabase: { storage: { from: () => ({ upload: mockLegacyUpload, uploadToSignedUrl: mockSignedUpload, remove: jest.fn(), getPublicUrl: () => ({ data: { publicUrl: 'https://fixture.invalid/original.png' } }) }) } } }));
 const intentId = '11111111-1111-4111-8111-111111111111';
 const draftFile = new File(['fixture-backup'], 'carelink-draft.json', { type: 'application/json' });
-const fields = [[/^施設名/, '合成施設'], [/^業種/, 'ヘアサロン'], [/^代表者名/, '合成代表'], [/^担当者名/, '合成担当'], [/^メールアドレス/, 'fixture@example.invalid'], [/^電話番号/, '09012345678']] as const;
+const fields = [[/^施設名/, '合成施設'], [/^業種/, 'ヘアサロン'], [/^代表者名/, '合成代表'], [/^メールアドレス/, 'fixture@example.invalid'], [/^電話番号/, '09012345678']] as const;
 const validValues = { facility_name: '復元施設', business_type: 'ヘアサロン', representative_name: '復元代表', contact_name: '復元担当', email: 'restore@example.invalid', phone: '090-1234-5678', contact_phone: '', website: '', postal_code: '', address: '合成住所', prefecture: null, city: null, building_name: '', nearest_station: '', business_hours: '', regular_holiday: '', seat_count: null, staff_count: null, has_parking: false, features: [], pr_text: '復元PR', desired_start_date: '' };
 const response = (status: number, body: unknown) => ({ status, ok: status >= 200 && status < 300, json: async () => body }) as Response;
 let request: jest.Mock;
@@ -78,13 +78,35 @@ test('verified import restores full originals/order atomically, resets both cons
   expect(screen.getByLabelText(/^施設名/)).toHaveValue('復元施設'); expect(screen.getByLabelText(/^メールアドレス/)).toHaveValue('restore@example.invalid');
   await toLastStep(); expect(await screen.findByAltText('外観')).toBeVisible(); expect(await screen.findByAltText('メニュー 3')).toBeVisible();
   expect(screen.getAllByRole('checkbox').every(box => !(box as HTMLInputElement).checked)).toBe(true);
-  expect(screen.getByRole('button', { name: '登録する' })).toBeDisabled();
+  // 未送信の確認・表明・規約の 3 つが揃うまで送信確認へ進まない（押せない理由は画面に出す）。
+  fireEvent.click(screen.getByRole('button', { name: '登録する' }));
+  expect(await screen.findByText('必須の同意にチェックしてください（残り3件）')).toBeInTheDocument();
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   const checks = screen.getAllByRole('checkbox'); fireEvent.click(checks[1]); fireEvent.click(checks[2]);
-  expect(screen.getByRole('button', { name: '登録する' })).toBeDisabled(); fireEvent.click(checks[0]);
-  expect(screen.getByRole('button', { name: '登録する' })).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: '登録する' }));
+  expect(await screen.findByText('必須の同意にチェックしてください（残り1件）')).toBeInTheDocument();
+  expect(checks[0]).toHaveAccessibleDescription('未送信であることの確認にチェックしてください');
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument(); fireEvent.click(checks[0]);
+  fireEvent.click(screen.getByRole('button', { name: '登録する' }));
+  fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: '戻る' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   fireEvent.click(download()); await screen.findByText(/バックアップファイルを作成しました/);
   expect(mockExport).toHaveBeenLastCalledWith(expect.objectContaining({ facility_name: '復元施設', pr_text: '復元PR' }), [first, null, null, null, null, null, last]);
   expect(request).not.toHaveBeenCalled(); expect(mockCaptcha).not.toHaveBeenCalled();
+});
+test('restoring a draft keeps a separate contact person and the old parking chip consistent with the new form', async () => {
+  await mount();
+  mockImport.mockResolvedValue({ values: { ...validValues, features: ['駐車場あり', '個室あり'] }, photos: Array(7).fill(null) });
+  fireEvent.change(restore(), { target: { files: [draftFile] } }); await screen.findByText(/入力と元の写真を復元しました/);
+  // 代表者と違う担当者が保存されていれば「代表者と同じ」を外し、担当者名の欄を出す。
+  expect(screen.getByRole('checkbox', { name: '担当者も代表者と同じ' })).not.toBeChecked();
+  expect(screen.getByLabelText(/^担当者名/)).toHaveValue('復元担当');
+  // 旧画面で「駐車場あり」をチップでだけ選んでいた下書きは、チェックボックス側にも反映する。
+  fireEvent.click(screen.getByRole('button', { name: '次へ' }));
+  expect(await screen.findByRole('checkbox', { name: '駐車場あり' })).toBeChecked();
+  fireEvent.click(download()); await screen.findByText(/バックアップファイルを作成しました/);
+  expect(mockExport).toHaveBeenLastCalledWith(expect.objectContaining({ contact_name: '復元担当', has_parking: true,
+    features: expect.arrayContaining(['駐車場あり', '個室あり']) }), Array(7).fill(null));
 });
 test('invalid import does not replace any current field, file, or consent', async () => {
   await fill(); const original = new File(['original'], 'original.png', { type: 'image/png' });

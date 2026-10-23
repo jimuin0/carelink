@@ -99,7 +99,7 @@ export default function EditJobPage() {
     <div>
       <SbPageHeader title="求人編集" />
       {loading || !defaults ? (
-        <div className="bg-white rounded-xl p-8 text-center text-gray-400">読み込み中...</div>
+        <div className="bg-white rounded-xl p-8 text-center text-gray-500">読み込み中...</div>
       ) : (
         <JobForm
           defaultValues={defaults}

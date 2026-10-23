@@ -185,10 +185,18 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   expect(profile.error).toBeNull(); expect(profile.data).toEqual({ status: 'draft', business_hours: null });
   const photos = await db.from('facility_photos').select('id').eq('facility_id', created.facilityId);
   expect(photos.error).toBeNull(); expect(photos.data).toEqual([]);
-  // Real authorized status API; no artificial menu/staff/hours to pass a gate.
-  const published = await page.request.patch(`/api/admin/settings?facility_id=${created.facilityId}&action=status`, {
-    headers: { Origin: 'https://localhost:3000' }, data: { status: 'published' },
+  // Real authorized status API. Free listing needs saved business hours (2026-10-23), but no menu/staff/photo.
+  const statusUrl = `/api/admin/settings?facility_id=${created.facilityId}&action=status`;
+  const withoutHours = await page.request.patch(statusUrl, { headers: { Origin: 'https://localhost:3000' }, data: { status: 'published' } });
+  expect(withoutHours.status()).toBe(400);
+  expect((await withoutHours.json()).missing).toEqual(['全曜日の営業時間・定休日を確認して保存してください']);
+  const day = { open: '10:00', close: '19:00' };
+  const savedHours = await page.request.patch(`/api/admin/settings?facility_id=${created.facilityId}`, {
+    headers: { Origin: 'https://localhost:3000' },
+    data: { name, business_hours: { mon: day, tue: day, wed: null, thu: day, fri: day, sat: day, sun: null } },
   });
+  expect(savedHours.status()).toBe(200);
+  const published = await page.request.patch(statusUrl, { headers: { Origin: 'https://localhost:3000' }, data: { status: 'published' } });
   expect(published.status()).toBe(200);
   await page.goto(`/search?area=${encodeURIComponent('愛知県')}&keyword=${encodeURIComponent(name)}`);
   await expect(page.locator(`a[href="/facility/${created.slug}"]`).first()).toBeVisible();

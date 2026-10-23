@@ -25,7 +25,6 @@ const ADMIN = join(ROOT, 'src/app/admin');
 
 /** 免除台帳（src/app/admin からの相対パス → 理由）。 */
 const ALLOW: Record<string, string> = {
-  'payments/page.tsx': 'オンライン決済（Stripe）は事業判断で保留中。決済機能を出すときに店舗選択を合わせて入れる',
   'featured-ads/page.tsx': '有料掲載枠は決済手段が未導入のため販売停止中（ローンチ時非表示）。販売を再開するときに店舗選択を入れる',
   'onboarding/page.tsx': '店舗を選ぶためではなく「既にどこかの店舗に所属しているか」の有無だけを見る（施設作成前の導線）',
 };

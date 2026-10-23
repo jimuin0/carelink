@@ -7,6 +7,8 @@ import Link from 'next/link';
 import { z } from 'zod';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import { savePasswordResetRedirect } from '@/lib/password-reset-redirect';
+import { safeRedirect } from '@/lib/safe-redirect';
 
 const schema = z.object({
   email: z.string().email('正しいメールアドレスを入力してください'),
@@ -15,6 +17,7 @@ type FormData = z.infer<typeof schema>;
 
 export default function ForgotPasswordPage() {
   const [sent, setSent] = useState(false);
+  const [loginHref, setLoginHref] = useState('/auth/login');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
@@ -22,6 +25,11 @@ export default function ForgotPasswordPage() {
   });
 
   const onSubmit = async (data: FormData) => {
+    // ログイン画面から引き継いだ戻り先（例: /admin）を、再設定の完了後に使えるよう保存する
+    // （lib/password-reset-redirect.ts。再設定リンクは同じブラウザでしか使えないので localStorage で足りる）。
+    const rawRedirect = new URLSearchParams(window.location.search).get('redirect');
+    savePasswordResetRedirect(window.localStorage, rawRedirect, window.location.origin);
+    if (rawRedirect) setLoginHref(`/auth/login?redirect=${encodeURIComponent(safeRedirect(rawRedirect, window.location.origin))}`);
     const supabase = createBrowserSupabaseClient();
     const { error } = await supabase.auth.resetPasswordForEmail(data.email, {
       redirectTo: `${window.location.origin}/auth/reset-password`,
@@ -61,7 +69,7 @@ export default function ForgotPasswordPage() {
               </p>
               <p className="mt-1">メールのリンクは一度開くと使えなくなります。</p>
             </div>
-            <Link href="/auth/login" className="text-sky-700 hover:underline text-sm">
+            <Link href={loginHref} className="text-sky-700 hover:underline text-sm">
               ログインページに戻る
             </Link>
           </div>

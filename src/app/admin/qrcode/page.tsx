@@ -140,9 +140,9 @@ function QrCodeGenerator({ facilityId, choices }: AdminFacilityScopeValue) {
               /* eslint-disable-next-line @next/next/no-img-element */
               <img src={qrDataUrl} alt="QRコード" className="w-36 h-36" />
             )}
-            <p className="text-xs text-gray-400 text-center break-all">{facilityUrl}</p>
+            <p className="text-xs text-gray-500 text-center break-all">{facilityUrl}</p>
           </div>
-          <p className="text-xs text-gray-400 mt-3">「印刷」ボタンからA4・ハガキサイズで印刷できます。</p>
+          <p className="text-xs text-gray-500 mt-3">「印刷」ボタンからA4・ハガキサイズで印刷できます。</p>
         </div>
       </div>
 

@@ -87,7 +87,7 @@ export default async function AdminAnalyticsPage(props: { searchParams: Promise<
               <span className="text-sm font-medium w-24 text-right">
                 ¥{m.revenue.toLocaleString()}
               </span>
-              <span className="text-xs text-gray-400 w-12 text-right">
+              <span className="text-xs text-gray-500 w-12 text-right">
                 {m.count}件
               </span>
             </div>

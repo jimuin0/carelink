@@ -416,6 +416,33 @@ describe('POST /api/admin/booking-status - 開始時刻前の来店の結果', (
 });
 
 // ---------------------------------------------------------------------------
+// ポイントの台帳と照合できない予約（2026年10月23日）
+// ---------------------------------------------------------------------------
+// 退会した会員のポイント利用予約は DB のトリガが POINTS_AUTH_REQUIRED で取り消していた（20261023130000 で解消）。
+// 店舗には直せないので、残る照合エラーも 500「更新に失敗しました」ではなく 409 と理由で返し、運営へ通知する。
+describe('POST /api/admin/booking-status - ポイントの照合エラー', () => {
+  const MESSAGE = 'お客様のポイントの記録と照合できないため、この予約のステータスを変更できませんでした。お手数ですが運営までお問い合わせください。';
+  test.each(['POINTS_AUTH_REQUIRED', 'POINTS_LEGACY_RECONCILIATION_REQUIRED', 'POINTS_LEDGER_IMMUTABLE'])('%s → 409・理由つき・通知や Push はしない', async (code) => {
+    setupSuccessMock('confirmed');
+    mockRpc.mockResolvedValue({ data: null, error: { code: 'P0001', message: code } });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: MESSAGE, code: 'BOOKING_POINTS_RECONCILIATION_REQUIRED' });
+    expect(alertCaughtError).toHaveBeenCalledWith('admin-booking-status-points', expect.objectContaining({ message: code }), '/api/admin/booking-status');
+    expect(sendPushToUser).not.toHaveBeenCalled();
+    expect(sendBookingCancellation).not.toHaveBeenCalled();
+  });
+
+  test('似た名前の別エラーは従来どおり 500（照合エラーとして扱わない）', async () => {
+    setupSuccessMock('confirmed');
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'SYNTHETIC_POINT_FAILURE' } });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe('更新に失敗しました');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // CAS and DB errors
 // ---------------------------------------------------------------------------
 describe('POST /api/admin/booking-status - CAS and DB errors', () => {

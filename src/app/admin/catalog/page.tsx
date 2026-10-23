@@ -40,7 +40,7 @@ export default async function AdminCatalogPage(props: { searchParams: Promise<{ 
 
       {catalogs.length === 0 ? (
         <div className="bg-white rounded-xl p-8 text-center">
-          <p className="text-gray-400 mb-3">カタログがありません</p>
+          <p className="text-gray-500 mb-3">カタログがありません</p>
           <Link href={newHref} className="text-sm text-primary hover:underline">
             最初のカタログを追加
           </Link>

@@ -4,40 +4,53 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import dynamic from 'next/dynamic';
+import { isEcruShopPath } from '@/lib/shop-theme';
 
 const AuthButton = dynamic(() => import('@/components/auth/AuthButton'), { ssr: false });
 
 export default function Header() {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
-  // 「施設掲載」がリロードが不要な軽微な訴求リンクとの誤解を招くよう text-xs で
-  // 目立たせない意図だったが、他リンクとフォントサイズが不揃いに見え「なぜ大きさが
-  // 違うのか」と混乱を招いた。加えて /salon に既にいる時にクリックしても遷移せず、
-  // 「押せたのか」がUXとして分からなかった(2026年7月6日・神原さん指摘)。フォント
-  // サイズを他リンクに揃え、現在地では aria-current でハイライトして押した意味を示す。
-  const isOnSalon = pathname === '/salon';
-
-  // 🔴 /register はくすみ系のテーマ（globals.css の .theme-ecru）で描いている。
-  // ヘッダーはそのページの器の外＝レイアウト側に在るため、ページ内で --primary を上書きしても
-  // 届かず、【ロゴだけ濃い青のまま】でアイボリーの面から浮いていた（実機で確認）。
-  // ここで同じクラスを付けると、ロゴ・hover・現在地ハイライトが var(--primary) 経由で
-  // まとめてテーマ側の色に寄る。色の値はここに書かない（globals.css が単一ソース）。
+  // 🔴 店舗向けページ（/register・/register/complete）はくすみ系のテーマ（globals.css の .theme-ecru）で描く。
+  // ヘッダーはそのページの器の外＝レイアウト側に在るため、ページ内で変数を上書きしても届かない。
+  // ここで同じクラスを付けて、地色・罫線・hover をテーマ側の色に寄せる。色の値はここに書かない。
+  // 判定は src/lib/shop-theme.ts が単一ソース（フッターも同じ判定を見る）。
+  //
+  // ⚠️ ロゴは --logo（ブランド色）で描き、テーマでは塗り替えない（2026年10月23日 神原さん決定）。
+  // 以前はテーマの --primary に追従させていたため、/register でだけロゴがくすみローズになり、
+  // 同じサービスのロゴに見えなかった。
   //
   // ⚠️ 透明度（bg-[...]/95）は付けない。Tailwind は CSS 変数の色に alpha を合成できず、
   // 無効な色になって【ヘッダーが透明になる】（実機の computed style で rgba(0,0,0,0) を確認）。
-  const usesEcruTheme = pathname === '/register';
+  const isShopPage = isEcruShopPath(pathname);
+
+  // 店舗向けページでは、来院者向けの導線（サロンを探す・会員登録・ログイン・施設掲載）を出さない。
+  // 掲載を検討している店舗に必要なのは、既に掲載中の店舗が管理画面へ入る入口だけ。
+  if (isShopPage) {
+    return (
+      <header className="theme-ecru sticky top-0 z-50 border-b border-(--ecru-line) bg-(--ecru-bg)">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <Link href="/" className="text-2xl font-bold text-(--logo)">
+              CareLink
+            </Link>
+            <Link
+              href="/auth/login?redirect=/admin"
+              className="inline-flex min-h-[44px] items-center px-2 text-sm font-medium text-(--ecru-text) underline-offset-4 hover:underline whitespace-nowrap"
+            >
+              店舗ログイン
+            </Link>
+          </div>
+        </div>
+      </header>
+    );
+  }
 
   return (
-    <header
-      className={`sticky top-0 z-50 backdrop-blur-sm border-b ${
-        usesEcruTheme
-          ? 'theme-ecru bg-(--ecru-bg) border-(--ecru-line)'
-          : 'bg-white/95 border-gray-100'
-      }`}
-    >
+    <header className="sticky top-0 z-50 backdrop-blur-sm border-b bg-white/95 border-gray-100">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          <Link href="/" className="text-2xl font-bold text-primary">
+          <Link href="/" className="text-2xl font-bold text-(--logo)">
             CareLink
           </Link>
 
@@ -52,15 +65,7 @@ export default function Header() {
             <Link href="/contact" className="text-gray-700 hover:text-primary font-medium transition-colors">
               お問い合わせ
             </Link>
-            <Link
-              href="/salon"
-              aria-current={isOnSalon ? 'page' : undefined}
-              className={
-                isOnSalon
-                  ? 'text-primary font-bold transition-colors'
-                  : 'text-gray-700 hover:text-primary font-medium transition-colors'
-              }
-            >
+            <Link href="/register" className="text-gray-700 hover:text-primary font-medium transition-colors">
               施設掲載
             </Link>
             {/* 【2026年7月28日・神原さん判断で追加】掲載中の店舗オーナーが管理画面へ入る導線を
@@ -136,13 +141,8 @@ export default function Header() {
               お問い合わせ
             </Link>
             <Link
-              href="/salon"
-              aria-current={isOnSalon ? 'page' : undefined}
-              className={
-                isOnSalon
-                  ? 'text-primary font-bold transition-colors'
-                  : 'text-gray-700 font-medium hover:text-primary transition-colors'
-              }
+              href="/register"
+              className="text-gray-700 font-medium hover:text-primary transition-colors"
               onClick={() => setIsOpen(false)}
             >
               施設掲載はこちら

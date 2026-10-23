@@ -244,9 +244,10 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
     },
     // 🔴 Next.js 15.5 系の「子→親のクライアント遷移が RSC ペイロード約29KB 超で無音失敗」する
-    //   不具合の再発検出（2026-08-13 実測・16.3.0 で解消）。admin-jobs.spec.ts は求人1件しか作らず
-    //   閾値の下に収まるため不具合があっても通る回があった。こちらは意図的に閾値を大きく超える
-    //   データを seed して決定的に検出する。公開プロジェクトの誤実行を防ぐため両 testIgnore に追加済み。
+    //   不具合の再発検出（2026-08-13 実測・16.3.0 で解消）。1件だけ作る spec は閾値の下に収まるため
+    //   不具合があっても通る回があった。こちらは意図的に閾値を大きく超えるデータを seed して決定的に検出する。
+    //   対象はブログ一覧（求人は SHOW_JOBS=false で隠れて skip になっていたため 2026-10-23 に付け替え）。
+    //   公開プロジェクトの誤実行を防ぐため両 testIgnore に追加済み。
     {
       name: 'admin-large-list-nav',
       testMatch: /admin-large-list-nav\.spec\.ts/,

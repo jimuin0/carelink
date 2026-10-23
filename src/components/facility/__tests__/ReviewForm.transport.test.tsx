@@ -45,13 +45,72 @@ test('upload failure cannot silently submit a text-only review or delete the ori
  expect(fetchMock.mock.calls.some(c=>c[0]==='/api/review')).toBe(false);expect(remove).not.toHaveBeenCalled();
  expect(screen.getByLabelText('コメント')).toHaveValue('Original comment');expect(screen.getByAltText('口コミ投稿用プレビュー写真1')).toBeVisible();
 });
-test('lost commit response retains pictures and fences repeat submission across remounts',async()=>{
+const reviewBodies=()=>fetchMock.mock.calls.filter(c=>c[0]==='/api/review').map(c=>JSON.parse(c[1].body));
+const notice=/前回の口コミの受付状況を確認できていません/;
+// 2026-10-23: before, a lost reply disabled the form on this device forever.
+// Now the receipt fence keeps only the operation id; the next submission resends
+// it and the server answers with the earlier review if it was saved.
+test('lost commit response keeps the operation; a resend after remount returns the earlier review without a second one',async()=>{
  fetchMock.mockImplementation(async url=>{if(url==='/api/review')throw new Error('lost accepted reply');return {ok:true,json:async()=>caps};});
  const mounted=await form();await submit();await screen.findByText(/投稿結果を確認できません/);
- expect(screen.getByRole('button',{name:'口コミを投稿する'})).toBeDisabled();expect(remove).not.toHaveBeenCalled();
- expect(screen.getByLabelText('コメント')).toHaveValue('Original comment');expect(localStorage.getItem(REVIEW_PENDING_PREFIX+facility)).not.toBeNull();
- mounted.unmount();render(<ReviewForm facilityId={facility} onReviewSubmitted={jest.fn()}/>);
- expect(screen.getByRole('button',{name:'口コミを投稿する'})).toBeDisabled();expect(fetchMock.mock.calls.filter(c=>c[0]==='/api/review')).toHaveLength(1);
+ expect(remove).not.toHaveBeenCalled();expect(screen.getByLabelText('コメント')).toHaveValue('Original comment');
+ const operation=reviewBodies()[0].operation_id;expect(localStorage.getItem(REVIEW_PENDING_PREFIX+facility)).toBe('v2:'+operation);expect(reviewBodies()[0]).not.toHaveProperty('legacy_operation');
+ expect(screen.getByText(notice)).toBeInTheDocument();expect(screen.getByRole('button',{name:'口コミを投稿する'})).toBeEnabled();
+ mounted.unmount();
+ fetchMock.mockImplementation(async url=>({ok:true,headers:new Headers(),json:async()=>url==='/api/review/photo-limits'?caps:{success:true,id,replayed:true}}));
+ await form([]);expect(screen.getByText(notice)).toBeInTheDocument();await submit();
+ await screen.findByText('前回の口コミは受け付けられていました');expect(screen.getByText(/今回入力した内容は投稿していません/)).toBeInTheDocument();
+ expect(reviewBodies().map(b=>b.operation_id)).toEqual([operation,operation]);expect(reviewBodies()[1]).not.toHaveProperty('legacy_operation');expect(localStorage.getItem(REVIEW_PENDING_PREFIX+facility)).toBeNull();
+});
+test('a resend that the server refuses before saving keeps the operation for the next resend',async()=>{
+ localStorage.setItem(REVIEW_PENDING_PREFIX+facility,'v2:dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+ fetchMock.mockImplementation(async url=>url==='/api/review/photo-limits'?{ok:true,json:async()=>caps}:{ok:false,headers:new Headers({'X-CareLink-Review-Commit':'not-started'}),json:async()=>({error:'Bot検知: 時間をおいて再度お試しください'})});
+ await form([]);await submit();await screen.findByText('Bot検知: 時間をおいて再度お試しください');
+ expect(reviewBodies()[0].operation_id).toBe('dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+ expect(localStorage.getItem(REVIEW_PENDING_PREFIX+facility)).toBe('v2:dddddddd-dddd-4ddd-8ddd-dddddddddddd');expect(screen.getByText(notice)).toBeInTheDocument();
+ fetchMock.mockImplementation(async url=>({ok:true,headers:new Headers(),json:async()=>url==='/api/review/photo-limits'?caps:{success:true,id}}));
+ await submit();await screen.findByText('口コミを投稿しました');
+ expect(reviewBodies()[1].operation_id).toBe('dddddddd-dddd-4ddd-8ddd-dddddddddddd');expect(localStorage.getItem(REVIEW_PENDING_PREFIX+facility)).toBeNull();
+});
+test('the 24h duplicate answer settles a resumed operation and releases the form',async()=>{
+ localStorage.setItem(REVIEW_PENDING_PREFIX+facility,'v2:dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+ fetchMock.mockImplementation(async url=>url==='/api/review/photo-limits'?{ok:true,json:async()=>caps}:{ok:false,status:429,headers:new Headers({'X-CareLink-Review-Commit':'not-started'}),json:async()=>({code:'REVIEW_RECENT_DUPLICATE',error:'同じ施設への口コミは24時間に1回までです'})});
+ await form([]);await submit();await screen.findByText('同じ施設への口コミは24時間に1回までです');
+ expect(localStorage.getItem(REVIEW_PENDING_PREFIX+facility)).toBeNull();expect(screen.queryByText(notice)).not.toBeInTheDocument();
+});
+// 2026-10-23 review: a bare-UUID fence was left by the old form, whose server never
+// stored the id. It is sent with legacy_operation so the server looks for the
+// reviewer's earlier review rather than posting a second one.
+test('an old-form fence is resent as legacy and an earlier review found by the server settles it',async()=>{
+ localStorage.setItem(REVIEW_PENDING_PREFIX+facility,'dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+ fetchMock.mockImplementation(async url=>({ok:true,headers:new Headers(),json:async()=>url==='/api/review/photo-limits'?caps:{success:true,id,replayed:true}}));
+ await form([]);await submit();await screen.findByText('前回の口コミは受け付けられていました');
+ expect(reviewBodies()[0]).toMatchObject({operation_id:'dddddddd-dddd-4ddd-8ddd-dddddddddddd',legacy_operation:true});
+ expect(localStorage.getItem(REVIEW_PENDING_PREFIX+facility)).toBeNull();
+});
+// 2026-10-23 review: the fence survives logout on a shared device. When it
+// belongs to another account the server refuses before saving; the fence is
+// settled (that review exists) and the next press posts the current input.
+test('a fence of another account is released after the server refuses it before saving',async()=>{
+ localStorage.setItem(REVIEW_PENDING_PREFIX+facility,'v2:dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+ const message='今回の内容はまだ投稿していません。この端末に残っていた、別のログイン状態での送信記録を整理しました。もう一度「口コミを投稿する」を押してください。';
+ fetchMock.mockImplementation(async url=>url==='/api/review/photo-limits'?{ok:true,json:async()=>caps}:{ok:false,status:409,headers:new Headers({'X-CareLink-Review-Commit':'not-started'}),json:async()=>({code:'REVIEW_OPERATION_OTHER_ACCOUNT',error:message})});
+ await form([]);await submit();await screen.findByText(message);
+ expect(localStorage.getItem(REVIEW_PENDING_PREFIX+facility)).toBeNull();expect(screen.queryByText(notice)).not.toBeInTheDocument();
+ expect(screen.getByLabelText('コメント')).toHaveValue('Original comment');
+ fetchMock.mockImplementation(async url=>({ok:true,headers:new Headers(),json:async()=>url==='/api/review/photo-limits'?caps:{success:true,id}}));
+ await submit();await screen.findByText('口コミを投稿しました');
+ expect(reviewBodies()[1].operation_id).not.toBe('dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+});
+test('a fresh operation refused before saving releases its fence without a notice',async()=>{
+ fetchMock.mockImplementation(async url=>url==='/api/review/photo-limits'?{ok:true,json:async()=>caps}:{ok:false,headers:new Headers({'X-CareLink-Review-Commit':'not-started'}),json:async()=>null});
+ await form([]);await submit();await screen.findByText('本文は送信されていません。入力を確認してください。');
+ expect(localStorage.getItem(REVIEW_PENDING_PREFIX+facility)).toBeNull();expect(screen.queryByText(notice)).not.toBeInTheDocument();
+});
+test('an unreadable receipt record never sends and explains in Japanese',async()=>{
+ localStorage.setItem(REVIEW_PENDING_PREFIX+facility,'not-an-operation');
+ await form([]);await submit();await screen.findByText(/この端末で投稿結果の記録を確認できません/);
+ expect(fetchMock.mock.calls.some(c=>c[0]==='/api/review')).toBe(false);
 });
 test('a known server pre-insert rejection alone permits retry using the already saved photo',async()=>{
  let commits=0;fetchMock.mockImplementation(async url=>url==='/api/review/photo-limits'?{ok:true,json:async()=>caps}:++commits===1?{ok:false,headers:new Headers({'X-CareLink-Review-Commit':'not-started'}),json:async()=>({error:'入力を確認してください'})}:{ok:true,headers:new Headers(),json:async()=>({success:true,id})});
@@ -60,9 +119,10 @@ test('a known server pre-insert rejection alone permits retry using the already 
  await submit();await screen.findByText('口コミを投稿しました');expect(upload).toHaveBeenCalledTimes(1);expect(remove).not.toHaveBeenCalled();
  const bodies=fetchMock.mock.calls.filter(c=>c[0]==='/api/review').map(c=>JSON.parse(c[1].body));expect(bodies[1].photo_urls).toEqual(bodies[0].photo_urls);
 });
-test.each([{success:true},{success:true,id:'bad'},null])('malformed success %p is uncertain, never a success or retry permission',async body=>{
+test.each([{success:true},{success:true,id:'bad'},null])('malformed success %p is uncertain, never a success; the operation is kept for a resend',async body=>{
  fetchMock.mockImplementation(async url=>({ok:true,headers:new Headers(),json:async()=>url==='/api/review/photo-limits'?caps:body}));await form();await submit();
- await screen.findByText(/投稿結果を確認できません/);expect(remove).not.toHaveBeenCalled();expect(screen.getByRole('button',{name:'口コミを投稿する'})).toBeDisabled();
+ await screen.findByText(/投稿結果を確認できません/);expect(remove).not.toHaveBeenCalled();
+ expect(localStorage.getItem(REVIEW_PENDING_PREFIX+facility)).toBe('v2:'+reviewBodies()[0].operation_id);expect(screen.getByText(notice)).toBeInTheDocument();
 });
 test('unavailable browser locking prevents commit before HTTP and preserves input',async()=>{
  Object.defineProperty(navigator,'locks',{configurable:true,value:undefined});await form([]);await submit();
@@ -75,5 +135,5 @@ test('explicit account cleanup wipes in-memory input/files but preserves unknown
  const operation=localStorage.getItem(REVIEW_PENDING_PREFIX+facility);
  fireEvent(window,new Event('review-cleanup-completed'));
  expect(screen.getByLabelText('コメント')).toHaveValue('');expect(screen.queryByAltText('口コミ投稿用プレビュー写真1')).not.toBeInTheDocument();
- expect(localStorage.getItem(REVIEW_PENDING_PREFIX+facility)).toBe(operation);expect(screen.getByRole('button',{name:'口コミを投稿する'})).toBeDisabled();
+ expect(localStorage.getItem(REVIEW_PENDING_PREFIX+facility)).toBe(operation);expect(screen.getByText(notice)).toBeInTheDocument();
 });

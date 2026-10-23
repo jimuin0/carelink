@@ -7,12 +7,26 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import type { Booking } from '@/types';
-import { statusChipClass, bookingStatusLabel, canCustomerCancelBooking, canCustomerChangeBooking, isCustomerChangeableStatus } from '@/lib/booking-status';
+import { statusChipClass, bookingStatusLabel, canCustomerCancelBooking, canCustomerCancelBookingAt, canCustomerChangeBooking } from '@/lib/booking-status';
 import { ONLINE_PREPAYMENT_NOTICE } from '@/lib/coming-soon';
 import { beginStaffOperation, finishStaffOperation } from '@/lib/staff-operation';
 import { UUID_REGEX } from '@/lib/constants';
 import { bookingStaffLabel, rebookSearchParams } from '@/lib/booking-nomination';
-import { isOnlineCancelAllowed, ONLINE_CANCEL_DISABLED_MESSAGE, type CancelPolicy } from '@/lib/cancel-fee';
+import {
+  isOnlineCancelAllowed, isPastFreeCancelWindow, hasBookingStarted, hoursUntilBookingStart, describeCancelFeeEstimate,
+  describeConfirmedCancelFee, ONLINE_CANCEL_DISABLED_MESSAGE, BOOKING_STARTED_CONTACT_MESSAGE, CHANGE_WINDOW_CLOSED_MESSAGE,
+  type CancelPolicy,
+} from '@/lib/cancel-fee';
+import ShopContactNotice from '@/components/booking/ShopContactNotice';
+
+/**
+ * 現在時刻（epoch ミリ秒）。キャンセル確認の「確定」を押した瞬間だけに読む（イベントハンドラ専用・描画中には呼ばない）。
+ * 確定のハンドラは ConfirmDialog の props として渡すため、react-hooks/purity は描画中に呼ばれ得ると見なして
+ * Date.now() を直接書くと警告する（警告件数は react-compiler-debt のラチェットで固定している）。
+ */
+function readClockMs(): number {
+  return Date.now();
+}
 
 export default function BookingDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
@@ -28,10 +42,11 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
   const [gcalError, setGcalError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  // 施設(slug/名前)・メニュー名・スタッフ名は補助表示＋再予約の遷移先に使う。
+  // 施設(slug/名前/電話)・メニュー名・スタッフ名は補助表示＋再予約の遷移先＋店舗への連絡手段に使う。
   // bookings.select('*') には facility_slug が無く、旧実装は存在しない facility_slug に
   // キャストして facility_id(UUID) にフォールバック→常に UUID を slug として 404 になっていた（A-5）。
-  const [facility, setFacility] = useState<{ slug: string; name: string } | null>(null);
+  // 施設は RLS で「公開中」か自分が所属する施設しか読めないので、読めた slug は店舗ページの 404 にならない。
+  const [facility, setFacility] = useState<{ slug: string; name: string; phone: string | null } | null>(null);
   const [menuName, setMenuName] = useState('');
   const [staffName, setStaffName] = useState('');
   // 予約を読み込んだ時刻。開始時刻を過ぎたかの判定に使う（描画中に Date.now() を読まない）。
@@ -39,6 +54,15 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
   // 店舗が「ネットでのキャンセル不可（店舗へ直接ご連絡）」を選んでいれば false。押しても API が必ず断る
   // ボタンの代わりに店舗への連絡を案内する。読めなかったときはボタンを出す（最終判定はキャンセル API）。
   const [onlineCancelAllowed, setOnlineCancelAllowed] = useState(true);
+  // キャンセル確認でキャンセル料の見込みを出すための店舗のポリシー。undefined は「読めなかった」
+  // （金額を推測せず一般的な案内にする）、null は「未設定」（キャンセル API と同じく無料）。
+  const [cancelPolicy, setCancelPolicy] = useState<CancelPolicy | null | undefined>(undefined);
+  // 確認ダイアログの見込みを計算した時刻。確定の直前に計算し直し、文が変わっていたら（無料期限を過ぎた等）
+  // そのまま取り消さずに新しい見込みを見せ直す。
+  const [cancelEstimateAt, setCancelEstimateAt] = useState(0);
+  const [cancelEstimateChanged, setCancelEstimateChanged] = useState(false);
+  // キャンセル API が返した確定額のお知らせ（キャンセル後に画面に残す）。
+  const [cancelReceipt, setCancelReceipt] = useState<string | null>(null);
 
   // load 相当の処理は「マウント時の初回読み込み」と「読み込み失敗後の再試行」の2箇所からしか
   // 呼ばれず、どちらも同じ処理を求める呼び出しなので、reloadKey を effect の依存に置いて
@@ -72,15 +96,18 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         if (data) {
           const b = data as Booking;
           const [facRes, menuRes, staffRes, policyRes] = await Promise.all([
-            supabase.from('facility_profiles').select('slug, name').eq('id', b.facility_id).single(),
+            supabase.from('facility_profiles').select('slug, name, phone').eq('id', b.facility_id).single(),
             b.menu_id ? supabase.from('facility_menus').select('name').eq('id', b.menu_id).single() : Promise.resolve({ data: null }),
             b.staff_id ? supabase.from('staff_profiles').select('name').eq('id', b.staff_id).single() : Promise.resolve({ data: null }),
             supabase.from('facility_cancel_policies').select('free_cancel_hours, late_cancel_rate, cancel_rule')
               .eq('facility_id', b.facility_id).maybeSingle(),
           ]);
           if (cancelled) return;
-          if (!policyRes.error) setOnlineCancelAllowed(isOnlineCancelAllowed(policyRes.data as CancelPolicy | null));
-          if (facRes.data) setFacility(facRes.data as { slug: string; name: string });
+          if (!policyRes.error) {
+            setOnlineCancelAllowed(isOnlineCancelAllowed(policyRes.data as CancelPolicy | null));
+            setCancelPolicy(policyRes.data as CancelPolicy | null);
+          }
+          if (facRes.data) setFacility(facRes.data as { slug: string; name: string; phone: string | null });
           setMenuName((menuRes.data as { name?: string } | null)?.name ?? '');
           setStaffName((staffRes.data as { name?: string } | null)?.name ?? '');
         }
@@ -98,6 +125,29 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
     return () => { cancelled = true; };
   }, [params.id, reloadKey]);
 
+  // いまキャンセルした場合のキャンセル料の見込み（キャンセル API と同じ computeCancelFee・同じ店舗のポリシー）。
+  const cancelFeeEstimate = (b: Booking, nowMs: number) =>
+    describeCancelFeeEstimate(cancelPolicy, b.total_price, hoursUntilBookingStart(b.booking_date, b.start_time, nowMs));
+
+  const openCancelConfirm = () => {
+    setCancelEstimateAt(Date.now());
+    setCancelEstimateChanged(false);
+    setShowCancelConfirm(true);
+  };
+
+  const confirmCancel = () => {
+    if (!booking) return;
+    const now = readClockMs();
+    // 確認を開いてから無料期限を過ぎた等で見込みが変わっていたら、取り消さずに新しい見込みを見せ直す。
+    if (cancelFeeEstimate(booking, now) !== cancelFeeEstimate(booking, cancelEstimateAt)) {
+      setCancelEstimateAt(now);
+      setCancelEstimateChanged(true);
+      return;
+    }
+    setShowCancelConfirm(false);
+    handleCancel();
+  };
+
   const handleCancel = async () => {
     if (cancelling) return;
     setCancelling(true);
@@ -105,6 +155,9 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
     try {
       const res = await fetch(`/api/booking/${params.id}/cancel`, { method: 'POST', signal: AbortSignal.timeout(10000) });
       if (res.ok) {
+        // 応答の cancelFee はキャンセルを受け付けたトランザクションで確定した額（お客様宛メールと同じ）。
+        const body = await res.json().catch(() => null);
+        setCancelReceipt(describeConfirmedCancelFee(body?.cancelFee));
         setToast({ type: 'success', message: '予約をキャンセルしました' });
         setBooking((prev) => prev ? { ...prev, status: 'cancelled' } : null);
       } else {
@@ -143,10 +196,23 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
     );
   }
 
-  const canCancel = canCustomerCancelBooking(booking.status);
-  // 開始時刻を過ぎた予約は API・DB とも日時変更を拒否するため、押しても失敗するボタンは出さない。
-  const canChange = canCustomerChangeBooking(booking.status, booking.booking_date, booking.start_time, loadedAt);
-  const changeClosedByStart = !canChange && isCustomerChangeableStatus(booking.status);
+  // これから来店・支払いがある予約か（キャンセル済み・来店済み・無断キャンセルではない）。支払いの案内に使う。
+  const isOpenBooking = canCustomerCancelBooking(booking.status);
+  // 開始時刻を過ぎた予約は API・DB ともキャンセル・日時変更を拒否するため、押しても失敗するボタンは出さない。
+  const canCancel = canCustomerCancelBookingAt(booking.status, booking.booking_date, booking.start_time, loadedAt);
+  // 無料キャンセルの期限を過ぎた予約は、オンラインで日時を変更できない（神原さん決定・2026年10月23日・案A。
+  // 変更 API・DB とも BOOKING_CHANGE_WINDOW_CLOSED で拒否する）。判定はキャンセル料と同じ isPastFreeCancelWindow。
+  // ポリシーを読めなかったとき（undefined）はボタンを出す（最終判定は変更 API）。
+  const changeWindowClosed = cancelPolicy !== undefined
+    && isPastFreeCancelWindow(cancelPolicy, hoursUntilBookingStart(booking.booking_date, booking.start_time, loadedAt));
+  const changeOpen = canCustomerChangeBooking(booking.status, booking.booking_date, booking.start_time, loadedAt);
+  const canChange = changeOpen && !changeWindowClosed;
+  const closedByStart = isOpenBooking && hasBookingStarted(booking.booking_date, booking.start_time, loadedAt);
+  // 「店舗へ直接ご連絡ください」を出すときは、電話番号と店舗ページも一緒に出す。
+  const contactMessage = closedByStart
+    ? BOOKING_STARTED_CONTACT_MESSAGE
+    : canCancel && !onlineCancelAllowed ? ONLINE_CANCEL_DISABLED_MESSAGE
+    : changeOpen && changeWindowClosed ? CHANGE_WINDOW_CLOSED_MESSAGE : null;
 
   return (
     <div>
@@ -194,9 +260,9 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
             </div>
             {/* Issue #408: オンライン前払いは API まで整備済みだが導線を出さないと決めた機能。
                 決済導線そのものは見せず、支払い方法の現状だけを伝える。
-                🔴 これから支払いが発生する予約に限る。canCancel が偽＝キャンセル済み・来店済み・
+                🔴 これから支払いが発生する予約に限る。isOpenBooking が偽＝キャンセル済み・来店済み・
                 無断キャンセルのいずれかで、そこへ「店舗でお支払いください」と出すのは誤案内。 */}
-            {canCancel && <p className="text-xs text-gray-500">{ONLINE_PREPAYMENT_NOTICE}</p>}
+            {isOpenBooking && <p className="text-xs text-gray-500">{ONLINE_PREPAYMENT_NOTICE}</p>}
           </>
         )}
         {booking.note && (
@@ -275,7 +341,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
       )}
       {/* 監査F5: オンライン事前決済は未実装（決済導線がフロントに存在しない）。
           今回は実装せず「近日公開」表示のみに留める（2026年7月5日・神原さん決定）。 */}
-      {canCancel && booking && booking.total_price !== null && (
+      {isOpenBooking && booking && booking.total_price !== null && (
         <div
           aria-disabled="true"
           className="w-full mt-4 py-3 rounded-xl border border-gray-200 text-gray-500 font-bold text-center cursor-not-allowed select-none"
@@ -292,24 +358,29 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
           日時を変更する
         </button>
       )}
-      {changeClosedByStart && (
-        <p className="mt-4 text-sm text-gray-600 text-center">
-          開始時刻を過ぎた予約は、オンラインで日時を変更できません。施設へ直接ご連絡ください。
-        </p>
-      )}
-      {canCancel && !onlineCancelAllowed && (
-        <p className="mt-3 text-sm text-gray-600 text-center">{ONLINE_CANCEL_DISABLED_MESSAGE}</p>
+      {contactMessage && (
+        <div className="mt-4">
+          <ShopContactNotice message={contactMessage} phone={facility?.phone} slug={facility?.slug} />
+        </div>
       )}
       {canCancel && onlineCancelAllowed && (
         <button
           type="button"
-          onClick={() => setShowCancelConfirm(true)}
+          onClick={openCancelConfirm}
           disabled={cancelling}
           className="w-full mt-3 py-3 rounded-xl border border-red-300 text-red-600 font-bold hover:bg-red-50 transition-colors"
         >
           {cancelling ? 'キャンセル中...' : 'この予約をキャンセル'}
         </button>
       )}
+      {/* キャンセル API が返した確定額（お客様宛メールと同じ額）。キャンセル直後に画面に残す。
+          ライブリージョンは予約を表示した時点から空のまま置いておき、後から文字を入れる
+          （中身ごと差し込むと多くのスクリーンリーダーで金額が読み上げられない）。 */}
+      <div role="status">
+        {booking.status === 'cancelled' && cancelReceipt && (
+          <p className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">予約をキャンセルしました。{cancelReceipt}</p>
+        )}
+      </div>
       {/* リピート予約（v8.6）。正しい施設 slug が取れている時のみ表示（UUID を slug にして 404 を防ぐ）。
           param 名は一覧・BookingFlow と揃えて menu_id/staff_id（#389 A-4/A-5 と統一）。
           指名なし（おまかせ）で割り当てられた担当者は引き継がない（指名料がかかる指名にしない）。 */}
@@ -333,14 +404,21 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         予約一覧に戻る
       </button>
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+      {/* 見込みが変わったときは、新しい見込みを本文ではなく notice（開いた時点から在るライブリージョン）に出す。
+          本文の書き換えは読み上げられず、「キャンセルする」を押しても何も起きないように聞こえるため。 */}
       <ConfirmDialog
         open={showCancelConfirm}
         title="予約をキャンセル"
-        message="この予約をキャンセルしますか？キャンセルポリシーによりキャンセル料が発生する場合があります。"
+        message={cancelEstimateChanged
+          ? 'この予約をキャンセルしますか？'
+          : `この予約をキャンセルしますか？${cancelFeeEstimate(booking, cancelEstimateAt)}`}
+        notice={cancelEstimateChanged
+          ? `キャンセル料の条件が変わりました。${cancelFeeEstimate(booking, cancelEstimateAt)}内容をご確認のうえ、もう一度「キャンセルする」を押してください。`
+          : ''}
         confirmLabel="キャンセルする"
         cancelLabel="戻る"
         variant="danger"
-        onConfirm={() => { setShowCancelConfirm(false); handleCancel(); }}
+        onConfirm={confirmCancel}
         onCancel={() => setShowCancelConfirm(false)}
       />
     </div>

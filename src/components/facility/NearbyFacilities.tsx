@@ -1,16 +1,18 @@
-import { getNearbyFacilities } from '@/lib/facilities';
+import { getNearbyForFacilityPage } from '@/lib/related-facilities';
 import FacilityCard from '@/components/search/FacilityCard';
 import Link from 'next/link';
 import { formatFacilityLocality } from '@/lib/facility-location';
 
 interface Props {
   facilityId: string;
+  /** 「似たサロン」と同じ店を重ねて出さないために使う（その欄の条件が業種＋都道府県のため）。 */
+  businessType: string;
   prefecture: string;
   city: string;
 }
 
-export default async function NearbyFacilities({ facilityId, prefecture, city }: Props) {
-  const facilities = await getNearbyFacilities(facilityId, prefecture, city);
+export default async function NearbyFacilities({ facilityId, businessType, prefecture, city }: Props) {
+  const facilities = await getNearbyForFacilityPage(facilityId, businessType, prefecture, city);
   if (facilities.length === 0) return null;
 
   return (

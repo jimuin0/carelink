@@ -4,7 +4,7 @@ import { render } from '@testing-library/react';
 import fs from 'fs';
 import path from 'path';
 import type { ReactElement, ReactNode } from 'react';
-import AdminLayout from '../layout';
+import AdminLayout, { navItems, navGroups } from '../layout';
 
 // 施設オーナーのナビに「押すと 404 になる運営専用ページ」を出さないことを固定する。
 // 特集（/admin/features）は layout が requirePlatformAdmin で運営以外を 404 にしているのに、
@@ -105,4 +105,33 @@ test('a platform admin still reaches 特集 from the 運営 group and the mobile
   expect(mobileItems.map(i => i.href)).toContain('/admin/features');
   // 掲載管理（オーナー向け）には重複して載せない
   expect(topNavGroups.find(g => g.key === 'listing')?.items.map(i => i.href)).not.toContain('/admin/features');
+});
+
+// ─── ナビの到達性（2026年10月23日） ─────────────────────────────────────────────
+// HPB 取り込みは navItems にだけあり、デスクトップのタブ（navGroups）にもスマホの「その他」（navGroups）にも出ず、
+// 店舗は画面の存在を知る手段が無かった。2つの定義が同じ画面を指していることを固定する。
+test('navItems と navGroups は同じ画面の集合を指し、運営専用の印も食い違わない', () => {
+  const grouped = new Map<string, boolean>();
+  for (const group of navGroups) {
+    for (const item of group.items) grouped.set(item.href, Boolean(group.platformAdmin || item.platformAdmin));
+  }
+  expect([...grouped.keys()].sort()).toEqual(navItems.map(i => i.href).sort());
+  for (const item of navItems) expect([item.href, grouped.get(item.href)]).toEqual([item.href, Boolean(item.platformAdmin)]);
+});
+
+test('店舗は HPB 取り込みに掲載管理のタブとスマホの「その他」から行ける', async () => {
+  await renderShellAs(false);
+  expect(topNavGroups.find(g => g.key === 'listing')?.items.map(i => i.href)).toContain('/admin/hpb-menus');
+  expect(mobileGroups.flatMap(g => g.items.map(i => i.href))).toContain('/admin/hpb-menus');
+});
+
+// 使える状態になっていない画面はナビに出さない（ページ・データは残す）。
+// 決済管理＝オンライン前払いは近日公開・Stripe 保留／チュートリアル＝動画がすべて準備中／
+// ホワイトラベル＝独自ドメインでの表示に運営の設定が要る。
+test.each([false, true])('準備中の画面（決済管理・チュートリアル・ホワイトラベル）をナビに出さない（運営=%p）', async (isPlatformAdmin) => {
+  await renderShellAs(isPlatformAdmin);
+  const visible = visibleHrefs();
+  for (const href of ['/admin/payments', '/admin/tutorials', '/admin/white-label']) expect(visible).not.toContain(href);
+  // 使える画面は消していない
+  for (const href of ['/admin/api-keys', '/admin/settings', '/admin/manual', '/admin/staff']) expect(visible).toContain(href);
 });

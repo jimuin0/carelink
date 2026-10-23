@@ -9,7 +9,9 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { loginSchema, type LoginFormData } from '@/lib/validations-auth';
 import Toast from '@/components/Toast';
 import { isLineLoginEnabled } from '@/lib/line-availability';
-import { safeRedirect } from '@/lib/safe-redirect';
+import { loginDestination, readStoreAccess, type StoreAccess } from '@/lib/post-login-landing';
+import { isPlatformSupportPath } from '@/lib/platform-support-path';
+import { SALON_RECOVERY_PATH } from '@/lib/salon-browser-context';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { SITE_URL } from '@/lib/constants';
 import { useClientReady } from '@/lib/use-client-ready';
@@ -51,7 +53,8 @@ function LoginContent() {
   // 本アプリがこのページへ渡す redirect は常に相対パス）。クライアント側では
   // window.location.origin を使い、プレビュー環境等でも同一オリジン判定が正しく働く。
   const origin = typeof window !== 'undefined' ? window.location.origin : SITE_URL;
-  const redirect = safeRedirect(searchParams.get('redirect'), origin);
+  // 戻り先の指定が無いときは /auth/landing（店舗を管理できるアカウントは /admin・それ以外は /mypage）。
+  const redirect = loginDestination(searchParams.get('redirect'), origin);
   const storeManagementLogin = isStoreManagementRedirect(redirect);
   const errorParam = searchParams.get('error');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(
@@ -62,7 +65,10 @@ function LoginContent() {
       : errorParam?.startsWith('line_')
       ? { type: 'error', message: 'LINEログインに失敗しました。もう一度お試しください。' }
       : errorParam === 'callback_failed'
-        ? { type: 'error', message: 'ログイン認証を完了できませんでした。時間をおいてもう一度お試しください。' }
+        // 確認メールのリンクを別のブラウザ・メールアプリで開くと、ログインの引き継ぎ（PKCE）だけが失敗し、
+        // メールアドレスの確認そのものは済んでいることが多い。「時間をおいて」では誰も先へ進めないため、
+        // このままログインするよう案内する（戻り先は redirect に残してある）。
+        ? { type: 'error', message: 'このブラウザではログインを完了できませんでした。メールアドレスの確認は完了している可能性があります。登録したメールアドレスとパスワードで、このままログインしてください。' }
       : null
   );
 
@@ -70,7 +76,7 @@ function LoginContent() {
     resolver: zodResolver(loginSchema),
   });
   const [showPassword, setShowPassword] = useState(false);
-  const [currentAccount, setCurrentAccount] = useState<{ email: string | undefined } | null>(null);
+  const [currentAccount, setCurrentAccount] = useState<{ email: string | undefined; storeAccess: StoreAccess } | null>(null);
   const [sessionCheck, setSessionCheck] = useState<{ destination: string; state: 'verified' | 'unauthenticated' | 'unavailable' } | null>(null);
   const [checkAttempt, setCheckAttempt] = useState(0);
   const [switchingAccount, setSwitchingAccount] = useState(false);
@@ -117,7 +123,16 @@ function LoginContent() {
           if (identity.state === 'unauthenticated') setCurrentAccount(null);
         }
         if (active && identity.state === 'verified') {
-          if (storeManagementLogin) setCurrentAccount({ email: identity.user.email });
+          if (storeManagementLogin) {
+            // 店舗を持たないアカウントに「このアカウントで管理画面を開く」を見せると、押しても
+            // 権限エラーへ戻されるだけになる。先に owner/admin の所属を確かめる（取得できない場合は
+            // 否定と断定せずリンクを残す。/admin 側の middleware が改めて確認する）。
+            const storeAccess = isPlatformSupportPath(redirect.split(/[?#]/)[0])
+              ? 'unknown' as const
+              : await readStoreAccess(createBrowserSupabaseClient(), identity.user.id);
+            if (!active || version !== sessionObservationVersion.current) return;
+            setCurrentAccount({ email: identity.user.email, storeAccess });
+          }
           else if (!navigationStarted.current) { navigationStarted.current = true; router.replace(redirect); }
         }
       } catch {
@@ -270,7 +285,11 @@ function LoginContent() {
           <p role="alert">このアカウントでは、お店を管理できません。</p>
           <p>お店を登録したアカウントでログインしてください。</p>
         </div>}
-        {!switchSignedOut && errorParam !== 'store_access_required' && <Link href={redirect} className="btn-primary block text-center">このアカウントで管理画面を開く</Link>}
+        {errorParam !== 'store_access_required' && currentAccount.storeAccess === 'none' && !switchSignedOut && <div className="space-y-2 text-sm text-gray-700">
+          <p role="alert">このアカウントには、管理できるお店がありません。</p>
+          <p>お店を登録したアカウントでログインするか、掲載を申し込んでください。</p>
+        </div>}
+        {!switchSignedOut && errorParam !== 'store_access_required' && currentAccount.storeAccess !== 'none' && <Link href={redirect} className="btn-primary block text-center">このアカウントで管理画面を開く</Link>}
         <div className="rounded-lg bg-gray-50 p-3 text-xs leading-relaxed text-gray-600">
           <p className="font-medium text-gray-700">登録したお店・写真・予約はそのままです。</p>
           <p className="mt-1">このブラウザーにある入力途中の内容・写真は、切り替えると消えます。</p>
@@ -278,8 +297,11 @@ function LoginContent() {
         <button type="button" disabled={switchingAccount} onClick={switchAccount} className={`${errorParam === 'store_access_required' ? 'btn-primary' : 'btn-secondary'} w-full`}>
           {switchingAccount ? '切り替え準備中…' : switchSignedOut ? '端末の下書き削除を再試行' : '別のアカウントでログイン'}
         </button>
-        {!switchSignedOut && <div className="border-t border-gray-100 pt-4 text-center text-sm">
-          <Link href="/admin/onboarding" className="text-sky-700 underline">新しくお店を登録する</Link>
+        {/* 申込（/register）を経ずに /admin/onboarding で作ると、掲載申込の内容が取り込まれない。
+            申込済みの人は /register/recover で申込を選んで引き継ぐ。 */}
+        {!switchSignedOut && <div className="border-t border-gray-100 pt-4 text-center text-sm space-y-2">
+          <p><Link href="/register" className="text-sky-700 underline">新しくお店を登録する</Link></p>
+          <p className="text-xs text-gray-600">掲載を申し込み済みの方は<Link href={SALON_RECOVERY_PATH} className="text-sky-700 underline">申込の続きから</Link>進めてください。</p>
         </div>}
         {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
       </div>
@@ -400,7 +422,7 @@ function LoginContent() {
           </button>
 
           <div className="mt-4 text-center">
-            <Link href="/auth/forgot-password" className="text-sm text-sky-700 hover:underline">
+            <Link href={`/auth/forgot-password?redirect=${encodeURIComponent(redirect)}`} className="text-sm text-sky-700 hover:underline">
               パスワードをお忘れの方
             </Link>
           </div>

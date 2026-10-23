@@ -3,12 +3,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
-import { UUID_REGEX, businessTypes } from '@/lib/constants';
+import { UUID_REGEX, businessTypes, dayLabels } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { checkPublishReadiness, isPublishedLocationConflict } from '@/lib/facility-publish-gate';
+import { checkPublishReadiness, isPublishedHoursConflict, isPublishedLocationConflict, LISTING_HOURS_MESSAGE } from '@/lib/facility-publish-gate';
 import { validateFacilityPrText } from '@/lib/medical-ad-guard';
 import type { Database } from '@/types/database.types';
 import { authUnavailable, serverError } from '@/lib/with-route';
@@ -16,6 +16,7 @@ import { verifyAuthUser } from '@/lib/auth-verification';
 import { FACILITY_INPUT_LIMITS } from '@/lib/facility-input-limits';
 import { toJsonValue } from '@/lib/json-value';
 import { normalizeFacilityLocation } from '@/lib/facility-location';
+import { isHttpUrl, normalizeWebsiteUrl, settingsErrorSummary, settingsFieldErrors, SETTINGS_FIELD_LABELS } from '@/lib/facility-settings-input';
 
 // facility_profiles の update() に渡すオブジェクトの型。
 // 以前は Record<string, unknown> にしていたが、Database 型配線後は
@@ -58,7 +59,12 @@ const settingsSchema = z.object({
   access_info: z.string().max(200).optional().nullable(),
   nearest_station: z.string().max(FACILITY_INPUT_LIMITS.nearestStation).optional().nullable(),
   phone: z.string().max(20).optional().nullable(),
-  website_url: z.string().url().max(FACILITY_INPUT_LIMITS.website).optional().nullable().or(z.literal('')),
+  // `www.example.com` のようにスキームの無い入力は https:// を補う（以前は保存全体が 400 になっていた）。
+  // 掲載ページにリンクとして出すので http(s) だけを受け付ける。
+  website_url: z.preprocess(
+    normalizeWebsiteUrl,
+    z.union([z.literal(''), z.string().url().max(FACILITY_INPUT_LIMITS.website).refine(isHttpUrl)]).optional().nullable(),
+  ),
   seat_count: z.number().int().min(0).max(9999).optional().nullable(),
   staff_count: z.number().int().min(0).max(9999).optional().nullable(),
   parking: z.boolean().optional(),
@@ -180,6 +186,8 @@ async function patchSettings(request: NextRequest) {
     if (error?.message.includes('FACILITY_OWNER_REQUIRED')) return NextResponse.json({ error:'店舗所有者の確認が必要です。公開変更は保存されていません' },{ status:409 });
 
     if (isPublishedLocationConflict(error)) return NextResponse.json({ error: '所在地が変更されています。都道府県・市区町村・住所を確認して、再度公開してください。' }, { status: 409 });
+    // 公開ゲートを通った後に営業時間が変わった（別タブでの保存など）。DB が同じ規則で最終確認している。
+    if (isPublishedHoursConflict(error)) return NextResponse.json({ error: '営業時間が変更されています。営業時間を確認して保存してから、再度公開してください。', missing: [LISTING_HOURS_MESSAGE] }, { status: 409 });
     if (error) return serverError('admin-settings-status-update', new Error('Facility status update failed'), '/api/admin/settings');
     if (updated?.length !== 1 || updated[0].id !== auth.facilityId) return NextResponse.json({ error: '施設の状態を確認できません。再読み込みしてください。' }, { status: 409 });
 
@@ -198,13 +206,19 @@ async function patchSettings(request: NextRequest) {
   }
 
   const parsed = settingsSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
+  if (!parsed.success) {
+    // どの欄が悪いのかを返す（画面は欄の下に出す）。以前は「リクエストが不正です」だけで、
+    // Web サイト欄ひとつの形式違いで住所・営業時間を含む保存全体が理由不明のまま失敗していた。
+    const fields = settingsFieldErrors(parsed.error.issues);
+    return NextResponse.json({ error: settingsErrorSummary(fields), fields }, { status: 400 });
+  }
 
   // Validate business hours consistency
   if (parsed.data.business_hours) {
     for (const [day, hours] of Object.entries(parsed.data.business_hours)) {
       if (hours && hours.close <= hours.open) {
-        return NextResponse.json({ error: `${day}の閉店時間は開店時間より後にしてください` }, { status: 400 });
+        const message = `${dayLabels[day]}曜日の閉店時間は開店時間より後にしてください`;
+        return NextResponse.json({ error: message, fields: { business_hours: message } }, { status: 400 });
       }
     }
   }
@@ -216,7 +230,9 @@ async function patchSettings(request: NextRequest) {
   for (const field of ['catch_copy', 'description'] as const) {
     const check = validateFacilityPrText(parsed.data[field]);
     if (!check.ok) {
-      return NextResponse.json({ error: check.message }, { status: 400 });
+      // どちらの欄の表現かを先頭に出す（キャッチコピーと施設紹介のどちらを直すのか分からなかった）。
+      const message = `${SETTINGS_FIELD_LABELS[field]}：${check.message}`;
+      return NextResponse.json({ error: message, fields: { [field]: message } }, { status: 400 });
     }
   }
 
@@ -260,6 +276,12 @@ async function patchSettings(request: NextRequest) {
       return NextResponse.json({ error: '住所欄が都道府県・市区町村だけになっています。番地（町名以降）まで入力して保存してください。' }, { status: 400 });
     }
     return NextResponse.json({ error: '公開中の施設では都道府県・市区町村・住所を空にできません。先に非公開へ変更してください。' }, { status: 409 });
+  }
+  // 営業時間は無料掲載の公開条件（2026年10月23日）。公開中の店舗が、7曜日そろっていない・営業日が1日も無い
+  // 営業時間を保存しようとすると DB が断る（営業時間を変えない保存は再検査しない）。
+  if (isPublishedHoursConflict(error)) {
+    const message = '公開中の施設では、7曜日すべての営業時間・定休日（営業日は1日以上）が必要です。休業する場合は先に非公開へ変更してください。';
+    return NextResponse.json({ error: message, fields: { business_hours: message } }, { status: 409 });
   }
   if (error) return serverError('admin-settings-patch', new Error('Facility settings update failed'), '/api/admin/settings');
   if (updated?.length !== 1 || updated[0].id !== auth.facilityId) return NextResponse.json({ error: '施設の状態を確認できません。再読み込みしてください。' }, { status: 409 });

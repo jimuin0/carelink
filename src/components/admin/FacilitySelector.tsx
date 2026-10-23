@@ -30,6 +30,21 @@ export default function FacilitySelector({ choices, selectedId, path, date, dirt
     }
   };
   if (choices.length === 0) return <p role="status">管理できる店舗がありません。</p>;
+  const crossLink = selectedId && (path === '/admin/settings' || path === '/admin/photos')
+    ? <Link href={`${path === '/admin/settings' ? '/admin/photos' : '/admin/settings'}?facility_id=${selectedId}`}
+      prefetch={false} onClick={guardNavigation} aria-disabled={busy} className="text-primary underline">{path === '/admin/settings' ? 'この店舗の写真を管理' : 'この店舗の基本情報を編集'}</Link>
+    : null;
+  const dialog = <ConfirmDialog open={pendingHref !== null} title="未保存の変更があります"
+    message="未保存の変更を破棄して移動しますか？" confirmLabel="破棄して移動" confirmDisabled={busy}
+    onCancel={() => setPendingHref(null)} onConfirm={() => {
+      if (busy || pendingHref === null) return;
+      router.push(pendingHref);
+      setPendingHref(null);
+    }} />;
+  // 店舗が1つだけなら選ぶものが無い。「編集する店舗」の枠は出さず、画面間の移動リンクだけを残す。
+  if (choices.length === 1 && selectedId === choices[0].id) {
+    return crossLink ? <><p className="mb-4 text-sm">{crossLink}</p>{dialog}</> : null;
+  }
   return <section aria-label="編集する店舗" className="rounded-xl bg-white border p-4 mb-4">
     <p className="font-bold mb-2">{selectedId ? '編集する店舗' : '編集する店舗を選択してください'}</p>
     <ul className="flex flex-wrap gap-3">
@@ -40,14 +55,7 @@ export default function FacilitySelector({ choices, selectedId, path, date, dirt
         </Link>
       </li>)}
     </ul>
-    {selectedId && (path === '/admin/settings' || path === '/admin/photos') && <p className="mt-2 text-sm"><Link href={`${path === '/admin/settings' ? '/admin/photos' : '/admin/settings'}?facility_id=${selectedId}`}
-      prefetch={false} onClick={guardNavigation} aria-disabled={busy} className="text-primary underline">{path === '/admin/settings' ? 'この店舗の写真を管理' : 'この店舗の基本情報を編集'}</Link></p>}
-    <ConfirmDialog open={pendingHref !== null} title="未保存の変更があります"
-      message="未保存の変更を破棄して移動しますか？" confirmLabel="破棄して移動" confirmDisabled={busy}
-      onCancel={() => setPendingHref(null)} onConfirm={() => {
-        if (busy || pendingHref === null) return;
-        router.push(pendingHref);
-        setPendingHref(null);
-      }} />
+    {crossLink && <p className="mt-2 text-sm">{crossLink}</p>}
+    {dialog}
   </section>;
 }

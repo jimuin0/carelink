@@ -45,7 +45,7 @@ export default async function AdminBlogPage(props: { searchParams: Promise<{ fac
 
       {posts.length === 0 ? (
         <div className="bg-white rounded-xl p-8 text-center">
-          <p className="text-gray-400 mb-3">ブログ記事がありません</p>
+          <p className="text-gray-500 mb-3">ブログ記事がありません</p>
           <Link href={newHref} className="text-sm text-primary hover:underline">
             最初の記事を書く
           </Link>
@@ -61,7 +61,7 @@ export default async function AdminBlogPage(props: { searchParams: Promise<{ fac
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-bold">{post.title}</p>
-                  <p className="text-xs text-gray-400 mt-1">
+                  <p className="text-xs text-gray-500 mt-1">
                     {post.published_at ? new Date(post.published_at).toLocaleDateString('ja-JP') : '下書き'}
                   </p>
                 </div>

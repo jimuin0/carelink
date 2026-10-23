@@ -3,6 +3,7 @@ import type { Facility } from '@/types';
 import { dayOrder, dayLabels } from '@/lib/constants';
 import { featureSearchHref } from '@/lib/search-href';
 import { formatFacilityAddress } from '@/lib/facility-location';
+import { isDialablePhone } from '@/lib/facility-contact';
 import { GOOGLE_MAPS_EMBED_REFERRER_POLICY, googleMapsEmbedUrl } from '@/lib/map-embed';
 
 export default function AccessInfo({ facility }: { facility: Facility }) {
@@ -147,7 +148,7 @@ function InfoRow({ label, value, isPhone }: { label: string; value: React.ReactN
     <tr className="border-b border-gray-100">
       <td className="py-2.5 pr-4 text-gray-500 w-28 align-top font-medium">{label}</td>
       <td className="py-2.5">
-        {isPhone && typeof value === 'string' && /^[0-9+\-()# ]{7,20}$/.test(value) ? (
+        {isPhone && isDialablePhone(value) ? (
           <a href={`tel:${value}`} className="text-sky-700 hover:underline">
             {value}
           </a>

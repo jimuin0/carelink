@@ -78,7 +78,7 @@ export default async function AdminStaffPage(props: { searchParams: Promise<{ fa
                 </div>
                 {s.is_active && !scheduled.has(s.id) && (
                   <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                    <span className="font-bold">勤務時間が未登録です。</span>保存するまで、このスタッフはネット予約を受けられません。
+                    <span className="font-bold">勤務時間が未登録です。</span>保存するまで、このスタッフはネット予約を受けられず、予約表の「指名なし」の予約にも割り当てられません。
                   </p>
                 )}
                 {(s.specialties?.length ?? 0) > 0 && (

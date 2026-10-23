@@ -18,6 +18,7 @@ import Breadcrumb from '@/components/Breadcrumb';
 import FacilityCard from '@/components/search/FacilityCard';
 import Pagination from '@/components/search/Pagination';
 import SafeHtmlContent from '@/components/seo/SafeHtmlContent';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 export const revalidate = 3600;
 export const dynamicParams = true;
@@ -31,15 +32,17 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { prefectureSlug, secondSlug, typeSlug } = await params;
   const prefName = getPrefectureName(prefectureSlug);
   const cityName = getCityName(prefectureSlug, secondSlug);
-  const typeName = getBusinessTypeName(typeSlug);
-  if (!prefName || !cityName || !typeName) return {};
+  // 保存値（検索の結合キー）と表示名を分ける（src/lib/business-type-label.ts）。
+  const typeValue = getBusinessTypeName(typeSlug);
+  if (!prefName || !cityName || !typeValue) return {};
+  const typeName = businessTypeLabel(typeValue);
 
   const title = `${cityName}の${typeName}`;
   const description = `${prefName}${cityName}の${typeName}を口コミ・メニュー・写真で比較。ネット予約24時間OK。`;
   // 件数は本文と同じ検索の読み取りから取る（src/lib/area-listing.ts）。数えられなかったときは例外にし、
   // null を「件数不明＝index 可」とも扱わない。metadata だけ別の問い合わせにすると、それだけが落ちたとき
   // 本文が 200 で返り title・robots が欠ける（2026年10月22日 是正）。
-  const count = await countAreaListing(prefName, cityName, typeName);
+  const count = await countAreaListing(prefName, cityName, typeValue);
   const hasQualityContent = isIndexableAreaQuality(count, generateCityTypeContent(prefectureSlug, cityName, typeSlug));
   return {
     title,
@@ -54,19 +57,21 @@ export default async function CityTypePage({ params, searchParams }: Props) {
   const { prefectureSlug, secondSlug, typeSlug } = await params;
   const prefName = getPrefectureName(prefectureSlug);
   const cityName = getCityName(prefectureSlug, secondSlug);
-  const typeName = getBusinessTypeName(typeSlug);
+  const typeValue = getBusinessTypeName(typeSlug);
 
   // secondSlugが市区町村でなければ404（業種/業種の二重パスは無効）
-  if (!prefName || !isValidCitySlug(prefectureSlug, secondSlug) || !cityName || !isValidBusinessTypeSlug(typeSlug) || !typeName) {
+  if (!prefName || !isValidCitySlug(prefectureSlug, secondSlug) || !cityName || !isValidBusinessTypeSlug(typeSlug) || !typeValue) {
     notFound();
   }
+  // 保存値（検索の結合キー）と表示名を分ける（src/lib/business-type-label.ts）。
+  const typeName = businessTypeLabel(typeValue);
 
   const { page: pageStr } = await searchParams;
   const page = Math.max(1, parseInt(pageStr || '1', 10) || 1);
 
   // 読めなかった検索は「0件・掲載なし」として 200 で返さず、例外にして error.tsx の一時障害表示にする。
   const [{ facilities, total, perPage }, seoContent] = await Promise.all([
-    loadAreaListingPage(prefName, cityName, typeName, page),
+    loadAreaListingPage(prefName, cityName, typeValue, page),
     getAreaSeoContent(prefectureSlug, secondSlug, typeSlug),
   ]);
   const totalPages = Math.ceil(total / perPage);
@@ -101,7 +106,7 @@ export default async function CityTypePage({ params, searchParams }: Props) {
           <h2 className="text-sm font-bold text-gray-800 mb-3 pl-3 border-l-[3px] border-sky-500">こだわり条件で絞り込む</h2>
           <div className="flex flex-wrap gap-2">
             {facilityFeatures.map((feature) => (
-              <Link key={feature} href={featureSearchHref(feature, { type: typeName, area: prefName })}
+              <Link key={feature} href={featureSearchHref(feature, { type: typeValue, area: prefName })}
                 className="px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs text-gray-600 hover:bg-sky-50 hover:border-sky-200 hover:text-sky-700 transition-colors">
                 {feature}
               </Link>
@@ -187,7 +192,7 @@ export default async function CityTypePage({ params, searchParams }: Props) {
             {allBusinessTypeSlugs.filter((ts) => ts !== typeSlug).map((ts) => (
               <Link key={ts} href={`/${prefectureSlug}/${secondSlug}/${ts}`}
                 className="px-3.5 py-1.5 bg-sky-50 border border-sky-100 rounded-full text-xs text-sky-700 hover:bg-sky-100 transition-colors">
-                {cityName}の{getBusinessTypeName(ts)}
+                {cityName}の{businessTypeLabel(getBusinessTypeName(ts))}
               </Link>
             ))}
           </div>

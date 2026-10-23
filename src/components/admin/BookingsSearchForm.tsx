@@ -66,7 +66,7 @@ export default function BookingsSearchForm({
         <label className="block text-xs font-medium text-gray-600 mb-1.5">来店日</label>
         <div className="flex items-center gap-2">
           <SbInput type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-auto!" aria-label="来店日（開始）" />
-          <span className="text-gray-400 text-sm">〜</span>
+          <span className="text-gray-500 text-sm">〜</span>
           <SbInput type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-auto!" aria-label="来店日（終了）" />
         </div>
       </div>

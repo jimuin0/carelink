@@ -210,8 +210,8 @@ test('two-store integration settings select and save only the requested tenant',
   const client = db(), actor = await identity(client);
   const first = randomUUID(), second = randomUUID(), suffix = randomUUID();
   const facilities = await client.from('facility_profiles').insert([
-    { id: first, slug: `synthetic-integration-a-${suffix}`, name: `合成連携A ${suffix}`, business_type: 'ヘアサロン', prefecture: '愛知県', city: '合成市', address: '合成町A', status: 'draft' },
-    { id: second, slug: `synthetic-integration-b-${suffix}`, name: `合成連携B ${suffix}`, business_type: 'ヘアサロン', prefecture: '愛知県', city: '合成市', address: '合成町B', status: 'draft' },
+    { id: first, slug: `synthetic-integration-a-${suffix}`, name: `合成連携A ${suffix}`, business_type: 'ヘアサロン', prefecture: '愛知県', city: '合成市', address: '合成町A', status: 'draft', gbp_place_id: `SyntheticPlaceA-${suffix}` },
+    { id: second, slug: `synthetic-integration-b-${suffix}`, name: `合成連携B ${suffix}`, business_type: 'ヘアサロン', prefecture: '愛知県', city: '合成市', address: '合成町B', status: 'draft', gbp_place_id: `SyntheticPlaceB-${suffix}` },
   ]);
   if (facilities.error) throw new Error('Disposable integration facilities failed');
   const members = await client.from('facility_members').insert([
@@ -231,7 +231,18 @@ test('two-store integration settings select and save only the requested tenant',
     await expect(page.getByRole('region', { name: '編集する店舗' }).getByRole('link', { name: `合成連携B ${suffix}（選択中）`, exact: true })).toHaveAttribute('aria-current', 'page');
     expect(new URL(page.url()).searchParams.get('facility_id')).toBe(second);
     if (path === '/admin/gbp') {
-      await page.locator('#gbp-place-id').fill('SyntheticPlaceB');
+      await expect(page.locator('#gbp-place-id')).toHaveValue(`SyntheticPlaceB-${suffix}`);
+      // A new Place ID is checked against Google before it is stored. CI has no Places key, so the
+      // listing cannot be confirmed and nothing is written (the refusal names the reason).
+      await page.locator('#gbp-place-id').fill(`SyntheticPlaceC-${suffix}`);
+      const refused = page.waitForResponse(r => new URL(r.url()).pathname === '/api/admin/gbp/place' && r.request().method() === 'POST');
+      await page.getByRole('button', { name: '保存', exact: true }).click();
+      expect((await refused).status()).toBe(422);
+      const refusal = page.getByRole('alert').filter({ hasText: 'Google の店舗情報を確認できませんでした' });
+      await expect(refusal).toBeVisible();
+      await refusal.getByRole('button', { name: '閉じる', exact: true }).click();
+      // Clearing needs no lookup and must reach only the selected store.
+      await page.locator('#gbp-place-id').fill('');
       const saved = page.waitForResponse(r => new URL(r.url()).pathname === '/api/admin/gbp/place' && r.request().method() === 'POST');
       await page.getByRole('button', { name: '保存', exact: true }).click();
       expect((await saved).status()).toBe(200);
@@ -245,7 +256,7 @@ test('two-store integration settings select and save only the requested tenant',
   }
   const profiles = await client.from('facility_profiles').select('id,gbp_place_id').in('id', [first, second]);
   expect(profiles.error).toBeNull();
-  expect(profiles.data).toEqual(expect.arrayContaining([{ id: first, gbp_place_id: null }, { id: second, gbp_place_id: 'SyntheticPlaceB' }]));
+  expect(profiles.data).toEqual(expect.arrayContaining([{ id: first, gbp_place_id: `SyntheticPlaceA-${suffix}` }, { id: second, gbp_place_id: null }]));
   const domains = await client.from('white_label_domains').select('facility_id,domain,is_verified').in('facility_id', [first, second]);
   expect(domains.error).toBeNull();
   expect(domains.data).toEqual([{ facility_id: second, domain: `synthetic-${suffix}.example.invalid`, is_verified: false }]);

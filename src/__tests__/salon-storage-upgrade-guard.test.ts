@@ -68,10 +68,13 @@ test('forward signed-upload cutover is replayed once by supabase start without t
   expect(validation).toContain("'with_check',p.with_check");
   expect(active).not.toMatch(/DELETE\s+FROM\s+storage\.objects/i);
   const workflow = readFileSync(join(process.cwd(), '.github/workflows/ci.yml'), 'utf8');
-  const start = workflow.indexOf('run: supabase start');
+  // The start step retries across image registries (2026-10-23), so it is a multi-line run
+  // that invokes `supabase start`; it must still come before the E2E run.
+  const start = workflow.indexOf('name: Start Supabase (fresh-apply gate)');
   const e2e = workflow.indexOf('run: node scripts/run-ci-e2e.mjs');
   expect(start).toBeGreaterThanOrEqual(0);
   expect(e2e).toBeGreaterThan(start);
+  expect(workflow.slice(start, e2e)).toMatch(/\bsupabase start\b/);
   expect(workflow).not.toContain('Apply deferred signed-upload cutover');
   expect(workflow).not.toContain('< supabase/deferred-migrations/20260927000001_salon_signed_upload_cutover.sql');
   expect(workflow).not.toContain('supabase db query --linked');

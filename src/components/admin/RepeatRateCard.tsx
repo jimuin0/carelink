@@ -61,7 +61,7 @@ export default function RepeatRateCard({ facilityId }: { facilityId: string }) {
       <p className="text-3xl font-bold text-sky-600 mt-1">
         {rate !== null ? `${rate}%` : '-'}
       </p>
-      <p className="text-xs text-gray-400 mt-1">2回以上来店した顧客の割合</p>
+      <p className="text-xs text-gray-500 mt-1">2回以上来店した顧客の割合</p>
     </div>
   );
 }

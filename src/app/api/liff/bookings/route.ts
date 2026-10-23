@@ -44,12 +44,25 @@ export async function GET(req: NextRequest) {
   // bookings に menu_name 列は無く menu_id 経由で取得（embed）。
   // 既存の出力形（menu_name フラット）を維持するため取得後に平坦化する。
   const SELECT = 'id, facility_id, booking_date, start_time, end_time, menu:facility_menus(name), status, total_price, facility_profiles(name)';
+  // キャンセル画面は「店舗へ直接ご連絡ください」と案内するときに電話番号と店舗ページも出す（一覧には出さない）。
+  const SINGLE_SELECT = 'id, facility_id, booking_date, start_time, end_time, menu:facility_menus(name), status, total_price, facility_profiles(name, slug, phone, status)';
   type RawBooking = { menu?: { name: string } | { name: string }[] | null } & Record<string, unknown>;
   const flatten = (b: RawBooking) => {
     const m = Array.isArray(b.menu) ? b.menu[0] : b.menu;
     const { menu, ...rest } = b;
     void menu;
     return { ...rest, menu_name: m?.name ?? null };
+  };
+  type RawFacility = { name: string; slug: string; phone: string | null; status: string | null } | null;
+  // 応答の facility_profiles は従来どおり { name } だけにし、連絡先は facility_contact に分ける。
+  // 連絡先は公開中の店舗に限る（マイページは RLS で公開中の店舗しか読めない。非公開の店舗ページは 404 になる）。
+  const singleView = (b: RawBooking) => {
+    const facility = b.facility_profiles as RawFacility;
+    return {
+      ...flatten(b),
+      facility_profiles: facility ? { name: facility.name } : null,
+      facility_contact: facility?.status === 'published' ? { slug: facility.slug, phone: facility.phone } : null,
+    };
   };
 
   // 【2026年7月10日 恒久根治】error を検査せず null/空配列にフォールバックしていたため、
@@ -58,7 +71,7 @@ export async function GET(req: NextRequest) {
   if (bookingId) {
     const { data: booking, error } = await admin
       .from('bookings')
-      .select(SELECT)
+      .select(SINGLE_SELECT)
       .eq('id', bookingId)
       .eq('user_id', userId)
       .maybeSingle();
@@ -68,6 +81,8 @@ export async function GET(req: NextRequest) {
     if (!booking) return NextResponse.json({ booking: null });
     // キャンセル画面がボタンの代わりに「店舗へ直接ご連絡ください」を出すための、店舗のキャンセルの受け付け方。
     // 判定は予約画面・キャンセル API と同じ解釈（isOnlineCancelAllowed）。最終判定はキャンセル RPC が行う。
+    // ポリシーそのもの（cancel_policy）も返し、キャンセル画面がキャンセル API と同じ computeCancelFee で
+    // キャンセル料の見込みを出せるようにする（null＝未設定の店舗＝無料）。
     const { data: policy, error: policyError } = await admin
       .from('facility_cancel_policies')
       .select('free_cancel_hours, late_cancel_rate, cancel_rule')
@@ -76,15 +91,17 @@ export async function GET(req: NextRequest) {
     if (policyError) {
       // 案内の出し分けに使う補助情報なので、読めなくても予約そのものは返す（マイページと同じ扱い）。
       // online_cancel_allowed を省くとキャンセル画面はボタンを出すが、「ネットでのキャンセル不可」の店舗なら
-      // キャンセル RPC が必ず断るので安全側のまま。読めなかった事実は通知して気づけるようにする。
+      // キャンセル RPC が必ず断るので安全側のまま。cancel_policy も省き、キャンセル画面は金額を推測しない
+      // 一般的な案内にする。読めなかった事実は通知して気づけるようにする。
       const diagnostic = databaseDiagnostic(policyError);
       safeCaptureException(diagnostic, 'liff-bookings-cancel-policy');
       alertCaughtError('liff-bookings-cancel-policy', diagnostic, '/api/liff/bookings');
-      return NextResponse.json({ booking: flatten(booking as RawBooking) });
+      return NextResponse.json({ booking: singleView(booking as RawBooking) });
     }
     return NextResponse.json({ booking: {
-      ...flatten(booking as RawBooking),
+      ...singleView(booking as RawBooking),
       online_cancel_allowed: isOnlineCancelAllowed(policy as CancelPolicy | null),
+      cancel_policy: policy as CancelPolicy | null,
     } });
   }
 

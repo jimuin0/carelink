@@ -9,6 +9,7 @@ import { getEntitlementsByFacility, type EntitlementsClient } from '@/lib/entitl
 import { retryTransientSupabaseRead, summarizeDependencyError } from '@/lib/err';
 import { resolveLineUserIdsForUsers } from '@/lib/line-link';
 import { isReminderSendHour, REMINDER_SEND_HOUR_JST } from '@/lib/reminder-schedule';
+import { bookingEmailShopContact } from '@/lib/facility-contact';
 
 // Render Cron: runs hourly（JST 毎時05分）。ただし送信の計画を立てるのは JST 9 時台の run
 // （09:05）だけ（2026年10月22日 神原さん決定「リマインドは朝9時に1回だけ」）。
@@ -133,17 +134,22 @@ export async function GET(request: Request) {
 
     // 施設名（chunked .in）
     const facilityMap = new Map<string, string | null>();
+    // ゲスト予約（user_id なし）のメールに載せる店舗の連絡先（マイページで予約を見られないため）。
+    const facilityContactMap = new Map<string, ReturnType<typeof bookingEmailShopContact>>();
     for (let i = 0; i < facilityIds.length; i += IN_CHUNK) {
       const idChunk = facilityIds.slice(i, i + IN_CHUNK);
       const { data: facilities, error: facilitiesErr } = await supabase
         .from('facility_profiles')
-        .select('id, name')
+        .select('id, name, slug, phone, status')
         .in('id', idChunk);
       if (facilitiesErr) {
         safeCaptureException(facilitiesErr, 'booking-reminder-facilities');
         return cronError('booking-reminder', startedAt, facilitiesErr, { message: 'facility lookup failed' });
       }
-      for (const f of facilities ?? []) facilityMap.set(f.id, f.name);
+      for (const f of facilities ?? []) {
+        facilityMap.set(f.id, f.name);
+        facilityContactMap.set(f.id, bookingEmailShopContact(f));
+      }
     }
 
     let dependencyFailures = 0;
@@ -354,6 +360,9 @@ export async function GET(request: Request) {
             endTime: booking.end_time,
             totalPrice: booking.total_price ?? undefined,
             bookingId: booking.id,
+            // ゲスト予約（user_id なし）はマイページに出ないので、メールは店舗の連絡先へ案内する。
+            hasAccount: booking.user_id !== null,
+            ...facilityContactMap.get(booking.facility_id),
           }, days);
           if (ok === 'delivered') {
             await markDelivery('delivered');
@@ -414,6 +423,8 @@ export async function GET(request: Request) {
                 endTime: booking.end_time,
                 totalPrice: booking.total_price ?? undefined,
                 bookingId: booking.id,
+                hasAccount: booking.user_id !== null,
+                ...facilityContactMap.get(booking.facility_id),
               }, days);
               if (fallbackOk === 'delivered') {
                 await markDelivery('delivered');

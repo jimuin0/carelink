@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import { useLiff } from '@/hooks/useLiff';
+import LiffNotLinked from '@/components/liff/LiffNotLinked';
 import { discountText, couponTypeLabel } from '@/lib/coupon-display';
 
 type Coupon = {
@@ -26,17 +26,6 @@ function LiffLoading() {
 }
 function LiffError({ message }: { message: string }) {
   return <div className="flex items-center justify-center min-h-screen p-4"><p role="alert" className="text-red-600 text-sm">{message}</p></div>;
-}
-function LiffNotLinked() {
-  return (
-    <div className="flex items-center justify-center min-h-screen p-4">
-      <div className="text-center space-y-4">
-        <p className="text-2xl">🔗</p>
-        <p className="font-bold text-gray-900">LINE連携が必要です</p>
-        <Link href="/mypage/settings" className="inline-block bg-[#06C755] text-white px-6 py-2.5 rounded-full text-sm font-bold">設定ページへ</Link>
-      </div>
-    </div>
-  );
 }
 
 export default function LiffCouponsPage() {

@@ -9,6 +9,7 @@ import { regionGroups, facilityFeatures } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 import { featureSearchHref } from '@/lib/search-href';
 import dynamic from 'next/dynamic';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 const HomeUserPanel = dynamic(() => import('@/components/search/HomeUserPanel'), { ssr: false });
 const JapanRegionMap = dynamic(() => import('@/components/home/JapanRegionMap'), { ssr: false, loading: () => <div className="h-64 bg-gray-50 rounded-2xl animate-pulse" /> });
@@ -19,7 +20,7 @@ const categories = [
   { name: 'リラク', type: 'リラクサロン' },
   { name: 'エステ', type: 'エステサロン' },
   { name: '美容クリニック', type: '美容クリニック' },
-  { name: '鍼灸院・整骨院', type: '鍼灸院・整骨院' },
+  { name: businessTypeLabel('鍼灸院・整骨院'), type: '鍼灸院・整骨院' },
   { name: 'ピラティス', type: 'ピラティス' },
 ];
 
@@ -145,7 +146,7 @@ export default function HomeBelowFold() {
                         href={`/search?type=${encodeURIComponent(cat.type)}`}
                         className="text-sky-700 text-[15px] font-medium hover:underline"
                       >
-                        {cat.type}を探す
+                        {businessTypeLabel(cat.type)}を探す
                       </Link>
                       <div className="flex flex-wrap items-center gap-y-1 mt-1.5">
                         {regionGroups.map((region, i) => {

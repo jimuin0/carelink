@@ -16,6 +16,7 @@ import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import { isPlatformSupportPath } from '@/lib/platform-support-path';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
+import { isUnofferedAdminHref } from '@/lib/feature-toggles';
 
 export const metadata: Metadata = {
   title: { default: '管理画面', template: '%s | 管理画面 | CareLink' },
@@ -24,7 +25,7 @@ export const metadata: Metadata = {
 
 const navItems: { href: string; label: string; icon: string; platformAdmin?: boolean }[] = [
   { href: '/admin', label: 'ホーム', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
-  { href: '/admin/schedule', label: 'ボード', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
+  { href: '/admin/schedule', label: '予約表', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
   { href: '/admin/bookings', label: '予約', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
   { href: '/admin/customers', label: '顧客', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z' },
   { href: '/admin/menus', label: 'メニュー', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01' },
@@ -62,8 +63,8 @@ const navItems: { href: string; label: string; icon: string; platformAdmin?: boo
   { href: '/admin/line-richmenu', label: 'LINEリッチメニュー', icon: 'M7 4V2a1 1 0 011-1h8a1 1 0 011 1v2h4a1 1 0 110 2h-1v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6H3a1 1 0 110-2h4zM9 6v10h2V6H9zm4 0v10h2V6h-2z', platformAdmin: true },
   { href: '/admin/newsletters', label: 'ニュースレター', icon: 'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4', platformAdmin: true },
   { href: '/admin/email-setup', label: 'メール配信設定', icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', platformAdmin: true },
-  { href: '/admin/uptime', label: 'Uptime監視', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
-  { href: '/admin/cron-monitor', label: 'Cron監視', icon: 'M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z' },
+  { href: '/admin/uptime', label: 'Uptime監視', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', platformAdmin: true },
+  { href: '/admin/cron-monitor', label: 'Cron監視', icon: 'M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z', platformAdmin: true },
   { href: '/admin/moderation', label: 'モデレーション', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z', platformAdmin: true },
   { href: '/admin/feature-flags', label: 'Feature Flags', icon: 'M3 4a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zm8-8a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 01-1 1h-2a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 01-1 1h-2a1 1 0 01-1-1v-2zm8-8a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 01-1 1h-2a1 1 0 01-1-1V4zm0 8a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 01-1 1h-2a1 1 0 01-1-1v-2z', platformAdmin: true },
   { href: '/admin/ab-tests', label: 'A/Bテスト', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z', platformAdmin: true },
@@ -80,7 +81,7 @@ const navItems: { href: string; label: string; icon: string; platformAdmin?: boo
   { href: '/admin/help', label: 'ヘルプ', icon: 'M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
 ];
 
-export { navItems };
+export { navItems, navGroups };
 
 /**
  * SB 上部タブのグループ定義（HPB サロンボード型・全 navItems を網羅して到達可能性を維持）。
@@ -91,7 +92,7 @@ const navGroups: NavGroup[] = [
     key: 'booking', label: '予約管理',
     items: [
       { href: '/admin', label: 'ダッシュボード' },
-      { href: '/admin/schedule', label: 'サロンボード' },
+      { href: '/admin/schedule', label: '予約表' },
       { href: '/admin/bookings', label: '予約一覧' },
     ],
   },
@@ -107,6 +108,8 @@ const navGroups: NavGroup[] = [
       { href: '/admin/photos', label: '写真' },
       { href: '/admin/coupons', label: 'クーポン' },
       { href: '/admin/menus', label: 'メニュー' },
+      // HPB 取り込みは navItems にだけあり、デスクトップのタブにもスマホの「その他」にも出ず到達できなかった。
+      { href: '/admin/hpb-menus', label: 'HPB取り込み' },
       { href: '/admin/packages', label: '回数券' },
       { href: '/admin/subscription-plans', label: '月額プラン' },
       { href: '/admin/reviews', label: '口コミ' },
@@ -179,6 +182,16 @@ const navGroups: NavGroup[] = [
     ],
   },
 ];
+
+/**
+ * 店舗が使える状態になっていない画面（2026年10月23日）。ナビから外すだけで、ページ・データ・API は残す
+ * （直接 URL で開いた場合の表示は各ページが受け持つ）。使えるようになったら、ここから外すだけで戻る。
+ * - 決済管理：オンライン前払いは近日公開（src/lib/coming-soon.ts）で Stripe 連携も保留中。
+ *   Stripe アカウントを作って秘密鍵を運営へ送るよう求める案内になっていた。
+ * - チュートリアル：動画がすべて「準備中」で、見られるものが無い。
+ * - ホワイトラベル：独自ドメインで予約ページを出す処理がまだ無く、運営の設定が要る（src/lib/white-label-status.ts）。
+ */
+const NOT_READY_FOR_OWNERS_HREFS = new Set<string>(['/admin/payments', '/admin/tutorials', '/admin/white-label']);
 
 // 認証・メンバーシップ取得（async）はこの内側コンポーネントに隔離する。AdminLayout 本体を
 // 同期にして Suspense（fallback＝管理画面スピナー）で包むことで、この async が「ルートの
@@ -261,8 +274,11 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
   // 販売導線を全ロールで一時的に隠す。決済導入時に LAUNCH_HIDDEN_HREFS から外すだけで復活する
   // （nav 定義・ページ・API はそのまま温存＝症状ブロックでなく設定1箇所で可逆制御）。
   const LAUNCH_HIDDEN_HREFS = new Set<string>(['/admin/featured-ads']);
+  // 回数券・月額プラン・求人（求人応募）は「今はなし」（2026年10月23日 神原さん判断）。
+  // 出し分けは src/lib/feature-toggles.ts の SHOW_* に従属させ、true に戻すだけで復活する。
+  const isHiddenHref = (href: string) => LAUNCH_HIDDEN_HREFS.has(href) || NOT_READY_FOR_OWNERS_HREFS.has(href) || isUnofferedAdminHref(href);
   const visibleNavItems = navItems.filter(
-    (item) => (!item.platformAdmin || isPlatformAdmin) && !LAUNCH_HIDDEN_HREFS.has(item.href),
+    (item) => (!item.platformAdmin || isPlatformAdmin) && !isHiddenHref(item.href),
   );
   // グループ自体の platformAdmin だけでなく、グループ内の各項目（item.platformAdmin）も
   // 個別にフィルタする。'message' グループのように施設オーナーにも見せるグループの中に
@@ -272,7 +288,7 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
     .map((g) => ({
       ...g,
       items: g.items.filter(
-        (item) => (!item.platformAdmin || isPlatformAdmin) && !LAUNCH_HIDDEN_HREFS.has(item.href),
+        (item) => (!item.platformAdmin || isPlatformAdmin) && !isHiddenHref(item.href),
       ),
     }));
 
@@ -293,7 +309,7 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
           <AdminFacilityLink href="/admin" className="flex items-center gap-2">
             <span className="inline-flex items-center justify-center w-8 h-8 rounded-sm bg-sky-600 text-white text-sm font-black">CL</span>
             <span className="text-base font-extrabold text-sky-700 tracking-wide leading-none">
-              CareLink<br /><span className="text-[10px] font-bold text-gray-500 tracking-widest">SALON BOARD</span>
+              CareLink<br /><span className="text-[10px] font-bold text-gray-500">店舗管理</span>
             </span>
           </AdminFacilityLink>
           <AdminSelectedFacilityName choices={facilityChoices} />

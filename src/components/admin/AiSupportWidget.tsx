@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { SHOW_PACKAGES } from '@/lib/feature-toggles';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -11,7 +12,8 @@ const QUICK_QUESTIONS = [
   'メニューを追加するには？',
   '予約の承認方法は？',
   '口コミへの返信方法は？',
-  '回数券を設定したい',
+  // 回数券は「今はなし」の間は質問例に出さない（src/lib/feature-toggles.ts）。
+  ...(SHOW_PACKAGES ? ['回数券を設定したい'] : []),
   '施術記録の使い方は？',
 ];
 

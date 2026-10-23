@@ -11,7 +11,8 @@ import { verifyAuthUser } from '@/lib/auth-verification';
 import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
-import { SbInput } from '@/components/admin/SbUi';
+import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
+import SessionExpiredNotice from '@/components/admin/SessionExpiredNotice';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import Link from 'next/link';
@@ -129,7 +130,8 @@ function StaffSchedulePageForm() {
         .from('schedule_overrides')
         .select('id, date, is_holiday, start_time, end_time')
         .eq('staff_id', staffId)
-        .gte('date', new Date().toISOString().split('T')[0])
+        // 今日は日本時間で切る（UTC だと 0〜9 時に前日の特別日まで読んでいた）。
+        .gte('date', todayJst())
         .order('date');
       if (!active) return;
       if (ovErr) { setLoadError(true); setLoading(false); return; }
@@ -155,6 +157,8 @@ function StaffSchedulePageForm() {
           // 勤務時間が無い＝このスタッフには予約枠が出ない。店舗の営業時間を下書きとして見せ、保存したときだけ登録する。
           setDraft(suggestion ? 'suggested' : 'empty');
           setEnabledDays(suggestion ? suggestion.map((day) => day.enabled) : Array(7).fill(false));
+          // 下書きは未保存。そのまま離れると勤務時間は登録されないので、離れる前に確認する。
+          setDirty(Boolean(suggestion));
         }
       } else {
         const newSchedules = DAY_LABELS.map((_, i) => {
@@ -191,11 +195,18 @@ function StaffSchedulePageForm() {
 
   const handleSaveSchedules = async (force = false) => {
     if (!facilityId || !operationKey.current || saving) return;
+    const rows = schedules
+      .filter((_, i) => enabledDays[i])
+      .map((s) => ({ day_of_week: s.day_of_week, start_time: s.start_time, end_time: s.end_time }));
+    // 勤務日が0日のまま保存すると、このスタッフには予約が1件も入らない（保存は成功に見える）。
+    // 特別日にだけ勤務する人は、その日があれば予約を受けられるので止めない。
+    const worksOnSpecialDay = overrides.some((o) => !o.is_holiday && o.start_time && o.end_time);
+    if (rows.length === 0 && !worksOnSpecialDay) {
+      setToast({ type: 'error', message: '勤務する曜日を1日以上選んでください。勤務日が無いと、このスタッフにはネット予約が入りません（特別な日だけ勤務する場合は、下の「特別日設定」で勤務日を追加してください）' });
+      return;
+    }
     setSaving(true);
     try {
-      const rows = schedules
-        .filter((_, i) => enabledDays[i])
-        .map((s) => ({ day_of_week: s.day_of_week, start_time: s.start_time, end_time: s.end_time }));
 
       if (pendingSchedules.current === null) {
         pendingSchedules.current = { operation_id: beginStaffOperation(operationKey.current), schedules: rows, ...(force ? { force: true } : {}) };
@@ -297,17 +308,17 @@ function StaffSchedulePageForm() {
 
   if (loading) return <AdminPageLoading />;
   if (authState === 'unavailable') return <AccessVerificationUnavailable />;
-  if (authState === 'unauthenticated') return <p role="alert">セッションが切れました。再ログインしてください。</p>;
+  if (authState === 'unauthenticated') return <SessionExpiredNotice redirectTo={`/admin/staff/${encodeURIComponent(staffId)}/schedule${requestedFacility ? `?facility_id=${encodeURIComponent(requestedFacility)}` : ''}`} />;
   const selector = <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/staff" dirty={dirty} busy={saving || addingOverride || deletingOverride || pendingSave} />;
+
+  // 見出しは管理画面共通の SbPageHeader（以前はこの画面だけ独自の大きな h1 だった）。
+  const backButton = <button type="button" onClick={() => router.push(backHref)} className="text-sm text-gray-600 hover:underline">← 戻る</button>;
 
   // 取得失敗時はフォームを描画しない（既定シフトで実スケジュールを上書きする事故を防ぐ）
   if (loadError) {
     return (
       <div>
-        <div className="flex items-center gap-3 mb-6">
-          <button type="button" onClick={() => router.push(backHref)} className="text-sm text-gray-500 hover:underline">← 戻る</button>
-          <h1 className="text-2xl font-bold">スケジュール</h1>
-        </div>
+        <SbPageHeader title="スケジュール" actions={backButton} />
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="スケジュールの読み込みに失敗しました" />
       </div>
     );
@@ -318,15 +329,13 @@ function StaffSchedulePageForm() {
   return (
     <div onChange={() => setDirty(true)}>
       {selector}
-      <div className="flex items-center gap-3 mb-6">
-        <button type="button" onClick={() => router.push(backHref)} className="text-sm text-gray-500 hover:underline">← 戻る</button>
-        <h1 className="text-2xl font-bold">{staffName}のスケジュール</h1>
-      </div>
+      <SbPageHeader title={`${staffName}のスケジュール`} actions={backButton} />
 
       {draft && (
         <div role="status" className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 space-y-1">
           {justAdded && <p>スタッフを追加しました。</p>}
           <p className="font-bold">このスタッフは勤務時間が未登録のため、まだネット予約を受けられません。</p>
+          <p>予約表の「指名なし」の予約も、勤務時間を保存したスタッフにだけ割り当てられます。</p>
           {draft === 'suggested' ? (
             <p>下の時間は店舗の営業時間をもとにした下書きで、まだ保存されていません。実際の勤務日・時間に合わせて直してから「この勤務時間で保存する」を押してください。</p>
           ) : (
@@ -376,7 +385,7 @@ function StaffSchedulePageForm() {
                     }}
                     className="min-w-0 flex-1 text-sm sm:w-32! sm:flex-none"
                   />
-                  <span className="text-gray-400">〜</span>
+                  <span className="text-gray-500">〜</span>
                   <SbInput
                     type="time"
                     value={schedules[i].end_time}
@@ -389,7 +398,7 @@ function StaffSchedulePageForm() {
                   />
                 </div>
               ) : (
-                <span className="text-sm text-gray-400">休み</span>
+                <span className="text-sm text-gray-500">休み</span>
               )}
             </div>
           ))}
@@ -410,7 +419,7 @@ function StaffSchedulePageForm() {
               type="date"
               value={newOverrideDate}
               onChange={(e) => setNewOverrideDate(e.target.value)}
-              min={new Date().toISOString().split('T')[0]}
+              min={todayJst()}
               className="text-sm w-40!"
             />
           </div>
@@ -441,7 +450,7 @@ function StaffSchedulePageForm() {
         </div>
 
         {overrides.length === 0 ? (
-          <p className="text-sm text-gray-400">特別日の設定はありません</p>
+          <p className="text-sm text-gray-500">特別日の設定はありません</p>
         ) : (
           <div className="space-y-2">
             {overrides.map((ov) => (

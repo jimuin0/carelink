@@ -7,7 +7,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { SbPageHeader, SbCard, SbStatusChip, SbButtonLink, SbStatCard } from '@/components/admin/SbUi';
 import { todayJst, addDays, dayOfWeekUtc, jstMonthInfo } from '@/lib/admin-date';
-import { facilitySetupSteps, loadFacilitySetupFacts, type SetupStepKey } from '@/lib/facility-setup-steps';
+import { facilitySetupSteps, loadFacilitySetupFacts, SETUP_GROUP_LABELS, type FacilitySetupStep, type SetupStepGroup, type SetupStepKey } from '@/lib/facility-setup-steps';
 import { readWithinDeadline } from '@/lib/bounded-read';
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -33,10 +33,15 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
   const setup = await loadFacilitySetupFacts(supabase, facilityId, (label, query) => readWithinDeadline(`dashboard-${label}`, query));
   const onboardingSteps = facilitySetupSteps(setup);
   const stepDone = (key: SetupStepKey) => onboardingSteps.some(step => step.key === key && step.done);
-  const unscheduledStaffCount = setup.unscheduledStaffIds.length;
-  const completedSteps = onboardingSteps.filter(s => s.done).length;
-  const showOnboarding = completedSteps < onboardingSteps.length;
+  const showOnboarding = onboardingSteps.some(s => !s.done);
   const isPublished = stepDone('publish');
+  // 無料掲載に要る項目と、ネット予約に要る項目（任意）は別の進み具合として見せる（1本の棒に混ぜない）。
+  const setupGroups = (['listing', 'booking'] as SetupStepGroup[]).map(group => {
+    const steps = onboardingSteps.filter(step => step.group === group);
+    return { group, steps, done: steps.filter(step => step.done).length };
+  });
+  // 公開後は掲載ページへの導線を出す（公開したのに、どう見えているかを確かめる手段が無かった）。
+  const publicPageHref = isPublished && setup.slug ? `/facility/${encodeURIComponent(setup.slug)}` : null;
 
   // 予約状況（本日から14日間＝2週間）の日付一覧。各日の件数は1クエリ取得→JST日付で JS 集計する
   // （PostgREST は GROUP BY 非対応のため。範囲は14日固定で転送量は小さい）。
@@ -87,6 +92,13 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
   const noShowRate = noShowDenom > 0 ? Math.round((noShowCount / noShowDenom) * 1000) / 10 : null;
 
   // 予約状況（2週間）: 日付→件数。cancelled は除外済み。
+  // 公開前で予約も1件も無い店舗に、¥0 の KPI と 0 件が並ぶ2週間表を先頭に出しても役に立たない
+  // （初回ログインの店舗が最初に目にするのが空の数字だった）。セットアップを先頭に出し、空の数字は隠す。
+  // 非公開でも予約の実績がある店舗（一時的に非公開にした等）では数字を隠さない。
+  const hasBookingActivity = (todayBookings ?? 0) > 0 || (pendingBookings ?? 0) > 0 || (weekRows ?? []).length > 0
+    || monthCompletedCount > 0 || noShowCount > 0;
+  const hideEmptyMetrics = !isPublished && !hasBookingActivity;
+
   const weekCounts = new Map<string, number>();
   for (const r of (weekRows ?? []) as { booking_date: string }[]) {
     weekCounts.set(r.booking_date, (weekCounts.get(r.booking_date) ?? 0) + 1);
@@ -106,8 +118,30 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
   const publishBlocker = !isPublished || bookingReady
     ? null
     : onlyWorkingStaffMissing
-    ? { message: '無料掲載は公開中です。予約枠を表示するにはスタッフの勤務スケジュールを設定してください。', cta: 'スケジュールを設定する', href: '/admin/staff' }
-    : { message: '無料掲載は公開中です。ネット予約は準備中で、電話・店舗への問い合わせをご案内します。', cta: 'ネット予約の準備内容を確認する', href: '/admin/settings' };
+    ? { message: '無料掲載は公開中です。予約枠を表示するにはスタッフの勤務スケジュールを設定してください。', cta: 'スケジュールを設定する', href: '/admin/staff', hash: '' }
+    : { message: '無料掲載は公開中です。ネット予約は準備中で、電話・店舗への問い合わせをご案内します。', cta: 'ネット予約の準備内容を確認する', href: '/admin/settings', hash: '#booking-readiness' };
+
+  const setupCard = showOnboarding && (
+    <div className="mb-6 bg-sky-50 border border-sky-200 rounded-xl p-5">
+      <h2 className="text-sm font-bold text-sky-800 mb-3">店舗セットアップ</h2>
+      <div className="space-y-5">
+        {setupGroups.map(({ group, steps, done }) => (
+          <section key={group} aria-label={SETUP_GROUP_LABELS[group]}>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-bold text-sky-800">{SETUP_GROUP_LABELS[group]}</h3>
+              <span className="text-xs text-sky-700 font-bold">{done}/{steps.length} 完了</span>
+            </div>
+            <div className="w-full bg-sky-100 rounded-full h-2 mb-3">
+              <div className="bg-sky-600 h-2 rounded-full transition-all" style={{ width: `${(done / steps.length) * 100}%` }} />
+            </div>
+            <div className="space-y-2">
+              {steps.map((step) => setupStepLink(step, facilityHref(step.href)))}
+            </div>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div>
@@ -115,23 +149,37 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
       <SbPageHeader
         title="ダッシュボード"
         description="本日の予約状況と店舗セットアップの概要"
-        actions={<SbButtonLink href={facilityHref("/admin/schedule")}>サロンボードを見る</SbButtonLink>}
+        actions={
+          <>
+            {publicPageHref && (
+              <Link href={publicPageHref} target="_blank" rel="noopener noreferrer" className="text-sm font-bold text-sky-700 underline">
+                掲載ページを見る
+              </Link>
+            )}
+            <SbButtonLink href={facilityHref("/admin/schedule")}>予約表を見る</SbButtonLink>
+          </>
+        }
       />
 
-      {/* 公開中なのに予約不能な状態の警告（無音の機会損失を防ぐ・最優先で表示） */}
+      {/* セットアップが終わっていない店舗には、まず次にやることを見せる（空の数字より先）。 */}
+      {setupCard}
+
+      {/* 公開中でネット予約が準備中の案内。掲載だけの利用も正常なので、警告色ではなく案内として出す。 */}
       {publishBlocker && (
-        <Link href={facilityHref(publishBlocker.href)} className="block mb-6 bg-red-50 border border-red-200 rounded-xl p-4 hover:shadow-md transition-shadow" role="alert">
+        <div role="status" className="mb-6">
+        <Link href={`${facilityHref(publishBlocker.href)}${publishBlocker.hash}`} className="block bg-white border border-sky-200 rounded-xl p-4 hover:shadow-md transition-shadow">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center shrink-0">
-              <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            <div className="w-10 h-10 bg-sky-50 rounded-full flex items-center justify-center shrink-0">
+              <svg className="w-5 h-5 text-sky-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             </div>
             <div>
-              <p className="text-sm font-bold text-red-800">{publishBlocker.message}</p>
-              <p className="text-xs text-red-600">{publishBlocker.cta}（掲載だけの利用には予約設定は不要です）</p>
+              <p className="text-sm font-bold text-gray-800">{publishBlocker.message}</p>
+              <p className="text-xs text-gray-600">{publishBlocker.cta}（掲載だけの利用には予約設定は不要です）</p>
             </div>
-            <svg className="w-5 h-5 text-red-400 ml-auto shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+            <svg className="w-5 h-5 text-gray-400 ml-auto shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
           </div>
         </Link>
+        </div>
       )}
 
       {/* ヒーローアクションカード（サロンボード型・CareLink 色） */}
@@ -145,7 +193,7 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
           </span>
           <span className="min-w-0">
             <span className="block text-lg font-bold">本日のスケジュール</span>
-            <span className="block text-xs text-white/70 tracking-widest">TODAY&apos;S SCHEDULE</span>
+            <span className="block text-xs text-white/90">スタッフ別の予約表</span>
           </span>
           <svg className="w-5 h-5 text-white/80 ml-auto shrink-0 group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
         </Link>
@@ -158,7 +206,7 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
           </span>
           <span className="min-w-0">
             <span className="block text-lg font-bold">本日の予約一覧</span>
-            <span className="block text-xs text-white/70 tracking-widest">TODAY&apos;S RESERVE LIST</span>
+            <span className="block text-xs text-white/90">一覧で確認・対応する</span>
           </span>
           <span className="ml-auto shrink-0 flex items-center gap-1">
             <span className="text-2xl font-extrabold tabular-nums">{todayBookings ?? 0}</span>
@@ -167,6 +215,8 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
         </Link>
       </div>
 
+      {!hideEmptyMetrics && (
+        <>
       {/* 経営KPI（当月・売上は /admin/analytics と同一定義）。経営者が毎日見たい数値を集約。 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <SbStatCard
@@ -199,9 +249,10 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
         />
       </div>
 
-      {/* 予約状況（本日から14日間＝2週間・grid-cols-7 で2行に並ぶ） */}
+      {/* 予約状況（本日から14日間＝2週間・grid-cols-7 で2行に並ぶ）。
+          スマホ（約 44px/列）では「10/23(木)」が1行に収まらずはみ出していたので、日付と曜日を縦に積む。 */}
       <SbCard title="予約状況（2週間）" className="mb-6">
-        <div className="grid grid-cols-7 gap-1.5">
+        <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
           {weekData.map(({ date, dow, count }) => {
             const isToday = date === today;
             const [, m, d] = date.split('-');
@@ -209,54 +260,27 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
               <Link
                 key={date}
                 href={facilityHref(`/admin/schedule?date=${date}`)}
-                className={`flex flex-col items-center justify-center rounded-lg border py-2 transition-colors ${
+                aria-label={`${Number(m)}月${Number(d)}日（${WEEKDAY_LABELS[dow]}）の予約 ${count}件`}
+                className={`min-w-0 flex flex-col items-center justify-center rounded-lg border px-0.5 py-2 transition-colors ${
                   isToday ? 'border-sky-400 bg-sky-50 ring-1 ring-sky-200' : 'border-gray-100 hover:bg-sky-50'
                 }`}
               >
-                <span className="flex items-baseline gap-0.5">
-                  <span className="text-[11px] text-gray-400">{Number(m)}/{Number(d)}</span>
-                  <span className={`text-xs font-bold ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-sky-600' : 'text-gray-600'}`}>
+                <span className="flex flex-col items-center leading-tight sm:flex-row sm:items-baseline sm:gap-0.5">
+                  <span className="text-[11px] text-gray-600 tabular-nums whitespace-nowrap">{Number(m)}/{Number(d)}</span>
+                  <span className={`text-xs font-bold whitespace-nowrap ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-sky-600' : 'text-gray-600'}`}>
                     ({WEEKDAY_LABELS[dow]})
                   </span>
                 </span>
                 <span className="flex items-baseline gap-0.5 mt-1">
                   <span className="text-base font-extrabold text-gray-800 tabular-nums leading-none">{count}</span>
-                  <span className="text-[10px] text-gray-400">件</span>
+                  <span className="text-[10px] text-gray-500">件</span>
                 </span>
               </Link>
             );
           })}
         </div>
       </SbCard>
-
-      {/* オンボーディング進捗 */}
-      {showOnboarding && (
-        <div className="mb-6 bg-sky-50 border border-sky-200 rounded-xl p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-bold text-sky-800">店舗セットアップ</h2>
-            <span className="text-xs text-sky-600 font-bold">{completedSteps}/{onboardingSteps.length} 完了</span>
-          </div>
-          <div className="w-full bg-sky-100 rounded-full h-2 mb-4">
-            <div className="bg-sky-500 h-2 rounded-full transition-all" style={{ width: `${(completedSteps / onboardingSteps.length) * 100}%` }} />
-          </div>
-          <div className="space-y-2">
-            {onboardingSteps.map((step) => (
-              <Link
-                key={step.label}
-                href={facilityHref(step.href)}
-                className={`flex items-center gap-2 text-sm ${step.done ? 'text-sky-400 line-through' : 'text-sky-800 font-medium hover:underline'}`}
-              >
-                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${step.done ? 'bg-sky-400 text-white' : 'bg-white border-2 border-sky-300 text-sky-300'}`}>
-                  {step.done ? '✓' : ''}
-                </span>
-                {step.label}
-                {step.key === 'schedule' && unscheduledStaffCount > 0 && (
-                  <span className="text-xs font-normal text-sky-800">（勤務時間が未登録で予約を受けられないスタッフ：{unscheduledStaffCount}人）</span>
-                )}
-              </Link>
-            ))}
-          </div>
-        </div>
+        </>
       )}
 
       {/* 確認待ちアラート */}
@@ -304,6 +328,24 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
   );
 }
 
+function setupStepLink(step: FacilitySetupStep, href: string) {
+  // 任意項目の未入力は「完了」（取り消し線）と見せない。入力済みと誤解させないため。
+  const struck = step.done && !step.optional;
+  return (
+    <Link
+      key={step.key}
+      href={href}
+      className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm ${struck ? 'text-sky-700 line-through' : 'text-sky-900 font-medium hover:underline'}`}
+    >
+      <span aria-hidden="true" className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${struck ? 'bg-sky-600 text-white' : 'bg-white border-2 border-sky-300 text-sky-300'}`}>
+        {struck ? '✓' : ''}
+      </span>
+      {step.label}
+      {step.note && <span className="text-xs font-normal text-sky-800">（{step.note}）</span>}
+    </Link>
+  );
+}
+
 async function RecentBookings({ facilityId }: { facilityId: string }) {
   const supabase = await createServerSupabaseAuthClient();
   // 副次カードのため、時間切れもページ全体を落とさずカード内のエラー表示に寄せる。
@@ -320,7 +362,7 @@ async function RecentBookings({ facilityId }: { facilityId: string }) {
     return <p role="alert" className="text-sm text-red-500">予約の取得に失敗しました。ページを再読み込みしてください。</p>;
   }
   if (!data || data.length === 0) {
-    return <p className="text-sm text-gray-400">まだ予約がありません</p>;
+    return <p className="text-sm text-gray-500">まだ予約がありません</p>;
   }
 
   return (

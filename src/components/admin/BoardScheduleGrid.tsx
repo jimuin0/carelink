@@ -135,7 +135,7 @@ export default function BoardScheduleGrid({
           <div key={row.key} className="flex border-b last:border-b-0 hover:bg-sky-50/30">
             <div className="w-36 shrink-0 px-3 py-2 border-r sticky left-0 z-10 bg-white">
               <p className="text-sm font-bold text-gray-800 truncate">{row.name}</p>
-              {row.position && <p className="text-[10px] text-gray-400 truncate">{row.position}</p>}
+              {row.position && <p className="text-[10px] text-gray-500 truncate">{row.position}</p>}
               {outCount > 0 && (
                 <p className="text-[10px] font-bold text-amber-600">営業時間外 {outCount}件</p>
               )}
@@ -197,7 +197,7 @@ export default function BoardScheduleGrid({
                 );
               })}
               {row.chips.length === 0 && (
-                <p className="absolute inset-0 flex items-center justify-center text-[11px] text-gray-400 select-none pointer-events-none">クリックで予約追加</p>
+                <p className="absolute inset-0 flex items-center justify-center text-[11px] text-gray-500 select-none pointer-events-none">クリックで予約追加</p>
               )}
             </div>
           </div>
@@ -442,11 +442,18 @@ function BoardBookingModal({
       if (!res.ok) {
         // M5: 重複(409)時はボードを再取得し、最新の埋まり状況を背後に反映（モーダルは開いたまま）
         if (res.status === 409 && data?.code === 'BOOKING_CONFLICT') {
-          setError('この時間帯は既に予約が入っています。ボードを更新したので別の時間帯を選んでください。');
+          setError('この時間帯は既に予約が入っています。予約表を更新したので別の時間帯を選んでください。');
           sessionStorage.removeItem(`carelink-manual-booking:${facilityId}`);
           operationRef.current = null;
           setUncertain(false);
           onRefresh();
+        } else if (res.status === 409 && data?.code === 'BOOKING_NO_WORKING_STAFF') {
+          // 指名なしで、この時間に勤務しているスタッフがいない。保存はされていない（重複でもない）ので、
+          // ボードは更新せず、入力を残したまま担当を選び直せるようにする。
+          setError('この時間に勤務予定のスタッフがいないため、指名なしでは登録できません。担当を選ぶか、スタッフの勤務時間を登録してください。');
+          sessionStorage.removeItem(`carelink-manual-booking:${facilityId}`);
+          operationRef.current = null;
+          setUncertain(false);
         } else if (res.status === 409 && data?.code === 'MANUAL_OPERATION_RECOVERY') {
           // A late original request may have committed after the reload's
           // absent check. Switch to read-only recovery, never another create.
@@ -498,7 +505,7 @@ function BoardBookingModal({
       >
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <h2 id="board-modal-title" className="text-sm font-bold text-gray-800">新規予約（{staffName}）</h2>
-          <button type="button" onClick={handleClose} aria-label="閉じる" className="text-gray-400 hover:text-gray-600 text-xl leading-none">
+          <button type="button" onClick={handleClose} aria-label="閉じる" className="text-gray-500 hover:text-gray-600 text-xl leading-none">
             <span aria-hidden="true">×</span>
           </button>
         </div>
@@ -581,7 +588,7 @@ function BoardBookingModal({
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-1">メニュー <span className="text-red-500">必須</span></label>
             {menus.length === 0 ? (
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-gray-500">
                 メニューが登録されていません。<Link href="/admin/menus" className="text-sky-600 underline">メニューを登録</Link>
               </p>
             ) : (
@@ -590,7 +597,7 @@ function BoardBookingModal({
                   <label key={m.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-sky-50 rounded-sm px-1 py-0.5">
                     <input type="checkbox" checked={selectedMenus.includes(m.id)} onChange={() => toggleMenu(m.id)} />
                     <span className="flex-1 truncate">{m.name}</span>
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-gray-500">
                       {m.duration_minutes ? `${m.duration_minutes}分` : ''}{m.price != null ? ` ¥${m.price.toLocaleString()}` : ''}
                     </span>
                   </label>

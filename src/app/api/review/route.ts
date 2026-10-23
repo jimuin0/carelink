@@ -51,9 +51,72 @@ const reviewSchema = z.object({
       (urls) => !urls || urls.every((u) => isAllowedStorageUrl(u, 'review-photos')),
       '不正な写真URLです'
     ),
+  // 投稿フォームが作る操作 ID（2026年10月23日）。送信結果が分からなかった投稿を同じ ID で
+  // 送り直すと、前回の口コミが保存済みならそれを返し、新しい口コミは作らない（二重投稿なしのやり直し）。
+  // 旧フォームは送らないので任意。
+  operation_id: z.string().uuid().optional(),
+  // 2026年10月23日より前のフォームが端末に残した印（操作 ID をサーバーへ送っていなかった頃のもの）を
+  // 送り直すときだけ true。サーバーはその ID を一度も保存していないので、操作 ID では前回の口コミを
+  // 見つけられない。代わりに同じ投稿者の旧フォームの口コミを探す（findLegacyReview）。
+  legacy_operation: z.literal(true).optional(),
 });
 
-async function submitReview(request: Request, markCommitStarted: () => void) {
+const DUPLICATE_ERROR = '同じ施設への口コミは24時間に1回までです';
+const OPERATION_INDEX = 'uq_facility_reviews_client_operation';
+
+type ServiceClient = ReturnType<typeof createServiceRoleClient>;
+
+/**
+ * 端末に印を残す旧フォームが本番に出た日（PR #666・2026年10月11日）。旧フォームの印に当たる口コミは
+ * これより後にしか存在しない。
+ */
+const LEGACY_FENCE_SINCE = '2026-10-11T00:00:00+09:00';
+
+const OTHER_ACCOUNT_ERROR = '今回の内容はまだ投稿していません。この端末に残っていた、別のログイン状態での送信記録を整理しました。もう一度「口コミを投稿する」を押してください。';
+
+/** この操作 ID で保存済みの口コミ（無ければ null）。user_id は投稿者の照合にだけ使い、応答には含めない。 */
+async function findOperationReview(supabase: ServiceClient, operationId: string) {
+  return supabase.from('facility_reviews').select('id, facility_id, user_id')
+    .eq('client_operation_id', operationId).maybeSingle();
+}
+
+/**
+ * 旧フォームの印で送り直されたとき、前回の送信が保存されていたかを投稿者で探す。
+ * 旧サーバーは操作 ID を保存しなかったので、同じ施設・同じ投稿者（ログイン中はアカウント、
+ * 未ログインは IP）の、操作 ID を持たない（＝旧フォームの）口コミを前回の送信とみなす。
+ * これが無いまま新しい口コミを作ると、24 時間を過ぎた・IP が変わった送り直しで同じ口コミが 2 件になる。
+ */
+async function findLegacyReview(supabase: ServiceClient, facilityId: string, userId: string | null, ip: string) {
+  let query = supabase.from('facility_reviews').select('id').eq('facility_id', facilityId);
+  query = userId ? query.eq('user_id', userId) : query.eq('reviewer_ip', ip).is('user_id', null);
+  return query.is('client_operation_id', null).gte('created_at', LEGACY_FENCE_SINCE)
+    .order('created_at', { ascending: false }).limit(1);
+}
+
+/**
+ * 操作 ID の口コミが今回の投稿者のものか。ログアウト・退会の後も端末の印は残すので（共有端末）、
+ * 別のアカウントの印で送り直されることがある。そのときに前回の口コミ（の ID）を返すと、
+ * 今回の投稿者の内容が捨てられ、他人の投稿の存在まで伝わってしまう。
+ */
+function sameReviewer(earlier: { user_id: string | null }, userId: string | null) {
+  return earlier.user_id === userId;
+}
+
+/** 別の投稿者の印だった（保存前の拒否・印を消して新しい操作で送り直してよい）。 */
+function otherReviewer() {
+  return NextResponse.json({ code: 'REVIEW_OPERATION_OTHER_ACCOUNT', error: OTHER_ACCOUNT_ERROR }, { status: 409 });
+}
+
+/** 前回の送信で保存済みだった口コミを返す（新しい口コミは作らない・店舗への通知も送り直さない）。 */
+function replayed(id: string) {
+  return NextResponse.json({ success: true, id, replayed: true });
+}
+
+/**
+ * commit.unknown … INSERT を試みて結果が確定していない（応答の欠落・原因不明のエラー）。
+ * これが false の応答だけが「この送信では保存していない」とクライアントに言える。
+ */
+async function submitReview(request: Request, commit: { unknown: boolean }) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
@@ -102,6 +165,23 @@ async function submitReview(request: Request, markCommitStarted: () => void) {
   const identity = await verifyAuthUser(authClient.auth);
   if (identity.state === 'unavailable') return NextResponse.json({ error: 'ログイン状態を確認できません。入力を保持して再確認してください。' }, { status: 503 });
   const user = identity.state === 'verified' ? identity.user : null;
+  const operationId = parsed.data.operation_id ?? null;
+  if (operationId) {
+    const { data: earlier, error: earlierError } = await findOperationReview(supabase, operationId);
+    if (earlierError) return serverError('review-operation-read', earlierError, '/api/review', '前回の投稿の受付状況を確認できません');
+    if (earlier) {
+      if (earlier.facility_id !== parsed.data.facility_id) {
+        return NextResponse.json({ code: 'REVIEW_OPERATION_CONFLICT', error: '前回の投稿と施設が一致しません。画面を開き直してください。' }, { status: 409 });
+      }
+      if (!sameReviewer(earlier, user?.id ?? null)) return otherReviewer();
+      return replayed(earlier.id);
+    }
+    if (parsed.data.legacy_operation) {
+      const { data: legacy, error: legacyError } = await findLegacyReview(supabase, parsed.data.facility_id, user?.id ?? null, ip);
+      if (legacyError) return serverError('review-legacy-operation-read', legacyError, '/api/review', '前回の投稿の受付状況を確認できません');
+      if (legacy && legacy.length > 0) return replayed(legacy[0].id);
+    }
+  }
   const photoState = await verifyReviewPhotos(supabase, user?.id ?? null, parsed.data.facility_id, parsed.data.photo_urls);
   if (photoState !== 'ready') return NextResponse.json({ error: '写真の保存・所有権を確認できません。入力と元写真を保持して再確認してください。' },
     { status: photoState === 'unavailable' ? 503 : 400 });
@@ -115,21 +195,24 @@ async function submitReview(request: Request, markCommitStarted: () => void) {
   // public_reviews.is_member を通じて口コミ一覧に「会員」バッジが付く（user_id 自体は公開しない）。
   const effectiveReviewerName = parsed.data.reviewer_name;
 
-  // 24h内に同一施設への投稿チェック。
-  // facility_reviews に user_id 列は存在しない（設計上一度も追加されていない）ため、
-  // ログイン有無を問わず reviewer_ip で判定する（reviewer_ip は投稿時に常に保存される）。
-  // 旧実装はログイン時に user_id で絞っており、存在しない列参照で 400 → 重複防止が無効だった。
+  // 24h内に同一施設への投稿チェック（DB のトリガ lock_review_submission も同じ条件で確かめる）。
+  // 同じ IP からの投稿に加え、ログイン中は同じアカウントからの投稿も数える（2026年10月23日）。
+  // 以前は IP だけで判定していたため、ログイン中の会員が回線を切り替えるだけで、同じアカウントから
+  // 「来店確認済み」の口コミを何件でも重ねられた。user_id 列は 2026年7月6日に追加済み
+  // （以前ここにあった「user_id 列は存在しない」という説明は誤り）。未ログインは IP だけで判定する。
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { data: recent, error: recentError } = await supabase
+  const recentBy = (column: 'reviewer_ip' | 'user_id', value: string) => supabase
     .from('facility_reviews')
     .select('id')
     .eq('facility_id', parsed.data.facility_id)
-    .eq('reviewer_ip', ip)
+    .eq(column, value)
     .gte('created_at', since)
     .limit(1);
+  const recentChecks = await Promise.all([recentBy('reviewer_ip', ip), ...(user ? [recentBy('user_id', user.id)] : [])]);
+  const recentError = recentChecks.find((check) => check.error)?.error;
   if (recentError) return serverError('review-duplicate-read', recentError, '/api/review', '投稿履歴を確認できません');
-  if (recent && recent.length > 0) {
-    return NextResponse.json({ error: '同じ施設への口コミは24時間に1回までです' }, { status: 429 });
+  if (recentChecks.some((check) => (check.data?.length ?? 0) > 0)) {
+    return NextResponse.json({ code: 'REVIEW_RECENT_DUPLICATE', error: DUPLICATE_ERROR }, { status: 429 });
   }
 
   // 来店確認
@@ -157,7 +240,7 @@ async function submitReview(request: Request, markCommitStarted: () => void) {
   // 医療機関では体験談の掲載自体が制限されるため、検知した口コミは必ず人が判断する。
   const medicalAdViolations = findMedicalAdViolations(parsed.data.comment);
 
-  markCommitStarted();
+  commit.unknown = true;
   const { data: review, error } = await supabase
     .from('facility_reviews')
     .insert({
@@ -177,13 +260,28 @@ async function submitReview(request: Request, markCommitStarted: () => void) {
       // facility_reviews.user_id は投稿者本人によるレビュー編集・削除の判定に使う
       // （2026年7月6日DDL追加、ALTER TABLE facility_reviews ADD COLUMN user_id）。
       ...(user ? { user_id: user.id, is_verified_visit: isVerifiedVisit } : {}),
+      ...(operationId ? { client_operation_id: operationId } : {}),
     })
     .select('id')
     .single();
 
   if (error) {
-    if (error.code === 'P0001' && error.message === 'REVIEW_RECENT_DUPLICATE') {
-      return NextResponse.json({ error: '同じ施設への口コミは24時間に1回までです' }, { status: 429 });
+    const duplicate = error.code === 'P0001' && error.message === 'REVIEW_RECENT_DUPLICATE';
+    // 同じ操作 ID の送信が並んで届いた（前回の応答待ちの間に送り直した）。先に保存された方を返す。
+    const operationTaken = error.code === '23505' && String(error.message).includes(OPERATION_INDEX);
+    if (operationId && (duplicate || operationTaken)) {
+      const { data: earlier } = await findOperationReview(supabase, operationId);
+      if (earlier && earlier.facility_id === parsed.data.facility_id) {
+        if (sameReviewer(earlier, user?.id ?? null)) return replayed(earlier.id);
+        // 一意制約違反・トリガの拒否はどちらもこの INSERT を巻き戻している（保存していないことが確定）。
+        commit.unknown = false;
+        return otherReviewer();
+      }
+    }
+    if (duplicate) {
+      // トリガが投稿を拒んだ＝このトランザクションは巻き戻っている（保存されていないことが確定）。
+      commit.unknown = false;
+      return NextResponse.json({ code: 'REVIEW_RECENT_DUPLICATE', error: DUPLICATE_ERROR }, { status: 429 });
     }
     return serverError('review-insert', error, '/api/review', '投稿に失敗しました');
   }
@@ -204,7 +302,7 @@ async function submitReview(request: Request, markCommitStarted: () => void) {
       reviewSideEffects.push(
         sendPushToFacilityOwners(parsed.data.facility_id, {
           title: '新しい口コミが投稿されました',
-          body: `${effectiveReviewerName}様より★${avg}の口コミが届きました`,
+          body: `${effectiveReviewerName}様より★${avg}の口コミが届きました${medicalAdViolations.length > 0 ? '（運営の確認後に公開されます）' : ''}`,
           // 複数店舗を持つオーナーが別の店舗の口コミ画面を開かないよう、店舗を URL で指定する。
           url: adminFacilityHref('/admin/reviews', parsed.data.facility_id),
           tag: `review-${review.id}`,
@@ -244,6 +342,7 @@ async function submitReview(request: Request, markCommitStarted: () => void) {
               rating: avg,
               comment: parsed.data.comment,
               facilityId: parsed.data.facility_id,
+              pendingModeration: medicalAdViolations.length > 0,
             }).then((ok) => {
               if (!ok) {
                 const err = new Error('new review notification email send failed');
@@ -272,10 +371,10 @@ async function submitReview(request: Request, markCommitStarted: () => void) {
 }
 
 export async function POST(request: Request) {
-  let commitStarted = false;
-  const response = await submitReview(request, () => { commitStarted = true; });
-  // Only a response produced before any INSERT attempt can authorize a client
-  // retry. An insert error can be a lost commit reply; it is not absence proof.
-  if (!commitStarted) response.headers.set('X-CareLink-Review-Commit', 'not-started');
+  const commit = { unknown: false };
+  const response = await submitReview(request, commit);
+  // Only a refusal whose commit is settled (before any INSERT, or a trigger
+  // rollback) may say "not saved". An insert error can be a lost commit reply.
+  if (!commit.unknown && !response.ok) response.headers.set('X-CareLink-Review-Commit', 'not-started');
   return response;
 }

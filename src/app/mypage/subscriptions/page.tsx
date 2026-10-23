@@ -3,6 +3,7 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createClient } from '@supabase/supabase-js';
+import { SHOW_SUBSCRIPTIONS } from '@/lib/feature-toggles';
 
 export const metadata: Metadata = {
   title: '月額プラン',
@@ -72,7 +73,14 @@ export default async function MySubscriptionsPage() {
             </svg>
           </div>
           <p className="text-gray-500 text-sm mb-4">月額プランに加入していません</p>
-          <Link href="/search" className="text-sm text-sky-700 hover:underline">施設を探して月額プランに申し込む</Link>
+          {/* 月額プランは「今はなし」（2026年10月23日 神原さん判断・src/lib/feature-toggles.ts）。
+              どこでも購入・申し込みできない間は、/search へ誘導する案内を出さない。
+              既に持っている人の一覧（下の分岐）は閲覧のみでそのまま表示する。 */}
+          {SHOW_SUBSCRIPTIONS ? (
+            <Link href="/search" className="text-sm text-sky-700 hover:underline">施設を探して月額プランに申し込む</Link>
+          ) : (
+            <p className="text-xs text-gray-500">月額プランは現在提供していません。</p>
+          )}
         </div>
       ) : (
         <>

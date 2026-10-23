@@ -39,14 +39,14 @@ export default async function UptimePage() {
             {healthData?.status === 'healthy' ? '正常稼働中' : healthData ? 'エラーあり' : '確認中...'}
           </span>
           {healthData?.elapsed_ms && (
-            <span className="text-xs text-gray-400">DB応答: {healthData.elapsed_ms}ms</span>
+            <span className="text-xs text-gray-500">DB応答: {healthData.elapsed_ms}ms</span>
           )}
           {healthData?.version && (
-            <span className="text-xs text-gray-400">v{healthData.version}</span>
+            <span className="text-xs text-gray-500">v{healthData.version}</span>
           )}
         </div>
         {healthData?.timestamp && (
-          <p className="text-xs text-gray-400 mt-2">
+          <p className="text-xs text-gray-500 mt-2">
             最終確認: {new Date(healthData.timestamp).toLocaleString('ja-JP')}
           </p>
         )}

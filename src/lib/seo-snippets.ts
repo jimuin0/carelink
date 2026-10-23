@@ -7,6 +7,7 @@
 
 import { getPrefectureSeo } from '@/data/prefecture-seo';
 import { getPrefectureName, getBusinessTypeName } from '@/lib/seo-constants';
+import { businessTypeLabel } from '@/lib/business-type-label';
 
 interface BusinessTypeContext {
   keyword: string;
@@ -170,7 +171,7 @@ export function generatePrefTypeContent(
   typeSlug: string
 ): GeneratedSeoContent | null {
   const prefName = getPrefectureName(prefectureSlug);
-  const typeName = getBusinessTypeName(typeSlug);
+  const typeName = businessTypeLabel(getBusinessTypeName(typeSlug));
   const prefSeo = getPrefectureSeo(prefectureSlug);
   const typeCtx = businessTypeContext[typeSlug];
 
@@ -262,7 +263,7 @@ export function generateCityTypeContent(
   typeSlug: string
 ): GeneratedSeoContent | null {
   const prefName = getPrefectureName(prefectureSlug);
-  const typeName = getBusinessTypeName(typeSlug);
+  const typeName = businessTypeLabel(getBusinessTypeName(typeSlug));
   const typeCtx = businessTypeContext[typeSlug];
   if (!prefName || !typeName || !typeCtx) return null;
 

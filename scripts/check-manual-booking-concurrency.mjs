@@ -137,8 +137,10 @@ async function main() {
     'd1000000-0000-4000-8000-000000000003','d1000000-0000-4000-8000-000000000004','d1000000-0000-4000-8000-000000000005')`),'0');
   assert.equal(query("SELECT count(*) FROM public.booking_adjust_operations WHERE operation_id='d6000000-0000-4000-8000-000000000001'"),'0');
   query(`BEGIN; INSERT INTO auth.users(id,email,email_confirmed_at) VALUES('${actor}','manual-owner-fixture@example.invalid',now());
-    INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status)
-      VALUES('${facility}','Synthetic manual race','synthetic-manual-race','その他','検証県','検証市','検証住所','draft');
+    INSERT INTO public.facility_profiles(id,name,slug,business_type,prefecture,city,address,status,business_hours)
+      VALUES('${facility}','Synthetic manual race','synthetic-manual-race','その他','検証県','検証市','検証住所','draft',
+        (SELECT jsonb_object_agg(n,jsonb_build_object('open','09:00','close','20:00'))
+          FROM unnest(ARRAY['sun','mon','tue','wed','thu','fri','sat']) n));
     INSERT INTO public.facility_members(user_id,facility_id,role) VALUES('${actor}','${facility}','owner');
     INSERT INTO public.facility_menus(id,facility_id,category,name,price,duration_minutes,is_published)
       VALUES('${menu}','${facility}','synthetic','Synthetic menu',1000,60,false);

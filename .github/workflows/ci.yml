@@ -139,6 +139,12 @@ jobs:
         run: |
           mkdir -p supabase/.temp
           printf '%s' 'v14.15' > supabase/.temp/rest-version
+      - name: Authenticate image pulls to ghcr.io
+        # Authenticated pulls get their own ghcr.io allowance (used by the fallback below).
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
       - name: Start Supabase (fresh-apply gate)
         # 恒久・発症前予防の中核ゲート。`supabase start` は supabase/migrations/*.sql を
         # 「新規環境へ全 replay（fresh-apply）」する。version 衝突・42P16（View 列改名）・
@@ -146,7 +152,24 @@ jobs:
         # 落ち、e2e 以前に「migration が新規環境で再生不能」というドリフトを検知する。
         # これが従来 fake.supabase.co で握り潰されていた E2E 連鎖失敗の真因（/api/health 503）
         # を根治する: 実 Supabase をローカル起動し本物の DB/anon key を後段へ渡す。
-        run: supabase start
+        # Image pulls are rate limited per registry: on 2026-10-23 ghcr.io returned
+        # "toomanyrequests" for hours and public.ecr.aws later returned "Data limit
+        # exceeded", so no E2E test could start. The same image tags are published to
+        # public.ecr.aws, ghcr.io and docker.io; try them in turn (twice each) before
+        # failing. Every attempt still replays all migrations on a fresh database.
+        run: |
+          for registry in public.ecr.aws ghcr.io docker.io; do
+            for attempt in 1 2; do
+              if SUPABASE_INTERNAL_IMAGE_REGISTRY="$registry" supabase start; then
+                echo "SUPABASE_INTERNAL_IMAGE_REGISTRY=$registry" >> "$GITHUB_ENV"
+                exit 0
+              fi
+              echo "supabase start failed with $registry (attempt $attempt)" >&2
+              supabase stop --no-backup >/dev/null 2>&1 || true
+              sleep 20
+            done
+          done
+          exit 1
       - name: Verify local PostgREST HEAD connection semantics
         # Actual headers/socket behavior, not an image-tag-only assertion.
         # No rows, keys, remote URLs, test retries or application replay.

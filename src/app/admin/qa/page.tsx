@@ -15,15 +15,18 @@ import { FACILITY_QA_ANSWER_MAX_LENGTH } from '@/lib/facility-qa-limits';
 interface QAItem {
   id: string;
   facility_id: string;
-  user_id: string;
   question: string;
   answer: string | null;
-  answered_by: string | null;
   answered_at: string | null;
   status: 'pending' | 'answered';
   is_public: boolean;
   created_at: string;
 }
+
+// 読む列は明示する（2026年10月23日）。facility_qa の SELECT は列単位の権限で、質問者・回答者の
+// アカウント ID（user_id / answered_by）はブラウザのロールに渡していない（20261023110200）。
+// select('*') は権限の無い列まで要求して permission denied になる。この画面は ID を表示しない。
+const QA_COLUMNS = 'id, facility_id, question, answer, answered_at, status, is_public, created_at';
 
 export default function AdminQAPage() {
   return <AdminFacilityScope title="Q&A管理" path="/admin/qa">{(scope) => <QAManager {...scope} />}</AdminFacilityScope>;
@@ -47,7 +50,7 @@ function QAManager({ facilityId, choices }: AdminFacilityScopeValue) {
     setLoadError(false);
     const { data, error } = await supabase
       .from('facility_qa')
-      .select('*')
+      .select(QA_COLUMNS)
       .eq('facility_id', fId)
       .order('created_at', { ascending: false })
       .limit(100);
@@ -184,7 +187,7 @@ function QAManager({ facilityId, choices }: AdminFacilityScopeValue) {
           }
         >
             <div className="bg-gray-50 rounded-lg p-3 mb-4">
-              <p className="text-xs text-gray-400 mb-1">質問</p>
+              <p className="text-xs text-gray-500 mb-1">質問</p>
               <p className="text-sm">{qaList.find((q) => q.id === answeringId)?.question}</p>
             </div>
             <div>
@@ -208,7 +211,7 @@ function QAManager({ facilityId, choices }: AdminFacilityScopeValue) {
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="Q&Aの読み込みに失敗しました" />
       ) : filtered.length === 0 ? (
         <div className="bg-white rounded-xl shadow-xs p-12 text-center">
-          <p className="text-gray-400">
+          <p className="text-gray-500">
             {filter === 'pending' ? '未回答の質問はありません' : filter === 'answered' ? '回答済みの質問はありません' : 'Q&Aはまだありません'}
           </p>
         </div>
@@ -221,7 +224,7 @@ function QAManager({ facilityId, choices }: AdminFacilityScopeValue) {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium">{qa.question}</p>
                   <div className="flex items-center gap-3 mt-1">
-                    <span className="text-xs text-gray-400">{formatDate(qa.created_at)}</span>
+                    <span className="text-xs text-gray-500">{formatDate(qa.created_at)}</span>
                     <span className={`text-xs font-bold px-1.5 py-0.5 rounded-sm ${qa.status === 'pending' ? 'bg-red-50 text-red-500' : 'bg-green-50 text-green-600'}`}>
                       {qa.status === 'pending' ? '未回答' : '回答済'}
                     </span>
@@ -243,7 +246,7 @@ function QAManager({ facilityId, choices }: AdminFacilityScopeValue) {
                     </button>
                   ) : (
                     <>
-                      <button type="button" onClick={() => togglePublic(qa)} className="p-2 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" aria-label={qa.is_public ? '非公開にする' : '公開にする'}>
+                      <button type="button" onClick={() => togglePublic(qa)} className="p-2 text-gray-500 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" aria-label={qa.is_public ? '非公開にする' : '公開にする'}>
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           {qa.is_public
                             ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
@@ -251,12 +254,12 @@ function QAManager({ facilityId, choices }: AdminFacilityScopeValue) {
                           }
                         </svg>
                       </button>
-                      <button type="button" onClick={() => { setAnsweringId(qa.id); setAnswerText(qa.answer || ''); }} className="p-2 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" aria-label="編集">
+                      <button type="button" onClick={() => { setAnsweringId(qa.id); setAnswerText(qa.answer || ''); }} className="p-2 text-gray-500 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" aria-label="編集">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                       </button>
                     </>
                   )}
-                  <button type="button" onClick={() => handleDelete(qa.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" aria-label="削除">
+                  <button type="button" onClick={() => handleDelete(qa.id)} className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" aria-label="削除">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                   </button>
                 </div>
@@ -268,7 +271,7 @@ function QAManager({ facilityId, choices }: AdminFacilityScopeValue) {
                   <span className="shrink-0 w-5 h-5 bg-amber-500 text-white text-micro font-bold rounded-full flex items-center justify-center mt-0.5">A</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-gray-700 whitespace-pre-line">{qa.answer}</p>
-                    <p className="text-xs text-gray-400 mt-1">回答日: {formatDate(qa.answered_at)}</p>
+                    <p className="text-xs text-gray-500 mt-1">回答日: {formatDate(qa.answered_at)}</p>
                   </div>
                 </div>
               )}
