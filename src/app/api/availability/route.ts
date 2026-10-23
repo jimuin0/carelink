@@ -9,6 +9,8 @@ import { serverError } from '@/lib/with-route';
 import { todayJst } from '@/lib/admin-date';
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 import { readCompleteAvailabilityStaff, readCompleteMonthAvailability, countConfirmedAvailabilitySlots } from '@/lib/availability-results';
+import { dropStartedSlotsToday } from '@/lib/available-slots';
+import type { AvailableSlot } from '@/types';
 
 /**
  * カレンダー1日分の状態。
@@ -126,8 +128,34 @@ export async function GET(request: Request) {
       p_duration_minutes: 60,
     });
 
+    // 1日分を get_available_slots で数え直す（3 枠に届いた時点で打ち切る）。
+    // 当日は開始時刻（JST）を過ぎた枠を数えない＝予約画面（/api/slots）と同じ規則。
+    // 集約 RPC は日単位の件数しか返さず「今より後か」を知らないため、当日の「本日空き」が
+    // 既に過ぎた朝の枠まで数えていた（検索バッジで是正済みの不具合と同じ型・2026年10月23日）。
+    const countDaySlots = async (dateStr: string): Promise<number> => {
+      let totalSlots = 0;
+      for (const sid of staffIds) {
+        const { data, error: slotsError } = await rpcClient.rpc('get_available_slots', {
+          p_facility_id: facilityId,
+          p_staff_id: sid,
+          p_date: dateStr,
+          p_duration_minutes: 60,
+        });
+        // 再計算も失敗したら「満席0件」と成功応答しない。
+        if (slotsError) throw new Error('Availability fallback slot lookup failed');
+        countConfirmedAvailabilitySlots(data);
+        totalSlots += dropStartedSlotsToday(dateStr, data as AvailableSlot[]).length;
+        if (totalSlots >= 3) break;
+      }
+      return totalSlots;
+    };
+
     if (!monthErr) {
       const slotMap = readCompleteMonthAvailability(monthRows, year, month);
+      // 当日がこの月にあり休業日でなければ、当日だけ「これから始まる枠」で数え直す。
+      if (slotMap.has(todayStr) && !isClosedOn(todayStr)) {
+        slotMap.set(todayStr, await countDaySlots(todayStr));
+      }
       for (let day = 1; day <= daysInMonth; day++) {
         const dateStr = dateStrFor(day);
         dates[dateStr] = isPast(dateStr)
@@ -159,20 +187,7 @@ export async function GET(request: Request) {
     for (let i = 0; i < futureDates.length; i += BATCH_SIZE) {
       const batch = futureDates.slice(i, i + BATCH_SIZE);
       await Promise.all(batch.map(async (dateStr) => {
-        let totalSlots = 0;
-        for (const sid of staffIds) {
-          const { data, error: slotsError } = await rpcClient.rpc('get_available_slots', {
-            p_facility_id: facilityId,
-            p_staff_id: sid,
-            p_date: dateStr,
-            p_duration_minutes: 60,
-          });
-          // 再計算も失敗したら「満席0件」と成功応答しない。
-          if (slotsError) throw new Error('Availability fallback slot lookup failed');
-          totalSlots += countConfirmedAvailabilitySlots(data);
-          if (totalSlots >= 3) break;
-        }
-        dates[dateStr] = summarizeDay(dateStr, totalSlots);
+        dates[dateStr] = summarizeDay(dateStr, await countDaySlots(dateStr));
       }));
     }
 

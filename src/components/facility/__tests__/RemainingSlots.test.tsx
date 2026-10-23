@@ -16,14 +16,14 @@
 import '@testing-library/jest-dom';
 import { render, screen, waitFor } from '@testing-library/react';
 import RemainingSlots from '@/components/facility/RemainingSlots';
+import { getTodayString } from '@/lib/validations-booking';
 
 /** status（と、表示に使われてはいけない slots）を返す /api/availability のモック。 */
 function mockFetchWithStatus(status: string | undefined, slots = 0) {
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
     json: async () => {
-      const now = new Date();
-      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const today = getTodayString();
       return { dates: { [today]: { slots, status } } };
     },
   }) as unknown as typeof fetch;
@@ -97,4 +97,21 @@ test('応答が ok でない → 何も表示しない', async () => {
   const { container } = render(<RemainingSlots facilityId="f1" />);
   await waitFor(() => expect(global.fetch).toHaveBeenCalled());
   expect(container).toBeEmptyDOMElement();
+});
+
+// 「本日」は JST。UTC 15:00 以降（JST の翌日）に端末の時計帯で数えると前日の月・日を引いていた。
+test('本日は JST の日付で引く（端末の時計帯に依存しない）', async () => {
+  jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+  jest.setSystemTime(new Date('2027-06-30T15:30:00Z')); // JST 2027-07-01 00:30
+  try {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ dates: { '2027-07-01': { slots: 0, status: 'closed' }, '2027-06-30': { slots: 3, status: 'available' } } }),
+    }) as unknown as typeof fetch;
+    render(<RemainingSlots facilityId="f1" />);
+    await waitFor(() => expect(screen.getByText('本日休業')).toBeInTheDocument());
+    expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain('year=2027&month=7');
+  } finally {
+    jest.useRealTimers();
+  }
 });

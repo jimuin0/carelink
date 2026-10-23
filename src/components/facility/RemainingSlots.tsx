@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import type { AvailabilityStatus } from '@/app/api/availability/route';
+import { getTodayString } from '@/lib/validations-booking';
 
 /**
  * 施設ページの「本日の空き状況」バッジ。
@@ -23,10 +24,10 @@ export default function RemainingSlots({ facilityId }: { facilityId: string }) {
   const [status, setStatus] = useState<AvailabilityStatus | null>(null);
 
   useEffect(() => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
-    const today = `${year}-${String(month).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    // 「本日」は JST（API の当日判定と同じ）。端末の時計帯で数えると海外端末で前日／翌日を引く。
+    const today = getTodayString();
+    const year = Number(today.slice(0, 4));
+    const month = Number(today.slice(5, 7));
 
     fetch(`/api/availability?facilityId=${facilityId}&year=${year}&month=${month}`)
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
