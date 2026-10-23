@@ -141,7 +141,7 @@ export default function CookieConsent() {
         {!detailsOpen ? (
           /* 簡易表示 */
           <div>
-            <p className="text-[13px] leading-relaxed text-gray-700">
+            <p className="jp-pretty text-[13px] leading-relaxed text-gray-700">
               当サイトではサービス向上のためCookieを使用しています。分析Cookieは同意いただいた場合だけ使用します（
               <Link href="/privacy" className="underline text-primary hover:text-primary-dark">
                 プライバシーポリシー

@@ -9,14 +9,15 @@
  *
  * 【固定】ファイルは /api/og の既定の描画（src/lib/og-image.ts・CareLink／ネットでかんたんサロン予約）
  * と同じ画像にする。ここでは同じ描画を行って、ファイルとバイト単位で一致することを確かめる。
- * og-image.ts の既定の文言・デザインを変えたら、次のコマンドでファイルを描き直してコミットする:
+ * og-image.ts の既定の文言・デザインを変えたら、/api/og の既定の出力でファイルを描き直してコミットする
+ * （/api/og は同じ renderOgImagePng を引数なしで呼ぶので、出力はこの検査の描画とバイト単位で一致する）:
  *
- *   UPDATE_DEFAULT_OG_IMAGE=1 npx jest src/__tests__/default-og-image.test.ts
+ *   npm run dev  →  curl -s http://localhost:3000/api/og -o public/og-image.png
  *
  * あわせて、トップと施設ページがこの画像（施設はメイン写真か店名入りの画像）を明示していることを見る
  * （トップは layout の openGraph を上書きしていたため og:image が無かった）。
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderOgImagePng } from '@/lib/og-image';
 import { DEFAULT_SHARE_IMAGE, facilityShareImage } from '@/lib/share-image';
@@ -31,7 +32,6 @@ function pngSize(buf: Buffer) {
 
 test('public/og-image.png は /api/og の既定の描画と同じ（旧「採用×集客」の画像ではない）', async () => {
   const rendered = await renderOgImagePng(new URLSearchParams());
-  if (process.env.UPDATE_DEFAULT_OG_IMAGE === '1') writeFileSync(FILE, rendered);
   const file = readFileSync(FILE);
   expect(pngSize(file)).toEqual({ width: DEFAULT_SHARE_IMAGE.width, height: DEFAULT_SHARE_IMAGE.height });
   expect(file.equals(rendered)).toBe(true);
