@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
 import { facilityInquirySchema as inquirySchema } from '@/lib/validations-inquiry';
+import Button from '@/components/ui/Button';
 
 type InquiryFormData = z.infer<typeof inquirySchema>;
 
@@ -92,9 +93,9 @@ export default function InquiryForm({ facilityId }: Props) {
           {errors.message && <p className="form-error" role="alert">{errors.message.message}</p>}
         </div>
 
-        <button type="submit" disabled={isSubmitting} className="btn-primary w-full py-3! text-sm">
+        <Button type="submit" disabled={isSubmitting} fullWidth>
           {isSubmitting ? '送信中...' : 'お問い合わせを送信する'}
-        </button>
+        </Button>
       </form>
 
       <ConfirmDialog

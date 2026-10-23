@@ -2,6 +2,7 @@ import Link from 'next/link';
 import PushPermissionBanner from '@/components/push/PushPermissionBanner';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { INTAKE_CUSTOMER_ENABLED } from '@/lib/intake-config';
+import Button from '@/components/ui/Button';
 
 // 施設に有効な問診テンプレがあるか（slug 経由）。予約完了時に問診バナーを出すか判定する。
 // 旧実装は has_intake クエリのみに依存していたが、予約送信元(BookingFlow)が has_intake を
@@ -165,17 +166,13 @@ export default async function BookingCompletePage(props: Props) {
                 📋 来院前に問診票を記入する（推奨）
               </Link>
             )}
-            <Link href={`/facility/${params.slug}`} className="btn-primary block w-full py-3!">
+            <Button href={`/facility/${params.slug}`} prefetch="auto" fullWidth>
               施設ページに戻る
-            </Link>
+            </Button>
             {canAddCalendar && icsDataUri && (
-              <a
-                href={icsDataUri}
-                download="carelink-booking.ics"
-                className="block w-full text-center text-sm py-2.5 border border-sky-200 rounded-lg text-sky-700 hover:bg-sky-50 transition-colors"
-              >
+              <Button href={icsDataUri} download="carelink-booking.ics" variant="secondary" fullWidth>
                 カレンダーに追加（.ics）
-              </a>
+              </Button>
             )}
             <Link href="/mypage/bookings" className="block text-sm text-primary hover:underline">
               予約履歴を確認

@@ -86,7 +86,7 @@ export default async function ComparePage(props: Props) {
     { label: '特徴', render: (f) => f.features?.length > 0 ? (
       <div className="flex flex-wrap gap-1">
         {f.features.slice(0, 5).map((t) => (
-          <span key={t} className="text-micro bg-gray-100 px-1.5 py-0.5 rounded-sm">{t}</span>
+          <span key={t} className="text-xs bg-gray-100 px-1.5 py-0.5 rounded-sm">{t}</span>
         ))}
       </div>
     ) : '-' },

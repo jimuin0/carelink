@@ -8,6 +8,16 @@ import { businessTypes } from '@/lib/constants';
 import AuthButton from '@/components/auth/AuthButton';
 import dynamic from 'next/dynamic';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import {
+  HEADER_ACCOUNT_GROUP,
+  HEADER_BAR,
+  HEADER_LISTING_LINK,
+  HEADER_MOBILE_LINK,
+  HEADER_MOBILE_LISTING_LINK,
+  HEADER_MOBILE_STORE_LOGIN_LINK,
+  HEADER_NAV_LINK,
+  HEADER_STORE_LOGIN_LINK,
+} from '@/components/header-styles';
 const LocaleSwitcher = dynamic(() => import('@/components/LocaleSwitcher'), { ssr: false });
 
 /** 施設の掲載を考えている店舗向けの入口（一般のヘッダー Header.tsx と同じ行き先）。 */
@@ -94,26 +104,21 @@ export default function SearchHeader() {
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-14">
-          <Link href="/" className="text-xl font-bold text-primary shrink-0">
+        <div className={HEADER_BAR}>
+          {/* ロゴの class は Header.tsx と同じ文字列（src/components/header-styles.ts の説明参照）。 */}
+          <Link href="/" className="text-xl font-bold text-(--logo) shrink-0">
             CareLink
           </Link>
 
           {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-1 ml-4 min-w-0" aria-label="メインナビゲーション">
             <BusinessTypeMenu />
-            <Link
-              href="/search/area"
-              className="text-gray-600 hover:text-primary text-[13px] px-3 py-1.5 rounded-full hover:bg-sky-50 transition-colors whitespace-nowrap"
-            >
+            <Link href="/search/area" className={HEADER_NAV_LINK}>
               エリアから探す
             </Link>
             {/* 掲載を考えている店舗の入口（2026年10月23日）。トップ・検索・施設ページはこの
                 ヘッダーを使うので、一般の Header だけに置くと検索側から来た店舗が辿り着けない。 */}
-            <Link
-              href={SHOP_LISTING_HREF}
-              className="ml-1 text-primary text-[13px] font-medium px-3 py-1.5 rounded-full border border-sky-200 hover:bg-sky-50 transition-colors whitespace-nowrap"
-            >
+            <Link href={SHOP_LISTING_HREF} className={HEADER_LISTING_LINK}>
               {SHOP_LISTING_LABEL}
             </Link>
             {/* 【2026年7月28日・神原さん判断で追加】掲載中の店舗オーナーの管理画面入口。
@@ -121,11 +126,8 @@ export default function SearchHeader() {
                 Header 側だけに置くと、トップから来た店舗オーナーが辿り着けないままになる。
                 一般のお客様には不要な導線なので、業種ナビより弱いトーンで置く。
                 redirect=/admin によりログイン後そのまま管理画面へ着地する。 */}
-            <div className="ml-2 pl-2 border-l border-gray-200 shrink-0 flex items-center gap-2">
-              <Link
-                href="/auth/login?redirect=/admin"
-                className="text-gray-500 hover:text-primary text-[12px] whitespace-nowrap transition-colors"
-              >
+            <div className={HEADER_ACCOUNT_GROUP}>
+              <Link href="/auth/login?redirect=/admin" className={HEADER_STORE_LOGIN_LINK}>
                 店舗ログイン
               </Link>
               <LocaleSwitcher />
@@ -168,7 +170,7 @@ export default function SearchHeader() {
               <Link
                 key={type}
                 href={`/search?type=${encodeURIComponent(type)}`}
-                className="text-gray-600 hover:text-primary text-sm px-3 py-2 rounded-lg hover:bg-sky-50 transition-colors"
+                className={HEADER_MOBILE_LINK}
                 onClick={() => setIsOpen(false)}
               >
                 {businessTypeLabel(type)}
@@ -176,7 +178,7 @@ export default function SearchHeader() {
             ))}
             <Link
               href="/search/area"
-              className="text-gray-600 hover:text-primary text-sm px-3 py-2 rounded-lg hover:bg-sky-50 transition-colors"
+              className={HEADER_MOBILE_LINK}
               onClick={() => setIsOpen(false)}
             >
               エリアから探す
@@ -184,7 +186,7 @@ export default function SearchHeader() {
             {/* 店舗向けの入口（掲載の案内と、掲載中の店舗の管理画面）。区切って置く。 */}
             <Link
               href={SHOP_LISTING_HREF}
-              className="text-primary font-medium text-sm px-3 py-2 mt-1 border-t border-gray-100 hover:bg-sky-50 transition-colors"
+              className={HEADER_MOBILE_LISTING_LINK}
               onClick={() => setIsOpen(false)}
             >
               {SHOP_LISTING_LABEL}
@@ -192,7 +194,7 @@ export default function SearchHeader() {
             {/* デスクトップと同じく店舗オーナー向けの管理画面入口（弱いトーンで置く）。 */}
             <Link
               href="/auth/login?redirect=/admin"
-              className="text-gray-500 hover:text-primary text-xs px-3 py-2 transition-colors"
+              className={HEADER_MOBILE_STORE_LOGIN_LINK}
               onClick={() => setIsOpen(false)}
             >
               店舗ログイン

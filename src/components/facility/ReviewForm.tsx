@@ -15,6 +15,7 @@ import { uploadReviewPhotos, type ReviewPhotoUploads } from '@/lib/review-photo-
 import { finishReviewFence, readReviewFence, withReviewTransportFence } from '@/lib/review-transport-fence';
 import { getClientCleanupGeneration, hasClientCleanupNeeded, CLIENT_CLEANUP_COMPLETED_EVENT } from '@/lib/client-cleanup-marker';
 import { verifyAuthUser } from '@/lib/auth-verification';
+import Button from '@/components/ui/Button';
 
 const MAX_PHOTOS = 3;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB (before compression)
@@ -377,9 +378,9 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
             前回の口コミの受付状況を確認できていません。「口コミを投稿する」を押すと、前回の口コミが受け付けられていればそのことをお知らせし、受け付けられていなければ今回の内容を投稿します（二重に投稿されることはありません）。
           </p>
         )}
-        <button type="submit" disabled={isSubmitting || compressing} className="btn-primary w-full py-3! text-sm">
+        <Button type="submit" disabled={isSubmitting || compressing} fullWidth>
           {isSubmitting ? '送信中...' : '口コミを投稿する'}
-        </button>
+        </Button>
       </form>
 
       <ConfirmDialog

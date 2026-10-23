@@ -27,6 +27,7 @@ import {
 } from '@/lib/password-reset';
 import Toast from '@/components/Toast';
 import { takePasswordResetRedirect } from '@/lib/password-reset-redirect';
+import Button from '@/components/ui/Button';
 
 // フォームを出してよいのは、このページ読み込みで再設定リンクから回復用セッションが作られたときだけ。
 // ブラウザに元から在るセッション（別アカウントでログイン中など）へ updateUser を呼ぶと、
@@ -173,9 +174,9 @@ export default function ResetPasswordPage() {
                 {UNAVAILABLE_NOTICES[recovery.reason].headline}
               </p>
               {UNAVAILABLE_NOTICES[recovery.reason].details.map(detail => <p key={detail}>{detail}</p>)}
-              <Link href="/auth/forgot-password" className="btn-primary w-full py-3! mt-4 inline-block text-center">
+              <Button href="/auth/forgot-password" prefetch="auto" size="lg" fullWidth className="mt-4">
                 {REQUEST_AGAIN_LABEL}
-              </Link>
+              </Button>
             </div>
           )}
 
@@ -243,9 +244,9 @@ export default function ResetPasswordPage() {
                   </div>
                 )}
 
-                <button type="submit" disabled={isSubmitting || locked} className="btn-primary w-full py-3!">
+                <Button type="submit" disabled={isSubmitting || locked} size="lg" fullWidth>
                   {isSubmitting ? '更新中...' : 'パスワードを更新'}
-                </button>
+                </Button>
               </form>
             </>
           )}

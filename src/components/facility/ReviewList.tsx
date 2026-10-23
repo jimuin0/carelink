@@ -201,14 +201,14 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
                         代わりにアカウントからの投稿であることをバッジで示し、未ログインの投稿と区別する。 */}
                     {review.is_member === true && (
                       <span
-                        className="text-micro bg-sky-100 text-sky-800 px-1.5 py-0.5 rounded-full font-bold"
+                        className="text-xs bg-sky-100 text-sky-800 px-1.5 py-0.5 rounded-full font-bold"
                         title="CareLinkの会員アカウントから投稿された口コミです"
                       >
                         会員
                       </span>
                     )}
                     {review.is_verified_visit && (
-                      <span className="text-micro bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold">来店確認済み</span>
+                      <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold">来店確認済み</span>
                     )}
                   </div>
                   <p className="text-gray-500 text-xs">{formatDate(review.created_at)}</p>
@@ -277,7 +277,7 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
             {replies.map((reply) => (
               <div key={reply.id} className="mt-3 ml-4 bg-white border border-gray-200 rounded-lg p-3">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-micro font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-full">サロンより</span>
+                  <span className="text-xs font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-full">サロンより</span>
                   {/* created_at が null の行（現状は理論上のみ）は new Date(null) が
                       1970-01-01 に化ける誤表示を避けるため日付を出さない */}
                   {reply.created_at && (

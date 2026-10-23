@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 
-import Link from 'next/link';
+import Button from '@/components/ui/Button';
 
 import { safeCaptureException } from '@/lib/safe';
 
@@ -19,12 +19,12 @@ export default function FacilityError({ error, reset }: { error: Error; reset: (
           一時的な問題が発生しています。しばらくしてからもう一度お試しください。
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <button type="button" onClick={reset} className="btn-primary text-sm px-6 py-3">
+          <Button onClick={reset}>
             もう一度試す
-          </button>
-          <Link href="/search" className="btn-outline text-sm px-6 py-3">
+          </Button>
+          <Button href="/search" variant="secondary">
             サロン・クリニックを探す
-          </Link>
+          </Button>
         </div>
       </div>
     </div>

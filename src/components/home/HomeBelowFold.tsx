@@ -98,7 +98,7 @@ export default function HomeBelowFold() {
                 <div className={`absolute inset-0 bg-linear-to-t ${banner.color}`} />
                 <div className="absolute inset-0 flex flex-col justify-end p-4">
                   <h2 className="text-white font-bold text-sm sm:text-base leading-tight">{banner.title}</h2>
-                  <p className="text-white text-tiny mt-1">{banner.subtitle}</p>
+                  <p className="text-white text-xs mt-1">{banner.subtitle}</p>
                 </div>
               </Link>
             ))}
@@ -119,7 +119,7 @@ export default function HomeBelowFold() {
                 href={item.href}
                 className="bg-sky-50 rounded-xl px-2 py-3 h-[52px] flex items-center justify-center text-center hover:shadow-md transition-shadow group"
               >
-                <span className="text-tiny sm:text-xs font-medium text-gray-700 leading-tight block">{item.label}</span>
+                <span className="text-xs font-medium text-gray-700 leading-tight block">{item.label}</span>
               </Link>
             ))}
           </div>
@@ -208,7 +208,7 @@ export default function HomeBelowFold() {
                 <div className="space-y-3">
                   {regionGroups.map((region) => (
                     <div key={region.name}>
-                      <h3 className="text-tiny font-bold text-gray-600 mb-1">{region.name}</h3>
+                      <h3 className="text-xs font-bold text-gray-600 mb-1">{region.name}</h3>
                       <div className="flex flex-wrap items-center gap-y-1">
                         {region.prefectures.map((pref, i) => {
                           const pSlug = getPrefectureSlug(pref);

@@ -23,7 +23,7 @@ export default function Footer() {
             <div className="space-y-4">
               {regionGroups.map((region) => (
                 <div key={region.name}>
-                  <h3 className="text-gray-400 text-tiny font-bold mb-1.5">{region.name}</h3>
+                  <h3 className="text-gray-400 text-xs font-bold mb-1.5">{region.name}</h3>
                   <div className="flex flex-wrap gap-x-3 gap-y-0.5">
                     {region.prefectures.map((pref) => {
                       const slug = getPrefectureSlug(pref);

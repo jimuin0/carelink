@@ -58,7 +58,7 @@ export default function MobileBottomNav() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex-1 flex flex-col items-center py-2 text-[10px] transition-colors ${
+              className={`flex-1 flex flex-col items-center py-2 text-xs transition-colors ${
                 isActive ? 'text-sky-700' : 'text-gray-600'
               }`}
             >

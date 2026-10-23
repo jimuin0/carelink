@@ -238,8 +238,9 @@ export default function AiChatbot() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
           </svg>
         )}
+        {/* 白文字 / red-700 #B91C1C で 6.47:1（red-500 は 3.76:1 で AA に届かない）。 */}
         {unread && !open && (
-          <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[10px] font-bold flex items-center justify-center">1</span>
+          <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-700 rounded-full text-xs font-bold flex items-center justify-center">1</span>
         )}
       </button>
     </>

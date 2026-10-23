@@ -9,6 +9,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import { savePasswordResetRedirect } from '@/lib/password-reset-redirect';
 import { safeRedirect } from '@/lib/safe-redirect';
+import Button from '@/components/ui/Button';
 
 const schema = z.object({
   email: z.string().email('正しいメールアドレスを入力してください'),
@@ -102,9 +103,9 @@ export default function ForgotPasswordPage() {
               {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
             </div>
 
-            <button type="submit" disabled={isSubmitting} className="btn-primary w-full py-3!">
+            <Button type="submit" disabled={isSubmitting} size="lg" fullWidth>
               {isSubmitting ? '送信中...' : 'リセットメールを送信'}
-            </button>
+            </Button>
           </form>
 
           <div className="mt-6 text-center">

@@ -7,6 +7,7 @@ import ReviewList from './ReviewList';
 import ReviewForm from './ReviewForm';
 import StarRating from './StarRating';
 import ReviewSummary from './ReviewSummary';
+import Button from '@/components/ui/Button';
 
 interface Props {
   facilityId: string;
@@ -64,12 +65,9 @@ export default function ReviewTab({ facilityId, facilitySlug, facilityName, init
           </svg>
           <p className="text-gray-600 text-sm font-medium">まだ口コミがありません</p>
           <p className="text-gray-500 text-xs mt-1">この施設を利用された方の口コミをお待ちしています</p>
-          <a
-            href="#review-form"
-            className="inline-flex items-center justify-center mt-4 min-h-[44px] px-5 rounded-lg bg-sky-700 text-white text-sm font-bold hover:bg-sky-800 transition-colors"
-          >
+          <Button href="#review-form" className="mt-4">
             最初の口コミを書く
-          </a>
+          </Button>
         </div>
       )}
 

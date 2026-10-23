@@ -57,7 +57,8 @@ export default function FacilityCard({ facility, showBadges = true, monthlyBooki
             <div className="w-12 h-12 rounded-full bg-sky-200/50 flex items-center justify-center mb-1.5">
               <span className="text-xl font-bold text-sky-400">{facility.name.charAt(0)}</span>
             </div>
-            <p className="text-sky-300 text-micro">写真未登録</p>
+            {/* sky-800 #075985 は背景のグラデーション（sky-50〜sky-100〜indigo-50）の上で 6.59:1 以上。sky-300 は 1.45:1 だった。 */}
+            <p className="text-sky-800 text-xs">写真未登録</p>
           </div>
         )}
         <div className="absolute top-3 left-3 flex flex-wrap gap-1.5">
@@ -126,7 +127,7 @@ export default function FacilityCard({ facility, showBadges = true, monthlyBooki
         )}
 
         {/* メタ情報行 */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-2 text-tiny text-gray-500">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-2 text-xs text-gray-500">
           {facility.seat_count != null && facility.seat_count > 0 && (
             <span>席数{facility.seat_count}</span>
           )}
