@@ -152,10 +152,10 @@ export async function POST(req: NextRequest) {
     if (!placeMatchesFacility(place, facility)) return NextResponse.json({ code: 'GBP_PLACE_MISMATCH', error: GBP_PLACE_MISMATCH_MESSAGE }, { status: 422 });
     // 照合に使った登録内容を保存へ渡す。照会の間に店名・電話・住所が変わっていれば、DB が行を
     // ロックしたうえで食い違いを検出して断る（古い照合結果で他店の Place ID を付けさせない）。
-    verifiedIdentity = {
-      name: facility.name ?? null, phone: facility.phone ?? null, postal_code: facility.postal_code ?? null,
-      prefecture: facility.prefecture ?? null, city: facility.city ?? null, address: facility.address ?? null,
-    };
+    const row = facility as Record<string, string | null | undefined>;
+    verifiedIdentity = Object.fromEntries(
+      (['name', 'phone', 'postal_code', 'prefecture', 'city', 'address'] as const).map((key) => [key, row[key] ?? null]),
+    );
   }
 
   const saved = await saveAdminFacilityIntegration({actorId:user.id,facilityId,kind:'gbp:connect',expected:verifiedIdentity?{identity:verifiedIdentity}:{},values:{place_id:gbp_place_id || null,cid:gbp_cid || null}});

@@ -2157,7 +2157,7 @@
 "function|reverse_referral_bonus_without_visit()|returns=trigger|volatile=v|secdef=t|body_md5=c2d1bac8d036e7e967e58cfffdc2f688",
 "function|review_content_hash(r public.facility_reviews)|returns=text|volatile=i|secdef=f|body_md5=055fb2259538b80c62200ed2598cd908",
 "function|save_admin_coupon_atomic(p_actor_id uuid, p_facility_id uuid, p_coupon_id uuid, p_fields jsonb, p_target_menu_ids uuid[])|returns=SETOF public.coupons|volatile=v|secdef=f|body_md5=b002d4a7cf3698e6cec242fed534ebf2",
-"function|save_admin_facility_integration_atomic(p_actor_id uuid, p_facility_id uuid, p_kind text, p_expected jsonb, p_values jsonb)|returns=jsonb|volatile=v|secdef=f|body_md5=f2f8e0e4375e5cd4dc9c1dc28f25ddbd",
+"function|save_admin_facility_integration_atomic(p_actor_id uuid, p_facility_id uuid, p_kind text, p_expected jsonb, p_values jsonb)|returns=jsonb|volatile=v|secdef=f|body_md5=2e69f92ff7bc378539a236f750d27ff4",
 "function|save_admin_menu_atomic(p_actor_id uuid, p_facility_id uuid, p_menu_id uuid, p_values jsonb, p_check_photo boolean, p_expected_photo text)|returns=jsonb|volatile=v|secdef=f|body_md5=c8be4bdee6e8226a7ef1a0bb3b5e726e",
 "function|save_admin_staff_atomic(p_actor_id uuid, p_facility_id uuid, p_staff_id uuid, p_values jsonb, p_menu_ids uuid[])|returns=jsonb|volatile=v|secdef=f|body_md5=f8771816ac99f62483ea0a038dfc97f2",
 "function|save_booking_email_event_atomic(p_actor_id uuid, p_booking_id uuid, p_expected_status text, p_expected_updated_at timestamp with time zone, p_new_status text, p_envelope jsonb, p_operation_id uuid)|returns=TABLE(operation_id uuid, replayed boolean, notification text)|volatile=v|secdef=f|body_md5=e74940f8941be8fd9e6e5026b6bf32a3",
