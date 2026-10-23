@@ -291,7 +291,7 @@ test.describe('/register 送信', () => {
         await expect(page.locator('#onboarding-facility-name')).toHaveValue(/^E2E登録テスト施設 /);
         await page.getByRole('checkbox').check();
         const setup = await observeFacilitySetup(page,
-          () => page.getByRole('button', { name: '施設を作成する', exact: true }).click());
+          () => page.getByRole('button', { name: '店舗を作成する', exact: true }).click());
         expect(setup.status).toBe(201);
         const setupBody = setup.body;
         expect(setupBody.success).toBe(true);

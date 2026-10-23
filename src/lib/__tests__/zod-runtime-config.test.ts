@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -7,11 +7,18 @@ import { join } from 'node:path';
  * 許さないため、ブラウザは全ページでこの探査を CSP 違反として報告していた。
  * jitless を、どのスキーマよりも先に（クライアント・サーバーの instrumentation から）設定する。
  */
+// zod の設定は globalThis.__zod_globalConfig に置かれ、モジュールを読み直しても残る。
+// テストの順番に依存しないよう、毎回未設定に戻してから測る。
+beforeEach(() => {
+  delete (globalThis as { __zod_globalConfig?: { jitless?: boolean } }).__zod_globalConfig?.jitless;
+});
+
 function countEvalProbes(configure: boolean): number {
   let probes = 0;
   const original = globalThis.Function;
   globalThis.Function = new Proxy(original, {
-    construct(target, args) { probes += 1; return Reflect.construct(target, args); },
+    // zod の探査は new Function('')。カバレッジ計測（istanbul）の new Function('return this') は数えない。
+    construct(target, args) { if (args.length === 1 && args[0] === '') probes += 1; return Reflect.construct(target, args); },
   });
   try {
     jest.isolateModules(() => {

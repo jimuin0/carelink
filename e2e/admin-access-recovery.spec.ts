@@ -72,7 +72,7 @@ test('layout permission observation failure -> same-query document GET retry -> 
     const retry = page.getByRole('button', { name: '利用権限を再確認', exact: true });
     await expect(retry).toBeVisible();
     await expect(page.getByText('直前の操作結果は別途確認してください。', { exact: false })).toBeVisible();
-    await expect(page.getByRole('heading', { name: '施設情報を確認', exact: true })).toBeHidden();
+    await expect(page.getByRole('heading', { name: '店舗情報を確認', exact: true })).toBeHidden();
     const restored = await client.from('profiles').insert(restoreRow).select('id');
     if (restored.error || restored.data?.length !== 1) throw new Error('Disposable own profile restoration failed');
     const document = page.waitForRequest(request => request.isNavigationRequest()
@@ -81,7 +81,7 @@ test('layout permission observation failure -> same-query document GET retry -> 
     const request = await document;
     expect(request.method()).toBe('GET'); expect(new URL(request.url()).search).toBe('?access_retry=synthetic-proof');
     await expect(retry).toBeHidden();
-    await expect(page.getByRole('heading', { name: '施設情報を確認', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '店舗情報を確認', exact: true })).toBeVisible();
     expect(mutations).toBe(0);
     const members = await client.from('facility_members').select('facility_id').eq('user_id', actor.id);
     expect(members.error).toBeNull(); expect(members.data).toEqual([]);

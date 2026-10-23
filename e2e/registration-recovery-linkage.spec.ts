@@ -64,7 +64,7 @@ async function submitSetup(page: Page, status: number, state: string) {
   // Arm the full document readiness wait before the replacing submission.
   const [response] = await Promise.all([
     observeFacilitySetup(page,
-      () => page.getByRole('button', { name: '施設を作成する', exact: true }).click()),
+      () => page.getByRole('button', { name: '店舗を作成する', exact: true }).click()),
     page.waitForURL(url => url.pathname === '/admin', { waitUntil: 'domcontentloaded' }),
   ]);
   expect(response.status).toBe(status);
@@ -233,7 +233,7 @@ test('committed direct setup with lost response reloads membership without anoth
     .toEqual({ present: true, negative: true, httpOnly: true, secure: true, path: '/admin' });
   const parameters = new URLSearchParams({ facility_name: `合成応答喪失 ${randomUUID()}`, business_type: 'ヘアサロン' });
   await page.goto(`/admin/onboarding?${parameters}`);
-  await expect(page.getByRole('button', { name: '施設を作成する', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '店舗を作成する', exact: true })).toBeVisible();
   let setupRequests = 0;
   let committed: { status: number; success: boolean; state: string } | undefined;
   page.on('request', request => {
@@ -246,11 +246,12 @@ test('committed direct setup with lost response reloads membership without anoth
     await route.abort('connectionfailed'); // No successful response reaches application code.
   });
   await page.getByRole('checkbox').check();
-  await page.getByRole('button', { name: '施設を作成する', exact: true }).click();
+  await page.getByRole('button', { name: '店舗を作成する', exact: true }).click();
   await expect.poll(() => committed).toEqual({ status: 201, success: true, state: 'created' });
-  await expect(page.getByText('作成結果を確認できませんでした。再読み込みして登録状況を確認してください',
-    { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '再読み込みして登録状況を確認', exact: true })).toBeVisible();
+  // 結果不明は「エラー」ではなく確認中。同じ内容で確認するボタンを出し、自動では再送しない。
+  await expect(page.getByRole('heading', { name: '店舗の作成結果を確認中です', exact: true })).toBeVisible();
+  await expect(page.getByText('店舗の作成結果をまだ確認できていません。', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '作成状況を再確認', exact: true })).toBeVisible();
   expect(setupRequests).toBe(1);
   // route.fetch shares Playwright's browser-context cookie jar and can apply
   // Set-Cookie before abort. Restore the original real signed denial so this
