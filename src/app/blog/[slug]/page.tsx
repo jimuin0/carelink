@@ -247,7 +247,7 @@ export default async function ArticlePage(props: { params: Promise<{ slug: strin
             <span className="text-sm text-gray-500">{publishedAt}</span>
             <span className="text-sm text-gray-500">{merchantGuide ? `読む目安：約${post.reading_time}分` : `${post.reading_time}分で読める`}</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold leading-tight">{post.title}</h1>
+          <h1 className="jp-balance text-2xl sm:text-3xl font-bold leading-tight">{post.title}</h1>
           {post.author_name && (
             <p className="text-xs text-gray-500 mt-2">著者: {post.author_name}</p>
           )}

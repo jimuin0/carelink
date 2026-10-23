@@ -71,7 +71,7 @@ export default async function BookingPage(props: Props) {
   return (
     <div className="bg-gray-50 min-h-screen">
       <div className="max-w-2xl mx-auto px-4 py-8">
-        <h1 className="text-xl font-bold mb-2">{facility.name}</h1>
+        <h1 className="jp-balance text-xl font-bold mb-2">{facility.name}</h1>
         <p className="text-sm text-gray-500 mb-6">オンライン予約</p>
 
         <BookingFlow

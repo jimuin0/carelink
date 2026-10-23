@@ -141,6 +141,33 @@
   @apply text-gray-700 leading-relaxed;
 }
 
+/* 日本語の折り返し（サイト全体・2026年10月23日）。
+   既定は文字単位で折り返すため、見出しが「サロン・クリニックを探/す」のように語の途中で割れ、
+   最終行に 1〜2 文字だけ残る。文節（auto-phrase）で割り、見出しは行の長さを揃える（balance）、
+   本文は最終行が短くなりすぎないようにする（pretty）。未対応のブラウザでは従来どおり文字単位で
+   折り返すだけ（表示は壊れない）。/register のくすみテーマ内の jp-wrap は同じ考え方のテーマ専用版。
+   （このコメントにテーマのクラス名を書かない: テーマのブロックを先頭一致で探す検査が誤検出する） */
+@utility jp-balance {
+  word-break: auto-phrase;
+  text-wrap: balance;
+}
+
+@utility jp-pretty {
+  word-break: auto-phrase;
+  text-wrap: pretty;
+}
+
+/* パンくずリスト（2026年10月23日）。スマホで項目が縮んで「トッ/プ」のように 1 文字ずつ
+   折れていたので、項目の中では折り返さず、収まらなければ横にスクロールさせる。 */
+@utility crumbs {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  & > li {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+}
+
 @utility scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;

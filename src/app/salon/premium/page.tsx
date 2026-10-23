@@ -148,7 +148,7 @@ export default function PremiumPage() {
       <section className="bg-linear-to-br from-sky-700 to-violet-700 text-white py-20">
         <div className="max-w-4xl mx-auto px-4 text-center">
           <p className="text-sky-200 text-sm font-medium mb-3 tracking-widest uppercase">CareLink Premium</p>
-          <h1 className="text-4xl sm:text-5xl font-bold mb-6 leading-tight">
+          <h1 className="jp-balance text-4xl sm:text-5xl font-bold mb-6 leading-tight">
             集客力を最大化する<br />
             <span className="text-amber-300">プレミアム機能</span>
           </h1>

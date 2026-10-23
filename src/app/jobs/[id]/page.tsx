@@ -179,7 +179,7 @@ export default async function JobDetailPage(props: Props) {
       <div className="max-w-4xl mx-auto bg-white shadow-xs">
         {/* パンくず */}
         <nav className="px-4 sm:px-6 pt-4 pb-2" aria-label="パンくずリスト">
-          <ol className="flex items-center gap-1.5 text-xs text-gray-500 overflow-x-auto">
+          <ol className="crumbs flex items-center gap-1.5 text-xs text-gray-500 overflow-x-auto">
             <li><Link href="/" className="hover:text-sky-600">トップ</Link></li>
             <li><span className="mx-1">/</span></li>
             <li><Link href="/jobs" className="hover:text-sky-600">求人一覧</Link></li>
@@ -202,7 +202,7 @@ export default async function JobDetailPage(props: Props) {
                 <span className="text-xs bg-sky-100 text-sky-700 px-2 py-1 rounded-sm font-medium">{job.job_type}</span>
                 <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-sm font-medium">{job.employment_type}</span>
               </div>
-              <h1 className="text-xl sm:text-2xl font-bold mb-2 leading-snug">{job.title}</h1>
+              <h1 className="jp-balance text-xl sm:text-2xl font-bold mb-2 leading-snug">{job.title}</h1>
               <Link href={`/facility/${f.slug}`} className="text-sm text-sky-700 hover:underline">
                 {f.name}
               </Link>

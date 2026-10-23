@@ -12,7 +12,7 @@ export default function PrivacyPage() {
   return (
     <div className="section-container">
       <div className="max-w-3xl mx-auto prose prose-gray">
-        <h1 className="text-3xl font-bold mb-8">プライバシーポリシー</h1>
+        <h1 className="jp-balance text-3xl font-bold mb-8">プライバシーポリシー</h1>
 
         <p className="text-gray-600 mb-8">
           神原良祐（以下「当事業者」）は、CareLink（以下「本サービス」）における個人情報の取扱いについて、以下のとおりプライバシーポリシーを定めます。

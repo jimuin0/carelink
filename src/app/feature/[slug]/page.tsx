@@ -102,7 +102,7 @@ export default async function FeatureDetailPage({ params }: Props) {
             />
             <div className="absolute inset-0 bg-linear-to-t from-black/60 to-transparent" />
             <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8">
-              <h1 className="text-2xl sm:text-3xl font-bold text-white">{feature.title}</h1>
+              <h1 className="jp-balance text-2xl sm:text-3xl font-bold text-white">{feature.title}</h1>
               {feature.description && (
                 <p className="text-white/80 text-sm mt-2">{feature.description}</p>
               )}
@@ -112,7 +112,7 @@ export default async function FeatureDetailPage({ params }: Props) {
 
         {!feature.banner_image_url && (
           <div className="mb-8">
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">{feature.title}</h1>
+            <h1 className="jp-balance text-2xl sm:text-3xl font-bold text-gray-900">{feature.title}</h1>
             {feature.description && (
               <p className="text-gray-600 text-sm mt-2">{feature.description}</p>
             )}

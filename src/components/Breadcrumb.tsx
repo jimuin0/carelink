@@ -25,14 +25,14 @@ export default function Breadcrumb({ items, jsonLd: emitJsonLd = true }: { items
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }} />
       )}
       <nav aria-label="パンくずリスト" className="text-sm text-gray-500 mb-6">
-        <ol className="flex flex-wrap items-center gap-1">
+        <ol className="crumbs flex flex-wrap items-center gap-1">
           {items.map((item, i) => (
-            <li key={i} className="flex items-center gap-1">
+            <li key={i} className="flex items-center gap-1 max-w-full">
               {i > 0 && <span className="text-gray-500">/</span>}
               {item.href ? (
-                <Link href={item.href} className="hover:text-gray-700 transition-colors">{item.label}</Link>
+                <Link href={item.href} className="truncate min-w-0 hover:text-gray-700 transition-colors">{item.label}</Link>
               ) : (
-                <span className="text-gray-700">{item.label}</span>
+                <span className="truncate min-w-0 text-gray-700" aria-current="page">{item.label}</span>
               )}
             </li>
           ))}

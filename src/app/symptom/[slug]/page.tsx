@@ -148,7 +148,7 @@ export default async function SymptomPage({ params }: Props) {
           <span className="text-gray-800">{symptom.name}</span>
         </nav>
 
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-800 mb-2">
+        <h1 className="jp-balance text-xl sm:text-2xl font-bold text-gray-800 mb-2">
           {symptom.name}に対応できるサロン・クリニック
         </h1>
         <p className="text-sm text-gray-500 mb-4">

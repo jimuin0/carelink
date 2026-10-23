@@ -106,7 +106,7 @@ export default async function BlogDetailPage(props: Props) {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }} />
       <div className="max-w-4xl mx-auto bg-white shadow-xs">
         <nav className="px-4 sm:px-6 pt-3 pb-1" aria-label="パンくずリスト">
-          <ol className="flex items-center gap-1.5 text-xs text-gray-500">
+          <ol className="crumbs flex items-center gap-1.5 text-xs text-gray-500">
             {/* 他ページのパンくず「トップ」は全て / を指す（facility/[slug]/page.tsx等）。
                 このページのみ /search になっていた表記ゆれを統一する（2026年7月8日 恒久根治）。 */}
             <li><Link href="/" className="hover:text-sky-600">トップ</Link></li>
@@ -120,7 +120,7 @@ export default async function BlogDetailPage(props: Props) {
         </nav>
 
         <article className="px-4 sm:px-6 py-6">
-          <h1 className="text-xl sm:text-2xl font-bold leading-tight">{post.title}</h1>
+          <h1 className="jp-balance text-xl sm:text-2xl font-bold leading-tight">{post.title}</h1>
           <p className="text-sm text-gray-500 mt-2">
             {post.published_at ? new Date(post.published_at).toLocaleDateString('ja-JP') : ''}
           </p>

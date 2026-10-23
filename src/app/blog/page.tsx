@@ -121,7 +121,7 @@ export default async function BlogPage(props: { searchParams: Promise<SearchPara
     <div className="section-container">
       <Breadcrumb items={[{ label: 'ホーム', href: '/' }, { label: 'コラム' }]} />
       <div className="mb-8">
-        <h1 className="text-2xl sm:text-3xl font-bold">コラム</h1>
+        <h1 className="jp-balance text-2xl sm:text-3xl font-bold">コラム</h1>
         {tag && (
           <div className="mt-3 flex items-center gap-2 text-sm">
             <span className="text-gray-600">タグ：{tag} の記事</span>

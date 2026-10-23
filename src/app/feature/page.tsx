@@ -28,7 +28,7 @@ export default async function FeatureListPage() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Breadcrumb items={[{ label: 'トップ', href: '/' }, { label: '特集一覧' }]} />
 
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-8">特集・おすすめ企画</h1>
+        <h1 className="jp-balance text-2xl sm:text-3xl font-bold text-gray-900 mb-8">特集・おすすめ企画</h1>
 
         {features.length > 0 ? (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">

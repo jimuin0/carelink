@@ -245,7 +245,7 @@ export default async function FacilityPage(props: Props) {
           const typeSlug = getBusinessTypeSlug(facility.business_type);
           return (
             <nav className="px-4 sm:px-6 pt-3 pb-1" aria-label="パンくずリスト">
-              <ol className="flex items-center gap-1.5 text-xs text-gray-500 overflow-x-auto">
+              <ol className="crumbs flex items-center gap-1.5 text-xs text-gray-500 overflow-x-auto">
                 <li><Link href="/" className="hover:text-sky-600 transition-colors">トップ</Link></li>
                 <li><span className="mx-1">/</span></li>
                 {prefSlug && (

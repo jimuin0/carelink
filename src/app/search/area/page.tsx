@@ -14,7 +14,7 @@ export default async function AreaSearchPage() {
   return (
     <div className="bg-gray-50 min-h-screen">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <h1 className="text-2xl font-bold mb-6">エリアから探す</h1>
+        <h1 className="jp-balance text-2xl font-bold mb-6">エリアから探す</h1>
 
         {regions.length === 0 ? (
           <div className="bg-white rounded-2xl shadow-xs p-8 text-center">

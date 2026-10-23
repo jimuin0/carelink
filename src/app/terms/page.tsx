@@ -12,7 +12,7 @@ export default function TermsPage() {
   return (
     <div className="section-container">
       <div className="max-w-3xl mx-auto prose prose-gray">
-        <h1 className="text-3xl font-bold mb-8">利用規約</h1>
+        <h1 className="jp-balance text-3xl font-bold mb-8">利用規約</h1>
 
         <p className="text-gray-600 mb-8">
           本利用規約（以下「本規約」）は、神原良祐（以下「当事業者」）が提供するCareLink（以下「本サービス」）の利用に関する条件を定めるものです。本サービスをご利用いただくすべての方（以下「利用者」）は、本規約に同意したものとみなします。

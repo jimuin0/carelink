@@ -57,10 +57,10 @@ export default async function Home() {
 
         <div className="relative max-w-[1040px] mx-auto px-4 sm:px-6">
           <div className="pt-10 sm:pt-14 pb-7 sm:pb-10 text-center">
-            <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight tracking-wide drop-shadow-md [text-shadow:0_2px_8px_rgba(0,0,0,0.4)]">
+            <h1 className="jp-balance text-2xl sm:text-3xl font-bold text-white leading-tight tracking-wide drop-shadow-md [text-shadow:0_2px_8px_rgba(0,0,0,0.4)]">
               ネットでかんたんサロン予約
             </h1>
-            <p className="text-xs sm:text-sm text-white mt-2 tracking-wider [text-shadow:0_1px_4px_rgba(0,0,0,0.3)]">
+            <p className="jp-balance text-xs sm:text-sm text-white mt-2 tracking-wider [text-shadow:0_1px_4px_rgba(0,0,0,0.3)]">
               ヘア・ネイル・まつげ・リラク・エステ・ピラティス・美容クリニック
             </p>
 
