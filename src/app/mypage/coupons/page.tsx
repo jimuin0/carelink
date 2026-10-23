@@ -3,6 +3,7 @@ import { verifyAuthUser } from '@/lib/auth-verification';
 import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import type { Metadata } from 'next';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { discountText } from '@/lib/coupon-display';
@@ -66,7 +67,7 @@ export default async function CouponNotebookPage() {
         <div className="bg-white rounded-2xl shadow-xs p-12 text-center">
           <p className="text-gray-500 mb-4">クーポンがありません</p>
           <p className="text-sm text-gray-500 mb-6">施設をお気に入りに追加すると、クーポンがここに表示されます。</p>
-          <Link href="/search" className="btn-primary text-sm">施設を探す</Link>
+          <Button href="/search" prefetch="auto">施設を探す</Button>
         </div>
       ) : (
         <div className="space-y-3">

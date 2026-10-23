@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, type CSSProperties } from 'react';
+import { usePathname } from 'next/navigation';
+import { bottomFixedBarsHeight, FILTER_BUTTON_PATHS } from '@/lib/mobile-bottom-bar';
 import { getRecaptchaToken, RecaptchaClientError, RECAPTCHA_CLIENT_UNAVAILABLE_MESSAGE } from '@/lib/recaptcha-client';
 import { CLIENT_CLEANUP_COMPLETED_EVENT, CLIENT_CLEANUP_GENERATION_KEY } from '@/lib/client-cleanup-marker';
 
@@ -28,6 +30,27 @@ export default function AiChatbot() {
   const inFlight = useRef(false);
   const cleanupEpoch = useRef(0);
   const activeController = useRef<AbortController | null>(null);
+  const pathname = usePathname() ?? '';
+  // 下部ナビ・施設詳細の予約バーの上に出す（以前は bottom-4 固定で、スマホでは下部ナビのボタンに
+  // 重なって押せなかった）。測り方は Cookie 同意バナーと同じ（lib/mobile-bottom-bar.ts）。
+  const [barsHeight, setBarsHeight] = useState(0);
+  useEffect(() => {
+    const measure = () => setBarsHeight(bottomFixedBarsHeight());
+    measure();
+    window.addEventListener('resize', measure);
+    // 下部ナビは遅延読み込みで後から現れ、予約バーは残席の表示で高さが変わる。
+    const observer = new MutationObserver(measure);
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    return () => {
+      window.removeEventListener('resize', measure);
+      observer.disconnect();
+    };
+  }, []);
+  // /search は下部ナビの上に右寄せの「絞り込み」ボタン（ナビの 1.5rem 上・高さ約 44px）が浮くので、その上へ。
+  const filterButtonClearance = FILTER_BUTTON_PATHS.includes(pathname) && barsHeight > 0 ? ' + 4.5rem' : '';
+  const offsetStyle = {
+    '--ai-offset': `calc(${barsHeight > 0 ? `${barsHeight}px` : 'env(safe-area-inset-bottom)'}${filterButtonClearance})`,
+  } as CSSProperties;
 
   useEffect(() => {
     const clear = () => {
@@ -121,9 +144,9 @@ export default function AiChatbot() {
       {/* Chat window */}
       {open && (
         // 相談内容（入力した文がそのまま吹き出しとして表示される）を Clarity の録画に残さない。
-        <div className="fixed bottom-20 right-4 z-50 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col overflow-hidden"
+        <div className="fixed bottom-[calc(var(--ai-offset)+5rem)] right-4 z-50 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-gray-100 flex flex-col overflow-hidden"
           data-clarity-mask="true"
-          style={{ height: '480px', maxHeight: 'calc(100vh - 6rem)' }}>
+          style={{ ...offsetStyle, height: '480px', maxHeight: 'calc(100dvh - var(--ai-offset) - 6rem)' }}>
           {/* Header */}
           <div className="bg-sky-500 px-4 py-3 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
@@ -227,7 +250,8 @@ export default function AiChatbot() {
           if (next) setUnread(false);
         }}
         aria-label={open ? 'チャットを閉じる' : 'AIアシスタントに質問する'}
-        className="fixed bottom-4 right-4 z-50 w-14 h-14 bg-sky-700 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-sky-800 transition-all active:scale-95"
+        style={offsetStyle}
+        className="fixed bottom-[calc(var(--ai-offset)+1rem)] right-4 z-50 w-14 h-14 bg-sky-700 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-sky-800 transition-all active:scale-95"
       >
         {open ? (
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

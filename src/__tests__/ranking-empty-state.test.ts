@@ -47,7 +47,9 @@ describe('ランキングの空状態', () => {
     const start = src.indexOf('口コミが集まっていません');
     expect(start).toBeGreaterThan(-1);
     const block = src.slice(start, start + 1600);
-    const links = block.match(/<Link\b/g) ?? [];
+    // 導線は next/link の <Link> か、共通ボタンのリンク形（<Button href=…>）で描く（デザイン統一フェーズ2）。
+    const links = block.match(/<(?:Link|Button)\b/g) ?? [];
+    expect((block.match(/\bhref=/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect(links.length).toBeGreaterThanOrEqual(2);
   });
 

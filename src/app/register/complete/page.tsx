@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import { cookies } from 'next/headers';
 import { SALON_CLAIM_COOKIE_NAME } from '@/lib/salon-claim';
 import { resolveRegisteredSalon } from '@/lib/register-complete';
@@ -33,7 +34,7 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
                 : 'この画面からは受付を確認できません。申込時のブラウザでご確認ください。'}
             </p>
             <p className="mb-6">受付済みの可能性があります。重複を避けるため再送信せず、受付状況をお問い合わせください。</p>
-            <Link href="/contact" className="btn-primary">受付状況を問い合わせる</Link>
+            <Button href="/contact" prefetch="auto">受付状況を問い合わせる</Button>
             <Link href="/register/recover" className="block mt-4 underline underline-offset-4">申込時のメールアドレスで送信済みの掲載申込を復旧</Link>
           </div>
         </div>
@@ -112,12 +113,13 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
         </div>
 
         <div className="flex flex-col gap-3">
-          <Link
+          <Button
             href={buildOnboardingAuthPath('signup', { facilityName: name, businessType: type })}
-            className="btn-primary px-8 py-4 text-base"
+            prefetch="auto"
+            size="lg"
           >
             {T.account}を作成して始める
-          </Link>
+          </Button>
           <Link
             href={buildOnboardingAuthPath('login', { facilityName: name, businessType: type })}
             className="text-sm underline underline-offset-4"

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import { useLiff } from '@/hooks/useLiff';
 import LiffNotLinked from '@/components/liff/LiffNotLinked';
 import { statusChipClass, bookingStatusLabel, canCustomerCancelBooking } from '@/lib/booking-status';
@@ -63,12 +64,13 @@ export default function LiffBookingsPage() {
       ) : bookings.length === 0 ? (
         <div className="text-center py-12">
           <p className="text-gray-500 text-sm">予約はありません</p>
-          <Link
+          <Button
             href="/search"
-            className="mt-4 inline-block bg-sky-500 text-white px-6 py-2.5 rounded-full text-sm font-bold"
+            prefetch="auto"
+            className="mt-4"
           >
             施設を探す
-          </Link>
+          </Button>
         </div>
       ) : (
         <div className="space-y-3">

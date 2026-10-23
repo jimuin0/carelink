@@ -2,6 +2,8 @@
 
 import { useEffect } from 'react';
 
+import Button from '@/components/ui/Button';
+
 import { safeCaptureException } from '@/lib/safe';
 
 export default function BlogError({
@@ -23,9 +25,9 @@ export default function BlogError({
         <p className="text-gray-600 mb-8">
           申し訳ございません。時間をおいて再度お試しください。
         </p>
-        <button type="button" onClick={reset} className="btn-primary">
+        <Button onClick={reset}>
           もう一度試す
-        </button>
+        </Button>
       </div>
     </div>
   );

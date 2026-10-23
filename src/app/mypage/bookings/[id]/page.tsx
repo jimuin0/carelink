@@ -4,6 +4,7 @@ import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import Button from '@/components/ui/Button';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import type { Booking } from '@/types';
@@ -385,16 +386,16 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
           param 名は一覧・BookingFlow と揃えて menu_id/staff_id（#389 A-4/A-5 と統一）。
           指名なし（おまかせ）で割り当てられた担当者は引き継がない（指名料がかかる指名にしない）。 */}
       {booking && ['completed', 'cancelled'].includes(booking.status) && facility?.slug && (
-        <button
-          type="button"
+        <Button
           onClick={() => {
             const qs = rebookSearchParams(booking).toString();
             router.push(`/facility/${facility.slug}/booking${qs ? `?${qs}` : ''}`);
           }}
-          className="w-full mt-3 py-3 rounded-xl bg-sky-700 text-white font-bold hover:bg-sky-800 transition-colors"
+          fullWidth
+          className="mt-3"
         >
           この店舗をもう一度予約する
-        </button>
+        </Button>
       )}
       <button
         type="button"

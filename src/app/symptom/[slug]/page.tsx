@@ -1,6 +1,7 @@
 import { cache } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import { notFound } from 'next/navigation';
 import { createClient } from '@supabase/supabase-js';
 import FacilityCard from '@/components/search/FacilityCard';
@@ -209,18 +210,19 @@ export default async function SymptomPage({ params }: Props) {
               {SYMPTOM_FALLBACK_TYPE_NAME}の一覧から探すこともできます。
             </p>
             <div className="mt-4 flex flex-col sm:flex-row gap-3 justify-center">
-              <Link
+              <Button
                 href={SYMPTOM_FALLBACK_HREF}
-                className="px-5 py-2.5 bg-sky-700 text-white rounded-lg text-sm font-bold hover:bg-sky-800 transition-colors"
+                prefetch="auto"
               >
                 {SYMPTOM_FALLBACK_TYPE_NAME}の一覧を見る
-              </Link>
-              <Link
+              </Button>
+              <Button
                 href="/search"
-                className="px-5 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                variant="ghost"
+                prefetch="auto"
               >
                 すべての施設を検索する
-              </Link>
+              </Button>
             </div>
           </div>
         )}

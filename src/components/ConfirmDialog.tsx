@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useCallback, useRef, useId } from 'react';
+import Button from '@/components/ui/Button';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -134,25 +135,21 @@ export default function ConfirmDialog({
           {notice}
         </p>
         <div className="flex gap-3">
-          <button
-            type="button"
+          <Button
             onClick={onCancel}
-            className="btn-outline flex-1 py-3! px-4! text-sm"
+            variant="secondary"
+            className="flex-1"
           >
             {cancelLabel}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
             onClick={onConfirm}
             disabled={confirmDisabled}
-            className={`flex-1 py-3! px-4! text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
-              variant === 'danger'
-                ? 'font-bold rounded-lg text-white bg-red-600 hover:bg-red-700 transition-colors'
-                : 'btn-primary'
-            }`}
+            variant={variant === 'danger' ? 'danger' : 'primary'}
+            className="flex-1"
           >
             {confirmLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

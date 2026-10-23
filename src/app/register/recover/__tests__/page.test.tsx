@@ -2,6 +2,7 @@ import '@testing-library/jest-dom';
 import { StrictMode } from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import RecoverRegistrationPage from '../page';
+import { buttonClassName } from '@/components/ui/Button';
 import { SALON_RECOVERY_CONTEXT_KEY, SALON_RECOVERY_ONBOARDING_PATH } from '@/lib/salon-browser-context';
 const mockPush=jest.fn(), mockReplace=jest.fn();
 const mockRouter={push:mockPush,replace:mockReplace};
@@ -171,7 +172,10 @@ test('the page does not render a second main landmark inside the layout one (axe
   const {container}=render(<RecoverRegistrationPage/>);await screen.findByText(receipt.facility_name);
   expect(container.querySelector('main')).toBeNull();
 });
-test('secondary actions use the defined btn-secondary utility',async()=>{
+test('secondary actions are drawn as the shared secondary Button (visibly pressable, not bare text)',async()=>{
   render(<RecoverRegistrationPage/>);await screen.findByText(receipt.facility_name);
-  expect(screen.getByRole('button',{name:'先頭から再確認'})).toHaveClass('btn-secondary');
+  const recheck=screen.getByRole('button',{name:'先頭から再確認'});
+  expect(recheck).toHaveAttribute('type','button');
+  expect(recheck).toHaveClass(...buttonClassName({variant:'secondary'}).split(' '));
+  expect(screen.getByRole('button',{name:'この申込の店舗情報を確認'})).toHaveClass(...buttonClassName({variant:'primary'}).split(' '));
 });

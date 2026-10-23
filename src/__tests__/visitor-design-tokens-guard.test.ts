@@ -17,7 +17,7 @@ import { join, relative, sep } from 'node:path';
  *      ブランド色の塗り（bg-sky-500〜900・bg-primary・bg-(--primary)）＋白文字、sky のグラデーション。
  *      → src/components/ui/Button を使う。
  *
- * 既存の箇所は台帳（BASELINE）で件数を固定している（フェーズ2以降で順に Button へ置き換える）。
+ * 残してよい箇所は台帳（BASELINE）で件数を固定している（フェーズ2で操作ボタンは置き換え済み。残りは理由つき）。
  * 件数が【増えたら】退行として落ちる。【減ったら】台帳の更新を求めて落ちる（台帳が実態から腐らないように）。
  * 管理画面（src/app/admin・src/components/admin）はフェーズ1の対象外なので走査しない。
  */
@@ -112,55 +112,20 @@ export function rawButtonStyles(source: string): string[] {
 }
 
 /**
- * 既存の手書きボタン（フェーズ2以降で Button へ置き換える）。件数は実測値と【厳密一致】させる。
- * フェーズ1で置き換えた画面（トップ・検索・施設ページ・予約フロー・404・認証）はここに載っていない。
+ * 手書きのボタンの色を残してよい箇所（件数は実測値と【厳密一致】させる）。
+ * フェーズ2（2026年10月23日）で来院者向け・店舗登録の操作ボタンは全て Button へ置き換えた。
+ * 残っているのは「操作の強さ」ではなく【選択状態・現在地の表示】や、通常のボタンとは別の部品（円形の
+ * アイコンボタン・FAB）、凍結中のヒーローだけ。理由の無い行は足さないこと。
  */
 const RAW_BUTTON_BASELINE: Record<string, number> = {
-  // 実測値は下の「台帳」テストの失敗メッセージにそのまま出る。注記の無いものはフェーズ1の対象画面外。
-  'src/app/blog/error.tsx': 1,
-  'src/app/compare/error.tsx': 1,
-  'src/app/compare/page.tsx': 2,
-  'src/app/contact/error.tsx': 1,
-  'src/app/contact/page.tsx': 2,
-  'src/app/feature/[slug]/page.tsx': 2,
-  'src/app/jobs/[id]/page.tsx': 1,
-  'src/app/jobs/page.tsx': 1,
-  'src/app/liff/bookings/page.tsx': 1,
-  'src/app/liff/cancel/page.tsx': 1,
-  'src/app/mypage/bookings/[id]/change/page.tsx': 1,
-  'src/app/mypage/bookings/[id]/page.tsx': 1,
-  'src/app/mypage/coupons/page.tsx': 1,
-  'src/app/mypage/page.tsx': 1,
-  'src/app/mypage/profile/page.tsx': 1,
-  'src/app/mypage/referral/page.tsx': 2,
-  'src/app/mypage/reviews/[id]/edit/page.tsx': 1,
-  'src/app/mypage/staff/page.tsx': 1,
-  'src/app/ranking/[area]/error.tsx': 1,
-  'src/app/ranking/[area]/page.tsx': 1,
-  'src/app/ranking/page.tsx': 1,
-  // 店舗向け /register/complete
-  'src/app/register/complete/page.tsx': 2,
-  'src/app/register/error.tsx': 1,
-  // 店舗向け /register/recover（btn-secondary を前提にした単体テストあり）
-  'src/app/register/recover/page.tsx': 3,
-  'src/app/salon/premium/page.tsx': 1,
-  'src/app/symptom/[slug]/page.tsx': 1,
-  'src/app/symptoms/SymptomCheckerClient.tsx': 2,
-  'src/app/symptoms/page.tsx': 2,
-  'src/app/unsubscribe/page.tsx': 1,
+  // 円形のアイコンボタン（送信アイコン 44px・画面に浮かぶ起動ボタン 56px）。文字のボタンとは別の部品
   'src/components/AiChatbot.tsx': 2,
-  // 管理画面と共用の確認ダイアログ（管理画面はフェーズ1の対象外）
-  'src/components/ConfirmDialog.tsx': 2,
   // 空き枠の選択状態（選んだ時刻のセル）。操作ボタンではない
   'src/components/booking/BookingFlow.tsx': 1,
   // 絞り込みタグの選択状態。操作ボタンではない
   'src/components/facility/CatalogList.tsx': 2,
-  'src/components/intake/IntakeForm.tsx': 1,
+  // マイページのタブの現在地（aria-current="page"）。操作ボタンではない
   'src/components/mypage/MyPageNav.tsx': 1,
-  'src/components/push/PushPermissionBanner.tsx': 1,
-  // 店舗向け /register（くすみテーマ。見出しを含めフェーズ1では変えない）
-  'src/components/register/RegisterForm.tsx': 5,
-  'src/components/register/RegistrationReceipt.tsx': 2,
   // トップのヒーロー内の検索ボタン（ヒーローは神原さん決定で凍結中）
   'src/components/search/HomeSearchForm.tsx': 1,
   // 画面に浮かぶ丸い絞り込みボタン（FAB）。通常のボタンとは別の部品として扱う
@@ -227,7 +192,7 @@ describe('来院者向けのボタンは src/components/ui/Button を使う', ()
     expect(actual).toEqual(RAW_BUTTON_BASELINE);
   });
 
-  it('フェーズ1で Button に置き換えた画面には手書きのボタンの色が無い', () => {
+  it('Button に置き換えた画面（フェーズ1・2）には手書きのボタンの色が無い', () => {
     const migrated = [
       'src/app/not-found.tsx',
       'src/app/error.tsx',
@@ -252,6 +217,41 @@ describe('来院者向けのボタンは src/components/ui/Button を使う', ()
       'src/components/search/HomeUserPanel.tsx',
       'src/components/home/StickySignupCta.tsx',
       'src/components/home/ReferralInviteNotice.tsx',
+      // フェーズ2（2026年10月23日）
+      'src/app/blog/error.tsx',
+      'src/app/compare/error.tsx',
+      'src/app/compare/page.tsx',
+      'src/app/contact/error.tsx',
+      'src/app/contact/page.tsx',
+      'src/app/feature/[slug]/page.tsx',
+      'src/app/jobs/[id]/page.tsx',
+      'src/app/jobs/page.tsx',
+      'src/app/liff/bookings/page.tsx',
+      'src/app/liff/cancel/page.tsx',
+      'src/app/mypage/bookings/[id]/change/page.tsx',
+      'src/app/mypage/bookings/[id]/page.tsx',
+      'src/app/mypage/coupons/page.tsx',
+      'src/app/mypage/page.tsx',
+      'src/app/mypage/profile/page.tsx',
+      'src/app/mypage/referral/page.tsx',
+      'src/app/mypage/reviews/[id]/edit/page.tsx',
+      'src/app/mypage/staff/page.tsx',
+      'src/app/ranking/[area]/error.tsx',
+      'src/app/ranking/[area]/page.tsx',
+      'src/app/ranking/page.tsx',
+      'src/app/register/complete/page.tsx',
+      'src/app/register/error.tsx',
+      'src/app/register/recover/page.tsx',
+      'src/app/salon/premium/page.tsx',
+      'src/app/symptom/[slug]/page.tsx',
+      'src/app/symptoms/SymptomCheckerClient.tsx',
+      'src/app/symptoms/page.tsx',
+      'src/app/unsubscribe/page.tsx',
+      'src/components/ConfirmDialog.tsx',
+      'src/components/intake/IntakeForm.tsx',
+      'src/components/push/PushPermissionBanner.tsx',
+      'src/components/register/RegisterForm.tsx',
+      'src/components/register/RegistrationReceipt.tsx',
     ];
     for (const file of migrated) {
       expect({ file, raw: rawButtonStyles(sources.get(file)!) }).toEqual({ file, raw: [] });

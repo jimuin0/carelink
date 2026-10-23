@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import type { Metadata } from 'next';
 import { getRankedFacilities } from '@/lib/rankings';
 import FacilityCard from '@/components/search/FacilityCard';
@@ -82,18 +83,19 @@ export default async function RankingPage() {
               ランキングは実際に投稿された口コミの評価だけで作成しています。集まり次第ここに掲載します。
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <Link
+              <Button
                 href="/search"
-                className="px-5 py-2.5 bg-sky-700 text-white rounded-lg text-sm font-bold hover:bg-sky-800 transition-colors"
+                prefetch="auto"
               >
                 掲載中の施設を見る
-              </Link>
-              <Link
+              </Button>
+              <Button
                 href="/"
-                className="px-5 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                variant="ghost"
+                prefetch="auto"
               >
                 エリア・症状から探す
-              </Link>
+              </Button>
             </div>
           </div>
         )}

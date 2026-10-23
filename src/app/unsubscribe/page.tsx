@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 
@@ -77,13 +78,12 @@ function UnsubscribeContent() {
           {status === 'error' && 'リンクが無効か期限切れです。マイページから設定を変更してください。'}
         </p>
         {status === 'confirm' && (
-          <button
-            type="button"
+          <Button
             onClick={handleUnsubscribe}
-            className="mt-6 inline-block bg-sky-700 hover:bg-sky-800 text-white font-bold px-6 py-2.5 rounded-lg text-sm"
+            className="mt-6"
           >
             配信を停止する
-          </button>
+          </Button>
         )}
         <Link
           href="/"

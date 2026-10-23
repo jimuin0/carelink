@@ -226,7 +226,17 @@ jobs:
       - name: Install Playwright Browsers
         # playwright.config の 2 プロジェクト（chromium / Mobile Safari=webkit）を両方導入。
         # 従来は chromium のみで webkit 系の E2E が実行されない盲点があった。
-        run: npx playwright install --with-deps chromium webkit
+        # 2026-10-23: apt の取得が 28 分止まり、ジョブ全体の 30 分上限で E2E が 1 本も走らずに
+        # 打ち切られた（#795）。1 回 8 分で切り、3 回まで取り直す。
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 480 npx playwright install --with-deps chromium webkit; then
+              exit 0
+            fi
+            echo "playwright install failed or timed out (attempt $attempt)" >&2
+            sleep 10
+          done
+          exit 1
       - name: Production Build and HTTPS E2E Tests
         # Browser and server use the same TLS local Supabase origin. In-memory
         # private keys; public CA only for Node trust; no TLS bypass flags.

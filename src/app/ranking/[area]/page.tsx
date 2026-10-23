@@ -1,6 +1,7 @@
 import { getRankedFacilities } from '@/lib/rankings';
 import FacilityCard from '@/components/search/FacilityCard';
 import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { prefectures } from '@/lib/constants';
@@ -97,21 +98,22 @@ export default async function AreaRankingPage(props: Props) {
               ランキングは実際に投稿された口コミの評価だけで作成しています。集まり次第ここに掲載します。
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <Link
+              <Button
                 /* /search が都道府県の絞り込みに読むクエリ名は `area`（page.tsx が
                    searchParams.area を params.prefecture へ写している）。`prefecture=` で
                    渡すと無視され、絞り込みなしの全件が出てしまうため誤らないこと。 */
                 href={`/search?area=${encodeURIComponent(area)}`}
-                className="px-5 py-2.5 bg-sky-700 text-white rounded-lg text-sm font-bold hover:bg-sky-800 transition-colors"
+                prefetch="auto"
               >
                 {area}の施設を見る
-              </Link>
-              <Link
+              </Button>
+              <Button
                 href="/ranking"
-                className="px-5 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                variant="ghost"
+                prefetch="auto"
               >
                 全国のランキングを見る
-              </Link>
+              </Button>
             </div>
           </div>
         )}

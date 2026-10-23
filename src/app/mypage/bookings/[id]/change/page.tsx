@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import Button from '@/components/ui/Button';
 import LoadError from '@/components/admin/LoadError';
 import type { AvailableSlot } from '@/types';
 import { fetchSlotsWeek, mergeSlotsInStaffOrder } from '@/lib/slots-week';
@@ -361,9 +362,9 @@ export default function BookingChangePage() {
       {selectedSlot && (
         <div className="flex gap-3">
           <button type="button" onClick={() => router.back()} className="flex-1 py-3 text-sm text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">キャンセル</button>
-          <button type="button" onClick={handleSubmit} disabled={submitting} className="btn-primary flex-1 py-3!">
+          <Button onClick={handleSubmit} disabled={submitting} className="flex-1">
             {submitting ? '変更中...' : `${selectedDate} ${selectedSlot.slot_start.slice(0, 5)}に変更する`}
-          </button>
+          </Button>
         </div>
       )}
       </>

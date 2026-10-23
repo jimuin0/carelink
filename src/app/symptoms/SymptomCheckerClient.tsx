@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import { getRecaptchaToken } from '@/lib/recaptcha-client';
 
 interface Treatment {
@@ -123,15 +123,14 @@ export default function SymptomCheckerClient() {
             </div>
           </div>
 
-          <button
-            type="button"
+          <Button
             onClick={handleSubmit}
             disabled={!symptoms.trim() || loading}
-            className="w-full py-3 bg-sky-700 text-white rounded-xl font-medium hover:bg-sky-800 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+            fullWidth
           >
             {loading ? (
               <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                 AI が分析中...
               </>
             ) : (
@@ -142,7 +141,7 @@ export default function SymptomCheckerClient() {
                 症状を分析する
               </>
             )}
-          </button>
+          </Button>
         </div>
 
         {/* エラー */}
@@ -191,19 +190,20 @@ export default function SymptomCheckerClient() {
               <h2 className="font-bold text-gray-800 mb-3">近くの施設を探す</h2>
               <div className="flex flex-wrap gap-2">
                 {result.search_keywords.map((kw) => (
-                  <Link
+                  <Button
                     key={kw}
                     // /search が読むクエリパラメータは keyword/area（q/pref ではない）。旧実装は
                     // 存在しないパラメータ名を使っており絞り込みが無視され全件表示になっていた
                     // （実データ確認: /search?q=...&pref=... は無指定と同じ件数を返していた）。
                     href={`/search?keyword=${encodeURIComponent(kw)}${prefecture ? `&area=${encodeURIComponent(prefecture)}` : ''}`}
-                    className="inline-flex items-center gap-1 px-4 py-2 bg-sky-700 text-white text-sm rounded-full hover:bg-sky-800 transition-colors"
+                    size="sm"
+                    prefetch="auto"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                     </svg>
                     {kw}
-                  </Link>
+                  </Button>
                 ))}
               </div>
             </div>

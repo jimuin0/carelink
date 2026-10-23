@@ -107,11 +107,14 @@ describe('ステップの切り替え', () => {
   });
 
   test('各ステップのボタンの高さをそろえる', async () => {
+    // 高さは共通 Button の size（min-h-*）が持つ。どのステップのボタンも同じ高さの指定になっていること。
+    const heightOf = (name: string) => screen.getByRole('button', { name }).className.split(/\s+/).filter((c) => c.startsWith('min-h-'));
     await mount(); fillStep1();
-    expect(screen.getByRole('button', { name: '次へ' }).className).toMatch(/min-h-12/);
+    const stepHeight = heightOf('次へ');
+    expect(stepHeight).toHaveLength(1);
     await toStep3();
-    expect(screen.getByRole('button', { name: '登録する' }).className).toMatch(/min-h-12/);
-    expect(screen.getByRole('button', { name: '戻る' }).className).toMatch(/min-h-12/);
+    expect(heightOf('登録する')).toEqual(stepHeight);
+    expect(heightOf('戻る')).toEqual(stepHeight);
   });
 });
 

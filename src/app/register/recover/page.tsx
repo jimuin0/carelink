@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { z } from 'zod';
 import { businessTypes } from '@/lib/constants';
@@ -137,10 +138,10 @@ function RecoverRegistrationContent() {
     <ul className="space-y-4 mb-4">{receipts.map(receipt => <li key={receipt.receipt_id} className="rounded-sm border p-4">
       <p className="font-bold">{receipt.facility_name}</p><p>{businessTypeLabel(receipt.business_type)}</p>
       <ReceiptNumber id={receipt.receipt_id} />
-      <button type="button" disabled={busy} onClick={() => void handleSelect(receipt.receipt_id)} className="btn-primary mt-3">この申込の店舗情報を確認</button>
+      <Button disabled={busy} onClick={() => void handleSelect(receipt.receipt_id)} className="mt-3">この申込の店舗情報を確認</Button>
     </li>)}</ul>
-    {next && <button type="button" disabled={busy} onClick={() => void load(next)} className="btn-secondary mb-4">次の受付を表示</button>}
-    <button type="button" disabled={busy} onClick={() => void load()} className="btn-secondary mb-4 ml-2">先頭から再確認</button>
+    {next && <Button variant="secondary" disabled={busy} onClick={() => void load(next)} className="mb-4">次の受付を表示</Button>}
+    <Button variant="secondary" disabled={busy} onClick={() => void load()} className="mb-4 ml-2">先頭から再確認</Button>
     <p className="text-sm">異なるメールアドレス、他の管理者に取り込み済みの申込、重複店舗の統合、複数店舗の管理は自動処理しません。<Link href="/contact" className="underline">お問い合わせ</Link>で受付番号をお知らせください。</p>
   </div>;
 }

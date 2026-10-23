@@ -94,6 +94,11 @@ test('プロフィール画面は推測できる名前（avatar.<拡張子>）�
   expect(page).not.toMatch(/\/avatar\.\$\{ext\}/);
   expect(page).not.toMatch(/upsert:\s*true/);
   for (const source of [page, readFileSync(join(ROOT, 'src/lib/avatar-upload.ts'), 'utf8')]) expect(source).not.toMatch(/\.list\(/);
+  // 一覧を取ってよいのは退会時の後始末（service role・サーバーだけ）。ブラウザから使う部品には入れない。
+  const retirement = readFileSync(join(ROOT, 'src/lib/avatar-retirement.ts'), 'utf8');
+  expect(retirement).toMatch(/\.list\(userId,/);
+  expect(retirement).not.toMatch(/^['"]use client['"]/m);
+  expect(readFileSync(join(ROOT, 'src/app/api/account/delete/route.ts'), 'utf8')).toContain("from '@/lib/avatar-retirement'");
 });
 
 test('実 DB での挙動を確かめる shadow fixture が CI に配線されている', () => {

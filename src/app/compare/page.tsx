@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
+import Button from '@/components/ui/Button';
 import type { Metadata } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import type { Facility } from '@/types';
@@ -31,7 +32,7 @@ export default async function ComparePage(props: Props) {
       <div className="max-w-4xl mx-auto px-4 py-12 text-center">
         <h1 className="jp-balance text-xl font-bold mb-4">施設比較</h1>
         <p className="text-gray-500 mb-6">比較する施設を選んでください。検索結果で「比較」ボタンを押すと追加できます。</p>
-        <Link href="/search" className="btn-primary">施設を探す</Link>
+        <Button href="/search" prefetch="auto">施設を探す</Button>
       </div>
     );
   }
@@ -131,9 +132,9 @@ export default async function ComparePage(props: Props) {
               <td className="py-3 sticky left-0 bg-white z-10" />
               {facilities.map((f) => (
                 <td key={f.id} className="py-3 px-2 text-center">
-                  <Link href={`/facility/${f.slug}/booking`} className="btn-primary text-xs py-2! px-4!">
+                  <Button href={`/facility/${f.slug}/booking`} prefetch="auto" size="sm">
                     予約する
-                  </Link>
+                  </Button>
                 </td>
               ))}
             </tr>

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import { notFound } from 'next/navigation';
 import { WHITE_LABEL_COMPARISON_LABEL, WHITE_LABEL_COMPARISON_VALUE, WHITE_LABEL_PLAN_FEATURE } from '@/lib/white-label-status';
 
@@ -267,14 +268,12 @@ export default function PremiumPage() {
           <h3 className="text-xl font-bold text-gray-900 mb-2">まずは無料で始めてみませんか？</h3>
           <p className="text-gray-600 text-sm mb-6">フリープランで使い心地を確かめてから、プレミアムにアップグレードできます。</p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Link href="/register"
-              className="px-6 py-3 bg-sky-700 text-white font-bold rounded-xl hover:bg-sky-800 transition-colors">
+            <Button href="/register" prefetch="auto">
               無料で施設を掲載する
-            </Link>
-            <Link href="/contact?plan=premium"
-              className="px-6 py-3 bg-white border border-gray-200 text-gray-700 font-bold rounded-xl hover:bg-gray-50 transition-colors">
+            </Button>
+            <Button href="/contact?plan=premium" variant="ghost" prefetch="auto">
               プレミアムについて相談する
-            </Link>
+            </Button>
           </div>
         </div>
       </section>
