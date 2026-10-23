@@ -370,6 +370,43 @@ test('LINE registration requires the same terms consent as Google before leaving
   expect(fireEvent.click(line)).toBe(true);
 });
 
+/**
+ * 同意の事実はサーバー（/api/auth/line → callback）へ渡す。onClick の確認だけでは
+ * /api/auth/line を直接開くと素通りで新規アカウントが作れた（PR#792 レビュー P2）。
+ */
+test('LINE registration link carries the server-side consent marker only after the terms checkbox', () => {
+  const { LINE_SIGNUP_CONSENT_MARKER } = jest.requireActual('@/lib/line-oauth');
+  mockLineLoginEnabled = true;
+  mockSearchParams = new URLSearchParams({ redirect: '/mypage/bookings' });
+  render(<SignupPage />);
+  const line = screen.getByRole('link', { name: 'LINEで登録' });
+  const before = new URL(line.getAttribute('href')!, 'https://example.invalid');
+  expect(before.pathname).toBe('/api/auth/line');
+  expect(before.searchParams.get('redirect')).toBe('/mypage/bookings');
+  expect(before.searchParams.has('intent')).toBe(false);
+  expect(before.searchParams.has('consent')).toBe(false);
+
+  fireEvent.click(screen.getByRole('checkbox', { name: /利用規約/ }));
+  const after = new URL(line.getAttribute('href')!, 'https://example.invalid');
+  expect(after.searchParams.get('redirect')).toBe('/mypage/bookings');
+  expect(after.searchParams.get('intent')).toBe('signup');
+  expect(after.searchParams.get('consent')).toBe(LINE_SIGNUP_CONSENT_MARKER);
+});
+
+test('callback refusal without consent shows a clear Japanese message on the signup page', () => {
+  mockSearchParams = new URLSearchParams({ error: 'line_consent_required', redirect: '/mypage' });
+  render(<SignupPage />);
+  expect(screen.getByTestId('signup-line-consent-required'))
+    .toHaveTextContent('LINEで登録するには、利用規約・プライバシーポリシーへの同意が必要です');
+  expect(screen.getByTestId('signup-line-consent-required')).toHaveAttribute('role', 'alert');
+});
+
+test('signup page shows no LINE consent message without the error code', () => {
+  mockSearchParams = new URLSearchParams({ error: 'something_else' });
+  render(<SignupPage />);
+  expect(screen.queryByTestId('signup-line-consent-required')).not.toBeInTheDocument();
+});
+
 test('signup shows the same password rule as reset and rejects a password over the 72-byte bcrypt limit', async () => {
   render(<SignupPage />);
   expect(screen.getByText(/8文字以上、半角72文字以内/)).toHaveAttribute('id', 'signup-password-help');

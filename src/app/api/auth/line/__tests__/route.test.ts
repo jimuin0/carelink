@@ -19,7 +19,12 @@ jest.mock('@/lib/supabase-server-auth',()=>({createServerSupabaseAuthClient:jest
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 
 import { checkRateLimit } from '@/lib/rate-limit';
+import { LINE_SIGNUP_CONSENT_COOKIE, LINE_SIGNUP_CONSENT_MARKER } from '@/lib/line-oauth';
 import { GET } from '../route';
+
+const ORIGINAL_ENV = { ...process.env };
+afterAll(() => { process.env = ORIGINAL_ENV; });
+const PUBLIC_ORIGIN = 'https://public.example.test';
 
 let mockCookieSet: jest.Mock;
 
@@ -31,7 +36,10 @@ function setupDefaultMocks() {
   });
 
   process.env.NEXT_PUBLIC_LINE_CHANNEL_ID = 'test-channel-id';
-  process.env.NODE_ENV = 'production';
+  // LINE ログインは LIFF（製品判断）とチャネル ID の両方が揃ったときだけ有効（line-availability.ts）。
+  process.env.NEXT_PUBLIC_LIFF_ID = 'test-liff-id';
+  process.env.NEXT_PUBLIC_BASE_URL = PUBLIC_ORIGIN;
+  (process.env as Record<string, string>).NODE_ENV = 'production';
 }
 
 beforeEach(() => {
@@ -143,13 +151,11 @@ describe('GET /api/auth/line', () => {
     expect(location).toContain('scope=profile+openid+email');
   });
 
-  test('LINE auth URL includes callback URL', async () => {
+  test('LINE auth URL includes the configured public callback URL, not the request host', async () => {
     const res = await GET(makeRequest() as any);
 
-    const location = res.headers.get('location')!;
-    expect(location).toContain(
-      encodeURIComponent('http://localhost/api/auth/line/callback')
-    );
+    const location = new URL(res.headers.get('location')!);
+    expect(location.searchParams.get('redirect_uri')).toBe(`${PUBLIC_ORIGIN}/api/auth/line/callback`);
   });
 
   test('state is unique UUID each request', async () => {
@@ -220,10 +226,9 @@ describe('GET /api/auth/line', () => {
   });
 
   test('NODE_ENV development → secure=false', async () => {
-    process.env.NODE_ENV = 'development';
     jest.clearAllMocks();
     setupDefaultMocks();
-    process.env.NODE_ENV = 'development';
+    (process.env as Record<string, string>).NODE_ENV = 'development';
 
     await GET(makeRequest() as any);
 
@@ -254,5 +259,74 @@ describe('explicit verified-account LINE reconfirmation',()=>{
   });
   test('normal LINE login removes a stale linking actor',async()=>{
     await GET(makeRequest() as any);expect(mockCookieSet).toHaveBeenCalledWith('line_oauth_link_actor','',expect.objectContaining({maxAge:0}));
+  });
+});
+
+/**
+ * 本番（Vercel）では request.url の origin が内部ホストになり、実際に
+ * redirect_uri=https://0.0.0.0:3000/api/auth/line/callback で LINE へ送っていた（PR#792 レビュー）。
+ */
+function internalHostRequest(query = '') {
+  return new Request(`https://0.0.0.0:3000/api/auth/line${query}`, { headers: { 'x-forwarded-for': '192.0.2.1' } });
+}
+describe('public origin (never request.url)', () => {
+  test('internal request host is never sent to LINE as redirect_uri', async () => {
+    const res = await GET(internalHostRequest() as any);
+    const location = res.headers.get('location')!;
+    expect(new URL(location).searchParams.get('redirect_uri')).toBe(`${PUBLIC_ORIGIN}/api/auth/line/callback`);
+    expect(location).not.toContain('0.0.0.0');
+  });
+  test('unset NEXT_PUBLIC_BASE_URL falls back to the production apex (SITE_URL rules)', async () => {
+    delete process.env.NEXT_PUBLIC_BASE_URL;
+    const res = await GET(internalHostRequest() as any);
+    expect(new URL(res.headers.get('location')!).searchParams.get('redirect_uri')).toBe('https://carelink-jp.com/api/auth/line/callback');
+  });
+  test('local development keeps working with NEXT_PUBLIC_BASE_URL=http://localhost:3000', async () => {
+    process.env.NEXT_PUBLIC_BASE_URL = 'http://localhost:3000/';
+    const res = await GET(internalHostRequest() as any);
+    expect(new URL(res.headers.get('location')!).searchParams.get('redirect_uri')).toBe('http://localhost:3000/api/auth/line/callback');
+  });
+  test.each([
+    ['rate limit', () => (checkRateLimit as jest.Mock).mockResolvedValue(true), 'too_many_requests'],
+    ['not configured', () => { delete process.env.NEXT_PUBLIC_LINE_CHANNEL_ID; }, 'line_not_configured'],
+    ['exception', () => require('next/headers').cookies.mockRejectedValue(new Error('x')), 'line_unexpected'],
+  ])('%s error redirect stays on the public origin', async (_label, arrange, error) => {
+    arrange();
+    const res = await GET(internalHostRequest() as any);
+    expect(res.headers.get('location')).toBe(`${PUBLIC_ORIGIN}/auth/login?error=${error}`);
+  });
+});
+
+describe('route is closed while LINE login is hidden (isLineLoginEnabled=false)', () => {
+  test('channel ID set but LIFF unset (production state) → line_not_configured, no OAuth cookies', async () => {
+    delete process.env.NEXT_PUBLIC_LIFF_ID;
+    const res = await GET(makeRequest('?intent=signup&consent=' + LINE_SIGNUP_CONSENT_MARKER) as any);
+    expect(res.headers.get('location')).toBe(`${PUBLIC_ORIGIN}/auth/login?error=line_not_configured`);
+    expect(mockCookieSet).not.toHaveBeenCalled();
+  });
+});
+
+describe('signup consent marker → httpOnly cookie with the OAuth state lifetime', () => {
+  const consentCookie = () => mockCookieSet.mock.calls.find((call) => call[0] === LINE_SIGNUP_CONSENT_COOKIE);
+  test('signup page marker for the current terms edition is stored', async () => {
+    await GET(makeRequest(`?redirect=%2Fmypage&intent=signup&consent=${LINE_SIGNUP_CONSENT_MARKER}`) as any);
+    expect(consentCookie()).toEqual([LINE_SIGNUP_CONSENT_COOKIE, LINE_SIGNUP_CONSENT_MARKER,
+      expect.objectContaining({ httpOnly: true, secure: true, sameSite: 'lax', maxAge: 600, path: '/' })]);
+  });
+  test.each([
+    ['no marker (login page / copied link)', ''],
+    ['intent only', '?intent=signup'],
+    ['consent only', `?consent=${LINE_SIGNUP_CONSENT_MARKER}`],
+    ['stale terms edition', '?intent=signup&consent=terms-0000000000000000000000000000000000000000000000000000000000000000'],
+    ['wrong intent', `?intent=login&consent=${LINE_SIGNUP_CONSENT_MARKER}`],
+  ])('%s → any stale consent cookie is cleared, never stored', async (_label, query) => {
+    await GET(makeRequest(query) as any);
+    expect(consentCookie()).toEqual([LINE_SIGNUP_CONSENT_COOKIE, '', expect.objectContaining({ httpOnly: true, maxAge: 0 })]);
+  });
+  test('link mode never stores signup consent even with the marker', async () => {
+    mockLinkAuth().mockResolvedValue({auth:{getUser:jest.fn().mockResolvedValue({data:{user:{id:'actor'}},error:null})}});
+    await GET(makeRequest(`?mode=link&intent=signup&consent=${LINE_SIGNUP_CONSENT_MARKER}`) as any);
+    expect(consentCookie()).toEqual([LINE_SIGNUP_CONSENT_COOKIE, '', expect.objectContaining({ maxAge: 0 })]);
+    expect(mockCookieSet).toHaveBeenCalledWith('line_oauth_link_actor','actor',expect.objectContaining({maxAge:600}));
   });
 });

@@ -10,6 +10,13 @@ import { getClientIp } from '@/lib/client-ip';
 import { resolveVerifiedLineOwner } from '@/lib/verified-line-owner';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { verifyAuthUser } from '@/lib/auth-verification';
+import {
+  isCurrentLineSignupConsent,
+  LINE_CONSENT_REQUIRED_ERROR,
+  LINE_SIGNUP_CONSENT_COOKIE,
+  lineOAuthCallbackUrl,
+  lineOAuthOrigin,
+} from '@/lib/line-oauth';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,12 +47,14 @@ function syntheticLineEmail(userId: string): string {
 }
 
 export async function GET(request: NextRequest) {
+  // 🔴 リダイレクト先と token 交換の redirect_uri は request.url から作らない
+  // （Vercel では内部ホスト 0.0.0.0:3000 になる。開始ルートと同じ公開 origin に揃える）。
+  const origin = lineOAuthOrigin();
   const ip = getClientIp(request);
   if (await checkRateLimit(null, ip, 10, 60_000, 'line-callback')) {
-    const { origin } = new URL(request.url);
     return NextResponse.redirect(`${origin}/auth/login?error=too_many_requests`);
   }
-  const { searchParams, origin } = new URL(request.url);
+  const { searchParams } = new URL(request.url);
   const code = searchParams.get('code');
   const state = searchParams.get('state');
   const lineError = searchParams.get('error');
@@ -53,6 +62,7 @@ export async function GET(request: NextRequest) {
   const cookieStore = await cookies();
   const savedState = cookieStore.get('line_oauth_state')?.value;
   const linkActor = cookieStore.get('line_oauth_link_actor')?.value;
+  const signupConsent = cookieStore.get(LINE_SIGNUP_CONSENT_COOKIE)?.value;
   const redirect = cookieStore.get('line_oauth_redirect')?.value || '/mypage';
   const safeRedirect = redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/mypage';
 
@@ -60,6 +70,7 @@ export async function GET(request: NextRequest) {
   cookieStore.delete('line_oauth_state');
   cookieStore.delete('line_oauth_redirect');
   cookieStore.delete('line_oauth_link_actor');
+  cookieStore.delete(LINE_SIGNUP_CONSENT_COOKIE);
 
   if (lineError) {
     return NextResponse.redirect(`${origin}/auth/login?error=line_denied`);
@@ -78,7 +89,7 @@ export async function GET(request: NextRequest) {
       }
     }
     // Exchange code for tokens
-    const callbackUrl = `${origin}/api/auth/line/callback`;
+    const callbackUrl = lineOAuthCallbackUrl();
     const tokenRes = await fetch('https://api.line.me/oauth2/v2.1/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -199,6 +210,12 @@ export async function GET(request: NextRequest) {
       const legacy = await adminSupabase.rpc('line_identity_requires_reconfirmation', { p_line_user_id: lineProfile.userId });
       if (legacy.error || typeof legacy.data !== 'boolean') return NextResponse.redirect(`${origin}/auth/login?error=line_auth_unavailable`);
       if (legacy.data) return NextResponse.redirect(`${origin}/auth/login?error=line_link_required`);
+      // 新規アカウントは、登録画面で現在の利用規約・プライバシーポリシーに同意して始めた場合だけ作る。
+      // ログイン画面・直リンク・古い版の同意からは作らず、同意できる登録画面へ戻す
+      // （既存の LINE 連携済みアカウントのログインは上で actorId が決まるのでここを通らない）。
+      if (!isCurrentLineSignupConsent(signupConsent)) {
+        return NextResponse.redirect(`${origin}/auth/signup?error=${LINE_CONSENT_REQUIRED_ERROR}&redirect=${encodeURIComponent(safeRedirect)}`);
+      }
       email ??= syntheticLineEmail(lineProfile.userId);
       let created: Awaited<ReturnType<typeof adminSupabase.auth.admin.createUser>> | null = null;
       try {

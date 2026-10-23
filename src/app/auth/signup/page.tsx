@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useRef, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
@@ -11,6 +11,7 @@ import { PASSWORD_MAX_BYTES, PASSWORD_MIN_LENGTH, PASSWORD_RULES_HINT } from '@/
 import { prefectures, SITE_URL } from '@/lib/constants';
 import Toast from '@/components/Toast';
 import { isLineLoginEnabled } from '@/lib/line-availability';
+import { LINE_CONSENT_REQUIRED_ERROR, LINE_SIGNUP_CONSENT_MARKER, LINE_SIGNUP_INTENT } from '@/lib/line-oauth';
 import { safeRedirect } from '@/lib/safe-redirect';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import { useClientReady } from '@/lib/use-client-ready';
@@ -96,6 +97,8 @@ function SignupContent() {
   // 掲載申込の続き（/admin/onboarding・/register/recover へ戻る）として開かれた登録画面。
   // 来院者向けの「施設を探す」は出さず、申込と同じメールアドレスで作るよう案内する。
   const shopAccountSignup = useShopAccountSignup();
+  // LINE の callback は、同意の証跡なしに新規アカウントを作らずここへ戻す（src/lib/line-oauth.ts の LINE_CONSENT_REQUIRED_ERROR）。
+  const lineConsentRequired = searchParams.get('error') === LINE_CONSENT_REQUIRED_ERROR;
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [pendingVerificationEmail, setPendingVerificationEmail] = useState<string | null>(null);
@@ -104,9 +107,12 @@ function SignupContent() {
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
   const authOperationInFlight = useRef(false);
 
-  const { register, handleSubmit, getValues, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
+  const { register, handleSubmit, getValues, control, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
   });
+  // 同意欄にチェックがあるときだけ、LINE 登録の開始 URL に同意マーカーを載せる
+  // （チェック前にリンクをコピー・別タブで開いても、同意なしの新規作成にはならない）。
+  const termsAgreed = useWatch({ control, name: 'terms_agreed' }) === true;
 
   // ログイン済みユーザーが /auth/signup に来た場合にフォームを表示し続けないよう、
   // loginページと同様にマウント時のセッション確認でredirect先へ即座に送る。
@@ -270,6 +276,11 @@ function SignupContent() {
               <p className="mt-1">掲載申込に使ったメールアドレスで作成すると、申込の内容（店舗名・写真・営業時間など）を引き継いで店舗情報の設定に進めます。</p>
             </div>
           )}
+          {lineConsentRequired && (
+            <p role="alert" className="mb-6 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" data-testid="signup-line-consent-required">
+              LINEで登録するには、利用規約・プライバシーポリシーへの同意が必要です。下の同意欄にチェックしてから、もう一度「LINEで登録」を押してください。
+            </p>
+          )}
           <form onSubmit={(event) => { void handleSubmit(onSubmit)(event); }} noValidate className="space-y-4">
             <fieldset disabled={!clientReady} className="space-y-4">
             <div>
@@ -425,9 +436,11 @@ function SignupContent() {
           </div>
 
           {/* LINE ログインは LINE をローンチ対象に含めた場合のみ出す（line-availability.ts が単一判定）。 */}
+          {/* 同意マーカー（intent/consent）は callback が新規アカウント作成の可否に使う。onClick の確認だけでは
+              直リンクで素通りできたため、同意の事実をサーバーへ渡す（src/lib/line-oauth.ts）。 */}
           {isLineLoginEnabled() && (
             <a
-              href={`/api/auth/line?redirect=${encodeURIComponent(redirect)}`}
+              href={`/api/auth/line?${new URLSearchParams(termsAgreed ? { redirect, intent: LINE_SIGNUP_INTENT, consent: LINE_SIGNUP_CONSENT_MARKER } : { redirect })}`}
               onClick={(event) => {
                 if (isSubmitting || isGoogleSigningIn) { event.preventDefault(); return; }
                 // Google と同じく、LINE で登録する場合も利用規約・プライバシーポリシーへの同意が要る
