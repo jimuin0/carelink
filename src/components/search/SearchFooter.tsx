@@ -40,7 +40,7 @@ export default function SearchFooter({ className = '' }: { className?: string })
             <div className="mt-5 space-y-3">
               {regionGroups.map((region) => (
                 <div key={region.name}>
-                  <h3 className="text-gray-400 text-tiny font-bold mb-1">{region.name}</h3>
+                  <h3 className="text-gray-400 text-xs font-bold mb-1">{region.name}</h3>
                   <div className="flex flex-wrap gap-x-3 gap-y-0.5">
                     {region.prefectures.map((pref) => {
                       const slug = getPrefectureSlug(pref);
@@ -105,7 +105,7 @@ export default function SearchFooter({ className = '' }: { className?: string })
                           <Link
                             key={`${type}-${pref}`}
                             href={href}
-                            className="text-tiny text-gray-400 hover:text-gray-300 transition-colors py-1 inline-block"
+                            className="text-xs text-gray-400 hover:text-gray-300 transition-colors py-1 inline-block"
                           >
                             {pref}
                           </Link>
@@ -154,7 +154,7 @@ export default function SearchFooter({ className = '' }: { className?: string })
             <Link href="/register" className="text-xs text-gray-300 hover:text-white transition-colors">
               施設掲載をご希望のオーナー様はこちら →
             </Link>
-            <div className="flex flex-wrap justify-end gap-x-4 gap-y-1 text-[11px] text-gray-400">
+            <div className="flex flex-wrap justify-end gap-x-4 gap-y-1 text-xs text-gray-400">
               <Link href="/privacy" className="hover:text-white transition-colors">プライバシーポリシー</Link>
               <Link href="/terms" className="hover:text-white transition-colors">利用規約</Link>
               <Link href="/legal" className="hover:text-white transition-colors">特定商取引法に基づく表記</Link>

@@ -1051,7 +1051,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                         <div className="flex items-center gap-1.5">
                           <p className="font-bold text-sm">{menu.name}</p>
                           {isCouponTarget && (
-                            <span className="shrink-0 text-[10px] font-bold text-primary bg-sky-50 border border-sky-200 rounded-full px-1.5 py-0.5">
+                            <span className="shrink-0 text-xs font-bold text-primary bg-sky-50 border border-sky-200 rounded-full px-1.5 py-0.5">
                               クーポン対象
                             </span>
                           )}
@@ -1108,7 +1108,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h2 className="font-bold">日時を選択</h2>
             {/* 空き記号の凡例 */}
-            <div className="flex items-center gap-2 text-micro text-gray-500">
+            <div className="flex items-center gap-2 text-xs text-gray-500">
               <span>◎ 空き十分</span><span>○ 空きあり</span><span>△ 残少</span><span>× 満</span>
             </div>
           </div>
@@ -1219,8 +1219,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                     const isToday = date === dateOptions[0];
                     return (
                       <th key={date} className="py-1 px-0.5 min-w-[44px]">
-                        {isToday && <div className="text-micro font-bold text-primary">本日</div>}
-                        <div className="text-micro text-gray-500">{month}/{day}</div>
+                        {isToday && <div className="text-xs font-bold text-primary">本日</div>}
+                        <div className="text-xs text-gray-500">{month}/{day}</div>
                         <div className={`text-xs font-bold ${isSun ? 'text-red-600' : isSat ? 'text-sky-700' : 'text-gray-600'}`}>
                           {DAY_NAMES[dayOfWeek]}
                         </div>

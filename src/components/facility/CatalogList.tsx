@@ -72,7 +72,7 @@ export default function CatalogList({ catalogs, staff, menus }: Props) {
             <div key={catalog.id} className="bg-gray-50 rounded-xl overflow-hidden">
               {/* 医療広告ガイドライン注意書き */}
               {hasBoth && (
-                <p className="text-micro text-gray-500 px-3 pt-2">※ 施術効果には個人差があります。詳しくは店舗にお問い合わせください。</p>
+                <p className="text-xs text-gray-500 px-3 pt-2">※ 施術効果には個人差があります。詳しくは店舗にお問い合わせください。</p>
               )}
               {hasBoth ? (
                 <BeforeAfterSlider
@@ -85,13 +85,13 @@ export default function CatalogList({ catalogs, staff, menus }: Props) {
                   {catalog.before_photo_url && (
                     <div className="relative flex-1 aspect-square">
                       <Image src={catalog.before_photo_url} alt="Before" fill className="object-cover" sizes="25vw" placeholder="blur" blurDataURL={SHIMMER_BLUR} />
-                      <span className="absolute bottom-1 left-1 bg-black/50 text-white text-micro px-1.5 py-0.5 rounded-sm">Before</span>
+                      <span className="absolute bottom-1 left-1 bg-black/50 text-white text-xs px-1.5 py-0.5 rounded-sm">Before</span>
                     </div>
                   )}
                   {catalog.after_photo_url && (
                     <div className="relative flex-1 aspect-square">
                       <Image src={catalog.after_photo_url} alt="After" fill className="object-cover" sizes="25vw" placeholder="blur" blurDataURL={SHIMMER_BLUR} />
-                      <span className="absolute bottom-1 left-1 bg-sky-500/80 text-white text-micro px-1.5 py-0.5 rounded-sm">After</span>
+                      <span className="absolute bottom-1 left-1 bg-sky-500/80 text-white text-xs px-1.5 py-0.5 rounded-sm">After</span>
                     </div>
                   )}
                 </div>
@@ -111,7 +111,7 @@ export default function CatalogList({ catalogs, staff, menus }: Props) {
                 {catalog.tags && catalog.tags.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
                     {catalog.tags.map((tag) => (
-                      <span key={tag} className="px-2 py-0.5 bg-white border border-gray-200 rounded-full text-micro text-gray-500">
+                      <span key={tag} className="px-2 py-0.5 bg-white border border-gray-200 rounded-full text-xs text-gray-500">
                         {tag}
                       </span>
                     ))}
