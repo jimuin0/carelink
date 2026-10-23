@@ -4,6 +4,8 @@ import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import AiChatbot from '@/components/AiChatbot';
 import { getRecaptchaToken, RecaptchaClientError } from '@/lib/recaptcha-client';
 import { CLIENT_CLEANUP_COMPLETED_EVENT, CLIENT_CLEANUP_GENERATION_KEY } from '@/lib/client-cleanup-marker';
+const mockPathname = jest.fn(() => '/');
+jest.mock('next/navigation', () => ({ usePathname: () => mockPathname() }));
 jest.mock('@/lib/recaptcha-client', () => ({ ...jest.requireActual('@/lib/recaptcha-client'), getRecaptchaToken: jest.fn() }));
 beforeAll(() => { window.HTMLElement.prototype.scrollIntoView = jest.fn(); });
 beforeEach(() => { (getRecaptchaToken as jest.Mock).mockResolvedValue('synthetic-token'); });
@@ -114,4 +116,49 @@ test('the open chat window, including the user\'s own question shown as a bubble
   const question = screen.getAllByText('近くの鍼灸院を探したい').find(el => el.closest('[data-clarity-mask="true"]'));
   expect(question).toBeDefined();
   expect(screen.getByText('Confirmed reply').closest('[data-clarity-mask="true"]')).not.toBeNull();
+});
+
+describe('スマホの下部ナビ・予約バーと重ならない', () => {
+  function addBottomBar(height: number) {
+    const bar = document.createElement('nav');
+    bar.setAttribute('data-bottom-fixed', '');
+    bar.getBoundingClientRect = () => ({ height } as DOMRect);
+    document.body.appendChild(bar);
+    return bar;
+  }
+  afterEach(() => { document.querySelectorAll('[data-bottom-fixed]').forEach(el => el.remove()); mockPathname.mockReturnValue('/'); });
+  test('下部バーが無ければ端末下端の余白の上', () => {
+    render(<AiChatbot />);
+    expect(screen.getByLabelText('AIアシスタントに質問する').style.getPropertyValue('--ai-offset')).toBe('calc(env(safe-area-inset-bottom))');
+  });
+  test('下部ナビの高さだけ上に出し、後から現れたバーも測り直す', async () => {
+    render(<AiChatbot />);
+    const button = screen.getByLabelText('AIアシスタントに質問する');
+    expect(button.className).toContain('bottom-[calc(var(--ai-offset)+1rem)]');
+    await act(async () => { addBottomBar(56); });
+    await waitFor(() => expect(button.style.getPropertyValue('--ai-offset')).toBe('calc(56px)'));
+    fireEvent.click(button);
+    expect(screen.getByPlaceholderText('メッセージを入力...').closest('[data-clarity-mask]')!.getAttribute('style')).toContain('--ai-offset: calc(56px)');
+  });
+  test('/search では絞り込みボタンの上まで逃がす（下部ナビがあるときだけ）', async () => {
+    mockPathname.mockReturnValue('/search');
+    const { unmount } = render(<AiChatbot />);
+    expect(screen.getByLabelText('AIアシスタントに質問する').style.getPropertyValue('--ai-offset')).toBe('calc(env(safe-area-inset-bottom))');
+    unmount();
+    addBottomBar(56);
+    render(<AiChatbot />);
+    expect(screen.getByLabelText('AIアシスタントに質問する').style.getPropertyValue('--ai-offset')).toBe('calc(56px + 4.5rem)');
+  });
+  test('画面サイズの変化でも測り直す', async () => {
+    const bar = addBottomBar(56);
+    render(<AiChatbot />);
+    bar.getBoundingClientRect = () => ({ height: 0 } as DOMRect);
+    await act(async () => { window.dispatchEvent(new Event('resize')); });
+    expect(screen.getByLabelText('AIアシスタントに質問する').style.getPropertyValue('--ai-offset')).toBe('calc(env(safe-area-inset-bottom))');
+  });
+  test('パスが取れない場合も落ちない', () => {
+    mockPathname.mockReturnValue(null as unknown as string);
+    render(<AiChatbot />);
+    expect(screen.getByLabelText('AIアシスタントに質問する')).toBeInTheDocument();
+  });
 });
