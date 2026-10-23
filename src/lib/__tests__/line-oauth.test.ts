@@ -1,6 +1,8 @@
 import {
   hasLineSignupConsent,
   isCurrentLineSignupConsent,
+  LINE_AUTHORIZE_URL,
+  LINE_SIGNUP_CONSENT_AGREED,
   LINE_SIGNUP_CONSENT_MARKER,
   lineOAuthCallbackUrl,
   lineOAuthOrigin,
@@ -14,15 +16,34 @@ test('the consent marker names the current Terms/Privacy edition', () => {
   expect(LINE_SIGNUP_CONSENT_MARKER).toBe(`terms-${REGISTRATION_TERMS_SHA256}`);
 });
 
+function form(fields: Record<string, string>): FormData {
+  const f = new FormData();
+  for (const [k, v] of Object.entries(fields)) f.set(k, v);
+  return f;
+}
+
+// 同意は登録画面のフォーム送信（CSRF 検証済み POST）でだけ受け取る。値は固定の 'agreed'。
+// 公開された規約版マーカーを送っても同意にはならない（PR#793 レビュー P2）。
 test.each([
-  [`intent=signup&consent=${LINE_SIGNUP_CONSENT_MARKER}`, true],
-  ['', false],
-  ['intent=signup', false],
-  [`consent=${LINE_SIGNUP_CONSENT_MARKER}`, false],
-  [`intent=login&consent=${LINE_SIGNUP_CONSENT_MARKER}`, false],
-  ['intent=signup&consent=terms-old', false],
-])('hasLineSignupConsent(%p) → %p', (query, expected) => {
-  expect(hasLineSignupConsent(new URLSearchParams(query))).toBe(expected);
+  [{ intent: 'signup', consent: LINE_SIGNUP_CONSENT_AGREED }, true],
+  [{}, false],
+  [{ intent: 'signup' }, false],
+  [{ intent: 'signup', consent: '' }, false],
+  [{ consent: LINE_SIGNUP_CONSENT_AGREED }, false],
+  [{ intent: 'login', consent: LINE_SIGNUP_CONSENT_AGREED }, false],
+  [{ intent: 'signup', consent: LINE_SIGNUP_CONSENT_MARKER }, false],
+])('hasLineSignupConsent(%p) → %p', (fields, expected) => {
+  expect(hasLineSignupConsent(form(fields))).toBe(expected);
+});
+
+test('a file named like the agreed value is not consent', () => {
+  const f = form({ intent: 'signup' });
+  f.set('consent', new Blob([LINE_SIGNUP_CONSENT_AGREED]), LINE_SIGNUP_CONSENT_AGREED);
+  expect(hasLineSignupConsent(f)).toBe(false);
+});
+
+test('the LINE authorize endpoint is the origin allowed by CSP form-action', () => {
+  expect(new URL(LINE_AUTHORIZE_URL).origin).toBe('https://access.line.me');
 });
 
 test.each([

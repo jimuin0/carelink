@@ -361,36 +361,62 @@ describe('店舗アカウント作成（掲載申込の続き）', () => {
 test('LINE registration requires the same terms consent as Google before leaving the page', async () => {
   mockLineLoginEnabled = true;
   render(<SignupPage />);
-  const line = screen.getByRole('link', { name: 'LINEで登録' });
-  const blocked = fireEvent.click(line);
-  // fireEvent.click は preventDefault されたとき false を返す（=遷移しない）。
-  expect(blocked).toBe(false);
+  const form = screen.getByTestId('signup-line-form');
+  // fireEvent.submit は preventDefault されたとき false を返す（=送信しない）。
+  expect(fireEvent.submit(form)).toBe(false);
   await screen.findByText('LINEで登録する場合も、利用規約とプライバシーポリシーへの同意が必要です。');
   fireEvent.click(screen.getByRole('checkbox', { name: /利用規約/ }));
-  expect(fireEvent.click(line)).toBe(true);
+  expect(fireEvent.submit(form)).toBe(true);
 });
 
 /**
- * 同意の事実はサーバー（/api/auth/line → callback）へ渡す。onClick の確認だけでは
- * /api/auth/line を直接開くと素通りで新規アカウントが作れた（PR#792 レビュー P2）。
+ * 同意は URL ではなく、同一オリジンのフォーム POST で渡す（サーバーが CSRF を検証する）。
+ * URL で渡していた版は、公開された同意マーカー付きの /api/auth/line を直接開く・共有するだけで
+ * 同意なしに新規アカウントが作れた（PR#793 レビュー P2）。
  */
-test('LINE registration link carries the server-side consent marker only after the terms checkbox', () => {
-  const { LINE_SIGNUP_CONSENT_MARKER } = jest.requireActual('@/lib/line-oauth');
+test('LINE registration is a same-origin POST form whose consent is filled only after the terms checkbox', () => {
   mockLineLoginEnabled = true;
   mockSearchParams = new URLSearchParams({ redirect: '/mypage/bookings' });
   render(<SignupPage />);
-  const line = screen.getByRole('link', { name: 'LINEで登録' });
-  const before = new URL(line.getAttribute('href')!, 'https://example.invalid');
-  expect(before.pathname).toBe('/api/auth/line');
-  expect(before.searchParams.get('redirect')).toBe('/mypage/bookings');
-  expect(before.searchParams.has('intent')).toBe(false);
-  expect(before.searchParams.has('consent')).toBe(false);
+  const button = screen.getByRole('button', { name: 'LINEで登録' });
+  const form = button.closest('form')!;
+  expect(form).toBe(screen.getByTestId('signup-line-form'));
+  expect(form.getAttribute('method')).toBe('post');
+  expect(form.getAttribute('action')).toBe('/api/auth/line');
+  expect(button).toHaveAttribute('type', 'submit');
+  // ログイン・登録の開始に GET のリンクを使わない（URL は誰でも作れる）。
+  expect(screen.queryByRole('link', { name: 'LINEで登録' })).not.toBeInTheDocument();
+  expect(document.querySelector('a[href*="/api/auth/line"]')).toBeNull();
+
+  const fields = () => Object.fromEntries(new FormData(form).entries());
+  expect(fields()).toEqual({ redirect: '/mypage/bookings', intent: 'signup', consent: '' });
 
   fireEvent.click(screen.getByRole('checkbox', { name: /利用規約/ }));
-  const after = new URL(line.getAttribute('href')!, 'https://example.invalid');
-  expect(after.searchParams.get('redirect')).toBe('/mypage/bookings');
-  expect(after.searchParams.get('intent')).toBe('signup');
-  expect(after.searchParams.get('consent')).toBe(LINE_SIGNUP_CONSENT_MARKER);
+  expect(fields()).toEqual({ redirect: '/mypage/bookings', intent: 'signup', consent: 'agreed' });
+
+  fireEvent.click(screen.getByRole('checkbox', { name: /利用規約/ }));
+  expect(fields()).toEqual({ redirect: '/mypage/bookings', intent: 'signup', consent: '' });
+});
+
+test('the signup page never ships the server-side terms-edition marker', () => {
+  const { LINE_SIGNUP_CONSENT_MARKER } = jest.requireActual('@/lib/line-oauth');
+  const source = require('fs').readFileSync(require('path').join(process.cwd(), 'src/app/auth/signup/page.tsx'), 'utf8');
+  expect(source).not.toContain('LINE_SIGNUP_CONSENT_MARKER');
+  mockLineLoginEnabled = true;
+  const { container } = render(<SignupPage />);
+  fireEvent.click(screen.getByRole('checkbox', { name: /利用規約/ }));
+  expect(container.innerHTML).not.toContain(LINE_SIGNUP_CONSENT_MARKER);
+});
+
+test('LINE registration cannot be submitted while email signup is in flight', async () => {
+  mockLineLoginEnabled = true;
+  mockSignUp.mockReturnValue(new Promise(() => {}));
+  render(<SignupPage />);
+  fillForm(); submit();
+  const button = screen.getByRole('button', { name: 'LINEで登録' });
+  await waitFor(() => expect(button).toBeDisabled());
+  expect(fireEvent.submit(screen.getByTestId('signup-line-form'))).toBe(false);
+  expect(screen.queryByText('LINEで登録する場合も、利用規約とプライバシーポリシーへの同意が必要です。')).not.toBeInTheDocument();
 });
 
 test('callback refusal without consent shows a clear Japanese message on the signup page', () => {
