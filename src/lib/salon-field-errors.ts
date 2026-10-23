@@ -1,6 +1,11 @@
-/** Fixed public messages: never echo submitted values or raw provider errors. */
+import { REGISTRATION_TERMS as T } from './registration-glossary';
+
+/**
+ * Fixed public messages: never echo submitted values or raw provider errors.
+ * 欄名は掲載申込フォームの表示と同じ語（registration-glossary.ts）を使う。
+ */
 export const SALON_FIELD_MESSAGES = {
-  facility_name: '施設名を1〜200文字で入力してください',
+  facility_name: `${T.shopName}を1〜200文字で入力してください`,
   business_type: '一覧から業種を選択してください',
   representative_name: '代表者名を1〜100文字で入力してください',
   contact_name: '担当者名を1〜100文字で入力してください',
@@ -22,8 +27,8 @@ export const SALON_FIELD_MESSAGES = {
   features: 'こだわり・特徴の選択を確認してください',
   pr_text: 'PR文を1000文字以内で入力してください',
   desired_start_date: '一覧から掲載希望時期を選択してください',
-  photo_url: '施設写真を確認してください',
-  photo_urls: '施設写真を確認してください（最大7枚）',
+  photo_url: `${T.shop}の写真を確認してください`,
+  photo_urls: `${T.shop}の写真を確認してください（最大7枚）`,
 } as const;
 
 /**

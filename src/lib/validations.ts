@@ -29,7 +29,7 @@ export const customerSchema = z.object({
 // Salon form schemas (per step)
 export const salonStep1Schema = z.object({
   // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
-  facility_name: z.string().trim().min(1, '施設名を入力してください').max(FACILITY_INPUT_LIMITS.name, '200文字以内で入力してください'),
+  facility_name: z.string().trim().min(1, '店舗名を入力してください').max(FACILITY_INPUT_LIMITS.name, '200文字以内で入力してください'),
   business_type: z.enum(businessTypes as [string, ...string[]], { error: '業種を選択してください' }),
   representative_name: z.string().trim().min(1, '代表者名を入力してください').max(100, '100文字以内で入力してください'),
   contact_name: z.string().trim().min(1, '担当者名を入力してください').max(100, '100文字以内で入力してください'),

@@ -91,7 +91,7 @@ describe('/register の訴求部分', () => {
   });
 
   it('フォームは同じページ内に残っている（訴求だけの別ページにしない）', () => {
-    expect(screen.getByLabelText(/^施設名/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^店舗名/)).toBeInTheDocument();
   });
 
   it('無料掲載、受付と公開の違い、現行の複数店の制約と安全な再送を説明する', () => {

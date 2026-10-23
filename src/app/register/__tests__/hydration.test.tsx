@@ -13,7 +13,7 @@ test('SSRでは入力不可と回復リンクを提示し、RHF準備完了後�
   document.body.appendChild(container);
   container.innerHTML = renderToString(<RegisterForm />);
   const view = within(container);
-  expect(view.getByLabelText(/^施設名/)).toBeDisabled();
+  expect(view.getByLabelText(/^店舗名/)).toBeDisabled();
   expect(view.getByRole('button', { name: '次へ' })).toBeDisabled();
   expect(view.getByRole('status')).toHaveTextContent('JavaScript');
   expect(view.getByRole('button', { name: 'ページを再読み込み' }).closest('form')).toHaveAttribute('action', '/register');
@@ -21,9 +21,9 @@ test('SSRでは入力不可と回復リンクを提示し、RHF準備完了後�
   let root: Root | undefined;
   try {
     await act(async () => { root = hydrateRoot(container, <RegisterForm />); });
-    expect(view.getByLabelText(/^施設名/)).toBeEnabled();
+    expect(view.getByLabelText(/^店舗名/)).toBeEnabled();
     expect(view.queryByRole('status')).not.toBeInTheDocument();
-    fireEvent.change(view.getByLabelText(/^施設名/), { target: { value: '初回入力施設' } });
+    fireEvent.change(view.getByLabelText(/^店舗名/), { target: { value: '初回入力施設' } });
     fireEvent.change(view.getByLabelText(/^業種/), { target: { value: 'ヘアサロン' } });
     fireEvent.change(view.getByLabelText(/^代表者名/), { target: { value: '代表 太郎' } });
     fireEvent.change(view.getByLabelText(/^メールアドレス/), { target: { value: 'fixture@example.invalid' } });
@@ -31,7 +31,7 @@ test('SSRでは入力不可と回復リンクを提示し、RHF準備完了後�
     fireEvent.click(view.getByRole('button', { name: '次へ' }));
     await view.findByLabelText(/^郵便番号/);
     fireEvent.click(view.getByRole('button', { name: '戻る' }));
-    expect(view.getByLabelText(/^施設名/)).toHaveValue('初回入力施設');
+    expect(view.getByLabelText(/^店舗名/)).toHaveValue('初回入力施設');
   } finally {
     await act(async () => { root?.unmount(); });
     container.remove();

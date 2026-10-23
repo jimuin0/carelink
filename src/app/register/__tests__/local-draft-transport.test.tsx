@@ -27,8 +27,8 @@ beforeEach(() => {
  Object.defineProperty(AbortSignal, 'timeout', { configurable: true, value: () => new AbortController().signal });
 });
 async function fill(v2Enabled = true) {
- render(<RegisterForm v2Enabled={v2Enabled} />); await waitFor(() => expect(screen.getByLabelText(/^施設名/)).toBeEnabled());
- for (const [label, value] of [[/^施設名/, 'Synthetic local fence'], [/^業種/, 'ヘアサロン'], [/^代表者名/, 'Synthetic'], [/^メールアドレス/, 'synthetic@example.invalid'], [/^電話番号/, '09012345678']] as const)
+ render(<RegisterForm v2Enabled={v2Enabled} />); await waitFor(() => expect(screen.getByLabelText(/^店舗名/)).toBeEnabled());
+ for (const [label, value] of [[/^店舗名/, 'Synthetic local fence'], [/^業種/, 'ヘアサロン'], [/^代表者名/, 'Synthetic'], [/^メールアドレス/, 'synthetic@example.invalid'], [/^電話番号/, '09012345678']] as const)
   fireEvent.change(screen.getByLabelText(label), { target: { value } });
  fireEvent.click(screen.getByRole('button', { name: '次へ' })); await screen.findByLabelText(/^郵便番号/);
  fireEvent.click(screen.getByRole('button', { name: '次へ' })); await screen.findByRole('button', { name: '登録する' });

@@ -7,6 +7,7 @@ import { SITE_URL } from '@/lib/constants';
 import { sendDurableEventEmail } from './event-email-delivery';
 import { resolvedFromEnv, DEFAULT_FROM, RESEND_VERIFIED_DOMAINS } from '@/lib/email-from';
 import { salonRecoveryAuthPath } from '@/lib/salon-browser-context';
+import { REGISTRATION_TERMS as T } from './registration-glossary';
 import crypto from 'crypto';
 import { sendInquiryReplyEnvelope, verifyInquiryReplyAcceptance, type InquiryReplyEnvelope } from './inquiry-reply-delivery';
 import { REMINDER_EMAIL_TIMING_NOTE } from './reminder-schedule';
@@ -933,7 +934,7 @@ export async function sendOnboardingFollowEmail(data: {
     to: data.ownerEmail,
     subject: escSubject(`【CareLink】${data.facilityName}の設定があと少しです`),
     html: wrapHtml(`
-      <p>${facility}のご登録から数日が経ちました。</p>
+      <p>${facility}の${T.account}を作成いただいてから数日が経ちました。</p>
       <p>管理画面の「店舗セットアップ」で、次の項目がまだ完了していません。</p>
       ${listing}${booking}
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin" style="${EMAIL_BUTTON_STYLE}">管理画面で設定を完了する</a></p>
@@ -1100,20 +1101,20 @@ export async function sendRegistrationLeadFollowEmail(data: {
     to: data.email,
     subject: escSubject(`【CareLink】${data.facilityName}の掲載準備が途中のままです`),
     html: wrapHtml(`
-      <p>${facility} の掲載申込をいただきましたが、店舗アカウントの作成がまだのようです。</p>
+      <p>${facility} の${T.application}をいただきましたが、${T.account}の作成がまだのようです。</p>
       <p style="font-size:13px;color:#475569;">受付番号：${receipt}</p>
-      <p>申込時と同じメールアドレスでアカウントを作成し、メールアドレスの確認を済ませると、
+      <p>申込時と同じメールアドレスで${T.account}を作成し、メールアドレスの確認を済ませると、
          「送信済みの掲載申込を復旧」の画面にこの申込が表示されます。申込を選ぶと、入力いただいた
-         写真・営業時間・PR文などを引き継いで店舗を作成できます。</p>
+         写真・営業時間・PR文などを引き継いで${T.shop}を作成できます。</p>
       <div style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:16px;margin:16px 0;">
         <p style="margin:0;"><strong>このメールを受け取ったアドレスで作成してください。</strong></p>
         <p style="margin:8px 0 0;">${addr}</p>
         <p style="margin:8px 0 0;font-size:13px;color:#713f12;">
           別のアドレスで作成すると申込が表示されず、内容を引き継げません。</p>
       </div>
-      <p style="text-align:center;margin-top:24px;"><a href="${esc(signupUrl)}" style="${EMAIL_BUTTON_STYLE}">アカウントを作成して申込を再開する</a></p>
+      <p style="text-align:center;margin-top:24px;"><a href="${esc(signupUrl)}" style="${EMAIL_BUTTON_STYLE}">${T.account}を作成して申込を再開する</a></p>
       <p style="font-size:13px;color:#475569;">すでにアカウントをお持ちの場合は、<a href="${esc(loginUrl)}" style="color:#0369a1;">ログインして申込を再開</a>してください。</p>
-      <p style="font-size:13px;color:#475569;">申込が表示されない場合は、新しく店舗を作成したり申し込み直したりせず、受付番号を添えて<a href="${SITE_URL}/contact" style="color:#0369a1;">お問い合わせ</a>ください。</p>
+      <p style="font-size:13px;color:#475569;">申込が表示されない場合は、新しく${T.shop}を作成したり申し込み直したりせず、受付番号を添えて<a href="${SITE_URL}/contact" style="color:#0369a1;">お問い合わせ</a>ください。</p>
     `),
   }, 'registration_lead_follow');
 }

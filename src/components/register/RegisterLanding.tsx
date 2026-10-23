@@ -91,7 +91,7 @@ const ICON_PATHS: Record<'calendar' | 'card' | 'people' | 'list', string> = {
 /** 番号は算用数字にする。ローマ数字（Ⅰ Ⅱ Ⅲ）も試したが、小サイズだと細い棒が並んで
  *  見え、何番か判読できなかった（実機のスクリーンショットで確認）。 */
 const STEPS = [
-  { n: '01', title: '基本情報を入力', body: '施設名・業種・連絡先などを入力' },
+  { n: '01', title: '基本情報を入力', body: '店舗名・業種・連絡先などを入力' },
   { n: '02', title: 'アカウントを作成', body: '登録内容を確認して管理画面へ進む' },
   { n: '03', title: '掲載を準備', body: `${LISTING_PUBLISH_ITEMS}を設定して無料掲載を公開。ネット予約の設定は別に行います` },
 ];
@@ -302,7 +302,7 @@ export default function RegisterLanding({ listingAreas = [] }: { listingAreas?: 
               </div>
               <div className="py-5">
                 <dt className="font-medium">送信後にエラーが出た場合、再送してよいですか？</dt>
-                <dd className="mt-2 leading-relaxed">受付完了を確認できない場合は、重複を避けるため連続送信せず、画面に表示された確認方法に従ってください。解決しない場合は、施設名と送信した日時を添えて運営へお問い合わせください。</dd>
+                <dd className="mt-2 leading-relaxed">受付完了を確認できない場合は、重複を避けるため連続送信せず、画面に表示された確認方法に従ってください。解決しない場合は、店舗名と送信した日時を添えて運営へお問い合わせください。</dd>
               </div>
             </dl>
             <Link href="/contact" className="mt-5 inline-block underline underline-offset-4">施設掲載について運営に問い合わせる</Link>

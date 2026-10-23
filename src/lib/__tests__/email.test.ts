@@ -790,6 +790,13 @@ describe('sendOnboardingFollowEmail', () => {
     expect(html).toContain('&lt;b&gt;予約枠&lt;/b&gt;');
   });
 
+  test('用語は掲載申込の導線と同じ：作成したのは「店舗アカウント」で、「ご登録」とは書かない', async () => {
+    await sendOnboardingFollowEmail({ ownerEmail: 'owner@example.com', facilityName: 'テストサロン', missingSteps: ['写真'] });
+    const html: string = mockSend.mock.calls[0][0].html;
+    expect(html).toContain('テストサロンの店舗アカウントを作成いただいてから数日が経ちました。');
+    expect(html).not.toContain('ご登録');
+  });
+
   test('空の区分は見出しごと出さない', async () => {
     await sendOnboardingFollowEmail({ ownerEmail: 'owner@example.com', facilityName: 'テストサロン', missingSteps: [], bookingSteps: ['写真'] });
     const html: string = mockSend.mock.calls[0][0].html;
@@ -999,6 +1006,15 @@ describe('sendRegistrationLeadFollowEmail', () => {
     const ok = await sendRegistrationLeadFollowEmail(base);
     expect(ok).toBe(true);
     expect(mockSend.mock.calls[0][0].to).toBe('lead@example.com');
+  });
+
+  test('用語は掲載申込の導線と同じ（掲載申込・店舗アカウント）', async () => {
+    await sendRegistrationLeadFollowEmail(base);
+    const html: string = mockSend.mock.calls[0][0].html;
+    expect(html).toContain('テストサロン の掲載申込をいただきましたが、店舗アカウントの作成がまだのようです。');
+    expect(html).toContain('>店舗アカウントを作成して申込を再開する</a>');
+    expect(html).toContain('申込時と同じメールアドレスで店舗アカウントを作成し');
+    for (const old of ['掲載申し込み', '施設']) expect(html).not.toContain(old);
   });
 
   test('🔴 本文に「登録に使ったメールアドレス」と受付番号が入る', async () => {

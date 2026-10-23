@@ -29,6 +29,7 @@ import { normalizePostalCodeInput, normalizeWebsiteInput } from '@/lib/register-
 import { LISTING_PUBLISH_ITEMS, REGISTER_PHOTO_FIELD_NOTE } from '@/lib/register-photo-policy';
 import { businessTypeLabel } from '@/lib/business-type-label';
 import { LICENSE_WARRANTY_TEXT } from '@/lib/registration-consent';
+import { REGISTRATION_TERMS as T } from '@/lib/registration-glossary';
 
 const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
 const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
@@ -785,7 +786,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
           {step === 1 && (
             <div className="space-y-4">
               <div>
-                <label htmlFor="reg-facility-name" className="form-label">施設名 <span className="text-red-600">*</span></label>
+                <label htmlFor="reg-facility-name" className="form-label">{T.shopName} <span className="text-red-600">*</span></label>
                 <input {...register('facility_name')} id="reg-facility-name" autoComplete="organization" className="form-input" placeholder="リラクゼーションサロン ABC" aria-required="true" maxLength={200} {...describe('facility_name', 'reg-facility-name')} />
                 {fieldError('facility_name', 'reg-facility-name')}
               </div>
@@ -967,7 +968,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                 </div>
               </div>
               <fieldset className="min-w-0" {...(photoError ? { 'aria-describedby': 'reg-photos-error' } : {})}>
-                <legend className="form-label">施設写真 <span className="text-(--ecru-muted) text-xs font-normal">{REGISTER_PHOTO_FIELD_NOTE}</span></legend>
+                <legend className="form-label">{T.shop}の写真 <span className="text-(--ecru-muted) text-xs font-normal">{REGISTER_PHOTO_FIELD_NOTE}</span></legend>
                 <MultiPhotoUpload key={restoreGeneration} slots={photoSlots} initialFiles={photoFiles} compress={compressImage} onChange={files => { setPhotoFiles(files); setIsDirty(true); }} />
                 {photoError && <p id="reg-photos-error" className="form-error" role="alert">{photoError}</p>}
               </fieldset>

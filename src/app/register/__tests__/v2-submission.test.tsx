@@ -26,8 +26,8 @@ beforeEach(() => {
 });
 async function fill(v2Enabled = true) {
   render(<RegisterForm v2Enabled={v2Enabled} />);
-  await waitFor(() => expect(screen.getByLabelText(/^施設名/)).toBeEnabled());
-  for (const [label, value] of [[/^施設名/, '合成施設'], [/^業種/, 'ヘアサロン'], [/^代表者名/, '合成代表'],
+  await waitFor(() => expect(screen.getByLabelText(/^店舗名/)).toBeEnabled());
+  for (const [label, value] of [[/^店舗名/, '合成施設'], [/^業種/, 'ヘアサロン'], [/^代表者名/, '合成代表'],
     [/^メールアドレス/, 'fixture@example.invalid'], [/^電話番号/, '09012345678']] as const) {
     fireEvent.change(screen.getByLabelText(label), { target: { value } });
   }
@@ -57,7 +57,7 @@ test('OFF with attempted context reconciles instead of permitting a new V1 submi
   request.mockResolvedValue(response(200, { state: 'uncommitted' }));
   render(<RegisterForm v2Enabled={false} />);
   await screen.findByText(/送信結果を確認できませんでした。同じ申込/);
-  expect(screen.getByLabelText(/^施設名/)).toBeDisabled();
+  expect(screen.getByLabelText(/^店舗名/)).toBeDisabled();
   fireEvent.click(screen.getByRole('button', { name: '同じ申込の受付状況を確認' }));
   await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
   expect(request.mock.calls.map(([path]) => path)).toEqual(['/api/salons/status', '/api/salons/status']);
@@ -92,7 +92,7 @@ test('OFF with corrupt saved progress does not silently fall back to V1', async 
   sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY, '{');
   render(<RegisterForm v2Enabled={false} />);
   await screen.findByText(/この申込の確認情報を利用できません/);
-  expect(screen.getByLabelText(/^施設名/)).toBeDisabled(); expect(request).not.toHaveBeenCalled();
+  expect(screen.getByLabelText(/^店舗名/)).toBeDisabled(); expect(request).not.toHaveBeenCalled();
 });
 
 test('OFF with unavailable session storage blocks new input instead of losing old progress', async () => {
@@ -100,7 +100,7 @@ test('OFF with unavailable session storage blocks new input instead of losing ol
   try {
     render(<RegisterForm v2Enabled={false} />);
     await screen.findByText(/この申込の確認情報を利用できません/);
-    expect(screen.getByLabelText(/^施設名/)).toBeDisabled(); expect(request).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/^店舗名/)).toBeDisabled(); expect(request).not.toHaveBeenCalled();
   } finally { unavailable.mockRestore(); }
 });
 test('lost outcome disables new submission, then readonly reconciliation navigates once', async () => {
@@ -124,7 +124,7 @@ test('corrupt saved context fails closed before any request or user input', asyn
   sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY, '{');
   render(<RegisterForm v2Enabled />);
   await screen.findByText(/この申込の確認情報を利用できません/);
-  expect(screen.getByLabelText(/^施設名/)).toBeDisabled(); expect(request).not.toHaveBeenCalled();
+  expect(screen.getByLabelText(/^店舗名/)).toBeDisabled(); expect(request).not.toHaveBeenCalled();
 });
 test('commit400 preserves original input/photos and only replays the same payload after status verification', async () => {
   const photoId = '33333333-3333-4333-8333-333333333333';

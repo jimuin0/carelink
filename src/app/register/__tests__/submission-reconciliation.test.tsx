@@ -31,7 +31,7 @@ beforeEach(() => {
 
 async function prepareForm(phone = '09012345678', contactPhone?: string) {
   render(<RegisterForm />);
-  fireEvent.change(screen.getByLabelText(/^施設名/), { target: { value: '合成施設' } });
+  fireEvent.change(screen.getByLabelText(/^店舗名/), { target: { value: '合成施設' } });
   fireEvent.change(screen.getByLabelText(/^業種/), { target: { value: 'ヘアサロン' } });
   fireEvent.change(screen.getByLabelText(/^代表者名/), { target: { value: '合成代表' } });
   fireEvent.change(screen.getByLabelText(/^メールアドレス/), { target: { value: 'fixture@example.invalid' } });
@@ -94,10 +94,10 @@ test('phone inputs use the telephone keypad and autofill', async () => {
 });
 
 test('photo-specific rejection is visible without losing the selected files', async () => {
-  mockFetch.mockResolvedValueOnce(jsonResponse(400, { error: '施設写真を確認してください', fieldErrors: { photo_urls: 'invalid' } }));
+  mockFetch.mockResolvedValueOnce(jsonResponse(400, { error: '店舗の写真を確認してください', fieldErrors: { photo_urls: 'invalid' } }));
   await prepareForm();
   await submit();
-  expect(await screen.findByText('施設写真を確認してください（最大7枚）')).toBeVisible();
+  expect(await screen.findByText('店舗の写真を確認してください（最大7枚）')).toBeVisible();
   expect(mockPush).not.toHaveBeenCalled();
 });
 
@@ -118,7 +118,7 @@ test('server field errors return to their step, open optional fields and preserv
   const website = await screen.findByLabelText('WebサイトURL');
   expect(website.closest('details')).toHaveAttribute('open');
   await waitFor(() => expect(website).toHaveFocus());
-  expect(screen.getByLabelText(/^施設名/)).toHaveValue('合成施設');
+  expect(screen.getByLabelText(/^店舗名/)).toHaveValue('合成施設');
   expect(screen.getByText('WebサイトURLを確認してください（2000文字以内）')).toBeVisible();
   expect(mockPush).not.toHaveBeenCalled();
 });
