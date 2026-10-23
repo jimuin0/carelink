@@ -70,7 +70,9 @@ export default async function RootLayout({
   return (
     <html lang="ja">
       <head>
-        <link rel="preload" href="/images/hero-tiny.webp" as="image" type="image/webp" />
+        {/* トップのヒーロー画像（hero-tiny.webp）は全ページに preload しない。使うのはトップだけで、
+            他のページでは「preload したのに使わない」警告と無駄な転送になっていた。トップでは
+            <img fetchPriority="high"> が HTML の先頭近くにあり、プリロードスキャナがすぐに拾う。 */}
         <link rel="preconnect" href="https://xzafxiupbflvgbarrihe.supabase.co" />
         {gaId && <link rel="dns-prefetch" href="https://www.googletagmanager.com" />}
         {clarityId && <link rel="dns-prefetch" href="https://www.clarity.ms" />}

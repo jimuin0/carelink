@@ -290,7 +290,7 @@ export default function RegisterLanding({ listingAreas = [] }: { listingAreas?: 
             <dl className="mt-8 divide-y divide-(--ecru-line) border-y border-(--ecru-line) text-sm">
               <div className="py-5">
                 <dt className="font-medium">この申し込みで料金は発生しますか？</dt>
-                <dd className="mt-2 leading-relaxed">掲載料・予約手数料は無料です。この掲載申し込みで有料プランや決済契約を申し込むことはありません。{PAID_PLAN_NOTICE}</dd>
+                <dd className="mt-2 leading-relaxed">掲載料・予約手数料は無料です。この掲載申込で有料プランや決済契約を申し込むことはありません。{PAID_PLAN_NOTICE}</dd>
               </div>
               <div className="py-5">
                 <dt className="font-medium">受付が完了したら、すぐに公開されますか？</dt>
@@ -298,7 +298,7 @@ export default function RegisterLanding({ listingAreas = [] }: { listingAreas?: 
               </div>
               <div className="py-5">
                 <dt className="font-medium">複数店舗はどのように登録しますか？</dt>
-                <dd className="mt-2 leading-relaxed">店舗ごとに掲載申し込みが必要です。現在、自己登録できる店舗オーナーアカウントは1アカウントにつき1店舗です。複数店舗の管理権限や既存掲載の統合は、登録前に運営へお問い合わせください。</dd>
+                <dd className="mt-2 leading-relaxed">店舗ごとに掲載申込が必要です。現在、自己登録できる店舗オーナーアカウントは1アカウントにつき1店舗です。複数店舗の管理権限や既存掲載の統合は、登録前に運営へお問い合わせください。</dd>
               </div>
               <div className="py-5">
                 <dt className="font-medium">送信後にエラーが出た場合、再送してよいですか？</dt>

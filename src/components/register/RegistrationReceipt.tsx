@@ -7,6 +7,7 @@ import { readSalonBrowserContext, saveSalonBrowserContext,
   salonHandoffAuthPath } from '@/lib/salon-browser-context';
 import { businessTypeLabel } from '@/lib/business-type-label';
 import ReceiptNumber from '@/components/register/ReceiptNumber';
+import { REGISTRATION_TERMS as T } from '@/lib/registration-glossary';
 import { LISTING_PUBLISH_REQUIREMENT } from '@/lib/register-photo-policy';
 
 const receiptSchema = z.object({ state: z.literal('confirmed'), receiptId: z.uuid(),
@@ -48,7 +49,7 @@ export default function RegistrationReceipt() {
   if (failed) return <div className={SHELL}>
     <div className="section-container max-w-lg py-12 text-center" role="alert">
       <h1 className="text-2xl font-bold mb-4">受付状況を確認できませんでした</h1>
-      <p>申込に使用したブラウザーの同じタブでご確認ください。登録済みの可能性があるため、新しい申込を送信しないでください。</p>
+      <p>申込に使用したブラウザーの同じタブでご確認ください。受付済みの可能性があるため、新しい申込を送信しないでください。</p>
       <button className="btn-primary mt-4" onClick={() => { setFailed(false); setReceipt(null); setAttempt(value => value + 1); }}>同じ申込の受付状況を確認</button>
       <Link href="/contact" className="block mt-4 underline underline-offset-4">受付状況を問い合わせる</Link>
       <Link href="/register/recover" className="block mt-4 underline underline-offset-4">申込時のメールアドレスで送信済みの掲載申込を復旧</Link>
@@ -60,7 +61,7 @@ export default function RegistrationReceipt() {
       <h1 className="mb-4 font-(family-name:--font-serif-jp) text-2xl">掲載申込を受け付けました</h1>
       <ReceiptNumber id={receipt.receiptId} />
       <dl className="my-6 divide-y divide-(--ecru-line) border-y border-(--ecru-line) bg-(--ecru-surface) px-4 text-sm">
-        <div className="flex gap-4 py-3"><dt className="w-20 shrink-0 text-(--ecru-muted)">施設名</dt><dd className="font-medium">{receipt.name}</dd></div>
+        <div className="flex gap-4 py-3"><dt className="w-20 shrink-0 text-(--ecru-muted)">{T.shopName}</dt><dd className="font-medium">{receipt.name}</dd></div>
         <div className="flex gap-4 py-3"><dt className="w-20 shrink-0 text-(--ecru-muted)">業種</dt><dd>{businessTypeLabel(receipt.type)}</dd></div>
         <div className="flex gap-4 py-3"><dt className="w-20 shrink-0 text-(--ecru-muted)">所在地</dt><dd>{receipt.area || '未入力（公開前に設定してください）'}</dd></div>
       </dl>

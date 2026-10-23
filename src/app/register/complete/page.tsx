@@ -6,6 +6,7 @@ import { buildOnboardingAuthPath } from '@/lib/onboarding-link';
 import RegistrationReceipt from '@/components/register/RegistrationReceipt';
 import { businessTypeLabel } from '@/lib/business-type-label';
 import ReceiptNumber from '@/components/register/ReceiptNumber';
+import { REGISTRATION_TERMS as T } from '@/lib/registration-glossary';
 import { LISTING_PUBLISH_ITEMS, LISTING_PUBLISH_REQUIREMENT } from '@/lib/register-photo-policy';
 
 /** /register と同じくすみ配色。色の値は globals.css の .theme-ecru だけが持つ。 */
@@ -31,7 +32,7 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
                 ? '現在、受付情報の確認に時間がかかっています。'
                 : 'この画面からは受付を確認できません。申込時のブラウザでご確認ください。'}
             </p>
-            <p className="mb-6">登録済みの可能性があります。重複を避けるため再送信せず、受付状況をお問い合わせください。</p>
+            <p className="mb-6">受付済みの可能性があります。重複を避けるため再送信せず、受付状況をお問い合わせください。</p>
             <Link href="/contact" className="btn-primary">受付状況を問い合わせる</Link>
             <Link href="/register/recover" className="block mt-4 underline underline-offset-4">申込時のメールアドレスで送信済みの掲載申込を復旧</Link>
           </div>
@@ -51,23 +52,23 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
           </svg>
         </div>
 
-        <h1 className="mb-4 font-(family-name:--font-serif-jp) text-2xl">登録が完了しました！</h1>
+        <h1 className="mb-4 font-(family-name:--font-serif-jp) text-2xl">{T.application}を受け付けました</h1>
         <ReceiptNumber id={receipt.id} className="mb-4" />
         <p className="text-sm mb-4">掲載申込の受付が完了しました。一般公開は、店舗情報の設定と公開操作の後に反映されます。</p>
         <p className="mb-2">
           あと少しで掲載開始できます。
         </p>
         <p className="text-sm text-(--ecru-muted) mb-8">
-          アカウントを作成して、無料掲載を公開しましょう。{LISTING_PUBLISH_REQUIREMENT}ネット予約の設定は別に行います。
+          {T.account}を作成して、無料掲載を公開しましょう。{LISTING_PUBLISH_REQUIREMENT}ネット予約の設定は別に行います。
         </p>
 
         {(name || type || area) && (
           <div className="border border-(--ecru-line) bg-(--ecru-surface) p-6 mb-8 text-left">
-            <h2 className="text-sm font-bold text-(--ecru-muted) mb-3">登録内容</h2>
+            <h2 className="text-sm font-bold text-(--ecru-muted) mb-3">申込内容</h2>
             <dl className="space-y-2 text-sm">
               {name && (
                 <div className="flex">
-                  <dt className="w-20 text-(--ecru-muted) shrink-0">施設名</dt>
+                  <dt className="w-20 text-(--ecru-muted) shrink-0">{T.shopName}</dt>
                   <dd className="font-medium">{name}</dd>
                 </div>
               )}
@@ -93,11 +94,11 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
           <ol className="space-y-3">
             <li className="flex items-center gap-3">
               <span className="w-7 h-7 rounded-full bg-(--ecru-accent) text-white flex items-center justify-center text-xs font-bold shrink-0" aria-hidden="true">✓</span>
-              <span className="text-sm text-(--ecru-muted)">施設情報を登録<span className="sr-only">（完了）</span></span>
+              <span className="text-sm text-(--ecru-muted)">{T.application}<span className="sr-only">（完了）</span></span>
             </li>
             <li className="flex items-center gap-3" aria-current="step">
               <span className="w-7 h-7 rounded-full border-2 border-(--ecru-accent) bg-(--ecru-surface) text-(--ecru-accent) flex items-center justify-center text-xs font-bold shrink-0" aria-hidden="true">2</span>
-              <span className="text-sm font-medium">アカウント作成・ログイン</span>
+              <span className="text-sm font-medium">{T.account}の作成・ログイン</span>
             </li>
             <li className="flex items-center gap-3">
               <span className="w-7 h-7 rounded-full border border-(--ecru-line) bg-(--ecru-bg) text-(--ecru-muted) flex items-center justify-center text-xs font-bold shrink-0" aria-hidden="true">3</span>
@@ -115,7 +116,7 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
             href={buildOnboardingAuthPath('signup', { facilityName: name, businessType: type })}
             className="btn-primary px-8 py-4 text-base"
           >
-            アカウントを作成して始める
+            {T.account}を作成して始める
           </Link>
           <Link
             href={buildOnboardingAuthPath('login', { facilityName: name, businessType: type })}

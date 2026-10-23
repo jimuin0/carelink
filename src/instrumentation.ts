@@ -9,6 +9,10 @@
  * 数日放置された。これを再発させない最終バリア。
  */
 
+// zod のスキーマが作られる前に jitless を設定する（src/lib/zod-runtime-config.ts）。
+// ブラウザ側は src/instrumentation-client.ts が同じモジュールを読み込む。
+import './lib/zod-runtime-config';
+
 export async function register() {
   // 起動したサーバー自身のバージョンを管理者用ログに残す。
   // 公開レスポンスや環境変数の値は変更・出力しない。
