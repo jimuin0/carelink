@@ -68,6 +68,7 @@ describe(`${FILE} の形`, () => {
     // 本番には migration 外で作られた同等のポリシーが別名で残っていた（2026-10-23 pg_policies で確認）
     expect(SQL).toContain('DROP POLICY IF EXISTS avatars_public_read ON storage.objects;');
     expect(SQL).toContain('DROP POLICY IF EXISTS review_photos_public_read ON storage.objects;');
+    expect(SQL).toContain('DROP POLICY IF EXISTS "Public read review-photos" ON storage.objects;');
     expect(SQL.indexOf('DROP POLICY IF EXISTS "Public read avatars"')).toBeLessThan(SQL.indexOf('DO $reconcile$'));
   });
 

@@ -45,6 +45,10 @@ DROP POLICY IF EXISTS "Public read avatars" ON storage.objects;
 -- served from the public object URL and never needed them; they only made the whole bucket listable.
 DROP POLICY IF EXISTS avatars_public_read ON storage.objects;
 DROP POLICY IF EXISTS review_photos_public_read ON storage.objects;
+-- The repository's own bucket-wide read policy for review photos (20260420000011, same shape as
+-- "Public read avatars"). Production carries it under the name above instead, so this is a no-op
+-- there; a database built from the migrations would otherwise stop at the check below.
+DROP POLICY IF EXISTS "Public read review-photos" ON storage.objects;
 
 DO $reconcile$
 DECLARE leftover text;

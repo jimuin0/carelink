@@ -30,6 +30,9 @@ SELECT pg_temp.assert_avatars(NOT EXISTS (SELECT 1 FROM pg_policies WHERE schema
 SELECT pg_temp.assert_avatars(NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects'
   AND cmd IN ('SELECT', 'ALL') AND roles && ARRAY['anon', 'public']::name[] AND coalesce(qual, '') LIKE '%''avatars''%'),
   'no anonymous or public policy reads the avatars bucket');
+SELECT pg_temp.assert_avatars(NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects'
+  AND cmd IN ('SELECT', 'ALL') AND roles && ARRAY['anon', 'public']::name[] AND coalesce(qual, '') LIKE '%''review-photos''%'),
+  'no anonymous or public policy reads the review-photos bucket');
 SELECT pg_temp.assert_avatars((SELECT count(*) = 4 FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects'
   AND policyname IN ('avatars_insert_own', 'avatars_select_own_live', 'avatars_update_own', 'avatars_delete_own')),
   'owner-scoped insert, read, update and delete policies exist');
