@@ -2,6 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import type { StaffProfile } from '@/types';
 import PreferredStaffButton from './PreferredStaffButton';
+import StaffMonogram from './StaffMonogram';
 
 /**
  * スタッフ一覧のカード。プロフィールへのリンクと「指名登録」ボタンを並べる。
@@ -22,11 +23,7 @@ export default function StaffCard({ staff, facilitySlug }: { staff: StaffProfile
               className="object-cover"
             />
           ) : (
-            <div className="flex items-center justify-center h-full bg-linear-to-br from-sky-50 to-sky-100">
-              <svg className="w-12 h-12 text-sky-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-            </div>
+            <StaffMonogram name={staff.name} className="text-5xl" />
           )}
         </div>
         <div className="p-3">

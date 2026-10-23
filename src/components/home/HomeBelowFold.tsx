@@ -10,6 +10,7 @@ import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 import { featureSearchHref } from '@/lib/search-href';
 import dynamic from 'next/dynamic';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import { BUSINESS_TYPE_BANNER_IMAGES } from '@/lib/feature-banner';
 
 const HomeUserPanel = dynamic(() => import('@/components/search/HomeUserPanel'), { ssr: false });
 const JapanRegionMap = dynamic(() => import('@/components/home/JapanRegionMap'), { ssr: false, loading: () => <div className="h-64 bg-gray-50 rounded-2xl animate-pulse" /> });
@@ -29,10 +30,11 @@ const categories = [
 // 放置すれば必ずどこかの時期に季節外れになる＝更新されていない印象を与える構造だった。
 // 季節ごとに差し替える運用は人手に依存して必ず抜けるため、通年で成立する文言にして
 // ズレる経路自体を無くす（季節企画をやるなら DB 等のデータ駆動で期間指定して出すこと）。
+// 写真は特集一覧（/feature）と共通（src/lib/feature-banner.ts）。
 const featureBanners = [
-  { title: 'ヘアチェンジ特集', subtitle: 'イメチェンするなら今がチャンス', image: '/images/banner-hair.webp', href: '/search?keyword=ヘアカラー カット', color: 'from-transparent via-transparent to-black/60' },
-  { title: '疲れたカラダにご褒美リラク', subtitle: '至福のひとときを見つけよう', image: '/images/banner-relax.webp', href: '/search?type=リラクサロン', color: 'from-transparent via-transparent to-black/60' },
-  { title: '理想の目元をつくる', subtitle: 'まつ毛パーマ・エクステ特集', image: '/images/banner-eyelash.webp', href: '/search?type=ネイル・まつげサロン', color: 'from-transparent via-transparent to-black/60' },
+  { title: 'ヘアチェンジ特集', subtitle: 'イメチェンするなら今がチャンス', image: BUSINESS_TYPE_BANNER_IMAGES['ヘアサロン'], href: '/search?keyword=ヘアカラー カット', color: 'from-transparent via-transparent to-black/60' },
+  { title: '疲れたカラダにご褒美リラク', subtitle: '至福のひとときを見つけよう', image: BUSINESS_TYPE_BANNER_IMAGES['リラクサロン'], href: '/search?type=リラクサロン', color: 'from-transparent via-transparent to-black/60' },
+  { title: '理想の目元をつくる', subtitle: 'まつ毛パーマ・エクステ特集', image: BUSINESS_TYPE_BANNER_IMAGES['ネイル・まつげサロン'], href: '/search?type=ネイル・まつげサロン', color: 'from-transparent via-transparent to-black/60' },
 ];
 
 const worryNavItems = [

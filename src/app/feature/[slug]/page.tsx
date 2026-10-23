@@ -7,6 +7,7 @@ import { SITE_URL } from '@/lib/constants';
 import { getFeatureBySlug } from '@/lib/features';
 import { searchFacilities } from '@/lib/facilities';
 import Breadcrumb from '@/components/Breadcrumb';
+import { featureBannerImage } from '@/lib/feature-banner';
 import FacilityCard from '@/components/search/FacilityCard';
 
 export const revalidate = 3600;
@@ -77,6 +78,7 @@ export default async function FeatureDetailPage({ params }: Props) {
 
   // 関連施設を取得（generateMetadata の noindex 判定と同じ条件＝facilitiesForFeature を共用）
   const { facilities } = await facilitiesForFeature(feature);
+  const heroImage = featureBannerImage(feature);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -89,28 +91,28 @@ export default async function FeatureDetailPage({ params }: Props) {
           ]}
         />
 
-        {/* ヒーローバナー */}
-        {feature.banner_image_url && (
+        {/* ヒーローバナー（画像が未登録なら業種の写真。一覧・トップと同じ。src/lib/feature-banner.ts） */}
+        {heroImage && (
           <div className="relative aspect-3/1 rounded-2xl overflow-hidden mb-8">
             <Image
-              src={feature.banner_image_url}
-              alt={feature.title}
+              src={heroImage}
+              alt=""
               fill
               sizes="100vw"
               className="object-cover"
               priority
             />
-            <div className="absolute inset-0 bg-linear-to-t from-black/60 to-transparent" />
+            <div className="absolute inset-0 bg-linear-to-t from-black/70 to-transparent" />
             <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8">
               <h1 className="jp-balance text-2xl sm:text-3xl font-bold text-white">{feature.title}</h1>
               {feature.description && (
-                <p className="text-white/80 text-sm mt-2">{feature.description}</p>
+                <p className="text-white text-sm mt-2">{feature.description}</p>
               )}
             </div>
           </div>
         )}
 
-        {!feature.banner_image_url && (
+        {!heroImage && (
           <div className="mb-8">
             <h1 className="jp-balance text-2xl sm:text-3xl font-bold text-gray-900">{feature.title}</h1>
             {feature.description && (
