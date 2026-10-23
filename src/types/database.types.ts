@@ -8608,6 +8608,10 @@ export type Database = {
         Returns: string
       }
       webhook_dispatch_v2_version: { Args: never; Returns: number }
+      working_time_meets_business_hours: {
+        Args: { p_dow: number; p_end: string; p_hours: Json; p_start: string }
+        Returns: boolean
+      }
     }
     Enums: {
       [_ in never]: never

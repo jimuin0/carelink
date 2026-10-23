@@ -114,7 +114,10 @@ function buildCspHeader(nonce: string): string {
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",
-    "form-action 'self'",
+    // https://access.line.me は「LINEで登録」フォーム（/auth/signup → POST /api/auth/line）が
+    // 303 で送る LINE の認可画面。form-action はフォーム送信後のリダイレクト先にも適用されるため、
+    // これが無いと送信が CSP で止まる（src/lib/line-oauth.ts の LINE_AUTHORIZE_URL）。
+    "form-action 'self' https://access.line.me",
   ].join('; ');
 }
 

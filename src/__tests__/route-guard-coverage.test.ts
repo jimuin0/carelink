@@ -82,6 +82,12 @@ const ALLOW: Record<string, Exemption> = {
     auth: '未ログインの申込開始。個人情報・既存申込は読み取らず新しいランダムcapabilityだけ発行。'
       + 'CSRF＋5回/分rate limit＋設定時captchaをroute.test.tsで検証する。状態照会にはこの免除を適用しない',
   },
+  'auth/line/route.ts': {
+    auth: '「LINEで登録」フォームの送信先（POST）。LINE での新規登録・ログインを始める入口なので、'
+      + '呼び出し元は定義上まだログインしていない。checkCsrf（自サイトの登録画面から来たこと）＋'
+      + '20回/分の IP レート制限＋OAuth state Cookie（callback で照合）で守る。本人確認（verifyAuthUser）は'
+      + 'GET の連携（mode=link）だけが行い、POST は連携を扱わない',
+  },
   'unsubscribe/route.ts': {
     auth: 'メール内リンクからの配信停止。HMAC 署名つきトークンが本人性の根拠でログインは要求しない',
   },

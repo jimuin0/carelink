@@ -11,7 +11,9 @@ import {checkRateLimit} from '@/lib/rate-limit';
 import {createServiceRoleClient} from '@/lib/supabase-server';
 import {createServerClient} from '@supabase/ssr';
 import {cookies} from 'next/headers';
+import {LINE_SIGNUP_CONSENT_COOKIE,LINE_SIGNUP_CONSENT_MARKER} from '@/lib/line-oauth';
 import {GET} from '../route';
+const ORIGINAL_ENV={...process.env};afterAll(()=>{process.env=ORIGINAL_ENV;});
 const actor='c9010000-0000-4000-8000-000000000001';
 const other='c9010000-0000-4000-8000-000000000002';
 let admin:any;let store:any;let session:any;
@@ -24,7 +26,7 @@ function provider(token:object={access_token:'provider-token'},profile:unknown={
  global.fetch=jest.fn((url:string)=>Promise.resolve(new Response(JSON.stringify(url.includes('/token')?token:profile))));
 }
 function setup(owned=false) {
- store={get:jest.fn((name:string)=>name==='line_oauth_state'?{value:'state'}:name==='line_oauth_redirect'?{value:'/mypage'}:undefined),delete:jest.fn(),getAll:jest.fn(()=>[]),set:jest.fn()};
+ store={get:jest.fn((name:string)=>name==='line_oauth_state'?{value:'state'}:name==='line_oauth_redirect'?{value:'/mypage'}:name===LINE_SIGNUP_CONSENT_COOKIE?{value:LINE_SIGNUP_CONSENT_MARKER}:undefined),delete:jest.fn(),getAll:jest.fn(()=>[]),set:jest.fn()};
  (cookies as jest.Mock).mockResolvedValue(store);
  admin={from:jest.fn((table:string)=>{const q:any={};q.select=jest.fn(()=>q);q.eq=jest.fn(()=>q);q.maybeSingle=jest.fn().mockResolvedValue({data:owned?(table==='profiles'?{id:actor}:{user_id:actor,proof_version:1,verified_at:'2026-10-09T00:00:00Z'}):null,error:null});return q;}),
  rpc:jest.fn((name:string)=>Promise.resolve({data:name==='find_trusted_line_auth_user'?(admin.auth.admin.createUser.mock.calls.length?actor:null):name==='line_identity_requires_reconfirmation'?false:'linked',error:null})),
@@ -36,7 +38,7 @@ function setup(owned=false) {
 }
 function request(query='?code=code&state=state',ip:string|null='192.0.2.1'):any {return new Request(`https://example.invalid/api/auth/line/callback${query}`,{headers:ip?{'x-forwarded-for':ip}:{}});}
 async function run(){return GET(request());}
-beforeEach(()=>{jest.clearAllMocks();(checkRateLimit as jest.Mock).mockResolvedValue(false);process.env.NEXT_PUBLIC_LINE_CHANNEL_ID='channel';process.env.LINE_CHANNEL_SECRET='secret';process.env.NEXT_PUBLIC_SUPABASE_URL='https://test.supabase.co';process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY='test';setup();});
+beforeEach(()=>{jest.clearAllMocks();(checkRateLimit as jest.Mock).mockResolvedValue(false);process.env.NEXT_PUBLIC_LINE_CHANNEL_ID='channel';process.env.LINE_CHANNEL_SECRET='secret';process.env.NEXT_PUBLIC_SUPABASE_URL='https://test.supabase.co';process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY='test';process.env.NEXT_PUBLIC_BASE_URL='https://example.invalid';setup();});
 test('rate limit stops all provider/identity operations',async()=>{(checkRateLimit as jest.Mock).mockResolvedValue(true);expect((await run()).headers.get('location')).toContain('too_many_requests');expect(fetch).not.toHaveBeenCalled();});
 test.each(['?error=access_denied','?code=code','?state=state','?code=code&state=wrong','?code=code&state=very-long-wrong'])('OAuth refusal %s',async q=>{expect((await GET(request(q))).headers.get('location')).toContain(q.includes('error=')?'line_denied':'line_invalid_state');expect(fetch).not.toHaveBeenCalled();});
 test('missing state cookie never grants Auth',async()=>{store.get.mockReturnValue(undefined);expect((await run()).headers.get('location')).toContain('line_invalid_state');});
@@ -117,4 +119,69 @@ test('lost creation with duplicate markers is unavailable even if original SDK e
  admin.auth.admin.createUser.mockResolvedValue({data:null,error:{code:'email_exists'}});let lookups=0;
  admin.rpc.mockImplementation((name:string)=>Promise.resolve(name==='find_trusted_line_auth_user'?(++lookups===1?{data:null,error:null}:{data:null,error:{code:'P0001',message:'LINE_AUTH_IDENTITY_AMBIGUOUS'}}):{data:false,error:null}));
  expect((await run()).headers.get('location')).toContain('line_auth_unavailable');expect(admin.auth.admin.generateLink).not.toHaveBeenCalled();
+});
+
+/** 同意 Cookie を差し替える（undefined=Cookie 無し）。 */
+function withConsent(value:string|undefined){const previous=store.get.getMockImplementation();store.get.mockImplementation((name:string)=>name===LINE_SIGNUP_CONSENT_COOKIE?(value===undefined?undefined:{value}):previous(name));}
+describe('server-side terms consent for new LINE accounts (PR#792 review P2)',()=>{
+ test.each([
+  ['no consent cookie (login page or direct /api/auth/line link)',undefined],
+  ['empty consent cookie',''],
+  ['stale terms edition','terms-0000000000000000000000000000000000000000000000000000000000000000'],
+ ])('%s: unknown LINE identity is refused and no user is created',async(_label,value)=>{
+  withConsent(value);
+  expect((await run()).headers.get('location')).toBe('https://example.invalid/auth/signup?error=line_consent_required&redirect=%2Fmypage');
+  expect(admin.auth.admin.createUser).not.toHaveBeenCalled();
+  expect(admin.rpc.mock.calls.some((call:any[])=>call[0]==='bind_verified_liff_account_atomic')).toBe(false);
+  expect(admin.auth.admin.generateLink).not.toHaveBeenCalled();expect(session.auth.verifyOtp).not.toHaveBeenCalled();
+ });
+ test('refusal keeps the saved local redirect so the signup page can continue the same flow',async()=>{
+  withConsent(undefined);const previous=store.get.getMockImplementation();
+  store.get.mockImplementation((name:string)=>name==='line_oauth_redirect'?{value:'/admin/onboarding?handoff=registration'}:previous(name));
+  expect((await run()).headers.get('location')).toBe(`https://example.invalid/auth/signup?error=line_consent_required&redirect=${encodeURIComponent('/admin/onboarding?handoff=registration')}`);
+ });
+ test('current-edition consent creates the account and the consent cookie is consumed',async()=>{
+  expect((await run()).headers.get('location')).toBe('https://example.invalid/mypage');
+  expect(admin.auth.admin.createUser).toHaveBeenCalledTimes(1);expect(store.delete).toHaveBeenCalledWith(LINE_SIGNUP_CONSENT_COOKIE);
+ });
+ test('consent cookie is cleared even when the callback is refused early',async()=>{
+  withConsent(undefined);await GET(request('?error=access_denied'));expect(store.delete).toHaveBeenCalledWith(LINE_SIGNUP_CONSENT_COOKIE);
+ });
+ test('existing verified LINE owner logs in without any consent cookie',async()=>{
+  setup(true);withConsent(undefined);
+  expect((await run()).headers.get('location')).toBe('https://example.invalid/mypage');
+  expect(admin.auth.admin.createUser).not.toHaveBeenCalled();expect(session.auth.verifyOtp).toHaveBeenCalled();
+ });
+ test('existing trusted-marker account logs in without any consent cookie',async()=>{
+  withConsent(undefined);admin.rpc.mockImplementation((name:string)=>Promise.resolve({data:name==='find_trusted_line_auth_user'?actor:'linked',error:null}));
+  expect((await run()).headers.get('location')).toBe('https://example.invalid/mypage');expect(admin.auth.admin.createUser).not.toHaveBeenCalled();
+ });
+ test('identity needing reconfirmation still gets line_link_required (not the consent error)',async()=>{
+  withConsent(undefined);admin.rpc.mockImplementation((name:string)=>Promise.resolve({data:name==='find_trusted_line_auth_user'?null:true,error:null}));
+  expect((await run()).headers.get('location')).toContain('/auth/login?error=line_link_required');
+ });
+ test('link mode is unaffected by a missing consent cookie',async()=>{
+  withConsent(undefined);linkMode();
+  expect((await run()).headers.get('location')).toBe('https://example.invalid/mypage');
+  expect(admin.rpc).toHaveBeenCalledWith('bind_verified_liff_account_atomic',{p_actor_id:actor,p_line_user_id:'U_actor'});
+  expect(admin.auth.admin.createUser).not.toHaveBeenCalled();
+ });
+});
+
+describe('public origin (never request.url)',()=>{
+ const internal=(query='?code=code&state=state'):any=>new Request(`https://0.0.0.0:3000/api/auth/line/callback${query}`,{headers:{'x-forwarded-for':'192.0.2.1'}});
+ test('token exchange redirect_uri and final redirect use the configured origin, not the internal request host',async()=>{
+  process.env.NEXT_PUBLIC_BASE_URL='https://public.example.test';
+  expect((await GET(internal())).headers.get('location')).toBe('https://public.example.test/mypage');
+  const body=new URLSearchParams((fetch as jest.Mock).mock.calls[0][1].body);
+  expect(body.get('redirect_uri')).toBe('https://public.example.test/api/auth/line/callback');
+ });
+ test.each([
+  ['rate limit',()=>(checkRateLimit as jest.Mock).mockResolvedValue(true),'?code=code&state=state','too_many_requests'],
+  ['provider denial',()=>undefined,'?error=access_denied','line_denied'],
+  ['invalid state',()=>undefined,'?code=code&state=wrong','line_invalid_state'],
+ ])('%s error redirect stays on the public origin',async(_label,arrange,query,error)=>{
+  process.env.NEXT_PUBLIC_BASE_URL='https://public.example.test';arrange();
+  expect((await GET(internal(query))).headers.get('location')).toBe(`https://public.example.test/auth/login?error=${error}`);
+ });
 });
