@@ -19,6 +19,7 @@ import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import { clearAccountLocalData, LOCAL_DATA_CLEAR_FAILED } from '@/lib/client-storage';
 import { completeClientCleanupMarker, prepareClientCleanupMarker } from '@/lib/client-cleanup-marker';
 import { releaseThisDevicePush } from '@/hooks/usePushSubscription';
+import { uploadAvatar } from '@/lib/avatar-upload';
 
 interface ProfileForm {
   display_name: string;
@@ -185,14 +186,8 @@ export default function ProfileEditPage() {
                     const supabase = createBrowserSupabaseClient();
                     const { data: { user } } = await supabase.auth.getUser();
                     if (!user) return;
-                    const ext = file.name.split('.').pop() || 'jpg';
-                    const path = `${user.id}/avatar.${ext}`;
-                    const { error: uploadError } = await supabase.storage.from('avatars').upload(path, file, { upsert: true, contentType: file.type });
-                    if (uploadError) throw uploadError;
-                    const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path);
-                    const url = `${urlData.publicUrl}?t=${Date.now()}`;
-                    const { error: updateError } = await supabase.from('profiles').update({ avatar_url: url }).eq('id', user.id);
-                    if (updateError) throw updateError;
+                    // 推測できない名前で保存し、前の写真（本人のフォルダの中だけ）を消す（src/lib/avatar-upload.ts）。
+                    const url = await uploadAvatar(supabase, user.id, file, avatarUrl);
                     setAvatarUrl(url);
                     setToast({ type: 'success', message: '写真を更新しました' });
                   } catch { setToast({ type: 'error', message: 'アップロードに失敗しました' }); }

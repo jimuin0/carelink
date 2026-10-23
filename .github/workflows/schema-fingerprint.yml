@@ -250,6 +250,9 @@ jobs:
       - name: Storage capacity and deleted-account write scope (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/storage-capacity-scope-fixtures.sql
 
+      - name: Profile photos cannot be listed anonymously, members manage only their own folder (disposable DB)
+        run: psql -X -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/avatars-no-anon-listing-fixtures.sql
+
       - name: Signup profile transaction and metadata privilege boundary (disposable DB)
         run: psql -v ON_ERROR_STOP=1 -d carelink_shadow -f supabase/shadow/handle-new-user-profile-fixtures.sql
 
