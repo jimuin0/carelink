@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useConfirmedClipboard } from '@/hooks/useConfirmedClipboard';
 import Toast from '@/components/Toast';
+import Button from '@/components/ui/Button';
 import { referralCodeFromParam, referralShareText } from '@/lib/referral-code';
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://carelink-jp.com';
@@ -123,13 +124,12 @@ export default function ReferralPage() {
             <div className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-5 py-3 text-center">
               <p className="text-2xl font-mono font-bold tracking-widest text-sky-700">{referralCode}</p>
             </div>
-            <button
-              type="button"
+            <Button
               onClick={copyCode} disabled={clipboard.copying}
-              className="px-4 py-3 rounded-xl bg-sky-700 text-white text-sm font-bold hover:bg-sky-800 transition-colors shrink-0"
+              className="shrink-0"
             >
               {clipboard.copying?'コピー中...':copied ? 'コピー済み' : 'コピー'}
-            </button>
+            </Button>
           </div>
           <div className="flex gap-3">
             <button
@@ -169,14 +169,13 @@ export default function ReferralPage() {
               maxLength={8}
               className="flex-1 form-input font-mono tracking-widest text-center uppercase"
             />
-            <button
-              type="button"
+            <Button
               onClick={applyCode}
               disabled={!inputCode.trim() || applying}
-              className="px-5 py-2.5 rounded-xl bg-sky-700 text-white text-sm font-bold hover:bg-sky-800 disabled:opacity-50 transition-colors shrink-0"
+              className="shrink-0"
             >
               {applying ? '適用中...' : '適用'}
-            </button>
+            </Button>
           </div>
           {prefilledFromLink && (
             <p className="text-xs text-sky-700 mt-2">紹介リンクのコードを入力しました。内容をご確認のうえ「適用」を押してください。</p>

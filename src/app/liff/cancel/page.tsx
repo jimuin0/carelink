@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import { useLiff } from '@/hooks/useLiff';
@@ -136,7 +137,7 @@ function CancelContent() {
           <p className="text-4xl">✅</p>
           <p className="font-bold text-gray-900">キャンセルが完了しました</p>
           {receipt && <p role="status" className="text-sm text-gray-700">{receipt}</p>}
-          <Link href="/liff/bookings" className="inline-block bg-sky-500 text-white px-6 py-2.5 rounded-full text-sm font-bold">予約一覧へ</Link>
+          <Button href="/liff/bookings" prefetch="auto">予約一覧へ</Button>
         </div>
       </div>
     );

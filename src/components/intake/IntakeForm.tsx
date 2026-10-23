@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Button from '@/components/ui/Button';
 
 interface FormField {
   id: string;
@@ -261,13 +262,13 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
           <p className="text-sm text-red-700 bg-red-50 rounded-lg px-3 py-2">{error}</p>
         )}
 
-        <button
+        <Button
           type="submit"
           disabled={submitting}
-          className="w-full bg-sky-700 text-white font-bold py-3 rounded-xl text-sm hover:bg-sky-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          fullWidth
         >
           {submitting ? '送信中...' : '問診票を送信する'}
-        </button>
+        </Button>
 
         <p className="text-xs text-gray-500 text-center">
           送信後は施術前に担当スタッフが内容を確認します

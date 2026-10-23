@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import type { Metadata } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { SITE_URL } from '@/lib/constants';
@@ -265,12 +266,14 @@ export default async function JobDetailPage(props: Props) {
 
         {/* 応募ボタン */}
         <div className="px-4 sm:px-6 py-6 border-t border-gray-100">
-          <Link
+          <Button
             href={`/facility/${f.slug}#contact-section`}
-            className="block w-full text-center bg-sky-700 hover:bg-sky-800 text-white font-bold py-4 rounded-xl transition-colors"
+            prefetch="auto"
+            size="lg"
+            fullWidth
           >
             この求人に応募する
-          </Link>
+          </Button>
           <p className="text-xs text-gray-500 text-center mt-3">
             応募フォームは「{f.name}」のお問い合わせ欄から送信されます
           </p>

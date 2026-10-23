@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import type { Metadata } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { SITE_URL } from '@/lib/constants';
@@ -120,9 +121,9 @@ export default async function JobsListPage(props: { searchParams: Promise<Search
               <option key={p} value={p}>{p}</option>
             ))}
           </select>
-          <button type="submit" className="text-sm bg-sky-700 hover:bg-sky-800 text-white px-4 py-2 rounded-lg font-medium">
+          <Button type="submit" size="sm">
             絞り込む
-          </button>
+          </Button>
         </form>
 
         {/* リスト */}

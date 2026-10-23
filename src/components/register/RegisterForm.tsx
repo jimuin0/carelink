@@ -15,6 +15,7 @@ import { compressImage } from '@/lib/image-compress';
 import { rollbackUploadedSalonPhotos } from '@/lib/salon-photo-rollback';
 import { settleSalonUploads, readSalonRegistrationResult, SALON_SUBMISSION_UNKNOWN } from '@/lib/salon-registration-delivery';
 import Toast from '@/components/Toast';
+import Button from '@/components/ui/Button';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { getRecaptchaToken } from '@/lib/recaptcha-client';
 import { extractPrefecture, extractCity } from '@/lib/japan-address';
@@ -46,7 +47,6 @@ const LEAVE_CONFIRM_MESSAGE = '入力中の内容は送信されていません�
 // 隠れないよう余白を取る。
 const FIELD_SCROLL_MARGIN = '[&_input]:scroll-mt-24 [&_select]:scroll-mt-24 [&_textarea]:scroll-mt-24 [&_fieldset]:scroll-mt-24';
 
-const STEP_BUTTON = 'min-h-12 py-2!';
 const CHECKBOX = 'mt-0.5 size-5 shrink-0 rounded-sm border-gray-300 accent-(--ecru-accent)';
 
 const photoSlots: PhotoSlot[] = [
@@ -900,7 +900,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                   </div>
                 </div>
               </details>
-              <button type="button" onClick={nextStep} disabled={!isReady} {...stepDescription} className={`btn-primary w-full ${STEP_BUTTON}`}>次へ</button>
+              <Button onClick={nextStep} disabled={!isReady} {...stepDescription} size="lg" fullWidth>次へ</Button>
               {readyStatus}
             </div>
           )}
@@ -995,8 +995,8 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                 {fieldError('features', 'reg-features', SALON_FIELD_MESSAGES.features)}
               </fieldset>
               <div className="flex gap-4">
-                <button type="button" onClick={() => goToStep(1)} className={`btn-outline flex-1 ${STEP_BUTTON}`}>戻る</button>
-                <button type="button" onClick={nextStep} disabled={!isReady} className={`btn-primary flex-1 ${STEP_BUTTON}`}>次へ</button>
+                <Button onClick={() => goToStep(1)} variant="secondary" size="lg" className="flex-1">戻る</Button>
+                <Button onClick={nextStep} disabled={!isReady} size="lg" className="flex-1">次へ</Button>
               </div>
             </div>
           )}
@@ -1077,10 +1077,10 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                 <p role="alert" className="form-error font-medium">必須の同意にチェックしてください（残り{missingChecks.length}件）</p>
               )}
               <div className="flex gap-4">
-                <button type="button" onClick={() => goToStep(2)} className={`btn-outline flex-1 ${STEP_BUTTON}`}>戻る</button>
-                <button type="submit" disabled={!formReady || submitting || submissionUnknown || submissionConfirmed || draftBusy || legacyStorageBlocked} {...readyDescription} className={`btn-primary flex-1 ${STEP_BUTTON}`}>
+                <Button onClick={() => goToStep(2)} variant="secondary" size="lg" className="flex-1">戻る</Button>
+                <Button type="submit" disabled={!formReady || submitting || submissionUnknown || submissionConfirmed || draftBusy || legacyStorageBlocked} {...readyDescription} size="lg" className="flex-1">
                   {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />送信中...</span> : '登録する'}
-                </button>
+                </Button>
               </div>
               {/* 3 ページ目は隠したまま常に描かれるので、表示中だけ出す（同じ id を 2 つ作らない）。 */}
               {step === 3 && readyStatus}

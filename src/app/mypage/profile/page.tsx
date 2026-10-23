@@ -10,6 +10,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { prefectures } from '@/lib/constants';
 import { phoneRegex, normalizePhone } from '@/lib/phone';
 import Toast from '@/components/Toast';
+import Button from '@/components/ui/Button';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
@@ -271,9 +272,9 @@ export default function ProfileEditPage() {
             </select>
           </div>
 
-          <button type="submit" disabled={isSubmitting} className="btn-primary w-full py-3!">
+          <Button type="submit" disabled={isSubmitting} fullWidth>
             {isSubmitting ? '更新中...' : 'プロフィールを更新'}
-          </button>
+          </Button>
           </fieldset>
         </form>
       </div>

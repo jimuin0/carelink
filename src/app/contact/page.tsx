@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import Spinner from '@/components/Spinner';
@@ -162,9 +162,9 @@ function ContactPageContent() {
               2営業日以内にご返信いたします。
             </p>
 
-            <Link href="/" className="btn-primary">
+            <Button href="/" prefetch="auto">
               トップページへ戻る
-            </Link>
+            </Button>
           </div>
         ) : (
           <form
@@ -305,10 +305,11 @@ function ContactPageContent() {
               </span>
             </label>
 
-            <button
+            <Button
               type="submit"
               disabled={submitting || !agreed}
-              className="btn-primary w-full"
+              size="lg"
+              fullWidth
             >
               {submitting ? (
                 <span className="flex items-center justify-center gap-2">
@@ -318,7 +319,7 @@ function ContactPageContent() {
               ) : (
                 '送信する'
               )}
-            </button>
+            </Button>
           </form>
         )}
       </div>

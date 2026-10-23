@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import { isAiEnabled } from '@/lib/integration-availability';
 import SymptomCheckerClient from './SymptomCheckerClient';
 
@@ -29,8 +29,8 @@ export default function SymptomsPage() {
           ただいま準備を進めています。お急ぎの場合は、症状別のページや検索からお探しください。
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <Link href="/symptom/stiff-shoulder" className="btn-primary">症状から探す</Link>
-          <Link href="/search" className="btn-outline">サロン・クリニックを検索</Link>
+          <Button href="/symptom/stiff-shoulder" prefetch="auto">症状から探す</Button>
+          <Button href="/search" variant="secondary" prefetch="auto">サロン・クリニックを検索</Button>
         </div>
       </div>
     );

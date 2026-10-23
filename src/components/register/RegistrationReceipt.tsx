@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import { z } from 'zod';
 import { readSalonBrowserContext, saveSalonBrowserContext,
   salonHandoffAuthPath } from '@/lib/salon-browser-context';
@@ -50,7 +51,7 @@ export default function RegistrationReceipt() {
     <div className="section-container max-w-lg py-12 text-center" role="alert">
       <h1 className="text-2xl font-bold mb-4">受付状況を確認できませんでした</h1>
       <p>申込に使用したブラウザーの同じタブでご確認ください。受付済みの可能性があるため、新しい申込を送信しないでください。</p>
-      <button className="btn-primary mt-4" onClick={() => { setFailed(false); setReceipt(null); setAttempt(value => value + 1); }}>同じ申込の受付状況を確認</button>
+      <Button className="mt-4" onClick={() => { setFailed(false); setReceipt(null); setAttempt(value => value + 1); }}>同じ申込の受付状況を確認</Button>
       <Link href="/contact" className="block mt-4 underline underline-offset-4">受付状況を問い合わせる</Link>
       <Link href="/register/recover" className="block mt-4 underline underline-offset-4">申込時のメールアドレスで送信済みの掲載申込を復旧</Link>
     </div>
@@ -68,7 +69,7 @@ export default function RegistrationReceipt() {
       <p className="text-sm leading-relaxed">この時点では一般公開は完了していません。店舗アカウントを作成し、管理画面で設定して無料掲載を公開してください。{LISTING_PUBLISH_REQUIREMENT}ネット予約はさらにメニュー・スタッフ・写真の設定完了まで利用できません。</p>
       <p className="mt-3 text-sm leading-relaxed">掲載料・予約手数料は無料です。申込や店舗アカウント作成で有料プランの契約は行いません。</p>
       <div className="flex flex-col gap-4 mt-6">
-        <Link href={salonHandoffAuthPath('signup')} className="btn-primary">店舗アカウントを作成する</Link>
+        <Button href={salonHandoffAuthPath('signup')} prefetch="auto">店舗アカウントを作成する</Button>
         <Link href={salonHandoffAuthPath('login')} className="underline underline-offset-4">既存アカウントでログインする</Link>
       </div>
       {/* 以前は「別の店舗を新しいタブで申し込む」を出していたが、新規の店舗アカウントは1アカウント1店舗

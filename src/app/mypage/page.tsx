@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import RecentlyViewed from '@/components/facility/RecentlyViewed';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
@@ -43,7 +44,7 @@ export default async function MyPageDashboard() {
           <p className="text-sm text-sky-900">
             あなたの店舗：<span className="font-bold break-all">{managedFacilityName}</span>
           </p>
-          <Link href={STORE_ADMIN_PATH} className="btn-primary px-5 py-2 text-center">管理画面を開く</Link>
+          <Button href={STORE_ADMIN_PATH} prefetch="auto">管理画面を開く</Button>
         </div>
       )}
 

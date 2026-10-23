@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
 
@@ -141,7 +142,7 @@ export default function PreferredStaffPage() {
         <div className="bg-white rounded-2xl shadow-xs p-12 text-center">
           <p className="text-gray-500 mb-4">指名スタッフが登録されていません</p>
           <p className="text-sm text-gray-500 mb-6">施設ページの「スタッフ」で、スタッフごとの「指名登録」ボタンから登録できます。</p>
-          <Link href="/search" className="btn-primary text-sm">施設を探す</Link>
+          <Button href="/search" prefetch="auto">施設を探す</Button>
         </div>
       ) : (
         <div className="space-y-3">

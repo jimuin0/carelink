@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Button from '@/components/ui/Button';
 import { readThisDevicePushStatus, usePushSubscription } from '@/hooks/usePushSubscription';
 
 /**
@@ -56,14 +57,12 @@ export default function PushPermissionBanner() {
               来店前のリマインドは Push では送っていないので約束しない。 */}
           <p className="text-xs text-gray-500 mt-0.5">予約の確定・キャンセル・日時の変更などを、この端末にプッシュ通知でお知らせします</p>
           <div className="flex gap-2 mt-3">
-            <button
-              type="button"
+            <Button
               onClick={handleSubscribe}
               disabled={subscribing}
-              className="min-h-[44px] px-4 py-1.5 bg-sky-700 text-white text-xs font-bold rounded-lg hover:bg-sky-800 transition-colors"
             >
               {subscribing ? '設定中...' : '通知を許可'}
-            </button>
+            </Button>
             <button
               type="button"
               onClick={() => setShow(false)}

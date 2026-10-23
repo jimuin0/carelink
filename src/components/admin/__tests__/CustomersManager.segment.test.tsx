@@ -8,6 +8,7 @@
 import '@testing-library/jest-dom';
 import { render, screen, fireEvent } from '@testing-library/react';
 import CustomersManager, { type MasterCustomer } from '@/components/admin/CustomersManager';
+import { buttonClassName } from '@/components/ui/Button';
 
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn(), refresh: jest.fn() }) }));
 
@@ -50,7 +51,8 @@ test('削除ボタン押下 → ConfirmDialogの確定ボタンがdanger系（�
   render(<CustomersManager facilities={FAC} customers={[customer()]} unregistered={[]} />);
   fireEvent.click(screen.getByRole('button', { name: '削除' }));
   const confirmButton = screen.getByRole('button', { name: '削除する' });
-  expect(confirmButton).toHaveClass('bg-red-600');
+  // 色は共通 Button の danger（赤）が持つ（ConfirmDialog は variant="danger" を Button の danger へ渡す）。
+  expect(confirmButton).toHaveClass(...buttonClassName({ variant: 'danger' }).split(' '));
 });
 
 // 【監査M3】複数施設オーナー対応：一覧に施設列、追加フォームに施設セレクタを出す。

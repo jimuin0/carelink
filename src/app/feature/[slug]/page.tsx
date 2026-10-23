@@ -1,6 +1,6 @@
 import { hasSupabasePublicEnv } from '@/lib/supabase-build-env';
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import Image from 'next/image';
 import { notFound } from 'next/navigation';
 import { SITE_URL } from '@/lib/constants';
@@ -127,13 +127,14 @@ export default async function FeatureDetailPage({ params }: Props) {
             <p className="text-sm font-bold text-gray-800">{feature.title}のサロンを今すぐチェック</p>
             <p className="text-xs text-gray-500 mt-1">条件にぴったりのサロンが見つかります</p>
           </div>
-          <Link
+          <Button
             href={`/search?${feature.filter_type ? `type=${encodeURIComponent(feature.filter_type)}` : ''}${feature.filter_keyword ? `&keyword=${encodeURIComponent(feature.filter_keyword)}` : ''}`}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-sky-700 hover:bg-sky-800 text-white font-bold rounded-xl text-sm transition-colors whitespace-nowrap"
+            prefetch="auto"
+            className="whitespace-nowrap"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
             サロンを探す
-          </Link>
+          </Button>
         </div>
 
         {/* コンテンツセクション */}
@@ -165,13 +166,13 @@ export default async function FeatureDetailPage({ params }: Props) {
               ))}
             </div>
             <div className="text-center mt-8">
-              <Link
+              <Button
                 href={`/search?${feature.filter_type ? `type=${encodeURIComponent(feature.filter_type)}` : ''}${feature.filter_keyword ? `&keyword=${encodeURIComponent(feature.filter_keyword)}` : ''}`}
-                className="inline-flex items-center gap-2 px-8 py-3.5 bg-sky-700 hover:bg-sky-800 text-white font-bold rounded-xl text-sm transition-colors shadow-md hover:shadow-lg"
+                prefetch="auto"
               >
                 すべての施設を見る
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-              </Link>
+              </Button>
             </div>
           </section>
         )}

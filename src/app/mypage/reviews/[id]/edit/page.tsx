@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Toast from '@/components/Toast';
+import Button from '@/components/ui/Button';
 import StarRating from '@/components/facility/StarRating';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import LoadError from '@/components/admin/LoadError';
@@ -110,9 +111,9 @@ export default function EditReviewPage() {
           <button type="button" onClick={() => router.push('/mypage/reviews')} className="text-sm text-gray-500 hover:underline">
             戻る
           </button>
-          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 py-3!">
+          <Button onClick={handleSave} disabled={saving} className="flex-1">
             {saving ? '保存中...' : '更新する'}
-          </button>
+          </Button>
         </div>
       </div>
 
