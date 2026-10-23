@@ -108,23 +108,16 @@ export default function FacilityCard({ facility, showBadges = true, monthlyBooki
           )}
         </div>
 
-        {/* 価格帯 */}
+        {/* 価格帯。価格は濃い文字の太字で出す（色に意味を持たせない）。
+            取り消し線は「割引前の価格」、赤は「割引後のクーポン価格」だけに使う。施設の価格帯は
+            どちらでもないので、クーポンがあっても線を引かない（以前は最安値に線を引き
+            「クーポン価格あり」と赤で出していた＝定価が値下げされたように見えていた）。
+            クーポンの有無はバッジと「クーポンN枚」で伝える。 */}
         {facility.min_price != null && (
-          <p className="text-sm mb-1">
-            {hasCoupons ? (
-              <>
-                <span className="text-gray-500 line-through text-xs mr-1">
-                  ¥{facility.min_price.toLocaleString()}〜
-                </span>
-                <span className="font-bold text-red-600">クーポン価格あり</span>
-              </>
-            ) : (
-              <span className="font-bold text-sky-700">
-                {facility.min_price === facility.max_price
-                  ? `¥${facility.min_price.toLocaleString()}`
-                  : `¥${facility.min_price.toLocaleString()}〜¥${(facility.max_price ?? facility.min_price).toLocaleString()}`}
-              </span>
-            )}
+          <p className="text-sm mb-1 font-bold text-gray-900" data-testid="facility-card-price">
+            {facility.min_price === facility.max_price || facility.max_price == null
+              ? `¥${facility.min_price.toLocaleString()}`
+              : `¥${facility.min_price.toLocaleString()}〜¥${facility.max_price.toLocaleString()}`}
           </p>
         )}
 

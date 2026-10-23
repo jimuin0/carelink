@@ -89,17 +89,25 @@ afterEach(() => {
 
 test('ゲストには新規・リピーター限定を選べなくし、ログインを案内する（履歴は問い合わせない）', async () => {
   render(<BookingFlow facility={FACILITY} staff={STAFF} menus={MENUS} coupons={COUPONS} />);
-  expect(await screen.findByText('ご利用条件：この店舗を初めてご予約の方限定（ログインするとご利用いただけます）')).toBeInTheDocument();
-  expect(screen.getByText('ご利用条件：この店舗にご来店いただいたことがある方限定（ログインするとご利用いただけます）')).toBeInTheDocument();
+  // 案内は一覧の上に 1 回だけ。カードごとに同じ赤い注意書きを繰り返さない（2026年10月23日）。
+  expect(await screen.findByText('ログインすると新規・リピーター限定クーポンが使えます')).toBeInTheDocument();
+  expect(screen.getByText('ご利用条件：この店舗を初めてご予約の方限定')).not.toHaveClass('text-red-600');
+  expect(screen.getByText('ご利用条件：この店舗にご来店いただいたことがある方限定')).not.toHaveClass('text-red-600');
   expect(screen.getAllByText(/ご利用条件：/)).toHaveLength(2);
-  // fieldset の一時的な disabled ではなく、クーポン自体が選べないこと。
-  expect(await button('初回限定クーポン')).toHaveAttribute('aria-disabled', 'true');
+  expect(screen.queryByText(/ログインするとご利用いただけます/)).not.toBeInTheDocument();
+  // クーポン自体は選べない（aria-disabled）が、薄くはせず、押せばログインを案内する。
+  const newCoupon = await button('初回限定クーポン');
+  expect(newCoupon).toHaveAttribute('aria-disabled', 'true');
+  expect(newCoupon).toHaveAttribute('aria-describedby', 'coupon-login-notice');
+  expect(newCoupon.className).not.toContain('opacity-50');
   expect(await button('再来クーポン')).toHaveAttribute('aria-disabled', 'true');
   expect(await button('みんなのクーポン')).toHaveAttribute('aria-disabled', 'false');
   expect(historyQuery.from).not.toHaveBeenCalledWith('bookings');
+  fireEvent.click(newCoupon);
+  expect(screen.getByRole('status')).toHaveTextContent('「初回限定クーポン」はログインするとご利用いただけます。');
+  expect(screen.queryByText('「初回限定クーポン」で受けるメニューを選んでください')).not.toBeInTheDocument();
   // ログインの案内から、入力内容を保存してログイン画面へ進める。
-  expect(screen.getByText(/新規・リピーター限定のクーポンは、ログインしてご利用ください。/)).toBeInTheDocument();
-  fireEvent.click(screen.getByText('ログインする'));
+  fireEvent.click(screen.getAllByText('ログインする')[0]!);
   await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/auth/login?redirect=/facility/test-salon/booking'));
   expect(sessionStorage.getItem('booking-draft:fac-1')).not.toBeNull();
 });
@@ -109,7 +117,7 @@ test('全員向けのクーポンしか無ければ、ゲストにログイン�
   await waitFor(() => expect(mockGetUser).toHaveBeenCalled());
   await act(async () => { await Promise.resolve(); });
   await waitFor(async () => expect(await button('みんなのクーポン')).not.toBeDisabled());
-  expect(screen.queryByText(/ログインしてご利用ください/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/ログインすると新規・リピーター限定クーポン/)).not.toBeInTheDocument();
   expect(screen.queryByText(/ご利用条件：/)).not.toBeInTheDocument();
 });
 
@@ -133,7 +141,7 @@ test('ログイン中で本人の予約が見つからなければ、新規・�
   expect(screen.getByText('ご利用条件：この店舗にご来店いただいたことがある方限定')).toBeInTheDocument();
   expect(await button('初回限定クーポン')).not.toBeDisabled();
   expect(await button('再来クーポン')).not.toBeDisabled();
-  expect(screen.queryByText(/ログインしてご利用ください/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/ログインすると新規・リピーター限定クーポン/)).not.toBeInTheDocument();
 });
 
 test('ログイン中で本人の予約履歴があれば、新規限定だけ選べない', async () => {
@@ -191,4 +199,12 @@ test('確認画面では選んだクーポンの利用条件と、確定時に�
   fireEvent.click(screen.getByText('次へ（確認・予約）'));
   await screen.findByText('予約内容の確認・お客様情報');
   expect(screen.getByText('ご利用条件：この店舗を初めてご予約の方限定（ご予約の確定時に確認します）')).toBeInTheDocument();
+});
+
+test('メニューの定価は赤にしない（赤はクーポンで下がった価格だけ）', async () => {
+  render(<BookingFlow facility={FACILITY} staff={STAFF} menus={MENUS} coupons={[]} />);
+  fireEvent.click(await screen.findByText('メニューから選ぶ'));
+  const price = await screen.findByText('¥5,000');
+  expect(price).toHaveClass('text-gray-900');
+  expect(price).not.toHaveClass('text-red-600');
 });

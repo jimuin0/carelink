@@ -287,7 +287,7 @@ export default async function FacilityPage(props: Props) {
                 const min = Math.min(...prices);
                 const max = Math.max(...prices);
                 return (
-                  <span className="text-sm font-bold text-sky-700">
+                  <span className="text-sm font-bold text-gray-900">
                     {min === max ? `¥${min.toLocaleString()}` : `¥${min.toLocaleString()}〜¥${max.toLocaleString()}`}
                   </span>
                 );
@@ -614,22 +614,23 @@ function TopTab({ facility, featuredMenus, blog }: {
           <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-line">{facility.description}</p>
         </div>
       )}
-      {/* おすすめメニュー */}
+      {/* おすすめメニュー。見出しの帯は他の見出しと同じ色にそろえ、価格は濃い文字にする
+          （黄色の帯と青い価格は「特別な割引」のように見えていた。色の意味は FacilityCard を参照）。 */}
       {featuredMenus.length > 0 && (
         <div>
           <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
-            <span className="w-1 h-5 bg-amber-400 rounded-full" />
+            <span className="w-1 h-5 bg-sky-500 rounded-full" />
             おすすめメニュー
           </h2>
           <div className="space-y-3">
             {featuredMenus.map((menu) => (
-              <div key={menu.id} className="flex items-start justify-between p-4 bg-amber-50 rounded-xl border border-amber-100">
+              <div key={menu.id} className="flex items-start justify-between p-4 bg-gray-50 rounded-xl border border-gray-100">
                 <div className="flex-1 mr-4">
                   <p className="font-bold text-sm">{menu.name}</p>
                   {menu.description && <p className="text-gray-500 text-xs mt-1">{menu.description}</p>}
                 </div>
                 <div className="text-right">
-                  <p className="font-bold text-sm text-sky-700">
+                  <p className="font-bold text-sm text-gray-900">
                     {menu.price_note || (menu.price !== null ? `¥${menu.price.toLocaleString()}` : '-')}
                   </p>
                   {menu.duration_minutes && (
