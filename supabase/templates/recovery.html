@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<!--
+  Supabase Auth「Reset password」テンプレート（件名は supabase/config.toml の [auth.email.template.recovery]）。
+  ローカル・CI の `supabase start` はこのファイルを使う。本番は Supabase Dashboard の
+  Authentication → Email Templates に同じ内容を貼る（このファイルが文面の正）。
+  再設定リンクは PKCE のため、申し込んだのと同じブラウザでしか使えない（src/lib/password-reset-redirect.ts）。
+-->
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Hiragino Sans','Noto Sans JP',sans-serif;color:#1e293b;line-height:1.7;max-width:600px;margin:0 auto;padding:20px;">
+  <div style="text-align:center;margin-bottom:24px;"><strong style="color:#0369A1;font-size:20px;">CareLink</strong></div>
+  <h1 style="font-size:20px;margin:0 0 16px;">パスワードの再設定</h1>
+  <p>パスワード再設定のお申し込みを受け付けました。下のボタンから新しいパスワードを設定してください。</p>
+  <p style="text-align:center;margin:28px 0;">
+    <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#0369A1;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">パスワードを再設定する</a>
+  </p>
+  <div style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:16px;margin:16px 0;font-size:14px;">
+    <p style="margin:0;"><strong>再設定を申し込んだのと同じブラウザで開いてください。</strong></p>
+    <p style="margin:8px 0 0;">別のブラウザやメールアプリ内のブラウザで開くと、再設定できないことがあります。その場合は、同じブラウザでもう一度お申し込みください。</p>
+  </div>
+  <p style="font-size:13px;color:#475569;">ボタンが押せない場合は、次のURLを同じブラウザに貼り付けて開いてください。<br><span style="word-break:break-all;">{{ .ConfirmationURL }}</span></p>
+  <p style="font-size:13px;color:#475569;">このメールに心当たりがない場合は、何もせずに破棄してください。パスワードは変更されません。</p>
+  <hr style="border:none;border-top:1px solid #e2e8f0;margin:32px 0 16px;">
+  <p style="font-size:12px;color:#64748b;text-align:center;">このメールは CareLink（carelink-jp.com）から自動送信されています。</p>
+</body>
+</html>
