@@ -4,7 +4,7 @@ jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn(), getRequestContext: jest.fn(() => ({ ua: 'test', ip: '127.0.0.1' })) }));
 jest.mock('@/lib/admin-date', () => ({ todayJst: jest.fn(() => '2026-10-08') }));
 jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
-jest.mock('@/lib/avatar-upload', () => ({ removeAllAvatars: jest.fn() }));
+jest.mock('@/lib/avatar-retirement', () => ({ removeAllAvatars: jest.fn() }));
 const mockCleanupVersion = jest.fn(); const mockGetAll = jest.fn(); const mockGetUser = jest.fn(); const mockFrom = jest.fn(); const mockDeleteUser = jest.fn();
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: mockGetAll }) }));
 jest.mock('@supabase/ssr', () => ({ createServerClient: () => ({ auth: { getUser: mockGetUser } }) }));
@@ -14,7 +14,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { createClient } from '@supabase/supabase-js';
-import { removeAllAvatars } from '@/lib/avatar-upload';
+import { removeAllAvatars } from '@/lib/avatar-retirement';
 import { alertCaughtError } from '@/lib/alert';
 const USER='user-delete-test';
 function request(body: unknown = { confirmation: 'DELETE' }, cleanupHeader: string | null = '1') {

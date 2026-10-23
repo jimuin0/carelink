@@ -17,7 +17,7 @@ import { serverError } from '@/lib/with-route';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { errorMessage } from '@/lib/err';
-import { removeAllAvatars } from '@/lib/avatar-upload';
+import { removeAllAvatars } from '@/lib/avatar-retirement';
 
 // 未完了（進行中）の予約ステータス。completed / cancelled / no_show / cancel_fee_paid は終了済み。
 const ACTIVE_BOOKING_STATUSES = ['pending', 'confirmed', 'arrived'];

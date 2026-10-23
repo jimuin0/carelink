@@ -4,7 +4,7 @@
  * プロフィール写真は推測できない名前で保存し、前の写真（本人のフォルダの中だけ）を消す（2026年10月23日）。
  * 以前は avatars/<アカウントID>/avatar.<拡張子> に上書きしており、アカウント ID から写真の URL が分かった。
  */
-import { AVATAR_BUCKET, AvatarUploadError, avatarObjectPath, ownAvatarPathFromUrl, removeAllAvatars, uploadAvatar } from '../avatar-upload';
+import { AVATAR_BUCKET, AvatarUploadError, avatarObjectPath, ownAvatarPathFromUrl, uploadAvatar } from '../avatar-upload';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -111,43 +111,5 @@ describe('uploadAvatar', () => {
     const s = fakeSupabase();
     const url = await uploadAvatar(s.client, USER, file('image/jpeg'), null);
     expect(url).toMatch(new RegExp(`^${BASE}/${USER}/[0-9a-f-]{36}\\.jpg$`));
-  });
-});
-
-describe('removeAllAvatars（退会時に本人のフォルダの写真を消す）', () => {
-  type ListResult = { data: unknown; error: unknown };
-  function storage(list: ListResult | Error, removeError: unknown = null) {
-    const remove = jest.fn(async () => ({ data: null, error: removeError }));
-    const listFn = jest.fn(async () => { if (list instanceof Error) throw list; return list; });
-    const from = jest.fn(() => ({ list: listFn, remove }));
-    return { client: { storage: { from } } as unknown as Parameters<typeof removeAllAvatars>[0], from, list: listFn, remove };
-  }
-  test('本人のフォルダの全ファイルを消す（旧形式・新形式とも）', async () => {
-    const s = storage({ data: [{ name: 'avatar.jpg' }, { name: `${RANDOM}.webp` }], error: null });
-    await expect(removeAllAvatars(s.client, USER)).resolves.toBe(true);
-    expect(s.from).toHaveBeenCalledWith(AVATAR_BUCKET);
-    expect(s.list).toHaveBeenCalledWith(USER, { limit: 1000 });
-    expect(s.remove).toHaveBeenCalledWith([`${USER}/avatar.jpg`, `${USER}/${RANDOM}.webp`]);
-  });
-  test('写真が無ければ何も消さずに成功', async () => {
-    const s = storage({ data: [], error: null });
-    await expect(removeAllAvatars(s.client, USER)).resolves.toBe(true);
-    expect(s.remove).not.toHaveBeenCalled();
-  });
-  test.each([
-    ['一覧の失敗', { data: null, error: { message: 'list failed' } }],
-    ['一覧が配列でない', { data: null, error: null }],
-  ])('%s は false（消したことにしない）', async (_label, list) => {
-    const s = storage(list);
-    await expect(removeAllAvatars(s.client, USER)).resolves.toBe(false);
-    expect(s.remove).not.toHaveBeenCalled();
-  });
-  test('削除の失敗は false', async () => {
-    const s = storage({ data: [{ name: 'avatar.jpg' }], error: null }, { message: 'remove failed' });
-    await expect(removeAllAvatars(s.client, USER)).resolves.toBe(false);
-  });
-  test('例外も false（投げない）', async () => {
-    const s = storage(new Error('network'));
-    await expect(removeAllAvatars(s.client, USER)).resolves.toBe(false);
   });
 });
