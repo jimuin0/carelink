@@ -8,8 +8,9 @@
  *   true に戻せば、管理画面のナビ・各画面・マイページの導線がそのまま復活する。
  *   ただし静的ファイル `public/llms.txt` だけはコードで出し分けできないため、
  *   求人を戻すときは同ファイルの案内（求人掲載・求人情報）も手で足し戻すこと。
- *   E2E（e2e/admin-jobs・admin-large-list-nav・admin-packages*・admin-subscription*・
- *   admin-subscribers）は各トグルが false の間 skip しているので、true に戻すと自動で再開する。
+ *   E2E（e2e/admin-jobs・admin-packages*・admin-subscription*・admin-subscribers）は各トグルが
+ *   false の間 skip しているので、true に戻すと自動で再開する。admin-large-list-nav（Next 15.5 の
+ *   無音遷移の再発ガード）は skip させないよう、常に表示されるブログ一覧で検証している。
  */
 
 /**
