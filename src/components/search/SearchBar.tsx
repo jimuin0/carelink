@@ -5,6 +5,8 @@ import { useState, useSyncExternalStore } from 'react';
 import { businessTypes, prefectures } from '@/lib/constants';
 import SearchSuggest from './SearchSuggest';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import Button from '@/components/ui/Button';
+import Select from '@/components/ui/Select';
 
 const HISTORY_KEY = 'carelink_search_history';
 const MAX_HISTORY = 5;
@@ -96,34 +98,32 @@ export default function SearchBar() {
             onClose={() => setSuggestOpen(false)}
           />
         </div>
-        <select
+        <Select
           name="type"
           value={type}
           onChange={(e) => setType(e.target.value)}
-          className="form-input"
           aria-label="業種を選択"
         >
           <option value="">すべての業種</option>
           {businessTypes.map((t) => (
             <option key={t} value={t}>{businessTypeLabel(t)}</option>
           ))}
-        </select>
-        <select
+        </Select>
+        <Select
           name="area"
           value={prefecture}
           onChange={(e) => setPrefecture(e.target.value)}
-          className="form-input"
           aria-label="エリアを選択"
         >
           <option value="">すべてのエリア</option>
           {prefectures.map((p) => (
             <option key={p} value={p}>{p}</option>
           ))}
-        </select>
+        </Select>
       </div>
-      <button type="submit" className="btn-primary w-full mt-3 py-3!">
+      <Button type="submit" fullWidth className="mt-3">
         検索する
-      </button>
+      </Button>
       {history.length > 0 && !keyword && (
         <div className="flex flex-wrap gap-2 mt-3">
           <span className="text-xs text-gray-500">最近の検索:</span>

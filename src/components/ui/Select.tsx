@@ -15,6 +15,7 @@ import { forwardRef, type SelectHTMLAttributes } from 'react';
  *
  * ref は <select> に渡る（react-hook-form の register にそのまま使える）。
  * `className` は <select> 自身に、`wrapperClassName` は外側の箱（幅・余白）に付く。
+ * 高さは h-full＋min-h なので、グリッドの行で隣の入力欄が高ければそれに揃って伸びる。
  */
 export interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, 'size'> {
   wrapperClassName?: string;
@@ -32,7 +33,7 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
       <select
         ref={ref}
         className={[
-          'block w-full appearance-none rounded-control border border-gray-300 bg-white py-1.5 pl-3 pr-10',
+          'block h-full w-full appearance-none rounded-control border border-gray-300 bg-white py-1.5 pl-3 pr-10',
           'text-base text-gray-900 transition-colors',
           'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--primary)',
           'aria-invalid:border-red-700 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-600',

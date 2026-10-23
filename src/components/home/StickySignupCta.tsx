@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { hasAnsweredCookieBanner, isCookieSettingsOpen, subscribeToCookieConsent, subscribeToCookieSettings } from '@/lib/cookie-consent';
 
@@ -47,13 +47,11 @@ export default function StickySignupCta() {
     >
       <div className="flex items-center gap-3">
         <div className="flex-1 min-w-0">
-          <p className="text-[11px] text-gray-500 mb-1.5">予約のたびにポイント還元。利用は完全無料。</p>
-          <Link
-            href="/auth/signup"
-            className="flex items-center justify-center w-full py-2.5 bg-sky-700 active:bg-sky-700 text-white text-sm font-bold rounded-lg"
-          >
+          <p className="text-xs text-gray-500 mb-1.5">予約のたびにポイント還元。利用は完全無料。</p>
+          {/* 登録 CTA は高意図の導線なので従来どおり先読みさせる（components/BrowseLink.tsx）。 */}
+          <Button href="/auth/signup" prefetch="auto" fullWidth>
             無料で会員登録する
-          </Link>
+          </Button>
         </div>
         <button
           type="button"

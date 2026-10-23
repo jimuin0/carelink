@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 // 未ログイン時のログイン/登録導線とメニュー一覧。既定で先読みしない
 // （理由と実測は components/BrowseLink.tsx）。
 import Link from '@/components/BrowseLink';
+import Button from '@/components/ui/Button';
 import { usePathname } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import type { User } from '@supabase/supabase-js';
@@ -39,21 +40,15 @@ export default function HomeUserPanel() {
     return (
       <div className="bg-white rounded-sm shadow-xs overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100">
-          <p className="text-tiny text-gray-500 tracking-wide">ようこそ、ゲストさん</p>
+          <p className="text-xs text-gray-500 tracking-wide">ようこそ、ゲストさん</p>
         </div>
         <div className="px-4 py-4 space-y-2.5">
-          <Link
-            href={`/auth/login?redirect=${encodeURIComponent(pathname)}`}
-            className="block w-full text-center py-2 bg-sky-700 text-white text-xs tracking-wider rounded-sm hover:bg-sky-800 transition-colors"
-          >
+          <Button href={`/auth/login?redirect=${encodeURIComponent(pathname)}`} fullWidth>
             ログインする
-          </Link>
-          <Link
-            href="/auth/signup"
-            className="block w-full text-center py-2 border border-gray-200 text-xs text-gray-500 rounded-sm hover:bg-gray-50 transition-colors"
-          >
+          </Button>
+          <Button href="/auth/signup" variant="ghost" fullWidth>
             新規会員登録（無料）
-          </Link>
+          </Button>
         </div>
       </div>
     );
@@ -70,7 +65,7 @@ export default function HomeUserPanel() {
   return (
     <div className="bg-white rounded-sm shadow-xs overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-100">
-        <p className="text-tiny text-gray-500 tracking-wide">ようこそ、<span className="text-gray-700">{displayName}</span>さん</p>
+        <p className="text-xs text-gray-500 tracking-wide">ようこそ、<span className="text-gray-700">{displayName}</span>さん</p>
       </div>
       <nav>
         {[
@@ -84,7 +79,7 @@ export default function HomeUserPanel() {
             className={`flex items-center justify-between px-4 py-2.5 text-xs text-gray-600 hover:text-sky-700 hover:bg-sky-50/50 transition-colors ${i < arr.length - 1 ? 'border-b border-gray-100' : ''}`}
           >
             <span>{item.label}</span>
-            <span className="text-gray-500 text-micro">&rsaquo;</span>
+            <span className="text-gray-500 text-xs">&rsaquo;</span>
           </Link>
         ))}
       </nav>

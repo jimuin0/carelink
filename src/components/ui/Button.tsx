@@ -22,7 +22,7 @@ import BrowseLink from '@/components/BrowseLink';
  *
  * `href` を渡すとリンク（<a>）として描く。内部リンクは BrowseLink（既定で先読みしない）を通す。
  * 「次に必ず押される」導線で従来どおり先読みさせたい場合は `prefetch="auto"` を明示する
- * （理由と実測は components/BrowseLink.tsx）。tel: / mailto: / 外部 URL / # は素の <a> で描く。
+ * （理由と実測は components/BrowseLink.tsx）。tel: / mailto: / 外部 URL / data: / # は素の <a> で描く。
  *
  * `className` は配置（幅・余白・flex 等）の追加にだけ使う。色・角丸・高さ・文字サイズを上書きしない
  * （上書きが必要になったら variant / size を足す）。
@@ -82,9 +82,9 @@ export type ButtonAsLinkProps = CommonProps &
 
 export type ButtonProps = ButtonAsButtonProps | ButtonAsLinkProps;
 
-/** tel: / mailto: / http(s): / ページ内アンカーは Next のルーターを通さない。 */
+/** tel: / mailto: / http(s): / data: / blob: / ページ内アンカーは Next のルーターを通さない。 */
 function isPlainAnchor(href: string): boolean {
-  return /^(tel:|mailto:|https?:|#)/i.test(href);
+  return /^(tel:|mailto:|https?:|data:|blob:|#)/i.test(href);
 }
 
 export default function Button(props: ButtonProps) {

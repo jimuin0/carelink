@@ -18,6 +18,7 @@ import { HOME_VISIT_ADDRESS_REQUIRED_MESSAGE } from '@/lib/home-visit';
 import { BOOKING_DURATION_MISMATCH_MESSAGE, clampBookingDuration, needsSlotReselection, slotLengthMinutes } from '@/lib/booking-slot-rules';
 // /api/slots/week が 1 リクエストで受け付けるスタッフ数の上限（サーバー側と同じ定義を使う）。
 import { SLOTS_WEEK_MAX_STAFF } from '@/lib/slots-week';
+import Button from '@/components/ui/Button';
 
 type Step = 'menu' | 'datetime' | 'confirm';
 
@@ -1090,14 +1091,13 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                 </span>
               )}
             </div>
-            <button
-              type="button"
+            <Button
               disabled={selectedMenus.length === 0}
               onClick={() => setStep('datetime')}
-              className="btn-primary w-full py-3! disabled:opacity-40 disabled:cursor-not-allowed"
+              fullWidth
             >
               次へ（日時を選ぶ）
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -1307,14 +1307,14 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
           )}
 
           <div className="flex gap-3 pt-1">
-            <button type="button" onClick={() => setStep('menu')} className="text-sm text-gray-500 hover:underline px-2">
+            <Button variant="ghost" onClick={() => setStep('menu')}>
               戻る
-            </button>
+            </Button>
             {selectedSlot && (
               // 開始時刻を過ぎた枠かどうかは端末の時計では止めない（handleSubmit のコメント参照）。
-              <button type="button" onClick={() => setStep('confirm')} className="btn-primary flex-1 py-3!">
+              <Button onClick={() => setStep('confirm')} className="flex-1">
                 次へ（確認・予約）
-              </button>
+              </Button>
             )}
           </div>
         </div>
@@ -1519,17 +1519,16 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
           )}
 
           <div className="flex gap-3">
-            <button type="button" onClick={() => setStep('datetime')} className="text-sm text-gray-500 hover:underline px-2">
+            <Button variant="ghost" onClick={() => setStep('datetime')}>
               戻る
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
               onClick={handleSubmit}
               disabled={submitting || (usePoints && pointsLoadFailed)}
-              className="btn-primary flex-1 py-3!"
+              className="flex-1"
             >
               {submitting ? '予約中...' : 'この内容で予約する'}
-            </button>
+            </Button>
           </div>
         </div>
       )}

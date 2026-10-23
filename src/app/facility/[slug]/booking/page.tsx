@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 import { isDialablePhone } from '@/lib/facility-contact';
+import Button from '@/components/ui/Button';
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -111,17 +112,14 @@ function BookingNotReady({ slug, name, phone }: { slug: string; name: string; ph
           </p>
           <div className="flex flex-col gap-3">
             {dialable && (
-              <a href={`tel:${phone}`} className="btn-primary text-center">
+              <Button href={`tel:${phone}`} size="lg">
                 店舗に電話する
-              </a>
+              </Button>
             )}
             {dialable && <p className="text-sm text-gray-700 text-center -mt-1">{phone}</p>}
-            <Link
-              href={`/facility/${slug}#contact-section`}
-              className="text-center rounded-lg border border-sky-700 px-4 py-3 text-sm font-bold text-sky-700 hover:bg-sky-50"
-            >
+            <Button href={`/facility/${slug}#contact-section`} variant="secondary" prefetch="auto">
               お問い合わせフォームで問い合わせる
-            </Link>
+            </Button>
           </div>
         </section>
         <p className="mt-6 text-center">

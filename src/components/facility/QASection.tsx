@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useSyncExternalStore } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import { FACILITY_QA_QUESTION_MAX_LENGTH } from '@/lib/facility-qa-limits';
+import Button from '@/components/ui/Button';
 
 const SUBMIT_FAILED_MESSAGE = '質問の送信に失敗しました。もう一度お試しください。';
 
@@ -131,14 +132,13 @@ export default function QASection({ facilityId, askOnly = false, loginHref }: Pr
       />
       <div className="flex items-center justify-between mt-2">
         <span className="text-xs text-gray-500">{question.length}/{FACILITY_QA_QUESTION_MAX_LENGTH}</span>
-        <button
-          type="button"
+        <Button
+          size="sm"
           onClick={handleSubmit}
           disabled={submitting || !question.trim()}
-          className="bg-sky-700 text-white text-sm px-4 py-2 rounded-lg hover:bg-sky-800 transition-colors disabled:opacity-50"
         >
           {submitting ? '送信中...' : '質問する'}
-        </button>
+        </Button>
       </div>
       {submitted && (
         <p className="text-sm text-green-700 mt-2" role="status">質問を送信しました。施設からの回答をお待ちください。</p>

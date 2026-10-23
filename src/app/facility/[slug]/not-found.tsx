@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -17,12 +17,12 @@ export default function FacilityNotFound() {
           お探しのページは存在しないか、公開が終了した可能性があります。
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <Link href="/search" className="btn-primary text-sm px-6 py-3">
+          <Button href="/search">
             サロン・クリニックを探す
-          </Link>
-          <Link href="/" className="btn-outline text-sm px-6 py-3">
+          </Button>
+          <Button href="/" variant="secondary">
             トップへ戻る
-          </Link>
+          </Button>
         </div>
       </div>
     </div>

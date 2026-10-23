@@ -7,6 +7,8 @@ import StationSearch from './StationSearch';
 import { businessTypeLabel } from '@/lib/business-type-label';
 // 予約希望日の下限は JST の今日。toISOString（UTC）だと JST 0:00〜8:59 は前日が選べ当日を選べなかった。
 import { getTodayString } from '@/lib/validations-booking';
+import Button from '@/components/ui/Button';
+import Select from '@/components/ui/Select';
 
 /**
  * @param onApplied 「この条件で検索」「クリア」「駅から探す」で検索結果を切り替えた直後に呼ぶ。スマホの絞り込み
@@ -74,19 +76,18 @@ export default function SearchFilters({ className, onApplied }: { className?: st
     <div className={className}>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-bold text-gray-800">絞り込み</h2>
-        <button type="button" onClick={clearFilters} aria-label="フィルターをクリア" className="text-xs text-gray-600 hover:text-sky-700 transition-colors">
+        <Button variant="ghost" size="sm" onClick={clearFilters} aria-label="フィルターをクリア">
           クリア
-        </button>
+        </Button>
       </div>
 
       {/* エリア */}
       <div className="mb-5">
         <label className="block text-xs font-medium text-gray-600 mb-1.5">エリア</label>
-        <select
+        <Select
           value={area}
           onChange={(e) => setArea(e.target.value)}
           aria-label="エリアを選択"
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-200"
         >
           <option value="">すべて</option>
           {regionGroups.map((region) => (
@@ -96,7 +97,7 @@ export default function SearchFilters({ className, onApplied }: { className?: st
               ))}
             </optgroup>
           ))}
-        </select>
+        </Select>
       </div>
 
       {/* 最寄駅 */}
@@ -109,17 +110,16 @@ export default function SearchFilters({ className, onApplied }: { className?: st
       {/* 業種 */}
       <div className="mb-5">
         <label className="block text-xs font-medium text-gray-600 mb-1.5">業種</label>
-        <select
+        <Select
           value={type}
           onChange={(e) => setType(e.target.value)}
           aria-label="業種を選択"
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-200"
         >
           <option value="">すべて</option>
           {businessTypes.map((t) => (
             <option key={t} value={t}>{businessTypeLabel(t)}</option>
           ))}
-        </select>
+        </Select>
       </div>
 
       {/* 評価 */}
@@ -189,17 +189,16 @@ export default function SearchFilters({ className, onApplied }: { className?: st
       </div>
       <div className="mb-5">
         <label htmlFor="filter-available-time" className="block text-xs font-medium text-gray-600 mb-1.5">時間帯</label>
-        <select
+        <Select
           id="filter-available-time"
           value={availableTime}
           onChange={(e) => setAvailableTime(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-200"
         >
           <option value="">指定なし</option>
           <option value="morning">午前（9:00〜12:00）</option>
           <option value="afternoon">午後（12:00〜17:00）</option>
           <option value="evening">夕方以降（17:00〜）</option>
-        </select>
+        </Select>
       </div>
 
       {/* こだわり条件 */}
@@ -237,13 +236,9 @@ export default function SearchFilters({ className, onApplied }: { className?: st
       */}
 
       {/* 適用ボタン */}
-      <button
-        type="button"
-        onClick={applyFilters}
-        className="w-full py-2.5 bg-sky-700 hover:bg-sky-800 text-white text-sm font-bold rounded-lg transition-colors"
-      >
+      <Button onClick={applyFilters} fullWidth>
         この条件で検索
-      </button>
+      </Button>
     </div>
   );
 }

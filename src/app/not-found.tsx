@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import Button from '@/components/ui/Button';
 import type { Metadata } from 'next';
 
 // ルート layout の title.template '%s | CareLink' が自動付与するため「| CareLink」は付けない（二重化防止）。
@@ -22,12 +22,12 @@ export default function NotFound() {
           お探しのページは存在しないか、移動した可能性があります。
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <Link href="/" className="btn-primary">
+          <Button href="/" size="lg">
             トップページへ戻る
-          </Link>
-          <Link href="/search" className="btn-outline">
+          </Button>
+          <Button href="/search" variant="secondary" size="lg">
             サロンを探す
-          </Link>
+          </Button>
         </div>
       </div>
     </div>

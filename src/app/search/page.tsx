@@ -14,6 +14,7 @@ export const dynamic = 'force-dynamic';
 
 import { SITE_URL } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/json-ld';
+import Button from '@/components/ui/Button';
 
 interface Props {
   searchParams: Promise<{
@@ -234,22 +235,22 @@ export default async function SearchPage(props: Props) {
                   <p className="jp-balance text-gray-700 font-bold mb-1">該当する施設が見つかりませんでした</p>
                   <p className="jp-pretty text-gray-500 text-sm mb-6">検索条件を変えて、もう一度お試しください</p>
                   <div className="flex flex-col sm:flex-row gap-3 justify-center flex-wrap">
-                    <Link href="/search" className="px-5 py-2.5 bg-sky-700 text-white rounded-lg text-sm font-bold hover:bg-sky-800 transition-colors">すべての施設を見る</Link>
+                    <Button href="/search">すべての施設を見る</Button>
                     {searchParams.type && (
-                      <Link
+                      <Button
                         href={`/search?${searchParams.area ? `area=${encodeURIComponent(searchParams.area)}` : ''}`}
-                        className="px-5 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                        variant="ghost"
                       >
                         業種を外して検索
-                      </Link>
+                      </Button>
                     )}
                     {searchParams.area && (
-                      <Link
+                      <Button
                         href={`/search?${searchParams.type ? `type=${encodeURIComponent(searchParams.type)}` : ''}`}
-                        className="px-5 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                        variant="ghost"
                       >
                         エリアを外して検索
-                      </Link>
+                      </Button>
                     )}
                   </div>
                 </div>
@@ -288,12 +289,10 @@ export default async function SearchPage(props: Props) {
                     <p className="jp-balance font-bold text-gray-800">お探しの施設が見つかりませんでしたか？</p>
                     <p className="jp-pretty text-sm text-gray-500 mt-0.5">CareLink は施設の無料掲載を受け付けています。オーナー様はぜひご登録を。</p>
                   </div>
-                  <Link
-                    href="/register"
-                    className="shrink-0 px-5 py-2.5 bg-sky-700 text-white text-sm font-bold rounded-lg hover:bg-sky-800 transition-colors"
-                  >
+                  {/* 登録 CTA は高意図の導線なので従来どおり先読みさせる（components/BrowseLink.tsx）。 */}
+                  <Button href="/register" prefetch="auto" className="shrink-0">
                     無料で施設を掲載する
-                  </Link>
+                  </Button>
                 </div>
               </div>
             )}

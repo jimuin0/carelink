@@ -106,7 +106,7 @@ describe('Button（href でリンクとして描く）', () => {
     expect(linkProps).toEqual([{ prefetch: 'auto', href: '/auth/signup' }]);
   });
 
-  it.each(['tel:0312345678', 'mailto:info@example.com', 'https://example.com', '#contact'])(
+  it.each(['tel:0312345678', 'mailto:info@example.com', 'https://example.com', 'data:text/calendar;charset=utf-8,BEGIN', '#contact'])(
     '%s はルーターを通さず素の <a> で描く',
     (href) => {
       render(<Button href={href}>開く</Button>);

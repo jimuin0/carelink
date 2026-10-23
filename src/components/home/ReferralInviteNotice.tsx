@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { referralCodeFromParam, referralLoginHref, referralSignupHref } from '@/lib/referral-code';
+import Button from '@/components/ui/Button';
 
 // URL のクエリはこの画面の表示中に変わらないので購読はしない（CookieConsent と同じ形）。
 const subscribe = () => () => {};
@@ -32,13 +33,9 @@ export default function ReferralInviteNotice() {
           紹介コード「<span className="font-mono font-bold tracking-wider">{code}</span>」が届いています。{'会員登録のあと、初回のご予約の前に入力すると、初回のご予約完了で300ポイントをお受け取りいただけます。'}
         </p>
         <div className="flex items-center gap-4 shrink-0">
-          <Link
-            href={referralSignupHref(code)}
-            prefetch={false}
-            className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-sky-700 text-white text-sm font-bold hover:bg-sky-800 transition-colors"
-          >
+          <Button href={referralSignupHref(code)} size="sm">
             会員登録してコードを入力
-          </Link>
+          </Button>
           <Link href={referralLoginHref(code)} prefetch={false} className="text-sm text-sky-700 underline hover:no-underline">
             ログインして入力
           </Link>
