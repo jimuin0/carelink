@@ -4,7 +4,7 @@ import { customerIdentityKey, ledgerPhoneLinks, phoneDigits, phoneIdentityKey, P
 import { isMissingColumnError, type DbError } from './db-fallback';
 import type { CustomerVisit } from '@/types';
 import { fetchAllPaged } from './paginate';
-import type { CustomerVisitSummary } from './customer-directory';
+import type { CustomerVisitSummary, LedgerRow } from './customer-directory';
 import { z } from 'zod';
 
 const visitCount = z.union([z.number(), z.string().regex(/^\d+$/).transform(Number)])
@@ -23,6 +23,34 @@ type VisitWithBooking = CustomerVisit & { booking: { phone: string | null } | nu
 
 async function readAll<T>(fetchPage: (offset: number, limit: number) => Promise<{ data: T[] | null; error: unknown }>) {
   return fetchAllPaged(fetchPage, { failOnTruncation: true });
+}
+
+/**
+ * 顧客一覧（/admin/customers）が読む施設の顧客台帳（手入力の顧客マスター）を全件読む。
+ *
+ * 以前の一覧はページングせずに読んでいたため、PostgREST の上限（既定 1000 行）で台帳が切れていた。
+ * 顧客詳細（getLedgerCustomerVisits）と RFM 集計の cron は台帳を全件読んで「その電話番号を持つのが本人だけか」
+ * を判定するので、台帳が 1000 件を超える店舗では一覧だけ電話番号での来店の寄せ方が変わり、来店回数が
+ * 詳細・集計と食い違った（2026年10月23日）。同じ全件読み（fetchAllPaged・打ち切りは失敗扱い）にそろえる。
+ * 並びは名前順（同名は id 順＝ページの境目で行が重複・欠落しない）。
+ * テーブル未適用（migration 未実行＝PGRST205 / 42P01）だけは空として画面を落とさない（従来どおり）。
+ */
+export async function getFacilityCustomerLedger(facilityId: string): Promise<LedgerRow[]> {
+  const supabase = await createServerSupabaseAuthClient();
+  const { rows, error } = await readAll<LedgerRow>(async (offset, limit) => {
+    const result = await supabase
+      .from('customers')
+      .select('id, name, name_kana, email, phone, birthday, gender, notes')
+      .eq('facility_id', facilityId)
+      .order('name', { ascending: true })
+      .order('id')
+      .range(offset, offset + limit - 1);
+    return { data: result.data as LedgerRow[] | null, error: result.error || (!Array.isArray(result.data) ? new Error('customer ledger invalid') : null) };
+  });
+  if (!error) return rows;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  if (code === 'PGRST205' || code === '42P01') return [];
+  throw new Error(`顧客マスターの取得に失敗しました: ${String(message)}`);
 }
 
 export async function getCustomerVisits(facilityId: string, email?: string): Promise<CustomerVisit[]> {

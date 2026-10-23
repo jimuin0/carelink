@@ -2,8 +2,8 @@ import { readPageResult } from '@/lib/page-read-verification';
 import { verifyAuthUser } from '@/lib/auth-verification';
 import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { getUniqueCustomers } from '@/lib/admin';
-import { buildCustomerDirectory, type LedgerRow, type MasterCustomer, type SegmentRow, type UnregisteredCustomer } from '@/lib/customer-directory';
+import { getFacilityCustomerLedger, getUniqueCustomers } from '@/lib/admin';
+import { buildCustomerDirectory, type MasterCustomer, type SegmentRow, type UnregisteredCustomer } from '@/lib/customer-directory';
 import { notFound } from 'next/navigation';
 import { SbPageHeader } from '@/components/admin/SbUi';
 import CustomersManager from '@/components/admin/CustomersManager';
@@ -45,17 +45,10 @@ export default async function AdminCustomersPage() {
   for (const facilityId of facilityIds) {
     const facilityName = facilityNameById.get(facilityId) ?? '施設';
 
-    // 顧客マスター（手入力台帳）。テーブル未適用環境（migration 未実行）では空にフォールバック
-    // して画面を落とさない（PGRST205 / 42P01＝テーブル不在）。それ以外のエラーは error.tsx に委ねる。
-    const { data: masterRows, error: masterErr } = await supabase
-      .from('customers')
-      .select('id, name, name_kana, email, phone, birthday, gender, notes')
-      .eq('facility_id', facilityId)
-      .order('name', { ascending: true });
-    if (masterErr && masterErr.code !== 'PGRST205' && masterErr.code !== '42P01') {
-      throw new Error(`顧客マスターの取得に失敗しました: ${masterErr.message}`);
-    }
-    const ledger = (masterRows ?? []) as LedgerRow[];
+    // 顧客マスター（手入力台帳）を全件読む（1000 件で切れると、詳細・RFM 集計と電話番号での来店の寄せ方が
+    // 食い違う）。テーブル未適用環境（migration 未実行）では空にフォールバックして画面を落とさない
+    // （PGRST205 / 42P01＝テーブル不在）。それ以外のエラーは error.tsx に委ねる。
+    const ledger = await getFacilityCustomerLedger(facilityId);
 
     // 来店実績（予約完了から自動集計）。同じ人かはメール（canonical）で、メールの無い電話・来店受付の
     // 予約は電話番号で判定する（customerIdentityKey・src/lib/customer-identity.ts）。

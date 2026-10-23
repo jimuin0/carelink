@@ -1,7 +1,7 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 const mockFrom = jest.fn(), mockRpc = jest.fn();
 jest.mock('../supabase-server-auth', () => ({ createServerSupabaseAuthClient: () => ({ from: mockFrom, rpc: mockRpc }) }));
-import { getCustomerPhoneVisits, getCustomerVisits, getLedgerCustomerVisits, getUniqueCustomers } from '../admin';
+import { getCustomerPhoneVisits, getCustomerVisits, getFacilityCustomerLedger, getLedgerCustomerVisits, getUniqueCustomers } from '../admin';
 let chain: Record<string, jest.Mock>, pages: { data: unknown; error?: unknown }[];
 beforeEach(() => {
   jest.clearAllMocks(); chain = {}; pages = [{ data: [] }];
@@ -192,5 +192,37 @@ describe('getLedgerCustomerVisits', () => {
   test.each([{ data: null, error: {} }, { data: null }])('台帳を読めない %j ときは、少ない履歴を正しいものとして出さない', async ledgerPage => {
     pages = [{ data: [emailVisit('e1', '2026-05-01')] }, ledgerPage];
     await expect(getLedgerCustomerVisits('f1', yamada)).rejects.toThrow('顧客台帳');
+  });
+});
+
+// ── 顧客一覧の台帳（2026年10月23日）：1000 件で切らない ──
+// 一覧だけページングせずに読んでいたため、台帳が 1000 件を超える店舗では、全件を読む顧客詳細・RFM 集計と
+// 電話番号での来店の寄せ方（ledgerPhoneLinks）が食い違っていた。
+describe('getFacilityCustomerLedger', () => {
+  const row = (id: number) => ({ id: `c${id}`, name: `N${id}`, name_kana: null, email: null, phone: '090-0000-0000', birthday: null, gender: null, notes: null });
+
+  test('1001 件目も読む（1000 件で打ち切らない）・名前順で同名は id 順', async () => {
+    pages = [{ data: Array.from({ length: 1000 }, (_, i) => row(i)) }, { data: [row(1000)] }];
+    const ledger = await getFacilityCustomerLedger('f1');
+    expect(ledger).toHaveLength(1001);
+    expect(ledger[1000].id).toBe('c1000');
+    expect(mockFrom).toHaveBeenCalledWith('customers');
+    expect(chain.select).toHaveBeenCalledWith('id, name, name_kana, email, phone, birthday, gender, notes');
+    expect(chain.eq).toHaveBeenCalledWith('facility_id', 'f1');
+    expect(chain.order.mock.calls.slice(0, 2)).toEqual([['name', { ascending: true }], ['id']]);
+    expect(chain.range.mock.calls).toEqual([[0, 999], [1000, 1999]]);
+  });
+
+  test.each(['PGRST205', '42P01'])('台帳のテーブルが未適用（%s）なら空（画面を落とさない）', async code => {
+    pages = [{ data: null, error: { code, message: 'missing' } }];
+    await expect(getFacilityCustomerLedger('f1')).resolves.toEqual([]);
+  });
+
+  test.each([
+    [{ data: null, error: { code: '57014', message: 'timeout' } }, '顧客マスターの取得に失敗しました: timeout'],
+    [{ data: null }, '顧客マスターの取得に失敗しました: customer ledger invalid'],
+  ])('読めなければ例外（途中までの台帳を正しいものとして出さない）%#', async (page, message) => {
+    pages = [{ data: Array.from({ length: 1000 }, (_, i) => row(i)) }, page];
+    await expect(getFacilityCustomerLedger('f1')).rejects.toThrow(message);
   });
 });
