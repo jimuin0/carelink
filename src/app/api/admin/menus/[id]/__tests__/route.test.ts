@@ -87,11 +87,11 @@ test('PATCH invalid ID',async()=>{expect((await PATCH(makeRequest('PATCH',{price
 test('PATCH no membership',async()=>{mockAnonFrom.mockReturnValue(memberChain(null));expect((await PATCH(makeRequest('PATCH',{price:100}),makeProps())).status).toBe(401);});
 test('PATCH CSRF',async()=>{(checkCsrf as jest.Mock).mockReturnValue(NextResponse.json({}, {status:403}));expect((await PATCH(makeRequest('PATCH',{price:100}),makeProps())).status).toBe(403);});
 test('PATCH rate limit',async()=>{(checkRateLimit as jest.Mock).mockReturnValue(true);expect((await PATCH(makeRequest('PATCH',{price:100}),makeProps())).status).toBe(429);});
-test.each([{name:''},{name:'x'.repeat(101)},{category:''},{category:'x'.repeat(51)},{price:-1},{price:10000000},{duration_minutes:-1},{duration_minutes:1441},{sort_order:-1},{sort_order:1000000},{photo_url:'bad'},{description:'x'.repeat(501)},{price_note:'x'.repeat(101)}])('PATCH rejects invalid field: %p',async payload=>{
+test.each([{name:''},{name:'x'.repeat(101)},{category:''},{category:'x'.repeat(51)},{price:-1},{price:10000000},{duration_minutes:-1},{duration_minutes:1441},{duration_minutes:0},{duration_minutes:14},{duration_minutes:481},{duration_minutes:null},{sort_order:-1},{sort_order:1000000},{photo_url:'bad'},{description:'x'.repeat(501)},{price_note:'x'.repeat(101)}])('PATCH rejects invalid field: %p',async payload=>{
  expect((await PATCH(makeRequest('PATCH',payload),makeProps())).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();
 });
 test('PATCH old reorder rejected',async()=>{expect((await PATCH(makeRequest('PATCH',{sort_order:3}),makeProps())).status).toBe(409);expect(mockRpc).not.toHaveBeenCalled();});
-test.each([{price:100},{photo_url:''},{photo_url:null},{name:'Rename',description:'New'},{is_featured:false},{duration_minutes:0}])('PATCH scoped save: %p',async payload=>{
+test.each([{price:100},{photo_url:''},{photo_url:null},{name:'Rename',description:'New'},{is_featured:false},{duration_minutes:15},{duration_minutes:480},{is_published:true}])('PATCH scoped save: %p',async payload=>{
  const r=await PATCH(makeRequest('PATCH',payload),makeProps());expect(r.status).toBe(200);expect((await r.json()).menu.id).toBe(MENU_UUID);
  expect(mockRpc).toHaveBeenCalledWith('save_admin_menu_atomic',expect.objectContaining({p_actor_id:USER_ID,p_facility_id:FACILITY_UUID,p_menu_id:MENU_UUID}));expect(writeAuditLog).toHaveBeenCalledTimes(1);
  const values=mockRpc.mock.calls[0][1].p_values;if('photo_url' in payload)expect(values.photo_url).toBeNull();else expect(values).not.toHaveProperty('photo_url');
@@ -128,3 +128,19 @@ test.each([{is_published:'true'},{is_published:null},{is_published:1}])('PATCH r
  expect((await PATCH(makeRequest('PATCH',payload),makeProps())).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();
 });
 test('PATCH malformed JSON',async()=>{expect((await PATCH(new NextRequest('http://localhost/api/admin/menus/'+MENU_UUID+'?facility_id='+FACILITY_UUID,{method:'PATCH',body:'{'}),makeProps())).status).toBe(400);});
+
+// 2026年10月23日: 所要時間は画面の入力欄と同じ 15〜480 分の整数をサーバーでも強制する。送られないときは
+// 既存の行の値を保つ（公開切替など、所要時間を含まない更新は 0 分・未設定のままの古いメニューでも通る）。
+describe('PATCH の所要時間', () => {
+ test.each([[{duration_minutes:5}],[{duration_minutes:600}],[{price:100,duration_minutes:null}]])('%p は何を直せばよいかを 400 で返す',async payload=>{
+  const r=await PATCH(makeRequest('PATCH',payload),makeProps());expect(r.status).toBe(400);
+  expect((await r.json()).error).toBe('所要時間は15〜480分の整数で入力してください');expect(mockRpc).not.toHaveBeenCalled();
+ });
+ test('所要時間を含まない更新は所要時間に触れない',async()=>{
+  const r=await PATCH(makeRequest('PATCH',{is_published:false}),makeProps());expect(r.status).toBe(200);
+  expect(mockRpc.mock.calls[0][1].p_values).not.toHaveProperty('duration_minutes');
+ });
+ test('所要時間以外の誤りは従来の文言',async()=>{
+  const r=await PATCH(makeRequest('PATCH',{name:''}),makeProps());expect((await r.json()).error).toBe('リクエストが不正です');
+ });
+});
