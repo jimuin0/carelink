@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { regionGroups, businessTypes } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import CookieSettingsButton from '@/components/CookieSettingsButton';
 
 const MAIN_PREFS = ['東京都', '大阪府', '愛知県', '福岡県', '北海道', '神奈川県'];
 
@@ -147,6 +148,7 @@ export default function Footer() {
               <Link href="/legal" className="hover:text-white transition-colors">
                 特定商取引法に基づく表記
               </Link>
+              <CookieSettingsButton className="text-left hover:text-white transition-colors" />
             </nav>
           </div>
 

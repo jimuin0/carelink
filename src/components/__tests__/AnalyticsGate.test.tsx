@@ -35,7 +35,8 @@ jest.mock('@next/third-parties/google', () => ({
 
 import AnalyticsGate from '@/components/AnalyticsGate';
 import CookieConsent from '@/components/CookieConsent';
-import { COOKIE_CONSENT_STORAGE_KEY, LEGACY_COOKIE_CONSENT_STORAGE_KEY } from '@/lib/cookie-consent';
+import { COOKIE_CONSENT_STORAGE_KEY, LEGACY_COOKIE_CONSENT_STORAGE_KEY, closeCookieSettings } from '@/lib/cookie-consent';
+import CookieSettingsButton from '@/components/CookieSettingsButton';
 
 type W = Window & Record<string, unknown>;
 const w = window as unknown as W;
@@ -301,4 +302,31 @@ test('root layout は GA・Clarity を直接出さず、AnalyticsGate だけを�
   expect(layout).not.toMatch(/<GoogleAnalytics\b/);
   expect(layout).not.toMatch(/clarity\.ms\/tag/);
   expect(layout).toMatch(/<AnalyticsGate gaId=\{gaId\} clarityId=\{clarityId\} nonce=\{nonce\} \/>/);
+});
+
+// 2026年10月23日: 回答した後も、フッターの「Cookie設定」から開き直して同意を取り消せる。
+// 取り消しは既存の撤回経路（lib/cookie-consent.ts の applyAnalyticsConsent(false)）をそのまま通ること:
+// GA の送信を止め、Clarity に同意の撤回を伝え、分析 Cookie を消す。
+test('フッターの「Cookie設定」から分析Cookieの同意を取り消すと、計測を止めて分析 Cookie を消す', () => {
+  store(true);
+  render(<><AnalyticsGate {...IDS} /><CookieConsent /><CookieSettingsButton /></>);
+  expect(loaded()).toEqual({ ga: 1, clarity: 1 });
+  expect(w['ga-disable-G-TEST1']).toBe(false);
+  // 読み込まれた後に付く Cookie と、Clarity 本体（呼び出しを記録する）
+  document.cookie = '_ga=GA1.1.1.2; path=/';
+  document.cookie = '_clck=abc; path=/';
+  const clarity = jest.fn();
+  w.clarity = clarity;
+
+  fireEvent.click(screen.getByRole('button', { name: 'Cookie設定' }));
+  fireEvent.click(screen.getByRole('switch', { name: '分析Cookie' }));
+  fireEvent.click(screen.getByRole('button', { name: '選択を保存' }));
+
+  expect(JSON.parse(localStorage.getItem(COOKIE_CONSENT_STORAGE_KEY)!).analytics).toBe(false);
+  expect(loaded()).toEqual({ ga: 0, clarity: 0 });
+  expect(w['ga-disable-G-TEST1']).toBe(true);
+  expect(clarity).toHaveBeenCalledWith('consent', false);
+  expect(cookieNames()).toEqual([]);
+  expect(screen.queryByRole('region', { name: 'Cookieの設定' })).not.toBeInTheDocument();
+  act(() => closeCookieSettings());
 });

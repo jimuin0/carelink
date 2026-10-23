@@ -4,6 +4,7 @@ import Link from '@/components/BrowseLink';
 import { regionGroups, businessTypes } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import CookieSettingsButton from '@/components/CookieSettingsButton';
 
 // 神奈川・愛知・福岡・京都は src/data/city-slugs.ts に区レベルのslugが存在せず市レベルのみ
 // （東京・大阪だけが区レベルを持つ）。旧実装は区レベルの名称・slugをハードコードしており、
@@ -153,10 +154,11 @@ export default function SearchFooter({ className = '' }: { className?: string })
             <Link href="/register" className="text-xs text-gray-300 hover:text-white transition-colors">
               施設掲載をご希望のオーナー様はこちら →
             </Link>
-            <div className="flex gap-4 text-[11px] text-gray-400">
+            <div className="flex flex-wrap justify-end gap-x-4 gap-y-1 text-[11px] text-gray-400">
               <Link href="/privacy" className="hover:text-white transition-colors">プライバシーポリシー</Link>
               <Link href="/terms" className="hover:text-white transition-colors">利用規約</Link>
               <Link href="/legal" className="hover:text-white transition-colors">特定商取引法に基づく表記</Link>
+              <CookieSettingsButton className="hover:text-white transition-colors" />
             </div>
           </div>
         </div>
