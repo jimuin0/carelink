@@ -1,3 +1,4 @@
+import { DEFAULT_SHARE_IMAGE } from '@/lib/share-image';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
@@ -7,14 +8,28 @@ import ReferralInviteNotice from '@/components/home/ReferralInviteNotice';
 import { getAvailableAreasAndTypes } from '@/lib/facilities';
 import { businessTypeLabel } from '@/lib/business-type-label';
 
+const HOME_SHARE_TITLE = 'CareLink | ネットでかんたんサロン予約';
+const HOME_SHARE_DESCRIPTION = 'ヘア・ネイル・エステ・リラク・美容クリニックを検索・予約。メニュー・料金・口コミで簡単比較。';
+
 export const metadata: Metadata = {
   title: 'CareLink | ネットでかんたんサロン予約 - ヘア・ネイル・エステ・リラク・美容クリニック',
   description: 'CareLink（ケアリンク）はヘアサロン・ネイル・まつげ・リラク・エステ・美容クリニック・鍼灸院・整骨院を検索・予約できるプラットフォーム。メニュー・料金・口コミで簡単比較。利用料無料。',
   alternates: { canonical: '/' },
+  // openGraph をページで書くと layout の openGraph（画像を含む）は丸ごと置き換わる。
+  // 以前は images を書いておらず、トップを共有すると画像が出なかった（2026年10月23日）。
   openGraph: {
-    title: 'CareLink | ネットでかんたんサロン予約',
-    description: 'ヘア・ネイル・エステ・リラク・美容クリニックを検索・予約。メニュー・料金・口コミで簡単比較。',
+    title: HOME_SHARE_TITLE,
+    description: HOME_SHARE_DESCRIPTION,
     type: 'website',
+    locale: 'ja_JP',
+    siteName: 'CareLink',
+    images: [DEFAULT_SHARE_IMAGE],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: HOME_SHARE_TITLE,
+    description: HOME_SHARE_DESCRIPTION,
+    images: [{ url: DEFAULT_SHARE_IMAGE.url, alt: DEFAULT_SHARE_IMAGE.alt }],
   },
 };
 

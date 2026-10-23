@@ -44,6 +44,7 @@ import { safeJsonLd } from '@/lib/json-ld';
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 import { formatFacilityAddress, formatFacilityLocality } from '@/lib/facility-location';
 import { isDialablePhone } from '@/lib/facility-contact';
+import { facilityShareImage } from '@/lib/share-image';
 
 export const revalidate = 3600;
 
@@ -80,6 +81,8 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   const description = facility.catch_copy || `${locality}の${typeLabel}「${facility.name}」のメニュー・料金・アクセス情報`;
 
   const url = `${SITE_URL}/facility/${params.slug}`;
+  // 共有画像はメイン写真、無ければ店名入りの画像（src/lib/share-image.ts）。og と twitter で同じものを出す。
+  const image = facilityShareImage(SITE_URL, facility, `${typeLabel} | ${locality}`);
 
   return {
     title,
@@ -90,18 +93,15 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
       description,
       type: 'website',
       url,
+      locale: 'ja_JP',
       siteName: 'CareLink',
-      images: [{
-        url: `${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(typeLabel + ' | ' + locality)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`,
-        width: 1200,
-        height: 630,
-      }],
+      images: [image],
     },
     twitter: {
       card: 'summary_large_image',
       title: ogTitle,
       description,
-      images: [`${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(typeLabel + ' | ' + locality)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`],
+      images: [{ url: image.url, alt: image.alt }],
     },
   };
 }
