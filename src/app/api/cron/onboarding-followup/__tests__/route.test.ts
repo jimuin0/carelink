@@ -188,7 +188,7 @@ function buildFrom(opts: any = {}) {
     staff_profiles: staffRows,
     facility_photos: Array.from({ length: photoCount ?? 0 }, () => ({})),
     staff_schedules: (opts.scheduleRows as SalonRow[] | undefined)
-      ?? ((scheduleCount ?? 0) > 0 ? staffRows.map((s) => ({ staff_id: s.id, day_of_week: 1 })) : []),
+      ?? ((scheduleCount ?? 0) > 0 ? staffRows.map((s) => ({ staff_id: s.id, day_of_week: 1, start_time: '10:00:00', end_time: '19:00:00' })) : []),
     schedule_overrides: (opts.overrideRows as SalonRow[] | undefined) ?? [],
   };
   const tableErrors: Record<string, unknown> = {
@@ -202,7 +202,7 @@ function buildFrom(opts: any = {}) {
       const filters: SalonFilter[] = [];
       const childFilters: Record<string, SalonFilter[]> = {};
       const childLimits: Record<string, number> = {};
-      const embeds = [...columns.matchAll(/(\w+)\(\w+\)/g)].map((match) => match[1]);
+      const embeds = [...columns.matchAll(/(\w+)\([\w, ]+\)/g)].map((match) => match[1]);
       const add = (column: string, make: (col: string) => SalonFilter) => {
         const [child, col] = column.includes('.') ? column.split('.') : [null, column];
         if (child) (childFilters[child] ??= []).push(make(col)); else filters.push(make(col));
@@ -545,6 +545,23 @@ describe('GET /api/cron/onboarding-followup', () => {
     }));
   });
 
+  // 2026年10月23日: 予約枠は営業時間の中にしか出ない。勤務時間を保存していても、どれも営業時間（定休日を含む）と
+  // 重ならなければ予約を受けられないので、スタッフの項目を未完了として案内する。
+  test('営業時間の外・定休日にしか勤務が無いスタッフしかいなければ、スタッフの項目を案内する', async () => {
+    mockFromDelegate.mockImplementation(buildFrom({
+      menuCount: 1, photoCount: 1,
+      staffRows: [{ id: 's-off', is_active: true }],
+      scheduleRows: [
+        { staff_id: 's-off', day_of_week: 0, start_time: '10:00:00', end_time: '19:00:00' },
+        { staff_id: 's-off', day_of_week: 1, start_time: '07:00:00', end_time: '10:00:00' },
+      ],
+    }));
+    await GET(makeRequest() as any);
+    expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(expect.objectContaining({
+      missingSteps: ['無料掲載を公開'], bookingSteps: ['スタッフ登録と勤務時間の保存'],
+    }));
+  });
+
   // 公開ゲートは PR 文言の医療広告表現も止める。/register から取り込んだ施設紹介に禁止表現があれば、
   // 「無料掲載を公開」だけを案内すると、公開を押した瞬間に拒否される。
   test('公開ゲートに止められる施設紹介があれば、その見直しも公開に必要な項目として案内する', async () => {
@@ -591,7 +608,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     mockFromDelegate.mockImplementation(buildFrom({
       menuRows: [{ is_published: false }, { is_published: false }],
       staffRows: [{ id: 's-paused', is_active: false }],
-      scheduleRows: [{ staff_id: 's-paused', day_of_week: 1 }],
+      scheduleRows: [{ staff_id: 's-paused', day_of_week: 1, start_time: '10:00:00', end_time: '19:00:00' }],
       photoCount: 1,
     }));
     await GET(makeRequest() as any);
@@ -605,7 +622,7 @@ describe('GET /api/cron/onboarding-followup', () => {
     mockFromDelegate.mockImplementation(buildFrom({
       menuCount: 1, photoCount: 1,
       staffRows: [{ id: 's-saved', is_active: true }, { id: 's-new', is_active: true }],
-      scheduleRows: [{ staff_id: 's-saved', day_of_week: 2 }],
+      scheduleRows: [{ staff_id: 's-saved', day_of_week: 2, start_time: '10:00:00', end_time: '19:00:00' }],
     }));
     await GET(makeRequest() as any);
     expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(expect.objectContaining({

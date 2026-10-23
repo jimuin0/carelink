@@ -95,7 +95,7 @@ describe('/register の訴求部分', () => {
   });
 
   it('無料掲載、受付と公開の違い、現行の複数店の制約と安全な再送を説明する', () => {
-    expect(screen.getByText(/この掲載申し込みで有料プランや決済契約を申し込むことはありません/)).toBeInTheDocument();
+    expect(screen.getByText(/この掲載申込で有料プランや決済契約を申し込むことはありません/)).toBeInTheDocument();
     expect(screen.getByText(/受付完了と一般公開は別の手続き/)).toBeInTheDocument();
     expect(screen.getByText(/1アカウントにつき1店舗/)).toBeInTheDocument();
     expect(screen.getByText(/重複を避けるため連続送信せず/)).toBeInTheDocument();

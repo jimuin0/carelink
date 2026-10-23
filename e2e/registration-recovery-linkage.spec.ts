@@ -64,7 +64,7 @@ async function submitSetup(page: Page, status: number, state: string) {
   // Arm the full document readiness wait before the replacing submission.
   const [response] = await Promise.all([
     observeFacilitySetup(page,
-      () => page.getByRole('button', { name: '施設を作成する', exact: true }).click()),
+      () => page.getByRole('button', { name: '店舗を作成する', exact: true }).click()),
     page.waitForURL(url => url.pathname === '/admin', { waitUntil: 'domcontentloaded' }),
   ]);
   expect(response.status).toBe(status);
@@ -139,7 +139,11 @@ test('Auth unavailable 503 -> no logout -> explicit retry reads original receipt
 
 test('expired handoff -> verified recovery -> one draft -> listing without online booking', async ({ page }, info) => {
   // This verifies Auth, three navigations, creation, publication and booking readiness.
-  test.setTimeout(60000);
+  // Two full store setups each wait for the real /admin dashboard document; on the single CI
+  // worker one attempt spent its whole 60s budget with /admin already committed and still
+  // streaming. Same budget as the other full registration/admin flows (admin-access-recovery,
+  // salon-legacy-resume); every assertion and wait condition is unchanged.
+  test.setTimeout(90000);
   await page.setExtraHTTPHeaders({ 'x-real-ip': `192.0.2.${160 + info.retry * 2 + (info.project.name === 'chromium' ? 0 : 1)}` });
   const db = localDb(); const owner = await identity(db);
   const name = `復旧掲載 ${randomUUID()}`; const id = await receipt(db, owner.email, name);
@@ -201,8 +205,13 @@ test('expired handoff -> verified recovery -> one draft -> listing without onlin
   await page.goto(`/search?area=${encodeURIComponent('愛知県')}&keyword=${encodeURIComponent(name)}`);
   await expect(page.locator(`a[href="/facility/${created.slug}"]`).first()).toBeVisible();
   await page.goto(`/facility/${created.slug}/booking`,{waitUntil:'domcontentloaded'});
-  await expect(page.getByText('ネット予約は準備中です。ご予約については店舗へ直接お問い合わせください。')).toBeVisible();
-  await expect(page.getByRole('link', { name: '店舗に電話する' })).toBeVisible();
+  // Not-ready booking page (2026-10-23): framed notice; a dialable shop phone adds the call
+  // link, and the shop page's inquiry form is always offered so no visitor is stranded.
+  await expect(page.getByRole('heading', { name: 'ネット予約は準備中です', exact: true })).toBeVisible();
+  await expect(page.getByText('ご予約については、お電話またはお問い合わせフォームから店舗へ直接お問い合わせください。', { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: '店舗に電話する' })).toHaveAttribute('href', 'tel:09000000000');
+  await expect(page.getByRole('link', { name: 'お問い合わせフォームで問い合わせる' }))
+    .toHaveAttribute('href', `/facility/${created.slug}#contact-section`);
   const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const availability = await page.request.get(`/api/availability?facilityId=${created.facilityId}&year=${tomorrow.slice(0, 4)}&month=${Number(tomorrow.slice(5, 7))}`);
   expect(availability.status()).toBe(200);
@@ -233,7 +242,7 @@ test('committed direct setup with lost response reloads membership without anoth
     .toEqual({ present: true, negative: true, httpOnly: true, secure: true, path: '/admin' });
   const parameters = new URLSearchParams({ facility_name: `合成応答喪失 ${randomUUID()}`, business_type: 'ヘアサロン' });
   await page.goto(`/admin/onboarding?${parameters}`);
-  await expect(page.getByRole('button', { name: '施設を作成する', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '店舗を作成する', exact: true })).toBeVisible();
   let setupRequests = 0;
   let committed: { status: number; success: boolean; state: string } | undefined;
   page.on('request', request => {
@@ -246,11 +255,12 @@ test('committed direct setup with lost response reloads membership without anoth
     await route.abort('connectionfailed'); // No successful response reaches application code.
   });
   await page.getByRole('checkbox').check();
-  await page.getByRole('button', { name: '施設を作成する', exact: true }).click();
+  await page.getByRole('button', { name: '店舗を作成する', exact: true }).click();
   await expect.poll(() => committed).toEqual({ status: 201, success: true, state: 'created' });
-  await expect(page.getByText('作成結果を確認できませんでした。再読み込みして登録状況を確認してください',
-    { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '再読み込みして登録状況を確認', exact: true })).toBeVisible();
+  // 結果不明は「エラー」ではなく確認中。同じ内容で確認するボタンを出し、自動では再送しない。
+  await expect(page.getByRole('heading', { name: '店舗の作成結果を確認中です', exact: true })).toBeVisible();
+  await expect(page.getByText('店舗の作成結果をまだ確認できていません。', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '作成状況を再確認', exact: true })).toBeVisible();
   expect(setupRequests).toBe(1);
   // route.fetch shares Playwright's browser-context cookie jar and can apply
   // Set-Cookie before abort. Restore the original real signed denial so this
@@ -268,6 +278,10 @@ test('committed direct setup with lost response reloads membership without anoth
 });
 
 test('platform explicit linkage -> owner recovery resolves same store, no additional claim or welcome', async ({ page, browser }, info) => {
+  // Two identities, two browser contexts, two logins and two real store setups (each waiting
+  // for the full /admin dashboard document). The 30s default was not a budget for this flow:
+  // the first CI attempt timed out with /admin already committed and the retry passed.
+  test.setTimeout(90000);
   await page.setExtraHTTPHeaders({ 'x-real-ip': `192.0.2.${180 + info.retry * 2 + (info.project.name === 'chromium' ? 0 : 1)}` });
   const db = localDb(); const owner = await identity(db); const operator = await identity(db, true);
   const name = `重複合成店舗 ${randomUUID()}`;

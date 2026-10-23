@@ -61,7 +61,7 @@ function fillLicenseCheckbox() {
 }
 
 function submit() {
-  fireEvent.click(screen.getByRole('button', { name: '施設を作成する' }));
+  fireEvent.click(screen.getByRole('button', { name: '店舗を作成する' }));
 }
 
 beforeEach(() => {
@@ -100,9 +100,9 @@ describe('verified recovery handoff', () => {
   }
   test('summary never creates; original fields are immutable and explicit license/button create',async()=>{
     context();mockMaybeSingle.mockResolvedValue({data:{facility_id:'already-owned'},error:null});render(<OnboardingPage/>);
-    expect(await screen.findByLabelText(/施設名/)).toHaveValue(summary.name);
+    expect(await screen.findByLabelText(/店舗名/)).toHaveValue(summary.name);
     expect(screen.queryByText(/ここで作成すると、申込の写真/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText(/施設名/)).toBeDisabled();expect(screen.getByLabelText(/業態/)).toBeDisabled();
+    expect(screen.getByLabelText(/店舗名/)).toBeDisabled();expect(screen.getByLabelText(/業種/)).toBeDisabled();
     expect(mockFetch).toHaveBeenCalledTimes(1);expect(mockReplace).not.toHaveBeenCalled();
     expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
     expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({action:'summary',recoveryId});
@@ -114,7 +114,7 @@ describe('verified recovery handoff', () => {
   });
   test.each([null,{...summary,state:'unverified'},{...summary,address:2},{...summary,receiptId:'bad'}])('invalid summary never becomes direct setup %#',async body=>{
     context();mockFetch.mockResolvedValue({ok:true,json:async()=>body});render(<OnboardingPage/>);
-    await screen.findByText('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
+    await screen.findByText('店舗情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
     expect(mockFetch).toHaveBeenCalledTimes(1);expect(mockReplace).not.toHaveBeenCalled();
     expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
   });
@@ -132,7 +132,7 @@ describe('verified recovery handoff', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
   test('changed selector cannot submit a different receipt',async()=>{
-    context();render(<OnboardingPage/>);await screen.findByLabelText(/施設名/);fillLicenseCheckbox();window.sessionStorage.clear();submit();
+    context();render(<OnboardingPage/>);await screen.findByLabelText(/店舗名/);fillLicenseCheckbox();window.sessionStorage.clear();submit();
     expect(mockFetch).toHaveBeenCalledTimes(1);expect(mockReplace).not.toHaveBeenCalled();
     expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
   });
@@ -156,14 +156,16 @@ describe('selected registration handoff', () => {
   test('existing membership cannot hide an unconsumed selected receipt', async () => {
     context(); mockMaybeSingle.mockResolvedValue({ data: { facility_id: 'existing' }, error: null });
     render(<OnboardingPage />);
-    expect(await screen.findByLabelText(/施設名/)).toHaveValue(summary.name);
+    expect(await screen.findByLabelText(/店舗名/)).toHaveValue(summary.name);
+    // 既に店舗の管理者なら admin レイアウトのヘッダー（ログアウト）があるので、最小ヘッダーは重ねない。
+    expect(screen.queryByTestId('onboarding-header')).not.toBeInTheDocument();
     expect(mockReplace).not.toHaveBeenCalled();
     expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(mockFetch.mock.calls[0][0]).toBe('/api/salons/summary');
     expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ intentId });
     fillLicenseCheckbox();
-    mockFetch.mockResolvedValue({ ok: false, json: async () => ({ code: 'ALREADY_MEMBER', error: '今回の申込は取り込んでいません。' }) });
+    mockFetch.mockResolvedValue({ ok: false, status: 409, json: async () => ({ code: 'ALREADY_MEMBER', error: '今回の申込は取り込んでいません。' }) });
     submit();
     await screen.findByText('今回の申込は取り込んでいません。');
     expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({ facility_name: summary.name,
@@ -183,7 +185,7 @@ describe('selected registration handoff', () => {
     expect(mockFetch).not.toHaveBeenCalled();
     expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
     expect(screen.queryByText(/通信環境を確認して再読み込み/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '施設を作成する' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '店舗を作成する' })).not.toBeInTheDocument();
   });
   test.each([
     [{ state: 'unverified' }, 403], [{ state: 'expired' }, 200],
@@ -193,11 +195,11 @@ describe('selected registration handoff', () => {
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(SALON_RECOVERY_SELECT_PATH));
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
-    expect(screen.queryByRole('button', { name: '施設を作成する' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '店舗を作成する' })).not.toBeInTheDocument();
   });
   test('login expiring before the create POST shows a login button back to the same handoff, not 認証が必要です', async () => {
     context(); render(<OnboardingPage />);
-    await screen.findByLabelText(/施設名/); fillLicenseCheckbox();
+    await screen.findByLabelText(/店舗名/); fillLicenseCheckbox();
     mockFetch.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: '認証が必要です' }) });
     submit();
     expect(await screen.findByText('ログインの有効期限が切れました')).toBeVisible();
@@ -213,13 +215,13 @@ describe('selected registration handoff', () => {
   ])('unverified/malformed receipt cannot enable setup %#', async value => {
     context(); mockFetch.mockResolvedValue({ ok: true, json: async () => value });
     render(<OnboardingPage />);
-    await screen.findByText('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
+    await screen.findByText('店舗情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
     expect(mockFetch).toHaveBeenCalledTimes(1); expect(mockReplace).not.toHaveBeenCalled();
     expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
   });
   test('changing tab context while form is open prevents wrong-receipt submission', async () => {
     context(); render(<OnboardingPage />);
-    await screen.findByLabelText(/施設名/); fillLicenseCheckbox();
+    await screen.findByLabelText(/店舗名/); fillLicenseCheckbox();
     window.sessionStorage.setItem(SALON_BROWSER_CONTEXT_KEY, JSON.stringify({ version: 1, intentId: receiptId, phase: 'confirmed' }));
     submit();
     await screen.findByText('引き継ぎ対象を確認できません。申込時の同じタブで受付完了画面を開いてください。');
@@ -231,7 +233,7 @@ describe('onboarding transport and membership recovery', () => {
   async function form() {
     mockSearchParams = new URLSearchParams({ facility_name: '合成施設', business_type: 'ヘアサロン' });
     const view = render(<OnboardingPage />);
-    await screen.findByRole('button', { name: '施設を作成する' });
+    await screen.findByRole('button', { name: '店舗を作成する' });
     fillLicenseCheckbox();
     return view;
   }
@@ -255,7 +257,8 @@ describe('onboarding transport and membership recovery', () => {
   ])('does not turn invalid business/HTTP success into navigation %#', async ({ ok, body }) => {
     mockFetch.mockResolvedValue({ ok, json: async () => body });
     await form(); submit();
-    await screen.findByRole('alert');
+    // 作成済みの可能性がある応答は「エラー」ではなく「確認中」にし、再確認を利用者に委ねる。
+    await screen.findByRole('button', { name: '作成状況を再確認' });
     expect(mockReplace).not.toHaveBeenCalled();
     expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -272,7 +275,7 @@ describe('onboarding transport and membership recovery', () => {
   test('broken JSON is an unknown result, not success or automatic resend', async () => {
     mockFetch.mockResolvedValue({ ok: true, json: async () => { throw new Error('invalid json'); } });
     await form(); submit();
-    await screen.findByText(/作成結果を確認できませんでした/);
+    await screen.findByText('店舗の作成結果をまだ確認できていません。');
     expect(mockReplace).not.toHaveBeenCalled(); expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
   });
@@ -285,11 +288,57 @@ describe('onboarding transport and membership recovery', () => {
     expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
   });
 
+  // 以前は 202（結果不明）でも「エラーが発生しました」と再読み込みボタンだけを出していた
+  // （文言は「この画面から同じ内容で確認して」と言っているのに、確認する手段が無かった）。
+  test('HTTP202 is a 確認中 state whose re-check resends the identical body once and follows the result', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ code: 'SETUP_RESULT_UNKNOWN', error: '作成結果を確認できていません。' }) });
+    await form(); submit();
+    expect(await screen.findByRole('heading', { name: '店舗の作成結果を確認中です' })).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent('作成結果を確認できていません。');
+    expect(screen.queryByText('エラーが発生しました')).not.toBeInTheDocument();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ success: true, state: 'replay', facilityId: '11111111-1111-4111-8111-111111111111' }) });
+    fireEvent.click(screen.getByRole('button', { name: '作成状況を再確認' }));
+    await waitFor(() => expect(navigateAfterFacilitySetup).toHaveBeenCalledTimes(1));
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls[1][0]).toBe('/api/facility/setup');
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual(JSON.parse(mockFetch.mock.calls[0][1].body));
+  });
+
+  test('a re-check that is still unknown stays in 確認中 and never posts on its own', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('network'));
+    await form(); submit();
+    await screen.findByRole('button', { name: '作成状況を再確認' });
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({ error: 'Internal Server Error' }) });
+    fireEvent.click(screen.getByRole('button', { name: '作成状況を再確認' }));
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole('button', { name: '作成状況を再確認' })).toBeEnabled();
+    expect(screen.getByRole('status')).toHaveTextContent('店舗の作成結果をまだ確認できていません。');
+    expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  test('a definitive 4xx refusal stays an error with its message (nothing was created)', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 409, json: async () => ({ code: 'HANDOFF_CONFLICT', error: 'この申込は取り込み済みです。' }) });
+    await form(); submit();
+    await screen.findByText('この申込は取り込み済みです。');
+    expect(screen.queryByRole('button', { name: '作成状況を再確認' })).not.toBeInTheDocument();
+  });
+
+  // 店舗が無い人の管理画面には admin レイアウトのヘッダーが出ず、ログアウトできなかった。
+  test('an owner without a store sees a minimal header with the account (logout) menu', async () => {
+    await form();
+    const header = screen.getByTestId('onboarding-header');
+    expect(header).toContainElement(screen.getByRole('button', { name: 'アカウントメニュー' }));
+    fireEvent.click(screen.getByRole('button', { name: 'アカウントメニュー' }));
+    expect(screen.getByRole('button', { name: 'ログアウト' })).toBeInTheDocument();
+  });
+
   test('network rejection leaves the spinner and offers status recheck without retrying POST', async () => {
     mockFetch.mockRejectedValue(new Error('network'));
     await form(); submit();
-    await screen.findByText(/作成結果を確認できませんでした/);
-    expect(screen.queryByText('施設を作成しています...')).not.toBeInTheDocument();
+    await screen.findByText('店舗の作成結果をまだ確認できていません。');
+    expect(screen.queryByText('店舗を作成しています...')).not.toBeInTheDocument();
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
@@ -297,7 +346,7 @@ describe('onboarding transport and membership recovery', () => {
     if (source === 'auth') mockGetUser.mockRejectedValue(new Error('network'));
     else mockMaybeSingle.mockRejectedValue(new Error('network'));
     render(<OnboardingPage />);
-    await screen.findByText('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
+    await screen.findByText('店舗情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -333,7 +382,7 @@ describe('onboarding transport and membership recovery', () => {
 
   test('same-tick clicks dispatch only one POST', async () => {
     mockFetch.mockReturnValue(new Promise(() => {}));
-    await form(); const button = screen.getByRole('button', { name: '施設を作成する' });
+    await form(); const button = screen.getByRole('button', { name: '店舗を作成する' });
     act(() => { button.click(); button.click(); });
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
@@ -357,9 +406,9 @@ describe('onboarding transport and membership recovery', () => {
     try {
       submit();
       await act(async () => { await jest.advanceTimersByTimeAsync(29999); });
-      expect(screen.getByText('施設を作成しています...')).toBeInTheDocument();
+      expect(screen.getByText('店舗を作成しています...')).toBeInTheDocument();
       await act(async () => { await jest.advanceTimersByTimeAsync(1); });
-      expect(screen.getByText(/作成結果を確認できませんでした/)).toBeInTheDocument();
+      expect(screen.getByText('店舗の作成結果をまだ確認できていません。')).toBeInTheDocument();
       expect(mockFetch).toHaveBeenCalledTimes(1); expect(mockReplace).not.toHaveBeenCalled();
       expect(navigateAfterFacilitySetup).not.toHaveBeenCalled();
     } finally { jest.useRealTimers(); }
@@ -376,7 +425,7 @@ describe('/admin/onboarding', () => {
     render(<OnboardingPage />);
 
     // フォーム画面に落ちることを確認してから、操作せずに待つ。
-    await screen.findByRole('button', { name: '施設を作成する' });
+    await screen.findByRole('button', { name: '店舗を作成する' });
 
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -389,10 +438,10 @@ describe('/admin/onboarding', () => {
 
     render(<OnboardingPage />);
 
-    const nameInput = (await screen.findByLabelText(/施設名/)) as HTMLInputElement;
+    const nameInput = (await screen.findByLabelText(/店舗名/)) as HTMLInputElement;
     expect(nameInput.value).toBe('テストサロン');
 
-    const select = screen.getByLabelText(/業態/) as HTMLSelectElement;
+    const select = screen.getByLabelText(/業種/) as HTMLSelectElement;
     expect(select.value).toBe('ネイル・まつげサロン');
   });
 
@@ -403,7 +452,7 @@ describe('/admin/onboarding', () => {
     });
 
     render(<OnboardingPage />);
-    await screen.findByRole('button', { name: '施設を作成する' });
+    await screen.findByRole('button', { name: '店舗を作成する' });
 
     // licenseWarranted は未チェックのまま送信する。
     submit();
@@ -419,7 +468,7 @@ describe('/admin/onboarding', () => {
     });
 
     render(<OnboardingPage />);
-    await screen.findByRole('button', { name: '施設を作成する' });
+    await screen.findByRole('button', { name: '店舗を作成する' });
 
     fillLicenseCheckbox();
     submit();
@@ -445,7 +494,7 @@ describe('/admin/onboarding', () => {
     });
 
     render(<OnboardingPage />);
-    await screen.findByRole('button', { name: '施設を作成する' });
+    await screen.findByRole('button', { name: '店舗を作成する' });
 
     fillLicenseCheckbox();
     submit();
@@ -469,7 +518,7 @@ describe('/admin/onboarding', () => {
     expect(mockReplace).not.toHaveBeenCalled();
 
     // フォームは一度も出ず、確認なしPOSTも起きない。
-    expect(screen.queryByRole('button', { name: '施設を作成する' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '店舗を作成する' })).not.toBeInTheDocument();
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -481,10 +530,10 @@ describe('/admin/onboarding', () => {
 
     render(<OnboardingPage />);
 
-    const nameInput = (await screen.findByLabelText(/施設名/)) as HTMLInputElement;
+    const nameInput = (await screen.findByLabelText(/店舗名/)) as HTMLInputElement;
     expect(nameInput.value).toBe('テストサロン');
 
-    const select = screen.getByLabelText(/業態/) as HTMLSelectElement;
+    const select = screen.getByLabelText(/業種/) as HTMLSelectElement;
     // 非正規値はフォームへ流し込まず、未選択のまま選び直させる。
     expect(select.value).toBe('');
 
@@ -516,7 +565,7 @@ describe('/admin/onboarding', () => {
 
     render(<OnboardingPage />);
 
-    await screen.findByText('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
+    await screen.findByText('店舗情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });

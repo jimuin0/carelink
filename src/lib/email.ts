@@ -225,7 +225,7 @@ const BULK_AGGREGATED_CONTEXTS = new Set([
  * webhook-retry cron（15分毎）と cron 自身の翌 run 再送が競合し二重配信になり得るため対象外
  * （BULK 系＝claim 機構持ち cron からの送信のみ・二重送信防止で除外を維持）。
  * new_review_notification / new_inquiry_notification / new_booking_notification /
- * booking_cancellation_facility / welcome は施設オーナー向けの単発イベント通知で、
+ * booking_cancellation_facility は施設オーナー向けの単発イベント通知で、
  * 従来は失敗時の再送手段が一切無く Slack 警報のみで永久消失していたため、
  * 顧客向けと同様にここへ追加した（2026年7月17日 拡張）。
  * new_question_notification（施設 Q&A の新着質問・2026年10月22日）も同じ種類の通知なので同様に扱う。
@@ -242,7 +242,6 @@ const QUEUEABLE_EMAIL_CONTEXTS = new Set([
   'new_review_notification',
   'new_inquiry_notification',
   'new_question_notification',
-  'welcome',
 ]);
 
 /**
@@ -903,30 +902,6 @@ export async function sendWeeklyReportEmail(data: {
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/analytics" style="${EMAIL_BUTTON_STYLE}">分析を見る</a></p>
     `),
   }, 'weekly_report');
-}
-
-/** 施設オーナー向けウェルカムメール（登録直後） */
-export async function sendWelcomeEmail(data: { ownerEmail: string; ownerName?: string; facilityName: string }): Promise<boolean> {
-  const resend = getResend();
-  if (!resend) return false;
-  const name = esc(data.ownerName || 'オーナー');
-  const facility = esc(data.facilityName);
-  return safeSend(resend, {
-    from: FROM,
-    to: data.ownerEmail,
-    subject: escSubject(`【CareLink】${data.facilityName}の登録ありがとうございます`),
-    html: wrapHtml(`
-      <p>${name} 様</p>
-      <p>この度はCareLinkに施設を登録いただき、ありがとうございます！</p>
-      <p>以下の3ステップを完了すると、お客様があなたの施設を見つけやすくなります。</p>
-      <table style="width:100%;border-collapse:collapse;margin:20px 0;">
-        <tr><td style="padding:12px;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600;width:40px;text-align:center;">1</td><td style="padding:12px;border:1px solid #e2e8f0;">メニュー・料金を登録する</td></tr>
-        <tr><td style="padding:12px;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600;text-align:center;">2</td><td style="padding:12px;border:1px solid #e2e8f0;">スタッフを登録してスケジュールを設定する</td></tr>
-        <tr><td style="padding:12px;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600;text-align:center;">3</td><td style="padding:12px;border:1px solid #e2e8f0;">施設写真をアップロードして「公開」にする</td></tr>
-      </table>
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin" style="${EMAIL_BUTTON_STYLE}">${facility}の管理画面へ</a></p>
-    `),
-  }, 'welcome');
 }
 
 /** 施設オーナー向け3日後フォローメール（未完了項目のリマインド） */

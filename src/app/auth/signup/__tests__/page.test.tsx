@@ -46,6 +46,11 @@ jest.mock('@/lib/supabase-browser', () => ({
   }),
 }));
 
+// LINE ログインの出し分け（line-availability.ts）。既定は従来どおり非表示。
+let mockLineLoginEnabled = false;
+jest.mock('@/lib/line-availability', () => ({ isLineLoginEnabled: () => mockLineLoginEnabled }));
+afterEach(() => { mockLineLoginEnabled = false; });
+
 /** signupSchema が要求する必須項目をすべて有効な値で埋める。 */
 function fillForm() {
   fireEvent.change(screen.getByLabelText(/^お名前/), { target: { value: 'テスト太郎' } });
@@ -351,4 +356,27 @@ describe('店舗アカウント作成（掲載申込の続き）', () => {
       .toContain(`/auth/callback?redirect=${encodeURIComponent('/admin/onboarding?handoff=registration')}`);
     expect(mockReplace).not.toHaveBeenCalled();
   });
+});
+
+test('LINE registration requires the same terms consent as Google before leaving the page', async () => {
+  mockLineLoginEnabled = true;
+  render(<SignupPage />);
+  const line = screen.getByRole('link', { name: 'LINEで登録' });
+  const blocked = fireEvent.click(line);
+  // fireEvent.click は preventDefault されたとき false を返す（=遷移しない）。
+  expect(blocked).toBe(false);
+  await screen.findByText('LINEで登録する場合も、利用規約とプライバシーポリシーへの同意が必要です。');
+  fireEvent.click(screen.getByRole('checkbox', { name: /利用規約/ }));
+  expect(fireEvent.click(line)).toBe(true);
+});
+
+test('signup shows the same password rule as reset and rejects a password over the 72-byte bcrypt limit', async () => {
+  render(<SignupPage />);
+  expect(screen.getByText(/8文字以上、半角72文字以内/)).toHaveAttribute('id', 'signup-password-help');
+  fillForm();
+  fireEvent.change(screen.getByLabelText('パスワード *'), { target: { value: 'あ'.repeat(25) } });
+  fireEvent.change(screen.getByLabelText('パスワード（確認） *'), { target: { value: 'あ'.repeat(25) } });
+  submit();
+  await screen.findByText(/パスワードが長すぎます/);
+  expect(mockSignUp).not.toHaveBeenCalled();
 });

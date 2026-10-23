@@ -107,7 +107,7 @@ export default async function PrefecturePage({ params }: Props) {
           ]}
         />
 
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
+        <h1 className="jp-balance text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
           {prefName}のサロン・クリニック
         </h1>
         <p className="text-sm text-gray-500 mb-8">{total}件の施設が見つかりました</p>

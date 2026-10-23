@@ -1,11 +1,12 @@
 'use client';
 
-// 地方リンクは 9 本が一度に viewport へ入る一覧。既定で先読みしない
+// 地方リンクは 6 本が一度に viewport へ入る一覧。既定で先読みしない
 // （理由と実測は components/BrowseLink.tsx）。
 import Link from '@/components/BrowseLink';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
+import { JAPAN_MAP_SIZE, MAP_REGIONS, regionSearchHref, type MapRegion } from '@/lib/japan-map-regions';
 
 const Japan = dynamic(() => import('@react-map/japan'), { ssr: false });
 
@@ -13,21 +14,11 @@ const BASE_COLOR = '#E8D5B7';
 const STROKE_COLOR = '#C5AC8E';
 const HOVER_COLOR = '#F5A623';
 
-// HPBと同じ9地域・同じ都道府県分類
-const regions = [
-  { name: '北海道', area: '北海道', prefectures: ['Hokkaido'], top: '5%', left: '60%' },
-  { name: '東北', area: '青森県', prefectures: ['Aomori', 'Iwate', 'Miyagi', 'Akita', 'Yamagata', 'Fukushima'], top: '35%', left: '74%' },
-  { name: '北信越', area: '新潟県', prefectures: ['Niigata', 'Toyama', 'Ishikawa', 'Fukui', 'Nagano'], top: '31%', left: '45%' },
-  { name: '中国', area: '広島県', prefectures: ['Tottori', 'Shimane', 'Okayama', 'Hiroshima', 'Yamaguchi'], top: '50%', left: '22%' },
-  { name: '九州・沖縄', area: '福岡県', prefectures: ['Fukuoka', 'Saga', 'Nagasaki', 'Kumamoto', 'Oita', 'Miyazaki', 'Kagoshima', 'Okinawa'], top: '42%', left: '9%' },
-  { name: '関東', area: '東京都', prefectures: ['Ibaraki', 'Tochigi', 'Gunma', 'Saitama', 'Chiba', 'Tokyo', 'Kanagawa', 'Yamanashi'], top: '51%', left: '65%' },
-  { name: '東海', area: '愛知県', prefectures: ['Gifu', 'Shizuoka', 'Aichi', 'Mie'], top: '58%', left: '51%' },
-  { name: '関西', area: '大阪府', prefectures: ['Shiga', 'Kyoto', 'Osaka', 'Hyogo', 'Nara', 'Wakayama'], top: '55%', left: '38%' },
-  { name: '四国', area: '徳島県', prefectures: ['Tokushima', 'Kagawa', 'Ehime', 'Kochi'], top: '66%', left: '19%' },
-];
+// 地方の分け方・ラベル位置・リンク先は src/lib/japan-map-regions.ts（分け方の正は regionGroups）。
+const regions = MAP_REGIONS;
 
-const prefToRegion = new Map<string, typeof regions[number]>();
-regions.forEach((r) => r.prefectures.forEach((p) => prefToRegion.set(p, r)));
+const prefToRegion = new Map<string, MapRegion>();
+regions.forEach((r) => r.mapCodes.forEach((p) => prefToRegion.set(p, r)));
 
 const normalize = (code: string) => code.replace(/[^\x20-\x7E]/g, '');
 
@@ -88,7 +79,7 @@ export default function JapanRegionMap() {
       const onClick = (e: MouseEvent) => {
         const region = findRegion(e.target);
         if (region) {
-          router.push(`/search?area=${encodeURIComponent(region.area)}`);
+          router.push(regionSearchHref(region));
         }
       };
 
@@ -125,16 +116,17 @@ export default function JapanRegionMap() {
     const container = containerRef.current;
     if (!container) return;
     regions.forEach((r) => {
-      applyFill(container, r.prefectures, r.name === hoveredRegion ? HOVER_COLOR : BASE_COLOR);
+      applyFill(container, r.mapCodes, r.name === hoveredRegion ? HOVER_COLOR : BASE_COLOR);
     });
   }, [hoveredRegion]);
 
   return (
-    <div ref={containerRef} className="relative">
+    // ラベルは地図上の px 座標で置くので、外枠を地図と同じ大きさに固定する（幅が変わるとずれる）。
+    <div ref={containerRef} className="relative mx-auto" style={{ width: JAPAN_MAP_SIZE.width, height: JAPAN_MAP_SIZE.height }}>
       <div className="flex justify-center">
         <Japan
           type="select-single"
-          size={340}
+          size={JAPAN_MAP_SIZE.width}
           mapColor={BASE_COLOR}
           strokeColor={STROKE_COLOR}
           strokeWidth={0.8}
@@ -149,20 +141,22 @@ export default function JapanRegionMap() {
         {regions.map((region) => (
           <Link
             key={region.name}
-            href={`/search?area=${encodeURIComponent(region.area)}`}
+            href={regionSearchHref(region)}
             className={`pointer-events-auto absolute inline-block px-2.5 py-1 rounded text-xs font-bold transition-colors ${
               hoveredRegion === region.name
-                ? 'bg-orange-400 text-white shadow-md'
-                : 'bg-white/90 text-amber-900 shadow-xs hover:bg-orange-400 hover:text-white hover:shadow-md'
+                ? 'bg-orange-400 text-gray-900 shadow-md'
+                : 'bg-white/90 text-amber-900 shadow-xs hover:bg-orange-400 hover:text-gray-900 hover:shadow-md'
             }`}
             style={{
               top: region.top,
               left: region.left,
+              whiteSpace: 'nowrap',
               border: hoveredRegion === region.name ? '1px solid #F5A623' : '1px solid #D4B896',
             }}
             onMouseEnter={() => setHovered(region.name)}
             onMouseLeave={() => setHovered(null)}
           >
+            {/* 白文字はオレンジ（orange-400）の上で 2.3:1 しかないので、強調時も濃い文字にする（gray-900 で 7.7:1） */}
             {region.name}
           </Link>
         ))}

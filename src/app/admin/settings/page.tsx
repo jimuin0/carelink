@@ -47,7 +47,7 @@ function AdminSettingsContent() {
   useUnsavedGuard(dirty);
   const [saving, setSaving] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   // 保存を断られた欄ごとの理由（API のキー → 文言）。欄の下に出す（トーストは数秒で消える）。
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const nameRef = useRef<HTMLInputElement>(null);
@@ -293,11 +293,15 @@ function AdminSettingsContent() {
       // 保存で中身が変わったので、前回の「足りない項目」は古い。次に公開を押したときに改めて確かめる。
       setPublishMissing(null);
       setReadinessKey((k) => k + 1);
+      // 営業時間とスタッフの勤務時間が重ならない曜日があれば、API が warning で知らせる（保存はされている）。
+      const hoursWarning = typeof result?.warning === 'string' && result.warning ? result.warning : null;
       setToast({
-        type: 'success',
-        message: sendHours
-          ? '施設情報を保存しました'
-          : '施設情報を保存しました。営業時間はまだ入力されていないため、ネット予約は始まりません',
+        type: hoursWarning ? 'info' : 'success',
+        message: !sendHours
+          ? '施設情報を保存しました。営業時間はまだ入力されていないため、ネット予約は始まりません'
+          : hoursWarning
+            ? `施設情報を保存しました。${hoursWarning}`
+            : '施設情報を保存しました',
       });
       return true;
     } catch {

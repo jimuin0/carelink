@@ -249,8 +249,20 @@ describe('client-side checks', () => {
     recoveryLinkOpened();
     render(<ResetPasswordPage />);
     const field = await screen.findByLabelText('新しいパスワード');
-    expect(field).toHaveAccessibleDescription('8文字以上、半角72文字以内（全角文字は1文字を3文字分として数えます）');
+    expect(field).toHaveAccessibleDescription('8文字以上、半角72文字以内（全角文字は1文字を3文字分として数えます）。英字・数字・記号を組み合わせる必要はありません。');
     expect(field).toHaveAttribute('placeholder', '8文字以上');
+  });
+
+  test('a hidden username field names the account for password managers', async () => {
+    recoveryLinkOpened();
+    render(<ResetPasswordPage />);
+    await screen.findByLabelText('新しいパスワード');
+    const username = screen.getByTestId('recovery-username');
+    expect(username).toHaveAttribute('autocomplete', 'username');
+    expect(username).toHaveValue('owner@example.invalid');
+    expect(username).not.toBeVisible();
+    // 新しいパスワード欄と同じフォームに入っていないとパスワードマネージャーは結び付けない。
+    expect(username.closest('form')).toBe(screen.getByLabelText('新しいパスワード').closest('form'));
   });
 });
 

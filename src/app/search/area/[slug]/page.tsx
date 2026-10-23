@@ -94,7 +94,7 @@ export default async function AreaResultPage(props: Props) {
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Breadcrumb */}
         <nav className="mb-4" aria-label="パンくずリスト">
-          <ol className="flex items-center gap-1.5 text-xs text-gray-500 flex-wrap">
+          <ol className="crumbs flex items-center gap-1.5 text-xs text-gray-500 flex-wrap">
             <li>
               <Link href="/search/area" className="hover:text-sky-600">エリア検索</Link>
             </li>
@@ -111,7 +111,7 @@ export default async function AreaResultPage(props: Props) {
           </ol>
         </nav>
 
-        <h1 className="text-2xl font-bold mb-6">{area.name}のサロン・クリニック</h1>
+        <h1 className="jp-balance text-2xl font-bold mb-6">{area.name}のサロン・クリニック</h1>
         {area.area_type === 'station' && <p className="text-sm mb-4">祖先エリア内で、最寄駅欄に「{area.name}」を含む施設を表示します。駅名の部分一致検索であり、同じ文字を含む別の駅も該当する場合があります。</p>}
         {area.area_type === 'region' && <p className="text-sm mb-4">このエリアに登録された都道府県を対象に表示します。</p>}
 

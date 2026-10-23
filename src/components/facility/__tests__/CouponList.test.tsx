@@ -97,6 +97,40 @@ test('新規・リピーター限定のクーポンには利用条件とログ�
   expect(screen.getAllByText(/ご利用条件：/)).toHaveLength(2);
 });
 
+// 同じことを二度言わない（2026年10月23日・本番の表示: 「新規」バッジの横に「【新規】上まつ毛パーマ」、
+// 説明「通常¥6,900→¥5,800」の右にまた「通常 ¥6,900 ／ ¥5,800」と出ていた）。
+describe('重複表示をしない', () => {
+  const NEW_LASH: Coupon = {
+    ...SPECIAL, id: 'c-new', coupon_type: 'new_customer', name: '【新規】上まつ毛パーマ', description: '通常¥6,900→¥5,800',
+  };
+
+  test('バッジと同じ意味の【新規】は名前から外し、価格の言い直しだけの説明は出さない。価格は 1 回だけ', () => {
+    const { container } = render(<CouponList coupons={[NEW_LASH]} menus={[LASH]} couponMenuMap={{ 'c-new': ['lash'] }} />);
+    expect(screen.getByText('新規')).toBeInTheDocument();
+    expect(screen.getByText('上まつ毛パーマ')).toBeInTheDocument();
+    expect(screen.queryByText(/【新規】/)).not.toBeInTheDocument();
+    expect(screen.queryByText('通常¥6,900→¥5,800')).not.toBeInTheDocument();
+    expect(screen.getAllByText(/6,900/)).toHaveLength(1);
+    expect(screen.getAllByText(/5,800/)).toHaveLength(1);
+    // 取り消し線は割引前の価格だけ、赤は割引後の価格だけ
+    expect(screen.getByText('通常 ¥6,900')).toHaveClass('line-through');
+    expect(screen.getByText('¥5,800')).toHaveClass('text-red-600');
+    // 点線の枠はやめ、実線にする
+    expect(container.querySelector('.border-dashed')).toBeNull();
+  });
+
+  test('価格を計算できないときは、説明に書かれた価格をそのまま残す（唯一の価格表示になるため）', () => {
+    render(<CouponList coupons={[NEW_LASH]} menus={[LASH]} />);
+    expect(screen.getByText('通常¥6,900→¥5,800')).toBeInTheDocument();
+  });
+
+  test('価格以外の言葉を含む説明・バッジと関係ない括弧書きは残す', () => {
+    render(<CouponList coupons={[{ ...NEW_LASH, name: '【人気No.1】上まつ毛パーマ', description: '初回の方は通常¥6,900→¥5,800' }]} menus={[LASH]} couponMenuMap={{ 'c-new': ['lash'] }} />);
+    expect(screen.getByText('【人気No.1】上まつ毛パーマ')).toBeInTheDocument();
+    expect(screen.getByText('初回の方は通常¥6,900→¥5,800')).toBeInTheDocument();
+  });
+});
+
 test('クーポンが無ければ案内文', () => {
   render(<CouponList coupons={[]} />);
   expect(screen.getByText('現在利用可能なクーポンはありません')).toBeInTheDocument();

@@ -98,6 +98,47 @@ export function subscribeToCookieConsent(onChange: () => void): () => void {
 }
 
 // ---------------------------------------------------------------------------
+// 回答した後に設定を開き直す（2026年10月23日）
+// ---------------------------------------------------------------------------
+// 以前はバナーに一度答えると、設定を変える・同意を取り消す手段が画面上に無かった
+// （プライバシーポリシーは「ブラウザの設定で拒否できる」としか書けなかった）。
+// フッターの「Cookie設定」（components/CookieSettingsButton.tsx）がここを呼び、バナー
+// （components/CookieConsent.tsx）が詳細設定を開く。保存は saveCookiePreferences を通るので、
+// 分析 Cookie を外すと AnalyticsGate が applyAnalyticsConsent(false) で計測を止めて Cookie を消す。
+// 開いている間はトップの会員登録 CTA を出さない（画面下の固定表示を重ねない）。
+
+export const COOKIE_SETTINGS_OPEN_EVENT = 'carelink:cookie-settings-open';
+
+let cookieSettingsOpen = false;
+
+function setCookieSettingsOpen(open: boolean): void {
+  if (cookieSettingsOpen === open) return;
+  cookieSettingsOpen = open;
+  window.dispatchEvent(new Event(COOKIE_SETTINGS_OPEN_EVENT));
+}
+
+/** フッターの「Cookie設定」から呼ぶ。バナーを詳細設定の状態で開く。 */
+export function openCookieSettings(): void {
+  setCookieSettingsOpen(true);
+}
+
+/** 開き直した設定を閉じる（保存したとき・「閉じる」を押したとき）。 */
+export function closeCookieSettings(): void {
+  setCookieSettingsOpen(false);
+}
+
+/** 回答後に開き直した設定を表示中か。 */
+export function isCookieSettingsOpen(): boolean {
+  return cookieSettingsOpen;
+}
+
+/** useSyncExternalStore 用の購読（開き直した設定の開閉）。 */
+export function subscribeToCookieSettings(onChange: () => void): () => void {
+  window.addEventListener(COOKIE_SETTINGS_OPEN_EVENT, onChange);
+  return () => window.removeEventListener(COOKIE_SETTINGS_OPEN_EVENT, onChange);
+}
+
+// ---------------------------------------------------------------------------
 // 計測タグ側の後始末
 // ---------------------------------------------------------------------------
 

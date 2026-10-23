@@ -147,7 +147,7 @@ export default async function BookingCompletePage(props: Props) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h1 className="text-xl font-bold mb-2">{current?.title ?? '予約の受付状況を確認しています'}</h1>
+          <h1 className="jp-balance text-xl font-bold mb-2">{current?.title ?? '予約の受付状況を確認しています'}</h1>
           {bookingId && (
             <p className="text-xs text-gray-500 mb-1 font-mono">予約番号: {bookingId.slice(0, 8).toUpperCase()}</p>
           )}

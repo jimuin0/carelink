@@ -11,6 +11,7 @@ import { writeAuditLog } from '@/lib/audit-logger';
 import { serverError } from '@/lib/with-route';
 import { isValidIsoDate } from '@/lib/date-utils';
 import { staffMutationError } from '@/lib/staff-mutation';
+import { specialDaySaveWarning, weeklyScheduleSaveWarning } from '@/lib/staff-hours-warning';
 
 type ScheduleOverrideInsert = Database['public']['Tables']['schedule_overrides']['Insert'];
 
@@ -94,7 +95,9 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
     ipAddress: ip,
   });
 
-  return NextResponse.json({ ok: true });
+  // 営業時間（定休日を含む）と重ならない曜日は予約枠が出ない。保存は止めず、注意だけ返す（2026年10月23日）。
+  const warning = await weeklyScheduleSaveWarning(admin, auth.facilityId, parsed.data.schedules);
+  return NextResponse.json(warning ? { ok: true, warning } : { ok: true });
 }
 
 // POST: Add or update a schedule override
@@ -152,7 +155,11 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
     ipAddress: ip,
   });
 
-  return NextResponse.json({ ok: true }, { status: 201 });
+  // 勤務する特別日が営業時間（定休日を含む）と重ならなければ、その日は予約枠が出ない。注意だけ返す。
+  const warning = row.start_time && row.end_time
+    ? await specialDaySaveWarning(admin, auth.facilityId, row.date, row.start_time, row.end_time)
+    : null;
+  return NextResponse.json(warning ? { ok: true, warning } : { ok: true }, { status: 201 });
 }
 
 // DELETE: Remove a schedule override

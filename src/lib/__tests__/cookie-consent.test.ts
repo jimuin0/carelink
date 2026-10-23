@@ -16,6 +16,13 @@
  * 実際に jsdom の Cookie 置き場へ入れて消せることを確かめるため。
  */
 import {
+  COOKIE_SETTINGS_OPEN_EVENT,
+  closeCookieSettings,
+  isCookieSettingsOpen,
+  openCookieSettings,
+  subscribeToCookieSettings,
+} from '@/lib/cookie-consent';
+import {
   COOKIE_CONSENT_CHANGE_EVENT,
   COOKIE_CONSENT_STORAGE_KEY,
   LEGACY_COOKIE_CONSENT_STORAGE_KEY,
@@ -275,5 +282,34 @@ describe('applySessionRecordingScope', () => {
     const stub = ensureClarityStub();
     expect(applySessionRecordingScope(false, false)).toBe(true);
     expect(stub.q!.map((a) => Array.from(a as ArrayLike<unknown>))).toEqual([['stop']]);
+  });
+});
+
+describe('回答後に設定を開き直す（openCookieSettings）', () => {
+  afterEach(() => closeCookieSettings());
+
+  test('開く・閉じるたびに 1 回だけ通知し、同じ状態への変更は通知しない', () => {
+    const listener = jest.fn();
+    const unsubscribe = subscribeToCookieSettings(listener);
+    expect(isCookieSettingsOpen()).toBe(false);
+    openCookieSettings();
+    openCookieSettings();
+    expect(isCookieSettingsOpen()).toBe(true);
+    expect(listener).toHaveBeenCalledTimes(1);
+    closeCookieSettings();
+    closeCookieSettings();
+    expect(isCookieSettingsOpen()).toBe(false);
+    expect(listener).toHaveBeenCalledTimes(2);
+    unsubscribe();
+    openCookieSettings();
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  test('通知は専用のイベント名で届く', () => {
+    const listener = jest.fn();
+    window.addEventListener(COOKIE_SETTINGS_OPEN_EVENT, listener);
+    openCookieSettings();
+    window.removeEventListener(COOKIE_SETTINGS_OPEN_EVENT, listener);
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 });

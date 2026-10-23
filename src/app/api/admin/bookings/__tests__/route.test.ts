@@ -112,6 +112,16 @@ test('勤務中のスタッフがいない指名なしは 409 BOOKING_NO_WORKING
     error: 'この時間に勤務予定のスタッフがいないため、指名なしでは登録できません。担当を選ぶか、スタッフの勤務時間を登録してください。' });
   expect(writeAuditLog).not.toHaveBeenCalled();
 });
+// 勤務しているスタッフはいるが、誰も選んだメニューを担当できない（menu_staff・20261023180000）。
+// 以前は同じ RPC が BOOKING_CONFLICT を返し、空いている時間に「既に予約が入っています」と出ていた。
+test('メニューを担当できるスタッフがいない指名なしは 409 BOOKING_NO_CAPABLE_STAFF（重複とは言わない）', async () => {
+  mockRpc.mockResolvedValue({ data: null, error: { code: 'P0001', message: 'BOOKING_NO_CAPABLE_STAFF: 選択したメニューを担当できるスタッフがいません' } });
+  const res = await POST(request(body({ staff_id: null })) as never);
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({ code: 'BOOKING_NO_CAPABLE_STAFF',
+    error: 'この時間に勤務するスタッフの中に、選択したメニューを担当できる人がいないため、指名なしでは登録できません。担当を選ぶか、メニューの担当スタッフを確認してください。' });
+  expect(writeAuditLog).not.toHaveBeenCalled();
+});
 test('重複は従来どおり 409 BOOKING_CONFLICT（RPC の「コード: 説明」形式）', async () => {
   mockRpc.mockResolvedValue({ data: null, error: { code: 'P0001', message: 'BOOKING_CONFLICT: この時間帯は既に予約が入っています' } });
   const res = await POST(request(body({ staff_id: null })) as never);

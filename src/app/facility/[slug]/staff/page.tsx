@@ -38,7 +38,7 @@ export default async function StaffPage(props: Props) {
     <div className="bg-gray-50 min-h-screen">
       <div className="max-w-4xl mx-auto bg-white shadow-xs">
         <nav className="px-4 sm:px-6 pt-3 pb-1" aria-label="パンくずリスト">
-          <ol className="flex items-center gap-1.5 text-xs text-gray-500">
+          <ol className="crumbs flex items-center gap-1.5 text-xs text-gray-500">
             <li><Link href="/search" className="hover:text-sky-600">トップ</Link></li>
             <li><span className="mx-1">/</span></li>
             <li><Link href={`/facility/${params.slug}`} className="hover:text-sky-600">{facility.name}</Link></li>
@@ -48,7 +48,7 @@ export default async function StaffPage(props: Props) {
         </nav>
 
         <div className="px-4 sm:px-6 py-6">
-          <h1 className="text-xl font-bold mb-6">スタッフ一覧</h1>
+          <h1 className="jp-balance text-xl font-bold mb-6">スタッフ一覧</h1>
           <StaffList staff={staff} facilitySlug={params.slug} />
         </div>
       </div>

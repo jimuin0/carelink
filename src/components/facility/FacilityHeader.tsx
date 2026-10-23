@@ -55,9 +55,9 @@ export default function FacilityHeader({ facility }: { facility: Facility }) {
         {/* 「N人が閲覧中」は乱数で作った値で実際の閲覧者数と無関係だったため外した
             （神原さん判断 2026年10月22日）。実測の同時閲覧数が無い限り出さない。 */}
       </div>
-      <h1 className="text-xl sm:text-2xl font-bold mb-2">{facility.name}</h1>
+      <h1 className="jp-balance text-xl sm:text-2xl font-bold mb-2">{facility.name}</h1>
       {facility.catch_copy && (
-        <p className="text-gray-600 text-sm bg-sky-50 rounded-lg px-3 py-2 border-l-[3px] border-sky-400">{facility.catch_copy}</p>
+        <p className="jp-pretty text-gray-600 text-sm bg-sky-50 rounded-lg px-3 py-2 border-l-[3px] border-sky-400">{facility.catch_copy}</p>
       )}
     </div>
   );

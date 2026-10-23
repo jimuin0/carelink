@@ -90,7 +90,7 @@ export default async function JobsListPage(props: { searchParams: Promise<Search
     <div className="bg-gray-50 min-h-screen pb-20">
       <div className="max-w-4xl mx-auto bg-white shadow-xs">
         <div className="px-4 sm:px-6 py-6 border-b border-gray-100">
-          <h1 className="text-2xl font-bold mb-2">求人一覧</h1>
+          <h1 className="jp-balance text-2xl font-bold mb-2">求人一覧</h1>
           <p className="text-sm text-gray-500">医療・福祉・美容業界の求人 {total}件</p>
         </div>
 

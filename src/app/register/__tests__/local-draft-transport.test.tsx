@@ -9,7 +9,7 @@ const mockUpload = jest.fn(); const mockFetch = jest.fn();
 jest.mock('next/navigation', () => ({ useRouter: () => mockRouter }));
 jest.mock('@/lib/recaptcha-client', () => ({ getRecaptchaToken: async () => null }));
 jest.mock('@/lib/image-compress', () => ({ compressImage: async (file: File) => file }));
-jest.mock('@/lib/supabase', () => ({ supabase: { storage: { from: () => ({ upload: mockUpload, uploadToSignedUrl: mockUpload, remove: async () => ({ error: null }), getPublicUrl: () => ({ data: { publicUrl: 'https://example.invalid/synthetic.png' } }) }) } } }));
+jest.mock('@/lib/supabase-browser', () => { const client = { storage: { from: () => ({ upload: mockUpload, uploadToSignedUrl: mockUpload, remove: async () => ({ error: null }), getPublicUrl: () => ({ data: { publicUrl: 'https://example.invalid/synthetic.png' } }) }) } }; return { createBrowserSupabaseClient: () => client }; });
 jest.mock('@/components/register/SalonLocalDraftControls', () => {
  const React = jest.requireActual<typeof import('react')>('react');
  return { SalonLocalDraftControls: React.forwardRef(function MockSalonLocalDraftControls(_props, ref) {

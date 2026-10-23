@@ -163,7 +163,10 @@ test('frozen V1 configuration reaches real denied legacy upload, preserves input
   const result = await saved.json();
   await page.waitForURL(url => url.pathname === '/register/complete');
   await expect(page.getByRole('heading', { name: '掲載申込を受け付けました', exact: true })).toBeVisible();
-  await expect(page.getByText(`受付番号：${result.receiptId}`, { exact: true })).toBeVisible();
+  // 受付番号は書き写せる短い参照（先頭8桁・4-4）と、照会用の完全な番号を両方出す。
+  const head = String(result.receiptId).slice(0, 8).toUpperCase();
+  await expect(page.getByTestId('receipt-short')).toHaveText(`${head.slice(0, 4)}-${head.slice(4)}`);
+  await expect(page.getByTestId('receipt-full')).toHaveText(result.receiptId);
   expect(legacyPosts).toBe(0); expect(commits).toBe(1);
   const db = service();
   const receipts = await db.from('salons').select('id,facility_name,business_hours,seat_count,staff_count,pr_text,photo_urls').eq('email', email);

@@ -447,10 +447,13 @@ function BoardBookingModal({
           operationRef.current = null;
           setUncertain(false);
           onRefresh();
-        } else if (res.status === 409 && data?.code === 'BOOKING_NO_WORKING_STAFF') {
-          // 指名なしで、この時間に勤務しているスタッフがいない。保存はされていない（重複でもない）ので、
-          // ボードは更新せず、入力を残したまま担当を選び直せるようにする。
-          setError('この時間に勤務予定のスタッフがいないため、指名なしでは登録できません。担当を選ぶか、スタッフの勤務時間を登録してください。');
+        } else if (res.status === 409 && (data?.code === 'BOOKING_NO_WORKING_STAFF' || data?.code === 'BOOKING_NO_CAPABLE_STAFF')) {
+          // 指名なしで、この時間に勤務しているスタッフがいない／勤務している人の誰も選んだメニューを
+          // 担当できない。保存はされていない（重複でもない）ので、ボードは更新せず、入力を残したまま
+          // 担当やメニューを選び直せるようにする。文言は API が理由ごとに返す。
+          setError(data?.code === 'BOOKING_NO_CAPABLE_STAFF'
+            ? 'この時間に勤務するスタッフの中に、選択したメニューを担当できる人がいないため、指名なしでは登録できません。担当を選ぶか、メニューの担当スタッフを確認してください。'
+            : 'この時間に勤務予定のスタッフがいないため、指名なしでは登録できません。担当を選ぶか、スタッフの勤務時間を登録してください。');
           sessionStorage.removeItem(`carelink-manual-booking:${facilityId}`);
           operationRef.current = null;
           setUncertain(false);

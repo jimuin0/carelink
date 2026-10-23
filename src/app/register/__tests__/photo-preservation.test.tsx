@@ -9,7 +9,7 @@ const mockRemove = jest.fn().mockResolvedValue({ error: null });
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: mockPush }) }));
 jest.mock('@/lib/recaptcha-client', () => ({ getRecaptchaToken: jest.fn().mockResolvedValue(null) }));
 jest.mock('@/lib/image-compress', () => ({ compressImage: jest.fn(async (file: File) => file) }));
-jest.mock('@/lib/supabase', () => ({ supabase: { storage: { from: () => ({ upload: mockUpload, remove: mockRemove, getPublicUrl: (path: string) => ({ data: { publicUrl: `https://fixture.invalid/${path}` } }) }) } } }));
+jest.mock('@/lib/supabase-browser', () => { const client = { storage: { from: () => ({ upload: mockUpload, remove: mockRemove, getPublicUrl: (path: string) => ({ data: { publicUrl: `https://fixture.invalid/${path}` } }) }) } }; return { createBrowserSupabaseClient: () => client }; });
 
 test('real photo picker retains previews/files after a rejected submit and permits removal before retry', async () => {
   const response = (status: number, body: unknown) => ({ ok: status === 200, status, json: async () => body });

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { phoneField } from './phone';
 import { termsConsentSchema } from './registration-consent';
+import { newPasswordField } from './password-policy';
 
 /**
  * LINE ログイン用の合成メール（`line_...@line.carelink.local`）は、パスワード認証の
@@ -29,8 +30,10 @@ export const signupSchema = z.object({
   // でたらめな電話番号を弾くため予約フォーム等と同じ phoneField() の書式検証を通す。
   phone: phoneField({ required: true }),
   prefecture: z.string().min(1, '都道府県を選択してください').max(20),
-  password: z.string().min(8, 'パスワードは8文字以上で入力してください').max(128),
-  password_confirm: z.string().max(128),
+  // 新しいパスワードの条件は再設定（/auth/reset-password）と同じ単一ソース（password-policy.ts）。
+  // 以前は 8〜128 文字で、bcrypt の上限（72 バイト）を超える入力が画面では通っていた。
+  password: newPasswordField,
+  password_confirm: z.string(),
   terms_agreed: termsConsentSchema.shape.terms_agreed,
 }).refine((data) => data.password === data.password_confirm, {
   message: 'パスワードが一致しません',

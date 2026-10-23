@@ -3,10 +3,13 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
-import { hasAnsweredCookieBanner, subscribeToCookieConsent } from '@/lib/cookie-consent';
+import { hasAnsweredCookieBanner, isCookieSettingsOpen, subscribeToCookieConsent, subscribeToCookieSettings } from '@/lib/cookie-consent';
 
 // 描画は ssr:false（DynamicHomeSections）だが、念のためサーバー値は「未同意＝出さない」に倒す。
 function getServerConsentSnapshot(): boolean {
+  return false;
+}
+function getServerSettingsSnapshot(): boolean {
   return false;
 }
 
@@ -19,10 +22,13 @@ function getServerConsentSnapshot(): boolean {
  * - 下部ナビ（--mobile-nav-height）のすぐ上に出す。
  * - fixed ではなく sticky にする。ページ末尾では本来の位置（フッターの直前）に収まるので、
  *   フッターのリンクを覆わない。
+ * - 2026年10月23日: フッターの「Cookie設定」から同意バナーを開き直している間も出さない
+ *   （下部ナビ・CTA・バナーの 3 段が重なってボタンを覆うため）。
  */
 export default function StickySignupCta() {
   const [show, setShow] = useState(false);
   const consentStored = useSyncExternalStore(subscribeToCookieConsent, hasAnsweredCookieBanner, getServerConsentSnapshot);
+  const cookieSettingsOpen = useSyncExternalStore(subscribeToCookieSettings, isCookieSettingsOpen, getServerSettingsSnapshot);
 
   useEffect(() => {
     if (sessionStorage.getItem('sticky-cta-dismissed')) return;
@@ -32,7 +38,7 @@ export default function StickySignupCta() {
     }).catch(() => {});
   }, []);
 
-  if (!show || !consentStored) return null;
+  if (!show || !consentStored || cookieSettingsOpen) return null;
 
   return (
     <div

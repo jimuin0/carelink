@@ -12,7 +12,7 @@ export default function PrivacyPage() {
   return (
     <div className="section-container">
       <div className="max-w-3xl mx-auto prose prose-gray">
-        <h1 className="text-3xl font-bold mb-8">プライバシーポリシー</h1>
+        <h1 className="jp-balance text-3xl font-bold mb-8">プライバシーポリシー</h1>
 
         <p className="text-gray-600 mb-8">
           神原良祐（以下「当事業者」）は、CareLink（以下「本サービス」）における個人情報の取扱いについて、以下のとおりプライバシーポリシーを定めます。
@@ -151,6 +151,10 @@ export default function PrivacyPage() {
               ここを変えるときは Cookie バナー（components/CookieConsent.tsx）の説明も合わせる。 */}
           <p className="text-gray-600 mt-2">
             GA4 と Microsoft Clarity は、画面下部の Cookie の設定で分析 Cookie に同意した場合にのみ読み込みます。Microsoft Clarity は、ログイン・マイページ・予約・問診・管理画面など、お客様の情報を表示・入力する画面では録画しません。
+          </p>
+          {/* 開き直す導線は components/CookieSettingsButton.tsx（Footer・SearchFooter に配置）。 */}
+          <p className="text-gray-600 mt-2">
+            Cookie の設定は、各ページ下部（フッター）の「Cookie設定」からいつでも変更でき、分析 Cookie への同意を取り消すこともできます。
           </p>
           <p className="text-gray-600 mt-2">
             これらのツールはCookieを使用しますが、Cookieに氏名・連絡先など個人を特定する情報は含まれません。ブラウザの設定によりCookieの受け取りを拒否することができます。

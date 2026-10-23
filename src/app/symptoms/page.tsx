@@ -24,7 +24,7 @@ export default function SymptomsPage() {
   if (!isAiEnabled()) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-16 text-center">
-        <h1 className="text-2xl font-bold text-gray-800 mb-3">AI症状チェッカーは準備中です</h1>
+        <h1 className="jp-balance text-2xl font-bold text-gray-800 mb-3">AI症状チェッカーは準備中です</h1>
         <p className="text-gray-600 mb-8">
           ただいま準備を進めています。お急ぎの場合は、症状別のページや検索からお探しください。
         </p>

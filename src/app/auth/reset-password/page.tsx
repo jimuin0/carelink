@@ -192,6 +192,12 @@ export default function ResetPasswordPage() {
               )}
 
               <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
+                {/* パスワードマネージャーが「どのアカウントの新しいパスワードか」を判断できるよう、
+                    変更対象のアカウントを隠しのユーザー名欄で添える（送信値には含めない）。 */}
+                {recovery.user.email && (
+                  <input type="text" name="username" autoComplete="username" value={recovery.user.email}
+                    readOnly hidden data-testid="recovery-username" />
+                )}
                 <div>
                   <label htmlFor="new-password" className="form-label">新しいパスワード</label>
                   <input

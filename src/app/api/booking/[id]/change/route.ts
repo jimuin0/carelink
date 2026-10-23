@@ -18,7 +18,7 @@ import {
 } from '@/lib/cancel-fee';
 import { isCustomerChangeableStatus } from '@/lib/booking-status';
 import {
-  BOOKING_SLOT_PASSED_MESSAGE, RESCHEDULE_DURATION_MISMATCH_MESSAGE, hasSlotStarted, rescheduleDurationMinutes, slotLengthMinutes,
+  BOOKING_SLOT_PASSED_MESSAGE, NO_CAPABLE_STAFF_MESSAGE, RESCHEDULE_DURATION_MISMATCH_MESSAGE, hasSlotStarted, rescheduleDurationMinutes, slotLengthMinutes,
 } from '@/lib/booking-slot-rules';
 
 export const dynamic = 'force-dynamic';
@@ -170,6 +170,10 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       const msg = error.message || '';
       if (msg.includes('BOOKING_CONFLICT')) {
         return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
+      }
+      // 指名なしで、変更先の時間に勤務するスタッフの誰も予約のメニューを担当できない（20261023180000）。
+      if (msg.includes('BOOKING_NO_CAPABLE_STAFF')) {
+        return NextResponse.json({ error: NO_CAPABLE_STAFF_MESSAGE, code: 'BOOKING_NO_CAPABLE_STAFF' }, { status: 409 });
       }
       if (msg.includes('BOOKING_NOT_FOUND')) {
         return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });

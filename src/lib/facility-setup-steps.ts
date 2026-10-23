@@ -33,8 +33,9 @@ export interface FacilitySetupFacts {
   /** 有効（is_active）スタッフ。休止中のスタッフは予約を受けないので数えない。 */
   activeStaffIds: string[];
   /**
-   * 有効スタッフのうち、勤務時間が無い人（週間の勤務日も、今日以降に勤務する特別日も無い）。
-   * 予約枠が1つも出ない。判定は workingStaffQuery（予約枠・公開カードと同じ規則）。
+   * 有効スタッフのうち、営業時間の中に勤務時間が無い人（週間の勤務日も、今日以降に勤務する特別日も
+   * 無いか、あってもすべて営業時間の外・定休日）。予約枠が1つも出ない。判定は summarizeWorkingStaff
+   * （予約枠・公開カードと同じ規則）。
    */
   unscheduledStaffIds: string[];
 }
@@ -110,7 +111,7 @@ export function facilitySetupSteps(facts: FacilitySetupFacts): FacilitySetupStep
     // 予約を受けられるのは勤務時間を保存したスタッフだけ（追加しただけでは勤務は作られない）。
     {
       key: 'staff', label: 'スタッフ登録と勤務時間の保存', done: ok('staff'), href: '/admin/staff', group: 'booking',
-      ...(unscheduled > 0 ? { note: `勤務時間が未登録で予約を受けられないスタッフ：${unscheduled}人` } : {}),
+      ...(unscheduled > 0 ? { note: `勤務時間が未登録か営業時間外で予約を受けられないスタッフ：${unscheduled}人` } : {}),
     },
   ];
 }
@@ -169,11 +170,12 @@ export async function loadFacilitySetupFacts(client: SupabaseClient, facilityId:
   const failure = menus.error ?? staff.error ?? photos.error ?? profile.error;
   if (failure) throw new Error(`店舗セットアップの状況を取得できませんでした: ${failure.message}`);
 
-  const { activeIds, workingIds } = summarizeWorkingStaff(staff.data);
   const row = (profile.data ?? {}) as {
     name?: string | null; slug?: string | null; prefecture?: string | null; city?: string | null; address?: string | null;
     catch_copy?: string | null; description?: string | null; business_hours?: unknown; status?: string | null;
   };
+  // 勤務の窓が営業時間と重なるかは、この店舗の営業時間で確かめる（予約枠・検索カードと同じ規則）。
+  const { activeIds, workingIds } = summarizeWorkingStaff(staff.data, row.business_hours ?? null);
   return {
     name: row.name ?? null,
     slug: row.slug ?? null,

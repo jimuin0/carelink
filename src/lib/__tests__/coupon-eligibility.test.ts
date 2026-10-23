@@ -175,7 +175,12 @@ describe('migration（予約 RPC 側の判定）', () => {
       // 定義し直す migration だけを見る（呼び出すだけの migration＝20261023070000 の公開ラッパーは対象外）。
       .filter((f) => /CREATE (?:OR REPLACE )?FUNCTION public\.create_booking_for_menus_atomic\(/.test(read(f)));
     // 20261023130100 は「指名なし」で勤務中のスタッフがいないときのコードだけを変えた写し。
-    expect(later).toEqual(['20261023000100_booking_visit_points_cap.sql', '20261023130100_manual_unassigned_booking_no_working_staff.sql']);
+    // 20261023180000 は「指名なし」でメニューを担当できるスタッフがいないときのコードだけを足した写し。
+    expect(later).toEqual([
+      '20261023000100_booking_visit_points_cap.sql',
+      '20261023130100_manual_unassigned_booking_no_working_staff.sql',
+      '20261023180000_booking_ready_hours_overlap_and_capable_staff.sql',
+    ]);
     for (const file of later) expect([file, couponBlock(read(file))]).toEqual([file, expected]);
   });
 });

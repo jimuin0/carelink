@@ -84,7 +84,7 @@ export default function MenuList({ menus }: { menus: FacilityMenu[] }) {
                     </p>
                   )}
                 </div>
-                <p className="text-right font-bold text-sm whitespace-nowrap text-sky-700">
+                <p className="text-right font-bold text-sm whitespace-nowrap text-gray-900">
                   {formatPrice(menu.price, menu.price_note)}
                 </p>
               </div>

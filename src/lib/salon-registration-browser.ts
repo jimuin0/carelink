@@ -3,7 +3,7 @@ import { canonicalSalonSubmission } from './salon-submission-contract';
 import { salonPhotoPath, SALON_PHOTO_BUCKET } from './salon-photo-contract';
 import { readSalonBrowserContext, saveSalonBrowserContext, type SalonBrowserContext, SALON_BROWSER_CONTEXT_KEY } from './salon-browser-context';
 import type { SalonFormValues } from './validations';
-import { SALON_PR_TEXT_PROHIBITED_MESSAGE, type SalonFieldErrors } from './salon-field-errors';
+import { isSalonField, SALON_FIELD_MESSAGES, SALON_PR_TEXT_PROHIBITED_MESSAGE, type SalonFieldErrors } from './salon-field-errors';
 import { salonStorageLimitsSchema, type SalonStorageLimits } from './salon-storage-limits';
 import { registrationConsentSchema, REGISTRATION_CONSENT_REQUIRED, type RegistrationConsent } from './registration-consent';
 import { formatMegabytes } from './format-megabytes';
@@ -25,17 +25,28 @@ const uuid = z.uuid();
 const uncertain: Result = { state: 'unknown', message: '送信結果を確認できませんでした。同じ申込の受付状況を確認してください。新たな申込として送信しないでください。' };
 const blocked: Result = { state: 'blocked', message: 'この申込の確認情報を利用できません。申込時のブラウザーの同じタブで確認するか、お問い合わせください。' };
 const retryable: Result = { state: 'retryable', message: '送信の準備が完了していません。入力内容と写真を保持したまま、もう一度お試しください。' };
-const prTextRejected: Result = { state: 'retryable', message: 'PR文に掲載できない表現が含まれています。PR文を修正して、もう一度送信してください。',
-  fieldErrors: { pr_text: SALON_PR_TEXT_PROHIBITED_MESSAGE } };
+const PR_TEXT_REJECTED_MESSAGE = 'PR文に掲載できない表現が含まれています。PR文を修正して、もう一度送信してください。';
+const FIELDS_REJECTED_MESSAGE = '入力内容に確認が必要な項目があります。表示された欄を修正して、もう一度送信してください。';
 
-/** The server's fixed content-policy refusal of the PR text, and nothing else
- * (no echoed input, no other field): see commitSalonSubmission. */
-function isPrTextPolicyRejection(body: unknown): boolean {
-  if (typeof body !== 'object' || body === null) return false;
+/** The server's fixed validation refusal of this body, and nothing else: every
+ * entry must be a known form field carrying the exact fixed public message the
+ * server uses for it (SALON_FIELD_MESSAGES, or the PR-text content-policy
+ * message). Echoed input, unknown keys or an empty object are not proof that
+ * the server refused this body before any write. */
+function definitiveFieldErrors(body: unknown): SalonFieldErrors | null {
+  if (typeof body !== 'object' || body === null) return null;
   const { state, fieldErrors } = body as { state?: unknown; fieldErrors?: unknown };
-  if (state !== 'invalid' || typeof fieldErrors !== 'object' || fieldErrors === null || Array.isArray(fieldErrors)) return false;
+  if (state !== 'invalid' || typeof fieldErrors !== 'object' || fieldErrors === null || Array.isArray(fieldErrors)) return null;
   const entries = Object.entries(fieldErrors);
-  return entries.length === 1 && entries[0][0] === 'pr_text' && entries[0][1] === SALON_PR_TEXT_PROHIBITED_MESSAGE;
+  if (entries.length === 0) return null;
+  const errors: SalonFieldErrors = {};
+  for (const [field, message] of entries) {
+    if (!isSalonField(field)) return null;
+    if (message !== SALON_FIELD_MESSAGES[field]
+      && !(field === 'pr_text' && message === SALON_PR_TEXT_PROHIBITED_MESSAGE)) return null;
+    errors[field] = message;
+  }
+  return errors;
 }
 
 /** One instance per mounted form. Selection UUIDs survive retry in memory;
@@ -103,19 +114,23 @@ export class SalonRegistrationBrowser {
       const checked = await this.reconcile();
       if (checked.state === 'confirmed') return checked;
       if (checked.state === 'ready' || checked.state === 'blocked') return blocked;
-      // The PR-text content-policy refusal is decided by the server from this
-      // body alone, before any write, and the status read after it says the
-      // intent is still uncommitted. Resending the same body can only be refused
-      // again (a tab opened before a deploy, or a newly banned term, would
-      // otherwise be stuck for good), so the applicant may fix the PR text for
-      // this same intent. An earlier body committing concurrently stays fenced
-      // by the intent's payload HMAC: a revised body then gets a conflict,
-      // which reconciles to that original receipt.
-      if (this.replayVerified && isPrTextPolicyRejection(result.body)
+      // A field validation refusal (the fixed per-field messages, including the
+      // PR-text content policy) is decided by the server from this body alone,
+      // before any write, and the status read after it says the intent is still
+      // uncommitted. Resending the same body can only be refused again (a tab
+      // opened before a deploy, or a newly banned term, would otherwise be stuck
+      // for good), so the applicant may fix the named fields for this same
+      // intent. An earlier body committing concurrently stays fenced by the
+      // intent's payload HMAC: a revised body then gets a conflict, which
+      // reconciles to that original receipt. Without verifiable field errors
+      // (bare 'invalid', consent_required, echoed input) the outcome stays unknown.
+      const fieldErrors = definitiveFieldErrors(result.body);
+      if (this.replayVerified && fieldErrors
         && this.saveCurrent({ version: 1, intentId: input.intentId, phase: 'prepared' })) {
         this.commitAttempted = false; this.pending = null; this.replayVerified = false;
         this.policyRejectedIntentId = input.intentId;
-        return prTextRejected;
+        const prTextOnly = Object.keys(fieldErrors).length === 1 && fieldErrors.pr_text === SALON_PR_TEXT_PROHIBITED_MESSAGE;
+        return { state: 'retryable', message: prTextOnly ? PR_TEXT_REJECTED_MESSAGE : FIELDS_REJECTED_MESSAGE, fieldErrors };
       }
       return uncertain;
     }
@@ -131,7 +146,7 @@ export class SalonRegistrationBrowser {
   /** This is an in-memory transport fact, not a server receipt or authority.
    * A commit400, lost commit reply or a restored historical selector never
    * grants permission to replace a fenced input snapshot, except the verified
-   * PR-text policy refusal handled in commit() for that same intent. */
+   * field validation refusal handled in commit() for that same intent. */
   canReviseUnsubmittedInput(): boolean {
     if (this.commitAttempted) return false;
     const current = readSalonBrowserContext(this.deps.store, this.contextKey);

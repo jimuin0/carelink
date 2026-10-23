@@ -1,3 +1,4 @@
+import StaffMonogram from '@/components/facility/StaffMonogram';
 import { hasSupabasePublicEnv } from '@/lib/supabase-build-env';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -63,7 +64,7 @@ export default async function StaffDetailPage(props: Props) {
     <div className="bg-gray-50 min-h-screen">
       <div className="max-w-4xl mx-auto bg-white shadow-xs">
         <nav className="px-4 sm:px-6 pt-3 pb-1" aria-label="パンくずリスト">
-          <ol className="flex items-center gap-1.5 text-xs text-gray-500">
+          <ol className="crumbs flex items-center gap-1.5 text-xs text-gray-500">
             <li><Link href="/search" className="hover:text-sky-600">トップ</Link></li>
             <li><span className="mx-1">/</span></li>
             <li><Link href={`/facility/${params.slug}`} className="hover:text-sky-600">{facility.name}</Link></li>
@@ -81,15 +82,11 @@ export default async function StaffDetailPage(props: Props) {
               {staff.photo_url ? (
                 <Image src={staff.photo_url} alt={staff.name} fill sizes="128px" className="object-cover" />
               ) : (
-                <div className="flex items-center justify-center h-full bg-linear-to-br from-sky-50 to-sky-100">
-                  <svg className="w-12 h-12 text-sky-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                </div>
+                <StaffMonogram name={staff.name} className="text-3xl sm:text-4xl" />
               )}
             </div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold">{staff.name}</h1>
+              <h1 className="jp-balance text-xl sm:text-2xl font-bold">{staff.name}</h1>
               {staff.position && <p className="text-sm text-gray-500 mt-1">{staff.position}</p>}
               {staff.years_experience && (
                 <p className="text-sm text-gray-500">経験{staff.years_experience}年</p>

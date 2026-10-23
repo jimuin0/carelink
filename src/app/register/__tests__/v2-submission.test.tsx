@@ -12,9 +12,9 @@ jest.mock('@/lib/recaptcha-client', () => ({ getRecaptchaToken: jest.fn().mockRe
 jest.mock('@/lib/image-compress', () => ({ compressImage: jest.fn(async (file: File) => file) }));
 const mockLegacyUpload = jest.fn();
 const mockSignedUpload = jest.fn();
-jest.mock('@/lib/supabase', () => ({ supabase: { storage: { from: () => ({
+jest.mock('@/lib/supabase-browser', () => { const client = { storage: { from: () => ({
   upload: mockLegacyUpload, uploadToSignedUrl: mockSignedUpload,
-}) } } }));
+}) } }; return { createBrowserSupabaseClient: () => client }; });
 const intentId = '11111111-1111-4111-8111-111111111111';
 const receiptId = '22222222-2222-4222-8222-222222222222';
 const response = (status: number, body: unknown) => ({ status, ok: status >= 200 && status < 300, json: async () => body }) as Response;

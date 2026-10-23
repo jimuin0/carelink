@@ -14,6 +14,28 @@ import { readSalonBrowserContext, readSalonRecoveryContext, salonHandoffAuthPath
 import { navigateAfterFacilitySetup } from '@/lib/onboarding-navigation';
 import { businessTypeLabel } from '@/lib/business-type-label';
 import { LICENSE_WARRANTY_TEXT } from '@/lib/registration-consent';
+import AdminUserMenu from '@/components/admin/AdminUserMenu';
+import { REGISTRATION_TERMS as T } from '@/lib/registration-glossary';
+
+type SetupRequest = {
+  facility_name: string; business_type: string; license_warranted: boolean;
+  intentId?: string | null; recoveryId?: string | null;
+};
+const SETUP_UNKNOWN_MESSAGE = `${T.shop}の作成結果をまだ確認できていません。`;
+
+/**
+ * 店舗がまだ無い人の管理画面には、管理画面のヘッダー（ログアウト）が出ない（admin レイアウトは
+ * 施設前提のナビを省いて本体だけを描く）。別アカウントでログインし直す手段が無かったので、
+ * ロゴとアカウントメニュー（ログアウト）だけの最小のヘッダーを置く。
+ */
+function OnboardingHeader() {
+  return (
+    <header className="flex items-center justify-between gap-4 border-b bg-white px-4 py-2" data-testid="onboarding-header">
+      <Link href="/" className="font-bold text-(--logo)">CareLink</Link>
+      <AdminUserMenu />
+    </header>
+  );
+}
 
 function OnboardingContent() {
   const router = useRouter();
@@ -28,7 +50,14 @@ function OnboardingContent() {
   // 誰でも到達できる /admin/onboarding で確認なしに施設を自動作成していた欠陥の根治）。
   // 'expired' = ログインの有効期限切れ（API が 401）。「認証が必要です」と再読み込みボタンだけを
   // 出すと、再読み込みしても同じ画面に戻るだけで先へ進めなかった（2026年10月23日）。
-  const [status, setStatus] = useState<'loading' | 'form' | 'creating' | 'error' | 'expired'>('loading');
+  // 'unknown' = 作成の POST を送ったが結果が分からない（202・通信断・時間切れ・読めない応答）。
+  // 作られた可能性があるので「エラー」とは言わず、同じ内容での再確認（サーバー側で冪等）を案内する。
+  const [status, setStatus] = useState<'loading' | 'form' | 'creating' | 'error' | 'expired' | 'unknown'>('loading');
+  const [unknownMessage, setUnknownMessage] = useState('');
+  const [rechecking, setRechecking] = useState(false);
+  // 既に店舗の管理者なら admin レイアウトのヘッダーが出ているので、最小ヘッダーは出さない。
+  const [hasMembership, setHasMembership] = useState(false);
+  const lastRequest = useRef<SetupRequest | null>(null);
   const [error, setError] = useState('');
   const [facilityNameInput, setFacilityNameInput] = useState('');
   const [businessTypeInput, setBusinessTypeInput] = useState('');
@@ -80,11 +109,12 @@ function OnboardingContent() {
 
       // 取得失敗を「未登録」と誤認すると既存ユーザーで重複セットアップを試みうるため、失敗として明示する
       if (existErr) {
-        setError('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
+        setError(`${T.shop}情報の確認に失敗しました。通信環境を確認して再読み込みしてください`);
         setStatus('error');
         return;
       }
 
+      if (existing) setHasMembership(true);
       if (existing && !registrationHandoff && !recoveredHandoff) {
         // 既に施設あり → 管理ダッシュボードへ。ダッシュボードは登録状況をライブに反映する
         // 正確なオンボーディング進捗（メニュー/スタッフ/写真/スケジュール/公開）を表示する。
@@ -163,7 +193,7 @@ function OnboardingContent() {
 
     void setup().catch(() => {
       if (cancelled) return;
-      setError('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
+      setError(`${T.shop}情報の確認に失敗しました。通信環境を確認して再読み込みしてください`);
       setStatus('error');
     });
     return () => { cancelled = true; };
@@ -191,11 +221,11 @@ function OnboardingContent() {
     }
     const trimmedName = facilityNameInput.trim();
     if (!trimmedName) {
-      setFormError('施設名を入力してください');
+      setFormError(`${T.shopName}を入力してください`);
       return;
     }
     if (!businessTypeInput) {
-      setFormError('業態を選択してください');
+      setFormError(`${T.businessType}を選択してください`);
       return;
     }
     if (!licenseWarranted) {
@@ -203,25 +233,45 @@ function OnboardingContent() {
       return;
     }
     setFormError('');
-    submitting.current = true;
+    const request: SetupRequest = {
+      facility_name: trimmedName,
+      business_type: businessTypeInput,
+      // The API independently validates and records this explicit assertion.
+      license_warranted: licenseWarranted,
+      ...(registrationHandoff ? { intentId: selectedIntent } : {}),
+      ...(recoveredHandoff ? { recoveryId: selectedRecovery } : {}),
+    };
+    lastRequest.current = request;
     setStatus('creating');
+    await sendSetup(request);
+  };
+
+  /** 作成結果が分からないときの再確認。同じ内容をもう一度送る（サーバーは同じ申込・同じ利用者なら
+   * 既存の店舗を返すだけで二重に作らない＝replay / already_member）。利用者が押したときだけ送る。 */
+  const recheckSetup = async () => {
+    if (!lastRequest.current || submitting.current) return;
+    setRechecking(true);
+    await sendSetup(lastRequest.current);
+    if (mounted.current) setRechecking(false);
+  };
+
+  const sendSetup = async (request: SetupRequest) => {
+    if (submitting.current) return;
+    submitting.current = true;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 30000);
     pendingSubmission.current = { controller, timer };
+    const unknown = (message?: string) => {
+      setUnknownMessage(message || SETUP_UNKNOWN_MESSAGE);
+      setStatus('unknown');
+    };
 
     try {
       const res = await fetch('/api/facility/setup', {
         method: 'POST',
         signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          facility_name: trimmedName,
-          business_type: businessTypeInput,
-          // The API independently validates and records this explicit assertion.
-          license_warranted: licenseWarranted,
-          ...(registrationHandoff ? { intentId: selectedIntent } : {}),
-          ...(recoveredHandoff ? { recoveryId: selectedRecovery } : {}),
-        }),
+        body: JSON.stringify(request),
       });
 
       if (!mounted.current) return;
@@ -231,17 +281,18 @@ function OnboardingContent() {
       if (!mounted.current) return;
       if (res.ok && data?.success === true && typeof data.facilityId === 'string' && UUID_REGEX.test(data.facilityId)) {
         navigateAfterFacilitySetup();
-      } else {
-        // An invalid response can follow a committed transaction. Reload checks
-        // membership first; never retry the POST automatically on ambiguity.
-        setError(typeof data?.error === 'string' && data?.success !== true
-          ? data.error : '作成結果を確認できませんでした。再読み込みして登録状況を確認してください');
+      } else if (!res.ok && res.status >= 400 && res.status < 500 && typeof data?.error === 'string'
+        && data?.success !== true) {
+        // 入力・引き継ぎの拒否（4xx）は作成されていないことが確定している。
+        setError(data.error);
         setStatus('error');
+      } else {
+        // 202（結果不明）・5xx・形の合わない応答は、作成済みの可能性がある。自動で再送はしない。
+        unknown(res.status === 202 && typeof data?.error === 'string' ? data.error : undefined);
       }
     } catch {
       if (!mounted.current) return;
-      setError('作成結果を確認できませんでした。再読み込みして登録状況を確認してください');
-      setStatus('error');
+      unknown();
     } finally {
       clearTimeout(timer);
       pendingSubmission.current = null;
@@ -249,13 +300,22 @@ function OnboardingContent() {
     }
   };
 
+  const content = renderContent();
+  return (
+    <>
+      {status !== 'loading' && !hasMembership && <OnboardingHeader />}
+      {content}
+    </>
+  );
+
+  function renderContent() {
   if (status === 'loading' || status === 'creating') {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-sky-200 border-t-sky-500 rounded-full animate-spin mx-auto mb-4" />
           <p className="text-sm text-gray-600">
-            {status === 'loading' ? '確認中...' : '施設を作成しています...'}
+            {status === 'loading' ? '確認中...' : `${T.shop}を作成しています...`}
           </p>
         </div>
       </div>
@@ -265,16 +325,16 @@ function OnboardingContent() {
   if (status === 'form') {
     return (
       <div className="section-container max-w-lg mx-auto py-16">
-        <SbPageHeader title="施設情報を確認" description="無料掲載と予約設定は別です。まず店舗情報を確認してください" />
+        <SbPageHeader title={`${T.shop}情報を確認`} description={`無料掲載と${T.onlineBooking}の設定は別です。まず${T.shop}情報を確認してください`} />
         {/* 🔴 引き継ぎ無しで店舗を作ると、送信済みの掲載申込（写真・営業時間・PR文など）は取り込まれず、
             後から /register/recover で選んでも ALREADY_MEMBER で取り込めなくなる。古い案内メールの
             リンクなど、どの入口から来ても作成前に復旧画面を案内する（2026年10月22日）。 */}
         {!registrationHandoff && !recoveredHandoff && <p className="text-sm text-gray-600 mb-4">掲載申込フォームから申込を送信済みの場合は、ここで作成せず<Link href={SALON_RECOVERY_PATH} className="text-primary underline">送信済みの掲載申込を復旧</Link>してください。ここで作成すると、申込の写真・営業時間・PR文などは引き継がれません。</p>}
-        {recoveredHandoff && <p className="text-sm mb-4">送信済みの申込を引き継ぎます。所在地：{receiptAddress || '未入力（管理画面で設定してください）'}。原申込の店舗名・業態・写真は保持します。ここではまだ一覧に公開されません。</p>}
+        {recoveredHandoff && <p className="text-sm mb-4">送信済みの掲載申込を引き継ぎます。所在地：{receiptAddress || '未入力（管理画面で設定してください）'}。原申込の店舗名・業種・写真は保持します。ここではまだ一覧に公開されません。</p>}
         <div className="bg-white rounded-xl shadow-xs p-6 space-y-4">
           <div>
             <label htmlFor="onboarding-facility-name" className="form-label">
-              施設名 <span className="text-red-500">*</span>
+              {T.shopName} <span className="text-red-500">*</span>
             </label>
             <SbInput
               id="onboarding-facility-name"
@@ -286,7 +346,7 @@ function OnboardingContent() {
           </div>
           <div>
             <label htmlFor="onboarding-business-type" className="form-label">
-              業態 <span className="text-red-500">*</span>
+              {T.businessType} <span className="text-red-500">*</span>
             </label>
             <select
               id="onboarding-business-type"
@@ -315,7 +375,7 @@ function OnboardingContent() {
           </label>
           {formError && <p role="alert" className="text-sm text-red-600">{formError}</p>}
           <button type="button" onClick={handleFormSubmit} className="btn-primary w-full py-3!">
-            施設を作成する
+            {T.shop}を作成する
           </button>
         </div>
       </div>
@@ -328,7 +388,7 @@ function OnboardingContent() {
     return (
       <div className="section-container max-w-lg mx-auto text-center py-16">
         <p role="alert" className="font-bold mb-4">ログインの有効期限が切れました</p>
-        <p className="text-sm text-gray-600 mb-6">施設はまだ作成していません。もう一度ログインすると、この画面の続きから進められます。</p>
+        <p className="text-sm text-gray-600 mb-6">店舗はまだ作成していません。もう一度ログインすると、この画面の続きから進められます。</p>
         <Link href={`/auth/login?redirect=${encodeURIComponent(back)}`} className="btn-primary px-8 py-3 inline-block">ログインして続ける</Link>
       </div>
     );
@@ -345,8 +405,23 @@ function OnboardingContent() {
     );
   }
 
+  if (status === 'unknown') {
+    return (
+      <div className="section-container max-w-lg mx-auto text-center py-16">
+        <h1 className="text-xl font-bold mb-4">{T.shop}の作成結果を確認中です</h1>
+        <p role="status" className="font-bold mb-4">{rechecking ? '作成状況を確認しています…' : unknownMessage}</p>
+        <p className="text-sm text-gray-600 mb-6">新しく申し込み直さず、下のボタンで同じ内容のまま作成状況を確認してください。作成済みなら管理画面へ進みます（同じ内容で確認しても、{T.shop}が二重に作られることはありません）。</p>
+        <button type="button" onClick={() => void recheckSetup()} disabled={rechecking} className="btn-primary px-8 py-3">
+          作成状況を再確認
+        </button>
+        {(registrationHandoff || recoveredHandoff) && <p className="text-sm text-gray-600 mt-6">確認できない状態が続く場合は、再申込せず、受付番号を添えて<Link href="/contact" className="text-primary underline">お問い合わせ</Link>ください。</p>}
+      </div>
+    );
+  }
+
   // done 状態は廃止（施設確定後は /admin へ replace 済み）。到達時はリダイレクト待ちの空表示。
   return null;
+  }
 }
 
 export default function OnboardingPage() {

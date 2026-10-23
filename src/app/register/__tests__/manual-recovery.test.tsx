@@ -11,7 +11,7 @@ jest.mock('@/lib/salon-draft-backup', () => ({ exportSalonDraftBackup: (...args:
 jest.mock('@/lib/salon-local-draft', () => ({ ...jest.requireActual('@/lib/salon-local-draft'), readLocalSalonDraft: () => mockReadLocal() }));
 jest.mock('@/lib/recaptcha-client', () => ({ getRecaptchaToken: () => mockCaptcha() }));
 jest.mock('@/lib/image-compress', () => ({ compressImage: async (file: File) => file }));
-jest.mock('@/lib/supabase', () => ({ supabase: { storage: { from: () => ({ upload: mockLegacyUpload, uploadToSignedUrl: mockSignedUpload, remove: jest.fn(), getPublicUrl: () => ({ data: { publicUrl: 'https://fixture.invalid/original.png' } }) }) } } }));
+jest.mock('@/lib/supabase-browser', () => { const client = { storage: { from: () => ({ upload: mockLegacyUpload, uploadToSignedUrl: mockSignedUpload, remove: jest.fn(), getPublicUrl: () => ({ data: { publicUrl: 'https://fixture.invalid/original.png' } }) }) } }; return { createBrowserSupabaseClient: () => client }; });
 const intentId = '11111111-1111-4111-8111-111111111111';
 const draftFile = new File(['fixture-backup'], 'carelink-draft.json', { type: 'application/json' });
 const fields = [[/^施設名/, '合成施設'], [/^業種/, 'ヘアサロン'], [/^代表者名/, '合成代表'], [/^メールアドレス/, 'fixture@example.invalid'], [/^電話番号/, '09012345678']] as const;

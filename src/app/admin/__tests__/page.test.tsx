@@ -55,7 +55,7 @@ function mockSupabase(opts: {
     // 在籍スタッフを勤務の有無つきで読む（workingStaffQuery）。勤務日を保存した人だけ staff_schedules に行がある。
     if (table === 'staff_profiles') {
       return chain({
-        data: staffIds.map(id => ({ id, staff_schedules: scheduledStaffIds.includes(id) ? [{ staff_id: id }] : [], schedule_overrides: [] })),
+        data: staffIds.map(id => ({ id, staff_schedules: scheduledStaffIds.includes(id) ? [{ day_of_week: 1, start_time: '10:00:00', end_time: '19:00:00' }] : [], schedule_overrides: [] })),
         error: opts.scheduleError,
       });
     }
@@ -188,7 +188,7 @@ test('勤務時間を保存していない有効スタッフがいれば、ス�
   const root = await AdminDashboard({ searchParams: Promise.resolve({}) });
   const link = staffStepLink(root);
   expect(String(link.props.className)).toContain('line-through');
-  expect(textOf(link)).toContain('スタッフ登録と勤務時間の保存（勤務時間が未登録で予約を受けられないスタッフ：1人）');
+  expect(textOf(link)).toContain('スタッフ登録と勤務時間の保存（勤務時間が未登録か営業時間外で予約を受けられないスタッフ：1人）');
   expect(findElementsWithDirectText(root, '予約枠：勤務スケジュール設定')).toHaveLength(0);
 });
 

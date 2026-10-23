@@ -18,13 +18,15 @@ import { buildBookingCreateNotifications, BookingNotificationPlanError } from '@
 import { HOME_VISIT_ADDRESS_REQUIRED_MESSAGE, isHomeVisitOnly } from '@/lib/home-visit';
 import { knownBookingRpcMessage } from '@/lib/booking-rpc-error';
 import { COUPON_TARGET_REJECTIONS, isTargetedCoupon } from '@/lib/coupon-eligibility';
-import { BOOKING_DURATION_MISMATCH_MESSAGE, BOOKING_SLOT_PASSED_MESSAGE, bookingDurationForMenus, hasSlotStarted, slotLengthMinutes } from '@/lib/booking-slot-rules';
+import { BOOKING_DURATION_MISMATCH_MESSAGE, BOOKING_SLOT_PASSED_MESSAGE, NO_CAPABLE_STAFF_MESSAGE, bookingDurationForMenus, hasSlotStarted, slotLengthMinutes } from '@/lib/booking-slot-rules';
 
 export const dynamic = 'force-dynamic';
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 const KNOWN_CREATE_REJECTIONS: Readonly<Record<string, string>> = {
   POINTS_INSUFFICIENT: 'ポイント残高が不足しています', BOOKING_NOT_READY: 'この店舗のネット予約は準備中です。店舗へ直接お問い合わせください',
   BOOKING_MENU_UNAVAILABLE: '選択したメニューは現在受付していません', BOOKING_CONFLICT: 'この時間帯は既に予約が入っています',
+  // 指名なしで、この時間に勤務するスタッフの誰も選んだメニューを担当できない（重複ではない・20261023180000）。
+  BOOKING_NO_CAPABLE_STAFF: NO_CAPABLE_STAFF_MESSAGE,
   STAFF_NOT_IN_FACILITY: '指定されたスタッフはこの施設で予約できません', BOOKING_CLOSED_DAY: 'この日は定休日のため予約できません',
   BOOKING_OUTSIDE_HOURS: '営業時間外のため予約できません', STAFF_NOT_WORKING: '指名されたスタッフはこの日時には勤務していません',
   COUPON_LIMIT: 'このクーポンは利用上限に達しています', COUPON_ALREADY_USED: 'このクーポンは既に利用済みです',

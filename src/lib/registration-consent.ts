@@ -30,5 +30,5 @@ export const LICENSE_WARRANTY_TEXT =
   '国家資格が必要な施術（あん摩マッサージ指圧・鍼・灸・柔道整復など）は、その資格を持つ者が行っていることを表明します（必須）';
 // Content fingerprint of Terms/Privacy plus their shared retirement notices.
 // This identifies an edition; it does not invent a legal effective date.
-export const REGISTRATION_TERMS_SHA256 = 'eee088e617635720ef002496d5f84c69a3d9900872ba21e751d6534a4a3ebb00';
+export const REGISTRATION_TERMS_SHA256 = 'f803cdc1342775572d7c63da4e3d4e2c987a503517d34a612c0745e8780c524d';
 export const REGISTRATION_CONSENT_REQUIRED = '利用規約・プライバシーポリシーへの同意と、必要な許認可の表明を改めて確認してください。入力は保持されています。古い画面の場合は、入力を保存して画面を更新してください。';

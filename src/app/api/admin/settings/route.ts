@@ -10,6 +10,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { checkPublishReadiness, isPublishedHoursConflict, isPublishedLocationConflict, LISTING_HOURS_MESSAGE } from '@/lib/facility-publish-gate';
 import { validateFacilityPrText } from '@/lib/medical-ad-guard';
+import { hoursSaveStaffWarning } from '@/lib/staff-hours-warning';
 import type { Database } from '@/types/database.types';
 import { authUnavailable, serverError } from '@/lib/with-route';
 import { verifyAuthUser } from '@/lib/auth-verification';
@@ -297,6 +298,9 @@ async function patchSettings(request: NextRequest) {
     ipAddress: ip,
     userAgent: ua,
   });
+  // 営業時間を保存して、勤務時間を保存したスタッフの誰の勤務も営業時間と重ならなくなったら、予約枠が出ない。
+  // 保存は止めず、注意だけ返す（2026年10月23日）。
+  const warning = parsed.data.business_hours ? await hoursSaveStaffWarning(admin, auth.facilityId) : null;
   // 保存した所在地を返し、画面の入力欄を実際に保存された値へ合わせられるようにする。
-  return NextResponse.json(location ? { ok: true, location } : { ok: true });
+  return NextResponse.json({ ok: true, ...(location ? { location } : {}), ...(warning ? { warning } : {}) });
 }

@@ -158,7 +158,7 @@ export default async function SearchPage(props: Props) {
       <section className="bg-linear-to-br from-sky-50 to-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
           <nav className="mb-4" aria-label="パンくずリスト">
-            <ol className="flex items-center gap-1.5 text-xs text-gray-500 flex-wrap">
+            <ol className="crumbs flex items-center gap-1.5 text-xs text-gray-500 flex-wrap">
               {breadcrumbs.map((item, i) => (
                 <li key={i} className="flex items-center gap-1.5">
                   {i > 0 && <span>/</span>}
@@ -171,7 +171,7 @@ export default async function SearchPage(props: Props) {
               ))}
             </ol>
           </nav>
-          <h1 className="text-2xl sm:text-3xl font-bold text-center mb-6">サロン・クリニックを探す</h1>
+          <h1 className="jp-balance text-2xl sm:text-3xl font-bold text-center mb-6">サロン・クリニックを探す</h1>
           <Suspense fallback={null}><SearchBar /></Suspense>
         </div>
       </section>
@@ -191,7 +191,7 @@ export default async function SearchPage(props: Props) {
           <div className="flex-1 min-w-0">
             {/* Header */}
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-gray-600 text-sm font-normal">
+              <h2 className="jp-balance text-gray-600 text-sm font-normal">
                 <span className="font-bold text-gray-900 text-lg">{total}</span> 件見つかりました
                 {filterCount > 0 && <span className="ml-2 text-xs text-sky-700">(フィルター{filterCount}件適用中)</span>}
               </h2>
@@ -231,8 +231,8 @@ export default async function SearchPage(props: Props) {
                   <svg className="w-14 h-14 text-gray-200 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
-                  <p className="text-gray-700 font-bold mb-1">該当する施設が見つかりませんでした</p>
-                  <p className="text-gray-500 text-sm mb-6">検索条件を変えて、もう一度お試しください</p>
+                  <p className="jp-balance text-gray-700 font-bold mb-1">該当する施設が見つかりませんでした</p>
+                  <p className="jp-pretty text-gray-500 text-sm mb-6">検索条件を変えて、もう一度お試しください</p>
                   <div className="flex flex-col sm:flex-row gap-3 justify-center flex-wrap">
                     <Link href="/search" className="px-5 py-2.5 bg-sky-700 text-white rounded-lg text-sm font-bold hover:bg-sky-800 transition-colors">すべての施設を見る</Link>
                     {searchParams.type && (
@@ -257,7 +257,7 @@ export default async function SearchPage(props: Props) {
                 {/* 掲載のあるエリア・業種（DB の実在値のみ。ハードコードすると 0件→0件 の連鎖を招く） */}
                 {(availableAreas.length > 0 || availableTypes.length > 0) && (
                   <div className="bg-white rounded-xl p-6">
-                    <h3 className="text-sm font-bold text-gray-700 mb-1">掲載のあるエリア・業種から探す</h3>
+                    <h3 className="jp-balance text-sm font-bold text-gray-700 mb-1">掲載のあるエリア・業種から探す</h3>
                     <p className="text-xs text-gray-500 mb-4">現在ご紹介できる施設があるのは以下です。</p>
                     <div className="flex flex-wrap gap-2">
                       {availableAreas.map((area) => (
@@ -285,8 +285,8 @@ export default async function SearchPage(props: Props) {
                 {/* 施設掲載CTA */}
                 <div className="bg-linear-to-r from-sky-50 to-indigo-50 rounded-xl p-6 flex items-center justify-between gap-4 flex-wrap">
                   <div>
-                    <p className="font-bold text-gray-800">お探しの施設が見つかりませんでしたか？</p>
-                    <p className="text-sm text-gray-500 mt-0.5">CareLink は施設の無料掲載を受け付けています。オーナー様はぜひご登録を。</p>
+                    <p className="jp-balance font-bold text-gray-800">お探しの施設が見つかりませんでしたか？</p>
+                    <p className="jp-pretty text-sm text-gray-500 mt-0.5">CareLink は施設の無料掲載を受け付けています。オーナー様はぜひご登録を。</p>
                   </div>
                   <Link
                     href="/register"

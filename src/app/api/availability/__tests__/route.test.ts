@@ -584,3 +584,67 @@ test('availability RPCs run through the service-role client, never anon PostgRES
   const source = require('fs').readFileSync(require('path').join(process.cwd(), 'src/app/api/availability/route.ts'), 'utf8');
   expect(source).not.toMatch(/supabase\.rpc\('get_(available_slots|month_availability)'/);
 });
+
+// 2026年10月23日: 当日の「本日空き」が開始時刻（JST）を過ぎた枠まで数えていた。
+// 集約 RPC は日単位の件数しか返さないため、当日だけ「これから始まる枠」で数え直す。
+describe('当日は開始時刻を過ぎた枠を数えない', () => {
+  afterEach(() => { jest.useRealTimers(); });
+  const at = (iso: string) => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] });
+    jest.setSystemTime(new Date(iso));
+  };
+
+  test('JST 12:00 には 9〜12時の枠を数えず、当日は few になる（他の日は集約値のまま）', async () => {
+    at('2027-06-10T03:00:00Z'); // JST 2027-06-10 12:00
+    setupDefaultMocks({ monthSlots: 5, legacySlotsPerStaff: 5 }); // 09:00〜13:00
+    const res = await GET(makeRequest(VALID_UUID, undefined, 2027, 6));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.dates['2027-06-10']).toEqual({ slots: 2, status: 'few' }); // 13:00 × 2人
+    expect(json.dates['2027-06-11']).toEqual({ slots: 3, status: 'available' });
+    expect(json.dates['2027-06-09'].status).toBe('past');
+    const dayCalls = mockRpc.mock.calls.filter((c) => c[0] === 'get_available_slots');
+    expect(dayCalls.map((c) => c[1].p_date)).toEqual(['2027-06-10', '2027-06-10']);
+  });
+
+  test('当日の枠がすべて過ぎていれば full（空き扱いにしない）', async () => {
+    at('2027-06-10T05:00:00Z'); // JST 14:00
+    setupDefaultMocks({ monthSlots: 5, legacySlotsPerStaff: 5 });
+    const json = await (await GET(makeRequest(VALID_UUID, undefined, 2027, 6))).json();
+    expect(json.dates['2027-06-10']).toEqual({ slots: 0, status: 'full' });
+  });
+
+  test('UTC ではまだ前日の JST 早朝も、当日（JST）の枠を数え直す', async () => {
+    at('2027-06-09T16:00:00Z'); // JST 2027-06-10 01:00
+    setupDefaultMocks({ monthSlots: 0, legacySlotsPerStaff: 5 });
+    const json = await (await GET(makeRequest(VALID_UUID, undefined, 2027, 6))).json();
+    expect(json.dates['2027-06-10'].status).toBe('available');
+    expect(json.dates['2027-06-09'].status).toBe('past');
+  });
+
+  test('当日が定休日なら数え直さず closed', async () => {
+    at('2027-06-10T03:00:00Z'); // 2027-06-10 は木曜
+    setupDefaultMocks({ monthSlots: 5, businessHours: { thu: null } });
+    const json = await (await GET(makeRequest(VALID_UUID, undefined, 2027, 6))).json();
+    expect(json.dates['2027-06-10'].status).toBe('closed');
+    expect(mockRpc.mock.calls.some((c) => c[0] === 'get_available_slots')).toBe(false);
+  });
+
+  test('当日の数え直しが失敗したら成功応答にしない', async () => {
+    at('2027-06-10T03:00:00Z');
+    setupDefaultMocks({ monthSlots: 5 });
+    const base = mockRpc.getMockImplementation()!;
+    mockRpc.mockImplementation((fn: string, params: Record<string, number>) =>
+      fn === 'get_available_slots' ? Promise.resolve({ data: null, error: { code: '57014' } }) : base(fn, params));
+    const res = await GET(makeRequest(VALID_UUID, undefined, 2027, 6));
+    expect(res.status).toBe(500);
+  });
+
+  test('フォールバック経路でも当日は過ぎた枠を数えない', async () => {
+    at('2027-06-10T03:00:00Z');
+    setupDefaultMocks({ monthError: { code: 'PGRST202' }, staffCount: 1, legacySlotsPerStaff: 5 });
+    const json = await (await GET(makeRequest(VALID_UUID, undefined, 2027, 6))).json();
+    expect(json.dates['2027-06-10']).toEqual({ slots: 1, status: 'few' });
+    expect(json.dates['2027-06-11'].status).toBe('available');
+  });
+});

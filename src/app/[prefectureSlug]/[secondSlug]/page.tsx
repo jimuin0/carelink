@@ -136,7 +136,7 @@ async function TypePage({ prefectureSlug, prefName, typeSlug, searchParams }: {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(itemListJsonLd) }} />
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Breadcrumb items={[{ label: 'トップ', href: '/' }, { label: prefName, href: `/${prefectureSlug}` }, { label: typeName }]} />
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">{prefName}の{typeName}</h1>
+        <h1 className="jp-balance text-2xl sm:text-3xl font-bold text-gray-900 mb-2">{prefName}の{typeName}</h1>
         <p className="text-sm text-gray-500 mb-8">{total}件の施設が見つかりました</p>
 
         <div className="mb-8">
@@ -205,7 +205,7 @@ async function CityPage({ prefectureSlug, prefName, citySlug, cityName, searchPa
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(itemListJsonLd) }} />
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Breadcrumb items={[{ label: 'トップ', href: '/' }, { label: prefName, href: `/${prefectureSlug}` }, { label: cityName }]} />
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">{cityName}のサロン・クリニック</h1>
+        <h1 className="jp-balance text-2xl sm:text-3xl font-bold text-gray-900 mb-2">{cityName}のサロン・クリニック</h1>
         <p className="text-sm text-gray-500 mb-8">{total}件の施設が見つかりました</p>
 
         {/* 業種ナビ */}

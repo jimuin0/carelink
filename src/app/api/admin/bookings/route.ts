@@ -24,6 +24,7 @@ const schema = z.object({
   phone: z.string().max(20).nullable().optional(), note: z.string().max(500).nullable().optional(),
 });
 const NO_WORKING_STAFF_MESSAGE = 'この時間に勤務予定のスタッフがいないため、指名なしでは登録できません。担当を選ぶか、スタッフの勤務時間を登録してください。';
+const NO_CAPABLE_STAFF_MESSAGE = 'この時間に勤務するスタッフの中に、選択したメニューを担当できる人がいないため、指名なしでは登録できません。担当を選ぶか、メニューの担当スタッフを確認してください。';
 const resultSchema = z.object({
   booking_id: z.string().uuid(), replayed: z.boolean(), total_price: z.number().int().nonnegative(),
   menu_names: z.string(), staff_name: z.string().nullable(), facility_name: z.string(),
@@ -93,6 +94,8 @@ export async function POST(request: NextRequest) {
       // 指名なしで、その時間に勤務しているスタッフが 1 人もいない（重複ではない。20261023130100）。
       // 担当を選べば勤務時間に関係なく登録できるので、そう案内する。
       if (error.message.includes('BOOKING_NO_WORKING_STAFF')) return NextResponse.json({ code: 'BOOKING_NO_WORKING_STAFF', error: NO_WORKING_STAFF_MESSAGE }, { status: 409 });
+      // 指名なしで、勤務しているスタッフはいるが誰も選んだメニューを担当できない（重複ではない。20261023180000）。
+      if (error.message.includes('BOOKING_NO_CAPABLE_STAFF')) return NextResponse.json({ code: 'BOOKING_NO_CAPABLE_STAFF', error: NO_CAPABLE_STAFF_MESSAGE }, { status: 409 });
       if (error.message.includes('BOOKING_CONFLICT')) return NextResponse.json({ code: 'BOOKING_CONFLICT', error: 'この時間帯は既に予約が入っています' }, { status: 409 });
       if (/MANUAL_OPERATION_(CONFLICT|RETIRED)/.test(error.message)) {
         return NextResponse.json({ code: 'MANUAL_OPERATION_RECOVERY', error: 'この操作は変更または削除済みです。同じ操作で原予約を照合してください' }, { status: 409 });

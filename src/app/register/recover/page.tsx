@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { businessTypes } from '@/lib/constants';
 import { SALON_RECOVERY_ONBOARDING_PATH, saveSalonRecoveryContext, salonRecoveryAuthPath } from '@/lib/salon-browser-context';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import ReceiptNumber from '@/components/register/ReceiptNumber';
 
 const resultSchema = z.object({ state: z.literal('ready'), receipts: z.array(z.object({
   receipt_id: z.uuid(), facility_name: z.string().min(1).max(200),
@@ -52,8 +53,8 @@ async function requestPreparation(receiptId: string, signal: AbortSignal) {
 }
 
 export default function RecoverRegistrationPage() {
-  return <Suspense fallback={<main className="section-container max-w-xl mx-auto py-16">
-    <h1 className="text-2xl font-bold mb-4">送信済みの掲載申込を復旧</h1><p role="status">受付情報を確認しています…</p></main>}>
+  return <Suspense fallback={<div className="section-container max-w-xl mx-auto py-16">
+    <h1 className="text-2xl font-bold mb-4">送信済みの掲載申込を復旧</h1><p role="status">受付情報を確認しています…</p></div>}>
     <RecoverRegistrationContent />
   </Suspense>;
 }
@@ -123,7 +124,7 @@ function RecoverRegistrationContent() {
     } finally { inFlight.current = false; if (live.current) setBusy(false); }
   };
 
-  return <main className="section-container max-w-xl mx-auto py-16">
+  return <div className="section-container max-w-xl mx-auto py-16">
     <h1 className="text-2xl font-bold mb-4">送信済みの掲載申込を復旧</h1>
     {fromHandoff && <div className="mb-4 rounded-lg bg-sky-50 p-4 text-sm text-sky-900" data-testid="handoff-recovery-guide">
       <p className="font-bold">申込を選んでください</p>
@@ -135,11 +136,11 @@ function RecoverRegistrationContent() {
     {loaded && !error && receipts.length === 0 && <p className="mb-4">一致する受付を確認できませんでした。別の申込メールや取り込み状況は自動判定できません。再送する前にお問い合わせください。</p>}
     <ul className="space-y-4 mb-4">{receipts.map(receipt => <li key={receipt.receipt_id} className="rounded-sm border p-4">
       <p className="font-bold">{receipt.facility_name}</p><p>{businessTypeLabel(receipt.business_type)}</p>
-      <p className="text-sm">受付番号：{receipt.receipt_id}</p>
+      <ReceiptNumber id={receipt.receipt_id} />
       <button type="button" disabled={busy} onClick={() => void handleSelect(receipt.receipt_id)} className="btn-primary mt-3">この申込の店舗情報を確認</button>
     </li>)}</ul>
     {next && <button type="button" disabled={busy} onClick={() => void load(next)} className="btn-secondary mb-4">次の受付を表示</button>}
     <button type="button" disabled={busy} onClick={() => void load()} className="btn-secondary mb-4 ml-2">先頭から再確認</button>
     <p className="text-sm">異なるメールアドレス、他の管理者に取り込み済みの申込、重複店舗の統合、複数店舗の管理は自動処理しません。<Link href="/contact" className="underline">お問い合わせ</Link>で受付番号をお知らせください。</p>
-  </main>;
+  </div>;
 }

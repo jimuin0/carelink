@@ -56,3 +56,45 @@ const COUPON_TYPE_LABEL: Record<CouponTypeValue, string> = {
 export function couponTypeLabel(couponType: string): string {
   return COUPON_TYPE_LABEL[couponType as CouponTypeValue] ?? COUPON_TYPE_LABEL.all;
 }
+
+/**
+ * クーポン名の先頭にある「対象」の括弧書き（例【新規】）。バッジと同じ意味のものだけを対象にする。
+ * 【人気No.1】のような対象と無関係な括弧書きは店舗の表現なので消さない。
+ */
+const TARGET_PREFIX: Record<CouponTypeValue, RegExp> = {
+  new_customer: /^(?:新規|初回)(?:限定|様|の方)?$/,
+  repeat: /^(?:リピーター|リピート|再来|2回目以降)(?:限定|様|の方)?$/,
+  limited_time: /^期間限定$/,
+  all: /^(?:全員|全員対象|どなたでも)$/,
+};
+const BRACKET_PREFIX = /^\s*[【［[]([^】］\]]{1,10})[】］\]]\s*/;
+
+/**
+ * バッジ（CouponBadge）と並べて出すクーポン名。名前の先頭の【新規】などがバッジと同じことを
+ * 言っているときだけ外す（2026年10月23日。「新規」バッジの横に「【新規】上まつ毛パーマ」と
+ * 二重に出ていた）。外すと空になる名前はそのまま返す。
+ */
+export function couponDisplayName(name: string, couponType: string): string {
+  const match = BRACKET_PREFIX.exec(name);
+  const pattern = TARGET_PREFIX[couponType as CouponTypeValue];
+  if (!match || !pattern || !pattern.test(match[1].trim())) return name;
+  const rest = name.slice(match[0].length).trim();
+  return rest || name;
+}
+
+/**
+ * クーポンの説明が「通常¥6,900→¥5,800」のように、画面に別途出している価格（通常価格・
+ * クーポン価格）を言い直しただけのものか。そうなら説明を出さない（価格が二重に出ていた）。
+ * 数字・通貨記号・矢印・「通常」以外の言葉が 1 文字でも入っていれば店舗の説明として残す。
+ * 数字が表示中の価格と食い違うときも残す（どちらが正しいかを画面側で決めない）。
+ */
+export function isPriceOnlyDescription(
+  description: string,
+  price: { regular: number; discounted: number },
+): boolean {
+  const rest = description.replace(/通常(?:価格)?|[\d,，¥￥円\s→⇒➡＞>〜～\-:：()（）]/g, '');
+  if (rest !== '') return false;
+  const numbers = (description.match(/\d[\d,，]*/g) ?? []).map((n) => Number(n.replace(/[,，]/g, '')));
+  if (numbers.length === 0) return false;
+  return numbers.every((n) => n === price.regular || n === price.discounted);
+}

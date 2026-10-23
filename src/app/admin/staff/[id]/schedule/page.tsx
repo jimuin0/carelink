@@ -81,7 +81,7 @@ function StaffSchedulePageForm() {
   const [loadError, setLoadError] = useState(false);
   const [dirty, setDirty] = useState(false);
   useUnsavedGuard(dirty);
-  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [toast, setToast] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
 
   // React Compiler の set-state-in-effect 対策：取得処理を useCallback 関数として effect の
   // 依存に置き外部から直接呼ぶのではなく、effect 内に inline した非同期IIFEとして定義する
@@ -237,7 +237,11 @@ function StaffSchedulePageForm() {
       finishStaffOperation(operationKey.current); pendingSchedules.current = null; setPendingSave(false);
       setDirty(false);
       setReloadKey(k => k + 1);
-      setToast({ type: 'success', message: 'スケジュールを保存しました' });
+      // 勤務時間が店舗の営業時間と重ならない曜日があれば、API が warning で知らせる（保存はされている）。
+      const saved = await res.json().catch(() => ({}));
+      setToast(typeof saved?.warning === 'string' && saved.warning
+        ? { type: 'info', message: `スケジュールを保存しました。${saved.warning}` }
+        : { type: 'success', message: 'スケジュールを保存しました' });
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
     } finally {
@@ -277,7 +281,10 @@ function StaffSchedulePageForm() {
       }
       setNewOverrideDate('');
       setReloadKey((k) => k + 1);
-      setToast({ type: 'success', message: '特別日を追加しました' });
+      const added = await res.json().catch(() => ({}));
+      setToast(typeof added?.warning === 'string' && added.warning
+        ? { type: 'info', message: `特別日を追加しました。${added.warning}` }
+        : { type: 'success', message: '特別日を追加しました' });
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
     } finally {

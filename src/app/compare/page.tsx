@@ -29,7 +29,7 @@ export default async function ComparePage(props: Props) {
   if (ids.length === 0) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-12 text-center">
-        <h1 className="text-xl font-bold mb-4">施設比較</h1>
+        <h1 className="jp-balance text-xl font-bold mb-4">施設比較</h1>
         <p className="text-gray-500 mb-6">比較する施設を選んでください。検索結果で「比較」ボタンを押すと追加できます。</p>
         <Link href="/search" className="btn-primary">施設を探す</Link>
       </div>
@@ -94,7 +94,7 @@ export default async function ComparePage(props: Props) {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
-      <h1 className="text-xl font-bold mb-6">施設比較</h1>
+      <h1 className="jp-balance text-xl font-bold mb-6">施設比較</h1>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>

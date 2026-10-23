@@ -77,7 +77,7 @@ export default function SymptomCheckerPage() {
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10">
-        <h1 className="text-2xl sm:text-3xl font-bold text-center mb-3">症状チェッカー</h1>
+        <h1 className="jp-balance text-2xl sm:text-3xl font-bold text-center mb-3">症状チェッカー</h1>
         <p className="text-sm text-gray-500 text-center mb-4">お悩みの症状を選択すると、対応できる店舗が見つかります</p>
 
         {/* 【医療上の免責・必須】この機能は「椎間板ヘルニア」「自律神経失調症」等の疾患名を選択させる

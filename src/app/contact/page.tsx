@@ -140,7 +140,7 @@ function ContactPageContent() {
   return (
     <div className="section-container">
       <div className="max-w-2xl mx-auto">
-        <h1 className="text-3xl font-bold text-center mb-4">
+        <h1 className="jp-balance text-3xl font-bold text-center mb-4">
           お問い合わせ
         </h1>
 

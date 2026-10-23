@@ -9,7 +9,7 @@
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import StickySignupCta from '../StickySignupCta';
-import { COOKIE_CONSENT_CHANGE_EVENT, COOKIE_CONSENT_STORAGE_KEY } from '@/lib/cookie-consent';
+import { COOKIE_CONSENT_CHANGE_EVENT, COOKIE_CONSENT_STORAGE_KEY, closeCookieSettings, openCookieSettings } from '@/lib/cookie-consent';
 
 function notifyCookieConsentChanged() {
   window.dispatchEvent(new Event(COOKIE_CONSENT_CHANGE_EVENT));
@@ -73,4 +73,15 @@ test('閉じたらこのセッションでは出さない', async () => {
   await renderCta();
   expect(screen.queryByRole('link', { name: '無料で会員登録する' })).toBeNull();
   expect(mockGetUser).toHaveBeenCalledTimes(1);
+});
+
+// 2026年10月23日: フッターの「Cookie設定」でバナーを開き直している間は出さない（下部ナビ・CTA・バナーの 3 段にしない）。
+test('Cookie の設定を開き直している間は出さず、閉じたら戻す', async () => {
+  localStorage.setItem(COOKIE_CONSENT_STORAGE_KEY, '{}');
+  await renderCta();
+  expect(screen.getByRole('link', { name: '無料で会員登録する' })).toBeInTheDocument();
+  act(() => openCookieSettings());
+  expect(screen.queryByRole('link', { name: '無料で会員登録する' })).toBeNull();
+  act(() => closeCookieSettings());
+  expect(screen.getByRole('link', { name: '無料で会員登録する' })).toBeInTheDocument();
 });

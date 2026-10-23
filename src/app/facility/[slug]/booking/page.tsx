@@ -9,6 +9,7 @@ import { isHomeVisitOnly } from '@/lib/home-visit';
 import Link from 'next/link';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
+import { isDialablePhone } from '@/lib/facility-contact';
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -40,11 +41,7 @@ export default async function BookingPage(props: Props) {
 
   const preparation = await checkBookingReadiness(createServerSupabaseClient(), facility.id);
   if (preparation.error) throw new Error('Online booking preparation lookup failed');
-  if (!preparation.readiness.ready) return <main className="max-w-2xl mx-auto p-6">
-    <h1>{facility.name}</h1><p>ネット予約は準備中です。ご予約については店舗へ直接お問い合わせください。</p>
-    {facility.phone && <p><a href={`tel:${facility.phone}`}>店舗に電話する</a></p>}
-    <Link href={`/facility/${params.slug}`}>店舗情報に戻る</Link>
-  </main>;
+  if (!preparation.readiness.ready) return <BookingNotReady slug={params.slug} name={facility.name} phone={facility.phone} />;
 
   const [staff, { menus }, coupons, cancelPolicy] = await Promise.all([
     // 指名候補は勤務時間のあるスタッフだけ（勤務の無い人を選ぶと毎日「満枠」になる）。
@@ -74,7 +71,7 @@ export default async function BookingPage(props: Props) {
   return (
     <div className="bg-gray-50 min-h-screen">
       <div className="max-w-2xl mx-auto px-4 py-8">
-        <h1 className="text-xl font-bold mb-2">{facility.name}</h1>
+        <h1 className="jp-balance text-xl font-bold mb-2">{facility.name}</h1>
         <p className="text-sm text-gray-500 mb-6">オンライン予約</p>
 
         <BookingFlow
@@ -89,6 +86,48 @@ export default async function BookingPage(props: Props) {
           menuStaffMap={menuStaffMap}
         />
       </div>
+    </div>
+  );
+}
+
+/**
+ * ネット予約の準備が整っていない店舗の予約ページ（2026年10月23日）。
+ *
+ * 以前は装飾の無い素の文章だけで、電話番号が無い（または tel: にできない）店舗では連絡手段が
+ * 1 つも出ず、来訪者は行き止まりになっていた。予約ページと同じ枠で見せ、電話番号は店舗ページと同じ
+ * 判定（isDialablePhone）を通ったときだけ出し、店舗ページのお問い合わせフォームへの導線は必ず出す。
+ */
+function BookingNotReady({ slug, name, phone }: { slug: string; name: string; phone?: string | null }) {
+  const dialable = isDialablePhone(phone);
+  return (
+    <div className="bg-gray-50 min-h-screen">
+      <main className="max-w-2xl mx-auto px-4 py-8">
+        <h1 className="text-xl font-bold mb-2">{name}</h1>
+        <p className="text-sm text-gray-500 mb-6">オンライン予約</p>
+        <section className="bg-white rounded-xl border border-gray-200 p-6" aria-labelledby="booking-not-ready-heading">
+          <h2 id="booking-not-ready-heading" className="text-base font-bold text-gray-900 mb-2">ネット予約は準備中です</h2>
+          <p className="text-sm text-gray-600 mb-5">
+            ご予約については、{dialable ? 'お電話または' : ''}お問い合わせフォームから店舗へ直接お問い合わせください。
+          </p>
+          <div className="flex flex-col gap-3">
+            {dialable && (
+              <a href={`tel:${phone}`} className="btn-primary text-center">
+                店舗に電話する
+              </a>
+            )}
+            {dialable && <p className="text-sm text-gray-700 text-center -mt-1">{phone}</p>}
+            <Link
+              href={`/facility/${slug}#contact-section`}
+              className="text-center rounded-lg border border-sky-700 px-4 py-3 text-sm font-bold text-sky-700 hover:bg-sky-50"
+            >
+              お問い合わせフォームで問い合わせる
+            </Link>
+          </div>
+        </section>
+        <p className="mt-6 text-center">
+          <Link href={`/facility/${slug}`} className="text-sm text-sky-700 hover:underline">店舗情報に戻る</Link>
+        </p>
+      </main>
     </div>
   );
 }

@@ -60,7 +60,7 @@ describe('resetPasswordSchema', () => {
     expect(PASSWORD_MIN_LENGTH).toBe(8);
     expect(parse('a'.repeat(8)).success).toBe(true);
     expect(messages(parse('a'.repeat(7)))).toEqual(['パスワードは8文字以上で入力してください']);
-    expect(PASSWORD_RULES_HINT).toBe('8文字以上、半角72文字以内（全角文字は1文字を3文字分として数えます）');
+    expect(PASSWORD_RULES_HINT).toBe('8文字以上、半角72文字以内（全角文字は1文字を3文字分として数えます）。英字・数字・記号を組み合わせる必要はありません。');
     const mismatch = parse('long-enough-1', 'long-enough-2');
     expect(mismatch.success).toBe(false);
     expect(mismatch.success ? null : mismatch.error.issues[0]).toMatchObject({

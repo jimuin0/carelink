@@ -44,6 +44,7 @@ import { safeJsonLd } from '@/lib/json-ld';
 import { checkBookingReadiness } from '@/lib/facility-publish-gate';
 import { formatFacilityAddress, formatFacilityLocality } from '@/lib/facility-location';
 import { isDialablePhone } from '@/lib/facility-contact';
+import { facilityShareImage } from '@/lib/share-image';
 
 export const revalidate = 3600;
 
@@ -80,6 +81,8 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   const description = facility.catch_copy || `${locality}の${typeLabel}「${facility.name}」のメニュー・料金・アクセス情報`;
 
   const url = `${SITE_URL}/facility/${params.slug}`;
+  // 共有画像はメイン写真、無ければ店名入りの画像（src/lib/share-image.ts）。og と twitter で同じものを出す。
+  const image = facilityShareImage(SITE_URL, facility, `${typeLabel} | ${locality}`);
 
   return {
     title,
@@ -90,18 +93,15 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
       description,
       type: 'website',
       url,
+      locale: 'ja_JP',
       siteName: 'CareLink',
-      images: [{
-        url: `${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(typeLabel + ' | ' + locality)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`,
-        width: 1200,
-        height: 630,
-      }],
+      images: [image],
     },
     twitter: {
       card: 'summary_large_image',
       title: ogTitle,
       description,
-      images: [`${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(typeLabel + ' | ' + locality)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`],
+      images: [{ url: image.url, alt: image.alt }],
     },
   };
 }
@@ -245,7 +245,7 @@ export default async function FacilityPage(props: Props) {
           const typeSlug = getBusinessTypeSlug(facility.business_type);
           return (
             <nav className="px-4 sm:px-6 pt-3 pb-1" aria-label="パンくずリスト">
-              <ol className="flex items-center gap-1.5 text-xs text-gray-500 overflow-x-auto">
+              <ol className="crumbs flex items-center gap-1.5 text-xs text-gray-500 overflow-x-auto">
                 <li><Link href="/" className="hover:text-sky-600 transition-colors">トップ</Link></li>
                 <li><span className="mx-1">/</span></li>
                 {prefSlug && (
@@ -287,7 +287,7 @@ export default async function FacilityPage(props: Props) {
                 const min = Math.min(...prices);
                 const max = Math.max(...prices);
                 return (
-                  <span className="text-sm font-bold text-sky-700">
+                  <span className="text-sm font-bold text-gray-900">
                     {min === max ? `¥${min.toLocaleString()}` : `¥${min.toLocaleString()}〜¥${max.toLocaleString()}`}
                   </span>
                 );
@@ -614,22 +614,23 @@ function TopTab({ facility, featuredMenus, blog }: {
           <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-line">{facility.description}</p>
         </div>
       )}
-      {/* おすすめメニュー */}
+      {/* おすすめメニュー。見出しの帯は他の見出しと同じ色にそろえ、価格は濃い文字にする
+          （黄色の帯と青い価格は「特別な割引」のように見えていた。色の意味は FacilityCard を参照）。 */}
       {featuredMenus.length > 0 && (
         <div>
           <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
-            <span className="w-1 h-5 bg-amber-400 rounded-full" />
+            <span className="w-1 h-5 bg-sky-500 rounded-full" />
             おすすめメニュー
           </h2>
           <div className="space-y-3">
             {featuredMenus.map((menu) => (
-              <div key={menu.id} className="flex items-start justify-between p-4 bg-amber-50 rounded-xl border border-amber-100">
+              <div key={menu.id} className="flex items-start justify-between p-4 bg-gray-50 rounded-xl border border-gray-100">
                 <div className="flex-1 mr-4">
                   <p className="font-bold text-sm">{menu.name}</p>
                   {menu.description && <p className="text-gray-500 text-xs mt-1">{menu.description}</p>}
                 </div>
                 <div className="text-right">
-                  <p className="font-bold text-sm text-sky-700">
+                  <p className="font-bold text-sm text-gray-900">
                     {menu.price_note || (menu.price !== null ? `¥${menu.price.toLocaleString()}` : '-')}
                   </p>
                   {menu.duration_minutes && (

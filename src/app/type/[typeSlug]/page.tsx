@@ -98,7 +98,7 @@ export default async function BusinessTypePage({ params }: Props) {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Breadcrumb items={[{ label: 'トップ', href: '/' }, { label: typeName }]} />
 
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
+        <h1 className="jp-balance text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
           全国の{typeName}
         </h1>
         <p className="text-sm text-gray-500 mb-8">{total}件の施設を掲載中</p>

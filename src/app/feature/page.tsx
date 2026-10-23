@@ -3,6 +3,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { getPublishedFeatures } from '@/lib/features';
 import Breadcrumb from '@/components/Breadcrumb';
+import { featureBannerImage } from '@/lib/feature-banner';
 
 export const revalidate = 3600;
 
@@ -28,31 +29,28 @@ export default async function FeatureListPage() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Breadcrumb items={[{ label: 'トップ', href: '/' }, { label: '特集一覧' }]} />
 
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-8">特集・おすすめ企画</h1>
+        <h1 className="jp-balance text-2xl sm:text-3xl font-bold text-gray-900 mb-8">特集・おすすめ企画</h1>
 
         {features.length > 0 ? (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {features.map((f) => (
+            {features.map((f) => {
+              // 画像が未登録の特集は業種の写真を使う（トップの特集バナーと同じ写真。src/lib/feature-banner.ts）
+              const image = featureBannerImage(f);
+              return (
               <Link
                 key={f.id}
                 href={`/feature/${f.slug}`}
                 className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-shadow"
               >
                 <div className="relative aspect-video bg-linear-to-br from-sky-100 to-sky-50">
-                  {f.banner_image_url ? (
+                  {image && (
                     <Image
-                      src={f.banner_image_url}
-                      alt={f.title}
+                      src={image}
+                      alt=""
                       fill
                       sizes="(max-width: 640px) 100vw, 33vw"
                       className="object-cover"
                     />
-                  ) : (
-                    <div className="flex items-center justify-center h-full">
-                      <svg className="w-12 h-12 text-sky-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
-                      </svg>
-                    </div>
                   )}
                 </div>
                 <div className="p-5">
@@ -62,7 +60,8 @@ export default async function FeatureListPage() {
                   )}
                 </div>
               </Link>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="text-center py-16 bg-white rounded-2xl">

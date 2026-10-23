@@ -62,7 +62,7 @@ function UnsubscribeContent() {
           {status === 'already' && 'ℹ️'}
           {status === 'error' && '❌'}
         </div>
-        <h1 className="text-xl font-bold mb-2">
+        <h1 className="jp-balance text-xl font-bold mb-2">
           {status === 'confirm' && 'メール配信を停止しますか？'}
           {status === 'loading' && '処理中...'}
           {status === 'success' && '配信停止しました'}

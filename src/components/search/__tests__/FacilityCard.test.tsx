@@ -51,3 +51,23 @@ describe('空きの表示（予約希望日で検索したとき）', () => {
     expect(screen.queryByText('空きなし')).not.toBeInTheDocument();
   });
 });
+
+// 価格の色と取り消し線（2026年10月23日）。施設の価格帯は割引前の価格でも割引後の価格でもないので、
+// クーポンがあっても線を引かず赤にもしない（以前は最安値に線を引き「クーポン価格あり」を赤で出していた）。
+describe('価格帯の表示', () => {
+  test.each([0, 3])('クーポン %i 枚でも価格帯を濃い太字でそのまま出す', (coupon_count) => {
+    render(<FacilityCard facility={{ ...card, coupon_count }} />);
+    const price = screen.getByTestId('facility-card-price');
+    expect(price).toHaveTextContent('¥500〜¥1,000');
+    expect(price).toHaveClass('font-bold', 'text-gray-900');
+    expect(price.innerHTML).not.toMatch(/line-through|text-red/);
+    expect(screen.queryByText('クーポン価格あり')).not.toBeInTheDocument();
+  });
+
+  test('最安値と最高値が同じ・最高値が無いときは 1 つだけ出す', () => {
+    const { rerender } = render(<FacilityCard facility={{ ...card, max_price: 500 }} />);
+    expect(screen.getByTestId('facility-card-price')).toHaveTextContent(/^¥500$/);
+    rerender(<FacilityCard facility={{ ...card, max_price: null }} />);
+    expect(screen.getByTestId('facility-card-price')).toHaveTextContent(/^¥500$/);
+  });
+});

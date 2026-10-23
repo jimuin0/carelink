@@ -5,6 +5,8 @@ import { useState, useCallback } from 'react';
 import { businessTypes, facilityFeatures, regionGroups } from '@/lib/constants';
 import StationSearch from './StationSearch';
 import { businessTypeLabel } from '@/lib/business-type-label';
+// 予約希望日の下限は JST の今日。toISOString（UTC）だと JST 0:00〜8:59 は前日が選べ当日を選べなかった。
+import { getTodayString } from '@/lib/validations-booking';
 
 /**
  * @param onApplied 「この条件で検索」「クリア」「駅から探す」で検索結果を切り替えた直後に呼ぶ。スマホの絞り込み
@@ -181,7 +183,7 @@ export default function SearchFilters({ className, onApplied }: { className?: st
           type="date"
           value={availableDate}
           onChange={(e) => setAvailableDate(e.target.value)}
-          min={new Date().toISOString().slice(0, 10)}
+          min={getTodayString()}
           className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-200"
         />
       </div>

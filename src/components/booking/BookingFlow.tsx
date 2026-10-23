@@ -238,6 +238,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   // 止めず、確定時に予約 RPC がアカウントの予約履歴で判定する（src/lib/coupon-eligibility.ts）。
   // 新規・リピーター限定のクーポンはゲストには使えない（isAuthenticated === false で選べなくする）。
   const [hasBookingHistory, setHasBookingHistory] = useState<boolean | null>(null);
+  // ゲストが新規・リピーター限定のクーポンを押したとき、そのクーポンの下にログインの案内を出す。
+  const [loginPromptCouponId, setLoginPromptCouponId] = useState<string | null>(null);
 
   // 【2026年7月10日 恒久根治】確認ステップの「ログインする」リンクは <a href> によるフルページ
   // 遷移で、選択内容は useState のみで保持されるため React ツリーのアンマウントで全消失していた
@@ -273,6 +275,18 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
       setToast({ type: 'error', message: BOOKING_DRAFT_STORAGE_FAILED });
     } finally { loginDraftSaving.current = false; setSavingLoginDraft(false); }
   }
+
+  /** 入力内容を保存してからログイン画面へ進むリンク（クーポンの案内で使う）。 */
+  const loginLink = (className: string) => (
+    <a
+      href={`/auth/login?redirect=/facility/${facility.slug}/booking`}
+      onClick={event => { event.preventDefault(); void saveBookingDraftBeforeLogin(); }}
+      aria-disabled={savingLoginDraft}
+      className={className}
+    >
+      ログインする
+    </a>
+  );
 
   // Pre-fill from user profile
   useEffect(() => {
@@ -882,6 +896,18 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                 </div>
               ) : (
                 <>
+                  {/* ゲストへのログイン案内は一覧の上に 1 回だけ出す（2026年10月23日）。以前は
+                      新規・リピーター限定の全カードを半透明にし、同じ赤い注意書きをカードごとに
+                      繰り返していた。判定の権威は予約 RPC のまま（src/lib/coupon-eligibility.ts）。 */}
+                  {isAuthenticated === false && coupons.some((c) => isTargetedCoupon(c.coupon_type)) && (
+                    <div
+                      id="coupon-login-notice"
+                      className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5 flex flex-wrap items-center justify-between gap-2"
+                    >
+                      <p className="text-sm text-gray-800">ログインすると新規・リピーター限定クーポンが使えます</p>
+                      {loginLink('shrink-0 text-sm text-primary font-bold hover:underline')}
+                    </div>
+                  )}
                   {coupons.map((coupon) => {
                     const isSelected = selectedCoupon?.id === coupon.id;
                     const label =
@@ -904,24 +930,32 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                     // （履歴が不明なら止めず、確定時に予約 RPC が判定する）。
                     const condition = couponTargetCondition(coupon.coupon_type);
                     const targetBlock = couponTargetBlock(coupon.coupon_type, { signedIn: isAuthenticated, hasBooking: hasBookingHistory });
-                    const isTargetBlocked = targetBlock !== null;
-                    const isUnavailable = isIncompatible || isTargetBlocked;
+                    // ゲスト（'login'）はログインすれば使えるので、薄くせず押せるようにしてログインを案内する。
+                    // 使えないと確定しているもの（メニュー不適合・予約履歴）だけを薄くして押せなくする。
+                    const needsLogin = targetBlock === 'login';
+                    const isLocked = isIncompatible || targetBlock === 'history';
+                    const isUnavailable = isLocked || needsLogin;
                     const targetMenuNames = isMenuRestricted
                       ? allowedMenuIds!
                           .map((id) => menus.find((m) => m.id === id)?.name)
                           .filter((n): n is string => !!n)
                       : [];
                     return (
+                      <div key={coupon.id}>
                       <button
                         type="button"
-                        key={coupon.id}
-                        disabled={isUnavailable}
+                        disabled={isLocked}
                         aria-disabled={isUnavailable}
-                        onClick={() => { if (isUnavailable) return; handleCouponSelect(coupon, allowedMenuIds, isSelected); }}
+                        aria-describedby={needsLogin ? 'coupon-login-notice' : undefined}
+                        onClick={() => {
+                          if (needsLogin && !isLocked) { setLoginPromptCouponId(coupon.id); return; }
+                          if (isUnavailable) return;
+                          handleCouponSelect(coupon, allowedMenuIds, isSelected);
+                        }}
                         className={`w-full text-left rounded-xl border transition-colors overflow-hidden ${
-                          isUnavailable
+                          isLocked
                             ? 'border-gray-200 opacity-50 cursor-not-allowed'
-                            : isSelected ? 'border-primary ring-2 ring-sky-200' : 'border-gray-200 hover:border-sky-300'
+                            : isSelected && !needsLogin ? 'border-primary ring-2 ring-sky-200' : 'border-gray-200 hover:border-sky-300'
                         }`}
                       >
                         <div className="flex">
@@ -946,9 +980,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                               </p>
                             )}
                             {condition && (
-                              <p className={`text-xs mt-1 ${isTargetBlocked ? 'text-red-600 font-bold' : 'text-gray-600'}`}>
+                              <p className={`text-xs mt-1 ${targetBlock === 'history' ? 'text-red-600 font-bold' : 'text-gray-600'}`}>
                                 ご利用条件：{condition}
-                                {targetBlock === 'login' && '（ログインするとご利用いただけます）'}
                                 {targetBlock === 'history' && '（この店舗のご予約履歴により、ご利用いただけません）'}
                               </p>
                             )}
@@ -958,21 +991,15 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                           </div>
                         </div>
                       </button>
+                      {needsLogin && loginPromptCouponId === coupon.id && (
+                        <p role="status" className="mt-1.5 rounded-lg bg-sky-50 px-3 py-2 text-xs text-gray-800">
+                          「{coupon.name}」はログインするとご利用いただけます。
+                          {loginLink('ml-1 text-primary font-bold hover:underline')}
+                        </p>
+                      )}
+                      </div>
                     );
                   })}
-                  {isAuthenticated === false && coupons.some((c) => isTargetedCoupon(c.coupon_type)) && (
-                    <p className="text-xs text-gray-600 pt-1">
-                      新規・リピーター限定のクーポンは、ログインしてご利用ください。
-                      <a
-                        href={`/auth/login?redirect=/facility/${facility.slug}/booking`}
-                        onClick={event => { event.preventDefault(); void saveBookingDraftBeforeLogin(); }}
-                        aria-disabled={savingLoginDraft}
-                        className="text-primary font-bold hover:underline ml-1"
-                      >
-                        ログインする
-                      </a>
-                    </p>
-                  )}
                   <p className="text-xs text-gray-500 pt-1">
                     ※ クーポンには対象メニューが限定されているものがあります。対象外のメニューでは選択できません。「メニューから選ぶ」で施術内容をお選びください。
                   </p>
@@ -1030,7 +1057,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                         </div>
                         {menu.description && <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{menu.description}</p>}
                         <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                          {menu.price !== null && <span className="text-red-600 font-bold">¥{menu.price.toLocaleString()}</span>}
+                          {/* メニューの定価は割引価格ではないので赤にしない（赤はクーポン価格だけ） */}
+                          {menu.price !== null && <span className="text-gray-900 font-bold">¥{menu.price.toLocaleString()}</span>}
                           {menu.duration_minutes && <span>{menu.duration_minutes}分</span>}
                         </div>
                       </div>
@@ -1046,7 +1074,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
             {selectedCoupon && (
               <div className="text-sm flex items-center justify-between">
                 <span className="text-gray-500">クーポン</span>
-                <span className="font-bold text-red-600">{selectedCoupon.name}</span>
+                <span className="font-bold text-gray-900">{selectedCoupon.name}</span>
               </div>
             )}
             <div className="text-sm text-gray-600 flex flex-wrap items-center gap-x-3">
@@ -1090,7 +1118,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
           <div className="bg-gray-50 rounded-xl border border-gray-200 p-3 text-xs text-gray-600">
             <p className="font-bold text-gray-700 mb-1">選択中の内容</p>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              {selectedCoupon && <span className="text-red-600 font-bold">{selectedCoupon.name}</span>}
+              {selectedCoupon && <span className="text-gray-900 font-bold">{selectedCoupon.name}</span>}
               {selectedMenus.map((m) => (
                 <span key={m.id}>{m.name}</span>
               ))}
@@ -1323,7 +1351,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
             {selectedCoupon && (
               <div className="flex justify-between">
                 <span className="text-gray-500">クーポン</span>
-                <span className="font-medium text-red-600">{selectedCoupon.name}</span>
+                <span className="font-medium text-gray-900">{selectedCoupon.name}</span>
               </div>
             )}
             {selectedCoupon && couponTargetCondition(selectedCoupon.coupon_type) && (
@@ -1352,7 +1380,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                   )}
                   <div className="flex justify-between">
                     <span className="font-bold">{hasCouponDiscount ? 'クーポン適用後' : '合計金額'}</span>
-                    <span className="font-bold text-lg text-red-600">¥{finalPrice.toLocaleString()}</span>
+                    {/* 赤はクーポンで下がった価格だけ（割引が無ければ通常の濃い文字） */}
+                    <span className={`font-bold text-lg ${hasCouponDiscount ? 'text-red-600' : 'text-gray-900'}`} data-testid="booking-final-price">¥{finalPrice.toLocaleString()}</span>
                   </div>
                 </div>
               );

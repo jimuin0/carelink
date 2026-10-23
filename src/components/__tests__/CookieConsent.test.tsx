@@ -12,7 +12,11 @@
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import CookieConsent from '@/components/CookieConsent';
+import CookieSettingsButton from '@/components/CookieSettingsButton';
 import {
+  closeCookieSettings,
+  isCookieSettingsOpen,
+  openCookieSettings,
   COOKIE_CONSENT_CHANGE_EVENT,
   COOKIE_CONSENT_STORAGE_KEY,
   LEGACY_COOKIE_CONSENT_STORAGE_KEY,
@@ -22,27 +26,27 @@ import {
 beforeEach(() => {
   localStorage.clear();
   document.body.innerHTML = '';
+  act(() => closeCookieSettings());
 });
 
 function bannerOf(container: HTMLElement) {
-  return container.querySelector('div.fixed') as HTMLElement;
+  return container.querySelector('[data-cookie-banner]') as HTMLElement;
 }
+const offsetOf = (banner: HTMLElement) => banner.style.getPropertyValue('--cc-offset');
 
-test('sticky-barが存在しない場合 → bottom:0のまま(オフセット無し)', () => {
+test('sticky-barが存在しない場合 → 画面下端の余白（safe area）の上に出す', () => {
   render(<CookieConsent />);
-  const banner = screen.getByText(/当サイトではサービス向上のため/).closest('div.fixed') as HTMLElement;
-  expect(banner.style.bottom).toBe('');
-  // 画面下端に接するので、端末下端の余白（safe area）を自分で取る
-  expect(banner.firstElementChild?.className).toContain('pb-[calc(1rem+env(safe-area-inset-bottom))]');
+  const banner = screen.getByText(/当サイトではサービス向上のため/).closest('[data-cookie-banner]') as HTMLElement;
+  expect(offsetOf(banner)).toBe('env(safe-area-inset-bottom)');
 });
 
-test('sticky-barが存在する場合 → その高さ分だけbottomをオフセットする', () => {
+test('sticky-barが存在する場合 → その高さ分だけ上に出す', () => {
   document.body.innerHTML = '<div class="sticky-bar"></div><div id="root"></div>';
   const stickyBar = document.querySelector('.sticky-bar') as HTMLElement;
   jest.spyOn(stickyBar, 'getBoundingClientRect').mockReturnValue({ height: 76 } as DOMRect);
 
   const { container } = render(<CookieConsent />, { container: document.getElementById('root')! });
-  expect(bannerOf(container).style.bottom).toBe('76px');
+  expect(offsetOf(bannerOf(container))).toBe('76px');
 });
 
 test('下部ナビ（data-bottom-fixed）がある場合 → ナビの上に出し、safe area は足さない', () => {
@@ -50,16 +54,13 @@ test('下部ナビ（data-bottom-fixed）がある場合 → ナビの上に出�
   jest.spyOn(document.querySelector('nav') as HTMLElement, 'getBoundingClientRect').mockReturnValue({ height: 56 } as DOMRect);
 
   const { container } = render(<CookieConsent />, { container: document.getElementById('root')! });
-  const banner = bannerOf(container);
-  expect(banner.style.bottom).toBe('56px');
-  expect(banner.firstElementChild?.className).toContain('pb-4');
-  expect(banner.firstElementChild?.className).not.toContain('safe-area');
+  expect(offsetOf(bannerOf(container))).toBe('56px');
 });
 
 test('下部ナビがバナーより後に現れても、現れた時点でナビの上へ移る', async () => {
   document.body.innerHTML = '<div id="root"></div>';
   const { container } = render(<CookieConsent />, { container: document.getElementById('root')! });
-  expect(bannerOf(container).style.bottom).toBe('');
+  expect(offsetOf(bannerOf(container))).toBe('env(safe-area-inset-bottom)');
 
   const nav = document.createElement('nav');
   nav.setAttribute('data-bottom-fixed', '');
@@ -69,7 +70,17 @@ test('下部ナビがバナーより後に現れても、現れた時点でナ�
     // MutationObserver の通知はマイクロタスクで届く
     await Promise.resolve();
   });
-  expect(bannerOf(container).style.bottom).toBe('56px');
+  expect(offsetOf(bannerOf(container))).toBe('56px');
+});
+
+// 2026年10月23日: 画面幅いっぱいの濃い帯をやめ、PC は左下の小さなカード、スマホは小さなシートにした。
+test('画面幅いっぱいの帯ではなく、小さなカード（PC は左下・幅 24rem）', () => {
+  const { container } = render(<CookieConsent />);
+  const banner = bannerOf(container);
+  expect(banner.className).toEqual(expect.stringContaining('sm:w-[24rem]'));
+  expect(banner.className).toEqual(expect.stringContaining('sm:right-auto'));
+  expect(banner.className).toEqual(expect.stringContaining('rounded-2xl'));
+  expect(banner.className).not.toMatch(/\bbg-gray-900\b|\bright-0\b/);
 });
 
 test('ストレージに保存できない環境でも、「必須のみ」でバナーを閉じる（下部ナビやフッターを覆い続けない）', () => {
@@ -160,4 +171,73 @@ test('分析Cookieの説明は、セッション録画とそれを行わない�
   expect(screen.getByText(/Microsoft Clarity のヒートマップ・セッション録画/)).toBeInTheDocument();
   expect(screen.getByText(/マイページ・予約・問診・管理画面など、お客様の情報を表示する画面では録画しません/)).toBeInTheDocument();
   expect(screen.queryByText(/個人を特定するデータは収集しません/)).toBeNull();
+});
+
+// 2026年10月23日: 回答した後に設定を変える・同意を取り消す手段が画面上に無かった。
+// フッターの「Cookie設定」（openCookieSettings）で開き直せる。
+describe('回答後に開き直す', () => {
+  const answered = (prefs: object) => localStorage.setItem(COOKIE_CONSENT_STORAGE_KEY, JSON.stringify({ necessary: true, ...prefs }));
+
+  test('回答済みでは出さず、開き直すと保存済みの選択を初期値にした詳細設定が開き、見出しへフォーカスが移る', () => {
+    answered({ analytics: true, marketing: false });
+    render(<CookieConsent />);
+    expect(screen.queryByRole('region', { name: 'Cookieの設定' })).not.toBeInTheDocument();
+    act(() => openCookieSettings());
+    expect(screen.getByRole('region', { name: 'Cookieの設定' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: '分析Cookie' })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: 'マーケティングCookie' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('heading', { name: 'Cookie設定' })).toHaveFocus();
+    expect(screen.queryByRole('button', { name: '戻る' })).not.toBeInTheDocument();
+  });
+
+  test('分析Cookieを外して保存すると、同意の撤回として保存・通知して閉じ、押したボタンへフォーカスを戻す', () => {
+    answered({ analytics: true, marketing: true });
+    const trigger = document.createElement('button');
+    document.body.appendChild(trigger);
+    trigger.focus();
+    const listener = jest.fn();
+    window.addEventListener(COOKIE_CONSENT_CHANGE_EVENT, listener);
+    render(<CookieConsent />);
+    act(() => openCookieSettings());
+    fireEvent.click(screen.getByRole('switch', { name: '分析Cookie' }));
+    fireEvent.click(screen.getByRole('button', { name: '選択を保存' }));
+    window.removeEventListener(COOKIE_CONSENT_CHANGE_EVENT, listener);
+    expect(JSON.parse(localStorage.getItem(COOKIE_CONSENT_STORAGE_KEY)!)).toEqual({ necessary: true, analytics: false, marketing: true });
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(isCookieSettingsOpen()).toBe(false);
+    expect(screen.queryByRole('region', { name: 'Cookieの設定' })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  test('「閉じる」は何も保存せずに閉じる。もう一度開くと保存済みの値から始まる', () => {
+    answered({ analytics: false, marketing: false });
+    render(<CookieConsent />);
+    act(() => openCookieSettings());
+    fireEvent.click(screen.getByRole('switch', { name: '分析Cookie' }));
+    fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+    expect(screen.queryByRole('region', { name: 'Cookieの設定' })).not.toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(COOKIE_CONSENT_STORAGE_KEY)!).analytics).toBe(false);
+    act(() => openCookieSettings());
+    expect(screen.getByRole('switch', { name: '分析Cookie' })).toHaveAttribute('aria-checked', 'false');
+  });
+
+  test('保存値が読めないときは既定（分析・マーケティングとも OFF）から始まる', () => {
+    localStorage.setItem(LEGACY_COOKIE_CONSENT_STORAGE_KEY, 'accepted');
+    render(<CookieConsent />);
+    act(() => openCookieSettings());
+    expect(screen.getByRole('switch', { name: '分析Cookie' })).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'すべて同意' }));
+    expect(JSON.parse(localStorage.getItem(COOKIE_CONSENT_STORAGE_KEY)!)).toEqual({ necessary: true, analytics: true, marketing: true });
+  });
+});
+
+// フッターの flex に置かれると block 扱いになり、文字だけの高さ（11〜14px）では WCAG 2.5.8 の
+// 24px に届かなかった（e2e/accessibility.spec.ts が検知）。呼び出し側の className に関係なく
+// 部品の側で最低サイズを持つ。
+test('「Cookie設定」ボタンは呼び出し側の className を保ったまま最低 24px 四方の押せる範囲を持つ', () => {
+  render(<CookieSettingsButton className="hover:text-white transition-colors" />);
+  const button = screen.getByRole('button', { name: 'Cookie設定' });
+  expect(button.className.split(' ')).toEqual(expect.arrayContaining(['min-h-6', 'min-w-6', 'hover:text-white', 'transition-colors']));
+  render(<CookieSettingsButton />);
+  expect(screen.getAllByRole('button', { name: 'Cookie設定' })[1].className).toBe('min-h-6 min-w-6');
 });
