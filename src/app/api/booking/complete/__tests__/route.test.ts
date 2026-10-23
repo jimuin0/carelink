@@ -126,3 +126,27 @@ describe('来店完了は予約の開始時刻（JST）を過ぎてから（2026
     expect((await POST(request())).status).toBe(200);
   });
 });
+
+describe('ポイント・来店記録と照合できない取り消しは 409 と理由（2026年10月23日）', () => {
+  test.each([
+    'POINTS_AUTH_REQUIRED',
+    'POINTS_INSUFFICIENT',
+    'POINTS_LEGACY_RECONCILIATION_REQUIRED',
+    'POINTS_LEDGER_IMMUTABLE',
+    'INVALID_BOOKING_POINTS',
+    'BOOKING_VISIT_RECONCILIATION_REQUIRED',
+  ])('%s は 409・code 付き・成功監査なし', async (message) => {
+    mockRpc.mockResolvedValue({ data: null, error: { message } });
+    const res = await POST(request());
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe('BOOKING_POINTS_RECONCILIATION_REQUIRED');
+    expect(body.error).toContain('運営までお問い合わせください');
+    expect(writeAuditLog).not.toHaveBeenCalled();
+  });
+
+  test('似た名前の別エラーは 409 にしない（完全一致）', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'POINTS_AUTH_REQUIRED_X' } });
+    expect((await POST(request())).status).toBe(500);
+  });
+});

@@ -10,10 +10,23 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { withRoute, serverError, authUnavailable } from '@/lib/with-route';
 import { applyCompletionSideEffects } from '@/lib/booking-completion';
 import { isBeforeBookingStart } from '@/lib/cancel-fee';
+import { bookingPointsConflict, isBookingPointsError } from '@/lib/booking-points-error';
+import { bookingRpcErrorCode } from '@/lib/booking-rpc-error';
 
 export const dynamic = 'force-dynamic';
 
 const COMPLETE_BEFORE_START_MESSAGE = '予約の開始時刻より前は来店完了にできません。開始時刻を過ぎてから操作してください。';
+const POINTS_CONFLICT_MESSAGE = 'お客様のポイント・来店の記録と照合できないため、来店完了を保存できませんでした。お手数ですが運営までお問い合わせください。';
+
+/**
+ * 来店完了 RPC（complete_booking_with_points_atomic）が台帳と照合できずに取り消したか。
+ * ポイント側（POINTS_* ・トリガ sync_booking_points が投げるもの）は booking-status・booking-checkout と
+ * 同じ判定を使い、来店記録の照合失敗（完了済み予約の再確認で customer_visits が一致しない）だけを足す。
+ * 以前は 500「ステータスの更新に失敗しました」としか出ず、店舗は何度押しても直らなかった。
+ */
+function isCompletionReconciliationError(message: unknown): boolean {
+  return isBookingPointsError(message) || bookingRpcErrorCode(message) === 'BOOKING_VISIT_RECONCILIATION_REQUIRED';
+}
 
 export const POST = withRoute(async (request) => {
     const ip = getClientIp(request);
@@ -86,6 +99,9 @@ export const POST = withRoute(async (request) => {
     if (updateError?.message.includes('BOOKING_PERMISSION_DENIED')) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
     if (updateError?.message.includes('BOOKING_REVISION_CONFLICT')) return NextResponse.json({ error: 'この予約は来店完了にできません（既に処理済みの可能性があります）' }, { status: 409 });
     if (updateError?.message.includes('BOOKING_NOT_STARTED')) return NextResponse.json({ error: COMPLETE_BEFORE_START_MESSAGE, code: 'BOOKING_NOT_STARTED' }, { status: 400 });
+    if (updateError && isCompletionReconciliationError(updateError.message)) {
+      return bookingPointsConflict('booking-complete-points', updateError, '/api/booking/complete', POINTS_CONFLICT_MESSAGE);
+    }
     if (updateError) return serverError('booking-complete-update', updateError, '/api/booking/complete', 'ステータスの更新に失敗しました');
     if (!completed || completed.length !== 1 || completed[0].id !== bookingId || !Number.isInteger(completed[0].points_earned) || completed[0].points_earned < 0 || typeof completed[0].replayed !== 'boolean') {
       return serverError('booking-complete-result', new Error('completion transaction not confirmed'), '/api/booking/complete');
