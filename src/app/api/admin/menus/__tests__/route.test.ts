@@ -53,7 +53,7 @@ function makePostRequest(body: object, facilityId: string | null = FACILITY_UUID
 }
 
 function validBody(overrides: object = {}) {
-  return { category: 'カラー', name: 'テストメニュー', ...overrides };
+  return { category: 'カラー', name: 'テストメニュー', duration_minutes: 60, ...overrides };
 }
 
 function memberSingle(data: unknown) {
@@ -178,13 +178,13 @@ test.each([null,{menus:[],revision:'invalid'},{menus:[{id:'11111111-1111-4111-81
 
 test.each([
  {name:''},{name:'x'.repeat(101)},{category:''},{category:'x'.repeat(51)},
- {price:-1},{price:10000000},{price:0.5},{duration_minutes:-1},{duration_minutes:1441},
+ {price:-1},{price:10000000},{price:0.5},{duration_minutes:-1},{duration_minutes:1441},{duration_minutes:0},{duration_minutes:14},{duration_minutes:481},{duration_minutes:30.5},{duration_minutes:null},{duration_minutes:'60'},
  {sort_order:-1},{description:'x'.repeat(501)},{price_note:'x'.repeat(101)},
  {photo_url:'not-a-url'},{photo_url:'https://images.unsplash.com/new'},
 ])('POST rejects invalid fields before RPC: %p',async body=>{
  expect((await POST(makePostRequest(validBody(body)))).status).toBe(400);expect(mockRpc).not.toHaveBeenCalled();
 });
-test.each([{},{photo_url:''},{photo_url:null},{photo_url:'https://example.invalid/photo.jpg'},{sort_order:99},{price:0,duration_minutes:0,is_featured:false}])('POST durable scoped creation: %p',async values=>{
+test.each([{},{photo_url:''},{photo_url:null},{photo_url:'https://example.invalid/photo.jpg'},{sort_order:99},{price:0,duration_minutes:15,is_featured:false},{duration_minutes:480}])('POST durable scoped creation: %p',async values=>{
  const r=await POST(makePostRequest(validBody(values)));expect(r.status).toBe(201);expect((await r.json()).menu.facility_id).toBe(FACILITY_UUID);
  expect(mockAdminFrom).not.toHaveBeenCalled();expect(mockRpc).toHaveBeenCalledWith('save_admin_menu_atomic',expect.objectContaining({p_actor_id:USER_ID,p_facility_id:FACILITY_UUID,p_menu_id:null}));expect(writeAuditLog).toHaveBeenCalledTimes(1);
 });
@@ -196,4 +196,14 @@ test('POST CSRF',async()=>{(checkCsrf as jest.Mock).mockReturnValue(NextResponse
 test('POST rate limit',async()=>{(checkRateLimit as jest.Mock).mockReturnValue(true);expect((await POST(makePostRequest(validBody()))).status).toBe(429);});
 test('POST rate bucket and trusted IP',async()=>{const r=new NextRequest('http://localhost/api/admin/menus?facility_id='+FACILITY_UUID,{method:'POST',headers:{'Content-Type':'application/json','x-forwarded-for':'10.0.0.1, 192.168.1.1'},body:JSON.stringify(validBody())});await POST(r);expect(checkRateLimit).toHaveBeenCalledWith(null,'192.168.1.1',20,60000,'admin-menus-post');});
 test('POST malformed JSON',async()=>{expect((await POST(new NextRequest('http://localhost/api/admin/menus?facility_id='+FACILITY_UUID,{method:'POST',body:'{'}))).status).toBe(400);});
-test('POST strips forged scope keys',async()=>{await POST(makePostRequest(validBody({facility_id:USER_ID,id:USER_ID,user_id:USER_ID})));expect(mockRpc.mock.calls[0][1].p_values).toEqual({category:'カラー',name:'テストメニュー',photo_url:null});});
+test('POST strips forged scope keys',async()=>{await POST(makePostRequest(validBody({facility_id:USER_ID,id:USER_ID,user_id:USER_ID})));expect(mockRpc.mock.calls[0][1].p_values).toEqual({category:'カラー',name:'テストメニュー',duration_minutes:60,photo_url:null});});
+// 2026年10月23日: 所要時間は画面の入力欄と同じ 15〜480 分の整数をサーバーでも強制する（以前は 0〜1440 分を通した）。
+describe('POST の所要時間（15〜480 分・必須）', () => {
+ test.each([[{duration_minutes:0}],[{duration_minutes:481}],[{duration_minutes:null}],[{duration_minutes:undefined}]])('%p は何を直せばよいかを 400 で返す',async values=>{
+  const r=await POST(makePostRequest(validBody(values)));expect(r.status).toBe(400);
+  expect((await r.json()).error).toBe('所要時間は15〜480分の整数で入力してください');expect(mockRpc).not.toHaveBeenCalled();
+ });
+ test('所要時間以外の誤りは従来の文言',async()=>{
+  const r=await POST(makePostRequest(validBody({name:''})));expect(r.status).toBe(400);expect((await r.json()).error).toBe('リクエストが不正です');
+ });
+});

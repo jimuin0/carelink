@@ -638,15 +638,16 @@ test('PATCH: business_hours が valid (close > open) → 200', async () => {
 describe('営業時間を保存したとき、勤務が重なるスタッフがいなければ注意を返す（保存は止めない）', () => {
   const thenable = (data: unknown, error: unknown = null) => {
     const obj: Record<string, unknown> = {};
-    for (const method of ['select', 'eq', 'gte', 'not', 'limit']) obj[method] = jest.fn(() => obj);
+    for (const method of ['select', 'eq', 'gte', 'not', 'limit', 'or']) obj[method] = jest.fn(() => obj);
     obj.then = (resolve: (v: unknown) => unknown) => resolve({ data, error });
     return obj;
   };
   const staffRows = (start: string, end: string) => [{ id: 's1', staff_schedules: [{ day_of_week: 1, start_time: start, end_time: end }], schedule_overrides: [] }];
   const savedHours = { mon: { open: '10:00', close: '18:00' } };
-  const mockReads = (rows: unknown, staffError: unknown = null) => {
+  const mockReads = (rows: unknown, staffError: unknown = null, menuRows: unknown = []) => {
     mockAdminFrom.mockImplementation((table: string) => table === 'staff_profiles' ? thenable(rows, staffError)
-      : table === 'facility_profiles' ? { ...thenable([{ business_hours: savedHours }]), ...updateChain() } : updateChain());
+      : table === 'facility_profiles' ? { ...thenable([{ business_hours: savedHours }]), ...updateChain() }
+      : table === 'facility_menus' ? thenable(menuRows) : updateChain());
   };
   beforeEach(() => { mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID })); });
 
@@ -655,6 +656,14 @@ describe('営業時間を保存したとき、勤務が重なるスタッフが�
     const res = await PATCH(makePatchRequest({ name: 'test', business_hours: savedHours }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, warning: '保存した営業時間と重なる勤務時間のスタッフがいないため、ネット予約の枠が出ません。スタッフの勤務時間を見直してください。' });
+  });
+  test('最短のメニューより短くしか重ならない勤務だけなら注意を返す（20261023190000）', async () => {
+    // 月曜 10:00-18:00 の営業に 09:00-10:30 の勤務＝30 分の重なり。最短のメニューは 60 分
+    mockReads(staffRows('09:00:00', '10:30:00'), null, [{ duration_minutes: 60 }, { duration_minutes: 90 }]);
+    expect(await (await PATCH(makePatchRequest({ name: 'test', business_hours: savedHours }))).json())
+      .toEqual({ ok: true, warning: '保存した営業時間と重なる勤務時間のスタッフがいないため、ネット予約の枠が出ません。スタッフの勤務時間を見直してください。' });
+    mockReads(staffRows('09:00:00', '10:30:00'), null, [{ duration_minutes: 30 }]);
+    expect(await (await PATCH(makePatchRequest({ name: 'test', business_hours: savedHours }))).json()).toEqual({ ok: true });
   });
   test('重なる勤務のスタッフがいれば注意しない', async () => {
     mockReads(staffRows('09:00:00', '12:00:00'));

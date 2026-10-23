@@ -114,5 +114,9 @@ test.each([
   expect(email.text).toMatch(/このメールを受け取ったメールアドレス（[^）]+）で店舗アカウントを作成/);
   expect(email.html).toBeUndefined();
   expect(email.subject).not.toContain(row.facility_name);
+  // 用語は受付画面と同じ（registration-glossary.ts）：掲載申込・店舗名・店舗アカウント。
+  expect(email.subject).toBe('【CareLink】掲載申込を受け付けました');
+  expect(email.text).toContain(`店舗名：${row.facility_name}\n`);
+  for (const old of ['施設名', '掲載申し込み']) expect(email.text).not.toContain(old);
   expect(options.idempotencyKey).toBe(`salon-receipt-v1-${id}`);
 });

@@ -12,6 +12,7 @@ import type { Database } from '@/types/database.types';
 import { serverError } from '@/lib/with-route';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { saveAdminMenu } from '@/lib/admin-menu-write';
+import { hasMenuDurationIssue, MENU_DURATION_ERROR, menuDurationSchema } from '@/lib/menu-duration';
 
 // facility_menus の update() に渡すオブジェクトの型。
 // Record<string, unknown> は Database 型配線後の update() が要求する
@@ -25,7 +26,9 @@ const menuUpdateSchema = z.object({
   description: z.string().max(500).optional().nullable(),
   price: z.number().int().min(0).max(9999999).optional().nullable(),
   price_note: z.string().max(100).optional().nullable(),
-  duration_minutes: z.number().int().min(0).max(1440).optional().nullable(),
+  // 送られたときだけ検証する（公開切替など所要時間を含まない更新は既存の行の値を保ったまま通す）。
+  // null（未設定へ戻す）は画面からは送られないので受け付けない。15〜480 分（src/lib/menu-duration.ts）。
+  duration_minutes: menuDurationSchema.optional(),
   photo_url: z.string().url().max(500).optional().nullable().or(z.literal('')),
   is_featured: z.boolean().optional(),
   // 公開／非公開の切替。HPB 一括反映のメニューは非公開（下書き）で作られるため、
@@ -54,7 +57,11 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   const body = await request.json().catch(() => null);
   const parsed = menuUpdateSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
+  if (!parsed.success) {
+    // 所要時間の誤りは、何を直せばよいかを文言で返す（画面の入力欄と同じ規則・同じ文言）。
+    const error = hasMenuDurationIssue(parsed.error) ? MENU_DURATION_ERROR : 'リクエストが不正です';
+    return NextResponse.json({ error, details: parsed.error.flatten() }, { status: 400 });
+  }
 
   if (parsed.data.sort_order !== undefined) return NextResponse.json({ error: '画面を再読み込みして並び替えてください' }, { status: 409 });
 

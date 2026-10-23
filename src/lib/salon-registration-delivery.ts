@@ -1,7 +1,7 @@
 import { UUID_REGEX } from './constants';
 import { isSalonField, SALON_FIELD_MESSAGES, type SalonFieldErrors } from './salon-field-errors';
 
-export const SALON_SUBMISSION_UNKNOWN = '送信結果を確認できませんでした。登録済みの可能性があります。重複を避けるため再送信せず、お問い合わせから受付状況の確認をお願いします。';
+export const SALON_SUBMISSION_UNKNOWN = '送信結果を確認できませんでした。掲載申込が受付済みの可能性があります。重複を避けるため再送信せず、お問い合わせから受付状況の確認をお願いします。';
 
 /** 一件が失敗しても全uploadの確定を待ち、cleanupと遅延成功の競合を防ぐ。 */
 export async function settleSalonUploads<T>(uploads: Promise<T>[]): Promise<T[]> {

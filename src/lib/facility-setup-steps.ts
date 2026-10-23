@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  bookingReadinessChecks, listingPrTextMissing, summarizeWorkingStaff, workingStaffQuery, type ReadinessKey,
+  bookableMenusQuery, bookingReadinessChecks, listingPrTextMissing, shortestBookingMinutes, summarizeWorkingStaff, workingStaffQuery, type ReadinessKey,
 } from './facility-publish-gate';
 
 /**
@@ -160,8 +160,8 @@ const directRead: SetupReader = (_label, query) => Promise.resolve(query);
 /** 店舗セットアップの判定材料。どれか1つでも読めなければ例外（0件・未設定に偽装しない）。 */
 export async function loadFacilitySetupFacts(client: SupabaseClient, facilityId: string, read: SetupReader = directRead): Promise<FacilitySetupFacts> {
   const [menus, staff, photos, profile] = await Promise.all([
-    read('menus', client.from('facility_menus').select('id', { count: 'exact', head: true })
-      .eq('facility_id', facilityId).or('is_published.is.null,is_published.eq.true')),
+    // 件数と、勤務の窓に要る長さ（最短のメニュー・shortestBookingMinutes）を同じ読み取りで取る。
+    read('menus', bookableMenusQuery(client, facilityId)),
     read('staff', workingStaffQuery(client, facilityId)),
     read('photos', client.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId)),
     read('facility', client.from('facility_profiles')
@@ -175,7 +175,7 @@ export async function loadFacilitySetupFacts(client: SupabaseClient, facilityId:
     catch_copy?: string | null; description?: string | null; business_hours?: unknown; status?: string | null;
   };
   // 勤務の窓が営業時間と重なるかは、この店舗の営業時間で確かめる（予約枠・検索カードと同じ規則）。
-  const { activeIds, workingIds } = summarizeWorkingStaff(staff.data, row.business_hours ?? null);
+  const { activeIds, workingIds } = summarizeWorkingStaff(staff.data, row.business_hours ?? null, shortestBookingMinutes(menus.data));
   return {
     name: row.name ?? null,
     slug: row.slug ?? null,

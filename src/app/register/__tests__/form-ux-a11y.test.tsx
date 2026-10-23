@@ -33,11 +33,11 @@ beforeEach(() => {
 
 async function mount() {
   const view = render(<RegisterForm />);
-  await waitFor(() => expect(screen.getByLabelText(/^施設名/)).toBeEnabled());
+  await waitFor(() => expect(screen.getByLabelText(/^店舗名/)).toBeEnabled());
   return view;
 }
 function fillStep1() {
-  fireEvent.change(screen.getByLabelText(/^施設名/), { target: { value: '合成施設' } });
+  fireEvent.change(screen.getByLabelText(/^店舗名/), { target: { value: '合成施設' } });
   fireEvent.change(screen.getByLabelText(/^業種/), { target: { value: 'ヘアサロン' } });
   fireEvent.change(screen.getByLabelText(/^代表者名/), { target: { value: '合成代表' } });
   fireEvent.change(screen.getByLabelText(/^メールアドレス/), { target: { value: 'fixture@example.invalid' } });
@@ -136,9 +136,9 @@ describe('入力エラー', () => {
   test('エラー文は欄と aria-describedby で結び、aria-invalid を付ける。role=alert は要約 1 つだけ', async () => {
     await mount();
     fireEvent.click(screen.getByRole('button', { name: '次へ' }));
-    const name = screen.getByLabelText(/^施設名/);
+    const name = screen.getByLabelText(/^店舗名/);
     await waitFor(() => expect(name).toHaveAttribute('aria-invalid', 'true'));
-    expect(name).toHaveAccessibleDescription('施設名を入力してください');
+    expect(name).toHaveAccessibleDescription('店舗名を入力してください');
     expect(screen.getByLabelText(/^電話番号/)).toHaveAccessibleDescription('正しい電話番号を入力してください');
     const alerts = screen.getAllByRole('alert');
     expect(alerts).toHaveLength(1);
@@ -148,9 +148,9 @@ describe('入力エラー', () => {
 
   test('正しく入力された欄には aria-invalid を付けない', async () => {
     await mount(); fillStep1();
-    fireEvent.blur(screen.getByLabelText(/^施設名/));
-    await waitFor(() => expect(screen.getByLabelText(/^施設名/)).not.toHaveAttribute('aria-invalid'));
-    expect(screen.getByLabelText(/^施設名/)).not.toHaveAttribute('aria-describedby');
+    fireEvent.blur(screen.getByLabelText(/^店舗名/));
+    await waitFor(() => expect(screen.getByLabelText(/^店舗名/)).not.toHaveAttribute('aria-invalid'));
+    expect(screen.getByLabelText(/^店舗名/)).not.toHaveAttribute('aria-describedby');
   });
 });
 
@@ -181,7 +181,7 @@ describe('担当者名', () => {
 describe('入力補助', () => {
   test('自動入力（autocomplete）の種類を付ける', async () => {
     await mount();
-    expect(screen.getByLabelText(/^施設名/)).toHaveAttribute('autocomplete', 'organization');
+    expect(screen.getByLabelText(/^店舗名/)).toHaveAttribute('autocomplete', 'organization');
     expect(screen.getByLabelText(/^代表者名/)).toHaveAttribute('autocomplete', 'name');
     expect(screen.getByLabelText('WebサイトURL')).toHaveAttribute('autocomplete', 'url');
     expect(screen.getByLabelText(/^電話番号/)).toHaveAttribute('autocomplete', 'tel');
@@ -273,7 +273,7 @@ describe('詳細情報', () => {
 describe('PR情報', () => {
   test('写真欄は fieldset/legend で、注記は実際の公開条件（単一ソース）と一致する', async () => {
     await mount(); fillStep1(); await toStep3();
-    const photos = screen.getByRole('group', { name: /施設写真/ });
+    const photos = screen.getByRole('group', { name: /店舗の写真/ });
     expect(photos.tagName).toBe('FIELDSET');
     expect(photos).toHaveTextContent(REGISTER_PHOTO_FIELD_NOTE);
     expect(photos).not.toHaveTextContent('公開時には写真の設定が必要です');
@@ -309,7 +309,7 @@ describe('入力途中のページ移動', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '入力を続ける' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(mockPush).not.toHaveBeenCalled();
-    expect(screen.getByLabelText(/^施設名/)).toHaveValue('合成施設');
+    expect(screen.getByLabelText(/^店舗名/)).toHaveValue('合成施設');
     link.remove();
   });
 

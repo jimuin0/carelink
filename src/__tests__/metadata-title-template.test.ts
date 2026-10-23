@@ -127,8 +127,8 @@ test('計算は本番の実測と一致する（/register の旧 title は二重
   );
 });
 
-test('/register の <title> は「店舗・施設の掲載登録 | CareLink」', () => {
-  expect(resolveChain(itemsFor(join(APP, 'register/page.tsx')))).toBe('店舗・施設の掲載登録 | CareLink');
+test('/register の <title> は「店舗の掲載申込（無料） | CareLink」（用語は registration-glossary.ts）', () => {
+  expect(resolveChain(itemsFor(join(APP, 'register/page.tsx')))).toBe('店舗の掲載申込（無料） | CareLink');
 });
 
 test('静的に読める全ページで <title> に「| CareLink」が二重に付かない', () => {

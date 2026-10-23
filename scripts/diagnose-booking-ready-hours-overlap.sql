@@ -1,6 +1,8 @@
 -- =============================================================================
--- migration 20261023180000 を本番へ適用する前の確認：
+-- migration 20261023180000 / migration 20261023190000 を本番へ適用する前の確認：
 -- 「今ネット予約を受けている公開店舗が、適用後も受け続けるか」
+-- （2026年10月23日更新：20261023190000 の規則＝最短のメニュー以上の重なりで判定する。
+--   20261023180000 だけを適用する前に使っても、より厳しい側で判定するので見落としは出ない）
 --
 -- 【使い方】Supabase Dashboard → SQL Editor に貼って実行する。
 --   project ref は必ず xzafxiupbflvgbarrihe（CareLink 本番）であることを確認すること。
@@ -11,12 +13,17 @@
 --   または今日以降に勤務する特別日）が、その曜日の店舗の営業時間の中に少しでも残るときだけになる
 --   （予約枠＝get_available_slots は営業時間で切り詰め、定休日は枠を出さないため）。営業時間の外にしか
 --   勤務が無いスタッフしかいない店舗は、ネット予約が「準備中」に戻り、検索カードの「予約OK」も消える。
+--   20261023190000 からは、営業時間の中に残る長さが【店舗の最短のメニュー】以上であることも要る
+--   （予約枠は、切り詰めた勤務の窓に所要時間がまるごと入るときだけ出るため）。最短のメニューは、
+--   予約できるメニュー（is_published が false 以外）1つずつの所要時間（未設定・0 は 60 分、15〜480 分に
+--   丸める＝予約画面と同じ）の最小値。予約できるメニューが無い店舗は 15 分。
 --
 -- 【読み方】(1) の「適用後に予約を受けられなくなる店舗」が 0 なら、そのまま適用してよい。
 --   1 以上なら (2) の明細の店舗に、スタッフの勤務時間か営業時間の見直しを案内してから適用する
 --   （その店舗は今も予約画面が毎日「満枠」のはず＝適用で事実と表示が揃うだけ、という確認にもなる）。
---   判定式は migration の public.working_time_meets_business_hours と同じ（この SQL は関数を作らずに
---   CASE で同じことをする。適用前の本番にはその関数が無いため）。
+--   判定式は migration の public.working_time_meets_business_hours（5 引数）と
+--   public.facility_shortest_booking_minutes と同じ（この SQL は関数を作らずに CASE で同じことをする。
+--   適用前の本番にはその関数が無いため）。
 --
 -- 【安全性】本ファイルは SELECT のみ。1行も書き換えない。
 --
@@ -36,6 +43,9 @@
 -- @check schedule_overrides.is_holiday
 -- @check schedule_overrides.start_time
 -- @check schedule_overrides.end_time
+-- @check facility_menus.facility_id
+-- @check facility_menus.duration_minutes
+-- @check facility_menus.is_published
 -- =============================================================================
 
 -- =============================================================================
@@ -70,18 +80,25 @@ with windows as (
 judged as (
   select w.facility_id, w.staff_id,
     case
-      when f.business_hours is null or jsonb_typeof(f.business_hours) <> 'object' then w.e > w.s
-      when f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1] is null then w.e > w.s
+      when f.business_hours is null or jsonb_typeof(f.business_hours) <> 'object' then w.e - w.s >= make_interval(mins => need.minutes)
+      when f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1] is null then w.e - w.s >= make_interval(mins => need.minutes)
       when jsonb_typeof(f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) = 'null' then false
       when (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'open' is null
-        or (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'close' is null then w.e > w.s
+        or (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'close' is null then w.e - w.s >= make_interval(mins => need.minutes)
       when (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'open' !~ '^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$'
         or (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'close' !~ '^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$' then false
       else least(w.e, ((f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'close')::time)
-         > greatest(w.s, ((f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'open')::time)
+         - greatest(w.s, ((f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'open')::time)
+         >= make_interval(mins => need.minutes)
     end as meets_hours
   from windows w
   join public.facility_profiles f on f.id = w.facility_id
+  cross join lateral (
+    -- 店舗の最短のメニュー（public.facility_shortest_booking_minutes と同じ式）
+    select coalesce(min(least(greatest(coalesce(nullif(m.duration_minutes, 0), 60), 15), 480))::int, 15) as minutes
+    from public.facility_menus m
+    where m.facility_id = w.facility_id and m.is_published is distinct from false
+  ) need
 ),
 per_facility as (
   select f.id, f.name,
@@ -115,18 +132,25 @@ with windows as (
 judged as (
   select w.facility_id, w.staff_id,
     case
-      when f.business_hours is null or jsonb_typeof(f.business_hours) <> 'object' then w.e > w.s
-      when f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1] is null then w.e > w.s
+      when f.business_hours is null or jsonb_typeof(f.business_hours) <> 'object' then w.e - w.s >= make_interval(mins => need.minutes)
+      when f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1] is null then w.e - w.s >= make_interval(mins => need.minutes)
       when jsonb_typeof(f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) = 'null' then false
       when (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'open' is null
-        or (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'close' is null then w.e > w.s
+        or (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'close' is null then w.e - w.s >= make_interval(mins => need.minutes)
       when (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'open' !~ '^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$'
         or (f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'close' !~ '^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$' then false
       else least(w.e, ((f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'close')::time)
-         > greatest(w.s, ((f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'open')::time)
+         - greatest(w.s, ((f.business_hours -> (array['sun','mon','tue','wed','thu','fri','sat'])[w.dow + 1]) ->> 'open')::time)
+         >= make_interval(mins => need.minutes)
     end as meets_hours
   from windows w
   join public.facility_profiles f on f.id = w.facility_id
+  cross join lateral (
+    -- 店舗の最短のメニュー（public.facility_shortest_booking_minutes と同じ式）
+    select coalesce(min(least(greatest(coalesce(nullif(m.duration_minutes, 0), 60), 15), 480))::int, 15) as minutes
+    from public.facility_menus m
+    where m.facility_id = w.facility_id and m.is_published is distinct from false
+  ) need
 )
 select f.id, f.name,
   public.facility_booking_ready(f.id)                                                       as 今受けている,

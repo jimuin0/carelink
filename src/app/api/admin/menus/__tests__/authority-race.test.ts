@@ -24,7 +24,7 @@ import { PATCH } from '../[id]/route';
 import { writeAuditLog } from '@/lib/audit-logger';
 beforeEach(() => { jest.clearAllMocks(); mockRpc.mockResolvedValue({ data: null, error: { code: '42501' } }); });
 test.each(['POST','PATCH'])('%s rejects permission revoked after the HTTP gate', async method => {
- const request = new NextRequest('http://localhost/api/admin/menus?facility_id='+facility, {method,body:JSON.stringify({name:'Allowed before revocation',category:'Cut'}),headers:{'Content-Type':'application/json'}});
+ const request = new NextRequest('http://localhost/api/admin/menus?facility_id='+facility, {method,body:JSON.stringify({name:'Allowed before revocation',category:'Cut',duration_minutes:60}),headers:{'Content-Type':'application/json'}});
  const response = method === 'POST' ? await POST(request) : await PATCH(request,{params:Promise.resolve({id:menu})});
  expect(response.status).toBe(403);
  expect(mockWrite).not.toHaveBeenCalled();

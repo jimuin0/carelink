@@ -21,8 +21,10 @@ function request(method: string, payload: unknown, facility: string | null = FAC
   return new NextRequest(`http://localhost/api/admin/staff/${STAFF}/schedule${facility ? `?facility_id=${facility}` : ''}`, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
 }
 function props(id = STAFF) { return { params: Promise.resolve({ id }) }; }
-function chain(data: unknown, error: unknown = null) {
-  const c = { select: jest.fn(), eq: jest.fn(), in: jest.fn(), maybeSingle: jest.fn(async () => ({ data, error })) };
+function chain(data: unknown, error: unknown = null, menus: unknown = []) {
+  // facility_menus（最短のメニュー）は .select().eq().or() を await する。
+  const c = { select: jest.fn(), eq: jest.fn(), in: jest.fn(), maybeSingle: jest.fn(async () => ({ data, error })),
+    or: jest.fn(async () => ({ data: menus, error: null })) };
   c.select.mockReturnValue(c); c.eq.mockReturnValue(c); c.in.mockReturnValue(c); return c;
 }
 beforeEach(() => {
@@ -69,7 +71,7 @@ test('PUT uses one transaction with trusted actor, facility, target, immutable o
   expect(res.status).toBe(200);
   expect(mockRpc).toHaveBeenCalledWith('replace_staff_schedules_atomic', { p_actor_id: USER, p_facility_id: FACILITY, p_staff_id: STAFF, p_operation_id: OP, p_schedules: body.schedules, p_force: false });
   // 書き込みは RPC だけ。保存後に営業時間を読み、重ならない曜日の注意を返す（2026年10月23日）。
-  expect(mockAdminFrom.mock.calls).toEqual([['staff_profiles'], ['facility_profiles']]);
+  expect(mockAdminFrom.mock.calls).toEqual([['staff_profiles'], ['facility_profiles'], ['facility_menus']]);
   expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ tableName: 'staff_schedules', facilityId: FACILITY }));
   expect(await res.json()).toEqual({ ok: true });
 });
@@ -77,9 +79,10 @@ test('PUT uses one transaction with trusted actor, facility, target, immutable o
 // 成功に見えるだけで、予約画面は毎日「満枠」になっていた。保存は止めず、注意を返す。
 describe('営業時間と重ならない勤務の注意（保存は止めない）', () => {
   const HOURS = { mon: { open: '10:00', close: '18:00' }, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null };
-  const withHours = (hours: unknown, error: unknown = null) => {
+  const withHours = (hours: unknown, error: unknown = null, menus: unknown = []) => {
     mockAdminFrom.mockReset();
-    mockAdminFrom.mockImplementation((table: string) => table === 'facility_profiles' ? chain(hours === undefined ? null : { business_hours: hours }, error) : chain({ id: STAFF }));
+    mockAdminFrom.mockImplementation((table: string) => table === 'facility_profiles' ? chain(hours === undefined ? null : { business_hours: hours }, error)
+      : chain({ id: STAFF }, null, menus));
   };
   test('PUT: 定休日・営業時間外の曜日を知らせる', async () => {
     withHours(HOURS);
@@ -87,14 +90,22 @@ describe('営業時間と重ならない勤務の注意（保存は止めない�
       { day_of_week: 1, start_time: '09:00', end_time: '18:00' }, { day_of_week: 0, start_time: '09:00', end_time: '18:00' },
     ] }), props());
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, warning: '日曜の勤務時間は店舗の営業時間（定休日を含む）と重なっていないため、その曜日はネット予約の枠が出ません。' });
+    expect(await res.json()).toEqual({ ok: true, warning: '日曜の勤務時間は、店舗の営業時間（定休日を含む）の中に最短のメニュー（15分）が入る長さがないため、その曜日はネット予約の枠が出ません。' });
+  });
+  test('PUT: 最短のメニューより短くしか重ならない曜日も知らせる（20261023190000）', async () => {
+    // 月曜 10:00-18:00 の営業に 09:00-10:30 の勤務＝30 分。最短のメニューは 45 分
+    withHours(HOURS, null, [{ duration_minutes: 45 }, { duration_minutes: null }]);
+    const res = await PUT(request('PUT', { operation_id: OP, schedules: [
+      { day_of_week: 1, start_time: '09:00', end_time: '10:30' }, { day_of_week: 3, start_time: '09:00', end_time: '18:00' },
+    ] }), props());
+    expect((await res.json()).warning).toBe('月・水曜の勤務時間は、店舗の営業時間（定休日を含む）の中に最短のメニュー（45分）が入る長さがないため、その曜日はネット予約の枠が出ません。このままでは、このスタッフは週間の勤務ではネット予約を受けられません。店舗の営業時間か勤務時間を見直してください。');
   });
   test('PUT: どの曜日も重ならなければ、このスタッフが予約を受けられないことまで知らせる', async () => {
     withHours(HOURS);
     const res = await PUT(request('PUT', { operation_id: OP, schedules: [
       { day_of_week: 2, start_time: '09:00', end_time: '18:00' }, { day_of_week: 1, start_time: '07:00', end_time: '10:00' },
     ] }), props());
-    expect((await res.json()).warning).toBe('月・火曜の勤務時間は店舗の営業時間（定休日を含む）と重なっていないため、その曜日はネット予約の枠が出ません。このままでは、このスタッフは週間の勤務ではネット予約を受けられません。店舗の営業時間か勤務時間を見直してください。');
+    expect((await res.json()).warning).toBe('月・火曜の勤務時間は、店舗の営業時間（定休日を含む）の中に最短のメニュー（15分）が入る長さがないため、その曜日はネット予約の枠が出ません。このままでは、このスタッフは週間の勤務ではネット予約を受けられません。店舗の営業時間か勤務時間を見直してください。');
   });
   test.each([[undefined, null], [HOURS, { message: 'down' }]])('PUT: 営業時間を読めなければ注意を出さず、保存は成功のまま', async (hours, error) => {
     withHours(hours, error);
@@ -108,7 +119,7 @@ describe('営業時間と重ならない勤務の注意（保存は止めない�
     // 2030-01-08 は火曜（定休日）、2030-01-07 は月曜
     let res = await POST(request('POST', { date: '2030-01-08', is_holiday: false, start_time: '10:00', end_time: '12:00' }), props());
     expect(res.status).toBe(201);
-    expect(await res.json()).toEqual({ ok: true, warning: 'この特別日の勤務時間は店舗の営業時間（定休日を含む）と重なっていないため、この日はネット予約の枠が出ません。' });
+    expect(await res.json()).toEqual({ ok: true, warning: 'この特別日の勤務時間は、店舗の営業時間（定休日を含む）の中に最短のメニュー（15分）が入る長さがないため、この日はネット予約の枠が出ません。' });
     res = await POST(request('POST', { date: '2030-01-07', is_holiday: false, start_time: '10:00', end_time: '12:00' }), props());
     expect(await res.json()).toEqual({ ok: true });
   });

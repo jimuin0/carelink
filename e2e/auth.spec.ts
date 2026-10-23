@@ -142,7 +142,9 @@ test.describe('認証フロー', () => {
     await page.getByRole('button', { name: '新規登録', exact: true }).click();
     await expect(page.locator('#signup-terms-error')).toHaveText('利用規約とプライバシーポリシーへの同意が必要です');
     await page.getByRole('button', { name: 'Googleで登録', exact: true }).click();
-    await expect(page.getByRole('alert').filter({ hasText: 'Googleで登録する場合も、利用規約とプライバシーポリシーへの同意が必要です。' })).toBeVisible();
+    // 外部登録の同意エラーは同意欄の直下に出し、欄へ移る（上部固定のトーストは同意欄を覆っていた）。
+    await expect(page.locator('#signup-terms-error')).toHaveText('Googleで登録する場合も、利用規約とプライバシーポリシーへの同意が必要です。');
+    await expect(consent).toBeFocused();
     await expect(page).toHaveURL(/\/auth\/signup$/);
     await expect(page.locator('#signup-name')).toHaveValue('E2E登録太郎');
     await expect(page.locator('#signup-email')).toHaveValue(email);

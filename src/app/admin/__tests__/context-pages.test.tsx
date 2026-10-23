@@ -84,7 +84,7 @@ test('staff list marks active staff without working time as unable to take booki
     const c: Record<string, unknown> = {}; let columns = '';
     const eq = jest.fn(() => c); queries.push({ table, eq }); c.eq = eq;
     c.select = (cols: string) => { columns = cols; selects.push(cols); return c; };
-    for (const method of ['order', 'gte', 'not', 'limit']) c[method] = () => c;
+    for (const method of ['order', 'gte', 'not', 'limit', 'or']) c[method] = () => c;
     c.then = (resolve: (r: unknown) => unknown) => resolve({ data: table !== 'staff_profiles' ? [] : columns.includes('staff_schedules(') ? working : staff, error: null });
     return c;
   });
@@ -109,7 +109,7 @@ test('staff list schedule read failure is not shown as "未登録"', async () =>
   mockFrom.mockImplementation(() => {
     const c: Record<string, unknown> = {}; let columns = '';
     c.select = (cols: string) => { columns = cols; return c; };
-    for (const method of ['eq', 'order', 'gte', 'not', 'limit']) c[method] = () => c;
+    for (const method of ['eq', 'order', 'gte', 'not', 'limit', 'or']) c[method] = () => c;
     c.then = (resolve: (r: unknown) => unknown) => resolve(columns.includes('staff_schedules(')
       ? { data: null, error: { message: 'synthetic outage' } }
       : { data: [{ id: 'staff-b', name: '合成スタッフ', is_active: true }], error: null });

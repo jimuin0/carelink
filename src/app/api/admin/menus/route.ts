@@ -10,6 +10,7 @@ import { isStockImageUrl, STOCK_IMAGE_ERROR } from '@/lib/stock-image-guard';
 import { serverError } from '@/lib/with-route';
 import { databaseDiagnostic } from '@/lib/database-diagnostic';
 import { saveAdminMenu } from '@/lib/admin-menu-write';
+import { hasMenuDurationIssue, MENU_DURATION_ERROR, menuDurationSchema } from '@/lib/menu-duration';
 
 const menuSchema = z.object({
   category: z.string().min(1).max(50),
@@ -17,7 +18,8 @@ const menuSchema = z.object({
   description: z.string().max(500).optional().nullable(),
   price: z.number().int().min(0).max(9999999).optional().nullable(),
   price_note: z.string().max(100).optional().nullable(),
-  duration_minutes: z.number().int().min(0).max(1440).optional().nullable(),
+  // 作成時は必須（画面の入力欄も必須）。15〜480 分（src/lib/menu-duration.ts）。
+  duration_minutes: menuDurationSchema,
   photo_url: z.string().url().max(500).optional().nullable().or(z.literal('')),
   is_featured: z.boolean().optional(),
   sort_order: z.number().int().min(0).optional(),
@@ -59,7 +61,11 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => null);
   const parsed = menuSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
+  if (!parsed.success) {
+    // 所要時間の誤りは、何を直せばよいかを文言で返す（画面の入力欄と同じ規則・同じ文言）。
+    const error = hasMenuDurationIssue(parsed.error) ? MENU_DURATION_ERROR : 'リクエストが不正です';
+    return NextResponse.json({ error, details: parsed.error.flatten() }, { status: 400 });
+  }
 
   // ストック写真の新規登録を拒否する（src/lib/stock-image-guard.ts）。新規作成なので
   // 「既存値と同じ」は原理上ありえず、素通し条件は不要。

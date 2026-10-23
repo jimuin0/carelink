@@ -5,9 +5,9 @@ import { getAvailableAreasAndTypes } from '@/lib/facilities';
 
 export const dynamic = 'force-dynamic';
 
-const TITLE = '店舗・施設の掲載登録';
+const TITLE = '店舗の掲載申込（無料）';
 const DESCRIPTION =
-  '店舗・施設の掲載料と予約手数料は無料。掲載条件と準備内容を確認して、CareLinkへの登録を始められます。';
+  '店舗の掲載料と予約手数料は無料。掲載条件と準備内容を確認して、CareLinkへの掲載申込を始められます。';
 
 /**
  * /register の metadata はここが単一ソース（以前は layout.tsx と page.tsx が別々の title・description を
@@ -22,7 +22,7 @@ const DESCRIPTION =
  */
 export const metadata: Metadata = {
   // 静的に読める文字列で書く（metadata-title-template.test.ts が TypeScript の構文木から読む）。
-  title: '店舗・施設の掲載登録',
+  title: '店舗の掲載申込（無料）',
   description: DESCRIPTION,
   alternates: { canonical: '/register' },
   openGraph: {

@@ -139,7 +139,9 @@ test.describe('/register 送信', () => {
     expect(new URL(page.url()).pathname).toBe('/register');
   });
 
-  test('JS読み込み前は入力を保護し、準備完了後の最初の入力でStep3まで進める', async ({ page }) => {
+  // 低速回線では JS が動き出すまで数十秒かかる（実測 約27秒）。その間も入力欄は使え、
+  // 「次へ」だけが止まって理由を示す。動き出す前に打った値は、動き出した後も消えない。
+  test('JS読み込み前から入力でき、打った値を失わずにStep3まで進める', async ({ page }) => {
     let releaseScripts!: () => void;
     const scriptsReady = new Promise<void>((resolve) => { releaseScripts = resolve; });
     await page.route('**/_next/static/**/*.js', async (route) => {
@@ -149,9 +151,16 @@ test.describe('/register 送信', () => {
     try {
       // load待ちではJS遅延の観測前に詰まるため、document応答後にSSR DOMを観測する。
       await page.goto('/register', { waitUntil: 'commit' });
-      await expect(page.locator('#reg-facility-name')).toBeDisabled();
-      await expect(page.getByRole('button', { name: 'ページを再読み込み' })).toBeVisible();
+      await expect(page.locator('#reg-facility-name')).toBeEnabled();
+      await expect(page.getByRole('button', { name: '次へ' })).toBeDisabled();
+      await expect(page.locator('#register-ready-status')).toContainText('入力はそのまま続けられます');
+      await page.fill('#reg-facility-name', 'JS前に入力した店舗');
+      await page.fill('#reg-email', 'before-js@example.invalid');
       releaseScripts();
+      await expect(page.getByRole('button', { name: '次へ' })).toBeEnabled();
+      await expect(page.locator('#register-ready-status')).toHaveCount(0);
+      await expect(page.locator('#reg-facility-name')).toHaveValue('JS前に入力した店舗');
+      await expect(page.locator('#reg-email')).toHaveValue('before-js@example.invalid');
       await fillStep1(page, 'hydration-fixture@example.invalid');
       await fillStep2(page);
       await expect(page.locator('#reg-desired-start-date')).toBeVisible();

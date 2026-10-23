@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<!--
+  Supabase Auth「Confirm signup」テンプレート（件名は supabase/config.toml の [auth.email.template.confirmation]）。
+  ローカル・CI の `supabase start` はこのファイルを使う。本番は Supabase Dashboard の
+  Authentication → Email Templates に同じ内容を貼る（このファイルが文面の正）。
+  確認リンク（ConfirmationURL）は Supabase が差し込む。それ以外の利用者入力は載せない。
+-->
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Hiragino Sans','Noto Sans JP',sans-serif;color:#1e293b;line-height:1.7;max-width:600px;margin:0 auto;padding:20px;">
+  <div style="text-align:center;margin-bottom:24px;"><strong style="color:#0369A1;font-size:20px;">CareLink</strong></div>
+  <h1 style="font-size:20px;margin:0 0 16px;">メールアドレスの確認</h1>
+  <p>CareLinkにご登録いただき、ありがとうございます。</p>
+  <p>下のボタンを押して、メールアドレスの確認を完了してください。</p>
+  <p style="text-align:center;margin:28px 0;">
+    <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#0369A1;color:#ffffff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">メールアドレスを確認する</a>
+  </p>
+  <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:16px;margin:16px 0;font-size:14px;">
+    <p style="margin:0;"><strong>掲載申込の続きで店舗アカウントを作成している方へ</strong></p>
+    <p style="margin:8px 0 0;">確認が済むと、掲載申込の続き（店舗情報の確認・設定）へ進めます。このリンクを別のブラウザやメールアプリで開いた場合も、確認が済んでいれば、申込を進めていた画面からログインして続けられます。</p>
+  </div>
+  <p style="font-size:13px;color:#475569;">ボタンが押せない場合は、次のURLをブラウザに貼り付けて開いてください。<br><span style="word-break:break-all;">{{ .ConfirmationURL }}</span></p>
+  <p style="font-size:13px;color:#475569;">このメールに心当たりがない場合は、何もせずに破棄してください。メールアドレスの確認は完了せず、アカウントも使える状態になりません。</p>
+  <hr style="border:none;border-top:1px solid #e2e8f0;margin:32px 0 16px;">
+  <p style="font-size:12px;color:#64748b;text-align:center;">このメールは CareLink（carelink-jp.com）から自動送信されています。</p>
+</body>
+</html>

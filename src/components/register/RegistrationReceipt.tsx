@@ -70,9 +70,11 @@ export default function RegistrationReceipt() {
       <div className="flex flex-col gap-4 mt-6">
         <Link href={salonHandoffAuthPath('signup')} className="btn-primary">店舗アカウントを作成する</Link>
         <Link href={salonHandoffAuthPath('login')} className="underline underline-offset-4">既存アカウントでログインする</Link>
-        <Link href="/register" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">別の店舗を新しいタブで申し込む</Link>
       </div>
-      <p className="text-sm mt-4 text-(--ecru-muted)">店舗ごとに申込を分けてください。複数店舗を同じアカウントで管理したい場合は、お問い合わせください。</p>
+      {/* 以前は「別の店舗を新しいタブで申し込む」を出していたが、新規の店舗アカウントは1アカウント1店舗
+          （facility_members の部分 UNIQUE・/api/facility/setup の ALREADY_MEMBER）で、2 店舗目の申込は
+          同じアカウントでは店舗にできない。できない手順へ誘導せず、複数店舗は運営への相談へ案内する。 */}
+      <p className="text-sm mt-4 text-(--ecru-muted)">新しく作成する{T.account}で掲載できるのは1店舗です。複数店舗の掲載をご希望の場合は、<Link href="/contact" className="underline underline-offset-4">運営へお問い合わせ</Link>ください。</p>
     </div>
   </div>;
 }

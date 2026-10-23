@@ -222,6 +222,18 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
+# CareLink の認証メール（日本語）。文面の正はこの 2 ファイルで、本番は Supabase Dashboard の
+# Authentication → Email Templates に同じ件名・本文を貼る（ダッシュボードの文面はリポジトリに残らないため）。
+# content_path は【リポジトリ直下からの相対】（Supabase CLI はメールテンプレートだけをリポジトリ基準で解決する。
+# 下の notification は supabase/ 基準）。src/__tests__/supabase-auth-email-templates.test.ts が実在と件名を検査する。
+[auth.email.template.confirmation]
+subject = "【CareLink】メールアドレスの確認をお願いします"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "【CareLink】パスワードの再設定"
+content_path = "./supabase/templates/recovery.html"
+
 # Uncomment to customize email template
 # [auth.email.template.invite]
 # subject = "You have been invited"

@@ -94,10 +94,15 @@ describe(`${FILE} の形`, () => {
     expect(readFileSync(join(ROOT, 'scripts/diagnose-booking-ready-hours-overlap.sql'), 'utf8')).toContain('適用後に予約を受けられなくなる店舗');
   });
 
-  test('この migration が create_booking_for_menus_atomic・change_booking_atomic・staff_has_working_time の最新定義', () => {
+  test('この migration が create_booking_for_menus_atomic・change_booking_atomic の最新定義', () => {
     const later = readdirSync(MIGRATIONS).filter((f) => /^\d{14}_/.test(f) && f > FILE);
     for (const f of later) {
-      expect(read(f)).not.toMatch(/FUNCTION\s+(public\.)?(create_booking_for_menus_atomic|change_booking_atomic|staff_has_working_time|working_time_meets_business_hours)\s*\(/i);
+      expect(read(f)).not.toMatch(/FUNCTION\s+(public\.)?(create_booking_for_menus_atomic|change_booking_atomic)\s*\(/i);
+      // staff_has_working_time・working_time_meets_business_hours は 20261023190000 だけが
+      // （最短のメニュー以上の重なりを要るように）定義し直す。それ以外は触らない。
+      if (f !== '20261023190000_booking_ready_min_menu_overlap.sql') {
+        expect(read(f)).not.toMatch(/FUNCTION\s+(public\.)?(staff_has_working_time|working_time_meets_business_hours)\s*\(/i);
+      }
     }
   });
 });
