@@ -192,9 +192,20 @@ test.describe('/register 送信', () => {
       const client = 10 + CASES.findIndex(c => c.value === value) * 10
         + testInfo.retry * 2 + (testInfo.project.name === 'chromium' ? 0 : 1);
       await page.setExtraHTTPHeaders({ 'x-real-ip': `192.0.2.${client}` });
-      await page.goto('/register');
-
       const detailed = value === 'immediately';
+      // The detailed case continues through Storage, the receipt, a password login, onboarding
+      // and the real store setup up to /admin. On WebKit (iPhone) all three CI attempts ran out of
+      // the 30s default inside that final setup step. Same budget as the other full registration
+      // flows (salon-legacy-resume, salon-photo-storage); no wait or assertion is relaxed.
+      if (detailed) test.setTimeout(90000);
+      await page.goto('/register');
+      // Make the visitor's actual privacy choice, as a first visit requires. On the iPhone
+      // viewport the fixed consent card sits over the bottom of the short onboarding form, where
+      // 「店舗を作成する」 cannot always be scrolled clear of it (same as login() in
+      // registration-recovery-linkage.spec.ts). Never force-click through it or seed consent.
+      await page.getByRole('button', { name: '必須のみ', exact: true }).click();
+      await expect(page.getByRole('button', { name: '必須のみ', exact: true })).toBeHidden();
+
       const email = `e2e-register-${value}-${randomUUID()}@example.invalid`;
       await fillStep1(page, email, detailed);
       await fillStep2(page, detailed);

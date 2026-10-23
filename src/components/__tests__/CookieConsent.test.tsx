@@ -12,6 +12,7 @@
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import CookieConsent from '@/components/CookieConsent';
+import CookieSettingsButton from '@/components/CookieSettingsButton';
 import {
   closeCookieSettings,
   isCookieSettingsOpen,
@@ -228,4 +229,15 @@ describe('回答後に開き直す', () => {
     fireEvent.click(screen.getByRole('button', { name: 'すべて同意' }));
     expect(JSON.parse(localStorage.getItem(COOKIE_CONSENT_STORAGE_KEY)!)).toEqual({ necessary: true, analytics: true, marketing: true });
   });
+});
+
+// フッターの flex に置かれると block 扱いになり、文字だけの高さ（11〜14px）では WCAG 2.5.8 の
+// 24px に届かなかった（e2e/accessibility.spec.ts が検知）。呼び出し側の className に関係なく
+// 部品の側で最低サイズを持つ。
+test('「Cookie設定」ボタンは呼び出し側の className を保ったまま最低 24px 四方の押せる範囲を持つ', () => {
+  render(<CookieSettingsButton className="hover:text-white transition-colors" />);
+  const button = screen.getByRole('button', { name: 'Cookie設定' });
+  expect(button.className.split(' ')).toEqual(expect.arrayContaining(['min-h-6', 'min-w-6', 'hover:text-white', 'transition-colors']));
+  render(<CookieSettingsButton />);
+  expect(screen.getAllByRole('button', { name: 'Cookie設定' })[1].className).toBe('min-h-6 min-w-6');
 });
