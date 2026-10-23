@@ -21,13 +21,23 @@ describe('removeAllAvatars（退会時に本人のフォルダの写真を消す
     const s = storage({ data: [{ name: 'avatar.jpg' }, { name: `${RANDOM}.webp` }], error: null });
     await expect(removeAllAvatars(s.client, USER)).resolves.toBe(true);
     expect(s.from).toHaveBeenCalledWith(AVATAR_BUCKET);
-    expect(s.list).toHaveBeenCalledWith(USER, { limit: 1000 });
+    expect(s.list).toHaveBeenCalledWith(USER, { limit: 1000, offset: 0 });
     expect(s.remove).toHaveBeenCalledWith([`${USER}/avatar.jpg`, `${USER}/${RANDOM}.webp`]);
   });
   test('写真が無ければ何も消さずに成功', async () => {
     const s = storage({ data: [], error: null });
     await expect(removeAllAvatars(s.client, USER)).resolves.toBe(true);
     expect(s.remove).not.toHaveBeenCalled();
+  });
+  test('1000件を超えても後続ページまで削除する', async () => {
+    const firstPage = Array.from({ length: 1000 }, (_, i) => ({ name: `avatar-${i}.webp` }));
+    const s = storage({ data: firstPage, error: null });
+    s.list.mockResolvedValueOnce({ data: firstPage, error: null });
+    s.list.mockResolvedValueOnce({ data: [{ name: 'last.webp' }], error: null });
+    await expect(removeAllAvatars(s.client, USER)).resolves.toBe(true);
+    expect(s.list).toHaveBeenNthCalledWith(2, USER, { limit: 1000, offset: 1000 });
+    expect(s.remove).toHaveBeenCalledTimes(2);
+    expect(s.remove).toHaveBeenLastCalledWith([`${USER}/last.webp`]);
   });
   test.each([
     ['一覧の失敗', { data: null, error: { message: 'list failed' } }],
