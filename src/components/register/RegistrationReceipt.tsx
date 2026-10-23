@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { readSalonBrowserContext, saveSalonBrowserContext,
   salonHandoffAuthPath } from '@/lib/salon-browser-context';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import ReceiptNumber from '@/components/register/ReceiptNumber';
 import { LISTING_PUBLISH_REQUIREMENT } from '@/lib/register-photo-policy';
 
 const receiptSchema = z.object({ state: z.literal('confirmed'), receiptId: z.uuid(),
@@ -57,7 +58,7 @@ export default function RegistrationReceipt() {
   return <div className={SHELL}>
     <div className="section-container max-w-lg py-12">
       <h1 className="mb-4 font-(family-name:--font-serif-jp) text-2xl">掲載申込を受け付けました</h1>
-      <p className="text-sm">受付番号：<span className="break-all">{receipt.receiptId}</span></p>
+      <ReceiptNumber id={receipt.receiptId} />
       <dl className="my-6 divide-y divide-(--ecru-line) border-y border-(--ecru-line) bg-(--ecru-surface) px-4 text-sm">
         <div className="flex gap-4 py-3"><dt className="w-20 shrink-0 text-(--ecru-muted)">施設名</dt><dd className="font-medium">{receipt.name}</dd></div>
         <div className="flex gap-4 py-3"><dt className="w-20 shrink-0 text-(--ecru-muted)">業種</dt><dd>{businessTypeLabel(receipt.type)}</dd></div>

@@ -5,6 +5,7 @@ import { resolveRegisteredSalon } from '@/lib/register-complete';
 import { buildOnboardingAuthPath } from '@/lib/onboarding-link';
 import RegistrationReceipt from '@/components/register/RegistrationReceipt';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import ReceiptNumber from '@/components/register/ReceiptNumber';
 import { LISTING_PUBLISH_ITEMS, LISTING_PUBLISH_REQUIREMENT } from '@/lib/register-photo-policy';
 
 /** /register と同じくすみ配色。色の値は globals.css の .theme-ecru だけが持つ。 */
@@ -51,7 +52,7 @@ export default async function RegisterCompletePage({ searchParams }: Props) {
         </div>
 
         <h1 className="mb-4 font-(family-name:--font-serif-jp) text-2xl">登録が完了しました！</h1>
-        <p className="text-sm mb-4">受付番号：<span className="break-all">{receipt.id}</span></p>
+        <ReceiptNumber id={receipt.id} className="mb-4" />
         <p className="text-sm mb-4">掲載申込の受付が完了しました。一般公開は、店舗情報の設定と公開操作の後に反映されます。</p>
         <p className="mb-2">
           あと少しで掲載開始できます。

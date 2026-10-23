@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { signupSchema, type SignupFormData } from '@/lib/validations-auth';
+import { PASSWORD_MAX_BYTES, PASSWORD_MIN_LENGTH, PASSWORD_RULES_HINT } from '@/lib/password-policy';
 import { prefectures, SITE_URL } from '@/lib/constants';
 import Toast from '@/components/Toast';
 import { isLineLoginEnabled } from '@/lib/line-availability';
@@ -341,7 +342,7 @@ function SignupContent() {
 
             <div>
               <label htmlFor="signup-password" className="form-label">パスワード <span className="text-red-600">*</span></label>
-              <p id="signup-password-help" className="mt-1 text-xs text-gray-500">8〜128文字で入力してください。英字・数字・記号を組み合わせる必要はありません。</p>
+              <p id="signup-password-help" className="mt-1 text-xs text-gray-500">{PASSWORD_RULES_HINT}</p>
               <div className="relative">
                 <input
                   {...register('password')}
@@ -352,8 +353,8 @@ function SignupContent() {
                   aria-required="true"
                   aria-describedby={errors.password ? 'signup-password-help signup-password-error' : 'signup-password-help'}
                   aria-invalid={Boolean(errors.password)}
-                  minLength={8}
-                  maxLength={128}
+                  minLength={PASSWORD_MIN_LENGTH}
+                  maxLength={PASSWORD_MAX_BYTES}
                 />
                 <button
                   type="button"
@@ -391,8 +392,8 @@ function SignupContent() {
                 aria-required="true"
                 aria-describedby={errors.password_confirm ? 'signup-password-confirm-error' : undefined}
                 aria-invalid={Boolean(errors.password_confirm)}
-                minLength={8}
-                maxLength={128}
+                minLength={PASSWORD_MIN_LENGTH}
+                maxLength={PASSWORD_MAX_BYTES}
               />
               {errors.password_confirm && <p id="signup-password-confirm-error" className="form-error" role="alert">{errors.password_confirm.message}</p>}
             </div>
@@ -428,7 +429,13 @@ function SignupContent() {
             <a
               href={`/api/auth/line?redirect=${encodeURIComponent(redirect)}`}
               onClick={(event) => {
-                if (isSubmitting || isGoogleSigningIn) event.preventDefault();
+                if (isSubmitting || isGoogleSigningIn) { event.preventDefault(); return; }
+                // Google と同じく、LINE で登録する場合も利用規約・プライバシーポリシーへの同意が要る
+                // （以前は LINE だけ同意を見ずにアカウントを作れた）。
+                if (getValues('terms_agreed') !== true) {
+                  event.preventDefault();
+                  setToast({ type: 'error', message: 'LINEで登録する場合も、利用規約とプライバシーポリシーへの同意が必要です。' });
+                }
               }}
               aria-disabled={isSubmitting || isGoogleSigningIn}
               className="flex items-center justify-center gap-2 w-full py-3 rounded-lg text-white font-bold hover:opacity-90 transition-opacity"

@@ -93,4 +93,41 @@ describe('ConfirmDialog', () => {
     expect(region).not.toHaveClass('sr-only');
     expect(screen.getByRole('dialog')).toHaveAccessibleDescription('m キャンセル料の条件が変わりました。');
   });
+
+  // 開いている間、背後のページは操作・読み上げの対象外（inert）。閉じたら元に戻し、
+  // 開く前にフォーカスしていた要素へフォーカスを返す。
+  test('開いている間は背後を inert にし、閉じたら戻してフォーカスを返す', () => {
+    function Page({ open }: { open: boolean }) {
+      return (
+        <div>
+          <header><button type="button">背後のボタン</button></header>
+          <nav inert data-testid="already-inert">既に inert</nav>
+          <section>
+            <button type="button">開く</button>
+            <ConfirmDialog open={open} title="t" message="m" onConfirm={() => {}} onCancel={() => {}} />
+          </section>
+        </div>
+      );
+    }
+    const raf = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { callback(0); return 0; });
+    const { rerender, container } = render(<Page open={false} />);
+    const opener = screen.getByRole('button', { name: '開く' });
+    opener.focus();
+    rerender(<Page open />);
+    const header = container.querySelector('header')!;
+    const dialog = screen.getByRole('dialog');
+    expect(header).toHaveAttribute('inert');
+    expect(opener).toHaveAttribute('inert'); // 同じ親の兄弟（開くボタン）も対象
+    expect(dialog).not.toHaveAttribute('inert');
+    expect(dialog.closest('[inert]')).toBeNull(); // 祖先は inert にしない
+    expect(screen.getByRole('button', { name: '背後のボタン' }).closest('[inert]')).toBe(header);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'キャンセル' }));
+    rerender(<Page open={false} />);
+    expect(header).not.toHaveAttribute('inert');
+    expect(opener).not.toHaveAttribute('inert');
+    // 元から inert だった要素は外さない。
+    expect(screen.getByTestId('already-inert')).toHaveAttribute('inert');
+    expect(document.activeElement).toBe(opener);
+    raf.mockRestore();
+  });
 });

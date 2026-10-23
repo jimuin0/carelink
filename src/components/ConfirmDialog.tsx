@@ -22,6 +22,26 @@ interface ConfirmDialogProps {
   onCancel: () => void;
 }
 
+/**
+ * ダイアログ以外のページ全体を inert にする（操作・フォーカス・支援技術の読み上げの対象から外れる）。
+ * ダイアログは呼び出し元の場所にそのまま描かれるので、ダイアログから body までの祖先ごとに
+ * 「兄弟要素」を inert にする（祖先そのものは inert にしない＝ダイアログは操作できるまま）。
+ * 元から inert だった要素には触れず、自分が付けたものだけを戻す。
+ * aria-hidden は併用しない: inert は対応ブラウザでアクセシビリティツリーからも外すので不要で、
+ * 背後のトースト等（role=status）まで二重に隠す副作用だけが残るため。
+ */
+function inertBackground(dialog: HTMLElement | null): () => void {
+  const changed: Element[] = [];
+  for (let node: Element | null = dialog; node && node !== document.body && node.parentElement; node = node.parentElement) {
+    for (const sibling of Array.from(node.parentElement.children)) {
+      if (sibling === node || sibling.hasAttribute('inert')) continue;
+      sibling.setAttribute('inert', '');
+      changed.push(sibling);
+    }
+  }
+  return () => { for (const element of changed) element.removeAttribute('inert'); };
+}
+
 export default function ConfirmDialog({
   open,
   title,
@@ -34,6 +54,7 @@ export default function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const titleId = useId();
@@ -71,6 +92,9 @@ export default function ConfirmDialog({
       previousFocusRef.current = document.activeElement as HTMLElement;
       document.addEventListener('keydown', handleKeyDown);
       document.body.style.overflow = 'hidden';
+      // 開いている間は背後のページを操作・読み上げの対象から外す（aria-modal だけでは
+      // スクリーンリーダーの仮想カーソルやクリックで背後へ抜けられた）。
+      const restoreBackground = inertBackground(rootRef.current);
       // Focus first button after render
       requestAnimationFrame(() => {
         const firstBtn = dialogRef.current?.querySelector<HTMLElement>('button');
@@ -79,6 +103,8 @@ export default function ConfirmDialog({
       return () => {
         document.removeEventListener('keydown', handleKeyDown);
         document.body.style.overflow = '';
+        // inert を外してからフォーカスを戻す（inert の要素にはフォーカスできない）。
+        restoreBackground();
         previousFocusRef.current?.focus();
       };
     }
@@ -88,6 +114,7 @@ export default function ConfirmDialog({
 
   return (
     <div
+      ref={rootRef}
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"

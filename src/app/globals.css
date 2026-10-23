@@ -61,6 +61,21 @@
   color: var(--primary);
 }
 
+/* 主ボタン（btn-primary）の隣に置く控えめな操作（再確認・次を表示など）。
+   以前は各画面が使っているのに定義が無く、素の文字列のように見えていた（押せると分からない）。
+   文字と枠は --primary（白地で #0369A1＝5.93:1、くすみテーマ #8E6A61＝4.79:1、いずれも AA 4.5:1 以上）。 */
+@utility btn-secondary {
+  @apply inline-flex items-center justify-center px-6 py-3 font-bold rounded-lg border-2 bg-white
+           transition-all duration-200 active:scale-95
+           disabled:border-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed disabled:active:scale-100;
+  border-color: var(--primary);
+  color: var(--primary);
+  &:hover:not(:disabled) {
+    border-color: var(--primary-dark);
+    color: var(--primary-dark);
+  }
+}
+
 @utility section-container {
   @apply max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-20;
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { newPasswordField, PASSWORD_MIN_LENGTH } from './password-policy';
 
 /**
  * パスワード再設定（/auth/reset-password）の入力検証と、更新失敗時の案内文。
@@ -8,44 +9,14 @@ import { z } from 'zod';
  * 同じ文言になり、利用者は再設定メールを何度も申請し直すだけで原因に辿り着けなかった。
  */
 
-/**
- * パスワードの最低文字数。本番の Supabase Auth の設定（最低 8 文字＋流出パスワードの拒否・
- * 文字種の指定なし）と揃える。入力欄の案内・送信前の検証・サーバーに拒否されたときの説明の
- * すべてがこの値を見るので、ここ以外に 8 を書かない（ずれると案内と実際の条件が食い違う）。
- */
-export const PASSWORD_MIN_LENGTH = 8;
-
-/** 入力欄の下に出す条件の説明。 */
-export const PASSWORD_RULES_HINT =
-  `${PASSWORD_MIN_LENGTH}文字以上、半角72文字以内（全角文字は1文字を3文字分として数えます）`;
-
-/**
- * Supabase Auth（bcrypt）が受け付けるパスワードの上限。文字数ではなく UTF-8 のバイト数で数える。
- * 超えると送信後にサーバーで拒否されるため、送信前に止めて理由を伝える。
- */
-export const PASSWORD_MAX_BYTES = 72;
-
-export const PASSWORD_TOO_LONG_MESSAGE =
-  'パスワードが長すぎます。半角英数字・記号なら72文字以内にしてください（全角文字は1文字を3文字分として数えます）。';
-
-/**
- * UTF-8 でのバイト数。TextEncoder と同じ結果を返す（対になっていないサロゲートは
- * 置換文字 U+FFFD＝3 バイトとして数える）。TextEncoder を使わないのは、テスト環境（jsdom）に
- * 無く、フォームの検証そのものが例外で止まるため。
- */
-export function utf8ByteLength(value: string): number {
-  let bytes = 0;
-  for (const char of value) {
-    const codePoint = char.codePointAt(0) as number;
-    bytes += codePoint < 0x80 ? 1 : codePoint < 0x800 ? 2 : codePoint < 0x10000 ? 3 : 4;
-  }
-  return bytes;
-}
+// 条件（最低文字数・72バイト上限・案内文）は新規登録と同じ単一ソースから取る。
+// 既存の import 先（このファイル）を壊さないよう再 export する。
+export {
+  PASSWORD_MIN_LENGTH, PASSWORD_MAX_BYTES, PASSWORD_RULES_HINT, PASSWORD_TOO_LONG_MESSAGE, utf8ByteLength,
+} from './password-policy';
 
 export const resetPasswordSchema = z.object({
-  password: z.string()
-    .min(PASSWORD_MIN_LENGTH, `パスワードは${PASSWORD_MIN_LENGTH}文字以上で入力してください`)
-    .refine(value => utf8ByteLength(value) <= PASSWORD_MAX_BYTES, PASSWORD_TOO_LONG_MESSAGE),
+  password: newPasswordField,
   password_confirm: z.string(),
 }).refine((data) => data.password === data.password_confirm, {
   message: 'パスワードが一致しません',

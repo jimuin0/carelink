@@ -162,3 +162,16 @@ test('direct visits do not show the handoff notice',async()=>{
   render(<RecoverRegistrationPage/>);await screen.findByText(receipt.facility_name);
   expect(screen.queryByText('申込を選んでください')).not.toBeInTheDocument();
 });
+test('receipt numbers are shown as a short readable reference with the full id for support',async()=>{
+  render(<RecoverRegistrationPage/>);await screen.findByText(receipt.facility_name);
+  expect(screen.getByTestId('receipt-short')).toHaveTextContent(/^B100-0000$/);
+  expect(screen.getByTestId('receipt-full')).toHaveTextContent(receiptId);
+});
+test('the page does not render a second main landmark inside the layout one (axe landmark-no-duplicate-main)',async()=>{
+  const {container}=render(<RecoverRegistrationPage/>);await screen.findByText(receipt.facility_name);
+  expect(container.querySelector('main')).toBeNull();
+});
+test('secondary actions use the defined btn-secondary utility',async()=>{
+  render(<RecoverRegistrationPage/>);await screen.findByText(receipt.facility_name);
+  expect(screen.getByRole('button',{name:'先頭から再確認'})).toHaveClass('btn-secondary');
+});
