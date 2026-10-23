@@ -40,6 +40,11 @@ END
 $guard$;
 
 DROP POLICY IF EXISTS "Public read avatars" ON storage.objects;
+-- Production also carries these bucket-wide read policies under other names (created outside the
+-- migrations; seen on 2026-10-23 with pg_policies). Both buckets are public, so displayed images are
+-- served from the public object URL and never needed them; they only made the whole bucket listable.
+DROP POLICY IF EXISTS avatars_public_read ON storage.objects;
+DROP POLICY IF EXISTS review_photos_public_read ON storage.objects;
 
 DO $reconcile$
 DECLARE leftover text;
@@ -49,10 +54,10 @@ BEGIN
   WHERE p.schemaname = 'storage' AND p.tablename = 'objects'
     AND p.cmd IN ('SELECT', 'ALL')
     AND p.roles && ARRAY['anon', 'public', 'authenticated']::name[]
-    AND coalesce(p.qual, '') LIKE '%''avatars''%'
-    AND p.policyname <> 'avatars_select_own_live';
+    AND (coalesce(p.qual, '') LIKE '%''avatars''%' OR coalesce(p.qual, '') LIKE '%''review-photos''%')
+    AND p.policyname NOT IN ('avatars_select_own_live', 'review_photos_select_own_live');
   IF leftover IS NOT NULL THEN
-    RAISE EXCEPTION 'avatars listing policy requires reconciliation: %', leftover;
+    RAISE EXCEPTION 'avatars/review-photos listing policy requires reconciliation: %', leftover;
   END IF;
 END
 $reconcile$;

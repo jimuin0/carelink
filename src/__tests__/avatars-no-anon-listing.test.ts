@@ -64,7 +64,10 @@ describe(`${FILE} の形`, () => {
     expect(SQL.indexOf('DO $guard$')).toBeLessThan(SQL.indexOf('DROP POLICY'));
     expect(SQL).toContain("IF to_regclass('public.facility_profiles') IS NULL OR to_regclass('storage.objects') IS NULL THEN");
     expect(SQL).toContain('DROP POLICY IF EXISTS "Public read avatars" ON storage.objects;');
-    expect(SQL).toContain("RAISE EXCEPTION 'avatars listing policy requires reconciliation: %', leftover;");
+    expect(SQL).toContain("RAISE EXCEPTION 'avatars/review-photos listing policy requires reconciliation: %', leftover;");
+    // 本番には migration 外で作られた同等のポリシーが別名で残っていた（2026-10-23 pg_policies で確認）
+    expect(SQL).toContain('DROP POLICY IF EXISTS avatars_public_read ON storage.objects;');
+    expect(SQL).toContain('DROP POLICY IF EXISTS review_photos_public_read ON storage.objects;');
     expect(SQL.indexOf('DROP POLICY IF EXISTS "Public read avatars"')).toBeLessThan(SQL.indexOf('DO $reconcile$'));
   });
 
