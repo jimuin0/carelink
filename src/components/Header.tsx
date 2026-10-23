@@ -5,6 +5,16 @@ import { useState } from 'react';
 import { usePathname } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { isEcruShopPath } from '@/lib/shop-theme';
+import {
+  HEADER_ACCOUNT_GROUP,
+  HEADER_BAR,
+  HEADER_LISTING_LINK,
+  HEADER_MOBILE_LINK,
+  HEADER_MOBILE_LISTING_LINK,
+  HEADER_MOBILE_STORE_LOGIN_LINK,
+  HEADER_NAV_LINK,
+  HEADER_STORE_LOGIN_LINK,
+} from '@/components/header-styles';
 
 const AuthButton = dynamic(() => import('@/components/auth/AuthButton'), { ssr: false });
 
@@ -30,8 +40,9 @@ export default function Header() {
     return (
       <header className="theme-ecru sticky top-0 z-50 border-b border-(--ecru-line) bg-(--ecru-bg)">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <Link href="/" className="text-2xl font-bold text-(--logo)">
+          <div className={HEADER_BAR}>
+            {/* ロゴの大きさ・高さは検索サイト側の SearchHeader と同じ（src/components/header-styles.ts）。 */}
+            <Link href="/" className="text-xl font-bold text-(--logo) shrink-0">
               CareLink
             </Link>
             <Link
@@ -49,23 +60,20 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-50 backdrop-blur-sm border-b bg-white/95 border-gray-100">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          <Link href="/" className="text-2xl font-bold text-(--logo)">
+        <div className={HEADER_BAR}>
+          <Link href="/" className="text-xl font-bold text-(--logo) shrink-0">
             CareLink
           </Link>
 
-          {/* Desktop nav */}
-          <nav className="hidden sm:flex items-center gap-4" aria-label="メインナビゲーション">
-            <Link
-              href="/search"
-              className="text-gray-700 hover:text-primary font-medium transition-colors"
-            >
+          {/* Desktop nav（リンクの見た目は SearchHeader と共通: src/components/header-styles.ts） */}
+          <nav className="hidden sm:flex items-center gap-1 ml-4 min-w-0" aria-label="メインナビゲーション">
+            <Link href="/search" className={HEADER_NAV_LINK}>
               サロンを探す
             </Link>
-            <Link href="/contact" className="text-gray-700 hover:text-primary font-medium transition-colors">
+            <Link href="/contact" className={HEADER_NAV_LINK}>
               お問い合わせ
             </Link>
-            <Link href="/register" className="text-gray-700 hover:text-primary font-medium transition-colors">
+            <Link href="/register" className={HEADER_LISTING_LINK}>
               施設掲載
             </Link>
             {/* 【2026年7月28日・神原さん判断で追加】掲載中の店舗オーナーが管理画面へ入る導線を
@@ -77,14 +85,11 @@ export default function Header() {
                 生成より前」に 307 で /mypage（?redirect 尊重後は redirect 先）へ差し替えるため、
                 /auth/login/page.tsx 側の useEffect（既存セッション検知）は一度もマウントされない
                 （旧コメントの想定は成立しない）。 */}
-            <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
-              <Link
-                href="/auth/login?redirect=/admin"
-                className="text-sm text-gray-600 hover:text-primary font-medium transition-colors whitespace-nowrap"
-              >
+            <div className={HEADER_ACCOUNT_GROUP}>
+              <Link href="/auth/login?redirect=/admin" className={HEADER_STORE_LOGIN_LINK}>
                 店舗ログイン
               </Link>
-              <Link href="/auth/signup" className="text-sm text-gray-700 hover:text-primary font-medium transition-colors">
+              <Link href="/auth/signup" className={HEADER_NAV_LINK}>
                 会員登録
               </Link>
               <AuthButton />
@@ -115,34 +120,34 @@ export default function Header() {
         {/* Mobile menu */}
         <div
           className={`sm:hidden overflow-hidden transition-all duration-300 ease-in-out ${
-            isOpen ? 'max-h-64 opacity-100' : 'max-h-0 opacity-0'
+            isOpen ? 'max-h-80 opacity-100' : 'max-h-0 opacity-0'
           }`}
         >
-          <nav className="pb-4 border-t border-gray-100 pt-4 flex flex-col gap-4" aria-label="モバイルナビゲーション">
+          <nav className="pb-4 border-t border-gray-100 pt-3 flex flex-col gap-1" aria-label="モバイルナビゲーション">
             <Link
               href="/search"
-              className="text-gray-700 font-medium hover:text-primary transition-colors"
+              className={HEADER_MOBILE_LINK}
               onClick={() => setIsOpen(false)}
             >
               サロンを探す
             </Link>
             <Link
               href="/auth/signup"
-              className="text-gray-700 font-medium hover:text-primary transition-colors"
+              className={HEADER_MOBILE_LINK}
               onClick={() => setIsOpen(false)}
             >
               会員登録（無料）
             </Link>
             <Link
               href="/contact"
-              className="text-gray-700 font-medium hover:text-primary transition-colors"
+              className={HEADER_MOBILE_LINK}
               onClick={() => setIsOpen(false)}
             >
               お問い合わせ
             </Link>
             <Link
               href="/register"
-              className="text-gray-700 font-medium hover:text-primary transition-colors"
+              className={HEADER_MOBILE_LISTING_LINK}
               onClick={() => setIsOpen(false)}
             >
               施設掲載はこちら
@@ -150,7 +155,7 @@ export default function Header() {
             {/* デスクトップと同じく、掲載中の店舗オーナー向けの管理画面入口。 */}
             <Link
               href="/auth/login?redirect=/admin"
-              className="text-gray-500 font-medium hover:text-primary transition-colors"
+              className={HEADER_MOBILE_STORE_LOGIN_LINK}
               onClick={() => setIsOpen(false)}
             >
               店舗ログイン
