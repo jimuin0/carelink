@@ -28,13 +28,25 @@ beforeEach(() => {
   (getMenuStaffByMenuIds as jest.Mock).mockResolvedValue([]);
 });
 
-test('掲載のみなら予約入力へ進まず、電話と詳細を表示する', async () => {
+test('掲載のみなら予約入力へ進まず、電話・お問い合わせフォーム・詳細を表示する', async () => {
   render(await BookingPage(props()));
   expect(screen.queryByText('予約入力画面')).toBeNull();
+  expect(screen.getByRole('heading', { name: 'ネット予約は準備中です' })).toBeTruthy();
   expect(screen.getByRole('link', { name: '店舗に電話する' }).getAttribute('href')).toBe('tel:000-0000-0000');
+  expect(screen.getByText('000-0000-0000')).toBeTruthy();
+  expect(screen.getByRole('link', { name: 'お問い合わせフォームで問い合わせる' }).getAttribute('href')).toBe('/facility/synthetic-facility#contact-section');
   expect(screen.getByRole('link', { name: '店舗情報に戻る' }).getAttribute('href')).toBe('/facility/synthetic-facility');
   expect(getBookableStaffByFacility).not.toHaveBeenCalled();
   expect(getFacilityMenus).not.toHaveBeenCalled();
+});
+
+// 2026年10月23日: 電話番号が無い（tel: にできない）店舗では連絡手段が 1 つも出ず、行き止まりだった。
+test.each([null, '', '電話はお問い合わせください'])('電話番号が無い・電話をかけられない（%p）店舗でもお問い合わせフォームへ案内する', async (phone) => {
+  (getFacilityBySlug as jest.Mock).mockResolvedValue({ facility: { id: 'synthetic-id', name: 'テスト施設', phone } });
+  render(await BookingPage(props()));
+  expect(screen.queryByRole('link', { name: '店舗に電話する' })).toBeNull();
+  expect(screen.getByText('ご予約については、お問い合わせフォームから店舗へ直接お問い合わせください。')).toBeTruthy();
+  expect(screen.getByRole('link', { name: 'お問い合わせフォームで問い合わせる' }).getAttribute('href')).toBe('/facility/synthetic-facility#contact-section');
 });
 
 test('DB障害を準備中や予約可へ置換しない', async () => {
