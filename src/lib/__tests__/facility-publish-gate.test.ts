@@ -7,6 +7,7 @@
 import {
   checkBookingReadiness as checkPublishReadiness, checkPublishReadiness as checkListingReadiness, isPublishedLocationConflict,
   isPublishedHoursConflict, readWorkingStaff, summarizeWorkingStaff, workingStaffQuery, workingTimeMeetsBusinessHours,
+  bookableMenusQuery, shortestBookingMinutes,
 } from '../facility-publish-gate';
 
 test.each([null, undefined, false, '23514', {}, { code: '23514' },
@@ -31,13 +32,13 @@ test('the DB publish RPCs report unconfirmed hours as an actionable conflict', (
 });
 
 // facility_menus は .select().eq().or()、facility_photos は .select().eq() で count を解決する thenable。
-function countChain(count: number | null, error: unknown = null) {
+function countChain(count: number | null, error: unknown = null, data?: unknown) {
   const obj: Record<string, unknown> = {};
   obj.select = jest.fn(() => obj);
   obj.eq = jest.fn(() => obj);
   obj.or = jest.fn(() => obj);
-  obj.then = (resolve: (v: { count: number | null; error: unknown }) => unknown) =>
-    resolve({ count, error });
+  obj.then = (resolve: (v: { count: number | null; error: unknown; data?: unknown }) => unknown) =>
+    resolve({ count, error, data });
   return obj;
 }
 
@@ -456,10 +457,11 @@ describe('勤務時間のある在籍スタッフ（workingStaffQuery）', () =>
   });
 
   test('readWorkingStaff は読めなければ例外（未登録と偽装しない）', async () => {
-    const client = (staff: unknown, facility: { data: unknown; error: unknown }) => ({
-      from: (table: string) => table === 'staff_profiles' ? staff : {
-        select: () => ({ eq: () => ({ limit: () => Promise.resolve(facility) }) }),
-      },
+    const client = (staff: unknown, facility: { data: unknown; error: unknown },
+      menus: { data: unknown; error: unknown } = { data: [], error: null }) => ({
+      from: (table: string) => table === 'staff_profiles' ? staff
+        : table === 'facility_menus' ? { select: () => ({ eq: () => ({ or: () => Promise.resolve(menus) }) }) }
+        : { select: () => ({ eq: () => ({ limit: () => Promise.resolve(facility) }) }) },
     }) as never;
     const hours = { data: [{ business_hours: { mon: { open: '10:00', close: '18:00' } } }], error: null };
     await expect(readWorkingStaff(client(staffChain(null, { message: 'down' }), hours), 'f1'))
@@ -471,6 +473,15 @@ describe('勤務時間のある在籍スタッフ（workingStaffQuery）', () =>
     // 営業時間が月曜 18:00 以降だけなら、09:00-18:00 の勤務は予約を受けられない
     await expect(readWorkingStaff(client(staffChain(workingRows(1)), { data: [{ business_hours: { mon: { open: '18:00', close: '20:00' } } }], error: null }), 'f1'))
       .resolves.toEqual({ activeIds: ['s0'], workingIds: new Set(), outsideHoursIds: new Set(['s0']) });
+    // メニューが読めなければ例外（最短の所要時間を 15 分と取り違えない）
+    await expect(readWorkingStaff(client(staffChain(workingRows(1)), hours, { data: null, error: { message: 'menus down' } }), 'f1'))
+      .rejects.toThrow('スタッフの勤務状況を取得できませんでした: menus down');
+    // 営業時間と 30 分だけ重なる勤務（月曜 17:30-20:00）は、最短のメニューが 60 分なら予約を受けられない
+    const lateShift = staffChain([{ id: 's0', staff_schedules: [{ day_of_week: 1, start_time: '17:30:00', end_time: '20:00:00' }], schedule_overrides: [] }]);
+    await expect(readWorkingStaff(client(lateShift, hours, { data: [{ duration_minutes: 60 }, { duration_minutes: null }], error: null }), 'f1'))
+      .resolves.toEqual({ activeIds: ['s0'], workingIds: new Set(), outsideHoursIds: new Set(['s0']) });
+    await expect(readWorkingStaff(client(lateShift, hours, { data: [{ duration_minutes: 60 }, { duration_minutes: 30 }], error: null }), 'f1'))
+      .resolves.toEqual({ activeIds: ['s0'], workingIds: new Set(['s0']), outsideHoursIds: new Set() });
     // 施設の行が見えない（RLS）なら営業時間で切り詰めない（SQL 側と同じ）
     for (const invisible of [{ data: [], error: null }, { data: null, error: null }, { data: [{}], error: null }]) {
       await expect(readWorkingStaff(client(staffChain(workingRows(1)), invisible), 'f1'))
@@ -508,5 +519,76 @@ describe('勤務時間のある在籍スタッフ（workingStaffQuery）', () =>
       expect(summarizeWorkingStaff([{ id: 'x', staff_schedules: [], schedule_overrides: [{ date: 'not-a-date', start_time: '10:00', end_time: '11:00' }, { date: null, start_time: '10:00', end_time: '11:00' }] }], null))
         .toEqual({ activeIds: ['x'], workingIds: new Set(), outsideHoursIds: new Set(['x']) });
     });
+  });
+});
+
+// migration 20261023190000：勤務の窓は、店舗の最短のメニュー以上が営業時間の中に残るときだけ数える。
+// 予約枠（get_available_slots）は切り詰めた窓に所要時間がまるごと入るときだけ出るため、数分だけ重なる
+// スタッフしかいない店舗は「予約OK」なのに毎日「満枠」だった。
+describe('勤務の窓に要る長さ（最短のメニュー）', () => {
+  test('shortestBookingMinutes は予約画面の所要時間（未設定・0 は 60 分、15〜480 に丸める）の最小値', () => {
+    expect(shortestBookingMinutes([{ duration_minutes: 90 }, { duration_minutes: 45 }])).toBe(45);
+    expect(shortestBookingMinutes([{ duration_minutes: null }, { duration_minutes: 0 }])).toBe(60);
+    expect(shortestBookingMinutes([{ duration_minutes: 5 }])).toBe(15);
+    expect(shortestBookingMinutes([{ duration_minutes: 600 }])).toBe(480);
+    // 予約できるメニューが無い・読めない形なら、空き枠 RPC が受け付ける最短（15 分）
+    expect(shortestBookingMinutes([])).toBe(15);
+    expect(shortestBookingMinutes(null)).toBe(15);
+  });
+
+  test('bookableMenusQuery は件数つきで、非公開以外のメニューの所要時間を読む', () => {
+    const chain = countChain(0);
+    const from = jest.fn(() => chain);
+    bookableMenusQuery({ from } as never, 'f1');
+    expect(from).toHaveBeenCalledWith('facility_menus');
+    expect(chain.select).toHaveBeenCalledWith('duration_minutes', { count: 'exact' });
+    expect(chain.eq).toHaveBeenCalledWith('facility_id', 'f1');
+    expect(chain.or).toHaveBeenCalledWith('is_published.is.null,is_published.eq.true');
+  });
+
+  const MON_HOURS = { mon: { open: '10:00', close: '18:00' } };
+  test.each([
+    ['14 分の重なりは既定（15 分）に届かない', '17:46', '20:00', undefined, false],
+    ['15 分ちょうどは届く（get_available_slots と同じく以上）', '17:45', '20:00', undefined, true],
+    ['30 分の重なりは 60 分のメニューに届かない', '17:30', '20:00', 60, false],
+    ['60 分ちょうどの重なりは 60 分のメニューに届く', '17:00', '20:00', 60, true],
+    ['秒まで比べる（59 分 59 秒は届かない）', '17:00:01', '20:00', 60, false],
+    ['15 分未満の指定は 15 分に丸める', '17:50', '20:00', 5, false],
+    ['480 分を超える指定は 480 分に丸める（営業 8 時間ちょうどで届く）', '09:00', '18:00', 600, true],
+    ['読めない指定は 15 分', '17:45', '20:00', Number.NaN, true],
+  ])('%s', (_label, start, end, minMinutes, expected) => {
+    expect(workingTimeMeetsBusinessHours(MON_HOURS, 1, start, end, minMinutes)).toBe(expected);
+  });
+
+  test('summarizeWorkingStaff は窓ごとに最短のメニューで確かめる', () => {
+    const rows = [
+      { id: 'short', staff_schedules: [{ day_of_week: 1, start_time: '07:00', end_time: '10:20' }], schedule_overrides: [] },
+      { id: 'special-short', staff_schedules: [], schedule_overrides: [{ date: '2030-01-07', start_time: '17:40', end_time: '19:00' }] },
+      { id: 'long', staff_schedules: [{ day_of_week: 1, start_time: '07:00', end_time: '12:00' }], schedule_overrides: [] },
+    ];
+    expect(summarizeWorkingStaff(rows, MON_HOURS, 60)).toEqual({
+      activeIds: ['short', 'special-short', 'long'], workingIds: new Set(['long']), outsideHoursIds: new Set(['short', 'special-short']),
+    });
+    expect(summarizeWorkingStaff(rows, MON_HOURS).workingIds).toEqual(new Set(['short', 'special-short', 'long']));
+  });
+
+  test('checkBookingReadiness は店舗の最短のメニューで勤務の窓を数える', async () => {
+    const admin = (menuRows: unknown) => ({
+      from: (table: string) => {
+        if (table === 'facility_menus') return countChain(1, null, menuRows);
+        if (table === 'facility_photos') return countChain(1);
+        if (table === 'staff_profiles') {
+          return staffChain([{ id: 's0', staff_schedules: [{ day_of_week: 1, start_time: '07:00:00', end_time: '10:30:00' }], schedule_overrides: [] }]);
+        }
+        return profileChain({ name: '合成店舗', status: 'published', prefecture: '東京都', city: '渋谷区', address: '検証町1-1',
+          business_hours: { mon: { open: '10:00', close: '18:00' }, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null } });
+      },
+    }) as never;
+    // 営業時間と 30 分だけ重なる。最短のメニューが 60 分なら予約枠は出ない
+    const short = await checkPublishReadiness(admin([{ duration_minutes: 60 }]), 'f1');
+    expect(short.readiness.missing).toEqual(['営業時間内の勤務時間を保存したスタッフを1人以上登録してください']);
+    // 30 分のメニューがあれば受けられる
+    const fits = await checkPublishReadiness(admin([{ duration_minutes: 60 }, { duration_minutes: 30 }]), 'f1');
+    expect(fits.readiness).toEqual({ ready: true, missing: [] });
   });
 });

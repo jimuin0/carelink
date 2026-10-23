@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { hasConfirmedBookingHours } from './booking-preparation';
 import { validateFacilityPrText } from './medical-ad-guard';
 import { todayJst } from './admin-date';
+import { BOOKING_DURATION_MAX_MINUTES, BOOKING_DURATION_MIN_MINUTES, bookingDurationForMenus } from './booking-slot-rules';
 
 export interface PublishReadiness {
   ready: boolean;
@@ -40,7 +41,32 @@ function clockSeconds(value: unknown): number | null {
 }
 
 /**
- * 勤務の窓（週間の勤務日、または勤務する特別日）が、その曜日の店舗の営業時間の中に少しでも残るか。
+ * 店舗で予約画面が求めうる最短の所要時間（分）。予約できるメニュー（非公開以外）1つずつの
+ * bookingDurationForMenus（未設定・0 は 60 分、15〜480 分に丸める）の最小値。予約できるメニューが
+ * 無ければ 15 分（空き枠 RPC が受け付ける最短）。SQL 側は public.facility_shortest_booking_minutes
+ * （migration 20261023190000）。ここを変えるときは必ず両方を揃える。
+ */
+export function shortestBookingMinutes(menus: unknown): number {
+  const list = (Array.isArray(menus) ? menus : []) as { duration_minutes?: number | null }[];
+  if (list.length === 0) return BOOKING_DURATION_MIN_MINUTES;
+  return Math.min(...list.map(menu => bookingDurationForMenus([menu])));
+}
+
+/**
+ * 予約できるメニュー（公開側 getFacilityMenus と同じ可視条件＝is_published が null または true）の
+ * 所要時間。件数（count）も一緒に返す。最短の所要時間は shortestBookingMinutes で求める。
+ */
+export function bookableMenusQuery(client: SupabaseClient, facilityId: string) {
+  return client
+    .from('facility_menus')
+    .select('duration_minutes', { count: 'exact' })
+    .eq('facility_id', facilityId)
+    .or('is_published.is.null,is_published.eq.true');
+}
+
+/**
+ * 勤務の窓（週間の勤務日、または勤務する特別日）が、その曜日の店舗の営業時間の中に
+ * minMinutes 分（店舗の最短のメニュー・既定 15 分）以上残るか。
  *
  * 予約枠（get_available_slots）は勤務の窓を営業時間で切り詰め、定休日は枠を出さない。営業時間の外に
  * しか勤務が無いスタッフしかいない店舗は、検索カードは「予約OK」なのに予約画面は毎日「満枠」になっていた
@@ -50,8 +76,14 @@ function clockSeconds(value: unknown): number | null {
  * 営業時間の読み方は get_available_slots と同じ：未設定・オブジェクトでない・その曜日のキーが無い→
  * 切り詰めない／その曜日が null→定休日（勤務の窓は残らない）／open・close が両方あれば切り詰める。
  * 読めない時刻（HH:MM[:SS] でない）は、予約枠も出せないので「残らない」とする。
+ *
+ * 残る長さは店舗の最短のメニュー以上を要る（migration 20261023190000）。予約枠は切り詰めた窓に
+ * 所要時間がまるごと入るときだけ出るため、数分だけ重なるスタッフしかいない店舗は「予約OK」なのに
+ * 毎日「満枠」になっていた。minMinutes は 15〜480 分に丸める（SQL 側と同じ）。
  */
-export function workingTimeMeetsBusinessHours(hours: unknown, dayOfWeek: number, start: unknown, end: unknown): boolean {
+export function workingTimeMeetsBusinessHours(
+  hours: unknown, dayOfWeek: number, start: unknown, end: unknown, minMinutes: number = BOOKING_DURATION_MIN_MINUTES,
+): boolean {
   let from = clockSeconds(start);
   let to = clockSeconds(end);
   const key = WEEKDAY_KEYS[dayOfWeek];
@@ -70,7 +102,9 @@ export function workingTimeMeetsBusinessHours(hours: unknown, dayOfWeek: number,
       }
     }
   }
-  return to > from;
+  const need = Math.min(Math.max(Number.isFinite(minMinutes) ? minMinutes : BOOKING_DURATION_MIN_MINUTES,
+    BOOKING_DURATION_MIN_MINUTES), BOOKING_DURATION_MAX_MINUTES);
+  return to > from && to - from >= need * 60;
 }
 
 /** 'YYYY-MM-DD' の曜日（0=日）。読めない日付は -1（どの曜日の営業時間にも当たらない）。 */
@@ -108,9 +142,9 @@ export function workingStaffQuery(client: SupabaseClient, facilityId: string, to
 export interface WorkingStaff {
   /** 在籍スタッフ全員。 */
   activeIds: string[];
-  /** そのうち営業時間の中に勤務の窓がある（予約を受けられる）スタッフ。 */
+  /** そのうち営業時間の中に最短のメニュー以上の勤務の窓がある（予約を受けられる）スタッフ。 */
   workingIds: Set<string>;
-  /** 勤務の窓は保存してあるが、どれも営業時間（定休日を含む）と重ならないスタッフ。 */
+  /** 勤務の窓は保存してあるが、どれも営業時間（定休日を含む）の中に最短のメニュー以上残らないスタッフ。 */
   outsideHoursIds: Set<string>;
 }
 
@@ -119,9 +153,11 @@ type WindowRow = { day_of_week?: unknown; date?: unknown; start_time?: unknown; 
 /**
  * workingStaffQuery の結果を、在籍スタッフ・予約を受けられるスタッフ・営業時間の外にしか勤務が無い
  * スタッフに分ける。businessHours は facility_profiles.business_hours（読めなければ null＝切り詰めない。
- * SQL 側で施設が見えないときと同じ）。
+ * SQL 側で施設が見えないときと同じ）。minMinutes は店舗の最短のメニュー（shortestBookingMinutes）。
  */
-export function summarizeWorkingStaff(rows: unknown, businessHours: unknown): WorkingStaff {
+export function summarizeWorkingStaff(
+  rows: unknown, businessHours: unknown, minMinutes: number = BOOKING_DURATION_MIN_MINUTES,
+): WorkingStaff {
   const list = (Array.isArray(rows) ? rows : []) as {
     id: string; staff_schedules?: WindowRow[] | null; schedule_overrides?: WindowRow[] | null;
   }[];
@@ -130,8 +166,8 @@ export function summarizeWorkingStaff(rows: unknown, businessHours: unknown): Wo
   for (const row of list) {
     const weekly = row.staff_schedules ?? [];
     const special = row.schedule_overrides ?? [];
-    const works = weekly.some(w => workingTimeMeetsBusinessHours(businessHours, Number(w.day_of_week), w.start_time, w.end_time))
-      || special.some(o => workingTimeMeetsBusinessHours(businessHours, weekdayOf(o.date), o.start_time, o.end_time));
+    const works = weekly.some(w => workingTimeMeetsBusinessHours(businessHours, Number(w.day_of_week), w.start_time, w.end_time, minMinutes))
+      || special.some(o => workingTimeMeetsBusinessHours(businessHours, weekdayOf(o.date), o.start_time, o.end_time, minMinutes));
     if (works) workingIds.add(row.id);
     else if (weekly.length + special.length > 0) outsideHoursIds.add(row.id);
   }
@@ -144,14 +180,15 @@ export function summarizeWorkingStaff(rows: unknown, businessHours: unknown): Wo
  * 営業時間はこのクライアントで読める施設の行から取る（SQL 側の staff_has_working_time と同じ）。
  */
 export async function readWorkingStaff(client: SupabaseClient, facilityId: string): Promise<WorkingStaff> {
-  const [staff, facility] = await Promise.all([
+  const [staff, facility, menus] = await Promise.all([
     workingStaffQuery(client, facilityId),
     client.from('facility_profiles').select('business_hours').eq('id', facilityId).limit(1),
+    bookableMenusQuery(client, facilityId),
   ]);
-  const error = staff.error ?? facility.error;
+  const error = staff.error ?? facility.error ?? menus.error;
   if (error) throw new Error(`スタッフの勤務状況を取得できませんでした: ${error.message}`);
   const hours = (facility.data as { business_hours?: unknown }[] | null)?.[0]?.business_hours;
-  return summarizeWorkingStaff(staff.data, hours ?? null);
+  return summarizeWorkingStaff(staff.data, hours ?? null, shortestBookingMinutes(menus.data));
 }
 
 /**
@@ -170,11 +207,8 @@ export async function checkBookingReadiness(
   facilityId: string
 ): Promise<{ readiness: PublishReadiness; error: unknown }> {
   const [menu, photo, staff, profile] = await Promise.all([
-    admin
-      .from('facility_menus')
-      .select('id', { count: 'exact', head: true })
-      .eq('facility_id', facilityId)
-      .or('is_published.is.null,is_published.eq.true'),
+    // 件数と、勤務の窓に要る長さ（最短のメニュー）を同じ読み取りで取る。
+    bookableMenusQuery(admin, facilityId),
     admin
       .from('facility_photos')
       .select('id', { count: 'exact', head: true })
@@ -204,7 +238,8 @@ export async function checkBookingReadiness(
     businessHours: profile.data?.business_hours,
     menuCount: menu.count ?? 0,
     photoCount: photo.count ?? 0,
-    workingStaffCount: summarizeWorkingStaff(staff.data, profile.data?.business_hours ?? null).workingIds.size,
+    workingStaffCount: summarizeWorkingStaff(staff.data, profile.data?.business_hours ?? null,
+      shortestBookingMinutes(menu.data)).workingIds.size,
   });
   return { readiness: { ready: missing.length === 0, missing }, error: null };
 }

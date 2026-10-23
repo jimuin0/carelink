@@ -6918,6 +6918,10 @@ export type Database = {
         Args: { p_facility_id: string }
         Returns: boolean
       }
+      facility_shortest_booking_minutes: {
+        Args: { p_facility_id: string }
+        Returns: number
+      }
       find_bulk_review_ips: {
         Args: { p_since: string; p_threshold: number }
         Returns: {
@@ -8608,10 +8612,21 @@ export type Database = {
         Returns: string
       }
       webhook_dispatch_v2_version: { Args: never; Returns: number }
-      working_time_meets_business_hours: {
-        Args: { p_dow: number; p_end: string; p_hours: Json; p_start: string }
-        Returns: boolean
-      }
+      working_time_meets_business_hours:
+        | {
+            Args: { p_dow: number; p_end: string; p_hours: Json; p_start: string }
+            Returns: boolean
+          }
+        | {
+            Args: {
+              p_dow: number
+              p_end: string
+              p_hours: Json
+              p_min_minutes: number
+              p_start: string
+            }
+            Returns: boolean
+          }
     }
     Enums: {
       [_ in never]: never

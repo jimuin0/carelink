@@ -277,6 +277,21 @@ describe('loadFacilitySetupFacts', () => {
     expect(pending(loaded)).toEqual(['pr_text', 'publish', 'staff']);
   });
 
+  // 20261023190000: 営業時間と重なっても、最短のメニュー（ここでは 60 分）より短ければ予約枠は出ない。
+  test('最短のメニューより短くしか重ならない勤務のスタッフしかいなければ、スタッフ（ネット予約）は未完了', async () => {
+    const tables = seed();
+    tables.facility_menus = [{ facility_id: F, is_published: true, duration_minutes: 60 }];
+    tables.staff_profiles = [{ id: 's-short', facility_id: F, is_active: true }];
+    tables.staff_schedules = [{ staff_id: 's-short', day_of_week: 1, start_time: '07:00:00', end_time: '10:30:00' }]; // 10:00-10:30 だけ
+    tables.schedule_overrides = [];
+    const short = await loadFacilitySetupFacts(fakeClient(tables).client, F);
+    expect(short.unscheduledStaffIds).toEqual(['s-short']);
+    expect(pending(short)).toEqual(['pr_text', 'publish', 'staff']);
+    // 30 分のメニューがあれば受けられる
+    tables.facility_menus.push({ facility_id: F, is_published: true, duration_minutes: 30 });
+    expect((await loadFacilitySetupFacts(fakeClient(tables).client, F)).unscheduledStaffIds).toEqual([]);
+  });
+
   test('追加しただけのスタッフしかいなければ、スタッフ（ネット予約）は未完了', async () => {
     const tables = seed();
     tables.staff_profiles = tables.staff_profiles.filter(row => row.id === 's-new');
