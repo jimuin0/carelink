@@ -4,6 +4,7 @@ jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn(), getRequestContext: jest.fn(() => ({ ua: 'test', ip: '127.0.0.1' })) }));
 jest.mock('@/lib/admin-date', () => ({ todayJst: jest.fn(() => '2026-10-08') }));
 jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
+jest.mock('@/lib/avatar-upload', () => ({ removeAllAvatars: jest.fn() }));
 const mockCleanupVersion = jest.fn(); const mockGetAll = jest.fn(); const mockGetUser = jest.fn(); const mockFrom = jest.fn(); const mockDeleteUser = jest.fn();
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: mockGetAll }) }));
 jest.mock('@supabase/ssr', () => ({ createServerClient: () => ({ auth: { getUser: mockGetUser } }) }));
@@ -13,6 +14,8 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { createClient } from '@supabase/supabase-js';
+import { removeAllAvatars } from '@/lib/avatar-upload';
+import { alertCaughtError } from '@/lib/alert';
 const USER='user-delete-test';
 function request(body: unknown = { confirmation: 'DELETE' }, cleanupHeader: string | null = '1') {
   const headers = new Headers({ 'Content-Type': 'application/json' });
@@ -31,7 +34,7 @@ function setup({ own = 0, facility = 0, ownError = null, facilityError = null, m
 }
 beforeEach(() => {
   jest.clearAllMocks(); (checkRateLimit as jest.Mock).mockResolvedValue(false); (checkCsrf as jest.Mock).mockReturnValue(null);
-  mockGetAll.mockReturnValue([]); mockGetUser.mockResolvedValue({ data: { user: { id: USER } }, error: null }); mockDeleteUser.mockResolvedValue({ error: null }); mockCleanupVersion.mockReset().mockResolvedValue({ data: 1, error: null }); setup();
+  mockGetAll.mockReturnValue([]); mockGetUser.mockResolvedValue({ data: { user: { id: USER } }, error: null }); mockDeleteUser.mockResolvedValue({ error: null }); mockCleanupVersion.mockReset().mockResolvedValue({ data: 1, error: null }); setup(); (removeAllAvatars as jest.Mock).mockResolvedValue(true);
   process.env.NEXT_PUBLIC_SUPABASE_URL='https://test.supabase.co'; process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY='anon'; process.env.SUPABASE_SERVICE_ROLE_KEY='service';
 });
 test('CSRF and rate limits block even Auth lookup', async () => {
@@ -107,4 +110,24 @@ test('only confirmed Auth success sets a host-only non-secret cleanup marker for
  const res=await POST(request());expect(res.status).toBe(200);const marker=res.cookies.get('carelink_client_cleanup');
  expect(marker?.value).toBe('1');expect(marker?.path).toBe('/');expect(marker?.sameSite).toBe('lax');expect(marker?.maxAge).toBe(604800);expect(marker?.domain).toBeUndefined();expect(marker?.httpOnly).not.toBe(true);
  const header=res.headers.get('set-cookie')||'';expect(header).not.toContain(USER);expect(header).not.toContain('facility');
+});
+
+test('confirmed retirement removes the public profile photos of that account only after Auth deletion', async () => {
+  const order: string[] = [];
+  mockDeleteUser.mockImplementation(async () => { order.push('auth'); return { error: null }; });
+  (removeAllAvatars as jest.Mock).mockImplementation(async () => { order.push('avatars'); return true; });
+  const res = await POST(request()); expect(res.status).toBe(200);
+  expect(order).toEqual(['auth', 'avatars']);
+  expect(removeAllAvatars).toHaveBeenCalledWith(expect.anything(), USER);
+  expect(alertCaughtError).not.toHaveBeenCalled();
+});
+test('photo cleanup failure keeps the completed retirement successful and alerts operators', async () => {
+  (removeAllAvatars as jest.Mock).mockResolvedValue(false);
+  const res = await POST(request()); expect(res.status).toBe(200); expect(await res.json()).toEqual({ success: true });
+  expect(alertCaughtError).toHaveBeenCalledWith('account-delete-avatar-cleanup', expect.any(Error), '/api/account/delete');
+  expect(writeAuditLog).toHaveBeenCalled();
+});
+test('failed Auth deletion never touches the photos', async () => {
+  mockDeleteUser.mockResolvedValue({ error: { message: 'failed' } });
+  expect((await POST(request())).status).toBe(500); expect(removeAllAvatars).not.toHaveBeenCalled();
 });
