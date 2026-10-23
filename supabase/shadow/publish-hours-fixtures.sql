@@ -43,7 +43,10 @@ SELECT pg_temp.assert_hours(
 
 INSERT INTO auth.users(id, email, email_confirmed_at) VALUES
   ('fa8b0000-0000-4000-8000-000000000001', 'publish-hours-owner@example.invalid', now()),
-  ('fa8b0000-0000-4000-8000-000000000002', 'publish-hours-admin@example.invalid', now());
+  ('fa8b0000-0000-4000-8000-000000000002', 'publish-hours-admin@example.invalid', now()),
+  ('fa8b0000-0000-4000-8000-000000000003', 'publish-hours-owner-b@example.invalid', now()),
+  ('fa8b0000-0000-4000-8000-000000000004', 'publish-hours-owner-legacy@example.invalid', now()),
+  ('fa8b0000-0000-4000-8000-000000000005', 'publish-hours-owner-no-address@example.invalid', now());
 -- 01: draft, located, no hours.            02: draft, located, no hours (bulk publish).
 -- 03: legacy published row without hours.  04: draft without an address but with hours.
 -- 05: draft with hours but no owner (admin only).
@@ -55,11 +58,17 @@ INSERT INTO public.facility_profiles(id, name, slug, business_type, prefecture, 
     '{"mon":{"open":"10:00","close":"19:00"},"tue":null,"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}'),
   ('fa8b0001-0000-4000-8000-000000000005', 'Synthetic hours ownerless', 'synthetic-publish-hours-ownerless', 'その他', '検証県', '検証市', '検証町1-5', 'draft',
     '{"mon":{"open":"10:00","close":"19:00"},"tue":null,"wed":null,"thu":null,"fri":null,"sat":null,"sun":null}');
+-- One owner per account (uq_facility_members_one_owner_per_user): each facility gets its own
+-- owner, and the acting account 01 manages B, legacy and no-address as admin (the publish RPCs
+-- accept owner or admin as the actor and require that the facility has an owner).
 INSERT INTO public.facility_members(user_id, facility_id, role) VALUES
   ('fa8b0000-0000-4000-8000-000000000001', 'fa8b0001-0000-4000-8000-000000000001', 'owner'),
-  ('fa8b0000-0000-4000-8000-000000000001', 'fa8b0001-0000-4000-8000-000000000002', 'owner'),
-  ('fa8b0000-0000-4000-8000-000000000001', 'fa8b0001-0000-4000-8000-000000000003', 'owner'),
-  ('fa8b0000-0000-4000-8000-000000000001', 'fa8b0001-0000-4000-8000-000000000004', 'owner'),
+  ('fa8b0000-0000-4000-8000-000000000003', 'fa8b0001-0000-4000-8000-000000000002', 'owner'),
+  ('fa8b0000-0000-4000-8000-000000000001', 'fa8b0001-0000-4000-8000-000000000002', 'admin'),
+  ('fa8b0000-0000-4000-8000-000000000004', 'fa8b0001-0000-4000-8000-000000000003', 'owner'),
+  ('fa8b0000-0000-4000-8000-000000000001', 'fa8b0001-0000-4000-8000-000000000003', 'admin'),
+  ('fa8b0000-0000-4000-8000-000000000005', 'fa8b0001-0000-4000-8000-000000000004', 'owner'),
+  ('fa8b0000-0000-4000-8000-000000000001', 'fa8b0001-0000-4000-8000-000000000004', 'admin'),
   ('fa8b0000-0000-4000-8000-000000000002', 'fa8b0001-0000-4000-8000-000000000005', 'admin');
 
 SET LOCAL ROLE service_role;
