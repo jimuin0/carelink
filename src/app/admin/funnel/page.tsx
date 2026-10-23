@@ -149,7 +149,7 @@ export default async function FunnelPage(props: { searchParams: Promise<{ facili
                 <div className="flex items-center gap-3">
                   <div className="w-28 shrink-0 text-right">
                     <p className="text-sm font-medium text-gray-700">{step.label}</p>
-                    <p className="text-xs text-gray-400">{step.description}</p>
+                    <p className="text-xs text-gray-500">{step.description}</p>
                   </div>
                   <div className="flex-1 bg-gray-100 rounded-lg h-10 overflow-hidden relative">
                     <div
@@ -197,7 +197,7 @@ export default async function FunnelPage(props: { searchParams: Promise<{ facili
                   {m.confirmed > 0 && <span className="text-white text-xs font-bold">{m.confirmed}</span>}
                 </div>
               </div>
-              <span className="text-xs text-gray-400 w-14 text-right shrink-0">
+              <span className="text-xs text-gray-500 w-14 text-right shrink-0">
                 計 {m.total}件
               </span>
             </div>

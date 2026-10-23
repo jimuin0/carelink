@@ -156,7 +156,7 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
                 掲載ページを見る
               </Link>
             )}
-            <SbButtonLink href={facilityHref("/admin/schedule")}>サロンボードを見る</SbButtonLink>
+            <SbButtonLink href={facilityHref("/admin/schedule")}>予約表を見る</SbButtonLink>
           </>
         }
       />
@@ -193,7 +193,7 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
           </span>
           <span className="min-w-0">
             <span className="block text-lg font-bold">本日のスケジュール</span>
-            <span className="block text-xs text-white/70 tracking-widest">TODAY&apos;S SCHEDULE</span>
+            <span className="block text-xs text-white/90">スタッフ別の予約表</span>
           </span>
           <svg className="w-5 h-5 text-white/80 ml-auto shrink-0 group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
         </Link>
@@ -206,7 +206,7 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
           </span>
           <span className="min-w-0">
             <span className="block text-lg font-bold">本日の予約一覧</span>
-            <span className="block text-xs text-white/70 tracking-widest">TODAY&apos;S RESERVE LIST</span>
+            <span className="block text-xs text-white/90">一覧で確認・対応する</span>
           </span>
           <span className="ml-auto shrink-0 flex items-center gap-1">
             <span className="text-2xl font-extrabold tabular-nums">{todayBookings ?? 0}</span>
@@ -249,9 +249,10 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
         />
       </div>
 
-      {/* 予約状況（本日から14日間＝2週間・grid-cols-7 で2行に並ぶ） */}
+      {/* 予約状況（本日から14日間＝2週間・grid-cols-7 で2行に並ぶ）。
+          スマホ（約 44px/列）では「10/23(木)」が1行に収まらずはみ出していたので、日付と曜日を縦に積む。 */}
       <SbCard title="予約状況（2週間）" className="mb-6">
-        <div className="grid grid-cols-7 gap-1.5">
+        <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
           {weekData.map(({ date, dow, count }) => {
             const isToday = date === today;
             const [, m, d] = date.split('-');
@@ -259,19 +260,20 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
               <Link
                 key={date}
                 href={facilityHref(`/admin/schedule?date=${date}`)}
-                className={`flex flex-col items-center justify-center rounded-lg border py-2 transition-colors ${
+                aria-label={`${Number(m)}月${Number(d)}日（${WEEKDAY_LABELS[dow]}）の予約 ${count}件`}
+                className={`min-w-0 flex flex-col items-center justify-center rounded-lg border px-0.5 py-2 transition-colors ${
                   isToday ? 'border-sky-400 bg-sky-50 ring-1 ring-sky-200' : 'border-gray-100 hover:bg-sky-50'
                 }`}
               >
-                <span className="flex items-baseline gap-0.5">
-                  <span className="text-[11px] text-gray-400">{Number(m)}/{Number(d)}</span>
-                  <span className={`text-xs font-bold ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-sky-600' : 'text-gray-600'}`}>
+                <span className="flex flex-col items-center leading-tight sm:flex-row sm:items-baseline sm:gap-0.5">
+                  <span className="text-[11px] text-gray-600 tabular-nums whitespace-nowrap">{Number(m)}/{Number(d)}</span>
+                  <span className={`text-xs font-bold whitespace-nowrap ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-sky-600' : 'text-gray-600'}`}>
                     ({WEEKDAY_LABELS[dow]})
                   </span>
                 </span>
                 <span className="flex items-baseline gap-0.5 mt-1">
                   <span className="text-base font-extrabold text-gray-800 tabular-nums leading-none">{count}</span>
-                  <span className="text-[10px] text-gray-400">件</span>
+                  <span className="text-[10px] text-gray-500">件</span>
                 </span>
               </Link>
             );
@@ -360,7 +362,7 @@ async function RecentBookings({ facilityId }: { facilityId: string }) {
     return <p role="alert" className="text-sm text-red-500">予約の取得に失敗しました。ページを再読み込みしてください。</p>;
   }
   if (!data || data.length === 0) {
-    return <p className="text-sm text-gray-400">まだ予約がありません</p>;
+    return <p className="text-sm text-gray-500">まだ予約がありません</p>;
   }
 
   return (

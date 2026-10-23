@@ -115,6 +115,43 @@ export function facilitySetupSteps(facts: FacilitySetupFacts): FacilitySetupStep
   ];
 }
 
+/**
+ * 各項目の操作手順。/admin/manual の「初期設定」はこれと facilitySetupSteps の並び・見出しから組み立てる。
+ *
+ * 以前のマニュアルは手書きで、実際の画面と食い違っていた（写真「5枚以上」＝実際は1枚、存在しない
+ * 「設定 → 公開設定 → 公開中」、スタッフ追加に無い入力欄、実在しないボタン名）。チェックリストと
+ * 同じ項目・同じ順で出すことで、項目を足し替えたときにマニュアルだけ古くなることを無くす。
+ * Record にしてあるので、項目を足すと手順を書くまで型検査が通らない。
+ * ボタン名・欄名は画面の表記そのまま（src/app/admin/__tests__/manual-help-copy.test.ts が実在を確かめる）。
+ */
+export const SETUP_STEP_HOWTO: Record<SetupStepKey, string> = {
+  address: '「設定」の「基本情報」で施設名、「所在地」で都道府県・市区町村・町名・番地を入力し、「保存する」を押します。',
+  pr_text: '「設定」の「基本情報」でキャッチコピー・施設紹介を入力できます（任意）。効果を保証する表現（「必ず治る」等）や他店との比較（「日本一」等）は公開できないため、保存・公開のときに直す箇所が表示されます。',
+  hours: '「設定」の「営業時間」で、営業する曜日の開店・閉店時間を入力し、休みの曜日は「営業」のチェックを外して「保存する」を押します。',
+  publish: '「設定」の画面上部の「公開する」を押します（保存していない入力があるときは「保存して公開する」）。足りない項目があれば、その場に一覧が出ます。公開後は同じ場所の「非公開にする」で、いつでも掲載を止められます。',
+  menu: '「メニュー」の「メニュー追加」で、カテゴリ・メニュー名・料金・所要時間を入力して「保存」を押します。ホットペッパービューティーから取り込んだメニューは非公開で作られるので、「公開する」を押してください。',
+  photo: '「写真」で種類を選び、「写真を選択（複数可）」から1枚以上アップロードします（JPG・PNG・WebP。5MBを超える写真は自動で縮小します）。',
+  staff: '「スタッフ」の「追加」で名前などを入力して「スタッフを追加」を押すと、勤務時間の画面に進みます。曜日ごとの勤務時間を確かめて「この勤務時間で保存する」を押すまで、そのスタッフはネット予約を受けられません。',
+};
+
+export interface SetupGuideStep {
+  key: SetupStepKey;
+  label: string;
+  group: SetupStepGroup;
+  howto: string;
+}
+
+/** 手順の判定に使わない空の店舗（並び・見出し・区分だけを facilitySetupSteps から借りる）。 */
+const BLANK_FACTS: FacilitySetupFacts = {
+  name: null, slug: null, prefecture: null, city: null, address: null, catchCopy: null, description: null,
+  status: null, businessHours: null, publishedMenuCount: 0, photoCount: 0, activeStaffIds: [], unscheduledStaffIds: [],
+};
+
+/** マニュアル用の手順一覧。並び・見出し・区分はチェックリストと同じ（ここで二重に持たない）。 */
+export function setupGuideSteps(): SetupGuideStep[] {
+  return facilitySetupSteps(BLANK_FACTS).map(({ key, label, group }) => ({ key, label, group, howto: SETUP_STEP_HOWTO[key] }));
+}
+
 /** 読み取りを包む関数（ページは時間制限つきの読み取りを渡す）。 */
 export type SetupReader = <Q extends PromiseLike<unknown>>(label: string, query: Q) => Promise<Awaited<Q>>;
 const directRead: SetupReader = (_label, query) => Promise.resolve(query);

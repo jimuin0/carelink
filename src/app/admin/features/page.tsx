@@ -234,7 +234,7 @@ export default function AdminFeaturesPage() {
         <LoadError onRetry={loadFeatures} message="特集の読み込みに失敗しました" />
       ) : features.length === 0 ? (
         <div className="bg-white rounded-xl shadow-xs p-12 text-center">
-          <p className="text-gray-400 mb-2">特集がまだ登録されていません</p>
+          <p className="text-gray-500 mb-2">特集がまだ登録されていません</p>
           <button type="button" onClick={() => setEditForm({ ...emptyForm })} className="text-sm text-sky-600 font-medium hover:underline">最初の特集を追加する</button>
         </div>
       ) : (
@@ -259,11 +259,11 @@ export default function AdminFeaturesPage() {
                     {feature.is_active ? '公開' : '非公開'}
                   </SbBadge>
                 </div>
-                {feature.subtitle && <p className="text-xs text-gray-400 mt-0.5 truncate">{feature.subtitle}</p>}
+                {feature.subtitle && <p className="text-xs text-gray-500 mt-0.5 truncate">{feature.subtitle}</p>}
                 <p className="text-xs text-gray-300 mt-0.5">順序: {feature.sort_order}</p>
               </div>
               <div className="flex gap-1 shrink-0">
-                <button type="button" onClick={() => toggleActive(feature)} className="p-2 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" aria-label={feature.is_active ? '非公開にする' : '公開にする'}>
+                <button type="button" onClick={() => toggleActive(feature)} className="p-2 text-gray-500 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" aria-label={feature.is_active ? '非公開にする' : '公開にする'}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     {feature.is_active
                       ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
@@ -271,10 +271,10 @@ export default function AdminFeaturesPage() {
                     }
                   </svg>
                 </button>
-                <button type="button" onClick={() => startEdit(feature)} className="p-2 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" aria-label="編集">
+                <button type="button" onClick={() => startEdit(feature)} className="p-2 text-gray-500 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" aria-label="編集">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                 </button>
-                <button type="button" onClick={() => handleDelete(feature.id)} disabled={deleting === feature.id} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" aria-label="削除">
+                <button type="button" onClick={() => handleDelete(feature.id)} disabled={deleting === feature.id} className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" aria-label="削除">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                 </button>
               </div>

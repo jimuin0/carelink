@@ -272,11 +272,11 @@ export default function FeaturedAdsPage() {
           <h2 className="font-semibold text-gray-900">掲載中・予定の広告枠</h2>
         </div>
         {loading ? (
-          <div className="p-8 text-center text-gray-400">読み込み中...</div>
+          <div className="p-8 text-center text-gray-500">読み込み中...</div>
         ) : loadError ? (
           <div className="p-6"><LoadError onRetry={() => { setLoading(true); reload(); }} message="広告枠の読み込みに失敗しました" /></div>
         ) : slots.length === 0 ? (
-          <div className="p-8 text-center text-gray-400">
+          <div className="p-8 text-center text-gray-500">
             <p>まだ広告枠がありません</p>
             <p className="text-xs mt-2">上位表示で予約を増やしましょう</p>
           </div>

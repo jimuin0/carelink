@@ -56,7 +56,7 @@ export default function ViewCountCard({ facilityId }: { facilityId: string }) {
       <p className="text-3xl font-bold text-sky-600 mt-1">
         {viewCount !== null ? viewCount.toLocaleString() : '-'}
       </p>
-      <p className="text-xs text-gray-400 mt-1">累計閲覧数</p>
+      <p className="text-xs text-gray-500 mt-1">累計閲覧数</p>
     </div>
   );
 }

@@ -54,7 +54,7 @@ export default function AdminMobileNav({ items, groups }: { items: NavItem[]; gr
             <div className="space-y-4">
               {groups.map((g) => (
                 <section key={g.key}>
-                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2">{g.label}</p>
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 px-2">{g.label}</p>
                   <div className="grid grid-cols-3 gap-1">
                     {g.items.map((item) => (
                       <Link

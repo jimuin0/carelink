@@ -21,16 +21,19 @@ jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: () => 
 }) }));
 
 let menus: Record<string, unknown>[];
+let businessType: string | null = null;
 const mutations = () => (global.fetch as jest.Mock).mock.calls.filter(([, options]) => options?.method);
 
 beforeEach(() => {
   jest.clearAllMocks();
   menus = [];
+  businessType = null;
   mockUpload.mockResolvedValue({ error: null });
   mockAuth.mockResolvedValue({ data: { user: { id: 'synthetic-user' } }, error: null });
-  mockQuery.mockImplementation(() => {
+  mockQuery.mockImplementation((table: string) => {
     const q: Record<string, unknown> = {};
     for (const method of ['select', 'in', 'limit', 'eq', 'order']) q[method] = jest.fn(() => q);
+    if (table === 'facility_profiles') q.maybeSingle = async () => ({ data: { business_type: businessType }, error: null });
     q.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [{ facility_id: facility, facility_profiles: { name: '合成店舗' } }], error: null }).then(resolve);
     return q;
   });
@@ -108,4 +111,51 @@ test('メニューが無い店舗には HPB からの取り込みを案内する
   render(<Page />);
   const link = await screen.findByRole('link', { name: '掲載中のメニューを取り込めます' });
   expect(link.getAttribute('href')).toBe(`/admin/hpb-menus?facility_id=${facility}`);
+});
+
+// ─── カテゴリは業種に合わせた候補＋自由入力（2026年10月23日） ─────────────────────────
+// 以前は美容室向けの固定の選択肢（既定「カット」）で、鍼灸院やピラティスにも「カット」が既定で入っていた。
+const categoryInput = () => screen.getByLabelText(/カテゴリ/) as HTMLInputElement;
+const suggestions = () => Array.from(document.querySelectorAll('#menu-cat-options option')).map((o) => (o as HTMLOptionElement).value);
+
+test.each([
+  ['鍼灸院・整骨院', '鍼灸'],
+  ['ピラティス', 'マシンピラティス'],
+  ['ヘアサロン', 'カット'],
+  [null, '基本メニュー'],
+])('業種 %p の新規メニューは、カテゴリの既定値が %p', async (type, first) => {
+  businessType = type;
+  await openNewMenu();
+  expect(categoryInput().value).toBe(first);
+  expect(suggestions()[0]).toBe(first);
+  if (type !== 'ヘアサロン') expect(suggestions()).not.toContain('カット');
+});
+
+test('候補に無いカテゴリも自由に入力して保存できる（前後の空白は落とす）', async () => {
+  businessType = '鍼灸院・整骨院';
+  await openNewMenu();
+  fireEvent.change(categoryInput(), { target: { value: '  産後ケア ' } });
+  fireEvent.click(screen.getByRole('button', { name: '保存' }));
+  await waitFor(() => expect(mutations()).toHaveLength(1));
+  expect(JSON.parse(mutations()[0][1].body).category).toBe('産後ケア');
+});
+
+test('カテゴリが空なら保存しない', async () => {
+  await openNewMenu();
+  fireEvent.change(categoryInput(), { target: { value: '  ' } });
+  fireEvent.click(screen.getByRole('button', { name: '保存' }));
+  await screen.findByText('カテゴリを入力してください');
+  expect(mutations()).toHaveLength(0);
+});
+
+test('既に使っているカテゴリは、業種の候補に無くても候補に残り、編集でそのまま保存される', async () => {
+  businessType = 'ピラティス';
+  menus = [{ id: 'm1', facility_id: facility, category: 'カット', name: '旧メニュー', price: 1000, duration_minutes: 30, is_published: true, is_featured: false }];
+  render(<Page />);
+  fireEvent.click(await screen.findByRole('button', { name: '編集' }));
+  expect(categoryInput().value).toBe('カット');
+  expect(suggestions()).toContain('カット');
+  fireEvent.click(screen.getByRole('button', { name: '保存' }));
+  await waitFor(() => expect(mutations()).toHaveLength(1));
+  expect(JSON.parse(mutations()[0][1].body).category).toBe('カット');
 });

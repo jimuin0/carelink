@@ -117,11 +117,11 @@ export default function JobApplicationsPage() {
         <div className="lg:col-span-2 bg-white rounded-xl border overflow-hidden">
           <div className="px-6 py-4 border-b font-semibold text-gray-900">応募一覧</div>
           {loading ? (
-            <div className="p-8 text-center text-gray-400">読み込み中...</div>
+            <div className="p-8 text-center text-gray-500">読み込み中...</div>
           ) : loadError ? (
             <div className="p-6"><LoadError onRetry={retry} message="応募の読み込みに失敗しました" /></div>
           ) : applications.length === 0 ? (
-            <div className="p-8 text-center text-gray-400">まだ応募がありません</div>
+            <div className="p-8 text-center text-gray-500">まだ応募がありません</div>
           ) : (
             <div className="divide-y">
               {applications.map((a) => (
@@ -152,7 +152,7 @@ export default function JobApplicationsPage() {
         {/* Detail panel */}
         <div className="bg-white rounded-xl border p-6">
           {!selected ? (
-            <div className="text-center text-gray-400 text-sm py-8">応募を選択してください</div>
+            <div className="text-center text-gray-500 text-sm py-8">応募を選択してください</div>
           ) : (
             <div className="space-y-4">
               <div>

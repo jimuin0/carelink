@@ -97,7 +97,7 @@ test('staff list marks active staff without working time as unable to take booki
   const text = (el: unknown): string => nodes(el).flatMap(n => [n.props.children].flat()).filter((c): c is string => typeof c === 'string').join('');
   expect(text(card('staff-new'))).toContain('勤務時間が未登録です。');
   // サロンボードの「指名なし」も勤務時間のあるスタッフにしか割り当てない（20261023130100）ことも伝える
-  expect(text(card('staff-new'))).toContain('保存するまで、このスタッフはネット予約を受けられず、サロンボードの「指名なし」の予約にも割り当てられません。');
+  expect(text(card('staff-new'))).toContain('保存するまで、このスタッフはネット予約を受けられず、予約表の「指名なし」の予約にも割り当てられません。');
   expect(nodes(card('staff-new')).find(n => n.props.children === '勤務時間を登録する')?.props.href).toBe(`/admin/staff/staff-new/schedule?facility_id=${facility}`);
   expect(text(card('staff-saved'))).not.toContain('勤務時間が未登録です。');
   // 特別日だけ勤務する人は、その日に予約を受けられる（「未登録」と言わない）

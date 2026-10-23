@@ -52,7 +52,7 @@ export default async function PlatformBlogPage() {
 
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
         {posts.length === 0 ? (
-          <div className="py-12 text-center text-gray-400">
+          <div className="py-12 text-center text-gray-500">
             <p className="mb-2">記事がありません</p>
             <Link href="/admin/platform-blog/new" className="text-sm text-sky-600 hover:underline">最初の記事を作成する</Link>
           </div>
@@ -70,12 +70,12 @@ export default async function PlatformBlogPage() {
                 <tr key={post.id} className="hover:bg-gray-50/50">
                   <SbTd>
                     <p className="font-medium text-gray-800 truncate max-w-xs">{post.title}</p>
-                    <p className="text-xs text-gray-400 mt-0.5 font-mono">{post.slug}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 font-mono">{post.slug}</p>
                   </SbTd>
                   <SbTd className="hidden sm:table-cell">
                     <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">{post.category}</span>
                   </SbTd>
-                  <SbTd className="text-gray-400 text-xs hidden md:table-cell">
+                  <SbTd className="text-gray-500 text-xs hidden md:table-cell">
                     {new Date(post.updated_at).toLocaleDateString('ja-JP')}
                   </SbTd>
                   <SbTd>
@@ -88,7 +88,7 @@ export default async function PlatformBlogPage() {
                   <SbTd align="right">
                     <div className="flex items-center gap-2 justify-end">
                       {post.is_published && (
-                        <Link href={`/blog/${post.slug}`} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-400 hover:text-sky-600">
+                        <Link href={`/blog/${post.slug}`} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-500 hover:text-sky-600">
                           表示
                         </Link>
                       )}

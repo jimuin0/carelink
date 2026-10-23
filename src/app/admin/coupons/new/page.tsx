@@ -205,11 +205,11 @@ function NewCouponEditor({requested}:{requested:string|null}) {
         )}
         <div>
           <span className="form-label">対象メニュー（HPB準拠・複数選択可）</span>
-          <p className="text-xs text-gray-400 mb-2">
+          <p className="text-xs text-gray-500 mb-2">
             選択したメニューにのみクーポンが適用されます（対象外メニューは定価）。未選択の場合は全メニューに適用されます。
           </p>
           {menuOptions.length === 0 ? (
-            <p className="text-xs text-gray-400 border rounded-lg p-3">選択できるメニューがありません（メニュー未登録）</p>
+            <p className="text-xs text-gray-500 border rounded-lg p-3">選択できるメニューがありません（メニュー未登録）</p>
           ) : (
             <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
               {menuOptions.map((menu) => (

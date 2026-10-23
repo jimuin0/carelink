@@ -247,9 +247,9 @@ export default function NewslettersPage() {
           <h2 className="font-semibold text-gray-900">キャンペーン一覧</h2>
         </div>
         {loading ? (
-          <div className="p-8 text-center text-gray-400">読み込み中...</div>
+          <div className="p-8 text-center text-gray-500">読み込み中...</div>
         ) : loadError ? (<LoadError onRetry={loadCampaigns} message="一覧を取得できませんでした。受付状況は未確認です。" />) : campaigns.length === 0 ? (
-          <div className="p-8 text-center text-gray-400">まだキャンペーンがありません</div>
+          <div className="p-8 text-center text-gray-500">まだキャンペーンがありません</div>
         ) : (
           <div className="divide-y">
             {campaigns.map((c) => (

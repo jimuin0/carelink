@@ -249,7 +249,7 @@ function SubscriptionPlansManager({ facilityId, choices }: AdminFacilityScopeVal
 
           <div className="space-y-3">
             {plans.length === 0 ? (
-              <div className="bg-white rounded-xl p-8 text-center text-gray-400 text-sm">プランが登録されていません</div>
+              <div className="bg-white rounded-xl p-8 text-center text-gray-500 text-sm">プランが登録されていません</div>
             ) : plans.map((plan) => (
               <div key={plan.id} className="bg-white rounded-xl border border-gray-100 p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -263,7 +263,7 @@ function SubscriptionPlansManager({ facilityId, choices }: AdminFacilityScopeVal
                     <p className="text-xs text-gray-500 mt-0.5">
                       月額 ¥{plan.price.toLocaleString()} / 月{plan.sessions_per_month}回 / 最低{plan.valid_months}ヶ月
                     </p>
-                    {plan.description && <p className="text-xs text-gray-400 mt-0.5">{plan.description}</p>}
+                    {plan.description && <p className="text-xs text-gray-500 mt-0.5">{plan.description}</p>}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <button type="button" onClick={() => toggleActive(plan)}
@@ -285,7 +285,7 @@ function SubscriptionPlansManager({ facilityId, choices }: AdminFacilityScopeVal
       {tab === 'subscribers' && (
         <div className="space-y-3">
           {subs.length === 0 ? (
-            <div className="bg-white rounded-xl p-8 text-center text-gray-400 text-sm">契約者がいません</div>
+            <div className="bg-white rounded-xl p-8 text-center text-gray-500 text-sm">契約者がいません</div>
           ) : subs.map((sub) => {
             const st = STATUS_LABEL[sub.status] ?? { label: sub.status, cls: 'bg-gray-100 text-gray-500' };
             const plan = sub.subscription_plans;
@@ -298,7 +298,7 @@ function SubscriptionPlansManager({ facilityId, choices }: AdminFacilityScopeVal
                       <span className={`text-xs px-2 py-0.5 rounded-full ${st.cls}`}>{st.label}</span>
                     </div>
                     <p className="text-xs text-gray-500">{plan?.name} — 月{plan?.sessions_per_month}回</p>
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-gray-500">
                       今月 {sub.sessions_used_this_month}/{plan?.sessions_per_month ?? '?'}回使用
                       {sub.ends_at && ` | 期限: ${new Date(sub.ends_at).toLocaleDateString('ja-JP')}`}
                     </p>

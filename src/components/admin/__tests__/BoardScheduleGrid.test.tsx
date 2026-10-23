@@ -370,7 +370,7 @@ test('重複（BOOKING_CONFLICT）は従来どおりボードを更新して別�
   await user.type(screen.getByLabelText(/お客様名/), '合成テスト');
   await user.click(screen.getByRole('checkbox'));
   await user.click(screen.getByRole('button', { name: '予約を確定' }));
-  expect(await screen.findByText('この時間帯は既に予約が入っています。ボードを更新したので別の時間帯を選んでください。')).toBeInTheDocument();
+  expect(await screen.findByText('この時間帯は既に予約が入っています。予約表を更新したので別の時間帯を選んでください。')).toBeInTheDocument();
   expect(mockRefresh).toHaveBeenCalledTimes(1);
 });
 

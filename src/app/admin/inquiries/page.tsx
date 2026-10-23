@@ -31,7 +31,7 @@ const TICKET_STATUS_CONFIG = {
 };
 
 const PRIORITY_CONFIG = {
-  low:    { label: '低', className: 'text-gray-400' },
+  low:    { label: '低', className: 'text-gray-500' },
   normal: { label: '通常', className: 'text-blue-500' },
   high:   { label: '高', className: 'text-amber-500' },
   urgent: { label: '緊急', className: 'text-red-600 font-bold' },
@@ -386,7 +386,7 @@ export default function AdminInquiriesPage() {
       ) : loadError ? (
         <LoadError onRetry={load} message="問い合わせの読み込みに失敗しました" />
       ) : contacts.length === 0 ? (
-        <div className="py-12 text-center text-gray-400 text-sm">
+        <div className="py-12 text-center text-gray-500 text-sm">
           {statusFilter === 'open' ? '新着の問い合わせはありません' : '問い合わせがありません'}
         </div>
       ) : (
@@ -416,7 +416,7 @@ export default function AdminInquiriesPage() {
                     {c.inquiry_type && (
                       <span className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-sm">{c.inquiry_type}</span>
                     )}
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-gray-500">
                     {c.created_at
                       ? new Date(c.created_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
                       : '日時未設定'}
@@ -426,7 +426,7 @@ export default function AdminInquiriesPage() {
                   <p className="text-xs text-gray-500">{c.email}{c.phone ? ` / ${c.phone}` : ''}</p>
                 </div>
                 <svg
-                  className={`w-4 h-4 text-gray-400 shrink-0 mt-1 transition-transform ${expandedId === c.id ? 'rotate-180' : ''}`}
+                  className={`w-4 h-4 text-gray-500 shrink-0 mt-1 transition-transform ${expandedId === c.id ? 'rotate-180' : ''}`}
                   fill="none" stroke="currentColor" viewBox="0 0 24 24"
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -591,7 +591,7 @@ export default function AdminInquiriesPage() {
                         className="form-input w-full text-sm"
                       />
                       <div className="flex items-center justify-between gap-3 mt-2 flex-wrap">
-                        <p className="text-xs text-gray-400">
+                        <p className="text-xs text-gray-500">
                           差出人は CareLink 運営アドレスになります（{c.email} 宛）
                         </p>
                         <button
@@ -615,7 +615,7 @@ export default function AdminInquiriesPage() {
                       </div>
                     </div>
                   ) : (
-                    <p className="border-t border-gray-100 pt-4 text-xs text-gray-400">
+                    <p className="border-t border-gray-100 pt-4 text-xs text-gray-500">
                       メールアドレスの登録が無いため、この問い合わせにはメール返信できません。
                     </p>
                   )}

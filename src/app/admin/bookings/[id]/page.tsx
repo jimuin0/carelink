@@ -238,7 +238,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
     return (
       <div>
         <div className="flex items-center gap-3 mb-6">
-          <Link href="/admin/bookings" className="text-gray-400 hover:text-gray-600">
+          <Link href="/admin/bookings" className="text-gray-500 hover:text-gray-600">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </Link>
           <h1 className="text-2xl font-bold">予約詳細</h1>
@@ -249,7 +249,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
   }
 
   if (!booking) {
-    return <div className="bg-white rounded-xl p-8 text-center"><p className="text-gray-400">予約が見つかりません</p></div>;
+    return <div className="bg-white rounded-xl p-8 text-center"><p className="text-gray-500">予約が見つかりません</p></div>;
   }
 
   const banner = statusBannerClass(booking.status);
@@ -266,7 +266,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
   return (
     <div>
       <div className="flex items-center gap-3 mb-6">
-        <Link href={`/admin/bookings?facility_id=${booking.facility_id}`} className="text-gray-400 hover:text-gray-600">
+        <Link href={`/admin/bookings?facility_id=${booking.facility_id}`} className="text-gray-500 hover:text-gray-600">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
         </Link>
         <h1 className="text-2xl font-bold">予約詳細</h1>
@@ -359,7 +359,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
                     <button
                       type="button"
                       onClick={() => removeItem(i)}
-                      className="text-gray-400 hover:text-red-500 px-1"
+                      className="text-gray-500 hover:text-red-500 px-1"
                       aria-label="行を削除"
                     >
                       ×
@@ -531,7 +531,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
             {outcomeWaitsForStart && (
               <p className="text-xs text-gray-600 mt-2">「完了」「無断キャンセル」は、予約の開始時刻（{startLabel}）を過ぎると選べます。</p>
             )}
-            <p className="text-xs text-gray-400 mt-2">※受付では通知しません。その他の変更はメール登録済みのお客様への通知を試みます。</p>
+            <p className="text-xs text-gray-500 mt-2">※受付では通知しません。その他の変更はメール登録済みのお客様への通知を試みます。</p>
           </div>
         )}
       </div>

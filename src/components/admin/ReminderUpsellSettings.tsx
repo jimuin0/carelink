@@ -192,7 +192,7 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
                 )}
               </span>
               {locked ? (
-                <span className="text-xs text-gray-400" data-testid={`locked-${key}`}>🔒 未購入</span>
+                <span className="text-xs text-gray-500" data-testid={`locked-${key}`}>🔒 未購入</span>
               ) : (
                 <Toggle checked={settings[key]} onChange={() => handleToggle(key)} disabled={saving} label={label} />
               )}
@@ -215,7 +215,7 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
                 {opt.description && <p className="text-xs text-gray-500 mt-0.5">{opt.description}</p>}
                 <p className="text-xs font-bold text-gray-700 mt-1">
                   月額 ¥{opt.monthly_price.toLocaleString()}
-                  {opt.contact_only && <span className="text-gray-400 font-normal">〜（個別お見積り）</span>}
+                  {opt.contact_only && <span className="text-gray-500 font-normal">〜（個別お見積り）</span>}
                 </p>
               </div>
               {owned ? (
@@ -236,11 +236,11 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
           );
         })}
         {catalog.length === 0 && (
-          <p className="text-xs text-gray-400">現在ご利用可能なオプションはありません。</p>
+          <p className="text-xs text-gray-500">現在ご利用可能なオプションはありません。</p>
         )}
       </div>
 
-      {saving && <p className="text-xs text-gray-400 mt-2">保存中...</p>}
+      {saving && <p className="text-xs text-gray-500 mt-2">保存中...</p>}
       {error && <p className="text-xs text-red-600 mt-2" role="alert">{error}</p>}
     </div>
   );

@@ -212,7 +212,7 @@ function ApiKeysManager({ facilityId, choices, userId }: AdminFacilityScopeValue
                   className="rounded-sm"
                 />
                 <span className="text-sm text-gray-700">{s.label}</span>
-                <code className="text-xs text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded-sm">{s.value}</code>
+                <code className="text-xs text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded-sm">{s.value}</code>
               </label>
             ))}
           </div>
@@ -237,7 +237,7 @@ function ApiKeysManager({ facilityId, choices, userId }: AdminFacilityScopeValue
         {loadError ? (
           <div className="p-4"><LoadError onRetry={() => setReloadKey((k) => k + 1)} message="APIキーの読み込みに失敗しました" /></div>
         ) : keys.length === 0 ? (
-          <p className="text-sm text-gray-400 p-6 text-center">APIキーはまだありません</p>
+          <p className="text-sm text-gray-500 p-6 text-center">APIキーはまだありません</p>
         ) : (
           <div className="divide-y divide-gray-50">
             {keys.map((key) => (
@@ -250,7 +250,7 @@ function ApiKeysManager({ facilityId, choices, userId }: AdminFacilityScopeValue
                     </SbBadge>
                   </div>
                   <p className="text-xs font-mono text-gray-500">{key.key_prefix}••••••••</p>
-                  <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
+                  <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
                     <span>スコープ: {key.scopes.join(', ')}</span>
                     {key.last_used_at && <span>最終利用: {new Date(key.last_used_at).toLocaleDateString('ja-JP')}</span>}
                     <span>発行: {new Date(key.created_at).toLocaleDateString('ja-JP')}</span>

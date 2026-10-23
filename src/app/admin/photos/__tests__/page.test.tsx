@@ -14,10 +14,14 @@ let mockMainError: unknown = null;
 const mockPhotoFilters = jest.fn();
 const mockFetch = jest.fn();
 const mockDb = jest.fn();
+const mockCompress = jest.fn();
+let mockBusinessType: string | null = 'ヘアサロン';
+let mockUser: { id: string } | null = { id: 'synthetic-user' };
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn() }), useSearchParams: () => ({ get: () => mockRequested }) }));
 jest.mock('next/image', () => ({ __esModule: true, default: (props: { alt: string }) => <span>{props.alt}</span> }));
 jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: () => mockDb() }));
 jest.mock('@/components/Toast', () => ({ __esModule: true, default: ({ message }: { message: string }) => <p role="status">{message}</p> }));
+jest.mock('@/lib/image-compress', () => ({ compressImage: (file: File) => mockCompress(file) }));
 jest.mock('@/components/ConfirmDialog', () => ({ __esModule: true, default: ({ open, onConfirm, confirmLabel }: { open: boolean; onConfirm: () => void; confirmLabel: string }) => open ? <button onClick={onConfirm}>{confirmLabel}</button> : null }));
 
 beforeEach(() => {
@@ -26,13 +30,16 @@ beforeEach(() => {
   mockProfileRead = jest.fn();
   mockMainPhoto = 'https://example.invalid/other-main.png';
   mockMainError = null;
+  mockBusinessType = 'ヘアサロン';
+  mockUser = { id: 'synthetic-user' };
+  mockCompress.mockImplementation(async (file: File) => file);
   mockFetch.mockResolvedValue({ ok: true, json: async () => ({ ok: true, photoId }) });
   global.fetch = mockFetch;
   mockInsert.mockReturnValue({ select: () => ({ single: async () => ({ data: { id: uploadedId }, error: null }) }) });
   mockDb.mockReturnValue({
     storage: { from: () => ({ upload: async () => ({ error: null }),
       getPublicUrl: () => ({ data: { publicUrl: 'https://example.invalid/uploaded.png' } }) }) },
-    auth: { getUser: async () => ({ data: { user: { id: 'synthetic-user' } } }) },
+    auth: { getUser: async () => ({ data: { user: mockUser }, error: null }) },
     from: (table: string) => {
       if (table === 'facility_members') {
         const chain = { select: () => chain, eq: () => chain, in: () => chain, order: () => chain,
@@ -41,10 +48,11 @@ beforeEach(() => {
         return chain;
       }
       if (table === 'facility_profiles') {
-        // 読むのはメイン写真の URL だけ。書き込みはサーバー経由（ブラウザから facility_profiles を書かない）。
+        // 読むのはメイン写真の URL と業種（医療広告の注意の出し分け）だけ。
+        // 書き込みはサーバー経由（ブラウザから facility_profiles を書かない）。
         const forbid = () => { mockProfileRead(); throw new Error('browser profile writes forbidden'); };
-        const profile = { select: (columns: string) => { if (columns !== 'main_photo_url') forbid(); return profile; },
-          eq: () => profile, maybeSingle: async () => ({ data: mockMainError ? null : { main_photo_url: mockMainPhoto }, error: mockMainError }),
+        const profile = { select: (columns: string) => { if (columns !== 'main_photo_url, business_type') forbid(); return profile; },
+          eq: () => profile, maybeSingle: async () => ({ data: mockMainError ? null : { main_photo_url: mockMainPhoto, business_type: mockBusinessType }, error: mockMainError }),
           update: forbid, insert: forbid, upsert: forbid };
         return profile;
       }
@@ -184,4 +192,98 @@ test('「メインに設定」が成功したら、その写真に「現在の�
   render(<AdminPhotosPage />);
   fireEvent.click(await screen.findByRole('button', { name: 'メインに設定' }));
   expect(await screen.findByText('現在のメイン')).toBeTruthy();
+});
+
+// ─── 1 枚ずつの判定（2026年10月23日） ─────────────────────────────────────────
+// 以前は 1 枚でも 5MB を超えると選んだ全部を断り、どの写真かも言わなかった。
+function sized(name: string, type: string, bytes: number) {
+  const file = new File(['x'], name, { type });
+  Object.defineProperty(file, 'size', { value: bytes });
+  return file;
+}
+
+test('大きすぎる・形式の違う写真だけを断り、名前と理由を一覧に残す。ほかの写真は上げる', async () => {
+  const big = 6 * 1024 * 1024;
+  // 縮小で 5MB 以下に収まる写真は上げ、収まらない写真は断る。
+  mockCompress.mockImplementation(async (file: File) => file.name === 'shrinks.jpg' ? sized('shrinks.jpg', 'image/jpeg', 1024) : file);
+  render(<AdminPhotosPage />);
+  await screen.findByRole('button', { name: 'メインに設定' });
+  fireEvent.change(screen.getByLabelText('種類'), { target: { value: 'interior' } });
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [
+    sized('ok.jpg', 'image/jpeg', 1024), sized('huge.jpg', 'image/jpeg', big), sized('shrinks.jpg', 'image/jpeg', big), sized('scan.heic', 'image/heic', 1024),
+  ] } });
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe('2枚アップロードしました'));
+  expect(mockInsert).toHaveBeenCalledTimes(2);
+  const alert = screen.getByRole('alert');
+  expect(alert.textContent).toContain('次の写真はアップロードしませんでした');
+  expect(alert.textContent).toContain('huge.jpg（5MBを超え、縮小しても収まりませんでした）');
+  expect(alert.textContent).toContain('scan.heic（JPG・PNG・WebP以外の形式）');
+  expect(alert.textContent).not.toContain('ok.jpg');
+  expect(alert.textContent).not.toContain('shrinks.jpg');
+  expect(mockCompress).toHaveBeenCalledTimes(2);
+});
+
+test('上げられる写真が1枚も無ければ、アップロードせず理由だけを出す', async () => {
+  render(<AdminPhotosPage />);
+  await screen.findByRole('button', { name: 'メインに設定' });
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [sized('huge.png', 'image/png', 6 * 1024 * 1024)] } });
+  expect((await screen.findByRole('alert')).textContent).toContain('huge.png（5MBを超え、縮小しても収まりませんでした）');
+  expect(mockInsert).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+// ─── 医療広告の注意は対象の業種だけ（2026年10月23日） ─────────────────────────────
+test.each([
+  ['ヘアサロン', false],
+  ['ピラティス', false],
+  ['鍼灸院・整骨院', true],
+  ['美容クリニック', true],
+  [null, true],
+])('業種 %p の店舗に医療広告の注意を出すか：%p', async (type, shown) => {
+  mockBusinessType = type;
+  render(<AdminPhotosPage />);
+  await screen.findByRole('button', { name: 'メインに設定' });
+  expect(screen.queryByText('⚠️ 医療広告ガイドラインについて') !== null).toBe(shown);
+});
+
+test('業種を読めなければ、医療広告の注意は出す側に倒す', async () => {
+  mockMainError = { message: 'synthetic' };
+  render(<AdminPhotosPage />);
+  await screen.findByRole('button', { name: 'メインに設定' });
+  expect(screen.getByText('⚠️ 医療広告ガイドラインについて')).toBeTruthy();
+});
+
+// ─── ログイン切れ（2026年10月23日） ───────────────────────────────────────────
+// 以前は「管理できる店舗がありません」と出て、店舗が消えたのかと誤解させていた。
+test('ログインが切れていたら、店舗が無いとは言わずにログインし直す案内を出す', async () => {
+  mockUser = null;
+  render(<AdminPhotosPage />);
+  expect((await screen.findByRole('alert')).textContent).toContain('セッションが切れました。再ログインしてください。');
+  expect(screen.queryByText('管理できる店舗がありません。')).toBeNull();
+  expect(screen.getByRole('link', { name: 'ログインし直す' }).getAttribute('href'))
+    .toBe(`/auth/login?redirect=${encodeURIComponent(`/admin/photos?facility_id=${second}`)}`);
+  expect(mockPhotoFilters).not.toHaveBeenCalled();
+});
+
+test.each(['delete', 'main'])('操作中に 401 が返ったらログインし直す案内に切り替える：%s', async (action) => {
+  mockFetch.mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: 'Unauthorized' }) });
+  render(<AdminPhotosPage />);
+  if (action === 'delete') {
+    fireEvent.click(await screen.findByRole('button', { name: '掲載から外す' }));
+    fireEvent.click(screen.getAllByRole('button', { name: '掲載から外す' })[1]);
+  } else {
+    fireEvent.click(await screen.findByRole('button', { name: 'メインに設定' }));
+  }
+  expect((await screen.findByRole('alert')).textContent).toContain('セッションが切れました。再ログインしてください。');
+});
+
+test('種類「メイン」で上げた直後のメイン設定が 401 なら、ログインし直す案内に切り替える', async () => {
+  mockFetch.mockResolvedValue({ ok: false, status: 401, json: async () => ({}) });
+  render(<AdminPhotosPage />);
+  await screen.findByRole('button', { name: 'メインに設定' });
+  uploadAs('main');
+  expect((await screen.findByRole('alert')).textContent).toContain('セッションが切れました。再ログインしてください。');
 });

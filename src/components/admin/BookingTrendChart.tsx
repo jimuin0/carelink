@@ -66,7 +66,7 @@ export default function BookingTrendChart({ facilityId }: { facilityId: string }
       <button type="button" onClick={retry} className="text-xs text-sky-600 underline mt-1">再試行</button>
     </div>
   );
-  if (data.length === 0) return <p className="text-sm text-gray-400 text-center py-8">データがありません</p>;
+  if (data.length === 0) return <p className="text-sm text-gray-500 text-center py-8">データがありません</p>;
 
   return (
     <div className="bg-white rounded-xl p-4">

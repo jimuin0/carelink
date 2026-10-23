@@ -105,7 +105,7 @@ export default function ChainBulkActions({ facilityIds, facilityNames }: Props) 
     <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-100">
         <h2 className="font-bold text-sm">一括操作</h2>
-        <p className="text-xs text-gray-400 mt-0.5">全{facilityIds.length}施設に適用</p>
+        <p className="text-xs text-gray-500 mt-0.5">全{facilityIds.length}施設に適用</p>
       </div>
 
       {/* Tab */}
@@ -175,7 +175,7 @@ export default function ChainBulkActions({ facilityIds, facilityNames }: Props) 
               />
             </div>
             <div className="pt-1">
-              <p className="text-xs text-gray-400 mb-3">
+              <p className="text-xs text-gray-500 mb-3">
                 対象施設: {facilityNames.map((f) => f.name).join('、')}
               </p>
               <button

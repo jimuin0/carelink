@@ -189,7 +189,7 @@ function EditBlogForm({ requested }: { requested: string | null }) {
         <div>
           <label htmlFor="blog-content" className="form-label">
             本文 <span className="text-red-500">*</span>
-            <span className="text-xs text-gray-400 ml-2">Markdown記法対応（**太字** / ## 見出し / - リスト）</span>
+            <span className="text-xs text-gray-500 ml-2">Markdown記法対応（**太字** / ## 見出し / - リスト）</span>
           </label>
           <div className="border border-gray-200 rounded-xl overflow-hidden">
             <div className="flex gap-1 bg-gray-50 border-b px-3 py-2">

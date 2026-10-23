@@ -268,7 +268,7 @@ function PackagesManager({ facilityId, choices }: AdminFacilityScopeValue) {
       {tab === 'packages' && (
         <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
           {packages.length === 0 ? (
-            <div className="py-12 text-center text-gray-400 text-sm">
+            <div className="py-12 text-center text-gray-500 text-sm">
               パッケージがありません。「+ 新規作成」から追加してください。
             </div>
           ) : (
@@ -284,7 +284,7 @@ function PackagesManager({ facilityId, choices }: AdminFacilityScopeValue) {
                         </span>
                       )}
                     </div>
-                    {pkg.description && <p className="text-xs text-gray-400 mt-0.5">{pkg.description}</p>}
+                    {pkg.description && <p className="text-xs text-gray-500 mt-0.5">{pkg.description}</p>}
                     <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-500">
                       <span>¥{pkg.price.toLocaleString()}</span>
                       <span>合計 {pkg.session_count + pkg.bonus_count}回</span>
@@ -310,7 +310,7 @@ function PackagesManager({ facilityId, choices }: AdminFacilityScopeValue) {
       {tab === 'users' && (
         <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
           {userPackages.length === 0 ? (
-            <div className="py-12 text-center text-gray-400 text-sm">購入履歴がありません</div>
+            <div className="py-12 text-center text-gray-500 text-sm">購入履歴がありません</div>
           ) : (
             <SbTable>
               <SbThead>
@@ -325,18 +325,18 @@ function PackagesManager({ facilityId, choices }: AdminFacilityScopeValue) {
                   <tr key={up.id}>
                     <SbTd className="text-xs">
                       <p className="font-medium text-gray-800">{up.profiles?.display_name || '不明'}</p>
-                      <p className="text-gray-400">{up.profiles?.email}</p>
+                      <p className="text-gray-500">{up.profiles?.email}</p>
                     </SbTd>
                     <SbTd className="text-xs text-gray-700">{up.service_packages?.name}</SbTd>
                     <SbTd className="hidden sm:table-cell">
-                      <span className={`text-xs font-bold ${up.sessions_remaining > 0 ? 'text-sky-600' : 'text-gray-400'}`}>
+                      <span className={`text-xs font-bold ${up.sessions_remaining > 0 ? 'text-sky-600' : 'text-gray-500'}`}>
                         {up.sessions_remaining}/{up.sessions_total}回
                       </span>
                     </SbTd>
-                    <SbTd className="text-xs text-gray-400 hidden md:table-cell">
+                    <SbTd className="text-xs text-gray-500 hidden md:table-cell">
                       {up.expires_at ? new Date(up.expires_at).toLocaleDateString('ja-JP') : '無期限'}
                     </SbTd>
-                    <SbTd className="text-xs text-gray-400 hidden md:table-cell">
+                    <SbTd className="text-xs text-gray-500 hidden md:table-cell">
                       {new Date(up.purchased_at).toLocaleDateString('ja-JP')}
                     </SbTd>
                   </tr>

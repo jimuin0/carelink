@@ -262,10 +262,10 @@ export default function CronMonitorPage() {
                   <p className="text-sm font-medium text-gray-800">
                     {JOB_LABELS[jobName] || jobName}
                   </p>
-                  <p className="text-xs text-gray-400">{formatDate(log.started_at)}</p>
+                  <p className="text-xs text-gray-500">{formatDate(log.started_at)}</p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-xs text-gray-400">{formatDuration(log.duration_ms)}</span>
+                  <span className="text-xs text-gray-500">{formatDuration(log.duration_ms)}</span>
                   <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_CONFIG[log.status].className}`}>
                     {STATUS_CONFIG[log.status].label}
                   </span>
@@ -299,7 +299,7 @@ export default function CronMonitorPage() {
         ) : loadError ? (
           <div className="p-4"><LoadError onRetry={handleRefresh} message="実行ログの読み込みに失敗しました" /></div>
         ) : logs.length === 0 ? (
-          <div className="py-12 text-center text-gray-400 text-sm">
+          <div className="py-12 text-center text-gray-500 text-sm">
             実行ログがありません
           </div>
         ) : (
@@ -329,7 +329,7 @@ export default function CronMonitorPage() {
                   <SbTd align="right" className="text-gray-600">
                     {log.processed > 0 ? log.processed : '-'}
                   </SbTd>
-                  <SbTd align="right" className="text-gray-400">
+                  <SbTd align="right" className="text-gray-500">
                     {formatDuration(log.duration_ms)}
                   </SbTd>
                   <SbTd className="text-xs text-red-600 max-w-[200px] truncate">

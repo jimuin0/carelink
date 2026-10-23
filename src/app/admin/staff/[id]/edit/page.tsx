@@ -10,6 +10,9 @@ import { verifyAuthUser } from '@/lib/auth-verification';
 import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import LoadError from '@/components/admin/LoadError';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
+import { businessTypeCopy, loadFacilityBusinessType } from '@/lib/business-type-copy';
+import { formatSpecialties, parseSpecialties } from '@/lib/staff-specialties';
+import SessionExpiredNotice from '@/components/admin/SessionExpiredNotice';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
@@ -51,6 +54,8 @@ function EditStaffForm(props: { params: Promise<{ id: string }> }) {
   const backFacility = facilityId ?? requestedFacility;
   const backHref = `/admin/staff${backFacility ? `?facility_id=${encodeURIComponent(backFacility)}` : ''}`;
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // 業種（役職・得意分野の入力例に使う）。null＝未設定・読めなかった（汎用の入力例）。
+  const [businessType, setBusinessType] = useState<string | null>(null);
 
   const toggleMenu = (menuId: string) => {
     setDirty(true);
@@ -86,7 +91,7 @@ function EditStaffForm(props: { params: Promise<{ id: string }> }) {
         setName(data.name || '');
         setPosition(data.position || '');
         setBio(data.bio || '');
-        setSpecialties((data.specialties || []).join(', '));
+        setSpecialties(formatSpecialties(data.specialties));
         setYearsExperience(data.years_experience?.toString() || '');
         setInstagramUrl(data.instagram_url || '');
         setNominationFee(data.nomination_fee != null ? data.nomination_fee.toString() : '');
@@ -99,11 +104,13 @@ function EditStaffForm(props: { params: Promise<{ id: string }> }) {
       // 担当メニューの現在値(menu_staff)と選択肢(自施設の facility_menus)。ここが取得できないまま
       // 保存すると menu_ids: [] が送信され、既存の担当メニュー設定を意図せず解除（全スタッフ対応化）
       // してしまうため、失敗は loadError に倒してフォームを描画しない（クーポン編集#479と同じ設計思想）。
-      const [{ data: msRows, error: msError }, { data: menus, error: menusError }] = await Promise.all([
+      const [{ data: msRows, error: msError }, { data: menus, error: menusError }, type] = await Promise.all([
         supabase.from('menu_staff').select('menu_id').eq('staff_id', params.id),
         supabase.from('facility_menus').select('id, name, price').eq('facility_id', selectedFacilityId).order('sort_order'),
+        loadFacilityBusinessType(supabase, selectedFacilityId),
       ]);
       if (!active) return;
+      setBusinessType(type);
       if (msError || menusError) { setLoadError(true); setLoading(false); return; }
       setMenuIds((msRows ?? []).map((r: { menu_id: string }) => r.menu_id));
       setMenuOptions((menus ?? []) as MenuOption[]);
@@ -126,7 +133,7 @@ function EditStaffForm(props: { params: Promise<{ id: string }> }) {
           name,
           position: position || null,
           bio: bio || null,
-          specialties: specialties ? specialties.split(',').map((s: string) => s.trim()) : [],
+          specialties: parseSpecialties(specialties),
           years_experience: yearsExperience ? parseInt(yearsExperience) : null,
           instagram_url: instagramUrl || null,
           nomination_fee: nominationFee ? parseInt(nominationFee) : 0,
@@ -153,7 +160,7 @@ function EditStaffForm(props: { params: Promise<{ id: string }> }) {
 
   if (loading) return <AdminPageLoading />;
   if (authState === 'unavailable') return <AccessVerificationUnavailable />;
-  if (authState === 'unauthenticated') return <p role="alert">セッションが切れました。再ログインしてください。</p>;
+  if (authState === 'unauthenticated') return <SessionExpiredNotice redirectTo={`/admin/staff/${encodeURIComponent(params.id)}/edit${requestedFacility ? `?facility_id=${encodeURIComponent(requestedFacility)}` : ''}`} />;
   const selector = <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/staff" dirty={dirty} busy={saving} />;
 
   // 取得失敗時はフォームを描画しない（空フォームを保存して実データを上書きする事故を防ぐ）
@@ -180,15 +187,15 @@ function EditStaffForm(props: { params: Promise<{ id: string }> }) {
         </div>
         <div>
           <label htmlFor="staff-position" className="form-label">役職</label>
-          <SbInput id="staff-position" value={position} onChange={(e) => setPosition(e.target.value)} placeholder="店長、スタイリスト等" maxLength={50} />
+          <SbInput id="staff-position" value={position} onChange={(e) => setPosition(e.target.value)} placeholder={businessTypeCopy(businessType).positionExample} maxLength={50} />
         </div>
         <div>
           <label htmlFor="staff-bio" className="form-label">自己紹介</label>
           <textarea id="staff-bio" value={bio} onChange={(e) => setBio(e.target.value)} className="form-input" rows={4} maxLength={500} />
         </div>
         <div>
-          <label htmlFor="staff-specialties" className="form-label">得意分野（カンマ区切り）</label>
-          <SbInput id="staff-specialties" value={specialties} onChange={(e) => setSpecialties(e.target.value)} placeholder="カット, カラー, パーマ" maxLength={200} />
+          <label htmlFor="staff-specialties" className="form-label">得意分野（「、」か「,」で区切る）</label>
+          <SbInput id="staff-specialties" value={specialties} onChange={(e) => setSpecialties(e.target.value)} placeholder={businessTypeCopy(businessType).specialtiesExample} maxLength={200} />
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -207,11 +214,11 @@ function EditStaffForm(props: { params: Promise<{ id: string }> }) {
 
         <div className="border-t pt-4">
           <span className="form-label">担当メニュー（HPB準拠・複数選択可）</span>
-          <p className="text-xs text-gray-400 mb-2">
+          <p className="text-xs text-gray-500 mb-2">
             選択したメニューは、このスタッフのみが施術・指名を受けられます（担当制）。未選択のメニューは全スタッフが対応します。
           </p>
           {menuOptions.length === 0 ? (
-            <p className="text-xs text-gray-400 border rounded-lg p-3">選択できるメニューがありません（メニュー未登録）</p>
+            <p className="text-xs text-gray-500 border rounded-lg p-3">選択できるメニューがありません（メニュー未登録）</p>
           ) : (
             <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
               {menuOptions.map((menu) => (
@@ -242,7 +249,7 @@ function EditStaffForm(props: { params: Promise<{ id: string }> }) {
                 onChange={(e) => setLineWorksChannelId(e.target.value)}
                 placeholder="例: 12345678901234567"
               />
-              <p className="text-xs text-gray-400 mt-1">LINE Works 管理コンソールのBot設定から確認できます</p>
+              <p className="text-xs text-gray-500 mt-1">LINE Works 管理コンソールのBot設定から確認できます</p>
             </div>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -259,7 +266,7 @@ function EditStaffForm(props: { params: Promise<{ id: string }> }) {
 
         <div className="border-t pt-4">
           <h3 className="font-semibold text-sm text-gray-700 mb-1">在籍状況</h3>
-          <p className="text-xs text-gray-400 mb-3">休止にすると、公開ページ・予約枠・指名候補から外れます（予約履歴は残ります）。退職・産休等で使います。</p>
+          <p className="text-xs text-gray-500 mb-3">休止にすると、公開ページ・予約枠・指名候補から外れます（予約履歴は残ります）。退職・産休等で使います。</p>
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"

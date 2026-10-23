@@ -64,7 +64,7 @@ test('公開を押すと is_published だけを選択中の店舗へ送り、一
     return { ok: true, json: async () => ({ menu: {} }) };
   };
   fireEvent.click(screen.getByRole('button', { name: 'HPBカットを公開する' }));
-  await screen.findByText('公開しました');
+  await screen.findByText('メニューを公開しました');
   expect(mutations()).toHaveLength(1);
   expect(mutations()[0][0]).toBe(`/api/admin/menus/${draft}?facility_id=${facility}`);
   expect(mutations()[0][1].method).toBe('PATCH');
@@ -78,7 +78,7 @@ test('公開中のメニューは非公開にできる', async () => {
   render(<Page />);
   await screen.findByText('公開カラー');
   fireEvent.click(screen.getByRole('button', { name: '公開カラーを非公開にする' }));
-  await screen.findByText('非公開にしました');
+  await screen.findByText('メニューを非公開にしました');
   expect(JSON.parse(mutations()[0][1].body)).toEqual({ is_published: false });
 });
 
@@ -88,7 +88,7 @@ test('拒否されたらサーバーの理由を表示し、成功扱いにし�
   mutation = async () => ({ ok: false, json: async () => ({ error: '店舗の管理権限を確認してください' }) });
   fireEvent.click(screen.getByRole('button', { name: 'HPBカットを公開する' }));
   await screen.findByText('店舗の管理権限を確認してください');
-  expect(screen.queryByText('公開しました')).toBeNull();
+  expect(screen.queryByText('メニューを公開しました')).toBeNull();
   expect(reads()).toHaveLength(1);
 });
 
@@ -152,7 +152,7 @@ test('一括公開の理由の無い拒否・件数の無い応答は既定の�
   await screen.findByText('公開できませんでした');
   mutation = async () => ({ ok: true, json: async () => ({}) });
   fireEvent.click(screen.getByRole('button', { name: '非公開のメニューをすべて公開する' }));
-  await screen.findByText('公開しました');
+  await screen.findByText('メニューを公開しました');
 });
 
 test('一括公開の応答が失われたら一覧を読み直して実際の状態を表示する', async () => {
@@ -170,5 +170,5 @@ test('公開中の最後のメニューを非公開にできないときは、�
   mutation = async () => ({ ok: false, json: async () => ({ error: '公開中は最後の公開メニューを非公開にできません。先に別のメニューを公開するか、施設を非公開にしてください。' }) });
   fireEvent.click(screen.getByRole('button', { name: '公開カラーを非公開にする' }));
   await screen.findByText(/最後の公開メニューを非公開にできません/);
-  expect(screen.queryByText('非公開にしました')).toBeNull();
+  expect(screen.queryByText('メニューを非公開にしました')).toBeNull();
 });

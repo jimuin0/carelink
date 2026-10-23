@@ -324,7 +324,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
             <div className="space-y-4 mb-5">
               <div>
                 <label htmlFor="gbp-place-id" className="text-sm font-medium text-gray-700">Place ID</label>
-                <p className="text-xs text-gray-400 mb-1">
+                <p className="text-xs text-gray-500 mb-1">
                   <a href="https://developers.google.com/maps/documentation/javascript/examples/places-placeid-finder" target="_blank" rel="noopener noreferrer" className="text-sky-500 underline">Place ID Finder</a>
                   {' '}で自店舗を検索して取得。「ChIJ...」から始まる文字列。
                 </p>
@@ -340,7 +340,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
               </div>
               <div>
                 <label htmlFor="gbp-cid" className="text-sm font-medium text-gray-700">GBP CID（任意）</label>
-                <p className="text-xs text-gray-400 mb-1">
+                <p className="text-xs text-gray-500 mb-1">
                   GBP管理画面のURLに含まれる数字のID（あれば入力）
                 </p>
                 <input
@@ -396,7 +396,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                 ['特別営業時間', '祝日・お盆・年末年始の休業日を登録'],
               ].map(([label, desc]) => (
                 <div key={label} className="flex gap-3 p-3 bg-gray-50 rounded-lg">
-                  <span className="text-gray-400">→</span>
+                  <span className="text-gray-500">→</span>
                   <div>
                     <p className="text-sm font-medium text-gray-700">{label}</p>
                     <p className="text-xs text-gray-500">{desc}</p>
@@ -482,7 +482,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                     <div className="text-right shrink-0">
                       <div className="text-2xl font-bold text-amber-500">★ {place.rating?.toFixed(1) ?? '—'}</div>
                       <div className="text-xs text-gray-500">{(place.user_ratings_total ?? 0).toLocaleString()}件の口コミ</div>
-                      <div className="text-xs text-gray-400 mt-0.5">{place.photos?.length ?? 0}枚の写真</div>
+                      <div className="text-xs text-gray-500 mt-0.5">{place.photos?.length ?? 0}枚の写真</div>
                     </div>
                   )}
                 </div>
@@ -516,7 +516,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                                 item.passed === true ? 'text-green-800' :
                                 item.passed === false ? 'text-red-700' : 'text-gray-600'
                               }`}>{item.label}</p>
-                              <span className="text-xs text-gray-400 shrink-0">+{item.points}点</span>
+                              <span className="text-xs text-gray-500 shrink-0">+{item.points}点</span>
                             </div>
                             {item.detail && (
                               <p className="text-xs text-gray-500 mt-0.5">{item.detail}</p>
@@ -587,7 +587,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                               const filled = Math.max(0, Math.min(5, Math.round(review.rating || 0)));
                               return <span className="text-amber-400 text-sm">{'★'.repeat(filled)}{'☆'.repeat(5 - filled)}</span>;
                             })()}
-                            <span className="text-xs text-gray-400">{review.relative_time_description}</span>
+                            <span className="text-xs text-gray-500">{review.relative_time_description}</span>
                           </div>
                         </div>
                         <a href={/^https?:\/\//i.test(place.url || '') ? place.url! : gbpManageUrl} target="_blank" rel="noopener noreferrer"
@@ -612,7 +612,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                   {GBP_PLACE_MISMATCH_NOTICE}
                 </div>
               ) : (
-                <div className="bg-white rounded-xl shadow-xs p-8 text-center text-gray-400">
+                <div className="bg-white rounded-xl shadow-xs p-8 text-center text-gray-500">
                   <p>クチコミデータの取得には <span className="text-sky-500">GOOGLE_MAPS_API_KEY</span> の設定が必要です</p>
                   <p className="text-xs mt-2">Vercelの環境変数に設定してください</p>
                 </div>
@@ -683,7 +683,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                             rows={6} maxLength={1500}
                             placeholder="投稿の内容を入力... (最大1500文字)"
                             className="mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-sky-300" />
-                  <p className="text-xs text-right text-gray-400">{newPost.body.length}/1500</p>
+                  <p className="text-xs text-right text-gray-500">{newPost.body.length}/1500</p>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -723,7 +723,7 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
           {postsLoading ? (
             <div className="animate-pulse space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="h-20 bg-gray-200 rounded-xl" />)}</div>
           ) : posts.length === 0 ? (
-            <div className="bg-white rounded-xl shadow-xs p-8 text-center text-gray-400 text-sm">
+            <div className="bg-white rounded-xl shadow-xs p-8 text-center text-gray-500 text-sm">
               まだ投稿がありません。上の「テンプレートから作成」で始めましょう。
             </div>
           ) : (
@@ -739,8 +739,8 @@ function AdminGbpContent({ requestedFacility }: { requestedFacility: string | nu
                         }`}>
                           {post.status === 'published' ? '投稿済み' : post.status === 'scheduled' ? '予定' : '下書き'}
                         </span>
-                        <span className="text-xs text-gray-400">{post.post_type}</span>
-                        <span className="text-xs text-gray-400">{new Date(post.created_at).toLocaleDateString('ja-JP')}</span>
+                        <span className="text-xs text-gray-500">{post.post_type}</span>
+                        <span className="text-xs text-gray-500">{new Date(post.created_at).toLocaleDateString('ja-JP')}</span>
                       </div>
                       {post.title && <p className="text-sm font-medium text-gray-800">{post.title}</p>}
                       <p className="text-sm text-gray-600 line-clamp-2 mt-0.5">{post.body}</p>

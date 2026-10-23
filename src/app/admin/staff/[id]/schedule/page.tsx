@@ -11,7 +11,8 @@ import { verifyAuthUser } from '@/lib/auth-verification';
 import AccessVerificationUnavailable from '@/components/admin/AccessVerificationUnavailable';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
-import { SbInput } from '@/components/admin/SbUi';
+import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
+import SessionExpiredNotice from '@/components/admin/SessionExpiredNotice';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 import Link from 'next/link';
@@ -307,17 +308,17 @@ function StaffSchedulePageForm() {
 
   if (loading) return <AdminPageLoading />;
   if (authState === 'unavailable') return <AccessVerificationUnavailable />;
-  if (authState === 'unauthenticated') return <p role="alert">セッションが切れました。再ログインしてください。</p>;
+  if (authState === 'unauthenticated') return <SessionExpiredNotice redirectTo={`/admin/staff/${encodeURIComponent(staffId)}/schedule${requestedFacility ? `?facility_id=${encodeURIComponent(requestedFacility)}` : ''}`} />;
   const selector = <FacilitySelector choices={facilityChoices} selectedId={facilityId} path="/admin/staff" dirty={dirty} busy={saving || addingOverride || deletingOverride || pendingSave} />;
+
+  // 見出しは管理画面共通の SbPageHeader（以前はこの画面だけ独自の大きな h1 だった）。
+  const backButton = <button type="button" onClick={() => router.push(backHref)} className="text-sm text-gray-600 hover:underline">← 戻る</button>;
 
   // 取得失敗時はフォームを描画しない（既定シフトで実スケジュールを上書きする事故を防ぐ）
   if (loadError) {
     return (
       <div>
-        <div className="flex items-center gap-3 mb-6">
-          <button type="button" onClick={() => router.push(backHref)} className="text-sm text-gray-500 hover:underline">← 戻る</button>
-          <h1 className="text-2xl font-bold">スケジュール</h1>
-        </div>
+        <SbPageHeader title="スケジュール" actions={backButton} />
         <LoadError onRetry={() => setReloadKey((k) => k + 1)} message="スケジュールの読み込みに失敗しました" />
       </div>
     );
@@ -328,16 +329,13 @@ function StaffSchedulePageForm() {
   return (
     <div onChange={() => setDirty(true)}>
       {selector}
-      <div className="flex items-center gap-3 mb-6">
-        <button type="button" onClick={() => router.push(backHref)} className="text-sm text-gray-500 hover:underline">← 戻る</button>
-        <h1 className="text-2xl font-bold">{staffName}のスケジュール</h1>
-      </div>
+      <SbPageHeader title={`${staffName}のスケジュール`} actions={backButton} />
 
       {draft && (
         <div role="status" className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 space-y-1">
           {justAdded && <p>スタッフを追加しました。</p>}
           <p className="font-bold">このスタッフは勤務時間が未登録のため、まだネット予約を受けられません。</p>
-          <p>サロンボードの「指名なし」の予約も、勤務時間を保存したスタッフにだけ割り当てられます。</p>
+          <p>予約表の「指名なし」の予約も、勤務時間を保存したスタッフにだけ割り当てられます。</p>
           {draft === 'suggested' ? (
             <p>下の時間は店舗の営業時間をもとにした下書きで、まだ保存されていません。実際の勤務日・時間に合わせて直してから「この勤務時間で保存する」を押してください。</p>
           ) : (
@@ -387,7 +385,7 @@ function StaffSchedulePageForm() {
                     }}
                     className="min-w-0 flex-1 text-sm sm:w-32! sm:flex-none"
                   />
-                  <span className="text-gray-400">〜</span>
+                  <span className="text-gray-500">〜</span>
                   <SbInput
                     type="time"
                     value={schedules[i].end_time}
@@ -400,7 +398,7 @@ function StaffSchedulePageForm() {
                   />
                 </div>
               ) : (
-                <span className="text-sm text-gray-400">休み</span>
+                <span className="text-sm text-gray-500">休み</span>
               )}
             </div>
           ))}
@@ -452,7 +450,7 @@ function StaffSchedulePageForm() {
         </div>
 
         {overrides.length === 0 ? (
-          <p className="text-sm text-gray-400">特別日の設定はありません</p>
+          <p className="text-sm text-gray-500">特別日の設定はありません</p>
         ) : (
           <div className="space-y-2">
             {overrides.map((ov) => (

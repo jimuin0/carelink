@@ -124,7 +124,7 @@ export default function NewPlatformBlogPage() {
             placeholder="beginner-acupuncture-guide"
             maxLength={200}
           />
-          <p className="text-xs text-gray-400 mt-1">/blog/{slug || '(スラッグ)'}</p>
+          <p className="text-xs text-gray-500 mt-1">/blog/{slug || '(スラッグ)'}</p>
         </div>
 
         <div>
@@ -189,12 +189,12 @@ export default function NewPlatformBlogPage() {
       <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-3">
         <div className="flex items-center justify-between">
           <label htmlFor="pb-content" className="text-xs font-medium text-gray-600">本文コンテンツ（JSON配列）</label>
-          <span className="text-xs text-gray-400">sections: {(() => { try { return JSON.parse(contentJson).length; } catch { return '?'; } })()}</span>
+          <span className="text-xs text-gray-500">sections: {(() => { try { return JSON.parse(contentJson).length; } catch { return '?'; } })()}</span>
         </div>
 
         {/* セクション追加ボタン */}
         <div className="flex flex-wrap gap-1.5">
-          <span className="text-xs text-gray-400 self-center">追加:</span>
+          <span className="text-xs text-gray-500 self-center">追加:</span>
           {Object.entries(SECTION_TEMPLATES).map(([key, template]) => (
             <button
               key={key}
@@ -216,7 +216,7 @@ export default function NewPlatformBlogPage() {
           spellCheck={false}
         />
         {jsonError && <p role="alert" className="text-xs text-red-500">{jsonError}</p>}
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-gray-500">
           各セクションの type: paragraph / heading / list / callout（calloutType: tip|info|warning）
         </p>
       </div>

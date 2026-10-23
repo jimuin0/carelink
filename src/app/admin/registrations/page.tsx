@@ -181,7 +181,7 @@ export default function AdminRegistrationsPage() {
         <LoadError onRetry={() => { invalidate(); setReloadKey((k) => k + 1); }} message="登録申請の読み込みに失敗しました。申込なしとは判定できません。" />
       ) : salons.length === 0 ? (
         <div className="bg-white rounded-xl p-8 text-center">
-          <p className="text-gray-400">この条件・ページに該当する登録申請はありません</p>
+          <p className="text-gray-500">この条件・ページに該当する登録申請はありません</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -193,7 +193,7 @@ export default function AdminRegistrationsPage() {
                   <div>
                     <div className="flex items-center gap-2 mb-1">
                       <span className={`text-xs px-2 py-0.5 rounded-full ${st.cls}`}>{st.text}</span>
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-gray-500">
                         {salon.created_at ? new Date(salon.created_at).toLocaleDateString('ja-JP') : '受付日時未設定'}
                       </span>
                     </div>

@@ -57,12 +57,12 @@ export default function TutorialsPage() {
                   <svg className="w-10 h-10 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
-                  <span className="text-xs text-gray-400">準備中</span>
+                  <span className="text-xs text-gray-500">準備中</span>
                 </div>
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="font-medium text-gray-900 text-sm leading-tight">{video.title}</h3>
-                    <span className="text-xs text-gray-400 shrink-0">{video.duration}</span>
+                    <span className="text-xs text-gray-500 shrink-0">{video.duration}</span>
                   </div>
                   <p className="text-xs text-gray-500 mt-1">{video.desc}</p>
                 </div>

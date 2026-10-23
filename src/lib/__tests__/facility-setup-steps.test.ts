@@ -7,7 +7,7 @@
  * 休止中のスタッフ、勤務時間の無いスタッフを「登録済み」と数えていたのが実際の欠陥なので、
  * 条件を書き忘れれば結果が変わるようにしておく。
  */
-import { facilitySetupSteps, loadFacilitySetupFacts, type FacilitySetupFacts } from '../facility-setup-steps';
+import { facilitySetupSteps, loadFacilitySetupFacts, setupGuideSteps, SETUP_STEP_HOWTO, type FacilitySetupFacts } from '../facility-setup-steps';
 
 const CONFIRMED_HOURS = {
   mon: { open: '10:00', close: '20:00' }, tue: { open: '10:00', close: '20:00' }, wed: { open: '10:00', close: '20:00' },
@@ -294,5 +294,23 @@ describe('loadFacilitySetupFacts', () => {
       name: null, slug: null, prefecture: null, city: null, address: null, catchCopy: null, description: null,
       status: null, businessHours: null, publishedMenuCount: 0, photoCount: 0, activeStaffIds: [], unscheduledStaffIds: [],
     });
+  });
+});
+
+describe('setupGuideSteps（/admin/manual の初期設定）', () => {
+  test('チェックリストと同じ項目・同じ順・同じ見出し・同じ区分で、全項目に手順がある', () => {
+    const guide = setupGuideSteps();
+    expect(guide.map(({ key, label, group }) => ({ key, label, group })))
+      .toEqual(facilitySetupSteps(facts()).map(({ key, label, group }) => ({ key, label, group })));
+    for (const step of guide) {
+      expect(step.howto).toBe(SETUP_STEP_HOWTO[step.key]);
+      expect(step.howto.length).toBeGreaterThan(10);
+    }
+  });
+
+  test('写真は1枚以上（ネット予約の判定と同じ）。以前のマニュアルの「5枚以上」「公開設定」を書かない', () => {
+    const text = setupGuideSteps().map((step) => step.howto).join('\n');
+    expect(SETUP_STEP_HOWTO.photo).toContain('1枚以上');
+    expect(text).not.toMatch(/5枚以上|公開設定|公開中」に変更/);
   });
 });

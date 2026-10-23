@@ -101,7 +101,7 @@ export default async function UsageStatsPage(props: { searchParams: Promise<{ fa
                     {m.mau > 0 && <span className="text-xs text-white font-bold">{m.mau}</span>}
                   </div>
                 </div>
-                <span className="text-xs text-gray-400 w-12 text-right shrink-0">{m.bookings}件</span>
+                <span className="text-xs text-gray-500 w-12 text-right shrink-0">{m.bookings}件</span>
               </div>
             ))}
           </div>
@@ -115,7 +115,7 @@ export default async function UsageStatsPage(props: { searchParams: Promise<{ fa
           <div className="bg-white rounded-xl border border-gray-100 p-5">
             <h2 className="font-bold text-sm mb-3">今月の予約ステータス</h2>
             {Object.entries(statusCount).length === 0 ? (
-              <p className="text-sm text-gray-400">データなし</p>
+              <p className="text-sm text-gray-500">データなし</p>
             ) : (
               <div className="space-y-1.5">
                 {Object.entries(statusCount).sort((a, b) => b[1] - a[1]).map(([status, count]) => (

@@ -15,8 +15,7 @@ import LoadError from '@/components/admin/LoadError';
 import { SbPageHeader, SbBadge, SbInput } from '@/components/admin/SbUi';
 import type { FacilityMenu } from '@/types';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
-
-const categories = ['カット', 'カラー', 'パーマ', 'トリートメント', 'ヘッドスパ', 'セット', 'エクステ', 'ネイル', 'まつげ', 'エステ', 'リラクゼーション', '鍼灸', '整体', '介護', 'その他'];
+import { loadFacilityBusinessType, menuCategorySuggestions } from '@/lib/business-type-copy';
 
 interface MenuForm {
   id?: string;
@@ -30,9 +29,10 @@ interface MenuForm {
   is_featured: boolean;
 }
 
-const emptyForm: MenuForm = {
-  category: 'カット', name: '', description: '', price: '', price_note: '', duration_minutes: '60', photo_url: '', is_featured: false,
-};
+/** 新規メニューの入力欄。カテゴリの既定値は業種の候補の先頭（美容室の「カット」に固定しない）。 */
+const emptyForm = (category: string): MenuForm => ({
+  category, name: '', description: '', price: '', price_note: '', duration_minutes: '60', photo_url: '', is_featured: false,
+});
 
 async function fetchMenuSnapshot(facilityId: string) {
   const response = await fetch(`/api/admin/menus?facility_id=${facilityId}`, { cache: 'no-store' });
@@ -81,6 +81,8 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
   // ここから公開しない限りお客様に表示されず、ネット予約も始められない。
   const [publishing, setPublishing] = useState<string | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  // 店舗の業種（カテゴリの候補に使う）。null＝未設定・読めなかった（汎用の候補）。
+  const [businessType, setBusinessType] = useState<string | null>(null);
 
   const loadMenus = useCallback(async (fId: string) => {
     setLoadError(false);
@@ -114,9 +116,12 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
         setChoices(selection.choices);
         if (!selection.selectedId) { setLoading(false); return; }
         setFacilityId(selection.selectedId);
-        const snapshot = await fetchMenuSnapshot(selection.selectedId);
+        const [snapshot, type] = await Promise.all([
+          fetchMenuSnapshot(selection.selectedId),
+          loadFacilityBusinessType(supabase, selection.selectedId),
+        ]);
         if (cancelled) return;
-        setMenus(snapshot.menus); setRevision(snapshot.revision);
+        setMenus(snapshot.menus); setRevision(snapshot.revision); setBusinessType(type);
         setLoading(false);
       } catch {
         if (!cancelled) { setLoadError(true); setLoading(false); }
@@ -129,6 +134,10 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
 
   const handleSave = async () => {
     if (!editForm || !facilityId || saving) return;
+    if (!editForm.category.trim()) {
+      setToast({ type: 'error', message: 'カテゴリを入力してください' });
+      return;
+    }
     if (!editForm.name.trim()) {
       setToast({ type: 'error', message: 'メニュー名を入力してください' });
       return;
@@ -141,7 +150,7 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
     setSaving(true);
     try {
       const payload = {
-        category: editForm.category,
+        category: editForm.category.trim(),
         name: editForm.name.trim(),
         description: editForm.description.trim() || null,
         price: editForm.price ? parseInt(editForm.price) : null,
@@ -250,7 +259,8 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
         setToast({ type: 'error', message: e.error || '公開設定を変更できませんでした' });
         return;
       }
-      setToast({ type: 'success', message: publish ? '公開しました' : '非公開にしました' });
+      // 「公開しました」だけだと店舗の掲載を公開したと取り違える（店舗の公開は「設定」で別に行う）。
+      setToast({ type: 'success', message: publish ? 'メニューを公開しました' : 'メニューを非公開にしました' });
       await loadMenus(facilityId);
     } catch {
       // 応答だけ失われた可能性があるため、一覧を読み直して実際の状態を表示する。
@@ -272,7 +282,7 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
         setToast({ type: 'error', message: body.error || '公開できませんでした' });
         return;
       }
-      setToast({ type: 'success', message: typeof body.published === 'number' ? `${body.published}件のメニューを公開しました` : '公開しました' });
+      setToast({ type: 'success', message: typeof body.published === 'number' ? `${body.published}件のメニューを公開しました` : 'メニューを公開しました' });
       await loadMenus(facilityId);
     } catch {
       // 応答だけ失われた可能性があるため、一覧を読み直して実際の状態を表示する。
@@ -331,6 +341,8 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
     (acc[m.category] = acc[m.category] || []).push(m);
     return acc;
   }, {});
+  const categorySuggestions = menuCategorySuggestions(businessType, menus.map((m) => m.category));
+  const newMenu = () => setEditForm(emptyForm(categorySuggestions[0]));
   // is_published が null の旧データは公開扱い（公開側の可視条件 COALESCE(is_published, true) と揃える）。
   const unpublishedCount = menus.filter((m) => m.is_published === false).length;
 
@@ -339,7 +351,7 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
       <SbPageHeader
         title="メニュー管理"
         actions={
-          <button type="button" onClick={() => setEditForm({ ...emptyForm })} className="btn-primary px-5 py-2.5!">
+          <button type="button" onClick={newMenu} className="btn-primary px-5 py-2.5!">
             メニュー追加
           </button>
         }
@@ -362,10 +374,13 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
         >
             <div className="space-y-4">
               <div>
-                <label htmlFor="menu-cat" className="form-label">カテゴリ</label>
-                <select id="menu-cat" value={editForm.category} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} className="form-input">
-                  {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <label htmlFor="menu-cat" className="form-label">カテゴリ <span className="text-red-500">*</span></label>
+                {/* 候補から選ぶか、自由に入力する（候補は店舗の業種と、既に使っているカテゴリ）。 */}
+                <SbInput id="menu-cat" list="menu-cat-options" value={editForm.category} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} maxLength={50} aria-describedby="menu-cat-hint" />
+                <datalist id="menu-cat-options">
+                  {categorySuggestions.map((c) => <option key={c} value={c} />)}
+                </datalist>
+                <p id="menu-cat-hint" className="mt-1 text-xs text-gray-600">候補から選ぶか、自由に入力できます（例：{categorySuggestions.slice(0, 3).join('、')}）。</p>
               </div>
               <div>
                 <label htmlFor="menu-name" className="form-label">メニュー名 <span className="text-red-500">*</span></label>
@@ -434,7 +449,7 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
       {menus.length === 0 ? (
         <div className="bg-white rounded-xl shadow-xs p-12 text-center">
           <p className="text-gray-600 mb-2">メニューがまだ登録されていません</p>
-          <button type="button" onClick={() => setEditForm({ ...emptyForm })} className="text-sm text-sky-700 font-medium hover:underline">最初のメニューを追加する</button>
+          <button type="button" onClick={newMenu} className="text-sm text-sky-700 font-medium hover:underline">最初のメニューを追加する</button>
           <p className="mt-3 text-sm text-gray-600">
             ホットペッパービューティーに掲載中なら、
             <Link href={`/admin/hpb-menus?facility_id=${encodeURIComponent(facilityId)}`} className="text-sky-700 underline">掲載中のメニューを取り込めます</Link>
@@ -480,11 +495,11 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
                         {menu.is_published === false && <SbBadge tone="neutral">非公開</SbBadge>}
                         {menu.is_featured && <SbBadge tone="warning">おすすめ</SbBadge>}
                       </div>
-                      {menu.description && <p className="text-xs text-gray-400 mt-0.5 truncate">{menu.description}</p>}
+                      {menu.description && <p className="text-xs text-gray-500 mt-0.5 truncate">{menu.description}</p>}
                     </div>
                     <div className="text-right shrink-0">
                       {menu.price != null && <p className="font-bold text-sky-600 text-sm">¥{menu.price.toLocaleString()}</p>}
-                      {menu.duration_minutes != null && <p className="text-xs text-gray-400">{menu.duration_minutes}分</p>}
+                      {menu.duration_minutes != null && <p className="text-xs text-gray-500">{menu.duration_minutes}分</p>}
                     </div>
                     <div className="flex w-full items-center justify-end gap-1 sm:w-auto sm:shrink-0">
                       <button
@@ -498,10 +513,10 @@ function AdminMenusEditor({ requested }: { requested: string | null }) {
                       >
                         {menu.is_published === false ? '公開する' : '非公開にする'}
                       </button>
-                      <button type="button" onClick={() => startEdit(menu)} className="p-2 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" aria-label="編集">
+                      <button type="button" onClick={() => startEdit(menu)} className="p-2 text-gray-500 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" aria-label="編集">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                       </button>
-                      <button type="button" onClick={() => handleDelete(menu.id)} disabled={deleting === menu.id} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" aria-label="削除">
+                      <button type="button" onClick={() => handleDelete(menu.id)} disabled={deleting === menu.id} className="p-2 text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" aria-label="削除">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                       </button>
                     </div>

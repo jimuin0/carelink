@@ -47,7 +47,7 @@ export default async function AdminJobsPage() {
     return (
       <div>
         <SbPageHeader title="求人管理" />
-        <div className="bg-white rounded-xl p-8 text-center text-gray-400">管理可能な施設がありません</div>
+        <div className="bg-white rounded-xl p-8 text-center text-gray-500">管理可能な施設がありません</div>
       </div>
     );
   }
@@ -79,7 +79,7 @@ export default async function AdminJobsPage() {
 
       {list.length === 0 ? (
         <div className="bg-white rounded-xl p-8 text-center">
-          <p className="text-gray-400 mb-3">求人がありません</p>
+          <p className="text-gray-500 mb-3">求人がありません</p>
           <Link href="/admin/jobs/new" className="text-sm text-primary hover:underline">最初の求人を作成</Link>
         </div>
       ) : (
@@ -95,7 +95,7 @@ export default async function AdminJobsPage() {
                     <span className="inline-block text-micro px-2 py-0.5 rounded-sm bg-gray-100 text-gray-600">
                       {job.job_type}
                     </span>
-                    <span className="text-micro text-gray-400">
+                    <span className="text-micro text-gray-500">
                       {new Date(job.created_at).toLocaleDateString('ja-JP')}
                     </span>
                   </div>

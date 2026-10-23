@@ -379,6 +379,8 @@ function AdminSettingsContent() {
             <SbBadge tone={facilityStatus === 'published' ? 'success' : 'neutral'}>
               {facilityStatus === 'published' ? '公開中' : '非公開'}
             </SbBadge>
+            {/* 公開は主操作なので管理画面共通の主ボタン（btn-primary）。以前はこのボタンだけ緑の独自色だった。
+                未公開の間は「公開する」が主、「保存する」は副（枠線）にして、主ボタンが2つ並ばないようにする。 */}
             <button
               type="button"
               onClick={() => {
@@ -386,11 +388,11 @@ function AdminSettingsContent() {
                 void handlePublish();
               }}
               disabled={publishToggling || saving || !facilityId}
-              className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors ${facilityStatus === 'published' ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' : 'bg-green-700 text-white hover:bg-green-800'}`}
+              className={facilityStatus === 'published' ? 'px-4 py-2 text-sm font-bold rounded-lg transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200' : 'btn-primary px-4! py-2! text-sm'}
             >
               {publishToggling ? '処理中...' : facilityStatus === 'published' ? '非公開にする' : dirty ? '保存して公開する' : '公開する'}
             </button>
-            <button type="button" onClick={handleSave} disabled={saving} className="btn-primary px-6 py-2.5!">
+            <button type="button" onClick={handleSave} disabled={saving} className={facilityStatus === 'published' ? 'btn-primary px-6 py-2.5!' : 'btn-outline px-6! py-2! text-sm'}>
               {saving ? '保存中...' : '保存する'}
             </button>
           </>
@@ -548,7 +550,7 @@ function AdminSettingsContent() {
                     onChange={(e) => updateHour(day, 'open', e.target.value)}
                     className="min-w-0 flex-1 py-1.5! px-2! text-sm sm:w-32! sm:flex-none"
                   />
-                  <span className="text-gray-400">〜</span>
+                  <span className="text-gray-500">〜</span>
                   <SbInput
                     type="time"
                     aria-label={`${dayLabels[day]}曜日の閉店時間`}
@@ -591,10 +593,10 @@ function AdminSettingsContent() {
         </label>
         <div className="mt-4 border-t pt-4">
           <label htmlFor="buffer-minutes" className="block text-sm font-medium text-gray-800 mb-1">
-            施術後バッファタイム（準備時間）
+            施術後の準備時間（次の予約までの空け時間）
           </label>
           <p className="text-xs text-gray-500 mb-2">
-            施術終了後に確保するスタッフの準備時間です。この時間は予約枠として表示されません。
+            施術が終わってから次の予約を受けるまでに空けておく時間です。片付け・準備に使います。この時間はネット予約の空き枠として表示されません。
           </p>
           <div className="flex items-center gap-3">
             <select
@@ -611,10 +613,10 @@ function AdminSettingsContent() {
         </div>
         <div className="mt-4 border-t pt-4">
           <label htmlFor="board-slot-minutes" className="block text-sm font-medium text-gray-800 mb-1">
-            サロンボードの時間刻み
+            予約表の時間の区切り
           </label>
           <p className="text-xs text-gray-500 mb-2">
-            予約管理のサロンボード（スタッフ×時間軸）の区切り幅です。空き帯クリック時の時刻スナップもこの単位になります。
+            予約表（スタッフごとの時間割）の目盛りの幅です。予約表の空いている時間を押して予約を入れるとき、開始時刻はこの間隔で選ばれます。
           </p>
           <div className="flex items-center gap-3">
             <select
