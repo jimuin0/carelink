@@ -12,11 +12,13 @@ export default function StickyBookingBar({ phone, facilityName, facilitySlug, fa
         <div className="flex items-center justify-center gap-2 mb-1">
           {bookingAvailable ? <RemainingSlots facilityId={facilityId} /> : <p className="text-sm text-gray-600">ネット予約は準備中です。店舗へ直接お問い合わせください。</p>}
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-2">
         {phone && (
           <Button
             href={`tel:${phone}`}
             variant="secondary"
+            size="sm"
+            className="shrink-0 min-h-11!"
             onClick={() => analytics.phoneClicked(facilitySlug)}
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -30,7 +32,8 @@ export default function StickyBookingBar({ phone, facilityName, facilitySlug, fa
           href={`/facility/${facilitySlug}/booking`}
           prefetch="auto"
           onClick={() => analytics.bookingClicked(facilitySlug)}
-          className="flex-1"
+          // 375–390px でも「今すぐ予約する」を 1 行に収める（左右のボタンは余白を詰める）
+          className="flex-1 min-w-0 px-2! whitespace-nowrap"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
@@ -42,6 +45,8 @@ export default function StickyBookingBar({ phone, facilityName, facilitySlug, fa
         </Button>}
         <Button
           variant="ghost"
+          size="sm"
+          className="shrink-0 min-h-11!"
           onClick={() => {
             const el = document.getElementById('contact-section');
             if (el) el.scrollIntoView({ behavior: 'smooth' });
