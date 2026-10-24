@@ -76,7 +76,8 @@ describe('くすみカラーのテーマ', () => {
     const header = read('src/components/Header.tsx');
     expect(header).toContain('isEcruShopPath(pathname)');
     expect(header).toContain('theme-ecru');
-    expect(read('src/components/LayoutSwitch.tsx')).toContain('isEcruShopPath(pathname) ? <ShopFooter />');
+    expect(read('src/components/LayoutSwitch.tsx')).toContain('isEcruShopPath(pathname,');
+    expect(read('src/components/LayoutSwitch.tsx')).toContain('<Header shopPage />');
     const shopTheme = read('src/lib/shop-theme.ts');
     expect(shopTheme).toContain("'/register'");
     expect(shopTheme).toContain("'/register/complete'");

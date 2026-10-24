@@ -25,7 +25,7 @@ function renderAt(pathname: string) {
   return screen.getByRole('banner');
 }
 
-describe.each(['/register', '/register/complete'])('%s のヘッダー', (pathname) => {
+describe.each(['/register', '/register/complete', '/register/recover'])('%s のヘッダー', (pathname) => {
   it('ロゴと「店舗ログイン」だけを出す', () => {
     const header = renderAt(pathname);
     const links = within(header).getAllByRole('link');
@@ -53,7 +53,9 @@ describe('来院者向けページのヘッダー', () => {
     expect(within(header).getByRole('link', { name: 'CareLink' }).className).toContain('text-(--logo)');
   });
 
-  it('/register/recover は来院者向けの配色のまま（本文がまだ既定の配色のため）', () => {
-    expect(renderAt('/register/recover').className).not.toContain('theme-ecru');
+  it('共用の認証画面も店舗文脈を受け取れる', () => {
+    mockPathname = '/auth/login';
+    render(<Header shopPage />);
+    expect(screen.getByRole('banner').className).toContain('theme-ecru');
   });
 });

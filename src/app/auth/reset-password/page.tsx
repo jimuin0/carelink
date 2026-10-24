@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'next/navigation';
@@ -28,6 +28,7 @@ import {
 import Toast from '@/components/Toast';
 import { takePasswordResetRedirect } from '@/lib/password-reset-redirect';
 import Button from '@/components/ui/Button';
+import { ShopAuthContext } from '@/components/auth/ShopAuthContext';
 
 // フォームを出してよいのは、このページ読み込みで再設定リンクから回復用セッションが作られたときだけ。
 // ブラウザに元から在るセッション（別アカウントでログイン中など）へ updateUser を呼ぶと、
@@ -68,6 +69,8 @@ const UNAVAILABLE_NOTICES: Record<RecoveryUnavailableReason, { headline: string;
 };
 
 export default function ResetPasswordPage() {
+  const shopRedirect = useContext(ShopAuthContext);
+  const requestAgainHref = shopRedirect ? `/auth/forgot-password?redirect=${encodeURIComponent(shopRedirect)}` : '/auth/forgot-password';
   const router = useRouter();
   const [recovery, setRecovery] = useState<RecoveryState>({ status: 'checking' });
   const [failure, setFailure] = useState<PasswordUpdateFailure | null>(null);
@@ -174,7 +177,7 @@ export default function ResetPasswordPage() {
                 {UNAVAILABLE_NOTICES[recovery.reason].headline}
               </p>
               {UNAVAILABLE_NOTICES[recovery.reason].details.map(detail => <p key={detail}>{detail}</p>)}
-              <Button href="/auth/forgot-password" prefetch="auto" size="lg" fullWidth className="mt-4">
+              <Button href={requestAgainHref} prefetch="auto" size="lg" fullWidth className="mt-4">
                 {REQUEST_AGAIN_LABEL}
               </Button>
             </div>
@@ -237,7 +240,7 @@ export default function ResetPasswordPage() {
                   <div role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
                     <p>{failure.message}</p>
                     {failure.requestNewLink && (
-                      <Link ref={requestAgainRef} href="/auth/forgot-password" className="mt-2 inline-block font-bold underline">
+                      <Link ref={requestAgainRef} href={requestAgainHref} className="mt-2 inline-block font-bold underline">
                         {REQUEST_AGAIN_LABEL}
                       </Link>
                     )}

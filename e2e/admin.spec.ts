@@ -14,6 +14,8 @@ test.describe.serial('管理画面（オーナー）', () => {
   test('ダッシュボードが実データの経営KPIを表示する', async ({ page }) => {
     await page.goto('/admin');
     await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
+    await expect(page.locator('.theme-ecru').first()).toHaveCSS('background-color', 'rgb(247, 243, 236)');
+    await expect(page.getByRole('link', { name: /CareLink.*店舗管理/ }).locator('span.text-base')).toHaveCSS('color', 'rgb(3, 105, 161)');
 
     // #293 KPI：本日の売上＝完了予約の total_price（¥8,000）
     await expect(page.getByText(SEED.expectedTodayRevenue).first()).toBeVisible();

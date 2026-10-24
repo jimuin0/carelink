@@ -1,6 +1,6 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { PASSWORD_RESET_REDIRECT_KEY, PASSWORD_RESET_REDIRECT_MAX_AGE_MS,
-  savePasswordResetRedirect, takePasswordResetRedirect } from '../password-reset-redirect';
+  readPasswordResetRedirect, savePasswordResetRedirect, takePasswordResetRedirect } from '../password-reset-redirect';
 
 // ログイン → パスワードをお忘れの方 → 再設定 の途中で redirect=/admin が落ちていた不具合の回帰テスト。
 const ORIGIN = 'https://carelink.test';
@@ -73,4 +73,12 @@ test('既定の現在時刻でも動く', () => {
   const store = memoryStore();
   savePasswordResetRedirect(store, '/admin', ORIGIN);
   expect(takePasswordResetRedirect(store, ORIGIN)).toBe('/admin');
+});
+
+test('表示のための読み取りでは戻り先を消費しない', () => {
+  const store = memoryStore();
+  savePasswordResetRedirect(store, '/admin', ORIGIN, NOW);
+  expect(readPasswordResetRedirect(store, ORIGIN, NOW)).toBe('/admin');
+  expect(store.data.has(PASSWORD_RESET_REDIRECT_KEY)).toBe(true);
+  expect(takePasswordResetRedirect(store, ORIGIN, NOW)).toBe('/admin');
 });
