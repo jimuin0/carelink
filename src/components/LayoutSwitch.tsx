@@ -1,6 +1,7 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { useSyncExternalStore } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
@@ -11,6 +12,18 @@ import { isValidPrefectureSlug } from '@/lib/seo-constants';
 import { footerClearanceClass } from '@/lib/mobile-bottom-bar';
 import { isSessionRecordingAllowedPath } from '@/lib/session-recording-scope';
 import { isEcruShopPath } from '@/lib/shop-theme';
+import { ShopAuthContext } from '@/components/auth/ShopAuthContext';
+import { readPasswordResetRedirect } from '@/lib/password-reset-redirect';
+
+function subscribeResetRedirect(onChange: () => void) {
+  window.addEventListener('storage', onChange);
+  return () => window.removeEventListener('storage', onChange);
+}
+function resetRedirectSnapshot() {
+  if (window.location.pathname !== '/auth/reset-password') return '';
+  try { return readPasswordResetRedirect(window.localStorage, window.location.origin); } catch { return ''; }
+}
+const serverResetRedirectSnapshot = () => '';
 
 const MobileBottomNav = dynamic(() => import('@/components/search/MobileBottomNav'), { ssr: false });
 const AiChatbot = dynamic(() => import('@/components/AiChatbot'), { ssr: false });
@@ -22,14 +35,27 @@ const AiChatbot = dynamic(() => import('@/components/AiChatbot'), { ssr: false }
  */
 export default function LayoutSwitch({ children, aiEnabled }: { children: React.ReactNode; aiEnabled: boolean }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const resetRedirect = useSyncExternalStore(subscribeResetRedirect, resetRedirectSnapshot, serverResetRedirectSnapshot);
+  const authRedirect = searchParams?.get('redirect') ?? resetRedirect;
+  const shopPage = isEcruShopPath(pathname, authRedirect);
   // 録画しない画面（管理画面・マイページ・予約・問診など）の本文は Clarity のマスク対象にする。
   // タグを出さない・遷移で止める（components/AnalyticsGate.tsx）の手前で、公開ページから
   // クライアント遷移した瞬間の描画が録画に載っても文字が残らないようにする二重の守り。
   const recordingMask = isSessionRecordingAllowedPath(pathname) ? undefined : 'true';
 
   // Admin has its own layout
-  if (pathname.startsWith('/admin')) {
-    return <main className="flex-1" data-clarity-mask="true">{children}</main>;
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+    return <main className="theme-ecru flex-1" data-clarity-mask="true">{children}</main>;
+  }
+
+  if (shopPage) {
+    return <ShopAuthContext value={authRedirect}><div className="theme-ecru flex flex-1 flex-col">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:p-4">メインコンテンツへスキップ</a>
+      <Header shopPage />
+      <main id="main-content" className="flex-1" data-clarity-mask={recordingMask}>{children}</main>
+      <ShopFooter />
+    </div></ShopAuthContext>;
   }
 
   // Check if path starts with a prefecture slug (e.g. /tokyo, /osaka/hair-salon)
@@ -58,8 +84,7 @@ export default function LayoutSwitch({ children, aiEnabled }: { children: React.
       <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-200 focus:bg-white focus:px-4 focus:py-2 focus:rounded-lg focus:shadow-lg focus:text-sky-600 focus:font-bold focus:text-sm">メインコンテンツへスキップ</a>
       <Header />
       <main id="main-content" className="flex-1" data-clarity-mask={recordingMask}>{children}</main>
-      {/* 店舗向けページ（くすみ系）は来院者向けの濃いフッターではなく、同じテーマの簡素なフッターにする。 */}
-      {isEcruShopPath(pathname) ? <ShopFooter /> : <Footer />}
+      <Footer />
     </>
   );
 }

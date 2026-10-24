@@ -7,6 +7,7 @@
 // 読み取りを先・書き込みを後に固定する（describe.serial で宣言順を保証）。
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
+import AxeBuilder from '@axe-core/playwright';
 import { SEED, PENDING_BOOKING_FILE, CONFIRMED_BOOKING_FILE, MANUAL_BOOKING_FILE, jstToday } from './admin.fixtures';
 
 test.describe.serial('管理画面（オーナー）', () => {
@@ -14,6 +15,10 @@ test.describe.serial('管理画面（オーナー）', () => {
   test('ダッシュボードが実データの経営KPIを表示する', async ({ page }) => {
     await page.goto('/admin');
     await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
+    await expect(page.locator('.theme-ecru').first()).toHaveCSS('background-color', 'rgb(247, 243, 236)');
+    const contrast = await new AxeBuilder({ page }).include('div.sticky.top-0.z-40').withRules(['color-contrast']).analyze();
+    expect(contrast.violations).toEqual([]);
+    await expect(page.getByRole('link', { name: /CareLink.*店舗管理/ }).locator('span.text-base')).toHaveCSS('color', 'rgb(3, 105, 161)');
 
     // #293 KPI：本日の売上＝完了予約の total_price（¥8,000）
     await expect(page.getByText(SEED.expectedTodayRevenue).first()).toBeVisible();

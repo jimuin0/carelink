@@ -18,7 +18,7 @@ import {
 
 const AuthButton = dynamic(() => import('@/components/auth/AuthButton'), { ssr: false });
 
-export default function Header() {
+export default function Header({ shopPage = false }: { shopPage?: boolean }) {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
   // 🔴 店舗向けページ（/register・/register/complete）はくすみ系のテーマ（globals.css の .theme-ecru）で描く。
@@ -32,7 +32,7 @@ export default function Header() {
   //
   // ⚠️ 透明度（bg-[...]/95）は付けない。Tailwind は CSS 変数の色に alpha を合成できず、
   // 無効な色になって【ヘッダーが透明になる】（実機の computed style で rgba(0,0,0,0) を確認）。
-  const isShopPage = isEcruShopPath(pathname);
+  const isShopPage = shopPage || isEcruShopPath(pathname);
 
   // 店舗向けページでは、来院者向けの導線（サロンを探す・会員登録・ログイン・施設掲載）を出さない。
   // 掲載を検討している店舗に必要なのは、既に掲載中の店舗が管理画面へ入る入口だけ。

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useContext, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
@@ -10,6 +10,7 @@ import Toast from '@/components/Toast';
 import { savePasswordResetRedirect } from '@/lib/password-reset-redirect';
 import { safeRedirect } from '@/lib/safe-redirect';
 import Button from '@/components/ui/Button';
+import { ShopAuthContext } from '@/components/auth/ShopAuthContext';
 
 const schema = z.object({
   email: z.string().email('正しいメールアドレスを入力してください'),
@@ -17,6 +18,8 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>;
 
 export default function ForgotPasswordPage() {
+  const shopRedirect = useContext(ShopAuthContext);
+  const returnHref = shopRedirect ? `/auth/login?redirect=${encodeURIComponent(shopRedirect)}` : null;
   const [sent, setSent] = useState(false);
   const [loginHref, setLoginHref] = useState('/auth/login');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -70,7 +73,7 @@ export default function ForgotPasswordPage() {
               </p>
               <p className="mt-1">メールのリンクは一度開くと使えなくなります。</p>
             </div>
-            <Link href={loginHref} className="text-sky-700 hover:underline text-sm">
+            <Link href={returnHref ?? loginHref} className="text-sky-700 hover:underline text-sm">
               ログインページに戻る
             </Link>
           </div>
@@ -109,7 +112,7 @@ export default function ForgotPasswordPage() {
           </form>
 
           <div className="mt-6 text-center">
-            <Link href="/auth/login" className="text-sm text-gray-500 hover:underline">
+            <Link href={returnHref ?? loginHref} className="text-sm text-gray-500 hover:underline">
               ログインページに戻る
             </Link>
           </div>

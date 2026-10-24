@@ -126,8 +126,7 @@ export default async function RootLayout({
             ]),
           }}
         />
-        <LayoutSwitch aiEnabled={isAiEnabled()}>{children}</LayoutSwitch>
-        <CookieConsent />
+        <LayoutSwitch aiEnabled={isAiEnabled()}>{children}<CookieConsent /></LayoutSwitch>
         {/* External scripts: no inline body → compatible with CSP strict-dynamic */}
         <Script src="/sw-register.js" strategy="lazyOnload" />
         {/* Vercel Web Analytics is not enabled for this project (its script answered 404 on

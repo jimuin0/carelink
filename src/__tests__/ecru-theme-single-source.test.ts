@@ -76,7 +76,8 @@ describe('くすみカラーのテーマ', () => {
     const header = read('src/components/Header.tsx');
     expect(header).toContain('isEcruShopPath(pathname)');
     expect(header).toContain('theme-ecru');
-    expect(read('src/components/LayoutSwitch.tsx')).toContain('isEcruShopPath(pathname) ? <ShopFooter />');
+    expect(read('src/components/LayoutSwitch.tsx')).toContain('isEcruShopPath(pathname,');
+    expect(read('src/components/LayoutSwitch.tsx')).toContain('<Header shopPage />');
     const shopTheme = read('src/lib/shop-theme.ts');
     expect(shopTheme).toContain("'/register'");
     expect(shopTheme).toContain("'/register/complete'");
@@ -116,4 +117,21 @@ describe('くすみカラーのテーマ', () => {
     expect(body).toContain('text-red-700');
     expect(body).not.toContain('text-red-500');
   });
+});
+
+
+test('店舗テーマはボタン白文字とベージュ地のリンク文字の AA を両立する', () => {
+  const css = read(THEME_SOURCE);
+  const block = css.split('.theme-ecru {')[1].split('}')[0];
+  const token = (name: string) => block.match(new RegExp(`${name}:\\s*(#[0-9a-f]{6})`))![1];
+  const luminance = (hex: string) => {
+    const channels = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map(c => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  };
+  const contrast = (a: string, b: string) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
+  expect(contrast('#ffffff', token('--primary'))).toBeGreaterThanOrEqual(4.5);
+  expect(contrast(token('--ecru-bg'), token('--primary-dark'))).toBeGreaterThanOrEqual(4.5);
+  expect(css).toMatch(/\.theme-ecru \.text-primary,[\s\S]*?color: var\(--primary-dark\);/);
+  expect(css).toContain('.theme-ecru .btn-outline:not(:disabled)');
 });

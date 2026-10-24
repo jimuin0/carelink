@@ -28,12 +28,12 @@ export function savePasswordResetRedirect(store: Store, raw: string | null, orig
   }
 }
 
-/** 再設定の完了時に戻り先を取り出して消す。無い・古い・壊れている場合はログイン後の既定の振り分け。 */
-export function takePasswordResetRedirect(store: Store, origin: string, now = Date.now()): string {
+/** 期限内の戻り先を読む。表示用途では消費せず、完了時だけ consume を指定する。 */
+export function readPasswordResetRedirect(store: Store, origin: string, now = Date.now(), consume = false): string {
   let saved: unknown = null;
   try {
     const raw = store.getItem(PASSWORD_RESET_REDIRECT_KEY);
-    store.removeItem(PASSWORD_RESET_REDIRECT_KEY);
+    if (consume) store.removeItem(PASSWORD_RESET_REDIRECT_KEY);
     saved = JSON.parse(raw ?? 'null');
   } catch {
     return POST_LOGIN_LANDING_PATH;
@@ -44,4 +44,9 @@ export function takePasswordResetRedirect(store: Store, origin: string, now = Da
   const age = now - savedAt;
   if (age < 0 || age >= PASSWORD_RESET_REDIRECT_MAX_AGE_MS) return POST_LOGIN_LANDING_PATH;
   return safeRedirect(path, origin);
+}
+
+/** 完了時だけ消費する。テーマ表示の読み取りでは戻り先を消さない。 */
+export function takePasswordResetRedirect(store: Store, origin: string, now = Date.now()): string {
+  return readPasswordResetRedirect(store, origin, now, true);
 }

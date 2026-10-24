@@ -6,7 +6,7 @@
  * 下部ナビ（施設詳細では予約バー）の下に隠れて押せなかった（本番・iPhone 13 で実測）。
  */
 import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import LayoutSwitch from '../LayoutSwitch';
 import MobileBottomNav from '../search/MobileBottomNav';
 
@@ -114,5 +114,35 @@ describe('MobileBottomNav', () => {
     render(<MobileBottomNav />);
     expect(screen.getByRole('navigation', { name: 'メインナビゲーション' })).toBeInTheDocument();
     mockSearch = new URLSearchParams();
+  });
+});
+
+
+describe('利用者と店舗のテーマ境界', () => {
+  beforeEach(() => { mockSearch = new URLSearchParams(); window.history.replaceState(null, '', '/'); window.localStorage.clear(); });
+  test.each(['/register/recover', '/auth/login', '/auth/signup', '/auth/forgot-password'])('%s は店舗文脈で外枠全体を揃える', path => {
+    mockSearch = new URLSearchParams({ redirect: '/admin/onboarding?handoff=registration' });
+    const { main, footer } = renderAt(path);
+    expect(main.closest('.theme-ecru')).not.toBeNull();
+    expect(footer.className).toContain('theme-ecru');
+  });
+  test('同じログイン URL へのクライアント遷移で青へ戻せる', () => {
+    mockPathname = '/auth/login';
+    mockSearch = new URLSearchParams({ redirect: '/admin' });
+    const { rerender } = render(<LayoutSwitch aiEnabled={false}><p>本文</p></LayoutSwitch>);
+    expect(screen.getByRole('main').closest('.theme-ecru')).not.toBeNull();
+    mockSearch = new URLSearchParams({ redirect: '/mypage' });
+    rerender(<LayoutSwitch aiEnabled={false}><p>本文</p></LayoutSwitch>);
+    expect(screen.getByRole('main').closest('.theme-ecru')).toBeNull();
+  });
+  test('再設定リンクは有効な保存済み店舗文脈を表示に使い、消費しない', () => {
+    window.history.replaceState(null, '', '/auth/reset-password');
+    const key = 'carelink.password-reset-redirect.v1';
+    window.localStorage.setItem(key, JSON.stringify({ path: '/admin', savedAt: Date.now() }));
+    const { main } = renderAt('/auth/reset-password');
+    expect(main.closest('.theme-ecru')).not.toBeNull();
+    expect(window.localStorage.getItem(key)).not.toBeNull();
+    act(() => { window.localStorage.clear(); window.dispatchEvent(new StorageEvent('storage')); });
+    expect(screen.getByRole('main').closest('.theme-ecru')).toBeNull();
   });
 });

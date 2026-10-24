@@ -237,6 +237,103 @@
      var(--primary) を見ているので、ここで束ねて同じ色へ寄せる。 */
     --primary: #8e6a61;
     --primary-dark: #7a5952;
+    --background: var(--ecru-bg);
+    --foreground: var(--ecru-text);
+    color: var(--ecru-text);
+    background-color: var(--ecru-bg);
+
+    /* 既存 Tailwind 部品も同じテーマへ。hover/focus/opacity の派生はそのまま効く。
+       成功・警告・エラーの green/amber/red は意味色なので変更しない。 */
+    --color-sky-50: var(--ecru-surface);
+    --color-sky-100: var(--ecru-bg);
+    --color-sky-200: var(--ecru-line);
+    --color-sky-300: #d4beb3;
+    --color-sky-400: #b4978b;
+    --color-sky-500: var(--ecru-accent);
+    --color-sky-600: var(--ecru-accent);
+    --color-sky-700: var(--primary-dark);
+    --color-sky-800: var(--ecru-text);
+    --color-sky-900: var(--ecru-scrim);
+    --color-sky-950: #2b231e;
+    --color-blue-50: var(--ecru-surface);
+    --color-blue-100: var(--ecru-bg);
+    --color-blue-200: var(--ecru-line);
+    --color-blue-300: #d4beb3;
+    --color-blue-400: #b4978b;
+    --color-blue-500: var(--ecru-accent);
+    --color-blue-600: var(--ecru-accent);
+    --color-blue-700: var(--primary-dark);
+    --color-blue-800: var(--ecru-text);
+    --color-blue-900: var(--ecru-scrim);
+    --color-blue-950: #2b231e;
+    --color-indigo-50: var(--ecru-surface);
+    --color-indigo-100: var(--ecru-bg);
+    --color-indigo-200: var(--ecru-line);
+    --color-indigo-300: #d4beb3;
+    --color-indigo-400: #b4978b;
+    --color-indigo-500: var(--ecru-accent);
+    --color-indigo-600: var(--ecru-accent);
+    --color-indigo-700: var(--primary-dark);
+    --color-indigo-800: var(--ecru-text);
+    --color-indigo-900: var(--ecru-scrim);
+    --color-indigo-950: #2b231e;
+    --color-cyan-50: var(--ecru-surface);
+    --color-cyan-100: var(--ecru-bg);
+    --color-cyan-200: var(--ecru-line);
+    --color-cyan-300: #d4beb3;
+    --color-cyan-400: #b4978b;
+    --color-cyan-500: var(--ecru-accent);
+    --color-cyan-600: var(--ecru-accent);
+    --color-cyan-700: var(--primary-dark);
+    --color-cyan-800: var(--ecru-text);
+    --color-cyan-900: var(--ecru-scrim);
+    --color-cyan-950: #2b231e;
+    --color-gray-50: var(--ecru-bg);
+    --color-gray-100: #efe7dc;
+    --color-gray-200: var(--ecru-line);
+    --color-gray-300: #d4c5b5;
+    --color-gray-400: #a18c7d;
+    --color-gray-500: var(--ecru-muted);
+    --color-gray-600: var(--ecru-muted);
+    --color-gray-700: var(--ecru-text);
+    --color-gray-800: var(--ecru-text);
+    --color-gray-900: var(--ecru-scrim);
+    --color-gray-950: #2b231e;
+    --color-slate-50: var(--ecru-bg);
+    --color-slate-100: #efe7dc;
+    --color-slate-200: var(--ecru-line);
+    --color-slate-300: #d4c5b5;
+    --color-slate-400: #a18c7d;
+    --color-slate-500: var(--ecru-muted);
+    --color-slate-600: var(--ecru-muted);
+    --color-slate-700: var(--ecru-text);
+    --color-slate-800: var(--ecru-text);
+    --color-slate-900: var(--ecru-scrim);
+    --color-slate-950: #2b231e;
+    --color-zinc-50: var(--ecru-bg);
+    --color-zinc-100: #efe7dc;
+    --color-zinc-200: var(--ecru-line);
+    --color-zinc-300: #d4c5b5;
+    --color-zinc-400: #a18c7d;
+    --color-zinc-500: var(--ecru-muted);
+    --color-zinc-600: var(--ecru-muted);
+    --color-zinc-700: var(--ecru-text);
+    --color-zinc-800: var(--ecru-text);
+    --color-zinc-900: var(--ecru-scrim);
+    --color-zinc-950: #2b231e;
+
+  }
+
+  /* アクセントは白文字のボタンに使う。ベージュ地の小さい文字では 4.33:1 のため、
+     リンク・枠線ボタンの文字は濃いローズ（地色でも 5.62:1）にする。 */
+  .theme-ecru .text-primary,
+  .theme-ecru .hover\:text-primary:hover,
+  .theme-ecru .btn-outline:not(:disabled) {
+    color: var(--primary-dark);
+  }
+
+  .theme-ecru :where(.bg-white) {
+    background-color: var(--ecru-surface);
   }
 
   /* 日本語の折り返し（/register の見出し・説明・よくある質問）。
