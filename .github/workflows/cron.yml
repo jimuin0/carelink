@@ -122,13 +122,15 @@ jobs:
         run: |
           : "${BASE_URL:?CARELINK_BASE_URL secret not set}"
           : "${CRON_SECRET:?CRON_SECRET secret not set}"
-          STATUS=$(curl -sS -o /tmp/body -w "%{http_code}" \
+          STATUS=$(curl -sS -o /dev/null -w "%{http_code}" \
             -H "Authorization: Bearer $CRON_SECRET" \
             "$BASE_URL$TARGET_PATH" \
             --max-time 300)
           echo "Status: $STATUS"
-          echo "--- body ---"
-          cat /tmp/body
-          if [ "$STATUS" -ge 400 ]; then
-            exit 1
-          fi
+          # curl は 3xx を成功として終了するが、-L を付けない限り cron 本体は
+          # 実行されていない。予備経路も Render と同じく 2xx のみ成功にする。
+          # 応答本文は公開 Actions ログに記録しない。
+          case "$STATUS" in
+            2??) ;;
+            *) exit 1 ;;
+          esac
