@@ -23,7 +23,7 @@ export const PASSWORD_MAX_BYTES = 72;
 
 /** 入力欄の下に出す条件の説明（新規登録・再設定で同じ文言）。 */
 export const PASSWORD_RULES_HINT =
-  `${PASSWORD_MIN_LENGTH}文字以上で入力してください。英字・数字・記号を組み合わせる必要はありません。`;
+  `${PASSWORD_MIN_LENGTH}文字以上で入力してください。よく使われるパスワードや、流出が確認されたパスワードは使用できません。`;
 
 export const PASSWORD_TOO_SHORT_MESSAGE = `パスワードは${PASSWORD_MIN_LENGTH}文字以上で入力してください`;
 

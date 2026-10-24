@@ -18,6 +18,8 @@ import '@testing-library/jest-dom';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderToString } from 'react-dom/server.node';
 import SignupPage from '../page';
+import { AuthWeakPasswordError } from '@supabase/supabase-js';
+import { describePasswordUpdateError } from '@/lib/password-reset';
 
 const mockPush = jest.fn();
 const mockRefresh = jest.fn();
@@ -67,6 +69,34 @@ function submit() {
   // 掲載申込の続き（redirect=/admin/onboarding 等）では「店舗アカウントを作成」と表示する。
   fireEvent.click(screen.getByRole('button', { name: /^(新規登録|店舗アカウントを作成)$/ }));
 }
+
+test.each([{ reasons: ['pwned'] }, { reasons: ['length'] }, { reasons: ['characters'] }, { reasons: [] }, { reasons: ['future-reason'] }])(
+  'a rejected password explains the server reason inline and permits a corrected retry ($reasons)', async ({ reasons }) => {
+    const rejection = new AuthWeakPasswordError('Untrusted server text', 422, reasons);
+    mockSignUp.mockResolvedValueOnce({ data: { session: null, user: null }, error: rejection });
+    render(<SignupPage />);
+    fillForm();
+    submit();
+    const message = describePasswordUpdateError(rejection).message;
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(message);
+    expect(alert).toHaveAttribute('id', 'signup-password-error');
+    expect(screen.getByLabelText('パスワード *')).toHaveFocus();
+    expect(screen.getByLabelText('パスワード *')).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.queryByText('確認メールを送信しました')).not.toBeInTheDocument();
+    expect(screen.queryByText('Untrusted server text')).not.toBeInTheDocument();
+    expect(mockReplace).not.toHaveBeenCalled();
+
+    mockSignUp.mockResolvedValueOnce({ data: { session: null, user: { id: 'fixture' } }, error: null });
+    for (const label of ['パスワード *', 'パスワード（確認） *']) {
+      fireEvent.change(screen.getByLabelText(label), { target: { value: 'corrected-local-fixture' } });
+    }
+    submit();
+    await screen.findByText('確認メールを送信しました');
+    expect(mockSignUp).toHaveBeenCalledTimes(2);
+    expect(mockReplace).not.toHaveBeenCalled();
+  },
+);
 
 test.each(['', 'previous-password'])('autofill without change events submits the visible fields instead of cached values (%s)', async (previousPassword) => {
   mockSignUp.mockResolvedValue({ data: { session: null, user: { id: 'fixture' } }, error: null });
@@ -482,7 +512,7 @@ test('signup page shows no LINE consent message without the error code', () => {
 
 test('signup shows the same password rule as reset and rejects a password over the 72-byte bcrypt limit', async () => {
   render(<SignupPage />);
-  expect(screen.getByText(/8文字以上で入力してください。英字・数字・記号/)).toHaveAttribute('id', 'signup-password-help');
+  expect(screen.getByText(/8文字以上で入力してください。よく使われるパスワード/)).toHaveAttribute('id', 'signup-password-help');
   fillForm();
   fireEvent.change(screen.getByLabelText('パスワード *'), { target: { value: 'あ'.repeat(25) } });
   fireEvent.change(screen.getByLabelText('パスワード（確認） *'), { target: { value: 'あ'.repeat(25) } });
