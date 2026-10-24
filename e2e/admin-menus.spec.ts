@@ -35,7 +35,10 @@ test('オーナーがメニューを作成→編集→削除できる（書き�
 
       const addDialog = page.getByRole('dialog');
       await expect(addDialog).toBeVisible();
-      await addDialog.locator('#menu-name').fill(name);
+      const nameInput = addDialog.locator('#menu-name');
+      await nameInput.fill(name);
+      await expect(nameInput).toHaveValue(name);
+      await expect(nameInput).toBeFocused();
       const addSave = addDialog.getByRole('button', { name: '保存', exact: true });
       await addSave.scrollIntoViewIfNeeded();
 
