@@ -23,5 +23,5 @@
       "permanent": true
     }
   ],
-  "framework": "container"
+  "framework": "nextjs"
 }
