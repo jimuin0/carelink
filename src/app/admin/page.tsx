@@ -193,9 +193,9 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
           </span>
           <span className="min-w-0">
             <span className="block text-lg font-bold">本日のスケジュール</span>
-            <span className="block text-xs text-white/90">スタッフ別の予約表</span>
+            <span className="block text-xs text-white">スタッフ別の予約表</span>
           </span>
-          <svg className="w-5 h-5 text-white/80 ml-auto shrink-0 group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+          <svg className="w-5 h-5 text-white ml-auto shrink-0 group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
         </Link>
         <Link
           href={facilityHref(`/admin/bookings?from=${today}&to=${today}`)}
@@ -206,11 +206,11 @@ export default async function AdminDashboard(props: { searchParams: Promise<{ fa
           </span>
           <span className="min-w-0">
             <span className="block text-lg font-bold">本日の予約一覧</span>
-            <span className="block text-xs text-white/90">一覧で確認・対応する</span>
+            <span className="block text-xs text-white">一覧で確認・対応する</span>
           </span>
           <span className="ml-auto shrink-0 flex items-center gap-1">
             <span className="text-2xl font-extrabold tabular-nums">{todayBookings ?? 0}</span>
-            <span className="text-xs text-white/80">件</span>
+            <span className="text-xs text-white">件</span>
           </span>
         </Link>
       </div>

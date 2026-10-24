@@ -77,7 +77,7 @@ export default function AdminTopNav({ groups }: { groups: NavGroup[] }) {
                 className={`px-6 py-3.5 text-sm font-bold transition-colors whitespace-nowrap ${
                   active
                     ? 'bg-sky-50 text-sky-700'
-                    : 'text-white/90 hover:bg-white/10'
+                    : 'text-white hover:bg-primary-dark'
                 }`}
               >
                 {g.label}
