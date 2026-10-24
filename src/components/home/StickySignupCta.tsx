@@ -32,8 +32,7 @@ export default function StickySignupCta() {
 
   useEffect(() => {
     if (sessionStorage.getItem('sticky-cta-dismissed')) return;
-    const supabase = createBrowserSupabaseClient();
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    Promise.resolve().then(() => createBrowserSupabaseClient().auth.getUser()).then(({ data: { user } }) => {
       if (!user) setShow(true);
     }).catch(() => {});
   }, []);

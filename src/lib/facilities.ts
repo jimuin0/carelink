@@ -520,12 +520,14 @@ export async function getLatestFacilities(limit = 6) {
  * 引く構造にして、乖離する経路そのものを断つ。
  */
 export async function getAvailableAreasAndTypes(): Promise<{ areas: string[]; types: string[] }> {
-  const supabase = createServerSupabaseClient();
   const timeoutMs = 5_000;
 
   let timer!: ReturnType<typeof setTimeout>;
 
   try {
+    // Preview has no Supabase credentials. Client initialization can throw too;
+    // optional area/type suggestions must not prevent the page from rendering.
+    const supabase = createServerSupabaseClient();
     const query = supabase
       .from(CARD_VIEW)
       .select('prefecture, business_type')

@@ -13,7 +13,7 @@ jest.mock('react', () => ({
 }));
 
 jest.mock('../supabase-server', () => ({
-  createServerSupabaseClient: () => ({ from: mockFrom, rpc: mockRpc }),
+  createServerSupabaseClient: jest.fn(() => ({ from: mockFrom, rpc: mockRpc })),
   createServiceRoleClient: () => ({ from: mockServiceFrom, rpc: mockRpc }),
 }));
 jest.mock('../redis', () => ({
@@ -50,6 +50,7 @@ import {
 } from '../facilities';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { createServerSupabaseClient } from '../supabase-server';
 
 /** 実在するテーブル／列の正（CLAUDE.md）。埋め込み条件が参照する列の実在確認に使う。 */
 const schemaSnapshot = JSON.parse(
@@ -829,6 +830,22 @@ describe('getLatestFacilities', () => {
 // 候補を DB の実在値だけから引くことで乖離経路を断つのが本関数の目的なので、
 // 「実在値だけを返す」「重複を潰す」「null/空を候補にしない」を退行させないよう固定する。
 describe('getAvailableAreasAndTypes', () => {
+  test('クライアント生成失敗でもトップページ用の候補を空配列へフォールバックする', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const error = new Error('NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are required');
+    jest.mocked(createServerSupabaseClient).mockImplementationOnce(() => { throw error; });
+
+    try {
+      await expect(getAvailableAreasAndTypes()).resolves.toEqual({ areas: [], types: [] });
+      expect(mockFrom).not.toHaveBeenCalled();
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[facilities] getAvailableAreasAndTypes failed:', error.message,
+      );
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
   // この関数は .eq() が終端（await される）ため、fluent() ではなく eq が Promise を返すモックを使う。
   function eqTerminal(resolvedValue: unknown) {
     const eq = jest.fn(() => Promise.resolve(resolvedValue));
