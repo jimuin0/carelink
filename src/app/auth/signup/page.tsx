@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { signupSchema, type SignupFormData } from '@/lib/validations-auth';
 import { PASSWORD_MAX_BYTES, PASSWORD_MIN_LENGTH, PASSWORD_RULES_HINT } from '@/lib/password-policy';
+import { describePasswordUpdateError, type PasswordUpdateError } from '@/lib/password-reset';
 import { prefectures, SITE_URL } from '@/lib/constants';
 import Toast from '@/components/Toast';
 import { isLineLoginEnabled } from '@/lib/line-availability';
@@ -21,13 +22,13 @@ import { REGISTRATION_TERMS as T } from '@/lib/registration-glossary';
 
 const RESEND_COOLDOWN_SECONDS = 60;
 
-function getSignupErrorMessage(error: { code?: string; message?: string }): string {
+function getSignupErrorMessage(error: PasswordUpdateError & { message?: string }): string {
   if (error.code === 'unexpected_failure' || /network|fetch|timeout|retry/i.test(error.message ?? '')) {
     return '登録処理の結果を確認できませんでした。受信メールをご確認のうえ、時間をおいてもう一度お試しください。';
   }
   switch (error.code) {
     case 'weak_password':
-      return 'パスワードの条件を満たしていません。入力内容をご確認ください。';
+      return describePasswordUpdateError(error).message;
     case 'email_address_invalid':
     case 'validation_failed':
       return 'メールアドレスまたは入力内容をご確認ください。';
@@ -200,6 +201,9 @@ function SignupContent() {
       if (error) {
         if (/already registered/i.test(error.message ?? '')) {
           showVerificationGuidance(data.email);
+        } else if (error.code === 'weak_password') {
+          setError('password', { type: 'server', message: getSignupErrorMessage(error) });
+          setFocus('password');
         } else {
           setToast({ type: 'error', message: getSignupErrorMessage(error) });
         }
