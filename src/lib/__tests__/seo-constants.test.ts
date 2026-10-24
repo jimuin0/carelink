@@ -30,8 +30,8 @@ describe('prefectureSlugs', () => {
 });
 
 describe('businessTypeSlugs', () => {
-  test('8業種が含まれる', () => {
-    expect(Object.keys(businessTypeSlugs)).toHaveLength(8);
+  test('既存業種と医療機関の診療科が含まれる', () => {
+    expect(Object.keys(businessTypeSlugs)).toHaveLength(39);
   });
 
   test('hair-salon → ヘアサロン', () => {
@@ -90,8 +90,8 @@ describe('allPrefectureSlugs', () => {
 });
 
 describe('allBusinessTypeSlugs', () => {
-  test('8件', () => {
-    expect(allBusinessTypeSlugs).toHaveLength(8);
+  test('医療分類を含む39件', () => {
+    expect(allBusinessTypeSlugs).toHaveLength(39);
   });
 });
 

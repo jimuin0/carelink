@@ -1,3 +1,5 @@
+import { medicalBusinessTypeSlugs } from './medical-business-types';
+
 // 都道府県スラッグマッピング
 /* Stryker disable StringLiteral */
 export const prefectureSlugs: Record<string, string> = {
@@ -59,6 +61,7 @@ export const businessTypeSlugs: Record<string, string> = {
   relaxation: 'リラクサロン',
   esthetic: 'エステサロン',
   'beauty-clinic': '美容クリニック',
+  ...medicalBusinessTypeSlugs,
   acupuncture: '鍼灸院・整骨院',
   'care-service': '介護・デイサービス',
   other: 'その他',

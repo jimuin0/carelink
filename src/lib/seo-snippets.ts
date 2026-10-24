@@ -8,6 +8,7 @@
 import { getPrefectureSeo } from '@/data/prefecture-seo';
 import { getPrefectureName, getBusinessTypeName } from '@/lib/seo-constants';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import { medicalBusinessTypeSlugs, medicalBusinessTypes } from '@/lib/medical-business-types';
 
 interface BusinessTypeContext {
   keyword: string;
@@ -18,6 +19,15 @@ interface BusinessTypeContext {
 
 /* Stryker disable StringLiteral, ArrayDeclaration */
 const businessTypeContext: Record<string, BusinessTypeContext> = {
+  ...Object.fromEntries(Object.entries(medicalBusinessTypeSlugs).map(([slug, name]) => [slug, {
+    keyword: name,
+    description: `${name}の所在地・診療時間・施設紹介・公式サイトなどの掲載情報`,
+    searchPoints: ['診療科・診療内容', '診療時間・休診日', 'アクセス・バリアフリー', '予約の要否・受付方法'],
+    faqs: [
+      { q: '予約なしでも受診できますか？', a: '予約の要否は医療機関ごとに異なります。施設紹介・公式サイトで受付方法をご確認ください。ネット予約は対応施設のみ利用できます。' },
+      { q: '複数の診療科に対応していますか？', a: '掲載の分類は施設区分または主な診療科です。診療科の一覧や対応する診療内容は施設紹介・公式サイトをご確認ください。' },
+    ],
+  }])),
   'hair-salon': {
     keyword: 'ヘアサロン・美容室',
     description: 'カット・カラー・パーマ・縮毛矯正・ヘッドスパなど、ヘアスタイル全般のメニューを提供する美容室',
@@ -181,10 +191,12 @@ export function generatePrefTypeContent(
     ? truncateText(stripPromoSentences(prefSeo.intro), INTRO_MAX_LENGTH)
     : `${prefName}は医療・美容・福祉施設が広く点在するエリアです。`;
 
-  const intro = `${prefName}の${typeName}（${typeCtx.keyword}）をお探しなら CareLink。${prefIntroShort} CareLinkでは${prefName}全域の${typeName}を口コミ・メニュー・写真で比較し、24時間ネット予約が可能です。${typeCtx.description}を、地域・予算・目的に合わせて選べます。`;
+  const intro = medicalBusinessTypes.includes(typeName)
+    ? `${prefName}の${typeName}を検索できます。${typeCtx.description}をご確認ください。予約の要否・受付方法は医療機関ごとに異なります。ネット予約は対応施設のみ利用できます。`
+    : `${prefName}の${typeName}（${typeCtx.keyword}）をお探しなら CareLink。${prefIntroShort} CareLinkでは${prefName}全域の${typeName}を口コミ・メニュー・写真で比較し、24時間ネット予約が可能です。${typeCtx.description}を、地域・予算・目的に合わせて選べます。`;
 
   const highlights = [
-    `${prefName}全域の${typeName}を網羅`,
+    `${prefName}の${typeName}を検索`,
     ...typeCtx.searchPoints.slice(0, 3),
   ];
 
@@ -267,7 +279,9 @@ export function generateCityTypeContent(
   const typeCtx = businessTypeContext[typeSlug];
   if (!prefName || !typeName || !typeCtx) return null;
 
-  const intro = `${prefName}${cityName}の${typeName}（${typeCtx.keyword}）をお探しなら CareLink。${cityName}にある${typeName}を口コミ評価・メニュー・料金・写真で比較し、24時間ネット予約が可能です。${typeCtx.description}を、地元${cityName}で見つけられます。料金・掲載条件や口コミの詳細は各施設ページでご確認ください。`;
+  const intro = medicalBusinessTypes.includes(typeName)
+    ? `${prefName}${cityName}の${typeName}を検索できます。${typeCtx.description}をご確認ください。予約の要否・受付方法は医療機関ごとに異なります。ネット予約は対応施設のみ利用できます。`
+    : `${prefName}${cityName}の${typeName}（${typeCtx.keyword}）をお探しなら CareLink。${cityName}にある${typeName}を口コミ評価・メニュー・料金・写真で比較し、24時間ネット予約が可能です。${typeCtx.description}を、地元${cityName}で見つけられます。料金・掲載条件や口コミの詳細は各施設ページでご確認ください。`;
 
   const highlights = [
     `${cityName}の${typeName}を検索`,

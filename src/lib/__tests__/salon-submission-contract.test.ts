@@ -1,5 +1,6 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { canonicalSalonSubmission, SALON_CANONICAL_VERSION } from '../salon-submission-contract';
+import { medicalBusinessTypes } from '../medical-business-types';
 import {
   isSalonIntentProof, salonIntentCookieName, salonIntentProofHash, salonPayloadHmac,
   SALON_HMAC_SCHEME, SALON_INTENT_TTL_SECONDS,
@@ -14,6 +15,12 @@ const proof = '01'.repeat(32);
 const otherProof = '02'.repeat(32);
 
 describe('registration intent canonical contract', () => {
+  test.each(medicalBusinessTypes)('医療機関 %s の申込分類を署名対象の保存値に保持する', category => {
+    const result = canonicalSalonSubmission({ ...input, business_type: category });
+    expect(result).not.toBeNull();
+    expect(result!.row.business_type).toBe(category);
+    expect(JSON.parse(result!.serialized).row.business_type).toBe(category);
+  });
   test.each([null, [], {}, { ...input, source: 'other' }, { ...input, seat_count: NaN },
     { ...input, phone: undefined }, { ...input, phone: null }, { ...input, phone: '' }])('rejects invalid input %j', value => {
     expect(canonicalSalonSubmission(value)).toBeNull();

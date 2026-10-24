@@ -5,6 +5,7 @@
  * 以前はメニューのカテゴリ・スタッフの入力例が美容室向けに固定で、医療広告の注意は全業種に出ていた。
  */
 import { businessTypes } from '../constants';
+import { medicalBusinessTypes } from '../medical-business-types';
 import {
   BUSINESS_TYPE_COPY, FALLBACK_BUSINESS_TYPE_COPY, businessTypeCopy, businessTypesWithoutCopy,
   loadFacilityBusinessType, menuCategorySuggestions,
@@ -28,7 +29,7 @@ describe('businessTypeCopy', () => {
 
   test('医療広告の注意は医療機関・鍼灸整骨と、業種の分からない店舗だけ', () => {
     const noticed = businessTypes.filter((type) => businessTypeCopy(type).medicalAdNotice);
-    expect(noticed.sort()).toEqual(['その他', '美容クリニック', '鍼灸院・整骨院'].sort());
+    expect(noticed.sort()).toEqual(['その他', '美容クリニック', '鍼灸院・整骨院', ...medicalBusinessTypes].sort());
     expect(businessTypeCopy(null).medicalAdNotice).toBe(true);
     expect(businessTypeCopy(undefined).medicalAdNotice).toBe(true);
     expect(businessTypeCopy('').medicalAdNotice).toBe(true);
