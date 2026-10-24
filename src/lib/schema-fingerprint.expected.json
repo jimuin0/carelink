@@ -2182,7 +2182,7 @@
 "function|set_facility_main_photo_atomic(p_actor_id uuid, p_facility_id uuid, p_photo_id uuid)|returns=TABLE(id uuid)|volatile=v|secdef=f|body_md5=ba53fee58ae48ae977c3d353cdc740eb",
 "function|set_hpb_menu_durations_updated_at()|returns=trigger|volatile=v|secdef=f|body_md5=da5ac28a58c8b4bb30209bf0d3d7082c",
 "function|set_newsletter_preference_atomic(p_user_id uuid, p_receive boolean)|returns=jsonb|volatile=v|secdef=t|body_md5=6b430e5d03fa37645b8f9d6b74bca71a",
-"function|setup_facility_from_registration(p_user_id uuid, p_claim_mode text, p_receipt_id uuid, p_intent_id uuid, p_proof_hash text, p_legacy_issued_at timestamp with time zone, p_profile jsonb, p_license_warranted boolean)|returns=TABLE(outcome text, facility_id uuid, facility_slug text)|volatile=v|secdef=f|body_md5=86a32981ed59ed7b207472e3358900d7",
+"function|setup_facility_from_registration(p_user_id uuid, p_claim_mode text, p_receipt_id uuid, p_intent_id uuid, p_proof_hash text, p_legacy_issued_at timestamp with time zone, p_profile jsonb, p_license_warranted boolean)|returns=TABLE(outcome text, facility_id uuid, facility_slug text)|volatile=v|secdef=f|body_md5=cf7309a18202aa3349195ea8d2bfa2d9",
 "function|staff_has_working_time(p_staff_id uuid)|returns=boolean|volatile=s|secdef=f|body_md5=fca096b1df3cfd6da9f39dd7ce613192",
 "function|start_booking_create_notification(p_queue_id uuid, p_claimed_at timestamp with time zone)|returns=TABLE(outcome text, started_at timestamp with time zone)|volatile=v|secdef=f|body_md5=c15a35304ff5c3f042884c8b0e5c39cf",
 "function|start_booking_email_event(p_queue_id uuid, p_claimed_at timestamp with time zone)|returns=TABLE(outcome text, started_at timestamp with time zone)|volatile=v|secdef=f|body_md5=0c1063164c7f2978d58d43d91730c32c",

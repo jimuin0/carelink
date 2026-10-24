@@ -1,4 +1,6 @@
 /* Stryker disable StringLiteral, ArrayDeclaration, ObjectLiteral -- これらは全てモジュール読込時に1度だけ評価される静的データ定数。coverageAnalysis:'perTest' は変異をテスト実行時に有効化するが、定数は既に確定済みのため構造的に kill 不能（等価/静的変異）。例: dayLabels→{} 変異は既存テスト（dayLabels.mon==='月' 等）で実害は発症前に捕捉済みだが Stryker は static 注入できず survived 表示になる。神原さん承認済み(2026-06-10)。ObjectLiteral の実 kill は 0 件＝disable で失う検証なし。 */
+import { medicalBusinessTypes } from './medical-business-types';
+
 export const prefectures = [
   '北海道', '青森県', '岩手県', '宮城県', '秋田県', '山形県', '福島県',
   '茨城県', '栃木県', '群馬県', '埼玉県', '千葉県', '東京都', '神奈川県',
@@ -15,6 +17,7 @@ export const businessTypes = [
   'リラクサロン',
   'エステサロン',
   '美容クリニック',
+  ...medicalBusinessTypes,
   '鍼灸院・整骨院',
   'ピラティス',
   'その他',

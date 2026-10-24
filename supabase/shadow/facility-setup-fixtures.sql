@@ -246,5 +246,44 @@ SELECT pg_temp.assert_setup((SELECT count(*)=2 FROM public.salons WHERE
   OR (id='69000000-0000-4000-8000-000000000007' AND city='横浜市中区' AND address='神奈川県横浜市中区合成町2-2')),
   'receipts keep the submitted location');
 RESET ROLE;
+
+-- Medical categories must survive direct creation and registration receipt adoption.
+-- This probes the real RPC, member binding, public view and search type column.
+DO $medical$
+DECLARE
+  category text; mode text; actor uuid; receipt_id uuid; result record;
+  categories text[] := ARRAY['病院','総合病院','診療所・クリニック（複数診療科）','内科','呼吸器内科','循環器内科','消化器内科','糖尿病内科','腎臓内科','脳神経内科','外科','整形外科','脳神経外科','形成外科','小児科','耳鼻咽喉科','眼科','皮膚科','泌尿器科','産婦人科','婦人科','精神科','心療内科','アレルギー科','リウマチ科','リハビリテーション科','歯科','小児歯科','矯正歯科','歯科口腔外科','その他の医療機関'];
+BEGIN
+  FOREACH category IN ARRAY categories LOOP
+    FOREACH mode IN ARRAY ARRAY['none','legacy'] LOOP
+      actor := gen_random_uuid(); receipt_id := NULL;
+      INSERT INTO auth.users(id,email) VALUES(actor,actor::text||'@example.invalid');
+      IF mode='legacy' THEN
+        receipt_id := gen_random_uuid();
+        INSERT INTO public.salons(id,facility_name,business_type,representative_name,contact_name,email,phone,source)
+          VALUES(receipt_id,'Synthetic medical fixture',category,'Synthetic','Synthetic',actor::text||'@example.invalid','09000000000','register');
+      END IF;
+      SELECT * INTO result FROM public.setup_facility_from_registration(actor,mode,receipt_id,NULL,NULL,
+        CASE WHEN mode='legacy' THEN clock_timestamp() ELSE NULL END,
+        CASE WHEN mode='none' THEN jsonb_build_object('facility_name','Synthetic medical fixture','business_type',category)
+          ELSE '{}'::jsonb END,true);
+      PERFORM pg_temp.assert_setup(result.outcome='created','medical create: '||mode||' / '||category);
+      PERFORM pg_temp.assert_setup((SELECT business_type=category AND status='draft' FROM public.facility_profiles WHERE id=result.facility_id),
+        'medical category preserved: '||category);
+      PERFORM pg_temp.assert_setup((SELECT count(*)=1 FROM public.facility_members WHERE facility_id=result.facility_id AND user_id=actor AND role='owner'),
+        'medical owner bound: '||category);
+      -- Public read is checked with synthetic rows inside this rollback-only transaction.
+      UPDATE public.facility_profiles SET status='published',prefecture='福岡県',city='福岡市',address='合成町1'
+        WHERE id=result.facility_id;
+      PERFORM pg_temp.assert_setup((SELECT count(*)=1 FROM public.facility_card_view WHERE id=result.facility_id AND business_type=category),
+        'medical category public/searchable: '||category);
+    END LOOP;
+  END LOOP;
+  actor := gen_random_uuid();
+  INSERT INTO auth.users(id,email) VALUES(actor,actor::text||'@example.invalid');
+  SELECT * INTO result FROM public.setup_facility_from_registration(actor,'none',NULL,NULL,NULL,NULL,
+    '{"facility_name":"Synthetic invalid clinic","business_type":"未定義の診療科"}',true);
+  PERFORM pg_temp.assert_setup(result.outcome='invalid','unknown category still rejected');
+END $medical$;
 ROLLBACK;
 \echo 'facility setup fixtures passed; all synthetic records rolled back'

@@ -78,7 +78,7 @@ function BusinessTypeMenu() {
         </svg>
       </button>
       {open && (
-        <div id={panelId} className="absolute left-0 top-full mt-2 w-60 rounded-xl border border-gray-100 bg-white p-2 shadow-lg z-10">
+        <div id={panelId} className="absolute left-0 top-full mt-2 max-h-[70vh] overflow-y-auto w-60 rounded-xl border border-gray-100 bg-white p-2 shadow-lg z-10">
           <ul className="flex flex-col">
             {businessTypes.map((type) => (
               <li key={type}>

@@ -141,9 +141,9 @@ describe('generatePrefTypeContent — コンテンツ詳細検証', () => {
     expect(result!.intro).toContain('24時間ネット予約');
   });
 
-  test('highlights[0] には「全域の」と「を網羅」が含まれる', () => {
+  test('highlights[0] は地域と業種から検索できることを示す', () => {
     const result = generatePrefTypeContent('tokyo', 'nail-eyelash');
-    expect(result!.highlights[0]).toBe('東京都全域のネイル・まつげサロンを網羅');
+    expect(result!.highlights[0]).toBe('東京都のネイル・まつげサロンを検索');
   });
 
   test('highlights は4件', () => {

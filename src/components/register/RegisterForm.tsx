@@ -842,6 +842,7 @@ export default function RegisterForm({ v2Enabled = false }: { v2Enabled?: boolea
                   {chevron}
                 </div>
                 {fieldError('business_type', 'reg-business-type')}
+                <p className="mt-1 text-xs text-gray-500">医療機関は主な診療科（耳鼻咽喉科・内科など）を選択してください。複数の診療科がある場合は病院・診療所の区分を選び、紹介文に診療科を記載できます。</p>
               </div>
               {/* PC・iPad では対になる項目を横に並べる。縦一列のままだと画面が広いほど
                   間延びして、入力の終わりが見えない（実機の 1440px / 834px で確認）。 */}

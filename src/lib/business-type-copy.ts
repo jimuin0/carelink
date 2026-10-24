@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { businessTypes } from './constants';
+import { medicalBusinessTypes } from './medical-business-types';
 
 /**
  * 管理画面の入力欄に出す、業種ごとの候補・入力例。業種の保存値（facility_profiles.business_type）の
@@ -28,6 +29,12 @@ export interface BusinessTypeCopy {
 }
 
 export const BUSINESS_TYPE_COPY: Readonly<Record<string, BusinessTypeCopy>> = {
+  ...Object.fromEntries(medicalBusinessTypes.map(type => [type, {
+    menuCategories: ['一般診療', '検査', '予防接種', '健診', 'その他'],
+    positionExample: '院長、医師、歯科医師、看護師、スタッフ等',
+    specialtiesExample: type,
+    medicalAdNotice: true,
+  }])),
   'ヘアサロン': {
     menuCategories: ['カット', 'カラー', 'パーマ', '縮毛矯正', 'トリートメント', 'ヘッドスパ', 'セット', 'エクステ', 'その他'],
     positionExample: '店長、スタイリスト、アシスタント等',

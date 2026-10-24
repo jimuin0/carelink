@@ -1,6 +1,7 @@
 /** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { setupFacilityAtomically, type FacilitySetupClaim } from '../facility-setup-atomic';
 import { businessTypes } from '../constants';
+import { medicalBusinessTypes } from '../medical-business-types';
 import { salonIntentProofHash } from '../salon-submission-proof';
 import type { createServiceRoleClient } from '../supabase-server';
 
@@ -14,6 +15,11 @@ const db = { rpc } as unknown as ReturnType<typeof createServiceRoleClient>;
 const body = { facility_name: 'Synthetic', business_type: businessTypes[0], license_warranted: true };
 beforeEach(() => {
   rpc.mockReset().mockResolvedValue({ data: [{ outcome: 'created', facility_id: facility, facility_slug: 'synthetic' }], error: null });
+});
+test.each(medicalBusinessTypes)('medical category %s reaches the atomic setup RPC unchanged', async category => {
+  await expect(setupFacilityAtomically(db, user, { ...body, business_type: category }, { mode: 'none' }))
+    .resolves.toEqual({ state: 'created', facilityId: facility, slug: 'synthetic' });
+  expect(rpc.mock.calls[0][1].p_profile.business_type).toBe(category);
 });
 test.each([null, [], {}, { ...body, license_warranted: false }, { ...body, user_id: user },
   { ...body, facility_name: 7 }, { ...body, facility_name: 'x'.repeat(201) },

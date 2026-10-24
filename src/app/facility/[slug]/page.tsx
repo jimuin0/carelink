@@ -24,6 +24,7 @@ import ShareButtons from '@/components/facility/ShareButtons';
 import SymptomList from '@/components/facility/SymptomList';
 import CertificationList from '@/components/facility/CertificationList';
 import { businessTypeLabel } from '@/lib/business-type-label';
+import { medicalBusinessTypes } from '@/lib/medical-business-types';
 // InsuranceMenuBadge はMenuListコンポーネント内で使用（menu.insurance_covered時に表示）
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import ViewCount from '@/components/facility/ViewCount';
@@ -394,7 +395,7 @@ export default async function FacilityPage(props: Props) {
               '@type': (() => {
                 const bt = facility.business_type || '';
                 const types: string[] = ['LocalBusiness'];
-                if (['クリニック', '鍼灸', '整骨', '整体', '訪問看護', 'デイサービス', '介護'].some(t => bt.includes(t))) {
+                if (medicalBusinessTypes.includes(bt) || ['クリニック', '鍼灸', '整骨', '整体', '訪問看護', 'デイサービス', '介護'].some(t => bt.includes(t))) {
                   types.push('MedicalBusiness');
                 }
                 if (['美容室', '理容', 'エステ', 'まつエク', 'ネイル', 'サロン'].some(t => bt.includes(t))) {

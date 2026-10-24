@@ -32,9 +32,9 @@ afterEach(() => {
   pushMock.mockClear();
 });
 
-function fillStep1AndAdvance() {
+function fillStep1AndAdvance(businessType = 'ヘアサロン') {
   fireEvent.change(screen.getByLabelText(/^店舗名/), { target: { value: 'テスト施設' } });
-  fireEvent.change(screen.getByLabelText(/^業種/), { target: { value: 'ヘアサロン' } });
+  fireEvent.change(screen.getByLabelText(/^業種/), { target: { value: businessType } });
   fireEvent.change(screen.getByLabelText(/^代表者名/), { target: { value: '山田太郎' } });
   fireEvent.change(screen.getByLabelText(/^メールアドレス/), { target: { value: 'test@example.com' } });
   fireEvent.change(screen.getByLabelText(/^電話番号/), { target: { value: '090-1234-5678' } });
@@ -74,6 +74,18 @@ async function submitAndGetSalonBody(fetchMock: jest.Mock) {
   const [, options] = fetchMock.mock.calls.find(([url]) => url === '/api/salons/commit')!;
   return JSON.parse((options as RequestInit).body as string).registration;
 }
+
+test('耳鼻咽喉科の申込をその他や美容に置き換えず送信する', async () => {
+  const fetchMock = jest.fn((url: string) => submissionResponse(url));
+  global.fetch = fetchMock as unknown as typeof fetch;
+  render(<RegisterPage />);
+  expect(screen.getByRole('option', { name: '耳鼻咽喉科' })).toHaveValue('耳鼻咽喉科');
+  fillStep1AndAdvance('耳鼻咽喉科');
+  await screen.findByLabelText(/^郵便番号/);
+  fireEvent.click(screen.getByRole('button', { name: '次へ' }));
+  const body = await submitAndGetSalonBody(fetchMock);
+  expect(body.business_type).toBe('耳鼻咽喉科');
+});
 
 test('郵便番号から住所を自動補完すると、prefecture / city が送信ボディに保持される（表示は連結済み address のまま）', async () => {
   const fetchMock = mockFetchWithZipcloud();
