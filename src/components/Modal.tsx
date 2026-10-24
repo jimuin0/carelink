@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback, useRef, useId } from 'react';
+import { useEffect, useRef, useId } from 'react';
 
 interface ModalProps {
   open: boolean;
@@ -25,12 +25,16 @@ interface ModalProps {
 export default function Modal({ open, onClose, title, children, footer, maxWidthClass = 'max-w-lg' }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
   const titleId = useId();
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key === 'Tab' && dialogRef.current) {
@@ -48,27 +52,25 @@ export default function Modal({ open, onClose, title, children, footer, maxWidth
           first.focus();
         }
       }
-    },
-    [onClose]
-  );
-
-  useEffect(() => {
-    if (!open) return;
+    };
     previousFocusRef.current = document.activeElement as HTMLElement;
     document.addEventListener('keydown', handleKeyDown);
     document.body.style.overflow = 'hidden';
-    requestAnimationFrame(() => {
+    const focusFrame = requestAnimationFrame(() => {
+      // 初期フォーカス前に利用者が入力を始めた場合、その入力先を奪わない。
+      if (dialogRef.current?.contains(document.activeElement)) return;
       const focusTarget = dialogRef.current?.querySelector<HTMLElement>(
         'input, select, textarea, button, [href], [tabindex]:not([tabindex="-1"])'
       );
       focusTarget?.focus();
     });
     return () => {
+      cancelAnimationFrame(focusFrame);
       document.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = '';
       previousFocusRef.current?.focus();
     };
-  }, [open, handleKeyDown]);
+  }, [open]);
 
   if (!open) return null;
 
