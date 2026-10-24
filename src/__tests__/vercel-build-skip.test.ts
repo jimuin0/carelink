@@ -70,6 +70,13 @@ describe('Vercel の配信スキップ判定', () => {
     expect(decision()).toBe(1);
   });
 
+  test('CI 専用の PostgREST 検査スクリプトとそのテストだけならスキップする', () => {
+    writeFileSync(join(cwd, 'scripts', 'check-local-postgrest-head.py'), 'print("check")\n');
+    writeFileSync(join(cwd, 'scripts', 'check-local-postgrest-head.test.py'), 'print("test")\n');
+    commit(cwd, 'CI-only checker');
+    expect(decision()).toBe(0);
+  });
+
   test('ソースから文書へのリネームも元のソース変更としてビルドする', () => {
     mkdirSync(join(cwd, 'docs'));
     git(cwd, 'mv', 'src/app/page.tsx', 'docs/old-page.md');
