@@ -249,7 +249,7 @@ describe('client-side checks', () => {
     recoveryLinkOpened();
     render(<ResetPasswordPage />);
     const field = await screen.findByLabelText('新しいパスワード');
-    expect(field).toHaveAccessibleDescription('8文字以上で入力してください。英字・数字・記号を組み合わせる必要はありません。');
+    expect(field).toHaveAccessibleDescription('8文字以上で入力してください。よく使われるパスワードや、流出が確認されたパスワードは使用できません。');
     expect(field).toHaveAttribute('placeholder', '8文字以上');
   });
 
