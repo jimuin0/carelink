@@ -34,26 +34,36 @@ export default function AuthButton() {
   };
 
   useEffect(() => {
-    const supabase = createBrowserSupabaseClient();
     const generation = ++authGeneration.current;
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+    // Catch initialization failures as well as getUser failures (credential-free Preview).
+    const initialize = async () => {
+      const supabase = createBrowserSupabaseClient();
 
-    supabase.auth.getUser().then(({ data: { user }, error }) => {
-      if (generation !== authGeneration.current) return;
-      if (error) throw new Error('User read unavailable');
-      setUser(user);
-      setLoading(false);
-      if (user) checkFacilityMembership(user.id);
-    }).catch(() => { if (generation === authGeneration.current) setLoading(false); });
+      supabase.auth.getUser().then(({ data: { user }, error }) => {
+        if (!active || generation !== authGeneration.current) return;
+        if (error) throw new Error('User read unavailable');
+        setUser(user);
+        setLoading(false);
+        if (user) checkFacilityMembership(user.id);
+      }).catch(() => { if (active && generation === authGeneration.current) setLoading(false); });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      authGeneration.current++;
-      setUser(session?.user ?? null);
-      setLoading(false);
-      if (session?.user) checkFacilityMembership(session.user.id);
-      else setIsFacilityMember(false);
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (!active) return;
+        authGeneration.current++;
+        setUser(session?.user ?? null);
+        setLoading(false);
+        if (session?.user) checkFacilityMembership(session.user.id);
+        else setIsFacilityMember(false);
+      });
+
+      unsubscribe = () => subscription.unsubscribe();
+    };
+    void initialize().catch(() => {
+      if (active && generation === authGeneration.current) setLoading(false);
     });
-
-    return () => subscription.unsubscribe();
+    return () => { active = false; unsubscribe?.(); };
   }, []);
 
   // pathname が変わったらメニューを閉じる。effect内の無条件setStateは React Compiler の

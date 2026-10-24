@@ -15,16 +15,23 @@ export default function HomeUserPanel() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const supabase = createBrowserSupabaseClient();
-    supabase.auth.getUser().then(({ data: { user: u } }) => {
-      setUser(u);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+    const initialize = async () => {
+      const supabase = createBrowserSupabaseClient();
+      supabase.auth.getUser().then(({ data: { user: u } }) => {
+        if (!active) return;
+        setUser(u);
+        setLoading(false);
+      }).catch(() => { if (active) setLoading(false); });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    });
-    return () => subscription.unsubscribe();
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (active) setUser(session?.user ?? null);
+      });
+      unsubscribe = () => subscription.unsubscribe();
+    };
+    void initialize().catch(() => { if (active) setLoading(false); });
+    return () => { active = false; unsubscribe?.(); };
   }, []);
 
   if (loading) {
