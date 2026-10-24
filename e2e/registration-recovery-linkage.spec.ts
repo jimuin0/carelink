@@ -53,10 +53,15 @@ async function login(page: Page, person: Awaited<ReturnType<typeof identity>>, r
   if(redirect==='/register/recover')await expect(page.getByRole('heading',{name:'送信済みの掲載申込を復旧',exact:true})).toBeVisible();
 }
 async function selectRecovery(page: Page, id: string) {
-  const row = page.locator('li').filter({ hasText: `受付番号：${id}` });
+  const row = recoveryRow(page, id);
   await expect(row).toBeVisible();
   await row.getByRole('button', { name: 'この申込の店舗情報を確認' }).click();
   await page.waitForURL('**/admin/onboarding?handoff=recovered');
+}
+function recoveryRow(page: Page, id: string) {
+  // The prominent number is shortened for reading; the full receipt ID is
+  // retained in the same row for support and precise recovery selection.
+  return page.locator('li').filter({ has: page.getByTestId('receipt-full').filter({ hasText: id }) });
 }
 async function submitSetup(page: Page, status: number, state: string) {
   await page.getByRole('checkbox').check();
@@ -95,7 +100,7 @@ test('failed list -> explicit retry recovers the same authenticated receipt with
   const response = await restored;
   expect(response.status()).toBe(200);
   expect(await response.json()).toMatchObject({ state: 'ready', receipts: [{ receipt_id: id, facility_name: name }] });
-  await expect(page.locator('li').filter({ hasText: `受付番号：${id}` })).toBeVisible();
+  await expect(recoveryRow(page, id)).toBeVisible();
   await expect(recoveryError).toBeHidden();
   const original = await db.from('salons').select('claimed_facility_id,claimed_by_user_id,claimed_at').eq('id', id).single();
   expect(original.error).toBeNull();
@@ -126,7 +131,7 @@ test('Auth unavailable 503 -> no logout -> explicit retry reads original receipt
     && r.request().method() === 'POST');
   await page.getByRole('button', { name: '先頭から再確認', exact: true }).click();
   expect((await restored).status()).toBe(200);
-  await expect(page.locator('li').filter({ hasText: `受付番号：${id}` })).toBeVisible();
+  await expect(recoveryRow(page, id)).toBeVisible();
   await expect(alert).toBeHidden();
   const original = await db.from('salons').select('claimed_facility_id,claimed_by_user_id,claimed_at').eq('id', id).single();
   expect(original.error).toBeNull();
