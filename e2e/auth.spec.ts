@@ -154,7 +154,10 @@ test.describe('認証フロー', () => {
   });
 
   test('自動入力がchangeを通知しなくても表示中の内容で登録して遷移する', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/auth/signup');
+    await page.getByRole('button', { name: '必須のみ', exact: true }).click();
+    await expect(page.getByRole('button', { name: '必須のみ', exact: true })).toBeHidden();
     const uniqueEmail = `e2e-autofill-${randomUUID()}@example.invalid`;
     await fillSignup(page, uniqueEmail);
     await page.fill('#signup-password', '');
