@@ -21,7 +21,7 @@ fi
 
 # Only files known not to affect the deployed application may skip a build.
 # Build scripts other than this pre-build guard are deliberately excluded.
-SAFE_TO_SKIP='^(\.github/|docs/|e2e/|supabase/migrations/|[^/]+\.md$|src/.*/__tests__/|src/.*\.test\.tsx?$|scripts/vercel-should-build\.sh$)'
+SAFE_TO_SKIP='^(\.github/|docs/|e2e/|supabase/migrations/|[^/]+\.md$|src/.*/__tests__/|src/.*\.test\.tsx?$|scripts/(vercel-should-build\.sh|check-local-postgrest-head(\.test)?\.py)$)'
 CHANGED_COUNT=0
 UNSAFE_PATH=''
 while IFS= read -r -d '' path; do
