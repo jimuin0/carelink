@@ -1,4 +1,4 @@
-/** @jest-environment node */
+/** @jest-environment @stryker-mutator/jest-runner/jest-env/node */
 import { readFileSync } from 'node:fs';
 import { medicalBusinessTypeSlugs, medicalBusinessTypes } from '../medical-business-types';
 import { businessTypes } from '../constants';

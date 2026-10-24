@@ -382,6 +382,8 @@ next/image 経由で表示できるドメイン」になる。かつて未許可
 
 ## DB スキーマ（主要テーブル・`src/lib/schema-snapshot.json` が正）
 
+医療分類は `src/lib/medical-business-types.ts` に定義し、既存の `salons.business_type` / `facility_profiles.business_type` に施設区分または主な診療科を保存する（単一選択）。複数科は病院・クリニック区分＋紹介文を使う。分類追加時は `setup_facility_from_registration` のSQL許可値も同期し、`medical-business-types.test.ts` とロールバック専用の `facility-setup-fixtures.sql` で確認する。`20261024090000_medical_business_types.sql` は列・表・権限を増やさず許可値だけを追加する。
+
 テーブル数は書かない（DROP/追加のたびに腐るため）。実数はこれで取る：
 `node -e "console.log(Object.keys(require('./src/lib/schema-snapshot.json')).length)"`
 本番の実数は PostgREST の OpenAPI（`GET {SUPABASE_URL}/rest/v1/`）の `definitions` を数える。両者が食い違えばドリフト。
