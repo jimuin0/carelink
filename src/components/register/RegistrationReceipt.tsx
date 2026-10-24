@@ -58,20 +58,31 @@ export default function RegistrationReceipt() {
   </div>;
   if (!receipt) return <div className={SHELL}><p className="section-container py-12" role="status">受付状況を確認しています。</p></div>;
   return <div className={SHELL}>
-    <div className="section-container max-w-lg py-12">
-      <h1 className="mb-4 font-(family-name:--font-serif-jp) text-2xl">掲載申込を受け付けました</h1>
-      <ReceiptNumber id={receipt.receiptId} />
+    <div className="section-container max-w-xl py-10 sm:py-12">
+      <h1 className="mb-3 font-(family-name:--font-serif-jp) text-2xl">掲載申込を受け付けました</h1>
+      <p className="mb-6 text-base leading-relaxed">申込は完了しました。一般公開は完了していません。</p>
+      <ReceiptNumber id={receipt.receiptId} className="border border-(--ecru-line) bg-(--ecru-surface) p-4" />
       <dl className="my-6 divide-y divide-(--ecru-line) border-y border-(--ecru-line) bg-(--ecru-surface) px-4 text-sm">
-        <div className="flex gap-4 py-3"><dt className="w-20 shrink-0 text-(--ecru-muted)">{T.shopName}</dt><dd className="font-medium">{receipt.name}</dd></div>
-        <div className="flex gap-4 py-3"><dt className="w-20 shrink-0 text-(--ecru-muted)">業種</dt><dd>{businessTypeLabel(receipt.type)}</dd></div>
-        <div className="flex gap-4 py-3"><dt className="w-20 shrink-0 text-(--ecru-muted)">所在地</dt><dd>{receipt.area || '未入力（公開前に設定してください）'}</dd></div>
+        <div className="grid gap-1 py-3 sm:grid-cols-[5rem_minmax(0,1fr)] sm:gap-4"><dt className="text-(--ecru-muted)">{T.shopName}</dt><dd className="break-words font-medium">{receipt.name}</dd></div>
+        <div className="grid gap-1 py-3 sm:grid-cols-[5rem_minmax(0,1fr)] sm:gap-4"><dt className="text-(--ecru-muted)">業種</dt><dd>{businessTypeLabel(receipt.type)}</dd></div>
+        <div className="grid gap-1 py-3 sm:grid-cols-[5rem_minmax(0,1fr)] sm:gap-4"><dt className="text-(--ecru-muted)">所在地</dt><dd className="break-words">{receipt.area || '未入力（公開前に設定してください）'}</dd></div>
       </dl>
-      <p className="text-sm leading-relaxed">この時点では一般公開は完了していません。店舗アカウントを作成し、管理画面で設定して無料掲載を公開してください。{LISTING_PUBLISH_REQUIREMENT}ネット予約はさらにメニュー・スタッフ・写真の設定完了まで利用できません。</p>
-      <p className="mt-3 text-sm leading-relaxed">掲載料・予約手数料は無料です。申込や店舗アカウント作成で有料プランの契約は行いません。</p>
+      <section aria-labelledby="receipt-next-steps" className="space-y-4">
+        <h2 id="receipt-next-steps" className="text-lg font-bold">次にすること</h2>
+        <ol className="list-decimal space-y-4 pl-5 text-base leading-relaxed marker:font-bold">
+          <li><p className="font-bold">店舗アカウントを作成する</p><p>申込に使ったメールアドレスで作成してください。申込内容を管理画面へ引き継げます。</p></li>
+          <li><p className="font-bold">管理画面で情報を確認して公開する</p><p>{LISTING_PUBLISH_REQUIREMENT}</p></li>
+        </ol>
+      </section>
       <div className="flex flex-col gap-4 mt-6">
         <Button href={salonHandoffAuthPath('signup')} prefetch="auto">店舗アカウントを作成する</Button>
         <Link href={salonHandoffAuthPath('login')} className="underline underline-offset-4">既存アカウントでログインする</Link>
       </div>
+      <section aria-labelledby="receipt-listing-only" className="mt-6 space-y-2 border-t border-(--ecru-line) pt-6 text-sm leading-relaxed">
+        <h2 id="receipt-listing-only" className="font-bold">予約を受け付けず、無料掲載だけでも利用できます</h2>
+        <p>ネット予約の設定は別に行います。メニュー・スタッフ・写真などの予約用設定を完了するまでは、ネット予約を受け付けません。</p>
+        <p>掲載料・予約手数料は無料です。申込や店舗アカウント作成で有料プランの契約は行いません。</p>
+      </section>
       {/* 以前は「別の店舗を新しいタブで申し込む」を出していたが、新規の店舗アカウントは1アカウント1店舗
           （facility_members の部分 UNIQUE・/api/facility/setup の ALREADY_MEMBER）で、2 店舗目の申込は
           同じアカウントでは店舗にできない。できない手順へ誘導せず、複数店舗は運営への相談へ案内する。 */}

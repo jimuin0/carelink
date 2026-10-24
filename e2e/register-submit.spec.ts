@@ -277,7 +277,10 @@ test.describe('/register 送信', () => {
       // Never include the capability cookie value in assertion output.
       expect({ present: !!claim, secure: claim?.secure, httpOnly: claim?.httpOnly, sameSite: claim?.sameSite })
         .toEqual({ present: true, secure: true, httpOnly: true, sameSite: 'Lax' });
-      await expect(page.getByText('この時点では一般公開は完了していません。店舗アカウントを作成し、管理画面で設定して無料掲載を公開してください。無料掲載の公開には、店舗名・所在地・曜日別の営業時間（定休日を含む）の設定が必要です。ネット予約はさらにメニュー・スタッフ・写真の設定完了まで利用できません。')).toBeVisible();
+      await expect(page.getByText('申込は完了しました。一般公開は完了していません。')).toBeVisible();
+      await expect(page.getByRole('heading', { name: '次にすること' })).toBeVisible();
+      await expect(page.getByText('無料掲載の公開には、店舗名・所在地・曜日別の営業時間（定休日を含む）の設定が必要です。')).toBeVisible();
+      await expect(page.getByRole('heading', { name: '予約を受け付けず、無料掲載だけでも利用できます' })).toBeVisible();
       await expect(page.getByRole('link', { name: '店舗アカウントを作成する' })).toHaveAttribute('href',
         '/auth/signup?redirect=%2Fadmin%2Fonboarding%3Fhandoff%3Dregistration');
       const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {

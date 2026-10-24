@@ -8,7 +8,10 @@ export default function ReceiptNumber({ id, className = '' }: { id: string; clas
   return (
     <div className={`text-sm ${className}`}>
       <p>受付番号：<span className="font-mono text-base font-bold tracking-wider" data-testid="receipt-short">{receiptShortReference(id)}</span></p>
-      <p className="mt-1 text-xs">お問い合わせ用の完全な受付番号：<span className="break-all font-mono" data-testid="receipt-full">{id}</span></p>
+      <p className="mt-2 text-xs leading-relaxed text-(--ecru-muted)">
+        <span className="block">お問い合わせ用の完全な受付番号</span>
+        <span className="mt-1 block break-all font-mono text-(--ecru-text)" data-testid="receipt-full">{id}</span>
+      </p>
     </div>
   );
 }
