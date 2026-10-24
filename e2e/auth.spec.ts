@@ -153,6 +153,34 @@ test.describe('認証フロー', () => {
     expect(authRequests).toBe(0);
   });
 
+  test('自動入力がchangeを通知しなくても表示中の内容で登録して遷移する', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/auth/signup');
+    await page.getByRole('button', { name: '必須のみ', exact: true }).click();
+    await expect(page.getByRole('button', { name: '必須のみ', exact: true })).toBeHidden();
+    const uniqueEmail = `e2e-autofill-${randomUUID()}@example.invalid`;
+    await fillSignup(page, uniqueEmail);
+    await page.fill('#signup-password', '');
+    await page.fill('#signup-password-confirm', '');
+    // Model a password manager's native update without React change events.
+    // beforeAll refuses hosted origins; this creates only a disposable local identity.
+    await page.evaluate(() => {
+      for (const id of ['signup-password', 'signup-password-confirm']) {
+        (document.getElementById(id) as HTMLInputElement).value = 'autofilled-fixture';
+      }
+    });
+    await page.getByRole('checkbox', { name: '利用規約およびプライバシーポリシーに同意する（必須）' }).check();
+    const [registered] = await Promise.all([
+      page.waitForResponse(response => response.request().method() === 'POST'
+        && new URL(response.url()).origin === authOrigin && new URL(response.url()).pathname === '/auth/v1/signup'),
+      page.getByRole('button', { name: '新規登録', exact: true }).click(),
+    ]);
+    expect(registered.status()).toBe(200);
+    expect(registered.request().postDataJSON()).toMatchObject({ email: uniqueEmail, password: 'autofilled-fixture' });
+    await expect(page).toHaveURL(/\/mypage/);
+    await expect(page.getByRole('heading', { name: 'E2E登録太郎さん、こんにちは', exact: true })).toBeVisible();
+  });
+
   // docs/register-blocker-instructions.md §3 P0-5 の回帰 E2E。
   // signup/page.tsx:65 が supabase.auth.signUp() の data を破棄しており、成功時に
   // setToast のみで router.push が無かったため、メール確認が無効な設定（CI のローカル

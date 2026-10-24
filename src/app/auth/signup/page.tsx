@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -74,8 +74,8 @@ export default function SignupPage() {
   // カードの下端だけで、見えている内容は動かない。fallback の高さも最終形（約600px）に合わせてある。
   return (
     <div className="min-h-screen bg-gray-50 flex items-start justify-center px-4 py-10 sm:py-16" data-testid="signup-shell">
-      <div className="w-full max-w-md">
-        <div className="bg-white rounded-2xl shadow-lg p-8">
+      <div className="w-full max-w-lg">
+        <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-10">
           <Suspense fallback={<h1 className={HEADING_CLASS}>新規登録</h1>}>
             <SignupHeading />
           </Suspense>
@@ -125,7 +125,7 @@ function SignupContent() {
   const [isGoogleSigningIn, setIsGoogleSigningIn] = useState(false);
   const authOperationInFlight = useRef(false);
 
-  const { register, handleSubmit, getValues, control, setError, clearErrors, setFocus, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
+  const { register, handleSubmit, getValues, setValue, control, setError, clearErrors, setFocus, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
   });
   // 同意欄にチェックがあるときだけ、LINE 登録フォームの consent に同意値を入れる
@@ -226,6 +226,20 @@ function SignupContent() {
     }
   };
 
+  const submitVisibleFields = (event: FormEvent<HTMLFormElement>) => {
+    // Autofill can update the native controls without emitting change events.
+    // Reconcile at submission so validation and Auth use exactly what is visible,
+    // including the current consent checkbox. Never persist or log credentials.
+    const visibleFields = new FormData(event.currentTarget);
+    for (const field of ['display_name', 'email', 'phone', 'prefecture', 'password', 'password_confirm'] as const) {
+      setValue(field, String(visibleFields.get(field) ?? ''));
+    }
+    // RHF uses the validated output type (literal true), but its raw checkbox
+    // buffer also contains false. The unchanged resolver must reject that value.
+    setValue('terms_agreed', visibleFields.has('terms_agreed') as SignupFormData['terms_agreed']);
+    void handleSubmit(onSubmit)(event);
+  };
+
   const resendVerificationEmail = async () => {
     if (!pendingVerificationEmail || resendStatus === 'sending' || isResendCoolingDown || authOperationInFlight.current) return;
     authOperationInFlight.current = true;
@@ -296,9 +310,9 @@ function SignupContent() {
   return (
     <>
           {shopAccountSignup && (
-            <div className="-mt-4 mb-6 rounded-lg bg-sky-50 px-4 py-3 text-sm text-sky-900" data-testid="shop-signup-guide">
+            <div className="mb-8 rounded-xl bg-sky-50 p-5 text-sm leading-6 text-sky-900" data-testid="shop-signup-guide">
               <p className="font-bold">申込と同じメールアドレスで作成してください</p>
-              <p className="mt-1">掲載申込に使ったメールアドレスで作成すると、申込の内容（店舗名・写真・営業時間など）を引き継いで店舗情報の設定に進めます。</p>
+              <p className="mt-2">掲載申込に使ったメールアドレスで登録すると、申込内容を管理画面に引き継げます。</p>
             </div>
           )}
           {lineConsentRequired && (
@@ -306,10 +320,10 @@ function SignupContent() {
               LINEで登録するには、利用規約・プライバシーポリシーへの同意が必要です。下の同意欄にチェックしてから、もう一度「LINEで登録」を押してください。
             </p>
           )}
-          <form onSubmit={(event) => { void handleSubmit(onSubmit)(event); }} noValidate className="space-y-4">
-            <fieldset disabled={!clientReady} className="space-y-4">
+          <form onSubmit={submitVisibleFields} noValidate>
+            <fieldset disabled={!clientReady} className="space-y-7">
             <div>
-              <label htmlFor="signup-name" className="form-label">お名前 <span className="text-red-600">*</span></label>
+              <label htmlFor="signup-name" className="mb-3 block text-sm font-medium text-gray-700">お名前 <span className="text-red-600">*</span></label>
               <input
                 {...register('display_name')}
                 id="signup-name"
@@ -321,11 +335,11 @@ function SignupContent() {
                 minLength={1}
                 maxLength={50}
               />
-              {errors.display_name && <p id="signup-name-error" className="form-error" role="alert">{errors.display_name.message}</p>}
+              {errors.display_name && <p id="signup-name-error" className="mt-3 text-sm leading-6 text-red-700" role="alert">{errors.display_name.message}</p>}
             </div>
 
             <div>
-              <label htmlFor="signup-email" className="form-label">メールアドレス <span className="text-red-600">*</span></label>
+              <label htmlFor="signup-email" className="mb-3 block text-sm font-medium text-gray-700">メールアドレス <span className="text-red-600">*</span></label>
               <input
                 {...register('email')}
                 id="signup-email"
@@ -336,11 +350,11 @@ function SignupContent() {
                 aria-describedby={errors.email ? 'signup-email-error' : undefined}
                 aria-invalid={Boolean(errors.email)}
               />
-              {errors.email && <p id="signup-email-error" className="form-error" role="alert">{errors.email.message}</p>}
+              {errors.email && <p id="signup-email-error" className="mt-3 text-sm leading-6 text-red-700" role="alert">{errors.email.message}</p>}
             </div>
 
             <div>
-              <label htmlFor="signup-phone" className="form-label">電話番号 <span className="text-red-600">*</span></label>
+              <label htmlFor="signup-phone" className="mb-3 block text-sm font-medium text-gray-700">電話番号 <span className="text-red-600">*</span></label>
               <input
                 {...register('phone')}
                 id="signup-phone"
@@ -353,12 +367,12 @@ function SignupContent() {
                 inputMode="tel"
                 maxLength={20}
               />
-              <p id="signup-phone-help" className="mt-2 text-xs leading-5 text-gray-500">ハイフンあり・なし、どちらでも入力できます。</p>
-              {errors.phone && <p id="signup-phone-error" className="form-error" role="alert">{errors.phone.message}</p>}
+              <p id="signup-phone-help" className="mt-3 text-sm leading-6 text-gray-600">ハイフンあり・なし、どちらでも入力できます。</p>
+              {errors.phone && <p id="signup-phone-error" className="mt-3 text-sm leading-6 text-red-700" role="alert">{errors.phone.message}</p>}
             </div>
 
             <div>
-              <label htmlFor="signup-prefecture" className="form-label">都道府県 <span className="text-red-600">*</span></label>
+              <label htmlFor="signup-prefecture" className="mb-3 block text-sm font-medium text-gray-700">都道府県 <span className="text-red-600">*</span></label>
               <select
                 {...register('prefecture')}
                 id="signup-prefecture"
@@ -372,11 +386,11 @@ function SignupContent() {
                   <option key={p} value={p}>{p}</option>
                 ))}
               </select>
-              {errors.prefecture && <p id="signup-prefecture-error" className="form-error" role="alert">{errors.prefecture.message}</p>}
+              {errors.prefecture && <p id="signup-prefecture-error" className="mt-3 text-sm leading-6 text-red-700" role="alert">{errors.prefecture.message}</p>}
             </div>
 
             <div>
-              <label htmlFor="signup-password" className="form-label">パスワード <span className="text-red-600">*</span></label>
+              <label htmlFor="signup-password" className="mb-3 block text-sm font-medium text-gray-700">パスワード <span className="text-red-600">*</span></label>
               <div className="relative">
                 <input
                   {...register('password')}
@@ -412,12 +426,12 @@ function SignupContent() {
                   )}
                 </button>
               </div>
-              <p id="signup-password-help" className="mt-2 text-xs leading-5 text-gray-500">{PASSWORD_RULES_HINT}</p>
-              {errors.password && <p id="signup-password-error" className="form-error" role="alert">{errors.password.message}</p>}
+              <p id="signup-password-help" className="mt-3 text-sm leading-6 text-gray-600">{PASSWORD_RULES_HINT}</p>
+              {errors.password && <p id="signup-password-error" className="mt-3 text-sm leading-6 text-red-700" role="alert">{errors.password.message}</p>}
             </div>
 
             <div>
-              <label htmlFor="signup-password-confirm" className="form-label">パスワード（確認） <span className="text-red-600">*</span></label>
+              <label htmlFor="signup-password-confirm" className="mb-3 block text-sm font-medium text-gray-700">パスワード（確認） <span className="text-red-600">*</span></label>
               <input
                 {...register('password_confirm')}
                 id="signup-password-confirm"
@@ -430,17 +444,17 @@ function SignupContent() {
                 minLength={PASSWORD_MIN_LENGTH}
                 maxLength={PASSWORD_MAX_BYTES}
               />
-              {errors.password_confirm && <p id="signup-password-confirm-error" className="form-error" role="alert">{errors.password_confirm.message}</p>}
+              {errors.password_confirm && <p id="signup-password-confirm-error" className="mt-3 text-sm leading-6 text-red-700" role="alert">{errors.password_confirm.message}</p>}
             </div>
 
-            <label htmlFor="signup-terms" className="flex items-start gap-2 text-sm text-gray-600">
+            <label htmlFor="signup-terms" className="flex items-start gap-3 text-sm leading-6 text-gray-600">
               <input {...register('terms_agreed', { onChange: event => { if (event.target.checked) clearErrors('terms_agreed'); } })} id="signup-terms" type="checkbox" aria-required="true"
                 aria-invalid={Boolean(errors.terms_agreed)} aria-describedby={errors.terms_agreed ? 'signup-terms-error' : undefined}
-                className="mt-0.5 scroll-mt-24 rounded-sm border-gray-300" />
+                className="mt-1.5 h-4 w-4 shrink-0 scroll-mt-24 rounded-sm border-gray-300" />
               <span><Link href="/terms" target="_blank" rel="noopener noreferrer" className="text-sky-700 underline">利用規約</Link>
                 および<Link href="/privacy" target="_blank" rel="noopener noreferrer" className="text-sky-700 underline">プライバシーポリシー</Link>に同意する（必須）</span>
             </label>
-            {errors.terms_agreed && <p id="signup-terms-error" className="form-error" role="alert">{errors.terms_agreed.message}</p>}
+            {errors.terms_agreed && <p id="signup-terms-error" className="mt-3 text-sm leading-6 text-red-700" role="alert">{errors.terms_agreed.message}</p>}
             <Button type="submit" disabled={isSubmitting || isGoogleSigningIn} size="lg" fullWidth>
               {isSubmitting ? (shopAccountSignup ? `${T.account}を作成中...` : '登録中...') : shopAccountSignup ? `${T.account}を作成` : '新規登録'}
             </Button>
