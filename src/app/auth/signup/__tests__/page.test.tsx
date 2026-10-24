@@ -68,6 +68,53 @@ function submit() {
   fireEvent.click(screen.getByRole('button', { name: /^(新規登録|店舗アカウントを作成)$/ }));
 }
 
+test.each(['', 'previous-password'])('autofill without change events submits the visible fields instead of cached values (%s)', async (previousPassword) => {
+  mockSignUp.mockResolvedValue({ data: { session: null, user: { id: 'fixture' } }, error: null });
+  render(<SignupPage />);
+  fillForm();
+  for (const label of ['パスワード *', 'パスワード（確認） *']) {
+    fireEvent.change(screen.getByLabelText(label), { target: { value: previousPassword } });
+  }
+  // Password managers can update native controls without emitting React change
+  // events. These are synthetic unit-test values, never real credentials.
+  (screen.getByLabelText('パスワード *') as HTMLInputElement).value = 'autofilled-fixture';
+  (screen.getByLabelText('パスワード（確認） *') as HTMLInputElement).value = 'autofilled-fixture';
+  submit();
+  await screen.findByText('確認メールを送信しました');
+  expect(mockSignUp).toHaveBeenCalledWith(expect.objectContaining({ password: 'autofilled-fixture' }));
+});
+
+test('native autofill reconciles identity fields before validation and Auth', async () => {
+  mockSignUp.mockResolvedValue({ data: { session: null, user: { id: 'fixture' } }, error: null });
+  render(<SignupPage />);
+  fillForm();
+  (screen.getByLabelText(/^お名前/) as HTMLInputElement).value = ' 表示中の担当者 ';
+  (screen.getByLabelText(/^メールアドレス/) as HTMLInputElement).value = 'visible@example.invalid';
+  (screen.getByLabelText(/^電話番号/) as HTMLInputElement).value = '０９２－１２３－４５６７';
+  (screen.getByLabelText(/^都道府県/) as HTMLSelectElement).value = '福岡県';
+  submit();
+  await screen.findByText('確認メールを送信しました');
+  expect(mockSignUp).toHaveBeenCalledWith(expect.objectContaining({
+    email: 'visible@example.invalid',
+    options: expect.objectContaining({ data: { display_name: '表示中の担当者', phone: '092-123-4567', prefecture: '福岡県' } }),
+  }));
+});
+
+test('native fields still reject mismatched passwords and a consent checkbox cleared without change events', async () => {
+  render(<SignupPage />);
+  fillForm();
+  const confirm = screen.getByLabelText('パスワード（確認） *') as HTMLInputElement;
+  confirm.value = 'different-fixture';
+  submit();
+  await screen.findByText('パスワードが一致しません');
+  expect(mockSignUp).not.toHaveBeenCalled();
+  confirm.value = 'password123';
+  (screen.getByRole('checkbox', { name: /利用規約/ }) as HTMLInputElement).checked = false;
+  submit();
+  await screen.findByText('利用規約とプライバシーポリシーへの同意が必要です');
+  expect(mockSignUp).not.toHaveBeenCalled();
+});
+
 test('SSR keeps signup controls and Google disabled until client handlers are installed', () => {
   const document = window.document.createElement('div');
   document.innerHTML = renderToString(<SignupPage />);
