@@ -42,7 +42,11 @@ async function openTools(page: Page) {
 const section = (page: Page) => page.getByRole('region', { name: 'この端末の下書き' });
 const optIn = (page: Page) => section(page).getByRole('button', { name: 'この端末で下書きを自動保存する（7日間）' });
 async function ready(page: Page, hasSavedDraft = false) {
-  await page.goto('/register'); await expect(page.locator('#reg-facility-name')).toBeEnabled(); await openTools(page);
+  await page.goto('/register');
+  // SSR inputs are enabled before hydration; wait for the form's isReady gate
+  // before toggling details so React cannot restore its initial closed state.
+  await expect(page.getByRole('button', { name: '次へ', exact: true })).toBeEnabled();
+  await expect(page.locator('#reg-facility-name')).toBeEnabled(); await openTools(page);
   if (hasSavedDraft) {
     await expect(section(page).getByRole('button', { name: '端末の下書きを復元' })).toBeEnabled();
     await expect(optIn(page)).toBeDisabled();
