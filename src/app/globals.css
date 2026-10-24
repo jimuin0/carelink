@@ -324,6 +324,14 @@
 
   }
 
+  /* アクセントは白文字のボタンに使う。ベージュ地の小さい文字では 4.33:1 のため、
+     リンク・枠線ボタンの文字は濃いローズ（地色でも 5.62:1）にする。 */
+  .theme-ecru .text-primary,
+  .theme-ecru .hover\:text-primary:hover,
+  .theme-ecru .btn-outline:not(:disabled) {
+    color: var(--primary-dark);
+  }
+
   .theme-ecru :where(.bg-white) {
     background-color: var(--ecru-surface);
   }
