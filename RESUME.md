@@ -1,6 +1,7 @@
 # CareLink 再開入口（2026-10-20）
 
 > **2026-10-21 更新（最新の入口）**：まず [docs/handoff/CODEX_INSTRUCTIONS_20261021.md](docs/handoff/CODEX_INSTRUCTIONS_20261021.md) を読む。
+> **2026-10-24 訂正**：Supabase の PostGIS 公開権限は現行障害ではなく実在する Security Advisor 指摘。サポートからは回答済みで、書面承認待ち。[実測・安全な是正手順](docs/handoff/POSTGIS_SECURITY_ADVISOR_20261024.md)を参照。
 > 下の「再開直後の実作業」2 の Render cron 集約（PR #734）は切替完了・旧サービス suspend 済みで、再実施しない。
 > PR #739〜#756 はマージ・本番反映済み。残課題と作業手順は同指示書の 3〜4 章が正。
 > `scripts/verify-handoff.py` は main では失敗する（マニフェストは `447f71cb` 時点の hash）。照合は同コミットを別ディレクトリに取り出して行う。以下は 2026-10-20 時点の記録。
@@ -25,7 +26,7 @@ Node22.22.2以上、Python3、Gitを用意し `npm ci`。file依存2件はrepo�
 
 - PR733 / abd8e800: 実装・ローカル検証・本番配信照合の記録あり。573 suites/12,305 tests、branches11,309/11,309、E2E head/main各374。これは過去証拠であり今回の再実行ではない。
 - PR734 / c33a53ac: mainへマージ済み。cron集約の575 suites/12,330 tests、100%分岐とCI成功がPRに記録。本番healthは今回healthy/version c33a53aを読取確認。**Renderの切替値・suspend・実ジョブ確認は今回未確認**。18→5サービスへの切替値・suspend状態・実行ログを最優先で読み取り確認する。手順・rollbackは [cron正本](docs/render-cron-consolidation.md)。推測で切替/再送しない。
-- Supabase `public.spatial_ref_sys` 公開書込権限: 10/19確認時未修正、所有者supabase_admin。サポート依頼は本人が送信完了と報告。受付番号・対応完了は未確認。再依頼を重複送信せず、所有者対応後ACLを検証する。
+- Supabase `public.spatial_ref_sys` 公開書込権限: 10/24 に継続を実測。サポートチケット `SU-513978` は受領・回答済みで、PostGIS の所有者による非破壊移設に必要な書面承認は未送信。現行障害と混同しない。詳細は[2026-10-24 の訂正と検証手順](docs/handoff/POSTGIS_SECURITY_ADVISOR_20261024.md)。
 - 原票151全文のうち149未回収。名前/hashは [原票索引](docs/handoff/original-source-index.json)。旧Mac原保存先 `/private/tmp/carelink-audit-20260924.8xy8L8` と旧CareLink docsが候補。2件のみ取得済みという過去判定。Git全blob/関連アーカイブ/Drive既知候補で149件は見つからず。旧Mac名の解決、SSH/SMB Bonjourは結果なし。現在Macはpersonal hotspot「kam」だった。旧MacIP/共有可否は未確認。原票回収完了・全指摘解消を認定しない。
 - 過去menu500、Safari/nav timeout、health遅延、Render trigger欠落の根因は証拠不足。現行テスト成功で過去原因確定に置換しない。
 - 実Google OAuth受入は本人同意待ち。模擬Google+独立PG試験と実provider試験は別。10/19集計ではprepared/started/succeeded/tracked/connected各0。未知のDB外イベント不存在までは未証明。
