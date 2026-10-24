@@ -18,6 +18,7 @@ import { verifyAuthUser } from '@/lib/auth-verification';
 import { useClientReady } from '@/lib/use-client-ready';
 import { isShopAccountSetupRedirect } from '@/lib/salon-browser-context';
 import Button from '@/components/ui/Button';
+import PasswordStrengthMeter from '@/components/PasswordStrengthMeter';
 import { REGISTRATION_TERMS as T } from '@/lib/registration-glossary';
 
 const RESEND_COOLDOWN_SECONDS = 60;
@@ -132,6 +133,8 @@ function SignupContent() {
   // 同意欄にチェックがあるときだけ、LINE 登録フォームの consent に同意値を入れる
   // （同意は URL ではなく同一オリジンのフォーム送信で渡す。src/lib/line-oauth.ts「同意の受け渡し」）。
   const termsAgreed = useWatch({ control, name: 'terms_agreed' }) === true;
+  const password = useWatch({ control, name: 'password', defaultValue: '' });
+  const passwordField = register('password');
 
   // ログイン済みユーザーが /auth/signup に来た場合にフォームを表示し続けないよう、
   // loginページと同様にマウント時のセッション確認でredirect先へ即座に送る。
@@ -371,7 +374,7 @@ function SignupContent() {
                 inputMode="tel"
                 maxLength={20}
               />
-              <p id="signup-phone-help" className="mt-3 text-sm leading-6 text-gray-600">ハイフンあり・なし、どちらでも入力できます。</p>
+              <p id="signup-phone-help" className="mt-1.5 text-sm leading-6 text-gray-600">ハイフンあり・なし、どちらでも入力できます。</p>
               {errors.phone && <p id="signup-phone-error" className="mt-3 text-sm leading-6 text-red-700" role="alert">{errors.phone.message}</p>}
             </div>
 
@@ -397,13 +400,21 @@ function SignupContent() {
               <label htmlFor="signup-password" className="mb-3 block text-sm font-medium text-gray-700">パスワード <span className="text-red-600">*</span></label>
               <div className="relative">
                 <input
-                  {...register('password')}
+                  {...passwordField}
                   id="signup-password"
+                  onBlur={event => {
+                    // Publish native autofill before RHF's blur handler stores it
+                    // without notifying value watchers (setValue then deduplicates it).
+                    setValue('password', event.currentTarget.value);
+                    void passwordField.onBlur(event);
+                  }}
+                  onInput={event => setValue('password', event.currentTarget.value)}
+                  onFocus={event => setValue('password', event.currentTarget.value)}
                   type={showPassword ? 'text' : 'password'}
                   className="form-input pr-10"
                   autoComplete="new-password"
                   aria-required="true"
-                  aria-describedby={errors.password ? 'signup-password-help signup-password-error' : 'signup-password-help'}
+                  aria-describedby={errors.password ? 'signup-password-help signup-password-strength signup-password-error' : 'signup-password-help signup-password-strength'}
                   aria-invalid={Boolean(errors.password)}
                   minLength={PASSWORD_MIN_LENGTH}
                   maxLength={PASSWORD_MAX_BYTES}
@@ -430,7 +441,8 @@ function SignupContent() {
                   )}
                 </button>
               </div>
-              <p id="signup-password-help" className="mt-3 text-sm leading-6 text-gray-600">{PASSWORD_RULES_HINT}</p>
+              <p id="signup-password-help" className="mt-1.5 text-sm leading-6 text-gray-600">{PASSWORD_RULES_HINT}</p>
+              <PasswordStrengthMeter password={password} />
               {errors.password && <p id="signup-password-error" className="mt-3 text-sm leading-6 text-red-700" role="alert">{errors.password.message}</p>}
             </div>
 
