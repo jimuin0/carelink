@@ -23,12 +23,12 @@ export const PASSWORD_MAX_BYTES = 72;
 
 /** 入力欄の下に出す条件の説明（新規登録・再設定で同じ文言）。 */
 export const PASSWORD_RULES_HINT =
-  `${PASSWORD_MIN_LENGTH}文字以上、半角72文字以内（全角文字は1文字を3文字分として数えます）。英字・数字・記号を組み合わせる必要はありません。`;
+  `${PASSWORD_MIN_LENGTH}文字以上で入力してください。英字・数字・記号を組み合わせる必要はありません。`;
 
 export const PASSWORD_TOO_SHORT_MESSAGE = `パスワードは${PASSWORD_MIN_LENGTH}文字以上で入力してください`;
 
 export const PASSWORD_TOO_LONG_MESSAGE =
-  'パスワードが長すぎます。半角英数字・記号なら72文字以内にしてください（全角文字は1文字を3文字分として数えます）。';
+  'パスワードが長すぎます。文字数を減らしてください（半角英数字・記号のみの場合は72文字まで）。';
 
 /**
  * UTF-8 でのバイト数。TextEncoder と同じ結果を返す（対になっていないサロゲートは
