@@ -15,6 +15,9 @@ import sys
 FIXED_IMAGES = {
     'public.ecr.aws/supabase/postgrest:v14.15',
     'ghcr.io/supabase/postgrest:v14.15',
+    # The CI fresh-apply gate also tries Docker Hub when both mirrors are limited.
+    'docker.io/supabase/postgrest:v14.15',
+    'supabase/postgrest:v14.15',
 }
 
 
