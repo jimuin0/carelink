@@ -70,6 +70,21 @@ function submit() {
   fireEvent.click(screen.getByRole('button', { name: /^(新規登録|店舗アカウントを作成)$/ }));
 }
 
+test('the strength meter reflects typing and native autofill when the field is focused or left', async () => {
+  render(<SignupPage />);
+  const field = screen.getByLabelText('パスワード *') as HTMLInputElement;
+  field.value = 'password123';
+  fireEvent.focus(field);
+  await waitFor(() => expect(screen.getByRole('meter')).toHaveAttribute('aria-valuetext', '低い'));
+  field.value = 'maple canyon orbit violet';
+  fireEvent.blur(field);
+  expect(field).toHaveValue('maple canyon orbit violet');
+  await waitFor(() => expect(screen.getByRole('meter')).toHaveAttribute('aria-valuetext', '高い'));
+  fireEvent.input(field, { target: { value: 'password123' } });
+  await waitFor(() => expect(screen.getByRole('meter')).toHaveAttribute('aria-valuetext', '低い'));
+  expect(mockSignUp).not.toHaveBeenCalled();
+});
+
 test.each([{ reasons: ['pwned'] }, { reasons: ['length'] }, { reasons: ['characters'] }, { reasons: [] }, { reasons: ['future-reason'] }])(
   'a rejected password explains the server reason inline and permits a corrected retry ($reasons)', async ({ reasons }) => {
     const rejection = new AuthWeakPasswordError('Untrusted server text', 422, reasons);
